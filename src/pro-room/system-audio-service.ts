@@ -1,5 +1,4 @@
-import { initAudio, getWidener } from '../audio/engine.ts';
-import { getAudioContext } from '../audio/context.ts';
+import { initAudio } from '../audio/engine.ts';
 import { broadcastSystemMessage } from '../chat/protocol.ts';
 import { MAX_SYSTEM_AUDIO_DEVICES, SYSTEM_AUDIO_SHARE_LIMIT_MS } from '../core/constants.ts';
 import { bus } from '../core/events.ts';
@@ -31,24 +30,24 @@ import {
   type ProSystemAudioDirectTarget,
   type ProSystemAudioDirectTrackReadyEvent,
 } from '../network/pro-system-audio-direct.ts';
-import { cleanupSystemAudioSfuGuestRoute } from '../network/system-audio-sfu.ts';
+// The PRO coordinator reaches the Standard receive routes only through the
+// receive slot (Phase 5 C4-7): it imports neither system-audio-guest.ts nor
+// system-audio-sfu.ts (scripts/check-import-graph.mts RULE D).
+import { SYSTEM_AUDIO_RECEIVE_TIMEOUT_MS } from '../network/system-audio-media.ts';
 import {
+  adoptSystemAudioReceiveRoute,
+  attachSystemAudioSource,
   awaitTrustedSystemAudioReceptionBoundary,
   beginTrustedSystemAudioReception,
-  cleanupGuestSystemAudio,
-  SYSTEM_AUDIO_RECEIVE_TIMEOUT_MS,
-} from '../network/system-audio-guest.ts';
-import {
-  cleanupWebRtcAudioDecoderPrimer,
-  getAudioTrackStreamKey,
-  primeWebRtcAudioDecoder,
-  type WebRtcAudioDecoderPrimer,
-} from '../network/webrtc-audio-decoder-primer.ts';
-import {
-  claimPlaybackOwner,
-  isSystemAudioPlaceholderMeta,
-  setSystemAudioReceiving,
-} from '../player/ownership.ts';
+  detachSystemAudioRoute,
+  endTrustedSystemAudioReception,
+  getSystemAudioReceiveRouteSnapshot,
+  interruptTrustedSystemAudioReception,
+  primeSystemAudioDecoder,
+  resumeSystemAudioRoute,
+} from '../network/system-audio-receive-slot.ts';
+import { getAudioTrackStreamKey } from '../network/webrtc-audio-decoder-primer.ts';
+import { isSystemAudioPlaceholderMeta } from '../player/ownership.ts';
 import type { ProRoomApiClient } from './api.ts';
 import type { ProRoomPlaybackReconciliationLiveness } from './playback-controller.ts';
 import type {
@@ -79,6 +78,12 @@ const PUBLISHER_RETRY_TIMER = 'pro-system-audio-publisher-retry';
 const DIRECT_PROMOTION_RETRY_TIMER = 'pro-system-audio-direct-promotion-retry';
 const SUBSCRIBER_DISCONNECT_TIMER = 'pro-system-audio-subscriber-disconnect';
 const DIRECT_RECEIVE_DEADLINE_TIMER = 'pro-system-audio-direct-receive-deadline';
+// A LAN-direct listener reports a missing track after the receive deadline the
+// slot's watchdog uses (its home is system-audio-media.ts).
+const DIRECT_RECEIVE_DEADLINE_MS = SYSTEM_AUDIO_RECEIVE_TIMEOUT_MS;
+// The coordinator's route in the receive slot, which holds the source and the
+// decoder primer of the track either transport (SFU or LAN-direct) delivered.
+const COORDINATOR_ROUTE = 'pro-coordinator';
 const PLAYBACK_RESTORE_TIMER = 'pro-system-audio-playback-restore';
 const PLAYBACK_RESTORE_DELAYS_MS = [250, 1_000, 2_500, 5_000, 15_000] as const;
 const LEASE_HEARTBEAT_MS = 15_000;
@@ -138,10 +143,8 @@ let playbackRestore: ProRoomPlaybackReconciliationLiveness | null = null;
 let hiddenPlaybackRestoreRetry: (() => void) | null = null;
 let interruptedReceiverPlayback: { roomCode: string | null; generation: number } | null = null;
 
-let coordinatorSource: MediaStreamAudioSourceNode | null = null;
 let coordinatorSubscriptionKey: string | null = null;
 let coordinatorSubscriptionFlight: { key: string; promise: Promise<void> } | null = null;
-let coordinatorPrimer: WebRtcAudioDecoderPrimer | null = null;
 
 function observeSystemAudioTask(operation: Promise<unknown>, context: string): void {
   operation.catch((error) => {
@@ -321,12 +324,13 @@ function directPublicationKey(
   return `${ownerParticipantId}:${generation}:${publicationId}`;
 }
 
-function resetProSystemAudioDirectTransport(
-  options: {
-    notifyPeers?: boolean;
-    reason?: 'stopped' | 'fallback' | 'superseded';
-  } = {},
-): void {
+/** How a reset closes the LAN-direct routes: silently, or telling peers why. */
+interface DirectTransportReset {
+  notifyPeers?: boolean;
+  reason?: 'stopped' | 'fallback' | 'superseded';
+}
+
+function resetProSystemAudioDirectTransport(options: DirectTransportReset = {}): void {
   activeLocalDirectPublicationKey = null;
   resetProSystemAudioDirectTransportInternal(options);
 }
@@ -450,6 +454,57 @@ function cancelPublisherRecovery(abort = true): void {
   if (abort) flight.abortController.abort();
 }
 
+// The local publication's teardown is three named operations (Phase 5 C4-12,
+// which retired the hand-copied blocks of registry exception RO-40). Every
+// place that tears this device's publication down composes them in its own
+// order: the explicit stop (releaseLocalProSystemAudioLeaseInternal), the
+// controller's lease loss (onLocalLeaseLost), a new presence incarnation
+// (bindProSystemAudioSession), the service reset (resetProSystemAudioService),
+// a terminated publisher recovery (terminateOwnedPublisherRecovery), a failed
+// publish (publishLocalProSystemAudio) and leaving the PRO room context. What a
+// partial teardown leaves to a full one is named at its call.
+
+/** Clears the four timers a local publication arms. */
+function clearLocalPublicationTimers(): void {
+  clearManagedTimer(LEASE_HEARTBEAT_TIMER);
+  clearManagedTimer(LEASE_RELEASE_RETRY_TIMER);
+  clearManagedTimer(PUBLISHER_RETRY_TIMER);
+  clearManagedTimer(DIRECT_PROMOTION_RETRY_TIMER);
+}
+
+/**
+ * What a partial teardown keeps for a later full one:
+ * - 'sfu-publisher': the SFU publisher;
+ * - 'promotion': the direct-to-SFU promotion in flight, the reconciliation of
+ *   an ambiguous promotion and the failed SFU publisher's recheck;
+ * - 'promotion-recovery': the reconciliation of an ambiguous promotion and the
+ *   failed SFU publisher's recheck.
+ */
+type LocalMediaKept = 'sfu-publisher' | 'promotion' | 'promotion-recovery';
+
+/**
+ * Retires this device's publication media: the singleton SFU publisher, the
+ * LAN-direct routes (closed as `directReset` says), the promotion in flight,
+ * the ambiguous-promotion reconciliation and the failed SFU publisher's
+ * recheck, except what `kept` names. The SFU and LAN-direct transports share
+ * no state and neither calls back into the service, so their order is free.
+ */
+function retireLocalMedia(directReset: DirectTransportReset, kept?: LocalMediaKept): void {
+  if (kept !== 'sfu-publisher') stopProSystemAudioSfuPublisher();
+  resetProSystemAudioDirectTransport(directReset);
+  if (kept === 'promotion') return;
+  directPromotionFlight = null;
+  if (kept === 'promotion-recovery') return;
+  ambiguousDirectPromotionPublicationId = null;
+  failedSfuPublisherSessionId = null;
+}
+
+/** Clears the heartbeat-failure toast latch and the LAN-direct authority-loss window. */
+function resetPublicationHealth(): void {
+  leaseHeartbeatFailureNotified = false;
+  directAuthorityHeartbeatFailureStartedAt = null;
+}
+
 function terminateOwnedPublisherRecovery(
   flight: PublisherRecoveryFlight,
   track: MediaStreamTrack,
@@ -464,14 +519,14 @@ function terminateOwnedPublisherRecovery(
     state.ownerParticipantId !== latestSnapshot?.viewer?.participantId
       ? 'authoritative-revocation'
       : 'publisher-failed';
-  stopProSystemAudioSfuPublisher();
-  resetProSystemAudioDirectTransport({ notifyPeers: true, reason: 'fallback' });
-  directPromotionFlight = null;
+  // A partial teardown: it clears no timer and keeps the promotion's
+  // reconciliation. The release that capture's stop makes on this lease loss
+  // retires both.
+  retireLocalMedia({ notifyPeers: true, reason: 'fallback' }, 'promotion-recovery');
   localPublishFlight = null;
   localTrack = null;
   localPublicationId = null;
-  leaseHeartbeatFailureNotified = false;
-  directAuthorityHeartbeatFailureStartedAt = null;
+  resetPublicationHealth();
   publisherRecoveryFlight = null;
   bus.emit('pro-system-audio:lease-lost', reason);
 }
@@ -493,27 +548,19 @@ function notifyMutation(state: ProRoomSystemAudioState): void {
   reconcileCoordinatorState(state);
 }
 
-function cleanupCoordinatorAudioNodes(): void {
-  try {
-    coordinatorSource?.disconnect();
-  } catch {
-    /* already disconnected */
-  }
-  coordinatorSource = null;
-  cleanupWebRtcAudioDecoderPrimer(coordinatorPrimer);
-  coordinatorPrimer = null;
-}
-
 function cleanupCoordinatorGraph(): void {
   clearSubscriberRetry();
   clearManagedTimer(SUBSCRIBER_DISCONNECT_TIMER);
   clearManagedTimer(DIRECT_RECEIVE_DEADLINE_TIMER);
-  cleanupCoordinatorAudioNodes();
+  detachSystemAudioRoute(COORDINATOR_ROUTE);
   coordinatorSubscriptionKey = null;
   coordinatorSubscriptionFlight = null;
   stopProSystemAudioSfuSubscriber();
+  // The 'system-audio' playback owner is also a local share's claim: never end
+  // the reception over this device's own publication. resetProSystemAudioService
+  // runs this cleanup before it forgets the local owner.
   if (getState('playback.mode') === 'system-audio' && !latestView.isLocalOwner) {
-    cleanupGuestSystemAudio();
+    endTrustedSystemAudioReception();
   }
 }
 
@@ -521,14 +568,14 @@ function cleanupCoordinatorSubscriptionForRetry(): void {
   clearSubscriberRetry();
   clearManagedTimer(SUBSCRIBER_DISCONNECT_TIMER);
   clearManagedTimer(DIRECT_RECEIVE_DEADLINE_TIMER);
-  cleanupCoordinatorAudioNodes();
+  detachSystemAudioRoute(COORDINATOR_ROUTE);
   // Keep coordinatorSubscriptionKey: the retry re-subscribes the same
   // publication inside the receive placeholder it already holds. Clearing the
   // key made every retry tear the placeholder down and begin it again, which
   // re-ran stopAllMedia, the transfer cancels and 'system-audio:host-started'.
   coordinatorSubscriptionFlight = null;
   stopProSystemAudioSfuSubscriber();
-  cleanupSystemAudioSfuGuestRoute();
+  adoptSystemAudioReceiveRoute(COORDINATOR_ROUTE);
 }
 
 async function attachCoordinatorTrack(
@@ -556,28 +603,26 @@ async function attachCoordinatorTrack(
   ) {
     return;
   }
-  const ctx = getAudioContext();
-  const widener = getWidener();
-  if (!widener) throw new Error('PRO_SYSTEM_AUDIO_GRAPH_UNAVAILABLE');
-  try {
-    coordinatorSource?.disconnect();
-  } catch {
-    /* already disconnected */
-  }
-  coordinatorPrimer = primeWebRtcAudioDecoder(
-    coordinatorPrimer,
-    [track],
-    getAudioTrackStreamKey('pro-stereo', [track]),
-    'stereo',
-    '[ProSysAudio]',
+  // The receive slot swaps the coordinator's source for the track
+  // (synchronously, so nothing separates the checks above from the graph).
+  // Every coordinator attach starts the reception again, whichever transport
+  // delivered the track.
+  const attached = attachSystemAudioSource(
+    COORDINATOR_ROUTE,
+    { track },
+    {
+      startsReception: 'every-attach',
+      onGraphReady: () => {
+        primeSystemAudioDecoder(COORDINATOR_ROUTE, [track], {
+          streamKey: getAudioTrackStreamKey('pro-stereo', [track]),
+          label: 'stereo',
+          logPrefix: '[ProSysAudio]',
+        });
+      },
+      onConnected: () => clearManagedTimer(DIRECT_RECEIVE_DEADLINE_TIMER),
+    },
   );
-  const source = ctx.createMediaStreamSource(new MediaStream([track]));
-  source.connect(widener.input);
-  coordinatorSource = source;
-  clearManagedTimer(DIRECT_RECEIVE_DEADLINE_TIMER);
-  setSystemAudioReceiving(true);
-  claimPlaybackOwner('system-audio');
-  bus.emit('visualizer:start');
+  if (!attached) throw new Error('PRO_SYSTEM_AUDIO_GRAPH_UNAVAILABLE');
 }
 
 async function attachDirectCoordinatorTrack(
@@ -719,8 +764,7 @@ function acceptPromotedSfuPublication(
   // pending. Only authenticated SFU authority may retire those incumbents.
   resetProSystemAudioDirectTransport({ notifyPeers: false });
   clearManagedTimer(DIRECT_PROMOTION_RETRY_TIMER);
-  leaseHeartbeatFailureNotified = false;
-  directAuthorityHeartbeatFailureStartedAt = null;
+  resetPublicationHealth();
   notifyMutation(state);
   log.info(
     `[PRO SystemAudio] Promoted LAN-direct publication to SFU (${reason}${
@@ -788,7 +832,7 @@ async function ensureCoordinatorSubscription(
 ): Promise<void> {
   if (!isActiveProRoom() || !identity || !coordinatorPublicationMatches(identity)) return;
   const key = coordinatorPublicationKey(identity);
-  cleanupSystemAudioSfuGuestRoute();
+  adoptSystemAudioReceiveRoute(COORDINATOR_ROUTE);
   if (
     isProRoomSystemAudioDirectPublication(state.publication) &&
     currentDirectTargets().length > MAX_DIRECT_TARGETS
@@ -840,11 +884,11 @@ async function ensureCoordinatorSubscription(
     if (coordinatorSubscriptionKey !== key) {
       cleanupCoordinatorGraph();
       coordinatorSubscriptionKey = key;
-      // The coordinator owns this publication's receive deadline. The guest
-      // receive watchdog would end the placeholder while a late offer is still
+      // The coordinator owns this publication's receive deadline. The slot's
+      // receive deadline would end the placeholder while a late offer is still
       // on its way, and an unchanged live state never re-enters it, so that
       // offer's track would attach nowhere.
-      beginTrustedSystemAudioReception(undefined, { receiveWatchdog: false });
+      beginTrustedSystemAudioReception(undefined, { deadline: 'route' });
       armDirectReceiveDeadline(identity, key);
     }
     await activateProSystemAudioDirectPublication({
@@ -862,8 +906,8 @@ async function ensureCoordinatorSubscription(
     cleanupCoordinatorGraph();
     coordinatorSubscriptionKey = key;
     // This subscription and its backed-off retries own the receive deadline;
-    // the guest receive watchdog would fire while a longer retry still waits.
-    beginTrustedSystemAudioReception(undefined, { receiveWatchdog: false });
+    // the slot's receive deadline would fire while a longer retry still waits.
+    beginTrustedSystemAudioReception(undefined, { deadline: 'route' });
   }
   let flight = coordinatorSubscriptionFlight;
   if (!flight || flight.key !== key) {
@@ -902,7 +946,7 @@ function notifySubscriberFailure(
 /**
  * A LAN-direct listener waits in one receive placeholder for the publisher's
  * offer, which can come late (a late join, or a page that slept). When no
- * track has attached by the guest receive timeout, say so once per generation
+ * track has attached by the receive deadline, say so once per generation
  * and keep the placeholder, so a late track still attaches; the publisher
  * promotes a listener it cannot reach to the SFU, which is a new publication.
  * An attached track, a failed route (which reports on its own), another
@@ -914,7 +958,7 @@ function armDirectReceiveDeadline(identity: CoordinatorPublicationIdentity, key:
     () => {
       const state = controller?.getCurrentState() ?? null;
       if (
-        coordinatorSource ||
+        getSystemAudioReceiveRouteSnapshot(COORDINATOR_ROUTE).sourceAttached ||
         coordinatorSubscriptionKey !== key ||
         !isSystemAudioPlaceholderMeta(getState('player.currentTrackMeta')) ||
         !coordinatorPublicationMatches(identity, state)
@@ -923,7 +967,7 @@ function armDirectReceiveDeadline(identity: CoordinatorPublicationIdentity, key:
       }
       notifySubscriberFailure(state);
     },
-    SYSTEM_AUDIO_RECEIVE_TIMEOUT_MS,
+    DIRECT_RECEIVE_DEADLINE_MS,
   );
 }
 
@@ -988,7 +1032,7 @@ function retryCoordinatorSubscription(identity: CoordinatorPublicationIdentity):
   )
     return;
   cleanupCoordinatorSubscriptionForRetry();
-  setSystemAudioReceiving(false);
+  interruptTrustedSystemAudioReception({ deadline: 'route' });
   notifySubscriberFailure(state);
   scheduleCoordinatorSubscriptionRetry(identity);
 }
@@ -1009,8 +1053,8 @@ function handleDirectRouteFallback(event: ProSystemAudioDirectFallbackEvent): vo
   }
   if (event.role === 'receiver' && state.ownerParticipantId !== localParticipantId()) {
     clearManagedTimer(DIRECT_RECEIVE_DEADLINE_TIMER);
-    cleanupCoordinatorAudioNodes();
-    setSystemAudioReceiving(false);
+    detachSystemAudioRoute(COORDINATOR_ROUTE);
+    interruptTrustedSystemAudioReception({ deadline: 'route' });
     notifySubscriberFailure(state);
   }
 }
@@ -1311,21 +1355,17 @@ function onControllerState(view: ProRoomSystemAudioViewState): void {
 
 function onLocalLeaseLost(reason: ProRoomSystemAudioLeaseLossReason): void {
   cancelLeaseAttemptPublisherPreflight(localLeaseAttemptOwner);
-  clearManagedTimer(LEASE_HEARTBEAT_TIMER);
-  clearManagedTimer(LEASE_RELEASE_RETRY_TIMER);
-  clearManagedTimer(PUBLISHER_RETRY_TIMER);
-  clearManagedTimer(DIRECT_PROMOTION_RETRY_TIMER);
-  stopProSystemAudioSfuPublisher();
-  resetProSystemAudioDirectTransport({ notifyPeers: true, reason: 'superseded' });
-  directPromotionFlight = null;
-  ambiguousDirectPromotionPublicationId = null;
-  failedSfuPublisherSessionId = null;
+  clearLocalPublicationTimers();
+  retireLocalMedia({ notifyPeers: true, reason: 'superseded' });
   localPublishFlight = null;
   localPublicationId = null;
+  // During the service's own release or re-acquire (an expected lease
+  // transition) only the authority-loss window closes: the capture track and
+  // the heartbeat-failure toast latch stay, and capture is not told.
   directAuthorityHeartbeatFailureStartedAt = null;
   if ((expectedLeaseTransitions.get(serviceSessionEpoch) ?? 0) > 0) return;
   localTrack = null;
-  leaseHeartbeatFailureNotified = false;
+  resetPublicationHealth();
   bus.emit('pro-system-audio:lease-lost', reason);
 }
 
@@ -1395,19 +1435,11 @@ export function bindProSystemAudioSession(snapshot: ProRoomSnapshot): void {
     expectedLeaseTransitions.clear();
     cancelPublisherRecovery();
     localPublishFlight = null;
-    clearManagedTimer(LEASE_HEARTBEAT_TIMER);
-    clearManagedTimer(LEASE_RELEASE_RETRY_TIMER);
-    clearManagedTimer(PUBLISHER_RETRY_TIMER);
-    clearManagedTimer(DIRECT_PROMOTION_RETRY_TIMER);
-    stopProSystemAudioSfuPublisher();
-    resetProSystemAudioDirectTransport({ notifyPeers: false });
-    directPromotionFlight = null;
-    ambiguousDirectPromotionPublicationId = null;
-    failedSfuPublisherSessionId = null;
+    clearLocalPublicationTimers();
+    retireLocalMedia({ notifyPeers: false });
     localTrack = null;
     localPublicationId = null;
-    leaseHeartbeatFailureNotified = false;
-    directAuthorityHeartbeatFailureStartedAt = null;
+    resetPublicationHealth();
     cleanupCoordinatorGraph();
     subscriberFailureGeneration = null;
     if (hadLocalActivity && !controllerWillNotifyLeaseLoss) {
@@ -1433,18 +1465,11 @@ export function resetProSystemAudioService(): void {
   localLeaseAttemptOwner = null;
   expectedLeaseTransitions.clear();
   cancelPublisherRecovery();
-  clearManagedTimer(LEASE_HEARTBEAT_TIMER);
-  clearManagedTimer(LEASE_RELEASE_RETRY_TIMER);
-  clearManagedTimer(PUBLISHER_RETRY_TIMER);
-  clearManagedTimer(DIRECT_PROMOTION_RETRY_TIMER);
+  clearLocalPublicationTimers();
   cleanupCoordinatorGraph();
   subscriberRetryAttempt = 0;
   subscriberRetryKey = null;
-  stopProSystemAudioSfuPublisher();
-  resetProSystemAudioDirectTransport({ notifyPeers: false });
-  directPromotionFlight = null;
-  ambiguousDirectPromotionPublicationId = null;
-  failedSfuPublisherSessionId = null;
+  retireLocalMedia({ notifyPeers: false });
   controller?.reset();
   if (hadLocalActivity && !controllerWillNotifyLeaseLoss) {
     bus.emit('pro-system-audio:lease-lost', 'reset');
@@ -1459,8 +1484,7 @@ export function resetProSystemAudioService(): void {
   localPublicationId = null;
   localPublishFlight = null;
   boundSessionKey = null;
-  leaseHeartbeatFailureNotified = false;
-  directAuthorityHeartbeatFailureStartedAt = null;
+  resetPublicationHealth();
   subscriberFailureGeneration = null;
 }
 
@@ -1643,8 +1667,7 @@ function scheduleLeaseHeartbeat(delayMs = LEASE_HEARTBEAT_MS): void {
         .heartbeatProSystemAudioLease()
         .then((state) => {
           if (!isLocalLeaseCurrent(identity)) return;
-          leaseHeartbeatFailureNotified = false;
-          directAuthorityHeartbeatFailureStartedAt = null;
+          resetPublicationHealth();
           notifyMutation(state);
           if (isLocalLeaseCurrent(identity) && controller?.getCurrentLease()?.status === 'live') {
             scheduleLeaseHeartbeat();
@@ -1823,8 +1846,7 @@ export async function publishLocalProSystemAudio(
       clearManagedTimer(PUBLISHER_RETRY_TIMER);
     }
     clearManagedTimer(DIRECT_PROMOTION_RETRY_TIMER);
-    leaseHeartbeatFailureNotified = false;
-    directAuthorityHeartbeatFailureStartedAt = null;
+    resetPublicationHealth();
     scheduleLeaseHeartbeat();
     return state;
   } catch (error) {
@@ -1832,8 +1854,9 @@ export async function publishLocalProSystemAudio(
     // acquired and published. Only the flight that still owns the singleton
     // SFU publisher may tear it down or release its exact lease.
     if (ownsLocalPublishFlight(flight)) {
-      resetProSystemAudioDirectTransport({ notifyPeers: true, reason: 'fallback' });
-      stopProSystemAudioSfuPublisher();
+      // A partial teardown: the promotion's state stays for the release below
+      // (while this lease is still current) or for its own settling.
+      retireLocalMedia({ notifyPeers: true, reason: 'fallback' }, 'promotion');
       localTrack = null;
       localPublicationId = null;
       localPublishFlight = null;
@@ -1883,17 +1906,9 @@ async function releaseLocalProSystemAudioLeaseInternal(
     cancelPublisherRecovery(false);
   }
   localPublishFlight = null;
-  clearManagedTimer(LEASE_HEARTBEAT_TIMER);
-  clearManagedTimer(LEASE_RELEASE_RETRY_TIMER);
-  clearManagedTimer(PUBLISHER_RETRY_TIMER);
-  clearManagedTimer(DIRECT_PROMOTION_RETRY_TIMER);
-  leaseHeartbeatFailureNotified = false;
-  directAuthorityHeartbeatFailureStartedAt = null;
-  directPromotionFlight = null;
-  ambiguousDirectPromotionPublicationId = null;
-  failedSfuPublisherSessionId = null;
-  resetProSystemAudioDirectTransport({ notifyPeers: true, reason: 'stopped' });
-  stopProSystemAudioSfuPublisher();
+  clearLocalPublicationTimers();
+  resetPublicationHealth();
+  retireLocalMedia({ notifyPeers: true, reason: 'stopped' });
   localTrack = null;
   localPublicationId = null;
   if (!identity) return controller?.getCurrentState() ?? null;
@@ -2053,14 +2068,12 @@ export function registerProSystemAudioServiceListeners(): void {
     const currentContext = getState('room.context');
     if (currentContext.kind !== 'pro') {
       cleanupCoordinatorGraph();
-      resetProSystemAudioDirectTransport({ notifyPeers: false });
-      directPromotionFlight = null;
-      ambiguousDirectPromotionPublicationId = null;
-      failedSfuPublisherSessionId = null;
+      // A partial teardown: no timer is cleared and the SFU publisher stays.
+      retireLocalMedia({ notifyPeers: false }, 'sfu-publisher');
       subscriberFailureGeneration = null;
       return;
     }
-    cleanupSystemAudioSfuGuestRoute();
+    adoptSystemAudioReceiveRoute(COORDINATOR_ROUTE);
     const state = controller?.getCurrentState();
     if (state) reconcileCoordinatorState(state);
     // The PRO runtime owns the authoritative initial read, and every presence
@@ -2111,18 +2124,16 @@ export function registerProSystemAudioServiceListeners(): void {
       if (!identity || !coordinatorPublicationMatches(identity, state)) return;
       if (event.state === 'subscribed') {
         clearManagedTimer(SUBSCRIBER_DISCONNECT_TIMER);
-        if (coordinatorSource) {
-          setSystemAudioReceiving(true);
-          claimPlaybackOwner('system-audio');
-          bus.emit('visualizer:start');
-        }
+        // Plays again only on a source the coordinator still has attached.
+        resumeSystemAudioRoute(COORDINATOR_ROUTE);
         return;
       }
       setManagedTimer(
         SUBSCRIBER_DISCONNECT_TIMER,
         () => {
           if (!coordinatorPublicationMatches(identity)) return;
-          setSystemAudioReceiving(false);
+          // Keep the source: a 'subscribed' on the same session resumes it.
+          interruptTrustedSystemAudioReception({ deadline: 'route' });
         },
         RECOVERY_DELAY_MS,
       );

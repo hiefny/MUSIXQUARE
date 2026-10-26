@@ -15,7 +15,7 @@ function sources(): Map<string, string> {
 describe('room-authority static boundary', { timeout: 30_000 }, () => {
   it('freezes every production legacy access and keeps PRO reads at zero', () => {
     expect(assertRoomAuthorityBoundaries(sources())).toMatchObject({
-      directReads: 83,
+      directReads: 82,
       stateEvents: 22,
       writes: 13,
       proDirectReads: 0,

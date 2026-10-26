@@ -26,11 +26,11 @@ import {
 import { cancelOutgoingFileTransfers } from '../../storage/transfer-send.ts';
 import { getCurrentFileRequestOwnerForTests } from '../../network/file-request-authority.ts';
 import type { ConnectedPeer, DataConnection } from '../../types/index.ts';
+import { registerSystemAudioGuestListeners } from '../../network/system-audio-guest.ts';
 import {
   awaitTrustedSystemAudioReceptionBoundary,
-  cleanupGuestSystemAudio,
-  registerSystemAudioGuestListeners,
-} from '../../network/system-audio-guest.ts';
+  endTrustedSystemAudioReception,
+} from '../../network/system-audio-receive-slot.ts';
 import { createSystemAudioStartFrame } from '../../network/system-audio-start.ts';
 import {
   claimPlaybackOwner,
@@ -104,7 +104,7 @@ function item(queueItemId: string, file?: File) {
   };
 }
 function reset() {
-  cleanupGuestSystemAudio();
+  endTrustedSystemAudioReception();
   cancelPreloadTransfer();
   cancelOutgoingFileTransfers();
   resetRecoveryAuthority();

@@ -651,6 +651,8 @@ const DEFERRED_ENTRY_MODULES = [
   '/src/network/system-audio-host.ts',
   '/src/network/system-audio-guest.ts',
   '/src/network/system-audio-sfu.ts',
+  '/src/network/system-audio-media.ts',
+  '/src/network/system-audio-receive-slot.ts',
   '/src/pro-room/system-audio-service.ts',
   '/src/pro-room/network-bridge.ts',
   '/src/player/media-session.ts',

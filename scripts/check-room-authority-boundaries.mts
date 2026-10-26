@@ -89,10 +89,6 @@ const READ_ALLOWLIST = new Map<string, ReadAllowance>([
     { appRole: 1, isOperator: 0, reason: 'compatibility-consumer' },
   ],
   [
-    'src/network/system-audio-guest.ts',
-    { appRole: 1, isOperator: 0, reason: 'compatibility-consumer' },
-  ],
-  [
     'src/network/system-audio-host.ts',
     { appRole: 3, isOperator: 0, reason: 'compatibility-consumer' },
   ],
@@ -318,12 +314,6 @@ const CALLSITE_FINGERPRINTS = new Map<string, readonly string[]>([
     ],
   ],
   [
-    'src/network/system-audio-guest.ts',
-    [
-      "read:appRole @ callback-call:bus.on(\"system-audio:delivery-handoff\")#1 :: if (getState('network.appRole') !== 'guest')",
-    ],
-  ],
-  [
     'src/network/system-audio-host.ts',
     [
       "read:appRole @ callback-call:bus.on(\"network:peer-connected\")#1 :: if (getState('network.appRole') !== 'host')",
@@ -339,10 +329,10 @@ const CALLSITE_FINGERPRINTS = new Map<string, readonly string[]>([
       "read:appRole @ callback-call:bus.on(\"network:peer-disconnected\")#1 :: if (getState('network.appRole') === 'guest' && !getState('network.hostConn'))",
       "read:appRole @ callback-call:bus.on(\"network:peer-disconnected\")#1 :: if (getState('network.appRole') === 'host')",
       "read:appRole @ callback-call:bus.on(\"system-audio:incoming-call\")#1 :: if (getState('network.appRole') !== 'guest')",
-      "read:appRole @ callback-call:bus.on(\"system-audio:receive-timeout\")#1 :: if (getState('network.appRole') !== 'guest')",
       "read:appRole @ callback-call:bus.on(\"system-audio:streams-ready\")#1 :: if (getState('network.appRole') !== 'host')",
       "read:appRole @ function:beginBoundedHostRetry :: if (hostRetryCount >= HOST_SFU_MAX_RETRIES || !isSystemAudioActive() || getState('network.appRole') !== 'host' || !hasLocalSfuHostPeers())",
       "read:appRole @ function:handleSfuCapability :: if (getState('network.appRole') !== 'host' || !conn?.peer)",
+      "read:appRole @ function:isGuestSfuReceiver :: return getState('network.appRole') === 'guest'",
       "read:appRole @ function:publishToEligiblePeer :: if (getState('network.appRole') !== 'host')",
       "read:appRole @ function:runBoundedHostRetry :: if (!isSystemAudioActive() || getState('network.appRole') !== 'host')",
     ],

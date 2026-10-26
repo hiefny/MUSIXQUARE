@@ -321,4 +321,70 @@ describe('bounded direct system-audio host delivery', () => {
       expect.objectContaining({ encodings: [{ maxBitrate: 256000 }] }),
     );
   });
+
+  // Phase 5 C4-1 moves this tuning into system-audio-media.ts, shared with
+  // both SFU publishers. These are the direct call's edges today: only an
+  // audio sender is tuned, a missing encoding list becomes one encoding, and
+  // a sender that lists no encoding is left alone (the PRO LAN-direct
+  // publisher still sets those parameters back; pro-system-audio-direct.test).
+  it.each([
+    {
+      name: 'a non-audio sender',
+      kind: 'video',
+      parameters: { encodings: [{}] },
+      constrained: false,
+      set: null,
+    },
+    {
+      name: 'a sender without a track',
+      kind: null,
+      parameters: { encodings: [{}] },
+      constrained: false,
+      set: null,
+    },
+    {
+      name: 'a sender without an encoding list',
+      kind: 'audio',
+      parameters: {},
+      constrained: true,
+      set: { encodings: [{ maxBitrate: 256000 }] },
+    },
+    {
+      name: 'a sender that lists no encoding',
+      kind: 'audio',
+      parameters: { encodings: [] },
+      constrained: true,
+      set: null,
+    },
+  ])('direct-call sender tuning on $name', ({ kind, parameters, constrained, set }) => {
+    const peer = makeLocalPeer(1);
+    const applyConstraints = vi.fn(async () => {});
+    const sender = {
+      track: kind === null ? null : { kind, applyConstraints },
+      getParameters: vi.fn(() => structuredClone(parameters) as RTCRtpSendParameters),
+      setParameters: vi.fn(async () => {}),
+    } as unknown as RTCRtpSender;
+    const direct = makeMediaConnection({
+      setLocalDescription: vi.fn(async () => {}),
+    } as unknown as RTCPeerConnection);
+    const call = vi.fn(() => direct.mediaConn);
+    mocks.getPeer.mockReturnValue({ call });
+    mocks.getCapturedAudioStream.mockReturnValue({} as MediaStream);
+    setState('network.connectedPeers', [peer]);
+
+    bus.emit('system-audio:streams-ready');
+    const callOptions = (
+      call.mock.calls[0] as unknown as [string, MediaStream, TransportCallOptions]
+    )[2];
+    expect(callOptions?.senderTuning).toBeTypeOf('function');
+    callOptions?.senderTuning?.(sender);
+
+    expect(applyConstraints).toHaveBeenCalledTimes(constrained ? 1 : 0);
+    if (set === null) {
+      expect(sender.setParameters).not.toHaveBeenCalled();
+    } else {
+      expect(sender.setParameters).toHaveBeenCalledTimes(1);
+      expect(sender.setParameters).toHaveBeenCalledWith(set);
+    }
+  });
 });

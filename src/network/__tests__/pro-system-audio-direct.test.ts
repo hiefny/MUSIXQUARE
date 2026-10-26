@@ -680,6 +680,124 @@ describe('PRO system-audio LAN-direct publisher probe', () => {
     expect(callbacks.onLiveRouteFallback).not.toHaveBeenCalled();
   });
 
+  // Phase 5 prep T2. C4-1 moves the sender bitrate into system-audio-media.ts;
+  // the LAN-direct publisher keeps bitrate only, as today: unlike the Standard
+  // host and both SFU publishers it never asks the capture track for the
+  // music constraints, and an unreadable sender must not demote the route.
+  it('tunes each LAN-direct sender for bitrate only, with no music-constraints call', async () => {
+    configureCallbacks();
+    nextLocalities.push('host-host', 'host-host');
+    const track = Object.assign(audioTrack('capture-stereo'), {
+      applyConstraints: vi.fn(async () => {}),
+    });
+
+    const descriptor = await direct.attemptProSystemAudioDirectPublication({
+      track,
+      generation: 7,
+      publicationId,
+      targets: [target(receiverA), target(receiverB)],
+      timeoutMs: 250,
+    });
+
+    expect(descriptor).toEqual({ publicationId, transport: 'lan-direct', protocolVersion: 2 });
+    expect(track.applyConstraints).not.toHaveBeenCalled();
+    for (const pc of peerConnections) {
+      const sender = pc.senders[0];
+      expect(sender?.track).toBe(track);
+      expect(sender?.setParameters).toHaveBeenCalledTimes(1);
+      expect(sender?.setParameters).toHaveBeenCalledWith({ encodings: [{ maxBitrate: 256_000 }] });
+    }
+  });
+
+  it('keeps a proven LAN-direct route when its sender parameters cannot be read', async () => {
+    const callbacks = configureCallbacks();
+    nextLocalities.push('host-host');
+    const track = audioTrack('capture-stereo');
+
+    const attempt = direct.attemptProSystemAudioDirectPublication({
+      track,
+      generation: 7,
+      publicationId,
+      targets: [target(receiverA)],
+      timeoutMs: 250,
+    });
+    // The route's peer connection exists before its locality proof adds media.
+    const pc = peerConnections[0]!;
+    pc.addTrack.mockImplementationOnce((added: MediaStreamTrack) => {
+      const sender = {
+        track: added,
+        getParameters: () => {
+          throw new TypeError('getParameters is not supported');
+        },
+        setParameters: vi.fn(async () => {}),
+      } as unknown as RTCRtpSender;
+      pc.senders.push(sender);
+      return sender;
+    });
+
+    await expect(attempt).resolves.toEqual({
+      publicationId,
+      transport: 'lan-direct',
+      protocolVersion: 2,
+    });
+    expect(pc.addTrack).toHaveBeenCalledTimes(1);
+    expect(pc.senders[0]?.setParameters).not.toHaveBeenCalled();
+    expect(pc.close).not.toHaveBeenCalled();
+    expect(callbacks.onLiveRouteFallback).not.toHaveBeenCalled();
+  });
+
+  // The LAN-direct encoding-list edges C4-1 must carry into
+  // system-audio-media.ts. A missing list becomes one 256 kbps encoding, as on
+  // the music senders; unlike them (left alone there), a sender that lists no
+  // encoding still gets its unchanged parameters set back.
+  it.each([
+    {
+      name: 'without an encoding list',
+      parameters: {} as Partial<RTCRtpSendParameters>,
+      set: [{ maxBitrate: 256_000 }],
+    },
+    {
+      name: 'that lists no encoding',
+      parameters: { encodings: [] } as Partial<RTCRtpSendParameters>,
+      set: [],
+    },
+  ])(
+    'sets the parameters of a LAN-direct sender $name and keeps the route',
+    async ({ parameters, set }) => {
+      const callbacks = configureCallbacks();
+      nextLocalities.push('host-host');
+      const track = audioTrack('capture-stereo');
+
+      const attempt = direct.attemptProSystemAudioDirectPublication({
+        track,
+        generation: 7,
+        publicationId,
+        targets: [target(receiverA)],
+        timeoutMs: 250,
+      });
+      const pc = peerConnections[0]!;
+      pc.addTrack.mockImplementationOnce((added: MediaStreamTrack) => {
+        const sender = {
+          track: added,
+          getParameters: () => structuredClone(parameters) as RTCRtpSendParameters,
+          setParameters: vi.fn(async () => {}),
+        } as unknown as RTCRtpSender;
+        pc.senders.push(sender);
+        return sender;
+      });
+
+      await expect(attempt).resolves.toEqual({
+        publicationId,
+        transport: 'lan-direct',
+        protocolVersion: 2,
+      });
+      expect(pc.senders[0]?.setParameters).toHaveBeenCalledTimes(1);
+      expect(pc.senders[0]?.setParameters).toHaveBeenCalledWith({ encodings: set });
+      expect(pc.close).not.toHaveBeenCalled();
+      expect(callbacks.onLiveRouteFallback).not.toHaveBeenCalled();
+    },
+  );
+
   it('fully abandons direct publication when even one selected pair is non-local', async () => {
     configureCallbacks();
     nextLocalities.push('host-host', 'non-local');

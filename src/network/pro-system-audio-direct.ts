@@ -16,6 +16,7 @@ import {
 } from '../pro-room/network-bridge.ts';
 import { sendProRoomRealtime } from '../pro-room/realtime-sender.ts';
 import { forceStereoSdp } from './opus-stereo-sdp.ts';
+import { tuneSystemAudioLanDirectSender } from './system-audio-media.ts';
 
 const DIRECT_NEGOTIATION_TIMEOUT_MS = 2_000;
 const DIRECT_PAIR_POLL_MS = 25;
@@ -1266,17 +1267,6 @@ async function flushReceiverRemoteCandidates(route: ReceiverRoute): Promise<void
   }
 }
 
-function tuneAudioSender(sender: RTCRtpSender): void {
-  try {
-    const parameters = sender.getParameters();
-    if (!parameters.encodings) parameters.encodings = [{}];
-    if (parameters.encodings[0]) parameters.encodings[0].maxBitrate = 256_000;
-    void sender.setParameters(parameters).catch(() => undefined);
-  } catch {
-    // Sender tuning is best-effort and must not demote an otherwise local route.
-  }
-}
-
 function createPublisherRoute(
   session: PublisherSession,
   participantId: string,
@@ -1503,7 +1493,7 @@ async function negotiatePublisherRoute(
       if (!publisherRouteIsCurrent(session, negotiatingRoute)) return false;
 
       const stream = new MediaStream([session.track]);
-      tuneAudioSender(negotiatingRoute.pc.addTrack(session.track, stream));
+      tuneSystemAudioLanDirectSender(negotiatingRoute.pc.addTrack(session.track, stream));
       negotiatingRoute.mediaTrackAdded = true;
       negotiatingRoute.remoteDescriptionReady = false;
       await sendPublisherOffer(session, negotiatingRoute, 'media');

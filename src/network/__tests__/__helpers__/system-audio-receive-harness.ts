@@ -13,6 +13,7 @@
  */
 import { vi } from 'vitest';
 import { bus, createBusScope } from '../../../core/events.ts';
+import { log } from '../../../core/log.ts';
 import type { MediaConnection } from '../../../types/index.ts';
 import type { ProSystemAudioSfuPublicationDescriptor } from '../../pro-system-audio-sfu.ts';
 import type {
@@ -672,41 +673,65 @@ export function resetNativeFakes(): void {
   media.stopAllMedia.mockClear();
 }
 
+// ─── Receive deadline lines ─────────────────────────────────────────
+// A receive deadline that expires a reception logs one warn line as it does:
+// the slot's 30 s deadline, or the Standard direct call's replacement
+// deadline (one per channel). Counting these lines observes every expiry
+// without the bus signal the routes once shared ('system-audio:receive-timeout',
+// retired in Phase 5 C4-6), and pins the lines a device log shows.
+
+const RECEIVE_DEADLINE_LINE =
+  /^\[SysAudioGuest\] Timed out waiting for (?:system audio stream|replacement \S+ stream)$/u;
+
+/** How many of these warn calls are a receive deadline's expiry line. */
+export function countReceiveDeadlineLines(calls: ReadonlyArray<readonly unknown[]>): number {
+  return calls.filter(
+    ([line, ...rest]) =>
+      rest.length === 0 && typeof line === 'string' && RECEIVE_DEADLINE_LINE.test(line),
+  ).length;
+}
+
 export interface ReceiveObservations {
   readonly toasts: string[];
   /** Every playback.activity value written, in order (idle flashes included). */
   readonly activities: string[];
   counts: {
-    receiveTimeouts: number;
+    /** Receive deadlines that expired a reception (their warn lines, see above). */
+    readonly receiveTimeouts: number;
     visualizerStarts: number;
     hostStarted: number;
-    deliveryHandoffs: number;
     forceStops: number;
   };
   dispose(): void;
 }
 
-/** Bus observations at the receive owner boundary, scoped to one test. */
+/**
+ * Observations at the receive owner boundary, scoped to one test: bus events
+ * and the receive deadline's warn lines (the log is spied, not replaced).
+ */
 export function observeReceiveBoundary(): ReceiveObservations {
   const scope = createBusScope();
+  const warn = vi.spyOn(log, 'warn');
   const observations: ReceiveObservations = {
     toasts: [],
     activities: [],
     counts: {
-      receiveTimeouts: 0,
+      get receiveTimeouts() {
+        return countReceiveDeadlineLines(warn.mock.calls);
+      },
       visualizerStarts: 0,
       hostStarted: 0,
-      deliveryHandoffs: 0,
       forceStops: 0,
     },
-    dispose: () => scope.dispose(),
+    dispose: () => {
+      scope.dispose();
+      warn.mockRestore();
+    },
   };
   scope.on('ui:show-toast', (message) => observations.toasts.push(String(message)));
   scope.on('state:playback.activity', (value) => observations.activities.push(String(value)));
-  scope.on('system-audio:receive-timeout', () => (observations.counts.receiveTimeouts += 1));
   scope.on('visualizer:start', () => (observations.counts.visualizerStarts += 1));
   scope.on('system-audio:host-started', () => (observations.counts.hostStarted += 1));
-  scope.on('system-audio:delivery-handoff', () => (observations.counts.deliveryHandoffs += 1));
   scope.on('system-audio:force-stop', () => (observations.counts.forceStops += 1));
   return observations;
 }

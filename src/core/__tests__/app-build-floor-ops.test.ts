@@ -30,6 +30,9 @@ const ORIGIN = 'https://musixquare.com';
 const T0 = Date.parse('2026-10-26T04:00:00.000Z');
 const FLOOR_WORKFLOW = 'hiefny/MUSIXQUARE/.github/workflows/app-build-floor.yml@refs/heads/main';
 const RELEASE_WORKFLOW = 'hiefny/MUSIXQUARE/.github/workflows/release.yml@refs/heads/main';
+const RELEASE_RECOVERY_WORKFLOW =
+  'hiefny/MUSIXQUARE/.github/workflows/release-recovery.yml@refs/heads/main';
+const CI_WORKFLOW = 'hiefny/MUSIXQUARE/.github/workflows/ci.yml@refs/heads/main';
 
 const TEST_POLICY: GitHubActionsOidcPolicy = {
   audience: 'https://example.test/api/ops',
@@ -90,6 +93,12 @@ async function signToken(
   return `${head}.${body}.${base64Url(new Uint8Array(signature))}`;
 }
 
+/**
+ * A genuine token of a job that runs its own steps, as both callers do.
+ * `workflow_ref` names its workflow. GitHub documents `job_workflow_ref` and
+ * `job_workflow_sha` only for a job that runs a reusable workflow, so the
+ * default token carries neither; tests add them where they matter.
+ */
 function claimsFor(
   policy: GitHubActionsOidcPolicy,
   nowMs: number,
@@ -119,8 +128,6 @@ function claimsFor(
     ref_protected: 'true',
     workflow_ref: policy.jobWorkflowRefs[0],
     workflow_sha: 'a'.repeat(40),
-    job_workflow_ref: policy.jobWorkflowRefs[0],
-    job_workflow_sha: 'a'.repeat(40),
     runner_environment: policy.runnerEnvironment,
     environment: policy.environment,
     iss: GITHUB_ACTIONS_OIDC_ISSUER,
@@ -355,6 +362,100 @@ describe('GitHub Actions OIDC verifier', () => {
   });
 });
 
+describe('GitHub Actions OIDC verifier workflow claims', () => {
+  const OPS = 'owner/repo/.github/workflows/ops.yml@refs/heads/main';
+  const OTHER_OPS = 'owner/repo/.github/workflows/release.yml@refs/heads/main';
+  const CI = 'owner/repo/.github/workflows/ci.yml@refs/heads/main';
+  const REUSABLE = 'owner/repo/.github/workflows/reusable.yml@refs/heads/main';
+  const TWO_WORKFLOWS: GitHubActionsOidcPolicy = {
+    ...TEST_POLICY,
+    jobWorkflowRefs: [OPS, OTHER_OPS],
+  };
+
+  it.each([
+    ['omits job_workflow_ref (the documented form)', TEST_POLICY, {}, OPS],
+    [
+      'repeats workflow_ref in job_workflow_ref',
+      TEST_POLICY,
+      { job_workflow_ref: OPS, job_workflow_sha: 'a'.repeat(40) },
+      OPS,
+    ],
+    ['leaves job_workflow_ref empty', TEST_POLICY, { job_workflow_ref: '' }, OPS],
+    [
+      'names the second allowed workflow and omits job_workflow_ref',
+      TWO_WORKFLOWS,
+      { workflow_ref: OTHER_OPS },
+      OTHER_OPS,
+    ],
+    [
+      'names the second allowed workflow in both claims',
+      TWO_WORKFLOWS,
+      { workflow_ref: OTHER_OPS, job_workflow_ref: OTHER_OPS },
+      OTHER_OPS,
+    ],
+  ])(
+    'accepts a job that runs its own steps and %s',
+    async (_label, policy, overrides, workflow) => {
+      installJwks([primary.jwk]);
+      const token = await signToken(primary, claimsFor(policy, T0, overrides));
+      await expect(verifyGitHubActionsOidcToken(token, policy, T0)).resolves.toEqual({
+        ok: true,
+        jobWorkflowRef: workflow,
+        runId: '9000000001',
+      });
+    },
+  );
+
+  it.each([
+    ['a workflow_ref off the allowlist', TEST_POLICY, { workflow_ref: CI }],
+    [
+      'a workflow off the allowlist that names itself in job_workflow_ref',
+      TEST_POLICY,
+      { workflow_ref: CI, job_workflow_ref: CI },
+    ],
+    [
+      'a workflow off the allowlist that calls an allowed workflow as a reusable workflow',
+      TEST_POLICY,
+      { workflow_ref: CI, job_workflow_ref: OPS },
+    ],
+    ['no workflow_ref', TEST_POLICY, { workflow_ref: undefined }],
+    [
+      'no workflow_ref beside an allowed job_workflow_ref',
+      TEST_POLICY,
+      { workflow_ref: undefined, job_workflow_ref: OPS },
+    ],
+    ['a workflow_ref that is not a string', TEST_POLICY, { workflow_ref: [OPS] }],
+    [
+      'the allowed workflow at another ref',
+      TEST_POLICY,
+      {
+        workflow_ref: 'owner/repo/.github/workflows/ops.yml@refs/heads/feature',
+        job_workflow_ref: 'owner/repo/.github/workflows/ops.yml@refs/heads/feature',
+      },
+    ],
+    [
+      'an allowed workflow that runs a reusable workflow off the allowlist',
+      TEST_POLICY,
+      { job_workflow_ref: REUSABLE },
+    ],
+    [
+      'an allowed workflow that runs another allowed workflow as a reusable workflow',
+      TWO_WORKFLOWS,
+      { workflow_ref: OPS, job_workflow_ref: OTHER_OPS },
+    ],
+    ['a job_workflow_ref that is null', TEST_POLICY, { job_workflow_ref: null }],
+    ['a job_workflow_ref list', TEST_POLICY, { job_workflow_ref: [OPS] }],
+  ])('refuses %s with 403', async (_label, policy, overrides) => {
+    installJwks([primary.jwk]);
+    const token = await signToken(primary, claimsFor(policy, T0, overrides));
+    await expect(verifyGitHubActionsOidcToken(token, policy, T0)).resolves.toEqual({
+      ok: false,
+      status: 403,
+      error: 'OIDC_TOKEN_FORBIDDEN',
+    });
+  });
+});
+
 function createControl() {
   const control = createAtomicRateControlBinding();
   const calls: string[] = [];
@@ -535,17 +636,44 @@ describe('App Worker ops App build floor endpoint', () => {
     ['another environment', { environment: 'staging' }],
     ['no environment', { environment: undefined }],
     ['a self-hosted runner', { runner_environment: 'self-hosted' }],
+    ['another workflow', { workflow_ref: CI_WORKFLOW }],
     [
-      'another workflow',
-      { job_workflow_ref: 'hiefny/MUSIXQUARE/.github/workflows/ci.yml@refs/heads/main' },
+      'another workflow that names itself in job_workflow_ref',
+      { workflow_ref: CI_WORKFLOW, job_workflow_ref: CI_WORKFLOW },
     ],
     [
+      'another workflow that calls the floor workflow as a reusable workflow',
+      { workflow_ref: CI_WORKFLOW, job_workflow_ref: FLOOR_WORKFLOW },
+    ],
+    [
+      'no workflow_ref beside the floor workflow',
+      { workflow_ref: undefined, job_workflow_ref: FLOOR_WORKFLOW },
+    ],
+    ['the floor workflow calling another workflow', { job_workflow_ref: CI_WORKFLOW }],
+    [
       'the floor workflow from another ref',
+      {
+        workflow_ref: 'hiefny/MUSIXQUARE/.github/workflows/app-build-floor.yml@refs/heads/x',
+        job_workflow_ref: 'hiefny/MUSIXQUARE/.github/workflows/app-build-floor.yml@refs/heads/x',
+      },
+    ],
+    [
+      'the floor workflow calling itself from another ref',
       { job_workflow_ref: 'hiefny/MUSIXQUARE/.github/workflows/app-build-floor.yml@refs/heads/x' },
     ],
     [
       'a reusable workflow in a fork',
       { job_workflow_ref: 'fork/MUSIXQUARE/.github/workflows/app-build-floor.yml@refs/heads/main' },
+    ],
+    // The Production Release runs its recovery job through this reusable
+    // workflow; its steps never take part in the floor.
+    [
+      "the Production Release's reusable recovery workflow",
+      { workflow_ref: RELEASE_WORKFLOW, job_workflow_ref: RELEASE_RECOVERY_WORKFLOW },
+    ],
+    [
+      'the Production Release calling the floor workflow as a reusable workflow',
+      { workflow_ref: RELEASE_WORKFLOW, job_workflow_ref: FLOOR_WORKFLOW },
     ],
   ])('refuses %s with 403', async (_label, overrides) => {
     installJwks([primary.jwk]);
@@ -558,17 +686,24 @@ describe('App Worker ops App build floor endpoint', () => {
     expect(control.writes()).toBe(0);
   });
 
-  it('accepts the release workflow and the floor workflow', async () => {
+  it('accepts the release deploy job and the floor job, which run their own steps', async () => {
     installJwks([primary.jwk]);
     const control = createControl();
     for (const workflow of [RELEASE_WORKFLOW, FLOOR_WORKFLOW]) {
-      const response = await ops(
-        opsEnv(control),
-        { action: 'check' },
-        { token: await opsToken({ job_workflow_ref: workflow }) },
-      );
-      expect(response.status, workflow).toBe(200);
-      expect(await response.json()).toMatchObject({ workflow });
+      // The documented form names the workflow in workflow_ref only; a token
+      // that also repeats it in job_workflow_ref is the same job.
+      for (const overrides of [
+        { workflow_ref: workflow },
+        { workflow_ref: workflow, job_workflow_ref: workflow },
+      ]) {
+        const response = await ops(
+          opsEnv(control),
+          { action: 'check' },
+          { token: await opsToken(overrides) },
+        );
+        expect(response.status, JSON.stringify(overrides)).toBe(200);
+        expect(await response.json()).toMatchObject({ workflow });
+      }
     }
   });
 

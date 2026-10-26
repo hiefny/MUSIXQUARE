@@ -846,6 +846,22 @@ describe('App build floor workflows', () => {
     expect(validate).not.toContain('id-token');
   });
 
+  it('runs the trusted jobs as their own steps, so workflow_ref names them', () => {
+    // The App Worker matches workflow_ref and refuses a token minted inside a
+    // reusable workflow (a job_workflow_ref naming another workflow).
+    const deploy = release.slice(release.indexOf('\n  deploy:'), release.indexOf('\n  recovery:'));
+    expect(deploy).toMatch(/\n {4}steps:\n/u);
+    expect(deploy).not.toMatch(/\n {4}uses:/u);
+    const floorJob = floor.slice(floor.indexOf('\n  floor:'));
+    expect(floorJob).toMatch(/\n {4}steps:\n/u);
+    expect(floorJob).not.toMatch(/\n {4}uses:/u);
+    expect(floor).not.toContain('workflow_call');
+    // The one reusable workflow the release calls mints no token.
+    const recovery = readFileSync(resolve('.github/workflows/release-recovery.yml'), 'utf8');
+    expect(recovery).toContain('workflow_call:');
+    expect(recovery).not.toContain('id-token');
+  });
+
   it('raises only after the production commit marker is persisted', () => {
     const step = workflowStep(release, 'Raise App build floor to the released build');
     expect(step).toContain('id: app_build_floor_raise');

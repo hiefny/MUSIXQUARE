@@ -68,6 +68,7 @@ import {
   claimPlaybackOwner,
   createFileTrackMeta,
   createSystemAudioTrackMeta,
+  setPlaybackIdle,
 } from '../../player/ownership.ts';
 import type { DataConnection } from '../../types/index.ts';
 import type { ProRoomApiClient } from '../api.ts';
@@ -1287,11 +1288,14 @@ describe('the same device as publisher (S11) and begin re-entrancy', () => {
     // The listener starts its own share once the room's share is idle.
     claimSharing();
     await applyState(localLive(3));
-    // The coordinator ends its (empty) slot for the local publication. Only
-    // service.ts cleanupCoordinatorGraph's `!latestView.isLocalOwner` guard
-    // keeps that end from releasing the publisher's claim. Since C4-7 the
-    // call is the slot's end (endTrustedSystemAudioReception) behind the same
-    // guard, and this row and the service suite's local-owner row pin it.
+    // The coordinator cleans its graph for the local publication, and on this
+    // device's own publication it ends the slot only while the slot still
+    // holds a reception (since 5B-G4: service.ts cleanupCoordinatorGraph asks
+    // hasTrustedSystemAudioReception; before, `!latestView.isLocalOwner`
+    // alone skipped it). The share ended at idle(2), so the slot holds
+    // nothing and no end runs. Since C4-7 the call is the slot's end
+    // (endTrustedSystemAudioReception), and this row and the service suite's
+    // local-owner row pin the gate.
     const sharing = {
       receiving: false,
       mode: 'system-audio',
@@ -1317,7 +1321,7 @@ describe('the same device as publisher (S11) and begin re-entrancy', () => {
     expect(seen.toasts).toEqual([]);
   });
 
-  it('S11 gap: a sharing claim made while still receiving keeps the claim but leaves receiving set with no source', async () => {
+  it('S11, fixed in 5B-G4: a sharing claim made while still receiving ends the reception under the claim; receiving drops and no restore point is left to replay', async () => {
     await applyState(live(sfuPublication()));
     await advance(PRO_TRACK_AT_MS);
 
@@ -1325,35 +1329,39 @@ describe('the same device as publisher (S11) and begin re-entrancy', () => {
     // the local sharing claim lands while the remote share is still received.
     claimSharing();
     await applyState(localLive(2));
-    // The guard that protects the claim skips the whole receive cleanup.
-    // Known gap (observed on d84f53f5, not device-verified): the source and
-    // primer leave, but systemAudio.isReceiving stays true and the receive
-    // restore point stays held, so the mode stays 'system-audio' on the
-    // receiving flag as well as on the claim. Planned: a slot end with an
-    // ownership test that tells the slot's claim from a publisher's (C4
-    // critique: placeholder, receiving meta or a slot-held claim token), a
-    // behaviour change for 5B; the neutral C4-7 kept the guard as it was.
-    expect(slot()).toEqual({
-      receiving: true,
+    // Fixed in 5B-G4 (gap 6, P5-D5 A): on this device's own publication the
+    // coordinator cleanup ends the slot while the slot still holds a
+    // reception, and the slot's end leaves the sharer's claim (a
+    // 'system-audio' owner with sharing meta) alone. Before, the local-owner
+    // guard skipped the whole receive end: the source and primer left, but
+    // systemAudio.isReceiving stayed true with no source and the receive
+    // restore point stayed held.
+    const sharing = {
+      receiving: false,
       mode: 'system-audio',
       activity: 'playing',
       title: 'System Audio Sharing',
       placeholder: false,
       sources: [],
       primers: 0,
-    });
+    };
+    expect(slot()).toEqual(sharing);
     expect(getState('player.currentTrackMeta')?.systemAudioMode).toBe('sharing');
 
     resetProSystemAudioService();
-    expect(slot()).toMatchObject({ receiving: true, mode: 'system-audio', sources: [] });
+    expect(slot()).toEqual(sharing);
     expect(getState('player.currentTrackMeta')?.systemAudioMode).toBe('sharing');
     expect(seen.toasts).toEqual([]);
 
-    // The held restore point is replayed by the next receive end: a
-    // force-stop (the capture's own teardown event) restores the title from
-    // before the received share over the sharing meta.
+    // The end consumed the restore point: a later receive end (a force-stop,
+    // the capture's own teardown event, whose reaction is not modelled here)
+    // has none to replay and leaves the sharing claim to the capture module.
+    // Before, it restored the title from before the received share over the
+    // sharing meta.
     bus.emit('system-audio:force-stop');
-    expect(slot()).toMatchObject({ receiving: false, mode: null, title: previousTitle });
+    expect(slot()).toEqual(sharing);
+    expect(getState('player.currentTrackMeta')?.systemAudioMode).toBe('sharing');
+    expect(seen.toasts).toEqual([]);
   });
 
   it('begin re-entrancy: a remote share that arrives while local capture runs begins through a nested force-stop', async () => {
@@ -1363,14 +1371,16 @@ describe('the same device as publisher (S11) and begin re-entrancy', () => {
     expect(slot()).toMatchObject({ mode: 'system-audio', title: 'System Audio Sharing' });
 
     // The lease moved to a remote publication before the local capture
-    // stopped. The coordinator end releases the sharing claim first (the
-    // view is no longer the local owner), then the reception start's
-    // stopAllMedia emits force-stop, whose receive cleanup runs inside the
-    // begin, before the placeholder claim.
+    // stopped. The coordinator end runs (the view is no longer the local
+    // owner) and, since 5B-G4, leaves the sharing claim alone; then the
+    // reception start's stopAllMedia emits force-stop, whose receive cleanup
+    // runs inside the begin, before the placeholder claim. Before 5B-G4 the
+    // coordinator end released the sharing claim first, an idle flash
+    // (activities 'idle', 'pending').
     await applyState(live(sfuPublication(), 2));
     expect(seen.counts.forceStops).toBe(1);
     expect(media.stopAllMedia).toHaveBeenCalledTimes(1);
-    expect(seen.activities).toEqual(['idle', 'pending']);
+    expect(seen.activities).toEqual(['pending']);
     expect(slot()).toMatchObject({
       receiving: false,
       mode: 'system-audio',
@@ -1387,14 +1397,89 @@ describe('the same device as publisher (S11) and begin re-entrancy', () => {
     expect(proSfu.isSubscribed).toBe(true);
     expect(proSfu.descriptors).toHaveLength(1);
 
-    // Observed (d84f53f5, not device-verified): the restore point is empty.
-    // The coordinator end restored the receive slot's empty restore meta over
-    // the sharing meta, and the begin captured that. The share end therefore
-    // leaves no title; the post-share restore is asked once, and in the app
-    // the capture module's force-stop reaction (restore: false, not modelled)
-    // runs as well. C4-2's 'claiming' phase must say what a nested end does.
+    // The restore point is empty. Since 5B-G4 the start takes no restore
+    // point over the sharer's title (before, the coordinator end restored the
+    // slot's empty restore meta over the sharing meta, and the begin captured
+    // that). The share end therefore leaves no title; the post-share restore
+    // is asked once, and in the app the capture module's force-stop reaction
+    // (restore: false, not modelled) runs as well. C4-2's 'claiming' phase
+    // must say what a nested end does (5B-G5).
     await applyState(idle(3));
     expect(slot()).toMatchObject({ receiving: false, mode: null, activity: 'idle', sources: [] });
+    expect(getState('player.currentTrackMeta')).toBeNull();
+    expect(restorePlayback).toHaveBeenCalledTimes(1);
+    expect(seen.toasts).toEqual([]);
+  });
+
+  const noTitleIdle = {
+    receiving: false,
+    mode: null,
+    activity: 'idle',
+    title: undefined,
+    placeholder: false,
+    sources: [],
+    primers: 0,
+  };
+
+  // Passes before and after 5B-G4. Before, the coordinator end released the
+  // sharing claim and wrote the slot's empty restore meta over it, so the
+  // start took none; since 5B-G4 that end leaves the claim alone and the start
+  // itself never takes the sharer's meta as its restore point.
+  it("5B-G4 guard: a remote share that begins while this device's sharing claim is active (mode 'system-audio', sharing meta) leaves no sharing title when it ends", async () => {
+    claimSharing();
+    expect(slot()).toMatchObject({
+      mode: 'system-audio',
+      activity: 'playing',
+      title: 'System Audio Sharing',
+    });
+
+    await applyState(live(sfuPublication()));
+    expect(slot()).toMatchObject({
+      receiving: false,
+      mode: 'system-audio',
+      activity: 'pending',
+      placeholder: true,
+    });
+    await advance(PRO_TRACK_AT_MS);
+    expect(slot()).toMatchObject({
+      receiving: true,
+      activity: 'playing',
+      sources: ['pro-sfu-audio-1'],
+    });
+
+    await applyState(idle(2));
+    expect(slot()).toEqual(noTitleIdle);
+    expect(getState('player.currentTrackMeta')).toBeNull();
+    expect(restorePlayback).toHaveBeenCalledTimes(1);
+    expect(seen.toasts).toEqual([]);
+  });
+
+  it('5B-G4: a remote share that begins over an idle stale sharing title (playback idle, sharing meta kept, as the capture transition teardown leaves it) leaves no title when it ends', async () => {
+    // system-capture.ts's transition teardown (a force-stop, restore: false)
+    // sets playback idle and keeps the sharing meta for the next flow.
+    claimSharing();
+    setPlaybackIdle();
+    expect(slot()).toMatchObject({
+      mode: null,
+      activity: 'idle',
+      title: 'System Audio Sharing',
+    });
+
+    await applyState(live(sfuPublication()));
+    await advance(PRO_TRACK_AT_MS);
+    expect(slot()).toMatchObject({
+      receiving: true,
+      mode: 'system-audio',
+      activity: 'playing',
+      placeholder: true,
+      sources: ['pro-sfu-audio-1'],
+    });
+
+    // Fixed in 5B-G4 (gap 6): the start takes no restore point over the
+    // sharer's title. Before, it took the stale sharing meta, and the share
+    // end showed 'System Audio Sharing' while idle.
+    await applyState(idle(2));
+    expect(slot()).toEqual(noTitleIdle);
     expect(getState('player.currentTrackMeta')).toBeNull();
     expect(restorePlayback).toHaveBeenCalledTimes(1);
     expect(seen.toasts).toEqual([]);

@@ -13,7 +13,9 @@ import {
 import { SYSTEM_AUDIO_RECEIVE_TIMEOUT_MS } from '../system-audio-media.ts';
 import {
   claimPlaybackOwner,
+  createSystemAudioTrackMeta,
   setPlaybackFilePlaying,
+  setPlaybackIdle,
   setPlaybackLifecycleState,
   setPlaybackTransferState,
   setSystemAudioReceiving,
@@ -1049,6 +1051,108 @@ describe('system audio guest receive watchdog', () => {
       await handleData({ type: MSG.SYSTEM_AUDIO_STOP }, hostConn);
 
       expect(getState('player.currentTrackMeta')).toEqual(successorMeta);
+    });
+
+    // 5B-G4 (gap 6, P5-D5 A): the 'system-audio' owner is also this device's
+    // own share (system-capture.ts claims it with sharing meta). The end
+    // still does all of its own work but leaves that claim to the capture
+    // module.
+    it("leaves a 'system-audio' claim with sharing meta alone at the end, and still ends the reception (5B-G4)", async () => {
+      const source = stubAudioSource();
+      const previousMeta: TrackMeta = { type: 'file', name: 'previous-track' };
+      setState('player.currentTrackMeta', previousMeta);
+      // As the host START does (frames are left out: the suite shares one
+      // inbound rate-limit bucket for the host connection).
+      expect(beginTrustedSystemAudioReception(undefined, { deadline: 'slot' })).toBe(true);
+      const call = createMediaConnection();
+      bus.emit('system-audio:incoming-call', call.mediaConn, 'STEREO');
+      call.emit('stream', audioStreamWithTrack());
+      await flushAsyncStreamHandler();
+      expect(getState('systemAudio.isReceiving')).toBe(true);
+
+      // This device starts its own share while it still receives.
+      const sharingMeta = createSystemAudioTrackMeta('sharing');
+      claimPlaybackOwner('system-audio', { currentTrackMeta: sharingMeta });
+      const wait = settledValue(awaitTrustedSystemAudioReceptionBoundary('sfu-stereo'));
+      const toast = vi.fn();
+      bus.on('ui:show-toast', toast);
+
+      endTrustedSystemAudioReception();
+      await flushAsyncStreamHandler();
+
+      // The reception's own parts end: the waiters, the route ports (the
+      // direct call closes and its source leaves), the receiving flag.
+      expect(wait.value).toBe(false);
+      expect(call.mediaConn.close).toHaveBeenCalledOnce();
+      expect(source.disconnect).toHaveBeenCalledOnce();
+      expect(getState('systemAudio.isReceiving')).toBe(false);
+      // The sharer's claim stays: no title write, no release, no idle.
+      expect(getState('player.currentTrackMeta')).toEqual(sharingMeta);
+      expect(getState('playback.mode')).toBe('system-audio');
+      expect(getState('playback.activity')).toBe('playing');
+      expect(toast).not.toHaveBeenCalled();
+
+      // The restore point is consumed: a second end (a STOP) writes nothing.
+      endTrustedSystemAudioReception();
+      expect(getState('player.currentTrackMeta')).toEqual(sharingMeta);
+      expect(getState('playback.mode')).toBe('system-audio');
+      expect(getState('playback.activity')).toBe('playing');
+    });
+
+    // Passes before and after 5B-G4: the rule excludes only the sharer's
+    // claim, so any other 'system-audio' owner keeps today's end.
+    it("5B-G4 guard: still restores a receiving 'system-audio' owner whose meta a meta-null writer cleared", async () => {
+      stubAudioSource();
+      const previousMeta: TrackMeta = { type: 'file', name: 'previous-track' };
+      setState('player.currentTrackMeta', previousMeta);
+      expect(beginTrustedSystemAudioReception(undefined, { deadline: 'slot' })).toBe(true);
+      const call = createMediaConnection();
+      bus.emit('system-audio:incoming-call', call.mediaConn, 'STEREO');
+      call.emit('stream', audioStreamWithTrack());
+      await flushAsyncStreamHandler();
+      // The Standard guest's current-item removal (player/playlist.ts).
+      setState('player.currentTrackMeta', null);
+      expect(getState('playback.mode')).toBe('system-audio');
+
+      endTrustedSystemAudioReception();
+
+      expect(getState('player.currentTrackMeta')).toEqual(previousMeta);
+      expect(getState('playback.mode')).toBeNull();
+      expect(getState('playback.activity')).toBe('idle');
+    });
+
+    it.each([
+      {
+        over: 'an active sharing claim',
+        share: () =>
+          claimPlaybackOwner('system-audio', {
+            currentTrackMeta: createSystemAudioTrackMeta('sharing'),
+          }),
+      },
+      {
+        // system-capture.ts's transition teardown (a force-stop) sets playback
+        // idle and keeps the sharing meta for the next flow.
+        over: 'an idle stale sharing title',
+        share: () => {
+          claimPlaybackOwner('system-audio', {
+            currentTrackMeta: createSystemAudioTrackMeta('sharing'),
+          });
+          setPlaybackIdle();
+        },
+      },
+    ])('takes no restore point when a start begins over $over (5B-G4)', async ({ share }) => {
+      share();
+      expect(getState('player.currentTrackMeta')?.systemAudioMode).toBe('sharing');
+
+      // The host START's start and STOP's end, called directly.
+      expect(beginTrustedSystemAudioReception(undefined, { deadline: 'slot' })).toBe(true);
+      expect(getState('player.currentTrackMeta')?.systemAudioPlaceholder).toBe(true);
+
+      // Before 5B-G4 the end restored the sharing title, idle.
+      endTrustedSystemAudioReception();
+      expect(getState('player.currentTrackMeta')).toBeNull();
+      expect(getState('playback.mode')).toBeNull();
+      expect(getState('playback.activity')).toBe('idle');
     });
 
     it("runs the other routes' deadline reactions before the cleanup and shows the notice after it", async () => {

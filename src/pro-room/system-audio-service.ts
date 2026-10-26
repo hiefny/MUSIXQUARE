@@ -622,7 +622,10 @@ async function attachCoordinatorTrack(
       onConnected: () => clearManagedTimer(DIRECT_RECEIVE_DEADLINE_TIMER),
     },
   );
-  if (!attached) throw new Error('PRO_SYSTEM_AUDIO_GRAPH_UNAVAILABLE');
+  // A refused attach (5B-G1: the reception ended or another owner plays)
+  // returns quietly: the slot dropped the coordinator's source and primer,
+  // and no retry, fallback or notice follows. The transport stays as it is.
+  if (attached === 'graph-unavailable') throw new Error('PRO_SYSTEM_AUDIO_GRAPH_UNAVAILABLE');
 }
 
 async function attachDirectCoordinatorTrack(
@@ -2124,7 +2127,9 @@ export function registerProSystemAudioServiceListeners(): void {
       if (!identity || !coordinatorPublicationMatches(identity, state)) return;
       if (event.state === 'subscribed') {
         clearManagedTimer(SUBSCRIBER_DISCONNECT_TIMER);
-        // Plays again only on a source the coordinator still has attached.
+        // Plays again only on a source the coordinator still has attached,
+        // and only while the slot's placeholder is current (5B-G1: otherwise
+        // the slot drops that source and primer and claims nothing).
         resumeSystemAudioRoute(COORDINATOR_ROUTE);
         return;
       }

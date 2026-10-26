@@ -811,7 +811,15 @@ async function connectGuestTrack(track: MediaStreamTrack, pc: RTCPeerConnection)
       connectedLog: '[SysAudioSFU] Remote system audio connected through Cloudflare SFU',
     },
   );
-  if (!attached) {
+  if (attached === 'not-receiving') {
+    // The reception ended or another owner plays (5B-G1): close the
+    // subscription as for the trust boundary's refusal. It attached nothing,
+    // so the cleanup ends no reception, and the share route stays frozen.
+    // Only Cloudflare hears the close (tracks-close); the host is not told.
+    if (guestPc === pc) cleanupGuestSfu();
+    return;
+  }
+  if (attached === 'graph-unavailable') {
     throw new Error('System audio graph not ready');
   }
 }

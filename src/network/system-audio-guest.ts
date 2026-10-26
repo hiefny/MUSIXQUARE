@@ -397,7 +397,18 @@ async function handleIncomingCall(mediaConn: MediaConnection, channel: string): 
         connectedLog: `[SysAudioGuest] System audio connected to graph (${channel})`,
       },
     );
-    if (!attached) {
+    if (attached === 'not-receiving') {
+      // The reception ended or another owner plays (5B-G1); the slot dropped
+      // this route's source and primer. Keep the call open and current: a
+      // guest close sends media-close, and while the share is active the
+      // host hands this guest to the SFU with STOP, START and READY, whose
+      // START would stop the successor. STOP or the reception's end closes
+      // it through the end port. Its replacement deadline goes too, so it
+      // cannot expire the reception (and close the call) later.
+      clearReplacementWatchdog(channel, mediaConn);
+      return;
+    }
+    if (attached === 'graph-unavailable') {
       log.error('[SysAudioGuest] Audio graph not ready');
       throw new Error('audio-graph-not-ready');
     }

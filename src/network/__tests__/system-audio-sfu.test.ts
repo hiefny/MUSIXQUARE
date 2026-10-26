@@ -79,8 +79,13 @@ vi.mock('../../audio/system-capture.ts', () => ({
   isSystemAudioActive: vi.fn(() => true),
 }));
 
+// The reception start is a stub here, so the slot's attach fence (5B-G1)
+// reads its placeholder as committed: every attach in this suite lands inside
+// a reception. The real-state Standard contract suite pins the fence's
+// refusal on this route.
 vi.mock('../../player/ownership.ts', () => ({
   claimPlaybackOwner: vi.fn(),
+  isSystemAudioPlaceholderMeta: vi.fn(() => true),
   setSystemAudioReceiving: vi.fn(),
 }));
 

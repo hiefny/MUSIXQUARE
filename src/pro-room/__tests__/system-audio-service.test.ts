@@ -29,6 +29,11 @@ type ProSystemAudioDirectTransportCallbacks = Parameters<
   typeof configureProSystemAudioDirectTransport
 >[0];
 
+// The stubbed reception start commits the slot's receive placeholder and the
+// stubbed end retires it, so the real attach fence (5B-G1) reads what a real
+// reception would (core/state is hand-mocked below).
+const receivePlaceholder = vi.hoisted(() => ({ current: false }));
+
 const mocks = vi.hoisted(() => ({
   broadcast: vi.fn(),
   broadcastExcept: vi.fn(),
@@ -36,8 +41,12 @@ const mocks = vi.hoisted(() => ({
   safeSend: vi.fn(),
   sendToHost: vi.fn(),
   awaitTrustedReceptionBoundary: vi.fn(async () => true),
-  beginReception: vi.fn(),
-  cleanupReception: vi.fn(),
+  beginReception: vi.fn(() => {
+    receivePlaceholder.current = true;
+  }),
+  cleanupReception: vi.fn(() => {
+    receivePlaceholder.current = false;
+  }),
   stopPublisher: vi.fn(),
   stopSubscriber: vi.fn(),
   updatePublisherExpiry: vi.fn(),
@@ -156,6 +165,9 @@ vi.mock('../../core/state.ts', () => ({
         : { kind: 'standard' };
     }
     if (path === 'playback.mode') return mocks.playbackMode;
+    if (path === 'player.currentTrackMeta') {
+      return receivePlaceholder.current ? { systemAudioPlaceholder: true } : null;
+    }
     if (path === 'network.hostConn') return null;
     return null;
   },
@@ -498,6 +510,7 @@ beforeEach(() => {
   mocks.restorePlayback.mockReset().mockResolvedValue(true);
   mocks.roomContextKind = 'pro';
   mocks.playbackMode = 'none';
+  receivePlaceholder.current = false;
   mocks.awaitTrustedReceptionBoundary.mockResolvedValue(true);
   mocks.initAudio.mockResolvedValue(undefined);
   mocks.getAudioContext.mockReset();

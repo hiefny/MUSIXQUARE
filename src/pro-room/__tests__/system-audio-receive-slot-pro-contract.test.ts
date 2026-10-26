@@ -732,38 +732,35 @@ describe('PRO LAN-direct reception', () => {
     expect(seen.counts.receiveTimeouts).toBe(0);
   });
 
-  it('S8b gap: a force-stop while a direct track waits in initAudio still connects it under the restored title', async () => {
+  it('S8b, fixed in 5B-G1: a force-stop while a direct track waits in initAudio leaves it unconnected under the restored title', async () => {
     await applyState(live(directPublication()));
     webAudio.suspend();
     proDirect.deliverTrack(makeAudioTrack('direct-audio-1'));
     await advance(100);
     bus.emit('system-audio:force-stop');
-    expect(slot()).toMatchObject({
+    const ended = {
       receiving: false,
       mode: null,
       activity: 'idle',
       placeholder: false,
       title: previousTitle,
-    });
+      sources: [],
+      primers: 0,
+    };
+    expect(slot()).toEqual(ended);
 
     webAudio.finishResume();
     await advance(0);
-    // Known gap (C4 critique S8b, PRO side; observed on d84f53f5, not
-    // device-verified): after the trusted boundary the coordinator attach
-    // re-checks only the route, the publication and the owner, and a
-    // force-stop changes none of them, so audio plays after the force-stop
-    // under the restored title. Planned: the slot attach fence (C4-3,
-    // inherited by C4-5) and a slot end() that covers every route (5B; the
-    // neutral C4-5 and C4-7 kept the route-scoped ends); both need owner
-    // sign-off.
-    expect(slot()).toMatchObject({
-      receiving: true,
-      mode: 'system-audio',
-      activity: 'playing',
-      placeholder: false,
-      title: previousTitle,
-      sources: ['direct-audio-1'],
-    });
+    // Fixed in 5B-G1 (gap 3, P5-D5 A): the force-stop restored the previous
+    // title, so the slot's placeholder is gone and its attach fence refuses
+    // the track. Before, the coordinator attach re-checked only the route,
+    // the publication and the owner, which a force-stop changes none of, and
+    // the audio played under the restored title. The LAN route stays open
+    // (the coordinator returns quietly on a refused attach).
+    expect(slot()).toEqual(ended);
+    expect(seen.counts.visualizerStarts).toBe(0);
+    await advance(60_000);
+    expect(slot()).toEqual(ended);
     expect(seen.toasts).toEqual([]);
   });
 
@@ -855,49 +852,60 @@ describe('PRO LAN-direct reception', () => {
   });
 });
 
-describe('successor during initAudio (C4-3 attach fence gap, PRO routes)', () => {
+describe('successor during initAudio (attach fence, PRO routes; fixed in 5B-G1)', () => {
   it.each([
     {
       route: 'SFU',
-      trackId: 'pro-sfu-audio-1',
       deliver: async () => {
         await applyState(live(sfuPublication()));
         webAudio.suspend();
         await advance(PRO_TRACK_AT_MS + 100);
       },
+      // The coordinator returns quietly on a refused attach in 5B-G1; the SFU
+      // subscription stays open with nothing attached (5B-G2 closes it).
+      subscribed: true,
     },
     {
       route: 'LAN-direct',
-      trackId: 'direct-audio-1',
       deliver: async () => {
         await applyState(live(directPublication()));
         webAudio.suspend();
         proDirect.deliverTrack(makeAudioTrack('direct-audio-1'));
         await advance(100);
       },
+      subscribed: false,
     },
   ])(
-    'S9 gap ($route): a successor that claims playback while the attach waits in initAudio is overwritten',
-    async ({ trackId, deliver }) => {
+    'S9 ($route), fixed in 5B-G1: a successor that claims playback while the attach waits in initAudio keeps playing',
+    async ({ deliver, subscribed }) => {
       await deliver();
       expect(slot()).toMatchObject({ receiving: false, activity: 'pending', sources: [] });
       claimPlaybackOwner('file', { currentTrackMeta: createFileTrackMeta('successor.mp3') });
 
       webAudio.finishResume();
       await advance(0);
-      // Known gap (C4 critique S9, same as the Standard P2P and SFU rows): the
-      // shared coordinator attach re-checks the route and publication but not
-      // the placeholder or owner after `await initAudio()`, so system audio
-      // takes playback back under the successor's title. Planned: the slot's
-      // attach fence (C4-3), which C4-5 inherits for both PRO routes; an
-      // intended change needing owner sign-off.
-      expect(slot()).toMatchObject({
-        receiving: true,
-        mode: 'system-audio',
+      // Fixed in 5B-G1 (gap 2, P5-D5 A, same as the Standard P2P and SFU
+      // rows): the slot attaches only while its placeholder is current, so
+      // the successor keeps playing and nothing of the share stays on the
+      // graph. Before, the attach took playback back under the successor's
+      // title.
+      const successor = {
+        receiving: false,
+        mode: 'file',
         activity: 'playing',
         title: 'successor',
-        sources: [trackId],
-      });
+        placeholder: false,
+        sources: [],
+        primers: 0,
+      };
+      expect(slot()).toEqual(successor);
+      expect(seen.counts.visualizerStarts).toBe(0);
+      expect(proSfu.isSubscribed).toBe(subscribed);
+      await advance(60_000);
+      expect(slot()).toEqual(successor);
+      // No notice: a refused attach is no transport failure (a throw would
+      // fail the LAN route into a receiver fallback with connection_unstable).
+      expect(seen.toasts).toEqual([]);
     },
   );
 });
@@ -1311,6 +1319,43 @@ describe('coordinator receive inputs (attach, resume, interrupt)', () => {
     });
     expect(seen.counts.visualizerStarts).toBe(2);
     expect(seen.toasts).toEqual(['system_audio.connection_unstable']);
+  });
+
+  it("5B-G1: a 'subscribed' for the live publication after a successor replaced the placeholder claims nothing and drops the coordinator source", async () => {
+    await applyState(live(sfuPublication()));
+    await advance(PRO_TRACK_AT_MS);
+    proSfu.emitState('disconnected');
+    await advance(2_500);
+    expect(slot()).toMatchObject({
+      receiving: false,
+      activity: 'pending',
+      placeholder: true,
+      sources: ['pro-sfu-audio-1'],
+      primers: 1,
+    });
+    claimPlaybackOwner('file', { currentTrackMeta: createFileTrackMeta('successor.mp3') });
+    const activitiesBefore = seen.activities.length;
+
+    // The same session reconnects. The resume is fenced like the attach: the
+    // slot's placeholder is gone, so it claims nothing over the successor and
+    // drops the source and primer the route still held (before 5B-G1 it set
+    // receiving and claimed 'system-audio' back under the successor's title).
+    proSfu.emitState('subscribed');
+    const successor = {
+      receiving: false,
+      mode: 'file',
+      activity: 'playing',
+      title: 'successor',
+      placeholder: false,
+      sources: [],
+      primers: 0,
+    };
+    expect(slot()).toEqual(successor);
+    expect(seen.activities.slice(activitiesBefore)).toEqual([]);
+    expect(seen.counts.visualizerStarts).toBe(1);
+    await advance(60_000);
+    expect(slot()).toEqual(successor);
+    expect(seen.toasts).toEqual([]);
   });
 
   it("S6: every coordinator attach starts the reception again: a new direct route's track while receiving swaps the source and primer without overlap", async () => {

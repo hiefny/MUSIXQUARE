@@ -967,31 +967,26 @@ describe('S8b: a slot end while the attach waits in initAudio (real PRO transpor
   );
 
   it.each(waitingRoutes)(
-    'S8b gap ($route): a force-stop while the attach waits in initAudio still connects the track under the restored title',
-    async ({ waitInInitAudio, trackId, connections }) => {
+    'S8b ($route), fixed in 5B-G1: a force-stop while the attach waits in initAudio leaves the track unconnected under the restored title',
+    async ({ waitInInitAudio, connections }) => {
       await waitInInitAudio();
       bus.emit('system-audio:force-stop');
       expect(slot()).toEqual(idleWithPreviousTitle());
 
       webAudio.finishResume();
       await advance(0);
-      // Known gap (C4 critique S8b; observed on be82ce09 with the real
-      // transports, not device-verified): force-stop reaches only the guest
-      // placeholder, the route stays current, and the coordinator attach
-      // re-checks only the route, the publication and the owner after
-      // `await initAudio()`. Audio then plays with no placeholder under the
-      // restored title. Planned: the slot attach fence (C4-3, inherited by
-      // C4-5) and a slot end() that covers every route (5B; the neutral C4-5
-      // and C4-7 kept the route-scoped ends); both need owner sign-off.
+      // Fixed in 5B-G1 (gap 3, P5-D5 A): the force-stop restored the previous
+      // title, so the slot's attach fence refuses the track. Before, the
+      // coordinator attach re-checked only the route, the publication and the
+      // owner after `await initAudio()`, and the audio played with no
+      // placeholder under the restored title. The coordinator returns
+      // quietly on the refusal: the connection stays open (5B-G2 closes the
+      // SFU one; the LAN route stays open by choice).
       expect(connections()[0].closed).toBe(false);
-      expect(slot()).toMatchObject({
-        receiving: true,
-        mode: 'system-audio',
-        activity: 'playing',
-        placeholder: false,
-        title: previousTitle,
-        sources: [trackId],
-      });
+      expect(webAudio.sources).toHaveLength(0);
+      expect(slot()).toEqual(idleWithPreviousTitle());
+      await advance(60_000);
+      expect(slot()).toEqual(idleWithPreviousTitle());
       expect(seen.toasts).toEqual([]);
     },
   );

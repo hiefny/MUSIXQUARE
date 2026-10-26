@@ -26,11 +26,17 @@ import {
   resetGuestSystemAudioShareRoute,
 } from '../system-audio-delivery.ts';
 import {
+  attachSystemAudioSource,
   awaitTrustedSystemAudioReceptionBoundary,
   beginTrustedSystemAudioReception,
+  detachSystemAudioRoute,
   endTrustedSystemAudioReception,
+  getSystemAudioReceiveRouteSnapshot,
   handOffTrustedSystemAudioReception,
+  interruptTrustedSystemAudioReception,
+  primeSystemAudioDecoder,
   registerSystemAudioReceiveRoute,
+  resumeSystemAudioRoute,
 } from '../system-audio-receive-slot.ts';
 import {
   cleanupWebRtcAudioDecoderPrimer,
@@ -1265,6 +1271,219 @@ describe('system audio guest receive watchdog', () => {
       } finally {
         now.mockRestore();
       }
+    });
+  });
+
+  // 5B-G1 (gaps 2 and 3, P5-D5 A): the slot attaches and resumes only while
+  // its receive placeholder is the current meta. A refused attach or resume
+  // writes nothing and drops what that route still holds. Driven through the
+  // PRO coordinator's route, which registers no end port, so its source and
+  // primer outlive an end (gap 4) and the refusal is what drops them here.
+  describe('attach fence: the slot ended or another owner plays (5B-G1)', () => {
+    const ROUTE = 'pro-coordinator';
+    const previousMeta: TrackMeta = { type: 'file', name: 'previous-track' };
+    const successorMeta: TrackMeta = { type: 'file', name: 'successor-file' };
+    let firstSource: { connect: ReturnType<typeof vi.fn>; disconnect: ReturnType<typeof vi.fn> };
+    let createMediaStreamSource: ReturnType<typeof vi.fn>;
+    let primer: WebRtcAudioDecoderPrimer;
+    let visualizerStarts: ReturnType<typeof vi.fn<() => void>>;
+
+    function prime(): void {
+      vi.mocked(primeWebRtcAudioDecoder).mockReturnValueOnce(primer);
+      primeSystemAudioDecoder(ROUTE, [], {
+        streamKey: 'stream-key',
+        label: 'stereo',
+        logPrefix: '[ProSysAudio]',
+      });
+    }
+
+    function attach(
+      request: Parameters<typeof attachSystemAudioSource>[2] = {
+        startsReception: 'every-attach',
+      },
+    ) {
+      return attachSystemAudioSource(ROUTE, { stream: audioStreamWithTrack() }, request);
+    }
+
+    function claimSuccessor(): void {
+      claimPlaybackOwner('file', { currentTrackMeta: successorMeta });
+      setPlaybackFilePlaying();
+    }
+
+    beforeEach(() => {
+      detachSystemAudioRoute(ROUTE);
+      firstSource = { connect: vi.fn(), disconnect: vi.fn() };
+      createMediaStreamSource = vi.fn(() => firstSource);
+      vi.mocked(getAudioContext).mockReturnValue({
+        createMediaStreamSource,
+      } as unknown as AudioContext);
+      primer = { streamKey: 'stream-key' } as WebRtcAudioDecoderPrimer;
+      visualizerStarts = vi.fn<() => void>();
+      bus.on('visualizer:start', visualizerStarts);
+      setState('player.currentTrackMeta', previousMeta);
+      vi.mocked(cleanupWebRtcAudioDecoderPrimer).mockClear();
+    });
+
+    it("refuses an attach after the reception ended: 'not-receiving' before the graph, nothing written, the route's source and primer dropped", () => {
+      expect(beginTrustedSystemAudioReception(undefined, { deadline: 'route' })).toBe(true);
+      prime();
+      attach();
+      expect(getState('systemAudio.isReceiving')).toBe(true);
+      endTrustedSystemAudioReception();
+      expect(getState('player.currentTrackMeta')).toEqual(previousMeta);
+      expect(getSystemAudioReceiveRouteSnapshot(ROUTE)).toEqual({
+        sourceAttached: true,
+        decoderPrimed: true,
+      });
+      visualizerStarts.mockClear();
+      vi.mocked(getAudioContext).mockClear();
+      vi.mocked(getWidener).mockClear();
+      const onGraphReady = vi.fn();
+      const onConnected = vi.fn();
+      const onReceptionStart = vi.fn();
+
+      const result = attach({
+        startsReception: 'every-attach',
+        onGraphReady,
+        onConnected,
+        onReceptionStart,
+      });
+
+      // The fence comes before the graph: a refused attach never reports a
+      // missing graph and never builds a source.
+      expect(getAudioContext).not.toHaveBeenCalled();
+      expect(getWidener).not.toHaveBeenCalled();
+      expect(createMediaStreamSource).toHaveBeenCalledOnce();
+      expect(onGraphReady).not.toHaveBeenCalled();
+      expect(onConnected).not.toHaveBeenCalled();
+      expect(onReceptionStart).not.toHaveBeenCalled();
+      expect(visualizerStarts).not.toHaveBeenCalled();
+      expect(getState('systemAudio.isReceiving')).toBe(false);
+      expect(getState('playback.mode')).toBeNull();
+      expect(getState('playback.activity')).toBe('idle');
+      expect(getState('player.currentTrackMeta')).toEqual(previousMeta);
+      expect(firstSource.disconnect).toHaveBeenCalledOnce();
+      expect(cleanupWebRtcAudioDecoderPrimer).toHaveBeenCalledWith(primer);
+      expect(getSystemAudioReceiveRouteSnapshot(ROUTE)).toEqual({
+        sourceAttached: false,
+        decoderPrimed: false,
+      });
+      expect(result).toBe('not-receiving');
+    });
+
+    it('refuses an attach once a successor replaced the placeholder and drops the primer the route took; the end leaves the successor', () => {
+      expect(beginTrustedSystemAudioReception(undefined, { deadline: 'route' })).toBe(true);
+      prime();
+      claimSuccessor();
+
+      const result = attach();
+
+      expect(createMediaStreamSource).not.toHaveBeenCalled();
+      expect(visualizerStarts).not.toHaveBeenCalled();
+      expect(cleanupWebRtcAudioDecoderPrimer).toHaveBeenCalledWith(primer);
+      expect(getSystemAudioReceiveRouteSnapshot(ROUTE)).toEqual({
+        sourceAttached: false,
+        decoderPrimed: false,
+      });
+      expect(getState('systemAudio.isReceiving')).toBe(false);
+      expect(getState('playback.mode')).toBe('file');
+      expect(getState('playback.activity')).toBe('playing');
+      expect(getState('player.currentTrackMeta')).toEqual(successorMeta);
+      expect(result).toBe('not-receiving');
+
+      endTrustedSystemAudioReception();
+      expect(getState('playback.mode')).toBe('file');
+      expect(getState('player.currentTrackMeta')).toEqual(successorMeta);
+    });
+
+    it.each([
+      { after: 'the reception ended', retire: () => endTrustedSystemAudioReception() },
+      { after: 'a successor replaced the placeholder', retire: claimSuccessor },
+    ])(
+      "refuses a resume after $after: claims nothing and drops the route's source and primer",
+      ({ retire }) => {
+        expect(beginTrustedSystemAudioReception(undefined, { deadline: 'route' })).toBe(true);
+        prime();
+        attach();
+        expect(getState('systemAudio.isReceiving')).toBe(true);
+        // The PRO SFU's disconnect grace: receiving drops, the source stays.
+        interruptTrustedSystemAudioReception({ deadline: 'route' });
+        retire();
+        const mode = getState('playback.mode');
+        const activity = getState('playback.activity');
+        const meta = getState('player.currentTrackMeta');
+        visualizerStarts.mockClear();
+
+        resumeSystemAudioRoute(ROUTE);
+
+        expect(getState('systemAudio.isReceiving')).toBe(false);
+        expect(getState('playback.mode')).toBe(mode);
+        expect(mode).not.toBe('system-audio');
+        expect(getState('playback.activity')).toBe(activity);
+        expect(getState('player.currentTrackMeta')).toEqual(meta);
+        expect(visualizerStarts).not.toHaveBeenCalled();
+        expect(firstSource.disconnect).toHaveBeenCalledOnce();
+        expect(cleanupWebRtcAudioDecoderPrimer).toHaveBeenCalledWith(primer);
+        expect(getSystemAudioReceiveRouteSnapshot(ROUTE)).toEqual({
+          sourceAttached: false,
+          decoderPrimed: false,
+        });
+      },
+    );
+
+    it('keeps a refused replacement call open and current with no replacement deadline: no expiry, no notice, no close', async () => {
+      const toast = vi.fn();
+      bus.on('ui:show-toast', toast);
+      await handleData({ type: MSG.SYSTEM_AUDIO_START }, hostConn);
+      const active = createMediaConnection();
+      bus.emit('system-audio:incoming-call', active.mediaConn, 'STEREO');
+      active.emit('stream', audioStreamWithTrack());
+      await flushAsyncStreamHandler();
+      expect(getState('systemAudio.isReceiving')).toBe(true);
+      expect(getSystemAudioGuestDebugSnapshot()).toMatchObject({ gotStereo: true });
+
+      // A replacement call while receiving arms its replacement deadline.
+      // While its stream waits in initAudio the placeholder leaves without an
+      // end: a guest's current-item removal sets the meta to null
+      // (player/playlist.ts), one of the two meta-null writers 5B-G1 accepts.
+      // (A successor claim cannot take the mode while the receiving flag is
+      // set, so this is the window in which a receiving direct call meets
+      // the fence.)
+      let resolveInit!: () => void;
+      vi.mocked(initAudio).mockImplementationOnce(
+        () => new Promise<void>((resolve) => (resolveInit = resolve)),
+      );
+      const replacement = createMediaConnection();
+      bus.emit('system-audio:incoming-call', replacement.mediaConn, 'STEREO');
+      expect(timerMocks.timers.has(stereoReplacementWatchdogName)).toBe(true);
+      replacement.emit('stream', audioStreamWithTrack());
+      await flushAsyncStreamHandler();
+      setState('player.currentTrackMeta', null);
+      resolveInit();
+      await flushAsyncStreamHandler();
+
+      // The slot refuses the attach and drops the route's previous source
+      // (the replaced call's stream), so nothing of the share stays on the
+      // graph. The refused call stays open: closing it would hand this guest
+      // to the SFU on the host (STOP, START, READY). Its replacement deadline
+      // goes with the refusal, so it cannot expire the reception (and close
+      // the call) 30 s later with receive_failed.
+      expect(createMediaStreamSource).toHaveBeenCalledOnce();
+      expect(firstSource.disconnect).toHaveBeenCalledOnce();
+      expect(getSystemAudioGuestDebugSnapshot()).toMatchObject({
+        gotStereo: false,
+        sourceStereo: false,
+      });
+      expect(replacement.mediaConn.close).not.toHaveBeenCalled();
+      expect(timerMocks.timers.has(stereoReplacementWatchdogName)).toBe(false);
+      expect(getState('player.currentTrackMeta')).toBeNull();
+      expect(toast).not.toHaveBeenCalled();
+
+      // STOP closes the call through the route's end port, with no notice.
+      await handleData({ type: MSG.SYSTEM_AUDIO_STOP }, hostConn);
+      expect(replacement.mediaConn.close).toHaveBeenCalledOnce();
+      expect(getState('systemAudio.isReceiving')).toBe(false);
+      expect(toast).not.toHaveBeenCalled();
     });
   });
 });

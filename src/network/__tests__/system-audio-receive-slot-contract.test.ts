@@ -403,26 +403,48 @@ describe('Standard P2P receive: successor owners and force-stop', () => {
     });
   });
 
-  it('S9 gap: a successor that claims playback while initAudio waits is overwritten by the attach', async () => {
+  it('S9, fixed in 5B-G1: a successor that claims playback while initAudio waits keeps playing; the call stays open until STOP', async () => {
     await start();
     webAudio.suspend();
-    directCall().stream(streamOf('p2p-a'));
+    const call = directCall();
+    call.stream(streamOf('p2p-a'));
     await advance(100);
     claimPlaybackOwner('file', { currentTrackMeta: createFileTrackMeta('successor.mp3') });
 
     webAudio.finishResume();
     await advance(0);
-    // Known gap (C4 critique, S9): none of the three attach copies re-checks
-    // the placeholder or owner after `await initAudio()`, so system audio
-    // takes playback back under the successor's title. Planned: the slot's
-    // attach fence (C4-3), an intended change needing owner sign-off.
-    expect(slot()).toMatchObject({
-      receiving: true,
-      mode: 'system-audio',
+    // Fixed in 5B-G1 (gap 2, P5-D5 A): the slot attaches only while its
+    // placeholder is current. Before, the attach took playback back under
+    // the successor's title. The refused attach drops the primer the call
+    // took on arrival and writes nothing.
+    const successor = {
+      receiving: false,
+      mode: 'file',
       activity: 'playing',
       title: 'successor',
-      sources: ['p2p-a'],
-    });
+      placeholder: false,
+      sources: [],
+      primers: 0,
+    };
+    expect(slot()).toEqual(successor);
+    expect(seen.counts.visualizerStarts).toBe(0);
+    // The guest keeps the call open: a close would send media-close, and the
+    // host would hand this guest to the SFU with STOP, START and READY, whose
+    // START stops the successor (system-audio-host.test.ts pins that an open
+    // call with no close or error gets no handoff).
+    expect(call.closeCount()).toBe(0);
+    await advance(60_000);
+    expect(call.closeCount()).toBe(0);
+    expect(slot()).toEqual(successor);
+    expect(seen.toasts).toEqual([]);
+    expect(seen.counts.receiveTimeouts).toBe(0);
+
+    // STOP closes the call through the route's end port and leaves the
+    // successor alone.
+    await stop();
+    expect(call.closeCount()).toBe(1);
+    expect(slot()).toEqual(successor);
+    expect(seen.toasts).toEqual([]);
   });
 
   it('force-stop ends reception as a transition: no toast, no second media stop, nothing resumed', async () => {
@@ -662,7 +684,7 @@ describe('Standard SFU guest receive', () => {
     expect(getGuestSystemAudioShareRoute()).toBe('sfu-remote');
   });
 
-  it('S9 gap (SFU): a successor that claims playback while the SFU attach waits in initAudio is overwritten', async () => {
+  it('S9 (SFU), fixed in 5B-G1: a successor that claims playback while the SFU attach waits in initAudio keeps playing; the subscription closes', async () => {
     await start();
     webAudio.suspend();
     await ready('rt_host_session_1');
@@ -672,18 +694,28 @@ describe('Standard SFU guest receive', () => {
 
     webAudio.finishResume();
     await advance(0);
-    // Known gap (C4 critique S9, same as the P2P row): connectGuestTrack
-    // re-checks only its subscriber PC after `await initAudio()`, so system
-    // audio takes playback back under the successor's title. Planned: the
-    // slot's attach fence (C4-3), which C4-4 inherits for this route; an
-    // intended change needing owner sign-off.
-    expect(slot()).toMatchObject({
-      receiving: true,
-      mode: 'system-audio',
+    // Fixed in 5B-G1 (gap 2, P5-D5 A, same as the P2P row): the slot refuses
+    // the attach once its placeholder is gone, and the SFU adapter closes its
+    // subscription as it does for the trust boundary's refusal. Before, the
+    // attach took playback back under the successor's title.
+    const successor = {
+      receiving: false,
+      mode: 'file',
       activity: 'playing',
       title: 'successor',
-      sources: ['sfu-remote-audio-1'],
-    });
+      placeholder: false,
+      sources: [],
+      primers: 0,
+    };
+    expect(slot()).toEqual(successor);
+    expect(seen.counts.visualizerStarts).toBe(0);
+    expect(FakeRTCPeerConnection.instances[0].closed).toBe(true);
+    await advance(0);
+    expect(realtime.count('tracks-close')).toBe(1);
+    await advance(60_000);
+    expect(slot()).toEqual(successor);
+    expect(seen.toasts).toEqual([]);
+    expect(seen.counts.receiveTimeouts).toBe(0);
   });
 
   it('S8b (SFU): STOP while the SFU attach waits in initAudio after the boundary resolved never connects', async () => {

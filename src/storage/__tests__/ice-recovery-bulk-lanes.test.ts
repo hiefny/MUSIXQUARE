@@ -42,23 +42,26 @@ import { cancelOutgoingFileTransfers } from '../transfer-send.ts';
  * outage, and the guest's stall request asks for it on the main file lane.
  *
  * A guest awaiting the preload takes the main FILE_START while its own route
- * is 'local' (transfer-receive.ts shouldAcceptLocalDirectFileStart), and from
- * 9.0.9 also while its route is still 'unknown' when the header names the
- * exact tuple its own recovery request asked for on that connection: the
- * host's route publication travels on the control route, and the bulk channel
- * that carries the header can overtake it. The host learns the recovered route
- * only by re-detecting it (host.ts). The paused preload therefore always
- * restarts from chunk 0 at recovery, and the main lane wins the exact tuple
- * (connection, queueItemId, sessionId) only when its stream starts after the
- * host has re-detected the guest as local and told it so, with no recovery
- * announcement since: the restart then stops at its next check and owes the
- * guest the deferred PRELOAD_ABORT for its prefix. Otherwise (the host
- * re-detects 'remote', has not re-detected yet, announced another recovery
- * after 'local', or the main header was already queued) the preload keeps
- * going as in 9.0.8: a guest that dropped the main header still plays the
- * track, and one that took it plays the main lane while the restart also
- * reaches its END, as a local guest did in 9.0.8. Until 9.0.8 both lanes
- * always carried the whole file.
+ * is 'local', and from 9.0.12 (C5-12 Inc 1) on any route when the header
+ * names a session the host admitted to it directly on that connection
+ * (transfer-receive.ts shouldAcceptLocalDirectFileStart): the main lane the
+ * host lets the preload yield to always carries the preload's own session,
+ * and its route publication travels on the control route while the bulk
+ * channel that carries the header can overtake it. A 9.0.9 to 9.0.11 guest
+ * took the header while 'unknown' only for the exact tuple its own recovery
+ * request asked for; a 9.0.8 or older guest only while 'local'. The host
+ * learns the recovered route only by re-detecting it (host.ts). The paused
+ * preload therefore always restarts from chunk 0 at recovery, and the main
+ * lane wins the exact tuple (connection, queueItemId, sessionId) only when its
+ * stream starts after the host has re-detected the guest as local and told it
+ * so, with no recovery announcement since: the restart then stops at its next
+ * check and owes the guest the deferred PRELOAD_ABORT for its prefix.
+ * Otherwise (the host re-detects 'remote', has not re-detected yet, announced
+ * another recovery after 'local', or the main header was already queued) the
+ * preload keeps going as in 9.0.8: the guest takes the main header and plays
+ * the main lane while the restart also reaches its END, as a local guest did
+ * in 9.0.8 (an older guest that dropped the header plays the restarted
+ * preload). Until 9.0.8 both lanes always carried the whole file.
  */
 
 // Native decode alone is stubbed. The guest's choice stays observable: the main
@@ -544,44 +547,6 @@ async function expectGuestPlayedSurvivingMainLane(
 }
 
 /**
- * A guest that is remote at the main FILE_START drops it and plays the
- * restarted preload: its one usable stream, as in 9.0.8.
- */
-async function expectGuestPlaysRestartedPreload(
-  { sent, sid, request }: HostRun,
-  guestRoute: 'remote',
-): Promise<void> {
-  resetAll();
-  initRoom();
-  const guest = await guestAwaitingPromotedPreload(sent, request);
-  setState('network.connectionType', guestRoute);
-
-  const resumed = afterOutage(sent);
-  const mainStart = resumed.findIndex(({ frame }) => frame.type === MSG.FILE_START);
-  const preloadEnd = resumed.findIndex(({ frame }) => frame.type === MSG.PRELOAD_END);
-  expect(preloadEnd, 'the restarted preload reaches its END').toBeGreaterThan(mainStart);
-  await guest.deliver(resumed.slice(0, mainStart + 1));
-  // Not local at the header: the guest drops it and keeps awaiting the preload.
-  expect(getState('playback.lifecycle')).toBe(PLAYBACK_STATE.AWAITING_PRELOAD);
-  expect(getState('transfer.state')).not.toBe(TRANSFER_STATE.RECEIVING);
-
-  // The restarted preload completes and the guest activates it.
-  await guest.deliver(resumed.slice(mainStart + 1, preloadEnd + 1));
-  expect(vi.mocked(loadPreloadedTrack)).toHaveBeenCalledTimes(1);
-  expect(vi.mocked(loadPreloadedTrack).mock.calls[0]![0]).toBe(NEXT);
-  expect(getState('playback.lifecycle')).toBe(PLAYBACK_STATE.DECODING);
-  expect(getState('preload.sessionState').get(sid)).toMatchObject({
-    finalized: true,
-    skipped: false,
-    progress: 3,
-  });
-  await guest.deliver(resumed.slice(preloadEnd + 1));
-  await vi.advanceTimersByTimeAsync(1_000);
-  expect(getState('playback.lifecycle')).not.toBe(PLAYBACK_STATE.AWAITING_PRELOAD);
-  expect(guest.outgoing.filter(({ type }) => type === MSG.REQUEST_DATA_RECOVERY)).toHaveLength(1);
-}
-
-/**
  * A guest that takes the main FILE_START plays the main lane, and the kept
  * restart also reaches its END, as for a local guest in 9.0.8. When the main
  * header came first, the guest keeps that preload as a second resident copy;
@@ -590,7 +555,7 @@ async function expectGuestPlaysRestartedPreload(
  */
 async function expectGuestPlaysMainLaneBesideKeptRestart(
   { sent, sid, request }: HostRun,
-  guestRoute: 'local' | 'unknown',
+  guestRoute: 'local' | 'unknown' | 'remote',
 ): Promise<void> {
   resetAll();
   initRoom();
@@ -605,8 +570,8 @@ async function expectGuestPlaysMainLaneBesideKeptRestart(
     'the host kept the restart',
   ).toBe(true);
   await guest.deliver(resumed.slice(0, mainStart + 1));
-  // The guest takes the header: its route is local, or the header names the
-  // exact tuple its own recovery request asked for.
+  // The guest takes the header on any route: it names the preload's own
+  // session, which the host admitted to it directly on this connection.
   expect(getState('playback.lifecycle')).toBe(PLAYBACK_STATE.DOWNLOADING);
   expect(getState('transfer.state')).toBe(TRANSFER_STATE.RECEIVING);
   await guest.deliver(resumed.slice(mainStart + 1));
@@ -785,8 +750,8 @@ describe('the guest under one stream per tuple', () => {
   // sends that publication (the device list) on the control route and the main
   // FILE_START on the independently ordered bulk channel, so the header can
   // overtake it while the guest's own route is still 'unknown' from its
-  // recovery reset. The header names the exact tuple the guest's own recovery
-  // request asked for on that connection, so the guest takes it.
+  // recovery reset. The header names the preload's own session, admitted
+  // directly on that connection, so the guest takes it.
   it('takes the main lane it asked for when the header overtakes the local route publication', async () => {
     const { sent, sid, request } = await runHost('after-recovery', 'local');
     resetAll();
@@ -816,36 +781,84 @@ describe('the guest under one stream per tuple', () => {
     await expectGuestPlayedSurvivingMainLane(guest.outgoing, sid);
   });
 
-  // The exception is the guest's own request and nothing wider: with its route
-  // still unknown, a guest awaiting the preload drops a main FILE_START it did
-  // not ask for, one before its stall waiter asks or one for another session
-  // of the same queue item, as in 9.0.8.
-  it.each(['before its request', 'for another session'] as const)(
-    'drops a main FILE_START %s while its route is unknown',
-    async (variant) => {
+  // RO-18 path 2. The guest applied the host's 'local' device list, then its
+  // own recovery reset its route and its own re-detection ended 'remote' (the
+  // asymmetry it otherwise settles by trusting the host). The host published
+  // 'local' and lets the restart yield. The header still names the preload's
+  // own session, admitted directly on that connection, so the guest takes it.
+  it('takes the main lane for the preload it awaits when its own re-detection ends remote', async () => {
+    const { sent, sid, request } = await runHost('after-recovery', 'local');
+    resetAll();
+    initRoom();
+    const guest = await guestAwaitingPromotedPreload(sent, request);
+    setState('network.connectionType', 'remote');
+
+    const resumed = afterOutage(sent);
+    const mainStart = resumed.findIndex(({ frame }) => frame.type === MSG.FILE_START);
+    expect(resumed.slice(mainStart).some(({ frame }) => frame.type === MSG.PRELOAD_ABORT)).toBe(
+      true,
+    );
+    await guest.deliver(resumed.slice(0, mainStart + 1));
+    expect(getState('playback.lifecycle')).toBe(PLAYBACK_STATE.DOWNLOADING);
+    expect(getState('playback.loadSource')).toBe(LOAD_SOURCE.FRESH);
+    expect(getState('transfer.state')).toBe(TRANSFER_STATE.RECEIVING);
+    await guest.deliver(resumed.slice(mainStart + 1));
+    await vi.advanceTimersByTimeAsync(1_000);
+
+    await expectGuestPlayedSurvivingMainLane(guest.outgoing, sid);
+  });
+
+  // The header that answers no request yet: a guest awaiting the preload takes
+  // a main FILE_START for the preload's own session before its stall waiter
+  // asks, whatever its route (a host bootstrap or another requester started
+  // that main lane), and then has nothing to ask for.
+  it.each(['unknown', 'remote'] as const)(
+    'takes a main FILE_START for the preload it awaits before its request while its route is %s',
+    async (route) => {
+      const { sent, sid } = await runHost('after-recovery', 'local');
+      const mainLane = sent.filter(({ frame }) => String(frame.type).startsWith('file-'));
+      expect(mainLane.map(tag)).toEqual(MAIN_LANE);
+      resetAll();
+      initRoom();
+      const guest = becomeGuest();
+      await guest.deliver([...sent.slice(0, 2), PLAY]);
+      await guest.advanceTo(REQUEST_AT - 2);
+      setState('network.connectionType', route);
+      await guest.deliver([{ at: 0, frame: mainLane[0]!.frame }]);
+
+      expect(getState('playback.lifecycle')).toBe(PLAYBACK_STATE.DOWNLOADING);
+      expect(getState('transfer.state')).toBe(TRANSFER_STATE.RECEIVING);
+      await guest.deliver(mainLane.slice(1).map(({ frame }) => ({ at: 0, frame })));
+      await guest.advanceTo(REQUEST_AT + 1_000);
+
+      expect(vi.mocked(finalizeGuestFile)).toHaveBeenCalledTimes(1);
+      expect(vi.mocked(finalizeGuestFile)).toHaveBeenCalledWith(expect.any(File), NEXT, sid);
+      expect(getState('playback.lifecycle')).toBe(PLAYBACK_STATE.DECODING);
+      expect(await storedBytesEqual(false, sid)).toBe(true);
+      expect(vi.mocked(loadPreloadedTrack)).not.toHaveBeenCalled();
+      expect(guest.outgoing.filter(({ type }) => type === MSG.REQUEST_DATA_RECOVERY)).toEqual([]);
+    },
+  );
+
+  // Nothing wider: while its route is not local, a guest awaiting the preload
+  // drops a main FILE_START for another session of the same queue item, one
+  // the host never admitted to it directly, as in 9.0.8.
+  it.each(['unknown', 'remote'] as const)(
+    'drops a main FILE_START for another session while its route is %s',
+    async (route) => {
       const { sent, sid, request } = await runHost('after-recovery', 'local');
       const mainStart = sent.find(({ frame }) => frame.type === MSG.FILE_START)!;
       resetAll();
       initRoom();
-      let guest: ReturnType<typeof becomeGuest>;
-      let header: Frame;
-      if (variant === 'before its request') {
-        guest = becomeGuest();
-        await guest.deliver([...sent.slice(0, 2), PLAY]);
-        await guest.advanceTo(REQUEST_AT - 2);
-        header = mainStart.frame;
-      } else {
-        guest = await guestAwaitingPromotedPreload(sent, request);
-        header = { ...mainStart.frame, sessionId: sid + 1 };
-      }
-      setState('network.connectionType', 'unknown');
-      await guest.deliver([{ at: 0, frame: header }]);
+      const guest = await guestAwaitingPromotedPreload(sent, request);
+      setState('network.connectionType', route);
+      await guest.deliver([{ at: 0, frame: { ...mainStart.frame, sessionId: sid + 1 } }]);
 
       expect(getState('playback.lifecycle')).toBe(PLAYBACK_STATE.AWAITING_PRELOAD);
       expect(getState('transfer.state')).not.toBe(TRANSFER_STATE.RECEIVING);
       expect(storedFileAdmissionStatsForTests().filter((a) => !a.isPreload)).toEqual([]);
       expect(guest.outgoing.filter(({ type }) => type === MSG.REQUEST_DATA_RECOVERY)).toHaveLength(
-        variant === 'before its request' ? 0 : 1,
+        1,
       );
     },
   );
@@ -899,17 +912,21 @@ describe('the guest under one stream per tuple', () => {
     expect(vi.mocked(loadPreloadedTrack)).not.toHaveBeenCalled();
   });
 
-  // A guest awaiting the preload drops the main FILE_START and its chunks
-  // while its own route is remote when the header arrives. Its 10 s stall
-  // waiter has already asked once, and nothing else asks again, so the
-  // restarted preload is its one usable stream.
+  // The host kept the restart, and the guest's own route is remote when the
+  // main header arrives. Until 9.0.11 the guest dropped that header and its
+  // chunks and played the restarted preload; from 9.0.12 the header names the
+  // preload's own admitted direct session, so the guest plays the main lane
+  // its stall waiter asked for while the restart also reaches its END.
   it.each([
     { arrival: 'during-outage', hostRoute: 'remote', guestRoute: 'remote' },
     { arrival: 'after-recovery', hostRoute: 'remote', guestRoute: 'remote' },
   ] as const)(
-    'plays the restarted preload when its route is $guestRoute at the main FILE_START (request $arrival, host re-detects $hostRoute)',
+    'plays the main lane beside the kept restart when its route is $guestRoute at the main FILE_START (request $arrival, host re-detects $hostRoute)',
     async ({ arrival, hostRoute, guestRoute }) => {
-      await expectGuestPlaysRestartedPreload(await runHost(arrival, hostRoute), guestRoute);
+      await expectGuestPlaysMainLaneBesideKeptRestart(
+        await runHost(arrival, hostRoute),
+        guestRoute,
+      );
     },
   );
 
@@ -917,9 +934,9 @@ describe('the guest under one stream per tuple', () => {
   // resets and re-detects its own route as well, and is remote at the main
   // header when it re-detects 'remote'.
   it.each([{ reannounced: 'remote', guestRoute: 'remote' }] as const)(
-    'plays the restarted preload when its route is $guestRoute at the main FILE_START after a second recovery announcement (host re-detects $reannounced)',
+    'plays the main lane beside the kept restart when its route is $guestRoute at the main FILE_START after a second recovery announcement (host re-detects $reannounced)',
     async ({ reannounced, guestRoute }) => {
-      await expectGuestPlaysRestartedPreload(
+      await expectGuestPlaysMainLaneBesideKeptRestart(
         await runHost('after-recovery', 'local', reannounced),
         guestRoute,
       );
@@ -927,10 +944,10 @@ describe('the guest under one stream per tuple', () => {
   );
 
   // The host kept the restart, and the guest takes the main header: its route
-  // is local again, or still unknown while the header names the exact tuple its
-  // own recovery request asked for. It plays the main lane and the restarted
-  // preload also reaches its END, as for a local guest in 9.0.8 (a second
-  // resident copy when the main header came first).
+  // is local again, or still unknown while the header names the preload's own
+  // admitted direct session. It plays the main lane and the restarted preload
+  // also reaches its END, as for a local guest in 9.0.8 (a second resident
+  // copy when the main header came first).
   it.each([
     // The header queued into the outage reached a guest already local again.
     { arrival: 'during-outage', hostRoute: 'local', guestRoute: 'local' },

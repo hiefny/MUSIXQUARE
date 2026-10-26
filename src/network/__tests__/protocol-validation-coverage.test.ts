@@ -388,24 +388,29 @@ describe('bounded control-frame validation', () => {
     expect(handler.mock.calls[1]?.[0]).toEqual(scheduled);
   });
 
-  it('accepts legacy and current sync pings but rejects unsafe clocks and ids', async () => {
+  it('validates a sync ping by its id alone and ignores a guestTime the host never reads', async () => {
     const handler = vi.fn();
     registerHandler(MSG.SYNC_PING, handler);
     const conn = connection('sync-ping-validation');
 
     await handleData({ type: MSG.SYNC_PING, pingId: 0 }, conn);
+    // A 9.0.14 guest's resume challenge still carries guestTime (old-version
+    // removal train 2, survey OV-A12): ignored like any other unread key.
     await handleData({ type: MSG.SYNC_PING, pingId: 1, guestTime: 123.5 }, conn);
+    await handleData({ type: MSG.SYNC_PING, pingId: 2, guestTime: -1 }, conn);
+    await handleData({ type: MSG.SYNC_PING, pingId: 3, guestTime: 'stale' }, conn);
     for (const frame of [
       { type: MSG.SYNC_PING, pingId: -1 },
       { type: MSG.SYNC_PING, pingId: 1.5 },
       { type: MSG.SYNC_PING, pingId: Number.MAX_SAFE_INTEGER + 1 },
-      { type: MSG.SYNC_PING, pingId: 2, guestTime: -1 },
-      { type: MSG.SYNC_PING, pingId: 2, guestTime: Number.POSITIVE_INFINITY },
+      { type: MSG.SYNC_PING },
     ]) {
       await handleData(frame, conn);
     }
 
-    expect(handler).toHaveBeenCalledTimes(2);
+    expect(handler.mock.calls.map(([frame]) => (frame as { pingId: number }).pingId)).toEqual([
+      0, 1, 2, 3,
+    ]);
   });
 
   it('bounds chat moderation targets, slowmode, and filter values', async () => {

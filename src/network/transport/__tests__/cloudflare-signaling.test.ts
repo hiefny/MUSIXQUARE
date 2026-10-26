@@ -35,6 +35,9 @@ type FakeSocketListener = (event: {
 }) => void;
 type FakeChannelListener = (event: { data?: unknown; error?: unknown }) => void;
 
+const SIGNALING_LIVENESS_PING = '{"type":"signaling-liveness-ping","version":1}';
+const SIGNALING_LIVENESS_PONG = '{"type":"signaling-liveness-pong","version":1}';
+
 class FakeWebSocket {
   static readonly CONNECTING = 0;
   static readonly OPEN = 1;
@@ -70,6 +73,14 @@ class FakeWebSocket {
 
   send(data: string): void {
     this.sent.push(data);
+    // Like the signaling Durable Object's auto response, which answers this
+    // fixed ping whether or not the Worker advertises the liveness marker.
+    if (data === SIGNALING_LIVENESS_PING) {
+      queueMicrotask(() => {
+        if (this.readyState === FakeWebSocket.OPEN)
+          this.dispatch('message', SIGNALING_LIVENESS_PONG);
+      });
+    }
   }
 
   close(code = 1000, reason = ''): void {
@@ -811,13 +822,55 @@ describe('bounded Standard-room ICE restart', () => {
     peer.destroy();
   });
 
-  it('keeps legacy peers on their existing terminal-failure behavior', async () => {
-    const { peer, conn, socket, pc } = await establishGuestWithSignalingState();
+  it('restarts a guest whose first answer carried no iceRestartVersion', async () => {
+    // Every Standard end since 8.6.39 marks its first offer and answer, and the
+    // App build floor (787) admits none older, so the marker no longer gates
+    // the restart binding (old-version removal train 2, OV-F04 stage 1).
+    const { peer, conn, socket, pc } = await establishGuestWithSignalingState(false);
+    const initial = sentOfType(socket, 'signal-offer')[0];
     pc.connectionState = 'failed';
     pc.dispatch('connectionstatechange', {});
-    await flushAsync();
-    expect(conn.open).toBe(false);
-    expect(sentOfType(socket, 'signal-offer')).toHaveLength(1);
+    await vi.waitFor(() => expect(sentOfType(socket, 'signal-offer')).toHaveLength(2));
+    expect(sentOfType(socket, 'signal-offer')[1]).toMatchObject({
+      restartOf: initial?.negotiationId,
+      iceRestartVersion: 1,
+    });
+    expect(conn.open).toBe(true);
+    expect(conn.peerConnection).toBe(pc);
+    peer.destroy();
+  });
+
+  it('answers an exact restart in place for a guest whose first offer carried no iceRestartVersion', async () => {
+    const { peer, conn, socket, pc } = await establishHostWithSignalingState(
+      'guest-unmarked',
+      false,
+    );
+    expect(sentOfType(socket, 'signal-answer')[0]).toMatchObject({
+      negotiationId: NEGOTIATION_ID,
+      iceRestartVersion: 1,
+    });
+    const onConnection = vi.fn();
+    peer.on('connection', onConnection);
+    socket.dispatch(
+      'message',
+      JSON.stringify({
+        type: 'signal-offer',
+        from: 'guest-unmarked',
+        iceRestartVersion: 1,
+        negotiationId: NEXT_NEGOTIATION_ID,
+        restartOf: NEGOTIATION_ID,
+        sdp: { type: 'offer', sdp: 'restart-offer' },
+      }),
+    );
+    await vi.waitFor(() => expect(sentOfType(socket, 'signal-answer')).toHaveLength(2));
+    expect(sentOfType(socket, 'signal-answer')[1]).toMatchObject({
+      negotiationId: NEXT_NEGOTIATION_ID,
+      iceRestartVersion: 1,
+    });
+    expect(FakeRTCPeerConnection.instances).toHaveLength(1);
+    expect(conn.peerConnection).toBe(pc);
+    expect(conn.open).toBe(true);
+    expect(onConnection).not.toHaveBeenCalled();
     peer.destroy();
   });
 
@@ -1119,13 +1172,27 @@ describe('Remote Share upload assertions', () => {
     return { peer, socket };
   }
 
-  it('sends requests only after the admitted Worker advertises support', async () => {
-    const legacy = await admittedHost(false);
-    await expect(
-      legacy.peer.requestRemoteShareUploadAssertion(assertionRequest),
-    ).resolves.toBeNull();
-    expect(sentOfType(legacy.socket, 'remote-share-upload-assertion-request')).toHaveLength(0);
-    legacy.peer.destroy();
+  it('sends requests on an admitted host socket whatever its peer-open advertises', async () => {
+    // Since old-version removal train 2 (survey OV-A19) the client no longer
+    // reads the Worker's marker: a Worker without the assertion secret answers
+    // with its own error, which rejects instead of an assertion-free null.
+    const unmarked = await admittedHost(false);
+    const refused = unmarked.peer.requestRemoteShareUploadAssertion(assertionRequest);
+    const refusedRequest = sentOfType(unmarked.socket, 'remote-share-upload-assertion-request')[0];
+    expect(refusedRequest).toMatchObject({
+      type: 'remote-share-upload-assertion-request',
+      ...assertionRequest,
+    });
+    unmarked.socket.dispatch(
+      'message',
+      JSON.stringify({
+        type: 'remote-share-upload-assertion-error',
+        correlationId: refusedRequest?.correlationId,
+        errorType: 'REMOTE_SHARE_UPLOAD_ASSERTION_UNAVAILABLE',
+      }),
+    );
+    await expect(refused).rejects.toThrow('REMOTE_SHARE_UPLOAD_ASSERTION_UNAVAILABLE');
+    unmarked.peer.destroy();
 
     const current = await admittedHost();
     const pending = current.peer.requestRemoteShareUploadAssertion(assertionRequest);
@@ -1225,14 +1292,29 @@ describe('Remote Share upload assertions', () => {
     const replacement = FakeWebSocket.instances.at(-1)!;
     expect(replacement).not.toBe(socket);
     replacement.dispatch('open');
+    await flushAsync();
+    // Opened but not yet admitted: still unavailable, never a downgrade.
+    await expect(
+      peer.requestRemoteShareUploadAssertion({ ...assertionRequest, sessionId: 11 }),
+    ).rejects.toThrow('REMOTE_SHARE_UPLOAD_ASSERTION_UNAVAILABLE');
     replacement.dispatch(
       'message',
       JSON.stringify({ type: 'peer-open', peerId: '123456', roomId: '123456' }),
     );
     await flushAsync();
-    await expect(
-      peer.requestRemoteShareUploadAssertion({ ...assertionRequest, sessionId: 11 }),
-    ).rejects.toThrow('REMOTE_SHARE_UPLOAD_ASSERTION_UNAVAILABLE');
+    const admitted = peer.requestRemoteShareUploadAssertion({ ...assertionRequest, sessionId: 12 });
+    const request = sentOfType(replacement, 'remote-share-upload-assertion-request')[0];
+    expect(request).toMatchObject({ sessionId: 12 });
+    replacement.dispatch(
+      'message',
+      JSON.stringify({
+        type: 'remote-share-upload-assertion',
+        correlationId: request?.correlationId,
+        assertion: assertionToken,
+        expiresAt: Math.floor(Date.now() / 1000) + 60,
+      }),
+    );
+    await expect(admitted).resolves.toBe(assertionToken);
     peer.destroy();
   });
 });
@@ -3919,6 +4001,27 @@ describe('Standard HTTPS route preference circuit breaker', () => {
     now += 1;
     guest.destroy();
     expect(__cloudflareSignalingForTests.pageSignalingSocketHandleCount()).toBe(0);
+  });
+
+  it('never starts the signaling liveness probe on an HTTP bridge host socket', async () => {
+    installFakeWebSocket();
+    const bridge = installHttpBridgeHarness();
+    // The bridge relays the Worker's peer-open as is, marker included.
+    bridge.nextAuthorityFrame = {
+      type: 'peer-open',
+      peerId: '123456',
+      roomId: '123456',
+      signalingLivenessVersion: 1,
+    };
+    __cloudflareSignalingForTests.promoteStandardHttpPreference();
+    const peer = new CloudflareSignalingPeer('123456', fallbackOptions());
+    requestRoomPin(peer, '12345678');
+    await vi.waitFor(() => expect(peer.open).toBe(true));
+    expect(FakeWebSocket.instances).toHaveLength(0);
+    const monitor = (peer as unknown as { signalingLiveness: { probes: Map<unknown, unknown> } })
+      .signalingLiveness;
+    expect(monitor.probes.size).toBe(0);
+    peer.destroy();
   });
 
   it('expires lazily at five minutes and does not slide on repeated promotion', async () => {
@@ -7642,7 +7745,10 @@ describe('Standard-room PIN membership commits', () => {
     peer.destroy();
   });
 
-  it('sends membership only to a socket whose peer-open advertised it', async () => {
+  it('sends membership to an admitted socket whose peer-open carries no marker', async () => {
+    // Since old-version removal train 2 (survey OV-A19) the client no longer
+    // reads standardRoomPinMembershipVersion: every signaling Worker since
+    // 8.10.0 takes the directive, and none older may serve a 9.0.14 App.
     installFakeWebSocket();
     const peer = createHostPeer();
     await Promise.resolve();
@@ -7655,20 +7761,22 @@ describe('Standard-room PIN membership commits', () => {
     flagged.close();
     peer.reconnect();
     const { socket: unflagged } = await admitHost(1, { flag: false });
-    const legacyFrame = lastPinFrame(unflagged);
-    expect(legacyFrame).toEqual({
+    const replayed = lastPinFrame(unflagged);
+    expect(replayed).toEqual({
       type: 'room-password-set',
       password: '12345678',
       pinMutationId: expect.any(String),
+      existingParticipants: 'keep_present',
+      keptPeerIds: ['guest-1'],
     });
-    await ack(unflagged, legacyFrame?.pinMutationId);
-    expect(commit.settled).toEqual({ status: 'applied', membership: 'legacy' });
+    await ack(unflagged, replayed?.pinMutationId, { existingParticipants: 'keep_present' });
+    expect(commit.settled).toEqual({ status: 'applied', membership: 'keep_present' });
 
     // An acknowledgement without the matching echo is never reported as a
-    // membership commit, even on an advertising socket.
+    // membership commit.
     unflagged.close();
     peer.reconnect();
-    const { socket: reflagged } = await admitHost(2);
+    const { socket: reflagged } = await admitHost(2, { flag: false });
     const next = track(peer.setRoomPassword('87654321', { mode: 'revoke_all', keptPeerIds: [] }));
     await ack(reflagged, lastPinFrame(reflagged)?.pinMutationId);
     expect(next.settled).toEqual({ status: 'applied', membership: 'legacy' });
@@ -8271,7 +8379,8 @@ describe('logical connection close paths decided by the provider', () => {
     const { peer, conn, socket, pc } = await establishHostWithSignalingState('guest-left');
     const onClose = vi.fn();
     conn.on('close', onClose);
-    pc.connectionState = 'failed';
+    // A failed Standard route may still restart its ICE; a closed one is dead.
+    pc.connectionState = 'closed';
     socket.dispatch('message', JSON.stringify({ type: 'peer-left', peerId: 'guest-left' }));
     await flushAsync();
     expect(onClose).toHaveBeenCalledOnce();
@@ -8287,7 +8396,7 @@ describe('logical connection close paths decided by the provider', () => {
     const { peer, conn, socket, pc } = await establishGuestWithSignalingState();
     const onClose = vi.fn();
     conn.on('close', onClose);
-    pc.connectionState = 'failed';
+    pc.connectionState = 'closed';
     socket.dispatch('message', JSON.stringify({ type: 'peer-left', peerId: 'host' }));
     await flushAsync();
     expect(onClose).toHaveBeenCalledOnce();

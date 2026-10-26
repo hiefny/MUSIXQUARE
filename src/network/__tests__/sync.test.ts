@@ -486,7 +486,7 @@ describe('guest SYNC_PING', () => {
     const pings = hostConn.send.mock.calls
       .map(([frame]) => frame as Record<string, unknown>)
       .filter((frame) => frame.type === MSG.SYNC_PING);
-    // The host validator keeps guestTime optional, so the slimmer ping stays valid.
+    // The host validator reads only the ping id.
     expect(pings).toEqual([
       { type: MSG.SYNC_PING, pingId: expect.any(Number) },
       { type: MSG.SYNC_PING, pingId: expect.any(Number) },

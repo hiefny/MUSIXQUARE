@@ -134,8 +134,8 @@ gh run list --workflow e2e.yml --branch main --limit 3
       40377031462 뒤 [Release 40378059253](https://github.com/hiefny/MUSIXQUARE/actions/runs/40378059253)(target `all`,
       Developer API D1 false, `raise_app_build_floor` false, attempt 1)로 03:34 KST에 배포했다. 여섯 Worker의 버전, smoke, 공개
       확인은 [릴리스 이력](release-history.md)의 2026-10-27 03:34 행과 보고서 QA 라운드 5에 있다(§1은 2026-10-27 릴리스 A로
-      덮어썼고, 다섯 Worker는 지금도 이 릴리스의 버전이다). 여섯 Worker 모두 이
-      SHA의 버전이고, 배포 전 기준은 여섯 모두 9.0.14 `dd9c9d4d`였으며 checkpoint가 그대로 보존한다. smoke 503 실패는
+      덮어썼고, 다섯 Worker는 지금도 이 릴리스의 버전이다). 배포 때 여섯 Worker 모두 이
+      SHA의 버전이었고, 배포 전 기준은 여섯 모두 9.0.14 `dd9c9d4d`였으며 checkpoint가 그대로 보존한다. smoke 503 실패는
       없었다. 배포 직전 floor `status`는 돌리지 않았고, 릴리스 안의 신호 smoke와 계정 경계 smoke가 바닥 787을 읽었다. 신호
       smoke는 바닥 787이 켜진 운영에서 빌드 787 방장·게스트 입장과 빌드 없는 방장의 정확한 거절을 처음 봤다(아래 강제
       업데이트 항목). 같은 값 `set`(W-verify, 40379025557)은 통과했다(최근 해결 근거). 이 릴리스의 되돌리기 경계는 §4에

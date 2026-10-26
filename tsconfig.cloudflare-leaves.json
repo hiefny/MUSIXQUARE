@@ -24,6 +24,7 @@
     "cloudflare/pro-room-diagnostics.ts",
     "cloudflare/pro-room-body.ts",
     "cloudflare/pro-room-media-duration.ts",
+    "cloudflare/pro-room-media-timing.ts",
     "cloudflare/pro-room-mp4-duration.ts",
     "cloudflare/pro-room-claims.ts",
     "cloudflare/pro-room-crypto.ts",

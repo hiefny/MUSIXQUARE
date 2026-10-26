@@ -94,9 +94,9 @@ runbooks. Neither belongs in a general setup document.
 ## Maintained evidence and completed records
 
 - [Old-version removal train 2, release A: App compatibility code below the 787 build floor (2026-10-26)](design/old-version-removal-2a-app-2026-10-26.md):
-  evidence for the App release of the second removal train (not yet released, no version bump
-  yet; target `app`; its Worker release W shipped first on 2026-10-27 03:34 KST, keeps its own
-  report and is merged into this branch). It
+  evidence for the App release of the second removal train (9.0.15 / v788 from bump `8407046a`,
+  not yet released; target `app`; its Worker release W shipped first on 2026-10-27 03:34 KST,
+  keeps its own report and is merged into this branch). It
   removes App code that only served clients below the App build floor 787 (9.0.14), on in
   production since 2026-10-26 16:15 KST. Increment A-1, C5-12 Inc 3: after ICE
   recovery a preload yields to the main lane for the same tuple without waiting for the host's
@@ -124,10 +124,13 @@ runbooks. Neither belongs in a general setup document.
   increment with its commits, tests-first evidence, removed lines and who loses what, the
   registry and record changes (RO-18, RO-15, RO-06, RO-22, known-accepted #12 and #15, the PIN
   and PRO recovery notes), the guard baselines, the per-increment local checks, the train-end
-  lane checks (C5-0 lab, critical E2E, critical coverage), the mixed-version table, what it
-  skips and which train takes each item (release W, Phase 5 5B, train 3), the eager JS budget
-  (−1,102 B against main `dd9c9d4d`), the deploy order and versions with release W and 5B, the
-  rollback boundaries, and what is not verified.
+  lane checks (C5-0 lab, critical E2E, critical coverage), the merge with release W and the
+  post-bump final checks (unit 680 files / 16,052, Worker 67 / 3,182, full `build:checked`,
+  critical E2E 61/61, critical coverage 87 / 3,403, candidate Playwright 19/19, PRO Playwright
+  26/26, C5-0 lab 20/20), the mixed-version table, what it skips and which train takes each item
+  (release W, Phase 5 5B, train 3), the eager JS budget (465,767 B, −1,107 B against production
+  main `a3893f04`), the deploy order and versions with release W and 5B, the rollback
+  boundaries, and what is not verified.
 - [Old-version removal train 2, release W: Worker request shapes below the App build floor (2026-10-26)](design/old-version-removal-2w-workers-2026-10-26.md):
   evidence for the Workers-only release of the second old-version removal train (not yet released;
   target `all`, no SemVer or service-worker cache change, so no update dialog). With the App build

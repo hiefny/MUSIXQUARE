@@ -46,41 +46,38 @@ gh run list --workflow e2e.yml --branch main --limit 3
 해결하면 근거(커밋, 실행 ID, 문서)를 PR 설명에 적고 이 목록에서 지운다. 근거
 없이 완료로 표시하지 않는다.
 
-### 구버전 호환 코드 제거 열차 2 릴리스 A(배포 전): 바닥 787 아래만 섬기던 앱 쪽 호환 코드
+### 구버전 호환 코드 제거 열차 2 릴리스 A(9.0.15/v788, 배포 전): 바닥 787 아래만 섬기던 앱 쪽 호환 코드
 
-- [ ] 범위와 상태(오너 정책 2026-10-25 약 16:40 KST, 바닥 결정 약 18:30 KST, 작은 통신 필드 2026-10-26 약 00:10 KST,
-      5B와 병렬 약 14:10 KST): 최소 앱 빌드 787(2026-10-26 16:15 KST부터 켜짐) 뒤에야 지울 수 있는 앱 쪽 호환 코드.
-      브랜치 `agent/old-version-removal-2a`(origin/main `dd9c9d4d`에서 시작, 릴리스 W 배포 뒤의 origin/main `a3893f04`(#499, #500)를
-      합침 `bbc4d9bd`에서 받음)의 앱 증분
-      여섯마다 테스트 먼저, 코드, 기록 커밋이 있고 마지막 런타임 커밋은 `789848bc`, 버전은 아직 9.0.14 / v787이다.
-      A-1 C5-12 Inc 3(`23690c92`, 복구 뒤 미리받기가 방장의 경로 재판정 없이 같은 짝의 본 레인에 물러나고 경로 허락 기계를
-      지움, 기기 근거 세 줄은 바이트가 같음), A-2(`e1d4a25a`, bulk 수신확인과 제어 격리가 상대 hello를 기다리고 1초 대체를
-      지움, `restart-capable` 광고를 보내지 않음), A-3(`59cdda6d`, 신호 클라이언트가 Worker peer-open 표지와 첫 SDP 재시작
-      표지를 읽지 않음, 재개 확인 ping의 `guestTime` 삭제, 원격 공유 확인서는 'required'만), A-4(`18fd2d85`, DEMO_PLAY
-      `hostPlayAt`과 `FILE_R2_CAPABILITY` 보내기 중단으로 일반방 메시지 종류 103 → 102, SESSION_FULL `message`와
-      OPERATOR_TOAST `text`를 선택으로 받음, 열차 1이 남긴 받기 허용 정리), A-5(`ac04a57c`, PRO 클라이언트의 9.0.4 표지 아래
-      PRO Worker용 재시도·대체와 부르는 곳 없는 PRO API, 문구 키 다섯 삭제), A-6(`789848bc`, SW 활성화의 옛 runtime 캐시
-      청소와 루트 영문 매니페스트, 고아 문구 키 셋, 개발 프록시의 playlist-entry 경로 삭제, 업데이트 재로드 대체 갈래와 쿨다운
-      상한은 말만). 잃는 것: 운영의 787 이상 클라이언트는 없다. 787 아래 상대는 유효 바닥이 0인 창에서만 미리받기 뒤 '파일
-      요청 중' 멈춤, 8.11.22 이하와의 bulk 멈춤, 8.11.25~9.0.12와의 보조 경로 끊김 때 닫힘, 9.0.12 이하 데모 게스트의 데모
-      시작 실패, 9.0.12 이하 방장의 아홉째 로컬 게스트 REMOTE_FILE_UNAVAILABLE을 겪는다(오너 정책이 수용). 로컬 검증: 테스트
-      먼저(여섯 테스트 커밋이 부모 코드에서 의도한 행만 FAIL), 증분마다 typecheck(테스트 포함)·`check:workers`·lint·format·
-      가드 묶음(room-authority 직접 읽기 82 → 81로 내림, resource-ownership 48 records / 442 files 기준치 그대로, bus-pairing
-      202/202), 단위 680 files / 16,043(부모 16,062), Worker 67 files / 3,178, `build:checked`(bump 전이라
-      `guard:sw-cache-version`만 설계대로 FAIL, 나머지 PASS), 초기 JS 465,772 B(main `dd9c9d4d` 466,874 B 대비 −1,102 B,
-      유지 상한까지 25,796 B), 열차 끝 레인 검사(`d184518c`, 런타임 `789848bc`): 테스트 먼저 여섯 커밋 다시 확인(값 같음),
-      critical E2E 61/61, 핵심 커버리지 87 files / 3,402, 가드 묶음, C5-0 랩 `--repeat-each=2` 19/20(보조 경로 행의 한
-      반복이 회복 뒤 보조 채널 첫 데이터를 기다리다 일시정지 3초 창을 넘김, 앱 오류·유실 없음, 열차 1과 같은 랩 시간 여유
-      문제로 판독, 그 행만 다시 이 갈래 4/4와 main `dd9c9d4d` 4/4). 릴리스 W는 2026-10-27 03:34 KST에 배포됐고(Release
-      [40378059253](https://github.com/hiefny/MUSIXQUARE/actions/runs/40378059253), target `all`, `a3893f04`) W 직후 같은 값 `set`
-      [40379025557](https://github.com/hiefny/MUSIXQUARE/actions/runs/40379025557)이 통과했다(stored 787, effective 787, live App
-      787, client read 787). 합친 트리(`bbc4d9bd`)의 다시 검사: typecheck(테스트 포함 전체)·`check:workers`, 단위 680 files / 16,052, Worker 67 files / 3,182, 가드 묶음(room-authority 직접 읽기 81·구독 22·쓰기 13 그대로, resource-ownership 48 records / 442 files로 출력이 `d184518c`와 바이트가 같음) PASS, 기준치 변화 없음. 남은 것: 릴리스 W 기록 PR(문서만)이 main에
-      들어오면 다시 합침, 배포 직전 `status`로 바닥 787 이상 확인(요약 줄을 보고서에), bump(올리기 직전 fetch한 origin/main의 다음 패치와 epoch, W → A 순서면
-      9.0.15 / v788, 5B가 먼저면 9.0.16 / v789), bump 뒤 최종 검사, 열차 끝 세 렌즈 리뷰, PR CI, Codex, exact-main CI,
-      Release(target `app`, Developer API D1 false, `raise_app_build_floor` false), 기록 PR. 기록 PR은 §1을 덮어쓰며
-      '의존성·호환'에서 4B C5-12의 혼합 버전 남은 위험 문장(9.0.4~9.0.8 게스트, 이제 바닥 아래)을 빼고
-      `release-history.md`에 한 행을 더한다. 열차 3(보내는 쪽)의 바닥은 max(릴리스 A 빌드, 5B 빌드)다. 로컬 결과는
-      exact-main-SHA 후보를 대신하지 않는다. [보고서](design/old-version-removal-2a-app-2026-10-26.md).
+- [ ] 범위와 상태(오너 정책 2026-10-25 약 16:40 KST, 바닥 결정 약 18:30 KST, 작은 통신 필드 2026-10-26 약 00:10 KST, 5B와 병렬 약 14:10 KST): 최소 앱
+      빌드 787(2026-10-26 16:15 KST부터 켜짐) 뒤에야 지울 수 있는 앱 쪽 호환 코드. 브랜치 `agent/old-version-removal-2a`(origin/main `dd9c9d4d`에서
+      시작, 릴리스 W 배포 뒤의 origin/main `a3893f04`(#499, #500)를 합침 `bbc4d9bd`에서 받음)의 앱 증분 여섯마다 테스트 먼저, 코드, 기록 커밋이 있고, 마지막 런타임
+      커밋은 bump `8407046a`(9.0.15 / v788, 앱 빌드 788, 올리기 직전 fetch한 origin/main `a3893f04`는 9.0.14 / v787)다. A-1 C5-12 Inc
+      3(`23690c92`, 복구 뒤 미리받기가 방장의 경로 재판정 없이 같은 짝의 본 레인에 물러나고 경로 허락 기계를 지움, 기기 근거 세 줄은 바이트가 같음), A-2(`e1d4a25a`, bulk
+      수신확인과 제어 격리가 상대 hello를 기다리고 1초 대체를 지움, `restart-capable` 광고를 보내지 않음), A-3(`59cdda6d`, 신호 클라이언트가 Worker peer-open 표지와
+      첫 SDP 재시작 표지를 읽지 않음, 재개 확인 ping의 `guestTime` 삭제, 원격 공유 확인서는 'required'만), A-4(`18fd2d85`, DEMO_PLAY `hostPlayAt`과
+      `FILE_R2_CAPABILITY` 보내기 중단으로 일반방 메시지 종류 103 → 102, SESSION_FULL `message`와 OPERATOR_TOAST `text`를 선택으로 받음, 열차 1이 남긴
+      받기 허용 정리), A-5(`ac04a57c`, PRO 클라이언트의 9.0.4 표지 아래 PRO Worker용 재시도·대체와 부르는 곳 없는 PRO API, 문구 키 다섯 삭제), A-6(`789848bc`,
+      SW 활성화의 옛 runtime 캐시 청소와 루트 영문 매니페스트, 고아 문구 키 셋, 개발 프록시의 playlist-entry 경로 삭제, 업데이트 재로드 대체 갈래와 쿨다운 상한은 말만). 잃는 것:
+      운영의 787 이상 클라이언트는 없다. 787 아래 상대는 유효 바닥이 0인 창에서만 미리받기 뒤 '파일 요청 중' 멈춤, 8.11.22 이하와의 bulk 멈춤, 8.11.25~9.0.12와의 보조 경로 끊김
+      때 닫힘, 9.0.12 이하 데모 게스트의 데모 시작 실패, 9.0.12 이하 방장의 아홉째 로컬 게스트 REMOTE_FILE_UNAVAILABLE을 겪는다(오너 정책이 수용). 릴리스 W는
+      2026-10-27 03:34 KST에 배포됐고([Release 40378059253](https://github.com/hiefny/MUSIXQUARE/actions/runs/40378059253),
+      target `all`, `a3893f04`) W 직후 같은 값 `set`
+      [40379025557](https://github.com/hiefny/MUSIXQUARE/actions/runs/40379025557)이 통과했다(stored 787, effective 787, live
+      App 787, client read 787). 로컬 검증: 테스트 먼저(여섯 테스트 커밋이 부모 코드에서 의도한 행만 FAIL), 증분마다 typecheck(테스트
+      포함)·`check:workers`·lint·format·가드 묶음(room-authority 직접 읽기 82 → 81로 내림)과 단위, 열차 끝 레인 검사(`d184518c`)의 C5-0 랩
+      `--repeat-each=2` 19/20(보조 경로 행의 한 반복이 회복 뒤 보조 채널 첫 데이터를 기다리다 일시정지 3초 창을 넘김, 앱 오류·유실 없음, 열차 1과 같은 랩 시간 여유 문제로 판독, 그
+      행만 다시 이 갈래 4/4와 main `dd9c9d4d` 4/4), 합친 트리(`bbc4d9bd`)의 typecheck·단위·가드 다시 검사(기준치 변화 없음). bump 뒤 최종 검사(`8407046a`,
+      2026-10-27): `guard:release-identity`(9.0.15, v788)·`guard:sw-cache-version` PASS, typecheck(테스트
+      포함)·`check:workers`·lint·format, 단위 680 files / 16,052, Worker 67 files / 3,182, `build:checked` 전체 PASS(SW 앱 셸 96
+      자산), 가드 묶음(room-authority 직접 읽기 81·구독 22·쓰기 13, resource-ownership 48 records / 442 files, dead-exports 20/76,
+      bus-pairing 202/202), critical E2E 61/61, 핵심 커버리지 87 files / 3,403, 후보 Playwright 19/19, PRO Playwright 26/26, C5-0
+      랩 `--repeat-each=2` 20/20(보조 경로 행 2/2, 회복 뒤 보조 채널 첫 수신 0.5~2.5초), 초기 JS 465,767 B(운영 main `a3893f04` 466,874 B 대비
+      −1,107 B, 유지 상한까지 25,801 B). 운영 `a3893f04`와 견준 런타임 경로 변경은 App 79개, 다른 다섯 Worker 0개라 target `app`이다. 남은 것: 릴리스 W 기록
+      PR(문서만)이 main에 들어오면 다시 합침(bump는 그대로), 배포 직전 `status`로 바닥 787 이상 확인(요약 줄을 보고서에), 열차 끝 세 렌즈 리뷰, PR CI, Codex,
+      exact-main CI, Release(target `app`, Developer API D1 false, `raise_app_build_floor` false), 기록 PR. 기록 PR은 §1을 덮어쓰며
+      '의존성·호환'에서 4B C5-12의 혼합 버전 남은 위험 문장(9.0.4~9.0.8 게스트, 이제 바닥 아래)을 빼고 `release-history.md`에 한 행을 더한다. 열차 3(보내는 쪽)의 바닥은
+      max(릴리스 A 빌드 788, 5B 빌드)다. 로컬 결과는 exact-main-SHA 후보를 대신하지 않는다.
+      [보고서](design/old-version-removal-2a-app-2026-10-26.md).
 - [ ] 배포 뒤 실기기 확인(게이트 아님, 2026-10-25 약 01:50 KST 결정): 와이파이에서 LTE로 바꾸는 중 미리받기(A-1,
       `?mxqrLog=info`, 본 레인이 이미 그 짝을 잡은 경우 방장 줄은 `Resuming` 없이 `Paused`와 `Yielding`만), 강제 업데이트
       창의 적용 뒤 방장의 제자리 재로드가 창 없이 끝나는지(A-6), 9.0.14 기기와의 혼합 방 두 방향(로컬 파일 재생과 미리받기,

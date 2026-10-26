@@ -94,9 +94,10 @@ runbooks. Neither belongs in a general setup document.
 ## Maintained evidence and completed records
 
 - [Old-version removal train 2, release A: App compatibility code below the 787 build floor (2026-10-26)](design/old-version-removal-2a-app-2026-10-26.md):
-  evidence for the App release of the second removal train (9.0.15 / v788 from bump `8407046a`,
-  not yet released; target `app`; its Worker release W shipped first on 2026-10-27 03:34 KST,
-  keeps its own report and is merged into this branch). It
+  release evidence for the App release of the second removal train (9.0.15 / v788 from bump
+  `8407046a`, released 2026-10-27 06:20 KST in Release 40403240275 from main `5dd7cc1f`, target
+  `app`, with the update dialog; its Worker release W shipped first on 2026-10-27 03:34 KST and
+  keeps its own report, and Phase 5 5B follows as 9.0.16 / v789). It
   removes App code that only served clients below the App build floor 787 (9.0.14), on in
   production since 2026-10-26 16:15 KST. Increment A-1, C5-12 Inc 3: after ICE
   recovery a preload yields to the main lane for the same tuple without waiting for the host's
@@ -130,7 +131,11 @@ runbooks. Neither belongs in a general setup document.
   26/26, C5-0 lab 20/20), the mixed-version table, what it skips and which train takes each item
   (release W, Phase 5 5B, train 3), the eager JS budget (465,767 B, −1,107 B against production
   main `a3893f04`), the deploy order and versions with release W and 5B, the rollback
-  boundaries, and what is not verified.
+  boundaries, the PR CI, Codex, exact-main CI, release and public-check round (Codex with no
+  findings on `5b045bfc`, the App version and the five unchanged release W Workers, the smokes
+  with the strict page floor read of 787 and build-788 Standard signaling admission, no
+  pre-deploy floor `status`, the public floor at 787 with live App 788, the Drift Audit), and
+  what is not verified.
 - [Old-version removal train 2, release W: Worker request shapes below the App build floor (2026-10-26)](design/old-version-removal-2w-workers-2026-10-26.md):
   release evidence for the Workers-only release of the second old-version removal train (released
   2026-10-27 03:34 KST in Release 40378059253 from main `a3893f04`, target `all`, no SemVer or

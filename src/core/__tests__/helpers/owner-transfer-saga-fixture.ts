@@ -583,7 +583,8 @@ export interface TransferRequestOptions {
   requestId?: string;
   /**
    * The body's PIN, as Apps before 9.0.4 sent it; `null` (the default, as the
-   * App sends it) omits it. The PRO room refuses a body with one.
+   * App sends it) omits it. The App facade refuses a body with one before it
+   * records an intent, and the PRO room refuses it too.
    */
   newPin?: string | null;
   /** Send the App's opt-in headers, as every App since 8.8.0 does. */

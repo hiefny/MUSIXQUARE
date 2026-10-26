@@ -381,7 +381,7 @@ describe('owner-transfer issuance generation ordering', () => {
         {
           ...identity,
           body: new TextEncoder().encode(
-            JSON.stringify({ claimToken, newPin: '12345678', requestId: 'request_current_12345' }),
+            JSON.stringify({ claimToken, requestId: 'request_current_12345' }),
           ),
         },
         now + 5,
@@ -627,7 +627,6 @@ describe('owner-transfer intent allocation admission', () => {
           },
           body: JSON.stringify({
             claimToken: 'invalid-claim-with-at-least-32-characters',
-            newPin: '12345678',
             requestId: `invalid_request_${String(index).padStart(2, '0')}`,
           }),
         }),
@@ -651,6 +650,97 @@ describe('owner-transfer intent allocation admission', () => {
     ]);
   });
 
+  it('refuses the newPin body of Apps before 9.0.4 before it records an intent or reaches the PRO room', async () => {
+    const database = new sqlite.DatabaseSync(':memory:');
+    database.exec(adminMetricsSchema);
+    centralEntitlementDatabases.add(database);
+    database
+      .prepare(
+        `INSERT INTO mxqr_pro_room_registry
+      (room_code, label, status, activation_state, room_generation, created_at, updated_at)
+      VALUES ('000123', 'Audit room', 'registered', 'active', 0, 1, 1)`,
+      )
+      .run();
+    const accountId = `acct_${'a'.repeat(22)}`;
+    const now = Date.now();
+    // An issued claim for this account, so the PIN is the body's only fault.
+    database
+      .prepare(
+        `INSERT INTO mxqr_pro_room_owner_transfer_issuances
+      (room_code, room_generation, claim_generation, target_account_id, state, issued_at, expires_at, updated_at)
+      VALUES ('000123', 0, 4, ?, 'issued', ?, ?, ?)`,
+      )
+      .run(accountId, now, now + 5 * 60_000, now);
+    const claimToken = ownerTransferClaimFixture({
+      roomCode: '000123',
+      roomGeneration: 0,
+      targetAccountId: accountId,
+      claimGeneration: 4,
+    });
+    const publicFetch = vi.fn(async () =>
+      Response.json({ error: 'INVALID_REQUEST' }, { status: 400 }),
+    );
+    const env = {
+      GOOGLE_OAUTH_CLIENT_ID: 'test-client.apps.googleusercontent.com',
+      GOOGLE_OAUTH_CLIENT_SECRET: 'client-secret',
+      MXQR_AUTH_SESSION_PEPPER: 'session-pepper-for-tests-at-least-32-bytes',
+      MXQR_AUTH_SUBJECT_PEPPER: 'subject-pepper-for-tests-at-least-32-bytes',
+      MXQR_OAUTH_STATE_SECRET: 'state-secret-for-tests-at-least-32-bytes',
+      MXQR_PRO_ROOM_ACCOUNT_ASSERTION_SECRET: 'assertion-secret-for-tests-at-least-32-bytes',
+      MUSIXQUARE_ADMIN_DB: {
+        prepare: (sql: string) => new CentralEntitlementStatement(database.prepare(sql)),
+      },
+      MUSIXQUARE_AUTH_DB: {
+        prepare: (sql: string) => ({
+          bind: () => ({
+            first: async () =>
+              /FROM mxqr_account_sessions s/i.test(sql)
+                ? {
+                    session_hash: 'session-hash',
+                    account_id: accountId,
+                    last_seen_at: Date.now(),
+                    expires_at: Date.now() + 60_000,
+                    nickname: 'Target owner',
+                    profile_complete: 1,
+                    status: 'active',
+                  }
+                : null,
+            run: async () => ({ meta: { changes: 0 } }),
+          }),
+        }),
+      },
+      PRO_ROOM_PUBLIC_API: { fetch: publicFetch },
+    };
+    for (const newPin of ['12345678', '1234']) {
+      const response = await appWorker.fetch(
+        new Request('https://musixquare.com/api/pro-room/v1/rooms/000123/owner-transfer', {
+          method: 'POST',
+          headers: {
+            Origin: 'https://musixquare.com',
+            'Content-Type': 'application/json',
+            Cookie: `__Host-mxqr_account=${'S'.repeat(43)}`,
+          },
+          body: JSON.stringify({ claimToken, newPin, requestId: 'pin_body_request_01' }),
+        }),
+        env,
+      );
+      expect(response.status).toBe(400);
+      await expect(response.json()).resolves.toEqual({ error: 'INVALID_REQUEST' });
+    }
+    expect(publicFetch).not.toHaveBeenCalled();
+    expect(
+      database.prepare('SELECT COUNT(*) AS n FROM mxqr_pro_room_owner_transfer_sagas').get()?.n,
+    ).toBe(0);
+    expect(
+      database
+        .prepare('SELECT COUNT(*) AS n FROM mxqr_pro_room_owner_transfer_intent_admissions')
+        .get()?.n,
+    ).toBe(0);
+    expect(database.prepare('SELECT action, result FROM mxqr_pro_room_admin_audit').all()).toEqual([
+      { action: 'owner_transfer.prepare', result: 'denied_invalid_request' },
+    ]);
+  });
+
   it('atomically bounds new request IDs per issued claim while preserving exact retries and legacy sagas', async () => {
     vi.useFakeTimers();
     const now = Date.parse('2026-09-05T00:00:00Z');
@@ -666,9 +756,7 @@ describe('owner-transfer intent allocation admission', () => {
     };
     const claimToken = ownerTransferClaimFixture({ ...identity, claimGeneration: 4 });
     const body = (requestId: string, token = claimToken) =>
-      new TextEncoder().encode(
-        JSON.stringify({ claimToken: token, newPin: '12345678', requestId }),
-      );
+      new TextEncoder().encode(JSON.stringify({ claimToken: token, requestId }));
     const admit = (
       requestId: string,
       token = claimToken,
@@ -4348,108 +4436,44 @@ describe('Cloudflare app worker YouTube search proxy', () => {
   });
 });
 
-describe('Cloudflare app worker YouTube playlist entry proxy', () => {
-  const playlistRequest = (playlistId = 'PL_VALID_01', ip = '203.0.113.81') =>
-    new Request(
-      `https://musixquare.com/api/youtube-playlist-entry?playlistId=${encodeURIComponent(playlistId)}`,
-      {
-        headers: {
-          Origin: 'https://musixquare.com',
-          'CF-Connecting-IP': ip,
-        },
-      },
-    );
-
-  it('returns the first concrete public entry with an exact, minimal response shape', async () => {
-    const upstreamFetch = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
-      const url = new URL(String(input));
-      expect(`${url.origin}${url.pathname}`).toBe(
-        'https://www.googleapis.com/youtube/v3/playlistItems',
+describe('Cloudflare app worker YouTube playlist entry route', () => {
+  // Apps up to 8.10.9 resolved a playlist's first entry here. Every App at or
+  // above the 787 build floor reads /api/youtube-playlist-manifest instead.
+  it.each(['GET', 'OPTIONS'])(
+    'no longer serves the first-entry route of Apps before 8.10.10 (%s)',
+    async (method) => {
+      const upstreamFetch = vi.fn(async () => Response.json({ items: [] }));
+      vi.stubGlobal('fetch', upstreamFetch);
+      const assets = vi.fn(
+        async () =>
+          new Response('not found', {
+            status: 404,
+            headers: { 'Content-Type': 'text/plain' },
+          }),
       );
-      expect(url.searchParams.get('playlistId')).toBe('PL_VALID_01');
-      expect(url.searchParams.get('maxResults')).toBe('50');
-      expect(url.searchParams.has('key')).toBe(false);
-      expect(new Headers(init?.headers).get('x-goog-api-key')).toBe('test-key');
-      return Response.json({
-        nextPageToken: 'IGNORED_BY_FAST_ENTRY_ROUTE',
-        pageInfo: { totalResults: 2 },
-        items: [
-          {
-            contentDetails: { videoId: 'PRIVATE0001' },
-            snippet: { title: 'Private video' },
-            status: { privacyStatus: 'private' },
+
+      const response = await appWorker.fetch(
+        new Request('https://musixquare.com/api/youtube-playlist-entry?playlistId=PL_VALID_01', {
+          method,
+          headers: {
+            Origin: 'https://musixquare.com',
+            'CF-Connecting-IP': '203.0.113.81',
+            ...(method === 'OPTIONS' ? { 'Access-Control-Request-Method': 'GET' } : {}),
           },
-          {
-            contentDetails: { videoId: 'DELETED0001' },
-            snippet: { title: 'Deleted video' },
-            status: { privacyStatus: 'public' },
-          },
-          {
-            contentDetails: { videoId: 'PLAYABLE001' },
-            snippet: { title: 'First &amp; Playable' },
-            status: { privacyStatus: 'public' },
-          },
-        ],
-      });
-    });
-    vi.stubGlobal('fetch', upstreamFetch);
+        }),
+        {
+          MXQR_ALLOW_UNGUARDED_PAID_APIS: 'true',
+          YOUTUBE_API_KEY: 'test-key',
+          ASSETS: { fetch: assets },
+        },
+      );
 
-    const response = await appWorker.fetch(playlistRequest(), {
-      MXQR_ALLOW_UNGUARDED_PAID_APIS: 'true',
-      YOUTUBE_API_KEY: 'test-key',
-    });
-
-    expect(response.status).toBe(200);
-    expect(await response.json()).toEqual({
-      playlistId: 'PL_VALID_01',
-      videoId: 'PLAYABLE001',
-      title: 'First & Playable',
-    });
-    expect(upstreamFetch).toHaveBeenCalledTimes(1);
-  });
-
-  it('fails closed without capability configuration and rejects malformed IDs', async () => {
-    const guarded = await appWorker.fetch(playlistRequest(), { YOUTUBE_API_KEY: 'test-key' });
-    expect(guarded.status).toBe(503);
-    expect(await guarded.json()).toEqual({ error: 'CAPABILITY_NOT_CONFIGURED' });
-
-    const malformed = await appWorker.fetch(playlistRequest('bad/id'), {
-      MXQR_ALLOW_UNGUARDED_PAID_APIS: 'true',
-      YOUTUBE_API_KEY: 'test-key',
-    });
-    expect(malformed.status).toBe(400);
-    expect(await malformed.json()).toEqual({ error: 'INVALID_YOUTUBE_PLAYLIST_ID' });
-  });
-
-  it('applies an independent twenty-request per-minute guard', async () => {
-    const control = createAtomicRateControlBinding();
-    const upstreamFetch = vi.fn(async () =>
-      Response.json({
-        items: [
-          {
-            contentDetails: { videoId: 'PLAYABLE001' },
-            snippet: { title: 'Playable' },
-            status: { privacyStatus: 'public' },
-          },
-        ],
-      }),
-    );
-    vi.stubGlobal('fetch', upstreamFetch);
-    const env = {
-      MXQR_ALLOW_UNGUARDED_PAID_APIS: 'true',
-      YOUTUBE_API_KEY: 'test-key',
-      MUSIXQUARE_SERVICE_CONTROL: control.binding,
-    };
-
-    for (let index = 0; index < 20; index += 1) {
-      expect((await appWorker.fetch(playlistRequest(), env)).status).toBe(200);
-    }
-    const limited = await appWorker.fetch(playlistRequest(), env);
-    expect(limited.status).toBe(429);
-    expect(Number(limited.headers.get('Retry-After'))).toBeGreaterThanOrEqual(1);
-    expect(Number(limited.headers.get('Retry-After'))).toBeLessThanOrEqual(60);
-    expect(upstreamFetch).toHaveBeenCalledTimes(20);
-  });
+      expect(response.status).toBe(404);
+      expect(response.headers.get('Access-Control-Allow-Origin')).toBeNull();
+      expect(upstreamFetch).not.toHaveBeenCalled();
+      expect(assets).toHaveBeenCalledOnce();
+    },
+  );
 });
 
 describe('Cloudflare app worker YouTube playlist manifest proxy', () => {
@@ -4971,6 +4995,8 @@ describe('Cloudflare app worker admin dashboard', () => {
         { bucket_minute: nowMinute - 29 * 24 * 60, event: 'guest_joined', count: 4 },
         { bucket_minute: nowMinute - 5, event: 'room_opened', count: 3 },
         { bucket_minute: nowMinute - 5, event: 'host_legacy_url_auth', count: 2 },
+        // Retired with the assertion-free Remote Share path (2026-10-26).
+        { bucket_minute: nowMinute - 5, event: 'remote_share_upload_assertion_legacy', count: 1 },
         { bucket_minute: nowMinute - 4, event: 'guest_joined', count: 7 },
         { bucket_minute: nowMinute - 3, event: 'guest_auth_failed', count: 1 },
         { bucket_minute: nowMinute - 3, event: 'guest_host_unavailable', count: 9 },
@@ -5034,6 +5060,16 @@ describe('Cloudflare app worker admin dashboard', () => {
     expect(metrics.status).toBe(200);
     expect(payload.summary?.last24?.room_opened).toBe(3);
     expect(payload.summary?.last24?.host_legacy_url_auth).toBeUndefined();
+    expect(payload.summary?.last24?.remote_share_upload_assertion_legacy).toBeUndefined();
+    expect(payload.events?.map((event) => event.key)).not.toContain(
+      'remote_share_upload_assertion_legacy',
+    );
+    expect(payload.events?.map((event) => event.key)).toEqual(
+      expect.arrayContaining([
+        'remote_share_upload_assertion_verified',
+        'remote_share_upload_assertion_rejected',
+      ]),
+    );
     expect(payload.summary?.last24?.guest_joined).toBe(7);
     expect(payload.summary?.last24).toMatchObject({
       guest_host_unavailable: 9,
@@ -5887,7 +5923,7 @@ describe('Cloudflare app worker admin dashboard', () => {
     vi.useRealTimers();
   });
 
-  it('accepts a pre-deployment admin tab and preserves a DO-side expiry rejection', async () => {
+  it('refuses the three-field body of admin tabs before 8.3.20 and preserves a DO-side expiry rejection', async () => {
     vi.useFakeTimers();
     vi.setSystemTime(new Date('2026-06-18T12:00:00.000Z'));
     let crossExpiryBoundary = false;
@@ -5915,47 +5951,32 @@ describe('Cloudflare app worker admin dashboard', () => {
     );
     const cookie = login.headers.get('Set-Cookie')?.split(';')[0] || '';
 
-    const legacy = await appWorker.fetch(
-      new Request('https://musixquare.com/api/admin/announcement', {
-        method: 'POST',
-        headers: adminMutationHeaders({ Cookie: cookie }),
-        body: JSON.stringify({
-          enabled: true,
-          message: 'Saved by an already-open admin tab',
-          expiresAt: null,
+    // Admin tabs before 8.3.20 posted message, enabled and expiresAt only.
+    // Every admin page since sends expectedRevision and requestId as well.
+    for (const expiresAt of [null, new Date(Date.now() + 60_000).toISOString()]) {
+      const legacy = await appWorker.fetch(
+        new Request('https://musixquare.com/api/admin/announcement', {
+          method: 'POST',
+          headers: adminMutationHeaders({ Cookie: cookie }),
+          body: JSON.stringify({
+            enabled: true,
+            message: 'Saved by an admin tab before 8.3.20',
+            expiresAt,
+          }),
         }),
+        env,
+      );
+      expect(legacy.status).toBe(400);
+      await expect(legacy.json()).resolves.toEqual({ error: 'INVALID_REQUEST' });
+    }
+    const unchanged = await appWorker.fetch(
+      new Request('https://musixquare.com/api/admin/announcement', {
+        headers: { Cookie: cookie },
       }),
       env,
     );
-    expect(legacy.status).toBe(200);
-    const legacyPayload = (await legacy.json()) as {
-      revision: number;
-      announcement: { id: string; message: string };
-      history: Array<{ id: string }>;
-    };
-    expect(legacyPayload).toMatchObject({
-      revision: 1,
-      announcement: { message: 'Saved by an already-open admin tab' },
-    });
-
-    const legacyReplay = await appWorker.fetch(
-      new Request('https://musixquare.com/api/admin/announcement', {
-        method: 'POST',
-        headers: adminMutationHeaders({ Cookie: cookie }),
-        body: JSON.stringify({
-          enabled: true,
-          message: 'Saved by an already-open admin tab',
-          expiresAt: null,
-        }),
-      }),
-      env,
-    );
-    expect(legacyReplay.status).toBe(200);
-    await expect(legacyReplay.json()).resolves.toMatchObject({
-      revision: 1,
-      announcement: { id: legacyPayload.announcement.id },
-      history: [{ id: legacyPayload.history[0].id }],
-    });
+    expect(unchanged.status).toBe(200);
+    await expect(unchanged.json()).resolves.toMatchObject({ revision: 0, history: [] });
 
     const expiresAt = new Date(Date.now() + 1).toISOString();
     crossExpiryBoundary = true;
@@ -5967,7 +5988,7 @@ describe('Cloudflare app worker admin dashboard', () => {
           enabled: true,
           message: 'Too late at the serialization point',
           expiresAt,
-          expectedRevision: 1,
+          expectedRevision: 0,
           requestId: '123e4567-e89b-42d3-a456-426614174026',
         }),
       }),
@@ -5979,7 +6000,7 @@ describe('Cloudflare app worker admin dashboard', () => {
     });
   });
 
-  it('keeps legacy announcement retries idempotent when truncation exposes trailing whitespace', async () => {
+  it('replays an announcement retry whose truncation exposes trailing whitespace', async () => {
     const env = {
       MXQR_ADMIN_PASSWORD: 'admin-password-strong',
       MXQR_ADMIN_SESSION_SECRET: 'test-admin-session-secret-at-least-32',
@@ -5999,7 +6020,13 @@ describe('Cloudflare app worker admin dashboard', () => {
         new Request('https://musixquare.com/api/admin/announcement', {
           method: 'POST',
           headers: adminMutationHeaders({ Cookie: `__Host-mxqr_admin=${token}` }),
-          body: JSON.stringify({ enabled: true, message, expiresAt: null }),
+          body: JSON.stringify({
+            enabled: true,
+            message,
+            expiresAt: null,
+            expectedRevision: 0,
+            requestId: '123e4567-e89b-42d3-a456-426614174027',
+          }),
         }),
         env,
       );
@@ -11212,7 +11239,6 @@ describe('Cloudflare app worker PRO room facade', () => {
             targetAccountId,
             claimGeneration: 11,
           }),
-          newPin: '20020924',
           requestId: 'request_12345678',
         }),
       });
@@ -11721,7 +11747,6 @@ describe('Cloudflare app worker PRO room facade', () => {
             targetAccountId,
             claimGeneration: 12,
           }),
-          newPin: '20020924',
           requestId,
         }),
       });
@@ -12712,62 +12737,43 @@ describe('Cloudflare app worker PRO room facade', () => {
     await expect(malformedUtf8.json()).resolves.toEqual({ error: 'PRO_ROOM_API_UNAVAILABLE' });
   });
 
-  it('keeps cached legacy session admission on request lifetime while bounding v1 receipts', async () => {
+  it.each([
+    // The one-field body of Apps up to 8.3.23, which had no receipt. The PRO
+    // room refuses it since 2026-10-26; the facade no longer gives it the
+    // platform request lifetime.
+    { label: 'requestId-free', body: { pin: '12345678' } },
+    { label: 'v1', body: { pin: '12345678', requestId: 'session-create-request-0001' } },
+  ])('bounds a $label session admission by the App deadline', async ({ body }) => {
     vi.useFakeTimers();
-    const admission = (body: Record<string, unknown>) =>
-      new Request('https://musixquare.com/api/pro-room/v1/rooms/000001/sessions', {
-        method: 'POST',
-        headers: {
-          Origin: 'https://musixquare.com',
-          'Content-Type': 'application/json',
-          'CF-Connecting-IP': '203.0.113.190',
-        },
-        body: JSON.stringify(body),
-      });
-
-    let resolveLegacy!: (response: Response) => void;
-    let legacySignal: AbortSignal | null = null;
-    const legacyFetch = vi.fn((request: Request) => {
-      legacySignal = request.signal;
-      return new Promise<Response>((resolve) => {
-        resolveLegacy = resolve;
-      });
+    let upstreamSignal: AbortSignal | null = null;
+    const upstreamFetch = vi.fn((request: Request) => {
+      upstreamSignal = request.signal;
+      return new Promise<Response>(() => undefined);
     });
-    let legacySettled = false;
-    const legacyPending = appWorker
-      .fetch(admission({ pin: '12345678' }), {
-        PRO_ROOM_PUBLIC_API: { fetch: legacyFetch },
-      })
+    let settled = false;
+    const pending = appWorker
+      .fetch(
+        new Request('https://musixquare.com/api/pro-room/v1/rooms/000001/sessions', {
+          method: 'POST',
+          headers: {
+            Origin: 'https://musixquare.com',
+            'Content-Type': 'application/json',
+            'CF-Connecting-IP': '203.0.113.190',
+          },
+          body: JSON.stringify(body),
+        }),
+        { PRO_ROOM_PUBLIC_API: { fetch: upstreamFetch } },
+      )
       .finally(() => {
-        legacySettled = true;
+        settled = true;
       });
-    for (let attempt = 0; attempt < 20 && legacyFetch.mock.calls.length === 0; attempt += 1) {
-      await vi.advanceTimersByTimeAsync(0);
-    }
-    expect(legacyFetch).toHaveBeenCalledOnce();
     await vi.advanceTimersByTimeAsync(5_001);
-    expect(legacySettled).toBe(false);
-    expect((legacySignal as AbortSignal | null)?.aborted).toBe(false);
-    resolveLegacy(Response.json({ ok: true }));
-    expect((await legacyPending).status).toBe(200);
-
-    let v1Signal: AbortSignal | null = null;
-    const v1Pending = appWorker.fetch(
-      admission({ pin: '12345678', requestId: 'session-create-request-0001' }),
-      {
-        PRO_ROOM_PUBLIC_API: {
-          fetch: vi.fn((request: Request) => {
-            v1Signal = request.signal;
-            return new Promise<Response>(() => undefined);
-          }),
-        },
-      },
-    );
-    await vi.advanceTimersByTimeAsync(5_001);
-    const v1Response = await v1Pending;
-    expect(v1Response.status).toBe(502);
-    await expect(v1Response.json()).resolves.toEqual({ error: 'PRO_ROOM_API_UNAVAILABLE' });
-    expect((v1Signal as AbortSignal | null)?.aborted).toBe(true);
+    expect(upstreamFetch).toHaveBeenCalledOnce();
+    expect(settled).toBe(true);
+    const response = await pending;
+    expect(response.status).toBe(502);
+    await expect(response.json()).resolves.toEqual({ error: 'PRO_ROOM_API_UNAVAILABLE' });
+    expect((upstreamSignal as AbortSignal | null)?.aborted).toBe(true);
   });
 
   it.each([true, false])(
@@ -12964,7 +12970,10 @@ describe('Cloudflare app worker PRO room facade', () => {
   it('finishes a bounded PRO mutation body before invoking the room service', async () => {
     let controller!: ReadableStreamDefaultController<Uint8Array>;
     const upstreamFetch = vi.fn(async (request: Request) => {
-      await expect(request.json()).resolves.toEqual({ pin: '12345678' });
+      await expect(request.json()).resolves.toEqual({
+        pin: '12345678',
+        requestId: 'session-create-request-0002',
+      });
       return Response.json({ ok: true });
     });
     const body = new ReadableStream<Uint8Array>({
@@ -12986,7 +12995,9 @@ describe('Cloudflare app worker PRO room facade', () => {
     await Promise.resolve();
     await Promise.resolve();
     expect(upstreamFetch).not.toHaveBeenCalled();
-    controller.enqueue(new TextEncoder().encode('5678"}'));
+    controller.enqueue(
+      new TextEncoder().encode('5678","requestId":"session-create-request-0002"}'),
+    );
     controller.close();
     const response = await responsePromise;
     expect(response.status).toBe(200);

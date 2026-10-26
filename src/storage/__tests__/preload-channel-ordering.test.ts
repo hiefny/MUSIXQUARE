@@ -7,6 +7,7 @@ import { clearAllManagedTimers } from '../../core/timers.ts';
 import { handleData } from '../../network/protocol.ts';
 import { markQueueAuthorityReady } from '../../network/queue-authority.ts';
 import { CloudflareDataConnection } from '../../network/transport/cloudflare-signaling.ts';
+import { admitAcknowledgingPeer } from '../../network/transport/__tests__/fixtures/acknowledging-peer.ts';
 import { loadPreloadedTrack } from '../../player/decode.ts';
 import { initPlayback } from '../../player/playback.ts';
 import { resetFileDeliveryPolicies } from '../../share/file-delivery-policy.ts';
@@ -71,10 +72,12 @@ function connection(id: string) {
   // These application-ordering fixtures omit the already-settled room join.
   // RTC open alone must remain silent; explicitly cross the post-join boundary
   // before asserting the private hello separately from application frames.
+  const flow = { hello: '' };
   transport.on('open', () => {
     expect(control.sent).toEqual([]);
     transport.startBulkFlowControl();
-    expect(JSON.parse(control.sent.shift() as string)).toMatchObject({
+    flow.hello = control.sent.shift() as string;
+    expect(JSON.parse(flow.hello)).toMatchObject({
       type: 'mxqr-bulk-flow',
       version: 1,
       kind: 'hello',
@@ -82,7 +85,14 @@ function connection(id: string) {
   });
   transport.attach(pc as unknown as RTCPeerConnection, bulk as unknown as RTCDataChannel);
   transport.attach(pc as unknown as RTCPeerConnection, control as unknown as RTCDataChannel);
-  return { transport, conn: transport as unknown as DataConnection, bulk, control };
+  return { transport, conn: transport as unknown as DataConnection, bulk, control, flow };
+}
+
+/** The receiver is created only after capture: a current peer's credit stands in for it. */
+async function acknowledgeCapture(sender: ReturnType<typeof connection>): Promise<void> {
+  await admitAcknowledgingPeer(sender.transport, sender.control, sender.flow.hello, () =>
+    sender.control.sent.shift(),
+  );
 }
 
 beforeEach(() => {
@@ -141,8 +151,7 @@ async function setupWire(senderMode: Sender, legacyControlEnd: boolean) {
   }
   const sender = connection('guest');
   await vi.advanceTimersByTimeAsync(0);
-  // The receiver is created only after capture; let the real old-peer grace expire.
-  await vi.advanceTimersByTimeAsync(1000);
+  await acknowledgeCapture(sender);
   expect(sender.conn.open).toBe(true);
   const peer: ConnectedPeer = {
     id: 'guest',

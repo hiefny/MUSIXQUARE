@@ -647,7 +647,6 @@ const it: Record<I18nKey, string> = {
     'Non ci sono contenuti da sincronizzare\nPrima seleziona un contenuto da riprodurre',
   'toast.host_ad': 'L’host sembra guardare una pubblicità',
   'toast.yt_sync_start': 'Sincronizzazione...',
-  'toast.yt_sync_done': 'Sincronizzazione completata',
   'toast.yt_rendezvous_start': 'Sincronizzazione con l’host...',
   'toast.yt_rendezvous_done': 'Sincronizzazione completata',
   'toast.yt_rendezvous_host_paused': 'L’host è in pausa, allineata solo la posizione',
@@ -710,10 +709,6 @@ const it: Record<I18nKey, string> = {
   'error.audio_engine_prepare': 'Impossibile preparare il motore audio',
   'error.session_create_fail': 'Impossibile creare la stanza',
   'error.network_generic': 'Errore di rete rilevato',
-  'error.peer_app_version_mismatch':
-    '{{name}} non può entrare perché le versioni dell’app non corrispondono. Ricarica la pagina su entrambi i dispositivi.',
-  'error.app_version_mismatch':
-    'Le versioni dell’app non corrispondono. Ricarica la pagina su entrambi i dispositivi e riprova.',
   'error.session_handshake_failed':
     'Impossibile completare la connessione alla stanza. Ricarica la pagina su entrambi i dispositivi e riprova.',
   'error.host_unreachable': 'L’host sembra aver lasciato la stanza',

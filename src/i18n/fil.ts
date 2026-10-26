@@ -650,7 +650,6 @@ const fil: Record<I18nKey, string> = {
   'toast.sync_no_media': 'Walang media na isi-sync\nPumili muna ng ipe-play',
   'toast.host_ad': 'Mukhang nanonood ng ad ang host',
   'toast.yt_sync_start': 'Sini-sync...',
-  'toast.yt_sync_done': 'Tapos na ang pag-sync',
   'toast.yt_rendezvous_start': 'Itinutugma sa host...',
   'toast.yt_rendezvous_done': 'Tapos na ang pag-sync',
   'toast.yt_rendezvous_host_paused': 'Naka-pause ang host, kaya posisyon lang ang itinugma',
@@ -710,10 +709,6 @@ const fil: Record<I18nKey, string> = {
   'error.audio_engine_prepare': 'Hindi maihanda ang audio engine',
   'error.session_create_fail': 'Hindi makagawa ng session',
   'error.network_generic': 'Nagkaroon ng network error',
-  'error.peer_app_version_mismatch':
-    'Hindi makasali si {{name}} dahil hindi tugma ang mga bersyon ng app. I-refresh ang dalawang device.',
-  'error.app_version_mismatch':
-    'Hindi tugma ang mga bersyon ng app. I-refresh ang dalawang device at subukan muli.',
   'error.session_handshake_failed':
     'Hindi makumpleto ang koneksyon sa session. I-refresh ang dalawang device at subukan muli.',
 

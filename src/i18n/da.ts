@@ -635,7 +635,6 @@ const da: Record<I18nKey, string> = {
     'Der er ingen medier at synkronisere\nVælg først noget, der skal afspilles',
   'toast.host_ad': 'Værten ser vist en annonce',
   'toast.yt_sync_start': 'Synkroniserer…',
-  'toast.yt_sync_done': 'Synkroniseringen er fuldført',
   'toast.yt_rendezvous_start': 'Justerer efter værten…',
   'toast.yt_rendezvous_done': 'Synkroniseringen er fuldført',
   'toast.yt_rendezvous_host_paused':
@@ -696,10 +695,6 @@ const da: Record<I18nKey, string> = {
   'error.audio_engine_prepare': 'Kunne ikke forberede lydmotoren',
   'error.session_create_fail': 'Kunne ikke oprette sessionen',
   'error.network_generic': 'Der opstod en netværksfejl',
-  'error.peer_app_version_mismatch':
-    '{{name}} kan ikke deltage, fordi appversionerne ikke stemmer overens. Opdater appen på begge enheder.',
-  'error.app_version_mismatch':
-    'Appversionerne stemmer ikke overens. Opdater appen på begge enheder, og prøv igen.',
   'error.session_handshake_failed':
     'Kunne ikke fuldføre sessionsforbindelsen. Opdater appen på begge enheder, og prøv igen.',
   'error.host_unreachable': 'Værten ser ud til at have forladt sessionen',

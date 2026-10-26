@@ -553,7 +553,6 @@ const zhHans: Record<I18nKey, string> = {
   'toast.sync_no_media': '没有可同步的媒体\n请先选择要播放的媒体',
   'toast.host_ad': '房主端似乎正在播放广告',
   'toast.yt_sync_start': '正在同步...',
-  'toast.yt_sync_done': '同步完成',
   'toast.yt_rendezvous_start': '正在与房主同步...',
   'toast.yt_rendezvous_done': '同步完成',
   'toast.yt_rendezvous_host_paused': '房主已暂停播放，仅同步了进度',
@@ -576,9 +575,6 @@ const zhHans: Record<I18nKey, string> = {
   'error.audio_engine_prepare': '无法准备音频引擎',
   'error.session_create_fail': '无法创建房间',
   'error.network_generic': '发生网络错误',
-  'error.peer_app_version_mismatch':
-    '{{name}} 因应用版本不一致而无法加入。请在两台设备上刷新页面。',
-  'error.app_version_mismatch': '应用版本不一致。请在两台设备上刷新页面后重试。',
   'error.session_handshake_failed': '未能完成房间连接。请在两台设备上刷新页面后重试。',
   'error.host_unreachable': '房主似乎已离开房间',
   'error.host_disconnected': '已与房主断开连接',

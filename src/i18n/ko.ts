@@ -615,7 +615,6 @@ const ko = {
   'toast.sync_no_media': '동기화할 미디어가 없어요\n먼저 재생할 미디어를 선택해주세요',
   'toast.host_ad': '방장이 광고를 보고 있는 것 같아요',
   'toast.yt_sync_start': '동기화 중...',
-  'toast.yt_sync_done': '동기화 완료',
   'toast.yt_rendezvous_start': '방장에 맞춰 동기화 중...',
   'toast.yt_rendezvous_done': '동기화 완료',
   'toast.yt_rendezvous_host_paused': '방장이 일시정지 상태라 위치만 맞췄어요',
@@ -674,10 +673,6 @@ const ko = {
   'error.audio_engine_prepare': '오디오 엔진을 준비하지 못했어요',
   'error.session_create_fail': '세션을 만들지 못했어요',
   'error.network_generic': '네트워크 오류가 발생했어요',
-  'error.peer_app_version_mismatch':
-    '{{name}} 님과 앱 버전이 달라 입장할 수 없어요. 두 기기를 새로고침해 주세요.',
-  'error.app_version_mismatch':
-    '앱 버전이 맞지 않아요. 두 기기를 새로고침한 뒤 다시 시도해 주세요.',
   'error.session_handshake_failed':
     '세션 연결을 완료하지 못했어요. 두 기기를 새로고침한 뒤 다시 시도해 주세요.',
   'error.host_unreachable': '방장이 세션을 종료한 것 같아요',

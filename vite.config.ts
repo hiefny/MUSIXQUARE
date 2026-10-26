@@ -177,7 +177,6 @@ export const PRODUCTION_API_PROXY_PATHS = [
   '/api/capability-token',
   '/api/capability-challenge',
   '/api/youtube-search',
-  '/api/youtube-playlist-entry',
   '/api/youtube-playlist-manifest',
 ] as const;
 

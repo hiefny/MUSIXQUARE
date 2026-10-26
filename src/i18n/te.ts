@@ -635,7 +635,6 @@ const te: Record<I18nKey, string> = {
   'toast.sync_no_media': 'సింక్ చేయడానికి మీడియా లేదు\nముందుగా ప్లే చేయడానికి ఏదైనా ఎంచుకోండి',
   'toast.host_ad': 'హోస్ట్ ప్రకటన చూస్తున్నట్లు అనిపిస్తోంది',
   'toast.yt_sync_start': 'సింక్ అవుతోంది...',
-  'toast.yt_sync_done': 'సింక్ పూర్తయింది',
   'toast.yt_rendezvous_start': 'హోస్ట్‌తో సరిపోలుతోంది...',
   'toast.yt_rendezvous_done': 'సింక్ పూర్తయింది',
   'toast.yt_rendezvous_host_paused': 'హోస్ట్ పాజ్ చేశారు, ప్లేబ్యాక్ స్థానం మాత్రమే సరిచేయబడింది',
@@ -695,10 +694,6 @@ const te: Record<I18nKey, string> = {
   'error.audio_engine_prepare': 'ఆడియో ఇంజిన్‌ను సిద్ధం చేయలేకపోయాం',
   'error.session_create_fail': 'సెషన్‌ను సృష్టించలేకపోయాం',
   'error.network_generic': 'నెట్‌వర్క్ లోపం సంభవించింది',
-  'error.peer_app_version_mismatch':
-    'యాప్ వెర్షన్‌లు సరిపోలకపోవడంతో {{name}} చేరలేరు. రెండు పరికరాలను రిఫ్రెష్ చేయండి.',
-  'error.app_version_mismatch':
-    'యాప్ వెర్షన్‌లు సరిపోలలేదు. రెండు పరికరాలను రిఫ్రెష్ చేసి మళ్లీ ప్రయత్నించండి.',
   'error.session_handshake_failed':
     'సెషన్ కనెక్షన్‌ను పూర్తి చేయలేకపోయాం. రెండు పరికరాలను రిఫ్రెష్ చేసి మళ్లీ ప్రయత్నించండి.',
   'error.host_unreachable': 'హోస్ట్ సెషన్ నుండి వెళ్లిపోయినట్లు అనిపిస్తోంది',

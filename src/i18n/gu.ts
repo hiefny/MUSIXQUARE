@@ -619,7 +619,6 @@ const gu: Record<I18nKey, string> = {
   'toast.sync_no_media': 'સિંક કરવા કોઈ મીડિયા નથી\nપહેલા ચલાવવા માટે કંઈક પસંદ કરો',
   'toast.host_ad': 'લાગે છે કે હોસ્ટ જાહેરાત જોઈ રહ્યા છે',
   'toast.yt_sync_start': 'સિંક થઈ રહ્યું છે...',
-  'toast.yt_sync_done': 'સિંક પૂર્ણ',
   'toast.yt_rendezvous_start': 'હોસ્ટ સાથે ગોઠવી રહ્યા છીએ...',
   'toast.yt_rendezvous_done': 'સિંક પૂર્ણ',
   'toast.yt_rendezvous_host_paused': 'હોસ્ટે થોભાવ્યું છે; ફક્ત પ્લેબૅકનું સ્થાન ગોઠવ્યું',
@@ -679,10 +678,6 @@ const gu: Record<I18nKey, string> = {
   'error.audio_engine_prepare': 'ઑડિયો એન્જિન તૈયાર થઈ શક્યું નથી',
   'error.session_create_fail': 'સત્ર બનાવી શકાયું નથી',
   'error.network_generic': 'નેટવર્ક ભૂલ થઈ',
-  'error.peer_app_version_mismatch':
-    'ઍપની આવૃત્તિઓ મેળ ખાતી ન હોવાથી {{name}} જોડાઈ શકશે નહીં. બંને ડિવાઇસ રિફ્રેશ કરો.',
-  'error.app_version_mismatch':
-    'ઍપની આવૃત્તિઓ મેળ ખાતી નથી. બંને ડિવાઇસ રિફ્રેશ કરી ફરી પ્રયાસ કરો.',
   'error.session_handshake_failed':
     'સત્રનું જોડાણ પૂર્ણ થઈ શક્યું નથી. બંને ડિવાઇસ રિફ્રેશ કરી ફરી પ્રયાસ કરો.',
   'error.host_unreachable': 'લાગે છે કે હોસ્ટે સત્ર છોડી દીધું છે',

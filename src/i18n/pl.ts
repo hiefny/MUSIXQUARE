@@ -645,7 +645,6 @@ const pl: Record<I18nKey, string> = {
     'Brak materiału do synchronizacji\nNajpierw wybierz materiał do odtworzenia',
   'toast.host_ad': 'Host prawdopodobnie ogląda teraz reklamę',
   'toast.yt_sync_start': 'Synchronizowanie…',
-  'toast.yt_sync_done': 'Synchronizacja zakończona',
   'toast.yt_rendezvous_start': 'Synchronizacja z hostem…',
   'toast.yt_rendezvous_done': 'Synchronizacja zakończona',
   'toast.yt_rendezvous_host_paused': 'Host wstrzymał odtwarzanie: wyrównano tylko aktualną pozycję',
@@ -707,10 +706,6 @@ const pl: Record<I18nKey, string> = {
   'error.audio_engine_prepare': 'Nie można uruchomić silnika audio',
   'error.session_create_fail': 'Nie udało się utworzyć pokoju',
   'error.network_generic': 'Wystąpił błąd sieci',
-  'error.peer_app_version_mismatch':
-    '{{name}} nie może dołączyć, ponieważ wersje aplikacji są różne. Odśwież stronę na obu urządzeniach.',
-  'error.app_version_mismatch':
-    'Wersje aplikacji są różne. Odśwież stronę na obu urządzeniach i spróbuj ponownie.',
   'error.session_handshake_failed':
     'Nie udało się nawiązać połączenia z pokojem. Odśwież stronę na obu urządzeniach i spróbuj ponownie.',
   'error.host_unreachable': 'Wygląda na to, że host opuścił pokój',

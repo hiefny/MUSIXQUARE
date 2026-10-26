@@ -644,7 +644,6 @@ const ms: Record<I18nKey, string> = {
     'Tiada media untuk disegerakkan\nPilih sesuatu untuk dimainkan terlebih dahulu',
   'toast.host_ad': 'Hos nampaknya sedang menonton iklan',
   'toast.yt_sync_start': 'Menyegerak...',
-  'toast.yt_sync_done': 'Penyegerakan selesai',
   'toast.yt_rendezvous_start': 'Menyelaraskan dengan hos...',
   'toast.yt_rendezvous_done': 'Penyegerakan selesai',
   'toast.yt_rendezvous_host_paused': 'Hos dijeda, hanya kedudukan diselaraskan',
@@ -705,10 +704,6 @@ const ms: Record<I18nKey, string> = {
   'error.audio_engine_prepare': 'Tidak dapat menyediakan enjin audio',
   'error.session_create_fail': 'Tidak dapat mencipta sesi',
   'error.network_generic': 'Ralat rangkaian berlaku',
-  'error.peer_app_version_mismatch':
-    '{{name}} tidak dapat menyertai kerana versi aplikasi tidak sepadan. Muat semula kedua-dua peranti.',
-  'error.app_version_mismatch':
-    'Versi aplikasi tidak sepadan. Muat semula kedua-dua peranti dan cuba lagi.',
   'error.session_handshake_failed':
     'Tidak dapat melengkapkan sambungan sesi. Muat semula kedua-dua peranti dan cuba lagi.',
 

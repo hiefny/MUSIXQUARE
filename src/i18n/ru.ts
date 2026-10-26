@@ -639,7 +639,6 @@ const ru: Record<I18nKey, string> = {
   'toast.sync_no_media': 'Нет медиафайла для синхронизации\nСначала выберите, что воспроизвести',
   'toast.host_ad': 'Хост комнаты, похоже, сейчас смотрит рекламу',
   'toast.yt_sync_start': 'Синхронизация...',
-  'toast.yt_sync_done': 'Синхронизация завершена',
   'toast.yt_rendezvous_start': 'Синхронизация с хостом...',
   'toast.yt_rendezvous_done': 'Синхронизация завершена',
   'toast.yt_rendezvous_host_paused': 'Хост на паузе: выровнена только текущая позиция',
@@ -701,10 +700,6 @@ const ru: Record<I18nKey, string> = {
   'error.audio_engine_prepare': 'Не удалось запустить звуковой движок',
   'error.session_create_fail': 'Не удалось создать комнату',
   'error.network_generic': 'Произошла ошибка сети',
-  'error.peer_app_version_mismatch':
-    '{{name}} не может войти, потому что версии приложения не совпадают. Обновите страницу на обоих устройствах.',
-  'error.app_version_mismatch':
-    'Версии приложения не совпадают. Обновите страницу на обоих устройствах и повторите попытку.',
   'error.session_handshake_failed':
     'Не удалось завершить подключение к комнате. Обновите страницу на обоих устройствах и повторите попытку.',
   'error.host_unreachable': 'Похоже, хост вышел из комнаты',

@@ -621,7 +621,6 @@ const tr: Record<I18nKey, string> = {
   'toast.sync_no_media': 'Senkronize edilecek medya yok\nÖnce oynatılacak bir medya seç',
   'toast.host_ad': 'Oda sahibi şu anda reklam izliyor olabilir',
   'toast.yt_sync_start': 'Senkronize ediliyor...',
-  'toast.yt_sync_done': 'Senkronizasyon tamamlandı',
   'toast.yt_rendezvous_start': 'Oda sahibine göre senkronize ediliyor...',
   'toast.yt_rendezvous_done': 'Senkronizasyon tamamlandı',
   'toast.yt_rendezvous_host_paused': 'Oda sahibi duraklattı; yalnızca oynatma konumu eşitlendi',
@@ -683,10 +682,6 @@ const tr: Record<I18nKey, string> = {
   'error.audio_engine_prepare': 'Ses sistemi hazırlanamadı',
   'error.session_create_fail': 'Oda oluşturulamadı',
   'error.network_generic': 'Bir ağ hatası oluştu',
-  'error.peer_app_version_mismatch':
-    '{{name}}, uygulama sürümleri eşleşmediği için katılamıyor. Her iki cihazdaki sayfayı da yenile.',
-  'error.app_version_mismatch':
-    'Uygulama sürümleri eşleşmiyor. Her iki cihazdaki sayfayı yenileyip tekrar dene.',
   'error.session_handshake_failed':
     'Oda bağlantısı tamamlanamadı. Her iki cihazdaki sayfayı yenileyip tekrar dene.',
   'error.host_unreachable': 'Oda sahibine şu anda ulaşılamıyor',

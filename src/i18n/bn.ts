@@ -627,7 +627,6 @@ const bn: Record<I18nKey, string> = {
   'toast.sync_no_media': 'সিঙ্ক করার মতো কোনো মিডিয়া নেই\nআগে চালানোর জন্য কিছু বেছে নিন',
   'toast.host_ad': 'মনে হচ্ছে হোস্ট বিজ্ঞাপন দেখছেন',
   'toast.yt_sync_start': 'সিঙ্ক হচ্ছে...',
-  'toast.yt_sync_done': 'সিঙ্ক সম্পন্ন হয়েছে',
   'toast.yt_rendezvous_start': 'হোস্টের সঙ্গে মিলিয়ে নেওয়া হচ্ছে...',
   'toast.yt_rendezvous_done': 'সিঙ্ক সম্পন্ন হয়েছে',
   'toast.yt_rendezvous_host_paused': 'হোস্টের প্লেব্যাক বিরতিতে আছে, শুধু অবস্থান মেলানো হয়েছে',
@@ -689,10 +688,6 @@ const bn: Record<I18nKey, string> = {
   'error.audio_engine_prepare': 'অডিও ইঞ্জিন প্রস্তুত করা যায়নি',
   'error.session_create_fail': 'সেশন তৈরি করা যায়নি',
   'error.network_generic': 'নেটওয়ার্কে একটি সমস্যা হয়েছে',
-  'error.peer_app_version_mismatch':
-    'অ্যাপের সংস্করণ না মেলায় {{name}} যোগ দিতে পারছেন না। দুটি ডিভাইসই রিফ্রেশ করুন।',
-  'error.app_version_mismatch':
-    'অ্যাপের সংস্করণ মিলছে না। দুটি ডিভাইসই রিফ্রেশ করে আবার চেষ্টা করুন।',
   'error.session_handshake_failed':
     'সেশন সংযোগ সম্পন্ন করা যায়নি। দুটি ডিভাইসই রিফ্রেশ করে আবার চেষ্টা করুন।',
   'error.host_unreachable': 'মনে হচ্ছে হোস্ট সেশন ছেড়ে গেছেন',

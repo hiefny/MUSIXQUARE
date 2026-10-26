@@ -606,7 +606,6 @@ const ptBr: Record<I18nKey, string> = {
     'Não há mídia para sincronizar\nPrimeiro, selecione uma mídia para reproduzir',
   'toast.host_ad': 'Parece que o anfitrião está assistindo a um anúncio',
   'toast.yt_sync_start': 'Sincronizando...',
-  'toast.yt_sync_done': 'Sincronização concluída',
   'toast.yt_rendezvous_start': 'Sincronizando com o anfitrião...',
   'toast.yt_rendezvous_done': 'Sincronização concluída',
   'toast.yt_rendezvous_host_paused':
@@ -632,10 +631,6 @@ const ptBr: Record<I18nKey, string> = {
   'error.audio_engine_prepare': 'Não foi possível preparar o mecanismo de áudio',
   'error.session_create_fail': 'Não foi possível criar a sala',
   'error.network_generic': 'Ocorreu um erro de rede',
-  'error.peer_app_version_mismatch':
-    '{{name}} não pode entrar porque as versões do aplicativo são diferentes. Recarregue a página nos dois dispositivos.',
-  'error.app_version_mismatch':
-    'As versões do aplicativo não correspondem. Recarregue a página nos dois dispositivos e tente novamente.',
   'error.session_handshake_failed':
     'Não foi possível concluir a conexão com a sala. Recarregue a página nos dois dispositivos e tente novamente.',
   'error.host_unreachable': 'Parece que o anfitrião saiu da sala',

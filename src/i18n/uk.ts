@@ -634,7 +634,6 @@ const uk: Record<I18nKey, string> = {
   'toast.sync_no_media': 'Немає медіа для синхронізації\nСпочатку виберіть, що відтворити',
   'toast.host_ad': 'Схоже, хост переглядає рекламу',
   'toast.yt_sync_start': 'Синхронізація...',
-  'toast.yt_sync_done': 'Синхронізацію завершено',
   'toast.yt_rendezvous_start': 'Вирівнювання з хостом...',
   'toast.yt_rendezvous_done': 'Синхронізацію завершено',
   'toast.yt_rendezvous_host_paused': 'Хост призупинив відтворення, тому вирівняно лише позицію',
@@ -694,10 +693,6 @@ const uk: Record<I18nKey, string> = {
   'error.audio_engine_prepare': 'Не вдалося підготувати звуковий рушій',
   'error.session_create_fail': 'Не вдалося створити сеанс',
   'error.network_generic': 'Сталася помилка мережі',
-  'error.peer_app_version_mismatch':
-    '{{name}} не може приєднатися через невідповідність версій застосунку. Оновіть сторінку на обох пристроях.',
-  'error.app_version_mismatch':
-    'Версії застосунку не збігаються. Оновіть сторінку на обох пристроях і повторіть спробу.',
   'error.session_handshake_failed':
     'Не вдалося встановити з’єднання із сеансом. Оновіть сторінку на обох пристроях і повторіть спробу.',
 

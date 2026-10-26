@@ -594,7 +594,6 @@ const id: Record<I18nKey, string> = {
     'Tidak ada media untuk disinkronkan\nPilih media untuk diputar terlebih dahulu',
   'toast.host_ad': 'Host sepertinya sedang menonton iklan',
   'toast.yt_sync_start': 'Menyinkronkan...',
-  'toast.yt_sync_done': 'Sinkronisasi selesai',
   'toast.yt_rendezvous_start': 'Menyelaraskan dengan host...',
   'toast.yt_rendezvous_done': 'Sinkronisasi selesai',
   'toast.yt_rendezvous_host_paused': 'Pemutaran host sedang dijeda; hanya posisi yang disamakan',
@@ -618,10 +617,6 @@ const id: Record<I18nKey, string> = {
   'error.audio_engine_prepare': 'Tidak dapat menyiapkan mesin audio',
   'error.session_create_fail': 'Tidak dapat membuat ruang',
   'error.network_generic': 'Terjadi kesalahan jaringan',
-  'error.peer_app_version_mismatch':
-    '{{name}} tidak dapat bergabung karena versi aplikasi berbeda. Muat ulang halaman di kedua perangkat.',
-  'error.app_version_mismatch':
-    'Versi aplikasi tidak cocok. Muat ulang halaman di kedua perangkat lalu coba lagi.',
   'error.session_handshake_failed':
     'Koneksi sesi tidak dapat diselesaikan. Muat ulang halaman di kedua perangkat lalu coba lagi.',
   'error.host_unreachable': 'Host sepertinya telah meninggalkan ruang',

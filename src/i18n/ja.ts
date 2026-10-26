@@ -592,7 +592,6 @@ const ja: Record<I18nKey, string> = {
   'toast.sync_no_media': '同期するメディアがありません\n先に再生するメディアを選択してください',
   'toast.host_ad': 'ホストが広告を見ているようです',
   'toast.yt_sync_start': '同期中...',
-  'toast.yt_sync_done': '同期完了',
   'toast.yt_rendezvous_start': 'ホストに合わせています...',
   'toast.yt_rendezvous_done': '同期完了',
   'toast.yt_rendezvous_host_paused': 'ホストが一時停止中のため、位置だけ合わせました',
@@ -617,10 +616,6 @@ const ja: Record<I18nKey, string> = {
   'error.audio_engine_prepare': 'オーディオエンジンを準備できませんでした',
   'error.session_create_fail': 'ルームを作成できませんでした',
   'error.network_generic': 'ネットワークエラーが発生しました',
-  'error.peer_app_version_mismatch':
-    '{{name}}はアプリのバージョンが異なるため参加できません。両方のデバイスでページを再読み込みしてください。',
-  'error.app_version_mismatch':
-    'アプリのバージョンが一致しません。両方のデバイスでページを再読み込みして、もう一度お試しください。',
   'error.session_handshake_failed':
     'セッションへの接続を完了できませんでした。両方のデバイスでページを再読み込みして、もう一度お試しください。',
   'error.host_unreachable': 'ホストがルームを退出したようです',

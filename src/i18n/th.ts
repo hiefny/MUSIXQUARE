@@ -615,7 +615,6 @@ const th: Record<I18nKey, string> = {
   'toast.sync_no_media': 'ไม่มีสื่อให้ซิงก์\nเลือกสื่อที่จะเล่นก่อน',
   'toast.host_ad': 'ดูเหมือนเจ้าของห้องกำลังดูโฆษณา',
   'toast.yt_sync_start': 'กำลังซิงก์...',
-  'toast.yt_sync_done': 'ซิงก์เสร็จแล้ว',
   'toast.yt_rendezvous_start': 'กำลังจัดให้ตรงกับเจ้าของห้อง...',
   'toast.yt_rendezvous_done': 'ซิงก์เสร็จแล้ว',
   'toast.yt_rendezvous_host_paused': 'เจ้าของห้องหยุดชั่วคราว จึงปรับเฉพาะตำแหน่ง',
@@ -673,10 +672,6 @@ const th: Record<I18nKey, string> = {
   'error.audio_engine_prepare': 'เตรียมระบบเสียงไม่ได้',
   'error.session_create_fail': 'สร้างห้องไม่ได้',
   'error.network_generic': 'เกิดข้อผิดพลาดเครือข่าย',
-  'error.peer_app_version_mismatch':
-    '{{name}} เข้าร่วมไม่ได้เพราะเวอร์ชันแอปไม่ตรงกัน โหลดหน้าใหม่บนอุปกรณ์ทั้งสองเครื่อง',
-  'error.app_version_mismatch':
-    'เวอร์ชันแอปไม่ตรงกัน โหลดหน้าใหม่บนอุปกรณ์ทั้งสองเครื่องแล้วลองอีกครั้ง',
   'error.session_handshake_failed':
     'เชื่อมต่อห้องไม่สำเร็จ โหลดหน้าใหม่บนอุปกรณ์ทั้งสองเครื่องแล้วลองอีกครั้ง',
   'error.host_unreachable': 'ดูเหมือนเจ้าของห้องออกจากห้องแล้ว',

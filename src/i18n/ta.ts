@@ -647,7 +647,6 @@ const ta: Record<I18nKey, string> = {
   'toast.sync_no_media': 'ஒத்திசைக்க மீடியா இல்லை\nமுதலில் இயக்க ஏதேனும் ஒன்றைத் தேர்ந்தெடுக்கவும்',
   'toast.host_ad': 'ஹோஸ்ட் விளம்பரம் பார்ப்பதாகத் தெரிகிறது',
   'toast.yt_sync_start': 'ஒத்திசைக்கிறது...',
-  'toast.yt_sync_done': 'ஒத்திசைவு முடிந்தது',
   'toast.yt_rendezvous_start': 'ஹோஸ்டுடன் சீரமைக்கிறது...',
   'toast.yt_rendezvous_done': 'ஒத்திசைவு முடிந்தது',
   'toast.yt_rendezvous_host_paused':
@@ -711,10 +710,6 @@ const ta: Record<I18nKey, string> = {
   'error.audio_engine_prepare': 'ஆடியோ எஞ்சினைத் தயாரிக்க முடியவில்லை',
   'error.session_create_fail': 'அமர்வை உருவாக்க முடியவில்லை',
   'error.network_generic': 'நெட்வொர்க் பிழை ஏற்பட்டது',
-  'error.peer_app_version_mismatch':
-    'பயன்பாட்டுப் பதிப்புகள் பொருந்தாததால் {{name}} சேர முடியாது. இரு சாதனங்களையும் புதுப்பிக்கவும்.',
-  'error.app_version_mismatch':
-    'பயன்பாட்டுப் பதிப்புகள் பொருந்தவில்லை. இரு சாதனங்களையும் புதுப்பித்து மீண்டும் முயலவும்.',
   'error.session_handshake_failed':
     'அமர்வு இணைப்பை நிறைவு செய்ய முடியவில்லை. இரு சாதனங்களையும் புதுப்பித்து மீண்டும் முயலவும்.',
   'error.host_unreachable': 'ஹோஸ்ட் அமர்விலிருந்து வெளியேறியதாகத் தெரிகிறது',

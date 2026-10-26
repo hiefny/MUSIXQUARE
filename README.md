@@ -144,7 +144,7 @@ Open `http://localhost:3000` in your browser.
 
 Localhost selects PeerJS for Standard-room signaling, and ordinary UI work needs
 no Cloudflare credentials. By default, both Vite dev and preview fail closed:
-the six production-proxy routes and all other unconfigured relative `/api/*`
+the five production-proxy routes and all other unconfigured relative `/api/*`
 paths return local `503` responses. Loopback origins also keep PRO, TURN, and
 Realtime requests local: PRO resolves to same-origin `/api/pro-room`, while TURN
 and Realtime stop after their relative API request fails, so no implicit retry
@@ -154,7 +154,7 @@ For an intentional non-E2E production integration, set
 `VITE_MUSIXQUARE_ALLOW_LOCAL_PRODUCTION_API_FALLBACK=true` in untracked
 `.env.local`, then restart the dev server or rebuild before preview. A validated
 `VITE_PRO_ROOM_ENDPOINT` is an explicit override and takes precedence.
-Separately, `MUSIXQUARE_DEV_PROXY_PRODUCTION_API=true` forwards only the six
+Separately, `MUSIXQUARE_DEV_PROXY_PRODUCTION_API=true` forwards only the five
 named routes in Vite dev; preview never enables that proxy. Any
 production-backed option can consume real quota or state, so remove it after
 the integration run. Read [CONTRIBUTING.md](./CONTRIBUTING.md) and the

@@ -633,7 +633,6 @@ const nb: Record<I18nKey, string> = {
     'Det finnes ingen medier å synkronisere\nVelg først noe som skal spilles av',
   'toast.host_ad': 'Verten ser ut til å se på en annonse',
   'toast.yt_sync_start': 'Synkroniserer…',
-  'toast.yt_sync_done': 'Synkroniseringen er fullført',
   'toast.yt_rendezvous_start': 'Justerer etter verten…',
   'toast.yt_rendezvous_done': 'Synkroniseringen er fullført',
   'toast.yt_rendezvous_host_paused': 'Verten har satt på pause; bare posisjonen ble justert',
@@ -694,10 +693,6 @@ const nb: Record<I18nKey, string> = {
   'error.audio_engine_prepare': 'Kunne ikke klargjøre lydmotoren',
   'error.session_create_fail': 'Kunne ikke opprette økten',
   'error.network_generic': 'Det oppstod en nettverksfeil',
-  'error.peer_app_version_mismatch':
-    '{{name}} kan ikke bli med fordi appversjonene ikke samsvarer. Oppdater appen på begge enhetene.',
-  'error.app_version_mismatch':
-    'Appversjonene samsvarer ikke. Oppdater appen på begge enhetene, og prøv igjen.',
   'error.session_handshake_failed':
     'Kunne ikke fullføre tilkoblingen til økten. Oppdater appen på begge enhetene, og prøv igjen.',
   'error.host_unreachable': 'Verten ser ut til å ha forlatt økten',

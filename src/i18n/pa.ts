@@ -628,7 +628,6 @@ const pa: Record<I18nKey, string> = {
   'toast.sync_no_media': 'ਸਿੰਕ ਕਰਨ ਲਈ ਕੋਈ ਮੀਡੀਆ ਨਹੀਂ ਹੈ\nਪਹਿਲਾਂ ਚਲਾਉਣ ਲਈ ਕੁਝ ਚੁਣੋ',
   'toast.host_ad': 'ਲੱਗਦਾ ਹੈ ਕਿ ਹੋਸਟ ਇਸ਼ਤਿਹਾਰ ਵੇਖ ਰਿਹਾ ਹੈ',
   'toast.yt_sync_start': 'ਸਿੰਕ ਹੋ ਰਿਹਾ ਹੈ...',
-  'toast.yt_sync_done': 'ਸਿੰਕ ਪੂਰਾ ਹੋ ਗਿਆ',
   'toast.yt_rendezvous_start': 'ਹੋਸਟ ਨਾਲ ਮਿਲਾਇਆ ਜਾ ਰਿਹਾ ਹੈ...',
   'toast.yt_rendezvous_done': 'ਸਿੰਕ ਪੂਰਾ ਹੋ ਗਿਆ',
   'toast.yt_rendezvous_host_paused': 'ਹੋਸਟ ਨੇ ਵਿਰਾਮ ਦਿੱਤਾ ਹੈ; ਸਿਰਫ਼ ਪਲੇਬੈਕ ਦੀ ਥਾਂ ਮਿਲਾਈ ਗਈ',
@@ -690,10 +689,6 @@ const pa: Record<I18nKey, string> = {
   'error.audio_engine_prepare': 'ਆਡੀਓ ਇੰਜਣ ਤਿਆਰ ਨਹੀਂ ਹੋ ਸਕਿਆ',
   'error.session_create_fail': 'ਸੈਸ਼ਨ ਨਹੀਂ ਬਣ ਸਕਿਆ',
   'error.network_generic': 'ਨੈੱਟਵਰਕ ਗੜਬੜ ਹੋਈ',
-  'error.peer_app_version_mismatch':
-    'ਐਪ ਦੇ ਵਰਜਨ ਮੇਲ ਨਾ ਖਾਣ ਕਾਰਨ {{name}} ਸ਼ਾਮਲ ਨਹੀਂ ਹੋ ਸਕਦਾ। ਦੋਵੇਂ ਡਿਵਾਈਸਾਂ ਰਿਫ੍ਰੈਸ਼ ਕਰੋ।',
-  'error.app_version_mismatch':
-    'ਐਪ ਦੇ ਵਰਜਨ ਮੇਲ ਨਹੀਂ ਖਾਂਦੇ। ਦੋਵੇਂ ਡਿਵਾਈਸਾਂ ਰਿਫ੍ਰੈਸ਼ ਕਰਕੇ ਦੁਬਾਰਾ ਕੋਸ਼ਿਸ਼ ਕਰੋ।',
   'error.session_handshake_failed':
     'ਸੈਸ਼ਨ ਦਾ ਕਨੈਕਸ਼ਨ ਪੂਰਾ ਨਹੀਂ ਹੋ ਸਕਿਆ। ਦੋਵੇਂ ਡਿਵਾਈਸਾਂ ਰਿਫ੍ਰੈਸ਼ ਕਰਕੇ ਦੁਬਾਰਾ ਕੋਸ਼ਿਸ਼ ਕਰੋ।',
   'error.host_unreachable': 'ਲੱਗਦਾ ਹੈ ਕਿ ਹੋਸਟ ਸੈਸ਼ਨ ਛੱਡ ਗਿਆ ਹੈ',

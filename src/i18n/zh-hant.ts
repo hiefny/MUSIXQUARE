@@ -552,7 +552,6 @@ const zhHant: Record<I18nKey, string> = {
   'toast.sync_no_media': '沒有可同步的媒體\n請先選擇要播放的媒體',
   'toast.host_ad': '房主似乎正在觀看廣告',
   'toast.yt_sync_start': '正在同步…',
-  'toast.yt_sync_done': '同步完成',
   'toast.yt_rendezvous_start': '正在與房主對齊…',
   'toast.yt_rendezvous_done': '同步完成',
   'toast.yt_rendezvous_host_paused': '房主已暫停，僅對齊播放位置',
@@ -575,9 +574,6 @@ const zhHant: Record<I18nKey, string> = {
   'error.audio_engine_prepare': '無法準備音訊引擎',
   'error.session_create_fail': '無法建立房間',
   'error.network_generic': '發生網路錯誤',
-  'error.peer_app_version_mismatch':
-    '{{name}} 因應用程式版本不一致而無法加入。請在兩台裝置上重新整理頁面。',
-  'error.app_version_mismatch': '應用程式版本不一致。請在兩台裝置上重新整理頁面後再試一次。',
   'error.session_handshake_failed': '無法完成房間連線。請在兩台裝置上重新整理頁面後再試一次。',
   'error.host_unreachable': '房主似乎已離開房間',
   'error.host_disconnected': '已與房主中斷連線',

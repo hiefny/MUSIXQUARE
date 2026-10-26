@@ -626,7 +626,6 @@ const ur: Record<I18nKey, string> = {
   'toast.sync_no_media': 'سنک کرنے کے لیے کوئی میڈیا نہیں\nپہلے چلانے کے لیے کچھ منتخب کریں',
   'toast.host_ad': 'لگتا ہے میزبان اشتہار دیکھ رہا ہے',
   'toast.yt_sync_start': 'سنک ہو رہا ہے...',
-  'toast.yt_sync_done': 'سنک مکمل ہو گیا',
   'toast.yt_rendezvous_start': 'میزبان سے پوزیشن ملائی جا رہی ہے...',
   'toast.yt_rendezvous_done': 'سنک مکمل ہو گیا',
   'toast.yt_rendezvous_host_paused': 'میزبان رکا ہوا ہے، صرف پوزیشن ملائی گئی',
@@ -686,10 +685,6 @@ const ur: Record<I18nKey, string> = {
   'error.audio_engine_prepare': 'آڈیو انجن تیار نہیں ہو سکا',
   'error.session_create_fail': 'سیشن نہیں بن سکا',
   'error.network_generic': 'نیٹ ورک میں خرابی ہوئی',
-  'error.peer_app_version_mismatch':
-    'ایپ کے ورژن مختلف ہونے کی وجہ سے {{name}} شامل نہیں ہو سکتا۔ دونوں آلات پر ایپ ریفریش کریں۔',
-  'error.app_version_mismatch':
-    'ایپ کے ورژن مختلف ہیں۔ دونوں آلات پر ایپ ریفریش کر کے دوبارہ کوشش کریں۔',
   'error.session_handshake_failed':
     'سیشن کا کنکشن مکمل نہیں ہو سکا۔ دونوں آلات پر ایپ ریفریش کر کے دوبارہ کوشش کریں۔',
   'error.host_unreachable': 'لگتا ہے میزبان سیشن چھوڑ چکا ہے',

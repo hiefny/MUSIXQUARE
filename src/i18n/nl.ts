@@ -643,7 +643,6 @@ const nl: Record<I18nKey, string> = {
   'toast.sync_no_media': 'Er is niets om te synchroniseren\nKies eerst iets om af te spelen',
   'toast.host_ad': 'De host lijkt een advertentie te bekijken',
   'toast.yt_sync_start': 'Synchroniseren...',
-  'toast.yt_sync_done': 'Synchronisatie voltooid',
   'toast.yt_rendezvous_start': 'Afstemmen op de host...',
   'toast.yt_rendezvous_done': 'Synchronisatie voltooid',
   'toast.yt_rendezvous_host_paused': 'De host heeft gepauzeerd; alleen de positie is afgestemd',
@@ -704,10 +703,6 @@ const nl: Record<I18nKey, string> = {
   'error.audio_engine_prepare': 'Audio-engine kon niet worden voorbereid',
   'error.session_create_fail': 'De kamer kon niet worden gemaakt',
   'error.network_generic': 'Er is een netwerkfout opgetreden',
-  'error.peer_app_version_mismatch':
-    '{{name}} kan niet deelnemen omdat de appversies niet overeenkomen. Vernieuw de pagina op beide apparaten.',
-  'error.app_version_mismatch':
-    'De appversies komen niet overeen. Vernieuw de pagina op beide apparaten en probeer het opnieuw.',
   'error.session_handshake_failed':
     'De verbinding met de kamer kon niet worden voltooid. Vernieuw de pagina op beide apparaten en probeer het opnieuw.',
   'error.host_unreachable': 'De host lijkt de kamer te hebben verlaten',

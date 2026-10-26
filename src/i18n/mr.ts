@@ -624,7 +624,6 @@ const mr: Record<I18nKey, string> = {
   'toast.sync_no_media': 'सिंक करण्यासाठी कोणतेही मीडिया नाही\nआधी प्ले करण्यासाठी काहीतरी निवडा',
   'toast.host_ad': 'होस्ट जाहिरात पाहत असल्याचे दिसते',
   'toast.yt_sync_start': 'सिंक होत आहे...',
-  'toast.yt_sync_done': 'सिंक पूर्ण',
   'toast.yt_rendezvous_start': 'होस्टशी जुळवत आहे...',
   'toast.yt_rendezvous_done': 'सिंक पूर्ण',
   'toast.yt_rendezvous_host_paused': 'होस्टने विराम दिला आहे; फक्त प्लेबॅकचे स्थान जुळवले',
@@ -687,10 +686,6 @@ const mr: Record<I18nKey, string> = {
   'error.audio_engine_prepare': 'ऑडिओ इंजिन तयार करता आले नाही',
   'error.session_create_fail': 'सत्र तयार करता आले नाही',
   'error.network_generic': 'नेटवर्क त्रुटी आली',
-  'error.peer_app_version_mismatch':
-    'अ‍ॅपच्या आवृत्त्या जुळत नसल्यामुळे {{name}} सामील होऊ शकत नाही. दोन्ही डिव्हाइस रीफ्रेश करा.',
-  'error.app_version_mismatch':
-    'अ‍ॅपच्या आवृत्त्या जुळत नाहीत. दोन्ही डिव्हाइस रीफ्रेश करून पुन्हा प्रयत्न करा.',
   'error.session_handshake_failed':
     'सत्राचे कनेक्शन पूर्ण करता आले नाही. दोन्ही डिव्हाइस रीफ्रेश करून पुन्हा प्रयत्न करा.',
   'error.host_unreachable': 'होस्टने सत्र सोडले असावे',

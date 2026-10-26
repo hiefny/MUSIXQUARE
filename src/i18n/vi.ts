@@ -583,7 +583,6 @@ const vi: Record<I18nKey, string> = {
   'toast.sync_no_media': 'Không có nội dung để đồng bộ\nHãy chọn nội dung để phát trước',
   'toast.host_ad': 'Có vẻ chủ phòng đang xem quảng cáo',
   'toast.yt_sync_start': 'Đang đồng bộ...',
-  'toast.yt_sync_done': 'Đồng bộ hoàn tất',
   'toast.yt_rendezvous_start': 'Đang căn theo chủ phòng...',
   'toast.yt_rendezvous_done': 'Đồng bộ hoàn tất',
   'toast.yt_rendezvous_host_paused': 'Chủ phòng đang tạm dừng; chỉ căn chỉnh vị trí',
@@ -607,10 +606,6 @@ const vi: Record<I18nKey, string> = {
   'error.audio_engine_prepare': 'Không thể chuẩn bị bộ xử lý âm thanh',
   'error.session_create_fail': 'Không thể tạo phòng',
   'error.network_generic': 'Đã xảy ra lỗi mạng',
-  'error.peer_app_version_mismatch':
-    '{{name}} không thể tham gia vì phiên bản ứng dụng không khớp. Hãy tải lại trang trên cả hai thiết bị.',
-  'error.app_version_mismatch':
-    'Phiên bản ứng dụng không khớp. Hãy tải lại trang trên cả hai thiết bị rồi thử lại.',
   'error.session_handshake_failed':
     'Không thể hoàn tất kết nối với phòng. Hãy tải lại trang trên cả hai thiết bị rồi thử lại.',
   'error.host_unreachable': 'Có vẻ chủ phòng đã rời phòng',

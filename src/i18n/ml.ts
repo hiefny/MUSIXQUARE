@@ -643,7 +643,6 @@ const ml: Record<I18nKey, string> = {
     'സിങ്ക് ചെയ്യാൻ മീഡിയയില്ല\nആദ്യം പ്ലേ ചെയ്യാൻ എന്തെങ്കിലും തിരഞ്ഞെടുക്കുക',
   'toast.host_ad': 'ഹോസ്റ്റ് ഒരു പരസ്യം കാണുന്നതായി തോന്നുന്നു',
   'toast.yt_sync_start': 'സിങ്ക് ചെയ്യുന്നു...',
-  'toast.yt_sync_done': 'സിങ്ക് പൂർത്തിയായി',
   'toast.yt_rendezvous_start': 'ഹോസ്റ്റുമായി പൊരുത്തപ്പെടുത്തുന്നു...',
   'toast.yt_rendezvous_done': 'സിങ്ക് പൂർത്തിയായി',
   'toast.yt_rendezvous_host_paused':
@@ -707,10 +706,6 @@ const ml: Record<I18nKey, string> = {
   'error.audio_engine_prepare': 'ഓഡിയോ എൻജിൻ തയ്യാറാക്കാനായില്ല',
   'error.session_create_fail': 'സെഷൻ സൃഷ്ടിക്കാനായില്ല',
   'error.network_generic': 'ഒരു നെറ്റ്‌വർക്ക് പിശക് സംഭവിച്ചു',
-  'error.peer_app_version_mismatch':
-    'ആപ്പ് പതിപ്പുകൾ പൊരുത്തപ്പെടാത്തതിനാൽ {{name}}-ന് ചേരാനാകില്ല. രണ്ട് ഡിവൈസുകളും പുതുക്കുക.',
-  'error.app_version_mismatch':
-    'ആപ്പ് പതിപ്പുകൾ പൊരുത്തപ്പെടുന്നില്ല. രണ്ട് ഡിവൈസുകളും പുതുക്കി വീണ്ടും ശ്രമിക്കുക.',
   'error.session_handshake_failed':
     'സെഷൻ ബന്ധം പൂർത്തിയാക്കാനായില്ല. രണ്ട് ഡിവൈസുകളും പുതുക്കി വീണ്ടും ശ്രമിക്കുക.',
   'error.host_unreachable': 'ഹോസ്റ്റ് സെഷനിൽ നിന്ന് പുറത്തുപോയതായി തോന്നുന്നു',

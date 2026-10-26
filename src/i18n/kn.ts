@@ -635,7 +635,6 @@ const kn: Record<I18nKey, string> = {
   'toast.sync_no_media': 'ಸಿಂಕ್ ಮಾಡಲು ಯಾವುದೇ ಮೀಡಿಯಾ ಇಲ್ಲ\nಮೊದಲು ಪ್ಲೇ ಮಾಡಲು ಏನಾದರೂ ಆರಿಸಿ',
   'toast.host_ad': 'ಹೋಸ್ಟ್ ಜಾಹೀರಾತು ನೋಡುತ್ತಿರುವಂತೆ ತೋರುತ್ತಿದೆ',
   'toast.yt_sync_start': 'ಸಿಂಕ್ ಆಗುತ್ತಿದೆ...',
-  'toast.yt_sync_done': 'ಸಿಂಕ್ ಪೂರ್ಣಗೊಂಡಿದೆ',
   'toast.yt_rendezvous_start': 'ಹೋಸ್ಟ್‌ಗೆ ಹೊಂದಿಸಲಾಗುತ್ತಿದೆ...',
   'toast.yt_rendezvous_done': 'ಸಿಂಕ್ ಪೂರ್ಣಗೊಂಡಿದೆ',
   'toast.yt_rendezvous_host_paused':
@@ -700,10 +699,6 @@ const kn: Record<I18nKey, string> = {
   'error.audio_engine_prepare': 'ಆಡಿಯೊ ಎಂಜಿನ್ ಸಿದ್ಧಪಡಿಸಲಾಗಲಿಲ್ಲ',
   'error.session_create_fail': 'ಸೆಷನ್ ರಚಿಸಲಾಗಲಿಲ್ಲ',
   'error.network_generic': 'ನೆಟ್‌ವರ್ಕ್ ದೋಷ ಸಂಭವಿಸಿದೆ',
-  'error.peer_app_version_mismatch':
-    'ಆ್ಯಪ್ ಆವೃತ್ತಿಗಳು ಹೊಂದಿಕೆಯಾಗದ ಕಾರಣ {{name}} ಸೇರಲು ಸಾಧ್ಯವಿಲ್ಲ. ಎರಡೂ ಸಾಧನಗಳನ್ನು ರಿಫ್ರೆಶ್ ಮಾಡಿ.',
-  'error.app_version_mismatch':
-    'ಆ್ಯಪ್ ಆವೃತ್ತಿಗಳು ಹೊಂದಿಕೆಯಾಗುತ್ತಿಲ್ಲ. ಎರಡೂ ಸಾಧನಗಳನ್ನು ರಿಫ್ರೆಶ್ ಮಾಡಿ ಮತ್ತೆ ಪ್ರಯತ್ನಿಸಿ.',
   'error.session_handshake_failed':
     'ಸೆಷನ್ ಸಂಪರ್ಕವನ್ನು ಪೂರ್ಣಗೊಳಿಸಲಾಗಲಿಲ್ಲ. ಎರಡೂ ಸಾಧನಗಳನ್ನು ರಿಫ್ರೆಶ್ ಮಾಡಿ ಮತ್ತೆ ಪ್ರಯತ್ನಿಸಿ.',
   'error.host_unreachable': 'ಹೋಸ್ಟ್ ಸೆಷನ್‌ನಿಂದ ಹೊರಟಿರುವಂತೆ ತೋರುತ್ತಿದೆ',

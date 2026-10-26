@@ -640,7 +640,6 @@ const hu: Record<I18nKey, string> = {
   'toast.sync_no_media': 'Nincs szinkronizálható média\nElőbb válassz lejátszandó tartalmat',
   'toast.host_ad': 'Úgy tűnik, a házigazda reklámot néz',
   'toast.yt_sync_start': 'Szinkronizálás...',
-  'toast.yt_sync_done': 'Szinkronizálás kész',
   'toast.yt_rendezvous_start': 'Igazodás a házigazdához...',
   'toast.yt_rendezvous_done': 'Szinkronizálás kész',
   'toast.yt_rendezvous_host_paused':
@@ -702,10 +701,6 @@ const hu: Record<I18nKey, string> = {
   'error.audio_engine_prepare': 'Nem sikerült előkészíteni a hangmotort',
   'error.session_create_fail': 'Nem sikerült létrehozni a munkamenetet',
   'error.network_generic': 'Hálózati hiba történt',
-  'error.peer_app_version_mismatch':
-    '{{name}} nem tud csatlakozni, mert az alkalmazásverziók eltérnek. Frissítsd mindkét eszközt.',
-  'error.app_version_mismatch':
-    'Az alkalmazásverziók eltérnek. Frissítsd mindkét eszközt, majd próbáld újra.',
 
   'error.session_handshake_failed':
     'Nem sikerült befejezni a kapcsolódást a munkamenethez. Frissítsd mindkét eszközt, majd próbáld újra.',

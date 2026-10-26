@@ -626,7 +626,6 @@ const en: Record<I18nKey, string> = {
   'toast.sync_no_media': "There's no media to sync\nSelect something to play first",
   'toast.host_ad': 'The host seems to be watching an ad',
   'toast.yt_sync_start': 'Syncing...',
-  'toast.yt_sync_done': 'Sync complete',
   'toast.yt_rendezvous_start': 'Aligning to host...',
   'toast.yt_rendezvous_done': 'Sync complete',
   'toast.yt_rendezvous_host_paused': 'Host is paused, so only the position was matched',
@@ -685,10 +684,6 @@ const en: Record<I18nKey, string> = {
   'error.audio_engine_prepare': "Couldn't prepare the audio engine",
   'error.session_create_fail': "Couldn't create session",
   'error.network_generic': 'A network error occurred',
-  'error.peer_app_version_mismatch':
-    '{{name}} cannot join because the app versions do not match. Refresh both devices.',
-  'error.app_version_mismatch':
-    'The app versions do not match. Refresh both devices and try again.',
   'error.session_handshake_failed':
     'Could not complete the session connection. Refresh both devices and try again.',
   'error.host_unreachable': 'The host appears to have left the session',

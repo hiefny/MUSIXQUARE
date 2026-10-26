@@ -621,7 +621,6 @@ const fa: Record<I18nKey, string> = {
   'toast.sync_no_media': 'رسانه‌ای برای همگام‌سازی نیست\nابتدا چیزی برای پخش انتخاب کنید',
   'toast.host_ad': 'به نظر می‌رسد میزبان در حال دیدن تبلیغ است',
   'toast.yt_sync_start': 'در حال همگام‌سازی...',
-  'toast.yt_sync_done': 'همگام‌سازی انجام شد',
   'toast.yt_rendezvous_start': 'در حال هماهنگی با میزبان...',
   'toast.yt_rendezvous_done': 'همگام‌سازی انجام شد',
   'toast.yt_rendezvous_host_paused': 'پخش میزبان در مکث است؛ فقط موقعیت هماهنگ شد',
@@ -681,10 +680,6 @@ const fa: Record<I18nKey, string> = {
   'error.audio_engine_prepare': 'موتور صدا آماده نشد',
   'error.session_create_fail': 'جلسه ساخته نشد',
   'error.network_generic': 'خطایی در شبکه رخ داد',
-  'error.peer_app_version_mismatch':
-    '{{name}} نمی‌تواند بپیوندد چون نسخه‌های برنامه همخوان نیستند. برنامه را در هر دو دستگاه تازه‌سازی کنید.',
-  'error.app_version_mismatch':
-    'نسخه‌های برنامه همخوان نیستند. برنامه را در هر دو دستگاه تازه‌سازی و دوباره تلاش کنید.',
   'error.session_handshake_failed':
     'اتصال جلسه کامل نشد. برنامه را در هر دو دستگاه تازه‌سازی و دوباره تلاش کنید.',
   'error.host_unreachable': 'به نظر می‌رسد میزبان از جلسه خارج شده است',

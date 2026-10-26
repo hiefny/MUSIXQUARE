@@ -627,7 +627,6 @@ const hi: Record<I18nKey, string> = {
   'toast.sync_no_media': 'सिंक करने के लिए कोई मीडिया नहीं है\nपहले चलाने के लिए कुछ चुनें',
   'toast.host_ad': 'लगता है होस्ट कोई विज्ञापन देख रहा है',
   'toast.yt_sync_start': 'सिंक हो रहा है...',
-  'toast.yt_sync_done': 'सिंक पूरा हुआ',
   'toast.yt_rendezvous_start': 'होस्ट के साथ मिलान हो रहा है...',
   'toast.yt_rendezvous_done': 'सिंक पूरा हुआ',
   'toast.yt_rendezvous_host_paused':
@@ -689,10 +688,6 @@ const hi: Record<I18nKey, string> = {
   'error.audio_engine_prepare': 'ऑडियो इंजन तैयार नहीं हो सका',
   'error.session_create_fail': 'सेशन नहीं बनाया जा सका',
   'error.network_generic': 'नेटवर्क में गड़बड़ी हुई',
-  'error.peer_app_version_mismatch':
-    'ऐप के वर्ज़न मेल न खाने के कारण {{name}} शामिल नहीं हो सकते। दोनों डिवाइस रीफ़्रेश करें।',
-  'error.app_version_mismatch':
-    'ऐप के वर्ज़न मेल नहीं खाते। दोनों डिवाइस रीफ़्रेश करके फिर कोशिश करें।',
   'error.session_handshake_failed':
     'सेशन का कनेक्शन पूरा नहीं हो सका। दोनों डिवाइस रीफ़्रेश करके फिर कोशिश करें।',
   'error.host_unreachable': 'लगता है होस्ट ने सेशन छोड़ दिया है',

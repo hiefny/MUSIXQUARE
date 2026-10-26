@@ -602,7 +602,6 @@ const fr: Record<I18nKey, string> = {
   'toast.sync_no_media': 'Aucun média à synchroniser\nSélectionnez d’abord un média à lire',
   'toast.host_ad': 'L’hôte semble regarder une publicité',
   'toast.yt_sync_start': 'Synchronisation…',
-  'toast.yt_sync_done': 'Synchronisation terminée',
   'toast.yt_rendezvous_start': 'Alignement sur l’hôte…',
   'toast.yt_rendezvous_done': 'Synchronisation terminée',
   'toast.yt_rendezvous_host_paused': 'L’hôte est en pause ; seule la position a été alignée',
@@ -627,10 +626,6 @@ const fr: Record<I18nKey, string> = {
   'error.audio_engine_prepare': 'Impossible de préparer le moteur audio',
   'error.session_create_fail': 'Impossible de créer le salon',
   'error.network_generic': 'Une erreur réseau est survenue',
-  'error.peer_app_version_mismatch':
-    '{{name}} ne peut pas rejoindre le salon, car les versions de l’application ne correspondent pas. Actualisez les deux appareils.',
-  'error.app_version_mismatch':
-    'Les versions de l’application ne correspondent pas. Actualisez les deux appareils et réessayez.',
   'error.session_handshake_failed':
     'La connexion au salon n’a pas pu être établie. Actualisez les deux appareils et réessayez.',
   'error.host_unreachable': 'L’hôte semble avoir quitté le salon',

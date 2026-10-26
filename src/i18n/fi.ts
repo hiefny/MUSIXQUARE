@@ -635,7 +635,6 @@ const fi: Record<I18nKey, string> = {
   'toast.sync_no_media': 'Synkronoitavaa mediaa ei ole\nValitse ensin toistettava kohde',
   'toast.host_ad': 'Isäntä näyttää katsovan mainosta',
   'toast.yt_sync_start': 'Synkronoidaan…',
-  'toast.yt_sync_done': 'Synkronointi valmis',
   'toast.yt_rendezvous_start': 'Synkronoidaan isännän kanssa…',
   'toast.yt_rendezvous_done': 'Synkronointi valmis',
   'toast.yt_rendezvous_host_paused':
@@ -696,10 +695,6 @@ const fi: Record<I18nKey, string> = {
   'error.audio_engine_prepare': 'Äänimoottoria ei voitu valmistella',
   'error.session_create_fail': 'Istuntoa ei voitu luoda',
   'error.network_generic': 'Tapahtui verkkovirhe',
-  'error.peer_app_version_mismatch':
-    '{{name}} ei voi liittyä, koska sovellusversiot eivät täsmää. Päivitä sivu molemmilla laitteilla.',
-  'error.app_version_mismatch':
-    'Sovellusversiot eivät täsmää. Päivitä sivu molemmilla laitteilla ja yritä uudelleen.',
   'error.session_handshake_failed':
     'Istuntoyhteyttä ei voitu muodostaa loppuun. Päivitä sivu molemmilla laitteilla ja yritä uudelleen.',
   'error.host_unreachable': 'Isäntä näyttää poistuneen istunnosta',

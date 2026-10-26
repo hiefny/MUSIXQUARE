@@ -616,7 +616,6 @@ const ar: Record<I18nKey, string> = {
   'toast.sync_no_media': 'لا توجد وسائط لمزامنتها\nاختر شيئًا لتشغيله أولًا',
   'toast.host_ad': 'يبدو أن المضيف يشاهد إعلانًا',
   'toast.yt_sync_start': 'جارٍ المزامنة...',
-  'toast.yt_sync_done': 'اكتملت المزامنة',
   'toast.yt_rendezvous_start': 'جارٍ المحاذاة مع المضيف...',
   'toast.yt_rendezvous_done': 'اكتملت المزامنة',
   'toast.yt_rendezvous_host_paused': 'تشغيل المضيف متوقف مؤقتًا؛ تمت مطابقة الموضع فقط',
@@ -675,10 +674,6 @@ const ar: Record<I18nKey, string> = {
   'error.audio_engine_prepare': 'تعذّر تجهيز محرك الصوت',
   'error.session_create_fail': 'تعذّر إنشاء الجلسة',
   'error.network_generic': 'حدث خطأ في الشبكة',
-  'error.peer_app_version_mismatch':
-    'لا يستطيع {{name}} الانضمام لأن إصداري التطبيق غير متطابقين. حدّث الصفحة على الجهازين.',
-  'error.app_version_mismatch':
-    'إصدارا التطبيق غير متطابقين. حدّث الصفحة على الجهازين ثم حاول مجددًا.',
   'error.session_handshake_failed':
     'تعذّر إكمال اتصال الجلسة. حدّث الصفحة على الجهازين ثم حاول مجددًا.',
   'error.host_unreachable': 'يبدو أن المضيف غادر الجلسة',

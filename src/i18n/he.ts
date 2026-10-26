@@ -613,7 +613,6 @@ const he: Record<I18nKey, string> = {
   'toast.sync_no_media': 'אין מדיה לסנכרון\nיש לבחור קודם משהו להפעלה',
   'toast.host_ad': 'נראה שהמארח צופה בפרסומת',
   'toast.yt_sync_start': 'מתבצע סנכרון...',
-  'toast.yt_sync_done': 'הסנכרון הושלם',
   'toast.yt_rendezvous_start': 'מתבצעת התאמה למארח...',
   'toast.yt_rendezvous_done': 'הסנכרון הושלם',
   'toast.yt_rendezvous_host_paused': 'המארח בהשהיה, רק המיקום הותאם',
@@ -671,9 +670,6 @@ const he: Record<I18nKey, string> = {
   'error.audio_engine_prepare': 'לא הצלחנו להכין את מנוע השמע',
   'error.session_create_fail': 'לא הצלחנו ליצור חדר',
   'error.network_generic': 'אירעה שגיאת רשת',
-  'error.peer_app_version_mismatch':
-    'ההצטרפות של {{name}} אינה אפשרית כי גרסאות האפליקציה אינן תואמות. יש לרענן בשני המכשירים.',
-  'error.app_version_mismatch': 'גרסאות האפליקציה אינן תואמות. יש לרענן בשני המכשירים ולנסות שוב.',
   'error.session_handshake_failed':
     'לא הצלחנו להשלים את החיבור לחדר. יש לרענן בשני המכשירים ולנסות שוב.',
   'error.host_unreachable': 'נראה שהמארח יצא מהחדר',

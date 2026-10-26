@@ -643,7 +643,6 @@ const ro: Record<I18nKey, string> = {
     'Nu există conținut media de sincronizat\nSelectează mai întâi ceva de redat',
   'toast.host_ad': 'Se pare că gazda urmărește o reclamă',
   'toast.yt_sync_start': 'Se sincronizează...',
-  'toast.yt_sync_done': 'Sincronizare finalizată',
   'toast.yt_rendezvous_start': 'Se aliniază la gazdă...',
   'toast.yt_rendezvous_done': 'Sincronizare finalizată',
   'toast.yt_rendezvous_host_paused':
@@ -707,10 +706,6 @@ const ro: Record<I18nKey, string> = {
   'error.audio_engine_prepare': 'Motorul audio nu a putut fi pregătit',
   'error.session_create_fail': 'Sesiunea nu a putut fi creată',
   'error.network_generic': 'A apărut o eroare de rețea',
-  'error.peer_app_version_mismatch':
-    '{{name}} nu poate intra deoarece versiunile aplicației nu corespund. Reîncarcă pagina pe ambele dispozitive.',
-  'error.app_version_mismatch':
-    'Versiunile aplicației nu corespund. Reîncarcă pagina pe ambele dispozitive și încearcă din nou.',
 
   'error.session_handshake_failed':
     'Conectarea la sesiune nu a putut fi finalizată. Reîncarcă pagina pe ambele dispozitive și încearcă din nou.',

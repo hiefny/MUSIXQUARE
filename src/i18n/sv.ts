@@ -636,7 +636,6 @@ const sv: Record<I18nKey, string> = {
   'toast.sync_no_media': 'Det finns inga medier att synkronisera\nVälj först något att spela upp',
   'toast.host_ad': 'Värden verkar titta på en annons',
   'toast.yt_sync_start': 'Synkar…',
-  'toast.yt_sync_done': 'Synkroniseringen är klar',
   'toast.yt_rendezvous_start': 'Synkar med värden…',
   'toast.yt_rendezvous_done': 'Synkroniseringen är klar',
   'toast.yt_rendezvous_host_paused': 'Värden har pausat, bara positionen anpassades',
@@ -697,10 +696,6 @@ const sv: Record<I18nKey, string> = {
   'error.audio_engine_prepare': 'Det gick inte att förbereda ljudmotorn',
   'error.session_create_fail': 'Det gick inte att skapa sessionen',
   'error.network_generic': 'Ett nätverksfel inträffade',
-  'error.peer_app_version_mismatch':
-    '{{name}} kan inte ansluta eftersom appversionerna inte stämmer överens. Uppdatera appen på båda enheterna.',
-  'error.app_version_mismatch':
-    'Appversionerna stämmer inte överens. Uppdatera appen på båda enheterna och försök igen.',
   'error.session_handshake_failed':
     'Det gick inte att slutföra sessionsanslutningen. Uppdatera appen på båda enheterna och försök igen.',
   'error.host_unreachable': 'Värden verkar ha lämnat sessionen',

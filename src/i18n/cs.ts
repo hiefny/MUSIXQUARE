@@ -636,7 +636,6 @@ const cs: Record<I18nKey, string> = {
     'Nejsou k dispozici média k synchronizaci\nNejprve vyberte obsah k přehrání',
   'toast.host_ad': 'Hostitel pravděpodobně sleduje reklamu',
   'toast.yt_sync_start': 'Synchronizace...',
-  'toast.yt_sync_done': 'Synchronizace dokončena',
   'toast.yt_rendezvous_start': 'Zarovnávání s hostitelem...',
   'toast.yt_rendezvous_done': 'Synchronizace dokončena',
   'toast.yt_rendezvous_host_paused':
@@ -699,10 +698,6 @@ const cs: Record<I18nKey, string> = {
   'error.audio_engine_prepare': 'Zvukový modul se nepodařilo připravit',
   'error.session_create_fail': 'Relaci se nepodařilo vytvořit',
   'error.network_generic': 'Došlo k chybě sítě',
-  'error.peer_app_version_mismatch':
-    '{{name}} se nemůže připojit, protože verze aplikace nesouhlasí. Obnovte aplikaci na obou zařízeních.',
-  'error.app_version_mismatch':
-    'Verze aplikace nesouhlasí. Obnovte aplikaci na obou zařízeních a zkuste to znovu.',
 
   'error.session_handshake_failed':
     'Připojení k relaci se nepodařilo dokončit. Obnovte aplikaci na obou zařízeních a zkuste to znovu.',

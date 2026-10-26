@@ -1821,6 +1821,14 @@ RO-51 duplicated
     generation it would absorb (P3-10 A extended from a late activation to a late install): the
     generation this tab asked for and already runs is not offered again after the 30 s cooldown.
     A document without its own request still asks.
+  - The absorb's fallback within the cooldown: a document opened by a reload within 30 s of such
+    a request, with no controller-confirmed marker and no waiting worker handled by itself,
+    finishes the update with the aligned reload and no dialog when a generation it does not
+    absorb takes control (another tab applied a newer release, say). Its writers today are an
+    Apply whose page the user reloaded before the controller change and the forced Apply without
+    a waiting worker, which reloads a Standard host in place; without the fallback that host,
+    back in its room, would be asked once more with the activated-elsewhere dialog. Until
+    old-version removal train 2 (A-6, wording only) the code described it as the v267 transition.
 
   Since forced update Inc 7 (train 9.0.14, owner decision 2026-10-25 ~22:00: check the minimum
   build at start and on every return from the background):
@@ -1940,6 +1948,12 @@ RO-51 duplicated
     port); the PRO entry rows of `src/pro-room/__tests__/setup-flow.test.ts`, and in a real
     browser (local, not in CI) `e2e/pro-entry-app-update.test.ts` (a refused PRO invite and claim
     link: no Later, Escape and Back keep it, one Apply, then the loop guard).
+  - The absorb's fallback within the cooldown: `sw-register.test.ts` "finishes an update reload
+    that left before its controller change without asking again" and "does not treat a
+    controller-confirmed reload as an unfinished update reload"; the transition test file's F2d
+    (a host reloaded in place by a forced Apply without a worker gets the aligned reload, not the
+    dialog, for another generation; added by old-version removal train 2 A-6, failing when the
+    branch is disabled).
   - The start and resume floor check (forced update Inc 7): the read and the gate in
     `src/core/__tests__/sw-update-coordination.test.ts` (rows R1 to R5, G1 to G3);
     `sw-register.test.ts` "the start and resume floor check (forced update Inc 7)" (rows C1 to

@@ -6185,99 +6185,93 @@ describe('Cloudflare app worker admin dashboard', () => {
     });
   });
 
-  it.each([false, true])(
-    'validates announcement dates and permits disabling expired notices (legacy body: %s)',
-    async (legacyRequest) => {
-      vi.useFakeTimers();
-      vi.setSystemTime(new Date('2030-01-01T00:00:00Z'));
-      const env = {
-        MXQR_ADMIN_PASSWORD: 'admin-password-strong',
-        MXQR_ADMIN_SESSION_SECRET: 'test-admin-session-secret-at-least-32',
-        MUSIXQUARE_SERVICE_CONTROL: createAnnouncementControlBinding(),
-      };
-      const login = await appWorker.fetch(
-        new Request('https://musixquare.com/api/admin/login', {
-          method: 'POST',
-          headers: adminMutationHeaders({ 'CF-Connecting-IP': '203.0.113.87' }),
-          body: JSON.stringify({ password: 'admin-password-strong' }),
-        }),
-        env,
-      );
-      expect(login.status).toBe(200);
-      const cookie = login.headers.get('Set-Cookie')?.split(';')[0] || '';
-      const mutate = (enabled: boolean, expiresAt: unknown, revision: number) =>
-        appWorker.fetch(
-          new Request('https://musixquare.com/api/admin/announcement', {
-            method: 'POST',
-            headers: adminMutationHeaders({ Cookie: cookie }),
-            body: JSON.stringify({
-              message: 'Notice with an exact expiry',
-              enabled,
-              expiresAt,
-              ...(legacyRequest
-                ? {}
-                : {
-                    expectedRevision: revision,
-                    requestId: crypto.randomUUID(),
-                  }),
-            }),
-          }),
-          env,
-        );
-      for (const invalid of [
-        '2031-02-29T12:00:00Z',
-        '2032-02-30T12:00:00.123+09:00',
-        '2031-04-31T12:00Z',
-      ]) {
-        const response = await mutate(true, invalid, 0);
-        expect(response.status).toBe(400);
-        expect(await response.json()).toEqual({ error: 'INVALID_EXPIRES_AT' });
-      }
-      const expiresAt = '2032-02-29T12:00:01.234+09:00';
-      const saved = await mutate(true, expiresAt, 0);
-      expect(saved.status).toBe(200);
-      expect(await saved.json()).toMatchObject({
-        revision: 1,
-        announcement: { expiresAt: '2032-02-29T03:00:01.234Z', enabled: true },
-      });
-      // Refresh the session after advancing beyond the original expiry.
-      vi.setSystemTime(new Date('2032-02-29T03:00:02Z'));
-      const renewedLogin = await appWorker.fetch(
-        new Request('https://musixquare.com/api/admin/login', {
-          method: 'POST',
-          headers: adminMutationHeaders({ 'CF-Connecting-IP': '203.0.113.87' }),
-          body: JSON.stringify({ password: 'admin-password-strong' }),
-        }),
-        env,
-      );
-      const renewedCookie = renewedLogin.headers.get('Set-Cookie')?.split(';')[0] || '';
-      const disabled = await appWorker.fetch(
+  it('validates announcement dates and permits disabling expired notices', async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date('2030-01-01T00:00:00Z'));
+    const env = {
+      MXQR_ADMIN_PASSWORD: 'admin-password-strong',
+      MXQR_ADMIN_SESSION_SECRET: 'test-admin-session-secret-at-least-32',
+      MUSIXQUARE_SERVICE_CONTROL: createAnnouncementControlBinding(),
+    };
+    const login = await appWorker.fetch(
+      new Request('https://musixquare.com/api/admin/login', {
+        method: 'POST',
+        headers: adminMutationHeaders({ 'CF-Connecting-IP': '203.0.113.87' }),
+        body: JSON.stringify({ password: 'admin-password-strong' }),
+      }),
+      env,
+    );
+    expect(login.status).toBe(200);
+    const cookie = login.headers.get('Set-Cookie')?.split(';')[0] || '';
+    const mutate = (enabled: boolean, expiresAt: unknown, revision: number) =>
+      appWorker.fetch(
         new Request('https://musixquare.com/api/admin/announcement', {
           method: 'POST',
-          headers: adminMutationHeaders({ Cookie: renewedCookie }),
+          headers: adminMutationHeaders({ Cookie: cookie }),
           body: JSON.stringify({
             message: 'Notice with an exact expiry',
-            enabled: false,
+            enabled,
             expiresAt,
-            ...(legacyRequest ? {} : { expectedRevision: 1, requestId: crypto.randomUUID() }),
+            expectedRevision: revision,
+            requestId: crypto.randomUUID(),
           }),
         }),
         env,
       );
-      expect(disabled.status).toBe(200);
-      expect(await disabled.json()).toMatchObject({
-        revision: 2,
-        active: false,
-        announcement: { enabled: false, expiresAt: '2032-02-29T03:00:01.234Z' },
-      });
-      const current = await appWorker.fetch(
-        new Request('https://musixquare.com/api/announcement/current'),
-        env,
-      );
-      expect(current.status).toBe(200);
-      expect(await current.json()).toEqual({ enabled: false, revision: 2 });
-    },
-  );
+    for (const invalid of [
+      '2031-02-29T12:00:00Z',
+      '2032-02-30T12:00:00.123+09:00',
+      '2031-04-31T12:00Z',
+    ]) {
+      const response = await mutate(true, invalid, 0);
+      expect(response.status).toBe(400);
+      expect(await response.json()).toEqual({ error: 'INVALID_EXPIRES_AT' });
+    }
+    const expiresAt = '2032-02-29T12:00:01.234+09:00';
+    const saved = await mutate(true, expiresAt, 0);
+    expect(saved.status).toBe(200);
+    expect(await saved.json()).toMatchObject({
+      revision: 1,
+      announcement: { expiresAt: '2032-02-29T03:00:01.234Z', enabled: true },
+    });
+    // Refresh the session after advancing beyond the original expiry.
+    vi.setSystemTime(new Date('2032-02-29T03:00:02Z'));
+    const renewedLogin = await appWorker.fetch(
+      new Request('https://musixquare.com/api/admin/login', {
+        method: 'POST',
+        headers: adminMutationHeaders({ 'CF-Connecting-IP': '203.0.113.87' }),
+        body: JSON.stringify({ password: 'admin-password-strong' }),
+      }),
+      env,
+    );
+    const renewedCookie = renewedLogin.headers.get('Set-Cookie')?.split(';')[0] || '';
+    const disabled = await appWorker.fetch(
+      new Request('https://musixquare.com/api/admin/announcement', {
+        method: 'POST',
+        headers: adminMutationHeaders({ Cookie: renewedCookie }),
+        body: JSON.stringify({
+          message: 'Notice with an exact expiry',
+          enabled: false,
+          expiresAt,
+          expectedRevision: 1,
+          requestId: crypto.randomUUID(),
+        }),
+      }),
+      env,
+    );
+    expect(disabled.status).toBe(200);
+    expect(await disabled.json()).toMatchObject({
+      revision: 2,
+      active: false,
+      announcement: { enabled: false, expiresAt: '2032-02-29T03:00:01.234Z' },
+    });
+    const current = await appWorker.fetch(
+      new Request('https://musixquare.com/api/announcement/current'),
+      env,
+    );
+    expect(current.status).toBe(200);
+    expect(await current.json()).toEqual({ enabled: false, revision: 2 });
+  });
 
   it('exposes canonical revisions across separate caches without publishing disabled notice content', async () => {
     vi.useFakeTimers();

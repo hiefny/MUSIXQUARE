@@ -133,7 +133,6 @@ Events:
 | `guest_pending_capacity`                   | A connection was rejected because every bounded pending slot was already authenticating.                                              |
 | `guest_identity_capacity`                  | A new identity was rejected because the reconnect-binding limit was reached.                                                          |
 | `remote_share_upload_assertion_verified`   | A new Remote Share reservation was issued with a valid signaling-issued current-host assertion; exact v3 replay does not count again. |
-| `remote_share_upload_assertion_legacy`     | Retired. Remote Share has no assertion-free reservation path and no longer writes this event; any count comes from older rows.        |
 | `remote_share_upload_assertion_rejected`   | A required or presented assertion was missing or invalid; writes are capped at 10 per IP-derived limiter key per normal rate window.  |
 | `ws_message_oversized`                     | A WebSocket frame or validated signaling payload exceeded its size limit.                                                             |
 | `ws_message_rate_limited`                  | A guest exceeded the per-connection signaling message rate.                                                                           |
@@ -142,6 +141,11 @@ Events:
 Metric writes are deferred with the Worker execution context, so D1 latency is
 not part of the room admission path. They are operational counters rather than
 an authentication or billing source of truth.
+
+`remote_share_upload_assertion_legacy` is retired. Since 2026-10-26 Remote
+Share has no assertion-free reservation path and no longer writes it, and the
+event is no longer in the current inventory, so the dashboard summary ignores
+its older rows while the raw retention data remains available for audit.
 
 Each new `guest_host_unavailable` increment and exactly one of its three state
 details share one atomic D1 upsert. Reclaim grace takes precedence over pending

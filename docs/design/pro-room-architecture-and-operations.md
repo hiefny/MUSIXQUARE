@@ -339,14 +339,17 @@ matched provider data/code checkpoint.
   URL, and explains a PIN change before its PIN prompt.
 - Every snapshot answer, the ownership-transfer answer included, carries flat
   `snapshot.passwordRequired` and `playlistSlots`; since 2026-10-26 the PRO
-  Worker no longer reads the browser's opt-in headers for them. The App facade
-  still passes those headers to the internal commit. An admission body may
+  Worker no longer reads the browser's opt-in headers for them, and the App
+  facade no longer passes them to the internal ownership-transfer commit. The
+  facade also refuses (400) a transfer body with the `newPin` of Apps 9.0.0 to
+  9.0.3 before it records an intent. An admission body may
   carry a PIN in a public room; its structurally valid eight-digit entry is
   ignored only when that room is explicitly public, and grants no additional
   authority. The App omits the PIN in public admissions. Every admission body
   carries the stable `requestId` for the exactly-once receipt and the
   same-origin session actor contract; the one-field `{pin}` body of earlier
-  Apps, which had no receipt, is refused (400) since 2026-10-26.
+  Apps, which had no receipt, is refused (400) since 2026-10-26, and the App
+  facade gives it the same response deadline as every other admission.
 - The owner credential manages PIN/recovery security and owner-visible room
   configuration. Access-protected operators manage suspension and permanent
   deletion. A separate member session controls live-room actions. Linking the
@@ -1226,6 +1229,12 @@ and playback receipts keep their `kind` marker, so it does not shorten them.
 The boundary moves when the App stops sending the three close fields: below
 the 2026-10-26 Worker that close is refused (400) and the participant stays
 listed until presence expires, so that release records the new boundary here.
+The App Worker of the same release no longer passes the opt-in headers to the
+internal ownership-transfer commit. Under the replaced PRO Worker that commit
+answers without `passwordRequired` and `playlistSlots`; the App parser takes
+both as optional, the room's entry password stays off as committed, and the
+new owner's settings may show it as on until a later snapshot revision carries
+the field. Restore the App Worker with the PRO Worker, or repair forward.
 
 1. Stop the rollout and record the Worker versions and observed symptom. Do not
    delete the R2 bucket, Durable Object binding, class migration, or room data.

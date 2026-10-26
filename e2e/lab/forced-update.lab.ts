@@ -131,7 +131,7 @@ async function applyAndWaitForNextDocument(page: Page): Promise<void> {
   ).toBe(false);
 }
 
-/** A 9.0.11-shape guest (no appBuild) on a raw socket: every frame it gets, and the close. */
+/** A 9.0.12-shape guest (no appBuild) on a raw socket: every frame it gets, and the close. */
 function legacyGuestAdmission(
   code: string,
 ): Promise<{ frames: unknown[]; close: { code: number; reason: string } }> {
@@ -228,7 +228,7 @@ test.describe('forced update over the local signaling Worker', () => {
 
     await setFloor(host, build + 1, build + 1);
 
-    // A guest that sends no appBuild (9.0.11 and older) counts as build 0.
+    // A guest that sends no appBuild (9.0.12 and older) counts as build 0.
     const legacy = await legacyGuestAdmission(code);
     expect(legacy.frames).toEqual([
       {

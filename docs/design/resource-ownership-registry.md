@@ -1449,7 +1449,7 @@ RO-51 duplicated
   without a session, or the current-file bootstrap once the route turns local), and the host's
   route publication travels on the control route while the header can overtake it on the
   independently ordered bulk channel. A header for another session is still dropped unless the
-  route is `local`, and an R2 delivery is refused first. A 9.0.9 to 9.0.11 guest took the header
+  route is `local`, and an R2 delivery is refused first. A 9.0.9 to 9.0.12 guest took the header
   while `unknown` only for the exact (connection, queue item, session) of its own unsettled
   `REQUEST_DATA_RECOVERY` (Codex P2 on #487), a 9.0.8 or older guest only while `local`. An older
   guest that drops the header drops its chunks too, and the drop itself asks for nothing, so the
@@ -1474,7 +1474,7 @@ RO-51 duplicated
   a main lane that already held the tuple when `local` was published (its header may have reached
   the guest before the guest knew its route), keeps the restart running to its END, as in 9.0.8.
   Until 9.0.8 both lanes always streamed the whole file for the same tuple after recovery (survey
-  F4). A late-join unicast and the room's preload broadcast do not yield. A 9.0.11 or older guest
+  F4). A late-join unicast and the room's preload broadcast do not yield. A 9.0.12 or older guest
   adopts the published route the same way but takes the main header under its older rule (above;
   the 9.0.8 one is that of 9.0.0). Nothing a guest sends, in its recovery request or elsewhere,
   tells the host which rule it runs, so the host keeps one yield rule for all of them
@@ -1488,7 +1488,7 @@ RO-51 duplicated
     lane reaches `FILE_END` before the restart's next check (a completed owner is a fence, not a
     stream), or when the restart reaches `PRELOAD_END` before the guest's request arrives. Each
     matches 9.0.8; none is a regression. In those cases a 9.0.13 guest on any route, or a 9.0.9
-    to 9.0.11 guest still `unknown` that takes the header it asked for, plays the main lane while
+    to 9.0.12 guest still `unknown` that takes the header it asked for, plays the main lane while
     the restart reaches its END, as a `local` guest did in 9.0.8 (it keeps a second resident copy
     only when the main header came first).
   - The abort travels on a control route and the restart header on the bulk channel, so the abort
@@ -1504,13 +1504,13 @@ RO-51 duplicated
   - The guest reads its own route when the main header arrives, and the host cannot see it. A
     header sent after `local` was published can still reach a guest awaiting the preload that is
     not `local`. A 9.0.13 guest takes it on any route (above), so both paths below are closed for
-    it. A 9.0.9 to 9.0.11 guest whose route is still `unknown` takes it when it answers the
+    it. A 9.0.9 to 9.0.12 guest whose route is still `unknown` takes it when it answers the
     guest's own recovery request. A guest that drops it while the restart yields stays in
     AWAITING_PRELOAD with no stream. If the stall watchdog it armed while awaiting the preload
     (`preload-blob-watchdog` in `playback.ts`, 10 s without progress; the yield's `PRELOAD_ABORT`
     skips the session, so no progress re-arms it) has not fired yet, the stall lasts until it sends
     `REQUEST_DATA_RECOVERY`, and outlasts that request only if the guest's route is still not
-    `local` when its main `FILE_START` arrives (for a 9.0.9 to 9.0.11 guest, only if it is
+    `local` when its main `FILE_START` arrives (for a 9.0.9 to 9.0.12 guest, only if it is
     `remote`). If the dropped header already answered that watchdog's request, nothing asks again
     (code reading; a replay of the first path below on the 9.0.8 acceptance rule at `4a319b62` was
     still in AWAITING_PRELOAD 60 s later, with one request and no stream). A later host
@@ -1518,7 +1518,7 @@ RO-51 duplicated
     there for an older guest:
     - the bulk channel overtakes the control route that carried the device list, and the guest's
       own re-detection has not finished (Codex P2 on #487). Closed for a 9.0.13 guest, and for a
-      9.0.9 to 9.0.11 guest when the header answers its own `REQUEST_DATA_RECOVERY` for that
+      9.0.9 to 9.0.12 guest when the header answers its own `REQUEST_DATA_RECOVERY` for that
       tuple, which is the case after the stall watchdog asked (unit row "takes the main lane it
       asked for when the header overtakes the local route publication", which fails on the 9.0.8
       acceptance rule). Open for a 9.0.8 or older guest (known-accepted #13): the host cannot tell
@@ -1538,7 +1538,7 @@ RO-51 duplicated
       the host's. In those runs the guest's detection was host/host on its first try, long before
       the main header (+1.3 to +3.5 s). Closed for a 9.0.13 guest, which takes the header while
       `remote` too (unit row "takes the main lane for the preload it awaits when its own
-      re-detection ends remote", which fails on the 9.0.11 acceptance rule). A 9.0.9 to 9.0.11
+      re-detection ends remote", which fails on the 9.0.11 acceptance rule). A 9.0.9 to 9.0.12
       guest whose own detection is still running is `unknown` and takes the header it asked for,
       as above; one whose detection already ended `remote` still drops it, as does a 9.0.8 or
       older guest. No lab run shows this path, and it cannot be closed on the host for those
@@ -1581,7 +1581,7 @@ RO-51 duplicated
     restart when its route is $guestRoute at the main FILE_START (request $arrival, host
     re-detects $hostRoute)" and "plays the main lane beside the kept restart when its route is
     $guestRoute at the main FILE_START after a second recovery announcement (host re-detects
-    $reannounced)" (both `remote`; until 9.0.11 that guest played the restarted preload), "plays
+    $reannounced)" (both `remote`; until 9.0.12 that guest played the restarted preload), "plays
     the main lane beside the kept restart when its route is $guestRoute at the main FILE_START it
     asked for (request $arrival, host re-detects $hostRoute)" and "plays the main lane beside the
     kept restart when its route is unknown at the main FILE_START it asked for after a second
@@ -1610,7 +1610,7 @@ RO-51 duplicated
   tuple query added in Phase 4 (reduced C5-11); the main lane wins the tuple after recovery in
   Phase 4 when the host re-detected the guest as local before the main lane started, with no
   recovery announcement since (C5-12, P4-D10 A), and from 9.0.13 a guest takes the main header for
-  the preload's own admitted direct session on any route (C5-12 Inc 1; a 9.0.9 to 9.0.11 guest
+  the preload's own admitted direct session on any route (C5-12 Inc 1; a 9.0.9 to 9.0.12 guest
   only while `unknown` for its own recovery request, Codex P2 on #487). Writability and the
   preload pause read the link-liveness owner on every Cloudflare connection (C5-8,
   behaviour-risk: the restart window that reads `connecting` now excludes the peer from a new

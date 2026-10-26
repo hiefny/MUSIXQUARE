@@ -127,7 +127,7 @@ export function classifyHostAdmission(frame: JsonObject): HostAdmission {
 }
 
 /**
- * The legacy-shape host (no `appBuild`, a 9.0.10 or 9.0.11 client) meets
+ * The legacy-shape host (no `appBuild`, a 9.0.12 or older client) meets
  * either admission (floor off) or the exact floor refusal (floor on).
  */
 export function requireLegacyShapeHostOutcome(

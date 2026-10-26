@@ -42,12 +42,12 @@ import { cancelOutgoingFileTransfers } from '../transfer-send.ts';
  * outage, and the guest's stall request asks for it on the main file lane.
  *
  * A guest awaiting the preload takes the main FILE_START while its own route
- * is 'local', and from 9.0.12 (C5-12 Inc 1) on any route when the header
+ * is 'local', and from 9.0.13 (C5-12 Inc 1) on any route when the header
  * names a session the host admitted to it directly on that connection
  * (transfer-receive.ts shouldAcceptLocalDirectFileStart): the main lane the
  * host lets the preload yield to always carries the preload's own session,
  * and its route publication travels on the control route while the bulk
- * channel that carries the header can overtake it. A 9.0.9 to 9.0.11 guest
+ * channel that carries the header can overtake it. A 9.0.9 to 9.0.12 guest
  * took the header while 'unknown' only for the exact tuple its own recovery
  * request asked for; a 9.0.8 or older guest only while 'local'. The host
  * learns the recovered route only by re-detecting it (host.ts). The paused
@@ -913,8 +913,8 @@ describe('the guest under one stream per tuple', () => {
   });
 
   // The host kept the restart, and the guest's own route is remote when the
-  // main header arrives. Until 9.0.11 the guest dropped that header and its
-  // chunks and played the restarted preload; from 9.0.12 the header names the
+  // main header arrives. Until 9.0.12 the guest dropped that header and its
+  // chunks and played the restarted preload; from 9.0.13 the header names the
   // preload's own admitted direct session, so the guest plays the main lane
   // its stall waiter asked for while the restart also reaches its END.
   it.each([

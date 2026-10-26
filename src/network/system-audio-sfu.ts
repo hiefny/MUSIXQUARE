@@ -926,6 +926,7 @@ function normalizeSfuReadyPayload(
 ): SfuReadyPayload | null {
   if (
     data.version !== 2 ||
+    (data.audience !== 'remote' && data.audience !== 'all') ||
     !data.sessionId ||
     !data.track ||
     typeof data.track.trackName !== 'string' ||
@@ -935,7 +936,9 @@ function normalizeSfuReadyPayload(
   }
   return {
     version: 2,
-    audience: data.audience === 'all' ? 'all' : 'remote',
+    // Every sender carries the audience and the validator requires it
+    // (old-version survey OV-A08), so it is copied, not defaulted.
+    audience: data.audience,
     sessionId: data.sessionId,
     track: data.track,
   };

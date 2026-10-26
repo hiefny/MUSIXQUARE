@@ -1487,10 +1487,12 @@ describe('the same device as publisher (S11) and begin re-entrancy', () => {
     // The restore point is empty. Since 5B-G4 the start takes no restore
     // point over the sharer's title (before, the coordinator end restored the
     // slot's empty restore meta over the sharing meta, and the begin captured
-    // that). The share end therefore leaves no title; the post-share restore
-    // is asked once, and in the app the capture module's force-stop reaction
-    // (restore: false, not modelled) runs as well. C4-2's 'claiming' phase
-    // must say what a nested end does (5B-G5).
+    // that). Since 5B-G5 the nested force-stop's end keeps the start's claim,
+    // generation and restore point (before, it emptied the restore point);
+    // here that restore point is the empty one 5B-G4 takes, so the result is
+    // the same. The share end therefore leaves no title; the post-share
+    // restore is asked once, and in the app the capture module's force-stop
+    // reaction (restore: false, not modelled) runs as well.
     await applyState(idle(3));
     expect(slot()).toMatchObject({ receiving: false, mode: null, activity: 'idle', sources: [] });
     expect(getState('player.currentTrackMeta')).toBeNull();

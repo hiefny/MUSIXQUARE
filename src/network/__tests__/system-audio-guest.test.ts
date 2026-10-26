@@ -1019,9 +1019,13 @@ describe('system audio guest receive watchdog', () => {
       expect(timerNamesWithPrefix('sys-audio-guest-trust-gate-')).toEqual([]);
     });
 
-    // Today's behaviour, the Standard START sibling of PRO gap 7 (a nested
-    // force-stop empties the restore point), pinned so the move keeps it.
-    it('lets a cleanup nested in the start empty the restore point while the start still commits', async () => {
+    // Fixed in 5B-G5 (gap 7, P5-D5 A), the Standard START sibling of the PRO
+    // begin re-entrancy: a cleanup nested in the start (its stopAllMedia
+    // emits force-stop while local capture runs) ends what preceded the
+    // start and keeps the start's claim and restore point. It still answers
+    // a wait opened before the start false, as before. Before 5B-G5 it
+    // emptied the restore point, so STOP left no title.
+    it("keeps the start's restore point through a cleanup nested in the start, which still answers an earlier wait false (5B-G5)", async () => {
       const previousMeta: TrackMeta = { type: 'file', name: 'previous-track' };
       setState('player.currentTrackMeta', previousMeta);
       const early = settledValue(awaitTrustedSystemAudioReceptionBoundary('STEREO'));
@@ -1037,8 +1041,62 @@ describe('system audio guest receive watchdog', () => {
       expect(timerMocks.delays.get(watchdogName)).toBe(30_000);
 
       await handleData({ type: MSG.SYSTEM_AUDIO_STOP }, hostConn);
-      expect(getState('player.currentTrackMeta')).toBeNull();
+      expect(getState('player.currentTrackMeta')).toEqual(previousMeta);
+      expect(getState('playback.mode')).toBeNull();
       expect(getState('playback.activity')).toBe('idle');
+    });
+
+    // 5B-G5: the nested end keeps the start's generation, so a wait opened
+    // after it and before the placeholder claim joins that start. Before
+    // 5B-G5 the end moved the slot on and the wait joined a generation no
+    // start commits (false after 30 s). The start and end are called
+    // directly (the suite shares one inbound rate-limit bucket for the host
+    // connection).
+    it('answers a wait opened after a cleanup nested in the start with that start (5B-G5)', async () => {
+      const previousMeta: TrackMeta = { type: 'file', name: 'previous-track' };
+      setState('player.currentTrackMeta', previousMeta);
+      let late!: { value: boolean | undefined };
+      transportMocks.stopAllMedia.mockImplementationOnce(() => {
+        bus.emit('system-audio:force-stop');
+        expect(getState('player.currentTrackMeta')).toEqual(previousMeta);
+        late = settledValue(awaitTrustedSystemAudioReceptionBoundary('pro-stereo'));
+      });
+
+      expect(beginTrustedSystemAudioReception(undefined, { deadline: 'route' })).toBe(true);
+      await flushAsyncStreamHandler();
+
+      expect(late.value).toBe(true);
+      expect(timerNamesWithPrefix('sys-audio-guest-trust-gate-')).toEqual([]);
+      expect(getState('player.currentTrackMeta')?.systemAudioPlaceholder).toBe(true);
+
+      endTrustedSystemAudioReception();
+      expect(getState('player.currentTrackMeta')).toEqual(previousMeta);
+      expect(getState('playback.activity')).toBe('idle');
+    });
+
+    // 5B-G5 guard, passes before and after: only an end before the start's
+    // placeholder claim is nested in the start. One that lands once the
+    // placeholder is up (from a listener of the claim; none is known in the
+    // app) ends that start as any end does: the title comes back and a later
+    // end has no restore point to replay.
+    it('5B-G5 guard: an end inside the start once its placeholder is up ends that start', async () => {
+      const previousMeta: TrackMeta = { type: 'file', name: 'previous-track' };
+      setState('player.currentTrackMeta', previousMeta);
+      bus.on('system-audio:host-started', () => {
+        expect(getState('player.currentTrackMeta')?.systemAudioPlaceholder).toBe(true);
+        endTrustedSystemAudioReception();
+      });
+
+      expect(beginTrustedSystemAudioReception(undefined, { deadline: 'route' })).toBe(true);
+
+      expect(getState('player.currentTrackMeta')).toEqual(previousMeta);
+      expect(getState('playback.mode')).toBeNull();
+      expect(getState('playback.activity')).toBe('idle');
+      expect(hasTrustedSystemAudioReception()).toBe(false);
+
+      setState('player.currentTrackMeta', { type: 'file', name: 'later-track' });
+      endTrustedSystemAudioReception();
+      expect(getState('player.currentTrackMeta')).toEqual({ type: 'file', name: 'later-track' });
     });
 
     it('takes a fresh restore point when a start follows a successor that replaced the placeholder', async () => {
@@ -1077,12 +1135,10 @@ describe('system audio guest receive watchdog', () => {
       endTrustedSystemAudioReception();
       expect(hasTrustedSystemAudioReception()).toBe(false);
 
-      // The placeholder alone: a start that ran through a nested end leaves
-      // the slot idle over its own placeholder.
-      transportMocks.stopAllMedia.mockImplementationOnce(() => {
-        bus.emit('system-audio:force-stop');
-      });
-      expect(beginTrustedSystemAudioReception(undefined, { deadline: 'route' })).toBe(true);
+      // The placeholder alone, set directly: since 5B-G5 a start that runs
+      // through a nested end holds its restore point too, so no slot input
+      // leaves the phase idle over the placeholder.
+      setState('player.currentTrackMeta', createSystemAudioTrackMeta('receiving'));
       expect(getState('player.currentTrackMeta')?.systemAudioPlaceholder).toBe(true);
       expect(hasTrustedSystemAudioReception()).toBe(true);
       endTrustedSystemAudioReception();

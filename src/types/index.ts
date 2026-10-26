@@ -28,8 +28,6 @@ import type {
 } from '../network/transport/types.ts';
 import type { ProRoomAdministrator } from '../pro-room/contracts.ts';
 
-export type { DeveloperCommandResultCode } from '../network/transport/types.ts';
-
 /** App data channel connection. PeerJS is only one possible provider. */
 export type DataConnection = TransportDataConnection;
 
@@ -376,7 +374,8 @@ export interface ProtocolMap {
     slowmodeSeconds?: number;
     filterEnabled?: boolean;
   };
-  'session-full': { message: string; i18nKey?: string };
+  /** Guests translate i18nKey first; message is only the fallback copy. */
+  'session-full': { message?: string; i18nKey?: string };
   'force-close-duplicate': NoPayload;
   'join-bootstrap-hello': { version: 1; bootstrapId: string };
   'join-bootstrap-applied': { version: 1; bootstrapId: string };
@@ -395,11 +394,6 @@ export interface ProtocolMap {
     time: number;
     /** Host-clock instant at which `time` becomes the shared demo position. */
     hostStartAt: number;
-    /**
-     * hostStartAt plus 350 ms, ignored on receipt. Still sent because guests
-     * before the old-version removal train (9.0.12 and older) require it.
-     */
-    hostPlayAt?: number;
   };
   'request-demo-enter': NoPayload;
   'request-demo-exit': NoPayload;
@@ -440,10 +434,6 @@ export interface ProtocolMap {
     mime: string;
     size: number;
     delivery?: 'r2';
-  };
-  'file-r2-capability': {
-    version: 1;
-    localAudience: true;
   };
   'remote-file-unavailable': {
     name: string;
@@ -577,9 +567,8 @@ export interface ProtocolMap {
     }>;
   };
   'kick-device': { reason?: string };
-  'operator-toast': {
-    text: string;
-    i18nKey?: string;
+  /** Guests translate i18nKey first; text is its fallback. One of the two is required. */
+  'operator-toast': ({ text: string; i18nKey?: string } | { text?: string; i18nKey: string }) & {
     i18nParams?: Record<string, string | number>;
   };
   /** A hidden Standard host refuses a command that would start or move playback. */
@@ -778,8 +767,7 @@ export interface ProtocolMap {
   'youtube-playlist-info': { playlistId: string; ids: string[]; titles: string[] };
 
   // ── Shared Clock ────────────────────────────────────────────────
-  /** The host never reads guestTime; it stays optional for senders that still add it. */
-  'sync-ping': { pingId: number; guestTime?: number };
+  'sync-ping': { pingId: number };
   'sync-pong': {
     pingId: number;
     hostTime: number;

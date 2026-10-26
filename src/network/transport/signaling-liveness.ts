@@ -1,6 +1,5 @@
 import { clearManagedTimer, setManagedTimer } from '../../core/timers.ts';
 
-export const SIGNALING_LIVENESS_VERSION = 1 as const;
 const SIGNALING_LIVENESS_PING = '{"type":"signaling-liveness-ping","version":1}';
 const SIGNALING_LIVENESS_PONG = '{"type":"signaling-liveness-pong","version":1}';
 const SIGNALING_LIVENESS_INTERVAL_MS = 10_000;
@@ -19,9 +18,11 @@ let nextMonitorId = 0;
 /**
  * Host-only application liveness for one exact signaling WebSocket generation.
  *
- * The transport starts this monitor only for an authenticated Standard-room
- * host after the deployed Worker advertises protocol version 1. Normal server
- * traffic postpones the probe. A missing pong retires only the signaling socket;
+ * The transport starts this monitor for every admitted Standard-room host
+ * WebSocket, whether or not the Worker's peer-open advertises protocol version
+ * 1: every signaling Worker answers the fixed ping (old-version removal train
+ * 2). The HTTP bridge and PRO rooms never run it. Normal server traffic
+ * postpones the probe. A missing pong retires only the signaling socket;
  * existing WebRTC data channels and media continue while peer.ts reconnects.
  */
 export class SignalingSocketLivenessMonitor {

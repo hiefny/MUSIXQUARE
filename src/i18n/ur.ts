@@ -626,7 +626,6 @@ const ur: Record<I18nKey, string> = {
   'toast.sync_no_media': 'سنک کرنے کے لیے کوئی میڈیا نہیں\nپہلے چلانے کے لیے کچھ منتخب کریں',
   'toast.host_ad': 'لگتا ہے میزبان اشتہار دیکھ رہا ہے',
   'toast.yt_sync_start': 'سنک ہو رہا ہے...',
-  'toast.yt_sync_done': 'سنک مکمل ہو گیا',
   'toast.yt_rendezvous_start': 'میزبان سے پوزیشن ملائی جا رہی ہے...',
   'toast.yt_rendezvous_done': 'سنک مکمل ہو گیا',
   'toast.yt_rendezvous_host_paused': 'میزبان رکا ہوا ہے، صرف پوزیشن ملائی گئی',
@@ -686,10 +685,6 @@ const ur: Record<I18nKey, string> = {
   'error.audio_engine_prepare': 'آڈیو انجن تیار نہیں ہو سکا',
   'error.session_create_fail': 'سیشن نہیں بن سکا',
   'error.network_generic': 'نیٹ ورک میں خرابی ہوئی',
-  'error.peer_app_version_mismatch':
-    'ایپ کے ورژن مختلف ہونے کی وجہ سے {{name}} شامل نہیں ہو سکتا۔ دونوں آلات پر ایپ ریفریش کریں۔',
-  'error.app_version_mismatch':
-    'ایپ کے ورژن مختلف ہیں۔ دونوں آلات پر ایپ ریفریش کر کے دوبارہ کوشش کریں۔',
   'error.session_handshake_failed':
     'سیشن کا کنکشن مکمل نہیں ہو سکا۔ دونوں آلات پر ایپ ریفریش کر کے دوبارہ کوشش کریں۔',
   'error.host_unreachable': 'لگتا ہے میزبان سیشن چھوڑ چکا ہے',
@@ -772,7 +767,6 @@ const ur: Record<I18nKey, string> = {
   'dialog.session_lost_btn': 'دوبارہ شروع',
 
   // ─── PRO Rooms ───────────────────────────────────────────────────
-  'pro.activation_title': 'PRO کمرہ فعال کریں',
   // English fallback for the new PRO account confirmation copy.
   'pro.activation_account_title': 'اس PRO کمرے کے لیے اکاؤنٹ منتخب کریں',
   'pro.activation_account_message': 'یہ کمرہ ”{{name}}“ اکاؤنٹ میں رجسٹر کریں؟',
@@ -782,9 +776,6 @@ const ur: Record<I18nKey, string> = {
   'pro.activation_account_switch': 'دوسرا اکاؤنٹ',
   'pro.activation_account_unavailable':
     'آپ کے اکاؤنٹ کی تصدیق نہیں ہو سکی۔ کچھ دیر بعد دوبارہ کوشش کریں۔',
-  'pro.activation_complete': 'رجسٹریشن مکمل کریں',
-  'pro.activation_message': 'اس کمرے کے لیے 8 ہندسوں کا نیا پاس ورڈ مقرر کریں۔',
-  'pro.activation_pin_same': 'عارضی پاس ورڈ سے مختلف پاس ورڈ منتخب کریں۔',
   'pro.claim_retry_title': 'PRO لنک دوبارہ آزمائیں؟',
   'pro.claim_retry_message':
     'کنکشن منقطع ہو گیا تھا۔ لنک اس اسکرین پر محفوظ ہے، اس لیے آپ دوبارہ کوشش کر سکتے ہیں۔',
@@ -832,8 +823,6 @@ const ur: Record<I18nKey, string> = {
   'pro.pin_members_reenter': 'سب دوبارہ شامل ہوں',
   'pro.pin_members_reenter_detail':
     'سب کو دوبارہ شامل ہونا ہوگا۔ ناواقف لوگوں کو ایک ساتھ نکالنے کے لیے ہم یہ طریقہ تجویز کرتے ہیں۔',
-  'pro.pin_keep_unavailable':
-    'پاس ورڈ تبدیل نہیں ہوا۔ ابھی لوگوں کو کمرے میں رکھتے ہوئے پاس ورڈ نہیں بدلا جا سکتا۔ کچھ دیر بعد دوبارہ کوشش کریں یا ”سب دوبارہ شامل ہوں“ منتخب کریں۔',
   'pro.pin_enabled_removed_title': 'کمرے کا پاس ورڈ مقرر کر دیا گیا',
   'pro.pin_enabled_removed_message':
     'کمرے کے مالک نے اس کمرے کا پاس ورڈ مقرر کیا ہے۔ دوبارہ شامل ہونے کے لیے اسے درج کریں۔',

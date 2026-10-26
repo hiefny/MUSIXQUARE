@@ -818,10 +818,8 @@ describe('remote file share policy', () => {
     await current;
   });
 
-  it('does not classify explicit R2 current and preload descriptors through a shared wait', async () => {
+  it('holds an explicit R2 preload descriptor until the current download completes', async () => {
     const { handleData } = await import('../../network/protocol.ts');
-    const { waitForGuestConnectionType } = await import('../../network/peer.ts');
-    setState('network.connectionType', 'unknown');
     let resolveCurrent!: (file: File) => void;
     mocks.downloadRemoteFile.mockImplementationOnce(
       () =>
@@ -849,7 +847,6 @@ describe('remote file share policy', () => {
       conn,
     );
 
-    expect(waitForGuestConnectionType).not.toHaveBeenCalled();
     resolveCurrent(new File(['data'], 'song.mp3', { type: 'audio/mpeg' }));
     await current;
     expect(mocks.downloadRemoteFile).toHaveBeenCalledOnce();
@@ -864,11 +861,8 @@ describe('remote file share policy', () => {
     await vi.waitFor(() => expect(mocks.downloadRemoteFile).toHaveBeenCalledTimes(2));
   });
 
-  it('accepts only an explicitly R2-routed descriptor on a physically local guest', async () => {
+  it('accepts only an explicitly R2-routed descriptor', async () => {
     const { handleData } = await import('../../network/protocol.ts');
-    const { isRemoteGuest } = await import('../../network/peer.ts');
-    vi.mocked(isRemoteGuest).mockReturnValue(false);
-    setState('network.connectionType', 'local');
 
     const { delivery: _delivery, ...unrouted } = descriptor();
     await handleData({ type: MSG.REMOTE_FILE_SHARE, ...unrouted }, conn);
@@ -939,7 +933,9 @@ describe('remote file share policy', () => {
     expect(getState('share.remote').download.status).toBe('idle');
   });
 
-  it('advertises R2 support only over the current guest host connection', async () => {
+  it('sends the host nothing when the guest host connection opens', async () => {
+    // Old-version removal train 2 (OV-F06): hosts route local guests by room
+    // size alone since train 1, so the guest no longer advertises R2 support.
     const { bus } = await import('../../core/events.ts');
     const { safeSend } = await import('../../network/peer.ts');
     setState('network.appRole', 'guest');
@@ -947,15 +943,10 @@ describe('remote file share policy', () => {
 
     bus.emit('network:peer-connected', conn);
 
-    expect(safeSend).toHaveBeenCalledOnce();
-    expect(safeSend).toHaveBeenCalledWith(conn, {
-      type: MSG.FILE_R2_CAPABILITY,
-      version: 1,
-      localAudience: true,
-    });
+    expect(safeSend).not.toHaveBeenCalled();
   });
 
-  it('routes nine local guests through R2 before any capability frame and ignores a late one', async () => {
+  it('routes nine local guests through R2 and ignores a 9.0.14 guest capability frame', async () => {
     const { handleData } = await import('../../network/protocol.ts');
     const { safeSend } = await import('../../network/peer.ts');
     const { freezeFileDeliveryMode, getDirectFilePeers, getR2FileTargets } =
@@ -1014,13 +1005,14 @@ describe('remote file share policy', () => {
       blob: next,
     });
 
+    // A 9.0.14 guest still sends this frame once. The kind is gone, so it has
+    // no validator or handler, and the route was already R2 when the session
+    // froze: nothing to recover and no descriptor replay.
     await handleData(
-      { type: MSG.FILE_R2_CAPABILITY, version: 1, localAudience: true },
+      { type: 'file-r2-capability', version: 1, localAudience: true },
       target.conn as DataConnection,
     );
 
-    // The route was already R2 when the session froze, so a late capability
-    // frame has nothing to recover and replays no descriptor.
     expect(getDirectFilePeers(11)).toHaveLength(0);
     expect(getR2FileTargets(11)).toHaveLength(9);
     expect(mocks.uploadRemoteFile).not.toHaveBeenCalled();
@@ -1059,7 +1051,6 @@ describe('remote file share policy', () => {
 
   it('allows a descriptor to bootstrap when the current target stayed null', async () => {
     const { handleData } = await import('../../network/protocol.ts');
-    setState('network.connectionType', 'unknown');
     setState('playlist.currentQueueItemId', null);
     setState('playback.pendingRecoveryTarget', null);
     setState('transfer.meta', null);

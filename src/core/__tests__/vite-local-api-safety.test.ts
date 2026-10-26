@@ -301,11 +301,18 @@ describe('Vite local API safety', () => {
     });
   });
 
-  it('installs the six production proxies only after explicit opt-in', () => {
+  it('installs the five production proxies only after explicit opt-in', () => {
     const config = createViteConfig({ MUSIXQUARE_DEV_PROXY_PRODUCTION_API: 'true' });
     const proxy = config.server?.proxy;
 
     expect(Object.keys(proxy || {})).toEqual(PRODUCTION_API_PROXY_PATHS);
+    expect([...PRODUCTION_API_PROXY_PATHS]).toEqual([
+      '/api/security-config',
+      '/api/capability-token',
+      '/api/capability-challenge',
+      '/api/youtube-search',
+      '/api/youtube-playlist-manifest',
+    ]);
     for (const pathname of PRODUCTION_API_PROXY_PATHS) {
       expect(proxy?.[pathname]).toMatchObject({
         target: 'https://musixquare.com',
@@ -323,6 +330,16 @@ describe('Vite local API safety', () => {
       '/api/youtube-playlist-manifest?playlistId=PL_VALID_01',
     );
     expect(playlistManifest.next).toHaveBeenCalledOnce();
+
+    // The App Worker no longer serves the playlist entry route of Apps up to
+    // 8.10.9 (old-version removal train 2, W-4), so the dev proxy no longer
+    // forwards it either: it is an unconfigured local route.
+    const playlistEntry = invoke(middleware!, '/api/youtube-playlist-entry?playlistId=PL_VALID_01');
+    expect(playlistEntry.next).not.toHaveBeenCalled();
+    expect(playlistEntry.response.statusCode).toBe(503);
+    expect(JSON.parse(playlistEntry.body || '{}')).toMatchObject({
+      error: 'LOCAL_API_NOT_CONFIGURED',
+    });
 
     const siblingPrefix = invoke(middleware!, '/api/security-config-backup');
     expect(siblingPrefix.next).not.toHaveBeenCalled();

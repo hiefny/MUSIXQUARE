@@ -17,14 +17,13 @@ Vite serves the app at `http://localhost:3000`. Localhost selects the PeerJS
 transport unless you explicitly configure a local signaling Worker.
 
 Copy `.env.example` to `.env.local` only when you need an override. By default,
-the Vite server does **not** forward these six relative API routes to
+the Vite server does **not** forward these five relative API routes to
 `musixquare.com`:
 
 - `/api/security-config`
 - `/api/capability-challenge`
 - `/api/capability-token`
 - `/api/youtube-search`
-- `/api/youtube-playlist-entry`
 - `/api/youtube-playlist-manifest`
 
 They return a non-cacheable `503 LOCAL_API_PROXY_DISABLED` response before
@@ -52,7 +51,7 @@ external endpoint or the fallback opt-in can consume production quota or state.
 The complete boundary and variable inventory lives in
 [`docs/configuration-reference.md`](docs/configuration-reference.md).
 
-Forwarding the six routes above is reserved for an intentional integration
+Forwarding the five routes above is reserved for an intentional integration
 check: set
 `MUSIXQUARE_DEV_PROXY_PRODUCTION_API=true` in untracked `.env.local`, restart
 the dev server, and remove the override afterward. Preview never installs this

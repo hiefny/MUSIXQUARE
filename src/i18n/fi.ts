@@ -635,7 +635,6 @@ const fi: Record<I18nKey, string> = {
   'toast.sync_no_media': 'Synkronoitavaa mediaa ei ole\nValitse ensin toistettava kohde',
   'toast.host_ad': 'Isäntä näyttää katsovan mainosta',
   'toast.yt_sync_start': 'Synkronoidaan…',
-  'toast.yt_sync_done': 'Synkronointi valmis',
   'toast.yt_rendezvous_start': 'Synkronoidaan isännän kanssa…',
   'toast.yt_rendezvous_done': 'Synkronointi valmis',
   'toast.yt_rendezvous_host_paused':
@@ -696,10 +695,6 @@ const fi: Record<I18nKey, string> = {
   'error.audio_engine_prepare': 'Äänimoottoria ei voitu valmistella',
   'error.session_create_fail': 'Istuntoa ei voitu luoda',
   'error.network_generic': 'Tapahtui verkkovirhe',
-  'error.peer_app_version_mismatch':
-    '{{name}} ei voi liittyä, koska sovellusversiot eivät täsmää. Päivitä sivu molemmilla laitteilla.',
-  'error.app_version_mismatch':
-    'Sovellusversiot eivät täsmää. Päivitä sivu molemmilla laitteilla ja yritä uudelleen.',
   'error.session_handshake_failed':
     'Istuntoyhteyttä ei voitu muodostaa loppuun. Päivitä sivu molemmilla laitteilla ja yritä uudelleen.',
   'error.host_unreachable': 'Isäntä näyttää poistuneen istunnosta',
@@ -784,7 +779,6 @@ const fi: Record<I18nKey, string> = {
   'dialog.session_lost_btn': 'Aloita alusta',
 
   // ─── PRO Rooms ──────────────────────────────────────────────
-  'pro.activation_title': 'Aktivoi PRO-huone',
   // English fallback for the new PRO account confirmation copy.
   'pro.activation_account_title': 'Valitse tili tälle PRO-huoneelle',
   'pro.activation_account_message': 'Rekisteröidäänkö tämä huone tilille ”{{name}}”?',
@@ -794,9 +788,6 @@ const fi: Record<I18nKey, string> = {
   'pro.activation_account_switch': 'Toinen tili',
   'pro.activation_account_unavailable':
     'Tilisi tietoja ei voitu tarkistaa. Yritä hetken kuluttua uudelleen.',
-  'pro.activation_complete': 'Viimeistele rekisteröinti',
-  'pro.activation_message': 'Aseta huoneelle uusi 8-numeroinen salasana.',
-  'pro.activation_pin_same': 'Valitse väliaikaisesta salasanasta poikkeava salasana.',
   'pro.claim_retry_title': 'Yritetäänkö PRO-linkkiä uudelleen?',
   'pro.claim_retry_message':
     'Yhteys katkesi. Linkki säilytetään turvallisesti tässä näkymässä, joten voit yrittää uudelleen.',
@@ -844,8 +835,6 @@ const fi: Record<I18nKey, string> = {
   'pro.pin_members_reenter': 'Kaikki liittyvät uudelleen',
   'pro.pin_members_reenter_detail':
     'Kaikkien on liityttävä uudelleen. Suositeltavaa, jos haluat poistaa tuntemattomat kerralla.',
-  'pro.pin_keep_unavailable':
-    'Salasanaa ei vaihdettu. Juuri nyt sitä ei voi vaihtaa niin, että kaikki pysyvät huoneessa. Yritä myöhemmin uudelleen tai valitse ”Kaikki liittyvät uudelleen”.',
   'pro.pin_enabled_removed_title': 'Huoneelle asetettiin salasana',
   'pro.pin_enabled_removed_message':
     'Huoneen omistaja asetti huoneelle salasanan. Anna se, niin voit liittyä uudelleen.',

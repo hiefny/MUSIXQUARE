@@ -34,8 +34,8 @@ export function captureGuestFilePlayTiming(
 ): FilePlayTimeline {
   const receivedAt = Date.now();
   const receivedMonotonicAt = performance.now();
-  // A PLAY without hostStartAt (a running late join) starts at receipt. Any
-  // hostPlayAt is ignored: only hosts before 8.6.53 sent it alone.
+  // A PLAY without hostStartAt (a running late join) starts at receipt. No host
+  // has sent hostPlayAt with PLAY since 9.0.13, and nothing reads it.
   const hostStartAt = data.hostStartAt;
   const hasSharedStart =
     typeof hostStartAt === 'number' && Number.isFinite(hostStartAt) && hostStartAt > 0;

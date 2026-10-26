@@ -202,9 +202,10 @@ export function createServiceWorkerUpdateLedger(): ServiceWorkerUpdateLedger {
     ) {
       return false;
     }
-    // Only the short presentation-failure cooldown is stored now. A 24-hour
-    // Later that versions up to 8.11.10 stored is dropped: Later lasts for one page
-    // (owner decision 2026-10-17).
+    // Only the short presentation-failure cooldown is stored now. A record
+    // that ends further away than that cooldown is dropped: the clock jumped
+    // back after it was written, or it is a 24-hour Later stored before
+    // 8.11.11 (Later lasts for one page, owner decision 2026-10-17).
     if (
       dismissal.expiresAt <= now ||
       dismissal.expiresAt - now > PRESENTATION_FAILURE_COOLDOWN_MS

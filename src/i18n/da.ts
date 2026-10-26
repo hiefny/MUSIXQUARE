@@ -635,7 +635,6 @@ const da: Record<I18nKey, string> = {
     'Der er ingen medier at synkronisere\nVælg først noget, der skal afspilles',
   'toast.host_ad': 'Værten ser vist en annonce',
   'toast.yt_sync_start': 'Synkroniserer…',
-  'toast.yt_sync_done': 'Synkroniseringen er fuldført',
   'toast.yt_rendezvous_start': 'Justerer efter værten…',
   'toast.yt_rendezvous_done': 'Synkroniseringen er fuldført',
   'toast.yt_rendezvous_host_paused':
@@ -696,10 +695,6 @@ const da: Record<I18nKey, string> = {
   'error.audio_engine_prepare': 'Kunne ikke forberede lydmotoren',
   'error.session_create_fail': 'Kunne ikke oprette sessionen',
   'error.network_generic': 'Der opstod en netværksfejl',
-  'error.peer_app_version_mismatch':
-    '{{name}} kan ikke deltage, fordi appversionerne ikke stemmer overens. Opdater appen på begge enheder.',
-  'error.app_version_mismatch':
-    'Appversionerne stemmer ikke overens. Opdater appen på begge enheder, og prøv igen.',
   'error.session_handshake_failed':
     'Kunne ikke fuldføre sessionsforbindelsen. Opdater appen på begge enheder, og prøv igen.',
   'error.host_unreachable': 'Værten ser ud til at have forladt sessionen',
@@ -785,7 +780,6 @@ const da: Record<I18nKey, string> = {
   'dialog.session_lost_btn': 'Genstart',
 
   // ─── PRO Rooms ──────────────────────────────────────────────
-  'pro.activation_title': 'Aktivér PRO-rum',
   // English fallback for the new PRO account confirmation copy.
   'pro.activation_account_title': 'Vælg en konto til dette PRO-rum',
   'pro.activation_account_message': 'Vil du registrere dette rum på kontoen ”{{name}}”?',
@@ -793,9 +787,6 @@ const da: Record<I18nKey, string> = {
   'pro.activation_account_continue': 'Fortsæt',
   'pro.activation_account_switch': 'Anden konto',
   'pro.activation_account_unavailable': 'Kunne ikke bekræfte din konto. Prøv igen om lidt.',
-  'pro.activation_complete': 'Fuldfør registreringen',
-  'pro.activation_message': 'Angiv en ny 8-cifret adgangskode til dette rum.',
-  'pro.activation_pin_same': 'Vælg en anden adgangskode end den midlertidige.',
   'pro.claim_retry_title': 'Prøv PRO-linket igen?',
   'pro.claim_retry_message':
     'Forbindelsen blev afbrudt. Linket opbevares sikkert på denne skærm, så du kan prøve igen.',
@@ -843,8 +834,6 @@ const da: Record<I18nKey, string> = {
   'pro.pin_members_reenter': 'Alle deltager igen',
   'pro.pin_members_reenter_detail':
     'Alle skal deltage igen. Anbefales, hvis du vil fjerne personer, du ikke kender, på én gang.',
-  'pro.pin_keep_unavailable':
-    'Adgangskoden blev ikke ændret. Det er ikke muligt at lade folk blive i rummet lige nu. Prøv igen senere, eller vælg ”Alle deltager igen”.',
   'pro.pin_enabled_removed_title': 'Rummet har fået en adgangskode',
   'pro.pin_enabled_removed_message':
     'Rummets ejer har angivet en adgangskode til rummet. Indtast den for at deltage igen.',

@@ -100,9 +100,9 @@ export function freezeFileDeliveryMode(sessionId: number): FileDeliveryMode {
 }
 
 function peerForConnection(conn: DataConnection): ConnectedPeer | undefined {
-  // Delivery capability and frozen route ownership belong to the exact live
-  // DataConnection. Matching only peerId would let a replaced/stale socket
-  // inherit the successor connection's authority.
+  // Frozen route ownership belongs to the exact live DataConnection. Matching
+  // only peerId would let a replaced/stale socket inherit the successor
+  // connection's authority.
   return (getState('network.connectedPeers') || []).find((peer) => peer.conn === conn);
 }
 

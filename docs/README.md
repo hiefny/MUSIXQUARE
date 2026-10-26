@@ -93,6 +93,44 @@ runbooks. Neither belongs in a general setup document.
 
 ## Maintained evidence and completed records
 
+- [Old-version removal train 2, release A: App compatibility code below the 787 build floor (2026-10-26)](design/old-version-removal-2a-app-2026-10-26.md):
+  evidence for the App release of the second removal train (9.0.15 / v788 from bump `8407046a`,
+  not yet released; target `app`; its Worker release W shipped first on 2026-10-27 03:34 KST,
+  keeps its own report and is merged into this branch). It
+  removes App code that only served clients below the App build floor 787 (9.0.14), on in
+  production since 2026-10-26 16:15 KST. Increment A-1, C5-12 Inc 3: after ICE
+  recovery a preload yields to the main lane for the same tuple without waiting for the host's
+  route re-detection, and the route-permission machine (`RestartedPreloadLane`) is gone.
+  Increment A-2 (OV-F01, OV-F03): bulk credit and control isolation wait for the peer's hello
+  (the 1 s fallback for 8.11.22 and older peers is gone), and no end sends the side route's
+  `restart-capable` advertisement any more. Increment A-3 (OV-A19, OV-F04 stage 1, OV-A12):
+  the Standard host probes its signaling socket, sends the PIN membership choice and requests
+  Remote Share upload assertions without reading the Worker's peer-open markers, every Standard
+  connection binds its ICE restart without the first-SDP mark, the resume challenge drops
+  `guestTime`, and the Remote Share client takes only the required assertion mode. Increment A-4
+  (OV-F05, OV-F06, Q4 receive side): DEMO_PLAY carries only `hostStartAt`, guests no longer send
+  `FILE_R2_CAPABILITY` (declared message kinds 103 to 102), SESSION_FULL and OPERATOR_TOAST are
+  accepted without their fallback text, and train 1's leftover receive allowances are cleaned
+  up. Increment A-5 (OV-A20): PRO requests no longer fall back for PRO Workers below the 9.0.4
+  entry-policy marker (no READY or upload-completion retry without the duration, a 404 from the
+  duration route no longer switches reporting off, a refused keep-present PIN choice is an
+  ordinary error), unused PRO API calls and five locale keys are gone, and known-accepted #15 is
+  retired. Increment A-6 (OV-A18, OV-B09, SK-05, OV-A23): service-worker activation no longer
+  scrubs runtime caches of v390 and older, the root English manifest and its app-shell entry are
+  gone, three orphan locale keys go, the dev proxy drops the retired playlist-entry route, and
+  the update reload fallback and the cooldown bound keep their behaviour under current wording.
+  The report lists the owner's policy and the floors each increment relies on (where the 787
+  floor cannot filter, such as an established P2P session or the fail-open window), each
+  increment with its commits, tests-first evidence, removed lines and who loses what, the
+  registry and record changes (RO-18, RO-15, RO-06, RO-22, known-accepted #12 and #15, the PIN
+  and PRO recovery notes), the guard baselines, the per-increment local checks, the train-end
+  lane checks (C5-0 lab, critical E2E, critical coverage), the merge with release W and the
+  post-bump final checks (unit 680 files / 16,052, Worker 67 / 3,182, full `build:checked`,
+  critical E2E 61/61, critical coverage 87 / 3,403, candidate Playwright 19/19, PRO Playwright
+  26/26, C5-0 lab 20/20), the mixed-version table, what it skips and which train takes each item
+  (release W, Phase 5 5B, train 3), the eager JS budget (465,767 B, −1,107 B against production
+  main `a3893f04`), the deploy order and versions with release W and 5B, the rollback
+  boundaries, and what is not verified.
 - [Old-version removal train 2, release W: Worker request shapes below the App build floor (2026-10-26)](design/old-version-removal-2w-workers-2026-10-26.md):
   release evidence for the Workers-only release of the second old-version removal train (released
   2026-10-27 03:34 KST in Release 40378059253 from main `a3893f04`, target `all`, no SemVer or

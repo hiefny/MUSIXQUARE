@@ -8,7 +8,6 @@ import { log } from '../../core/log.ts';
 const TYPE = 'mxqr-control-isolation';
 const LABEL = 'musixquare-control-isolated'; // brand-capitalization: allow-technical -- private RTC data-channel identifier
 const NONCE = /^[a-f0-9]{32}$/u;
-const DISCOVERY_MS = 1_000;
 const NEGOTIATION_MS = 10_000;
 // An active side route survives an ICE interruption by restarting ICE on the
 // same PC: DTLS/SCTP and its ordered channel remain, so queued and in-flight
@@ -43,12 +42,12 @@ type Kind =
   | 'candidate'
   | 'fence'
   | 'ready'
-  // Restart frames, since 8.11.25. Every end restarts since the old-version
-  // removal train (survey OV-B07) but still sends 'restart-capable' before its
-  // request and fence, because ends before that train restart only after one
-  // arrives. Sending it can stop once the client floor reaches that train
-  // (survey OV-F03).
-  | 'restart-capable'
+  // Restart frames, since 8.11.25. Every end restarts without an advertisement
+  // since the old-version removal train (survey OV-B07), and train 2 (survey
+  // OV-F03, App build floor 787) stopped sending the 'restart-capable' frame
+  // that ends before the first train waited for. A 9.0.14 end still sends one
+  // before its request: an unknown kind now, consumed on the original lane
+  // without effect.
   | 'restart-request'
   | 'restart-offer'
   | 'restart-answer'
@@ -162,7 +161,6 @@ function parse(value: Record<string, unknown>): Frame | null {
     case 'decline':
     case 'fence':
     case 'ready':
-    case 'restart-capable':
       break;
     case 'restart-request': {
       // The requester's latest observed restart generation; zero before any.
@@ -244,8 +242,6 @@ export class ControlIsolation {
   private readonly localNonce = nonce();
   private remoteNonce: string | null = null;
   private started = false;
-  private discoveryDone = false;
-  private discoveryTimer: ReturnType<typeof setTimeout> | null = null;
   private negotiationTimer: ReturnType<typeof setTimeout> | null = null;
   private lease: IsolatedControlLease | null = null;
   private sideChannel: RTCDataChannel | null = null;
@@ -317,21 +313,18 @@ export class ControlIsolation {
     if (this.started || this.state === 'closed') return;
     this.started = true;
     this.sendFrame('hello');
-    if (this.phase === 'closed') return;
-    // eslint-disable-next-line no-restricted-globals -- exact connection owns and disposes discovery; room timer cleanup must not strand transfer waits
-    this.discoveryTimer = setTimeout(() => {
-      this.discoveryTimer = null;
-      this.discoveryDone = true;
-      this.notify();
-    }, DISCOVERY_MS);
   }
 
-  /** Demand-driven: admission/R2-only peers allocate no additional PC. */
+  /**
+   * Demand-driven: admission/R2-only peers allocate no additional PC. Bulk
+   * waits for the peer's hello, which every end since 8.11.23 sends once
+   * admission settles; the 1 s discovery window that let bulk start without
+   * one went with the old-version removal train 2 (survey OV-F01).
+   */
   allowBulk(): boolean {
     if (!this.started || this.state === 'closed') return false;
     if (this.state === 'active' || this.state === 'fallback') return true;
-    if (this.state !== 'idle') return false;
-    if (!this.remoteNonce) return this.discoveryDone;
+    if (this.state !== 'idle' || !this.remoteNonce) return false;
     this.begin();
     return this.phase === 'fallback';
   }
@@ -412,8 +405,6 @@ export class ControlIsolation {
           const pc = this.lease?.pc;
           if (pc && this.current(pc)) await pc.addIceCandidate(frame.candidate!);
         });
-    } else if (frame.kind === 'restart-capable') {
-      // Every peer restarts: the advertisement changes nothing here.
     } else if (frame.kind.startsWith('restart-') && this.restartReady()) this.restartFrame(frame);
     return true;
   }
@@ -474,9 +465,6 @@ export class ControlIsolation {
     // One attempt per exact logical connection; reconnect creates fresh nonces.
     // eslint-disable-next-line no-restricted-globals -- one bounded negotiation timer, disposed with the exact connection
     this.negotiationTimer = setTimeout(() => this.setupFailed(), NEGOTIATION_MS);
-    // Precedes this endpoint's fence on the ordered original route.
-    this.sendFrame('restart-capable');
-    if (this.phase === 'closed') return;
     this.sendFrame('request');
     if (this.localNonce < this.remoteNonce) this.serialize(() => this.createOffer());
   }
@@ -970,12 +958,10 @@ export class ControlIsolation {
     }
     lease?.release();
   }
-  /** Clears this route's timers and its outage; the side PC is about to go. */
+  /** Clears this route's negotiation timer and its outage; the side PC is about to go. */
   private clearTimers(): void {
-    for (const timer of [this.discoveryTimer, this.negotiationTimer]) {
-      if (timer !== null) clearTimeout(timer);
-    }
-    this.discoveryTimer = this.negotiationTimer = null;
+    if (this.negotiationTimer !== null) clearTimeout(this.negotiationTimer);
+    this.negotiationTimer = null;
     this.interruption = null;
     this.options.outages.sideClosed();
   }

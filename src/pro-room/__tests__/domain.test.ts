@@ -491,6 +491,28 @@ describe('PRO room snapshot validation', () => {
     expect(parseProRoomSnapshot(coordinatorFree)).toBeNull();
   });
 
+  it('rejects the retired browser-coordinator capability and eligibility', () => {
+    // PRO Workers stopped projecting these with server playback authority
+    // (7.0.0); the recovery floor keeps every older Worker out of production.
+    const retired = 'coordinator.eligible' as unknown as ProRoomCapability;
+    const eligibleViewer = activeSnapshot();
+    eligibleViewer.viewer!.capabilities = [...OWNER_CAPABILITIES, retired];
+    eligibleViewer.viewer!.coordinatorEligible = true;
+    expect(parseProRoomSnapshot(eligibleViewer)).toBeNull();
+
+    const advertisedOnly = activeSnapshot();
+    advertisedOnly.viewer!.capabilities = [...OWNER_CAPABILITIES, retired];
+    expect(parseProRoomSnapshot(advertisedOnly)).toBeNull();
+
+    const participantOnly = activeSnapshot();
+    participantOnly.presence.participants[0]!.capabilities = [...OWNER_CAPABILITIES, retired];
+    expect(parseProRoomSnapshot(participantOnly)).toBeNull();
+
+    const eligibleWithoutCapability = activeSnapshot();
+    eligibleWithoutCapability.viewer!.coordinatorEligible = true;
+    expect(parseProRoomSnapshot(eligibleWithoutCapability)).toBeNull();
+  });
+
   it('requires a suspended room to sleep and strips all effective capabilities', () => {
     const suspended = activeSnapshot();
     suspended.status = 'suspended';

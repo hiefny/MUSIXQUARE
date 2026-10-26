@@ -46,6 +46,43 @@ gh run list --workflow e2e.yml --branch main --limit 3
 해결하면 근거(커밋, 실행 ID, 문서)를 PR 설명에 적고 이 목록에서 지운다. 근거
 없이 완료로 표시하지 않는다.
 
+### 구버전 호환 코드 제거 열차 2 릴리스 A(9.0.15/v788, 배포 전): 바닥 787 아래만 섬기던 앱 쪽 호환 코드
+
+- [ ] 범위와 상태(오너 정책 2026-10-25 약 16:40 KST, 바닥 결정 약 18:30 KST, 작은 통신 필드 2026-10-26 약 00:10 KST, 5B와 병렬 약 14:10 KST): 최소 앱
+      빌드 787(2026-10-26 16:15 KST부터 켜짐) 뒤에야 지울 수 있는 앱 쪽 호환 코드. 브랜치 `agent/old-version-removal-2a`(origin/main `dd9c9d4d`에서
+      시작, 릴리스 W 배포 뒤의 origin/main `a3893f04`(#499, #500)를 합침 `bbc4d9bd`에서 받음)의 앱 증분 여섯마다 테스트 먼저, 코드, 기록 커밋이 있고, 마지막 런타임
+      커밋은 bump `8407046a`(9.0.15 / v788, 앱 빌드 788, 올리기 직전 fetch한 origin/main `a3893f04`는 9.0.14 / v787)다. A-1 C5-12 Inc
+      3(`23690c92`, 복구 뒤 미리받기가 방장의 경로 재판정 없이 같은 짝의 본 레인에 물러나고 경로 허락 기계를 지움, 기기 근거 세 줄은 바이트가 같음), A-2(`e1d4a25a`, bulk
+      수신확인과 제어 격리가 상대 hello를 기다리고 1초 대체를 지움, `restart-capable` 광고를 보내지 않음), A-3(`59cdda6d`, 신호 클라이언트가 Worker peer-open 표지와
+      첫 SDP 재시작 표지를 읽지 않음, 재개 확인 ping의 `guestTime` 삭제, 원격 공유 확인서는 'required'만), A-4(`18fd2d85`, DEMO_PLAY `hostPlayAt`과
+      `FILE_R2_CAPABILITY` 보내기 중단으로 일반방 메시지 종류 103 → 102, SESSION_FULL `message`와 OPERATOR_TOAST `text`를 선택으로 받음, 열차 1이 남긴
+      받기 허용 정리), A-5(`ac04a57c`, PRO 클라이언트의 9.0.4 표지 아래 PRO Worker용 재시도·대체와 부르는 곳 없는 PRO API, 문구 키 다섯 삭제), A-6(`789848bc`,
+      SW 활성화의 옛 runtime 캐시 청소와 루트 영문 매니페스트, 고아 문구 키 셋, 개발 프록시의 playlist-entry 경로 삭제, 업데이트 재로드 대체 갈래와 쿨다운 상한은 말만). 잃는 것:
+      운영의 787 이상 클라이언트는 없다. 787 아래 상대는 유효 바닥이 0인 창에서만 미리받기 뒤 '파일 요청 중' 멈춤, 8.11.22 이하와의 bulk 멈춤, 8.11.25~9.0.12와의 보조 경로 끊김
+      때 닫힘, 9.0.12 이하 데모 게스트의 데모 시작 실패, 9.0.12 이하 방장의 아홉째 로컬 게스트 REMOTE_FILE_UNAVAILABLE을 겪는다(오너 정책이 수용). 릴리스 W는
+      2026-10-27 03:34 KST에 배포됐고([Release 40378059253](https://github.com/hiefny/MUSIXQUARE/actions/runs/40378059253),
+      target `all`, `a3893f04`) W 직후 같은 값 `set`
+      [40379025557](https://github.com/hiefny/MUSIXQUARE/actions/runs/40379025557)이 통과했다(stored 787, effective 787, live
+      App 787, client read 787). 로컬 검증: 테스트 먼저(여섯 테스트 커밋이 부모 코드에서 의도한 행만 FAIL), 증분마다 typecheck(테스트
+      포함)·`check:workers`·lint·format·가드 묶음(room-authority 직접 읽기 82 → 81로 내림)과 단위, 열차 끝 레인 검사(`d184518c`)의 C5-0 랩
+      `--repeat-each=2` 19/20(보조 경로 행의 한 반복이 회복 뒤 보조 채널 첫 데이터를 기다리다 일시정지 3초 창을 넘김, 앱 오류·유실 없음, 열차 1과 같은 랩 시간 여유 문제로 판독, 그
+      행만 다시 이 갈래 4/4와 main `dd9c9d4d` 4/4), 합친 트리(`bbc4d9bd`)의 typecheck·단위·가드 다시 검사(기준치 변화 없음). bump 뒤 최종 검사(`8407046a`,
+      2026-10-27): `guard:release-identity`(9.0.15, v788)·`guard:sw-cache-version` PASS, typecheck(테스트
+      포함)·`check:workers`·lint·format, 단위 680 files / 16,052, Worker 67 files / 3,182, `build:checked` 전체 PASS(SW 앱 셸 96
+      자산), 가드 묶음(room-authority 직접 읽기 81·구독 22·쓰기 13, resource-ownership 48 records / 442 files, dead-exports 20/76,
+      bus-pairing 202/202), critical E2E 61/61, 핵심 커버리지 87 files / 3,403, 후보 Playwright 19/19, PRO Playwright 26/26, C5-0
+      랩 `--repeat-each=2` 20/20(보조 경로 행 2/2, 회복 뒤 보조 채널 첫 수신 0.5~2.5초), 초기 JS 465,767 B(운영 main `a3893f04` 466,874 B 대비
+      −1,107 B, 유지 상한까지 25,801 B). 운영 `a3893f04`와 견준 런타임 경로 변경은 App 79개, 다른 다섯 Worker 0개라 target `app`이다. 릴리스 W 기록 #501(`cb159851`, 문서만)은 bump 뒤 합침 `f5663ffe`에서 받았다. 남은 것: 배포 직전 `status`로 바닥 787 이상 확인(요약 줄을 보고서에), 열차 끝 세 렌즈 리뷰, PR CI, Codex,
+      exact-main CI, Release(target `app`, Developer API D1 false, `raise_app_build_floor` false), 기록 PR. 기록 PR은 §1을 덮어쓰며
+      '의존성·호환'에서 4B C5-12의 혼합 버전 남은 위험 문장(9.0.4~9.0.8 게스트, 이제 바닥 아래)을 빼고 `release-history.md`에 한 행을 더한다. 열차 3(보내는 쪽)의 바닥은
+      max(릴리스 A 빌드 788, 5B 빌드)다. 로컬 결과는 exact-main-SHA 후보를 대신하지 않는다.
+      [보고서](design/old-version-removal-2a-app-2026-10-26.md).
+- [ ] 배포 뒤 실기기 확인(게이트 아님, 2026-10-25 약 01:50 KST 결정): 와이파이에서 LTE로 바꾸는 중 미리받기(A-1,
+      `?mxqrLog=info`, 본 레인이 이미 그 짝을 잡은 경우 방장 줄은 `Resuming` 없이 `Paused`와 `Yielding`만), 강제 업데이트
+      창의 적용 뒤 방장의 제자리 재로드가 창 없이 끝나는지(A-6), 9.0.14 기기와의 혼합 방 두 방향(로컬 파일 재생과 미리받기,
+      데모 시작, 방 가득 참, 관리자 알림, 보조 경로 재시작).
+      [확인하지 않은 것](design/old-version-removal-2a-app-2026-10-26.md#확인하지-않은-것).
+
 ### 구버전 호환 코드 제거 열차 2 릴리스 W(Worker만, 9.0.14/v787 그대로) 배포 뒤 확인: 최소 빌드 787 아래 앱의 요청 모양을 Worker에서 정리
 
 - [ ] 범위와 상태(오너 정책 2026-10-25 약 16:40 KST·약 18:30 KST, 작은 통신 필드 2026-10-26 약 00:10 KST, 열차 2와
@@ -1489,14 +1526,18 @@ PRO 방장 공지의 중도 참여 복원은 별도 정책이며 이번 서비�
       게이트 편차). 오너 결정(2026-10-25 약 01:50 KST)으로 4B와 그 뒤 C5-6·C5-7·C5-8 열차도 이
       항목이 열린 채 나간다. 4B의 C5-12 뒤로는 복구 뒤 방장이 그 게스트를 local로 다시 판정해 알린
       다음 본 레인이 같은 트랙을 가져가면 재개한 미리받기가 멈추고 방장에 `Yielding preload for` 줄이
-      하나 더 남는다(`Paused`·`Resuming` 줄은 바이트가 같고 그대로 남는다). 4C의 C5-8(9.0.10 / v783, 2026-10-25 14:41 KST 배포)
+      하나 더 남는다(`Paused`·`Resuming` 줄은 바이트가 같고 그대로 남는다). 구버전 제거 열차 2 릴리스
+      A(배포 전)의 C5-12 Inc 3 뒤로는 방장이 경로 재판정을 기다리지 않는다. 본 레인이 같은 트랙을
+      가져가면 재개한 미리받기가 멈추고, 복구 때 본 레인이 이미 그 짝을 잡고 있으면 미리받기를 다시
+      시작하지 않아 `Resuming` 없이 `Paused`·`Yielding`만 남는다(세 줄의 바이트는 같다). 4C의 C5-8(9.0.10 / v783, 2026-10-25 14:41 KST 배포)
       뒤로는 방장의 원래 경로가 ICE 재시작 중 `connecting`으로 읽히는 동안에도 미리받기가 멈춘 채
       있고, `Resuming` 줄은 그 경로의 `connected`(연결 생존 주인의 `ice-recovered`) 뒤에 나온다.
       그 전의 선택 쌍 변경 보고로는 재개하지 않는다(줄 바이트는 같다).
       [native 근거](design/preload-resume-after-ice-recovery-2026-10-20.md),
       [4A 보고서](design/phase4-4a-transport-rejoin-2026-10-24.md),
       [4B 보고서의 C5-12](design/phase4-4b-behaviour-2026-10-25.md#c5-12-ice-복구-뒤-튜플-하나에-스트림-하나-동작-p4-d10-a),
-      [4C 보고서](design/phase4-4c-link-liveness-2026-10-25.md)
+      [4C 보고서](design/phase4-4c-link-liveness-2026-10-25.md),
+      [구버전 제거 열차 2 보고서의 A-1](design/old-version-removal-2a-app-2026-10-26.md#a-1-c5-12-inc-3-ov-f02)
 - [ ] 8.11.25 공유 중지 버튼 정렬: 시스템 오디오 공유를 켤 수 있는 기기(PC 브라우저·데스크톱 앱)에서
       공유를 켜고, "공유 중지" 버튼의 정지 사각형과 글자가 버튼 가운데에 보이는지(오른쪽 치우침 없음),
       사각형 크기와 글자 간격이 전과 같은지 다크·라이트에서 본다. 헤드리스 Chromium 측정과 브라우저
@@ -1878,22 +1919,27 @@ action=lower -f min_app_build=<build> -f reason="<why>"`). Production Release가
 
 - **PRO 파일 길이 저장(8.9.6):** App·PRO 함께 `all`로 배포한다. 새 비밀·바인딩·D1
   마이그레이션·복구 floor는 없다. 기존 파일의 private asset metadata를 점진적으로
-  보완하고 업로드나 재생목록을 초기화하지 않는다. 이전 PRO에 대한 업로드 완료의
-  선택적 길이 필드는 400 `INVALID_REQUEST`에서만 한 번 제외해 재시도한다.
-  추가 길이 보고는 실패해도 재생을 막지 않으며, 구 서버의 404 `NOT_FOUND`는 해당
-  클라이언트 수명 동안 생략한다. 8.9.5로 복구하면 새 필드는 사용하지 않고 기존
-  큐 캐시·서버 조회·READY 경로로 돌아간다.
-  [상세](design/pro-file-duration-registration-2026-10-12.md)
+  보완하고 업로드나 재생목록을 초기화하지 않는다. 추가 길이 보고는 실패해도 재생을
+  막지 않는다. 9.0.4의 PRO 입장 정책 표지 뒤로는 PRO를 이 변경 이전(8.9.5 이하)으로
+  되돌리지 않는다(아래 'PRO 소유권 이전 입장 암호 끄기'). 그래서 구버전 호환 제거
+  열차 2 릴리스 A부터 App은 업로드 완료가 400 `INVALID_REQUEST`를 받아도 길이
+  필드를 빼고 다시 보내지 않으며, 길이 보고 경로의 404 `NOT_FOUND`도 보고를 끄지
+  않고 다른 실패처럼 다음 준비 때 다시 보낸다. 그 전 App은 400이면 한 번 길이 없이
+  재시도했고 404면 그 클라이언트 수명 동안 보고를 껐다.
+  [상세](design/pro-file-duration-registration-2026-10-12.md),
+  [보고서](design/old-version-removal-2a-app-2026-10-26.md)
 
 - **PRO 자율 재생(8.9.5):** App과 PRO를 함께 배포(`all`)한다. 새
   `PRO_YOUTUBE_METADATA` 서비스 바인딩은 기존 App의 YouTube 키와 기존 공유
   assertion secret을 쓰며, 새 비밀·D1 마이그레이션·호환 floor는 없다. PRO를 먼저
   배포했을 때 이전 App의 내부 경로 404는 미확정으로 처리하고 재시도한다.
-  PRO 롤백 시 파일 READY의 선택적 길이 필드는 400 `INVALID_REQUEST`에만 한 번
-  제외하고 재시도한다. 구 Worker는 새 길이 캐시를 사용하지 않으므로 자율 곡 전환은
-  다시 권한 기기의 종료 보고에 의존한다. App만 롤백해도 기존 파일 근거는 유지되지만
-  새 YouTube 길이 조회는 복구 전까지 미확정이 된다.
-  [상세](design/pro-autonomous-playback-2026-10-12.md)
+  9.0.4의 PRO 입장 정책 표지 뒤로는 PRO를 이 변경 이전으로 되돌리지 않는다. 그래서
+  구버전 호환 제거 열차 2 릴리스 A부터 App은 파일 READY가 400 `INVALID_REQUEST`를
+  받아도 길이 필드를 빼고 다시 보내지 않는다(그 전 App은 한 번 재시도했다). App만
+  롤백해도 기존 파일 근거는 유지되지만 새 YouTube 길이 조회는 복구 전까지 미확정이
+  된다.
+  [상세](design/pro-autonomous-playback-2026-10-12.md),
+  [보고서](design/old-version-removal-2a-app-2026-10-26.md)
 
 - **PRO 선택형 입장 암호:** `passwordRequired: false` / `pin: null`이 저장될 수
   있는 배포 이후에는 이 계약을 모르는 구 PRO/App 조합으로 자동 복구하지 않는다.
@@ -1939,11 +1985,14 @@ action=lower -f min_app_build=<build> -f reason="<why>"`). Production Release가
   상태 변화 없는 409를 받고, App은 이를 무시한다. 계약 marker는 없고 rollback
   floor도 바뀌지 않는다.
   [상세](design/pro-room-admission-protection-2026-10-11.md)
-- **PRO 암호 참여자 선택·퇴장 사유(배포되면 적용):** 이 변경 이전 PRO Worker로
-  되돌리면 `existingParticipants`가 든 `POST /pin`은 400 `INVALID_REQUEST`로
-  거절된다. App은 이를 "그대로 두기를 지금 쓸 수 없음"으로 보여 주고 모두를
-  내보내는 쪽으로 대신 시도하지 않는다. "모두 재입장"(8.9.0은 "모두 다시 입장하게
-  하기")은 예전 `{pin}` 요청이라 그대로 동작한다. core의
+- **PRO 암호 참여자 선택·퇴장 사유(배포되면 적용):** 9.0.4의 PRO 입장 정책 표지
+  뒤로는 PRO를 이 변경 이전(8.9.0 전) Worker로 되돌리지 않는다. 그런 Worker는
+  `existingParticipants`가 든 `POST /pin`을 400 `INVALID_REQUEST`로 거절한다.
+  구버전 호환 제거 열차 2 릴리스 A부터 App은 그 거절을 다른 실패처럼 일반 오류로
+  보이고("그대로 두기를 지금 쓸 수 없음" 안내는 없앴다), 모두를 내보내는 쪽으로
+  대신 시도하지 않는 것은 그대로다([보고서](design/old-version-removal-2a-app-2026-10-26.md)).
+  "모두 재입장"(8.9.0은 "모두 다시 입장하게 하기")은 참여자 선택 없는 `{pin}`
+  요청이다. core의
   `sessionRevocationNotices`(최대 256개, 약 36 KiB)는 이전 Worker가 그대로
   보존하지만 읽거나 정리하지 않으며, 그동안
   퇴장 사유는 붙지 않는다(코드는 계속 `SESSION_REQUIRED`). 다시 앞으로 배포하면
@@ -1951,17 +2000,24 @@ action=lower -f min_app_build=<build> -f reason="<why>"`). Production Release가
   App만 이전으로 되돌리면 사유를 무시하고 예전처럼 동작한다. 계약 marker는 없고
   rollback floor도 바뀌지 않는다.
   [상세](design/pro-pin-member-choice-2026-10-11.md)
-- **일반방 방장 암호(8.10.0 배포 뒤):** 시그널링만 8.10.0 이전 Worker로 되돌려도
-  floor는 없다. 이전 Worker는 `standard-room-pin-membership-v1`과
-  `standard-room-pin-failures-v1`을 읽지 않고 기능 플래그도 알리지 않아, App이
-  암호만 보낸다. 그동안 "그대로 두기"는 8.10.0 이전처럼 동작해 재연결 때 옛 암호를
-  다시 보내는 결함이 돌아오고, "모두 재입장"은 방장의 강퇴뿐이라 수정된
-  클라이언트는 시그널링에 남을 수 있다. 오답 제한도 꺼지는데 방장이 고른 약한
-  암호는 계속 허용된다. 그래서 forward fix를 우선하고, 되돌려야 하면 App도 함께
-  되돌린다(8.9.x의 무작위 암호로 돌아간다). 되돌린 동안 같은 방에서 암호를
-  X→Y→X로 바꾸면, 다시 앞으로 배포했을 때 X 때의 유지 목록이 되살아난다(그 기기도
-  자기 재연결 비밀이 있어야 한다). App만 되돌리면 무작위 암호로 돌아가고 새
-  Worker는 예전 프레임을 그대로 받는다. 되돌리기 전에 저장된 유지 목록은 방
+- **일반방 방장 암호(8.10.0 배포 뒤):** 9.0.14 이상 App이 운영 중이면 시그널링을
+  9.0.14 아래로 되돌리지 않는다. 그 아래 Worker는 `appBuild`가 든 `host-auth`를 모두
+  거절한다([절차](hotfix-procedure.md#app-build-floor)). 그래서 8.10.0 이전 Worker는
+  App도 9.0.14 아래로 함께 되돌리고 최소 앱 빌드를 내린 비상 복구에서만 만난다. 이전
+  Worker는 `standard-room-pin-membership-v1`과 `standard-room-pin-failures-v1`을 읽지
+  않고 기능 플래그도 알리지 않아, 그 App(9.0.13 이하)은 암호만 보낸다. 그동안 "그대로
+  두기"는 8.10.0 이전처럼 동작해 재연결 때 옛 암호를 다시 보내는 결함이 돌아오고,
+  "모두 재입장"은 방장의 강퇴뿐이라 수정된 클라이언트는 시그널링에 남을 수 있다. 오답
+  제한도 꺼지는데 방장이 고른 약한 암호는 계속 허용된다. 구버전 호환 제거 열차 2
+  릴리스 A부터 App은 기능 플래그를 읽지 않고 참여자 선택을 늘 싣지만, 9.0.14 아래
+  Worker에는 방장으로 들어가지 못해 그 프레임을 버리는 Worker와 만나지 않는다
+  ([보고서](design/old-version-removal-2a-app-2026-10-26.md)). 그래서 forward fix를
+  우선하고, 되돌려야 하면 App도 함께 되돌린다(8.9.x의 무작위 암호로 돌아간다).
+  되돌린 동안 같은 방에서 암호를 X→Y→X로 바꾸면, 다시 앞으로 배포했을 때 X 때의
+  유지 목록이 되살아난다(그 기기도 자기 재연결 비밀이 있어야 한다). App만 8.10.0
+  아래로 되돌리려면 먼저 최소 앱 빌드를 내려야 하고(위 '9.0.14 최소 앱 빌드'), 구버전
+  제거 열차 2 릴리스 W(2026-10-27) 뒤의 시그널링은 PIN 두 필드(`desiredRoomPassword`,
+  `pinMutationId`)가 없는 `host-auth`를 첫 프레임 무효로 거절한다. 되돌리기 전에 저장된 유지 목록은 방
   epoch와 verifier에 묶여 있어 그 경우 말고는 무시되고, 오답 기록은 10분 안에
   만료된다. 계약 marker는 없고 rollback floor도 바뀌지 않는다.
   [상세](design/standard-room-owner-pin-2026-10-11.md),

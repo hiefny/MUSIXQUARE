@@ -650,7 +650,6 @@ const fil: Record<I18nKey, string> = {
   'toast.sync_no_media': 'Walang media na isi-sync\nPumili muna ng ipe-play',
   'toast.host_ad': 'Mukhang nanonood ng ad ang host',
   'toast.yt_sync_start': 'Sini-sync...',
-  'toast.yt_sync_done': 'Tapos na ang pag-sync',
   'toast.yt_rendezvous_start': 'Itinutugma sa host...',
   'toast.yt_rendezvous_done': 'Tapos na ang pag-sync',
   'toast.yt_rendezvous_host_paused': 'Naka-pause ang host, kaya posisyon lang ang itinugma',
@@ -710,10 +709,6 @@ const fil: Record<I18nKey, string> = {
   'error.audio_engine_prepare': 'Hindi maihanda ang audio engine',
   'error.session_create_fail': 'Hindi makagawa ng session',
   'error.network_generic': 'Nagkaroon ng network error',
-  'error.peer_app_version_mismatch':
-    'Hindi makasali si {{name}} dahil hindi tugma ang mga bersyon ng app. I-refresh ang dalawang device.',
-  'error.app_version_mismatch':
-    'Hindi tugma ang mga bersyon ng app. I-refresh ang dalawang device at subukan muli.',
   'error.session_handshake_failed':
     'Hindi makumpleto ang koneksyon sa session. I-refresh ang dalawang device at subukan muli.',
 
@@ -801,7 +796,6 @@ const fil: Record<I18nKey, string> = {
   'dialog.session_lost_btn': 'I-restart',
 
   // ─── Mga PRO Room ────────────────────────────────────────────────
-  'pro.activation_title': 'I-activate ang PRO room',
   // English fallback for the new PRO account confirmation copy.
   'pro.activation_account_title': 'Pumili ng account para sa PRO room na ito',
   'pro.activation_account_message': 'Irehistro ang kuwartong ito sa account na “{{name}}”?',
@@ -811,9 +805,6 @@ const fil: Record<I18nKey, string> = {
   'pro.activation_account_switch': 'Ibang account',
   'pro.activation_account_unavailable':
     'Hindi namin ma-verify ang account mo. Pakisubukan muli maya-maya.',
-  'pro.activation_complete': 'Tapusin ang pagpaparehistro',
-  'pro.activation_message': 'Magtakda ng bagong 8-digit na password para sa kuwartong ito.',
-  'pro.activation_pin_same': 'Pumili ng password na iba sa pansamantalang password.',
   'pro.claim_retry_title': 'Subukan muli ang PRO link?',
   'pro.claim_retry_message':
     'Naputol ang koneksyon. Ligtas na nananatili sa screen na ito ang link para makasubok kang muli.',
@@ -861,8 +852,6 @@ const fil: Record<I18nKey, string> = {
   'pro.pin_members_reenter': 'Sasali muli ang lahat',
   'pro.pin_members_reenter_detail':
     'Kailangang sumali muli ng lahat. Inirerekomenda ito para maalis nang sabay-sabay ang mga taong hindi mo kilala.',
-  'pro.pin_keep_unavailable':
-    'Hindi napalitan ang password. Hindi pa puwedeng panatilihin ang mga tao sa kuwarto ngayon. Subukan muli mamaya, o piliin ang “Sasali muli ang lahat”.',
   'pro.pin_enabled_removed_title': 'May password na ang kuwarto',
   'pro.pin_enabled_removed_message':
     'Nagtakda ng password ang may-ari ng kuwarto para sa kuwartong ito. Ilagay ito para makasali muli.',

@@ -22,8 +22,10 @@ import { CloudflareDataConnection } from '../cloudflare-signaling.ts';
  * - the three device evidence lines, their level and the end that logs them;
  * - the close causes (side-failed:<reason>, original-grace-expired);
  * - since the old-version removal train (survey OV-B07), a route restarts
- *   without the peer's restart-capable advertisement, and an outage that gets
- *   no restart answer (an 8.11.23 peer) ends at its own 15 s deadline.
+ *   without the peer's restart-capable advertisement, which train 2 (survey
+ *   OV-F03) stopped sending and a 9.0.14 end's copy of which changes nothing,
+ *   and an outage that gets no restart answer (an 8.11.23 peer) ends at its
+ *   own 15 s deadline.
  * Two connections exchange their control lanes in order. A lane that is down
  * holds its frames until it is up again, as SCTP does while a path is
  * unavailable. One end's close is not carried to the other end here, so each
@@ -910,23 +912,29 @@ describe('side-route device evidence lines', () => {
 });
 
 /**
- * Old-version removal train, survey OV-B07 (TR-03 stage 1). Every build with
+ * Old-version removal train, survey OV-B07 (TR-03 stage 1): every build with
  * isolated control since 8.11.25 restarts its side PC, so a route restarts
- * without the peer's restart-capable advertisement (it still sends its own for
- * ends before this train). A peer that neither advertises nor answers a
- * restart, as on the 8.11.23 build, is the accepted degradation: this end's
- * side outage ends its link at its own 15 s deadline as expired, instead of
- * at once (failed) or after a 15 s grace (disconnected) as a route failure.
+ * without the peer's restart-capable advertisement. Train 2 (survey OV-F03,
+ * App build floor 787) stopped sending it. A 9.0.14 end still sends one before
+ * its request; it is an unknown kind now, consumed on the original lane.
  */
-describe('a peer whose restart-capable advertisement or restart answer never arrives', () => {
-  const restartFrame = (frame: Record<string, unknown>): boolean =>
-    frame.type === TYPE && String(frame.kind).startsWith('restart-');
-
-  it('restarts without the advertisement; both sides recover, log the restart and recovered lines, and keep their links', async () => {
-    const p = await pair({
-      drop: (frame) => frame.type === TYPE && frame.kind === 'restart-capable',
-    });
-    for (const e of [p.a, p.b]) expect(frames(e, 'restart-capable')).toHaveLength(1);
+describe('the restart-capable advertisement', () => {
+  it("sends none and restarts without one, also after a 9.0.14 end's copy; both sides recover, log the restart and recovered lines, and keep their links", async () => {
+    const p = await pair();
+    for (const e of [p.a, p.b]) expect(frames(e, 'restart-capable')).toEqual([]);
+    // What a 9.0.14 offerer sends before its request, delivered on the original lane.
+    const nonce = (e: Endpoint) => frames(e, 'hello')[0]!.nonce;
+    p.answerer.control.receive(
+      JSON.stringify({
+        type: TYPE,
+        version: 1,
+        kind: 'restart-capable',
+        nonce: nonce(p.offerer),
+        target: nonce(p.answerer),
+      }),
+    );
+    await flush();
+    expect(p.answerer.conn.controlIsolation?.phase).toBe('active');
     expect(logged(() => p.offerer.side.state('failed'))).toEqual([['info', restarting(1)]]);
     p.answerer.side.state('failed');
     await p.pump();
@@ -946,6 +954,18 @@ describe('a peer whose restart-capable advertisement or restart answer never arr
       expect(e.conn.controlIsolation?.phase).toBe('active');
     }
   });
+});
+
+/**
+ * A peer that never answers a restart, as on the 8.11.23 build (below the App
+ * build floor), is the accepted degradation of the old-version removal train
+ * (survey OV-B07): this end's side outage ends its link at its own 15 s
+ * deadline as expired, instead of at once (failed) or after a 15 s grace
+ * (disconnected) as a route failure.
+ */
+describe('a peer whose restart answer never arrives', () => {
+  const restartFrame = (frame: Record<string, unknown>): boolean =>
+    frame.type === TYPE && String(frame.kind).startsWith('restart-');
 
   it.each(['failed', 'disconnected'] as const)(
     'an offerer whose restart gets no answer ends its link at its own 15 s deadline after a %s side PC, with side-failed:expired after the warning',

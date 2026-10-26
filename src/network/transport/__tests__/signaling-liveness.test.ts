@@ -181,15 +181,26 @@ describe('signaling WebSocket liveness', () => {
     peer.destroy();
   });
 
-  it('does not probe a legacy Worker that did not advertise the capability', async () => {
+  it('probes an admitted host socket whose peer-open carries no liveness marker', async () => {
+    // Since old-version removal train 2 (survey OV-A19) the client no longer
+    // reads signalingLivenessVersion. Every signaling Worker answers the fixed
+    // ping, also one without version metadata, which never sent the marker.
     vi.useFakeTimers();
     const { peer, socket } = await admittedHost(false);
     const disconnected = vi.fn();
     peer.on('disconnected', disconnected);
 
-    await vi.advanceTimersByTimeAsync(60_000);
-    expect(socket.sent).not.toContain(SIGNALING_LIVENESS_PING);
+    await vi.advanceTimersByTimeAsync(SIGNALING_LIVENESS_INTERVAL_MS);
+    expect(socket.sent).toContain(SIGNALING_LIVENESS_PING);
+    socket.dispatch('message', SIGNALING_LIVENESS_PONG);
+    await flushMicrotasks();
+    await vi.advanceTimersByTimeAsync(SIGNALING_LIVENESS_TIMEOUT_MS);
     expect(disconnected).not.toHaveBeenCalled();
+
+    await vi.advanceTimersByTimeAsync(SIGNALING_LIVENESS_INTERVAL_MS);
+    await vi.advanceTimersByTimeAsync(SIGNALING_LIVENESS_TIMEOUT_MS);
+    expect(disconnected).toHaveBeenCalledTimes(1);
+    expect(socket.closeCount).toBe(1);
     peer.destroy();
   });
 

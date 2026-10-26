@@ -633,24 +633,28 @@ describe('Control isolation activation boundary', () => {
     expect(p.flow.diagnosticSnapshot.windowBytes).toBe(192 * KIB);
   });
 
-  it('preserves no-credit legacy fallback without enabling adaptive learning', () => {
+  // Old-version removal train 2 (survey OV-F01): no no-credit fallback for a
+  // peer that never sends its hello.
+  it('keeps a peer without a hello at one 128 KiB window, without adaptive learning', () => {
     const p = endpoint(false);
-    tick(1000);
+    tick(60_000);
     for (let i = 0; i < 10; i++) {
-      expect(p.flow.hasCapacity(CHUNK_SIZE)).toBe(true);
+      if (!p.flow.hasCapacity(CHUNK_SIZE)) break;
       p.flow.noteSent(CHUNK_SIZE);
     }
     p.flow.setControlIsolationActive(false);
     p.flow.setControlIsolationActive(true);
+    expect(p.flow.hasCapacity(1)).toBe(false);
     expect(p.flow.diagnosticSnapshot).toMatchObject({
-      phase: 'legacy',
+      phase: 'measure',
       adaptiveEnabled: false,
       windowBytes: 128 * KIB,
-      sentBytes: 10 * CHUNK_SIZE,
-      outstandingBytes: 10 * CHUNK_SIZE,
+      sentBytes: 2 * CHUNK_SIZE,
+      outstandingBytes: 2 * CHUNK_SIZE,
       trackedBoundaries: 0,
       completedBlocks: 0,
     });
+    expect(vi.getTimerCount()).toBe(0);
   });
 
   it('shrinks immediately on isolation loss without refunding debt', () => {
@@ -774,21 +778,29 @@ describe('Control isolation activation boundary', () => {
     });
   });
 
-  it('does not teach a new connection from stale receipts or legacy sends', () => {
+  it('does not teach a new connection from stale receipts or sends before the hello', () => {
     const p = endpoint(false);
     tick(1000);
-    for (let i = 0; i < 10; i++) p.flow.noteSent(CHUNK_SIZE);
-    expect(p.flow.diagnosticSnapshot).toMatchObject({ phase: 'legacy', trackedBoundaries: 0 });
+    for (let i = 0; i < 10; i++) {
+      if (!p.flow.hasCapacity(CHUNK_SIZE)) break;
+      p.flow.noteSent(CHUNK_SIZE);
+    }
+    expect(p.flow.diagnosticSnapshot).toMatchObject({
+      phase: 'measure',
+      sentBytes: 2 * CHUNK_SIZE,
+      trackedBoundaries: 0,
+    });
     p.flow.handleControl(
       { type: 'mxqr-bulk-flow', version: 1, kind: 'hello', nonce: 'b'.repeat(32) },
       true,
     );
-    p.ack(10 * CHUNK_SIZE);
+    p.ack(2 * CHUNK_SIZE);
     expect(p.flow.diagnosticSnapshot).toMatchObject({
       windowBytes: 128 * KIB,
       sampleCount: 0,
       outstandingBytes: 0,
     });
+    p.send();
     const before = p.flow.diagnosticSnapshot;
     p.flow.handleControl(
       {
@@ -796,7 +808,7 @@ describe('Control isolation activation boundary', () => {
         version: 1,
         kind: 'receipt',
         nonce: 'c'.repeat(32),
-        receivedBytes: 11 * CHUNK_SIZE,
+        receivedBytes: 3 * CHUNK_SIZE,
       },
       true,
     );

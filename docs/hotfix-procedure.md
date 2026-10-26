@@ -694,8 +694,8 @@ gh workflow run app-build-floor.yml --ref main -f action=lower -f min_app_build=
   pull request and adds no release-history row (it is not a deployment). The first floor's record
   (the release's deployment record pull request if it is still open, otherwise a small record
   pull request) also removes the release record's first-floor open item in section 2, citing the
-  `set` run ID, and moves known-accepted #13 to Retired Risks with that evidence, updating the
-  "(see #13)" reference in #15. It still adds no release-history row.
+  `set` run ID, and moves known-accepted #13 to Retired Risks with that evidence. It still adds no
+  release-history row.
 - Automated failed-release recovery needs no floor step. Raises happen only after a commit marker
   or through the standalone workflow, both in the release concurrency group, and the dashboard
   only lowers, so the automation alone never leaves the stored floor above the App build of a

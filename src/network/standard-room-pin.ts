@@ -96,8 +96,10 @@ export async function changeStandardRoomPin(
     (result) => {
       if (result.status !== 'applied') return false;
       // Remove people only for this exact, still-current change in the same
-      // host session. An older Worker commits the PIN alone ('legacy'); the
-      // host-side removal is then the only remedy, so it still runs.
+      // host session. A commit that names no choice ('legacy': PeerJS, or an
+      // acknowledgement that does not echo the choice sent on its socket)
+      // closed no socket; the host-side removal is then the only remedy, so it
+      // still runs.
       if (
         mode === 'revoke_all' &&
         generation === _pinChangeGeneration &&

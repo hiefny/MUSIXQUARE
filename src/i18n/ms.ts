@@ -644,7 +644,6 @@ const ms: Record<I18nKey, string> = {
     'Tiada media untuk disegerakkan\nPilih sesuatu untuk dimainkan terlebih dahulu',
   'toast.host_ad': 'Hos nampaknya sedang menonton iklan',
   'toast.yt_sync_start': 'Menyegerak...',
-  'toast.yt_sync_done': 'Penyegerakan selesai',
   'toast.yt_rendezvous_start': 'Menyelaraskan dengan hos...',
   'toast.yt_rendezvous_done': 'Penyegerakan selesai',
   'toast.yt_rendezvous_host_paused': 'Hos dijeda, hanya kedudukan diselaraskan',
@@ -705,10 +704,6 @@ const ms: Record<I18nKey, string> = {
   'error.audio_engine_prepare': 'Tidak dapat menyediakan enjin audio',
   'error.session_create_fail': 'Tidak dapat mencipta sesi',
   'error.network_generic': 'Ralat rangkaian berlaku',
-  'error.peer_app_version_mismatch':
-    '{{name}} tidak dapat menyertai kerana versi aplikasi tidak sepadan. Muat semula kedua-dua peranti.',
-  'error.app_version_mismatch':
-    'Versi aplikasi tidak sepadan. Muat semula kedua-dua peranti dan cuba lagi.',
   'error.session_handshake_failed':
     'Tidak dapat melengkapkan sambungan sesi. Muat semula kedua-dua peranti dan cuba lagi.',
 
@@ -796,7 +791,6 @@ const ms: Record<I18nKey, string> = {
   'dialog.session_lost_btn': 'Mulakan semula',
 
   // ─── Bilik PRO ───────────────────────────────────────────────────
-  'pro.activation_title': 'Aktifkan bilik PRO',
   // English fallback for the new PRO account confirmation copy.
   'pro.activation_account_title': 'Pilih akaun untuk bilik PRO ini',
   'pro.activation_account_message': 'Daftarkan bilik ini di bawah akaun “{{name}}”?',
@@ -806,9 +800,6 @@ const ms: Record<I18nKey, string> = {
   'pro.activation_account_switch': 'Akaun lain',
   'pro.activation_account_unavailable':
     'Tidak dapat mengesahkan akaun anda. Sila cuba lagi sebentar nanti.',
-  'pro.activation_complete': 'Selesaikan pendaftaran',
-  'pro.activation_message': 'Tetapkan kata laluan 8 digit baharu untuk bilik ini.',
-  'pro.activation_pin_same': 'Pilih kata laluan yang berbeza daripada kata laluan sementara.',
   'pro.claim_retry_title': 'Cuba pautan PRO sekali lagi?',
   'pro.claim_retry_message':
     'Sambungan terganggu. Pautan disimpan dengan selamat pada skrin ini, jadi anda boleh mencuba lagi.',
@@ -856,8 +847,6 @@ const ms: Record<I18nKey, string> = {
   'pro.pin_members_reenter': 'Semua menyertai semula',
   'pro.pin_members_reenter_detail':
     'Semua orang perlu menyertai semula. Disyorkan untuk mengeluarkan orang yang tidak anda kenali sekali gus.',
-  'pro.pin_keep_unavailable':
-    'Kata laluan tidak ditukar. Buat masa ini, orang dalam bilik tidak dapat dikekalkan. Cuba lagi kemudian atau pilih “Semua menyertai semula”.',
   'pro.pin_enabled_removed_title': 'Bilik kini mempunyai kata laluan',
   'pro.pin_enabled_removed_message':
     'Pemilik bilik telah menetapkan kata laluan untuk bilik ini. Masukkan kata laluan untuk menyertai semula.',

@@ -1684,8 +1684,10 @@ describe('demo recovery pins (DEMO-1 / DEMO-4)', () => {
     setPlaybackFilePlaying();
     await recovery.onRecoveredStarted!();
     await recovery.onRecoveredStarted!();
+    // Old-version removal train 2 (OV-F05): DEMO_PLAY carries only the shared
+    // start; every guest at or above the 787 floor ignores hostPlayAt.
     expect(mocks.broadcast.mock.calls.filter(([frame]) => frame.type === MSG.DEMO_PLAY)).toEqual([
-      [{ type: MSG.DEMO_PLAY, index: 0, time: 12, hostStartAt: 10_000, hostPlayAt: 10_350 }],
+      [{ type: MSG.DEMO_PLAY, index: 0, time: 12, hostStartAt: 10_000 }],
     ]);
   });
 
@@ -1738,10 +1740,8 @@ describe('demo recovery pins (DEMO-1 / DEMO-4)', () => {
       const frame = mocks.broadcast.mock.calls.find(
         ([message]) => message.type === MSG.DEMO_PLAY,
       )?.[0];
-      expect(frame).toMatchObject({
-        hostStartAt: hasGuest ? 10_200 : 10_000,
-        hostPlayAt: hasGuest ? 10_550 : 10_350,
-      });
+      expect(frame).toMatchObject({ hostStartAt: hasGuest ? 10_200 : 10_000 });
+      expect(frame).not.toHaveProperty('hostPlayAt');
     },
   );
 

@@ -381,7 +381,7 @@ describe('preload and late-join resident identity', () => {
     },
   );
 
-  it('routes a late ninth local guest through R2 before its capability frame arrives', async () => {
+  it('routes a late ninth local guest through R2', async () => {
     resetFileDeliveryPolicies();
     setState('network.sessionCode', '246810');
     const current = resident(QID_A, 0, 'current.mp3', 31);
@@ -408,8 +408,9 @@ describe('preload and late-join resident identity', () => {
     const firstEight = Array.from({ length: 8 }, (_, index) => guest(index + 1));
     setState('network.connectedPeers', firstEight);
     expect(freezeFileDeliveryMode(31)).toBe('direct-local');
-    // ICE has already classified the ninth guest as local; the host has seen no
-    // FILE_R2_CAPABILITY frame from it yet.
+    // ICE has already classified the ninth guest as local. The room size alone
+    // routes it (guests stopped advertising R2 support in old-version removal
+    // train 2, OV-F06).
     const ninth = guest(9);
     setState('network.connectedPeers', [...firstEight, ninth]);
     initPlayback();

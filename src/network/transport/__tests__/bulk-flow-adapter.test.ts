@@ -170,16 +170,23 @@ describe('Cloudflare transport receiver credit', () => {
     const receiver = await endpoint();
     const onData = vi.fn();
     sender.conn.on('data', onData);
+    // A trusted hello answers at once with a receipt to the peer's nonce.
+    const receipts = () =>
+      sender.control.sent
+        .map((frame) => JSON.parse(frame as string))
+        .filter((frame) => frame.type === 'mxqr-bulk-flow' && frame.kind === 'receipt');
     sender.bulk.receive(receiver.control.sent[0]);
     await flushDispatch();
-    sender.conn.send(chunk());
-    sender.conn.send(chunk());
-    await vi.advanceTimersByTimeAsync(1000);
-    expect(sender.conn.bulkFlowControl.hasCapacity(CHUNK_SIZE)).toBe(true);
+    expect(receipts()).toEqual([]);
     expect(onData).not.toHaveBeenCalled();
     sender.control.receive(receiver.control.sent[0]);
     await flushDispatch();
-    expect(sender.conn.bulkFlowControl.hasCapacity(CHUNK_SIZE)).toBe(false);
+    expect(receipts()).toEqual([
+      expect.objectContaining({
+        nonce: JSON.parse(receiver.control.sent[0] as string).nonce,
+        receivedBytes: 0,
+      }),
+    ]);
     expect(onData).not.toHaveBeenCalled();
   });
 

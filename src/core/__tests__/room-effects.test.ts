@@ -2,14 +2,13 @@ import { describe, expect, it } from 'vitest';
 import {
   createDefaultRoomEffectsState,
   mergeRoomEffectsForTests,
-  parseProRoomEffectsSnapshot,
   parseRoomEffectsPatch,
   parseRoomEffectsState,
   roomEffectsEqual,
 } from '../room-effects.ts';
 
 describe('room-wide effects contract', () => {
-  it('accepts one strict full state and round-trips a dedicated PRO projection', () => {
+  it('accepts one strict full state', () => {
     const effects = {
       reverb: {
         mixPercent: 40,
@@ -25,19 +24,6 @@ describe('room-wide effects contract', () => {
     };
 
     expect(parseRoomEffectsState(effects)).toEqual(effects);
-    expect(
-      parseProRoomEffectsSnapshot(
-        {
-          schemaVersion: 2,
-          view: 'effects',
-          roomCode: '000001',
-          revision: 7,
-          updatedAtMs: 1_800_000_000_000,
-          effects,
-        },
-        '000001',
-      ),
-    ).toEqual(expect.objectContaining({ effects, revision: 7 }));
   });
 
   it('accepts non-empty partial updates and merges omitted values atomically', () => {
@@ -71,16 +57,6 @@ describe('room-wide effects contract', () => {
       effects.reverb.decaySeconds = decay;
       expect(parseRoomEffectsState(effects)).toBeNull();
       expect(parseRoomEffectsPatch({ reverb: { decaySeconds: decay } })).toBeNull();
-      expect(
-        parseProRoomEffectsSnapshot({
-          schemaVersion: 2,
-          view: 'effects',
-          roomCode: '000001',
-          revision: 7,
-          updatedAtMs: 1_800_000_000_000,
-          effects,
-        }),
-      ).toBeNull();
     },
   );
 
@@ -97,35 +73,15 @@ describe('room-wide effects contract', () => {
     expect(parseRoomEffectsPatch(value)).toBeNull();
   });
 
-  it('keeps the full state and projection exact-key contracts', () => {
+  it('keeps the full state exact-key contract', () => {
     const effects = createDefaultRoomEffectsState();
     expect(parseRoomEffectsState({ ...effects, localVolume: 0.5 })).toBeNull();
-    expect(
-      parseProRoomEffectsSnapshot({
-        schemaVersion: 2,
-        view: 'effects',
-        roomCode: '000001',
-        revision: 0,
-        updatedAtMs: 0,
-        effects,
-        coordinatorId: 'private',
-      }),
-    ).toBeNull();
   });
 
-  it('rejects the retired effects v1 projection', () => {
+  it('rejects the retired effects v1 state without virtual treble', () => {
     const effects = createDefaultRoomEffectsState();
     const { virtualTreble: _virtualTreble, ...legacyEffects } = effects;
 
-    expect(
-      parseProRoomEffectsSnapshot({
-        schemaVersion: 1,
-        view: 'effects',
-        roomCode: '000001',
-        revision: 3,
-        updatedAtMs: 4,
-        effects: legacyEffects,
-      }),
-    ).toBeNull();
+    expect(parseRoomEffectsState(legacyEffects)).toBeNull();
   });
 });

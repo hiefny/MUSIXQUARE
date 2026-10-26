@@ -41,17 +41,23 @@ describe('service-worker update coordination', () => {
     expect(createServiceWorkerUpdateLedger().isDismissed(v494, now + 5 * 60 * 1000)).toBe(false);
   });
 
-  it('drops a 24-hour Later that an older version stored', () => {
+  it('drops a stored record that outlasts the presentation-failure cooldown', () => {
     const key = 'mxqr-sw-update-dismissal-v1';
     const now = 2_000_000;
-    // Versions up to 8.11.10 stored this when the user chose Later. Later is now
-    // kept by the page only, so the next open asks again.
+    // A record that ends more than the cooldown from now: the clock jumped
+    // back after it was written, or it is a 24-hour Later stored before
+    // 8.11.11 (Later is now kept by the page only, so the next open asks again).
     localStorage.setItem(
       key,
       JSON.stringify({ identity: 'v494', expiresAt: now + 24 * 60 * 60 * 1000 }),
     );
 
     expect(createServiceWorkerUpdateLedger().isDismissed(generation('v494'), now)).toBe(false);
+    expect(localStorage.getItem(key)).toBeNull();
+
+    const ledger = createServiceWorkerUpdateLedger();
+    ledger.rememberPresentationFailure(generation('v494'), now);
+    expect(ledger.isDismissed(generation('v494'), now - 60 * 60 * 1000)).toBe(false);
     expect(localStorage.getItem(key)).toBeNull();
   });
 

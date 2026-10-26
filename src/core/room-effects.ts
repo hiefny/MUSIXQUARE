@@ -1,7 +1,5 @@
 import { REVERB_DEFAULT_DECAY, REVERB_DEFAULT_PREDELAY } from './constants.ts';
 
-const ROOM_EFFECTS_SCHEMA_VERSION = 2 as const;
-
 interface RoomReverbState {
   mixPercent: number;
   decaySeconds: number;
@@ -32,15 +30,6 @@ export interface RoomEffectsPatch {
   virtualBass?: RoomEffectsState['virtualBass'];
   virtualSurround?: RoomEffectsState['virtualSurround'];
   virtualTreble?: RoomEffectsState['virtualTreble'];
-}
-
-export interface ProRoomEffectsSnapshot {
-  schemaVersion: typeof ROOM_EFFECTS_SCHEMA_VERSION;
-  view: 'effects';
-  roomCode: string;
-  revision: number;
-  updatedAtMs: number;
-  effects: RoomEffectsState;
 }
 
 /** Atomic PRO room authority used by the per-device settings-sync option. */
@@ -261,45 +250,6 @@ export function roomEffectsEqual(left: RoomEffectsState, right: RoomEffectsState
     left.virtualSurround.widthPercent === right.virtualSurround.widthPercent &&
     left.virtualTreble.enabled === right.virtualTreble.enabled
   );
-}
-
-export function parseProRoomEffectsSnapshot(
-  value: unknown,
-  expectedRoomCode?: string,
-): ProRoomEffectsSnapshot | null {
-  if (
-    !isRecord(value) ||
-    !hasExactKeys(value, [
-      'schemaVersion',
-      'view',
-      'roomCode',
-      'revision',
-      'updatedAtMs',
-      'effects',
-    ]) ||
-    value.schemaVersion !== ROOM_EFFECTS_SCHEMA_VERSION ||
-    value.view !== 'effects' ||
-    typeof value.roomCode !== 'string' ||
-    !/^0\d{5}$/.test(value.roomCode) ||
-    (expectedRoomCode !== undefined && value.roomCode !== expectedRoomCode) ||
-    !Number.isSafeInteger(value.revision) ||
-    (value.revision as number) < 0 ||
-    !Number.isSafeInteger(value.updatedAtMs) ||
-    (value.updatedAtMs as number) < 0
-  ) {
-    return null;
-  }
-  const effects = parseRoomEffectsState(value.effects);
-  return effects
-    ? {
-        schemaVersion: value.schemaVersion,
-        view: 'effects',
-        roomCode: value.roomCode,
-        revision: value.revision as number,
-        updatedAtMs: value.updatedAtMs as number,
-        effects,
-      }
-    : null;
 }
 
 export function parseProRoomSettingsSyncSnapshot(

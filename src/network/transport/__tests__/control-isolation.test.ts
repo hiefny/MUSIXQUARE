@@ -174,28 +174,42 @@ async function microtasks(): Promise<void> {
   for (let index = 0; index < 16; index++) await Promise.resolve();
 }
 /**
- * `drop` loses side-route frames on the original lane in both directions:
- * 'advertisement' each end's restart-capable frame, 'restart' every restart
- * frame, as with a peer that never advertised or answered a restart (the
- * 8.11.23 build). `link` holds frames in order, as SCTP does while a path is
- * unavailable.
+ * `drop: 'restart'` loses every restart frame on the original lane in both
+ * directions, as with a peer that never answered a restart (the 8.11.23
+ * build). `advertiser` makes `b` send what a 9.0.14 end sends: its
+ * 'restart-capable' frame right before its request (survey OV-F03).
+ * `lateHello` holds both hellos until the first original-lane delivery.
+ * `link` holds frames in order, as SCTP does while a path is unavailable.
  */
-function pair({ drop }: { drop?: 'advertisement' | 'restart' } = {}) {
+function pair({
+  drop,
+  advertiser = false,
+  lateHello = false,
+}: { drop?: 'restart'; advertiser?: boolean; lateHello?: boolean } = {}) {
   const a = endpoint();
   const b = endpoint();
+  if (advertiser) {
+    b.sendOriginal.mockImplementation((data: string) => {
+      const frame = JSON.parse(data) as Frame;
+      if (frame.type === TYPE && frame.kind === 'request')
+        b.original.push(JSON.stringify({ ...frame, kind: 'restart-capable' }));
+      b.original.push(data);
+    });
+  }
   a.flow.start();
   b.flow.start();
-  a.flow.handleOriginal(hello(b), true);
-  b.flow.handleOriginal(hello(a), true);
+  if (!lateHello) {
+    a.flow.handleOriginal(hello(b), true);
+    b.flow.handleOriginal(hello(a), true);
+  }
   const link = { original: true, side: true, aToB: true, bToA: true };
-  let ai = 1;
-  let bi = 1;
+  let ai = lateHello ? 0 : 1;
+  let bi = lateHello ? 0 : 1;
   let asi = 0;
   let bsi = 0;
   const deliver = (to: Endpoint, data: string) => {
     const frame = JSON.parse(data) as Frame;
     const kind = frame.type === TYPE ? String(frame.kind) : '';
-    if (drop === 'advertisement' && kind === 'restart-capable') return;
     if (drop === 'restart' && kind.startsWith('restart-')) return;
     if (!to.flow.handleOriginal(frame, true) && to.flow.acceptOriginalApplication())
       to.receive(data);
@@ -254,24 +268,34 @@ describe('admitted connection control isolation', () => {
     expect(e.create).not.toHaveBeenCalled();
   });
 
-  it('retains original routing and allows legacy bulk after bounded discovery', () => {
+  // Old-version removal train 2 (survey OV-F01): every end since 8.11.23
+  // sends its hello once admission settles, so bulk waits for it. The 1 s
+  // discovery window that let 8.11.22 and older peers use bulk without one is
+  // gone.
+  it('retains original routing and allows no bulk before the peer hello, however late', () => {
     const e = endpoint();
     e.flow.start();
+    expect(vi.getTimerCount()).toBe(0);
     expect(e.flow.allowBulk()).toBe(false);
     e.flow.send('{"type":"before"}');
-    vi.advanceTimersByTime(999);
+    vi.advanceTimersByTime(60_000);
     expect(e.flow.allowBulk()).toBe(false);
-    vi.advanceTimersByTime(1);
-    expect(e.flow.allowBulk()).toBe(true);
+    expect(e.flow.phase).toBe('idle');
     expect(e.create).not.toHaveBeenCalled();
     expect(e.fail).not.toHaveBeenCalled();
     expect(e.original.at(-1)).toBe('{"type":"before"}');
   });
 
-  it('negotiates late support after legacy discovery without changing original ownership', async () => {
-    const p = pair();
-    vi.advanceTimersByTime(1000);
+  it('negotiates once a late hello arrives, without changing original ownership', async () => {
+    const p = pair({ lateHello: true });
+    const wake = vi.fn(() => p.a.flow.allowBulk());
+    p.a.flow.subscribe(wake);
+    vi.advanceTimersByTime(5_000);
+    for (const e of [p.a, p.b]) expect(e.flow.allowBulk()).toBe(false);
+    expect(wake).not.toHaveBeenCalled();
+    // The hello wakes the bulk waiter, whose demand starts the negotiation.
     await p.activate();
+    expect(wake).toHaveBeenCalled();
     for (const e of [p.a, p.b]) {
       expect(e.flow.phase).toBe('active');
       expect(e.create).toHaveBeenCalledOnce();
@@ -532,8 +556,8 @@ describe('admitted connection control isolation', () => {
     },
   );
 
-  it('fails exact logical owner on side PC closed, whether or not an advertisement arrived', async () => {
-    const p = pair({ drop: 'advertisement' });
+  it("fails exact logical owner on side PC closed, also beside a 9.0.14 peer's advertisement", async () => {
+    const p = pair({ advertiser: true });
     await p.activate();
     p.a.peer.state('closed');
     expect(p.a.fail).toHaveBeenCalledExactlyOnceWith('route');
@@ -618,7 +642,7 @@ describe('admitted connection control isolation', () => {
     expect(p.a.flow.phase).toBe('closed');
   });
 
-  it('fails initial private send once and leaves no discovery timer or lease', () => {
+  it('fails initial private send once and leaves no timer or lease', () => {
     const e = endpoint();
     e.sendOriginal.mockImplementation(() => {
       throw new Error('send');
@@ -665,7 +689,7 @@ describe('admitted connection control isolation', () => {
     const unsubscribe = e.flow.subscribe(first);
     e.flow.subscribe(second);
     unsubscribe();
-    vi.advanceTimersByTime(1000);
+    e.flow.handleOriginal({ type: TYPE, version: 1, kind: 'hello', nonce: 'f'.repeat(32) }, true);
     expect(first).not.toHaveBeenCalled();
     expect(second).toHaveBeenCalledOnce();
   });
@@ -949,38 +973,63 @@ describe('side ICE restart of an active isolated control route', () => {
   });
 
   // Old-version removal train, survey OV-B07 (TR-03 stage 1): every build with
-  // isolated control since 8.11.25 restarts its side PC, so an end restarts
-  // without waiting for the peer's advertisement. It still sends its own, in
-  // the exact shape and before its request, because ends before this train
-  // restart only after one arrives.
-  it('still advertises the restart capability, exactly, before its request and its fence', async () => {
+  // isolated control since 8.11.25 restarts its side PC without waiting for
+  // the peer's advertisement. Train 2 (survey OV-F03, App build floor 787)
+  // stopped sending it: only ends before the first train waited for one.
+  it('sends no restart advertisement: its request and then its fence open the negotiation', async () => {
     const p = await live();
-    for (const [e, peer] of [
-      [p.a, p.b],
-      [p.b, p.a],
-    ] as const) {
-      expect(frames(e, 'restart-capable')).toEqual([
-        {
-          type: TYPE,
-          version: 1,
-          kind: 'restart-capable',
-          nonce: hello(e).nonce,
-          target: hello(peer).nonce,
-        },
-      ]);
+    for (const e of [p.a, p.b]) {
+      expect(frames(e, 'restart-capable')).toEqual([]);
       const kinds = e.original
         .map((data) => JSON.parse(data) as Frame)
         .filter((frame) => frame.type === TYPE)
         .map((frame) => frame.kind);
-      expect(kinds.indexOf('restart-capable')).toBeLessThan(kinds.indexOf('request'));
+      expect(kinds.slice(0, 2)).toEqual(['hello', 'request']);
       expect(kinds.indexOf('request')).toBeLessThan(kinds.indexOf('fence'));
     }
   });
 
+  // A 9.0.14 end still sends 'restart-capable' before its request. It is now an
+  // unknown kind on the original lane: consumed there, never an application
+  // frame, at any phase.
+  it("consumes a 9.0.14 end's restart advertisement at every phase without effect", async () => {
+    const p = pair();
+    const advertise = () => {
+      for (const [from, to] of [
+        [p.a, p.b],
+        [p.b, p.a],
+      ] as const) {
+        expect(to.flow.handleOriginal(fromPeer(from, to, 'restart-capable'), true)).toBe(true);
+      }
+    };
+    advertise();
+    for (const e of [p.a, p.b]) expect(e.flow.phase).toBe('idle');
+    await p.negotiate();
+    advertise();
+    p.a.peer.channel!.open();
+    p.b.peer.channel!.open();
+    await p.pump();
+    advertise();
+    for (const e of [p.a, p.b]) e.peer.state('connected');
+    for (const e of [p.a, p.b]) {
+      expect(e.flow.phase).toBe('active');
+      expect(e.fail).not.toHaveBeenCalled();
+      expect(e.received).toEqual([]);
+      expect(e.flow.snapshot).toMatchObject({ localRestartEpoch: 0, remoteRestartEpoch: 0 });
+    }
+  });
+
   it.each(['failed', 'disconnected'] as const)(
-    'restarts a %s side PC in place although no advertisement arrived',
+    "restarts a %s side PC in place beside a 9.0.14 peer's advertisement",
     async (state) => {
-      const p = await live({ drop: 'advertisement' });
+      const p = await live({ advertiser: true });
+      expect(frames(p.b, 'restart-capable')).toContainEqual({
+        type: TYPE,
+        version: 1,
+        kind: 'restart-capable',
+        nonce: hello(p.b).nonce,
+        target: hello(p.a).nonce,
+      });
       const { offerer, answerer } = roles(p);
       p.a.peer.state(state);
       p.b.peer.state(state);

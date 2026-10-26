@@ -49,7 +49,7 @@ describe('MUSIXQUARE brand-capitalization guard', () => {
     expect(isBrandCopySource('THIRD-PARTY-NOTICES.md')).toBe(true);
     expect(isBrandCopySource('css/style.css')).toBe(true);
     expect(isBrandCopySource('public/admin.css')).toBe(true);
-    expect(isBrandCopySource('public/manifest.webmanifest')).toBe(true);
+    expect(isBrandCopySource('public/manifests/en.webmanifest')).toBe(true);
     expect(isBrandCopySource('public/developers/openapi.yaml')).toBe(true);
     expect(isBrandCopySource('public/wordmark.svg')).toBe(true);
     expect(isBrandCopySource('scripts/release-tool.mts')).toBe(true);

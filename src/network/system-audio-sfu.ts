@@ -14,18 +14,11 @@ import { getState } from '../core/state.ts';
 import { setManagedTimer, clearManagedTimer } from '../core/timers.ts';
 import { MSG, SYSTEM_AUDIO_SHARE_LIMIT_MS } from '../core/constants.ts';
 import { t } from '../i18n/index.ts';
-import { getAudioContext } from '../audio/context.ts';
-import { initAudio, getWidener } from '../audio/engine.ts';
+import { initAudio } from '../audio/engine.ts';
 import { getCapturedAudioStream, isSystemAudioActive } from '../audio/system-capture.ts';
-import { claimPlaybackOwner, setSystemAudioReceiving } from '../player/ownership.ts';
 import { registerHandler } from './protocol.ts';
 import { safeSend } from './peer-state.ts';
 import { createSystemAudioStartFrame } from './system-audio-start.ts';
-import {
-  awaitTrustedSystemAudioReceptionBoundary,
-  beginTrustedSystemAudioReception,
-  cleanupGuestSystemAudio,
-} from './system-audio-guest.ts';
 import {
   beginSystemAudioShareDelivery,
   claimGuestDirectSystemAudioRoute,
@@ -42,26 +35,38 @@ import {
   unmarkLocalSystemAudioSfuCapable,
 } from './system-audio-delivery.ts';
 import {
-  cleanupWebRtcAudioDecoderPrimer,
-  getAudioTrackStreamKey,
-  primeWebRtcAudioDecoder,
-  type WebRtcAudioDecoderPrimer,
-} from './webrtc-audio-decoder-primer.ts';
+  attachSystemAudioSource,
+  awaitTrustedSystemAudioReceptionBoundary,
+  beginTrustedSystemAudioReception,
+  detachSystemAudioRoute,
+  endTrustedSystemAudioReception,
+  getSystemAudioReceiveRouteSnapshot,
+  handOffTrustedSystemAudioReception,
+  primeSystemAudioDecoder,
+  registerSystemAudioReceiveRoute,
+} from './system-audio-receive-slot.ts';
+import { getAudioTrackStreamKey } from './webrtc-audio-decoder-primer.ts';
 import type { DataConnection, ProtocolMsg } from '../types/index.ts';
 import { getRoomContext, isStandardRoomRole } from '../rooms/authority.ts';
 import { readBoundedJsonResponse, withRequestDeadline } from '../core/request-lifetime.ts';
 import { localFirstApiEndpoints } from './api-endpoints.ts';
 import { getStandardRoomTurnCredentials } from './standard-room-prerequisites.ts';
 import { forceStereoSdp, sdpPrefersOpusStereo } from './opus-stereo-sdp.ts';
+import {
+  BASE_SFU_ICE_SERVERS,
+  SFU_CONTROL_REQUEST_TIMEOUT_MS,
+  SFU_CONTROL_RESPONSE_MAX_BYTES,
+  applySystemAudioPlayoutDelay,
+  tuneSystemAudioMusicSender,
+} from './system-audio-media.ts';
 
-const SYSTEM_AUDIO_PLAYOUT_DELAY_S = 0.5;
 const GUEST_SFU_RECEIVE_LIMIT_TIMER = 'system-audio-sfu-guest-limit';
+// The guest subscription's route in the receive slot, which holds its source
+// and decoder primer.
+const GUEST_SFU_ROUTE = 'standard-sfu';
 const HOST_SFU_RETRY_TIMER = 'system-audio-sfu-host-retry';
 const HOST_SFU_RETRY_DELAY_MS = 2500;
 const HOST_SFU_MAX_RETRIES = 1;
-const SFU_CONTROL_REQUEST_TIMEOUT_MS = 15_000;
-const SFU_CONTROL_RESPONSE_MAX_BYTES = 1024 * 1024;
-const BASE_SFU_ICE_SERVERS: RTCIceServer[] = [{ urls: 'stun:stun.cloudflare.com:3478' }];
 
 interface RealtimeSessionDescription {
   type: 'offer' | 'answer';
@@ -129,15 +134,24 @@ let guestConnectAbortController: AbortController | null = null;
 let guestPendingReadyPayload: SfuReadyPayload | null = null;
 let guestSubscribedTrackMids: string[] = [];
 let guestSubscriptionEpoch = 0;
-let guestSourceStereo: MediaStreamAudioSourceNode | null = null;
-let guestReceiving = false;
 let guestAllowsLocalAudience = false;
 let guestLimitTimerActive = false;
 let guestLimitBlockedHostConn: DataConnection | null = null;
-let guestDecoderPrimer: WebRtcAudioDecoderPrimer | null = null;
 const directFailureHandoffPeerIds = new Set<string>();
 
+/**
+ * Whether the current subscription attached a source: its first attach
+ * started the reception (and the limit), and its cleanup ends the reception.
+ * The receive slot holds that source until the cleanup detaches the route.
+ */
+function isGuestSfuAttached(): boolean {
+  return getSystemAudioReceiveRouteSnapshot(GUEST_SFU_ROUTE).sourceAttached;
+}
+
 export function getSystemAudioSfuDebugSnapshot() {
+  // receiving and sourceStereo both mean "this subscription attached a
+  // source"; the primer is the route's, reported apart.
+  const guestRoute = getSystemAudioReceiveRouteSnapshot(GUEST_SFU_ROUTE);
   return {
     host: {
       pcState: hostPc
@@ -168,14 +182,14 @@ export function getSystemAudioSfuDebugSnapshot() {
       subscriptionKey: guestSubscriptionKey,
       subscribedTrackCount: guestSubscribedTrackMids.length,
       connectInFlight: !!guestConnectPromise,
-      sourceStereo: !!guestSourceStereo,
-      receiving: guestReceiving,
+      sourceStereo: guestRoute.sourceAttached,
+      receiving: guestRoute.sourceAttached,
       allowsLocalAudience: guestAllowsLocalAudience,
       limitTimerActive: guestLimitTimerActive,
       limitBlocked: !!guestLimitBlockedHostConn,
       shareRoute: getGuestSystemAudioShareRoute(),
       directRouteFrozen: getGuestSystemAudioShareRoute() === 'direct',
-      decoderPrimerCount: guestDecoderPrimer ? 1 : 0,
+      decoderPrimerCount: guestRoute.decoderPrimed ? 1 : 0,
     },
     peerConnections: [
       ...(hostPc ? [{ label: 'sfu:host', pc: hostPc }] : []),
@@ -196,21 +210,12 @@ function buildTrackName(): string {
   return `mxqr-system-audio-${room}-stereo-${id}`.slice(0, 160);
 }
 
-function cleanupGuestDecoderPrimers(): void {
-  cleanupWebRtcAudioDecoderPrimer(guestDecoderPrimer);
-  guestDecoderPrimer = null;
-}
-
 function primeWindowsSfuAudioDecoder(track: MediaStreamTrack): void {
-  const primer = primeWebRtcAudioDecoder(
-    guestDecoderPrimer,
-    [track],
-    getAudioTrackStreamKey('sfu:stereo', [track]),
-    'STEREO',
-    '[SysAudioSFU]',
-  );
-
-  guestDecoderPrimer = primer;
+  primeSystemAudioDecoder(GUEST_SFU_ROUTE, [track], {
+    streamKey: getAudioTrackStreamKey('sfu:stereo', [track]),
+    label: 'STEREO',
+    logPrefix: '[SysAudioSFU]',
+  });
 }
 
 function clearGuestLimitTimer(): void {
@@ -344,38 +349,6 @@ function sessionDescriptionFromInit(desc: RTCSessionDescriptionInit): RealtimeSe
   // authoritative so setRemoteDescription observes the exact answer/offer the
   // SFU generated.
   return { type: desc.type, sdp: forceStereoSdp(desc.sdp) };
-}
-
-function applyAudioSenderTuning(sender: RTCRtpSender): void {
-  const track = sender.track;
-  if (!track || track.kind !== 'audio') return;
-
-  try {
-    track
-      .applyConstraints({
-        echoCancellation: false,
-        noiseSuppression: false,
-        autoGainControl: false,
-      })
-      .catch(() => {
-        /* noop */
-      });
-  } catch {
-    /* noop */
-  }
-
-  try {
-    const params = sender.getParameters();
-    if (!params.encodings) params.encodings = [{}];
-    // The former L/R contract allocated 128 kbps to each mono sender. Keep the
-    // same aggregate quality budget on the single stereo Opus sender.
-    params.encodings[0].maxBitrate = 256000;
-    sender.setParameters(params).catch(() => {
-      /* noop */
-    });
-  } catch {
-    /* noop */
-  }
 }
 
 function makeReadyMessage(
@@ -551,7 +524,7 @@ async function publishHostTracks(
     direction: 'sendonly',
     streams: [capturedStream],
   });
-  applyAudioSenderTuning(transceiver.sender);
+  tuneSystemAudioMusicSender(transceiver.sender);
 
   const offer = await pc.createOffer();
   const offerDescription = sessionDescriptionFromInit(offer);
@@ -795,12 +768,6 @@ function cleanupHostSfu(
   }
 }
 
-function setReceiverDelay(receiver: RTCRtpReceiver): void {
-  if (receiver.track?.kind !== 'audio') return;
-  const delayedReceiver = receiver as RTCRtpReceiver & { playoutDelayHint?: number };
-  delayedReceiver.playoutDelayHint = SYSTEM_AUDIO_PLAYOUT_DELAY_S;
-}
-
 async function connectGuestTrack(track: MediaStreamTrack, pc: RTCPeerConnection): Promise<void> {
   if (guestPc !== pc) return;
   // SYSTEM_AUDIO_START and the SFU descriptor share a reliable data channel,
@@ -816,7 +783,7 @@ async function connectGuestTrack(track: MediaStreamTrack, pc: RTCPeerConnection)
   // Re-check identity after the await: connectGuestTrack is
   // fire-and-forget, so a teardown (cleanupGuestSfu → guestPc=null) or a new
   // subscription (guestPc=newPc) landing during initAudio() would otherwise let
-  // this late attach recreate the source and flip guestReceiving=true —
+  // this late attach recreate the source and start the reception again —
   // resurrecting a torn-down receive (double audio, masked playback mode).
   // The host publisher guards the
   // same window with an epoch; pc-identity is the right key here since each
@@ -825,36 +792,27 @@ async function connectGuestTrack(track: MediaStreamTrack, pc: RTCPeerConnection)
     log.debug('[SysAudioSFU] Stale guest track attach (pc superseded during init). Skipping');
     return;
   }
-  const ctx = getAudioContext();
-  const widener = getWidener();
-  if (!widener) {
+  // The receive slot swaps this route's source for the track (synchronously,
+  // so nothing separates the check above from the graph). Each subscription's
+  // first attach starts the reception and arms its own two-hour limit, even
+  // while the receiving flag stays set across a re-publication.
+  const attached = attachSystemAudioSource(
+    GUEST_SFU_ROUTE,
+    { track },
+    {
+      startsReception: 'first-for-route',
+      onGraphReady: (ctx) => {
+        if (ctx.state !== 'running') {
+          log.warn(`[SysAudioSFU] AudioContext is ${ctx.state}; user interaction may be required`);
+        }
+        primeWindowsSfuAudioDecoder(track);
+      },
+      onReceptionStart: startGuestLimitTimer,
+      connectedLog: '[SysAudioSFU] Remote system audio connected through Cloudflare SFU',
+    },
+  );
+  if (!attached) {
     throw new Error('System audio graph not ready');
-  }
-
-  if (ctx.state !== 'running') {
-    log.warn(`[SysAudioSFU] AudioContext is ${ctx.state}; user interaction may be required`);
-  }
-
-  if (guestSourceStereo) {
-    try {
-      guestSourceStereo.disconnect();
-    } catch {
-      /* noop */
-    }
-  }
-
-  primeWindowsSfuAudioDecoder(track);
-  const source = ctx.createMediaStreamSource(new MediaStream([track]));
-  source.connect(widener.input);
-  guestSourceStereo = source;
-
-  if (!guestReceiving) {
-    guestReceiving = true;
-    startGuestLimitTimer();
-    setSystemAudioReceiving(true);
-    claimPlaybackOwner('system-audio');
-    bus.emit('visualizer:start');
-    log.info('[SysAudioSFU] Remote system audio connected through Cloudflare SFU');
   }
 }
 
@@ -862,13 +820,12 @@ function cleanupGuestSfu(updateState = true): void {
   guestSubscriptionEpoch += 1;
   guestConnectAbortController?.abort();
   guestConnectAbortController = null;
-  const shouldCleanupGuestReceiveState = guestReceiving && updateState;
+  const shouldCleanupGuestReceiveState = isGuestSfuAttached() && updateState;
   const pc = guestPc;
   const sessionId = guestSessionId;
   const sessionOwnerToken = guestSessionOwnerToken;
   const subscribedTrackMids = guestSubscribedTrackMids;
   guestPc = null;
-  guestReceiving = false;
   guestAllowsLocalAudience = false;
   guestSessionId = null;
   guestSessionOwnerToken = null;
@@ -881,30 +838,47 @@ function cleanupGuestSfu(updateState = true): void {
   clearGuestLimitTimer();
   closeGuestSessionTracks(sessionId, sessionOwnerToken, subscribedTrackMids);
 
-  if (guestSourceStereo) {
-    try {
-      guestSourceStereo.disconnect();
-    } catch {
-      /* noop */
-    }
-    guestSourceStereo = null;
-  }
-  cleanupGuestDecoderPrimers();
+  // The route's source and primer, which the receive slot holds. The SFU does
+  // not join the slot's end of every reception: an end leaves its transport,
+  // source and primer to this cleanup, as before. It joins only the receive
+  // deadline's expiry and another route's adopt
+  // (registerSystemAudioSfuListeners).
+  detachSystemAudioRoute(GUEST_SFU_ROUTE);
   if (pc) {
     pc.close();
   }
 
   if (shouldCleanupGuestReceiveState) {
-    cleanupGuestSystemAudio();
+    endTrustedSystemAudioReception();
   }
 }
 
 /**
- * Drop only the legacy guest SFU transport when adopting the PRO subscriber.
- * Playback ownership is preserved until the role-independent PRO subscriber
- * replaces it, avoiding both double audio and an unnecessary idle flash.
+ * Only a Standard guest receives through this route: the guest role gates the
+ * receive slot's two inputs from it (the delivery handoff and its reaction to
+ * the receive deadline), as it gated the bus listeners they replace.
  */
-export function cleanupSystemAudioSfuGuestRoute(): void {
+function isGuestSfuReceiver(): boolean {
+  return getState('network.appRole') === 'guest';
+}
+
+/**
+ * This subscription handed delivery to another route (a pending READY, or a
+ * direct call): the guest's receive slot keeps its placeholder and restore
+ * point and waits for that route under a re-armed slot deadline.
+ */
+function handOffGuestSfuReception(): void {
+  if (!isGuestSfuReceiver()) return;
+  handOffTrustedSystemAudioReception();
+}
+
+/**
+ * Another route adopted the receive slot (the PRO coordinator): drop only the
+ * legacy guest SFU transport and thaw its frozen share route. Playback
+ * ownership is preserved until the role-independent PRO subscriber replaces
+ * it, avoiding both double audio and an unnecessary idle flash.
+ */
+function retireGuestSfuRoute(): void {
   cleanupGuestSfu(false);
   resetGuestSystemAudioShareRoute();
 }
@@ -991,7 +965,7 @@ async function subscribeGuestToSfu(payload: SfuReadyPayload, signal: AbortSignal
     if (attachedTrackKeys.has(key)) return;
     attachedTrackKeys.add(key);
 
-    setReceiverDelay(receiver);
+    applySystemAudioPlayoutDelay(receiver);
     log.info(`[SysAudioSFU] Received stereo remote track (${reason}, mid=${mid || 'none'})`);
     connectGuestTrack(track, pc).catch((error) => {
       if (guestPc !== pc) return;
@@ -1000,7 +974,7 @@ async function subscribeGuestToSfu(payload: SfuReadyPayload, signal: AbortSignal
       // both transport and pending receive state so a fresh START/READY can
       // attach it again, even when no source became audible yet.
       cleanupGuestSfu(false);
-      cleanupGuestSystemAudio();
+      endTrustedSystemAudioReception();
       bus.emit('ui:show-toast', t('system_audio.receive_failed'));
     });
   };
@@ -1140,10 +1114,10 @@ function beginGuestSfuSubscription(payload: SfuReadyPayload): void {
         !!getState('network.hostConn');
       if (canHandoffToPending) {
         // Keep the system-audio placeholder while replacing only the failed
-        // adapter. The guest receiver re-arms its watchdog so a second failed
+        // adapter. The receive slot re-arms its deadline so a second failed
         // publication cannot leave a permanent silent "receiving" state.
         cleanupGuestSfu(false);
-        bus.emit('system-audio:delivery-handoff');
+        handOffGuestSfuReception();
         beginGuestSfuSubscription(pendingPayload);
       } else {
         cleanupGuestSfu();
@@ -1186,9 +1160,9 @@ function handleSfuReady(
   if (getGuestSystemAudioShareRoute() === 'direct') {
     if (!directFailureHandoff) return;
     const surface = getState('player.currentTrackMeta')?.systemAudioSurface;
-    cleanupGuestSystemAudio();
+    endTrustedSystemAudioReception();
     resetGuestSystemAudioShareRoute();
-    beginTrustedSystemAudioReception(surface);
+    beginTrustedSystemAudioReception(surface, { deadline: 'slot' });
   }
   if (getGuestSystemAudioShareRoute() === 'unselected') {
     if (
@@ -1337,7 +1311,7 @@ export function registerSystemAudioSfuListeners(): void {
     if (!guestPc && !guestConnectPromise) return;
     log.info('[SysAudioSFU] Local P2P system audio arrived; switching away from SFU');
     cleanupGuestSfu(false);
-    bus.emit('system-audio:delivery-handoff');
+    handOffGuestSfuReception();
   });
 
   bus.on('system-audio:host-started', () => {
@@ -1347,9 +1321,15 @@ export function registerSystemAudioSfuListeners(): void {
     cleanupGuestSfu();
     resetGuestSystemAudioShareRoute();
   });
-  bus.on('system-audio:receive-timeout', () => {
-    if (getState('network.appRole') !== 'guest') return;
-    cleanupGuestSfu();
+  // A receive deadline expired the guest's reception: drop a subscription
+  // that never delivered before the slot ends the reception. Another route
+  // (the PRO coordinator) adopting the slot retires this one.
+  registerSystemAudioReceiveRoute(GUEST_SFU_ROUTE, {
+    onDeadline: () => {
+      if (!isGuestSfuReceiver()) return;
+      cleanupGuestSfu();
+    },
+    retire: retireGuestSfuRoute,
   });
   bus.on('system-audio:force-stop', () => {
     directFailureHandoffPeerIds.clear();

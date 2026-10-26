@@ -419,8 +419,7 @@ describe('resource-ownership guard', { timeout: 60_000 }, () => {
 
   describe('CHECK 4 one deadline owner per PRO SFU attempt (G1)', () => {
     const service = 'src/pro-room/system-audio-service.ts';
-    const watchdogOffStart =
-      'beginTrustedSystemAudioReception(undefined, { receiveWatchdog: false });';
+    const watchdogOffStart = "beginTrustedSystemAudioReception(undefined, { deadline: 'route' });";
     const retryMax = 'const SUBSCRIBER_RETRY_MAX_DELAY_MS = 30_000;';
 
     // The LAN-direct branch (G5) passes the same options before the SFU start,
@@ -432,7 +431,7 @@ describe('resource-ownership guard', { timeout: 60_000 }, () => {
       sources.set(
         service,
         source.slice(0, at) +
-          'beginTrustedSystemAudioReception();' +
+          "beginTrustedSystemAudioReception(undefined, { deadline: 'slot' });" +
           source.slice(at + watchdogOffStart.length),
       );
     }
@@ -454,9 +453,11 @@ describe('resource-ownership guard', { timeout: 60_000 }, () => {
           replaceIn(
             sources,
             service,
-            '  cleanupCoordinatorSubscriptionForRetry();\n  setSystemAudioReceiving(false);\n',
-            '  cleanupCoordinatorSubscriptionForRetry();\n  setSystemAudioReceiving(false);\n' +
-              '  beginTrustedSystemAudioReception();\n',
+            '  cleanupCoordinatorSubscriptionForRetry();\n' +
+              "  interruptTrustedSystemAudioReception({ deadline: 'route' });\n",
+            '  cleanupCoordinatorSubscriptionForRetry();\n' +
+              "  interruptTrustedSystemAudioReception({ deadline: 'route' });\n" +
+              "  beginTrustedSystemAudioReception(undefined, { deadline: 'slot' });\n",
           ),
         ),
       );
@@ -470,11 +471,11 @@ describe('resource-ownership guard', { timeout: 60_000 }, () => {
         withSources((sources) => {
           sources.set(
             'src/pro-room/rogue-reception.ts',
-            "import { beginTrustedSystemAudioReception } from '../network/system-audio-guest.ts';\n" +
+            "import { beginTrustedSystemAudioReception } from '../network/system-audio-receive-slot.ts';\n" +
               'export const starts = [beginTrustedSystemAudioReception];\n' +
               'export function restart(): void {\n' +
-              "  beginTrustedSystemAudioReception('display', { receiveWatchdog: true });\n" +
-              '  beginTrustedSystemAudioReception(undefined, { receiveWatchdog: false });\n' +
+              "  beginTrustedSystemAudioReception('display', { deadline: 'slot' });\n" +
+              "  beginTrustedSystemAudioReception(undefined, { deadline: 'route' });\n" +
               '}\n',
           );
         }),
@@ -507,7 +508,12 @@ describe('resource-ownership guard', { timeout: 60_000 }, () => {
 
     it('rejects a LAN-direct reception start that re-arms the guest watchdog (G5)', () => {
       const input = withSources((sources) =>
-        replaceIn(sources, service, watchdogOffStart, 'beginTrustedSystemAudioReception();'),
+        replaceIn(
+          sources,
+          service,
+          watchdogOffStart,
+          "beginTrustedSystemAudioReception(undefined, { deadline: 'slot' });",
+        ),
       );
       const report = analyzeResourceOwnership(input);
       expect(report.deadline.mode).toBe('watchdog-off');
@@ -525,6 +531,35 @@ describe('resource-ownership guard', { timeout: 60_000 }, () => {
         ),
       );
       expect(findings).toMatch(/has no numeric SUBSCRIBER_RETRY_MAX_DELAY_MS/u);
+    });
+
+    it('reads the receive deadline from its home, the system-audio media module (C4-2)', () => {
+      const media = 'src/network/system-audio-media.ts';
+      const deadline = 'export const SYSTEM_AUDIO_RECEIVE_TIMEOUT_MS = 30_000;';
+      expect(analyzeResourceOwnership(realInput()).deadline.watchdogMs).toBe(30_000);
+
+      const moved = findingsOf(
+        withSources((sources) =>
+          replaceIn(sources, media, deadline, 'export const SYSTEM_AUDIO_RECEIVE_MS = 30_000;'),
+        ),
+      );
+      expect(moved).toContain(
+        'DEADLINE OWNER (RO-04, G1): src/network/system-audio-media.ts has no numeric ' +
+          "SYSTEM_AUDIO_RECEIVE_TIMEOUT_MS - move this check's anchors in the same change",
+      );
+
+      // A deadline above the retry maximum is read from the same home.
+      const longer = analyzeResourceOwnership(
+        withSources((sources) =>
+          replaceIn(
+            sources,
+            media,
+            deadline,
+            'export const SYSTEM_AUDIO_RECEIVE_TIMEOUT_MS = 45_000;',
+          ),
+        ),
+      );
+      expect(longer.deadline).toMatchObject({ mode: 'retry-below-watchdog', watchdogMs: 45_000 });
     });
   });
 
@@ -576,6 +611,24 @@ describe('resource-ownership guard', { timeout: 60_000 }, () => {
       );
       expect(findings).toContain(
         'STALE BASELINE copied timing constant: RO-22/RO-23/RO-30 STARTUP_PROMPT_QUIET_MS',
+      );
+    });
+
+    it('rejects a route adapter that re-types a system-audio media value beside its home (C4-1)', () => {
+      const findings = findingsOf(
+        withSources((sources) => {
+          const file = 'src/network/system-audio-guest.ts';
+          sources.set(
+            file,
+            `${sources.get(file) ?? ''}\nconst SYSTEM_AUDIO_PLAYOUT_DELAY_S = 0.5;\n` +
+              'void SYSTEM_AUDIO_PLAYOUT_DELAY_S;\n',
+          );
+        }),
+      );
+      expect(findings).toContain(
+        'COPIED TIMING CONSTANT (principle 4): RO-04 ' +
+          'SYSTEM_AUDIO_PLAYOUT_DELAY_S@src/network/system-audio-guest.ts = ' +
+          'SYSTEM_AUDIO_PLAYOUT_DELAY_S@src/network/system-audio-media.ts (0.5)',
       );
     });
 
@@ -774,6 +827,248 @@ describe('resource-ownership guard', { timeout: 60_000 }, () => {
       );
       expect(findings).toMatch(
         /RATCHET REGRESSION header loader default holder write \(RO-47\): src\/storage\/recovery\.ts has 3, baseline 2/u,
+      );
+    });
+  });
+
+  describe('CHECK 9 system-audio receive slot writers (RO-04)', () => {
+    // Phase 5 prep T5 pinned the writers then, which each 5A increment lowered
+    // as the receive slot took the writes. C4-4 lowered the first three by
+    // one: the Standard SFU attaches through the slot's attach the direct call
+    // uses. C4-5 removed the PRO coordinator's (5, 2 and 1): it attaches,
+    // resumes and interrupts through the slot's existing writes. Final since
+    // C4-8: the slot's writes, the sharer's own claim, the file playback
+    // route's widener input and the leaveSession reset.
+    const FINAL = {
+      'receiving flag write': 3,
+      'system-audio owner claim': 3,
+      'widener.input use': 3,
+      'raw receiving flag write': 1,
+    };
+
+    it('pins the final direct writers on the real tree', () => {
+      expect(analyzeResourceOwnership(realInput()).receiveSlotWrites).toEqual(FINAL);
+    });
+
+    it('allows no route adapter a direct write: one there is unsanctioned, not a raised count', () => {
+      // The routes that receive into the slot: the Standard direct call and
+      // SFU, the PRO coordinator and its two transports.
+      const routes = [
+        'src/network/system-audio-guest.ts',
+        'src/network/system-audio-sfu.ts',
+        'src/pro-room/system-audio-service.ts',
+        'src/network/pro-system-audio-sfu.ts',
+        'src/network/pro-system-audio-direct.ts',
+      ];
+      const report = analyzeResourceOwnership(
+        withSources((sources) => {
+          for (const route of routes) {
+            expect(sources.has(route)).toBe(true);
+            sources.set(
+              route,
+              `${sources.get(route) ?? ''}\n` +
+                'export function rogueAttach(source: AudioNode, widener: { input: AudioNode }): void {\n' +
+                '  source.connect(widener.input);\n' +
+                '  setSystemAudioReceiving(true);\n' +
+                "  claimPlaybackOwner('system-audio');\n" +
+                "  batchSetState({ 'systemAudio.isReceiving': true });\n" +
+                '}\n',
+            );
+          }
+        }),
+      );
+      const findings = report.findings.join('\n');
+      for (const route of routes) {
+        for (const label of Object.keys(FINAL)) {
+          expect(findings).toContain(`UNSANCTIONED ${label} (RO-04): ${route} has 1 - `);
+        }
+      }
+      expect(findings).not.toMatch(/RATCHET REGRESSION|STALE BASELINE/u);
+    });
+
+    it('rejects a new route that writes the slot directly, called or passed on', () => {
+      const report = analyzeResourceOwnership(
+        withSources((sources) => {
+          sources.set(
+            'src/pro-room/rogue-receiver.ts',
+            "import { batchSetState, getState, setState } from '../core/state.ts';\n" +
+              "import * as ownership from '../player/ownership.ts';\n" +
+              "import { claimPlaybackOwner, setSystemAudioReceiving } from '../player/ownership.ts';\n" +
+              'export const writers = [setSystemAudioReceiving];\n' +
+              'export function attach(\n' +
+              '  source: AudioNode,\n' +
+              '  widener: { input: AudioNode },\n' +
+              "  owner: 'system-audio' | 'youtube',\n" +
+              '): void {\n' +
+              '  source.connect(widener.input);\n' +
+              '  ownership.setSystemAudioReceiving(true);\n' +
+              "  claimPlaybackOwner('system-audio');\n" +
+              '  claimPlaybackOwner(owner);\n' +
+              "  claimPlaybackOwner('youtube');\n" +
+              "  setState('systemAudio.isReceiving', true);\n" +
+              "  batchSetState({ ['systemAudio.isReceiving']: false });\n" +
+              "  void getState('systemAudio.isReceiving');\n" +
+              '  // setSystemAudioReceiving(true) and widener.input in a comment do not count.\n' +
+              '}\n',
+          );
+        }),
+      );
+      const findings = report.findings.join('\n');
+      expect(findings).toMatch(
+        /UNSANCTIONED receiving flag write \(RO-04\): src\/pro-room\/rogue-receiver\.ts has 2/u,
+      );
+      expect(findings).toMatch(
+        /UNSANCTIONED system-audio owner claim \(RO-04\): src\/pro-room\/rogue-receiver\.ts has 2/u,
+      );
+      expect(findings).toMatch(
+        /UNSANCTIONED widener\.input use \(RO-04\): src\/pro-room\/rogue-receiver\.ts has 1/u,
+      );
+      expect(findings).toMatch(
+        /UNSANCTIONED raw receiving flag write \(RO-04\): src\/pro-room\/rogue-receiver\.ts has 2/u,
+      );
+      expect(report.receiveSlotWrites).toEqual({
+        'receiving flag write': FINAL['receiving flag write'] + 2,
+        'system-audio owner claim': FINAL['system-audio owner claim'] + 2,
+        'widener.input use': FINAL['widener.input use'] + 1,
+        'raw receiving flag write': FINAL['raw receiving flag write'] + 2,
+      });
+    });
+
+    it("leaves the setter's own write in src/player/ownership.ts out of the raw count", () => {
+      const findings = findingsOf(
+        withSources((sources) =>
+          replaceIn(
+            sources,
+            'src/player/ownership.ts',
+            "  setState('systemAudio.isReceiving', isReceiving);\n",
+            "  setState('systemAudio.isReceiving', isReceiving);\n" +
+              "  setState('systemAudio.isReceiving', isReceiving);\n",
+          ),
+        ),
+      );
+      expect(findings).toBe('');
+    });
+
+    it('fails a raised count, a count that fell below its baseline and a writer that disappears', () => {
+      const findings = findingsOf(
+        withSources((sources) => {
+          replaceIn(
+            sources,
+            'src/network/system-audio-receive-slot.ts',
+            '  media.source.connect(widener.input);\n',
+            '  media.source.connect(widener.input);\n  media.source.connect(widener.input);\n',
+          );
+          replaceIn(
+            sources,
+            'src/network/system-audio-receive-slot.ts',
+            "  setSystemAudioReceiving(false);\n  if (options.deadline === 'slot') armReceiveWatchdog();\n",
+            "  if (options.deadline === 'slot') armReceiveWatchdog();\n",
+          );
+          replaceIn(sources, 'src/network/peer.ts', "    'systemAudio.isReceiving': false,\n", '');
+        }),
+      );
+      expect(findings).toMatch(
+        /RATCHET REGRESSION widener\.input use \(RO-04\): src\/network\/system-audio-receive-slot\.ts has 2, baseline 1/u,
+      );
+      expect(findings).toMatch(
+        /STALE BASELINE receiving flag write \(RO-04\): src\/network\/system-audio-receive-slot\.ts has 2, baseline 3 - lower the baseline to 2/u,
+      );
+      expect(findings).toMatch(
+        /STALE BASELINE raw receiving flag write \(RO-04\): src\/network\/peer\.ts has 0 - remove its entry/u,
+      );
+    });
+  });
+
+  describe('CHECK 10 system-audio media tuning home (RO-04, C4-1)', () => {
+    const HOME = 'src/network/system-audio-media.ts';
+
+    it('keeps the hint, the bitrate and the STUN entry in the media home on the real tree', () => {
+      const report = analyzeResourceOwnership(realInput());
+      expect(report.findings).toEqual([]);
+      expect(report.mediaTuningSites).toBe(3);
+    });
+
+    it('rejects a route adapter that sets them itself, however it writes them', () => {
+      const findings = findingsOf(
+        withSources((sources) => {
+          const sfu = 'src/network/system-audio-sfu.ts';
+          sources.set(
+            sfu,
+            `${sources.get(sfu) ?? ''}\n` +
+              'export function retune(\n' +
+              '  receiver: RTCRtpReceiver & { playoutDelayHint?: number },\n' +
+              '  encoding: RTCRtpEncodingParameters,\n' +
+              '): void {\n' +
+              '  receiver.playoutDelayHint = 0.5;\n' +
+              "  encoding['maxBitrate'] = 256_000;\n" +
+              '  Object.assign(receiver, { playoutDelayHint: 0.5 });\n' +
+              '}\n' +
+              'export const ICE = [{ urls: `stun:STUN.cloudflare.com:3478` }];\n',
+          );
+          const direct = 'src/network/pro-system-audio-direct.ts';
+          sources.set(
+            direct,
+            `${sources.get(direct) ?? ''}\n` +
+              'const maxBitrate = 128_000;\n' +
+              'export const SEND_ENCODINGS = [{ maxBitrate }];\n',
+          );
+        }),
+      );
+      expect(findings).toContain(
+        'UNSANCTIONED system-audio media tuning (RO-04): src/network/system-audio-sfu.ts has 4',
+      );
+      expect(findings).toContain(
+        'UNSANCTIONED system-audio media tuning (RO-04): ' +
+          'src/network/pro-system-audio-direct.ts has 1',
+      );
+    });
+
+    it('ignores reads, type members, comments and files outside the system-audio routes', () => {
+      const findings = findingsOf(
+        withSources((sources) => {
+          const guest = 'src/network/system-audio-guest.ts';
+          sources.set(
+            guest,
+            `${sources.get(guest) ?? ''}\n` +
+              'export function readHint(\n' +
+              '  receiver: RTCRtpReceiver & { playoutDelayHint?: number },\n' +
+              '): number | undefined {\n' +
+              '  // receiver.playoutDelayHint = 0.5 and stun.cloudflare.com in a comment.\n' +
+              '  return receiver.playoutDelayHint;\n' +
+              '}\n',
+          );
+          // The eager STUN entries live outside the deferred route files.
+          const prerequisites = 'src/network/standard-room-prerequisites.ts';
+          sources.set(
+            prerequisites,
+            `${sources.get(prerequisites) ?? ''}\n` +
+              "export const EXTRA = [{ urls: 'stun:stun.cloudflare.com:3478' }];\n",
+          );
+        }),
+      );
+      expect(findings).toBe('');
+    });
+
+    it('fails a raised count in the home and a home that stops holding one of them', () => {
+      const raised = findingsOf(
+        withSources((sources) => {
+          sources.set(
+            HOME,
+            `${sources.get(HOME) ?? ''}\nexport const SEND_ENCODINGS = [{ maxBitrate: 1 }];\n`,
+          );
+        }),
+      );
+      expect(raised).toContain(
+        `RATCHET REGRESSION system-audio media tuning (RO-04): ${HOME} has 4, baseline 3`,
+      );
+
+      const lowered = findingsOf(
+        withSources((sources) =>
+          replaceIn(sources, HOME, "'stun:stun.cloudflare.com:3478'", 'TURN_ONLY'),
+        ),
+      );
+      expect(lowered).toContain(
+        `STALE BASELINE system-audio media tuning (RO-04): ${HOME} has 2, baseline 3`,
       );
     });
   });

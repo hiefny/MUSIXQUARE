@@ -550,19 +550,23 @@ P0/P1/P2는 **QA 실행 순서**다. 발견된 결함의 심각도나 배포 승
 
 **방법:** 자동 / 브라우저 / 실기
 
-**대표 구현:** [src/network/system-audio-guest.ts](../src/network/system-audio-guest.ts), [src/network/system-audio-host.ts](../src/network/system-audio-host.ts), [src/audio/system-capture.ts](../src/audio/system-capture.ts)
+**소유 규칙:** [시스템 오디오 수신 소유](design/system-audio-receive-ownership.md): 기기 하나의 수신 자리는 수신 슬롯이 가진다(시작·신뢰 경계·붙이기·끝·수신 마감, [RO-04](design/resource-ownership-registry.md#ro-04-system-audio-receive-slot)). 직접 통화와 Standard SFU 경로는 슬롯을 부르기만 하고 수신 표시·`'system-audio'` 소유·`widener.input` 연결을 직접 쓰지 않는다. 오늘 동작으로 고정한 틈은 그 문서의 목록에 있다
 
-**기존 검사 진입점:** [src/network/__tests__/system-audio-guest.test.ts](../src/network/__tests__/system-audio-guest.test.ts), [src/audio/__tests__/system-capture-stop.test.ts](../src/audio/__tests__/system-capture-stop.test.ts)
+**대표 구현:** [src/network/system-audio-receive-slot.ts](../src/network/system-audio-receive-slot.ts), [src/network/system-audio-guest.ts](../src/network/system-audio-guest.ts), [src/network/system-audio-sfu.ts](../src/network/system-audio-sfu.ts), [src/network/system-audio-host.ts](../src/network/system-audio-host.ts), [src/audio/system-capture.ts](../src/audio/system-capture.ts)
+
+**기존 검사 진입점:** [src/network/__tests__/system-audio-receive-slot-contract.test.ts](../src/network/__tests__/system-audio-receive-slot-contract.test.ts), [src/network/__tests__/system-audio-receive-slot-lifecycle-contract.test.ts](../src/network/__tests__/system-audio-receive-slot-lifecycle-contract.test.ts), [src/network/__tests__/system-audio-guest.test.ts](../src/network/__tests__/system-audio-guest.test.ts), [src/network/__tests__/system-audio-receive-evidence-logs.test.ts](../src/network/__tests__/system-audio-receive-evidence-logs.test.ts), [src/audio/__tests__/system-capture-stop.test.ts](../src/audio/__tests__/system-capture-stop.test.ts)
 
 ### QA046. PRO 시스템 오디오 publication·복원 — P1
 
 **판정:** owner lease·generation·direct/SFU 경로가 하나의 활성 출력만 소유해야 한다. 신규 입장·publication 복구·끝난 공유 뒤 YouTube 복원은 현재 소유권에서만 수행한다. 실제 출력 장치 관측은 자동 검사와 구분한다.
 
-**방법:** 자동 / 브라우저 / 로컬서비스 / 운영확인
+**방법:** 자동 / 브라우저 / 로컬서비스 / 실기 / 운영확인
 
-**대표 구현:** [src/pro-room/system-audio-service.ts](../src/pro-room/system-audio-service.ts), [src/pro-room/system-audio-controller.ts](../src/pro-room/system-audio-controller.ts)
+**소유 규칙:** PRO 코디네이터는 두 전송(SFU, LAN-direct)에 대해 수신 슬롯의 경로 하나이고, 수신 마감은 자기 것(`deadline: 'route'`: 재구독 backoff, 2.5초 끊김 유예, LAN-direct 수신 마감)이다([시스템 오디오 수신 소유](design/system-audio-receive-ownership.md#deadlines-and-timings), [RO-04](design/resource-ownership-registry.md#ro-04-system-audio-receive-slot)). 발행과 lease는 [RO-20](design/resource-ownership-registry.md#ro-20-pro-system-audio-lease-and-publication)
 
-**기존 검사 진입점:** [src/pro-room/__tests__/system-audio-service.test.ts](../src/pro-room/__tests__/system-audio-service.test.ts), [src/pro-room/__tests__/playback-snapshot-share-ownership.test.ts](../src/pro-room/__tests__/playback-snapshot-share-ownership.test.ts)
+**대표 구현:** [src/pro-room/system-audio-service.ts](../src/pro-room/system-audio-service.ts), [src/pro-room/system-audio-controller.ts](../src/pro-room/system-audio-controller.ts), [src/network/system-audio-receive-slot.ts](../src/network/system-audio-receive-slot.ts), [src/network/pro-system-audio-sfu.ts](../src/network/pro-system-audio-sfu.ts), [src/network/pro-system-audio-direct.ts](../src/network/pro-system-audio-direct.ts)
+
+**기존 검사 진입점:** [src/pro-room/__tests__/system-audio-receive-slot-pro-contract.test.ts](../src/pro-room/__tests__/system-audio-receive-slot-pro-contract.test.ts), [src/pro-room/__tests__/system-audio-receive-slot-pro-transport-contract.test.ts](../src/pro-room/__tests__/system-audio-receive-slot-pro-transport-contract.test.ts), [src/pro-room/__tests__/system-audio-subscriber-watchdog.test.ts](../src/pro-room/__tests__/system-audio-subscriber-watchdog.test.ts), [src/pro-room/__tests__/system-audio-service.test.ts](../src/pro-room/__tests__/system-audio-service.test.ts), [src/pro-room/__tests__/system-audio-pro-receive-evidence-logs.test.ts](../src/pro-room/__tests__/system-audio-pro-receive-evidence-logs.test.ts), [src/pro-room/__tests__/playback-snapshot-share-ownership.test.ts](../src/pro-room/__tests__/playback-snapshot-share-ownership.test.ts)
 
 ## 11. YouTube
 

@@ -29,10 +29,11 @@
  *     functions.
  *   CHECK 4 One deadline owner per PRO SFU attempt (RO-04, the G1 lesson).
  *     The PRO subscriber retry maximum stays below the guest receive
- *     watchdog, or the PRO SFU reception start in the subscribing function
- *     passes `{ receiveWatchdog: false }`. A start is a no-op while the receive
- *     placeholder is active, so an armed start elsewhere (the retry path, a
- *     new module) would also re-arm the watchdog: armed
+ *     watchdog (the receive slot's deadline), or the PRO SFU reception start
+ *     in the subscribing function passes `{ deadline: 'route' }` (before
+ *     Phase 5 C4-6, `{ receiveWatchdog: false }`). A start is a no-op while
+ *     the receive placeholder is active, so an armed start elsewhere (the
+ *     retry path, a new module) would also re-arm the watchdog: armed
  *     beginTrustedSystemAudioReception() callers are an exact list per
  *     `file :: function`.
  *   CHECK 5 Copied timing constants (principle 4). Inside each contract the
@@ -55,6 +56,26 @@
  *     media load. They are counted per file in src/, following an ID held in
  *     a name through that name's declarations in the same file; a flow that
  *     can overlap that load uses a named holder instead.
+ *   CHECK 9 System-audio receive slot writers (RO-04), per file in src/:
+ *     setSystemAudioReceiving value uses (calls or the setter passed on);
+ *     claimPlaybackOwner value uses unless the call's first argument is a
+ *     string literal other than 'system-audio'; reads of `.input` on a
+ *     receiver named `widener` (the slot's source connects there); and raw
+ *     'systemAudio.isReceiving' writes (a setState() call or an object-literal
+ *     key such as a batchSetState reset) outside src/player/ownership.ts, the
+ *     setter's home. Final since Phase 5 C4-8: the receive slot
+ *     (src/network/system-audio-receive-slot.ts) is the only receive writer,
+ *     beside the sharer's own claim, the file playback route's widener input
+ *     and the leaveSession reset; no route adapter has an entry, so a direct
+ *     write there is unsanctioned.
+ *   CHECK 10 System-audio media tuning home (RO-04, Phase 5 C4-1), per file
+ *     in the system-audio route files (src/network/system-audio-*.ts and
+ *     src/network/pro-system-audio-*.ts): writes of `playoutDelayHint` or
+ *     `maxBitrate` (an assignment or an object-literal key) and string
+ *     literals naming stun.cloudflare.com stay in
+ *     src/network/system-audio-media.ts. The eager STUN entries outside those
+ *     files (peer.ts, standard-room-prerequisites.ts) are out of scope: they
+ *     cannot import the deferred home.
  *
  * Baselines. Every count and list below is exact. A file above its baseline
  * (or a new file, function or pair) fails as a regression; a file below it
@@ -70,11 +91,12 @@
  * comments and unrelated strings never count. Lifecycle-operation callers
  * are counted only for the names above (page-lock claims, SKIP_WAITING sends,
  * AudioContext resume/suspend, armed reception starts, the Worker broadcast
- * endpoint, the duration reader in cloudflare/ and the authority fence
- * writers). Deliberately not checked yet (registry RO-44, RO-45 and
- * "Resource-ownership guard"): callers of the other
- * records' lifecycle operations (YouTube player commands, claimPlaybackOwner,
- * setSystemAudioReceiving, scheduleSessionReset), receivers resolved by type,
+ * endpoint, the duration reader in cloudflare/, the authority fence writers
+ * and the system-audio receive slot writers). Deliberately not checked yet
+ * (registry RO-44, RO-45 and "Resource-ownership guard"): callers of the other
+ * records' lifecycle operations (YouTube player commands, claimPlaybackOwner
+ * with a literal owner other than 'system-audio', scheduleSessionReset),
+ * receivers resolved by type,
  * module-level lifecycle slots, timer-name manifests, shared phase unions,
  * duplicated helper names, "mirrors" copy markers, and registered timings
  * retyped as literals in requester files.
@@ -265,7 +287,9 @@ const DURATION_READ_BASELINE: Baseline = new Map<string, Allowance>([
 // ── CHECK 4 anchors: one deadline owner per PRO SFU attempt (G1) ─────────
 
 const G1_SERVICE_FILE = 'src/pro-room/system-audio-service.ts';
-const G1_GUEST_FILE = 'src/network/system-audio-guest.ts';
+// The receive deadline's home since Phase 5 C4-2 (the guest's before); the
+// watchdog it arms is the receive slot's (src/network/system-audio-receive-slot.ts).
+const G1_WATCHDOG_FILE = 'src/network/system-audio-media.ts';
 const G1_RETRY_MAX_CONSTANT = 'SUBSCRIBER_RETRY_MAX_DELAY_MS';
 const G1_WATCHDOG_CONSTANT = 'SYSTEM_AUDIO_RECEIVE_TIMEOUT_MS';
 const G1_SUBSCRIBE_CALL = 'subscribeProSystemAudioSfu';
@@ -274,7 +298,8 @@ const G1_RECEPTION_START_CALL = 'beginTrustedSystemAudioReception';
 /**
  * RO-04: armed reception starts, exact per `file :: function`. Any value use
  * of beginTrustedSystemAudioReception counts unless it is a direct call whose
- * options are the literal `{ receiveWatchdog: false }`, so passing the start
+ * options are the literal `{ deadline: 'route' }` (Phase 5 C4-6 replaced
+ * `{ receiveWatchdog: false }` with this deadline kind), so passing the start
  * around cannot hide an armed caller. The start returns early while the
  * placeholder is active, so an armed start that runs before the PRO SFU
  * start (for example in the retry path) re-arms the 30 s watchdog across the
@@ -285,12 +310,16 @@ const ARMED_RECEPTION_START_BASELINE: Baseline = new Map<string, Allowance>([
     'src/network/system-audio-guest.ts :: registerSystemAudioGuestListeners',
     {
       count: 1,
-      reason: 'host SYSTEM_AUDIO_START frame (Standard P2P): the watchdog is its deadline',
+      reason:
+        "host SYSTEM_AUDIO_START frame (Standard P2P): { deadline: 'slot' }, the watchdog is its deadline",
     },
   ],
   [
     'src/network/system-audio-sfu.ts :: handleSfuReady',
-    { count: 1, reason: 'Standard SFU after a direct-route failure handoff' },
+    {
+      count: 1,
+      reason: "Standard SFU after a direct-route failure handoff: { deadline: 'slot' }",
+    },
   ],
 ]);
 
@@ -316,6 +345,10 @@ const TIMING_CONTRACTS: readonly TimingContract[] = [
   {
     records: ['RO-04'],
     files: [
+      // The media home since Phase 5 C4-1 (MEDIA_TUNING_HOME, CHECK 10).
+      'src/network/system-audio-media.ts',
+      // The receive slot since Phase 5 C4-2.
+      'src/network/system-audio-receive-slot.ts',
       'src/network/system-audio-guest.ts',
       'src/network/system-audio-sfu.ts',
       'src/network/pro-system-audio-sfu.ts',
@@ -410,26 +443,6 @@ const TIMING_PAIR_BASELINE = new Map<string, PairAllowance>([
     'RO-02/RO-03/RO-12 TIMING@src/youtube/authority-arm.ts = ' +
       'YOUTUBE_ZERO_START_TIMING@src/youtube/zero-start.ts (10 shared values)',
     { kind: 'copy', reason: 'arm timing copied for PRO; Phase 0d C2-1 shares it' },
-  ],
-  [
-    'RO-04 SFU_CONTROL_REQUEST_TIMEOUT_MS@src/network/pro-system-audio-sfu.ts = ' +
-      'SFU_CONTROL_REQUEST_TIMEOUT_MS@src/network/system-audio-sfu.ts (15000)',
-    { kind: 'copy', reason: 'Realtime control timeout; Phase 0d C4-1' },
-  ],
-  [
-    'RO-04 SYSTEM_AUDIO_PLAYOUT_DELAY_S@src/network/pro-system-audio-sfu.ts = ' +
-      'SYSTEM_AUDIO_PLAYOUT_DELAY_S@src/network/system-audio-guest.ts (0.5)',
-    { kind: 'copy', reason: 'receive playout delay; Phase 0d C4-1' },
-  ],
-  [
-    'RO-04 SYSTEM_AUDIO_PLAYOUT_DELAY_S@src/network/pro-system-audio-sfu.ts = ' +
-      'SYSTEM_AUDIO_PLAYOUT_DELAY_S@src/network/system-audio-sfu.ts (0.5)',
-    { kind: 'copy', reason: 'receive playout delay; Phase 0d C4-1' },
-  ],
-  [
-    'RO-04 SYSTEM_AUDIO_PLAYOUT_DELAY_S@src/network/system-audio-guest.ts = ' +
-      'SYSTEM_AUDIO_PLAYOUT_DELAY_S@src/network/system-audio-sfu.ts (0.5)',
-    { kind: 'copy', reason: 'receive playout delay; Phase 0d C4-1' },
   ],
   [
     // Phase 3 R2: the lazy hard reset measures the logo claim's quiet reading
@@ -552,6 +565,116 @@ const DEFAULT_LOADER_WRITE_BASELINE: Baseline = new Map<string, Allowance>([
     { count: 12, reason: 'playlist indexing; clears a file load when YouTube takes over' },
   ],
   ['src/youtube/player.ts', { count: 1, reason: 'clears it when YouTube mode stops' }],
+]);
+
+// ── CHECK 9 baselines: system-audio receive slot writers (RO-04) ─────────
+// Measured on agent/phase5-5a aa62fe34 (main 2038b51f, App 9.0.10) on
+// 2026-10-25, Phase 5 prep T5. The route adapters wrote the slot directly
+// then; each Phase 5 increment that moved a write into the receive slot
+// lowered its count here. C4-2 moved the trusted reception's writes (the end
+// of reception, the delivery-handoff interrupt and the placeholder claim)
+// from the guest into src/network/system-audio-receive-slot.ts, C4-3 the
+// Standard direct call's attach (its receiving flag, owner claim and
+// widener.input source), which leaves the guest none, C4-4 the Standard
+// SFU guest's attach through the same slot attach, which leaves the SFU none
+// and lowers each total by one, and C4-5 the PRO coordinator's attach, resume
+// and interrupts, which leaves the service none: its attach shares the slot
+// attach, its resume the attach's reception start and its three interrupts
+// the slot's interrupt, so the slot's counts stay as they were. C4-6 and C4-7
+// changed no count. Final since C4-8 (the last receive-slot increment): the
+// slot is the only receive writer. The other entries are not receive routes
+// (the sharer's own capture, the file playback route, the leaveSession
+// reset), and no route adapter has one, so a route that writes the slot
+// itself is UNSANCTIONED; a new entry needs the RO-04 record update.
+
+const RECEIVING_FLAG_SETTER = 'setSystemAudioReceiving';
+const PLAYBACK_OWNER_CLAIM = 'claimPlaybackOwner';
+const SYSTEM_AUDIO_OWNER = 'system-audio';
+const RECEIVING_FLAG_KEY = 'systemAudio.isReceiving';
+/** The setter's home: its one setState of the key is the sanctioned write. */
+const RECEIVING_FLAG_OWNER_FILE = 'src/player/ownership.ts';
+
+/** RO-04: setSystemAudioReceiving value uses (calls or the setter passed on). */
+const RECEIVING_FLAG_WRITE_BASELINE: Baseline = new Map<string, Allowance>([
+  [
+    'src/network/system-audio-receive-slot.ts',
+    {
+      count: 3,
+      reason:
+        'the slot: the end of reception, the interrupt (the Standard delivery handoff, C4-2; ' +
+        'the PRO disconnect grace, retry and receiver fallback, C4-5) and the reception start ' +
+        "a route's attach or resume runs (Standard direct C4-3, SFU C4-4, PRO coordinator C4-5)",
+    },
+  ],
+]);
+
+/** RO-04: claimPlaybackOwner value uses that can claim 'system-audio'. */
+const SYSTEM_AUDIO_OWNER_CLAIM_BASELINE: Baseline = new Map<string, Allowance>([
+  [
+    'src/audio/system-capture.ts',
+    { count: 1, reason: "the sharer's own capture, not the receive slot" },
+  ],
+  [
+    'src/network/system-audio-receive-slot.ts',
+    {
+      count: 2,
+      reason:
+        "the slot: the trusted reception placeholder (C4-2) and the reception start a route's " +
+        'attach or resume runs (Standard direct C4-3, SFU C4-4, PRO coordinator C4-5)',
+    },
+  ],
+]);
+
+/** RO-04: `.input` reads on a receiver named `widener` (the stereo widener's input). */
+const WIDENER_INPUT_USE_BASELINE: Baseline = new Map<string, Allowance>([
+  [
+    'src/audio/engine.ts',
+    { count: 2, reason: 'the file playback route, at graph build and on reconnect' },
+  ],
+  [
+    'src/network/system-audio-receive-slot.ts',
+    {
+      count: 1,
+      reason:
+        "the slot's attach: the Standard direct call's (C4-3), SFU guest's (C4-4) and PRO " +
+        "coordinator's (C4-5) source",
+    },
+  ],
+]);
+
+/** RO-04: raw 'systemAudio.isReceiving' writes outside the setter's home. */
+const RAW_RECEIVING_FLAG_WRITE_BASELINE: Baseline = new Map<string, Allowance>([
+  [
+    'src/network/peer.ts',
+    { count: 1, reason: 'the leaveSession batchSetState reset, with the rest of the session' },
+  ],
+]);
+
+// ── CHECK 10 baseline: system-audio media tuning home (RO-04) ────────────
+// Phase 5 5A C4-1 moved the receivers' playout-delay hint, the senders'
+// stereo bitrate cap and the Cloudflare Realtime STUN entry out of the route
+// adapters into one deferred module. Only the system-audio route files are
+// scanned: the eager STUN entries in peer.ts and standard-room-prerequisites
+// .ts cannot import a deferred module without pulling it into the first load.
+
+const MEDIA_TUNING_HOME = 'src/network/system-audio-media.ts';
+const MEDIA_TUNING_SCOPE_RE = /^src\/network\/(?:pro-)?system-audio-[^/]+\.ts$/u;
+const MEDIA_TUNING_MEMBERS = new Set(['playoutDelayHint', 'maxBitrate']);
+const REALTIME_STUN_HOST = 'stun.cloudflare.com';
+
+/**
+ * RO-04: `playoutDelayHint` and `maxBitrate` writes (an assignment, or an
+ * object-literal key such as a sendEncodings entry) and string literals
+ * naming the Realtime STUN host, per system-audio route file.
+ */
+const MEDIA_TUNING_BASELINE: Baseline = new Map<string, Allowance>([
+  [
+    MEDIA_TUNING_HOME,
+    {
+      count: 3,
+      reason: 'the home: the playout-delay hint, the stereo bitrate cap and the STUN entry',
+    },
+  ],
 ]);
 
 /** Every record ID this guard's manifests name, for CHECK 1. */
@@ -842,6 +965,11 @@ interface FileFacts {
   locationNavigations: number;
   skipWaitingSends: number;
   audioContextNativeCalls: number;
+  receivingFlagWrites: number;
+  systemAudioOwnerClaims: number;
+  widenerInputUses: number;
+  rawReceivingFlagWrites: number;
+  mediaTuningSites: number;
   readonly broadcastEndpointSites: string[];
   readonly durationReadSites: string[];
   readonly armedReceptionStartSites: string[];
@@ -928,6 +1056,29 @@ function mayWriteAuthorityFence(text: string): boolean {
   return false;
 }
 
+/** A property name's text when it is static, including `['literal']`; null otherwise. */
+function staticPropertyName(name: ts.PropertyName): string | null {
+  if (ts.isComputedPropertyName(name)) {
+    const expression = unwrap(name.expression);
+    return ts.isStringLiteralLike(expression) ? expression.text : null;
+  }
+  return propertyNameText(name);
+}
+
+/**
+ * RO-04: whether a claimPlaybackOwner value use can claim the 'system-audio'
+ * owner. Only a direct call whose first argument is another string literal
+ * cannot; a computed owner, or the claim passed on, counts.
+ */
+function mayClaimSystemAudio(node: ts.Identifier): boolean {
+  const access =
+    ts.isPropertyAccessExpression(node.parent) && node.parent.name === node ? node.parent : node;
+  const call = access.parent;
+  if (!ts.isCallExpression(call) || call.expression !== access) return true;
+  const owner = call.arguments[0] ? unwrap(call.arguments[0]) : undefined;
+  return !owner || !ts.isStringLiteralLike(owner) || owner.text === SYSTEM_AUDIO_OWNER;
+}
+
 function collectFacts(relPath: string, text: string): FileFacts {
   const cached = factsCache.get(relPath);
   if (cached?.text === text) return cached.facts;
@@ -943,6 +1094,11 @@ function collectFacts(relPath: string, text: string): FileFacts {
     locationNavigations: 0,
     skipWaitingSends: 0,
     audioContextNativeCalls: 0,
+    receivingFlagWrites: 0,
+    systemAudioOwnerClaims: 0,
+    widenerInputUses: 0,
+    rawReceivingFlagWrites: 0,
+    mediaTuningSites: 0,
     broadcastEndpointSites: [],
     durationReadSites: [],
     armedReceptionStartSites: [],
@@ -966,6 +1122,7 @@ function collectFacts(relPath: string, text: string): FileFacts {
         facts.broadcastEndpointSites.push(`${relPath} :: ${enclosingFunctionName(node)}`);
       }
       if (node.text === 'SKIP_WAITING') facts.skipWaitingSends += 1;
+      if (node.text.toLowerCase().includes(REALTIME_STUN_HOST)) facts.mediaTuningSites += 1;
     } else if (ts.isIdentifier(node) && node.text === DURATION_READER && isValueReference(node)) {
       // Any value use, so passing the reader around cannot hide a caller.
       facts.durationReadSites.push(`${relPath} :: ${enclosingFunctionName(node)}`);
@@ -984,6 +1141,38 @@ function collectFacts(relPath: string, text: string): FileFacts {
       if (!disarmed) {
         facts.armedReceptionStartSites.push(`${relPath} :: ${enclosingFunctionName(node)}`);
       }
+    } else if (
+      ts.isIdentifier(node) &&
+      node.text === RECEIVING_FLAG_SETTER &&
+      isValueReference(node)
+    ) {
+      // Any value use, so passing the setter around cannot hide a writer.
+      facts.receivingFlagWrites += 1;
+    } else if (
+      ts.isIdentifier(node) &&
+      node.text === PLAYBACK_OWNER_CLAIM &&
+      isValueReference(node) &&
+      mayClaimSystemAudio(node)
+    ) {
+      facts.systemAudioOwnerClaims += 1;
+    }
+
+    if (
+      relPath !== RECEIVING_FLAG_OWNER_FILE &&
+      ts.isPropertyAssignment(node) &&
+      staticPropertyName(node.name) === RECEIVING_FLAG_KEY
+    ) {
+      // A batchSetState (or any object-literal) write of the flag.
+      facts.rawReceivingFlagWrites += 1;
+    }
+    if (
+      (ts.isPropertyAssignment(node) &&
+        MEDIA_TUNING_MEMBERS.has(staticPropertyName(node.name) ?? '')) ||
+      (ts.isShorthandPropertyAssignment(node) && MEDIA_TUNING_MEMBERS.has(node.name.text))
+    ) {
+      // An object literal that carries the hint or the bitrate, such as a
+      // sendEncodings entry or an Object.assign source.
+      facts.mediaTuningSites += 1;
     }
 
     const member = memberName(node);
@@ -993,9 +1182,15 @@ function collectFacts(relPath: string, text: string): FileFacts {
     ) {
       const receiver = node.expression;
       if (member === 'inert' && isAssignmentTarget(node)) facts.inertWrites += 1;
+      if (MEDIA_TUNING_MEMBERS.has(member) && isAssignmentTarget(node)) {
+        facts.mediaTuningSites += 1;
+      }
       if (member === 'ariaHidden' && isAssignmentTarget(node)) facts.ariaHiddenWrites += 1;
       if ((member === 'children' || member === 'childNodes') && receiverName(receiver) === 'body') {
         facts.bodyChildrenWalks += 1;
+      }
+      if (member === 'input' && receiverName(receiver) === 'widener' && !isAssignmentTarget(node)) {
+        facts.widenerInputUses += 1;
       }
       if (!isAssignmentTarget(node)) {
         if (FULLSCREEN_REQUEST_SINK_NAMES.has(member)) facts.fullscreenRequestSinks += 1;
@@ -1026,6 +1221,13 @@ function collectFacts(relPath: string, text: string): FileFacts {
       else if (attribute === 'aria-hidden') facts.ariaHiddenWrites += 1;
     } else if (callee === 'setElementInertForOwner') {
       facts.pageLockClaims += 1;
+    } else if (callee === 'setState') {
+      if (
+        relPath !== RECEIVING_FLAG_OWNER_FILE &&
+        firstStringArgument(node) === RECEIVING_FLAG_KEY
+      ) {
+        facts.rawReceivingFlagWrites += 1;
+      }
     } else if ((callee === 'resume' || callee === 'suspend') && node.arguments.length === 0) {
       // AudioContext.resume() and suspend() take no arguments and are always
       // called on a receiver; a bare resume() is a local function.
@@ -1360,15 +1562,17 @@ function exitsBefore(call: ts.Node, target: ts.Node, scope: ts.Node): boolean {
   return false;
 }
 
+/** True when the start's options are the literal `{ deadline: 'route' }`. */
 function disablesWatchdog(call: ts.CallExpression): boolean {
   const options = call.arguments[1];
   if (!options || !ts.isObjectLiteralExpression(unwrap(options))) return false;
-  return (unwrap(options) as ts.ObjectLiteralExpression).properties.some(
-    (property) =>
-      ts.isPropertyAssignment(property) &&
-      propertyNameText(property.name) === 'receiveWatchdog' &&
-      unwrap(property.initializer).kind === ts.SyntaxKind.FalseKeyword,
-  );
+  return (unwrap(options) as ts.ObjectLiteralExpression).properties.some((property) => {
+    if (!ts.isPropertyAssignment(property) || propertyNameText(property.name) !== 'deadline') {
+      return false;
+    }
+    const value = unwrap(property.initializer);
+    return ts.isStringLiteralLike(value) && value.text === 'route';
+  });
 }
 
 interface DeadlineOwnership {
@@ -1388,9 +1592,9 @@ function checkDeadlineOwnership(
     );
   };
   const retryMaxMs = findConstant(sources, G1_SERVICE_FILE, G1_RETRY_MAX_CONSTANT);
-  const watchdogMs = findConstant(sources, G1_GUEST_FILE, G1_WATCHDOG_CONSTANT);
+  const watchdogMs = findConstant(sources, G1_WATCHDOG_FILE, G1_WATCHDOG_CONSTANT);
   if (retryMaxMs === null) anchor(`${G1_SERVICE_FILE} has no numeric ${G1_RETRY_MAX_CONSTANT}`);
-  if (watchdogMs === null) anchor(`${G1_GUEST_FILE} has no numeric ${G1_WATCHDOG_CONSTANT}`);
+  if (watchdogMs === null) anchor(`${G1_WATCHDOG_FILE} has no numeric ${G1_WATCHDOG_CONSTANT}`);
   if (retryMaxMs === null || watchdogMs === null) {
     return { retryMaxMs, watchdogMs, sfuReceptionStarts: 0, mode: 'violated' };
   }
@@ -1446,7 +1650,7 @@ function checkDeadlineOwnership(
       `DEADLINE OWNER (RO-04, G1): ${G1_SERVICE_FILE}:${lineOf(file, start)} starts PRO SFU ` +
         `reception with the guest receive watchdog armed (${G1_WATCHDOG_CONSTANT} = ${watchdogMs} ms) ` +
         `while the subscriber retry backs off up to ${G1_RETRY_MAX_CONSTANT} = ${retryMaxMs} ms. ` +
-        'One attempt needs one deadline owner: pass { receiveWatchdog: false } or keep the ' +
+        "One attempt needs one deadline owner: pass { deadline: 'route' } or keep the " +
         'retry maximum below the watchdog (registry principle 2)',
     );
   }
@@ -1593,6 +1797,8 @@ export interface ResourceOwnershipReport {
   };
   readonly audioContextNativeCalls: number;
   readonly defaultLoaderWrites: number;
+  readonly receiveSlotWrites: Readonly<Record<string, number>>;
+  readonly mediaTuningSites: number;
 }
 
 function perFile(
@@ -1735,7 +1941,7 @@ export function analyzeResourceOwnership(input: ResourceOwnershipInput): Resourc
       record: 'RO-04',
       hint:
         `a ${G1_RECEPTION_START_CALL}() that runs before the PRO SFU start keeps the guest ` +
-        'watchdog armed through the retry backoff (G1); pass { receiveWatchdog: false } or ' +
+        "watchdog armed through the retry backoff (G1); pass { deadline: 'route' } or " +
         'add a reasoned entry naming the deadline owner',
       measured: armedStarts,
       baseline: ARMED_RECEPTION_START_BASELINE,
@@ -1786,8 +1992,66 @@ export function analyzeResourceOwnership(input: ResourceOwnershipInput): Resourc
     findings,
   );
 
+  const receiveSlotChecks: readonly ExactCheck[] = [
+    {
+      label: 'receiving flag write',
+      record: 'RO-04',
+      hint:
+        'the receiving flag belongs to the system-audio receive slot; a new route attaches ' +
+        'through it, or adds a reasoned entry with the record update',
+      measured: perFile(facts, (f) => f.receivingFlagWrites, appOnly),
+      baseline: RECEIVING_FLAG_WRITE_BASELINE,
+    },
+    {
+      label: 'system-audio owner claim',
+      record: 'RO-04',
+      hint:
+        "claimPlaybackOwner('system-audio') belongs to the receive slot and the sharer's " +
+        'capture; a computed owner or a passed-on claim counts as one',
+      measured: perFile(facts, (f) => f.systemAudioOwnerClaims, appOnly),
+      baseline: SYSTEM_AUDIO_OWNER_CLAIM_BASELINE,
+    },
+    {
+      label: 'widener.input use',
+      record: 'RO-04',
+      hint:
+        'a received source connects to the stereo widener through the receive slot; the file ' +
+        'playback route belongs to src/audio/engine.ts',
+      measured: perFile(facts, (f) => f.widenerInputUses, appOnly),
+      baseline: WIDENER_INPUT_USE_BASELINE,
+    },
+    {
+      label: 'raw receiving flag write',
+      record: 'RO-04',
+      hint: `write ${RECEIVING_FLAG_KEY} through ${RECEIVING_FLAG_SETTER} (${RECEIVING_FLAG_OWNER_FILE})`,
+      measured: perFile(facts, (f) => f.rawReceivingFlagWrites, appOnly),
+      baseline: RAW_RECEIVING_FLAG_WRITE_BASELINE,
+    },
+  ];
+  for (const check of receiveSlotChecks) compareExact(check, findings);
+
+  const mediaTuningSites = perFile(
+    facts,
+    (f) => f.mediaTuningSites,
+    (relPath) => MEDIA_TUNING_SCOPE_RE.test(relPath),
+  );
+  compareExact(
+    {
+      label: 'system-audio media tuning',
+      record: 'RO-04',
+      hint:
+        'set the playout-delay hint and the sender bitrate, and name the Realtime STUN ' +
+        `server, through ${MEDIA_TUNING_HOME}`,
+      measured: mediaTuningSites,
+      baseline: MEDIA_TUNING_BASELINE,
+    },
+    findings,
+  );
+
   const sinks: Record<string, number> = {};
   for (const check of pageStateChecks) sinks[check.label] = total(check.measured);
+  const receiveSlotWrites: Record<string, number> = {};
+  for (const check of receiveSlotChecks) receiveSlotWrites[check.label] = total(check.measured);
   let ariaHiddenWritesTotal = 0;
   for (const [relPath, fileFacts] of facts) {
     if (appOnly(relPath)) ariaHiddenWritesTotal += fileFacts.ariaHiddenWrites;
@@ -1814,6 +2078,8 @@ export function analyzeResourceOwnership(input: ResourceOwnershipInput): Resourc
     },
     audioContextNativeCalls: total(audioContextCalls),
     defaultLoaderWrites: total(defaultLoaderWrites),
+    receiveSlotWrites,
+    mediaTuningSites: total(mediaTuningSites),
   };
 }
 
@@ -1854,7 +2120,9 @@ function main(argv: readonly string[]): void {
       `${argv.includes('--report') ? '' : ', list with --report'}).\n` +
       `  AudioContext native resume/suspend: ${report.audioContextNativeCalls}.\n` +
       `  Developer API authority fence writes: ${report.authorityFenceWrites}.\n` +
-      `  Header loader default holder writes: ${report.defaultLoaderWrites}.`,
+      `  Header loader default holder writes: ${report.defaultLoaderWrites}.\n` +
+      `  system-audio receive slot writes: ${summary(report.receiveSlotWrites)}.\n` +
+      `  system-audio media tuning sites: ${report.mediaTuningSites}, all in ${MEDIA_TUNING_HOME}.`,
   );
   if (argv.includes('--report')) {
     for (const pair of timingPairs.reportOnly) console.log(`    report-only: ${pair}`);

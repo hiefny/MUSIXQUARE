@@ -27,10 +27,15 @@ import {
   resetLocalSystemAudioSfuCapabilities,
 } from '../system-audio-delivery.ts';
 
-const systemAudioGuestMocks = vi.hoisted(() => ({
-  awaitTrustedReceptionBoundary: vi.fn(async () => true),
-  beginTrustedReception: vi.fn(),
-  cleanupGuestSystemAudio: vi.fn(),
+// The receive slot runs for real, except the reception start, trust-boundary
+// wait and end this route calls (the guest module's compatibility aliases of
+// them until Phase 5 C4-8) and its delivery-handoff input, whose calls these
+// tests count, and the route registration, whose port they read.
+const receiveSlotMocks = vi.hoisted(() => ({
+  awaitBoundary: vi.fn(async () => true),
+  begin: vi.fn(),
+  end: vi.fn(),
+  handOff: vi.fn(),
 }));
 
 const standardRoomPrerequisiteMocks = vi.hoisted(() => ({
@@ -91,11 +96,17 @@ vi.mock('../standard-room-prerequisites.ts', () => ({
   getStandardRoomTurnCredentials: standardRoomPrerequisiteMocks.getTurnCredentials,
 }));
 
-vi.mock('../system-audio-guest.ts', () => ({
-  cleanupGuestSystemAudio: systemAudioGuestMocks.cleanupGuestSystemAudio,
-  beginTrustedSystemAudioReception: systemAudioGuestMocks.beginTrustedReception,
-  awaitTrustedSystemAudioReceptionBoundary: systemAudioGuestMocks.awaitTrustedReceptionBoundary,
-}));
+vi.mock('../system-audio-receive-slot.ts', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('../system-audio-receive-slot.ts')>();
+  return {
+    ...actual,
+    awaitTrustedSystemAudioReceptionBoundary: receiveSlotMocks.awaitBoundary,
+    beginTrustedSystemAudioReception: receiveSlotMocks.begin,
+    endTrustedSystemAudioReception: receiveSlotMocks.end,
+    handOffTrustedSystemAudioReception: receiveSlotMocks.handOff,
+    registerSystemAudioReceiveRoute: vi.fn(actual.registerSystemAudioReceiveRoute),
+  };
+});
 
 vi.mock('../webrtc-audio-decoder-primer.ts', () => ({
   cleanupWebRtcAudioDecoderPrimer: vi.fn(),
@@ -297,7 +308,7 @@ beforeEach(() => {
   resetState();
   bus.clear();
   vi.clearAllMocks();
-  systemAudioGuestMocks.awaitTrustedReceptionBoundary.mockResolvedValue(true);
+  receiveSlotMocks.awaitBoundary.mockResolvedValue(true);
   standardRoomPrerequisiteMocks.getTurnCredentials.mockReset();
   standardRoomPrerequisiteMocks.getTurnCredentials.mockResolvedValue(null);
   pendingRealtimeCalls = [];
@@ -1237,8 +1248,6 @@ describe('guest SFU teardown and successor ownership (F-2402)', () => {
       hostConn,
     );
     await waitForNewSessionCalls(1);
-    const deliveryHandoff = vi.fn();
-    bus.on('system-audio:delivery-handoff', deliveryHandoff);
     handler!(
       {
         version: 2,
@@ -1253,7 +1262,7 @@ describe('guest SFU teardown and successor ownership (F-2402)', () => {
     // must cancel that attempt and discard its queued successor.
     bus.emit('system-audio:incoming-call', {} as never, 'STEREO');
     expect(mod.getSystemAudioSfuDebugSnapshot().guest.directRouteFrozen).toBe(true);
-    expect(deliveryHandoff).toHaveBeenCalledTimes(1);
+    expect(receiveSlotMocks.handOff).toHaveBeenCalledTimes(1);
     await resolveRealtime('new-session', {
       sessionId: 'superseded-guest-session',
       sessionOwnerToken: 'superseded-guest-owner',
@@ -1332,8 +1341,10 @@ describe('guest SFU teardown and successor ownership (F-2402)', () => {
       hostConn,
     );
 
-    expect(systemAudioGuestMocks.cleanupGuestSystemAudio).toHaveBeenCalledTimes(1);
-    expect(systemAudioGuestMocks.beginTrustedReception).toHaveBeenCalledWith('window');
+    expect(receiveSlotMocks.end).toHaveBeenCalledTimes(1);
+    expect(receiveSlotMocks.begin).toHaveBeenCalledWith('window', {
+      deadline: 'slot',
+    });
     await waitForNewSessionCalls(1);
     expect(mod.getSystemAudioSfuDebugSnapshot().guest.directRouteFrozen).toBe(false);
     bus.emit('system-audio:incoming-call', {} as never, 'STEREO');
@@ -1352,8 +1363,6 @@ describe('guest SFU teardown and successor ownership (F-2402)', () => {
     setState('network.appRole', 'guest');
     setState('network.hostConn', hostConn);
     setState('network.connectionType', 'remote');
-    const handoff = vi.fn();
-    bus.on('system-audio:delivery-handoff', handoff);
 
     const { registerHandler } = await import('../protocol.ts');
     const handler = vi
@@ -1392,7 +1401,7 @@ describe('guest SFU teardown and successor ownership (F-2402)', () => {
     });
 
     await waitForNewSessionCalls(2);
-    expect(handoff).toHaveBeenCalledTimes(1);
+    expect(receiveSlotMocks.handOff).toHaveBeenCalledTimes(1);
     expect(mod.getSystemAudioSfuDebugSnapshot().guest.subscriptionKey).toContain(
       'retry-host-publication',
     );
@@ -1626,17 +1635,14 @@ describe('guest SFU teardown and successor ownership (F-2402)', () => {
       await resolveRealtime('tracks-close', {});
 
       // Release initAudio: the recheck must bail before recreating anything.
-      const cleanupsBeforeSettlement =
-        systemAudioGuestMocks.cleanupGuestSystemAudio.mock.calls.length;
+      const cleanupsBeforeSettlement = receiveSlotMocks.end.mock.calls.length;
       releaseInit();
       await new Promise((r) => setTimeout(r, 0));
 
       const guest = mod.getSystemAudioSfuDebugSnapshot().guest;
       expect(guest.receiving).toBe(false);
       expect(guest.sourceStereo).toBe(false);
-      expect(systemAudioGuestMocks.cleanupGuestSystemAudio.mock.calls.length).toBe(
-        cleanupsBeforeSettlement,
-      );
+      expect(receiveSlotMocks.end.mock.calls.length).toBe(cleanupsBeforeSettlement);
 
       delete (globalThis as Record<string, unknown>).MediaStream;
     },
@@ -1689,12 +1695,12 @@ describe('guest SFU teardown and successor ownership (F-2402)', () => {
       });
       await resolveRealtime('renegotiate', {});
       await vi.waitFor(() => expect(nativeContext.resume).toHaveBeenCalledOnce());
-      systemAudioGuestMocks.cleanupGuestSystemAudio.mockClear();
+      receiveSlotMocks.end.mockClear();
       rejectResume(new DOMException('Native audio output unavailable', 'InvalidStateError'));
       await new Promise((resolve) => setTimeout(resolve, 0));
 
       expect(mod.getSystemAudioSfuDebugSnapshot().guest.pcState).toBeNull();
-      expect(systemAudioGuestMocks.cleanupGuestSystemAudio).toHaveBeenCalledOnce();
+      expect(receiveSlotMocks.end).toHaveBeenCalledOnce();
       // No policy change or unsolicited resubscription: a fresh authenticated
       // host announcement may reuse the same SFU publication after recovery.
       bus.emit('system-audio:host-started');
@@ -1723,7 +1729,7 @@ describe('guest SFU teardown and successor ownership (F-2402)', () => {
       .mocked(registerHandler)
       .mock.calls.find((call) => call[0] === MSG.SYSTEM_AUDIO_SFU_READY)?.[1] as
       ((data: unknown, conn?: unknown) => void) | undefined;
-    systemAudioGuestMocks.cleanupGuestSystemAudio.mockClear();
+    receiveSlotMocks.end.mockClear();
     try {
       handler!(
         { version: 2, sessionId: 'host-sess', track: { trackName: 'audio-stereo', mid: '0' } },
@@ -1738,7 +1744,7 @@ describe('guest SFU teardown and successor ownership (F-2402)', () => {
         tracks: [{ mid: '0', trackName: 'audio-stereo' }],
       });
       await vi.waitFor(() => {
-        expect(systemAudioGuestMocks.cleanupGuestSystemAudio).toHaveBeenCalledOnce();
+        expect(receiveSlotMocks.end).toHaveBeenCalledOnce();
         expect(mod.getSystemAudioSfuDebugSnapshot().guest.pcState).toBeNull();
       });
     } finally {
@@ -1755,9 +1761,7 @@ describe('guest SFU teardown and successor ownership (F-2402)', () => {
       });
       return { promise, resolve };
     })();
-    systemAudioGuestMocks.awaitTrustedReceptionBoundary.mockReturnValueOnce(
-      trustedBoundary.promise,
-    );
+    receiveSlotMocks.awaitBoundary.mockReturnValueOnce(trustedBoundary.promise);
 
     const mod = await import('../system-audio-sfu.ts');
     mod.registerSystemAudioSfuListeners();
@@ -1797,9 +1801,7 @@ describe('guest SFU teardown and successor ownership (F-2402)', () => {
     await resolveRealtime('renegotiate', {});
 
     await vi.waitFor(() => {
-      expect(systemAudioGuestMocks.awaitTrustedReceptionBoundary).toHaveBeenCalledWith(
-        'sfu-stereo',
-      );
+      expect(receiveSlotMocks.awaitBoundary).toHaveBeenCalledWith('sfu-stereo');
     });
     expect(engine.initAudio).not.toHaveBeenCalled();
 
@@ -1809,6 +1811,106 @@ describe('guest SFU teardown and successor ownership (F-2402)', () => {
     });
 
     bus.emit('system-audio:stop');
+    await rejectAllRealtimeCalls();
+  });
+});
+
+// Phase 5 C4-6 turned the two bus signals this route shared with the receive
+// slot into slot inputs; the guest role still gates both, as it gated the bus
+// listeners they replace.
+describe('guest SFU receive slot inputs', () => {
+  function sfuReadyHandler() {
+    return (async () => {
+      const { registerHandler } = await import('../protocol.ts');
+      const handler = vi
+        .mocked(registerHandler)
+        .mock.calls.find((call) => call[0] === MSG.SYSTEM_AUDIO_SFU_READY)?.[1] as
+        ((data: unknown, conn?: unknown) => void) | undefined;
+      expect(handler).toBeDefined();
+      return handler!;
+    })();
+  }
+
+  function ready(sessionId: string) {
+    return {
+      version: 2,
+      audience: 'remote',
+      sessionId,
+      track: { trackName: `audio-${sessionId}`, mid: '0' },
+    };
+  }
+
+  it('hands delivery off to the receive slot only while this device is a guest', async () => {
+    const mod = await import('../system-audio-sfu.ts');
+    mod.registerSystemAudioSfuListeners();
+    bus.emit('system-audio:stop');
+    const hostConn = { open: true, send: vi.fn(), peer: 'host' } as unknown as DataConnection;
+    setState('network.appRole', 'guest');
+    setState('network.hostConn', hostConn);
+    setState('network.connectionType', 'remote');
+    const handler = await sfuReadyHandler();
+
+    handler(ready('failing-host-publication'), hostConn);
+    await waitForNewSessionCalls(1);
+    handler(ready('pending-host-publication'), hostConn);
+    // The role changes before the first subscription fails: the pending READY
+    // still subscribes, but the receive slot is not interrupted.
+    setState('network.appRole', 'host');
+    await resolveRealtime('new-session', {
+      sessionId: 'failing-guest-session',
+      sessionOwnerToken: 'failing-guest-owner',
+    });
+    await resolveRealtime('tracks-new', { errorCode: 'FIRST_SUBSCRIBE_FAILED', tracks: [] });
+
+    await waitForNewSessionCalls(2);
+    expect(mod.getSystemAudioSfuDebugSnapshot().guest.subscriptionKey).toContain(
+      'pending-host-publication',
+    );
+    expect(receiveSlotMocks.handOff).not.toHaveBeenCalled();
+
+    bus.emit('system-audio:stop');
+    await rejectAllRealtimeCalls();
+  });
+
+  it("drops a guest's in-flight subscription when a receive deadline expires, and keeps a non-guest's", async () => {
+    const mod = await import('../system-audio-sfu.ts');
+    mod.registerSystemAudioSfuListeners();
+    bus.emit('system-audio:stop');
+    const { registerSystemAudioReceiveRoute } = await import('../system-audio-receive-slot.ts');
+    const port = vi
+      .mocked(registerSystemAudioReceiveRoute)
+      .mock.calls.find(([route]) => route === 'standard-sfu')?.[1];
+    // The route joins only the deadline's expiry, not the end of every reception.
+    expect(port?.endReception).toBeUndefined();
+    expect(port?.onDeadline).toBeTypeOf('function');
+    const hostConn = { open: true, send: vi.fn(), peer: 'host' } as unknown as DataConnection;
+    setState('network.appRole', 'guest');
+    setState('network.hostConn', hostConn);
+    setState('network.connectionType', 'remote');
+    const handler = await sfuReadyHandler();
+
+    handler(ready('deadline-host-publication'), hostConn);
+    await waitForNewSessionCalls(1);
+    await vi.waitFor(() => {
+      expect(mod.getSystemAudioSfuDebugSnapshot().guest.subscriptionKey).toContain(
+        'deadline-host-publication',
+      );
+    });
+
+    setState('network.appRole', 'host');
+    port?.onDeadline?.();
+    expect(mod.getSystemAudioSfuDebugSnapshot().guest.subscriptionKey).toContain(
+      'deadline-host-publication',
+    );
+    expect(pcInstances[0]?.close).not.toHaveBeenCalled();
+
+    setState('network.appRole', 'guest');
+    port?.onDeadline?.();
+    expect(mod.getSystemAudioSfuDebugSnapshot().guest.subscriptionKey).toBeNull();
+    expect(pcInstances[0]?.close).toHaveBeenCalledOnce();
+    // Nothing was attached, so the shared receive cleanup is left to the slot.
+    expect(receiveSlotMocks.end).not.toHaveBeenCalled();
+
     await rejectAllRealtimeCalls();
   });
 });
@@ -2129,5 +2231,360 @@ describe('guest SFU receive limit', () => {
     bus.emit('system-audio:stop');
     await rejectAllRealtimeCalls();
     delete (globalThis as Record<string, unknown>).MediaStream;
+  });
+});
+
+// ─── Guest attach (C4-4) ───────────────────────────────────────────────────
+// Pinned before Phase 5 C4-4 moves connectGuestTrack's graph section (source
+// swap, primer, receiving flag, owner claim, visualizer, two-hour limit) and
+// cleanupGuestSfu's source and primer release into the receive slot. The
+// adapter's own receiving, source and primer state is read only through its
+// /debug snapshot.
+
+describe('guest SFU attach: graph, primer and reception start per subscription', () => {
+  const SFU_CONNECTED = '[SysAudioSFU] Remote system audio connected through Cloudflare SFU';
+  const CONTEXT_NOT_RUNNING =
+    '[SysAudioSFU] AudioContext is suspended; user interaction may be required';
+
+  interface FakeSource {
+    stream: { tracks: Array<{ id: string }> };
+    connect: ReturnType<typeof vi.fn>;
+    disconnect: ReturnType<typeof vi.fn>;
+  }
+
+  /** A guest of a remote host whose audio graph is built and running. */
+  async function joinAsSfuGuest() {
+    const mod = await import('../system-audio-sfu.ts');
+    mod.registerSystemAudioSfuListeners();
+    bus.emit('system-audio:stop');
+    const hostConn = { open: true, send: vi.fn(), peer: 'host' } as unknown as DataConnection;
+    setState('network.appRole', 'guest');
+    setState('network.hostConn', hostConn);
+    setState('network.connectionType', 'remote');
+
+    const engine = await import('../../audio/engine.ts');
+    const ctxMod = await import('../../audio/context.ts');
+    const widenerInput = { node: 'widener-input' };
+    const sources: FakeSource[] = [];
+    const context = {
+      state: 'running',
+      createMediaStreamSource: vi.fn((stream: FakeSource['stream']) => {
+        const source: FakeSource = { stream, connect: vi.fn(), disconnect: vi.fn() };
+        sources.push(source);
+        return source;
+      }),
+    };
+    vi.mocked(engine.initAudio).mockResolvedValue(undefined);
+    vi.mocked(engine.getWidener).mockReturnValue({ input: widenerInput } as never);
+    vi.mocked(ctxMod.getAudioContext).mockReturnValue(context as never);
+    (globalThis as Record<string, unknown>).MediaStream = class {
+      constructor(readonly tracks: unknown) {}
+    };
+
+    const { registerHandler } = await import('../protocol.ts');
+    const handler = vi
+      .mocked(registerHandler)
+      .mock.calls.find((call) => call[0] === MSG.SYSTEM_AUDIO_SFU_READY)![1] as (
+      data: unknown,
+      conn?: unknown,
+    ) => void;
+    /** The host announces a publication and its subscription completes. */
+    const subscribe = async (publication: string): Promise<void> => {
+      handler(
+        {
+          version: 2,
+          audience: 'remote',
+          sessionId: publication,
+          track: { trackName: `audio-${publication}`, mid: '0' },
+        },
+        hostConn,
+      );
+      await resolveRealtime('new-session', {
+        sessionId: `guest-${publication}`,
+        sessionOwnerToken: `guest-owner-${publication}`,
+      });
+      await resolveRealtime('tracks-new', {
+        sessionDescription: { type: 'offer', sdp: 'o' },
+        tracks: [{ mid: '0', trackName: `audio-${publication}` }],
+      });
+      await resolveRealtime('renegotiate', {});
+      // Let the subscription settle before the host's next announcement.
+      await new Promise((resolve) => setTimeout(resolve, 0));
+    };
+    return { mod, engine, context, sources, widenerInput, subscribe };
+  }
+
+  async function observeAttach() {
+    const { log } = await import('../../core/log.ts');
+    const ownership = await import('../../player/ownership.ts');
+    const primer = await import('../webrtc-audio-decoder-primer.ts');
+    const visualizerStarts = vi.fn();
+    bus.on('visualizer:start', visualizerStarts);
+    return {
+      log,
+      primer,
+      receivingWrites: () => vi.mocked(ownership.setSystemAudioReceiving).mock.calls,
+      ownerClaims: () => vi.mocked(ownership.claimPlaybackOwner).mock.calls,
+      visualizerStarts,
+      connectedLines: () =>
+        vi.mocked(log.info).mock.calls.filter(([message]) => message === SFU_CONNECTED),
+      limitTimers: () =>
+        vi
+          .mocked(setManagedTimer)
+          .mock.calls.filter(([name]) => name === 'system-audio-sfu-guest-limit'),
+    };
+  }
+
+  afterEach(async () => {
+    const primer = await import('../webrtc-audio-decoder-primer.ts');
+    vi.mocked(primer.primeWebRtcAudioDecoder).mockReset();
+  });
+
+  it('connects the track in a stream of its own, primes it with the SFU prefix and starts the reception once; a second track only swaps the source', async () => {
+    const guest = await joinAsSfuGuest();
+    const seen = await observeAttach();
+    const primers = [{ primer: 'first' }, { primer: 'second' }];
+    vi.mocked(seen.primer.primeWebRtcAudioDecoder)
+      .mockReturnValueOnce(primers[0] as never)
+      .mockReturnValueOnce(primers[1] as never);
+    try {
+      await guest.subscribe('publication-a');
+      await vi.waitFor(() => expect(guest.sources).toHaveLength(1));
+
+      const [first] = guest.sources;
+      expect(first.stream.tracks.map((track) => track.id)).toEqual(['g-track-L']);
+      expect(first.connect).toHaveBeenCalledExactlyOnceWith(guest.widenerInput);
+      expect(seen.primer.getAudioTrackStreamKey).toHaveBeenCalledExactlyOnceWith('sfu:stereo', [
+        expect.objectContaining({ id: 'g-track-L' }),
+      ]);
+      expect(seen.primer.primeWebRtcAudioDecoder).toHaveBeenCalledExactlyOnceWith(
+        null,
+        [expect.objectContaining({ id: 'g-track-L' })],
+        'key',
+        'STEREO',
+        '[SysAudioSFU]',
+      );
+      expect(seen.receivingWrites()).toEqual([[true]]);
+      expect(seen.ownerClaims()).toEqual([['system-audio']]);
+      expect(seen.visualizerStarts).toHaveBeenCalledOnce();
+      expect(seen.connectedLines()).toEqual([[SFU_CONNECTED]]);
+      expect(seen.limitTimers()).toHaveLength(1);
+      expect(guest.mod.getSystemAudioSfuDebugSnapshot().guest).toMatchObject({
+        receiving: true,
+        sourceStereo: true,
+        decoderPrimerCount: 1,
+        limitTimerActive: true,
+      });
+
+      // A second audio track on the same subscription replaces the source and
+      // the primer; the reception it joins is already started.
+      pcInstances[0].ontrack?.({
+        track: { kind: 'audio', id: 'g-track-R' },
+        receiver: {},
+        transceiver: { mid: '0' },
+      });
+      await vi.waitFor(() => expect(guest.sources).toHaveLength(2));
+      expect(first.disconnect).toHaveBeenCalledOnce();
+      expect(guest.sources[1].stream.tracks.map((track) => track.id)).toEqual(['g-track-R']);
+      expect(guest.sources[1].connect).toHaveBeenCalledExactlyOnceWith(guest.widenerInput);
+      expect(seen.primer.primeWebRtcAudioDecoder).toHaveBeenLastCalledWith(
+        primers[0],
+        [expect.objectContaining({ id: 'g-track-R' })],
+        'key',
+        'STEREO',
+        '[SysAudioSFU]',
+      );
+      expect(seen.receivingWrites()).toEqual([[true]]);
+      expect(seen.ownerClaims()).toEqual([['system-audio']]);
+      expect(seen.visualizerStarts).toHaveBeenCalledOnce();
+      expect(seen.connectedLines()).toHaveLength(1);
+      expect(seen.limitTimers()).toHaveLength(1);
+      expect(guest.mod.getSystemAudioSfuDebugSnapshot().guest).toMatchObject({
+        receiving: true,
+        sourceStereo: true,
+        decoderPrimerCount: 1,
+      });
+    } finally {
+      bus.emit('system-audio:stop');
+      await rejectAllRealtimeCalls();
+    }
+  });
+
+  it("starts the reception again on a re-publication's first attach while the receiving flag stays set, with its own limit", async () => {
+    const guest = await joinAsSfuGuest();
+    const seen = await observeAttach();
+    const firstPrimer = { primer: 'publication-a' };
+    vi.mocked(seen.primer.primeWebRtcAudioDecoder).mockReturnValueOnce(firstPrimer as never);
+    try {
+      await guest.subscribe('publication-a');
+      await vi.waitFor(() => expect(guest.sources).toHaveLength(1));
+      // The shared flag the first attach set stays set through the re-publication.
+      setState('systemAudio.isReceiving', true);
+
+      await guest.subscribe('publication-b');
+      await vi.waitFor(() => expect(guest.sources).toHaveLength(2));
+
+      // The re-publication released only the first subscription (its PC, its
+      // source and its primer) without ending the shared reception.
+      expect(pcInstances[0].close).toHaveBeenCalledOnce();
+      expect(guest.sources[0].disconnect).toHaveBeenCalledOnce();
+      expect(seen.primer.cleanupWebRtcAudioDecoderPrimer).toHaveBeenCalledWith(firstPrimer);
+      expect(receiveSlotMocks.end).not.toHaveBeenCalled();
+
+      // The new subscription's first attach starts the reception again.
+      expect(guest.sources[1].connect).toHaveBeenCalledExactlyOnceWith(guest.widenerInput);
+      expect(seen.primer.primeWebRtcAudioDecoder).toHaveBeenLastCalledWith(
+        null,
+        [expect.objectContaining({ id: 'g-track-L' })],
+        'key',
+        'STEREO',
+        '[SysAudioSFU]',
+      );
+      expect(seen.receivingWrites()).toEqual([[true], [true]]);
+      expect(seen.ownerClaims()).toEqual([['system-audio'], ['system-audio']]);
+      expect(seen.visualizerStarts).toHaveBeenCalledTimes(2);
+      expect(seen.connectedLines()).toHaveLength(2);
+      expect(seen.limitTimers()).toHaveLength(2);
+      expect(guest.mod.getSystemAudioSfuDebugSnapshot().guest).toMatchObject({
+        sessionId: 'guest-publication-b',
+        receiving: true,
+        sourceStereo: true,
+        decoderPrimerCount: 0,
+        limitTimerActive: true,
+      });
+    } finally {
+      bus.emit('system-audio:stop');
+      await rejectAllRealtimeCalls();
+    }
+  });
+
+  it('ends the shared reception from its cleanup only after this subscription attached, releasing its source and primer', async () => {
+    const guest = await joinAsSfuGuest();
+    const seen = await observeAttach();
+    const firstPrimer = { primer: 'publication-a' };
+    vi.mocked(seen.primer.primeWebRtcAudioDecoder).mockReturnValueOnce(firstPrimer as never);
+    try {
+      await guest.subscribe('publication-a');
+      await vi.waitFor(() => expect(guest.sources).toHaveLength(1));
+
+      bus.emit('system-audio:host-stopped');
+      expect(receiveSlotMocks.end).toHaveBeenCalledOnce();
+      expect(guest.sources[0].disconnect).toHaveBeenCalledOnce();
+      expect(seen.primer.cleanupWebRtcAudioDecoderPrimer).toHaveBeenCalledWith(firstPrimer);
+      expect(guest.mod.getSystemAudioSfuDebugSnapshot().guest).toMatchObject({
+        pcState: null,
+        receiving: false,
+        sourceStereo: false,
+        decoderPrimerCount: 0,
+        limitTimerActive: false,
+      });
+
+      // Nothing is attached any more: a second cleanup leaves the reception alone.
+      bus.emit('system-audio:host-stopped');
+      expect(receiveSlotMocks.end).toHaveBeenCalledOnce();
+    } finally {
+      bus.emit('system-audio:stop');
+      await rejectAllRealtimeCalls();
+    }
+  });
+
+  // Phase 5 C4-7: the PRO coordinator no longer imports this module. It adopts
+  // the receive slot, which calls the retire this route registered.
+  it("is retired by the PRO coordinator's adopt: an attached subscription and its share route go, the reception stays", async () => {
+    const guest = await joinAsSfuGuest();
+    const seen = await observeAttach();
+    const firstPrimer = { primer: 'publication-a' };
+    vi.mocked(seen.primer.primeWebRtcAudioDecoder).mockReturnValueOnce(firstPrimer as never);
+    const { adoptSystemAudioReceiveRoute, registerSystemAudioReceiveRoute } =
+      await import('../system-audio-receive-slot.ts');
+    const port = vi
+      .mocked(registerSystemAudioReceiveRoute)
+      .mock.calls.find(([route]) => route === 'standard-sfu')?.[1];
+    expect(port?.retire).toBeTypeOf('function');
+    const { getGuestSystemAudioShareRoute } = await import('../system-audio-delivery.ts');
+    try {
+      await guest.subscribe('publication-a');
+      await vi.waitFor(() => expect(guest.sources).toHaveLength(1));
+      expect(getGuestSystemAudioShareRoute()).toBe('sfu-remote');
+
+      // The adopting route's own retire, if it had one, would not run.
+      adoptSystemAudioReceiveRoute('standard-sfu');
+      expect(guest.sources[0].disconnect).not.toHaveBeenCalled();
+
+      adoptSystemAudioReceiveRoute('pro-coordinator');
+      expect(pcInstances[0].close).toHaveBeenCalledOnce();
+      expect(guest.sources[0].disconnect).toHaveBeenCalledOnce();
+      expect(seen.primer.cleanupWebRtcAudioDecoderPrimer).toHaveBeenCalledWith(firstPrimer);
+      expect(getGuestSystemAudioShareRoute()).toBe('unselected');
+      // The subscription's Realtime tracks are closed with it.
+      expect(pendingRealtimeCalls.map((call) => call.action)).toEqual(['tracks-close']);
+      // No reception end and no new claim: the coordinator's start or attach
+      // replaces the reception.
+      expect(receiveSlotMocks.end).not.toHaveBeenCalled();
+      expect(seen.receivingWrites()).toEqual([[true]]);
+      expect(seen.ownerClaims()).toEqual([['system-audio']]);
+      expect(guest.mod.getSystemAudioSfuDebugSnapshot().guest).toMatchObject({
+        pcState: null,
+        sessionId: null,
+        subscriptionKey: null,
+        receiving: false,
+        sourceStereo: false,
+        decoderPrimerCount: 0,
+        limitTimerActive: false,
+      });
+    } finally {
+      bus.emit('system-audio:stop');
+      await rejectAllRealtimeCalls();
+    }
+  });
+
+  it('warns about a context that is not running only once the graph is confirmed, and still attaches', async () => {
+    const guest = await joinAsSfuGuest();
+    const seen = await observeAttach();
+    guest.context.state = 'suspended';
+    try {
+      await guest.subscribe('publication-a');
+      await vi.waitFor(() => expect(guest.sources).toHaveLength(1));
+      expect(vi.mocked(seen.log.warn).mock.calls).toEqual([[CONTEXT_NOT_RUNNING]]);
+      expect(seen.receivingWrites()).toEqual([[true]]);
+      expect(seen.connectedLines()).toHaveLength(1);
+    } finally {
+      bus.emit('system-audio:stop');
+      await rejectAllRealtimeCalls();
+    }
+  });
+
+  it('touches neither the context nor the primer without an audio graph, and fails the attach as graph not ready', async () => {
+    const guest = await joinAsSfuGuest();
+    const seen = await observeAttach();
+    guest.context.state = 'suspended';
+    vi.mocked(guest.engine.getWidener).mockReturnValue(null);
+    const toasts = vi.fn();
+    bus.on('ui:show-toast', toasts);
+    try {
+      await guest.subscribe('publication-a');
+      await vi.waitFor(() => expect(toasts).toHaveBeenCalledWith('system_audio.receive_failed'));
+      expect(vi.mocked(seen.log.error).mock.calls).toEqual([
+        [
+          '[SysAudioSFU] Failed to attach remote track:',
+          expect.objectContaining({ message: 'System audio graph not ready' }),
+        ],
+      ]);
+      expect(seen.log.warn).not.toHaveBeenCalledWith(CONTEXT_NOT_RUNNING);
+      expect(seen.primer.primeWebRtcAudioDecoder).not.toHaveBeenCalled();
+      expect(guest.context.createMediaStreamSource).not.toHaveBeenCalled();
+      expect(seen.receivingWrites()).toEqual([]);
+      expect(seen.limitTimers()).toEqual([]);
+      expect(receiveSlotMocks.end).toHaveBeenCalledOnce();
+      expect(guest.mod.getSystemAudioSfuDebugSnapshot().guest).toMatchObject({
+        pcState: null,
+        receiving: false,
+        sourceStereo: false,
+        decoderPrimerCount: 0,
+      });
+    } finally {
+      bus.emit('system-audio:stop');
+      await rejectAllRealtimeCalls();
+    }
   });
 });

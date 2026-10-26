@@ -5,8 +5,10 @@ import { fileURLToPath } from 'node:url';
 
 // Ratchet: keep the production import graph clean — app.ts import-terminal
 // (RULE A), no static runtime import cycles
-// (RULE B), and ui-layering respected so wire-protocol code can never import
-// from a render module again (RULE C). The actual
+// (RULE B), ui-layering respected so wire-protocol code can never import
+// from a render module again (RULE C), and no import across a listed boundary
+// such as the PRO room into the Standard system-audio receive adapters
+// (RULE D). The actual
 // analysis lives in scripts/check-import-graph.mts (single source of truth,
 // also runnable via `node scripts/check-import-graph.mts`). We invoke it as
 // a subprocess so the CLI's stdout and exit code are tested together; a
@@ -15,7 +17,7 @@ const script = fileURLToPath(new URL('../../../scripts/check-import-graph.mts', 
 const youtubeIframe = fileURLToPath(new URL('../../youtube/iframe.ts', import.meta.url));
 
 describe('Production import graph', () => {
-  it('has no bootstrap back-imports, new cycles, or ui-layering violations', () => {
+  it('has no bootstrap back-imports, new cycles, ui-layering violations or crossed boundaries', () => {
     let output: string;
     try {
       output = execFileSync('node', [script], { encoding: 'utf8' });

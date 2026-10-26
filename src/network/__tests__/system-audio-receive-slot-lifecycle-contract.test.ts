@@ -28,9 +28,10 @@
  *
  * Real and replaced modules are the same as in the core Standard suite (see
  * its header and __helpers__/system-audio-receive-harness.ts). Assertions read
- * state, toasts, bus emissions, native ledgers and the /debug snapshots only,
- * never timer names. Each test pins main be82ce09 (9.0.7) and is named
- * "expected today" where a C4 increment may be tempted to change it.
+ * state, toasts, bus emissions, the receive deadline's warn lines, native
+ * ledgers and the /debug snapshots only, never timer names. Each test pins main
+ * be82ce09 (9.0.7) and is named "expected today" where a C4 increment may be
+ * tempted to change it.
  */
 import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 import { MSG, SYSTEM_AUDIO_SHARE_LIMIT_MS } from '../../core/constants.ts';
@@ -190,6 +191,16 @@ function mutedTrack(id: string): { track: MediaStreamTrack; unmute(): void } {
 }
 
 const advance = (ms: number) => vi.advanceTimersByTimeAsync(ms);
+
+/**
+ * The slot's receive deadline as /debug sa reports it (the guest snapshot's
+ * watchdog keys). A delivery handoff keeps the placeholder and re-arms this
+ * deadline from the handoff.
+ */
+function receiveDeadline() {
+  const { watchdogActive, watchdogArmedAt } = getSystemAudioGuestDebugSnapshot();
+  return { armed: watchdogActive, armedAt: watchdogArmedAt };
+}
 
 beforeAll(() => {
   registerSystemAudioGuestListeners();
@@ -502,13 +513,14 @@ describe('attach fences: a superseded Standard attach waiting in initAudio (C4-3
     await start();
     webAudio.suspend();
     realtime.injectFault('renegotiate', 'fail');
+    const readyAt = Date.now();
     await ready('rt_host_session_a');
     await advance(50);
     await ready('rt_host_session_b');
     // The first track waits in initAudio from 200 ms; renegotiate fails at
     // 300 ms and hands off to the pending READY.
     await advance(SFU_TRACK_AT_MS + 50);
-    expect(seen.counts.deliveryHandoffs).toBe(1);
+    expect(receiveDeadline()).toEqual({ armed: true, armedAt: readyAt + 300 });
     expect(FakeRTCPeerConnection.instances[0].closed).toBe(true);
     expect(slot()).toMatchObject({ receiving: false, activity: 'pending', placeholder: true });
 
@@ -533,6 +545,7 @@ describe('attach fences: a superseded Standard attach waiting in initAudio (C4-3
     await start();
     webAudio.suspend();
     realtime.injectFault('renegotiate', 'fail');
+    const readyAt = Date.now();
     await ready('rt_host_session_a');
     await advance(50);
     await ready('rt_host_session_b');
@@ -540,7 +553,7 @@ describe('attach fences: a superseded Standard attach waiting in initAudio (C4-3
     // The first attach's initAudio gives up at 700 ms; the handoff track has
     // waited since 500 ms.
     await advance(700);
-    expect(seen.counts.deliveryHandoffs).toBe(1);
+    expect(receiveDeadline()).toEqual({ armed: true, armedAt: readyAt + 300 });
     expect(seen.toasts).toEqual([]);
     expect(FakeRTCPeerConnection.instances[1].closed).toBe(false);
     expect(slot()).toMatchObject({ receiving: false, activity: 'pending', placeholder: true });
@@ -560,7 +573,7 @@ describe('attach fences: a superseded Standard attach waiting in initAudio (C4-3
     expect(slot()).toMatchObject({ receiving: false, activity: 'pending', sources: [] });
 
     const call = directCall();
-    expect(seen.counts.deliveryHandoffs).toBe(1);
+    expect(receiveDeadline()).toEqual({ armed: true, armedAt: Date.now() });
     expect(FakeRTCPeerConnection.instances[0].closed).toBe(true);
     call.stream(streamOf(makeAudioTrack('p2p-a')));
     webAudio.finishResume();
@@ -677,7 +690,8 @@ describe('Standard SFU: the two-hour limit stays per subscription', () => {
     // failed at 300 ms and handed off to the pending READY, whose track
     // attached at 500 ms.
     await advance(1_000);
-    expect(seen.counts.deliveryHandoffs).toBe(1);
+    // The handoff re-armed the slot deadline; the handoff track's attach met it.
+    expect(receiveDeadline()).toEqual({ armed: false, armedAt: readyAt + 300 });
     expect(slot()).toMatchObject({ receiving: true, sources: ['sfu-remote-audio-2'] });
 
     await advance(readyAt + SFU_TRACK_AT_MS + SYSTEM_AUDIO_SHARE_LIMIT_MS - Date.now());

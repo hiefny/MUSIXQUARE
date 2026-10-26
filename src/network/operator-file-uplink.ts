@@ -81,7 +81,6 @@ interface HostUpload {
   expectedChunkIndex: number;
   receivedBytes: number;
   lastReportedBytes: number;
-  finishReceived: boolean;
   timeoutKey: string | null;
 }
 
@@ -683,7 +682,6 @@ function handleUploadStart(
     expectedChunkIndex: 0,
     receivedBytes: 0,
     lastReportedBytes: 0,
-    finishReceived: false,
     timeoutKey: null,
   };
   hostUploads.set(conn.peer, upload);
@@ -749,13 +747,6 @@ function handleUploadChunk(
     );
     emitReceiveProgress(upload, 'uploading');
   }
-
-  // Rolling releases can pair a new host with an older administrator client
-  // whose FINISH still travels on the separate control channel. Remember an
-  // early FINISH and commit only after the ordered bulk stream catches up.
-  if (upload.finishReceived && isHostUploadComplete(upload)) {
-    finalizeHostUpload(upload);
-  }
 }
 
 function isHostUploadComplete(upload: HostUpload): boolean {
@@ -773,7 +764,12 @@ function finalizeHostUpload(upload: HostUpload): void {
     clearHostUpload(upload, 'operator-revoked', true);
     return;
   }
-  if (!upload.finishReceived || !isHostUploadComplete(upload)) return;
+  // FINISH travels on the ordered bulk channel behind every chunk, so a FINISH
+  // ahead of the bytes is a broken stream, like an out-of-order chunk.
+  if (!isHostUploadComplete(upload)) {
+    clearHostUpload(upload, 'protocol-error', true);
+    return;
+  }
 
   if (upload.timeoutKey !== null) clearManagedTimer(upload.timeoutKey);
   upload.timeoutKey = null;
@@ -864,8 +860,6 @@ function handleUploadFinish(
     clearHostUpload(upload, 'operator-revoked', true);
     return;
   }
-  upload.finishReceived = true;
-  armHostTimeout(upload);
   finalizeHostUpload(upload);
 }
 

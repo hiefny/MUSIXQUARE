@@ -33,7 +33,7 @@ import { broadcast, sendToHost } from '../network/peer.ts';
 import { refuseHostCommand } from '../network/host-presence.ts';
 import { isGuestBlocked } from '../network/guards.ts';
 import { getCurrentQueueItemId } from './queue-model.ts';
-import { LEGACY_FILE_SCHEDULE_AHEAD_MS, LOCAL_FILE_START_LEAD_MS } from './file-play-timing.ts';
+import { LOCAL_FILE_START_LEAD_MS } from './file-play-timing.ts';
 import {
   captureLocalFileOutputIdentity,
   isLocalFileOutputIdentityCurrent,
@@ -634,9 +634,6 @@ export async function startHostFileAndBroadcastPlay({
       queueItemId,
       ...(name === undefined ? {} : { name }),
       hostStartAt: committedTimeline.hostStartAt,
-      // Older guests interpret hostPlayAt - 200ms as the host's start.
-      // They still join at the correct position, one legacy lead later.
-      hostPlayAt: committedTimeline.hostStartAt + LEGACY_FILE_SCHEDULE_AHEAD_MS,
     });
     try {
       onPublished?.();

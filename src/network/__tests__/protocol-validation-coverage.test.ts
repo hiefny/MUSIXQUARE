@@ -19,8 +19,35 @@ describe('protocol validation coverage', () => {
   it('classifies every declared message type', () => {
     const types = Object.values(MSG);
 
-    expect(types).toHaveLength(121);
+    expect(types).toHaveLength(103);
     expect(new Set(types).size).toBe(types.length);
+  });
+
+  it('no longer declares the coordinator-era PRO file preload hint', () => {
+    // Since d4b208cc every PRO member warms the next canonical R2 object
+    // itself, and PRO rooms have no browser data connection to carry a hint.
+    expect(Object.values(MSG)).not.toContain('pro-file-preload');
+  });
+
+  it('no longer declares the per-effect sync from before atomic settings sync', () => {
+    const removed = [
+      'volume',
+      'eq-update',
+      'eq-reset',
+      'preamp',
+      'reverb',
+      'reverb-type',
+      'reverb-decay',
+      'reverb-predelay',
+      'reverb-lowcut',
+      'reverb-highcut',
+      'stereo-width',
+      'vbass',
+      'exciter',
+      'request-eq-reset',
+    ];
+
+    expect(Object.values(MSG).filter((type) => removed.includes(type))).toEqual([]);
   });
 });
 
@@ -62,13 +89,22 @@ describe('device-list-update validation', () => {
     );
 
     const fullList = [
-      { id: null, label: 'HOST', status: 'connected', isHost: true, joinOrder: 0 },
+      {
+        id: null,
+        label: 'HOST',
+        status: 'connected',
+        isHost: true,
+        joinOrder: 0,
+        devicePlatform: 'other',
+      },
       ...Array.from({ length: MAX_GUEST_SLOTS }, (_, index) => ({
         id: `guest-${index + 1}`,
         label: `Guest ${index + 1}`,
         status: 'connected',
         isHost: false,
         joinOrder: index + 1,
+        connectionType: 'local',
+        devicePlatform: 'other',
         memberDisplayNumber: index + 2,
       })),
     ];
@@ -93,6 +129,7 @@ describe('device-list-update validation', () => {
             isOp: true,
             joinOrder: 0,
             connectionType: null,
+            devicePlatform: 'macos',
             memberId: null,
             memberDisplayNumber: null,
             capabilities: null,
@@ -122,9 +159,22 @@ describe('device-list-update validation', () => {
   it('rejects empty, oversized, duplicate, hostless, and malformed projections', async () => {
     const handler = vi.fn();
     registerHandler(MSG.DEVICE_LIST_UPDATE, handler);
-    const host = { id: 'host-1', label: 'HOST', status: 'connected', isHost: true };
-    const guest = { id: 'guest-1', label: 'Guest', status: 'connected', isHost: false };
-    const oversized = [host];
+    const host = {
+      id: 'host-1',
+      label: 'HOST',
+      status: 'connected',
+      isHost: true,
+      devicePlatform: 'windows',
+    };
+    const guest = {
+      id: 'guest-1',
+      label: 'Guest',
+      status: 'connected',
+      isHost: false,
+      connectionType: 'local',
+      devicePlatform: 'android',
+    };
+    const oversized: Array<Record<string, unknown>> = [host];
     for (let index = 0; index <= MAX_GUEST_SLOTS; index += 1) {
       oversized.push({ ...guest, id: `guest-${index}` });
     }
@@ -146,21 +196,111 @@ describe('device-list-update validation', () => {
 
     expect(handler).not.toHaveBeenCalled();
   });
+
+  it('requires the platform on every row and the route on every guest row', async () => {
+    const handler = vi.fn();
+    registerHandler(MSG.DEVICE_LIST_UPDATE, handler);
+    // The host's own row never carries connectionType; every current host
+    // sends devicePlatform on both kinds of row and connectionType on guests.
+    const host = {
+      id: 'host-1',
+      label: 'HOST',
+      status: 'connected',
+      isHost: true,
+      isOp: true,
+      joinOrder: 0,
+      devicePlatform: 'windows',
+    };
+    const guest = {
+      id: 'guest-1',
+      label: 'Guest',
+      status: 'connected',
+      isHost: false,
+      isOp: false,
+      joinOrder: 1,
+      connectionType: 'local',
+      devicePlatform: 'android',
+    };
+    const { devicePlatform: _hostPlatform, ...hostWithoutPlatform } = host;
+    const { devicePlatform: _guestPlatform, ...guestWithoutPlatform } = guest;
+    const { connectionType: _guestRoute, ...guestWithoutRoute } = guest;
+
+    await handleData(
+      { type: MSG.DEVICE_LIST_UPDATE, list: [host, guest] },
+      connection('device-list-current'),
+    );
+    const invalidLists = [
+      [hostWithoutPlatform, guest],
+      [{ ...host, devicePlatform: null }, guest],
+      [host, guestWithoutPlatform],
+      [host, { ...guest, devicePlatform: null }],
+      [host, guestWithoutRoute],
+      [host, { ...guest, connectionType: null }],
+    ];
+    for (const [index, list] of invalidLists.entries()) {
+      await handleData(
+        { type: MSG.DEVICE_LIST_UPDATE, list },
+        connection(`device-list-missing-${index}`),
+      );
+    }
+
+    expect(handler).toHaveBeenCalledOnce();
+  });
 });
 
 describe('bounded control-frame validation', () => {
-  it('accepts legacy and scheduled demo play frames while rejecting invalid start clocks', async () => {
+  it('requires the PAUSE reason every current sender includes', async () => {
+    const handler = vi.fn();
+    registerHandler(MSG.PAUSE, handler);
+    const conn = connection('pause-reason-validation');
+    const base = {
+      type: MSG.PAUSE,
+      time: 10,
+      queueItemId: '00000000-0000-4000-8000-000000000001',
+    };
+
+    for (const reason of ['pause', 'stop', 'seek', 'transition']) {
+      await handleData({ ...base, reason }, conn);
+    }
+    await handleData(
+      { ...base, time: 0, queueItemId: null, endOfPlaylist: true, reason: 'end-of-playlist' },
+      conn,
+    );
+    expect(handler).toHaveBeenCalledTimes(5);
+
+    for (const frame of [
+      base,
+      { ...base, reason: null },
+      { ...base, reason: 'resume' },
+      { ...base, time: 0, queueItemId: null, endOfPlaylist: true },
+    ]) {
+      await handleData(frame, conn);
+    }
+    expect(handler).toHaveBeenCalledTimes(5);
+  });
+
+  it('requires the shared demo start and lets hostPlayAt go', async () => {
+    // Survey OV-B02 stage 1: every demo host since 8.6.54 (#235) sends
+    // hostStartAt. Hosts still add hostPlayAt for guests before the old-version
+    // removal train (9.0.12 and older); it is accepted and ignored. A frame
+    // without hostStartAt is an older host's.
     const handler = vi.fn();
     registerHandler(MSG.DEMO_PLAY, handler);
     const conn = connection('demo-start-validation');
-    const base = { type: MSG.DEMO_PLAY, index: 1, time: 0, hostPlayAt: 1550 };
-    const scheduled = { ...base, hostStartAt: 1200 };
-    await handleData(base, conn);
-    await handleData(scheduled, conn);
+    const shared = { type: MSG.DEMO_PLAY, index: 1, time: 0, hostStartAt: 1200 };
+    const current = { ...shared, hostPlayAt: 1550 };
+    await handleData(shared, conn);
+    await handleData(current, conn);
+    await handleData({ type: MSG.DEMO_PLAY, index: 1, time: 0, hostPlayAt: 1550 }, conn);
+    await handleData({ type: MSG.DEMO_PLAY, index: 1, time: 0 }, conn);
     for (const hostStartAt of [NaN, Infinity, -Infinity, -1, 0, '1200', null]) {
-      await handleData({ ...base, hostStartAt }, conn);
+      await handleData({ ...shared, hostStartAt }, conn);
+      await handleData({ ...current, hostStartAt }, conn);
     }
-    expect(handler.mock.calls.map(([frame]) => frame)).toEqual([base, scheduled]);
+    for (const hostPlayAt of [NaN, Infinity, '1550', null]) {
+      await handleData({ ...shared, hostPlayAt }, conn);
+    }
+    expect(handler.mock.calls.map(([frame]) => frame)).toEqual([shared, current]);
   });
 
   it('accepts legacy PLAY frames and independent common-start anchors', async () => {
@@ -302,7 +442,7 @@ describe('bounded control-frame validation', () => {
     expect(filter).toHaveBeenCalledTimes(2);
   });
 
-  it('bounds direct playback and effect frames, including bootstrap markers', async () => {
+  it('bounds direct queue-mode frames, including bootstrap markers', async () => {
     const cases: Array<{
       type: (typeof MSG)[keyof typeof MSG];
       valid: unknown;
@@ -310,16 +450,6 @@ describe('bounded control-frame validation', () => {
     }> = [
       { type: MSG.REPEAT_MODE, valid: 2, invalid: 3 },
       { type: MSG.SHUFFLE_MODE, valid: true, invalid: 'true' },
-      { type: MSG.PREAMP, valid: -48, invalid: -49 },
-      { type: MSG.VBASS, valid: 100, invalid: 101 },
-      { type: MSG.REVERB, valid: 0, invalid: -1 },
-      { type: MSG.EXCITER, valid: 1, invalid: 2 },
-      { type: MSG.STEREO_WIDTH, valid: 200, invalid: 201 },
-      { type: MSG.REVERB_TYPE, valid: 'studio', invalid: 'hall' },
-      { type: MSG.REVERB_DECAY, valid: 10, invalid: 10.1 },
-      { type: MSG.REVERB_PREDELAY, valid: 1, invalid: 1.01 },
-      { type: MSG.REVERB_LOWCUT, valid: 100, invalid: Number.NaN },
-      { type: MSG.REVERB_HIGHCUT, valid: 0, invalid: -1 },
     ];
 
     for (const { type, valid, invalid } of cases) {
@@ -334,25 +464,6 @@ describe('bounded control-frame validation', () => {
 
       expect(handler, type).toHaveBeenCalledTimes(3);
     }
-
-    const volume = vi.fn();
-    const equalizer = vi.fn();
-    registerHandler(MSG.VOLUME, volume);
-    registerHandler(MSG.EQ_UPDATE, equalizer);
-    const conn = connection('volume-eq-validation');
-
-    await handleData({ type: MSG.VOLUME, value: 0.5 }, conn);
-    await handleData({ type: MSG.VOLUME, value: 1, _bootstrap: true }, conn);
-    await handleData({ type: MSG.VOLUME, value: 0.5, _bootstrap: false }, conn);
-    await handleData({ type: MSG.VOLUME, value: 1.01 }, conn);
-    await handleData({ type: MSG.EQ_UPDATE, band: 0, value: 0 }, conn);
-    await handleData({ type: MSG.EQ_UPDATE, band: 4, value: -12, _bootstrap: true }, conn);
-    await handleData({ type: MSG.EQ_UPDATE, band: 0, value: 12, _bootstrap: false }, conn);
-    await handleData({ type: MSG.EQ_UPDATE, band: 5, value: 0 }, conn);
-    await handleData({ type: MSG.EQ_UPDATE, band: 0, value: 12.1 }, conn);
-
-    expect(volume).toHaveBeenCalledTimes(3);
-    expect(equalizer).toHaveBeenCalledTimes(3);
   });
 
   it('bounds session, kick, and operator projections', async () => {
@@ -375,17 +486,22 @@ describe('bounded control-frame validation', () => {
       { type: MSG.OPERATOR_GRANT, capabilities: ['media.add', 'room.configure'], silent: true },
       conn,
     );
+    await handleData({ type: MSG.OPERATOR_GRANT, capabilities: [] }, conn);
     await handleData({ type: MSG.OPERATOR_REVOKE, silent: false }, conn);
 
     await handleData({ type: MSG.SESSION_FULL, message: '' }, conn);
     await handleData({ type: MSG.KICK_DEVICE, reason: 'x'.repeat(257) }, conn);
     await handleData({ type: MSG.OPERATOR_GRANT, capabilities: ['root.admin'] }, conn);
     await handleData({ type: MSG.OPERATOR_GRANT, capabilities: ['media.add', 'media.add'] }, conn);
+    // Every current host sends the explicit grant list, empty or not.
+    await handleData({ type: MSG.OPERATOR_GRANT }, conn);
+    await handleData({ type: MSG.OPERATOR_GRANT, silent: true }, conn);
+    await handleData({ type: MSG.OPERATOR_GRANT, capabilities: null }, conn);
     await handleData({ type: MSG.OPERATOR_REVOKE, silent: 'yes' }, conn);
 
     expect(sessionFull).toHaveBeenCalledOnce();
     expect(kick).toHaveBeenCalledOnce();
-    expect(grant).toHaveBeenCalledOnce();
+    expect(grant).toHaveBeenCalledTimes(2);
     expect(revoke).toHaveBeenCalledOnce();
   });
 });

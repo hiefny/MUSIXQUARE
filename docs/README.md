@@ -110,6 +110,23 @@ runbooks. Neither belongs in a general setup document.
   show, the operations for raising, lowering and rolling back (the first floor is this train's
   own build), the eager JS delta (+2,282 B), the local verification after merging 5A, and the
   owner's device steps. Known-accepted #13 is superseded by it.
+- [Old-version removal train 1: compatibility code below the existing client floors (2026-10-25)](design/old-version-removal-1-2026-10-25.md):
+  evidence for the first train under the owner's policy of 2026-10-25 that older app versions are no
+  longer a design constraint (9.0.13 / v786, not yet released; target `app`; it ships right after
+  Phase 5 5A, which it merged after 5A's release). It ships only the
+  items of the old-version compatibility survey that need no client floor and do not touch the
+  parallel forced-update and Phase 5 5A trains' files. The existing floors (signaling 8.0.8, the
+  Standard join bootstrap 8.3.16, the PRO heartbeat 9.0.0) already keep those clients' senders out.
+  Standard P2P message types drop from 121 to 103, fields every current sender includes become
+  required, a PRO room refuses browser data connections, local file guests are routed by room size
+  alone, and side-route restarts no longer wait for the peer's advertisement. The report lists the
+  owner policy and decisions, each increment (R1 to R8) with its commits, tests-first evidence,
+  removed lines and who loses what (survey OV ids), the one accepted wire exception (the per-effect
+  follower frames of 9.0.10 and 9.0.11 hosts), the accepted older-tab degradations, the skipped items
+  and the train that takes each, review lows left as follow-ups, survey corrections, lane checks
+  (C5-0 lab included, with one timing failure read from the lab evidence and a clean rerun), the
+  merge with the released 5A, the final bump round, the eager JS delta (-13,610 B against the
+  9.0.12 main, nine eager chunks folded into the entry) and what was not verified.
 
 - [Phase 5 train 5A: one system-audio receive slot, behaviour-neutral (2026-10-25)](design/phase5-5a-receive-slot-2026-10-25.md):
   release evidence for the structure program's first Phase 5 app train (9.0.12 / v785,

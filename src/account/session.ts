@@ -139,8 +139,7 @@ function trimRecentExternalRefreshIds(): void {
   }
 }
 
-function rememberExternalRefreshId(id: string | null): boolean {
-  if (id === null) return true;
+function rememberExternalRefreshId(id: string): boolean {
   if (_recentExternalRefreshIds.has(id)) return false;
   _recentExternalRefreshIds.add(id);
   trimRecentExternalRefreshIds();
@@ -329,9 +328,10 @@ function refreshAfterUserReturns(): void {
  * context that has only subscribed (the login popup opened before any read)
  * reconciles a result through the subscriber's own login read, as before.
  */
-function receiveAccountPulse(pulse: AccountPulse | null, refreshWithoutPulse = false): void {
+function receiveAccountPulse(pulse: AccountPulse | null): void {
+  if (!pulse) return;
   const reconcile = _lifecycleBound;
-  if (pulse?.auth && pulse.id !== null && pulse.accountClient !== null) {
+  if (pulse.auth && pulse.accountClient !== null) {
     const result: AccountAuthResult = {
       outcome: pulse.auth,
       id: pulse.id,
@@ -346,8 +346,7 @@ function receiveAccountPulse(pulse: AccountPulse | null, refreshWithoutPulse = f
     }
   }
   if (!reconcile) return;
-  if (pulse) reconcileExternalAccountChange(pulse.id, pulse.auth === 'success');
-  else if (refreshWithoutPulse) reconcileExternalAccountChange(null, false);
+  reconcileExternalAccountChange(pulse.id, pulse.auth === 'success');
 }
 
 function receiveWindowMessagePulse(event: MessageEvent): void {
@@ -357,9 +356,7 @@ function receiveWindowMessagePulse(event: MessageEvent): void {
 
 function receiveStoragePulse(event: StorageEvent): void {
   if (event.key !== ACCOUNT_SYNC_STORAGE_KEY) return;
-  // Any value of the key refreshes; one that is not pulse JSON (the opaque
-  // token older clients stored, or a removal) as an unidentified pulse.
-  receiveAccountPulse(parseAccountPulseStorageValue(event.newValue), true);
+  receiveAccountPulse(parseAccountPulseStorageValue(event.newValue));
 }
 
 function receiveBroadcastPulse(event: MessageEvent): void {
@@ -400,8 +397,8 @@ function startExternalAccountReconciliation(): void {
   _externalRefreshInFlight = wrapped;
 }
 
-function reconcileExternalAccountChange(refreshId: string | null, loginSuccess = false): void {
-  if (refreshId !== null && loginSuccess) {
+function reconcileExternalAccountChange(refreshId: string, loginSuccess = false): void {
+  if (loginSuccess) {
     // An identified result arrives once per transport, in separate tasks, and
     // the account UI asks for the same login read when the result is its own.
     // Keep one bounded, replayable operation per nonce so every consumer
@@ -416,11 +413,9 @@ function reconcileExternalAccountChange(refreshId: string | null, loginSuccess =
     return;
   }
   if (_externalRefreshInFlight) {
-    // A new identified pulse represents a genuinely later account change, so
-    // fence the older read. Legacy clients did not include an ID: preserve
-    // that first post-cookie result, then reconcile once more, because their
-    // opener/BroadcastChannel/storage copies cannot be distinguished safely.
-    if (refreshId !== null) _operationGeneration += 1;
+    // A new pulse represents a genuinely later account change, so fence the
+    // older read and reconcile once more.
+    _operationGeneration += 1;
     _externalRefreshFollowUp = true;
     return;
   }

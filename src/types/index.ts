@@ -84,7 +84,7 @@ export interface RemoteFileSharePayload {
   queueItemId: QueueItemId;
   sessionId: number;
   expiresAt: number;
-  /** Explicit host-authorized object-storage delivery for a local guest. */
+  /** Always 'r2' on a REMOTE_FILE_SHARE frame; the host adds it when it sends a descriptor. */
   delivery?: 'r2';
   /** Background next-track delivery. Absence means the active playback file. */
   preload?: true;
@@ -371,7 +371,6 @@ type NoPayload = Record<never, never>;
 export interface ProtocolMap {
   // ── Handshake / Session ──────────────────────────────────────────
   welcome: {
-    lockChannel: boolean;
     label: string;
     chatFrozen?: boolean;
     slowmodeSeconds?: number;
@@ -394,15 +393,18 @@ export interface ProtocolMap {
   'demo-play': {
     index: number;
     time: number;
-    hostPlayAt: number;
     /** Host-clock instant at which `time` becomes the shared demo position. */
-    hostStartAt?: number;
+    hostStartAt: number;
+    /**
+     * hostStartAt plus 350 ms, ignored on receipt. Still sent because guests
+     * before the old-version removal train (9.0.12 and older) require it.
+     */
+    hostPlayAt?: number;
   };
   'request-demo-enter': NoPayload;
   'request-demo-exit': NoPayload;
 
   // ── Audio Control ────────────────────────────────────────────────
-  volume: { value: number; _bootstrap?: boolean };
   /** Atomic coordinator-sequenced volume + DSP authority snapshot. */
   'settings-sync-snapshot': {
     version: 1;
@@ -415,25 +417,12 @@ export interface ProtocolMap {
   'request-settings-sync-snapshot': { version: 1 };
   /** Only an effects controller may replace the canonical snapshot. */
   'publish-settings-sync-snapshot': { version: 1; settings: RoomSettingsSyncState };
-  'eq-update': { band: number; value: number; _bootstrap?: boolean };
-  'eq-reset': NoPayload;
-  preamp: { value: number; _bootstrap?: boolean };
-  reverb: { value: number; _bootstrap?: boolean };
-  'reverb-type': { value: string; _bootstrap?: boolean };
-  'reverb-decay': { value: number; _bootstrap?: boolean };
-  'reverb-predelay': { value: number; _bootstrap?: boolean };
-  'reverb-lowcut': { value: number; _bootstrap?: boolean };
-  'reverb-highcut': { value: number; _bootstrap?: boolean };
-  'stereo-width': { value: number; _bootstrap?: boolean };
-  vbass: { value: number; _bootstrap?: boolean };
-  exciter: { value: number; _bootstrap?: boolean };
 
   // ── Playback ─────────────────────────────────────────────────────
   play: {
     time: number;
     queueItemId: QueueItemId;
     name?: string | null;
-    hostPlayAt?: number;
     /** Host-clock instant at which this local-file position becomes audible. */
     hostStartAt?: number;
   };
@@ -441,7 +430,7 @@ export interface ProtocolMap {
     time: number;
     queueItemId: QueueItemId | null;
     endOfPlaylist?: boolean;
-    reason?: 'pause' | 'stop' | 'seek' | 'transition' | 'end-of-playlist';
+    reason: 'pause' | 'stop' | 'seek' | 'transition' | 'end-of-playlist';
   };
   'play-preloaded': { queueItemId: QueueItemId; name: string; mime?: string };
   'file-prepare': {
@@ -449,7 +438,7 @@ export interface ProtocolMap {
     queueItemId: QueueItemId;
     sessionId: number;
     mime: string;
-    size?: number;
+    size: number;
     delivery?: 'r2';
   };
   'file-r2-capability': {
@@ -461,9 +450,9 @@ export interface ProtocolMap {
     queueItemId: QueueItemId;
     sessionId: number;
     limited?: boolean;
-    delivery?: 'r2';
+    delivery: 'r2';
   };
-  'remote-file-share': RemoteFileSharePayload;
+  'remote-file-share': RemoteFileSharePayload & { delivery: 'r2' };
   // ── Playlist ─────────────────────────────────────────────────────
   'playlist-update': {
     list: PlaylistWireItem[];
@@ -473,30 +462,6 @@ export interface ProtocolMap {
     bootstrap?: true;
     /** Repaint an equal-revision operator view after a rejected/no-op mutation. */
     refresh?: true;
-  };
-  /** Legacy host hint for the next persistent file; the recipient self-preloads from R2. */
-  'pro-file-preload': { queueItemId: QueueItemId; sessionId: number };
-  /** Member hint that the authenticated PRO service has a newer snapshot. */
-  'pro-room-invalidated': { revision: number; playlistRevision: number };
-  /** Legacy member-to-host hint requesting a server-owned live-share refresh. */
-  'pro-system-audio-hint': { generation: number };
-  /** Legacy host fanout of an already server-validated PRO live-share state. */
-  'pro-system-audio-state': {
-    version: 2;
-    generation: number;
-    status: 'idle' | 'preparing' | 'live';
-    ownerParticipantId: string | null;
-    ownerDisplayName: string | null;
-    claimExpiresAt: number | null;
-    liveExpiresAt: number | null;
-    publication: null | {
-      publicationId: string;
-      sessionId: string;
-      track: {
-        trackName: string;
-        mid?: string;
-      };
-    };
   };
   // _bootstrap marks a re-baseline frame (join bootstrap / OPERATOR_REVOKE
   // resync) — the receiving handler applies the value but skips the toast.
@@ -601,8 +566,9 @@ export interface ProtocolMap {
       status: string;
       isHost: boolean;
       isOp?: boolean;
+      /** Absent only on the host's own row. */
       connectionType?: string;
-      devicePlatform?: DevicePlatform;
+      devicePlatform: DevicePlatform;
       joinOrder?: number;
       memberId?: string;
       memberDisplayNumber?: number;
@@ -618,7 +584,7 @@ export interface ProtocolMap {
   };
   /** A hidden Standard host refuses a command that would start or move playback. */
   'host-command-rejected': { reason: 'host-hidden'; command: string };
-  'operator-grant': { capabilities?: RoomCapability[]; silent?: boolean };
+  'operator-grant': { capabilities: RoomCapability[]; silent?: boolean };
   'operator-revoke': { silent?: boolean };
 
   // ── Guest Requests ───────────────────────────────────────────────
@@ -688,8 +654,8 @@ export interface ProtocolMap {
       | 'resolution-failed'
       | 'internal-error';
   };
-  'request-setting': { settingType: string; value?: unknown; band?: number };
-  'request-eq-reset': NoPayload;
+  'request-setting':
+    { settingType: 'repeat-mode'; value: number } | { settingType: 'shuffle-mode'; value: boolean };
   'request-current-file': {
     requestId: FileRequestId;
     queueItemId: QueueItemId;
@@ -716,7 +682,7 @@ export interface ProtocolMap {
   // ── YouTube ──────────────────────────────────────────────────────
   'youtube-play': {
     videoId?: string | null;
-    playlistId?: string | string[] | null;
+    playlistId?: string | null;
     name?: string | null;
     queueItemId: QueueItemId;
     autoplay: boolean;
@@ -730,7 +696,7 @@ export interface ProtocolMap {
     subIndex?: number;
     videoId?: string;
     hostPlayAt?: number;
-    hostClock?: number;
+    hostClock: number;
     title?: string;
   };
   'youtube-sync': {
@@ -739,22 +705,16 @@ export interface ProtocolMap {
     state: number;
     subIndex?: number;
     videoId?: string;
-    hostClock?: number;
+    hostClock: number;
     isManual?: boolean;
     title?: string;
   };
-  'youtube-zero-start-capability':
-    | {
-        /** Legacy support-only advertisement. Never implies runtime readiness. */
-        version: 1;
-        platform: YouTubeZeroStartPlatform;
-      }
-    | {
-        /** Runtime-aware advertisement used by the bounded zero-start barrier. */
-        version: 2;
-        platform: YouTubeZeroStartPlatform;
-        ready: boolean;
-      };
+  'youtube-zero-start-capability': {
+    /** Runtime-aware advertisement used by the bounded zero-start barrier. */
+    version: 2;
+    platform: YouTubeZeroStartPlatform;
+    ready: boolean;
+  };
   'youtube-zero-start-prepare': {
     version: 1;
     runId: string;
@@ -818,7 +778,8 @@ export interface ProtocolMap {
   'youtube-playlist-info': { playlistId: string; ids: string[]; titles: string[] };
 
   // ── Shared Clock ────────────────────────────────────────────────
-  'sync-ping': { pingId: number; guestTime: number };
+  /** The host never reads guestTime; it stays optional for senders that still add it. */
+  'sync-ping': { pingId: number; guestTime?: number };
   'sync-pong': {
     pingId: number;
     hostTime: number;
@@ -1062,7 +1023,7 @@ export interface StateTree {
     hostConn: DataConnection | null;
     connectedPeers: ConnectedPeer[];
     isOperator: boolean;
-    /** Explicit current standard-room grant. `null` means a legacy boolean-only host. */
+    /** Explicit current standard-room grant. `null` means no grant (plain or unconfirmed). */
     standardRoomCapabilities: RoomCapability[] | null;
     /**
      * A PRO member's outbound row-selection request while this endpoint is

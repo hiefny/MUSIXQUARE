@@ -339,10 +339,24 @@ describe('Vite local API safety', () => {
 
 describe('Vite dynamic/static overlap policy', () => {
   const reviewedWarning = `[plugin vite:reporter]
-(!) C:/repo/src/player/playlist.ts is dynamically imported by C:/repo/src/player/playlist-loader.ts, C:/repo/src/storage/preload.ts but also statically imported by C:/repo/src/app.ts, C:/repo/src/pro-room/runtime.ts, C:/repo/src/ui/player-controls.ts, dynamic import will not move module into another chunk.`;
+(!) C:/repo/src/player/playlist.ts is dynamically imported by C:/repo/src/player/playlist-loader.ts, C:/repo/src/storage/preload.ts but also statically imported by C:/repo/src/app.ts, C:/repo/src/pro-room/runtime.ts, C:/repo/src/ui/player-controls.ts, C:/repo/src/ui/playlist-slots-dialog.ts, dynamic import will not move module into another chunk.`;
 
   it('allows only the reviewed playlist importer multiset', () => {
     expect(isExpectedPlaylistImportOverlapWarning(reviewedWarning)).toBe(true);
+  });
+
+  it('accepts the same reviewed multiset from a native Rolldown warning', () => {
+    const rolldownWarning =
+      '\u001b[33m[INEFFECTIVE_DYNAMIC_IMPORT] \u001b[0msrc/player/playlist.ts is dynamically ' +
+      'imported by src/player/playlist-loader.ts, src/storage/preload.ts but also statically ' +
+      'imported by src/app.ts, src/pro-room/runtime.ts, src/ui/player-controls.ts, ' +
+      'src/ui/playlist-slots-dialog.ts, dynamic import will not move module into another chunk.';
+    expect(isExpectedPlaylistImportOverlapWarning(rolldownWarning)).toBe(true);
+    expect(
+      isExpectedPlaylistImportOverlapWarning(
+        rolldownWarning.replace(', src/ui/playlist-slots-dialog.ts', ''),
+      ),
+    ).toBe(false);
   });
 
   it('accepts the same reviewed multiset from a raw Rollup warning message', () => {

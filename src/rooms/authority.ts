@@ -129,9 +129,7 @@ export function hasRoomCapability(capability: RoomCapability): boolean {
     hostConn?.open === true &&
     getState('network.isOperator')
   ) {
-    const explicitCapabilities = getState('network.standardRoomCapabilities');
-    if (explicitCapabilities !== null) return explicitCapabilities.includes(capability);
-    return STANDARD_OPERATOR_CAPABILITIES.has(capability);
+    return getState('network.standardRoomCapabilities')?.includes(capability) === true;
   }
   return false;
 }

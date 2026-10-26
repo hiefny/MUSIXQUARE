@@ -477,12 +477,11 @@ describe('automatic precision rendezvous for small stable drift', () => {
     { name: 'this speaker is locally paused', arrange: () => setLocalYouTubePaused(true) },
     { name: 'zero-start owns the iframe', arrange: () => (harness.zeroStartActive = true) },
     { name: 'the shared clock is uncalibrated', arrange: () => (harness.clockCalibrated = false) },
-    { name: 'heartbeats carry no hostClock', frame: { hostClock: undefined } },
-  ])('does not act while $name', ({ arrange, frame }) => {
+  ])('does not act while $name', ({ arrange }) => {
     const player = installGuest();
-    arrange?.();
+    arrange();
     for (let i = 0; i < 4; i++) {
-      heartbeatWithDrift(player, 0.4, frame);
+      heartbeatWithDrift(player, 0.4);
       vi.advanceTimersByTime(HEARTBEAT_INTERVAL_MS);
     }
     expect(rendezvousStarts).toBe(0);

@@ -18,10 +18,14 @@ import {
 import { setRepeatMode, setShuffle } from '../../player/playlist.ts';
 import {
   freezeFileDeliveryMode,
-  markLocalFileR2Capable,
   resetFileDeliveryPolicies,
 } from '../../share/file-delivery-policy.ts';
-import type { ConnectedPeer, DataConnection, PlaylistItem } from '../../types/index.ts';
+import type {
+  ConnectedPeer,
+  DataConnection,
+  PlaylistItem,
+  RoomContext,
+} from '../../types/index.ts';
 import { showLoader } from '../../ui/toast.ts';
 
 const storageMocks = vi.hoisted(() => ({
@@ -60,12 +64,6 @@ function connectedPeer(
     lastHeartbeat: 0,
     ...overrides,
   };
-}
-
-function messageType(message: unknown): unknown {
-  return typeof message === 'object' && message !== null && 'type' in message
-    ? message.type
-    : undefined;
 }
 
 vi.mock('../storage.ts', async (importOriginal) => {
@@ -123,7 +121,7 @@ describe('schedulePreload', () => {
     expect(() => schedulePreload()).not.toThrow();
   });
 
-  it('keeps the V1 coordinator PRO whole-object preload path without legacy chunk frames', async () => {
+  it('warms the next PRO file from R2 on this participant without sending any frame', async () => {
     vi.useFakeTimers();
     const current = makeFileTrack('current.flac', Q0);
     const next = makeFileTrack('next.flac', Q1);
@@ -156,128 +154,9 @@ describe('schedulePreload', () => {
     expect(getState('preload.nextQueueItemId')).toBe(Q1);
     expect(getState('preload.activeTarget')).toMatchObject({ queueItemId: Q1 });
     expect(getState('preload.ready')).toBeNull();
-    const messages = vi.mocked(conn.send).mock.calls.map(([message]) => message);
-    expect(messages).toContainEqual(
-      expect.objectContaining({ type: MSG.PRO_FILE_PRELOAD, queueItemId: Q1 }),
-    );
-    expect(messages.some((message) => messageType(message) === MSG.PRELOAD_START)).toBe(false);
-    expect(messages.some((message) => messageType(message) === MSG.PRELOAD_CHUNK)).toBe(false);
-    expect(messages.some((message) => messageType(message) === MSG.PRELOAD_END)).toBe(false);
-  });
-
-  it('accepts a PRO preload hint only from the exact coordinator connection', async () => {
-    initPreload();
-    const hostConn = {
-      open: true,
-      peer: 'pro-coordinator',
-      send: vi.fn(),
-    } as unknown as DataConnection;
-    const staleConn = {
-      open: true,
-      peer: 'pro-coordinator',
-      send: vi.fn(),
-    } as unknown as DataConnection;
-    const downloaded = new File(['next'], 'next.flac', { type: 'audio/flac' });
-    setState('room.context', {
-      kind: 'pro',
-      roomId: '000001',
-      role: 'member',
-      coordinatorId: hostConn.peer,
-      epoch: 2,
-      snapshotRevision: 4,
-      capabilities: ['playback.control'],
-    });
-    setState('network.hostConn', hostConn);
-    setState('playlist.items', [
-      makeFileTrack('current.flac', Q0),
-      { ...makeFileTrack('next.flac', Q1), file: undefined },
-    ]);
-    setState('playlist.currentQueueItemId', Q0);
-    proRoomMocks.preloadFile.mockResolvedValue(downloaded);
-
-    await handleData({ type: MSG.PRO_FILE_PRELOAD, queueItemId: Q1, sessionId: 9 }, staleConn);
-    expect(proRoomMocks.preloadFile).not.toHaveBeenCalled();
-
-    await handleData({ type: MSG.PRO_FILE_PRELOAD, queueItemId: Q1, sessionId: 9 }, hostConn);
-    await vi.waitFor(() => expect(getState('preload.isPreloading')).toBe(false));
-    expect(proRoomMocks.preloadFile).toHaveBeenCalledOnce();
-    expect(getState('preload.ready')).toBeNull();
-    expect(getState('preload.activeTarget')).toMatchObject({ queueItemId: Q1, sessionId: 9 });
-  });
-
-  it('re-fetches an identical PRO hint when its completed LRU entry was evicted', async () => {
-    initPreload();
-    const hostConn = {
-      open: true,
-      peer: 'pro-coordinator',
-      send: vi.fn(),
-    } as unknown as DataConnection;
-    setState('room.context', {
-      kind: 'pro',
-      roomId: '000001',
-      role: 'member',
-      coordinatorId: hostConn.peer,
-      epoch: 2,
-      snapshotRevision: 4,
-      capabilities: ['playback.control'],
-    });
-    setState('network.hostConn', hostConn);
-    setState('playlist.items', [
-      makeFileTrack('current.flac', Q0),
-      { ...makeFileTrack('next.flac', Q1), file: undefined },
-    ]);
-    setState('playlist.currentQueueItemId', Q0);
-    proRoomMocks.preloadFile.mockResolvedValue(
-      new File(['next'], 'next.flac', { type: 'audio/flac' }),
-    );
-
-    await handleData({ type: MSG.PRO_FILE_PRELOAD, queueItemId: Q1, sessionId: 9 }, hostConn);
-    await vi.waitFor(() => expect(getState('preload.isPreloading')).toBe(false));
-    expect(proRoomMocks.preloadFile).toHaveBeenCalledOnce();
-
-    proRoomMocks.hasPreloadedFile.mockReturnValue(true);
-    await handleData({ type: MSG.PRO_FILE_PRELOAD, queueItemId: Q1, sessionId: 9 }, hostConn);
-    expect(proRoomMocks.preloadFile).toHaveBeenCalledOnce();
-
-    proRoomMocks.hasPreloadedFile.mockReturnValue(false);
-    await handleData({ type: MSG.PRO_FILE_PRELOAD, queueItemId: Q1, sessionId: 9 }, hostConn);
-    await vi.waitFor(() => expect(proRoomMocks.preloadFile).toHaveBeenCalledTimes(2));
-  });
-
-  it('replays a PRO preload hint that arrives before playlist projection', async () => {
-    initPreload();
-    const hostConn = {
-      open: true,
-      peer: 'pro-coordinator',
-      send: vi.fn(),
-    } as unknown as DataConnection;
-    const downloaded = new File(['next'], 'next.flac', { type: 'audio/flac' });
-    setState('room.context', {
-      kind: 'pro',
-      roomId: '000001',
-      role: 'member',
-      coordinatorId: hostConn.peer,
-      epoch: 2,
-      snapshotRevision: 4,
-      capabilities: ['playback.control'],
-    });
-    setState('network.hostConn', hostConn);
-    setState('playlist.items', [makeFileTrack('current.flac', Q0)]);
-    setState('playlist.currentQueueItemId', Q0);
-    proRoomMocks.preloadFile.mockResolvedValue(downloaded);
-
-    await handleData({ type: MSG.PRO_FILE_PRELOAD, queueItemId: Q1, sessionId: 9 }, hostConn);
-    expect(proRoomMocks.preloadFile).not.toHaveBeenCalled();
-
-    // Persistent-room projection installs the media hooks before publishing
-    // this playlist state. The retained one-shot hint must now start itself.
-    setState('playlist.items', [
-      makeFileTrack('current.flac', Q0),
-      { ...makeFileTrack('next.flac', Q1), file: undefined },
-    ]);
-    await vi.waitFor(() => expect(proRoomMocks.preloadFile).toHaveBeenCalledOnce());
-    await vi.waitFor(() => expect(getState('preload.isPreloading')).toBe(false));
-    expect(getState('preload.activeTarget')).toMatchObject({ queueItemId: Q1, sessionId: 9 });
+    // Every PRO member warms the same canonical object itself. Not even a
+    // stale browser peer is told about it: no hint, no legacy chunk frames.
+    expect(conn.send).not.toHaveBeenCalled();
   });
 
   it('clears a skipped PRO preload so the same target can be retried', async () => {
@@ -346,23 +225,22 @@ describe('schedulePreload', () => {
     await vi.waitFor(() => expect(proRoomMocks.preloadFile).toHaveBeenCalledTimes(2));
   });
 
-  it('accepts a lower PRO preload session after the coordinator connection changes', async () => {
+  it('restarts its own PRO preload when a host connection left from a Standard room clears', async () => {
+    vi.useFakeTimers();
     initPreload();
-    const firstHost = {
+    const staleHost = {
       open: true,
-      peer: 'coordinator-a',
+      peer: 'standard-host',
       send: vi.fn(),
     } as unknown as DataConnection;
-    const nextHost = {
-      open: true,
-      peer: 'coordinator-b',
-      send: vi.fn(),
-    } as unknown as DataConnection;
+    // A Standard guest's host connection can still be projected when the room
+    // context turns PRO. The participant warms the next R2 object itself.
+    setState('network.hostConn', staleHost);
     setState('room.context', {
       kind: 'pro',
       roomId: '000001',
       role: 'member',
-      coordinatorId: firstHost.peer,
+      coordinatorId: null,
       epoch: 2,
       snapshotRevision: 4,
       capabilities: ['playback.control'],
@@ -372,33 +250,83 @@ describe('schedulePreload', () => {
       { ...makeFileTrack('next.flac', Q1), file: undefined },
     ]);
     setState('playlist.currentQueueItemId', Q0);
-    proRoomMocks.preloadFile.mockResolvedValue(
-      new File(['next'], 'next.flac', { type: 'audio/flac' }),
-    );
+    let resolveFirstPreload: (file: File | null) => void = () => {};
+    proRoomMocks.preloadFile
+      .mockImplementationOnce(
+        () =>
+          new Promise<File | null>((resolve) => {
+            resolveFirstPreload = resolve;
+          }),
+      )
+      .mockResolvedValueOnce(new File(['next'], 'next.flac', { type: 'audio/flac' }));
 
-    setState('network.hostConn', firstHost);
-    await handleData({ type: MSG.PRO_FILE_PRELOAD, queueItemId: Q1, sessionId: 99 }, firstHost);
+    schedulePreload(0);
+    await vi.runOnlyPendingTimersAsync();
+    await vi.waitFor(() => expect(proRoomMocks.preloadFile).toHaveBeenCalledOnce());
+    expect(getState('preload.isPreloading')).toBe(true);
+    const firstSessionId = Number(getState('preload.activeTarget')?.sessionId);
+    expect(firstSessionId).toBeGreaterThan(0);
+    proRoomMocks.cancelPreload.mockClear();
+
+    // The PRO projection clears the leftover connection. Its preload session
+    // belongs to the old connection scope, so it is dropped and warmed again.
+    setState('network.hostConn', null);
+    expect(proRoomMocks.cancelPreload).toHaveBeenCalledOnce();
+    await vi.runOnlyPendingTimersAsync();
+    await vi.waitFor(() => expect(proRoomMocks.preloadFile).toHaveBeenCalledTimes(2));
     await vi.waitFor(() => expect(getState('preload.isPreloading')).toBe(false));
 
-    setState('network.hostConn', nextHost);
-    setState('room.context', {
-      ...getState('room.context'),
-      coordinatorId: nextHost.peer,
-      epoch: 3,
-    });
-    await handleData({ type: MSG.PRO_FILE_PRELOAD, queueItemId: Q1, sessionId: 1 }, nextHost);
+    // The dropped owner's late result cannot replace the new session.
+    resolveFirstPreload(new File(['stale'], 'next.flac', { type: 'audio/flac' }));
+    await vi.runOnlyPendingTimersAsync();
+    const target = getState('preload.activeTarget');
+    expect(target).toMatchObject({ queueItemId: Q1 });
+    expect(Number(target?.sessionId)).toBeGreaterThan(firstSessionId);
+    expect(getState('preload.nextQueueItemId')).toBe(Q1);
+  });
+
+  it('drops the previous room preload and warms again on entering another PRO room', async () => {
+    vi.useFakeTimers();
+    initPreload();
+    setState('network.hostConn', null);
+    setState('playlist.items', [
+      makeFileTrack('current.flac', Q0),
+      { ...makeFileTrack('next.flac', Q1), file: undefined },
+    ]);
+    setState('playlist.currentQueueItemId', Q0);
+    proRoomMocks.preloadFile
+      .mockImplementationOnce(() => new Promise<File | null>(() => {}))
+      .mockResolvedValueOnce(new File(['next'], 'next.flac', { type: 'audio/flac' }));
+    const proContext: RoomContext = {
+      kind: 'pro',
+      roomId: '000001',
+      role: 'member',
+      coordinatorId: null,
+      epoch: 2,
+      snapshotRevision: 4,
+      capabilities: ['playback.control'],
+    };
+
+    // Entering a PRO room schedules this participant's own R2 preload.
+    setState('room.context', proContext);
+    await vi.runOnlyPendingTimersAsync();
+    await vi.waitFor(() => expect(proRoomMocks.preloadFile).toHaveBeenCalledOnce());
+    const firstSessionId = Number(getState('preload.activeTarget')?.sessionId);
+    proRoomMocks.cancelPreload.mockClear();
+
+    // Another persistent room owns its own preload scope, even for a queue
+    // item id that looks the same.
+    setState('room.context', { ...proContext, roomId: '000002' });
+    expect(proRoomMocks.cancelPreload).toHaveBeenCalledOnce();
+    await vi.runOnlyPendingTimersAsync();
     await vi.waitFor(() => expect(proRoomMocks.preloadFile).toHaveBeenCalledTimes(2));
-    expect(getState('preload.activeTarget')).toMatchObject({ queueItemId: Q1, sessionId: 1 });
+    await vi.waitFor(() => expect(getState('preload.isPreloading')).toBe(false));
+    expect(Number(getState('preload.activeTarget')?.sessionId)).toBeGreaterThan(firstSessionId);
   });
 
   it('keeps its R2 preload when only the obsolete PRO role label changes', async () => {
     vi.useFakeTimers();
     initPreload();
-    const lateMember = {
-      open: true,
-      peer: 'late-member',
-      send: vi.fn(),
-    } as unknown as DataConnection;
     setState('room.context', {
       kind: 'pro',
       roomId: '000001',
@@ -432,11 +360,9 @@ describe('schedulePreload', () => {
     });
     expect(getState('preload.activeTarget')).toBe(preparedTarget);
     expect(getState('preload.nextQueueItemId')).toBe(Q1);
-    bus.emit('orchestrator:peer-joined', lateMember.peer);
-    expect(lateMember.send).not.toHaveBeenCalled();
   });
 
-  it('replays the authoritative PRO hint for both initial and promoted late peers', () => {
+  it('sends no PRO preload hint to an initial or promoted late peer', () => {
     initPreload();
     const conn = {
       open: true,
@@ -462,19 +388,11 @@ describe('schedulePreload', () => {
     });
 
     bus.emit('orchestrator:peer-joined', conn.peer);
-    expect(conn.send).toHaveBeenCalledWith({
-      type: MSG.PRO_FILE_PRELOAD,
-      queueItemId: Q1,
-      sessionId: 14,
-    });
-
-    vi.mocked(conn.send).mockClear();
     bus.emit('orchestrator:peer-data-target-ready', conn.peer);
-    expect(conn.send).toHaveBeenCalledWith({
-      type: MSG.PRO_FILE_PRELOAD,
-      queueItemId: Q1,
-      sessionId: 14,
-    });
+
+    // Late PRO participants warm the canonical object themselves.
+    expect(conn.send).not.toHaveBeenCalled();
+    expect(getState('preload.activeTarget')).toMatchObject({ queueItemId: Q1, sessionId: 14 });
   });
 });
 
@@ -495,7 +413,7 @@ describe('initial preload state', () => {
 });
 
 describe('preload MIME preservation', () => {
-  it('preserves PRELOAD_START MIME when metadata arrives after an early chunk', async () => {
+  it('opens the preload storage slot with the PRELOAD_START MIME', async () => {
     vi.useFakeTimers();
     initPreload();
     const hostConn = { open: true, peer: 'host-mime', send: vi.fn() } as unknown as DataConnection;
@@ -504,16 +422,6 @@ describe('preload MIME preservation', () => {
     setState('network.sessionCode', '123456');
     setState('playlist.items', [makeFileTrack('concert.flac', Q0)]);
 
-    await handleData(
-      {
-        type: MSG.PRELOAD_CHUNK,
-        sessionId: 30,
-        queueItemId: Q0,
-        chunkIndex: 0,
-        chunk: new Uint8Array([1, 2, 3]),
-      },
-      hostConn,
-    );
     await handleData(
       {
         type: MSG.PRELOAD_START,
@@ -655,8 +563,8 @@ describe('preload MIME preservation', () => {
   });
 });
 
-describe('pre-admission preload buffer bounds', () => {
-  it('clears high-water marks and early chunks on a direct room-code switch', async () => {
+describe('preload receive buffer bounds', () => {
+  it('clears high-water marks and reordered chunks on a direct room-code switch', async () => {
     initPreload();
     const hostConn = {
       open: true,
@@ -670,15 +578,32 @@ describe('pre-admission preload buffer bounds', () => {
 
     await handleData(
       {
+        type: MSG.PRELOAD_START,
+        sessionId: 50,
+        queueItemId: Q0,
+        name: 'room-b.mp3',
+        mime: 'audio/mpeg',
+        total: 2,
+        size: CHUNK_SIZE + 1,
+      },
+      hostConn,
+    );
+    // Chunk 1 ahead of chunk 0 waits in the admitted session's reorder buffer.
+    await handleData(
+      {
         type: MSG.PRELOAD_CHUNK,
         sessionId: 50,
         queueItemId: Q0,
-        chunkIndex: 0,
+        chunkIndex: 1,
         chunk: new Uint8Array([1]),
       },
       hostConn,
     );
-    expect(getPreloadMemoryStats().reorderChunks).toBe(1);
+    expect(getPreloadMemoryStats()).toMatchObject({
+      reorderSessions: 1,
+      reorderChunks: 1,
+      latestSessionId: 50,
+    });
     setState('preload.isPreloading', true);
     setState('preload.nextQueueItemId', Q0);
 
@@ -711,9 +636,17 @@ describe('pre-admission preload buffer bounds', () => {
         queueItemId: Q0,
       }),
     );
+
+    setState('network.sessionCode', '');
+    const { resetStoredFileAdmissionsForTests } = await import('../storage.ts');
+    resetStoredFileAdmissionsForTests();
   });
 
-  it('caps unknown sessions globally while preserving the newest contiguous prefix', async () => {
+  // Survey OV-B04: since 8.11.23 (#410) PRELOAD_START travels on the ordered
+  // bulk lane ahead of its chunks, so a chunk of a session this guest has not
+  // admitted belongs to an older host or to an ignored or skipped START. It is
+  // dropped, not held until a START that may never come.
+  it('drops preload chunks of a session whose START has not arrived', async () => {
     vi.useFakeTimers();
     initPreload();
     const hostConn = { open: true, peer: 'host-early', send: vi.fn() } as unknown as DataConnection;
@@ -740,9 +673,9 @@ describe('pre-admission preload buffer bounds', () => {
     }
 
     expect(getPreloadMemoryStats()).toMatchObject({
-      reorderSessions: 4,
-      reorderChunks: 44,
-      reorderBytes: 44,
+      reorderSessions: 0,
+      reorderChunks: 0,
+      reorderBytes: 0,
     });
 
     await handleData(
@@ -756,8 +689,15 @@ describe('pre-admission preload buffer bounds', () => {
       },
       hostConn,
     );
-    await vi.runOnlyPendingTimersAsync();
-    expect(getState('preload.sessionState').get(5)?.progress).toBe(11);
+    await vi.advanceTimersByTimeAsync(0);
+    expect(getState('preload.sessionState').get(5)).toMatchObject({
+      progress: 0,
+      nextExpectedChunk: 0,
+      finalized: false,
+    });
+    expect(storageMocks.postCommand).not.toHaveBeenCalledWith(
+      expect.objectContaining({ command: 'STORAGE_WRITE', sessionId: 5 }),
+    );
 
     setState('network.sessionCode', '');
     const { resetStoredFileAdmissionsForTests } = await import('../storage.ts');
@@ -2073,7 +2013,6 @@ describe('unicastPreload source liveness', () => {
         };
       }),
     ];
-    for (const peer of peers) markLocalFileR2Capable(peer.id);
     setState('network.connectedPeers', peers);
 
     expect(freezeFileDeliveryMode(20)).toBe('r2-fanout');

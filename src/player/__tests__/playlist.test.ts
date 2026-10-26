@@ -2188,6 +2188,7 @@ describe('playTrack YouTube auto-rendezvous', () => {
       queueItemId: local.queueItemId,
       sessionId: 1,
       mime: 'audio/mpeg',
+      size: file.size,
     });
 
     await playTrack(video.queueItemId);
@@ -2289,6 +2290,7 @@ describe('playTrack explicit file playback intent', () => {
       queueItemId: previous.queueItemId,
       name: oldFile.name,
       mime: oldFile.type,
+      size: oldFile.size,
       sessionId: 1,
     });
 
@@ -2360,6 +2362,7 @@ describe('playTrack explicit file playback intent', () => {
       queueItemId: previous.queueItemId,
       name: oldFile.name,
       mime: oldFile.type,
+      size: oldFile.size,
       sessionId: 1,
     });
     let finishDecode!: (loaded: boolean) => void;
@@ -3795,27 +3798,6 @@ describe('request-setting authorization', () => {
     initPlaylist();
   });
 
-  it('lets demo non-operators use only the settings exposed by demo UI', async () => {
-    const conn = makeConnection('guest-demo');
-    setState('demo.active', true);
-
-    await handleData({ type: MSG.REQUEST_SETTING, settingType: MSG.VBASS, value: 60 }, conn);
-    expect(getState('audio.virtualBass')).toBeCloseTo(0.6);
-
-    await handleData({ type: MSG.REQUEST_SETTING, settingType: MSG.EXCITER, value: 1 }, conn);
-    expect(getState('audio.exciter')).toBe(true);
-
-    await handleData(
-      { type: MSG.REQUEST_SETTING, settingType: MSG.STEREO_WIDTH, value: 120 },
-      conn,
-    );
-    expect(getState('audio.stereoWidth')).toBeCloseTo(1.2);
-
-    const beforeDecay = getState('audio.reverbDecay');
-    await handleData({ type: MSG.REQUEST_SETTING, settingType: MSG.REVERB_DECAY, value: 8 }, conn);
-    expect(getState('audio.reverbDecay')).toBe(beforeDecay);
-  });
-
   it('lets a standard media manager set repeat and shuffle without playback control', async () => {
     const conn = makeConnection('media-manager');
     setState('network.appRole', 'host');
@@ -3838,14 +3820,57 @@ describe('request-setting authorization', () => {
     expect(getState('playlist.isShuffle')).toBe(true);
   });
 
-  it('lets standard administrators control full room effects', async () => {
-    const conn = makeConnection('guest-op');
+  it('ignores per-effect request-setting frames from demo guests and administrators', async () => {
+    const before = {
+      eq: [...getState('audio.eqValues')],
+      preamp: getState('audio.userPreampGain'),
+      bass: getState('audio.virtualBass'),
+      treble: getState('audio.exciter'),
+      width: getState('audio.stereoWidth'),
+      mix: getState('audio.reverbMix'),
+      decay: getState('audio.reverbDecay'),
+    };
+    const demoGuest = makeConnection('guest-demo-per-effect');
+    setState('demo.active', true);
+    await handleData(
+      { type: MSG.REQUEST_SETTING, settingType: 'eq', band: 0, value: 6 },
+      demoGuest,
+    );
+    await handleData({ type: MSG.REQUEST_SETTING, settingType: 'vbass', value: 60 }, demoGuest);
+    await handleData({ type: MSG.REQUEST_SETTING, settingType: 'exciter', value: 1 }, demoGuest);
+    await handleData(
+      { type: MSG.REQUEST_SETTING, settingType: 'stereo-width', value: 120 },
+      demoGuest,
+    );
+    setState('demo.active', false);
+
+    const administrator = makeConnection('guest-op-per-effect');
     setState('network.appRole', 'host');
-    setState('network.activeHostConnByPeerId', new Map([[conn.peer, conn]]));
-    setState('network.connectedPeers', [{ ...makeConnectedPeer(conn.peer, true), conn }]);
+    setState('network.activeHostConnByPeerId', new Map([[administrator.peer, administrator]]));
+    setState('network.connectedPeers', [
+      {
+        ...makeConnectedPeer(administrator.peer, true),
+        conn: administrator,
+        roomCapabilities: ['effects.control'],
+      },
+    ]);
+    for (const [settingType, value] of [
+      ['preamp', 6],
+      ['reverb', 70],
+      ['reverb-decay', 8],
+      ['vbass', 60],
+    ] as const) {
+      await handleData({ type: MSG.REQUEST_SETTING, settingType, value }, administrator);
+    }
 
-    await handleData({ type: MSG.REQUEST_SETTING, settingType: MSG.REVERB_DECAY, value: 8 }, conn);
-
-    expect(getState('audio.reverbDecay')).toBe(8);
+    expect({
+      eq: getState('audio.eqValues'),
+      preamp: getState('audio.userPreampGain'),
+      bass: getState('audio.virtualBass'),
+      treble: getState('audio.exciter'),
+      width: getState('audio.stereoWidth'),
+      mix: getState('audio.reverbMix'),
+      decay: getState('audio.reverbDecay'),
+    }).toEqual(before);
   });
 });

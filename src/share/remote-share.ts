@@ -18,12 +18,7 @@ import { t } from '../i18n/index.ts';
 import { stripRecognizedAudioFileExtension } from '../media/audio-file.ts';
 import { broadcastSystemMessage, sendSystemMessage } from '../chat/protocol.ts';
 import { registerHandlers } from '../network/protocol.ts';
-import {
-  isRemoteGuest,
-  safeSend,
-  sendToHost,
-  waitForGuestConnectionType,
-} from '../network/peer.ts';
+import { safeSend, sendToHost } from '../network/peer.ts';
 import { transition } from '../player/lifecycle.ts';
 import { createFileTrackMeta, isExternalOwner, setPlaybackTrackMeta } from '../player/ownership.ts';
 import {
@@ -56,7 +51,6 @@ import { isCapabilityChallengeCancelled } from '../core/capability.ts';
 import type {
   AnyProtocolMsg,
   DataConnection,
-  ProtocolMsg,
   QueueItemId,
   RemoteFileSharePayload,
   ResidentFile,
@@ -70,7 +64,6 @@ import { isPeerConnectionCurrent } from '../storage/chunk-pump.ts';
 import { completeFileRequest } from '../network/file-request-authority.ts';
 import {
   getR2FileTargets,
-  markLocalFileR2Capable,
   markLateLocalPeerForR2,
   recordGuestFileDelivery,
   releaseFileDeliveryPeer,
@@ -181,32 +174,7 @@ let _lastAdoptedRemoteContext: {
   queueItemId: QueueItemId;
   sessionId: number;
 } | null = null;
-let _remoteDescriptorGeneration = 0;
 let _observedHostConn: DataConnection | null = null;
-
-interface RemoteDescriptorOwnerSnapshot {
-  generation: number;
-  hostConn: DataConnection | null;
-  currentQueueItemId: QueueItemId | null;
-  pendingQueueItemId: QueueItemId | null;
-  transferQueueItemId: QueueItemId | null;
-  transferSessionId: number;
-  activeDownload: DownloadEntry | null;
-}
-
-function captureRemoteDescriptorOwner(): RemoteDescriptorOwnerSnapshot {
-  const pending = getState('playback.pendingRecoveryTarget');
-  const meta = getState('transfer.meta');
-  return {
-    generation: ++_remoteDescriptorGeneration,
-    hostConn: getState('network.hostConn'),
-    currentQueueItemId: getState('playlist.currentQueueItemId'),
-    pendingQueueItemId: pending?.queueItemId ?? null,
-    transferQueueItemId: meta?.queueItemId ?? null,
-    transferSessionId: Number(meta?.sessionId) || 0,
-    activeDownload: _activeDownload,
-  };
-}
 
 function transferOwnerSupersedesDescriptor(
   queueItemId: QueueItemId | null,
@@ -219,69 +187,6 @@ function transferOwnerSupersedesDescriptor(
       queueItemId !== null &&
       queueItemId !== descriptor.queueItemId)
   );
-}
-
-/**
- * Connection classification is asynchronous. Do not let an older descriptor
- * resume after a newer FILE_PREPARE/descriptor, host replacement, or queue
- * removal has transferred ownership. An unchanged null current target remains
- * valid for fresh-join bootstrap.
- */
-function isRemoteDescriptorOwnerCurrent(
-  snapshot: RemoteDescriptorOwnerSnapshot,
-  descriptor: RemoteFileSharePayload,
-  conn: DataConnection | undefined,
-): boolean {
-  if (
-    snapshot.generation !== _remoteDescriptorGeneration ||
-    !snapshot.hostConn ||
-    getState('network.hostConn') !== snapshot.hostConn ||
-    conn !== snapshot.hostConn ||
-    !getQueueItemById(descriptor.queueItemId)
-  ) {
-    return false;
-  }
-
-  const currentQueueItemId = getState('playlist.currentQueueItemId');
-  if (
-    currentQueueItemId !== snapshot.currentQueueItemId &&
-    currentQueueItemId !== descriptor.queueItemId
-  ) {
-    return false;
-  }
-
-  const pendingQueueItemId = getState('playback.pendingRecoveryTarget')?.queueItemId ?? null;
-  if (
-    pendingQueueItemId !== snapshot.pendingQueueItemId &&
-    pendingQueueItemId !== descriptor.queueItemId
-  ) {
-    return false;
-  }
-
-  const meta = getState('transfer.meta');
-  const transferQueueItemId = meta?.queueItemId ?? null;
-  const transferSessionId = Number(meta?.sessionId) || 0;
-  if (transferOwnerSupersedesDescriptor(transferQueueItemId, transferSessionId, descriptor)) {
-    return false;
-  }
-
-  const active = _activeDownload;
-  if (
-    active !== snapshot.activeDownload &&
-    active &&
-    (transferOwnerSupersedesDescriptor(
-      active.descriptor.queueItemId,
-      active.descriptor.sessionId,
-      descriptor,
-    ) ||
-      (active.descriptor.sessionId === descriptor.sessionId &&
-        active.descriptor.queueItemId === descriptor.queueItemId &&
-        active.objectId !== descriptor.objectId))
-  ) {
-    return false;
-  }
-
-  return true;
 }
 
 function adoptRemoteContext(descriptor: RemoteFileSharePayload): void {
@@ -761,8 +666,6 @@ function abortRemovedQueueUploads(): void {
 }
 
 export function cancelRemoteShareWait(reason: string): void {
-  // Supersede descriptors suspended in connection-type classification.
-  _remoteDescriptorGeneration++;
   const hadActiveDownload = !!_activeDownload;
 
   // A deferred next-track descriptor is subordinate to the foreground wait
@@ -1838,18 +1741,15 @@ async function handleRemoteFileShare(
     log.warn('[RemoteShare] Ignoring descriptor issued for a different room');
     return;
   }
-  const ownerSnapshot = captureRemoteDescriptorOwner();
-
-  const explicitR2Delivery = descriptor.delivery === 'r2';
-  if (!explicitR2Delivery && getState('network.connectionType') === 'unknown') {
-    const resolved = await waitForGuestConnectionType(3000);
-    if (resolved === 'local') return;
-  } else if (!isRemoteGuest() && !explicitR2Delivery) {
-    return;
-  }
-
-  if (!isRemoteDescriptorOwnerCurrent(ownerSnapshot, descriptor, conn)) {
-    log.debug('[RemoteShare] Descriptor superseded during connection classification');
+  const transferMeta = getState('transfer.meta');
+  if (
+    transferOwnerSupersedesDescriptor(
+      transferMeta?.queueItemId ?? null,
+      Number(transferMeta?.sessionId) || 0,
+      descriptor,
+    )
+  ) {
+    log.debug('[RemoteShare] Descriptor superseded by a newer transfer owner');
     return;
   }
 
@@ -2249,13 +2149,6 @@ async function handleRemoteFileShare(
 function handleRemoteFileUnavailable(data: Record<string, unknown>, conn?: DataConnection): void {
   const hostConn = getState('network.hostConn');
   if (!hostConn || conn !== hostConn) return;
-  if (
-    data.delivery !== 'r2' &&
-    !isRemoteGuest() &&
-    getState('network.connectionType') !== 'unknown'
-  ) {
-    return;
-  }
   recordGuestFileDelivery(data.queueItemId as QueueItemId, Number(data.sessionId), 'r2');
 
   const queueItemId = data.queueItemId;
@@ -2307,71 +2200,7 @@ function handleRemoteFileUnavailable(data: Record<string, unknown>, conn?: DataC
   transition({ type: 'REMOTE_FILE_UNAVAILABLE' });
 }
 
-async function handleFileR2Capability(
-  data: ProtocolMsg<typeof MSG.FILE_R2_CAPABILITY>,
-  conn?: DataConnection,
-): Promise<void> {
-  if (data.version !== 1 || data.localAudience !== true) return;
-  if (getState('network.appRole') !== 'host' || !conn?.peer) return;
-  if (getState('network.activeHostConnByPeerId').get(conn.peer) !== conn) return;
-
-  const recoveredSessionIds = markLocalFileR2Capable(conn.peer);
-  if (recoveredSessionIds.length === 0) return;
-
-  const current = getState('files.current');
-  let replayedCurrentOwner: { queueItemId: QueueItemId; sessionId: number } | null = null;
-  if (
-    current?.blob instanceof File &&
-    current.queueItemId &&
-    getState('playlist.currentQueueItemId') === current.queueItemId &&
-    recoveredSessionIds.includes(current.sessionId) &&
-    shouldConnectionUseR2(conn, current.sessionId)
-  ) {
-    replayedCurrentOwner = {
-      queueItemId: current.queueItemId,
-      sessionId: current.sessionId,
-    };
-    safeSend(conn, {
-      type: MSG.FILE_PREPARE,
-      name: current.name,
-      queueItemId: current.queueItemId,
-      sessionId: current.sessionId,
-      size: current.blob.size,
-      mime: current.mime || current.blob.type || 'application/octet-stream',
-      delivery: 'r2',
-    });
-    await shareRemoteFileIfNeeded(current.blob, current.sessionId, conn, {
-      queueItemId: current.queueItemId,
-    });
-  }
-
-  // ICE can classify the ninth local peer before its capability frame arrives.
-  // That ordering recovers every already-frozen session at once, including the
-  // independently frozen next-track session. Replay its warm descriptor too;
-  // otherwise this one peer alone would miss preload until foreground play.
-  // Establish current playback first. If next arrives before a slow current
-  // upload, the guest would start the warm GET and then abort it for current,
-  // with no second one-shot hint. Re-read authority after the await so playlist
-  // changes and connection replacement cannot publish a stale next target.
-  if (getState('network.activeHostConnByPeerId').get(conn.peer) !== conn || !conn.open) return;
-  const preload = getState('preload.ready');
-  const preloadTarget = getState('preload.activeTarget');
-  if (
-    REMOTE_FILE_PRELOAD_ENABLED &&
-    preload?.blob instanceof File &&
-    preload.queueItemId === preloadTarget?.queueItemId &&
-    preload.sessionId === preloadTarget.sessionId &&
-    (replayedCurrentOwner?.queueItemId !== preload.queueItemId ||
-      replayedCurrentOwner.sessionId !== preload.sessionId) &&
-    recoveredSessionIds.includes(preload.sessionId) &&
-    shouldConnectionUseR2(conn, preload.sessionId)
-  ) {
-    await preloadRemoteFileIfNeeded(preload.blob, preload.sessionId, preload.queueItemId, conn);
-  }
-}
-
 function resetRemoteShareAuthorityBoundary(): void {
-  _remoteDescriptorGeneration++;
   _lastAdoptedRemoteContext = null;
   resetFileDeliveryPolicies();
 
@@ -2412,7 +2241,6 @@ function resetRemoteShareAuthorityBoundary(): void {
 
 export function initRemoteShare(): void {
   registerHandlers({
-    [MSG.FILE_R2_CAPABILITY]: handleFileR2Capability,
     [MSG.REMOTE_FILE_SHARE]: handleRemoteFileShare,
     [MSG.REMOTE_FILE_UNAVAILABLE]: handleRemoteFileUnavailable,
   });
@@ -2514,6 +2342,9 @@ export function initRemoteShare(): void {
     abortActiveUploadsWithoutTargets('no-r2-targets');
   });
 
+  // Current hosts route by room size alone and ignore this marker, but older
+  // hosts (9.0.12 and earlier) still answer a ninth unadvertised local guest
+  // with REMOTE_FILE_UNAVAILABLE. Keep advertising until the client floor passes them.
   bus.on('network:peer-connected', (conn: DataConnection) => {
     if (getState('network.appRole') !== 'guest') return;
     const hostConn = getState('network.hostConn');

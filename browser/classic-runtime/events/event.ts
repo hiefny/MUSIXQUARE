@@ -98,6 +98,10 @@
   const SETUP_LINK_ENDPOINT = CAMPAIGN_API_BASE + '/setup-link';
   const ACCOUNT_SYNC_CHANNEL = 'mxqr-account-v1';
   const ACCOUNT_SYNC_STORAGE_KEY = 'mxqr-account-refresh';
+  // The app's pulse id bounds (src/account/account-sync-protocol.ts), pinned by
+  // src/account/__tests__/account-pulse-contract.test.ts.
+  const ACCOUNT_PULSE_ID_MIN_LENGTH = 8;
+  const ACCOUNT_PULSE_ID_MAX_LENGTH = 160;
   const REQUEST_TIMEOUT_MS = 15000;
   const RESPONSE_MAX_BYTES = 64 * 1024;
   const ROOM_CODE_PATTERN = /^0\d{5}$/;
@@ -607,7 +611,17 @@
   }
 
   function handleAuthSignal(data: unknown): void {
-    if (!isObject(data) || data.type !== 'refresh') return;
+    // Every pulse has carried an id since 8.3.30; a message without one is
+    // not a pulse.
+    if (
+      !isObject(data) ||
+      data.type !== 'refresh' ||
+      typeof data.id !== 'string' ||
+      data.id.length < ACCOUNT_PULSE_ID_MIN_LENGTH ||
+      data.id.length > ACCOUNT_PULSE_ID_MAX_LENGTH
+    ) {
+      return;
+    }
     if (
       (data.accountAuth === 'cancelled' || data.accountAuth === 'error') &&
       data.accountClient === accountClientId
@@ -1063,16 +1077,14 @@
     if (event.origin === window.location.origin) handleAuthSignal(event.data);
   });
   window.addEventListener('storage', function (event) {
-    if (event.key !== ACCOUNT_SYNC_STORAGE_KEY) return;
-    if (!event.newValue) {
-      refreshAfterAuthSignal().catch(reportUnexpectedAsyncFailure);
+    if (event.key !== ACCOUNT_SYNC_STORAGE_KEY || !event.newValue) return;
+    let data: unknown;
+    try {
+      data = JSON.parse(event.newValue);
+    } catch (_error) {
       return;
     }
-    try {
-      handleAuthSignal(JSON.parse(event.newValue));
-    } catch (_error) {
-      refreshAfterAuthSignal().catch(reportUnexpectedAsyncFailure);
-    }
+    handleAuthSignal(data);
   });
   window.addEventListener('focus', function () {
     if (authPopup) refreshAfterAuthSignal().catch(reportUnexpectedAsyncFailure);

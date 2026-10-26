@@ -90,12 +90,18 @@ describe('demo runtime loader', () => {
     );
     const { conn, send } = await guestLoader();
     const staleEntry = send(enterMessage(0));
-    const stalePlay = send({ type: MSG.DEMO_PLAY, index: 0, time: 0, hostPlayAt: 0 });
+    const stalePlay = send({
+      type: MSG.DEMO_PLAY,
+      index: 0,
+      time: 0,
+      hostStartAt: 1_000,
+      hostPlayAt: 1_350,
+    });
     await vi.dynamicImportSettled();
     expect(demoRuntime.init).not.toHaveBeenCalled();
     await send({ type: MSG.DEMO_EXIT });
     const entry = enterMessage(1);
-    const play = { type: MSG.DEMO_PLAY, index: 1, time: 2, hostPlayAt: 3 };
+    const play = { type: MSG.DEMO_PLAY, index: 1, time: 2, hostStartAt: 3, hostPlayAt: 353 };
     const latestEntry = send(entry);
     const latestPlay = send(play);
     ready();
@@ -168,7 +174,7 @@ describe('demo runtime loader', () => {
   it('preserves the initial remote ENTER and PLAY frames while the runtime loads', async () => {
     const { conn, send } = await guestLoader();
     const enter = enterMessage(1);
-    const play = { type: MSG.DEMO_PLAY, index: 1, time: 2, hostPlayAt: 3 };
+    const play = { type: MSG.DEMO_PLAY, index: 1, time: 2, hostStartAt: 3, hostPlayAt: 353 };
     const enterPending = send(enter);
     const playPending = send(play);
 
@@ -210,7 +216,7 @@ describe('demo runtime loader', () => {
     const { send } = await guestLoader();
     await Promise.all([
       send(enterMessage(0)),
-      send({ type: MSG.DEMO_PLAY, index: 0, time: 0, hostPlayAt: 0 }),
+      send({ type: MSG.DEMO_PLAY, index: 0, time: 0, hostStartAt: 1_000, hostPlayAt: 1_350 }),
       send({ type: MSG.DEMO_EXIT }),
     ]);
     expect(demoRuntime.handleProtocolMessage).not.toHaveBeenCalled();
@@ -222,7 +228,7 @@ describe('demo runtime loader', () => {
     const pause = { type: MSG.DEMO_PAUSE, time: 70 };
     await Promise.all([
       send(enterMessage(0)),
-      send({ type: MSG.DEMO_PLAY, index: 0, time: 0, hostPlayAt: 0 }),
+      send({ type: MSG.DEMO_PLAY, index: 0, time: 0, hostStartAt: 1_000, hostPlayAt: 1_350 }),
       send(latestEnter),
       send(pause),
     ]);
@@ -235,7 +241,13 @@ describe('demo runtime loader', () => {
   it('accepts a new entry after EXIT while the same runtime import is still pending', async () => {
     const { conn, send } = await guestLoader();
     const latestEnter = enterMessage(2);
-    const latestPlay = { type: MSG.DEMO_PLAY, index: 2, time: 8, hostPlayAt: 10_000 };
+    const latestPlay = {
+      type: MSG.DEMO_PLAY,
+      index: 2,
+      time: 8,
+      hostStartAt: 10_000,
+      hostPlayAt: 10_350,
+    };
     await Promise.all([
       send(enterMessage(0)),
       send({ type: MSG.DEMO_EXIT }),
@@ -286,7 +298,7 @@ describe('demo runtime loader', () => {
     const enter = enterMessage(0);
     await Promise.all([
       send(enter),
-      send({ type: MSG.DEMO_PLAY, index: 0, time: 0, hostPlayAt: 0 }),
+      send({ type: MSG.DEMO_PLAY, index: 0, time: 0, hostStartAt: 1_000, hostPlayAt: 1_350 }),
     ]);
     expect(demoRuntime.handleProtocolMessage.mock.calls).toEqual([[enter, conn]]);
   });
@@ -298,7 +310,7 @@ describe('demo runtime loader', () => {
     });
     const { conn, send } = await guestLoader();
     const enter = enterMessage(1);
-    const play = { type: MSG.DEMO_PLAY, index: 1, time: 2, hostPlayAt: 3 };
+    const play = { type: MSG.DEMO_PLAY, index: 1, time: 2, hostStartAt: 3, hostPlayAt: 353 };
     await Promise.all([send(enter), send(play)]);
     vi.doMock('../mode.ts', () => ({
       initDemoMode: demoRuntime.init,

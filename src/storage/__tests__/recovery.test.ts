@@ -14,7 +14,6 @@ import {
   getCurrentFileRequestOwnerForTests,
   resetFileRequestAuthority,
 } from '../../network/file-request-authority.ts';
-import { registerProRoomMediaHooks, type ProRoomMediaHooks } from '../../pro-room/media-hooks.ts';
 import {
   claimPlaybackOwner,
   createSystemAudioTrackMeta,
@@ -23,7 +22,6 @@ import {
 } from '../../player/ownership.ts';
 import {
   freezeFileDeliveryMode,
-  markLocalFileR2Capable,
   resetFileDeliveryPolicies,
 } from '../../share/file-delivery-policy.ts';
 
@@ -167,7 +165,6 @@ function arrangeStoreChunks(name: string, sid: number, count: number, queueItemI
 }
 
 afterEach(() => {
-  registerProRoomMediaHooks(null);
   vi.useRealTimers();
   vi.restoreAllMocks();
 });
@@ -616,36 +613,6 @@ describe('host cached-blob recovery identity', () => {
     setState('transfer.meta', { queueItemId, name, sessionId, size: blob.size });
   }
 
-  it('serves persistent PRO recovery as FILE_PREPARE control without relaying bytes', async () => {
-    const currentBlob = new Blob(['canonical-pro-r2'], { type: 'audio/flac' });
-    setResident(Q2, 'persistent.flac', currentBlob, 17);
-    const hooks: ProRoomMediaHooks = {
-      addFiles: () => false,
-      addYouTube: () => false,
-      updateTrackMetadata: () => false,
-      removeTracks: () => false,
-      reorderTrack: () => false,
-      resolveFile: () => null,
-      handlesPersistentFile: (queueItemId) => queueItemId === Q2,
-    };
-    registerProRoomMediaHooks(hooks);
-
-    const conn = makeGuestConn('remote');
-    await invokeRecoveryHandler(MSG.REQUEST_CURRENT_FILE, { queueItemId: Q2 }, conn);
-
-    const { unicastFile } = await import('../transfer.ts');
-    expect(conn.send).toHaveBeenCalledWith({
-      type: MSG.FILE_PREPARE,
-      queueItemId: Q2,
-      sessionId: 17,
-      name: 'persistent.flac',
-      mime: 'audio/flac',
-      size: currentBlob.size,
-    });
-    expect(unicastFile).not.toHaveBeenCalled();
-    expect(remoteShareMocks.shareRemoteFileIfNeeded).not.toHaveBeenCalled();
-  });
-
   it('does not send a future preload as the current main transfer', async () => {
     const currentBlob = new Blob(['current-index-zero']);
     const preloadBlob = new Blob(['preload-index-one']);
@@ -871,7 +838,6 @@ describe('host cached-blob recovery identity', () => {
         joinOrder: index + 2,
       })),
     ];
-    for (const peer of peers) markLocalFileR2Capable(peer.id);
     setState('network.connectedPeers', peers);
     expect(freezeFileDeliveryMode(11)).toBe('r2-fanout');
 
@@ -891,9 +857,9 @@ describe('host cached-blob recovery identity', () => {
     );
   });
 
-  it('reports unavailable instead of exceeding eight direct unadvertised recovery targets', async () => {
-    const currentBlob = new Blob(['unadvertised-overflow'], { type: 'audio/mpeg' });
-    setResident(Q2, 'unadvertised-overflow.mp3', currentBlob, 12);
+  it('recovers a late ninth local guest through R2 instead of reporting unavailable', async () => {
+    const currentBlob = new Blob(['ninth-local'], { type: 'audio/mpeg' });
+    setResident(Q2, 'ninth-local.mp3', currentBlob, 12);
     remoteShareMocks.isConfigured.mockReturnValue(true);
 
     const conn = makeGuestConn('local');
@@ -901,8 +867,8 @@ describe('host cached-blob recovery identity', () => {
       ...getState('network.connectedPeers')[0]!,
       joinOrder: 9,
     };
-    const earlierUnadvertised = Array.from({ length: 8 }, (_, index) => {
-      const id = `unadvertised-${index + 1}`;
+    const earlierLocal = Array.from({ length: 8 }, (_, index) => {
+      const id = `earlier-local-${index + 1}`;
       return {
         ...target,
         id,
@@ -910,8 +876,9 @@ describe('host cached-blob recovery identity', () => {
         joinOrder: index + 1,
       };
     });
-    setState('network.connectedPeers', [...earlierUnadvertised, target]);
-    expect(freezeFileDeliveryMode(12)).toBe('mixed');
+    setState('network.connectedPeers', earlierLocal);
+    expect(freezeFileDeliveryMode(12)).toBe('direct-local');
+    setState('network.connectedPeers', [...earlierLocal, target]);
 
     await invokeRecoveryHandler(
       MSG.REQUEST_DATA_RECOVERY,
@@ -921,11 +888,12 @@ describe('host cached-blob recovery identity', () => {
 
     const { sendFileDeliveryUnavailable, unicastFile } = await import('../transfer.ts');
     expect(unicastFile).not.toHaveBeenCalled();
-    expect(remoteShareMocks.shareRemoteFileIfNeeded).not.toHaveBeenCalled();
-    expect(sendFileDeliveryUnavailable).toHaveBeenCalledWith(
-      conn,
-      { name: 'unadvertised-overflow.mp3', queueItemId: Q2 },
+    expect(sendFileDeliveryUnavailable).not.toHaveBeenCalled();
+    expect(remoteShareMocks.shareRemoteFileIfNeeded).toHaveBeenCalledWith(
+      expect.objectContaining({ name: 'ninth-local.mp3' }),
       12,
+      conn,
+      { queueItemId: Q2 },
     );
   });
 

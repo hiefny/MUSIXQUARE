@@ -797,13 +797,6 @@ export function initSetup(): void {
 
   // Check for /CODE path (e.g. musixquare.com/123456)
   try {
-    // Wipe any leftover join code from a previous (crashed/abandoned) session
-    try {
-      sessionStorage.removeItem('mxqr_pending_join');
-    } catch {
-      /* noop */
-    }
-
     const pathMatch = window.location.pathname.match(/^\/(\d{6})\/?$/);
     const joinCode = pathMatch?.[1] || '';
 

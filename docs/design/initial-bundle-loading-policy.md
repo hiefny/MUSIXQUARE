@@ -454,6 +454,34 @@ bump, not an exact-main CI release candidate. Increments, neutrality evidence
 and limits are in the
 [Phase 4 train 4A report](phase4-4a-transport-rejoin-2026-10-24.md).
 
+### 2026-10-26 old-version removal train 1 entry-chunk addendum
+
+The old-version removal train removed the per-effect settings messages, so
+`src/player/playlist.ts` no longer imports `src/audio/effects.ts`, which
+`src/app.ts` still imports statically. Rolldown then folded nine eager chunks
+into the entry chunk: `playlist`, `preload`, `sync`, `system-capture`,
+`native-control-authority`, `play-latency`, `player-runtime-bridge`,
+`pro-start-observations` and `rolldown-runtime`; the train adds and deletes no
+product file. The HTML-declared eager JavaScript files went
+from 28 to 19, the emitted JavaScript chunks from 112 to 103, and the service
+worker's app-shell manifest from 106 assets (51 injected entry assets) to 97
+(42). The 84 deferred chunks keep the same names, the graph guard
+(`DEFERRED_ENTRY_MODULES` in `vite.config.ts`) still passes, and
+`guard:sw-app-shell` still verifies a cold offline launch.
+
+| Metric                | Before B (`244aca48`) | After B | Unchanged 95% ceiling B |
+| --------------------- | --------------------: | ------: | ----------------------: |
+| Eager JavaScript gzip |               478,186 | 464,581 |                 491,568 |
+| Entry script gzip     |               111,431 | 251,945 |                 461,890 |
+| Entry script raw      |               364,761 | 856,823 |               1,593,625 |
+
+The entry script grew because it now carries those chunks; the eager total fell
+with the removed code. The entry-script budget, which still has room, is the
+only limit on the entry chunk alone. No limit, reserve or reviewed deferred
+root changed. These are local build measurements before the train's version
+bump, not an exact-main CI release candidate. Increments and limits are in the
+[old-version removal train 1 report](old-version-removal-1-2026-10-25.md).
+
 ## Consequences
 
 Setup, the lightweight demo protocol bridge, visualizer, file-drop, and

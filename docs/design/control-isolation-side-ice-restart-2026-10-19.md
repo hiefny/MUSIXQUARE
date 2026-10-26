@@ -61,7 +61,13 @@ Compatibility: the C9 (#410) parser treats unknown kinds as invalid and ignores
 them. A C9 peer therefore never advertises the capability, never sees a restart,
 and both endpoints keep today's terminal side-failure behavior. Pre-#410 builds
 never negotiate isolation at all. A late advertisement after the remote fence is
-ignored.
+ignored. (Since the old-version removal train, survey OV-B07, 2026-10-26, every
+endpoint restarts without waiting for the advertisement, which it still sends
+before its request and fence for endpoints before that train. Against a C9 peer
+an endpoint's restart goes unanswered and its side outage ends the connection at
+its own 15-second deadline with `side-failed:expired`, which the owner's
+old-version policy of 2026-10-25 accepts; the frozen C9 test fixture is deleted.
+Registry RO-15.)
 
 ### Ownership and bounds
 

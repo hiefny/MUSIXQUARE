@@ -17,7 +17,6 @@ import {
   setPendingPlayTime,
 } from '../_state.ts';
 import { broadcastFileDebounced } from '../../storage/transfer.ts';
-import { registerProRoomMediaHooks, type ProRoomMediaHooks } from '../../pro-room/media-hooks.ts';
 import type { LargeAudioTrack } from '../file-playback-resource.ts';
 import { withAudioDecoderStartup } from '../large-audio/startup-error.ts';
 import type {
@@ -251,18 +250,6 @@ function makeLargeEncodedFile(name = 'large-lossless.flac'): File {
   return file;
 }
 
-function persistentProMediaHooks(queueItemId: QueueItemId): ProRoomMediaHooks {
-  return {
-    addFiles: () => false,
-    addYouTube: () => false,
-    updateTrackMetadata: () => false,
-    removeTracks: () => false,
-    reorderTrack: () => false,
-    resolveFile: () => null,
-    handlesPersistentFile: (candidate) => candidate === queueItemId,
-  };
-}
-
 function setCurrentIndex(index: number): QueueItemId | null {
   const queueItemId = getState('playlist.items')[index]?.queueItemId ?? null;
   setState('playlist.currentQueueItemId', queueItemId);
@@ -306,7 +293,6 @@ function stageMainTransfer(item: PlaylistItem, file: Blob, sessionId: number): v
 }
 
 afterEach(() => {
-  registerProRoomMediaHooks(null);
   clearAllManagedTimers();
   vi.useRealTimers();
 });
@@ -593,6 +579,7 @@ describe('guest file finalization sync', () => {
       setState('network.appRole', 'guest');
       setState('network.hostConn', makeConnection('host'));
       setState('network.isOperator', isOperator);
+      setState('network.standardRoomCapabilities', isOperator ? ['playback.control'] : null);
       const item = makeTrack('song.mp3');
       const file = new File([new Uint8Array([1, 2, 3])], item.name, { type: 'audio/mpeg' });
       setState('playlist.items', [item]);
@@ -1687,33 +1674,6 @@ describe('native decoder deadline policy', () => {
     expect(vi.mocked(shareRemoteFileIfNeeded)).toHaveBeenCalledWith(file, 7, undefined, {
       queueItemId: item.queueItemId,
     });
-  });
-
-  it('publishes only FILE_PREPARE for persistent PRO media', async () => {
-    const file = new File([new Uint8Array([1, 2, 3])], 'persistent.flac', {
-      type: 'audio/flac',
-    });
-    const item = makeFileTrack(file);
-    setState('playlist.items', [item]);
-    setCurrentIndex(0);
-    setState('network.connectedPeers', [makeConnectedPeer('pro-member', false)]);
-    registerProRoomMediaHooks(persistentProMediaHooks(item.queueItemId));
-    mocks.decodeAudioData.mockResolvedValue({ duration: 120 });
-
-    const { loadAndBroadcastFile } = await import('../decode.ts');
-    const { shareRemoteFileIfNeeded } = await import('../../share/remote-share.ts');
-    await expect(loadAndBroadcastFile(file, item.queueItemId, 11)).resolves.toBe(true);
-
-    expect(mocks.broadcast).toHaveBeenCalledWith({
-      type: MSG.FILE_PREPARE,
-      name: file.name,
-      mime: file.type,
-      size: file.size,
-      queueItemId: item.queueItemId,
-      sessionId: 11,
-    });
-    expect(vi.mocked(broadcastFileDebounced)).not.toHaveBeenCalled();
-    expect(vi.mocked(shareRemoteFileIfNeeded)).not.toHaveBeenCalled();
   });
 
   it('does not abandon a healthy native decode at the former 10-second deadline', async () => {

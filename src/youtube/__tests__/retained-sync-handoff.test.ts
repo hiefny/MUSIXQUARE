@@ -225,7 +225,7 @@ function bindController(controller: RetainedYouTubePlayerController) {
 const hostConnection = { open: true, peer: 'host' };
 function sendMismatch(type: string, state: number, videoId = SECOND_TARGET_VIDEO_ID) {
   handlers.get(type)!(
-    { queueItemId: QUEUE_ITEM_ID, videoId, subIndex: 1, state, time: 12 },
+    { queueItemId: QUEUE_ITEM_ID, videoId, subIndex: 1, state, time: 12, hostClock: Date.now() },
     hostConnection,
   );
 }

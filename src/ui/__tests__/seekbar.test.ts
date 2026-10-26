@@ -557,6 +557,7 @@ describe('initSeekBar playback mode gates', () => {
       try {
         setState('network.appRole', 'guest');
         setState('network.hostConn', { peer: 'host-1', open: true } as never);
+        setState('network.standardRoomCapabilities', ['playback.control']);
         setState('network.isOperator', initiallyAllowed);
         setState('playback.mode', 'file');
         setState('playback.activity', 'playing');
@@ -603,6 +604,7 @@ describe('initSeekBar playback mode gates', () => {
     try {
       setState('network.appRole', 'guest');
       setState('network.hostConn', { peer: 'host-1', open: true } as never);
+      setState('network.standardRoomCapabilities', ['playback.control']);
       setState('network.isOperator', true);
       setState('playback.mode', 'file');
       setState('playback.activity', 'playing');

@@ -917,7 +917,10 @@ const EXPECTED_PLAYLIST_STATIC_IMPORTERS = [
   'src/app.ts',
   'src/pro-room/runtime.ts',
   'src/ui/player-controls.ts',
+  'src/ui/playlist-slots-dialog.ts',
 ] as const;
+// Rolldown reports the overlap natively with an ANSI-coloured code prefix.
+const ANSI_SGR_SEQUENCE = new RegExp(`${String.fromCharCode(27)}\\[[0-9;]*m`, 'gu');
 
 function repositoryModulePath(moduleId: string): string {
   const normalized = moduleId.trim().replace(/\\/gu, '/');
@@ -940,8 +943,8 @@ function hasExactMultiset(actual: string[], expected: readonly string[]): boolea
 
 export function isExpectedPlaylistImportOverlapWarning(message: string): boolean {
   const match =
-    /^(?:\[plugin vite:reporter\]\s+)?\(!\)\s+(.+?) is dynamically imported by (.+?) but also statically imported by (.+?), dynamic import will not move module into another chunk\.$/u.exec(
-      message.trim(),
+    /^(?:\[plugin vite:reporter\]\s+)?(?:\(!\)|\[INEFFECTIVE_DYNAMIC_IMPORT\])\s+(.+?) is dynamically imported by (.+?) but also statically imported by (.+?), dynamic import will not move module into another chunk\.$/u.exec(
+      message.replace(ANSI_SGR_SEQUENCE, '').trim(),
     );
   if (!match) return false;
 
@@ -1010,8 +1013,8 @@ export function createViteConfig(env: DevEnvironment = {}): UserConfig {
         onwarn(warning, warn) {
           // playlist.ts is already part of the startup graph, but its reviewed
           // dynamic imports deliberately defer calls across player/preload
-          // cycles. Permit only the exact current importer multiset (including
-          // transport.ts's three distinct call sites); any graph drift fails.
+          // cycles. Permit only the exact current importer multiset; any graph
+          // drift fails.
           if (isExpectedPlaylistImportOverlapWarning(warning.message)) {
             return;
           }

@@ -212,7 +212,7 @@ function scheduleReverbImpulseRefresh(): void {
 
 // ─── Reverb Controls ───────────────────────────────────────────────
 
-export function setReverbParam(
+function setReverbParam(
   param: string,
   val: number,
   skipApply = false,
@@ -251,9 +251,41 @@ function resetReverb(): void {
   applySettingsAsync();
 }
 
+/** Apply a reverb preset chosen on this device. */
+function applyReverbType(type: string): void {
+  switch (type) {
+    case 'off':
+      resetReverb();
+      bus.emit('ui:sync-reverb-preset', 'off');
+      return;
+    case 'studio': {
+      const p = REVERB_PRESETS.studio;
+      setState('audio.reverbMix', p.mix);
+      setState('audio.reverbDecay', p.decay);
+      setState('audio.reverbPreDelay', p.preDelay);
+      setState('audio.reverbLowCut', p.lowCut);
+      setState('audio.reverbHighCut', p.highCut);
+      break;
+    }
+    case 'arena': {
+      const p = REVERB_PRESETS.arena;
+      setState('audio.reverbMix', p.mix);
+      setState('audio.reverbDecay', p.decay);
+      setState('audio.reverbPreDelay', p.preDelay);
+      setState('audio.reverbLowCut', p.lowCut);
+      setState('audio.reverbHighCut', p.highCut);
+      break;
+    }
+    default:
+      return;
+  }
+  applySettingsAsync();
+  bus.emit('ui:sync-reverb-preset', type);
+}
+
 // ─── EQ Controls ───────────────────────────────────────────────────
 
-export function setEQ(idx: number, val: number): void {
+function setEQ(idx: number, val: number): void {
   const bandIdx = Math.floor(Number(idx));
   const bandVal = Number(val);
   if (!Number.isFinite(bandIdx) || !Number.isFinite(bandVal)) return;
@@ -288,7 +320,7 @@ export function setEQPreset(bands: readonly number[]): boolean {
     if (eqNodes?.[band]) rampParam(eqNodes[band].gain, value, RAMP_TIME);
     bus.emit('ui:sync-eq-band', band, value);
   });
-  _broadcastOrRequestSetting('eq', 0);
+  publishRoomEffectsEdit();
   return true;
 }
 
@@ -301,19 +333,9 @@ export function resetEQ(): void {
   applySettingsAsync();
 }
 
-// ─── Preamp ────────────────────────────────────────────────────────
-
-export function setPreamp(valDb: number): void {
-  const db = Math.max(-48, Math.min(12, Number(valDb)));
-  if (!Number.isFinite(db)) return;
-  const linear = Math.pow(10, db / 20);
-  setState('audio.userPreampGain', linear);
-  applySettingsAsync();
-}
-
 // ─── Stereo Width ──────────────────────────────────────────────────
 
-export function setStereoWidth(val: number): void {
+function setStereoWidth(val: number): void {
   const v = Number(val);
   if (!Number.isFinite(v)) return;
   setState('audio.stereoWidth', Math.max(0, Math.min(2, v / 100)));
@@ -326,7 +348,7 @@ export function resetStereoWidth(): void {
 
 // ─── Virtual Bass ──────────────────────────────────────────────────
 
-export function setVirtualBass(val: number): void {
+function setVirtualBass(val: number): void {
   const v = Number(val);
   if (!Number.isFinite(v)) return;
   setState('audio.virtualBass', Math.max(0, Math.min(1, v / 100)));
@@ -663,7 +685,7 @@ function applySettingsSyncState(value: RoomSettingsSyncState, notifyRemoteChange
   if (getState('audio.masterVolume') !== settings.masterVolume) {
     setState('audio.masterVolume', settings.masterVolume);
   }
-  const applied = applyRoomEffectsState(settings.effects, { broadcast: false });
+  const applied = applyRoomEffectsState(settings.effects);
   if (applied) rememberAppliedRoomEffectsAuthority(settings.effects);
   if (applied && notifyRemoteChange && before !== JSON.stringify(captureRoomSettingsSyncState())) {
     notifyRemoteSettingsChange();
@@ -712,65 +734,6 @@ function sendAuthoritySnapshot(conn: DataConnection, bootstrap = false): void {
     settings: cached.settings,
     ...(bootstrap ? { _bootstrap: true as const } : {}),
   });
-  sendLegacySettingsSnapshot(conn, cached.settings);
-}
-
-function legacySettingsSnapshotFrames(settings: RoomSettingsSyncState): Record<string, unknown>[] {
-  return [
-    { type: MSG.VOLUME, value: settings.masterVolume, _bootstrap: true },
-    { type: MSG.REVERB, value: settings.effects.reverb.mixPercent, _bootstrap: true },
-    {
-      type: MSG.REVERB_DECAY,
-      value: settings.effects.reverb.decaySeconds,
-      _bootstrap: true,
-    },
-    {
-      type: MSG.REVERB_PREDELAY,
-      value: settings.effects.reverb.preDelaySeconds,
-      _bootstrap: true,
-    },
-    {
-      type: MSG.REVERB_LOWCUT,
-      value: settings.effects.reverb.lowCutPercent,
-      _bootstrap: true,
-    },
-    {
-      type: MSG.REVERB_HIGHCUT,
-      value: settings.effects.reverb.highCutPercent,
-      _bootstrap: true,
-    },
-    ...settings.effects.equalizer.bandsDb.map((value, band) => ({
-      type: MSG.EQ_UPDATE,
-      band,
-      value,
-      _bootstrap: true,
-    })),
-    {
-      type: MSG.STEREO_WIDTH,
-      value: settings.effects.virtualSurround.widthPercent,
-      _bootstrap: true,
-    },
-    {
-      type: MSG.VBASS,
-      value: settings.effects.virtualBass.strengthPercent,
-      _bootstrap: true,
-    },
-    {
-      type: MSG.EXCITER,
-      value: settings.effects.virtualTreble.enabled ? 1 : 0,
-      _bootstrap: true,
-    },
-  ];
-}
-
-function sendLegacySettingsSnapshot(conn: DataConnection, settings: RoomSettingsSyncState): void {
-  for (const frame of legacySettingsSnapshotFrames(settings)) conn.send(frame);
-}
-
-function broadcastLegacySettingsSnapshot(settings: RoomSettingsSyncState): void {
-  for (const frame of legacySettingsSnapshotFrames(settings)) {
-    broadcast(frame as AnyProtocolMsg);
-  }
 }
 
 function commitCoordinatorSettingsAuthority(
@@ -814,7 +777,6 @@ function commitCoordinatorSettingsAuthority(
       log.warn('[Effects] Settings acknowledgement send failed:', error);
     }
   } else broadcast(snapshot);
-  broadcastLegacySettingsSnapshot(settings);
   return true;
 }
 
@@ -993,23 +955,6 @@ function handleSettingsSyncRoomContextChanged(): void {
   }
 }
 
-function broadcastRoomEffectsState(state: RoomEffectsState): void {
-  broadcast({ type: MSG.REVERB, value: state.reverb.mixPercent } as AnyProtocolMsg);
-  broadcast({ type: MSG.REVERB_DECAY, value: state.reverb.decaySeconds } as AnyProtocolMsg);
-  broadcast({ type: MSG.REVERB_PREDELAY, value: state.reverb.preDelaySeconds } as AnyProtocolMsg);
-  broadcast({ type: MSG.REVERB_LOWCUT, value: state.reverb.lowCutPercent } as AnyProtocolMsg);
-  broadcast({ type: MSG.REVERB_HIGHCUT, value: state.reverb.highCutPercent } as AnyProtocolMsg);
-  state.equalizer.bandsDb.forEach((value, band) => {
-    broadcast({ type: MSG.EQ_UPDATE, band, value });
-  });
-  broadcast({
-    type: MSG.STEREO_WIDTH,
-    value: state.virtualSurround.widthPercent,
-  } as AnyProtocolMsg);
-  broadcast({ type: MSG.VBASS, value: state.virtualBass.strengthPercent } as AnyProtocolMsg);
-  broadcast({ type: MSG.EXCITER, value: state.virtualTreble.enabled ? 1 : 0 } as AnyProtocolMsg);
-}
-
 /** Project accepted audio state into controls without audio or authority mutations. */
 export function syncRoomEffectsUI(state: RoomEffectsState = captureRoomEffectsState()): void {
   bus.emit('ui:sync-reverb-param', 'mix', state.reverb.mixPercent);
@@ -1029,10 +974,7 @@ export function syncRoomEffectsUI(state: RoomEffectsState = captureRoomEffectsSt
  * Re-baseline the room-wide DSP graph and settings UI without a change toast.
  * Persisted PRO state and Developer API commands both use this exact path.
  */
-function applyRoomEffectsState(
-  value: RoomEffectsState,
-  options: { broadcast?: boolean } = {},
-): boolean {
+function applyRoomEffectsState(value: RoomEffectsState): boolean {
   const state = parseRoomEffectsState(value);
   if (!state) return false;
 
@@ -1047,14 +989,12 @@ function applyRoomEffectsState(
   setState('audio.exciter', state.virtualTreble.enabled);
   applySettingsAsync();
   syncRoomEffectsUI(state);
-
-  if (options.broadcast) broadcastRoomEffectsState(state);
   return true;
 }
 
 // ─── Harmonic Exciter ──────────────────────────────────────────────
 
-export function setExciter(on: boolean): void {
+function setExciter(on: boolean): void {
   setState('audio.exciter', !!on);
   applySettingsAsync();
 }
@@ -1092,7 +1032,8 @@ function rejectSynchronizedRoomEffectsControl(): void {
   showRoomCapabilityRequired('effects.control');
 }
 
-function _broadcastOrRequestSetting(_msgType: string, _value: number | string): void {
+/** Commit a finished room-effect edit as one complete settings snapshot. */
+function publishRoomEffectsEdit(): void {
   if (!isSettingsSyncEnabled()) return;
   if (!publishLocalSettingsAuthority() && canControlRoomEffects()) {
     const hostConn = getState('network.hostConn');
@@ -1100,9 +1041,13 @@ function _broadcastOrRequestSetting(_msgType: string, _value: number | string): 
   }
 }
 
-function _broadcastOrRequestSettingEQ(_band: number, _value: number): void {
-  _broadcastOrRequestSetting('eq', 0);
-}
+const ROOM_REVERB_PARAMS: ReadonlySet<string> = new Set([
+  'mix',
+  'decay',
+  'predelay',
+  'lowcut',
+  'highcut',
+]);
 
 // ─── Bus Event Handlers ─────────────────────────────────────────
 
@@ -1119,29 +1064,19 @@ bus.on('audio:update-effect', (type, param, value, isPreview) => {
     case 'reverb': {
       const deferImpulse = !!isPreview && param === 'decay';
       setReverbParam(param, value, false, deferImpulse);
-      if (!isPreview) {
-        const REVERB_MSG_MAP: Record<string, string> = {
-          mix: MSG.REVERB,
-          decay: MSG.REVERB_DECAY,
-          predelay: MSG.REVERB_PREDELAY,
-          lowcut: MSG.REVERB_LOWCUT,
-          highcut: MSG.REVERB_HIGHCUT,
-        };
-        const msgType = REVERB_MSG_MAP[param];
-        if (msgType) _broadcastOrRequestSetting(msgType, value);
-      }
+      if (!isPreview && ROOM_REVERB_PARAMS.has(param)) publishRoomEffectsEdit();
       break;
     }
     case 'stereo':
       if (param === 'mix') {
         setStereoWidth(value);
-        if (!isPreview) _broadcastOrRequestSetting(MSG.STEREO_WIDTH, value);
+        if (!isPreview) publishRoomEffectsEdit();
       }
       break;
     case 'vbass':
       if (param === 'mix') {
         setVirtualBass(value);
-        if (!isPreview) _broadcastOrRequestSetting(MSG.VBASS, value);
+        if (!isPreview) publishRoomEffectsEdit();
       }
       break;
     case 'exciter':
@@ -1149,7 +1084,7 @@ bus.on('audio:update-effect', (type, param, value, isPreview) => {
       if (param === 'mix') {
         const on = value > 0;
         setExciter(on);
-        if (!isPreview) _broadcastOrRequestSetting(MSG.EXCITER, on ? 1 : 0);
+        if (!isPreview) publishRoomEffectsEdit();
       }
       break;
     case 'cutoff':
@@ -1167,9 +1102,7 @@ bus.on('audio:set-eq', (band, value, isPreview) => {
     return;
   }
   setEQ(band, value);
-  if (!isPreview) {
-    _broadcastOrRequestSettingEQ(band, value);
-  }
+  if (!isPreview) publishRoomEffectsEdit();
 });
 
 bus.on('audio:reverb-type-change', (type: string) => {
@@ -1177,8 +1110,8 @@ bus.on('audio:reverb-type-change', (type: string) => {
     rejectSynchronizedRoomEffectsControl();
     return;
   }
-  applyReverbType(type, false);
-  _broadcastOrRequestSetting(MSG.REVERB_TYPE, type);
+  applyReverbType(type);
+  publishRoomEffectsEdit();
 });
 
 bus.on('audio:reset-eq', () => {
@@ -1196,17 +1129,12 @@ bus.on('audio:ready', () => {
 });
 
 /**
- * Send the full effect-settings snapshot to one peer. `_bootstrap: true` on
- * every frame suppresses the receiver's "host changed a setting" toast —
- * a snapshot is a re-baseline, not a change.
- *
- * The atomic settings contract includes volume on both join and resync.
+ * Send the complete settings snapshot (volume and every room DSP value) to one
+ * peer. `_bootstrap: true` suppresses the receiver's "settings were changed"
+ * toast: a snapshot is a re-baseline, not a change.
  */
-function sendEffectsSnapshot(conn: DataConnection, includeVolume: boolean): void {
+function sendEffectsSnapshot(conn: DataConnection): void {
   try {
-    // `includeVolume` is retained in the private signature while callers roll
-    // together; the atomic contract always includes volume and every DSP value.
-    void includeVolume;
     sendAuthoritySnapshot(conn, true);
     log.debug('[Effects] Sent synchronized settings snapshot to peer');
   } catch (e) {
@@ -1221,7 +1149,7 @@ function handleSettingsSyncPeerConnected(conn: DataConnection): void {
   if (!conn?.open) return;
   const hostConn = getState('network.hostConn');
   if (hostConn) return;
-  sendEffectsSnapshot(conn, true);
+  sendEffectsSnapshot(conn);
 }
 
 function handleSettingsSyncAuthorityProjectionChanged(): void {
@@ -1251,7 +1179,7 @@ function handleSettingsSyncPeerResync(conn: DataConnection): void {
   if (!usesStandardSettingsSyncTransport()) return;
   if (getState('network.hostConn')) return; // host only
   if (!conn?.open) return;
-  sendEffectsSnapshot(conn, false);
+  sendEffectsSnapshot(conn);
 }
 
 function registerSettingsSyncBusHandlers(): void {
@@ -1280,7 +1208,7 @@ registerSettingsSyncBusHandlers();
 // ─── Network Protocol Handlers ──────────────────────────────────
 
 /**
- * Reject broadcast frames not arriving via hostConn. Effects messages flow
+ * Reject broadcast frames not arriving via hostConn. Settings snapshots flow
  * host→guest only. A raw frame received by the host, or by a guest from any
  * connection other than `hostConn`, is not an authorized broadcast.
  */
@@ -1364,203 +1292,6 @@ function handlePublishSettingsSyncSnapshot(
   commitCoordinatorSettingsAuthority(settings, isSettingsSyncEnabled(), conn);
 }
 
-function shouldApplyLegacySettingsFrame(conn?: DataConnection): boolean {
-  return (
-    usesStandardSettingsSyncTransport() &&
-    isSettingsSyncEnabled() &&
-    isHostBroadcast(conn) &&
-    !hasPendingStandardSettingsIntent()
-  );
-}
-
-function handleVolume(data: Record<string, unknown>, conn?: DataConnection): void {
-  if (!shouldApplyLegacySettingsFrame(conn)) return;
-  if (data.value === undefined || data.value === null) return;
-  const vol = Math.max(0, Math.min(1, Number(data.value)));
-  if (!Number.isFinite(vol)) return;
-  bus.emit('audio:set-volume', vol);
-  if (!data._bootstrap) {
-    showToast(t('common.volume_percent', { val: Math.round(vol * 100) }));
-  }
-}
-
-function handleEQUpdateMsg(data: Record<string, unknown>, conn?: DataConnection): void {
-  if (!shouldApplyLegacySettingsFrame(conn)) return;
-  if (data.band === undefined || data.value === undefined) return;
-  const band = Number(data.band);
-  const value = Number(data.value);
-  if (!Number.isFinite(band) || !Number.isFinite(value)) return;
-  setEQ(band, value);
-  _notifyHostChanged(data);
-}
-
-function handlePreampMsg(data: Record<string, unknown>, conn?: DataConnection): void {
-  if (!shouldApplyLegacySettingsFrame(conn)) return;
-  if (data.value === undefined) return;
-  const v = Number(data.value);
-  if (!Number.isFinite(v)) return;
-  setPreamp(v);
-  _notifyHostChanged(data);
-}
-
-function _notifyHostChanged(data?: Record<string, unknown>): void {
-  if (!getState('network.hostConn')) return;
-  // Snapshot frames (join bootstrap / revoke resync) are re-baselines, not
-  // host actions — no toast. Mirrors handleVolume's _bootstrap handling.
-  if (data?._bootstrap) return;
-  setManagedTimer(
-    'host-change-toast',
-    () => {
-      showToast(t('toast.host_changed_setting'));
-    },
-    300,
-  );
-}
-
-function handleEQResetMsg(_data: Record<string, unknown>, conn?: DataConnection): void {
-  if (!shouldApplyLegacySettingsFrame(conn)) return;
-  resetEQ();
-  bus.emit('ui:sync-eq-preset', 'off');
-  _notifyHostChanged();
-}
-
-function handleReverbMsg(data: Record<string, unknown>, conn?: DataConnection): void {
-  if (!shouldApplyLegacySettingsFrame(conn)) return;
-  if (data.value === undefined) return;
-  const v = Number(data.value);
-  if (!Number.isFinite(v)) return;
-  setReverbParam('mix', v);
-  bus.emit('ui:sync-reverb-param', 'mix', v);
-  _notifyHostChanged(data);
-}
-
-// Shared trusted apply path for host-local preset changes and authenticated
-// host broadcasts. Keeping it separate from the network handler avoids
-// subjecting host-local actions to the guest-side broadcast guard.
-function applyReverbType(type: string, notify = true): void {
-  switch (type) {
-    case 'off':
-      resetReverb();
-      bus.emit('ui:sync-reverb-preset', 'off');
-      if (notify) _notifyHostChanged();
-      return;
-    case 'studio': {
-      const p = REVERB_PRESETS.studio;
-      setState('audio.reverbMix', p.mix);
-      setState('audio.reverbDecay', p.decay);
-      setState('audio.reverbPreDelay', p.preDelay);
-      setState('audio.reverbLowCut', p.lowCut);
-      setState('audio.reverbHighCut', p.highCut);
-      break;
-    }
-    case 'arena': {
-      const p = REVERB_PRESETS.arena;
-      setState('audio.reverbMix', p.mix);
-      setState('audio.reverbDecay', p.decay);
-      setState('audio.reverbPreDelay', p.preDelay);
-      setState('audio.reverbLowCut', p.lowCut);
-      setState('audio.reverbHighCut', p.highCut);
-      break;
-    }
-    default:
-      return;
-  }
-  applySettingsAsync();
-  bus.emit('ui:sync-reverb-preset', type);
-  if (notify) _notifyHostChanged();
-}
-
-function handleReverbTypeMsg(data: Record<string, unknown>, conn?: DataConnection): void {
-  if (!shouldApplyLegacySettingsFrame(conn)) return;
-  if (data.value == null) return;
-  applyReverbType(String(data.value), !data._bootstrap);
-}
-
-function handleReverbDecayMsg(data: Record<string, unknown>, conn?: DataConnection): void {
-  if (!shouldApplyLegacySettingsFrame(conn)) return;
-  if (data.value === undefined) return;
-  const v = Number(data.value);
-  if (!Number.isFinite(v)) return;
-  setReverbParam('decay', v);
-  bus.emit('ui:sync-reverb-param', 'decay', v);
-  _notifyHostChanged(data);
-}
-
-function handleReverbPreDelayMsg(data: Record<string, unknown>, conn?: DataConnection): void {
-  if (!shouldApplyLegacySettingsFrame(conn)) return;
-  if (data.value === undefined) return;
-  const v = Number(data.value);
-  if (!Number.isFinite(v)) return;
-  setReverbParam('predelay', v);
-  bus.emit('ui:sync-reverb-param', 'predelay', v);
-  _notifyHostChanged(data);
-}
-
-function handleReverbLowCutMsg(data: Record<string, unknown>, conn?: DataConnection): void {
-  if (!shouldApplyLegacySettingsFrame(conn)) return;
-  if (data.value === undefined) return;
-  const v = Number(data.value);
-  if (!Number.isFinite(v)) return;
-  setReverbParam('lowcut', v);
-  bus.emit('ui:sync-reverb-param', 'lowcut', v);
-  _notifyHostChanged(data);
-}
-
-function handleReverbHighCutMsg(data: Record<string, unknown>, conn?: DataConnection): void {
-  if (!shouldApplyLegacySettingsFrame(conn)) return;
-  if (data.value === undefined) return;
-  const v = Number(data.value);
-  if (!Number.isFinite(v)) return;
-  setReverbParam('highcut', v);
-  bus.emit('ui:sync-reverb-param', 'highcut', v);
-  _notifyHostChanged(data);
-}
-
-function handleStereoWidthMsg(data: Record<string, unknown>, conn?: DataConnection): void {
-  if (!shouldApplyLegacySettingsFrame(conn)) return;
-  if (data.value === undefined) return;
-  const v = Number(data.value);
-  if (!Number.isFinite(v)) return;
-  setStereoWidth(v);
-  bus.emit('ui:sync-surround', v > 100);
-  _notifyHostChanged(data);
-}
-
-function handleVBassMsg(data: Record<string, unknown>, conn?: DataConnection): void {
-  if (!shouldApplyLegacySettingsFrame(conn)) return;
-  if (data.value === undefined) return;
-  const v = Number(data.value);
-  if (!Number.isFinite(v)) return;
-  setVirtualBass(v);
-  bus.emit('ui:sync-vbass', v > 0);
-  _notifyHostChanged(data);
-}
-
-function handleExciterMsg(data: Record<string, unknown>, conn?: DataConnection): void {
-  if (!shouldApplyLegacySettingsFrame(conn)) return;
-  if (data.value === undefined) return;
-  const v = Number(data.value);
-  // Strict 0/1 — anything else is malformed. Mirrors protocol.ts validator.
-  if (v !== 0 && v !== 1) return;
-  const on = v === 1;
-  setExciter(on);
-  bus.emit('ui:sync-exciter', on);
-  _notifyHostChanged(data);
-}
-
-function handleRequestEQReset(data: Record<string, unknown>, conn: DataConnection): void {
-  const hostConn = getState('network.hostConn');
-  if (hostConn) return;
-
-  if (!verifyOperator(conn, data, 'effects.control')) {
-    log.warn(`[Effects] Rejected request-eq-reset from non-OP: ${conn?.peer}`);
-    return;
-  }
-
-  resetEQ();
-  broadcast({ type: MSG.EQ_RESET });
-}
-
 // ─── Init Effects Protocol Handlers ──────────────────────────────
 
 export function initEffectsHandlers(): void {
@@ -1569,20 +1300,6 @@ export function initEffectsHandlers(): void {
     [MSG.SETTINGS_SYNC_SNAPSHOT]: handleSettingsSyncSnapshot,
     [MSG.REQUEST_SETTINGS_SYNC_SNAPSHOT]: handleRequestSettingsSyncSnapshot,
     [MSG.PUBLISH_SETTINGS_SYNC_SNAPSHOT]: handlePublishSettingsSyncSnapshot,
-    [MSG.VOLUME]: handleVolume,
-    [MSG.EQ_UPDATE]: handleEQUpdateMsg,
-    [MSG.PREAMP]: handlePreampMsg,
-    [MSG.EQ_RESET]: handleEQResetMsg,
-    [MSG.REVERB]: handleReverbMsg,
-    [MSG.REVERB_TYPE]: handleReverbTypeMsg,
-    [MSG.REVERB_DECAY]: handleReverbDecayMsg,
-    [MSG.REVERB_PREDELAY]: handleReverbPreDelayMsg,
-    [MSG.REVERB_LOWCUT]: handleReverbLowCutMsg,
-    [MSG.REVERB_HIGHCUT]: handleReverbHighCutMsg,
-    [MSG.STEREO_WIDTH]: handleStereoWidthMsg,
-    [MSG.VBASS]: handleVBassMsg,
-    [MSG.EXCITER]: handleExciterMsg,
-    [MSG.REQUEST_EQ_RESET]: handleRequestEQReset,
   });
 
   log.info('[Effects] Protocol handlers registered');
@@ -1594,4 +1311,9 @@ export {
   canAdjustLocalRoomEffects as canAdjustLocalRoomEffectsForTests,
   isDeviceLocalEffectType as isDeviceLocalEffectTypeForTests,
   publishLocalSettingsAuthority as publishLocalSettingsAuthorityForTests,
+  setEQ as setEQForTests,
+  setExciter as setExciterForTests,
+  setReverbParam as setReverbParamForTests,
+  setStereoWidth as setStereoWidthForTests,
+  setVirtualBass as setVirtualBassForTests,
 };

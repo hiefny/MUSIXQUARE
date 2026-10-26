@@ -196,7 +196,10 @@ describe('YouTube Sync', () => {
         Record<string, SyncHandler> | undefined;
       const handler = handlers?.[MSG.YOUTUBE_SYNC];
       expect(handler).toBeTypeOf('function');
-      return (data, conn = hostConn) => handler?.({ queueItemId: QUEUE_ITEM_ID, ...data }, conn);
+      // Every current host stamps its clock; this guest's shared clock has
+      // no samples yet, so host time is local time.
+      return (data, conn = hostConn) =>
+        handler?.({ queueItemId: QUEUE_ITEM_ID, hostClock: Date.now(), ...data }, conn);
     }
 
     function makePlayer(currentTime = 10): YouTubePlayerInstance {

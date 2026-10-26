@@ -38,7 +38,6 @@ import {
 } from './peer-state.ts';
 import { showToast } from '../ui/toast.ts';
 import { getRoomContext } from '../rooms/authority.ts';
-import { capabilitiesForProRoomRole } from '../pro-room/contracts.ts';
 import {
   STANDARD_ROOM_FULL_PERMISSIONS,
   STANDARD_ROOM_OWNER_PRODUCT_CAPABILITIES,
@@ -402,14 +401,26 @@ function updateStandardConnectionIdentity(
 // ─── Host: Incoming Connection ──────────────────────────────────────
 
 export function handleHostIncomingConnection(conn: DataConnection): void {
+  // PRO rooms have no browser data connections: the room server owns
+  // authority and every participant fetches its media itself. A connection
+  // can reach a PRO endpoint only through a Peer that outlived its Standard
+  // room, so refuse it before it gets a slot, a label or any authority.
+  if (getRoomContext().kind === 'pro') {
+    log.info('[Host] Refused a data connection in a PRO room:', conn.peer);
+    try {
+      conn.close();
+    } catch {
+      /* noop */
+    }
+    return;
+  }
   const peerId = conn.peer;
-  const isProRoom = getRoomContext().kind === 'pro';
   let connectionEstablished = false;
   let dataChannelOpened = false;
   let preOpenBootstrapHello: ReturnType<typeof snapshotJoinBootstrapHello> = null;
   let bootstrapId: string | null = null;
   let bootstrapPhase: 'awaiting-hello' | 'sending' | 'awaiting-applied' | 'settled' | 'failed' =
-    isProRoom ? 'settled' : 'awaiting-hello';
+    'awaiting-hello';
   let publishedQueueRevision: number | null = null;
   let publishedRepeatMode: number | null = null;
   let publishedShuffle: boolean | null = null;
@@ -548,7 +559,7 @@ export function handleHostIncomingConnection(conn: DataConnection): void {
   }
   assignPeerSlot(peerId, slot);
   const fallbackDeviceName = getPeerLabelBySlot(slot);
-  const connectionIdentity = isProRoom ? null : normalizeConnectionIdentity(conn.roomIdentity);
+  const connectionIdentity = normalizeConnectionIdentity(conn.roomIdentity);
   const deviceName = connectionIdentity?.nickname ?? fallbackDeviceName;
 
   // Publish a new map so state subscribers observe the label assignment.
@@ -564,7 +575,7 @@ export function handleHostIncomingConnection(conn: DataConnection): void {
     label: deviceName,
     status: 'connecting' as string,
     conn,
-    isOp: isProRoom,
+    isOp: false,
     isDataTarget: false,
     joinOrder: slot,
     lastHeartbeat: Date.now(),
@@ -578,9 +589,8 @@ export function handleHostIncomingConnection(conn: DataConnection): void {
           isAuthenticated: true,
         }
       : { isAuthenticated: false }),
-    ...(isProRoom ? { roomCapabilities: [...capabilitiesForProRoomRole('controller')] } : {}),
   };
-  const peerObj = isProRoom ? basePeerObj : projectStandardPeerAuthority(basePeerObj);
+  const peerObj = projectStandardPeerAuthority(basePeerObj);
 
   // Re-check max guests before adding (guards against TOCTOU race with concurrent connections)
   const currentPeers = getState('network.connectedPeers');
@@ -628,7 +638,6 @@ export function handleHostIncomingConnection(conn: DataConnection): void {
 
   const welcomeFrame = () => ({
     type: MSG.WELCOME as typeof MSG.WELCOME,
-    lockChannel: false,
     label: deviceName,
     chatFrozen: getState('network.chatFrozen') || false,
     slowmodeSeconds: getState('network.slowmodeSeconds') || 0,
@@ -653,7 +662,7 @@ export function handleHostIncomingConnection(conn: DataConnection): void {
   const completeConnection = (): void => {
     if (
       connectionEstablished ||
-      (!isProRoom && bootstrapPhase !== 'settled') ||
+      bootstrapPhase !== 'settled' ||
       !conn.open ||
       getState('network.activeHostConnByPeerId').get(peerId) !== conn
     ) {
@@ -681,7 +690,7 @@ export function handleHostIncomingConnection(conn: DataConnection): void {
     const connected = getState('network.connectedPeers').find(
       (peer) => peer.id === peerId && peer.conn === conn,
     );
-    if (!isProRoom && connected) {
+    if (connected) {
       // Identity projection may settle before RTC open. Re-send the complete
       // grant/revoke projection after the live connection boundary so the
       // guest can definitively discard any authority intent retained while
@@ -706,7 +715,7 @@ export function handleHostIncomingConnection(conn: DataConnection): void {
   };
 
   const failJoinBootstrap = (reason: string): void => {
-    if (isProRoom || bootstrapPhase === 'settled' || bootstrapPhase === 'failed') return;
+    if (bootstrapPhase === 'settled' || bootstrapPhase === 'failed') return;
     bootstrapPhase = 'failed';
     clearManagedTimer(bootstrapTimerName);
     if (getState('network.activeHostConnByPeerId').get(peerId) !== conn) return;
@@ -780,7 +789,6 @@ export function handleHostIncomingConnection(conn: DataConnection): void {
     hello: NonNullable<ReturnType<typeof snapshotJoinBootstrapHello>>,
   ): void => {
     if (
-      isProRoom ||
       bootstrapPhase !== 'awaiting-hello' ||
       !conn.open ||
       getState('network.activeHostConnByPeerId').get(peerId) !== conn
@@ -908,41 +916,27 @@ export function handleHostIncomingConnection(conn: DataConnection): void {
     dataChannelOpened = true;
     clearManagedTimer(openTimerName);
     if (!safeSend(conn, welcomeFrame())) {
-      if (isProRoom) {
-        try {
-          conn.close('join-bootstrap-failed');
-        } catch {
-          /* noop */
-        }
-      } else {
-        failJoinBootstrap('WELCOME send failed');
-      }
+      failJoinBootstrap('WELCOME send failed');
       return;
     }
 
-    if (isProRoom) {
-      // PRO rooms have independent server authority and retain the existing
-      // transport-open completion boundary.
-      completeConnection();
-    } else {
-      setManagedTimer(
-        bootstrapTimerName,
-        () => {
-          if (
-            bootstrapPhase === 'settled' ||
-            bootstrapPhase === 'failed' ||
-            getState('network.activeHostConnByPeerId').get(peerId) !== conn
-          ) {
-            return;
-          }
-          failJoinBootstrap('timed out');
-        },
-        JOIN_BOOTSTRAP_TIMEOUT_MS,
-      );
-      const queuedHello = preOpenBootstrapHello;
-      preOpenBootstrapHello = null;
-      if (queuedHello) sendJoinBootstrap(queuedHello);
-    }
+    setManagedTimer(
+      bootstrapTimerName,
+      () => {
+        if (
+          bootstrapPhase === 'settled' ||
+          bootstrapPhase === 'failed' ||
+          getState('network.activeHostConnByPeerId').get(peerId) !== conn
+        ) {
+          return;
+        }
+        failJoinBootstrap('timed out');
+      },
+      JOIN_BOOTSTRAP_TIMEOUT_MS,
+    );
+    const queuedHello = preOpenBootstrapHello;
+    preOpenBootstrapHello = null;
+    if (queuedHello) sendJoinBootstrap(queuedHello);
 
     // Poll for up to 10 seconds while ICE stabilizes, then classify this guest
     // as local or remote.
@@ -1002,7 +996,7 @@ export function handleHostIncomingConnection(conn: DataConnection): void {
 
   conn.on('data', (data: unknown) => {
     try {
-      if (!isProRoom && !dataChannelOpened) {
+      if (!dataChannelOpened) {
         const hello = snapshotJoinBootstrapHello(data);
         if (!hello || preOpenBootstrapHello || bootstrapPhase !== 'awaiting-hello') {
           preOpenBootstrapHello = null;
@@ -1012,19 +1006,19 @@ export function handleHostIncomingConnection(conn: DataConnection): void {
         preOpenBootstrapHello = hello;
         return;
       }
-      if (!isProRoom && !connectionEstablished) {
+      if (!connectionEstablished) {
         handleJoinBootstrapData(data);
         return;
       }
       // A late duplicate handshake frame has no authority after the exact
       // connection has crossed the application boundary.
-      if (!isProRoom && (snapshotJoinBootstrapHello(data) || snapshotJoinBootstrapApplied(data))) {
+      if (snapshotJoinBootstrapHello(data) || snapshotJoinBootstrapApplied(data)) {
         return;
       }
       bus.emit('network:data', data, conn);
     } catch (e) {
       log.error('[Host] Error in handleData', e);
-      if (!isProRoom && !connectionEstablished) failJoinBootstrap('handler threw');
+      if (!connectionEstablished) failJoinBootstrap('handler threw');
     }
   });
 

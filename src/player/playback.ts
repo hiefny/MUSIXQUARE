@@ -22,11 +22,7 @@ import {
 } from './local-file-output-identity.ts';
 import { clearManagedTimer, setManagedTimer } from '../core/timers.ts';
 import { cleanupStoredFile, readStoredFile } from '../storage/storage.ts';
-import {
-  cancelIncomingFileTransfer,
-  sendFileDeliveryUnavailable,
-  unicastFile,
-} from '../storage/transfer.ts';
+import { cancelIncomingFileTransfer, unicastFile } from '../storage/transfer.ts';
 import { unicastPreload } from '../storage/preload.ts';
 import { broadcast, isRemoteGuest, safeSend, waitForGuestConnectionType } from '../network/peer.ts';
 import {
@@ -80,10 +76,6 @@ import {
   finalizeGuestFile,
 } from './decode.ts';
 import { showLoader, updateLoader, showToast } from '../ui/toast.ts';
-import {
-  isProRoomPersistentPlaylistFile,
-  registerProRoomDirectFileHandler,
-} from '../pro-room/media-hooks.ts';
 import {
   createFileTrackMeta,
   isExternalOwner,
@@ -384,7 +376,6 @@ async function handlePlayMsg(data: Record<string, unknown>, conn?: DataConnectio
       getState('preload.activeTarget')?.queueItemId === incomingQueueItemId);
   const routeAlreadyOwned =
     isGuestR2FileDelivery(incomingQueueItemId) ||
-    isProRoomPersistentPlaylistFile(incomingQueueItemId) ||
     getState('preload.ready')?.queueItemId === incomingQueueItemId ||
     hasOwnedAudioBuffer(incomingQueueItemId) ||
     routeOwnedByActivePipeline;
@@ -463,18 +454,6 @@ async function handlePlayMsg(data: Record<string, unknown>, conn?: DataConnectio
     if (ready?.queueItemId === incomingQueueItemId) {
       log.debug(`[Guest] Found preloaded resident for ${incomingQueueItemId}`);
       activatePreloadedTrack(ready);
-      return;
-    }
-
-    if (isProRoomPersistentPlaylistFile(incomingQueueItemId)) {
-      const name = incomingItem.name || (typeof data.name === 'string' ? data.name : '');
-      setRecoveryTarget(incomingQueueItemId, name);
-      queuePlayTimeline();
-      // Persistent PRO bytes come from the authenticated room bucket on this
-      // device. This compatibility request asks only for transfer identity/control;
-      // the response contains no file bytes or reusable R2 credential.
-      requestCurrentFile(incomingQueueItemId, name, 'pro_room_direct');
-      log.info('[Guest] PRO file selected - requesting direct R2 prepare');
       return;
     }
 
@@ -609,16 +588,6 @@ async function handlePlayMsg(data: Record<string, unknown>, conn?: DataConnectio
       );
     }
   } else {
-    if (isProRoomPersistentPlaylistFile(incomingQueueItemId)) {
-      queuePlayTimeline();
-      const lifecycleNow = getState('playback.lifecycle');
-      if (lifecycleNow === PLAYBACK_STATE.IDLE || lifecycleNow === PLAYBACK_STATE.FAILED) {
-        const trackName = incomingItem.name || (data.name as string) || '';
-        requestCurrentFile(incomingQueueItemId, trackName, 'pro_room_no_buffer');
-      }
-      return;
-    }
-
     // Remote guest: no queue file arrives via P2P; wait for remote share.
     if (isRemoteGuest() || isGuestR2FileDelivery(incomingQueueItemId)) {
       handleRemoteGuestPlay(
@@ -671,7 +640,6 @@ function handlePauseMsg(data: Record<string, unknown>, conn?: DataConnection): v
   const rawTime = Number(data.time);
   const time = Number.isFinite(rawTime) && rawTime >= 0 ? rawTime : 0;
   const endOfPlaylist = !!data.endOfPlaylist;
-  const reason = typeof data.reason === 'string' ? data.reason : undefined;
   const rawQueueItemId = data.queueItemId;
   if (rawQueueItemId !== null && !isQueueItemId(rawQueueItemId)) return;
   const incomingQueueItemId = rawQueueItemId as QueueItemId | null;
@@ -727,7 +695,7 @@ function handlePauseMsg(data: Record<string, unknown>, conn?: DataConnection): v
   setState('player.pausedAt', time);
   if (incomingQueueItemId) rememberGuestFilePause(incomingQueueItemId, time);
 
-  const isUserPause = reason === undefined || reason === 'pause';
+  const isUserPause = data.reason === 'pause';
   // Stop the concrete WebAudio node before moving semantic state to PAUSED.
   // pause() intentionally no-ops once file ownership is already paused, so
   // doing the lifecycle transition first can leave audio audible while the UI
@@ -925,9 +893,6 @@ function handleRequestSkipTime(data: Record<string, unknown>, conn: DataConnecti
 
 export function initPlayback(): void {
   clearGuestFilePause();
-  registerProRoomDirectFileHandler((file, queueItemId, sessionId) =>
-    finalizeGuestFile(file, queueItemId, sessionId),
-  );
   registerHandlers({
     [MSG.PLAY]: handlePlayMsg,
     [MSG.PAUSE]: handlePauseMsg,
@@ -1293,7 +1258,6 @@ export function initPlayback(): void {
     const currentQueueItemId = getCurrentQueueItemId();
     const item = getQueueItemById(currentQueueItemId);
     if (!currentQueueItemId || !item) return;
-    const isProDirect = isProRoomPersistentPlaylistFile(currentQueueItemId);
 
     const peers = getState('network.connectedPeers') || [];
     const peer = peers.find((p) => p.id === peerId);
@@ -1305,18 +1269,6 @@ export function initPlayback(): void {
 
     const currentResident = getState('files.current');
     if (item.type !== 'youtube' && currentResident?.queueItemId === currentQueueItemId) {
-      if (isProDirect) {
-        safeSend(conn, {
-          type: MSG.FILE_PREPARE,
-          name: currentResident.name || item.name,
-          queueItemId: currentQueueItemId,
-          sessionId: currentResident.sessionId,
-          size: currentResident.blob.size,
-          mime: currentResident.mime || currentResident.blob.type || 'application/octet-stream',
-        });
-        log.debug(`[Playback] Sent PRO direct-file prepare to ${peer.label || peerId} (${reason})`);
-        return;
-      }
       const delivery = resolvePeerFileDelivery(peer, currentResident.sessionId);
       const prepare = {
         type: MSG.FILE_PREPARE,
@@ -1334,18 +1286,12 @@ export function initPlayback(): void {
         log.debug(`[Playback] Sent R2 file prepare to ${peer.label || peerId} (${reason})`);
         return;
       }
-      if (delivery === 'unsupported') {
-        sendFileDeliveryUnavailable(conn, prepare, currentResident.sessionId);
-        log.warn(
-          `[Playback] File delivery unavailable for legacy overflow peer ${peer.label || peerId}`,
-        );
-        return;
-      }
       if (delivery === 'pending') {
         log.debug(`[Playback] Deferring file bootstrap until ICE resolves for ${peerId}`);
         return;
       }
-      if (!peer.isDataTarget) return;
+      // 'unsupported' answers only a resident without a valid transfer session.
+      if (delivery !== 'direct-local' || !peer.isDataTarget) return;
       log.debug(`[Playback] Sending current file to ${peer.label || peerId} (${reason})`);
       try {
         await unicastFile(conn, currentResident.blob, 0, currentResident.sessionId, {
@@ -1366,8 +1312,6 @@ export function initPlayback(): void {
         return;
       }
     }
-
-    if (isProDirect) return;
 
     // The next file is independent of whether the current item is a file or YouTube.
     // Send only the atomically published preload resident.

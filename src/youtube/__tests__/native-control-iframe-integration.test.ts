@@ -344,6 +344,7 @@ describe('Standard operator native iframe integration', () => {
       state: 2,
       videoId: 'vidA000000A',
       subIndex: -1,
+      hostClock: Date.now(),
     });
     h.emit(2);
     expect(ytState.getYtAutoplayIntent()).toBe(false);
@@ -536,6 +537,7 @@ describe('Standard operator native iframe integration', () => {
       state: 1,
       videoId: 'vidA000000A',
       subIndex: -1,
+      hostClock: Date.now(),
     });
     expect(h.calls.some(([kind, seconds]) => kind === 'seek' && seconds === 40)).toBe(true);
     // A plausible iframe trace after the real host heartbeat seek. We inject

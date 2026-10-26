@@ -469,39 +469,8 @@ describe('joinSession reconnect racing', () => {
     }
   });
 
-  it('keeps the existing immediate-open completion path for PRO rooms', () => {
-    const { peer, conns } = makeFakePeer();
-    mocks.getPeer.mockReturnValue(peer);
-    const successes = vi.fn();
-    bus.on('setup:guest-join-success', successes);
-    setState('room.context', {
-      kind: 'pro',
-      roomId: '000001',
-      role: 'member',
-      coordinatorId: null,
-      epoch: 4,
-      snapshotRevision: 8,
-      capabilities: [],
-    });
-
-    joinSession('000001');
-    const conn = conns[0];
-    conn.fire('open');
-
-    expect(getState('network.hostConn')).toBe(conn);
-    expect(getState('network.isConnecting')).toBe(false);
-    expect(successes).toHaveBeenCalledOnce();
-    expect(mocks.startWorkerTimer).toHaveBeenCalledWith('sync', 1000);
-    expect(
-      sentMessages(conn).filter(
-        (message) =>
-          message.type === MSG.JOIN_BOOTSTRAP_HELLO || message.type === MSG.JOIN_BOOTSTRAP_APPLIED,
-      ),
-    ).toEqual([]);
-  });
-
   it.each(['close', 'error'] as const)(
-    'turns a stale PRO host-connection %s into one control recovery without a network error',
+    'turns a stale host-connection %s that lands in a PRO room into one control recovery without a network error',
     (event) => {
       const { peer, conns } = makeFakePeer();
       mocks.getPeer.mockReturnValue(peer);
@@ -509,6 +478,11 @@ describe('joinSession reconnect racing', () => {
       const recover = vi.fn();
       bus.on('network:error', errors);
       registerProRoomSignalingEpochAdvanceHandler(recover);
+
+      joinSession('HOST01');
+      const conn = conns[0];
+      conn.fire('open');
+      // The Standard join's callbacks outlive it into a PRO session.
       setState('room.context', {
         kind: 'pro',
         roomId: '000001',
@@ -519,11 +493,7 @@ describe('joinSession reconnect racing', () => {
         capabilities: [],
       });
       setState('setup.sessionStarted', true);
-
-      joinSession('000001');
-      const conn = conns[0];
-      conn.fire('open');
-      if (event === 'error') conn.fire('error', new Error('coordinator left'));
+      if (event === 'error') conn.fire('error', new Error('host left'));
       else conn.fire('close');
 
       expect(getState('network.hostConn')).toBeNull();
@@ -538,13 +508,16 @@ describe('joinSession reconnect racing', () => {
     },
   );
 
-  it('rejects an active PRO handoff immediately when the replacement connection fails pre-open', () => {
+  it('turns a stale pre-open join failure that lands in a PRO room into one control recovery', () => {
     const { peer, conns } = makeFakePeer();
     mocks.getPeer.mockReturnValue(peer);
     const errors = vi.fn();
     const recover = vi.fn();
     bus.on('network:error', errors);
     registerProRoomSignalingEpochAdvanceHandler(recover);
+
+    joinSession('HOST01');
+    // The Standard join's pre-open callback outlives it into a PRO session.
     setState('room.context', {
       kind: 'pro',
       roomId: '000001',
@@ -555,9 +528,7 @@ describe('joinSession reconnect racing', () => {
       capabilities: [],
     });
     setState('setup.sessionStarted', true);
-
-    joinSession('000001');
-    conns[0].fire('error', new Error('replacement unavailable'));
+    conns[0].fire('error', new Error('host unavailable'));
 
     expect(getState('network.isConnecting')).toBe(false);
     expect(errors).not.toHaveBeenCalled();
@@ -600,6 +571,19 @@ describe('joinSession reconnect racing', () => {
 
     expect(connect).toHaveBeenCalledTimes(1);
     expect(connect).toHaveBeenCalledWith('HOST01', expect.anything());
+  });
+
+  it('sends only the device platform the host reads as connection metadata', () => {
+    vi.useFakeTimers();
+    const { peer, connect } = makeFakePeer();
+    mocks.getPeer.mockReturnValue(peer);
+
+    joinSession('HOST01');
+
+    expect(connect).toHaveBeenCalledWith(
+      'HOST01',
+      expect.objectContaining({ metadata: { devicePlatform: expect.any(String) } }),
+    );
   });
 
   it('does not let a replaced connection’s late bootstrap or close affect the successor', async () => {

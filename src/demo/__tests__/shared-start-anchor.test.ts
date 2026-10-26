@@ -152,10 +152,7 @@ import { clearAllManagedTimers } from '../../core/timers.ts';
 import { handleData, resetInboundRateLimit } from '../../network/protocol.ts';
 import { initSync } from '../../network/sync.ts';
 import { setCurrentAudioBuffer, setPlayerNode, setPlayLocked } from '../../player/_state.ts';
-import {
-  LEGACY_FILE_SCHEDULE_AHEAD_MS,
-  LOCAL_FILE_START_LEAD_MS,
-} from '../../player/file-play-timing.ts';
+import { LOCAL_FILE_START_LEAD_MS } from '../../player/file-play-timing.ts';
 import { setPlaybackFilePaused } from '../../player/ownership.ts';
 import { initPlayback } from '../../player/playback.ts';
 import {
@@ -576,13 +573,10 @@ describe('P4-D9: queue playback after leaving the demo is unchanged', () => {
       .map(([frame]) => frame as Record<string, unknown>)
       .filter((frame) => frame.type === MSG.PLAY);
     expect(plays).toEqual([
-      expect.objectContaining({
-        time: 0,
-        queueItemId: QUEUE_ITEM_ID,
-        hostStartAt: queueStartAt,
-        hostPlayAt: queueStartAt + LEGACY_FILE_SCHEDULE_AHEAD_MS,
-      }),
+      expect.objectContaining({ time: 0, queueItemId: QUEUE_ITEM_ID, hostStartAt: queueStartAt }),
     ]);
+    // Survey OV-B01: no 200 ms legacy hostPlayAt lead beside the shared start.
+    expect(plays[0]).not.toHaveProperty('hostPlayAt');
     const pong = await syncPong();
     expect(pong).toMatchObject({ queueItemId: QUEUE_ITEM_ID, hostStartAt: queueStartAt });
     expect(pong).not.toHaveProperty('demoTrackIndex');

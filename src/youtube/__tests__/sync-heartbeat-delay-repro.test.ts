@@ -133,7 +133,7 @@ function installGuest(android: boolean, extraLeadSec = 0): FakeYtPlayer {
   return player;
 }
 
-function heartbeat(sentAt: number | undefined, frame: Record<string, unknown> = {}): void {
+function heartbeat(sentAt: number, frame: Record<string, unknown> = {}): void {
   harness.handlers[MSG.YOUTUBE_SYNC](
     {
       queueItemId: Q,
@@ -141,7 +141,7 @@ function heartbeat(sentAt: number | undefined, frame: Record<string, unknown> = 
       state: 1,
       videoId: VIDEO,
       subIndex: -1,
-      ...(sentAt === undefined ? {} : { hostClock: sentAt }),
+      hostClock: sentAt,
       ...frame,
     },
     host,
@@ -239,25 +239,6 @@ describe('heartbeat projection boundaries', () => {
   );
 
   for (const buffering of [false, true]) {
-    it.each([
-      ['missing', undefined],
-      ['NaN', Number.NaN],
-      ['positive infinity', Number.POSITIVE_INFINITY],
-      ['negative infinity', Number.NEGATIVE_INFINITY],
-    ] as const)(
-      `${buffering ? 'BUFFERING' : 'PLAYING'}: %s host clock keeps legacy raw-position fallback`,
-      async (_label, hostClock) => {
-        const player = installGuest(true, buffering ? 0 : 4);
-        if (buffering) player.__setState(3, false);
-        heartbeat(hostClock);
-        expect(seekTargets(player)).toEqual([HOST_POSITION_AT_SEND + 0.25]);
-        await advance(SEEK_PLAY_GAP_MS);
-        expect(mutationOps(player)).toEqual(
-          buffering ? ['pauseVideo', 'seekTo', 'playVideo'] : ['seekTo'],
-        );
-      },
-    );
-
     it(`${buffering ? 'BUFFERING' : 'PLAYING'}: future host clock never projects backward`, async () => {
       const player = installGuest(true, buffering ? 0 : 4);
       if (buffering) player.__setState(3, false);

@@ -2,16 +2,16 @@
  * File-byte routing policy.
  *
  * Physical ICE location (`connectionType`) and file delivery are deliberately
- * separate. A capable local guest can use temporary R2 delivery when direct
- * fanout would exceed the host's bounded eight-peer budget, while unadvertised
- * clients retain scarce direct slots and every other feature keeps the real
- * physical topology.
+ * separate. Local guests receive direct P2P bytes while a transfer fits the
+ * host's bounded eight-peer budget; a room of nine or more local guests uses
+ * temporary R2 delivery for all of them, and every other feature keeps the real
+ * physical topology. Every supported guest reads local-audience R2 descriptors,
+ * so the route depends on room size alone.
  *
  * A decision is frozen per transfer session. Peers already receiving a direct
- * stream never change transport mid-file. A late capable overflow guest uses
- * R2; an unadvertised overflow guest is explicit unsupported instead of expanding
- * direct fanout. A reconnect is a new authenticated connection and advertises
- * capability again.
+ * stream never change transport mid-file. A late local guest takes a free
+ * direct slot of a direct session and uses R2 otherwise. A reconnect is a new
+ * authenticated connection and gets a fresh assignment.
  */
 
 import { getState } from '../core/state.ts';
@@ -19,20 +19,18 @@ import type { ConnectedPeer, DataConnection, QueueItemId } from '../types/index.
 
 const MAX_DIRECT_LOCAL_FILE_GUESTS = 8;
 
-type FileDeliveryMode = 'direct-local' | 'mixed' | 'r2-fanout';
+type FileDeliveryMode = 'direct-local' | 'r2-fanout';
+/** 'pending' waits for ICE; 'unsupported' answers only a request without a valid session. */
 type FilePeerDelivery = 'direct-local' | 'r2' | 'pending' | 'unsupported';
 
 interface FrozenFileDelivery {
   mode: FileDeliveryMode;
   directPeerIds: Set<string>;
   r2PeerIds: Set<string>;
-  pendingPeerIds: Set<string>;
-  unsupportedPeerIds: Set<string>;
 }
 
 const MAX_RETAINED_SESSIONS = 64;
 const hostPolicies = new Map<string, FrozenFileDelivery>();
-const localR2CapablePeerIds = new Set<string>();
 
 interface GuestDelivery {
   queueItemId: QueueItemId;
@@ -58,13 +56,6 @@ function policyKey(sessionId: number): string {
 function connectedLocalGuests(): ConnectedPeer[] {
   return (getState('network.connectedPeers') || []).filter(
     (peer) => peer.status === 'connected' && !!peer.conn?.open && peer.connectionType === 'local',
-  );
-}
-
-function sortByJoinOrder(peers: ConnectedPeer[]): ConnectedPeer[] {
-  return [...peers].sort(
-    (left, right) =>
-      (left.joinOrder || 0) - (right.joinOrder || 0) || left.id.localeCompare(right.id),
   );
 }
 
@@ -95,38 +86,14 @@ export function freezeFileDeliveryMode(sessionId: number): FileDeliveryMode {
   const existing = hostPolicies.get(key);
   if (existing) return existing.mode;
 
-  const localPeers = sortByJoinOrder(connectedLocalGuests());
-  const directPeerIds = new Set<string>();
-  const r2PeerIds = new Set<string>();
-  const pendingPeerIds = new Set<string>();
-  const unsupportedPeerIds = new Set<string>();
-  let mode: FileDeliveryMode = 'direct-local';
-
-  if (localPeers.length <= MAX_DIRECT_LOCAL_FILE_GUESTS) {
-    for (const peer of localPeers) directPeerIds.add(peer.id);
-  } else if (localPeers.every((peer) => localR2CapablePeerIds.has(peer.id))) {
-    mode = 'r2-fanout';
-    for (const peer of localPeers) r2PeerIds.add(peer.id);
-  } else {
-    mode = 'mixed';
-    // A client which advertised support can consume the explicit local-audience
-    // R2 marker. Reserve the bounded direct slots for unadvertised peers first
-    // and never grow P2P fanout beyond eight.
-    const unadvertisedPeers = localPeers.filter((peer) => !localR2CapablePeerIds.has(peer.id));
-    const capablePeers = localPeers.filter((peer) => localR2CapablePeerIds.has(peer.id));
-    for (const peer of unadvertisedPeers) {
-      if (directPeerIds.size < MAX_DIRECT_LOCAL_FILE_GUESTS) directPeerIds.add(peer.id);
-      else unsupportedPeerIds.add(peer.id);
-    }
-    for (const peer of capablePeers) r2PeerIds.add(peer.id);
-  }
+  const localPeerIds = new Set(connectedLocalGuests().map((peer) => peer.id));
+  const mode: FileDeliveryMode =
+    localPeerIds.size <= MAX_DIRECT_LOCAL_FILE_GUESTS ? 'direct-local' : 'r2-fanout';
 
   hostPolicies.set(key, {
     mode,
-    directPeerIds,
-    r2PeerIds,
-    pendingPeerIds,
-    unsupportedPeerIds,
+    directPeerIds: mode === 'direct-local' ? localPeerIds : new Set<string>(),
+    r2PeerIds: mode === 'r2-fanout' ? localPeerIds : new Set<string>(),
   });
   pruneHostPolicies();
   return mode;
@@ -150,57 +117,18 @@ function activeSessionIds(): Set<number> {
   return sessionIds;
 }
 
-function assignLateLocalPeer(policy: FrozenFileDelivery, peerId: string): FilePeerDelivery {
-  policy.pendingPeerIds.delete(peerId);
+function assignLateLocalPeer(policy: FrozenFileDelivery, peerId: string): 'direct-local' | 'r2' {
   if (policy.directPeerIds.has(peerId)) return 'direct-local';
   if (policy.r2PeerIds.has(peerId)) return 'r2';
-  if (policy.unsupportedPeerIds.has(peerId)) return 'unsupported';
 
-  const capable = localR2CapablePeerIds.has(peerId);
-  if (policy.mode === 'r2-fanout') {
-    if (capable) {
-      policy.r2PeerIds.add(peerId);
-      return 'r2';
-    }
-    // The frozen all-R2 recipients stay untouched, but a later unadvertised client
-    // may safely use one of the otherwise-empty bounded direct slots.
-    if (policy.directPeerIds.size < MAX_DIRECT_LOCAL_FILE_GUESTS) {
-      policy.directPeerIds.add(peerId);
-      return 'direct-local';
-    }
-    policy.unsupportedPeerIds.add(peerId);
-    return 'unsupported';
-  }
-
-  if (policy.mode === 'mixed') {
-    // Once a transfer already uses R2, keep every capable newcomer on R2 and
-    // reserve the scarce direct slots for clients which cannot understand the
-    // local-audience descriptor. Otherwise an early capable newcomer could
-    // consume a free direct slot and strand a later unadvertised participant.
-    if (capable) {
-      policy.r2PeerIds.add(peerId);
-      return 'r2';
-    }
-    if (policy.directPeerIds.size < MAX_DIRECT_LOCAL_FILE_GUESTS) {
-      policy.directPeerIds.add(peerId);
-      return 'direct-local';
-    }
-    policy.unsupportedPeerIds.add(peerId);
-    return 'unsupported';
-  }
-
-  // Existing direct recipients never switch mid-transfer. A late local peer
-  // may take a remaining direct slot; the ninth and later require capability.
-  if (policy.directPeerIds.size < MAX_DIRECT_LOCAL_FILE_GUESTS) {
+  // Existing recipients never switch mid-transfer. A late local peer may take a
+  // remaining direct slot of a direct session; an all-R2 session stays all R2.
+  if (policy.mode === 'direct-local' && policy.directPeerIds.size < MAX_DIRECT_LOCAL_FILE_GUESTS) {
     policy.directPeerIds.add(peerId);
     return 'direct-local';
   }
-  if (capable) {
-    policy.r2PeerIds.add(peerId);
-    return 'r2';
-  }
-  policy.unsupportedPeerIds.add(peerId);
-  return 'unsupported';
+  policy.r2PeerIds.add(peerId);
+  return 'r2';
 }
 
 /** Resolve a late local participant without changing any existing recipient. */
@@ -216,50 +144,13 @@ export function markLateLocalPeerForR2(peerId: string): void {
   }
 }
 
-/**
- * Record support advertised over the exact authenticated guest connection.
- * A pending or unsupported local peer may recover to R2 mid-session; a direct
- * peer remains direct until the next frozen transfer.
- */
-export function markLocalFileR2Capable(peerId: string): number[] {
-  if (!peerId) return [];
-  localR2CapablePeerIds.add(peerId);
-  const peer = (getState('network.connectedPeers') || []).find((item) => item.id === peerId);
-  // Capability says what the client understands, not where it is. Wait for
-  // ICE before choosing local direct/R2 or the existing remote R2 route.
-  if (peer?.connectionType !== 'local') return [];
-
-  const recoveredSessionIds: number[] = [];
-  for (const [key, policy] of hostPolicies) {
-    let recoveredToR2 = false;
-    if (policy.unsupportedPeerIds.delete(peerId)) {
-      policy.r2PeerIds.add(peerId);
-      recoveredToR2 = true;
-    } else if (policy.pendingPeerIds.delete(peerId)) {
-      recoveredToR2 = assignLateLocalPeer(policy, peerId) === 'r2';
-    }
-    if (!recoveredToR2) continue;
-    const separator = key.lastIndexOf(':');
-    const sessionId = Number(key.slice(separator + 1));
-    if (validSessionId(sessionId)) recoveredSessionIds.push(sessionId);
-  }
-  return recoveredSessionIds;
-}
-
-/** A reconnect is a new authenticated DataConnection and must advertise again. */
+/** A reconnect is a new authenticated DataConnection and gets a fresh route. */
 export function releaseFileDeliveryPeer(peerId: string): void {
   if (!peerId) return;
-  localR2CapablePeerIds.delete(peerId);
   for (const policy of hostPolicies.values()) {
     policy.directPeerIds.delete(peerId);
     policy.r2PeerIds.delete(peerId);
-    policy.pendingPeerIds.delete(peerId);
-    policy.unsupportedPeerIds.delete(peerId);
   }
-}
-
-export function isLocalFileR2CapableForTests(peerId: string): boolean {
-  return localR2CapablePeerIds.has(peerId);
 }
 
 /** Remote guests use existing R2 support; local guests follow the frozen policy. */
@@ -280,19 +171,11 @@ export function resolvePeerFileDelivery(peer: ConnectedPeer, sessionId: number):
 
   // Only an unassigned peer may derive its frozen route from current topology.
   if (peer.connectionType === 'remote') {
-    policy.pendingPeerIds.delete(peer.id);
-    policy.unsupportedPeerIds.delete(peer.id);
     policy.r2PeerIds.add(peer.id);
     return 'r2';
   }
-
-  if (peer.connectionType !== 'local') {
-    policy.pendingPeerIds.add(peer.id);
-    return 'pending';
-  }
-
-  policy.pendingPeerIds.delete(peer.id);
-  if (policy.unsupportedPeerIds.has(peer.id)) return 'unsupported';
+  // ICE has not classified this peer yet, so its byte route stays undecided.
+  if (peer.connectionType !== 'local') return 'pending';
   return assignLateLocalPeer(policy, peer.id);
 }
 
@@ -310,6 +193,7 @@ export function shouldConnectionUseDirect(conn: DataConnection, sessionId: numbe
   return !!peer && resolvePeerFileDelivery(peer, sessionId) === 'direct-local';
 }
 
+/** Fail closed for a connection that is not a connected peer or a session that is not valid. */
 export function isConnectionFileDeliveryUnsupported(
   conn: DataConnection,
   sessionId: number,
@@ -343,18 +227,6 @@ export function getDirectFilePeers(sessionId: number): ConnectedPeer[] {
       !!peer.conn?.open &&
       resolvePeerFileDelivery(peer, sessionId) === 'direct-local',
   );
-}
-
-export function getUnsupportedFileTargetsForTests(sessionId: number): DataConnection[] {
-  if (!validSessionId(sessionId)) return [];
-  return (getState('network.connectedPeers') || [])
-    .filter(
-      (peer) =>
-        peer.status === 'connected' &&
-        !!peer.conn?.open &&
-        resolvePeerFileDelivery(peer, sessionId) === 'unsupported',
-    )
-    .map((peer) => peer.conn as DataConnection);
 }
 
 /** Guest-side route ownership, learned only from the authenticated host. */
@@ -401,6 +273,5 @@ export function isGuestDirectFileDelivery(
 
 export function resetFileDeliveryPolicies(): void {
   hostPolicies.clear();
-  localR2CapablePeerIds.clear();
   guestDeliveryByQueueItem.clear();
 }

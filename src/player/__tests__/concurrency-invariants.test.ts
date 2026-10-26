@@ -299,6 +299,13 @@ function queueItemIdAt(index: number): QueueItemId {
   return itemAt(index).queueItemId;
 }
 
+/** Every PLAY the host broadcast, in order. */
+function broadcastPlays(): Array<Record<string, unknown>> {
+  return mocks.broadcast.mock.calls
+    .map(([frame]) => frame as Record<string, unknown>)
+    .filter((frame) => frame.type === MSG.PLAY);
+}
+
 function expectCorrelatedRequest(
   send: ReturnType<typeof vi.fn>,
   expected: Record<string, unknown>,
@@ -696,9 +703,11 @@ describe('standard host canonical file end boundary', () => {
         type: MSG.PLAY,
         time: 0,
         queueItemId: expectedQueueItemId,
-        hostPlayAt: expect.any(Number),
+        hostStartAt: expect.any(Number),
       }),
     );
+    // Survey OV-B01: the 200 ms legacy hostPlayAt lead is no longer published.
+    expect(mocks.broadcast.mock.calls[0]?.[0]).not.toHaveProperty('hostPlayAt');
   });
 
   it('reserves only 200ms after audio preparation and publishes the committed deadline', async () => {
@@ -725,9 +734,9 @@ describe('standard host canonical file end boundary', () => {
 
     const source = getPlayerNode() as unknown as FakeSourceNode;
     expect(source.start).toHaveBeenCalledExactlyOnceWith(0.2, 12);
-    expect(mocks.broadcast).toHaveBeenCalledWith(
-      expect.objectContaining({ type: MSG.PLAY, time: 12, hostStartAt: 1_800, hostPlayAt: 2_000 }),
-    );
+    expect(broadcastPlays()).toEqual([
+      { type: MSG.PLAY, time: 12, queueItemId: queueItemIdAt(0), hostStartAt: 1_800 },
+    ]);
     expect(getTrackPosition()).toBe(12);
     expect(isLocalFileStartPending()).toBe(true);
     expect(getStandardHostPendingFileStartAt()).toBe(1_800);
@@ -812,9 +821,9 @@ describe('standard host canonical file end boundary', () => {
 
     const source = getPlayerNode() as unknown as FakeSourceNode;
     expect(source.start).toHaveBeenCalledExactlyOnceWith(0.2, 12);
-    expect(mocks.broadcast).toHaveBeenCalledWith(
-      expect.objectContaining({ type: MSG.PLAY, time: 12, hostStartAt: 3_200, hostPlayAt: 3_400 }),
-    );
+    expect(broadcastPlays()).toEqual([
+      { type: MSG.PLAY, time: 12, queueItemId: queueItemIdAt(0), hostStartAt: 3_200 },
+    ]);
   });
 
   it('includes the shared start lead in the canonical natural-end boundary', async () => {

@@ -1170,6 +1170,42 @@ describe('room switch, share end, leave and force-stop', () => {
     expect(restorePlayback).not.toHaveBeenCalled();
     expect(seen.toasts).toEqual([]);
   });
+
+  it('5B-G2 guard: after a force-stop ended a publication, the next publication begins and attaches again', async () => {
+    await applyState(live(sfuPublication()));
+    await advance(PRO_TRACK_AT_MS);
+    bus.emit('system-audio:force-stop');
+
+    // The publisher shares again: a new generation is a new publication key,
+    // which the ended publication never blocks.
+    await applyState(
+      live(
+        {
+          publicationId: 'publication_00003',
+          sessionId: 'realtime_session_03',
+          track: { trackName: 'audio-stereo', mid: '0' },
+        },
+        2,
+      ),
+    );
+    expect(slot()).toMatchObject({ receiving: false, activity: 'pending', placeholder: true });
+    await advance(PRO_TRACK_AT_MS);
+    expect(proSfu.descriptors).toHaveLength(2);
+    expect(proSfu.isSubscribed).toBe(true);
+    expect(slot()).toMatchObject({
+      receiving: true,
+      mode: 'system-audio',
+      activity: 'playing',
+      placeholder: true,
+      sources: ['pro-sfu-audio-2'],
+      primers: 1,
+    });
+    expect(media.stopAllMedia).toHaveBeenCalledTimes(2);
+    expect(seen.toasts).toEqual([]);
+
+    await applyState(idle(3));
+    expect(slot()).toMatchObject({ mode: null, activity: 'idle', title: previousTitle });
+  });
 });
 
 describe('the same device as publisher (S11) and begin re-entrancy', () => {

@@ -145,6 +145,19 @@ let interruptedReceiverPlayback: { roomCode: string | null; generation: number }
 
 let coordinatorSubscriptionKey: string | null = null;
 let coordinatorSubscriptionFlight: { key: string; promise: Promise<void> } | null = null;
+/**
+ * The publication whose reception a force-stop or a refused SFU track ended
+ * (5B-G2): a heartbeat, a room-context re-emission or a retry neither
+ * subscribes nor begins again for it. Every key change clears it
+ * (cleanupCoordinatorGraph), so a new publication is never blocked.
+ */
+let coordinatorEndedKey: string | null = null;
+/**
+ * Above zero while the coordinator's own reception start runs: its
+ * stopAllMedia emits system-audio:force-stop while local capture runs, and
+ * that force-stop must not end the reception the start is beginning.
+ */
+let coordinatorBeginDepth = 0;
 
 function observeSystemAudioTask(operation: Promise<unknown>, context: string): void {
   operation.catch((error) => {
@@ -555,6 +568,7 @@ function cleanupCoordinatorGraph(): void {
   detachSystemAudioRoute(COORDINATOR_ROUTE);
   coordinatorSubscriptionKey = null;
   coordinatorSubscriptionFlight = null;
+  coordinatorEndedKey = null;
   stopProSystemAudioSfuSubscriber();
   // The 'system-audio' playback owner is also a local share's claim: never end
   // the reception over this device's own publication. resetProSystemAudioService
@@ -578,6 +592,50 @@ function cleanupCoordinatorSubscriptionForRetry(): void {
   adoptSystemAudioReceiveRoute(COORDINATOR_ROUTE);
 }
 
+/**
+ * The reception of the publication the coordinator receives has ended
+ * without the publication changing (5B-G2, owner decision P5-D5 A, gaps 4
+ * and 5): a force-stop, or the slot refused that publication's SFU track.
+ * Ends the coordinator's route (its pending retry, the disconnect grace, the
+ * direct receive deadline, its source and primer, the subscribe in flight and
+ * the SFU subscription) and marks the publication ended, so nothing
+ * subscribes or begins again until the publication changes. It keeps the
+ * publication key, ends no reception and shows no notice. A LAN-direct
+ * receiver route stays open (closing it would fail the route over to the SFU
+ * or invite a re-offer; a re-offered track meets the slot's attach fence).
+ */
+function endCoordinatorRoute(): void {
+  clearSubscriberRetry();
+  clearManagedTimer(SUBSCRIBER_DISCONNECT_TIMER);
+  clearManagedTimer(DIRECT_RECEIVE_DEADLINE_TIMER);
+  detachSystemAudioRoute(COORDINATOR_ROUTE);
+  coordinatorSubscriptionFlight = null;
+  coordinatorEndedKey = coordinatorSubscriptionKey;
+  stopProSystemAudioSfuSubscriber();
+}
+
+/**
+ * The slot refused a track of the live SFU publication (its trust boundary
+ * or its attach fence: the reception ended, or another owner plays). Nothing
+ * will play that subscription, so close it for this publication, with no
+ * retry and no notice (5B-G2, gap 5). A LAN-direct track keeps its route.
+ */
+function endRefusedCoordinatorSubscription(
+  identity: CoordinatorPublicationIdentity,
+  descriptorTrack: ProRoomSystemAudioPublicationTrack | null,
+  isCurrent: () => boolean,
+): void {
+  if (
+    descriptorTrack === null ||
+    !isCurrent() ||
+    !coordinatorPublicationMatches(identity) ||
+    coordinatorSubscriptionKey !== coordinatorPublicationKey(identity)
+  ) {
+    return;
+  }
+  endCoordinatorRoute();
+}
+
 async function attachCoordinatorTrack(
   identity: CoordinatorPublicationIdentity,
   descriptorTrack: ProRoomSystemAudioPublicationTrack | null,
@@ -586,9 +644,11 @@ async function attachCoordinatorTrack(
 ): Promise<void> {
   if (!isCurrent()) return;
   const trustedReceptionReady = await awaitTrustedSystemAudioReceptionBoundary('pro-stereo');
-  if (!trustedReceptionReady || !isCurrent() || !coordinatorPublicationMatches(identity)) {
+  if (!trustedReceptionReady) {
+    endRefusedCoordinatorSubscription(identity, descriptorTrack, isCurrent);
     return;
   }
+  if (!isCurrent() || !coordinatorPublicationMatches(identity)) return;
   await initAudio();
   if (!isCurrent()) return;
   const state = controller?.getCurrentState();
@@ -623,8 +683,13 @@ async function attachCoordinatorTrack(
     },
   );
   // A refused attach (5B-G1: the reception ended or another owner plays)
-  // returns quietly: the slot dropped the coordinator's source and primer,
-  // and no retry, fallback or notice follows. The transport stays as it is.
+  // fails nothing: the slot dropped the coordinator's source and primer, and
+  // no retry, fallback or notice follows. Since 5B-G2 a refused SFU track
+  // closes its subscription for this publication; a LAN-direct route stays.
+  if (attached === 'not-receiving') {
+    endRefusedCoordinatorSubscription(identity, descriptorTrack, isCurrent);
+    return;
+  }
   if (attached === 'graph-unavailable') throw new Error('PRO_SYSTEM_AUDIO_GRAPH_UNAVAILABLE');
 }
 
@@ -890,8 +955,14 @@ async function ensureCoordinatorSubscription(
       // The coordinator owns this publication's receive deadline. The slot's
       // receive deadline would end the placeholder while a late offer is still
       // on its way, and an unchanged live state never re-enters it, so that
-      // offer's track would attach nowhere.
-      beginTrustedSystemAudioReception(undefined, { deadline: 'route' });
+      // offer's track would attach nowhere. The depth keeps a force-stop
+      // nested in this start from ending the route it begins (5B-G2).
+      coordinatorBeginDepth += 1;
+      try {
+        beginTrustedSystemAudioReception(undefined, { deadline: 'route' });
+      } finally {
+        coordinatorBeginDepth -= 1;
+      }
       armDirectReceiveDeadline(identity, key);
     }
     await activateProSystemAudioDirectPublication({
@@ -910,8 +981,18 @@ async function ensureCoordinatorSubscription(
     coordinatorSubscriptionKey = key;
     // This subscription and its backed-off retries own the receive deadline;
     // the slot's receive deadline would fire while a longer retry still waits.
-    beginTrustedSystemAudioReception(undefined, { deadline: 'route' });
+    // The depth keeps a force-stop nested in this start from ending the
+    // subscription it begins (5B-G2).
+    coordinatorBeginDepth += 1;
+    try {
+      beginTrustedSystemAudioReception(undefined, { deadline: 'route' });
+    } finally {
+      coordinatorBeginDepth -= 1;
+    }
   }
+  // A force-stop or a refused track ended this publication's reception
+  // (5B-G2): subscribe again only for a new publication.
+  if (coordinatorEndedKey === key) return;
   let flight = coordinatorSubscriptionFlight;
   if (!flight || flight.key !== key) {
     let promise: Promise<void>;
@@ -1004,9 +1085,11 @@ function scheduleCoordinatorSubscriptionRetry(identity: CoordinatorPublicationId
       if (!coordinatorPublicationMatches(identity)) return;
       const current = controller?.getCurrentState();
       if (current?.status === 'live') {
-        void ensureCoordinatorSubscription(current, identity).catch((error) =>
-          log.warn('[PRO SystemAudio] Coordinator subscription retry failed', error),
-        );
+        void ensureCoordinatorSubscription(current, identity).catch((error) => {
+          // A stop that ended this publication aborted the attempt (5B-G2).
+          if (coordinatorEndedKey === coordinatorPublicationKey(identity)) return;
+          log.warn('[PRO SystemAudio] Coordinator subscription retry failed', error);
+        });
       }
     },
     delay,
@@ -1179,6 +1262,11 @@ function reconcileCoordinatorState(state: ProRoomSystemAudioState): void {
     if (!identity || !coordinatorPublicationMatches(identity, state)) return;
     void ensureCoordinatorSubscription(state, identity).catch((error) => {
       if (!coordinatorPublicationMatches(identity)) return;
+      // A force-stop or a refused track ended this publication while its
+      // subscribe was in flight, and stopping the subscriber aborted it: that
+      // rejection is no subscription failure, so no warn, notice or retry
+      // (5B-G2).
+      if (coordinatorEndedKey === coordinatorPublicationKey(identity)) return;
       log.warn('[PRO SystemAudio] Coordinator subscription failed', error);
       notifySubscriberFailure(state);
       // A failed SFU subscription reports `failed` before it rejects, and that
@@ -2088,6 +2176,13 @@ export function registerProSystemAudioServiceListeners(): void {
     // The guest ends the receive placeholder for good; a direct track that
     // turns up afterwards stays detached, so there is nothing left to warn about.
     clearManagedTimer(DIRECT_RECEIVE_DEADLINE_TIMER);
+    // A force-stop nested in the coordinator's own start (its stopAllMedia
+    // while local capture runs) leaves the reception that start begins.
+    // Otherwise, while the coordinator receives a remote publication, end its
+    // route as well (5B-G2, gap 4): before, the source kept sounding under an
+    // idle UI and the subscription stayed open until the room reset.
+    if (coordinatorBeginDepth > 0 || coordinatorSubscriptionKey === null) return;
+    endCoordinatorRoute();
   });
 
   onProSystemAudioSfuEvent((event) => {

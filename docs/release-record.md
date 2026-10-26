@@ -123,6 +123,7 @@ gh run list --workflow e2e.yml --branch main --limit 3
       `raise_app_build_floor`를 켜면 커밋 표지 뒤의 올리기가 이 창에 닿아 실패할 수 있고(릴리스는 커밋된 채 남고
       standalone `set`으로 다시 함), 최소 빌드가 켜진 동안 PRO Worker를 배포하면 그 몇 분 동안 강제가 꺼질 수 있다(둘
       다 추론). 코드는 바꾸지 않았다. 다음 PRO 배포 때 App 로그와 공개 상태를 함께 보면 가설을 가를 수 있다.
+      [보고서 QA 라운드 7](design/forced-update-9-0-14-2026-10-25.md#7-pr-ci-exact-main-ci-배포와-첫-최소-빌드-2026-10-26).
 
 ### 구버전 호환 코드 제거 열차 1(9.0.13/v786) 배포 뒤 확인: 이미 있는 바닥 아래만 섬기던 호환 코드
 

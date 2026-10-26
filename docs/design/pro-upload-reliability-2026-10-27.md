@@ -3,7 +3,8 @@
 | Field | Value |
 | --- | --- |
 | Status | PR preparation; not merged or deployed |
-| Base | `cb1598516` (production Workers `a3893f04`, App 9.0.14 / v787) |
+| Base | Initial `cb1598516`; integrated main `5dd7cc1f6` (#502, 9.0.15 / v788) in `4a99f44ba` |
+| Proposed identity | 9.0.16 / v789; App build floor unchanged |
 | Scope | Browser PRO uploads, completion deadlines, bounded diagnostics, Standard/PRO authority feedback |
 | Release authorization | Owner requested a reviewable PR only; merge and deployment remain withheld |
 
@@ -29,7 +30,10 @@
 3. **Explain terminal input failures.** A zero-byte or over-limit file never
    reaches reservation/PUT, carries its reason to the dialog, and is excluded
    from retry. Other selected files continue. The header distinguishes byte
-   transfer from completion confirmation. New copy is present in 42 locales.
+   transfer from completion confirmation. Missing/expired asset continuations
+   ask for file selection instead of offering an ineffective retry. New copy is
+   present in 42 locales. Long failure lists reuse the reading dialog's internal
+   scroll; dialog height is bounded by its actual overlay on short/mobile screens.
 4. **Pending authority is not denial.** PRO account reconciliation projects
    pending feedback with no usable capabilities; confirmed revocation remains
    denied. Standard assertion work waits for the matching signaling identity

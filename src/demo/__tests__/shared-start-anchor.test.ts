@@ -400,6 +400,10 @@ describe('P4-D9: the demo and queue shared-start anchors', () => {
         .map(([, frame]) => frame as Record<string, unknown>);
       expect(bootstrap.map((frame) => frame.type)).toEqual([MSG.DEMO_ENTER, MSG.DEMO_PLAY]);
       expect(bootstrap[1]?.hostStartAt).toBe(demoStartAt);
+      // Old-version removal train 2 (OV-F05): neither the published DEMO_PLAY
+      // nor the late-join bootstrap carries the 350 ms hostPlayAt any more.
+      expect(demoPlay).not.toHaveProperty('hostPlayAt');
+      expect(bootstrap[1]).not.toHaveProperty('hostPlayAt');
       const directTypes = send.mock.calls.map(([frame]) => (frame as { type?: unknown }).type);
       expect(directTypes).not.toContain(MSG.PLAY);
       expect(directTypes).not.toContain(MSG.PAUSE);

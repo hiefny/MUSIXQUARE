@@ -45,7 +45,7 @@ gh run list --workflow e2e.yml --branch main --limit 3
 해결하면 근거(커밋, 실행 ID, 문서)를 PR 설명에 적고 이 목록에서 지운다. 근거
 없이 완료로 표시하지 않는다.
 
-### 구조 개선 Phase 5 5A(버전 미정, 배포 전): 시스템 오디오 수신 슬롯을 주인 하나로, 동작 그대로
+### 구조 개선 Phase 5 5A(9.0.12/v785, 배포 전): 시스템 오디오 수신 슬롯을 주인 하나로, 동작 그대로
 
 - [ ] 5A 범위(오너 결정 2026-10-25 약 04:00 KST, Phase 5 추천안 전부. 배포 시점은 약 01:50 KST 결정, 순서는
       약 22:30 KST 결정): 앱 업데이트 두 번(P5-D3 A) 가운데 첫째인 중립 열차다. 기기 하나의 시스템 오디오
@@ -81,9 +81,15 @@ gh run list --workflow e2e.yml --branch main --limit 3
       열차와 옛 버전 제거 1차는 5A 뒤에 main을 합친다(같은 파일 registry,
       `scripts/check-room-authority-boundaries.mts`와 그 테스트, `src/types/index.ts`, `vite.config.ts`,
       `docs/qa-domains.md`, `file-prepare-pause.test.ts`는 시험 합침에서 글자 충돌이 없었지만 그쪽 가드 수를
-      다시 맞춰야 할 수 있음). 남은 것: 마지막 런타임 커밋의 SemVer·SW 캐시 bump, PR CI, Codex, exact-main
-      CI, 릴리스 smoke, 배포(target `app`, Developer API D1 `false`). 로컬 결과는 exact-main-SHA 후보를
-      대신하지 않는다.
+      다시 맞춰야 할 수 있음). 9.0.11은 배포됐으므로 SemVer와 SW 캐시 epoch를 마지막 런타임 커밋
+      `96c1b83f`에서 `9.0.12` / `v785`로 함께 올렸다(올리기 직전 fetch한 origin/main은 여전히 `2d605739`).
+      bump 뒤 최종 로컬(`96c1b83f`): release-identity(9.0.12, v785)·sw-cache-version, 단위 672 files /
+      15,707, Worker 60 files / 2,914, 핵심 커버리지 87 files / 3,278(슬롯 96.07/91.3/100/97.82),
+      typecheck(테스트 포함)·`check:workers`·lint·format·`build:checked` 전체, 가드(dead-exports 20/20·76/76,
+      bus-pairing 202/202, resource-ownership 46 records / 439 files, 직접 읽기 83, transport-health 은퇴 이름
+      24), critical E2E 61/61, 프로덕션 빌드 두 번의 초기 JS 478,198 B(main `2d605739` 478,186 B 대비 +12 B,
+      코드 없음, 유지 상한까지 13,370 B) PASS. 남은 것: PR CI, Codex, exact-main CI, 릴리스 smoke,
+      배포(target `app`, Developer API D1 `false`). 로컬 결과는 exact-main-SHA 후보를 대신하지 않는다.
       [5A 보고서](design/phase5-5a-receive-slot-2026-10-25.md).
 - [ ] 5A 배포 뒤 실기기 확인(게이트 아님, 2026-10-25 결정): 5A 코드로 실제 기기를 아직 돌리지 않았다.
       Phase 5 기기 절차(2-8 기록 추가, Set 5S, Set 5P)는 Phase 4 세션 2에 붙여 오너가 고르는 때에 한다(P5-D2

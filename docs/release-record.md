@@ -150,7 +150,8 @@ gh run list --workflow e2e.yml --branch main --limit 3
       코드 없음, 유지 상한까지 13,370 B) PASS. 오너 결정대로 자동 게이트 가운데 로컬 검사, 리뷰, PR CI,
       exact-main CI, 릴리스 smoke가 통과해 따로 묻지 않고 target `app`, Developer API D1 `false`로 배포했다. PR head `fbd1dc6b`의 Codex
       리뷰는 머지 스크립트의 20분 상한 안에 끝나지 않아 결과 없이 머지했고, 그 뒤로도 끝나지 않았다(2026-10-26
-      13:42 KST에도 Codex 요약은 `fbd1dc6b`를 running으로 두고 PR에 리뷰와 리뷰 댓글이 없다). 로컬 결과는
+      13:42 KST에도 Codex 요약은 `fbd1dc6b`를 running으로 두고 PR에 리뷰와 리뷰 댓글이 없다). 그 대신 배포된
+      변경을 독립 검토 넷이 다시 읽었고 결함이 없었다(5A 보고서 QA 라운드 6). 로컬 결과는
       exact-main-SHA 후보를 대신하지 않는다. exact-main CI, Release 실행, 배포 SHA는 5A 보고서의 QA 라운드 5와
       [릴리스 이력](release-history.md)에 있다. [5A 보고서](design/phase5-5a-receive-slot-2026-10-25.md).
 - [ ] 5A 배포 뒤 실기기 확인(게이트 아님, 2026-10-25 결정): 5A 코드로 실제 기기를 아직 돌리지 않았다.

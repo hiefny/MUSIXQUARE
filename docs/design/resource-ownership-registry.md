@@ -114,7 +114,7 @@ each record also states the step in words.
 | RO-18 | Host-to-guest bulk lanes                                 | Transfer       | duplicated         | 4 (C5-3, C5-11 reduced, C5-12) |
 | RO-19 | Guest fetch of the current track                         | Transfer       | owner-in-place     | Done (4, C5-3)                 |
 | RO-20 | PRO system-audio lease and publication                   | System audio   | owner-in-place     | None                           |
-| RO-21 | PRO checkpoint re-apply after a disruption               | PRO room       | duplicated         | 5B (C4-13, P5-D11 B)           |
+| RO-21 | PRO checkpoint re-apply after a disruption               | PRO room       | owner-in-place     | Done (5B, C4-13)               |
 | RO-22 | Waiting service worker activation                        | Page lifecycle | duplicated         | 0d, 3                          |
 | RO-23 | App-owned page navigation                                | Page lifecycle | duplicated         | 0d, 2                          |
 | RO-24 | `inert` page lock                                        | Page lifecycle | owner-in-place     | Done (2, C6-11)                |
@@ -131,7 +131,6 @@ each record also states the step in words.
 | RO-36 | Failed-PLAY confirm closure stays on the bus             | Audio          | accepted-exception | Revisit in Phase 7             |
 | RO-37 | Defensive retry-versus-semantic branch stays in `app.ts` | Audio          | accepted-exception | Revisit in Phase 7             |
 | RO-39 | Two Cloudflare Realtime control clients                  | System audio   | accepted-exception | Revisit after a build check    |
-| RO-41 | Two PRO re-apply owners serialized, not deduplicated     | PRO room       | accepted-exception | Revisit in 5B (C4-13)          |
 | RO-42 | PRO-only capture policy stays eager                      | System audio   | accepted-exception | Revisit after a build check    |
 | RO-43 | Update prompt stays eager                                | Page lifecycle | accepted-exception | None (C6-15 rejected)          |
 | RO-44 | AudioContext native-call guard is syntactic              | Audio          | accepted-exception | Phase 7                        |
@@ -177,7 +176,7 @@ RO-17 duplicated
 RO-18 duplicated
 RO-19 owner-in-place
 RO-20 owner-in-place
-RO-21 duplicated
+RO-21 owner-in-place
 RO-22 duplicated
 RO-23 duplicated
 RO-24 owner-in-place
@@ -194,7 +193,6 @@ RO-34 accepted-exception
 RO-36 accepted-exception
 RO-37 accepted-exception
 RO-39 accepted-exception
-RO-41 accepted-exception
 RO-42 accepted-exception
 RO-43 accepted-exception
 RO-44 accepted-exception
@@ -2031,21 +2029,38 @@ RO-49 accepted-exception
 - **Resource:** the local media endpoint as driven by `playbackController.reconcile`
   (`src/pro-room/playback-controller.ts`), whose prepare step pauses the YouTube iframe until
   release.
-- **Current owners/flows:** foreground recovery in `src/pro-room/runtime.ts`
-  (`recoverVisibleProRoomPlayback`, `visibilityReturnReconciledGeneration`, triggered by
-  `visibilitychange` and the background-return Sync) and the post-share restore in
-  `system-audio-service.ts` (`restorePlaybackAfterRelease`, `resumePlaybackAfterShare`, held while
-  the page is hidden). The controller's scheduler runs one flight at a time and queues the other
-  owner; nothing checks across owners whether a revision was already re-applied.
-- **Target single owner:** `runtime.ts` as the background-return repair authority, with the
-  service deciding when to restore. Deduplication changes behaviour and needs an owner decision
-  (RO-41).
-- **Allowed requesters:** the runtime's visibility handler, the post-share restore through the
-  runtime's restore callback.
+- **Current owners/flows:** `src/pro-room/runtime.ts` is the background-return repair authority
+  since Phase 5 train 5B (plan step C4-13, owner decision P5-D11 B). Its foreground recovery
+  (`recoverVisibleProRoomPlayback`, triggered by `visibilitychange` and the background-return
+  Sync) and the restore callback it gives `system-audio-service.ts` both record a repaired return
+  in `visibilityReturnReconciledGeneration`. The post-share restore in the service
+  (`restorePlaybackAfterRelease`, `resumePlaybackAfterShare`, held while the page is hidden) only
+  decides when to restore and runs through that callback. The callback marks the return it began
+  in when its reconcile applied, its liveness is still current, the page is shown and no hide
+  came since it began (the generation it captured is still `visibilityReturnGeneration`). A
+  foreground pass reconciles as its own owner (the pass object), whose liveness goes stale once
+  its return is marked: the scheduler drops it while it is still queued, or it stops at its next
+  boundary. In the F3 order the drain starts it just before the restore callback resumes, so it
+  runs its forced heartbeat and resolves false before its clock wait and prepare. A pass whose
+  return is marked settles instead of scheduling a retry. Because the pass has its own owner, a
+  manual Sync pressed during it queues behind it instead of joining (before, it joined only a pass
+  already widened to every medium).
+- **Target single owner:** reached (`runtime.ts`); the service keeps the decision of when to
+  restore.
+- **Allowed requesters:** the runtime's visibility handler, the background-return Sync, and the
+  post-share restore through the runtime's restore callback.
 - **Lifecycle operations:** reconcile with `rendezvous`, `youtubeOnly` and `preparePaused`.
-- **Deadline owner:** each ladder; the scheduler serializes them.
+- **Deadline owner:** each ladder; the scheduler serializes them, and a marked return retires the
+  foreground ladder.
 - **Timing-constant home:** `VISIBILITY_PLAYBACK_RECOVERY_RETRY_MS` (`runtime.ts`) and
-  `PLAYBACK_RESTORE_DELAYS_MS` (`system-audio-service.ts`), both capped at 15 s.
+  `PLAYBACK_RESTORE_DELAYS_MS` (`system-audio-service.ts`), both capped at 15 s, unchanged by
+  C4-13.
+- **Not deduplicated (residual, no record):** the opposite order. When the restore's own pass fails
+  (for example its fresh clock sample after the page is shown) and the foreground repair queued
+  behind it then applies, the restore's retry (250 ms) still arms the same revision again: the
+  service decides when to restore and the restore does not read the mark. Pinned as today's
+  behaviour by `runtime-system-audio-join.test.ts` "5B-C4-13 residual, expected today: …"; not
+  heard on a device. Revisit if Phase 5 device step 5P-5 still reports a second stop after 5B.
 - **Anchor tests:**
   - Supersession: `src/pro-room/__tests__/runtime-server-playback.test.ts` "joins an in-flight
     YouTube visibility pass instead of starting a second rendezvous".
@@ -2055,13 +2070,15 @@ RO-49 accepted-exception
   - Visibility: `runtime-server-playback.test.ts` "does not re-apply a YouTube checkpoint the
     visibility pass already re-applied"; `system-audio-service.test.ts` "holds restoration retries
     while hidden and resumes them when shown, without a cap".
-  - Cross-owner: `src/pro-room/__tests__/runtime-system-audio-join.test.ts` "F3 baseline: a
-    share that ends while hidden, with a failed first restore, re-arms the YouTube renderer once
-    per owner when shown" runs the post-share restore and the foreground recovery together
-    (Phase 5 C4-0, #454) and pins today's double re-arm.
-- **Status:** `duplicated`. Exception RO-41. Owner decision P5-D11 B (2026-10-25) schedules the
-  deduplication (plan step C4-13) for Phase 5 train 5B, with the F3 baseline flipped as its
-  failing test.
+  - Cross-owner: `src/pro-room/__tests__/runtime-system-audio-join.test.ts` "F3, fixed in
+    5B-C4-13: a share that ends while hidden, with a failed first restore, re-arms the YouTube
+    renderer once when shown" (the C4-0 F3 baseline of #454, flipped) and "5B-C4-13: a post-share
+    restore still running when the page is shown, which applies after the show, reconciles that
+    return"; guards in the same file: a restore that applies while the page is hidden leaves the
+    repair to the show, a restore that began before a hide and show does not reconcile the newer
+    return, a later hide and show repairs again, and a file item, whose restore completes without
+    applying, is still repaired by the background-return Sync.
+- **Status:** `owner-in-place`. Exception RO-41 was deleted with C4-13 (Phase 5 train 5B).
 
 ### RO-22 Waiting service worker activation
 
@@ -2735,24 +2752,6 @@ entry needs the owner's acceptance and is not implied by this registry.
 - **Revisit when:** a scratch build shows the chunk impact, or a defect appears in one copy.
   Phase 5 does not schedule C4-11 or a Realtime production smoke (owner decision P5-D12 A,
   2026-10-25).
-- **Status:** `accepted-exception`.
-
-### RO-41 Two PRO re-apply owners serialized, not deduplicated
-
-- **Parent:** RO-21. Plan step C4-13 scheduled for Phase 5 train 5B (owner decision P5-D11 B,
-  2026-10-25).
-- **Exception:** foreground recovery and the post-share restore stay separate reconcile owners.
-- **Evidence:** deduplication changes behaviour, so it is not part of the behaviour-neutral train
-  5A. The unit harness reproduces the second re-arm: since Phase 5 C4-0 (#454),
-  `runtime-system-audio-join.test.ts` "F3 baseline" shows a share that ends while the page is
-  hidden, after a failed first restore, prepare the same revision twice when the page is shown.
-  It is not seen on a device yet (Phase 5 device step 5P-5). The sync flight recorder does not
-  mark it: a same-revision re-arm records no `pro-checkpoint` event (Phase 5 prep T8), so a
-  device run can report the second pause only by ear.
-- **Behaviour risk:** a possible second pause of the YouTube iframe on return (unit evidence, not
-  yet heard on a device); no known-accepted entry.
-- **Revisit when:** train 5B lands C4-13 (that change deletes this record and updates RO-21), or
-  the owner's later device run of 5P-5 changes the decision.
 - **Status:** `accepted-exception`.
 
 ### RO-42 PRO-only capture policy stays eager

@@ -4924,8 +4924,9 @@ export class MusixquareRoom {
     const stored = await this.loadStandardPinMembership();
     if (!stored) return undefined;
     if (!verifier) return null;
-    // A legacy replay of the same PIN keeps the host's earlier choice; the
-    // same PIN under a rotated pepper re-stamps it; any other change voids it.
+    // A replay of the same PIN without a membership choice (the host's replay
+    // after a reconnect) keeps the host's earlier choice; the same PIN under a
+    // rotated pepper re-stamps it; any other change voids it.
     if (constantTimeStringEqual(stored.verifierDigest, verifier.digest)) return undefined;
     return this.rekeyedStandardPinMembership(stored, roomId, meta.roomSecret, password, verifier);
   }
@@ -5066,24 +5067,18 @@ export class MusixquareRoom {
     }
   }
 
-  private failStandardRoomPinMutation(
-    ws: SocketPort,
-    mutationId: string | null,
-    errorType: string,
-  ): void {
+  private failStandardRoomPinMutation(ws: SocketPort, mutationId: string, errorType: string): void {
     // The desired PIN remains in the client and is replayed in host-auth after
     // reconnect. Until that exact mutation commits, block guest admission and
     // revoke every in-memory authority derived from the older durable record.
-    this.standardRoomPinMutationFence = mutationId || `legacy-${crypto.randomUUID()}`;
+    this.standardRoomPinMutationFence = mutationId;
     this.standardRoomPinMutationFenceOwner = ws;
-    if (mutationId) {
-      sendChecked(ws, {
-        type: 'room-password-result',
-        mutationId,
-        applied: false,
-        errorType,
-      });
-    }
+    sendChecked(ws, {
+      type: 'room-password-result',
+      mutationId,
+      applied: false,
+      errorType,
+    });
     const sockets = new Set<SocketPort>([
       ws,
       ...(this.host ? [this.host] : []),
@@ -5104,7 +5099,7 @@ export class MusixquareRoom {
 
   private rejectPendingStandardRoomPinMutation(
     ws: SocketPort,
-    mutationId: string | null,
+    mutationId: string,
     previousFence: string | null,
     previousFenceOwner: SocketPort | null,
     errorType: string,
@@ -5117,14 +5112,12 @@ export class MusixquareRoom {
     this.standardRoomPinMutationFence = previousFence;
     this.standardRoomPinMutationFenceOwner = previousFenceOwner;
     this.pendingHosts.delete(ws);
-    if (mutationId) {
-      sendChecked(ws, {
-        type: 'room-password-result',
-        mutationId,
-        applied: false,
-        errorType,
-      });
-    }
+    sendChecked(ws, {
+      type: 'room-password-result',
+      mutationId,
+      applied: false,
+      errorType,
+    });
     closeSocket(ws, 1011, closeReason);
     this.requestMaintenanceAlarm();
   }
@@ -5386,15 +5379,10 @@ export class MusixquareRoom {
       if (
         attachment.role === 'host' &&
         message?.type === 'room-password-set' &&
-        validateIncomingMessage(message, 'host') === 'valid'
+        validateIncomingMessage(message, 'host') === 'valid' &&
+        typeof message.pinMutationId === 'string'
       ) {
-        return {
-          preclaimedAuth: false,
-          pinConfigurationMutationId:
-            typeof message.pinMutationId === 'string'
-              ? message.pinMutationId
-              : `legacy-${crypto.randomUUID()}`,
-        };
+        return { preclaimedAuth: false, pinConfigurationMutationId: message.pinMutationId };
       }
       return isStandardRoomIdentityMutation(message) ? { preclaimedAuth: false } : null;
     }
@@ -6393,9 +6381,9 @@ export class MusixquareRoom {
     roomId: string,
     peerId: string,
     secret: unknown,
-    accountAssertion: unknown = '',
-    desiredRoomPassword: unknown = undefined,
-    pinMutationId: unknown = undefined,
+    accountAssertion: unknown,
+    desiredRoomPassword: unknown,
+    pinMutationId: unknown,
   ): Promise<boolean> {
     // The caller owns standardAdmissionSync. Expire the previous epoch in the
     // same queue before reading the ownership snapshot used by this claim.
@@ -6412,6 +6400,14 @@ export class MusixquareRoom {
       this.requestMaintenanceAlarm();
       return false;
     }
+    // validateIncomingMessage admits a host-auth only with its desired PIN and
+    // mutation ID; this narrows them for the commit below.
+    if (typeof desiredRoomPassword !== 'string' || typeof pinMutationId !== 'string') {
+      this.pendingHosts.delete(ws);
+      closeWithError(ws, 'invalid-id', 'HOST_AUTH_FIRST_FRAME_INVALID', 1008);
+      this.requestMaintenanceAlarm();
+      return false;
+    }
     if (meta.roomSecret && meta.roomSecret !== secret) {
       this.pendingHosts.delete(ws);
       closeWithError(ws, 'id-taken', 'ROOM_ALREADY_ACTIVE');
@@ -6419,16 +6415,11 @@ export class MusixquareRoom {
       return false;
     }
 
-    const ownsPinMutation =
-      typeof desiredRoomPassword === 'string' &&
-      (desiredRoomPassword === '' || /^\d{8}$/.test(desiredRoomPassword)) &&
-      typeof pinMutationId === 'string' &&
-      /^[A-Za-z0-9_-]{16,64}$/.test(pinMutationId);
     const previousPinMutationFence = this.standardRoomPinMutationFence;
     const previousPinMutationFenceOwner = this.standardRoomPinMutationFenceOwner;
 
     let desiredVerifier: StandardRoomPinVerifier | null = null;
-    if (ownsPinMutation && desiredRoomPassword !== '') {
+    if (desiredRoomPassword !== '') {
       desiredVerifier = await createStandardRoomPinVerifier(
         this.env,
         roomId,
@@ -6450,9 +6441,7 @@ export class MusixquareRoom {
     const isNewRoom = !meta.roomSecret;
     let identity: StandardRoomIdentity | null = null;
     let attachment: StandardHostOkAttachment;
-    this.standardRoomPinMutationFence = ownsPinMutation
-      ? pinMutationId
-      : `legacy-${crypto.randomUUID()}`;
+    this.standardRoomPinMutationFence = pinMutationId;
     this.standardRoomPinMutationFenceOwner = ws;
     try {
       if (isNewRoom) {
@@ -6475,10 +6464,10 @@ export class MusixquareRoom {
         peerId,
         secret,
         auth: 'ok',
-        // The host-auth payload is a pre-admission snapshot. Keep every host,
-        // including a modern client, fenced until it confirms its latest local
-        // PIN after peer-open. This closes the cross-socket race where the user
-        // changes the PIN while the durable host-auth commit is still in flight.
+        // The host-auth payload is a pre-admission snapshot. Keep the host
+        // fenced until it confirms its latest local PIN after peer-open. This
+        // closes the cross-socket race where the user changes the PIN while
+        // the durable host-auth commit is still in flight.
         pinConfigurationPending: true,
         ...standardRoomIdentityAttachmentFields(identity),
       };
@@ -6491,14 +6480,11 @@ export class MusixquareRoom {
         hostPeerId: peerId,
         hostReleaseAt: 0,
       } satisfies RoomMeta;
-      const committedMeta = ownsPinMutation
-        ? currentRoomMeta(ownedMeta, desiredVerifier)
-        : ownedMeta;
-      await this.saveRoomMeta(committedMeta);
+      await this.saveRoomMeta(currentRoomMeta(ownedMeta, desiredVerifier));
     } catch (error) {
       this.rejectPendingStandardRoomPinMutation(
         ws,
-        ownsPinMutation ? pinMutationId : null,
+        pinMutationId,
         previousPinMutationFence,
         previousPinMutationFenceOwner,
         'ROOM_PASSWORD_STORAGE_UNAVAILABLE',
@@ -6523,25 +6509,20 @@ export class MusixquareRoom {
         // Host-only capability: room-password-set may carry existingParticipants
         // and keptPeerIds on this socket. Old clients ignore unknown keys.
         standardRoomPinMembershipVersion: STANDARD_ROOM_PIN_MEMBERSHIP_VERSION,
-        ...(ownsPinMutation
-          ? { roomPasswordMutationId: pinMutationId, roomPasswordApplied: true }
-          : {}),
+        roomPasswordMutationId: pinMutationId,
+        roomPasswordApplied: true,
       })
     ) {
       this.pendingHosts.delete(ws);
       try {
         await this.saveRoomMeta(meta);
       } catch (rollbackError) {
-        this.failStandardRoomPinMutation(
-          ws,
-          ownsPinMutation ? pinMutationId : null,
-          'HOST_AUTH_ROLLBACK_UNAVAILABLE',
-        );
+        this.failStandardRoomPinMutation(ws, pinMutationId, 'HOST_AUTH_ROLLBACK_UNAVAILABLE');
         throw rollbackError;
       }
       this.rejectPendingStandardRoomPinMutation(
         ws,
-        ownsPinMutation ? pinMutationId : null,
+        pinMutationId,
         previousPinMutationFence,
         previousPinMutationFenceOwner,
         'HOST_AUTH_SOCKET_CLOSED',
@@ -6559,7 +6540,7 @@ export class MusixquareRoom {
     // current mutation after peer-open, so a newer local PIN always supersedes
     // the snapshot captured by host-auth before any guest can enter.
     if (previous && previous !== ws) closeSocket(previous, 1012, 'HOST_REPLACED');
-    if (ownsPinMutation && desiredVerifier) {
+    if (desiredVerifier) {
       await this.restampStandardPinMembershipAfterHostAuth(
         roomId,
         secret,
@@ -8041,12 +8022,11 @@ export class MusixquareRoom {
       return;
     }
     if (message.type === 'room-password-set') {
-      if (attachment.roomKind === 'pro') return;
+      // validateIncomingMessage admits the frame only with its mutation ID.
+      if (attachment.roomKind === 'pro' || typeof message.pinMutationId !== 'string') return;
       const password = typeof message.password === 'string' ? message.password : '';
-      const pinMutationId =
-        typeof message.pinMutationId === 'string' ? message.pinMutationId : null;
-      const mutationClaim =
-        pinConfigurationMutationId || pinMutationId || `legacy-${crypto.randomUUID()}`;
+      const pinMutationId = message.pinMutationId;
+      const mutationClaim = pinConfigurationMutationId || pinMutationId;
       return this.enqueueHostAdmission(async () => {
         if (this.host !== ws) {
           this.releaseStandardRoomPinMutationClaim(ws, mutationClaim);
@@ -8101,9 +8081,9 @@ export class MusixquareRoom {
             throw new Error('STANDARD_ROOM_PIN_PEPPER_UNAVAILABLE');
           }
         }
-        // Validation admits membership fields only with an 8-digit PIN and a
-        // mutation ID, and the App sends them only to a socket whose peer-open
-        // advertised this Worker's membership version.
+        // Validation admits membership fields only with an 8-digit PIN, and the
+        // App sends them only to a socket whose peer-open advertised this
+        // Worker's membership version.
         const directive = verifier ? standardRoomPinMembershipDirective(message) : null;
         try {
           const membership = await this.nextStandardRoomPinMembership(
@@ -8134,7 +8114,7 @@ export class MusixquareRoom {
           directive?.mode ?? null;
         // Other host-only work (notably Remote Share assertion rate limiting)
         // can update this hibernation attachment while the storage write
-        // yields. Clear only the compatibility bit on the latest live value;
+        // yields. Clear only the PIN configuration marker on the latest value;
         // replaying the event-start snapshot would rewind those authority and
         // rate-limit fields.
         const currentAttachment = this.currentStandardRoomAttachment(ws);
@@ -8164,14 +8144,12 @@ export class MusixquareRoom {
           this.standardRoomPinMutationFence = null;
           this.standardRoomPinMutationFenceOwner = null;
         }
-        if (pinMutationId) {
-          sendChecked(ws, {
-            type: 'room-password-result',
-            mutationId: pinMutationId,
-            applied: true,
-            ...(existingParticipants ? { existingParticipants } : {}),
-          });
-        }
+        sendChecked(ws, {
+          type: 'room-password-result',
+          mutationId: pinMutationId,
+          applied: true,
+          ...(existingParticipants ? { existingParticipants } : {}),
+        });
       });
     }
     if (this.host !== ws) return;

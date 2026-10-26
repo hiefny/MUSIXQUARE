@@ -308,7 +308,12 @@ describe('Cloudflare Standard HTTP signaling bridge', () => {
     expect(namespace.requests[0]?.headers.get('Upgrade')).toBe('websocket');
     expect(namespace.sockets[0]?.accepted).toBe(true);
 
-    const authFrame = JSON.stringify({ type: 'host-auth', secret: 'never-persist-this-secret' });
+    const authFrame = JSON.stringify({
+      type: 'host-auth',
+      secret: 'never-persist-this-secret',
+      desiredRoomPassword: '',
+      pinMutationId: 'bridge-auth-mutation-0000000001',
+    });
     const sent = await room.fetch(
       bridgeRequest('send', envelope({ v: 1, cseq: 1, frame: authFrame })),
     );
@@ -614,7 +619,12 @@ describe('Cloudflare Standard HTTP signaling bridge', () => {
   it('fails closed with REAUTH_REQUIRED after an isolate restart and clears cursor state', async () => {
     const { state, namespace, room } = createBridge();
     await openBridge(room);
-    const secretFrame = JSON.stringify({ type: 'host-auth', secret: 'restart-secret' });
+    const secretFrame = JSON.stringify({
+      type: 'host-auth',
+      secret: 'restart-secret',
+      desiredRoomPassword: '',
+      pinMutationId: 'bridge-restart-mutation-00000001',
+    });
     await room.fetch(bridgeRequest('send', envelope({ v: 1, cseq: 1, frame: secretFrame })));
     expect(JSON.stringify(state.storage.data)).not.toContain('restart-secret');
 

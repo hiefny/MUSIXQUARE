@@ -105,10 +105,11 @@ function isUniquePeerIdList(value: unknown, isPeerId: (peerId: unknown) => boole
 }
 
 /**
- * Validate a host room-password-set frame. The legacy shape stays exactly
- * {type,password} plus an optional pinMutationId. The membership fields are
- * accepted only with an 8-digit PIN and a mutation ID: keep_present needs the
- * kept peer list (possibly empty), revoke_all must not carry one.
+ * Validate a host room-password-set frame: exactly {type,password,pinMutationId}
+ * (every App since 8.4.17 sends the mutation ID, far below the App build
+ * floor) plus the membership fields, which are accepted only with an 8-digit
+ * PIN: keep_present needs the kept peer list (possibly empty), revoke_all must
+ * not carry one.
  */
 export function validateStandardRoomPasswordSetFrame(
   message: Record<string, unknown>,
@@ -118,8 +119,8 @@ export function validateStandardRoomPasswordSetFrame(
   if (
     !hasExactKeys(
       message,
-      ['type', 'password'],
-      ['pinMutationId', 'existingParticipants', 'keptPeerIds'],
+      ['type', 'password', 'pinMutationId'],
+      ['existingParticipants', 'keptPeerIds'],
     ) ||
     message.type !== 'room-password-set'
   ) {
@@ -127,16 +128,10 @@ export function validateStandardRoomPasswordSetFrame(
   }
   const { password, pinMutationId } = message;
   if (password !== '' && !(typeof password === 'string' && PIN_RE.test(password))) return false;
-  if (
-    pinMutationId !== undefined &&
-    !(typeof pinMutationId === 'string' && mutationIdRe.test(pinMutationId))
-  ) {
-    return false;
-  }
+  if (!(typeof pinMutationId === 'string' && mutationIdRe.test(pinMutationId))) return false;
   const hasKeptPeerIds = hasOwn(message, 'keptPeerIds');
   if (!hasOwn(message, 'existingParticipants')) return !hasKeptPeerIds;
   if (typeof password !== 'string' || !PIN_RE.test(password)) return false;
-  if (typeof pinMutationId !== 'string') return false;
   if (message.existingParticipants === 'revoke_all') return !hasKeptPeerIds;
   return (
     message.existingParticipants === 'keep_present' &&

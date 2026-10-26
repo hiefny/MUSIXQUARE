@@ -43,6 +43,7 @@ import {
 } from '../playlist-state-manager.ts';
 import { parseProRoomSnapshot } from '../snapshot.ts';
 import { createAtomicRateControlBinding } from '../../core/__tests__/service-control-rate-limit-fixture.ts';
+import { requireStoredEntryPin } from './__helpers__/pro-room-entry-pin.ts';
 import { signalingBroadcastContract } from './__helpers__/signaling-broadcast-contract.ts';
 
 interface ProMediaCorsRule {
@@ -1321,70 +1322,6 @@ describe('PRO room server-authoritative playback', () => {
     await context.worker.playbackDurationLookup?.promise;
     expect(Object.values(realtime.internal.room.playbackDurations)).toEqual([]);
     expect(context.worker.naturalPlaybackEndAtMs()).toBeNull();
-  });
-
-  it('reclaims legacy playback receipts immediately without shortening other browser mutations', async () => {
-    const context = await activatedRoom();
-    expect(
-      (await replacePlaylist(context, duplicateVideoPlaylist, 'playback-ledger-recovery')).status,
-    ).toBe(200);
-    const internal = context.worker as unknown as { room: Record<string, any> };
-    const participantId = context.activationEnvelope.snapshot.viewer.participantId as string;
-    const playbackScope = `participant:${participantId}:playback-authority`;
-    const nowMs = Date.now();
-
-    internal.room.idempotency = {};
-    for (let index = 0; index < 254; index += 1) {
-      internal.room.idempotency[`${playbackScope}:legacy-old-${String(index).padStart(3, '0')}`] = {
-        fingerprint: 'f'.repeat(43),
-        body: { status: 'committed' },
-        status: 200,
-        // Written an hour ago with the former 24-hour playback TTL.
-        expiresAtMs: nowMs + 23 * 60 * 60 * 1000 + index,
-      };
-    }
-    const freshLegacyKey = `${playbackScope}:legacy-fresh`;
-    internal.room.idempotency[freshLegacyKey] = {
-      fingerprint: 'f'.repeat(43),
-      body: { status: 'committed' },
-      status: 200,
-      expiresAtMs: nowMs + 24 * 60 * 60 * 1000,
-    };
-    const ordinaryMutationKey = `participant:${participantId}:playlist:legacy-ordinary`;
-    internal.room.idempotency[ordinaryMutationKey] = {
-      fingerprint: 'f'.repeat(43),
-      body: { snapshot: true },
-      status: 200,
-      // The same age remains valid for an ordinary 24-hour browser mutation.
-      expiresAtMs: nowMs + 23 * 60 * 60 * 1000,
-    };
-    expect(Object.keys(internal.room.idempotency)).toHaveLength(256);
-
-    const response = await context.worker.fetch(
-      jsonRequest(
-        '/playback/commands',
-        'POST',
-        {
-          type: 'select',
-          baseRevision: internal.room.playback.revision,
-          queueItemId: firstQueueItemId,
-          state: 'playing',
-          positionSeconds: 0,
-        },
-        context.ownerCookie,
-        'playback-ledger-recovered-command',
-      ),
-    );
-
-    expect(response.status).toBe(202);
-    expect(internal.room.idempotency[ordinaryMutationKey]).toBeDefined();
-    expect(internal.room.idempotency[freshLegacyKey]).toBeDefined();
-    const newReceipt =
-      internal.room.idempotency[`${playbackScope}:playback-ledger-recovered-command`];
-    expect(newReceipt).toMatchObject({ kind: 'playback-authority', status: 202 });
-    expect(newReceipt.expiresAtMs).toBeGreaterThan(nowMs + 9 * 60 * 1000);
-    expect(newReceipt.expiresAtMs).toBeLessThanOrEqual(Date.now() + 10 * 60 * 1000);
-    expect(Object.keys(internal.room.idempotency)).toHaveLength(3);
   });
 
   it('never elects a browser coordinator and signs every signaling ticket as a named member', async () => {
@@ -3702,9 +3639,9 @@ describe('PRO room server-authoritative playback', () => {
     };
     const updated = await context.worker.fetch(
       jsonRequest(
-        '/effects',
+        '/settings-sync',
         'PUT',
-        { coordinatorEpoch: epoch, baseRevision: 0, effects },
+        { coordinatorEpoch: epoch, baseRevision: 0, masterVolume: 1, effects },
         friend.cookie,
       ),
     );
@@ -4193,9 +4130,6 @@ function requestForRoom(
   if (!headers.has('x-mxqr-pro-room-generation')) {
     headers.set('x-mxqr-pro-room-generation', '0');
   }
-  if (path === '/effects' && !headers.has('x-mxqr-pro-effects-version')) {
-    headers.set('x-mxqr-pro-effects-version', '2');
-  }
   headers.set('x-mxqr-pro-ip-hash', 'hashed-client-address');
   if (cookie) headers.set('cookie', cookie);
   const presence = cookie ? presenceByCookie.get(cookie) : null;
@@ -4210,6 +4144,24 @@ function requestForRoom(
   });
 }
 
+/**
+ * A session body as the App sends it: every App since 2026-08 adds an opaque
+ * `requestId` (and the PIN only when one is entered), so a test that names
+ * only the PIN, or nothing, gets a fresh one.
+ */
+function sessionWireBody(path: string, body: unknown): unknown {
+  return path === '/sessions' &&
+    body !== null &&
+    typeof body === 'object' &&
+    !Array.isArray(body) &&
+    Object.keys(body).every((key) => key === 'pin')
+    ? {
+        ...(body as Record<string, unknown>),
+        requestId: `test-session-request-${String(++sessionRequestSequence).padStart(8, '0')}`,
+      }
+    : body;
+}
+
 function jsonRequest(
   path: string,
   method: 'POST' | 'PUT' | 'DELETE',
@@ -4219,18 +4171,7 @@ function jsonRequest(
 ): Request {
   const headers = new Headers({ 'content-type': 'application/json' });
   if (idempotencyKey) headers.set('idempotency-key', idempotencyKey);
-  const wireBody =
-    path === '/sessions' &&
-    body !== null &&
-    typeof body === 'object' &&
-    !Array.isArray(body) &&
-    Object.keys(body).length === 1 &&
-    typeof (body as { pin?: unknown }).pin === 'string'
-      ? {
-          ...(body as Record<string, unknown>),
-          requestId: `test-session-request-${String(++sessionRequestSequence).padStart(8, '0')}`,
-        }
-      : body;
+  const wireBody = sessionWireBody(path, body);
   return request(path, { method, headers, body: JSON.stringify(wireBody) }, cookie);
 }
 
@@ -4325,6 +4266,22 @@ function fencedSessionCloseRequest(
   );
 }
 
+/**
+ * The App's explicit leave: revoke exactly the session and presence
+ * incarnation the cookie holds (the fenced close it has sent since 2026-07).
+ */
+function sessionLeaveRequest(cookie: string): Request {
+  const presence = presenceByCookie.get(cookie);
+  if (!presence) throw new Error('missing presence identity for the leaving cookie');
+  return fencedSessionCloseRequest(
+    {
+      expectedParticipantId: presence.participantId,
+      expectedPresenceIncarnationId: presence.presenceIncarnationId,
+    },
+    cookie,
+  );
+}
+
 function jsonRequestForRoom(
   roomCode: string,
   path: string,
@@ -4335,18 +4292,7 @@ function jsonRequestForRoom(
 ): Request {
   const headers = new Headers({ 'content-type': 'application/json' });
   if (idempotencyKey) headers.set('idempotency-key', idempotencyKey);
-  const wireBody =
-    path === '/sessions' &&
-    body !== null &&
-    typeof body === 'object' &&
-    !Array.isArray(body) &&
-    Object.keys(body).length === 1 &&
-    typeof (body as { pin?: unknown }).pin === 'string'
-      ? {
-          ...(body as Record<string, unknown>),
-          requestId: `test-session-request-${String(++sessionRequestSequence).padStart(8, '0')}`,
-        }
-      : body;
+  const wireBody = sessionWireBody(path, body);
   return requestForRoom(
     roomCode,
     path,
@@ -4396,6 +4342,24 @@ function optionalEntryPolicy(request: Request): Request {
   return request;
 }
 
+/**
+ * Turns a just-activated room into a protected one with the PIN 12345678:
+ * the state an activation with a PIN left (see requireStoredEntryPin).
+ */
+async function requireFixturePin(
+  worker: MusixquareProRoom,
+  state: FakeState,
+  activationEnvelope: Record<string, any>,
+) {
+  await requireStoredEntryPin(
+    worker.room as unknown as Record<string, unknown>,
+    (state.storage.data.get('pro-room:v2:core') as { core: Record<string, unknown> }).core,
+    '12345678',
+    PIN_PEPPER,
+  );
+  activationEnvelope.snapshot.passwordRequired = true;
+}
+
 async function activatedRoom(roomCode = ROOM_CODE, publicAdmission = false) {
   const state = new FakeState();
   const bucket = new FakeR2Bucket();
@@ -4419,17 +4383,11 @@ async function activatedRoom(roomCode = ROOM_CODE, publicAdmission = false) {
     expiresAtMs: Date.now() + 60_000,
     nonce: 'fixed-activation-nonce',
   });
-  const activationRequest = jsonRequestForRoom(roomCode, '/activation', 'POST', {
-    claimToken,
-    ...(publicAdmission
-      ? {}
-      : {
-          temporaryPin: roomCode.padStart(8, '0'),
-          newPin: '12345678',
-        }),
-    ownerName: 'Owner',
-  });
-  if (publicAdmission) optionalEntryPolicy(activationRequest);
+  // Activation starts every room open (the App's body). The App still sends
+  // the opt-in header; the PRO Worker no longer reads it.
+  const activationRequest = optionalEntryPolicy(
+    jsonRequestForRoom(roomCode, '/activation', 'POST', { claimToken, ownerName: 'Owner' }),
+  );
   const activation = await worker.fetch(
     await withAccountAssertion(activationRequest, ACTIVATION_OWNER_ACCOUNT_ID, 'Owner', roomCode),
   );
@@ -4443,6 +4401,7 @@ async function activatedRoom(roomCode = ROOM_CODE, publicAdmission = false) {
   const activationEnvelope = await responseJson(activation);
   bindCookiePresence(ownerCookie, activationEnvelope);
   expect(Object.keys(activationEnvelope)).toEqual(['snapshot']);
+  if (!publicAdmission) await requireFixturePin(worker, state, activationEnvelope);
   return {
     roomCode,
     worker,
@@ -4937,7 +4896,7 @@ async function preparedDeveloperCommandRoom(
     youtubeSubIndex: 0,
   };
   const capability = await context.worker.fetch(
-    jsonRequest('/signaling-tickets', 'POST', { developerControlVersion: 1 }, context.ownerCookie),
+    request('/signaling-tickets', { method: 'POST' }, context.ownerCookie),
   );
   expect(capability.status).toBe(200);
   return { ...context, dispatchFetch, internal, queueItemId };
@@ -5348,7 +5307,7 @@ describe('PRO room server BOT boundary', () => {
           'x-mxqr-pro-room-generation': '0',
           'x-mxqr-pro-ip-hash': 'new-client-at-capacity',
         },
-        body: JSON.stringify({ pin: '12345678' }),
+        body: JSON.stringify({ pin: '12345678', requestId: 'admission-at-capacity-0001' }),
       }),
     );
     expect(blockedAdmission.status).toBe(429);
@@ -5576,7 +5535,7 @@ describe('PRO room server BOT boundary', () => {
       })),
     };
     const capability = await worker.fetch(
-      jsonRequest('/signaling-tickets', 'POST', { developerControlVersion: 1 }, ownerCookie),
+      request('/signaling-tickets', { method: 'POST' }, ownerCookie),
     );
     expect(capability.status).toBe(200);
 
@@ -6683,55 +6642,6 @@ describe('PRO room private Developer API projections', () => {
     expect(Object.keys(internal.room.developerMutationIdempotency)).toHaveLength(256);
   });
 
-  it('durably migrates legacy Developer receipts and BOT counters before serving API work', async () => {
-    const { worker, state, bucket } = await activatedRoom();
-    const internal = worker as unknown as {
-      room: Record<string, any>;
-      persist(): Promise<void>;
-    };
-    const keyId = 'M'.repeat(16);
-    const idempotencyKey = 'developer-ledger-migration-0001';
-    const mutation = {
-      type: 'add_youtube',
-      videoId: 'dQw4w9WgXcQ',
-      name: 'Migrated exactly once',
-    };
-    expect(
-      (await mutateInternalDeveloperQueue(worker, keyId, idempotencyKey, mutation)).status,
-    ).toBe(201);
-    const storageKey = `developer:${keyId}:queue:add_youtube:${idempotencyKey}`;
-    internal.room.idempotency[storageKey] = internal.room.developerMutationIdempotency[storageKey];
-    delete internal.room.developerMutationIdempotency[storageKey];
-    const botKey = `bot-room-hour-v1:${ROOM_CODE}`;
-    internal.room.rateLimits[botKey] = {
-      count: 7,
-      resetAtMs: Date.now() + 60 * 60 * 1000,
-    };
-    delete internal.room.botRateLimits[botKey];
-    await internal.persist();
-
-    const restarted = new MusixquareProRoom(state as never, environment(bucket) as never);
-    expect((await internalDeveloperRead(restarted, 'room')).status).toBe(200);
-    const restartedInternal = restarted as unknown as { room: Record<string, any> };
-    expect(restartedInternal.room.idempotency[storageKey]).toBeUndefined();
-    expect(restartedInternal.room.developerMutationIdempotency[storageKey]).toMatchObject({
-      kind: 'developer-queue',
-      status: 201,
-    });
-    expect(restartedInternal.room.rateLimits[botKey]).toBeUndefined();
-    expect(restartedInternal.room.botRateLimits[botKey]).toMatchObject({ count: 7 });
-
-    const persisted = state.storage.data.get('pro-room:v2:core') as Record<string, any>;
-    expect(persisted.core.idempotency[storageKey]).toBeUndefined();
-    expect(persisted.core.developerMutationIdempotency[storageKey]).toBeDefined();
-    expect(persisted.core.rateLimits[botKey]).toBeUndefined();
-    expect(persisted.core.botRateLimits[botKey]).toMatchObject({ count: 7 });
-
-    const replay = await mutateInternalDeveloperQueue(restarted, keyId, idempotencyKey, mutation);
-    expect(replay.status).toBe(201);
-    expect(restartedInternal.room.playlist).toHaveLength(1);
-  });
-
   it('atomically appends one ordered YouTube batch with one revision and caller ownership', async () => {
     const { worker } = await activatedRoom();
     const internal = worker as unknown as { room: Record<string, any> };
@@ -7693,7 +7603,7 @@ describe('PRO room private Developer API projections', () => {
       youtubeSubIndex: null,
     };
     const capability = await worker.fetch(
-      jsonRequest('/signaling-tickets', 'POST', { developerControlVersion: 1 }, ownerCookie),
+      request('/signaling-tickets', { method: 'POST' }, ownerCookie),
     );
     expect(capability.status).toBe(200);
     const dispatched: Array<Record<string, any>> = [];
@@ -7842,7 +7752,7 @@ describe('PRO room private Developer API projections', () => {
       youtubeSubIndex: null,
     };
     const capability = await worker.fetch(
-      jsonRequest('/signaling-tickets', 'POST', { developerControlVersion: 1 }, ownerCookie),
+      request('/signaling-tickets', { method: 'POST' }, ownerCookie),
     );
     expect(capability.status).toBe(200);
     const dispatchedBodies: Array<Record<string, any>> = [];
@@ -8456,7 +8366,7 @@ describe('PRO room private Developer API projections', () => {
       room: Record<string, any>;
     };
     const capability = await worker.fetch(
-      jsonRequest('/signaling-tickets', 'POST', { developerControlVersion: 4 }, ownerCookie),
+      request('/signaling-tickets', { method: 'POST' }, ownerCookie),
     );
     expect(capability.status).toBe(200);
 
@@ -8857,7 +8767,7 @@ describe('PRO room private Developer API projections', () => {
     };
 
     const capability = await worker.fetch(
-      jsonRequest('/signaling-tickets', 'POST', { developerControlVersion: 1 }, ownerCookie),
+      request('/signaling-tickets', { method: 'POST' }, ownerCookie),
     );
     expect(capability.status).toBe(200);
     expect((await responseJson(await internalDeveloperRead(worker, 'room'))).controlAvailable).toBe(
@@ -8945,26 +8855,6 @@ describe('PRO room private Developer API projections', () => {
       resultCode: 'applied',
     });
 
-    const ack = await worker.fetch(
-      jsonRequest(
-        `/developer-commands/${created.commandId}/ack`,
-        'POST',
-        { resultCode: 'applied' },
-        ownerCookie,
-      ),
-    );
-    expect(ack.status).toBe(410);
-    expect(await responseJson(ack)).toEqual({ error: 'COMMAND_ACK_NOT_REQUIRED' });
-    const duplicateAck = await worker.fetch(
-      jsonRequest(
-        `/developer-commands/${created.commandId}/ack`,
-        'POST',
-        { resultCode: 'applied' },
-        ownerCookie,
-      ),
-    );
-    expect(duplicateAck.status).toBe(410);
-
     const status = await worker.fetch(
       new Request('https://pro-room.internal/internal/developer/v1/commands/status', {
         method: 'POST',
@@ -8987,7 +8877,7 @@ describe('PRO room private Developer API projections', () => {
   it('applies next on the server without depending on a browser control version', async () => {
     const { worker, ownerCookie, dispatchFetch, internal } = await preparedDeveloperCommandRoom();
     const v2Capability = await worker.fetch(
-      jsonRequest('/signaling-tickets', 'POST', { developerControlVersion: 2 }, ownerCookie),
+      request('/signaling-tickets', { method: 'POST' }, ownerCookie),
     );
     expect(v2Capability.status).toBe(200);
 
@@ -9001,7 +8891,6 @@ describe('PRO room private Developer API projections', () => {
     const body = await responseJson(accepted);
     expect(body).toMatchObject({ status: 'applied', resultCode: 'applied' });
     expect(internal.room.developerCommands[body.commandId]).toMatchObject({
-      developerControlVersion: 3,
       command: { type: 'next' },
       status: 'applied',
     });
@@ -9059,16 +8948,6 @@ describe('PRO room private Developer API projections', () => {
       resultCode: 'applied',
     });
 
-    const ack = await worker.fetch(
-      jsonRequest(
-        `/developer-commands/${first.commandId}/ack`,
-        'POST',
-        { resultCode: 'applied' },
-        ownerCookie,
-      ),
-    );
-    expect(ack.status).toBe(410);
-
     // Fill the bounded command-status ledger with newer terminal entries. The
     // oldest command may be evicted, but its dedicated idempotency record must
     // retain the terminal body rather than the original pending response.
@@ -9084,7 +8963,6 @@ describe('PRO room private Developer API projections', () => {
         expiresAtMs: nowMs + 30_000,
         retainUntilMs: nowMs + 10 * 60 * 1000,
         coordinatorEpoch: internal.room.presence.coordinatorEpoch,
-        developerControlVersion: 1,
         expected: {
           queueItemId: internal.room.currentQueueItemId,
           playlistRevision: internal.room.playlistRevision,
@@ -9208,7 +9086,7 @@ describe('PRO room private Developer API projections', () => {
     expect(internal.room.playback).toMatchObject({ state: 'paused', positionSeconds: 18 });
   });
 
-  it('rejects every obsolete browser ACK after server-side command completion', async () => {
+  it('has no browser ACK route: a command completes on the server alone', async () => {
     const { worker, ownerCookie, internal } = await preparedDeveloperCommandRoom();
     const created = await responseJson(
       await createInternalDeveloperCommand(
@@ -9233,31 +9111,23 @@ describe('PRO room private Developer API projections', () => {
     ).toBe(200);
     internal.room.developerCommands[created.commandId].expiresAtMs = Date.now() - 1;
 
-    const expiredAck = await worker.fetch(
-      jsonRequest(
-        `/developer-commands/${created.commandId}/ack`,
-        'POST',
-        { resultCode: 'expired' },
-        ownerCookie,
-      ),
-    );
-    expect(expiredAck.status).toBe(410);
-    await expect(expiredAck.json()).resolves.toEqual({ error: 'COMMAND_ACK_NOT_REQUIRED' });
-    expect(internal.room.developerCommands[created.commandId]).toMatchObject({
-      status: 'applied',
-      resultCode: 'applied',
-    });
-    expect(internal.room.developerCommands[created.commandId].acknowledgedAtMs).toBeUndefined();
+    const before = structuredClone(internal.room.developerCommands[created.commandId]);
 
-    const conflictingAck = await worker.fetch(
-      jsonRequest(
-        `/developer-commands/${created.commandId}/ack`,
-        'POST',
-        { resultCode: 'applied' },
-        ownerCookie,
-      ),
-    );
-    expect(conflictingAck.status).toBe(410);
+    // The browser ACK of the coordinator relay (before 2026-07-20) is gone.
+    for (const resultCode of ['expired', 'applied']) {
+      const ack = await worker.fetch(
+        jsonRequest(
+          `/developer-commands/${created.commandId}/ack`,
+          'POST',
+          { resultCode },
+          ownerCookie,
+        ),
+      );
+      expect(ack.status).toBe(404);
+      await expect(ack.json()).resolves.toEqual({ error: 'NOT_FOUND' });
+    }
+    expect(internal.room.developerCommands[created.commandId]).toEqual(before);
+    expect(before).toMatchObject({ status: 'applied', resultCode: 'applied' });
   });
 });
 
@@ -9276,28 +9146,33 @@ describe('optional PRO entry password', () => {
       ...(body === undefined ? {} : { body: JSON.stringify(body) }),
     });
 
-  it('activates without a PIN only for opted-in clients and preserves both owner cookies', async () => {
+  it('activates every room without a PIN, refuses the temporary-PIN body and preserves both owner cookies', async () => {
     const worker = new MusixquareProRoom(new FakeState() as never, environment() as never);
     const claimToken = await issueProRoomActivationClaim(ROOM_CODE, ACTIVATION_SECRET, {
       nowMs: Date.now() - 1000,
       expiresAtMs: Date.now() + 60_000,
       nonce: 'optional-entry-activation',
     });
-    expect(
-      (
-        await worker.fetch(
-          await withAccountAssertion(
-            jsonRequest('/activation', 'POST', { claimToken }),
-            ACTIVATION_OWNER_ACCOUNT_ID,
-            'Owner',
-          ),
-        )
-      ).status,
-    ).toBe(400);
-    expect((await worker.fetch(publicRequest('/activation', { claimToken }))).status).toBe(401);
+    // The temporary-PIN body of Apps before 8.8.0 is refused, opt-in header
+    // or not, before the claim or the account is looked at.
+    const temporaryPinBody = { claimToken, temporaryPin: '00000000', newPin: '12345678' };
+    for (const legacy of [
+      jsonRequest('/activation', 'POST', temporaryPinBody),
+      publicRequest('/activation', temporaryPinBody),
+    ]) {
+      const refused = await worker.fetch(
+        await withAccountAssertion(legacy, ACTIVATION_OWNER_ACCOUNT_ID, 'Owner'),
+      );
+      expect(refused.status).toBe(400);
+      expect(await responseJson(refused)).toEqual({ error: 'INVALID_REQUEST' });
+    }
+    expect((await worker.fetch(jsonRequest('/activation', 'POST', { claimToken }))).status).toBe(
+      401,
+    );
+    // No opt-in header: the open body is the only activation body.
     const activated = await worker.fetch(
       await withAccountAssertion(
-        publicRequest('/activation', { claimToken }),
+        jsonRequest('/activation', 'POST', { claimToken }),
         ACTIVATION_OWNER_ACCOUNT_ID,
         'Owner',
       ),
@@ -9307,7 +9182,7 @@ describe('optional PRO entry password', () => {
     const body = await responseJson(activated);
     expect(body.snapshot.passwordRequired).toBe(false);
     expect(body.snapshot.viewer.role).toBe('owner');
-    expect(await responseJson(await worker.fetch(publicBootstrap()))).toEqual({
+    expect(await responseJson(await worker.fetch(request('/bootstrap')))).toEqual({
       roomCode: ROOM_CODE,
       status: 'open',
       passwordRequired: false,
@@ -9494,24 +9369,47 @@ describe('optional PRO entry password', () => {
     expect((await responseJson(replay)).snapshot.presence.participants).toHaveLength(2);
   });
 
-  it('keeps legacy response shapes and accepts their valid PIN form after opening a room', async () => {
+  it('reports the entry policy without the opt-in header and refuses a session body without a requestId', async () => {
     const context = await activatedRoom(ROOM_CODE, true);
+    // No request below carries the opt-in header.
     expect(await responseJson(await context.worker.fetch(request('/bootstrap')))).toEqual({
       roomCode: ROOM_CODE,
-      status: 'pin_required',
+      status: 'open',
+      passwordRequired: false,
     });
-    const legacy = await context.worker.fetch(
-      jsonRequest('/sessions', 'POST', { pin: '77777777' }),
+    const rawSession = (body: unknown) =>
+      request('/sessions', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify(body),
+      });
+    // The one-field body of Apps before 2026-08 had no exactly-once replay.
+    for (const legacy of [{ pin: '77777777' }, {}]) {
+      const refused = await context.worker.fetch(rawSession(legacy));
+      expect(refused.status).toBe(400);
+      expect(await responseJson(refused)).toEqual({ error: 'INVALID_REQUEST' });
+    }
+    const joined = await context.worker.fetch(
+      rawSession({ requestId: 'headerless-public-admission-0001' }),
     );
-    expect(legacy.status).toBe(200);
-    const legacySnapshot = (await responseJson(legacy)).snapshot;
-    expect(legacySnapshot).not.toHaveProperty('passwordRequired');
-    expect(parseProRoomSnapshot(legacySnapshot)).not.toBeNull();
-    expect((await context.worker.fetch(jsonRequest('/sessions', 'POST', {}))).status).toBe(400);
+    expect(joined.status).toBe(200);
+    const snapshot = (await responseJson(joined)).snapshot;
+    expect(snapshot.passwordRequired).toBe(false);
+    expect(snapshot).toHaveProperty('playlistSlots');
+    expect(parseProRoomSnapshot(snapshot)).not.toBeNull();
+    // The owner turns the password on and off without the header too.
     expect(
-      (await context.worker.fetch(jsonRequest('/pin', 'POST', { pin: null }, context.ownerCookie)))
-        .status,
-    ).toBe(400);
+      await responseJson(
+        await context.worker.fetch(
+          jsonRequest('/pin', 'POST', { pin: '87654321' }, context.ownerCookie),
+        ),
+      ),
+    ).toEqual({ ok: true, passwordRequired: true });
+    expect(
+      await responseJson(
+        await context.worker.fetch(jsonRequest('/pin', 'POST', { pin: null }, context.ownerCookie)),
+      ),
+    ).toEqual({ ok: true, passwordRequired: false });
   });
 
   it.each([undefined, null, 'false', 0])(
@@ -10177,9 +10075,7 @@ describe('PRO admission capacity and throttle', () => {
       expect(joined.status).toBe(200);
       const cookie = cookieFrom(joined);
       bindCookiePresence(cookie, await responseJson(joined));
-      expect(
-        (await worker.fetch(request('/sessions/current', { method: 'DELETE' }, cookie))).status,
-      ).toBe(200);
+      expect((await worker.fetch(sessionLeaveRequest(cookie))).status).toBe(200);
     }
     expect(Object.keys(worker.room!.sessionCreateIdempotency)).toHaveLength(240);
     expect(
@@ -10402,118 +10298,12 @@ describe('PRO admission capacity and throttle', () => {
 
     // Once the session is gone its receipt can never replay, so the next
     // request releases it.
-    expect(
-      (await worker.fetch(request('/sessions/current', { method: 'DELETE' }, cookie))).status,
-    ).toBe(200);
+    expect((await worker.fetch(sessionLeaveRequest(cookie))).status).toBe(200);
     expect(presenceCloseKeys(worker.room!.presenceCloseIdempotency)).toHaveLength(1);
     expect((await worker.fetch(request('/snapshot', {}, context.ownerCookie))).status).toBe(200);
     expect(worker.room!.presenceCloseIdempotency).toEqual({});
     expect(storedCanonicalRoom(context.state).presenceCloseIdempotency).toEqual({});
   }, 60_000);
-
-  it('releases presence-close receipts that an earlier Worker left in the shared ledger', async () => {
-    const context = await activatedRoom(ROOM_CODE, true);
-    const joined = await context.worker.fetch(admission({ key: 'legacy-close-nat' }));
-    expect(joined.status).toBe(200);
-    const cookie = cookieFrom(joined);
-    const closeBody = closeBodyFor(await responseJson(joined));
-    const closeKey = 'legacy-close-key-00000001';
-    expect(
-      (await context.worker.fetch(unloadCloseRequest(closeBody, cookie, closeKey))).status,
-    ).toBe(200);
-    // Model the core an earlier Worker wrote: close receipts in the shared
-    // participant ledger fill it, and the dedicated ledger does not exist.
-    const stored = context.state.storage.data.get(CORE_KEY) as { core: Record<string, any> };
-    const [receiptKey, receipt] = Object.entries(stored.core.presenceCloseIdempotency)[0]!;
-    stored.core.idempotency[receiptKey] = receipt;
-    delete stored.core.presenceCloseIdempotency;
-    for (let index = 0; Object.keys(stored.core.idempotency).length < 256; index += 1) {
-      const id = String(index).padStart(24, '0');
-      const sessionHash = `S${id}`.padEnd(43, 'S');
-      stored.core.idempotency[
-        `participant:participant_${id}:incarnation:presence_${id}:session:${sessionHash}:presence-close:legacy-close-${id}`
-      ] = presenceCloseReceipt(Date.now() + 24 * 60 * 60 * 1000);
-    }
-    const restarted = new MusixquareProRoom(
-      context.state as never,
-      environment(context.bucket) as never,
-    );
-    const restartedContext = { ...context, worker: restarted };
-
-    // Owner queue and playback control work at once after the restart.
-    const queueItemId = '77777777-7777-4777-8777-777777777777';
-    const queued = await replacePlaylist(
-      restartedContext,
-      [youtubeItem(queueItemId, 'Legacy close survivor')],
-      'legacy-close-released',
-    );
-    expect(queued.status).toBe(200);
-    expect((await ownerSelect(restarted, context.ownerCookie, queueItemId)).status).toBe(202);
-    await restarted.playbackDurationLookup?.promise;
-    expect(presenceCloseKeys(restarted.room!.idempotency)).toEqual([]);
-    expect(presenceCloseKeys(storedCanonicalRoom(context.state).idempotency)).toEqual([]);
-    expect(storedCanonicalRoom(context.state).presenceCloseIdempotency).toEqual({});
-
-    // Losing a legacy receipt is harmless: its close already removed the
-    // presence incarnation, so the retry is refused without changing state.
-    const before = structuredClone(restarted.room);
-    const put = vi.spyOn(context.state.storage, 'put');
-    const retried = await restarted.fetch(unloadCloseRequest(closeBody, cookie, closeKey));
-    expect(retried.status).toBe(409);
-    expect(await responseJson(retried)).toEqual({ error: 'PRESENCE_IDENTITY_MISMATCH' });
-    expect(coreWrites(put)).toEqual([]);
-    put.mockRestore();
-    expect(restarted.room).toEqual(before);
-  });
-
-  it('rolls forward over a Worker rollback that kept but ignored the close ledger', async () => {
-    const context = await activatedRoom(ROOM_CODE, true);
-    const { worker } = context;
-    const closeOnce = async (key: string) => {
-      const joined = await worker.fetch(admission({ key }));
-      expect(joined.status).toBe(200);
-      const cookie = cookieFrom(joined);
-      const envelope = await responseJson(joined);
-      const body = closeBodyFor(envelope);
-      const closeKey = `${key}-close-0000001`;
-      expect((await worker.fetch(unloadCloseRequest(body, cookie, closeKey))).status).toBe(200);
-      return { cookie, body, closeKey };
-    };
-    const kept = await closeOnce('rollback-kept');
-    const left = await closeOnce('rollback-left');
-    const entered = await enterPresence(worker, left.cookie);
-    expect(entered.status).toBe(200);
-    bindCookiePresence(left.cookie, await responseJson(entered));
-    expect(
-      (await worker.fetch(request('/sessions/current', { method: 'DELETE' }, left.cookie))).status,
-    ).toBe(200);
-    // The stored core still holds the departed session's receipt; the next
-    // prune would release it. An older Worker loads the core as `{...core}`,
-    // so it keeps this field untouched, and writes its own close receipts to
-    // the shared ledger instead.
-    const stored = context.state.storage.data.get(CORE_KEY) as { core: Record<string, any> };
-    expect(Object.keys(stored.core.presenceCloseIdempotency)).toHaveLength(2);
-    const keptKey = Object.keys(stored.core.presenceCloseIdempotency).find((key) =>
-      key.endsWith(`:${kept.closeKey}`),
-    )!;
-    const sessionHash = /:session:([^:]+):presence-close:/.exec(keptKey)![1];
-    stored.core.idempotency[
-      `participant:${kept.body.expectedParticipantId}:incarnation:presence_${'O'.repeat(24)}:session:${sessionHash}:presence-close:older-worker-close-01`
-    ] = presenceCloseReceipt(Date.now() + 24 * 60 * 60 * 1000);
-
-    const restarted = new MusixquareProRoom(
-      context.state as never,
-      environment(context.bucket) as never,
-    );
-    const replay = await restarted.fetch(unloadCloseRequest(kept.body, kept.cookie, kept.closeKey));
-    expect(replay.status).toBe(200);
-    expect(await responseJson(replay)).toEqual({ ok: true });
-    expect(presenceCloseKeys(restarted.room!.idempotency)).toEqual([]);
-    expect(Object.keys(restarted.room!.presenceCloseIdempotency)).toEqual([keptKey]);
-    const persisted = storedCanonicalRoom(context.state);
-    expect(presenceCloseKeys(persisted.idempotency)).toEqual([]);
-    expect(Object.keys(persisted.presenceCloseIdempotency)).toEqual([keptKey]);
-  });
 
   it('never refuses a close or owner control when the close ledger is somehow full', async () => {
     const context = await activatedRoom(ROOM_CODE, true);
@@ -10663,96 +10453,6 @@ describe('PRO admission capacity and throttle', () => {
     );
   });
 
-  it('replays a session-create receipt that an earlier Worker left in the shared ledger', async () => {
-    const context = await activatedRoom(ROOM_CODE, true);
-    const requestId = nextRequestId();
-    const first = await context.worker.fetch(admission({ requestId }));
-    expect(first.status).toBe(200);
-    const firstCookie = cookieFrom(first);
-    const sessionCount = Object.keys(context.worker.room!.sessions).length;
-    // Model the core written by the previous Worker: the receipt sits in the
-    // shared browser ledger and the dedicated ledger does not exist yet.
-    const stored = context.state.storage.data.get(CORE_KEY) as { core: Record<string, any> };
-    const [storageKey, receipt] = Object.entries(stored.core.sessionCreateIdempotency)[0]!;
-    stored.core.idempotency[storageKey] = receipt;
-    delete stored.core.sessionCreateIdempotency;
-
-    const restarted = new MusixquareProRoom(
-      context.state as never,
-      environment(context.bucket) as never,
-    );
-    const replay = await restarted.fetch(admission({ requestId }));
-    expect(replay.status).toBe(200);
-    expect(cookieFrom(replay)).toBe(firstCookie);
-    expect(Object.keys(restarted.room!.sessions)).toHaveLength(sessionCount);
-    // The short-lived legacy receipt is read in place rather than migrated.
-    expect(restarted.room!.sessionCreateIdempotency).toEqual({});
-    expect(restarted.room!.idempotency[storageKey]).toMatchObject({ kind: 'session-create' });
-    expect(storedCanonicalRoom(context.state).sessionCreateIdempotency).toEqual({});
-    const conflict = await restarted.fetch(admission({ requestId, pin: '12345678' }));
-    expect(conflict.status).toBe(409);
-    expect(await responseJson(conflict)).toEqual({ error: 'IDEMPOTENCY_CONFLICT' });
-  });
-
-  it('releases legacy shared-ledger session-create receipts when the owner enables a PIN', async () => {
-    const context = await activatedRoom(ROOM_CODE, true);
-    // Model a flood that an earlier Worker recorded in the shared browser
-    // ledger: its session-create receipts fill every remaining shared slot.
-    const stored = context.state.storage.data.get(CORE_KEY) as { core: Record<string, any> };
-    const expiresAtMs = Date.now() + ADMISSION_WINDOW_MS;
-    for (let index = 0; Object.keys(stored.core.idempotency).length < 256; index += 1) {
-      const actorHash = `L${String(index).padStart(4, '0')}`.padEnd(43, 'L');
-      stored.core.idempotency[`session-create:${actorHash}:legacy-flood-${index}`] =
-        sessionCreateReceipt(index, expiresAtMs);
-    }
-    delete stored.core.sessionCreateIdempotency;
-    const restarted = new MusixquareProRoom(
-      context.state as never,
-      environment(context.bucket) as never,
-    );
-    const restartedContext = { ...context, worker: restarted };
-    const queueItemId = '44444444-4444-4444-8444-444444444444';
-    const playlist = [
-      {
-        queueItemId,
-        name: 'Legacy flood survivor',
-        source: { kind: 'youtube', videoId: 'dQw4w9WgXcQ' },
-      },
-    ];
-    const frozen = await replacePlaylist(restartedContext, playlist, 'legacy-flood-frozen');
-    expect(frozen.status).toBe(409);
-    expect(await responseJson(frozen)).toEqual({ error: 'ROOM_STATE_CAPACITY_EXCEEDED' });
-
-    const enabled = await restarted.fetch(
-      optionalEntryPolicy(jsonRequest('/pin', 'POST', { pin: '87654321' }, context.ownerCookie)),
-    );
-    expect(enabled.status).toBe(200);
-    const sharedSessionCreateKeys = (ledger: Record<string, unknown>) =>
-      Object.keys(ledger).filter((key) => key.startsWith('session-create:'));
-    expect(sharedSessionCreateKeys(restarted.room!.idempotency)).toEqual([]);
-    expect(sharedSessionCreateKeys(storedCanonicalRoom(context.state).idempotency)).toEqual([]);
-
-    // Owner queue and playback control work again at once.
-    const queued = await replacePlaylist(restartedContext, playlist, 'legacy-flood-released');
-    expect(queued.status).toBe(200);
-    const played = await restarted.fetch(
-      jsonRequest(
-        '/playback/commands',
-        'POST',
-        {
-          type: 'select',
-          baseRevision: restarted.room!.playback.revision,
-          queueItemId,
-          state: 'playing',
-          positionSeconds: 0,
-        },
-        context.ownerCookie,
-        'legacy-flood-playback-command',
-      ),
-    );
-    expect(played.status).toBe(202);
-  });
-
   it('keeps saturated session-create, presence-close, and removal-notice ledgers inside the room core budget', async () => {
     const context = await activatedRoom(ROOM_CODE, true);
     const room = context.worker.room!;
@@ -10868,9 +10568,7 @@ describe('PRO admission capacity and throttle', () => {
       if (joined.status !== 200) return joined;
       const cookie = cookieFrom(joined);
       bindCookiePresence(cookie, await responseJson(joined));
-      expect(
-        (await worker.fetch(request('/sessions/current', { method: 'DELETE' }, cookie))).status,
-      ).toBe(200);
+      expect((await worker.fetch(sessionLeaveRequest(cookie))).status).toBe(200);
       return joined;
     };
     for (let index = 0; index < 200; index += 1) {
@@ -11381,14 +11079,6 @@ describe('PRO PIN membership choice and removal reasons', () => {
       expect(refused.status).toBe(400);
       expect(await responseJson(refused)).toEqual({ error: 'INVALID_REQUEST' });
     }
-    // The choice is an optional-v1 contract: without the header it is refused.
-    for (const existingParticipants of ['keep_present', 'revoke_all']) {
-      const refused = await worker.fetch(
-        jsonRequest('/pin', 'POST', { pin: NEW_PIN, existingParticipants }, ownerCookie),
-      );
-      expect(refused.status).toBe(400);
-      expect(await responseJson(refused)).toEqual({ error: 'INVALID_REQUEST' });
-    }
     // The owner check stays first, whatever the body says.
     for (const body of [
       { pin: NEW_PIN, existingParticipants: 'keep_present' },
@@ -11406,11 +11096,23 @@ describe('PRO PIN membership choice and removal reasons', () => {
     expect(coreAfter.sessions).toEqual(coreBefore.sessions);
     expect((await worker.fetch(request('/snapshot', {}, member.cookie))).status).toBe(200);
 
-    // Legacy bodies keep their exact bytes; only an explicit choice is echoed.
-    const strictV1 = await worker.fetch(
+    // The opt-in header is no longer read: every answer reports the policy,
+    // and only an explicit choice is echoed.
+    const headerless = await worker.fetch(
       jsonRequest('/pin', 'POST', { pin: '22334455' }, ownerCookie),
     );
-    expect(await strictV1.text()).toBe('{"ok":true}');
+    expect(await headerless.text()).toBe('{"ok":true,"passwordRequired":true}');
+    const headerlessChoice = await worker.fetch(
+      jsonRequest(
+        '/pin',
+        'POST',
+        { pin: '23344556', existingParticipants: 'keep_present' },
+        ownerCookie,
+      ),
+    );
+    expect(await headerlessChoice.text()).toBe(
+      '{"ok":true,"passwordRequired":true,"existingParticipants":"keep_present"}',
+    );
     const optionalV1 = await setPin(worker, ownerCookie, '33445566');
     expect(await optionalV1.text()).toBe('{"ok":true,"passwordRequired":true}');
     const keep = await setPin(worker, ownerCookie, '44556677', 'keep_present');
@@ -11736,13 +11438,9 @@ describe('PRO PIN membership choice and removal reasons', () => {
     expect((await admit(worker, { pin: NEW_PIN })).status).toBe(200);
   });
 
-  it.each([
-    { publicAdmission: true, legacySharedLedger: false },
-    { publicAdmission: true, legacySharedLedger: true },
-    { publicAdmission: false, legacySharedLedger: false },
-  ])(
-    'purges receipts on keep so only a kept retry recovers ($publicAdmission public, $legacySharedLedger legacy)',
-    async ({ publicAdmission, legacySharedLedger }) => {
+  it.each([{ publicAdmission: true }, { publicAdmission: false }])(
+    'purges receipts on keep so only a kept retry recovers ($publicAdmission public)',
+    async ({ publicAdmission }) => {
       const context = await activatedRoom(ROOM_CODE, publicAdmission);
       const { worker, ownerCookie } = context;
       const pin = publicAdmission ? undefined : '12345678';
@@ -11751,19 +11449,8 @@ describe('PRO PIN membership choice and removal reasons', () => {
       const kept = await join(worker, { pin, requestId: keptRequestId });
       const revoked = await join(worker, { pin, requestId: revokedRequestId });
       await leavePresence(worker, revoked.cookie);
-      const room = worker.room!;
-      if (legacySharedLedger) {
-        // Receipts an earlier Worker wrote to the shared participant ledger.
-        for (const [key, receipt] of Object.entries(room.sessionCreateIdempotency)) {
-          room.idempotency[key] = receipt;
-        }
-        room.sessionCreateIdempotency = {};
-      }
       expect((await setPin(worker, ownerCookie, NEW_PIN, 'keep_present')).status).toBe(200);
       expect(worker.room!.sessionCreateIdempotency).toEqual({});
-      expect(
-        Object.keys(worker.room!.idempotency).filter((key) => key.startsWith('session-create:')),
-      ).toEqual([]);
 
       const keptRetry = await admit(worker, { pin, requestId: keptRequestId });
       expect(keptRetry.status).toBe(200);
@@ -11821,10 +11508,7 @@ describe('PRO PIN membership choice and removal reasons', () => {
     bindCookiePresence(member.cookie, await responseJson(recovered));
 
     // An explicit leave ends the kept login; coming back needs the PIN.
-    expect(
-      (await worker.fetch(request('/sessions/current', { method: 'DELETE' }, member.cookie)))
-        .status,
-    ).toBe(200);
+    expect((await worker.fetch(sessionLeaveRequest(member.cookie))).status).toBe(200);
     await expectSessionRequired(enter(worker, member.cookie));
     expect(await responseJson(await admit(worker))).toEqual({ error: 'PIN_REQUIRED' });
   });
@@ -11936,10 +11620,7 @@ describe('PRO PIN membership choice and removal reasons', () => {
 
     // An explicit leave and a fenced close.
     const leaving = await join(worker);
-    expect(
-      (await worker.fetch(request('/sessions/current', { method: 'DELETE' }, leaving.cookie)))
-        .status,
-    ).toBe(200);
+    expect((await worker.fetch(sessionLeaveRequest(leaving.cookie))).status).toBe(200);
     await expectSessionRequired(enter(worker, leaving.cookie));
     const fenced = await join(worker);
     expect(
@@ -12030,7 +11711,7 @@ describe('PRO PIN membership choice and removal reasons', () => {
             jsonRequest(
               '/presence/kick',
               'POST',
-              { targetParticipantId: person.viewer.participantId },
+              { targetMemberId: person.viewer.memberId },
               ownerCookie,
             ),
           )
@@ -12072,24 +11753,19 @@ describe('PRO PIN membership choice and removal reasons', () => {
   it('drops a notice on any authentication-epoch or room-generation change', async () => {
     const context = await activatedRoom(ROOM_CODE, true);
     const { worker, ownerCookie } = context;
-    const kick = async (participantId: string) =>
+    const kick = async (memberId: string) =>
       expect(
         (
           await worker.fetch(
-            jsonRequest(
-              '/presence/kick',
-              'POST',
-              { targetParticipantId: participantId },
-              ownerCookie,
-            ),
+            jsonRequest('/presence/kick', 'POST', { targetMemberId: memberId }, ownerCookie),
           )
         ).status,
       ).toBe(200);
     const generationMember = await join(worker);
     const generationHash = sessionHashOf(worker, generationMember.viewer.participantId)!;
     const rotationMember = await join(worker);
-    await kick(generationMember.viewer.participantId);
-    await kick(rotationMember.viewer.participantId);
+    await kick(generationMember.viewer.memberId);
+    await kick(rotationMember.viewer.memberId);
 
     worker.room!.sessionRevocationNotices[generationHash]!.roomGeneration += 1;
     await expectSessionRequired(enter(worker, generationMember.cookie));
@@ -12104,7 +11780,7 @@ describe('PRO PIN membership choice and removal reasons', () => {
 
     // Suspension does the same.
     const suspendedMember = await join(worker, { pin: NEW_PIN });
-    await kick(suspendedMember.viewer.participantId);
+    await kick(suspendedMember.viewer.memberId);
     await expectSessionRequired(enter(worker, suspendedMember.cookie), 'REMOVED');
     expect((await worker.fetch(internalAdmin('suspend'))).status).toBe(200);
     expect((await worker.fetch(internalAdmin('resume'))).status).toBe(200);
@@ -12124,7 +11800,7 @@ describe('PRO PIN membership choice and removal reasons', () => {
           jsonRequest(
             '/presence/kick',
             'POST',
-            { targetParticipantId: member.viewer.participantId },
+            { targetMemberId: member.viewer.memberId },
             ownerCookie,
           ),
         )
@@ -12139,10 +11815,7 @@ describe('PRO PIN membership choice and removal reasons', () => {
     expect(sessionHashOf(worker, readmitted.viewer.participantId)).toBe(memberHash);
     expect((await worker.fetch(request('/snapshot', {}, member.cookie))).status).toBe(200);
     expect(worker.room!.sessionRevocationNotices).toEqual({});
-    expect(
-      (await worker.fetch(request('/sessions/current', { method: 'DELETE' }, member.cookie)))
-        .status,
-    ).toBe(200);
+    expect((await worker.fetch(sessionLeaveRequest(member.cookie))).status).toBe(200);
     await expectSessionRequired(enter(worker, member.cookie));
   });
 
@@ -12172,12 +11845,12 @@ describe('PRO PIN membership choice and removal reasons', () => {
     });
     const activation = await worker.fetch(
       await withAccountAssertion(
-        jsonRequest('/activation', 'POST', {
-          claimToken,
-          temporaryPin: ROOM_CODE.padStart(8, '0'),
-          newPin: '12345678',
-          ownerName: 'Owner',
-        }),
+        optionalEntryPolicy(
+          jsonRequest('/activation', 'POST', {
+            claimToken,
+            ownerName: 'Owner',
+          }),
+        ),
         ACTIVATION_OWNER_ACCOUNT_ID,
         'Owner',
       ),
@@ -12349,7 +12022,7 @@ describe('PRO PIN membership choice and removal reasons', () => {
           jsonRequest(
             '/presence/kick',
             'POST',
-            { targetParticipantId: kicked.viewer.participantId },
+            { targetMemberId: kicked.viewer.memberId },
             context.ownerCookie,
           ),
         )
@@ -12490,6 +12163,7 @@ describe('persistent PRO room bootstrap and activation', () => {
     expect(await responseJson(await context.worker.fetch(request('/bootstrap')))).toEqual({
       roomCode: ROOM_CODE,
       status: 'suspended',
+      passwordRequired: true,
     });
     expect((await context.worker.fetch(request('/snapshot', {}, context.ownerCookie))).status).toBe(
       401,
@@ -13122,33 +12796,21 @@ describe('persistent PRO room bootstrap and activation', () => {
     expect(internal.room).toEqual(before);
   });
 
-  it('never exposes an owner claim in public bootstrap and rejects invalid activation uniformly', async () => {
+  it('never exposes an owner claim in public bootstrap and rejects an invalid activation claim', async () => {
     const worker = new MusixquareProRoom(new FakeState() as never, environment() as never);
     const bootstrap = await worker.fetch(request('/bootstrap'));
     expect(await responseJson(bootstrap)).toEqual({
       roomCode: ROOM_CODE,
       status: 'activation_required',
+      passwordRequired: true,
     });
 
     const invalidClaim = `v1.${'a'.repeat(32)}.${'b'.repeat(43)}`;
     const wrongClaim = await worker.fetch(
-      jsonRequest('/activation', 'POST', {
-        claimToken: invalidClaim,
-        temporaryPin: '00000001',
-        newPin: '12345678',
-      }),
-    );
-    const wrongTemporaryPin = await worker.fetch(
-      jsonRequest('/activation', 'POST', {
-        claimToken: invalidClaim,
-        temporaryPin: '99999999',
-        newPin: '12345678',
-      }),
+      optionalEntryPolicy(jsonRequest('/activation', 'POST', { claimToken: invalidClaim })),
     );
     expect(wrongClaim.status).toBe(401);
-    expect(wrongTemporaryPin.status).toBe(401);
     expect(await responseJson(wrongClaim)).toEqual({ error: 'ACTIVATION_INVALID' });
-    expect(await responseJson(wrongTemporaryPin)).toEqual({ error: 'ACTIVATION_INVALID' });
   });
 
   it('rejects invisible owner names at the authoritative activation boundary', async () => {
@@ -13161,36 +12823,36 @@ describe('persistent PRO room bootstrap and activation', () => {
 
     for (const ownerName of ['\u3164', 'Owner\u200b', 'Owner\u00a0name', '️']) {
       const response = await worker.fetch(
-        jsonRequest('/activation', 'POST', {
-          claimToken,
-          temporaryPin: ROOM_CODE.padStart(8, '0'),
-          newPin: '12345678',
-          ownerName,
-        }),
+        optionalEntryPolicy(
+          jsonRequest('/activation', 'POST', {
+            claimToken,
+            ownerName,
+          }),
+        ),
       );
       expect(response.status).toBe(400);
       expect(await responseJson(response)).toEqual({ error: 'INVALID_REQUEST' });
     }
 
     const anonymous = await worker.fetch(
-      jsonRequest('/activation', 'POST', {
-        claimToken,
-        temporaryPin: ROOM_CODE.padStart(8, '0'),
-        newPin: '12345678',
-        ownerName: 'Replacement owner',
-      }),
+      optionalEntryPolicy(
+        jsonRequest('/activation', 'POST', {
+          claimToken,
+          ownerName: 'Replacement owner',
+        }),
+      ),
     );
     expect(anonymous.status).toBe(401);
     expect(await responseJson(anonymous)).toEqual({ error: 'ACCOUNT_SESSION_REQUIRED' });
 
     const valid = await worker.fetch(
       await withAccountAssertion(
-        jsonRequest('/activation', 'POST', {
-          claimToken,
-          temporaryPin: ROOM_CODE.padStart(8, '0'),
-          newPin: '12345678',
-          ownerName: 'Replacement owner',
-        }),
+        optionalEntryPolicy(
+          jsonRequest('/activation', 'POST', {
+            claimToken,
+            ownerName: 'Replacement owner',
+          }),
+        ),
         ACTIVATION_OWNER_ACCOUNT_ID,
         'Replacement owner',
       ),
@@ -13262,7 +12924,11 @@ describe('persistent PRO room bootstrap and activation', () => {
 
     const after = await worker.fetch(requestForRoom(roomCode, '/bootstrap'));
     expect(after.status).toBe(200);
-    expect(await responseJson(after)).toEqual({ roomCode, status: 'activation_required' });
+    expect(await responseJson(after)).toEqual({
+      roomCode,
+      status: 'activation_required',
+      passwordRequired: true,
+    });
   });
 
   it('rotates 24-hour activation generations so only the newest admin link works', async () => {
@@ -13311,22 +12977,22 @@ describe('persistent PRO room bootstrap and activation', () => {
       return decodeURIComponent(encoded);
     };
     const stale = await worker.fetch(
-      jsonRequestForRoom(roomCode, '/activation', 'POST', {
-        claimToken: claimFrom(first.activationUrl),
-        temporaryPin: '00000002',
-        newPin: '12345678',
-      }),
+      optionalEntryPolicy(
+        jsonRequestForRoom(roomCode, '/activation', 'POST', {
+          claimToken: claimFrom(first.activationUrl),
+        }),
+      ),
     );
     expect(stale.status).toBe(401);
     expect(await responseJson(stale)).toEqual({ error: 'ACTIVATION_INVALID' });
 
     const current = await worker.fetch(
       await withAccountAssertion(
-        jsonRequestForRoom(roomCode, '/activation', 'POST', {
-          claimToken: claimFrom(second.activationUrl),
-          temporaryPin: '00000002',
-          newPin: '12345678',
-        }),
+        optionalEntryPolicy(
+          jsonRequestForRoom(roomCode, '/activation', 'POST', {
+            claimToken: claimFrom(second.activationUrl),
+          }),
+        ),
         ACTIVATION_OWNER_ACCOUNT_ID,
         'Owner',
         roomCode,
@@ -13378,11 +13044,11 @@ describe('persistent PRO room bootstrap and activation', () => {
       const reloaded = new MusixquareProRoom(state as never, env as never);
       const response = await reloaded.fetch(
         await withAccountAssertion(
-          jsonRequestForRoom(roomCode, '/activation', 'POST', {
-            claimToken,
-            temporaryPin: '00000002',
-            newPin: '12345678',
-          }),
+          optionalEntryPolicy(
+            jsonRequestForRoom(roomCode, '/activation', 'POST', {
+              claimToken,
+            }),
+          ),
           ACTIVATION_OWNER_ACCOUNT_ID,
           'Owner',
           roomCode,
@@ -13431,11 +13097,11 @@ describe('persistent PRO room bootstrap and activation', () => {
     const claimToken = decodeURIComponent(encoded);
     const otherAccountId = `acct_${'B'.repeat(22)}`;
     const activationRequest = () =>
-      jsonRequestForRoom(roomCode, '/activation', 'POST', {
-        claimToken,
-        temporaryPin: '00000002',
-        newPin: '12345678',
-      });
+      optionalEntryPolicy(
+        jsonRequestForRoom(roomCode, '/activation', 'POST', {
+          claimToken,
+        }),
+      );
 
     const mismatch = await worker.fetch(
       await withAccountAssertion(activationRequest(), otherAccountId, 'Other', roomCode),
@@ -13760,6 +13426,7 @@ describe('persistent PRO room bootstrap and activation', () => {
     await expect(suspended.json()).resolves.toEqual({
       roomCode: deletedRoomCode,
       status: 'suspended',
+      passwordRequired: true,
     });
     expect(listReads).toBe(0);
 
@@ -13926,11 +13593,11 @@ describe('persistent PRO room bootstrap and activation', () => {
       });
       const response = await worker.fetch(
         await withAccountAssertion(
-          jsonRequestForRoom(roomCode, '/activation', 'POST', {
-            claimToken,
-            temporaryPin: roomCode.padStart(8, '0'),
-            newPin: roomCode === '000000' ? '11111111' : '22222222',
-          }),
+          optionalEntryPolicy(
+            jsonRequestForRoom(roomCode, '/activation', 'POST', {
+              claimToken,
+            }),
+          ),
           ACTIVATION_OWNER_ACCOUNT_ID,
           'Owner',
           roomCode,
@@ -13983,14 +13650,16 @@ describe('persistent PRO room bootstrap and activation', () => {
           origin: 'https://musixquare.com',
           'access-control-request-method': 'GET',
           'access-control-request-headers':
-            'x-mxqr-pro-participant-id,x-mxqr-pro-presence-incarnation,x-mxqr-pro-effects-version',
+            'x-mxqr-pro-participant-id,x-mxqr-pro-presence-incarnation,x-mxqr-pro-entry-policy',
         },
       }),
       env as never,
     );
     expect(preflight.status).toBe(204);
+    // The App still sends the entry-policy and playlist opt-ins; nothing sends
+    // the retired effects-only version header.
     expect(preflight.headers.get('access-control-allow-headers')).toBe(
-      'content-type,idempotency-key,authorization,x-mxqr-pro-participant-id,x-mxqr-pro-presence-incarnation,x-mxqr-pro-presence-recovery,x-mxqr-pro-effects-version,x-mxqr-pro-entry-policy,x-mxqr-pro-playlist-slots,x-mxqr-app-build',
+      'content-type,idempotency-key,authorization,x-mxqr-pro-participant-id,x-mxqr-pro-presence-incarnation,x-mxqr-pro-presence-recovery,x-mxqr-pro-entry-policy,x-mxqr-pro-playlist-slots,x-mxqr-app-build',
     );
 
     for (const previewOrigin of ['http://localhost:4173', 'http://127.0.0.1:4173']) {
@@ -14431,14 +14100,10 @@ describe('persistent PRO room authentication, presence, and state', () => {
     vi.setSystemTime(startedAtMs);
     const context = await activatedRoom();
 
-    const legacy = await context.worker.fetch(
-      request('/sessions', {
-        method: 'POST',
-        headers: { 'content-type': 'application/json' },
-        body: JSON.stringify({ pin: '12345678' }),
-      }),
+    const earlier = await context.worker.fetch(
+      jsonRequest('/sessions', 'POST', { pin: '12345678' }),
     );
-    expect(legacy.status).toBe(200);
+    expect(earlier.status).toBe(200);
 
     const requestId = 'session-create-receipt-expiry-0001';
     const admission = () => jsonRequest('/sessions', 'POST', { pin: '12345678', requestId });
@@ -15283,7 +14948,7 @@ describe('persistent PRO room authentication, presence, and state', () => {
       jsonRequest(
         '/presence/kick',
         'POST',
-        { targetParticipantId: context.activationEnvelope.snapshot.viewer.participantId },
+        { targetMemberId: context.activationEnvelope.snapshot.viewer.memberId },
         friend.cookie,
       ),
     );
@@ -15361,12 +15026,6 @@ describe('persistent PRO room authentication, presence, and state', () => {
       ],
     });
     expect(parseProRoomSnapshot(current.snapshot)).not.toBeNull();
-
-    const deniedEffects = await context.worker.fetch(
-      jsonRequest('/effects', 'PUT', {}, friend.cookie),
-    );
-    expect(deniedEffects.status).toBe(403);
-    await expect(deniedEffects.json()).resolves.toEqual({ error: 'OWNER_REQUIRED' });
 
     const destructiveRequestId = 'bot-admin-destructive-allowed-0001';
     const destructiveContext = await internalBotRequest(
@@ -15483,7 +15142,7 @@ describe('persistent PRO room authentication, presence, and state', () => {
       jsonRequest(
         '/presence/kick',
         'POST',
-        { targetParticipantId: context.activationEnvelope.snapshot.viewer.participantId },
+        { targetMemberId: context.activationEnvelope.snapshot.viewer.memberId },
         friend.cookie,
       ),
     );
@@ -16290,13 +15949,7 @@ describe('persistent PRO room authentication, presence, and state', () => {
         )
       ).status,
     ).toBe(200);
-    expect(
-      (
-        await context.worker.fetch(
-          request('/sessions/current', { method: 'DELETE' }, accountCookie),
-        )
-      ).status,
-    ).toBe(200);
+    expect((await context.worker.fetch(sessionLeaveRequest(accountCookie))).status).toBe(200);
     const offline = await responseJson(
       await context.worker.fetch(request('/snapshot', {}, context.ownerCookie)),
     );
@@ -16345,13 +15998,7 @@ describe('persistent PRO room authentication, presence, and state', () => {
         )
       ).status,
     ).toBe(200);
-    expect(
-      (
-        await context.worker.fetch(
-          request('/sessions/current', { method: 'DELETE' }, anonymous.cookie),
-        )
-      ).status,
-    ).toBe(200);
+    expect((await context.worker.fetch(sessionLeaveRequest(anonymous.cookie))).status).toBe(200);
     const afterAnonymousLeave = await responseJson(
       await context.worker.fetch(request('/snapshot', {}, context.ownerCookie)),
     );
@@ -16389,10 +16036,7 @@ describe('persistent PRO room authentication, presence, and state', () => {
         )
       ).status,
     ).toBe(200);
-    expect(
-      (await context.worker.fetch(request('/sessions/current', { method: 'DELETE' }, joinedCookie)))
-        .status,
-    ).toBe(200);
+    expect((await context.worker.fetch(sessionLeaveRequest(joinedCookie))).status).toBe(200);
 
     const restartedEnv = environment(context.bucket);
     const restarted = new MusixquareProRoom(context.state as never, restartedEnv as never);
@@ -16705,7 +16349,7 @@ describe('persistent PRO room authentication, presence, and state', () => {
       jsonRequest(
         '/presence/kick',
         'POST',
-        { targetParticipantId: first.envelope.snapshot.viewer.participantId },
+        { targetMemberId: first.envelope.snapshot.viewer.memberId },
         delegated.cookie,
       ),
     );
@@ -17069,6 +16713,7 @@ describe('persistent PRO room authentication, presence, and state', () => {
     await expect(bootstrap.json()).resolves.toEqual({
       roomCode: ROOM_CODE,
       status: 'suspended',
+      passwordRequired: true,
     });
     expect(internal.room).toMatchObject({
       status: 'suspended',
@@ -17143,6 +16788,7 @@ describe('persistent PRO room authentication, presence, and state', () => {
     await expect(bootstrap.json()).resolves.toEqual({
       roomCode: ROOM_CODE,
       status: 'suspended',
+      passwordRequired: true,
     });
     expect(internal.room).toMatchObject({
       status: 'suspended',
@@ -17740,7 +17386,6 @@ describe('persistent PRO room authentication, presence, and state', () => {
         await withAccountAssertion(
           jsonRequest('/owner-transfer/prepare', 'POST', {
             claimToken: decodeURIComponent(preissuedClaim!),
-            newPin: '87654321',
             requestId,
           }),
           replacementAccountId,
@@ -17889,7 +17534,6 @@ describe('persistent PRO room authentication, presence, and state', () => {
       await withAccountAssertion(
         jsonRequest('/owner-transfer/prepare', 'POST', {
           claimToken: decodeURIComponent(encodedClaim!),
-          newPin: '87654321',
           requestId,
         }),
         replacementAccountId,
@@ -18042,7 +17686,6 @@ describe('persistent PRO room authentication, presence, and state', () => {
       targetDisplayName: 'Transfer target',
       previousOwnerAccountId: accountId,
       preservedOwnerMemberId: ownerMemberId,
-      pin: structuredClone((context.worker as unknown as { room: Record<string, any> }).room.pin),
       claimNonceHash: 'a'.repeat(43),
       claimGeneration: 1,
       ownerAuthorityEpoch: expectedOwnerAuthorityEpoch,
@@ -18323,9 +17966,7 @@ describe('persistent PRO room authentication, presence, and state', () => {
 
   it('restores the owner role from the separate host-only owner credential', async () => {
     const { worker, ownerCookie, ownerRecoveryCookie, activationEnvelope } = await activatedRoom();
-    const closed = await worker.fetch(
-      request('/sessions/current', { method: 'DELETE' }, ownerCookie),
-    );
+    const closed = await worker.fetch(sessionLeaveRequest(ownerCookie));
     expect(closed.status).toBe(200);
     expect(closed.headers.get('set-cookie')).toBeNull();
     const restored = await worker.fetch(
@@ -19439,7 +19080,6 @@ describe('persistent PRO room authentication, presence, and state', () => {
       withAccountAssertion(
         jsonRequest('/owner-transfer/prepare', 'POST', {
           claimToken,
-          newPin: '87654321',
           requestId,
         }),
         accountId,
@@ -19644,11 +19284,10 @@ describe('persistent PRO room authentication, presence, and state', () => {
       )?.[1];
       expect(encodedClaim).toBeTruthy();
       const claimToken = decodeURIComponent(encodedClaim!);
-      const prepareRequest = (id = requestId, pin = '87654321') =>
+      const prepareRequest = (id = requestId) =>
         withAccountAssertion(
           jsonRequest('/owner-transfer/prepare', 'POST', {
             claimToken,
-            newPin: pin,
             requestId: id,
           }),
           targetAccountId,
@@ -19659,7 +19298,6 @@ describe('persistent PRO room authentication, presence, and state', () => {
         await withAccountAssertion(
           jsonRequest('/owner-transfer/prepare', 'POST', {
             claimToken,
-            newPin: '87654321',
             requestId,
           }),
           ACTIVATION_OWNER_ACCOUNT_ID,
@@ -20162,7 +19800,6 @@ describe('persistent PRO room authentication, presence, and state', () => {
       await withAccountAssertion(
         jsonRequest('/owner-transfer/prepare', 'POST', {
           claimToken: decodeURIComponent(encodedClaim!),
-          newPin: '87654321',
           requestId,
         }),
         targetAccountId,
@@ -20413,7 +20050,7 @@ describe('persistent PRO room authentication, presence, and state', () => {
     const rotate = await worker.fetch(
       jsonRequest('/pin', 'POST', { pin: '87654321' }, ownerCookie),
     );
-    expect(await responseJson(rotate)).toEqual({ ok: true });
+    expect(await responseJson(rotate)).toEqual({ ok: true, passwordRequired: true });
     const ownerAfterRotationResponse = await worker.fetch(request('/snapshot', {}, ownerCookie));
     expect(ownerAfterRotationResponse.status).toBe(200);
     const ownerAfterRotation = await responseJson(ownerAfterRotationResponse);
@@ -20929,11 +20566,12 @@ describe('persistent PRO room authentication, presence, and state', () => {
     });
     const mutation = worker.fetch(
       jsonRequest(
-        '/effects',
+        '/settings-sync',
         'PUT',
         {
           coordinatorEpoch: activationEnvelope.snapshot.presence.coordinatorEpoch,
           baseRevision: 0,
+          masterVolume: 1,
           effects: {
             reverb: {
               mixPercent: 15,
@@ -21045,11 +20683,12 @@ describe('persistent PRO room authentication, presence, and state', () => {
     await vi.advanceTimersByTimeAsync(500);
     const updated = await worker.fetch(
       jsonRequest(
-        '/effects',
+        '/settings-sync',
         'PUT',
         {
           coordinatorEpoch: activationEnvelope.snapshot.presence.coordinatorEpoch,
           baseRevision: 0,
+          masterVolume: 1,
           effects,
         },
         ownerCookie,
@@ -21103,11 +20742,12 @@ describe('persistent PRO room authentication, presence, and state', () => {
     await expect(
       worker.fetch(
         jsonRequest(
-          '/effects',
+          '/settings-sync',
           'PUT',
           {
             coordinatorEpoch: activationEnvelope.snapshot.presence.coordinatorEpoch,
             baseRevision: 0,
+            masterVolume: 1,
             effects: {
               reverb: {
                 mixPercent: 10,
@@ -21141,11 +20781,12 @@ describe('persistent PRO room authentication, presence, and state', () => {
 
     const retried = await worker.fetch(
       jsonRequest(
-        '/effects',
+        '/settings-sync',
         'PUT',
         {
           coordinatorEpoch: activationEnvelope.snapshot.presence.coordinatorEpoch,
           baseRevision: 0,
+          masterVolume: 1,
           effects: {
             reverb: {
               mixPercent: 10,
@@ -21191,11 +20832,12 @@ describe('persistent PRO room authentication, presence, and state', () => {
 
     const response = await worker.fetch(
       jsonRequest(
-        '/effects',
+        '/settings-sync',
         'PUT',
         {
           coordinatorEpoch: activationEnvelope.snapshot.presence.coordinatorEpoch,
           baseRevision: 0,
+          masterVolume: 1,
           effects: {
             reverb: {
               mixPercent: 15,
@@ -22282,7 +21924,7 @@ describe('persistent PRO room authentication, presence, and state', () => {
     );
 
     for (const cookie of activeCookies) {
-      await worker.fetch(request('/sessions/current', { method: 'DELETE' }, cookie));
+      await worker.fetch(sessionLeaveRequest(cookie));
     }
     for (let index = 0; index < 140; index += 1) {
       // One address may create 200 non-owner sessions per 10-minute window
@@ -23033,27 +22675,20 @@ describe('PRO owner transfer and the room entry password', () => {
     );
     await expectSessionRequired(context.worker.fetch(request('/snapshot', {}, memberCookie)));
 
-    // The same request id replays the same transfer, with or without the PIN
-    // an App from before the decision sends. Only a malformed PIN is refused.
-    for (const body of [
-      { claimToken, requestId },
-      { claimToken, newPin: '11223344', requestId },
-    ]) {
-      const replay = await prepareTransfer(context.worker, body);
-      expect(replay.status).toBe(200);
-      await expect(replay.json()).resolves.toMatchObject({
-        transferId: prepared.transferId,
-        commitProof: prepared.commitProof,
-        replayed: true,
-      });
-    }
-    const malformed = await prepareTransfer(context.worker, {
-      claimToken,
-      newPin: '1234',
-      requestId,
+    // The same request id replays the same transfer. The new-owner PIN that
+    // Apps before 9.0.4 sent is refused, well-formed or not.
+    const replay = await prepareTransfer(context.worker, { claimToken, requestId });
+    expect(replay.status).toBe(200);
+    await expect(replay.json()).resolves.toMatchObject({
+      transferId: prepared.transferId,
+      commitProof: prepared.commitProof,
+      replayed: true,
     });
-    expect(malformed.status).toBe(400);
-    await expect(malformed.json()).resolves.toEqual({ error: 'INVALID_REQUEST' });
+    for (const newPin of ['11223344', '1234']) {
+      const refused = await prepareTransfer(context.worker, { claimToken, newPin, requestId });
+      expect(refused.status).toBe(400);
+      await expect(refused.json()).resolves.toEqual({ error: 'INVALID_REQUEST' });
+    }
 
     const committed = await commitTransfer(context.worker, prepared, requestId, {
       entryPolicy: true,
@@ -23069,12 +22704,13 @@ describe('PRO owner transfer and the room entry password', () => {
     expect(committedPayload.snapshot.passwordRequired).toBe(false);
     expect(parseProRoomSnapshot(committedPayload.snapshot)).not.toBeNull();
     expect(room).toMatchObject({ passwordRequired: false, pin: null });
-    // Without the App's opt-in header the commit keeps the exact v1 snapshot.
-    const legacyCommitReplay = await commitTransfer(context.worker, prepared, requestId);
-    expect(legacyCommitReplay.status).toBe(200);
-    const legacyCommitPayload = await responseJson(legacyCommitReplay);
-    expect(legacyCommitPayload.replayed).toBe(true);
-    expect(legacyCommitPayload.snapshot).not.toHaveProperty('passwordRequired');
+    // Without the opt-in header the commit answer carries the same fields.
+    const headerlessCommitReplay = await commitTransfer(context.worker, prepared, requestId);
+    expect(headerlessCommitReplay.status).toBe(200);
+    const headerlessCommitPayload = await responseJson(headerlessCommitReplay);
+    expect(headerlessCommitPayload.replayed).toBe(true);
+    expect(headerlessCommitPayload.snapshot.passwordRequired).toBe(false);
+    expect(headerlessCommitPayload.snapshot).toHaveProperty('playlistSlots');
 
     // The code alone admits, also the member who was in the room: their old
     // session stays revoked and they come back as an ordinary member.
@@ -23098,19 +22734,14 @@ describe('PRO owner transfer and the room entry password', () => {
     expect(oldAccount.status).toBe(200);
     expect((await responseJson(oldAccount)).snapshot.viewer.role).toBe('member');
 
-    // The completed transfer replays for the same request id, PIN or not.
-    for (const body of [
-      { claimToken, requestId },
-      { claimToken, newPin: '11223344', requestId },
-    ]) {
-      const completedReplay = await prepareTransfer(context.worker, body);
-      expect(completedReplay.status).toBe(200);
-      await expect(completedReplay.json()).resolves.toMatchObject({
-        status: 'active',
-        transferId: prepared.transferId,
-        replayed: true,
-      });
-    }
+    // The completed transfer replays for the same request id.
+    const completedReplay = await prepareTransfer(context.worker, { claimToken, requestId });
+    expect(completedReplay.status).toBe(200);
+    await expect(completedReplay.json()).resolves.toMatchObject({
+      status: 'active',
+      transferId: prepared.transferId,
+      replayed: true,
+    });
     const otherRequest = await prepareTransfer(context.worker, {
       claimToken,
       requestId: 'owner_transfer_password_9999',
@@ -23119,19 +22750,23 @@ describe('PRO owner transfer and the room entry password', () => {
     await expect(otherRequest.json()).resolves.toEqual({ error: 'OWNER_TRANSFER_CLAIM_USED' });
   });
 
-  it("neither refuses nor keeps the room's current PIN that an App from before the decision sends", async () => {
+  it('refuses the new-owner PIN that Apps before 9.0.4 sent, before touching the room', async () => {
     const context = await activatedRoom();
     const room = roomState(context.worker);
     const claimToken = await issueTransferClaim(context.worker);
     const requestId = 'owner_transfer_password_0002';
+    const before = structuredClone(room);
 
-    // OWNER_TRANSFER_PIN_REUSE is gone, so the link no longer tells its
-    // recipient whether a PIN is the previous owner's.
-    const preparedResponse = await prepareTransfer(context.worker, {
-      claimToken,
-      newPin: '12345678',
-      requestId,
-    });
+    // The room's current PIN, another PIN, and a malformed one alike.
+    for (const newPin of ['12345678', '87654321', '1234']) {
+      const refused = await prepareTransfer(context.worker, { claimToken, newPin, requestId });
+      expect(refused.status).toBe(400);
+      await expect(refused.json()).resolves.toEqual({ error: 'INVALID_REQUEST' });
+    }
+    expect(room).toEqual(before);
+
+    // The same link without it prepares and commits as usual.
+    const preparedResponse = await prepareTransfer(context.worker, { claimToken, requestId });
     expect(preparedResponse.status).toBe(200);
     expect(room.pendingOwnershipTransfer).not.toHaveProperty('pin');
     const committed = await commitTransfer(
@@ -23143,13 +22778,6 @@ describe('PRO owner transfer and the room entry password', () => {
     expect(room).toMatchObject({ passwordRequired: false, pin: null });
     const codeOnly = await context.worker.fetch(joinRequest());
     expect(codeOnly.status).toBe(200);
-    // An App without the optional entry policy still asks for a PIN; any
-    // valid one admits an ordinary member of an open room.
-    const legacyJoin = await context.worker.fetch(
-      jsonRequest('/sessions', 'POST', { pin: '12345678' }),
-    );
-    expect(legacyJoin.status).toBe(200);
-    expect((await responseJson(legacyJoin)).snapshot.viewer.role).toBe('member');
   });
 
   it('keeps a public room open', async () => {
@@ -23174,10 +22802,8 @@ describe('PRO owner transfer and the room entry password', () => {
     expect(codeOnly.status).toBe(200);
   });
 
-  it('replays and commits stored pending transfers, with and without the earlier PIN, after a restart', async () => {
+  it('replays and commits a stored pending transfer after a restart', async () => {
     const context = await activatedRoom();
-    const earlierPinRecord = structuredClone(roomState(context.worker).pin);
-    expect(earlierPinRecord).toMatchObject({ salt: expect.any(String), hash: expect.any(String) });
     const claimToken = await issueTransferClaim(context.worker);
     const requestId = 'owner_transfer_password_0004';
     const preparedResponse = await prepareTransfer(context.worker, { claimToken, requestId });
@@ -23194,27 +22820,9 @@ describe('PRO owner transfer and the room entry password', () => {
       replayed: true,
     });
 
-    // A record a PRO Worker wrote before the decision carries the PIN its new
-    // owner chose. It loads as stored, replays, and its PIN is never applied.
-    const restarted = restartWithStoredPending(context, (pending) => {
-      pending.pin = earlierPinRecord;
-    });
-    for (const body of [
-      { claimToken, newPin: '87654321', requestId },
-      { claimToken, requestId },
-    ]) {
-      const legacyReplay = await prepareTransfer(restarted, body);
-      expect(legacyReplay.status).toBe(200);
-      await expect(legacyReplay.json()).resolves.toMatchObject({
-        transferId: prepared.transferId,
-        commitProof: prepared.commitProof,
-        replayed: true,
-      });
-    }
-    expect(roomState(restarted).pendingOwnershipTransfer.pin).toEqual(earlierPinRecord);
-    const committed = await commitTransfer(restarted, prepared, requestId);
+    const committed = await commitTransfer(reloaded, prepared, requestId);
     expect(committed.status).toBe(200);
-    expect(roomState(restarted)).toMatchObject({
+    expect(roomState(reloaded)).toMatchObject({
       status: 'active',
       ownerAccountId: TRANSFER_TARGET_ACCOUNT_ID,
       passwordRequired: false,
@@ -23242,26 +22850,73 @@ describe('PRO owner transfer and the room entry password', () => {
     });
   });
 
-  it('drops a stored pending record whose earlier PIN is malformed, as before', async () => {
-    const context = await activatedRoom();
-    const claimToken = await issueTransferClaim(context.worker);
-    const preparedResponse = await prepareTransfer(context.worker, {
-      claimToken,
-      requestId: 'owner_transfer_password_0005',
-    });
-    expect(preparedResponse.status).toBe(200);
-    const restarted = restartWithStoredPending(context, (pending) => {
-      pending.pin = null;
-    });
-    const status = await restarted.fetch(
-      new Request('https://pro-room.internal/internal/admin/status', {
-        headers: { 'x-mxqr-pro-room-code': ROOM_CODE, 'x-mxqr-pro-room-generation': '0' },
-      }),
-    );
-    expect(status.status).toBe(200);
-    expect((await responseJson(status)).ownerTransferReconciliation).toBeNull();
-    expect(roomState(restarted).pendingOwnershipTransfer).toBeNull();
-  });
+  // Only a PRO Worker before 9.0.4 (deployed 2026-10-24 01:56 KST) wrote a
+  // pending record with the PIN its new owner chose. Nothing clears a pending
+  // record when its claim expires: it stays, with the room suspended and no
+  // owner account, until a new PREPARE replaces it or a commit finishes it,
+  // and it keeps the previous owner's edge for the next transfer. So such a
+  // record still loads, and its PIN is dropped unread.
+  it.each(['well-formed', 'malformed'])(
+    'keeps an expired stored pending record that carries an earlier PIN, without the PIN (%s)',
+    async (shape) => {
+      vi.useFakeTimers();
+      // Before 9.0.4 reached production.
+      vi.setSystemTime(Date.parse('2026-10-23T12:00:00.000Z'));
+      const context = await activatedRoom();
+      const earlierPinRecord = structuredClone(roomState(context.worker).pin);
+      expect(earlierPinRecord).toMatchObject({
+        salt: expect.any(String),
+        hash: expect.any(String),
+      });
+      const claimToken = await issueTransferClaim(context.worker);
+      const preparedResponse = await prepareTransfer(context.worker, {
+        claimToken,
+        requestId: 'owner_transfer_password_0005',
+      });
+      expect(preparedResponse.status).toBe(200);
+      const prepared = await responseJson(preparedResponse);
+      expect(prepared.previousOwnerAccountId).toBe(ACTIVATION_OWNER_ACCOUNT_ID);
+
+      // The transfer never committed, and its claim expired days ago.
+      vi.setSystemTime(Date.parse('2026-10-27T03:00:00.000Z'));
+      const restarted = restartWithStoredPending(context, (pending) => {
+        pending.pin = shape === 'well-formed' ? earlierPinRecord : null;
+      });
+      const status = await restarted.fetch(
+        new Request('https://pro-room.internal/internal/admin/status', {
+          headers: { 'x-mxqr-pro-room-code': ROOM_CODE, 'x-mxqr-pro-room-generation': '0' },
+        }),
+      );
+      expect(status.status).toBe(200);
+      // The operator and the App Worker's saga cron still see the stuck transfer.
+      expect((await responseJson(status)).ownerTransferReconciliation).toMatchObject({
+        phase: 'pending',
+        transferId: prepared.transferId,
+        previousOwnerAccountId: ACTIVATION_OWNER_ACCOUNT_ID,
+        expiresAtMs: prepared.expiresAtMs,
+      });
+      expect(roomState(restarted)).toMatchObject({
+        status: 'suspended',
+        suspensionReason: 'ownership_transfer_pending',
+        ownerAccountId: null,
+        pendingOwnershipTransfer: { transferId: prepared.transferId },
+      });
+      expect(roomState(restarted).pendingOwnershipTransfer).not.toHaveProperty('pin');
+
+      // The next transfer of the room carries the previous owner's edge, so
+      // the App Worker can retire that owner's account-room link.
+      const nextClaimToken = await issueTransferClaim(restarted);
+      const nextResponse = await prepareTransfer(restarted, {
+        claimToken: nextClaimToken,
+        requestId: 'owner_transfer_password_0007',
+      });
+      expect(nextResponse.status).toBe(200);
+      await expect(nextResponse.json()).resolves.toMatchObject({
+        previousOwnerAccountId: ACTIVATION_OWNER_ACCOUNT_ID,
+        replayed: false,
+      });
+    },
+  );
 });
 
 describe('persistent PRO room private media accounting', () => {
@@ -25358,26 +25013,6 @@ describe('persistent PRO room audio effects', () => {
       masterVolume: 0.8,
       effects: configuredEffects,
     });
-
-    const effectsOnlyUpdate = jsonRequest(
-      '/effects',
-      'PUT',
-      {
-        coordinatorEpoch: controllerSnapshot.snapshot.presence.coordinatorEpoch,
-        baseRevision: 2,
-        effects: configuredEffectsV2,
-      },
-      context.ownerCookie,
-    );
-    effectsOnlyUpdate.headers.set('x-mxqr-pro-effects-version', '2');
-    expect((await context.worker.fetch(effectsOnlyUpdate)).status).toBe(200);
-    await expect(
-      (await context.worker.fetch(request('/settings-sync', {}, context.ownerCookie))).json(),
-    ).resolves.toMatchObject({
-      revision: 3,
-      masterVolume: 0.8,
-      effects: configuredEffectsV2,
-    });
   });
 
   it('migrates a legacy effects resource without volume to the neutral default', async () => {
@@ -25403,73 +25038,36 @@ describe('persistent PRO room audio effects', () => {
     expect(migrated.room.effects.masterVolume).toBe(1);
   });
 
-  it('uses only the complete effects v2 contract', async () => {
+  it('has no effects-only endpoint: GET and PUT /effects are 404 and change nothing', async () => {
     const context = await activatedRoom();
     const epoch = context.activationEnvelope.snapshot.presence.coordinatorEpoch as number;
-    const v2Get = request(
-      '/effects',
-      {
-        headers: { 'x-mxqr-pro-effects-version': '2' },
-      },
-      context.ownerCookie,
-    );
-    await expect((await context.worker.fetch(v2Get)).json()).resolves.toEqual({
-      schemaVersion: 2,
-      view: 'effects',
-      roomCode: ROOM_CODE,
-      revision: 0,
-      updatedAtMs: 0,
-      effects: defaultEffects,
-    });
-
-    const v2Update = jsonRequest(
-      '/effects',
-      'PUT',
-      { coordinatorEpoch: epoch, baseRevision: 0, effects: configuredEffectsV2 },
-      context.ownerCookie,
-    );
-    v2Update.headers.set('x-mxqr-pro-effects-version', '2');
-    await expect((await context.worker.fetch(v2Update)).json()).resolves.toMatchObject({
-      schemaVersion: 2,
-      revision: 1,
-      effects: configuredEffectsV2,
-    });
-
-    const retiredUpdate = jsonRequest(
-      '/effects',
-      'PUT',
-      {
-        coordinatorEpoch: epoch,
-        baseRevision: 1,
-        effects: { ...configuredEffects, virtualBass: { strengthPercent: 25 } },
-      },
-      context.ownerCookie,
-    );
-    retiredUpdate.headers.delete('x-mxqr-pro-effects-version');
-    expect((await context.worker.fetch(retiredUpdate)).status).toBe(400);
     const internal = context.worker as unknown as { room: Record<string, any> };
-    expect(internal.room.effects.effects.virtualTreble).toEqual({ enabled: true });
-
-    const v2AfterRejectedRequest = request(
-      '/effects',
-      {
-        headers: { 'x-mxqr-pro-effects-version': '2' },
-      },
-      context.ownerCookie,
-    );
+    const before = structuredClone(internal.room.effects);
+    // Only the effects-only calls of earlier Apps sent this header. With or
+    // without it the endpoint is gone; /settings-sync is the App's resource.
+    for (const version of ['2', null]) {
+      const read = request('/effects', {}, context.ownerCookie);
+      const update = jsonRequest(
+        '/effects',
+        'PUT',
+        { coordinatorEpoch: epoch, baseRevision: 0, effects: configuredEffectsV2 },
+        context.ownerCookie,
+      );
+      for (const sent of [read, update]) {
+        if (version === null) sent.headers.delete('x-mxqr-pro-effects-version');
+        else sent.headers.set('x-mxqr-pro-effects-version', version);
+        const response = await context.worker.fetch(sent);
+        expect(response.status).toBe(404);
+        await expect(response.json()).resolves.toEqual({ error: 'NOT_FOUND' });
+      }
+    }
+    expect(internal.room.effects).toEqual(before);
     await expect(
-      (await context.worker.fetch(v2AfterRejectedRequest)).json(),
-    ).resolves.toMatchObject({
-      schemaVersion: 2,
-      revision: 1,
-      effects: {
-        virtualBass: { strengthPercent: 60 },
-        virtualTreble: { enabled: true },
-      },
-    });
+      (await context.worker.fetch(request('/settings-sync', {}, context.ownerCookie))).json(),
+    ).resolves.toMatchObject({ revision: 0, effects: defaultEffects });
   });
 
-  it.each(['/effects', '/settings-sync', 'developer'])(
+  it.each(['/settings-sync', 'developer'])(
     'enforces the 10-second decay boundary for new %s writes',
     async (route) => {
       const context = await activatedRoom();
@@ -25490,12 +25088,7 @@ describe('persistent PRO room audio effects', () => {
               jsonRequest(
                 route,
                 'PUT',
-                {
-                  coordinatorEpoch: epoch,
-                  baseRevision: 0,
-                  effects,
-                  ...(route === '/settings-sync' ? { masterVolume: 0.35 } : {}),
-                },
+                { coordinatorEpoch: epoch, baseRevision: 0, effects, masterVolume: 0.35 },
                 context.ownerCookie,
               ),
             );
@@ -25544,12 +25137,16 @@ describe('persistent PRO room audio effects', () => {
     const context = await activatedRoom();
     const epoch = context.activationEnvelope.snapshot.presence.coordinatorEpoch as number;
     const update = jsonRequest(
-      '/effects',
+      '/settings-sync',
       'PUT',
-      { coordinatorEpoch: epoch, baseRevision: 0, effects: configuredEffectsV2 },
+      {
+        coordinatorEpoch: epoch,
+        baseRevision: 0,
+        masterVolume: 0.35,
+        effects: configuredEffectsV2,
+      },
       context.ownerCookie,
     );
-    update.headers.set('x-mxqr-pro-effects-version', '2');
     expect((await context.worker.fetch(update)).status).toBe(200);
 
     const storedCore = structuredClone(context.state.storage.data.get('pro-room:v2:core')) as {
@@ -25563,16 +25160,12 @@ describe('persistent PRO room audio effects', () => {
       context.state as never,
       environment(context.bucket) as never,
     );
-    const get = request(
-      '/effects',
-      {
-        headers: { 'x-mxqr-pro-effects-version': '2' },
-      },
-      context.ownerCookie,
-    );
-    await expect((await restarted.fetch(get)).json()).resolves.toMatchObject({
-      schemaVersion: 2,
+    await expect(
+      (await restarted.fetch(request('/settings-sync', {}, context.ownerCookie))).json(),
+    ).resolves.toMatchObject({
+      schemaVersion: 1,
       revision: 1,
+      masterVolume: 0.35,
       effects: configuredEffectsV2,
     });
   });
@@ -25589,31 +25182,32 @@ describe('persistent PRO room audio effects', () => {
       get: vi.fn(() => ({ fetch: signalingBroadcasts.wrap(dispatchFetch) })),
     };
     const before = await responseJson(
-      await context.worker.fetch(request('/effects', {}, context.ownerCookie)),
+      await context.worker.fetch(request('/settings-sync', {}, context.ownerCookie)),
     );
     expect(before).toEqual({
-      schemaVersion: 2,
-      view: 'effects',
+      schemaVersion: 1,
+      view: 'settings-sync',
       roomCode: ROOM_CODE,
       revision: 0,
       updatedAtMs: 0,
+      masterVolume: 1,
       effects: defaultEffects,
     });
 
     const epoch = context.activationEnvelope.snapshot.presence.coordinatorEpoch as number;
     const updatedResponse = await context.worker.fetch(
       jsonRequest(
-        '/effects',
+        '/settings-sync',
         'PUT',
-        { coordinatorEpoch: epoch, baseRevision: 0, effects: configuredEffects },
+        { coordinatorEpoch: epoch, baseRevision: 0, masterVolume: 1, effects: configuredEffects },
         context.ownerCookie,
       ),
     );
     expect(updatedResponse.status).toBe(200);
     const updated = await responseJson(updatedResponse);
     expect(updated).toMatchObject({
-      schemaVersion: 2,
-      view: 'effects',
+      schemaVersion: 1,
+      view: 'settings-sync',
       revision: 1,
       effects: configuredEffects,
     });
@@ -25657,11 +25251,15 @@ describe('persistent PRO room audio effects', () => {
       event: { type: 'pro-room-invalidated', effectsRevision: 1 },
     });
 
+    // The Developer API effects read (and its live smoke) keeps schema 2.
     const developerRead = await internalDeveloperRead(context.worker, 'effects');
     expect(developerRead.status).toBe(200);
-    await expect(developerRead.json()).resolves.toMatchObject({
+    await expect(developerRead.json()).resolves.toEqual({
+      schemaVersion: 2,
       view: 'effects',
+      roomCode: ROOM_CODE,
       revision: 1,
+      updatedAtMs: updated.updatedAtMs,
       effects: configuredEffects,
     });
 
@@ -25670,7 +25268,7 @@ describe('persistent PRO room audio effects', () => {
       environment(context.bucket) as never,
     );
     const afterRestart = await responseJson(
-      await restarted.fetch(request('/effects', {}, context.ownerCookie)),
+      await restarted.fetch(request('/settings-sync', {}, context.ownerCookie)),
     );
     expect(afterRestart).toMatchObject({ revision: 1, effects: configuredEffects });
   });
@@ -25689,9 +25287,9 @@ describe('persistent PRO room audio effects', () => {
 
     const first = await context.worker.fetch(
       jsonRequest(
-        '/effects',
+        '/settings-sync',
         'PUT',
-        { coordinatorEpoch: epoch, baseRevision: 0, effects: configuredEffects },
+        { coordinatorEpoch: epoch, baseRevision: 0, masterVolume: 1, effects: configuredEffects },
         context.ownerCookie,
       ),
     );
@@ -25703,24 +25301,24 @@ describe('persistent PRO room audio effects', () => {
     };
     const stale = await context.worker.fetch(
       jsonRequest(
-        '/effects',
+        '/settings-sync',
         'PUT',
-        { coordinatorEpoch: epoch, baseRevision: 0, effects: staleEffects },
+        { coordinatorEpoch: epoch, baseRevision: 0, masterVolume: 1, effects: staleEffects },
         context.ownerCookie,
       ),
     );
     expect(stale.status).toBe(409);
     await expect(stale.json()).resolves.toEqual({
-      error: 'EFFECTS_REVISION_CONFLICT',
-      effects: expect.objectContaining({ revision: 1, effects: configuredEffects }),
+      error: 'SETTINGS_SYNC_REVISION_CONFLICT',
+      settings: expect.objectContaining({ revision: 1, effects: configuredEffects }),
     });
     expect(dispatchFetch).toHaveBeenCalledOnce();
 
     const unchangedRetry = await context.worker.fetch(
       jsonRequest(
-        '/effects',
+        '/settings-sync',
         'PUT',
-        { coordinatorEpoch: epoch, baseRevision: 1, effects: configuredEffects },
+        { coordinatorEpoch: epoch, baseRevision: 1, masterVolume: 1, effects: configuredEffects },
         context.ownerCookie,
       ),
     );
@@ -25738,9 +25336,9 @@ describe('persistent PRO room audio effects', () => {
 
     const missingBaseRevision = await context.worker.fetch(
       jsonRequest(
-        '/effects',
+        '/settings-sync',
         'PUT',
-        { coordinatorEpoch: epoch, effects: configuredEffects },
+        { coordinatorEpoch: epoch, masterVolume: 1, effects: configuredEffects },
         context.ownerCookie,
       ),
     );
@@ -25749,9 +25347,14 @@ describe('persistent PRO room audio effects', () => {
 
     const stale = await context.worker.fetch(
       jsonRequest(
-        '/effects',
+        '/settings-sync',
         'PUT',
-        { coordinatorEpoch: epoch + 1, baseRevision: 0, effects: configuredEffects },
+        {
+          coordinatorEpoch: epoch + 1,
+          baseRevision: 0,
+          masterVolume: 1,
+          effects: configuredEffects,
+        },
         context.ownerCookie,
       ),
     );
@@ -25760,11 +25363,12 @@ describe('persistent PRO room audio effects', () => {
 
     const malformed = await context.worker.fetch(
       jsonRequest(
-        '/effects',
+        '/settings-sync',
         'PUT',
         {
           coordinatorEpoch: epoch,
           baseRevision: 0,
+          masterVolume: 1,
           effects: { ...configuredEffects, virtualBass: { strengthPercent: 101 } },
         },
         context.ownerCookie,
@@ -25772,7 +25376,7 @@ describe('persistent PRO room audio effects', () => {
     );
     expect(malformed.status).toBe(400);
     const unchanged = await responseJson(
-      await context.worker.fetch(request('/effects', {}, context.ownerCookie)),
+      await context.worker.fetch(request('/settings-sync', {}, context.ownerCookie)),
     );
     expect(unchanged).toMatchObject({ revision: 0, effects: defaultEffects });
   });
@@ -25790,15 +25394,10 @@ describe('persistent PRO room audio effects', () => {
       idFromName: vi.fn((value: string) => value),
       get: vi.fn(() => ({ fetch: signalingBroadcasts.wrap(dispatchFetch) })),
     };
-    const legacyCapability = await context.worker.fetch(
-      jsonRequest(
-        '/signaling-tickets',
-        'POST',
-        { developerControlVersion: 1 },
-        context.ownerCookie,
-      ),
+    const capability = await context.worker.fetch(
+      request('/signaling-tickets', { method: 'POST' }, context.ownerCookie),
     );
-    expect(legacyCapability.status).toBe(200);
+    expect(capability.status).toBe(200);
     const applied = await createInternalDeveloperCommand(
       context.worker,
       DEVELOPER_KEY_ID,
@@ -25815,7 +25414,6 @@ describe('persistent PRO room audio effects', () => {
       type: 'set_effects',
       effects: { virtualBass: { strengthPercent: 60 } },
     });
-    expect(internal.room.developerCommands[body.commandId].developerControlVersion).toBe(2);
     expect(dispatchFetch).toHaveBeenCalledOnce();
     await expect(
       (dispatchFetch.mock.calls[0]?.[0] as Request).clone().json(),
@@ -25830,16 +25428,6 @@ describe('persistent PRO room audio effects', () => {
       revision: 1,
       effects: { virtualBass: { strengthPercent: 60 } },
     });
-    const ack = await context.worker.fetch(
-      jsonRequest(
-        `/developer-commands/${body.commandId}/ack`,
-        'POST',
-        { resultCode: 'applied' },
-        context.ownerCookie,
-      ),
-    );
-    expect(ack.status).toBe(410);
-    await expect(ack.json()).resolves.toEqual({ error: 'COMMAND_ACK_NOT_REQUIRED' });
 
     const second = await createInternalDeveloperCommand(
       context.worker,
@@ -26280,12 +25868,12 @@ describe('PRO room immutable generation isolation', () => {
     });
     const activation = await worker.fetch(
       await withAccountAssertion(
-        jsonRequestForGeneration(1, '/activation', 'POST', {
-          claimToken,
-          temporaryPin: ROOM_CODE.padStart(8, '0'),
-          newPin: '12345678',
-          ownerName: 'Replacement owner',
-        }),
+        optionalEntryPolicy(
+          jsonRequestForGeneration(1, '/activation', 'POST', {
+            claimToken,
+            ownerName: 'Replacement owner',
+          }),
+        ),
         ACTIVATION_OWNER_ACCOUNT_ID,
         'Replacement owner',
         ROOM_CODE,
@@ -26328,11 +25916,11 @@ describe('PRO room immutable generation isolation', () => {
     ) as Record<string, unknown>;
     expect(legacyActivationPayload.roomGeneration).toBe(0);
     const rejectedActivation = await replacement.fetch(
-      jsonRequestForGeneration(1, '/activation', 'POST', {
-        claimToken: legacyActivationClaim,
-        temporaryPin: ROOM_CODE.padStart(8, '0'),
-        newPin: '12345678',
-      }),
+      optionalEntryPolicy(
+        jsonRequestForGeneration(1, '/activation', 'POST', {
+          claimToken: legacyActivationClaim,
+        }),
+      ),
     );
     expect(rejectedActivation.status).toBe(401);
     await expect(rejectedActivation.json()).resolves.toEqual({ error: 'ACTIVATION_INVALID' });
@@ -26349,11 +25937,11 @@ describe('PRO room immutable generation isolation', () => {
     expect(currentActivationPayload.roomGeneration).toBe(1);
     const activation = await replacement.fetch(
       await withAccountAssertion(
-        jsonRequestForGeneration(1, '/activation', 'POST', {
-          claimToken: currentActivationClaim,
-          temporaryPin: ROOM_CODE.padStart(8, '0'),
-          newPin: '12345678',
-        }),
+        optionalEntryPolicy(
+          jsonRequestForGeneration(1, '/activation', 'POST', {
+            claimToken: currentActivationClaim,
+          }),
+        ),
         ACTIVATION_OWNER_ACCOUNT_ID,
         'Replacement owner',
         ROOM_CODE,
@@ -26780,9 +26368,7 @@ describe('PRO long-session retention and presence recovery', () => {
     );
     expect(reattached.snapshot.viewer.memberId).toBe(memberId);
     expect((await restarted.fetch(detachRequest(cookie))).status).toBe(200);
-    expect(
-      (await restarted.fetch(request('/sessions/current', { method: 'DELETE' }, cookie))).status,
-    ).toBe(200);
+    expect((await restarted.fetch(sessionLeaveRequest(cookie))).status).toBe(200);
     expect(restarted.room!.accountMembers[accountId]).toBeUndefined();
     expect(restarted.room!.accountMembers[ACTIVATION_OWNER_ACCOUNT_ID]?.role).toBe('owner');
   });
@@ -27090,14 +26676,13 @@ describe('PRO room multiple playlists', () => {
     };
   }
 
-  it('keeps the snapshot unchanged without the opt-in header and adds summaries with it', async () => {
+  it('adds the playlist summaries and entry policy to every snapshot, opt-in header or not', async () => {
     const context = await activatedRoom();
     await seedYouTube(context, 'playlist-slots-parity-01', ['One', 'Two']);
 
-    const plainText = await (
-      await context.worker.fetch(request('/snapshot', {}, context.ownerCookie))
-    ).text();
-    expect(plainText).not.toContain('playlistSlots');
+    const plain = await responseJson(
+      await context.worker.fetch(request('/snapshot', {}, context.ownerCookie)),
+    );
     const opted = await slotSnapshot(context);
     expect(opted.snapshot.playlistSlots).toEqual({
       activeSlot: 0,
@@ -27107,8 +26692,9 @@ describe('PRO room multiple playlists', () => {
         { count: 0, bytes: null },
       ],
     });
-    const { playlistSlots: _summary, ...rest } = opted.snapshot;
-    expect({ snapshot: rest }).toEqual(JSON.parse(plainText));
+    expect(opted.snapshot.passwordRequired).toBe(true);
+    // The opt-in headers are no longer read: both answers are the same.
+    expect(plain).toEqual(opted);
     expect(parseProRoomSnapshot(opted.snapshot)?.playlistSlots).toEqual(
       opted.snapshot.playlistSlots,
     );
@@ -28182,5 +27768,172 @@ describe('PRO room multiple playlists', () => {
     expect(internal.room.playlistSlots.inactive[0].map((item: any) => item.queueItemId)).toEqual([
       first,
     ]);
+  });
+});
+
+describe('PRO room requests only Apps below the 787 build floor sent', () => {
+  const joinPublicRoom = async (worker: MusixquareProRoom) => {
+    // The opt-in header lets the parent Worker admit this body too, so each row
+    // fails or passes on the parent at the behaviour it pins, not in setup.
+    const joined = await worker.fetch(optionalEntryPolicy(jsonRequest('/sessions', 'POST', {})));
+    expect(joined.status).toBe(200);
+    const cookie = cookieFrom(joined);
+    const envelope = await responseJson(joined);
+    bindCookiePresence(cookie, envelope);
+    return { cookie, viewer: envelope.snapshot.viewer as Record<string, any>, envelope };
+  };
+  const closeReceiptFingerprint = async (scope: string, body: Record<string, unknown>) =>
+    Buffer.from(
+      await crypto.subtle.digest(
+        'SHA-256',
+        new TextEncoder().encode(`${scope}\n${JSON.stringify(body)}`),
+      ),
+    ).toString('base64url');
+
+  it('closes presence without the browser playback fields, which the room never reads', async () => {
+    const context = await activatedRoom(ROOM_CODE, true);
+    const member = await joinPublicRoom(context.worker);
+    const closed = await context.worker.fetch(
+      unloadCloseRequest(
+        {
+          expectedParticipantId: member.viewer.participantId,
+          expectedPresenceIncarnationId: member.viewer.presenceIncarnationId,
+        },
+        member.cookie,
+        'close-without-playback-0001',
+      ),
+    );
+    expect(closed.status).toBe(200);
+    expect(await responseJson(closed)).toEqual({ ok: true });
+    expect(context.worker.room!.presence.participants[member.viewer.participantId]).toBeUndefined();
+    const owner = await responseJson(
+      await context.worker.fetch(request('/snapshot', {}, context.ownerCookie)),
+    );
+    expect(
+      owner.snapshot.presence.participants.map(
+        (participant: Record<string, unknown>) => participant.participantId,
+      ),
+    ).not.toContain(member.viewer.participantId);
+    // The retry of a lost answer replays.
+    const replay = await context.worker.fetch(
+      unloadCloseRequest(
+        {
+          expectedParticipantId: member.viewer.participantId,
+          expectedPresenceIncarnationId: member.viewer.presenceIncarnationId,
+        },
+        member.cookie,
+        'close-without-playback-0001',
+      ),
+    );
+    expect(replay.status).toBe(200);
+    expect(await responseJson(replay)).toEqual({ ok: true });
+  });
+
+  it('closes presence with the body the App sends today exactly as before', async () => {
+    const context = await activatedRoom(ROOM_CODE, true);
+    const member = await joinPublicRoom(context.worker);
+    const body = {
+      expectedParticipantId: member.viewer.participantId,
+      expectedPresenceIncarnationId: member.viewer.presenceIncarnationId,
+      baseRevision: member.envelope.snapshot.revision,
+      currentQueueItemId: null,
+      playback: null,
+    };
+    // Present fields are still checked.
+    for (const [invalid, error] of [
+      [{ baseRevision: -1 }, 'INVALID_REVISION'],
+      [{ baseRevision: Number.MAX_SAFE_INTEGER }, 'INVALID_REVISION'],
+      [{ currentQueueItemId: 'not-a-queue-item' }, 'INVALID_PLAYBACK'],
+      [{ playback: 'playing' }, 'INVALID_PLAYBACK'],
+    ] as const) {
+      const refused = await context.worker.fetch(
+        unloadCloseRequest({ ...body, ...invalid }, member.cookie, `close-invalid-${error}`),
+      );
+      expect(refused.status).toBe(400);
+      expect(await responseJson(refused)).toEqual({ error });
+    }
+    expect(context.worker.room!.presence.participants[member.viewer.participantId]).toBeDefined();
+
+    const closeKey = 'close-current-body-0001';
+    const closed = await context.worker.fetch(unloadCloseRequest(body, member.cookie, closeKey));
+    expect(closed.status).toBe(200);
+    expect(await responseJson(closed)).toEqual({ ok: true });
+    expect(context.worker.room!.presence.participants[member.viewer.participantId]).toBeUndefined();
+    // The receipt's fingerprint covers the same bytes as before, so a receipt
+    // a PRO Worker stored before this one still replays.
+    const [[receiptKey, receipt]] = Object.entries(context.worker.room!.presenceCloseIdempotency);
+    expect(receiptKey.endsWith(`:${closeKey}`)).toBe(true);
+    const scope = receiptKey.slice(0, -`:${closeKey}`.length);
+    expect(receipt.fingerprint).toBe(await closeReceiptFingerprint(scope, body));
+    const before = structuredClone(context.worker.room);
+    const replay = await context.worker.fetch(unloadCloseRequest(body, member.cookie, closeKey));
+    expect(replay.status).toBe(200);
+    expect(await responseJson(replay)).toEqual({ ok: true });
+    expect(context.worker.room).toEqual(before);
+  });
+
+  it('has no session DELETE: the App leaves through the fenced close', async () => {
+    const context = await activatedRoom(ROOM_CODE, true);
+    const member = await joinPublicRoom(context.worker);
+    const refused = await context.worker.fetch(
+      request('/sessions/current', { method: 'DELETE' }, member.cookie),
+    );
+    expect(refused.status).toBe(404);
+    expect(await responseJson(refused)).toEqual({ error: 'NOT_FOUND' });
+    expect((await context.worker.fetch(request('/snapshot', {}, member.cookie))).status).toBe(200);
+    expect((await context.worker.fetch(sessionLeaveRequest(member.cookie))).status).toBe(200);
+    await expectSessionRequired(context.worker.fetch(request('/snapshot', {}, member.cookie)));
+  });
+
+  it('kicks a member by member id only', async () => {
+    const context = await activatedRoom(ROOM_CODE, true);
+    const member = await joinPublicRoom(context.worker);
+    const byParticipant = await context.worker.fetch(
+      jsonRequest(
+        '/presence/kick',
+        'POST',
+        { targetParticipantId: member.viewer.participantId },
+        context.ownerCookie,
+      ),
+    );
+    expect(byParticipant.status).toBe(400);
+    expect(await responseJson(byParticipant)).toEqual({ error: 'INVALID_REQUEST' });
+    expect((await context.worker.fetch(request('/snapshot', {}, member.cookie))).status).toBe(200);
+    const byMember = await context.worker.fetch(
+      jsonRequest(
+        '/presence/kick',
+        'POST',
+        { targetMemberId: member.viewer.memberId },
+        context.ownerCookie,
+      ),
+    );
+    expect(byMember.status).toBe(200);
+    await expectSessionRequired(
+      context.worker.fetch(request('/snapshot', {}, member.cookie)),
+      'REMOVED',
+    );
+  });
+
+  it('issues a signaling ticket only for the empty body the App sends', async () => {
+    const context = await activatedRoom();
+    for (const version of [0, 1, 4]) {
+      const refused = await context.worker.fetch(
+        jsonRequest(
+          '/signaling-tickets',
+          'POST',
+          { developerControlVersion: version },
+          context.ownerCookie,
+        ),
+      );
+      expect(refused.status).toBe(400);
+      expect(await responseJson(refused)).toEqual({ error: 'INVALID_REQUEST' });
+    }
+    expect(
+      (
+        await context.worker.fetch(
+          request('/signaling-tickets', { method: 'POST' }, context.ownerCookie),
+        )
+      ).status,
+    ).toBe(200);
   });
 });

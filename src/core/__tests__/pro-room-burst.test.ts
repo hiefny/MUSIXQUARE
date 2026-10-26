@@ -379,15 +379,16 @@ async function harness(passwordRequired = false) {
   );
   const owner = client(
     await request('/activation', {
-      body: {
-        claimToken,
-        ownerName: 'Owner',
-        ...(passwordRequired ? { temporaryPin: '00000000', newPin: '12345678' } : {}),
-      },
+      body: { claimToken, ownerName: 'Owner' },
       headers: { [ACCOUNT_ASSERTION_HEADER]: assertion! },
     }),
     '192.0.2.1',
   );
+  // The owner turns the entry password on in room settings.
+  if (passwordRequired) {
+    const passwordSet = await request('/pin', { body: { pin: '12345678' }, client: owner });
+    if (passwordSet.status !== 200) throw new Error(`PIN: ${JSON.stringify(passwordSet.body)}`);
+  }
   // Keep the real 45-second presence TTL even on slow CI. Established devices
   // send the same authenticated heartbeat used by the App; failures are fatal.
   let heartbeat: Promise<void> | undefined;

@@ -541,10 +541,6 @@ const ADMIN_METRIC_EVENTS = [
     label: 'New sessions with verified host assertions',
   },
   {
-    key: 'remote_share_upload_assertion_legacy',
-    label: 'Assertion-free Remote Share sessions (must remain zero)',
-  },
-  {
     key: 'remote_share_upload_assertion_rejected',
     label: 'Bounded rejected assertion signals',
   },
@@ -1160,14 +1156,6 @@ async function handleProRoomFacade(request: Request, env: AppEnv, url: URL) {
       upstreamInit.body = new Uint8Array(bufferedMutationBody).buffer;
     }
   }
-  const legacySessionCreate = (() => {
-    if (!sessionCreatePath || !sessionCreateBody) return false;
-    return (
-      Object.keys(sessionCreateBody).length === 1 &&
-      typeof sessionCreateBody.pin === 'string' &&
-      /^\d{8}$/.test(sessionCreateBody.pin)
-    );
-  })();
   const diagnosticOperation = upstreamPath.endsWith('/sessions')
     ? 'sessions'
     : upstreamPath.endsWith('/heartbeat')
@@ -1192,22 +1180,6 @@ async function handleProRoomFacade(request: Request, env: AppEnv, url: URL) {
       },
     );
   };
-  if (legacySessionCreate) {
-    // Cached pre-v1 clients cannot safely synthesize an exactly-once key: an
-    // IP/PIN/User-Agent surrogate would merge independent devices behind one
-    // NAT. Preserve their former platform/request lifetime until the cached
-    // client rollout drains, while every requestId-bearing admission below is
-    // protected by the short App deadline and the PRO durable receipt.
-    try {
-      const response = await proRoomPublicApi.fetch(
-        new Request(upstreamUrl, { ...upstreamInit, signal: request.signal }),
-      );
-      return withFacadeProRoomCookies(response, roomCode);
-    } catch {
-      reportUpstreamFailure('fetch');
-      return json({ error: 'PRO_ROOM_API_UNAVAILABLE' }, 502, { 'Cache-Control': 'no-store' });
-    }
-  }
   let upstream;
   try {
     upstream = await fetchServiceBindingResponse(
@@ -4490,28 +4462,6 @@ async function appendSystemAdminProRoomAudit(
   await statement.bind(actorId, action, result, roomCode, roomGeneration, createdAt).run();
 }
 
-/** The App's opt-ins for additive PRO snapshot fields, by exact value. */
-type ProRoomSnapshotOptInHeaders = {
-  'X-MXQR-Pro-Entry-Policy'?: 'optional-v1';
-  'X-MXQR-Pro-Playlist-Slots'?: 'v1';
-};
-
-/**
- * The browser's snapshot opt-ins, for an internal room call whose snapshot is
- * returned to that browser (the ownership-transfer commit). Only the exact
- * values the App sends pass; any other value is dropped.
- */
-function proRoomSnapshotOptInHeaders(headers: Headers): ProRoomSnapshotOptInHeaders {
-  return {
-    ...(headers.get('X-MXQR-Pro-Entry-Policy') === 'optional-v1'
-      ? { 'X-MXQR-Pro-Entry-Policy': 'optional-v1' as const }
-      : {}),
-    ...(headers.get('X-MXQR-Pro-Playlist-Slots') === 'v1'
-      ? { 'X-MXQR-Pro-Playlist-Slots': 'v1' as const }
-      : {}),
-  };
-}
-
 async function callProRoomAdminObject(
   env: AppEnv,
   roomCode: string,
@@ -4519,7 +4469,6 @@ async function callProRoomAdminObject(
   pathname: string,
   method: string = 'POST',
   body: JsonObject | undefined = undefined,
-  optInHeaders: ProRoomSnapshotOptInHeaders = {},
 ): Promise<{ response: Response | null; payload: unknown }> {
   const namespace = getProRoomAdminNamespace(env);
   if (!namespace || !isProRoomGeneration(roomGeneration)) {
@@ -4534,7 +4483,6 @@ async function callProRoomAdminObject(
       new Request(`https://pro-room.internal${pathname}`, {
         method,
         headers: {
-          ...optInHeaders,
           'x-mxqr-pro-room-code': roomCode,
           'x-mxqr-pro-room-generation': proRoomGenerationHeaderValue(roomGeneration),
           ...(wireBody === undefined ? {} : { 'content-type': 'application/json' }),
@@ -6217,10 +6165,10 @@ export function isFenceDigestForTests(value: unknown) {
 }
 
 /**
- * The transfer link's body: `{claimToken, requestId}`. An App from before the
- * 2026-10-23 owner decision (a transfer turns the entry password off) also
- * sends `newPin`; its shape is checked as before, and the PRO room never uses
- * its value.
+ * The transfer link's body: exactly `{claimToken, requestId}`. The `newPin`
+ * that Apps 9.0.0 to 9.0.3 also sent (before the 2026-10-23 owner decision
+ * that a transfer turns the entry password off) is refused here, before an
+ * intent is recorded; those Apps are below the 787 build floor.
  */
 function ownerTransferRequestIdFromBodyBytes(bytes: Uint8Array | null) {
   if (!(bytes instanceof Uint8Array) || bytes.byteLength === 0) return null;
@@ -6230,16 +6178,14 @@ function ownerTransferRequestIdFromBodyBytes(bytes: Uint8Array | null) {
   } catch {
     return null;
   }
-  const hasNewPin = isJsonObject(body) && Object.hasOwn(body, 'newPin');
   if (
     !isJsonObject(body) ||
-    Object.keys(body).length !== (hasNewPin ? 3 : 2) ||
+    Object.keys(body).length !== 2 ||
     !Object.hasOwn(body, 'claimToken') ||
     !Object.hasOwn(body, 'requestId') ||
     typeof body.claimToken !== 'string' ||
     body.claimToken.length < 32 ||
     body.claimToken.length > 4096 ||
-    (hasNewPin && (typeof body.newPin !== 'string' || !/^\d{8}$/.test(body.newPin))) ||
     typeof body.requestId !== 'string' ||
     !/^[A-Za-z0-9_-]{16,64}$/.test(body.requestId)
   ) {
@@ -8578,9 +8524,10 @@ async function handleProRoomOwnershipTransferSaga({
   } catch {
     return json({ error: 'PRO_ROOM_ACCOUNT_ASSERTION_UNAVAILABLE' }, 503);
   }
-  // The commit's snapshot is this link's answer. With the browser's opt-ins
-  // it reports `passwordRequired` (false since the 2026-10-23 owner decision)
-  // like activation's, so the new owner's settings show the real state.
+  // The commit's snapshot is this link's answer. The PRO room adds
+  // `passwordRequired` (false since the 2026-10-23 owner decision) and
+  // `playlistSlots` to it as to activation's, so the new owner's settings show
+  // the real state; the browser's opt-in headers stay at this facade.
   const committed = await callProRoomAdminObject(
     env,
     roomCode,
@@ -8594,7 +8541,6 @@ async function handleProRoomOwnershipTransferSaga({
       requestId,
       revocationReceipt,
     },
-    proRoomSnapshotOptInHeaders(headers),
   );
   if (!committed.response?.ok) {
     try {
@@ -11917,36 +11863,27 @@ async function handleAdminAnnouncement(
   if (!isJsonObject(parsedBody.value)) return json({ error: 'INVALID_REQUEST' }, 400);
   const body = parsedBody.value;
   const keys = Object.keys(body);
-  // Tabs opened before this deployment still submit the legacy three-field
-  // body. Give them a race-safe CAS transition while the versioned admin
-  // shell rolls forward; newly loaded tabs supply their own replay key.
-  const legacyRequest =
-    keys.length === 3 &&
-    keys.includes('message') &&
-    keys.includes('enabled') &&
-    keys.includes('expiresAt');
-  const fencedRequest =
-    keys.length === 5 &&
-    keys.includes('message') &&
-    keys.includes('enabled') &&
-    keys.includes('expiresAt') &&
-    keys.includes('expectedRevision') &&
-    keys.includes('requestId');
+  // Every admin page since 8.3.20 sends its revision fence and replay key. The
+  // three-field body of older tabs (message, enabled, expiresAt) is refused.
   if (
-    (!legacyRequest && !fencedRequest) ||
+    keys.length !== 5 ||
+    !keys.includes('message') ||
+    !keys.includes('enabled') ||
+    !keys.includes('expiresAt') ||
+    !keys.includes('expectedRevision') ||
+    !keys.includes('requestId') ||
     typeof body.message !== 'string' ||
     typeof body.enabled !== 'boolean' ||
-    (fencedRequest &&
-      (typeof body.expectedRevision !== 'number' ||
-        !Number.isSafeInteger(body.expectedRevision) ||
-        body.expectedRevision < 0 ||
-        typeof body.requestId !== 'string' ||
-        !ADMIN_DEVELOPER_API_REQUEST_ID_RE.test(body.requestId)))
+    typeof body.expectedRevision !== 'number' ||
+    !Number.isSafeInteger(body.expectedRevision) ||
+    body.expectedRevision < 0 ||
+    typeof body.requestId !== 'string' ||
+    !ADMIN_DEVELOPER_API_REQUEST_ID_RE.test(body.requestId)
   ) {
     return json({ error: 'INVALID_REQUEST' }, 400);
   }
-  // Truncation can expose whitespace inside the original message. Match the
-  // DO's canonical value before comparing legacy retries with stored state.
+  // Truncation can expose whitespace inside the original message; send the
+  // DO's canonical value so that an exact retry replays.
   const message = String(body?.message || '')
     .trim()
     .slice(0, 280)
@@ -11964,41 +11901,12 @@ async function handleAdminAnnouncement(
   if (!current.state) {
     return json({ error: 'ADMIN_ANNOUNCEMENT_CONTROL_UNAVAILABLE' }, 503);
   }
-  if (
-    legacyRequest &&
-    current.state.announcement.message === message &&
-    current.state.announcement.enabled === enabled &&
-    current.state.announcement.expiresAt === canonicalExpiresAt
-  ) {
-    // A pre-deployment tab has no replay key. Treat an exact canonical retry
-    // as a read-back so a lost success response cannot create another ID or
-    // duplicate history entry.
-    return json({ ok: true, ...adminAnnouncementPayload(current.state) });
-  }
-  if (
-    legacyRequest &&
-    enabled &&
-    canonicalExpiresAt &&
-    new Date(canonicalExpiresAt).getTime() <= Date.now()
-  ) {
-    return json({ error: 'EXPIRES_AT_IN_PAST' }, 400);
-  }
-  const requestId = fencedRequest
-    ? typeof body.requestId === 'string'
-      ? body.requestId
-      : ''
-    : `legacy-${Date.now().toString(36)}-${
-        crypto.randomUUID() || Math.random().toString(36).slice(2, 18) || 'fallback'
-      }`;
   const updated = await updateAdminAnnouncementControl(env, {
     message,
     enabled,
     expiresAt: canonicalExpiresAt,
-    expectedRevision:
-      fencedRequest && typeof body.expectedRevision === 'number'
-        ? body.expectedRevision
-        : current.state.revision,
-    requestId,
+    expectedRevision: body.expectedRevision,
+    requestId: body.requestId,
     baseHistory: current.status === 'legacy' ? legacyAnnouncementBaseHistory(current.state) : [],
   });
   const state = normalizeAnnouncementControlState(updated.payload);
@@ -13232,27 +13140,6 @@ function normalizeResults(items: unknown): YouTubeSearchResult[] {
   return results;
 }
 
-function normalizePlaylistEntry(items: unknown, playlistId: string | undefined) {
-  if (!Array.isArray(items)) return null;
-  for (const item of items) {
-    if (!isJsonObject(item)) continue;
-    const contentDetails = isJsonObject(item.contentDetails) ? item.contentDetails : null;
-    const snippet = isJsonObject(item.snippet) ? item.snippet : null;
-    const resourceId = isJsonObject(snippet?.resourceId) ? snippet.resourceId : null;
-    const status = isJsonObject(item.status) ? item.status : null;
-    const videoId = contentDetails?.videoId || resourceId?.videoId;
-    if (typeof videoId !== 'string' || !YOUTUBE_VIDEO_ID_RE.test(videoId)) continue;
-
-    const privacyStatus = status?.privacyStatus;
-    if (privacyStatus === 'private') continue;
-
-    const title = normalizeExternalText(snippet?.title).slice(0, 300);
-    if (!title || title === 'Deleted video' || title === 'Private video') continue;
-    return { playlistId, videoId, title };
-  }
-  return null;
-}
-
 function normalizePlaylistManifestItem(item: unknown) {
   if (!isJsonObject(item)) return null;
   const contentDetails = isJsonObject(item.contentDetails) ? item.contentDetails : null;
@@ -13383,79 +13270,6 @@ async function handleYoutubeSearch(request: Request, env: AppEnv) {
       502,
       headers,
     );
-  }
-}
-
-async function handleYoutubePlaylistEntry(request: Request, env: AppEnv) {
-  const trust = trustedCors(request, 'GET, OPTIONS', env);
-  const { headers } = trust;
-  if (request.method === 'OPTIONS')
-    return withSecurityHeaders(new Response(null, { status: 204, headers }));
-  if (request.method !== 'GET') return json({ error: 'Method not allowed' }, 405, headers);
-  const guard = await guardSensitiveRequest(
-    request,
-    env,
-    trust,
-    'youtube-search',
-    'yt-playlist-entry',
-    20,
-  );
-  if (guard) return guard;
-
-  const apiKey = env.YOUTUBE_API_KEY || env.YOUTUBE_DATA_API_KEY || '';
-  if (!apiKey) return json({ error: 'YOUTUBE_PLAYLIST_RESOLUTION_UNAVAILABLE' }, 503, headers);
-
-  const url = new URL(request.url);
-  const keys = [...url.searchParams.keys()];
-  const playlistIds = url.searchParams.getAll('playlistId');
-  const playlistIdCandidate = playlistIds[0];
-  if (
-    keys.length !== 1 ||
-    keys[0] !== 'playlistId' ||
-    playlistIds.length !== 1 ||
-    typeof playlistIdCandidate !== 'string' ||
-    !YOUTUBE_PLAYLIST_ID_RE.test(playlistIdCandidate)
-  ) {
-    return json({ error: 'INVALID_YOUTUBE_PLAYLIST_ID' }, 400, headers);
-  }
-  const playlistId = playlistIdCandidate;
-
-  const params = new URLSearchParams({
-    part: 'snippet,contentDetails,status',
-    playlistId,
-    // One quota unit resolves up to 50 rows. Scan the first page so a private
-    // or deleted leading item does not make an otherwise usable list fail.
-    maxResults: '50',
-    fields:
-      'items(contentDetails/videoId,snippet/resourceId/videoId,snippet/title,status/privacyStatus)',
-  });
-
-  try {
-    const { response, payload } = await fetchJsonWithTimeout(
-      `${YOUTUBE_PLAYLIST_ITEMS_API}?${params.toString()}`,
-      { headers: { 'x-goog-api-key': apiKey } },
-    );
-    if (!response.ok) {
-      const upstreamError = normalizeUpstreamError(payload);
-      return json(
-        {
-          error: 'YOUTUBE_PLAYLIST_RESOLUTION_FAILED',
-          upstreamStatus: response.status,
-          reason: upstreamError.reason,
-        },
-        getClientStatusForUpstreamError(response.status, upstreamError.reason),
-        headers,
-      );
-    }
-
-    const items = isJsonObject(payload) ? payload.items : undefined;
-    const entry = normalizePlaylistEntry(items, playlistId);
-    if (!entry) {
-      return json({ error: 'YOUTUBE_PLAYLIST_HAS_NO_PLAYABLE_ENTRY' }, 404, headers);
-    }
-    return json(entry, 200, headers);
-  } catch {
-    return json({ error: 'YOUTUBE_PLAYLIST_RESOLUTION_PROXY_FAILED' }, 502, headers);
   }
 }
 
@@ -17043,8 +16857,6 @@ export default {
         return handleCapabilityToken(request, env);
       case '/api/youtube-search':
         return handleYoutubeSearch(request, env);
-      case '/api/youtube-playlist-entry':
-        return handleYoutubePlaylistEntry(request, env);
       case '/api/youtube-playlist-manifest':
         return handleYoutubePlaylistManifest(request, env);
       case '/api/get-turn-config':

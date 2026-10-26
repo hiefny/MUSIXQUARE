@@ -8,7 +8,6 @@ import {
   RateLimitUnavailableError,
   createRateLimitUnavailableRetry,
 } from '../../../scripts/live-smoke-rate-limit-retry.mts';
-import { LegacySignalingHostAuthError } from '../../../scripts/live-smoke-app-build.mts';
 import { importTranspiledLiveSmoke } from './live-smoke-module-fixture.ts';
 
 class SmokeSocket extends EventEmitter {
@@ -59,7 +58,7 @@ delete fixtureGlobal.__mxqrSmokeSocket;
 delete fixtureGlobal.__mxqrOpenSmokeAuthority;
 delete fixtureGlobal.__mxqrSmokeConvergence;
 
-function open(expectedVersion = 'version', hostAppBuild: number | null = 785) {
+function open(expectedVersion = 'version', hostAppBuild = 785) {
   return openAuthority(
     '123456',
     { roomUploadAssertionVersion: 1 },
@@ -76,11 +75,13 @@ function sentFrames(): Array<Record<string, unknown>> {
   );
 }
 
-const PRE_FLOOR_REFUSAL = JSON.stringify({
+const INVALID_FIRST_FRAME = JSON.stringify({
   type: 'error',
   errorType: 'invalid-id',
   message: 'HOST_AUTH_FIRST_FRAME_INVALID',
 });
+const INVALID_FIRST_FRAME_LINE =
+  'remote-share signaling host: host-auth refused as an invalid first frame (HOST_AUTH_FIRST_FRAME_INVALID)';
 
 afterEach(() => vi.useRealTimers());
 
@@ -212,12 +213,22 @@ describe('live remote-share smoke rate-limited signaling upgrade', () => {
 });
 
 describe('live remote-share smoke App build', () => {
-  it('sends the selected build on the host admission frame', async () => {
+  it('sends the release build and the PIN fields on the host admission frame', async () => {
     vi.useFakeTimers();
     const outcome = open('version', 785);
     SmokeSocket.current.emit('open');
     await vi.advanceTimersByTimeAsync(0);
-    expect(sentFrames()).toEqual([{ type: 'host-auth', secret: 'secret', appBuild: 785 }]);
+    // The Signaling Worker requires the desired PIN ('' for none) and its
+    // mutation ID on every host-auth (old-version removal W-3).
+    expect(sentFrames()).toEqual([
+      {
+        type: 'host-auth',
+        secret: 'secret',
+        desiredRoomPassword: '',
+        pinMutationId: expect.stringMatching(/^[A-Za-z0-9_-]{16,64}$/),
+        appBuild: 785,
+      },
+    ]);
     SmokeSocket.current.emit(
       'message',
       Buffer.from(
@@ -232,30 +243,17 @@ describe('live remote-share smoke App build', () => {
     (await outcome).close();
   });
 
-  it('sends the legacy shape once the selector chose it', async () => {
-    vi.useFakeTimers();
-    const outcome = open('', null).catch((error: unknown) => error);
-    SmokeSocket.current.emit('open');
-    await vi.advanceTimersByTimeAsync(0);
-    expect(sentFrames()).toEqual([{ type: 'host-auth', secret: 'secret' }]);
-    SmokeSocket.current.emit('message', Buffer.from(PRE_FLOOR_REFUSAL));
-    const error = await outcome;
-    // A legacy-shape frame refused as invalid is a real failure, not a retry.
-    expect(error).not.toBeInstanceOf(LegacySignalingHostAuthError);
-    expect((error as Error).message).toContain('HOST_AUTH_FIRST_FRAME_INVALID');
-  });
-
-  it('hands a pre-floor refusal to the one legacy retry when the Worker version is unknown', async () => {
+  it('fails an invalid first frame at once when the Worker version is unknown', async () => {
     vi.useFakeTimers();
     const outcome = open('', 785).catch((error: unknown) => error);
     SmokeSocket.current.emit('open');
     await vi.advanceTimersByTimeAsync(0);
-    SmokeSocket.current.emit('message', Buffer.from(PRE_FLOOR_REFUSAL));
-    expect(await outcome).toBeInstanceOf(LegacySignalingHostAuthError);
+    SmokeSocket.current.emit('message', Buffer.from(INVALID_FIRST_FRAME));
+    expect(((await outcome) as Error).message).toBe(INVALID_FIRST_FRAME_LINE);
     expect(SmokeSocket.current.terminate).toHaveBeenCalledOnce();
   });
 
-  it('treats a pre-floor refusal of the candidate signaling Worker as a stale edge', async () => {
+  it('never waits out an invalid first frame of the candidate signaling Worker as a stale edge', async () => {
     vi.useFakeTimers();
     let attempts = 0;
     const result = withConvergence(
@@ -265,16 +263,16 @@ describe('live remote-share smoke App build', () => {
         const outcome = open('version', 785);
         SmokeSocket.current.emit('open');
         await vi.advanceTimersByTimeAsync(0);
-        SmokeSocket.current.emit('message', Buffer.from(PRE_FLOOR_REFUSAL));
+        SmokeSocket.current.emit('message', Buffer.from(INVALID_FIRST_FRAME));
         return outcome;
       },
       { now: () => 0, sleep: async () => {}, timeoutMs: 10_000, retryIntervalMs: 0 },
     );
-    await expect(result).resolves.toBe('authority');
-    expect(attempts).toBe(2);
+    await expect(result).rejects.toThrow(INVALID_FIRST_FRAME_LINE);
+    expect(attempts).toBe(1);
   });
 
-  it('never retries a floor refusal of the selected build', async () => {
+  it('never retries a floor refusal of the release build', async () => {
     vi.useFakeTimers();
     const outcome = open('', 785).catch((error: unknown) => error);
     SmokeSocket.current.emit('open');
@@ -291,7 +289,6 @@ describe('live remote-share smoke App build', () => {
       ),
     );
     const error = await outcome;
-    expect(error).not.toBeInstanceOf(LegacySignalingHostAuthError);
     expect((error as Error).message).toContain('below the App build floor 786');
   });
 });

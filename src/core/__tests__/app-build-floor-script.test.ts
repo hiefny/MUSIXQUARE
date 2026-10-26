@@ -61,6 +61,10 @@ interface WorldOptions {
   proTransientUntil?: number;
   proTransientStatus?: number;
   proRetryAfterS?: number;
+  /** Room 000001 has no entry password (the PRO Worker answers `open`). */
+  proRoomOpen?: boolean;
+  /** An admitted bootstrap answers this body instead of the entry policy. */
+  proAdmittedBody?: Record<string, unknown>;
 }
 
 /**
@@ -86,6 +90,8 @@ class FloorWorld {
   proTransientUntil: number;
   proTransientStatus: number;
   proRetryAfterS: number | null;
+  proRoomOpen: boolean;
+  proAdmittedBody: Record<string, unknown> | null;
   serviceWorkerBuilds: Array<number | null>;
   clientValue: number;
   requests: Array<{ method: string; url: string; headers: Headers; body: unknown; time: number }> =
@@ -110,6 +116,8 @@ class FloorWorld {
     this.proTransientUntil = options.proTransientUntil ?? -Infinity;
     this.proTransientStatus = options.proTransientStatus ?? 429;
     this.proRetryAfterS = options.proRetryAfterS ?? null;
+    this.proRoomOpen = options.proRoomOpen ?? false;
+    this.proAdmittedBody = options.proAdmittedBody ?? null;
     this.serviceWorkerBuilds = options.serviceWorkerBuilds ?? [];
     this.clientValue = this.clientAnswer();
   }
@@ -207,7 +215,14 @@ class FloorWorld {
       if (floor > 0 && build < floor) {
         return json({ error: 'APP_UPDATE_REQUIRED', minAppBuild: floor }, 426);
       }
-      return json({ roomCode: '000001', status: 'pin_required' });
+      // The PRO Worker reports the room's entry policy with the status.
+      return json(
+        this.proAdmittedBody ?? {
+          roomCode: '000001',
+          status: this.proRoomOpen ? 'open' : 'pin_required',
+          passwordRequired: !this.proRoomOpen,
+        },
+      );
     }
     throw new Error(`Unexpected request ${method} ${url.toString()}`);
   };
@@ -523,6 +538,39 @@ describe('App build floor script', () => {
     ).rejects.toThrow('PRO');
   });
 
+  it('proves the PRO gate on an open canary room and sends the entry-policy opt-in', async () => {
+    const world = new FloorWorld({ proRoomOpen: true });
+    const result = await runAppBuildFloorCommand(
+      { action: 'set', minAppBuild: 785, reason: 'Turn it on' },
+      world.deps(),
+    );
+    expect(result?.status.minAppBuild).toBe(785);
+    const bootstraps = world.requests.filter((request) => request.url.endsWith('/bootstrap'));
+    expect(bootstraps.length).toBeGreaterThan(0);
+    // With the opt-in, the PRO Worker before and after the 2026-10-26
+    // old-version removal give the same answer.
+    for (const request of bootstraps) {
+      expect(request.headers.get('X-MXQR-Pro-Entry-Policy')).toBe('optional-v1');
+    }
+  });
+
+  it.each([
+    { roomCode: '000001', status: 'pin_required' },
+    { roomCode: '000001', status: 'pin_required', passwordRequired: false },
+    { roomCode: '000001', status: 'open', passwordRequired: true },
+    { roomCode: '000001', status: 'open' },
+    { roomCode: '000002', status: 'pin_required', passwordRequired: true },
+  ])('fails when the admitted PRO canary answers %o', async (proAdmittedBody) => {
+    const world = new FloorWorld({ proAdmittedBody });
+    await expect(
+      runAppBuildFloorCommand(
+        { action: 'set', minAppBuild: 785, reason: 'Turn it on' },
+        world.deps(),
+      ),
+    ).rejects.toThrow('PRO front door did not refuse build 784 and admit build 785');
+    expect(world.stored).toBe(785);
+  });
+
   it('waits out a rate-limited PRO front door for its Retry-After beyond the propagation budget', async () => {
     const world = new FloorWorld({ proTransientUntil: T0 + 40_000, proRetryAfterS: 15 });
     const result = await runAppBuildFloorCommand(
@@ -648,13 +696,30 @@ describe('App build floor script', () => {
     expect(probes).toBe(1);
   });
 
-  it('fails when the Signaling Worker does not know appBuild', async () => {
+  it('fails at once when the Signaling Worker refuses the probe as an invalid first frame', async () => {
+    // The probe's host-auth no longer matches the shape the Worker requires,
+    // or a Signaling Worker older than 9.0.14 refuses its appBuild (a rollback
+    // outside the procedure): repeating it cannot help, the message names both
+    // causes, and 'deploy signaling first' would be wrong.
     const world = new FloorWorld();
     const deps = world.deps();
-    deps.probeSignaling = async () => ({ outcome: 'legacy-refused' });
-    await expect(
-      runAppBuildFloorCommand({ action: 'set', minAppBuild: 785, reason: 'Turn it on' }, deps),
-    ).rejects.toThrow('does not accept appBuild');
+    let probes = 0;
+    deps.probeSignaling = async () => {
+      probes += 1;
+      return { outcome: 'invalid-frame' };
+    };
+    const failure = await runAppBuildFloorCommand(
+      { action: 'set', minAppBuild: 785, reason: 'Turn it on' },
+      deps,
+    ).then(
+      () => null,
+      (error: unknown) => (error instanceof Error ? error.message : String(error)),
+    );
+    expect(failure).toContain('HOST_AUTH_FIRST_FRAME_INVALID');
+    expect(failure).toContain('the probe does not send the host-auth shape the Worker requires');
+    expect(failure).toContain('older than 9.0.14');
+    expect(failure).not.toContain('deploy signaling first');
+    expect(probes).toBe(1);
   });
 
   it('keeps a set at the stored floor as a re-verification without posting', async () => {
@@ -952,8 +1017,21 @@ describe('App build floor Signaling probe', () => {
   it('sends one host-auth with the build and reports the exact refusal and close', async () => {
     const { socket, outcome } = startProbe(784);
     expect(socket.sent).toHaveLength(1);
-    expect(socket.sent[0]).toMatchObject({ type: 'host-auth', appBuild: 784 });
-    expect(Object.keys(socket.sent[0] ?? {}).sort()).toEqual(['appBuild', 'secret', 'type']);
+    // The Signaling Worker requires the desired PIN ('' for none) and its
+    // mutation ID before it reads the build (old-version removal W-3).
+    expect(socket.sent[0]).toMatchObject({
+      type: 'host-auth',
+      appBuild: 784,
+      desiredRoomPassword: '',
+      pinMutationId: expect.stringMatching(/^[A-Za-z0-9_-]{16,64}$/),
+    });
+    expect(Object.keys(socket.sent[0] ?? {}).sort()).toEqual([
+      'appBuild',
+      'desiredRoomPassword',
+      'pinMutationId',
+      'secret',
+      'type',
+    ]);
     socket.emit(
       'message',
       frame({
@@ -980,14 +1058,14 @@ describe('App build floor Signaling probe', () => {
     expect(socket.terminated).toBe(1);
   });
 
-  it('tells a pre-floor Worker apart from any other refusal', async () => {
-    const legacy = startProbe();
-    legacy.socket.emit(
+  it('tells an invalid first frame apart from any other refusal', async () => {
+    const invalid = startProbe();
+    invalid.socket.emit(
       'message',
       frame({ type: 'error', errorType: 'invalid-id', message: 'HOST_AUTH_FIRST_FRAME_INVALID' }),
     );
-    legacy.socket.emit('close', 1008, Buffer.from('HOST_AUTH_FIRST_FRAME_INVALID'));
-    await expect(legacy.outcome).resolves.toEqual({ outcome: 'legacy-refused' });
+    invalid.socket.emit('close', 1008, Buffer.from('HOST_AUTH_FIRST_FRAME_INVALID'));
+    await expect(invalid.outcome).resolves.toEqual({ outcome: 'invalid-frame' });
 
     const silent = startProbe();
     silent.socket.emit('message', Buffer.from('not json'));

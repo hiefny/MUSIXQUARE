@@ -697,8 +697,10 @@ describe('App build floor script', () => {
   });
 
   it('fails at once when the Signaling Worker refuses the probe as an invalid first frame', async () => {
-    // The probe's host-auth no longer matches the shape the Worker requires:
-    // repeating it cannot help, and 'deploy signaling first' would be wrong.
+    // The probe's host-auth no longer matches the shape the Worker requires,
+    // or a Signaling Worker older than 9.0.14 refuses its appBuild (a rollback
+    // outside the procedure): repeating it cannot help, the message names both
+    // causes, and 'deploy signaling first' would be wrong.
     const world = new FloorWorld();
     const deps = world.deps();
     let probes = 0;
@@ -714,6 +716,8 @@ describe('App build floor script', () => {
       (error: unknown) => (error instanceof Error ? error.message : String(error)),
     );
     expect(failure).toContain('HOST_AUTH_FIRST_FRAME_INVALID');
+    expect(failure).toContain('the probe does not send the host-auth shape the Worker requires');
+    expect(failure).toContain('older than 9.0.14');
     expect(failure).not.toContain('deploy signaling first');
     expect(probes).toBe(1);
   });

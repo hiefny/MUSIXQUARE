@@ -62,11 +62,11 @@ gh run list --workflow e2e.yml --branch main --limit 3
       허락한 자기 세션의 본 레인 머리를 어느 경로에서든 받는다(RO-18 경로 2와 '요청 전' 틈이 새 게스트에게서 닫힘,
       옛 게스트와 방장은 그대로). 브랜치 `agent/forced-update`(`244aca48` 위): Inc 1 `beb3369c`, Inc 2 `93aa4f5f`,
       Inc 3 `20b446c3`, Inc 4 `45754035`, Inc 5 `2229356e`(리뷰 `fa55e2a0`·`2c0a55ed`), Inc 6 `ebf4c0ff`, Inc 7
-      `c8b2cf38`, C5-12 Inc 1 `7ee16397` → `21e20806`, 5A 합침 `ac114b37`(글자 충돌 없음). 합친 뒤 로컬 검증: 단위
+      `c8b2cf38`, C5-12 Inc 1 `7ee16397` → `21e20806`, 5A 합침 `ac114b37`(글자 충돌 없음)과 5A 기록 #495 합침 `f66195cd`(문서만). 합친 뒤 로컬 검증: 단위
       680 files / 16,097, Worker 67 files / 3,149, typecheck·`check:workers`·lint·format, 가드 전부(resource-ownership
       48 records / 442 files, navigation-sinks의 `SKIP_WAITING` 보내기 2·sink 호출 4), 빌드와 빌드 뒤 가드, 초기 JS
       480,468 B(바탕 `244aca48` 478,186 B 대비 +2,282 B, 유지 상한까지 11,100 B), 후보 Playwright 19/19, C5-0 랩
-      `forced-update.lab.ts` 2/2, PRO 426 Playwright 2/2 PASS. 5A가 9.0.12 / v785를 먼저 썼으므로 이 열차는 bump
+      `forced-update.lab.ts` 2/2, PRO 426 Playwright 2/2 PASS. 5A가 9.0.12 / v785를 먼저 썼으므로(2026-10-26 10:34 KST 배포) 이 열차는 bump
       단계에서 9.0.13 / v786(예정)으로 SemVer와 SW 캐시 epoch를 함께 올린다. 합친 뒤 `guard:sw-cache-version`의
       PASS는 v785를 합침 커밋에서 세기 때문이라 bump를 대신하지 않는다. 남은 것: bump, 리뷰, PR CI, Codex,
       exact-main CI, 릴리스 smoke, 배포(target `all`: 여섯 Worker의 런타임 경로가 바뀌어 부분 릴리스는 거절되고, `all`은

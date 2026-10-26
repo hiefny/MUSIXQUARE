@@ -65,6 +65,13 @@ const LIVE_READ_TIMEOUT_MS = 60_000;
 /** How long the gates may take to see a change: isolate caches plus read timeouts. */
 const PROPAGATION_TIMEOUT_MS = 30_000;
 const PROPAGATION_POLL_MS = 3_000;
+/**
+ * Polls whose PRO answer was a rate limit, a 5xx or no answer wait for the
+ * answer's Retry-After (at most PRO_RETRY_AFTER_MAX_MS) and do not spend the
+ * propagation budget, up to this many times.
+ */
+const PRO_TRANSIENT_WAITS = 5;
+const PRO_RETRY_AFTER_MAX_MS = 30_000;
 const SIGNALING_PROBE_ATTEMPTS = 3;
 /** A raise, lower or re-run must be followed by a minute cron report within this time. */
 export const APP_BUILD_FLOOR_CRON_REPORT_TIMEOUT_MS = 180_000;
@@ -261,7 +268,7 @@ async function readJson(
   deps: AppBuildFloorDependencies,
   url: string,
   init: RequestInit = {},
-): Promise<{ status: number; body: unknown }> {
+): Promise<{ status: number; body: unknown; retryAfterMs: number | null }> {
   const response = await deps.fetcher(url, {
     cache: 'no-store',
     ...init,
@@ -278,7 +285,10 @@ async function readJson(
   } catch {
     body = null;
   }
-  return { status: response.status, body };
+  const retryAfterS = Number(response.headers.get('Retry-After') ?? '');
+  const retryAfterMs =
+    Number.isSafeInteger(retryAfterS) && retryAfterS > 0 ? retryAfterS * 1_000 : null;
+  return { status: response.status, body, retryAfterMs };
 }
 
 function errorCode(body: unknown): string {
@@ -436,10 +446,12 @@ async function readStatusOrNull(
   return readPublicStatus(deps).catch(() => null);
 }
 
+type ProAnswer = { status: number; body: unknown; retryAfterMs: number | null } | null;
+
 async function proBootstrap(
   deps: AppBuildFloorDependencies,
   appBuild: number | null,
-): Promise<{ status: number; body: unknown } | null> {
+): Promise<ProAnswer> {
   try {
     return await readJson(deps, `${APP_ORIGIN}${PRO_PIN_CANARY_BOOTSTRAP}`, {
       headers: appBuild === null ? {} : appBuildRequestHeaders(appBuild),
@@ -447,6 +459,14 @@ async function proBootstrap(
   } catch {
     return null;
   }
+}
+
+function isTransientProAnswer(answer: ProAnswer): boolean {
+  return answer === null || answer.status === 429 || answer.status >= 500;
+}
+
+function describeProAnswer(answer: ProAnswer): string {
+  return answer === null ? 'no answer' : `HTTP ${answer.status}`;
 }
 
 function isProRefusal(answer: { status: number; body: unknown } | null, floor: number): boolean {
@@ -467,27 +487,48 @@ function isProAdmission(answer: { status: number; body: unknown } | null): boole
   );
 }
 
-/** The PRO front door refuses floor - 1 and admits the floor (or a build-less entry at 0). */
+/**
+ * The PRO front door refuses floor - 1 and admits the floor (or a build-less
+ * entry at 0). A poll with a rate-limited, 5xx or missing answer is not yet a
+ * verdict: it waits for that answer's Retry-After and does not spend the
+ * propagation budget, a bounded number of times.
+ */
 async function verifyProGate(deps: AppBuildFloorDependencies, floor: number): Promise<void> {
-  const { done } = await pollUntil(
-    deps,
-    PROPAGATION_TIMEOUT_MS,
-    PROPAGATION_POLL_MS,
-    async () =>
+  let deadline = deps.now() + PROPAGATION_TIMEOUT_MS;
+  let transientWaits = 0;
+  for (;;) {
+    const answers =
       floor > 0
         ? [await proBootstrap(deps, floor - 1), await proBootstrap(deps, floor)]
-        : [await proBootstrap(deps, null)],
-    (answers) =>
+        : [await proBootstrap(deps, null)];
+    const verified =
       floor > 0
         ? isProRefusal(answers[0] ?? null, floor) && isProAdmission(answers[1] ?? null)
-        : isProAdmission(answers[0] ?? null),
-  );
-  if (!done) {
-    throw new Error(
-      floor > 0
-        ? `The PRO front door did not refuse build ${floor - 1} and admit build ${floor} within ${PROPAGATION_TIMEOUT_MS / 1000} s.`
-        : `The PRO front door did not admit an entry without a build within ${PROPAGATION_TIMEOUT_MS / 1000} s.`,
-    );
+        : isProAdmission(answers[0] ?? null);
+    if (verified) return;
+    const transient = answers.filter(isTransientProAnswer);
+    if (transient.length > 0 && transientWaits < PRO_TRANSIENT_WAITS) {
+      transientWaits += 1;
+      const waitMs = Math.max(
+        PROPAGATION_POLL_MS,
+        ...transient.map((answer) => Math.min(answer?.retryAfterMs ?? 0, PRO_RETRY_AFTER_MAX_MS)),
+      );
+      deps.log(
+        `[app-build-floor] PRO front door answered ${answers.map(describeProAnswer).join(', ')}; waiting ${waitMs / 1000} s`,
+      );
+      await deps.sleep(waitMs);
+      deadline += waitMs;
+      continue;
+    }
+    if (deps.now() >= deadline) {
+      const last = answers.map(describeProAnswer).join(', ');
+      throw new Error(
+        floor > 0
+          ? `The PRO front door did not refuse build ${floor - 1} and admit build ${floor} within ${PROPAGATION_TIMEOUT_MS / 1000} s (last answers: ${last}).`
+          : `The PRO front door did not admit an entry without a build within ${PROPAGATION_TIMEOUT_MS / 1000} s (last answer: ${last}).`,
+      );
+    }
+    await deps.sleep(PROPAGATION_POLL_MS);
   }
 }
 
@@ -572,12 +613,22 @@ async function verifyFloor(
     () => readStatusOrNull(deps),
     (status) => status !== null && status.reportedAt !== null && status.reportedAt > after,
   );
-  if (!reported.done || reported.value === null) {
+  let status: AppBuildFloorStatus;
+  if (reported.done && reported.value !== null) {
+    status = reported.value;
+  } else if (!exact) {
+    // A lower is fail-safe: without a later report the enforced floor only
+    // drops further (to 0 five minutes after the last report), so the lowered
+    // floor stands and the run records it instead of failing.
+    deps.log(
+      `::warning::[app-build-floor] No App cron report arrived within ${APP_BUILD_FLOOR_CRON_REPORT_TIMEOUT_MS / 60_000} minutes after the lower; the floor is lowered, and the App cron needs a look.`,
+    );
+    status = reported.value ?? settled.value;
+  } else {
     throw new Error(
       `No App cron report arrived within ${APP_BUILD_FLOOR_CRON_REPORT_TIMEOUT_MS / 60_000} minutes; without it the floor turns itself off 5 minutes after the last report.`,
     );
   }
-  const status = reported.value;
   const expectedClient =
     status.liveAppBuild === null ? 0 : Math.min(status.effectiveMinAppBuild, status.liveAppBuild);
   const client = await pollUntil(

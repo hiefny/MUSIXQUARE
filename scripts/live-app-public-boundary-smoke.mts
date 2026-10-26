@@ -16,6 +16,7 @@ const PAID_BOUNDARY_URL = 'https://musixquare.com/api/get-turn-config';
 const UNKNOWN_HTML_ROUTE_URL = 'https://musixquare.com/__mxqr_live_smoke__/missing-html-route';
 const APP_BUILD_FLOOR_CLIENT_READ_URL = `https://musixquare.com${APP_BUILD_FLOOR_CLIENT_PATH}`;
 const APP_BUILD_FLOOR_CLIENT_READ_MAX_BYTES = 4 * 1024;
+const APP_BUILD_FLOOR_CLIENT_READ_RETRY_DELAY_MS = 2_000;
 // The Apps-in-Toss build is retired. Its two former app-scoped origins and an
 // unrelated mini-app origin must all be refused.
 export const REJECTED_TOSS_ORIGINS = Object.freeze([
@@ -345,6 +346,24 @@ async function readAppBuildFloorClientReadBoundary(): Promise<AppBuildFloorClien
   };
 }
 
+async function readClientFloorOnceMore(
+  read: () => Promise<AppBuildFloorClientReadBoundaryRead>,
+  wait: (milliseconds: number) => Promise<unknown>,
+  log: (line: string) => void,
+): Promise<AppBuildFloorClientReadBoundaryRead> {
+  let failure: string;
+  try {
+    const first = await read();
+    if (first.liveAppBuild !== null && first.status < 500) return first;
+    failure = first.liveAppBuild === null ? 'an unreadable live App build' : `HTTP ${first.status}`;
+  } catch (error) {
+    failure = error instanceof Error ? error.message : String(error);
+  }
+  log(`[app-public-boundary] App build floor client read got ${failure}; reading once more`);
+  await wait(APP_BUILD_FLOOR_CLIENT_READ_RETRY_DELAY_MS);
+  return read();
+}
+
 function parseJsonBody(body: string): { value: unknown } | null {
   try {
     return { value: JSON.parse(body) as unknown };
@@ -361,17 +380,21 @@ function parseJsonBody(body: string): { value: unknown } | null {
  * commit marker, because a broken read silently disables the check. Against
  * an older App (a manual run after a rollback) a 404 or non-JSON answer is the
  * App without the read and passes; a JSON 200 must still have the exact shape.
+ * A failed request, a 5xx or an unreadable live App build is read once more
+ * after a short wait, so one brief edge error does not roll the release back.
  */
 export async function verifyAppBuildFloorClientReadBoundary({
   read = readAppBuildFloorClientReadBoundary,
   releaseBuild = () => readReleaseIdentity().serviceWorkerCacheEpoch,
   log = console.log,
+  wait = (milliseconds: number) => new Promise((resolve) => setTimeout(resolve, milliseconds)),
 }: {
   read?: () => Promise<AppBuildFloorClientReadBoundaryRead>;
   releaseBuild?: () => number;
   log?: (line: string) => void;
+  wait?: (milliseconds: number) => Promise<unknown>;
 } = {}): Promise<AppBuildFloorClientReadBoundaryResult> {
-  const result = await read();
+  const result = await readClientFloorOnceMore(read, wait, log);
   if (result.liveAppBuild === null) {
     throw new Error(
       'App build floor client read cannot be judged: the live App build is unreadable',

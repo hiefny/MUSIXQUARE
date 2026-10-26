@@ -11,6 +11,8 @@ import {
   assertDurableObjectMigrationContract,
   assertDurableObjectMigrationRepositoryHistory,
 } from './check-durable-object-migration-contract.mts';
+import { readServiceWorkerAppBuild } from './live-smoke-app-build.mts';
+import { readReleaseIdentity } from './release-identity.mts';
 
 export const OPS_DRIFT_CONTRACT_PATH = 'cloudflare/ops-drift.contract.json';
 export const OPS_DRIFT_RUNBOOK_PATH = 'cloudflare/config-drift-ops.md';
@@ -1613,6 +1615,16 @@ function cancelResponseBody(response: Response, reason: string): void {
 
 class SafeOpsDriftError extends Error {}
 
+/** A live read that answered a non-success HTTP status. */
+class OpsDriftHttpStatusError extends SafeOpsDriftError {
+  readonly httpStatus: number;
+
+  constructor(message: string, httpStatus: number) {
+    super(message);
+    this.httpStatus = httpStatus;
+  }
+}
+
 function safeOpsDriftError(message: string, options?: ErrorOptions): SafeOpsDriftError {
   return new SafeOpsDriftError(message, options);
 }
@@ -1778,7 +1790,10 @@ async function fetchBoundedJson(
   }
   if (!response.ok) {
     cancelResponseBody(response, `${label} returned a non-success status.`);
-    throw safeOpsDriftError(`${label} returned HTTP ${response.status}.`);
+    throw new OpsDriftHttpStatusError(
+      `${label} returned HTTP ${response.status}.`,
+      response.status,
+    );
   }
   try {
     return await readJsonResponse(response, signal, label);
@@ -1897,6 +1912,30 @@ export function assessAppBuildFloorStatus(
   };
 }
 
+/**
+ * A 404 from the floor status is an App that predates the floor routes only
+ * when the live service worker's build is below this checkout's build: the
+ * window between merging a floor train and releasing it, or an App rolled
+ * back below it. Such an App never reports, so the gates enforce no floor and
+ * a person only needs to know. Any other 404 stays an error.
+ */
+async function appBuildFloorRouteAbsentDetail(
+  error: unknown,
+  fetcher: OpsDriftFetcher,
+  checkoutAppBuild: () => number,
+): Promise<string | null> {
+  if (!(error instanceof OpsDriftHttpStatusError) || error.httpStatus !== 404) return null;
+  let checkout: number;
+  try {
+    checkout = checkoutAppBuild();
+  } catch {
+    return null;
+  }
+  const live = await readServiceWorkerAppBuild(async (input, init) => fetcher(input, init ?? {}));
+  if (live === null || live >= checkout) return null;
+  return `The live App build ${live} predates this checkout's build ${checkout} and has no App build floor routes (HTTP 404), so no floor is enforced; expected between merging the floor train and releasing it, or after rolling the App back below it.`;
+}
+
 interface OpsDriftCheck {
   id: string;
   label: string;
@@ -1917,6 +1956,8 @@ interface RunOpsDriftAuditOptions {
   fetcher?: OpsDriftFetcher;
   env?: NodeJS.ProcessEnv;
   now?: Date;
+  /** This checkout's App build (service-worker cache epoch), read only when needed. */
+  checkoutAppBuild?: number;
 }
 
 function result(
@@ -1934,6 +1975,7 @@ export async function runOpsDriftAudit({
   fetcher = globalThis.fetch,
   env = process.env,
   now = new Date(),
+  checkoutAppBuild,
 }: RunOpsDriftAuditOptions = {}): Promise<OpsDriftReport> {
   assertOpsDriftContract({ root, contract: contractValue });
   if (!isOpsDriftContract(contractValue)) {
@@ -2421,13 +2463,20 @@ export async function runOpsDriftAudit({
     );
     checks.push(result('app-build-floor', 'App build floor', floor.status, floor.detail));
   } catch (error) {
+    const routeAbsent = await appBuildFloorRouteAbsentDetail(
+      error,
+      fetcher,
+      () => checkoutAppBuild ?? readReleaseIdentity(root).serviceWorkerCacheEpoch,
+    );
     checks.push(
-      result(
-        'app-build-floor',
-        'App build floor',
-        'error',
-        error instanceof Error ? error.message : String(error),
-      ),
+      routeAbsent === null
+        ? result(
+            'app-build-floor',
+            'App build floor',
+            'error',
+            error instanceof Error ? error.message : String(error),
+          )
+        : result('app-build-floor', 'App build floor', 'manual-only', routeAbsent),
     );
   }
 

@@ -1588,9 +1588,56 @@ describe('operations drift audit App build floor', () => {
     expect(check?.detail).toContain('off');
   });
 
+  describe('a live App without the floor routes', () => {
+    const CHECKOUT_BUILD = 786;
+
+    function auditWithMissingRoute(liveServiceWorker: Response | null) {
+      const contract = loadOpsDriftContract();
+      const fetcher = vi.fn(async (url: string, _init?: RequestInit) => {
+        if (url === STATUS_URL) return jsonResponse({ error: 'NOT_FOUND' }, 404);
+        if (url === 'https://musixquare.com/service-worker.js') {
+          if (liveServiceWorker === null) throw new TypeError('fetch failed');
+          return liveServiceWorker;
+        }
+        return matchingLiveResponse(contract, url);
+      });
+      return runOpsDriftAudit({
+        contract,
+        fetcher,
+        env: AUDIT_ENV,
+        checkoutAppBuild: CHECKOUT_BUILD,
+      });
+    }
+
+    const serviceWorker = (build: number) =>
+      new Response(`self.x=1;\nconst CACHE_VERSION = 'v${build}';\n`, { status: 200 });
+
+    it('is manual-only when the live App predates this checkout (merge before release, or a rollback)', async () => {
+      const report = await auditWithMissingRoute(serviceWorker(CHECKOUT_BUILD - 1));
+      const check = report.checks.find(({ id }) => id === 'app-build-floor');
+      expect(check).toMatchObject({ status: 'manual-only' });
+      expect(check?.detail).toContain(`live App build ${CHECKOUT_BUILD - 1}`);
+      expect(check?.detail).toContain('no floor is enforced');
+      expect(report.status).toBe('automated-checks-passed');
+    });
+
+    it('stays an error when the live App is this checkout or newer, or its build is unreadable', async () => {
+      for (const live of [
+        serviceWorker(CHECKOUT_BUILD),
+        serviceWorker(CHECKOUT_BUILD + 1),
+        new Response('', { status: 404 }),
+        null,
+      ]) {
+        const report = await auditWithMissingRoute(live);
+        const check = report.checks.find(({ id }) => id === 'app-build-floor');
+        expect(check).toMatchObject({ status: 'error' });
+        expect(check?.detail).toContain('HTTP 404');
+      }
+    });
+  });
+
   it('reports an unreadable or malformed status as an error', async () => {
     for (const [status, httpStatus] of [
-      [{ error: 'NOT_FOUND' }, 404],
       [{ error: 'APP_BUILD_FLOOR_UNAVAILABLE' }, 503],
       [{ ...healthyAppBuildFloorStatus(), minAppBuild: -1 }, 200],
       [{ ...healthyAppBuildFloorStatus(), revision: '2' }, 200],

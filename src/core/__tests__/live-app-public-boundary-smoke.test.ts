@@ -336,7 +336,62 @@ describe('live App build floor client read boundary', () => {
       read: async () => read,
       releaseBuild: () => RELEASE_BUILD,
       log,
+      wait: async () => undefined,
     });
+
+  describe('one repeat after a brief failure', () => {
+    const verifySequence = (reads: Array<AppBuildFloorClientReadBoundaryRead | Error>) => {
+      const read = vi.fn(async () => {
+        const next = reads.shift();
+        if (next === undefined) throw new Error('no read left');
+        if (next instanceof Error) throw next;
+        return next;
+      });
+      const wait = vi.fn(async (_milliseconds: number) => undefined);
+      const outcome = verifyAppBuildFloorClientReadBoundary({
+        read,
+        releaseBuild: () => RELEASE_BUILD,
+        log: () => undefined,
+        wait,
+      });
+      return { read, wait, outcome };
+    };
+
+    it.each([
+      ['a failed request', new Error('App build floor client read request failed')],
+      ['a 502', okRead({ status: 502, body: 'Bad Gateway' })],
+      ['a 503', okRead({ status: 503, body: '{"error":"SERVICE_MAINTENANCE"}' })],
+      ['an unreadable live App build', okRead({ liveAppBuild: null })],
+    ])('passes when %s is followed by a valid answer', async (_label, first) => {
+      const { read, wait, outcome } = verifySequence([first, okRead()]);
+      await expect(outcome).resolves.toMatchObject({ clientFloorRead: 'verified', strict: true });
+      expect(read).toHaveBeenCalledTimes(2);
+      expect(wait).toHaveBeenCalledTimes(1);
+      expect(wait.mock.calls[0]?.[0]).toBeGreaterThan(0);
+    });
+
+    it('fails when the repeat fails too, without a third read', async () => {
+      const { read, outcome } = verifySequence([
+        new Error('App build floor client read request failed'),
+        okRead({ status: 502, body: 'Bad Gateway' }),
+        okRead(),
+      ]);
+      await expect(outcome).rejects.toThrow('App build floor client read');
+      expect(read).toHaveBeenCalledTimes(2);
+    });
+
+    it('does not repeat a definite answer', async () => {
+      for (const first of [
+        okRead({ status: 404, body: '{"error":"NOT_FOUND"}' }),
+        okRead({ body: JSON.stringify({ effectiveMinAppBuild: 785, extra: 1 }) }),
+      ]) {
+        const { read, wait, outcome } = verifySequence([first, okRead()]);
+        await expect(outcome).rejects.toThrow('App build floor client read');
+        expect(read).toHaveBeenCalledTimes(1);
+        expect(wait).not.toHaveBeenCalled();
+      }
+    });
+  });
 
   it('accepts exactly {effectiveMinAppBuild} right after the release App deploy', async () => {
     await expect(verify(okRead())).resolves.toEqual({

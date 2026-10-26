@@ -57,6 +57,10 @@ interface WorldOptions {
   signalingAdmitsBelowFloor?: number;
   opsFailuresBeforeSuccess?: number;
   statusUnavailable?: boolean;
+  /** The PRO front door answers `proTransientStatus` until this time. */
+  proTransientUntil?: number;
+  proTransientStatus?: number;
+  proRetryAfterS?: number;
 }
 
 /**
@@ -79,9 +83,13 @@ class FloorWorld {
   signalingAdmitsBelowFloor: number;
   opsFailuresBeforeSuccess: number;
   statusUnavailable: boolean;
+  proTransientUntil: number;
+  proTransientStatus: number;
+  proRetryAfterS: number | null;
   serviceWorkerBuilds: Array<number | null>;
   clientValue: number;
-  requests: Array<{ method: string; url: string; headers: Headers; body: unknown }> = [];
+  requests: Array<{ method: string; url: string; headers: Headers; body: unknown; time: number }> =
+    [];
   logs: string[] = [];
   summaries: string[] = [];
   signalingProbes: number[] = [];
@@ -99,6 +107,9 @@ class FloorWorld {
     this.signalingAdmitsBelowFloor = options.signalingAdmitsBelowFloor ?? 0;
     this.opsFailuresBeforeSuccess = options.opsFailuresBeforeSuccess ?? 0;
     this.statusUnavailable = options.statusUnavailable ?? false;
+    this.proTransientUntil = options.proTransientUntil ?? -Infinity;
+    this.proTransientStatus = options.proTransientStatus ?? 429;
+    this.proRetryAfterS = options.proRetryAfterS ?? null;
     this.serviceWorkerBuilds = options.serviceWorkerBuilds ?? [];
     this.clientValue = this.clientAnswer();
   }
@@ -151,7 +162,7 @@ class FloorWorld {
     const method = init.method ?? 'GET';
     const headers = new Headers(init.headers);
     const body = typeof init.body === 'string' ? (JSON.parse(init.body) as unknown) : undefined;
-    this.requests.push({ method, url: url.toString(), headers, body });
+    this.requests.push({ method, url: url.toString(), headers, body, time: this.time });
 
     if (url.toString().startsWith('https://pipelines.actions.example/idtoken')) {
       if (headers.get('Authorization') !== `Bearer ${OIDC_REQUEST_TOKEN}`) {
@@ -184,6 +195,13 @@ class FloorWorld {
     }
     if (url.pathname === APP_BUILD_FLOOR_OPS_PATH) return this.ops(headers, body);
     if (url.pathname === '/api/pro-room/v1/rooms/000001/bootstrap') {
+      if (this.time < this.proTransientUntil) {
+        return json(
+          { error: this.proTransientStatus === 429 ? 'RATE_LIMITED' : 'UNAVAILABLE' },
+          this.proTransientStatus,
+          this.proRetryAfterS === null ? {} : { 'Retry-After': String(this.proRetryAfterS) },
+        );
+      }
       const build = parseAppBuild(headers.get(APP_BUILD_HEADER)) ?? 0;
       const floor = this.proIgnoresFloor ? 0 : this.effective();
       if (floor > 0 && build < floor) {
@@ -505,6 +523,40 @@ describe('App build floor script', () => {
     ).rejects.toThrow('PRO');
   });
 
+  it('waits out a rate-limited PRO front door for its Retry-After beyond the propagation budget', async () => {
+    const world = new FloorWorld({ proTransientUntil: T0 + 40_000, proRetryAfterS: 15 });
+    const result = await runAppBuildFloorCommand(
+      { action: 'set', minAppBuild: 785, reason: 'Turn it on' },
+      world.deps(),
+    );
+    expect(result?.status.minAppBuild).toBe(785);
+    // Three rate-limited polls, each followed by the 15 s Retry-After instead
+    // of the 3 s poll, then the refusal and the admission after the limit.
+    const times = world.requests
+      .filter((request) => request.url.endsWith('/bootstrap'))
+      .map((request) => request.time);
+    expect(times).toHaveLength(8);
+    const polls = [times[0]!, times[2]!, times[4]!, times[6]!];
+    expect(polls.slice(1).map((time, index) => time - polls[index]!)).toEqual([
+      15_000, 15_000, 15_000,
+    ]);
+    expect(polls[3]).toBeGreaterThanOrEqual(T0 + 40_000);
+    expect(world.logs.filter((line) => line.includes('PRO front door answered'))).toHaveLength(3);
+  });
+
+  it('fails a PRO front door that stays unavailable, naming its answers', async () => {
+    const world = new FloorWorld({ proTransientUntil: Infinity, proTransientStatus: 503 });
+    await expect(
+      runAppBuildFloorCommand(
+        { action: 'set', minAppBuild: 785, reason: 'Turn it on' },
+        world.deps(),
+      ),
+    ).rejects.toThrow(/PRO front door.*HTTP 503, HTTP 503/u);
+    // The floor stays set; only the verification failed, within a bounded wait.
+    expect(world.stored).toBe(785);
+    expect(world.time - T0).toBeLessThan(120_000);
+  });
+
   it('retries a Signaling admission while the floor propagates, then requires the refusal', async () => {
     const recovering = new FloorWorld({ signalingAdmitsBelowFloor: 1 });
     await runAppBuildFloorCommand(
@@ -647,6 +699,21 @@ describe('App build floor script', () => {
     expect(bootstraps.some((request) => request.headers.get(APP_BUILD_HEADER) === null)).toBe(true);
     expect(world.signalingProbes).toEqual([]);
     expect(result?.clientFloor).toBe(0);
+  });
+
+  it('keeps a lower that no later App cron report confirms, with a warning and the summary', async () => {
+    const world = new FloorWorld({ stored: 785, revision: 3, cron: false });
+    const result = await runAppBuildFloorCommand(
+      { action: 'lower', minAppBuild: 0, reason: 'Turn it off' },
+      world.deps(),
+    );
+    expect(world.stored).toBe(0);
+    expect(result?.changed).toBe(true);
+    expect(result?.clientFloor).toBe(0);
+    expect(world.summaries).toEqual([result?.summary]);
+    expect(result?.summary).toContain('stored 0, effective 0, revision 4');
+    expect(world.logs).toContainEqual(expect.stringMatching(/^::warning::.*No App cron report/u));
+    expect(world.time - T0).toBeGreaterThanOrEqual(APP_BUILD_FLOOR_CRON_REPORT_TIMEOUT_MS);
   });
 
   it('refuses a lower that would raise the floor', async () => {

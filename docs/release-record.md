@@ -65,26 +65,35 @@ gh run list --workflow e2e.yml --branch main --limit 3
       `c8b2cf38`, C5-12 Inc 1 `7ee16397` → `21e20806`, 5A 합침 `ac114b37`(글자 충돌 없음)과 5A 기록 #495 합침
       `f66195cd`(문서만), 리뷰 반영 `efd2ed11`(floor 도구), 구버전 제거 열차 1 합침 `63027a68`(문서 둘의 글자 충돌, 두
       열차 항목을 모두 둠), 이름 커밋 `3c301881`(보고서 이름과 주석·문서의 번호, 런타임 동작 없음), 마지막 런타임
-      커밋인 bump `2077ef60`. 5A가 9.0.12 / v785를(2026-10-26 10:34 KST 배포), 구버전 제거 열차 1이 9.0.13 / v786을(#496,
-      Release 40265098681로 배포) 먼저 썼으므로 bump `2077ef60`에서 `9.0.14` / `v787`로 SemVer와 SW 캐시 epoch를 함께
+      커밋인 bump `2077ef60`, 그 뒤 문서만(구버전 제거 열차 1 기록 #497 합침 `ac29f691`, §2 제목 하나만 충돌).
+      5A가 9.0.12 / v785를(2026-10-26 10:34 KST 배포), 구버전 제거 열차 1이 9.0.13 / v786을(#496,
+      Release 40265098681로 배포, 기록 #497) 먼저 썼으므로 bump `2077ef60`에서 `9.0.14` / `v787`로 SemVer와 SW 캐시 epoch를 함께
       올렸다(올리기 직전 fetch한 origin/main은 `4d7650c0`). bump 뒤 최종 로컬(`2077ef60`): release-identity(9.0.14,
       v787)·sw-cache-version, 단위 680 files / 16,038, Worker 67 files / 3,152, critical coverage 87 files / 3,405,
       typecheck(테스트 포함)·`check:workers`·lint·format, `build:checked` 전체, 가드 묶음(resource-ownership 48 records /
       442 files, navigation-sinks의 `SKIP_WAITING` 보내기 2·sink 호출 4, 직접 읽기 82), critical E2E 61/61, PRO 426
       Playwright 2/2, 후보 Playwright 19/19(시작·복귀 확인 2행 포함), C5-0 랩 전체 `--repeat-each=2` 20/20
       (`forced-update.lab.ts` 4/4) PASS. 초기 JS 466,874 B(main `4d7650c0` 464,588 B 대비 +2,286 B, 유지 상한까지
-      24,694 B). 남은 것: 리뷰, PR CI, Codex, exact-main CI, 릴리스 smoke, 배포(target `all`, Developer API D1 false,
-      `raise_app_build_floor` false: 운영 `4d7650c0`과 견주어 여섯 Worker의 런타임 경로가 모두 바뀌어 부분 릴리스는
-      거절되고, `all`은 `appBuild`를 받는 Signaling을 App보다 먼저 배포), 아래 첫 최소 빌드. 로컬 결과는
-      exact-main-SHA 후보를 대신하지 않는다. 설계 질문 Q-B(60분 업데이트 확인 tick에서도 최소 빌드를 읽을지)는 열려 있고 기본 No로 구현했으며, 구현
+      24,694 B). 남은 것: PR CI, Codex, exact-main CI(후보는 PR을 머지한 뒤의 main SHA), 릴리스 smoke, 배포(target
+      `all`, Developer API D1 false, `raise_app_build_floor` false: 여섯 Worker의 런타임 경로가 모두 바뀌어 부분
+      릴리스는 거절되고, `all`은 `appBuild`를 받는 Signaling을 App보다 먼저 배포. 배포된 기준은 App `4d7650c0`, 나머지
+      다섯 Worker는 9.0.5 `572880a2`이고, 그 사이 App 릴리스의 compatibility gate가 다섯 Worker의 경로가 같음을
+      확인했다. 배포 기록에 Worker마다 이 기준을 적는다. signaling smoke 503으로 실패·자동 복구되면 코드를 의심하기 전에
+      같은 SHA로 다시 dispatch한다), 아래 첫 최소 빌드. 로컬 결과는 exact-main-SHA 후보를 대신하지 않는다. 설계 질문 Q-B(60분 업데이트 확인 tick에서도 최소 빌드를 읽을지)는 열려 있고 기본 No로 구현했으며, 구현
       세부(보고서의 '구현과 리뷰 중 정한 세부')는 오너 확인을 기다린다(게이트 아님).
       [보고서](design/forced-update-9-0-14-2026-10-25.md).
 - [ ] 첫 최소 빌드(오너 결정 Q2, 게이트 아님): 이 열차는 최소 빌드 0, `raise_app_build_floor` false로 배포한다. 배포의
       smoke와 공개 자산을 확인한 직후 `app-build-floor.yml`을 `status`(live App이 이 빌드이고 보고가 새것), `check`(OIDC
       끝까지, 변경 없음), `set`(이 열차 빌드 787) 순으로 dispatch하고 각 실행의 결론을 읽는다. 자격 증명은 필요
-      없다. 그 요약 줄을 §1의 '최소 앱 빌드' 행에 적고, 같은 기록 PR에서 known-accepted #13을 은퇴 표로 옮긴다. 이
-      열차의 복구 경계(App을 최소 빌드 아래로 되돌리기 전 `lower`, 9.0.14 이상 App이 live인 동안 Signaling을 9.0.14
-      아래로 되돌리지 않음, PRO Worker를 9.0.14 아래로 되돌리면 모든 Worker의 최소 빌드가 꺼짐)는 최소 빌드와 상관없이
+      없다. `set`이 성공하지 않으면 공개 상태를 읽고 저장값이 787이며 실패가 일시적이면 같은 `set`을 다시, PRO 앞문이
+      787을 거절했거나 Signaling이 이상하면 곧바로 `lower` 0. `set` 성공 직후 배포된 main SHA에서 `npm run
+      smoke:live:signaling`으로 Signaling이 787을 입장시키는지 확인하고, 방장이 거절되면 `lower` 0. 그 요약 줄을 §1의
+      '최소 앱 빌드' 행에 적는다. 같은 기록 PR(배포 기록 PR이 아직 열려 있으면 그 PR, 아니면 작은 기록 PR)에서 이
+      항목을 `set` 실행 ID와 함께 지우고, known-accepted #13을 그 근거와 함께 은퇴 표로 옮기며 #15의 '(see #13)'
+      참조를 고친다. 이력 행은 더하지 않는다. 이 열차의 복구 경계(App을 최소 빌드 아래로 되돌리기 전 `lower`, 9.0.14
+      이상 App이 live인 동안 Signaling을 9.0.14 아래로 되돌리지 않음, PRO Worker를 9.0.14 아래로 되돌리면 모든 Worker의
+      최소 빌드가 꺼짐, 9.0.14 릴리스가 App 배포 뒤 실패해 자동 복구되면 그 사이 연 9.0.14 탭은 업데이트 창으로 v786에
+      돌아가기 전까지 Standard 방을 만들거나 방장으로 다시 붙지 못함(게스트는 영향 없음))는 최소 빌드와 상관없이
       9.0.14 배포부터 적용되므로(App이 `host-auth`에 `appBuild`를 싣는다) 첫 최소 빌드가 아니라 배포 기록(§1을 덮어쓰는
       PR)에서 §4에 더한다. 첫 최소 빌드부터 9.0.13 이하(5A와 구버전 제거 열차 1 포함)는 새 입장과 재접속에서 거절되고 다시 열면 회복한다.
       이 열차의 시작·복귀 확인이 운영에서 처음 창을 띄우는 것은 그 다음 올리기에서다. 뒤의 올리기는 필요한 릴리스가
@@ -1801,7 +1810,8 @@ PRO 방장 공지의 중도 참여 복원은 별도 정책이며 이번 서비�
    덮어쓴다. 이전 값은 남기지 않는다. 강제 업데이트 열차(9.0.14) 배포부터
    §1 표에 '최소 앱 빌드' 행을 두고 floor 스크립트의 요약 줄(저장·유효 값,
    revision, live·보고 App 빌드, 페이지 읽기)을 적는다. 배포 사이에 workflow로
-   바꾼 최소 빌드는 그 행만 고치는 작은 기록 PR로 적고 이력 행은 더하지 않는다
+   바꾼 최소 빌드는 그 행(과 그 변경이 닫는 §2 항목, 허용한 위험)을 고치는 작은
+   기록 PR로 적고 이력 행은 더하지 않는다
    ([운영](hotfix-procedure.md#app-build-floor)).
 2. [release-history.md](release-history.md) 표 맨 아래에 한 줄을 추가한다.
 3. 릴리스 상세 근거는 `docs/design/<주제>-<날짜>.md`에 쓰고 §1과 이력 행에서

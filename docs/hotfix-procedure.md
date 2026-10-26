@@ -652,11 +652,24 @@ gh workflow run app-build-floor.yml --ref main -f action=lower -f min_app_build=
   30 seconds) and ends with one summary line for section 1 of the
   [release record](release-record.md). A `lower` is fail-safe, so a missing cron report after it
   only leaves a warning; a `set` or raise without one fails. The admin dashboard can only lower
-  the floor.
+  the floor. The Signaling check proves only the refusal of build N-1, not the admission of build
+  N; the PRO check proves both.
 - The workflow shares the Production Release concurrency group. Never dispatch it while a release
   is running or queued: GitHub keeps one pending run per group, and a newly queued run cancels
-  the pending one. Afterwards read `gh run view <run-id> --json conclusion`; `cancelled` means the
-  run was replaced and nothing ran.
+  the pending one. Take the run ID from
+  `gh run list --workflow app-build-floor.yml --branch main --event workflow_dispatch --limit 1 --json databaseId,createdAt,status`
+  only when its `createdAt` is later than the dispatch. Afterwards read
+  `gh run view <run-id> --json conclusion`; `cancelled` means the run was replaced and nothing ran.
+  A workflow `lower` therefore cannot run while a Production Release holds the group (its deploy
+  job may take up to 240 minutes). If GitHub Actions is unavailable, or a Production Release is
+  running or queued, the owner lowers the floor in the admin dashboard (Maintenance, App build
+  floor panel, lower only).
+- A `set` changes the floor first and verifies it afterwards, so a run that does not end in
+  success can leave the new floor stored and enforced. Read
+  `curl -s https://musixquare.com/api/app-build-floor`. If the stored floor is the target and the
+  failure was transient (a rate limit, a late cron report, a cached client read), dispatch the
+  same `set` again; with the floor already stored it only verifies. If the PRO front door refused
+  the target build or Signaling misbehaved, run `lower` to 0 at once and investigate.
 - A release that needs a floor sets the Production Release input `raise_app_build_floor` (target
   `app` or `all`). The raise runs only after the commit marker, and only to this release's build
   when that build is the live App. If it fails, the release stays committed and is not rolled
@@ -666,11 +679,21 @@ gh workflow run app-build-floor.yml --ref main -f action=lower -f min_app_build=
   `raise_app_build_floor` false. Once its smokes and public assets are verified, run `status`
   (the live App build is the released one and the App report is fresh), then `check` (the OIDC
   path end to end, no change), then `set` with the released build and a reason. Read each run's
-  conclusion before the next dispatch.
+  conclusion before the next dispatch. Right after the `set` succeeds, prove that Signaling admits
+  the released build: from a checkout of the released main SHA, run `npm run smoke:live:signaling`
+  without `MXQR_EXPECTED_SIGNALING_VERSION` (no credentials). It must end with `ok` true,
+  `appBuild.build` equal to the floor, `hostAuthShape` `appBuild`, both rooms admitting their
+  host and guest, and `legacyCompatibility.refusedBelowAppBuildFloor` equal to the floor. Like the
+  release smoke it opens two smoke rooms in production. If a host is refused, run `lower` to 0 at
+  once; retry once after a transient 502 or 503.
 - Recording: the summary line of a `set`, `lower` or release raise goes into the "최소 앱 빌드"
   (minimum App build) row of section 1 of the release record. A release copies it while
-  overwriting section 1; a standalone change between releases updates only that row in a small
-  record pull request and adds no release-history row (it is not a deployment).
+  overwriting section 1; a standalone change between releases updates that row in a small record
+  pull request and adds no release-history row (it is not a deployment). The first floor's record
+  (the release's deployment record pull request if it is still open, otherwise a small record
+  pull request) also removes the release record's first-floor open item in section 2, citing the
+  `set` run ID, and moves known-accepted #13 to Retired Risks with that evidence, updating the
+  "(see #13)" reference in #15. It still adds no release-history row.
 - Automated failed-release recovery needs no floor step. Raises happen only after a commit marker
   or through the standalone workflow, both in the release concurrency group, and the dashboard
   only lowers, so the automation alone never leaves the stored floor above the App build of a
@@ -690,7 +713,11 @@ gh workflow run app-build-floor.yml --ref main -f action=lower -f min_app_build=
   cannot be read it warns and continues.
 - Never roll the Signaling Worker back below 9.0.14 while an App of 9.0.14 or later is live: an
   older Signaling Worker refuses every `host-auth` that carries `appBuild`. Roll the App back
-  first, as automated recovery already does.
+  first, as automated recovery already does. If the 9.0.14 release itself fails after its App
+  deploy, automated recovery rolls the App back to 9.0.13 and then Signaling below 9.0.14. A
+  9.0.14 tab opened in that window cannot create a Standard room or reconnect as host
+  (`HOST_AUTH_FIRST_FRAME_INVALID`) until it applies the update dialog back to the restored App
+  (v786). Guests are not affected: the older guest validator ignores the extra key.
 - The service-control object that holds the floor (`MusixquareServiceControl`) lives in the PRO
   Worker script; every other Worker binds it with `script_name = "musixquare-pro-room"`. Rolling
   the PRO Worker back below 9.0.14 therefore turns the floor off for every Worker, Signaling

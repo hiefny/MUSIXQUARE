@@ -1207,15 +1207,17 @@ RO-51 duplicated
     long-hidden disconnected RTC resumes".
   - Mixed versions: since the old-version removal train (survey OV-B07, TR-03 stage 1) every
     isolated-control peer is restart-capable, and the frozen C9 fixture (the 8.11.23 runtime) and
-    its rows are deleted under the owner's old-version policy of 2026-10-25.
-    `control-isolation.test.ts` "still advertises the restart capability, exactly, before its
-    request and its fence" pins the frame that ends before this train still wait for (it can stop
-    once the client floor reaches this train, OV-F03); "restarts a %s side PC in place although no
-    advertisement arrived" and "ends the route at its own 15 s deadline when a %s side PC gets no
-    restart answer" (the accepted degradation with an 8.11.23 peer) pin the change, and
-    `side-route-outage-integration.test.ts` "a peer whose restart-capable advertisement or restart
-    answer never arrives" pins it through two real connections with the device lines. A Wi-Fi to
-    LTE switch with both PCs is device-only.
+    its rows are deleted under the owner's old-version policy of 2026-10-25. Since train 2
+    (survey OV-F03, App build floor 787) no end sends the `restart-capable` frame and the kind is
+    no longer parsed: `control-isolation.test.ts` "sends no restart advertisement: its request and
+    then its fence open the negotiation" pins the sender, "consumes a 9.0.14 end's restart
+    advertisement at every phase without effect" and "restarts a %s side PC in place beside a
+    9.0.14 peer's advertisement" pin the copy a 9.0.14 end still sends, and "ends the route at its
+    own 15 s deadline when a %s side PC gets no restart answer" (the accepted degradation with an
+    8.11.23 peer) pins the unanswered restart. `side-route-outage-integration.test.ts` "the
+    restart-capable advertisement" and "a peer whose restart answer never arrives" pin both
+    through two real connections with the device lines. A Wi-Fi to LTE switch with both PCs is
+    device-only.
   - Characterization before the owner moves (tests only, #478):
     `src/network/transport/__tests__/link-liveness-characterization.test.ts` (grace, restart gate,
     effect order, background-resume probe outcomes) and `room-expiry-liveness.test.ts` (the #471
@@ -1357,8 +1359,9 @@ RO-51 duplicated
   the frozen C9 fixture kept its old grace timer as a test file, outside the guard. The
   old-version removal train (survey OV-B07, TR-03 stage 1) then made every isolated-control peer
   restart-capable: control isolation no longer waits for the peer's `restart-capable` frame,
-  which it still sends before its request and fence, so a route that cannot restart is one before
-  READY only. Control isolation's 10 s negotiation bound, armed before the side PC exists, ends
+  which it still sent before its request and fence until train 2 (survey OV-F03, App build floor
+  787) stopped sending it and stopped parsing the kind, so a route that cannot restart is one
+  before READY only. Control isolation's 10 s negotiation bound, armed before the side PC exists, ends
   such a route (decline and fall back, or `side-failed:route` once fenced) before the owner's
   15 s grace can run out, or READY takes the grace over; the owner keeps that grace and the
   take-over unchanged, and the grace's own end stays pinned on the owner alone

@@ -381,7 +381,23 @@ RO-49 accepted-exception
   track and reports a context that is not running once the slot confirms the graph, and its
   `cleanupGuestSfu` detaches the route and ends the reception only when its subscription
   attached (`getSystemAudioReceiveRouteSnapshot`). The SFU does not join the end port: an end
-  leaves its transport, source and primer to that cleanup, as before. Since C4-5 the PRO
+  leaves its transport, source and primer to that cleanup, as before. Since 5B-G3 (owner
+  decision P5-D5 A, gap 1) a failed subscription with no successor (its subscribe with no
+  pending READY, or its subscriber PC's `'failed'` state) goes through one helper
+  (`failGuestSfuSubscription`): when it attached nothing while the slot is receiving, it
+  continued a reception a re-publication left playing (the re-publication's
+  `cleanupGuestSfu(false)` keeps the receiving flag), so it hands that reception off (the
+  placeholder and restore point stay, receiving drops, the slot deadline is armed from the
+  failure, and a READY within it still attaches; otherwise the deadline's `receive_failed` and
+  the previous title follow). Before, the guest stayed playing in silence with no deadline and
+  no notice until STOP. Any other failure cleans up as before: an attached subscription ends
+  the reception (gap 8), and a failed first subscription leaves the start's deadline to end it
+  (gap 13). The handoff was chosen over an immediate end with `receive_failed`: it is the
+  existing Standard SFU semantic for a failed subscription that continues a reception (the
+  handoff to a pending READY), it matches gap 13 (left as is), a later READY within the 30 s
+  still attaches, and it adds no timer, notice or frame. The Standard routes exclude each other
+  (a direct call retires the SFU route before it attaches, and a direct-failure READY ends the
+  direct reception before it subscribes), so a receiving flag there is the SFU's own. Since C4-5 the PRO
   coordinator (`src/pro-room/system-audio-service.ts`) is a slot input too, as one route
   (`'pro-coordinator'`) for both of its transports, because it held one source and one primer
   whichever transport (PRO SFU or LAN-direct, `src/network/pro-system-audio-direct.ts`)
@@ -448,7 +464,8 @@ RO-49 accepted-exception
   the `receiveWatchdog` boolean): `'slot'` arms the slot's 30 s deadline (the host START and the
   Standard SFU after a direct-route failure), `'route'` arms none (the PRO coordinator's two
   starts and three interrupts). A Standard SFU delivery handoff (a failed subscription handing
-  over to a pending READY, or a direct call replacing the SFU) calls
+  over to a pending READY, since 5B-G3 a failed re-subscription that attached nothing while the
+  slot is receiving, or a direct call replacing the SFU) calls
   `handOffTrustedSystemAudioReception`, which interrupts under the slot deadline while the
   placeholder is up; the SFU keeps the guest-role check (`isGuestSfuReceiver`) the guest's
   `system-audio:delivery-handoff` listener made. The slot deadline and the direct call's
@@ -493,7 +510,8 @@ RO-49 accepted-exception
   restore. Since 5B-G1 the attach and the resume pass the slot's fence first (the receive
   placeholder is the current meta) and a refused one detaches the route. Since 5B-G2 the PRO
   coordinator ends its route (and marks the publication ended) on a force-stop outside its own
-  start and on a refused SFU track.
+  start and on a refused SFU track. Since 5B-G3 a failed Standard SFU re-subscription that
+  attached nothing while the slot is receiving hands the reception off under the slot deadline.
 - **Deadline owner:** per route today, named at each start and interrupt since C4-6
   (`ReceiveDeadline`). Standard P2P: the 30 s receive watchdog, the receive slot's since C4-2
   (timer `sys-audio-guest-receive-watchdog`, the guest receive watchdog in the guard's
@@ -644,6 +662,19 @@ RO-49 accepted-exception
     the PRO row "5B-G1: a 'subscribed' for the live publication after a successor replaced the
     placeholder ..." (the subscription stays open through a heartbeat, with one subscribe and one
     start, until the share end closes it; unchanged from before 5B-G2).
+  - The Standard SFU re-publication handoff (5B-G3) is pinned by rows that failed before it:
+    the Standard suite's "re-publication, fixed in 5B-G3: a failed re-subscription while
+    receiving hands the reception off to the slot deadline ..." (the subscribe fails with no
+    pending READY: pending under the placeholder with the slot deadline armed at the failure,
+    then one `receive_failed` and the previous title 30 s later) and its pair "5B-G3: an ICE
+    failure of the re-subscription $when hands the reception off the same way" (the subscriber
+    PC fails before the offer exposes its track, or while the exposed track waits in
+    `initAudio()`). Guards that pass before and after: "5B-G3 guard: a READY inside the deadline
+    a failed re-subscription leaves subscribes and attaches with no notice", and the rows that
+    keep the helper's two conditions, the Standard "a live subscriber connection failure ..."
+    (an attached subscription ends silently, gap 8), the lifecycle "expected today: a failed
+    first SFU subscription ..." (gap 13) and the Standard "S3: a handoff re-arms the 30 s slot
+    deadline from the handoff, not from START" (each fails when its condition is dropped).
   - Cross-owner: `src/pro-room/__tests__/system-audio-subscriber-watchdog.test.ts` runs the real
     guest module and slot with the service (G1), with a spy retire registered for the Standard
     SFU route since C4-7. `system-audio-service.test.ts` hand-mocks state, so it cannot see the
@@ -703,9 +734,9 @@ RO-49 accepted-exception
   behaviour ([Today's gaps](system-audio-receive-ownership.md#todays-gaps): the attach fence,
   an end that covers every route, route closes the slot does not hear, the re-entrant restore
   point) are behaviour changes for train 5B (owner decision P5-D5 A), each with its failing test
-  first. Train 5B (not yet released): 5B-G1 added the attach fence (gaps 2 and 3), and 5B-G2
-  the PRO coordinator's force-stop and successor teardown (gaps 4 and 5); the record stays
-  `duplicated`. Exception RO-39.
+  first. Train 5B (not yet released): 5B-G1 added the attach fence (gaps 2 and 3), 5B-G2
+  the PRO coordinator's force-stop and successor teardown (gaps 4 and 5), and 5B-G3 the
+  Standard SFU re-publication handoff (gap 1); the record stays `duplicated`. Exception RO-39.
 
 ### RO-05 Guest YouTube re-align retry chains
 

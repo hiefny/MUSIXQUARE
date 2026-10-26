@@ -881,6 +881,28 @@ function handOffGuestSfuReception(): void {
 }
 
 /**
+ * The current subscription failed with no successor to hand over to (its
+ * subscribe with no pending READY, or its subscriber PC). When it attached
+ * nothing while the slot is receiving, it continued a reception that a
+ * re-publication left playing (the re-publication's cleanup keeps the
+ * receiving flag): hand that reception off, so the placeholder waits under
+ * the slot deadline and a later READY can still attach within it (5B-G3, gap
+ * 1). Otherwise clean up as before: an attached subscription ends the
+ * reception, and a failed first subscription leaves the start's deadline to
+ * end it. The Standard routes exclude each other (a direct call retires this
+ * route before it attaches, and a direct-failure READY ends the direct
+ * reception before it subscribes), so a receiving flag here is this route's.
+ */
+function failGuestSfuSubscription(): void {
+  if (!isGuestSfuAttached() && getState('systemAudio.isReceiving')) {
+    cleanupGuestSfu(false);
+    handOffGuestSfuReception();
+    return;
+  }
+  cleanupGuestSfu();
+}
+
+/**
  * Another route adopted the receive slot (the PRO coordinator): drop only the
  * legacy guest SFU transport and thaw its frozen share route. Playback
  * ownership is preserved until the role-independent PRO subscriber replaces
@@ -955,7 +977,7 @@ async function subscribeGuestToSfu(payload: SfuReadyPayload, signal: AbortSignal
     if (guestPc !== pc) return;
     log.info(`[SysAudioSFU] Guest SFU connection: ${pc.connectionState}`);
     if (pc.connectionState === 'failed' || pc.connectionState === 'closed') {
-      cleanupGuestSfu();
+      failGuestSfuSubscription();
     }
   });
 
@@ -1128,7 +1150,7 @@ function beginGuestSfuSubscription(payload: SfuReadyPayload): void {
         handOffGuestSfuReception();
         beginGuestSfuSubscription(pendingPayload);
       } else {
-        cleanupGuestSfu();
+        failGuestSfuSubscription();
       }
     })
     .finally(() => {

@@ -27738,7 +27738,9 @@ describe('PRO room multiple playlists', () => {
 
 describe('PRO room requests only Apps below the 787 build floor sent', () => {
   const joinPublicRoom = async (worker: MusixquareProRoom) => {
-    const joined = await worker.fetch(jsonRequest('/sessions', 'POST', {}));
+    // The opt-in header lets the parent Worker admit this body too, so each row
+    // fails or passes on the parent at the behaviour it pins, not in setup.
+    const joined = await worker.fetch(optionalEntryPolicy(jsonRequest('/sessions', 'POST', {})));
     expect(joined.status).toBe(200);
     const cookie = cookieFrom(joined);
     const envelope = await responseJson(joined);

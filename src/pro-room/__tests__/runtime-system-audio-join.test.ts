@@ -2,6 +2,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { createDefaultRoomEffectsState } from '../../core/room-effects.ts';
 import { getState, resetState } from '../../core/state.ts';
+import { getManagedTimer } from '../../core/timers.ts';
 import * as systemAudioSfu from '../../network/pro-system-audio-sfu.ts';
 import type { QueueItemId } from '../../types/index.ts';
 import { ProRoomApiClient, type ProRoomSignalingAccess } from '../api.ts';
@@ -21,7 +22,7 @@ import {
   type ProPlaybackMediaEndpoint,
 } from '../playback-authority-hooks.ts';
 import { ProRoomPlaybackController } from '../playback-controller.ts';
-import { joinProRoom } from '../runtime.ts';
+import { joinProRoom, requestProRoomBackgroundReturnSync } from '../runtime.ts';
 import { getProSystemAudioViewState, refreshProSystemAudioState } from '../system-audio-service.ts';
 import { proHeartbeat } from './__helpers__/pro-heartbeat.ts';
 
@@ -29,6 +30,7 @@ const ROOM_CODE = '000001';
 const ROOM_EPOCH = 7;
 const QUEUE_ITEM_ID = '42000000-0000-4000-8000-000000000001' as QueueItemId;
 const VIDEO_ID = 'dQw4w9WgXcQ';
+const VISIBILITY_RECOVERY_TIMER = 'pro-room-visibility-playback-recovery';
 
 function deferred<T>() {
   let resolve!: (value: T) => void;
@@ -38,7 +40,7 @@ function deferred<T>() {
   return { promise, resolve };
 }
 
-function roomSnapshot(): ProRoomSnapshot {
+function roomSnapshot(media: 'youtube' | 'file' = 'youtube'): ProRoomSnapshot {
   const member = {
     memberId: 'member_0000000001',
     memberDisplayNumber: 1,
@@ -58,7 +60,23 @@ function roomSnapshot(): ProRoomSnapshot {
     effectsRevision: 0,
     queueModeRevision: 0,
     playlist: [
-      { queueItemId: QUEUE_ITEM_ID, name: 'Video', source: { kind: 'youtube', videoId: VIDEO_ID } },
+      media === 'youtube'
+        ? {
+            queueItemId: QUEUE_ITEM_ID,
+            name: 'Video',
+            source: { kind: 'youtube', videoId: VIDEO_ID },
+          }
+        : {
+            queueItemId: QUEUE_ITEM_ID,
+            name: 'File',
+            source: {
+              kind: 'pro-r2',
+              assetId: 'asset_00000000001',
+              version: 1,
+              byteLength: 1024,
+              mime: 'audio/flac',
+            },
+          },
     ],
     currentQueueItemId: QUEUE_ITEM_ID,
     playback: {
@@ -67,8 +85,8 @@ function roomSnapshot(): ProRoomSnapshot {
       state: 'playing',
       queueItemId: QUEUE_ITEM_ID,
       positionSeconds: 37.5,
-      youtubeVideoId: VIDEO_ID,
-      youtubeSubIndex: 0,
+      youtubeVideoId: media === 'youtube' ? VIDEO_ID : null,
+      youtubeSubIndex: media === 'youtube' ? 0 : null,
       updatedAtMs: Date.now(),
     },
     presence: {
@@ -262,6 +280,46 @@ describe('PRO join playback while a system-audio track is still arriving', () =>
     expect(getProSystemAudioViewState().phase).toBe('live');
   }
 
+  function setVisibility(state: DocumentVisibilityState) {
+    Object.defineProperty(document, 'visibilityState', { configurable: true, value: state });
+    document.dispatchEvent(new Event('visibilitychange'));
+  }
+
+  /**
+   * The F3 path up to the page being shown again. The share ends while the
+   * page is hidden. The restore pass's forced heartbeat lets the controller
+   * apply the snapshot checkpoint with the calibrated clock (one arm) while
+   * the pass itself waits for a fresh clock sample that never arrives, so the
+   * pass reports failure and holds its retry until the page is shown. Fresh
+   * clock samples succeed from here on.
+   */
+  async function endShareWhileHiddenAfterFailedRestore() {
+    const freshClock = vi.mocked(ServerProRoomNetworkBridge.prototype.waitForFreshClockCalibration);
+    const reconcile = vi.spyOn(ProRoomPlaybackController.prototype, 'reconcile');
+    await joinWithPendingClock();
+    await acceptLiveShare();
+    calibrated = true;
+    initialClock.resolve(true);
+    await joinRestoration;
+    expect(prepare).not.toHaveBeenCalled();
+
+    setVisibility('hidden');
+    const hiddenClock = deferred<boolean>();
+    freshClock.mockImplementation(() => hiddenClock.promise);
+    const clockWaits = freshClock.mock.calls.length;
+    vi.mocked(ProRoomApiClient.prototype.getSystemAudioState).mockResolvedValue(idleShare(2));
+    await refreshProSystemAudioState();
+    await vi.waitFor(() => expect(freshClock).toHaveBeenCalledTimes(clockWaits + 1));
+    hiddenClock.resolve(false);
+    await settle();
+    expect(prepare).toHaveBeenCalledOnce();
+    expect(commit).toHaveBeenCalledOnce();
+    expect(reconcile).toHaveBeenCalledOnce();
+    expect(reconcile.mock.calls[0]?.[0]).toMatchObject({ preparePaused: true });
+    freshClock.mockResolvedValue(true);
+    return reconcile;
+  }
+
   it('keeps the live receiver after the earlier join clock wait completes', async () => {
     await joinWithPendingClock();
     await acceptLiveShare();
@@ -317,17 +375,83 @@ describe('PRO join playback while a system-audio track is still arriving', () =>
     });
   });
 
-  it('F3 baseline: a share that ends while hidden, with a failed first restore, re-arms the YouTube renderer once per owner when shown', async () => {
-    // C4-0 F3 baseline (RO-21; exception RO-41). The post-share restore and the
-    // foreground repair are separate reconcile owners, so the scheduler queues
-    // the second instead of joining it. C4-13 changes the expectation to one
-    // arm pass only after the owner confirms that the second is a defect.
-    const freshClock = vi.mocked(ServerProRoomNetworkBridge.prototype.waitForFreshClockCalibration);
+  it('F3, fixed in 5B-C4-13: a share that ends while hidden, with a failed first restore, re-arms the YouTube renderer once when shown', async () => {
+    // C4-0 F3 (RO-21). Shown, the held post-share restore re-applies the
+    // checkpoint while the page is visible and marks this return reconciled.
+    // The foreground repair waiting behind it is then stale: it resolves false
+    // without a prepare and settles instead of scheduling a retry. Before
+    // 5B-C4-13 each owner armed the same revision once (3 prepares, 3 commits).
+    const reconcile = await endShareWhileHiddenAfterFailedRestore();
+
+    // Shown: the held restore retry runs first, then the foreground repair.
+    setVisibility('visible');
+    await vi.waitFor(() => expect(reconcile).toHaveBeenCalledTimes(3));
+    const shownPasses = reconcile.mock.calls.slice(1).map(([options]) => options);
+    const shownResults = await Promise.all(
+      reconcile.mock.results.slice(1).map(({ value }) => value as Promise<boolean>),
+    );
+    // Longer than the first restore retry (250 ms): nothing else re-arms.
+    await new Promise<void>((resolve) => setTimeout(resolve, 300));
+    expect(
+      shownPasses.map((options) => ({
+        youtubeOnly: options.youtubeOnly,
+        rendezvous: options.rendezvous,
+        preparePaused: options.preparePaused ?? false,
+      })),
+    ).toEqual([
+      { youtubeOnly: true, rendezvous: true, preparePaused: true },
+      { youtubeOnly: true, rendezvous: true, preparePaused: false },
+    ]);
+    // The post-share restore applied; the foreground repair did not arm.
+    expect(shownResults).toEqual([true, false]);
+    expect(reconcile).toHaveBeenCalledTimes(3);
+    expect(prepare).toHaveBeenCalledTimes(2);
+    expect(commit).toHaveBeenCalledTimes(2);
+    expect(commit.mock.calls.map(([request]) => request.committedPlaybackRevision)).toEqual([1, 1]);
+    expect(prepare.mock.calls[1]?.[0].authority.basePlaybackRevision).toBe(0);
+    // The repair settled: no visibility retry is waiting to arm again.
+    expect(getManagedTimer(VISIBILITY_RECOVERY_TIMER)).toBeNull();
+  });
+
+  it('5B-C4-13 guard: after the post-share restore reconciled a return, a later hide and show repairs again', async () => {
+    const reconcile = await endShareWhileHiddenAfterFailedRestore();
+    setVisibility('visible');
+    await vi.waitFor(() => expect(reconcile).toHaveBeenCalledTimes(3));
+    await Promise.all(reconcile.mock.results.map(({ value }) => value as Promise<boolean>));
+    await new Promise<void>((resolve) => setTimeout(resolve, 300));
+    const arms = prepare.mock.calls.length;
+    const commits = commit.mock.calls.length;
+
+    // A new return: its foreground repair re-arms the same revision once.
+    setVisibility('hidden');
+    setVisibility('visible');
+    await vi.waitFor(() => expect(commit).toHaveBeenCalledTimes(commits + 1));
+    await new Promise<void>((resolve) => setTimeout(resolve, 300));
+    expect(prepare).toHaveBeenCalledTimes(arms + 1);
+    expect(commit).toHaveBeenCalledTimes(commits + 1);
+    expect(commit.mock.calls.at(-1)?.[0].committedPlaybackRevision).toBe(1);
+    const repair = reconcile.mock.calls.at(-1)?.[0];
+    expect(repair).toMatchObject({ youtubeOnly: true, rendezvous: true });
+    expect(repair?.preparePaused ?? false).toBe(false);
+    await expect(reconcile.mock.results.at(-1)?.value).resolves.toBe(true);
+    expect(getManagedTimer(VISIBILITY_RECOVERY_TIMER)).toBeNull();
+  });
+
+  it('5B-C4-13 guard: a file item, whose post-share restore completes without applying, is still repaired by the background-return Sync', async () => {
+    const snapshot = roomSnapshot('file');
+    vi.mocked(ProRoomApiClient.prototype.createSession).mockResolvedValue(snapshot);
+    const heartbeat = vi.mocked(ProRoomApiClient.prototype.heartbeat);
+    heartbeat.mockResolvedValue(proHeartbeat(snapshot));
+    prepare.mockImplementation(async (request) => ({
+      status: 'ready',
+      authority: request.authority,
+      queueItemId: request.queueItemId,
+      mediaKind: 'file',
+      durationSeconds: 180,
+      youtubeSubIndex: null,
+      youtubeVideoId: null,
+    }));
     const reconcile = vi.spyOn(ProRoomPlaybackController.prototype, 'reconcile');
-    const setVisibility = (state: DocumentVisibilityState) => {
-      Object.defineProperty(document, 'visibilityState', { configurable: true, value: state });
-      document.dispatchEvent(new Event('visibilitychange'));
-    };
     await joinWithPendingClock();
     await acceptLiveShare();
     calibrated = true;
@@ -335,50 +459,44 @@ describe('PRO join playback while a system-audio track is still arriving', () =>
     await joinRestoration;
     expect(prepare).not.toHaveBeenCalled();
 
-    // The share ends while the page is hidden. The restore pass's forced
-    // heartbeat lets the controller apply the snapshot checkpoint with the
-    // calibrated clock (one arm) while the pass itself waits for a fresh clock
-    // sample that never arrives, so the pass reports failure and holds its
-    // retry until the page is shown.
+    // The share ends while hidden and the restore pass's forced heartbeat
+    // fails, so the restore holds its retry until the page is shown.
     setVisibility('hidden');
-    const hiddenClock = deferred<boolean>();
-    freshClock.mockImplementation(() => hiddenClock.promise);
-    const clockWaits = freshClock.mock.calls.length;
+    heartbeat.mockRejectedValueOnce(new Error('offline'));
     vi.mocked(ProRoomApiClient.prototype.getSystemAudioState).mockResolvedValue(idleShare(2));
     await refreshProSystemAudioState();
-    await vi.waitFor(() => expect(freshClock).toHaveBeenCalledTimes(clockWaits + 1));
-    hiddenClock.resolve(false);
+    await vi.waitFor(() => expect(reconcile).toHaveBeenCalledOnce());
+    await expect(reconcile.mock.results[0]?.value).rejects.toThrow('offline');
     await settle();
-    expect(prepare).toHaveBeenCalledOnce();
-    expect(commit).toHaveBeenCalledOnce();
-    expect(reconcile).toHaveBeenCalledOnce();
-    expect(reconcile.mock.calls[0]?.[0]).toMatchObject({ preparePaused: true });
 
-    // Shown: the held restore retry runs first, then the foreground repair.
-    freshClock.mockResolvedValue(true);
+    // Shown: the held retry runs while the page is visible and completes for
+    // the file item without applying anything (the restore callback returns
+    // true for a file), and the YouTube-only foreground repair cannot cover a
+    // file. Neither marks this return reconciled.
     setVisibility('visible');
-    await vi.waitFor(() => expect(commit).toHaveBeenCalledTimes(3));
-    // Longer than the first restore retry (250 ms): nothing else re-arms.
+    await vi.waitFor(() => expect(reconcile).toHaveBeenCalledTimes(3));
+    await expect(
+      Promise.all(reconcile.mock.results.slice(1).map(({ value }) => value as Promise<boolean>)),
+    ).resolves.toEqual([false, false]);
+    await settle();
+    expect(getManagedTimer(VISIBILITY_RECOVERY_TIMER)).toBeNull();
+    const commits = commit.mock.calls.length;
+
+    // The background-return Sync widens this return's repair to every medium
+    // and re-applies the file checkpoint once.
+    requestProRoomBackgroundReturnSync();
+    await vi.waitFor(() => expect(commit).toHaveBeenCalledTimes(commits + 1));
+    expect(commit.mock.calls.at(-1)?.[0]).toMatchObject({
+      queueItemId: QUEUE_ITEM_ID,
+      committedPlaybackRevision: 1,
+      state: 'playing',
+    });
+    expect(reconcile.mock.calls.at(-1)?.[0]).toMatchObject({
+      youtubeOnly: false,
+      rendezvous: true,
+    });
     await new Promise<void>((resolve) => setTimeout(resolve, 300));
-    expect(
-      reconcile.mock.calls.slice(1).map(([options]) => ({
-        owner: options.liveness ? 'post-share restore' : 'foreground repair',
-        preparePaused: options.preparePaused ?? false,
-      })),
-    ).toEqual([
-      { owner: 'post-share restore', preparePaused: true },
-      { owner: 'foreground repair', preparePaused: false },
-    ]);
-    // Today's baseline: two arm passes of the same applied revision after the
-    // page is shown, each its own arm/release cycle (the inferred second
-    // iframe pause of RO-41; not yet confirmed on a device).
-    expect(prepare).toHaveBeenCalledTimes(3);
-    expect(commit).toHaveBeenCalledTimes(3);
-    expect(commit.mock.calls.map(([request]) => request.committedPlaybackRevision)).toEqual([
-      1, 1, 1,
-    ]);
-    const shownArms = prepare.mock.calls.slice(1).map(([request]) => request.authority);
-    expect(shownArms.map((authority) => authority.basePlaybackRevision)).toEqual([0, 0]);
-    expect(new Set(shownArms.map((authority) => authority.transitionId)).size).toBe(2);
+    expect(commit).toHaveBeenCalledTimes(commits + 1);
+    expect(getManagedTimer(VISIBILITY_RECOVERY_TIMER)).toBeNull();
   });
 });

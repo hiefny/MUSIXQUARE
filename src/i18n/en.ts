@@ -99,7 +99,7 @@ const en: Record<I18nKey, string> = {
   'common.revoke': 'Revoke',
   'common.system': 'System',
   'common.unknown': 'Unknown',
-  'common.youtube_video': 'YouTube video',
+  'common.youtube_video': 'YouTube Video',
   'common.peer': 'Peer',
 
   // ─── Navigation ──────────────────────────────────────────────────

@@ -87,8 +87,9 @@ export function roomCapabilityFeedbackTip(capability: RoomCapabilityWithTip): st
 }
 
 /**
- * Feedback for a blocked action or its affordance: "checking" while the answer
- * is still pending, otherwise the definitive denial.
+ * Feedback for a blocked action, as a toast or a chat command's reply:
+ * "checking" while the answer is still pending, otherwise the definitive
+ * denial. Hints on the control itself use roomCapabilityFeedbackTip instead.
  */
 export function roomCapabilityFeedbackMessage(capability: RoomCapability): string {
   const checkingKey = CAPABILITY_CHECKING_TOAST[capability];

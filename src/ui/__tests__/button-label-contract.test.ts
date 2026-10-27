@@ -49,6 +49,37 @@ const OWN_SIZE_CLASSES: Readonly<Record<string, string>> = {
     'and letter spacing.',
 };
 
+// Labels that keep their own weight and tracking and share the label size and
+// line height, each with the reason. The rule stays in the base layer, so the
+// right-to-left reset (components layer) still removes the tracking.
+const COMPACT_PLAY_ACTIONS =
+  'The play tab keeps Sync and Media compact: each label sits beside its icon in a ' +
+  '130px slot at the real 320px width and must stay on one line in every locale. ' +
+  'At 700 the Finnish Synkronoi wraps with Linux fonts (PR #510 CI), so both keep ' +
+  'the 9.0.18 label weight and tracking.';
+const OWN_LABEL_DECLARATIONS: ReadonlyArray<{
+  selector: string;
+  declaration: string;
+  reason: string;
+}> = [
+  { selector: '#btn-sync span', declaration: 'font-weight: 600', reason: COMPACT_PLAY_ACTIONS },
+  {
+    selector: '#btn-sync span',
+    declaration: 'letter-spacing: -0.3px',
+    reason: COMPACT_PLAY_ACTIONS,
+  },
+  {
+    selector: '#btn-media-source span',
+    declaration: 'font-weight: 600',
+    reason: COMPACT_PLAY_ACTIONS,
+  },
+  {
+    selector: '#btn-media-source span',
+    declaration: 'letter-spacing: -0.3px',
+    reason: COMPACT_PLAY_ACTIONS,
+  },
+];
+
 // Every other button class in index.html and the TypeScript templates, with
 // the reason it is not an action button. A new button class must join one list.
 const NOT_ACTION_BUTTONS: Readonly<Record<string, string>> = {
@@ -262,6 +293,26 @@ function isCompactOverride(declaration: Declaration, selector: string): boolean 
       allowed.selector === selector.replace(/\s+/gu, ' ').trim() &&
       allowed.declaration === `${declaration.prop}: ${declaration.value}`,
   );
+}
+
+/** A label's own weight or tracking, outside every condition. */
+function isOwnLabelDeclaration(declaration: Declaration, selector: string): boolean {
+  return OWN_LABEL_DECLARATIONS.some(
+    (allowed) =>
+      conditionOf(declaration) === null &&
+      allowed.selector === selector.replace(/\s+/gu, ' ').trim() &&
+      allowed.declaration === `${declaration.prop}: ${declaration.value}`,
+  );
+}
+
+/** The cascade layer around a node, or null outside every layer. */
+function layerOf(node: Node): string | null {
+  for (let parent = node.parent; parent; parent = parent.parent) {
+    if (parent.type === 'atrule' && (parent as AtRule).name === 'layer') {
+      return (parent as AtRule).params;
+    }
+  }
+  return null;
 }
 
 /** Label typography a declaration may set on an action button or its label. */
@@ -678,6 +729,7 @@ describe('action button label contract', () => {
           const button = styledButton(selector);
           if (!button || !labelViolation(declaration, button.ownSize)) continue;
           if (isCompactOverride(declaration, selector)) continue;
+          if (isOwnLabelDeclaration(declaration, selector)) continue;
           violations.push(
             `${where(declaration, path)} ${selector.replace(/\s+/gu, ' ')} { ${declaration.prop}: ${declaration.value} }`,
           );
@@ -700,6 +752,63 @@ describe('action button label contract', () => {
         LABEL_TOKENS[property],
       ]);
     }
+  });
+
+  it('keeps the compact play action labels at their 9.0.18 weight and tracking', () => {
+    // PR #510 CI (Linux fonts): at 700 the Finnish Synkronoi wrapped to two
+    // lines in its 130px slot at the real 320px width. Sync and Media (and
+    // Stop Sharing, inside the media button) keep 600 and -0.3px as in 9.0.18
+    // and read the shared size and line height, the same 15px / 1.25 as 9.0.18.
+    for (const selector of ['#btn-sync span', '#btn-media-source span']) {
+      expect(ruleValues(appCss, selector, 'font-weight'), selector).toEqual(['600']);
+      expect(ruleValues(appCss, selector, 'letter-spacing'), selector).toEqual(['-0.3px']);
+      expect(ruleValues(appCss, selector, 'font-size'), selector).toEqual([]);
+      expect(ruleValues(appCss, selector, 'line-height'), selector).toEqual([]);
+    }
+    expect(ruleValues(appCss, '.file-select-btn', 'font-size')).toEqual([
+      LABEL_TOKENS['font-size'],
+    ]);
+    expect(ruleValues(appCss, '.file-select-btn', 'line-height')).toEqual([
+      LABEL_TOKENS['line-height'],
+    ]);
+    expect(LABEL_VALUES['--button-label-size']).toBe('15px');
+    expect(LABEL_VALUES['--button-label-line-height']).toBe('1.25');
+    // No other rule sets their label typography.
+    const owners: string[] = [];
+    for (const { path, root } of sheets) {
+      root.walkDecls((declaration) => {
+        if (!FONT_PROPERTIES.includes(declaration.prop)) return;
+        const rule = declaration.parent as unknown as { type: string; selectors?: string[] };
+        if (rule.type !== 'rule') return;
+        for (const selector of rule.selectors ?? []) {
+          if (!/#btn-(?:sync|media-source)(?![\w-])|play-action-label/u.test(selector)) continue;
+          owners.push(`${path} ${selector.replace(/\s+/gu, ' ').trim()} ${declaration.prop}`);
+        }
+      });
+    }
+    expect(owners.sort()).toEqual([
+      'css/style.css #btn-media-source span font-weight',
+      'css/style.css #btn-media-source span letter-spacing',
+      'css/style.css #btn-sync span font-weight',
+      'css/style.css #btn-sync span letter-spacing',
+    ]);
+    // As in 9.0.18, the tracking sits in the base layer and the right-to-left
+    // reset in the components layer, so Arabic and Hebrew labels take none.
+    appCss.walkRules((rule) => {
+      if (!rule.selectors.some((selector) => selector.trim() === '#btn-sync span')) return;
+      expect(layerOf(rule)).toBe('base');
+    });
+    const rtlReset =
+      "html[dir='rtl'] :where(h1, h2, h3, h4, p, button, label, span, input, textarea)";
+    const rtlLayers: Array<string | null> = [];
+    for (const { root } of sheets) {
+      root.walkRules((rule) => {
+        if (rule.selectors.some((selector) => selector.replace(/\s+/gu, ' ').trim() === rtlReset)) {
+          rtlLayers.push(layerOf(rule));
+        }
+      });
+    }
+    expect(rtlLayers).toEqual(['components']);
   });
 
   it('resolves only the label tokens on every action button in the app markup', () => {
@@ -761,6 +870,7 @@ describe('action button label contract', () => {
                 }
                 if (!labelViolation(declaration, false)) continue;
                 if (isCompactOverride(declaration, selector)) continue;
+                if (isOwnLabelDeclaration(declaration, selector)) continue;
                 violations.add(`${where(declaration, rule.path)} ${selector} { ${value} }`);
               }
             }
@@ -822,6 +932,10 @@ describe('action button label contract', () => {
         });
       });
       expect(declarations, allowed.selector).toContain(allowed.declaration);
+    }
+    for (const allowed of OWN_LABEL_DECLARATIONS) {
+      const [property, value] = allowed.declaration.split(': ');
+      expect(ruleValues(appCss, allowed.selector, property!), allowed.selector).toEqual([value]);
     }
     const resets = new Map<string, string[]>();
     for (const { root } of sheets) {

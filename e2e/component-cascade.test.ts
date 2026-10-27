@@ -161,6 +161,9 @@ for (const mode of [
 // Owner decision (2026-10-27): every action button label renders the button
 // label tokens after every layer, ID selector and responsive override, so
 // labels differ only by color. Destructive labels share one danger color.
+// The named exception: the play tab's compact Sync, Media and Stop Sharing
+// labels keep the 9.0.18 weight and tracking (600, -0.3px).
+const COMPACT_PLAY_ACTION_LABELS = ['play-sync', 'play-media', 'play-stop'];
 const actionLabelMarkup = `
   <main>
     <div class="dialog-actions adaptive-action-group">
@@ -245,6 +248,10 @@ for (const mode of [
       expect(styles, label).toHaveLength(19);
       const family = styles[0]!.fontFamily;
       for (const style of styles) {
+        // The compact play actions keep the 9.0.18 weight and tracking so
+        // every locale stays on one line at 320px (button-label-contract);
+        // right-to-left labels take no tracking, as in 9.0.18.
+        const compactPlayAction = COMPACT_PLAY_ACTION_LABELS.includes(style.label ?? '');
         expect(
           {
             fontSize: style.fontSize,
@@ -256,12 +263,16 @@ for (const mode of [
           `${label} ${style.label}`,
         ).toEqual({
           fontSize: '15px',
-          fontWeight: '700',
+          fontWeight: compactPlayAction ? '600' : '700',
           lineHeight: '18.75px',
-          letterSpacing: 'normal',
+          letterSpacing: compactPlayAction && mode.direction === 'ltr' ? '-0.3px' : 'normal',
           fontFamily: family,
         });
       }
+      expect(
+        styles.filter((style) => style.fontWeight === '600').map((style) => style.label),
+        label,
+      ).toEqual(COMPACT_PLAY_ACTION_LABELS);
       // Owner decision (2026-10-27, evening): both default palettes keep the
       // #ff3b30 of 9.0.18.
       expect(

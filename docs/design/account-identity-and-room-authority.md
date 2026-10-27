@@ -230,6 +230,13 @@ uses the existing identity owners and adds neither a retry timer nor a grant.
 Standard guests continue to honor the host's current grants, including an
 explicit anonymous grant while the optional account service is unavailable;
 the pending check changes feedback only for a capability not currently granted.
+While the account state is unavailable, or while the assertion request keeps
+failing with a network or 5xx error, the check stays pending even after the
+host confirms the connection: this browser cannot yet prove whether it is an
+anonymous guest or a granted account, so a guest without a grant keeps the
+checking message instead of the permission-required one. This is intended. It
+changes no gating, and the existing assertion retry settles the check once the
+service answers.
 Blocked-action toasts and persistent button descriptions read the same status.
 
 Capabilities are checked by the canonical authority for every browser/BOT

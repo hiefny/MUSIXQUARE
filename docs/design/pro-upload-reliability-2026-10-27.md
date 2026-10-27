@@ -1,12 +1,12 @@
 # PRO upload completion and authority feedback — 2026-10-27
 
-| Field                 | Value                                                                                                                                                            |
-| --------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Status                | [PR #503](https://github.com/hiefny/MUSIXQUARE/pull/503) open; not merged or deployed yet                                                                        |
-| Base                  | Initial `cb1598516`; integrated main `5dd7cc1f6` (#502, 9.0.15 / v788) in `4a99f44ba`; 5B 기록 main `0228276e2`(#506, 운영 9.0.16 / v789)를 QA 라운드 7에서 합침 |
-| Proposed identity     | 9.0.17 / v790, bump `28178b15f`(5B 합침 뒤 다시 올림, 그 전 PR의 9.0.16 / v790 표기는 버림); 최소 앱 빌드 787 그대로; target `all`(QA 라운드 8)                  |
-| Scope                 | Browser PRO uploads, completion deadlines, bounded diagnostics, Standard/PRO authority feedback                                                                  |
-| Release authorization | 2026-10-27 오너가 5B 다음 순서로 이 PR의 병합·배포·기록을 정식 릴리스 절차대로 진행하도록 승인함                                                                 |
+| Field                 | Value                                                                                                                                                                                      |
+| --------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| Status                | [PR #503](https://github.com/hiefny/MUSIXQUARE/pull/503) open; not merged or deployed yet                                                                                                  |
+| Base                  | Initial `cb1598516`; integrated main `5dd7cc1f6` (#502, 9.0.15 / v788) in `4a99f44ba`; 5B 기록 main `0228276e2`(#506, 운영 9.0.16 / v789)를 QA 라운드 7에서 합침                           |
+| Proposed identity     | 9.0.17 / v790, bump `a233dd7b7`(5B 합침 뒤 올린 `28178b15f`를 QA 라운드 9 수정 뒤에 다시 만듦, 그 전 PR의 9.0.16 / v790 표기는 버림); 최소 앱 빌드 787 그대로; target `all`(QA 라운드 8·9) |
+| Scope                 | Browser PRO uploads, completion deadlines, bounded diagnostics, Standard/PRO authority feedback                                                                                            |
+| Release authorization | 2026-10-27 오너가 5B 다음 순서로 이 PR의 병합·배포·기록을 정식 릴리스 절차대로 진행하도록 승인함                                                                                           |
 
 ## Runtime increments
 
@@ -150,7 +150,7 @@ Later report-only commits do not change this runtime evidence.
   runtime coverage, release-tooling coverage, critical runtime coverage and
   broad unit coverage all passed: 11/11 checks. Subsequent report-only commits
   may start another CI run; the PR check state is authoritative for that head.
-- **Automated review:** the [Codex review summary](https://github.com/hiefny/MUSIXQUARE/pull/503#issuecomment-6428202976)
+- **Automated review:** the [PR #503 automated review summary](https://github.com/hiefny/MUSIXQUARE/pull/503#issuecomment-6428202976)
   records completed code review at this SHA with no findings. This is not a
   claim that a separate security review ran.
 
@@ -263,11 +263,13 @@ Node 24.20.0, npm 12.0.2, Vitest 5.0.3, 로컬 실행만. 실제 R2와 자격 �
   재생목록이든 쓰고 있는 asset의 삭제를 거부하므로(`ASSET_IN_USE`), 응답을 잃은 추가가
   실제로 들어간 경우에도 지워지지 않는다. 앞선 시도가 남긴 asset을 가진 재시도가 업로드
   전에 전환을 만나는 경우도 같다.
-- **방 용량 실패를 정확히 안내한다.** `ROOM_STATE_CAPACITY_EXCEEDED`(방 저장 상태가
-  한도에 가까움)와 `ASSET_CAPACITY_EXCEEDED`(방의 파일 1,024개, 정리를 기다리는 지운 파일
-  포함)는 "PRO 방에 트랙을 더 담을 수 없어요."(`pro.upload.room_capacity`)로 안내하고
-  다시 시도를 내지 않는다. 트랙을 지워도 서버 정리가 돌기 전에는 자리가 나지 않기
-  때문이다. 완료 단계에서 이 실패가 나면 예약은 기존처럼 만료(15분)까지 용량에 남는다.
+- **방 용량 실패를 정확히 안내한다.** `ASSET_CAPACITY_EXCEEDED`(방의 파일 1,024개, 정리를
+  기다리는 지운 파일 포함)는 "PRO 방에 트랙을 더 담을 수 없어요."(`pro.upload.room_capacity`)로
+  안내하고 다시 시도를 내지 않는다. 트랙을 지워도 서버 정리가 돌기 전에는 자리가 나지 않기
+  때문이다. 6차는 `ROOM_STATE_CAPACITY_EXCEEDED`도 방 저장 상태가 한도에 가까운 것으로 보고
+  같은 문장에 묶었다. 그러나 업로드에서 이 코드는 대개 방의 영수증 원장이 가득 찬 경우라
+  그 문장이 틀렸고, 라운드 9에서 따로 안내하도록 고쳤다. 완료 단계에서 이 실패가 나면
+  예약은 기존처럼 만료(15분)까지 용량에 남는다.
   `RESERVATION_CAPACITY_EXCEEDED`(방 32개, 참가자당 8개인 끝나지 않은 업로드 한도)는 그
   업로드가 끝나거나 만료되면 풀리므로 다시 시도를 유지하고, "PRO 방에 끝나지 않은
   업로드가 너무 많아요. 잠시 후 다시 시도해 주세요."(`pro.upload.pending_limit`)로
@@ -348,10 +350,11 @@ Node 24.20.0, npm 12.0.2, Vitest 5.0.3, 로컬 실행만. 실제 R2와 자격 �
 
 ### 8. bump 뒤 최종 검사(`28178b15f`, 9.0.17 / v790, 2026-10-27)
 
-테스트한 코드: bump `28178b15f`(9.0.17 / v790, 앱 빌드 790). 이 PR의 마지막 런타임
-커밋이고 그 뒤는 문서뿐이다. 올리기 직전 fetch한 origin/main `0228276e2`는 9.0.16 /
+테스트한 코드: bump `28178b15f`(9.0.17 / v790, 앱 빌드 790). 그때 이 PR의 마지막 런타임
+커밋이었고 그 뒤는 문서뿐이었다. 올리기 직전 fetch한 origin/main `0228276e2`는 9.0.16 /
 v789 그대로였다. 환경: Windows, Node 24.20.0, npm 12.0.2, Vitest 5.0.3, 로컬 Chromium,
-로컬 실행만.
+로컬 실행만. 이 bump는 라운드 9의 수정 뒤에 같은 내용으로 다시 만들었으므로(`a233dd7b7`)
+`28178b15f`는 최종 히스토리에 없다. 아래 결과는 그 전 런타임의 기록이다.
 
 - **버전:** 일곱 표기(`package.json`, `package-lock.json` 둘, App Worker의
   `ADMIN_ASSET_VERSION`, 관리자 스크립트의 `ADMIN_SCRIPT_VERSION`,
@@ -407,21 +410,142 @@ v789 그대로였다. 환경: Windows, Node 24.20.0, npm 12.0.2, Vitest 5.0.3, �
   CopyObject와 운영 진단 출력, 실기기. 로컬 결과는 exact-main-SHA 후보가 아니다. 새
   번역은 사람 검수를 거치지 않았다.
 
+### 9. 검토 지적 정리와 다시 만든 bump(`a233dd7b7`, 9.0.17 / v790, 2026-10-27)
+
+테스트한 코드: bump `a233dd7b7`(9.0.17 / v790, 앱 빌드 790). 런타임 커밋은 테스트 먼저
+`79886708c`와 수정 `cd071fdd7`이고, 둘 다 합침 `d88cbb3b8` 바로 뒤에 두었다. 라운드 8의
+bump는 이 수정 뒤에 같은 내용으로 다시 만들었으므로 bump가 여전히 마지막 런타임 커밋이고,
+그 뒤는 문서뿐이다. 다시 만들기 직전 fetch한 origin/main은 `0228276e2` 그대로였다. 환경:
+Windows, Node 24.20.0, npm 12.0.2, Vitest 5.0.3, 로컬 Chromium, 로컬 실행만.
+
+바뀐 동작:
+
+- **영수증 원장이 가득 찬 실패를 따로 안내한다.** 브라우저 업로드에서
+  `ROOM_STATE_CAPACITY_EXCEEDED`는 대개 방의 변경 영수증 원장이 가득 찬 경우다. 모든
+  참가자의 업로드, 재생목록 편집, 재생 명령이 원장 하나(영수증 256개)를 함께 쓰고, 업로드
+  하나가 완료와 재생목록 추가에 24시간짜리 영수증 둘을 남긴다(예약은 15분, 재생 명령은
+  10분). 그래서 하루 약 128개 업로드(재생목록을 고치면 더 적게)면 트랙이 1,000개보다 훨씬
+  적어도 이 코드가 난다. 방 저장 상태가 한도에 가까운 경우도 같은 코드다. 6차는 이것을
+  "PRO 방에 트랙을 더 담을 수 없어요."로 안내했는데, 트랙 자리 문제가 아니므로 틀린 안내였다.
+  이제 새 문장 `pro.upload.room_state_limit`("지금은 PRO 방에 변경 사항을 더 반영할 수
+  없어요. 잠시 후 파일을 다시 선택해 주세요.")으로 안내한다. 다시 시도는 여전히 내지
+  않는다. 24시간 영수증은 대화상자가 열려 있는 동안 풀리지 않기 때문이다.
+  `pro.upload.room_capacity`는 이제 `ASSET_CAPACITY_EXCEEDED`만 쓴다(파일 수 한도라 YouTube
+  트랙과는 상관없다). 새 문장은 42개 언어에 더했고, 각 언어의 기존 PRO 방, 변경
+  (`playlist.mutation_retry`, `toast.host_changed_setting`), 파일 다시 선택
+  (`pro.upload.retry_unavailable`), 잠시 후(`pro.upload.pending_limit`) 표현과 말투(bg·tr 반말
+  명령형, de·hu·ro 친근한 명령형 등)를 따랐다. 원장 한도 자체는 이 PR과 별개로 방의 하루
+  업로드와 편집 수를 묶으므로 릴리스 기록 §2 운영·보안에 오너 결정 항목으로 적었다.
+- **확정 단계 머리글을 행 문구와 맞춘다.** 묶음 로더의 확정 단계 문구
+  (`pro.upload.confirming`, 이 PR이 더함)가 main에 이미 있던 행 문구
+  (`pro.upload.confirming_file`)와 다른 동사를 쓰는 언어가 39개였다(영어 "Confirming
+  upload" 대 "Finishing upload of"). 이제 각 언어의 행 문구 동사를 쓴다(영어 "Finishing
+  upload 2/3"). 숫자 앞 구분자는 같은 로더의 `pro.upload.batch_progress`를 따랐다(bg·de·hu·uk
+  콜론, ja 전각 콜론). ko·th·zh-hans는 이미 같았다. critical 업로드 경우의 머리글 기대값도
+  "Finishing upload"로 바꿨다.
+- **루마니아어 트랙 용어.** `pro.upload.playlist_switched`의 "piesă"를 이 언어가 쓰는 "pistă"로
+  고쳤다(이 PR의 다른 문구와 `slot_tracks`가 쓰는 단어).
+
+문서만 고친 것(동작 변화 없음):
+
+- **실패한 릴리스의 자동 복구와 롤백.** 아래 Release and recovery에 적었다. 실패한 `all`
+  실행이 9.0.16 PRO Worker를 자동으로 되돌리는 것을 받아들이는 이유, 그때 옛 Worker가 새
+  필드를 다루는 방식과 잃는 것, 수동 CLI 롤백 전에 볼 것, App만 9.0.16으로 CLI 롤백할 때의
+  facade 기한, signaling 재배포의 재연결이다. 복사 안전장치 절에도 한 줄을 더했다. 옛 PRO
+  Worker 동작은 운영 PRO Worker 소스(릴리스 W `a3893f04`)를 읽고 확인했고, 테스트로
+  돌리지는 않았다.
+- **PRO 방 설계 문서의 대체 경로.** `pro-room-architecture-and-operations.md`가 CopyObject만
+  적고 있어서, 검증된 최종 객체가 없으면 9.0.16 바인딩 복사로 대체하고 RO-52가 같은 키의
+  두 번째 쓰기 주체라는 문장을 더했다.
+- **받아들인 경우 둘.** 재생목록 전환 뒤 다른 실패의 다시 시도와, 계정 서비스 장애 동안
+  이어지는 Standard 확인 중 안내를 아래 한계 절에 적었다. 뒤의 것은 계정 문서 §6에도 적었다.
+- **자동 리뷰 표기.** 라운드 3의 자동 리뷰 링크를 PR #503 자동 리뷰 요약으로 적었다.
+
+검증:
+
+- **테스트 먼저:** `79886708c`의 대화상자 테스트를 부모 `d88cbb3b8`의 런타임에서 돌리면
+  2개가 실패했다(코드별 이유 표의 `ROOM_STATE_CAPACITY_EXCEEDED`, 42개 언어의 문장 검사).
+  `cd071fdd7`에서는 34개 모두 통과했다. 바꾼 e2e 기대값은 부모에서 돌리지 않았다.
+- **버전:** `guard:release-identity` 9.0.17·v790, `guard:sw-cache-version` PASS(bump
+  `a233dd7b`를 읽음).
+- **정적 검사:** typecheck(전체), `typecheck:tests`, `check:workers`, `lint`, `format:check`
+  통과.
+- **전체 단위 실행:** `vitest run --maxWorkers=6` 한 번으로 681개 파일, 16,222개 모두
+  통과(245.6초, 시간 초과나 단독 재실행 없음).
+- **Worker:** `vitest.workers.config.ts` 67개 파일 3,220개가 커버리지 없이 한 번,
+  커버리지와 함께 한 번 모두 통과했고 파일별 커버리지 하한을 지켰다.
+  `check:worker-bundles`는 여섯 Worker의 dry-run 번들을 모두 만들었다.
+- **핵심 커버리지:** `test:coverage:critical` 87개 파일 3,452개 통과, 하한 지킴.
+- **빌드:** `build:checked` 두 번 통과(SW 앱 셸 96 자산, 초기 전송 예산 PASS).
+- **가드:** room-authority 직접 읽기 80·구독 22·쓰기 13(398개 파일), 자원 소유권 48개 기록 /
+  443개 파일, dead-exports, bus-pairing, import-graph(398개 파일, 순환 0),
+  lifecycle-writes, navigation-sinks 통과.
+- **브라우저:** critical E2E(`test:e2e:critical`, `e2e/pro-upload-recovery.test.ts` 포함)
+  65/65. 기본 설정으로 돌린 `e2e/pro-upload-recovery.test.ts` 4/4. 두 번째 `build:checked`
+  산출물에서 후보 Playwright(`test:e2e:candidate`) 19/19.
+- **초기 JS:** 라운드 8과 같은 방법으로, 같은 main `a930030af` 산출물과 견줬다. 첫 로딩
+  파일 수는 26으로 같다.
+
+  | 값               | main `a930030a`(9.0.16, 운영) | `a233dd7b`(9.0.17) | 차이     |
+  | ---------------- | ----------------------------- | ------------------ | -------- |
+  | entry raw        | 861,486 B                     | 861,703 B          | +217 B   |
+  | entry gzip       | 253,478 B                     | 253,507 B          | +29 B    |
+  | eager JS gzip    | 465,652 B                     | 466,797 B          | +1,145 B |
+  | eager total raw  | 2,044,988 B                   | 2,049,333 B        | +4,345 B |
+  | eager total gzip | 544,115 B                     | 545,257 B          | +1,142 B |
+
+  라운드 8보다 첫 로딩 JS가 55 B 늘었다. 새 문장과 바뀐 머리글이 든 `en`(main 대비
+  +218 B gzip, 라운드 8은 +191 B)과 `i18n`(+272 B, 라운드 8은 +240 B) 청크다. 나머지는
+  `toast`(+499 B), `peer`(+135 B), 진입(+29 B)이다. 유지 상한 491,568 B까지 24,771 B 남는다.
+
+- **배포 대상:** 라운드 8과 같은 방법으로 다시 셌다. App 61개(의존성 변화 없음), PRO 방
+  3개, signaling 1개, remote-share, Developer API, Developer API facade 0개라 target은
+  `all` 그대로다. 수정은 App 런타임 경로(이미 바뀐 로케일 파일과 업로드 모듈)만 건드렸다.
+  Developer API D1과 `raise_app_build_floor`는 false(바닥 787 그대로)다.
+- **돌리지 않은 것:** PR CI, 자동 코드 리뷰, exact-main CI, 릴리스 smoke, 실제 R2
+  CopyObject와 운영 진단 출력, 실기기, 옛 PRO Worker로 되돌린 상태의 실행. 로컬 결과는
+  exact-main-SHA 후보가 아니다. 새 번역과 바꾼 번역은 사람 검수를 거치지 않았다.
+
 ## Release and recovery
 
 - App, PRO Worker와 signaling(공유 진단 모듈) 변경이므로 병합과 exact-main CI 뒤 정식
   `all` 릴리스로 낸다(QA 라운드 8의 배포 대상). 2026-10-27 오너가 5B 다음 순서로 이
   배포를 승인했다(병합, 배포, 기록까지 정식 절차대로).
+- **signaling 재배포의 재연결.** signaling 동작은 그대로지만, signaling Worker를 배포하면
+  Durable Object가 다시 시작해 모든 Standard 방의 소켓이 다시 연결된다(hotfix 절차의 App
+  Build Floor 절, Cloudflare 문서상 동작). 이때 최소 앱 빌드 787 아래의 방장은 재연결에서
+  거절된다. 바닥은 10-26부터 켜져 있어 그런 방은 드물 것으로 본다. 미디어 복사 이유를 PRO
+  전용 모듈에 두었다면 이번 signaling 재배포는 필요 없었다(이 PR에서는 바꾸지 않음).
 - No CORS change, new secret, dependency, service binding, D1 migration,
   or API response shape. The private asset and cleanup records gain the optional
   fields described above. CopyObject uses the existing
   server-only R2 credentials and its response is never exposed to browsers.
-- Reverting App restores whole-file retry behavior without changing ready media.
-  Prefer a forward fix for the PRO Worker when copies have uncertain outcomes:
-  older Workers do not enforce the pinned source or collect late final objects
-  through the new tombstone field. A Worker rollback requires accounting for
-  outstanding copies and their cleanup first; unchanged object keys alone are
-  not evidence that rollback is safe.
+- **실패한 `all` 릴리스의 자동 복구.** 릴리스는 PRO Worker를 가장 먼저 배포한다. 그 뒤
+  단계(remote-share·signaling·Developer API smoke, App 배포, App smoke)가 실패하면
+  `Restore release-owned Workers after a failed release`가 recovery checkpoint의 9.0.16 PRO
+  Worker를 자동으로 되돌린다. 이 PR은 forward floor나 계약 표지를 더하지 않으므로 이 되돌림을
+  막지 않고, 그대로 받아들인다. 복사의 서명 URL은 8초 뒤 만료되므로, 되돌림이 도는 몇 분
+  뒤에 새로 시작되는 복사는 없다. 옛 PRO Worker는 새 필드가 든 저장 상태를 그대로 읽는다.
+  저장 상태 검사가 정확한 키를 요구하지 않으므로 `completionSourceEtag`와 tombstone의
+  `finalObjectKey`는 읽히되 쓰이지 않는다. 최종 객체에 더해진 `mxqr-copy-source-etag`
+  메타데이터도 옛 예약 검사를 막지 않고, 공개 응답에는 핀이 나가지 않는다. 되돌린 동안
+  잃는 것은 둘이다. 원본 ETag가 고정된 예약도 9.0.16의 바인딩 복사로 핀 검사 없이 완료된다.
+  그리고 시간 초과된 복사가 예약이나 asset을 지운 뒤 늦게 커밋한 최종 객체는 R2에 고아로
+  남는다. 옛 tombstone 정리는 staging 키만 보고 조용한 창 뒤 tombstone을 지우기 때문이다
+  (용량 집계 밖이고, 개수는 그 창의 시간 초과 복사 수를 넘지 않는다). 같은 릴리스를 다시
+  돌리면 새 PRO Worker가 남아 있는 핀과 `finalObjectKey`를 다시 지킨다. 옛 Worker가 이미
+  지운 tombstone은 되살리지 않는다.
+- **수동 CLI 롤백.** 오너가 PRO Worker를 CLI로 9.0.16에 되돌려도 잃는 것은 위와 같다.
+  되돌리기 전에 PRO Worker 로그의 최근 `media_copy`에 `timeout`·`network` 이유가 있었는지
+  본다(늦게 커밋될 수 있는 복사). 있었다면 forward fix를 우선하고, 그래도 되돌린다면 그 뒤
+  지운 업로드의 최종 객체가 R2에 남을 수 있음을 받아들인다. 객체 키가 그대로라는 것만으로는
+  되돌림이 안전하다는 근거가 되지 않는다.
+- **App만 되돌릴 때.** App을 CLI로 9.0.16 / v789에 되돌리는 데는 바닥 `lower`가 필요 없다
+  (저장된 바닥 787 ≤ 789). 다만 되돌린 동안 옛 App facade의 5초 제어 기한이 9.0.17 PRO 복사
+  경로 앞에 서므로, 배포 창과 같은 일이 그동안 계속된다. 5초를 넘는 완료(복사와 대체 경로)는
+  facade 시간 초과로 보이고, 아직 열린 9.0.17 탭은 같은 키 재시도로, 9.0.16 탭은 파일 전체를
+  다시 올려 회복하며, 남은 예약과 asset은 기존 서버 고아 정리가 치운다. ready 미디어는 바뀌지
+  않는다. 되돌리는 릴리스는 hotfix 절차대로 9.0.18 / v791을 쓴다.
 - Browser retry continuation is session-local, not a persistent resumable
   upload protocol. Closing/reloading the document discards it.
 - Developer API completion still copies; this PR addresses the reported
@@ -487,6 +611,9 @@ v789 그대로였다. 환경: Windows, Node 24.20.0, npm 12.0.2, Vitest 5.0.3, �
   facade의 5초 제어 기한이 새 PRO 복사(8초 기한) 앞에 선다. 5초를 넘는 완료는
   9.0.16에서처럼 facade 시간 초과로 보이고, 같은 방식(같은 키 재시도나 기존 고아
   정리)으로 회복된다. App 배포가 끝나면 10초 facade가 적용된다.
+- 실패한 `all` 릴리스는 9.0.16 PRO Worker를 자동으로 되돌린다. 옛 Worker는 바인딩 복사만
+  쓰므로 그동안 복사와 대체 경로의 구분이 없고, 핀 검사와 `finalObjectKey` 정리가 빠진다.
+  그 범위와 받아들인 이유는 위 [Release and recovery](#release-and-recovery)에 있다.
 - 버려진 복사가 R2에서 늦게 커밋될 수 있으므로 대체 경로는 같은 최종 키의 두 번째
   쓰기 주체다. 그래서 [자원 소유권 RO-52](resource-ownership-registry.md#ro-52-pro-browser-completion-final-object)를
   더했다. 두 주체 모두 같은 키에 같은 고정 메타데이터를 쓰고 최종 HEAD는 어느
@@ -517,3 +644,24 @@ audio or mobile soak run.
 복사가 8초 기한에서 끝난 뒤의 대체 경로는 9.0.16보다 facade 기한이 짧다(2초 대 5초).
 자세한 내용과 회복은 위 [복사 안전장치](#복사-안전장치-바인딩-대체-경로와-복사-진단)에
 있다.
+
+라운드 9 검토에서 받아들이거나 따로 넘긴 경우:
+
+- **재생목록 전환 뒤 다른 실패의 다시 시도.** 다시 시도는 처음 시도한 재생목록 칸에 묶인다.
+  그래서 파일이 네트워크 오류처럼 다시 시도할 수 있는 이유로 실패한 뒤 다른 관리자가
+  재생목록을 바꾸면(대화상자가 열려 있는 동안 포함), 대화상자는 그 파일의 다시 시도를
+  내지만 누르면 `PRO_ROOM_PLAYLIST_SWITCHED`로 끝나고 두 번째 대화상자가 뜬다. 그 대화상자는
+  끝난 실패이고, 이미 올린 asset은 기존 해제 경로가 바로 지운다. 그래서 잃는 것은 헛된 다시
+  시도 한 번이다. 묶음이 끝날 때 칸을 견줘 미리 끝난 실패로 바꾸려면 업로드 큐와 재생목록
+  상태 관리자 사이에 새 연결이 필요해 이번에는 하지 않았다.
+- **계정 서비스 장애 동안의 Standard 확인 중 안내.** 계정 상태가 `unavailable`이거나 방 신원
+  확인 요청이 네트워크·5xx로 계속 실패하면, 권한을 받지 않은 Standard 게스트의 막힌 동작은
+  방장이 이 연결을 확인한 뒤에도 "권한 필요" 대신 "확인 중"으로 안내된다. 그동안 이
+  브라우저가 권한 있는 계정인지 알 수 없으므로 의도한 동작으로 둔다. 막는 판단은 그대로이고,
+  서비스가 돌아오면 기존 재시도가 확인을 끝낸다. [계정 문서 §6](account-identity-and-room-authority.md#6-capabilities-and-product-baselines)에도
+  적었다.
+- **방 영수증 원장 한도.** 방 하나의 변경 영수증 원장(256개, 대부분 24시간)은 이 PR과 별개로
+  방의 하루 업로드와 재생목록 편집 수를 묶는다(업로드 하나에 24시간 영수증 둘). 원장이 차면
+  트랙을 지우는 것도 영수증이 필요해 도움이 되지 않고, 다른 재생목록 작업은 main 그대로
+  "재생목록이 변경됐어요" 토스트(`playlist.mutation_retry`)를 낸다. 한도나 보관 시간을 바꿀지는
+  오너 결정이라 릴리스 기록 §2 운영·보안에 열린 항목으로 적었다.

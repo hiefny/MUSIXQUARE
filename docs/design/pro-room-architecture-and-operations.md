@@ -813,7 +813,19 @@ path.
   request to a separate final key, conditional on the staging ETag durably
   pinned in `completionSourceEtag` before copying, instead of streaming the full
   file through the Worker. Final HEAD validation
-  remains mandatory. The upload URL never authorizes writes to the ready key,
+  remains mandatory. When the copy leaves no verified final object (any non-200
+  status, network error, timeout, unreadable result, HEAD, ETag or metadata
+  mismatch, or missing credentials), completion falls back to the 9.0.16 binding
+  copy, which does stream the full file through the Worker, with the same pinned
+  source ETag, final key, metadata and HEAD checks; it writes nothing when a
+  binding read shows the staging source changed. The fallback has no deadline
+  of its own, so after a copy that ran to its 8-second deadline only 2 seconds
+  of the facade budget remain. Each attempt is counted in the bounded
+  `media_copy` or `media_copy_fallback` diagnostics, and the fallback is the
+  second writer on the final key
+  ([RO-52](resource-ownership-registry.md#ro-52-pro-browser-completion-final-object),
+  [report](pro-upload-reliability-2026-10-27.md#복사-안전장치-바인딩-대체-경로와-복사-진단)).
+  The upload URL never authorizes writes to the ready key,
   even after deletion. The existing tombstone owner also retains `finalObjectKey`
   to collect a late copy after deletion; final metadata records the pinned
   source ETag. Existing staging expiry and final-object recovery remain in force.

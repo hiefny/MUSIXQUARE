@@ -864,6 +864,7 @@ const fa: Record<I18nKey, string> = {
   'pro.downloading': 'فایل در حال بارگیری است...',
   'pro.quota_exceeded': 'این اتاق PRO به سقف فضای 1 GB رسیده است',
   'pro.file_too_large': 'این فایل از سقف 200 MB برای هر فایل بزرگ‌تر است',
+  'pro.room_state_limit': 'این اتاق PRO فعلاً تغییرات بیشتری نمی‌پذیرد\nکمی بعد دوباره تلاش کنید',
 
   // ─── HTML Blocks (used with data-i18n-html) ─────────────────────
   'help.install_app_html':

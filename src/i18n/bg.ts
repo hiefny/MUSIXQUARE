@@ -888,6 +888,8 @@ const bg: Record<I18nKey, string> = {
   'pro.downloading': 'Зареждане на файла...',
   'pro.quota_exceeded': 'Тази PRO стая е достигнала лимита си за съхранение от 1 GB',
   'pro.file_too_large': 'Файлът надвишава лимита от 200 MB за един файл',
+  'pro.room_state_limit':
+    'Тази PRO стая не може да приеме повече промени в момента\nОпитай отново след малко',
 
   // ─── HTML Blocks (used with data-i18n-html) ────────────────────
   'help.install_app_html':

@@ -1,5 +1,6 @@
-// Resource owner: RO-07, RO-08 (signaling broadcast delivery and asset duration
-// reads; see docs/design/resource-ownership-registry.md).
+// Resource owner: RO-07, RO-08, RO-53 (signaling broadcast delivery, asset
+// duration reads and the browser receipt ledger; see
+// docs/design/resource-ownership-registry.md).
 import {
   ACCOUNT_ASSERTION_AUDIENCE_PRO_ROOM,
   ACCOUNT_ASSERTION_HEADER,
@@ -66,6 +67,12 @@ import {
 } from './pro-room-diagnostics.ts';
 import { hasExactKeys, isSafeNonNegativeInteger } from './pro-room-validation.ts';
 import { PRO_ROOM_MEDIA_COPY_TIMEOUT_MS } from './pro-room-media-timing.ts';
+import {
+  PRO_ROOM_BOT_REQUEST_LEASE_MS,
+  PRO_ROOM_REQUEST_RECEIPT_TTL_MS,
+  proRoomCompletionReceiptTtlMs,
+  proRoomPlaybackReceiptTtlMs,
+} from './pro-room-receipt-timing.ts';
 import {
   PRO_ROOM_ACTIVATION_CLAIM_MAX_LIFETIME_MS as ACTIVATION_CLAIM_MAX_LIFETIME_MS,
   PRO_ROOM_OWNER_TRANSFER_CLAIM_DEFAULT_LIFETIME_MS as OWNER_TRANSFER_CLAIM_DEFAULT_LIFETIME_MS,
@@ -1141,7 +1148,6 @@ const BOT_MEMBER_MINUTE_LIMIT = 3;
 const BOT_ROOM_HOUR_LIMIT = 100;
 const BOT_MEMBER_MINUTE_MS = 60 * 1000;
 const BOT_ROOM_HOUR_MS = 60 * 60 * 1000;
-const BOT_REQUEST_LEASE_MS = 45 * 1000;
 // Active PRO participants share one host-inclusive 100-device ceiling, and
 // signaling applies the same limit to their authenticated control sockets.
 // Admission reserves one of those places for the room owner: at most 99
@@ -1159,6 +1165,13 @@ const ASSET_MAX_ITEMS = 1024;
 const RESERVED_ASSET_MAX_ITEMS = 32;
 const RESERVED_ASSET_MAX_ITEMS_PER_PARTICIPANT = 8;
 const RESERVED_ASSET_MAX_ITEMS_PER_DEVELOPER_KEY = 2;
+// The browser receipt ledger that every participant's playlist, media,
+// playback and BOT mutations share (RO-53). A receipt lives only as long as
+// the App can send its request again (cloudflare/pro-room-receipt-timing.ts),
+// so the cap bounds receipts per window, not per day. Keep 256: a 9.0.17
+// Worker refuses to load a room whose ledger holds more, so a rolled-back
+// Worker could not open it. A raise needs two releases (load first, write
+// second) or a separate ledger field.
 const IDEMPOTENCY_MAX_ITEMS = 256;
 // Developer mutations receive their own full 24-hour replay budget. Because
 // the complete room core is deliberately bounded to one 1.2 MiB value, this
@@ -1289,7 +1302,12 @@ const SYSTEM_AUDIO_CLAIM_TTL_MS = 45 * 1000;
 const SYSTEM_AUDIO_LIVE_TTL_MS = 2 * 60 * 60 * 1000;
 const SYSTEM_AUDIO_TRACK_NAME_MAX_LENGTH = 160;
 const SYSTEM_AUDIO_TRACK_MID_MAX_LENGTH = 64;
+// Developer mutation receipts (the public 24-hour replay contract, and BOT's
+// internal key, whose receipt is the only dedupe a late run of the same BOT
+// request has for its additions) and presence-close receipts. Browser
+// receipts use the windows of RO-53 instead.
 const IDEMPOTENCY_TTL_MS = 24 * 60 * 60 * 1000;
+const BROWSER_COMPLETION_RECEIPT_KEY_RE = /^participant:[^:]+:complete:[^:]+$/;
 const ASSET_DELETE_PENDING_EXPIRES_AT_MS = Number.MAX_SAFE_INTEGER;
 // Session admission sits behind the App facade's bounded response window. A
 // room mutation can therefore commit after the browser receives a gateway
@@ -1314,13 +1332,6 @@ const SESSION_ADMISSION_LIMIT = 200;
 const SESSION_ADMISSION_WINDOW_MS = 10 * 60 * 1000;
 const SESSION_ADMISSION_THROTTLE_MAX_ITEMS = 1024;
 const PRO_ROOM_ADMISSION_KEY_HEADER = 'x-mxqr-pro-admission-key';
-// Playback controls are high-frequency, short-retry mutations. The browser
-// retries one command for at most a few seconds, so retaining every full
-// command response for 24 hours can saturate the shared 256-item browser
-// ledger during ordinary all-day playback. Keep a generous ten-minute replay
-// fence for controls while preserving the 24-hour contract for playlist,
-// media, account, and other destructive browser mutations.
-const PLAYBACK_IDEMPOTENCY_TTL_MS = 10 * 60 * 1000;
 // Apart from its admission receipt, which has its own throttled ledger,
 // presence close is the only browser receipt an ordinary member writes, and
 // resuming presence is never throttled. Its receipts therefore live in their
@@ -7199,7 +7210,8 @@ export class MusixquareProRoom {
         changed = true;
       }
     }
-    return changed;
+    // A named asset's completion can no longer be retried (RO-53).
+    return this.releaseSettledCompletionReceipts(referenced) || changed;
   }
 
   retainStagingTombstone(asset: RoomAsset, nowMs = Date.now()) {
@@ -8174,11 +8186,10 @@ export class MusixquareProRoom {
         fingerprint,
         {
           leaseToken,
-          leaseExpiresAtMs: nowMs + BOT_REQUEST_LEASE_MS,
+          leaseExpiresAtMs: nowMs + PRO_ROOM_BOT_REQUEST_LEASE_MS,
           playlistRevision: this.activeRoom.playlistRevision,
         },
         200,
-        nowMs + IDEMPOTENCY_TTL_MS,
       );
       await this.persist();
     }
@@ -16615,6 +16626,89 @@ export class MusixquareProRoom {
     return this.idempotencyExpiresAt(record) <= nowMs;
   }
 
+  /**
+   * RO-53: the longest a browser-ledger receipt of `scope` may live, from
+   * now. A receipt only makes a request sent again with the same key replay
+   * its first answer, so it lives as long as the App can still send it:
+   * - every single-request scope: the request window;
+   * - playback: twice one presence window plus one attempt, because a frozen
+   *   page's timer can send the second attempt until its presence lapses;
+   * - upload completion: the GC grace, because the batch failure dialog's
+   *   Retry reuses the key while the unnamed asset can still be appended.
+   *   releaseSettledCompletionReceipts frees it sooner.
+   * Past these windows the fences (revisions, asset state, presence) keep a
+   * late resend from applying twice; the receipt is not what does that.
+   */
+  browserReceiptLifetimeMs(scope: string) {
+    if (scope.endsWith(':playback-authority')) {
+      return proRoomPlaybackReceiptTtlMs(this.presenceTtlMs());
+    }
+    if (scope.endsWith(':complete')) return proRoomCompletionReceiptTtlMs(this.assetGcGraceMs());
+    return PRO_ROOM_REQUEST_RECEIPT_TTL_MS;
+  }
+
+  /**
+   * The absolute expiry for a new receipt. A browser receipt never outlives
+   * its scope's lifetime, even when the caller asks for longer (a
+   * reservation's own expiry). Other ledgers keep the caller's expiry or 24
+   * hours. Every value is finite, so a rolled-back Worker without this
+   * method's rules still expires each receipt.
+   */
+  receiptExpiresAtMs(scope: string, requestedExpiresAtMs?: number, nowMs = Date.now()) {
+    if (this.idempotencyLedger(scope).records !== this.activeRoom.idempotency) {
+      return requestedExpiresAtMs ?? nowMs + IDEMPOTENCY_TTL_MS;
+    }
+    const latestMs = nowMs + this.browserReceiptLifetimeMs(scope);
+    return requestedExpiresAtMs === undefined ? latestMs : Math.min(requestedExpiresAtMs, latestMs);
+  }
+
+  /**
+   * Cut a browser receipt that an earlier Worker wrote (24 hours for most
+   * scopes, again after a rollback to one) to its scope's lifetime from now,
+   * so a ledger filled under the old windows frees within one window. The
+   * deletion marker owns pending delete receipts, which are left alone.
+   */
+  capBrowserReceiptLifetime(storageKey: string, record: IdempotencyRecord, nowMs: number) {
+    if (record.kind === 'asset-delete-pending') return false;
+    // Idempotency keys never contain ':', so the scope ends at the last one.
+    const scope = storageKey.slice(0, storageKey.lastIndexOf(':'));
+    const latestMs = nowMs + this.browserReceiptLifetimeMs(scope);
+    if (record.expiresAtMs <= latestMs) return false;
+    record.expiresAtMs = latestMs;
+    return true;
+  }
+
+  /**
+   * Release the browser completion receipts no retry can need any more. The
+   * App keeps a completion key until it has the answer and then appends the
+   * asset, so once a playlist names the asset, or the asset is no longer a
+   * ready one, that completion is never sent again. The match reads the
+   * stored answer, so the receipt keeps the shape a 9.0.17 Worker knows, and
+   * a receipt without one simply waits for its expiry.
+   */
+  releaseSettledCompletionReceipts(referenced: ReadonlySet<string>) {
+    let changed = false;
+    for (const [storageKey, record] of Object.entries(this.activeRoom.idempotency)) {
+      if (record.kind !== undefined || !BROWSER_COMPLETION_RECEIPT_KEY_RE.test(storageKey)) {
+        continue;
+      }
+      const receiptAsset = record.body?.asset;
+      const assetId = isRecord(receiptAsset) ? receiptAsset.assetId : undefined;
+      if (typeof assetId !== 'string') continue;
+      const asset = this.activeRoom.assets[assetId];
+      if (
+        asset?.status === 'ready' &&
+        asset.deletionPending === undefined &&
+        !referenced.has(assetId)
+      ) {
+        continue;
+      }
+      delete this.activeRoom.idempotency[storageKey];
+      changed = true;
+    }
+    return changed;
+  }
+
   idempotencyRecord(scope: string, key: string) {
     const storageKey = `${scope}:${key}`;
     const { records } = this.idempotencyLedger(scope);
@@ -16710,21 +16804,18 @@ export class MusixquareProRoom {
     fingerprint: string,
     body: JsonRecord,
     status = 200,
-    expiresAtMs = Date.now() + IDEMPOTENCY_TTL_MS,
+    expiresAtMs?: number,
   ) {
     const records = this.reserveIdempotencySlot(scope, key);
-    const playbackAuthority = scope.endsWith(':playback-authority');
     records[`${scope}:${key}`] = {
       fingerprint,
       body: structuredClone(body),
       status,
       // No reader here since 2026-10-26. Kept so that a PRO Worker from before
-      // then, after a rollback, does not take these 10-minute receipts for
+      // then, after a rollback, does not take these short receipts for
       // unmarked 24-hour ones and expire them at once.
-      ...(playbackAuthority ? { kind: 'playback-authority' } : {}),
-      expiresAtMs: playbackAuthority
-        ? Math.min(expiresAtMs, Date.now() + PLAYBACK_IDEMPOTENCY_TTL_MS)
-        : expiresAtMs,
+      ...(scope.endsWith(':playback-authority') ? { kind: 'playback-authority' } : {}),
+      expiresAtMs: this.receiptExpiresAtMs(scope, expiresAtMs),
     };
   }
 
@@ -16740,7 +16831,7 @@ export class MusixquareProRoom {
       kind: 'snapshot',
       committedRevision,
       status: 200,
-      expiresAtMs: Date.now() + IDEMPOTENCY_TTL_MS,
+      expiresAtMs: this.receiptExpiresAtMs(scope),
     };
   }
 
@@ -17589,7 +17680,16 @@ export class MusixquareProRoom {
           this.reconcileAssetGarbageCollection(completedAtMs);
           this.activeRoom.revision += 1;
           const responseBody = { asset: publicAsset(asset), quota: { ...this.activeRoom.quota } };
-          this.storeIdempotency(scope, key, fingerprint, responseBody);
+          // The receipt outlives the orphan deadline above, so a same-key
+          // Retry replays until the unnamed asset is collected (RO-53).
+          this.storeIdempotency(
+            scope,
+            key,
+            fingerprint,
+            responseBody,
+            200,
+            completedAtMs + proRoomCompletionReceiptTtlMs(this.assetGcGraceMs()),
+          );
           await this.persist();
           return jsonResponse(responseBody);
         },
@@ -17853,6 +17953,8 @@ export class MusixquareProRoom {
       if (this.idempotencyRecordIsExpired(record, nowMs)) {
         delete this.activeRoom.idempotency[key];
         changed = true;
+      } else {
+        changed = this.capBrowserReceiptLifetime(key, record, nowMs) || changed;
       }
     }
     for (const [key, record] of Object.entries(this.activeRoom.presenceCloseIdempotency)) {

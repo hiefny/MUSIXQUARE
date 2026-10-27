@@ -893,6 +893,8 @@ const pl: Record<I18nKey, string> = {
   'pro.downloading': 'Ładowanie pliku…',
   'pro.quota_exceeded': 'Ten pokój PRO osiągnął limit 1 GB miejsca',
   'pro.file_too_large': 'Ten plik przekracza limit 200 MB na plik',
+  'pro.room_state_limit':
+    'Ten pokój PRO nie może teraz przyjąć więcej zmian\nSpróbuj ponownie za chwilę',
 
   // ─── HTML Blocks (used with data-i18n-html) ────────────────────
   'help.install_app_html':

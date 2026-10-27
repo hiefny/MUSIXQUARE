@@ -880,6 +880,8 @@ const da: Record<I18nKey, string> = {
   'pro.downloading': 'Indlæser filen…',
   'pro.quota_exceeded': 'Dette PRO-rum har nået lagergrænsen på 1 GB',
   'pro.file_too_large': 'Denne fil er større end grænsen på 200 MB pr. fil',
+  'pro.room_state_limit':
+    'Dette PRO-rum kan ikke tage imod flere ændringer lige nu\nPrøv igen om lidt',
 
   // ─── HTML Blocks (used with data-i18n-html) ────────────────────
   'help.install_app_html':

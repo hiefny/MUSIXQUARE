@@ -879,6 +879,8 @@ const nb: Record<I18nKey, string> = {
   'pro.downloading': 'Laster inn filen…',
   'pro.quota_exceeded': 'Dette PRO-rommet har nådd lagringsgrensen på 1 GB',
   'pro.file_too_large': 'Denne filen er større enn grensen på 200 MB per fil',
+  'pro.room_state_limit':
+    'Dette PRO-rommet kan ikke ta imot flere endringer akkurat nå\nPrøv igjen om litt',
 
   // ─── HTML Blocks (used with data-i18n-html) ────────────────────
   'help.install_app_html':

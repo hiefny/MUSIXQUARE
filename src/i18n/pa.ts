@@ -876,6 +876,8 @@ const pa: Record<I18nKey, string> = {
   'pro.downloading': 'ਫ਼ਾਈਲ ਲੋਡ ਹੋ ਰਹੀ ਹੈ...',
   'pro.quota_exceeded': 'ਇਸ PRO ਰੂਮ ਦੀ 1 GB ਸਟੋਰੇਜ ਹੱਦ ਪੂਰੀ ਹੋ ਗਈ ਹੈ',
   'pro.file_too_large': 'ਇਹ ਫ਼ਾਈਲ ਹਰੇਕ ਫ਼ਾਈਲ ਲਈ 200 MB ਦੀ ਹੱਦ ਤੋਂ ਵੱਡੀ ਹੈ',
+  'pro.room_state_limit':
+    'ਇਸ PRO ਰੂਮ ਵਿੱਚ ਇਸ ਵੇਲੇ ਹੋਰ ਬਦਲਾਅ ਨਹੀਂ ਕੀਤੇ ਜਾ ਸਕਦੇ\nਥੋੜ੍ਹੀ ਦੇਰ ਬਾਅਦ ਦੁਬਾਰਾ ਕੋਸ਼ਿਸ਼ ਕਰੋ',
 
   // ─── HTML Blocks (used with data-i18n-html) ──────────────────────
   'help.install_app_html':

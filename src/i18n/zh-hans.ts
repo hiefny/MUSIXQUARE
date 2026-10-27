@@ -738,6 +738,7 @@ const zhHans: Record<I18nKey, string> = {
   'pro.downloading': '正在加载文件...',
   'pro.quota_exceeded': '此 PRO 房间的 1 GB 存储空间已用完',
   'pro.file_too_large': '此文件超过单个文件 200 MB 的上限',
+  'pro.room_state_limit': '此 PRO 房间暂时无法接受更多更改\n请稍后重试',
 
   // Chat
   'chat.title': '聊天',

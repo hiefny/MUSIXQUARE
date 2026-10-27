@@ -1,3 +1,7 @@
+import {
+  PRO_ROOM_PLAYBACK_COMMAND_ATTEMPTS,
+  PRO_ROOM_PLAYBACK_COMMAND_REQUEST_TIMEOUT_MS,
+} from '../../cloudflare/pro-room-receipt-timing.ts';
 import { bus } from '../core/events.ts';
 import { log } from '../core/log.ts';
 import { getState } from '../core/state.ts';
@@ -50,7 +54,6 @@ import { registerProRoomLocalPlaybackTimeline } from './local-playback-timeline.
 import { getProSystemAudioViewState } from './system-audio-bridge.ts';
 import type { ProRoomSystemAudioViewState } from './system-audio-controller.ts';
 
-const PLAYBACK_COMMAND_REQUEST_TIMEOUT_MS = 6_000;
 const PLAYLIST_HYDRATION_MAX_WAIT_MS = 1_500;
 const PLAYLIST_HYDRATION_PREPARE_RESERVE_MS = 500;
 const PLAYBACK_RECONCILIATION_CLOCK_WAIT_MS = 1_000;
@@ -829,8 +832,10 @@ function createImplementation(
     // Playback commands already carry an idempotency key. One bounded replay
     // recovers the important "server committed, response was lost" case without
     // ever applying the command twice or leaving the serialized control queue
-    // behind a fetch that can remain pending forever.
-    for (let attempt = 0; attempt < 2; attempt += 1) {
+    // behind a fetch that can remain pending forever. The room keeps the
+    // command's receipt for these attempts (RO-53); a frozen page's late
+    // attempt is fenced by the playback revision instead.
+    for (let attempt = 0; attempt < PRO_ROOM_PLAYBACK_COMMAND_ATTEMPTS; attempt += 1) {
       const linked = createRoomLinkedAbortController(roomSignal);
       const timeoutTimer = `pro-playback-command-request-timeout-${++state.commandRequestSequence}`;
       let timedOut = false;
@@ -840,7 +845,7 @@ function createImplementation(
           timedOut = true;
           linked.controller.abort();
         },
-        PLAYBACK_COMMAND_REQUEST_TIMEOUT_MS,
+        PRO_ROOM_PLAYBACK_COMMAND_REQUEST_TIMEOUT_MS,
       );
       try {
         return await ports.executePlaybackCommand(input, linked.controller.signal);
@@ -849,7 +854,14 @@ function createImplementation(
         const retryable =
           error instanceof ProRoomApiError &&
           (error.code === 'NETWORK_ERROR' || (error.code === 'ABORTED' && timedOut));
-        if (!retryable || attempt > 0 || roomSignal?.aborted || !canRetry()) throw error;
+        if (
+          !retryable ||
+          attempt + 1 >= PRO_ROOM_PLAYBACK_COMMAND_ATTEMPTS ||
+          roomSignal?.aborted ||
+          !canRetry()
+        ) {
+          throw error;
+        }
       } finally {
         clearManagedTimer(timeoutTimer);
         linked.detach();

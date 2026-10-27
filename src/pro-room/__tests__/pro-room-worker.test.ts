@@ -21107,7 +21107,6 @@ describe('persistent PRO room authentication, presence, and state', () => {
     await internal.alarm();
     expect(internal.room.rateLimits).toEqual({});
     expect(internal.room.botRateLimits).toEqual({});
-    expect(Object.keys(internal.room.idempotency)).toHaveLength(1);
     expect(Object.keys(internal.room.developerMutationIdempotency)).toHaveLength(1);
     expect(state.storage.alarm).toBe(receiptExpiresAtMs);
     expect(storedCanonicalRoom(state)).toMatchObject({

@@ -882,6 +882,8 @@ const te: Record<I18nKey, string> = {
   'pro.downloading': 'ఫైల్ లోడ్ అవుతోంది...',
   'pro.quota_exceeded': 'ఈ PRO గది 1 GB స్టోరేజ్ పరిమితిని చేరుకుంది',
   'pro.file_too_large': 'ఈ ఫైల్ ఒక్కో ఫైల్‌కు ఉన్న 200 MB పరిమితి కంటే పెద్దది',
+  'pro.room_state_limit':
+    'ఈ PRO గదిలో ప్రస్తుతం మరిన్ని మార్పులు చేయలేము\nకొద్దిసేపటి తర్వాత మళ్లీ ప్రయత్నించండి',
 
   // ─── HTML Blocks (used with data-i18n-html) ──────────────────────
   'help.install_app_html':

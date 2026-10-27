@@ -894,16 +894,22 @@ function applyLocalQueueOrder(order: readonly QueueItemId[]): void {
   if (getState('playlist.isShuffle')) reconcileShuffleOrderForCurrentPlaylist();
 }
 
+function playlistErrorCode(error: unknown): unknown {
+  return error && typeof error === 'object' ? (error as { code?: unknown }).code : null;
+}
+
 function reportPlaylistError(error: unknown): void {
   log.warn('[PRO] Persistent playlist operation failed', error);
-  const code = error && typeof error === 'object' ? (error as { code?: unknown }).code : null;
+  const code = playlistErrorCode(error);
   const message =
     code === 'PRO_ROOM_MEDIA_UPLOAD_SIZE_INVALID'
       ? t('pro.file_too_large')
       : code === 'ROOM_QUOTA_EXCEEDED'
         ? t('pro.quota_exceeded')
         : code === 'ROOM_STATE_CAPACITY_EXCEEDED'
-          ? t('playlist.mutation_retry')
+          ? // Usually the room's receipt ledger is full (RO-53). Nothing
+            // changed in the playlist, and receipts expire within minutes.
+            t('pro.room_state_limit')
           : code === 'PLAYLIST_CAPACITY_EXCEEDED' ||
               code === 'PRO_ROOM_PLAYLIST_LIMIT_REACHED' ||
               code === 'REQUEST_TOO_LARGE'
@@ -1518,7 +1524,14 @@ function installMediaHooks(
         // Revoked queue authority aborts the request; restore without a toast.
         if (signal.aborted) return;
         log.warn('[PRO] Playlist reorder failed', error);
-        bus.emit('ui:show-toast', t('playlist.reorder_failed'));
+        bus.emit(
+          'ui:show-toast',
+          t(
+            playlistErrorCode(error) === 'ROOM_STATE_CAPACITY_EXCEEDED'
+              ? 'pro.room_state_limit'
+              : 'playlist.reorder_failed',
+          ),
+        );
       });
       return true;
     },

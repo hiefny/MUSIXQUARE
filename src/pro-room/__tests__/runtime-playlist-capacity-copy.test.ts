@@ -213,7 +213,13 @@ const PATHS: readonly PlaylistPath[] = [
     start: () =>
       handleProRoomYouTubeForSession(
         captureProRoomMediaHookSession()!,
-        { queueItemId: ADDED, type: 'youtube', name: 'Added', videoId: '9bZkp7q19f0' },
+        {
+          queueItemId: ADDED,
+          type: 'youtube',
+          name: 'Added',
+          videoId: '9bZkp7q19f0',
+          playlistId: null,
+        },
         'https://youtube.test/added',
       ),
   },

@@ -874,6 +874,8 @@ const bn: Record<I18nKey, string> = {
   'pro.downloading': 'ফাইল লোড হচ্ছে...',
   'pro.quota_exceeded': 'এই PRO রুমের 1 GB স্টোরেজ সীমা পূর্ণ হয়েছে',
   'pro.file_too_large': 'এই ফাইলটি প্রতি ফাইলের 200 MB সীমার চেয়ে বড়',
+  'pro.room_state_limit':
+    'এই PRO রুমে এখন আর কোনো পরিবর্তন করা যাবে না\nকিছুক্ষণ পরে আবার চেষ্টা করুন',
 
   // ─── HTML Blocks (used with data-i18n-html) ──────────────────────
   'help.install_app_html':

@@ -881,6 +881,8 @@ const uk: Record<I18nKey, string> = {
   'pro.downloading': 'Завантаження файла...',
   'pro.quota_exceeded': 'Ця кімната PRO досягла ліміту сховища в 1 ГБ',
   'pro.file_too_large': 'Цей файл перевищує ліміт у 200 МБ на один файл',
+  'pro.room_state_limit':
+    'Ця кімната PRO зараз не може прийняти більше змін\nСпробуйте ще раз трохи згодом',
 
   // ─── HTML-блоки (для data-i18n-html) ─────────────────────────────
   'help.install_app_html':

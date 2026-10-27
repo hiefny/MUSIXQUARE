@@ -851,6 +851,8 @@ const ko = {
   'pro.downloading': '파일 불러오는 중...',
   'pro.quota_exceeded': 'PRO 방의 1GB 저장 공간을 모두 사용했어요',
   'pro.file_too_large': '이 파일은 파일당 200MB 제한을 넘어요',
+  'pro.room_state_limit':
+    '지금은 PRO 방에 변경 사항을 더 반영할 수 없어요\n잠시 후 다시 시도해 주세요',
 
   // ─── HTML Blocks (used with data-i18n-html) ────────────────────
   'help.install_app_html':

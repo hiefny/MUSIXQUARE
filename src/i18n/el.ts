@@ -904,6 +904,8 @@ const el: Record<I18nKey, string> = {
   'pro.downloading': 'Φόρτωση αρχείου...',
   'pro.quota_exceeded': 'Αυτό το δωμάτιο PRO έφτασε το όριο αποθήκευσης 1 GB',
   'pro.file_too_large': 'Αυτό το αρχείο υπερβαίνει το όριο των 200 MB ανά αρχείο',
+  'pro.room_state_limit':
+    'Αυτό το δωμάτιο PRO δεν μπορεί να δεχτεί άλλες αλλαγές αυτή τη στιγμή\nΔοκιμάστε ξανά σε λίγο',
 
   // ─── HTML Blocks (used with data-i18n-html) ────────────────────
   'help.install_app_html':

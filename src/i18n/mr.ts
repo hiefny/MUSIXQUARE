@@ -875,6 +875,8 @@ const mr: Record<I18nKey, string> = {
   'pro.downloading': 'फाइल लोड होत आहे...',
   'pro.quota_exceeded': 'या PRO रूमने संचयनाची 1 GB मर्यादा गाठली आहे',
   'pro.file_too_large': 'ही फाइल प्रत्येक फाइलसाठी असलेल्या 200 MB मर्यादेपेक्षा मोठी आहे',
+  'pro.room_state_limit':
+    'या PRO रूममध्ये आत्ता आणखी बदल करता येणार नाहीत\nथोड्या वेळाने पुन्हा प्रयत्न करा',
 
   // ─── HTML Blocks (used with data-i18n-html) ──────────────────────
   'help.install_app_html':

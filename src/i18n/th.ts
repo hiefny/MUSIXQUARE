@@ -851,6 +851,8 @@ const th: Record<I18nKey, string> = {
   'pro.downloading': 'กำลังดาวน์โหลดไฟล์...',
   'pro.quota_exceeded': 'ห้อง PRO นี้ใช้พื้นที่จัดเก็บครบ 1 GB แล้ว',
   'pro.file_too_large': 'ไฟล์นี้เกินขีดจำกัด 200 MB ต่อไฟล์',
+  'pro.room_state_limit':
+    'ห้อง PRO นี้ยังรับการเปลี่ยนแปลงเพิ่มไม่ได้ในขณะนี้\nโปรดลองอีกครั้งในภายหลัง',
 
   // ─── HTML Blocks (used with data-i18n-html) ────────────────────
   'help.install_app_html':

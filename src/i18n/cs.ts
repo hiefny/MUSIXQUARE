@@ -883,6 +883,8 @@ const cs: Record<I18nKey, string> = {
   'pro.downloading': 'Načítá se soubor...',
   'pro.quota_exceeded': 'Tato místnost PRO dosáhla limitu úložiště 1 GB',
   'pro.file_too_large': 'Tento soubor překračuje limit 200 MB na soubor',
+  'pro.room_state_limit':
+    'Tato místnost PRO teď nemůže přijmout další změny\nZkuste to znovu za chvíli',
 
   // ─── HTML Blocks (used with data-i18n-html) ────────────────────
   'help.install_app_html':

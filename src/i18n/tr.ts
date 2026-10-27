@@ -865,6 +865,8 @@ const tr: Record<I18nKey, string> = {
   'pro.downloading': 'Dosya yükleniyor...',
   'pro.quota_exceeded': 'Bu PRO odasının 1 GB depolama sınırı doldu',
   'pro.file_too_large': 'Bu dosya, dosya başına 200 MB sınırını aşıyor',
+  'pro.room_state_limit':
+    'Bu PRO odası şu anda daha fazla değişiklik kabul edemiyor\nBiraz sonra tekrar dene',
 
   // ─── HTML Blocks (used with data-i18n-html) ────────────────────
   'help.install_app_html':

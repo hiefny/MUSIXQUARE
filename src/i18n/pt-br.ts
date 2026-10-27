@@ -822,6 +822,8 @@ const ptBr: Record<I18nKey, string> = {
   'pro.downloading': 'Carregando arquivo...',
   'pro.quota_exceeded': 'Esta sala PRO atingiu o limite de armazenamento de 1 GB',
   'pro.file_too_large': 'Este arquivo excede o limite de 200 MB por arquivo',
+  'pro.room_state_limit':
+    'Esta sala PRO não aceita mais alterações no momento\nTente novamente daqui a pouco',
 
   // Chat
   'chat.title': 'Chat',

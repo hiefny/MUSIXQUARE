@@ -822,6 +822,8 @@ const fr: Record<I18nKey, string> = {
   'pro.downloading': 'Chargement du fichier…',
   'pro.quota_exceeded': 'Ce salon PRO a atteint sa limite de stockage de 1 Go',
   'pro.file_too_large': 'Ce fichier dépasse la limite de 200 Mo par fichier',
+  'pro.room_state_limit':
+    'Ce salon PRO ne peut pas accepter d’autres modifications pour le moment\nRéessayez dans quelques instants',
 
   // Chat
   'chat.title': 'Chat',

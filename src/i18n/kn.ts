@@ -888,6 +888,8 @@ const kn: Record<I18nKey, string> = {
   'pro.downloading': 'ಫೈಲ್ ಲೋಡ್ ಆಗುತ್ತಿದೆ...',
   'pro.quota_exceeded': 'ಈ PRO ರೂಮ್ 1 GB ಸಂಗ್ರಹ ಮಿತಿಯನ್ನು ತಲುಪಿದೆ',
   'pro.file_too_large': 'ಈ ಫೈಲ್ ಪ್ರತಿ ಫೈಲ್‌ಗೆ ಇರುವ 200 MB ಮಿತಿಗಿಂತ ದೊಡ್ಡದಾಗಿದೆ',
+  'pro.room_state_limit':
+    'ಈ PRO ರೂಮ್‌ನಲ್ಲಿ ಈಗ ಇನ್ನಷ್ಟು ಬದಲಾವಣೆಗಳನ್ನು ಮಾಡಲು ಸಾಧ್ಯವಿಲ್ಲ\nಸ್ವಲ್ಪ ಸಮಯದ ನಂತರ ಮತ್ತೆ ಪ್ರಯತ್ನಿಸಿ',
 
   // ─── HTML Blocks (used with data-i18n-html) ──────────────────────
   'help.install_app_html':

@@ -807,6 +807,8 @@ const id: Record<I18nKey, string> = {
   'pro.downloading': 'Memuat file...',
   'pro.quota_exceeded': 'Ruang PRO ini telah mencapai batas penyimpanan 1 GB',
   'pro.file_too_large': 'File ini melebihi batas 200 MB per file',
+  'pro.room_state_limit':
+    'Ruang PRO ini tidak dapat menerima perubahan lagi untuk saat ini\nCoba lagi sebentar lagi',
 
   // Chat
   'chat.title': 'Chat',

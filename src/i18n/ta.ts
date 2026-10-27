@@ -902,6 +902,8 @@ const ta: Record<I18nKey, string> = {
   'pro.downloading': 'கோப்பு ஏற்றப்படுகிறது...',
   'pro.quota_exceeded': 'இந்த PRO அறை அதன் 1 GB சேமிப்பக வரம்பை எட்டிவிட்டது',
   'pro.file_too_large': 'இந்தக் கோப்பு ஒரு கோப்புக்கான 200 MB வரம்பைவிடப் பெரியது',
+  'pro.room_state_limit':
+    'இந்த PRO அறையில் இப்போது மேலும் மாற்றங்களைச் செய்ய முடியாது\nசிறிது நேரம் கழித்து மீண்டும் முயலவும்',
 
   // ─── HTML Blocks (used with data-i18n-html) ──────────────────────
   'help.install_app_html':

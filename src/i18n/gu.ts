@@ -860,6 +860,8 @@ const gu: Record<I18nKey, string> = {
   'pro.downloading': 'ફાઇલ લોડ થઈ રહી છે...',
   'pro.quota_exceeded': 'આ PRO રૂમમાં સંગ્રહની 1 GB મર્યાદા પૂરી થઈ છે',
   'pro.file_too_large': 'આ ફાઇલ દરેક ફાઇલ માટેની 200 MB મર્યાદાથી મોટી છે',
+  'pro.room_state_limit':
+    'આ PRO રૂમમાં હમણાં વધુ ફેરફારો કરી શકાશે નહીં\nથોડી વાર પછી ફરી પ્રયાસ કરો',
 
   // ─── HTML Blocks (used with data-i18n-html) ──────────────────────
   'help.install_app_html':

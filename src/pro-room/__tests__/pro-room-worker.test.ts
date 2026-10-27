@@ -1,7 +1,16 @@
 import { readFile } from 'node:fs/promises';
 import { createRequire } from 'node:module';
 import type { DatabaseSync, StatementSync } from 'node:sqlite';
-import { afterEach, beforeEach, describe, expect, it, vi, type Mock } from 'vitest';
+import {
+  afterEach,
+  beforeEach,
+  describe,
+  expect,
+  it,
+  vi,
+  type Mock,
+  type MockInstance,
+} from 'vitest';
 import { assertProMediaCorsPreflight } from '../../../scripts/live-pro-media-cors-smoke.mts';
 import {
   ACCOUNT_ASSERTION_AUDIENCE_PRO_ROOM,
@@ -3867,7 +3876,9 @@ class FakeR2Bucket {
 
   async get(key: string) {
     const object = this.objects.get(key);
-    return object ? { ...structuredClone(object), body: { size: object.size } } : null;
+    return object
+      ? { etag: SYNTHETIC_SOURCE_ETAG, ...structuredClone(object), body: { size: object.size } }
+      : null;
   }
 
   async put(
@@ -23046,20 +23057,92 @@ describe('persistent PRO room private media accounting', () => {
     });
   });
 
-  it.each([
-    ['embedded-error', () => new Response('<Error><Code>InternalError</Code></Error>')],
-    ['invalid-xml', () => new Response('<CopyObjectResult/>')],
-    ['oversized-xml', () => new Response(' '.repeat(20 * 1024))],
-    ['invalid-utf8', () => new Response(new Uint8Array([0xc3, 0x28]))],
-    ['precondition', () => new Response(null, { status: 412 })],
-  ] as const)(
-    'does not publish or release quota for a %s CopyObject response',
-    async (_name, response) => {
-      const context = await copyFixture();
-      vi.mocked(fetch).mockImplementationOnce(async () => response());
-      const result = await context.worker.fetch(context.completion());
-      expect(result.status).toBe(503);
-      expect(await responseJson(result)).toMatchObject({ error: 'MEDIA_STORAGE_UNAVAILABLE' });
+  // The presigned CopyObject has not run against production R2 before 9.0.16.
+  // Any outcome short of a verified final object falls back to the binding
+  // get/put that browser completion used through 9.0.15, under the same pinned
+  // source and final checks, and every attempt leaves one bounded diagnostic.
+  describe('copy fallback and outcome diagnostics', () => {
+    type CopyContext = Awaited<ReturnType<typeof copyFixture>>;
+    let log: MockInstance<typeof console.log>;
+
+    beforeEach(() => {
+      log = vi.spyOn(console, 'log').mockImplementation(() => {});
+    });
+
+    afterEach(() => {
+      log.mockRestore();
+    });
+
+    const copyOutcomes = () =>
+      log.mock.calls
+        .map(([record]) => record as Record<string, unknown>)
+        .filter(
+          (record) =>
+            record?.diagnostic === 'pro_room' &&
+            (record.event === 'media_copy' || record.event === 'media_copy_fallback'),
+        )
+        .map(({ event, reason, operation, status, elapsedMs, sizeBucketMiB }) => ({
+          event,
+          reason,
+          operation,
+          status,
+          elapsedMs,
+          sizeBucketMiB,
+        }));
+
+    const outcome = (
+      event: 'media_copy' | 'media_copy_fallback',
+      reason: string,
+      status: number | null,
+      sizeBucketMiB = 1,
+    ) => ({
+      event,
+      reason,
+      operation: 'media_complete',
+      status,
+      elapsedMs: expect.any(Number),
+      sizeBucketMiB,
+    });
+
+    function expectNoCopySecrets(context: CopyContext) {
+      const logged = JSON.stringify(log.mock.calls);
+      for (const secret of [
+        'test-access-key',
+        'test-secret-key',
+        'X-Amz',
+        'r2.cloudflarestorage.com',
+        context.asset.objectKey,
+        context.asset.stagingObjectKey!,
+        context.assetId,
+        SYNTHETIC_SOURCE_ETAG,
+        SYNTHETIC_FINAL_ETAG,
+        'copy.flac',
+      ]) {
+        expect(logged).not.toContain(secret);
+      }
+    }
+
+    function expectReadyFromPinnedSource(context: CopyContext) {
+      expect(context.bucket.objects.get(context.asset.objectKey)).toMatchObject({
+        size: context.asset.byteLength,
+        httpMetadata: { contentType: context.asset.mime },
+        customMetadata: {
+          'mxqr-asset': context.assetId,
+          'mxqr-bytes': String(context.asset.byteLength),
+          'mxqr-copy-source-etag': SYNTHETIC_SOURCE_ETAG,
+        },
+      });
+      expect(storedCanonicalRoom(context.state).assets[context.assetId]).toMatchObject({
+        status: 'ready',
+        completionSourceEtag: SYNTHETIC_SOURCE_ETAG,
+      });
+      expect(context.worker.room!.quota).toMatchObject({
+        usedBytes: context.asset.byteLength,
+        reservedBytes: 0,
+      });
+    }
+
+    function expectPinnedReservationKept(context: CopyContext) {
       expect(storedCanonicalRoom(context.state).assets[context.assetId]).toMatchObject({
         status: 'reserved',
         completionSourceEtag: SYNTHETIC_SOURCE_ETAG,
@@ -23068,15 +23151,322 @@ describe('persistent PRO room private media accounting', () => {
         usedBytes: 0,
         reservedBytes: context.asset.byteLength,
       });
-    },
-  );
+    }
+
+    it.each([
+      [
+        'a 403 response',
+        () => new Response('<Error><Code>AccessDenied</Code></Error>', { status: 403 }),
+        'status_4xx',
+        403,
+      ],
+      ['a 501 response', () => new Response(null, { status: 501 }), 'status_5xx', 501],
+      ['a 204 response', () => new Response(null, { status: 204 }), 'status_other', 204],
+      [
+        'a network error',
+        () => Promise.reject(new TypeError('copy network failure')),
+        'network',
+        null,
+      ],
+      [
+        'an embedded error document',
+        () => new Response('<Error><Code>InternalError</Code></Error>'),
+        'parse',
+        200,
+      ],
+      ['a self-closing result', () => new Response('<CopyObjectResult/>'), 'parse', 200],
+      [
+        'a result without an ETag',
+        () =>
+          new Response(
+            '<CopyObjectResult><LastModified>2026-10-27T00:00:00Z</LastModified></CopyObjectResult>',
+          ),
+        'parse',
+        200,
+      ],
+      ['invalid UTF-8', () => new Response(new Uint8Array([0xc3, 0x28])), 'parse', 200],
+      ['an oversized body', () => new Response(' '.repeat(20 * 1024)), 'body', 200],
+      [
+        'a 412 while the pinned source is unchanged',
+        () => new Response(null, { status: 412 }),
+        'precondition',
+        412,
+      ],
+    ] as const)(
+      'completes through the binding fallback after %s from the copy',
+      async (_name, respond, reason, status) => {
+        const context = await copyFixture();
+        const get = vi.spyOn(context.bucket, 'get');
+        const put = vi.spyOn(context.bucket, 'put');
+        vi.mocked(fetch).mockImplementationOnce(async () => respond());
+        const result = await context.worker.fetch(context.completion());
+        expect(result.status).toBe(200);
+        expect(get).toHaveBeenCalledWith(context.asset.stagingObjectKey);
+        // The same final key and metadata the copy would have written.
+        expect(put).toHaveBeenCalledExactlyOnceWith(context.asset.objectKey, expect.anything(), {
+          httpMetadata: { contentType: context.asset.mime },
+          customMetadata: {
+            'mxqr-room': ROOM_CODE,
+            'mxqr-generation': String(context.asset.roomGeneration),
+            'mxqr-asset': context.assetId,
+            'mxqr-version': String(context.asset.version),
+            'mxqr-bytes': String(context.asset.byteLength),
+            'mxqr-copy-source-etag': SYNTHETIC_SOURCE_ETAG,
+          },
+        });
+        expectReadyFromPinnedSource(context);
+        expect(copyOutcomes()).toEqual([
+          outcome('media_copy', reason, status),
+          outcome('media_copy_fallback', 'ok', null),
+        ]);
+        expectNoCopySecrets(context);
+      },
+    );
+
+    it.each(['a stalled body', 'no response'] as const)(
+      'completes through the binding fallback when the copy has %s at its deadline',
+      async (mode) => {
+        const context = await copyFixture();
+        vi.useFakeTimers();
+        const cancel = vi.fn();
+        let started!: () => void;
+        const ready = new Promise<void>((resolve) => {
+          started = resolve;
+        });
+        vi.mocked(fetch).mockImplementationOnce(async () => {
+          started();
+          return mode === 'a stalled body'
+            ? new Response(new ReadableStream<Uint8Array>({ cancel }))
+            : new Promise<Response>(() => {});
+        });
+        const pending = context.worker.fetch(context.completion());
+        await ready;
+        await vi.advanceTimersByTimeAsync(PRO_ROOM_MEDIA_COPY_TIMEOUT_MS + 1);
+        expect((await pending).status).toBe(200);
+        if (mode === 'a stalled body') expect(cancel).toHaveBeenCalledOnce();
+        expectReadyFromPinnedSource(context);
+        const [copy, fallback, ...rest] = copyOutcomes();
+        expect(rest).toEqual([]);
+        // A stalled body still reports the status its headers carried.
+        expect(copy).toEqual(
+          outcome('media_copy', 'timeout', mode === 'a stalled body' ? 200 : null),
+        );
+        expect(copy!.elapsedMs).toBeGreaterThanOrEqual(PRO_ROOM_MEDIA_COPY_TIMEOUT_MS);
+        expect(fallback).toEqual(outcome('media_copy_fallback', 'ok', null));
+      },
+    );
+
+    it('completes through the binding fallback without sending a copy when S3 credentials are missing', async () => {
+      const context = await copyFixture();
+      const env = (context.worker as unknown as { env: Record<string, unknown> }).env;
+      env.R2_SECRET_ACCESS_KEY = '';
+      const put = vi.spyOn(context.bucket, 'put');
+      expect((await context.worker.fetch(context.completion())).status).toBe(200);
+      expect(fetch).not.toHaveBeenCalled();
+      expect(put).toHaveBeenCalledOnce();
+      expectReadyFromPinnedSource(context);
+      expect(copyOutcomes()).toEqual([
+        outcome('media_copy', 'unconfigured', null),
+        outcome('media_copy_fallback', 'ok', null),
+      ]);
+      expectNoCopySecrets(context);
+    });
+
+    it('rewrites the final object through the binding fallback when the post-copy HEAD fails', async () => {
+      const context = await copyFixture();
+      const head = context.bucket.head.bind(context.bucket);
+      let copied = false;
+      let failedHead = false;
+      vi.spyOn(context.bucket, 'head').mockImplementation(async (key) => {
+        if (copied && !failedHead && key === context.asset.objectKey) {
+          failedHead = true;
+          throw new Error('R2 HEAD unavailable');
+        }
+        return head(key);
+      });
+      const put = vi.spyOn(context.bucket, 'put');
+      vi.mocked(fetch).mockImplementationOnce(async (resource) => {
+        const response = await fakeCopyObject(resource as Request);
+        copied = true;
+        return response;
+      });
+      expect((await context.worker.fetch(context.completion())).status).toBe(200);
+      expect(failedHead).toBe(true);
+      expect(put).toHaveBeenCalledOnce();
+      expectReadyFromPinnedSource(context);
+      expect(copyOutcomes()).toEqual([
+        outcome('media_copy', 'head', 200),
+        outcome('media_copy_fallback', 'ok', null),
+      ]);
+    });
+
+    it.each([
+      [
+        'lower-case encoding',
+        `<?xml version="1.0" encoding="utf-8"?><CopyObjectResult xmlns="http://s3.amazonaws.com/doc/2006-03-01/"><LastModified>2026-10-27T00:00:00Z</LastModified><ETag>&quot;${SYNTHETIC_FINAL_ETAG}&quot;</ETag></CopyObjectResult>`,
+      ],
+      [
+        'numeric quote entities',
+        `<CopyObjectResult><ETag>&#34;${SYNTHETIC_FINAL_ETAG}&#34;</ETag><LastModified>2026-10-27T00:00:00.000Z</LastModified></CopyObjectResult>`,
+      ],
+      [
+        'an unquoted ETag',
+        `<CopyObjectResult><ETag>${SYNTHETIC_FINAL_ETAG}</ETag></CopyObjectResult>`,
+      ],
+      [
+        'unknown child elements',
+        `<?xml version='1.0' encoding='UTF-8' standalone='yes'?>\n<CopyObjectResult xmlns="http://s3.amazonaws.com/doc/2006-03-01/">\n  <LastModified>2026-10-27T00:00:00Z</LastModified>\n  <ETag>"${SYNTHETIC_FINAL_ETAG}"</ETag>\n  <ChecksumCRC32>AAAAAA==</ChecksumCRC32>\n  <ChecksumType>FULL_OBJECT</ChecksumType>\n</CopyObjectResult>\n`,
+      ],
+    ] as const)(
+      'accepts a CopyObject result with %s and still verifies it by HEAD',
+      async (_name, body) => {
+        const context = await copyFixture(200 * 1024 * 1024);
+        const get = vi.spyOn(context.bucket, 'get');
+        const put = vi.spyOn(context.bucket, 'put');
+        vi.mocked(fetch).mockImplementationOnce(async (resource) => {
+          await fakeCopyObject(resource as Request);
+          return new Response(body);
+        });
+        expect((await context.worker.fetch(context.completion())).status).toBe(200);
+        expect(get).not.toHaveBeenCalledWith(context.asset.stagingObjectKey);
+        expect(put).not.toHaveBeenCalled();
+        expect(context.bucket.objects.get(context.asset.objectKey)).toMatchObject({
+          etag: SYNTHETIC_FINAL_ETAG,
+        });
+        expectReadyFromPinnedSource(context);
+        expect(copyOutcomes()).toEqual([outcome('media_copy', 'ok', 200, 256)]);
+        expectNoCopySecrets(context);
+      },
+    );
+
+    it.each([
+      [
+        'an ETag that differs from the copy result',
+        'etag_mismatch',
+        (object: Record<string, any>) => {
+          object.etag = '00000000000000000000000000000009';
+        },
+      ],
+      [
+        'metadata without the pinned source',
+        'metadata_mismatch',
+        (object: Record<string, any>) => {
+          object.customMetadata['mxqr-copy-source-etag'] = 'wrong-source';
+        },
+      ],
+    ] as const)(
+      'rewrites a copied final object with %s through the binding fallback',
+      async (_name, reason, corrupt) => {
+        const context = await copyFixture();
+        const put = vi.spyOn(context.bucket, 'put');
+        vi.mocked(fetch).mockImplementationOnce(async (resource) => {
+          const response = await fakeCopyObject(resource as Request);
+          corrupt(context.bucket.objects.get(context.asset.objectKey)!);
+          return response;
+        });
+        expect((await context.worker.fetch(context.completion())).status).toBe(200);
+        expect(put).toHaveBeenCalledOnce();
+        expectReadyFromPinnedSource(context);
+        expect(copyOutcomes()).toEqual([
+          outcome('media_copy', reason, 200),
+          outcome('media_copy_fallback', 'ok', null),
+        ]);
+      },
+    );
+
+    it('fails a definite source change without a fallback write, then reports UPLOAD_MISMATCH', async () => {
+      const context = await copyFixture();
+      const put = vi.spyOn(context.bucket, 'put');
+      vi.mocked(fetch).mockImplementationOnce(async (resource) => {
+        // A late re-upload replaces the staging bytes after the pin HEAD.
+        context.bucket.objects.get(context.asset.stagingObjectKey!)!.etag =
+          '00000000000000000000000000000003';
+        return fakeCopyObject(resource as Request);
+      });
+      const result = await context.worker.fetch(context.completion());
+      expect(result.status).toBe(503);
+      expect(await responseJson(result)).toMatchObject({ error: 'MEDIA_STORAGE_UNAVAILABLE' });
+      expect(put).not.toHaveBeenCalled();
+      expect(context.bucket.objects.has(context.asset.objectKey)).toBe(false);
+      expectPinnedReservationKept(context);
+      expect(copyOutcomes()).toEqual([
+        outcome('media_copy', 'precondition', 412),
+        outcome('media_copy_fallback', 'source_mismatch', null),
+      ]);
+
+      const retry = await context.worker.fetch(context.completion());
+      expect(retry.status).toBe(409);
+      expect(await responseJson(retry)).toMatchObject({ error: 'UPLOAD_MISMATCH' });
+      expect(fetch).toHaveBeenCalledOnce();
+      expectNoCopySecrets(context);
+    });
+
+    it.each([
+      [
+        'the staging object gone',
+        'source_missing',
+        (context: CopyContext) => {
+          vi.mocked(fetch).mockImplementationOnce(async () => {
+            context.bucket.objects.delete(context.asset.stagingObjectKey!);
+            return new Response(null, { status: 500 });
+          });
+        },
+      ],
+      [
+        'R2 refusing the staging read',
+        'storage',
+        (context: CopyContext) => {
+          vi.mocked(fetch).mockResolvedValueOnce(new Response(null, { status: 500 }));
+          vi.spyOn(context.bucket, 'get').mockRejectedValueOnce(new Error('R2 read unavailable'));
+        },
+      ],
+      [
+        'R2 refusing the final write',
+        'storage',
+        (context: CopyContext) => {
+          vi.mocked(fetch).mockResolvedValueOnce(new Response(null, { status: 500 }));
+          vi.spyOn(context.bucket, 'put').mockRejectedValueOnce(new Error('R2 write unavailable'));
+        },
+      ],
+      [
+        'a written final object that fails verification',
+        'verify',
+        (context: CopyContext) => {
+          vi.mocked(fetch).mockResolvedValueOnce(new Response(null, { status: 500 }));
+          vi.spyOn(context.bucket, 'put').mockImplementationOnce(async (key) => {
+            context.bucket.objects.set(key, { size: 1, httpMetadata: {}, customMetadata: {} });
+          });
+        },
+      ],
+    ] as const)(
+      'keeps the pinned reservation retryable when the fallback finds %s',
+      async (_name, reason, arrange) => {
+        const context = await copyFixture();
+        arrange(context);
+        const result = await context.worker.fetch(context.completion());
+        expect(result.status).toBe(503);
+        expect(await responseJson(result)).toMatchObject({ error: 'MEDIA_STORAGE_UNAVAILABLE' });
+        expect(context.bucket.objects.has(context.asset.objectKey)).toBe(false);
+        expectPinnedReservationKept(context);
+        expect(copyOutcomes()).toEqual([
+          outcome('media_copy', 'status_5xx', 500),
+          outcome('media_copy_fallback', reason, null),
+        ]);
+      },
+    );
+  });
 
   it('refuses changed staging bytes after an ambiguous copy, including a cold restart', async () => {
     const context = await copyFixture();
-    vi.mocked(fetch).mockRejectedValueOnce(new Error('copy response lost'));
+    vi.mocked(fetch).mockImplementationOnce(async () => {
+      // The copy response is lost while a late re-upload replaces staging, so
+      // the binding fallback must not adopt the replacement bytes either.
+      context.bucket.objects.get(context.asset.stagingObjectKey!)!.etag =
+        '00000000000000000000000000000003';
+      throw new Error('copy response lost');
+    });
     expect((await context.worker.fetch(context.completion())).status).toBe(503);
-    const staged = context.bucket.objects.get(context.asset.stagingObjectKey!)!;
-    staged.etag = '00000000000000000000000000000003';
+    expect(context.bucket.objects.has(context.asset.objectKey)).toBe(false);
     const restarted = new MusixquareProRoom(
       context.state as never,
       environment(context.bucket) as never,
@@ -23109,29 +23499,11 @@ describe('persistent PRO room private media accounting', () => {
     );
   });
 
-  it('bounds a stalled copy body and keeps the pinned completion retryable', async () => {
-    const context = await copyFixture();
-    vi.useFakeTimers();
-    const cancel = vi.fn();
-    let started!: () => void;
-    const ready = new Promise<void>((resolve) => {
-      started = resolve;
-    });
-    vi.mocked(fetch).mockImplementationOnce(async () => {
-      started();
-      return new Response(new ReadableStream<Uint8Array>({ cancel }));
-    });
-    const pending = context.worker.fetch(context.completion());
-    await ready;
-    await vi.advanceTimersByTimeAsync(PRO_ROOM_MEDIA_COPY_TIMEOUT_MS + 1);
-    expect((await pending).status).toBe(503);
-    expect(cancel).toHaveBeenCalledOnce();
-    expect((await context.worker.fetch(context.completion())).status).toBe(200);
-  });
-
   it('reclaims a final object recreated by a timed-out copy after reservation deletion', async () => {
     const context = await copyFixture();
     vi.useFakeTimers();
+    // The binding fallback is unavailable too, so the reservation stays open.
+    vi.spyOn(context.bucket, 'get').mockRejectedValueOnce(new Error('R2 read unavailable'));
     let finish!: (response: Response) => void;
     let started!: () => void;
     const ready = new Promise<void>((resolve) => {
@@ -23178,6 +23550,8 @@ describe('persistent PRO room private media accounting', () => {
 
   it('recovers the final object after the CopyObject response is lost without another copy', async () => {
     const context = await copyFixture();
+    // The binding fallback is unavailable too, so only a retry can finish.
+    vi.spyOn(context.bucket, 'get').mockRejectedValueOnce(new Error('R2 read unavailable'));
     vi.mocked(fetch).mockImplementationOnce(async (resource) => {
       await fakeCopyObject(resource as Request);
       throw new Error('copy result lost');
@@ -23186,24 +23560,6 @@ describe('persistent PRO room private media accounting', () => {
     context.bucket.objects.delete(context.asset.stagingObjectKey!);
     expect((await context.worker.fetch(context.completion())).status).toBe(200);
     expect(fetch).toHaveBeenCalledOnce();
-  });
-
-  it('requires the pinned source identity and copy result ETag on the final HEAD', async () => {
-    const context = await copyFixture();
-    vi.mocked(fetch).mockImplementationOnce(async (resource) => {
-      const response = await fakeCopyObject(resource as Request);
-      context.bucket.objects.get(context.asset.objectKey)!.customMetadata['mxqr-copy-source-etag'] =
-        'wrong-source';
-      return response;
-    });
-    expect((await context.worker.fetch(context.completion())).status).toBe(503);
-    vi.mocked(fetch).mockImplementationOnce(async (resource) => {
-      const response = await fakeCopyObject(resource as Request);
-      context.bucket.objects.get(context.asset.objectKey)!.etag = 'wrong-result';
-      return response;
-    });
-    expect((await context.worker.fetch(context.completion())).status).toBe(503);
-    expect(context.worker.room!.assets[context.assetId]!.status).toBe('reserved');
   });
 
   it('recovers a legacy final object without requiring a new source pin or surviving staging', async () => {

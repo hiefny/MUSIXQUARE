@@ -101,10 +101,15 @@ describe('playlist title marquee', () => {
   it('limits touch autoplay to narrow layouts and respects reduced motion', async () => {
     const stylesheet = await readFile('css/style.css', 'utf8');
 
-    expect(stylesheet).toContain('@media (any-hover: hover)');
+    // src/ui/hover-pointer.ts decides whether the user can hover: hovered rows
+    // move behind its gate, and the current row moves without it.
     expect(stylesheet).toMatch(
-      /@media \(max-width: 1279px\) and \(hover: none\) and \(pointer: coarse\),\s+\(max-height: 719px\) and \(hover: none\) and \(pointer: coarse\) \{/u,
+      /:where\(html\[data-hover-pointer\]\)\s+\.track-item:hover\s+\.track-name-text\.is-playlist-title-overflowing\s+> \.playlist-title-marquee-content/u,
     );
+    expect(stylesheet).toMatch(
+      /@media \(max-width: 1279px\), \(max-height: 719px\) \{\s*:where\(html:not\(\[data-hover-pointer\]\)\)\s+\.playlist-entry:not\(:has\(\.sub-track-item\.active\)\)/u,
+    );
+    expect(stylesheet).not.toMatch(/@media[^{]*\((?:any-)?(?:hover|pointer):/u);
     expect(stylesheet).toContain('.playlist-entry:not(:has(.sub-track-item.active))');
     expect(stylesheet).toContain('.playlist-current-leading.is-current-playing');
     expect(stylesheet).toContain('.sub-track-item.active');

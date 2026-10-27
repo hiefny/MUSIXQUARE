@@ -886,6 +886,9 @@ test.describe('content-based adaptive action groups', () => {
     await page.emulateMedia({ reducedMotion: 'reduce' });
     await installLayoutProbe(page, '<main id="hover-action-probe"></main>');
     await page.evaluate((markup) => {
+      // The probe has no app runtime: mark the mouse user the way
+      // src/ui/hover-pointer.ts does, so the competing :hover rules apply.
+      document.documentElement.setAttribute('data-hover-pointer', '');
       const authored = new DOMParser().parseFromString(markup, 'text/html');
       const row = authored.querySelector<HTMLElement>('.play-action-buttons')!;
       row.classList.add('locale-merged-player-actions');

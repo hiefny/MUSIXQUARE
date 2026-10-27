@@ -14,20 +14,13 @@ const CSS_FILES = ['css/style.css', 'css/desktop.css', 'css/playback-actions.css
 const LAYOUT_FEATURE =
   /\((?:min|max)-width:\s*12(?:79|80)px\)|\(min-height:\s*720px\)|\(max-height:\s*(?:719|899)px\)/u;
 
-/** Apply extra media features to every branch of a query list. */
-function withFeatures(query: string, features: string): string {
-  return query
-    .split(', ')
-    .map((branch) => `${branch} and ${features}`)
-    .join(', ');
-}
-
+// Layout bands carry no input features: whether the user can hover is one
+// runtime flag (src/ui/hover-pointer.ts), not a media query.
 const ALLOWED_PRELUDES = new Set([
   DESKTOP_LAYOUT_QUERY,
   NOT_DESKTOP_LAYOUT_QUERY,
   COMPACT_LAYOUT_QUERY,
   SHORT_DESKTOP_LAYOUT_QUERY,
-  withFeatures(NOT_DESKTOP_LAYOUT_QUERY, '(hover: none) and (pointer: coarse)'),
   // A portrait viewport is never at least 1280px wide and under 720px tall,
   // so these width-only portrait branches already agree with the bands.
   '(max-width: 1279px) and (max-height: 720px) and (orientation: portrait)',

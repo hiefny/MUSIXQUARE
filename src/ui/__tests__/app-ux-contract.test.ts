@@ -131,25 +131,24 @@ describe('app UX markup contract', () => {
 
     const lightChatRules = declarationsForSelector("[data-theme='light'] .chat-preview-btn");
     const lightMediaRules = declarationsForSelector("[data-theme='light'] .file-select-btn");
-    const lightChatStickyHoverRules = declarationsForSelector(
-      "[data-theme='light'] .chat-preview-btn:hover:not(:active)",
+    const lightChatHoverRules = declarationsForSelector(
+      ":where(html[data-hover-pointer]) [data-theme='light'] .chat-preview-btn:hover",
     );
-    const lightMediaStickyHoverRules = declarationsForSelector(
-      "[data-theme='light'] .file-select-btn:hover:not(:active)",
+    const lightMediaHoverRules = declarationsForSelector(
+      ":where(html[data-hover-pointer]) [data-theme='light'] .file-select-btn:hover",
     );
+    expect(lightChatHoverRules).toHaveLength(1);
+    expect(lightMediaHoverRules).toHaveLength(1);
     const lightPlayActionRules = [
       ...lightChatRules,
       ...lightMediaRules,
-      ...lightChatStickyHoverRules,
-      ...lightMediaStickyHoverRules,
+      ...lightChatHoverRules,
+      ...lightMediaHoverRules,
     ].join('\n');
     expect(lightPlayActionRules).not.toMatch(/background:\s*#fff(?:fff)?/iu);
-    expect(lightChatStickyHoverRules.join('\n')).toContain(
-      'background: var(--play-action-surface);',
-    );
-    expect(lightMediaStickyHoverRules.join('\n')).toContain(
-      'background: var(--play-action-surface);',
-    );
+    // Hover belongs to the runtime hover gate, so a tap leaves no latched
+    // hover surface to reset on touch screens.
+    expect(appStylesheet).not.toContain(':hover:not(:active)');
   });
 
   it('makes the visualizer itself the accessible mode control and removes the settings row', () => {
@@ -797,16 +796,14 @@ describe('app UX markup contract', () => {
 
   it('preserves the row-hover transition from track number to reorder grip on hybrid input', () => {
     expect(appStylesheet).toMatch(
-      /@media\s*\(any-hover:\s*hover\)\s*\{\s*\.playlist-reorder-handle:hover/,
+      /:where\(html\[data-hover-pointer\]\)\s+\.playlist-reorder-handle:hover\s*\{\s*color:\s*var\(--primary\);/,
     );
-    expect(appStylesheet).not.toMatch(
-      /@media\s*\(hover:\s*hover\)\s*and\s*\(pointer:\s*fine\)\s*\{\s*\.playlist-reorder-handle:hover/,
+    expect(appStylesheet).not.toMatch(/@media\s*\([^)]*hover:\s*hover\)/);
+    expect(appStylesheet).toMatch(
+      /\.track-item:hover\s+\.playlist-reorder-handle\s+\.track-idx\s*\{[^}]*opacity:\s*0/,
     );
     expect(appStylesheet).toMatch(
-      /\.track-item:hover\s+\.playlist-reorder-handle\s+\.track-idx[\s\S]*?opacity:\s*0/,
-    );
-    expect(appStylesheet).toMatch(
-      /\.track-item:hover\s+\.playlist-reorder-handle\s+\.playlist-reorder-grip[\s\S]*?opacity:\s*1/,
+      /\.track-item:hover\s+\.playlist-reorder-handle\s+\.playlist-reorder-grip\s*\{[^}]*opacity:\s*1/,
     );
   });
 });

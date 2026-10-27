@@ -89,6 +89,18 @@ async function mountMarqueeHarness(page: Page): Promise<void> {
       ),
     stylesheetHref,
   );
+  // The harness has no app runtime. Mirror src/ui/hover-pointer.ts, the one
+  // owner of whether the user can hover: it starts from any-hover.
+  await page.evaluate(() => {
+    document.documentElement.toggleAttribute(
+      'data-hover-pointer',
+      matchMedia('(any-hover: hover)').matches,
+    );
+  });
+}
+
+async function hasHoverPointer(page: Page): Promise<boolean> {
+  return page.evaluate(() => document.documentElement.hasAttribute('data-hover-pointer'));
 }
 
 async function animationName(page: Page, selector: string): Promise<string> {
@@ -136,7 +148,7 @@ test('desktop interaction, narrow touch autoplay, and reduced-motion marquee pol
   try {
     await mountMarqueeHarness(desktopPage);
     await expectMarqueeStart(desktopPage, '#main-title', 1000);
-    expect(await desktopPage.evaluate(() => matchMedia('(any-hover: hover)').matches)).toBe(true);
+    expect(await hasHoverPointer(desktopPage)).toBe(true);
     expect(await animationName(desktopPage, `#current-entry ${content}`)).toBe('none');
     expect(
       await desktopPage.locator(`#current-entry ${content}`).evaluate((node) => ({
@@ -190,11 +202,7 @@ test('desktop interaction, narrow touch autoplay, and reduced-motion marquee pol
   const touchPage = await touch.newPage();
   try {
     await mountMarqueeHarness(touchPage);
-    expect(
-      await touchPage.evaluate(
-        () => matchMedia('(hover: none)').matches && matchMedia('(pointer: coarse)').matches,
-      ),
-    ).toBe(true);
+    expect(await hasHoverPointer(touchPage)).toBe(false);
     expect(await animationName(touchPage, `#current-entry ${content}`)).toBe('marquee-pingpong');
     await expectMarqueeStart(touchPage, `#current-entry ${content}`, 1000);
     expect(await animationName(touchPage, `#idle-entry ${content}`)).toBe('none');
@@ -224,11 +232,7 @@ test('desktop interaction, narrow touch autoplay, and reduced-motion marquee pol
   const coarseDesktopPage = await coarseDesktop.newPage();
   try {
     await mountMarqueeHarness(coarseDesktopPage);
-    expect(
-      await coarseDesktopPage.evaluate(
-        () => matchMedia('(hover: none)').matches && matchMedia('(pointer: coarse)').matches,
-      ),
-    ).toBe(true);
+    expect(await hasHoverPointer(coarseDesktopPage)).toBe(false);
     expect(await animationName(coarseDesktopPage, `#current-entry ${content}`)).toBe('none');
     await coarseDesktopPage.locator('#current-entry .track-name').focus();
     expect(await animationName(coarseDesktopPage, `#current-entry ${content}`)).toBe(

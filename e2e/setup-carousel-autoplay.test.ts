@@ -247,9 +247,12 @@ test.describe('setup carousel unobtrusive autoplay', () => {
   test('desktop hover only suspends rotation and restarts a fresh dwell on leave', async ({
     page,
   }) => {
-    const hoverCapable = await page.evaluate(() => matchMedia('(any-hover: hover)').matches);
-    test.skip(!hoverCapable, 'Desktop hover behavior does not apply to touch-only contexts');
     await openSetupCarousel(page);
+    // src/ui/hover-pointer.ts owns whether the user can hover.
+    const hoverCapable = await page.evaluate(() =>
+      document.documentElement.hasAttribute('data-hover-pointer'),
+    );
+    test.skip(!hoverCapable, 'Desktop hover behavior does not apply to touch-only contexts');
 
     const area = page.locator('#ob-slider-area');
     const track = page.locator('#ob-slider-track');

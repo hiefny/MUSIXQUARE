@@ -20,7 +20,7 @@ describe('integrated borderless control surfaces', () => {
       /\.ch-opt\s*\{(?=[^}]*background:\s*var\(--surface-2\);)(?=[^}]*border:\s*2px solid transparent;)[^}]*\}/u,
     );
     expect(css).toMatch(
-      /#tab-settings \.ch-opt:not\(\.active\):not\(\.selected\):hover,\s*#demo-overlay \.ch-opt\.demo-choice:not\(\.active\):not\(\.selected\):not\(\[aria-pressed='true'\]\):hover\s*\{[^}]*background:\s*var\(--surface-3\);/u,
+      /:where\(html\[data-hover-pointer\]\) #tab-settings \.ch-opt:not\(\.active\):not\(\.selected\):hover,\s*:where\(html\[data-hover-pointer\]\)\s+#demo-overlay\s+\.ch-opt\.demo-choice:not\(\.active\):not\(\.selected\):not\(\[aria-pressed='true'\]\):hover\s*\{[^}]*background:\s*var\(--surface-3\);/u,
     );
     expect(css).toMatch(
       /\.ch-opt\.active,\s*\.ch-opt\.selected,\s*#demo-overlay \.ch-opt\.demo-choice\[aria-pressed='true'\]\s*\{(?=[^}]*background:\s*var\(--control-active\);)(?=[^}]*border-color:\s*transparent;)(?=[^}]*color:\s*var\(--primary\);)(?=[^}]*box-shadow:\s*none;)[^}]*\}/u,
@@ -51,7 +51,7 @@ describe('integrated borderless control surfaces', () => {
       /\.demo-large-actions \.leave-session-btn\s*\{[^}]*background:\s*var\(--control-danger\);/u,
     );
     expect(css).toMatch(
-      /\.demo-large-actions \.leave-session-btn:hover\s*\{[^}]*background:\s*var\(--control-danger-hover\);/u,
+      /:where\(html\[data-hover-pointer\]\) \.demo-large-actions \.leave-session-btn:hover\s*\{[^}]*background:\s*var\(--control-danger-hover\);/u,
     );
   });
 });

@@ -179,6 +179,8 @@ beforeEach(() => {
   installMatchMedia();
   Object.defineProperty(document, 'hidden', { configurable: true, value: false });
   document.documentElement.className = '';
+  // src/ui/hover-pointer.ts marks a mouse user at start-up.
+  document.documentElement.setAttribute('data-hover-pointer', '');
   document.body.className = '';
   document.body.replaceChildren();
 });
@@ -436,10 +438,13 @@ describe('onboarding carousel motion preference', () => {
     controller.abort();
   });
 
-  it('uses any-hover so a mouse still suspends autoplay on a touch-primary hybrid', () => {
-    installMatchMedia({ anyHover: true, primaryHover: false });
+  it('asks the app hover owner, not a media query, whether hover suspends autoplay', () => {
+    // A convertible in tablet posture reports no hover-capable input while its
+    // pen or mouse still hovers; src/ui/hover-pointer.ts follows the real input.
+    installMatchMedia({ anyHover: false, primaryHover: false });
     renderCarouselFixture();
     const controller = new AbortController();
+    onTestFinished(() => controller.abort());
     initObCarousel(controller.signal);
     const area = document.getElementById('ob-slider-area') as HTMLElement;
     const track = document.getElementById('ob-slider-track') as HTMLElement;
@@ -447,11 +452,35 @@ describe('onboarding carousel motion preference', () => {
     area.dispatchEvent(new MouseEvent('mouseenter'));
     latestAutoplayCallback()();
     expect(track.style.transform).toBe('translateX(-0%)');
-    expect(window.matchMedia).toHaveBeenCalledWith('(any-hover: hover)');
-
     area.dispatchEvent(new MouseEvent('mouseleave'));
     expect(autoplayScheduleCount()).toBe(2);
-    controller.abort();
+    expect(window.matchMedia).not.toHaveBeenCalledWith('(any-hover: hover)');
+
+    // After a touch press the owner clears the flag: a compatibility
+    // mouseenter is not hover and does not hold the slide.
+    document.documentElement.removeAttribute('data-hover-pointer');
+    area.dispatchEvent(new MouseEvent('mouseenter'));
+    latestAutoplayCallback()();
+    expect(track.style.transform).toBe('translateX(-100%)');
+  });
+
+  it('does not let a touch-latched :hover suspend autoplay when the page returns', () => {
+    document.documentElement.removeAttribute('data-hover-pointer');
+    renderCarouselFixture();
+    const controller = new AbortController();
+    onTestFinished(() => controller.abort());
+    initObCarousel(controller.signal);
+    const area = document.getElementById('ob-slider-area') as HTMLElement;
+    vi.spyOn(area, 'matches').mockReturnValue(true);
+
+    Object.defineProperty(document, 'hidden', { configurable: true, value: true });
+    document.dispatchEvent(new Event('visibilitychange'));
+    Object.defineProperty(document, 'hidden', { configurable: true, value: false });
+    document.dispatchEvent(new Event('visibilitychange'));
+
+    expect(autoplayScheduleCount()).toBe(2);
+    latestAutoplayCallback()();
+    expect(document.getElementById('ob-slider-track')?.style.transform).toBe('translateX(-100%)');
   });
 
   it('clears a hover pause lost while hidden and starts a fresh dwell on return', () => {

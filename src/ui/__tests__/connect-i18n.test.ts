@@ -576,18 +576,17 @@ describe('connect signaling health status', () => {
     expect(stylesheet).not.toContain(".signaling-recovery-dialog[data-state='retrying']");
     expect(stylesheet).not.toContain('.signaling-recovery-header');
     expect(stylesheet).toContain(
-      "[data-theme='light'] .btn-copy-invite-link[data-mode='copy']:hover",
+      ":where(html[data-hover-pointer]) [data-theme='light'] .btn-copy-invite-link[data-mode='copy']:hover",
     );
     expect(stylesheet).not.toContain("[data-theme='light'] .btn-copy-invite-link:hover");
     // Owner decision (2026-10-24): expiry keeps the neutral copy look, so it
-    // shares the copy hover/active and touch-reset rules at the same specificity.
-    // Selectors are matched whole: the plain :hover one is also a substring of
-    // the :hover:not(:active) ones, so a substring check would pass without it.
+    // shares the copy hover and active rules at the same specificity. Hover
+    // sits behind the runtime hover gate, so touch needs no reset rule.
+    // Selectors are matched whole.
+    expect(stylesheet).not.toContain(':hover:not(:active)');
     for (const selector of [
-      "[data-theme='light'] .btn-copy-invite-link[data-mode='expired']:hover",
+      ":where(html[data-hover-pointer]) [data-theme='light'] .btn-copy-invite-link[data-mode='expired']:hover",
       "[data-theme='light'] .btn-copy-invite-link[data-mode='expired']:active",
-      ".btn-copy-invite-link[data-mode='expired']:hover:not(:active)",
-      "[data-theme='light'] .btn-copy-invite-link[data-mode='expired']:hover:not(:active)",
     ]) {
       const expiredRules = cssRulesWithSelector(stylesheet, selector);
       expect(expiredRules, selector).toHaveLength(1);
@@ -2672,7 +2671,7 @@ describe('member-level connection and administrator UI', () => {
       /#desktop-connect-content \.qr-container,\s*#desktop-connect-content \.administrator-list,\s*#desktop-connect-content \.device-list,/,
     );
     expect(stylesheet).toMatch(
-      /\.administrator-permission-row:hover,\s*\.administrator-permission-row:focus-visible\s*{\s*background:\s*transparent;/,
+      /:where\(html\[data-hover-pointer\]\) \.administrator-permission-row:hover,\s*\.administrator-permission-row:focus-visible\s*{\s*background:\s*transparent;/,
     );
     expect(stylesheet).not.toContain('.d-device-count');
     expect(deviceSubrowRules).toContain('font-size: 13px');

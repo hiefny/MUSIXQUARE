@@ -83,8 +83,75 @@ async function cssColor(page: Page, value: string): Promise<string> {
   }, value);
 }
 
+async function hasHoverPointer(page: Page): Promise<boolean> {
+  return page.evaluate(() => document.documentElement.hasAttribute('data-hover-pointer'));
+}
+
+/** The row's number and grip opacities and its minus color, once settled. */
+async function rowLook(page: Page, index: number) {
+  return page
+    .locator('#playlist-ui .track-item')
+    .nth(index)
+    .evaluate((row) => ({
+      number: getComputedStyle(row.querySelector('.playlist-reorder-handle .track-idx')!).opacity,
+      grip: getComputedStyle(row.querySelector('.playlist-reorder-grip')!).opacity,
+      minus: getComputedStyle(row.querySelector('.btn-playlist-select')!).color,
+    }));
+}
+
+/** A touch tap on the playlist heading, which takes no action. */
+async function tapNeutral(page: Page): Promise<void> {
+  const heading = await centerOf(page.locator('#tab-playlist .tab-header > .tab-title'));
+  await page.touchscreen.tap(heading.x, heading.y);
+}
+
 test.describe('Playlist edit mode (mouse)', () => {
   test.use({ viewport: { width: 1440, height: 900 } });
+
+  // Owner direction (2026-10-27, UI audit items 4 and 10): the minus turns
+  // blue on hover and on keyboard focus, and in edit mode a row hover keeps
+  // the number (reordering is off) and lights the minus instead.
+  test('the minus turns blue on hover and focus, and an edit-mode row hover keeps its number', async ({
+    page,
+  }) => {
+    test.setTimeout(90_000);
+    await openFiveTrackPlaylist(page, false);
+    expect(await hasHoverPointer(page)).toBe(true);
+    const primary = await cssColor(page, 'var(--primary)');
+    const checks = page.locator('#playlist-ui .btn-playlist-select');
+    const minusColor = (index: number) =>
+      checks.nth(index).evaluate((button) => getComputedStyle(button).color);
+
+    await page.mouse.move(0, 0);
+    const resting = await minusColor(2);
+    expect(resting).not.toBe(primary);
+    await checks.nth(2).hover();
+    await expect.poll(() => minusColor(2)).toBe(primary);
+    await page.mouse.move(0, 0);
+    await expect.poll(() => minusColor(2)).toBe(resting);
+
+    await page.locator('#playlist-ui .track-name').nth(2).focus();
+    await page.keyboard.press('Tab');
+    await expect(checks.nth(2)).toBeFocused();
+    expect(await checks.nth(2).evaluate((button) => button.matches(':focus-visible'))).toBe(true);
+    await expect.poll(() => minusColor(2)).toBe(primary);
+    await checks.nth(2).blur();
+
+    // Outside edit mode a row hover trades the number for the grip.
+    await page.locator('#playlist-ui .track-name').nth(3).hover();
+    await expect.poll(() => rowLook(page, 3)).toEqual({ number: '0', grip: '1', minus: resting });
+
+    await checks.nth(0).click();
+    await expect(page.locator('.playlist-selection-bar')).toBeVisible();
+    await page.locator('#playlist-ui .track-name').nth(3).hover();
+    await expect.poll(() => rowLook(page, 3)).toEqual({ number: '1', grip: '0', minus: primary });
+    expect(await rowLook(page, 2)).toEqual({ number: '1', grip: '0', minus: resting });
+
+    await checks.nth(0).click();
+    await expect(page.locator('.playlist-selection-bar')).toBeHidden();
+    await page.locator('#playlist-ui .track-name').nth(2).hover();
+    await expect.poll(() => rowLook(page, 2)).toEqual({ number: '0', grip: '1', minus: resting });
+  });
 
   test('check circles enter edit mode and paint joined blocks and lone pills', async ({ page }) => {
     test.setTimeout(90_000);
@@ -425,6 +492,38 @@ test.describe('Playlist edit mode (mouse)', () => {
   });
 });
 
+// A convertible in tablet posture (for example a Surface Laptop Studio in
+// studio mode) reports no hover-capable input, yet its pen or mouse hovers.
+// Chromium emulates that report with touch on a desktop viewport.
+test.describe('Playlist row hover on a convertible in tablet posture', () => {
+  test.use({ viewport: { width: 1440, height: 900 }, hasTouch: true, isMobile: false });
+
+  test('a moving mouse or pen hovers like a laptop, and a touch press ends it', async ({
+    page,
+  }) => {
+    test.setTimeout(90_000);
+    await openFiveTrackPlaylist(page, false);
+    expect(await page.evaluate(() => matchMedia('(any-hover: hover)').matches)).toBe(false);
+    const primary = await cssColor(page, 'var(--primary)');
+    const checks = page.locator('#playlist-ui .btn-playlist-select');
+
+    await tapNeutral(page);
+    expect(await hasHoverPointer(page)).toBe(false);
+    const resting = await rowLook(page, 2);
+    expect(resting).toMatchObject({ number: '1', grip: '0' });
+    expect(resting.minus).not.toBe(primary);
+
+    await page.mouse.move(0, 0);
+    await checks.nth(2).hover();
+    expect(await hasHoverPointer(page)).toBe(true);
+    await expect.poll(() => rowLook(page, 2)).toEqual({ number: '0', grip: '1', minus: primary });
+
+    await tapNeutral(page);
+    expect(await hasHoverPointer(page)).toBe(false);
+    await expect.poll(() => rowLook(page, 2)).toEqual(resting);
+  });
+});
+
 test.describe('Playlist delete slide-out', () => {
   // Short enough that the five tracks scroll under the tab header.
   test.use({ viewport: { width: 390, height: 520 } });
@@ -692,6 +791,27 @@ test.describe('Playlist edit mode (touch)', () => {
     await touch(cdp, 'touchMove', at(to));
     await touch(cdp, 'touchEnd', []);
   }
+
+  test('a tapped minus keeps no hover look on a phone', async ({ page }) => {
+    test.setTimeout(90_000);
+    await openFiveTrackPlaylist(page, true);
+    const primary = await cssColor(page, 'var(--primary)');
+    const checks = page.locator('#playlist-ui .btn-playlist-select');
+    const minusColor = () => checks.nth(1).evaluate((button) => getComputedStyle(button).color);
+    const resting = await minusColor();
+    expect(resting).not.toBe(primary);
+
+    // The setup helpers click with a mouse; from here on only touch is used.
+    const minus = await centerOf(checks.nth(1));
+    await page.touchscreen.tap(minus.x, minus.y);
+    expect(await pressedStates(page)).toEqual(selected([1]));
+    await page.touchscreen.tap(minus.x, minus.y);
+    await expect(page.locator('.playlist-selection-bar')).toBeHidden();
+    expect(await hasHoverPointer(page)).toBe(false);
+    expect(await checks.nth(1).evaluate((button) => button.matches(':hover'))).toBe(true);
+    await expect.poll(minusColor).toBe(resting);
+    expect(await rowLook(page, 1)).toMatchObject({ number: '1', grip: '0' });
+  });
 
   test('a check-column swipe and a two-finger pan select ranges without scrolling', async ({
     page,

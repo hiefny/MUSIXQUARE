@@ -5439,7 +5439,7 @@ Safety is declared first because important layer precedence is reversed; its acc
   }
 
   .account-google-button {
-    min-height: 54px;
+    min-height: 56px;
     margin-top: 8px;
     padding: 0 12px;
     display: grid;
@@ -5507,10 +5507,12 @@ Safety is declared first because important layer precedence is reversed; its acc
     word-break: keep-all;
   }
 
+  /* The signed-out view stacks the Google pill and Close without an action
+     group, so this margin is their surface gap: the shared 12px. */
   .account-dialog-login-close {
     max-width: 100%;
     width: 100%;
-    margin-top: 10px;
+    margin-top: 12px;
     white-space: normal;
     -webkit-hyphens: auto;
     hyphens: auto;
@@ -5556,7 +5558,7 @@ Safety is declared first because important layer precedence is reversed; its acc
   }
 
   .account-delete-button {
-    min-height: 54px;
+    min-height: 56px;
     border: 1px solid transparent;
     border-radius: var(--radius-pill);
     background: rgba(239, 68, 68, 0.1);
@@ -5615,6 +5617,9 @@ Safety is declared first because important layer precedence is reversed; its acc
     }
   }
 
+  /* Very short screens are the one place the account actions leave the shared
+     12px / 56px pill rhythm: a 6px gap and 44px touch-target pills keep every
+     action reachable without scrolling the panel. */
   @media (max-height: 350px) {
     html:not(.keyboard-open) .dialog.account-dialog .account-dialog-header {
       padding: 12px 12px 0;
@@ -6142,12 +6147,14 @@ Safety is declared first because important layer precedence is reversed; its acc
 
   /* Let the browser's intrinsic sizing decide whether localized actions fit.
      max-content keeps short pairs together; flex wrapping gives each action a
-     full row only when their rendered text and padding no longer fit. */
+     full row only when their rendered text and padding no longer fit.
+     The 12px gap between pill surfaces, across and down, is the play tab's and
+     the setup actions' gap; action-rhythm-contract.test.ts keeps them equal. */
   .adaptive-action-group {
     display: flex;
     flex-wrap: wrap;
     align-items: stretch;
-    gap: 10px;
+    gap: 12px;
   }
 
   .adaptive-action-group > :is(button, a):not([hidden]) {
@@ -6517,7 +6524,7 @@ Safety is declared first because important layer precedence is reversed; its acc
     background: var(--surface-2);
     color: var(--text-main);
     border-radius: var(--radius-pill);
-    min-height: 54px;
+    min-height: 56px;
     padding: 0 28px;
     font-size: 15px;
     font-weight: 700;
@@ -6538,7 +6545,7 @@ Safety is declared first because important layer precedence is reversed; its acc
     background: var(--primary-filled);
     color: #fff;
     border-radius: var(--radius-pill);
-    min-height: 54px;
+    min-height: 56px;
     padding: 0 28px;
     font-size: 15px;
     font-weight: 700;

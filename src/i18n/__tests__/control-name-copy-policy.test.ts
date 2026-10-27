@@ -656,6 +656,24 @@ describe('hint and accessible-name copy policy', () => {
     expect(problems).toEqual([]);
   });
 
+  it('puts an action name and its target in one phrase in every locale', () => {
+    // Rule 3.5: '{kick_title}: {name}' reads as two labels glued together.
+    // An action name carries the row it acts on inside one phrase, like
+    // Kick {{name}}. A value after a colon (a seek time) is not a target.
+    const assembled: string[] = [];
+    for (const [locale, dictionary] of Object.entries(APP_DICTIONARIES)) {
+      const byKey = dictionary as Readonly<Record<string, string>>;
+      for (const key of nameKeys()) {
+        if (!(REGISTRY[key] as Entry).kinds.includes('action')) continue;
+        const value = byKey[key] ?? '';
+        if (/[:：]\s*\{\{(?:name|title)\}\}/u.test(value)) {
+          assembled.push(`${locale}.${key}: ${value}`);
+        }
+      }
+    }
+    expect(assembled).toEqual([]);
+  });
+
   it('keeps the language chip visible word inside its name in every locale', () => {
     // WCAG 2.5.3 Label in Name: the chip shows settings.language_select and
     // is named settings.language_manual_aria, so a voice user who says the

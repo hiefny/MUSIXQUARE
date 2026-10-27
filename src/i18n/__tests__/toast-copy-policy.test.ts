@@ -89,6 +89,7 @@ const SHARED_TOAST_KEYS = [
   'pro.pin_enabled',
   'pro.quota_exceeded',
   'pro.resume_tap',
+  'pro.room_state_limit',
   'role.center_placement',
   'role.left_placement',
   'role.right_placement',
@@ -352,6 +353,13 @@ describe('toast copy policy', () => {
     );
     expect(APP_DICTIONARIES.th['transfer.host_busy']).toBe(
       'เจ้าของห้องกำลังประมวลผลไฟล์อื่น\nลองอีกครั้งในอีกสักครู่',
+    );
+    // A full PRO room receipt ledger (RO-53): the playlist did not change.
+    expect(APP_DICTIONARIES.en['pro.room_state_limit']).toBe(
+      'This PRO room cannot accept more changes right now\nPlease try again in a little while',
+    );
+    expect(APP_DICTIONARIES.ko['pro.room_state_limit']).toBe(
+      '지금은 PRO 방에 변경 사항을 더 반영할 수 없어요\n잠시 후 다시 시도해 주세요',
     );
     // Abbreviations keep their periods.
     expect(APP_DICTIONARIES.da['share.remote.too_large']).toBe('Filen er for stor (maks. 200 MB)');

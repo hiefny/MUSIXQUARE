@@ -203,7 +203,10 @@ Prefer an existing path from `index.html` before introducing a new icon.
   The selection check (`src/ui/selection-mark.ts`) uses butt ends and a
   mitred corner, and the selection minus, a single segment, uses butt ends.
   The playlist-row and device expand chevrons (`.expand-toggle`,
-  `.device-expand-toggle`) use butt ends and a mitred corner. The pinned
+  `.device-expand-toggle`) use butt ends and a mitred corner. The chevrons
+  and the minus read one 1.8 line weight from a single rule, and the minus
+  draws 10 of 24 units (about 9.2px at 22px), shorter than the chevron
+  beside it; the check keeps its heavier 2.4 as the selected mark. The pinned
   notice's X uses butt ends (its two strokes never join). The playlist
   switcher's title chevron (`.playlist-switch-button`) stays round, and the
   rounded stroke samples in `preview/iconography.html` are generic.

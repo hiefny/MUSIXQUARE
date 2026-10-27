@@ -2860,10 +2860,18 @@ or pointers. Keep :focus-visible and :active outside the gate (src/ui/__tests__/
     height: 22px;
     fill: none;
     stroke: currentColor;
-    stroke-width: 1.8;
     stroke-linecap: butt;
     stroke-linejoin: miter;
     transition: transform 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+  }
+
+  /* The row's line icons share one weight, 1.65px at 22px: the chevrons and
+     the selection minus (src/ui/selection-mark.ts). The check stays heavier
+     on purpose as the selected mark (.playlist-select-mark below). */
+  .expand-toggle svg,
+  .device-expand-toggle svg,
+  .playlist-select-minus {
+    stroke-width: 1.8;
   }
 
   .expand-toggle.active svg,
@@ -3066,20 +3074,16 @@ or pointers. Keep :focus-visible and :active outside the gate (src/ui/__tests__/
   .playlist-select-mark {
     fill: none;
     stroke: currentColor;
-    stroke-width: 2.4;
     stroke-linecap: butt;
     stroke-linejoin: miter;
     transition: opacity 0.16s ease;
   }
 
+  /* The check is heavier than the line icons (2.2px at 22px), like the
+     standalone check; the minus takes the chevrons' weight above. */
   .playlist-select-mark {
+    stroke-width: 2.4;
     opacity: 0;
-  }
-
-  /* The minus is slightly wider than the old 16px remove X (about 9.3px) with
-     a thinner stroke: its ink is 10.9px wide at 22px (11.9 of 24 units). */
-  .playlist-select-minus {
-    stroke-width: 1.9;
   }
 
   .btn-playlist-select[aria-pressed='true'] {

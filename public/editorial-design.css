@@ -1058,10 +1058,17 @@
   height: 22px;
   fill: none;
   stroke: currentColor;
-  stroke-width: 1.8;
   stroke-linecap: butt;
   stroke-linejoin: miter;
   transition: transform 0.2s ease;
+}
+
+/* The app's row line icons share one weight: the chevrons and the selection
+   minus. The check stays heavier as the selected mark. */
+.expand-toggle svg,
+.device-expand-toggle svg,
+.playlist-select-minus {
+  stroke-width: 1.8;
 }
 
 .expand-toggle.active svg {
@@ -1149,17 +1156,13 @@
 .playlist-select-mark {
   fill: none;
   stroke: currentColor;
-  stroke-width: 2.4;
   stroke-linecap: butt;
   stroke-linejoin: miter;
 }
 
 .playlist-select-mark {
+  stroke-width: 2.4;
   opacity: 0;
-}
-
-.playlist-select-minus {
-  stroke-width: 1.9;
 }
 
 .playlist-select[aria-pressed='true'] {
@@ -2330,12 +2333,12 @@
   fill: currentColor;
 }
 
+/* Its 1.8 weight comes from the shared line-icon rule with .expand-toggle. */
 .device-expand-toggle svg {
   width: 22px;
   height: 22px;
   fill: none;
   stroke: currentColor;
-  stroke-width: 1.8;
   stroke-linecap: butt;
   stroke-linejoin: miter;
   transition: transform 0.2s ease;

@@ -42,6 +42,86 @@ beforeAll(() => {
   youtubeIframeSource = readFileSync(resolve('src/youtube/iframe.ts'), 'utf8');
 });
 
+describe('control names and states in the app markup (hint and name copy rule)', () => {
+  const byId = (id: string) => appDocument.getElementById(id);
+
+  it('names the room password switch by its visible section title', () => {
+    for (const id of ['room-password-toggle', 'desktop-room-password-toggle']) {
+      const toggle = byId(id);
+      const titleId = toggle?.getAttribute('aria-labelledby') ?? '';
+      expect(toggle?.getAttribute('role'), id).toBe('switch');
+      expect(toggle?.getAttribute('aria-checked'), id).toBe('false');
+      expect(toggle?.hasAttribute('aria-pressed'), id).toBe(false);
+      expect(toggle?.hasAttribute('aria-label'), id).toBe(false);
+      expect(byId(titleId)?.getAttribute('data-i18n'), id).toBe('connect.room_password_title');
+      expect(
+        byId(titleId)
+          ?.closest('.section-header-row')
+          ?.contains(toggle ?? null),
+        id,
+      ).toBe(true);
+    }
+  });
+
+  it('keeps toggle names fixed and names cycling or next-action buttons by their mode', () => {
+    const key = (id: string) => byId(id)?.getAttribute('data-i18n-aria-label');
+    // Two-state toggles: a fixed name with aria-pressed.
+    expect(key('btn-shuffle')).toBe('player.shuffle_mode');
+    expect(byId('btn-shuffle')?.getAttribute('aria-pressed')).toBe('false');
+    expect(key('btn-fullscreen')).toBe('player.fullscreen');
+    expect(byId('btn-fullscreen')?.getAttribute('aria-pressed')).toBe('false');
+    expect(key('vol-icon-btn')).toBe('player.toggle_mute');
+    expect(key('demo-vol-icon-btn')).toBe('player.toggle_mute');
+    // Repeat cycles three modes: its name is the mode, without aria-pressed.
+    expect(key('btn-repeat')).toBe('player.repeat_off_aria');
+    expect(byId('btn-repeat')?.hasAttribute('aria-pressed')).toBe(false);
+    // Play names what a press does now, like its icon.
+    expect(key('play-btn')).toBe('player.play_aria');
+    expect(
+      appDocument.querySelector('[data-demo-play]')?.getAttribute('data-i18n-aria-label'),
+    ).toBe('player.play_aria');
+    expect(appDocument.querySelector('[data-demo-play]')?.hasAttribute('aria-pressed')).toBe(false);
+    // The settings language chip says what it does, with its visible Select.
+    expect(key('btn-language-select')).toBe('settings.language_manual_aria');
+  });
+
+  it('labels groups by their visible titles and keeps badge text as its own name', () => {
+    const demoRoles = appDocument.querySelector('.demo-role-segmented');
+    const titleId = demoRoles?.getAttribute('aria-labelledby') ?? '';
+    expect(demoRoles?.hasAttribute('aria-label')).toBe(false);
+    expect(byId(titleId)?.getAttribute('data-i18n')).toBe('setup.what_sound');
+    expect(byId(titleId)?.closest('[data-demo-panel="2"]')).not.toBeNull();
+
+    const badges = [...appDocument.querySelectorAll('.feature-badge')];
+    expect(badges.length).toBeGreaterThan(0);
+    expect(badges.filter((badge) => badge.hasAttribute('aria-label'))).toEqual([]);
+
+    expect(byId('setup-host-qr')?.getAttribute('data-i18n-aria-label')).toBe(
+      'connect.invite_qr_aria',
+    );
+  });
+
+  it('gives runtime-named controls the data they are named from', () => {
+    const eq = [...appDocument.querySelectorAll<HTMLInputElement>('.eq-slider')];
+    expect(eq.map((slider) => slider.dataset.eqFreq)).toEqual([
+      '60Hz',
+      '230Hz',
+      '910Hz',
+      '3.6kHz',
+      '14kHz',
+    ]);
+    // A locked volume group explains itself through a hidden description.
+    for (const id of ['volume-control-group', 'demo-volume-control-group']) {
+      const reason = byId(`${id}-reason`);
+      expect(reason?.hasAttribute('hidden'), id).toBe(true);
+      expect(byId(id)?.contains(reason ?? null), id).toBe(true);
+    }
+    const pauseHint = byId('ob-carousel-pause-hint');
+    expect(pauseHint?.hasAttribute('hidden')).toBe(true);
+    expect(pauseHint?.getAttribute('data-i18n')).toBe('setup.carousel_pause');
+  });
+});
+
 describe('app UX markup contract', () => {
   it('keeps the identity chip and primary actions free of decorative glow artifacts', () => {
     expect(appDocument.querySelector('#role-badge .role-dot')).toBeNull();
@@ -156,7 +236,9 @@ describe('app UX markup contract', () => {
 
     expect(visualizer?.getAttribute('role')).toBe('button');
     expect(visualizer?.getAttribute('tabindex')).toBe('0');
-    expect(visualizer?.getAttribute('aria-pressed')).toBe('false');
+    // Its name carries the current mode, so a press cycles modes without
+    // aria-pressed (hint and name copy rule, cycling controls).
+    expect(visualizer?.hasAttribute('aria-pressed')).toBe(false);
     expect(visualizer?.getAttribute('aria-labelledby')).toBe(
       'visualizer-accessible-label visualizer-current-mode',
     );
@@ -596,7 +678,9 @@ describe('app UX markup contract', () => {
     for (const indicator of indicators) {
       expect(indicator.tagName).toBe('BUTTON');
       expect((indicator as HTMLButtonElement).type).toBe('button');
-      expect(indicator.getAttribute('data-i18n-aria-label')).toBe('toast.settings_sync_enabled');
+      // Shown only while sync is on, so its name is the feature and the tap
+      // toast says that it is on.
+      expect(indicator.getAttribute('data-i18n-aria-label')).toBe('settings.sync_settings');
       expect(indicator.hasAttribute('hidden')).toBe(true);
       expect(indicator.parentElement?.classList.contains('settings-sync-indicator-slot')).toBe(
         true,

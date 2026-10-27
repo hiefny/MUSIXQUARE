@@ -373,7 +373,8 @@ describe('public design-system page contract', () => {
     expect(thirdExpand?.type).toBe('button');
     expect(thirdExpand?.dataset.action).toBe('expand');
     expect(thirdExpand?.dataset.queueItemId).toBe('design-playlist-3');
-    expect(thirdExpand?.getAttribute('aria-label')).toBe('Expand/collapse playlist');
+    // Named by what it opens, so repeated rows never share one name.
+    expect(thirdExpand?.getAttribute('aria-label')).toBe('Tracks in Well-Tempered Clavier Book I');
     expect(thirdExpand?.getAttribute('aria-expanded')).toBe('true');
     expect(thirdExpand?.classList.contains('active')).toBe(true);
     expect(thirdExpand?.querySelector('svg')?.getAttribute('viewBox')).toBe('0 0 24 24');
@@ -730,12 +731,16 @@ describe('public design-system page contract', () => {
         title: button.title,
       })),
     ).toEqual(
-      ['#2', '#3'].map((member) => ({
-        label: 'Grant',
+      [
+        ['#2', 'julesk'],
+        ['#3', 'noa_home'],
+      ].map(([member, name]) => ({
+        label: `Grant administrator permissions to ${name}`,
         member,
         path: normalizedPath(CROWN_PATH),
         state: 'inactive',
-        title: 'Grant',
+        // Names are never repeated as tooltips (hover hint policy).
+        title: '',
       })),
     );
     expect(designStylesheet).toMatch(
@@ -763,10 +768,10 @@ describe('public design-system page contract', () => {
       row.querySelector<HTMLButtonElement>('.btn-kick-physical-device'),
     );
     expect(physicalKickButtons.map((button) => button?.getAttribute('aria-label'))).toEqual([
-      'Remove macOS device (A1B2)',
-      'Remove Windows device (C3D4)',
-      'Remove iOS device (E5F6)',
-      'Remove Android device (G7H8)',
+      'Kick macOS device (A1B2)',
+      'Kick Windows device (C3D4)',
+      'Kick iOS device (E5F6)',
+      'Kick Android device (G7H8)',
     ]);
     expect(
       physicalKickButtons.every(

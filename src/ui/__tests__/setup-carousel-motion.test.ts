@@ -56,6 +56,7 @@ import {
   showSetupOverlay,
   updateObSlider,
 } from '../setup-shared.ts';
+import { t } from '../../i18n/index.ts';
 
 const OB_CAROUSEL_AUTOPLAY_DELAY_MS = 6000;
 const OB_CAROUSEL_FIRST_DWELL_MS = 3000;
@@ -285,7 +286,11 @@ describe('onboarding carousel motion preference', () => {
     expect(markup).not.toContain('data-ob-autoplay-icon');
     expect(parsed.getElementById('ob-slider-track')?.getAttribute('aria-live')).toBe('off');
     expect(dots[0]?.getAttribute('aria-current')).toBe('true');
-    expect(dots[3]?.getAttribute('aria-label')).toBe('4 / 4');
+    // Named by its slide; the rotation stop note is a separate description.
+    expect(dots[3]?.getAttribute('aria-label')).toBe('Slide 4 of 4');
+    const pauseHint = parsed.getElementById('ob-carousel-pause-hint');
+    expect(pauseHint?.hidden).toBe(true);
+    expect(pauseHint?.getAttribute('data-i18n')).toBe('setup.carousel_pause');
     expect(slides[0]?.getAttribute('aria-hidden')).toBe('false');
     expect(slides[0]?.hasAttribute('inert')).toBe(false);
     expect(slides[1]?.getAttribute('aria-hidden')).toBe('true');
@@ -377,12 +382,18 @@ describe('onboarding carousel motion preference', () => {
     const track = document.getElementById('ob-slider-track') as HTMLElement;
     const firstDot = document.querySelector<HTMLButtonElement>('.ob-dot[data-idx="0"]');
 
-    expect(firstDot?.getAttribute('aria-label')).toBe('1 / 4, setup.carousel_pause');
+    // One name per slide; while slides rotate, the stop note is the dot's
+    // description instead of a second clause in its name.
+    expect(firstDot?.getAttribute('aria-label')).toBe('setup.carousel_dot_aria');
+    expect(vi.mocked(t)).toHaveBeenCalledWith('setup.carousel_dot_aria', { current: 1, total: 4 });
+    expect(vi.mocked(t)).toHaveBeenCalledWith('setup.carousel_dot_aria', { current: 4, total: 4 });
+    expect(firstDot?.getAttribute('aria-describedby')).toBe('ob-carousel-pause-hint');
 
     document.querySelector<HTMLButtonElement>('.ob-dot[data-idx="2"]')?.click();
     expect(track.getAttribute('aria-live')).toBe('polite');
     expect(track.style.transform).toBe('translateX(-200%)');
-    expect(firstDot?.getAttribute('aria-label')).toBe('1 / 4');
+    expect(firstDot?.getAttribute('aria-label')).toBe('setup.carousel_dot_aria');
+    expect(firstDot?.hasAttribute('aria-describedby')).toBe(false);
 
     document.getElementById('ob-slider-area')?.dispatchEvent(new MouseEvent('mouseleave'));
     setupShowWelcome(false);
@@ -539,17 +550,19 @@ describe('onboarding carousel motion preference', () => {
     const firstDot = document.querySelector<HTMLButtonElement>('.ob-dot[data-idx="0"]');
 
     expect(track.getAttribute('aria-live')).toBe('polite');
-    expect(firstDot?.getAttribute('aria-label')).toBe('1 / 4');
+    expect(firstDot?.getAttribute('aria-label')).toBe('setup.carousel_dot_aria');
+    expect(firstDot?.hasAttribute('aria-describedby')).toBe(false);
     expect(mocks.setManagedTimer).not.toHaveBeenCalled();
 
     motion.setReduced(false);
     expect(track.getAttribute('aria-live')).toBe('off');
-    expect(firstDot?.getAttribute('aria-label')).toContain('setup.carousel_pause');
+    expect(firstDot?.getAttribute('aria-describedby')).toBe('ob-carousel-pause-hint');
     expect(mocks.setManagedTimer).toHaveBeenCalledOnce();
 
     motion.setReduced(true);
     expect(track.getAttribute('aria-live')).toBe('polite');
-    expect(firstDot?.getAttribute('aria-label')).toBe('1 / 4');
+    expect(firstDot?.getAttribute('aria-label')).toBe('setup.carousel_dot_aria');
+    expect(firstDot?.hasAttribute('aria-describedby')).toBe(false);
     const stylesheet = await readFile('css/style.css', 'utf8');
     expect(stylesheet).toMatch(
       /@media \(prefers-reduced-motion: reduce\)[\s\S]*?\.ob-slider-track,[\s\S]*?transition: none !important;/,

@@ -5,7 +5,7 @@ import { getState, resetState, setState } from '../../core/state.ts';
 import { clearAllManagedTimers } from '../../core/timers.ts';
 import { __resetAccountStateForTests, applyAccountSession } from '../../account/state.ts';
 import { getResolvedLanguage, setLanguageMode, t } from '../../i18n/index.ts';
-import { roomCapabilityRequiredMessage } from '../../rooms/permission-feedback.ts';
+import { roomCapabilityRequiredTip } from '../../rooms/permission-feedback.ts';
 import type { DataConnection } from '../../types/index.ts';
 import { initPlayerControls } from '../player-controls.ts';
 
@@ -95,7 +95,7 @@ describe('presentation copy follows the selected language without another state 
         document.getElementById(id)!,
       );
       for (const button of buttons) {
-        expect(button.title).toBe(roomCapabilityRequiredMessage('playback.control'));
+        expect(button.title).toBe(roomCapabilityRequiredTip('playback.control'));
         expect(button.getAttribute('aria-disabled')).toBe('true');
       }
 
@@ -103,7 +103,7 @@ describe('presentation copy follows the selected language without another state 
         setLanguageMode(language);
         expect(getResolvedLanguage()).toBe(language);
         for (const button of buttons) {
-          expect(button.title).toBe(roomCapabilityRequiredMessage('playback.control'));
+          expect(button.title).toBe(roomCapabilityRequiredTip('playback.control'));
           expect(button.getAttribute('aria-disabled')).toBe('true');
         }
         expect(getState('room.context')).toBe(room);

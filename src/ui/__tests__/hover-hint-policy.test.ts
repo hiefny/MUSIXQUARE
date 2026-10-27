@@ -35,8 +35,8 @@ const CONTENT_TITLES: ReadonlyArray<{ file: string; count: number; reason: strin
   },
   {
     file: 'src/ui/screensaver.ts',
-    count: 1,
-    reason: 'the screensaver frame’s name',
+    count: 2,
+    reason: 'the screensaver frame’s name, set again when the language changes',
   },
   {
     file: 'src/i18n/index.ts',

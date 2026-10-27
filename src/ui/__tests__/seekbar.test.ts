@@ -201,7 +201,8 @@ describe('initSeekBar playback mode gates', () => {
     slider.dispatchEvent(new Event('change'));
     expect(slider.value).toBe('0');
     expect(slider.max).toBe('0');
-    expect(slider.getAttribute('aria-valuetext')).toBe(t('player.seek_unavailable_system_audio'));
+    // The unavailable value text is the bar's one-phrase state, not the toast.
+    expect(slider.getAttribute('aria-valuetext')).toBe(t('system_audio.sharing'));
     expect(document.getElementById('time-curr')?.innerText).toBe('-:--');
     expect(document.getElementById('time-dur')?.innerText).toBe('-:--');
     expect(seekTo).not.toHaveBeenCalled();
@@ -338,9 +339,9 @@ describe('initSeekBar playback mode gates', () => {
 
     const slider = document.getElementById('seek-slider') as HTMLInputElement;
     expect(slider.getAttribute('aria-disabled')).toBe('true');
-    // The tooltip keeps the toast's sentence line break, which replaces a period.
-    expect(slider.title).toBe(t('toast.sync_not_ready'));
-    expect(slider.title).toContain('\n');
+    // The hint is one state phrase; the denied-drag toast keeps its sentences.
+    expect(slider.title).toBe(t('player.not_ready_tip'));
+    expect(slider.title).not.toContain('\n');
 
     slider.value = '55';
     slider.dispatchEvent(new Event('input'));
@@ -913,7 +914,8 @@ describe('initSeekBar playback mode gates', () => {
     expect(slider.value).toBe('0');
     expect(slider.max).toBe('0');
     expect(slider.getAttribute('aria-disabled')).toBe('true');
-    expect(slider.getAttribute('aria-valuetext')).toBe(t('player.seek_unavailable_system_audio'));
+    // The unavailable value text is the bar's one-phrase state, not the toast.
+    expect(slider.getAttribute('aria-valuetext')).toBe(t('system_audio.sharing'));
     expect(document.getElementById('time-curr')?.innerText).toBe('-:--');
     expect(document.getElementById('time-dur')?.innerText).toBe('-:--');
   });

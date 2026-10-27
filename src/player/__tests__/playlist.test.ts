@@ -952,22 +952,30 @@ describe('setRepeatMode', () => {
     expect(getState('playlist.repeatMode')).toBe(2);
   });
 
-  it('keeps visual repeat variants under one pressed-state contract', () => {
-    document.body.innerHTML = '<button id="btn-repeat"></button>';
+  it('names the current repeat mode instead of a pressed state', () => {
+    // Three modes do not fit aria-pressed (hint and name copy rule): the name
+    // is the mode, kept for language changes, and the icon variant shows it.
+    document.body.innerHTML = '<button id="btn-repeat" aria-pressed="false"></button>';
     const button = document.getElementById('btn-repeat')!;
 
     setRepeatMode(1, false);
-    expect(button.getAttribute('aria-pressed')).toBe('true');
+    expect(button.hasAttribute('aria-pressed')).toBe(false);
+    expect(button.getAttribute('aria-label')).toBe(t('player.repeat_all_aria'));
+    expect(button.getAttribute('data-i18n-aria-label')).toBe('player.repeat_all_aria');
     expect(button.classList).toContain('active');
     expect(button.classList).not.toContain('active-one');
 
     setRepeatMode(2, false);
-    expect(button.getAttribute('aria-pressed')).toBe('true');
+    expect(button.hasAttribute('aria-pressed')).toBe(false);
+    expect(button.getAttribute('aria-label')).toBe(t('player.repeat_one_aria'));
+    expect(button.getAttribute('data-i18n-aria-label')).toBe('player.repeat_one_aria');
     expect(button.classList).not.toContain('active');
     expect(button.classList).toContain('active-one');
 
     setRepeatMode(0, false);
-    expect(button.getAttribute('aria-pressed')).toBe('false');
+    expect(button.hasAttribute('aria-pressed')).toBe(false);
+    expect(button.getAttribute('aria-label')).toBe(t('player.repeat_off_aria'));
+    expect(button.getAttribute('data-i18n-aria-label')).toBe('player.repeat_off_aria');
     expect(button.classList).not.toContain('active-one');
   });
 });
@@ -983,16 +991,21 @@ describe('setShuffle', () => {
     expect(getState('playlist.isShuffle')).toBe(false);
   });
 
-  it('mirrors shuffle state to aria-pressed', () => {
-    document.body.innerHTML = '<button id="btn-shuffle"></button>';
+  it('mirrors shuffle state to aria-pressed and keeps its Shuffle name', () => {
+    // A two-state toggle: the name is fixed and aria-pressed says the state.
+    document.body.innerHTML =
+      '<button id="btn-shuffle" aria-label="Shuffle" data-i18n-aria-label="player.shuffle_mode"></button>';
     const button = document.getElementById('btn-shuffle')!;
 
     setShuffle(true, false);
     expect(button.getAttribute('aria-pressed')).toBe('true');
+    expect(button.getAttribute('aria-label')).toBe('Shuffle');
+    expect(button.getAttribute('data-i18n-aria-label')).toBe('player.shuffle_mode');
     expect(button.classList).toContain('active');
 
     setShuffle(false, false);
     expect(button.getAttribute('aria-pressed')).toBe('false');
+    expect(button.getAttribute('aria-label')).toBe('Shuffle');
     expect(button.classList).not.toContain('active');
   });
 });

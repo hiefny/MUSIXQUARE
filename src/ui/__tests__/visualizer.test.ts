@@ -674,7 +674,8 @@ describe('Visualizer', () => {
       restingCanvas.click();
 
       expect(document.body.classList.contains('viz-spectrum')).toBe(true);
-      expect(restingCanvas.getAttribute('aria-pressed')).toBe('true');
+      // The name carries the mode, so a press cycles it without aria-pressed.
+      expect(restingCanvas.hasAttribute('aria-pressed')).toBe(false);
       expect(restingCanvas.dataset.visualizerMode).toBe('spectrum');
       expect(modeLabel.getAttribute('data-i18n')).toBe('player.visualizer_spectrum');
       expect(localStorage.getItem('musixquare-viz-mode')).toBe('spectrum');
@@ -688,7 +689,7 @@ describe('Visualizer', () => {
 
       expect(space.defaultPrevented).toBe(true);
       expect(document.body.classList.contains('viz-circular')).toBe(true);
-      expect(restingCanvas.getAttribute('aria-pressed')).toBe('false');
+      expect(restingCanvas.hasAttribute('aria-pressed')).toBe(false);
       expect(modeLabel.getAttribute('data-i18n')).toBe('player.visualizer_circular');
       expect(localStorage.getItem('musixquare-viz-mode')).toBe('circular');
 
@@ -757,7 +758,7 @@ describe('Visualizer', () => {
         expect(restingCanvas.dataset.visualizerMode).toBe(preference ?? 'circular');
         expect(restingCanvas.getAttribute('role')).toBe('button');
         expect(restingCanvas.getAttribute('tabindex')).toBe('0');
-        expect(restingCanvas.getAttribute('aria-pressed')).toBe(String(preference === 'spectrum'));
+        expect(restingCanvas.hasAttribute('aria-pressed')).toBe(false);
         expect(restingCanvas.getAttribute('aria-describedby')).toBe('visualizer-mode-hint');
         expect(localStorage.getItem('musixquare-viz-mode')).toBe(preference);
       },
@@ -1149,7 +1150,7 @@ describe('Visualizer', () => {
       const deferred = deferredSpectrum();
       const h = await visibilityHarness('spectrum', { deferLoad: true });
       expect(h.canvas.getAttribute('data-visualizer-mode')).toBe('spectrum');
-      expect(h.canvas.getAttribute('aria-pressed')).toBe('true');
+      expect(h.canvas.hasAttribute('aria-pressed')).toBe(false);
       expect(h.ctx.stroke).toHaveBeenCalled();
       expect(h.analyser.getFloatFrequencyData).not.toHaveBeenCalled();
       expect(h.pending.size).toBe(0);

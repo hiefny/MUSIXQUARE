@@ -12,6 +12,7 @@ import { markStandardRoomAuthorityConfirmed } from '../authority.ts';
 import {
   roomCapabilityFeedbackMessage,
   roomCapabilityRequiredMessage,
+  roomCapabilityRequiredTip,
   showRoomCapabilityRequired,
 } from '../permission-feedback.ts';
 
@@ -30,6 +31,15 @@ const CASES = [
   ['room.configure', 'toast.room_owner_required'],
   ['system-audio.publish', 'toast.system_audio_owner_required'],
   ['coordinator.eligible', 'toast.room_owner_required'],
+] as const satisfies readonly (readonly [RoomCapability, I18nKey])[];
+
+// A locked control's hint is one state phrase; the toast keeps its sentences.
+const TIP_CASES = [
+  ['media.add', 'player.media_management_required_tip'],
+  ['queue.mutate', 'player.media_management_required_tip'],
+  ['asset.upload', 'player.media_management_required_tip'],
+  ['playback.control', 'player.playback_control_required_tip'],
+  ['effects.control', 'player.volume_locked_tip'],
 ] as const satisfies readonly (readonly [RoomCapability, I18nKey])[];
 
 const CHECKING_CASES = [
@@ -57,6 +67,15 @@ beforeEach(() => {
 });
 
 describe('room permission feedback', () => {
+  it.each(TIP_CASES)('hints %s on its locked control with a short phrase', (capability, key) => {
+    expect(roomCapabilityRequiredTip(capability)).toBe(t(key));
+    // Korean toasts are 해요체 sentences; the hint ends in a noun form.
+    expect(ko[key]).toMatch(/(?:필요|가능)$/u);
+    for (const dictionary of [en, ko] as const) {
+      expect(dictionary[key], key).not.toMatch(/[\n.]/u);
+    }
+  });
+
   it.each(CASES)('maps %s to its exact user-facing requirement', (capability, key) => {
     expect(roomCapabilityRequiredMessage(capability)).toBe(t(key));
   });

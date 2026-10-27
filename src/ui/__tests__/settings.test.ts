@@ -9,7 +9,7 @@ import { showToast } from '../toast.ts';
 import { LANGUAGE_OPTIONS, setLanguageMode, t } from '../../i18n/index.ts';
 import { hasLocaleFont } from '../../i18n/locale-fonts.ts';
 import { markStandardRoomAuthorityConfirmed } from '../../rooms/authority.ts';
-import { roomCapabilityRequiredMessage } from '../../rooms/permission-feedback.ts';
+import { roomCapabilityRequiredTip } from '../../rooms/permission-feedback.ts';
 import type { DataConnection } from '../../types/index.ts';
 import { configureSystemAudioCaptureActivityProbe } from '../../audio/system-audio-policy.ts';
 import {
@@ -114,13 +114,14 @@ function installEffectSettingsDom(): void {
         <button class="ch-opt active" data-virtual-effect="off" aria-pressed="true">Off</button>
       </div>
       <div id="eq-sliders-area" class="reverb-sliders-area collapsed">
-        ${Array.from(
-          { length: 5 },
-          (_, i) => `
+        ${['60Hz', '230Hz', '910Hz', '3.6kHz', '14kHz']
+          .map(
+            (freq, i) => `
             <span id="eq-val-${i}">0</span>
-            <input type="range" class="eq-slider" id="eq-slider-${i}" min="-12" max="12" value="0" />
+            <input type="range" class="eq-slider" id="eq-slider-${i}" data-eq-freq="${freq}" min="-12" max="12" value="0" />
           `,
-        ).join('')}
+          )
+          .join('')}
       </div>
     `,
   );
@@ -208,7 +209,7 @@ function installSettingsSyncDom(): void {
           type="button"
           id="settings-${effect}-sync-indicator"
           data-settings-sync-indicator
-          data-i18n-aria-label="toast.settings_sync_enabled"
+          data-i18n-aria-label="settings.sync_settings"
           aria-label=""
           hidden
         ></button>`,
@@ -506,17 +507,16 @@ describe('settings synchronization preference', () => {
     // group gives the same reason, written when the lock arrives.
     for (const group of groups) {
       expect(group.getAttribute('aria-disabled')).toBe('true');
-      expect(group.title).toBe(roomCapabilityRequiredMessage('effects.control'));
+      expect(group.title).toBe(roomCapabilityRequiredTip('effects.control'));
     }
 
     await setLanguageMode('ko');
     bus.emit('i18n:changed', 'ko');
     for (const group of groups) {
-      expect(group.title).toBe(roomCapabilityRequiredMessage('effects.control'));
+      expect(group.title).toBe(roomCapabilityRequiredTip('effects.control'));
     }
-    expect(groups[0]!.title).not.toBe(
-      'Settings sync is on\nOnly room admins can change audio settings',
-    );
+    // A one-phrase reason, not the toast's two sentences.
+    expect(groups[0]!.title).toBe('음향 설정은 방 관리자만 변경 가능');
 
     document.querySelector<HTMLElement>('[data-settings-sync="off"]')?.click();
     for (const group of groups) {
@@ -536,7 +536,7 @@ describe('settings synchronization preference', () => {
     expect(indicators).toHaveLength(3);
     expect(indicators.every((indicator) => indicator.hidden === false)).toBe(true);
     expect(
-      indicators.every((indicator) => indicator.ariaLabel === t('toast.settings_sync_enabled')),
+      indicators.every((indicator) => indicator.ariaLabel === t('settings.sync_settings')),
     ).toBe(true);
 
     bus.emit('settings-sync:changed', false);
@@ -935,6 +935,31 @@ describe('settings subtab scrollbar affordance', () => {
       true,
     );
     expect(reveal).toHaveBeenCalledWith(settingsPanel);
+  });
+});
+
+describe('initSettings equalizer band names', () => {
+  it('names each band slider by the equalizer and its frequency in the selected language', async () => {
+    installEffectSettingsDom();
+    await setLanguageMode('en');
+    initSettings();
+
+    const names = () =>
+      [...document.querySelectorAll<HTMLInputElement>('.eq-slider')].map((slider) =>
+        slider.getAttribute('aria-label'),
+      );
+    expect(names()).toEqual([
+      'Equalizer 60Hz',
+      'Equalizer 230Hz',
+      'Equalizer 910Hz',
+      'Equalizer 3.6kHz',
+      'Equalizer 14kHz',
+    ]);
+
+    await setLanguageMode('ko');
+    bus.emit('i18n:changed', 'ko');
+    expect(names()[0]).toBe(t('settings.eq_band_aria', { freq: '60Hz' }));
+    expect(names()[0]).toBe('이퀄라이저 60Hz');
   });
 });
 

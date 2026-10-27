@@ -390,6 +390,17 @@ describe('screensaver frame bridge', () => {
     );
   });
 
+  it('names the overlay and its frame in the selected language', () => {
+    const frame = openFrame();
+    expect(overlay()?.getAttribute('aria-label')).toBe('en:screensaver.name');
+    expect(frame.title).toBe('en:screensaver.name');
+
+    mocks.language = 'ar';
+    bus.emit('i18n:changed', 'ar');
+    expect(overlay()?.getAttribute('aria-label')).toBe('ar:screensaver.name');
+    expect(frame.title).toBe('ar:screensaver.name');
+  });
+
   it('updates control translations and direction without translating track information', () => {
     const frame = openFrame();
     const postMessage = vi.spyOn(frame.contentWindow!, 'postMessage');

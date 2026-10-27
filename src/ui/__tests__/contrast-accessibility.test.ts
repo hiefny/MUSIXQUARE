@@ -245,7 +245,7 @@ describe('OS contrast accessibility styles', () => {
       ),
     );
 
-    expect(forced.get(".room-password-toggle[aria-pressed='true']")).toContain('background');
+    expect(forced.get(".room-password-toggle[aria-checked='true']")).toContain('background');
     expect(forced.get('.qr-svg path')).toContain('stroke');
     expect(conflicts).toEqual([]);
   });

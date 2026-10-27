@@ -828,6 +828,8 @@ const de: Record<I18nKey, string> = {
   'pro.downloading': 'Datei wird geladen...',
   'pro.quota_exceeded': 'Der PRO-Raum hat sein Speicherlimit von 1 GB erreicht',
   'pro.file_too_large': 'Diese Datei überschreitet das Limit von 200 MB pro Datei',
+  'pro.room_state_limit':
+    'Dieser PRO-Raum kann gerade keine weiteren Änderungen annehmen\nBitte versuche es etwas später erneut',
 
   // Chat
   'chat.title': 'Chat',

@@ -899,6 +899,8 @@ const it: Record<I18nKey, string> = {
   'pro.downloading': 'Caricamento del file...',
   'pro.quota_exceeded': 'Questa stanza PRO ha raggiunto il limite di archiviazione di 1 GB',
   'pro.file_too_large': 'Questo file supera il limite di 200 MB per file',
+  'pro.room_state_limit':
+    'Questa stanza PRO al momento non può accettare altre modifiche\nRiprova tra poco',
 
   // ─── HTML Blocks (used with data-i18n-html) ────────────────────
   'help.install_app_html':

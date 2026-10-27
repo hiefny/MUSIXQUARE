@@ -566,13 +566,28 @@ only stable row order, so a large YouTube queue cannot prevent an R2 reservation
 or completion record from being committed.
 
 Browser/participant receipts and Developer API mutation receipts use separate
-256-entry ledgers. Each live receipt is retained for its endpoint's full
-idempotency window (normally 24 hours); saturation never evicts an unexpired
-receipt. A new mutation instead fails closed with
-`ROOM_STATE_CAPACITY_EXCEEDED` before its state can commit, while duplicate
-retries of already accepted add, clear, media, and queue-mode operations remain
-replayable. This deliberately favors exactly-once behavior over accepting more
-than 256 distinct Developer API mutations inside one live window.
+256-entry ledgers. Saturation never evicts an unexpired receipt. A new mutation
+instead fails closed with `ROOM_STATE_CAPACITY_EXCEEDED` before its state can
+commit. A Developer API mutation receipt (an issued key's or BOT's internal
+one) is retained for the full 24-hour window, so duplicate retries of already
+accepted add, clear, media, and queue-mode operations remain replayable. This
+deliberately favors exactly-once behavior over accepting more than 256 distinct
+Developer API mutations inside one live window.
+
+A browser receipt lives only as long as the App can send its request again with
+the same key (owner decision 2026-10-27, resource ownership RO-53, timing in
+`cloudflare/pro-room-receipt-timing.ts`): two minutes for playlist edits,
+playlist switch and transfer, reservations, deletes and BOT runs; the same for
+playback unless a longer configured presence window needs more, because a
+frozen page can send the second attempt until its presence lapses; and for
+upload completion until a playlist names the asset, at most until orphan
+cleanup collects the unnamed asset (15 minutes in production). Receipts an
+earlier Worker kept for 24 hours are cut to these windows at the next prune.
+Past its window a resent request meets the revision, asset-state or presence
+fence instead of a replay, so it is never applied twice. The browser ledger
+stays at 256 entries because a 9.0.17 Worker refuses to load a room whose
+ledger holds more; 256 now bounds receipts per window, not per day.
+[Receipt retention report](pro-receipt-retention-2026-10-27.md).
 Presence-close receipts follow different rules (below): they have their own
 ledger, a session keeps only its latest one and loses it when the session goes,
 and a close never fails closed on a full ledger; it commits without a receipt.

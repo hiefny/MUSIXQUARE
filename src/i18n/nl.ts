@@ -895,6 +895,8 @@ const nl: Record<I18nKey, string> = {
   'pro.downloading': 'Bestand laden...',
   'pro.quota_exceeded': 'Deze PRO-kamer heeft de opslaglimiet van 1 GB bereikt',
   'pro.file_too_large': 'Dit bestand overschrijdt de limiet van 200 MB per bestand',
+  'pro.room_state_limit':
+    'Deze PRO-kamer kan op dit moment geen wijzigingen meer verwerken\nProbeer het straks opnieuw',
 
   // HTML help blocks
   'help.install_app_html':

@@ -885,6 +885,8 @@ const sv: Record<I18nKey, string> = {
   'pro.downloading': 'Läser in filen…',
   'pro.quota_exceeded': 'PRO-rummet har nått lagringsgränsen på 1 GB',
   'pro.file_too_large': 'Filen är större än gränsen på 200 MB per fil',
+  'pro.room_state_limit':
+    'PRO-rummet kan inte ta emot fler ändringar just nu\nFörsök igen om en liten stund',
 
   // ─── HTML Blocks (used with data-i18n-html) ────────────────────
   'help.install_app_html':

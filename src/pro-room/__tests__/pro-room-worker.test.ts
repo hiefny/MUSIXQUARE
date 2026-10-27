@@ -23,6 +23,10 @@ import { normalizeStoredEffects } from '../../../cloudflare/pro-room-effects.ts'
 import * as fileDuration from '../../../cloudflare/pro-room-media-duration.ts';
 import { PRO_ROOM_MEDIA_COPY_TIMEOUT_MS } from '../../../cloudflare/pro-room-media-timing.ts';
 import {
+  PRO_ROOM_PLAYBACK_COMMAND_REQUEST_TIMEOUT_MS,
+  PRO_ROOM_REQUEST_RECEIPT_TTL_MS,
+} from '../../../cloudflare/pro-room-receipt-timing.ts';
+import {
   issueProRoomActivationClaim,
   issueProRoomOwnerRecoveryClaim,
   issueProRoomOwnerTransferClaim,
@@ -21047,15 +21051,29 @@ describe('persistent PRO room authentication, presence, and state', () => {
       ),
     ).toBe(true);
 
-    internal.storeIdempotency('member:idle-probe', 'browser-receipt', 'browser-fingerprint', {
-      ok: true,
-    });
+    internal.storeIdempotency(
+      'participant:idle-probe:delete',
+      'browser-receipt',
+      'browser-fingerprint',
+      { ok: true },
+    );
+    // A browser receipt an earlier Worker kept for 24 hours (RO-53).
+    const earlierKey = 'participant:idle-probe:playlist-transfer:earlier-receipt';
+    internal.room.idempotency[earlierKey] = {
+      fingerprint: 'earlier-fingerprint',
+      kind: 'snapshot',
+      committedRevision: 0,
+      status: 200,
+      expiresAtMs: startedAtMs + 24 * 60 * 60 * 1000,
+    };
     internal.storeIdempotency(
       'developer:idle-probe',
       'developer-receipt',
       'developer-fingerprint',
       { ok: true },
     );
+    const browserExpiresAtMs = startedAtMs + PRO_ROOM_REQUEST_RECEIPT_TTL_MS;
+    const cutExpiresAtMs = browserExpiresAtMs + PRO_ROOM_REQUEST_RECEIPT_TTL_MS;
     const rateResetAtMs = startedAtMs + 60 * 60 * 1000;
     const receiptExpiresAtMs = startedAtMs + 24 * 60 * 60 * 1000;
     internal.room.rateLimits['member-hour:idle-probe'] = { count: 1, resetAtMs: rateResetAtMs };
@@ -21065,6 +21083,23 @@ describe('persistent PRO room authentication, presence, and state', () => {
     state.storage.alarm = null;
 
     await internal.scheduleAlarm();
+    expect(state.storage.alarm).toBe(browserExpiresAtMs);
+
+    // The new receipt expires; the earlier one is cut to one window from now,
+    // durably, and the alarm follows the cut.
+    vi.setSystemTime(browserExpiresAtMs);
+    state.storage.alarm = null;
+    await internal.alarm();
+    expect(Object.keys(internal.room.idempotency)).toEqual([earlierKey]);
+    expect(internal.room.idempotency[earlierKey]).toMatchObject({ expiresAtMs: cutExpiresAtMs });
+    expect(storedCanonicalRoom(state).idempotency).toEqual(internal.room.idempotency);
+    expect(state.storage.alarm).toBe(cutExpiresAtMs);
+
+    vi.setSystemTime(cutExpiresAtMs);
+    state.storage.alarm = null;
+    await internal.alarm();
+    expect(internal.room.idempotency).toEqual({});
+    expect(storedCanonicalRoom(state).idempotency).toEqual({});
     expect(state.storage.alarm).toBe(rateResetAtMs);
 
     vi.setSystemTime(rateResetAtMs + 1);
@@ -21072,7 +21107,6 @@ describe('persistent PRO room authentication, presence, and state', () => {
     await internal.alarm();
     expect(internal.room.rateLimits).toEqual({});
     expect(internal.room.botRateLimits).toEqual({});
-    expect(Object.keys(internal.room.idempotency)).toHaveLength(1);
     expect(Object.keys(internal.room.developerMutationIdempotency)).toHaveLength(1);
     expect(state.storage.alarm).toBe(receiptExpiresAtMs);
     expect(storedCanonicalRoom(state)).toMatchObject({
@@ -28655,5 +28689,705 @@ describe('PRO room requests only Apps below the 787 build floor sent', () => {
         )
       ).status,
     ).toBe(200);
+  });
+});
+
+// Owner decision 2026-10-27 (RO-53): a browser receipt lives only as long as
+// the App can send the same request again, and upload completion lives until a
+// playlist names its asset or orphan cleanup collects it.
+describe('PRO browser receipt retention', () => {
+  type RoomContext = Awaited<ReturnType<typeof activatedRoom>>;
+  type Internal = {
+    room: Record<string, any>;
+    env: Record<string, unknown>;
+    storeSnapshotIdempotency(
+      scope: string,
+      key: string,
+      fingerprint: string,
+      committedRevision: number,
+    ): void;
+    persist(): Promise<void>;
+  };
+  const FIRST = '53000000-0000-4000-8000-000000000001';
+  const SECOND = '53000000-0000-4000-8000-000000000002';
+  const youtubePlaylist = [
+    {
+      queueItemId: FIRST,
+      name: 'Receipt video A',
+      source: { kind: 'youtube', videoId: 'dQw4w9WgXcQ' },
+    },
+    {
+      queueItemId: SECOND,
+      name: 'Receipt video B',
+      source: { kind: 'youtube', videoId: 'M7lc1UVf-VE' },
+    },
+  ];
+  const WINDOW_MS = PRO_ROOM_REQUEST_RECEIPT_TTL_MS;
+  // The Worker's own default asset GC grace and reservation lifetime, read from
+  // the Worker, which environment() keeps (it configures neither).
+  const workerDefaults = { env: {} } as unknown as MusixquareProRoom;
+  const GC_GRACE_MS = MusixquareProRoom.prototype.assetGcGraceMs.call(workerDefaults);
+  const RESERVATION_MS =
+    MusixquareProRoom.prototype.reservationTtlSeconds.call(workerDefaults) * 1000;
+  const DAY_MS = 24 * 60 * 60 * 1000;
+  const BOT_TRACK = {
+    videoId: 'dQw4w9WgXcQ',
+    name: 'Test Song',
+    title: 'Test Song',
+    artist: 'Test Artist',
+  };
+  const BOT_PLAN = {
+    intent: 'add_youtube',
+    trackQueries: ['Test Artist Test Song official audio'],
+    playAddedIndex: -1,
+    answer: 'Added one track.',
+  };
+
+  const internalOf = (context: RoomContext) => context.worker as unknown as Internal;
+  const participantIdOf = (context: RoomContext) =>
+    context.activationEnvelope.snapshot.viewer.participantId as string;
+
+  async function startRoom() {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date('2026-10-27T03:00:00.000Z'));
+    return activatedRoom();
+  }
+
+  /** Move the clock while the owner's page keeps its presence, as an open page does. */
+  function advanceKeepingPresence(context: RoomContext, ms: number) {
+    vi.setSystemTime(Date.now() + ms);
+    const nowMs = Date.now();
+    const room = internalOf(context).room;
+    for (const session of Object.values(room.sessions) as Array<Record<string, any>>) {
+      if (session.accountId) session.accountLeaseExpiresAtMs = nowMs + 60_000;
+    }
+    for (const participant of Object.values(room.presence.participants) as Array<
+      Record<string, any>
+    >) {
+      participant.lastSeenAtMs = nowMs;
+    }
+  }
+
+  async function currentSnapshot(context: RoomContext) {
+    return (
+      await responseJson(await context.worker.fetch(request('/snapshot', {}, context.ownerCookie)))
+    ).snapshot as Record<string, any>;
+  }
+
+  function compactBody(snapshot: Record<string, any>, playlist: Array<Record<string, any>>) {
+    return {
+      baseRevision: snapshot.revision,
+      playlistOrder: playlist.map((item) => item.queueItemId),
+      upserts: playlist,
+      currentQueueItemId: null,
+      playback: {
+        coordinatorEpoch: snapshot.presence.coordinatorEpoch,
+        revision: snapshot.playback.revision,
+        state: 'idle',
+        queueItemId: null,
+        positionSeconds: 0,
+        updatedAtMs: Date.now(),
+        youtubeVideoId: null,
+        youtubeSubIndex: null,
+      },
+    };
+  }
+
+  /** One request, built once, so a retry sends the same key and the same bytes. */
+  async function compactEdit(
+    context: RoomContext,
+    playlist: Array<Record<string, any>>,
+    key: string,
+  ) {
+    const body = compactBody(await currentSnapshot(context), playlist);
+    return () =>
+      context.worker.fetch(
+        jsonRequest('/snapshot/compact', 'POST', body, context.ownerCookie, key),
+      );
+  }
+
+  async function editOnce(context: RoomContext, playlist: Array<Record<string, any>>, key: string) {
+    return (await compactEdit(context, playlist, key))();
+  }
+
+  async function runBot(context: RoomContext, requestId: string) {
+    const lease = await internalBotRequest(
+      context.worker,
+      'context',
+      { roomCode: ROOM_CODE, requestId, prompt: 'add one test song' },
+      context.ownerCookie,
+    );
+    expect(lease.status).toBe(200);
+    const { leaseToken } = await responseJson(lease);
+    return internalBotRequest(
+      context.worker,
+      'execute',
+      { roomCode: ROOM_CODE, requestId, leaseToken, plan: BOT_PLAN, tracks: [BOT_TRACK] },
+      context.ownerCookie,
+    );
+  }
+
+  async function commitTransition(context: RoomContext, transition: Record<string, any>) {
+    const ready = await context.worker.fetch(
+      jsonRequest(
+        `/playback/transitions/${transition.transitionId}/ready`,
+        'POST',
+        { basePlaybackRevision: transition.basePlaybackRevision, status: 'ready' },
+        context.ownerCookie,
+      ),
+    );
+    expect(ready.status).toBe(200);
+  }
+
+  /** The longest a browser receipt of this storage key may live from now. */
+  function scopeMaximumMs(storageKey: string) {
+    return /^participant:[^:]+:complete:/u.test(storageKey) ? GC_GRACE_MS : WINDOW_MS;
+  }
+
+  it('keeps each browser receipt only as long as its request can be sent again', async () => {
+    const context = await startRoom();
+    const internal = internalOf(context);
+    const room = internal.room;
+    const participantId = participantIdOf(context);
+    const receipt = (operation: string, key: string) =>
+      room.idempotency[`participant:${participantId}:${operation}:${key}`];
+
+    expect((await editOnce(context, youtubePlaylist, 'receipt-ttl-snapshot-01')).status).toBe(200);
+    expect(receipt('snapshot', 'receipt-ttl-snapshot-01')).toEqual({
+      fingerprint: expect.any(String),
+      kind: 'snapshot',
+      committedRevision: room.revision,
+      status: 200,
+      expiresAtMs: Date.now() + WINDOW_MS,
+    });
+
+    const selected = await context.worker.fetch(
+      jsonRequest(
+        '/playback/commands',
+        'POST',
+        {
+          type: 'select',
+          baseRevision: room.playback.revision,
+          queueItemId: FIRST,
+          state: 'playing',
+          positionSeconds: 0,
+        },
+        context.ownerCookie,
+        'receipt-ttl-playback-01',
+      ),
+    );
+    expect(selected.status).toBe(202);
+    // The marker stays so a Worker from before 2026-10-26 reads the expiry as written.
+    expect(receipt('playback-authority', 'receipt-ttl-playback-01')).toMatchObject({
+      kind: 'playback-authority',
+      status: 202,
+      expiresAtMs: Date.now() + WINDOW_MS,
+    });
+    await commitTransition(context, (await responseJson(selected)).transition);
+
+    const copied = await context.worker.fetch(
+      jsonRequest(
+        '/playlists/transfer',
+        'POST',
+        { baseRevision: room.revision, queueItemIds: [FIRST], targetSlots: [1], mode: 'copy' },
+        context.ownerCookie,
+        'receipt-ttl-transfer-01',
+      ),
+    );
+    expect(copied.status).toBe(200);
+    expect(receipt('playlist-transfer', 'receipt-ttl-transfer-01')).toMatchObject({
+      kind: 'snapshot',
+      expiresAtMs: Date.now() + WINDOW_MS,
+    });
+    const switched = await context.worker.fetch(
+      jsonRequest(
+        '/playlists/switch',
+        'POST',
+        { baseRevision: room.revision, slot: 1 },
+        context.ownerCookie,
+        'receipt-ttl-switch-01',
+      ),
+    );
+    expect(switched.status).toBe(200);
+    expect(receipt('playlist-switch', 'receipt-ttl-switch-01')).toMatchObject({
+      kind: 'snapshot',
+      expiresAtMs: Date.now() + WINDOW_MS,
+    });
+
+    const reserved = await context.worker.fetch(
+      jsonRequest(
+        '/media/reservations',
+        'POST',
+        { byteLength: 4096, name: 'receipt.flac', mime: 'audio/flac' },
+        context.ownerCookie,
+        'receipt-ttl-reserve-01',
+      ),
+    );
+    expect(reserved.status).toBe(200);
+    expect((await responseJson(reserved)).reservation.expiresAtMs).toBe(
+      Date.now() + RESERVATION_MS,
+    );
+    expect(receipt('reserve', 'receipt-ttl-reserve-01').expiresAtMs).toBe(Date.now() + WINDOW_MS);
+
+    const { assetId } = await completeReadyAsset(context, 'receipt-ttl');
+    const completionKey = `${IDEMPOTENCY_KEY}-receipt-ttl-complete`;
+    expect(receipt('complete', completionKey).expiresAtMs).toBe(
+      room.assets[assetId].completedAtMs + GC_GRACE_MS,
+    );
+    const deleted = await context.worker.fetch(
+      request(
+        `/media/${assetId}`,
+        { method: 'DELETE', headers: { 'idempotency-key': 'receipt-ttl-delete-01' } },
+        context.ownerCookie,
+      ),
+    );
+    expect(deleted.status).toBe(200);
+    expect(receipt('delete', 'receipt-ttl-delete-01')).toEqual({
+      fingerprint: expect.any(String),
+      body: await responseJson(deleted),
+      status: 200,
+      expiresAtMs: Date.now() + WINDOW_MS,
+    });
+
+    expect((await runBot(context, 'receipt-ttl-bot-0001')).status).toBe(200);
+    const botKeys = Object.keys(room.idempotency).filter((key) => key.startsWith('bot-'));
+    expect(botKeys).toHaveLength(2);
+    for (const key of botKeys) {
+      expect(key).toMatch(/^bot-(?:context|execute):[^:]+:receipt-ttl-bot-0001$/u);
+      expect(room.idempotency[key].expiresAtMs).toBe(Date.now() + WINDOW_MS);
+    }
+    // BOT's own Developer receipts and an issued key's receipts keep their
+    // 24-hour replay: the public contract, and the only dedupe a late BOT run
+    // of the same request has for its additions.
+    const developer = await mutateInternalDeveloperQueue(
+      context.worker,
+      DEVELOPER_KEY_ID,
+      'receipt-ttl-developer-01',
+      { type: 'add_youtube_batch', items: [{ videoId: '9bZkp7q19f0', name: 'Developer song' }] },
+    );
+    expect(developer.status).toBe(201);
+    const developerReceipts = Object.entries(room.developerMutationIdempotency) as Array<
+      [string, Record<string, any>]
+    >;
+    expect(developerReceipts.map(([key]) => key.split(':').slice(0, 2).join(':')).sort()).toEqual(
+      [`developer:${DEVELOPER_KEY_ID}`, 'developer:MxqrGeminiBot001'].sort(),
+    );
+    for (const [, record] of developerReceipts) {
+      expect(record.expiresAtMs).toBe(Date.now() + DAY_MS);
+    }
+
+    // Only shapes a 9.0.17 PRO Worker already loads: no new kind, body-less
+    // snapshot receipts, a finite absolute expiry and at most 256 receipts.
+    const nowMs = Date.now();
+    const entries = Object.entries(room.idempotency) as Array<[string, Record<string, any>]>;
+    expect(entries.length).toBeGreaterThan(0);
+    expect(entries.length).toBeLessThanOrEqual(256);
+    for (const [storageKey, record] of entries) {
+      expect([undefined, 'snapshot', 'playback-authority', 'asset-delete-pending']).toContain(
+        record.kind,
+      );
+      if (record.kind === 'snapshot') expect(record).not.toHaveProperty('body');
+      if (record.kind === 'asset-delete-pending') continue;
+      expect(Number.isSafeInteger(record.expiresAtMs), storageKey).toBe(true);
+      expect(record.expiresAtMs, storageKey).toBeLessThanOrEqual(
+        nowMs + scopeMaximumMs(storageKey),
+      );
+    }
+    await internal.persist();
+    const restarted = new MusixquareProRoom(
+      context.state as never,
+      environment(context.bucket) as never,
+    );
+    expect((await restarted.fetch(request('/snapshot', {}, context.ownerCookie))).status).toBe(200);
+  });
+
+  it('keeps a playback receipt for twice the presence window when presence outlasts the request window', async () => {
+    const context = await startRoom();
+    const internal = internalOf(context);
+    internal.env.PRESENCE_TTL_SECONDS = '300';
+    expect((await editOnce(context, youtubePlaylist, 'receipt-presence-snap-01')).status).toBe(200);
+    const selected = await context.worker.fetch(
+      jsonRequest(
+        '/playback/commands',
+        'POST',
+        { type: 'select', baseRevision: internal.room.playback.revision, queueItemId: FIRST },
+        context.ownerCookie,
+        'receipt-presence-playback-01',
+      ),
+    );
+    expect(selected.status).toBe(202);
+    expect(
+      internal.room.idempotency[
+        `participant:${participantIdOf(context)}:playback-authority:receipt-presence-playback-01`
+      ].expiresAtMs,
+    ).toBe(Date.now() + 2 * (300_000 + PRO_ROOM_PLAYBACK_COMMAND_REQUEST_TIMEOUT_MS));
+  });
+
+  it('replays a same-key edit inside its window and fences it once the receipt is gone', async () => {
+    const context = await startRoom();
+    const room = internalOf(context).room;
+    const edit = await compactEdit(context, youtubePlaylist, 'receipt-fence-snapshot-01');
+    expect((await edit()).status).toBe(200);
+    const revision = room.revision;
+
+    advanceKeepingPresence(context, WINDOW_MS - 1);
+    const replay = await edit();
+    expect(replay.status).toBe(200);
+    expect((await responseJson(replay)).snapshot.revision).toBe(revision);
+
+    advanceKeepingPresence(context, 2);
+    const late = await edit();
+    expect(late.status).toBe(409);
+    await expect(late.json()).resolves.toEqual({ error: 'REVISION_CONFLICT' });
+    expect(room.revision).toBe(revision);
+    expect(room.playlist.map((item: Record<string, any>) => item.queueItemId)).toEqual([
+      FIRST,
+      SECOND,
+    ]);
+  });
+
+  it('never copies a track twice when a copy is sent again after its window', async () => {
+    const context = await startRoom();
+    const room = internalOf(context).room;
+    expect((await editOnce(context, youtubePlaylist, 'receipt-copy-snapshot-01')).status).toBe(200);
+    const body = {
+      baseRevision: room.revision,
+      queueItemIds: [FIRST, SECOND],
+      targetSlots: [1],
+      mode: 'copy',
+    };
+    const copy = () =>
+      context.worker.fetch(
+        jsonRequest(
+          '/playlists/transfer',
+          'POST',
+          body,
+          context.ownerCookie,
+          'receipt-copy-transfer-01',
+        ),
+      );
+    expect((await copy()).status).toBe(200);
+    expect(room.playlistSlots.inactive[1]).toHaveLength(2);
+
+    advanceKeepingPresence(context, WINDOW_MS - 1);
+    expect((await copy()).status).toBe(200);
+    expect(room.playlistSlots.inactive[1]).toHaveLength(2);
+
+    advanceKeepingPresence(context, 2);
+    const late = await copy();
+    expect(late.status).toBe(409);
+    await expect(late.json()).resolves.toEqual({ error: 'REVISION_CONFLICT' });
+    expect(room.playlistSlots.inactive[1]).toHaveLength(2);
+  });
+
+  it('fences a playback command a frozen page sends again after its window', async () => {
+    const context = await startRoom();
+    const room = internalOf(context).room;
+    expect((await editOnce(context, youtubePlaylist, 'receipt-late-snapshot-01')).status).toBe(200);
+    const body = {
+      type: 'select',
+      baseRevision: room.playback.revision,
+      queueItemId: FIRST,
+      state: 'playing',
+      positionSeconds: 0,
+    };
+    const command = () =>
+      context.worker.fetch(
+        jsonRequest(
+          '/playback/commands',
+          'POST',
+          body,
+          context.ownerCookie,
+          'receipt-late-playback-01',
+        ),
+      );
+    const first = await command();
+    expect(first.status).toBe(202);
+    const firstBody = await responseJson(first);
+    await commitTransition(context, firstBody.transition);
+    const committedRevision = room.playback.revision;
+
+    advanceKeepingPresence(context, WINDOW_MS - 1);
+    const replay = await command();
+    expect(replay.status).toBe(202);
+    expect(await responseJson(replay)).toEqual(firstBody);
+    expect(room.pendingPlaybackTransition).toBeNull();
+
+    // The page was frozen past the window while its heartbeats kept presence;
+    // its timer now sends the second attempt with the same key.
+    advanceKeepingPresence(context, 2);
+    const late = await command();
+    expect(late.status).toBe(409);
+    await expect(late.json()).resolves.toEqual({ error: 'PLAYBACK_REVISION_CONFLICT' });
+    expect(room.pendingPlaybackTransition).toBeNull();
+    expect(room.playback.revision).toBe(committedRevision);
+  });
+
+  it('lets a full ledger accept edits again one window later instead of one day', async () => {
+    const context = await startRoom();
+    const internal = internalOf(context);
+    const room = internal.room;
+    expect((await editOnce(context, youtubePlaylist, 'receipt-full-seed-01')).status).toBe(200);
+    for (let index = 0; Object.keys(room.idempotency).length < 256; index += 1) {
+      internal.storeSnapshotIdempotency(
+        `participant:${participantIdOf(context)}:snapshot`,
+        `receipt-full-${String(index).padStart(4, '0')}`,
+        'f'.repeat(43),
+        room.revision,
+      );
+    }
+    const reordered = [youtubePlaylist[1]!, youtubePlaylist[0]!];
+    const refused = await editOnce(context, reordered, 'receipt-full-edit-01');
+    expect(refused.status).toBe(409);
+    await expect(refused.json()).resolves.toEqual({ error: 'ROOM_STATE_CAPACITY_EXCEEDED' });
+
+    advanceKeepingPresence(context, WINDOW_MS);
+    expect((await editOnce(context, reordered, 'receipt-full-edit-02')).status).toBe(200);
+  });
+
+  it('takes far more than 256 edits from a busy room without filling the ledger', async () => {
+    const context = await startRoom();
+    const room = internalOf(context).room;
+    let snapshot = await currentSnapshot(context);
+    let largestLedger = 0;
+    for (let index = 0; index < 600; index += 1) {
+      const order = index % 2 === 0 ? youtubePlaylist : [youtubePlaylist[1]!, youtubePlaylist[0]!];
+      const response = await context.worker.fetch(
+        jsonRequest(
+          '/snapshot/compact',
+          'POST',
+          compactBody(snapshot, order),
+          context.ownerCookie,
+          `receipt-busy-${String(index).padStart(4, '0')}`,
+        ),
+      );
+      expect(response.status, `edit ${index}`).toBe(200);
+      snapshot = (await responseJson(response)).snapshot;
+      largestLedger = Math.max(largestLedger, Object.keys(room.idempotency).length);
+      advanceKeepingPresence(context, 1_000);
+    }
+    expect(largestLedger).toBeLessThanOrEqual(WINDOW_MS / 1_000 + 1);
+  });
+
+  it('replays an unnamed completion until orphan cleanup collects its asset, then answers ASSET_NOT_FOUND', async () => {
+    const context = await startRoom();
+    const room = internalOf(context).room;
+    const { assetId, completeEnvelope } = await completeReadyAsset(context, 'receipt-unnamed');
+    const key = `${IDEMPOTENCY_KEY}-receipt-unnamed-complete`;
+    const storageKey = `participant:${participantIdOf(context)}:complete:${key}`;
+    const completedAtMs = room.assets[assetId].completedAtMs as number;
+    expect(room.idempotency[storageKey].expiresAtMs).toBe(completedAtMs + GC_GRACE_MS);
+    const copies = vi.mocked(fetch).mock.calls.length;
+    const retry = () =>
+      context.worker.fetch(
+        request(
+          `/media/${assetId}/complete`,
+          { method: 'POST', headers: { 'idempotency-key': key } },
+          context.ownerCookie,
+        ),
+      );
+
+    advanceKeepingPresence(context, 10 * 60 * 1000);
+    const replay = await retry();
+    expect(replay.status).toBe(200);
+    expect(await responseJson(replay)).toEqual(completeEnvelope);
+
+    advanceKeepingPresence(context, completedAtMs + GC_GRACE_MS - Date.now());
+    const collected = await retry();
+    expect(collected.status).toBe(404);
+    await expect(collected.json()).resolves.toEqual({ error: 'ASSET_NOT_FOUND' });
+    expect(room.assets[assetId]).toBeUndefined();
+    expect(room.idempotency[storageKey]).toBeUndefined();
+    expect(vi.mocked(fetch).mock.calls.length).toBe(copies);
+  });
+
+  it('releases a completion receipt as soon as a playlist names its asset', async () => {
+    const context = await startRoom();
+    const room = internalOf(context).room;
+    const { assetId, asset } = await completeReadyAsset(context, 'receipt-named');
+    const key = `${IDEMPOTENCY_KEY}-receipt-named-complete`;
+    const storageKey = `participant:${participantIdOf(context)}:complete:${key}`;
+    expect(room.idempotency[storageKey]).toBeDefined();
+
+    expect(
+      (await replacePlaylist(context, [playlistItem(FIRST, asset)], 'receipt-named')).status,
+    ).toBe(200);
+    expect(room.idempotency[storageKey]).toBeUndefined();
+    expect(storedCanonicalRoom(context.state).idempotency[storageKey]).toBeUndefined();
+
+    const copies = vi.mocked(fetch).mock.calls.length;
+    const retry = await context.worker.fetch(
+      request(
+        `/media/${assetId}/complete`,
+        { method: 'POST', headers: { 'idempotency-key': key } },
+        context.ownerCookie,
+      ),
+    );
+    expect(retry.status).toBe(404);
+    await expect(retry.json()).resolves.toEqual({ error: 'ASSET_NOT_FOUND' });
+    expect(room.assets[assetId]).toMatchObject({ status: 'ready' });
+    expect(room.assets[assetId].gcAfterMs).toBeUndefined();
+    expect(vi.mocked(fetch).mock.calls.length).toBe(copies);
+  });
+
+  it('cuts receipts an earlier Worker kept for 24 hours to their window and persists the cut', async () => {
+    const context = await startRoom();
+    const room = internalOf(context).room;
+    const participantId = participantIdOf(context);
+    const scope = (operation: string) => `participant:${participantId}:${operation}`;
+    const named = await completeReadyAsset(context, 'receipt-cut-named');
+    const unnamed = await completeReadyAsset(context, 'receipt-cut-unnamed');
+    expect(
+      (await replacePlaylist(context, [playlistItem(FIRST, named.asset)], 'receipt-cut')).status,
+    ).toBe(200);
+
+    // A delete held open by R2 keeps its marker-owned pending receipt.
+    const pendingReserve = await responseJson(
+      await context.worker.fetch(
+        jsonRequest(
+          '/media/reservations',
+          'POST',
+          { byteLength: 4096, name: 'pending.wav', mime: 'audio/wav' },
+          context.ownerCookie,
+          'receipt-cut-pending-reserve',
+        ),
+      ),
+    );
+    const pendingAsset = room.assets[pendingReserve.reservation.assetId];
+    context.bucket.objects.set(pendingAsset.stagingObjectKey, { size: pendingAsset.byteLength });
+    context.bucket.deleteError = new Error('hold the deletion open');
+    expect(
+      (
+        await context.worker.fetch(
+          request(
+            `/media/${pendingAsset.assetId}`,
+            { method: 'DELETE', headers: { 'idempotency-key': 'receipt-cut-pending-delete' } },
+            context.ownerCookie,
+          ),
+        )
+      ).status,
+    ).toBe(503);
+    const pendingKey = `${scope('delete')}:receipt-cut-pending-delete`;
+    expect(room.idempotency[pendingKey]).toMatchObject({ kind: 'asset-delete-pending' });
+
+    // The ledger a 9.0.17 Worker leaves: 24 hours for most receipts, the
+    // reservation expiry for reserve and 10 minutes for playback.
+    const writtenAtMs = Date.now();
+    const fingerprint = 'f'.repeat(43);
+    const tokenHash = 'h'.repeat(43);
+    const snapshotReceipt = (expiresAtMs: number) => ({
+      fingerprint,
+      kind: 'snapshot',
+      committedRevision: room.revision,
+      status: 200,
+      expiresAtMs,
+    });
+    const bodyReceipt = (body: Record<string, unknown>, expiresAtMs: number) => ({
+      fingerprint,
+      body,
+      status: 200,
+      expiresAtMs,
+    });
+    const earlier: Record<string, Record<string, unknown>> = {
+      [`${scope('snapshot')}:earlier-snapshot`]: snapshotReceipt(writtenAtMs + DAY_MS),
+      [`${scope('playlist-switch')}:earlier-switch`]: snapshotReceipt(writtenAtMs + DAY_MS),
+      [`${scope('playlist-transfer')}:earlier-transfer`]: snapshotReceipt(writtenAtMs + DAY_MS),
+      [`${scope('reserve')}:earlier-reserve`]: bodyReceipt(
+        { ok: true },
+        writtenAtMs + RESERVATION_MS,
+      ),
+      [`${scope('delete')}:earlier-delete`]: bodyReceipt({ ok: true }, writtenAtMs + DAY_MS),
+      [`${scope('playback-authority')}:earlier-playback`]: {
+        ...bodyReceipt({ ok: true }, writtenAtMs + 10 * 60 * 1000),
+        kind: 'playback-authority',
+      },
+      [`bot-context:${tokenHash}:earlier-bot-request`]: bodyReceipt(
+        { leaseToken: 'l'.repeat(32), leaseExpiresAtMs: writtenAtMs, playlistRevision: 0 },
+        writtenAtMs + DAY_MS,
+      ),
+      [`bot-execute:${tokenHash}:earlier-bot-request`]: bodyReceipt(
+        { ok: true, summary: 'Done.', addedCount: 0, playbackChanged: false },
+        writtenAtMs + DAY_MS,
+      ),
+      [`${scope('complete')}:earlier-complete-named`]: bodyReceipt(
+        { asset: structuredClone(named.completeEnvelope.asset), quota: { usedBytes: 0 } },
+        writtenAtMs + DAY_MS,
+      ),
+      [`${scope('complete')}:earlier-complete-unnamed`]: bodyReceipt(
+        { asset: structuredClone(unnamed.completeEnvelope.asset), quota: { usedBytes: 0 } },
+        writtenAtMs + DAY_MS,
+      ),
+      [`${scope('snapshot')}:recent-snapshot`]: snapshotReceipt(writtenAtMs + 30_000),
+    };
+    Object.assign(room.idempotency, structuredClone(earlier));
+    room.developerMutationIdempotency[
+      `developer:${DEVELOPER_KEY_ID}:queue:add_youtube_batch:earlier-developer`
+    ] = { fingerprint, kind: 'developer-queue', status: 201, expiresAtMs: writtenAtMs + DAY_MS };
+    const otherLedgers = structuredClone({
+      developerMutationIdempotency: room.developerMutationIdempotency,
+      sessionCreateIdempotency: room.sessionCreateIdempotency,
+      presenceCloseIdempotency: room.presenceCloseIdempotency,
+    });
+    const pendingReceipt = structuredClone(room.idempotency[pendingKey]);
+    const unnamedOwnKey = `${scope('complete')}:${IDEMPOTENCY_KEY}-receipt-cut-unnamed-complete`;
+    const unnamedOwn = structuredClone(room.idempotency[unnamedOwnKey]);
+    expect(unnamedOwn.expiresAtMs).toBe(room.assets[unnamed.assetId].completedAtMs + GC_GRACE_MS);
+
+    advanceKeepingPresence(context, 1_000);
+    const prunedAtMs = Date.now();
+    expect((await context.worker.fetch(request('/snapshot', {}, context.ownerCookie))).status).toBe(
+      200,
+    );
+
+    for (const key of [
+      `${scope('snapshot')}:earlier-snapshot`,
+      `${scope('playlist-switch')}:earlier-switch`,
+      `${scope('playlist-transfer')}:earlier-transfer`,
+      `${scope('reserve')}:earlier-reserve`,
+      `${scope('delete')}:earlier-delete`,
+      `${scope('playback-authority')}:earlier-playback`,
+      `bot-context:${tokenHash}:earlier-bot-request`,
+      `bot-execute:${tokenHash}:earlier-bot-request`,
+    ]) {
+      expect(room.idempotency[key], key).toEqual({
+        ...earlier[key],
+        expiresAtMs: prunedAtMs + WINDOW_MS,
+      });
+    }
+    // Named by a playlist: released. Unnamed: cut to the GC grace.
+    expect(room.idempotency[`${scope('complete')}:earlier-complete-named`]).toBeUndefined();
+    expect(room.idempotency[`${scope('complete')}:earlier-complete-unnamed`]).toEqual({
+      ...earlier[`${scope('complete')}:earlier-complete-unnamed`],
+      expiresAtMs: prunedAtMs + GC_GRACE_MS,
+    });
+    // Receipts already inside their window stay as written.
+    expect(room.idempotency[`${scope('snapshot')}:recent-snapshot`]).toEqual(
+      earlier[`${scope('snapshot')}:recent-snapshot`],
+    );
+    expect(room.idempotency[unnamedOwnKey]).toEqual(unnamedOwn);
+    expect(room.idempotency[pendingKey]).toEqual(pendingReceipt);
+    expect({
+      developerMutationIdempotency: room.developerMutationIdempotency,
+      sessionCreateIdempotency: room.sessionCreateIdempotency,
+      presenceCloseIdempotency: room.presenceCloseIdempotency,
+    }).toEqual(otherLedgers);
+    expect(storedCanonicalRoom(context.state).idempotency).toEqual(room.idempotency);
+  });
+
+  it('keeps BOT Developer receipts for 24 hours so a late run of the same request adds nothing twice', async () => {
+    const context = await startRoom();
+    const room = internalOf(context).room;
+    const requestId = 'receipt-late-bot-0001';
+    expect((await runBot(context, requestId)).status).toBe(200);
+    expect(room.playlist).toHaveLength(1);
+    const playlistRevision = room.playlistRevision;
+
+    // Nothing in the App sends a requestId twice. If it ever did after the
+    // window, the browser receipts are gone and a new run starts; BOT's own
+    // Developer receipt still replays the addition instead of adding again.
+    advanceKeepingPresence(context, WINDOW_MS + 1);
+    expect((await runBot(context, requestId)).status).toBe(200);
+    expect(room.playlist).toHaveLength(1);
+    expect(room.playlistRevision).toBe(playlistRevision);
   });
 });

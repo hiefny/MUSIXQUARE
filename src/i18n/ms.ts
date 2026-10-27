@@ -896,6 +896,8 @@ const ms: Record<I18nKey, string> = {
   'pro.downloading': 'Memuatkan fail...',
   'pro.quota_exceeded': 'Bilik PRO ini telah mencapai had storan 1 GB',
   'pro.file_too_large': 'Fail ini melebihi had 200 MB bagi setiap fail',
+  'pro.room_state_limit':
+    'Bilik PRO ini tidak dapat menerima perubahan lagi buat masa ini\nCuba lagi sebentar nanti',
 
   // ─── Blok HTML (digunakan dengan data-i18n-html) ─────────────────
   'help.install_app_html':

@@ -827,6 +827,8 @@ const es: Record<I18nKey, string> = {
   'pro.downloading': 'Cargando archivo...',
   'pro.quota_exceeded': 'Esta sala PRO alcanzó su límite de almacenamiento de 1 GB',
   'pro.file_too_large': 'Este archivo supera el límite de 200 MB por archivo',
+  'pro.room_state_limit':
+    'Esta sala PRO no admite más cambios en este momento\nVuelve a intentarlo en un rato',
 
   // Chat
   'chat.title': 'Chat',

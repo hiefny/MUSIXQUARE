@@ -896,6 +896,8 @@ const ro: Record<I18nKey, string> = {
   'pro.downloading': 'Se încarcă fișierul...',
   'pro.quota_exceeded': 'Această cameră PRO a atins limita de stocare de 1 GB',
   'pro.file_too_large': 'Acest fișier depășește limita de 200 MB per fișier',
+  'pro.room_state_limit':
+    'Această cameră PRO nu poate primi alte modificări deocamdată\nReîncearcă puțin mai târziu',
 
   // ─── HTML Blocks (used with data-i18n-html) ────────────────────
   'help.install_app_html':

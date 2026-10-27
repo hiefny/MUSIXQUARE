@@ -888,6 +888,8 @@ const hu: Record<I18nKey, string> = {
   'pro.downloading': 'Fájl betöltése...',
   'pro.quota_exceeded': 'A PRO-szoba elérte az 1 GB-os tárhelykorlátot',
   'pro.file_too_large': 'Ez a fájl meghaladja a fájlonkénti 200 MB-os korlátot',
+  'pro.room_state_limit':
+    'Ebben a PRO-szobában most nem lehet több módosítást végezni\nPróbáld újra egy kicsit később',
 
   // ─── HTML Blocks (used with data-i18n-html) ────────────────────
   'help.install_app_html':

@@ -809,6 +809,8 @@ const ja: Record<I18nKey, string> = {
   'pro.downloading': 'ファイルを読み込み中...',
   'pro.quota_exceeded': 'このPROルームは1GBの保存上限に達しました',
   'pro.file_too_large': 'このファイルは1ファイルあたり200MBの上限を超えています',
+  'pro.room_state_limit':
+    'このPROルームは現在これ以上の変更を受け付けられません\nしばらくしてからもう一度お試しください',
 
   // Chat
   'chat.title': 'チャット',

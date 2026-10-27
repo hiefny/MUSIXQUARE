@@ -142,6 +142,7 @@ each record also states the step in words.
 | RO-50 | App build floor                                          | Workers        | owner-in-place     | None                           |
 | RO-51 | Return-from-background dialog                            | Page lifecycle | duplicated         | One slot on a 4th requester    |
 | RO-52 | PRO browser completion final object                      | Workers        | owner-in-place     | Revisit on copy diagnostics    |
+| RO-53 | PRO browser receipt ledger                               | Workers        | owner-in-place     | None                           |
 
 ## Machine-readable ID list
 
@@ -207,6 +208,7 @@ RO-49 accepted-exception
 RO-50 owner-in-place
 RO-51 duplicated
 RO-52 owner-in-place
+RO-53 owner-in-place
 ```
 
 ## Resource records
@@ -3267,7 +3269,9 @@ entry needs the owner's acceptance and is not implied by this registry.
   that is an owner decision once production `media_copy` records show the copy is reliable.
 - **Allowed requesters:** the browser completion route, through the upload queue's per-file
   continuation in `src/pro-room/upload-queue.ts`, which owns user retries. Nothing schedules a
-  completion retry on the server.
+  completion retry on the server. How long a same-key completion retry still replays is the
+  completion receipt's lifetime in the browser receipt ledger (RO-53): until a playlist names the
+  asset, at most until orphan cleanup collects it.
 - **Lifecycle operations:** pin the source, copy, verify by HEAD, fall back, verify again, commit,
   keep the pin for a same-key retry, collect a late object.
 - **Deadline owner:** `fetchWithDeadline` for the copy; the App facade for the whole request. The
@@ -3303,6 +3307,127 @@ entry needs the owner's acceptance and is not implied by this registry.
     completion alive beyond the control deadline without success diagnostics".
 - **Status:** `owner-in-place`. Added with the PRO upload reliability train (9.0.17), when the
   binding fallback became a second writer beside the presigned copy.
+
+### RO-53 PRO browser receipt ledger
+
+- **Resource:** the browser receipt ledger of the PRO room Durable Object
+  (`activeRoom.idempotency` in `cloudflare/pro-room-worker.ts`), at most `IDEMPOTENCY_MAX_ITEMS`
+  (256) receipts shared by every participant. It holds every scope that `idempotencyLedger` does
+  not send elsewhere (`session-create:*`, `*:presence-close` and `developer:*` have their own
+  ledgers): `participant:<id>:snapshot`, `:playlist-switch`, `:playlist-transfer`, `:reserve`,
+  `:complete`, `:delete` and `:playback-authority`, and `bot-context:<tokenHash>` and
+  `bot-execute:<tokenHash>`. A receipt makes a request sent again with the same idempotency key
+  replay its first answer. A full ledger refuses a new mutation with
+  `ROOM_STATE_CAPACITY_EXCEEDED` and never evicts a live receipt. Receipt retention train (owner
+  decision 2026-10-27, [report](pro-receipt-retention-2026-10-27.md)).
+- **Current owners/flows:** the ledger methods of `MusixquareProRoom` are the single owner:
+  `idempotencyLedger`, `reserveIdempotencySlot`, `storeIdempotency`, `storeSnapshotIdempotency`,
+  `replayIdempotency`, `idempotencyRecord`, `idempotencyExpiresAt`, and since this train
+  `browserReceiptLifetimeMs`, `receiptExpiresAtMs`, `capBrowserReceiptLifetime` and
+  `releaseSettledCompletionReceipts`. `prune` (before every room request and on every alarm)
+  expires receipts and cuts longer ones, and `scheduleAlarm` wakes the room at the earliest
+  expiry. Two other lifecycle machines act on receipts:
+  - the asset deletion marker owns the `asset-delete-pending` receipt of an explicit delete
+    (`beginAssetDeletion`, `continueAssetDeletion`, load repair in
+    `normalizeLoadedAssetDeletions`). Its expiry is the marker, not wall time, and the cut leaves
+    it alone;
+  - the asset GC reconciliation (`reconcileAssetGarbageCollection`, on every committed playlist
+    change and every prune) asks the owner to release the completion receipts whose asset a
+    playlist names or that is no longer a ready asset (`releaseSettledCompletionReceipts`). The
+    match reads the stored answer, so no field is added.
+
+  A receipt lives only as long as the App can send its request again with the same key, in active
+  page time:
+  - single-request scopes (playlist edits, playlist switch and transfer, reserve, the final
+    delete receipt, BOT context and execute, BOT destructive terminal receipts):
+    `PRO_ROOM_REQUEST_RECEIPT_TTL_MS`, at least twice the longest single-request window. Every
+    browser control request is sent once under the 15 s `DEFAULT_CONTROL_REQUEST_TIMEOUT_MS`;
+    the playlist manager, reserve and delete make a fresh key for every attempt; a BOT execute
+    must reach the room inside the 45 s context lease, and the requester relays its result inside
+    its own 15 s deadline. Reserve keeps the earlier of its reservation expiry and the window;
+  - playback (`proRoomPlaybackReceiptTtlMs`): the App's second attempt reuses the key and starts
+    from a timer, so a frozen page can send it until its device's presence lapses
+    (`requireSession` with active presence). The receipt keeps the window, or twice one presence
+    window plus one attempt when that is longer (45 s presence in production, so the window);
+  - upload completion (`proRoomCompletionReceiptTtlMs`): the batch failure dialog's Retry
+    (`src/pro-room/upload-queue.ts`, RO-52) reuses the completion key while the upload's RAM-only
+    continuation lives. The receipt lives until a playlist names the asset or the asset is gone,
+    and at most `completedAtMs` plus the orphan GC grace, so it never ends before the unnamed
+    asset it describes.
+
+  A receipt an earlier Worker wrote (24 hours, or again after a rollback to one) is cut to its
+  scope's lifetime from now at the first prune and persisted. Past its window a same-key resend
+  gets the fence answer and is never applied twice: `REVISION_CONFLICT` (compare-and-set base
+  revision), `PLAYBACK_REVISION_CONFLICT`, `ASSET_NOT_FOUND`, `PRESENCE_EXPIRED`, or a second
+  reservation that expires unused for reserve. Playback relies on presence as well as on its
+  revision: a command that went to `preparing` and was then cancelled (queue item removed,
+  superseded) does not bump the playback revision, so the presence lapse stops a late second
+  attempt. That bounds the attempt to one presence window plus one attempt after the receipt was
+  written, inside the presence-derived receipt lifetime. A late BOT run with the same
+  `requestId` starts anew: its additions replay through BOT's 24-hour Developer mutation
+  receipt, removals and clears answer `BOT_ACTION_FAILED`, queue mode is fenced by its
+  Developer mutation receipt and base revision, and playback commands (play after add included)
+  replay only while their 10-minute Developer command receipt lives. Nothing in the App or the
+  App Worker sends a `requestId` twice. The windows cover resends in active page time; the
+  fences, with presence for playback, are what make a later resend safe. Session-create receipts
+  can outlive a reload (`sessionStorage`), but they are in their own ledger.
+
+- **Target single owner:** reached (the ledger methods). The cap stays 256: a 9.0.17 Worker
+  refuses to load a room whose ledger holds more (`assertBoundedRoomState`), so a raise needs two
+  releases (load first, write second) or a separate ledger field.
+- **Allowed requesters:** the Worker handlers `handleCompactSnapshotMutation` with
+  `commitParticipantSnapshot`, `handlePlaylistSwitch`, `handlePlaylistTransfer`,
+  `handleCreateReservation`, `handleCompleteMedia`, `handleDeleteMedia` with
+  `continueAssetDeletion`, `handlePlaybackCommand`, `handleInternalBotContext` and
+  `handleInternalBotExecute` with the BOT terminal receipts of
+  `handleInternalDeveloperQueueMutation` and `removeInactivePlaylistItems`; the `bot.result` relay
+  check in `handleInternalAuthorityCheck` reads. Client senders: `src/pro-room/playlist-state-manager.ts`,
+  `src/pro-room/media-transfer.ts` with `src/pro-room/upload-queue.ts`,
+  `src/pro-room/playback-controller.ts`, and the chat `/bot` path through `cloudflare/pro-bot.ts`.
+- **Lifecycle operations:** reserve a slot, store, replay, expire, cut to the scope's lifetime,
+  release a settled completion receipt, fence a pending delete (the marker).
+- **Deadline owner:** none; receipts are fences, not attempts. Each request's deadline stays with
+  its sender (the App's 15 s control deadline, the playback controller's attempt timeout, the BOT
+  pipeline and lease).
+- **Timing-constant home:** `cloudflare/pro-room-receipt-timing.ts`:
+  `PRO_ROOM_REQUEST_RECEIPT_TTL_MS` (2 min), `PRO_ROOM_BOT_REQUEST_LEASE_MS` (45 s, moved from the
+  Worker), `PRO_ROOM_PLAYBACK_COMMAND_REQUEST_TIMEOUT_MS` (6 s) and
+  `PRO_ROOM_PLAYBACK_COMMAND_ATTEMPTS` (2), both moved from `src/pro-room/playback-controller.ts`,
+  which imports them, and the derived `proRoomPlaybackReceiptTtlMs` and
+  `proRoomCompletionReceiptTtlMs`. The presence window, orphan GC grace and reservation lifetime
+  stay the Worker's configured `PRESENCE_TTL_SECONDS`, `ASSET_GC_GRACE_SECONDS` and
+  `RESERVATION_TTL_SECONDS` (`cloudflare/wrangler.pro-room.toml`). Other ledgers keep their own
+  values: Developer mutation and presence-close `IDEMPOTENCY_TTL_MS` (24 h), session-create and
+  Developer command receipts 10 min.
+- **Anchor tests:**
+  - Ordering: `src/pro-room/__tests__/pro-room-receipt-timing.test.ts` (the window is at least
+    twice the longest single-request window; playback covers twice one presence window plus one
+    attempt over the whole presence clamp and the wrangler value; completion covers the GC grace;
+    its copies of the Worker's accepted ranges for the presence window, GC grace and reservation
+    lifetime are pinned against the Worker's own reading of them).
+  - Supersession: in `src/pro-room/__tests__/pro-room-worker.test.ts`, "PRO browser receipt
+    retention": "replays a same-key edit inside its window and fences it once the receipt is
+    gone", "never copies a track twice when a copy is sent again after its window" and "keeps BOT
+    Developer receipts for 24 hours so a late run of the same request adds nothing twice".
+  - User pause/stop: n/a (server).
+  - Teardown: "replays an unnamed completion until orphan cleanup collects its asset, then answers
+    ASSET_NOT_FOUND", "releases a completion receipt as soon as a playlist names its asset", "cuts
+    receipts an earlier Worker kept for 24 hours to their window and persists the cut", "alarms and
+    durably prunes idle idempotency and rate-limit ledgers at their deadlines" and, for the
+    marker's receipt, "keeps a pending delete receipt fenced past its old TTL and rejects same-key
+    reuse".
+  - Visibility: "fences a playback command a frozen page sends again after its window".
+  - Capacity and rollback shape: "lets a full ledger accept edits again one window later instead
+    of one day", "takes far more than 256 edits from a busy room without filling the ledger" and
+    "keeps each browser receipt only as long as its request can be sent again".
+  - Sender premises: `src/pro-room/__tests__/playlist-state-manager.test.ts` "refreshes and
+    rebases once on a CAS conflict with a fresh key for the changed body",
+    `src/pro-room/__tests__/media-transfer.test.ts` "retries only completion with the same
+    body/key and reuses its ready result for append retries" and
+    `src/pro-room/__tests__/runtime-server-playback.test.ts` "replays one lost playback response
+    with the same idempotency key".
+- **Status:** `owner-in-place`. Added with the receipt retention train, when the cut of longer
+  receipts and the completion release became machines beside the ledger's own expiry.
 
 ## Checked side flows without a record
 

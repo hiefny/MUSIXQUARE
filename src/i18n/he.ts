@@ -845,6 +845,8 @@ const he: Record<I18nKey, string> = {
   'pro.downloading': 'הקובץ נטען...',
   'pro.quota_exceeded': 'חדר ה-PRO הגיע למגבלת האחסון של 1 GB',
   'pro.file_too_large': 'הקובץ גדול ממגבלת 200 MB לקובץ',
+  'pro.room_state_limit':
+    'חדר ה-PRO לא יכול לקבל שינויים נוספים כרגע\nאפשר לנסות שוב בעוד כמה רגעים',
 
   // ─── HTML Blocks (used with data-i18n-html) ─────────────────────
   'help.install_app_html':

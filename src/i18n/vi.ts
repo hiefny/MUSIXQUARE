@@ -794,6 +794,8 @@ const vi: Record<I18nKey, string> = {
   'pro.downloading': 'Đang tải tệp...',
   'pro.quota_exceeded': 'Phòng PRO này đã dùng hết giới hạn lưu trữ 1 GB',
   'pro.file_too_large': 'Tệp này vượt quá giới hạn 200 MB cho mỗi tệp',
+  'pro.room_state_limit':
+    'Phòng PRO này hiện không thể nhận thêm thay đổi\nVui lòng thử lại sau một lát',
 
   // Chat
   'chat.title': 'Trò chuyện',

@@ -883,6 +883,8 @@ const fi: Record<I18nKey, string> = {
   'pro.downloading': 'Ladataan tiedostoa…',
   'pro.quota_exceeded': 'Tämän PRO-huoneen 1 GB:n tallennustila on täynnä',
   'pro.file_too_large': 'Tiedosto ylittää tiedostokohtaisen 200 MB:n rajan',
+  'pro.room_state_limit':
+    'Tähän PRO-huoneeseen ei voi juuri nyt tehdä enempää muutoksia\nYritä hetken kuluttua uudelleen',
 
   // ─── HTML Blocks (used with data-i18n-html) ────────────────────
   'help.install_app_html':

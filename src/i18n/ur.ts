@@ -871,6 +871,8 @@ const ur: Record<I18nKey, string> = {
   'pro.downloading': 'فائل لوڈ ہو رہی ہے...',
   'pro.quota_exceeded': 'اس PRO کمرے کی 1 GB اسٹوریج حد پوری ہو گئی ہے',
   'pro.file_too_large': 'یہ فائل فی فائل 200 MB کی حد سے بڑی ہے',
+  'pro.room_state_limit':
+    'اس PRO کمرے میں ابھی مزید تبدیلیاں نہیں کی جا سکتیں\nتھوڑی دیر بعد دوبارہ کوشش کریں',
 
   // ─── HTML Blocks (used with data-i18n-html) ─────────────────────
   'help.install_app_html':

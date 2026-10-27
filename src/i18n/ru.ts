@@ -888,6 +888,8 @@ const ru: Record<I18nKey, string> = {
   'pro.downloading': 'Загрузка файла...',
   'pro.quota_exceeded': 'В PRO-комнате исчерпан лимит хранилища 1 ГБ',
   'pro.file_too_large': 'Этот файл превышает лимит 200 МБ на файл',
+  'pro.room_state_limit':
+    'Эта PRO-комната сейчас не может принять больше изменений\nПовторите попытку чуть позже',
 
   // ─── HTML Blocks (used with data-i18n-html) ────────────────────
   'help.install_app_html':

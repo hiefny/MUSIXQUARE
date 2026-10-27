@@ -853,6 +853,8 @@ const ar: Record<I18nKey, string> = {
   'pro.downloading': 'جارٍ تحميل الملف...',
   'pro.quota_exceeded': 'بلغت غرفة PRO هذه حد التخزين البالغ 1 GB',
   'pro.file_too_large': 'يتجاوز هذا الملف الحد الأقصى لكل ملف، وهو 200 MB',
+  'pro.room_state_limit':
+    'لا يمكن لغرفة PRO هذه قبول المزيد من التغييرات الآن\nحاول مرة أخرى بعد قليل',
 
   // ─── HTML Blocks (used with data-i18n-html) ─────────────────────
   'help.install_app_html':

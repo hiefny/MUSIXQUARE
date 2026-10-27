@@ -738,6 +738,7 @@ const zhHant: Record<I18nKey, string> = {
   'pro.downloading': '正在載入檔案…',
   'pro.quota_exceeded': '此 PRO 房間的 1 GB 儲存空間已用完',
   'pro.file_too_large': '此檔案超過單一檔案 200 MB 的上限',
+  'pro.room_state_limit': '此 PRO 房間暫時無法接受更多變更\n請稍後再試一次',
 
   // Chat
   'chat.title': '聊天',

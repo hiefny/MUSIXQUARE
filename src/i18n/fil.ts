@@ -900,6 +900,8 @@ const fil: Record<I18nKey, string> = {
   'pro.downloading': 'Nilo-load ang file...',
   'pro.quota_exceeded': 'Naabot na ng PRO room na ito ang 1 GB na limitasyon sa storage',
   'pro.file_too_large': 'Lumampas ang file na ito sa 200 MB na limitasyon bawat file',
+  'pro.room_state_limit':
+    'Hindi muna makakatanggap ng iba pang pagbabago ang PRO room na ito\nSubukan ulit maya-maya',
 
   // ─── Mga HTML Block (ginagamit sa data-i18n-html) ────────────────
   'help.install_app_html':

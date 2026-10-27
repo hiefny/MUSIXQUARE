@@ -893,6 +893,8 @@ const ml: Record<I18nKey, string> = {
   'pro.downloading': 'ഫയൽ ലോഡ് ചെയ്യുന്നു...',
   'pro.quota_exceeded': 'ഈ PRO റൂം 1 GB സ്റ്റോറേജ് പരിധിയിലെത്തി',
   'pro.file_too_large': 'ഈ ഫയൽ ഓരോ ഫയലിനുമുള്ള 200 MB പരിധിയേക്കാൾ വലുതാണ്',
+  'pro.room_state_limit':
+    'ഈ PRO റൂമിൽ ഇപ്പോൾ കൂടുതൽ മാറ്റങ്ങൾ വരുത്താനാവില്ല\nകുറച്ചുകഴിഞ്ഞ് വീണ്ടും ശ്രമിക്കുക',
 
   // ─── HTML Blocks (used with data-i18n-html) ────────────────────
   'help.install_app_html':

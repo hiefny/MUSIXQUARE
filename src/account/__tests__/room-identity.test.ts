@@ -2,7 +2,14 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { resetState, setState } from '../../core/state.ts';
 import { bus } from '../../core/events.ts';
 import { setPeer } from '../../network/peer-state.ts';
-import type { PeerInstance } from '../../types/index.ts';
+import type { DataConnection, PeerInstance } from '../../types/index.ts';
+import {
+  acceptStandardRoomAccountAuthorityIdentity,
+  acceptStandardRoomHostIdentityProjection,
+  hasRoomCapability,
+  markStandardRoomAuthorityConfirmed,
+  roomCapabilityStatus,
+} from '../../rooms/authority.ts';
 import * as accountApi from '../api.ts';
 import { AccountApiError } from '../api.ts';
 import {
@@ -10,7 +17,11 @@ import {
   initAccountRoomIdentity,
   requestStandardRoomAccountAssertion,
 } from '../room-identity.ts';
-import { __resetAccountStateForTests, applyAccountSession } from '../state.ts';
+import {
+  __resetAccountStateForTests,
+  applyAccountSession,
+  setAccountUnavailable,
+} from '../state.ts';
 
 function authenticate(nickname = 'Minsu'): void {
   applyAccountSession({
@@ -36,6 +47,80 @@ afterEach(() => {
 });
 
 describe('account identity room projection', () => {
+  it.each(['loading', 'unavailable'])(
+    'honors a manual anonymous host grant while the account service is %s',
+    async (status) => {
+      if (status === 'unavailable') setAccountUnavailable();
+      const input = { roomCode: '123456', peerId: 'guest-manual', role: 'guest' as const };
+      const conn = { open: true, peer: 'host' } as DataConnection;
+      setState('network.appRole', 'guest');
+      setState('network.myId', input.peerId);
+      setState('network.lastJoinCode', input.roomCode);
+      setState('network.hostConn', conn);
+      await expect(requestStandardRoomAccountAssertion(input)).resolves.toBeUndefined();
+      expect(roomCapabilityStatus('asset.upload')).toBe('pending');
+      expect(hasRoomCapability('asset.upload')).toBe(false);
+
+      // The live host can grant an anonymous participant independently of App auth.
+      markStandardRoomAuthorityConfirmed(conn);
+      setState('network.isOperator', true);
+      setState('network.standardRoomCapabilities', ['asset.upload']);
+      expect(hasRoomCapability('asset.upload')).toBe(true);
+      expect(roomCapabilityStatus('asset.upload')).toBe('granted');
+      expect(hasRoomCapability('room.configure')).toBe(false);
+    },
+  );
+
+  it('keeps an early anonymous host answer pending while account loading and proof settle', async () => {
+    const input = { roomCode: '123456', peerId: 'guest-loading', role: 'guest' as const };
+    const conn = { open: true, peer: 'host' } as DataConnection;
+    setState('network.appRole', 'guest');
+    setState('network.myId', input.peerId);
+    setState('network.lastJoinCode', input.roomCode);
+    setState('network.hostConn', conn);
+    markStandardRoomAuthorityConfirmed(conn);
+    await expect(requestStandardRoomAccountAssertion(input)).resolves.toBeUndefined();
+    expect(roomCapabilityStatus('asset.upload')).toBe('pending');
+
+    authenticate();
+    vi.spyOn(accountApi, 'getStandardRoomIdentityAssertions').mockResolvedValue({
+      accountAssertion: 'signed-proof',
+      deletionAssertion: null,
+    });
+    await requestStandardRoomAccountAssertion(input);
+    expect(roomCapabilityStatus('asset.upload')).toBe('pending');
+    acceptStandardRoomAccountAuthorityIdentity('member-current');
+    acceptStandardRoomHostIdentityProjection(conn, {
+      id: input.peerId,
+      label: 'Peer',
+      isOp: false,
+      isHost: false,
+      status: 'connected',
+      memberId: 'member-current',
+      isAuthenticated: true,
+    });
+    expect(roomCapabilityStatus('asset.upload')).toBe('denied');
+  });
+
+  it('retires pending account feedback when the active connection closes', async () => {
+    const conn = { open: true, peer: 'host' } as DataConnection;
+    setState('network.appRole', 'guest');
+    setState('network.myId', 'guest-closing');
+    setState('network.lastJoinCode', '123456');
+    setState('network.hostConn', conn);
+    initAccountRoomIdentity();
+    await requestStandardRoomAccountAssertion({
+      roomCode: '123456',
+      peerId: 'guest-closing',
+      role: 'guest',
+    });
+    expect(roomCapabilityStatus('asset.upload')).toBe('pending');
+    setState('network.hostConn', null);
+    setState('network.hostConn', conn);
+    markStandardRoomAuthorityConfirmed(conn);
+    expect(roomCapabilityStatus('asset.upload')).toBe('denied');
+  });
+
   it('refreshes the signed signaling identity once a standard room starts', async () => {
     authenticate();
     const refreshStandardRoomIdentity = vi.fn(async () => {});

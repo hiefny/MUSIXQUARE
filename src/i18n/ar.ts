@@ -828,6 +828,22 @@ const ar: Record<I18nKey, string> = {
   'pro.active_tab_message': 'ستؤدي المتابعة هنا إلى قطع الاتصال السابق.',
   'pro.active_tab_replaced': 'غرفة PRO هذه مفتوحة بالفعل في تبويب آخر',
   'pro.use_this_tab': 'المتابعة هنا',
+  'pro.upload.retry_unavailable': 'لم يعد بالإمكان إكمال هذا الرفع. يرجى اختيار الملف مرة أخرى.',
+  'pro.upload.failed_retryable': 'تعذّر إكمال الرفع. يرجى المحاولة مرة أخرى.',
+  'pro.upload.empty_file': 'لا يمكن رفع ملف فارغ.',
+  'pro.upload.file_too_large': 'يتجاوز هذا الملف الحد الأقصى لكل ملف، وهو 200 MB.',
+  'pro.upload.quota_exceeded': 'بلغت غرفة PRO هذه حد التخزين البالغ 1 GB.',
+  'pro.upload.playlist_full': 'قائمة التشغيل ممتلئة.',
+  'pro.upload.room_capacity': 'لا يمكن لغرفة PRO هذه استيعاب المزيد من المقاطع.',
+  'pro.upload.room_state_limit':
+    'لا يمكن لغرفة PRO هذه قبول المزيد من التغييرات الآن. يرجى اختيار الملف مرة أخرى بعد قليل.',
+  'pro.upload.pending_limit':
+    'في غرفة PRO هذه عمليات رفع كثيرة جدًا لم تكتمل بعد. حاول مرة أخرى بعد قليل.',
+  'pro.upload.playlist_switched':
+    'أصبحت قائمة تشغيل أخرى نشطة قبل إضافة هذا المقطع. يرجى اختيار الملف مرة أخرى.',
+  'pro.upload.permission_required': 'يلزم إذن إدارة الوسائط.',
+  'pro.upload.failed_file': '{{name}}: {{reason}}',
+  'pro.upload.confirming': 'جارٍ إنهاء الرفع {{current}}/{{total}}',
   'pro.upload.batch_progress': 'جارٍ رفع المقاطع {{current}}/{{total}}',
   'pro.upload.batch_failed_title': 'تعذّر رفع بعض المقاطع',
   'pro.upload.batch_failed_message':

@@ -12,6 +12,7 @@ import { ProRoomAssetCache } from '../media-cache.ts';
 import {
   ProRoomMediaTransfer,
   type ProRoomMediaApiForTests as ProRoomMediaApi,
+  type ProRoomMediaUploadRetryState,
 } from '../media-transfer.ts';
 import * as uploadDuration from '../upload-duration.ts';
 
@@ -502,6 +503,101 @@ describe('PRO room direct R2 upload orchestration', () => {
     finishPut(xhr);
 
     await expect(pending).rejects.toThrow('response lost');
+    expect(harness.deleteMedia).not.toHaveBeenCalled();
+  });
+
+  it('retries only completion with the same body/key and reuses its ready result for append retries', async () => {
+    const harness = apiHarness();
+    harness.createMediaReservation.mockResolvedValue(reservation());
+    harness.completeMedia
+      .mockRejectedValueOnce(new Error('response lost'))
+      .mockResolvedValue({ asset: source(), quota });
+    const xhr = new FakeXhr();
+    const xhrFactory = vi.fn(() => xhr as unknown as XMLHttpRequest);
+    const probeDuration = vi.fn(async () => 123.45);
+    const keys = ['reserve-key-0001', 'complete-key-0002'];
+    const transfer = new ProRoomMediaTransfer({
+      api: harness.api,
+      xhrFactory,
+      probeDuration,
+      createIdempotencyKey: () => keys.shift()!,
+    });
+    const retryState: ProRoomMediaUploadRetryState = {};
+    const file = new File(['data'], 'a.flac');
+    const input = { code: ROOM_CODE, file, retryState };
+    const pending = transfer.upload(input);
+    await waitForSend(xhr);
+    finishPut(xhr);
+    await expect(pending).rejects.toThrow('response lost');
+    const body = harness.completeMedia.mock.calls[0]![0];
+
+    const onProgress = vi.fn();
+    await expect(transfer.upload({ ...input, onProgress })).resolves.toEqual({
+      asset: source(),
+      quota,
+    });
+    await expect(transfer.upload(input)).resolves.toEqual({ asset: source(), quota });
+
+    expect(harness.completeMedia).toHaveBeenCalledTimes(2);
+    expect(harness.completeMedia.mock.calls[1]![0]).toBe(body);
+    expect(body).toEqual({
+      code: ROOM_CODE,
+      assetId: ASSET_ID,
+      idempotencyKey: 'complete-key-0002',
+      durationSeconds: 123.45,
+    });
+    expect(harness.createMediaReservation).toHaveBeenCalledOnce();
+    expect(xhrFactory).toHaveBeenCalledOnce();
+    expect(probeDuration).toHaveBeenCalledOnce();
+    expect(onProgress).toHaveBeenCalledWith(1);
+    expect(harness.deleteMedia).not.toHaveBeenCalled();
+
+    await expect(
+      transfer.upload({ ...input, file: new File(['data'], 'a.flac') }),
+    ).rejects.toMatchObject({ code: 'PRO_ROOM_MEDIA_UPLOAD_RETRY_MISMATCH' });
+    await expect(transfer.upload({ ...input, code: '000002' })).rejects.toMatchObject({
+      code: 'PRO_ROOM_MEDIA_UPLOAD_RETRY_MISMATCH',
+    });
+    const retired = new AbortController();
+    retired.abort();
+    await expect(transfer.upload({ ...input, signal: retired.signal })).rejects.toMatchObject({
+      code: 'PRO_ROOM_MEDIA_ABORTED',
+    });
+    expect(harness.completeMedia).toHaveBeenCalledTimes(2);
+  });
+
+  it('does not publish or cache a late completion after its authority signal was retired', async () => {
+    const harness = apiHarness();
+    harness.createMediaReservation.mockResolvedValue(reservation());
+    let complete!: (value: { asset: ProRoomR2Source; quota: ProRoomQuotaSnapshot }) => void;
+    harness.completeMedia.mockImplementation(
+      () =>
+        new Promise((resolve) => {
+          complete = resolve;
+        }),
+    );
+    const xhr = new FakeXhr();
+    const transfer = new ProRoomMediaTransfer({
+      api: harness.api,
+      xhrFactory: () => xhr as unknown as XMLHttpRequest,
+      probeDuration: async () => null,
+    });
+    const retryState: ProRoomMediaUploadRetryState = {};
+    const controller = new AbortController();
+    const pending = transfer.upload({
+      code: ROOM_CODE,
+      file: new File(['data'], 'a.flac'),
+      retryState,
+      signal: controller.signal,
+    });
+    await waitForSend(xhr);
+    finishPut(xhr);
+    await vi.waitFor(() => expect(harness.completeMedia).toHaveBeenCalledOnce());
+    controller.abort();
+    complete({ asset: source(), quota });
+    await expect(pending).rejects.toMatchObject({ code: 'PRO_ROOM_MEDIA_ABORTED' });
+    expect(retryState.completion?.result).toBeUndefined();
+    expect(transfer.cache.get(source(), 'a.flac')).toBeNull();
     expect(harness.deleteMedia).not.toHaveBeenCalled();
   });
 

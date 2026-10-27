@@ -35,6 +35,8 @@ import {
   getRoomContext,
   hasRoomCapability,
   markStandardRoomAuthorityConfirmed,
+  acceptStandardRoomHostIdentityProjection,
+  resetStandardRoomAccountAuthorityCheck,
 } from '../rooms/authority.ts';
 import {
   markProRoomTransportRecovered,
@@ -863,6 +865,7 @@ function handleDeviceListUpdateMsg(data: Record<string, unknown>, conn?: DataCon
     if (typeof amIStillConnected.joinOrder === 'number') {
       setState('network.myJoinOrder', amIStillConnected.joinOrder);
     }
+    acceptStandardRoomHostIdentityProjection(hostConn, amIStillConnected);
     // Trust host's connectionType over local ICE detection (host sees both sides)
     const hostConnType = asConnectionType(amIStillConnected.connectionType);
     if (hostConnType) applyHostReportedConnectionType(hostConnType);
@@ -950,6 +953,9 @@ function handleOperatorRevoke(data: Record<string, unknown>, conn?: DataConnecti
 
   // A revoke is also this guest's confirmed answer: a plain participant.
   markStandardRoomAuthorityConfirmed(hostConn);
+  // A deliberate host revocation is definitive even if optional account
+  // proof is still pending. Silent bootstrap/identity projections keep waiting.
+  if (data.silent !== true) resetStandardRoomAccountAuthorityCheck();
   const wasOperator = getState('network.isOperator');
   const wasOwnerProjection =
     getState('network.standardRoomCapabilities')?.includes('room.configure') === true;

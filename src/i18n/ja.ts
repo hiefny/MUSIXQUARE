@@ -783,6 +783,23 @@ const ja: Record<I18nKey, string> = {
   'pro.active_tab_message': 'ここで続けると、前の接続が切断されます。',
   'pro.active_tab_replaced': 'このPROルームは別のタブで開いています',
   'pro.use_this_tab': 'ここで続ける',
+  'pro.upload.retry_unavailable':
+    'このアップロードは完了できなくなりました。ファイルをもう一度選択してください。',
+  'pro.upload.failed_retryable': 'アップロードを完了できませんでした。もう一度お試しください。',
+  'pro.upload.empty_file': '空のファイルはアップロードできません。',
+  'pro.upload.file_too_large': 'このファイルは1ファイルあたり200MBの上限を超えています。',
+  'pro.upload.quota_exceeded': 'このPROルームは1GBの保存上限に達しました。',
+  'pro.upload.playlist_full': 'プレイリストがいっぱいです。',
+  'pro.upload.room_capacity': 'このPROルームにはこれ以上トラックを追加できません。',
+  'pro.upload.room_state_limit':
+    'このPROルームは現在これ以上の変更を受け付けられません。しばらくしてからファイルをもう一度選択してください。',
+  'pro.upload.pending_limit':
+    'このPROルームには完了していないアップロードが多すぎます。しばらくしてからもう一度お試しください。',
+  'pro.upload.playlist_switched':
+    'このトラックを追加する前に、別のプレイリストに切り替えられました。ファイルをもう一度選択してください。',
+  'pro.upload.permission_required': 'メディア管理権限が必要です。',
+  'pro.upload.failed_file': '{{name}}：{{reason}}',
+  'pro.upload.confirming': 'アップロードを完了しています：{{current}}/{{total}}',
   'pro.upload.batch_progress': 'トラックをアップロード中：{{current}}/{{total}}',
   'pro.upload.batch_failed_title': '一部のトラックをアップロードできませんでした',
   'pro.upload.batch_failed_message':

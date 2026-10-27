@@ -1,3 +1,6 @@
+import { PRO_ROOM_MAX_ASSET_BYTES } from './contracts.ts';
+import type { ProRoomLocalFileRetryState } from './playlist-state-manager.ts';
+
 type ProRoomUploadPhase = 'waiting' | 'uploading' | 'confirming' | 'completed' | 'failed';
 
 export interface ProRoomUploadRow {
@@ -19,6 +22,16 @@ interface ProRoomUploadTask {
   progressPercent: number;
   attempt: number;
   controller: AbortController | null;
+  readonly retryState: ProRoomLocalFileRetryState;
+  failure: ProRoomUploadFailure | null;
+}
+
+interface ProRoomUploadFailure {
+  readonly id: string;
+  readonly name: string;
+  readonly size: number;
+  readonly code: string | null;
+  readonly retryable: boolean;
 }
 
 interface ProRoomUploadBatch {
@@ -45,6 +58,7 @@ interface ProRoomUploadRunContext {
 interface ProRoomUploadRunInput {
   readonly id: string;
   readonly file: File;
+  readonly retryState: ProRoomLocalFileRetryState;
 }
 
 interface ProRoomUploadBatchSettledResult {
@@ -54,6 +68,8 @@ interface ProRoomUploadBatchSettledResult {
   readonly failedCount: number;
   readonly cancelledCount: number;
   readonly failedIds: readonly string[];
+  readonly failures: readonly ProRoomUploadFailure[];
+  readonly retryableCount: number;
 }
 
 interface ProRoomUploadQueueOptions {
@@ -85,6 +101,36 @@ function publicRow(task: ProRoomUploadTask): ProRoomUploadRow {
     name: task.name,
     size: task.size,
     phase: task.phase,
+  };
+}
+
+function uploadFailure(task: ProRoomUploadTask, error: unknown): ProRoomUploadFailure {
+  const code =
+    typeof error === 'object' && error !== null && 'code' in error && typeof error.code === 'string'
+      ? error.code
+      : null;
+  return {
+    id: task.id,
+    name: task.name,
+    size: task.size,
+    code,
+    // A retained retry stays pinned to the playlist slot its upload started
+    // in, so a playlist switch fails the same way on every retry. A room
+    // that cannot hold more files does not free room before the user removes
+    // some and server cleanup runs, and a full receipt ledger keeps most of
+    // its receipts for 24 hours, so neither clears while the dialog is open.
+    retryable:
+      code !== 'PRO_ROOM_MEDIA_UPLOAD_SIZE_INVALID' &&
+      code !== 'PRO_ROOM_MEDIA_UPLOAD_RETRY_MISMATCH' &&
+      code !== 'PRO_ROOM_MEDIA_COMPLETE_MISMATCH' &&
+      code !== 'PRO_ROOM_PLAYLIST_QUEUE_ITEM_COLLISION' &&
+      code !== 'PRO_ROOM_PLAYLIST_SWITCHED' &&
+      code !== 'ROOM_STATE_CAPACITY_EXCEEDED' &&
+      code !== 'ASSET_CAPACITY_EXCEEDED' &&
+      code !== 'ASSET_NOT_FOUND' &&
+      code !== 'ASSET_NOT_READY' &&
+      code !== 'UPLOAD_MISMATCH' &&
+      code !== 'UPLOAD_INCOMPLETE',
   };
 }
 
@@ -152,6 +198,8 @@ export class ProRoomUploadQueue {
         progressPercent: 0,
         attempt: 0,
         controller: null,
+        retryState: { media: {} },
+        failure: null,
       });
     }
     const ids = tasks.map((task) => task.id);
@@ -182,13 +230,23 @@ export class ProRoomUploadQueue {
           task.batchId === batch.id &&
           task.batchRound === batch.round &&
           task.phase === 'failed' &&
+          task.failure?.retryable &&
           batch.failedIds.has(task.id),
         ),
       );
     if (failedTasks.length === 0) {
-      this.#batches.delete(batchId);
+      this.dismissFailedBatch(batchId);
       return false;
     }
+
+    // The dialog has already shown permanent failures. Release their File
+    // objects when the user retries only the recoverable remainder.
+    const retriedIds = new Set(failedTasks.map((task) => task.id));
+    const retained = this.#tasks.filter(
+      (task) =>
+        task.batchId !== batchId || !batch.failedIds.has(task.id) || retriedIds.has(task.id),
+    );
+    this.#tasks.splice(0, this.#tasks.length, ...retained);
 
     batch.round += 1;
     batch.requestedCount = failedTasks.length;
@@ -201,6 +259,7 @@ export class ProRoomUploadQueue {
       task.batchRound = batch.round;
       task.phase = 'waiting';
       task.progressPercent = 0;
+      task.failure = null;
     }
     this.#notify();
     this.#ensurePump();
@@ -308,8 +367,17 @@ export class ProRoomUploadQueue {
         controller.abort(this.#lifetimeSignal?.reason ?? new DOMException('Aborted', 'AbortError'));
       this.#lifetimeSignal?.addEventListener('abort', abortFromLifetime, { once: true });
       try {
+        if (
+          !Number.isSafeInteger(task.size) ||
+          task.size <= 0 ||
+          task.size > PRO_ROOM_MAX_ASSET_BYTES
+        ) {
+          throw Object.assign(new Error('PRO_ROOM_MEDIA_UPLOAD_SIZE_INVALID'), {
+            code: 'PRO_ROOM_MEDIA_UPLOAD_SIZE_INVALID',
+          });
+        }
         await this.#run(
-          { id: task.id, file: task.file },
+          { id: task.id, file: task.file, retryState: task.retryState },
           {
             signal: controller.signal,
             batchId: batch.id,
@@ -361,6 +429,7 @@ export class ProRoomUploadQueue {
           continue;
         }
         task.phase = 'failed';
+        task.failure = uploadFailure(task, error);
         task.controller = null;
         this.#notify();
         try {
@@ -407,6 +476,10 @@ export class ProRoomUploadQueue {
     batch.settled = true;
     const failedIds = batch.roundTaskIds.filter((id) => batch.failedIds.has(id));
     batch.failedIds = new Set(failedIds);
+    const failures = failedIds.flatMap((id) => {
+      const failure = this.#tasks.find((task) => task.id === id)?.failure;
+      return failure ? [failure] : [];
+    });
     const result: ProRoomUploadBatchSettledResult = {
       batchId: batch.id,
       round: batch.round,
@@ -414,6 +487,8 @@ export class ProRoomUploadQueue {
       failedCount: failedIds.length,
       cancelledCount: batch.cancelledIds.size,
       failedIds,
+      failures,
+      retryableCount: failures.filter((failure) => failure.retryable).length,
     };
     if (failedIds.length === 0) this.#batches.delete(batch.id);
     try {

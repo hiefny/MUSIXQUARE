@@ -855,6 +855,22 @@ const da: Record<I18nKey, string> = {
   'pro.active_tab_message': 'Hvis du fortsætter her, afbrydes den tidligere forbindelse.',
   'pro.active_tab_replaced': 'Dette PRO-rum er allerede åbent i en anden fane',
   'pro.use_this_tab': 'Fortsæt her',
+  'pro.upload.retry_unavailable': 'Denne upload kan ikke længere fuldføres. Vælg filen igen.',
+  'pro.upload.failed_retryable': 'Uploaden kunne ikke fuldføres. Prøv igen.',
+  'pro.upload.empty_file': 'En tom fil kan ikke uploades.',
+  'pro.upload.file_too_large': 'Denne fil er større end grænsen på 200 MB pr. fil.',
+  'pro.upload.quota_exceeded': 'Dette PRO-rum har nået lagergrænsen på 1 GB.',
+  'pro.upload.playlist_full': 'Afspilningslisten er fuld.',
+  'pro.upload.room_capacity': 'Dette PRO-rum kan ikke rumme flere numre.',
+  'pro.upload.room_state_limit':
+    'Dette PRO-rum kan ikke tage imod flere ændringer lige nu. Vælg filen igen om lidt.',
+  'pro.upload.pending_limit':
+    'Der er for mange ufærdige uploads i dette PRO-rum. Prøv igen om lidt.',
+  'pro.upload.playlist_switched':
+    'En anden afspilningsliste blev aktiv, før dette nummer blev tilføjet. Vælg filen igen.',
+  'pro.upload.permission_required': 'Der kræves tilladelse til at administrere medier.',
+  'pro.upload.failed_file': '{{name}}: {{reason}}',
+  'pro.upload.confirming': 'Afslutter upload {{current}}/{{total}}',
   'pro.upload.batch_progress': 'Uploader numre {{current}}/{{total}}',
   'pro.upload.batch_failed_title': 'Nogle numre kunne ikke uploades',
   'pro.upload.batch_failed_message':

@@ -858,6 +858,22 @@ const cs: Record<I18nKey, string> = {
   'pro.active_tab_message': 'Pokračováním zde ukončíte předchozí připojení.',
   'pro.active_tab_replaced': 'Tato místnost PRO už je otevřená na jiné kartě',
   'pro.use_this_tab': 'Pokračovat zde',
+  'pro.upload.retry_unavailable': 'Toto nahrávání již nelze dokončit. Vyberte soubor znovu.',
+  'pro.upload.failed_retryable': 'Nahrávání se nepodařilo dokončit. Zkuste to znovu.',
+  'pro.upload.empty_file': 'Prázdný soubor nelze nahrát.',
+  'pro.upload.file_too_large': 'Tento soubor překračuje limit 200 MB na soubor.',
+  'pro.upload.quota_exceeded': 'Tato místnost PRO dosáhla limitu úložiště 1 GB.',
+  'pro.upload.playlist_full': 'Seznam skladeb je plný.',
+  'pro.upload.room_capacity': 'Tato místnost PRO už nepojme další skladby.',
+  'pro.upload.room_state_limit':
+    'Tato místnost PRO teď nemůže přijmout další změny. Vyberte soubor znovu za chvíli.',
+  'pro.upload.pending_limit':
+    'V této místnosti PRO je příliš mnoho nedokončených nahrávání. Zkuste to znovu za chvíli.',
+  'pro.upload.playlist_switched':
+    'Než se tato skladba přidala, aktivoval se jiný seznam skladeb. Vyberte soubor znovu.',
+  'pro.upload.permission_required': 'Je vyžadováno oprávnění ke správě médií.',
+  'pro.upload.failed_file': '{{name}}: {{reason}}',
+  'pro.upload.confirming': 'Dokončuje se nahrávání {{current}}/{{total}}',
   'pro.upload.batch_progress': 'Nahrávání skladeb {{current}}/{{total}}',
   'pro.upload.batch_failed_title': 'Některé skladby se nepodařilo nahrát',
   'pro.upload.batch_failed_message':

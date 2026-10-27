@@ -840,6 +840,22 @@ const fa: Record<I18nKey, string> = {
   'pro.active_tab_message': 'ادامه در اینجا، اتصال قبلی را قطع می‌کند.',
   'pro.active_tab_replaced': 'این اتاق PRO از قبل در زبانهٔ دیگری باز است',
   'pro.use_this_tab': 'ادامه در اینجا',
+  'pro.upload.retry_unavailable': 'این بارگذاری دیگر قابل تکمیل نیست. فایل را دوباره انتخاب کنید.',
+  'pro.upload.failed_retryable': 'بارگذاری کامل نشد. لطفاً دوباره تلاش کنید.',
+  'pro.upload.empty_file': 'فایل خالی را نمی‌توان بارگذاری کرد.',
+  'pro.upload.file_too_large': 'این فایل از سقف 200 MB برای هر فایل بزرگ‌تر است.',
+  'pro.upload.quota_exceeded': 'این اتاق PRO به سقف فضای 1 GB رسیده است.',
+  'pro.upload.playlist_full': 'فهرست پخش پر است.',
+  'pro.upload.room_capacity': 'این اتاق PRO گنجایش قطعهٔ بیشتری ندارد.',
+  'pro.upload.room_state_limit':
+    'این اتاق PRO فعلاً تغییرات بیشتری نمی‌پذیرد. کمی بعد فایل را دوباره انتخاب کنید.',
+  'pro.upload.pending_limit':
+    'این اتاق PRO بارگذاری‌های ناتمام زیادی دارد. کمی بعد دوباره تلاش کنید.',
+  'pro.upload.playlist_switched':
+    'پیش از افزودن این قطعه، فهرست پخش دیگری فعال شد. فایل را دوباره انتخاب کنید.',
+  'pro.upload.permission_required': 'مجوز مدیریت رسانه لازم است.',
+  'pro.upload.failed_file': '{{name}}: {{reason}}',
+  'pro.upload.confirming': 'در حال پایان بارگذاری {{current}}/{{total}}',
   'pro.upload.batch_progress': 'در حال بارگذاری قطعه‌ها {{current}}/{{total}}',
   'pro.upload.batch_failed_title': 'برخی قطعه‌ها بارگذاری نشدند',
   'pro.upload.batch_failed_message': '{{failed}} مورد از {{total}} قطعهٔ درخواستی بارگذاری نشد.',

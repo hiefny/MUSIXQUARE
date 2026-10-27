@@ -821,6 +821,22 @@ const he: Record<I18nKey, string> = {
   'pro.active_tab_message': 'המשך כאן ינתק את החיבור הקודם.',
   'pro.active_tab_replaced': 'חדר ה-PRO כבר פתוח בכרטיסייה אחרת',
   'pro.use_this_tab': 'להמשיך כאן',
+  'pro.upload.retry_unavailable': 'לא ניתן עוד להשלים את ההעלאה הזו. יש לבחור את הקובץ שוב.',
+  'pro.upload.failed_retryable': 'לא ניתן היה להשלים את ההעלאה. נסו שוב.',
+  'pro.upload.empty_file': 'לא ניתן להעלות קובץ ריק.',
+  'pro.upload.file_too_large': 'הקובץ גדול ממגבלת 200 MB לקובץ.',
+  'pro.upload.quota_exceeded': 'חדר ה-PRO הגיע למגבלת האחסון של 1 GB.',
+  'pro.upload.playlist_full': 'רשימת ההשמעה מלאה.',
+  'pro.upload.room_capacity': 'חדר ה-PRO לא יכול להכיל רצועות נוספות.',
+  'pro.upload.room_state_limit':
+    'חדר ה-PRO לא יכול לקבל שינויים נוספים כרגע. יש לבחור את הקובץ שוב בעוד כמה רגעים.',
+  'pro.upload.pending_limit':
+    'בחדר ה-PRO יש יותר מדי העלאות שלא הושלמו. אפשר לנסות שוב בעוד כמה רגעים.',
+  'pro.upload.playlist_switched':
+    'רשימת השמעה אחרת הופעלה לפני שהרצועה נוספה. יש לבחור את הקובץ שוב.',
+  'pro.upload.permission_required': 'נדרשת הרשאה לניהול מדיה.',
+  'pro.upload.failed_file': '{{name}}: {{reason}}',
+  'pro.upload.confirming': 'ההעלאה מסתיימת {{current}}/{{total}}',
   'pro.upload.batch_progress': 'רצועות מועלות {{current}}/{{total}}',
   'pro.upload.batch_failed_title': 'חלק מהרצועות לא הועלו',
   'pro.upload.batch_failed_message': 'לא הצלחנו להעלות {{failed}} מתוך {{total}} הרצועות שביקשתם.',

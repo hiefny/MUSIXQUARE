@@ -80,7 +80,7 @@ import {
   isStandardRoomRole,
 } from '../rooms/authority.ts';
 import {
-  roomCapabilityRequiredMessage,
+  roomCapabilityFeedbackMessage,
   showRoomCapabilityRequired,
 } from '../rooms/permission-feedback.ts';
 import {
@@ -215,7 +215,7 @@ function syncPlayButtonAuthority(): void {
   const context = getRoomContext();
   const roomAuthorityApplies = context.kind === 'pro' || getState('network.appRole') !== 'idle';
   const hasAuthority = !roomAuthorityApplies || hasRoomCapability('playback.control');
-  const authorityMessage = roomCapabilityRequiredMessage('playback.control');
+  const authorityMessage = roomCapabilityFeedbackMessage('playback.control');
   const systemAudioLocked = isPlaybackModeSystemAudio();
   for (const id of ['play-btn', 'btn-prev', 'btn-next']) {
     const transportButton = getUiElement(id);
@@ -678,7 +678,7 @@ function syncMediaSourceButtonAuthority(): void {
     } else {
       mediaBtn.title = isPlaybackModeSystemAudio()
         ? t('system_audio.sharing')
-        : roomCapabilityRequiredMessage('media.add');
+        : roomCapabilityFeedbackMessage('media.add');
     }
   }
 }
@@ -1168,7 +1168,7 @@ function syncVolumeAuthorityUI(): void {
     else group.removeAttribute('tabindex');
     group.setAttribute(
       'aria-label',
-      locked ? roomCapabilityRequiredMessage('effects.control') : t('player.volume'),
+      locked ? roomCapabilityFeedbackMessage('effects.control') : t('player.volume'),
     );
   }
   for (const id of ['volume-slider', 'vol-icon-btn', 'demo-volume-slider', 'demo-vol-icon-btn']) {
@@ -1678,6 +1678,10 @@ export function initPlayerControls(): void {
   _busScope.on('network:role-badge-update', () => {
     updateRoleBadge();
     syncVolumeAuthorityUI();
+    // A first plain-member answer can leave both isOperator and capabilities
+    // unchanged. Its role projection still resolves the pending labels.
+    syncMediaSourceButtonAuthority();
+    syncPlayButtonAuthority();
   });
   // The badge shows only the account nickname or HOST/PEER/LOGIN, so sync
   // latency samples never change it. Clock correction stays off the panel.
@@ -1695,10 +1699,19 @@ export function initPlayerControls(): void {
   _busScope.on('state:network.hostConn', () => {
     syncMediaSourceButtonAuthority();
     syncPlayButtonAuthority();
+    syncVolumeAuthorityUI();
     syncMainSyncButtonState();
   });
+  const refreshAuthorityFeedback = () => {
+    syncMediaSourceButtonAuthority();
+    syncPlayButtonAuthority();
+    syncVolumeAuthorityUI();
+  };
+  _busScope.on('state:network.isConnecting', refreshAuthorityFeedback);
+  _busScope.on('state:setup.sessionStarted', refreshAuthorityFeedback);
   _busScope.on('state:network.appRole', () => {
     updateRoleBadge();
+    syncVolumeAuthorityUI();
     syncMediaSourceButtonAuthority();
     syncQueueModeButtonAuthority();
     syncPlayButtonAuthority();
@@ -1956,6 +1969,7 @@ export function initPlayerControls(): void {
     syncMediaSourceButtonAuthority();
     syncQueueModeButtonAuthority();
     syncPlayButtonAuthority();
+    syncVolumeAuthorityUI();
   });
   _busScope.on('state:room.context', () => {
     const context = getState('room.context');

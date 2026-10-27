@@ -863,6 +863,22 @@ const ru: Record<I18nKey, string> = {
   'pro.active_tab_message': 'Если продолжить здесь, предыдущее подключение будет завершено.',
   'pro.active_tab_replaced': 'Эта PRO-комната уже открыта в другой вкладке',
   'pro.use_this_tab': 'Продолжить тут',
+  'pro.upload.retry_unavailable': 'Эту загрузку больше нельзя завершить. Выберите файл заново.',
+  'pro.upload.failed_retryable': 'Не удалось завершить загрузку. Попробуйте ещё раз.',
+  'pro.upload.empty_file': 'Нельзя загрузить пустой файл.',
+  'pro.upload.file_too_large': 'Этот файл превышает лимит 200 МБ на файл.',
+  'pro.upload.quota_exceeded': 'В PRO-комнате исчерпан лимит хранилища 1 ГБ.',
+  'pro.upload.playlist_full': 'Плейлист заполнен.',
+  'pro.upload.room_capacity': 'В эту PRO-комнату больше нельзя добавить треки.',
+  'pro.upload.room_state_limit':
+    'Эта PRO-комната сейчас не может принять больше изменений. Выберите файл заново чуть позже.',
+  'pro.upload.pending_limit':
+    'В этой PRO-комнате слишком много незавершённых загрузок. Повторите попытку чуть позже.',
+  'pro.upload.playlist_switched':
+    'До добавления этого трека активным стал другой плейлист. Выберите файл заново.',
+  'pro.upload.permission_required': 'Требуется право на управление медиа.',
+  'pro.upload.failed_file': '{{name}}: {{reason}}',
+  'pro.upload.confirming': 'Завершение загрузки {{current}}/{{total}}',
   'pro.upload.batch_progress': 'Загрузка треков {{current}}/{{total}}',
   'pro.upload.batch_failed_title': 'Некоторые треки не удалось загрузить',
   'pro.upload.batch_failed_message':

@@ -22,7 +22,7 @@ import { getCurrentAudioBuffer } from '../player/_state.ts';
 import { getCurrentQueueItemId } from '../player/queue-model.ts';
 import { getRoomContext, hasRoomCapability } from '../rooms/authority.ts';
 import {
-  roomCapabilityRequiredMessage,
+  roomCapabilityFeedbackMessage,
   showRoomCapabilityRequired,
 } from '../rooms/permission-feedback.ts';
 import { t } from '../i18n/index.ts';
@@ -52,7 +52,7 @@ function getSeekUnavailableReason(): SeekUnavailableReason | null {
 }
 
 function getSeekUnavailableMessage(reason: SeekUnavailableReason): string {
-  if (reason === 'permission') return roomCapabilityRequiredMessage('playback.control');
+  if (reason === 'permission') return roomCapabilityFeedbackMessage('playback.control');
   if (reason === 'system-audio') return t('player.seek_unavailable_system_audio');
   if (reason === 'not-ready') return t('toast.sync_not_ready');
   return t('player.no_media');
@@ -558,6 +558,9 @@ function initSeekBarBusHandlers(): void {
   _busScope.on('state:network.hostConn', refreshAvailability);
   _busScope.on('state:network.isOperator', refreshAvailability);
   _busScope.on('state:network.standardRoomCapabilities', refreshAvailability);
+  _busScope.on('network:role-badge-update', refreshAvailability);
+  _busScope.on('state:network.isConnecting', refreshAvailability);
+  _busScope.on('state:setup.sessionStarted', refreshAvailability);
   _busScope.on('state:room.context', refreshAvailability);
   _busScope.on('state:room.context', () => {
     const context = getRoomContext();

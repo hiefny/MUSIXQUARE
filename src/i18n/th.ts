@@ -827,6 +827,22 @@ const th: Record<I18nKey, string> = {
   'pro.active_tab_message': 'หากดำเนินการต่อที่นี่ การเชื่อมต่อก่อนหน้าจะถูกตัด',
   'pro.active_tab_replaced': 'ห้อง PRO นี้เปิดอยู่ในแท็บอื่นแล้ว',
   'pro.use_this_tab': 'ดำเนินการต่อที่นี่',
+  'pro.upload.retry_unavailable': 'ไม่สามารถอัปโหลดนี้ให้เสร็จสมบูรณ์ได้แล้ว โปรดเลือกไฟล์อีกครั้ง',
+  'pro.upload.failed_retryable': 'อัปโหลดไม่สำเร็จ โปรดลองอีกครั้ง',
+  'pro.upload.empty_file': 'ไม่สามารถอัปโหลดไฟล์ว่างได้',
+  'pro.upload.file_too_large': 'ไฟล์นี้เกินขีดจำกัด 200 MB ต่อไฟล์',
+  'pro.upload.quota_exceeded': 'ห้อง PRO นี้ใช้พื้นที่จัดเก็บครบ 1 GB แล้ว',
+  'pro.upload.playlist_full': 'เพลย์ลิสต์เต็มแล้ว',
+  'pro.upload.room_capacity': 'ห้อง PRO นี้เพิ่มรายการไม่ได้อีกแล้ว',
+  'pro.upload.room_state_limit':
+    'ห้อง PRO นี้ยังรับการเปลี่ยนแปลงเพิ่มไม่ได้ในขณะนี้ โปรดเลือกไฟล์อีกครั้งในภายหลัง',
+  'pro.upload.pending_limit':
+    'ห้อง PRO นี้มีการอัปโหลดที่ยังไม่เสร็จมากเกินไป โปรดลองอีกครั้งในภายหลัง',
+  'pro.upload.playlist_switched':
+    'มีการสลับไปใช้เพลย์ลิสต์อื่นก่อนที่จะเพิ่มรายการนี้ โปรดเลือกไฟล์อีกครั้ง',
+  'pro.upload.permission_required': 'ต้องมีสิทธิ์จัดการสื่อ',
+  'pro.upload.failed_file': '{{name}}: {{reason}}',
+  'pro.upload.confirming': 'กำลังยืนยันการอัปโหลด {{current}}/{{total}}',
   'pro.upload.batch_progress': 'กำลังอัปโหลดรายการ {{current}}/{{total}}',
   'pro.upload.batch_failed_title': 'อัปโหลดบางรายการไม่สำเร็จ',
   'pro.upload.batch_failed_message': 'อัปโหลดไม่สำเร็จ {{failed}} จากทั้งหมด {{total}} รายการ',

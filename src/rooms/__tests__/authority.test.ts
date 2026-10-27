@@ -16,6 +16,11 @@ import {
   setRoomContext,
   subscribeRoomAuthorityLifecycle,
   verifyPeerCapability,
+  beginStandardRoomAccountAuthorityCheck,
+  settleStandardRoomAccountAuthorityCheck,
+  acceptStandardRoomAccountAuthorityIdentity,
+  acceptStandardRoomHostIdentityProjection,
+  resetStandardRoomAccountAuthorityCheck,
 } from '../authority.ts';
 
 function connection(peer: string): DataConnection {
@@ -56,8 +61,119 @@ function proContext(overrides: Partial<RoomContext> = {}): RoomContext {
 }
 
 beforeEach(() => {
+  resetStandardRoomAccountAuthorityCheck();
   resetState();
   bus.clear();
+});
+
+describe('standard account authority feedback', () => {
+  const input = { roomCode: '123456', peerId: 'guest-1', role: 'guest' as const };
+  function join() {
+    const conn = connection('host');
+    setState('network.appRole', 'guest');
+    setState('network.myId', input.peerId);
+    setState('network.lastJoinCode', input.roomCode);
+    setState('network.hostConn', conn);
+    markStandardRoomAuthorityConfirmed(conn);
+    return conn;
+  }
+  function roster(conn: DataConnection, memberId: string | null) {
+    acceptStandardRoomHostIdentityProjection(conn, {
+      id: input.peerId,
+      label: 'Peer',
+      isHost: false,
+      isOp: false,
+      status: 'connected',
+      isAuthenticated: memberId !== null,
+      ...(memberId ? { memberId } : {}),
+    });
+  }
+
+  it.each(['identity-first', 'roster-first'])(
+    'waits beyond an anonymous revoke until the verified account matches the host (%s)',
+    (order) => {
+      const conn = join();
+      const check = beginStandardRoomAccountAuthorityCheck(input);
+      roster(conn, null);
+      expect(roomCapabilityStatus('asset.upload')).toBe('pending');
+      expect(hasRoomCapability('asset.upload')).toBe(false);
+      settleStandardRoomAccountAuthorityCheck(check, false);
+      if (order === 'identity-first') {
+        acceptStandardRoomAccountAuthorityIdentity('member-current');
+        expect(roomCapabilityStatus('asset.upload')).toBe('pending');
+        roster(conn, 'member-current');
+      } else {
+        roster(conn, 'member-current');
+        expect(roomCapabilityStatus('asset.upload')).toBe('pending');
+        acceptStandardRoomAccountAuthorityIdentity('member-current');
+      }
+      // Same member, confirmed host revoke: this is a real denial.
+      expect(roomCapabilityStatus('asset.upload')).toBe('denied');
+    },
+  );
+
+  it('honors the current host grant immediately while account feedback is pending', () => {
+    const conn = join();
+    setState('network.isOperator', true);
+    setState('network.standardRoomCapabilities', ['asset.upload']);
+    const check = beginStandardRoomAccountAuthorityCheck(input);
+    expect(hasRoomCapability('asset.upload')).toBe(true);
+    expect(roomCapabilityStatus('asset.upload')).toBe('granted');
+    settleStandardRoomAccountAuthorityCheck(check, false);
+    acceptStandardRoomAccountAuthorityIdentity('member-current');
+    roster(conn, 'member-current');
+    expect(roomCapabilityStatus('asset.upload')).toBe('granted');
+  });
+
+  it('requires a fresh host projection when a changed account resolves to the same member', () => {
+    const conn = join();
+    roster(conn, 'member-current');
+    setState('network.myMemberAuthenticated', true);
+    const check = beginStandardRoomAccountAuthorityCheck(input, true);
+    settleStandardRoomAccountAuthorityCheck(check, false);
+    acceptStandardRoomAccountAuthorityIdentity('member-current');
+    expect(roomCapabilityStatus('asset.upload')).toBe('pending');
+    roster(conn, 'member-current');
+    expect(roomCapabilityStatus('asset.upload')).toBe('denied');
+  });
+
+  it('does not hide definitive anonymous or server-cleared authority behind checking', () => {
+    const conn = join();
+    const check = beginStandardRoomAccountAuthorityCheck(input);
+    settleStandardRoomAccountAuthorityCheck(check, true);
+    expect(roomCapabilityStatus('asset.upload')).toBe('denied');
+    roster(conn, null);
+    beginStandardRoomAccountAuthorityCheck(input);
+    acceptStandardRoomAccountAuthorityIdentity(null, 'explicit');
+    expect(roomCapabilityStatus('asset.upload')).toBe('denied');
+    beginStandardRoomAccountAuthorityCheck(input);
+    acceptStandardRoomAccountAuthorityIdentity(null, 'deleted');
+    expect(roomCapabilityStatus('asset.upload')).toBe('denied');
+  });
+
+  it('ignores old assertion completions and a predecessor identity while its successor is unresolved', () => {
+    const conn = join();
+    const first = beginStandardRoomAccountAuthorityCheck(input);
+    beginStandardRoomAccountAuthorityCheck(input);
+    settleStandardRoomAccountAuthorityCheck(first, true);
+    acceptStandardRoomAccountAuthorityIdentity('member-old');
+    roster(conn, 'member-old');
+    expect(roomCapabilityStatus('asset.upload')).toBe('pending');
+  });
+
+  it('does not turn a confirmed member renewal into pending and retires checks at teardown', () => {
+    join();
+    setState('network.myMemberAuthenticated', true);
+    expect(beginStandardRoomAccountAuthorityCheck(input)).toBeNull();
+    expect(roomCapabilityStatus('asset.upload')).toBe('denied');
+    const changed = beginStandardRoomAccountAuthorityCheck(input, true);
+    expect(roomCapabilityStatus('asset.upload')).toBe('pending');
+    resetStandardRoomAccountAuthorityCheck();
+    settleStandardRoomAccountAuthorityCheck(changed, true);
+    expect(roomCapabilityStatus('asset.upload')).toBe('denied');
+    setState('network.hostConn', connection('replacement'));
+    expect(roomCapabilityStatus('asset.upload')).toBe('pending');
+  });
 });
 
 describe('room authority compatibility layer', () => {
@@ -400,6 +516,33 @@ describe('room capability status', () => {
     resetRoomContext();
     setState('network.appRole', 'idle');
     setState('network.isConnecting', false);
+    expect(roomCapabilityStatus('playback.control')).toBe('denied');
+  });
+
+  it('keeps a pending PRO account projection fail-closed until its replacement is accepted', () => {
+    const context = proContext({ capabilities: ['playback.control', 'system-audio.publish'] });
+    setRoomContext(context, 'pending');
+
+    expect(hasRoomCapability('playback.control')).toBe(false);
+    expect(roomCapabilityStatus('playback.control')).toBe('pending');
+    expect(roomCapabilityStatus('system-audio.publish')).toBe('pending');
+    expect(roomCapabilityStatus('coordinator.eligible')).toBe('denied');
+
+    setRoomContext(context);
+    expect(roomCapabilityStatus('playback.control')).toBe('granted');
+    expect(roomCapabilityStatus('media.add')).toBe('denied');
+
+    setRoomContext(context, 'pending');
+    setRoomContext(proContext({ capabilities: [] }));
+    expect(roomCapabilityStatus('playback.control')).toBe('denied');
+  });
+
+  it('does not retain pending PRO authority after a room reset', () => {
+    setRoomContext(proContext(), 'pending');
+    resetRoomContext();
+
+    expect(roomCapabilityStatus('playback.control')).toBe('denied');
+    setRoomContext(proContext({ capabilities: [] }));
     expect(roomCapabilityStatus('playback.control')).toBe('denied');
   });
 });

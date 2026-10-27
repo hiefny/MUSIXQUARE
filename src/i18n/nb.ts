@@ -853,6 +853,23 @@ const nb: Record<I18nKey, string> = {
   'pro.active_tab_message': 'Hvis du fortsetter her, avsluttes den tidligere tilkoblingen.',
   'pro.active_tab_replaced': 'Dette PRO-rommet er allerede åpent i en annen fane',
   'pro.use_this_tab': 'Fortsett her',
+  'pro.upload.retry_unavailable':
+    'Denne opplastingen kan ikke lenger fullføres. Velg filen på nytt.',
+  'pro.upload.failed_retryable': 'Opplastingen kunne ikke fullføres. Prøv igjen.',
+  'pro.upload.empty_file': 'En tom fil kan ikke lastes opp.',
+  'pro.upload.file_too_large': 'Denne filen er større enn grensen på 200 MB per fil.',
+  'pro.upload.quota_exceeded': 'Dette PRO-rommet har nådd lagringsgrensen på 1 GB.',
+  'pro.upload.playlist_full': 'Spillelisten er full.',
+  'pro.upload.room_capacity': 'Dette PRO-rommet har ikke plass til flere spor.',
+  'pro.upload.room_state_limit':
+    'Dette PRO-rommet kan ikke ta imot flere endringer akkurat nå. Velg filen på nytt om litt.',
+  'pro.upload.pending_limit':
+    'Det er for mange uferdige opplastinger i dette PRO-rommet. Prøv igjen om litt.',
+  'pro.upload.playlist_switched':
+    'En annen spilleliste ble aktiv før dette sporet ble lagt til. Velg filen på nytt.',
+  'pro.upload.permission_required': 'Tillatelse til å administrere medier kreves.',
+  'pro.upload.failed_file': '{{name}}: {{reason}}',
+  'pro.upload.confirming': 'Fullfører opplasting {{current}}/{{total}}',
   'pro.upload.batch_progress': 'Laster opp spor {{current}}/{{total}}',
   'pro.upload.batch_failed_title': 'Enkelte spor kunne ikke lastes opp',
   'pro.upload.batch_failed_message':

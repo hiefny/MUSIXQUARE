@@ -801,6 +801,24 @@ const de: Record<I18nKey, string> = {
   'pro.active_tab_message': 'Wenn du hier fortfährst, wird die vorherige Verbindung getrennt.',
   'pro.active_tab_replaced': 'Dieser PRO-Raum ist bereits in einem anderen Tab geöffnet',
   'pro.use_this_tab': 'Hier weiter',
+  'pro.upload.retry_unavailable':
+    'Dieser Upload kann nicht mehr abgeschlossen werden. Wähle die Datei erneut aus.',
+  'pro.upload.failed_retryable':
+    'Der Upload konnte nicht abgeschlossen werden. Bitte versuche es erneut.',
+  'pro.upload.empty_file': 'Eine leere Datei kann nicht hochgeladen werden.',
+  'pro.upload.file_too_large': 'Diese Datei überschreitet das Limit von 200 MB pro Datei.',
+  'pro.upload.quota_exceeded': 'Der PRO-Raum hat sein Speicherlimit von 1 GB erreicht.',
+  'pro.upload.playlist_full': 'Die Playlist ist voll.',
+  'pro.upload.room_capacity': 'Dieser PRO-Raum kann keine weiteren Titel aufnehmen.',
+  'pro.upload.room_state_limit':
+    'Dieser PRO-Raum kann gerade keine weiteren Änderungen annehmen. Wähle die Datei etwas später erneut aus.',
+  'pro.upload.pending_limit':
+    'In diesem PRO-Raum sind zu viele Uploads nicht abgeschlossen. Bitte versuche es etwas später erneut.',
+  'pro.upload.playlist_switched':
+    'Eine andere Playlist wurde aktiv, bevor dieser Titel hinzugefügt wurde. Wähle die Datei erneut aus.',
+  'pro.upload.permission_required': 'Die Berechtigung zur Medienverwaltung ist erforderlich.',
+  'pro.upload.failed_file': '{{name}}: {{reason}}',
+  'pro.upload.confirming': 'Upload wird abgeschlossen: {{current}}/{{total}}',
   'pro.upload.batch_progress': 'Titel werden hochgeladen: {{current}}/{{total}}',
   'pro.upload.batch_failed_title': 'Einige Titel konnten nicht hochgeladen werden',
   'pro.upload.batch_failed_message':

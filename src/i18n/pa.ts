@@ -851,6 +851,22 @@ const pa: Record<I18nKey, string> = {
   'pro.active_tab_message': 'ਇੱਥੇ ਅੱਗੇ ਵਧਣ ਨਾਲ ਪਿਛਲਾ ਕਨੈਕਸ਼ਨ ਟੁੱਟ ਜਾਵੇਗਾ।',
   'pro.active_tab_replaced': 'ਇਹ PRO ਰੂਮ ਪਹਿਲਾਂ ਹੀ ਕਿਸੇ ਹੋਰ ਟੈਬ ਵਿੱਚ ਖੁੱਲ੍ਹਾ ਹੈ',
   'pro.use_this_tab': 'ਇੱਥੇ ਅੱਗੇ ਵਧੋ',
+  'pro.upload.retry_unavailable': 'ਇਹ ਅੱਪਲੋਡ ਹੁਣ ਪੂਰਾ ਨਹੀਂ ਕੀਤਾ ਜਾ ਸਕਦਾ। ਫਾਈਲ ਦੁਬਾਰਾ ਚੁਣੋ।',
+  'pro.upload.failed_retryable': 'ਅੱਪਲੋਡ ਪੂਰਾ ਨਹੀਂ ਹੋ ਸਕਿਆ। ਕਿਰਪਾ ਕਰਕੇ ਦੁਬਾਰਾ ਕੋਸ਼ਿਸ਼ ਕਰੋ।',
+  'pro.upload.empty_file': 'ਖਾਲੀ ਫ਼ਾਈਲ ਅੱਪਲੋਡ ਨਹੀਂ ਕੀਤੀ ਜਾ ਸਕਦੀ।',
+  'pro.upload.file_too_large': 'ਇਹ ਫ਼ਾਈਲ ਹਰੇਕ ਫ਼ਾਈਲ ਲਈ 200 MB ਦੀ ਹੱਦ ਤੋਂ ਵੱਡੀ ਹੈ।',
+  'pro.upload.quota_exceeded': 'ਇਸ PRO ਰੂਮ ਦੀ 1 GB ਸਟੋਰੇਜ ਹੱਦ ਪੂਰੀ ਹੋ ਗਈ ਹੈ।',
+  'pro.upload.playlist_full': 'ਪਲੇਲਿਸਟ ਭਰ ਗਈ ਹੈ।',
+  'pro.upload.room_capacity': 'ਇਸ PRO ਰੂਮ ਵਿੱਚ ਹੋਰ ਟਰੈਕ ਨਹੀਂ ਜੋੜੇ ਜਾ ਸਕਦੇ।',
+  'pro.upload.room_state_limit':
+    'ਇਸ PRO ਰੂਮ ਵਿੱਚ ਇਸ ਵੇਲੇ ਹੋਰ ਬਦਲਾਅ ਨਹੀਂ ਕੀਤੇ ਜਾ ਸਕਦੇ। ਥੋੜ੍ਹੀ ਦੇਰ ਬਾਅਦ ਫਾਈਲ ਦੁਬਾਰਾ ਚੁਣੋ।',
+  'pro.upload.pending_limit':
+    'ਇਸ PRO ਰੂਮ ਵਿੱਚ ਅਧੂਰੇ ਅੱਪਲੋਡ ਬਹੁਤ ਜ਼ਿਆਦਾ ਹਨ। ਥੋੜ੍ਹੀ ਦੇਰ ਬਾਅਦ ਦੁਬਾਰਾ ਕੋਸ਼ਿਸ਼ ਕਰੋ।',
+  'pro.upload.playlist_switched':
+    'ਇਹ ਟਰੈਕ ਜੁੜਨ ਤੋਂ ਪਹਿਲਾਂ ਹੋਰ ਪਲੇਲਿਸਟ ਚਾਲੂ ਹੋ ਗਈ। ਫਾਈਲ ਦੁਬਾਰਾ ਚੁਣੋ।',
+  'pro.upload.permission_required': 'ਮੀਡੀਆ ਪ੍ਰਬੰਧ ਦੀ ਇਜਾਜ਼ਤ ਚਾਹੀਦੀ ਹੈ।',
+  'pro.upload.failed_file': '{{name}}: {{reason}}',
+  'pro.upload.confirming': 'ਅੱਪਲੋਡ ਪੂਰਾ ਹੋ ਰਿਹਾ ਹੈ {{current}}/{{total}}',
   'pro.upload.batch_progress': 'ਟਰੈਕ ਅੱਪਲੋਡ ਹੋ ਰਹੇ ਹਨ {{current}}/{{total}}',
   'pro.upload.batch_failed_title': 'ਕੁਝ ਟਰੈਕ ਅੱਪਲੋਡ ਨਹੀਂ ਹੋ ਸਕੇ',
   'pro.upload.batch_failed_message':

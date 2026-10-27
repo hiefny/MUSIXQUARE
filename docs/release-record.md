@@ -46,6 +46,48 @@ gh run list --workflow e2e.yml --branch main --limit 3
 해결하면 근거(커밋, 실행 ID, 문서)를 PR 설명에 적고 이 목록에서 지운다. 근거
 없이 완료로 표시하지 않는다.
 
+### PRO 업로드 완료·재시도와 권한 확인 안내 수정 (PR #503, 9.0.17/v790, 병합·배포 승인, 배포 전)
+
+- [ ] 오너 요청(2026-10-27): 운영에서 대용량 업로드와 용량 초과 안내를 재현한 뒤 수정 PR을 제출했다.
+      같은 날 오너가 5B 다음 순서로 병합·배포·기록을 승인했다(정식 절차, 아직 병합·배포 전). 브라우저 업로드 완료는 R2 내부
+      CopyObject와 원본 ETag 조건·최종 HEAD 검증으로 Worker의 전체 파일 읽기·재전송을 없앤다.
+      복사가 검증된 최종 객체를 남기지 못하면 9.0.16까지 쓰던 바인딩 복사로 대체하고(원본 변경이 확인되면 쓰지 않음),
+      시도마다 `media_copy`·`media_copy_fallback` 진단을 남긴다(자원 소유권 RO-52). 이미 전송한 파일의 완료 재시도는 같은 asset·key·본문을 재사용한다. 용량 초과·빈 파일 안내와
+      Standard/PRO의 권한 확인 중 안내를 고친다. 재생목록 전환으로 끝난 업로드는 다시 시도를 내지 않고,
+      실패 목록은 실제로 생기는 코드마다 대화상자 문장으로 안내하며(방의 파일 수 한도와 방 영수증 원장이 가득 찬 경우는
+      따로), 전환으로 끝난 업로드의 asset은 바로 해제한다(보고서 QA 라운드 5·6·9).
+      운영과 견준 런타임 경로 변경은 App 61개, PRO 방 3개, signaling 1개(공유 진단 모듈 `cloudflare/pro-room-diagnostics.ts`,
+      signaling 동작 변화 없음), 나머지 세 Worker 0개라 부분 릴리스는 막히고 target은 `all`이다(보고서 QA 라운드 8·9).
+      signaling 재배포는 Durable Object를 다시 시작해 모든 Standard 방의 소켓을 다시 잇게 하고, 이때 최소 앱 빌드 787 아래의
+      방장은 재연결에서 거절된다(바닥은 10-26부터 켜져 있어 드물 것으로 봄).
+      Developer API D1과 `raise_app_build_floor`는 false다. 복사는 8초, 완료 facade는 10초, 나머지 제어는 5초다. 신규 의존성·비밀·바인딩·D1 이주·CORS 변경은 없다.
+      기존 asset에 선택적 원본 ETag 핀, tombstone에 final 키를 추가하며 기존 정리 소유권을 유지한다.
+      실패한 `all` 실행은 9.0.16 PRO Worker를 자동으로 되돌리며 이를 받아들인다(서명 URL이 8초라 몇 분 뒤 새 복사는 없음).
+      그동안 옛 Worker는 새 필드를 읽되 쓰지 않아 핀 검사 없이 바인딩 복사로 완료하고, 삭제 뒤 늦게 커밋된 최종 객체는
+      R2 고아로 남을 수 있다(개수는 시간 초과 복사 수 이하). 같은 릴리스를 다시 돌리면 핀 검사가 돌아온다. 수동 CLI 롤백
+      전에는 최근 `media_copy`의 `timeout`·`network` 이유를 보고, 있으면 forward fix를 우선한다. App만 CLI로 9.0.16 / v789에
+      되돌리면 바닥 `lower`는 필요 없지만 그동안 옛 5초 facade가 복사 경로 앞에 선다(보고서 Release and recovery).
+      Developer API는 기존 스트림 복사를 유지한다.
+      5B(9.0.16 / v789, 2026-10-27 10:18 KST 배포)와 그 기록 `0228276e`(#506)까지 main을 합쳤고(보고서 QA 라운드 7),
+      합침 커밋은 `d88cbb3b`다. 그 뒤 런타임 수정 `79886708`(테스트)·`cd071fdd`(영수증 원장 안내, 확정 머리글 용어,
+      루마니아어 용어)를 두고, 마지막 런타임 커밋은 다시 만든 bump `a233dd7b`(9.0.17 / v790, 앱 빌드 790, 다시 만들기
+      직전 fetch한 origin/main `0228276e`는 9.0.16 / v789)다. 그 뒤는 문서뿐이며, 최소 앱 빌드 787은 그대로다. 라운드 8의
+      bump `28178b15`는 최종 히스토리에 없다. 5B는 업로드 경로를 바꾸지 않았으므로 위 동작과 되돌리기 경계는 합친 뒤에도 같다.
+      bump 뒤 최종 로컬 검사(`a233dd7b`, 보고서 QA 라운드 9): `guard:release-identity` 9.0.17·v790, `guard:sw-cache-version`
+      PASS, typecheck(전체)·`typecheck:tests`·`check:workers`·lint·format, 단위 681 files / 16,222(한 번에 모두 통과),
+      Worker 67 files / 3,220(커버리지 포함), `check:worker-bundles` 여섯 Worker, 핵심 커버리지 87 files / 3,452,
+      `build:checked`(SW 앱 셸 96 자산), 가드(room-authority 직접 읽기 80·구독 22·쓰기 13, resource-ownership 48 records /
+      443 files, dead-exports, bus-pairing, import-graph, lifecycle-writes, navigation-sinks), critical E2E 65/65,
+      `e2e/pro-upload-recovery.test.ts` 4/4, 후보 Playwright 19/19, 초기 JS 466,797 B(운영 main `a930030a` 465,652 B 대비
+      +1,145 B, 유지 상한까지 24,771 B) PASS. 운영과 견준 런타임 경로 수는 그대로다(App 61, PRO 방 3, signaling 1).
+      [PR #503](https://github.com/hiefny/MUSIXQUARE/pull/503)의 복사 안전장치 전 런타임 `f2f25d902`의 PR CI는 통과했고,
+      그 뒤 런타임의 PR CI, 자동 코드 리뷰, exact-main CI는 아직이다(최종 집계와 한계는 아래 보고서).
+      실제 수정본의 운영 대용량 성공·CopyObject 지연 확인은 미실시이며 로컬 결과는 exact-main 후보가 아니다.
+      복사 안전장치 증분의 로컬 검증은 보고서 QA 라운드 4, 검토 지적 정리와 전체 단위 실행은 라운드 6,
+      5B 합침은 라운드 7, 첫 bump 뒤 검사는 라운드 8, 영수증 원장 안내·확정 머리글 용어 수정과 다시 만든 bump의 최종
+      검사는 라운드 9에 있다.
+      [변경·QA·복구 보고서](design/pro-upload-reliability-2026-10-27.md).
+
 ### 구조 개선 Phase 5 5B(9.0.16/v789) 배포 뒤 확인: 시스템 오디오 수신 슬롯의 틈 고치기와 시스템 오디오 옛 버전 항목
 
 - [ ] 5B 범위와 상태(오너 결정 2026-10-25 약 04:00 KST의 P5-D5 A와 P5-D11 B, 답이 없는 P5-D10은 기본값 A, P5-D12와
@@ -1785,6 +1827,14 @@ PRO 방장 공지의 중도 참여 복원은 별도 정책이며 이번 서비�
       열기 시간(`bridgeOpenMs`)을 남기며 첫 배포에서 방장 878ms·게스트 393ms였다. 다음 실패 때 둘을 Ray ID로 맞춰
       어느 Worker의 어떤 실패인지 좁힌다. 5초 제한과 smoke 재시도 변경은 오너가 정한다.
       [진단·읽는 법](design/standard-signaling-bridge-diagnostics-2026-10-20.md)
+- [ ] PRO 방 변경 영수증 원장 한도(PR #503 검토에서 확인, 2026-10-27, 운영 동작이며 PR #503과 별개): 모든 참가자의
+      업로드, 재생목록 편집, 재생 명령이 방 하나의 원장(영수증 256개)을 함께 쓴다. 업로드 하나는 24시간짜리 영수증 둘
+      (완료, 재생목록 추가)을 남기고 예약은 15분, 재생 명령은 10분짜리다. 그래서 하루 약 128개 업로드(편집이 있으면 더
+      적게)에서 트랙 수와 상관없이 `ROOM_STATE_CAPACITY_EXCEEDED`(409)가 나고, 원장이 차 있는 동안은 트랙 삭제도 영수증이
+      필요해 거절된다. 재생 명령도 같은 원장의 빈자리가 필요하다(코드 읽기로 확인, 재생 명령을 테스트로 확인하지는 않음).
+      9.0.17은 업로드 실패 안내만 고쳤고(`pro.upload.room_state_limit`), 다른 재생목록 작업은 main 그대로 "재생목록이
+      변경됐어요" 토스트(`playlist.mutation_retry`)를 낸다. 한도, 보관 시간, 영수증 종류별 분리를 바꿀지는 오너가 정한다.
+      [보고서의 라운드 9와 한계 절](design/pro-upload-reliability-2026-10-27.md#limits-and-deferred-live-confirmation)
 
 ### 후속 작업과 유지 결정
 

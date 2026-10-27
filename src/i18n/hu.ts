@@ -863,6 +863,22 @@ const hu: Record<I18nKey, string> = {
   'pro.active_tab_message': 'Ha itt folytatod, a korábbi kapcsolat megszakad.',
   'pro.active_tab_replaced': 'Ez a PRO-szoba már meg van nyitva egy másik lapon',
   'pro.use_this_tab': 'Folytatás itt',
+  'pro.upload.retry_unavailable': 'Ez a feltöltés már nem fejezhető be. Válaszd ki újra a fájlt.',
+  'pro.upload.failed_retryable': 'A feltöltést nem sikerült befejezni. Próbáld újra.',
+  'pro.upload.empty_file': 'Üres fájl nem tölthető fel.',
+  'pro.upload.file_too_large': 'Ez a fájl meghaladja a fájlonkénti 200 MB-os korlátot.',
+  'pro.upload.quota_exceeded': 'A PRO-szoba elérte az 1 GB-os tárhelykorlátot.',
+  'pro.upload.playlist_full': 'A lejátszási lista megtelt.',
+  'pro.upload.room_capacity': 'Ebbe a PRO-szobába nem fér több szám.',
+  'pro.upload.room_state_limit':
+    'Ebben a PRO-szobában most nem lehet több módosítást végezni. Válaszd ki újra a fájlt egy kicsit később.',
+  'pro.upload.pending_limit':
+    'Ebben a PRO-szobában túl sok a befejezetlen feltöltés. Próbáld újra egy kicsit később.',
+  'pro.upload.playlist_switched':
+    'Egy másik lejátszási lista lett aktív, mielőtt ez a szám bekerült volna. Válaszd ki újra a fájlt.',
+  'pro.upload.permission_required': 'Médiakezelési jogosultság szükséges.',
+  'pro.upload.failed_file': '{{name}}: {{reason}}',
+  'pro.upload.confirming': 'Feltöltés befejezése: {{current}}/{{total}}',
   'pro.upload.batch_progress': 'Számok feltöltése: {{current}}/{{total}}',
   'pro.upload.batch_failed_title': 'Néhány szám feltöltése sikertelen',
   'pro.upload.batch_failed_message':

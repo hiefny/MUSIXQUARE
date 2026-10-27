@@ -850,6 +850,22 @@ const mr: Record<I18nKey, string> = {
   'pro.active_tab_message': 'इथे पुढे गेल्यास आधीचे कनेक्शन तुटेल.',
   'pro.active_tab_replaced': 'ही PRO रूम आधीपासून दुसऱ्या टॅबमध्ये उघडी आहे',
   'pro.use_this_tab': 'इथे पुढे जा',
+  'pro.upload.retry_unavailable': 'हे अपलोड आता पूर्ण करता येणार नाही. फाइल पुन्हा निवडा.',
+  'pro.upload.failed_retryable': 'अपलोड पूर्ण होऊ शकले नाही. कृपया पुन्हा प्रयत्न करा.',
+  'pro.upload.empty_file': 'रिकामी फाइल अपलोड करता येत नाही.',
+  'pro.upload.file_too_large': 'ही फाइल प्रत्येक फाइलसाठी असलेल्या 200 MB मर्यादेपेक्षा मोठी आहे.',
+  'pro.upload.quota_exceeded': 'या PRO रूमने संचयनाची 1 GB मर्यादा गाठली आहे.',
+  'pro.upload.playlist_full': 'प्लेलिस्ट भरली आहे.',
+  'pro.upload.room_capacity': 'या PRO रूममध्ये आणखी ट्रॅक जोडता येणार नाहीत.',
+  'pro.upload.room_state_limit':
+    'या PRO रूममध्ये आत्ता आणखी बदल करता येणार नाहीत. थोड्या वेळाने फाइल पुन्हा निवडा.',
+  'pro.upload.pending_limit':
+    'या PRO रूममध्ये अपूर्ण अपलोड खूप जास्त आहेत. थोड्या वेळाने पुन्हा प्रयत्न करा.',
+  'pro.upload.playlist_switched':
+    'हा ट्रॅक जोडण्यापूर्वी दुसरी प्लेलिस्ट सक्रिय झाली. फाइल पुन्हा निवडा.',
+  'pro.upload.permission_required': 'मीडिया व्यवस्थापनाची परवानगी आवश्यक आहे.',
+  'pro.upload.failed_file': '{{name}}: {{reason}}',
+  'pro.upload.confirming': 'अपलोड पूर्ण करत आहे {{current}}/{{total}}',
   'pro.upload.batch_progress': 'ट्रॅक अपलोड होत आहेत {{current}}/{{total}}',
   'pro.upload.batch_failed_title': 'काही ट्रॅक अपलोड करता आले नाहीत',
   'pro.upload.batch_failed_message':

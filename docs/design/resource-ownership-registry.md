@@ -141,6 +141,7 @@ each record also states the step in words.
 | RO-49 | Queue and demo start anchors stay two                    | Output rejoin  | accepted-exception | Revisit on an anchor defect    |
 | RO-50 | App build floor                                          | Workers        | owner-in-place     | None                           |
 | RO-51 | Return-from-background dialog                            | Page lifecycle | duplicated         | One slot on a 4th requester    |
+| RO-52 | PRO browser completion final object                      | Workers        | owner-in-place     | Revisit on copy diagnostics    |
 
 ## Machine-readable ID list
 
@@ -205,6 +206,7 @@ RO-48 accepted-exception
 RO-49 accepted-exception
 RO-50 owner-in-place
 RO-51 duplicated
+RO-52 owner-in-place
 ```
 
 ## Resource records
@@ -3226,6 +3228,81 @@ entry needs the owner's acceptance and is not implied by this registry.
 - **Status:** `duplicated` (three dialog holders, each with its own abort, coordinated by
   precedence and one pending query). Added with forced update Inc 5 (train 9.0.14), when the
   forced dialog became the third requester on the slot; it replaces the side-flow entry.
+
+### RO-52 PRO browser completion final object
+
+- **Resource:** the final R2 object of one reserved PRO asset during browser completion
+  (`handleCompleteMedia` in `cloudflare/pro-room-worker.ts`): the object at `asset.objectKey`,
+  promoted from the staging upload whose ETag is durably pinned in
+  `RoomAsset.completionSourceEtag` before any write, with that pin in its
+  `mxqr-copy-source-etag` metadata. PRO upload reliability train (9.0.17,
+  [report](pro-upload-reliability-2026-10-27.md)).
+- **Current owners/flows:** the completion handler is the single owner; the room's mutation
+  serialization runs one completion at a time. Two writers act on the key inside it, one after
+  the other:
+  - the presigned R2 CopyObject (`copyReservedMediaObject`), conditional on the pinned ETag and
+    bounded by `fetchWithDeadline`. A copy abandoned at its deadline can still commit at R2;
+  - the binding promotion (`promoteStagedMediaThroughBinding`), the get/put path every browser
+    completion used through 9.0.16. It runs only when the copy left no verified final object:
+    any non-200 status (412 included), a network error, the deadline, an unparseable or
+    oversized result, a failed post-copy HEAD, an ETag or metadata mismatch, or missing S3
+    credentials. It reads the staging object once and writes only when that read's ETag equals
+    the pin, so a replacement upload is never promoted.
+
+  Both write the same key with the same pinned metadata, and the final HEAD checks that
+  metadata, not which writer won, so a late copy that commits after the fallback leaves an
+  equivalent object. A late object after the asset is deleted, as a reservation or as a ready
+  asset the fallback completed, is collected by the existing staging tombstone
+  (`StagingTombstone.finalObjectKey`, the room alarm). Deletion leaves that tombstone while the
+  asset still holds its staging key: a ready asset drops the key only after the staging object
+  has been absent for the hour-long quiet window, which starts at least 60 s after completion,
+  while the copy's presigned URL expires after 8 s. A copy still committing after that hour is
+  outside this record. Each attempt records one bounded `media_copy` and, when it runs, one
+  `media_copy_fallback` diagnostic; a plain `media_copy` success logs only its first detail per
+  window and never takes the repeated-detail budget that failures and fallbacks share. Developer
+  API completion (`handleInternalDeveloperMediaUploadComplete`) keeps its own stream copy for the
+  assets it reserves; it is a separate route on separate assets.
+
+- **Target single owner:** reached (the handler). Retiring the fallback removes the second writer;
+  that is an owner decision once production `media_copy` records show the copy is reliable.
+- **Allowed requesters:** the browser completion route, through the upload queue's per-file
+  continuation in `src/pro-room/upload-queue.ts`, which owns user retries. Nothing schedules a
+  completion retry on the server.
+- **Lifecycle operations:** pin the source, copy, verify by HEAD, fall back, verify again, commit,
+  keep the pin for a same-key retry, collect a late object.
+- **Deadline owner:** `fetchWithDeadline` for the copy; the App facade for the whole request. The
+  fallback has no deadline of its own, as completion had none through 9.0.16. After a timed-out
+  copy the request has already spent the 8 s copy deadline inside the room's mutation queue, so
+  the facade times out whenever the fallback takes more than the remaining 2 s, where the 9.0.16
+  binding stream had the whole 5 s control budget. When the fallback outlasts the facade, the
+  same-key retry replays the stored answer or re-verifies the final object. In an
+  `all` release the PRO Worker deploys before the App Worker, so for that window the old facade's
+  5 s control budget fronts the new copy; a slow completion then times out at the facade as it
+  did on 9.0.16, and the retry recovers it the same way.
+- **Timing-constant home:** `cloudflare/pro-room-media-timing.ts`:
+  `PRO_ROOM_MEDIA_COPY_TIMEOUT_MS` (8 s) and `PRO_ROOM_MEDIA_COMPLETE_TIMEOUT_MS` (derived, 10 s),
+  which the App facade imports.
+- **Anchor tests:** in `src/pro-room/__tests__/pro-room-worker.test.ts`, "persistent PRO room
+  private media accounting":
+  - Supersession: "fails a definite source change without a fallback write, then reports
+    UPLOAD_MISMATCH" and "refuses changed staging bytes after an ambiguous copy, including a cold
+    restart" (replacement bytes never win, through either writer).
+  - User pause/stop: n/a (server; the upload queue owns user cancellation).
+  - Teardown: "reclaims a final object recreated by a timed-out copy after reservation deletion",
+    "reclaims a final object a timed-out copy commits after its fallback-completed asset is
+    deleted" and "recovers the final object after the CopyObject response is lost without another
+    copy".
+  - Visibility: n/a.
+  - Fallback: "completes through the binding fallback after %s from the copy", "completes through
+    the binding fallback when the copy has %s at its deadline", "keeps the pinned reservation
+    retryable when the fallback finds %s"; diagnostics bounds in
+    `src/pro-room/__tests__/pro-room-diagnostics.test.ts` "emits media copy outcomes, the first
+    success included, with only bounded timing and size buckets" and "keeps the repeated detail
+    budget for copy failures and fallbacks in a room full of successes".
+  - Facade budget: `src/core/__tests__/pro-room-proxy-diagnostics.test.ts` "keeps only media
+    completion alive beyond the control deadline without success diagnostics".
+- **Status:** `owner-in-place`. Added with the PRO upload reliability train (9.0.17), when the
+  binding fallback became a second writer beside the presigned copy.
 
 ## Checked side flows without a record
 

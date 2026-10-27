@@ -4,6 +4,7 @@ import { describe, expect, it } from 'vitest';
 const DOC_PATH = '.workshop/developers/developers.html';
 const OPENAPI_PATH = 'public/developers/openapi.yaml';
 const WORKER_PATH = 'cloudflare/developer-api-worker.ts';
+const PRO_ROOM_WORKER_PATH = 'cloudflare/pro-room-worker.ts';
 
 const PUBLIC_ERROR_CONTRACT = [
   ['API_DISABLED', 503, true],
@@ -403,6 +404,136 @@ describe('Developer API public documentation', () => {
     expect(html).toContain('inspect its lowercase <code>resultCode</code>');
     expect(spec).toContain("code: { $ref: '#/components/schemas/ApiErrorCode' }");
     expect(spec).toContain("resultCode: { $ref: '#/components/schemas/CommandResultCode' }");
+  });
+
+  it('documents the replay receipt window the PRO room Worker keeps for each request kind', async () => {
+    const [html, spec, proRoomWorker] = await Promise.all([
+      readFile(DOC_PATH, 'utf8'),
+      readFile(OPENAPI_PATH, 'utf8'),
+      readFile(PRO_ROOM_WORKER_PATH, 'utf8'),
+    ]);
+    const valueOf = (name: string): number => {
+      const expression = new RegExp(`^const ${name} = ([\\d_ *]+);$`, 'm').exec(proRoomWorker)?.[1];
+      expect(expression, name).toBeDefined();
+      return (expression ?? '')
+        .split('*')
+        .map((factor) => Number(factor.trim().replaceAll('_', '')))
+        .reduce((product, factor) => product * factor, 1);
+    };
+    // Developer mutations keep a 24-hour receipt in their shared ledger,
+    // except an upload reservation, whose receipt ends when its signed PUT URL
+    // expires. Commands keep their own receipt for the command retention
+    // window, counted from acceptance.
+    const mutationHours = valueOf('IDEMPOTENCY_TTL_MS') / (60 * 60 * 1000);
+    const commandMinutes = valueOf('DEVELOPER_COMMAND_RETENTION_MS') / (60 * 1000);
+    const uploadDefaultMinutes = valueOf('PRESIGN_TTL_SECONDS') / 60;
+    expect(mutationHours).toBe(24);
+    expect(commandMinutes).toBe(10);
+    expect(uploadDefaultMinutes).toBe(10);
+
+    const reserveHandler = extractDeclarationBlock(
+      proRoomWorker,
+      'async handleInternalDeveloperMediaUploadCreate(',
+      'async handleInternalDeveloperMediaUploadComplete(',
+    );
+    const signedUrlLimits = [
+      ...reserveHandler.matchAll(
+        /configuredNumber\(this\.env\.PRESIGN_TTL_SECONDS, PRESIGN_TTL_SECONDS, (\d+), (\d+)\)/gu,
+      ),
+    ];
+    expect(signedUrlLimits).toHaveLength(1);
+    const uploadMaxMinutes = Number(signedUrlLimits[0]?.[2]) / 60;
+    expect(uploadMaxMinutes).toBe(60);
+    expect(reserveHandler).toContain('const uploadExpiresAtMs = nowMs + presignTtl * 1000;');
+    expect(reserveHandler).toMatch(
+      /this\.storeIdempotency\([^)]*\b201,\s*uploadExpiresAtMs,?\s*\)/u,
+    );
+
+    const mutationKey = extractDeclarationBlock(
+      spec,
+      '    IdempotencyKey:\n',
+      '    CommandIdempotencyKey:\n',
+    );
+    const commandKey = extractDeclarationBlock(
+      spec,
+      '    CommandIdempotencyKey:\n',
+      '    UploadIdempotencyKey:\n',
+    );
+    const uploadKey = extractDeclarationBlock(
+      spec,
+      '    UploadIdempotencyKey:\n',
+      '    CommandId:\n',
+    );
+    expect(mutationKey).toContain(`${mutationHours}-hour replay receipt`);
+    expect(mutationKey).toContain('ROOM_STATE_CAPACITY_EXCEEDED');
+    expect(commandKey).toContain('name: Idempotency-Key');
+    expect(commandKey).toContain(`${commandMinutes}-minute replay receipt`);
+    expect(commandKey).toContain('COMMAND_CAPACITY_EXCEEDED');
+    expect(commandKey).toContain('neither the key nor the commandId is');
+    expect(commandKey).not.toMatch(/\bhour\b/u);
+    expect(commandKey).not.toMatch(/poll[^.]*instead of resending/u);
+    expect(uploadKey).toContain('name: Idempotency-Key');
+    expect(uploadKey).toContain('until the signed PUT URL expires at the reservation');
+    expect(uploadKey).toContain(`${uploadDefaultMinutes} minutes after the`);
+    expect(uploadKey).toContain(`never more than ${uploadMaxMinutes} minutes`);
+    expect(uploadKey).toContain('ROOM_STATE_CAPACITY_EXCEEDED');
+    expect(uploadKey).not.toMatch(/\bhour\b/u);
+
+    const createCommand = extractDeclarationBlock(
+      spec,
+      'operationId: createRoomCommand\n',
+      'requestBody:',
+    );
+    const createUpload = extractDeclarationBlock(
+      spec,
+      'operationId: createMediaUpload\n',
+      'requestBody:',
+    );
+    expect(createCommand).toContain("- $ref: '#/components/parameters/CommandIdempotencyKey'");
+    expect(createUpload).toContain("- $ref: '#/components/parameters/UploadIdempotencyKey'");
+    expect(spec.match(/#\/components\/parameters\/CommandIdempotencyKey'/g)).toHaveLength(1);
+    expect(spec.match(/#\/components\/parameters\/UploadIdempotencyKey'/g)).toHaveLength(1);
+    expect(spec.match(/#\/components\/parameters\/IdempotencyKey'/g)?.length).toBeGreaterThan(0);
+
+    // The guide states the same windows and never promises that a key is
+    // remembered without limit.
+    const playbackSection = extractDeclarationBlock(
+      html,
+      '<details class="policy-accordion" id="control-playback">',
+      '</details>',
+    );
+    const uploadSection = extractDeclarationBlock(
+      html,
+      '<details class="policy-accordion" id="upload-audio">',
+      '</details>',
+    );
+    const commandCapacity = extractDeclarationBlock(
+      html,
+      '<div data-api-error-code="COMMAND_CAPACITY_EXCEEDED">',
+      '</div>',
+    );
+    expect(html).not.toMatch(/never\s+repeats/u);
+    expect(playbackSection).toMatch(
+      new RegExp(
+        `key is remembered for ${commandMinutes} minutes from when the command was\\s+accepted`,
+        'u',
+      ),
+    );
+    expect(playbackSection).toMatch(
+      /neither the key nor the command is guaranteed to be remembered/u,
+    );
+    expect(playbackSection).toMatch(
+      /upload reservation's key is remembered only until its signed/u,
+    );
+    expect(playbackSection).toMatch(new RegExp(`for\\s+${mutationHours} hours`, 'u'));
+    expect(uploadSection).toMatch(/remembered only until its signed upload URL expires at/u);
+    expect(uploadSection).toContain(
+      `${uploadDefaultMinutes} minutes after the reservation by default`,
+    );
+    expect(uploadSection).toContain(`never more than ${uploadMaxMinutes} minutes`);
+    expect(uploadSection).toContain(`remembered for ${mutationHours} hours`);
+    expect(commandCapacity).toContain(`${commandMinutes}-minute command replay window is full`);
+    expect(commandCapacity).toContain(`for up to ${commandMinutes} minutes`);
   });
 
   it('documents authority-fence conflicts on every authenticated read', async () => {

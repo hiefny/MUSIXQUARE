@@ -10116,12 +10116,20 @@ or pointers. Keep :focus-visible and :active outside the gate (src/ui/__tests__/
       display: none;
     }
 
+    /* Named narrow-slot exception to the shared label tokens, with the play
+       tab's compact Sync and Media (button-label-contract.test.ts): two 54px
+       pills share a row on these phones, so the demo finish pair keeps the
+       9.0.18 label weight 600 in its 13px label. At 700 the Malayalam and
+       Tamil Exit Tour labels reach past their pills at 320px and 340px where
+       9.0.18 kept them inside. Line height and tracking stay the shared
+       tokens. */
     .demo-large-actions .accent-action-btn,
     .demo-large-actions .leave-session-btn {
       min-height: 54px;
       height: 54px;
       padding: 0 10px;
       font-size: 13px;
+      font-weight: 600;
     }
 
     .demo-effects-content .demo-large-actions .ch-opt.demo-choice {
@@ -10344,13 +10352,14 @@ or pointers. Keep :focus-visible and :active outside the gate (src/ui/__tests__/
     margin: 0;
   }
 
-  /* Named exception to the shared label tokens (button-label-contract.test.ts):
-     the compact play actions keep the 9.0.18 label weight and tracking, 600
-     and -0.3px. Each label sits beside its icon in a 130px slot at the real
-     320px width and must stay on one line in every locale; at 700 the Finnish
-     'Synkronoi' wraps with Linux fonts. Size and line height stay the shared
-     tokens, the same 15px / 1.25 as 9.0.18. This rule stays in the base layer,
-     so the right-to-left reset still removes the tracking, as in 9.0.18. */
+  /* Named narrow-slot exception to the shared label tokens, with the compact
+     demo finish pair (button-label-contract.test.ts): the compact play
+     actions keep the 9.0.18 label weight and tracking, 600 and -0.3px. Each
+     label sits beside its icon in a 130px slot at the real 320px width and
+     must stay on one line in every locale; at 700 the Finnish 'Synkronoi'
+     wraps with Linux fonts. Size and line height stay the shared tokens, the
+     same 15px / 1.25 as 9.0.18. This rule stays in the base layer, so the
+     right-to-left reset still removes the tracking, as in 9.0.18. */
   #btn-sync span,
   #btn-media-source span {
     font-weight: 600;

@@ -112,9 +112,11 @@ Pretendard lacks coverage.
   `--button-label-weight`, `--button-label-line-height`, and
   `--button-label-letter-spacing` itself; do not retype the values. Named
   exceptions keep their own values and share the rest: choice cards keep
-  14px, and the play tab's compact Sync and Media actions keep weight 600 and
+  14px; the play tab's compact Sync and Media actions keep weight 600 and
   -0.3px tracking so every language's label stays on one line in its 130px
-  slot on a 320px screen.
+  slot on a 320px screen; and on phones up to 420px the demo finish pair
+  keeps a 13px label at weight 600, because its two 54px pills share one row
+  and a heavier label would push more languages past the pill edge.
 - Verify font changes with `npm run guard:font-assets` and
   `npm run guard:font-build`.
 

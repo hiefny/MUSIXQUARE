@@ -59,6 +59,12 @@ const HOST_CTRL_LOCK_IDS = [
   'eq-sliders-area',
   'grid-virtual-effects',
 ] as const;
+/** The locked groups that are named groups (role=group) with a description. */
+const HOST_CTRL_DESCRIBED_GROUPS: ReadonlySet<string> = new Set([
+  'grid-reverb',
+  'grid-eq',
+  'grid-virtual-effects',
+]);
 
 type VirtualEffect = 'bass' | 'treble' | 'surround';
 
@@ -152,13 +158,15 @@ function _bindHostCtrlLockedAttemptToasts(): void {
 function _updateHostCtrlLockUI(): void {
   const locked = _isGuestLocked();
   // Taps on a locked group explain the lock with a toast; the group's hint
-  // gives the same reason on hover.
+  // gives the same reason on hover. The choice groups keep their section
+  // description, which outranks a title, so the reason is also a description
+  // they list first.
   const reason = locked ? roomCapabilityRequiredTip('effects.control') : null;
   HOST_CTRL_LOCK_IDS.forEach((id) => {
     const el = getUiElement(id);
     if (el) {
       el.classList.toggle('host-ctrl-locked', locked);
-      setControlUnavailable(el, reason);
+      setControlUnavailable(el, reason, { describe: HOST_CTRL_DESCRIBED_GROUPS.has(id) });
       // Disable range inputs to prevent visual desync (slider moves but audio unchanged)
       el.querySelectorAll<HTMLInputElement>('input[type="range"]').forEach((input) => {
         if (locked) cancelRangeDrag(input);

@@ -867,8 +867,9 @@ export function updatePlaylistUI(): void {
   const canEditPlaylist = canRemoveRows();
   const canReorder = canEditPlaylist && playlist.length > 1;
   // Outside selection mode the minus also starts the mode, which its hint
-  // says; the selection controller keeps the hint in step with the mode.
-  const selectHint = _removalController?.isActive ? null : t('playlist.select_mode_hint');
+  // says. Once the selection controller loads it owns the hint (afterRender
+  // runs after every render); until then the view writes the resting one.
+  const selectHint = _removalController ? null : t('playlist.select_mode_hint');
 
   playlist.forEach((item, idx) => {
     const isCurrent = item.queueItemId === currentQueueItemId;
@@ -911,7 +912,7 @@ export function updatePlaylistUI(): void {
       ${selectButton}
     `;
     const renderedSelect = row.querySelector<HTMLElement>('.btn-playlist-select');
-    if (renderedSelect) setControlHint(renderedSelect, selectHint);
+    if (renderedSelect && selectHint) setControlHint(renderedSelect, selectHint);
     const renderedName = row.querySelector<HTMLElement>('.track-name-text');
     if (renderedName) applyUserTextFontFallback(renderedName, displayName);
     entry.appendChild(row);
@@ -1033,8 +1034,11 @@ function installDomDelegation(list: HTMLElement): void {
         event.preventDefault();
         event.stopPropagation();
         const id = queueItemIdFromElement(select ?? null);
-        if (id && _removalController) _removalController.toggle(id);
-        else if (id) _pendingRemovalToggle = id;
+        if (id && _removalController) {
+          // A pick made before the controller loaded goes first.
+          replayPendingRemovalToggle();
+          _removalController.toggle(id);
+        } else if (id) _pendingRemovalToggle = id;
         return;
       }
       const subItem = target.closest<HTMLElement>('.sub-track-item[data-sub-index]');
@@ -1078,6 +1082,12 @@ function canRemoveRows(): boolean {
 // Selection, deletion and their motion start from a tap on a row's minus or a
 // held press, so this controller also loads after the list mounts. A minus
 // tapped before it arrives is replayed once it does.
+function replayPendingRemovalToggle(): void {
+  const pending = _pendingRemovalToggle;
+  _pendingRemovalToggle = null;
+  if (pending) _removalController?.toggle(pending);
+}
+
 function loadRemovalController(list: HTMLElement): void {
   const load = ++_removalLoad;
   void import('./playlist-removal.ts').then(
@@ -1111,9 +1121,14 @@ function loadRemovalController(list: HTMLElement): void {
         onMove: openPlaylistTransferDialogLazily,
       });
       _removalController.afterRender();
-      const pending = _pendingRemovalToggle;
-      _pendingRemovalToggle = null;
-      if (pending) _removalController.toggle(pending);
+      // The controller has just added its empty status cell. Replay the early
+      // pick a frame later, so the cell is in the accessibility tree before
+      // its first count and that count is announced.
+      if (_pendingRemovalToggle) {
+        requestAnimationFrame(() => {
+          if (load === _removalLoad) replayPendingRemovalToggle();
+        });
+      }
     },
     () => {},
   );

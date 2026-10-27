@@ -31,6 +31,7 @@ import {
   onWindowBack,
   onFullscreenSurfaceHostChange,
   beginBackSurfaceTransition,
+  isVideoFillingScreen,
 } from './dom.ts';
 import { showDialog } from './dialog.ts';
 import { isFilePipelineBusyForPlay, togglePlay } from '../player/transport.ts';
@@ -1173,17 +1174,11 @@ function syncVolumeAuthorityUI(): void {
     else group.removeAttribute('tabindex');
     group.setAttribute('aria-label', t('player.volume'));
     // The disabled slider and mute button cannot take a pointer or focus, so
-    // the group that receives the attempt carries the reason.
+    // the group that receives the attempt carries the reason. A hint is not
+    // read everywhere (iOS VoiceOver skips it), so the reason is the group's
+    // description as well (its authored #<id>-reason node).
     const reason = locked ? roomCapabilityRequiredTip('effects.control') : null;
-    setControlUnavailable(group, reason);
-    // A hint is not read everywhere (iOS VoiceOver skips it), so the reason is
-    // the group's description as well.
-    const description = getUiElement(`${id}-reason`);
-    if (description) {
-      description.textContent = reason ?? '';
-      if (reason) group.setAttribute('aria-describedby', description.id);
-      else group.removeAttribute('aria-describedby');
-    }
+    setControlUnavailable(group, reason, { describe: true });
   }
   for (const id of ['volume-slider', 'vol-icon-btn', 'demo-volume-slider', 'demo-vol-icon-btn']) {
     const control = getUiElement(id) as HTMLInputElement | HTMLButtonElement | null;
@@ -1275,10 +1270,7 @@ export function initPlayerControls(): void {
     onWindowBack(
       videoWrapper,
       () => {
-        const filling =
-          videoWrapper.classList.contains('fake-fullscreen') ||
-          Boolean(getFullscreenElement()?.closest('.video-wrapper'));
-        if (!filling) return false;
+        if (!isVideoFillingScreen()) return false;
         exitYouTubeFullscreen(beginBackSurfaceTransition());
         return true;
       },
@@ -1302,16 +1294,12 @@ export function initPlayerControls(): void {
   const stopFullscreenToggleSync = onFullscreenExitChange(syncFullscreenToggleAvailability);
   domSignal.addEventListener('abort', stopFullscreenToggleSync, { once: true });
   // Full screen is a two-state toggle with a fixed name, so aria-pressed says
-  // whether the player fills the screen, natively or with the iOS shell.
+  // whether the player fills the screen, natively or with the iOS shell. The
+  // back handler above asks the same question.
   const syncFullscreenTogglePressed = (): void => {
     const toggle = getUiElement('btn-fullscreen');
     if (!toggle) return;
-    const pressed = String(
-      Boolean(
-        getFullscreenElement() ||
-        document.querySelector('.video-wrapper')?.classList.contains('fake-fullscreen'),
-      ),
-    );
+    const pressed = String(isVideoFillingScreen());
     if (toggle.getAttribute('aria-pressed') !== pressed)
       toggle.setAttribute('aria-pressed', pressed);
   };

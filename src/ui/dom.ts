@@ -741,6 +741,14 @@ function fullscreenVideoElement(): HTMLElement | null {
   return fullscreen && (fullscreen === wrapper || wrapper.contains(fullscreen)) ? wrapper : null;
 }
 
+/**
+ * Whether the video fills the screen, natively or with the iOS shell. A
+ * fullscreen element outside the player (the screensaver's document) is not.
+ */
+export function isVideoFillingScreen(): boolean {
+  return fullscreenVideoElement() !== null;
+}
+
 function topWindowElement(): HTMLElement | null {
   const top = _topModalId && _topModalId !== BASE_SCREEN_ID ? getUiElement(_topModalId) : null;
   return (

@@ -137,6 +137,9 @@ function createHeaderControls(container: Element | null): {
   title.className = 'tab-title playlist-selection-title';
   title.id = SELECTION_TITLE_ID;
   title.hidden = true;
+  // Sighted users read the count here; the status cell below is the one copy
+  // a screen reader meets. aria-labelledby still names the bar from it.
+  title.setAttribute('aria-hidden', 'true');
   const baseTitle = header.querySelector(':scope > .tab-title');
   if (baseTitle) baseTitle.after(title);
   else header.prepend(title);

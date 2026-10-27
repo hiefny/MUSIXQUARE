@@ -46,6 +46,8 @@ export function createSelectionCheckSvg(): SVGSVGElement {
 
 /**
  * The minus and the check it turns into, for an svg with viewBox 0 0 24 24.
- * The `.playlist-select-minus, .playlist-select-mark` rule strokes both.
+ * The `.playlist-select-minus, .playlist-select-mark` rule gives both their
+ * color and angular ends; the minus reads the chevrons' 1.8 line weight and
+ * the check keeps its 2.4 (css/style.css).
  */
 export const SELECTION_TOGGLE_PATHS = `<path class="playlist-select-minus" d="${MINUS_PATH}"/><path class="playlist-select-mark" d="${CHECK_PATH}"/>`;

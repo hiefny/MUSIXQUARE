@@ -6,8 +6,9 @@
  * A convertible in tablet posture (for example a Surface Laptop Studio in
  * stage or studio mode) disables its touchpad, so `(any-hover: hover)` is
  * false even while a pen or mouse hovers the page: a mouse or pen movement
- * turns hover on. A touch press turns it off, so a tapped control never keeps
- * a latched hover look.
+ * turns hover on, from its first boundary event (pointerover arrives before
+ * mouseenter and pointermove). A touch press turns it off, so a tapped
+ * control never keeps a latched hover look.
  *
  * The answer is `<html data-hover-pointer>`. Every `:hover` rule in css/ sits
  * under `:where(html[data-hover-pointer])`, whose `:where()` adds no
@@ -47,13 +48,11 @@ export function initHoverPointer(): void {
     if (typeof query.addEventListener === 'function') query.addEventListener('change', follow);
     else query.addListener(follow);
   }
-  document.addEventListener(
-    'pointermove',
-    (event) => {
-      if (event.pointerType === 'mouse' || event.pointerType === 'pen') setHoverPointer(true);
-    },
-    { passive: true },
-  );
+  const markHoverInput = (event: PointerEvent): void => {
+    if (event.pointerType === 'mouse' || event.pointerType === 'pen') setHoverPointer(true);
+  };
+  document.addEventListener('pointermove', markHoverInput, { passive: true });
+  document.addEventListener('pointerover', markHoverInput, { passive: true, capture: true });
   document.addEventListener(
     'pointerdown',
     (event) => {

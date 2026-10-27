@@ -91,7 +91,9 @@ function renderUnavailableTimeline(
   if (slider) {
     setSeekSliderValue(slider, '0');
     setSeekSliderMax(slider, '0');
-    slider.setAttribute('aria-disabled', 'true');
+    // The control-hint helper owns availability; the seek gate's reason, when
+    // there is one, names the blocking state more precisely than the timeline.
+    setControlUnavailable(slider, getSeekUnavailableTip(getSeekUnavailableReason() ?? reason));
     slider.setAttribute('aria-valuetext', getSeekUnavailableTip(reason));
   }
   if (current) current.innerText = UNAVAILABLE_TIME_TEXT;

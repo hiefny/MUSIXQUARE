@@ -93,6 +93,28 @@ runbooks. Neither belongs in a general setup document.
 
 ## Maintained evidence and completed records
 
+- [UI bundle: the UI audit and hint-copy audit recommendations (2026-10-27)](design/ui-bundle-2026-10-27.md):
+  the owner's 2026-10-27 instruction to ship every recommended direction of the two audits as one
+  app update. Dialog actions take the play tab's rhythm (12px between painted surfaces, 56px
+  pills; spacing stays a recipe bound by a contract test, two-action rows keep their
+  content-sized split); every action label reads one 15px / 700 / 1.25 style and every red text
+  or icon one `--danger-foreground` role; one runtime hover gate owned by `src/ui/hover-pointer.ts`
+  (convertibles hover alike in laptop and studio posture; Chromium 79 TVs lose hover looks only);
+  a shorter playlist minus at the chevron weight; one control-hint owner with reasons as
+  descriptions; a fixed minus name and a status cell for the selection count; noun-form names and
+  hints in 42 locales with a locale review. The owner's danger-red decisions are recorded in
+  order: a darker light red first, then (the same evening) production's `#ff3b30` and the 9.0.18
+  tints in the default themes, with the 4.5:1 contract kept for the high-contrast palettes only
+  and new pill tints that keep leave session and stop sharing exactly as in 9.0.18. An
+  unreachable red "Disconnected" badge in the hidden settings device list was removed. Branch
+  `agent/ui-bundle` (last code commit `cc3b0209`) merged main at 9.0.18 / v791 (`6a23c46e`) and
+  restated #503's pending-check hover titles as one-phrase checking tips; it is not merged or
+  released and bumps to 9.0.19 / v792 at release prep (expected target `app`). The report lists
+  each increment (U1 to U10 and the locale review) with its commits, tests-first evidence and
+  tested SHA, measurements before and after (42 locales at 360 / 375 / 390px, frame sheets, hover
+  census, minus ink, contrast, eager transfer), the guards added, the review findings and their
+  handling, visible changes, owner decisions left open (the account deletion surface first), what
+  was not verified (real devices, WebKit, screen readers) and the owner device check list.
 - [PRO room receipt retention (2026-10-27)](design/pro-receipt-retention-2026-10-27.md):
   the PRO room's shared browser receipt ledger (256 receipts) keeps each receipt only as long as
   the App can send its request again (owner decision 2026-10-27, RO-53): two minutes for edits,

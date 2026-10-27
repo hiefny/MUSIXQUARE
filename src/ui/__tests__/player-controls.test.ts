@@ -20,7 +20,7 @@ import {
 } from '../../player/ownership.ts';
 import { STANDARD_ROOM_OWNER_PRODUCT_CAPABILITIES } from '../../network/standard-room-authority.ts';
 import { markStandardRoomAuthorityConfirmed, setRoomContext } from '../../rooms/authority.ts';
-import { roomCapabilityRequiredTip } from '../../rooms/permission-feedback.ts';
+import { roomCapabilityFeedbackTip } from '../../rooms/permission-feedback.ts';
 import type { DataConnection } from '../../types/index.ts';
 import { broadcastYouTubeSync, guestRendezvousSync } from '../../youtube/sync.ts';
 import {
@@ -1224,7 +1224,10 @@ describe('PRO room media-source capabilities', () => {
       <button id="btn-shuffle" aria-label="Shuffle"></button>
     `;
     setState('network.appRole', 'guest');
-    setState('network.hostConn', makeConnection('host-1'));
+    const host = makeConnection('host-1');
+    setState('network.hostConn', host);
+    // The host's role projection has arrived; the lock is a final answer.
+    markStandardRoomAuthorityConfirmed(host);
     setState('network.isOperator', true);
     setState('network.standardRoomCapabilities', ['playback.control']);
     initPlayerControls();
@@ -1234,7 +1237,7 @@ describe('PRO room media-source capabilities', () => {
       expect(button.getAttribute('aria-disabled')).toBe('true');
       // Written when the lock arrives, before any pointer, so it is also the
       // screen reader description; the name stays the control's name.
-      expect(button.title).toBe(roomCapabilityRequiredTip('queue.mutate'));
+      expect(button.title).toBe(roomCapabilityFeedbackTip('queue.mutate'));
       expect(button.title).toBe('Media management permission required');
       expect(button.getAttribute('aria-label')).not.toBe(button.title);
     }
@@ -1244,7 +1247,7 @@ describe('PRO room media-source capabilities', () => {
       await setLanguageMode('ko');
       bus.emit('i18n:changed', 'ko');
       for (const button of buttons) {
-        expect(button.title).toBe(roomCapabilityRequiredTip('queue.mutate'));
+        expect(button.title).toBe(roomCapabilityFeedbackTip('queue.mutate'));
         expect(button.title).toBe('미디어 관리 권한 필요');
       }
     } finally {
@@ -2369,17 +2372,56 @@ describe('initPlayerControls playback mode rendering', () => {
     initPlayerControls();
     const play = document.getElementById('play-btn')!;
     const media = document.getElementById('btn-media-source')!;
-    expect(play.title).toBe(t('toast.playback_control_checking'));
-    expect(media.title).toBe(t('toast.media_management_checking'));
+    // Hints are one phrase; the toast keeps its retry sentence for a tap.
+    expect(play.title).toBe(t('player.playback_control_checking_tip'));
+    expect(media.title).toBe(t('player.media_management_checking_tip'));
 
     markStandardRoomAuthorityConfirmed(host);
     setState('network.standardRoomCapabilities', null);
     setState('network.isOperator', false);
     bus.emit('network:role-badge-update');
 
-    expect(play.title).toBe(t('toast.playback_control_required'));
-    expect(media.title).toBe(t('toast.media_management_required'));
+    expect(play.title).toBe(t('player.playback_control_required_tip'));
+    expect(media.title).toBe(t('player.media_management_required_tip'));
     expect(play.getAttribute('aria-disabled')).toBe('true');
+  });
+
+  it('refreshes the repeat, shuffle and volume reasons when the pending answer arrives', () => {
+    document.body.innerHTML = `
+      <button id="btn-repeat" aria-label="Repeat"></button>
+      <button id="btn-shuffle" aria-label="Shuffle"></button>
+      <div id="volume-control-group" role="group">
+        <span id="volume-control-group-reason" hidden></span>
+        <button id="vol-icon-btn" aria-label="Mute"></button>
+        <input type="range" id="volume-slider" min="0" max="100" value="100" />
+      </div>
+    `;
+    const host = makeConnection('host');
+    setState('setup.sessionStarted', true);
+    setState('network.appRole', 'guest');
+    setState('network.hostConn', host);
+    setState('audio.settingsSyncEnabled', true);
+    initPlayerControls();
+    const queueButtons = ['btn-repeat', 'btn-shuffle'].map((id) => document.getElementById(id)!);
+    const volume = document.getElementById('volume-control-group')!;
+    const reason = document.getElementById('volume-control-group-reason')!;
+    for (const button of queueButtons) {
+      expect(button.title).toBe(t('player.media_management_checking_tip'));
+    }
+    expect(volume.title).toBe(t('player.admin_permission_checking_tip'));
+    expect(reason.textContent).toBe(t('player.admin_permission_checking_tip'));
+
+    // A plain-member answer changes no capability flag; only the role
+    // projection tells the labels that the check is over.
+    markStandardRoomAuthorityConfirmed(host);
+    bus.emit('network:role-badge-update');
+
+    for (const button of queueButtons) {
+      expect(button.title).toBe(t('player.media_management_required_tip'));
+      expect(button.getAttribute('aria-disabled')).toBe('true');
+    }
+    expect(volume.title).toBe(t('player.volume_locked_tip'));
+    expect(reason.textContent).toBe(t('player.volume_locked_tip'));
   });
 
   it('keeps PRO actions blocked with checking labels until the account answer is accepted', () => {
@@ -2399,14 +2441,14 @@ describe('initPlayerControls playback mode rendering', () => {
     const play = document.getElementById('play-btn')!;
     const media = document.getElementById('btn-media-source')!;
     expect(play.getAttribute('aria-disabled')).toBe('true');
-    expect(play.title).toBe(t('toast.playback_control_checking'));
-    expect(media.title).toBe(t('toast.media_management_checking'));
+    expect(play.title).toBe(t('player.playback_control_checking_tip'));
+    expect(media.title).toBe(t('player.media_management_checking_tip'));
     media.click();
     expect(showToast).toHaveBeenCalledWith(t('toast.media_management_checking'));
 
     setRoomContext({ ...context, capabilities: [] });
-    expect(play.title).toBe(t('toast.playback_control_required'));
-    expect(media.title).toBe(t('toast.media_management_required'));
+    expect(play.title).toBe(t('player.playback_control_required_tip'));
+    expect(media.title).toBe(t('player.media_management_required_tip'));
     expect(play.getAttribute('aria-disabled')).toBe('true');
 
     setRoomContext(context);
@@ -3185,7 +3227,7 @@ describe('initPlayerControls volume icon', () => {
       // hint and its description. Its name stays the control's name.
       expect(group.getAttribute('aria-label')).toBe(t('player.volume'));
       expect(group.getAttribute('aria-disabled')).toBe('true');
-      expect(group.title).toBe(roomCapabilityRequiredTip('effects.control'));
+      expect(group.title).toBe(roomCapabilityFeedbackTip('effects.control'));
       expect(group.title).toBe('Only room admins can change audio settings');
       // A hint is not read everywhere, so the reason is also the description.
       const reason = document.getElementById('volume-control-group-reason');
@@ -3580,7 +3622,7 @@ describe('initPlayerControls sync button', () => {
     expect(slider.disabled).toBe(true);
     const group = document.getElementById('demo-volume-control-group')!;
     expect(group.getAttribute('aria-label')).toBe(t('player.volume'));
-    expect(group.title).toBe(roomCapabilityRequiredTip('effects.control'));
+    expect(group.title).toBe(roomCapabilityFeedbackTip('effects.control'));
     button.click();
     button.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true }));
     slider.value = '20';

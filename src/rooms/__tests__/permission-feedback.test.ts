@@ -11,7 +11,7 @@ import { showToast } from '../../ui/toast.ts';
 import { markStandardRoomAuthorityConfirmed, setRoomContext } from '../authority.ts';
 import {
   roomCapabilityFeedbackMessage,
-  roomCapabilityRequiredTip,
+  roomCapabilityFeedbackTip,
   showRoomCapabilityRequired,
 } from '../permission-feedback.ts';
 
@@ -41,6 +41,19 @@ const TIP_CASES = [
   ['effects.control', 'player.volume_locked_tip'],
 ] as const satisfies readonly (readonly [RoomCapability, I18nKey])[];
 
+// While the answer is pending the hint names the check, also in one phrase.
+const CHECKING_TIP_CASES = [
+  ['media.add', 'player.media_management_checking_tip'],
+  ['queue.mutate', 'player.media_management_checking_tip'],
+  ['asset.upload', 'player.media_management_checking_tip'],
+  ['playback.control', 'player.playback_control_checking_tip'],
+  ['effects.control', 'player.admin_permission_checking_tip'],
+] as const satisfies readonly (readonly [RoomCapability, I18nKey])[];
+
+function definitiveTipKey(capability: RoomCapability): I18nKey {
+  return TIP_CASES.find(([candidate]) => candidate === capability)![1];
+}
+
 const CHECKING_CASES = [
   ['media.add', 'toast.media_management_checking'],
   ['queue.mutate', 'toast.media_management_checking'],
@@ -67,7 +80,7 @@ beforeEach(() => {
 
 describe('room permission feedback', () => {
   it.each(TIP_CASES)('hints %s on its locked control with a short phrase', (capability, key) => {
-    expect(roomCapabilityRequiredTip(capability)).toBe(t(key));
+    expect(roomCapabilityFeedbackTip(capability)).toBe(t(key));
     // Korean toasts are 해요체 sentences; the hint ends in a noun form.
     expect(ko[key]).toMatch(/(?:필요|가능)$/u);
     for (const dictionary of [en, ko] as const) {
@@ -155,6 +168,43 @@ describe('room permission feedback while the answer is pending', () => {
       expect(roomCapabilityFeedbackMessage(capability)).toBe(
         t(CASES.find(([candidate]) => candidate === capability)![1]),
       );
+    },
+  );
+
+  it.each(CHECKING_TIP_CASES)(
+    'hints %s with a short checking phrase until the guest role is confirmed',
+    (capability, key) => {
+      const connection = joinStandardRoomAsGuest();
+
+      expect(roomCapabilityFeedbackTip(capability)).toBe(t(key));
+      // Not the toast's two sentences: one state phrase, like the denial.
+      expect(ko[key]).toMatch(/ 확인 중$/u);
+      for (const dictionary of [en, ko] as const) {
+        expect(dictionary[key], key).not.toMatch(/[\n.]/u);
+      }
+
+      markStandardRoomAuthorityConfirmed(connection);
+      expect(roomCapabilityFeedbackTip(capability)).toBe(t(definitiveTipKey(capability)));
+    },
+  );
+
+  it.each(CHECKING_TIP_CASES)(
+    'hints %s with the checking phrase during PRO account reconciliation',
+    (capability, key) => {
+      const context = {
+        kind: 'pro' as const,
+        roomId: '000001',
+        role: 'member' as const,
+        coordinatorId: null,
+        epoch: 1,
+        snapshotRevision: 1,
+        capabilities: [],
+      };
+      setRoomContext(context, 'pending');
+      expect(roomCapabilityFeedbackTip(capability)).toBe(t(key));
+
+      setRoomContext(context);
+      expect(roomCapabilityFeedbackTip(capability)).toBe(t(definitiveTipKey(capability)));
     },
   );
 

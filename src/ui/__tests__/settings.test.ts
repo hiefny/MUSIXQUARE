@@ -9,7 +9,7 @@ import { showToast } from '../toast.ts';
 import { LANGUAGE_OPTIONS, setLanguageMode, t } from '../../i18n/index.ts';
 import { hasLocaleFont } from '../../i18n/locale-fonts.ts';
 import { markStandardRoomAuthorityConfirmed } from '../../rooms/authority.ts';
-import { roomCapabilityRequiredTip } from '../../rooms/permission-feedback.ts';
+import { roomCapabilityFeedbackTip } from '../../rooms/permission-feedback.ts';
 import type { DataConnection } from '../../types/index.ts';
 import { configureSystemAudioCaptureActivityProbe } from '../../audio/system-audio-policy.ts';
 import {
@@ -488,12 +488,39 @@ describe('settings synchronization preference', () => {
     expect(document.getElementById('grid-reverb')?.classList).not.toContain('host-ctrl-locked');
   });
 
+  it('names the pending check on locked audio settings groups until the answer arrives', () => {
+    installSettingsSyncDom();
+    installEffectSettingsDom();
+    const host = { peer: 'host', open: true } as DataConnection;
+    setState('setup.sessionStarted', true);
+    setState('network.appRole', 'guest');
+    setState('network.hostConn', host);
+    initSettings();
+
+    const reverb = document.getElementById('grid-reverb')!;
+    expect(reverb.getAttribute('aria-disabled')).toBe('true');
+    expect(reverb.title).toBe(t('player.admin_permission_checking_tip'));
+    expect(document.getElementById('grid-reverb-reason')?.textContent).toBe(
+      t('player.admin_permission_checking_tip'),
+    );
+
+    markStandardRoomAuthorityConfirmed(host);
+    bus.emit('network:role-badge-update');
+    expect(reverb.title).toBe(t('player.volume_locked_tip'));
+    expect(document.getElementById('grid-reverb-reason')?.textContent).toBe(
+      t('player.volume_locked_tip'),
+    );
+  });
+
   it('keeps the lock reason on every locked audio settings group until it unlocks', async () => {
     installSettingsSyncDom();
     installEffectSettingsDom();
+    const host = { peer: 'host', open: true } as DataConnection;
     setState('setup.sessionStarted', true);
     setState('network.appRole', 'guest');
-    setState('network.hostConn', { peer: 'host', open: true } as DataConnection);
+    setState('network.hostConn', host);
+    // The host's role projection has arrived; the lock is a final answer.
+    markStandardRoomAuthorityConfirmed(host);
     initSettings();
 
     const groups = [
@@ -507,7 +534,7 @@ describe('settings synchronization preference', () => {
     // group gives the same reason, written when the lock arrives.
     for (const group of groups) {
       expect(group.getAttribute('aria-disabled')).toBe('true');
-      expect(group.title).toBe(roomCapabilityRequiredTip('effects.control'));
+      expect(group.title).toBe(roomCapabilityFeedbackTip('effects.control'));
     }
     // The three choice groups keep their section description, which outranks
     // a title, so the reason is also a description they reference first.
@@ -515,14 +542,14 @@ describe('settings synchronization preference', () => {
       const group = document.getElementById(id)!;
       expect(group.getAttribute('aria-describedby')?.split(' ')[0], id).toBe(`${id}-reason`);
       expect(document.getElementById(`${id}-reason`)?.textContent, id).toBe(
-        roomCapabilityRequiredTip('effects.control'),
+        roomCapabilityFeedbackTip('effects.control'),
       );
     }
 
     await setLanguageMode('ko');
     bus.emit('i18n:changed', 'ko');
     for (const group of groups) {
-      expect(group.title).toBe(roomCapabilityRequiredTip('effects.control'));
+      expect(group.title).toBe(roomCapabilityFeedbackTip('effects.control'));
     }
     // A one-phrase reason, not the toast's two sentences.
     expect(groups[0]!.title).toBe('음향 설정은 방 관리자만 변경 가능');

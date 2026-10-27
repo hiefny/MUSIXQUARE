@@ -80,8 +80,10 @@ const REGISTRY: Readonly<Record<string, Entry>> = {
 
   // Player.
   'player.add_media': { kinds: ['action'] },
+  'player.admin_permission_checking_tip': { kinds: ['tip'] },
   'player.fullscreen': { kinds: ['toggle'] },
   'player.manual_sync_label': { kinds: ['value'] },
+  'player.media_management_checking_tip': { kinds: ['tip'] },
   'player.media_management_required_tip': { kinds: ['tip'] },
   'player.next_track': { kinds: ['action'] },
   'player.no_media': {
@@ -91,6 +93,7 @@ const REGISTRY: Readonly<Record<string, Entry>> = {
   'player.not_ready_tip': { kinds: ['tip'] },
   'player.play_aria': { kinds: ['next-action'] },
   'player.play_media': { kinds: ['action'] },
+  'player.playback_control_checking_tip': { kinds: ['tip'] },
   'player.playback_control_required_tip': { kinds: ['tip'] },
   'player.prev_track': { kinds: ['action'] },
   'player.repeat_all_aria': { kinds: ['cycle'] },
@@ -295,24 +298,44 @@ function keyLiterals(code: string): string[] {
     .filter((key) => key in en);
 }
 
-/** Keys a local constant or function can hand to a label sink. */
-function localKeySources(code: string, name: string): string[] {
-  const keys: string[] = [];
-  const declaration = new RegExp(`(?:const|let)\\s+${name}\\b[^=;]*=([\\s\\S]*?);`, 'gu');
-  for (const match of code.matchAll(declaration)) keys.push(...keyLiterals(match[1] ?? ''));
-  const fn = new RegExp(`function\\s+${name}\\s*\\(`, 'gu');
-  for (const match of code.matchAll(fn)) {
-    const bodyStart = code.indexOf('{', (match.index ?? 0) + match[0].length);
-    if (bodyStart >= 0) keys.push(...keyLiterals(callArguments(code, bodyStart + 1)));
+/**
+ * Keys a piece of code reaches: its literals and the tables behind the
+ * imported helpers it calls.
+ */
+function reachedKeys(code: string): string[] {
+  const keys = keyLiterals(code);
+  for (const identifier of code.matchAll(/\b([A-Za-z_$][\w$]*)\b/gu)) {
+    keys.push(...importedTableKeys(identifier[1] ?? ''));
   }
   return keys;
 }
 
-/** Tip helpers that live in another module, read from that module's table. */
-const IMPORTED_KEY_TABLES: Readonly<Record<string, { file: string; table: string }>> = {
-  roomCapabilityRequiredTip: {
+/** Keys a local constant or function can hand to a label sink. */
+function localKeySources(code: string, name: string): string[] {
+  const keys: string[] = [];
+  const declaration = new RegExp(`(?:const|let)\\s+${name}\\b[^=;]*=([\\s\\S]*?);`, 'gu');
+  for (const match of code.matchAll(declaration)) keys.push(...reachedKeys(match[1] ?? ''));
+  const fn = new RegExp(`function\\s+${name}\\s*\\(`, 'gu');
+  for (const match of code.matchAll(fn)) {
+    const bodyStart = code.indexOf('{', (match.index ?? 0) + match[0].length);
+    if (bodyStart >= 0) keys.push(...reachedKeys(callArguments(code, bodyStart + 1)));
+  }
+  return keys;
+}
+
+/** Helpers that live in another module, read from that module's tables. */
+const IMPORTED_KEY_TABLES: Readonly<
+  Record<string, { readonly file: string; readonly tables: readonly string[] }>
+> = {
+  roomCapabilityFeedbackTip: {
     file: 'src/rooms/permission-feedback.ts',
-    table: 'const ROOM_CAPABILITY_TIP_KEYS',
+    tables: ['const ROOM_CAPABILITY_TIP_KEYS', 'const ROOM_CAPABILITY_CHECKING_TIP_KEYS'],
+  },
+  // The toast mapper. Its keys in a label sink are toast copy in a hint, which
+  // the toast check below rejects.
+  roomCapabilityFeedbackMessage: {
+    file: 'src/rooms/permission-feedback.ts',
+    tables: ['const CAPABILITY_REQUIRED_TOAST', 'const CAPABILITY_CHECKING_TOAST'],
   },
 };
 
@@ -320,10 +343,12 @@ function importedTableKeys(name: string): string[] {
   const source = IMPORTED_KEY_TABLES[name];
   if (!source) return [];
   const code = readFileSync(source.file, 'utf8');
-  const start = code.indexOf(source.table);
-  expect(start, `${source.file} defines ${source.table}`).toBeGreaterThanOrEqual(0);
-  const open = code.indexOf('{', start);
-  return keyLiterals(callArguments(code, open + 1));
+  return source.tables.flatMap((table) => {
+    const start = code.indexOf(table);
+    expect(start, `${source.file} defines ${table}`).toBeGreaterThanOrEqual(0);
+    const open = code.indexOf('{', start);
+    return keyLiterals(callArguments(code, open + 1));
+  });
 }
 
 /** The top-level arguments of a call, split at its commas. */
@@ -367,24 +392,30 @@ const SINKS: ReadonlyArray<{ readonly pattern: RegExp; readonly argument?: numbe
   { pattern: /\.title\s*=(?!=)/gu },
 ];
 
+/** Every key one source file hands to a label sink. */
+function sinkKeys(code: string): string[] {
+  const keys: string[] = [];
+  for (const { pattern, argument } of SINKS) {
+    for (const match of code.matchAll(pattern)) {
+      const start = (match.index ?? 0) + match[0].length;
+      const statement =
+        argument === undefined
+          ? code.slice(start, code.indexOf('\n', start) + 1 || undefined)
+          : (splitArguments(callArguments(code, start))[argument] ?? '');
+      keys.push(...reachedKeys(statement));
+      for (const identifier of statement.matchAll(/\b([A-Za-z_$][\w$]*)\b/gu)) {
+        keys.push(...localKeySources(code, identifier[1] ?? ''));
+      }
+    }
+  }
+  return keys;
+}
+
 function scannedSourceKeys(): Map<string, string> {
   const found = new Map<string, string>();
   for (const file of appSources()) {
-    const code = stripComments(readFileSync(file, 'utf8'));
-    for (const { pattern, argument } of SINKS) {
-      for (const match of code.matchAll(pattern)) {
-        const start = (match.index ?? 0) + match[0].length;
-        const statement =
-          argument === undefined
-            ? code.slice(start, code.indexOf('\n', start) + 1 || undefined)
-            : (splitArguments(callArguments(code, start))[argument] ?? '');
-        const keys = keyLiterals(statement);
-        for (const identifier of statement.matchAll(/\b([A-Za-z_$][\w$]*)\b/gu)) {
-          const name = identifier[1] ?? '';
-          keys.push(...localKeySources(code, name), ...importedTableKeys(name));
-        }
-        for (const key of keys) if (!found.has(key)) found.set(key, file);
-      }
+    for (const key of sinkKeys(stripComments(readFileSync(file, 'utf8')))) {
+      if (!found.has(key)) found.set(key, file);
     }
   }
   return found;
@@ -483,6 +514,7 @@ describe('hint and accessible-name copy policy', () => {
     const found = new Map([...scannedMarkupKeys(), ...scannedSourceKeys()]);
     // The scan reaches the tables behind the tip helpers.
     expect(found.has('player.volume_locked_tip')).toBe(true);
+    expect(found.has('player.admin_permission_checking_tip')).toBe(true);
     expect(found.has('player.not_ready_tip')).toBe(true);
     expect(found.has('player.repeat_one_aria')).toBe(true);
 
@@ -510,6 +542,27 @@ describe('hint and accessible-name copy policy', () => {
     // Make a *_tip or *_aria key instead (shared keys that pass both rules,
     // like player.no_media, are registered under their own namespace).
     expect(nameKeys().filter((key) => key.startsWith('toast.'))).toEqual([]);
+  });
+
+  it('follows a hint through local helpers to the toast mapper', () => {
+    // The pending "checking" toast once reached play, media and seek hints
+    // through roomCapabilityFeedbackMessage, which the scan did not follow.
+    const keys = sinkKeys(`
+      function lockedTip() { return roomCapabilityFeedbackMessage('media.add'); }
+      button.title = lockedTip();
+      const reason = roomCapabilityFeedbackMessage('playback.control');
+      setControlUnavailable(other, reason);
+      setControlUnavailable(group, roomCapabilityFeedbackTip('effects.control'));
+    `);
+    expect(keys).toEqual(
+      expect.arrayContaining([
+        'toast.media_management_checking',
+        'toast.playback_control_required',
+        'player.admin_permission_checking_tip',
+        'player.volume_locked_tip',
+      ]),
+    );
+    expect(keys.filter((key) => key.startsWith('toast.'))).not.toEqual([]);
   });
 
   it('ends every Korean name and hint in a noun form', () => {
@@ -653,6 +706,18 @@ describe('hint and accessible-name copy policy', () => {
       '음향 설정은 방 관리자만 변경 가능',
       'Only room admins can change audio settings',
     ]);
+    expect([
+      ko['player.playback_control_checking_tip'],
+      en['player.playback_control_checking_tip'],
+    ]).toEqual(['재생 제어 권한 확인 중', 'Checking playback control permission']);
+    expect([
+      ko['player.media_management_checking_tip'],
+      en['player.media_management_checking_tip'],
+    ]).toEqual(['미디어 관리 권한 확인 중', 'Checking media management permission']);
+    expect([
+      ko['player.admin_permission_checking_tip'],
+      en['player.admin_permission_checking_tip'],
+    ]).toEqual(['관리자 권한 확인 중', 'Checking administrator permissions']);
     expect([ko['setup.carousel_dot_aria'], en['setup.carousel_dot_aria']]).toEqual([
       '{{total}}개 중 {{current}}번째 설명',
       'Slide {{current}} of {{total}}',

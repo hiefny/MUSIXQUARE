@@ -67,12 +67,13 @@ describe('initSeekBar playback mode gates', () => {
     setState('playback.activity', 'paused');
     initSeekBar();
     const slider = document.getElementById('seek-slider') as HTMLInputElement;
-    expect(slider.title).toBe(t('toast.playback_control_checking'));
+    // The hint names the check in one phrase; a denied drag keeps the toast.
+    expect(slider.title).toBe(t('player.playback_control_checking_tip'));
     expect(slider.getAttribute('aria-disabled')).toBe('true');
 
     markStandardRoomAuthorityConfirmed(host);
     bus.emit('network:role-badge-update');
-    expect(slider.title).toBe(t('toast.playback_control_required'));
+    expect(slider.title).toBe(t('player.playback_control_required_tip'));
 
     const context = {
       kind: 'pro' as const,
@@ -84,7 +85,7 @@ describe('initSeekBar playback mode gates', () => {
       capabilities: ['playback.control' as const],
     };
     setRoomContext(context, 'pending');
-    expect(slider.title).toBe(t('toast.playback_control_checking'));
+    expect(slider.title).toBe(t('player.playback_control_checking_tip'));
     slider.value = '50';
     slider.dispatchEvent(new Event('change'));
     expect(seekTo).not.toHaveBeenCalled();

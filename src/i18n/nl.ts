@@ -289,7 +289,7 @@ const nl: Record<I18nKey, string> = {
   'connect.administrator_role': 'Beheerder',
   'connect.administrator_settings_aria': 'Beheerdersrechten van {{name}} bewerken',
   'connect.administrator_revoke_aria': 'Beheerdersrechten van {{name}} intrekken',
-  'connect.administrator_grant_aria': '{{name}} beheerdersrechten geven',
+  'connect.administrator_grant_aria': 'Beheerdersrechten toekennen aan {{name}}',
   'connect.kick_member_aria': '{{name}} verwijderen',
   'connect.kick_device_aria': '{{name}} verwijderen',
   'connect.administrator_revoke_title': 'Beheerdersrechten intrekken?',

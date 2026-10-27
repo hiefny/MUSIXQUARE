@@ -228,7 +228,7 @@ const ptBr: Record<I18nKey, string> = {
   'player.playback_control_required_tip': 'Requer permissão para controlar a reprodução',
   'player.media_management_required_tip': 'Requer permissão para gerenciar mídia',
   'player.not_ready_tip': 'Ainda não está pronto',
-  'player.volume_locked_tip': 'Só administradores da sala podem alterar o áudio',
+  'player.volume_locked_tip': 'Só administradores da sala podem alterar as configurações de áudio',
   'player.playback_control_checking_tip': 'Verificando a permissão para controlar a reprodução',
   'player.media_management_checking_tip': 'Verificando a permissão para gerenciar mídia',
   'player.admin_permission_checking_tip': 'Verificando a permissão de administrador',

@@ -129,8 +129,8 @@ const it: Record<I18nKey, string> = {
   'player.repeat_all_aria': 'Ripetizione di tutte le tracce',
   'player.repeat_one_aria': 'Ripetizione della traccia corrente',
   'player.syncing_aria': 'Sincronizzazione',
-  'player.playback_control_required_tip': 'Serve il permesso per controllare la riproduzione',
-  'player.media_management_required_tip': 'Serve il permesso per gestire i contenuti',
+  'player.playback_control_required_tip': 'Permesso richiesto per controllare la riproduzione',
+  'player.media_management_required_tip': 'Permesso richiesto per gestire i contenuti',
   'player.not_ready_tip': 'Non ancora pronto',
   'player.volume_locked_tip': 'Solo gli admin della stanza possono cambiare le impostazioni audio',
   'player.playback_control_checking_tip': 'Verifica del permesso per controllare la riproduzione',
@@ -281,7 +281,7 @@ const it: Record<I18nKey, string> = {
 
   // ─── Connect ───────────────────────────────────────────────────
   'connect.qr_title': 'Invita tramite QR o link',
-  'connect.invite_qr_aria': 'Codice QR di invito',
+  'connect.invite_qr_aria': 'Codice QR d’invito',
   'connect.device_list': '{{count}} dispositivi connessi',
   'connect.administrator_list': '{{count}} amministratori',
   'connect.room_owner_role': 'Proprietario della stanza',

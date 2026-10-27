@@ -130,7 +130,7 @@ const pl: Record<I18nKey, string> = {
   'player.syncing_aria': 'Synchronizowanie',
   'player.playback_control_required_tip': 'Wymagane uprawnienie do sterowania odtwarzaniem',
   'player.media_management_required_tip': 'Wymagane uprawnienie do zarządzania multimediami',
-  'player.not_ready_tip': 'Jeszcze nie gotowe',
+  'player.not_ready_tip': 'Jeszcze nie jest gotowe',
   'player.volume_locked_tip': 'Tylko administratorzy pokoju mogą zmieniać ustawienia dźwięku',
   'player.playback_control_checking_tip': 'Sprawdzanie uprawnienia do sterowania odtwarzaniem',
   'player.media_management_checking_tip': 'Sprawdzanie uprawnienia do zarządzania multimediami',
@@ -290,7 +290,7 @@ const pl: Record<I18nKey, string> = {
   'connect.administrator_revoke_aria': 'Odbierz uprawnienia administratora {{name}}',
   'connect.administrator_grant_aria': 'Nadaj uprawnienia administratora użytkownikowi {{name}}',
   'connect.kick_member_aria': 'Wyrzuć użytkownika {{name}}',
-  'connect.kick_device_aria': 'Wyrzuć urządzenie {{name}}',
+  'connect.kick_device_aria': 'Wyrzuć {{name}}',
   'connect.administrator_revoke_title': 'Odebrać uprawnienia administratora?',
   'connect.administrator_revoke_message':
     'Odebrać uprawnienia administratora użytkownikowi {{name}}?',

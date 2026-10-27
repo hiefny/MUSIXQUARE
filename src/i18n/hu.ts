@@ -287,7 +287,7 @@ const hu: Record<I18nKey, string> = {
   'connect.administrator_role': 'Adminisztrátor',
   'connect.administrator_settings_aria': '{{name}} adminisztrátori jogainak szerkesztése',
   'connect.administrator_revoke_aria': '{{name}} adminisztrátori jogainak visszavonása',
-  'connect.administrator_grant_aria': 'Adminisztrátori jogok megadása: {{name}}',
+  'connect.administrator_grant_aria': 'Adminisztrátori jogok megadása {{name}} számára',
   'connect.kick_member_aria': '{{name}} eltávolítása',
   'connect.kick_device_aria': '{{name}} eltávolítása',
   'connect.administrator_revoke_title': 'Visszavonod az adminisztrátori jogokat?',

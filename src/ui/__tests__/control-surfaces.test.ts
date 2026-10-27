@@ -9,7 +9,7 @@ describe('integrated borderless control surfaces', () => {
     expect(css).toContain('--control-danger: rgba(255, 59, 48, 0.09);');
     expect(css).toContain('--control-danger-hover: rgba(255, 59, 48, 0.13);');
     expect(css).toMatch(
-      /html\[data-theme='light'\]\s*\{[^}]*--control-active:\s*rgba\(var\(--primary-rgb\), 0\.11\);[^}]*--control-danger:\s*rgba\(255, 59, 48, 0\.075\);[^}]*--control-danger-hover:\s*rgba\(255, 59, 48, 0\.11\);/u,
+      /html\[data-theme='light'\]\s*\{[^}]*--control-active:\s*rgba\(var\(--primary-rgb\), 0\.11\);[^}]*--control-danger:\s*rgba\(255, 59, 48, 0\.075\);[^}]*--control-danger-hover:\s*rgba\(255, 59, 48, 0\.09\);/u,
     );
   });
 
@@ -47,11 +47,14 @@ describe('integrated borderless control surfaces', () => {
     expect(css).toMatch(
       /\.demo-large-actions \.accent-action-btn\s*\{[^}]*background:\s*var\(--control-active\);/u,
     );
+    // The demo exit is the leave-session pill itself: the destructive tints
+    // at rest, on hover and on press, with no surface of its own.
+    expect(css).toMatch(/\.leave-session-btn\s*\{[^}]*background:\s*var\(--control-danger\);/u);
     expect(css).toMatch(
-      /\.demo-large-actions \.leave-session-btn\s*\{[^}]*background:\s*var\(--control-danger\);/u,
+      /:where\(html\[data-hover-pointer\]\) \.leave-session-btn:hover\s*\{[^}]*background:\s*var\(--control-danger-hover\);/u,
     );
-    expect(css).toMatch(
-      /:where\(html\[data-hover-pointer\]\) \.demo-large-actions \.leave-session-btn:hover\s*\{[^}]*background:\s*var\(--control-danger-hover\);/u,
+    expect(css).not.toMatch(
+      /\.demo-large-actions \.leave-session-btn(?::hover)?\s*\{[^}]*background/u,
     );
   });
 });

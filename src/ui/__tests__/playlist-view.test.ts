@@ -1578,19 +1578,29 @@ describe('playlist queue identity rendering and actions', () => {
   });
 
   it('announces a minus tapped before the selection controller loads from an empty status cell', async () => {
-    setLanguageMode('en');
-    setState('playlist.items', sampleItems());
-    initPlaylistView();
-    clickSelect(FILE_A);
-    await vi.dynamicImportSettled();
-    const status = document.querySelector<HTMLElement>(
-      '#tab-playlist .tab-header .playlist-selection-status',
-    )!;
-    // The status cell reaches the accessibility tree empty; the replayed
-    // pick fills it a frame later, so the first count is heard.
-    expect(status.textContent).toBe('');
-    await nextAnimationFrame();
-    expect(status.textContent).toBe('1 selected');
+    // Hold animation frames so a slow import cannot let the replay run first.
+    const frames: FrameRequestCallback[] = [];
+    const frame = vi.spyOn(window, 'requestAnimationFrame').mockImplementation((callback) => {
+      frames.push(callback);
+      return frames.length;
+    });
+    try {
+      setLanguageMode('en');
+      setState('playlist.items', sampleItems());
+      initPlaylistView();
+      clickSelect(FILE_A);
+      await vi.dynamicImportSettled();
+      const status = document.querySelector<HTMLElement>(
+        '#tab-playlist .tab-header .playlist-selection-status',
+      )!;
+      // The status cell reaches the accessibility tree empty; the replayed
+      // pick fills it a frame later, so the first count is heard.
+      expect(status.textContent).toBe('');
+      for (const callback of frames.splice(0)) callback(performance.now());
+      expect(status.textContent).toBe('1 selected');
+    } finally {
+      frame.mockRestore();
+    }
   });
 
   it('keeps an early pick ahead of the next one when both land before the replay', async () => {

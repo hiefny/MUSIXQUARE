@@ -334,7 +334,7 @@ describe('one hover gate in the app stylesheets', () => {
     for (const file of sourceFiles('src')) {
       if (file === 'src/ui/hover-pointer.ts') continue;
       const source = readFileSync(resolve(file), 'utf8');
-      if (/data-hover-pointer|hoverPointer/u.test(source)) writers.push(file);
+      if (/data-hover-pointer|\bhoverPointer\b/u.test(source)) writers.push(file);
     }
     expect(writers).toEqual([]);
   });

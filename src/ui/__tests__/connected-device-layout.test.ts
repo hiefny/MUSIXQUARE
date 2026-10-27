@@ -32,7 +32,7 @@ describe('connected-device list layout', () => {
     expect(deviceHoverRules).toContain('opacity: 1');
     expect(stylesheet).not.toMatch(/@media \(pointer: coarse\)/);
     expect(stylesheet).toMatch(
-      /:where\(html\[data-hover-pointer\]\) \.device-subrow:hover \.btn-kick-physical-device:hover,\s*\.btn-kick-physical-device:focus-visible\s*\{[^}]*color:\s*#ff4d4f;/s,
+      /:where\(html\[data-hover-pointer\]\) \.device-subrow:hover \.btn-kick-physical-device:hover,\s*\.btn-kick-physical-device:focus-visible\s*\{[^}]*color:\s*var\(--danger-foreground\);/s,
     );
   });
 });

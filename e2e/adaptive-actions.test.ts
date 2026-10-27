@@ -780,7 +780,7 @@ test.describe('content-based adaptive action groups', () => {
           const contentLeft = panelRect.left + Number.parseFloat(style.paddingLeft);
           const contentRight = panelRect.right - Number.parseFloat(style.paddingRight);
           return {
-            lang: probe.lang,
+            lang: probe.getAttribute('lang') ?? '',
             rowScrollWidth: row.scrollWidth,
             rowClientWidth: row.clientWidth,
             contentLeft,

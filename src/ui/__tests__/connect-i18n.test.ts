@@ -2793,7 +2793,7 @@ describe('member-level connection and administrator UI', () => {
     expect(revokeActionRules).toContain('height: 28px');
     expect(revokeIconRules).toContain('width: 16px');
     expect(revokeIconRules).toContain('height: 16px');
-    expect(revokeHoverRules).toContain('color: #ff4d4f');
+    expect(revokeHoverRules).toContain('color: var(--danger-foreground)');
     expect(stylesheet).not.toContain('administrator-crown-slash');
     expect(stylesheet).not.toContain(
       '.administrator-action-button.revoke.administrator-state-button',

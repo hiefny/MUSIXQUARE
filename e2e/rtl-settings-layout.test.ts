@@ -57,7 +57,7 @@ test.describe('RTL settings and directional controls', () => {
                 id="vol-icon-btn"
                 class="volume-icon-button"
                 type="button"
-                aria-label="Toggle mute"
+                aria-label="Mute"
                 data-i18n-aria-label="player.toggle_mute"
               >
                 <svg class="volume-icon" viewBox="0 0 24 24" aria-hidden="true">
@@ -80,7 +80,7 @@ test.describe('RTL settings and directional controls', () => {
                 min="0"
                 max="100"
                 value="50"
-                aria-label="Adjust volume"
+                aria-label="Volume"
                 data-i18n-aria-label="player.volume"
               />
             </div>

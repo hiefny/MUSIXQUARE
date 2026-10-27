@@ -407,7 +407,8 @@ test.describe('mobile visualizer layout', () => {
           await expect(page.locator('#demo-overlay')).toBeHidden();
           await expect(canvas).toHaveAttribute('data-visualizer-mode', preference);
           await expect(canvas).toHaveAttribute('role', 'button');
-          await expect(canvas).toHaveAttribute('aria-pressed', String(preference === 'spectrum'));
+          // The name carries the mode, so the canvas has no aria-pressed.
+          await expect(canvas).not.toHaveAttribute('aria-pressed', /./);
           await expect(canvas).toHaveAttribute('tabindex', '0');
           await expect.poll(() => readSavedVisualizerMode(page)).toBe(preference);
           if (preference === initialPreference) {

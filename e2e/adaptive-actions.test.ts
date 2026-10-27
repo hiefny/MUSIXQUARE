@@ -30,7 +30,6 @@ const AUDITED_ACTION_KEYS = [
   'common.next',
   'common.start',
   'common.done',
-  'common.grant',
   'common.revoke',
   'connect.signaling_recover_action',
   'connect.signaling_retry',

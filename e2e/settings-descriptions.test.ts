@@ -519,10 +519,7 @@ test.describe('settings description layout', () => {
         ).toBeVisible();
         await expect(indicator).toHaveAttribute('type', 'button');
         await expect(indicator).toHaveAttribute('aria-label', /\S/);
-        await expect(indicator).toHaveAttribute(
-          'data-i18n-aria-label',
-          'toast.settings_sync_enabled',
-        );
+        await expect(indicator).toHaveAttribute('data-i18n-aria-label', 'settings.sync_settings');
         await expect(indicator.locator('svg')).toHaveAttribute('aria-hidden', 'true');
         await expect(indicator).toHaveText('');
         await expectRenderedDirectSvgPath(
@@ -591,11 +588,12 @@ test.describe('settings description layout', () => {
       }
 
       const syncIndicator = indicators[0].indicator;
-      const syncToastText = (await syncIndicator.getAttribute('aria-label'))?.trim() || '';
-      expect(syncToastText).not.toBe('');
+      // Shown only while sync is on, the indicator is named by the feature;
+      // its tap toast says that it is on.
+      await expect(syncIndicator).toHaveAccessibleName('Settings sync');
       await syncIndicator.click();
       await expect(page.locator('#toast')).toHaveClass(/show/);
-      await expect(page.locator('#toast-msg')).toHaveText(syncToastText);
+      await expect(page.locator('#toast-msg')).toHaveText('Settings sync is on');
 
       const syncOff = page.locator('#grid-settings-sync [data-settings-sync="off"]');
       const syncOn = page.locator('#grid-settings-sync [data-settings-sync="on"]');

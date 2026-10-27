@@ -481,11 +481,13 @@ test.describe('Audio Effects', () => {
     const muteButton = pair.guestPage.locator('#vol-icon-btn');
     const toast = pair.guestPage.locator('#toast');
     const denial = 'Settings sync is on\nOnly room admins can change audio settings';
+    // The hint and description name the lock in one phrase; the tap keeps the toast.
+    const lockReason = 'Only room admins can change audio settings';
     await expect(volumeGroup).toBeVisible();
     await expect(volumeGroup).toHaveAttribute('tabindex', '0');
     // The group keeps its name; the lock reason is its hint and description.
-    await expect(volumeGroup).toHaveAccessibleName('Adjust volume');
-    await expect(volumeGroup).toHaveAccessibleDescription(denial);
+    await expect(volumeGroup).toHaveAccessibleName('Volume');
+    await expect(volumeGroup).toHaveAccessibleDescription(lockReason);
     await expect(volumeGroup).toHaveAttribute('aria-disabled', 'true');
     await expect(volumeSlider).toBeDisabled();
     await expect(muteButton).toBeDisabled();

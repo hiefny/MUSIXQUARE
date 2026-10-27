@@ -674,18 +674,21 @@ test('keeps the Design System rail and examples coherent at every layout size', 
       { height: 28, width: 28 },
     ]);
     expect(components.administratorGrants).toEqual(
-      ['#2', '#3'].map((member) => ({
-        label: 'Grant',
+      [
+        ['#2', 'julesk'],
+        ['#3', 'noa_home'],
+      ].map(([member, name]) => ({
+        label: `Grant administrator permissions to ${name}`,
         member,
         path: 'm51635l5.55l124l3.56l215l-211h5zm12h12v2h6z',
         state: 'inactive',
       })),
     );
     expect(components.physicalDeviceActions).toEqual([
-      { height: 28, label: 'Remove macOS device (A1B2)', width: 28 },
-      { height: 28, label: 'Remove Windows device (C3D4)', width: 28 },
-      { height: 28, label: 'Remove iOS device (E5F6)', width: 28 },
-      { height: 28, label: 'Remove Android device (G7H8)', width: 28 },
+      { height: 28, label: 'Kick macOS device (A1B2)', width: 28 },
+      { height: 28, label: 'Kick Windows device (C3D4)', width: 28 },
+      { height: 28, label: 'Kick iOS device (E5F6)', width: 28 },
+      { height: 28, label: 'Kick Android device (G7H8)', width: 28 },
     ]);
     expect(components.motionRecipes).toEqual({ borderless: true, noteMaxWidth: 'none' });
     expect(components.chatContained).toBe(true);
@@ -693,7 +696,7 @@ test('keeps the Design System rail and examples coherent at every layout size', 
     expect(components.playlistExpand).toEqual({
       action: 'expand',
       ariaExpanded: 'true',
-      ariaLabel: 'Expand/collapse playlist',
+      ariaLabel: 'Tracks in Well-Tempered Clavier Book I',
       beforeCheck: true,
       height: 44,
       svgHeight: 22,

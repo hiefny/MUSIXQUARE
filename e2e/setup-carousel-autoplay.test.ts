@@ -86,10 +86,9 @@ async function expectStickyStop(page: Page, expectedIndex: number): Promise<void
 }
 
 async function expectAutoplayDotLabel(dot: Locator, position: string): Promise<void> {
-  const label = await dot.getAttribute('aria-label');
-  expect(label?.startsWith(`${position}, `)).toBe(true);
-  expect(label?.codePointAt(position.length)).toBe(0x2c);
-  expect(label?.slice(position.length + 2).trim()).toBeTruthy();
+  // Named by its slide; while slides rotate, the stop note is its description.
+  await expect(dot).toHaveAccessibleName(position);
+  await expect(dot).toHaveAccessibleDescription('Pause automatic slide rotation');
 }
 
 async function dispatchTouch(viewport: Locator, startX: number, endX: number): Promise<void> {
@@ -199,16 +198,17 @@ test.describe('setup carousel unobtrusive autoplay', () => {
     // 4 -> 1 wrapped and a fifth transition still occurred, proving the
     // untouched carousel continues rather than stopping after one cycle.
     await expect(track).toHaveAttribute('aria-live', 'off');
-    await expectAutoplayDotLabel(page.locator('#ob-dots .ob-dot[data-idx="1"]'), '2 / 4');
+    await expectAutoplayDotLabel(page.locator('#ob-dots .ob-dot[data-idx="1"]'), 'Slide 2 of 4');
   });
 
   test('a dot selection stops rotation at the selected slide', async ({ page }) => {
     await openSetupCarousel(page);
 
     const target = page.locator('#ob-dots .ob-dot[data-idx="2"]');
-    await expectAutoplayDotLabel(target, '3 / 4');
+    await expectAutoplayDotLabel(target, 'Slide 3 of 4');
     await target.click();
-    await expect(target).toHaveAttribute('aria-label', '3 / 4');
+    await expect(target).toHaveAttribute('aria-label', 'Slide 3 of 4');
+    await expect(target).not.toHaveAttribute('aria-describedby', /./);
     await expectStickyStop(page, 2);
   });
 
@@ -274,10 +274,10 @@ test.describe('setup carousel unobtrusive autoplay', () => {
 
     const track = page.locator('#ob-slider-track');
     await expect(track).toHaveAttribute('aria-live', 'polite');
-    await expect(page.locator('#ob-dots .ob-dot[data-idx="0"]')).toHaveAttribute(
-      'aria-label',
-      '1 / 4',
-    );
+    const firstDot = page.locator('#ob-dots .ob-dot[data-idx="0"]');
+    await expect(firstDot).toHaveAttribute('aria-label', 'Slide 1 of 4');
+    // A manual carousel has no rotation to stop, so no stop description.
+    await expect(firstDot).not.toHaveAttribute('aria-describedby', /./);
     await expect
       .poll(() => track.evaluate((element) => getComputedStyle(element).transitionDuration))
       .toBe('0s');

@@ -241,6 +241,9 @@ describe('public design-system page contract', () => {
       '--control-active': 'rgba(var(--primary-rgb), 0.13)',
       '--control-danger': 'rgba(255, 59, 48, 0.09)',
       '--control-danger-hover': 'rgba(255, 59, 48, 0.13)',
+      '--control-danger-pill': 'rgba(255, 59, 48, 0.08)',
+      '--control-danger-pill-hover': 'rgba(255, 59, 48, 0.12)',
+      '--control-danger-pill-press': 'rgba(255, 59, 48, 0.18)',
     } as const;
 
     const advertisedTokens = [...designDocument.querySelectorAll('.tokens .tok')].map((token) =>
@@ -257,6 +260,7 @@ describe('public design-system page contract', () => {
         '--control-active',
         '--control-danger',
         '--control-danger-hover',
+        '--control-danger-pill-*',
         '--danger-foreground',
       ]),
     );
@@ -889,10 +893,11 @@ describe('public design-system page contract', () => {
     expect(designTokenStylesheet).toMatch(/--danger-foreground:\s*ButtonText\s*!important/iu);
   });
 
-  it('mirrors the light danger foreground and the destructive tints of every palette', () => {
-    // Owner decision (2026-10-27): the default light theme reads #d70015, the
-    // same hue as #ff3b30, darker. The tints keep that label 4.5:1 at rest and
-    // on hover in light, and the light high-contrast tints keep #a4001d there.
+  it('mirrors the danger foreground and the destructive tints of every palette', () => {
+    // Owner decision (2026-10-27, evening): the default palettes keep the red
+    // and destructive tints of 9.0.18; only high contrast darkens the red, and
+    // its tints keep #a4001d at 4.5:1. The leave-session and stop-sharing pill
+    // tints take the high-contrast tints there.
     const appStylesheet = readFileSync(resolve('css/style.css'), 'utf8');
     const block = (stylesheet: string, selector: string): string => {
       const escaped = selector.replace(/[.*+?^${}()|[\]\\]/gu, '\\$&');
@@ -900,15 +905,26 @@ describe('public design-system page contract', () => {
       expect(blocks.length, selector).toBeGreaterThan(0);
       return blocks.map((match) => match[1]).join('\n');
     };
+    for (const stylesheet of [appStylesheet, designTokenStylesheet]) {
+      expect(
+        customPropertyValue(block(stylesheet, "html[data-theme='light']"), '--danger-foreground'),
+      ).toBeUndefined();
+    }
+    const highContrastPills = {
+      '--control-danger-pill': 'var(--control-danger)',
+      '--control-danger-pill-hover': 'var(--control-danger-hover)',
+      '--control-danger-pill-press': 'var(--control-danger-hover)',
+    };
     const expected: Array<[string, Record<string, string>]> = [
       [
         "html[data-theme='light']",
         {
-          '--danger-foreground': '#d70015',
           '--control-danger': 'rgba(255, 59, 48, 0.075)',
-          '--control-danger-hover': 'rgba(255, 59, 48, 0.09)',
+          '--control-danger-hover': 'rgba(255, 59, 48, 0.11)',
         },
       ],
+      ["html[data-contrast='more']", highContrastPills],
+      ["html:not([data-contrast='normal'])", highContrastPills],
       [
         "html[data-theme='light'][data-contrast='more']",
         {
@@ -944,8 +960,9 @@ describe('public design-system page contract', () => {
         row.querySelector('.val')?.textContent?.trim(),
       ]),
     );
-    expect(tokenRows['--danger-foreground']).toBe('#ff3b30 / #d70015');
-    expect(tokenRows['--control-danger-hover']).toBe('red 13% / 9%');
+    expect(tokenRows['--danger-foreground']).toBe('#ff3b30');
+    expect(tokenRows['--control-danger-hover']).toBe('red 13% / 11%');
+    expect(tokenRows['--control-danger-pill-*']).toBe('red 8% / 12% / 18%');
   });
 
   it('describes filled icons as the default and exposes a deliberate stroke exception', () => {

@@ -661,11 +661,9 @@ describe('action button label contract', () => {
       }
     }
     expect(ruleValues(appCss, ':root', '--danger-foreground')).toEqual(['#ff3b30']);
-    // Owner decision (2026-10-27): the default light theme reads the same hue,
-    // darker, so a destructive label passes 4.5:1 on its light surfaces.
-    expect(ruleValues(appCss, "html[data-theme='light']", '--danger-foreground')).toEqual([
-      '#d70015',
-    ]);
+    // Owner decision (2026-10-27, evening): the default light theme keeps the
+    // red of 9.0.18 instead of a darker one; only high contrast darkens it.
+    expect(ruleValues(appCss, "html[data-theme='light']", '--danger-foreground')).toEqual([]);
   });
 
   it('lets action button rules set label typography only through the tokens', () => {
@@ -872,38 +870,21 @@ describe('action button label contract', () => {
     appCss.walkDecls('--danger-foreground', (declaration) => {
       owners.push(where(declaration, 'css/style.css'));
     });
-    expect(owners).toHaveLength(5);
+    expect(owners).toHaveLength(4);
 
-    // Every destructive label keeps 4.5:1 on each surface it sits on. At rest
-    // that is the dialog and account panel (surface-1) and the connect tab,
-    // play tab and setup canvas (--bg). The hover and press tint belongs to
-    // the leave, demo exit and stop sharing pills. Leave and stop sharing sit
-    // on the canvas. The demo exit sits on surface-1 at every width, at rest,
-    // on hover and on a touch press: the demo shell's ::before sheet behind
-    // the phone panel, and the control stage from 720px up. Dialog pills have
-    // no hover tint.
-    //
-    // One case is below 4.5 and waits for an owner decision (an open question
-    // of the UI bundle train): dark #ff3b30, which the owner kept, over the
-    // hover tint on that panel.
-    // Its ratio is pinned rather than skipped, so a further drop or any new
-    // case below 4.5 fails, and fixing it means removing this entry.
-    const OWNER_PENDING: Readonly<Record<string, string>> = {
-      'dark --control-danger-hover on panel': '4.31',
-    };
-    const palettes = [
-      { name: 'dark', canvas: '#121212', panel: '#1a1a1a' },
-      { name: 'light', canvas: '#f8f9fa', panel: '#ffffff' },
-      { name: 'dark more', canvas: '#000000', panel: '#0a0a0a' },
-      { name: 'light more', canvas: '#f2f2f2', panel: '#ffffff' },
-    ];
-    const resolved = (selectors: string[], token: string): string => {
-      for (const selector of [...selectors].reverse()) {
-        const [value] = ruleValues(appCss, selector, token);
-        if (value !== undefined) return value;
-      }
-      throw new Error(`${token} is not defined for ${selectors.join(' / ')}`);
-    };
+    // Owner decision (2026-10-27, evening): the default dark and light palettes
+    // keep the reds and destructive tints of 9.0.18 rather than chase contrast;
+    // the high-contrast option is there for that. So the default palettes are
+    // pinned to those values, and only the high-contrast palettes promise
+    // 4.5:1 for every destructive label (forced colors hands label and surface
+    // to the system palette).
+    const TINTS = [
+      '--control-danger',
+      '--control-danger-hover',
+      '--control-danger-pill',
+      '--control-danger-pill-hover',
+      '--control-danger-pill-press',
+    ] as const;
     const cascade: Record<string, string[]> = {
       dark: [':root'],
       light: [':root', "html[data-theme='light']"],
@@ -915,49 +896,85 @@ describe('action button label contract', () => {
         "html[data-theme='light'][data-contrast='more']",
       ],
     };
-    const measured: string[] = [];
-    for (const palette of palettes) {
-      const selectors = cascade[palette.name]!;
-      const label = resolved(selectors, '--danger-foreground');
-      const cases: Array<[string, 'canvas' | 'panel']> = [
-        ['--control-danger', 'canvas'],
-        ['--control-danger', 'panel'],
-        ['--control-danger-hover', 'canvas'],
-        ['--control-danger-hover', 'panel'],
-      ];
-      for (const [tint, place] of cases) {
-        const surface = palette[place];
-        const ratio = contrast(label, resolved(selectors, tint), surface);
-        const name = `${palette.name} ${tint} on ${place}`;
-        measured.push(`${name}: ${ratio.toFixed(2)}`);
-        const pending = OWNER_PENDING[name];
-        if (pending !== undefined) {
-          expect(ratio.toFixed(2), `${name} (owner pending)`).toBe(pending);
-          continue;
-        }
-        expect(ratio, `${palette.name} ${label} on ${tint} over ${surface}`).toBeGreaterThanOrEqual(
-          4.5,
-        );
+    // The value a palette computes for a token on the root, following a
+    // var() reference through the same cascade.
+    const resolved = (selectors: string[], token: string): string => {
+      for (const selector of [...selectors].reverse()) {
+        const [value] = ruleValues(appCss, selector, token);
+        if (value === undefined) continue;
+        const reference = /^var\((--[\w-]+)\)$/u.exec(value)?.[1];
+        return reference ? resolved(selectors, reference) : value;
       }
-      // Error text sits on the bare surfaces.
-      for (const surface of [palette.canvas, palette.panel]) {
-        expect(contrast(label, 'rgba(0, 0, 0, 0)', surface), palette.name).toBeGreaterThanOrEqual(
-          4.5,
-        );
+      throw new Error(`${token} is not defined for ${selectors.join(' / ')}`);
+    };
+    const decided: Record<'dark' | 'light', Record<string, string>> = {
+      dark: {
+        '--danger-foreground': '#ff3b30',
+        '--control-danger': 'rgba(255, 59, 48, 0.09)',
+        '--control-danger-hover': 'rgba(255, 59, 48, 0.13)',
+        '--control-danger-pill': 'rgba(255, 59, 48, 0.08)',
+        '--control-danger-pill-hover': 'rgba(255, 59, 48, 0.12)',
+        '--control-danger-pill-press': 'rgba(255, 59, 48, 0.18)',
+      },
+      light: {
+        '--danger-foreground': '#ff3b30',
+        '--control-danger': 'rgba(255, 59, 48, 0.075)',
+        '--control-danger-hover': 'rgba(255, 59, 48, 0.11)',
+        '--control-danger-pill': 'rgba(255, 59, 48, 0.08)',
+        '--control-danger-pill-hover': 'rgba(255, 59, 48, 0.12)',
+        '--control-danger-pill-press': 'rgba(255, 59, 48, 0.18)',
+      },
+    };
+    for (const [palette, tokens] of Object.entries(decided)) {
+      for (const [token, value] of Object.entries(tokens)) {
+        expect(resolved(cascade[palette]!, token), `${palette} ${token}`).toBe(value);
       }
     }
-    expect(measured).toHaveLength(16);
-    expect(measured).toEqual(
-      expect.arrayContaining(
-        Object.entries(OWNER_PENDING).map(([name, ratio]) => `${name}: ${ratio}`),
-      ),
-    );
-    // The OS preference layer repeats the manual light high-contrast tints.
+
+    // In high contrast every destructive label keeps 4.5:1 on each surface it
+    // sits on: the bare canvas (connect tab, play tab, setup) and panel
+    // (dialogs, account, the demo finish row), and every destructive tint
+    // over either one, at rest, on hover and on press.
+    const highContrast = [
+      { name: 'dark more', canvas: '#000000', panel: '#0a0a0a' },
+      { name: 'light more', canvas: '#f2f2f2', panel: '#ffffff' },
+    ];
+    const measured: string[] = [];
+    for (const palette of highContrast) {
+      const selectors = cascade[palette.name]!;
+      const label = resolved(selectors, '--danger-foreground');
+      for (const tint of [
+        'rgba(0, 0, 0, 0)',
+        ...TINTS.map((token) => resolved(selectors, token)),
+      ]) {
+        for (const surface of [palette.canvas, palette.panel]) {
+          const ratio = contrast(label, tint, surface);
+          measured.push(`${palette.name} ${tint} on ${surface}: ${ratio.toFixed(2)}`);
+          expect(
+            ratio,
+            `${palette.name} ${label} on ${tint} over ${surface}`,
+          ).toBeGreaterThanOrEqual(4.5);
+        }
+      }
+    }
+    expect(measured).toHaveLength(24);
+    // The OS preference layer repeats the manual high-contrast tints.
     for (const tint of ['--control-danger', '--control-danger-hover']) {
       expect(
         ruleValues(appCss, lightPrefersContrast, tint, '@media (prefers-contrast: more)'),
         tint,
       ).toEqual(ruleValues(appCss, lightContrast, tint));
+    }
+    for (const tint of TINTS.slice(2)) {
+      expect(
+        ruleValues(
+          appCss,
+          "html:not([data-contrast='normal'])",
+          tint,
+          '@media (prefers-contrast: more)',
+        ),
+        tint,
+      ).toEqual(ruleValues(appCss, "html[data-contrast='more']", tint));
     }
 
     // Account deletion is the shared secondary action with a color-only
@@ -986,18 +1003,53 @@ describe('action button label contract', () => {
       'var(--danger-foreground)',
     ]);
 
-    // Their surfaces are the tints account deletion uses: --control-danger at
-    // rest, --control-danger-hover on hover and press. The demo finish row is
-    // the same button and keeps no surface of its own.
+    // Their surfaces look as in 9.0.18. Leave session and stop sharing read the
+    // pill tints at rest and on hover; leave session presses deeper, while a
+    // press on stop sharing shows its hover tint.
     expect(ruleValues(appCss, '.leave-session-btn', 'background')).toEqual([
-      'var(--control-danger)',
+      'var(--control-danger-pill)',
     ]);
     expect(
       ruleValues(appCss, ':where(html[data-hover-pointer]) .leave-session-btn:hover', 'background'),
-    ).toEqual(['var(--control-danger-hover)']);
+    ).toEqual(['var(--control-danger-pill-hover)']);
     expect(ruleValues(appCss, '.leave-session-btn:active', 'background')).toEqual([
-      'var(--control-danger-hover)',
+      'var(--control-danger-pill-press)',
     ]);
+    expect(ruleValues(playCss, '.play-actions-row', '--play-action-stop-surface')).toEqual([
+      'var(--control-danger-pill)',
+    ]);
+    expect(ruleValues(playCss, '.play-actions-row', '--play-action-stop-hover')).toEqual([
+      'var(--control-danger-pill-hover)',
+    ]);
+    const stopSurfaceOwners: string[] = [];
+    playCss.walkDecls(/^--play-action-stop-(?:surface|hover)$/u, (declaration) => {
+      if (conditionOf(declaration) !== '@media (forced-colors: active)') {
+        stopSurfaceOwners.push(where(declaration, 'css/playback-actions.css'));
+      }
+    });
+    expect(stopSurfaceOwners).toHaveLength(2);
+
+    // The demo exit keeps account deletion's tints at rest and on hover. Its
+    // resting rule comes after the leave-session press rule with the same
+    // specificity, so a touch press keeps the resting tint, as in 9.0.18.
+    const demoExit = '.demo-large-actions .leave-session-btn';
+    expect(ruleValues(appCss, demoExit, 'background')).toEqual(['var(--control-danger)']);
+    expect(
+      ruleValues(appCss, `:where(html[data-hover-pointer]) ${demoExit}:hover`, 'background'),
+    ).toEqual(['var(--control-danger-hover)']);
+    const lineOf = (selector: string): number => {
+      let line = 0;
+      appCss.walkRules((rule) => {
+        if (conditionOf(rule) !== null) return;
+        if (!rule.selectors.map((entry) => entry.replace(/\s+/gu, ' ').trim()).includes(selector))
+          return;
+        if (rule.nodes.some((node) => node.type === 'decl' && node.prop === 'background')) {
+          line = rule.source?.start?.line ?? 0;
+        }
+      });
+      return line;
+    };
+    expect(lineOf(demoExit)).toBeGreaterThan(lineOf('.leave-session-btn:active'));
     const demoSurfaces: string[] = [];
     for (const { path, root } of sheets) {
       root.walkDecls(/^background/u, (declaration) => {
@@ -1011,22 +1063,7 @@ describe('action button label contract', () => {
         }
       });
     }
-    expect(demoSurfaces).toEqual([]);
-    // Stop sharing grows over the Sync surface without overlapping it, so it
-    // can use the same translucent tints instead of an opaque mix of its label.
-    expect(ruleValues(playCss, '.play-actions-row', '--play-action-stop-surface')).toEqual([
-      'var(--control-danger)',
-    ]);
-    expect(ruleValues(playCss, '.play-actions-row', '--play-action-stop-hover')).toEqual([
-      'var(--control-danger-hover)',
-    ]);
-    const stopSurfaceOwners: string[] = [];
-    playCss.walkDecls(/^--play-action-stop-(?:surface|hover)$/u, (declaration) => {
-      if (conditionOf(declaration) !== '@media (forced-colors: active)') {
-        stopSurfaceOwners.push(where(declaration, 'css/playback-actions.css'));
-      }
-    });
-    expect(stopSurfaceOwners).toHaveLength(2);
+    expect(demoSurfaces).toHaveLength(2);
 
     // No action button or label paints a red of its own, in its label, icon,
     // surface, border or shadow.
@@ -1076,7 +1113,7 @@ describe('action button label contract', () => {
       },
     ];
     const PALETTE =
-      /^--(?:danger-filled|danger-foreground|youtube-filled|control-danger(?:-hover)?)$/u;
+      /^--(?:danger-filled|danger-foreground|youtube-filled|control-danger(?:-hover|-pill(?:-hover|-press)?)?)$/u;
     const TEXT_OR_ICON =
       /^(?:color|fill|stroke|border(?:-[\w-]+)?-color|border(?:-(?:top|right|bottom|left|block|inline)(?:-(?:start|end))?)?|outline(?:-color)?|text-decoration(?:-color)?|caret-color|--[\w-]*foreground)$/u;
     const SURFACE = /^(?:background(?:-color|-image)?|box-shadow|--[\w-]*(?:surface|hover))$/u;

@@ -9,8 +9,13 @@ describe('integrated borderless control surfaces', () => {
     expect(css).toContain('--control-danger: rgba(255, 59, 48, 0.09);');
     expect(css).toContain('--control-danger-hover: rgba(255, 59, 48, 0.13);');
     expect(css).toMatch(
-      /html\[data-theme='light'\]\s*\{[^}]*--control-active:\s*rgba\(var\(--primary-rgb\), 0\.11\);[^}]*--control-danger:\s*rgba\(255, 59, 48, 0\.075\);[^}]*--control-danger-hover:\s*rgba\(255, 59, 48, 0\.09\);/u,
+      /html\[data-theme='light'\]\s*\{[^}]*--control-active:\s*rgba\(var\(--primary-rgb\), 0\.11\);[^}]*--control-danger:\s*rgba\(255, 59, 48, 0\.075\);[^}]*--control-danger-hover:\s*rgba\(255, 59, 48, 0\.11\);/u,
     );
+    // Leave session and stop sharing keep the tints of 9.0.18 in both default
+    // themes.
+    expect(css).toContain('--control-danger-pill: rgba(255, 59, 48, 0.08);');
+    expect(css).toContain('--control-danger-pill-hover: rgba(255, 59, 48, 0.12);');
+    expect(css).toContain('--control-danger-pill-press: rgba(255, 59, 48, 0.18);');
   });
 
   it('uses the design-system surfaces directly for settings and demo choices', async () => {
@@ -47,14 +52,15 @@ describe('integrated borderless control surfaces', () => {
     expect(css).toMatch(
       /\.demo-large-actions \.accent-action-btn\s*\{[^}]*background:\s*var\(--control-active\);/u,
     );
-    // The demo exit is the leave-session pill itself: the destructive tints
-    // at rest, on hover and on press, with no surface of its own.
-    expect(css).toMatch(/\.leave-session-btn\s*\{[^}]*background:\s*var\(--control-danger\);/u);
     expect(css).toMatch(
-      /:where\(html\[data-hover-pointer\]\) \.leave-session-btn:hover\s*\{[^}]*background:\s*var\(--control-danger-hover\);/u,
+      /\.leave-session-btn\s*\{[^}]*background:\s*var\(--control-danger-pill\);/u,
     );
-    expect(css).not.toMatch(
-      /\.demo-large-actions \.leave-session-btn(?::hover)?\s*\{[^}]*background/u,
+    // The demo exit keeps account deletion's tints, as in 9.0.18.
+    expect(css).toMatch(
+      /\.demo-large-actions \.leave-session-btn\s*\{[^}]*background:\s*var\(--control-danger\);/u,
+    );
+    expect(css).toMatch(
+      /:where\(html\[data-hover-pointer\]\) \.demo-large-actions \.leave-session-btn:hover\s*\{[^}]*background:\s*var\(--control-danger-hover\);/u,
     );
   });
 });

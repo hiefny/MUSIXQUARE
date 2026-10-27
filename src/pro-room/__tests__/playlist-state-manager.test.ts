@@ -13,6 +13,7 @@ import {
   type ProRoomR2Source,
   type ProRoomSnapshot,
 } from '../contracts.ts';
+import type { UploadProRoomMediaInput } from '../media-transfer.ts';
 import {
   ProRoomPlaylistStateManager,
   type ProRoomPlaylistMediaTransferForTests as ProRoomPlaylistMediaTransfer,
@@ -2158,6 +2159,93 @@ describe('PRO room playlist slots', () => {
   function uploadedFile() {
     return { asset: asset('asset_00000000001'), quota: activeSnapshot().quota };
   }
+
+  /** The media transfer's own completion checkpoint, retained by the queue task. */
+  function completedUpload(input: UploadProRoomMediaInput) {
+    const result = uploadedFile();
+    input.retryState!.completion = {
+      file: input.file,
+      sha256: undefined,
+      input: { code: ROOM_CODE, assetId: result.asset.assetId, idempotencyKey: 'complete-1' },
+      expectedSource: result.asset,
+      result,
+    };
+    return result;
+  }
+
+  it('releases a pinned upload when another playlist became active before its append', async () => {
+    // The queue offers no retry for a playlist switch and asks for the file
+    // again, so the asset is released at once instead of holding room quota
+    // until the server's orphan cleanup.
+    const initial = slotted(0, [youtube(A)], [1, 0, 0]);
+    const { api, lists, switchTo } = uploadServer(initial);
+    const media = mediaTransfer({
+      upload: vi.fn(async (input: UploadProRoomMediaInput) => {
+        switchTo(1);
+        return completedUpload(input);
+      }),
+    });
+    const manager = new ProRoomPlaylistStateManager({
+      code: ROOM_CODE,
+      api,
+      mediaTransfer: media,
+      sink: vi.fn(),
+      ...factories(),
+    });
+    await manager.acceptSnapshot(initial);
+    const retryState: ProRoomLocalFileRetryState = { media: {} };
+
+    await expect(
+      manager.addLocalFile({ queueItemId: B, file: new File(['aaaa'], 'one.flac'), retryState }),
+    ).rejects.toMatchObject({ code: 'PRO_ROOM_PLAYLIST_SWITCHED' });
+
+    expect(lists).toEqual([[youtube(A)], [], []]);
+    expect(media.deleteAsset).toHaveBeenCalledExactlyOnceWith({
+      code: ROOM_CODE,
+      assetId: 'asset_00000000001',
+    });
+    expect(retryState.media.completion).toBeUndefined();
+  });
+
+  it('releases the asset a retained retry already uploaded once its playlist is no longer active', async () => {
+    const initial = slotted(0, [youtube(A)], [1, 0, 0]);
+    const { api, lists, switchTo } = uploadServer(initial);
+    const lost = new Error('append response lost');
+    api.updateCompactSnapshot.mockRejectedValueOnce(lost);
+    const media = mediaTransfer({
+      upload: vi.fn(async (input: UploadProRoomMediaInput) => completedUpload(input)),
+    });
+    const manager = new ProRoomPlaylistStateManager({
+      code: ROOM_CODE,
+      api,
+      mediaTransfer: media,
+      sink: vi.fn(),
+      ...factories(),
+    });
+    await manager.acceptSnapshot(initial);
+    const input = {
+      queueItemId: B,
+      file: new File(['aaaa'], 'one.flac'),
+      retryState: { media: {} } as ProRoomLocalFileRetryState,
+    };
+
+    // A retryable failure keeps the uploaded asset for the queue's retry.
+    await expect(manager.addLocalFile(input)).rejects.toBe(lost);
+    expect(media.deleteAsset).not.toHaveBeenCalled();
+    expect(input.retryState.media.completion?.result).toEqual(uploadedFile());
+
+    switchTo(1);
+    await expect(manager.addLocalFile(input, { refreshBeforeUpload: true })).rejects.toMatchObject({
+      code: 'PRO_ROOM_PLAYLIST_SWITCHED',
+    });
+    expect(media.upload).toHaveBeenCalledOnce();
+    expect(lists).toEqual([[youtube(A)], [], []]);
+    expect(media.deleteAsset).toHaveBeenCalledExactlyOnceWith({
+      code: ROOM_CODE,
+      assetId: 'asset_00000000001',
+    });
+    expect(input.retryState.media.completion).toBeUndefined();
+  });
 
   it('keeps a retained upload retry bound to its original playlist and manager lifetime', async () => {
     const initial = slotted(0, [youtube(A)], [1, 0, 0]);

@@ -114,6 +114,33 @@ describe('ProRoomUploadQueue', () => {
     },
   );
 
+  it.each([
+    // The room cannot hold more tracks: neither its stored state nor its
+    // asset count shrinks before the user removes tracks and cleanup runs.
+    ['ROOM_STATE_CAPACITY_EXCEEDED', false],
+    ['ASSET_CAPACITY_EXCEEDED', false],
+    // Unfinished uploads finish or expire, so the same file can succeed later.
+    ['RESERVATION_CAPACITY_EXCEEDED', true],
+  ] as const)(
+    'classifies the room capacity failure %s as retryable: %s',
+    async (code, retryable) => {
+      const run = vi.fn(async () => {
+        throw Object.assign(new Error(code), { code });
+      });
+      const onBatchSettled = vi.fn();
+      const queue = new ProRoomUploadQueue({ createId: () => A, run, onBatchSettled });
+      queue.enqueueFiles([new File(['data'], 'capacity.flac')]);
+      await queue.whenIdle();
+      expect(onBatchSettled).toHaveBeenCalledWith(
+        expect.objectContaining({
+          retryableCount: retryable ? 1 : 0,
+          failures: [expect.objectContaining({ code, retryable })],
+        }),
+      );
+      expect(queue.retryFailedBatch('batch-1')).toBe(retryable);
+    },
+  );
+
   it('does not offer a retry that stays pinned to a playlist that is no longer active', async () => {
     // A retained retry keeps the playlist slot its upload started in. After
     // another administrator made a different playlist active, every retry of

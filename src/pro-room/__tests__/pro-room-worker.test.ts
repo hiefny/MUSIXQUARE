@@ -23548,6 +23548,59 @@ describe('persistent PRO room private media accounting', () => {
     expect(context.worker.room!.quota).toMatchObject({ usedBytes: 0, reservedBytes: 0 });
   });
 
+  it('reclaims a final object a timed-out copy commits after its fallback-completed asset is deleted', async () => {
+    const context = await copyFixture();
+    const staged = structuredClone(context.bucket.objects.get(context.asset.stagingObjectKey!));
+    vi.useFakeTimers();
+    let finish!: (response: Response) => void;
+    let started!: () => void;
+    const ready = new Promise<void>((resolve) => {
+      started = resolve;
+    });
+    let copyRequest!: Request;
+    vi.mocked(fetch).mockImplementationOnce(async (resource) => {
+      copyRequest = resource as Request;
+      started();
+      return new Promise<Response>((resolve) => {
+        finish = resolve;
+      });
+    });
+    const pending = context.worker.fetch(context.completion());
+    await ready;
+    await vi.advanceTimersByTimeAsync(PRO_ROOM_MEDIA_COPY_TIMEOUT_MS + 1);
+    // The binding fallback completed the asset after the copy deadline.
+    expect((await pending).status).toBe(200);
+    expect(context.worker.room!.assets[context.assetId]).toMatchObject({ status: 'ready' });
+    const deleted = await context.worker.fetch(
+      request(
+        `/media/${context.assetId}`,
+        {
+          method: 'DELETE',
+          headers: { 'idempotency-key': `${IDEMPOTENCY_KEY}-ready-copy-delete` },
+        },
+        context.ownerCookie,
+      ),
+    );
+    expect(deleted.status).toBe(200);
+    expect(context.bucket.objects.has(context.asset.objectKey)).toBe(false);
+    // The ready asset still held its staging key, so its deletion leaves the
+    // tombstone that also watches the final key.
+    expect(context.worker.room!.stagingTombstones[context.assetId]).toMatchObject({
+      finalObjectKey: context.asset.objectKey,
+    });
+    // The abandoned copy read its source before the deadline and commits only now.
+    context.bucket.objects.set(context.asset.stagingObjectKey!, staged);
+    finish(await fakeCopyObject(copyRequest));
+    await vi.advanceTimersByTimeAsync(0);
+    expect(context.bucket.objects.has(context.asset.objectKey)).toBe(true);
+    context.worker.room!.stagingTombstones[context.assetId]!.cleanupAfterMs = Date.now();
+    await context.worker.alarm();
+    expect(context.bucket.objects.has(context.asset.objectKey)).toBe(false);
+    expect(context.bucket.objects.has(context.asset.stagingObjectKey!)).toBe(false);
+    expect(context.worker.room!.assets[context.assetId]).toBeUndefined();
+    expect(context.worker.room!.quota).toMatchObject({ usedBytes: 0, reservedBytes: 0 });
+  });
+
   it('recovers the final object after the CopyObject response is lost without another copy', async () => {
     const context = await copyFixture();
     // The binding fallback is unavailable too, so only a retry can finish.

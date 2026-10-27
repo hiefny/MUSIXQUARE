@@ -52,7 +52,7 @@ describe('bounded PRO server diagnostics', () => {
     expect(vi.getTimerCount()).toBe(0);
   });
 
-  it('emits every media copy outcome, success included, with only bounded timing and size buckets', () => {
+  it('emits media copy outcomes, the first success included, with only bounded timing and size buckets', () => {
     const log = vi.spyOn(console, 'log').mockImplementation(() => {});
     const diagnostics = new ProRoomDiagnostics(() => context);
     diagnostics.record('media_copy', {
@@ -131,11 +131,12 @@ describe('bounded PRO server diagnostics', () => {
     expect(log.mock.calls.at(-1)?.[0]).not.toHaveProperty('elapsedMs');
     expect(log.mock.calls.at(-1)?.[0]).not.toHaveProperty('sizeBucketMiB');
 
-    // Repeated outcomes share the existing per-window detail budget.
+    // A repeated plain success is a summary count only: it neither logs a
+    // detail nor counts as a suppressed one.
     for (let i = 0; i < 10; i += 1) {
       diagnostics.record('media_copy', { reason: 'ok', elapsedMs: 900, sizeBucketMiB: 1 });
     }
-    expect(log).toHaveBeenCalledTimes(10);
+    expect(log).toHaveBeenCalledTimes(6);
     vi.advanceTimersByTime(60_000);
     diagnostics.flushIfDue();
     expect(log.mock.calls.at(-1)?.[0]).toMatchObject({
@@ -148,9 +149,50 @@ describe('bounded PRO server diagnostics', () => {
         media_copy: 1,
         room_full: 1,
       },
-      suppressedDetails: 6,
+      suppressedDetails: 0,
     });
     expect(JSON.stringify(log.mock.calls)).not.toContain('private');
+  });
+
+  it('keeps the repeated detail budget for copy failures and fallbacks in a room full of successes', () => {
+    const log = vi.spyOn(console, 'log').mockImplementation(() => {});
+    const diagnostics = new ProRoomDiagnostics(() => context);
+    const copied = () =>
+      diagnostics.record('media_copy', { reason: 'ok', status: 200, elapsedMs: 700 });
+    for (let i = 0; i < 20; i += 1) copied();
+    // Every failed copy and its fallback still log, up to the shared budget.
+    for (let i = 0; i < 3; i += 1) {
+      diagnostics.record('media_copy', { reason: 'timeout', elapsedMs: 8_000 });
+      diagnostics.record('media_copy_fallback', { reason: 'ok', elapsedMs: 3_000 });
+      copied();
+    }
+    const details = () =>
+      log.mock.calls
+        .map(([record]) => record as Record<string, unknown>)
+        .filter((record) => record.kind === 'event')
+        .map((record) => `${record.event}:${record.reason}`);
+    expect(details()).toEqual([
+      'media_copy:ok',
+      ...Array.from({ length: 3 }, () => ['media_copy:timeout', 'media_copy_fallback:ok']).flat(),
+    ]);
+
+    // Past the budget only failures and fallbacks are suppressed, and the
+    // summary still counts every attempt.
+    diagnostics.record('media_copy', { reason: 'timeout', elapsedMs: 8_000 });
+    diagnostics.record('media_copy_fallback', { reason: 'ok', elapsedMs: 3_000 });
+    copied();
+    expect(details()).toHaveLength(7);
+    vi.advanceTimersByTime(60_000);
+    diagnostics.flushIfDue();
+    expect(log.mock.calls.at(-1)?.[0]).toMatchObject({
+      kind: 'summary',
+      counts: {
+        'media_copy:ok': 24,
+        'media_copy:timeout': 4,
+        'media_copy_fallback:ok': 4,
+      },
+      suppressedDetails: 2,
+    });
   });
 
   it('distinguishes resident, current, and affected presence and preserves aggregate affected totals', () => {

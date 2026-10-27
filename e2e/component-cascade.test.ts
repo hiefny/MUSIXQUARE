@@ -168,6 +168,10 @@ for (const mode of [
 const COMPACT_PLAY_ACTION_LABELS = ['play-sync', 'play-media', 'play-stop'];
 const DEMO_FINISH_LABELS = ['demo-info', 'demo-exit'];
 const COMPACT_DEMO_MAX_WIDTH = 420;
+// The label sweep's narrow slots that this generic markup carries (PR #510 QA
+// round 8): the invite button and the deletion-mode toggle keep the 9.0.18
+// weight 600 on phones up to 420px. The other swept slots are named by ID.
+const SWEPT_NARROW_LABELS = ['invite-link', 'select-all'];
 const actionLabelMarkup = `
   <main>
     <div class="dialog-actions adaptive-action-group">
@@ -273,6 +277,7 @@ for (const mode of [
         // fixed pills are narrowest.
         const compactPlayAction = COMPACT_PLAY_ACTION_LABELS.includes(style.label ?? '');
         const demoFinish = compactDemo && DEMO_FINISH_LABELS.includes(style.label ?? '');
+        const sweptNarrow = compactDemo && SWEPT_NARROW_LABELS.includes(style.label ?? '');
         expect(
           {
             fontSize: style.fontSize,
@@ -284,7 +289,7 @@ for (const mode of [
           `${label} ${style.label}`,
         ).toEqual({
           fontSize: demoFinish ? '13px' : '15px',
-          fontWeight: compactPlayAction || demoFinish ? '600' : '700',
+          fontWeight: compactPlayAction || demoFinish || sweptNarrow ? '600' : '700',
           lineHeight: demoFinish ? '16.25px' : '18.75px',
           letterSpacing: compactPlayAction && mode.direction === 'ltr' ? '-0.3px' : 'normal',
           fontFamily: family,
@@ -295,7 +300,7 @@ for (const mode of [
         label,
       ).toEqual(
         compactDemo
-          ? [...COMPACT_PLAY_ACTION_LABELS, ...DEMO_FINISH_LABELS]
+          ? ['invite-link', 'select-all', ...COMPACT_PLAY_ACTION_LABELS, ...DEMO_FINISH_LABELS]
           : COMPACT_PLAY_ACTION_LABELS,
       );
       // Owner decision (2026-10-27, evening): both default palettes keep the

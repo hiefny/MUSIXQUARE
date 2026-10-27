@@ -180,12 +180,105 @@ const DEMO_FINISH_PAIR_WEIGHT =
   'up to 420px: at 700 more localized labels spill past their fixed 54px pills at ' +
   '320px and 340px (Malayalam and Tamil Exit Tour) than in 9.0.18. The adaptive-actions ' +
   'probe pins every locale at 320, 340 and 360px to no worse than 9.0.18.';
+// The label sweep (PR #510 QA round 8): every label whose typography this
+// train changed, in all 42 locales at 320 to 390px and around every width
+// boundary, against origin/main 9.0.18 (6a23c46e). These slots wrapped,
+// broke a word, stacked a pair or reached past their pill or the viewport
+// where 9.0.18 did not, so each keeps its 9.0.18 label typography up to the
+// width where the shared label has room again (the swept-slot probe in
+// adaptive-actions pins every locale). Line height stays the shared token.
+const SWEPT_ACCOUNT_DELETION =
+  'Account deletion keeps its 9.0.18 14px label on phones up to 420px and screens up to 350px ' +
+  'tall: at 15px the Greek and Malayalam labels wrap at 320 and 340px, and Log out and ' +
+  'Delete account stack in English at 360px and in French at 568x320 where 9.0.18 kept them ' +
+  'on one row. The dialog stops widening at 400px, so taller screens above 420px keep 15px.';
+const SWEPT_INVITE_LINK =
+  'The connect tab invite button keeps the 9.0.18 weight 600 in every mode on phones up to ' +
+  "420px: at 700 'Room connection ended' wraps in Italian and Romanian at 390px and the " +
+  'Tamil copy label at 410px, where 9.0.18 kept one line.';
+const SWEPT_LEAVE_SESSION =
+  'Leave Session on the connect tab keeps the 9.0.18 weight 600 on phones up to 420px: at ' +
+  '700 the Malayalam label wraps at 390px where 9.0.18 kept one line.';
+const SWEPT_HELP_ACTIONS =
+  'The help tab tour and screensaver pills keep the 9.0.18 weight 600 together on phones up ' +
+  'to 420px: at 700 the screensaver label wraps in Malay, Hungarian, Romanian and Tamil ' +
+  'between 340 and 375px where 9.0.18 kept one line.';
+const SWEPT_MEDIA_SOURCES =
+  'The three media source options keep the 9.0.18 label weight and tracking, 600 and ' +
+  '-0.3px, in the phone layout up to 719px: at 700 local file and system audio labels wrap ' +
+  "or break a word in up to 30 locales between 320 and 488px (German 'Systemaudio' splits " +
+  'at 320px). The rule stays in the base layer, so right-to-left labels take no tracking.';
+const SWEPT_SELECTION_TOGGLE =
+  'The deletion-mode Select all / Deselect all toggle keeps the 9.0.18 weight 600 on phones ' +
+  'up to 420px: at 700 the Tamil and Malayalam labels reach past the screen edge at 320 and ' +
+  '340px, further than in 9.0.18.';
+const SWEPT_SETUP_CHOICE =
+  'Create a Room and Join a Room keep the 9.0.18 weight 600 together on phones up to 420px: ' +
+  'at 700 the Bulgarian Join a Room wraps at 360px where 9.0.18 kept one line.';
+const SWEPT_YOUTUBE_ACTIONS =
+  'The YouTube link dialog Cancel and Add pair keeps the 9.0.18 weight 600 in the phone ' +
+  'layout up to 719px: at 700 Add wraps in German and Hungarian at 360px and in Bulgarian at ' +
+  '421px where 9.0.18 kept one line.';
 const COMPACT_OVERRIDES: ReadonlyArray<{
   condition: string;
   selector: string;
   declaration: string;
   reason: string;
 }> = [
+  {
+    condition: '@media (max-width: 420px), (max-height: 350px)',
+    selector: '#btn-account-delete',
+    declaration: 'font-size: 14px',
+    reason: SWEPT_ACCOUNT_DELETION,
+  },
+  {
+    condition: '@media (max-width: 420px)',
+    selector: '.btn-copy-invite-link',
+    declaration: 'font-weight: 600',
+    reason: SWEPT_INVITE_LINK,
+  },
+  {
+    condition: '@media (max-width: 420px)',
+    selector: '#btn-leave-session',
+    declaration: 'font-weight: 600',
+    reason: SWEPT_LEAVE_SESSION,
+  },
+  ...['#btn-demo-media-mobile', '#btn-screensaver-mobile'].map((selector) => ({
+    condition: '@media (max-width: 420px)',
+    selector,
+    declaration: 'font-weight: 600',
+    reason: SWEPT_HELP_ACTIONS,
+  })),
+  ...[
+    '#btn-local-file > span',
+    '#btn-youtube-source > span',
+    '#btn-system-audio .media-source-label-text',
+  ].flatMap((selector) =>
+    ['font-weight: 600', 'letter-spacing: -0.3px'].map((declaration) => ({
+      condition: '@media (max-width: 719px)',
+      selector,
+      declaration,
+      reason: SWEPT_MEDIA_SOURCES,
+    })),
+  ),
+  {
+    condition: '@media (max-width: 420px)',
+    selector: '.playlist-selection-toggle',
+    declaration: 'font-weight: 600',
+    reason: SWEPT_SELECTION_TOGGLE,
+  },
+  ...['#btn-setup-host', '#btn-setup-guest'].map((selector) => ({
+    condition: '@media (max-width: 420px)',
+    selector,
+    declaration: 'font-weight: 600',
+    reason: SWEPT_SETUP_CHOICE,
+  })),
+  ...['#btn-yt-cancel', '#youtube-play-btn'].map((selector) => ({
+    condition: '@media (max-width: 719px)',
+    selector,
+    declaration: 'font-weight: 600',
+    reason: SWEPT_YOUTUBE_ACTIONS,
+  })),
   {
     condition: '@media (max-width: 420px)',
     selector: '.demo-large-actions .accent-action-btn',
@@ -1371,6 +1464,272 @@ const typography = (
   'font-variation-settings': 'normal',
 });
 const SHARED_LABEL = typography('15px', '700', '1.25', 'normal');
+const SEMIBOLD_LABEL = typography('15px', '600', '1.25', 'normal');
+const upTo =
+  (maxWidth: number, narrow: Record<ResolvedProperty, string>) =>
+  ({ environment }: ResolveContext): Record<ResolvedProperty, string> =>
+    environment.width <= maxWidth ? narrow : SHARED_LABEL;
+
+/** Mount a control that TypeScript renders at runtime, as it renders it. */
+const mount = (markup: Document, selector: string, html: string): void => {
+  const container = markup.querySelector(selector);
+  expect(container, selector).not.toBeNull();
+  container!.insertAdjacentHTML('beforeend', html);
+};
+const showTab = (id: string) => (markup: Document) => {
+  markup.getElementById(id)!.classList.add('active');
+};
+const removeAttribute =
+  (selector: string, name: string): PageState['apply'] =>
+  (markup) => {
+    const element = markup.querySelector(selector)!;
+    const before = element.getAttribute(name);
+    expect(before, `${selector}[${name}]`).not.toBeNull();
+    element.removeAttribute(name);
+    return () => element.setAttribute(name, before!);
+  };
+
+// The label sweep's narrow slots (PR #510 QA round 8; SWEPT_* reasons above).
+const SWEPT_NARROW_SLOTS: readonly NarrowSlot[] = [
+  {
+    name: 'account deletion',
+    prepare: (markup) => {
+      markup.getElementById('account-dialog-overlay')!.classList.add('show');
+      markup.getElementById('account-dialog-actions')!.removeAttribute('hidden');
+    },
+    states: [
+      ...SHARED_PAGE_STATES,
+      { name: 'busy', apply: setAttribute('#account-dialog', 'aria-busy', 'true') },
+    ],
+    targets: (markup) => [markup.getElementById('btn-account-delete')!],
+    expected: ({ environment }) =>
+      environment.width <= 420 || environment.height <= 350
+        ? typography('14px', '700', '1.25', 'normal')
+        : SHARED_LABEL,
+  },
+  {
+    name: 'invite link',
+    prepare: (markup) => {
+      showTab('tab-connect')(markup);
+      // As src/ui/connect.ts mounts it.
+      mount(
+        markup,
+        '#qr-container',
+        '<button type="button" class="btn-copy-invite-link" data-mode="copy">' +
+          '<svg viewBox="0 0 24 24"></svg>' +
+          '<span class="material-elastic-spinner signaling-recovery-spinner"></span>' +
+          '<span data-i18n="connect.copy_invite_link">Copy invite link</span></button>',
+      );
+    },
+    states: [
+      ...SHARED_PAGE_STATES,
+      ...['recover', 'recovering', 'expired'].map((mode) => ({
+        name: `${mode} mode`,
+        apply: setAttribute('#qr-container .btn-copy-invite-link', 'data-mode', mode),
+      })),
+    ],
+    targets: (markup) => [
+      ...markup.querySelectorAll(
+        '#qr-container .btn-copy-invite-link, #qr-container .btn-copy-invite-link > span[data-i18n]',
+      ),
+    ],
+    expected: upTo(420, SEMIBOLD_LABEL),
+  },
+  {
+    name: 'leave session',
+    prepare: showTab('tab-connect'),
+    states: SHARED_PAGE_STATES,
+    targets: (markup) => [
+      ...markup.querySelectorAll('#btn-leave-session, #btn-leave-session > span'),
+    ],
+    expected: upTo(420, SEMIBOLD_LABEL),
+  },
+  {
+    name: 'help actions',
+    prepare: showTab('tab-guide'),
+    states: SHARED_PAGE_STATES,
+    targets: (markup) => [
+      ...markup.querySelectorAll(
+        '#btn-demo-media-mobile, #btn-demo-media-mobile > span, ' +
+          '#btn-screensaver-mobile, #btn-screensaver-mobile > span',
+      ),
+    ],
+    expected: upTo(420, SEMIBOLD_LABEL),
+  },
+  {
+    name: 'media sources',
+    prepare: (markup) => {
+      markup.getElementById('media-source-overlay')!.classList.add('active');
+    },
+    states: [
+      ...SHARED_PAGE_STATES,
+      // Phones cannot capture system audio.
+      { name: 'system audio unsupported', apply: toggleClass('#btn-system-audio', 'unsupported') },
+    ],
+    targets: (markup) => [
+      ...markup.querySelectorAll(
+        '#btn-local-file > span, #btn-youtube-source > span, ' +
+          '#btn-system-audio .media-source-label-text',
+      ),
+    ],
+    expected: ({ direction, environment }) =>
+      environment.width <= 719
+        ? typography('15px', '600', '1.25', direction === 'rtl' ? 'normal' : '-0.3px')
+        : SHARED_LABEL,
+  },
+  {
+    name: 'selection toggle',
+    prepare: (markup) => {
+      showTab('tab-playlist')(markup);
+      // As src/ui/playlist-removal.ts lays out the deletion mode.
+      markup.querySelector('#tab-playlist > .tab-header')!.classList.add('is-removal-selecting');
+      mount(
+        markup,
+        '#tab-playlist .playlist-title-area',
+        '<button type="button" class="playlist-selection-toggle" ' +
+          'data-selection-action="select-all">Select all (999)</button>',
+      );
+    },
+    states: SHARED_PAGE_STATES,
+    targets: (markup) => [...markup.querySelectorAll('.playlist-selection-toggle')],
+    expected: upTo(420, SEMIBOLD_LABEL),
+  },
+  {
+    name: 'setup choice',
+    prepare: (markup) => {
+      markup.getElementById('setup-overlay')!.classList.add('active');
+      // As src/ui/setup.ts renders the room choice.
+      markup.getElementById('setup-actions')!.classList.add('vertical');
+      mount(
+        markup,
+        '#setup-actions',
+        '<button id="btn-setup-host" type="button" class="btn-ob-primary">Create a Room</button>' +
+          '<button id="btn-setup-guest" type="button" class="btn-ob-secondary">Join a Room</button>',
+      );
+    },
+    states: SHARED_PAGE_STATES,
+    targets: (markup) => [...markup.querySelectorAll('#btn-setup-host, #btn-setup-guest')],
+    expected: upTo(420, SEMIBOLD_LABEL),
+  },
+  {
+    name: 'YouTube link actions',
+    prepare: (markup) => {
+      markup.getElementById('youtube-url-overlay')!.classList.add('active');
+    },
+    states: [
+      ...SHARED_PAGE_STATES,
+      { name: 'link entered', apply: removeAttribute('#youtube-play-btn', 'disabled') },
+    ],
+    targets: (markup) => [...markup.querySelectorAll('#btn-yt-cancel, #youtube-play-btn')],
+    expected: upTo(719, SEMIBOLD_LABEL),
+  },
+];
+
+// A rule each swept slot's guard must catch: a token read in a later layer,
+// between two samples or on short screens only.
+const NARROW_SLOT_MUTATIONS: Record<string, { slots: string[]; css: string }> = {
+  'account deletion back to 15px in a later layer': {
+    slots: ['account deletion'],
+    css: `
+    @layer responsive {
+      .account-dialog-actions .dialog-secondary {
+        font-size: var(--button-label-size);
+      }
+    }`,
+  },
+  'account deletion back to 15px on short screens only': {
+    slots: ['account deletion'],
+    css: `
+    @layer states {
+      @media (min-width: 421px) and (max-height: 350px) {
+        .account-dialog-actions .dialog-danger {
+          font-size: var(--button-label-size);
+        }
+      }
+    }`,
+  },
+  'invite link back to 700 on 375px phones': {
+    slots: ['invite link'],
+    css: `
+    @layer states {
+      @media (min-width: 361px) and (max-width: 389px) {
+        .qr-container .btn-copy-invite-link {
+          font-weight: var(--button-label-weight);
+        }
+      }
+    }`,
+  },
+  'leave session back to 700 in landscape': {
+    slots: ['leave session'],
+    css: `
+    @layer components {
+      @media (orientation: landscape) {
+        .section-group > .leave-session-btn {
+          font-weight: var(--button-label-weight);
+        }
+      }
+    }`,
+  },
+  'help actions back to 700 in a later layer': {
+    slots: ['help actions'],
+    css: `
+    @layer components {
+      .help-actions .accent-action-btn {
+        font-weight: var(--button-label-weight);
+      }
+    }`,
+  },
+  'media sources lose their tracking in a later layer': {
+    slots: ['media sources'],
+    css: `
+    @layer components {
+      .setup-slot-list .file-select-btn span {
+        letter-spacing: var(--button-label-letter-spacing);
+      }
+    }`,
+  },
+  'media sources back to 700 between 421 and 719px': {
+    slots: ['media sources'],
+    css: `
+    @layer responsive {
+      @media (min-width: 421px) and (max-width: 719px) {
+        #media-source-overlay .file-select-btn > span {
+          font-weight: var(--button-label-weight);
+        }
+      }
+    }`,
+  },
+  'selection toggle back to 700 through the weight axis': {
+    slots: ['selection toggle'],
+    css: `
+    @layer states {
+      .tab-header.is-removal-selecting .playlist-selection-toggle {
+        font-variation-settings: 'wght' 700;
+      }
+    }`,
+  },
+  'setup choice back to 700 in a later layer': {
+    slots: ['setup choice'],
+    css: `
+    @layer responsive {
+      .onboarding-overlay .ob-actions.vertical > button {
+        font-weight: var(--button-label-weight);
+      }
+    }`,
+  },
+  'YouTube link actions back to 700 at 421px': {
+    slots: ['YouTube link actions'],
+    css: `
+    @layer states {
+      @media (min-width: 421px) and (max-width: 421px) {
+        .setup-card-mt-8-row > button {
+          font-weight: var(--button-label-weight);
+        }
+      }
+    }`,
+  },
+};
+
 const NARROW_SLOTS: readonly NarrowSlot[] = [
   {
     // The play tab's Sync, Media and Stop Sharing labels.
@@ -1420,6 +1779,7 @@ const NARROW_SLOTS: readonly NarrowSlot[] = [
     expected: ({ environment }) =>
       environment.width <= 420 ? typography('13px', '600', '1.25', 'normal') : SHARED_LABEL,
   },
+  ...SWEPT_NARROW_SLOTS,
 ];
 
 class FirstFailure extends Error {}
@@ -1736,6 +2096,7 @@ describe('action button label contract', () => {
             }
           }`,
       },
+      ...NARROW_SLOT_MUTATIONS,
     };
     // Each mutation turns every slot it names back somewhere.
     for (const [name, { slots, css }] of Object.entries(mutations)) {
@@ -1750,6 +2111,13 @@ describe('action button label contract', () => {
           `${name}: ${slot}`,
         ).toHaveLength(1);
       }
+    }
+    // Every swept slot has a mutation.
+    for (const slot of SWEPT_NARROW_SLOTS) {
+      expect(
+        Object.values(NARROW_SLOT_MUTATIONS).some((mutation) => mutation.slots.includes(slot.name)),
+        slot.name,
+      ).toBe(true);
     }
     // A label-typography violation at rule level too.
     expect(

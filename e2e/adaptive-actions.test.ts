@@ -51,6 +51,30 @@ const AUDITED_ACTION_KEYS = [
   'account.delete_account',
 ] as const;
 
+const SWEPT_SLOT_KEYS = {
+  logout: 'account.logout',
+  deleteAccount: 'account.delete_account',
+  close: 'common.close',
+  copy: 'connect.copy_invite_link',
+  recover: 'connect.signaling_recover_action',
+  recovering: 'connect.signaling_recovering',
+  expired: 'connect.signaling_expired',
+  nickname: 'account.change_nickname',
+  leave: 'settings.leave_session',
+  tour: 'setup.demo_button',
+  screensaver: 'screensaver.turn_on',
+  local: 'help.load_local',
+  youtube: 'help.youtube_compat',
+  system: 'system_audio.button',
+  selectAll: 'playlist.select_all',
+  deselectAll: 'playlist.deselect_all',
+  selectedCount: 'playlist.selected_count',
+  host: 'setup.host_button',
+  guest: 'setup.guest_button',
+  cancel: 'common.cancel',
+  add: 'player.play_start',
+} as const;
+
 const LOCALIZED_ACTIONS = Object.entries(LOCALES).map(([code, dictionary]) => ({
   code,
   htmlLang: LANGUAGE_OPTIONS.find((locale) => locale.code === code)!.htmlLang,
@@ -78,6 +102,13 @@ const LOCALIZED_ACTIONS = Object.entries(LOCALES).map(([code, dictionary]) => ({
     info: (dictionary as Record<string, string>)['demo.track_info'],
     exit: (dictionary as Record<string, string>)['demo.exit'],
   },
+  // The labels of the label sweep's narrow slots (swept slot probe below).
+  swept: Object.fromEntries(
+    Object.entries(SWEPT_SLOT_KEYS).map(([name, key]) => [
+      name,
+      (dictionary as Record<string, string>)[key]!,
+    ]),
+  ) as Record<keyof typeof SWEPT_SLOT_KEYS, string>,
   nav: [
     (dictionary as Record<string, string>)['nav.home'],
     (dictionary as Record<string, string>)['nav.playlist_compact'],
@@ -113,10 +144,10 @@ type ActionMetrics = {
 async function installLayoutProbe(
   page: Page,
   markup: string,
-  options: { viewportWidth?: number; direction?: 'ltr' | 'rtl' } = {},
+  options: { viewportWidth?: number; viewportHeight?: number; direction?: 'ltr' | 'rtl' } = {},
 ): Promise<void> {
   const viewportWidth = options.viewportWidth ?? 320;
-  await page.setViewportSize({ width: viewportWidth, height: 800 });
+  await page.setViewportSize({ width: viewportWidth, height: options.viewportHeight ?? 800 });
   // Serve the same font CSS and bytes as the app without a preview server.
   // Unicode ranges keep the browser from downloading unused Noto shards.
   await page.route(`${FONT_ORIGIN}/**`, async (route) => {
@@ -1124,6 +1155,361 @@ test.describe('content-based adaptive action groups', () => {
         }
       }
       expect(worse, `labels that spill further than 9.0.18 at ${viewportWidth}px`).toEqual([]);
+    });
+  }
+
+  // The label sweep's narrow slots (PR #510 QA round 8; button-label-contract
+  // names each exception). Each locale's slot is rendered from the authored
+  // markup in its own containers and measured twice in the same browser and
+  // fonts: as shipped, and with each excepted label's 9.0.18 typography
+  // inline. No label may wrap to more lines, break inside more words, or
+  // reach further past its pill or past the viewport, and no action pair may
+  // take more rows than with the 9.0.18 typography. The widths above each
+  // exception's boundary show that the shipped 700 labels have room there.
+  const SWEPT_SLOTS_9_0_18: Record<string, { selector: string; typography: string }> = {
+    'account deletion': {
+      selector: '#btn-account-delete',
+      typography: 'font-size: 14px; font-weight: 700; line-height: 1.2; letter-spacing: normal',
+    },
+    'invite link': {
+      selector: '.btn-copy-invite-link > span:last-child',
+      typography: 'font-size: 15px; font-weight: 600; line-height: 1.3; letter-spacing: normal',
+    },
+    'leave session': {
+      selector: '#btn-leave-session > span',
+      typography: 'font-size: 15px; font-weight: 600; line-height: normal; letter-spacing: normal',
+    },
+    'help actions': {
+      selector: '.help-actions > button > span',
+      typography: 'font-size: 15px; font-weight: 600; line-height: 1.3; letter-spacing: normal',
+    },
+    'media sources': {
+      selector:
+        '#btn-local-file > span, #btn-youtube-source > span, #btn-system-audio .media-source-label-text',
+      typography: 'font-size: 15px; font-weight: 600; line-height: 1.25; letter-spacing: -0.3px',
+    },
+    'selection toggle': {
+      selector: '.playlist-selection-toggle',
+      typography: 'font-size: 15px; font-weight: 600; line-height: 1.2; letter-spacing: normal',
+    },
+    'setup choice': {
+      selector: '#btn-setup-host, #btn-setup-guest',
+      typography: 'font-size: 15px; font-weight: 600; line-height: normal; letter-spacing: normal',
+    },
+    'YouTube link actions': {
+      selector: '#btn-yt-cancel, #youtube-play-btn',
+      typography: 'font-size: 15px; font-weight: 600; line-height: normal; letter-spacing: normal',
+    },
+  };
+  // The phone widths, both sides of the 420px and 719/720px boundaries, a
+  // width inside the band where media labels still wrapped at 700 (482 to
+  // 488px), and two landscape phones (568x320 compresses the account dialog).
+  const SWEPT_SLOT_VIEWPORTS: Array<[number, number]> = [
+    [320, 800],
+    [340, 800],
+    [360, 800],
+    [375, 800],
+    [390, 800],
+    [410, 800],
+    [420, 800],
+    [421, 800],
+    [482, 800],
+    [719, 800],
+    [720, 800],
+    [568, 320],
+    [844, 390],
+  ];
+  for (const [viewportWidth, viewportHeight] of SWEPT_SLOT_VIEWPORTS) {
+    test(`keeps the swept narrow slots no worse than 9.0.18 in every locale at ${viewportWidth}x${viewportHeight}`, async ({
+      page,
+    }) => {
+      const worse: string[] = [];
+      let probedLocales = 0;
+      // Right-to-left locales on a right-to-left page, so the direction rules
+      // (the tracking reset among them) apply as in the app, in both themes
+      // (the light theme drops the media options' 2px border).
+      for (const theme of ['dark', 'light'] as const) {
+        for (const direction of ['ltr', 'rtl'] as const) {
+          await installLayoutProbe(page, '<main id="swept-slot-probes"></main>', {
+            viewportWidth,
+            viewportHeight,
+            direction,
+          });
+          await page.evaluate((value) => {
+            document.documentElement.dataset.theme = value;
+          }, theme);
+          const localesWithFonts = (await localizedActionsWithFonts(page)).filter(
+            (locale) => locale.dir === direction,
+          );
+          probedLocales += localesWithFonts.length;
+          await probeSweptSlots(page, localesWithFonts, worse, theme);
+        }
+      }
+      expect(probedLocales).toBe(84);
+      expect(worse, `swept slots worse than 9.0.18 at ${viewportWidth}x${viewportHeight}`).toEqual(
+        [],
+      );
+    });
+  }
+
+  async function probeSweptSlots(
+    page: Page,
+    localesWithFonts: Awaited<ReturnType<typeof localizedActionsWithFonts>>,
+    worse: string[],
+    theme: string,
+  ): Promise<void> {
+    const built = await page.evaluate(
+      ({ locales, markup, slots }) => {
+        const root = document.getElementById('swept-slot-probes')!;
+        // Compare finished layouts: no transition may run between the two
+        // measurements.
+        const still = document.createElement('style');
+        still.textContent =
+          '#swept-slot-probes *, #swept-slot-probes *::before, #swept-slot-probes *::after ' +
+          '{ transition: none !important; animation: none !important; }';
+        document.head.appendChild(still);
+        const authored = new DOMParser().parseFromString(markup, 'text/html');
+        // The authored element with shallow copies of its ancestors, so every
+        // container rule applies without the rest of the app.
+        const inPlace = (selector: string): { outer: HTMLElement; target: HTMLElement } => {
+          const source = authored.querySelector<HTMLElement>(selector)!;
+          const target = source.cloneNode(true) as HTMLElement;
+          let outer = target;
+          for (
+            let ancestor = source.parentElement;
+            ancestor && ancestor !== authored.body;
+            ancestor = ancestor.parentElement
+          ) {
+            const copy = ancestor.cloneNode(false) as HTMLElement;
+            copy.appendChild(outer);
+            outer = copy;
+          }
+          return { outer, target };
+        };
+        const text = (scope: ParentNode, selector: string, value: string): void => {
+          scope.querySelector<HTMLElement>(selector)!.textContent = value;
+        };
+        type Locale = (typeof locales)[number];
+        const builders: Record<string, (locale: Locale) => HTMLElement[]> = {
+          'account deletion': (locale) => {
+            const { outer, target } = inPlace('#account-dialog-actions');
+            outer.classList.add('show');
+            target.hidden = false;
+            text(target, '#btn-account-logout', locale.swept.logout);
+            text(target, '#btn-account-delete', locale.swept.deleteAccount);
+            text(target, '#btn-account-center-close', locale.swept.close);
+            target.dataset.sweptRow = '';
+            return [outer];
+          },
+          'invite link': (locale) =>
+            (['copy', 'recover', 'recovering', 'expired'] as const).map((mode) => {
+              const { outer, target } = inPlace('#qr-container');
+              outer.classList.add('active');
+              // As src/ui/connect.ts mounts it.
+              target.insertAdjacentHTML(
+                'beforeend',
+                '<button type="button" class="btn-copy-invite-link"><svg viewBox="0 0 24 24"></svg>' +
+                  '<span class="material-elastic-spinner signaling-recovery-spinner"></span>' +
+                  '<span></span></button>',
+              );
+              const button = target.querySelector<HTMLElement>('.btn-copy-invite-link')!;
+              button.dataset.mode = mode;
+              text(button, 'span:last-child', locale.swept[mode]);
+              return outer;
+            }),
+          'leave session': (locale) => {
+            const { outer, target } = inPlace('#btn-leave-session');
+            outer.classList.add('active');
+            text(target, 'span', locale.swept.leave);
+            return [outer];
+          },
+          'help actions': (locale) => {
+            const { outer, target } = inPlace('#tab-guide .help-actions');
+            outer.classList.add('active');
+            text(target, '#btn-demo-media-mobile > span', locale.swept.tour);
+            text(target, '#btn-screensaver-mobile > span', locale.swept.screensaver);
+            return [outer];
+          },
+          'media sources': (locale) =>
+            [true, false].map((supported) => {
+              const overlay = authored.getElementById('media-source-overlay')!;
+              const outer = overlay.cloneNode(true) as HTMLElement;
+              outer.classList.add('active');
+              text(outer, '#btn-local-file > span', locale.swept.local);
+              text(outer, '#btn-youtube-source > span', locale.swept.youtube);
+              text(outer, '#btn-system-audio .media-source-label-text', locale.swept.system);
+              // Phones cannot capture system audio: the option is marked
+              // unsupported and its Beta badge hidden.
+              outer.querySelector('#btn-system-audio')!.classList.toggle('unsupported', !supported);
+              return outer;
+            }),
+          'selection toggle': (locale) =>
+            ['5', '42', '128', '999', 'all'].map((count) => {
+              const { outer, target } = inPlace('#tab-playlist > .tab-header');
+              outer.classList.add('active');
+              // As src/ui/playlist-removal.ts lays out the deletion mode.
+              target.classList.add('is-removal-selecting');
+              const title = document.createElement('span');
+              title.className = 'tab-title playlist-selection-title';
+              title.textContent = locale.swept.selectedCount.replace(
+                /\{\{count\}\}/u,
+                count === 'all' ? '5' : '1',
+              );
+              target.querySelector(':scope > .tab-title')!.after(title);
+              const toggle = document.createElement('button');
+              toggle.type = 'button';
+              toggle.className = 'playlist-selection-toggle';
+              toggle.textContent =
+                count === 'all' ? locale.swept.deselectAll : `${locale.swept.selectAll} (${count})`;
+              target.querySelector('.playlist-title-area')!.appendChild(toggle);
+              return outer;
+            }),
+          'setup choice': (locale) => {
+            const { outer, target } = inPlace('#setup-actions');
+            outer.classList.add('active');
+            // As src/ui/setup.ts renders the room choice.
+            target.classList.add('vertical');
+            target.innerHTML =
+              '<button type="button" id="btn-setup-host" class="btn-ob-primary"></button>' +
+              '<button type="button" id="btn-setup-guest" class="btn-ob-secondary"></button>';
+            text(target, '#btn-setup-host', locale.swept.host);
+            text(target, '#btn-setup-guest', locale.swept.guest);
+            return [outer];
+          },
+          'YouTube link actions': (locale) => {
+            const overlay = authored.getElementById('youtube-url-overlay')!;
+            const outer = overlay.cloneNode(true) as HTMLElement;
+            outer.classList.add('active');
+            text(outer, '#btn-yt-cancel', locale.swept.cancel);
+            text(outer, '#youtube-play-btn', locale.swept.add);
+            outer.querySelector<HTMLElement>('#youtube-play-btn')!.parentElement!.dataset.sweptRow =
+              '';
+            return [outer];
+          },
+        };
+        let instances = 0;
+        for (const locale of locales) {
+          for (const [slot, build] of Object.entries(builders)) {
+            for (const outer of build(locale)) {
+              outer.classList.add('swept-slot-probe');
+              outer.dataset.slot = slot;
+              outer.dataset.instance = String(instances++);
+              outer.lang = locale.htmlLang;
+              outer.dir = locale.dir;
+              outer.style.setProperty('--font-sans', locale.fontFamily);
+              outer.style.fontFamily = locale.fontFamily;
+              for (const label of outer.querySelectorAll<HTMLElement>(slots[slot]!.selector)) {
+                label.dataset.sweptLabel = slot;
+              }
+              root.appendChild(outer);
+            }
+          }
+        }
+        return instances;
+      },
+      { locales: localesWithFonts, markup: APP_MARKUP, slots: SWEPT_SLOTS_9_0_18 },
+    );
+    await waitForLayoutFonts(page);
+
+    // Lines, word breaks and reach of each excepted label, and the rows of
+    // each action pair, as the page now lays them out.
+    const measure = () =>
+      page.locator('.swept-slot-probe').evaluateAll((probes) =>
+        probes.flatMap((probe) => {
+          const lang = probe.getAttribute('lang') ?? 'unknown';
+          const segmenter = new Intl.Segmenter(lang, { granularity: 'word' });
+          const lineCount = (rects: DOMRect[]): number => {
+            let lines = 0;
+            let center = Number.NEGATIVE_INFINITY;
+            for (const rect of rects
+              .filter((entry) => entry.width > 0.5 && entry.height > 0.5)
+              .sort((first, second) => first.top - second.top)) {
+              const middle = rect.top + rect.height / 2;
+              if (middle - center > rect.height / 2) {
+                lines += 1;
+                center = middle;
+              }
+            }
+            return lines;
+          };
+          const labels = [...probe.querySelectorAll<HTMLElement>('[data-swept-label]')].map(
+            (label) => {
+              const pill = (label.closest('button') ?? label).getBoundingClientRect();
+              const range = document.createRange();
+              range.selectNodeContents(label);
+              const glyphs = [...range.getClientRects()].filter(
+                (rect) => rect.width > 0.5 && rect.height > 0.5,
+              );
+              const left = Math.min(...glyphs.map((rect) => rect.left));
+              const right = Math.max(...glyphs.map((rect) => rect.right));
+              const top = Math.min(...glyphs.map((rect) => rect.top));
+              const bottom = Math.max(...glyphs.map((rect) => rect.bottom));
+              let broken = 0;
+              const walker = document.createTreeWalker(label, NodeFilter.SHOW_TEXT);
+              for (let node = walker.nextNode(); node; node = walker.nextNode()) {
+                for (const word of segmenter.segment(node.textContent ?? '')) {
+                  if (!word.isWordLike || word.segment.length < 2) continue;
+                  const part = document.createRange();
+                  part.setStart(node, word.index);
+                  part.setEnd(node, word.index + word.segment.length);
+                  if (lineCount([...part.getClientRects()]) > 1) broken += 1;
+                }
+              }
+              return {
+                id: `${probe.dataset.slot} ${lang} #${probe.dataset.instance} ${label.textContent?.trim()}`,
+                lines: lineCount(glyphs),
+                broken,
+                horizontal: Math.max(0, pill.left - left, right - pill.right),
+                vertical: Math.max(0, pill.top - top, bottom - pill.bottom),
+                viewport: Math.max(
+                  0,
+                  -left,
+                  right - innerWidth,
+                  -pill.left,
+                  pill.right - innerWidth,
+                ),
+              };
+            },
+          );
+          const rows = [...probe.querySelectorAll<HTMLElement>('[data-swept-row]')].map((row) => ({
+            id: `${probe.dataset.slot} ${lang} #${probe.dataset.instance} rows`,
+            rows: new Set(
+              [...row.querySelectorAll<HTMLElement>(':scope > button:not([hidden])')].map(
+                (button) => Math.round(button.getBoundingClientRect().top),
+              ),
+            ).size,
+          }));
+          return [...labels, ...rows];
+        }),
+      );
+    const shipped = await measure();
+    await page.evaluate((slots) => {
+      for (const label of document.querySelectorAll<HTMLElement>('[data-swept-label]')) {
+        const probe = label.closest<HTMLElement>('.swept-slot-probe')!;
+        for (const declaration of slots[label.dataset.sweptLabel!]!.typography.split(';')) {
+          const [property, value] = declaration.split(':').map((part) => part.trim());
+          // As in 9.0.18, right-to-left labels take no tracking.
+          const resolved = property === 'letter-spacing' && probe.dir === 'rtl' ? 'normal' : value!;
+          label.style.setProperty(property!, resolved, 'important');
+        }
+      }
+    }, SWEPT_SLOTS_9_0_18);
+    await waitForLayoutFonts(page);
+    const reference = await measure();
+
+    // Per locale: account, 4 invite modes, leave, help, 2 media states, 5
+    // toggle states, setup and YouTube.
+    expect(built).toBe(localesWithFonts.length * 16);
+    expect(reference.map((entry) => entry.id)).toEqual(shipped.map((entry) => entry.id));
+    shipped.forEach((entry, index) => {
+      const before = reference[index]! as Record<string, unknown>;
+      for (const [metric, value] of Object.entries(entry)) {
+        if (metric === 'id') continue;
+        const tolerance = ['lines', 'broken', 'rows'].includes(metric) ? 0 : 0.5;
+        if ((value as number) > (before[metric] as number) + tolerance) {
+          worse.push(`${theme} ${entry.id} ${metric}: ${value} (9.0.18 type ${before[metric]})`);
+        }
+      }
     });
   }
 

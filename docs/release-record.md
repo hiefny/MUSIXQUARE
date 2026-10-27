@@ -51,16 +51,18 @@ gh run list --workflow e2e.yml --branch main --limit 3
 - [ ] 오너 요청(2026-10-27): 운영에서 대용량 업로드와 용량 초과 안내를 재현한 뒤 수정 PR만 제출한다.
       병합은 오너가 PR을 보고 결정하며 이 작업에서 배포하지 않는다. 브라우저 업로드 완료는 R2 내부
       CopyObject와 원본 ETag 조건·최종 HEAD 검증으로 Worker의 전체 파일 읽기·재전송을 없앤다.
-      이미 전송한 파일의 완료 재시도는 같은 asset·key·본문을 재사용한다. 용량 초과·빈 파일 안내와
+      복사가 검증된 최종 객체를 남기지 못하면 9.0.15의 바인딩 복사로 대체하고(원본 변경이 확인되면 쓰지 않음),
+      시도마다 `media_copy`·`media_copy_fallback` 진단을 남긴다(자원 소유권 RO-52). 이미 전송한 파일의 완료 재시도는 같은 asset·key·본문을 재사용한다. 용량 초과·빈 파일 안내와
       Standard/PRO의 권한 확인 중 안내를 고친다. App·PRO 변경이므로 후속 배포는 정식 `all` 경로다.
       복사는 8초, 완료 facade는 10초, 나머지 제어는 5초다. 신규 의존성·비밀·바인딩·D1 이주·CORS 변경은 없다.
       기존 asset에 선택적 원본 ETag 핀, tombstone에 final 키를 추가하며 기존 정리 소유권을 유지한다.
       복사 결과가 불명확한 동안 옛 PRO Worker로 롤백하면 새 핀·정리 필드를 무시하므로 forward fix를 우선한다.
       Developer API는 기존 스트림 복사를 유지한다.
-      [PR #503](https://github.com/hiefny/MUSIXQUARE/pull/503)의 최종 런타임 `f2f25d902`에서 빌드·타입·가드가
+      [PR #503](https://github.com/hiefny/MUSIXQUARE/pull/503)의 복사 안전장치 전 런타임 `f2f25d902`에서 빌드·타입·가드가
       통과했고, 단위 16,112개는 전체 실행과 도구 테스트 시간 초과 두 건의 단독 재실행에 걸쳐 모두 통과했다.
       같은 SHA의 PR CI 단위 두 shard·critical browser도 통과했다(최종 집계와 한계는 아래 보고서).
       실제 수정본의 운영 대용량 성공·CopyObject 지연 확인은 미실시이며 로컬 결과는 exact-main 후보가 아니다.
+      복사 안전장치 증분의 로컬 검증은 보고서 QA 라운드 4에 있다.
       [변경·QA·복구 보고서](design/pro-upload-reliability-2026-10-27.md).
 
 ### 구버전 호환 코드 제거 열차 2 릴리스 A(9.0.15/v788, 배포 전): 바닥 787 아래만 섬기던 앱 쪽 호환 코드

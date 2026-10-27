@@ -12,7 +12,9 @@
 
 1. **Keep the file copy inside R2.** Browser completion sends a bounded,
    server-authenticated CopyObject request with a durably pinned staging ETag as
-   a condition. The Worker no longer reads and retransmits the full file.
+   a condition. The Worker no longer reads and retransmits the full file
+   unless the copy leaves no verified final object; then completion falls
+   back to the 9.0.15 binding copy (see 복사 안전장치 below).
    Completion retains serialized authorization, generation, quota and
    idempotency checks, a distinct final key, and final HEAD validation.
    The copy budget is 8 seconds and the completion facade budget is 10 seconds;
@@ -151,6 +153,29 @@ Later report-only commits do not change this runtime evidence.
 Local logs and screenshots remain in ignored private notes. Neither local
 results nor PR CI replace the exact-main-SHA candidate required after merge.
 
+### 4. 복사 안전장치 개발 검증
+
+테스트한 코드: `13192c3cb`(9.0.16 / v790 표기 그대로, 아래
+[복사 안전장치](#복사-안전장치-바인딩-대체-경로와-복사-진단)). 환경: Windows,
+Node 24.20.0, npm 12.0.2, Vitest 5.0.3, 로컬 실행만. 실제 R2와 자격 증명은 쓰지
+않았다.
+
+- **테스트 먼저:** `b122e4028`의 새 경우와 바뀐 경우를 PR 코드 `7c574da7`에서
+  돌리면 26개가 실패하고 나머지 506개는 통과했다(PRO 방 Worker·진단 두 파일).
+  같은 테스트는 `13192c3cb`에서 532개 모두 통과했다.
+- **단위:** `src/pro-room` 전체, App facade 진단(`pro-room-proxy-diagnostics`),
+  `src/i18n` 전체(토스트 문구 정책 포함): 132개 파일, 3,028개 모두 통과. 업로드
+  큐와 자원 소유권 가드 테스트도 따로 다시 돌려 통과했다.
+- **Worker 묶음:** `vitest.workers.config.ts` 커버리지 실행이 67개 파일, 3,218개
+  모두 통과했고 파일별 커버리지 하한을 지켰다.
+- **정적 검사:** `tsc --noEmit`, `typecheck:tests`, `check:workers`, `lint`,
+  `format:check`, dead-exports, import-graph, bus-pairing, room-authority,
+  resource-ownership 가드가 통과했다. room-authority 수치는 그대로이고
+  resource-ownership은 RO-52를 더해 49개 기록이다.
+- **돌리지 않은 것:** 전체 단위 실행, critical 브라우저 묶음, 운영 빌드, Worker
+  dry-run 번들, PR CI. 실제 R2 CopyObject 응답, 운영 복사 지연, 운영 진단 출력도
+  확인하지 않았다. 대체 경로 성공은 가짜 R2로만 확인했다.
+
 ## Release and recovery
 
 - App and PRO Worker changes require the normal coordinated `all` release
@@ -169,13 +194,72 @@ results nor PR CI replace the exact-main-SHA candidate required after merge.
   upload protocol. Closing/reloading the document discards it.
 - Developer API completion still copies; this PR addresses the reported
   browser upload path.
+- 배포 창과 복사 대체 경로의 회복은 아래 [복사 안전장치](#복사-안전장치-바인딩-대체-경로와-복사-진단)를 따른다.
+
+## 복사 안전장치: 바인딩 대체 경로와 복사 진단
+
+서명한 CopyObject 요청은 실제 R2에서 실행된 적이 없다. 처음 PR은 결과 XML을
+엄격하게 읽었고, 어떤 실패든 진단 없는 503 `MEDIA_STORAGE_UNAVAILABLE`로 끝냈다.
+자격 증명 없이 이 위험을 줄이려고 브라우저 완료(`handleCompleteMedia`)에 다음을
+더했다.
+
+- **바인딩 대체 경로.** 복사가 검증된 최종 객체를 남기지 못하면 9.0.15까지 쓰던
+  바인딩 복사(`PRO_MEDIA_BUCKET` get 뒤 put)로 같은 최종 키에 같은 메타데이터를
+  쓰고 같은 HEAD 검증을 거친다. 메타데이터에는 고정한 원본 ETag
+  (`mxqr-copy-source-etag`)도 들어간다. 대상은 200이 아닌 모든 상태(412 포함),
+  네트워크 오류, 8초 기한, 읽을 수 없거나 16 KiB를 넘는 결과, 복사 뒤 HEAD 실패,
+  ETag나 메타데이터 불일치, S3 자격 증명 없음이다. 그래서 최악의 경우가 9.0.15
+  동작과 같다.
+- **원본이 바뀐 경우만 쓰지 않는다.** 대체 경로는 staging을 한 번 읽고, 그 읽기의
+  ETag가 고정값과 같을 때만 쓴다. 412만으로는 원본 변경을 확정하지 않는다(R2의
+  ETag 형식 차이일 수도 있다). 바인딩 읽기가 변경을 보여 주면 쓰지 않고, 처음
+  PR처럼 503으로 답하며 예약과 고정값을 남긴다. 같은 키 재시도는
+  `UPLOAD_MISMATCH`(409)로 끝난다.
+- **대체 경로도 실패하면.** staging이 없거나, R2 읽기·쓰기·HEAD가 실패하거나, 쓴
+  객체가 검증을 통과하지 못하면(이때 그 객체는 지운다) 503으로 답하고 두 키와
+  고정값을 남긴다. 재시도는 최종 객체를 다시 확인하거나 대체 경로를 다시 돈다.
+- **결과 파서 완화.** `CopyObjectResult` 루트 안에 ETag가 정확히 하나 있으면 결과로
+  본다. XML 선언의 따옴표와 대소문자(`utf-8` 포함), 네임스페이스와 속성, 모르는
+  자식 요소(체크섬 등), `&quot;`·`&#34;`·`&#x22;` 따옴표나 따옴표 없는 ETag를
+  받아들인다. 뒤이은 HEAD가 이 ETag와 예약·고정 메타데이터를 그대로 확인한다.
+  `<Error>` 문서, 닫힌 빈 루트, ETag 없는 결과는 여전히 실패다.
+- **복사 진단.** 시도마다 방 범위 기록을 남긴다. 복사는 `media_copy`, 대체 경로가
+  돌면 `media_copy_fallback`이다. 필드는 이유, 상태 코드, 경과 ms, 2의 거듭제곱 MiB
+  크기 구간뿐이다. 복사 이유는 `ok`, `status_4xx`, `status_5xx`, `status_other`,
+  `precondition`, `network`, `timeout`, `body`, `parse`, `head`, `etag_mismatch`,
+  `metadata_mismatch`, `unconfigured`이고, 대체 경로 이유는 `ok`, `source_missing`,
+  `source_mismatch`, `storage`, `verify`다. 운영 첫 기록이 필요해서 성공도 남긴다.
+  키, 자격 증명, ETag, 파일 이름, 정확한 바이트 수는 넣지 않는다. 기존 분당 상세
+  예산(이유마다 첫 기록, 반복 기록은 창마다 모두 합쳐 4개)과 분 요약 집계를 함께
+  쓴다.
+
+기한과 배포 창:
+
+- 복사 기한 8초와 완료 facade 기한 10초(`cloudflare/pro-room-media-timing.ts`)는
+  그대로다. 대체 경로는 9.0.15처럼 자체 기한이 없어서 큰 파일이면 facade 기한을
+  넘길 수 있다. 그러면 브라우저는 facade 시간 초과를 받고, 같은 키 재시도가 저장된
+  응답을 재생하거나 최종 객체를 다시 확인한다. 방 객체는 완료를 한 번에 하나씩
+  처리하므로 재시도는 앞선 완료가 끝난 뒤에 실행된다.
+- `all` 릴리스는 PRO Worker를 App Worker보다 먼저 배포한다. 그 사이에는 옛 App
+  facade의 5초 제어 기한이 새 PRO 복사(8초 기한) 앞에 선다. 5초를 넘는 완료는
+  9.0.15에서처럼 facade 시간 초과로 보이고, 같은 방식(같은 키 재시도나 기존 고아
+  정리)으로 회복된다. App 배포가 끝나면 10초 facade가 적용된다.
+- 버려진 복사가 R2에서 늦게 커밋될 수 있으므로 대체 경로는 같은 최종 키의 두 번째
+  쓰기 주체다. 그래서 [자원 소유권 RO-52](resource-ownership-registry.md#ro-52-pro-browser-completion-final-object)를
+  더했다. 두 주체 모두 같은 키에 같은 고정 메타데이터를 쓰고 최종 HEAD는 어느
+  쪽이 이겼는지가 아니라 메타데이터를 본다. 예약 삭제 뒤의 늦은 객체는 기존
+  tombstone(`finalObjectKey`)이 치운다.
+- 대체 경로를 없애는 것은 운영 `media_copy` 기록으로 복사가 믿을 만하다고 확인한
+  뒤의 오너 결정이다.
 
 ## Limits and deferred live confirmation
 
 The changed code is not deployed. Production success for the previously failing
 large file and production CopyObject latency are not claimed. R2 internal copy
-can still fail or exceed its bounded deadline; explicit completion retry safely
-recovers a final object whose response was lost. Deterministic Worker and browser
+can still fail or exceed its bounded deadline; completion then falls back to the
+9.0.15 binding copy, whose slow cases behave as they did on 9.0.15, and explicit
+completion retry safely recovers a final object whose response was lost.
+Deterministic Worker and browser
 tests exercise those contracts locally. Copy completion remains serialized in
 the existing room mutation owner, so concurrent control requests may still wait;
 this PR does not claim to eliminate every heartbeat timeout. In particular,

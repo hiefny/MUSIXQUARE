@@ -961,7 +961,7 @@ RO-51 duplicated
   behaviour ([Today's gaps](system-audio-receive-ownership.md#todays-gaps): the attach fence,
   an end that covers every route, route closes the slot does not hear, the re-entrant restore
   point) are behaviour changes for train 5B (owner decision P5-D5 A), each with its failing test
-  first. Train 5B (not yet released): 5B-G1 added the attach fence (gaps 2 and 3), 5B-G2
+  first. Train 5B (9.0.16 / v789, released 2026-10-27): 5B-G1 added the attach fence (gaps 2 and 3), 5B-G2
   the PRO coordinator's force-stop and successor teardown (gaps 4 and 5), 5B-G3 the
   Standard SFU re-publication handoff (gap 1), 5B-G4 the sharer's own claim (gap 6), 5B-G5
   the nested end's restore point (gap 7) and 5B-G6 the route closures the slot hears (gaps 11

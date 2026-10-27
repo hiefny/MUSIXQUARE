@@ -62,6 +62,7 @@ import {
   ProRoomDiagnostics,
   type ProRoomDiagnosticDetail,
   type ProRoomDiagnosticEvent,
+  type ProRoomDiagnosticEventReason,
 } from './pro-room-diagnostics.ts';
 import { hasExactKeys, isSafeNonNegativeInteger } from './pro-room-validation.ts';
 import { PRO_ROOM_MEDIA_COPY_TIMEOUT_MS } from './pro-room-media-timing.ts';
@@ -3188,6 +3189,21 @@ async function readResponseBytesLimited(response: Response, maxBytes: number, si
   return bytes;
 }
 
+/**
+ * Says which stage of a bounded internal fetch failed. The message stays the
+ * generic one every existing caller already treats as unavailable.
+ */
+class BoundedFetchError extends Error {
+  constructor(
+    readonly stage: 'fetch' | 'body' | 'timeout',
+    /** The response status when headers arrived before the failure. */
+    readonly status: number | null,
+  ) {
+    super('INTERNAL_RESPONSE_UNAVAILABLE');
+    this.name = 'BoundedFetchError';
+  }
+}
+
 async function fetchWithDeadline(
   fetcher: FetchOperation,
   request: Request,
@@ -3197,6 +3213,7 @@ async function fetchWithDeadline(
   const controller = new AbortController();
   let timeoutId: ReturnType<typeof setTimeout> | null = null;
   let timedOut = false;
+  const observed: { status: number | null } = { status: null };
   const operation = Promise.resolve()
     .then(() => fetcher(new Request(request, { signal: controller.signal })))
     .then(async (response) => {
@@ -3204,6 +3221,7 @@ async function fetchWithDeadline(
         cancelReadableBody(response, 'INTERNAL_RESPONSE_TIMEOUT');
         return null;
       }
+      observed.status = response.status;
       const bytes = await readResponseBytesLimited(response, maxBytes, controller.signal);
       return timedOut ? null : { response, bytes };
     })
@@ -3219,7 +3237,13 @@ async function fetchWithDeadline(
   });
   try {
     const result = await Promise.race([operation, timeout]);
-    if (!result) throw new Error('INTERNAL_RESPONSE_UNAVAILABLE');
+    if (!result) {
+      // Only the deadline aborts this controller.
+      throw new BoundedFetchError(
+        controller.signal.aborted ? 'timeout' : observed.status === null ? 'fetch' : 'body',
+        observed.status,
+      );
+    }
     return result;
   } finally {
     if (timeoutId !== null) clearTimeout(timeoutId);
@@ -4024,8 +4048,12 @@ function isCopySourceEtag(value: unknown): value is string {
   return typeof value === 'string' && /^[A-Za-z0-9_-]{1,256}$/.test(value);
 }
 
-// CopyObject may report an error inside a 200 response. Accept only its small,
-// complete success document, then verify the resulting object through R2 HEAD.
+// CopyObject may report an error inside a 200 response, so only a
+// CopyObjectResult root with exactly one ETag counts as a result. The rest is
+// tolerated because R2's S3 output has no production history here: any XML
+// declaration, namespace or attributes, unknown child elements (checksums, for
+// example), &quot; or &#34; quotes, or none. The final HEAD must still show
+// this ETag together with the reserved and pinned metadata.
 function copyObjectResultEtag(bytes: Uint8Array): string | null {
   let xml;
   try {
@@ -4033,31 +4061,50 @@ function copyObjectResultEtag(bytes: Uint8Array): string | null {
   } catch {
     return null;
   }
-  const root = xml.match(
-    /^\s*(?:<\?xml\s+version="1\.0"(?:\s+encoding="UTF-8")?\s*\?>\s*)?<CopyObjectResult(?:\s+xmlns="http:\/\/s3\.amazonaws\.com\/doc\/2006-03-01\/")?\s*>([\s\S]*?)<\/CopyObjectResult>\s*$/,
-  );
-  if (!root) return null;
-  const content = root[1]!;
-  const etag = content.match(/<ETag>(?:&quot;|")([A-Za-z0-9_-]{1,256})(?:&quot;|")<\/ETag>/);
-  const modified = content.match(/<LastModified>([^<>]+)<\/LastModified>/);
-  if (
-    !etag ||
-    !modified ||
-    !Number.isFinite(Date.parse(modified[1]!)) ||
-    content.replace(etag[0], '').replace(modified[0], '').trim() !== ''
-  )
-    return null;
-  return etag[1]!;
+  const root =
+    /^\s*(?:<\?xml\s[^>]*\?>\s*)?<CopyObjectResult(\s[^>]*)?>([\s\S]*)<\/CopyObjectResult>\s*$/.exec(
+      xml,
+    );
+  if (!root || root[1]?.trimEnd().endsWith('/')) return null;
+  const etags = [...root[2]!.matchAll(/<ETag>([^<]*)<\/ETag>/g)];
+  if (etags.length !== 1) return null;
+  const value = etags[0]![1]!.replace(/&quot;|&#34;|&#x22;/gi, '"').trim();
+  const etag = /^"([^"]*)"$/.exec(value)?.[1] ?? value;
+  return isCopySourceEtag(etag) ? etag : null;
 }
 
+type MediaCopyReason = ProRoomDiagnosticEventReason<'media_copy'>;
+type MediaCopyFallbackReason = ProRoomDiagnosticEventReason<'media_copy_fallback'>;
+type MediaCopyResult =
+  | { readonly ok: true; readonly etag: string }
+  | { readonly ok: false; readonly reason: MediaCopyReason; readonly status: number | null };
+
+function mediaCopyStatusReason(status: number): MediaCopyReason {
+  if (status === 412) return 'precondition';
+  if (status >= 400 && status <= 499) return 'status_4xx';
+  if (status >= 500 && status <= 599) return 'status_5xx';
+  return 'status_other';
+}
+
+/** The file size as a power-of-two MiB bucket for diagnostics, never the byte count. */
+function mediaSizeBucketMiB(byteLength: number) {
+  let bucket = 1;
+  while (bucket * 1024 * 1024 < byteLength) bucket *= 2;
+  return bucket;
+}
+
+// Never throws. Every way the presigned copy can fail is classified for the
+// binding fallback and its bounded diagnostic; none of them decides on its own
+// that the pinned source changed.
 async function copyReservedMediaObject(
   env: ProRoomEnvPort,
   asset: RoomAsset,
   metadata: Record<string, string>,
-) {
+): Promise<MediaCopyResult> {
   const config = r2S3Config(env);
+  // The caller has already checked the staging key and the durable pin.
   if (!config || !asset.stagingObjectKey || !isCopySourceEtag(asset.completionSourceEtag)) {
-    throw new Error('MEDIA_STORAGE_UNAVAILABLE');
+    return { ok: false, reason: 'unconfigured', status: null };
   }
   const headers: HeaderRecord = {
     'content-type': asset.mime,
@@ -4076,15 +4123,76 @@ async function copyReservedMediaObject(
     expiresInSeconds: Math.ceil(PRO_ROOM_MEDIA_COPY_TIMEOUT_MS / 1000),
     now: new Date(),
   });
-  if (!url) throw new Error('MEDIA_STORAGE_UNAVAILABLE');
-  const { response, bytes } = await fetchWithDeadline(
-    (request) => fetch(request),
-    new Request(url, { method: 'PUT', headers }),
-    PRO_ROOM_MEDIA_COPY_TIMEOUT_MS,
-  );
-  const etag = response.status === 200 ? copyObjectResultEtag(bytes) : null;
-  if (!etag) throw new Error('MEDIA_STORAGE_UNAVAILABLE');
-  return etag;
+  if (!url) return { ok: false, reason: 'unconfigured', status: null };
+  let response;
+  let bytes;
+  try {
+    ({ response, bytes } = await fetchWithDeadline(
+      (request) => fetch(request),
+      new Request(url, { method: 'PUT', headers }),
+      PRO_ROOM_MEDIA_COPY_TIMEOUT_MS,
+    ));
+  } catch (error) {
+    const failure = error instanceof BoundedFetchError ? error : null;
+    return {
+      ok: false,
+      reason:
+        failure?.stage === 'timeout' ? 'timeout' : failure?.stage === 'body' ? 'body' : 'network',
+      status: failure?.status ?? null,
+    };
+  }
+  if (response.status !== 200) {
+    return { ok: false, reason: mediaCopyStatusReason(response.status), status: response.status };
+  }
+  const etag = copyObjectResultEtag(bytes);
+  return etag ? { ok: true, etag } : { ok: false, reason: 'parse', status: 200 };
+}
+
+/**
+ * The binding promotion that browser completion used through 9.0.15: stream the
+ * staging object into the final key through the Worker. It runs only after the
+ * presigned copy left no verified final object, writes the same key with the
+ * same pinned metadata, and, as before, has no deadline of its own.
+ */
+async function promoteStagedMediaThroughBinding(
+  bucket: R2BucketPort,
+  source: { readonly stagingObjectKey: string; readonly sourceEtag: string },
+  asset: RoomAsset,
+  metadata: Record<string, string>,
+  verify: (object: R2ObjectPort | null) => boolean,
+): Promise<
+  | { readonly reason: 'ok'; readonly finalObject: R2ObjectPort | null }
+  | { readonly reason: Exclude<MediaCopyFallbackReason, 'ok'> }
+> {
+  let staged;
+  try {
+    staged = await bucket.get(source.stagingObjectKey);
+  } catch {
+    return { reason: 'storage' };
+  }
+  if (!staged?.body) return { reason: 'source_missing' };
+  // One read returns one object version, so this ETag names the bytes streamed
+  // below. Bytes that replaced the pinned upload are never promoted.
+  if (staged.etag !== source.sourceEtag) {
+    cancelReadableBody(staged.body, 'MEDIA_COPY_SOURCE_CHANGED');
+    return { reason: 'source_mismatch' };
+  }
+  let finalObject;
+  try {
+    await bucket.put(asset.objectKey, staged.body, {
+      httpMetadata: { contentType: asset.mime },
+      customMetadata: metadata,
+    });
+    finalObject = await bucket.head(asset.objectKey);
+  } catch {
+    // R2 PUT is atomic, so a retry can verify an object this write created.
+    return { reason: 'storage' };
+  }
+  if (!verify(finalObject)) {
+    await bucket.delete(asset.objectKey).catch(() => {});
+    return { reason: 'verify' };
+  }
+  return { reason: 'ok', finalObject };
 }
 
 class RoomStateCapacityError extends Error {
@@ -17407,22 +17515,52 @@ export class MusixquareProRoom {
         asset.completionSourceEtag = stagingObject.etag;
         await this.persist();
       }
-      try {
-        const copiedEtag = await copyReservedMediaObject(this.env, asset, {
-          ...finalMetadata,
-          'mxqr-copy-source-etag': asset.completionSourceEtag,
-        });
-        finalObject = await this.env.PRO_MEDIA_BUCKET.head(asset.objectKey);
-        if (finalObject?.etag !== copiedEtag) {
-          return errorResponse('MEDIA_STORAGE_UNAVAILABLE', 503);
+      const bucket = this.env.PRO_MEDIA_BUCKET;
+      const sourceEtag = asset.completionSourceEtag;
+      const pinnedMetadata = { ...finalMetadata, 'mxqr-copy-source-etag': sourceEtag };
+      const sizeBucketMiB = mediaSizeBucketMiB(asset.byteLength);
+      const copyStartedAtMs = Date.now();
+      const copied = await copyReservedMediaObject(this.env, asset, pinnedMetadata);
+      let copyReason: MediaCopyReason = copied.ok ? 'ok' : copied.reason;
+      if (copied.ok) {
+        try {
+          finalObject = await bucket.head(asset.objectKey);
+          if (finalObject?.etag !== copied.etag) copyReason = 'etag_mismatch';
+          else if (!finalObjectMatchesReservation(finalObject)) copyReason = 'metadata_mismatch';
+        } catch {
+          copyReason = 'head';
         }
-      } catch {
-        // Keep both keys and the durable pin. A retry verifies/reuses an exact
-        // final object even if the copy response or post-copy HEAD was lost.
-        return errorResponse('MEDIA_STORAGE_UNAVAILABLE', 503);
       }
-      if (!finalObjectMatchesReservation(finalObject)) {
-        return errorResponse('MEDIA_STORAGE_UNAVAILABLE', 503);
+      this.recordDiagnostic('media_copy', {
+        operation: 'media_complete',
+        reason: copyReason,
+        status: copied.ok ? 200 : copied.status,
+        elapsedMs: Date.now() - copyStartedAtMs,
+        sizeBucketMiB,
+      });
+      if (copyReason !== 'ok') {
+        // The presigned copy has no production history before 9.0.16, so any
+        // outcome short of a verified final object falls back to the binding
+        // promotion 9.0.15 used: the worst case is the old behaviour. Only a
+        // read showing that the pinned source changed refuses to write.
+        const fallbackStartedAtMs = Date.now();
+        const promoted = await promoteStagedMediaThroughBinding(
+          bucket,
+          { stagingObjectKey, sourceEtag },
+          asset,
+          pinnedMetadata,
+          finalObjectMatchesReservation,
+        );
+        this.recordDiagnostic('media_copy_fallback', {
+          operation: 'media_complete',
+          reason: promoted.reason,
+          elapsedMs: Date.now() - fallbackStartedAtMs,
+          sizeBucketMiB,
+        });
+        // Otherwise keep both keys and the durable pin. A retry verifies and
+        // reuses an exact final object, including one a late copy commits.
+        if (promoted.reason !== 'ok') return errorResponse('MEDIA_STORAGE_UNAVAILABLE', 503);
+        finalObject = promoted.finalObject;
       }
     }
     let committed;

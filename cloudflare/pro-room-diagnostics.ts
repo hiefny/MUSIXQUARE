@@ -46,10 +46,30 @@ const EVENT_REASONS = {
   maintenance_unavailable: [],
   upstream_timeout: ['response', 'body'],
   upstream_failure: ['fetch', 'response', 'body'],
+  // One record per browser completion copy attempt, success included, because
+  // the presigned R2 CopyObject has no production history before 9.0.16.
+  media_copy: [
+    'ok',
+    'unconfigured',
+    'network',
+    'timeout',
+    'body',
+    'status_4xx',
+    'status_5xx',
+    'status_other',
+    'precondition',
+    'parse',
+    'head',
+    'etag_mismatch',
+    'metadata_mismatch',
+  ],
+  media_copy_fallback: ['ok', 'source_missing', 'source_mismatch', 'storage', 'verify'],
 } as const;
 
 export type ProRoomDiagnosticEvent = keyof typeof EVENT_REASONS;
 export type ProRoomDiagnosticReason = (typeof EVENT_REASONS)[ProRoomDiagnosticEvent][number];
+export type ProRoomDiagnosticEventReason<Event extends ProRoomDiagnosticEvent> =
+  (typeof EVENT_REASONS)[Event][number];
 export type ProRoomDiagnosticScope = 'room' | 'front' | 'app' | 'signaling';
 
 const FAILURES = new Set<ProRoomDiagnosticEvent>([
@@ -64,6 +84,12 @@ const FAILURES = new Set<ProRoomDiagnosticEvent>([
   'upstream_timeout',
   'upstream_failure',
 ]);
+// Room-scoped outcome records that share the failures' per-window detail budget
+// and alone carry the bounded timing and size fields.
+const MEDIA_COPY_EVENTS = new Set<ProRoomDiagnosticEvent>(['media_copy', 'media_copy_fallback']);
+// The 1 GiB room quota bounds a single file well below the largest bucket.
+const MAX_SIZE_BUCKET_MIB = 4_096;
+const MAX_ELAPSED_MS = 3_600_000;
 const OPERATIONS = [
   'sessions',
   'presence_enter',
@@ -106,6 +132,10 @@ export interface ProRoomDiagnosticDetail {
   readonly ticketPresenceRevision?: unknown;
   readonly status?: unknown;
   readonly retryAfterSeconds?: unknown;
+  /** Media copy events only: whole milliseconds the attempt took. */
+  readonly elapsedMs?: unknown;
+  /** Media copy events only: the file size rounded up to a power-of-two MiB. */
+  readonly sizeBucketMiB?: unknown;
 }
 
 const METRICS = [
@@ -174,6 +204,12 @@ function metricFields(detail: unknown): Metrics {
   return result;
 }
 
+// A bucket, never an exact byte count: only powers of two from 1 MiB pass.
+function sizeBucketMiB(value: unknown): number | null {
+  const bucket = boundedInteger(value, MAX_SIZE_BUCKET_MIB);
+  return bucket !== null && bucket > 0 && (bucket & (bucket - 1)) === 0 ? bucket : null;
+}
+
 function emit(record: Record<string, unknown>): void {
   try {
     console.log({ diagnostic: 'pro_room', schema: 1, ...record });
@@ -229,7 +265,8 @@ export class ProRoomDiagnostics {
       if (typeof metrics.livePresence === 'number') {
         this.peakPresence = Math.max(this.peakPresence ?? 0, metrics.livePresence);
       }
-      if (!FAILURES.has(event)) return;
+      const mediaCopy = MEDIA_COPY_EVENTS.has(event);
+      if (!FAILURES.has(event) && !mediaCopy) return;
       const first = !this.seenFailures.has(key);
       if (!first && this.repeatedDetails >= REPEATED_DETAILS_PER_WINDOW) {
         this.suppressedDetails = Math.min(MAX_COUNT, this.suppressedDetails + 1);
@@ -252,6 +289,12 @@ export class ProRoomDiagnostics {
         ...metrics,
         status: status !== null && status >= 100 ? status : null,
         retryAfterSeconds: boundedInteger(property(detail, 'retryAfterSeconds'), 86_400),
+        ...(mediaCopy
+          ? {
+              elapsedMs: boundedInteger(property(detail, 'elapsedMs'), MAX_ELAPSED_MS),
+              sizeBucketMiB: sizeBucketMiB(property(detail, 'sizeBucketMiB')),
+            }
+          : {}),
       });
     } catch {
       // Providers/getters may fail during partial initialization or cleanup.

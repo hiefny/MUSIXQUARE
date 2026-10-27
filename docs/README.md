@@ -101,7 +101,10 @@ runbooks. Neither belongs in a general setup document.
   narrow-slot exception, U12: the play tab's compact Sync and Media labels keep the 9.0.18 600
   weight and -0.3px tracking so every locale stays on one line at 320px, after PR #510's first CI
   wrapped the Finnish label with Linux fonts, and the demo finish pair keeps 600 in its 13px label
-  up to 420px, after the U12 review found more locales past its 54px pills) and every red text
+  up to 420px, after the U12 review found more locales past its 54px pills; U13, a label sweep of
+  every element whose label typography changed, in 42 locales against 9.0.18, adds eight narrow
+  slots that keep their 9.0.18 weight, tracking or size up to 420px or 719px where 700 wrapped,
+  split a word or stacked a pair) and every red text
   or icon one `--danger-foreground` role; one runtime hover gate owned by `src/ui/hover-pointer.ts`
   (convertibles hover alike in laptop and studio posture; Chromium 79 TVs lose hover looks only);
   a shorter playlist minus at the chevron weight; one control-hint owner with reasons as
@@ -113,22 +116,24 @@ runbooks. Neither belongs in a general setup document.
   final review the owner kept account deletion on its 9.0.18 tints in the default themes, kept
   the English `YouTube Video`, and accepted the Chromium 79 TV hover loss (known risk #20). An
   unreachable red "Disconnected" badge in the hidden settings device list was removed. Branch
-  `agent/ui-bundle` (last code commit `59767e8e`) merged main at 9.0.18 / v791 (`6a23c46e`) and
+  `agent/ui-bundle` (last code commit `8148de86`) merged main at 9.0.18 / v791 (`6a23c46e`) and
   restated #503's pending-check hover titles as one-phrase checking tips; its last runtime commit
-  is the bump `92481625` to 9.0.19 / v792 (App build 792), target `app` (App 83 runtime paths
+  is the bump `025c5f4f` to 9.0.19 / v792 (App build 792), target `app` (App 83 runtime paths
   against production, every other Worker 0, with the update dialog), not merged or released. The
-  report lists each increment (U1 to U12, the locale review and the release-prep bump) with its
+  report lists each increment (U1 to U13, the locale review and the release-prep bump) with its
   commits, tests-first evidence and tested SHA, measurements before and after (42 locales at
   360 / 375 / 390px, frame sheets, hover census, minus ink, contrast, eager transfer), the guards
   added, the review findings and their handling, visible changes, owner decisions left open, QA
-  rounds 1 to 7 (round 5, after the first bump, passes the full `build:checked`, unit 16,362, Worker
+  rounds 1 to 8 (round 5, after the first bump, passes the full `build:checked`, unit 16,362, Worker
   3,237, critical coverage 3,462, the critical, candidate and 26 train E2E files, and eager JS
   +639 B gzip against main; round 6, after U12 and the re-applied bump, passes the full
   `build:checked`, unit 16,363, the candidate and critical E2E and the two label E2E files; round
   7, after the review fix and the re-applied bump, passes the full `build:checked`, unit 16,366,
   the candidate and critical E2E (74, with the new 42-locale demo-pair probe) and the label and
-  demo E2E files), what was not verified (real devices, WebKit, screen readers) and the owner
-  device check list.
+  demo E2E files; round 8, after the label sweep U13 and the re-applied bump, passes the full
+  `build:checked`, unit 16,367, the candidate E2E (19), the critical E2E (87, with the new
+  eight-slot 42-locale probe) and the two label E2E files (43)), what was not verified (real
+  devices, WebKit, screen readers) and the owner device check list.
 - [PRO room receipt retention (2026-10-27)](design/pro-receipt-retention-2026-10-27.md):
   the PRO room's shared browser receipt ledger (256 receipts) keeps each receipt only as long as
   the App can send its request again (owner decision 2026-10-27, RO-53): two minutes for edits,

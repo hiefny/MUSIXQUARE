@@ -100,21 +100,26 @@ runbooks. Neither belongs in a general setup document.
   and execute); playback the same unless a longer configured presence needs more; upload
   completion until a playlist names its asset, at most until orphan cleanup collects it. Receipts
   an earlier Worker kept for 24 hours are cut at the next prune. The separate Developer ledger is
-  unchanged: the BOT's internal Developer receipts and an issued key's Developer receipts keep
-  24 hours. The cap stays 256 so a rollback to the 9.0.17 PRO Worker still loads the room (checked
+  unchanged: Developer mutation receipts (an issued key's, and BOT's internal ones that replay BOT
+  additions) keep 24 hours, and Developer command receipts, BOT playback included, keep 10
+  minutes. The cap stays 256 so a rollback to the 9.0.17 PRO Worker still loads the room (checked
   once against the `53a66d65` Worker code). A full ledger now shows `pro.room_state_limit`
-  (42 locales) on every playlist path instead of "The playlist changed". Branch
-  `agent/pro-receipt-ttl` (main merged up to the 9.0.17 record `809c9466`, #507) with the bump
-  `faaa8735` to 9.0.18 / v791 (App build 791) as its last runtime commit, not merged or released.
+  (42 locales) on playlist edits, switches, transfers and drag reorder instead of "The playlist
+  changed" or "Couldn't move the track"; uploads keep the dialog's `pro.upload.room_state_limit`.
+  Branch `agent/pro-receipt-ttl` (main merged up to the 9.0.17 record `809c9466`, #507) with the
+  bump `faaa8735` to 9.0.18 / v791 (App build 791) as its last runtime commit, not merged or
+  released.
   After the owner's same-day order change it ships first (target `all`, App 51 and PRO room 2
   runtime paths against production, with the update dialog) and the UI bundle follows as 9.0.19 /
   v792. The report lists each scope's old and new window, the review adjustments, rollback and its
   one-off check, what stays as is, the tests-first evidence (12 Worker and 9 client tests failing
-  on `53a66d65`; the BOT one pins new behaviour rather than an old defect) and QA rounds 1 to 5
+  on `53a66d65`; the BOT one pins new behaviour rather than an old defect) and QA rounds 1 to 6
   with their tested SHAs and limits (round 3 adds the build without the cache-epoch guard and the
   critical, PRO and candidate E2E; round 4 covers the main merge; round 5, after the bump, passes
   the full `build:checked`, unit 16,249, Worker 3,237, critical coverage 3,462, the critical, PRO
-  and candidate E2E, and eager JS +21 B gzip against main).
+  and candidate E2E, and eager JS +21 B gzip against main; round 6 is documentation only after
+  the release-prep review: the record's §1 order sentence, and narrower BOT, playback and upload
+  capacity statements).
 - [PRO upload completion and authority feedback (2026-10-27)](design/pro-upload-reliability-2026-10-27.md):
   production diagnosis, R2-internal copy without streaming a full file through the Worker,
   a binding-copy fallback with bounded copy diagnostics (RO-52), completion retry continuity,

@@ -3358,11 +3358,19 @@ entry needs the owner's acceptance and is not implied by this registry.
   A receipt an earlier Worker wrote (24 hours, or again after a rollback to one) is cut to its
   scope's lifetime from now at the first prune and persisted. Past its window a same-key resend
   gets the fence answer and is never applied twice: `REVISION_CONFLICT` (compare-and-set base
-  revision), `PLAYBACK_REVISION_CONFLICT`, `ASSET_NOT_FOUND`, `PRESENCE_EXPIRED`, a second
-  reservation that expires unused for reserve, or a new BOT run whose additions BOT's own
-  24-hour Developer receipt replays. The windows cover resends in active page time; the fences
-  are what make a later resend safe. Session-create receipts can outlive a reload
-  (`sessionStorage`), but they are in their own ledger.
+  revision), `PLAYBACK_REVISION_CONFLICT`, `ASSET_NOT_FOUND`, `PRESENCE_EXPIRED`, or a second
+  reservation that expires unused for reserve. Playback relies on presence as well as on its
+  revision: a command that went to `preparing` and was then cancelled (queue item removed,
+  superseded) does not bump the playback revision, so the presence lapse stops a late second
+  attempt. That bounds the attempt to one presence window plus one attempt after the receipt was
+  written, inside the presence-derived receipt lifetime. A late BOT run with the same
+  `requestId` starts anew: its additions replay through BOT's 24-hour Developer mutation
+  receipt, removals and clears answer `BOT_ACTION_FAILED`, queue mode is fenced by its
+  Developer mutation receipt and base revision, and playback commands (play after add included)
+  replay only while their 10-minute Developer command receipt lives. Nothing in the App or the
+  App Worker sends a `requestId` twice. The windows cover resends in active page time; the
+  fences, with presence for playback, are what make a later resend safe. Session-create receipts
+  can outlive a reload (`sessionStorage`), but they are in their own ledger.
 
 - **Target single owner:** reached (the ledger methods). The cap stays 256: a 9.0.17 Worker
   refuses to load a room whose ledger holds more (`assertBoundedRoomState`), so a raise needs two

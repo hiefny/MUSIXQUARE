@@ -804,13 +804,15 @@ const ptBr: Record<I18nKey, string> = {
   'pro.upload.quota_exceeded': 'Esta sala PRO atingiu o limite de armazenamento de 1 GB.',
   'pro.upload.playlist_full': 'A playlist está cheia.',
   'pro.upload.room_capacity': 'Esta sala PRO não comporta mais faixas.',
+  'pro.upload.room_state_limit':
+    'Esta sala PRO não aceita mais alterações no momento. Selecione o arquivo novamente daqui a pouco.',
   'pro.upload.pending_limit':
     'Há envios não concluídos demais nesta sala PRO. Tente novamente daqui a pouco.',
   'pro.upload.playlist_switched':
     'Outra playlist ficou ativa antes de esta faixa ser adicionada. Selecione o arquivo novamente.',
   'pro.upload.permission_required': 'É necessária permissão para gerenciar mídia.',
   'pro.upload.failed_file': '{{name}}: {{reason}}',
-  'pro.upload.confirming': 'Confirmando envio {{current}}/{{total}}',
+  'pro.upload.confirming': 'Concluindo envio {{current}}/{{total}}',
   'pro.upload.batch_progress': 'Enviando faixas {{current}}/{{total}}',
   'pro.upload.batch_failed_title': 'Não foi possível enviar algumas faixas',
   'pro.upload.batch_failed_message':

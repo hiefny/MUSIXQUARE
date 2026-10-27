@@ -877,13 +877,15 @@ const nl: Record<I18nKey, string> = {
   'pro.upload.quota_exceeded': 'Deze PRO-kamer heeft de opslaglimiet van 1 GB bereikt.',
   'pro.upload.playlist_full': 'De afspeellijst is vol.',
   'pro.upload.room_capacity': 'Deze PRO-kamer kan geen tracks meer bevatten.',
+  'pro.upload.room_state_limit':
+    'Deze PRO-kamer kan op dit moment geen wijzigingen meer verwerken. Selecteer het bestand straks opnieuw.',
   'pro.upload.pending_limit':
     'Deze PRO-kamer heeft te veel onvoltooide uploads. Probeer het straks opnieuw.',
   'pro.upload.playlist_switched':
     'Er werd een andere afspeellijst actief voordat deze track werd toegevoegd. Selecteer het bestand opnieuw.',
   'pro.upload.permission_required': 'Toestemming voor mediabeheer is vereist.',
   'pro.upload.failed_file': '{{name}}: {{reason}}',
-  'pro.upload.confirming': 'Upload bevestigen {{current}}/{{total}}',
+  'pro.upload.confirming': 'Upload afronden {{current}}/{{total}}',
   'pro.upload.batch_progress': 'Tracks uploaden {{current}}/{{total}}',
   'pro.upload.batch_failed_title': 'Sommige tracks konden niet worden geüpload',
   'pro.upload.batch_failed_message':

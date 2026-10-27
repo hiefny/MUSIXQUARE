@@ -810,13 +810,15 @@ const de: Record<I18nKey, string> = {
   'pro.upload.quota_exceeded': 'Der PRO-Raum hat sein Speicherlimit von 1 GB erreicht.',
   'pro.upload.playlist_full': 'Die Playlist ist voll.',
   'pro.upload.room_capacity': 'Dieser PRO-Raum kann keine weiteren Titel aufnehmen.',
+  'pro.upload.room_state_limit':
+    'Dieser PRO-Raum kann gerade keine weiteren Änderungen annehmen. Wähle die Datei etwas später erneut aus.',
   'pro.upload.pending_limit':
     'In diesem PRO-Raum sind zu viele Uploads nicht abgeschlossen. Bitte versuche es etwas später erneut.',
   'pro.upload.playlist_switched':
     'Eine andere Playlist wurde aktiv, bevor dieser Titel hinzugefügt wurde. Wähle die Datei erneut aus.',
   'pro.upload.permission_required': 'Die Berechtigung zur Medienverwaltung ist erforderlich.',
   'pro.upload.failed_file': '{{name}}: {{reason}}',
-  'pro.upload.confirming': 'Upload wird bestätigt {{current}}/{{total}}',
+  'pro.upload.confirming': 'Upload wird abgeschlossen: {{current}}/{{total}}',
   'pro.upload.batch_progress': 'Titel werden hochgeladen: {{current}}/{{total}}',
   'pro.upload.batch_failed_title': 'Einige Titel konnten nicht hochgeladen werden',
   'pro.upload.batch_failed_message':

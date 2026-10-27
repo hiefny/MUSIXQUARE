@@ -875,13 +875,15 @@ const ml: Record<I18nKey, string> = {
   'pro.upload.quota_exceeded': 'ഈ PRO റൂം 1 GB സ്റ്റോറേജ് പരിധിയിലെത്തി.',
   'pro.upload.playlist_full': 'പ്ലേലിസ്റ്റ് നിറഞ്ഞു.',
   'pro.upload.room_capacity': 'ഈ PRO റൂമിൽ ഇനി കൂടുതൽ ട്രാക്കുകൾ ചേർക്കാനാവില്ല.',
+  'pro.upload.room_state_limit':
+    'ഈ PRO റൂമിൽ ഇപ്പോൾ കൂടുതൽ മാറ്റങ്ങൾ വരുത്താനാവില്ല. കുറച്ചുകഴിഞ്ഞ് ഫയൽ വീണ്ടും തിരഞ്ഞെടുക്കുക.',
   'pro.upload.pending_limit':
     'ഈ PRO റൂമിൽ പൂർത്തിയാകാത്ത അപ്‌ലോഡുകൾ വളരെ കൂടുതലാണ്. കുറച്ചുകഴിഞ്ഞ് വീണ്ടും ശ്രമിക്കുക.',
   'pro.upload.playlist_switched':
     'ഈ ട്രാക്ക് ചേർക്കുന്നതിന് മുമ്പ് മറ്റൊരു പ്ലേലിസ്റ്റ് സജീവമായി. ഫയൽ വീണ്ടും തിരഞ്ഞെടുക്കുക.',
   'pro.upload.permission_required': 'മീഡിയ കൈകാര്യം ചെയ്യാനുള്ള അനുമതി ആവശ്യമാണ്.',
   'pro.upload.failed_file': '{{name}}: {{reason}}',
-  'pro.upload.confirming': 'അപ്‌ലോഡ് സ്ഥിരീകരിക്കുന്നു {{current}}/{{total}}',
+  'pro.upload.confirming': 'അപ്‌ലോഡ് പൂർത്തിയാക്കുന്നു {{current}}/{{total}}',
   'pro.upload.batch_progress': 'ട്രാക്കുകൾ അപ്‌ലോഡ് ചെയ്യുന്നു {{current}}/{{total}}',
   'pro.upload.batch_failed_title': 'ചില ട്രാക്കുകൾ അപ്‌ലോഡ് ചെയ്യാനായില്ല',
   'pro.upload.batch_failed_message':

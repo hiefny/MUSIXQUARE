@@ -865,13 +865,15 @@ const cs: Record<I18nKey, string> = {
   'pro.upload.quota_exceeded': 'Tato místnost PRO dosáhla limitu úložiště 1 GB.',
   'pro.upload.playlist_full': 'Seznam skladeb je plný.',
   'pro.upload.room_capacity': 'Tato místnost PRO už nepojme další skladby.',
+  'pro.upload.room_state_limit':
+    'Tato místnost PRO teď nemůže přijmout další změny. Vyberte soubor znovu za chvíli.',
   'pro.upload.pending_limit':
     'V této místnosti PRO je příliš mnoho nedokončených nahrávání. Zkuste to znovu za chvíli.',
   'pro.upload.playlist_switched':
     'Než se tato skladba přidala, aktivoval se jiný seznam skladeb. Vyberte soubor znovu.',
   'pro.upload.permission_required': 'Je vyžadováno oprávnění ke správě médií.',
   'pro.upload.failed_file': '{{name}}: {{reason}}',
-  'pro.upload.confirming': 'Potvrzování nahrání {{current}}/{{total}}',
+  'pro.upload.confirming': 'Dokončuje se nahrávání {{current}}/{{total}}',
   'pro.upload.batch_progress': 'Nahrávání skladeb {{current}}/{{total}}',
   'pro.upload.batch_failed_title': 'Některé skladby se nepodařilo nahrát',
   'pro.upload.batch_failed_message':

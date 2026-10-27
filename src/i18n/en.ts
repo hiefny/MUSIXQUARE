@@ -850,13 +850,15 @@ const en: Record<I18nKey, string> = {
   'pro.upload.quota_exceeded': 'This PRO room has reached its 1 GB storage limit.',
   'pro.upload.playlist_full': 'The playlist is full.',
   'pro.upload.room_capacity': 'This PRO room cannot hold any more tracks.',
+  'pro.upload.room_state_limit':
+    'This PRO room cannot accept more changes right now. Select the file again in a little while.',
   'pro.upload.pending_limit':
     'This PRO room has too many unfinished uploads. Please try again in a little while.',
   'pro.upload.playlist_switched':
     'Another playlist became active before this track was added. Select the file again.',
   'pro.upload.permission_required': 'Media management permission is required.',
   'pro.upload.failed_file': '{{name}}: {{reason}}',
-  'pro.upload.confirming': 'Confirming upload {{current}}/{{total}}',
+  'pro.upload.confirming': 'Finishing upload {{current}}/{{total}}',
   'pro.upload.batch_progress': 'Uploading tracks {{current}}/{{total}}',
   'pro.upload.batch_failed_title': 'Some tracks couldn’t be uploaded',
   'pro.upload.batch_failed_message':

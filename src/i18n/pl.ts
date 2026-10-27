@@ -875,13 +875,15 @@ const pl: Record<I18nKey, string> = {
   'pro.upload.quota_exceeded': 'Ten pokój PRO osiągnął limit 1 GB miejsca.',
   'pro.upload.playlist_full': 'Playlista jest pełna.',
   'pro.upload.room_capacity': 'Ten pokój PRO nie pomieści więcej utworów.',
+  'pro.upload.room_state_limit':
+    'Ten pokój PRO nie może teraz przyjąć więcej zmian. Wybierz plik ponownie za chwilę.',
   'pro.upload.pending_limit':
     'W tym pokoju PRO jest zbyt wiele niedokończonych przesyłań. Spróbuj ponownie za chwilę.',
   'pro.upload.playlist_switched':
     'Zanim ten utwór został dodany, aktywna stała się inna playlista. Wybierz plik ponownie.',
   'pro.upload.permission_required': 'Wymagane jest uprawnienie do zarządzania multimediami.',
   'pro.upload.failed_file': '{{name}}: {{reason}}',
-  'pro.upload.confirming': 'Potwierdzanie przesyłania {{current}}/{{total}}',
+  'pro.upload.confirming': 'Kończenie przesyłania {{current}}/{{total}}',
   'pro.upload.batch_progress': 'Przesyłanie utworów {{current}}/{{total}}',
   'pro.upload.batch_failed_title': 'Nie udało się przesłać części utworów',
   'pro.upload.batch_failed_message':

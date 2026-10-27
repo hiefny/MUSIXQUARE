@@ -864,13 +864,15 @@ const te: Record<I18nKey, string> = {
   'pro.upload.quota_exceeded': 'ఈ PRO గది 1 GB స్టోరేజ్ పరిమితిని చేరుకుంది.',
   'pro.upload.playlist_full': 'ప్లేలిస్ట్ నిండిపోయింది.',
   'pro.upload.room_capacity': 'ఈ PRO గదిలో ఇక మరిన్ని ట్రాక్‌లను జోడించలేము.',
+  'pro.upload.room_state_limit':
+    'ఈ PRO గదిలో ప్రస్తుతం మరిన్ని మార్పులు చేయలేము. కొద్దిసేపటి తర్వాత ఫైల్‌ను మళ్లీ ఎంచుకోండి.',
   'pro.upload.pending_limit':
     'ఈ PRO గదిలో పూర్తికాని అప్‌లోడ్‌లు చాలా ఎక్కువగా ఉన్నాయి. కొద్దిసేపటి తర్వాత మళ్లీ ప్రయత్నించండి.',
   'pro.upload.playlist_switched':
     'ఈ ట్రాక్‌ను జోడించే ముందే మరో ప్లేలిస్ట్ సక్రియమైంది. ఫైల్‌ను మళ్లీ ఎంచుకోండి.',
   'pro.upload.permission_required': 'మీడియా నిర్వహణ అనుమతి అవసరం.',
   'pro.upload.failed_file': '{{name}}: {{reason}}',
-  'pro.upload.confirming': 'అప్‌లోడ్ నిర్ధారించబడుతోంది {{current}}/{{total}}',
+  'pro.upload.confirming': 'అప్‌లోడ్ పూర్తవుతోంది {{current}}/{{total}}',
   'pro.upload.batch_progress': 'ట్రాక్‌లు అప్‌లోడ్ అవుతున్నాయి {{current}}/{{total}}',
   'pro.upload.batch_failed_title': 'కొన్ని ట్రాక్‌లను అప్‌లోడ్ చేయలేకపోయాం',
   'pro.upload.batch_failed_message':

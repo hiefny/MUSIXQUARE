@@ -858,13 +858,15 @@ const pa: Record<I18nKey, string> = {
   'pro.upload.quota_exceeded': 'ਇਸ PRO ਰੂਮ ਦੀ 1 GB ਸਟੋਰੇਜ ਹੱਦ ਪੂਰੀ ਹੋ ਗਈ ਹੈ।',
   'pro.upload.playlist_full': 'ਪਲੇਲਿਸਟ ਭਰ ਗਈ ਹੈ।',
   'pro.upload.room_capacity': 'ਇਸ PRO ਰੂਮ ਵਿੱਚ ਹੋਰ ਟਰੈਕ ਨਹੀਂ ਜੋੜੇ ਜਾ ਸਕਦੇ।',
+  'pro.upload.room_state_limit':
+    'ਇਸ PRO ਰੂਮ ਵਿੱਚ ਇਸ ਵੇਲੇ ਹੋਰ ਬਦਲਾਅ ਨਹੀਂ ਕੀਤੇ ਜਾ ਸਕਦੇ। ਥੋੜ੍ਹੀ ਦੇਰ ਬਾਅਦ ਫਾਈਲ ਦੁਬਾਰਾ ਚੁਣੋ।',
   'pro.upload.pending_limit':
     'ਇਸ PRO ਰੂਮ ਵਿੱਚ ਅਧੂਰੇ ਅੱਪਲੋਡ ਬਹੁਤ ਜ਼ਿਆਦਾ ਹਨ। ਥੋੜ੍ਹੀ ਦੇਰ ਬਾਅਦ ਦੁਬਾਰਾ ਕੋਸ਼ਿਸ਼ ਕਰੋ।',
   'pro.upload.playlist_switched':
     'ਇਹ ਟਰੈਕ ਜੁੜਨ ਤੋਂ ਪਹਿਲਾਂ ਹੋਰ ਪਲੇਲਿਸਟ ਚਾਲੂ ਹੋ ਗਈ। ਫਾਈਲ ਦੁਬਾਰਾ ਚੁਣੋ।',
   'pro.upload.permission_required': 'ਮੀਡੀਆ ਪ੍ਰਬੰਧ ਦੀ ਇਜਾਜ਼ਤ ਚਾਹੀਦੀ ਹੈ।',
   'pro.upload.failed_file': '{{name}}: {{reason}}',
-  'pro.upload.confirming': 'ਅੱਪਲੋਡ ਦੀ ਪੁਸ਼ਟੀ ਹੋ ਰਹੀ ਹੈ {{current}}/{{total}}',
+  'pro.upload.confirming': 'ਅੱਪਲੋਡ ਪੂਰਾ ਹੋ ਰਿਹਾ ਹੈ {{current}}/{{total}}',
   'pro.upload.batch_progress': 'ਟਰੈਕ ਅੱਪਲੋਡ ਹੋ ਰਹੇ ਹਨ {{current}}/{{total}}',
   'pro.upload.batch_failed_title': 'ਕੁਝ ਟਰੈਕ ਅੱਪਲੋਡ ਨਹੀਂ ਹੋ ਸਕੇ',
   'pro.upload.batch_failed_message':

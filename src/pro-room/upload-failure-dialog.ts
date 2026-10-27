@@ -30,6 +30,10 @@ function failureReasonKey(failure: ProRoomUploadFailureDescription): I18nKey {
     case 'REQUEST_TOO_LARGE':
       return 'pro.upload.playlist_full';
     case 'ROOM_STATE_CAPACITY_EXCEEDED':
+      // An upload usually meets this when the room's shared receipt ledger
+      // (256 receipts, most kept for 24 hours) is full, not when the room is
+      // out of track space.
+      return 'pro.upload.room_state_limit';
     case 'ASSET_CAPACITY_EXCEEDED':
       return 'pro.upload.room_capacity';
     case 'RESERVATION_CAPACITY_EXCEEDED':

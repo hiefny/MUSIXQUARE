@@ -828,13 +828,15 @@ const he: Record<I18nKey, string> = {
   'pro.upload.quota_exceeded': 'חדר ה-PRO הגיע למגבלת האחסון של 1 GB.',
   'pro.upload.playlist_full': 'רשימת ההשמעה מלאה.',
   'pro.upload.room_capacity': 'חדר ה-PRO לא יכול להכיל רצועות נוספות.',
+  'pro.upload.room_state_limit':
+    'חדר ה-PRO לא יכול לקבל שינויים נוספים כרגע. יש לבחור את הקובץ שוב בעוד כמה רגעים.',
   'pro.upload.pending_limit':
     'בחדר ה-PRO יש יותר מדי העלאות שלא הושלמו. אפשר לנסות שוב בעוד כמה רגעים.',
   'pro.upload.playlist_switched':
     'רשימת השמעה אחרת הופעלה לפני שהרצועה נוספה. יש לבחור את הקובץ שוב.',
   'pro.upload.permission_required': 'נדרשת הרשאה לניהול מדיה.',
   'pro.upload.failed_file': '{{name}}: {{reason}}',
-  'pro.upload.confirming': 'אישור ההעלאה {{current}}/{{total}}',
+  'pro.upload.confirming': 'ההעלאה מסתיימת {{current}}/{{total}}',
   'pro.upload.batch_progress': 'רצועות מועלות {{current}}/{{total}}',
   'pro.upload.batch_failed_title': 'חלק מהרצועות לא הועלו',
   'pro.upload.batch_failed_message': 'לא הצלחנו להעלות {{failed}} מתוך {{total}} הרצועות שביקשתם.',

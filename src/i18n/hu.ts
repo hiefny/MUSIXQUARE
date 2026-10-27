@@ -870,13 +870,15 @@ const hu: Record<I18nKey, string> = {
   'pro.upload.quota_exceeded': 'A PRO-szoba elérte az 1 GB-os tárhelykorlátot.',
   'pro.upload.playlist_full': 'A lejátszási lista megtelt.',
   'pro.upload.room_capacity': 'Ebbe a PRO-szobába nem fér több szám.',
+  'pro.upload.room_state_limit':
+    'Ebben a PRO-szobában most nem lehet több módosítást végezni. Válaszd ki újra a fájlt egy kicsit később.',
   'pro.upload.pending_limit':
     'Ebben a PRO-szobában túl sok a befejezetlen feltöltés. Próbáld újra egy kicsit később.',
   'pro.upload.playlist_switched':
     'Egy másik lejátszási lista lett aktív, mielőtt ez a szám bekerült volna. Válaszd ki újra a fájlt.',
   'pro.upload.permission_required': 'Médiakezelési jogosultság szükséges.',
   'pro.upload.failed_file': '{{name}}: {{reason}}',
-  'pro.upload.confirming': 'Feltöltés megerősítése {{current}}/{{total}}',
+  'pro.upload.confirming': 'Feltöltés befejezése: {{current}}/{{total}}',
   'pro.upload.batch_progress': 'Számok feltöltése: {{current}}/{{total}}',
   'pro.upload.batch_failed_title': 'Néhány szám feltöltése sikertelen',
   'pro.upload.batch_failed_message':

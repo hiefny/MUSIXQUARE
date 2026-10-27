@@ -867,13 +867,15 @@ const sv: Record<I18nKey, string> = {
   'pro.upload.quota_exceeded': 'PRO-rummet har nått lagringsgränsen på 1 GB.',
   'pro.upload.playlist_full': 'Spellistan är full.',
   'pro.upload.room_capacity': 'PRO-rummet har inte plats för fler spår.',
+  'pro.upload.room_state_limit':
+    'PRO-rummet kan inte ta emot fler ändringar just nu. Välj filen igen om en liten stund.',
   'pro.upload.pending_limit':
     'PRO-rummet har för många ofärdiga uppladdningar. Försök igen om en liten stund.',
   'pro.upload.playlist_switched':
     'En annan spellista blev aktiv innan spåret lades till. Välj filen igen.',
   'pro.upload.permission_required': 'Behörighet att hantera media krävs.',
   'pro.upload.failed_file': '{{name}}: {{reason}}',
-  'pro.upload.confirming': 'Bekräftar uppladdning {{current}}/{{total}}',
+  'pro.upload.confirming': 'Slutför uppladdning {{current}}/{{total}}',
   'pro.upload.batch_progress': 'Laddar upp spår {{current}}/{{total}}',
   'pro.upload.batch_failed_title': 'Vissa spår kunde inte laddas upp',
   'pro.upload.batch_failed_message':

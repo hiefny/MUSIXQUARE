@@ -857,13 +857,15 @@ const mr: Record<I18nKey, string> = {
   'pro.upload.quota_exceeded': 'या PRO रूमने संचयनाची 1 GB मर्यादा गाठली आहे.',
   'pro.upload.playlist_full': 'प्लेलिस्ट भरली आहे.',
   'pro.upload.room_capacity': 'या PRO रूममध्ये आणखी ट्रॅक जोडता येणार नाहीत.',
+  'pro.upload.room_state_limit':
+    'या PRO रूममध्ये आत्ता आणखी बदल करता येणार नाहीत. थोड्या वेळाने फाइल पुन्हा निवडा.',
   'pro.upload.pending_limit':
     'या PRO रूममध्ये अपूर्ण अपलोड खूप जास्त आहेत. थोड्या वेळाने पुन्हा प्रयत्न करा.',
   'pro.upload.playlist_switched':
     'हा ट्रॅक जोडण्यापूर्वी दुसरी प्लेलिस्ट सक्रिय झाली. फाइल पुन्हा निवडा.',
   'pro.upload.permission_required': 'मीडिया व्यवस्थापनाची परवानगी आवश्यक आहे.',
   'pro.upload.failed_file': '{{name}}: {{reason}}',
-  'pro.upload.confirming': 'अपलोडची पुष्टी होत आहे {{current}}/{{total}}',
+  'pro.upload.confirming': 'अपलोड पूर्ण करत आहे {{current}}/{{total}}',
   'pro.upload.batch_progress': 'ट्रॅक अपलोड होत आहेत {{current}}/{{total}}',
   'pro.upload.batch_failed_title': 'काही ट्रॅक अपलोड करता आले नाहीत',
   'pro.upload.batch_failed_message':

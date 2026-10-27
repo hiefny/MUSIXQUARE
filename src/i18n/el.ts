@@ -886,13 +886,15 @@ const el: Record<I18nKey, string> = {
   'pro.upload.quota_exceeded': 'Αυτό το δωμάτιο PRO έφτασε το όριο αποθήκευσης 1 GB.',
   'pro.upload.playlist_full': 'Η λίστα αναπαραγωγής είναι πλήρης.',
   'pro.upload.room_capacity': 'Αυτό το δωμάτιο PRO δεν χωράει άλλα κομμάτια.',
+  'pro.upload.room_state_limit':
+    'Αυτό το δωμάτιο PRO δεν μπορεί να δεχτεί άλλες αλλαγές αυτή τη στιγμή. Επιλέξτε ξανά το αρχείο σε λίγο.',
   'pro.upload.pending_limit':
     'Σε αυτό το δωμάτιο PRO υπάρχουν πάρα πολλές αποστολές που δεν έχουν ολοκληρωθεί. Δοκιμάστε ξανά σε λίγο.',
   'pro.upload.playlist_switched':
     'Άλλη λίστα αναπαραγωγής έγινε ενεργή πριν προστεθεί αυτό το κομμάτι. Επιλέξτε ξανά το αρχείο.',
   'pro.upload.permission_required': 'Απαιτείται δικαίωμα διαχείρισης πολυμέσων.',
   'pro.upload.failed_file': '{{name}}: {{reason}}',
-  'pro.upload.confirming': 'Επιβεβαίωση αποστολής {{current}}/{{total}}',
+  'pro.upload.confirming': 'Ολοκλήρωση αποστολής {{current}}/{{total}}',
   'pro.upload.batch_progress': 'Αποστολή κομματιών {{current}}/{{total}}',
   'pro.upload.batch_failed_title': 'Δεν ήταν δυνατή η αποστολή ορισμένων κομματιών',
   'pro.upload.batch_failed_message':

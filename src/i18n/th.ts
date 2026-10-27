@@ -834,6 +834,8 @@ const th: Record<I18nKey, string> = {
   'pro.upload.quota_exceeded': 'ห้อง PRO นี้ใช้พื้นที่จัดเก็บครบ 1 GB แล้ว',
   'pro.upload.playlist_full': 'เพลย์ลิสต์เต็มแล้ว',
   'pro.upload.room_capacity': 'ห้อง PRO นี้เพิ่มรายการไม่ได้อีกแล้ว',
+  'pro.upload.room_state_limit':
+    'ห้อง PRO นี้ยังรับการเปลี่ยนแปลงเพิ่มไม่ได้ในขณะนี้ โปรดเลือกไฟล์อีกครั้งในภายหลัง',
   'pro.upload.pending_limit':
     'ห้อง PRO นี้มีการอัปโหลดที่ยังไม่เสร็จมากเกินไป โปรดลองอีกครั้งในภายหลัง',
   'pro.upload.playlist_switched':

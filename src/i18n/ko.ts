@@ -833,6 +833,8 @@ const ko = {
   'pro.upload.quota_exceeded': 'PRO 방의 1GB 저장 공간을 모두 사용했어요.',
   'pro.upload.playlist_full': '재생목록이 가득 찼어요.',
   'pro.upload.room_capacity': 'PRO 방에 트랙을 더 담을 수 없어요.',
+  'pro.upload.room_state_limit':
+    '지금은 PRO 방에 변경 사항을 더 반영할 수 없어요. 잠시 후 파일을 다시 선택해 주세요.',
   'pro.upload.pending_limit':
     'PRO 방에 끝나지 않은 업로드가 너무 많아요. 잠시 후 다시 시도해 주세요.',
   'pro.upload.playlist_switched':

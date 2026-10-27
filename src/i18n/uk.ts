@@ -863,13 +863,15 @@ const uk: Record<I18nKey, string> = {
   'pro.upload.quota_exceeded': 'Ця кімната PRO досягла ліміту сховища в 1 ГБ.',
   'pro.upload.playlist_full': 'Плейліст заповнений.',
   'pro.upload.room_capacity': 'До цієї кімнати PRO більше не можна додати треки.',
+  'pro.upload.room_state_limit':
+    'Ця кімната PRO зараз не може прийняти більше змін. Виберіть файл знову трохи згодом.',
   'pro.upload.pending_limit':
     'У цій кімнаті PRO забагато незавершених надсилань. Спробуйте ще раз трохи згодом.',
   'pro.upload.playlist_switched':
     'Перед додаванням цього треку активним став інший плейлист. Виберіть файл знову.',
   'pro.upload.permission_required': 'Потрібен дозвіл на керування медіа.',
   'pro.upload.failed_file': '{{name}}: {{reason}}',
-  'pro.upload.confirming': 'Підтвердження надсилання {{current}}/{{total}}',
+  'pro.upload.confirming': 'Завершення надсилання: {{current}}/{{total}}',
   'pro.upload.batch_progress': 'Надсилання треків: {{current}}/{{total}}',
   'pro.upload.batch_failed_title': 'Деякі треки не вдалося надіслати',
   'pro.upload.batch_failed_message':

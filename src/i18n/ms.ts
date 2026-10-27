@@ -878,13 +878,15 @@ const ms: Record<I18nKey, string> = {
   'pro.upload.quota_exceeded': 'Bilik PRO ini telah mencapai had storan 1 GB.',
   'pro.upload.playlist_full': 'Senarai main sudah penuh.',
   'pro.upload.room_capacity': 'Bilik PRO ini tidak dapat menampung trek lagi.',
+  'pro.upload.room_state_limit':
+    'Bilik PRO ini tidak dapat menerima perubahan lagi buat masa ini. Pilih fail sekali lagi sebentar nanti.',
   'pro.upload.pending_limit':
     'Terlalu banyak muat naik yang belum selesai dalam bilik PRO ini. Cuba lagi sebentar nanti.',
   'pro.upload.playlist_switched':
     'Senarai main lain menjadi aktif sebelum trek ini ditambah. Pilih fail sekali lagi.',
   'pro.upload.permission_required': 'Kebenaran mengurus media diperlukan.',
   'pro.upload.failed_file': '{{name}}: {{reason}}',
-  'pro.upload.confirming': 'Mengesahkan muat naik {{current}}/{{total}}',
+  'pro.upload.confirming': 'Menyelesaikan muat naik {{current}}/{{total}}',
   'pro.upload.batch_progress': 'Memuat naik trek {{current}}/{{total}}',
   'pro.upload.batch_failed_title': 'Sesetengah trek tidak dapat dimuat naik',
   'pro.upload.batch_failed_message':

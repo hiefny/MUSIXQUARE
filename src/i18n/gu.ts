@@ -842,13 +842,15 @@ const gu: Record<I18nKey, string> = {
   'pro.upload.quota_exceeded': 'આ PRO રૂમમાં સંગ્રહની 1 GB મર્યાદા પૂરી થઈ છે.',
   'pro.upload.playlist_full': 'પ્લેલિસ્ટ ભરાઈ ગઈ છે.',
   'pro.upload.room_capacity': 'આ PRO રૂમમાં હવે વધુ ટ્રૅક ઉમેરી શકાશે નહીં.',
+  'pro.upload.room_state_limit':
+    'આ PRO રૂમમાં હમણાં વધુ ફેરફારો કરી શકાશે નહીં. થોડી વાર પછી ફાઇલ ફરીથી પસંદ કરો.',
   'pro.upload.pending_limit':
     'આ PRO રૂમમાં અધૂરાં અપલોડ ઘણાં વધારે છે. થોડી વાર પછી ફરી પ્રયાસ કરો.',
   'pro.upload.playlist_switched':
     'આ ટ્રૅક ઉમેરાય તે પહેલાં બીજી પ્લેલિસ્ટ સક્રિય થઈ. ફાઇલ ફરીથી પસંદ કરો.',
   'pro.upload.permission_required': 'મીડિયા સંચાલનની પરવાનગી જરૂરી છે.',
   'pro.upload.failed_file': '{{name}}: {{reason}}',
-  'pro.upload.confirming': 'અપલોડની પુષ્ટિ થઈ રહી છે {{current}}/{{total}}',
+  'pro.upload.confirming': 'અપલોડ પૂરું થઈ રહ્યું છે {{current}}/{{total}}',
   'pro.upload.batch_progress': 'ટ્રૅક અપલોડ થઈ રહ્યા છે {{current}}/{{total}}',
   'pro.upload.batch_failed_title': 'કેટલાક ટ્રૅક અપલોડ થઈ શક્યા નથી',
   'pro.upload.batch_failed_message':

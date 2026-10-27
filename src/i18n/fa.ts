@@ -847,13 +847,15 @@ const fa: Record<I18nKey, string> = {
   'pro.upload.quota_exceeded': 'این اتاق PRO به سقف فضای 1 GB رسیده است.',
   'pro.upload.playlist_full': 'فهرست پخش پر است.',
   'pro.upload.room_capacity': 'این اتاق PRO گنجایش قطعهٔ بیشتری ندارد.',
+  'pro.upload.room_state_limit':
+    'این اتاق PRO فعلاً تغییرات بیشتری نمی‌پذیرد. کمی بعد فایل را دوباره انتخاب کنید.',
   'pro.upload.pending_limit':
     'این اتاق PRO بارگذاری‌های ناتمام زیادی دارد. کمی بعد دوباره تلاش کنید.',
   'pro.upload.playlist_switched':
     'پیش از افزودن این قطعه، فهرست پخش دیگری فعال شد. فایل را دوباره انتخاب کنید.',
   'pro.upload.permission_required': 'مجوز مدیریت رسانه لازم است.',
   'pro.upload.failed_file': '{{name}}: {{reason}}',
-  'pro.upload.confirming': 'در حال تأیید بارگذاری {{current}}/{{total}}',
+  'pro.upload.confirming': 'در حال پایان بارگذاری {{current}}/{{total}}',
   'pro.upload.batch_progress': 'در حال بارگذاری قطعه‌ها {{current}}/{{total}}',
   'pro.upload.batch_failed_title': 'برخی قطعه‌ها بارگذاری نشدند',
   'pro.upload.batch_failed_message': '{{failed}} مورد از {{total}} قطعهٔ درخواستی بارگذاری نشد.',

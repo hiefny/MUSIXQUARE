@@ -848,13 +848,15 @@ const tr: Record<I18nKey, string> = {
   'pro.upload.quota_exceeded': 'Bu PRO odasının 1 GB depolama sınırı doldu.',
   'pro.upload.playlist_full': 'Çalma listesi dolu.',
   'pro.upload.room_capacity': 'Bu PRO odasına daha fazla parça eklenemiyor.',
+  'pro.upload.room_state_limit':
+    'Bu PRO odası şu anda daha fazla değişiklik kabul edemiyor. Biraz sonra dosyayı yeniden seç.',
   'pro.upload.pending_limit':
     'Bu PRO odasında tamamlanmamış çok fazla yükleme var. Biraz sonra tekrar dene.',
   'pro.upload.playlist_switched':
     'Bu parça eklenmeden önce başka bir çalma listesi etkin oldu. Dosyayı yeniden seç.',
   'pro.upload.permission_required': 'Medya yönetimi izni gerekli.',
   'pro.upload.failed_file': '{{name}}: {{reason}}',
-  'pro.upload.confirming': 'Yükleme doğrulanıyor {{current}}/{{total}}',
+  'pro.upload.confirming': 'Yükleme tamamlanıyor {{current}}/{{total}}',
   'pro.upload.batch_progress': 'Parçalar yükleniyor {{current}}/{{total}}',
   'pro.upload.batch_failed_title': 'Bazı parçalar yüklenemedi',
   'pro.upload.batch_failed_message': 'İstenen {{total}} parçanın {{failed}} tanesi yüklenemedi.',

@@ -884,13 +884,15 @@ const ta: Record<I18nKey, string> = {
   'pro.upload.quota_exceeded': 'இந்த PRO அறை அதன் 1 GB சேமிப்பக வரம்பை எட்டிவிட்டது.',
   'pro.upload.playlist_full': 'பிளேலிஸ்ட் நிரம்பியுள்ளது.',
   'pro.upload.room_capacity': 'இந்த PRO அறையில் இனி மேலும் டிராக்குகளைச் சேர்க்க முடியாது.',
+  'pro.upload.room_state_limit':
+    'இந்த PRO அறையில் இப்போது மேலும் மாற்றங்களைச் செய்ய முடியாது. சிறிது நேரம் கழித்து கோப்பை மீண்டும் தேர்ந்தெடுக்கவும்.',
   'pro.upload.pending_limit':
     'இந்த PRO அறையில் முடிவடையாத பதிவேற்றங்கள் அதிகமாக உள்ளன. சிறிது நேரம் கழித்து மீண்டும் முயலவும்.',
   'pro.upload.playlist_switched':
     'இந்த டிராக் சேர்க்கப்படுவதற்கு முன்பே வேறொரு பிளேலிஸ்ட் செயலுக்கு வந்தது. கோப்பை மீண்டும் தேர்ந்தெடுக்கவும்.',
   'pro.upload.permission_required': 'மீடியா நிர்வாக அனுமதி தேவை.',
   'pro.upload.failed_file': '{{name}}: {{reason}}',
-  'pro.upload.confirming': 'பதிவேற்றம் உறுதிப்படுத்தப்படுகிறது {{current}}/{{total}}',
+  'pro.upload.confirming': 'பதிவேற்றம் முடிக்கப்படுகிறது {{current}}/{{total}}',
   'pro.upload.batch_progress': 'டிராக்குகள் பதிவேற்றப்படுகின்றன {{current}}/{{total}}',
   'pro.upload.batch_failed_title': 'சில டிராக்குகளைப் பதிவேற்ற முடியவில்லை',
   'pro.upload.batch_failed_message':

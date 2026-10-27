@@ -879,13 +879,15 @@ const ro: Record<I18nKey, string> = {
   'pro.upload.quota_exceeded': 'Această cameră PRO a atins limita de stocare de 1 GB.',
   'pro.upload.playlist_full': 'Lista de redare este plină.',
   'pro.upload.room_capacity': 'Această cameră PRO nu mai poate primi alte piste.',
+  'pro.upload.room_state_limit':
+    'Această cameră PRO nu poate primi alte modificări deocamdată. Selectează din nou fișierul puțin mai târziu.',
   'pro.upload.pending_limit':
     'În această cameră PRO sunt prea multe încărcări nefinalizate. Reîncearcă puțin mai târziu.',
   'pro.upload.playlist_switched':
-    'O altă listă de redare a devenit activă înainte ca această piesă să fie adăugată. Selectează din nou fișierul.',
+    'O altă listă de redare a devenit activă înainte ca această pistă să fie adăugată. Selectează din nou fișierul.',
   'pro.upload.permission_required': 'Este necesară permisiunea de gestionare media.',
   'pro.upload.failed_file': '{{name}}: {{reason}}',
-  'pro.upload.confirming': 'Se confirmă încărcarea {{current}}/{{total}}',
+  'pro.upload.confirming': 'Se finalizează încărcarea {{current}}/{{total}}',
   'pro.upload.batch_progress': 'Se încarcă pistele {{current}}/{{total}}',
   'pro.upload.batch_failed_title': 'Unele piste nu au putut fi încărcate',
   'pro.upload.batch_failed_message': 'Piste neîncărcate: {{failed}} din {{total}} solicitate.',

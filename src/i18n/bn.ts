@@ -856,13 +856,15 @@ const bn: Record<I18nKey, string> = {
   'pro.upload.quota_exceeded': 'এই PRO রুমের 1 GB স্টোরেজ সীমা পূর্ণ হয়েছে।',
   'pro.upload.playlist_full': 'প্লেলিস্ট পূর্ণ হয়ে গেছে।',
   'pro.upload.room_capacity': 'এই PRO রুমে আর কোনো ট্র্যাক রাখা যাবে না।',
+  'pro.upload.room_state_limit':
+    'এই PRO রুমে এখন আর কোনো পরিবর্তন করা যাবে না। কিছুক্ষণ পরে ফাইলটি আবার বেছে নিন।',
   'pro.upload.pending_limit':
     'এই PRO রুমে অসম্পূর্ণ আপলোড অনেক বেশি। কিছুক্ষণ পরে আবার চেষ্টা করুন।',
   'pro.upload.playlist_switched':
     'এই ট্র্যাকটি যোগ হওয়ার আগেই অন্য একটি প্লেলিস্ট চালু হয়েছে। ফাইলটি আবার বেছে নিন।',
   'pro.upload.permission_required': 'মিডিয়া পরিচালনার অনুমতি প্রয়োজন।',
   'pro.upload.failed_file': '{{name}}: {{reason}}',
-  'pro.upload.confirming': 'আপলোড নিশ্চিত করা হচ্ছে {{current}}/{{total}}',
+  'pro.upload.confirming': 'আপলোড শেষ করা হচ্ছে {{current}}/{{total}}',
   'pro.upload.batch_progress': 'ট্র্যাক আপলোড হচ্ছে {{current}}/{{total}}',
   'pro.upload.batch_failed_title': 'কিছু ট্র্যাক আপলোড করা যায়নি',
   'pro.upload.batch_failed_message':

@@ -724,6 +724,7 @@ const zhHans: Record<I18nKey, string> = {
   'pro.upload.quota_exceeded': '此 PRO 房间的 1 GB 存储空间已用完。',
   'pro.upload.playlist_full': '播放列表已满。',
   'pro.upload.room_capacity': '此 PRO 房间无法再容纳更多曲目。',
+  'pro.upload.room_state_limit': '此 PRO 房间暂时无法接受更多更改。请稍后重新选择文件。',
   'pro.upload.pending_limit': '此 PRO 房间中未完成的上传过多。请稍后重试。',
   'pro.upload.playlist_switched': '添加此曲目前，已切换到其他播放列表。请重新选择文件。',
   'pro.upload.permission_required': '需要媒体管理权限。',

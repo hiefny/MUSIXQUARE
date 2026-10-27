@@ -116,8 +116,9 @@ function uploadFailure(task: ProRoomUploadTask, error: unknown): ProRoomUploadFa
     code,
     // A retained retry stays pinned to the playlist slot its upload started
     // in, so a playlist switch fails the same way on every retry. A room
-    // that cannot hold more tracks does not free room before the user removes
-    // some and server cleanup runs.
+    // that cannot hold more files does not free room before the user removes
+    // some and server cleanup runs, and a full receipt ledger keeps most of
+    // its receipts for 24 hours, so neither clears while the dialog is open.
     retryable:
       code !== 'PRO_ROOM_MEDIA_UPLOAD_SIZE_INVALID' &&
       code !== 'PRO_ROOM_MEDIA_UPLOAD_RETRY_MISMATCH' &&

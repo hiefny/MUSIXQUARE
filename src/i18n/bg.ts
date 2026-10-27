@@ -871,13 +871,15 @@ const bg: Record<I18nKey, string> = {
   'pro.upload.quota_exceeded': 'Тази PRO стая е достигнала лимита си за съхранение от 1 GB.',
   'pro.upload.playlist_full': 'Плейлистът е пълен.',
   'pro.upload.room_capacity': 'Тази PRO стая не може да побере повече песни.',
+  'pro.upload.room_state_limit':
+    'Тази PRO стая не може да приеме повече промени в момента. Избери файла отново след малко.',
   'pro.upload.pending_limit':
     'В тази PRO стая има твърде много незавършени качвания. Опитай отново след малко.',
   'pro.upload.playlist_switched':
     'Друг плейлист стана активен, преди тази песен да бъде добавена. Избери файла отново.',
   'pro.upload.permission_required': 'Необходимо е разрешение за управление на медията.',
   'pro.upload.failed_file': '{{name}}: {{reason}}',
-  'pro.upload.confirming': 'Потвърждаване на качването {{current}}/{{total}}',
+  'pro.upload.confirming': 'Завършване на качването: {{current}}/{{total}}',
   'pro.upload.batch_progress': 'Качване на песни: {{current}}/{{total}}',
   'pro.upload.batch_failed_title': 'Някои песни не бяха качени',
   'pro.upload.batch_failed_message': 'Неуспешно качени песни от заявените {{total}}: {{failed}}.',

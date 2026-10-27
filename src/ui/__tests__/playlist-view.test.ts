@@ -1373,7 +1373,7 @@ describe('playlist queue identity rendering and actions', () => {
     expect(check.previousElementSibling?.classList.contains('track-name')).toBe(true);
     expect(
       check.querySelector('svg[aria-hidden="true"] path.playlist-select-minus')?.getAttribute('d'),
-    ).toBe('M6.05 12h11.9');
+    ).toBe('M7 12h10');
     // The language list's angular check mark, shown once the row is selected.
     expect(check.querySelector('path.playlist-select-mark')?.getAttribute('d')).toBe(
       'M4.65 11.95l4.55 4.55L19.35 6.35',

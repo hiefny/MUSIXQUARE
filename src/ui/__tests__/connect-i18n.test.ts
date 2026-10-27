@@ -2709,6 +2709,11 @@ describe('member-level connection and administrator UI', () => {
     const expandIconRules =
       stylesheet.match(/\.expand-toggle svg,\s*\.device-expand-toggle svg\s*\{([^}]*)\}/)?.[1] ??
       '';
+    // The chevrons share their line weight with the playlist minus.
+    const lineIconWeightRules =
+      stylesheet.match(
+        /\.expand-toggle svg,\s*\.device-expand-toggle svg,\s*\.playlist-select-minus\s*\{([^}]*)\}/,
+      )?.[1] ?? '';
     const playlistExpandButtonRules = stylesheet.match(/\.expand-toggle\s*\{([^}]*)\}/)?.[1] ?? '';
     const playlistRemoveIconRules =
       stylesheet.match(/\.btn-playlist-remove svg\s*\{([^}]*)\}/)?.[1] ?? '';
@@ -2725,7 +2730,7 @@ describe('member-level connection and administrator UI', () => {
     expect(expandIconRules).toContain('height: 22px');
     expect(expandIconRules).toContain('fill: none');
     expect(expandIconRules).toContain('stroke: currentColor');
-    expect(expandIconRules).toContain('stroke-width: 1.8');
+    expect(lineIconWeightRules).toContain('stroke-width: 1.8');
     expect(expandIconRules).toContain('stroke-linecap: butt');
     expect(expandIconRules).toContain('stroke-linejoin: miter');
     expect(playlistExpandButtonRules).toContain('width: 44px');

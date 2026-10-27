@@ -116,6 +116,42 @@ async function tapNeutral(page: Page): Promise<void> {
   await page.touchscreen.tap(point.x, point.y);
 }
 
+/** Adds an expanded and a folded YouTube playlist row after the five tracks. */
+async function addYouTubePlaylists(page: Page): Promise<void> {
+  await page.evaluate(() => {
+    const w = window as unknown as {
+      __MUSIXQUARE_GET_STATE__: (path: string) => unknown;
+      __MUSIXQUARE_SET_STATE__: (path: string, value: unknown) => void;
+    };
+    w.__MUSIXQUARE_SET_STATE__('youtube.subItemsMap', {
+      PL_edit_open: { ids: ['vopen000001', 'vopen000002'], titles: ['Open one', 'Open two'] },
+    });
+    const items = w.__MUSIXQUARE_GET_STATE__('playlist.items') as unknown[];
+    w.__MUSIXQUARE_SET_STATE__('playlist.items', [
+      ...items,
+      {
+        queueItemId: '00000000-0000-4000-8000-0000000000e1',
+        type: 'youtube',
+        name: 'Open list',
+        title: 'Open list',
+        videoId: 'vopen000001',
+        playlistId: 'PL_edit_open',
+        isExpanded: true,
+      },
+      {
+        queueItemId: '00000000-0000-4000-8000-0000000000e2',
+        type: 'youtube',
+        name: 'Closed list',
+        title: 'Closed list',
+        videoId: 'vclosed0001',
+        playlistId: 'PL_edit_closed',
+        isExpanded: false,
+      },
+    ]);
+  });
+  await waitForPlaylistCount(page, FIXTURES.length + 2);
+}
+
 test.describe('Playlist edit mode (mouse)', () => {
   test.use({ viewport: { width: 1440, height: 900 } });
 
@@ -451,38 +487,7 @@ test.describe('Playlist edit mode (mouse)', () => {
   test('edit mode folds YouTube playlists and restores each expansion', async ({ page }) => {
     test.setTimeout(90_000);
     await openFiveTrackPlaylist(page, false);
-    await page.evaluate(() => {
-      const w = window as unknown as {
-        __MUSIXQUARE_GET_STATE__: (path: string) => unknown;
-        __MUSIXQUARE_SET_STATE__: (path: string, value: unknown) => void;
-      };
-      w.__MUSIXQUARE_SET_STATE__('youtube.subItemsMap', {
-        PL_edit_open: { ids: ['vopen000001', 'vopen000002'], titles: ['Open one', 'Open two'] },
-      });
-      const items = w.__MUSIXQUARE_GET_STATE__('playlist.items') as unknown[];
-      w.__MUSIXQUARE_SET_STATE__('playlist.items', [
-        ...items,
-        {
-          queueItemId: '00000000-0000-4000-8000-0000000000e1',
-          type: 'youtube',
-          name: 'Open list',
-          title: 'Open list',
-          videoId: 'vopen000001',
-          playlistId: 'PL_edit_open',
-          isExpanded: true,
-        },
-        {
-          queueItemId: '00000000-0000-4000-8000-0000000000e2',
-          type: 'youtube',
-          name: 'Closed list',
-          title: 'Closed list',
-          videoId: 'vclosed0001',
-          playlistId: 'PL_edit_closed',
-          isExpanded: false,
-        },
-      ]);
-    });
-    await waitForPlaylistCount(page, 7);
+    await addYouTubePlaylists(page);
     const subList = page.locator('#playlist-ui .sub-playlist');
     const toggles = page.locator('#playlist-ui .expand-toggle');
     await expect(subList).toHaveCount(1);
@@ -500,6 +505,59 @@ test.describe('Playlist edit mode (mouse)', () => {
     await expect(toggles.nth(0)).toHaveAttribute('aria-expanded', 'true');
     await expect(toggles.nth(1)).toHaveAttribute('aria-expanded', 'false');
     await expect(toggles.nth(1)).toBeVisible();
+  });
+
+  // UI audit items 8 and 9 (2026-10-27): the minus draws with the chevron's
+  // line weight and is about 9.2px long, shorter than the chevron beside it;
+  // the check it turns into keeps its heavier selected-mark weight.
+  test('the minus shares the chevron line weight, sits shorter, and turns into the heavier check', async ({
+    page,
+  }) => {
+    test.setTimeout(90_000);
+    await openFiveTrackPlaylist(page, false);
+    await addYouTubePlaylists(page);
+    const row = page.locator('#playlist-ui .track-item').filter({
+      has: page.locator('.expand-toggle'),
+    });
+    const icons = () =>
+      row.first().evaluate((element) => {
+        const chevron = element.querySelector('.expand-toggle svg path')!;
+        const minus = element.querySelector('.btn-playlist-select .playlist-select-minus')!;
+        const check = element.querySelector('.btn-playlist-select .playlist-select-mark')!;
+        return {
+          chevronStroke: getComputedStyle(chevron).strokeWidth,
+          minusStroke: getComputedStyle(minus).strokeWidth,
+          checkStroke: getComputedStyle(check).strokeWidth,
+          chevronLength: chevron.getBoundingClientRect().width,
+          minusLength: minus.getBoundingClientRect().width,
+          minusOpacity: getComputedStyle(minus).opacity,
+          checkOpacity: getComputedStyle(check).opacity,
+        };
+      });
+
+    const resting = await icons();
+    expect(resting).toMatchObject({
+      chevronStroke: '1.8px',
+      minusStroke: '1.8px',
+      checkStroke: '2.4px',
+      minusOpacity: '1',
+      checkOpacity: '0',
+    });
+    // Butt ends: the path is the ink, 10 of 24 units at 22px.
+    expect(resting.minusLength).toBeCloseTo((10 * 22) / 24, 1);
+    expect(resting.minusLength).toBeLessThan(resting.chevronLength);
+
+    await row.first().locator('.btn-playlist-select').click();
+    await expect(row.first().locator('.btn-playlist-select')).toHaveAttribute(
+      'aria-pressed',
+      'true',
+    );
+    await expect
+      .poll(async () => {
+        const { minusOpacity, checkOpacity, checkStroke } = await icons();
+        return { minusOpacity, checkOpacity, checkStroke };
+      })
+      .toEqual({ minusOpacity: '0', checkOpacity: '1', checkStroke: '2.4px' });
   });
 });
 

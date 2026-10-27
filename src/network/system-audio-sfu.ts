@@ -1275,8 +1275,9 @@ export function registerSystemAudioSfuListeners(): void {
   });
 
   // The host no longer reads this marker (5B-OV2, old-version survey OV-B05:
-  // every LAN guest is SFU-capable); hosts up to 9.0.13 still do, so guests
-  // keep sending it until a later client floor (OV-F06).
+  // every LAN guest is SFU-capable). Hosts up to 9.0.15 still read and depend
+  // on it, and the 787 build floor still admits 9.0.14 and 9.0.15 hosts, so
+  // guests keep sending it until a client floor at 9.0.16 or later (OV-F06).
   bus.on('network:peer-connected', (conn: DataConnection) => {
     if (getRoomContext().kind === 'pro') return;
     if (getState('network.appRole') !== 'guest') return;

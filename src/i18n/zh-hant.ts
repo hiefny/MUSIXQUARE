@@ -213,7 +213,7 @@ const zhHant: Record<I18nKey, string> = {
   'player.repeat_off_aria': '不循環',
   'player.repeat_all_aria': '全部循環',
   'player.repeat_one_aria': '循環播放目前項目',
-  'player.syncing_aria': '正在同步',
+  'player.syncing_aria': '同步中',
   'player.playback_control_required_tip': '需要播放控制權限',
   'player.media_management_required_tip': '需要管理媒體的權限',
   'player.not_ready_tip': '尚未準備好',

@@ -214,7 +214,7 @@ const zhHans: Record<I18nKey, string> = {
   'player.repeat_off_aria': '不循环',
   'player.repeat_all_aria': '全部循环',
   'player.repeat_one_aria': '循环播放当前媒体',
-  'player.syncing_aria': '正在同步',
+  'player.syncing_aria': '同步中',
   'player.playback_control_required_tip': '需要播放控制权限',
   'player.media_management_required_tip': '需要媒体管理权限',
   'player.not_ready_tip': '尚未准备好',

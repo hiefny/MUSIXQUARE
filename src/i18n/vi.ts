@@ -217,7 +217,7 @@ const vi: Record<I18nKey, string> = {
   'player.prev_track': 'Mục trước',
   'player.next_track': 'Mục tiếp theo',
   'player.play_aria': 'Phát',
-  'player.repeat_off_aria': 'Tắt lặp',
+  'player.repeat_off_aria': 'Không lặp',
   'player.repeat_all_aria': 'Lặp tất cả các mục',
   'player.repeat_one_aria': 'Lặp mục hiện tại',
   'player.syncing_aria': 'Đang đồng bộ',
@@ -419,7 +419,7 @@ const vi: Record<I18nKey, string> = {
 
   // YouTube
   'youtube.enter_link': 'Nhập liên kết YouTube',
-  'youtube.enter_source': 'Liên kết YouTube hoặc từ khóa',
+  'youtube.enter_source': 'Liên kết YouTube hoặc từ khóa tìm kiếm',
   'youtube.enter_link_prompt': 'Nhập liên kết YouTube hoặc từ khóa tìm kiếm',
   'youtube.enter_source_placeholder': 'https://youtube.com/…',
   'youtube.watch_together': 'Xem YouTube cùng nhau',

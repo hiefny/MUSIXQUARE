@@ -122,7 +122,7 @@ const th: Record<I18nKey, string> = {
   'player.prev_track': 'รายการก่อนหน้า',
   'player.next_track': 'รายการถัดไป',
   'player.play_aria': 'เล่น',
-  'player.repeat_off_aria': 'ปิดเล่นซ้ำ',
+  'player.repeat_off_aria': 'ไม่เล่นซ้ำ',
   'player.repeat_all_aria': 'เล่นซ้ำทุกรายการ',
   'player.repeat_one_aria': 'เล่นซ้ำรายการปัจจุบัน',
   'player.syncing_aria': 'กำลังซิงก์',

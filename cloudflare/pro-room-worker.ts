@@ -4149,7 +4149,7 @@ async function copyReservedMediaObject(
 }
 
 /**
- * The binding promotion that browser completion used through 9.0.15: stream the
+ * The binding promotion that browser completion used through 9.0.16: stream the
  * staging object into the final key through the Worker. It runs only after the
  * presigned copy left no verified final object, writes the same key with the
  * same pinned metadata, and, as before, has no deadline of its own.
@@ -17539,9 +17539,9 @@ export class MusixquareProRoom {
         sizeBucketMiB,
       });
       if (copyReason !== 'ok') {
-        // The presigned copy has no production history before 9.0.16, so any
+        // The presigned copy has no production history before 9.0.17, so any
         // outcome short of a verified final object falls back to the binding
-        // promotion 9.0.15 used. After a timed-out copy this request has
+        // promotion 9.0.16 used. After a timed-out copy this request has
         // already spent the 8 s copy deadline, so a fallback slower than the
         // remaining facade budget times out there; the same-key retry then
         // replays the stored answer. Only a read showing that the pinned

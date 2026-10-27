@@ -47,7 +47,7 @@ const EVENT_REASONS = {
   upstream_timeout: ['response', 'body'],
   upstream_failure: ['fetch', 'response', 'body'],
   // One record per browser completion copy attempt, because the presigned R2
-  // CopyObject has no production history before 9.0.16. A plain success
+  // CopyObject has no production history before 9.0.17. A plain success
   // logs only its first detail per window (see MEDIA_COPY_SAMPLES).
   media_copy: [
     'ok',

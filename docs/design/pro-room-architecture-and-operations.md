@@ -520,8 +520,11 @@ instead of attempting another route.
 The Durable Object accepts only the exact same-publication `lan-direct` to SFU
 mutation; SFU to direct, a different live publication ID, and mixed direct/SFU
 delivery fail closed. The authenticated client reducer accepts that equal-rank
-replacement only for the same `publicationId`; peer fan-out and every other
-same-generation mutation remain state conflicts. As soon as canonical live
+replacement only for the same `publicationId`; every other same-generation
+mutation remains a state conflict. The client takes this state only from the
+authenticated resource (its GET, a presence heartbeat carrying the same read,
+and the lease operations' responses); Phase 5 train 5B removed the unused
+peer fan-out entry point. As soon as canonical live
 state is SFU, `system-audio.signal` authority is denied in both directions, so
 stale direct offer/answer/candidate/close frames cannot continue under the
 shared ID. Promotion is therefore one-way for the publication lifetime.

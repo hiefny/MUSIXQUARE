@@ -1,12 +1,12 @@
 # PRO upload completion and authority feedback — 2026-10-27
 
-| Field                 | Value                                                                                                            |
-| --------------------- | ---------------------------------------------------------------------------------------------------------------- |
-| Status                | [PR #503](https://github.com/hiefny/MUSIXQUARE/pull/503) open; not merged or deployed yet                        |
-| Base                  | Initial `cb1598516`; integrated main `5dd7cc1f6` (#502, 9.0.15 / v788) in `4a99f44ba`                            |
-| Proposed identity     | 9.0.16 / v790 in the PR; the bump is redone at merge on the then-current main; App build floor unchanged         |
-| Scope                 | Browser PRO uploads, completion deadlines, bounded diagnostics, Standard/PRO authority feedback                  |
-| Release authorization | On 2026-10-27 the owner authorized Claude to merge, ship and record this PR through the normal release procedure |
+| Field                 | Value                                                                                                                                                            |
+| --------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Status                | [PR #503](https://github.com/hiefny/MUSIXQUARE/pull/503) open; not merged or deployed yet                                                                        |
+| Base                  | Initial `cb1598516`; integrated main `5dd7cc1f6` (#502, 9.0.15 / v788) in `4a99f44ba`; 5B 기록 main `0228276e2`(#506, 운영 9.0.16 / v789)를 QA 라운드 7에서 합침 |
+| Proposed identity     | 9.0.17 / v790(5B 합침 뒤 다시 올림, 그 전 PR의 9.0.16 / v790 표기는 버림); 최소 앱 빌드 787 그대로                                                               |
+| Scope                 | Browser PRO uploads, completion deadlines, bounded diagnostics, Standard/PRO authority feedback                                                                  |
+| Release authorization | 2026-10-27 오너가 5B 다음 순서로 이 PR의 병합·배포·기록을 정식 릴리스 절차대로 진행하도록 승인함                                                                 |
 
 ## Runtime increments
 
@@ -14,7 +14,7 @@
    server-authenticated CopyObject request with a durably pinned staging ETag as
    a condition. The Worker no longer reads and retransmits the full file
    unless the copy leaves no verified final object; then completion falls
-   back to the 9.0.15 binding copy (see 복사 안전장치 below).
+   back to the 9.0.16 binding copy (see 복사 안전장치 below).
    Completion retains serialized authorization, generation, quota and
    idempotency checks, a distinct final key, and final HEAD validation.
    The copy budget is 8 seconds and the completion facade budget is 10 seconds;
@@ -310,11 +310,47 @@ Node 24.20.0, npm 12.0.2, Vitest 5.0.3, 로컬 실행만. 실제 R2와 자격 �
   dry-run 번들, PR CI. 실제 R2 CopyObject와 운영 진단 출력도 확인하지 않았다. 새
   번역은 사람 검수를 거치지 않았다.
 
+### 7. 5B 합침(2026-10-27)
+
+테스트한 코드: `c29a4c796`에 main `0228276e2`(#506)를 합친 커밋(버전 표기는 main의
+9.0.16 / v789, bump는 다음 커밋). 환경: Windows, Node 24.20.0, npm 12.0.2, Vitest
+5.0.3, 로컬 실행만.
+
+- **합친 것:** main의 세 커밋, 릴리스 A 기록 `1ff7fdf2`(#504), 5B `a930030a`(#505,
+  9.0.16 / v789, 2026-10-27 10:18 KST 배포), 5B 기록 `0228276e`(#506). 5B는 시스템
+  오디오 수신 슬롯과 그 옛 버전 항목을 바꿨고, 업로드 경로와 PRO Worker 소스는 바꾸지
+  않았다(App Worker는 관리자 자산 버전 표기만). 그래서 이 PR의 동작, 기한, 되돌리기
+  경계는 합친 뒤에도 같다.
+- **글자 충돌:** 버전 표기 둘(`index.html`의 bootstrap 쿼리, `scripts/service-worker-asset.ts`의
+  캐시 epoch)은 main의 v789를 따랐다(이 PR의 v790 표기는 버림). `docs/README.md`와
+  `docs/release-record.md` §2는 두 쪽을 모두 남기고 이 PR 항목을 5B 배포에 맞게 고쳤다.
+  `src/network/peer.ts`, `src/pro-room/runtime.ts`, `cloudflare/app-worker.ts`,
+  `scripts/check-room-authority-boundaries.mts`, 자원 소유권 등록부와
+  `docs/design/pro-room-architecture-and-operations.md`는 글자 충돌 없이 합쳐졌다.
+- **버전 문구:** 이 PR을 9.0.16으로 적은 주석·문서(`cloudflare/pro-room-worker.ts`,
+  `cloudflare/pro-room-media-timing.ts`, `cloudflare/pro-room-diagnostics.ts`, PRO 방
+  Worker 테스트 주석, RO-52, 이 보고서)는 9.0.17로, 바인딩 복사를 쓰던 마지막 운영
+  버전은 9.0.16으로 고쳤다(동작 변화 없음). 지난 QA 라운드의 테스트한 코드 표기는 그대로
+  둔다.
+- **가드 수치 다시 잼:** room-authority 직접 읽기 80, 구독 22, 쓰기 13(398개 production
+  파일). 이 PR은 81이었고 5B가 `system-audio-sfu.ts`의 읽기 하나를 지워 기준이 80이
+  됐다. 자원 소유권은 48개 기록, 443개 production 파일이다(이 PR의 RO-52를 더하고 5B가
+  RO-41을 지움). main은 RO-52를 쓰지 않았으므로 번호는 그대로다. dead-exports,
+  bus-pairing 202/202, import-graph, lifecycle-writes, navigation-sinks,
+  transport-health, source-complexity도 통과했다.
+- **검사:** typecheck(전체), `check:workers`, `lint`, `format:check` 통과. 영향 받는 단위
+  묶음(`src/pro-room`, `src/network`, `src/rooms`, `src/account`, `src/i18n`, `src/ui`와
+  room-authority·자원 소유권·배포 상태·facade 진단 도구 테스트) 320개 파일, 7,851개 모두
+  통과. `guard:release-identity`는 9.0.16·v789이고, `guard:sw-cache-version`은 bump가
+  필요하다고 실패한다(예상, 다음 커밋에서 올림).
+- **돌리지 않은 것:** 이 커밋에서의 전체 단위 실행, Worker 묶음, 브라우저 묶음, 운영
+  빌드는 bump 뒤 최종 검사(라운드 8)에서 돌린다.
+
 ## Release and recovery
 
 - App and PRO Worker changes require the normal coordinated `all` release
-  after merge and exact-main CI. The owner authorized this release on 2026-10-27
-  (Claude merges, ships and records it).
+  after merge and exact-main CI. 2026-10-27 오너가 5B 다음 순서로 이 배포를
+  승인했다(병합, 배포, 기록까지 정식 절차대로).
 - No CORS change, new secret, dependency, service binding, D1 migration,
   or API response shape. The private asset and cleanup records gain the optional
   fields described above. CopyObject uses the existing
@@ -338,15 +374,15 @@ Node 24.20.0, npm 12.0.2, Vitest 5.0.3, 로컬 실행만. 실제 R2와 자격 �
 자격 증명 없이 이 위험을 줄이려고 브라우저 완료(`handleCompleteMedia`)에 다음을
 더했다.
 
-- **바인딩 대체 경로.** 복사가 검증된 최종 객체를 남기지 못하면 9.0.15까지 쓰던
+- **바인딩 대체 경로.** 복사가 검증된 최종 객체를 남기지 못하면 9.0.16까지 쓰던
   바인딩 복사(`PRO_MEDIA_BUCKET` get 뒤 put)로 같은 최종 키에 같은 메타데이터를
   쓰고 같은 HEAD 검증을 거친다. 메타데이터에는 고정한 원본 ETag
   (`mxqr-copy-source-etag`)도 들어간다. 대상은 200이 아닌 모든 상태(412 포함),
   네트워크 오류, 8초 기한, 읽을 수 없거나 16 KiB를 넘는 결과, 복사 뒤 HEAD 실패,
-  ETag나 메타데이터 불일치, S3 자격 증명 없음이다. 다만 최악의 경우는 9.0.15와
+  ETag나 메타데이터 불일치, S3 자격 증명 없음이다. 다만 최악의 경우는 9.0.16과
   같지 않다. 복사가 8초 기한까지 가서 끝나면 그 8초 동안 방의 변경 대기열을 잡은 채
-  9.0.15의 바인딩 전송을 이어서 한다. 그래서 대체 경로가 2초를 넘기면 완료 facade
-  (10초)가 시간 초과로 답한다. 9.0.15의 바인딩 전송은 5초 제어 기한을 통째로 썼다.
+  9.0.16의 바인딩 전송을 이어서 한다. 그래서 대체 경로가 2초를 넘기면 완료 facade
+  (10초)가 시간 초과로 답한다. 9.0.16의 바인딩 전송은 5초 제어 기한을 통째로 썼다.
   회복은 같은 키 재시도로, 앞선 완료가 끝나 저장한 응답을 그대로 돌려받는다(아래
   기한과 배포 창).
 - **원본이 바뀐 경우만 쓰지 않는다.** 대체 경로는 staging을 한 번 읽고, 그 읽기의
@@ -380,15 +416,15 @@ Node 24.20.0, npm 12.0.2, Vitest 5.0.3, 로컬 실행만. 실제 R2와 자격 �
 기한과 배포 창:
 
 - 복사 기한 8초와 완료 facade 기한 10초(`cloudflare/pro-room-media-timing.ts`)는
-  그대로다. 대체 경로는 9.0.15처럼 자체 기한이 없다. 복사가 8초 기한에서 끝나면
+  그대로다. 대체 경로는 9.0.16처럼 자체 기한이 없다. 복사가 8초 기한에서 끝나면
   facade 기한은 2초만 남으므로, 그보다 오래 걸리는 대체 경로는 facade 시간 초과로
-  보인다(9.0.15의 바인딩 전송은 5초 제어 기한을 다 썼다). 그동안 방의 변경 대기열은
+  보인다(9.0.16의 바인딩 전송은 5초 제어 기한을 다 썼다). 그동안 방의 변경 대기열은
   8초에 대체 경로 시간을 더한 만큼 잡힌다. facade 시간 초과를 받은 브라우저의 같은 키
   재시도는 저장된 응답을 재생하거나 최종 객체를 다시 확인한다. 방 객체는 완료를 한
   번에 하나씩 처리하므로 재시도는 앞선 완료가 끝난 뒤에 실행된다.
 - `all` 릴리스는 PRO Worker를 App Worker보다 먼저 배포한다. 그 사이에는 옛 App
   facade의 5초 제어 기한이 새 PRO 복사(8초 기한) 앞에 선다. 5초를 넘는 완료는
-  9.0.15에서처럼 facade 시간 초과로 보이고, 같은 방식(같은 키 재시도나 기존 고아
+  9.0.16에서처럼 facade 시간 초과로 보이고, 같은 방식(같은 키 재시도나 기존 고아
   정리)으로 회복된다. App 배포가 끝나면 10초 facade가 적용된다.
 - 버려진 복사가 R2에서 늦게 커밋될 수 있으므로 대체 경로는 같은 최종 키의 두 번째
   쓰기 주체다. 그래서 [자원 소유권 RO-52](resource-ownership-registry.md#ro-52-pro-browser-completion-final-object)를
@@ -407,7 +443,7 @@ Node 24.20.0, npm 12.0.2, Vitest 5.0.3, 로컬 실행만. 실제 R2와 자격 �
 The changed code is not deployed. Production success for the previously failing
 large file and production CopyObject latency are not claimed. R2 internal copy
 can still fail or exceed its bounded deadline; completion then falls back to the
-9.0.15 binding copy, and explicit
+9.0.16 binding copy, and explicit
 completion retry safely recovers a final object whose response was lost.
 Deterministic Worker and browser
 tests exercise those contracts locally. Copy completion remains serialized in
@@ -417,6 +453,6 @@ post-merge production validation must use the final released SHA. Existing
 playback behavior is covered by regression tests, not by a new multi-device
 audio or mobile soak run.
 
-복사가 8초 기한에서 끝난 뒤의 대체 경로는 9.0.15보다 facade 기한이 짧다(2초 대 5초).
+복사가 8초 기한에서 끝난 뒤의 대체 경로는 9.0.16보다 facade 기한이 짧다(2초 대 5초).
 자세한 내용과 회복은 위 [복사 안전장치](#복사-안전장치-바인딩-대체-경로와-복사-진단)에
 있다.

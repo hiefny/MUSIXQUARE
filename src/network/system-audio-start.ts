@@ -16,7 +16,11 @@ export function createSystemAudioStartFrame(
   };
 }
 
-/** Read an optional mixed-generation frame without ever exposing raw text. */
+/**
+ * Read a validated START's surface without ever exposing raw text. The
+ * validator requires a bounded string; an unknown value (a later surface
+ * class, for example) still reads as DISPLAY.
+ */
 export function readSystemAudioStartSurface(
   frame: Readonly<Record<string, unknown>>,
 ): SystemAudioSurface {

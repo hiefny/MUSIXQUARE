@@ -20,11 +20,9 @@ import {
   beginSystemAudioShareDelivery,
   getSystemAudioShareDeliverySnapshot,
   isSystemAudioDirectFailurePeer,
-  markLocalSystemAudioSfuCapable,
   promoteSystemAudioPeerDeliveryToSfu,
   reserveSystemAudioFallbackDirect,
   resetGuestSystemAudioShareRoute,
-  resetLocalSystemAudioSfuCapabilities,
 } from '../system-audio-delivery.ts';
 
 // The receive slot runs for real, except the reception start, trust-boundary
@@ -79,8 +77,13 @@ vi.mock('../../audio/system-capture.ts', () => ({
   isSystemAudioActive: vi.fn(() => true),
 }));
 
+// The reception start is a stub here, so the slot's attach fence (5B-G1)
+// reads its placeholder as committed: every attach in this suite lands inside
+// a reception. The real-state Standard contract suite pins the fence's
+// refusal on this route.
 vi.mock('../../player/ownership.ts', () => ({
   claimPlaybackOwner: vi.fn(),
+  isSystemAudioPlaceholderMeta: vi.fn(() => true),
   setSystemAudioReceiving: vi.fn(),
 }));
 
@@ -313,14 +316,12 @@ beforeEach(() => {
   standardRoomPrerequisiteMocks.getTurnCredentials.mockResolvedValue(null);
   pendingRealtimeCalls = [];
   pcInstances = [];
-  resetLocalSystemAudioSfuCapabilities();
   resetGuestSystemAudioShareRoute();
   (globalThis as Record<string, unknown>).RTCPeerConnection = MockRTCPeerConnection;
   installFetchRouting();
 });
 
 afterEach(() => {
-  resetLocalSystemAudioSfuCapabilities();
   resetGuestSystemAudioShareRoute();
   delete (globalThis as Record<string, unknown>).RTCPeerConnection;
   delete (globalThis as Record<string, unknown>).MediaStream;
@@ -558,9 +559,13 @@ describe('single original stereo SFU contract', () => {
       .mock.calls.map(([, message]) => message as Record<string, unknown>)
       .filter((message) => message.type === MSG.SYSTEM_AUDIO_SFU_READY);
     expect(readyMessages).toHaveLength(3);
-    expect(readyMessages[0]).toMatchObject({ audience: 'all', handoffFromDirect: true });
-    expect(readyMessages[1]).toMatchObject({ audience: 'all', handoffFromDirect: true });
-    expect(readyMessages[2]).toMatchObject({ audience: 'all' });
+    // The failed-direct remote peer's READY carries its frozen 'remote'
+    // audience (5B-OV2, old-version survey OV-B06): the 'all' fence served
+    // only 8.4.38-8.4.39 guests, and current guests refuse a late direct call
+    // after the handoff marker (guestRejectLateDirectRoute).
+    expect(readyMessages[0]).toMatchObject({ audience: 'remote', handoffFromDirect: true });
+    expect(readyMessages[1]).toMatchObject({ audience: 'remote', handoffFromDirect: true });
+    expect(readyMessages[2]).toMatchObject({ audience: 'remote' });
     expect(readyMessages[2]).not.toHaveProperty('handoffFromDirect');
 
     bus.emit('system-audio:stop');
@@ -821,7 +826,7 @@ describe('bounded large-room SFU failure policy', () => {
       .mocked(setManagedTimer)
       .mock.calls.filter(([name]) => name === 'system-audio-sfu-host-retry');
 
-  async function loadSfuModuleWithCapableLocalGuests(count = 9) {
+  async function loadSfuModuleWithLocalGuests(count = 9) {
     const mod = await import('../system-audio-sfu.ts');
     mod.registerSystemAudioSfuListeners();
     bus.emit('system-audio:stop');
@@ -832,14 +837,13 @@ describe('bounded large-room SFU failure policy', () => {
     vi.mocked(capture.isSystemAudioActive).mockReturnValue(true);
 
     const peers = Array.from({ length: count }, (_, index) => makeLocalPeer(`local-${index + 1}`));
-    peers.forEach((peer) => markLocalSystemAudioSfuCapable(peer.id));
     setState('network.appRole', 'host');
     setState('network.connectedPeers', peers);
     return { mod, peers };
   }
 
   it('waits for its one bounded retry before stopping large-room SFU targets', async () => {
-    const { peers } = await loadSfuModuleWithCapableLocalGuests();
+    const { peers } = await loadSfuModuleWithLocalGuests();
     const { safeSend } = await import('../peer-state.ts');
 
     bus.emit('system-audio:streams-ready');
@@ -877,7 +881,7 @@ describe('bounded large-room SFU failure policy', () => {
   });
 
   it('keeps all-audience retry policy when ICE later relabels every peer as remote', async () => {
-    const { mod, peers } = await loadSfuModuleWithCapableLocalGuests();
+    const { mod, peers } = await loadSfuModuleWithLocalGuests();
 
     bus.emit('system-audio:streams-ready');
     await waitForNewSessionCalls(1);
@@ -923,7 +927,7 @@ describe('bounded large-room SFU failure policy', () => {
     expect(retryTimerCalls()).toHaveLength(0);
   });
 
-  it('retries once for a late capable LAN guest without republishing to frozen remote fallbacks', async () => {
+  it('retries once for a late LAN guest without republishing to frozen remote fallbacks (5B-OV2)', async () => {
     const mod = await import('../system-audio-sfu.ts');
     mod.registerSystemAudioSfuListeners();
     bus.emit('system-audio:stop');
@@ -944,8 +948,8 @@ describe('bounded large-room SFU failure policy', () => {
     await waitForNewSessionCalls(1);
     await rejectAllRealtimeCalls();
 
+    // No capability marker: every LAN guest goes to the SFU (OV-B05).
     const localPeer = makeLocalPeer('late-local');
-    markLocalSystemAudioSfuCapable(localPeer.id);
     setState('network.connectedPeers', [...remotePeers, localPeer]);
     (globalThis as Record<string, unknown>).MediaStream = class {
       constructor(_tracks?: unknown) {}
@@ -971,11 +975,12 @@ describe('bounded large-room SFU failure policy', () => {
         );
       expect(readyCalls).toHaveLength(1);
       expect(readyCalls[0]?.[0]).toBe(localPeer.conn);
+      expect(readyCalls[0]?.[1]).toMatchObject({ audience: 'all' });
     });
     expect(retryTimerCalls()).toHaveLength(0);
   });
 
-  it('uses the same bounded retry when LAN capability arrives after the peer event', async () => {
+  it('spends the same bounded retry on a late LAN guest from its peer event alone, with no capability handler and no START of its own (5B-OV2)', async () => {
     const mod = await import('../system-audio-sfu.ts');
     mod.registerSystemAudioSfuListeners();
     bus.emit('system-audio:stop');
@@ -996,32 +1001,33 @@ describe('bounded large-room SFU failure policy', () => {
     await waitForNewSessionCalls(1);
     await rejectAllRealtimeCalls();
 
-    const localPeer = makeLocalPeer('capability-late-local');
-    setState('network.connectedPeers', [...remotePeers, localPeer]);
-    setState(
-      'network.activeHostConnByPeerId',
-      new Map([[localPeer.id, localPeer.conn as DataConnection]]),
-    );
+    // The host ignores SYSTEM_AUDIO_SFU_CAPABILITY (old-version survey
+    // OV-B05): the frame still passes the protocol validator, which drops it
+    // with no handler, and current guests keep sending it until a later
+    // client floor (OV-F06).
     const { registerHandler } = await import('../protocol.ts');
-    const capabilityHandler = vi
-      .mocked(registerHandler)
-      .mock.calls.find((call) => call[0] === MSG.SYSTEM_AUDIO_SFU_CAPABILITY)?.[1] as
-      ((data: unknown, conn?: DataConnection) => void) | undefined;
-    expect(capabilityHandler).toBeDefined();
+    expect(
+      vi
+        .mocked(registerHandler)
+        .mock.calls.some((call) => call[0] === MSG.SYSTEM_AUDIO_SFU_CAPABILITY),
+    ).toBe(false);
 
-    capabilityHandler!({ version: 2, localAudience: true }, localPeer.conn as DataConnection);
+    const localPeer = makeLocalPeer('late-local-evaluated');
+    setState('network.connectedPeers', [...remotePeers, localPeer]);
+    bus.emit('orchestrator:peer-evaluated', localPeer.id);
     await waitForNewSessionCalls(2);
     await rejectAllRealtimeCalls();
 
     const { safeSend } = await import('../peer-state.ts');
+    // The host's late-peer START (system-audio-host.ts) is the only START a
+    // late guest receives; this module sends none.
     expect(
       vi
         .mocked(safeSend)
         .mock.calls.filter(
           ([, message]) => (message as { type?: string }).type === MSG.SYSTEM_AUDIO_START,
-        )
-        .map(([conn]) => conn),
-    ).toEqual([localPeer.conn]);
+        ),
+    ).toEqual([]);
     const stoppedConnections = vi
       .mocked(safeSend)
       .mock.calls.filter(
@@ -1260,7 +1266,7 @@ describe('guest SFU teardown and successor ownership (F-2402)', () => {
 
     // The direct fallback wins while the first subscribe is in flight. This
     // must cancel that attempt and discard its queued successor.
-    bus.emit('system-audio:incoming-call', {} as never, 'STEREO');
+    bus.emit('system-audio:incoming-call', {} as never);
     expect(mod.getSystemAudioSfuDebugSnapshot().guest.directRouteFrozen).toBe(true);
     expect(receiveSlotMocks.handOff).toHaveBeenCalledTimes(1);
     await resolveRealtime('new-session', {
@@ -1327,7 +1333,7 @@ describe('guest SFU teardown and successor ownership (F-2402)', () => {
       ((data: unknown, conn?: unknown) => void) | undefined;
     expect(handler).toBeDefined();
 
-    bus.emit('system-audio:incoming-call', {} as never, 'STEREO');
+    bus.emit('system-audio:incoming-call', {} as never);
     expect(mod.getSystemAudioSfuDebugSnapshot().guest.directRouteFrozen).toBe(true);
 
     handler!(
@@ -1347,7 +1353,7 @@ describe('guest SFU teardown and successor ownership (F-2402)', () => {
     });
     await waitForNewSessionCalls(1);
     expect(mod.getSystemAudioSfuDebugSnapshot().guest.directRouteFrozen).toBe(false);
-    bus.emit('system-audio:incoming-call', {} as never, 'STEREO');
+    bus.emit('system-audio:incoming-call', {} as never);
     expect(mod.getSystemAudioSfuDebugSnapshot().guest.directRouteFrozen).toBe(false);
     expect(countNewSessionCalls()).toBe(1);
 
@@ -1451,7 +1457,7 @@ describe('guest SFU teardown and successor ownership (F-2402)', () => {
     );
     expect(mod.getSystemAudioSfuDebugSnapshot().guest.shareRoute).toBe('sfu-all');
 
-    bus.emit('system-audio:incoming-call', {} as never, 'STEREO');
+    bus.emit('system-audio:incoming-call', {} as never);
     expect(mod.getSystemAudioSfuDebugSnapshot().guest.shareRoute).toBe('sfu-all');
     expect(mod.getSystemAudioSfuDebugSnapshot().guest.directRouteFrozen).toBe(false);
     expect(standardRoomPrerequisiteMocks.getTurnCredentials).toHaveBeenCalledTimes(1);
@@ -1580,6 +1586,7 @@ describe('guest SFU teardown and successor ownership (F-2402)', () => {
       sfuReadyHandler!(
         {
           version: 2,
+          audience: 'remote',
           sessionId: 'host-sess',
           track: { trackName: 'audio-stereo', mid: '0' },
         },
@@ -1680,6 +1687,7 @@ describe('guest SFU teardown and successor ownership (F-2402)', () => {
       ((data: unknown, conn?: unknown) => void) | undefined;
     const ready = {
       version: 2,
+      audience: 'remote',
       sessionId: 'host-sess',
       track: { trackName: 'audio-stereo', mid: '0' },
     };
@@ -1732,7 +1740,12 @@ describe('guest SFU teardown and successor ownership (F-2402)', () => {
     receiveSlotMocks.end.mockClear();
     try {
       handler!(
-        { version: 2, sessionId: 'host-sess', track: { trackName: 'audio-stereo', mid: '0' } },
+        {
+          version: 2,
+          audience: 'remote',
+          sessionId: 'host-sess',
+          track: { trackName: 'audio-stereo', mid: '0' },
+        },
         hostConn,
       );
       await resolveRealtime('new-session', {
@@ -1785,6 +1798,7 @@ describe('guest SFU teardown and successor ownership (F-2402)', () => {
     sfuReadyHandler!(
       {
         version: 2,
+        audience: 'remote',
         sessionId: 'trusted-boundary-host-session',
         track: { trackName: 'audio-stereo', mid: '0' },
       },
@@ -1916,7 +1930,7 @@ describe('guest SFU receive slot inputs', () => {
 });
 
 describe('LAN SFU audience negotiation', () => {
-  it('does not inherit local SFU capability across exact-connection replacement', async () => {
+  it('does not inherit a failed-direct SFU route across exact-connection replacement', async () => {
     const mod = await import('../system-audio-sfu.ts');
     mod.registerSystemAudioSfuListeners();
     bus.emit('system-audio:stop');
@@ -1925,13 +1939,10 @@ describe('LAN SFU audience negotiation', () => {
     setState('network.connectedPeers', [replaced]);
     beginSystemAudioShareDelivery([replaced]);
     expect(promoteSystemAudioPeerDeliveryToSfu(replaced)).toBe(true);
-    markLocalSystemAudioSfuCapable('replaced-peer');
-    expect(getSystemAudioShareDeliverySnapshot().capablePeerIds).toContain('replaced-peer');
     expect(isSystemAudioDirectFailurePeer('replaced-peer')).toBe(true);
 
     bus.emit('network:peer-connection-replaced', 'replaced-peer');
 
-    expect(getSystemAudioShareDeliverySnapshot().capablePeerIds).not.toContain('replaced-peer');
     expect(isSystemAudioDirectFailurePeer('replaced-peer')).toBe(false);
     expect(getSystemAudioShareDeliverySnapshot().sfuPeerIds).not.toContain('replaced-peer');
   });

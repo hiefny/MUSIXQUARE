@@ -18,7 +18,6 @@ import { initAudio } from '../audio/engine.ts';
 import { getCapturedAudioStream, isSystemAudioActive } from '../audio/system-capture.ts';
 import { registerHandler } from './protocol.ts';
 import { safeSend } from './peer-state.ts';
-import { createSystemAudioStartFrame } from './system-audio-start.ts';
 import {
   beginSystemAudioShareDelivery,
   claimGuestDirectSystemAudioRoute,
@@ -27,12 +26,9 @@ import {
   getFrozenSystemAudioSfuAudience,
   getGuestSystemAudioShareRoute,
   getSystemAudioShareDeliverySnapshot,
-  isSystemAudioDirectFailurePeer,
-  markLocalSystemAudioSfuCapable,
   releaseSystemAudioPeerDelivery,
   resolveSystemAudioPeerDelivery,
   resetGuestSystemAudioShareRoute,
-  unmarkLocalSystemAudioSfuCapable,
 } from './system-audio-delivery.ts';
 import {
   attachSystemAudioSource,
@@ -355,16 +351,16 @@ function makeReadyMessage(
   publication: HostPublication,
   audience: 'remote' | 'all',
   handoffFromDirect = false,
-  fenceFailedDirectRoute = false,
 ): ProtocolMsg<typeof MSG.SYSTEM_AUDIO_SFU_READY> {
   return {
     type: MSG.SYSTEM_AUDIO_SFU_READY,
     version: 2,
-    // `all` is also a rolling-release fence: older guests already reject a
-    // late direct call after an all-audience route freezes, while they do not
-    // understand the newer explicit handoff marker yet. The frame is still
-    // sent only to this failed-direct peer and uses the same publication.
-    audience: fenceFailedDirectRoute ? 'all' : audience,
+    // Always the peer's frozen audience. A failed-direct remote peer once got
+    // 'all' as a fence for 8.4.38-8.4.39 guests, which did not know the
+    // handoff marker; current guests refuse a late direct call once the
+    // marker froze their route (guestRejectLateDirectRoute), so 5B-OV2
+    // dropped the fence (old-version survey OV-B06).
+    audience,
     ...(handoffFromDirect ? { handoffFromDirect: true as const } : {}),
     sessionId: publication.sessionId,
     track: publication.track,
@@ -429,13 +425,7 @@ function sendSfuReady(
   publication: HostPublication,
 ): void {
   const handoffFromDirect = directFailureHandoffPeerIds.has(peerId);
-  const fenceFailedDirectRoute = isSystemAudioDirectFailurePeer(peerId);
-  if (
-    safeSend(
-      conn,
-      makeReadyMessage(publication, audience, handoffFromDirect, fenceFailedDirectRoute),
-    )
-  ) {
+  if (safeSend(conn, makeReadyMessage(publication, audience, handoffFromDirect))) {
     directFailureHandoffPeerIds.delete(peerId);
   }
 }
@@ -811,7 +801,15 @@ async function connectGuestTrack(track: MediaStreamTrack, pc: RTCPeerConnection)
       connectedLog: '[SysAudioSFU] Remote system audio connected through Cloudflare SFU',
     },
   );
-  if (!attached) {
+  if (attached === 'not-receiving') {
+    // The reception ended or another owner plays (5B-G1): close the
+    // subscription as for the trust boundary's refusal. It attached nothing,
+    // so the cleanup ends no reception, and the share route stays frozen.
+    // Only Cloudflare hears the close (tracks-close); the host is not told.
+    if (guestPc === pc) cleanupGuestSfu();
+    return;
+  }
+  if (attached === 'graph-unavailable') {
     throw new Error('System audio graph not ready');
   }
 }
@@ -873,6 +871,28 @@ function handOffGuestSfuReception(): void {
 }
 
 /**
+ * The current subscription failed with no successor to hand over to (its
+ * subscribe with no pending READY, or its subscriber PC). When it attached
+ * nothing while the slot is receiving, it continued a reception that a
+ * re-publication left playing (the re-publication's cleanup keeps the
+ * receiving flag): hand that reception off, so the placeholder waits under
+ * the slot deadline and a later READY can still attach within it (5B-G3, gap
+ * 1). Otherwise clean up as before: an attached subscription ends the
+ * reception, and a failed first subscription leaves the start's deadline to
+ * end it. The Standard routes exclude each other (a direct call retires this
+ * route before it attaches, and a direct-failure READY ends the direct
+ * reception before it subscribes), so a receiving flag here is this route's.
+ */
+function failGuestSfuSubscription(): void {
+  if (!isGuestSfuAttached() && getState('systemAudio.isReceiving')) {
+    cleanupGuestSfu(false);
+    handOffGuestSfuReception();
+    return;
+  }
+  cleanupGuestSfu();
+}
+
+/**
  * Another route adopted the receive slot (the PRO coordinator): drop only the
  * legacy guest SFU transport and thaw its frozen share route. Playback
  * ownership is preserved until the role-independent PRO subscriber replaces
@@ -906,6 +926,7 @@ function normalizeSfuReadyPayload(
 ): SfuReadyPayload | null {
   if (
     data.version !== 2 ||
+    (data.audience !== 'remote' && data.audience !== 'all') ||
     !data.sessionId ||
     !data.track ||
     typeof data.track.trackName !== 'string' ||
@@ -915,7 +936,9 @@ function normalizeSfuReadyPayload(
   }
   return {
     version: 2,
-    audience: data.audience === 'all' ? 'all' : 'remote',
+    // Every sender carries the audience and the validator requires it
+    // (old-version survey OV-A08), so it is copied, not defaulted.
+    audience: data.audience,
     sessionId: data.sessionId,
     track: data.track,
   };
@@ -947,7 +970,7 @@ async function subscribeGuestToSfu(payload: SfuReadyPayload, signal: AbortSignal
     if (guestPc !== pc) return;
     log.info(`[SysAudioSFU] Guest SFU connection: ${pc.connectionState}`);
     if (pc.connectionState === 'failed' || pc.connectionState === 'closed') {
-      cleanupGuestSfu();
+      failGuestSfuSubscription();
     }
   });
 
@@ -1120,7 +1143,7 @@ function beginGuestSfuSubscription(payload: SfuReadyPayload): void {
         handOffGuestSfuReception();
         beginGuestSfuSubscription(pendingPayload);
       } else {
-        cleanupGuestSfu();
+        failGuestSfuSubscription();
       }
     })
     .finally(() => {
@@ -1187,26 +1210,6 @@ function handleSfuReady(
   beginGuestSfuSubscription(payload);
 }
 
-function handleSfuCapability(
-  data: ProtocolMsg<typeof MSG.SYSTEM_AUDIO_SFU_CAPABILITY>,
-  conn?: DataConnection,
-): void {
-  if (data.version !== 2 || data.localAudience !== true) return;
-  if (getState('network.appRole') !== 'host' || !conn?.peer) return;
-  if (getState('network.activeHostConnByPeerId').get(conn.peer) !== conn) return;
-
-  markLocalSystemAudioSfuCapable(conn.peer);
-  if (!isSystemAudioActive()) return;
-  const peer = getState('network.connectedPeers').find((item) => item.id === conn.peer);
-  if (resolveSystemAudioPeerDelivery(peer) === 'sfu') {
-    // The host may have already released this late peer as unsupported before
-    // its feature frame arrived. Re-arm the room-wide receive placeholder;
-    // current receivers treat duplicate START as an idempotent no-op.
-    safeSend(conn, createSystemAudioStartFrame());
-  }
-  publishToEligiblePeer(conn.peer);
-}
-
 function publishToEligiblePeer(peerId: string): void {
   if (!isSystemAudioActive()) return;
   if (getState('network.appRole') !== 'host') return;
@@ -1217,7 +1220,7 @@ function publishToEligiblePeer(peerId: string): void {
   }
 
   // A remote-only SFU outage may already have consumed the eight direct
-  // fallback slots. If a capable LAN participant then joins, spend the same
+  // fallback slots. If a LAN participant then joins, spend the same
   // single bounded retry on an all-audience publication instead of leaving
   // that participant behind the receive watchdog. Existing fallback calls are
   // route-frozen and excluded from the publication.
@@ -1236,7 +1239,6 @@ function publishToEligiblePeer(peerId: string): void {
 
 export function registerSystemAudioSfuListeners(): void {
   registerHandler(MSG.SYSTEM_AUDIO_SFU_READY, handleSfuReady);
-  registerHandler(MSG.SYSTEM_AUDIO_SFU_CAPABILITY, handleSfuCapability);
 
   bus.on('system-audio:streams-ready', () => {
     if (getRoomContext().kind === 'pro') return;
@@ -1272,6 +1274,9 @@ export function registerSystemAudioSfuListeners(): void {
     publishToEligiblePeer(peerId);
   });
 
+  // The host no longer reads this marker (5B-OV2, old-version survey OV-B05:
+  // every LAN guest is SFU-capable); hosts up to 9.0.13 still do, so guests
+  // keep sending it until a later client floor (OV-F06).
   bus.on('network:peer-connected', (conn: DataConnection) => {
     if (getRoomContext().kind === 'pro') return;
     if (getState('network.appRole') !== 'guest') return;
@@ -1287,7 +1292,6 @@ export function registerSystemAudioSfuListeners(): void {
   bus.on('network:peer-disconnected', (peerId: string) => {
     directFailureHandoffPeerIds.delete(peerId);
     if (getState('network.appRole') === 'host') {
-      unmarkLocalSystemAudioSfuCapable(peerId);
       if (!hasSfuHostPeers()) cleanupHostSfu();
       return;
     }
@@ -1301,7 +1305,6 @@ export function registerSystemAudioSfuListeners(): void {
     directFailureHandoffPeerIds.delete(peerId);
     if (getState('network.appRole') !== 'host') return;
     releaseSystemAudioPeerDelivery(peerId);
-    unmarkLocalSystemAudioSfuCapable(peerId);
     if (!hasSfuHostPeers()) cleanupHostSfu();
   });
 

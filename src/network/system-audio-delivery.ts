@@ -8,7 +8,7 @@ import type { ConnectedPeer } from '../types/index.ts';
  */
 const MAX_DIRECT_SYSTEM_AUDIO_GUESTS = 8;
 
-type SystemAudioPeerDelivery = 'direct' | 'sfu' | 'pending' | 'unsupported';
+type SystemAudioPeerDelivery = 'direct' | 'sfu' | 'pending';
 type SystemAudioShareDelivery = 'hybrid' | 'all-sfu';
 type GuestSystemAudioShareRoute = 'unselected' | 'sfu-remote' | 'sfu-all' | 'direct';
 
@@ -19,7 +19,6 @@ const sfuPeerIds = new Set<string>();
 const sfuAudienceByPeerId = new Map<string, 'remote' | 'all'>();
 const fallbackDirectPeerIds = new Set<string>();
 const failedDirectPeerIds = new Set<string>();
-const localSfuCapablePeerIds = new Set<string>();
 let guestShareRoute: GuestSystemAudioShareRoute = 'unselected';
 let guestRejectLateDirectRoute = false;
 
@@ -54,20 +53,6 @@ function isConnected(peer: ConnectedPeer): boolean {
   return peer.status === 'connected' && !!peer.id && peer.conn?.open === true;
 }
 
-/** New clients advertise that they can consume an SFU publication on LAN. */
-export function markLocalSystemAudioSfuCapable(peerId: string): void {
-  if (peerId) localSfuCapablePeerIds.add(peerId);
-}
-
-export function unmarkLocalSystemAudioSfuCapable(peerId: string): void {
-  localSfuCapablePeerIds.delete(peerId);
-}
-
-/** Feature negotiation belongs to one transport generation, not a room code. */
-export function resetLocalSystemAudioSfuCapabilities(): void {
-  localSfuCapablePeerIds.clear();
-}
-
 function getOccupiedDirectPeerIds(additionalDirectPeerIds: Iterable<string> = []): Set<string> {
   return new Set([...directPeerIds, ...fallbackDirectPeerIds, ...additionalDirectPeerIds]);
 }
@@ -77,10 +62,11 @@ function hasDirectCapacity(): boolean {
 }
 
 /**
- * Freeze the route at share start. When every LAN participant understands the
- * local-audience SFU marker, 9+ LAN guests start entirely on the SFU. Mixed
- * versions stay bounded: legacy LAN clients get the scarce direct slots first
- * and only capable overflow clients enter the SFU.
+ * Freeze the route at share start. Every LAN participant can consume an
+ * all-audience SFU publication (since 8.4.38 every guest advertises it at
+ * connect; the host stopped reading that marker in Phase 5 5B-OV2, old-version
+ * survey OV-B05), so 9+ LAN guests start entirely on the SFU and a smaller LAN
+ * room takes direct slots in join order.
  */
 export function beginSystemAudioShareDelivery(
   peers: readonly ConnectedPeer[],
@@ -96,10 +82,7 @@ export function beginSystemAudioShareDelivery(
 
   const connected = peers.filter(isConnected);
   const localPeers = connected.filter((peer) => peer.connectionType === 'local');
-  const canStartAllSfu =
-    localPeers.length > MAX_DIRECT_SYSTEM_AUDIO_GUESTS &&
-    localPeers.every((peer) => localSfuCapablePeerIds.has(peer.id));
-  shareDelivery = canStartAllSfu ? 'all-sfu' : 'hybrid';
+  shareDelivery = localPeers.length > MAX_DIRECT_SYSTEM_AUDIO_GUESTS ? 'all-sfu' : 'hybrid';
 
   if (shareDelivery === 'all-sfu') {
     for (const peer of connected) {
@@ -111,22 +94,12 @@ export function beginSystemAudioShareDelivery(
     return shareDelivery;
   }
 
-  // Legacy LAN clients cannot use an all-audience SFU publication. Give them
-  // direct slots before current clients so a mixed-version room degrades
-  // safely instead of silently pushing host fanout above the hard budget.
-  const orderedLocalPeers = [...localPeers].sort((left, right) => {
-    const capabilityOrder =
-      Number(localSfuCapablePeerIds.has(left.id)) - Number(localSfuCapablePeerIds.has(right.id));
-    if (capabilityOrder !== 0) return capabilityOrder;
-    return (left.joinOrder || 0) - (right.joinOrder || 0);
-  });
-  for (const peer of orderedLocalPeers) {
-    if (directPeerIds.size < MAX_DIRECT_SYSTEM_AUDIO_GUESTS) directPeerIds.add(peer.id);
-    else if (localSfuCapablePeerIds.has(peer.id)) {
-      sfuPeerIds.add(peer.id);
-      sfuAudienceByPeerId.set(peer.id, 'all');
-    }
-  }
+  // A hybrid share has at most eight LAN participants, so each one takes a
+  // direct slot, in join order, before remote participants fill the rest.
+  const orderedLocalPeers = [...localPeers].sort(
+    (left, right) => (left.joinOrder || 0) - (right.joinOrder || 0),
+  );
+  for (const peer of orderedLocalPeers) directPeerIds.add(peer.id);
   // The system-audio product limit currently allows fewer listeners than the
   // direct fanout ceiling. Remote and not-yet-classified peers already own a
   // live RTCPeerConnection (including TURN when needed), so adding the audio
@@ -187,27 +160,12 @@ export function resolveSystemAudioPeerDelivery(
     return 'pending';
   }
 
-  if (shareDelivery === 'all-sfu') {
-    if (!localSfuCapablePeerIds.has(peer.id)) {
-      // Do not move any existing SFU participant when a legacy client joins
-      // an all-SFU share. The otherwise-unused direct budget can safely serve
-      // up to eight late legacy listeners while the frozen SFU routes remain.
-      if (hasDirectCapacity()) {
-        directPeerIds.add(peer.id);
-        return 'direct';
-      }
-      return 'unsupported';
-    }
-    sfuPeerIds.add(peer.id);
-    sfuAudienceByPeerId.set(peer.id, 'all');
-    return 'sfu';
-  }
-
-  if (hasDirectCapacity()) {
+  // A late LAN participant of an all-SFU share joins the SFU audience; in a
+  // hybrid share it takes a free direct slot and otherwise the SFU.
+  if (shareDelivery === 'hybrid' && hasDirectCapacity()) {
     directPeerIds.add(peer.id);
     return 'direct';
   }
-  if (!localSfuCapablePeerIds.has(peer.id)) return 'unsupported';
   sfuPeerIds.add(peer.id);
   sfuAudienceByPeerId.set(peer.id, 'all');
   return 'sfu';
@@ -243,8 +201,6 @@ export function promoteSystemAudioPeerDeliveryToSfu(peer: ConnectedPeer | undefi
   }
 
   const audience = peer.connectionType === 'local' ? 'all' : 'remote';
-  if (audience === 'all' && !localSfuCapablePeerIds.has(peer.id)) return false;
-
   directPeerIds.delete(peer.id);
   fallbackDirectPeerIds.delete(peer.id);
   failedDirectPeerIds.add(peer.id);
@@ -287,6 +243,5 @@ export function getSystemAudioShareDeliverySnapshot() {
     sfuPeerIds: [...sfuPeerIds],
     sfuAudiences: Object.fromEntries(sfuAudienceByPeerId),
     fallbackDirectPeerIds: [...fallbackDirectPeerIds],
-    capablePeerIds: [...localSfuCapablePeerIds],
   };
 }

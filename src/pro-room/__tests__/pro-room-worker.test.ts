@@ -23057,9 +23057,9 @@ describe('persistent PRO room private media accounting', () => {
     });
   });
 
-  // The presigned CopyObject has not run against production R2 before 9.0.16.
+  // The presigned CopyObject has not run against production R2 before 9.0.17.
   // Any outcome short of a verified final object falls back to the binding
-  // get/put that browser completion used through 9.0.15, under the same pinned
+  // get/put that browser completion used through 9.0.16, under the same pinned
   // source and final checks, and every attempt leaves one bounded diagnostic.
   describe('copy fallback and outcome diagnostics', () => {
     type CopyContext = Awaited<ReturnType<typeof copyFixture>>;

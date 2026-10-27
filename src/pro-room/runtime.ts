@@ -203,6 +203,9 @@ const QUEUE_ADDITION_REORDER_WINDOW_MS = 100;
 const EXPLICIT_LEAVE_CLOSE_TIMEOUT_MS = 1_200;
 const api = new ProRoomApiClient();
 configureProSystemAudioService(api, async (liveness) => {
+  // The service decides when to restore; this runtime owns whether the
+  // background return it ran in is repaired (RO-21).
+  const returnGeneration = visibilityReturnGeneration;
   const restored = await playbackController.reconcile({
     showLoading: false,
     youtubeOnly: true,
@@ -210,6 +213,16 @@ configureProSystemAudioService(api, async (liveness) => {
     preparePaused: true,
     liveness,
   });
+  if (
+    restored &&
+    liveness.isCurrent() &&
+    isPageVisible() &&
+    returnGeneration === visibilityReturnGeneration
+  ) {
+    // Applied while this return is shown, with no hide since the pass began:
+    // a foreground repair waiting behind it would arm the same checkpoint again.
+    visibilityReturnReconciledGeneration = returnGeneration;
+  }
   if (restored || !liveness.isCurrent()) return true;
   const snapshot = playlistManager?.snapshot ?? controller.snapshot;
   if (!snapshot) return false;
@@ -246,7 +259,10 @@ let visibilityPlaybackRecoveryScope: 'youtube' | 'all' = 'youtube';
 let visibilityPlaybackRecoveryFlight: object | null = null;
 /** Advances on every hidden transition: one value per background return. */
 let visibilityReturnGeneration = 0;
-/** The return whose checkpoint a foreground repair has already re-applied. */
+/**
+ * The return whose checkpoint a foreground repair, or a post-share restore
+ * applied while that return was shown, has already re-applied.
+ */
 let visibilityReturnReconciledGeneration = -1;
 let playlistManager: ProRoomPlaylistStateManager | null = null;
 let playlistProjection: ProRoomPlaylistProjection | null = null;
@@ -3425,6 +3441,10 @@ function activeSnapshotNeedsVisibilityRecovery(scope: 'youtube' | 'all'): boolea
   return !item || scope === 'all' || item.source.kind === 'youtube';
 }
 
+function isPageVisible(): boolean {
+  return typeof document !== 'undefined' && document.visibilityState === 'visible';
+}
+
 function settleVisibilityPlaybackRecovery(): void {
   visibilityPlaybackRecoveryPending = false;
   visibilityPlaybackRecoveryAttempt = 0;
@@ -3483,10 +3503,17 @@ async function recoverVisibleProRoomPlayback(): Promise<void> {
   try {
     // Rejoin through the planned local rendezvous: a direct seek-and-play
     // would start this iframe late by its seek latency for the whole track.
+    // The pass is its own reconcile owner and goes stale once this return is
+    // reconciled, also by the post-share restore it may wait behind (RO-21):
+    // the scheduler then drops it, or it stops at its next boundary.
     reconciled = await playbackController.reconcile({
       showLoading: false,
       youtubeOnly: scope === 'youtube',
       rendezvous: true,
+      liveness: {
+        identity: flight,
+        isCurrent: () => visibilityReturnReconciledGeneration !== generation,
+      },
     });
   } catch (error) {
     failed = true;
@@ -3504,7 +3531,8 @@ async function recoverVisibleProRoomPlayback(): Promise<void> {
     await recoverVisibleProRoomPlayback();
     return;
   }
-  if (reconciled) {
+  if (reconciled || visibilityReturnReconciledGeneration === generation) {
+    // Repaired by this pass or, while it waited, by the post-share restore.
     visibilityReturnReconciledGeneration = generation;
     settleVisibilityPlaybackRecovery();
     return;

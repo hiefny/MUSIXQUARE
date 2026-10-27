@@ -129,8 +129,7 @@ async function hostFrame(frame: Record<string, unknown>): Promise<void> {
   await vi.advanceTimersByTimeAsync(0);
 }
 
-const start = (surface?: string) =>
-  hostFrame({ type: MSG.SYSTEM_AUDIO_START, ...(surface ? { surface } : {}) });
+const start = (surface = 'display') => hostFrame({ type: MSG.SYSTEM_AUDIO_START, surface });
 const stop = () => hostFrame({ type: MSG.SYSTEM_AUDIO_STOP });
 const ready = (sessionId: string, extra: Record<string, unknown> = {}) =>
   hostFrame({
@@ -154,7 +153,7 @@ function directCall(): FakeMediaCall & { fail(error: unknown): void } {
     if (event === 'error') onError = handler;
     register(event, handler);
   };
-  bus.emit('system-audio:incoming-call', call.mediaConn, 'STEREO');
+  bus.emit('system-audio:incoming-call', call.mediaConn);
   return { ...call, fail: (error) => onError?.(error) };
 }
 

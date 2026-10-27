@@ -7,11 +7,13 @@
  * with calibrated fakes; this one runs network/pro-system-audio-sfu.ts and
  * network/pro-system-audio-direct.ts for real, so the rows below pin what only
  * the transports decide: when a subscriber exposes its track, the playout hint
- * per route, the subscriber's own live-budget expiry (the PRO two-hour budget
- * and its re-publication case), real ICE state handling, the LAN locality
- * proof, the transport's 5 s track-ready deadline next to the coordinator's
- * 30 s one, route supersession by generation, the signals a listener sends its
- * publisher, S8b on both routes, LAN-direct begin re-entrancy, iOS initAudio
+ * per route, the subscriber's own live-budget expiry (the PRO two-hour budget,
+ * at a plain share's end and in its re-publication case), real ICE state
+ * handling, the LAN locality proof, the transport's 5 s track-ready deadline
+ * next to the coordinator's 30 s one, route supersession by generation, the
+ * signals a listener sends its publisher, the route closures the slot hears
+ * (a publisher's 'stopped' close and the subscriber's budget expiry, since
+ * 5B-G6), S8b on both routes, LAN-direct begin re-entrancy, iOS initAudio
  * rejection, the transports' own attach fences for a same-publication route
  * retirement (the SFU subscriber epoch and the LAN receiver route, C4-9 and
  * P5-D8), adopt idempotence (also while an attach waits), the retire paths and
@@ -52,6 +54,10 @@ import {
   getSystemAudioGuestDebugSnapshot,
   registerSystemAudioGuestListeners,
 } from '../../network/system-audio-guest.ts';
+import {
+  onProSystemAudioSfuEvent,
+  stopProSystemAudioSfuSubscriber,
+} from '../../network/pro-system-audio-sfu.ts';
 import {
   getSystemAudioSfuDebugSnapshot,
   registerSystemAudioSfuListeners,
@@ -455,7 +461,51 @@ describe('PRO SFU reception through the real subscriber', () => {
     expect(seen.toasts).toEqual(['system_audio.connection_unstable']);
   });
 
-  it('expected today, two-hour budget re-publication case: after a direct-to-SFU promotion the subscriber expires at the promotion budget; the expiry reaches the slot only at the next heartbeat, as one notice and a no-network retry loop', async () => {
+  it("5B-G6: a plain share's two-hour end (no promotion) reaches the subscriber's own budget expiry first, which interrupts the reception with no notice; the server's idle state then ends it with the previous title and one restore", async () => {
+    const committedAt = Date.now();
+    const budget = committedAt + LIVE_TTL_MS;
+    await applyState(live(sfuPublication(), 1, REMOTE_ID, budget));
+    await advance(PRO_SUBSCRIBED_AT_MS);
+    expect(slot()).toMatchObject({
+      receiving: true,
+      activity: 'playing',
+      sources: ['sfu-audio-1'],
+    });
+
+    await advance(budget - 1 - Date.now());
+    expect(sfuConnections()[0].closed).toBe(false);
+    expect(slot()).toMatchObject({ receiving: true, activity: 'playing' });
+    await advance(1);
+    // Every SFU descriptor carries the share's live budget, the instant the
+    // server ends the share (its alarm) and the publisher's capture stops.
+    // The subscriber's own timer needs no network hop, so a listener usually
+    // reaches it before the idle state arrives. Since 5B-G6 (gap 12) that
+    // expiry interrupts the reception: pending (the play button's spinner,
+    // Media Session 'paused') with no notice until the idle state. Before,
+    // the slot stayed 'playing' in silence for the same window.
+    expect(sfuConnections()[0].closed).toBe(true);
+    expect(realtime.count('tracks-close')).toBe(1);
+    expect(slot()).toMatchObject({
+      receiving: false,
+      mode: 'system-audio',
+      activity: 'pending',
+      placeholder: true,
+      sources: [],
+      primers: 0,
+    });
+    expect(seen.toasts).toEqual([]);
+    expect(restorePlayback).not.toHaveBeenCalled();
+
+    // The server's idle state (its alarm or the publisher's release, one
+    // broadcast and one refresh later) ends the reception.
+    await applyState(idle(2));
+    expect(slot()).toEqual(idleWithPreviousTitle());
+    expect(restorePlayback).toHaveBeenCalledTimes(1);
+    expect(realtime.count('new-session')).toBe(1);
+    expect(seen.toasts).toEqual([]);
+  });
+
+  it('two-hour budget re-publication case, gap 12 fixed in 5B-G6: after a direct-to-SFU promotion the subscriber expires at the promotion budget and interrupts the reception at once with no notice; the next heartbeat still shows one notice and a no-network retry loop', async () => {
     const committedAt = Date.now();
     await applyState(live(directPublication(), 1, REMOTE_ID, committedAt + LIVE_TTL_MS));
     await advance(20_000);
@@ -473,26 +523,31 @@ describe('PRO SFU reception through the real subscriber', () => {
     await advance(promotedAt + LIVE_TTL_MS - 1 - Date.now());
     expect(sfuConnections()[0].closed).toBe(false);
     await advance(1);
-    // The subscriber stops itself at the promotion's budget and emits only a
-    // 'stopped' event, which the coordinator does not handle: the slot keeps
-    // playing a source whose transport is gone. C4-5 must decide whether the
-    // slot hears this (an interrupt or end), and label it.
+    // The subscriber stops itself at the promotion's budget and emits a
+    // 'stopped' event with its expired descriptor. Since 5B-G6 (gap 12) the
+    // coordinator hears it: it detaches its source and interrupts the
+    // reception under its own deadlines, with no notice, keeping the
+    // placeholder and the publication. Before, the slot kept playing a
+    // source whose transport was gone until the next heartbeat.
     expect(sfuConnections()[0].closed).toBe(true);
     expect(realtime.count('tracks-close')).toBe(1);
     expect(slot()).toMatchObject({
-      receiving: true,
-      activity: 'playing',
+      receiving: false,
+      activity: 'pending',
       placeholder: true,
-      sources: ['sfu-audio-1'],
-      primers: 1,
+      sources: [],
+      primers: 0,
     });
     expect(seen.toasts).toEqual([]);
+    expect(realtime.count('new-session')).toBe(1);
 
-    // A presence heartbeat reconciles the unchanged, now expired publication.
-    // The subscribe is refused before any request, which the coordinator
-    // treats as a failed attempt: one notice, the source detached, the
+    // The server ends a promoted share at the same budget, so its idle state
+    // normally follows (as in the plain two-hour end above). Here it is late
+    // (a lost invalidation): a presence heartbeat reconciles the unchanged,
+    // now expired publication. The subscribe is refused before any request,
+    // which the coordinator treats as a failed attempt: one notice, the
     // placeholder kept, and a backed-off retry that fails the same way
-    // without network until the share ends.
+    // without network until the share ends (unchanged by 5B-G6).
     bindProSystemAudioSession(snapshot());
     await advance(0);
     expect(slot()).toMatchObject({
@@ -513,6 +568,40 @@ describe('PRO SFU reception through the real subscriber', () => {
     await applyState(idle(2));
     expect(slot()).toEqual(idleWithPreviousTitle());
     expect(restorePlayback).toHaveBeenCalledTimes(1);
+  });
+
+  it("5B-G6 guard: the subscriber stop the coordinator's own cleanups run emits 'stopped' with the live, unexpired descriptor, which changes nothing in the slot", async () => {
+    await applyState(live(sfuPublication()));
+    await advance(PRO_SUBSCRIBED_AT_MS);
+    expect(slot()).toMatchObject({ receiving: true, sources: ['sfu-audio-1'] });
+
+    // cleanupCoordinatorGraph, the retry cleanup and the 5B-G2 route end stop
+    // the subscriber this way and do their own slot work around it; only the
+    // subscriber's own budget expiry (an expired descriptor) reaches the slot.
+    const stopped: unknown[] = [];
+    const unsubscribe = onProSystemAudioSfuEvent((event) => {
+      if (event.type === 'subscriber-state' && event.state === 'stopped') {
+        stopped.push(event.descriptor);
+      }
+    });
+    stopProSystemAudioSfuSubscriber();
+    unsubscribe();
+    expect(stopped).toEqual([
+      expect.objectContaining({ sessionId: 'realtime_session_01', expiresAt: LIVE_EXPIRES_AT }),
+    ]);
+    expect(sfuConnections()[0].closed).toBe(true);
+    expect(slot()).toMatchObject({
+      receiving: true,
+      activity: 'playing',
+      placeholder: true,
+      sources: ['sfu-audio-1'],
+      primers: 1,
+    });
+    expect(seen.toasts).toEqual([]);
+
+    await applyState(idle(2));
+    expect(slot()).toEqual(idleWithPreviousTitle());
+    expect(seen.toasts).toEqual([]);
   });
 
   it('deadlines: the re-subscribe backoff doubles from 2.5 s to 30 s under one notice and one placeholder, and a control-channel reconnect restarts it at 2.5 s', async () => {
@@ -798,15 +887,74 @@ describe('PRO LAN-direct reception through the real transport', () => {
     expect(slot().title).toBe(previousTitle);
   });
 
-  it("expected today: a publisher close 'stopped' closes the LAN route without telling the slot; receiving and the source stay until the share end", async () => {
+  it("gap 11, fixed in 5B-G6: a publisher close 'stopped' ends the LAN-direct reception at once with the previous title; heartbeats begin nothing, and the share end only asks for the post-share restore", async () => {
     await applyState(live(directPublication()));
     await lanPublisherDelivers();
+    expect(slot()).toMatchObject({ receiving: true, sources: ['direct-audio-1'] });
+
+    // A publisher sends 'stopped' only from its explicit lease release, before
+    // it awaits the release. Since 5B-G6 the transport tells the coordinator,
+    // which ends the reception now instead of at the server's idle state
+    // (before, the slot showed a playing share on a closed route until then).
+    sendLanClose(lanRoute(), 'stopped');
+    expect(lanConnections()[0].closed).toBe(true);
+    expect(slot()).toEqual(idleWithPreviousTitle());
+    expect(restorePlayback).not.toHaveBeenCalled();
+    await advance(60_000);
+    expect(seen.toasts).toEqual([]);
+    expect(proRelay.signals('close')).toEqual([]);
+
+    // The coordinator keeps the publication key: heartbeats of the unchanged
+    // live state re-activate it and begin nothing again.
+    bindProSystemAudioSession(snapshot());
+    await advance(15_000);
+    bindProSystemAudioSession(snapshot());
+    await advance(15_000);
+    expect(media.stopAllMedia).toHaveBeenCalledTimes(1);
+    expect(seen.counts.hostStarted).toBe(1);
+    expect(lanConnections()).toHaveLength(1);
+    expect(slot()).toEqual(idleWithPreviousTitle());
+    expect(seen.toasts).toEqual([]);
+
+    // The post-share restore still follows the server's idle state.
+    await applyState(idle(2));
+    expect(slot()).toEqual(idleWithPreviousTitle());
+    expect(restorePlayback).toHaveBeenCalledTimes(1);
+    expect(seen.toasts).toEqual([]);
+  });
+
+  // The coordinator also clears its direct receive deadline here; this suite
+  // reads no timer names, so system-audio-service.test.ts pins the clear.
+  it("5B-G6: a publisher close 'stopped' before any track ends the pending reception at once: no notice at 30 s", async () => {
+    await applyState(live(directPublication()));
+    sendLanProbeOffer(lanRoute());
+    await advance(0);
+    sendLanCandidate(lanRoute());
+    await advance(0);
+    expect(slot()).toMatchObject({ receiving: false, activity: 'pending', placeholder: true });
 
     sendLanClose(lanRoute(), 'stopped');
     expect(lanConnections()[0].closed).toBe(true);
-    // The transport reports only fallbacks to the coordinator. Until the
-    // server's idle state arrives the slot shows a playing share on a closed
-    // route (C4-5 decides whether a route close detaches).
+    expect(slot()).toEqual(idleWithPreviousTitle());
+    await advance(60_000);
+    expect(seen.toasts).toEqual([]);
+    expect(seen.counts.receiveTimeouts).toBe(0);
+    expect(proRelay.signals('close')).toEqual([]);
+
+    await applyState(idle(2));
+    expect(slot()).toEqual(idleWithPreviousTitle());
+    expect(restorePlayback).toHaveBeenCalledTimes(1);
+  });
+
+  it("5B-G6 guard: a publisher close 'superseded' closes the LAN route without telling the slot; receiving and the source stay until the share end", async () => {
+    await applyState(live(directPublication()));
+    await lanPublisherDelivers();
+
+    sendLanClose(lanRoute(), 'superseded');
+    expect(lanConnections()[0].closed).toBe(true);
+    // A publisher supersedes its routes when it starts a new publication or
+    // loses its lease; the new state follows, so only a 'stopped' close ends
+    // the reception early (5B-G6).
     expect(slot()).toMatchObject({
       receiving: true,
       activity: 'playing',
@@ -936,6 +1084,10 @@ describe('S8b: a slot end while the attach waits in initAudio (real PRO transpor
         await advance(PRO_TRACK_AT_MS + 100);
       },
       connections: sfuConnections,
+      // Since 5B-G2 a force-stop closes the coordinator's SFU subscription.
+      closedByForceStop: true,
+      tracksClosedByForceStop: 1,
+      realtimeSessions: 1,
     },
     {
       route: 'LAN-direct',
@@ -947,6 +1099,10 @@ describe('S8b: a slot end while the attach waits in initAudio (real PRO transpor
         await advance(100);
       },
       connections: lanConnections,
+      // The LAN-direct receiver route stays open after a force-stop (RO-04).
+      closedByForceStop: false,
+      tracksClosedByForceStop: 0,
+      realtimeSessions: 0,
     },
   ];
 
@@ -967,32 +1123,103 @@ describe('S8b: a slot end while the attach waits in initAudio (real PRO transpor
   );
 
   it.each(waitingRoutes)(
-    'S8b gap ($route): a force-stop while the attach waits in initAudio still connects the track under the restored title',
-    async ({ waitInInitAudio, trackId, connections }) => {
+    'S8b ($route), fixed in 5B-G1: a force-stop while the attach waits in initAudio leaves the track unconnected under the restored title',
+    async ({
+      waitInInitAudio,
+      connections,
+      closedByForceStop,
+      tracksClosedByForceStop,
+      realtimeSessions,
+    }) => {
       await waitInInitAudio();
       bus.emit('system-audio:force-stop');
       expect(slot()).toEqual(idleWithPreviousTitle());
 
       webAudio.finishResume();
       await advance(0);
-      // Known gap (C4 critique S8b; observed on be82ce09 with the real
-      // transports, not device-verified): force-stop reaches only the guest
-      // placeholder, the route stays current, and the coordinator attach
-      // re-checks only the route, the publication and the owner after
-      // `await initAudio()`. Audio then plays with no placeholder under the
-      // restored title. Planned: the slot attach fence (C4-3, inherited by
-      // C4-5) and a slot end() that covers every route (5B; the neutral C4-5
-      // and C4-7 kept the route-scoped ends); both need owner sign-off.
-      expect(connections()[0].closed).toBe(false);
-      expect(slot()).toMatchObject({
-        receiving: true,
-        mode: 'system-audio',
-        activity: 'playing',
-        placeholder: false,
-        title: previousTitle,
-        sources: [trackId],
-      });
+      // Fixed in 5B-G1 (gap 3, P5-D5 A): the force-stop restored the previous
+      // title, so the slot's attach fence refuses the track. Before, the
+      // coordinator attach re-checked only the route, the publication and the
+      // owner after `await initAudio()`, and the audio played with no
+      // placeholder under the restored title. Since 5B-G2 (gap 4) the
+      // force-stop also closes the coordinator's SFU subscription (one
+      // tracks-close, and its track's attach is no longer current); the LAN
+      // route stays open by choice (RO-04).
+      expect(connections()[0].closed).toBe(closedByForceStop);
+      expect(realtime.count('tracks-close')).toBe(tracksClosedByForceStop);
+      expect(webAudio.sources).toHaveLength(0);
+      expect(slot()).toEqual(idleWithPreviousTitle());
+      await advance(60_000);
+      expect(slot()).toEqual(idleWithPreviousTitle());
+      expect(realtime.count('new-session')).toBe(realtimeSessions);
       expect(seen.toasts).toEqual([]);
+    },
+  );
+
+  it.each([
+    {
+      cause: 'a force-stop',
+      stop: () => bus.emit('system-audio:force-stop'),
+      after: () => idleWithPreviousTitle(),
+    },
+    {
+      cause: 'a successor owner',
+      stop: () => {
+        claimPlaybackOwner('file', { currentTrackMeta: createFileTrackMeta('successor.mp3') });
+        webAudio.finishResume();
+      },
+      after: () => ({
+        receiving: false,
+        mode: 'file',
+        activity: 'playing',
+        title: 'successor',
+        placeholder: false,
+        sources: [],
+        primers: 0,
+      }),
+    },
+  ])(
+    '5B-G2 (SFU): $cause between the exposed track and the completed subscription closes the subscription once, with no notice and no new session',
+    async ({ stop, after }) => {
+      webAudio.suspend();
+      await applyState(live(sfuPublication()));
+      // The subscriber offer exposed the track; its attach waits in initAudio
+      // and renegotiate is still in flight.
+      await advance(PRO_TRACK_AT_MS + 50);
+      expect(slot()).toMatchObject({ receiving: false, activity: 'pending', sources: [] });
+      expect(realtime.requests.map((request) => request.action)).toEqual([
+        undefined,
+        'new-session',
+        'tracks-new',
+        'renegotiate',
+      ]);
+
+      // The force-stop ends the coordinator's route; the successor makes the
+      // slot's attach fence refuse the track, and the refused SFU track ends
+      // the route. Either stop aborts the in-flight subscribe, whose
+      // rejection is no subscription failure for an ended publication: no
+      // connection_unstable and no backed-off retry (critique 2, finding 2).
+      stop();
+      await advance(0);
+      webAudio.finishResume();
+      await advance(PRO_SUBSCRIBED_AT_MS);
+      expect(sfuConnections()).toHaveLength(1);
+      expect(sfuConnections()[0].closed).toBe(true);
+      expect(realtime.count('tracks-close')).toBe(1);
+      expect(webAudio.sources).toHaveLength(0);
+      expect(slot()).toEqual(after());
+      expect(seen.toasts).toEqual([]);
+
+      // No further Realtime session for this publication, a heartbeat included.
+      bindProSystemAudioSession(snapshot());
+      await advance(60_000);
+      expect(realtime.count('new-session')).toBe(1);
+      expect(realtime.count('tracks-close')).toBe(1);
+      expect(sfuConnections()).toHaveLength(1);
+      expect(webAudio.sources).toHaveLength(0);
+      expect(slot()).toEqual(after());
+      expect(seen.toasts).toEqual([]);
+      expect(media.stopAllMedia).toHaveBeenCalledTimes(1);
     },
   );
 });

@@ -152,15 +152,9 @@ function callGuest(guestPeerId: string): void {
   };
 
   // Resolve the frozen route before checking whether the current transport
-  // adapter can create direct calls. Unsupported legacy overflow still needs
-  // an immediate STOP to undo the room-wide START placeholder, while SFU and
-  // pending peers must bypass direct-only prerequisites entirely.
+  // adapter can create direct calls: SFU and pending peers must bypass
+  // direct-only prerequisites entirely.
   const delivery = resolveSystemAudioPeerDelivery(peerObj);
-  if (delivery === 'unsupported') {
-    if (peerObj?.conn?.open) safeSend(peerObj.conn, { type: MSG.SYSTEM_AUDIO_STOP });
-    pushDebugCall({ ...debugBase, action: 'stop-sent', reason: 'unsupported-overflow' });
-    return;
-  }
   let useRemoteDirectFallback =
     _remoteDirectFallbackEnabled && _remoteFallbackPeerIds.has(guestPeerId);
   if (
@@ -266,9 +260,13 @@ function handoffFailedDirectCall(peerId: string, reason: string): void {
     return;
   }
   _remoteFallbackPeerIds.delete(peerId);
-  // STOP -> START is deliberate rolling-release compatibility. Older guests
-  // do not understand the explicit handoff marker, but do reset their frozen
-  // direct route at this authenticated lifecycle boundary before SFU_READY.
+  // STOP -> START before the handoff READY is still needed by current guests
+  // (Phase 5 SA-2, kept): their READY handler re-begins only from the 'direct'
+  // route and takes the surface from the current meta. When the guest's
+  // direct reception already ended (its call closed, so the placeholder and
+  // its surface are gone) or never claimed the route ('unselected'), only
+  // this pair re-enters the placeholder with the right surface, arms the slot
+  // deadline and resets the guest's share route before the READY.
   safeSend(peer.conn, { type: MSG.SYSTEM_AUDIO_STOP });
   safeSend(peer.conn, createSystemAudioStartFrame());
   pushDebugCall({
@@ -417,9 +415,9 @@ export function registerSystemAudioHostListeners(): void {
     cleanupPeerSystemAudioRoute(peerId);
   });
 
-  // Same peerId, new exact DataConnection: capability and route authority do
-  // not carry across. Close any media call owned by the replaced connection
-  // without emitting UI leave semantics.
+  // Same peerId, new exact DataConnection: route authority does not carry
+  // across. Close any media call owned by the replaced connection without
+  // emitting UI leave semantics.
   bus.on('network:peer-connection-replaced', (peerId: string) => {
     cleanupPeerSystemAudioRoute(peerId);
   });

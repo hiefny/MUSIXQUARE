@@ -26,7 +26,13 @@
  * route through it, so the PRO service reaches the Standard routes through the
  * slot only. C4-8 removed the old names system-audio-guest.ts kept as
  * aliases: every route imports the slot's own. The timer names keep their
- * `sys-audio-guest-` prefix. The ownership contract is
+ * `sys-audio-guest-` prefix. Since train 5B (5B-G1) a route attaches or
+ * resumes only while the slot's placeholder is current; a refused attach or
+ * resume writes nothing and drops what that route holds. Since 5B-G4 the end
+ * leaves this device's own share (a 'system-audio' owner with sharing meta)
+ * alone and the start never takes that meta as its restore point. Since
+ * 5B-G5 an end nested in a start before its placeholder claim keeps that
+ * start's claim, generation and restore point. The ownership contract is
  * docs/design/system-audio-receive-ownership.md.
  *
  * Deferred-only: it loads with the room session (vite.config.ts
@@ -84,7 +90,8 @@ type ReceiveSlot =
   | { readonly phase: 'idle'; readonly generation: number }
   /**
    * A start is committing `generation`: a boundary wait opened now joins it,
-   * and another start is refused until it returns.
+   * and another start is refused until it returns. An end nested in it
+   * before its placeholder claim keeps it, restore point included (5B-G5).
    */
   | {
       readonly phase: 'claiming';
@@ -176,6 +183,28 @@ function isSystemAudioPlaceholder(): boolean {
   return isSystemAudioPlaceholderMeta(currentMeta);
 }
 
+/**
+ * The sharer's own title: the meta src/audio/system-capture.ts claims (and
+ * its transition teardown leaves behind, idle) for this device's share. The
+ * 'system-audio' owner is that share's claim too, so the slot tells its own
+ * claim from the sharer's by this meta (5B-G4).
+ */
+function isSharerMeta(meta: TrackMeta | null): boolean {
+  return meta?.systemAudioMode === 'sharing';
+}
+
+/**
+ * Whether the slot still holds a reception: a start is claiming or holds its
+ * restore point, the receive placeholder is the current meta, or the
+ * receiving flag is set. Read-only. The PRO coordinator asks it before it
+ * ends the slot over this device's own publication (5B-G4): there an end
+ * runs only for a reception this device still held when it began to share,
+ * not on every reconcile of the share.
+ */
+export function hasTrustedSystemAudioReception(): boolean {
+  return slot.phase !== 'idle' || isSystemAudioPlaceholder() || getState('systemAudio.isReceiving');
+}
+
 // ─── Routes ───────────────────────────────────────────────────────
 
 /**
@@ -192,10 +221,11 @@ export function registerSystemAudioReceiveRoute(route: ReceiveRoute, port: Recei
  * placeholder and restore point, the receiving flag, the owner claim and the
  * receive deadline stay as they are. A retiring route drops only its own
  * source and primer, so the adopting route's source is never touched (its
- * attach swaps it, its detach drops it). The PRO coordinator adopts wherever
- * it takes the slot over (the room turning PRO, every live reconcile, a
- * retry's cleanup) and so retires the Standard SFU route, the only route with
- * a retire, without an idle flash.
+ * attach swaps it, its detach drops it). The PRO coordinator adopts where it
+ * takes the slot over (the room turning PRO, a retry's cleanup) and so
+ * retires the Standard SFU route, the only route with a retire, without an
+ * idle flash. A PRO room starts no Standard SFU subscription, so since 5B-OV1
+ * a live reconcile no longer adopts.
  */
 export function adoptSystemAudioReceiveRoute(route: ReceiveRoute): void {
   for (const [registered, port] of routes) {
@@ -292,10 +322,41 @@ interface SourceAttachRequest {
 }
 
 /**
+ * The attach fence (5B-G1, P5-D5 A): a route may play into the slot only
+ * while the slot's receive placeholder is the current meta. A STOP, a
+ * force-stop, a deadline expiry and a share end restore the previous title,
+ * and a successor owner sets its own meta, so in each of those cases the
+ * placeholder is gone. Only the placeholder is read, not the slot's phase,
+ * which a successor or a meta-null writer leaves 'held' when it replaces the
+ * placeholder (and before 5B-G5 a start that ran through a nested end left
+ * the phase 'idle' over its own placeholder). A refused attach or resume
+ * writes nothing and drops what the route still holds, so nothing of the
+ * share stays on widener.input once the slot ended or another owner plays.
+ */
+function admitsRoute(route: ReceiveRoute, input: 'attach' | 'resume'): boolean {
+  if (isSystemAudioPlaceholder()) return true;
+  log.debug(
+    `[SysAudioGuest] Refused ${route} ${input}: the reception ended or another owner plays`,
+  );
+  detachSystemAudioRoute(route);
+  return false;
+}
+
+/**
+ * What an attach did: 'attached' (the source is on widener.input),
+ * 'not-receiving' (the slot ended or another owner plays, see admitsRoute;
+ * nothing written and the route's source and primer dropped) or
+ * 'graph-unavailable' (the audio graph is not built; nothing changed).
+ */
+type SourceAttachResult = 'attached' | 'not-receiving' | 'graph-unavailable';
+
+/**
  * Connects what a route received to widener.input. The route awaits
  * initAudio and re-checks its own identity first; this runs synchronously
  * after that, so no await separates the route's check from the graph.
- * Returns false, changing nothing, while the audio graph is not built.
+ * The slot's fence comes first (admitsRoute): an attach the slot refuses
+ * returns 'not-receiving' and never reaches the graph. Then it returns
+ * 'graph-unavailable', changing nothing, while the audio graph is not built.
  * Otherwise it replaces the route's previous source and, when this attach
  * starts the reception (see ReceptionStart), clears the receive deadline if
  * the slot was not receiving, sets the receiving flag, claims the
@@ -305,10 +366,11 @@ export function attachSystemAudioSource(
   route: ReceiveRoute,
   received: ReceivedAudio,
   request: SourceAttachRequest,
-): boolean {
+): SourceAttachResult {
+  if (!admitsRoute(route, 'attach')) return 'not-receiving';
   const ctx = getAudioContext();
   const widener = getWidener();
-  if (!widener) return false;
+  if (!widener) return 'graph-unavailable';
   request.onGraphReady?.(ctx);
 
   const media = mediaOf(route);
@@ -339,7 +401,7 @@ export function attachSystemAudioSource(
     markSystemAudioReceiving();
     if (request.connectedLog) log.info(request.connectedLog);
   }
-  return true;
+  return 'attached';
 }
 
 /**
@@ -357,10 +419,13 @@ function markSystemAudioReceiving(): void {
  * 'subscribed'): while the route still has its source on widener.input, set
  * the receiving flag, claim the 'system-audio' owner and start the visualizer
  * again. A route with no source (its attach still waits, or a retry or a
- * fallback detached it) changes nothing.
+ * fallback detached it) changes nothing. The resume has the attach's fence
+ * (admitsRoute): once the slot ended or another owner plays, it claims
+ * nothing and drops the route's source and primer.
  */
 export function resumeSystemAudioRoute(route: ReceiveRoute): void {
   if (!routeMedia.get(route)?.source) return;
+  if (!admitsRoute(route, 'resume')) return;
   markSystemAudioReceiving();
 }
 
@@ -530,25 +595,44 @@ export function handOffTrustedSystemAudioReception(): void {
  * Ends the reception for every route (the Standard direct call and SFU, the
  * PRO coordinator, STOP and force-stop). A newer playback owner that already
  * replaced this slot keeps its title and lifecycle; only the slot's own
- * placeholder or 'system-audio' claim is restored.
+ * placeholder or 'system-audio' claim is restored. Since 5B-G4 a
+ * 'system-audio' owner with the sharer's meta is this device's own share,
+ * not the slot's claim: the end does all of its own work and leaves that
+ * claim to the capture module.
+ *
+ * Since 5B-G5 an end nested in a start before its placeholder claim (the
+ * start's stopAllMedia emits force-stop while local capture runs) ends what
+ * preceded that start, not the start: the slot stays 'claiming' with the
+ * start's generation and restore point, so the start commits into 'held'
+ * and its own end restores what it took, and a boundary wait opened after
+ * this end joins the start. Such an end still answers the open waiters,
+ * clears the deadline, runs the route ports and drops the receiving flag,
+ * and writes no title (the start claims the slot right after). An end once
+ * the start's placeholder is up ends that start, as any end does.
  */
 export function endTrustedSystemAudioReception(): void {
+  const nestedInStart = slot.phase === 'claiming' && !isSystemAudioPlaceholder();
   // Consume the restore point before closing the routes. Synchronous close
   // callbacks and repeated room-leave cleanup must never replay an earlier
-  // snapshot.
-  const restoreMeta = slot.phase === 'idle' ? null : slot.restoreMeta;
-  slot = { phase: 'idle', generation: slot.generation + 1 };
+  // snapshot. A nested end leaves the start's restore point to the start.
+  const restoreMeta = slot.phase === 'idle' || nestedInStart ? null : slot.restoreMeta;
+  if (!nestedInStart) slot = { phase: 'idle', generation: slot.generation + 1 };
   cancelAllTrustedReceptionWaiters();
   debug.lastCleanupAt = Date.now();
   const wasSystemAudioPlaceholder = isSystemAudioPlaceholder();
-  const wasSystemAudioOwner = isSystemAudioOwner();
+  const wasSlotClaim =
+    !nestedInStart &&
+    isSystemAudioOwner() &&
+    !isSharerMeta(getState('player.currentTrackMeta') as TrackMeta | null);
   clearSystemAudioReceiveWatchdog();
   for (const port of routes.values()) port.endReception?.();
 
   setSystemAudioReceiving(false);
-  if (!wasSystemAudioOwner && !wasSystemAudioPlaceholder) {
-    // A newer playback owner already replaced this receive slot. Tear down
-    // the stale graph, but never write its title or lifecycle over the winner.
+  if (!wasSystemAudioPlaceholder && !wasSlotClaim) {
+    // A newer playback owner already replaced this receive slot, the
+    // 'system-audio' owner is the sharer's own claim, or the end is nested
+    // in a start that claims the slot right after. Tear down the stale
+    // graph, but never write its title or lifecycle over that owner.
     return;
   }
 
@@ -591,8 +675,10 @@ export function beginTrustedSystemAudioReception(
     restoreMeta: previous.phase === 'idle' ? null : previous.restoreMeta,
   };
   const committed = commitTrustedSystemAudioReception(generation, surface, options.deadline);
-  // A reception end nested in the commit (a force-stop from stopAllMedia)
-  // has already moved the slot on, and emptied this start's restore point.
+  // A reception end nested in the commit before the placeholder claim (a
+  // force-stop from stopAllMedia) keeps this claim and its restore point
+  // (5B-G5). Only an end once the placeholder is up (from a listener of the
+  // claim) has ended this start and moved the slot on.
   if (slot.phase === 'claiming' && slot.generation === generation) {
     slot =
       committed || previous.phase === 'held'
@@ -611,10 +697,15 @@ function commitTrustedSystemAudioReception(
   if (isSystemAudioPlaceholder()) return false;
   debug.lastStartAt = Date.now();
   debug.lastStartIgnoredReason = '';
+  // Never the sharer's title (5B-G4): whether the share is still claimed or
+  // its transition teardown left that title idle, the share is over by the
+  // time this reception ends, and restoring it would show 'System Audio
+  // Sharing' while idle.
+  const currentMeta = getState('player.currentTrackMeta') as TrackMeta | null;
   slot = {
     phase: 'claiming',
     generation,
-    restoreMeta: getState('player.currentTrackMeta') as TrackMeta | null,
+    restoreMeta: isSharerMeta(currentMeta) ? null : currentMeta,
   };
   stopAllMedia({ silent: true, cancelInFlight: true });
   cancelIncomingFileTransfer('system-audio-start');

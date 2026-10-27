@@ -419,11 +419,15 @@ function installAutomaticAnswers(options: { emitCandidate?: boolean } = {}): voi
 
 function configureCallbacks(
   overrides: Partial<
-    Omit<DirectTransportCallbacks, 'onReceiverTrackReady' | 'onLiveRouteFallback'>
+    Omit<
+      DirectTransportCallbacks,
+      'onReceiverTrackReady' | 'onLiveRouteFallback' | 'onLiveRouteStopped'
+    >
   > = {},
 ) {
   const onReceiverTrackReady = vi.fn<(event: direct.ProSystemAudioDirectTrackReadyEvent) => void>();
   const onLiveRouteFallback = vi.fn<(event: direct.ProSystemAudioDirectFallbackEvent) => void>();
+  const onLiveRouteStopped = vi.fn<(event: direct.ProSystemAudioDirectRouteStoppedEvent) => void>();
   const callbacks = {
     getLocalIdentity: () => ({ participantId: localParticipantId }),
     authorizeInboundOffer: () => true,
@@ -431,6 +435,7 @@ function configureCallbacks(
     ...overrides,
     onReceiverTrackReady,
     onLiveRouteFallback,
+    onLiveRouteStopped,
   } satisfies DirectTransportCallbacks;
   direct.configureProSystemAudioDirectTransport(callbacks);
   return callbacks;
@@ -1603,6 +1608,59 @@ describe('PRO system-audio LAN-direct receiver fencing', () => {
       publicationId,
     });
     expect(peerConnections[0]?.close).toHaveBeenCalledTimes(1);
+  });
+
+  it("reports only a publisher's 'stopped' close of the current receiver route, once and with no close back (5B-G6)", async () => {
+    localParticipantId = receiverA;
+    const callbacks = configureCallbacks();
+    const probeOffer = (negotiationId: string) => ({
+      kind: 'offer',
+      targetParticipantId: receiverA,
+      direction: 'publisher',
+      phase: 'probe',
+      generation: 11,
+      publicationId,
+      negotiationId,
+      description: { type: 'offer', sdp: 'valid-owner-probe-offer' },
+    });
+    const close = (negotiationId: string, reason: string) => ({
+      kind: 'close',
+      targetParticipantId: receiverA,
+      direction: 'publisher',
+      generation: 11,
+      publicationId,
+      negotiationId,
+      reason,
+    });
+
+    // 'superseded' closes the current route and reports nothing.
+    emitRelay(publisherId, probeOffer('negotiation_000000000021'));
+    await vi.waitFor(() => expect(peerConnections).toHaveLength(1));
+    emitRelay(publisherId, close('negotiation_000000000021', 'superseded'));
+    expect(peerConnections[0]?.close).toHaveBeenCalledTimes(1);
+
+    // A 'stopped' close of another negotiation or from another sender is not
+    // this route's.
+    emitRelay(publisherId, probeOffer('negotiation_000000000022'));
+    await vi.waitFor(() => expect(peerConnections).toHaveLength(2));
+    emitRelay(publisherId, close('negotiation_000000000099', 'stopped'));
+    emitRelay(attackerId, close('negotiation_000000000022', 'stopped'));
+    expect(peerConnections[1]?.close).not.toHaveBeenCalled();
+    expect(callbacks.onLiveRouteStopped).not.toHaveBeenCalled();
+
+    emitRelay(publisherId, close('negotiation_000000000022', 'stopped'));
+    expect(peerConnections[1]?.close).toHaveBeenCalledTimes(1);
+    expect(callbacks.onLiveRouteStopped).toHaveBeenCalledTimes(1);
+    expect(callbacks.onLiveRouteStopped).toHaveBeenCalledWith({
+      participantId: publisherId,
+      generation: 11,
+      publicationId,
+    });
+    // The route is gone: a repeated close reports nothing more.
+    emitRelay(publisherId, close('negotiation_000000000022', 'stopped'));
+    expect(callbacks.onLiveRouteStopped).toHaveBeenCalledTimes(1);
+    expect(callbacks.onLiveRouteFallback).not.toHaveBeenCalled();
+    expect(bridgeMocks.sent.filter((entry) => entry.payload.kind === 'close')).toEqual([]);
   });
 });
 

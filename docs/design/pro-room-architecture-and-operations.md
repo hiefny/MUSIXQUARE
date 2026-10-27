@@ -696,7 +696,11 @@ files retain their failure reason, do not enter the network path, and are
 excluded from retry without preventing other selected files from proceeding.
 A continuation stays pinned to the playlist that was active when its upload
 started, so a playlist switch before insertion is also terminal: the dialog asks
-for the file again instead of offering a retry that cannot succeed.
+for the file again instead of offering a retry that cannot succeed. Because that
+ends the task, the playlist state manager deletes the asset the task already
+reserved or completed and clears the continuation, so selecting the file again
+does not count it twice against the room quota; the server refuses to delete an
+asset that any playlist names.
 
 While at least one authoritative presence remains, natural completion no longer
 depends on an awake playback controller. The room alarm uses identity-fenced

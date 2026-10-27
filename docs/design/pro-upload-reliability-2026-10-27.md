@@ -35,7 +35,8 @@
    transfer from completion confirmation. Missing/expired asset continuations
    ask for file selection instead of offering an ineffective retry, and so does
    a playlist switch before insertion, because a retained retry stays pinned to
-   its original playlist. Each failed file gets one dialog sentence for the code
+   its original playlist (6차부터 이때 이미 올린 asset을 바로 해제한다). Each
+   failed file gets one dialog sentence for the code
    the client or Worker produced. New copy is present in 42 locales. Long
    failure lists reuse the reading dialog's internal scroll; dialog height is
    bounded by its actual overlay on short/mobile screens.
@@ -188,24 +189,26 @@ Node 24.20.0, npm 12.0.2, Vitest 5.0.3, 로컬 실행만. 실제 R2와 자격 �
 
 - **재생목록 전환은 재시도하지 않는다.** 남겨 둔 재시도는 처음 업로드를 시작한
   재생목록 칸에 묶여 있다. 그래서 다른 재생목록이 활성화된 뒤의
-  `PRO_ROOM_PLAYLIST_SWITCHED`는 다시 시도해도 같은 이유로 실패했다. 이제 업로드
-  큐가 이 실패를 끝난 실패로 보고 다시 시도 버튼을 내지 않는다. 안내는 다른
-  재생목록이 활성화됐으니 파일을 다시 선택하라고 말한다. 이미 올린 asset은 기존
-  서버 고아 정리(15분 유예)가 치우며, 새 재시도·정리 흐름은 없다.
+  `PRO_ROOM_PLAYLIST_SWITCHED`는 방이 그 재생목록에 머무는 동안 다시 시도해도 같은
+  이유로 실패했다. 이제 업로드 큐가 이 실패를 끝난 실패로 보고 다시 시도 버튼을 내지
+  않는다. 안내는 다른 재생목록이 활성화됐으니 파일을 다시 선택하라고 말한다. 이미
+  올린 asset은 기존 서버 고아 정리(15분 유예)가 치우며, 새 재시도·정리 흐름은 없다
+  (6차에서 클라이언트가 바로 해제하도록 바꿨다).
 - **실제로 생기는 코드만 연결한다.** 실패 안내가 어디서도 만들지 않는 코드
   (`PRO_ROOM_PLAYLIST_CAPACITY_EXCEEDED`, `PRO_ROOM_PLAYLIST_STATE_CAPACITY_EXCEEDED`)를
   보고 있어서 재생목록 가득 참과 방 상태 용량은 일반 문구로 나왔다. 이제
   `PRO_ROOM_PLAYLIST_LIMIT_REACHED`·`PLAYLIST_CAPACITY_EXCEEDED`·`REQUEST_TOO_LARGE`는
   재생목록 가득 참, `ROOM_STATE_CAPACITY_EXCEEDED`는 기존 토스트와 같은 뜻(재생목록이
-  바뀌었으니 다시 시도)으로 안내한다. 연결은 `upload-failure-dialog.ts`의
+  바뀌었으니 다시 시도)으로 안내한다(6차에서 방 용량 문장과 끝난 실패로 바꿨다).
+  연결은 `upload-failure-dialog.ts`의
   `describeProRoomUploadFailures` 한 곳에 있고, 테스트가 그 안의 코드마다 PRO 클라이언트나
   Worker의 생성 지점이 있는지 확인한다.
 - **대화상자 문장만 쓴다.** 실패 목록이 토스트 문구(마침표 없음, 문장마다 줄바꿈)와
   대화상자 문장을 섞어 썼다. 파일마다 한 줄, 이유는 대화상자 문장 하나다. 새 키 6개
   (`pro.upload.file_too_large`·`quota_exceeded`·`playlist_full`·`playlist_changed`·
   `playlist_switched`·`permission_required`)와 줄 형식 `pro.upload.failed_file`을
-  42개 언어에 더했다. 일본어·중국어는 전각 콜론, 프랑스어는 기존처럼 좁은
-  줄바꿈 없는 공백 뒤 콜론을 쓴다.
+  42개 언어에 더했다(`playlist_changed`는 6차에서 지웠다). 일본어·중국어는 전각
+  콜론, 프랑스어는 기존처럼 좁은 줄바꿈 없는 공백 뒤 콜론을 쓴다.
 - **로케일 용어 맞춤.** 이 PR이 더한 업로드 문구만 고쳤다. fi·uk는 앱의 다운로드
   단어 대신 기존 업로드 단어(lähetys, надсилання), fr은 importation 대신 envoi, ko
   머리글은 행과 같은 "업로드 확정 중", bg·tr은 나머지 문구와 같은 반말 명령형이다.
@@ -235,6 +238,77 @@ Node 24.20.0, npm 12.0.2, Vitest 5.0.3, 로컬 실행만. 실제 R2와 자격 �
   통과했다. room-authority 수치와 자원 소유권 기록 수(49개)는 그대로다.
 - **돌리지 않은 것:** 전체 단위 실행, 나머지 critical 브라우저 묶음, 운영 빌드와
   초기 전송 예산, Worker dry-run 번들, PR CI. 새 번역은 사람 검수를 거치지 않았다.
+
+### 6. 검토 지적 정리(H1·H2 후속)
+
+테스트한 코드: `f5d65a7e7`(9.0.16 / v790 표기 그대로). 테스트 먼저 커밋은 `c2bb9e758`.
+환경: Windows, Node 24.20.0, npm 12.0.2, Vitest 5.0.3, 로컬 실행만.
+
+바뀐 동작:
+
+- **복사 성공은 반복 상세 예산을 쓰지 않는다.** 전에는 `media_copy` `ok`도 실패와
+  같은 창별 반복 상세 예산(4개)을 썼다. 그래서 업로드가 많은 방에서는 성공 기록이
+  예산을 채워, 뒤이은 실패와 대체 경로 기록이 분 요약 집계로만 남을 수 있었다. 이제
+  성공은 창마다 첫 상세 기록 하나만 남기고 나머지는 분 요약에만 세며, 억제된 기록으로도
+  세지 않는다. 반복 예산은 실패와 대체 경로만 쓴다.
+- **재생목록 전환은 끝난 실패로 두고, 올린 asset을 바로 해제한다.** 남겨 둔 재시도는
+  처음 재생목록이 다시 활성화되면 성공한다. 그런데 이 실패는 언제나 다른 재생목록이
+  활성인 상태에서 관찰되고 실패 대화상자는 모달이다. 다시 시도가 통하려면 그 사이에 다른
+  관리자가 처음 재생목록으로 되돌려야 하고, 그러면 파일은 사용자가 보고 있지 않은
+  재생목록에 들어간다. 그래서 다시 시도 없이 파일을 다시 선택하라는 현재 문장
+  (`pro.upload.playlist_switched`)을 유지한다. 다시 선택한 파일은 지금 활성인 재생목록에
+  들어가므로 문장과 동작이 맞다. 대신 재생목록 상태 관리자가 이미 완료한 asset을 그
+  자리에서 지우고 이어 하기 상태를 비운다. 전에는 서버 고아 정리가 15분 뒤에 치울
+  때까지 방의 1 GB 용량에 남아, 바로 다시 올리면 용량 초과가 날 수 있었다. 서버는 어느
+  재생목록이든 쓰고 있는 asset의 삭제를 거부하므로(`ASSET_IN_USE`), 응답을 잃은 추가가
+  실제로 들어간 경우에도 지워지지 않는다. 앞선 시도가 남긴 asset을 가진 재시도가 업로드
+  전에 전환을 만나는 경우도 같다.
+- **방 용량 실패를 정확히 안내한다.** `ROOM_STATE_CAPACITY_EXCEEDED`(방 저장 상태가
+  한도에 가까움)와 `ASSET_CAPACITY_EXCEEDED`(방의 파일 1,024개, 정리를 기다리는 지운 파일
+  포함)는 "PRO 방에 트랙을 더 담을 수 없어요."(`pro.upload.room_capacity`)로 안내하고
+  다시 시도를 내지 않는다. 트랙을 지워도 서버 정리가 돌기 전에는 자리가 나지 않기
+  때문이다. 완료 단계에서 이 실패가 나면 예약은 기존처럼 만료(15분)까지 용량에 남는다.
+  `RESERVATION_CAPACITY_EXCEEDED`(방 32개, 참가자당 8개인 끝나지 않은 업로드 한도)는 그
+  업로드가 끝나거나 만료되면 풀리므로 다시 시도를 유지하고, "PRO 방에 끝나지 않은
+  업로드가 너무 많아요. 잠시 후 다시 시도해 주세요."(`pro.upload.pending_limit`)로
+  안내한다. 두 키는 42개 언어 모두에 더했고, 각 언어의 기존 PRO 방·트랙·업로드·잠시 후
+  다시 시도 표현과 말투(bg·tr 반말 명령형 등)를 따랐다. 쓰지 않게 된
+  `pro.upload.playlist_changed`는 지웠다. 다른 재생목록 작업에서 나는
+  `ROOM_STATE_CAPACITY_EXCEEDED` 토스트(`playlist.mutation_retry`)는 main의 기존
+  동작이라 이 PR에서 바꾸지 않았다.
+
+문서만 고친 것(동작 변화 없음):
+
+- **최악의 경우 문구.** 복사 안전장치 절이 최악의 경우가 9.0.15와 같다고 했지만,
+  시간 초과 경로는 8초 복사 기한(그동안 방의 변경 대기열을 잡음)에 9.0.15의 바인딩
+  전송이 더해진다. 그래서 복사가 시간 초과된 뒤 대체 경로가 2초를 넘기면 facade 시간
+  초과가 보인다. 회복은 같은 키 재시도가 저장된 응답을 재생하는 것이다. 보고서,
+  RO-52, Worker와 기한 상수의 주석을 고쳤다.
+- **"확정된 전제 조건 불일치"의 뜻.** 이제 412 응답 자체가 아니라 바인딩 읽기가 바뀐
+  원본을 보여 준 경우다(복사 안전장치 절).
+- **ready 삭제 뒤의 늦은 복사.** 대체 경로로 완료한 asset을 ready 상태에서 지운 뒤
+  커밋된 복사도 기존 tombstone이 치운다는 테스트를 더했다(부모에서도 통과하는 범위
+  보강). 그 경계(staging 키를 놓기까지 최소 1시간, 서명 URL 8초)를 RO-52에 적었다.
+
+검증:
+
+- **테스트 먼저:** `c2bb9e758`의 새 경우와 바뀐 경우를 부모 `dedfc627f`에서 돌리면
+  11개가 실패했다(진단 2, 재생목록 상태 관리자 2, 업로드 큐 2, 실패 안내 5). 늦은 복사
+  경우와 `RESERVATION_CAPACITY_EXCEEDED` 재시도 유지 경우는 부모에서도 통과한다. 기존
+  동작을 덮는 범위 보강이다. `f5d65a7e7`에서는 모두 통과했다.
+- **전체 단위 실행:** `f5d65a7e7`에서 `vitest run --maxWorkers=6` 한 번으로 681개 파일,
+  16,166개가 모두 통과했다(276.7초). 5차까지 돌리지 않았던 전체 실행이고, 시간 초과나
+  단독 재실행은 없었다.
+- **나눠 돌린 실행:** `src/pro-room`·`src/i18n`(토스트 문구 정책 포함) 131개 파일,
+  3,049개 모두 통과. Worker 커버리지 실행(`vitest.workers.config.ts`) 67개 파일
+  3,220개도 모두 통과했고 파일별 커버리지 하한을 지켰다.
+- **정적 검사:** `tsc --noEmit`, `typecheck:tests`, `check:workers`, `lint`,
+  `format:check`, resource-ownership, dead-exports, import-graph, source-complexity,
+  room-authority, bus-pairing 가드가 통과했다. 자원 소유권 기록 수(49개)와
+  room-authority 수치는 그대로다.
+- **돌리지 않은 것:** critical 브라우저 묶음, 운영 빌드와 초기 전송 예산, Worker
+  dry-run 번들, PR CI. 실제 R2 CopyObject와 운영 진단 출력도 확인하지 않았다. 새
+  번역은 사람 검수를 거치지 않았다.
 
 ## Release and recovery
 
@@ -269,13 +343,20 @@ Node 24.20.0, npm 12.0.2, Vitest 5.0.3, 로컬 실행만. 실제 R2와 자격 �
   쓰고 같은 HEAD 검증을 거친다. 메타데이터에는 고정한 원본 ETag
   (`mxqr-copy-source-etag`)도 들어간다. 대상은 200이 아닌 모든 상태(412 포함),
   네트워크 오류, 8초 기한, 읽을 수 없거나 16 KiB를 넘는 결과, 복사 뒤 HEAD 실패,
-  ETag나 메타데이터 불일치, S3 자격 증명 없음이다. 그래서 최악의 경우가 9.0.15
-  동작과 같다.
+  ETag나 메타데이터 불일치, S3 자격 증명 없음이다. 다만 최악의 경우는 9.0.15와
+  같지 않다. 복사가 8초 기한까지 가서 끝나면 그 8초 동안 방의 변경 대기열을 잡은 채
+  9.0.15의 바인딩 전송을 이어서 한다. 그래서 대체 경로가 2초를 넘기면 완료 facade
+  (10초)가 시간 초과로 답한다. 9.0.15의 바인딩 전송은 5초 제어 기한을 통째로 썼다.
+  회복은 같은 키 재시도로, 앞선 완료가 끝나 저장한 응답을 그대로 돌려받는다(아래
+  기한과 배포 창).
 - **원본이 바뀐 경우만 쓰지 않는다.** 대체 경로는 staging을 한 번 읽고, 그 읽기의
   ETag가 고정값과 같을 때만 쓴다. 412만으로는 원본 변경을 확정하지 않는다(R2의
   ETag 형식 차이일 수도 있다). 바인딩 읽기가 변경을 보여 주면 쓰지 않고, 처음
   PR처럼 503으로 답하며 예약과 고정값을 남긴다. 같은 키 재시도는
-  `UPLOAD_MISMATCH`(409)로 끝난다.
+  `UPLOAD_MISMATCH`(409)로 끝난다. 그래서 PR #503의 검토에서 말한 "확정된 전제
+  조건 불일치"(definite precondition mismatch)는 이제 412 응답 자체가 아니라, 바인딩
+  읽기가 고정값과 다른 원본 ETag를 보여 준 경우를 뜻한다. 412만 받고 원본이 그대로면
+  대체 경로가 정상으로 완료한다.
 - **대체 경로도 실패하면.** staging이 없거나, R2 읽기·쓰기·HEAD가 실패하거나, 쓴
   객체가 검증을 통과하지 못하면(이때 그 객체는 지운다) 503으로 답하고 두 키와
   고정값을 남긴다. 재시도는 최종 객체를 다시 확인하거나 대체 경로를 다시 돈다.
@@ -289,18 +370,22 @@ Node 24.20.0, npm 12.0.2, Vitest 5.0.3, 로컬 실행만. 실제 R2와 자격 �
   크기 구간뿐이다. 복사 이유는 `ok`, `status_4xx`, `status_5xx`, `status_other`,
   `precondition`, `network`, `timeout`, `body`, `parse`, `head`, `etag_mismatch`,
   `metadata_mismatch`, `unconfigured`이고, 대체 경로 이유는 `ok`, `source_missing`,
-  `source_mismatch`, `storage`, `verify`다. 운영 첫 기록이 필요해서 성공도 남긴다.
-  키, 자격 증명, ETag, 파일 이름, 정확한 바이트 수는 넣지 않는다. 기존 분당 상세
-  예산(이유마다 첫 기록, 반복 기록은 창마다 모두 합쳐 4개)과 분 요약 집계를 함께
-  쓴다.
+  `source_mismatch`, `storage`, `verify`다. 운영 첫 기록이 필요해서 성공도 남기지만,
+  복사 성공(`media_copy` `ok`)은 창마다 첫 상세 기록 하나만 남기고 나머지는 분 요약
+  집계에만 센다. 키, 자격 증명, ETag, 파일 이름, 정확한 바이트 수는 넣지 않는다.
+  기존 분당 상세 예산(이유마다 첫 기록, 반복 기록은 창마다 모두 합쳐 4개)은 실패와
+  대체 경로만 써서, 업로드가 많은 방에서도 성공 기록이 실패 기록을 밀어내지 않는다
+  (6차).
 
 기한과 배포 창:
 
 - 복사 기한 8초와 완료 facade 기한 10초(`cloudflare/pro-room-media-timing.ts`)는
-  그대로다. 대체 경로는 9.0.15처럼 자체 기한이 없어서 큰 파일이면 facade 기한을
-  넘길 수 있다. 그러면 브라우저는 facade 시간 초과를 받고, 같은 키 재시도가 저장된
-  응답을 재생하거나 최종 객체를 다시 확인한다. 방 객체는 완료를 한 번에 하나씩
-  처리하므로 재시도는 앞선 완료가 끝난 뒤에 실행된다.
+  그대로다. 대체 경로는 9.0.15처럼 자체 기한이 없다. 복사가 8초 기한에서 끝나면
+  facade 기한은 2초만 남으므로, 그보다 오래 걸리는 대체 경로는 facade 시간 초과로
+  보인다(9.0.15의 바인딩 전송은 5초 제어 기한을 다 썼다). 그동안 방의 변경 대기열은
+  8초에 대체 경로 시간을 더한 만큼 잡힌다. facade 시간 초과를 받은 브라우저의 같은 키
+  재시도는 저장된 응답을 재생하거나 최종 객체를 다시 확인한다. 방 객체는 완료를 한
+  번에 하나씩 처리하므로 재시도는 앞선 완료가 끝난 뒤에 실행된다.
 - `all` 릴리스는 PRO Worker를 App Worker보다 먼저 배포한다. 그 사이에는 옛 App
   facade의 5초 제어 기한이 새 PRO 복사(8초 기한) 앞에 선다. 5초를 넘는 완료는
   9.0.15에서처럼 facade 시간 초과로 보이고, 같은 방식(같은 키 재시도나 기존 고아
@@ -308,8 +393,12 @@ Node 24.20.0, npm 12.0.2, Vitest 5.0.3, 로컬 실행만. 실제 R2와 자격 �
 - 버려진 복사가 R2에서 늦게 커밋될 수 있으므로 대체 경로는 같은 최종 키의 두 번째
   쓰기 주체다. 그래서 [자원 소유권 RO-52](resource-ownership-registry.md#ro-52-pro-browser-completion-final-object)를
   더했다. 두 주체 모두 같은 키에 같은 고정 메타데이터를 쓰고 최종 HEAD는 어느
-  쪽이 이겼는지가 아니라 메타데이터를 본다. 예약 삭제 뒤의 늦은 객체는 기존
-  tombstone(`finalObjectKey`)이 치운다.
+  쪽이 이겼는지가 아니라 메타데이터를 본다. 예약 삭제 뒤의 늦은 객체와, 대체 경로로
+  완료한 asset을 ready 상태에서 지운 뒤의 늦은 객체는 기존 tombstone
+  (`finalObjectKey`)이 치운다(뒤의 경우는 6차에서 테스트를 더했다). ready asset은
+  staging 객체가 1시간 내내 없음을 확인한 뒤에야 staging 키를 놓고, 그 확인은 완료
+  뒤 최소 60초부터 시작하므로 그 전에 지우면 tombstone이 남는다. 복사의 서명 URL은
+  8초 뒤 만료되므로, 그 1시간이 지난 뒤에 커밋되는 복사는 RO-52의 모델 밖으로 둔다.
 - 대체 경로를 없애는 것은 운영 `media_copy` 기록으로 복사가 믿을 만하다고 확인한
   뒤의 오너 결정이다.
 
@@ -318,7 +407,7 @@ Node 24.20.0, npm 12.0.2, Vitest 5.0.3, 로컬 실행만. 실제 R2와 자격 �
 The changed code is not deployed. Production success for the previously failing
 large file and production CopyObject latency are not claimed. R2 internal copy
 can still fail or exceed its bounded deadline; completion then falls back to the
-9.0.15 binding copy, whose slow cases behave as they did on 9.0.15, and explicit
+9.0.15 binding copy, and explicit
 completion retry safely recovers a final object whose response was lost.
 Deterministic Worker and browser
 tests exercise those contracts locally. Copy completion remains serialized in
@@ -327,3 +416,7 @@ this PR does not claim to eliminate every heartbeat timeout. In particular,
 post-merge production validation must use the final released SHA. Existing
 playback behavior is covered by regression tests, not by a new multi-device
 audio or mobile soak run.
+
+복사가 8초 기한에서 끝난 뒤의 대체 경로는 9.0.15보다 facade 기한이 짧다(2초 대 5초).
+자세한 내용과 회복은 위 [복사 안전장치](#복사-안전장치-바인딩-대체-경로와-복사-진단)에
+있다.

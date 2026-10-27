@@ -1,3 +1,5 @@
+import { isHovered } from './hover-pointer.ts';
+
 /** The sender's two action buttons merge without changing either click target. */
 export function createSharingActionMotion(
   container: HTMLElement,
@@ -48,8 +50,8 @@ export function createSharingActionMotion(
         (sharing || !containsPointer(syncButton)));
     const sameHover =
       samePointerTarget &&
-      lockedMediaHover === mediaButton.matches(':hover') &&
-      (sharing || !syncButton.matches(':hover'));
+      lockedMediaHover === isHovered(mediaButton) &&
+      (sharing || !isHovered(syncButton));
     if (movedDuringMorph || sameHover || reducedMotion?.matches) releaseHover();
   }
 
@@ -95,7 +97,7 @@ export function createSharingActionMotion(
       const left = next || rtl ? rect.left : rect.right - slotWidth;
       const right = next || !rtl ? rect.right : rect.left + slotWidth;
       lockedMediaHover =
-        mediaButton.matches(':hover') &&
+        isHovered(mediaButton) &&
         pointer !== null &&
         pointer.x >= left &&
         pointer.x <= right &&

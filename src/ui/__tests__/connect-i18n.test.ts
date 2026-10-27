@@ -576,7 +576,7 @@ describe('connect signaling health status', () => {
     expect(stylesheet).not.toContain(".signaling-recovery-dialog[data-state='retrying']");
     expect(stylesheet).not.toContain('.signaling-recovery-header');
     expect(stylesheet).toContain(
-      ":where(html[data-hover-pointer]) [data-theme='light'] .btn-copy-invite-link[data-mode='copy']:hover",
+      ":where(html[data-hover-pointer])[data-theme='light'] .btn-copy-invite-link[data-mode='copy']:hover",
     );
     expect(stylesheet).not.toContain("[data-theme='light'] .btn-copy-invite-link:hover");
     // Owner decision (2026-10-24): expiry keeps the neutral copy look, so it
@@ -585,7 +585,7 @@ describe('connect signaling health status', () => {
     // Selectors are matched whole.
     expect(stylesheet).not.toContain(':hover:not(:active)');
     for (const selector of [
-      ":where(html[data-hover-pointer]) [data-theme='light'] .btn-copy-invite-link[data-mode='expired']:hover",
+      ":where(html[data-hover-pointer])[data-theme='light'] .btn-copy-invite-link[data-mode='expired']:hover",
       "[data-theme='light'] .btn-copy-invite-link[data-mode='expired']:active",
     ]) {
       const expiredRules = cssRulesWithSelector(stylesheet, selector);

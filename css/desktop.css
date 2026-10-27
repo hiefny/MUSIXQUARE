@@ -490,7 +490,7 @@
       border-radius: 0;
     }
 
-    .subtab-pill:hover {
+    :where(html[data-hover-pointer]) .subtab-pill:hover {
       color: var(--text-main);
     }
 

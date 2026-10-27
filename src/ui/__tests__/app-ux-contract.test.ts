@@ -132,10 +132,10 @@ describe('app UX markup contract', () => {
     const lightChatRules = declarationsForSelector("[data-theme='light'] .chat-preview-btn");
     const lightMediaRules = declarationsForSelector("[data-theme='light'] .file-select-btn");
     const lightChatHoverRules = declarationsForSelector(
-      ":where(html[data-hover-pointer]) [data-theme='light'] .chat-preview-btn:hover",
+      ":where(html[data-hover-pointer])[data-theme='light'] .chat-preview-btn:hover",
     );
     const lightMediaHoverRules = declarationsForSelector(
-      ":where(html[data-hover-pointer]) [data-theme='light'] .file-select-btn:hover",
+      ":where(html[data-hover-pointer])[data-theme='light'] .file-select-btn:hover",
     );
     expect(lightChatHoverRules).toHaveLength(1);
     expect(lightMediaHoverRules).toHaveLength(1);
@@ -333,9 +333,14 @@ describe('app UX markup contract', () => {
       expect(focusRule[0]).toMatch(/opacity:\s*1\s*;/u);
     }
 
+    // Hover sits behind the runtime hover gate (src/ui/hover-pointer.ts).
+    const gated = (selector: string, state: string) =>
+      state === 'hover'
+        ? `:where(html[data-hover-pointer]) ${selector}[aria-disabled='true']:hover`
+        : `${selector}[aria-disabled='true']:${state}`;
     for (const selector of largeActions) {
       for (const state of ['hover', 'active']) {
-        const rules = declarationsForSelector(`${selector}[aria-disabled='true']:${state}`);
+        const rules = declarationsForSelector(gated(selector, state));
         expect(rules, `${selector} ${state} style`).toHaveLength(1);
         expect(rules[0]).toMatch(/background:\s*var\(--surface-2\)\s*;/u);
         if (state === 'active') expect(rules[0]).toMatch(/transform:\s*none\s*;/u);
@@ -344,7 +349,7 @@ describe('app UX markup contract', () => {
 
     for (const selector of compactActions) {
       for (const state of ['hover', 'active']) {
-        const rules = declarationsForSelector(`${selector}[aria-disabled='true']:${state}`);
+        const rules = declarationsForSelector(gated(selector, state));
         expect(rules, `${selector} ${state} style`).toHaveLength(1);
         expect(rules[0]).toMatch(/background:\s*transparent\s*;/u);
         expect(rules[0]).not.toContain('var(--surface-2)');

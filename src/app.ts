@@ -1146,6 +1146,9 @@ async function bootstrap(): Promise<void> {
   // 1. Platform detection & viewport height
   safeInit('Platform', initPlatform);
   safeInit('ContrastPreference', initContrastPreference);
+  // The one owner of whether the user can hover; every hover rule and check
+  // reads it, so it starts before any UI module and fails on its own.
+  safeInit('HoverPointer', initHoverPointer);
 
   // 2. Core UI init (must run before other UI modules)
   safeInit('OverlayObservers', initOverlayObservers);
@@ -1218,10 +1221,7 @@ async function bootstrap(): Promise<void> {
   safeInit('UiSounds', initUiSounds);
   safeInit('Visualizer', initVisualizer);
   safeInit('Chat', initChat);
-  safeInit('PlaylistView', () => {
-    initHoverPointer();
-    initPlaylistView();
-  });
+  safeInit('PlaylistView', initPlaylistView);
   safeInit('PlayerControls', initPlayerControls);
   safeInit('KeepOpenNotice', initKeepOpenNotice);
   safeInit('GlobalFileDrop', initGlobalFileDrop);

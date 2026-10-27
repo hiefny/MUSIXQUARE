@@ -156,20 +156,18 @@
   }
 
   /* Moving hit areas must not introduce a separate pressed/hover geometry. */
-  .play-action-buttons :is(#btn-sync, #btn-media-source):is(:hover, :active) {
+  :where(html[data-hover-pointer]) .play-action-buttons :is(#btn-sync, #btn-media-source):hover,
+  .play-action-buttons :is(#btn-sync, #btn-media-source):active {
     background: var(--surface-3);
     transform: none;
     box-shadow: none;
   }
 
-  .play-action-buttons :is(#btn-sync, #btn-media-source)[aria-disabled='true']:is(:hover, :active) {
+  :where(html[data-hover-pointer])
+    .play-action-buttons
+    :is(#btn-sync, #btn-media-source)[aria-disabled='true']:hover,
+  .play-action-buttons :is(#btn-sync, #btn-media-source)[aria-disabled='true']:active {
     background: var(--play-action-surface);
-  }
-
-  @media (hover: none), (pointer: coarse) {
-    .play-action-buttons :is(#btn-sync, #btn-media-source):hover:not(:active) {
-      background: var(--play-action-surface);
-    }
   }
 
   @media (min-width: 1280px) and (min-height: 720px) {
@@ -300,7 +298,11 @@
     background: var(--play-action-stop-surface);
   }
 
-  .play-action-buttons[data-sharing='true']:not([data-hover-locked]) #btn-media-source:hover {
+  /* A press shows the hover surface too, so a tap on Stop still answers. */
+  :where(html[data-hover-pointer])
+    .play-action-buttons[data-sharing='true']:not([data-hover-locked])
+    #btn-media-source:hover,
+  .play-action-buttons[data-sharing='true']:not([data-hover-locked]) #btn-media-source:active {
     background: var(--play-action-stop-hover);
   }
 
@@ -316,13 +318,6 @@
     opacity: 1;
     transform: translateX(0);
     transition-delay: var(--play-action-label-delay);
-  }
-
-  @media (hover: none), (pointer: coarse) {
-    .play-action-buttons[data-sharing='true']:not([data-hover-locked])
-      #btn-media-source:hover:not(:active) {
-      background: var(--play-action-stop-surface);
-    }
   }
 
   /* Freeze surfaces until the changed hit areas settle. The controller keeps

@@ -1,5 +1,8 @@
 /* Cascade ownership: base components < desktop variants < shared utilities < responsive layout < active states.
-Safety is declared first because important layer precedence is reversed; its accessibility and recovery guards must win. */
+Safety is declared first because important layer precedence is reversed; its accessibility and recovery guards must win.
+Hover: src/ui/hover-pointer.ts alone decides whether the user can hover and marks it as html[data-hover-pointer]. Every
+:hover rule starts with :where(html[data-hover-pointer]), which adds no specificity, and no media query asks about hover
+or pointers. Keep :focus-visible and :active outside the gate (src/ui/__tests__/hover-pointer.test.ts). */
 
 @layer safety, base, desktop, components, responsive, states;
 
@@ -407,11 +410,9 @@ Safety is declared first because important layer precedence is reversed; its acc
     transform: scale(0.9);
   }
 
-  @media (hover: hover) {
-    .clearable-editor-button:hover {
-      color: #ff4d4f;
-      opacity: 1;
-    }
+  :where(html[data-hover-pointer]) .clearable-editor-button:hover {
+    color: #ff4d4f;
+    opacity: 1;
   }
 
   @media (prefers-reduced-motion: reduce) {
@@ -1164,10 +1165,8 @@ Safety is declared first because important layer precedence is reversed; its acc
       transform 0.18s ease;
   }
 
-  @media (hover: hover) {
-    .setup-language-button:hover {
-      background: var(--surface-2);
-    }
+  :where(html[data-hover-pointer]) .setup-language-button:hover {
+    background: var(--surface-2);
   }
 
   .setup-language-button:focus-visible {
@@ -1462,10 +1461,8 @@ Safety is declared first because important layer precedence is reversed; its acc
     display: none;
   }
 
-  @media (hover: hover) {
-    .playlist-switch-button:hover {
-      background: var(--surface-2);
-    }
+  :where(html[data-hover-pointer]) .playlist-switch-button:hover {
+    background: var(--surface-2);
   }
 
   .playlist-switch-button:focus-visible {
@@ -2530,40 +2527,40 @@ Safety is declared first because important layer precedence is reversed; its acc
     transform: scale(1);
   }
 
-  /* Use any-hover so a real mouse/trackpad still reveals the grip on hybrid
-     devices whose primary pointer is the touchscreen. Touch-only devices keep
-     the tap-safe, non-latching presentation. */
-  @media (any-hover: hover) {
-    .playlist-reorder-handle:hover {
-      color: var(--primary);
-    }
-
-    .track-item:hover .playlist-reorder-handle .track-idx,
-    .playlist-reorder-handle:focus-visible .track-idx {
-      opacity: 0;
-      transform: scale(0.82);
-    }
-
-    .track-item:hover .playlist-reorder-handle .playlist-reorder-grip,
-    .playlist-reorder-handle:focus-visible .playlist-reorder-grip {
-      opacity: 1;
-      transform: scale(1);
-    }
-  }
-
-  /* A pen or mouse seen at runtime (src/ui/hover-pointer.ts) counts as a hover
-     pointer even when the device reports none, e.g. a convertible in tablet
-     posture whose touchpad is off. */
-  html[data-hover-pointer] .playlist-reorder-handle:hover {
-    color: var(--primary);
-  }
-
-  html[data-hover-pointer] .track-item:hover .playlist-reorder-handle .track-idx {
+  /* Keyboard focus reveals the grip on every device. */
+  .playlist-reorder-handle:focus-visible .track-idx {
     opacity: 0;
     transform: scale(0.82);
   }
 
-  html[data-hover-pointer] .track-item:hover .playlist-reorder-handle .playlist-reorder-grip {
+  .playlist-reorder-handle:focus-visible .playlist-reorder-grip {
+    opacity: 1;
+    transform: scale(1);
+  }
+
+  /* A hover pointer reveals it on row hover: a mouse or trackpad, or a pen or
+     mouse moving on a convertible in tablet posture (src/ui/hover-pointer.ts).
+     Touch keeps the tap-safe, non-latching presentation. In edit mode
+     reordering is off and a row tap selects the row, so a row hover lights
+     the minus instead. */
+  :where(html[data-hover-pointer]) .playlist-reorder-handle:hover {
+    color: var(--primary);
+  }
+
+  :where(html[data-hover-pointer])
+    :where(.playlist-ul:not(.has-removal-selection))
+    .track-item:hover
+    .playlist-reorder-handle
+    .track-idx {
+    opacity: 0;
+    transform: scale(0.82);
+  }
+
+  :where(html[data-hover-pointer])
+    :where(.playlist-ul:not(.has-removal-selection))
+    .track-item:hover
+    .playlist-reorder-handle
+    .playlist-reorder-grip {
     opacity: 1;
     transform: scale(1);
   }
@@ -2629,33 +2626,13 @@ Safety is declared first because important layer precedence is reversed; its acc
   }
 
   /* An overflowing title moves only while it is useful. Keyboard focus works
-     everywhere; a real hover pointer opts into hover motion at any viewport
-     width. */
-  @media (any-hover: hover) {
-    .track-item:hover
-      .track-name-text.is-playlist-title-overflowing
-      > .playlist-title-marquee-content,
-    .sub-track-item:hover
-      .sub-name.is-playlist-title-overflowing
-      > .playlist-title-marquee-content {
-      animation: marquee-pingpong var(--playlist-marquee-duration, 10s) cubic-bezier(0.4, 0, 0.2, 1)
-        infinite;
-      /* Hover is an explicit request to read the hidden title: skip the hold. */
-      --playlist-marquee-wait: 0s;
-      animation-delay: calc(
-        var(--playlist-marquee-wait) - var(--playlist-marquee-duration, 10s) * 0.2
-      );
-      display: inline-block;
-      will-change: transform;
-      --marquee-offset: var(--playlist-marquee-offset);
-    }
-  }
-
-  html[data-hover-pointer]
+     everywhere; a hover pointer (src/ui/hover-pointer.ts) opts into hover
+     motion at any viewport width. */
+  :where(html[data-hover-pointer])
     .track-item:hover
     .track-name-text.is-playlist-title-overflowing
     > .playlist-title-marquee-content,
-  html[data-hover-pointer]
+  :where(html[data-hover-pointer])
     .sub-track-item:hover
     .sub-name.is-playlist-title-overflowing
     > .playlist-title-marquee-content {
@@ -2689,24 +2666,25 @@ Safety is declared first because important layer precedence is reversed; its acc
     --marquee-offset: var(--playlist-marquee-offset);
   }
 
-  /* Narrow touch layouts have no hover state to reveal the rest of the current
-     title. Animate the exact playing sub-row when an expanded YouTube playlist
-     exposes it; otherwise animate the current top-level row. Wide desktop
-     layouts remain static until hover or keyboard focus, even on coarse-pointer
-     hardware such as a touchscreen or TV-style browser. */
-  @media (max-width: 1279px) and (hover: none) and (pointer: coarse),
-    (max-height: 719px) and (hover: none) and (pointer: coarse) {
-    .playlist-entry:not(:has(.sub-track-item.active))
+  /* Without a hover pointer (touch, src/ui/hover-pointer.ts) nothing reveals
+     the rest of the current title in a narrow layout. Animate the exact playing
+     sub-row when an expanded YouTube playlist exposes it; otherwise animate the
+     current top-level row. Wide desktop layouts remain static until hover or
+     keyboard focus, even on touch or TV-style hardware. */
+  @media (max-width: 1279px), (max-height: 719px) {
+    :where(html:not([data-hover-pointer]))
+      .playlist-entry:not(:has(.sub-track-item.active))
       > .track-item:has(.playlist-current-leading.is-current-playing)
       .track-name-text.is-playlist-title-overflowing
       > .playlist-title-marquee-content,
-    .playlist-entry:has(> .track-item .playlist-current-leading.is-current-playing)
+    :where(html:not([data-hover-pointer]))
+      .playlist-entry:has(> .track-item .playlist-current-leading.is-current-playing)
       .sub-track-item.active
       .sub-name.is-playlist-title-overflowing
       > .playlist-title-marquee-content {
       animation: marquee-pingpong var(--playlist-marquee-duration, 10s) cubic-bezier(0.4, 0, 0.2, 1)
         infinite;
-      /* Automatic motion also retains its timeline on hybrid touch/hover devices. */
+      /* Automatic motion keeps the same timeline as keyboard focus. */
       --playlist-marquee-wait: 1s;
       animation-delay: calc(
         var(--playlist-marquee-wait) - var(--playlist-marquee-duration, 10s) * 0.2
@@ -2789,11 +2767,9 @@ Safety is declared first because important layer precedence is reversed; its acc
     transition: all 0.2s;
   }
 
-  @media (hover: hover) {
-    .sub-track-item:hover {
-      background: var(--surface-2);
-      color: var(--text-main);
-    }
+  :where(html[data-hover-pointer]) .sub-track-item:hover {
+    background: var(--surface-2);
+    color: var(--text-main);
   }
 
   .sub-track-item.active {
@@ -2868,16 +2844,14 @@ Safety is declared first because important layer precedence is reversed; its acc
     flex: 0 0 44px;
   }
 
-  @media (hover: hover) {
-    .expand-toggle:hover {
-      background: transparent;
-      color: var(--primary);
-    }
+  :where(html[data-hover-pointer]) .expand-toggle:hover {
+    background: transparent;
+    color: var(--primary);
+  }
 
-    .device-expand-toggle:hover {
-      background: var(--surface-3);
-      color: var(--text-main);
-    }
+  :where(html[data-hover-pointer]) .device-expand-toggle:hover {
+    background: var(--surface-3);
+    color: var(--text-main);
   }
 
   .expand-toggle svg,
@@ -3047,11 +3021,9 @@ Safety is declared first because important layer precedence is reversed; its acc
     opacity: 1;
   }
 
-  @media (hover: hover) {
-    .btn-playlist-remove:not(:disabled):hover {
-      opacity: 1;
-      color: #ff4d4f;
-    }
+  :where(html[data-hover-pointer]) .btn-playlist-remove:not(:disabled):hover {
+    opacity: 1;
+    color: #ff4d4f;
   }
 
   /* ── Playlist row selection (queue editors only) ─────────────────── */
@@ -3122,15 +3094,24 @@ Safety is declared first because important layer precedence is reversed; its acc
     opacity: 1;
   }
 
+  /* Like the row's other icons, the minus turns blue for keyboard focus and
+     for a hover pointer (src/ui/hover-pointer.ts). In edit mode a row tap
+     selects the row, so hovering anywhere on it lights its minus. */
   .btn-playlist-select:focus-visible {
+    color: var(--primary);
     outline: 2px solid color-mix(in srgb, var(--primary) 70%, transparent);
     outline-offset: 1px;
   }
 
-  @media (any-hover: hover) {
-    .btn-playlist-select:hover {
-      color: var(--primary);
-    }
+  :where(html[data-hover-pointer]) .btn-playlist-select:hover {
+    color: var(--primary);
+  }
+
+  :where(html[data-hover-pointer])
+    .playlist-ul.has-removal-selection
+    .track-item:hover
+    .btn-playlist-select {
+    color: var(--primary);
   }
 
   /* Selected rows share one translucent blue fill. A lone row is a pill.
@@ -3318,10 +3299,8 @@ Safety is declared first because important layer precedence is reversed; its acc
     outline-offset: 2px;
   }
 
-  @media (hover: hover) {
-    .playlist-selection-toggle:hover {
-      opacity: 0.8;
-    }
+  :where(html[data-hover-pointer]) .playlist-selection-toggle:hover {
+    opacity: 0.8;
   }
 
   /* Entering or leaving the mode crossfades the header: frozen copies of the
@@ -3619,11 +3598,10 @@ Safety is declared first because important layer precedence is reversed; its acc
     color: var(--text-main);
   }
 
-  @media (hover: hover) {
+  :where(html[data-hover-pointer])
     .room-password-refresh:not(:disabled):not([aria-disabled='true']):hover {
-      background: var(--surface-2);
-      color: var(--text-main);
-    }
+    background: var(--surface-2);
+    color: var(--text-main);
   }
 
   .room-password-refresh:not(:disabled):not([aria-disabled='true']):active {
@@ -3726,11 +3704,9 @@ Safety is declared first because important layer precedence is reversed; its acc
     fill: currentColor;
   }
 
-  @media (hover: hover) {
-    .settings-sync-indicator:hover {
-      background: var(--surface-2);
-      color: var(--text-main);
-    }
+  :where(html[data-hover-pointer]) .settings-sync-indicator:hover {
+    background: var(--surface-2);
+    color: var(--text-main);
   }
 
   .settings-sync-indicator:focus-visible {
@@ -4008,11 +3984,11 @@ Safety is declared first because important layer precedence is reversed; its acc
     box-shadow: none;
   }
 
-  @media (hover: hover) {
-    #tab-settings .ch-opt:not(.active):not(.selected):hover,
-    #demo-overlay .ch-opt.demo-choice:not(.active):not(.selected):not([aria-pressed='true']):hover {
-      background: var(--surface-3);
-    }
+  :where(html[data-hover-pointer]) #tab-settings .ch-opt:not(.active):not(.selected):hover,
+  :where(html[data-hover-pointer])
+    #demo-overlay
+    .ch-opt.demo-choice:not(.active):not(.selected):not([aria-pressed='true']):hover {
+    background: var(--surface-3);
   }
 
   .ch-opt.active svg,
@@ -4156,15 +4132,13 @@ Safety is declared first because important layer precedence is reversed; its acc
     transition: all 0.2s;
   }
 
-  @media (hover: hover) {
-    .device-subrow:hover {
-      background: var(--surface-2);
-      color: var(--text-main);
-    }
+  :where(html[data-hover-pointer]) .device-subrow:hover {
+    background: var(--surface-2);
+    color: var(--text-main);
   }
 
   .device-subrow.is-current-device,
-  .device-subrow.is-current-device:hover {
+  :where(html[data-hover-pointer]) .device-subrow.is-current-device:hover {
     color: var(--primary);
   }
 
@@ -4262,14 +4236,14 @@ Safety is declared first because important layer precedence is reversed; its acc
     fill: currentColor;
   }
 
-  .administrator-action-button:hover,
+  :where(html[data-hover-pointer]) .administrator-action-button:hover,
   .administrator-action-button:focus-visible {
     background: var(--surface-2);
     color: var(--text-main);
     outline: none;
   }
 
-  .administrator-action-button.revoke:hover,
+  :where(html[data-hover-pointer]) .administrator-action-button.revoke:hover,
   .administrator-action-button.revoke:focus-visible {
     background: transparent;
     color: #ff4d4f;
@@ -4322,7 +4296,7 @@ Safety is declared first because important layer precedence is reversed; its acc
     height: 18px;
   }
 
-  .d-op-btn.administrator-state-button:hover,
+  :where(html[data-hover-pointer]) .d-op-btn.administrator-state-button:hover,
   .d-op-btn.administrator-state-button:focus-visible {
     background: var(--surface-2);
     color: var(--text-sub);
@@ -4390,33 +4364,23 @@ Safety is declared first because important layer precedence is reversed; its acc
     fill: currentColor;
   }
 
-  .device-row:hover .btn-kick-device {
+  :where(html[data-hover-pointer]) .device-row:hover .btn-kick-device {
     opacity: 1;
   }
 
-  .device-subrow:hover .btn-kick-physical-device {
+  :where(html[data-hover-pointer]) .device-subrow:hover .btn-kick-physical-device {
     opacity: 1;
   }
 
-  .device-subrow:hover .btn-kick-physical-device:hover,
+  :where(html[data-hover-pointer]) .device-subrow:hover .btn-kick-physical-device:hover,
   .btn-kick-physical-device:focus-visible {
     opacity: 1;
     color: #ff4d4f;
   }
 
-  .device-row:hover .btn-kick-device:hover {
+  :where(html[data-hover-pointer]) .device-row:hover .btn-kick-device:hover {
     opacity: 1;
     color: #ff4d4f;
-  }
-
-  @media (pointer: coarse) {
-    .btn-kick-device {
-      opacity: 1;
-    }
-
-    .btn-kick-physical-device {
-      opacity: 1;
-    }
   }
 
   @media (max-width: 420px) {
@@ -4465,10 +4429,8 @@ Safety is declared first because important layer precedence is reversed; its acc
       transform 0.2s;
   }
 
-  @media (hover: hover) {
-    .accent-action-btn:hover {
-      background: rgba(0, 122, 255, 0.12);
-    }
+  :where(html[data-hover-pointer]) .accent-action-btn:hover {
+    background: rgba(0, 122, 255, 0.12);
   }
 
   .accent-action-btn:active {
@@ -4521,10 +4483,8 @@ Safety is declared first because important layer precedence is reversed; its acc
       transform 0.2s;
   }
 
-  @media (hover: hover) {
-    .leave-session-btn:hover {
-      background: rgba(255, 59, 48, 0.12);
-    }
+  :where(html[data-hover-pointer]) .leave-session-btn:hover {
+    background: rgba(255, 59, 48, 0.12);
   }
 
   .leave-session-btn:active {
@@ -4635,7 +4595,7 @@ Safety is declared first because important layer precedence is reversed; its acc
     line-break: strict;
   }
 
-  .btn-copy-invite-link:hover {
+  :where(html[data-hover-pointer]) .btn-copy-invite-link:hover {
     background: var(--surface-3);
   }
 
@@ -4652,10 +4612,8 @@ Safety is declared first because important layer precedence is reversed; its acc
     box-shadow: none;
   }
 
-  @media (hover: hover) {
-    .btn-copy-invite-link[data-mode='recover']:hover {
-      background: rgba(245, 158, 11, 0.12);
-    }
+  :where(html[data-hover-pointer]) .btn-copy-invite-link[data-mode='recover']:hover {
+    background: rgba(245, 158, 11, 0.12);
   }
 
   .btn-copy-invite-link[data-mode='recover']:active {
@@ -5187,7 +5145,7 @@ Safety is declared first because important layer precedence is reversed; its acc
     border-radius: var(--radius-pill);
   }
 
-  .administrator-permission-row:hover,
+  :where(html[data-hover-pointer]) .administrator-permission-row:hover,
   .administrator-permission-row:focus-visible {
     background: transparent;
   }
@@ -5201,7 +5159,7 @@ Safety is declared first because important layer precedence is reversed; its acc
     cursor: default;
   }
 
-  .administrator-permission-row:disabled:hover,
+  :where(html[data-hover-pointer]) .administrator-permission-row:disabled:hover,
   .administrator-permission-row:disabled:focus-visible {
     background: transparent;
   }
@@ -5322,7 +5280,7 @@ Safety is declared first because important layer precedence is reversed; its acc
       transform 0.18s ease;
   }
 
-  .account-dialog-title-edit:not(:disabled):hover {
+  :where(html[data-hover-pointer]) .account-dialog-title-edit:not(:disabled):hover {
     background: var(--surface-2);
   }
 
@@ -5470,7 +5428,7 @@ Safety is declared first because important layer precedence is reversed; its acc
       transform 0.18s ease;
   }
 
-  .account-google-button:hover {
+  :where(html[data-hover-pointer]) .account-google-button:hover {
     background: #f2f2f2;
   }
 
@@ -5483,7 +5441,7 @@ Safety is declared first because important layer precedence is reversed; its acc
     color: #e3e3e3;
   }
 
-  html[data-theme='light'] .account-google-button:hover {
+  :where(html[data-hover-pointer])[data-theme='light'] .account-google-button:hover {
     background: #1f1f20;
   }
 
@@ -5995,10 +5953,11 @@ Safety is declared first because important layer precedence is reversed; its acc
       color 0.18s ease;
   }
 
-  @media (hover: hover) {
-    .dialog-choice-option:hover .dialog-choice-radio:not(:checked) + .dialog-choice-surface {
-      background: rgba(255, 255, 255, 0.035);
-    }
+  :where(html[data-hover-pointer])
+    .dialog-choice-option:hover
+    .dialog-choice-radio:not(:checked)
+    + .dialog-choice-surface {
+    background: rgba(255, 255, 255, 0.035);
   }
 
   .dialog-choice-radio:checked + .dialog-choice-surface {
@@ -6335,10 +6294,8 @@ Safety is declared first because important layer precedence is reversed; its acc
       color 0.18s ease;
   }
 
-  @media (hover: hover) {
-    .language-option:hover {
-      background: rgba(255, 255, 255, 0.035);
-    }
+  :where(html[data-hover-pointer]) .language-option:hover {
+    background: rgba(255, 255, 255, 0.035);
   }
 
   .language-option.active {
@@ -6887,11 +6844,9 @@ Safety is declared first because important layer precedence is reversed; its acc
     flex-shrink: 0;
   }
 
-  @media (hover: hover) {
-    .ob-nav-arrow:hover {
-      color: var(--primary);
-      background: rgba(var(--primary-rgb, 0, 122, 255), 0.08);
-    }
+  :where(html[data-hover-pointer]) .ob-nav-arrow:hover {
+    color: var(--primary);
+    background: rgba(var(--primary-rgb, 0, 122, 255), 0.08);
   }
 
   .ob-nav-arrow:active {
@@ -7223,7 +7178,7 @@ Safety is declared first because important layer precedence is reversed; its acc
       transform 0.2s ease;
   }
 
-  .setup-qr-scan-button:hover,
+  :where(html[data-hover-pointer]) .setup-qr-scan-button:hover,
   .setup-qr-scan-button:focus-visible {
     background: var(--surface-2);
     color: var(--primary);
@@ -7534,10 +7489,8 @@ Safety is declared first because important layer precedence is reversed; its acc
     overflow-y: auto;
   }
 
-  @media (hover: hover) {
-    .btn-ob-secondary:hover {
-      background: var(--surface-3);
-    }
+  :where(html[data-hover-pointer]) .btn-ob-secondary:hover {
+    background: var(--surface-3);
   }
 
   .btn-ob-primary:active,
@@ -7589,10 +7542,8 @@ Safety is declared first because important layer precedence is reversed; its acc
       opacity var(--role-diagram-duration) var(--role-diagram-ease);
   }
 
-  @media (hover: hover) {
-    .graphic-speaker:hover {
-      stroke: var(--text-main);
-    }
+  :where(html[data-hover-pointer]) .graphic-speaker:hover {
+    stroke: var(--text-main);
   }
 
   .graphic-speaker.active {
@@ -7967,10 +7918,8 @@ Safety is declared first because important layer precedence is reversed; its acc
     background: var(--surface-2);
   }
 
-  @media (hover: hover) {
-    .chat-cmd-item:hover {
-      background: var(--surface-2);
-    }
+  :where(html[data-hover-pointer]) .chat-cmd-item:hover {
+    background: var(--surface-2);
   }
 
   .chat-cmd-usage {
@@ -8151,10 +8100,8 @@ Safety is declared first because important layer precedence is reversed; its acc
     padding: 4px 10px;
   }
 
-  @media (hover: hover) {
-    .chat-preview-btn:hover {
-      background: var(--surface-3);
-    }
+  :where(html[data-hover-pointer]) .chat-preview-btn:hover {
+    background: var(--surface-3);
   }
 
   .chat-preview-btn:active {
@@ -8587,11 +8534,9 @@ Safety is declared first because important layer precedence is reversed; its acc
     transform: translate(-50%, 0);
   }
 
-  @media (hover: hover) {
-    .chat-scroll-down-btn:hover {
-      background-color: var(--text-main);
-      box-shadow: none;
-    }
+  :where(html[data-hover-pointer]) .chat-scroll-down-btn:hover {
+    background-color: var(--text-main);
+    box-shadow: none;
   }
 
   .chat-scroll-down-btn:focus-visible {
@@ -8681,10 +8626,8 @@ Safety is declared first because important layer precedence is reversed; its acc
     will-change: transform;
   }
 
-  @media (hover: hover) {
-    .cscroll-thumb:hover > .cscroll-thumb-visual {
-      background-color: var(--scrollbar-thumb-hover);
-    }
+  :where(html[data-hover-pointer]) .cscroll-thumb:hover > .cscroll-thumb-visual {
+    background-color: var(--scrollbar-thumb-hover);
   }
 
   .cscroll-thumb:active > .cscroll-thumb-visual {
@@ -9704,10 +9647,8 @@ Safety is declared first because important layer precedence is reversed; its acc
     background: var(--control-active);
   }
 
-  @media (hover: hover) {
-    .demo-role-segmented button:not([aria-pressed='true']):hover {
-      background: var(--surface-3);
-    }
+  :where(html[data-hover-pointer]) .demo-role-segmented button:not([aria-pressed='true']):hover {
+    background: var(--surface-3);
   }
 
   .demo-role-segmented svg {
@@ -9759,10 +9700,8 @@ Safety is declared first because important layer precedence is reversed; its acc
     background: var(--control-danger);
   }
 
-  @media (hover: hover) {
-    .demo-large-actions .leave-session-btn:hover {
-      background: var(--control-danger-hover);
-    }
+  :where(html[data-hover-pointer]) .demo-large-actions .leave-session-btn:hover {
+    background: var(--control-danger-hover);
   }
 
   .demo-effects-content .demo-large-actions {
@@ -10201,7 +10140,7 @@ Safety is declared first because important layer precedence is reversed; its acc
     transition: all 0.2s cubic-bezier(0.2, 0.8, 0.2, 1);
   }
 
-  #media-source-overlay .file-select-btn-large:hover {
+  :where(html[data-hover-pointer]) #media-source-overlay .file-select-btn-large:hover {
     background: var(--surface-3);
   }
 
@@ -10243,7 +10182,7 @@ Safety is declared first because important layer precedence is reversed; its acc
     text-align: start;
   }
 
-  .file-select-btn:hover {
+  :where(html[data-hover-pointer]) .file-select-btn:hover {
     background: var(--surface-3);
     transform: translateY(-2px);
     box-shadow: 0 4px 12px rgba(0, 0, 0, 0.05);
@@ -10346,12 +10285,15 @@ Safety is declared first because important layer precedence is reversed; its acc
     color: #ff0033;
   }
 
-  .file-select-btn:hover .btn-icon-bg {
+  /* The press tints the icon too, so a tap still shows it while held. */
+  :where(html[data-hover-pointer]) .file-select-btn:hover .btn-icon-bg,
+  .file-select-btn:active .btn-icon-bg {
     background: transparent;
     color: var(--primary);
   }
 
-  .file-select-btn:hover .btn-icon-bg.youtube {
+  :where(html[data-hover-pointer]) .file-select-btn:hover .btn-icon-bg.youtube,
+  .file-select-btn:active .btn-icon-bg.youtube {
     color: #ff0033;
   }
 
@@ -10376,10 +10318,10 @@ Safety is declared first because important layer precedence is reversed; its acc
   }
 
   /* Light Mode — hover/active for surface-2 buttons */
-  [data-theme='light'] .chat-preview-btn:hover,
-  [data-theme='light'] .file-select-btn:hover,
-  [data-theme='light'] .btn-copy-invite-link[data-mode='copy']:hover,
-  [data-theme='light'] .btn-copy-invite-link[data-mode='expired']:hover {
+  :where(html[data-hover-pointer])[data-theme='light'] .chat-preview-btn:hover,
+  :where(html[data-hover-pointer])[data-theme='light'] .file-select-btn:hover,
+  :where(html[data-hover-pointer])[data-theme='light'] .btn-copy-invite-link[data-mode='copy']:hover,
+  :where(html[data-hover-pointer])[data-theme='light'] .btn-copy-invite-link[data-mode='expired']:hover {
     background: #f0f0f0;
   }
 
@@ -10432,14 +10374,14 @@ Safety is declared first because important layer precedence is reversed; its acc
     opacity: 1;
   }
 
-  #btn-sync[aria-disabled='true']:hover,
-  #btn-media-source[aria-disabled='true']:hover {
+  :where(html[data-hover-pointer]) #btn-sync[aria-disabled='true']:hover,
+  :where(html[data-hover-pointer]) #btn-media-source[aria-disabled='true']:hover {
     background: var(--surface-2);
   }
 
-  #btn-add-media[aria-disabled='true']:hover,
-  #btn-repeat[aria-disabled='true']:hover,
-  #btn-shuffle[aria-disabled='true']:hover {
+  :where(html[data-hover-pointer]) #btn-add-media[aria-disabled='true']:hover,
+  :where(html[data-hover-pointer]) #btn-repeat[aria-disabled='true']:hover,
+  :where(html[data-hover-pointer]) #btn-shuffle[aria-disabled='true']:hover {
     background: transparent;
   }
 
@@ -10456,8 +10398,8 @@ Safety is declared first because important layer precedence is reversed; its acc
     transform: none;
   }
 
-  #btn-sync:hover,
-  #btn-media-source:hover {
+  :where(html[data-hover-pointer]) #btn-sync:hover,
+  :where(html[data-hover-pointer]) #btn-media-source:hover {
     background: var(--surface-3);
   }
 
@@ -10465,54 +10407,6 @@ Safety is declared first because important layer precedence is reversed; its acc
   #btn-media-source:active {
     background: var(--surface-3);
     transform: scale(0.97);
-  }
-
-  /* Touch browsers can keep :hover latched after a tap until the next
-     unrelated tap. Keep hover lift/color only for desktop-style pointers;
-     touch still gets the :active pressed state above while the finger is down. */
-  @media (hover: none), (pointer: coarse) {
-    .file-select-btn:hover:not(:active) {
-      background: var(--surface-2);
-      color: var(--text-sub);
-      transform: none;
-      box-shadow: none;
-    }
-
-    #media-source-overlay .file-select-btn-large:hover:not(:active),
-    .btn-copy-invite-link[data-mode='copy']:hover:not(:active),
-    .btn-copy-invite-link[data-mode='expired']:hover:not(:active),
-    #btn-sync:hover:not(:active),
-    #btn-media-source:hover:not(:active) {
-      background: var(--surface-2);
-      transform: none;
-      box-shadow: none;
-    }
-
-    .btn-copy-invite-link[data-mode='recover']:hover:not(:active),
-    .btn-copy-invite-link[data-mode='recovering']:hover:not(:active) {
-      background: rgba(245, 158, 11, 0.08);
-      color: var(--warning-foreground);
-      box-shadow: none;
-    }
-
-    .file-select-btn:hover:not(:active) .btn-icon-bg {
-      background: transparent;
-      color: var(--text-main);
-    }
-
-    .file-select-btn:hover:not(:active) .btn-icon-bg.youtube {
-      color: #ff0033;
-    }
-
-    [data-theme='light'] .chat-preview-btn:hover:not(:active),
-    [data-theme='light'] .file-select-btn:hover:not(:active) {
-      background: var(--play-action-surface);
-    }
-
-    [data-theme='light'] .btn-copy-invite-link[data-mode='copy']:hover:not(:active),
-    [data-theme='light'] .btn-copy-invite-link[data-mode='expired']:hover:not(:active) {
-      background: var(--surface-2);
-    }
   }
 
   /* Animation for one-time attention hints */
@@ -10530,7 +10424,11 @@ Safety is declared first because important layer precedence is reversed; its acc
 
   /* ─── Accessibility: Reduced Motion ─────────────────────────── */
   @media (prefers-reduced-motion: reduce) {
-    #media-source-overlay .file-select-btn:hover {
+    :where(html[data-hover-pointer]) #media-source-overlay .file-select-btn:hover {
+      transform: none;
+    }
+
+    #media-source-overlay .file-select-btn:active {
       transform: none;
     }
 
@@ -10638,7 +10536,7 @@ Safety is declared first because important layer precedence is reversed; its acc
     z-index: 10;
   }
 
-  .video-wrapper:hover .fullscreen-btn,
+  :where(html[data-hover-pointer]) .video-wrapper:hover .fullscreen-btn,
   .video-wrapper:active .fullscreen-btn {
     opacity: 1;
   }
@@ -11346,11 +11244,9 @@ Safety is declared first because important layer precedence is reversed; its acc
     outline: none;
   }
 
-  @media (hover: hover) {
-    .yt-search-result:hover {
-      background: var(--surface-3);
-      outline: none;
-    }
+  :where(html[data-hover-pointer]) .yt-search-result:hover {
+    background: var(--surface-3);
+    outline: none;
   }
 
   .yt-search-result.selected {
@@ -12208,11 +12104,9 @@ Safety is declared first because important layer precedence is reversed; its acc
         color 0.15s;
     }
 
-    @media (hover: hover) {
-      #media-source-overlay #btn-close-media-popup:hover {
-        background: var(--surface-3);
-        color: var(--text-main);
-      }
+    :where(html[data-hover-pointer]) #media-source-overlay #btn-close-media-popup:hover {
+      background: var(--surface-3);
+      color: var(--text-main);
     }
 
     #media-source-overlay #btn-close-media-popup > span {

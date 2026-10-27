@@ -3,7 +3,7 @@
  */
 import { readdirSync, readFileSync } from 'node:fs';
 import { join, resolve } from 'node:path';
-import { parse as parseCss, type Rule } from 'postcss';
+import { parse as parseCss, type AtRule, type Node, type Rule } from 'postcss';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 type HoverPointerModule = typeof import('../hover-pointer.ts');
@@ -110,10 +110,10 @@ function rulesFor(selector: string): { conditions: string[]; declarations: strin
     .filter((site) => site.selector === selector)
     .map((site) => {
       const conditions: string[] = [];
-      for (let parent = site.rule.parent; parent; parent = parent.parent) {
-        if (parent.type === 'atrule' && parent.name !== 'layer') {
-          conditions.push(`@${parent.name} ${parent.params}`);
-        }
+      for (let parent: Node | undefined = site.rule.parent; parent; parent = parent.parent) {
+        if (parent.type !== 'atrule') continue;
+        const { name, params } = parent as AtRule;
+        if (name !== 'layer') conditions.push(`@${name} ${params}`);
       }
       return { conditions, declarations: declarations(site.rule) };
     });
@@ -224,31 +224,53 @@ describe('hover pointer owner', () => {
   });
 });
 
+/**
+ * The rest of a selector after its leading gate, or null without one. The gate
+ * is followed by a descendant (` .row:hover`) or by more conditions on the
+ * same html element (`[data-theme='light'] .row:hover`).
+ */
+function afterGate(selector: string, gate: string): string | null {
+  if (!selector.startsWith(gate)) return null;
+  const rest = selector.slice(gate.length);
+  return rest.startsWith(' ') || rest.startsWith('[') ? rest : null;
+}
+
 describe('one hover gate in the app stylesheets', () => {
   it('puts every :hover rule under the runtime gate', () => {
     const outside = selectorSites()
       .filter((site) => site.selector.includes(':hover'))
-      .filter((site) => !site.selector.startsWith(`${GATE} `))
+      .filter((site) => afterGate(site.selector, GATE) === null)
       .map((site) => `${site.file}:${site.line} ${site.selector}`);
     expect(outside).toEqual([]);
+  });
+
+  it('keeps html-level conditions on the gated html element itself', () => {
+    // The gate, data-theme and data-contrast all live on <html>: written as a
+    // descendant of the gate, such a condition could never match.
+    const unreachable = selectorSites()
+      .filter((site) => {
+        const rest = afterGate(site.selector, GATE) ?? afterGate(site.selector, NO_HOVER_GATE);
+        return rest !== null && /^ (?:html\b|:root\b|\[data-(?:theme|contrast)\b)/u.test(rest);
+      })
+      .map((site) => `${site.file}:${site.line} ${site.selector}`);
+    expect(unreachable).toEqual([]);
   });
 
   it('uses the flag only as the leading, zero-specificity gate', () => {
     const misplaced = selectorSites()
       .filter((site) => site.selector.includes('data-hover-pointer'))
       .filter((site) => {
-        const rest = site.selector.startsWith(`${GATE} `)
-          ? site.selector.slice(GATE.length)
-          : site.selector.startsWith(`${NO_HOVER_GATE} `)
-            ? site.selector.slice(NO_HOVER_GATE.length)
-            : site.selector;
+        const rest =
+          afterGate(site.selector, GATE) ??
+          afterGate(site.selector, NO_HOVER_GATE) ??
+          site.selector;
         return rest.includes('data-hover-pointer');
       })
       .map((site) => `${site.file}:${site.line} ${site.selector}`);
     expect(misplaced).toEqual([]);
 
     const hoverWithoutHover = selectorSites()
-      .filter((site) => site.selector.startsWith(`${NO_HOVER_GATE} `))
+      .filter((site) => afterGate(site.selector, NO_HOVER_GATE) !== null)
       .filter((site) => site.selector.includes(':hover'))
       .map((site) => `${site.file}:${site.line} ${site.selector}`);
     expect(hoverWithoutHover).toEqual([]);

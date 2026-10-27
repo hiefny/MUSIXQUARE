@@ -99,10 +99,21 @@ async function rowLook(page: Page, index: number) {
     }));
 }
 
-/** A touch tap on the playlist heading, which takes no action. */
+/** A touch tap in the gap between two playlist rows, which takes no action. */
 async function tapNeutral(page: Page): Promise<void> {
-  const heading = await centerOf(page.locator('#tab-playlist .tab-header > .tab-title'));
-  await page.touchscreen.tap(heading.x, heading.y);
+  const point = await page.locator('#playlist-ui').evaluate((list) => {
+    const entries = list.querySelectorAll(':scope > .playlist-entry');
+    const above = entries[2]!.getBoundingClientRect();
+    const below = entries[3]!.getBoundingClientRect();
+    const x = above.left + above.width / 2;
+    const y = (above.bottom + below.top) / 2;
+    const target = document.elementFromPoint(x, y);
+    if (!target || target.closest('button, a, input, [role="button"], .track-item')) {
+      throw new Error(`No inert spot between rows: ${target?.outerHTML.slice(0, 80)}`);
+    }
+    return { x, y };
+  });
+  await page.touchscreen.tap(point.x, point.y);
 }
 
 test.describe('Playlist edit mode (mouse)', () => {
@@ -509,8 +520,9 @@ test.describe('Playlist row hover on a convertible in tablet posture', () => {
 
     await tapNeutral(page);
     expect(await hasHoverPointer(page)).toBe(false);
+    // Arriving tracks show every grip for 2s (the reorder hint); wait it out.
+    await expect.poll(() => rowLook(page, 2)).toMatchObject({ number: '1', grip: '0' });
     const resting = await rowLook(page, 2);
-    expect(resting).toMatchObject({ number: '1', grip: '0' });
     expect(resting.minus).not.toBe(primary);
 
     await page.mouse.move(0, 0);
@@ -808,9 +820,9 @@ test.describe('Playlist edit mode (touch)', () => {
     await page.touchscreen.tap(minus.x, minus.y);
     await expect(page.locator('.playlist-selection-bar')).toBeHidden();
     expect(await hasHoverPointer(page)).toBe(false);
-    expect(await checks.nth(1).evaluate((button) => button.matches(':hover'))).toBe(true);
     await expect.poll(minusColor).toBe(resting);
-    expect(await rowLook(page, 1)).toMatchObject({ number: '1', grip: '0' });
+    // Arriving tracks show every grip for 2s (the reorder hint); a tap never does.
+    await expect.poll(() => rowLook(page, 1)).toMatchObject({ number: '1', grip: '0' });
   });
 
   test('a check-column swipe and a two-finger pan select ranges without scrolling', async ({

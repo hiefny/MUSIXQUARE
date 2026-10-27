@@ -16,6 +16,7 @@ import { clearManagedTimer, setManagedTimer } from '../core/timers.ts';
 import { isCompactLandscape } from '../core/platform.ts';
 import { DESKTOP_LAYOUT_QUERY } from '../core/layout-breakpoints.ts';
 import { animateTransition, updateOverlayOpenClass } from './dom.ts';
+import { hasHoverPointer, isHovered } from './hover-pointer.ts';
 import { showToast } from './toast.ts';
 import {
   updateRoleBadge,
@@ -532,14 +533,6 @@ function canScheduleObCarouselAutoplay(): boolean {
   );
 }
 
-function hasHoverCapableInput(): boolean {
-  try {
-    return window.matchMedia('(any-hover: hover)').matches;
-  } catch {
-    return false;
-  }
-}
-
 function updateObCarouselA11y(): void {
   const track = setupEl('ob-slider-track');
   const autoplayEligible = !_obCarouselUserStopped && !_obCarouselReducedMotion;
@@ -642,7 +635,7 @@ export function initObCarousel(signal: AbortSignal): void {
   area?.addEventListener(
     'mouseenter',
     () => {
-      if (!hasHoverCapableInput()) return;
+      if (!hasHoverPointer()) return;
       _obCarouselHoverPaused = true;
       clearObCarouselAutoplayTimer();
     },
@@ -714,7 +707,7 @@ export function initObCarousel(signal: AbortSignal): void {
         return;
       }
 
-      _obCarouselHoverPaused = hasHoverCapableInput() && area?.matches(':hover') === true;
+      _obCarouselHoverPaused = area !== null && isHovered(area);
       scheduleObCarouselAutoplay();
     },
     { signal },

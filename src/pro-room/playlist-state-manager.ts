@@ -977,9 +977,10 @@ export class ProRoomPlaylistStateManager {
           ) {
             return { snapshot: cloneSnapshot(reconciled), queueItemId };
           }
-          // A retained queue task will retry this same asset after refreshing
-          // canonical state. Dismissal/retirement releases the continuation;
-          // unreferenced remote assets remain under server-side GC ownership.
+          // A retained queue task may retry this same asset after refreshing
+          // canonical state. Dismissal/retirement, or a terminal failure such
+          // as a playlist switch, releases the continuation; unreferenced
+          // remote assets remain under server-side GC ownership.
           if (!retryState) await this.#bestEffortDelete(upload.asset.assetId, 'uploaded-orphan');
         } catch {
           // An unreadable authority is still ambiguous. Retaining an

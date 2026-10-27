@@ -856,11 +856,18 @@ const uk: Record<I18nKey, string> = {
   'pro.active_tab_message': 'Якщо продовжити тут, попереднє з’єднання буде завершено.',
   'pro.active_tab_replaced': 'Цю кімнату PRO вже відкрито в іншій вкладці',
   'pro.use_this_tab': 'Продовжити тут',
-  'pro.upload.retry_unavailable':
-    'Це завантаження більше неможливо завершити. Виберіть файл знову.',
-  'pro.upload.failed_retryable': 'Не вдалося завершити завантаження. Спробуйте ще раз.',
-  'pro.upload.empty_file': 'Неможливо завантажити порожній файл.',
-  'pro.upload.confirming': 'Підтвердження завантаження {{current}}/{{total}}',
+  'pro.upload.retry_unavailable': 'Це надсилання більше неможливо завершити. Виберіть файл знову.',
+  'pro.upload.failed_retryable': 'Не вдалося завершити надсилання. Спробуйте ще раз.',
+  'pro.upload.empty_file': 'Неможливо надіслати порожній файл.',
+  'pro.upload.file_too_large': 'Цей файл перевищує ліміт у 200 МБ на один файл.',
+  'pro.upload.quota_exceeded': 'Ця кімната PRO досягла ліміту сховища в 1 ГБ.',
+  'pro.upload.playlist_full': 'Плейліст заповнений.',
+  'pro.upload.playlist_changed': 'Плейліст змінився. Спробуйте ще раз.',
+  'pro.upload.playlist_switched':
+    'Перед додаванням цього треку активним став інший плейлист. Виберіть файл знову.',
+  'pro.upload.permission_required': 'Потрібен дозвіл на керування медіа.',
+  'pro.upload.failed_file': '{{name}}: {{reason}}',
+  'pro.upload.confirming': 'Підтвердження надсилання {{current}}/{{total}}',
   'pro.upload.batch_progress': 'Надсилання треків: {{current}}/{{total}}',
   'pro.upload.batch_failed_title': 'Деякі треки не вдалося надіслати',
   'pro.upload.batch_failed_message':

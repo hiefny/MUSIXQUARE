@@ -829,7 +829,15 @@ const ko = {
   'pro.upload.retry_unavailable': '이 업로드를 이어서 완료할 수 없어요. 파일을 다시 선택해 주세요.',
   'pro.upload.failed_retryable': '업로드를 완료하지 못했어요. 다시 시도해 주세요.',
   'pro.upload.empty_file': '빈 파일은 업로드할 수 없어요.',
-  'pro.upload.confirming': '업로드 확인 중 {{current}}/{{total}}',
+  'pro.upload.file_too_large': '이 파일은 파일당 200MB 제한을 넘어요.',
+  'pro.upload.quota_exceeded': 'PRO 방의 1GB 저장 공간을 모두 사용했어요.',
+  'pro.upload.playlist_full': '재생목록이 가득 찼어요.',
+  'pro.upload.playlist_changed': '재생목록이 변경됐어요. 다시 시도해 주세요.',
+  'pro.upload.playlist_switched':
+    '트랙을 추가하기 전에 다른 재생목록으로 전환됐어요. 파일을 다시 선택해 주세요.',
+  'pro.upload.permission_required': '미디어 관리 권한이 필요해요.',
+  'pro.upload.failed_file': '{{name}}: {{reason}}',
+  'pro.upload.confirming': '업로드 확정 중 {{current}}/{{total}}',
   'pro.upload.batch_progress': '트랙 업로드 중 {{current}}/{{total}}',
   'pro.upload.batch_failed_title': '일부 트랙을 업로드하지 못했어요',
   'pro.upload.batch_failed_message':

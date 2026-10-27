@@ -177,7 +177,7 @@ test('PRO mixed upload explains size rejection and retries completion without se
     const { calls, releaseCompletion } = await uploadFixture(page);
     await page.locator('#file-input').setInputFiles([oversized, valid]);
     await expect.poll(() => calls.complete.length).toBe(1);
-    await expect(page.locator('#main-header')).toContainText(/Confirming upload|업로드 확인 중/);
+    await expect(page.locator('#main-header')).toContainText(/Confirming upload|업로드 확정 중/);
     releaseCompletion();
     await expect(page.locator('#dialog-overlay.show')).toBeVisible();
     await expect(page.locator('#dialog-message')).toContainText(/200\s?MB/);

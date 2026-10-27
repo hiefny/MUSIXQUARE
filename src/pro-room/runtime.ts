@@ -94,13 +94,12 @@ import {
   showProRoomPinRemovalNotice,
   showProRoomRemovalNotice,
 } from './session-end-notice.ts';
-import {
-  PRO_ROOM_MAX_ASSET_BYTES,
-  type ProRoomAdministrator,
-  type ProRoomPermissionSet,
-  type ProRoomPresenceParticipant,
-  type ProRoomR2Source,
-  type ProRoomSnapshot,
+import type {
+  ProRoomAdministrator,
+  ProRoomPermissionSet,
+  ProRoomPresenceParticipant,
+  ProRoomR2Source,
+  ProRoomSnapshot,
 } from './contracts.ts';
 import { queueModeMatchesPlaylist, type ProRoomQueueModeSnapshot } from './queue-mode.ts';
 import { applyProRoomSnapshotMonotonically } from './revision.ts';
@@ -162,7 +161,10 @@ import {
 } from './playlist-state-manager.ts';
 import { ProRoomUploadQueue } from './upload-queue.ts';
 import { setActiveProRoomUploadQueue } from './active-upload-queue.ts';
-import { resolveProRoomUploadFailureDialog } from './upload-failure-dialog.ts';
+import {
+  describeProRoomUploadFailures,
+  resolveProRoomUploadFailureDialog,
+} from './upload-failure-dialog.ts';
 import {
   findRemovedProRoomQueueItemIds,
   resolveProRoomRemovalTransition,
@@ -1302,44 +1304,7 @@ function installMediaHooks(
           return;
         }
         const canRetry = result.retryableCount > 0;
-        const failureReasons = result.failures.map((failure) => {
-          let reason = t(
-            failure.retryable ? 'pro.upload.failed_retryable' : 'pro.upload.retry_unavailable',
-          );
-          if (failure.code === 'PRO_ROOM_MEDIA_UPLOAD_SIZE_INVALID') {
-            reason =
-              failure.size > PRO_ROOM_MAX_ASSET_BYTES
-                ? t('pro.file_too_large')
-                : t('pro.upload.empty_file');
-          } else if (failure.code === 'ROOM_QUOTA_EXCEEDED') {
-            reason = t('pro.quota_exceeded');
-          } else if (
-            failure.code === 'ASSET_NOT_FOUND' ||
-            failure.code === 'ASSET_NOT_READY' ||
-            failure.code === 'UPLOAD_MISMATCH' ||
-            failure.code === 'UPLOAD_INCOMPLETE'
-          ) {
-            reason = t('pro.upload.retry_unavailable');
-          } else if (
-            failure.code === 'PERMISSION_REQUIRED' ||
-            failure.code === 'CAPABILITY_REQUIRED' ||
-            failure.code === 'ADMINISTRATOR_REQUIRED' ||
-            failure.code === 'RESERVATION_OWNER_REQUIRED'
-          ) {
-            reason = t('toast.media_management_required');
-          } else if (
-            failure.code === 'PRO_ROOM_PLAYLIST_SWITCHED' ||
-            failure.code === 'PRO_ROOM_PLAYLIST_STATE_CAPACITY_EXCEEDED'
-          ) {
-            reason = t('playlist.mutation_retry');
-          } else if (
-            failure.code === 'PRO_ROOM_PLAYLIST_CAPACITY_EXCEEDED' ||
-            failure.code === 'REQUEST_TOO_LARGE'
-          ) {
-            reason = t('playlist.queue_full');
-          }
-          return `${failure.name}: ${reason}`;
-        });
+        const failureReasons = describeProRoomUploadFailures(result.failures, t);
         observeProRoomRuntimeTask(
           resolveProRoomUploadFailureDialog({
             queue,

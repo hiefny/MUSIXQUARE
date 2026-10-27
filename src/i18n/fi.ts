@@ -858,10 +858,18 @@ const fi: Record<I18nKey, string> = {
   'pro.active_tab_replaced': 'Tämä PRO-huone on jo avoinna toisessa välilehdessä',
   'pro.use_this_tab': 'Jatka tässä',
   'pro.upload.retry_unavailable':
-    'Tätä latausta ei voi enää viimeistellä. Valitse tiedosto uudelleen.',
-  'pro.upload.failed_retryable': 'Latausta ei voitu viimeistellä. Yritä uudelleen.',
-  'pro.upload.empty_file': 'Tyhjää tiedostoa ei voi ladata.',
-  'pro.upload.confirming': 'Vahvistetaan latausta {{current}}/{{total}}',
+    'Tätä lähetystä ei voi enää viimeistellä. Valitse tiedosto uudelleen.',
+  'pro.upload.failed_retryable': 'Lähetystä ei voitu viimeistellä. Yritä uudelleen.',
+  'pro.upload.empty_file': 'Tyhjää tiedostoa ei voi lähettää.',
+  'pro.upload.file_too_large': 'Tiedosto ylittää tiedostokohtaisen 200 MB:n rajan.',
+  'pro.upload.quota_exceeded': 'Tämän PRO-huoneen 1 GB:n tallennustila on täynnä.',
+  'pro.upload.playlist_full': 'Soittolista on täynnä.',
+  'pro.upload.playlist_changed': 'Soittolista muuttui. Yritä uudelleen.',
+  'pro.upload.playlist_switched':
+    'Toinen soittolista otettiin käyttöön ennen kuin tämä kappale lisättiin. Valitse tiedosto uudelleen.',
+  'pro.upload.permission_required': 'Median hallintaoikeus vaaditaan.',
+  'pro.upload.failed_file': '{{name}}: {{reason}}',
+  'pro.upload.confirming': 'Vahvistetaan lähetystä {{current}}/{{total}}',
   'pro.upload.batch_progress': 'Lähetetään kappaleita {{current}}/{{total}}',
   'pro.upload.batch_failed_title': 'Joitakin kappaleita ei voitu lähettää',
   'pro.upload.batch_failed_message':

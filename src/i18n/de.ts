@@ -806,6 +806,14 @@ const de: Record<I18nKey, string> = {
   'pro.upload.failed_retryable':
     'Der Upload konnte nicht abgeschlossen werden. Bitte versuche es erneut.',
   'pro.upload.empty_file': 'Eine leere Datei kann nicht hochgeladen werden.',
+  'pro.upload.file_too_large': 'Diese Datei überschreitet das Limit von 200 MB pro Datei.',
+  'pro.upload.quota_exceeded': 'Der PRO-Raum hat sein Speicherlimit von 1 GB erreicht.',
+  'pro.upload.playlist_full': 'Die Playlist ist voll.',
+  'pro.upload.playlist_changed': 'Die Playlist wurde geändert. Bitte versuche es erneut.',
+  'pro.upload.playlist_switched':
+    'Eine andere Playlist wurde aktiv, bevor dieser Titel hinzugefügt wurde. Wähle die Datei erneut aus.',
+  'pro.upload.permission_required': 'Die Berechtigung zur Medienverwaltung ist erforderlich.',
+  'pro.upload.failed_file': '{{name}}: {{reason}}',
   'pro.upload.confirming': 'Upload wird bestätigt {{current}}/{{total}}',
   'pro.upload.batch_progress': 'Titel werden hochgeladen: {{current}}/{{total}}',
   'pro.upload.batch_failed_title': 'Einige Titel konnten nicht hochgeladen werden',

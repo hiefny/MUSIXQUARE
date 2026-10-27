@@ -797,10 +797,18 @@ const fr: Record<I18nKey, string> = {
   'pro.active_tab_replaced': 'Ce salon PRO est déjà ouvert dans un autre onglet',
   'pro.use_this_tab': 'Continuer ici',
   'pro.upload.retry_unavailable':
-    'Cet import ne peut plus être terminé. Sélectionnez à nouveau le fichier.',
-  'pro.upload.failed_retryable': 'L’importation n’a pas pu être terminée. Réessayez.',
-  'pro.upload.empty_file': 'Impossible d’importer un fichier vide.',
-  'pro.upload.confirming': 'Confirmation de l’importation {{current}}/{{total}}',
+    'Cet envoi ne peut plus être terminé. Sélectionnez à nouveau le fichier.',
+  'pro.upload.failed_retryable': 'L’envoi n’a pas pu être terminé. Réessayez.',
+  'pro.upload.empty_file': 'Impossible d’envoyer un fichier vide.',
+  'pro.upload.file_too_large': 'Ce fichier dépasse la limite de 200 Mo par fichier.',
+  'pro.upload.quota_exceeded': 'Ce salon PRO a atteint sa limite de stockage de 1 Go.',
+  'pro.upload.playlist_full': 'La playlist est pleine.',
+  'pro.upload.playlist_changed': 'La playlist a changé. Réessayez.',
+  'pro.upload.playlist_switched':
+    'Une autre playlist est devenue active avant l’ajout de cette piste. Sélectionnez à nouveau le fichier.',
+  'pro.upload.permission_required': 'L’autorisation de gérer les médias est requise.',
+  'pro.upload.failed_file': '{{name}} : {{reason}}',
+  'pro.upload.confirming': 'Confirmation de l’envoi {{current}}/{{total}}',
   'pro.upload.batch_progress': 'Envoi des pistes {{current}}/{{total}}',
   'pro.upload.batch_failed_title': 'Certaines pistes n’ont pas pu être envoyées',
   'pro.upload.batch_failed_message':

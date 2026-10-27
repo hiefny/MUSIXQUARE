@@ -86,31 +86,32 @@ function makePeer(id: string): FiringPeer {
   return peer as unknown as FiringPeer;
 }
 
+const PEER_ID = 'GUEST-PEER';
 const MEMBER_ID = `member_${'a'.repeat(22)}`;
 const CHECKING = 'toast.media_management_checking' as const;
 const REQUIRED = 'toast.media_management_required' as const;
 
 /** A Standard guest whose account check waits on the signaling identity. */
 async function pendingGuest(rosterMemberId: string | null) {
-  const peer = makePeer('GUEST-PEER');
+  const peer = makePeer(PEER_ID);
   mocks.createTransportPeer.mockResolvedValueOnce(peer);
   const code = await createHostSessionWithShortCode(1);
   const hostConn = { open: true, close: vi.fn(), peer: 'host-peer' } as unknown as DataConnection;
   setState('setup.sessionStarted', true);
   setState('network.appRole', 'guest');
-  setState('network.myId', peer.id);
+  setState('network.myId', PEER_ID);
   setState('network.lastJoinCode', code);
   setState('network.hostConn', hostConn);
   markStandardRoomAuthorityConfirmed(hostConn);
   const check = beginStandardRoomAccountAuthorityCheck({
     roomCode: code,
-    peerId: peer.id,
+    peerId: PEER_ID,
     role: 'guest',
   });
   expect(check).not.toBeNull();
   settleStandardRoomAccountAuthorityCheck(check, false);
   acceptStandardRoomHostIdentityProjection(hostConn, {
-    id: peer.id,
+    id: PEER_ID,
     label: 'Peer',
     isHost: false,
     isOp: false,

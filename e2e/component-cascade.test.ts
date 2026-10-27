@@ -262,19 +262,23 @@ for (const mode of [
           fontFamily: family,
         });
       }
+      // Owner decision (2026-10-27): light reads #d70015, dark keeps #ff3b30.
       expect(
         styles.filter((style) => style.danger !== null).map((style) => style.danger),
         label,
-      ).toEqual(Array(3).fill('rgb(255, 59, 48)'));
+      ).toEqual(Array(3).fill(mode.theme === 'light' ? 'rgb(215, 0, 21)' : 'rgb(255, 59, 48)'));
     }
   });
 }
 
-test('destructive labels darken together only where light contrast is raised', async ({ page }) => {
+test('destructive labels share one red per palette, darker in the light palettes', async ({
+  page,
+}) => {
   await page.emulateMedia({ reducedMotion: 'reduce' });
   await page.setViewportSize({ width: 390, height: 844 });
   for (const palette of [
     { theme: 'dark', contrast: 'more', color: 'rgb(255, 59, 48)' },
+    { theme: 'light', contrast: 'normal', color: 'rgb(215, 0, 21)' },
     { theme: 'light', contrast: 'more', color: 'rgb(164, 0, 29)' },
   ] as const) {
     await page.setContent(`<!doctype html>

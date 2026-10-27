@@ -625,7 +625,11 @@ test('keeps the Design System rail and examples coherent at every layout size', 
     });
     expect(components.interfacePatterns.headerBadgeHasDot).toBe(false);
     expect(components.interfacePatterns.headerProgress).toBe(true);
-    expect(components.playlistHeaderActions).toEqual(['Repeat one', 'Shuffle', 'Add media']);
+    expect(components.playlistHeaderActions).toEqual([
+      'Repeat current track',
+      'Shuffle',
+      'Add media',
+    ]);
     expect(components.playlistHeaderOwner).toEqual({
       label: 'Playlist area',
       playbackCount: 0,

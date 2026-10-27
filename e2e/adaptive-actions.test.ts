@@ -82,6 +82,17 @@ const LOCALIZED_ACTIONS = Object.entries(LOCALES).map(([code, dictionary]) => ({
   ],
 }));
 
+// The manual sync panel's Reset / Done pair in every locale.
+const SYNC_PAIR_LABELS: Record<string, { reset: string; done: string }> = Object.fromEntries(
+  Object.entries(LOCALES).map(([code, dictionary]) => [
+    code,
+    {
+      reset: (dictionary as Record<string, string>)['common.reset']!,
+      done: (dictionary as Record<string, string>)['common.done']!,
+    },
+  ]),
+);
+
 type ActionMetrics = {
   id: string;
   x: number;
@@ -720,6 +731,109 @@ test.describe('content-based adaptive action groups', () => {
       );
     }
   });
+
+  for (const viewportWidth of [360, 390, 1440]) {
+    test(`contains the manual sync Reset / Done pair in every locale at ${viewportWidth}px`, async ({
+      page,
+    }) => {
+      // The authored panel, opened, in each locale's own font. The recipe
+      // keeps the pair on one row while both labels fit and gives each its own
+      // full row otherwise, wrapping only at word boundaries.
+      await installLayoutProbe(page, '<main id="sync-pair-probes"></main>', { viewportWidth });
+      const localesWithFonts = await localizedActionsWithFonts(page);
+      await page.evaluate(
+        ({ locales, markup, labels }) => {
+          const root = document.getElementById('sync-pair-probes')!;
+          const authored = new DOMParser().parseFromString(markup, 'text/html');
+          const overlay = authored.getElementById('manual-sync-overlay')!;
+          for (const locale of locales) {
+            const probe = overlay.cloneNode(true) as HTMLElement;
+            probe.removeAttribute('id');
+            probe.classList.add('show', 'locale-sync-probe');
+            probe.lang = locale.htmlLang;
+            probe.style.setProperty('--font-sans', locale.fontFamily);
+            probe.style.fontFamily = locale.fontFamily;
+            probe.style.position = 'relative';
+            probe.style.inset = 'auto';
+            probe.style.padding = '8px 0';
+            const reset = probe.querySelector<HTMLElement>('.sync-reset-btn')!;
+            const done = probe.querySelector<HTMLElement>('.sync-done-btn')!;
+            reset.textContent = labels[locale.code]!.reset;
+            done.textContent = labels[locale.code]!.done;
+            for (const button of [reset, done]) {
+              button.removeAttribute('id');
+              button.dataset.probe = `${locale.code}-${button.className}`;
+            }
+            root.appendChild(probe);
+          }
+        },
+        { locales: localesWithFonts, markup: APP_MARKUP, labels: SYNC_PAIR_LABELS },
+      );
+      await waitForLayoutFonts(page);
+
+      const pairs = await page.locator('.locale-sync-probe').evaluateAll((probes) =>
+        probes.map((probe) => {
+          const panel = probe.querySelector<HTMLElement>('.sync-glass-panel')!;
+          const row = probe.querySelector<HTMLElement>('.sync-bottom-row')!;
+          const panelRect = panel.getBoundingClientRect();
+          const style = getComputedStyle(panel);
+          const contentLeft = panelRect.left + Number.parseFloat(style.paddingLeft);
+          const contentRight = panelRect.right - Number.parseFloat(style.paddingRight);
+          return {
+            lang: probe.lang,
+            rowScrollWidth: row.scrollWidth,
+            rowClientWidth: row.clientWidth,
+            contentLeft,
+            contentRight,
+            buttons: [...row.querySelectorAll<HTMLElement>(':scope > button')].map((button) => {
+              const rect = button.getBoundingClientRect();
+              return {
+                id: button.dataset.probe!,
+                left: rect.left,
+                right: rect.right,
+                top: rect.top,
+                bottom: rect.bottom,
+                height: rect.height,
+                clientWidth: button.clientWidth,
+                clientHeight: button.clientHeight,
+                scrollWidth: button.scrollWidth,
+                scrollHeight: button.scrollHeight,
+              };
+            }),
+          };
+        }),
+      );
+      expect(pairs).toHaveLength(42);
+      for (const pair of pairs) {
+        expect(pair.rowScrollWidth, `${pair.lang} row overflow`).toBeLessThanOrEqual(
+          pair.rowClientWidth,
+        );
+        const [reset, done] = pair.buttons;
+        for (const button of [reset!, done!]) {
+          expect(button.left, `${button.id} inside the panel`).toBeGreaterThanOrEqual(
+            pair.contentLeft - 0.5,
+          );
+          expect(button.right, `${button.id} inside the panel`).toBeLessThanOrEqual(
+            pair.contentRight + 0.5,
+          );
+          expect(button.scrollWidth, `${button.id} clips its label`).toBeLessThanOrEqual(
+            button.clientWidth,
+          );
+          expect(button.scrollHeight, `${button.id} clips wrapped text`).toBeLessThanOrEqual(
+            button.clientHeight,
+          );
+          expect(button.height, `${button.id} pill height`).toBeGreaterThanOrEqual(56 - 0.5);
+        }
+        // Side by side with the shared 12px gap, or Done on its own row.
+        if (Math.abs(reset!.top - done!.top) < 0.5) {
+          const gap = Math.max(done!.left - reset!.right, reset!.left - done!.right);
+          expect(gap, pair.lang).toBeCloseTo(12, 1);
+        } else {
+          expect(done!.top - reset!.bottom, pair.lang).toBeCloseTo(12, 1);
+        }
+      }
+    });
+  }
 
   test('keeps every compact player action contained at the real 320px width', async ({ page }) => {
     await installLayoutProbe(page, '<main id="player-action-probes"></main>');

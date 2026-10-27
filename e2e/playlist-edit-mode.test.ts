@@ -878,6 +878,11 @@ test.describe('Playlist edit mode (touch)', () => {
     await page.touchscreen.tap(minus.x, minus.y);
     await expect(page.locator('.playlist-selection-bar')).toBeHidden();
     expect(await hasHoverPointer(page)).toBe(false);
+    // Chromium's touch emulation does not latch :hover after a tap (polled for
+    // the full expect timeout, 2026-10-27), so this test cannot show the gate
+    // overriding a latched hover. src/ui/__tests__/hover-pointer.test.ts holds
+    // that property: a touch press clears the flag and isHovered() ignores a
+    // latched :hover, and every :hover rule sits under the flag.
     await expect.poll(minusColor).toBe(resting);
     // Arriving tracks show every grip for 2s (the reorder hint); a tap never does.
     await expect.poll(() => rowLook(page, 1)).toMatchObject({ number: '1', grip: '0' });

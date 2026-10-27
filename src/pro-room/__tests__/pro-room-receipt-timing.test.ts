@@ -10,6 +10,7 @@ import {
   proRoomCompletionReceiptTtlMs,
   proRoomPlaybackReceiptTtlMs,
 } from '../../../cloudflare/pro-room-receipt-timing.ts';
+import { MusixquareProRoom } from '../../../cloudflare/pro-room-worker.ts';
 import { DEFAULT_CONTROL_REQUEST_TIMEOUT_MS } from '../../core/request-lifetime.ts';
 
 /**
@@ -26,14 +27,52 @@ function wranglerSeconds(name: string): number {
   return Number(value);
 }
 
-// The Worker's own clamps for the configured values (presenceTtlMs and
-// assetGcGraceMs in cloudflare/pro-room-worker.ts).
+// The configured seconds the Worker accepts (presenceTtlMs, assetGcGraceMs and
+// reservationTtlSeconds in cloudflare/pro-room-worker.ts write them inline). A
+// value outside its range falls back to the default. The parity test below
+// pins these copies against the Worker itself.
 const PRESENCE_TTL_SECONDS_RANGE = [15, 300] as const;
 const ASSET_GC_GRACE_SECONDS_RANGE = [60, 24 * 60 * 60] as const;
+const RESERVATION_TTL_SECONDS_RANGE = [60, 60 * 60] as const;
+
+type ConfiguredSecondsReader = (env: Record<string, unknown>) => number;
+
+/** How the Worker reads one configured value, in seconds, for a given environment. */
+const WORKER_CONFIGURED_SECONDS = {
+  PRESENCE_TTL_SECONDS: (env) =>
+    MusixquareProRoom.prototype.presenceTtlMs.call({ env } as unknown as MusixquareProRoom) / 1000,
+  ASSET_GC_GRACE_SECONDS: (env) =>
+    MusixquareProRoom.prototype.assetGcGraceMs.call({ env } as unknown as MusixquareProRoom) / 1000,
+  RESERVATION_TTL_SECONDS: (env) =>
+    MusixquareProRoom.prototype.reservationTtlSeconds.call({ env } as unknown as MusixquareProRoom),
+} satisfies Record<string, ConfiguredSecondsReader>;
+
+/** The Worker's default for a configured value: what it reads when nothing is set. */
+function workerDefaultSeconds(name: keyof typeof WORKER_CONFIGURED_SECONDS): number {
+  return WORKER_CONFIGURED_SECONDS[name]({});
+}
 
 describe('PRO room browser receipt windows (RO-53)', () => {
   it('keeps the request window the owner chose', () => {
     expect(PRO_ROOM_REQUEST_RECEIPT_TTL_MS).toBe(2 * 60 * 1000);
+  });
+
+  it('uses the configured-value ranges the Worker itself accepts', () => {
+    for (const [name, [min, max]] of [
+      ['PRESENCE_TTL_SECONDS', PRESENCE_TTL_SECONDS_RANGE],
+      ['ASSET_GC_GRACE_SECONDS', ASSET_GC_GRACE_SECONDS_RANGE],
+      ['RESERVATION_TTL_SECONDS', RESERVATION_TTL_SECONDS_RANGE],
+    ] as const) {
+      const read = (value: number) => WORKER_CONFIGURED_SECONDS[name]({ [name]: String(value) });
+      const fallback = workerDefaultSeconds(name);
+      expect(fallback, `${name} default`).toBeGreaterThanOrEqual(min);
+      expect(fallback, `${name} default`).toBeLessThanOrEqual(max);
+      expect(read(min), `${name} lowest accepted`).toBe(min);
+      expect(read(max), `${name} highest accepted`).toBe(max);
+      // The default lies inside the range, so these probes differ from it.
+      expect(read(min - 1), `${name} below the range`).toBe(fallback);
+      expect(read(max + 1), `${name} above the range`).toBe(fallback);
+    }
   });
 
   it('covers twice the longest same-key window of every single-request sender', () => {
@@ -56,7 +95,7 @@ describe('PRO room browser receipt windows (RO-53)', () => {
     const presenceSeconds = [
       ...PRESENCE_TTL_SECONDS_RANGE,
       wranglerSeconds('PRESENCE_TTL_SECONDS'),
-      45,
+      workerDefaultSeconds('PRESENCE_TTL_SECONDS'),
     ];
     for (const seconds of presenceSeconds) {
       const presenceTtlMs = seconds * 1000;
@@ -81,7 +120,7 @@ describe('PRO room browser receipt windows (RO-53)', () => {
     const graceSeconds = [
       ...ASSET_GC_GRACE_SECONDS_RANGE,
       wranglerSeconds('ASSET_GC_GRACE_SECONDS'),
-      15 * 60,
+      workerDefaultSeconds('ASSET_GC_GRACE_SECONDS'),
     ];
     for (const seconds of graceSeconds) {
       const ttlMs = proRoomCompletionReceiptTtlMs(seconds * 1000);
@@ -94,10 +133,15 @@ describe('PRO room browser receipt windows (RO-53)', () => {
   });
 
   it('keeps a reservation receipt inside the request window', () => {
-    // Reserve takes min(reservation expiry, now + window); the reservation is
-    // never shorter than the Worker's 60 s floor, so the window decides.
+    // Reserve takes min(reservation expiry, now + window). In production the
+    // reservation outlasts the window, so the window decides.
     expect(wranglerSeconds('RESERVATION_TTL_SECONDS') * 1000).toBeGreaterThan(
       PRO_ROOM_REQUEST_RECEIPT_TTL_MS,
+    );
+    // Even the shortest reservation the Worker accepts outlasts twice the
+    // reserve request's one-send deadline, the only time its key is sent.
+    expect(RESERVATION_TTL_SECONDS_RANGE[0] * 1000).toBeGreaterThanOrEqual(
+      2 * DEFAULT_CONTROL_REQUEST_TIMEOUT_MS,
     );
   });
 });

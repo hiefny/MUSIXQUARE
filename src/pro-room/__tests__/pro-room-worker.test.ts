@@ -28723,10 +28723,12 @@ describe('PRO browser receipt retention', () => {
     },
   ];
   const WINDOW_MS = PRO_ROOM_REQUEST_RECEIPT_TTL_MS;
-  // The Worker's default ASSET_GC_GRACE_SECONDS and RESERVATION_TTL_SECONDS,
-  // which environment() keeps.
-  const GC_GRACE_MS = 15 * 60 * 1000;
-  const RESERVATION_MS = 15 * 60 * 1000;
+  // The Worker's own default asset GC grace and reservation lifetime, read from
+  // the Worker, which environment() keeps (it configures neither).
+  const workerDefaults = { env: {} } as unknown as MusixquareProRoom;
+  const GC_GRACE_MS = MusixquareProRoom.prototype.assetGcGraceMs.call(workerDefaults);
+  const RESERVATION_MS =
+    MusixquareProRoom.prototype.reservationTtlSeconds.call(workerDefaults) * 1000;
   const DAY_MS = 24 * 60 * 60 * 1000;
   const BOT_TRACK = {
     videoId: 'dQw4w9WgXcQ',

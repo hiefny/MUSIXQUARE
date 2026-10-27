@@ -3394,7 +3394,9 @@ entry needs the owner's acceptance and is not implied by this registry.
 - **Anchor tests:**
   - Ordering: `src/pro-room/__tests__/pro-room-receipt-timing.test.ts` (the window is at least
     twice the longest single-request window; playback covers twice one presence window plus one
-    attempt over the whole presence clamp and the wrangler value; completion covers the GC grace).
+    attempt over the whole presence clamp and the wrangler value; completion covers the GC grace;
+    its copies of the Worker's accepted ranges for the presence window, GC grace and reservation
+    lifetime are pinned against the Worker's own reading of them).
   - Supersession: in `src/pro-room/__tests__/pro-room-worker.test.ts`, "PRO browser receipt
     retention": "replays a same-key edit inside its window and fences it once the receipt is
     gone", "never copies a track twice when a copy is sent again after its window" and "keeps BOT

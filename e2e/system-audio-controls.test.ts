@@ -235,13 +235,10 @@ test('sharing surfaces do not acquire hover merely by expanding under a stationa
   await expect(stopContent).toBeVisible();
   await expect(stopContent).toHaveCSS('opacity', '1');
   await expect(stopContent.locator('.play-action-label')).toHaveText('Stop Sharing');
-  // Stop sharing reads the danger foreground: #ff3b30 in dark, #d70015 in the
-  // default light palette (owner decision 2026-10-27).
-  const danger = await page.evaluate(() =>
-    document.documentElement.dataset.theme === 'light' ? 'rgb(215, 0, 21)' : 'rgb(255, 59, 48)',
-  );
-  await expect(stopContent.locator('.play-action-label')).toHaveCSS('color', danger);
-  await expect(stopContent.locator('svg')).toHaveCSS('fill', danger);
+  // Stop sharing reads the danger foreground, #ff3b30 in both default palettes
+  // (owner decision 2026-10-27, evening).
+  await expect(stopContent.locator('.play-action-label')).toHaveCSS('color', 'rgb(255, 59, 48)');
+  await expect(stopContent.locator('svg')).toHaveCSS('fill', 'rgb(255, 59, 48)');
   // Some engines retain the old :hover target until pointer movement; others
   // update it as geometry changes. The visible surface must be stable in both.
   const colors = await row.evaluate((element) => {

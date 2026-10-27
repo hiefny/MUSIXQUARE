@@ -262,25 +262,50 @@ for (const mode of [
           fontFamily: family,
         });
       }
-      // Owner decision (2026-10-27): light reads #d70015, dark keeps #ff3b30.
+      // Owner decision (2026-10-27, evening): both default palettes keep the
+      // #ff3b30 of 9.0.18.
       expect(
         styles.filter((style) => style.danger !== null).map((style) => style.danger),
         label,
-      ).toEqual(Array(3).fill(mode.theme === 'light' ? 'rgb(215, 0, 21)' : 'rgb(255, 59, 48)'));
+      ).toEqual(Array(3).fill('rgb(255, 59, 48)'));
     }
   });
 }
 
-test('destructive labels share one red per palette, darker in the light palettes', async ({
+test('destructive labels and surfaces share one red per palette, darker only in light high contrast', async ({
   page,
 }) => {
+  // Owner decision (2026-10-27, evening): the default palettes keep the reds
+  // and tints of 9.0.18; only the high-contrast palettes are tuned.
   await page.emulateMedia({ reducedMotion: 'reduce' });
   await page.setViewportSize({ width: 390, height: 844 });
   for (const palette of [
-    { theme: 'dark', contrast: 'more', color: 'rgb(255, 59, 48)' },
-    { theme: 'light', contrast: 'normal', color: 'rgb(215, 0, 21)' },
-    { theme: 'light', contrast: 'more', color: 'rgb(164, 0, 29)' },
+    {
+      theme: 'dark',
+      contrast: 'normal',
+      color: 'rgb(255, 59, 48)',
+      surfaces: { remove: [255, 59, 48, 0.09], leave: [255, 59, 48, 0.08] },
+    },
+    {
+      theme: 'light',
+      contrast: 'normal',
+      color: 'rgb(255, 59, 48)',
+      surfaces: { remove: [255, 59, 48, 0.075], leave: [255, 59, 48, 0.08] },
+    },
+    {
+      theme: 'dark',
+      contrast: 'more',
+      color: 'rgb(255, 59, 48)',
+      surfaces: { remove: [176, 0, 32, 0.24], leave: [176, 0, 32, 0.24] },
+    },
+    {
+      theme: 'light',
+      contrast: 'more',
+      color: 'rgb(164, 0, 29)',
+      surfaces: { remove: [176, 0, 32, 0.16], leave: [176, 0, 32, 0.16] },
+    },
   ] as const) {
+    const name = `${palette.theme} ${palette.contrast}`;
     await page.setContent(`<!doctype html>
       <html data-theme="${palette.theme}" data-contrast="${palette.contrast}">
         <head><meta name="viewport" content="width=device-width, initial-scale=1"><style>${await compiledActionCss}</style></head>
@@ -289,8 +314,39 @@ test('destructive labels share one red per palette, darker in the light palettes
     const styles = await actionLabelStyles(page);
     expect(
       styles.filter((style) => style.danger !== null).map((style) => style.danger),
-      `${palette.theme} ${palette.contrast}`,
+      name,
     ).toEqual(Array(3).fill(palette.color));
+    const surfaces = await page.evaluate(() => {
+      const channels = (color: string) =>
+        (/rgba?\(([^)]*)\)/u.exec(color)?.[1] ?? '')
+          .split(/[\s,/]+/u)
+          .filter(Boolean)
+          .map(Number);
+      const row = document.querySelector('.play-actions-row')!;
+      const probe = document.createElement('span');
+      row.appendChild(probe);
+      probe.style.backgroundColor = 'var(--play-action-stop-surface)';
+      const stop = getComputedStyle(probe).backgroundColor;
+      probe.remove();
+      return {
+        remove: channels(
+          getComputedStyle(document.querySelector('.dialog-danger')!).backgroundColor,
+        ),
+        leave: channels(
+          getComputedStyle(document.querySelector('.leave-session-btn')!).backgroundColor,
+        ),
+        stop: channels(stop),
+      };
+    });
+    for (const [surface, expected] of [
+      ['remove', palette.surfaces.remove],
+      ['leave', palette.surfaces.leave],
+      ['stop', palette.surfaces.leave],
+    ] as const) {
+      const actual = surfaces[surface];
+      expect(actual.slice(0, 3), `${name} ${surface}`).toEqual(expected.slice(0, 3));
+      expect(Math.abs(actual[3]! - expected[3]), `${name} ${surface} alpha`).toBeLessThan(0.003);
+    }
   }
 });
 

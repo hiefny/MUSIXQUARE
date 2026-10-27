@@ -3312,6 +3312,16 @@ or pointers. Keep :focus-visible and :active outside the gate (src/ui/__tests__/
     transition: opacity 0.15s ease;
   }
 
+  /* Named narrow-slot exception (label sweep, button-label-contract.test.ts):
+     on phones up to 420px the toggle keeps the 9.0.18 weight 600. At 700 the
+     Tamil and Malayalam labels reach past the screen edge at 320 and 340px,
+     further than in 9.0.18. */
+  @media (max-width: 420px) {
+    .playlist-selection-toggle {
+      font-weight: 600;
+    }
+  }
+
   .playlist-selection-toggle:active {
     opacity: 0.6;
   }
@@ -4517,6 +4527,20 @@ or pointers. Keep :focus-visible and :active outside the gate (src/ui/__tests__/
     fill: var(--danger-foreground);
   }
 
+  /* Named narrow-slot exceptions (label sweep, button-label-contract.test.ts):
+     on phones up to 420px the help tab's tour and screensaver pills and the
+     connect tab's Leave Session keep the 9.0.18 weight 600. At 700 the
+     screensaver label wraps in Malay, Hungarian, Romanian and Tamil between
+     340 and 375px, and Leave Session in Malayalam at 390px, where 9.0.18 kept
+     one line. The two help pills stay alike. */
+  @media (max-width: 420px) {
+    #btn-demo-media-mobile,
+    #btn-screensaver-mobile,
+    #btn-leave-session {
+      font-weight: 600;
+    }
+  }
+
   /* =============================================
    Connect Tab — QR / Device Slider / Device List
    ============================================= */
@@ -4612,6 +4636,16 @@ or pointers. Keep :focus-visible and :active outside the gate (src/ui/__tests__/
   .btn-copy-invite-link > span[data-i18n]:lang(zh-hant) {
     word-break: normal;
     line-break: strict;
+  }
+
+  /* Named narrow-slot exception (label sweep, button-label-contract.test.ts):
+     on phones up to 420px the invite button keeps the 9.0.18 weight 600 in
+     every mode. At 700 'Room connection ended' wraps in Italian and Romanian
+     at 390px and the Tamil copy label at 410px, where 9.0.18 kept one line. */
+  @media (max-width: 420px) {
+    .btn-copy-invite-link {
+      font-weight: 600;
+    }
   }
 
   :where(html[data-hover-pointer]) .btn-copy-invite-link:hover {
@@ -6506,7 +6540,8 @@ or pointers. Keep :focus-visible and :active outside the gate (src/ui/__tests__/
   /* Destructive secondary action (account deletion). Only the colors change:
      the label reads the danger role, and the surface keeps the 9.0.18 tints,
      darker on hover and press. Size, label type and the press scale stay
-     the shared secondary action's. */
+     the shared secondary action's (on narrow or very short screens the label
+     keeps its 9.0.18 14px, below). */
   .dialog-secondary.dialog-danger {
     border-color: transparent;
     background: var(--control-danger-dialog);
@@ -6530,6 +6565,19 @@ or pointers. Keep :focus-visible and :active outside the gate (src/ui/__tests__/
      shows the press tint. */
   .dialog-secondary.dialog-danger:active {
     background: var(--control-danger-dialog-press);
+  }
+
+  /* Named narrow-slot exception to the shared label tokens (label sweep,
+     button-label-contract.test.ts): account deletion keeps its 9.0.18 14px
+     label where the dialog is narrowest or most compressed. At 15px the Greek
+     and Malayalam labels wrap at 320 and 340px, and Log out and Delete account
+     stack in English at 360px and in French at 568x320, where 9.0.18 kept
+     them on one row. The dialog stops widening at 400px, so taller screens
+     above 420px keep 15px. */
+  @media (max-width: 420px), (max-height: 350px) {
+    #btn-account-delete {
+      font-size: 14px;
+    }
   }
 
   .dialog-primary {
@@ -6980,6 +7028,26 @@ or pointers. Keep :focus-visible and :active outside the gate (src/ui/__tests__/
   .btn-ob-secondary {
     background: var(--surface-2);
     color: var(--text-main);
+  }
+
+  /* Named narrow-slot exceptions (label sweep, button-label-contract.test.ts):
+     Create a Room and Join a Room keep the 9.0.18 weight 600 together on
+     phones up to 420px, and the YouTube link dialog's Cancel and Add pair in
+     the phone layout up to 719px. At 700 the Bulgarian Join a Room wraps at
+     360px, and Add wraps in German and Hungarian at 360px and in Bulgarian at
+     421px, where 9.0.18 kept one line. */
+  @media (max-width: 420px) {
+    #btn-setup-host,
+    #btn-setup-guest {
+      font-weight: 600;
+    }
+  }
+
+  @media (max-width: 719px) {
+    #btn-yt-cancel,
+    #youtube-play-btn {
+      font-weight: 600;
+    }
   }
 
   #btn-close-media-popup > svg {
@@ -10368,6 +10436,22 @@ or pointers. Keep :focus-visible and :active outside the gate (src/ui/__tests__/
     min-width: 0;
     white-space: normal;
     overflow-wrap: anywhere;
+  }
+
+  /* Named narrow-slot exception (label sweep, button-label-contract.test.ts):
+     in the phone layout the three media source options keep the 9.0.18 label
+     weight and tracking, 600 and -0.3px. At 700 the local file and system
+     audio labels wrap or break a word in many locales between 320 and 488px
+     (German 'Systemaudio' splits at 320px) where 9.0.18 did not. This rule
+     stays in the base layer, so right-to-left labels take no tracking, as in
+     9.0.18. */
+  @media (max-width: 719px) {
+    #btn-local-file > span,
+    #btn-youtube-source > span,
+    #btn-system-audio .media-source-label-text {
+      font-weight: 600;
+      letter-spacing: -0.3px;
+    }
   }
 
   /* Keep explanatory clicks available while making readiness obvious before

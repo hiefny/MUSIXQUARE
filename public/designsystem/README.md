@@ -116,7 +116,15 @@ Pretendard lacks coverage.
   -0.3px tracking so every language's label stays on one line in its 130px
   slot on a 320px screen; and on phones up to 420px the demo finish pair
   keeps a 13px label at weight 600, because its two 54px pills share one row
-  and a heavier label would push more languages past the pill edge.
+  and a heavier label would push more languages past the pill edge. A label
+  sweep of every locale against 9.0.18 named more narrow slots that keep
+  their 9.0.18 weight or size where the shared label wraps or overflows: on
+  phones up to 420px the invite button, Leave Session, the help tab's tour and
+  screensaver pills, the deletion-mode Select all toggle and the Create a Room
+  / Join a Room pair keep weight 600, and account deletion keeps 14px (also on
+  screens up to 350px tall); in the phone layout up to 719px the media source
+  options keep weight 600 and -0.3px tracking and the YouTube link dialog's
+  Cancel / Add pair keeps weight 600.
 - Verify font changes with `npm run guard:font-assets` and
   `npm run guard:font-build`.
 

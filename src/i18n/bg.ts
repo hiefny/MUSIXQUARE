@@ -134,6 +134,10 @@ const bg: Record<I18nKey, string> = {
   'player.media_management_required_tip': 'Необходимо разрешение за управление на медията',
   'player.not_ready_tip': 'Все още не е готово',
   'player.volume_locked_tip': 'Само администратори на стаята могат да променят звука',
+  'player.playback_control_checking_tip':
+    'Проверка на разрешението за управление на възпроизвеждането',
+  'player.media_management_checking_tip': 'Проверка на разрешението за управление на медията',
+  'player.admin_permission_checking_tip': 'Проверка на администраторските права',
   'player.shuffle_mode': 'Разбъркване',
   'player.sync_compact': 'Синхрон.',
   'player.syncing_compact': 'Синхр…',

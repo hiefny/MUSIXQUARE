@@ -83,7 +83,7 @@ import {
   isStandardRoomRole,
 } from '../rooms/authority.ts';
 import {
-  roomCapabilityRequiredTip,
+  roomCapabilityFeedbackTip,
   showRoomCapabilityRequired,
 } from '../rooms/permission-feedback.ts';
 import {
@@ -218,7 +218,7 @@ function syncPlayButtonAuthority(): void {
   const context = getRoomContext();
   const roomAuthorityApplies = context.kind === 'pro' || getState('network.appRole') !== 'idle';
   const hasAuthority = !roomAuthorityApplies || hasRoomCapability('playback.control');
-  const authorityTip = roomCapabilityRequiredTip('playback.control');
+  const authorityTip = roomCapabilityFeedbackTip('playback.control');
   const systemAudioLocked = isPlaybackModeSystemAudio();
   for (const id of ['play-btn', 'btn-prev', 'btn-next']) {
     const transportButton = getUiElement(id);
@@ -680,7 +680,7 @@ function syncMediaSourceButtonAuthority(): void {
         ? null
         : isPlaybackModeSystemAudio()
           ? t('system_audio.sharing')
-          : roomCapabilityRequiredTip('media.add'),
+          : roomCapabilityFeedbackTip('media.add'),
     );
   }
 }
@@ -690,7 +690,7 @@ function canConfigureQueueMode(): boolean {
 }
 
 function syncQueueModeButtonAuthority(): void {
-  const reason = canConfigureQueueMode() ? null : roomCapabilityRequiredTip('queue.mutate');
+  const reason = canConfigureQueueMode() ? null : roomCapabilityFeedbackTip('queue.mutate');
   for (const id of ['btn-repeat', 'btn-shuffle']) {
     const button = getUiElement(id);
     if (button) setControlUnavailable(button, reason);
@@ -1177,7 +1177,7 @@ function syncVolumeAuthorityUI(): void {
     // the group that receives the attempt carries the reason. A hint is not
     // read everywhere (iOS VoiceOver skips it), so the reason is the group's
     // description as well (its authored #<id>-reason node).
-    const reason = locked ? roomCapabilityRequiredTip('effects.control') : null;
+    const reason = locked ? roomCapabilityFeedbackTip('effects.control') : null;
     setControlUnavailable(group, reason, { describe: true });
   }
   for (const id of ['volume-slider', 'vol-icon-btn', 'demo-volume-slider', 'demo-vol-icon-btn']) {
@@ -1706,6 +1706,7 @@ export function initPlayerControls(): void {
     // A first plain-member answer can leave both isOperator and capabilities
     // unchanged. Its role projection still resolves the pending labels.
     syncMediaSourceButtonAuthority();
+    syncQueueModeButtonAuthority();
     syncPlayButtonAuthority();
   });
   // The badge shows only the account nickname or HOST/PEER/LOGIN, so sync
@@ -1723,12 +1724,14 @@ export function initPlayerControls(): void {
   // guard as the click handler instead of the legacy host/guest topology.
   _busScope.on('state:network.hostConn', () => {
     syncMediaSourceButtonAuthority();
+    syncQueueModeButtonAuthority();
     syncPlayButtonAuthority();
     syncVolumeAuthorityUI();
     syncMainSyncButtonState();
   });
   const refreshAuthorityFeedback = () => {
     syncMediaSourceButtonAuthority();
+    syncQueueModeButtonAuthority();
     syncPlayButtonAuthority();
     syncVolumeAuthorityUI();
   };

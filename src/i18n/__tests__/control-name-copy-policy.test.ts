@@ -340,8 +340,9 @@ const IMPORTED_KEY_TABLES: Readonly<
 };
 
 function importedTableKeys(name: string): string[] {
-  const source = IMPORTED_KEY_TABLES[name];
-  if (!source) return [];
+  // Own keys only: a body can mention constructor or toString.
+  if (!Object.hasOwn(IMPORTED_KEY_TABLES, name)) return [];
+  const source = IMPORTED_KEY_TABLES[name]!;
   const code = readFileSync(source.file, 'utf8');
   return source.tables.flatMap((table) => {
     const start = code.indexOf(table);

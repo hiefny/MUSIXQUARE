@@ -55,6 +55,18 @@ const ROOM_CAPABILITY_TIP_KEYS = {
 type RoomCapabilityWithTip = keyof typeof ROOM_CAPABILITY_TIP_KEYS;
 
 /**
+ * The same hint while the answer is pending: it names the check in one
+ * phrase. The tap's toast keeps asking to retry in a moment.
+ */
+const ROOM_CAPABILITY_CHECKING_TIP_KEYS = {
+  'media.add': 'player.media_management_checking_tip',
+  'queue.mutate': 'player.media_management_checking_tip',
+  'asset.upload': 'player.media_management_checking_tip',
+  'playback.control': 'player.playback_control_checking_tip',
+  'effects.control': 'player.admin_permission_checking_tip',
+} as const satisfies Record<RoomCapabilityWithTip, I18nKey>;
+
+/**
  * The definitive denial for a capability whose answer is already known: the
  * toast's sentence.
  */
@@ -62,8 +74,15 @@ function roomCapabilityRequiredMessage(capability: RoomCapability): string {
   return t(CAPABILITY_REQUIRED_TOAST[capability]);
 }
 
-/** The definitive denial as a persistent hint on the locked control. */
-export function roomCapabilityRequiredTip(capability: RoomCapabilityWithTip): string {
+/**
+ * The persistent hint on a locked control: the check while the answer is
+ * pending, otherwise the definitive denial. Its controls re-render when the
+ * pending answer arrives.
+ */
+export function roomCapabilityFeedbackTip(capability: RoomCapabilityWithTip): string {
+  if (roomCapabilityStatus(capability) === 'pending') {
+    return t(ROOM_CAPABILITY_CHECKING_TIP_KEYS[capability]);
+  }
   return t(ROOM_CAPABILITY_TIP_KEYS[capability]);
 }
 

@@ -23,7 +23,7 @@ import { getCurrentQueueItemId } from '../player/queue-model.ts';
 import { getRoomContext, hasRoomCapability } from '../rooms/authority.ts';
 import {
   roomCapabilityFeedbackMessage,
-  roomCapabilityRequiredTip,
+  roomCapabilityFeedbackTip,
   showRoomCapabilityRequired,
 } from '../rooms/permission-feedback.ts';
 import { t } from '../i18n/index.ts';
@@ -67,7 +67,7 @@ function getSeekUnavailableMessage(reason: SeekUnavailableReason): string {
  * need not say what is blocked.
  */
 function getSeekUnavailableTip(reason: SeekUnavailableReason): string {
-  if (reason === 'permission') return roomCapabilityRequiredTip('playback.control');
+  if (reason === 'permission') return roomCapabilityFeedbackTip('playback.control');
   if (reason === 'system-audio') return t('system_audio.sharing');
   if (reason === 'not-ready') return t('player.not_ready_tip');
   return t('player.no_media');

@@ -33,7 +33,7 @@ import { getStandardRolePreset } from './player-controls.ts';
 import { cancelRangeDrag, syncRangeProgress } from './range-drag.ts';
 import { showToast } from './toast.ts';
 import {
-  roomCapabilityRequiredTip,
+  roomCapabilityFeedbackTip,
   showRoomCapabilityRequired,
 } from '../rooms/permission-feedback.ts';
 import { setControlUnavailable } from './control-hint.ts';
@@ -161,7 +161,7 @@ function _updateHostCtrlLockUI(): void {
   // gives the same reason on hover. The choice groups keep their section
   // description, which outranks a title, so the reason is also a description
   // they list first.
-  const reason = locked ? roomCapabilityRequiredTip('effects.control') : null;
+  const reason = locked ? roomCapabilityFeedbackTip('effects.control') : null;
   HOST_CTRL_LOCK_IDS.forEach((id) => {
     const el = getUiElement(id);
     if (el) {

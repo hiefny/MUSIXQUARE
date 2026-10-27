@@ -878,9 +878,10 @@ describe('action button label contract', () => {
     // that is the dialog and account panel (surface-1) and the connect tab,
     // play tab and setup canvas (--bg). The hover and press tint belongs to
     // the leave, demo exit and stop sharing pills. Leave and stop sharing sit
-    // on the canvas. The demo exit sits on the canvas on phones and on the
-    // demo finish panel (surface-1) from 768px up, at rest, on hover and on a
-    // touch press. Dialog pills have no hover tint.
+    // on the canvas. The demo exit sits on surface-1 at every width, at rest,
+    // on hover and on a touch press: the demo shell's ::before sheet behind
+    // the phone panel, and the control stage from 720px up. Dialog pills have
+    // no hover tint.
     //
     // One case is below 4.5 and waits for the owner (UI bundle u8 notes 7.2):
     // dark #ff3b30, which the owner kept, over the hover tint on that panel.

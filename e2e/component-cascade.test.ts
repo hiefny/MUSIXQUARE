@@ -276,7 +276,9 @@ test('destructive labels and surfaces share one red per palette, darker only in 
   page,
 }) => {
   // Owner decision (2026-10-27, evening): the default palettes keep the reds
-  // and tints of 9.0.18; only the high-contrast palettes are tuned.
+  // and tints of 9.0.18; only the high-contrast palettes are tuned. Late
+  // evening: account deletion rests, hovers and presses on its 9.0.18 tints
+  // in the default palettes, and high contrast keeps its resting tint.
   await page.emulateMedia({ reducedMotion: 'reduce' });
   await page.setViewportSize({ width: 390, height: 844 });
   for (const palette of [
@@ -284,25 +286,29 @@ test('destructive labels and surfaces share one red per palette, darker only in 
       theme: 'dark',
       contrast: 'normal',
       color: 'rgb(255, 59, 48)',
-      surfaces: { remove: [255, 59, 48, 0.09], leave: [255, 59, 48, 0.08] },
+      surfaces: { remove: [239, 68, 68, 0.1], leave: [255, 59, 48, 0.08] },
+      remove: { hover: [239, 68, 68, 0.16], press: [239, 68, 68, 0.2] },
     },
     {
       theme: 'light',
       contrast: 'normal',
       color: 'rgb(255, 59, 48)',
-      surfaces: { remove: [255, 59, 48, 0.075], leave: [255, 59, 48, 0.08] },
+      surfaces: { remove: [239, 68, 68, 0.1], leave: [255, 59, 48, 0.08] },
+      remove: { hover: [239, 68, 68, 0.16], press: [239, 68, 68, 0.2] },
     },
     {
       theme: 'dark',
       contrast: 'more',
       color: 'rgb(255, 59, 48)',
       surfaces: { remove: [176, 0, 32, 0.24], leave: [176, 0, 32, 0.24] },
+      remove: { hover: [176, 0, 32, 0.24], press: [176, 0, 32, 0.24] },
     },
     {
       theme: 'light',
       contrast: 'more',
       color: 'rgb(164, 0, 29)',
       surfaces: { remove: [176, 0, 32, 0.16], leave: [176, 0, 32, 0.16] },
+      remove: { hover: [176, 0, 32, 0.16], press: [176, 0, 32, 0.16] },
     },
   ] as const) {
     const name = `${palette.theme} ${palette.contrast}`;
@@ -347,8 +353,49 @@ test('destructive labels and surfaces share one red per palette, darker only in 
       expect(actual.slice(0, 3), `${name} ${surface}`).toEqual(expected.slice(0, 3));
       expect(Math.abs(actual[3]! - expected[3]), `${name} ${surface} alpha`).toBeLessThan(0.003);
     }
+
+    // Account deletion through the hover gate: a mouse hover shows the hover
+    // tint and a press over it the press tint, while the label keeps the role.
+    await page.evaluate(() => document.documentElement.setAttribute('data-hover-pointer', ''));
+    const remove = page.locator('.dialog-danger');
+    const removeState = () =>
+      remove.evaluate((element) => {
+        const css = getComputedStyle(element);
+        return { background: css.backgroundColor, color: css.color };
+      });
+    await remove.hover();
+    for (const [state, expected] of [
+      ['hover', palette.remove.hover],
+      ['press', palette.remove.press],
+    ] as const) {
+      if (state === 'press') await page.mouse.down();
+      await expect
+        .poll(
+          async () => {
+            const actual = rgbaChannels((await removeState()).background);
+            return (
+              actual.slice(0, 3).join(',') === expected.slice(0, 3).join(',') &&
+              Math.abs((actual[3] ?? 1) - expected[3]) < 0.003
+            );
+          },
+          { message: `${name} account deletion ${state} surface` },
+        )
+        .toBe(true);
+      expect((await removeState()).color, `${name} account deletion ${state} label`).toBe(
+        palette.color,
+      );
+    }
+    await page.mouse.up();
+    await page.mouse.move(0, 0);
   }
 });
+
+function rgbaChannels(color: string): number[] {
+  return (/rgba?\(([^)]*)\)/u.exec(color)?.[1] ?? '')
+    .split(/[\s,/]+/u)
+    .filter(Boolean)
+    .map(Number);
+}
 
 test('reduced motion and boot blocking remain authoritative over entrance styles', async ({
   page,

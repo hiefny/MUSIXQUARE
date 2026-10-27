@@ -2662,10 +2662,17 @@ describe('optional account UI', () => {
     const accountCloseRules =
       stylesheet.match(/\.account-dialog-account-close\s*\{([^}]*)\}/)?.[1] ?? '';
     // Account deletion is the shared secondary action with a color-only
-    // danger modifier, not a one-off button.
+    // danger modifier, not a one-off button. Its surface keeps the 9.0.18
+    // tints at rest, on hover and on press.
     const secondaryRules = stylesheet.match(/^\s{2}\.dialog-secondary\s*\{([^}]*)\}/m)?.[1] ?? '';
     const deleteRules =
       stylesheet.match(/^\s{2}\.dialog-secondary\.dialog-danger\s*\{([^}]*)\}/m)?.[1] ?? '';
+    const deleteHoverRules =
+      stylesheet.match(
+        /^\s{2}:where\(html\[data-hover-pointer\]\) \.dialog-secondary\.dialog-danger:hover\s*\{([^}]*)\}/m,
+      )?.[1] ?? '';
+    const deletePressRules =
+      stylesheet.match(/^\s{2}\.dialog-secondary\.dialog-danger:active\s*\{([^}]*)\}/m)?.[1] ?? '';
 
     expect(dialogRules).toContain('max-height: calc(100dvh - 48px)');
     expect(dialogRules).toContain('transform: translateY(18px)');
@@ -2721,7 +2728,9 @@ describe('optional account UI', () => {
     expect(secondaryRules).toContain('min-height: 56px');
     expect(secondaryRules).toContain('border-radius: var(--radius-pill)');
     expect(deleteRules).toContain('color: var(--danger-foreground)');
-    expect(deleteRules).toContain('background: var(--control-danger)');
+    expect(deleteRules).toContain('background: var(--control-danger-dialog)');
+    expect(deleteHoverRules).toContain('background: var(--control-danger-dialog-hover)');
+    expect(deletePressRules).toContain('background: var(--control-danger-dialog-press)');
     expect(deleteRules).not.toContain('grid-column: 1 / -1');
     expect(stylesheet).not.toContain('.account-delete-button');
     expect(stylesheet).toContain('@media (max-height: 350px)');

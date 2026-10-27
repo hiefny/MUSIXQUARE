@@ -244,6 +244,9 @@ describe('public design-system page contract', () => {
       '--control-danger-pill': 'rgba(255, 59, 48, 0.08)',
       '--control-danger-pill-hover': 'rgba(255, 59, 48, 0.12)',
       '--control-danger-pill-press': 'rgba(255, 59, 48, 0.18)',
+      '--control-danger-dialog': 'rgba(239, 68, 68, 0.1)',
+      '--control-danger-dialog-hover': 'rgba(239, 68, 68, 0.16)',
+      '--control-danger-dialog-press': 'rgba(239, 68, 68, 0.2)',
     } as const;
 
     const advertisedTokens = [...designDocument.querySelectorAll('.tokens .tok')].map((token) =>
@@ -261,6 +264,7 @@ describe('public design-system page contract', () => {
         '--control-danger',
         '--control-danger-hover',
         '--control-danger-pill-*',
+        '--control-danger-dialog-*',
         '--danger-foreground',
       ]),
     );
@@ -897,7 +901,9 @@ describe('public design-system page contract', () => {
     // Owner decision (2026-10-27, evening): the default palettes keep the red
     // and destructive tints of 9.0.18; only high contrast darkens the red, and
     // its tints keep #a4001d at 4.5:1. The leave-session and stop-sharing pill
-    // tints take the high-contrast tints there.
+    // tints take the high-contrast tints there. Account deletion keeps its
+    // 9.0.18 tints in the default palettes (late evening) and the resting
+    // high-contrast tint at rest, on hover and on press.
     const appStylesheet = readFileSync(resolve('css/style.css'), 'utf8');
     const block = (stylesheet: string, selector: string): string => {
       const escaped = selector.replace(/[.*+?^${}()|[\]\\]/gu, '\\$&');
@@ -914,6 +920,9 @@ describe('public design-system page contract', () => {
       '--control-danger-pill': 'var(--control-danger)',
       '--control-danger-pill-hover': 'var(--control-danger-hover)',
       '--control-danger-pill-press': 'var(--control-danger-hover)',
+      '--control-danger-dialog': 'var(--control-danger)',
+      '--control-danger-dialog-hover': 'var(--control-danger)',
+      '--control-danger-dialog-press': 'var(--control-danger)',
     };
     const expected: Array<[string, Record<string, string>]> = [
       [
@@ -963,6 +972,7 @@ describe('public design-system page contract', () => {
     expect(tokenRows['--danger-foreground']).toBe('#ff3b30');
     expect(tokenRows['--control-danger-hover']).toBe('red 13% / 11%');
     expect(tokenRows['--control-danger-pill-*']).toBe('red 8% / 12% / 18%');
+    expect(tokenRows['--control-danger-dialog-*']).toBe('danger-filled 10% / 16% / 20%');
   });
 
   it('describes filled icons as the default and exposes a deliberate stroke exception', () => {

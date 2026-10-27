@@ -884,6 +884,9 @@ describe('action button label contract', () => {
       '--control-danger-pill',
       '--control-danger-pill-hover',
       '--control-danger-pill-press',
+      '--control-danger-dialog',
+      '--control-danger-dialog-hover',
+      '--control-danger-dialog-press',
     ] as const;
     const cascade: Record<string, string[]> = {
       dark: [':root'],
@@ -907,6 +910,14 @@ describe('action button label contract', () => {
       }
       throw new Error(`${token} is not defined for ${selectors.join(' / ')}`);
     };
+    // Owner decision (2026-10-27, late evening): account deletion rests, hovers
+    // and presses on the tints of 9.0.18 in both default palettes, the same
+    // rgba(239, 68, 68, …) values its one-off button had.
+    const accountDeletion = {
+      '--control-danger-dialog': 'rgba(239, 68, 68, 0.1)',
+      '--control-danger-dialog-hover': 'rgba(239, 68, 68, 0.16)',
+      '--control-danger-dialog-press': 'rgba(239, 68, 68, 0.2)',
+    };
     const decided: Record<'dark' | 'light', Record<string, string>> = {
       dark: {
         '--danger-foreground': '#ff3b30',
@@ -915,6 +926,7 @@ describe('action button label contract', () => {
         '--control-danger-pill': 'rgba(255, 59, 48, 0.08)',
         '--control-danger-pill-hover': 'rgba(255, 59, 48, 0.12)',
         '--control-danger-pill-press': 'rgba(255, 59, 48, 0.18)',
+        ...accountDeletion,
       },
       light: {
         '--danger-foreground': '#ff3b30',
@@ -923,6 +935,7 @@ describe('action button label contract', () => {
         '--control-danger-pill': 'rgba(255, 59, 48, 0.08)',
         '--control-danger-pill-hover': 'rgba(255, 59, 48, 0.12)',
         '--control-danger-pill-press': 'rgba(255, 59, 48, 0.18)',
+        ...accountDeletion,
       },
     };
     for (const [palette, tokens] of Object.entries(decided)) {
@@ -957,7 +970,17 @@ describe('action button label contract', () => {
         }
       }
     }
-    expect(measured).toHaveLength(24);
+    expect(measured).toHaveLength(36);
+    // High contrast keeps account deletion on the palette's resting tint at
+    // rest, on hover and on press, as tuned before the 9.0.18 tints came back.
+    for (const palette of highContrast) {
+      const selectors = cascade[palette.name]!;
+      for (const token of TINTS.slice(5)) {
+        expect(resolved(selectors, token), `${palette.name} ${token}`).toBe(
+          resolved(selectors, '--control-danger'),
+        );
+      }
+    }
     // The OS preference layer repeats the manual high-contrast tints.
     for (const tint of ['--control-danger', '--control-danger-hover']) {
       expect(
@@ -978,13 +1001,26 @@ describe('action button label contract', () => {
     }
 
     // Account deletion is the shared secondary action with a color-only
-    // danger modifier.
+    // danger modifier: the label reads the role and the shared label tokens,
+    // and the surface darkens on hover and press as in 9.0.18.
     const remove = appMarkup().getElementById('btn-account-delete')!;
     expect([...remove.classList]).toEqual(['dialog-secondary', 'dialog-danger']);
     const danger = '.dialog-secondary.dialog-danger';
+    const dangerHover = `:where(html[data-hover-pointer]) ${danger}:hover`;
+    const dangerPress = `${danger}:active`;
     expect(ruleValues(appCss, danger, 'color')).toEqual(['var(--danger-foreground)']);
-    expect(ruleValues(appCss, danger, 'background')).toEqual(['var(--control-danger)']);
+    expect(ruleValues(appCss, danger, 'background')).toEqual(['var(--control-danger-dialog)']);
     expect(ruleValues(appCss, danger, 'border-color')).toEqual(['transparent']);
+    expect(ruleValues(appCss, dangerHover, 'background')).toEqual([
+      'var(--control-danger-dialog-hover)',
+    ]);
+    expect(ruleValues(appCss, dangerPress, 'background')).toEqual([
+      'var(--control-danger-dialog-press)',
+    ]);
+    // The surface eases between them as the 9.0.18 button did.
+    expect(
+      ruleValues(appCss, danger, 'transition').map((value) => value.replace(/\s+/gu, ' ')),
+    ).toEqual(['background-color 0.18s ease, transform 0.2s, box-shadow 0.2s']);
     const modifierProperties = new Set<string>();
     appCss.walkRules((rule) => {
       if (!rule.selectors.some((selector) => hasClass(selector, 'dialog-danger'))) return;
@@ -992,7 +1028,12 @@ describe('action button label contract', () => {
         modifierProperties.add(declaration.prop);
       });
     });
-    expect([...modifierProperties].sort()).toEqual(['background', 'border-color', 'color']);
+    expect([...modifierProperties].sort()).toEqual([
+      'background',
+      'border-color',
+      'color',
+      'transition',
+    ]);
 
     // Leave session and stop sharing read the same role.
     expect(ruleValues(appCss, '.leave-session-btn', 'color')).toEqual(['var(--danger-foreground)']);
@@ -1051,6 +1092,10 @@ describe('action button label contract', () => {
       return line;
     };
     expect(lineOf(demoExit)).toBeGreaterThan(lineOf('.leave-session-btn:active'));
+    // Account deletion's press rule has the hover rule's specificity and comes
+    // after it, so a hovered press shows the press tint, as in 9.0.18.
+    expect(lineOf(dangerHover)).toBeGreaterThan(0);
+    expect(lineOf(dangerPress)).toBeGreaterThan(lineOf(dangerHover));
     const demoSurfaces: string[] = [];
     for (const { path, root } of sheets) {
       root.walkDecls(/^background/u, (declaration) => {
@@ -1114,7 +1159,7 @@ describe('action button label contract', () => {
       },
     ];
     const PALETTE =
-      /^--(?:danger-filled|danger-foreground|youtube-filled|control-danger(?:-hover|-pill(?:-hover|-press)?)?)$/u;
+      /^--(?:danger-filled|danger-foreground|youtube-filled|control-danger(?:-hover|-(?:pill|dialog)(?:-hover|-press)?)?)$/u;
     const TEXT_OR_ICON =
       /^(?:color|fill|stroke|border(?:-[\w-]+)?-color|border(?:-(?:top|right|bottom|left|block|inline)(?:-(?:start|end))?)?|outline(?:-color)?|text-decoration(?:-color)?|caret-color|--[\w-]*foreground)$/u;
     const SURFACE = /^(?:background(?:-color|-image)?|box-shadow|--[\w-]*(?:surface|hover))$/u;

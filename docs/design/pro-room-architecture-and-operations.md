@@ -694,6 +694,9 @@ completion or insertion never triggers immediate asset deletion; the existing
 server orphan collector remains the cleanup authority. Empty and oversized
 files retain their failure reason, do not enter the network path, and are
 excluded from retry without preventing other selected files from proceeding.
+A continuation stays pinned to the playlist that was active when its upload
+started, so a playlist switch before insertion is also terminal: the dialog asks
+for the file again instead of offering a retry that cannot succeed.
 
 While at least one authoritative presence remains, natural completion no longer
 depends on an awake playback controller. The room alarm uses identity-fenced

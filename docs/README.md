@@ -96,8 +96,8 @@ runbooks. Neither belongs in a general setup document.
 - [PRO upload completion and authority feedback (2026-10-27)](design/pro-upload-reliability-2026-10-27.md):
   production diagnosis, R2-internal copy without streaming a full file through the Worker,
   completion retry continuity, explicit file-limit feedback, and pending authority
-  labels. PR #503 includes local and final-runtime CI evidence; no merge or
-  deployment authorization.
+  labels. PR #503 includes local and final-runtime CI evidence; the owner authorized
+  Claude on 2026-10-27 to merge, ship and record it.
 - [Old-version removal train 2, release A: App compatibility code below the 787 build floor (2026-10-26)](design/old-version-removal-2a-app-2026-10-26.md):
   evidence for the App release of the second removal train (9.0.15 / v788 from bump `8407046a`,
   not yet released; target `app`; its Worker release W shipped first on 2026-10-27 03:34 KST,

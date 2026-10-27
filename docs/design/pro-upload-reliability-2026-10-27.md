@@ -1,12 +1,12 @@
 # PRO upload completion and authority feedback — 2026-10-27
 
-| Field                 | Value                                                                                                  |
-| --------------------- | ------------------------------------------------------------------------------------------------------ |
-| Status                | [PR #503](https://github.com/hiefny/MUSIXQUARE/pull/503) open for owner review; not merged or deployed |
-| Base                  | Initial `cb1598516`; integrated main `5dd7cc1f6` (#502, 9.0.15 / v788) in `4a99f44ba`                  |
-| Proposed identity     | 9.0.16 / v790; App build floor unchanged                                                               |
-| Scope                 | Browser PRO uploads, completion deadlines, bounded diagnostics, Standard/PRO authority feedback        |
-| Release authorization | Owner requested a reviewable PR only; merge and deployment remain withheld                             |
+| Field                 | Value                                                                                                            |
+| --------------------- | ---------------------------------------------------------------------------------------------------------------- |
+| Status                | [PR #503](https://github.com/hiefny/MUSIXQUARE/pull/503) open; not merged or deployed yet                        |
+| Base                  | Initial `cb1598516`; integrated main `5dd7cc1f6` (#502, 9.0.15 / v788) in `4a99f44ba`                            |
+| Proposed identity     | 9.0.16 / v790 in the PR; the bump is redone at merge on the then-current main; App build floor unchanged         |
+| Scope                 | Browser PRO uploads, completion deadlines, bounded diagnostics, Standard/PRO authority feedback                  |
+| Release authorization | On 2026-10-27 the owner authorized Claude to merge, ship and record this PR through the normal release procedure |
 
 ## Runtime increments
 
@@ -33,9 +33,12 @@
    reaches reservation/PUT, carries its reason to the dialog, and is excluded
    from retry. Other selected files continue. The header distinguishes byte
    transfer from completion confirmation. Missing/expired asset continuations
-   ask for file selection instead of offering an ineffective retry. New copy is
-   present in 42 locales. Long failure lists reuse the reading dialog's internal
-   scroll; dialog height is bounded by its actual overlay on short/mobile screens.
+   ask for file selection instead of offering an ineffective retry, and so does
+   a playlist switch before insertion, because a retained retry stays pinned to
+   its original playlist. Each failed file gets one dialog sentence for the code
+   the client or Worker produced. New copy is present in 42 locales. Long
+   failure lists reuse the reading dialog's internal scroll; dialog height is
+   bounded by its actual overlay on short/mobile screens.
 4. **Pending authority is not denial.** PRO account reconciliation projects
    pending feedback with no usable capabilities; confirmed revocation remains
    denied. Standard assertion work waits for the matching signaling identity
@@ -176,10 +179,68 @@ Node 24.20.0, npm 12.0.2, Vitest 5.0.3, 로컬 실행만. 실제 R2와 자격 �
   dry-run 번들, PR CI. 실제 R2 CopyObject 응답, 운영 복사 지연, 운영 진단 출력도
   확인하지 않았다. 대체 경로 성공은 가짜 R2로만 확인했다.
 
+### 5. 재시도·실패 안내 정리(H2)
+
+테스트한 코드: `3dfca673c`(9.0.16 / v790 표기 그대로). 환경: Windows, Node
+24.20.0, npm 12.0.2, Vitest 5.0.3, 로컬 Chromium, 로컬 실행만.
+
+바뀐 동작:
+
+- **재생목록 전환은 재시도하지 않는다.** 남겨 둔 재시도는 처음 업로드를 시작한
+  재생목록 칸에 묶여 있다. 그래서 다른 재생목록이 활성화된 뒤의
+  `PRO_ROOM_PLAYLIST_SWITCHED`는 다시 시도해도 같은 이유로 실패했다. 이제 업로드
+  큐가 이 실패를 끝난 실패로 보고 다시 시도 버튼을 내지 않는다. 안내는 다른
+  재생목록이 활성화됐으니 파일을 다시 선택하라고 말한다. 이미 올린 asset은 기존
+  서버 고아 정리(15분 유예)가 치우며, 새 재시도·정리 흐름은 없다.
+- **실제로 생기는 코드만 연결한다.** 실패 안내가 어디서도 만들지 않는 코드
+  (`PRO_ROOM_PLAYLIST_CAPACITY_EXCEEDED`, `PRO_ROOM_PLAYLIST_STATE_CAPACITY_EXCEEDED`)를
+  보고 있어서 재생목록 가득 참과 방 상태 용량은 일반 문구로 나왔다. 이제
+  `PRO_ROOM_PLAYLIST_LIMIT_REACHED`·`PLAYLIST_CAPACITY_EXCEEDED`·`REQUEST_TOO_LARGE`는
+  재생목록 가득 참, `ROOM_STATE_CAPACITY_EXCEEDED`는 기존 토스트와 같은 뜻(재생목록이
+  바뀌었으니 다시 시도)으로 안내한다. 연결은 `upload-failure-dialog.ts`의
+  `describeProRoomUploadFailures` 한 곳에 있고, 테스트가 그 안의 코드마다 PRO 클라이언트나
+  Worker의 생성 지점이 있는지 확인한다.
+- **대화상자 문장만 쓴다.** 실패 목록이 토스트 문구(마침표 없음, 문장마다 줄바꿈)와
+  대화상자 문장을 섞어 썼다. 파일마다 한 줄, 이유는 대화상자 문장 하나다. 새 키 6개
+  (`pro.upload.file_too_large`·`quota_exceeded`·`playlist_full`·`playlist_changed`·
+  `playlist_switched`·`permission_required`)와 줄 형식 `pro.upload.failed_file`을
+  42개 언어에 더했다. 일본어·중국어는 전각 콜론, 프랑스어는 기존처럼 좁은
+  줄바꿈 없는 공백 뒤 콜론을 쓴다.
+- **로케일 용어 맞춤.** 이 PR이 더한 업로드 문구만 고쳤다. fi·uk는 앱의 다운로드
+  단어 대신 기존 업로드 단어(lähetys, надсилання), fr은 importation 대신 envoi, ko
+  머리글은 행과 같은 "업로드 확정 중", bg·tr은 나머지 문구와 같은 반말 명령형이다.
+  같은 종류의 어긋남이 있던 el(μεταφόρτωση 대신 αποστολή)과 pt-br(upload 대신
+  envio)도 같이 맞췄다.
+- **Standard 확인 중 안내 연결 테스트.** `peer.ts`의 `room-identity` 처리에서
+  권한 확인으로 넘기는 연결을 전송 이벤트로 직접 검사하는 테스트를 더했다.
+  일치하는 서명 신원은 확인 중을 끝내고, 만료는 유지하며, 명시 해제는 끝낸다.
+  교체된 전송과 PRO 방의 신원은 무시한다.
+
+검증:
+
+- **테스트 먼저:** `023483776`의 새 경우를 부모 `4ae6a2a48`에서 돌리면 업로드 큐
+  1개와 실패 이유 22개가 실패했다. `peer.ts` 연결 테스트 3개는 부모에서
+  통과했고, 그 호출 한 줄을 지우면 2개가 실패했다(나머지 하나는 무시 경우).
+  `3dfca673c`에서는 모두 통과했다.
+- **단위:** `src/pro-room`·`src/i18n`(토스트 문구 정책 포함)·`src/rooms`·
+  `src/network`·`src/account` 222개 파일, 5,600개 모두 통과. critical 커버리지 실행
+  87개 파일 3,409개, Worker 커버리지 실행(`vitest.workers.config.ts`) 67개 파일
+  3,218개도 모두 통과했고 커버리지 하한을 지켰다.
+- **브라우저:** `build:e2e` 뒤 `e2e/pro-upload-recovery.test.ts` 4개가 로컬
+  Chromium에서 통과했다. 섞인 실패 화면에서 파일마다 항목 하나가 보이고 두 이유가
+  모두 마침표로 끝나는 문장인 것을 스크린숏으로 확인했다.
+- **정적 검사:** `tsc --noEmit`, `typecheck:tests`, `check:workers`, `lint`,
+  `format:check`, dead-exports, import-graph, bus-pairing, room-authority,
+  resource-ownership, source-complexity, sw-cache-version, release-identity 가드가
+  통과했다. room-authority 수치와 자원 소유권 기록 수(49개)는 그대로다.
+- **돌리지 않은 것:** 전체 단위 실행, 나머지 critical 브라우저 묶음, 운영 빌드와
+  초기 전송 예산, Worker dry-run 번들, PR CI. 새 번역은 사람 검수를 거치지 않았다.
+
 ## Release and recovery
 
 - App and PRO Worker changes require the normal coordinated `all` release
-  after owner review, merge, and exact-main CI. No release is authorized here.
+  after merge and exact-main CI. The owner authorized this release on 2026-10-27
+  (Claude merges, ships and records it).
 - No CORS change, new secret, dependency, service binding, D1 migration,
   or API response shape. The private asset and cleanup records gain the optional
   fields described above. CopyObject uses the existing

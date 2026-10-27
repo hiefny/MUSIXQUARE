@@ -107,6 +107,10 @@ Pretendard lacks coverage.
 - Use tabular numerals for clocks, invite codes, counters, and latency.
 - Keep compact labels legible; do not rely on extreme tracking or uppercase
   for hierarchy.
+- Every action button label is 15px / 700 / 1.25 with normal letter spacing,
+  and only its color differs. Each component rule reads `--button-label-size`,
+  `--button-label-weight`, `--button-label-line-height`, and
+  `--button-label-letter-spacing` itself; do not retype the values.
 - Verify font changes with `npm run guard:font-assets` and
   `npm run guard:font-build`.
 
@@ -119,6 +123,8 @@ semantic token structure.
 - `--bg`, `--surface-1`, `--surface-2`, and `--surface-3` establish depth.
 - `--text-main`, `--text-sub`, and `--text-muted` establish text hierarchy.
 - `--divider` separates dense sections without creating card borders.
+- `--danger-foreground` colors destructive labels over `--control-danger`;
+  never hard-code a red or paint text with the filled `--danger-filled`.
 - Reuse the existing radius, safe-area, motion, and range-control tokens from
   `css/style.css`; do not duplicate token values in feature styles.
 

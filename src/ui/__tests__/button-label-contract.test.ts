@@ -439,7 +439,9 @@ describe('action button label contract', () => {
       expect(ruleValues(appCss, ':root', token), token).toEqual([value]);
       for (const { path, root } of sheets) {
         const owners: string[] = [];
-        root.walkDecls(token, (declaration) => owners.push(where(declaration, path)));
+        root.walkDecls(token, (declaration) => {
+          owners.push(where(declaration, path));
+        });
         expect(owners.length, `${token} owners in ${path}`).toBe(path === 'css/style.css' ? 1 : 0);
       }
     }
@@ -597,9 +599,9 @@ describe('action button label contract', () => {
       appCss.walkRules((rule) => {
         if (conditionOf(rule) !== allowed.condition) return;
         if (!rule.selectors.map((entry) => entry.trim()).includes(allowed.selector)) return;
-        rule.walkDecls((declaration) =>
-          declarations.push(`${declaration.prop}: ${declaration.value}`),
-        );
+        rule.walkDecls((declaration) => {
+          declarations.push(`${declaration.prop}: ${declaration.value}`);
+        });
       });
       expect(declarations, allowed.selector).toContain(allowed.declaration);
     }
@@ -609,12 +611,12 @@ describe('action button label contract', () => {
         for (const selector of rule.selectors) {
           const key = selector.replace(/\s+/gu, ' ').trim();
           if (!(key in GLOBAL_RESETS)) continue;
-          rule.walkDecls((declaration) =>
+          rule.walkDecls((declaration) => {
             resets.set(key, [
               ...(resets.get(key) ?? []),
               `${declaration.prop}: ${declaration.value}`,
-            ]),
-          );
+            ]);
+          });
         }
       });
     }
@@ -647,9 +649,9 @@ describe('action button label contract', () => {
       ruleValues(appCss, ':root', '--danger-foreground', '@media (forced-colors: active)'),
     ).toEqual(['ButtonText !important']);
     const owners: string[] = [];
-    appCss.walkDecls('--danger-foreground', (declaration) =>
-      owners.push(where(declaration, 'css/style.css')),
-    );
+    appCss.walkDecls('--danger-foreground', (declaration) => {
+      owners.push(where(declaration, 'css/style.css'));
+    });
     expect(owners).toHaveLength(4);
 
     // The same red stays readable on its tinted surface where contrast is
@@ -669,7 +671,9 @@ describe('action button label contract', () => {
     const modifierProperties = new Set<string>();
     appCss.walkRules((rule) => {
       if (!rule.selectors.some((selector) => hasClass(selector, 'dialog-danger'))) return;
-      rule.walkDecls((declaration) => modifierProperties.add(declaration.prop));
+      rule.walkDecls((declaration) => {
+        modifierProperties.add(declaration.prop);
+      });
     });
     expect([...modifierProperties].sort()).toEqual(['background', 'border-color', 'color']);
 

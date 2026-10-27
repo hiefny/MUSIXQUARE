@@ -180,7 +180,7 @@
   }
 
   .play-actions-row {
-    --play-action-stop-foreground: #ff3b30;
+    --play-action-stop-foreground: var(--danger-foreground);
     /* Opaque 8% / 12% danger-over-background fallbacks for legacy TVs. */
     --play-action-stop-surface: #251514;
     --play-action-stop-hover: #2e1716;

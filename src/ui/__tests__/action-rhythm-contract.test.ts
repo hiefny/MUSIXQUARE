@@ -271,7 +271,7 @@ describe('action pill rhythm contract', () => {
     // dialog). Any other viewport condition that resizes dialog actions
     // would split the rhythm again.
     const dialogAction =
-      /\.(?:dialog-primary|dialog-secondary|account-delete-button|account-google-button|dialog-actions|adaptive-action-group|account-dialog-actions|account-dialog-login-actions)\b/u;
+      /\.(?:dialog-primary|dialog-secondary|account-google-button|dialog-actions|adaptive-action-group|account-dialog-actions|account-dialog-login-actions)\b/u;
     const shared: Record<string, number> = {
       gap: pixels(ACTION_GAP),
       'row-gap': pixels(ACTION_GAP),

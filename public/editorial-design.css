@@ -294,10 +294,6 @@
   font-size: 16px;
   font-weight: 500;
 }
-.spec .s14 {
-  font-size: 14px;
-  font-weight: 600;
-}
 .spec .s12 {
   color: var(--text-sub);
   font-size: 12px;
@@ -643,8 +639,10 @@
   align-items: center;
   justify-content: center;
   gap: 10px;
-  font-size: 14px;
-  font-weight: 700;
+  font-size: var(--button-label-size);
+  font-weight: var(--button-label-weight);
+  line-height: var(--button-label-line-height);
+  letter-spacing: var(--button-label-letter-spacing);
   white-space: nowrap;
   cursor: pointer;
   transition:
@@ -2637,8 +2635,10 @@
   border: 0;
   border-radius: 999px;
   font-family: inherit;
-  font-size: 15px;
-  font-weight: 700;
+  font-size: var(--button-label-size);
+  font-weight: var(--button-label-weight);
+  line-height: var(--button-label-line-height);
+  letter-spacing: var(--button-label-letter-spacing);
   cursor: pointer;
 }
 

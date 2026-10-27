@@ -30,6 +30,7 @@
   --danger-filled: #ef4444;
   --warning-filled: #f59e0b;
   --warning-foreground: #f59e0b;
+  --danger-foreground: #ff3b30; /* destructive label over --control-danger */
   --youtube-filled: #ff0033;
   --accent: var(--primary);
   --accent-rgb: var(--primary-rgb);
@@ -109,6 +110,11 @@
     sans-serif;
   --font-sans: var(--font-sans-ko);
   --font-weight-display: 700;
+  /* Every action button label; only its color differs. */
+  --button-label-size: 15px;
+  --button-label-weight: 700;
+  --button-label-line-height: 1.25;
+  --button-label-letter-spacing: normal;
 
   /* Size scale */
   --fs-9: 9px;
@@ -204,6 +210,7 @@ html[data-theme='light'][data-contrast='more'] {
   --divider: #d4d6d8;
   --primary: #0047a8;
   --primary-rgb: 0, 71, 168;
+  --danger-foreground: #a4001d;
   --text-main: #000000;
   --text-sub: #111111;
   --text-muted: #333333;
@@ -259,6 +266,7 @@ html[data-theme='light'][data-contrast='more'] {
     --divider: #d4d6d8;
     --primary: #0047a8;
     --primary-rgb: 0, 71, 168;
+    --danger-foreground: #a4001d;
     --text-main: #000000;
     --text-sub: #111111;
     --text-muted: #333333;
@@ -288,6 +296,7 @@ html[data-theme='light'][data-contrast='more'] {
     --danger-filled: Highlight !important;
     --warning-filled: Highlight !important;
     --warning-foreground: LinkText !important;
+    --danger-foreground: ButtonText !important;
     --youtube-filled: Highlight !important;
     --text-main: CanvasText !important;
     --text-sub: CanvasText !important;
@@ -349,10 +358,17 @@ body {
   color: var(--text-sub);
 }
 
-.type-label,
-.btn-label {
+.type-label {
   font-size: var(--fs-14);
   font-weight: var(--fw-semibold);
+  color: var(--text-main);
+}
+
+.btn-label {
+  font-size: var(--button-label-size);
+  font-weight: var(--button-label-weight);
+  line-height: var(--button-label-line-height);
+  letter-spacing: var(--button-label-letter-spacing);
   color: var(--text-main);
 }
 

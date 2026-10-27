@@ -29,6 +29,10 @@ Safety is declared first because important layer precedence is reversed; its acc
     --danger-filled: #ef4444;
     --warning-filled: #f59e0b;
     --warning-foreground: #f59e0b;
+    /* Destructive label color over --control-danger: a role for an existing
+       red, not a new color. Light high contrast darkens it; forced colors
+       use ButtonText. */
+    --danger-foreground: #ff3b30;
     --youtube-filled: #ff0033;
     --accent: var(--primary);
     --accent-rgb: var(--primary-rgb);
@@ -86,6 +90,13 @@ Safety is declared first because important layer precedence is reversed; its acc
       sans-serif;
     --font-sans: var(--font-sans-ko);
     --font-weight-display: 700;
+    /* One label style for every action button; only its color differs. Each
+       component rule reads these itself, like --radius-pill, and
+       button-label-contract.test.ts lists the buttons that keep their own. */
+    --button-label-size: 15px;
+    --button-label-weight: 700;
+    --button-label-line-height: 1.25;
+    --button-label-letter-spacing: normal;
 
     --glass-bg: var(--surface-1);
     --glass-border: transparent;
@@ -3288,10 +3299,10 @@ Safety is declared first because important layer precedence is reversed; its acc
     border-radius: var(--radius-pill);
     background: transparent;
     color: var(--text-main);
-    font-family: inherit;
-    font-size: 15px;
-    font-weight: 600;
-    line-height: 1.2;
+    font-size: var(--button-label-size);
+    font-weight: var(--button-label-weight);
+    line-height: var(--button-label-line-height);
+    letter-spacing: var(--button-label-letter-spacing);
     white-space: nowrap;
     cursor: pointer;
     -webkit-tap-highlight-color: transparent;
@@ -3956,9 +3967,12 @@ Safety is declared first because important layer precedence is reversed; its acc
     color: var(--text-sub);
     padding: 18px 12px;
     border-radius: var(--radius-m);
+    /* Choice cards keep 14px in their two- to four-column grids and share the
+       rest of the action label style. */
     font-size: 14px;
-    font-weight: 700;
-    font-family: inherit;
+    font-weight: var(--button-label-weight);
+    line-height: var(--button-label-line-height);
+    letter-spacing: var(--button-label-letter-spacing);
     cursor: pointer;
     display: flex;
     flex-direction: column;
@@ -4019,16 +4033,6 @@ Safety is declared first because important layer precedence is reversed; its acc
 
   .val-disp {
     color: var(--primary);
-  }
-
-  .btn-action {
-    background: var(--primary-filled);
-    color: white;
-    border: none;
-    padding: 0 24px;
-    border-radius: var(--radius-pill);
-    font-weight: 700;
-    cursor: pointer;
   }
 
   /* ── Device List Row (playlist-unified) ─────────────────────────── */
@@ -4451,8 +4455,10 @@ Safety is declared first because important layer precedence is reversed; its acc
     border-radius: var(--radius-pill);
     background: rgba(0, 122, 255, 0.08);
     color: #007aff;
-    font-size: 15px;
-    font-weight: 600;
+    font-size: var(--button-label-size);
+    font-weight: var(--button-label-weight);
+    line-height: var(--button-label-line-height);
+    letter-spacing: var(--button-label-letter-spacing);
     cursor: pointer;
     transition:
       background 0.2s,
@@ -4490,7 +4496,6 @@ Safety is declared first because important layer precedence is reversed; its acc
     min-height: 56px;
     margin-top: 0;
     padding: 10px 16px;
-    line-height: 1.3;
   }
 
   .leave-session-btn {
@@ -4505,9 +4510,11 @@ Safety is declared first because important layer precedence is reversed; its acc
     border: none;
     border-radius: var(--radius-pill);
     background: rgba(255, 59, 48, 0.08);
-    color: #ff3b30;
-    font-size: 15px;
-    font-weight: 600;
+    color: var(--danger-foreground);
+    font-size: var(--button-label-size);
+    font-weight: var(--button-label-weight);
+    line-height: var(--button-label-line-height);
+    letter-spacing: var(--button-label-letter-spacing);
     cursor: pointer;
     transition:
       background 0.2s,
@@ -4528,7 +4535,7 @@ Safety is declared first because important layer precedence is reversed; its acc
   .leave-session-btn svg {
     width: 20px;
     height: 20px;
-    fill: #ff3b30;
+    fill: var(--danger-foreground);
   }
 
   /* =============================================
@@ -4589,9 +4596,10 @@ Safety is declared first because important layer precedence is reversed; its acc
     border-radius: var(--radius-pill);
     background: var(--surface-2);
     color: var(--text-sub);
-    font-size: 15px;
-    line-height: 1.3;
-    font-weight: 600;
+    font-size: var(--button-label-size);
+    font-weight: var(--button-label-weight);
+    line-height: var(--button-label-line-height);
+    letter-spacing: var(--button-label-letter-spacing);
     cursor: pointer;
     transition:
       background 0.2s ease,
@@ -5548,39 +5556,13 @@ Safety is declared first because important layer precedence is reversed; its acc
   }
 
   .account-dialog-actions .dialog-primary,
-  .account-dialog-actions .dialog-secondary,
-  .account-dialog-actions .account-delete-button {
+  .account-dialog-actions .dialog-secondary {
     min-width: 0;
     padding-inline: 18px;
   }
 
   .account-dialog-account-close {
     width: 100%;
-  }
-
-  .account-delete-button {
-    min-height: 56px;
-    border: 1px solid transparent;
-    border-radius: var(--radius-pill);
-    background: rgba(239, 68, 68, 0.1);
-    color: #ef4444;
-    font-family: inherit;
-    font-size: 14px;
-    font-weight: 700;
-    line-height: 1.2;
-    cursor: pointer;
-    transition:
-      background-color 0.18s ease,
-      transform 0.2s ease;
-  }
-
-  .account-delete-button:hover {
-    background: rgba(239, 68, 68, 0.16);
-  }
-
-  .account-delete-button:active {
-    background: rgba(239, 68, 68, 0.2);
-    transform: scale(0.97);
   }
 
   .account-dialog[aria-busy='true'] {
@@ -5658,8 +5640,7 @@ Safety is declared first because important layer precedence is reversed; its acc
     }
 
     html:not(.keyboard-open) .account-dialog-actions .dialog-primary,
-    html:not(.keyboard-open) .account-dialog-actions .dialog-secondary,
-    html:not(.keyboard-open) .account-dialog-actions .account-delete-button {
+    html:not(.keyboard-open) .account-dialog-actions .dialog-secondary {
       min-height: 44px;
     }
   }
@@ -6535,13 +6516,23 @@ Safety is declared first because important layer precedence is reversed; its acc
     border-radius: var(--radius-pill);
     min-height: 56px;
     padding: 0 28px;
-    font-size: 15px;
-    font-weight: 700;
+    font-size: var(--button-label-size);
+    font-weight: var(--button-label-weight);
+    line-height: var(--button-label-line-height);
+    letter-spacing: var(--button-label-letter-spacing);
     cursor: pointer;
     min-width: 100px;
     transition:
       transform 0.2s,
       box-shadow 0.2s;
+  }
+
+  /* Destructive secondary action (account deletion). Only the colors change;
+     size, label and press feedback stay the shared secondary action's. */
+  .dialog-secondary.dialog-danger {
+    border-color: transparent;
+    background: var(--control-danger);
+    color: var(--danger-foreground);
   }
 
   .dialog-secondary:active {
@@ -6556,8 +6547,10 @@ Safety is declared first because important layer precedence is reversed; its acc
     border-radius: var(--radius-pill);
     min-height: 56px;
     padding: 0 28px;
-    font-size: 15px;
-    font-weight: 700;
+    font-size: var(--button-label-size);
+    font-weight: var(--button-label-weight);
+    line-height: var(--button-label-line-height);
+    letter-spacing: var(--button-label-letter-spacing);
     cursor: pointer;
     min-width: 100px;
     transition: transform 0.2s;
@@ -6938,11 +6931,12 @@ Safety is declared first because important layer precedence is reversed; its acc
     flex: 1;
     height: 56px;
     border-radius: var(--radius-pill);
-    font-size: 15px;
-    font-weight: 600;
+    font-size: var(--button-label-size);
+    font-weight: var(--button-label-weight);
+    line-height: var(--button-label-line-height);
+    letter-spacing: var(--button-label-letter-spacing);
     cursor: pointer;
     border: none;
-    font-family: inherit;
     transition:
       transform 0.2s,
       background 0.2s;
@@ -6986,7 +6980,6 @@ Safety is declared first because important layer precedence is reversed; its acc
     flex: none;
     height: 56px;
     width: 100%;
-    font-size: 15px;
   }
 
   .btn-ob-primary {
@@ -9061,8 +9054,10 @@ Safety is declared first because important layer precedence is reversed; its acc
     height: 52px;
     border: none;
     border-radius: var(--radius-pill);
-    font-size: 14px;
-    font-weight: 700;
+    font-size: var(--button-label-size);
+    font-weight: var(--button-label-weight);
+    line-height: var(--button-label-line-height);
+    letter-spacing: var(--button-label-letter-spacing);
     cursor: pointer;
     transition:
       background 0.15s,
@@ -10220,7 +10215,6 @@ Safety is declared first because important layer precedence is reversed; its acc
     width: 100%;
     height: 56px;
     padding: 0 20px;
-    font-size: 15px;
   }
 
   /* Media source choices */
@@ -10236,7 +10230,11 @@ Safety is declared first because important layer precedence is reversed; its acc
     padding: 0 20px;
     border: 2px solid transparent;
     cursor: pointer;
-    font-family: inherit;
+    /* The label spans, the play tab's Sync and Media included, inherit these. */
+    font-size: var(--button-label-size);
+    font-weight: var(--button-label-weight);
+    line-height: var(--button-label-line-height);
+    letter-spacing: var(--button-label-letter-spacing);
     transition: all 0.2s cubic-bezier(0.2, 0.8, 0.2, 1);
     appearance: none;
     -webkit-appearance: none;
@@ -10266,12 +10264,8 @@ Safety is declared first because important layer precedence is reversed; its acc
   }
 
   .file-select-btn span {
-    font-size: 15px;
-    font-weight: 600;
-    letter-spacing: -0.3px;
     flex: 1;
     min-width: 0;
-    line-height: 1.25;
     white-space: normal;
     overflow-wrap: anywhere;
   }
@@ -10367,11 +10361,11 @@ Safety is declared first because important layer precedence is reversed; its acc
     fill: currentColor;
   }
 
-  /* Sync/Media typography. The play-action component below owns layout. */
+  /* Sync/Media colors. Their label style is .file-select-btn's; the
+     play-action component below owns layout. */
   #btn-sync,
   #btn-media-source {
     border: none;
-    font-size: 15px;
     /* currentColor keeps icon and label colors synchronized across themes. */
     color: var(--text-sub);
   }
@@ -10406,11 +10400,8 @@ Safety is declared first because important layer precedence is reversed; its acc
 
   #btn-sync span,
   #btn-media-source span {
-    font-size: 15px;
-    font-weight: 600;
     color: currentColor;
     min-width: 0;
-    line-height: 1.25;
     white-space: normal;
     overflow-wrap: anywhere;
   }
@@ -11686,6 +11677,7 @@ Safety is declared first because important layer precedence is reversed; its acc
     --divider: #d4d6d8;
     --primary: #0047a8;
     --primary-rgb: 0, 71, 168;
+    --danger-foreground: #a4001d;
     --text-main: #000000;
     --text-sub: #111111;
     --text-muted: #333333;
@@ -11764,6 +11756,7 @@ Safety is declared first because important layer precedence is reversed; its acc
       --divider: #d4d6d8;
       --primary: #0047a8;
       --primary-rgb: 0, 71, 168;
+      --danger-foreground: #a4001d;
       --text-main: #000000;
       --text-sub: #111111;
       --text-muted: #333333;
@@ -12867,6 +12860,7 @@ Safety is declared first because important layer precedence is reversed; its acc
     --danger-filled: Highlight !important;
     --warning-filled: Highlight !important;
     --warning-foreground: LinkText !important;
+    --danger-foreground: ButtonText !important;
     --youtube-filled: Highlight !important;
     --text-main: CanvasText !important;
     --text-sub: CanvasText !important;

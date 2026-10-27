@@ -2661,7 +2661,11 @@ describe('optional account UI', () => {
       stylesheet.match(/\.account-dialog-login-close\.dialog-primary\s*\{([^}]*)\}/)?.[1] ?? '';
     const accountCloseRules =
       stylesheet.match(/\.account-dialog-account-close\s*\{([^}]*)\}/)?.[1] ?? '';
-    const deleteRules = stylesheet.match(/^\s{2}\.account-delete-button\s*\{([^}]*)\}/m)?.[1] ?? '';
+    // Account deletion is the shared secondary action with a color-only
+    // danger modifier, not a one-off button.
+    const secondaryRules = stylesheet.match(/^\s{2}\.dialog-secondary\s*\{([^}]*)\}/m)?.[1] ?? '';
+    const deleteRules =
+      stylesheet.match(/^\s{2}\.dialog-secondary\.dialog-danger\s*\{([^}]*)\}/m)?.[1] ?? '';
 
     expect(dialogRules).toContain('max-height: calc(100dvh - 48px)');
     expect(dialogRules).toContain('transform: translateY(18px)');
@@ -2714,16 +2718,19 @@ describe('optional account UI', () => {
     expect(adaptiveButtonRules).toContain('word-break: keep-all');
     expect(adaptiveFullRules).toContain('flex-basis: 100%');
     expect(accountCloseRules).toContain('width: 100%');
-    expect(deleteRules).toContain('min-height: 56px');
-    expect(deleteRules).toContain('border-radius: var(--radius-pill)');
+    expect(secondaryRules).toContain('min-height: 56px');
+    expect(secondaryRules).toContain('border-radius: var(--radius-pill)');
+    expect(deleteRules).toContain('color: var(--danger-foreground)');
+    expect(deleteRules).toContain('background: var(--control-danger)');
     expect(deleteRules).not.toContain('grid-column: 1 / -1');
+    expect(stylesheet).not.toContain('.account-delete-button');
     expect(stylesheet).toContain('@media (max-height: 350px)');
     expect(stylesheet).toContain(
       'html:not(.keyboard-open) .account-dialog-stat-row {\n      min-height: 40px;',
     );
     expect(stylesheet).toContain('.account-dialog-stat-row:last-child {\n    border-bottom: 0;');
     expect(stylesheet).toContain(
-      'html:not(.keyboard-open) .account-dialog-actions .account-delete-button {\n      min-height: 44px;',
+      'html:not(.keyboard-open) .account-dialog-actions .dialog-secondary {\n      min-height: 44px;',
     );
     expect(stylesheet).toContain(
       'html:not(.keyboard-open) .account-dialog-login-actions {\n      padding: 0 24px 12px;',
@@ -2748,6 +2755,9 @@ describe('optional account UI', () => {
       accountDialog?.querySelector('#account-dialog-content #btn-account-login-close'),
     ).toBeNull();
     expect(accountDialog?.querySelector('#btn-account-center-close')).not.toBeNull();
+    expect(
+      accountDialog?.querySelector('#btn-account-delete.dialog-secondary.dialog-danger'),
+    ).not.toBeNull();
     expect(
       accountDialog?.querySelector('#account-dialog-actions.adaptive-action-group'),
     ).not.toBeNull();

@@ -17,6 +17,10 @@ const appCss = ['css/style.css', 'css/desktop.css', 'css/rtl.css']
 const compiledCss = postcss([cascadeLayers(), isPseudoClass({ preserve: false })])
   .process(appCss, { from: undefined })
   .then((result) => result.css);
+// The whole app stylesheet as css/app.css imports it, play-tab actions included.
+const compiledActionCss = postcss([cascadeLayers(), isPseudoClass({ preserve: false })])
+  .process(`${appCss}\n${readFileSync('css/playback-actions.css', 'utf8')}`, { from: undefined })
+  .then((result) => result.css);
 
 const viewports = [
   { width: 360, height: 800 },
@@ -153,6 +157,138 @@ for (const mode of [
     }
   });
 }
+
+// Owner decision (2026-10-27): every action button label renders the button
+// label tokens after every layer, ID selector and responsive override, so
+// labels differ only by color. Destructive labels share one danger color.
+const actionLabelMarkup = `
+  <main>
+    <div class="dialog-actions adaptive-action-group">
+      <button class="dialog-secondary" data-label="dialog-secondary">Log out</button>
+      <button class="dialog-primary" data-label="dialog-primary">Log out</button>
+    </div>
+    <div class="account-dialog-actions adaptive-action-group">
+      <button class="dialog-secondary" data-label="account-logout">Log out</button>
+      <button class="dialog-secondary dialog-danger" data-label="account-delete" data-danger>Log out</button>
+      <button class="dialog-primary account-dialog-account-close adaptive-action-group-full" data-label="account-close">Log out</button>
+    </div>
+    <div class="ob-actions">
+      <button class="btn-ob-secondary" data-label="setup-secondary">Log out</button>
+      <button class="btn-ob-primary" data-label="setup-primary">Log out</button>
+    </div>
+    <div class="ob-actions vertical">
+      <button class="btn-ob-primary" data-label="setup-vertical">Log out</button>
+    </div>
+    <button class="accent-action-btn"><svg viewBox="0 0 24 24"></svg><span data-label="accent">Log out</span></button>
+    <div class="help-actions">
+      <button class="accent-action-btn"><svg viewBox="0 0 24 24"></svg><span data-label="help-accent">Log out</span></button>
+    </div>
+    <button class="leave-session-btn"><svg viewBox="0 0 24 24"></svg><span data-label="leave-session" data-danger>Log out</span></button>
+    <button class="btn-copy-invite-link"><svg viewBox="0 0 24 24"></svg><span data-label="invite-link">Log out</span></button>
+    <div class="sync-bottom-row">
+      <button class="sync-reset-btn" data-label="sync-reset">Log out</button>
+      <button class="sync-done-btn" data-label="sync-done">Log out</button>
+    </div>
+    <div class="playlist-title-area">
+      <button class="playlist-selection-toggle" data-label="select-all">Log out</button>
+    </div>
+    <button class="file-select-btn"><div class="btn-icon-bg"></div><span data-label="media-option">Log out</span></button>
+    <div class="play-actions-row">
+      <div class="play-action-buttons">
+        <button class="file-select-btn file-select-btn-large flex-1" id="btn-sync">
+          <span class="play-action-sync-content"><svg viewBox="0 0 24 24"></svg><span class="play-action-label" data-label="play-sync">Log out</span></span>
+        </button>
+        <button class="file-select-btn file-select-btn-large flex-1" id="btn-media-source">
+          <span class="play-action-media-content"><svg viewBox="0 0 24 24"></svg><span class="play-action-label" data-label="play-media">Log out</span></span>
+          <span class="play-action-stop-content"><svg viewBox="6 6 12 12"></svg><span class="play-action-label" data-label="play-stop" data-danger>Log out</span></span>
+        </button>
+      </div>
+    </div>
+  </main>`;
+
+async function actionLabelStyles(page: import('@playwright/test').Page) {
+  return page.evaluate(() =>
+    [...document.querySelectorAll<HTMLElement>('[data-label]')].map((label) => {
+      const css = getComputedStyle(label);
+      return {
+        label: label.dataset.label,
+        fontSize: css.fontSize,
+        fontWeight: css.fontWeight,
+        lineHeight: css.lineHeight,
+        letterSpacing: css.letterSpacing,
+        fontFamily: css.fontFamily,
+        danger: label.hasAttribute('data-danger') ? css.color : null,
+      };
+    }),
+  );
+}
+
+for (const mode of [
+  { theme: 'dark', direction: 'ltr' },
+  { theme: 'light', direction: 'ltr' },
+  { theme: 'light', direction: 'rtl' },
+] as const) {
+  test(`action button labels share one style across responsive layers (${mode.theme} ${mode.direction})`, async ({
+    page,
+  }) => {
+    await page.emulateMedia({ reducedMotion: 'reduce' });
+    await page.setContent(`<!doctype html>
+      <html dir="${mode.direction}" data-theme="${mode.theme}">
+        <head><meta name="viewport" content="width=device-width, initial-scale=1"><style>${await compiledActionCss}</style></head>
+        <body class="fouc-loaded">${actionLabelMarkup}</body>
+      </html>`);
+
+    for (const viewport of viewports) {
+      await page.setViewportSize(viewport);
+      const label = `${viewport.width}x${viewport.height}`;
+      const styles = await actionLabelStyles(page);
+      expect(styles, label).toHaveLength(19);
+      const family = styles[0]!.fontFamily;
+      for (const style of styles) {
+        expect(
+          {
+            fontSize: style.fontSize,
+            fontWeight: style.fontWeight,
+            lineHeight: style.lineHeight,
+            letterSpacing: style.letterSpacing,
+            fontFamily: style.fontFamily,
+          },
+          `${label} ${style.label}`,
+        ).toEqual({
+          fontSize: '15px',
+          fontWeight: '700',
+          lineHeight: '18.75px',
+          letterSpacing: 'normal',
+          fontFamily: family,
+        });
+      }
+      expect(
+        styles.filter((style) => style.danger !== null).map((style) => style.danger),
+        label,
+      ).toEqual(Array(3).fill('rgb(255, 59, 48)'));
+    }
+  });
+}
+
+test('destructive labels darken together only where light contrast is raised', async ({ page }) => {
+  await page.emulateMedia({ reducedMotion: 'reduce' });
+  await page.setViewportSize({ width: 390, height: 844 });
+  for (const palette of [
+    { theme: 'dark', contrast: 'more', color: 'rgb(255, 59, 48)' },
+    { theme: 'light', contrast: 'more', color: 'rgb(164, 0, 29)' },
+  ] as const) {
+    await page.setContent(`<!doctype html>
+      <html data-theme="${palette.theme}" data-contrast="${palette.contrast}">
+        <head><meta name="viewport" content="width=device-width, initial-scale=1"><style>${await compiledActionCss}</style></head>
+        <body class="fouc-loaded">${actionLabelMarkup}</body>
+      </html>`);
+    const styles = await actionLabelStyles(page);
+    expect(
+      styles.filter((style) => style.danger !== null).map((style) => style.danger),
+      `${palette.theme} ${palette.contrast}`,
+    ).toEqual(Array(3).fill(palette.color));
+  }
+});
 
 test('reduced motion and boot blocking remain authoritative over entrance styles', async ({
   page,

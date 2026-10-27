@@ -335,7 +335,7 @@ test.describe('content-based adaptive action groups', () => {
         class="account-dialog-actions adaptive-action-group text-200"
       >
         <button id="account-logout" class="dialog-secondary">Log out</button>
-        <button id="account-delete" class="account-delete-button">Delete account</button>
+        <button id="account-delete" class="dialog-secondary dialog-danger">Delete account</button>
         <button
           id="account-close"
           class="dialog-primary account-dialog-account-close adaptive-action-group-full"
@@ -368,7 +368,7 @@ test.describe('content-based adaptive action groups', () => {
       page,
       `<div id="account-actions" class="account-dialog-actions adaptive-action-group">
         <button id="account-logout" class="dialog-secondary">Log out</button>
-        <button id="account-delete" class="account-delete-button">Delete account</button>
+        <button id="account-delete" class="dialog-secondary dialog-danger">Delete account</button>
         <button
           id="account-close"
           class="dialog-primary account-dialog-account-close adaptive-action-group-full"
@@ -404,7 +404,7 @@ test.describe('content-based adaptive action groups', () => {
       page,
       `<div id="account-actions" class="account-dialog-actions adaptive-action-group">
         <button id="account-logout" class="dialog-secondary">Log out</button>
-        <button id="account-delete" class="account-delete-button">Delete account</button>
+        <button id="account-delete" class="dialog-secondary dialog-danger">Delete account</button>
         <button
           id="account-close"
           class="dialog-primary account-dialog-account-close adaptive-action-group-full"
@@ -492,7 +492,7 @@ test.describe('content-based adaptive action groups', () => {
           'account-dialog-actions adaptive-action-group text-200 locale-account-actions';
         for (const [className, label] of [
           ['dialog-secondary', locale.account.logout],
-          ['account-delete-button', locale.account.deleteAccount],
+          ['dialog-secondary dialog-danger', locale.account.deleteAccount],
           [
             'dialog-primary account-dialog-account-close adaptive-action-group-full',
             locale.account.close,

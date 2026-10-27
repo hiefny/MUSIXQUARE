@@ -236,6 +236,7 @@ describe('public design-system page contract', () => {
       '--danger-filled': '#ef4444',
       '--warning-filled': '#f59e0b',
       '--warning-foreground': '#f59e0b',
+      '--danger-foreground': '#ff3b30',
       '--youtube-filled': '#ff0033',
       '--control-active': 'rgba(var(--primary-rgb), 0.13)',
       '--control-danger': 'rgba(255, 59, 48, 0.09)',
@@ -256,9 +257,62 @@ describe('public design-system page contract', () => {
         '--control-active',
         '--control-danger',
         '--control-danger-hover',
+        '--danger-foreground',
       ]),
     );
     expect(designSource).not.toContain('The only accent');
+  });
+
+  it('publishes the button label tokens and keeps every label sample on them', () => {
+    // Owner decision (2026-10-27): every action button label is 15px / 700 /
+    // 1.25 with normal letter spacing; only its color differs.
+    const labelTokens = {
+      '--button-label-size': '15px',
+      '--button-label-weight': '700',
+      '--button-label-line-height': '1.25',
+      '--button-label-letter-spacing': 'normal',
+    } as const;
+    const appStylesheet = readFileSync(resolve('css/style.css'), 'utf8');
+    for (const [token, value] of Object.entries(labelTokens)) {
+      expect(customPropertyValue(designTokenStylesheet, token), `${token} public mirror`).toBe(
+        value,
+      );
+      expect(customPropertyValue(appStylesheet, token), `${token} production`).toBe(value);
+    }
+    const readsLabelTokens = (rules: string): void => {
+      expect(rules).toContain('font-size: var(--button-label-size)');
+      expect(rules).toContain('font-weight: var(--button-label-weight)');
+      expect(rules).toContain('line-height: var(--button-label-line-height)');
+      expect(rules).toContain('letter-spacing: var(--button-label-letter-spacing)');
+    };
+    readsLabelTokens(designTokenStylesheet.match(/\n\.btn-label\s*\{([^}]*)\}/u)?.[1] ?? '');
+    readsLabelTokens(designStylesheet.match(/\n\.btn\s*\{([^}]*)\}/u)?.[1] ?? '');
+    readsLabelTokens(
+      designStylesheet.match(/\n\.dialog-secondary,\s*\.dialog-primary\s*\{([^}]*)\}/u)?.[1] ?? '',
+    );
+
+    // The type scale shows the button label at its real size and weight.
+    const scale = [...designDocument.querySelectorAll('.spec .tag')].map((tag) => ({
+      tag: tag.textContent?.trim(),
+      sample: tag.nextElementSibling?.className,
+    }));
+    expect(scale).toContainEqual({ tag: '15 / 700', sample: 'btn-label' });
+    expect(scale.map((row) => row.tag)).not.toContain('14 / 600');
+    const preview = new DOMParser().parseFromString(
+      readFileSync(resolve('public/designsystem/preview/type-scale.html'), 'utf8'),
+      'text/html',
+    );
+    const previewScale = [...preview.querySelectorAll('.card .tag')].map((tag) => ({
+      tag: tag.textContent?.trim(),
+      sample: tag.nextElementSibling?.className,
+    }));
+    expect(previewScale).toContainEqual({ tag: '15/700', sample: 'btn-label' });
+    expect(previewScale.map((row) => row.tag)).not.toContain('14/600');
+
+    const advertisedTokens = [...designDocument.querySelectorAll('.tokens .tok')].map((token) =>
+      (token.textContent ?? '').trim(),
+    );
+    expect(advertisedTokens).toContain('--button-label-*');
   });
 
   it('shows the current playlist leading state, source icons, disclosure, and check circles', () => {
@@ -797,6 +851,14 @@ describe('public design-system page contract', () => {
     expect(designTokenStylesheet).toContain('@media (forced-colors: active)');
     expect(designTokenStylesheet).toMatch(/--bg:\s*Canvas\s*!important/iu);
     expect(designTokenStylesheet).toMatch(/--primary-filled:\s*Highlight\s*!important/iu);
+    // The destructive label role darkens only where light contrast is raised.
+    expect(designTokenStylesheet).toMatch(
+      /html\[data-theme='light'\]\[data-contrast='more'\]\s*\{[^}]*--danger-foreground:\s*#a4001d;/u,
+    );
+    expect(designTokenStylesheet).toMatch(
+      /html\[data-theme='light'\]:not\(\[data-contrast='normal'\]\)\s*\{[^}]*--danger-foreground:\s*#a4001d;/u,
+    );
+    expect(designTokenStylesheet).toMatch(/--danger-foreground:\s*ButtonText\s*!important/iu);
   });
 
   it('describes filled icons as the default and exposes a deliberate stroke exception', () => {

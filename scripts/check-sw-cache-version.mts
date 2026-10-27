@@ -205,6 +205,12 @@ function isRuntimeAppPath(rawPath: string): boolean {
 
   return new Set([
     'index.html',
+    // vite.config.ts build helpers whose values reach the emitted App: the
+    // JavaScript and CSS browser targets and the locale recovery assets. The
+    // config's dev-server, chunk-warning, and auxiliary-asset helpers are not
+    // listed, matching the App release paths in release-deployment-state.
+    'scripts/browser-target.ts',
+    'scripts/locale-recovery-assets.ts',
     'scripts/classic-runtime-assets.ts',
     'scripts/translation-catalog.ts',
     'scripts/translation-catalog-assets.ts',
@@ -266,9 +272,12 @@ function scriptKindFor(filePath: string): ts.ScriptKind {
 // Specifiers whose target the bundler emits: value imports and re-exports,
 // side-effect imports, import() calls, and new URL(..., import.meta.url)
 // assets. Whole-statement type-only imports and re-exports emit nothing.
+// Comments never count: the TypeScript AST has no nodes for them, and HTML
+// comments are removed before script sources are read.
 function moduleReferences(filePath: string, source: string): string[] {
   if (filePath.endsWith('.html')) {
-    return [...source.matchAll(/<script\b[^>]*?\bsrc\s*=\s*["']([^"']+)["']/giu)].flatMap(
+    const markup = source.replace(/<!--[\s\S]*?-->/gu, '');
+    return [...markup.matchAll(/<script\b[^>]*?\bsrc\s*=\s*["']([^"']+)["']/giu)].flatMap(
       (match) => (match[1] === undefined ? [] : [match[1]]),
     );
   }

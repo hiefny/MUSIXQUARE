@@ -138,6 +138,40 @@ function createRepositoryWithBundledWorkerModules(): string {
     'browser/auxiliary-runtime/promo/study.ts',
     "export { promo } from '../../../cloudflare/promo-only.ts';\n",
   );
+  write(
+    repository,
+    'cloudflare/type-reexport.ts',
+    'export interface Reexported {\n  id: string;\n}\n',
+  );
+  write(
+    repository,
+    'src/pro-room/shapes.ts',
+    "export type { Reexported } from '../../cloudflare/type-reexport.ts';\n",
+  );
+  write(repository, 'cloudflare/url-asset.ts', 'export const worklet = true;\n');
+  write(repository, 'cloudflare/location-url.ts', 'export const notBundled = true;\n');
+  write(repository, 'cloudflare/commented-entry.ts', 'export const retired = true;\n');
+  write(
+    repository,
+    'src/audio/worklet.ts',
+    [
+      "export const workletUrl = new URL('../../cloudflare/url-asset.ts', import.meta.url);",
+      "export const pageUrl = new URL('../../cloudflare/location-url.ts', location.href);",
+      "// export const retired = () => import('../../cloudflare/commented-entry.ts');",
+      '',
+    ].join('\n'),
+  );
+  write(repository, 'cloudflare/html-entry.ts', 'export const boot = true;\n');
+  write(
+    repository,
+    'index.html',
+    [
+      '<!doctype html>',
+      '<!-- <script type="module" src="/cloudflare/commented-entry.ts"></script> -->',
+      '<script type="module" src="/cloudflare/html-entry.ts"></script>',
+      '',
+    ].join('\n'),
+  );
   write(repository, SERVICE_WORKER_MANIFEST_PATH, serviceWorkerManifest(3));
   commit(repository, 'bundle shared Worker modules and bump cache');
   return repository;
@@ -198,6 +232,8 @@ describe('service-worker CACHE_VERSION guard', () => {
     ['scripts/localized-html-lib.mts', 'export const title = "changed";\n'],
     ['scripts/locale-seo-metadata.mts', 'export const locale = "changed";\n'],
     ['scripts/service-worker-app-shell-guard-lib.mts', 'export const worker = "changed.js";\n'],
+    ['scripts/browser-target.ts', "export const LEGACY_APP_BROWSER_TARGET = 'chrome80';\n"],
+    ['scripts/locale-recovery-assets.ts', 'export const recovery = "changed";\n'],
     ['fonts/noto/noto-sans-devanagari/devanagari.woff2', 'updated locale font bytes'],
     ['tsconfig.ui-kit.json', '{"compilerOptions":{"strict":true}}\n'],
   ])('tracks the browser build input %s as a PWA runtime change', (filePath, source) => {
@@ -276,6 +312,9 @@ describe('service-worker CACHE_VERSION guard', () => {
       'cloudflare/app-worker.ts',
       'cloudflare/worker-only-timing.ts',
       'cloudflare/type-shapes.ts',
+      'cloudflare/type-reexport.ts',
+      'cloudflare/location-url.ts',
+      'cloudflare/commented-entry.ts',
       'cloudflare/test-fixture-data.ts',
       'cloudflare/promo-only.ts',
     ]) {
@@ -288,33 +327,69 @@ describe('service-worker CACHE_VERSION guard', () => {
     expect(result.stdout).toContain('PASS: v3');
   });
 
-  it('reads the import graph at both ends of the range instead of a fixed list', () => {
+  it('derives the fixture bundle from every reference kind the build follows', async () => {
+    const { bundledSupportPathsAt } = await import('../../../scripts/check-sw-cache-version.mts');
+    const repository = createRepositoryWithBundledWorkerModules();
+
+    // Static, dynamic, transitive, and export-from imports, a
+    // new URL(..., import.meta.url) asset, and an index.html script. Not a
+    // type-only re-export, a URL resolved against the page, a commented-out
+    // import() or script tag, or anything only Workers, tests, or promo
+    // studies import.
+    expect(bundledSupportPathsAt(repository, 'HEAD')).toEqual(
+      [
+        'cloudflare/admin-contract.ts',
+        'cloudflare/html-entry.ts',
+        'cloudflare/media-body.ts',
+        'cloudflare/media-reader.ts',
+        'cloudflare/shared-timing.ts',
+        'cloudflare/url-asset.ts',
+      ].sort(),
+    );
+  });
+
+  it('counts a module the bump commit bundled after the App stops importing it', () => {
     const repository = createRepositoryWithBundledWorkerModules();
     write(repository, 'cloudflare/shared-timing.ts', 'export const TIMEOUT_MS = 2_000;\n');
     write(repository, 'src/pro-room/playback.ts', 'export const timeout = 2_000;\n');
     commit(repository, 'change the module and stop bundling it');
+
     const stopped = runGuard(repository);
     expect(stopped.status).toBe(1);
     expect(stopped.stderr).toContain('src/pro-room/playback.ts');
     expect(stopped.stderr).toContain('cloudflare/shared-timing.ts');
-
-    write(repository, SERVICE_WORKER_MANIFEST_PATH, serviceWorkerManifest(4));
-    commit(repository, 'bump cache to v4');
-    write(repository, 'cloudflare/shared-timing.ts', 'export const TIMEOUT_MS = 3_000;\n');
-    commit(repository, 'change the module the App no longer bundles');
-    expect(runGuard(repository).status).toBe(0);
-
-    write(
-      repository,
-      'src/pro-room/playback.ts',
-      "export * from '../../cloudflare/shared-timing.ts';\n",
-    );
-    commit(repository, 'bundle the module again');
-    const restarted = runGuard(repository);
-    expect(restarted.status).toBe(1);
-    expect(restarted.stderr).toContain('src/pro-room/playback.ts');
-    expect(restarted.stderr).toContain('cloudflare/shared-timing.ts');
   });
+
+  // Two guard runs, each building the import graph at both ends of its range.
+  // The three-run test this replaced took about 12 seconds on a loaded Windows
+  // machine, close to the 15-second default, so this one gets more room.
+  it(
+    'counts a module the App imports again after a bump that did not bundle it',
+    {
+      timeout: 30_000,
+    },
+    () => {
+      const repository = createRepositoryWithBundledWorkerModules();
+      write(repository, 'cloudflare/shared-timing.ts', 'export const TIMEOUT_MS = 2_000;\n');
+      write(repository, 'src/pro-room/playback.ts', 'export const timeout = 2_000;\n');
+      write(repository, SERVICE_WORKER_MANIFEST_PATH, serviceWorkerManifest(4));
+      commit(repository, 'stop bundling the module and bump cache to v4');
+      write(repository, 'cloudflare/shared-timing.ts', 'export const TIMEOUT_MS = 3_000;\n');
+      commit(repository, 'change the module the App no longer bundles');
+      expect(runGuard(repository).status).toBe(0);
+
+      write(
+        repository,
+        'src/pro-room/playback.ts',
+        "export * from '../../cloudflare/shared-timing.ts';\n",
+      );
+      commit(repository, 'bundle the module again');
+      const restarted = runGuard(repository);
+      expect(restarted.status).toBe(1);
+      expect(restarted.stderr).toContain('src/pro-room/playback.ts');
+      expect(restarted.stderr).toContain('cloudflare/shared-timing.ts');
+    },
+  );
 
   it('derives the bundled Worker modules of this repository from its import graph', async () => {
     const { bundledSupportPathsAt } = await import('../../../scripts/check-sw-cache-version.mts');

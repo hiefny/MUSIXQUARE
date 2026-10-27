@@ -3,7 +3,6 @@ import type { I18nKey } from './ko.ts';
 export type PluralCategory = 'zero' | 'one' | 'two' | 'few' | 'many' | 'other';
 
 export const PLURAL_PARAM_BY_KEY = {
-  'playlist.delete_selected': 'count',
   'playlist.selected_count': 'count',
   'playlist.slot_tracks': 'count',
   'playlist.move_title': 'count',

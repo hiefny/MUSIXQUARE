@@ -246,12 +246,10 @@ const fr: Record<I18nKey, string> = {
   'playlist.empty_hint': 'Aucun média pour le moment',
   'playlist.loading_info': 'Chargement des informations de la piste…',
   'playlist.sub_load_failed': 'Impossible de charger les informations de la vidéo',
-  'playlist.remove_title': 'Retirer de la playlist',
-  'playlist.select_for_deletion': 'Sélectionner {{title}} pour la supprimer',
-  'playlist.deselect_for_deletion': 'Désélectionner {{title}}',
+  'playlist.select_track': 'Sélectionner {{title}}',
+  'playlist.select_mode_hint': 'Sélectionner cette piste et passer en mode sélection',
   'playlist.deselect_all': 'Tout désélectionner',
   'playlist.select_all': 'Tout sélectionner',
-  'playlist.delete_selected': 'Supprimer {{count}} pistes sélectionnées',
   'playlist.selected_count': '{{count}} sélectionnés',
   'playlist.slots_title': 'Plusieurs playlists',
   'playlist.slots_subtitle':
@@ -950,7 +948,6 @@ export const pluralMessages = {
   'playlist.slot_tracks': { one: '{{count}} piste' },
   'playlist.move_title': { one: 'Déplacer {{count}} piste' },
   'connect.administrator_list': { one: '{{count}} administrateur' },
-  'playlist.delete_selected': { one: 'Supprimer {{count}} piste sélectionnée' },
   'connect.device_list': { one: '{{count}} appareil connecté' },
   'demo.session_body_connected': {
     one: '{{count}} appareil est actuellement connecté.\nDéfinissez un rôle pour cet appareil.',

@@ -153,12 +153,10 @@ const ur: Record<I18nKey, string> = {
   'playlist.empty_hint': 'ابھی کوئی میڈیا نہیں',
   'playlist.loading_info': 'ٹریک کی معلومات لوڈ ہو رہی ہیں...',
   'playlist.sub_load_failed': 'ویڈیو کی معلومات لوڈ نہیں ہو سکیں',
-  'playlist.remove_title': 'پلے لسٹ سے ہٹائیں',
-  'playlist.select_for_deletion': '{{title}} کو حذف کرنے کے لیے منتخب کریں',
-  'playlist.deselect_for_deletion': '{{title}} کا انتخاب ہٹائیں',
+  'playlist.select_track': '{{title}} منتخب کریں',
+  'playlist.select_mode_hint': 'یہ ٹریک منتخب کریں اور انتخاب موڈ میں جائیں',
   'playlist.deselect_all': 'سب کا انتخاب ہٹائیں',
   'playlist.select_all': 'سب منتخب کریں',
-  'playlist.delete_selected': 'منتخب کیے گئے {{count}} ٹریک حذف کریں',
   'playlist.selected_count': '{{count}} منتخب شدہ',
   'playlist.slots_title': 'متعدد پلے لسٹس',
   'playlist.slots_subtitle': 'متعدد پلے لسٹس استعمال کر کے آپ ٹریکس کے سیٹ تیزی سے بدل سکتے ہیں۔',
@@ -931,9 +929,6 @@ export default ur;
 
 export const pluralMessages = {
   'toast.unsupported_files_excluded': { one: 'غیر معاون فائل چھوڑ دی گئی: {{count}}' },
-  'playlist.delete_selected': {
-    one: 'منتخب کیا گیا {{count}} ٹریک حذف کریں',
-  },
   'demo.session_body_connected': {
     one: 'اس وقت {{count}} آلہ منسلک ہے۔\nاس آلے کا کردار مقرر کریں۔',
   },

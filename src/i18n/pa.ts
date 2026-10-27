@@ -156,12 +156,10 @@ const pa: Record<I18nKey, string> = {
   'playlist.empty_hint': 'ਹਾਲੇ ਕੋਈ ਮੀਡੀਆ ਨਹੀਂ ਹੈ',
   'playlist.loading_info': 'ਟਰੈਕ ਦੀ ਜਾਣਕਾਰੀ ਲੋਡ ਹੋ ਰਹੀ ਹੈ...',
   'playlist.sub_load_failed': 'ਵੀਡੀਓ ਦੀ ਜਾਣਕਾਰੀ ਲੋਡ ਨਹੀਂ ਹੋ ਸਕੀ',
-  'playlist.remove_title': 'ਪਲੇਲਿਸਟ ਵਿੱਚੋਂ ਹਟਾਓ',
-  'playlist.select_for_deletion': 'ਮਿਟਾਉਣ ਲਈ {{title}} ਚੁਣੋ',
-  'playlist.deselect_for_deletion': '{{title}} ਦੀ ਚੋਣ ਹਟਾਓ',
+  'playlist.select_track': '{{title}} ਚੁਣੋ',
+  'playlist.select_mode_hint': 'ਇਹ ਟਰੈਕ ਚੁਣੋ ਅਤੇ ਚੋਣ ਮੋਡ ਵਿੱਚ ਜਾਓ',
   'playlist.deselect_all': 'ਸਾਰੀਆਂ ਚੋਣਾਂ ਹਟਾਓ',
   'playlist.select_all': 'ਸਭ ਚੁਣੋ',
-  'playlist.delete_selected': 'ਚੁਣੇ ਹੋਏ {{count}} ਟਰੈਕ ਮਿਟਾਓ',
   'playlist.selected_count': '{{count}} ਚੁਣੇ ਹੋਏ',
   'playlist.slots_title': 'ਕਈ ਪਲੇਲਿਸਟਾਂ',
   'playlist.slots_subtitle': 'ਕਈ ਪਲੇਲਿਸਟਾਂ ਵਰਤ ਕੇ ਤੁਸੀਂ ਟਰੈਕਾਂ ਦੇ ਸੈੱਟ ਜਲਦੀ ਬਦਲ ਸਕਦੇ ਹੋ।',
@@ -937,9 +935,6 @@ const pa: Record<I18nKey, string> = {
 export default pa;
 
 export const pluralMessages = {
-  'playlist.delete_selected': {
-    one: 'ਚੁਣੇ ਟਰੈਕ ਮਿਟਾਓ ({{count}})',
-  },
   'connect.device_list': {
     one: 'ਜੁੜੀਆਂ ਡਿਵਾਈਸਾਂ ਦੀ ਗਿਣਤੀ: {{count}}',
   },

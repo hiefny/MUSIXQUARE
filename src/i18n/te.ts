@@ -155,12 +155,10 @@ const te: Record<I18nKey, string> = {
   'playlist.empty_hint': 'ఇంకా మీడియా ఏదీ లేదు',
   'playlist.loading_info': 'ట్రాక్ సమాచారం లోడ్ అవుతోంది...',
   'playlist.sub_load_failed': 'వీడియో సమాచారం లోడ్ కాలేదు',
-  'playlist.remove_title': 'ప్లేలిస్ట్ నుండి తీసివేయి',
-  'playlist.select_for_deletion': 'తొలగించడానికి {{title}}ను ఎంచుకో',
-  'playlist.deselect_for_deletion': '{{title}} ఎంపికను తీసివేయి',
+  'playlist.select_track': '{{title}}ను ఎంచుకో',
+  'playlist.select_mode_hint': 'ఈ ట్రాక్‌ను ఎంచుకుని ఎంపిక మోడ్‌లోకి వెళ్లు',
   'playlist.deselect_all': 'అన్ని ఎంపికలను తీసివేయి',
   'playlist.select_all': 'అన్నింటినీ ఎంచుకో',
-  'playlist.delete_selected': 'ఎంచుకున్న {{count}} ట్రాక్‌లను తొలగించు',
   'playlist.selected_count': 'ఎంచుకున్నవి: {{count}}',
   'playlist.slots_title': 'అనేక ప్లేలిస్ట్‌లు',
   'playlist.slots_subtitle':
@@ -944,9 +942,6 @@ const te: Record<I18nKey, string> = {
 export default te;
 
 export const pluralMessages = {
-  'playlist.delete_selected': {
-    one: 'ఎంచుకున్న {{count}} ట్రాక్‌ను తొలగించు',
-  },
   'connect.device_list': {
     one: 'కనెక్ట్ అయిన పరికరం: {{count}}',
   },

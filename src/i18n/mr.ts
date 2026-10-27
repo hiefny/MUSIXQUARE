@@ -154,12 +154,10 @@ const mr: Record<I18nKey, string> = {
   'playlist.empty_hint': 'अद्याप कोणतेही मीडिया नाही',
   'playlist.loading_info': 'ट्रॅकची माहिती लोड होत आहे...',
   'playlist.sub_load_failed': 'व्हिडिओची माहिती लोड करता आली नाही',
-  'playlist.remove_title': 'प्लेलिस्टमधून काढा',
-  'playlist.select_for_deletion': 'हटवण्यासाठी {{title}} निवडा',
-  'playlist.deselect_for_deletion': '{{title}} ची निवड रद्द करा',
+  'playlist.select_track': '{{title}} निवडा',
+  'playlist.select_mode_hint': 'हा ट्रॅक निवडा आणि निवड मोडमध्ये जा',
   'playlist.deselect_all': 'सर्व निवडी रद्द करा',
   'playlist.select_all': 'सर्व निवडा',
-  'playlist.delete_selected': 'निवडलेले {{count}} ट्रॅक हटवा',
   'playlist.selected_count': '{{count}} निवडले आहे',
   'playlist.slots_title': 'अनेक प्लेलिस्ट',
   'playlist.slots_subtitle': 'अनेक प्लेलिस्ट वापरून तुम्ही ट्रॅकचे संच पटकन बदलू शकता.',
@@ -937,9 +935,6 @@ export default mr;
 
 export const pluralMessages = {
   'chat.cmd_slowmode_on': { one: 'स्लो मोड: संदेशांमध्ये {{sec}} सेकंदाचे अंतर' },
-  'playlist.delete_selected': {
-    one: 'निवडलेला {{count}} ट्रॅक हटवा',
-  },
   'connect.device_list': {
     one: 'कनेक्ट केलेले {{count}} डिव्हाइस',
   },

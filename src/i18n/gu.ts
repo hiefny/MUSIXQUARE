@@ -155,12 +155,10 @@ const gu: Record<I18nKey, string> = {
   'playlist.empty_hint': 'હજી કોઈ મીડિયા નથી',
   'playlist.loading_info': 'ટ્રૅકની માહિતી લોડ થઈ રહી છે...',
   'playlist.sub_load_failed': 'વિડિયોની માહિતી લોડ થઈ શકી નથી',
-  'playlist.remove_title': 'પ્લેલિસ્ટમાંથી દૂર કરો',
-  'playlist.select_for_deletion': 'કાઢી નાખવા {{title}} પસંદ કરો',
-  'playlist.deselect_for_deletion': '{{title}} ની પસંદગી હટાવો',
+  'playlist.select_track': '{{title}} પસંદ કરો',
+  'playlist.select_mode_hint': 'આ ટ્રૅક પસંદ કરો અને પસંદગી મોડમાં જાઓ',
   'playlist.deselect_all': 'બધી પસંદગી હટાવો',
   'playlist.select_all': 'બધું પસંદ કરો',
-  'playlist.delete_selected': 'પસંદ કરેલા {{count}} ટ્રૅક કાઢી નાખો',
   'playlist.selected_count': '{{count}} પસંદ કરેલ છે',
   'playlist.slots_title': 'એકથી વધુ પ્લેલિસ્ટ',
   'playlist.slots_subtitle': 'એકથી વધુ પ્લેલિસ્ટ વાપરીને તમે ટ્રૅકના સેટ ઝડપથી બદલી શકો છો.',
@@ -919,9 +917,6 @@ const gu: Record<I18nKey, string> = {
 export default gu;
 
 export const pluralMessages = {
-  'playlist.delete_selected': {
-    one: 'પસંદ કરેલા ટ્રૅક કાઢી નાખો ({{count}})',
-  },
   'connect.device_list': {
     one: 'જોડાયેલા ડિવાઇસની સંખ્યા: {{count}}',
   },

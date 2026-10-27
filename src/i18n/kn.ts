@@ -155,12 +155,10 @@ const kn: Record<I18nKey, string> = {
   'playlist.empty_hint': 'ಇನ್ನೂ ಯಾವುದೇ ಮೀಡಿಯಾ ಇಲ್ಲ',
   'playlist.loading_info': 'ಟ್ರ್ಯಾಕ್ ಮಾಹಿತಿ ಲೋಡ್ ಆಗುತ್ತಿದೆ...',
   'playlist.sub_load_failed': 'ವೀಡಿಯೊ ಮಾಹಿತಿ ಲೋಡ್ ಮಾಡಲಾಗಲಿಲ್ಲ',
-  'playlist.remove_title': 'ಪ್ಲೇಲಿಸ್ಟ್‌ನಿಂದ ತೆಗೆದುಹಾಕಿ',
-  'playlist.select_for_deletion': 'ಅಳಿಸಲು {{title}} ಆರಿಸಿ',
-  'playlist.deselect_for_deletion': '{{title}} ಆಯ್ಕೆ ರದ್ದುಮಾಡಿ',
+  'playlist.select_track': '{{title}} ಆರಿಸಿ',
+  'playlist.select_mode_hint': 'ಈ ಟ್ರ್ಯಾಕ್ ಆರಿಸಿ ಮತ್ತು ಆಯ್ಕೆ ಮೋಡ್‌ಗೆ ಹೋಗಿ',
   'playlist.deselect_all': 'ಎಲ್ಲಾ ಆಯ್ಕೆಗಳನ್ನು ರದ್ದುಮಾಡಿ',
   'playlist.select_all': 'ಎಲ್ಲವನ್ನೂ ಆರಿಸಿ',
-  'playlist.delete_selected': 'ಆರಿಸಿದ {{count}} ಟ್ರ್ಯಾಕ್‌ಗಳನ್ನು ಅಳಿಸಿ',
   'playlist.selected_count': 'ಆರಿಸಿದವುಗಳು: {{count}}',
   'playlist.slots_title': 'ಹಲವು ಪ್ಲೇಲಿಸ್ಟ್‌ಗಳು',
   'playlist.slots_subtitle':
@@ -950,9 +948,6 @@ const kn: Record<I18nKey, string> = {
 export default kn;
 
 export const pluralMessages = {
-  'playlist.delete_selected': {
-    one: 'ಆರಿಸಿದ ಟ್ರ್ಯಾಕ್‌ಗಳನ್ನು ಅಳಿಸಿ ({{count}})',
-  },
   'connect.device_list': {
     one: 'ಸಂಪರ್ಕಗೊಂಡ ಸಾಧನಗಳ ಸಂಖ್ಯೆ: {{count}}',
   },

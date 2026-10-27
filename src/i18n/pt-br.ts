@@ -247,12 +247,10 @@ const ptBr: Record<I18nKey, string> = {
   'playlist.empty_hint': 'Ainda não há mídia',
   'playlist.loading_info': 'Carregando informações da faixa...',
   'playlist.sub_load_failed': 'Não foi possível carregar as informações do vídeo',
-  'playlist.remove_title': 'Remover da playlist',
-  'playlist.select_for_deletion': 'Selecionar {{title}} para excluir',
-  'playlist.deselect_for_deletion': 'Desmarcar {{title}}',
+  'playlist.select_track': 'Selecionar {{title}}',
+  'playlist.select_mode_hint': 'Selecionar esta faixa e entrar no modo de seleção',
   'playlist.deselect_all': 'Desmarcar tudo',
   'playlist.select_all': 'Selecionar tudo',
-  'playlist.delete_selected': 'Excluir {{count}} faixas selecionadas',
   'playlist.selected_count': '{{count}} selecionados',
   'playlist.slots_title': 'Várias playlists',
   'playlist.slots_subtitle':
@@ -953,7 +951,6 @@ export const pluralMessages = {
   'playlist.slot_tracks': { one: '{{count}} faixa' },
   'playlist.move_title': { one: 'Mover {{count}} faixa' },
   'connect.administrator_list': { one: '{{count}} administrador' },
-  'playlist.delete_selected': { one: 'Excluir {{count}} faixa selecionada' },
   'connect.device_list': { one: '{{count}} dispositivo conectado' },
   'demo.session_body_connected': {
     one: '{{count}} dispositivo está conectado agora.\nDefina uma função para este dispositivo.',

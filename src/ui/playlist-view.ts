@@ -866,6 +866,9 @@ export function updatePlaylistUI(): void {
   const currentYouTubeSubIndex = getState('youtube.currentSubIndex') ?? -1;
   const canEditPlaylist = canRemoveRows();
   const canReorder = canEditPlaylist && playlist.length > 1;
+  // Outside selection mode the minus also starts the mode, which its hint
+  // says; the selection controller keeps the hint in step with the mode.
+  const selectHint = _removalController?.isActive ? null : t('playlist.select_mode_hint');
 
   playlist.forEach((item, idx) => {
     const isCurrent = item.queueItemId === currentQueueItemId;
@@ -886,10 +889,8 @@ export function updatePlaylistUI(): void {
         </button>`
       : '';
     const isRemovalSelected = _removalController?.isSelected(item.queueItemId) ?? false;
-    const selectLabel = t(
-      isRemovalSelected ? 'playlist.deselect_for_deletion' : 'playlist.select_for_deletion',
-      { title: displayName },
-    );
+    // One name in every state: aria-pressed alone says whether it is picked.
+    const selectLabel = t('playlist.select_track', { title: displayName });
     // A minus marks a row that can be selected; once selected it shows the
     // language list's check mark in the same stroke style.
     const selectButton = canEditPlaylist
@@ -910,7 +911,7 @@ export function updatePlaylistUI(): void {
       ${selectButton}
     `;
     const renderedSelect = row.querySelector<HTMLElement>('.btn-playlist-select');
-    if (renderedSelect) setControlHint(renderedSelect, selectLabel);
+    if (renderedSelect) setControlHint(renderedSelect, selectHint);
     const renderedName = row.querySelector<HTMLElement>('.track-name-text');
     if (renderedName) applyUserTextFontFallback(renderedName, displayName);
     entry.appendChild(row);

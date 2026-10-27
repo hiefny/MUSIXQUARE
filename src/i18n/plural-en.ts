@@ -3,7 +3,6 @@ import type { LocalePluralMessages } from './plural-contract.ts';
 /** English is eager because it is the immediate, no-network fallback locale. */
 export const EN_PLURAL_MESSAGES = {
   'connect.administrator_list': { one: '{{count}} Administrator' },
-  'playlist.delete_selected': { one: 'Delete {{count}} selected track' },
   'playlist.selected_count': { one: '{{count}} selected' },
   'playlist.slot_tracks': { one: '{{count}} track' },
   'playlist.move_title': { one: 'Move {{count}} track' },

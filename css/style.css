@@ -12826,8 +12826,10 @@ or pointers. Keep :focus-visible and :active outside the gate (src/ui/__tests__/
      HighlightText copy would vanish on it (blank boxes in the language list).
      Their text keeps the OS text color on that backplate, as the dialog
      choice rows do; only icons and check marks, which have no backplate,
-     take HighlightText. */
-  :is(button, [role='button'], [role='switch'], [role='tab']):is(
+     take HighlightText. A picked playlist title is pressed only for screen
+     readers: its row's selection block and check already show it, so it
+     keeps its plain look (:where adds no specificity). */
+  :is(button, [role='button'], [role='switch'], [role='tab']):where(:not(.track-name)):is(
     [aria-pressed='true'],
     [aria-selected='true'],
     [aria-checked='true']
@@ -12845,7 +12847,7 @@ or pointers. Keep :focus-visible and :active outside the gate (src/ui/__tests__/
     color: CanvasText !important;
   }
 
-  :is(button, [role='button'], [role='switch'], [role='tab']):is(
+  :is(button, [role='button'], [role='switch'], [role='tab']):where(:not(.track-name)):is(
       [aria-pressed='true'],
       [aria-selected='true'],
       [aria-checked='true']

@@ -155,12 +155,10 @@ const sv: Record<I18nKey, string> = {
   'playlist.empty_hint': 'Inga medier ännu',
   'playlist.loading_info': 'Läser in spårinformation…',
   'playlist.sub_load_failed': 'Det gick inte att läsa in videoinformation',
-  'playlist.remove_title': 'Ta bort från spellistan',
-  'playlist.select_for_deletion': 'Markera {{title}} för borttagning',
-  'playlist.deselect_for_deletion': 'Avmarkera {{title}}',
+  'playlist.select_track': 'Markera {{title}}',
+  'playlist.select_mode_hint': 'Markera det här spåret och gå till markeringsläge',
   'playlist.deselect_all': 'Avmarkera alla',
   'playlist.select_all': 'Markera alla',
-  'playlist.delete_selected': 'Radera {{count}} markerade spår',
   'playlist.selected_count': '{{count}} valda',
   'playlist.slots_title': 'Flera spellistor',
   'playlist.slots_subtitle':
@@ -945,9 +943,6 @@ export default sv;
 
 export const pluralMessages = {
   'playlist.selected_count': { one: '{{count}} vald' },
-  'playlist.delete_selected': {
-    one: 'Radera {{count}} markerat spår',
-  },
   'demo.session_body_connected': {
     one: '{{count}} enhet är ansluten just nu.\nAnge en roll för den här enheten.',
   },

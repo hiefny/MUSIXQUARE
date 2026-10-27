@@ -155,12 +155,10 @@ const ro: Record<I18nKey, string> = {
   'playlist.empty_hint': 'Nu există încă niciun conținut media',
   'playlist.loading_info': 'Se încarcă informațiile pistei...',
   'playlist.sub_load_failed': 'Informațiile videoclipului nu au putut fi încărcate',
-  'playlist.remove_title': 'Elimină din lista de redare',
-  'playlist.select_for_deletion': 'Selectează {{title}} pentru ștergere',
-  'playlist.deselect_for_deletion': 'Deselectează {{title}}',
+  'playlist.select_track': 'Selectează {{title}}',
+  'playlist.select_mode_hint': 'Selectează această pistă și intră în modul de selecție',
   'playlist.deselect_all': 'Deselectează tot',
   'playlist.select_all': 'Selectează tot',
-  'playlist.delete_selected': 'Șterge pistele selectate: {{count}}',
   'playlist.selected_count': 'Selectate: {{count}}',
   'playlist.slots_title': 'Mai multe liste de redare',
   'playlist.slots_subtitle':
@@ -960,7 +958,6 @@ export default ro;
 
 export const pluralMessages = {
   'toast.unsupported_files_excluded': { one: 'Fișier neacceptat omis: {{count}}' },
-  'playlist.delete_selected': { one: 'Șterge {{count}} pistă selectată' },
   'connect.device_list': {
     one: '{{count}} dispozitiv conectat',
     other: '{{count}} de dispozitive conectate',

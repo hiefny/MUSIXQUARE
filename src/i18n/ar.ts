@@ -152,12 +152,10 @@ const ar: Record<I18nKey, string> = {
   'playlist.empty_hint': 'لا توجد وسائط بعد',
   'playlist.loading_info': 'جارٍ تحميل معلومات المقطع...',
   'playlist.sub_load_failed': 'تعذّر تحميل معلومات الفيديو',
-  'playlist.remove_title': 'إزالة من قائمة التشغيل',
-  'playlist.select_for_deletion': 'تحديد {{title}} للحذف',
-  'playlist.deselect_for_deletion': 'إلغاء تحديد {{title}}',
+  'playlist.select_track': 'تحديد {{title}}',
+  'playlist.select_mode_hint': 'تحديد هذا المقطع والدخول إلى وضع التحديد',
   'playlist.deselect_all': 'إلغاء تحديد الكل',
   'playlist.select_all': 'تحديد الكل',
-  'playlist.delete_selected': 'حذف {{count}} من المقاطع المحددة',
   'playlist.selected_count': 'عدد العناصر المحدّدة: {{count}}',
   'playlist.slots_title': 'قوائم تشغيل متعددة',
   'playlist.slots_subtitle': 'يمكنك استخدام عدة قوائم تشغيل للتبديل بسرعة بين مجموعات المقاطع.',
@@ -911,12 +909,6 @@ const ar: Record<I18nKey, string> = {
 export default ar;
 
 export const pluralMessages = {
-  'playlist.delete_selected': {
-    one: 'حذف {{count}} مقطع محدد',
-    two: 'حذف {{count}} مقطعين محددين',
-    few: 'حذف {{count}} مقاطع محددة',
-    many: 'حذف {{count}} مقطعًا محددًا',
-  },
   'demo.session_body_connected': {
     one: 'هناك {{count}} جهاز متصل الآن.\nعيّن دورًا لهذا الجهاز.',
     two: 'هناك {{count}} جهازان متصلان الآن.\nعيّن دورًا لكلا الجهازين.',

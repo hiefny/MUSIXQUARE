@@ -156,12 +156,10 @@ const ta: Record<I18nKey, string> = {
   'playlist.empty_hint': 'இன்னும் மீடியா எதுவும் இல்லை',
   'playlist.loading_info': 'டிராக் தகவல் ஏற்றப்படுகிறது...',
   'playlist.sub_load_failed': 'வீடியோ தகவலை ஏற்ற முடியவில்லை',
-  'playlist.remove_title': 'பிளேலிஸ்ட்டிலிருந்து அகற்று',
-  'playlist.select_for_deletion': 'நீக்குவதற்கு {{title}}-ஐத் தேர்ந்தெடு',
-  'playlist.deselect_for_deletion': '{{title}}-இன் தேர்வை நீக்கு',
+  'playlist.select_track': '{{title}}-ஐத் தேர்ந்தெடு',
+  'playlist.select_mode_hint': 'இந்த டிராக்கைத் தேர்ந்தெடுத்து தேர்வுப் பயன்முறைக்குச் செல்',
   'playlist.deselect_all': 'அனைத்துத் தேர்வுகளையும் நீக்கு',
   'playlist.select_all': 'அனைத்தையும் தேர்ந்தெடு',
-  'playlist.delete_selected': 'தேர்ந்தெடுத்த {{count}} டிராக்குகளை நீக்கு',
   'playlist.selected_count': '{{count}} தேர்வுகள்',
   'playlist.slots_title': 'பல பிளேலிஸ்ட்கள்',
   'playlist.slots_subtitle':
@@ -963,9 +961,6 @@ const ta: Record<I18nKey, string> = {
 export default ta;
 
 export const pluralMessages = {
-  'playlist.delete_selected': {
-    one: 'தேர்ந்தெடுத்த {{count}} டிராக்கை நீக்கு',
-  },
   'connect.device_list': {
     one: 'இணைக்கப்பட்ட சாதனம்: {{count}}',
   },

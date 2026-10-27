@@ -154,12 +154,10 @@ const da: Record<I18nKey, string> = {
   'playlist.empty_hint': 'Der er endnu ingen medier',
   'playlist.loading_info': 'Indlæser oplysninger om nummeret…',
   'playlist.sub_load_failed': 'Kunne ikke indlæse videooplysninger',
-  'playlist.remove_title': 'Fjern fra afspilningslisten',
-  'playlist.select_for_deletion': 'Markér {{title}} til sletning',
-  'playlist.deselect_for_deletion': 'Fjern markeringen af {{title}}',
+  'playlist.select_track': 'Markér {{title}}',
+  'playlist.select_mode_hint': 'Markér dette nummer og gå i markeringstilstand',
   'playlist.deselect_all': 'Fjern alle markeringer',
   'playlist.select_all': 'Markér alle',
-  'playlist.delete_selected': 'Slet {{count}} markerede numre',
   'playlist.selected_count': '{{count}} valgt',
   'playlist.slots_title': 'Flere afspilningslister',
   'playlist.slots_subtitle':
@@ -940,9 +938,6 @@ const da: Record<I18nKey, string> = {
 export default da;
 
 export const pluralMessages = {
-  'playlist.delete_selected': {
-    one: 'Slet {{count}} markeret nummer',
-  },
   'demo.session_body_connected': {
     one: '{{count}} enhed er forbundet lige nu.\nAngiv en rolle for denne enhed.',
   },

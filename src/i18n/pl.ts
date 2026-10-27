@@ -152,12 +152,10 @@ const pl: Record<I18nKey, string> = {
   'playlist.empty_hint': 'Nie ma jeszcze multimediów',
   'playlist.loading_info': 'Ładowanie informacji o materiale…',
   'playlist.sub_load_failed': 'Nie udało się załadować informacji o wideo',
-  'playlist.remove_title': 'Usuń z playlisty',
-  'playlist.select_for_deletion': 'Zaznacz {{title}} do usunięcia',
-  'playlist.deselect_for_deletion': 'Odznacz {{title}}',
+  'playlist.select_track': 'Zaznacz {{title}}',
+  'playlist.select_mode_hint': 'Zaznacz ten materiał i włącz tryb zaznaczania',
   'playlist.deselect_all': 'Odznacz wszystko',
   'playlist.select_all': 'Zaznacz wszystko',
-  'playlist.delete_selected': 'Usuń zaznaczone materiały: {{count}}',
   'playlist.selected_count': 'Wybrano {{count}}',
   'playlist.slots_title': 'Kilka playlist',
   'playlist.slots_subtitle':
@@ -973,11 +971,6 @@ export const pluralMessages = {
     one: 'Administrator: {{count}}',
     few: 'Administratorzy: {{count}}',
     many: 'Administratorzy: {{count}}',
-  },
-  'playlist.delete_selected': {
-    one: 'Usuń {{count}} zaznaczony materiał',
-    few: 'Usuń {{count}} zaznaczone materiały',
-    many: 'Usuń {{count}} zaznaczonych materiałów',
   },
   'connect.device_list': {
     one: '{{count}} połączone urządzenie',

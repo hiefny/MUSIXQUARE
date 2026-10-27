@@ -155,12 +155,10 @@ const fi: Record<I18nKey, string> = {
   'playlist.empty_hint': 'Ei vielä mediaa',
   'playlist.loading_info': 'Ladataan kappaleen tietoja…',
   'playlist.sub_load_failed': 'Videon tietoja ei voitu ladata',
-  'playlist.remove_title': 'Poista soittolistalta',
-  'playlist.select_for_deletion': 'Valitse {{title}} poistettavaksi',
-  'playlist.deselect_for_deletion': 'Poista kohteen {{title}} valinta',
+  'playlist.select_track': 'Valitse {{title}}',
+  'playlist.select_mode_hint': 'Valitse tämä kappale ja siirry valintatilaan',
   'playlist.deselect_all': 'Poista kaikki valinnat',
   'playlist.select_all': 'Valitse kaikki',
-  'playlist.delete_selected': 'Poista {{count}} valittua kappaletta',
   'playlist.selected_count': '{{count}} valittu',
   'playlist.slots_title': 'Useita soittolistoja',
   'playlist.slots_subtitle':
@@ -944,9 +942,6 @@ const fi: Record<I18nKey, string> = {
 export default fi;
 
 export const pluralMessages = {
-  'playlist.delete_selected': {
-    one: 'Poista {{count}} valittu kappale',
-  },
   'demo.session_body_connected': {
     one: 'Yhdistettynä on nyt {{count}} laite.\nAseta tälle laitteelle rooli.',
   },

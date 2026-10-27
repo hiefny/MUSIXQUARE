@@ -152,12 +152,10 @@ const ru: Record<I18nKey, string> = {
   'playlist.empty_hint': 'Медиа пока нет',
   'playlist.loading_info': 'Загрузка информации о материале...',
   'playlist.sub_load_failed': 'Не удалось загрузить информацию о видео',
-  'playlist.remove_title': 'Удалить из плейлиста',
-  'playlist.select_for_deletion': 'Выбрать {{title}} для удаления',
-  'playlist.deselect_for_deletion': 'Снять выбор с {{title}}',
+  'playlist.select_track': 'Выбрать {{title}}',
+  'playlist.select_mode_hint': 'Выбрать этот материал и перейти в режим выбора',
   'playlist.deselect_all': 'Снять выделение',
   'playlist.select_all': 'Выбрать все',
-  'playlist.delete_selected': 'Удалить выбранные материалы: {{count}}',
   'playlist.selected_count': 'Выбрано: {{count}}',
   'playlist.slots_title': 'Несколько плейлистов',
   'playlist.slots_subtitle':
@@ -971,11 +969,6 @@ export const pluralMessages = {
     one: '{{count}} администратор',
     few: '{{count}} администратора',
     many: '{{count}} администраторов',
-  },
-  'playlist.delete_selected': {
-    one: 'Удалить {{count}} выбранный материал',
-    few: 'Удалить {{count}} выбранных материала',
-    many: 'Удалить {{count}} выбранных материалов',
   },
   'connect.device_list': {
     one: 'Подключено {{count}} устройство',

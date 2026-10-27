@@ -154,12 +154,10 @@ const nl: Record<I18nKey, string> = {
   'playlist.empty_hint': 'Nog geen media',
   'playlist.loading_info': 'Trackinfo laden...',
   'playlist.sub_load_failed': 'Video-info kon niet worden geladen',
-  'playlist.remove_title': 'Uit afspeellijst verwijderen',
-  'playlist.select_for_deletion': '{{title}} selecteren om te verwijderen',
-  'playlist.deselect_for_deletion': '{{title}} deselecteren',
+  'playlist.select_track': '{{title}} selecteren',
+  'playlist.select_mode_hint': 'Deze track selecteren en de selectiemodus starten',
   'playlist.deselect_all': 'Alles deselecteren',
   'playlist.select_all': 'Alles selecteren',
-  'playlist.delete_selected': '{{count}} geselecteerde tracks verwijderen',
   'playlist.selected_count': '{{count}} geselecteerd',
   'playlist.slots_title': 'Meerdere afspeellijsten',
   'playlist.slots_subtitle':
@@ -951,7 +949,6 @@ export const pluralMessages = {
   'playlist.slot_tracks': { one: '{{count}} track' },
   'playlist.move_title': { one: '{{count}} track verplaatsen' },
   'connect.administrator_list': { one: '{{count}} beheerder' },
-  'playlist.delete_selected': { one: '{{count}} geselecteerde track verwijderen' },
   'connect.device_list': { one: '{{count}} verbonden apparaat' },
   'demo.session_body_connected': {
     one: 'Er is nu {{count}} apparaat verbonden.\nStel voor dit apparaat een rol in.',

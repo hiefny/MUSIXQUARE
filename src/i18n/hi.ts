@@ -155,12 +155,10 @@ const hi: Record<I18nKey, string> = {
   'playlist.empty_hint': 'अभी कोई मीडिया नहीं है',
   'playlist.loading_info': 'ट्रैक की जानकारी लोड हो रही है...',
   'playlist.sub_load_failed': 'वीडियो की जानकारी लोड नहीं हो सकी',
-  'playlist.remove_title': 'प्लेलिस्ट से हटाएँ',
-  'playlist.select_for_deletion': '{{title}} को मिटाने के लिए चुनें',
-  'playlist.deselect_for_deletion': '{{title}} का चयन हटाएँ',
+  'playlist.select_track': '{{title}} चुनें',
+  'playlist.select_mode_hint': 'यह ट्रैक चुनें और चयन मोड में जाएँ',
   'playlist.deselect_all': 'सभी का चयन हटाएँ',
   'playlist.select_all': 'सभी चुनें',
-  'playlist.delete_selected': 'चुने गए {{count}} ट्रैक मिटाएँ',
   'playlist.selected_count': '{{count}} चयन किया गया',
   'playlist.slots_title': 'कई प्लेलिस्ट',
   'playlist.slots_subtitle': 'कई प्लेलिस्ट इस्तेमाल करके आप ट्रैक के सेट तेज़ी से बदल सकते हैं।',
@@ -937,9 +935,6 @@ export default hi;
 
 export const pluralMessages = {
   'toast.unsupported_files_excluded': { one: 'असमर्थित फ़ाइल छोड़ दी गई: {{count}}' },
-  'playlist.delete_selected': {
-    one: 'चयनित ट्रैक मिटाएँ ({{count}})',
-  },
   'connect.device_list': {
     one: 'कनेक्टेड डिवाइस की संख्या: {{count}}',
   },

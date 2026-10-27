@@ -155,12 +155,10 @@ const nb: Record<I18nKey, string> = {
   'playlist.empty_hint': 'Ingen medier ennå',
   'playlist.loading_info': 'Laster inn sporinformasjon…',
   'playlist.sub_load_failed': 'Kunne ikke laste inn videoinformasjon',
-  'playlist.remove_title': 'Fjern fra spillelisten',
-  'playlist.select_for_deletion': 'Merk {{title}} for sletting',
-  'playlist.deselect_for_deletion': 'Fjern merkingen av {{title}}',
+  'playlist.select_track': 'Merk {{title}}',
+  'playlist.select_mode_hint': 'Merk dette sporet og gå til markeringsmodus',
   'playlist.deselect_all': 'Fjern all merking',
   'playlist.select_all': 'Merk alle',
-  'playlist.delete_selected': 'Slett {{count}} merkede spor',
   'playlist.selected_count': '{{count}} er valgt',
   'playlist.slots_title': 'Flere spillelister',
   'playlist.slots_subtitle':
@@ -939,9 +937,6 @@ const nb: Record<I18nKey, string> = {
 export default nb;
 
 export const pluralMessages = {
-  'playlist.delete_selected': {
-    one: 'Slett {{count}} merket spor',
-  },
   'demo.session_body_connected': {
     one: '{{count}} enhet er tilkoblet nå.\nAngi en rolle for denne enheten.',
   },

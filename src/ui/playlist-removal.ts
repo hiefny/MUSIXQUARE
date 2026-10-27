@@ -1,11 +1,12 @@
 import type { PlaylistItem, QueueItemId } from '../types/index.ts';
-import { getTrackDisplayTitle } from '../player/track-display.ts';
 import { t } from '../i18n/index.ts';
 import { setControlHint } from './control-hint.ts';
 import type { PlaylistSelectionMorph } from './playlist-selection-morph.ts';
 import { PLAYLIST_ROW_EASING, prefersReducedMotion } from './playlist-motion.ts';
 
 const SELECT_BUTTON_SELECTOR = '.btn-playlist-select[data-queue-item-id]';
+/** The visible count title, which also names the selection bar. */
+const SELECTION_TITLE_ID = 'playlist-selection-title';
 const ENTRY_SELECTOR = ':scope > .playlist-entry[data-queue-item-id]';
 
 /**
@@ -127,18 +128,27 @@ function createBar(list: HTMLElement): {
 function createHeaderControls(container: Element | null): {
   header: HTMLElement | null;
   title: HTMLElement | null;
+  status: HTMLElement | null;
   toggleButton: HTMLButtonElement | null;
 } {
   const header = container?.querySelector<HTMLElement>(':scope > .tab-header') ?? null;
-  if (!header) return { header: null, title: null, toggleButton: null };
+  if (!header) return { header: null, title: null, status: null, toggleButton: null };
   const title = document.createElement('span');
   title.className = 'tab-title playlist-selection-title';
-  title.setAttribute('aria-live', 'polite');
-  title.setAttribute('aria-atomic', 'true');
+  title.id = SELECTION_TITLE_ID;
   title.hidden = true;
   const baseTitle = header.querySelector(':scope > .tab-title');
   if (baseTitle) baseTitle.after(title);
   else header.prepend(title);
+  // The count is announced from a screen-reader cell that stays in the
+  // accessibility tree for the controller's life. The title appears with the
+  // mode, and a region that appears and fills at once often goes unheard.
+  const status = document.createElement('span');
+  status.className = 'sr-only playlist-selection-status';
+  status.setAttribute('role', 'status');
+  status.setAttribute('aria-live', 'polite');
+  status.setAttribute('aria-atomic', 'true');
+  title.after(status);
 
   const toggleButton = document.createElement('button');
   toggleButton.type = 'button';
@@ -146,7 +156,7 @@ function createHeaderControls(container: Element | null): {
   toggleButton.dataset.selectionAction = 'select-all';
   toggleButton.hidden = true;
   (header.querySelector(':scope > .playlist-title-area') ?? header).appendChild(toggleButton);
-  return { header, title, toggleButton };
+  return { header, title, status, toggleButton };
 }
 
 function queueItemIdFromButton(button: Element | null): QueueItemId | null {
@@ -178,7 +188,9 @@ export function createPlaylistRemovalController(
   const container = list.closest('#tab-playlist') ?? list.parentElement;
   const selectedQueueItemIds = new Set<QueueItemId>();
   const { bar, moveButton, deleteButton, cancelButton } = createBar(list);
-  const { header, title, toggleButton } = createHeaderControls(container);
+  const { header, title, status, toggleButton } = createHeaderControls(container);
+  // The bar reads as the visible count: "2 selected: Move, Delete, Cancel".
+  if (title) bar.setAttribute('aria-labelledby', title.id);
   const abortController = new AbortController();
   let lastTriggerQueueItemId: QueueItemId | null = null;
   let wasSelectionActive = false;
@@ -283,7 +295,6 @@ export function createPlaylistRemovalController(
     moveButton.setAttribute('aria-label', t('playlist.move_action'));
     deleteButton.setAttribute('aria-label', t('common.delete'));
     cancelButton.setAttribute('aria-label', t('common.cancel'));
-    bar.setAttribute('aria-label', t('playlist.remove_title'));
   }
 
   function setBarState(state: BarState): void {
@@ -382,7 +393,6 @@ export function createPlaylistRemovalController(
     const origin = layer.getBoundingClientRect();
     for (const { copy, rect } of outgoing) {
       copy.removeAttribute('id');
-      copy.removeAttribute('aria-live');
       for (const element of copy.querySelectorAll('[id]')) element.removeAttribute('id');
       copy.hidden = false;
       copy.style.left = `${rect.left - origin.left}px`;
@@ -424,11 +434,12 @@ export function createPlaylistRemovalController(
     allSelected: boolean,
   ): void {
     header?.classList.toggle('is-removal-selecting', active);
+    const count = active ? t('playlist.selected_count', { count: selectedCount }) : '';
     if (title) {
       title.hidden = !active;
-      const text = active ? t('playlist.selected_count', { count: selectedCount }) : '';
-      if (title.textContent !== text) title.textContent = text;
+      if (title.textContent !== count) title.textContent = count;
     }
+    if (status && status.textContent !== count) status.textContent = count;
     if (toggleButton) {
       toggleButton.hidden = !active;
       // Select all shows how many tracks it would take; Deselect all needs no
@@ -492,18 +503,26 @@ export function createPlaylistRemovalController(
     list.classList.toggle('has-removal-selection', active);
     moveButton.hidden = !(options.canMove?.() ?? false);
 
+    // The view names each minus once ("Select {{title}}"); only its pressed
+    // state follows the selection. Outside the mode its hint says a press
+    // also starts the mode; inside, a press only picks.
+    const modeHint = active ? null : t('playlist.select_mode_hint');
     for (const button of list.querySelectorAll<HTMLButtonElement>(SELECT_BUTTON_SELECTOR)) {
       const queueItemId = queueItemIdFromButton(button);
       const selected = !!queueItemId && selectedQueueItemIds.has(queueItemId);
-      const item = queueItemId ? itemsById.get(queueItemId) : undefined;
-      const rowTitle = item ? getTrackDisplayTitle(item, t('common.unknown')) : t('common.unknown');
-      const label = t(
-        selected ? 'playlist.deselect_for_deletion' : 'playlist.select_for_deletion',
-        { title: rowTitle },
-      );
       button.setAttribute('aria-pressed', String(selected));
-      button.setAttribute('aria-label', label);
-      setControlHint(button, label);
+      setControlHint(button, modeHint);
+      const row = button.closest('.track-item');
+      // In the mode a title press picks its row, so the title carries the
+      // same state, and the keyboard passes each row once, on its minus.
+      const rowTitle = row?.querySelector<HTMLElement>(':scope > .track-name');
+      if (rowTitle && active) {
+        rowTitle.setAttribute('aria-pressed', String(selected));
+        rowTitle.setAttribute('tabindex', '-1');
+      } else if (rowTitle) {
+        rowTitle.removeAttribute('aria-pressed');
+        rowTitle.removeAttribute('tabindex');
+      }
       // CSS joins consecutive selected entries into one painted block.
       button.closest('.playlist-entry')?.classList.toggle('is-removal-selected', selected);
     }
@@ -921,6 +940,7 @@ export function createPlaylistRemovalController(
       header?.classList.remove('is-removal-selecting');
       bar.remove();
       title?.remove();
+      status?.remove();
       toggleButton?.remove();
     },
   };

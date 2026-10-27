@@ -155,12 +155,10 @@ const ml: Record<I18nKey, string> = {
   'playlist.empty_hint': 'ഇതുവരെ മീഡിയ ഒന്നുമില്ല',
   'playlist.loading_info': 'ട്രാക്ക് വിവരങ്ങൾ ലോഡ് ചെയ്യുന്നു...',
   'playlist.sub_load_failed': 'വീഡിയോ വിവരങ്ങൾ ലോഡ് ചെയ്യാനായില്ല',
-  'playlist.remove_title': 'പ്ലേലിസ്റ്റിൽ നിന്ന് നീക്കുക',
-  'playlist.select_for_deletion': 'ഇല്ലാതാക്കാൻ {{title}} തിരഞ്ഞെടുക്കുക',
-  'playlist.deselect_for_deletion': '{{title}} തിരഞ്ഞെടുപ്പിൽ നിന്ന് മാറ്റുക',
+  'playlist.select_track': '{{title}} തിരഞ്ഞെടുക്കുക',
+  'playlist.select_mode_hint': 'ഈ ട്രാക്ക് തിരഞ്ഞെടുത്ത് തിരഞ്ഞെടുക്കൽ മോഡിലേക്ക് പോകുക',
   'playlist.deselect_all': 'എല്ലാം തിരഞ്ഞെടുപ്പിൽ നിന്ന് മാറ്റുക',
   'playlist.select_all': 'എല്ലാം തിരഞ്ഞെടുക്കുക',
-  'playlist.delete_selected': 'തിരഞ്ഞെടുത്ത {{count}} ട്രാക്കുകൾ ഇല്ലാതാക്കുക',
   'playlist.selected_count': '{{count}} തെരഞ്ഞെടുത്തു',
   'playlist.slots_title': 'ഒന്നിലധികം പ്ലേലിസ്റ്റുകൾ',
   'playlist.slots_subtitle':
@@ -955,9 +953,6 @@ const ml: Record<I18nKey, string> = {
 export default ml;
 
 export const pluralMessages = {
-  'playlist.delete_selected': {
-    one: 'തിരഞ്ഞെടുത്ത {{count}} ട്രാക്ക് ഇല്ലാതാക്കുക',
-  },
   'connect.device_list': {
     one: 'ബന്ധിപ്പിച്ച ഡിവൈസ്: {{count}}',
   },

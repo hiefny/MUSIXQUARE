@@ -151,7 +151,7 @@ const ru: Record<I18nKey, string> = {
 
   // ─── Playlist ────────────────────────────────────────────────────
   'playlist.jump_to_current': 'Перейти к воспроизводимому материалу',
-  'playlist.item_tracks_aria': 'Материалы в {{title}}',
+  'playlist.item_tracks_aria': 'Материалы плейлиста {{title}}',
   'playlist.reorder_handle': 'Изменить порядок {{title}}, позиция {{position}}',
   'playlist.reorder_position': '{{title}}, позиция {{position}} из {{total}}',
   'playlist.reorder_failed': 'Не удалось переместить материал',
@@ -290,7 +290,7 @@ const ru: Record<I18nKey, string> = {
   'connect.administrator_revoke_aria': 'Отозвать права администратора у {{name}}',
   'connect.administrator_grant_aria': 'Предоставить права администратора пользователю {{name}}',
   'connect.kick_member_aria': 'Исключить пользователя {{name}}',
-  'connect.kick_device_aria': 'Исключить устройство {{name}}',
+  'connect.kick_device_aria': 'Исключить {{name}}',
   'connect.administrator_revoke_title': 'Отозвать права администратора?',
   'connect.administrator_revoke_message': 'Отозвать права администратора у {{name}}?',
   'connect.permissions_title': 'Права пользователя {{name}}',

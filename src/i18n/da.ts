@@ -126,7 +126,7 @@ const da: Record<I18nKey, string> = {
   'player.prev_track': 'Forrige nummer',
   'player.next_track': 'Næste nummer',
   'player.play_aria': 'Afspil',
-  'player.repeat_off_aria': 'Gentagelse fra',
+  'player.repeat_off_aria': 'Gentagelse slået fra',
   'player.repeat_all_aria': 'Gentagelse af alle numre',
   'player.repeat_one_aria': 'Gentagelse af det aktuelle nummer',
   'player.syncing_aria': 'Synkroniserer',

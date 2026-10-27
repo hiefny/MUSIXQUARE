@@ -153,7 +153,7 @@ const uk: Record<I18nKey, string> = {
 
   // ─── Плейліст ────────────────────────────────────────────────────
   'playlist.jump_to_current': 'Перейти до поточного треку',
-  'playlist.item_tracks_aria': 'Треки в {{title}}',
+  'playlist.item_tracks_aria': 'Треки плейліста {{title}}',
   'playlist.reorder_handle': 'Перемістити {{title}}, позиція {{position}}',
   'playlist.reorder_position': '{{title}}, позиція {{position}} з {{total}}',
   'playlist.reorder_failed': 'Не вдалося перемістити трек',
@@ -290,7 +290,7 @@ const uk: Record<I18nKey, string> = {
   'connect.administrator_revoke_aria': 'Відкликати права адміністратора в користувача {{name}}',
   'connect.administrator_grant_aria': 'Надати права адміністратора користувачу {{name}}',
   'connect.kick_member_aria': 'Вилучити користувача {{name}}',
-  'connect.kick_device_aria': 'Вилучити пристрій {{name}}',
+  'connect.kick_device_aria': 'Вилучити {{name}}',
   'connect.administrator_revoke_title': 'Відкликати права адміністратора?',
   'connect.administrator_revoke_message': 'Відкликати права адміністратора в користувача {{name}}?',
   'connect.permissions_title': 'Дозволи користувача {{name}}',

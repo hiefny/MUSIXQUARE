@@ -127,7 +127,7 @@ const nb: Record<I18nKey, string> = {
   'player.prev_track': 'Forrige spor',
   'player.next_track': 'Neste spor',
   'player.play_aria': 'Spill av',
-  'player.repeat_off_aria': 'Gjentakelse av',
+  'player.repeat_off_aria': 'Gjentakelse slått av',
   'player.repeat_all_aria': 'Gjentakelse av alle spor',
   'player.repeat_one_aria': 'Gjentakelse av gjeldende spor',
   'player.syncing_aria': 'Synkroniserer',

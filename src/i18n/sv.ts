@@ -127,7 +127,7 @@ const sv: Record<I18nKey, string> = {
   'player.prev_track': 'Föregående spår',
   'player.next_track': 'Nästa spår',
   'player.play_aria': 'Spela upp',
-  'player.repeat_off_aria': 'Upprepning av',
+  'player.repeat_off_aria': 'Upprepning avstängd',
   'player.repeat_all_aria': 'Upprepning av alla spår',
   'player.repeat_one_aria': 'Upprepning av aktuellt spår',
   'player.syncing_aria': 'Synkar',

@@ -114,6 +114,32 @@ describe('ProRoomUploadQueue', () => {
     },
   );
 
+  it('does not offer a retry that stays pinned to a playlist that is no longer active', async () => {
+    // A retained retry keeps the playlist slot its upload started in. After
+    // another administrator made a different playlist active, every retry of
+    // that continuation fails the same way, so the file is terminal.
+    const run = vi.fn(async () => {
+      throw Object.assign(new Error('PRO_ROOM_PLAYLIST_SWITCHED'), {
+        code: 'PRO_ROOM_PLAYLIST_SWITCHED',
+      });
+    });
+    const onBatchSettled = vi.fn();
+    const queue = new ProRoomUploadQueue({ createId: () => A, run, onBatchSettled });
+    queue.enqueueFiles([new File(['data'], 'switched.flac')]);
+    await queue.whenIdle();
+    expect(onBatchSettled).toHaveBeenCalledWith(
+      expect.objectContaining({
+        retryableCount: 0,
+        failures: [
+          expect.objectContaining({ code: 'PRO_ROOM_PLAYLIST_SWITCHED', retryable: false }),
+        ],
+      }),
+    );
+    expect(queue.retryFailedBatch('batch-1')).toBe(false);
+    expect(run).toHaveBeenCalledOnce();
+    expect(queue.rows).toEqual([]);
+  });
+
   it('cannot carry a failed continuation into a fresh authority lifetime', async () => {
     const continuations: unknown[] = [];
     const run = vi.fn(async (input) => {

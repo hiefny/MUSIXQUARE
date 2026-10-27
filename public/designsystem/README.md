@@ -124,10 +124,11 @@ semantic token structure.
 - `--text-main`, `--text-sub`, and `--text-muted` establish text hierarchy.
 - `--divider` separates dense sections without creating card borders.
 - `--danger-foreground` colors every destructive, error and validation text
-  or icon, over `--control-danger` or on a plain surface (#ff3b30 dark,
-  #d70015 light, #a4001d light high contrast); never hard-code a red or paint
-  text with the filled `--danger-filled`. Red surfaces use the
-  `--control-danger` tints, or `--danger-filled` under white icons; white
+  or icon, over `--control-danger` or on a plain surface (#ff3b30 in both
+  default themes, #a4001d in light high contrast); never hard-code a red or
+  paint text with the filled `--danger-filled`. Red surfaces use the
+  `--control-danger` tints (leave session and stop sharing read its
+  `--control-danger-pill` tints), or `--danger-filled` under white icons; white
   text on it needs its own contrast check (white on #ef4444 is 3.76:1). Only
   the YouTube mark keeps its brand red.
 - Reuse the existing radius, safe-area, motion, and range-control tokens from

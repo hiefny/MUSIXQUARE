@@ -34,8 +34,8 @@ or pointers. Keep :focus-visible and :active outside the gate (src/ui/__tests__/
     --warning-foreground: #f59e0b;
     /* Destructive label color over --control-danger: a role for existing
        reds, not a new color. Every red danger, error or destructive text or
-       icon reads it. The light palettes darken it to keep 4.5:1; forced
-       colors use ButtonText. */
+       icon reads it. Both default themes keep #ff3b30; light high contrast
+       darkens it and forced colors use ButtonText. */
     --danger-foreground: #ff3b30;
     --youtube-filled: #ff0033;
     --accent: var(--primary);
@@ -51,6 +51,12 @@ or pointers. Keep :focus-visible and :active outside the gate (src/ui/__tests__/
     --control-active: rgba(var(--primary-rgb), 0.13);
     --control-danger: rgba(255, 59, 48, 0.09);
     --control-danger-hover: rgba(255, 59, 48, 0.13);
+    /* The leave-session and stop-sharing pills at rest, on hover and on
+       press: the same tints in both default themes. High contrast maps them
+       onto its own --control-danger tints. */
+    --control-danger-pill: rgba(255, 59, 48, 0.08);
+    --control-danger-pill-hover: rgba(255, 59, 48, 0.12);
+    --control-danger-pill-press: rgba(255, 59, 48, 0.18);
 
     --radius-l: 32px;
     --radius-m: 20px;
@@ -185,12 +191,8 @@ or pointers. Keep :focus-visible and :active outside the gate (src/ui/__tests__/
     --play-fab-bg-disabled: rgba(48, 53, 64, 0.2);
     --control-active: rgba(var(--primary-rgb), 0.11);
     --control-danger: rgba(255, 59, 48, 0.075);
-    /* The hover tint stays light enough for the label to keep 4.5:1. */
-    --control-danger-hover: rgba(255, 59, 48, 0.09);
+    --control-danger-hover: rgba(255, 59, 48, 0.11);
     --warning-foreground: #6b4100;
-    /* Owner decision (2026-10-27): the same hue as #ff3b30, darker, so a
-       destructive label passes 4.5:1 on the light surfaces and tints. */
-    --danger-foreground: #d70015;
 
     --glass-bg: var(--surface-1);
     --glass-border: rgba(0, 0, 0, 0.06);
@@ -4485,9 +4487,9 @@ or pointers. Keep :focus-visible and :active outside the gate (src/ui/__tests__/
     margin-top: 12px;
     border: none;
     border-radius: var(--radius-pill);
-    /* The --control-danger tints account deletion rests on, so every
-       destructive tone pill shares one surface family. */
-    background: var(--control-danger);
+    /* The pill tints of the --control-danger family, shared with Stop
+       sharing; a press goes one step deeper. */
+    background: var(--control-danger-pill);
     color: var(--danger-foreground);
     font-size: var(--button-label-size);
     font-weight: var(--button-label-weight);
@@ -4500,12 +4502,11 @@ or pointers. Keep :focus-visible and :active outside the gate (src/ui/__tests__/
   }
 
   :where(html[data-hover-pointer]) .leave-session-btn:hover {
-    background: var(--control-danger-hover);
+    background: var(--control-danger-pill-hover);
   }
 
-  /* A press shows the hover tint too, like Stop sharing. */
   .leave-session-btn:active {
-    background: var(--control-danger-hover);
+    background: var(--control-danger-pill-press);
     transform: scale(0.97);
   }
 
@@ -9672,10 +9673,19 @@ or pointers. Keep :focus-visible and :active outside the gate (src/ui/__tests__/
     gap: 10px;
   }
 
-  /* The exit pill keeps the leave-session tints; only Track info swaps its
-     blue tint for the flat selected surface. */
   .demo-large-actions .accent-action-btn {
     background: var(--control-active);
+  }
+
+  /* The demo exit keeps account deletion's tints. Coming after the
+     leave-session press rule with the same specificity, its resting tint
+     also holds through a touch press. */
+  .demo-large-actions .leave-session-btn {
+    background: var(--control-danger);
+  }
+
+  :where(html[data-hover-pointer]) .demo-large-actions .leave-session-btn:hover {
+    background: var(--control-danger-hover);
   }
 
   .demo-effects-content .demo-large-actions {
@@ -11532,6 +11542,12 @@ or pointers. Keep :focus-visible and :active outside the gate (src/ui/__tests__/
     --control-active: rgba(var(--primary-rgb), 0.28);
     --control-danger: rgba(176, 0, 32, 0.24);
     --control-danger-hover: rgba(176, 0, 32, 0.34);
+    /* Leave session and stop sharing read the high-contrast tints (light
+       high contrast sets lighter ones), pressed like hovered, so their
+       labels keep 4.5:1. */
+    --control-danger-pill: var(--control-danger);
+    --control-danger-pill-hover: var(--control-danger-hover);
+    --control-danger-pill-press: var(--control-danger-hover);
     --glass-bg: var(--surface-1);
     --glass-border: #262626;
     --scrollbar-thumb: rgba(255, 255, 255, 0.65);
@@ -11615,6 +11631,12 @@ or pointers. Keep :focus-visible and :active outside the gate (src/ui/__tests__/
       --control-active: rgba(var(--primary-rgb), 0.28);
       --control-danger: rgba(176, 0, 32, 0.24);
       --control-danger-hover: rgba(176, 0, 32, 0.34);
+      /* Leave session and stop sharing read the high-contrast tints (light
+         high contrast sets lighter ones), pressed like hovered, so their
+         labels keep 4.5:1. */
+      --control-danger-pill: var(--control-danger);
+      --control-danger-pill-hover: var(--control-danger-hover);
+      --control-danger-pill-press: var(--control-danger-hover);
       --glass-bg: var(--surface-1);
       --glass-border: #262626;
       --scrollbar-thumb: rgba(255, 255, 255, 0.65);

@@ -46,6 +46,9 @@
   --control-active: rgba(var(--primary-rgb), 0.13);
   --control-danger: rgba(255, 59, 48, 0.09);
   --control-danger-hover: rgba(255, 59, 48, 0.13);
+  --control-danger-pill: rgba(255, 59, 48, 0.08); /* leave session and stop sharing */
+  --control-danger-pill-hover: rgba(255, 59, 48, 0.12);
+  --control-danger-pill-press: rgba(255, 59, 48, 0.18);
 
   /* Neutral navigation scale */
   --grey-600: #6b7684;
@@ -159,9 +162,8 @@ html[data-theme='light'] {
   --play-fab-bg-disabled: rgba(48, 53, 64, 0.2);
   --control-active: rgba(var(--primary-rgb), 0.11);
   --control-danger: rgba(255, 59, 48, 0.075);
-  --control-danger-hover: rgba(255, 59, 48, 0.09);
+  --control-danger-hover: rgba(255, 59, 48, 0.11);
   --warning-foreground: #6b4100;
-  --danger-foreground: #d70015; /* same hue, darker: 4.5:1 on light surfaces */
   --glass-bg: var(--surface-1);
   --glass-border: rgba(0, 0, 0, 0.06);
   --scrollbar-thumb: rgba(0, 0, 0, 0.2);
@@ -196,6 +198,9 @@ html[data-contrast='more'] {
   --control-active: rgba(var(--primary-rgb), 0.28);
   --control-danger: rgba(176, 0, 32, 0.24);
   --control-danger-hover: rgba(176, 0, 32, 0.34);
+  --control-danger-pill: var(--control-danger);
+  --control-danger-pill-hover: var(--control-danger-hover);
+  --control-danger-pill-press: var(--control-danger-hover);
   --glass-bg: var(--surface-1);
   --glass-border: #262626;
   --scrollbar-thumb: rgba(255, 255, 255, 0.65);
@@ -254,6 +259,9 @@ html[data-theme='light'][data-contrast='more'] {
     --control-active: rgba(var(--primary-rgb), 0.28);
     --control-danger: rgba(176, 0, 32, 0.24);
     --control-danger-hover: rgba(176, 0, 32, 0.34);
+    --control-danger-pill: var(--control-danger);
+    --control-danger-pill-hover: var(--control-danger-hover);
+    --control-danger-pill-press: var(--control-danger-hover);
     --glass-bg: var(--surface-1);
     --glass-border: #262626;
     --scrollbar-thumb: rgba(255, 255, 255, 0.65);

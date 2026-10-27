@@ -179,11 +179,12 @@
 
   .play-actions-row {
     --play-action-stop-foreground: var(--danger-foreground);
-    /* The destructive tints of leave session and account deletion. Stop
-       grows over Sync's half while Sync shrinks out of the way, so their
-       surfaces never overlap and the tint needs no opaque mix of its own. */
-    --play-action-stop-surface: var(--control-danger);
-    --play-action-stop-hover: var(--control-danger-hover);
+    /* The pill tints of leave session. Stop grows over Sync's half while
+       Sync shrinks out of the way, so their surfaces never overlap: over the
+       canvas these give the 8% / 12% danger-over-background colors of
+       9.0.18 without an opaque mix of their own. */
+    --play-action-stop-surface: var(--control-danger-pill);
+    --play-action-stop-hover: var(--control-danger-pill-hover);
     --play-action-shape-duration: 300ms;
     --play-action-fade-duration: 180ms;
     --play-action-label-delay: 75ms;

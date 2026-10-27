@@ -317,7 +317,8 @@ test.describe('content-based adaptive action groups', () => {
     expect(primary!.width).toBe(await availableContentWidth(page, '#long-actions'));
 
     const fallback = await actionMetrics(page, '#fallback-actions');
-    expect(fallback[0]!.height).toBeGreaterThan(54);
+    // Wrapped text grows the pill past its 56px single-line height.
+    expect(fallback[0]!.height).toBeGreaterThan(56);
     expectNoActionOverflow([secondary!, primary!, ...fallback]);
     const wrapRules = await page.locator('#fallback-primary').evaluate((action) => {
       const style = getComputedStyle(action);
@@ -358,6 +359,44 @@ test.describe('content-based adaptive action groups', () => {
     const availableWidth = await availableContentWidth(page, '#account-actions');
     expect(close!.width).toBe(availableWidth);
     expectNoActionOverflow([logout!, deleteAccount!, close!]);
+  });
+
+  test('spaces and sizes dialog pills like the play-tab actions', async ({ page }) => {
+    // Owner decision (2026-10-27): 12px between painted pill surfaces and
+    // 56px pills, the same as the play tab's sync and media actions.
+    await installLayoutProbe(
+      page,
+      `<div id="account-actions" class="account-dialog-actions adaptive-action-group">
+        <button id="account-logout" class="dialog-secondary">Log out</button>
+        <button id="account-delete" class="account-delete-button">Delete account</button>
+        <button
+          id="account-close"
+          class="dialog-primary account-dialog-account-close adaptive-action-group-full"
+        >Close</button>
+      </div>
+      <div id="login-actions" class="account-dialog-login-actions">
+        <a id="login-google" class="account-google-button" href="#">
+          <span class="account-google-mark"></span>
+          <span class="account-google-label">Continue with Google</span>
+          <span class="account-google-balance"></span>
+        </a>
+        <button id="login-close" class="dialog-secondary account-dialog-login-close">Close</button>
+      </div>`,
+      { viewportWidth: 390 },
+    );
+
+    const [logout, deleteAccount, close] = await actionMetrics(page, '#account-actions');
+    expect(Math.abs(logout!.y - deleteAccount!.y)).toBeLessThan(0.5);
+    expect(deleteAccount!.x - (logout!.x + logout!.width)).toBeCloseTo(12, 1);
+    expect(close!.y - (logout!.y + logout!.height)).toBeCloseTo(12, 1);
+    for (const action of [logout!, deleteAccount!, close!]) {
+      expect(action.height, action.id).toBeCloseTo(56, 1);
+    }
+
+    const [google, loginClose] = await actionMetrics(page, '#login-actions');
+    expect(loginClose!.y - (google!.y + google!.height)).toBeCloseTo(12, 1);
+    expect(google!.height).toBeCloseTo(56, 1);
+    expect(loginClose!.height).toBeCloseTo(56, 1);
   });
 
   test('contains every audited action label across all supported locales at 200% text', async ({

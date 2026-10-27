@@ -2714,7 +2714,7 @@ describe('optional account UI', () => {
     expect(adaptiveButtonRules).toContain('word-break: keep-all');
     expect(adaptiveFullRules).toContain('flex-basis: 100%');
     expect(accountCloseRules).toContain('width: 100%');
-    expect(deleteRules).toContain('min-height: 54px');
+    expect(deleteRules).toContain('min-height: 56px');
     expect(deleteRules).toContain('border-radius: var(--radius-pill)');
     expect(deleteRules).not.toContain('grid-column: 1 / -1');
     expect(stylesheet).toContain('@media (max-height: 350px)');

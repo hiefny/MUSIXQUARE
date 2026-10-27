@@ -42,9 +42,9 @@ async function expectIconOnlyAdministratorAction(
   await expect(button).toHaveText('');
 
   const ariaLabel = (await button.getAttribute('aria-label'))?.trim() || '';
-  const title = (await button.getAttribute('title'))?.trim() || '';
   expect(ariaLabel).toMatch(actionName === 'grant' ? /grant/i : /revoke/i);
-  expect(title).toBe(ariaLabel);
+  // The name lives in aria-label only; a tooltip would just repeat it.
+  await expect(button).not.toHaveAttribute('title');
 
   const icon = button.locator('svg');
   await expect(icon).toHaveCount(1);

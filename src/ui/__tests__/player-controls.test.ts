@@ -20,6 +20,7 @@ import {
 } from '../../player/ownership.ts';
 import { STANDARD_ROOM_OWNER_PRODUCT_CAPABILITIES } from '../../network/standard-room-authority.ts';
 import { markStandardRoomAuthorityConfirmed } from '../../rooms/authority.ts';
+import { roomCapabilityRequiredMessage } from '../../rooms/permission-feedback.ts';
 import type { DataConnection } from '../../types/index.ts';
 import { broadcastYouTubeSync, guestRendezvousSync } from '../../youtube/sync.ts';
 import {
@@ -1214,6 +1215,45 @@ describe('PRO room media-source capabilities', () => {
     expect(document.getElementById('btn-shuffle')?.getAttribute('aria-disabled')).toBe('false');
     expect(repeat).toHaveBeenCalledTimes(1);
     expect(shuffle).toHaveBeenCalledTimes(1);
+  });
+
+  it('keeps the reason on repeat and shuffle while the queue mode is locked', async () => {
+    document.body.innerHTML = `
+      <button id="btn-repeat" aria-label="Repeat"></button>
+      <button id="btn-shuffle" aria-label="Shuffle"></button>
+    `;
+    setState('network.appRole', 'guest');
+    setState('network.hostConn', makeConnection('host-1'));
+    setState('network.isOperator', true);
+    setState('network.standardRoomCapabilities', ['playback.control']);
+    initPlayerControls();
+
+    const buttons = ['btn-repeat', 'btn-shuffle'].map((id) => document.getElementById(id)!);
+    for (const button of buttons) {
+      expect(button.getAttribute('aria-disabled')).toBe('true');
+      // Written when the lock arrives, before any pointer, so it is also the
+      // screen reader description; the name stays the control's name.
+      expect(button.title).toBe(roomCapabilityRequiredMessage('queue.mutate'));
+      expect(button.getAttribute('aria-label')).not.toBe(button.title);
+    }
+
+    const previousLanguage = getResolvedLanguage();
+    try {
+      await setLanguageMode('ko');
+      bus.emit('i18n:changed', 'ko');
+      for (const button of buttons) {
+        expect(button.title).toBe(roomCapabilityRequiredMessage('queue.mutate'));
+      }
+    } finally {
+      await setLanguageMode(previousLanguage);
+      bus.emit('i18n:changed', previousLanguage);
+    }
+
+    setState('network.standardRoomCapabilities', ['playback.control', 'queue.mutate']);
+    for (const button of buttons) {
+      expect(button.getAttribute('aria-disabled')).toBe('false');
+      expect(button.hasAttribute('title')).toBe(false);
+    }
   });
 
   it('lets a PRO administrator add files and YouTube entries but keeps live capture owner-only', () => {
@@ -3021,7 +3061,11 @@ describe('initPlayerControls volume icon', () => {
 
       const group = document.getElementById('volume-control-group')!;
       expect(group.tabIndex).toBe(0);
-      expect(group.getAttribute('aria-label')).toBe(t('toast.settings_sync_admin_required'));
+      // The group takes the attempts, so it carries the reason: as its hover
+      // hint and its description. Its name stays the control's name.
+      expect(group.getAttribute('aria-label')).toBe(t('player.volume'));
+      expect(group.getAttribute('aria-disabled')).toBe('true');
+      expect(group.title).toBe(roomCapabilityRequiredMessage('effects.control'));
       group.click();
       expect(showToast).toHaveBeenCalledExactlyOnceWith(t('toast.settings_sync_admin_required'));
 
@@ -3048,6 +3092,8 @@ describe('initPlayerControls volume icon', () => {
       bus.emit('settings-sync:changed', false);
       expect(group.hasAttribute('tabindex')).toBe(false);
       expect(group.getAttribute('aria-label')).toBe(t('player.volume'));
+      expect(group.getAttribute('aria-disabled')).toBe('false');
+      expect(group.hasAttribute('title')).toBe(false);
       vi.mocked(showToast).mockClear();
       (document.getElementById('vol-icon-btn') as HTMLButtonElement).click();
       expect(setVolume).toHaveBeenCalledExactlyOnceWith(0);
@@ -3406,6 +3452,9 @@ describe('initPlayerControls sync button', () => {
     expect(button.disabled).toBe(true);
     expect(button.getAttribute('aria-disabled')).toBe('true');
     expect(slider.disabled).toBe(true);
+    const group = document.getElementById('demo-volume-control-group')!;
+    expect(group.getAttribute('aria-label')).toBe(t('player.volume'));
+    expect(group.title).toBe(roomCapabilityRequiredMessage('effects.control'));
     button.click();
     button.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true }));
     slider.value = '20';

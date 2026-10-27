@@ -902,7 +902,8 @@ describe('connect i18n refresh', () => {
     expect(grant?.type).toBe('button');
     expect(grant?.textContent).toBe('');
     expect(grant?.ariaLabel).toBe('Grant');
-    expect(grant?.title).toBe('Grant');
+    // Names are never repeated as tooltips (hover hint policy).
+    expect(grant?.hasAttribute('title')).toBe(false);
     expect(document.querySelector<HTMLButtonElement>('.btn-kick-device')?.ariaLabel).toBe(
       'Kick device',
     );
@@ -1054,12 +1055,13 @@ describe('connect i18n refresh', () => {
     }
 
     expect(grant?.ariaLabel).toBe('Grant');
-    expect(grant?.title).toBe('Grant');
+    // Names are never repeated as tooltips (hover hint policy).
+    expect(grant?.hasAttribute('title')).toBe(false);
     expect(grant?.classList).toContain('administrator-state-button');
     expect(grant?.dataset.administratorState).toBe('inactive');
     expect(grant?.querySelector(`path[d="${crownPath}"]`)).not.toBeNull();
     expect(revoke?.ariaLabel).toBe('Revoke administrator permissions from Admin');
-    expect(revoke?.title).toBe('Revoke administrator permissions from Admin');
+    expect(revoke?.hasAttribute('title')).toBe(false);
     expect(revoke?.classList).not.toContain('administrator-state-button');
     expect(revoke?.dataset.administratorState).toBeUndefined();
     expect(revoke?.querySelector(`path[d="${revokePath}"]`)).not.toBeNull();

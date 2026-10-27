@@ -76,6 +76,31 @@ describe('playlist removal controller', () => {
     expect(button.title).toBe(button.getAttribute('aria-label'));
   });
 
+  it('names the selection bar actions without repeating their names as tooltips', () => {
+    const items = [item(A, 'Alpha'), item(B, 'Beta')];
+    const list = document.getElementById('playlist-ui')!;
+    controller = createPlaylistRemovalController({
+      list,
+      canRemove: () => true,
+      isPlaylistVisible: () => true,
+      getItems: () => items,
+      onDelete: vi.fn(),
+      canMove: () => true,
+      onMove: vi.fn(),
+    });
+    controller.toggle(A);
+
+    const actions = [
+      ...document.querySelectorAll<HTMLButtonElement>('.playlist-selection-bar button'),
+    ];
+    expect(actions.map((button) => button.getAttribute('aria-label'))).toEqual([
+      t('playlist.move_action'),
+      t('common.delete'),
+      t('common.cancel'),
+    ]);
+    expect(actions.filter((button) => button.hasAttribute('title'))).toEqual([]);
+  });
+
   it('moves focus out of a playlist hidden by current-track deletion and never restores it later', async () => {
     vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] });
     try {

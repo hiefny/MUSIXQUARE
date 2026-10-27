@@ -119,6 +119,9 @@ describe('clear button behavior', () => {
     expect(button?.tabIndex).toBe(0);
     expect(button?.getAttribute('aria-label')).toBe(t('common.clear_input'));
     expect(button?.dataset.i18nAriaLabel).toBe('common.clear_input');
+    // Named, not titled: a tooltip would only repeat the name.
+    expect(button?.hasAttribute('title')).toBe(false);
+    expect(button?.hasAttribute('data-i18n-title')).toBe(false);
     expect(input.nextElementSibling).toBe(button);
 
     button?.click();

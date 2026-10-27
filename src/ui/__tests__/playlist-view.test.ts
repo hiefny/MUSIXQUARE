@@ -383,7 +383,8 @@ describe('PRO upload rows', () => {
     expect(cancel?.getAttribute('aria-label')).toBe(
       t('pro.upload.cancel_file', { name: 'one.flac' }),
     );
-    expect(cancel?.title).toBe(t('pro.upload.cancel_file', { name: 'one.flac' }));
+    // The name is the tooltip-free state; only the confirming lock has a hint.
+    expect(cancel?.hasAttribute('title')).toBe(false);
     cancel?.focus();
     progressReporter.current?.(0.37);
     await nextAnimationFrame();
@@ -411,8 +412,9 @@ describe('PRO upload rows', () => {
     expect(confirmingCancel?.disabled).toBe(true);
     expect(confirmingCancel?.tabIndex).toBe(-1);
     expect(confirmingCancel?.getAttribute('aria-disabled')).toBe('true');
+    // The control keeps its name; why it cannot be used is its hint.
     expect(confirmingCancel?.getAttribute('aria-label')).toBe(
-      t('pro.upload.confirming_file', { name: 'one.flac' }),
+      t('pro.upload.cancel_file', { name: 'one.flac' }),
     );
     expect(confirmingCancel?.title).toBe(t('pro.upload.confirming_file', { name: 'one.flac' }));
     const confirmingRow = confirming?.querySelector<HTMLElement>('.track-item');
@@ -1543,14 +1545,14 @@ describe('playlist queue identity rendering and actions', () => {
     const deleteButton = bar.querySelector<HTMLButtonElement>('[data-selection-action="delete"]')!;
     const cancelButton = bar.querySelector<HTMLButtonElement>('[data-selection-action="cancel"]')!;
     expect(bar.getAttribute('role')).toBe('group');
-    // Icon buttons: a trash can and a close mark, named and titled by the
-    // shared Delete and Cancel strings.
+    // Icon buttons: a trash can and a close mark, named by the shared Delete
+    // and Cancel strings. A tooltip that only repeats the name is not shown.
     expect(deleteButton.textContent?.trim()).toBe('');
     expect(deleteButton.getAttribute('aria-label')).toBe('Delete');
-    expect(deleteButton.title).toBe('Delete');
+    expect(deleteButton.hasAttribute('title')).toBe(false);
     expect(deleteButton.querySelector('svg[aria-hidden="true"] path')).not.toBeNull();
     expect(cancelButton.getAttribute('aria-label')).toBe('Cancel');
-    expect(cancelButton.title).toBe('Cancel');
+    expect(cancelButton.hasAttribute('title')).toBe(false);
     expect(cancelButton.querySelector('svg[aria-hidden="true"] path')).not.toBeNull();
     expect(cancelButton.hidden).toBe(false);
   });

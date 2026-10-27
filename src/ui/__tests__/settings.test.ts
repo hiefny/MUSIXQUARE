@@ -9,6 +9,7 @@ import { showToast } from '../toast.ts';
 import { LANGUAGE_OPTIONS, setLanguageMode, t } from '../../i18n/index.ts';
 import { hasLocaleFont } from '../../i18n/locale-fonts.ts';
 import { markStandardRoomAuthorityConfirmed } from '../../rooms/authority.ts';
+import { roomCapabilityRequiredMessage } from '../../rooms/permission-feedback.ts';
 import type { DataConnection } from '../../types/index.ts';
 import { configureSystemAudioCaptureActivityProbe } from '../../audio/system-audio-policy.ts';
 import {
@@ -484,6 +485,44 @@ describe('settings synchronization preference', () => {
       'true',
     );
     expect(document.getElementById('grid-reverb')?.classList).not.toContain('host-ctrl-locked');
+  });
+
+  it('keeps the lock reason on every locked audio settings group until it unlocks', async () => {
+    installSettingsSyncDom();
+    installEffectSettingsDom();
+    setState('setup.sessionStarted', true);
+    setState('network.appRole', 'guest');
+    setState('network.hostConn', { peer: 'host', open: true } as DataConnection);
+    initSettings();
+
+    const groups = [
+      'grid-reverb',
+      'reverb-sliders-area',
+      'grid-eq',
+      'eq-sliders-area',
+      'grid-virtual-effects',
+    ].map((id) => document.getElementById(id)!);
+    // Taps on a locked group explain the lock with a toast; hovering the
+    // group gives the same reason, written when the lock arrives.
+    for (const group of groups) {
+      expect(group.getAttribute('aria-disabled')).toBe('true');
+      expect(group.title).toBe(roomCapabilityRequiredMessage('effects.control'));
+    }
+
+    await setLanguageMode('ko');
+    bus.emit('i18n:changed', 'ko');
+    for (const group of groups) {
+      expect(group.title).toBe(roomCapabilityRequiredMessage('effects.control'));
+    }
+    expect(groups[0]!.title).not.toBe(
+      'Settings sync is on\nOnly room admins can change audio settings',
+    );
+
+    document.querySelector<HTMLElement>('[data-settings-sync="off"]')?.click();
+    for (const group of groups) {
+      expect(group.getAttribute('aria-disabled')).toBe('false');
+      expect(group.hasAttribute('title')).toBe(false);
+    }
   });
 
   it('shows translated effect indicators for ON, hides them for OFF, and restores them for ON', () => {

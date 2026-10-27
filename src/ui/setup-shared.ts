@@ -538,12 +538,15 @@ function updateObCarouselA11y(): void {
   const autoplayEligible = !_obCarouselUserStopped && !_obCarouselReducedMotion;
   if (track) track.setAttribute('aria-live', autoplayEligible ? 'off' : 'polite');
 
+  // Each dot is named by its slide. While slides still rotate, a press also
+  // stops the rotation, which the dot carries as its description.
   document.querySelectorAll<HTMLElement>('.ob-dot').forEach((dot, idx) => {
-    const position = `${idx + 1} / ${TOTAL_OB_SLIDES}`;
     dot.setAttribute(
       'aria-label',
-      autoplayEligible ? `${position}, ${t('setup.carousel_pause')}` : position,
+      t('setup.carousel_dot_aria', { current: idx + 1, total: TOTAL_OB_SLIDES }),
     );
+    if (autoplayEligible) dot.setAttribute('aria-describedby', 'ob-carousel-pause-hint');
+    else dot.removeAttribute('aria-describedby');
   });
 }
 

@@ -527,12 +527,8 @@ export function applyPlaylistQueueModeState(
 
 // ─── Repeat / Shuffle ──────────────────────────────────────────────
 
-function setPlaylistPressedState(
-  element: Element,
-  pressed: boolean,
-  visuallyActive = pressed,
-): void {
-  element.classList.toggle('active', visuallyActive);
+function setPlaylistPressedState(element: Element, pressed: boolean): void {
+  element.classList.toggle('active', pressed);
   element.setAttribute('aria-pressed', String(pressed));
 }
 
@@ -557,18 +553,18 @@ export function toggleRepeat(): void {
 function syncRepeatControl(mode: number): void {
   const btn = document.getElementById('btn-repeat');
   if (!btn) return;
-  setPlaylistPressedState(btn, mode !== 0, mode === 1);
+  // Three modes do not fit aria-pressed, so the name says the current mode.
+  btn.classList.toggle('active', mode === 1);
   btn.classList.toggle('active-one', mode === 2);
-  btn.setAttribute(
-    'aria-label',
-    t(
-      mode === 1
-        ? 'playlist.repeat_all'
-        : mode === 2
-          ? 'playlist.repeat_one'
-          : 'playlist.repeat_off',
-    ),
-  );
+  btn.removeAttribute('aria-pressed');
+  const nameKey =
+    mode === 1
+      ? 'player.repeat_all_aria'
+      : mode === 2
+        ? 'player.repeat_one_aria'
+        : 'player.repeat_off_aria';
+  btn.setAttribute('data-i18n-aria-label', nameKey);
+  btn.setAttribute('aria-label', t(nameKey));
 }
 
 export function setRepeatMode(mode: number, notify = true): void {
@@ -599,8 +595,8 @@ export function setRepeatMode(mode: number, notify = true): void {
 function syncShuffleControl(enabled: boolean): void {
   const btn = document.getElementById('btn-shuffle');
   if (!btn) return;
+  // A two-state toggle: the name stays Shuffle and aria-pressed says the state.
   setPlaylistPressedState(btn, enabled);
-  btn.setAttribute('aria-label', t(enabled ? 'playlist.shuffle_on' : 'playlist.shuffle_off'));
 }
 
 export function toggleShuffle(): void {

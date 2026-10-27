@@ -33,7 +33,7 @@ import { getStandardRolePreset } from './player-controls.ts';
 import { cancelRangeDrag, syncRangeProgress } from './range-drag.ts';
 import { showToast } from './toast.ts';
 import {
-  roomCapabilityRequiredMessage,
+  roomCapabilityRequiredTip,
   showRoomCapabilityRequired,
 } from '../rooms/permission-feedback.ts';
 import { setControlUnavailable } from './control-hint.ts';
@@ -153,7 +153,7 @@ function _updateHostCtrlLockUI(): void {
   const locked = _isGuestLocked();
   // Taps on a locked group explain the lock with a toast; the group's hint
   // gives the same reason on hover.
-  const reason = locked ? roomCapabilityRequiredMessage('effects.control') : null;
+  const reason = locked ? roomCapabilityRequiredTip('effects.control') : null;
   HOST_CTRL_LOCK_IDS.forEach((id) => {
     const el = getUiElement(id);
     if (el) {
@@ -165,6 +165,16 @@ function _updateHostCtrlLockUI(): void {
         input.disabled = locked;
       });
     }
+  });
+}
+
+/** Each band slider is named by the equalizer and its frequency (data-eq-freq). */
+function syncEqBandLabels(): void {
+  document.querySelectorAll<HTMLInputElement>('.eq-slider[data-eq-freq]').forEach((slider) => {
+    slider.setAttribute(
+      'aria-label',
+      t('settings.eq_band_aria', { freq: slider.dataset.eqFreq ?? '' }),
+    );
   });
 }
 
@@ -951,6 +961,7 @@ export function initSettings(): void {
   };
 
   _bindHostCtrlLockedAttemptToasts();
+  syncEqBandLabels();
 
   document
     .querySelectorAll<HTMLElement>('#grid-settings-sync [data-settings-sync]')
@@ -1235,6 +1246,7 @@ export function initSettings(): void {
     const list = getState('network.lastKnownDeviceList') || [];
     renderDeviceList(list.filter(isDeviceListRow));
     _updateHostCtrlLockUI();
+    syncEqBandLabels();
     refreshLanguageControls();
     updateLanguageScrollMask();
     syncStandardRoleDescription();

@@ -29,6 +29,7 @@ import {
   updateTitleWithMarquee,
   normalizeEmptyContentEditable,
   onWindowBack,
+  onFullscreenSurfaceHostChange,
   beginBackSurfaceTransition,
 } from './dom.ts';
 import { showDialog } from './dialog.ts';
@@ -81,7 +82,7 @@ import {
   isStandardRoomRole,
 } from '../rooms/authority.ts';
 import {
-  roomCapabilityRequiredMessage,
+  roomCapabilityRequiredTip,
   showRoomCapabilityRequired,
 } from '../rooms/permission-feedback.ts';
 import {
@@ -216,7 +217,7 @@ function syncPlayButtonAuthority(): void {
   const context = getRoomContext();
   const roomAuthorityApplies = context.kind === 'pro' || getState('network.appRole') !== 'idle';
   const hasAuthority = !roomAuthorityApplies || hasRoomCapability('playback.control');
-  const authorityMessage = roomCapabilityRequiredMessage('playback.control');
+  const authorityTip = roomCapabilityRequiredTip('playback.control');
   const systemAudioLocked = isPlaybackModeSystemAudio();
   for (const id of ['play-btn', 'btn-prev', 'btn-next']) {
     const transportButton = getUiElement(id);
@@ -228,10 +229,7 @@ function syncPlayButtonAuthority(): void {
       systemAudioLocked || !hasAuthority || (id === 'play-btn' && !_playButtonMediaEnabled);
     // Only a missing permission needs words: sharing and an empty queue show
     // themselves on the player.
-    setControlUnavailable(
-      transportButton,
-      !hasAuthority ? authorityMessage : unavailable ? '' : null,
-    );
+    setControlUnavailable(transportButton, !hasAuthority ? authorityTip : unavailable ? '' : null);
   }
 }
 
@@ -445,13 +443,13 @@ export function updateRoleBadge(): void {
   text.dir = 'auto';
   text.textContent = displayText;
   applyUserTextFontFallback(text, text.textContent);
+  // While the account is loading or unavailable the badge reads Account, the
+  // same as its text; the dialog it opens says what is going on.
   const accountLabel = isAuthenticated
     ? `${t('account.account_title')}: ${displayText}`
     : canOfferLogin
       ? t('account.login_title')
-      : snapshot.status === 'loading'
-        ? `${t('account.account_title')}: ${t('common.wait')}`
-        : t('account.unavailable');
+      : t('account.account_title');
   badge.setAttribute('aria-label', accountLabel);
 }
 
@@ -681,7 +679,7 @@ function syncMediaSourceButtonAuthority(): void {
         ? null
         : isPlaybackModeSystemAudio()
           ? t('system_audio.sharing')
-          : roomCapabilityRequiredMessage('media.add'),
+          : roomCapabilityRequiredTip('media.add'),
     );
   }
 }
@@ -691,7 +689,7 @@ function canConfigureQueueMode(): boolean {
 }
 
 function syncQueueModeButtonAuthority(): void {
-  const reason = canConfigureQueueMode() ? null : roomCapabilityRequiredMessage('queue.mutate');
+  const reason = canConfigureQueueMode() ? null : roomCapabilityRequiredTip('queue.mutate');
   for (const id of ['btn-repeat', 'btn-shuffle']) {
     const button = getUiElement(id);
     if (button) setControlUnavailable(button, reason);
@@ -967,19 +965,29 @@ function getMainSyncUnavailableMessage(reason: MainSyncUnavailableReason): strin
   return t('toast.sync_not_ready');
 }
 
+/**
+ * The button's hint names the state that blocks it in one phrase; the tap
+ * keeps the toast's sentences. Sharing and an empty player read the same as on
+ * the media button and the seek bar.
+ */
+function getMainSyncUnavailableTip(reason: MainSyncUnavailableReason): string {
+  if (reason === 'system-audio') return t('system_audio.sharing');
+  if (reason === 'no-media') return t('player.no_media');
+  return t('player.not_ready_tip');
+}
+
 function syncMainSyncButtonState(): void {
   const button = getUiElement('btn-sync');
   if (!button) return;
   const reason = getMainSyncUnavailableReason();
-  // Toast copy separates sentences with line breaks instead of periods; the
-  // hint keeps those breaks.
-  setControlUnavailable(button, reason ? getMainSyncUnavailableMessage(reason) : null);
+  setControlUnavailable(button, reason ? getMainSyncUnavailableTip(reason) : null);
   button.setAttribute('aria-busy', String(_mainSyncPending));
 
   const label = button.querySelector<HTMLElement>('.play-action-label, [data-i18n]');
   if (!label) return;
   const visibleKey: I18nKey = _mainSyncPending ? 'player.syncing_compact' : 'player.sync_compact';
-  const accessibleKey: I18nKey = _mainSyncPending ? 'toast.yt_sync_start' : 'common.sync';
+  // The full name of the shortened visible label, without the ellipsis.
+  const accessibleKey: I18nKey = _mainSyncPending ? 'player.syncing_aria' : 'common.sync';
   label.textContent = t(visibleKey);
   label.setAttribute('data-i18n', visibleKey);
   button.setAttribute('aria-label', t(accessibleKey));
@@ -1166,7 +1174,16 @@ function syncVolumeAuthorityUI(): void {
     group.setAttribute('aria-label', t('player.volume'));
     // The disabled slider and mute button cannot take a pointer or focus, so
     // the group that receives the attempt carries the reason.
-    setControlUnavailable(group, locked ? roomCapabilityRequiredMessage('effects.control') : null);
+    const reason = locked ? roomCapabilityRequiredTip('effects.control') : null;
+    setControlUnavailable(group, reason);
+    // A hint is not read everywhere (iOS VoiceOver skips it), so the reason is
+    // the group's description as well.
+    const description = getUiElement(`${id}-reason`);
+    if (description) {
+      description.textContent = reason ?? '';
+      if (reason) group.setAttribute('aria-describedby', description.id);
+      else group.removeAttribute('aria-describedby');
+    }
   }
   for (const id of ['volume-slider', 'vol-icon-btn', 'demo-volume-slider', 'demo-vol-icon-btn']) {
     const control = getUiElement(id) as HTMLInputElement | HTMLButtonElement | null;
@@ -1284,6 +1301,29 @@ export function initPlayerControls(): void {
   syncFullscreenToggleAvailability();
   const stopFullscreenToggleSync = onFullscreenExitChange(syncFullscreenToggleAvailability);
   domSignal.addEventListener('abort', stopFullscreenToggleSync, { once: true });
+  // Full screen is a two-state toggle with a fixed name, so aria-pressed says
+  // whether the player fills the screen, natively or with the iOS shell.
+  const syncFullscreenTogglePressed = (): void => {
+    const toggle = getUiElement('btn-fullscreen');
+    if (!toggle) return;
+    const pressed = String(
+      Boolean(
+        getFullscreenElement() ||
+        document.querySelector('.video-wrapper')?.classList.contains('fake-fullscreen'),
+      ),
+    );
+    if (toggle.getAttribute('aria-pressed') !== pressed)
+      toggle.setAttribute('aria-pressed', pressed);
+  };
+  syncFullscreenTogglePressed();
+  const stopFullscreenPressedSync = onFullscreenSurfaceHostChange(syncFullscreenTogglePressed);
+  domSignal.addEventListener('abort', stopFullscreenPressedSync, { once: true });
+  const fullscreenShell = document.querySelector('.video-wrapper');
+  if (fullscreenShell) {
+    const shellObserver = new MutationObserver(syncFullscreenTogglePressed);
+    shellObserver.observe(fullscreenShell, { attributes: true, attributeFilter: ['class'] });
+    domSignal.addEventListener('abort', () => shellObserver.disconnect(), { once: true });
+  }
   $on('btn-fullscreen', 'click', () => {
     if (getFullscreenExitOwner() === 'screensaver') return;
     const videoWrapper = document.querySelector<FullscreenTarget>('.video-wrapper');
@@ -1822,6 +1862,10 @@ export function initPlayerControls(): void {
     }
     _playIconShowsPlaying = playing;
     const btn = getUiElement('play-btn');
+    // The button names what a press does now, like its icon; no aria-pressed.
+    const nameKey: I18nKey = playing ? 'common.pause' : 'player.play_aria';
+    btn?.setAttribute('data-i18n-aria-label', nameKey);
+    btn?.setAttribute('aria-label', t(nameKey));
     const icon = btn?.querySelector('path');
     if (icon) {
       icon.setAttribute(

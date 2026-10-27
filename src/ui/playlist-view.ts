@@ -884,7 +884,7 @@ export function updatePlaylistUI(): void {
     const expandButton = item.playlistId
       ? `<button type="button" class="expand-toggle ${isExpanded(item) ? 'active' : ''}"
           data-action="expand" data-queue-item-id="${escapeHtml(item.queueItemId)}"
-          aria-label="${escapeHtml(t('playlist.toggle'))}" aria-expanded="${isExpanded(item)}">
+          aria-label="${escapeHtml(t('playlist.item_tracks_aria', { title: displayName }))}" aria-expanded="${isExpanded(item)}">
           <svg viewBox="0 0 24 24" aria-hidden="true"><path d="m6.5 9 5.5 5.5L17.5 9"/></svg>
         </button>`
       : '';

@@ -61,7 +61,7 @@ export function openScreensaver(pendingEntry?: ScreensaverEntry): void {
   overlay.className = 'active';
   overlay.setAttribute('role', 'dialog');
   overlay.setAttribute('aria-modal', 'true');
-  overlay.setAttribute('aria-label', 'Screensaver');
+  overlay.setAttribute('aria-label', t('screensaver.name'));
   Object.assign(overlay.style, {
     position: 'fixed',
     top: '0',
@@ -75,7 +75,7 @@ export function openScreensaver(pendingEntry?: ScreensaverEntry): void {
     transition: motion?.matches ? 'none' : 'opacity 420ms cubic-bezier(.4, 0, .2, 1)',
   });
   const frame = document.createElement('iframe');
-  frame.title = 'Screensaver';
+  frame.title = t('screensaver.name');
   frame.src = '/screensaver.html';
   frame.allow = "fullscreen 'self'";
   frame.allowFullscreen = true;
@@ -257,7 +257,11 @@ export function openScreensaver(pendingEntry?: ScreensaverEntry): void {
   scope.on('state:player.currentTrackMeta', enforcePlayback);
   scope.on('state:files.current', () => sendUpdate());
   scope.on('audio:ready', () => sendUpdate());
-  scope.on('i18n:changed', () => sendUpdate());
+  scope.on('i18n:changed', () => {
+    overlay.setAttribute('aria-label', t('screensaver.name'));
+    frame.title = t('screensaver.name');
+    sendUpdate();
+  });
   scope.on('state:setup.sessionStarted', (started) => {
     if (!started) cleanup(true);
   });

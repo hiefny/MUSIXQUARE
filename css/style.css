@@ -3521,14 +3521,14 @@ or pointers. Keep :focus-visible and :active outside the gate (src/ui/__tests__/
   }
 
   /* No !important on the colors: an important declaration in this layer
-     would outrank the unlayered forced-colors rules for the pressed toggle. */
-  .room-password-toggle[aria-pressed='true'] {
+     would outrank the unlayered forced-colors rules for the checked switch. */
+  .room-password-toggle[aria-checked='true'] {
     background: rgba(var(--primary-rgb), 0.18);
   }
 
-  /* The pressed state remains authoritative over the imperative toggle renderer until that renderer is removed; this is a state/inline ownership guard, not a radius or color override. */
+  /* The checked state remains authoritative over the imperative toggle renderer until that renderer is removed; this is a state/inline ownership guard, not a radius or color override. */
 
-  .room-password-toggle[aria-pressed='true'] .room-password-toggle-knob {
+  .room-password-toggle[aria-checked='true'] .room-password-toggle-knob {
     background: var(--primary);
     transform: translateX(20px) !important;
   }
@@ -12828,13 +12828,16 @@ or pointers. Keep :focus-visible and :active outside the gate (src/ui/__tests__/
      choice rows do; only icons and check marks, which have no backplate,
      take HighlightText. A picked playlist title is pressed only for screen
      readers: its row's selection block and check already show it, so it
-     keeps its plain look (:where adds no specificity). */
+     keeps its plain look (:where adds no specificity). Repeat names its mode
+     instead of carrying aria-pressed, so its two repeat modes are listed (an
+     attribute id keeps the class-level specificity of the other entries). */
   :is(button, [role='button'], [role='switch'], [role='tab']):where(:not(.track-name)):is(
     [aria-pressed='true'],
     [aria-selected='true'],
     [aria-checked='true']
   ),
   :is(
+    [id='btn-repeat']:is(.active, .active-one),
     .track-item.active,
     .sub-track-item.active,
     .yt-search-result.selected,
@@ -12854,6 +12857,7 @@ or pointers. Keep :focus-visible and :active outside the gate (src/ui/__tests__/
     )
     svg,
   :is(
+      [id='btn-repeat']:is(.active, .active-one),
       .track-item.active,
       .sub-track-item.active,
       .yt-search-result.selected,
@@ -13001,13 +13005,13 @@ or pointers. Keep :focus-visible and :active outside the gate (src/ui/__tests__/
     background: ButtonFace !important;
   }
 
-  .room-password-toggle[aria-pressed='true'],
+  .room-password-toggle[aria-checked='true'],
   .administrator-permission-row[aria-checked='true'] .administrator-permission-toggle {
     border-color: HighlightText !important;
     background: Highlight !important;
   }
 
-  .room-password-toggle[aria-pressed='true'] .room-password-toggle-knob,
+  .room-password-toggle[aria-checked='true'] .room-password-toggle-knob,
   .administrator-permission-row[aria-checked='true'] .administrator-permission-toggle-knob {
     background: HighlightText !important;
   }

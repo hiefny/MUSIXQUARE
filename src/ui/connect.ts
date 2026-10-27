@@ -685,7 +685,8 @@ function syncRoomPasswordControls(): void {
     if (!toggle) return;
     toggle.hidden = false;
     toggle.classList.toggle('active', active);
-    toggle.setAttribute('aria-pressed', active ? 'true' : 'false');
+    // A switch named by the visible section title (aria-labelledby).
+    toggle.setAttribute('aria-checked', active ? 'true' : 'false');
     toggle.disabled = locked;
     toggle.setAttribute('aria-disabled', canEdit && !toggle.disabled ? 'false' : 'true');
     toggle.style.background = active ? 'rgba(var(--primary-rgb), 0.18)' : '';
@@ -726,7 +727,8 @@ function syncRoomPasswordControls(): void {
   ROOM_PASSWORD_EDIT_IDS.forEach((id) => {
     const button = getUiElement(id) as HTMLButtonElement | null;
     if (!button) return;
-    // PRO: the pencil changes the PIN. Standard: the eye shows or hides it.
+    // PRO: the pencil changes the PIN. Standard: the eye shows or hides it,
+    // and like its icon, its name says what a press does now (no aria-pressed).
     const ariaKey = isPro
       ? 'pro.pin_change_title'
       : shownPin
@@ -744,8 +746,6 @@ function syncRoomPasswordControls(): void {
             ? ROOM_PASSWORD_HIDE_PATH
             : ROOM_PASSWORD_SHOW_PATH,
       );
-    if (isPro) button.removeAttribute('aria-pressed');
-    else button.setAttribute('aria-pressed', shownPin ? 'true' : 'false');
     const unavailable = !active || !canEdit || (!isPro && !knownPin);
     button.hidden = unavailable;
     button.disabled = unavailable || locked;
@@ -1864,7 +1864,10 @@ function renderConnectDeviceList(list: readonly unknown[]): void {
           opBtn.type = 'button';
           opBtn.className = 'd-op-btn administrator-action-button administrator-state-button grant';
           opBtn.dataset.administratorState = 'inactive';
-          opBtn.setAttribute('aria-label', t('common.grant'));
+          opBtn.setAttribute(
+            'aria-label',
+            t('connect.administrator_grant_aria', { name: member.label || t('common.peer') }),
+          );
           opBtn.innerHTML = CROWN_ICON;
           opBtn.addEventListener('click', (event) => {
             event.preventDefault();
@@ -1908,7 +1911,10 @@ function renderConnectDeviceList(list: readonly unknown[]): void {
           const kickBtn = document.createElement('button');
           kickBtn.type = 'button';
           kickBtn.className = 'btn-kick-device';
-          kickBtn.setAttribute('aria-label', t('connect.kick_title'));
+          kickBtn.setAttribute(
+            'aria-label',
+            t('connect.kick_member_aria', { name: member.label || t('common.peer') }),
+          );
           kickBtn.innerHTML =
             '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M19 6.41L17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12z"/></svg>';
           kickBtn.addEventListener('click', (event) => {
@@ -2005,7 +2011,10 @@ function renderConnectDeviceList(list: readonly unknown[]): void {
             const kickDeviceBtn = document.createElement('button');
             kickDeviceBtn.type = 'button';
             kickDeviceBtn.className = 'btn-kick-physical-device';
-            kickDeviceBtn.setAttribute('aria-label', `${t('connect.kick_title')}: ${displayName}`);
+            kickDeviceBtn.setAttribute(
+              'aria-label',
+              t('connect.kick_device_aria', { name: displayName }),
+            );
             kickDeviceBtn.innerHTML =
               '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M19 6.41L17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12z"/></svg>';
             kickDeviceBtn.addEventListener('click', (event) => {

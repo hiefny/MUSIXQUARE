@@ -40,11 +40,32 @@ const CAPABILITY_CHECKING_TOAST = {
 } as const satisfies Record<RoomCapability, I18nKey | null>;
 
 /**
- * The definitive denial. Persistent labels (titles, aria text) use this: they
- * are not re-rendered when the pending answer arrives.
+ * The reason a locked control shows as its hint and accessible description: a
+ * short state phrase, not the toast's sentence (docs/i18n-translation-guide.md
+ * §2 rule 9). Only capabilities that lock a visible control have
+ * one; the tap still explains the denial with the toast above.
+ */
+const ROOM_CAPABILITY_TIP_KEYS = {
+  'media.add': 'player.media_management_required_tip',
+  'queue.mutate': 'player.media_management_required_tip',
+  'asset.upload': 'player.media_management_required_tip',
+  'playback.control': 'player.playback_control_required_tip',
+  'effects.control': 'player.volume_locked_tip',
+} as const satisfies Partial<Record<RoomCapability, I18nKey>>;
+
+type RoomCapabilityWithTip = keyof typeof ROOM_CAPABILITY_TIP_KEYS;
+
+/**
+ * The definitive denial for one-shot feedback (a toast). It is not re-rendered
+ * when a pending answer arrives.
  */
 export function roomCapabilityRequiredMessage(capability: RoomCapability): string {
   return t(CAPABILITY_REQUIRED_TOAST[capability]);
+}
+
+/** The definitive denial as a persistent hint on the locked control. */
+export function roomCapabilityRequiredTip(capability: RoomCapabilityWithTip): string {
+  return t(ROOM_CAPABILITY_TIP_KEYS[capability]);
 }
 
 /**

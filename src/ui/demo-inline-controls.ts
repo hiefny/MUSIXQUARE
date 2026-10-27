@@ -1,5 +1,4 @@
 import { getState } from '../core/state.ts';
-import { t } from '../i18n/index.ts';
 import { onWindowBack, trackClosingCssTransition } from './dom.ts';
 
 interface DemoInlineControlsOptions {
@@ -39,10 +38,8 @@ export function bindDemoInlineControls({
       finishClose?.();
       finishClose = !next && !signal.aborted ? trackClosingCssTransition(controls) : null;
     }
+    // A disclosure keeps its name (Settings); aria-expanded says it is open.
     opener.setAttribute('aria-expanded', String(next));
-    const label = next ? 'common.close' : 'nav.settings';
-    opener.setAttribute('data-i18n-aria-label', label);
-    opener.setAttribute('aria-label', t(label));
     controls.toggleAttribute('inert', !next);
     controls.setAttribute('aria-hidden', String(!next));
     copy?.setAttribute('aria-hidden', String(next));

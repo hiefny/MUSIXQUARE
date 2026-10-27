@@ -3329,8 +3329,9 @@ Safety is declared first because important layer precedence is reversed; its acc
     box-sizing: border-box;
   }
 
-  /* Delete (trash) and Cancel (close) are 54px circular icon buttons, the
-     dialog pill family's height, inside one container pill. It follows the last track; a list
+  /* Move, Delete (trash) and Cancel (close) are 54px circular icon buttons
+     inside one 68px container pill; they are icon circles, not dialog action
+     pills, so they keep their own size. It follows the last track; a list
      taller than the view keeps it floating at the bottom (sticky), above the
      bottom navigation. The container carries the light dialog grey button's
      faint token stroke (transparent in dark, its own value in the
@@ -5618,8 +5619,9 @@ Safety is declared first because important layer precedence is reversed; its acc
   }
 
   /* Very short screens are the one place the account actions leave the shared
-     12px / 56px pill rhythm: a 6px gap and 44px touch-target pills keep every
-     action reachable without scrolling the panel. */
+     12px / 56px pill rhythm: a 6px gap and 44px touch-target pills, in both
+     the signed-in and the signed-out view, keep every action reachable
+     without scrolling the panel. */
   @media (max-height: 350px) {
     html:not(.keyboard-open) .dialog.account-dialog .account-dialog-header {
       padding: 12px 12px 0;
@@ -5640,6 +5642,13 @@ Safety is declared first because important layer precedence is reversed; its acc
 
     html:not(.keyboard-open) .account-dialog-login-actions {
       padding: 0 24px 12px;
+    }
+
+    /* Close's top margin is the signed-out view's action gap. A primary
+       Close (sign-in loading or unavailable) is the only action and keeps
+       no margin. */
+    html:not(.keyboard-open) .account-dialog-login-close:not(.dialog-primary) {
+      margin-top: 6px;
     }
 
     html:not(.keyboard-open) .account-dialog-login-actions .account-google-button,
@@ -9036,6 +9045,9 @@ Safety is declared first because important layer precedence is reversed; its acc
     background: var(--surface-3);
   }
 
+  /* Outside the shared 12px / 56px dialog pill rhythm on purpose: this compact
+     tool panel keeps its 8px rows and 52px pair under the 44px nudge chips
+     (OUTSIDE_RHYTHM in action-rhythm-contract.test.ts). */
   .sync-bottom-row {
     display: flex;
     gap: 8px;
@@ -11076,10 +11088,10 @@ Safety is declared first because important layer precedence is reversed; its acc
     margin-top: 8px;
   }
 
+  /* The YouTube link dialog's action row: .ob-actions owns its flex layout
+     and the shared 12px pill gap, so this utility only sets the top margin. */
   .setup-card-mt-8-row {
     margin-top: 8px;
-    display: flex;
-    gap: 10px;
   }
 
   .setup-mt-0 {

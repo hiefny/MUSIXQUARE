@@ -4485,8 +4485,8 @@ or pointers. Keep :focus-visible and :active outside the gate (src/ui/__tests__/
     margin-top: 12px;
     border: none;
     border-radius: var(--radius-pill);
-    /* The resting and hover tints of account deletion, so every destructive
-       tone pill shares one surface family. */
+    /* The --control-danger tints account deletion rests on, so every
+       destructive tone pill shares one surface family. */
     background: var(--control-danger);
     color: var(--danger-foreground);
     font-size: var(--button-label-size);

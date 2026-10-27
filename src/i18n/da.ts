@@ -617,7 +617,6 @@ const da: Record<I18nKey, string> = {
   'toast.add_media_to_play': 'Tilføj et medie',
   'toast.no_invite_code': 'Der er endnu ingen invitationskode',
   'toast.invite_code_settings': 'Del invitationslinket fra fanen Forbind',
-  'toast.click_copy_invite': 'Klik for at kopiere invitationskoden',
   'toast.cant_select_file': 'Kan ikke vælge en fil',
   'toast.unsupported_files_excluded': 'Ikke-understøttede filer sprunget over: {{count}}',
   'toast.no_supported_audio_files': 'Der er ingen understøttede lydfiler at tilføje',

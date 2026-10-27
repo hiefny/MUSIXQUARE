@@ -29,6 +29,7 @@ import { t } from '../i18n/index.ts';
 import { isYouTubeZeroStartInFlight } from '../youtube/zero-start.ts';
 import { isProPlaybackTrackSelectionPending } from '../pro-room/playback-authority-hooks.ts';
 import type { ProPlaybackUiControlPendingEvent, QueueItemId } from '../types/index.ts';
+import { setControlUnavailable } from './control-hint.ts';
 import { syncRangeProgress } from './range-drag.ts';
 import { showToast } from './toast.ts';
 
@@ -188,14 +189,9 @@ function syncSeekAvailability(
 ): void {
   if (!slider) return;
   const reason = getSeekUnavailableReason();
-  slider.setAttribute('aria-disabled', String(reason !== null));
-  if (reason) {
-    // Toast copy separates sentences with line breaks instead of periods; the
-    // tooltip keeps those breaks.
-    slider.title = getSeekUnavailableMessage(reason);
-  } else {
-    slider.removeAttribute('title');
-  }
+  // Toast copy separates sentences with line breaks instead of periods; the
+  // hint keeps those breaks.
+  setControlUnavailable(slider, reason ? getSeekUnavailableMessage(reason) : null);
 }
 
 function finishSeekDraft(slider?: HTMLInputElement): void {

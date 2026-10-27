@@ -580,7 +580,6 @@ const id: Record<I18nKey, string> = {
   'toast.add_media_to_play': 'Silakan tambahkan media untuk diputar',
   'toast.no_invite_code': 'Belum ada kode undangan',
   'toast.invite_code_settings': 'Bagikan tautan undangan dari tab Hubungkan',
-  'toast.click_copy_invite': 'Klik untuk menyalin kode undangan',
   'toast.cant_select_file': 'Tidak dapat memilih file',
   'toast.unsupported_files_excluded': '{{count}} file yang tidak didukung dilewati',
   'toast.no_supported_audio_files': 'Tidak ada file audio yang dapat ditambahkan',

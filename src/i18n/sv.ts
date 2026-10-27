@@ -619,7 +619,6 @@ const sv: Record<I18nKey, string> = {
   'toast.add_media_to_play': 'Lägg till media',
   'toast.no_invite_code': 'Det finns ingen inbjudningskod ännu',
   'toast.invite_code_settings': 'Dela inbjudningslänken från fliken Anslut',
-  'toast.click_copy_invite': 'Klicka för att kopiera inbjudningskoden',
   'toast.cant_select_file': 'Det går inte att välja en fil',
   'toast.unsupported_files_excluded': 'Filer som inte stöds hoppades över: {{count}}',
   'toast.no_supported_audio_files': 'Det finns inga ljudfiler som stöds att lägga till',

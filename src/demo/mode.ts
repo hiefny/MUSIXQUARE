@@ -1132,8 +1132,9 @@ function syncDemoStep(step = _demoStep, revealScrollbar = false): void {
     const isFinal = _demoStep >= 4;
     btn.classList.toggle('active', isFinal);
     btn.classList.toggle('is-final', isFinal);
+    // Named, not titled: the arrow's name or the final step's visible text
+    // would only repeat as a tooltip.
     btn.setAttribute('aria-label', t(isFinal ? 'demo.step_finish' : 'common.next'));
-    btn.setAttribute('title', t(isFinal ? 'demo.step_finish' : 'common.next'));
   });
   const overlay = document.getElementById('demo-overlay');
   if (revealScrollbar && overlay?.classList.contains('active')) {

@@ -618,7 +618,6 @@ const kn: Record<I18nKey, string> = {
   'toast.add_media_to_play': 'ದಯವಿಟ್ಟು ಮೀಡಿಯಾ ಸೇರಿಸಿ',
   'toast.no_invite_code': 'ಇನ್ನೂ ಆಮಂತ್ರಣ ಕೋಡ್ ಇಲ್ಲ',
   'toast.invite_code_settings': 'ಸಂಪರ್ಕ ಟ್ಯಾಬ್‌ನಿಂದ ಆಮಂತ್ರಣ ಲಿಂಕ್ ಹಂಚಿಕೊಳ್ಳಿ',
-  'toast.click_copy_invite': 'ಆಮಂತ್ರಣ ಕೋಡ್ ನಕಲಿಸಲು ಕ್ಲಿಕ್ ಮಾಡಿ',
   'toast.cant_select_file': 'ಫೈಲ್ ಆರಿಸಲಾಗುವುದಿಲ್ಲ',
   'toast.unsupported_files_excluded': 'ಬೆಂಬಲಿಸದ ಫೈಲ್‌ಗಳನ್ನು ಬಿಟ್ಟುಬಿಡಲಾಗಿದೆ: {{count}}',
   'toast.no_supported_audio_files': 'ಸೇರಿಸಲು ಬೆಂಬಲಿತ ಆಡಿಯೊ ಫೈಲ್‌ಗಳಿಲ್ಲ',

@@ -629,7 +629,6 @@ const nl: Record<I18nKey, string> = {
   'toast.add_media_to_play': 'Voeg media toe om af te spelen',
   'toast.no_invite_code': 'Nog geen uitnodigingscode',
   'toast.invite_code_settings': 'Deel de uitnodigingslink via de tab Verbinden',
-  'toast.click_copy_invite': 'Klik om de uitnodigingscode te kopiëren',
   'toast.cant_select_file': 'Kan geen bestand kiezen',
   'toast.unsupported_files_excluded': 'Niet-ondersteunde bestanden overgeslagen: {{count}}',
   'toast.no_supported_audio_files': 'Geen ondersteunde audiobestanden gevonden',

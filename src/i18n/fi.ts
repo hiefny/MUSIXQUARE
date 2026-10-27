@@ -617,7 +617,6 @@ const fi: Record<I18nKey, string> = {
   'toast.add_media_to_play': 'Lisää mediaa',
   'toast.no_invite_code': 'Kutsukoodia ei ole vielä',
   'toast.invite_code_settings': 'Jaa kutsulinkki Yhteys-välilehdeltä',
-  'toast.click_copy_invite': 'Kopioi kutsukoodi napsauttamalla',
   'toast.cant_select_file': 'Tiedostoa ei voi valita',
   'toast.unsupported_files_excluded': 'Ohitettiin tiedostoja, joita ei tueta: {{count}}',
   'toast.no_supported_audio_files': 'Lisättäviä tuettuja äänitiedostoja ei ole',

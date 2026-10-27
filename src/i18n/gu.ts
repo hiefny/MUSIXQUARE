@@ -602,7 +602,6 @@ const gu: Record<I18nKey, string> = {
   'toast.add_media_to_play': 'કૃપા કરીને મીડિયા ઉમેરો',
   'toast.no_invite_code': 'હજી આમંત્રણ કોડ નથી',
   'toast.invite_code_settings': 'જોડાણ ટૅબમાંથી આમંત્રણ લિંક શેર કરો',
-  'toast.click_copy_invite': 'આમંત્રણ કોડ કૉપિ કરવા ક્લિક કરો',
   'toast.cant_select_file': 'ફાઇલ પસંદ કરી શકાતી નથી',
   'toast.unsupported_files_excluded': 'અસમર્થિત ફાઇલો છોડી: {{count}}',
   'toast.no_supported_audio_files': 'ઉમેરવા માટે કોઈ સમર્થિત ઑડિયો ફાઇલ નથી',

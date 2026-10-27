@@ -588,7 +588,6 @@ const fr: Record<I18nKey, string> = {
   'toast.add_media_to_play': 'Veuillez ajouter des médias',
   'toast.no_invite_code': 'Aucun code d’invitation pour l’instant',
   'toast.invite_code_settings': 'Partagez le lien d’invitation depuis l’onglet Connexion',
-  'toast.click_copy_invite': 'Appuyez pour copier le code d’invitation',
   'toast.cant_select_file': 'Impossible de sélectionner un fichier',
   'toast.unsupported_files_excluded': 'Fichiers non pris en charge ignorés : {{count}}',
   'toast.no_supported_audio_files': 'Aucun fichier audio compatible à ajouter',

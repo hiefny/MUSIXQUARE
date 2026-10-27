@@ -604,7 +604,6 @@ const fa: Record<I18nKey, string> = {
   'toast.add_media_to_play': 'رسانه اضافه کنید',
   'toast.no_invite_code': 'هنوز کد دعوتی وجود ندارد',
   'toast.invite_code_settings': 'پیوند دعوت را از زبانهٔ اتصال به اشتراک بگذارید',
-  'toast.click_copy_invite': 'برای کپی کد دعوت بزنید',
   'toast.cant_select_file': 'نمی‌توان فایل انتخاب کرد',
   'toast.unsupported_files_excluded': 'فایل‌های پشتیبانی‌نشده رد شدند: {{count}}',
   'toast.no_supported_audio_files': 'فایل صوتی پشتیبانی‌شده‌ای برای افزودن نیست',

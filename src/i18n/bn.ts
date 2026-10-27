@@ -610,7 +610,6 @@ const bn: Record<I18nKey, string> = {
   'toast.add_media_to_play': 'মিডিয়া যোগ করুন',
   'toast.no_invite_code': 'এখনো কোনো আমন্ত্রণ কোড নেই',
   'toast.invite_code_settings': 'সংযোগ ট্যাব থেকে আমন্ত্রণ লিংক শেয়ার করুন',
-  'toast.click_copy_invite': 'আমন্ত্রণ কোড কপি করতে ক্লিক করুন',
   'toast.cant_select_file': 'ফাইল বেছে নেওয়া যাচ্ছে না',
   'toast.unsupported_files_excluded': 'অসমর্থিত ফাইল বাদ দেওয়া হয়েছে: {{count}}',
   'toast.no_supported_audio_files': 'যোগ করার মতো কোনো সমর্থিত অডিও ফাইল নেই',

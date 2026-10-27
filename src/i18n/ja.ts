@@ -579,7 +579,6 @@ const ja: Record<I18nKey, string> = {
   'toast.add_media_to_play': 'メディアを追加してください',
   'toast.no_invite_code': '招待コードはまだありません',
   'toast.invite_code_settings': '「接続」タブから招待リンクを共有できます',
-  'toast.click_copy_invite': 'クリックして招待コードをコピー',
   'toast.cant_select_file': 'ファイルを選択できません',
   'toast.unsupported_files_excluded': '未対応のファイル{{count}}個は除外されます',
   'toast.no_supported_audio_files': '追加できるオーディオファイルがありません',

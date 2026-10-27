@@ -624,7 +624,6 @@ const ro: Record<I18nKey, string> = {
   'toast.add_media_to_play': 'Adaugă conținut media',
   'toast.no_invite_code': 'Nu există încă un cod de invitație',
   'toast.invite_code_settings': 'Distribuie linkul de invitație din fila Conectare',
-  'toast.click_copy_invite': 'Apasă pentru a copia codul de invitație',
   'toast.cant_select_file': 'Fișierul nu poate fi selectat',
   'toast.unsupported_files_excluded': 'Fișiere neacceptate omise: {{count}}',
   'toast.no_supported_audio_files': 'Nu există fișiere audio compatibile de adăugat',

@@ -604,7 +604,6 @@ const tr: Record<I18nKey, string> = {
   'toast.add_media_to_play': 'Oynatmak için medya ekle',
   'toast.no_invite_code': 'Davet kodu henüz oluşturulmadı',
   'toast.invite_code_settings': 'Davet bağlantısını Bağlan sekmesinden paylaşabilirsin',
-  'toast.click_copy_invite': 'Davet kodunu kopyalamak için dokun',
   'toast.cant_select_file': 'Dosya seçilemiyor',
   'toast.unsupported_files_excluded': 'Desteklenmeyen {{count}} dosya atlanacak',
   'toast.no_supported_audio_files': 'Eklenebilecek ses dosyası yok',

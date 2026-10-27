@@ -615,7 +615,6 @@ const nb: Record<I18nKey, string> = {
   'toast.add_media_to_play': 'Legg til medier',
   'toast.no_invite_code': 'Det finnes ingen invitasjonskode ennå',
   'toast.invite_code_settings': 'Del invitasjonslenken fra Koble til-fanen',
-  'toast.click_copy_invite': 'Klikk for å kopiere invitasjonskoden',
   'toast.cant_select_file': 'Kan ikke velge en fil',
   'toast.unsupported_files_excluded': 'Filer som ikke støttes, ble hoppet over: {{count}}',
   'toast.no_supported_audio_files': 'Det finnes ingen støttede lydfiler å legge til',

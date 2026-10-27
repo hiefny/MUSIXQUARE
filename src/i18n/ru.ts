@@ -621,7 +621,6 @@ const ru: Record<I18nKey, string> = {
   'toast.add_media_to_play': 'Добавьте медиа для воспроизведения',
   'toast.no_invite_code': 'Код приглашения ещё не создан',
   'toast.invite_code_settings': 'Поделитесь ссылкой-приглашением на вкладке «Подключение»',
-  'toast.click_copy_invite': 'Нажмите для копирования кода приглашения',
   'toast.cant_select_file': 'Не удаётся выбрать файл',
   'toast.unsupported_files_excluded': 'Пропущено неподдерживаемых файлов: {{count}}',
   'toast.no_supported_audio_files': 'Нет поддерживаемых аудиофайлов для добавления',

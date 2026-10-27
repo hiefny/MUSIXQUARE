@@ -630,7 +630,6 @@ const ta: Record<I18nKey, string> = {
   'toast.add_media_to_play': 'மீடியாவைச் சேர்க்கவும்',
   'toast.no_invite_code': 'இன்னும் அழைப்புக் குறியீடு இல்லை',
   'toast.invite_code_settings': 'இணைப்பு தாவலில் இருந்து அழைப்பு இணைப்பைப் பகிரவும்',
-  'toast.click_copy_invite': 'அழைப்புக் குறியீட்டை நகலெடுக்கக் கிளிக் செய்யவும்',
   'toast.cant_select_file': 'கோப்பைத் தேர்வுசெய்ய முடியவில்லை',
   'toast.unsupported_files_excluded': 'ஆதரிக்கப்படாத கோப்புகள் தவிர்க்கப்பட்டன: {{count}}',
   'toast.no_supported_audio_files': 'சேர்க்க ஆதரிக்கப்படும் ஆடியோ கோப்புகள் இல்லை',

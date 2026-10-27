@@ -32,7 +32,11 @@ import {
 import { getStandardRolePreset } from './player-controls.ts';
 import { cancelRangeDrag, syncRangeProgress } from './range-drag.ts';
 import { showToast } from './toast.ts';
-import { showRoomCapabilityRequired } from '../rooms/permission-feedback.ts';
+import {
+  roomCapabilityRequiredMessage,
+  showRoomCapabilityRequired,
+} from '../rooms/permission-feedback.ts';
+import { setControlUnavailable } from './control-hint.ts';
 import { syncAppThemeChrome, syncDemoThemeChrome } from './theme-chrome.ts';
 import { initCustomScrollbar } from './custom-scrollbar.ts';
 import { getUiElement, onWindowBack, syncOverlayState } from './dom.ts';
@@ -147,11 +151,14 @@ function _bindHostCtrlLockedAttemptToasts(): void {
 
 function _updateHostCtrlLockUI(): void {
   const locked = _isGuestLocked();
+  // Taps on a locked group explain the lock with a toast; the group's hint
+  // gives the same reason on hover.
+  const reason = locked ? roomCapabilityRequiredMessage('effects.control') : null;
   HOST_CTRL_LOCK_IDS.forEach((id) => {
     const el = getUiElement(id);
     if (el) {
       el.classList.toggle('host-ctrl-locked', locked);
-      el.setAttribute('aria-disabled', locked ? 'true' : 'false');
+      setControlUnavailable(el, reason);
       // Disable range inputs to prevent visual desync (slider moves but audio unchanged)
       el.querySelectorAll<HTMLInputElement>('input[type="range"]').forEach((input) => {
         if (locked) cancelRangeDrag(input);
@@ -1227,6 +1234,7 @@ export function initSettings(): void {
   _busScope.on('i18n:changed', () => {
     const list = getState('network.lastKnownDeviceList') || [];
     renderDeviceList(list.filter(isDeviceListRow));
+    _updateHostCtrlLockUI();
     refreshLanguageControls();
     updateLanguageScrollMask();
     syncStandardRoleDescription();

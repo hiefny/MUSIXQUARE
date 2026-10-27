@@ -18,6 +18,7 @@ import type { I18nKey } from '../i18n/index.ts';
 import { showToast } from './toast.ts';
 import { bindDemoInlineControls } from './demo-inline-controls.ts';
 import { applyUserTextFontFallback } from './user-text-font.ts';
+import { setControlUnavailable } from './control-hint.ts';
 import { switchTab } from './tabs.ts';
 import {
   cycleFocusWithin,
@@ -223,12 +224,14 @@ function syncPlayButtonAuthority(): void {
     // Sharing has no transport controls. Native disabled also blocks keyboard
     // activation; authority/readiness alone remain clickable for feedback.
     transportButton.toggleAttribute('disabled', systemAudioLocked);
-    transportButton.setAttribute(
-      'aria-disabled',
-      String(systemAudioLocked || !hasAuthority || (id === 'play-btn' && !_playButtonMediaEnabled)),
+    const unavailable =
+      systemAudioLocked || !hasAuthority || (id === 'play-btn' && !_playButtonMediaEnabled);
+    // Only a missing permission needs words: sharing and an empty queue show
+    // themselves on the player.
+    setControlUnavailable(
+      transportButton,
+      !hasAuthority ? authorityMessage : unavailable ? '' : null,
     );
-    if (!hasAuthority) transportButton.title = authorityMessage;
-    else transportButton.removeAttribute('title');
   }
 }
 
@@ -672,14 +675,14 @@ function syncMediaSourceButtonAuthority(): void {
         : isPlaybackModeSystemAudio()
           ? canStopSystemAudio
           : canSelectMedia;
-    mediaBtn.setAttribute('aria-disabled', String(!enabled));
-    if (enabled) {
-      mediaBtn.removeAttribute('title');
-    } else {
-      mediaBtn.title = isPlaybackModeSystemAudio()
-        ? t('system_audio.sharing')
-        : roomCapabilityRequiredMessage('media.add');
-    }
+    setControlUnavailable(
+      mediaBtn,
+      enabled
+        ? null
+        : isPlaybackModeSystemAudio()
+          ? t('system_audio.sharing')
+          : roomCapabilityRequiredMessage('media.add'),
+    );
   }
 }
 
@@ -688,11 +691,10 @@ function canConfigureQueueMode(): boolean {
 }
 
 function syncQueueModeButtonAuthority(): void {
-  const enabled = canConfigureQueueMode();
+  const reason = canConfigureQueueMode() ? null : roomCapabilityRequiredMessage('queue.mutate');
   for (const id of ['btn-repeat', 'btn-shuffle']) {
     const button = getUiElement(id);
-    if (!button) continue;
-    button.setAttribute('aria-disabled', String(!enabled));
+    if (button) setControlUnavailable(button, reason);
   }
 }
 
@@ -969,15 +971,10 @@ function syncMainSyncButtonState(): void {
   const button = getUiElement('btn-sync');
   if (!button) return;
   const reason = getMainSyncUnavailableReason();
-  button.setAttribute('aria-disabled', String(reason !== null));
+  // Toast copy separates sentences with line breaks instead of periods; the
+  // hint keeps those breaks.
+  setControlUnavailable(button, reason ? getMainSyncUnavailableMessage(reason) : null);
   button.setAttribute('aria-busy', String(_mainSyncPending));
-  if (reason) {
-    // Toast copy separates sentences with line breaks instead of periods; the
-    // tooltip keeps those breaks.
-    button.title = getMainSyncUnavailableMessage(reason);
-  } else {
-    button.removeAttribute('title');
-  }
 
   const label = button.querySelector<HTMLElement>('.play-action-label, [data-i18n]');
   if (!label) return;
@@ -1166,10 +1163,10 @@ function syncVolumeAuthorityUI(): void {
     if (!group) continue;
     if (locked) group.tabIndex = 0;
     else group.removeAttribute('tabindex');
-    group.setAttribute(
-      'aria-label',
-      locked ? roomCapabilityRequiredMessage('effects.control') : t('player.volume'),
-    );
+    group.setAttribute('aria-label', t('player.volume'));
+    // The disabled slider and mute button cannot take a pointer or focus, so
+    // the group that receives the attempt carries the reason.
+    setControlUnavailable(group, locked ? roomCapabilityRequiredMessage('effects.control') : null);
   }
   for (const id of ['volume-slider', 'vol-icon-btn', 'demo-volume-slider', 'demo-vol-icon-btn']) {
     const control = getUiElement(id) as HTMLInputElement | HTMLButtonElement | null;
@@ -1731,6 +1728,7 @@ export function initPlayerControls(): void {
     updateRoleBadge();
     syncPlayButtonAuthority();
     syncMediaSourceButtonAuthority();
+    syncQueueModeButtonAuthority();
     syncMainSyncButtonState();
     syncVolumeAuthorityUI();
   };

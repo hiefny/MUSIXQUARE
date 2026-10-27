@@ -623,7 +623,6 @@ const hu: Record<I18nKey, string> = {
   'toast.add_media_to_play': 'Adj hozzá médiát',
   'toast.no_invite_code': 'Még nincs meghívókód',
   'toast.invite_code_settings': 'Oszd meg a meghívóhivatkozást a Kapcsolódás lapon',
-  'toast.click_copy_invite': 'Kattints a meghívókód másolásához',
   'toast.cant_select_file': 'Nem választható ki fájl',
   'toast.unsupported_files_excluded': '{{count}} nem támogatott fájl kihagyva',
   'toast.no_supported_audio_files': 'Nincs hozzáadható támogatott hangfájl',

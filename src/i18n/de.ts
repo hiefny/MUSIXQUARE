@@ -593,7 +593,6 @@ const de: Record<I18nKey, string> = {
   'toast.add_media_to_play': 'Bitte Medien hinzufügen',
   'toast.no_invite_code': 'Noch kein Einladungscode',
   'toast.invite_code_settings': 'Teile den Einladungslink im Tab „Verbinden“',
-  'toast.click_copy_invite': 'Klicken, um Einladungscode zu kopieren',
   'toast.cant_select_file': 'Datei kann nicht ausgewählt werden',
   'toast.unsupported_files_excluded': 'Nicht unterstützte Dateien übersprungen: {{count}}',
   'toast.no_supported_audio_files': 'Keine unterstützten Audiodateien gefunden',

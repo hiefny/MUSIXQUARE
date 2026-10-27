@@ -598,7 +598,6 @@ const ko = {
   'toast.add_media_to_play': '미디어를 추가해 주세요',
   'toast.no_invite_code': '초대 코드가 아직 없어요',
   'toast.invite_code_settings': '연결 탭에서 초대 링크를 공유할 수 있어요',
-  'toast.click_copy_invite': '클릭하여 초대 코드 복사',
   'toast.cant_select_file': '파일을 선택할 수 없어요',
   'toast.unsupported_files_excluded': '지원하지 않는 파일 {{count}}개는 제외돼요',
   'toast.no_supported_audio_files': '추가할 수 있는 오디오 파일이 없어요',

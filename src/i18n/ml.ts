@@ -625,7 +625,6 @@ const ml: Record<I18nKey, string> = {
   'toast.add_media_to_play': 'മീഡിയ ചേർക്കുക',
   'toast.no_invite_code': 'ക്ഷണ കോഡ് ഇതുവരെ ലഭ്യമല്ല',
   'toast.invite_code_settings': 'ബന്ധിപ്പിക്കുക ടാബിൽ നിന്ന് ക്ഷണ ലിങ്ക് പങ്കിടുക',
-  'toast.click_copy_invite': 'ക്ഷണ കോഡ് പകർത്താൻ ക്ലിക്ക് ചെയ്യുക',
   'toast.cant_select_file': 'ഫയൽ തിരഞ്ഞെടുക്കാനാകില്ല',
   'toast.unsupported_files_excluded': 'പിന്തുണയ്ക്കാത്ത ഫയലുകൾ ഒഴിവാക്കി: {{count}}',
   'toast.no_supported_audio_files': 'ചേർക്കാൻ പിന്തുണയ്ക്കുന്ന ഓഡിയോ ഫയലുകളില്ല',

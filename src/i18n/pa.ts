@@ -611,7 +611,6 @@ const pa: Record<I18nKey, string> = {
   'toast.add_media_to_play': 'ਕਿਰਪਾ ਕਰਕੇ ਮੀਡੀਆ ਜੋੜੋ',
   'toast.no_invite_code': 'ਹਾਲੇ ਸੱਦਾ ਕੋਡ ਨਹੀਂ ਹੈ',
   'toast.invite_code_settings': 'ਕਨੈਕਟ ਟੈਬ ਵਿੱਚੋਂ ਸੱਦਾ ਲਿੰਕ ਸਾਂਝਾ ਕਰੋ',
-  'toast.click_copy_invite': 'ਸੱਦਾ ਕੋਡ ਕਾਪੀ ਕਰਨ ਲਈ ਕਲਿੱਕ ਕਰੋ',
   'toast.cant_select_file': 'ਫ਼ਾਈਲ ਨਹੀਂ ਚੁਣੀ ਜਾ ਸਕਦੀ',
   'toast.unsupported_files_excluded': 'ਨਾ-ਚੱਲਣ ਵਾਲੀਆਂ ਫ਼ਾਈਲਾਂ ਛੱਡੀਆਂ ਗਈਆਂ: {{count}}',
   'toast.no_supported_audio_files': 'ਜੋੜਨ ਲਈ ਕੋਈ ਚੱਲਣ ਯੋਗ ਆਡੀਓ ਫ਼ਾਈਲ ਨਹੀਂ ਹੈ',

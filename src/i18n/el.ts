@@ -630,7 +630,6 @@ const el: Record<I18nKey, string> = {
   'toast.add_media_to_play': 'Προσθέστε πολυμέσα',
   'toast.no_invite_code': 'Δεν υπάρχει ακόμα κωδικός πρόσκλησης',
   'toast.invite_code_settings': 'Κοινοποιήστε τον σύνδεσμο πρόσκλησης από την καρτέλα Σύνδεση',
-  'toast.click_copy_invite': 'Κάντε κλικ για αντιγραφή του κωδικού πρόσκλησης',
   'toast.cant_select_file': 'Δεν είναι δυνατή η επιλογή αρχείου',
   'toast.unsupported_files_excluded': 'Μη υποστηριζόμενα αρχεία που παραλείφθηκαν: {{count}}',
   'toast.no_supported_audio_files': 'Δεν υπάρχουν υποστηριζόμενα αρχεία ήχου για προσθήκη',

@@ -632,7 +632,6 @@ const fil: Record<I18nKey, string> = {
   'toast.add_media_to_play': 'Magdagdag ng media',
   'toast.no_invite_code': 'Wala pang code ng imbitasyon',
   'toast.invite_code_settings': 'Ibahagi ang link ng imbitasyon mula sa tab na Kumonekta',
-  'toast.click_copy_invite': 'I-click para kopyahin ang code ng imbitasyon',
   'toast.cant_select_file': 'Hindi makapili ng file',
   'toast.unsupported_files_excluded': 'Nilaktawan ang mga file na hindi sinusuportahan: {{count}}',
   'toast.no_supported_audio_files': 'Walang sinusuportahang audio file na maidaragdag',

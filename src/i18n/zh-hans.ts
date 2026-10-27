@@ -540,7 +540,6 @@ const zhHans: Record<I18nKey, string> = {
   'toast.add_media_to_play': '请添加媒体',
   'toast.no_invite_code': '还没有邀请码',
   'toast.invite_code_settings': '可在“连接”标签页分享邀请链接',
-  'toast.click_copy_invite': '点击复制邀请码',
   'toast.cant_select_file': '无法选择文件',
   'toast.unsupported_files_excluded': '将跳过 {{count}} 个不支持的文件',
   'toast.no_supported_audio_files': '没有可添加的兼容音频文件',

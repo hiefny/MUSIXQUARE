@@ -539,7 +539,6 @@ const zhHant: Record<I18nKey, string> = {
   'toast.add_media_to_play': '請新增媒體',
   'toast.no_invite_code': '還沒有邀請碼',
   'toast.invite_code_settings': '可在「連線」分頁分享邀請連結',
-  'toast.click_copy_invite': '點按即可複製邀請碼',
   'toast.cant_select_file': '無法選擇檔案',
   'toast.unsupported_files_excluded': '將略過 {{count}} 個不支援的檔案',
   'toast.no_supported_audio_files': '沒有可加入的音訊檔案',

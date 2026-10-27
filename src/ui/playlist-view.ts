@@ -34,6 +34,7 @@ import { getRoomContext, hasRoomCapability } from '../rooms/authority.ts';
 import { showRoomCapabilityRequired } from '../rooms/permission-feedback.ts';
 import { beginProRoomTrackChangeIntent } from '../player/track-change-intent.ts';
 import { applyUserTextFontFallback } from './user-text-font.ts';
+import { setControlHint, setControlUnavailable } from './control-hint.ts';
 import { renderPlaylistSlotName } from './playlist-slot-names.ts';
 import { SELECTION_TOGGLE_PATHS } from './selection-mark.ts';
 import { getTrackDisplayTitle } from '../player/track-display.ts';
@@ -742,15 +743,12 @@ function createProRoomUploadCancel(row: ProRoomUploadRow): HTMLButtonElement {
   button.dataset.proUploadAction = 'cancel';
   button.dataset.proUploadId = row.id;
   button.disabled = isConfirming;
+  button.setAttribute('aria-label', t('pro.upload.cancel_file', { name: row.name }));
   if (isConfirming) {
     button.tabIndex = -1;
-    button.setAttribute('aria-disabled', 'true');
+    // The cancel keeps its name; the finishing upload is why it cannot be used.
+    setControlUnavailable(button, t('pro.upload.confirming_file', { name: row.name }));
   }
-  const label = t(isConfirming ? 'pro.upload.confirming_file' : 'pro.upload.cancel_file', {
-    name: row.name,
-  });
-  button.setAttribute('aria-label', label);
-  button.title = label;
   button.innerHTML =
     '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M19 6.41 17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12Z"/></svg>';
   return button;
@@ -898,7 +896,7 @@ export function updatePlaylistUI(): void {
       ? `<button type="button" class="btn-playlist-select" data-action="select"
           data-queue-item-id="${escapeHtml(item.queueItemId)}"
           aria-pressed="${isRemovalSelected}"
-          aria-label="${escapeHtml(selectLabel)}" title="${escapeHtml(selectLabel)}">
+          aria-label="${escapeHtml(selectLabel)}">
           <svg viewBox="0 0 24 24" aria-hidden="true">${SELECTION_TOGGLE_PATHS}</svg>
         </button>`
       : '';
@@ -911,6 +909,8 @@ export function updatePlaylistUI(): void {
       ${expandButton}
       ${selectButton}
     `;
+    const renderedSelect = row.querySelector<HTMLElement>('.btn-playlist-select');
+    if (renderedSelect) setControlHint(renderedSelect, selectLabel);
     const renderedName = row.querySelector<HTMLElement>('.track-name-text');
     if (renderedName) applyUserTextFontFallback(renderedName, displayName);
     entry.appendChild(row);

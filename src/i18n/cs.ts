@@ -618,7 +618,6 @@ const cs: Record<I18nKey, string> = {
   'toast.add_media_to_play': 'Přidejte média',
   'toast.no_invite_code': 'Zvací kód zatím není k dispozici',
   'toast.invite_code_settings': 'Sdílejte zvací odkaz na kartě Připojení',
-  'toast.click_copy_invite': 'Kliknutím zkopírujete zvací kód',
   'toast.cant_select_file': 'Soubor nelze vybrat',
   'toast.unsupported_files_excluded': 'Přeskočeno nepodporovaných souborů: {{count}}',
   'toast.no_supported_audio_files': 'Žádné podporované zvukové soubory k přidání',

@@ -610,7 +610,6 @@ const hi: Record<I18nKey, string> = {
   'toast.add_media_to_play': 'कृपया मीडिया जोड़ें',
   'toast.no_invite_code': 'अभी कोई आमंत्रण कोड नहीं है',
   'toast.invite_code_settings': 'कनेक्ट टैब से आमंत्रण लिंक साझा करें',
-  'toast.click_copy_invite': 'आमंत्रण कोड कॉपी करने के लिए क्लिक करें',
   'toast.cant_select_file': 'फ़ाइल नहीं चुनी जा सकती',
   'toast.unsupported_files_excluded': 'असमर्थित फ़ाइलें छोड़ दी गईं: {{count}}',
   'toast.no_supported_audio_files': 'जोड़ने के लिए कोई समर्थित ऑडियो फ़ाइल नहीं है',

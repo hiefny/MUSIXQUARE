@@ -607,7 +607,6 @@ const mr: Record<I18nKey, string> = {
   'toast.add_media_to_play': 'कृपया मीडिया जोडा',
   'toast.no_invite_code': 'अद्याप आमंत्रण कोड नाही',
   'toast.invite_code_settings': 'कनेक्ट टॅबमधून आमंत्रण लिंक शेअर करा',
-  'toast.click_copy_invite': 'आमंत्रण कोड कॉपी करण्यासाठी क्लिक करा',
   'toast.cant_select_file': 'फाइल निवडता येत नाही',
   'toast.unsupported_files_excluded': 'असमर्थित फाइल्स वगळल्या: {{count}}',
   'toast.no_supported_audio_files': 'जोडण्यासाठी कोणत्याही समर्थित ऑडिओ फाइल नाहीत',

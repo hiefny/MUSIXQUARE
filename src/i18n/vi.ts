@@ -570,7 +570,6 @@ const vi: Record<I18nKey, string> = {
   'toast.add_media_to_play': 'Vui lòng thêm nội dung để phát',
   'toast.no_invite_code': 'Chưa có mã mời',
   'toast.invite_code_settings': 'Chia sẻ liên kết mời từ thẻ Kết nối',
-  'toast.click_copy_invite': 'Nhấp để sao chép mã mời',
   'toast.cant_select_file': 'Không thể chọn tệp',
   'toast.unsupported_files_excluded': 'Đã bỏ qua {{count}} tệp không được hỗ trợ',
   'toast.no_supported_audio_files': 'Không có tệp âm thanh được hỗ trợ để thêm',

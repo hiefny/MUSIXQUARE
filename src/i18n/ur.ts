@@ -609,7 +609,6 @@ const ur: Record<I18nKey, string> = {
   'toast.add_media_to_play': 'میڈیا شامل کریں',
   'toast.no_invite_code': 'ابھی دعوتی کوڈ نہیں',
   'toast.invite_code_settings': 'کنیکٹ ٹیب سے دعوتی لنک شیئر کریں',
-  'toast.click_copy_invite': 'دعوتی کوڈ کاپی کرنے کے لیے دبائیں',
   'toast.cant_select_file': 'فائل منتخب نہیں ہو سکتی',
   'toast.unsupported_files_excluded': 'غیر معاون فائلیں چھوڑ دی گئیں: {{count}}',
   'toast.no_supported_audio_files': 'شامل کرنے کے لیے کوئی معاون آڈیو فائل نہیں',

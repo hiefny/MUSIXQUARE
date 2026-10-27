@@ -618,7 +618,6 @@ const te: Record<I18nKey, string> = {
   'toast.add_media_to_play': 'మీడియాను జోడించండి',
   'toast.no_invite_code': 'ఇంకా ఆహ్వాన కోడ్ లేదు',
   'toast.invite_code_settings': 'కనెక్ట్ ట్యాబ్ నుండి ఆహ్వాన లింక్‌ను షేర్ చేయండి',
-  'toast.click_copy_invite': 'ఆహ్వాన కోడ్‌ను కాపీ చేయడానికి క్లిక్ చేయండి',
   'toast.cant_select_file': 'ఫైల్‌ను ఎంచుకోలేరు',
   'toast.unsupported_files_excluded': 'మద్దతు లేని ఫైల్‌లు దాటవేయబడ్డాయి: {{count}}',
   'toast.no_supported_audio_files': 'జోడించడానికి మద్దతు ఉన్న ఆడియో ఫైల్‌లు లేవు',

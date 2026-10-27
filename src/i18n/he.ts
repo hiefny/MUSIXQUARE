@@ -596,7 +596,6 @@ const he: Record<I18nKey, string> = {
   'toast.add_media_to_play': 'יש להוסיף מדיה',
   'toast.no_invite_code': 'אין עדיין קוד הזמנה',
   'toast.invite_code_settings': 'אפשר לשתף את קישור ההזמנה מהכרטיסייה „חיבור”',
-  'toast.click_copy_invite': 'לחצו להעתקת קוד ההזמנה',
   'toast.cant_select_file': 'אי אפשר לבחור קובץ',
   'toast.unsupported_files_excluded': 'קבצים שאינם נתמכים דולגו: {{count}}',
   'toast.no_supported_audio_files': 'אין קובצי שמע נתמכים להוספה',

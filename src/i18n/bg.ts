@@ -622,7 +622,6 @@ const bg: Record<I18nKey, string> = {
   'toast.add_media_to_play': 'Добави медия',
   'toast.no_invite_code': 'Все още няма код за покана',
   'toast.invite_code_settings': 'Сподели връзката за покана от раздела „Свързване“',
-  'toast.click_copy_invite': 'Щракни, за да копираш кода за покана',
   'toast.cant_select_file': 'Файлът не може да бъде избран',
   'toast.unsupported_files_excluded': 'Пропуснати неподдържани файлове: {{count}}',
   'toast.no_supported_audio_files': 'Няма поддържани аудиофайлове за добавяне',

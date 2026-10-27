@@ -1,6 +1,7 @@
 import type { PlaylistItem, QueueItemId } from '../types/index.ts';
 import { getTrackDisplayTitle } from '../player/track-display.ts';
 import { t } from '../i18n/index.ts';
+import { setControlHint } from './control-hint.ts';
 import type { PlaylistSelectionMorph } from './playlist-selection-morph.ts';
 import { PLAYLIST_ROW_EASING, prefersReducedMotion } from './playlist-motion.ts';
 
@@ -83,11 +84,6 @@ export interface PlaylistRemovalController {
 }
 
 type BarState = 'hidden' | 'select' | 'leaving';
-
-function setButtonLabel(button: HTMLButtonElement, label: string): void {
-  button.setAttribute('aria-label', label);
-  button.title = label;
-}
 
 function canAnimate(element: Element): boolean {
   return typeof (element as HTMLElement).animate === 'function' && !prefersReducedMotion();
@@ -283,9 +279,10 @@ export function createPlaylistRemovalController(
   }
 
   function renderBarLabels(): void {
-    setButtonLabel(moveButton, t('playlist.move_action'));
-    setButtonLabel(deleteButton, t('common.delete'));
-    setButtonLabel(cancelButton, t('common.cancel'));
+    // Named, not titled: a tooltip would only repeat the icon's name.
+    moveButton.setAttribute('aria-label', t('playlist.move_action'));
+    deleteButton.setAttribute('aria-label', t('common.delete'));
+    cancelButton.setAttribute('aria-label', t('common.cancel'));
     bar.setAttribute('aria-label', t('playlist.remove_title'));
   }
 
@@ -505,7 +502,8 @@ export function createPlaylistRemovalController(
         { title: rowTitle },
       );
       button.setAttribute('aria-pressed', String(selected));
-      setButtonLabel(button, label);
+      button.setAttribute('aria-label', label);
+      setControlHint(button, label);
       // CSS joins consecutive selected entries into one painted block.
       button.closest('.playlist-entry')?.classList.toggle('is-removal-selected', selected);
     }

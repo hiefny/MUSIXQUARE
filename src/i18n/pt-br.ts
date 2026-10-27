@@ -591,7 +591,6 @@ const ptBr: Record<I18nKey, string> = {
   'toast.add_media_to_play': 'Adicione mídia para reproduzir',
   'toast.no_invite_code': 'Ainda não há código de convite',
   'toast.invite_code_settings': 'Compartilhe o link de convite pela aba Conectar',
-  'toast.click_copy_invite': 'Clique para copiar o código de convite',
   'toast.cant_select_file': 'Não é possível selecionar um arquivo',
   'toast.unsupported_files_excluded': '{{count}} arquivos não compatíveis ignorados',
   'toast.no_supported_audio_files': 'Não há arquivos de áudio compatíveis para adicionar',

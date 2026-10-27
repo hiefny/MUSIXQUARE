@@ -1232,7 +1232,6 @@ function _administratorActionButton(
   button.type = 'button';
   button.className = `administrator-action-button ${className}`;
   button.setAttribute('aria-label', ariaLabel);
-  button.title = ariaLabel;
   button.innerHTML = icon;
   button.addEventListener('click', (event) => {
     event.preventDefault();
@@ -1865,9 +1864,7 @@ function renderConnectDeviceList(list: readonly unknown[]): void {
           opBtn.type = 'button';
           opBtn.className = 'd-op-btn administrator-action-button administrator-state-button grant';
           opBtn.dataset.administratorState = 'inactive';
-          const grantLabel = t('common.grant');
-          opBtn.setAttribute('aria-label', grantLabel);
-          opBtn.title = grantLabel;
+          opBtn.setAttribute('aria-label', t('common.grant'));
           opBtn.innerHTML = CROWN_ICON;
           opBtn.addEventListener('click', (event) => {
             event.preventDefault();

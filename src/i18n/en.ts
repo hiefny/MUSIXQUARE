@@ -609,7 +609,6 @@ const en: Record<I18nKey, string> = {
   'toast.add_media_to_play': 'Please add media',
   'toast.no_invite_code': 'No invite code yet',
   'toast.invite_code_settings': 'Share the invite link from the Connect tab',
-  'toast.click_copy_invite': 'Click to copy invite code',
   'toast.cant_select_file': "Can't select a file",
   'toast.unsupported_files_excluded': 'Unsupported files skipped: {{count}}',
   'toast.no_supported_audio_files': 'No supported audio files to add',

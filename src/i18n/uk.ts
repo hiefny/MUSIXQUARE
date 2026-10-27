@@ -617,7 +617,6 @@ const uk: Record<I18nKey, string> = {
   'toast.add_media_to_play': 'Додайте медіа',
   'toast.no_invite_code': 'Коду запрошення ще немає',
   'toast.invite_code_settings': 'Поділіться посиланням на вкладці «Підключення»',
-  'toast.click_copy_invite': 'Натисніть, щоб скопіювати код запрошення',
   'toast.cant_select_file': 'Не вдалося вибрати файл',
   'toast.unsupported_files_excluded': 'Непідтримувані файли пропущено: {{count}}',
   'toast.no_supported_audio_files': 'Немає підтримуваних аудіофайлів для додавання',

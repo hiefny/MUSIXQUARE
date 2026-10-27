@@ -625,7 +625,6 @@ const ms: Record<I18nKey, string> = {
   'toast.add_media_to_play': 'Sila tambah media',
   'toast.no_invite_code': 'Belum ada kod jemputan',
   'toast.invite_code_settings': 'Kongsi pautan jemputan melalui tab Sambung',
-  'toast.click_copy_invite': 'Klik untuk menyalin kod jemputan',
   'toast.cant_select_file': 'Tidak dapat memilih fail',
   'toast.unsupported_files_excluded': 'Fail yang tidak disokong dilangkau: {{count}}',
   'toast.no_supported_audio_files': 'Tiada fail audio yang disokong untuk ditambah',

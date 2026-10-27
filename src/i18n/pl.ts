@@ -626,7 +626,6 @@ const pl: Record<I18nKey, string> = {
   'toast.add_media_to_play': 'Dodaj multimedia do odtworzenia',
   'toast.no_invite_code': 'Kod zaproszenia nie został jeszcze wygenerowany',
   'toast.invite_code_settings': 'Możesz udostępnić link zaproszenia z zakładki Połączenie',
-  'toast.click_copy_invite': 'Kliknij, aby skopiować kod zaproszenia',
   'toast.cant_select_file': 'Nie można wybrać pliku',
   'toast.unsupported_files_excluded': 'Pominięte nieobsługiwane pliki: {{count}}',
   'toast.no_supported_audio_files': 'Brak obsługiwanych plików dźwiękowych do dodania',

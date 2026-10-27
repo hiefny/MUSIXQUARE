@@ -599,7 +599,6 @@ const ar: Record<I18nKey, string> = {
   'toast.add_media_to_play': 'يرجى إضافة وسائط',
   'toast.no_invite_code': 'لا يوجد رمز دعوة بعد',
   'toast.invite_code_settings': 'شارك رابط الدعوة من تبويب الاتصال',
-  'toast.click_copy_invite': 'انقر لنسخ رمز الدعوة',
   'toast.cant_select_file': 'تعذّر اختيار ملف',
   'toast.unsupported_files_excluded': 'تم تخطي الملفات غير المدعومة: {{count}}',
   'toast.no_supported_audio_files': 'لا توجد ملفات صوتية مدعومة لإضافتها',

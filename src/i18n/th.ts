@@ -598,7 +598,6 @@ const th: Record<I18nKey, string> = {
   'toast.add_media_to_play': 'โปรดเพิ่มสื่อเพื่อเล่น',
   'toast.no_invite_code': 'ยังไม่มีรหัสเชิญ',
   'toast.invite_code_settings': 'แชร์ลิงก์เชิญได้จากแท็บ "เชื่อมต่อ"',
-  'toast.click_copy_invite': 'คลิกเพื่อคัดลอกรหัสเชิญ',
   'toast.cant_select_file': 'เลือกไฟล์ไม่ได้',
   'toast.unsupported_files_excluded': 'จะข้ามไฟล์ที่ไม่รองรับ {{count}} ไฟล์',
   'toast.no_supported_audio_files': 'ไม่มีไฟล์เสียงที่เพิ่มได้',

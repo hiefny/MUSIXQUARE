@@ -271,6 +271,174 @@ function labelViolation(declaration: Declaration, ownSize: boolean): boolean {
   return declaration.value !== LABEL_TOKENS[declaration.prop];
 }
 
+// The CSS named colors (CSS Color 4), so a red cannot hide behind its name.
+const NAMED_COLORS: ReadonlyMap<string, string> = new Map(
+  [
+    ...`
+  aliceblue f0f8ff antiquewhite faebd7 aqua 00ffff aquamarine 7fffd4 azure f0ffff
+  beige f5f5dc bisque ffe4c4 black 000000 blanchedalmond ffebcd blue 0000ff blueviolet 8a2be2
+  brown a52a2a burlywood deb887 cadetblue 5f9ea0 chartreuse 7fff00 chocolate d2691e coral ff7f50
+  cornflowerblue 6495ed cornsilk fff8dc crimson dc143c cyan 00ffff darkblue 00008b darkcyan 008b8b
+  darkgoldenrod b8860b darkgray a9a9a9 darkgreen 006400 darkgrey a9a9a9 darkkhaki bdb76b
+  darkmagenta 8b008b darkolivegreen 556b2f darkorange ff8c00 darkorchid 9932cc darkred 8b0000
+  darksalmon e9967a darkseagreen 8fbc8f darkslateblue 483d8b darkslategray 2f4f4f
+  darkslategrey 2f4f4f darkturquoise 00ced1 darkviolet 9400d3 deeppink ff1493 deepskyblue 00bfff
+  dimgray 696969 dimgrey 696969 dodgerblue 1e90ff firebrick b22222 floralwhite fffaf0
+  forestgreen 228b22 fuchsia ff00ff gainsboro dcdcdc ghostwhite f8f8ff gold ffd700 goldenrod daa520
+  gray 808080 green 008000 greenyellow adff2f grey 808080 honeydew f0fff0 hotpink ff69b4
+  indianred cd5c5c indigo 4b0082 ivory fffff0 khaki f0e68c lavender e6e6fa lavenderblush fff0f5
+  lawngreen 7cfc00 lemonchiffon fffacd lightblue add8e6 lightcoral f08080 lightcyan e0ffff
+  lightgoldenrodyellow fafad2 lightgray d3d3d3 lightgreen 90ee90 lightgrey d3d3d3 lightpink ffb6c1
+  lightsalmon ffa07a lightseagreen 20b2aa lightskyblue 87cefa lightslategray 778899
+  lightslategrey 778899 lightsteelblue b0c4de lightyellow ffffe0 lime 00ff00 limegreen 32cd32
+  linen faf0e6 magenta ff00ff maroon 800000 mediumaquamarine 66cdaa mediumblue 0000cd
+  mediumorchid ba55d3 mediumpurple 9370db mediumseagreen 3cb371 mediumslateblue 7b68ee
+  mediumspringgreen 00fa9a mediumturquoise 48d1cc mediumvioletred c71585 midnightblue 191970
+  mintcream f5fffa mistyrose ffe4e1 moccasin ffe4b5 navajowhite ffdead navy 000080 oldlace fdf5e6
+  olive 808000 olivedrab 6b8e23 orange ffa500 orangered ff4500 orchid da70d6 palegoldenrod eee8aa
+  palegreen 98fb98 paleturquoise afeeee palevioletred db7093 papayawhip ffefd5 peachpuff ffdab9
+  peru cd853f pink ffc0cb plum dda0dd powderblue b0e0e6 purple 800080 rebeccapurple 663399
+  red ff0000 rosybrown bc8f8f royalblue 4169e1 saddlebrown 8b4513 salmon fa8072 sandybrown f4a460
+  seagreen 2e8b57 seashell fff5ee sienna a0522d silver c0c0c0 skyblue 87ceeb slateblue 6a5acd
+  slategray 708090 slategrey 708090 snow fffafa springgreen 00ff7f steelblue 4682b4 tan d2b48c
+  teal 008080 thistle d8bfd8 tomato ff6347 turquoise 40e0d0 violet ee82ee wheat f5deb3
+  white ffffff whitesmoke f5f5f5 yellow ffff00 yellowgreen 9acd32
+  `.matchAll(/([a-z]+) ([0-9a-f]{6})/gu),
+  ].map((match) => [match[1]!, `#${match[2]!}`]),
+);
+
+/** The arguments of a color function, without its alpha. */
+function colorArguments(body: string): string[] {
+  return body
+    .replace(/\/.*$/u, '')
+    .split(/[\s,]+/u)
+    .filter(Boolean);
+}
+
+/** A number, or a percentage of `full`; `none` is zero. */
+function amount(token: string | undefined, full: number): number {
+  if (!token || token === 'none') return 0;
+  return token.endsWith('%') ? (Number.parseFloat(token) / 100) * full : Number.parseFloat(token);
+}
+
+/** An angle in degrees. */
+function hue(token: string | undefined): number {
+  if (!token || token === 'none') return 0;
+  const value = Number.parseFloat(token);
+  const degrees = token.endsWith('turn')
+    ? value * 360
+    : token.endsWith('grad')
+      ? value * 0.9
+      : token.endsWith('rad')
+        ? (value * 180) / Math.PI
+        : value;
+  return ((degrees % 360) + 360) % 360;
+}
+
+function hslChannels(h: number, s: number, l: number): number[] {
+  const a = s * Math.min(l, 1 - l);
+  return [0, 8, 4].map((n) => {
+    const k = (n + h / 30) % 12;
+    return (l - a * Math.max(-1, Math.min(k - 3, 9 - k, 1))) * 255;
+  });
+}
+
+function hwbChannels(h: number, w: number, b: number): number[] {
+  if (w + b >= 1) return [0, 0, 0].map(() => (w / (w + b)) * 255);
+  return hslChannels(h, 1, 0.5).map((channel) => (channel / 255) * (1 - w - b) * 255 + w * 255);
+}
+
+const multiply = (matrix: number[][], vector: number[]): number[] =>
+  matrix.map((row) => row.reduce((sum, factor, index) => sum + factor * vector[index]!, 0));
+
+const XYZ_D65_TO_LINEAR_SRGB = [
+  [3.2409699419045226, -1.537383177570094, -0.4986107602930034],
+  [-0.9692436362808796, 1.8759675015077202, 0.04155505740717559],
+  [0.05563007969699366, -0.20397695888897652, 1.0569715142428786],
+];
+const XYZ_D50_TO_D65 = [
+  [0.9554734527042182, -0.023098536874261423, 0.0632593086610217],
+  [-0.028369706963208136, 1.0099954580058226, 0.021041398966943008],
+  [0.012314001688319899, -0.020507696433477912, 1.3303659366080753],
+];
+const LINEAR_P3_TO_XYZ_D65 = [
+  [0.4865709486482162, 0.26566769316909306, 0.1982172852343625],
+  [0.2289745640697488, 0.6917385218365064, 0.079286914093745],
+  [0, 0.04511338185890264, 1.043944368900976],
+];
+
+/** Gamma-encode linear sRGB and clip it to the gamut, in 0-255. */
+function encodeSrgb(linear: number[]): number[] {
+  return linear.map((channel) => {
+    const clipped = Math.min(1, Math.max(0, channel));
+    const encoded = clipped <= 0.0031308 ? 12.92 * clipped : 1.055 * clipped ** (1 / 2.4) - 0.055;
+    return encoded * 255;
+  });
+}
+
+const decodeSrgb = (channel: number): number =>
+  Math.abs(channel) <= 0.04045
+    ? channel / 12.92
+    : Math.sign(channel) * ((Math.abs(channel) + 0.055) / 1.055) ** 2.4;
+
+function labChannels(l: number, a: number, b: number): number[] {
+  const epsilon = 216 / 24389;
+  const kappa = 24389 / 27;
+  const fy = (l + 16) / 116;
+  const fx = fy + a / 500;
+  const fz = fy - b / 200;
+  const xyzD50 = [
+    (fx ** 3 > epsilon ? fx ** 3 : (116 * fx - 16) / kappa) * 0.9642956764295677,
+    l > kappa * epsilon ? fy ** 3 : l / kappa,
+    (fz ** 3 > epsilon ? fz ** 3 : (116 * fz - 16) / kappa) * 0.8251046025104602,
+  ];
+  return encodeSrgb(multiply(XYZ_D65_TO_LINEAR_SRGB, multiply(XYZ_D50_TO_D65, xyzD50)));
+}
+
+function oklabChannels(l: number, a: number, b: number): number[] {
+  const lms = [
+    l + 0.3963377774 * a + 0.2158037573 * b,
+    l - 0.1055613458 * a - 0.0638541728 * b,
+    l - 0.0894841775 * a - 1.291485548 * b,
+  ].map((channel) => channel ** 3);
+  return encodeSrgb(
+    multiply(
+      [
+        [4.0767416621, -3.3077115913, 0.2309699292],
+        [-1.2684380046, 2.6097574011, -0.3413193965],
+        [-0.0041960863, -0.7034186147, 1.707614701],
+      ],
+      lms,
+    ),
+  );
+}
+
+/** Channels of a color() value, or null for a space this guard cannot read. */
+function colorSpaceChannels(space: string, values: number[]): number[] | null {
+  switch (space) {
+    case 'srgb':
+      return values.map((channel) => channel * 255);
+    case 'srgb-linear':
+      return encodeSrgb(values);
+    case 'display-p3':
+      return encodeSrgb(
+        multiply(XYZ_D65_TO_LINEAR_SRGB, multiply(LINEAR_P3_TO_XYZ_D65, values.map(decodeSrgb))),
+      );
+    case 'xyz':
+    case 'xyz-d65':
+      return encodeSrgb(multiply(XYZ_D65_TO_LINEAR_SRGB, values));
+    case 'xyz-d50':
+      return encodeSrgb(multiply(XYZ_D65_TO_LINEAR_SRGB, multiply(XYZ_D50_TO_D65, values)));
+    default:
+      return null;
+  }
+}
+
+/**
+ * Every color a declaration value names, as sRGB channels: hex, named colors
+ * and the rgb, hsl, hwb, lab, lch, oklab, oklch and color() functions. A
+ * value a guard cannot read is reported by unreadableColors() instead.
+ */
 function channels(value: string): number[][] {
   const colors: number[][] = [];
   for (const [hex] of value.matchAll(/#[0-9a-f]{3,8}\b/giu)) {
@@ -281,10 +449,58 @@ function channels(value: string): number[][] {
         : digits.padEnd(6, '0');
     colors.push([0, 2, 4].map((offset) => Number.parseInt(full.slice(offset, offset + 2), 16)));
   }
-  for (const match of value.matchAll(/rgba?\(\s*(\d+)[\s,]+(\d+)[\s,]+(\d+)/giu)) {
-    colors.push([Number(match[1]), Number(match[2]), Number(match[3])]);
+  for (const [word] of value.matchAll(/(?<![\w#.-])[a-z]+(?![\w-])/giu)) {
+    const named = NAMED_COLORS.get(word.toLowerCase());
+    if (named) colors.push(...channels(named));
+  }
+  for (const match of value.matchAll(
+    /\b(rgba?|hsla?|hwb|lab|lch|oklab|oklch|color)\(\s*(?!from\b)([^()]*)\)/giu,
+  )) {
+    const name = match[1]!.toLowerCase();
+    const args = colorArguments(match[2]!);
+    if (name === 'rgb' || name === 'rgba') {
+      colors.push(args.slice(0, 3).map((token) => amount(token, 255)));
+    } else if (name === 'hsl' || name === 'hsla') {
+      colors.push(
+        hslChannels(hue(args[0]), amount(args[1], 100) / 100, amount(args[2], 100) / 100),
+      );
+    } else if (name === 'hwb') {
+      colors.push(
+        hwbChannels(hue(args[0]), amount(args[1], 100) / 100, amount(args[2], 100) / 100),
+      );
+    } else if (name === 'lab') {
+      colors.push(labChannels(amount(args[0], 100), amount(args[1], 125), amount(args[2], 125)));
+    } else if (name === 'lch') {
+      const [chroma, angle] = [amount(args[1], 150), (hue(args[2]) * Math.PI) / 180];
+      colors.push(
+        labChannels(amount(args[0], 100), chroma * Math.cos(angle), chroma * Math.sin(angle)),
+      );
+    } else if (name === 'oklab') {
+      colors.push(oklabChannels(amount(args[0], 1), amount(args[1], 0.4), amount(args[2], 0.4)));
+    } else if (name === 'oklch') {
+      const [chroma, angle] = [amount(args[1], 0.4), (hue(args[2]) * Math.PI) / 180];
+      colors.push(
+        oklabChannels(amount(args[0], 1), chroma * Math.cos(angle), chroma * Math.sin(angle)),
+      );
+    } else {
+      const [space = '', ...values] = args;
+      const read = colorSpaceChannels(
+        space.toLowerCase(),
+        values.slice(0, 3).map((token) => amount(token, 1)),
+      );
+      if (read) colors.push(read);
+    }
   }
   return colors;
+}
+
+/** Color syntax the guards cannot turn into channels: relative colors and other color() spaces. */
+function unreadableColors(value: string): string[] {
+  return [
+    ...value.matchAll(
+      /\b(?:rgba?|hsla?|hwb|lab|lch|oklab|oklch|color)\(\s*from\b|\bcolor\(\s*(?!(?:srgb|srgb-linear|display-p3|xyz|xyz-d65|xyz-d50)\b)[\w-]+/giu,
+    ),
+  ].map((match) => match[0]);
 }
 
 const isRedLiteral = (value: string): boolean =>
@@ -660,9 +876,19 @@ describe('action button label contract', () => {
 
     // Every destructive label keeps 4.5:1 on each surface it sits on. At rest
     // that is the dialog and account panel (surface-1) and the connect tab,
-    // demo finish row, play tab and setup canvas (--bg). The hover and press
-    // tint belongs to the leave, demo exit and stop sharing pills, which sit
-    // on the canvas; dialog pills have no hover tint.
+    // play tab and setup canvas (--bg). The hover and press tint belongs to
+    // the leave, demo exit and stop sharing pills. Leave and stop sharing sit
+    // on the canvas. The demo exit sits on the canvas on phones and on the
+    // demo finish panel (surface-1) from 768px up, at rest, on hover and on a
+    // touch press. Dialog pills have no hover tint.
+    //
+    // One case is below 4.5 and waits for the owner (UI bundle u8 notes 7.2):
+    // dark #ff3b30, which the owner kept, over the hover tint on that panel.
+    // Its ratio is pinned rather than skipped, so a further drop or any new
+    // case below 4.5 fails, and fixing it means removing this entry.
+    const OWNER_PENDING: Readonly<Record<string, string>> = {
+      'dark --control-danger-hover on panel': '4.31',
+    };
     const palettes = [
       { name: 'dark', canvas: '#121212', panel: '#1a1a1a' },
       { name: 'light', canvas: '#f8f9fa', panel: '#ffffff' },
@@ -691,14 +917,22 @@ describe('action button label contract', () => {
     for (const palette of palettes) {
       const selectors = cascade[palette.name]!;
       const label = resolved(selectors, '--danger-foreground');
-      const cases: Array<[string, string]> = [
-        ['--control-danger', palette.canvas],
-        ['--control-danger', palette.panel],
-        ['--control-danger-hover', palette.canvas],
+      const cases: Array<[string, 'canvas' | 'panel']> = [
+        ['--control-danger', 'canvas'],
+        ['--control-danger', 'panel'],
+        ['--control-danger-hover', 'canvas'],
+        ['--control-danger-hover', 'panel'],
       ];
-      for (const [tint, surface] of cases) {
+      for (const [tint, place] of cases) {
+        const surface = palette[place];
         const ratio = contrast(label, resolved(selectors, tint), surface);
-        measured.push(`${palette.name} ${tint} on ${surface}: ${ratio.toFixed(2)}`);
+        const name = `${palette.name} ${tint} on ${place}`;
+        measured.push(`${name}: ${ratio.toFixed(2)}`);
+        const pending = OWNER_PENDING[name];
+        if (pending !== undefined) {
+          expect(ratio.toFixed(2), `${name} (owner pending)`).toBe(pending);
+          continue;
+        }
         expect(ratio, `${palette.name} ${label} on ${tint} over ${surface}`).toBeGreaterThanOrEqual(
           4.5,
         );
@@ -710,7 +944,12 @@ describe('action button label contract', () => {
         );
       }
     }
-    expect(measured).toHaveLength(12);
+    expect(measured).toHaveLength(16);
+    expect(measured).toEqual(
+      expect.arrayContaining(
+        Object.entries(OWNER_PENDING).map(([name, ratio]) => `${name}: ${ratio}`),
+      ),
+    );
     // The OS preference layer repeats the manual light high-contrast tints.
     for (const tint of ['--control-danger', '--control-danger-hover']) {
       expect(
@@ -814,7 +1053,8 @@ describe('action button label contract', () => {
     // Owner question (2026-10-27): "aren't there other reds too?" Every red
     // that marks danger, an error or a destructive action as text or as an
     // icon reads --danger-foreground; red surfaces read the --control-danger
-    // tints, or --danger-filled under white glyphs. Only the YouTube mark keeps
+    // tints, or --danger-filled under white icons (white text on it needs its
+    // own check: the chat badge is 3.76:1). Only the YouTube mark keeps
     // its brand red, because it names the source, not a danger.
     const BRAND_REDS: ReadonlyArray<{ selector: RegExp; declaration: string; reason: string }> = [
       {
@@ -876,6 +1116,17 @@ describe('action button label contract', () => {
     expect(violations).toEqual([]);
     expect(brandSeen).toBe(4);
 
+    // A red cannot hide in a color syntax the guards do not read.
+    const unreadable: string[] = [];
+    for (const { path, root } of sheets) {
+      root.walkDecls((declaration) => {
+        for (const found of unreadableColors(declaration.value)) {
+          unreadable.push(`${where(declaration, path)} ${declaration.prop}: ${found}`);
+        }
+      });
+    }
+    expect(unreadable).toEqual([]);
+
     // The reds that were hard-coded read the role now: error and validation
     // text, the disconnected device badge and the destructive row icons.
     const roleReaders: Array<[string, string]> = [
@@ -922,6 +1173,55 @@ describe('action button label contract', () => {
     expect(scriptReds).toEqual([]);
     const search = read('src/youtube/search.ts');
     expect(search.match(/'var\(--danger-foreground\)'/gu) ?? []).toHaveLength(3);
+  });
+
+  it('reads a red in every CSS color syntax', () => {
+    // A review mutation once added `.chat-error-text { color: crimson; }` and
+    // both red guards stayed green: they read only hex and rgb().
+    for (const red of [
+      '#e53935',
+      'rgb(229 57 53)',
+      'rgb(90% 22% 21%)',
+      'rgba(229.5, 57, 53, 0.9)',
+      'crimson',
+      'Tomato',
+      '0 0 0 1px firebrick',
+      'hsl(0 80% 50%)',
+      'hsla(355, 90%, 45%, 0.8)',
+      'hsl(0.99turn 70% 50%)',
+      'hwb(0 10% 10%)',
+      'lab(50 70 50)',
+      'lch(50 80 30)',
+      'oklab(0.6 0.2 0.1)',
+      'oklch(0.6 0.22 25)',
+      'oklch(60% 55% 25deg / 0.5)',
+      'color(srgb 0.9 0.1 0.1)',
+      'color(display-p3 1 0 0)',
+      'color-mix(in srgb, crimson 60%, transparent)',
+    ]) {
+      expect(isRedLiteral(red), red).toBe(true);
+    }
+    for (const other of [
+      'white',
+      'transparent',
+      'currentColor',
+      'var(--danger-foreground)',
+      'var(--youtube-red-filled)',
+      "url('#tomato-gradient')",
+      '.tomato',
+      '#121212',
+      'rgb(0 122 255)',
+      'hsl(210 80% 50%)',
+      'hwb(120 10% 10%)',
+      'lab(50 -40 30)',
+      'oklch(0.6 0.1 250)',
+      'color(srgb 0.1 0.4 0.9)',
+    ]) {
+      expect(isRedLiteral(other), other).toBe(false);
+    }
+    expect(unreadableColors('color(rec2020 1 0 0)')).toEqual(['color(rec2020']);
+    expect(unreadableColors('rgb(from var(--primary) r g b)')).toEqual(['rgb(from']);
+    expect(unreadableColors('color(display-p3 1 0 0) hsl(0 80% 50%)')).toEqual([]);
   });
 
   it('retires the one-off account delete button and the dead btn-action rule', () => {

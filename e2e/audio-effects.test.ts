@@ -483,7 +483,10 @@ test.describe('Audio Effects', () => {
     const denial = 'Settings sync is on\nOnly room admins can change audio settings';
     await expect(volumeGroup).toBeVisible();
     await expect(volumeGroup).toHaveAttribute('tabindex', '0');
-    await expect(volumeGroup).toHaveAccessibleName(denial);
+    // The group keeps its name; the lock reason is its hint and description.
+    await expect(volumeGroup).toHaveAccessibleName('Adjust volume');
+    await expect(volumeGroup).toHaveAccessibleDescription(denial);
+    await expect(volumeGroup).toHaveAttribute('aria-disabled', 'true');
     await expect(volumeSlider).toBeDisabled();
     await expect(muteButton).toBeDisabled();
 
@@ -520,6 +523,7 @@ test.describe('Audio Effects', () => {
     await waitForState(pair.guestPage, 'audio.settingsSyncEnabled', false);
     await navigateToTab(pair.guestPage, 'play');
     await expect(volumeGroup).not.toHaveAttribute('tabindex', '0');
+    await expect(volumeGroup).not.toHaveAttribute('title');
     await expect(volumeSlider).toBeEnabled();
     await expect(muteButton).toBeEnabled();
 

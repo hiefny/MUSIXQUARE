@@ -65,7 +65,13 @@ const REGISTRY: Readonly<Record<string, Entry>> = {
   'common.pause': { kinds: ['next-action'] },
   'common.previous': { kinds: ['action'] },
   'common.sync': { kinds: ['action'] },
-  'common.youtube_video': { kinds: ['thing'] },
+  'common.youtube_video': {
+    kinds: ['thing', 'visible'],
+    exempt: {
+      enSentenceCase:
+        'also the visible subtitle and search fallback title, which keep the 9.0.18 English',
+    },
+  },
   'dialog.go_back': { kinds: ['action'] },
   'nav.connect': { kinds: ['thing'] },
   'nav.go_home': { kinds: ['action'] },
@@ -686,6 +692,15 @@ describe('hint and accessible-name copy policy', () => {
       if (!visible || !name.includes(visible)) misses.push(`${locale}: ${visible} / ${name}`);
     }
     expect(misses).toEqual([]);
+  });
+
+  it('keeps the visible English of a name that is also screen text', () => {
+    // Owner decision (2026-10-27, late evening): this train changes no English
+    // screen text. common.youtube_video names the YouTube frame and is also
+    // the subtitle of a YouTube track without an artist and the title of a
+    // search result without one, so it keeps 9.0.18's 'YouTube Video'.
+    expect(en['common.youtube_video']).toBe('YouTube Video');
+    expect(REGISTRY['common.youtube_video']?.exempt?.enSentenceCase).toBeTruthy();
   });
 
   it('titles the Korean kicked dialog without repeating its message', () => {

@@ -2,11 +2,11 @@
 
 | Field              | Value                                                                                                                                                                 |
 | ------------------ | --------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Status             | 브랜치 `agent/pro-receipt-ttl`의 로컬 커밋(main `809c9466`까지 합침). PR, 병합, 배포 모두 아직 없음                                                                 |
+| Status             | 브랜치 `agent/pro-receipt-ttl`의 로컬 커밋(main `809c9466`까지 합침, bump `faaa8735`). PR, 병합, 배포 모두 아직 없음                                              |
 | Base               | `origin/main` `53a66d65`(운영 9.0.17 / v790, PR #503 뒤, 최소 앱 빌드 787). 라운드 4에서 9.0.17 배포 기록 `809c9466`(#507, 문서만)을 합침                      |
-| Version            | 아직 올리지 않음. 바뀐 순서대로 UI 묶음보다 먼저 9.0.18 / v791로 나가며, 앱 SemVer와 SW 캐시는 릴리스 준비의 마지막 런타임 커밋에서 올린다                          |
+| Version            | 9.0.18 / v791(앱 빌드 791). bump `faaa8735`가 마지막 런타임 커밋이다. 바뀐 순서대로 UI 묶음(9.0.19 / v792)보다 먼저 나간다                                      |
 | Scope              | PRO 방 브라우저 영수증 원장의 보관 시간(PRO 방 Worker), 원장이 찼을 때의 재생목록 안내(App, 42개 언어), 재생 명령 시도 상수와 BOT 임대 시간을 영수증 시간 집으로 옮김 |
-| Target             | `all`. App과 PRO 방 Worker 둘 다 런타임 경로가 바뀌어 부분 릴리스는 막힌다. 앱 번들이 바뀌므로 배포 때 업데이트 창이 뜬다                                             |
+| Target             | `all`. 운영 `53a66d65`와 견준 런타임 경로 변경이 App 51개, PRO 방 2개, 나머지 네 Worker 0개라 부분 릴리스는 막힌다. 앱 SemVer와 SW 캐시가 바뀌어 업데이트 창이 뜬다 |
 | Resource ownership | [RO-53](resource-ownership-registry.md#ro-53-pro-browser-receipt-ledger) 신설(`owner-in-place`), RO-52의 허용 요청자 문구에 완료 영수증 수명 연결                     |
 
 ## 문제
@@ -320,12 +320,53 @@ presence 45초에서 2 × (45 + 6) = 102초라 2분이 정한다. 완료는 운�
 - 순서 고침: main 기록의 #503 항목과 5B 항목, 운영·보안의 영수증 원장 항목, §4의 9.0.17 되돌리기
   번호, `docs/README.md`의 #503 줄과 이 열차 줄. §1은 배포 때마다 덮어쓰는 절이라 손대지 않았다.
   §1의 '다음 순서' 문장은 이 열차의 배포 기록이 덮어쓴다.
-- 다시 돌린 것(문서를 읽거나 세는 검사): `guard:brand-capitalization` 989 sources, resource-ownership
+- 다시 돌린 것(문서를 읽거나 세는 검사): `guard:brand-capitalization` 987 sources(합침 커밋의 파일
+  목록. 충돌을 푸는 중에 처음 센 989는 충돌 파일의 세 단계를 따로 센 값이다), resource-ownership
   49 records / 444 files, room-authority 직접 읽기 80·구독 22·쓰기 13, bus-pairing 202/202,
   dead-exports, import-graph 398 files·순환 0, lifecycle-writes, navigation-sinks, release-identity
   (9.0.17 / v790), 문서 경로를 읽는 단위 테스트 5 files / 163. 가드 수는 라운드 3과 같다.
 - 한계: 문서만 합쳤으므로 런타임 검사는 다시 돌리지 않았다. 버전을 올린 뒤의 릴리스 준비 라운드에서
   전부 돌린다.
+
+## QA 라운드 5(릴리스 준비, bump 뒤)
+
+- 시험한 코드: bump `faaa8735`(9.0.18 / v791, 앱 빌드 791, 마지막 런타임 커밋). 런타임은 `3805601a`에
+  버전 거울 여섯 파일만 더했고(`package.json`, `package-lock.json` 두 곳, App Worker의
+  `ADMIN_ASSET_VERSION`, 관리자 스크립트의 `ADMIN_SCRIPT_VERSION`, `SERVICE_WORKER_CACHE_VERSION`,
+  `index.html`의 bootstrap 질의), 테스트는 `ea220066`과 같다. 이 보고서를 고친 문서 커밋만 뒤따른다.
+  bump 직전 다시 fetch한 origin/main은 `809c9466` 그대로였다. 로컬 Windows, Node 24.20.0 / npm 12.0.2.
+- 통과: `tsc --noEmit`, `typecheck:tests`, `check:workers`, `lint`, `format:check`, 전체 단위
+  실행(`--maxWorkers=6`) 683 files / 16,249, Worker 묶음 68 files / 3,237(커버리지 없이 한 번, 커버리지
+  포함 한 번, 기준치 통과, `cloudflare/pro-room-worker.ts` 문장 87.65 · 분기 83.87 · 함수 96.2 · 줄
+  91.71로 라운드 1~3과 같음), `test:coverage:critical` 88 files / 3,462(기준치 통과),
+  `check:worker-bundles`(Worker 6개 dry-run, PRO 방 827.25 KiB / gzip 161.89 KiB, App 986.17 KiB / gzip
+  201.36 KiB), 가드(navigation-sinks, dead-exports, bus-pairing 202/202, import-graph 398 files·순환 0,
+  lifecycle-writes, release-identity 9.0.18 / v791, sw-cache-version, resource-ownership 49 records /
+  444 files, room-authority 직접 읽기 80·구독 22·쓰기 13).
+- `build:checked`: 25단계 모두 통과했다. 라운드 3에서 예상대로 실패했던 `guard:sw-cache-version`도
+  v791(`faaa8735`)이 커밋된 PWA 런타임 변경을 모두 덮는다고 통과했고, SW 앱 셸 96 자산과 초기 전송
+  예산도 통과했다.
+- 초기 전송: origin/main `809c9466`(런타임은 `53a66d65`와 같고 같은 의존성으로 빌드)과 견주면 eager JS
+  gzip 466,797 B에서 466,818 B(+21 B, 유지 상한 491,568 B까지 24,750 B), eager 전체 gzip +22 B이고 entry
+  raw는 861,703 B 그대로다. 늘어난 것은 라운드 3처럼 새 영어 문구와 키뿐이다(`en.js` +111 B raw, i18n
+  키 목록 +129 B raw). bootstrap은 크기가 같고 이름의 캐시 질의만 v791이다.
+- E2E(Chromium): `build:checked`의 운영 빌드에서 `test:e2e:candidate` 19개 통과. E2E 빌드에서
+  `test:e2e:critical` 65개 통과, PRO 묶음 30개 통과(기본 설정, `pro-upload-recovery` 4,
+  `pro-entry-retry` 2, `pro-entry-password` 10, `pro-entry-app-update` 2, `pro-activation-account` 12).
+- 실행 순서 한 번 바로잡음: 처음에는 후보 E2E를 `test:e2e:critical` 뒤에 돌렸다. 그 앞 단계
+  `build:e2e`가 `dist`를 E2E 훅이 든 빌드로 바꿔 놓아 `production-candidate-smoke` 한 개가 노출된
+  테스트 훅 넷으로 실패했고, 그 `dist`로 잰 eager 값도 버렸다. `build:checked`를 다시 돌린 직후 위
+  측정과 후보 E2E를 다시 돌렸다. 코드 결함이 아니라 실행 순서의 문제다.
+- Target: 운영 `53a66d65`와 견준 런타임 경로 변경(`scripts/release-deployment-state.mts`의 경로
+  목록)은 App 51개(`src` 46개, 새 시간 집, bump의 버전 거울 4개: `browser/classic-runtime/admin.ts`,
+  `cloudflare/app-worker.ts`, `index.html`, `scripts/service-worker-asset.ts`), PRO 방 2개,
+  remote-share·signaling·Developer API facade·Developer API 0개다. App 런타임 의존성은 바뀌지 않았다
+  (`package.json`과 `package-lock.json`은 버전만 바뀜). 부분 릴리스 게이트는 고르지 않은 Worker에 바뀐
+  경로가 있으면 막으므로 `app`이나 `pro-room` 하나만으로는 막히고 `all`만 통과한다. 계약 표지가
+  바뀌지 않아 계약 전환 규칙은 해당하지 않는다. Developer API D1 false, `raise_app_build_floor` false.
+  앱 SemVer와 SW 캐시가 바뀌므로 배포 뒤 업데이트 대화상자가 뜬다.
+- 한계: 로컬 결과는 exact-main 후보가 아니다. 전체 Playwright와 WebKit E2E, PR CI, 자동 코드 리뷰,
+  exact-main CI, 릴리스 smoke는 돌리지 않았다.
 
 ## 확인하지 않은 것
 
@@ -335,5 +376,6 @@ presence 45초에서 2 × (45 + 6) = 102초라 2분이 정한다. 완료는 운�
   실제로 되돌려 보지는 않았다.
 - 실제 기기에서 멈춘 페이지의 늦은 재생 재전송(가짜 시계와 presence 유지로만 확인).
 - 42개 언어 문구의 원어민 검토.
-- SW 캐시를 올린 뒤의 `build:checked` 전체, 전체 Playwright와 WebKit E2E, PR CI, exact-main CI,
-  릴리스 smoke. 라운드 3은 SW 캐시 가드만 뺀 빌드, 초기 전송 예산, E2E 일부를 로컬에서 돌렸다.
+- 전체 Playwright와 WebKit E2E, PR CI, 자동 코드 리뷰, exact-main CI, 릴리스 smoke, 운영 브라우저의
+  업데이트 대화상자. 라운드 5는 SW 캐시를 올린 뒤의 `build:checked` 전체와 E2E 일부(critical, PRO,
+  후보)를 로컬에서 돌렸다.

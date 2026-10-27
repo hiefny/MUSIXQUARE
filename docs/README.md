@@ -104,14 +104,17 @@ runbooks. Neither belongs in a general setup document.
   24 hours. The cap stays 256 so a rollback to the 9.0.17 PRO Worker still loads the room (checked
   once against the `53a66d65` Worker code). A full ledger now shows `pro.room_state_limit`
   (42 locales) on every playlist path instead of "The playlist changed". Branch
-  `agent/pro-receipt-ttl` (main merged up to the 9.0.17 record `809c9466`, #507), not merged or
-  released and without a version bump yet. After the owner's same-day order change it ships first
-  as 9.0.18 / v791 (target `all`) and the UI bundle follows as 9.0.19 / v792. The report lists
-  each scope's old and new window, the review adjustments, rollback and its one-off check, what
-  stays as is, the tests-first evidence (12 Worker and 9 client tests failing on `53a66d65`; the
-  BOT one pins new behaviour rather than an old defect) and QA rounds 1 to 4 with their tested
-  SHAs and limits (round 3 adds the build without the cache-epoch guard, eager JS +28 B gzip
-  against main, and the critical, PRO and candidate E2E; round 4 covers the main merge).
+  `agent/pro-receipt-ttl` (main merged up to the 9.0.17 record `809c9466`, #507) with the bump
+  `faaa8735` to 9.0.18 / v791 (App build 791) as its last runtime commit, not merged or released.
+  After the owner's same-day order change it ships first (target `all`, App 51 and PRO room 2
+  runtime paths against production, with the update dialog) and the UI bundle follows as 9.0.19 /
+  v792. The report lists each scope's old and new window, the review adjustments, rollback and its
+  one-off check, what stays as is, the tests-first evidence (12 Worker and 9 client tests failing
+  on `53a66d65`; the BOT one pins new behaviour rather than an old defect) and QA rounds 1 to 5
+  with their tested SHAs and limits (round 3 adds the build without the cache-epoch guard and the
+  critical, PRO and candidate E2E; round 4 covers the main merge; round 5, after the bump, passes
+  the full `build:checked`, unit 16,249, Worker 3,237, critical coverage 3,462, the critical, PRO
+  and candidate E2E, and eager JS +21 B gzip against main).
 - [PRO upload completion and authority feedback (2026-10-27)](design/pro-upload-reliability-2026-10-27.md):
   production diagnosis, R2-internal copy without streaming a full file through the Worker,
   a binding-copy fallback with bounded copy diagnostics (RO-52), completion retry continuity,

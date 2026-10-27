@@ -93,6 +93,19 @@ runbooks. Neither belongs in a general setup document.
 
 ## Maintained evidence and completed records
 
+- [PRO room receipt retention (2026-10-27)](design/pro-receipt-retention-2026-10-27.md):
+  the PRO room's shared browser receipt ledger (256 receipts) keeps each receipt only as long as
+  the App can send its request again (owner decision 2026-10-27, RO-53): two minutes for edits,
+  playlist switches and transfers, reservations, deletes and BOT runs; playback the same unless a
+  longer configured presence needs more; upload completion until a playlist names its asset, at
+  most until orphan cleanup collects it. Receipts an earlier Worker kept for 24 hours are cut at
+  the next prune, BOT and public Developer receipts keep 24 hours, and the cap stays 256 so a
+  rollback to the 9.0.17 PRO Worker still loads the room. A full ledger now shows
+  `pro.room_state_limit` (42 locales) on every playlist path instead of "The playlist changed".
+  Branch `agent/pro-receipt-ttl`, not merged or released and without a version bump (it ships
+  after the UI bundle, target `all`). The report lists each scope's old and new window, the
+  review adjustments, rollback, what stays as is, the tests-first evidence (12 Worker and 7
+  client tests failing on `53a66d65`) and QA round 1 with its tested SHA and limits.
 - [PRO upload completion and authority feedback (2026-10-27)](design/pro-upload-reliability-2026-10-27.md):
   production diagnosis, R2-internal copy without streaming a full file through the Worker,
   a binding-copy fallback with bounded copy diagnostics (RO-52), completion retry continuity,

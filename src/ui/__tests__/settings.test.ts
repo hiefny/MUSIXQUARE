@@ -2,7 +2,7 @@
  * @vitest-environment jsdom
  */
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { readFileSync } from 'node:fs';
+import { readdirSync, readFileSync } from 'node:fs';
 import { bus } from '../../core/events.ts';
 import { getState, resetState, setState } from '../../core/state.ts';
 import { showToast } from '../toast.ts';
@@ -644,6 +644,41 @@ describe('initSettings PRO device authority', () => {
     expect(document.querySelector('.d-name')?.textContent).not.toContain('ADMIN');
     expect(document.querySelector('.btn-action')).toBeNull();
     expect(document.querySelector('.d-status')?.textContent).toBe('Connected');
+  });
+});
+
+describe('initSettings device list status', () => {
+  it('shows one connected badge, the only status a device list carries', () => {
+    // Every device list lists room members only: the host broadcast keeps
+    // peers whose status is 'connected' (peer.test.ts) and the PRO presence
+    // projection marks every participant connected
+    // (runtime-member-projection.test.ts). A disconnected badge never had a
+    // row to show on, so neither it, its rule nor its copy remains.
+    document.body.insertAdjacentHTML('beforeend', '<div id="device-list"></div>');
+    initSettings();
+    const deviceList = [
+      { id: 'host-1', label: 'HOST', status: 'connected', isHost: true, isOp: true },
+      { id: 'peer-1', label: 'Peer 1', status: 'connected', isHost: false, isOp: false },
+    ];
+    setState('network.lastKnownDeviceList', deviceList);
+    bus.emit('network:device-list-update', deviceList);
+
+    const badges = [...document.querySelectorAll('#device-list .d-status')];
+    expect(badges.map((badge) => badge.className)).toEqual(['d-status active', 'd-status active']);
+    expect(badges.map((badge) => badge.textContent)).toEqual(['Connected', 'Connected']);
+
+    const settingsSource = readFileSync('src/ui/settings.ts', 'utf8');
+    expect(settingsSource).not.toMatch(/common\.disconnected|'inactive'/u);
+    expect(readFileSync('css/style.css', 'utf8')).not.toMatch(/\.d-status\.inactive\b/u);
+    const locales = readdirSync('src/i18n').filter((name) =>
+      /^[a-z]{2,3}(?:-[a-z]+)?\.ts$/u.test(name),
+    );
+    expect(locales).toHaveLength(42);
+    for (const locale of locales) {
+      const source = readFileSync(`src/i18n/${locale}`, 'utf8');
+      expect(source, locale).toContain("'common.connected'");
+      expect(source, locale).not.toContain("'common.disconnected'");
+    }
   });
 });
 

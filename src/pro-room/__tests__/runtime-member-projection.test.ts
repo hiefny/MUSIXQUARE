@@ -82,6 +82,9 @@ describe('PRO physical-device member projection', () => {
     );
 
     expect(projected.list).toHaveLength(4);
+    // Presence lists live participants only; the settings device list has no
+    // other status to show.
+    expect(projected.list.map((row) => row.status)).toEqual(Array(4).fill('connected'));
     expect(projected.list[0]).toMatchObject({
       id: 'device-0',
       memberId: 'member-owner',

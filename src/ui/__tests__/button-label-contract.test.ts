@@ -1167,22 +1167,19 @@ describe('action button label contract', () => {
     expect(unreadable).toEqual([]);
 
     // The reds that were hard-coded read the role now: error and validation
-    // text, the disconnected device badge and the destructive row icons.
+    // text and the destructive row icons. (The unreachable disconnected
+    // device badge is gone; settings.test.ts keeps it out.)
     const roleReaders: Array<[string, string]> = [
       ['.dialog-hint.error', 'color'],
       ['.dialog-input.invalid', 'border-bottom-color'],
       ['.dialog-input-split.invalid .dialog-input-segment', 'border-bottom-color'],
       ['.setup-inline-error', 'color'],
-      ['.d-status.inactive', 'color'],
     ];
     for (const [selector, property] of roleReaders) {
       expect(ruleValues(appCss, selector, property), selector).toEqual([
         'var(--danger-foreground)',
       ]);
     }
-    expect(ruleValues(appCss, '.d-status.inactive', 'background')).toEqual([
-      'var(--control-danger)',
-    ]);
     for (const icon of [
       ':where(html[data-hover-pointer]) .clearable-editor-button:hover',
       ':where(html[data-hover-pointer]) .btn-playlist-remove:not(:disabled):hover',

@@ -235,6 +235,37 @@ describe('broadcastDeviceList', () => {
     await handleData(frame, makeConnection({ peer: '123456' }));
     expect(received).toHaveBeenCalledOnce();
   });
+
+  it('lists only connected members, so every row it sends is connected', () => {
+    // The settings device list draws one connected badge on every row and
+    // has no other status to show.
+    const send = vi.fn();
+    const conn = makeConnection({ open: true, send });
+    const peer = (id: string, status: string, joinOrder: number) => ({
+      id,
+      slot: joinOrder,
+      label: `Peer ${joinOrder}`,
+      conn,
+      isOp: false,
+      preloadedQueueItemIds: new Set<string>(),
+      status,
+      isDataTarget: true,
+      joinOrder,
+      connectionType: 'local' as const,
+      lastHeartbeat: Date.now(),
+    });
+    setState('network.myId', '123456');
+    setState('network.connectedPeers', [
+      peer('guest-1', 'connected', 1),
+      peer('guest-2', 'connecting', 2),
+    ]);
+
+    broadcastDeviceList();
+
+    const frame = send.mock.calls[0]?.[0] as { list: Array<Record<string, unknown>> };
+    expect(frame.list.map((row) => row.id)).toEqual(['123456', 'guest-1']);
+    expect(frame.list.map((row) => row.status)).toEqual(['connected', 'connected']);
+  });
 });
 
 describe('isRemoteGuest', () => {

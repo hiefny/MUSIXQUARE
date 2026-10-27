@@ -57,6 +57,12 @@ or pointers. Keep :focus-visible and :active outside the gate (src/ui/__tests__/
     --control-danger-pill: rgba(255, 59, 48, 0.08);
     --control-danger-pill-hover: rgba(255, 59, 48, 0.12);
     --control-danger-pill-press: rgba(255, 59, 48, 0.18);
+    /* Account deletion at rest, on hover and on press: the --danger-filled
+       tints its 9.0.18 button had, the same in both default themes. High
+       contrast keeps its resting --control-danger in all three. */
+    --control-danger-dialog: rgba(239, 68, 68, 0.1);
+    --control-danger-dialog-hover: rgba(239, 68, 68, 0.16);
+    --control-danger-dialog-press: rgba(239, 68, 68, 0.2);
 
     --radius-l: 32px;
     --radius-m: 20px;
@@ -6497,17 +6503,33 @@ or pointers. Keep :focus-visible and :active outside the gate (src/ui/__tests__/
       box-shadow 0.2s;
   }
 
-  /* Destructive secondary action (account deletion). Only the colors change;
-     size, label and press feedback stay the shared secondary action's. */
+  /* Destructive secondary action (account deletion). Only the colors change:
+     the label reads the danger role, and the surface keeps the 9.0.18 tints,
+     darker on hover and press. Size, label type and the press scale stay
+     the shared secondary action's. */
   .dialog-secondary.dialog-danger {
     border-color: transparent;
-    background: var(--control-danger);
+    background: var(--control-danger-dialog);
     color: var(--danger-foreground);
+    transition:
+      background-color 0.18s ease,
+      transform 0.2s,
+      box-shadow 0.2s;
+  }
+
+  :where(html[data-hover-pointer]) .dialog-secondary.dialog-danger:hover {
+    background: var(--control-danger-dialog-hover);
   }
 
   .dialog-secondary:active {
     transform: scale(0.97);
     box-shadow: none;
+  }
+
+  /* After the hover rule with the same specificity, so a hovered press
+     shows the press tint. */
+  .dialog-secondary.dialog-danger:active {
+    background: var(--control-danger-dialog-press);
   }
 
   .dialog-primary {
@@ -9672,11 +9694,10 @@ or pointers. Keep :focus-visible and :active outside the gate (src/ui/__tests__/
     background: var(--control-active);
   }
 
-  /* The demo exit keeps its 9.0.18 tints: --control-danger at rest (the
-     tint account deletion rests on) and --control-danger-hover on hover,
-     which account deletion, a shared secondary action, does not show.
-     Coming after the leave-session press rule with the same specificity,
-     its resting tint also holds through a touch press. */
+  /* The demo exit keeps its 9.0.18 tints: --control-danger at rest and
+     --control-danger-hover on hover. Coming after the leave-session press
+     rule with the same specificity, its resting tint also holds through a
+     touch press. */
   .demo-large-actions .leave-session-btn {
     background: var(--control-danger);
   }
@@ -11545,6 +11566,11 @@ or pointers. Keep :focus-visible and :active outside the gate (src/ui/__tests__/
     --control-danger-pill: var(--control-danger);
     --control-danger-pill-hover: var(--control-danger-hover);
     --control-danger-pill-press: var(--control-danger-hover);
+    /* Account deletion keeps the resting high-contrast tint on hover and
+       press. */
+    --control-danger-dialog: var(--control-danger);
+    --control-danger-dialog-hover: var(--control-danger);
+    --control-danger-dialog-press: var(--control-danger);
     --glass-bg: var(--surface-1);
     --glass-border: #262626;
     --scrollbar-thumb: rgba(255, 255, 255, 0.65);
@@ -11634,6 +11660,9 @@ or pointers. Keep :focus-visible and :active outside the gate (src/ui/__tests__/
       --control-danger-pill: var(--control-danger);
       --control-danger-pill-hover: var(--control-danger-hover);
       --control-danger-pill-press: var(--control-danger-hover);
+      --control-danger-dialog: var(--control-danger);
+      --control-danger-dialog-hover: var(--control-danger);
+      --control-danger-dialog-press: var(--control-danger);
       --glass-bg: var(--surface-1);
       --glass-border: #262626;
       --scrollbar-thumb: rgba(255, 255, 255, 0.65);

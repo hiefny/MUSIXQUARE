@@ -128,7 +128,8 @@ semantic token structure.
   default themes, #a4001d in light high contrast); never hard-code a red or
   paint text with the filled `--danger-filled`. Red surfaces use the
   `--control-danger` tints (leave session and stop sharing read its
-  `--control-danger-pill` tints), or `--danger-filled` under white icons; white
+  `--control-danger-pill` tints, Delete account its `--control-danger-dialog`
+  tints of `--danger-filled`), or `--danger-filled` under white icons; white
   text on it needs its own contrast check (white on #ef4444 is 3.76:1). Only
   the YouTube mark keeps its brand red.
 - Reuse the existing radius, safe-area, motion, and range-control tokens from

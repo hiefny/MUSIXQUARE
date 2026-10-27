@@ -109,7 +109,7 @@ runbooks. Neither belongs in a general setup document.
   Branch `agent/pro-receipt-ttl` (main merged up to the 9.0.17 record `809c9466`, #507) with the
   bump `faaa8735` to 9.0.18 / v791 (App build 791) as its last runtime commit, not merged or
   released.
-  After the owner's same-day order change it ships first (target `all`, App 51 and PRO room 2
+  It ships first (a same-day order change made while the owner was away, under the deploy-when-ready rule, because the UI bundle was still in progress; the owner had placed it after the UI bundle) (target `all`, App 51 and PRO room 2
   runtime paths against production, with the update dialog) and the UI bundle follows as 9.0.19 /
   v792. The report lists each scope's old and new window, the review adjustments, rollback and its
   one-off check, what stays as is, the tests-first evidence (12 Worker and 9 client tests failing
@@ -138,8 +138,8 @@ runbooks. Neither belongs in a general setup document.
   signaling admission, no pre-deploy floor `status`, the public floor at 787 with live App 790,
   and the Drift Audit). It also covers the failed-release rollback of the PRO Worker, the
   App-only rollback's 5-second facade, and the room receipt-ledger limit, whose retention the
-  owner decided to shorten in its own train (9.0.18 / v791, ahead of the UI bundle after the
-  owner's same-day order change).
+  owner decided to shorten in its own train (9.0.18 / v791, ahead of the UI bundle after a
+  same-day order change made while the owner was away).
 - [Phase 5 train 5B: receive-slot behaviour fixes and the system-audio old-version items (2026-10-26)](design/phase5-5b-receive-slot-behaviour-2026-10-26.md):
   release evidence for the structure program's second Phase 5 app train (9.0.16 / v789 from bump
   `198b8cf8`, released 2026-10-27 10:18 KST in Release 40431540366 from main `a930030a`, target

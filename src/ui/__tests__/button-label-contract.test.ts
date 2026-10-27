@@ -883,8 +883,9 @@ describe('action button label contract', () => {
     // the phone panel, and the control stage from 720px up. Dialog pills have
     // no hover tint.
     //
-    // One case is below 4.5 and waits for the owner (UI bundle u8 notes 7.2):
-    // dark #ff3b30, which the owner kept, over the hover tint on that panel.
+    // One case is below 4.5 and waits for an owner decision (an open question
+    // of the UI bundle train): dark #ff3b30, which the owner kept, over the
+    // hover tint on that panel.
     // Its ratio is pinned rather than skipped, so a further drop or any new
     // case below 4.5 fails, and fixing it means removing this entry.
     const OWNER_PENDING: Readonly<Record<string, string>> = {

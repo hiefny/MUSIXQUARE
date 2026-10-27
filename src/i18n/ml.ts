@@ -237,7 +237,7 @@ const ml: Record<I18nKey, string> = {
   'settings.language_dialog_title': 'ഭാഷ തിരഞ്ഞെടുക്കുക',
   'settings.help_translate': 'വിവർത്തനത്തിൽ സഹായിക്കൂ',
   'settings.language_select_aria': 'ഭാഷാ ലിസ്റ്റ് തുറക്കുക',
-  'settings.language_manual_aria': 'ഭാഷ സ്വയം തിരഞ്ഞെടുക്കുക',
+  'settings.language_manual_aria': 'ഭാഷ മാനുവലായി തിരഞ്ഞെടുക്കുക',
   'settings.language_system_aria': 'സിസ്റ്റം ഭാഷ ഉപയോഗിക്കുക',
   'settings.advanced_audio': 'വിപുലമായ ഓഡിയോ',
   'settings.spatial_audio': 'സ്പേഷ്യൽ ഓഡിയോ',

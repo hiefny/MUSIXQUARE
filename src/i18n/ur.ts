@@ -117,7 +117,7 @@ const ur: Record<I18nKey, string> = {
   'player.no_media': 'کوئی میڈیا نہیں چل رہا',
   'player.select_file_hint': 'فائل منتخب کریں یا پلے لسٹ دیکھیں',
   'player.visualizer': 'آڈیو ویژولائزر',
-  'player.seek': 'پلے بیک کی جگہ',
+  'player.seek': 'پلے بیک کی پوزیشن',
   'player.seek_unavailable_system_audio': 'سسٹم آڈیو شیئر ہوتے وقت آگے پیچھے نہیں جا سکتے',
   'player.volume': 'آواز',
   'player.toggle_mute': 'خاموش',

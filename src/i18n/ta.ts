@@ -119,7 +119,7 @@ const ta: Record<I18nKey, string> = {
   'player.no_media': 'எந்த மீடியாவும் இயங்கவில்லை',
   'player.select_file_hint': 'ஒரு கோப்பைத் தேர்வுசெய்யுங்கள் அல்லது பிளேலிஸ்ட்டைப் பாருங்கள்',
   'player.visualizer': 'ஆடியோ காட்சியாக்கி',
-  'player.seek': 'இயக்க நிலை',
+  'player.seek': 'இயக்க நேரம்',
   'player.seek_unavailable_system_audio':
     'சிஸ்டம் ஆடியோ பகிரப்படும்போது இயக்க நேரத்தை மாற்ற முடியாது',
   'player.volume': 'ஒலியளவு',

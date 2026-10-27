@@ -284,7 +284,7 @@ const tr: Record<I18nKey, string> = {
   'connect.administrator_revoke_aria': '{{name}} adlı katılımcının yöneticiliğini kaldır',
   'connect.administrator_grant_aria': '{{name}} adlı katılımcıya yönetici izinleri ver',
   'connect.kick_member_aria': '{{name}} adlı katılımcıyı çıkar',
-  'connect.kick_device_aria': 'Çıkar: {{name}}',
+  'connect.kick_device_aria': '{{name}} öğesini çıkar',
   'connect.administrator_revoke_title': 'Yöneticilik kaldırılsın mı?',
   'connect.administrator_revoke_message':
     '{{name}} adlı katılımcının yönetici izinleri kaldırılsın mı?',

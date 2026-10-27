@@ -104,7 +104,7 @@ runbooks. Neither belongs in a general setup document.
   `pro.room_state_limit` (42 locales) on every playlist path instead of "The playlist changed".
   Branch `agent/pro-receipt-ttl`, not merged or released and without a version bump (it ships
   after the UI bundle, target `all`). The report lists each scope's old and new window, the
-  review adjustments, rollback, what stays as is, the tests-first evidence (12 Worker and 7
+  review adjustments, rollback, what stays as is, the tests-first evidence (12 Worker and 9
   client tests failing on `53a66d65`) and QA round 1 with its tested SHA and limits.
 - [PRO upload completion and authority feedback (2026-10-27)](design/pro-upload-reliability-2026-10-27.md):
   production diagnosis, R2-internal copy without streaming a full file through the Worker,

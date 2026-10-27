@@ -302,7 +302,7 @@ const ko = {
   'connect.kick_yes': '내보내기',
   'connect.kick_no': '아니요',
   'connect.kicked_title': '방에서 내보내졌어요',
-  'connect.kicked_message': '방장에 의해 세션에서 내보내졌어요.',
+  'connect.kicked_message': '방장이 이 방에서 내보냈어요.',
   'connect.copy_invite_link': '초대 링크 복사',
   'connect.link_copied': '초대 링크가 복사되었어요',
   'connect.room_password_title': '방 암호 설정',

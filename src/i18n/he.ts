@@ -225,7 +225,7 @@ const he: Record<I18nKey, string> = {
   'settings.language_dialog_title': 'בחירת שפה',
   'settings.help_translate': 'עזרה בתרגום',
   'settings.language_select_aria': 'פתיחת רשימת השפות',
-  'settings.language_manual_aria': 'בחירת שפה ידנית',
+  'settings.language_manual_aria': 'בחירה ידנית של שפה',
   'settings.language_system_aria': 'שימוש בשפת המערכת',
   'settings.advanced_audio': 'שמע מתקדם',
   'settings.spatial_audio': 'שמע מרחבי',

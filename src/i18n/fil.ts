@@ -234,7 +234,7 @@ const fil: Record<I18nKey, string> = {
   'settings.language_dialog_title': 'Pumili ng Wika',
   'settings.help_translate': 'Tumulong sa pagsasalin',
   'settings.language_select_aria': 'Buksan ang listahan ng wika',
-  'settings.language_manual_aria': 'Pumili ng wika nang manu-mano',
+  'settings.language_manual_aria': 'Piliin ang wika nang manu-mano',
   'settings.language_system_aria': 'Gamitin ang wika ng system',
   'settings.advanced_audio': 'Advanced na audio',
   'settings.spatial_audio': 'Spatial na audio',

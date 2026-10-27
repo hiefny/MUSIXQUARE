@@ -3,7 +3,14 @@
  */
 import { readdirSync, readFileSync } from 'node:fs';
 import { join, resolve } from 'node:path';
-import { parse as parseCss, type AtRule, type Declaration, type Node, type Root } from 'postcss';
+import {
+  parse as parseCss,
+  type AtRule,
+  type Declaration,
+  type Node,
+  type Root,
+  type Rule,
+} from 'postcss';
 import { describe, expect, it } from 'vitest';
 
 // Owner decision (2026-10-27): every action button reads one label style, so
@@ -22,7 +29,14 @@ const LABEL_VALUES: Readonly<Record<string, string>> = {
   '--button-label-line-height': '1.25',
   '--button-label-letter-spacing': 'normal',
 };
-const FONT_PROPERTIES = ['font', 'font-family', ...Object.keys(LABEL_TOKENS)];
+// font-variation-settings can set the weight axis of the variable label face
+// past font-weight, so action button rules may not set it either.
+const FONT_PROPERTIES = [
+  'font',
+  'font-family',
+  'font-variation-settings',
+  ...Object.keys(LABEL_TOKENS),
+];
 
 // A verb label on a pill, plus the selection bar's text action. Their rules
 // may declare label typography only through the tokens above, and may not
@@ -351,13 +365,20 @@ interface MediaEnvironment {
   touchCallout: boolean;
 }
 
-const RESOLVED_PROPERTIES = ['font-size', 'font-weight', 'line-height', 'letter-spacing'] as const;
+const RESOLVED_PROPERTIES = [
+  'font-size',
+  'font-weight',
+  'line-height',
+  'letter-spacing',
+  'font-variation-settings',
+] as const;
 type ResolvedProperty = (typeof RESOLVED_PROPERTIES)[number];
 const INITIAL_VALUES: Readonly<Record<ResolvedProperty, string>> = {
   'font-size': '16px',
   'font-weight': '400',
   'line-height': 'normal',
   'letter-spacing': 'normal',
+  'font-variation-settings': 'normal',
 };
 // Chromium's form control defaults (`font: -webkit-small-control`), below every
 // author rule.
@@ -366,6 +387,7 @@ const FORM_CONTROL_DEFAULTS: Readonly<Record<ResolvedProperty, string>> = {
   'font-weight': '400',
   'line-height': 'normal',
   'letter-spacing': 'normal',
+  'font-variation-settings': 'normal',
 };
 
 /** Split a selector or query list at its top-level commas. */
@@ -536,13 +558,7 @@ function conditionsApply(node: Node, environment: MediaEnvironment): boolean {
     if (atRule.name === 'layer') continue;
     let applies = known.get(atRule);
     if (applies === undefined) {
-      if (atRule.name === 'media') {
-        applies = mediaMatches(atRule.params, environment);
-      } else if (atRule.name === 'supports' && atRule.params === '(-webkit-touch-callout: none)') {
-        applies = environment.touchCallout;
-      } else {
-        throw new Error(`the resolver cannot evaluate @${atRule.name} ${atRule.params}`);
-      }
+      applies = conditionApplies(atRule, environment);
       known.set(atRule, applies);
     }
     if (!applies) return false;
@@ -690,6 +706,7 @@ function cascadeResolver(
     property: ResolvedProperty,
     environment: MediaEnvironment,
   ): string => {
+    // The font shorthand sets or resets every resolved property but tracking.
     const shorthand = property === 'letter-spacing' ? [] : ['font'];
     const found = winner(element, [property, ...shorthand], environment);
     // The resolver reads stylesheets only; markup must not style labels inline.
@@ -721,48 +738,124 @@ function cascadeResolver(
     ) as Record<ResolvedProperty, string>;
 }
 
-// Viewports around every width and height boundary in the app stylesheet.
-const RESOLVER_VIEWPORTS: ReadonlyArray<[number, number]> = [
-  [320, 568],
-  [320, 800],
-  [340, 700],
-  [360, 800],
-  [390, 844],
-  [390, 640],
-  [420, 900],
-  [421, 900],
-  [568, 320],
-  [700, 400],
-  [719, 900],
-  [720, 900],
-  [844, 390],
-  [844, 300],
-  [844, 180],
-  [1024, 768],
-  [1279, 800],
-  [1280, 719],
-  [1280, 800],
-  [1920, 1080],
-  [2560, 1440],
-  [3840, 2160],
-];
-const RESOLVER_ENVIRONMENTS: MediaEnvironment[] = RESOLVER_VIEWPORTS.flatMap(([width, height]) => {
-  const base: MediaEnvironment = {
-    width,
-    height,
-    reducedMotion: false,
-    forcedColors: false,
-    contrastMore: false,
-    standalone: false,
-    touchCallout: false,
+// The resolver's viewports come from the stylesheets themselves (PR #510
+// review): every width and height that a media query names, with the pixel on
+// either side, against every sampled height and width, so a new range cannot
+// fall between two samples. Each sampled width is also taken square (portrait)
+// and one pixel shorter (landscape), and each height likewise, so orientation
+// conditions see both sides of every boundary. Common phone and screen sizes
+// are added as anchors. A length the resolver cannot read fails the test.
+const ANCHOR_WIDTHS = [320, 340, 360, 375, 390];
+const ANCHOR_HEIGHTS = [568, 640, 667, 800, 844, 1080, 1440, 2160];
+const MEDIA_PREFERENCES = [
+  'reducedMotion',
+  'forcedColors',
+  'contrastMore',
+  'standalone',
+  'touchCallout',
+] as const;
+
+/** The widths and heights at which some media query in the sheets switches. */
+function mediaBoundaries(stylesheets: ReadonlyArray<{ path: string; root: Root }>): {
+  width: number[];
+  height: number[];
+} {
+  const found = { width: new Set<number>(), height: new Set<number>() };
+  for (const { path, root } of stylesheets) {
+    root.walkAtRules('media', (atRule) => {
+      if (/[<>=]/u.test(atRule.params)) {
+        throw new Error(`${path}: cannot sample the range syntax in @media ${atRule.params}`);
+      }
+      for (const match of atRule.params.matchAll(
+        /\(\s*(?:min-|max-)?(width|height)\s*:\s*([^)]*?)\s*\)/gu,
+      )) {
+        const length = /^(\d+(?:\.\d+)?)px$/u.exec(match[2]!);
+        if (!length) throw new Error(`${path}: cannot sample @media ${atRule.params}`);
+        found[match[1] as 'width' | 'height'].add(Number(length[1]));
+      }
+    });
+  }
+  const sorted = (values: Set<number>) => [...values].sort((first, second) => first - second);
+  return { width: sorted(found.width), height: sorted(found.height) };
+}
+
+/** Each boundary and the pixel on either side, plus the anchors. */
+function aroundBoundaries(boundaries: readonly number[], anchors: readonly number[]): number[] {
+  return [...new Set([...boundaries.flatMap((value) => [value - 1, value, value + 1]), ...anchors])]
+    .filter((value) => value > 0)
+    .sort((first, second) => first - second);
+}
+
+function resolverViewports(
+  stylesheets: ReadonlyArray<{ path: string; root: Root }>,
+): Array<[number, number]> {
+  const boundaries = mediaBoundaries(stylesheets);
+  const widths = aroundBoundaries(boundaries.width, ANCHOR_WIDTHS);
+  const heights = aroundBoundaries(boundaries.height, ANCHOR_HEIGHTS);
+  const viewports = new Map<string, [number, number]>();
+  const add = (width: number, height: number): void => {
+    if (width > 0 && height > 0) viewports.set(`${width}x${height}`, [width, height]);
   };
-  return [
-    base,
-    ...(
-      ['reducedMotion', 'forcedColors', 'contrastMore', 'standalone', 'touchCallout'] as const
-    ).map((flag) => ({ ...base, [flag]: true })),
-  ];
-});
+  for (const width of widths) {
+    for (const height of heights) add(width, height);
+    add(width, width);
+    add(width, width - 1);
+  }
+  for (const height of heights) {
+    add(height, height);
+    add(height + 1, height);
+  }
+  return [...viewports.values()];
+}
+
+/** Whether a conditional group rule (not a layer) applies in the environment. */
+function conditionApplies(atRule: AtRule, environment: MediaEnvironment): boolean {
+  if (atRule.name === 'media') return mediaMatches(atRule.params, environment);
+  if (atRule.name === 'supports' && atRule.params === '(-webkit-touch-callout: none)') {
+    return environment.touchCallout;
+  }
+  throw new Error(`the resolver cannot evaluate @${atRule.name} ${atRule.params}`);
+}
+
+/**
+ * Every derived viewport, alone and with each media preference, reduced to
+ * one environment per distinct set of matching conditions: the cascade reads
+ * nothing else from the environment, so the others resolve identically.
+ */
+function resolverEnvironments(
+  stylesheets: ReadonlyArray<{ path: string; root: Root }>,
+): MediaEnvironment[] {
+  const conditions: AtRule[] = [];
+  for (const { root } of stylesheets) {
+    root.walkAtRules((atRule) => {
+      // Container queries do not depend on the viewport; a label declaration
+      // under one fails the resolver instead (conditionsApply).
+      if (atRule.name === 'media' || atRule.name === 'supports') conditions.push(atRule);
+    });
+  }
+  const environments = resolverViewports(stylesheets).flatMap(([width, height]) => {
+    const base: MediaEnvironment = {
+      width,
+      height,
+      reducedMotion: false,
+      forcedColors: false,
+      contrastMore: false,
+      standalone: false,
+      touchCallout: false,
+    };
+    return [base, ...MEDIA_PREFERENCES.map((flag) => ({ ...base, [flag]: true }))];
+  });
+  const distinct = new Map<string, MediaEnvironment>();
+  for (const environment of environments) {
+    const key = conditions
+      .map((atRule) => (conditionApplies(atRule, environment) ? '1' : '0'))
+      .join('');
+    if (!distinct.has(key)) distinct.set(key, environment);
+  }
+  return [...distinct.values()];
+}
+
+const RESOLVER_ENVIRONMENTS: MediaEnvironment[] = resolverEnvironments(sheets);
 
 // Page states that app rules key on, applied one at a time over each
 // direction and theme. Each state toggles one attribute or class on the parsed
@@ -806,6 +899,11 @@ const SHARED_PAGE_STATES: readonly PageState[] = [
   { name: 'fake fullscreen', apply: toggleClass('body', 'has-fake-fullscreen') },
 ];
 
+// One cascade and one environment list per stylesheet set: every slot and
+// mutation check over the same sheets reuses them.
+const declarationCache = new WeakMap<object, ReturnType<typeof cascadeDeclarations>>();
+const environmentCache = new WeakMap<object, MediaEnvironment[]>([[sheets, RESOLVER_ENVIRONMENTS]]);
+
 /** Resolve every element under each direction, theme, page state and viewport. */
 function resolveAcross(
   stylesheets: ReadonlyArray<{ path: string; root: Root }>,
@@ -817,7 +915,12 @@ function resolveAcross(
     context: { label: string; direction: string; environment: MediaEnvironment },
   ) => void,
 ): number {
-  const declarations = cascadeDeclarations(stylesheets);
+  let declarations = declarationCache.get(stylesheets);
+  if (!declarations)
+    declarationCache.set(stylesheets, (declarations = cascadeDeclarations(stylesheets)));
+  let environments = environmentCache.get(stylesheets);
+  if (!environments)
+    environmentCache.set(stylesheets, (environments = resolverEnvironments(stylesheets)));
   const markup = appMarkup();
   markup.documentElement.classList.remove('setup-boot-block');
   markup.body.classList.add('fouc-loaded');
@@ -832,7 +935,7 @@ function resolveAcross(
       for (const state of states) {
         const undo = state.apply(markup);
         const resolve = cascadeResolver(declarations);
-        for (const environment of RESOLVER_ENVIRONMENTS) {
+        for (const environment of environments) {
           for (const element of elements) {
             resolutions += 1;
             visit(resolve(element, environment), {
@@ -1241,6 +1344,121 @@ function markupWithRuntimeActions(): Document {
   return markup;
 }
 
+// The named narrow-slot exceptions (U12 and the label sweep), each pinned by
+// the value that wins the cascade on the real markup in every page state that
+// app rules key on, both directions and themes and every derived viewport.
+interface ResolveContext {
+  direction: string;
+  environment: MediaEnvironment;
+}
+interface NarrowSlot {
+  name: string;
+  prepare: (markup: Document) => void;
+  states: readonly PageState[];
+  targets: (markup: Document) => Element[];
+  expected: (context: ResolveContext) => Record<ResolvedProperty, string>;
+}
+const typography = (
+  size: string,
+  weight: string,
+  lineHeight: string,
+  letterSpacing: string,
+): Record<ResolvedProperty, string> => ({
+  'font-size': size,
+  'font-weight': weight,
+  'line-height': lineHeight,
+  'letter-spacing': letterSpacing,
+  'font-variation-settings': 'normal',
+});
+const SHARED_LABEL = typography('15px', '700', '1.25', 'normal');
+const NARROW_SLOTS: readonly NarrowSlot[] = [
+  {
+    // The play tab's Sync, Media and Stop Sharing labels.
+    name: 'compact play actions',
+    prepare: () => undefined,
+    states: [
+      ...SHARED_PAGE_STATES,
+      { name: 'sharing', apply: setAttribute('.play-action-buttons', 'data-sharing', 'true') },
+      { name: 'hover locked', apply: setAttribute('.play-action-buttons', 'data-hover-locked') },
+      { name: 'busy', apply: setAttribute('#btn-sync, #btn-media-source', 'aria-busy', 'true') },
+      {
+        name: 'disabled',
+        apply: setAttribute('#btn-sync, #btn-media-source', 'aria-disabled', 'true'),
+      },
+      { name: 'YouTube', apply: toggleClass('body', 'mode-youtube') },
+      { name: 'system audio', apply: toggleClass('body', 'mode-system-audio') },
+      { name: 'spectrum', apply: toggleClass('body', 'viz-spectrum') },
+    ],
+    targets: (markup) => [
+      ...markup.querySelectorAll(
+        '#btn-sync .play-action-label, #btn-media-source .play-action-label',
+      ),
+    ],
+    expected: ({ direction }) =>
+      typography('15px', '600', '1.25', direction === 'rtl' ? 'normal' : '-0.3px'),
+  },
+  {
+    // The demo finish pair, Track info and Exit Tour, and their labels.
+    name: 'demo finish pair',
+    prepare: (markup) => {
+      // As src/demo/mode.ts applies the demo.
+      markup.body.classList.add('mode-demo', 'demo-mobile');
+      markup.getElementById('demo-overlay')!.classList.add('active');
+      for (const panel of markup.querySelectorAll('.demo-step-panel')) {
+        panel.classList.toggle('active', panel.getAttribute('data-demo-panel') === '4');
+      }
+    },
+    states: [
+      ...SHARED_PAGE_STATES,
+      { name: 'demo chrome hiding', apply: toggleClass('body', 'demo-chrome-hiding') },
+    ],
+    targets: (markup) => [
+      ...markup.querySelectorAll(
+        '[data-demo-info], [data-demo-info] > span, [data-demo-exit], [data-demo-exit] > span',
+      ),
+    ],
+    expected: ({ environment }) =>
+      environment.width <= 420 ? typography('13px', '600', '1.25', 'normal') : SHARED_LABEL,
+  },
+];
+
+class FirstFailure extends Error {}
+
+/**
+ * Every resolution of the named narrow slots that differs from its
+ * expectation, or only the first one (a mutation check needs no more).
+ */
+function narrowSlotFailures(
+  stylesheets: ReadonlyArray<{ path: string; root: Root }>,
+  options: { firstOnly?: boolean; slots?: readonly string[] } = {},
+): {
+  failures: string[];
+  resolutions: Record<string, number>;
+} {
+  const failures: string[] = [];
+  const resolutions: Record<string, number> = {};
+  try {
+    for (const slot of NARROW_SLOTS) {
+      if (options.slots && !options.slots.includes(slot.name)) continue;
+      resolutions[slot.name] = resolveAcross(
+        stylesheets,
+        slot.prepare,
+        slot.states,
+        slot.targets,
+        (resolved, context) => {
+          const want = slot.expected(context);
+          if (JSON.stringify(resolved) === JSON.stringify(want)) return;
+          failures.push(`${slot.name} ${context.label}: ${JSON.stringify(resolved)}`);
+          if (options.firstOnly) throw new FirstFailure();
+        },
+      );
+    }
+  } catch (error) {
+    if (!(error instanceof FirstFailure)) throw error;
+  }
+  return { failures, resolutions };
+}
+
 describe('action button label contract', () => {
   it('defines the button label tokens and the danger foreground once on the root', () => {
     for (const [token, value] of Object.entries(LABEL_VALUES)) {
@@ -1398,151 +1616,150 @@ describe('action button label contract', () => {
   });
 
   it('resolves the named narrow-slot exceptions through the whole cascade', () => {
-    // Every direction, theme and page state below, in each viewport and media
-    // preference: the value that wins the cascade, not only the rule that
-    // sets it, keeps the 9.0.18 weight on the narrow slots.
-    const failures: string[] = [];
-    const check =
-      (expected: (context: { direction: string; environment: MediaEnvironment }) => object) =>
-      (
-        resolved: Record<ResolvedProperty, string>,
-        context: { label: string; direction: string; environment: MediaEnvironment },
-      ) => {
-        const want = expected(context);
-        if (JSON.stringify(resolved) !== JSON.stringify(want)) {
-          failures.push(`${context.label}: ${JSON.stringify(resolved)}`);
-        }
-      };
-
-    // The play tab's Sync, Media and Stop Sharing labels.
-    const playStates: PageState[] = [
-      ...SHARED_PAGE_STATES,
-      { name: 'sharing', apply: setAttribute('.play-action-buttons', 'data-sharing', 'true') },
-      { name: 'hover locked', apply: setAttribute('.play-action-buttons', 'data-hover-locked') },
-      { name: 'busy', apply: setAttribute('#btn-sync, #btn-media-source', 'aria-busy', 'true') },
-      {
-        name: 'disabled',
-        apply: setAttribute('#btn-sync, #btn-media-source', 'aria-disabled', 'true'),
-      },
-      { name: 'YouTube', apply: toggleClass('body', 'mode-youtube') },
-      { name: 'system audio', apply: toggleClass('body', 'mode-system-audio') },
-      { name: 'spectrum', apply: toggleClass('body', 'viz-spectrum') },
-    ];
-    const playResolutions = resolveAcross(
-      sheets,
-      () => undefined,
-      playStates,
-      (markup) => [
-        ...markup.querySelectorAll(
-          '#btn-sync .play-action-label, #btn-media-source .play-action-label',
-        ),
-      ],
-      check(({ direction }) => ({
-        'font-size': '15px',
-        'font-weight': '600',
-        'line-height': '1.25',
-        'letter-spacing': direction === 'rtl' ? 'normal' : '-0.3px',
-      })),
-    );
-
-    // The demo finish pair, Track info and Exit Tour, and their labels.
-    const demoResolutions = resolveAcross(
-      sheets,
-      (markup) => {
-        // As src/demo/mode.ts applies the demo.
-        markup.body.classList.add('mode-demo', 'demo-mobile');
-        markup.getElementById('demo-overlay')!.classList.add('active');
-        for (const panel of markup.querySelectorAll('.demo-step-panel')) {
-          panel.classList.toggle('active', panel.getAttribute('data-demo-panel') === '4');
-        }
-      },
-      [
-        ...SHARED_PAGE_STATES,
-        { name: 'demo chrome hiding', apply: toggleClass('body', 'demo-chrome-hiding') },
-      ],
-      (markup) => [
-        ...markup.querySelectorAll(
-          '[data-demo-info], [data-demo-info] > span, [data-demo-exit], [data-demo-exit] > span',
-        ),
-      ],
-      check(({ environment }) =>
-        environment.width <= 420
-          ? {
-              'font-size': '13px',
-              'font-weight': '600',
-              'line-height': '1.25',
-              'letter-spacing': 'normal',
-            }
-          : {
-              'font-size': '15px',
-              'font-weight': '700',
-              'line-height': '1.25',
-              'letter-spacing': 'normal',
-            },
-      ),
-    );
-    expect(playResolutions).toBe(2 * 2 * playStates.length * RESOLVER_ENVIRONMENTS.length * 3);
-    expect(demoResolutions).toBe(
-      2 * 2 * (SHARED_PAGE_STATES.length + 1) * RESOLVER_ENVIRONMENTS.length * 4,
-    );
+    // Every direction, theme and page state below, in each derived viewport and
+    // media preference: the value that wins the cascade, not only the rule that
+    // sets it, keeps the 9.0.18 typography on the narrow slots.
+    const { failures, resolutions } = narrowSlotFailures(sheets);
+    for (const slot of NARROW_SLOTS) {
+      const markup = appMarkup();
+      slot.prepare(markup);
+      expect(resolutions[slot.name], slot.name).toBe(
+        2 * 2 * slot.states.length * RESOLVER_ENVIRONMENTS.length * slot.targets(markup).length,
+      );
+    }
     expect(failures.slice(0, 20), `${failures.length} resolutions differ`).toEqual([]);
   });
 
-  it('catches a later-layer token rule that turns a narrow slot back to 700', () => {
-    // The PR #510 review mutation: a broader rule in a later layer that reads
-    // the shared tokens. Rule-level checks accept it (token reads are not
-    // violations); only the resolved cascade shows the label back at 700.
-    const mutation = parseCss(`
-      @layer components {
-        .file-select-btn span {
-          font-weight: var(--button-label-weight);
-          letter-spacing: var(--button-label-letter-spacing);
-        }
-      }
-      @layer responsive {
-        .accent-action-btn,
-        .leave-session-btn {
-          font-weight: var(--button-label-weight);
-        }
-      }
-    `);
-    const phone = RESOLVER_ENVIRONMENTS.find(
-      (environment) =>
-        environment.width === 320 &&
-        environment.height === 568 &&
-        !environment.reducedMotion &&
-        !environment.forcedColors &&
-        !environment.contrastMore &&
-        !environment.standalone &&
-        !environment.touchCallout,
-    )!;
-    const resolveOnPhone = (
-      stylesheets: ReadonlyArray<{ path: string; root: Root }>,
-      selector: string,
-    ): Record<ResolvedProperty, string> => {
-      const markup = appMarkup();
-      markup.documentElement.setAttribute('dir', 'ltr');
-      markup.body.classList.add('fouc-loaded', 'mode-demo', 'demo-mobile');
-      return cascadeResolver(cascadeDeclarations(stylesheets))(
-        markup.querySelector(selector)!,
-        phone,
+  it('samples both sides of every media boundary in both orientations', () => {
+    // A range between two samples cannot hide: each width and height that a
+    // media query in the four sheets names has a sampled viewport on each
+    // side of it, portrait and landscape, before reduction to distinct
+    // condition sets.
+    const boundaries = mediaBoundaries(sheets);
+    expect(boundaries.width).toEqual(expect.arrayContaining([420, 719, 720, 1279, 1280]));
+    expect(boundaries.height).toEqual(expect.arrayContaining([300, 480, 719, 720]));
+    const viewports = resolverViewports(sheets);
+    const sampled = (axis: 0 | 1, value: number, orientation: 'portrait' | 'landscape'): boolean =>
+      viewports.some(
+        (viewport) =>
+          viewport[axis] === value && viewport[1] >= viewport[0] === (orientation === 'portrait'),
       );
+    const gaps: string[] = [];
+    for (const [axis, values] of [
+      [0, boundaries.width],
+      [1, boundaries.height],
+    ] as const) {
+      for (const value of values) {
+        for (const side of [value - 1, value, value + 1]) {
+          for (const orientation of ['portrait', 'landscape'] as const) {
+            if (!sampled(axis, side, orientation)) {
+              gaps.push(`${axis === 0 ? 'width' : 'height'} ${side} ${orientation}`);
+            }
+          }
+        }
+      }
+    }
+    expect(gaps).toEqual([]);
+    // Every distinct set of matching conditions keeps one environment, and
+    // every media preference is still sampled.
+    for (const flag of MEDIA_PREFERENCES) {
+      expect(
+        RESOLVER_ENVIRONMENTS.some((environment) => environment[flag]),
+        flag,
+      ).toBe(true);
+    }
+    expect(RESOLVER_ENVIRONMENTS.length).toBeGreaterThan(40);
+  });
+
+  it('catches a later-layer, between-sample or variation rule that turns a narrow slot back', () => {
+    // The PR #510 review mutations. Rule-level checks accept the token reads
+    // (they are not violations); only the resolved cascade shows the label
+    // back at 700. The fixed 22-viewport list missed the ranges between its
+    // samples and the landscape-only phone range; the derived viewports and
+    // font-variation-settings catch them.
+    const mutations: Record<string, { slots: string[]; css: string }> = {
+      'later-layer token reads': {
+        slots: ['compact play actions', 'demo finish pair'],
+        css: `
+          @layer components {
+            .file-select-btn span {
+              font-weight: var(--button-label-weight);
+              letter-spacing: var(--button-label-letter-spacing);
+            }
+          }
+          @layer responsive {
+            .accent-action-btn,
+            .leave-session-btn {
+              font-weight: var(--button-label-weight);
+            }
+          }`,
+      },
+      'play actions between two samples (375px phones)': {
+        slots: ['compact play actions'],
+        css: `
+          @layer states {
+            @media (min-width: 361px) and (max-width: 389px) {
+              .play-actions-row span {
+                font-weight: var(--button-label-weight);
+              }
+            }
+          }`,
+      },
+      'demo pair between two samples': {
+        slots: ['demo finish pair'],
+        css: `
+          @layer states {
+            @media (min-width: 361px) and (max-width: 389px) {
+              .demo-large-actions span {
+                font-weight: var(--button-label-weight);
+              }
+            }
+          }`,
+      },
+      'demo pair on landscape phones only': {
+        slots: ['demo finish pair'],
+        css: `
+          @layer states {
+            @media (max-width: 420px) and (orientation: landscape) {
+              .demo-large-actions span {
+                font-weight: var(--button-label-weight);
+              }
+            }
+          }`,
+      },
+      'weight axis through font-variation-settings': {
+        slots: ['compact play actions'],
+        css: `
+          @layer components {
+            .play-actions-row span {
+              font-variation-settings: 'wght' 700;
+            }
+          }`,
+      },
     };
-    const mutated = [...sheets, { path: 'mutation.css', root: mutation }];
-    expect(resolveOnPhone(sheets, '#btn-sync .play-action-label')).toMatchObject({
-      'font-weight': '600',
-      'letter-spacing': '-0.3px',
-    });
-    expect(resolveOnPhone(mutated, '#btn-sync .play-action-label')).toMatchObject({
-      'font-weight': '700',
-      'letter-spacing': 'normal',
-    });
-    expect(resolveOnPhone(sheets, '[data-demo-exit] > span')).toMatchObject({
-      'font-weight': '600',
-    });
-    expect(resolveOnPhone(mutated, '[data-demo-exit] > span')).toMatchObject({
-      'font-weight': '700',
-    });
+    // Each mutation turns every slot it names back somewhere.
+    for (const [name, { slots, css }] of Object.entries(mutations)) {
+      const mutated = [...sheets, { path: 'mutation.css', root: parseCss(css) }];
+      for (const slot of slots) {
+        expect(
+          NARROW_SLOTS.map((entry) => entry.name),
+          name,
+        ).toContain(slot);
+        expect(
+          narrowSlotFailures(mutated, { firstOnly: true, slots: [slot] }).failures,
+          `${name}: ${slot}`,
+        ).toHaveLength(1);
+      }
+    }
+    // A label-typography violation at rule level too.
+    expect(
+      labelViolation(
+        (parseCss('.file-select-btn { font-variation-settings: "wght" 700 }').first as Rule)
+          .first as Declaration,
+        false,
+      ),
+    ).toBe(true);
+    expect(FONT_PROPERTIES).toContain('font-variation-settings');
   });
 
   it('resolves only the label tokens on every action button in the app markup', () => {

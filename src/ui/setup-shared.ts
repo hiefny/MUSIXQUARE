@@ -435,7 +435,7 @@ interface SetupButton {
   textKey?: I18nKey;
   html?: string;
   ariaLabel?: string;
-  kind?: 'primary' | 'secondary' | 'text-link' | 'icon-only';
+  kind?: 'primary' | 'secondary' | 'icon-only';
   disabled?: boolean;
   onClick?: (() => void) | null;
 }
@@ -488,7 +488,6 @@ function renderSetupActions(buttons: SetupButton[], layout: SetupActionsLayout):
     b.type = 'button';
 
     if (btn.kind === 'secondary') b.className = 'btn-ob-secondary';
-    else if (btn.kind === 'text-link') b.className = 'btn-ob-text-link';
     else if (btn.kind === 'icon-only') b.className = 'btn-ob-icon';
     else b.className = 'btn-ob-primary';
 

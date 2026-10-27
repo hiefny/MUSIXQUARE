@@ -30,7 +30,7 @@
   --danger-filled: #ef4444;
   --warning-filled: #f59e0b;
   --warning-foreground: #f59e0b;
-  --danger-foreground: #ff3b30; /* destructive label over --control-danger */
+  --danger-foreground: #ff3b30; /* every destructive or error text and icon */
   --youtube-filled: #ff0033;
   --accent: var(--primary);
   --accent-rgb: var(--primary-rgb);
@@ -159,8 +159,9 @@ html[data-theme='light'] {
   --play-fab-bg-disabled: rgba(48, 53, 64, 0.2);
   --control-active: rgba(var(--primary-rgb), 0.11);
   --control-danger: rgba(255, 59, 48, 0.075);
-  --control-danger-hover: rgba(255, 59, 48, 0.11);
+  --control-danger-hover: rgba(255, 59, 48, 0.09);
   --warning-foreground: #6b4100;
+  --danger-foreground: #d70015; /* same hue, darker: 4.5:1 on light surfaces */
   --glass-bg: var(--surface-1);
   --glass-border: rgba(0, 0, 0, 0.06);
   --scrollbar-thumb: rgba(0, 0, 0, 0.2);
@@ -211,6 +212,8 @@ html[data-theme='light'][data-contrast='more'] {
   --primary: #0047a8;
   --primary-rgb: 0, 71, 168;
   --danger-foreground: #a4001d;
+  --control-danger: rgba(176, 0, 32, 0.16);
+  --control-danger-hover: rgba(176, 0, 32, 0.24);
   --text-main: #000000;
   --text-sub: #111111;
   --text-muted: #333333;
@@ -267,6 +270,8 @@ html[data-theme='light'][data-contrast='more'] {
     --primary: #0047a8;
     --primary-rgb: 0, 71, 168;
     --danger-foreground: #a4001d;
+    --control-danger: rgba(176, 0, 32, 0.16);
+    --control-danger-hover: rgba(176, 0, 32, 0.24);
     --text-main: #000000;
     --text-sub: #111111;
     --text-muted: #333333;

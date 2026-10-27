@@ -123,8 +123,12 @@ semantic token structure.
 - `--bg`, `--surface-1`, `--surface-2`, and `--surface-3` establish depth.
 - `--text-main`, `--text-sub`, and `--text-muted` establish text hierarchy.
 - `--divider` separates dense sections without creating card borders.
-- `--danger-foreground` colors destructive labels over `--control-danger`;
-  never hard-code a red or paint text with the filled `--danger-filled`.
+- `--danger-foreground` colors every destructive, error and validation text
+  or icon, over `--control-danger` or on a plain surface (#ff3b30 dark,
+  #d70015 light, #a4001d light high contrast); never hard-code a red or paint
+  text with the filled `--danger-filled`. Red surfaces use the
+  `--control-danger` tints, or `--danger-filled` under white glyphs. Only the
+  YouTube mark keeps its brand red.
 - Reuse the existing radius, safe-area, motion, and range-control tokens from
   `css/style.css`; do not duplicate token values in feature styles.
 

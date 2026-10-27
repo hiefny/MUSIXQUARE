@@ -505,7 +505,7 @@
 
 .mq-track-remove:hover {
   background: var(--control-danger, rgba(255, 59, 48, 0.09));
-  color: var(--danger-filled, #ef4444);
+  color: var(--danger-foreground, #ff3b30);
 }
 
 .mq-track-remove svg {
@@ -622,11 +622,13 @@ svg.stroke-icon {
   border: 0;
   border-radius: var(--radius-pill);
   background: var(--control-danger, rgba(255, 59, 48, 0.09));
-  color: var(--danger-filled, #ef4444);
+  color: var(--danger-foreground, #ff3b30);
   cursor: pointer;
   font: inherit;
-  font-size: 15px;
-  font-weight: 600;
+  font-size: var(--button-label-size, 15px);
+  font-weight: var(--button-label-weight, 700);
+  line-height: var(--button-label-line-height, 1.25);
+  letter-spacing: var(--button-label-letter-spacing, normal);
   transition:
     background 0.2s,
     transform 0.2s;

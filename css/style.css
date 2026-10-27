@@ -32,9 +32,10 @@ or pointers. Keep :focus-visible and :active outside the gate (src/ui/__tests__/
     --danger-filled: #ef4444;
     --warning-filled: #f59e0b;
     --warning-foreground: #f59e0b;
-    /* Destructive label color over --control-danger: a role for an existing
-       red, not a new color. Light high contrast darkens it; forced colors
-       use ButtonText. */
+    /* Destructive label color over --control-danger: a role for existing
+       reds, not a new color. Every red danger, error or destructive text or
+       icon reads it. The light palettes darken it to keep 4.5:1; forced
+       colors use ButtonText. */
     --danger-foreground: #ff3b30;
     --youtube-filled: #ff0033;
     --accent: var(--primary);
@@ -184,8 +185,12 @@ or pointers. Keep :focus-visible and :active outside the gate (src/ui/__tests__/
     --play-fab-bg-disabled: rgba(48, 53, 64, 0.2);
     --control-active: rgba(var(--primary-rgb), 0.11);
     --control-danger: rgba(255, 59, 48, 0.075);
-    --control-danger-hover: rgba(255, 59, 48, 0.11);
+    /* The hover tint stays light enough for the label to keep 4.5:1. */
+    --control-danger-hover: rgba(255, 59, 48, 0.09);
     --warning-foreground: #6b4100;
+    /* Owner decision (2026-10-27): the same hue as #ff3b30, darker, so a
+       destructive label passes 4.5:1 on the light surfaces and tints. */
+    --danger-foreground: #d70015;
 
     --glass-bg: var(--surface-1);
     --glass-border: rgba(0, 0, 0, 0.06);
@@ -411,7 +416,7 @@ or pointers. Keep :focus-visible and :active outside the gate (src/ui/__tests__/
   }
 
   :where(html[data-hover-pointer]) .clearable-editor-button:hover {
-    color: #ff4d4f;
+    color: var(--danger-foreground);
     opacity: 1;
   }
 
@@ -2849,6 +2854,11 @@ or pointers. Keep :focus-visible and :active outside the gate (src/ui/__tests__/
     color: var(--primary);
   }
 
+  /* Like the minus beside it, the chevron turns blue for keyboard focus. */
+  .expand-toggle:focus-visible {
+    color: var(--primary);
+  }
+
   :where(html[data-hover-pointer]) .device-expand-toggle:hover {
     background: var(--surface-3);
     color: var(--text-main);
@@ -3031,7 +3041,7 @@ or pointers. Keep :focus-visible and :active outside the gate (src/ui/__tests__/
 
   :where(html[data-hover-pointer]) .btn-playlist-remove:not(:disabled):hover {
     opacity: 1;
-    color: #ff4d4f;
+    color: var(--danger-foreground);
   }
 
   /* ── Playlist row selection (queue editors only) ─────────────────── */
@@ -4250,7 +4260,7 @@ or pointers. Keep :focus-visible and :active outside the gate (src/ui/__tests__/
   :where(html[data-hover-pointer]) .administrator-action-button.revoke:hover,
   .administrator-action-button.revoke:focus-visible {
     background: transparent;
-    color: #ff4d4f;
+    color: var(--danger-foreground);
   }
 
   .administrator-action-button.revoke {
@@ -4324,8 +4334,8 @@ or pointers. Keep :focus-visible and :active outside the gate (src/ui/__tests__/
   }
 
   .d-status.inactive {
-    background: rgba(255, 77, 79, 0.2);
-    color: #ff4d4f;
+    background: var(--control-danger);
+    color: var(--danger-foreground);
   }
 
   /* ── Kick Device Button (playlist-remove style) ────────────────── */
@@ -4379,12 +4389,12 @@ or pointers. Keep :focus-visible and :active outside the gate (src/ui/__tests__/
   :where(html[data-hover-pointer]) .device-subrow:hover .btn-kick-physical-device:hover,
   .btn-kick-physical-device:focus-visible {
     opacity: 1;
-    color: #ff4d4f;
+    color: var(--danger-foreground);
   }
 
   :where(html[data-hover-pointer]) .device-row:hover .btn-kick-device:hover {
     opacity: 1;
-    color: #ff4d4f;
+    color: var(--danger-foreground);
   }
 
   @media (max-width: 420px) {
@@ -4475,7 +4485,9 @@ or pointers. Keep :focus-visible and :active outside the gate (src/ui/__tests__/
     margin-top: 12px;
     border: none;
     border-radius: var(--radius-pill);
-    background: rgba(255, 59, 48, 0.08);
+    /* The resting and hover tints of account deletion, so every destructive
+       tone pill shares one surface family. */
+    background: var(--control-danger);
     color: var(--danger-foreground);
     font-size: var(--button-label-size);
     font-weight: var(--button-label-weight);
@@ -4488,11 +4500,12 @@ or pointers. Keep :focus-visible and :active outside the gate (src/ui/__tests__/
   }
 
   :where(html[data-hover-pointer]) .leave-session-btn:hover {
-    background: rgba(255, 59, 48, 0.12);
+    background: var(--control-danger-hover);
   }
 
+  /* A press shows the hover tint too, like Stop sharing. */
   .leave-session-btn:active {
-    background: rgba(255, 59, 48, 0.18);
+    background: var(--control-danger-hover);
     transform: scale(0.97);
   }
 
@@ -5840,11 +5853,11 @@ or pointers. Keep :focus-visible and :active outside the gate (src/ui/__tests__/
   }
 
   .dialog-input.invalid {
-    border-bottom-color: #ef4444;
+    border-bottom-color: var(--danger-foreground);
   }
 
   .dialog-input-split.invalid .dialog-input-segment {
-    border-bottom-color: #ef4444;
+    border-bottom-color: var(--danger-foreground);
   }
 
   .dialog-hint {
@@ -5860,7 +5873,7 @@ or pointers. Keep :focus-visible and :active outside the gate (src/ui/__tests__/
   }
 
   .dialog-hint.error {
-    color: #ef4444;
+    color: var(--danger-foreground);
   }
 
   .dialog-input.shake {
@@ -6955,42 +6968,6 @@ or pointers. Keep :focus-visible and :active outside the gate (src/ui/__tests__/
     display: none;
   }
 
-  .btn-ob-text-link {
-    background: transparent;
-    color: var(--text-sub);
-    text-decoration: underline;
-    text-underline-offset: 4px;
-    font-size: 14px;
-    font-weight: 500;
-    cursor: pointer;
-    border: none;
-    font-family: inherit;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    transition:
-      color 0.2s,
-      background 0.2s,
-      opacity 0.2s;
-    flex: 1;
-    height: 56px;
-    border-radius: var(--radius-pill);
-  }
-
-  .btn-ob-text-link:active {
-    opacity: 0.7;
-    background: rgba(255, 255, 255, 0.05);
-  }
-
-  .ob-actions.vertical .btn-ob-text-link {
-    flex: none;
-    height: 56px;
-    width: 100%;
-    font-size: 14px;
-    padding: 0;
-    margin-top: 0;
-  }
-
   .setup-header-text {
     width: 100%;
     margin-bottom: 56px;
@@ -7344,7 +7321,7 @@ or pointers. Keep :focus-visible and :active outside the gate (src/ui/__tests__/
   .setup-inline-error {
     width: 100%;
     margin: 12px 0 0;
-    color: #ff4d4f;
+    color: var(--danger-foreground);
     font-size: 13px;
     font-weight: 600;
     line-height: 1.45;
@@ -8985,20 +8962,19 @@ or pointers. Keep :focus-visible and :active outside the gate (src/ui/__tests__/
     background: var(--surface-3);
   }
 
-  /* Outside the shared 12px / 56px dialog pill rhythm on purpose: this compact
-     tool panel keeps its 8px rows and 52px pair under the 44px nudge chips
-     (OUTSIDE_RHYTHM in action-rhythm-contract.test.ts). */
+  /* The Reset / Done pair is an adaptive action group (index.html): 56px
+     pills 12px apart like every dialog action, each sized by its label, and
+     each on its own full row only when the localized pair no longer fits.
+     Labels wrap only at word boundaries. */
   .sync-bottom-row {
-    display: flex;
-    gap: 8px;
     width: 100%;
     margin-top: 16px;
   }
 
   .sync-reset-btn,
   .sync-done-btn {
-    flex: 1;
-    height: 52px;
+    min-height: 56px;
+    padding: 10px 16px;
     border: none;
     border-radius: var(--radius-pill);
     font-size: var(--button-label-size);
@@ -9696,16 +9672,10 @@ or pointers. Keep :focus-visible and :active outside the gate (src/ui/__tests__/
     gap: 10px;
   }
 
+  /* The exit pill keeps the leave-session tints; only Track info swaps its
+     blue tint for the flat selected surface. */
   .demo-large-actions .accent-action-btn {
     background: var(--control-active);
-  }
-
-  .demo-large-actions .leave-session-btn {
-    background: var(--control-danger);
-  }
-
-  :where(html[data-hover-pointer]) .demo-large-actions .leave-session-btn:hover {
-    background: var(--control-danger-hover);
   }
 
   .demo-effects-content .demo-large-actions {
@@ -11578,6 +11548,10 @@ or pointers. Keep :focus-visible and :active outside the gate (src/ui/__tests__/
     --primary: #0047a8;
     --primary-rgb: 0, 71, 168;
     --danger-foreground: #a4001d;
+    /* Lighter than the dark high-contrast tints so #a4001d keeps 4.5:1 on
+       them, at rest and on hover. */
+    --control-danger: rgba(176, 0, 32, 0.16);
+    --control-danger-hover: rgba(176, 0, 32, 0.24);
     --text-main: #000000;
     --text-sub: #111111;
     --text-muted: #333333;
@@ -11657,6 +11631,8 @@ or pointers. Keep :focus-visible and :active outside the gate (src/ui/__tests__/
       --primary: #0047a8;
       --primary-rgb: 0, 71, 168;
       --danger-foreground: #a4001d;
+      --control-danger: rgba(176, 0, 32, 0.16);
+      --control-danger-hover: rgba(176, 0, 32, 0.24);
       --text-main: #000000;
       --text-sub: #111111;
       --text-muted: #333333;

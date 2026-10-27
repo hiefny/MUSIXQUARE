@@ -2383,7 +2383,7 @@
 
 .btn-kick-device:hover,
 .btn-kick-physical-device:hover {
-  color: #ff4d4f;
+  color: var(--danger-foreground);
 }
 
 .device-sublist-sample {

@@ -179,36 +179,17 @@
 
   .play-actions-row {
     --play-action-stop-foreground: var(--danger-foreground);
-    /* Opaque 8% / 12% danger-over-background fallbacks for legacy TVs. */
-    --play-action-stop-surface: #251514;
-    --play-action-stop-hover: #2e1716;
+    /* The destructive tints of leave session and account deletion. Stop
+       grows over Sync's half while Sync shrinks out of the way, so their
+       surfaces never overlap and the tint needs no opaque mix of its own. */
+    --play-action-stop-surface: var(--control-danger);
+    --play-action-stop-hover: var(--control-danger-hover);
     --play-action-shape-duration: 300ms;
     --play-action-fade-duration: 180ms;
     --play-action-label-delay: 75ms;
     --play-action-geometry: cubic-bezier(0.4, 0, 0.2, 1);
     --play-action-fade: cubic-bezier(0.2, 0.8, 0.2, 1);
     --play-action-motion-direction: 1;
-  }
-
-  [data-theme='light'] .play-actions-row {
-    --play-action-stop-surface: #f9eaea;
-    --play-action-stop-hover: #f9e2e2;
-  }
-
-  @supports (color: color-mix(in srgb, red, white)) {
-    .play-actions-row,
-    [data-theme='light'] .play-actions-row {
-      --play-action-stop-surface: color-mix(
-        in srgb,
-        var(--play-action-stop-foreground) 8%,
-        var(--bg)
-      );
-      --play-action-stop-hover: color-mix(
-        in srgb,
-        var(--play-action-stop-foreground) 12%,
-        var(--bg)
-      );
-    }
   }
 
   [dir='rtl'] .play-actions-row {

@@ -604,7 +604,7 @@ export async function searchYouTubeFromInput(inputValue: string): Promise<void> 
     }
     log.warn('[YouTube Search] Fetch failed:', e);
     clearSearchResults();
-    setStatus('youtube.search_failed', 'var(--danger, #ef4444)');
+    setStatus('youtube.search_failed', 'var(--danger-foreground)');
     setYouTubePrimaryButton(false);
   } finally {
     if (_searchAbort === abort) {
@@ -758,7 +758,7 @@ export function fetchYouTubePreview(url: string): void {
 
   if (intent.kind === 'invalid-url' || (!videoId && !playlistId)) {
     hidePreviewCard();
-    setStatus('youtube.invalid_link', 'var(--danger, #ef4444)');
+    setStatus('youtube.invalid_link', 'var(--danger-foreground)');
     setYouTubePrimaryButton(false);
     return;
   }
@@ -864,7 +864,7 @@ export function fetchYouTubePreview(url: string): void {
         freshStatus.style.display = 'block';
         freshStatus.setAttribute('data-i18n', 'youtube.fetch_failed');
         freshStatus.innerText = t('youtube.fetch_failed');
-        freshStatus.style.color = 'var(--danger, #ef4444)';
+        freshStatus.style.color = 'var(--danger-foreground)';
         freshSetPlayBtnEnabled(false);
         abort.abort();
       } finally {

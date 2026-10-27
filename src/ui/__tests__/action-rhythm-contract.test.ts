@@ -15,9 +15,27 @@ import { describe, expect, it } from 'vitest';
 const ACTION_GAP = '12px';
 const PILL_HEIGHT = '56px';
 
+// Role=dialog surfaces in index.html whose actions deliberately stay outside
+// the shared rhythm, with the reason. The scan below fails on any other
+// surface without a checked action row, and on a stale entry here.
+const OUTSIDE_RHYTHM: Readonly<Record<string, string>> = {
+  'manual-sync-overlay':
+    'The manual sync panel is a compact tool panel. Its Reset / Done pair ' +
+    '(52px, 8px apart) follows the 44px nudge chips and 8px rows above it; ' +
+    'the 2026-10-27 rhythm covers the account, move/copy and confirm dialogs.',
+};
+
 const read = (path: string): string => readFileSync(resolve(path), 'utf8');
 const appCss = parseCss(read('css/style.css'));
 const playCss = parseCss(read('css/playback-actions.css'));
+// css/app.css imports these four files; together they are the app stylesheet.
+const appSheets = [
+  appCss,
+  parseCss(read('css/desktop.css')),
+  parseCss(read('css/rtl.css')),
+  playCss,
+];
+const SHORT_SCREEN = '@media (max-height: 350px)';
 
 function inlineStyles(path: string): Root {
   const styles = [...read(path).matchAll(/<style>([\s\S]*?)<\/style>/gu)].map((match) => match[1]);
@@ -55,6 +73,60 @@ function baseValue(root: Root, selector: string, property: string): string | und
   return values[0];
 }
 
+function appMarkup(): Document {
+  return new DOMParser().parseFromString(read('index.html'), 'text/html');
+}
+
+/**
+ * Every `property` value that the app stylesheet applies to `element` from
+ * rules whose condition is `condition` (null: every viewport), in any cascade
+ * layer and through any selector shape, including descendant overrides and
+ * one-off utility classes. Rules under `:root[dir='rtl']` are checked in a
+ * second right-to-left pass. Rules gated on runtime-only classes or states
+ * (keyboard-open, :hover) do not match the static markup and are not seen.
+ */
+function appliedValues(
+  element: Element,
+  properties: readonly string[],
+  condition: string | null = null,
+): string[] {
+  const root = element.ownerDocument.documentElement;
+  const direction = root.getAttribute('dir');
+  const values = new Set<string>();
+  try {
+    for (const dir of ['ltr', 'rtl']) {
+      root.setAttribute('dir', dir);
+      for (const sheet of appSheets) {
+        sheet.walkRules((rule) => {
+          if (conditionOf(rule) !== condition) return;
+          const declarations = rule.nodes.filter(
+            (node) => node.type === 'decl' && properties.includes(node.prop),
+          );
+          if (declarations.length === 0) return;
+          // Pseudo-element rules style generated boxes, not the action itself.
+          const matches = rule.selectors.some(
+            (selector) => !selector.includes('::') && element.matches(selector),
+          );
+          if (!matches) return;
+          for (const node of declarations) {
+            if (node.type === 'decl') values.add(`${node.prop}: ${node.value}`);
+          }
+        });
+      }
+    }
+  } finally {
+    if (direction === null) root.removeAttribute('dir');
+    else root.setAttribute('dir', direction);
+  }
+  return [...values];
+}
+
+function describeElement(element: Element): string {
+  return element.id
+    ? `#${element.id}`
+    : `${element.tagName.toLowerCase()}.${[...element.classList].join('.')}`;
+}
+
 function pixels(value: string): number {
   const match = /^(\d+(?:\.\d+)?)px$/u.exec(value.trim());
   expect(match, `${value} is not a pixel length`).not.toBeNull();
@@ -71,13 +143,34 @@ describe('action pill rhythm contract', () => {
       playActionRow: baseValue(playCss, '.play-actions-row', '--play-action-gap'),
       playSecondaryArea: baseValue(appCss, '.play-secondary-area', 'gap'),
       setupActions: baseValue(appCss, '.ob-actions', 'gap'),
+      setupActionsWithBack: baseValue(appCss, '.ob-actions.horizontal-with-back', 'gap'),
     }).toEqual({
       dialogActions: ACTION_GAP,
       signedOutClose: ACTION_GAP,
       playActionRow: ACTION_GAP,
       playSecondaryArea: ACTION_GAP,
       setupActions: ACTION_GAP,
+      setupActionsWithBack: ACTION_GAP,
     });
+  });
+
+  it('resolves the shared gap on every action row in the markup, utility classes included', () => {
+    // A later layer or a one-off utility class on the row must not reopen a
+    // different gap: every unconditional gap the row receives is the shared
+    // one. The first-screen host / join stack (.ob-actions.vertical, 16px) is
+    // added at runtime and stays the owner-tuned exception.
+    const rows = [
+      ...appMarkup().querySelectorAll(':is(.adaptive-action-group, .dialog-actions, .ob-actions)'),
+    ];
+    expect(rows.length).toBeGreaterThanOrEqual(10);
+    for (const row of rows) {
+      const gaps = appliedValues(row, ['gap', 'row-gap', 'column-gap']);
+      expect(gaps, `${describeElement(row)} has no gap`).not.toHaveLength(0);
+      expect(
+        gaps.filter((gap) => !gap.endsWith(`: ${ACTION_GAP}`)),
+        describeElement(row),
+      ).toEqual([]);
+    }
   });
 
   it('gives every dialog action the play-tab and setup pill height', () => {
@@ -97,20 +190,69 @@ describe('action pill rhythm contract', () => {
       listRow: PILL_HEIGHT,
     });
 
-    const markup = new DOMParser().parseFromString(read('index.html'), 'text/html');
+    // Every unconditional height the action receives, from its own classes or
+    // from a descendant rule such as `.some-dialog .dialog-primary`, is the
+    // shared pill height. Setup-style rows inside dialogs count too.
     const actions = [
-      ...markup.querySelectorAll<HTMLElement>(
-        '.dialog :is(.dialog-actions, .adaptive-action-group, .account-dialog-login-actions) > :is(button, a)',
+      ...appMarkup().querySelectorAll<HTMLElement>(
+        [
+          '.dialog :is(.dialog-actions, .adaptive-action-group, .account-dialog-login-actions) > :is(button, a)',
+          '[role="dialog"] .ob-actions > :is(button, a)',
+        ].join(', '),
       ),
     ];
-    expect(actions.length).toBeGreaterThanOrEqual(15);
+    expect(actions.length).toBeGreaterThanOrEqual(18);
     for (const action of actions) {
-      const heights = [...action.classList].flatMap((name) =>
-        baseValues(appCss, `.${name}`, 'min-height'),
-      );
-      expect(heights, `#${action.id} has no pill height`).not.toHaveLength(0);
-      expect(new Set(heights), `#${action.id}`).toEqual(new Set([PILL_HEIGHT]));
+      const heights = appliedValues(action, ['height', 'min-height']);
+      expect(heights, `${describeElement(action)} has no pill height`).not.toHaveLength(0);
+      expect(
+        heights.filter((height) => !height.endsWith(`: ${PILL_HEIGHT}`)),
+        describeElement(action),
+      ).toEqual([]);
     }
+  });
+
+  it('names every dialog surface whose actions stay outside the rhythm', () => {
+    const checkedRows =
+      ':is(.adaptive-action-group, .dialog-actions, .ob-actions, .account-dialog-login-actions)';
+    const unchecked = [...appMarkup().querySelectorAll('[role="dialog"], [role="alertdialog"]')]
+      .filter((surface) => surface.querySelector(checkedRows) === null)
+      .map((surface) => surface.closest('[id]')?.id ?? describeElement(surface));
+    expect(unchecked.sort()).toEqual(Object.keys(OUTSIDE_RHYTHM).sort());
+  });
+
+  it('compresses both account views alike on very short screens', () => {
+    // The signed-in actions and the signed-out Google / Close stack share one
+    // short-screen trade: the same smaller surface gap and the same smaller
+    // pills, so neither view keeps a full-size gap next to compressed pills.
+    const markup = appMarkup();
+    const signedIn = markup.getElementById('account-dialog-actions')!;
+    const signedOutClose = markup.getElementById('btn-account-login-close')!;
+    const shortGap = appliedValues(signedIn, ['gap'], SHORT_SCREEN).map((value) =>
+      value.replace(/^gap: /u, ''),
+    );
+    expect(shortGap).toHaveLength(1);
+    expect(pixels(shortGap[0]!)).toBeLessThan(pixels(ACTION_GAP));
+    expect(appliedValues(signedOutClose, ['margin-top'], SHORT_SCREEN)).toEqual([
+      `margin-top: ${shortGap[0]}`,
+    ]);
+
+    const pills = [
+      ...markup.querySelectorAll(
+        ':is(#account-dialog-actions, #account-dialog-login-actions) > :is(button, a)',
+      ),
+    ];
+    expect(pills.length).toBe(5);
+    const shortPills = new Set(
+      pills.flatMap((pill) => appliedValues(pill, ['height', 'min-height'], SHORT_SCREEN)),
+    );
+    expect(shortPills.size, [...shortPills].join(', ')).toBe(1);
+
+    // While sign-in is loading or unavailable, Close is the view's only
+    // (primary) action and keeps no margin above it.
+    signedOutClose.classList.add('dialog-primary');
+    expect(appliedValues(signedOutClose, ['margin-top'], SHORT_SCREEN)).toEqual([]);
+    expect(appliedValues(signedOutClose, ['margin-top'])).toContain('margin-top: 0');
   });
 
   it('lets two dialog actions keep their natural content-sized split', () => {

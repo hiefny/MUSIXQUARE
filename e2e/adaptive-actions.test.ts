@@ -399,6 +399,65 @@ test.describe('content-based adaptive action groups', () => {
     expect(loginClose!.height).toBeCloseTo(56, 1);
   });
 
+  test('compresses both account views alike on very short screens', async ({ page }) => {
+    await installLayoutProbe(
+      page,
+      `<div id="account-actions" class="account-dialog-actions adaptive-action-group">
+        <button id="account-logout" class="dialog-secondary">Log out</button>
+        <button id="account-delete" class="account-delete-button">Delete account</button>
+        <button
+          id="account-close"
+          class="dialog-primary account-dialog-account-close adaptive-action-group-full"
+        >Close</button>
+      </div>
+      <div id="login-actions" class="account-dialog-login-actions">
+        <a id="login-google" class="account-google-button" href="#">
+          <span class="account-google-mark"></span>
+          <span class="account-google-label">Continue with Google</span>
+          <span class="account-google-balance"></span>
+        </a>
+        <button id="login-close" class="dialog-secondary account-dialog-login-close">Close</button>
+      </div>`,
+      { viewportWidth: 568 },
+    );
+    await page.setViewportSize({ width: 568, height: 320 });
+    await page.waitForFunction(() => innerHeight === 320);
+
+    const [logout, deleteAccount, close] = await actionMetrics(page, '#account-actions');
+    const signedInGap =
+      close!.y - Math.max(logout!.y + logout!.height, deleteAccount!.y + deleteAccount!.height);
+    const [google, loginClose] = await actionMetrics(page, '#login-actions');
+    const signedOutGap = loginClose!.y - (google!.y + google!.height);
+    expect(signedInGap).toBeLessThan(12);
+    expect(signedOutGap).toBeCloseTo(signedInGap, 1);
+    const heights = [logout!, deleteAccount!, close!, google!, loginClose!].map(
+      (action) => action.height,
+    );
+    expect(new Set(heights).size).toBe(1);
+    expect(heights[0]).toBeLessThan(56);
+  });
+
+  test('keeps the YouTube link dialog actions on the shared pill gap', async ({ page }) => {
+    // The row also carries a one-off utility class from the inline-style
+    // extraction; it must not reopen a different gap.
+    await installLayoutProbe(
+      page,
+      `<div id="youtube-url-overlay">
+        <div id="youtube-actions" class="ob-actions setup-card-mt-8-row">
+          <button id="youtube-cancel" class="btn-ob-secondary flex-1">Cancel</button>
+          <button id="youtube-play" class="btn-ob-primary yt-play-btn-flex15">Add to Playlist</button>
+        </div>
+      </div>`,
+      { viewportWidth: 390 },
+    );
+
+    const [cancel, play] = await actionMetrics(page, '#youtube-actions');
+    expect(Math.abs(cancel!.y - play!.y)).toBeLessThan(0.5);
+    expect(play!.x - (cancel!.x + cancel!.width)).toBeCloseTo(12, 1);
+    expect(cancel!.height).toBeCloseTo(56, 1);
+    expect(play!.height).toBeCloseTo(56, 1);
+  });
+
   test('contains every audited action label across all supported locales at 200% text', async ({
     page,
   }) => {

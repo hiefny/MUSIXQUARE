@@ -9672,9 +9672,11 @@ or pointers. Keep :focus-visible and :active outside the gate (src/ui/__tests__/
     background: var(--control-active);
   }
 
-  /* The demo exit keeps account deletion's tints. Coming after the
-     leave-session press rule with the same specificity, its resting tint
-     also holds through a touch press. */
+  /* The demo exit keeps its 9.0.18 tints: --control-danger at rest (the
+     tint account deletion rests on) and --control-danger-hover on hover,
+     which account deletion, a shared secondary action, does not show.
+     Coming after the leave-session press rule with the same specificity,
+     its resting tint also holds through a touch press. */
   .demo-large-actions .leave-session-btn {
     background: var(--control-danger);
   }

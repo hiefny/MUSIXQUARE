@@ -55,7 +55,7 @@ describe('integrated borderless control surfaces', () => {
     expect(css).toMatch(
       /\.leave-session-btn\s*\{[^}]*background:\s*var\(--control-danger-pill\);/u,
     );
-    // The demo exit keeps account deletion's tints, as in 9.0.18.
+    // The demo exit keeps its 9.0.18 tints at rest and on hover.
     expect(css).toMatch(
       /\.demo-large-actions \.leave-session-btn\s*\{[^}]*background:\s*var\(--control-danger\);/u,
     );

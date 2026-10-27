@@ -1029,9 +1029,10 @@ describe('action button label contract', () => {
     });
     expect(stopSurfaceOwners).toHaveLength(2);
 
-    // The demo exit keeps account deletion's tints at rest and on hover. Its
-    // resting rule comes after the leave-session press rule with the same
-    // specificity, so a touch press keeps the resting tint, as in 9.0.18.
+    // The demo exit keeps its 9.0.18 tints: --control-danger at rest and
+    // --control-danger-hover on hover. Its resting rule comes after the
+    // leave-session press rule with the same specificity, so a touch press
+    // keeps the resting tint, as in 9.0.18.
     const demoExit = '.demo-large-actions .leave-session-btn';
     expect(ruleValues(appCss, demoExit, 'background')).toEqual(['var(--control-danger)']);
     expect(

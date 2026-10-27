@@ -96,16 +96,19 @@ runbooks. Neither belongs in a general setup document.
 - [PRO room receipt retention (2026-10-27)](design/pro-receipt-retention-2026-10-27.md):
   the PRO room's shared browser receipt ledger (256 receipts) keeps each receipt only as long as
   the App can send its request again (owner decision 2026-10-27, RO-53): two minutes for edits,
-  playlist switches and transfers, reservations, deletes and BOT runs; playback the same unless a
-  longer configured presence needs more; upload completion until a playlist names its asset, at
-  most until orphan cleanup collects it. Receipts an earlier Worker kept for 24 hours are cut at
-  the next prune, BOT and public Developer receipts keep 24 hours, and the cap stays 256 so a
-  rollback to the 9.0.17 PRO Worker still loads the room. A full ledger now shows
-  `pro.room_state_limit` (42 locales) on every playlist path instead of "The playlist changed".
-  Branch `agent/pro-receipt-ttl`, not merged or released and without a version bump (it ships
-  after the UI bundle, target `all`). The report lists each scope's old and new window, the
-  review adjustments, rollback, what stays as is, the tests-first evidence (12 Worker and 9
-  client tests failing on `53a66d65`) and QA round 1 with its tested SHA and limits.
+  playlist switches and transfers, reservations, deletes and the BOT's browser receipts (context
+  and execute); playback the same unless a longer configured presence needs more; upload
+  completion until a playlist names its asset, at most until orphan cleanup collects it. Receipts
+  an earlier Worker kept for 24 hours are cut at the next prune. The separate Developer ledger is
+  unchanged: the BOT's internal Developer receipts and an issued key's Developer receipts keep
+  24 hours. The cap stays 256 so a rollback to the 9.0.17 PRO Worker still loads the room (checked
+  once against the `53a66d65` Worker code). A full ledger now shows `pro.room_state_limit`
+  (42 locales) on every playlist path instead of "The playlist changed". Branch
+  `agent/pro-receipt-ttl`, not merged or released and without a version bump (it ships after the
+  UI bundle, target `all`). The report lists each scope's old and new window, the review
+  adjustments, rollback and its one-off check, what stays as is, the tests-first evidence (12
+  Worker and 9 client tests failing on `53a66d65`; the BOT one pins new behaviour rather than an
+  old defect) and QA rounds 1 and 2 with their tested SHAs and limits.
 - [PRO upload completion and authority feedback (2026-10-27)](design/pro-upload-reliability-2026-10-27.md):
   production diagnosis, R2-internal copy without streaming a full file through the Worker,
   a binding-copy fallback with bounded copy diagnostics (RO-52), completion retry continuity,

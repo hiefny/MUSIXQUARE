@@ -46,7 +46,7 @@ gh run list --workflow e2e.yml --branch main --limit 3
 해결하면 근거(커밋, 실행 ID, 문서)를 PR 설명에 적고 이 목록에서 지운다. 근거
 없이 완료로 표시하지 않는다.
 
-### UI 묶음 (브랜치 `agent/ui-bundle`, 미병합·미배포, 9.0.19 / v792 예정, 버전은 릴리스 준비 때)
+### UI 묶음 (브랜치 `agent/ui-bundle`, 9.0.19 / v792 bump `bf5ee18f`, 미병합·미배포)
 
 - [ ] 오너 지시(2026-10-27 07:15 KST): UI 감사와 힌트 문구 감사의 추천 방향을 전부 한 묶음으로 반영해 배포한다(오너
       부재, 바로 배포 원칙). 대화상자 버튼은 재생 탭 리듬(버튼 표면 사이 12px, 알약 56px, 간격은 레시피로 두고 계약
@@ -63,16 +63,22 @@ gh run list --workflow e2e.yml --branch main --limit 3
       끊김' 배지와 42개 언어 `common.disconnected`를 지웠다. 5B 기록이 이 묶음으로 넘긴 주석(SFU 능력 표지를 읽는 방장
       범위)은 `31766f7c`에서 '9.0.15까지'로 고쳤다(주석만). main은 9.0.18 / v791(`6a23c46e`)까지 합쳤고(`2eaaf4c5`),
       #503이 호버 힌트(title)에 넣은 '확인 중' 토스트 문장은 한 구절 확인 중 힌트(새 키 셋 × 42개 언어)로 바꿨다. 마지막 코드
-      커밋은 U11 `fa49ff25`(계정 삭제 9.0.18 색조와 `YouTube Video`)이고, 버전 거울은 9.0.18 / v791 그대로라
-      `guard:sw-cache-version`은 bump 전까지 예상대로 실패한다. 받아들인 한계: Chromium 79 TV(2021년 LG webOS 등)는
-      `:where()` 관문을 읽지 못해 호버 효과가 없다(포커스·누름은 `guard:legacy-tv-build`가 지킴, 오너가 2026-10-27 수용,
-      [허용 위험 #20](known-accepted.md#20-chromium-79-tvs-show-no-hover-effects)).
-      바뀐 경로에 `cloudflare/`가 없어 예상 target은 `app`이다(릴리스 준비에서 `release-deployment-state.mts`로 확정).
+      커밋은 U11 `fa49ff25`(계정 삭제 9.0.18 색조와 `YouTube Video`)이고, bump `bf5ee18f`(9.0.19 / v792, 앱 빌드 792,
+      버전 거울 여섯 파일)가 마지막 런타임 커밋이며 문서 커밋만 뒤따른다. 받아들인 한계: Chromium 79 TV(2021년
+      LG webOS 등)는 `:where()` 관문을 읽지 못해 호버 효과가 없다(포커스·누름은 `guard:legacy-tv-build`가 지킴, 오너가
+      2026-10-27 수용, [허용 위험 #20](known-accepted.md#20-chromium-79-tvs-show-no-hover-effects)).
+      운영 9.0.18(`53a4f397`, 문서만 뒤따른 main `6a23c46e`)과 견준 런타임 경로 변경(`release-deployment-state.mts`의
+      경로 목록)은 App 83개(`src` 68개, `css` 3개, `public` 7개, `browser` 2개, `index.html`, bump의
+      `scripts/service-worker-asset.ts`와 App Worker `ADMIN_ASSET_VERSION`)이고 나머지 다섯 Worker는 0개라 target은
+      `app`이다. 앱 SemVer와 SW 캐시가 바뀌어 업데이트 창이 뜬다. Developer API D1과 최소 앱 빌드 올리기는 둘 다
+      false다(바닥 787 그대로).
       신규 의존성·D1·비밀·바인딩·계약 표지·통신 모양·저장 키 변경은 없다. 자원 소유권 기록은 바뀌지 않는다(49 records /
       445 files). 증분별 테스트 먼저 근거와 로컬 검사(최종 `cc3b0209`: 단위 688 files / 16,360, Worker 3,237, 핵심 커버리지
       3,462, critical E2E 71, 후보 19, 이 묶음이 닿는 26개 파일 184, eager JS gzip 455.9 → 456.5 KiB. 최종 검토 반영
       `ef5888c6`: 단위 688 files / 16,361, 정적 검사·가드·빌드·예산 다시 통과, E2E는 다시 돌리지 않음. U11 `fa49ff25`: 단위 688 files / 16,362, 정적 검사·가드·빌드·예산 통과, 위험
-      색과 계정 창 E2E 10개 파일 123)는 보고서에 있다.
+      색과 계정 창 E2E 10개 파일 123. bump 뒤 릴리스 준비 라운드 5 `bf5ee18f`: 단위 688 files / 16,362, Worker 3,237
+      커버리지 포함, 핵심 커버리지 3,462, `check:worker-bundles`, SW 캐시·릴리스 식별 가드를 포함한 `build:checked` 전체
+      통과, critical E2E 71, 후보 19, 26개 파일 184, eager JS gzip 466,818 → 467,457 B(+639 B))는 보고서에 있다.
       PR CI, 자동 코드 리뷰, exact-main CI, 배포는 아직이다. 실기기(컨버터블 자세 전환 포함), WebKit, 화면 낭독기, 40개
       언어 원어민 검토는 하지 않았다. 오너가 정할 것: 이동·복사 창의 아주 짧은 화면 압축, 언어 목록 줄의 라이트 호버, 잠긴
       음향 설정 그룹의 이어 읽기, 숨은 설정 기기 목록 칸 삭제, 추천표에서 손대지 않은 넷. Phase 5.5는 이 묶음 뒤 오너 승인을

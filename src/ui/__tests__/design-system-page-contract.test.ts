@@ -479,8 +479,10 @@ describe('public design-system page contract', () => {
     expect(normalizedPath(mediaIcon?.querySelector('path')?.getAttribute('d') ?? null)).toBe(
       normalizedPath(PLAY_MEDIA_PATH),
     );
+    // Like the app: repeat is named by its current mode and has no pressed
+    // state; shuffle keeps one name with a pressed state.
     expect(playlistActions.map((button) => button.getAttribute('aria-label'))).toEqual([
-      'Repeat one',
+      'Repeat current track',
       'Shuffle',
       'Add media',
     ]);
@@ -489,9 +491,11 @@ describe('public design-system page contract', () => {
         normalizedPath(button.querySelector('path')?.getAttribute('d') ?? null),
       ),
     ).toEqual([REPEAT_PATH, SHUFFLE_PATH, ADD_PATH].map(normalizedPath));
-    expect(
-      playlistActions.filter((button) => button.getAttribute('aria-pressed') === 'true'),
-    ).toHaveLength(1);
+    expect(playlistActions.map((button) => button.getAttribute('aria-pressed'))).toEqual([
+      null,
+      'false',
+      null,
+    ]);
     expect(playlist?.querySelector('.lbl')?.textContent?.trim()).toBe('Playlist area');
     expect(playback?.querySelector('.tab-action-btn-sample')).toBeNull();
     expect(playlist?.querySelectorAll('.tab-action-btn-sample')).toHaveLength(3);
@@ -518,6 +522,12 @@ describe('public design-system page contract', () => {
       'Cancel',
     ]);
     expect(selectionActions.map((button) => button.textContent?.trim())).toEqual(['', '']);
+    // The app names these actions without repeating the name as a tooltip.
+    expect(selectionActions.filter((button) => button.hasAttribute('title'))).toEqual([]);
+    // The device row kick icons turn the destructive label red on hover.
+    expect(designStylesheet).toMatch(
+      /\.btn-kick-device:hover,\s*\.btn-kick-physical-device:hover\s*\{\s*color:\s*var\(--danger-foreground\);/u,
+    );
     expect(
       selectionActions.map((button) =>
         normalizedPath(button.querySelector('path')?.getAttribute('d') ?? null),
@@ -877,6 +887,65 @@ describe('public design-system page contract', () => {
       /html\[data-theme='light'\]:not\(\[data-contrast='normal'\]\)\s*\{[^}]*--danger-foreground:\s*#a4001d;/u,
     );
     expect(designTokenStylesheet).toMatch(/--danger-foreground:\s*ButtonText\s*!important/iu);
+  });
+
+  it('mirrors the light danger foreground and the destructive tints of every palette', () => {
+    // Owner decision (2026-10-27): the default light theme reads #d70015, the
+    // same hue as #ff3b30, darker. The tints keep that label 4.5:1 at rest and
+    // on hover in light, and the light high-contrast tints keep #a4001d there.
+    const appStylesheet = readFileSync(resolve('css/style.css'), 'utf8');
+    const block = (stylesheet: string, selector: string): string => {
+      const escaped = selector.replace(/[.*+?^${}()|[\]\\]/gu, '\\$&');
+      const blocks = [...stylesheet.matchAll(new RegExp(`${escaped}\\s*\\{([^}]*)\\}`, 'gu'))];
+      expect(blocks.length, selector).toBeGreaterThan(0);
+      return blocks.map((match) => match[1]).join('\n');
+    };
+    const expected: Array<[string, Record<string, string>]> = [
+      [
+        "html[data-theme='light']",
+        {
+          '--danger-foreground': '#d70015',
+          '--control-danger': 'rgba(255, 59, 48, 0.075)',
+          '--control-danger-hover': 'rgba(255, 59, 48, 0.09)',
+        },
+      ],
+      [
+        "html[data-theme='light'][data-contrast='more']",
+        {
+          '--danger-foreground': '#a4001d',
+          '--control-danger': 'rgba(176, 0, 32, 0.16)',
+          '--control-danger-hover': 'rgba(176, 0, 32, 0.24)',
+        },
+      ],
+      [
+        "html[data-theme='light']:not([data-contrast='normal'])",
+        {
+          '--danger-foreground': '#a4001d',
+          '--control-danger': 'rgba(176, 0, 32, 0.16)',
+          '--control-danger-hover': 'rgba(176, 0, 32, 0.24)',
+        },
+      ],
+    ];
+    for (const [selector, tokens] of expected) {
+      for (const [token, value] of Object.entries(tokens)) {
+        expect(
+          customPropertyValue(block(appStylesheet, selector), token),
+          `${selector} ${token}`,
+        ).toBe(value);
+        expect(
+          customPropertyValue(block(designTokenStylesheet, selector), token),
+          `${selector} ${token} public mirror`,
+        ).toBe(value);
+      }
+    }
+    const tokenRows = Object.fromEntries(
+      [...designDocument.querySelectorAll('.tokens .token-row')].map((row) => [
+        row.querySelector('.tok')?.textContent?.trim(),
+        row.querySelector('.val')?.textContent?.trim(),
+      ]),
+    );
+    expect(tokenRows['--danger-foreground']).toBe('#ff3b30 / #d70015');
+    expect(tokenRows['--control-danger-hover']).toBe('red 13% / 9%');
   });
 
   it('describes filled icons as the default and exposes a deliberate stroke exception', () => {

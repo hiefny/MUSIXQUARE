@@ -177,6 +177,32 @@ describe('hover pointer owner', () => {
     expect(flagged()).toBe(true);
   });
 
+  it('marks a pen or mouse on its first boundary event, before mouseenter', async () => {
+    // In tablet posture the first pen or mouse movement can enter a control
+    // before any pointermove; pointerover arrives ahead of mouseenter, so a
+    // mouseenter handler already reads the hover flag.
+    installAnyHover(false);
+    const { hasHoverPointer, initHoverPointer } = await freshHoverPointer();
+    initHoverPointer();
+    const target = document.createElement('div');
+    document.body.appendChild(target);
+    const seen: boolean[] = [];
+    target.addEventListener('mouseenter', () => seen.push(hasHoverPointer()));
+    try {
+      target.dispatchEvent(pointer('pointerover', 'touch'));
+      expect(flagged()).toBe(false);
+      target.dispatchEvent(pointer('pointerover', 'pen'));
+      target.dispatchEvent(new MouseEvent('mouseenter'));
+      expect(seen).toEqual([true]);
+      document.dispatchEvent(pointer('pointerdown', 'touch'));
+      expect(flagged()).toBe(false);
+      target.dispatchEvent(pointer('pointerover', 'mouse'));
+      expect(flagged()).toBe(true);
+    } finally {
+      target.remove();
+    }
+  });
+
   it('installs once and still follows input where matchMedia is missing', async () => {
     const anyHover = installAnyHover(true);
     const { initHoverPointer } = await freshHoverPointer();
@@ -302,6 +328,16 @@ describe('one hover gate in the app stylesheets', () => {
     }
     expect(offenders).toEqual([]);
   });
+
+  it('lets only hover-pointer.ts write the hover flag', () => {
+    const writers: string[] = [];
+    for (const file of sourceFiles('src')) {
+      if (file === 'src/ui/hover-pointer.ts') continue;
+      const source = readFileSync(resolve(file), 'utf8');
+      if (/data-hover-pointer|hoverPointer/u.test(source)) writers.push(file);
+    }
+    expect(writers).toEqual([]);
+  });
 });
 
 describe('playlist row icons on the hover gate', () => {
@@ -310,6 +346,16 @@ describe('playlist row icons on the hover gate', () => {
       { conditions: [], declarations: ['color: var(--primary)'] },
     ]);
     const focus = rulesFor('.btn-playlist-select:focus-visible');
+    expect(focus).toHaveLength(1);
+    expect(focus[0]!.conditions).toEqual([]);
+    expect(focus[0]!.declarations).toContain('color: var(--primary)');
+  });
+
+  it('turns the expand chevron blue on hover and on keyboard focus, like the minus', () => {
+    const hover = rulesFor(`${GATE} .expand-toggle:hover`);
+    expect(hover).toHaveLength(1);
+    expect(hover[0]!.declarations).toContain('color: var(--primary)');
+    const focus = rulesFor('.expand-toggle:focus-visible');
     expect(focus).toHaveLength(1);
     expect(focus[0]!.conditions).toEqual([]);
     expect(focus[0]!.declarations).toContain('color: var(--primary)');

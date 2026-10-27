@@ -3,7 +3,7 @@
  */
 import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
-import { parse as parseCss, type AtRule, type Node, type Root, type Rule } from 'postcss';
+import { parse as parseCss, type AtRule, type Node, type Root } from 'postcss';
 import { describe, expect, it } from 'vitest';
 
 // Owner decision (2026-10-27): action pills that sit next to or below each
@@ -17,13 +17,29 @@ const PILL_HEIGHT = '56px';
 
 // Role=dialog surfaces in index.html whose actions deliberately stay outside
 // the shared rhythm, with the reason. The scan below fails on any other
-// surface without a checked action row, and on a stale entry here.
-const OUTSIDE_RHYTHM: Readonly<Record<string, string>> = {
-  'manual-sync-overlay':
-    'The manual sync panel is a compact tool panel. Its Reset / Done pair ' +
-    '(52px, 8px apart) follows the 44px nudge chips and 8px rows above it; ' +
-    'the 2026-10-27 rhythm covers the account, move/copy and confirm dialogs.',
-};
+// surface without a checked action row, and on a stale entry here. None stays
+// outside: the manual sync panel's Reset / Done pair joined the rhythm with
+// the adaptive action recipe (2026-10-27).
+const OUTSIDE_RHYTHM: Readonly<Record<string, string>> = {};
+
+// Viewport conditions that may size an action row or pill away from the
+// shared values, other than short-screen compression, with the reason.
+const CONDITIONAL_EXCEPTIONS: ReadonlyArray<{
+  condition: string;
+  element: string;
+  declaration: string;
+  reason: string;
+}> = [
+  {
+    condition:
+      '@media (min-width: 720px) and (max-width: 1279px), (min-width: 1280px) and (max-height: 719px)',
+    element: '#btn-close-media-popup',
+    declaration: 'height: 40px',
+    reason:
+      'On two-column screens the media source Close becomes a 40px icon circle ' +
+      'in the header; it is no longer an action pill.',
+  },
+];
 
 const read = (path: string): string => readFileSync(resolve(path), 'utf8');
 const appCss = parseCss(read('css/style.css'));
@@ -197,11 +213,15 @@ describe('action pill rhythm contract', () => {
       ...appMarkup().querySelectorAll<HTMLElement>(
         [
           '.dialog :is(.dialog-actions, .adaptive-action-group, .account-dialog-login-actions) > :is(button, a)',
-          '[role="dialog"] .ob-actions > :is(button, a)',
+          '[role="dialog"] :is(.ob-actions, .adaptive-action-group) > :is(button, a)',
         ].join(', '),
       ),
     ];
-    expect(actions.length).toBeGreaterThanOrEqual(18);
+    expect(actions.length).toBeGreaterThanOrEqual(20);
+    // The manual sync panel's Reset / Done pair is checked like a dialog's.
+    expect(actions.map((action) => action.id)).toEqual(
+      expect.arrayContaining(['btn-auto-sync', 'btn-sync-done']),
+    );
     for (const action of actions) {
       const heights = appliedValues(action, ['height', 'min-height']);
       expect(heights, `${describeElement(action)} has no pill height`).not.toHaveLength(0);
@@ -268,31 +288,81 @@ describe('action pill rhythm contract', () => {
   it('lets only short screens compress dialog actions below the shared rhythm', () => {
     // Short landscape phones trade the rhythm for reachable actions (44px
     // pills and a 6px gap in the account dialog, 48px pills in the stepped
-    // dialog). Any other viewport condition that resizes dialog actions
-    // would split the rhythm again.
-    const dialogAction =
-      /\.(?:dialog-primary|dialog-secondary|account-google-button|dialog-actions|adaptive-action-group|account-dialog-actions|account-dialog-login-actions)\b/u;
-    const shared: Record<string, number> = {
-      gap: pixels(ACTION_GAP),
-      'row-gap': pixels(ACTION_GAP),
-      'column-gap': pixels(ACTION_GAP),
-      'min-height': pixels(PILL_HEIGHT),
-      height: pixels(PILL_HEIGHT),
+    // dialog). Any other viewport condition that resizes an action row or
+    // pill, in any of the four app sheets and through any selector shape
+    // (an ID, a container, a descendant rule), would split the rhythm again.
+    const gaps = ['gap', 'row-gap', 'column-gap'];
+    const heights = ['height', 'min-height'];
+    const shared: Record<string, string> = {
+      gap: ACTION_GAP,
+      'row-gap': ACTION_GAP,
+      'column-gap': ACTION_GAP,
+      height: PILL_HEIGHT,
+      'min-height': PILL_HEIGHT,
     };
+    const conditions = new Set<string>();
+    for (const sheet of appSheets) {
+      sheet.walkDecls((declaration) => {
+        if (!(declaration.prop in shared)) return;
+        const condition = conditionOf(declaration);
+        if (condition !== null) conditions.add(condition);
+      });
+    }
+    const markup = appMarkup();
+    const rows = [
+      ...markup.querySelectorAll(
+        ':is(.adaptive-action-group, .dialog-actions, .ob-actions, .account-dialog-login-actions)',
+      ),
+    ];
+    const pills = rows.flatMap((row) => [...row.querySelectorAll(':scope > :is(button, a)')]);
+    expect(pills.length).toBeGreaterThanOrEqual(20);
     const overrides: string[] = [];
-    appCss.walkDecls((declaration) => {
-      const rule = declaration.parent as Rule | undefined;
-      if (rule?.type !== 'rule' || !(declaration.prop in shared)) return;
-      if (!dialogAction.test(rule.selector)) return;
-      const media = conditionOf(rule);
-      if (media === null) return;
-      overrides.push(`${media} ${declaration.prop}: ${declaration.value}`);
-      expect(media, `${rule.selector} overrides ${declaration.prop}`).toMatch(
-        /^@media \(max-height: \d+px\)$/u,
-      );
-      expect(pixels(declaration.value)).toBeLessThan(shared[declaration.prop]!);
-    });
+    const exceptionsSeen = new Set<string>();
+    for (const condition of conditions) {
+      for (const [elements, properties] of [
+        [rows, gaps],
+        [pills, heights],
+      ] as const) {
+        for (const element of elements) {
+          for (const value of appliedValues(element, properties, condition)) {
+            const [property, raw] = value.split(/:\s*/u) as [string, string];
+            if (raw === shared[property]) continue;
+            const exception = CONDITIONAL_EXCEPTIONS.find(
+              (allowed) =>
+                allowed.condition === condition &&
+                element.matches(allowed.element) &&
+                allowed.declaration === value,
+            );
+            if (exception) {
+              exceptionsSeen.add(exception.element);
+              continue;
+            }
+            const where = `${condition} ${describeElement(element)} ${value}`;
+            overrides.push(where);
+            expect(condition, where).toMatch(/^@media \(max-height: \d+px\)$/u);
+            expect(pixels(raw), where).toBeLessThan(pixels(shared[property]!));
+          }
+        }
+      }
+    }
     expect(overrides.length).toBeGreaterThan(0);
+    expect([...exceptionsSeen].sort()).toEqual(
+      CONDITIONAL_EXCEPTIONS.map((allowed) => allowed.element).sort(),
+    );
+  });
+
+  it('wraps the manual sync pair at word boundaries with the adaptive action recipe', () => {
+    // Malayalam's Reset (one 160px word) no longer fit beside Done once the
+    // pair took the 15px label. The recipe sizes each pill by its label and
+    // gives each one a full row only when the pair no longer fits.
+    const row = appMarkup().querySelector('#manual-sync-overlay .sync-bottom-row')!;
+    expect([...row.classList]).toEqual(['sync-bottom-row', 'adaptive-action-group']);
+    for (const pill of row.querySelectorAll(':scope > button')) {
+      expect(appliedValues(pill, ['flex', 'width', 'white-space']).sort()).toEqual([
+        'flex: 1 1 max-content',
+        'white-space: normal',
+      ]);
+    }
   });
 
   it('shows the same dialog rhythm on the design-system page and the sign-in completion card', () => {

@@ -40,6 +40,32 @@ describe('legacy smart-TV app compatibility', () => {
     );
   });
 
+  it('keeps hover-gated selectors out of rules the TV engines must keep', () => {
+    // Chromium 79 predates :where(), so it drops a whole rule whose selector
+    // list contains one. A gated hover sharing a rule with a focus or press
+    // selector would take that state style down with it on the TV floor.
+    const css = `
+      :root{--bg:#fff}
+      .onboarding-overlay{position:fixed}
+      body.fouc-loaded{opacity:1}
+      body.overlay-open .bottom-nav{display:none}
+      html.setup-boot-block body{animation:boot 1s}
+      body > .bootstrap-failure{display:block}
+      .file-drop-feedback{top:0;bottom:0;left:0;right:0}
+      :where(html[data-hover-pointer]) .row:hover{color:blue}
+      .row:focus-visible{color:blue}
+    `;
+    expect(() => assertLegacyCss(css)).not.toThrow();
+    expect(() =>
+      assertLegacyCss(
+        css.replace(
+          ':where(html[data-hover-pointer]) .row:hover{color:blue}\n      .row:focus-visible{color:blue}',
+          ':where(html[data-hover-pointer]) .row:hover,.row:focus-visible{color:blue}',
+        ),
+      ),
+    ).toThrow('mixes :where()');
+  });
+
   it('requires the prefixed selection block that iOS Safari reads', () => {
     expect(() =>
       assertTouchSelectionCss('*{-webkit-user-select:none;user-select:none}'),

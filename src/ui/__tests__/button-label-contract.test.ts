@@ -52,7 +52,6 @@ const OWN_SIZE_CLASSES: Readonly<Record<string, string>> = {
 // Every other button class in index.html and the TypeScript templates, with
 // the reason it is not an action button. A new button class must join one list.
 const NOT_ACTION_BUTTONS: Readonly<Record<string, string>> = {
-  'btn-ob-text-link': 'Setup text link: an underlined secondary link, not a pill.',
   'btn-ob-icon': 'Icon-only setup button.',
   'nav-item': 'Bottom navigation: a small label under an icon.',
   'subtab-pill': 'Settings section tab, not an action.',
@@ -446,6 +445,11 @@ describe('action button label contract', () => {
       }
     }
     expect(ruleValues(appCss, ':root', '--danger-foreground')).toEqual(['#ff3b30']);
+    // Owner decision (2026-10-27): the default light theme reads the same hue,
+    // darker, so a destructive label passes 4.5:1 on its light surfaces.
+    expect(ruleValues(appCss, "html[data-theme='light']", '--danger-foreground')).toEqual([
+      '#d70015',
+    ]);
   });
 
   it('lets action button rules set label typography only through the tokens', () => {
@@ -652,13 +656,68 @@ describe('action button label contract', () => {
     appCss.walkDecls('--danger-foreground', (declaration) => {
       owners.push(where(declaration, 'css/style.css'));
     });
-    expect(owners).toHaveLength(4);
+    expect(owners).toHaveLength(5);
 
-    // The same red stays readable on its tinted surface where contrast is
-    // raised, and in the default dark palette.
-    expect(contrast('#ff3b30', 'rgba(255, 59, 48, 0.09)', '#1a1a1a')).toBeGreaterThanOrEqual(4.5);
-    expect(contrast('#ff3b30', 'rgba(176, 0, 32, 0.24)', '#0a0a0a')).toBeGreaterThanOrEqual(4.5);
-    expect(contrast('#a4001d', 'rgba(176, 0, 32, 0.24)', '#ffffff')).toBeGreaterThanOrEqual(4.5);
+    // Every destructive label keeps 4.5:1 on each surface it sits on. At rest
+    // that is the dialog and account panel (surface-1) and the connect tab,
+    // demo finish row, play tab and setup canvas (--bg). The hover and press
+    // tint belongs to the leave, demo exit and stop sharing pills, which sit
+    // on the canvas; dialog pills have no hover tint.
+    const palettes = [
+      { name: 'dark', canvas: '#121212', panel: '#1a1a1a' },
+      { name: 'light', canvas: '#f8f9fa', panel: '#ffffff' },
+      { name: 'dark more', canvas: '#000000', panel: '#0a0a0a' },
+      { name: 'light more', canvas: '#f2f2f2', panel: '#ffffff' },
+    ];
+    const resolved = (selectors: string[], token: string): string => {
+      for (const selector of [...selectors].reverse()) {
+        const [value] = ruleValues(appCss, selector, token);
+        if (value !== undefined) return value;
+      }
+      throw new Error(`${token} is not defined for ${selectors.join(' / ')}`);
+    };
+    const cascade: Record<string, string[]> = {
+      dark: [':root'],
+      light: [':root', "html[data-theme='light']"],
+      'dark more': [':root', "html[data-contrast='more']"],
+      'light more': [
+        ':root',
+        "html[data-theme='light']",
+        "html[data-contrast='more']",
+        "html[data-theme='light'][data-contrast='more']",
+      ],
+    };
+    const measured: string[] = [];
+    for (const palette of palettes) {
+      const selectors = cascade[palette.name]!;
+      const label = resolved(selectors, '--danger-foreground');
+      const cases: Array<[string, string]> = [
+        ['--control-danger', palette.canvas],
+        ['--control-danger', palette.panel],
+        ['--control-danger-hover', palette.canvas],
+      ];
+      for (const [tint, surface] of cases) {
+        const ratio = contrast(label, resolved(selectors, tint), surface);
+        measured.push(`${palette.name} ${tint} on ${surface}: ${ratio.toFixed(2)}`);
+        expect(ratio, `${palette.name} ${label} on ${tint} over ${surface}`).toBeGreaterThanOrEqual(
+          4.5,
+        );
+      }
+      // Error text sits on the bare surfaces.
+      for (const surface of [palette.canvas, palette.panel]) {
+        expect(contrast(label, 'rgba(0, 0, 0, 0)', surface), palette.name).toBeGreaterThanOrEqual(
+          4.5,
+        );
+      }
+    }
+    expect(measured).toHaveLength(12);
+    // The OS preference layer repeats the manual light high-contrast tints.
+    for (const tint of ['--control-danger', '--control-danger-hover']) {
+      expect(
+        ruleValues(appCss, lightPrefersContrast, tint, '@media (prefers-contrast: more)'),
+        tint,
+      ).toEqual(ruleValues(appCss, lightContrast, tint));
+    }
 
     // Account deletion is the shared secondary action with a color-only
     // danger modifier.
@@ -686,11 +745,59 @@ describe('action button label contract', () => {
       'var(--danger-foreground)',
     ]);
 
-    // No action button or label paints a red of its own.
+    // Their surfaces are the tints account deletion uses: --control-danger at
+    // rest, --control-danger-hover on hover and press. The demo finish row is
+    // the same button and keeps no surface of its own.
+    expect(ruleValues(appCss, '.leave-session-btn', 'background')).toEqual([
+      'var(--control-danger)',
+    ]);
+    expect(
+      ruleValues(appCss, ':where(html[data-hover-pointer]) .leave-session-btn:hover', 'background'),
+    ).toEqual(['var(--control-danger-hover)']);
+    expect(ruleValues(appCss, '.leave-session-btn:active', 'background')).toEqual([
+      'var(--control-danger-hover)',
+    ]);
+    const demoSurfaces: string[] = [];
+    for (const { path, root } of sheets) {
+      root.walkDecls(/^background/u, (declaration) => {
+        const rule = declaration.parent as unknown as { selectors?: string[] };
+        if (
+          rule.selectors?.some((selector) =>
+            /\.demo-large-actions\b.*\.leave-session-btn/u.test(selector),
+          )
+        ) {
+          demoSurfaces.push(where(declaration, path));
+        }
+      });
+    }
+    expect(demoSurfaces).toEqual([]);
+    // Stop sharing grows over the Sync surface without overlapping it, so it
+    // can use the same translucent tints instead of an opaque mix of its label.
+    expect(ruleValues(playCss, '.play-actions-row', '--play-action-stop-surface')).toEqual([
+      'var(--control-danger)',
+    ]);
+    expect(ruleValues(playCss, '.play-actions-row', '--play-action-stop-hover')).toEqual([
+      'var(--control-danger-hover)',
+    ]);
+    const stopSurfaceOwners: string[] = [];
+    playCss.walkDecls(/^--play-action-stop-(?:surface|hover)$/u, (declaration) => {
+      if (conditionOf(declaration) !== '@media (forced-colors: active)') {
+        stopSurfaceOwners.push(where(declaration, 'css/playback-actions.css'));
+      }
+    });
+    expect(stopSurfaceOwners).toHaveLength(2);
+
+    // No action button or label paints a red of its own, in its label, icon,
+    // surface, border or shadow.
     const reds: string[] = [];
     for (const { path, root } of sheets) {
       root.walkDecls((declaration) => {
-        if (!/^(?:color|fill|stroke|--[\w-]*foreground)$/u.test(declaration.prop)) return;
+        if (
+          !/^(?:color|fill|stroke|background(?:-color|-image)?|border(?:-[\w-]+)?|outline(?:-color)?|box-shadow|--[\w-]*foreground)$/u.test(
+            declaration.prop,
+          )
+        )
+          return;
         if (!isRedLiteral(declaration.value)) return;
         const rule = declaration.parent;
         if (rule?.type !== 'rule') return;
@@ -703,8 +810,122 @@ describe('action button label contract', () => {
     expect(reds).toEqual([]);
   });
 
+  it('paints every red text and icon with the danger foreground', () => {
+    // Owner question (2026-10-27): "aren't there other reds too?" Every red
+    // that marks danger, an error or a destructive action as text or as an
+    // icon reads --danger-foreground; red surfaces read the --control-danger
+    // tints, or --danger-filled under white glyphs. Only the YouTube mark keeps
+    // its brand red, because it names the source, not a danger.
+    const BRAND_REDS: ReadonlyArray<{ selector: RegExp; declaration: string; reason: string }> = [
+      {
+        selector: /\.btn-icon-bg\.youtube/u,
+        declaration: 'color: #ff0033',
+        reason: 'YouTube mark on the media source option.',
+      },
+      {
+        selector: /\.btn-icon-bg\.youtube svg$/u,
+        declaration: 'fill: #ff0033',
+        reason: 'YouTube mark on the media source option in light theme.',
+      },
+      {
+        selector: /^\.chat-youtube-btn:active$/u,
+        declaration: 'background: #d90000',
+        reason: 'Pressed YouTube card in chat, the brand red one step darker.',
+      },
+    ];
+    const PALETTE =
+      /^--(?:danger-filled|danger-foreground|youtube-filled|control-danger(?:-hover)?)$/u;
+    const TEXT_OR_ICON =
+      /^(?:color|fill|stroke|border(?:-[\w-]+)?-color|border(?:-(?:top|right|bottom|left|block|inline)(?:-(?:start|end))?)?|outline(?:-color)?|text-decoration(?:-color)?|caret-color|--[\w-]*foreground)$/u;
+    const SURFACE = /^(?:background(?:-color|-image)?|box-shadow|--[\w-]*(?:surface|hover))$/u;
+    const violations: string[] = [];
+    let brandSeen = 0;
+    for (const { path, root } of sheets) {
+      root.walkDecls((declaration) => {
+        const rule = declaration.parent;
+        if (rule?.type !== 'rule' || PALETTE.test(declaration.prop)) return;
+        const selectors = (rule as unknown as { selectors: string[] }).selectors.map((selector) =>
+          selector.replace(/\s+/gu, ' ').trim(),
+        );
+        const value = `${declaration.prop}: ${declaration.value}`;
+        const at = `${where(declaration, path)} ${selectors.join(', ')} { ${value} }`;
+        if (isRedLiteral(declaration.value)) {
+          const brand = BRAND_REDS.some(
+            (allowed) =>
+              allowed.declaration === value &&
+              selectors.every((selector) => allowed.selector.test(selector)),
+          );
+          if (brand) brandSeen += 1;
+          else violations.push(`hard-coded red: ${at}`);
+          return;
+        }
+        if (
+          TEXT_OR_ICON.test(declaration.prop) &&
+          /var\(--(?:danger-filled|control-danger)/u.test(declaration.value)
+        ) {
+          violations.push(`surface red on text or icon: ${at}`);
+        }
+        if (
+          SURFACE.test(declaration.prop) &&
+          /var\(--danger-foreground\)/u.test(declaration.value)
+        ) {
+          violations.push(`label red on a surface: ${at}`);
+        }
+      });
+    }
+    expect(violations).toEqual([]);
+    expect(brandSeen).toBe(4);
+
+    // The reds that were hard-coded read the role now: error and validation
+    // text, the disconnected device badge and the destructive row icons.
+    const roleReaders: Array<[string, string]> = [
+      ['.dialog-hint.error', 'color'],
+      ['.dialog-input.invalid', 'border-bottom-color'],
+      ['.dialog-input-split.invalid .dialog-input-segment', 'border-bottom-color'],
+      ['.setup-inline-error', 'color'],
+      ['.d-status.inactive', 'color'],
+    ];
+    for (const [selector, property] of roleReaders) {
+      expect(ruleValues(appCss, selector, property), selector).toEqual([
+        'var(--danger-foreground)',
+      ]);
+    }
+    expect(ruleValues(appCss, '.d-status.inactive', 'background')).toEqual([
+      'var(--control-danger)',
+    ]);
+    for (const icon of [
+      ':where(html[data-hover-pointer]) .clearable-editor-button:hover',
+      ':where(html[data-hover-pointer]) .btn-playlist-remove:not(:disabled):hover',
+      ':where(html[data-hover-pointer]) .administrator-action-button.revoke:hover',
+      '.administrator-action-button.revoke:focus-visible',
+      ':where(html[data-hover-pointer]) .device-subrow:hover .btn-kick-physical-device:hover',
+      '.btn-kick-physical-device:focus-visible',
+      ':where(html[data-hover-pointer]) .device-row:hover .btn-kick-device:hover',
+    ]) {
+      expect(ruleValues(appCss, icon, 'color'), icon).toEqual(['var(--danger-foreground)']);
+    }
+
+    // Scripts paint no red of their own either: the YouTube link errors read
+    // the role (there is no --danger token), and only the YouTube source icon
+    // in playlist rows keeps the brand red.
+    const scriptReds: string[] = [];
+    for (const { path, source } of templateSources()) {
+      for (const match of source.matchAll(
+        /var\(--danger[,)]|#(?:ff3b30|ef4444|ff4d4f|d70015|a4001d|d90000)\b|rgba?\(\s*255\s*,\s*(?:59|77)\s*,/giu,
+      )) {
+        scriptReds.push(`${path}: ${match[0]}`);
+      }
+      for (const match of source.matchAll(/#ff0033\b/giu)) {
+        if (path !== 'src/ui/playlist-view.ts') scriptReds.push(`${path}: ${match[0]}`);
+      }
+    }
+    expect(scriptReds).toEqual([]);
+    const search = read('src/youtube/search.ts');
+    expect(search.match(/'var\(--danger-foreground\)'/gu) ?? []).toHaveLength(3);
+  });
+
   it('retires the one-off account delete button and the dead btn-action rule', () => {
-    const retired = /\.(?:account-delete-button|btn-action)(?![\w-])/u;
+    const retired = /\.(?:account-delete-button|btn-action|btn-ob-text-link)(?![\w-])/u;
     for (const { path, root } of sheets) {
       root.walkRules((rule) => {
         expect(retired.test(rule.selector), `${path}: ${rule.selector}`).toBe(false);
@@ -714,6 +935,9 @@ describe('action button label contract', () => {
     for (const button of templateButtons()) {
       expect(button.classes, button.where).not.toContain('account-delete-button');
       expect(button.classes, button.where).not.toContain('btn-action');
+      expect(button.classes, button.where).not.toContain('btn-ob-text-link');
     }
+    // The setup screens never used the text-link button kind.
+    expect(read('src/ui/setup-shared.ts')).not.toMatch(/text-link/u);
   });
 });

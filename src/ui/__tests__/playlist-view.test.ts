@@ -1577,6 +1577,41 @@ describe('playlist queue identity rendering and actions', () => {
     expect(select.title).toBe(t('playlist.select_mode_hint'));
   });
 
+  it('announces a minus tapped before the selection controller loads from an empty status cell', async () => {
+    setLanguageMode('en');
+    setState('playlist.items', sampleItems());
+    initPlaylistView();
+    clickSelect(FILE_A);
+    await vi.dynamicImportSettled();
+    const status = document.querySelector<HTMLElement>(
+      '#tab-playlist .tab-header .playlist-selection-status',
+    )!;
+    // The status cell reaches the accessibility tree empty; the replayed
+    // pick fills it a frame later, so the first count is heard.
+    expect(status.textContent).toBe('');
+    await nextAnimationFrame();
+    expect(status.textContent).toBe('1 selected');
+  });
+
+  it('keeps an early pick ahead of the next one when both land before the replay', async () => {
+    setLanguageMode('en');
+    setState('playlist.items', sampleItems());
+    initPlaylistView();
+    clickSelect(FILE_A);
+    await vi.dynamicImportSettled();
+    clickSelect(YT_B);
+    const pressed = () =>
+      [...document.querySelectorAll<HTMLElement>('.btn-playlist-select')].map((button) =>
+        button.getAttribute('aria-pressed'),
+      );
+    expect(pressed()).toEqual(['true', 'true']);
+    await nextAnimationFrame();
+    expect(pressed()).toEqual(['true', 'true']);
+    expect(
+      document.querySelector('#tab-playlist .tab-header .playlist-selection-status')?.textContent,
+    ).toBe('2 selected');
+  });
+
   it('turns the header into the selected count with one select-all text toggle', async () => {
     setLanguageMode('en');
     setState('playlist.items', sampleItems());

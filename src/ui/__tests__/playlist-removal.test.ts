@@ -171,6 +171,9 @@ describe('playlist removal controller', () => {
     // The visible title is shown and hidden with the mode but never announces.
     expect(title.hasAttribute('aria-live')).toBe(false);
     expect(title.id).toBeTruthy();
+    // A linear read meets the count once, in the status cell: the visible
+    // title stays out of the tree and still names the bar by reference.
+    expect(title.getAttribute('aria-hidden')).toBe('true');
     // The bar is named by the visible count, not by a delete-only label.
     expect(bar.getAttribute('aria-labelledby')).toBe(title.id);
     expect(bar.hasAttribute('aria-label')).toBe(false);

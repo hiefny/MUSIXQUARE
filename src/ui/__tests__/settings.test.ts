@@ -509,6 +509,15 @@ describe('settings synchronization preference', () => {
       expect(group.getAttribute('aria-disabled')).toBe('true');
       expect(group.title).toBe(roomCapabilityRequiredTip('effects.control'));
     }
+    // The three choice groups keep their section description, which outranks
+    // a title, so the reason is also a description they reference first.
+    for (const id of ['grid-reverb', 'grid-eq', 'grid-virtual-effects']) {
+      const group = document.getElementById(id)!;
+      expect(group.getAttribute('aria-describedby')?.split(' ')[0], id).toBe(`${id}-reason`);
+      expect(document.getElementById(`${id}-reason`)?.textContent, id).toBe(
+        roomCapabilityRequiredTip('effects.control'),
+      );
+    }
 
     await setLanguageMode('ko');
     bus.emit('i18n:changed', 'ko');
@@ -518,10 +527,19 @@ describe('settings synchronization preference', () => {
     // A one-phrase reason, not the toast's two sentences.
     expect(groups[0]!.title).toBe('음향 설정은 방 관리자만 변경 가능');
 
+    expect(document.getElementById('grid-eq-reason')?.textContent).toBe(
+      '음향 설정은 방 관리자만 변경 가능',
+    );
+
     document.querySelector<HTMLElement>('[data-settings-sync="off"]')?.click();
     for (const group of groups) {
       expect(group.getAttribute('aria-disabled')).toBe('false');
       expect(group.hasAttribute('title')).toBe(false);
+    }
+    for (const id of ['grid-reverb', 'grid-eq', 'grid-virtual-effects']) {
+      expect(document.getElementById(id)?.getAttribute('aria-describedby') ?? '', id).not.toContain(
+        `${id}-reason`,
+      );
     }
   });
 

@@ -2688,6 +2688,14 @@ describe('initPlayerControls fullscreen fallback', () => {
       document.dispatchEvent(new Event('fullscreenchange'));
       expect(toggle.getAttribute('aria-pressed')).toBe('false');
 
+      // The screensaver holds document fullscreen; the video does not fill
+      // the screen, so the toggle is not pressed.
+      fullscreenElement = document.documentElement;
+      document.dispatchEvent(new Event('fullscreenchange'));
+      expect(toggle.getAttribute('aria-pressed')).toBe('false');
+      fullscreenElement = null;
+      document.dispatchEvent(new Event('fullscreenchange'));
+
       // The iOS shell fills the screen without a fullscreen element.
       wrapper.classList.add('fake-fullscreen');
       await Promise.resolve();

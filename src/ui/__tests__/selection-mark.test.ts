@@ -23,12 +23,36 @@ const FAMILY_SELECTOR =
 // check is heavier on purpose, as the selected mark (UI audit item 8).
 const LINE_ICON_STROKE = '1.8';
 const CHECK_STROKE_WIDTH = '2.4';
-const STROKE_TARGETS = {
-  chevron: /(?:^|[\s>+~])\.expand-toggle(?![\w-])[^\s>+~]*\s+svg$/u,
-  deviceChevron: /(?:^|[\s>+~])\.device-expand-toggle(?![\w-])[^\s>+~]*\s+svg$/u,
+
+interface StrokeTarget {
+  test(selector: string): boolean;
+}
+
+/**
+ * A selector that strokes the icon inside `className`: its last compound is
+ * the svg or a path, by any combinator, and an earlier compound carries the
+ * class (`.expand-toggle svg`, `.expand-toggle > svg`, `.expand-toggle svg path`).
+ */
+function iconInside(className: string): StrokeTarget {
+  const owner = new RegExp(`\\.${className}(?![\\w-])`, 'u');
+  return {
+    test(selector) {
+      const compounds = selector.trim().split(/\s*[\s>+~]\s*/u);
+      const last = compounds.at(-1) ?? '';
+      return (
+        /^(?:svg|path)(?![\w-])/u.test(last) &&
+        compounds.slice(0, -1).some((part) => owner.test(part))
+      );
+    },
+  };
+}
+
+const STROKE_TARGETS: Readonly<Record<string, StrokeTarget>> = {
+  chevron: iconInside('expand-toggle'),
+  deviceChevron: iconInside('device-expand-toggle'),
   minus: /\.playlist-select-minus(?![\w-])[^\s>+~]*$/u,
   check: /\.playlist-select-mark(?![\w-])[^\s>+~]*$/u,
-} as const;
+};
 
 let appSource: string;
 let appStylesheet: string;
@@ -44,7 +68,7 @@ function rulesMatching(stylesheet: string, selector: RegExp): string[] {
 }
 
 /** Every rule that gives the target a stroke width, with the width. */
-function strokeWidthRules(root: Root, target: RegExp): { rule: Rule; value: string }[] {
+function strokeWidthRules(root: Root, target: StrokeTarget): { rule: Rule; value: string }[] {
   const found: { rule: Rule; value: string }[] = [];
   root.walkDecls('stroke-width', (declaration) => {
     const rule = declaration.parent;
@@ -111,10 +135,10 @@ describe('selection check and minus', () => {
       ['public/editorial-design.css', designStylesheet],
     ] as const) {
       const root = parseCss(stylesheet);
-      const minus = strokeWidthRules(root, STROKE_TARGETS.minus);
-      const chevron = strokeWidthRules(root, STROKE_TARGETS.chevron);
-      const deviceChevron = strokeWidthRules(root, STROKE_TARGETS.deviceChevron);
-      const check = strokeWidthRules(root, STROKE_TARGETS.check);
+      const minus = strokeWidthRules(root, STROKE_TARGETS.minus!);
+      const chevron = strokeWidthRules(root, STROKE_TARGETS.chevron!);
+      const deviceChevron = strokeWidthRules(root, STROKE_TARGETS.deviceChevron!);
+      const check = strokeWidthRules(root, STROKE_TARGETS.check!);
       // One rule owns the line weight: no family default, override or copy
       // gives the minus or a chevron another width.
       expect(minus, `${file} minus`).toHaveLength(1);

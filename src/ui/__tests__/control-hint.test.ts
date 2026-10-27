@@ -153,6 +153,53 @@ describe('control hint writes', () => {
     expect(records).toEqual([]);
   });
 
+  it('also makes the reason the description where a title would not be read', () => {
+    // A group whose own controls are natively disabled, or that already has
+    // aria-describedby (which outranks title), carries the reason in a hidden
+    // node it references first, and gets its own description back afterwards.
+    document.body.innerHTML = `
+      <p id="reverb-description">Adjust the reverb.</p>
+      <div id="grid-reverb" role="group" aria-describedby="reverb-description">
+        <button type="button">Studio</button>
+      </div>`;
+    const group = document.getElementById('grid-reverb')!;
+    setControlUnavailable(group, REASON, { describe: true });
+    const reason = document.getElementById('grid-reverb-reason')!;
+    expect(reason.hidden).toBe(true);
+    expect(reason.textContent).toBe(REASON);
+    expect(group.contains(reason)).toBe(false);
+    expect(group.getAttribute('aria-describedby')).toBe('grid-reverb-reason reverb-description');
+    expect(hintOf(group)).toEqual({ title: REASON, ariaDisabled: 'true' });
+
+    setControlUnavailable(group, REASON, { describe: true });
+    expect(group.getAttribute('aria-describedby')).toBe('grid-reverb-reason reverb-description');
+
+    setControlUnavailable(group, null, { describe: true });
+    expect(reason.textContent).toBe('');
+    expect(group.getAttribute('aria-describedby')).toBe('reverb-description');
+    expect(hintOf(group)).toEqual({ title: null, ariaDisabled: 'false' });
+  });
+
+  it('uses an authored reason node and drops a description it alone made', () => {
+    document.body.innerHTML = `
+      <div id="volume-control-group" role="group">
+        <span id="volume-control-group-reason" hidden></span>
+      </div>`;
+    const group = document.getElementById('volume-control-group')!;
+    setControlUnavailable(group, REASON, { describe: true });
+    expect(document.querySelectorAll('#volume-control-group-reason')).toHaveLength(1);
+    expect(document.getElementById('volume-control-group-reason')!.textContent).toBe(REASON);
+    expect(group.getAttribute('aria-describedby')).toBe('volume-control-group-reason');
+    setControlUnavailable(group, null, { describe: true });
+    expect(group.hasAttribute('aria-describedby')).toBe(false);
+    // Without the option nothing is described, and no node is made.
+    const plain = iconButton();
+    plain.id = 'plain';
+    setControlUnavailable(plain, REASON);
+    expect(plain.hasAttribute('aria-describedby')).toBe(false);
+    expect(document.getElementById('plain-reason')).toBeNull();
+  });
+
   it('keeps each control’s hint to itself', () => {
     const first = iconButton();
     const second = iconButton();

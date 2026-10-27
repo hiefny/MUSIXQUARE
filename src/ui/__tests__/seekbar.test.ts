@@ -208,6 +208,19 @@ describe('initSeekBar playback mode gates', () => {
     expect(seekTo).not.toHaveBeenCalled();
   });
 
+  it('leaves the bar unavailable through the one control-hint owner', () => {
+    setState('playback.mode', 'system-audio');
+    setState('playback.activity', 'playing');
+    initSeekBar();
+    const slider = document.getElementById('seek-slider') as HTMLInputElement;
+    expect(slider.getAttribute('aria-disabled')).toBe('true');
+    expect(slider.title).toBe(t('system_audio.sharing'));
+    // The unavailable timeline and the seek gate both go through
+    // setControlUnavailable; nothing in seekbar.ts writes aria-disabled itself.
+    const source = readFileSync('src/ui/seekbar.ts', 'utf8');
+    expect(source).not.toMatch(/setAttribute\(\s*'aria-disabled'/u);
+  });
+
   it('allows seek interaction for paused file playback', () => {
     setState('playback.mode', 'file');
     setState('playback.activity', 'paused');

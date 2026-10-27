@@ -583,17 +583,45 @@ describe('hint and accessible-name copy policy', () => {
     const problems: string[] = [];
     for (const [locale, dictionary] of Object.entries(APP_DICTIONARIES)) {
       const byKey = dictionary as Readonly<Record<string, string>>;
+      // Every locale spreads English first, so a key the locale never wrote
+      // still has a value: look for the key in the locale's own source.
+      const source = readFileSync(`src/i18n/${locale}.ts`, 'utf8');
       for (const key of nameKeys()) {
         const value = byKey[key] ?? '';
         if (!value) problems.push(`${locale}.${key}: missing`);
+        if (!source.includes(`'${key}':`)) problems.push(`${locale}.${key}: falls back to English`);
         if (value.includes('\n')) problems.push(`${locale}.${key}: breaks the line`);
-        if (/(?<!\.)[.。．।۔]$/u.test(value)) problems.push(`${locale}.${key}: ends a sentence`);
+        if (/(?:\.{2,}|[.。．।۔…!?！？؟])$/u.test(value)) {
+          problems.push(`${locale}.${key}: ends a sentence`);
+        }
         if (placeholders(value).join() !== placeholders(en[key] ?? '').join()) {
           problems.push(`${locale}.${key}: placeholders differ from English`);
         }
       }
     }
     expect(problems).toEqual([]);
+  });
+
+  it('keeps the language chip visible word inside its name in every locale', () => {
+    // WCAG 2.5.3 Label in Name: the chip shows settings.language_select and
+    // is named settings.language_manual_aria, so a voice user who says the
+    // visible word reaches it (rule #28a).
+    const misses: string[] = [];
+    for (const [locale, dictionary] of Object.entries(APP_DICTIONARIES)) {
+      const byKey = dictionary as Readonly<Record<string, string>>;
+      const visible = (byKey['settings.language_select'] ?? '').toLowerCase();
+      const name = (byKey['settings.language_manual_aria'] ?? '').toLowerCase();
+      if (!visible || !name.includes(visible)) misses.push(`${locale}: ${visible} / ${name}`);
+    }
+    expect(misses).toEqual([]);
+  });
+
+  it('titles the Korean kicked dialog without repeating its message', () => {
+    // Like the PRO removal dialog: the title says what happened, the message
+    // says who did it.
+    expect(ko['connect.kicked_title']).toBe(ko['pro.removed_title']);
+    expect(ko['connect.kicked_message']).toBe('방장이 이 방에서 내보냈어요.');
+    expect(ko['connect.kicked_message']).not.toContain(ko['connect.kicked_title']!);
   });
 
   it('gives an icon that shows a hint and a name one key', () => {

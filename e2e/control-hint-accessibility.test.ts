@@ -1,6 +1,8 @@
 import { expect, test, type CDPSession, type Page } from '@playwright/test';
+import { uploadFixtures } from './helpers/file-upload.ts';
 import { injectPeerServer } from './helpers/peer-server.ts';
 import { setupHostAndStart } from './helpers/setup-flow.ts';
+import { waitForPlaylistCount } from './helpers/wait.ts';
 
 /**
  * Hover hint policy (src/ui/control-hint.ts): an unavailable control's reason
@@ -15,6 +17,8 @@ interface AxSummary {
   description: string;
   title: string | null;
   ariaDisabled: string | null;
+  role: string;
+  ignored: boolean;
 }
 
 async function accessibleSummary(
@@ -37,6 +41,8 @@ async function accessibleSummary(
   return {
     name: String(node?.name?.value ?? ''),
     description: String(node?.description?.value ?? ''),
+    role: String(node?.role?.value ?? ''),
+    ignored: node?.ignored ?? true,
     ...attributes,
   };
 }
@@ -67,6 +73,57 @@ test.describe('Control hints for keyboard and screen reader users', () => {
       expect(normalize(summary.name), selector).not.toBe('');
       expect(normalize(summary.name), selector).not.toBe(normalize(summary.description));
     }
+    await cdp.detach();
+  });
+
+  test('the playlist minus keeps one name, describes the mode it starts, and the count is announced', async ({
+    page,
+  }) => {
+    await injectPeerServer(page);
+    await setupHostAndStart(page);
+    await uploadFixtures(page, ['test01', 'test02']);
+    await waitForPlaylistCount(page, 2);
+    // The selection controller loads after the list mounts and adds the
+    // screen-reader status cell before anything is picked.
+    const status = page.locator('#tab-playlist .playlist-selection-status');
+    await expect(status).toHaveCount(1);
+
+    const cdp = await page.context().newCDPSession(page);
+    await cdp.send('Accessibility.enable');
+    const minus = '#playlist-ui .playlist-entry:first-child .btn-playlist-select';
+    const title = normalize(
+      await page.locator('#playlist-ui .playlist-entry:first-child .track-name-text').textContent(),
+    );
+
+    const resting = await accessibleSummary(page, cdp, minus);
+    expect(normalize(resting.name)).toBe(`Select ${title}`);
+    expect(normalize(resting.description)).toBe('Select this track and enter selection mode');
+    const statusNode = await accessibleSummary(
+      page,
+      cdp,
+      '#tab-playlist .playlist-selection-status',
+    );
+    expect(statusNode.ignored).toBe(false);
+    expect(statusNode.role).toBe('status');
+
+    await page.locator(minus).click();
+    await expect(page.locator(minus)).toHaveAttribute('aria-pressed', 'true');
+    await expect(status).toHaveText('1 selected');
+    const picked = await accessibleSummary(page, cdp, minus);
+    // Same name; the pressed state alone says it is picked, and a press now
+    // only picks, so no hint is described.
+    expect(normalize(picked.name)).toBe(normalize(resting.name));
+    expect(normalize(picked.description)).toBe('');
+    const bar = await accessibleSummary(page, cdp, '.playlist-selection-bar');
+    expect(normalize(bar.name)).toBe('1 selected');
+    const titleButton = page.locator('#playlist-ui .playlist-entry:first-child .track-name');
+    await expect(titleButton).toHaveAttribute('aria-pressed', 'true');
+    await expect(titleButton).toHaveAttribute('tabindex', '-1');
+
+    await page.locator('[data-selection-action="cancel"]').click();
+    await expect(status).toHaveText('');
+    await expect(titleButton).not.toHaveAttribute('aria-pressed');
+    await expect(titleButton).not.toHaveAttribute('tabindex');
     await cdp.detach();
   });
 });

@@ -1381,10 +1381,14 @@ describe('playlist queue identity rendering and actions', () => {
       'M4.65 11.95l4.55 4.55L19.35 6.35',
     );
     expect(check.getAttribute('aria-pressed')).toBe('false');
-    expect(check.title).toBe(t('playlist.select_for_deletion', { title: 'A' }));
+    // One fixed name; outside the mode the hint says what a press starts.
+    expect(check.getAttribute('aria-label')).toBe(t('playlist.select_track', { title: 'A' }));
+    expect(check.title).toBe(t('playlist.select_mode_hint'));
 
     check.click();
     expect(check.getAttribute('aria-pressed')).toBe('true');
+    expect(check.getAttribute('aria-label')).toBe(t('playlist.select_track', { title: 'A' }));
+    expect(check.hasAttribute('title')).toBe(false);
     expect(document.getElementById('playlist-ui')!.classList).toContain('has-removal-selection');
     expect(check.closest('.playlist-entry')!.classList).toContain('is-removal-selected');
     expect(selectionBarVisible()).toBe(true);
@@ -1492,14 +1496,11 @@ describe('playlist queue identity rendering and actions', () => {
       document.querySelectorAll<HTMLButtonElement>('.btn-playlist-select'),
     );
     expect(buttons).toHaveLength(2);
-    expect(buttons[0]?.getAttribute('aria-label')).toBe(
-      t('playlist.select_for_deletion', { title: 'A' }),
-    );
+    expect(buttons[0]?.getAttribute('aria-label')).toBe(t('playlist.select_track', { title: 'A' }));
 
     buttons[0]!.click();
-    expect(buttons[0]?.getAttribute('aria-label')).toBe(
-      t('playlist.deselect_for_deletion', { title: 'A' }),
-    );
+    // The name stays; only the pressed state reports the selection.
+    expect(buttons[0]?.getAttribute('aria-label')).toBe(t('playlist.select_track', { title: 'A' }));
     buttons[1]!.click();
     expect(buttons.map((button) => button.getAttribute('aria-pressed'))).toEqual(['true', 'true']);
     expect(selectionTitle()).toBe(t('playlist.selected_count', { count: 2 }));
@@ -1513,6 +1514,69 @@ describe('playlist queue identity rendering and actions', () => {
     expect(selectionTitle()).toBeNull();
   });
 
+  it('keeps the selection state on rows the list renders again while selecting', async () => {
+    setState('playlist.items', sampleItems());
+    initPlaylistView();
+    await vi.dynamicImportSettled();
+    const rowState = () =>
+      Array.from(document.querySelectorAll<HTMLElement>('#playlist-ui .track-item'), (row) => {
+        const select = row.querySelector<HTMLElement>('.btn-playlist-select')!;
+        const title = row.querySelector<HTMLElement>('.track-name')!;
+        return {
+          name: select.getAttribute('aria-label'),
+          hint: select.getAttribute('title'),
+          pressed: select.getAttribute('aria-pressed'),
+          titlePressed: title.getAttribute('aria-pressed'),
+          titleTabIndex: title.getAttribute('tabindex'),
+        };
+      });
+    const names = [
+      t('playlist.select_track', { title: 'A' }),
+      t('playlist.select_track', { title: 'YouTube list' }),
+    ];
+
+    clickSelect(FILE_A);
+    // A fresh render while selecting draws the mode's state straight away.
+    updatePlaylistUI();
+    expect(rowState()).toEqual([
+      { name: names[0], hint: null, pressed: 'true', titlePressed: 'true', titleTabIndex: '-1' },
+      { name: names[1], hint: null, pressed: 'false', titlePressed: 'false', titleTabIndex: '-1' },
+    ]);
+
+    document.querySelector<HTMLButtonElement>('[data-selection-action="cancel"]')!.click();
+    updatePlaylistUI();
+    const hint = t('playlist.select_mode_hint');
+    expect(rowState()).toEqual([
+      { name: names[0], hint, pressed: 'false', titlePressed: null, titleTabIndex: null },
+      { name: names[1], hint, pressed: 'false', titlePressed: null, titleTabIndex: null },
+    ]);
+  });
+
+  it('keeps a picked title plain in forced colors, where the row block shows the selection', async () => {
+    const stylesheet = await readFile('css/style.css', 'utf8');
+    // The title's aria-pressed is for screen readers. Forced colors fill
+    // pressed buttons with Highlight, which would paint a per-row box over the
+    // joined selection block, so that rule leaves the title out without
+    // changing its specificity.
+    const pressedRules =
+      stylesheet.match(
+        /:is\(button, \[role='button'\], \[role='switch'\], \[role='tab'\]\)[^{]*\[aria-pressed='true'\][^{]*\{/g,
+      ) ?? [];
+    expect(pressedRules).toHaveLength(2);
+    for (const rule of pressedRules) expect(rule).toContain(':where(:not(.track-name))');
+  });
+
+  it('names each minus and its mode hint before the selection controller loads', () => {
+    setState('playlist.items', sampleItems());
+    initPlaylistView();
+    const select = document.querySelector<HTMLElement>(
+      `.btn-playlist-select[data-queue-item-id="${FILE_A}"]`,
+    )!;
+    expect(select.getAttribute('aria-label')).toBe(t('playlist.select_track', { title: 'A' }));
+    expect(select.getAttribute('aria-pressed')).toBe('false');
+    expect(select.title).toBe(t('playlist.select_mode_hint'));
+  });
+
   it('turns the header into the selected count with one select-all text toggle', async () => {
     setLanguageMode('en');
     setState('playlist.items', sampleItems());
@@ -1521,15 +1585,22 @@ describe('playlist queue identity rendering and actions', () => {
     const header = document.querySelector<HTMLElement>('#tab-playlist .tab-header')!;
     const toggle = header.querySelector<HTMLButtonElement>('.playlist-selection-toggle')!;
     const live = header.querySelector<HTMLElement>('.playlist-selection-title')!;
+    const status = header.querySelector<HTMLElement>('.playlist-selection-status')!;
 
     expect(header.classList.contains('is-removal-selecting')).toBe(false);
     expect(toggle.hidden).toBe(true);
     expect(live.hidden).toBe(true);
-    expect(live.getAttribute('aria-live')).toBe('polite');
+    // The count is announced by a screen-reader cell that is always there,
+    // not by the title that appears with the mode.
+    expect(live.hasAttribute('aria-live')).toBe(false);
+    expect(status.getAttribute('role')).toBe('status');
+    expect(status.hidden).toBe(false);
+    expect(status.textContent).toBe('');
 
     clickSelect(FILE_A);
     expect(header.classList.contains('is-removal-selecting')).toBe(true);
     expect(live.textContent).toBe('1 selected');
+    expect(status.textContent).toBe('1 selected');
     expect(toggle.hidden).toBe(false);
     expect(toggle.tagName).toBe('BUTTON');
     expect(toggle.textContent).toBe('Select all (2)');
@@ -1545,6 +1616,9 @@ describe('playlist queue identity rendering and actions', () => {
     const deleteButton = bar.querySelector<HTMLButtonElement>('[data-selection-action="delete"]')!;
     const cancelButton = bar.querySelector<HTMLButtonElement>('[data-selection-action="cancel"]')!;
     expect(bar.getAttribute('role')).toBe('group');
+    // The group reads as the visible count: "2 selected: Move, Delete, Cancel".
+    expect(bar.getAttribute('aria-labelledby')).toBe(live.id);
+    expect(bar.hasAttribute('aria-label')).toBe(false);
     // Icon buttons: a trash can and a close mark, named by the shared Delete
     // and Cancel strings. A tooltip that only repeats the name is not shown.
     expect(deleteButton.textContent?.trim()).toBe('');

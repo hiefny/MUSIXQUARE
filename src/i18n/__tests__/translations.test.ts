@@ -1162,3 +1162,107 @@ describe('Standard-room owner PIN copy', () => {
     }
   });
 });
+
+describe('Playlist selection copy', () => {
+  const dictionaries = APP_DICTIONARIES as Readonly<Record<string, Record<string, string>>>;
+  /**
+   * The delete wording each locale used when the minus was named "Select
+   * {{title}} for deletion". The minus also picks tracks to move or copy, so
+   * neither its name nor its hint may say delete.
+   */
+  const RETIRED_DELETION_WORDS: Readonly<Record<string, string>> = {
+    ar: 'حذف',
+    bg: 'изтрива',
+    bn: 'মুছে',
+    cs: 'smaz',
+    da: 'slet',
+    de: 'lösch',
+    el: 'διαγραφ',
+    en: 'delet',
+    es: 'elimin',
+    fa: 'حذف',
+    fi: 'poist',
+    fil: 'delete',
+    fr: 'suppr',
+    gu: 'કાઢી',
+    he: 'מחיק',
+    hi: 'मिटा',
+    hu: 'törl',
+    id: 'hapus',
+    it: 'elimin',
+    ja: '削除',
+    kn: 'ಅಳಿಸ',
+    ko: '삭제',
+    ml: 'ഇല്ലാതാക്ക',
+    mr: 'हटव',
+    ms: 'padam',
+    nb: 'slett',
+    nl: 'verwijder',
+    pa: 'ਮਿਟਾ',
+    pl: 'usun',
+    'pt-br': 'exclu',
+    ro: 'șterg',
+    ru: 'удал',
+    sv: 'borttag',
+    ta: 'நீக்குவ',
+    te: 'తొలగ',
+    th: 'ลบ',
+    tr: 'sil',
+    uk: 'видал',
+    ur: 'حذف',
+    vi: 'xóa',
+    'zh-hans': '删除',
+    'zh-hant': '刪除',
+  };
+  const RETIRED_KEYS = [
+    'playlist.select_for_deletion',
+    'playlist.deselect_for_deletion',
+    'playlist.remove_title',
+    'playlist.delete_selected',
+  ];
+
+  it('pins the approved Korean and English name and hint', () => {
+    expect([ko['playlist.select_track'], ko['playlist.select_mode_hint']]).toEqual([
+      '{{title}} 선택',
+      '이 트랙을 선택하고 선택 모드로 들어가기',
+    ]);
+    expect([en['playlist.select_track'], en['playlist.select_mode_hint']]).toEqual([
+      'Select {{title}}',
+      'Select this track and enter selection mode',
+    ]);
+  });
+
+  it('gives every locale a neutral, single-line name and mode hint', () => {
+    expect(Object.keys(dictionaries)).toHaveLength(42);
+    expect(Object.keys(RETIRED_DELETION_WORDS).sort()).toEqual(Object.keys(dictionaries).sort());
+    for (const [locale, dict] of Object.entries(dictionaries)) {
+      const name = dict['playlist.select_track'];
+      const hint = dict['playlist.select_mode_hint'];
+      expect(name, `${locale} name`).toBeTruthy();
+      expect(hint, `${locale} hint`).toBeTruthy();
+      // The name carries the track title once; the hint is one shared phrase.
+      expect(name!.match(/\{\{\w+\}\}/g), `${locale} name`).toEqual(['{{title}}']);
+      expect(hint, `${locale} hint`).not.toMatch(/\{\{/);
+      for (const value of [name!, hint!]) {
+        expect(value.trim(), locale).toBe(value);
+        // A name and a hint are phrases: one line and no closing period.
+        expect(value, locale).not.toMatch(/\n|[.。．।۔]$/u);
+        expect(value.toLocaleLowerCase(locale), `${locale} says delete`).not.toContain(
+          RETIRED_DELETION_WORDS[locale],
+        );
+      }
+      expect(hint, locale).not.toBe(name);
+      if (locale !== 'en') {
+        expect(name, `${locale} name must not fall back to English`).not.toBe(
+          en['playlist.select_track'],
+        );
+        expect(hint, `${locale} hint must not fall back to English`).not.toBe(
+          en['playlist.select_mode_hint'],
+        );
+      }
+      for (const key of RETIRED_KEYS) {
+        expect(dict, `${locale} drops ${key}`).not.toHaveProperty(key);
+      }
+    }
+  });
+});

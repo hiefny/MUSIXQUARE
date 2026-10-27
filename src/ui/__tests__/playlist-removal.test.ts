@@ -33,6 +33,18 @@ function row(queueItemId: QueueItemId): string {
   </li>`;
 }
 
+/** A row as the playlist view renders it: the title button and the named minus. */
+function rowWithTitle(queueItemId: QueueItemId, title: string): string {
+  return `<li class="playlist-entry" data-queue-item-id="${queueItemId}">
+    <div class="track-item" data-queue-item-id="${queueItemId}">
+      <button type="button" class="track-name" data-action="play" data-queue-item-id="${queueItemId}">${title}</button>
+      <button type="button" class="btn-playlist-select" data-action="select"
+        data-queue-item-id="${queueItemId}" aria-pressed="false"
+        aria-label="${t('playlist.select_track', { title })}"></button>
+    </div>
+  </li>`;
+}
+
 describe('playlist removal controller', () => {
   let controller: PlaylistRemovalController | null = null;
 
@@ -49,9 +61,10 @@ describe('playlist removal controller', () => {
     controller = null;
   });
 
-  it('names each check circle as a selection toggle and updates its pressed-state action', () => {
+  it('keeps each minus named by its track and reports the selection only as pressed', () => {
     const items = [item(A, 'Alpha'), item(B, 'Beta')];
     const list = document.getElementById('playlist-ui')!;
+    list.innerHTML = rowWithTitle(A, 'Alpha') + rowWithTitle(B, 'Beta');
     controller = createPlaylistRemovalController({
       list,
       canRemove: () => true,
@@ -59,21 +72,120 @@ describe('playlist removal controller', () => {
       getItems: () => items,
       onDelete: vi.fn(),
     });
+    const [first, second] = list.querySelectorAll<HTMLButtonElement>('.btn-playlist-select');
+    const names = () => [first!, second!].map((button) => button.getAttribute('aria-label'));
+    const hints = () => [first!, second!].map((button) => button.getAttribute('title'));
+    const fixedNames = [
+      t('playlist.select_track', { title: 'Alpha' }),
+      t('playlist.select_track', { title: 'Beta' }),
+    ];
 
-    const button = list.querySelector<HTMLButtonElement>(
-      `.btn-playlist-select[data-queue-item-id="${A}"]`,
-    )!;
-    expect(button.getAttribute('aria-pressed')).toBe('false');
-    expect(button.getAttribute('aria-label')).toBe(
-      t('playlist.select_for_deletion', { title: 'Alpha' }),
-    );
+    // Outside the mode the minus says what a press starts; the name never
+    // changes with the state, which only aria-pressed reports.
+    expect(names()).toEqual(fixedNames);
+    expect(first!.getAttribute('aria-pressed')).toBe('false');
+    expect(hints()).toEqual([t('playlist.select_mode_hint'), t('playlist.select_mode_hint')]);
 
     controller.toggle(A);
-    expect(button.getAttribute('aria-pressed')).toBe('true');
-    expect(button.getAttribute('aria-label')).toBe(
-      t('playlist.deselect_for_deletion', { title: 'Alpha' }),
-    );
-    expect(button.title).toBe(button.getAttribute('aria-label'));
+    expect(names()).toEqual(fixedNames);
+    expect(first!.getAttribute('aria-pressed')).toBe('true');
+    expect(second!.getAttribute('aria-pressed')).toBe('false');
+    // Inside the mode a press only picks, so no hint is shown on any row.
+    expect(hints()).toEqual([null, null]);
+
+    controller.cancel();
+    expect(names()).toEqual(fixedNames);
+    expect(first!.getAttribute('aria-pressed')).toBe('false');
+    expect(hints()).toEqual([t('playlist.select_mode_hint'), t('playlist.select_mode_hint')]);
+  });
+
+  it('lets the track title report the selection and leave the tab order only while selecting', () => {
+    const items = [item(A, 'Alpha'), item(B, 'Beta')];
+    const list = document.getElementById('playlist-ui')!;
+    list.innerHTML = rowWithTitle(A, 'Alpha') + rowWithTitle(B, 'Beta');
+    controller = createPlaylistRemovalController({
+      list,
+      canRemove: () => true,
+      isPlaylistVisible: () => true,
+      getItems: () => items,
+      onDelete: vi.fn(),
+    });
+    const titles = [...list.querySelectorAll<HTMLButtonElement>('.track-name')];
+    const state = () =>
+      titles.map((title) => [title.getAttribute('aria-pressed'), title.getAttribute('tabindex')]);
+
+    expect(state()).toEqual([
+      [null, null],
+      [null, null],
+    ]);
+
+    // A title press picks the row in the mode, so it carries the same state,
+    // and keyboard users pass each row once, on its minus.
+    controller.toggle(A);
+    expect(state()).toEqual([
+      ['true', '-1'],
+      ['false', '-1'],
+    ]);
+    controller.toggle(B);
+    expect(state()).toEqual([
+      ['true', '-1'],
+      ['true', '-1'],
+    ]);
+
+    controller.cancel();
+    expect(state()).toEqual([
+      [null, null],
+      [null, null],
+    ]);
+  });
+
+  it('announces the count in an always-present status cell and names the bar by the visible count', () => {
+    document
+      .getElementById('tab-playlist')!
+      .insertAdjacentHTML(
+        'afterbegin',
+        '<div class="tab-header"><span class="tab-title">Playlist</span><div class="playlist-title-area"></div></div>',
+      );
+    const items = [item(A, 'Alpha'), item(B, 'Beta')];
+    controller = createPlaylistRemovalController({
+      list: document.getElementById('playlist-ui')!,
+      canRemove: () => true,
+      isPlaylistVisible: () => true,
+      getItems: () => items,
+      onDelete: vi.fn(),
+    });
+    const header = document.querySelector<HTMLElement>('.tab-header')!;
+    const title = header.querySelector<HTMLElement>('.playlist-selection-title')!;
+    const status = header.querySelector<HTMLElement>('.playlist-selection-status')!;
+    const bar = document.querySelector<HTMLElement>('.playlist-selection-bar')!;
+
+    // The status cell is in the accessibility tree before the first pick, so
+    // a screen reader hears the first count instead of a region appearing.
+    expect(status).not.toBeNull();
+    expect(status.classList).toContain('sr-only');
+    expect(status.getAttribute('role')).toBe('status');
+    expect(status.getAttribute('aria-live')).toBe('polite');
+    expect(status.getAttribute('aria-atomic')).toBe('true');
+    expect(status.hidden).toBe(false);
+    expect(status.textContent).toBe('');
+    // The visible title is shown and hidden with the mode but never announces.
+    expect(title.hasAttribute('aria-live')).toBe(false);
+    expect(title.id).toBeTruthy();
+    // The bar is named by the visible count, not by a delete-only label.
+    expect(bar.getAttribute('aria-labelledby')).toBe(title.id);
+    expect(bar.hasAttribute('aria-label')).toBe(false);
+
+    controller.toggle(A);
+    expect(status.textContent).toBe(t('playlist.selected_count', { count: 1 }));
+    expect(title.textContent).toBe(t('playlist.selected_count', { count: 1 }));
+    expect(bar.hasAttribute('aria-label')).toBe(false);
+    controller.toggle(B);
+    expect(status.textContent).toBe(t('playlist.selected_count', { count: 2 }));
+
+    controller.cancel();
+    expect(status.textContent).toBe('');
+    expect(status.hidden).toBe(false);
+    expect(status.isConnected).toBe(true);
   });
 
   it('names the selection bar actions without repeating their names as tooltips', () => {
@@ -529,6 +641,9 @@ describe('playlist removal controller', () => {
         layer = header.querySelector<HTMLElement>('.playlist-header-fade')!;
         expect(layer.children[0]!.textContent).toBe(t('playlist.selected_count', { count: 1 }));
         expect(layer.children[0]!.hasAttribute('aria-live')).toBe(false);
+        // The bar's name points at the live title, never at its frozen copy.
+        expect(layer.querySelector('[id]')).toBeNull();
+        expect(layer.querySelector('.playlist-selection-status')).toBeNull();
         expect(fadedIn(header.querySelector('.tab-action-btn')!)).toBe(true);
         // A count change inside the mode is not a crossfade.
         controller!.toggle(A);
@@ -564,11 +679,15 @@ describe('playlist removal controller', () => {
       t('playlist.selected_count', { count: 1 }),
     );
     expect(header.querySelector('.playlist-title-area .playlist-selection-toggle')).not.toBeNull();
+    expect(header.querySelector('.playlist-selection-status')?.textContent).toBe(
+      t('playlist.selected_count', { count: 1 }),
+    );
 
     controller.destroy();
     controller = null;
     expect(header.querySelector('.playlist-selection-title')).toBeNull();
     expect(header.querySelector('.playlist-selection-toggle')).toBeNull();
+    expect(header.querySelector('.playlist-selection-status')).toBeNull();
     expect(header.classList.contains('is-removal-selecting')).toBe(false);
     expect(document.querySelector('.playlist-selection-bar')).toBeNull();
   });

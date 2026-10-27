@@ -832,7 +832,9 @@ const ko = {
   'pro.upload.file_too_large': '이 파일은 파일당 200MB 제한을 넘어요.',
   'pro.upload.quota_exceeded': 'PRO 방의 1GB 저장 공간을 모두 사용했어요.',
   'pro.upload.playlist_full': '재생목록이 가득 찼어요.',
-  'pro.upload.playlist_changed': '재생목록이 변경됐어요. 다시 시도해 주세요.',
+  'pro.upload.room_capacity': 'PRO 방에 트랙을 더 담을 수 없어요.',
+  'pro.upload.pending_limit':
+    'PRO 방에 끝나지 않은 업로드가 너무 많아요. 잠시 후 다시 시도해 주세요.',
   'pro.upload.playlist_switched':
     '트랙을 추가하기 전에 다른 재생목록으로 전환됐어요. 파일을 다시 선택해 주세요.',
   'pro.upload.permission_required': '미디어 관리 권한이 필요해요.',

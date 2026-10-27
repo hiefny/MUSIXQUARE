@@ -876,7 +876,9 @@ const nl: Record<I18nKey, string> = {
   'pro.upload.file_too_large': 'Dit bestand overschrijdt de limiet van 200 MB per bestand.',
   'pro.upload.quota_exceeded': 'Deze PRO-kamer heeft de opslaglimiet van 1 GB bereikt.',
   'pro.upload.playlist_full': 'De afspeellijst is vol.',
-  'pro.upload.playlist_changed': 'De afspeellijst is gewijzigd. Probeer het opnieuw.',
+  'pro.upload.room_capacity': 'Deze PRO-kamer kan geen tracks meer bevatten.',
+  'pro.upload.pending_limit':
+    'Deze PRO-kamer heeft te veel onvoltooide uploads. Probeer het straks opnieuw.',
   'pro.upload.playlist_switched':
     'Er werd een andere afspeellijst actief voordat deze track werd toegevoegd. Selecteer het bestand opnieuw.',
   'pro.upload.permission_required': 'Toestemming voor mediabeheer is vereist.',

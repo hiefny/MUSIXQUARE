@@ -874,7 +874,9 @@ const pl: Record<I18nKey, string> = {
   'pro.upload.file_too_large': 'Ten plik przekracza limit 200 MB na plik.',
   'pro.upload.quota_exceeded': 'Ten pokój PRO osiągnął limit 1 GB miejsca.',
   'pro.upload.playlist_full': 'Playlista jest pełna.',
-  'pro.upload.playlist_changed': 'Playlista uległa zmianie. Spróbuj ponownie.',
+  'pro.upload.room_capacity': 'Ten pokój PRO nie pomieści więcej utworów.',
+  'pro.upload.pending_limit':
+    'W tym pokoju PRO jest zbyt wiele niedokończonych przesyłań. Spróbuj ponownie za chwilę.',
   'pro.upload.playlist_switched':
     'Zanim ten utwór został dodany, aktywna stała się inna playlista. Wybierz plik ponownie.',
   'pro.upload.permission_required': 'Wymagane jest uprawnienie do zarządzania multimediami.',

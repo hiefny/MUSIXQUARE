@@ -881,7 +881,9 @@ const fil: Record<I18nKey, string> = {
   'pro.upload.file_too_large': 'Lumampas ang file na ito sa 200 MB na limitasyon bawat file.',
   'pro.upload.quota_exceeded': 'Naabot na ng PRO room na ito ang 1 GB na limitasyon sa storage.',
   'pro.upload.playlist_full': 'Puno na ang playlist.',
-  'pro.upload.playlist_changed': 'Nagbago ang playlist. Pakisubukan muli.',
+  'pro.upload.room_capacity': 'Hindi na makakapagdagdag ng iba pang track sa PRO room na ito.',
+  'pro.upload.pending_limit':
+    'Masyadong maraming hindi pa natatapos na upload sa PRO room na ito. Subukan ulit maya-maya.',
   'pro.upload.playlist_switched':
     'Naging aktibo ang ibang playlist bago naidagdag ang track na ito. Piliin muli ang file.',
   'pro.upload.permission_required': 'Kailangan ang pahintulot na mamahala ng media.',

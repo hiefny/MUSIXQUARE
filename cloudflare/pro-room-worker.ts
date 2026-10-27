@@ -17541,8 +17541,11 @@ export class MusixquareProRoom {
       if (copyReason !== 'ok') {
         // The presigned copy has no production history before 9.0.16, so any
         // outcome short of a verified final object falls back to the binding
-        // promotion 9.0.15 used: the worst case is the old behaviour. Only a
-        // read showing that the pinned source changed refuses to write.
+        // promotion 9.0.15 used. After a timed-out copy this request has
+        // already spent the 8 s copy deadline, so a fallback slower than the
+        // remaining facade budget times out there; the same-key retry then
+        // replays the stored answer. Only a read showing that the pinned
+        // source changed refuses to write.
         const fallbackStartedAtMs = Date.now();
         const promoted = await promoteStagedMediaThroughBinding(
           bucket,

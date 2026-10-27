@@ -827,7 +827,9 @@ const he: Record<I18nKey, string> = {
   'pro.upload.file_too_large': 'הקובץ גדול ממגבלת 200 MB לקובץ.',
   'pro.upload.quota_exceeded': 'חדר ה-PRO הגיע למגבלת האחסון של 1 GB.',
   'pro.upload.playlist_full': 'רשימת ההשמעה מלאה.',
-  'pro.upload.playlist_changed': 'רשימת ההשמעה השתנתה. כדאי לנסות שוב.',
+  'pro.upload.room_capacity': 'חדר ה-PRO לא יכול להכיל רצועות נוספות.',
+  'pro.upload.pending_limit':
+    'בחדר ה-PRO יש יותר מדי העלאות שלא הושלמו. אפשר לנסות שוב בעוד כמה רגעים.',
   'pro.upload.playlist_switched':
     'רשימת השמעה אחרת הופעלה לפני שהרצועה נוספה. יש לבחור את הקובץ שוב.',
   'pro.upload.permission_required': 'נדרשת הרשאה לניהול מדיה.',

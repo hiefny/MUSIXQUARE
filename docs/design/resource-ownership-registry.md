@@ -2880,10 +2880,16 @@ entry needs the owner's acceptance and is not implied by this registry.
 
   Both write the same key with the same pinned metadata, and the final HEAD checks that
   metadata, not which writer won, so a late copy that commits after the fallback leaves an
-  equivalent object. A late object after the reservation is deleted is collected by the existing
-  staging tombstone (`StagingTombstone.finalObjectKey`, the room alarm). Each attempt records one
-  bounded `media_copy` and, when it runs, one `media_copy_fallback` diagnostic. Developer API
-  completion (`handleInternalDeveloperMediaUploadComplete`) keeps its own stream copy for the
+  equivalent object. A late object after the asset is deleted, as a reservation or as a ready
+  asset the fallback completed, is collected by the existing staging tombstone
+  (`StagingTombstone.finalObjectKey`, the room alarm). Deletion leaves that tombstone while the
+  asset still holds its staging key: a ready asset drops the key only after the staging object
+  has been absent for the hour-long quiet window, which starts at least 60 s after completion,
+  while the copy's presigned URL expires after 8 s. A copy still committing after that hour is
+  outside this record. Each attempt records one bounded `media_copy` and, when it runs, one
+  `media_copy_fallback` diagnostic; a plain `media_copy` success logs only its first detail per
+  window and never takes the repeated-detail budget that failures and fallbacks share. Developer
+  API completion (`handleInternalDeveloperMediaUploadComplete`) keeps its own stream copy for the
   assets it reserves; it is a separate route on separate assets.
 
 - **Target single owner:** reached (the handler). Retiring the fallback removes the second writer;
@@ -2894,8 +2900,11 @@ entry needs the owner's acceptance and is not implied by this registry.
 - **Lifecycle operations:** pin the source, copy, verify by HEAD, fall back, verify again, commit,
   keep the pin for a same-key retry, collect a late object.
 - **Deadline owner:** `fetchWithDeadline` for the copy; the App facade for the whole request. The
-  fallback has no deadline of its own, as completion had none through 9.0.15. When it outlasts
-  the facade, the same-key retry replays the stored answer or re-verifies the final object. In an
+  fallback has no deadline of its own, as completion had none through 9.0.15. After a timed-out
+  copy the request has already spent the 8 s copy deadline inside the room's mutation queue, so
+  the facade times out whenever the fallback takes more than the remaining 2 s, where the 9.0.15
+  binding stream had the whole 5 s control budget. When the fallback outlasts the facade, the
+  same-key retry replays the stored answer or re-verifies the final object. In an
   `all` release the PRO Worker deploys before the App Worker, so for that window the old facade's
   5 s control budget fronts the new copy; a slow completion then times out at the facade as it
   did on 9.0.15, and the retry recovers it the same way.
@@ -2908,14 +2917,17 @@ entry needs the owner's acceptance and is not implied by this registry.
     UPLOAD_MISMATCH" and "refuses changed staging bytes after an ambiguous copy, including a cold
     restart" (replacement bytes never win, through either writer).
   - User pause/stop: n/a (server; the upload queue owns user cancellation).
-  - Teardown: "reclaims a final object recreated by a timed-out copy after reservation deletion"
-    and "recovers the final object after the CopyObject response is lost without another copy".
+  - Teardown: "reclaims a final object recreated by a timed-out copy after reservation deletion",
+    "reclaims a final object a timed-out copy commits after its fallback-completed asset is
+    deleted" and "recovers the final object after the CopyObject response is lost without another
+    copy".
   - Visibility: n/a.
   - Fallback: "completes through the binding fallback after %s from the copy", "completes through
     the binding fallback when the copy has %s at its deadline", "keeps the pinned reservation
     retryable when the fallback finds %s"; diagnostics bounds in
-    `src/pro-room/__tests__/pro-room-diagnostics.test.ts` "emits every media copy outcome, success
-    included, with only bounded timing and size buckets".
+    `src/pro-room/__tests__/pro-room-diagnostics.test.ts` "emits media copy outcomes, the first
+    success included, with only bounded timing and size buckets" and "keeps the repeated detail
+    budget for copy failures and fallbacks in a room full of successes".
   - Facade budget: `src/core/__tests__/pro-room-proxy-diagnostics.test.ts` "keeps only media
     completion alive beyond the control deadline without success diagnostics".
 - **Status:** `owner-in-place`. Added with the PRO upload reliability train (9.0.16), when the

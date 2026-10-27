@@ -809,7 +809,9 @@ const de: Record<I18nKey, string> = {
   'pro.upload.file_too_large': 'Diese Datei überschreitet das Limit von 200 MB pro Datei.',
   'pro.upload.quota_exceeded': 'Der PRO-Raum hat sein Speicherlimit von 1 GB erreicht.',
   'pro.upload.playlist_full': 'Die Playlist ist voll.',
-  'pro.upload.playlist_changed': 'Die Playlist wurde geändert. Bitte versuche es erneut.',
+  'pro.upload.room_capacity': 'Dieser PRO-Raum kann keine weiteren Titel aufnehmen.',
+  'pro.upload.pending_limit':
+    'In diesem PRO-Raum sind zu viele Uploads nicht abgeschlossen. Bitte versuche es etwas später erneut.',
   'pro.upload.playlist_switched':
     'Eine andere Playlist wurde aktiv, bevor dieser Titel hinzugefügt wurde. Wähle die Datei erneut aus.',
   'pro.upload.permission_required': 'Die Berechtigung zur Medienverwaltung ist erforderlich.',

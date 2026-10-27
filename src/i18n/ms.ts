@@ -877,7 +877,9 @@ const ms: Record<I18nKey, string> = {
   'pro.upload.file_too_large': 'Fail ini melebihi had 200 MB bagi setiap fail.',
   'pro.upload.quota_exceeded': 'Bilik PRO ini telah mencapai had storan 1 GB.',
   'pro.upload.playlist_full': 'Senarai main sudah penuh.',
-  'pro.upload.playlist_changed': 'Senarai main telah berubah. Sila cuba lagi.',
+  'pro.upload.room_capacity': 'Bilik PRO ini tidak dapat menampung trek lagi.',
+  'pro.upload.pending_limit':
+    'Terlalu banyak muat naik yang belum selesai dalam bilik PRO ini. Cuba lagi sebentar nanti.',
   'pro.upload.playlist_switched':
     'Senarai main lain menjadi aktif sebelum trek ini ditambah. Pilih fail sekali lagi.',
   'pro.upload.permission_required': 'Kebenaran mengurus media diperlukan.',

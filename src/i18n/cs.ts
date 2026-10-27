@@ -864,7 +864,9 @@ const cs: Record<I18nKey, string> = {
   'pro.upload.file_too_large': 'Tento soubor překračuje limit 200 MB na soubor.',
   'pro.upload.quota_exceeded': 'Tato místnost PRO dosáhla limitu úložiště 1 GB.',
   'pro.upload.playlist_full': 'Seznam skladeb je plný.',
-  'pro.upload.playlist_changed': 'Seznam skladeb se změnil. Zkuste to znovu.',
+  'pro.upload.room_capacity': 'Tato místnost PRO už nepojme další skladby.',
+  'pro.upload.pending_limit':
+    'V této místnosti PRO je příliš mnoho nedokončených nahrávání. Zkuste to znovu za chvíli.',
   'pro.upload.playlist_switched':
     'Než se tato skladba přidala, aktivoval se jiný seznam skladeb. Vyberte soubor znovu.',
   'pro.upload.permission_required': 'Je vyžadováno oprávnění ke správě médií.',

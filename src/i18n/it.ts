@@ -880,7 +880,9 @@ const it: Record<I18nKey, string> = {
   'pro.upload.file_too_large': 'Questo file supera il limite di 200 MB per file.',
   'pro.upload.quota_exceeded': 'Questa stanza PRO ha raggiunto il limite di archiviazione di 1 GB.',
   'pro.upload.playlist_full': 'La playlist è piena.',
-  'pro.upload.playlist_changed': 'La playlist è cambiata. Riprova.',
+  'pro.upload.room_capacity': 'Questa stanza PRO non può contenere altre tracce.',
+  'pro.upload.pending_limit':
+    'In questa stanza PRO ci sono troppi caricamenti non completati. Riprova tra poco.',
   'pro.upload.playlist_switched':
     'Un’altra playlist è diventata attiva prima che questa traccia venisse aggiunta. Seleziona di nuovo il file.',
   'pro.upload.permission_required': 'È richiesto il permesso per gestire i contenuti.',

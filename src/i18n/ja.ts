@@ -790,7 +790,9 @@ const ja: Record<I18nKey, string> = {
   'pro.upload.file_too_large': 'このファイルは1ファイルあたり200MBの上限を超えています。',
   'pro.upload.quota_exceeded': 'このPROルームは1GBの保存上限に達しました。',
   'pro.upload.playlist_full': 'プレイリストがいっぱいです。',
-  'pro.upload.playlist_changed': 'プレイリストが変更されました。もう一度お試しください。',
+  'pro.upload.room_capacity': 'このPROルームにはこれ以上トラックを追加できません。',
+  'pro.upload.pending_limit':
+    'このPROルームには完了していないアップロードが多すぎます。しばらくしてからもう一度お試しください。',
   'pro.upload.playlist_switched':
     'このトラックを追加する前に、別のプレイリストに切り替えられました。ファイルをもう一度選択してください。',
   'pro.upload.permission_required': 'メディア管理権限が必要です。',

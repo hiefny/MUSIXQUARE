@@ -46,8 +46,9 @@ const EVENT_REASONS = {
   maintenance_unavailable: [],
   upstream_timeout: ['response', 'body'],
   upstream_failure: ['fetch', 'response', 'body'],
-  // One record per browser completion copy attempt, success included, because
-  // the presigned R2 CopyObject has no production history before 9.0.16.
+  // One record per browser completion copy attempt, because the presigned R2
+  // CopyObject has no production history before 9.0.16. A plain success
+  // logs only its first detail per window (see MEDIA_COPY_SAMPLES).
   media_copy: [
     'ok',
     'unconfigured',
@@ -84,9 +85,14 @@ const FAILURES = new Set<ProRoomDiagnosticEvent>([
   'upstream_timeout',
   'upstream_failure',
 ]);
-// Room-scoped outcome records that share the failures' per-window detail budget
-// and alone carry the bounded timing and size fields.
+// Room-scoped outcome records that share the failures' per-window detail budget,
+// plain successes excepted, and alone carry the bounded timing and size fields.
 const MEDIA_COPY_EVENTS = new Set<ProRoomDiagnosticEvent>(['media_copy', 'media_copy_fallback']);
+// A plain copy success is a timing sample, not a failure: its first detail per
+// window is logged, and repeats are summary counts that neither take the
+// repeated-detail budget nor count as suppressed. Copy failures and fallbacks
+// keep that budget in a room with many successful uploads.
+const MEDIA_COPY_SAMPLES = new Set<string>(['media_copy:ok']);
 // The 1 GiB room quota bounds a single file well below the largest bucket.
 const MAX_SIZE_BUCKET_MIB = 4_096;
 const MAX_ELAPSED_MS = 3_600_000;
@@ -268,6 +274,7 @@ export class ProRoomDiagnostics {
       const mediaCopy = MEDIA_COPY_EVENTS.has(event);
       if (!FAILURES.has(event) && !mediaCopy) return;
       const first = !this.seenFailures.has(key);
+      if (!first && MEDIA_COPY_SAMPLES.has(key)) return;
       if (!first && this.repeatedDetails >= REPEATED_DETAILS_PER_WINDOW) {
         this.suppressedDetails = Math.min(MAX_COUNT, this.suppressedDetails + 1);
         return;

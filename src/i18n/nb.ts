@@ -860,7 +860,9 @@ const nb: Record<I18nKey, string> = {
   'pro.upload.file_too_large': 'Denne filen er større enn grensen på 200 MB per fil.',
   'pro.upload.quota_exceeded': 'Dette PRO-rommet har nådd lagringsgrensen på 1 GB.',
   'pro.upload.playlist_full': 'Spillelisten er full.',
-  'pro.upload.playlist_changed': 'Spillelisten er endret. Prøv igjen.',
+  'pro.upload.room_capacity': 'Dette PRO-rommet har ikke plass til flere spor.',
+  'pro.upload.pending_limit':
+    'Det er for mange uferdige opplastinger i dette PRO-rommet. Prøv igjen om litt.',
   'pro.upload.playlist_switched':
     'En annen spilleliste ble aktiv før dette sporet ble lagt til. Velg filen på nytt.',
   'pro.upload.permission_required': 'Tillatelse til å administrere medier kreves.',

@@ -870,7 +870,9 @@ const bg: Record<I18nKey, string> = {
   'pro.upload.file_too_large': 'Файлът надвишава лимита от 200 MB за един файл.',
   'pro.upload.quota_exceeded': 'Тази PRO стая е достигнала лимита си за съхранение от 1 GB.',
   'pro.upload.playlist_full': 'Плейлистът е пълен.',
-  'pro.upload.playlist_changed': 'Плейлистът се промени. Опитай отново.',
+  'pro.upload.room_capacity': 'Тази PRO стая не може да побере повече песни.',
+  'pro.upload.pending_limit':
+    'В тази PRO стая има твърде много незавършени качвания. Опитай отново след малко.',
   'pro.upload.playlist_switched':
     'Друг плейлист стана активен, преди тази песен да бъде добавена. Избери файла отново.',
   'pro.upload.permission_required': 'Необходимо е разрешение за управление на медията.',

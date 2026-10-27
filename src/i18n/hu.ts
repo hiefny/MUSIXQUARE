@@ -869,7 +869,9 @@ const hu: Record<I18nKey, string> = {
   'pro.upload.file_too_large': 'Ez a fájl meghaladja a fájlonkénti 200 MB-os korlátot.',
   'pro.upload.quota_exceeded': 'A PRO-szoba elérte az 1 GB-os tárhelykorlátot.',
   'pro.upload.playlist_full': 'A lejátszási lista megtelt.',
-  'pro.upload.playlist_changed': 'A lejátszási lista megváltozott. Próbáld újra.',
+  'pro.upload.room_capacity': 'Ebbe a PRO-szobába nem fér több szám.',
+  'pro.upload.pending_limit':
+    'Ebben a PRO-szobában túl sok a befejezetlen feltöltés. Próbáld újra egy kicsit később.',
   'pro.upload.playlist_switched':
     'Egy másik lejátszási lista lett aktív, mielőtt ez a szám bekerült volna. Válaszd ki újra a fájlt.',
   'pro.upload.permission_required': 'Médiakezelési jogosultság szükséges.',

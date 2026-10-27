@@ -849,7 +849,9 @@ const en: Record<I18nKey, string> = {
   'pro.upload.file_too_large': 'This file is larger than the 200 MB per-file limit.',
   'pro.upload.quota_exceeded': 'This PRO room has reached its 1 GB storage limit.',
   'pro.upload.playlist_full': 'The playlist is full.',
-  'pro.upload.playlist_changed': 'The playlist changed. Please try again.',
+  'pro.upload.room_capacity': 'This PRO room cannot hold any more tracks.',
+  'pro.upload.pending_limit':
+    'This PRO room has too many unfinished uploads. Please try again in a little while.',
   'pro.upload.playlist_switched':
     'Another playlist became active before this track was added. Select the file again.',
   'pro.upload.permission_required': 'Media management permission is required.',

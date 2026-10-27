@@ -775,7 +775,9 @@ const vi: Record<I18nKey, string> = {
   'pro.upload.file_too_large': 'Tệp này vượt quá giới hạn 200 MB cho mỗi tệp.',
   'pro.upload.quota_exceeded': 'Phòng PRO này đã dùng hết giới hạn lưu trữ 1 GB.',
   'pro.upload.playlist_full': 'Danh sách phát đã đầy.',
-  'pro.upload.playlist_changed': 'Danh sách phát đã thay đổi. Vui lòng thử lại.',
+  'pro.upload.room_capacity': 'Phòng PRO này không thể chứa thêm bản nhạc.',
+  'pro.upload.pending_limit':
+    'Phòng PRO này có quá nhiều lượt tải lên chưa hoàn tất. Vui lòng thử lại sau một lát.',
   'pro.upload.playlist_switched':
     'Một danh sách phát khác đã được kích hoạt trước khi bản nhạc này được thêm. Vui lòng chọn lại tệp.',
   'pro.upload.permission_required': 'Cần quyền quản lý nội dung.',

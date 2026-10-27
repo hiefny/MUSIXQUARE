@@ -861,7 +861,9 @@ const da: Record<I18nKey, string> = {
   'pro.upload.file_too_large': 'Denne fil er større end grænsen på 200 MB pr. fil.',
   'pro.upload.quota_exceeded': 'Dette PRO-rum har nået lagergrænsen på 1 GB.',
   'pro.upload.playlist_full': 'Afspilningslisten er fuld.',
-  'pro.upload.playlist_changed': 'Afspilningslisten er ændret. Prøv igen.',
+  'pro.upload.room_capacity': 'Dette PRO-rum kan ikke rumme flere numre.',
+  'pro.upload.pending_limit':
+    'Der er for mange ufærdige uploads i dette PRO-rum. Prøv igen om lidt.',
   'pro.upload.playlist_switched':
     'En anden afspilningsliste blev aktiv, før dette nummer blev tilføjet. Vælg filen igen.',
   'pro.upload.permission_required': 'Der kræves tilladelse til at administrere medier.',

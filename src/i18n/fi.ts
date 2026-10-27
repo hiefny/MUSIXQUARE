@@ -864,7 +864,9 @@ const fi: Record<I18nKey, string> = {
   'pro.upload.file_too_large': 'Tiedosto ylittää tiedostokohtaisen 200 MB:n rajan.',
   'pro.upload.quota_exceeded': 'Tämän PRO-huoneen 1 GB:n tallennustila on täynnä.',
   'pro.upload.playlist_full': 'Soittolista on täynnä.',
-  'pro.upload.playlist_changed': 'Soittolista muuttui. Yritä uudelleen.',
+  'pro.upload.room_capacity': 'Tähän PRO-huoneeseen ei mahdu enempää kappaleita.',
+  'pro.upload.pending_limit':
+    'Tässä PRO-huoneessa on liian monta keskeneräistä lähetystä. Yritä hetken kuluttua uudelleen.',
   'pro.upload.playlist_switched':
     'Toinen soittolista otettiin käyttöön ennen kuin tämä kappale lisättiin. Valitse tiedosto uudelleen.',
   'pro.upload.permission_required': 'Median hallintaoikeus vaaditaan.',

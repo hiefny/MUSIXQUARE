@@ -863,7 +863,9 @@ const te: Record<I18nKey, string> = {
   'pro.upload.file_too_large': 'ఈ ఫైల్ ఒక్కో ఫైల్‌కు ఉన్న 200 MB పరిమితి కంటే పెద్దది.',
   'pro.upload.quota_exceeded': 'ఈ PRO గది 1 GB స్టోరేజ్ పరిమితిని చేరుకుంది.',
   'pro.upload.playlist_full': 'ప్లేలిస్ట్ నిండిపోయింది.',
-  'pro.upload.playlist_changed': 'ప్లేలిస్ట్ మారింది. మళ్లీ ప్రయత్నించండి.',
+  'pro.upload.room_capacity': 'ఈ PRO గదిలో ఇక మరిన్ని ట్రాక్‌లను జోడించలేము.',
+  'pro.upload.pending_limit':
+    'ఈ PRO గదిలో పూర్తికాని అప్‌లోడ్‌లు చాలా ఎక్కువగా ఉన్నాయి. కొద్దిసేపటి తర్వాత మళ్లీ ప్రయత్నించండి.',
   'pro.upload.playlist_switched':
     'ఈ ట్రాక్‌ను జోడించే ముందే మరో ప్లేలిస్ట్ సక్రియమైంది. ఫైల్‌ను మళ్లీ ఎంచుకోండి.',
   'pro.upload.permission_required': 'మీడియా నిర్వహణ అనుమతి అవసరం.',

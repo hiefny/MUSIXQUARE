@@ -874,7 +874,9 @@ const ml: Record<I18nKey, string> = {
   'pro.upload.file_too_large': 'ഈ ഫയൽ ഓരോ ഫയലിനുമുള്ള 200 MB പരിധിയേക്കാൾ വലുതാണ്.',
   'pro.upload.quota_exceeded': 'ഈ PRO റൂം 1 GB സ്റ്റോറേജ് പരിധിയിലെത്തി.',
   'pro.upload.playlist_full': 'പ്ലേലിസ്റ്റ് നിറഞ്ഞു.',
-  'pro.upload.playlist_changed': 'പ്ലേലിസ്റ്റ് മാറി. വീണ്ടും ശ്രമിക്കുക.',
+  'pro.upload.room_capacity': 'ഈ PRO റൂമിൽ ഇനി കൂടുതൽ ട്രാക്കുകൾ ചേർക്കാനാവില്ല.',
+  'pro.upload.pending_limit':
+    'ഈ PRO റൂമിൽ പൂർത്തിയാകാത്ത അപ്‌ലോഡുകൾ വളരെ കൂടുതലാണ്. കുറച്ചുകഴിഞ്ഞ് വീണ്ടും ശ്രമിക്കുക.',
   'pro.upload.playlist_switched':
     'ഈ ട്രാക്ക് ചേർക്കുന്നതിന് മുമ്പ് മറ്റൊരു പ്ലേലിസ്റ്റ് സജീവമായി. ഫയൽ വീണ്ടും തിരഞ്ഞെടുക്കുക.',
   'pro.upload.permission_required': 'മീഡിയ കൈകാര്യം ചെയ്യാനുള്ള അനുമതി ആവശ്യമാണ്.',

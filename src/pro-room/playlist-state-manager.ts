@@ -936,6 +936,10 @@ export class ProRoomPlaylistStateManager {
       throw new ProRoomPlaylistStateError('PRO_ROOM_PLAYLIST_QUEUE_ITEM_COLLISION');
     }
     if (activePlaylistSlot(accepted) !== targetSlot) {
+      const retained = retryState?.media.completion?.expectedSource.assetId;
+      if (retryState && retained !== undefined) {
+        await this.#releaseSwitchedUpload(retryState, retained);
+      }
       throw new ProRoomPlaylistStateError('PRO_ROOM_PLAYLIST_SWITCHED');
     }
     this.#assertCapacity(accepted, 1);
@@ -978,10 +982,16 @@ export class ProRoomPlaylistStateManager {
             return { snapshot: cloneSnapshot(reconciled), queueItemId };
           }
           // A retained queue task may retry this same asset after refreshing
-          // canonical state. Dismissal/retirement, or a terminal failure such
-          // as a playlist switch, releases the continuation; unreferenced
-          // remote assets remain under server-side GC ownership.
+          // canonical state. Dismissal/retirement releases the continuation;
+          // unreferenced remote assets remain under server-side GC ownership.
+          // A playlist switch ends the task, so its asset is released here.
           if (!retryState) await this.#bestEffortDelete(upload.asset.assetId, 'uploaded-orphan');
+          else if (
+            error instanceof ProRoomPlaylistStateError &&
+            error.code === 'PRO_ROOM_PLAYLIST_SWITCHED'
+          ) {
+            await this.#releaseSwitchedUpload(retryState, upload.asset.assetId);
+          }
         } catch {
           // An unreadable authority is still ambiguous. Retaining an
           // unreferenced object for server-side cleanup is safer than deleting
@@ -1212,6 +1222,21 @@ export class ProRoomPlaylistStateManager {
       if (expired !== undefined) this.#issuedIdempotencyKeys.delete(expired);
     }
     return key;
+  }
+
+  /**
+   * A playlist switch ends a pinned upload: the queue offers no retry and asks
+   * for the file again. Release its asset now instead of letting it hold room
+   * quota until the server's orphan cleanup, and drop the continuation so it
+   * never names the deleted asset. The server refuses to delete an asset that
+   * any playlist names.
+   */
+  async #releaseSwitchedUpload(
+    retryState: ProRoomLocalFileRetryState,
+    assetId: string,
+  ): Promise<void> {
+    delete retryState.media.completion;
+    await this.#bestEffortDelete(assetId, 'uploaded-orphan');
   }
 
   async #bestEffortDelete(

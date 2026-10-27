@@ -883,7 +883,9 @@ const ta: Record<I18nKey, string> = {
   'pro.upload.file_too_large': 'இந்தக் கோப்பு ஒரு கோப்புக்கான 200 MB வரம்பைவிடப் பெரியது.',
   'pro.upload.quota_exceeded': 'இந்த PRO அறை அதன் 1 GB சேமிப்பக வரம்பை எட்டிவிட்டது.',
   'pro.upload.playlist_full': 'பிளேலிஸ்ட் நிரம்பியுள்ளது.',
-  'pro.upload.playlist_changed': 'பிளேலிஸ்ட் மாறிவிட்டது. மீண்டும் முயலவும்.',
+  'pro.upload.room_capacity': 'இந்த PRO அறையில் இனி மேலும் டிராக்குகளைச் சேர்க்க முடியாது.',
+  'pro.upload.pending_limit':
+    'இந்த PRO அறையில் முடிவடையாத பதிவேற்றங்கள் அதிகமாக உள்ளன. சிறிது நேரம் கழித்து மீண்டும் முயலவும்.',
   'pro.upload.playlist_switched':
     'இந்த டிராக் சேர்க்கப்படுவதற்கு முன்பே வேறொரு பிளேலிஸ்ட் செயலுக்கு வந்தது. கோப்பை மீண்டும் தேர்ந்தெடுக்கவும்.',
   'pro.upload.permission_required': 'மீடியா நிர்வாக அனுமதி தேவை.',

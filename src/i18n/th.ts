@@ -833,7 +833,9 @@ const th: Record<I18nKey, string> = {
   'pro.upload.file_too_large': 'ไฟล์นี้เกินขีดจำกัด 200 MB ต่อไฟล์',
   'pro.upload.quota_exceeded': 'ห้อง PRO นี้ใช้พื้นที่จัดเก็บครบ 1 GB แล้ว',
   'pro.upload.playlist_full': 'เพลย์ลิสต์เต็มแล้ว',
-  'pro.upload.playlist_changed': 'เพลย์ลิสต์มีการเปลี่ยนแปลง โปรดลองอีกครั้ง',
+  'pro.upload.room_capacity': 'ห้อง PRO นี้เพิ่มรายการไม่ได้อีกแล้ว',
+  'pro.upload.pending_limit':
+    'ห้อง PRO นี้มีการอัปโหลดที่ยังไม่เสร็จมากเกินไป โปรดลองอีกครั้งในภายหลัง',
   'pro.upload.playlist_switched':
     'มีการสลับไปใช้เพลย์ลิสต์อื่นก่อนที่จะเพิ่มรายการนี้ โปรดเลือกไฟล์อีกครั้ง',
   'pro.upload.permission_required': 'ต้องมีสิทธิ์จัดการสื่อ',

@@ -862,7 +862,9 @@ const uk: Record<I18nKey, string> = {
   'pro.upload.file_too_large': 'Цей файл перевищує ліміт у 200 МБ на один файл.',
   'pro.upload.quota_exceeded': 'Ця кімната PRO досягла ліміту сховища в 1 ГБ.',
   'pro.upload.playlist_full': 'Плейліст заповнений.',
-  'pro.upload.playlist_changed': 'Плейліст змінився. Спробуйте ще раз.',
+  'pro.upload.room_capacity': 'До цієї кімнати PRO більше не можна додати треки.',
+  'pro.upload.pending_limit':
+    'У цій кімнаті PRO забагато незавершених надсилань. Спробуйте ще раз трохи згодом.',
   'pro.upload.playlist_switched':
     'Перед додаванням цього треку активним став інший плейлист. Виберіть файл знову.',
   'pro.upload.permission_required': 'Потрібен дозвіл на керування медіа.',

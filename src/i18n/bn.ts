@@ -855,7 +855,9 @@ const bn: Record<I18nKey, string> = {
   'pro.upload.file_too_large': 'এই ফাইলটি প্রতি ফাইলের 200 MB সীমার চেয়ে বড়।',
   'pro.upload.quota_exceeded': 'এই PRO রুমের 1 GB স্টোরেজ সীমা পূর্ণ হয়েছে।',
   'pro.upload.playlist_full': 'প্লেলিস্ট পূর্ণ হয়ে গেছে।',
-  'pro.upload.playlist_changed': 'প্লেলিস্ট বদলে গেছে। আবার চেষ্টা করুন।',
+  'pro.upload.room_capacity': 'এই PRO রুমে আর কোনো ট্র্যাক রাখা যাবে না।',
+  'pro.upload.pending_limit':
+    'এই PRO রুমে অসম্পূর্ণ আপলোড অনেক বেশি। কিছুক্ষণ পরে আবার চেষ্টা করুন।',
   'pro.upload.playlist_switched':
     'এই ট্র্যাকটি যোগ হওয়ার আগেই অন্য একটি প্লেলিস্ট চালু হয়েছে। ফাইলটি আবার বেছে নিন।',
   'pro.upload.permission_required': 'মিডিয়া পরিচালনার অনুমতি প্রয়োজন।',

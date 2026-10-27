@@ -885,7 +885,9 @@ const el: Record<I18nKey, string> = {
   'pro.upload.file_too_large': 'Αυτό το αρχείο υπερβαίνει το όριο των 200 MB ανά αρχείο.',
   'pro.upload.quota_exceeded': 'Αυτό το δωμάτιο PRO έφτασε το όριο αποθήκευσης 1 GB.',
   'pro.upload.playlist_full': 'Η λίστα αναπαραγωγής είναι πλήρης.',
-  'pro.upload.playlist_changed': 'Η λίστα αναπαραγωγής άλλαξε. Δοκιμάστε ξανά.',
+  'pro.upload.room_capacity': 'Αυτό το δωμάτιο PRO δεν χωράει άλλα κομμάτια.',
+  'pro.upload.pending_limit':
+    'Σε αυτό το δωμάτιο PRO υπάρχουν πάρα πολλές αποστολές που δεν έχουν ολοκληρωθεί. Δοκιμάστε ξανά σε λίγο.',
   'pro.upload.playlist_switched':
     'Άλλη λίστα αναπαραγωγής έγινε ενεργή πριν προστεθεί αυτό το κομμάτι. Επιλέξτε ξανά το αρχείο.',
   'pro.upload.permission_required': 'Απαιτείται δικαίωμα διαχείρισης πολυμέσων.',

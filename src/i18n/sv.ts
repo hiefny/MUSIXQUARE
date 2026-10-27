@@ -866,7 +866,9 @@ const sv: Record<I18nKey, string> = {
   'pro.upload.file_too_large': 'Filen är större än gränsen på 200 MB per fil.',
   'pro.upload.quota_exceeded': 'PRO-rummet har nått lagringsgränsen på 1 GB.',
   'pro.upload.playlist_full': 'Spellistan är full.',
-  'pro.upload.playlist_changed': 'Spellistan har ändrats. Försök igen.',
+  'pro.upload.room_capacity': 'PRO-rummet har inte plats för fler spår.',
+  'pro.upload.pending_limit':
+    'PRO-rummet har för många ofärdiga uppladdningar. Försök igen om en liten stund.',
   'pro.upload.playlist_switched':
     'En annan spellista blev aktiv innan spåret lades till. Välj filen igen.',
   'pro.upload.permission_required': 'Behörighet att hantera media krävs.',

@@ -847,7 +847,9 @@ const tr: Record<I18nKey, string> = {
   'pro.upload.file_too_large': 'Bu dosya, dosya başına 200 MB sınırını aşıyor.',
   'pro.upload.quota_exceeded': 'Bu PRO odasının 1 GB depolama sınırı doldu.',
   'pro.upload.playlist_full': 'Çalma listesi dolu.',
-  'pro.upload.playlist_changed': 'Çalma listesi değişti. Lütfen tekrar dene.',
+  'pro.upload.room_capacity': 'Bu PRO odasına daha fazla parça eklenemiyor.',
+  'pro.upload.pending_limit':
+    'Bu PRO odasında tamamlanmamış çok fazla yükleme var. Biraz sonra tekrar dene.',
   'pro.upload.playlist_switched':
     'Bu parça eklenmeden önce başka bir çalma listesi etkin oldu. Dosyayı yeniden seç.',
   'pro.upload.permission_required': 'Medya yönetimi izni gerekli.',

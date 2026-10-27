@@ -869,7 +869,9 @@ const ru: Record<I18nKey, string> = {
   'pro.upload.file_too_large': 'Этот файл превышает лимит 200 МБ на файл.',
   'pro.upload.quota_exceeded': 'В PRO-комнате исчерпан лимит хранилища 1 ГБ.',
   'pro.upload.playlist_full': 'Плейлист заполнен.',
-  'pro.upload.playlist_changed': 'Плейлист изменился. Повторите попытку.',
+  'pro.upload.room_capacity': 'В эту PRO-комнату больше нельзя добавить треки.',
+  'pro.upload.pending_limit':
+    'В этой PRO-комнате слишком много незавершённых загрузок. Повторите попытку чуть позже.',
   'pro.upload.playlist_switched':
     'До добавления этого трека активным стал другой плейлист. Выберите файл заново.',
   'pro.upload.permission_required': 'Требуется право на управление медиа.',

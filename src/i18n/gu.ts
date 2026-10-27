@@ -841,7 +841,9 @@ const gu: Record<I18nKey, string> = {
   'pro.upload.file_too_large': 'આ ફાઇલ દરેક ફાઇલ માટેની 200 MB મર્યાદાથી મોટી છે.',
   'pro.upload.quota_exceeded': 'આ PRO રૂમમાં સંગ્રહની 1 GB મર્યાદા પૂરી થઈ છે.',
   'pro.upload.playlist_full': 'પ્લેલિસ્ટ ભરાઈ ગઈ છે.',
-  'pro.upload.playlist_changed': 'પ્લેલિસ્ટ બદલાઈ છે. ફરી પ્રયાસ કરો.',
+  'pro.upload.room_capacity': 'આ PRO રૂમમાં હવે વધુ ટ્રૅક ઉમેરી શકાશે નહીં.',
+  'pro.upload.pending_limit':
+    'આ PRO રૂમમાં અધૂરાં અપલોડ ઘણાં વધારે છે. થોડી વાર પછી ફરી પ્રયાસ કરો.',
   'pro.upload.playlist_switched':
     'આ ટ્રૅક ઉમેરાય તે પહેલાં બીજી પ્લેલિસ્ટ સક્રિય થઈ. ફાઇલ ફરીથી પસંદ કરો.',
   'pro.upload.permission_required': 'મીડિયા સંચાલનની પરવાનગી જરૂરી છે.',

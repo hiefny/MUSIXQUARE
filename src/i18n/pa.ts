@@ -857,7 +857,9 @@ const pa: Record<I18nKey, string> = {
   'pro.upload.file_too_large': 'ਇਹ ਫ਼ਾਈਲ ਹਰੇਕ ਫ਼ਾਈਲ ਲਈ 200 MB ਦੀ ਹੱਦ ਤੋਂ ਵੱਡੀ ਹੈ।',
   'pro.upload.quota_exceeded': 'ਇਸ PRO ਰੂਮ ਦੀ 1 GB ਸਟੋਰੇਜ ਹੱਦ ਪੂਰੀ ਹੋ ਗਈ ਹੈ।',
   'pro.upload.playlist_full': 'ਪਲੇਲਿਸਟ ਭਰ ਗਈ ਹੈ।',
-  'pro.upload.playlist_changed': 'ਪਲੇਲਿਸਟ ਬਦਲ ਗਈ ਹੈ। ਦੁਬਾਰਾ ਕੋਸ਼ਿਸ਼ ਕਰੋ।',
+  'pro.upload.room_capacity': 'ਇਸ PRO ਰੂਮ ਵਿੱਚ ਹੋਰ ਟਰੈਕ ਨਹੀਂ ਜੋੜੇ ਜਾ ਸਕਦੇ।',
+  'pro.upload.pending_limit':
+    'ਇਸ PRO ਰੂਮ ਵਿੱਚ ਅਧੂਰੇ ਅੱਪਲੋਡ ਬਹੁਤ ਜ਼ਿਆਦਾ ਹਨ। ਥੋੜ੍ਹੀ ਦੇਰ ਬਾਅਦ ਦੁਬਾਰਾ ਕੋਸ਼ਿਸ਼ ਕਰੋ।',
   'pro.upload.playlist_switched':
     'ਇਹ ਟਰੈਕ ਜੁੜਨ ਤੋਂ ਪਹਿਲਾਂ ਹੋਰ ਪਲੇਲਿਸਟ ਚਾਲੂ ਹੋ ਗਈ। ਫਾਈਲ ਦੁਬਾਰਾ ਚੁਣੋ।',
   'pro.upload.permission_required': 'ਮੀਡੀਆ ਪ੍ਰਬੰਧ ਦੀ ਇਜਾਜ਼ਤ ਚਾਹੀਦੀ ਹੈ।',

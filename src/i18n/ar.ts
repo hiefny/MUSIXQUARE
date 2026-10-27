@@ -834,7 +834,9 @@ const ar: Record<I18nKey, string> = {
   'pro.upload.file_too_large': 'يتجاوز هذا الملف الحد الأقصى لكل ملف، وهو 200 MB.',
   'pro.upload.quota_exceeded': 'بلغت غرفة PRO هذه حد التخزين البالغ 1 GB.',
   'pro.upload.playlist_full': 'قائمة التشغيل ممتلئة.',
-  'pro.upload.playlist_changed': 'تغيّرت قائمة التشغيل. يرجى المحاولة مرة أخرى.',
+  'pro.upload.room_capacity': 'لا يمكن لغرفة PRO هذه استيعاب المزيد من المقاطع.',
+  'pro.upload.pending_limit':
+    'في غرفة PRO هذه عمليات رفع كثيرة جدًا لم تكتمل بعد. حاول مرة أخرى بعد قليل.',
   'pro.upload.playlist_switched':
     'أصبحت قائمة تشغيل أخرى نشطة قبل إضافة هذا المقطع. يرجى اختيار الملف مرة أخرى.',
   'pro.upload.permission_required': 'يلزم إذن إدارة الوسائط.',

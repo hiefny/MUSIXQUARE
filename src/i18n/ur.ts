@@ -852,7 +852,9 @@ const ur: Record<I18nKey, string> = {
   'pro.upload.file_too_large': 'یہ فائل فی فائل 200 MB کی حد سے بڑی ہے۔',
   'pro.upload.quota_exceeded': 'اس PRO کمرے کی 1 GB اسٹوریج حد پوری ہو گئی ہے۔',
   'pro.upload.playlist_full': 'پلے لسٹ بھر گئی ہے۔',
-  'pro.upload.playlist_changed': 'پلے لسٹ تبدیل ہو گئی ہے۔ دوبارہ کوشش کریں۔',
+  'pro.upload.room_capacity': 'اس PRO کمرے میں مزید ٹریک شامل نہیں کیے جا سکتے۔',
+  'pro.upload.pending_limit':
+    'اس PRO کمرے میں نامکمل اپ لوڈ بہت زیادہ ہیں۔ تھوڑی دیر بعد دوبارہ کوشش کریں۔',
   'pro.upload.playlist_switched':
     'یہ ٹریک شامل ہونے سے پہلے دوسری پلے لسٹ فعال ہو گئی۔ فائل دوبارہ منتخب کریں۔',
   'pro.upload.permission_required': 'میڈیا کے انتظام کی اجازت درکار ہے۔',

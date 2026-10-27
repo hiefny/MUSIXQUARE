@@ -115,13 +115,17 @@ function uploadFailure(task: ProRoomUploadTask, error: unknown): ProRoomUploadFa
     size: task.size,
     code,
     // A retained retry stays pinned to the playlist slot its upload started
-    // in, so a playlist switch fails the same way on every retry.
+    // in, so a playlist switch fails the same way on every retry. A room
+    // that cannot hold more tracks does not free room before the user removes
+    // some and server cleanup runs.
     retryable:
       code !== 'PRO_ROOM_MEDIA_UPLOAD_SIZE_INVALID' &&
       code !== 'PRO_ROOM_MEDIA_UPLOAD_RETRY_MISMATCH' &&
       code !== 'PRO_ROOM_MEDIA_COMPLETE_MISMATCH' &&
       code !== 'PRO_ROOM_PLAYLIST_QUEUE_ITEM_COLLISION' &&
       code !== 'PRO_ROOM_PLAYLIST_SWITCHED' &&
+      code !== 'ROOM_STATE_CAPACITY_EXCEEDED' &&
+      code !== 'ASSET_CAPACITY_EXCEEDED' &&
       code !== 'ASSET_NOT_FOUND' &&
       code !== 'ASSET_NOT_READY' &&
       code !== 'UPLOAD_MISMATCH' &&

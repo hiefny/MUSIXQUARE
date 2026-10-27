@@ -808,7 +808,9 @@ const es: Record<I18nKey, string> = {
   'pro.upload.file_too_large': 'Este archivo supera el límite de 200 MB por archivo.',
   'pro.upload.quota_exceeded': 'Esta sala PRO alcanzó su límite de almacenamiento de 1 GB.',
   'pro.upload.playlist_full': 'La lista de reproducción está llena.',
-  'pro.upload.playlist_changed': 'La lista de reproducción cambió. Inténtalo de nuevo.',
+  'pro.upload.room_capacity': 'Esta sala PRO no admite más pistas.',
+  'pro.upload.pending_limit':
+    'Esta sala PRO tiene demasiadas subidas sin terminar. Vuelve a intentarlo en un rato.',
   'pro.upload.playlist_switched':
     'Otra lista de reproducción se activó antes de añadir esta pista. Vuelve a seleccionar el archivo.',
   'pro.upload.permission_required': 'Se necesita permiso para gestionar contenido.',

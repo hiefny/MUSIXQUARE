@@ -846,7 +846,9 @@ const fa: Record<I18nKey, string> = {
   'pro.upload.file_too_large': 'این فایل از سقف 200 MB برای هر فایل بزرگ‌تر است.',
   'pro.upload.quota_exceeded': 'این اتاق PRO به سقف فضای 1 GB رسیده است.',
   'pro.upload.playlist_full': 'فهرست پخش پر است.',
-  'pro.upload.playlist_changed': 'فهرست پخش تغییر کرده است. دوباره تلاش کنید.',
+  'pro.upload.room_capacity': 'این اتاق PRO گنجایش قطعهٔ بیشتری ندارد.',
+  'pro.upload.pending_limit':
+    'این اتاق PRO بارگذاری‌های ناتمام زیادی دارد. کمی بعد دوباره تلاش کنید.',
   'pro.upload.playlist_switched':
     'پیش از افزودن این قطعه، فهرست پخش دیگری فعال شد. فایل را دوباره انتخاب کنید.',
   'pro.upload.permission_required': 'مجوز مدیریت رسانه لازم است.',

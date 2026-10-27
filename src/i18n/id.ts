@@ -788,7 +788,9 @@ const id: Record<I18nKey, string> = {
   'pro.upload.file_too_large': 'File ini melebihi batas 200 MB per file.',
   'pro.upload.quota_exceeded': 'Ruang PRO ini telah mencapai batas penyimpanan 1 GB.',
   'pro.upload.playlist_full': 'Daftar putar sudah penuh.',
-  'pro.upload.playlist_changed': 'Daftar putar telah berubah. Silakan coba lagi.',
+  'pro.upload.room_capacity': 'Ruang PRO ini tidak dapat menampung media lagi.',
+  'pro.upload.pending_limit':
+    'Terlalu banyak unggahan yang belum selesai di ruang PRO ini. Coba lagi sebentar lagi.',
   'pro.upload.playlist_switched':
     'Daftar putar lain menjadi aktif sebelum media ini ditambahkan. Pilih kembali file tersebut.',
   'pro.upload.permission_required': 'Izin untuk mengelola media diperlukan.',

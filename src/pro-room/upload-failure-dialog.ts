@@ -30,7 +30,10 @@ function failureReasonKey(failure: ProRoomUploadFailureDescription): I18nKey {
     case 'REQUEST_TOO_LARGE':
       return 'pro.upload.playlist_full';
     case 'ROOM_STATE_CAPACITY_EXCEEDED':
-      return 'pro.upload.playlist_changed';
+    case 'ASSET_CAPACITY_EXCEEDED':
+      return 'pro.upload.room_capacity';
+    case 'RESERVATION_CAPACITY_EXCEEDED':
+      return 'pro.upload.pending_limit';
     case 'PRO_ROOM_PLAYLIST_SWITCHED':
       return 'pro.upload.playlist_switched';
     case 'PERMISSION_REQUIRED':

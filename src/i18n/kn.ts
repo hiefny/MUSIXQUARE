@@ -869,7 +869,9 @@ const kn: Record<I18nKey, string> = {
   'pro.upload.file_too_large': 'ಈ ಫೈಲ್ ಪ್ರತಿ ಫೈಲ್‌ಗೆ ಇರುವ 200 MB ಮಿತಿಗಿಂತ ದೊಡ್ಡದಾಗಿದೆ.',
   'pro.upload.quota_exceeded': 'ಈ PRO ರೂಮ್ 1 GB ಸಂಗ್ರಹ ಮಿತಿಯನ್ನು ತಲುಪಿದೆ.',
   'pro.upload.playlist_full': 'ಪ್ಲೇಲಿಸ್ಟ್ ತುಂಬಿದೆ.',
-  'pro.upload.playlist_changed': 'ಪ್ಲೇಲಿಸ್ಟ್ ಬದಲಾಗಿದೆ. ಮತ್ತೆ ಪ್ರಯತ್ನಿಸಿ.',
+  'pro.upload.room_capacity': 'ಈ PRO ರೂಮ್‌ಗೆ ಇನ್ನಷ್ಟು ಟ್ರ್ಯಾಕ್‌ಗಳನ್ನು ಸೇರಿಸಲು ಸಾಧ್ಯವಿಲ್ಲ.',
+  'pro.upload.pending_limit':
+    'ಈ PRO ರೂಮ್‌ನಲ್ಲಿ ಪೂರ್ಣಗೊಳ್ಳದ ಅಪ್‌ಲೋಡ್‌ಗಳು ತುಂಬಾ ಹೆಚ್ಚಾಗಿವೆ. ಸ್ವಲ್ಪ ಸಮಯದ ನಂತರ ಮತ್ತೆ ಪ್ರಯತ್ನಿಸಿ.',
   'pro.upload.playlist_switched':
     'ಈ ಟ್ರ್ಯಾಕ್ ಸೇರಿಸುವ ಮೊದಲೇ ಬೇರೆ ಪ್ಲೇಲಿಸ್ಟ್ ಸಕ್ರಿಯವಾಯಿತು. ಫೈಲ್ ಅನ್ನು ಮತ್ತೆ ಆಯ್ಕೆಮಾಡಿ.',
   'pro.upload.permission_required': 'ಮೀಡಿಯಾ ನಿರ್ವಹಣೆಯ ಅನುಮತಿ ಅಗತ್ಯವಿದೆ.',

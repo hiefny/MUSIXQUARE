@@ -803,7 +803,9 @@ const fr: Record<I18nKey, string> = {
   'pro.upload.file_too_large': 'Ce fichier dépasse la limite de 200 Mo par fichier.',
   'pro.upload.quota_exceeded': 'Ce salon PRO a atteint sa limite de stockage de 1 Go.',
   'pro.upload.playlist_full': 'La playlist est pleine.',
-  'pro.upload.playlist_changed': 'La playlist a changé. Réessayez.',
+  'pro.upload.room_capacity': 'Ce salon PRO ne peut plus accueillir d’autres pistes.',
+  'pro.upload.pending_limit':
+    'Ce salon PRO compte trop d’envois inachevés. Réessayez dans quelques instants.',
   'pro.upload.playlist_switched':
     'Une autre playlist est devenue active avant l’ajout de cette piste. Sélectionnez à nouveau le fichier.',
   'pro.upload.permission_required': 'L’autorisation de gérer les médias est requise.',

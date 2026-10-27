@@ -856,7 +856,9 @@ const hi: Record<I18nKey, string> = {
   'pro.upload.file_too_large': 'यह फ़ाइल हर फ़ाइल के लिए तय 200 MB की सीमा से बड़ी है।',
   'pro.upload.quota_exceeded': 'इस PRO रूम की 1 GB स्टोरेज सीमा पूरी हो गई है।',
   'pro.upload.playlist_full': 'प्लेलिस्ट भर चुकी है।',
-  'pro.upload.playlist_changed': 'प्लेलिस्ट बदल गई है। कृपया फिर कोशिश करें।',
+  'pro.upload.room_capacity': 'इस PRO रूम में अब और ट्रैक नहीं जोड़े जा सकते।',
+  'pro.upload.pending_limit':
+    'इस PRO रूम में अधूरे अपलोड बहुत ज़्यादा हैं। थोड़ी देर बाद फिर कोशिश करें।',
   'pro.upload.playlist_switched':
     'यह ट्रैक जुड़ने से पहले दूसरी प्लेलिस्ट चालू हो गई। फ़ाइल फिर से चुनें।',
   'pro.upload.permission_required': 'मीडिया प्रबंधन की अनुमति चाहिए।',

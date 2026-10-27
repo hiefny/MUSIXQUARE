@@ -56,20 +56,28 @@ gh run list --workflow e2e.yml --branch main --limit 3
       Standard/PRO의 권한 확인 중 안내를 고친다. 재생목록 전환으로 끝난 업로드는 다시 시도를 내지 않고,
       실패 목록은 실제로 생기는 코드마다 대화상자 문장으로 안내하며(방 용량 실패 포함), 전환으로 끝난 업로드의 asset은
       바로 해제한다(보고서 QA 라운드 5·6).
-      App·PRO 변경이므로 후속 배포는 정식 `all` 경로다.
-      복사는 8초, 완료 facade는 10초, 나머지 제어는 5초다. 신규 의존성·비밀·바인딩·D1 이주·CORS 변경은 없다.
+      운영과 견준 런타임 경로 변경은 App 61개, PRO 방 3개, signaling 1개(공유 진단 모듈 `cloudflare/pro-room-diagnostics.ts`,
+      signaling 동작 변화 없음), 나머지 세 Worker 0개라 부분 릴리스는 막히고 target은 `all`이다(보고서 QA 라운드 8).
+      Developer API D1과 `raise_app_build_floor`는 false다. 복사는 8초, 완료 facade는 10초, 나머지 제어는 5초다. 신규 의존성·비밀·바인딩·D1 이주·CORS 변경은 없다.
       기존 asset에 선택적 원본 ETag 핀, tombstone에 final 키를 추가하며 기존 정리 소유권을 유지한다.
       복사 결과가 불명확한 동안 옛 PRO Worker로 롤백하면 새 핀·정리 필드를 무시하므로 forward fix를 우선한다.
       Developer API는 기존 스트림 복사를 유지한다.
       5B(9.0.16 / v789, 2026-10-27 10:18 KST 배포)와 그 기록 `0228276e`(#506)까지 main을 합쳤고(보고서 QA 라운드 7),
-      버전은 5B 다음인 9.0.17 / v790이며 최소 앱 빌드 787은 그대로다. 5B는 업로드 경로를 바꾸지 않았으므로 위 동작과
-      되돌리기 경계는 합친 뒤에도 같다.
-      [PR #503](https://github.com/hiefny/MUSIXQUARE/pull/503)의 복사 안전장치 전 런타임 `f2f25d902`에서 빌드·타입·가드가
-      통과했고, 단위 16,112개는 전체 실행과 도구 테스트 시간 초과 두 건의 단독 재실행에 걸쳐 모두 통과했다.
-      같은 SHA의 PR CI 단위 두 shard·critical browser도 통과했다(최종 집계와 한계는 아래 보고서).
+      합침 커밋은 `d88cbb3b`다. 마지막 런타임 커밋은 bump `28178b15`(9.0.17 / v790, 앱 빌드 790, 올리기 직전 fetch한
+      origin/main `0228276e`는 9.0.16 / v789)이고 그 뒤는 문서뿐이며, 최소 앱 빌드 787은 그대로다. 5B는 업로드 경로를
+      바꾸지 않았으므로 위 동작과 되돌리기 경계는 합친 뒤에도 같다.
+      bump 뒤 최종 로컬 검사(`28178b15`, 보고서 QA 라운드 8): `guard:release-identity` 9.0.17·v790, `guard:sw-cache-version`
+      PASS, typecheck(전체)·`typecheck:tests`·`check:workers`·lint·format, 단위 681 files / 16,222(한 번에 모두 통과),
+      Worker 67 files / 3,220(커버리지 포함), `check:worker-bundles` 여섯 Worker, 핵심 커버리지 87 files / 3,452,
+      `build:checked`(SW 앱 셸 96 자산), 가드(room-authority 직접 읽기 80·구독 22·쓰기 13, resource-ownership 48 records /
+      443 files, dead-exports, bus-pairing 202/202, import-graph, lifecycle-writes, navigation-sinks), critical E2E 65/65,
+      `e2e/pro-upload-recovery.test.ts` 4/4, 후보 Playwright 19/19, 초기 JS 466,742 B(운영 main `a930030a` 465,652 B 대비
+      +1,090 B, 유지 상한까지 24,826 B) PASS.
+      [PR #503](https://github.com/hiefny/MUSIXQUARE/pull/503)의 복사 안전장치 전 런타임 `f2f25d902`의 PR CI는 통과했고,
+      그 뒤 런타임의 PR CI, 자동 코드 리뷰, exact-main CI는 아직이다(최종 집계와 한계는 아래 보고서).
       실제 수정본의 운영 대용량 성공·CopyObject 지연 확인은 미실시이며 로컬 결과는 exact-main 후보가 아니다.
       복사 안전장치 증분의 로컬 검증은 보고서 QA 라운드 4, 검토 지적 정리와 전체 단위 실행은 라운드 6,
-      5B 합침 뒤 다시 돌린 검사는 라운드 7에 있다.
+      5B 합침은 라운드 7, bump 뒤 최종 검사는 라운드 8에 있다.
       [변경·QA·복구 보고서](design/pro-upload-reliability-2026-10-27.md).
 
 ### 구조 개선 Phase 5 5B(9.0.16/v789) 배포 뒤 확인: 시스템 오디오 수신 슬롯의 틈 고치기와 시스템 오디오 옛 버전 항목

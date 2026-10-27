@@ -4,7 +4,7 @@
 | --------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | Status                | [PR #503](https://github.com/hiefny/MUSIXQUARE/pull/503) open; not merged or deployed yet                                                                        |
 | Base                  | Initial `cb1598516`; integrated main `5dd7cc1f6` (#502, 9.0.15 / v788) in `4a99f44ba`; 5B 기록 main `0228276e2`(#506, 운영 9.0.16 / v789)를 QA 라운드 7에서 합침 |
-| Proposed identity     | 9.0.17 / v790(5B 합침 뒤 다시 올림, 그 전 PR의 9.0.16 / v790 표기는 버림); 최소 앱 빌드 787 그대로                                                               |
+| Proposed identity     | 9.0.17 / v790, bump `28178b15f`(5B 합침 뒤 다시 올림, 그 전 PR의 9.0.16 / v790 표기는 버림); 최소 앱 빌드 787 그대로; target `all`(QA 라운드 8)                  |
 | Scope                 | Browser PRO uploads, completion deadlines, bounded diagnostics, Standard/PRO authority feedback                                                                  |
 | Release authorization | 2026-10-27 오너가 5B 다음 순서로 이 PR의 병합·배포·기록을 정식 릴리스 절차대로 진행하도록 승인함                                                                 |
 
@@ -312,9 +312,9 @@ Node 24.20.0, npm 12.0.2, Vitest 5.0.3, 로컬 실행만. 실제 R2와 자격 �
 
 ### 7. 5B 합침(2026-10-27)
 
-테스트한 코드: `c29a4c796`에 main `0228276e2`(#506)를 합친 커밋(버전 표기는 main의
-9.0.16 / v789, bump는 다음 커밋). 환경: Windows, Node 24.20.0, npm 12.0.2, Vitest
-5.0.3, 로컬 실행만.
+테스트한 코드: `c29a4c796`에 main `0228276e2`(#506)를 합친 커밋 `d88cbb3b8`(버전
+표기는 main의 9.0.16 / v789, bump는 다음 커밋). 환경: Windows, Node 24.20.0, npm
+12.0.2, Vitest 5.0.3, 로컬 실행만.
 
 - **합친 것:** main의 세 커밋, 릴리스 A 기록 `1ff7fdf2`(#504), 5B `a930030a`(#505,
   9.0.16 / v789, 2026-10-27 10:18 KST 배포), 5B 기록 `0228276e`(#506). 5B는 시스템
@@ -346,11 +346,72 @@ Node 24.20.0, npm 12.0.2, Vitest 5.0.3, 로컬 실행만. 실제 R2와 자격 �
 - **돌리지 않은 것:** 이 커밋에서의 전체 단위 실행, Worker 묶음, 브라우저 묶음, 운영
   빌드는 bump 뒤 최종 검사(라운드 8)에서 돌린다.
 
+### 8. bump 뒤 최종 검사(`28178b15f`, 9.0.17 / v790, 2026-10-27)
+
+테스트한 코드: bump `28178b15f`(9.0.17 / v790, 앱 빌드 790). 이 PR의 마지막 런타임
+커밋이고 그 뒤는 문서뿐이다. 올리기 직전 fetch한 origin/main `0228276e2`는 9.0.16 /
+v789 그대로였다. 환경: Windows, Node 24.20.0, npm 12.0.2, Vitest 5.0.3, 로컬 Chromium,
+로컬 실행만.
+
+- **버전:** 일곱 표기(`package.json`, `package-lock.json` 둘, App Worker의
+  `ADMIN_ASSET_VERSION`, 관리자 스크립트의 `ADMIN_SCRIPT_VERSION`,
+  `SERVICE_WORKER_CACHE_VERSION`, `index.html`의 bootstrap 쿼리)를 한 커밋에서 올렸다.
+  `guard:release-identity` 9.0.17·v790, `guard:sw-cache-version` PASS(bump
+  `28178b15`를 읽음).
+- **정적 검사:** typecheck(전체), `typecheck:tests`, `check:workers`, `lint`,
+  `format:check` 통과.
+- **전체 단위 실행:** `vitest run --maxWorkers=6` 한 번으로 681개 파일, 16,222개 모두
+  통과(372.8초, 시간 초과나 단독 재실행 없음).
+- **Worker:** `vitest.workers.config.ts` 67개 파일 3,220개가 커버리지 없이 한 번,
+  커버리지와 함께 한 번 모두 통과했고 파일별 커버리지 하한을 지켰다.
+  `check:worker-bundles`는 여섯 Worker의 dry-run 번들을 모두 만들었다.
+- **핵심 커버리지:** `test:coverage:critical` 87개 파일 3,452개 통과, 하한 지킴.
+- **빌드:** `build:checked` 통과(SW 앱 셸 96 자산, 초기 전송 예산 PASS).
+- **가드:** room-authority 직접 읽기 80·구독 22·쓰기 13, 자원 소유권 48개 기록 / 443개
+  파일, dead-exports, bus-pairing 202/202, import-graph(398개 파일, 순환 0),
+  lifecycle-writes, navigation-sinks 통과.
+- **브라우저:** critical E2E(`test:e2e:critical`, `e2e/pro-upload-recovery.test.ts`
+  포함) 65/65. 같은 `build:e2e` 산출물에서 기본 설정으로 돌린
+  `e2e/pro-upload-recovery.test.ts` 4/4. `build:checked`를 다시 돌린 운영 산출물에서
+  후보 Playwright(`test:e2e:candidate`) 19/19. 이 PR이 더하거나 바꾼 e2e 파일은
+  `e2e/pro-upload-recovery.test.ts` 하나다.
+- **초기 JS:** 같은 기계에서 운영 App의 main `a930030af` 트리를 `npm run build`로,
+  이 PR은 `build:checked` 산출물을 `measureInitialTransfer()`로 쟀다. main의 진입 청크
+  `main-CEBZWVF6.js` 861,486 B와 첫 로딩 JS 465,652 B는 5B 보고서의 bump 값과 같다.
+  첫 로딩 파일 수는 26으로 같다.
+
+  | 값               | main `a930030a`(9.0.16, 운영) | `28178b15`(9.0.17) | 차이     |
+  | ---------------- | ----------------------------- | ------------------ | -------- |
+  | entry raw        | 861,486 B                     | 861,703 B          | +217 B   |
+  | entry gzip       | 253,478 B                     | 253,504 B          | +26 B    |
+  | eager JS gzip    | 465,652 B                     | 466,742 B          | +1,090 B |
+  | eager total raw  | 2,044,988 B                   | 2,049,061 B        | +4,073 B |
+  | eager total gzip | 544,115 B                     | 545,202 B          | +1,087 B |
+
+  늘어난 첫 로딩 청크는 `toast`(+500 B gzip), `i18n`(+240 B), 영어 사전 `en`(+191 B),
+  `peer`(+133 B)와 진입(+26 B)이다. 업로드 실패 문장과 권한 확인 중 안내가 첫 로딩
+  청크에 들어간 것으로 본다(추론, 가르지 않음). 유지 상한 491,568 B까지 24,826 B 남는다.
+
+- **배포 대상:** `scripts/release-deployment-state.mts`의 Worker별 런타임 경로로 운영과
+  견줬다(App은 운영 App의 main `a930030a`, 나머지 다섯 Worker는 릴리스 W `a3893f04`
+  기준). App 61개(의존성 변화 없음), PRO 방 3개(`cloudflare/pro-room-worker.ts`,
+  `cloudflare/pro-room-diagnostics.ts`, `cloudflare/pro-room-media-timing.ts`),
+  signaling 1개(`cloudflare/pro-room-diagnostics.ts`), remote-share, Developer API,
+  Developer API facade는 0개다. signaling은 같은 진단 클래스를 입장 진단에 번들하므로
+  묶음은 바뀌지만, 더한 것은 PRO 방만 내는 복사 사건과 범위 검사라 signaling 동작은
+  그대로다. 부분 릴리스 게이트는 고르지 않은 Worker에 배포되지 않은 소스가 있으면
+  막으므로, 세 Worker를 함께 내는 target은 `all`뿐이다. 계약 표지 파일, D1, wrangler
+  설정, R2 정책은 바뀌지 않아 계약 cutover 검사는 해당 없고, Developer API D1과
+  `raise_app_build_floor`는 false(바닥 787 그대로)다.
+- **돌리지 않은 것:** PR CI, 자동 코드 리뷰, exact-main CI, 릴리스 smoke, 실제 R2
+  CopyObject와 운영 진단 출력, 실기기. 로컬 결과는 exact-main-SHA 후보가 아니다. 새
+  번역은 사람 검수를 거치지 않았다.
+
 ## Release and recovery
 
-- App and PRO Worker changes require the normal coordinated `all` release
-  after merge and exact-main CI. 2026-10-27 오너가 5B 다음 순서로 이 배포를
-  승인했다(병합, 배포, 기록까지 정식 절차대로).
+- App, PRO Worker와 signaling(공유 진단 모듈) 변경이므로 병합과 exact-main CI 뒤 정식
+  `all` 릴리스로 낸다(QA 라운드 8의 배포 대상). 2026-10-27 오너가 5B 다음 순서로 이
+  배포를 승인했다(병합, 배포, 기록까지 정식 절차대로).
 - No CORS change, new secret, dependency, service binding, D1 migration,
   or API response shape. The private asset and cleanup records gain the optional
   fields described above. CopyObject uses the existing

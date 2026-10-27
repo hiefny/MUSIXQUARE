@@ -97,7 +97,6 @@ const de: Record<I18nKey, string> = {
   'common.right': 'Rechts',
   'common.woofer': 'Woofer',
   'common.connected': 'Verbunden',
-  'common.disconnected': 'Getrennt',
   'common.revoke': 'Entziehen',
   'common.system': 'System',
   'common.unknown': 'Unbekannt',

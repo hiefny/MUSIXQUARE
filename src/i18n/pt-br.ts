@@ -96,7 +96,6 @@ const ptBr: Record<I18nKey, string> = {
   'common.right': 'Direita',
   'common.woofer': 'Woofer',
   'common.connected': 'Conectado',
-  'common.disconnected': 'Desconectado',
   'common.revoke': 'Revogar',
   'common.system': 'Sistema',
   'common.unknown': 'Desconhecido',

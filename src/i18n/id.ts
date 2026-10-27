@@ -96,7 +96,6 @@ const id: Record<I18nKey, string> = {
   'common.right': 'Kanan',
   'common.woofer': 'Woofer',
   'common.connected': 'Tersambung',
-  'common.disconnected': 'Terputus',
   'common.revoke': 'Cabut',
   'common.system': 'Sistem',
   'common.unknown': 'Tidak diketahui',

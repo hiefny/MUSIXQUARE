@@ -97,7 +97,6 @@ const sv: Record<I18nKey, string> = {
   'common.right': 'Höger',
   'common.woofer': 'Woofer',
   'common.connected': 'Ansluten',
-  'common.disconnected': 'Frånkopplad',
   'common.revoke': 'Återkalla',
   'common.system': 'System',
   'common.unknown': 'Okänd',

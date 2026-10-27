@@ -96,7 +96,6 @@ const hi: Record<I18nKey, string> = {
   'common.right': 'दायाँ',
   'common.woofer': 'वूफ़र',
   'common.connected': 'कनेक्टेड',
-  'common.disconnected': 'डिस्कनेक्टेड',
   'common.revoke': 'वापस लें',
   'common.system': 'सिस्टम',
   'common.unknown': 'अज्ञात',

@@ -97,7 +97,6 @@ const pa: Record<I18nKey, string> = {
   'common.right': 'ਸੱਜਾ',
   'common.woofer': 'ਵੂਫ਼ਰ',
   'common.connected': 'ਜੁੜਿਆ ਹੋਇਆ',
-  'common.disconnected': 'ਕਨੈਕਸ਼ਨ ਟੁੱਟਿਆ',
   'common.revoke': 'ਵਾਪਸ ਲਓ',
   'common.system': 'ਸਿਸਟਮ',
   'common.unknown': 'ਅਣਜਾਣ',

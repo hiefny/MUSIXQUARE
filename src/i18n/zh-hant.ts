@@ -92,7 +92,6 @@ const zhHant: Record<I18nKey, string> = {
   'common.right': '右',
   'common.woofer': '重低音',
   'common.connected': '已連線',
-  'common.disconnected': '已中斷',
   'common.revoke': '撤銷',
   'common.system': '系統',
   'common.unknown': '未知',

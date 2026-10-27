@@ -93,7 +93,6 @@ const zhHans: Record<I18nKey, string> = {
   'common.right': '右',
   'common.woofer': '低音炮',
   'common.connected': '已连接',
-  'common.disconnected': '已断开',
   'common.revoke': '撤销',
   'common.system': '系统',
   'common.unknown': '未知',

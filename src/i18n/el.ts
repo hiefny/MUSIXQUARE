@@ -96,7 +96,6 @@ const el: Record<I18nKey, string> = {
   'common.right': 'Δεξί',
   'common.woofer': 'Woofer',
   'common.connected': 'Συνδεδεμένο',
-  'common.disconnected': 'Αποσυνδεδεμένο',
   'common.revoke': 'Ανάκληση',
   'common.system': 'Σύστημα',
   'common.unknown': 'Άγνωστο',

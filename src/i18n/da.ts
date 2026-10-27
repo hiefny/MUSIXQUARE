@@ -96,7 +96,6 @@ const da: Record<I18nKey, string> = {
   'common.right': 'Højre',
   'common.woofer': 'Woofer',
   'common.connected': 'Forbundet',
-  'common.disconnected': 'Afbrudt',
   'common.revoke': 'Tilbagekald',
   'common.system': 'System',
   'common.unknown': 'Ukendt',

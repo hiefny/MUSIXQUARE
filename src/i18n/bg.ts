@@ -95,7 +95,6 @@ const bg: Record<I18nKey, string> = {
   'common.right': 'Дясно',
   'common.woofer': 'Уфер',
   'common.connected': 'Свързано',
-  'common.disconnected': 'Връзката е прекъсната',
   'common.revoke': 'Отнемане',
   'common.system': 'Система',
   'common.unknown': 'Неизвестно',

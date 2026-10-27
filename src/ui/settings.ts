@@ -678,7 +678,6 @@ interface DeviceListRow {
   label?: unknown;
   isOp?: unknown;
   isHost?: unknown;
-  status?: unknown;
 }
 
 function isDeviceListRow(value: unknown): value is DeviceListRow {
@@ -708,12 +707,12 @@ function renderDeviceList(list: ReadonlyArray<DeviceListRow>): void {
     name.appendChild(document.createTextNode(' '));
     name.appendChild(shortId);
 
-    const statusClass = p.status === 'connected' ? 'active' : 'inactive';
-    const statusText = p.status === 'connected' ? t('common.connected') : t('common.disconnected');
-
+    // Device lists carry room members only (the host broadcast keeps
+    // connected peers; PRO presence lists live participants), so every row
+    // is connected.
     const status = document.createElement('span');
-    status.className = `d-status ${statusClass}`;
-    status.textContent = statusText;
+    status.className = 'd-status active';
+    status.textContent = t('common.connected');
 
     row.appendChild(name);
 

@@ -95,7 +95,6 @@ const hu: Record<I18nKey, string> = {
   'common.right': 'Jobb',
   'common.woofer': 'Mélynyomó',
   'common.connected': 'Csatlakoztatva',
-  'common.disconnected': 'Leválasztva',
   'common.revoke': 'Visszavonás',
   'common.system': 'Rendszer',
   'common.unknown': 'Ismeretlen',

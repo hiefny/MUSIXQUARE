@@ -97,7 +97,6 @@ const ta: Record<I18nKey, string> = {
   'common.right': 'வலது',
   'common.woofer': 'வூஃபர்',
   'common.connected': 'இணைக்கப்பட்டது',
-  'common.disconnected': 'இணைப்பு துண்டிக்கப்பட்டது',
   'common.revoke': 'திரும்பப் பெறு',
   'common.system': 'சிஸ்டம்',
   'common.unknown': 'தெரியாதது',

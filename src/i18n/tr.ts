@@ -93,7 +93,6 @@ const tr: Record<I18nKey, string> = {
   'common.right': 'Sağ',
   'common.woofer': 'Woofer',
   'common.connected': 'Bağlı',
-  'common.disconnected': 'Bağlantı Kesildi',
   'common.revoke': 'Kaldır',
   'common.system': 'Sistem',
   'common.unknown': 'Bilinmeyen',

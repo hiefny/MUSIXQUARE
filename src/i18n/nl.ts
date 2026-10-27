@@ -96,7 +96,6 @@ const nl: Record<I18nKey, string> = {
   'common.right': 'Rechts',
   'common.woofer': 'Woofer',
   'common.connected': 'Verbonden',
-  'common.disconnected': 'Verbroken',
   'common.revoke': 'Intrekken',
   'common.system': 'Systeem',
   'common.unknown': 'Onbekend',

@@ -96,7 +96,6 @@ const gu: Record<I18nKey, string> = {
   'common.right': 'જમણું',
   'common.woofer': 'વૂફર',
   'common.connected': 'જોડાયેલ',
-  'common.disconnected': 'જોડાણ તૂટ્યું',
   'common.revoke': 'પરવાનગી રદ કરો',
   'common.system': 'સિસ્ટમ',
   'common.unknown': 'અજ્ઞાત',

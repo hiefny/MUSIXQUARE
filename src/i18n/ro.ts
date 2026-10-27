@@ -96,7 +96,6 @@ const ro: Record<I18nKey, string> = {
   'common.right': 'Dreapta',
   'common.woofer': 'Woofer',
   'common.connected': 'Conectat',
-  'common.disconnected': 'Deconectat',
   'common.revoke': 'Revocă',
   'common.system': 'Sistem',
   'common.unknown': 'Necunoscut',

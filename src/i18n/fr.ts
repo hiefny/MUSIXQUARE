@@ -97,7 +97,6 @@ const fr: Record<I18nKey, string> = {
   'common.right': 'Droite',
   'common.woofer': 'Caisson de basses',
   'common.connected': 'Connecté',
-  'common.disconnected': 'Déconnecté',
   'common.revoke': 'Retirer',
   'common.system': 'Système',
   'common.unknown': 'Inconnu',

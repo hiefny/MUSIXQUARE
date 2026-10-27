@@ -96,7 +96,6 @@ const ja: Record<I18nKey, string> = {
   'common.right': '右',
   'common.woofer': 'ウーファー',
   'common.connected': '接続済み',
-  'common.disconnected': '切断済み',
   'common.revoke': '解除',
   'common.system': 'システム',
   'common.unknown': '不明',

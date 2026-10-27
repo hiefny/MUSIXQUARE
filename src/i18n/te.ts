@@ -96,7 +96,6 @@ const te: Record<I18nKey, string> = {
   'common.right': 'కుడి',
   'common.woofer': 'వూఫర్',
   'common.connected': 'కనెక్ట్ అయింది',
-  'common.disconnected': 'డిస్‌కనెక్ట్ అయింది',
   'common.revoke': 'ఉపసంహరించు',
   'common.system': 'సిస్టమ్',
   'common.unknown': 'తెలియనిది',

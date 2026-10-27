@@ -95,7 +95,6 @@ const bn: Record<I18nKey, string> = {
   'common.right': 'ডান',
   'common.woofer': 'উফার',
   'common.connected': 'সংযুক্ত',
-  'common.disconnected': 'সংযোগ বিচ্ছিন্ন',
   'common.revoke': 'প্রত্যাহার করুন',
   'common.system': 'সিস্টেম',
   'common.unknown': 'অজানা',

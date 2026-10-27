@@ -95,7 +95,6 @@ const he: Record<I18nKey, string> = {
   'common.right': 'ימין',
   'common.woofer': 'וופר',
   'common.connected': 'מחובר',
-  'common.disconnected': 'מנותק',
   'common.revoke': 'שלילת ההרשאות',
   'common.system': 'מערכת',
   'common.unknown': 'לא ידוע',

@@ -96,7 +96,6 @@ const en: Record<I18nKey, string> = {
   'common.right': 'Right',
   'common.woofer': 'Woofer',
   'common.connected': 'Connected',
-  'common.disconnected': 'Disconnected',
   'common.revoke': 'Revoke',
   'common.system': 'System',
   'common.unknown': 'Unknown',

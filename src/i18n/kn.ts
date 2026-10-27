@@ -96,7 +96,6 @@ const kn: Record<I18nKey, string> = {
   'common.right': 'ಬಲ',
   'common.woofer': 'ವೂಫರ್',
   'common.connected': 'ಸಂಪರ್ಕಗೊಂಡಿದೆ',
-  'common.disconnected': 'ಸಂಪರ್ಕ ಕಡಿತಗೊಂಡಿದೆ',
   'common.revoke': 'ಹಿಂಪಡೆಯಿರಿ',
   'common.system': 'ಸಿಸ್ಟಮ್',
   'common.unknown': 'ತಿಳಿದಿಲ್ಲ',

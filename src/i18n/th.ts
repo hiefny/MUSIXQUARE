@@ -92,7 +92,6 @@ const th: Record<I18nKey, string> = {
   'common.right': 'ขวา',
   'common.woofer': 'วูฟเฟอร์',
   'common.connected': 'เชื่อมต่อแล้ว',
-  'common.disconnected': 'ตัดการเชื่อมต่อแล้ว',
   'common.revoke': 'ถอนสิทธิ์',
   'common.system': 'ระบบ',
   'common.unknown': 'ไม่ทราบ',

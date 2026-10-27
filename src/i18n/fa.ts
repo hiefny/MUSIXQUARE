@@ -94,7 +94,6 @@ const fa: Record<I18nKey, string> = {
   'common.right': 'راست',
   'common.woofer': 'ووفر',
   'common.connected': 'متصل',
-  'common.disconnected': 'قطع‌شده',
   'common.revoke': 'لغو مجوز',
   'common.system': 'سیستم',
   'common.unknown': 'ناشناخته',

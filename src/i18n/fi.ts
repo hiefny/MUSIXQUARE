@@ -96,7 +96,6 @@ const fi: Record<I18nKey, string> = {
   'common.right': 'Oikea',
   'common.woofer': 'Bassokaiutin',
   'common.connected': 'Yhdistetty',
-  'common.disconnected': 'Yhteys katkaistu',
   'common.revoke': 'Peru oikeudet',
   'common.system': 'Järjestelmä',
   'common.unknown': 'Tuntematon',

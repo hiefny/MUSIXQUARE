@@ -4335,11 +4335,6 @@ or pointers. Keep :focus-visible and :active outside the gate (src/ui/__tests__/
     color: #52c41a;
   }
 
-  .d-status.inactive {
-    background: var(--control-danger);
-    color: var(--danger-foreground);
-  }
-
   /* ── Kick Device Button (playlist-remove style) ────────────────── */
   .btn-kick-device,
   .btn-kick-physical-device {

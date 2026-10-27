@@ -97,7 +97,6 @@ const nb: Record<I18nKey, string> = {
   'common.right': 'Høyre',
   'common.woofer': 'Woofer',
   'common.connected': 'Tilkoblet',
-  'common.disconnected': 'Frakoblet',
   'common.revoke': 'Trekk tilbake',
   'common.system': 'System',
   'common.unknown': 'Ukjent',

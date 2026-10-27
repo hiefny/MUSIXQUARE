@@ -96,7 +96,6 @@ const ml: Record<I18nKey, string> = {
   'common.right': 'വലത്',
   'common.woofer': 'വൂഫർ',
   'common.connected': 'ബന്ധിപ്പിച്ചു',
-  'common.disconnected': 'ബന്ധം വിച്ഛേദിച്ചു',
   'common.revoke': 'പിൻവലിക്കുക',
   'common.system': 'സിസ്റ്റം',
   'common.unknown': 'അജ്ഞാതം',

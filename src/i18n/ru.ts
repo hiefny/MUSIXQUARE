@@ -93,7 +93,6 @@ const ru: Record<I18nKey, string> = {
   'common.right': 'Правый',
   'common.woofer': 'Вуфер',
   'common.connected': 'Подключено',
-  'common.disconnected': 'Отключено',
   'common.revoke': 'Отозвать',
   'common.system': 'Система',
   'common.unknown': 'Неизвестно',

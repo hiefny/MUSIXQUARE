@@ -95,7 +95,6 @@ const uk: Record<I18nKey, string> = {
   'common.right': 'Правий',
   'common.woofer': 'Вуфер',
   'common.connected': 'Підключено',
-  'common.disconnected': 'Відключено',
   'common.revoke': 'Відкликати',
   'common.system': 'Система',
   'common.unknown': 'Невідомо',

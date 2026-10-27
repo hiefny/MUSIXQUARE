@@ -94,7 +94,6 @@ const ar: Record<I18nKey, string> = {
   'common.right': 'اليمين',
   'common.woofer': 'مضخم الصوت',
   'common.connected': 'متصل',
-  'common.disconnected': 'غير متصل',
   'common.revoke': 'سحب',
   'common.system': 'النظام',
   'common.unknown': 'غير معروف',

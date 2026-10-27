@@ -95,7 +95,6 @@ const ur: Record<I18nKey, string> = {
   'common.right': 'دائیں',
   'common.woofer': 'ووفر',
   'common.connected': 'منسلک',
-  'common.disconnected': 'منقطع',
   'common.revoke': 'واپس لیں',
   'common.system': 'سسٹم',
   'common.unknown': 'نامعلوم',

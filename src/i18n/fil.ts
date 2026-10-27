@@ -97,7 +97,6 @@ const fil: Record<I18nKey, string> = {
   'common.right': 'Kanan',
   'common.woofer': 'Woofer',
   'common.connected': 'Nakakonekta',
-  'common.disconnected': 'Nadiskonekta',
   'common.revoke': 'Bawiin',
   'common.system': 'System',
   'common.unknown': 'Hindi kilala',

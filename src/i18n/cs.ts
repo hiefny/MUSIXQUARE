@@ -95,7 +95,6 @@ const cs: Record<I18nKey, string> = {
   'common.right': 'Pravý',
   'common.woofer': 'Woofer',
   'common.connected': 'Připojeno',
-  'common.disconnected': 'Odpojeno',
   'common.revoke': 'Odebrat',
   'common.system': 'Systém',
   'common.unknown': 'Neznámé',

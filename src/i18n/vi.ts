@@ -95,7 +95,6 @@ const vi: Record<I18nKey, string> = {
   'common.right': 'Phải',
   'common.woofer': 'Loa siêu trầm',
   'common.connected': 'Đã kết nối',
-  'common.disconnected': 'Đã ngắt kết nối',
   'common.revoke': 'Thu hồi',
   'common.system': 'Hệ thống',
   'common.unknown': 'Không rõ',

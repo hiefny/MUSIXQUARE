@@ -93,7 +93,6 @@ const pl: Record<I18nKey, string> = {
   'common.right': 'Prawy',
   'common.woofer': 'Subwoofer',
   'common.connected': 'Połączono',
-  'common.disconnected': 'Rozłączono',
   'common.revoke': 'Odbierz',
   'common.system': 'System',
   'common.unknown': 'Nieznany',

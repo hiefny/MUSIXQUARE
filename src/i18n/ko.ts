@@ -94,7 +94,6 @@ const ko = {
   'common.right': '오른쪽',
   'common.woofer': '우퍼',
   'common.connected': '연결됨',
-  'common.disconnected': '연결 끊김',
   'common.revoke': '관리자 해제',
   'common.system': '시스템',
   'common.unknown': '알 수 없음',

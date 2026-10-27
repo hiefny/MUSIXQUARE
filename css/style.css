@@ -10171,7 +10171,8 @@ or pointers. Keep :focus-visible and :active outside the gate (src/ui/__tests__/
     padding: 0 20px;
     border: 2px solid transparent;
     cursor: pointer;
-    /* The label spans, the play tab's Sync and Media included, inherit these. */
+    /* The label spans inherit these; the play tab's Sync and Media keep
+       their own weight and tracking (#btn-sync span below). */
     font-size: var(--button-label-size);
     font-weight: var(--button-label-weight);
     line-height: var(--button-label-line-height);
@@ -10305,8 +10306,9 @@ or pointers. Keep :focus-visible and :active outside the gate (src/ui/__tests__/
     fill: currentColor;
   }
 
-  /* Sync/Media colors. Their label style is .file-select-btn's; the
-     play-action component below owns layout. */
+  /* Sync/Media colors. Their label size and line height are
+     .file-select-btn's and their label spans keep their own weight and
+     tracking (below); the play-action component owns layout. */
   #btn-sync,
   #btn-media-source {
     border: none;
@@ -10342,8 +10344,17 @@ or pointers. Keep :focus-visible and :active outside the gate (src/ui/__tests__/
     margin: 0;
   }
 
+  /* Named exception to the shared label tokens (button-label-contract.test.ts):
+     the compact play actions keep the 9.0.18 label weight and tracking, 600
+     and -0.3px. Each label sits beside its icon in a 130px slot at the real
+     320px width and must stay on one line in every locale; at 700 the Finnish
+     'Synkronoi' wraps with Linux fonts. Size and line height stay the shared
+     tokens, the same 15px / 1.25 as 9.0.18. This rule stays in the base layer,
+     so the right-to-left reset still removes the tracking, as in 9.0.18. */
   #btn-sync span,
   #btn-media-source span {
+    font-weight: 600;
+    letter-spacing: -0.3px;
     color: currentColor;
     min-width: 0;
     white-space: normal;

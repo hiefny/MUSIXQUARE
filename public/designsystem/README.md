@@ -110,7 +110,11 @@ Pretendard lacks coverage.
 - Every action button label is 15px / 700 / 1.25 with normal letter spacing,
   and only its color differs. Each component rule reads `--button-label-size`,
   `--button-label-weight`, `--button-label-line-height`, and
-  `--button-label-letter-spacing` itself; do not retype the values.
+  `--button-label-letter-spacing` itself; do not retype the values. Named
+  exceptions keep their own values and share the rest: choice cards keep
+  14px, and the play tab's compact Sync and Media actions keep weight 600 and
+  -0.3px tracking so every language's label stays on one line in its 130px
+  slot on a 320px screen.
 - Verify font changes with `npm run guard:font-assets` and
   `npm run guard:font-build`.
 

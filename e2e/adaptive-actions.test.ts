@@ -2,7 +2,7 @@ import { expect, test, type Page } from '@playwright/test';
 import { readFileSync, readdirSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { APP_DICTIONARIES as LOCALES } from '../src/i18n/catalogs.ts';
-import { LANGUAGE_OPTIONS } from '../src/i18n/locales.ts';
+import { LANGUAGE_OPTIONS, languageDirection } from '../src/i18n/locales.ts';
 
 const APP_STYLES = readFileSync(resolve('css/style.css'), 'utf8');
 const DESKTOP_STYLES = readFileSync(resolve('css/desktop.css'), 'utf8');
@@ -54,6 +54,7 @@ const AUDITED_ACTION_KEYS = [
 const LOCALIZED_ACTIONS = Object.entries(LOCALES).map(([code, dictionary]) => ({
   code,
   htmlLang: LANGUAGE_OPTIONS.find((locale) => locale.code === code)!.htmlLang,
+  dir: languageDirection(code as Parameters<typeof languageDirection>[0]),
   labels: AUDITED_ACTION_KEYS.map((key) => (dictionary as Record<string, string>)[key]),
   account: {
     google: (dictionary as Record<string, string>)['account.google_continue'],
@@ -72,6 +73,10 @@ const LOCALIZED_ACTIONS = Object.entries(LOCALES).map(([code, dictionary]) => ({
     syncing: (dictionary as Record<string, string>)['player.syncing_compact'],
     media: (dictionary as Record<string, string>)['player.play_media_compact'],
     stop: (dictionary as Record<string, string>)['system_audio.stop'],
+  },
+  demo: {
+    info: (dictionary as Record<string, string>)['demo.track_info'],
+    exit: (dictionary as Record<string, string>)['demo.exit'],
   },
   nav: [
     (dictionary as Record<string, string>)['nav.home'],
@@ -994,6 +999,133 @@ test.describe('content-based adaptive action groups', () => {
       }
     }
   });
+
+  // The demo finish pair (Track info / Exit Tour) sits two per row in fixed
+  // 54px pills on phones up to 420px, where it is a named narrow-slot
+  // exception (U12, button-label-contract): it keeps the 9.0.18 label weight
+  // 600. Each locale's pair is measured beside a copy that carries the 9.0.18
+  // label and pill (13px / 600 / normal line height and tracking, 10px side
+  // padding, 10px gap, 20px icon) in the same browser and fonts, so the pin
+  // holds on any platform: no label or icon may reach further past its pill
+  // than in 9.0.18. Tamil Exit Tour is wider than its pill at 320px in 9.0.18
+  // too; that pre-existing case is an owner item in the UI bundle report.
+  const DEMO_FINISH_9_0_18 = {
+    button:
+      'font-size: 13px; font-weight: 600; line-height: normal; letter-spacing: normal; ' +
+      'height: 54px; min-height: 54px; padding: 0 10px; gap: 10px;',
+    icon: 'width: 20px; height: 20px;',
+  };
+  for (const viewportWidth of [320, 340, 360]) {
+    test(`keeps the demo finish pair no worse than 9.0.18 in every locale at ${viewportWidth}px`, async ({
+      page,
+    }) => {
+      await installLayoutProbe(page, '<main id="demo-finish-probes"></main>', { viewportWidth });
+      const localesWithFonts = await localizedActionsWithFonts(page);
+      await page.evaluate(
+        ({ locales, markup, reference }) => {
+          // As src/demo/mode.ts applies the demo, on its finish step.
+          document.body.classList.add('mode-demo', 'demo-mobile');
+          const root = document.getElementById('demo-finish-probes')!;
+          const authored = new DOMParser().parseFromString(markup, 'text/html');
+          const overlay = authored.getElementById('demo-overlay')!;
+          overlay.classList.add('active');
+          for (const panel of overlay.querySelectorAll('.demo-step-panel')) {
+            panel.classList.toggle('active', panel.getAttribute('data-demo-panel') === '4');
+          }
+          for (const locale of locales) {
+            const probe = overlay.cloneNode(true) as HTMLElement;
+            probe.classList.add('locale-demo-finish-probe');
+            probe.lang = locale.htmlLang;
+            probe.dir = locale.dir;
+            probe.style.setProperty('--font-sans', locale.fontFamily);
+            probe.style.fontFamily = locale.fontFamily;
+            const row = probe.querySelector<HTMLElement>(
+              '[data-demo-panel="4"] .demo-large-actions',
+            )!;
+            row.querySelector('[data-demo-info] span')!.textContent = locale.demo.info;
+            row.querySelector('[data-demo-exit] span')!.textContent = locale.demo.exit;
+            row.dataset.finishPair = 'shipped';
+            const baseline = row.cloneNode(true) as HTMLElement;
+            baseline.dataset.finishPair = '9.0.18';
+            for (const button of baseline.querySelectorAll<HTMLElement>('button')) {
+              button.style.cssText += reference.button;
+              button.querySelector<SVGElement>('svg')!.style.cssText += reference.icon;
+            }
+            row.after(baseline);
+            root.appendChild(probe);
+          }
+        },
+        { locales: localesWithFonts, markup: APP_MARKUP, reference: DEMO_FINISH_9_0_18 },
+      );
+      await waitForLayoutFonts(page);
+
+      const probes = await page.locator('.locale-demo-finish-probe').evaluateAll((overlays) =>
+        overlays.map((overlay) => {
+          // How far a pill's icon and label reach past its edges, 0 inside.
+          const spill = (button: HTMLElement) => {
+            const pill = button.getBoundingClientRect();
+            const icon = button.querySelector('svg')!.getBoundingClientRect();
+            const label = button.querySelector<HTMLElement>('span')!;
+            const text = document.createRange();
+            text.selectNodeContents(label);
+            const glyphs = [...text.getClientRects()];
+            const box = label.getBoundingClientRect();
+            const left = Math.min(icon.left, ...glyphs.map((rect) => rect.left));
+            const right = Math.max(icon.right, ...glyphs.map((rect) => rect.right));
+            const top = Math.min(icon.top, box.top);
+            const bottom = Math.max(icon.bottom, box.bottom);
+            const style = getComputedStyle(label);
+            return {
+              typography: [style.fontSize, style.fontWeight, style.lineHeight, style.letterSpacing],
+              width: pill.width,
+              height: pill.height,
+              horizontal: Math.max(0, pill.left - left, right - pill.right),
+              vertical: Math.max(0, pill.top - top, bottom - pill.bottom),
+            };
+          };
+          const pair = (version: string) => {
+            const row = overlay.querySelector<HTMLElement>(`[data-finish-pair="${version}"]`)!;
+            return {
+              info: spill(row.querySelector<HTMLElement>('[data-demo-info]')!),
+              exit: spill(row.querySelector<HTMLElement>('[data-demo-exit]')!),
+            };
+          };
+          return {
+            lang: overlay.getAttribute('lang') ?? 'unknown',
+            shipped: pair('shipped'),
+            reference: pair('9.0.18'),
+          };
+        }),
+      );
+      expect(probes).toHaveLength(42);
+      const worse: string[] = [];
+      for (const probe of probes) {
+        for (const label of ['info', 'exit'] as const) {
+          const shipped = probe.shipped[label];
+          const reference = probe.reference[label];
+          const id = `${probe.lang} ${label}`;
+          expect(reference.typography, `${id} 9.0.18 label`).toEqual([
+            '13px',
+            '600',
+            'normal',
+            'normal',
+          ]);
+          expect(shipped.height, `${id} pill height`).toBeCloseTo(54, 1);
+          expect(reference.height, `${id} 9.0.18 pill height`).toBeCloseTo(54, 1);
+          expect(shipped.width, `${id} pill width`).toBeCloseTo(reference.width, 1);
+          for (const axis of ['horizontal', 'vertical'] as const) {
+            if (shipped[axis] > reference[axis] + 0.5) {
+              worse.push(
+                `${id} ${axis}: ${shipped[axis].toFixed(2)}px past its pill ` +
+                  `(9.0.18 ${reference[axis].toFixed(2)}px)`,
+              );
+            }
+          }
+        }
+      }
+      expect(worse, `labels that spill further than 9.0.18 at ${viewportWidth}px`).toEqual([]);
+    });
+  }
 
   test('CSS hover and pressed selectors preserve the locked sharing surface', async ({ page }) => {
     await page.emulateMedia({ reducedMotion: 'reduce' });

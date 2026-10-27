@@ -160,6 +160,12 @@ const NESTED_EXCEPTIONS: Readonly<Record<string, string>> = {
 const DEMO_FINISH_PAIR =
   'The demo finish pair sits two per row in 54px pills on phones up to 420px; ' +
   'the smaller label keeps both localized labels beside their icons.';
+// The same named narrow-slot exception as the compact play actions (U12).
+const DEMO_FINISH_PAIR_WEIGHT =
+  'The demo finish pair keeps the 9.0.18 label weight 600 in its 13px label on phones ' +
+  'up to 420px: at 700 more localized labels spill past their fixed 54px pills at ' +
+  '320px and 340px (Malayalam and Tamil Exit Tour) than in 9.0.18. The adaptive-actions ' +
+  'probe pins every locale at 320, 340 and 360px to no worse than 9.0.18.';
 const COMPACT_OVERRIDES: ReadonlyArray<{
   condition: string;
   selector: string;
@@ -177,6 +183,18 @@ const COMPACT_OVERRIDES: ReadonlyArray<{
     selector: '.demo-large-actions .leave-session-btn',
     declaration: 'font-size: 13px',
     reason: DEMO_FINISH_PAIR,
+  },
+  {
+    condition: '@media (max-width: 420px)',
+    selector: '.demo-large-actions .accent-action-btn',
+    declaration: 'font-weight: 600',
+    reason: DEMO_FINISH_PAIR_WEIGHT,
+  },
+  {
+    condition: '@media (max-width: 420px)',
+    selector: '.demo-large-actions .leave-session-btn',
+    declaration: 'font-weight: 600',
+    reason: DEMO_FINISH_PAIR_WEIGHT,
   },
   {
     condition:
@@ -313,6 +331,530 @@ function layerOf(node: Node): string | null {
     }
   }
   return null;
+}
+
+// The cascade resolver. The named narrow-slot exceptions are pinned by the
+// value that wins the cascade on the real markup, not by the rule that sets
+// it, so a broader rule in a later layer (a token read included) cannot turn
+// them back unnoticed (PR #510 review). It applies importance, cascade
+// layers, specificity and source order, then inheritance and var()
+// substitution, in each viewport and page state below. Inline label
+// typography in the markup is rejected rather than resolved.
+interface MediaEnvironment {
+  width: number;
+  height: number;
+  reducedMotion: boolean;
+  forcedColors: boolean;
+  contrastMore: boolean;
+  standalone: boolean;
+  /** iOS Safari, the only engine that supports -webkit-touch-callout. */
+  touchCallout: boolean;
+}
+
+const RESOLVED_PROPERTIES = ['font-size', 'font-weight', 'line-height', 'letter-spacing'] as const;
+type ResolvedProperty = (typeof RESOLVED_PROPERTIES)[number];
+const INITIAL_VALUES: Readonly<Record<ResolvedProperty, string>> = {
+  'font-size': '16px',
+  'font-weight': '400',
+  'line-height': 'normal',
+  'letter-spacing': 'normal',
+};
+// Chromium's form control defaults (`font: -webkit-small-control`), below every
+// author rule.
+const FORM_CONTROL_DEFAULTS: Readonly<Record<ResolvedProperty, string>> = {
+  'font-size': '13.333px',
+  'font-weight': '400',
+  'line-height': 'normal',
+  'letter-spacing': 'normal',
+};
+
+/** Split a selector or query list at its top-level commas. */
+function splitTopLevel(list: string): string[] {
+  const parts: string[] = [];
+  let depth = 0;
+  let start = 0;
+  for (let index = 0; index < list.length; index += 1) {
+    const character = list[index];
+    if (character === '(' || character === '[') depth += 1;
+    if (character === ')' || character === ']') depth -= 1;
+    if (character === ',' && depth === 0) {
+      parts.push(list.slice(start, index).trim());
+      start = index + 1;
+    }
+  }
+  parts.push(list.slice(start).trim());
+  return parts.filter(Boolean);
+}
+
+type Specificity = [number, number, number];
+const compareSpecificity = (first: Specificity, second: Specificity): number =>
+  first[0] - second[0] || first[1] - second[1] || first[2] - second[2];
+const maxSpecificity = (list: string): Specificity =>
+  splitTopLevel(list)
+    .map(specificity)
+    .reduce((best, next) => (compareSpecificity(next, best) > 0 ? next : best), [0, 0, 0]);
+
+/** Selectors Level 4 specificity of one complex selector. */
+function specificity(selector: string): Specificity {
+  const result: Specificity = [0, 0, 0];
+  const add = (other: Specificity): void => {
+    result[0] += other[0];
+    result[1] += other[1];
+    result[2] += other[2];
+  };
+  const identEnd = (from: number): number => {
+    let index = from;
+    while (
+      index < selector.length &&
+      (/[\w\\-]/u.test(selector[index]!) || selector.charCodeAt(index) >= 0x80)
+    ) {
+      index += selector[index] === '\\' ? 2 : 1;
+    }
+    return index;
+  };
+  const closing = (from: number, open: string, close: string): number => {
+    let depth = 0;
+    let quote = '';
+    for (let index = from; index < selector.length; index += 1) {
+      const character = selector[index]!;
+      if (quote) {
+        if (character === quote) quote = '';
+        continue;
+      }
+      if (character === '"' || character === "'") quote = character;
+      else if (character === open) depth += 1;
+      else if (character === close && --depth === 0) return index;
+    }
+    throw new Error(`unbalanced selector: ${selector}`);
+  };
+  let index = 0;
+  while (index < selector.length) {
+    const character = selector[index]!;
+    if (character === '#' || character === '.') {
+      result[character === '#' ? 0 : 1] += 1;
+      index = identEnd(index + 1);
+    } else if (character === '[') {
+      result[1] += 1;
+      index = closing(index, '[', ']') + 1;
+    } else if (character === ':') {
+      const element = selector[index + 1] === ':';
+      const nameStart = index + (element ? 2 : 1);
+      const nameEnd = identEnd(nameStart);
+      const name = selector.slice(nameStart, nameEnd).toLowerCase();
+      let args = '';
+      index = nameEnd;
+      if (selector[index] === '(') {
+        const end = closing(index, '(', ')');
+        args = selector.slice(index + 1, end);
+        index = end + 1;
+      }
+      if (element || ['before', 'after', 'first-line', 'first-letter'].includes(name)) {
+        result[2] += 1;
+      } else if (name === 'where') {
+        // Zero specificity.
+      } else if (['is', 'not', 'has', 'matches', '-webkit-any'].includes(name)) {
+        add(maxSpecificity(args));
+      } else if (/^nth-(?:last-)?child$/u.test(name) && /\sof\s/u.test(args)) {
+        result[1] += 1;
+        add(maxSpecificity(args.slice(args.search(/\sof\s/u) + 4)));
+      } else {
+        result[1] += 1;
+      }
+    } else if (/[a-zA-Z_\\-]/u.test(character)) {
+      result[2] += 1;
+      index = identEnd(index);
+    } else {
+      // Universal selector, combinators and whitespace.
+      index += 1;
+    }
+  }
+  return result;
+}
+
+function mediaFeature(feature: string, environment: MediaEnvironment): boolean {
+  const match = /^\(\s*([\w-]+)\s*:\s*([^)]+?)\s*\)$/u.exec(feature);
+  if (!match) throw new Error(`the resolver cannot evaluate the media feature ${feature}`);
+  const [, name, value] = match as unknown as [string, string, string];
+  const pixels = (): number => {
+    const length = /^(\d+(?:\.\d+)?)px$/u.exec(value);
+    if (!length) throw new Error(`the resolver cannot evaluate the length in ${feature}`);
+    return Number(length[1]);
+  };
+  const keyword = (on: string, off: string, state: boolean): boolean => {
+    if (value === on) return state;
+    if (value === off) return !state;
+    throw new Error(`the resolver cannot evaluate ${feature}`);
+  };
+  switch (name) {
+    case 'min-width':
+      return environment.width >= pixels();
+    case 'max-width':
+      return environment.width <= pixels();
+    case 'min-height':
+      return environment.height >= pixels();
+    case 'max-height':
+      return environment.height <= pixels();
+    case 'orientation':
+      return keyword('portrait', 'landscape', environment.height >= environment.width);
+    case 'prefers-reduced-motion':
+      return keyword('reduce', 'no-preference', environment.reducedMotion);
+    case 'forced-colors':
+      return keyword('active', 'none', environment.forcedColors);
+    case 'prefers-contrast':
+      return keyword('more', 'no-preference', environment.contrastMore);
+    case 'display-mode':
+      return keyword('standalone', 'browser', environment.standalone);
+    default:
+      throw new Error(`the resolver cannot evaluate the media feature ${feature}`);
+  }
+}
+
+/** Whether a media query list matches the environment. */
+function mediaMatches(queries: string, environment: MediaEnvironment): boolean {
+  return splitTopLevel(queries).some((query) => {
+    const negated = /^not\s+/u.test(query);
+    const terms = query
+      .replace(/^(?:not|only)\s+/u, '')
+      .split(/\s+and\s+/u)
+      .map((term) => term.trim());
+    const matches = terms.every((term) =>
+      term === 'all' || term === 'screen' ? true : mediaFeature(term, environment),
+    );
+    return negated ? !matches : matches;
+  });
+}
+
+const conditionResults = new WeakMap<MediaEnvironment, Map<AtRule, boolean>>();
+
+/** Whether every conditional group rule around a node applies. */
+function conditionsApply(node: Node, environment: MediaEnvironment): boolean {
+  let known = conditionResults.get(environment);
+  if (!known) conditionResults.set(environment, (known = new Map()));
+  for (let parent = node.parent; parent; parent = parent.parent) {
+    if (parent.type !== 'atrule') continue;
+    const atRule = parent as AtRule;
+    if (atRule.name === 'layer') continue;
+    let applies = known.get(atRule);
+    if (applies === undefined) {
+      if (atRule.name === 'media') {
+        applies = mediaMatches(atRule.params, environment);
+      } else if (atRule.name === 'supports' && atRule.params === '(-webkit-touch-callout: none)') {
+        applies = environment.touchCallout;
+      } else {
+        throw new Error(`the resolver cannot evaluate @${atRule.name} ${atRule.params}`);
+      }
+      known.set(atRule, applies);
+    }
+    if (!applies) return false;
+  }
+  return true;
+}
+
+interface CascadeCandidate {
+  property: string;
+  value: string;
+  important: boolean;
+  layer: number;
+  specificity: Specificity;
+  order: number;
+  node: Node;
+  where: string;
+}
+
+/**
+ * Every declaration of a resolved property, the font shorthand or a custom
+ * property, by property, once per selector of its rule.
+ */
+function cascadeDeclarations(
+  stylesheets: ReadonlyArray<{ path: string; root: Root }>,
+): Map<string, Array<CascadeCandidate & { selector: string }>> {
+  const orderStatement: string[] = [];
+  stylesheets[0]!.root.walkAtRules('layer', (atRule) => {
+    if (!atRule.nodes && orderStatement.length === 0) {
+      orderStatement.push(...atRule.params.split(',').map((name) => name.trim()));
+    }
+  });
+  expect(orderStatement.length).toBeGreaterThan(0);
+  const byProperty = new Map<string, Array<CascadeCandidate & { selector: string }>>();
+  stylesheets.forEach(({ path, root }, sheetIndex) => {
+    root.walkDecls((declaration) => {
+      if (
+        declaration.prop !== 'font' &&
+        !declaration.prop.startsWith('--') &&
+        !(RESOLVED_PROPERTIES as readonly string[]).includes(declaration.prop)
+      ) {
+        return;
+      }
+      const rule = declaration.parent;
+      if (rule?.type !== 'rule') return;
+      const layers: string[] = [];
+      for (let parent = rule.parent as Node | undefined; parent; parent = parent.parent as Node) {
+        if (parent.type === 'atrule' && (parent as AtRule).name === 'layer') {
+          layers.unshift((parent as AtRule).params);
+        } else if (parent.type === 'rule') {
+          throw new Error(`the resolver does not read nested rules: ${where(declaration, path)}`);
+        }
+      }
+      const layerName = layers.join('.');
+      const layer = layerName === '' ? orderStatement.length : orderStatement.indexOf(layerName);
+      if (layer < 0) throw new Error(`${path}: layer ${layerName} is not in the order statement`);
+      for (const selector of (rule as unknown as { selectors: string[] }).selectors) {
+        if (selector.includes('::')) continue;
+        const list = byProperty.get(declaration.prop) ?? [];
+        list.push({
+          selector,
+          property: declaration.prop,
+          value: declaration.value,
+          important: Boolean(declaration.important),
+          layer,
+          specificity: specificity(selector),
+          order: sheetIndex * 10_000_000 + (declaration.source?.start?.offset ?? 0),
+          node: declaration,
+          where: `${where(declaration, path)} ${selector.replace(/\s+/gu, ' ')}`,
+        });
+        byProperty.set(declaration.prop, list);
+      }
+    });
+  });
+  return byProperty;
+}
+
+/** Positive when the first declaration wins the cascade over the second. */
+function cascadeOrder(first: CascadeCandidate, second: CascadeCandidate): number {
+  if (first.important !== second.important) return first.important ? 1 : -1;
+  if (first.layer !== second.layer) {
+    // Later layers win normal declarations; earlier layers win important ones.
+    return first.important ? second.layer - first.layer : first.layer - second.layer;
+  }
+  return compareSpecificity(first.specificity, second.specificity) || first.order - second.order;
+}
+
+/**
+ * Resolves label typography on one document state. Selector matching depends
+ * only on the document, so it is cached; media conditions are applied per
+ * environment.
+ */
+function cascadeResolver(
+  declarations: ReadonlyMap<string, ReadonlyArray<CascadeCandidate & { selector: string }>>,
+) {
+  // The declarations that match each element, strongest first.
+  const matched = new Map<Element, Map<string, CascadeCandidate[]>>();
+  const matchedInOrder = (element: Element, properties: readonly string[]) => {
+    let byKey = matched.get(element);
+    if (!byKey) matched.set(element, (byKey = new Map()));
+    const key = properties.join(' ');
+    let list = byKey.get(key);
+    if (!list) {
+      list = properties
+        .flatMap((property) => declarations.get(property) ?? [])
+        .filter((candidate) => {
+          try {
+            return element.matches(candidate.selector);
+          } catch {
+            throw new Error(`jsdom cannot match ${candidate.where}`);
+          }
+        })
+        .sort((first, second) => cascadeOrder(second, first));
+      byKey.set(key, list);
+    }
+    return list;
+  };
+
+  const winner = (
+    element: Element,
+    properties: readonly string[],
+    environment: MediaEnvironment,
+  ): CascadeCandidate | null =>
+    matchedInOrder(element, properties).find((candidate) =>
+      conditionsApply(candidate.node, environment),
+    ) ?? null;
+
+  const substitute = (element: Element, value: string, environment: MediaEnvironment): string =>
+    value.replace(/var\(\s*(--[\w-]+)\s*(?:,\s*([^()]*))?\)/gu, (_, name: string, fallback) => {
+      const resolved = custom(element, name, environment);
+      if (resolved !== null) return resolved;
+      if (fallback === undefined) throw new Error(`${name} is not defined`);
+      return substitute(element, String(fallback).trim(), environment);
+    });
+
+  const custom = (element: Element, name: string, environment: MediaEnvironment): string | null => {
+    const found = winner(element, [name], environment);
+    if (!found || found.value === 'inherit' || found.value === 'unset') {
+      return element.parentElement ? custom(element.parentElement, name, environment) : null;
+    }
+    return substitute(element, found.value, environment);
+  };
+
+  const resolve = (
+    element: Element,
+    property: ResolvedProperty,
+    environment: MediaEnvironment,
+  ): string => {
+    const shorthand = property === 'letter-spacing' ? [] : ['font'];
+    const found = winner(element, [property, ...shorthand], environment);
+    // The resolver reads stylesheets only; markup must not style labels inline.
+    if (/font|letter-spacing|line-height|--/u.test(element.getAttribute('style') ?? '')) {
+      throw new Error(`inline label typography: ${element.outerHTML.slice(0, 80)}`);
+    }
+    const inherited = (): string =>
+      element.parentElement
+        ? resolve(element.parentElement, property, environment)
+        : INITIAL_VALUES[property];
+    if (!found) {
+      return element.matches('button, input, select, textarea')
+        ? FORM_CONTROL_DEFAULTS[property]
+        : inherited();
+    }
+    if (found.value === 'inherit' || found.value === 'unset') return inherited();
+    if (found.property === 'font') return `font: ${found.value} (${found.where})`;
+    if (found.value === 'initial') return INITIAL_VALUES[property];
+    const value = substitute(element, found.value, environment);
+    if (property === 'font-weight') {
+      return value === 'normal' ? '400' : value === 'bold' ? '700' : value;
+    }
+    return value;
+  };
+
+  return (element: Element, environment: MediaEnvironment): Record<ResolvedProperty, string> =>
+    Object.fromEntries(
+      RESOLVED_PROPERTIES.map((property) => [property, resolve(element, property, environment)]),
+    ) as Record<ResolvedProperty, string>;
+}
+
+// Viewports around every width and height boundary in the app stylesheet.
+const RESOLVER_VIEWPORTS: ReadonlyArray<[number, number]> = [
+  [320, 568],
+  [320, 800],
+  [340, 700],
+  [360, 800],
+  [390, 844],
+  [390, 640],
+  [420, 900],
+  [421, 900],
+  [568, 320],
+  [700, 400],
+  [719, 900],
+  [720, 900],
+  [844, 390],
+  [844, 300],
+  [844, 180],
+  [1024, 768],
+  [1279, 800],
+  [1280, 719],
+  [1280, 800],
+  [1920, 1080],
+  [2560, 1440],
+  [3840, 2160],
+];
+const RESOLVER_ENVIRONMENTS: MediaEnvironment[] = RESOLVER_VIEWPORTS.flatMap(([width, height]) => {
+  const base: MediaEnvironment = {
+    width,
+    height,
+    reducedMotion: false,
+    forcedColors: false,
+    contrastMore: false,
+    standalone: false,
+    touchCallout: false,
+  };
+  return [
+    base,
+    ...(
+      ['reducedMotion', 'forcedColors', 'contrastMore', 'standalone', 'touchCallout'] as const
+    ).map((flag) => ({ ...base, [flag]: true })),
+  ];
+});
+
+// Page states that app rules key on, applied one at a time over each
+// direction and theme. Each state toggles one attribute or class on the parsed
+// markup and returns its undo, so the large index.html is parsed once per run.
+type PageState = { name: string; apply: (markup: Document) => () => void };
+const toggleClass =
+  (selector: string, className: string): PageState['apply'] =>
+  (markup) => {
+    const element = markup.querySelector(selector)!;
+    expect(element.classList.contains(className), `${selector}.${className}`).toBe(false);
+    element.classList.add(className);
+    return () => element.classList.remove(className);
+  };
+const setAttribute =
+  (selector: string, name: string, value = ''): PageState['apply'] =>
+  (markup) => {
+    const elements = [...markup.querySelectorAll(selector)];
+    expect(elements.length, selector).toBeGreaterThan(0);
+    const previous = elements.map((element) => element.getAttribute(name));
+    for (const element of elements) {
+      expect(element.getAttribute(name), `${selector}[${name}]`).not.toBe(value);
+      element.setAttribute(name, value);
+    }
+    return () => {
+      elements.forEach((element, index) => {
+        const before = previous[index];
+        if (before === null || before === undefined) element.removeAttribute(name);
+        else element.setAttribute(name, before);
+      });
+    };
+  };
+const SHARED_PAGE_STATES: readonly PageState[] = [
+  { name: 'at rest', apply: () => () => undefined },
+  { name: 'hover pointer', apply: setAttribute('html', 'data-hover-pointer') },
+  { name: 'more contrast', apply: setAttribute('html', 'data-contrast', 'more') },
+  { name: 'PRO room', apply: setAttribute('html', 'data-pro-room', 'true') },
+  { name: 'iOS standalone', apply: toggleClass('html', 'ios-standalone') },
+  { name: 'standalone', apply: toggleClass('html', 'standalone') },
+  { name: 'keyboard open', apply: toggleClass('html', 'keyboard-open') },
+  { name: 'overlay open', apply: toggleClass('body', 'overlay-open') },
+  { name: 'fake fullscreen', apply: toggleClass('body', 'has-fake-fullscreen') },
+];
+
+/** Resolve every element under each direction, theme, page state and viewport. */
+function resolveAcross(
+  stylesheets: ReadonlyArray<{ path: string; root: Root }>,
+  prepare: (markup: Document) => void,
+  states: readonly PageState[],
+  targets: (markup: Document) => Element[],
+  visit: (
+    resolved: Record<ResolvedProperty, string>,
+    context: { label: string; direction: string; environment: MediaEnvironment },
+  ) => void,
+): number {
+  const declarations = cascadeDeclarations(stylesheets);
+  const markup = appMarkup();
+  markup.documentElement.classList.remove('setup-boot-block');
+  markup.body.classList.add('fouc-loaded');
+  prepare(markup);
+  const elements = targets(markup);
+  expect(elements.length).toBeGreaterThan(0);
+  let resolutions = 0;
+  for (const direction of ['ltr', 'rtl']) {
+    for (const theme of ['dark', 'light']) {
+      markup.documentElement.setAttribute('dir', direction);
+      markup.documentElement.setAttribute('data-theme', theme);
+      for (const state of states) {
+        const undo = state.apply(markup);
+        const resolve = cascadeResolver(declarations);
+        for (const environment of RESOLVER_ENVIRONMENTS) {
+          for (const element of elements) {
+            resolutions += 1;
+            visit(resolve(element, environment), {
+              label:
+                `${direction} ${theme} ${state.name} ${environment.width}x${environment.height}` +
+                `${environment.reducedMotion ? ' reduced-motion' : ''}` +
+                `${environment.forcedColors ? ' forced-colors' : ''}` +
+                `${environment.contrastMore ? ' prefers-contrast' : ''}` +
+                `${environment.standalone ? ' display-standalone' : ''}` +
+                `${environment.touchCallout ? ' ios' : ''} ` +
+                `${element.closest('button')?.id || element.closest('button')?.className} ` +
+                `${element.tagName.toLowerCase()} ${element.textContent?.trim()}`,
+              direction,
+              environment,
+            });
+          }
+        }
+        undo();
+      }
+    }
+  }
+  return resolutions;
 }
 
 /** Label typography a declaration may set on an action button or its label. */
@@ -809,6 +1351,198 @@ describe('action button label contract', () => {
       });
     }
     expect(rtlLayers).toEqual(['components']);
+  });
+
+  it('computes cascade order, specificity and media conditions like the browser', () => {
+    expect(specificity('#btn-sync span')).toEqual([1, 0, 1]);
+    expect(specificity(':where(html[data-hover-pointer]) .accent-action-btn:hover')).toEqual([
+      0, 2, 0,
+    ]);
+    expect(
+      specificity(
+        "html[dir='rtl'] :where(h1, h2, h3, h4, p, button, label, span, input, textarea)",
+      ),
+    ).toEqual([0, 1, 1]);
+    expect(specificity('.play-actions-row :is(.play-action-label, #btn-sync) > *')).toEqual([
+      1, 1, 0,
+    ]);
+    expect(specificity('li:not(.a):nth-child(2 of .b, #c)')).toEqual([1, 2, 1]);
+    expect(specificity('body.mode-demo .demo-finish-content .demo-large-actions *')).toEqual([
+      0, 3, 1,
+    ]);
+    const phone: MediaEnvironment = {
+      width: 320,
+      height: 400,
+      reducedMotion: false,
+      forcedColors: false,
+      contrastMore: false,
+      standalone: false,
+      touchCallout: false,
+    };
+    expect(mediaMatches('(max-width: 420px)', phone)).toBe(true);
+    expect(mediaMatches('(max-width: 319px)', phone)).toBe(false);
+    expect(mediaMatches('not all and (min-height: 420px)', phone)).toBe(true);
+    expect(mediaMatches('(min-width: 720px), (max-height: 719px)', phone)).toBe(true);
+    expect(mediaMatches('(max-width: 719px) and (orientation: portrait)', phone)).toBe(true);
+    expect(mediaMatches('(forced-colors: active)', { ...phone, forcedColors: true })).toBe(true);
+    expect(() => mediaMatches('(hover: hover)', phone)).toThrow(/cannot evaluate/u);
+
+    // A later layer beats any specificity in an earlier one; important
+    // declarations reverse the layer order.
+    const candidate = (layer: number, ids: number, important = false, order = 0) =>
+      ({ layer, important, order, specificity: [ids, 0, 0] }) as unknown as CascadeCandidate;
+    expect(cascadeOrder(candidate(4, 0), candidate(1, 3))).toBeGreaterThan(0);
+    expect(cascadeOrder(candidate(1, 0, true), candidate(4, 3, true))).toBeGreaterThan(0);
+    expect(cascadeOrder(candidate(1, 0, true), candidate(4, 3))).toBeGreaterThan(0);
+    expect(cascadeOrder(candidate(2, 1, false, 5), candidate(2, 1, false, 9))).toBeLessThan(0);
+  });
+
+  it('resolves the named narrow-slot exceptions through the whole cascade', () => {
+    // Every direction, theme and page state below, in each viewport and media
+    // preference: the value that wins the cascade, not only the rule that
+    // sets it, keeps the 9.0.18 weight on the narrow slots.
+    const failures: string[] = [];
+    const check =
+      (expected: (context: { direction: string; environment: MediaEnvironment }) => object) =>
+      (
+        resolved: Record<ResolvedProperty, string>,
+        context: { label: string; direction: string; environment: MediaEnvironment },
+      ) => {
+        const want = expected(context);
+        if (JSON.stringify(resolved) !== JSON.stringify(want)) {
+          failures.push(`${context.label}: ${JSON.stringify(resolved)}`);
+        }
+      };
+
+    // The play tab's Sync, Media and Stop Sharing labels.
+    const playStates: PageState[] = [
+      ...SHARED_PAGE_STATES,
+      { name: 'sharing', apply: setAttribute('.play-action-buttons', 'data-sharing', 'true') },
+      { name: 'hover locked', apply: setAttribute('.play-action-buttons', 'data-hover-locked') },
+      { name: 'busy', apply: setAttribute('#btn-sync, #btn-media-source', 'aria-busy', 'true') },
+      {
+        name: 'disabled',
+        apply: setAttribute('#btn-sync, #btn-media-source', 'aria-disabled', 'true'),
+      },
+      { name: 'YouTube', apply: toggleClass('body', 'mode-youtube') },
+      { name: 'system audio', apply: toggleClass('body', 'mode-system-audio') },
+      { name: 'spectrum', apply: toggleClass('body', 'viz-spectrum') },
+    ];
+    const playResolutions = resolveAcross(
+      sheets,
+      () => undefined,
+      playStates,
+      (markup) => [
+        ...markup.querySelectorAll(
+          '#btn-sync .play-action-label, #btn-media-source .play-action-label',
+        ),
+      ],
+      check(({ direction }) => ({
+        'font-size': '15px',
+        'font-weight': '600',
+        'line-height': '1.25',
+        'letter-spacing': direction === 'rtl' ? 'normal' : '-0.3px',
+      })),
+    );
+
+    // The demo finish pair, Track info and Exit Tour, and their labels.
+    const demoResolutions = resolveAcross(
+      sheets,
+      (markup) => {
+        // As src/demo/mode.ts applies the demo.
+        markup.body.classList.add('mode-demo', 'demo-mobile');
+        markup.getElementById('demo-overlay')!.classList.add('active');
+        for (const panel of markup.querySelectorAll('.demo-step-panel')) {
+          panel.classList.toggle('active', panel.getAttribute('data-demo-panel') === '4');
+        }
+      },
+      [
+        ...SHARED_PAGE_STATES,
+        { name: 'demo chrome hiding', apply: toggleClass('body', 'demo-chrome-hiding') },
+      ],
+      (markup) => [
+        ...markup.querySelectorAll(
+          '[data-demo-info], [data-demo-info] > span, [data-demo-exit], [data-demo-exit] > span',
+        ),
+      ],
+      check(({ environment }) =>
+        environment.width <= 420
+          ? {
+              'font-size': '13px',
+              'font-weight': '600',
+              'line-height': '1.25',
+              'letter-spacing': 'normal',
+            }
+          : {
+              'font-size': '15px',
+              'font-weight': '700',
+              'line-height': '1.25',
+              'letter-spacing': 'normal',
+            },
+      ),
+    );
+    expect(playResolutions).toBe(2 * 2 * playStates.length * RESOLVER_ENVIRONMENTS.length * 3);
+    expect(demoResolutions).toBe(
+      2 * 2 * (SHARED_PAGE_STATES.length + 1) * RESOLVER_ENVIRONMENTS.length * 4,
+    );
+    expect(failures.slice(0, 20), `${failures.length} resolutions differ`).toEqual([]);
+  });
+
+  it('catches a later-layer token rule that turns a narrow slot back to 700', () => {
+    // The PR #510 review mutation: a broader rule in a later layer that reads
+    // the shared tokens. Rule-level checks accept it (token reads are not
+    // violations); only the resolved cascade shows the label back at 700.
+    const mutation = parseCss(`
+      @layer components {
+        .file-select-btn span {
+          font-weight: var(--button-label-weight);
+          letter-spacing: var(--button-label-letter-spacing);
+        }
+      }
+      @layer responsive {
+        .accent-action-btn,
+        .leave-session-btn {
+          font-weight: var(--button-label-weight);
+        }
+      }
+    `);
+    const phone = RESOLVER_ENVIRONMENTS.find(
+      (environment) =>
+        environment.width === 320 &&
+        environment.height === 568 &&
+        !environment.reducedMotion &&
+        !environment.forcedColors &&
+        !environment.contrastMore &&
+        !environment.standalone &&
+        !environment.touchCallout,
+    )!;
+    const resolveOnPhone = (
+      stylesheets: ReadonlyArray<{ path: string; root: Root }>,
+      selector: string,
+    ): Record<ResolvedProperty, string> => {
+      const markup = appMarkup();
+      markup.documentElement.setAttribute('dir', 'ltr');
+      markup.body.classList.add('fouc-loaded', 'mode-demo', 'demo-mobile');
+      return cascadeResolver(cascadeDeclarations(stylesheets))(
+        markup.querySelector(selector)!,
+        phone,
+      );
+    };
+    const mutated = [...sheets, { path: 'mutation.css', root: mutation }];
+    expect(resolveOnPhone(sheets, '#btn-sync .play-action-label')).toMatchObject({
+      'font-weight': '600',
+      'letter-spacing': '-0.3px',
+    });
+    expect(resolveOnPhone(mutated, '#btn-sync .play-action-label')).toMatchObject({
+      'font-weight': '700',
+      'letter-spacing': 'normal',
+    });
+    expect(resolveOnPhone(sheets, '[data-demo-exit] > span')).toMatchObject({
+      'font-weight': '600',
+    });
+    expect(resolveOnPhone(mutated, '[data-demo-exit] > span')).toMatchObject({
+      'font-weight': '700',
+    });
   });
 
   it('resolves only the label tokens on every action button in the app markup', () => {

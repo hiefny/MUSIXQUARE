@@ -161,9 +161,13 @@ for (const mode of [
 // Owner decision (2026-10-27): every action button label renders the button
 // label tokens after every layer, ID selector and responsive override, so
 // labels differ only by color. Destructive labels share one danger color.
-// The named exception: the play tab's compact Sync, Media and Stop Sharing
-// labels keep the 9.0.18 weight and tracking (600, -0.3px).
+// The named narrow-slot exception (U12): the play tab's compact Sync, Media
+// and Stop Sharing labels keep the 9.0.18 weight and tracking (600, -0.3px),
+// and the demo finish pair keeps the 9.0.18 weight 600 in its 13px label on
+// phones up to 420px.
 const COMPACT_PLAY_ACTION_LABELS = ['play-sync', 'play-media', 'play-stop'];
+const DEMO_FINISH_LABELS = ['demo-info', 'demo-exit'];
+const COMPACT_DEMO_MAX_WIDTH = 420;
 const actionLabelMarkup = `
   <main>
     <div class="dialog-actions adaptive-action-group">
@@ -207,11 +211,24 @@ const actionLabelMarkup = `
         </button>
       </div>
     </div>
+    <div class="demo-large-actions">
+      <button class="accent-action-btn demo-link-button"><svg viewBox="0 0 24 24"></svg><span data-label="demo-info">Log out</span></button>
+      <button class="leave-session-btn demo-exit-button"><svg viewBox="0 0 24 24"></svg><span data-label="demo-exit" data-danger>Log out</span></button>
+    </div>
   </main>`;
 
 async function actionLabelStyles(page: import('@playwright/test').Page) {
-  return page.evaluate(() =>
-    [...document.querySelectorAll<HTMLElement>('[data-label]')].map((label) => {
+  return page.evaluate(async () => {
+    // Reduced motion shortens transitions to 0.01ms instead of removing them,
+    // so a viewport change that resizes the demo finish pair starts a short
+    // font-size transition on its inherited labels. Read the settled values.
+    await Promise.all(
+      document
+        .getAnimations()
+        .filter((animation) => animation instanceof CSSTransition)
+        .map((animation) => animation.finished.catch(() => undefined)),
+    );
+    return [...document.querySelectorAll<HTMLElement>('[data-label]')].map((label) => {
       const css = getComputedStyle(label);
       return {
         label: label.dataset.label,
@@ -222,8 +239,8 @@ async function actionLabelStyles(page: import('@playwright/test').Page) {
         fontFamily: css.fontFamily,
         danger: label.hasAttribute('data-danger') ? css.color : null,
       };
-    }),
-  );
+    });
+  });
 }
 
 for (const mode of [
@@ -245,13 +262,17 @@ for (const mode of [
       await page.setViewportSize(viewport);
       const label = `${viewport.width}x${viewport.height}`;
       const styles = await actionLabelStyles(page);
-      expect(styles, label).toHaveLength(19);
+      expect(styles, label).toHaveLength(21);
       const family = styles[0]!.fontFamily;
+      const compactDemo = viewport.width <= COMPACT_DEMO_MAX_WIDTH;
       for (const style of styles) {
         // The compact play actions keep the 9.0.18 weight and tracking so
         // every locale stays on one line at 320px (button-label-contract);
-        // right-to-left labels take no tracking, as in 9.0.18.
+        // right-to-left labels take no tracking, as in 9.0.18. The demo
+        // finish pair keeps 600 in its 13px label up to 420px, where its
+        // fixed pills are narrowest.
         const compactPlayAction = COMPACT_PLAY_ACTION_LABELS.includes(style.label ?? '');
+        const demoFinish = compactDemo && DEMO_FINISH_LABELS.includes(style.label ?? '');
         expect(
           {
             fontSize: style.fontSize,
@@ -262,9 +283,9 @@ for (const mode of [
           },
           `${label} ${style.label}`,
         ).toEqual({
-          fontSize: '15px',
-          fontWeight: compactPlayAction ? '600' : '700',
-          lineHeight: '18.75px',
+          fontSize: demoFinish ? '13px' : '15px',
+          fontWeight: compactPlayAction || demoFinish ? '600' : '700',
+          lineHeight: demoFinish ? '16.25px' : '18.75px',
           letterSpacing: compactPlayAction && mode.direction === 'ltr' ? '-0.3px' : 'normal',
           fontFamily: family,
         });
@@ -272,13 +293,17 @@ for (const mode of [
       expect(
         styles.filter((style) => style.fontWeight === '600').map((style) => style.label),
         label,
-      ).toEqual(COMPACT_PLAY_ACTION_LABELS);
+      ).toEqual(
+        compactDemo
+          ? [...COMPACT_PLAY_ACTION_LABELS, ...DEMO_FINISH_LABELS]
+          : COMPACT_PLAY_ACTION_LABELS,
+      );
       // Owner decision (2026-10-27, evening): both default palettes keep the
       // #ff3b30 of 9.0.18.
       expect(
         styles.filter((style) => style.danger !== null).map((style) => style.danger),
         label,
-      ).toEqual(Array(3).fill('rgb(255, 59, 48)'));
+      ).toEqual(Array(4).fill('rgb(255, 59, 48)'));
     }
   });
 }
@@ -329,10 +354,11 @@ test('destructive labels and surfaces share one red per palette, darker only in 
         <body class="fouc-loaded">${actionLabelMarkup}</body>
       </html>`);
     const styles = await actionLabelStyles(page);
+    // Account deletion, leave session, stop sharing and the demo exit.
     expect(
       styles.filter((style) => style.danger !== null).map((style) => style.danger),
       name,
-    ).toEqual(Array(3).fill(palette.color));
+    ).toEqual(Array(4).fill(palette.color));
     const surfaces = await page.evaluate(() => {
       const channels = (color: string) =>
         (/rgba?\(([^)]*)\)/u.exec(color)?.[1] ?? '')

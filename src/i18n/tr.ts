@@ -851,6 +851,22 @@ const tr: Record<I18nKey, string> = {
   'pro.active_tab_message': 'Burada devam edersen önceki bağlantı sonlandırılır.',
   'pro.active_tab_replaced': 'Bu PRO odası başka bir sekmede zaten açık',
   'pro.use_this_tab': 'Buradan devam',
+  'pro.upload.retry_unavailable': 'Bu yükleme artık tamamlanamaz. Dosyayı yeniden seç.',
+  'pro.upload.failed_retryable': 'Yükleme tamamlanamadı. Lütfen tekrar dene.',
+  'pro.upload.empty_file': 'Boş dosya yüklenemez.',
+  'pro.upload.file_too_large': 'Bu dosya, dosya başına 200 MB sınırını aşıyor.',
+  'pro.upload.quota_exceeded': 'Bu PRO odasının 1 GB depolama sınırı doldu.',
+  'pro.upload.playlist_full': 'Çalma listesi dolu.',
+  'pro.upload.room_capacity': 'Bu PRO odasına daha fazla parça eklenemiyor.',
+  'pro.upload.room_state_limit':
+    'Bu PRO odası şu anda daha fazla değişiklik kabul edemiyor. Biraz sonra dosyayı yeniden seç.',
+  'pro.upload.pending_limit':
+    'Bu PRO odasında tamamlanmamış çok fazla yükleme var. Biraz sonra tekrar dene.',
+  'pro.upload.playlist_switched':
+    'Bu parça eklenmeden önce başka bir çalma listesi etkin oldu. Dosyayı yeniden seç.',
+  'pro.upload.permission_required': 'Medya yönetimi izni gerekli.',
+  'pro.upload.failed_file': '{{name}}: {{reason}}',
+  'pro.upload.confirming': 'Yükleme tamamlanıyor {{current}}/{{total}}',
   'pro.upload.batch_progress': 'Parçalar yükleniyor {{current}}/{{total}}',
   'pro.upload.batch_failed_title': 'Bazı parçalar yüklenemedi',
   'pro.upload.batch_failed_message': 'İstenen {{total}} parçanın {{failed}} tanesi yüklenemedi.',
@@ -859,6 +875,8 @@ const tr: Record<I18nKey, string> = {
   'pro.downloading': 'Dosya yükleniyor...',
   'pro.quota_exceeded': 'Bu PRO odasının 1 GB depolama sınırı doldu',
   'pro.file_too_large': 'Bu dosya, dosya başına 200 MB sınırını aşıyor',
+  'pro.room_state_limit':
+    'Bu PRO odası şu anda daha fazla değişiklik kabul edemiyor\nBiraz sonra tekrar dene',
 
   // ─── HTML Blocks (used with data-i18n-html) ────────────────────
   'help.install_app_html':

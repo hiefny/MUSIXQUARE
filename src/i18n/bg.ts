@@ -874,6 +874,23 @@ const bg: Record<I18nKey, string> = {
   'pro.active_tab_message': 'Ако продължиш тук, предишната връзка ще бъде прекъсната.',
   'pro.active_tab_replaced': 'Тази PRO стая вече е отворена в друг раздел',
   'pro.use_this_tab': 'Продължи тук',
+  'pro.upload.retry_unavailable':
+    'Това качване вече не може да бъде завършено. Избери файла отново.',
+  'pro.upload.failed_retryable': 'Качването не можа да бъде завършено. Опитай отново.',
+  'pro.upload.empty_file': 'Празен файл не може да бъде качен.',
+  'pro.upload.file_too_large': 'Файлът надвишава лимита от 200 MB за един файл.',
+  'pro.upload.quota_exceeded': 'Тази PRO стая е достигнала лимита си за съхранение от 1 GB.',
+  'pro.upload.playlist_full': 'Плейлистът е пълен.',
+  'pro.upload.room_capacity': 'Тази PRO стая не може да побере повече песни.',
+  'pro.upload.room_state_limit':
+    'Тази PRO стая не може да приеме повече промени в момента. Избери файла отново след малко.',
+  'pro.upload.pending_limit':
+    'В тази PRO стая има твърде много незавършени качвания. Опитай отново след малко.',
+  'pro.upload.playlist_switched':
+    'Друг плейлист стана активен, преди тази песен да бъде добавена. Избери файла отново.',
+  'pro.upload.permission_required': 'Необходимо е разрешение за управление на медията.',
+  'pro.upload.failed_file': '{{name}}: {{reason}}',
+  'pro.upload.confirming': 'Завършване на качването: {{current}}/{{total}}',
   'pro.upload.batch_progress': 'Качване на песни: {{current}}/{{total}}',
   'pro.upload.batch_failed_title': 'Някои песни не бяха качени',
   'pro.upload.batch_failed_message': 'Неуспешно качени песни от заявените {{total}}: {{failed}}.',
@@ -882,6 +899,8 @@ const bg: Record<I18nKey, string> = {
   'pro.downloading': 'Зареждане на файла...',
   'pro.quota_exceeded': 'Тази PRO стая е достигнала лимита си за съхранение от 1 GB',
   'pro.file_too_large': 'Файлът надвишава лимита от 200 MB за един файл',
+  'pro.room_state_limit':
+    'Тази PRO стая не може да приеме повече промени в момента\nОпитай отново след малко',
 
   // ─── HTML Blocks (used with data-i18n-html) ────────────────────
   'help.install_app_html':

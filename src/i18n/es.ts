@@ -811,6 +811,23 @@ const es: Record<I18nKey, string> = {
   'pro.active_tab_message': 'Si continúas aquí, se cerrará la conexión anterior.',
   'pro.active_tab_replaced': 'Esta sala PRO ya está abierta en otra pestaña',
   'pro.use_this_tab': 'Continuar aquí',
+  'pro.upload.retry_unavailable':
+    'Esta subida ya no se puede completar. Vuelve a seleccionar el archivo.',
+  'pro.upload.failed_retryable': 'No se pudo completar la subida. Inténtalo de nuevo.',
+  'pro.upload.empty_file': 'No se puede subir un archivo vacío.',
+  'pro.upload.file_too_large': 'Este archivo supera el límite de 200 MB por archivo.',
+  'pro.upload.quota_exceeded': 'Esta sala PRO alcanzó su límite de almacenamiento de 1 GB.',
+  'pro.upload.playlist_full': 'La lista de reproducción está llena.',
+  'pro.upload.room_capacity': 'Esta sala PRO no admite más pistas.',
+  'pro.upload.room_state_limit':
+    'Esta sala PRO no admite más cambios en este momento. Vuelve a seleccionar el archivo en un rato.',
+  'pro.upload.pending_limit':
+    'Esta sala PRO tiene demasiadas subidas sin terminar. Vuelve a intentarlo en un rato.',
+  'pro.upload.playlist_switched':
+    'Otra lista de reproducción se activó antes de añadir esta pista. Vuelve a seleccionar el archivo.',
+  'pro.upload.permission_required': 'Se necesita permiso para gestionar contenido.',
+  'pro.upload.failed_file': '{{name}}: {{reason}}',
+  'pro.upload.confirming': 'Finalizando subida {{current}}/{{total}}',
   'pro.upload.batch_progress': 'Subiendo pistas {{current}}/{{total}}',
   'pro.upload.batch_failed_title': 'No se pudieron subir algunas pistas',
   'pro.upload.batch_failed_message':
@@ -820,6 +837,8 @@ const es: Record<I18nKey, string> = {
   'pro.downloading': 'Cargando archivo...',
   'pro.quota_exceeded': 'Esta sala PRO alcanzó su límite de almacenamiento de 1 GB',
   'pro.file_too_large': 'Este archivo supera el límite de 200 MB por archivo',
+  'pro.room_state_limit':
+    'Esta sala PRO no admite más cambios en este momento\nVuelve a intentarlo en un rato',
 
   // Chat
   'chat.title': 'Chat',

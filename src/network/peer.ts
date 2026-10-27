@@ -28,13 +28,14 @@ import {
 } from '../pro-room/lifecycle-hook.ts';
 import { isProRoomCode } from '../pro-room/room-code.ts';
 import { requestProRoomTransportRecovery } from '../pro-room/transport-recovery.ts';
-import {
-  resetGuestSystemAudioShareRoute,
-  resetLocalSystemAudioSfuCapabilities,
-} from './system-audio-delivery.ts';
+import { resetGuestSystemAudioShareRoute } from './system-audio-delivery.ts';
 import { requestStandardRoomAccountAssertion } from '../account/room-identity.ts';
 import { clearCurrentAccountLoginReturn } from '../account/login-return.ts';
-import { getRoomContext, isActiveStandardRoomCoordinator } from '../rooms/authority.ts';
+import {
+  acceptStandardRoomAccountAuthorityIdentity,
+  getRoomContext,
+  isActiveStandardRoomCoordinator,
+} from '../rooms/authority.ts';
 import {
   getStandardRoomTurnCredentials,
   prepareStandardRoomNetworkRouteRetry,
@@ -330,10 +331,8 @@ async function renewRoomRtcConfiguration(signal: AbortSignal) {
  */
 async function initNetwork(requestedId: string | null = null): Promise<string> {
   bindBrowserConnectivityRecovery();
-  // Client feature advertisements are authenticated by the exact live data
-  // connection. A newly-created transport must negotiate them again even if
-  // the room code or peer IDs happen to be reused.
-  resetLocalSystemAudioSfuCapabilities();
+  // A guest's frozen system-audio share route belongs to one transport
+  // generation, even if the room code or peer IDs happen to be reused.
   resetGuestSystemAudioShareRoute();
   const owner = beginNetworkInit(requestedId);
   // A new admission owns fresh health; terminal expiry belongs only to its predecessor.
@@ -871,7 +870,7 @@ function setupPeerEvents(peer: PeerInstance): void {
     }
   });
 
-  peer.on('room-identity', (identity) => {
+  peer.on('room-identity', (identity, clearReason) => {
     if (getPeer() !== peer || getRoomContext().kind === 'pro') return;
     batchSetState({
       'network.myMemberId': identity?.memberId ?? null,
@@ -883,6 +882,7 @@ function setupPeerEvents(peer: PeerInstance): void {
           ? { 'network.myDeviceLabel': 'HOST' }
           : {}),
     });
+    acceptStandardRoomAccountAuthorityIdentity(identity?.memberId ?? null, clearReason);
     if (getState('network.appRole') === 'host') broadcastDeviceList();
   });
 
@@ -990,7 +990,7 @@ function setupPeerEvents(peer: PeerInstance): void {
         return;
       }
 
-      bus.emit('system-audio:incoming-call', mediaConn, 'STEREO');
+      bus.emit('system-audio:incoming-call', mediaConn);
       return;
     }
 
@@ -1038,7 +1038,6 @@ const PENDING_SETUP_TIMER_KEYS = [
 export function cancelPendingSessionSetup(): void {
   if (getState('setup.sessionStarted')) return;
   deactivateNoSleep();
-  resetLocalSystemAudioSfuCapabilities();
   resetGuestSystemAudioShareRoute();
   if (getState('room.context').kind === 'pro' || isProRoomCode(getState('network.lastJoinCode'))) {
     requestProRoomLeave();
@@ -1134,7 +1133,6 @@ export function leaveSession(options: { preserveAccountLoginReturn?: boolean } =
   // PWA launch back into this room. Confirmed pagehide is different: it is the
   // boundary used by same-tab OAuth navigation and explicitly opts out below.
   if (!options.preserveAccountLoginReturn) clearCurrentAccountLoginReturn();
-  resetLocalSystemAudioSfuCapabilities();
   resetGuestSystemAudioShareRoute();
   if (getState('room.context').kind === 'pro' || isProRoomCode(getState('network.sessionCode'))) {
     requestProRoomLeave();

@@ -604,11 +604,9 @@ describe('connect signaling health status', () => {
     const cap = cssRulesWithSelector(stylesheet, '#signaling-recovery-overlay .dialog');
     expect(cap).toHaveLength(1);
     expect(cap[0]!.selectors).toContain('#dialog-overlay .dialog');
-    expect(cap[0]!.declarations).toEqual([
-      'max-height: calc(var(--app-height, 100vh) - 48px)',
-      'max-height: calc(100dvh - 48px)',
-      'overflow-y: auto',
-    ]);
+    // The padded overlay ends above mobile navigation, so viewport height
+    // would let the actions extend past its actual available space.
+    expect(cap[0]!.declarations).toEqual(['max-height: 100%', 'overflow-y: auto']);
     const children = cssRulesWithSelector(stylesheet, '#signaling-recovery-overlay .dialog > *');
     expect(children).toHaveLength(1);
     expect(children[0]!.selectors).toContain('#dialog-overlay .dialog > *');

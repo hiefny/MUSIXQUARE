@@ -2,6 +2,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { PRO_ROOM_FILE_DURATION_READER } from '../../../cloudflare/pro-room-media-duration.ts';
 import {
   activatedProRoom,
+  copyBoundaryR2Object,
   fileItem,
   flacBytes,
   installBoundaryClock,
@@ -63,6 +64,15 @@ async function play(test: ProRoomBoundary, source: unknown) {
 
 beforeEach(() => {
   installBoundaryClock(NOW);
+  vi.stubGlobal(
+    'fetch',
+    vi.fn((request: Request) =>
+      copyBoundaryR2Object(
+        request,
+        fixtures.map((fixture) => fixture.bucket),
+      ),
+    ),
+  );
   // The playback probe warns once per unanswered track; keep the run quiet.
   vi.spyOn(console, 'warn').mockImplementation(() => undefined);
 });
@@ -74,6 +84,7 @@ afterEach(() => {
     fixture.dispose();
   }
   vi.restoreAllMocks();
+  vi.unstubAllGlobals();
   vi.useRealTimers();
 });
 

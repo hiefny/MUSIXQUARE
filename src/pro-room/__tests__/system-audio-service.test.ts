@@ -29,6 +29,11 @@ type ProSystemAudioDirectTransportCallbacks = Parameters<
   typeof configureProSystemAudioDirectTransport
 >[0];
 
+// The stubbed reception start commits the slot's receive placeholder and the
+// stubbed end retires it, so the real attach fence (5B-G1) reads what a real
+// reception would (core/state is hand-mocked below).
+const receivePlaceholder = vi.hoisted(() => ({ current: false }));
+
 const mocks = vi.hoisted(() => ({
   broadcast: vi.fn(),
   broadcastExcept: vi.fn(),
@@ -36,8 +41,15 @@ const mocks = vi.hoisted(() => ({
   safeSend: vi.fn(),
   sendToHost: vi.fn(),
   awaitTrustedReceptionBoundary: vi.fn(async () => true),
-  beginReception: vi.fn(),
-  cleanupReception: vi.fn(),
+  beginReception: vi.fn(() => {
+    receivePlaceholder.current = true;
+  }),
+  cleanupReception: vi.fn(() => {
+    receivePlaceholder.current = false;
+  }),
+  // The slot's read-only query the coordinator cleanup asks on this device's
+  // own publication (5B-G4); false unless a test says otherwise.
+  hasReception: vi.fn(() => false),
   stopPublisher: vi.fn(),
   stopSubscriber: vi.fn(),
   updatePublisherExpiry: vi.fn(),
@@ -124,6 +136,7 @@ vi.mock('../../network/system-audio-receive-slot.ts', async (importOriginal) => 
   awaitTrustedSystemAudioReceptionBoundary: mocks.awaitTrustedReceptionBoundary,
   beginTrustedSystemAudioReception: mocks.beginReception,
   endTrustedSystemAudioReception: mocks.cleanupReception,
+  hasTrustedSystemAudioReception: mocks.hasReception,
 }));
 vi.mock('../../network/webrtc-audio-decoder-primer.ts', () => ({
   cleanupWebRtcAudioDecoderPrimer: vi.fn(),
@@ -156,6 +169,9 @@ vi.mock('../../core/state.ts', () => ({
         : { kind: 'standard' };
     }
     if (path === 'playback.mode') return mocks.playbackMode;
+    if (path === 'player.currentTrackMeta') {
+      return receivePlaceholder.current ? { systemAudioPlaceholder: true } : null;
+    }
     if (path === 'network.hostConn') return null;
     return null;
   },
@@ -498,6 +514,8 @@ beforeEach(() => {
   mocks.restorePlayback.mockReset().mockResolvedValue(true);
   mocks.roomContextKind = 'pro';
   mocks.playbackMode = 'none';
+  receivePlaceholder.current = false;
+  mocks.hasReception.mockReturnValue(false);
   mocks.awaitTrustedReceptionBoundary.mockResolvedValue(true);
   mocks.initAudio.mockResolvedValue(undefined);
   mocks.getAudioContext.mockReset();
@@ -1658,6 +1676,48 @@ describe('PRO system-audio service orchestration', () => {
     expect(graph.sources[0]?.connect).toHaveBeenCalledWith(graph.widenerInput);
   });
 
+  it("clears the direct receive deadline on the live publisher's 'stopped' close and ends the reception only while the slot holds one (5B-G6)", async () => {
+    const DIRECT_DEADLINE = 'pro-system-audio-direct-receive-deadline';
+    api.getSystemAudioState.mockResolvedValueOnce(directLive());
+    await refreshProSystemAudioState();
+    await vi.waitFor(() => expect(mocks.beginReception).toHaveBeenCalledTimes(1));
+    expect(getManagedTimer(DIRECT_DEADLINE)).not.toBeNull();
+    mocks.cleanupReception.mockClear();
+
+    // Another publication's or another owner's stop changes nothing.
+    mocks.directCallbacks?.onLiveRouteStopped({
+      participantId: REMOTE_ID,
+      generation: 1,
+      publicationId: 'publication_00002',
+    });
+    mocks.directCallbacks?.onLiveRouteStopped({
+      participantId: 'participant_remote2',
+      generation: 1,
+      publicationId: 'publication_00001',
+    });
+    expect(getManagedTimer(DIRECT_DEADLINE)).not.toBeNull();
+    expect(mocks.cleanupReception).not.toHaveBeenCalled();
+
+    // The live publication's stop clears the deadline (the stop is no failure
+    // to report) and asks the slot before it ends: no reception, no end.
+    mocks.hasReception.mockReturnValue(false);
+    mocks.directCallbacks?.onLiveRouteStopped({
+      participantId: REMOTE_ID,
+      generation: 1,
+      publicationId: 'publication_00001',
+    });
+    expect(getManagedTimer(DIRECT_DEADLINE)).toBeNull();
+    expect(mocks.cleanupReception).not.toHaveBeenCalled();
+
+    mocks.hasReception.mockReturnValue(true);
+    mocks.directCallbacks?.onLiveRouteStopped({
+      participantId: REMOTE_ID,
+      generation: 1,
+      publicationId: 'publication_00001',
+    });
+    expect(mocks.cleanupReception).toHaveBeenCalledTimes(1);
+  });
+
   it('does not attach a stale direct track after the trusted boundary resolves', async () => {
     const graph = installAudioGraphHarness();
     const trustedBoundary = deferred<boolean>();
@@ -1893,64 +1953,120 @@ describe('PRO system-audio service orchestration', () => {
   });
 
   // The coordinator retires the Standard SFU guest route (its subscription and
-  // frozen share route) wherever it takes the slot over: the top of every live
-  // reconcile, before its own cleanup, start or subscription, and a retry's
-  // cleanup (above). Since C4-7 it does so through the receive slot's adopt,
-  // which calls the retire the route registered (the spy, see beforeAll).
-  it('retires the Standard SFU guest route at the top of every live reconcile, whoever publishes, and never on idle', async () => {
+  // frozen share route) where it takes the slot over: the room turning PRO
+  // (pinned by the PRO contract suite's S7 rows on the real bus; this suite
+  // clears the bus after each test) and a retry's cleanup (the row above).
+  // Since C4-7 it does so through the receive slot's adopt, which calls the
+  // retire the route registered (the spy, see beforeAll). A PRO room starts
+  // no Standard subscription (network.hostConn stays null), so since 5B-OV1 a
+  // live reconcile no longer adopts; before it, the top of every live
+  // reconcile did.
+  it('retires the Standard SFU guest route on no live reconcile, whoever publishes, and never on idle', async () => {
     mocks.cleanupLegacySubscriber.mockClear();
     await observeState(live());
-    expect(mocks.cleanupLegacySubscriber).toHaveBeenCalledTimes(1);
-    expect(mocks.cleanupLegacySubscriber.mock.invocationCallOrder[0]).toBeLessThan(
-      mocks.beginReception.mock.invocationCallOrder[0],
-    );
-    expect(mocks.cleanupLegacySubscriber.mock.invocationCallOrder[0]).toBeLessThan(
-      mocks.subscribe.mock.invocationCallOrder[0],
-    );
-
-    // An identical reconcile (the same presence bound again) retires it again.
+    expect(mocks.beginReception).toHaveBeenCalledTimes(1);
+    // An identical reconcile (the same presence bound again), other
+    // publishers and idle retire nothing either.
     bindProSystemAudioSession(snapshot());
-    expect(mocks.cleanupLegacySubscriber).toHaveBeenCalledTimes(2);
-
     await observeState(directLive(REMOTE_ID, 2));
-    expect(mocks.cleanupLegacySubscriber).toHaveBeenCalledTimes(3);
     await observeState(localLive(3));
-    expect(mocks.cleanupLegacySubscriber).toHaveBeenCalledTimes(4);
     await observeState(idle(4));
-    expect(mocks.cleanupLegacySubscriber).toHaveBeenCalledTimes(4);
+    expect(mocks.cleanupLegacySubscriber).not.toHaveBeenCalled();
   });
 
   // The playback owner 'system-audio' is shared by a local share and a
-  // reception. Only the coordinator cleanup's local-owner check keeps that
-  // cleanup from ending a reception over this device's own share, and the
-  // reset cleans the graph before it forgets the local owner. C4-7 kept both
-  // when the end moved from the guest alias to the slot.
-  it('skips the receive end in the coordinator cleanup while this device publishes, the reset included', async () => {
-    await startLocalShare();
+  // reception. On this device's own publication the coordinator cleanup ends
+  // the reception only while the slot still holds one (5B-G4, gap 6: the
+  // sharing claim made while still receiving; the slot's end then leaves the
+  // claim itself alone). Every reconcile of the own publication reaches this
+  // cleanup (a heartbeat bind), so an unasked end would run on each heartbeat
+  // of a sharer. The reset cleans the graph before it forgets the local
+  // owner. Before 5B-G4 the local-owner check alone skipped the end.
+  it.each([
+    { reception: false, ends: 0 },
+    { reception: true, ends: 1 },
+  ])(
+    'ends the reception in the coordinator cleanup while this device publishes only when the slot still holds one (holds one: $reception), on a heartbeat bind and on the reset',
+    async ({ reception, ends }) => {
+      await startLocalShare();
+      expect(getProSystemAudioViewState()).toMatchObject({ phase: 'live', isLocalOwner: true });
+      mocks.playbackMode = 'system-audio';
+      mocks.hasReception.mockReturnValue(reception);
+      mocks.stopSubscriber.mockClear();
+      mocks.cleanupReception.mockClear();
+
+      // A heartbeat bind reconciles the local publication, which runs the
+      // coordinator cleanup.
+      bindProSystemAudioSession(snapshot());
+      expect(mocks.stopSubscriber).toHaveBeenCalled();
+      expect(mocks.cleanupReception).toHaveBeenCalledTimes(ends);
+      mocks.stopSubscriber.mockClear();
+      mocks.cleanupReception.mockClear();
+      resetProSystemAudioService();
+      expect(mocks.stopSubscriber).toHaveBeenCalled();
+      expect(mocks.cleanupReception).toHaveBeenCalledTimes(ends);
+
+      // A listener's view ends the reception in the same cleanup, before its
+      // start for the remote publication, whatever the slot holds.
+      mocks.hasReception.mockReturnValue(false);
+      bindProSystemAudioSession(snapshot());
+      mocks.beginReception.mockClear();
+      mocks.cleanupReception.mockClear();
+      await observeState(live(2));
+      expect(mocks.cleanupReception).toHaveBeenCalledTimes(1);
+      expect(mocks.beginReception).toHaveBeenCalledTimes(1);
+      expect(mocks.cleanupReception.mock.invocationCallOrder[0]).toBeLessThan(
+        mocks.beginReception.mock.invocationCallOrder[0],
+      );
+    },
+  );
+
+  // A sharer's SFU publisher recovery releases its lease and acquires it again
+  // while local capture keeps sharing. The release's idle view is not the
+  // local owner's, so the coordinator cleanup runs the slot's end over the
+  // capture's 'system-audio' claim whatever the slot holds, and capture is not
+  // told (an expected lease transition). The service's part passes before and
+  // after 5B-G4; since 5B-G4 the slot's end leaves that claim alone, which the
+  // PRO contract row "5B-G4: a sharer whose view passes through idle while its
+  // capture still runs ..." pins with the real slot (added after the 5B-G4
+  // review).
+  it("publisher recovery reaches the slot end through the release's idle view while this device's capture keeps sharing", async () => {
+    vi.useFakeTimers();
+    const reasons: string[] = [];
+    bus.on('pro-system-audio:lease-lost', (reason) => reasons.push(reason));
+    api.getSystemAudioState.mockResolvedValueOnce(idle());
+    api.acquireSystemAudioLease
+      .mockResolvedValueOnce({ systemAudio: preparing(), leaseId: LEASE_ID })
+      .mockResolvedValueOnce({ systemAudio: preparing(2), leaseId: 'N'.repeat(43) });
+    api.commitSystemAudioPublication
+      .mockResolvedValueOnce(localLive())
+      .mockResolvedValueOnce(localLive(2));
+    api.releaseSystemAudioLease.mockResolvedValueOnce(idle(1));
+    await refreshProSystemAudioState();
+    await acquireLocalProSystemAudioLease();
+    await publishLocalProSystemAudio({} as MediaStreamTrack);
     expect(getProSystemAudioViewState()).toMatchObject({ phase: 'live', isLocalOwner: true });
+    // The capture's claim; the slot holds no reception.
     mocks.playbackMode = 'system-audio';
     mocks.cleanupReception.mockClear();
 
-    // A reconcile of the local publication runs the coordinator cleanup.
-    bindProSystemAudioSession(snapshot());
-    expect(mocks.stopSubscriber).toHaveBeenCalled();
-    expect(mocks.cleanupReception).not.toHaveBeenCalled();
-    mocks.stopSubscriber.mockClear();
-    resetProSystemAudioService();
-    expect(mocks.stopSubscriber).toHaveBeenCalled();
-    expect(mocks.cleanupReception).not.toHaveBeenCalled();
+    mocks.sfuListener?.({ type: 'publisher-state', state: 'failed' });
+    await vi.advanceTimersByTimeAsync(2_500);
+    await vi.waitFor(() => expect(api.commitSystemAudioPublication).toHaveBeenCalledTimes(2));
 
-    // A listener's view ends the reception in the same cleanup, before its
-    // start for the remote publication.
-    bindProSystemAudioSession(snapshot());
-    mocks.beginReception.mockClear();
-    mocks.cleanupReception.mockClear();
-    await observeState(live(2));
-    expect(mocks.cleanupReception).toHaveBeenCalledTimes(1);
-    expect(mocks.beginReception).toHaveBeenCalledTimes(1);
-    expect(mocks.cleanupReception.mock.invocationCallOrder[0]).toBeLessThan(
-      mocks.beginReception.mock.invocationCallOrder[0],
+    expect(mocks.cleanupReception).toHaveBeenCalled();
+    expect(mocks.cleanupReception.mock.invocationCallOrder[0]).toBeGreaterThan(
+      api.releaseSystemAudioLease.mock.invocationCallOrder[0],
     );
+    expect(mocks.cleanupReception.mock.invocationCallOrder[0]).toBeLessThan(
+      api.acquireSystemAudioLease.mock.invocationCallOrder[1],
+    );
+    expect(reasons).toEqual([]);
+    expect(getProSystemAudioViewState()).toMatchObject({
+      phase: 'live',
+      generation: 2,
+      isLocalOwner: true,
+    });
   });
 
   it('retires an SFU receive attempt when native audio resume times out and retries its track', async () => {

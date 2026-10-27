@@ -860,6 +860,22 @@ const hi: Record<I18nKey, string> = {
   'pro.active_tab_message': 'यहाँ जारी रखने पर पिछला कनेक्शन बंद हो जाएगा।',
   'pro.active_tab_replaced': 'यह PRO रूम पहले से दूसरे टैब में खुला है',
   'pro.use_this_tab': 'यहाँ जारी रखें',
+  'pro.upload.retry_unavailable': 'यह अपलोड अब पूरा नहीं किया जा सकता। फ़ाइल फिर से चुनें।',
+  'pro.upload.failed_retryable': 'अपलोड पूरा नहीं हो सका। कृपया फिर से कोशिश करें।',
+  'pro.upload.empty_file': 'खाली फ़ाइल अपलोड नहीं की जा सकती।',
+  'pro.upload.file_too_large': 'यह फ़ाइल हर फ़ाइल के लिए तय 200 MB की सीमा से बड़ी है।',
+  'pro.upload.quota_exceeded': 'इस PRO रूम की 1 GB स्टोरेज सीमा पूरी हो गई है।',
+  'pro.upload.playlist_full': 'प्लेलिस्ट भर चुकी है।',
+  'pro.upload.room_capacity': 'इस PRO रूम में अब और ट्रैक नहीं जोड़े जा सकते।',
+  'pro.upload.room_state_limit':
+    'इस PRO रूम में अभी और बदलाव नहीं किए जा सकते। थोड़ी देर बाद फ़ाइल फिर से चुनें।',
+  'pro.upload.pending_limit':
+    'इस PRO रूम में अधूरे अपलोड बहुत ज़्यादा हैं। थोड़ी देर बाद फिर कोशिश करें।',
+  'pro.upload.playlist_switched':
+    'यह ट्रैक जुड़ने से पहले दूसरी प्लेलिस्ट चालू हो गई। फ़ाइल फिर से चुनें।',
+  'pro.upload.permission_required': 'मीडिया प्रबंधन की अनुमति चाहिए।',
+  'pro.upload.failed_file': '{{name}}: {{reason}}',
+  'pro.upload.confirming': 'अपलोड पूरा किया जा रहा है {{current}}/{{total}}',
   'pro.upload.batch_progress': 'ट्रैक अपलोड हो रहे हैं {{current}}/{{total}}',
   'pro.upload.batch_failed_title': 'कुछ ट्रैक अपलोड नहीं हो सके',
   'pro.upload.batch_failed_message':
@@ -869,6 +885,8 @@ const hi: Record<I18nKey, string> = {
   'pro.downloading': 'फ़ाइल लोड हो रही है...',
   'pro.quota_exceeded': 'इस PRO रूम की 1 GB स्टोरेज सीमा पूरी हो गई है',
   'pro.file_too_large': 'यह फ़ाइल हर फ़ाइल के लिए तय 200 MB की सीमा से बड़ी है',
+  'pro.room_state_limit':
+    'इस PRO रूम में अभी और बदलाव नहीं किए जा सकते\nथोड़ी देर बाद फिर कोशिश करें',
 
   // ─── HTML Blocks (used with data-i18n-html) ──────────────────────
   'help.install_app_html':

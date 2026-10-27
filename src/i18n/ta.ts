@@ -886,6 +886,23 @@ const ta: Record<I18nKey, string> = {
   'pro.active_tab_message': 'இங்கே தொடர்ந்தால் முந்தைய இணைப்பு துண்டிக்கப்படும்.',
   'pro.active_tab_replaced': 'இந்த PRO அறை ஏற்கனவே வேறொரு தாவலில் திறந்துள்ளது',
   'pro.use_this_tab': 'இங்கே தொடர்',
+  'pro.upload.retry_unavailable':
+    'இந்தப் பதிவேற்றத்தை இனி முடிக்க முடியாது. கோப்பை மீண்டும் தேர்ந்தெடுக்கவும்.',
+  'pro.upload.failed_retryable': 'பதிவேற்றத்தை முடிக்க முடியவில்லை. மீண்டும் முயற்சிக்கவும்.',
+  'pro.upload.empty_file': 'காலியான கோப்பைப் பதிவேற்ற முடியாது.',
+  'pro.upload.file_too_large': 'இந்தக் கோப்பு ஒரு கோப்புக்கான 200 MB வரம்பைவிடப் பெரியது.',
+  'pro.upload.quota_exceeded': 'இந்த PRO அறை அதன் 1 GB சேமிப்பக வரம்பை எட்டிவிட்டது.',
+  'pro.upload.playlist_full': 'பிளேலிஸ்ட் நிரம்பியுள்ளது.',
+  'pro.upload.room_capacity': 'இந்த PRO அறையில் இனி மேலும் டிராக்குகளைச் சேர்க்க முடியாது.',
+  'pro.upload.room_state_limit':
+    'இந்த PRO அறையில் இப்போது மேலும் மாற்றங்களைச் செய்ய முடியாது. சிறிது நேரம் கழித்து கோப்பை மீண்டும் தேர்ந்தெடுக்கவும்.',
+  'pro.upload.pending_limit':
+    'இந்த PRO அறையில் முடிவடையாத பதிவேற்றங்கள் அதிகமாக உள்ளன. சிறிது நேரம் கழித்து மீண்டும் முயலவும்.',
+  'pro.upload.playlist_switched':
+    'இந்த டிராக் சேர்க்கப்படுவதற்கு முன்பே வேறொரு பிளேலிஸ்ட் செயலுக்கு வந்தது. கோப்பை மீண்டும் தேர்ந்தெடுக்கவும்.',
+  'pro.upload.permission_required': 'மீடியா நிர்வாக அனுமதி தேவை.',
+  'pro.upload.failed_file': '{{name}}: {{reason}}',
+  'pro.upload.confirming': 'பதிவேற்றம் முடிக்கப்படுகிறது {{current}}/{{total}}',
   'pro.upload.batch_progress': 'டிராக்குகள் பதிவேற்றப்படுகின்றன {{current}}/{{total}}',
   'pro.upload.batch_failed_title': 'சில டிராக்குகளைப் பதிவேற்ற முடியவில்லை',
   'pro.upload.batch_failed_message':
@@ -895,6 +912,8 @@ const ta: Record<I18nKey, string> = {
   'pro.downloading': 'கோப்பு ஏற்றப்படுகிறது...',
   'pro.quota_exceeded': 'இந்த PRO அறை அதன் 1 GB சேமிப்பக வரம்பை எட்டிவிட்டது',
   'pro.file_too_large': 'இந்தக் கோப்பு ஒரு கோப்புக்கான 200 MB வரம்பைவிடப் பெரியது',
+  'pro.room_state_limit':
+    'இந்த PRO அறையில் இப்போது மேலும் மாற்றங்களைச் செய்ய முடியாது\nசிறிது நேரம் கழித்து மீண்டும் முயலவும்',
 
   // ─── HTML Blocks (used with data-i18n-html) ──────────────────────
   'help.install_app_html':

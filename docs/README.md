@@ -93,11 +93,96 @@ runbooks. Neither belongs in a general setup document.
 
 ## Maintained evidence and completed records
 
+- [PRO room receipt retention (2026-10-27)](design/pro-receipt-retention-2026-10-27.md):
+  the PRO room's shared browser receipt ledger (256 receipts) keeps each receipt only as long as
+  the App can send its request again (owner decision 2026-10-27, RO-53): two minutes for edits,
+  playlist switches and transfers, reservations, deletes and the BOT's browser receipts (context
+  and execute); playback the same unless a longer configured presence needs more; upload
+  completion until a playlist names its asset, at most until orphan cleanup collects it. Receipts
+  an earlier Worker kept for 24 hours are cut at the next prune. The separate Developer ledger is
+  unchanged: Developer mutation receipts (an issued key's, and BOT's internal ones that replay BOT
+  additions) keep 24 hours, and Developer command receipts, BOT playback included, keep 10
+  minutes. The cap stays 256 so a rollback to the 9.0.17 PRO Worker still loads the room (checked
+  once against the `53a66d65` Worker code). A full ledger now shows `pro.room_state_limit`
+  (42 locales) on playlist edits, switches, transfers and drag reorder instead of "The playlist
+  changed" or "Couldn't move the track"; uploads keep the dialog's `pro.upload.room_state_limit`.
+  PR #508 (9.0.18 / v791 from bump `faaa8735`, App build 791, released 2026-10-27 18:14 KST in
+  Release 40478660296 from main `53a4f397`, target `all` because the App and PRO room Workers have
+  runtime path changes against production, App 51 and PRO room 2; all six Workers were
+  redeployed, with the update dialog) merged main up to the 9.0.17 record `809c9466` (#507) in
+  `d572aef1`. It shipped first (a same-day order change made while the owner was away, under the
+  deploy-when-ready rule, because the UI bundle was still in progress; the owner had placed it
+  after the UI bundle), and the UI bundle follows as 9.0.19 / v792. The report lists each scope's
+  old and new window, the review adjustments, rollback and its one-off check, what stays as is,
+  the tests-first evidence (12 Worker and 9 client tests failing on `53a66d65`; the BOT one pins
+  new behaviour rather than an old defect) and QA rounds 1 to 7 with their tested SHAs and limits
+  (round 3 adds the build without the cache-epoch guard and the critical, PRO and candidate E2E;
+  round 4 covers the main merge; round 5, after the bump, passes the full `build:checked`, unit
+  16,249, Worker 3,237, critical coverage 3,462, the critical, PRO and candidate E2E, and eager JS
+  +21 B gzip against main; round 6 is documentation only after the release-prep review: the
+  record's §1 order sentence, and narrower BOT, playback and upload capacity statements; round 7
+  is the PR CI, automated review, exact-main CI, release and public-check round: no automated
+  review findings on the final head `bfd6f49d`, the six new Worker versions, the smokes with the
+  strict page floor read of 787 and build-791 Standard signaling admission, no pre-deploy floor
+  `status`, the public floor at 787 with live App 791, and the Drift Audit). The first prune of
+  existing 24-hour receipts in a real room was not observed, and the owner decisions the report
+  leaves open stay in the record.
+- [PRO upload completion and authority feedback (2026-10-27)](design/pro-upload-reliability-2026-10-27.md):
+  production diagnosis, R2-internal copy without streaming a full file through the Worker,
+  a binding-copy fallback with bounded copy diagnostics (RO-52), completion retry continuity,
+  explicit file-limit, room-capacity and receipt-ledger feedback, and pending authority labels.
+  PR #503 (9.0.17 / v790 from bump `a233dd7b`, released 2026-10-27 13:42 KST in Release
+  40450793853 from main `53a66d65`, target `all` because the App, PRO room and signaling
+  Workers have runtime path changes against production; all six Workers were redeployed) merged
+  main up to the Phase 5 5B record `0228276e` (#506) in `d88cbb3b`; the owner approved its
+  merge, release and record on 2026-10-27. The report lists each QA round with its tested SHA and
+  limits, including the final local checks after the bump (unit 16,222, Worker 3,220, critical
+  E2E 65/65, critical coverage 3,452, PRO upload Playwright 4/4, candidate Playwright 19/19, and
+  eager JS 466,797 B, +1,145 B against production main `a930030a`) and the PR CI, automated
+  review, exact-main CI, release and public-check round (no automated review findings on the first
+  runtime `f2f25d90` and no automated review result for the final head `6064a195`, the six new
+  Worker versions, the smokes with the strict page floor read of 787 and build-790 Standard
+  signaling admission, no pre-deploy floor `status`, the public floor at 787 with live App 790,
+  and the Drift Audit). It also covers the failed-release rollback of the PRO Worker, the
+  App-only rollback's 5-second facade, and the room receipt-ledger limit, whose retention the
+  owner decided to shorten in its own train (released 2026-10-27 as 9.0.18 / v791, ahead of the UI
+  bundle after a same-day order change made while the owner was away).
+- [Phase 5 train 5B: receive-slot behaviour fixes and the system-audio old-version items (2026-10-26)](design/phase5-5b-receive-slot-behaviour-2026-10-26.md):
+  release evidence for the structure program's second Phase 5 app train (9.0.16 / v789 from bump
+  `198b8cf8`, released 2026-10-27 10:18 KST in Release 40431540366 from main `a930030a`, target
+  `app`, with the update dialog; it shipped after the forced-update train 9.0.14 / v787 with its
+  client floor 787, release W and the removal train's App release A 9.0.15 / v788 in one line,
+  after merging main up to release A's record `1ff7fdf2`; App 17 runtime paths and 0 for the other
+  five Workers against production `5dd7cc1f`). It fixes the gaps that C4-0 pinned as today's behaviour in the system-audio receive
+  slot (RO-04) in six labelled groups, each with its failing test first: the attach fence (gaps 2
+  and 3), the PRO coordinator's force-stop and successor teardown (4, 5), the Standard SFU
+  re-publication handoff (1), the sharer's own claim (6), the nested end's restore point (7) and
+  the route closures the slot hears (11, 12). C4-13 makes the post-share restore and the
+  foreground repair arm a hidden share end's return once (gap 10; RO-21 owner-in-place, RO-41
+  deleted). It also removes the system-audio old-version items (OV-A04, the coordinator-era
+  adopt, OV-B05, OV-B06, OV-A08) and the dead channel argument of the direct call event (SA-9).
+  The report lists the owner decisions, the plan critique and its dispositions, each increment
+  with its commits, tests-first evidence and fixed device expectation, what stays as is (gaps 8,
+  9, 13, 14, SA-2 and an owner observation on the direct call's boundary refusal), the
+  compatibility lines for the release record (one changed sent frame, the failed-direct READY
+  audience) with who loses what for each old-version item, the QA rounds (per increment, a
+  train-end replay of the system-audio suites at every code commit, the final checks, the lane
+  checks again after each of the two main merges, the guard counts after the release A record merge,
+  and the final checks after the bump: unit 16,108, Worker 3,182, critical E2E 61/61, critical
+  coverage 3,444, candidate Playwright 19/19, system-audio Playwright 5/5), the PR CI, Codex,
+  exact-main CI, release and public-check round (Codex with no findings on `e9dc1ed3`, App
+  `317f176f` with the five unchanged release W Workers, the smokes with the strict page floor read
+  of 787 and build-789 Standard signaling admission, no pre-deploy floor `status`, the public floor
+  at 787 with live App 789, the Drift Audit, and one low review finding on a stale code comment
+  carried to the UI bundle), the eager JS delta
+  (465,652 B, -115 B against production main `5dd7cc1f`), the deploy target and rollback boundaries
+  (including what relies on the 787 floor), a `guard:sw-cache-version`
+  false pass on a merge commit (no tooling change) and what was not verified on devices.
 - [Old-version removal train 2, release A: App compatibility code below the 787 build floor (2026-10-26)](design/old-version-removal-2a-app-2026-10-26.md):
   release evidence for the App release of the second removal train (9.0.15 / v788 from bump
   `8407046a`, released 2026-10-27 06:20 KST in Release 40403240275 from main `5dd7cc1f`, target
   `app`, with the update dialog; its Worker release W shipped first on 2026-10-27 03:34 KST and
-  keeps its own report, and Phase 5 5B follows as 9.0.16 / v789). It
+  keeps its own report, and Phase 5 5B followed as 9.0.16 / v789 on 2026-10-27 10:18 KST). It
   removes App code that only served clients below the App build floor 787 (9.0.14), on in
   production since 2026-10-26 16:15 KST. Increment A-1, C5-12 Inc 3: after ICE
   recovery a preload yields to the main lane for the same tuple without waiting for the host's

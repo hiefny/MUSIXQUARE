@@ -1703,6 +1703,10 @@ export function initPlayerControls(): void {
   _busScope.on('network:role-badge-update', () => {
     updateRoleBadge();
     syncVolumeAuthorityUI();
+    // A first plain-member answer can leave both isOperator and capabilities
+    // unchanged. Its role projection still resolves the pending labels.
+    syncMediaSourceButtonAuthority();
+    syncPlayButtonAuthority();
   });
   // The badge shows only the account nickname or HOST/PEER/LOGIN, so sync
   // latency samples never change it. Clock correction stays off the panel.
@@ -1720,10 +1724,19 @@ export function initPlayerControls(): void {
   _busScope.on('state:network.hostConn', () => {
     syncMediaSourceButtonAuthority();
     syncPlayButtonAuthority();
+    syncVolumeAuthorityUI();
     syncMainSyncButtonState();
   });
+  const refreshAuthorityFeedback = () => {
+    syncMediaSourceButtonAuthority();
+    syncPlayButtonAuthority();
+    syncVolumeAuthorityUI();
+  };
+  _busScope.on('state:network.isConnecting', refreshAuthorityFeedback);
+  _busScope.on('state:setup.sessionStarted', refreshAuthorityFeedback);
   _busScope.on('state:network.appRole', () => {
     updateRoleBadge();
+    syncVolumeAuthorityUI();
     syncMediaSourceButtonAuthority();
     syncQueueModeButtonAuthority();
     syncPlayButtonAuthority();
@@ -1986,6 +1999,7 @@ export function initPlayerControls(): void {
     syncMediaSourceButtonAuthority();
     syncQueueModeButtonAuthority();
     syncPlayButtonAuthority();
+    syncVolumeAuthorityUI();
   });
   _busScope.on('state:room.context', () => {
     const context = getState('room.context');

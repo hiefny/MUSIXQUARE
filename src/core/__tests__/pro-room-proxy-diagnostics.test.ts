@@ -1,4 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { PRO_ROOM_MEDIA_COMPLETE_TIMEOUT_MS } from '../../../cloudflare/pro-room-media-timing.ts';
 
 let appWorker: typeof import('../../../cloudflare/app-worker.ts').default;
 let log = vi.fn<(...args: unknown[]) => void>();
@@ -47,6 +48,43 @@ function expectPrivateDataAbsent() {
 }
 
 describe('App PRO facade structured failure diagnostics', () => {
+  it.each([
+    ['/media/reservations', 'media_reserve'],
+    ['/media/asset_synthetic0123456789/complete', 'media_complete'],
+  ])('classifies %s timeouts without recording asset identifiers', async (suffix, operation) => {
+    const pending = appWorker.fetch(request(suffix), {
+      PRO_ROOM_PUBLIC_API: { fetch: vi.fn(() => new Promise<Response>(() => {})) },
+    });
+    await vi.advanceTimersByTimeAsync(
+      operation === 'media_complete' ? PRO_ROOM_MEDIA_COMPLETE_TIMEOUT_MS + 1 : 5_001,
+    );
+    expect((await pending).status).toBe(502);
+    expect(events()).toEqual([
+      expect.objectContaining({ event: 'upstream_timeout', reason: 'response', operation }),
+    ]);
+    expect(JSON.stringify(log.mock.calls)).not.toContain('asset_synthetic');
+    expectPrivateDataAbsent();
+  });
+
+  it('keeps only media completion alive beyond the control deadline without success diagnostics', async () => {
+    let finish!: (response: Response) => void;
+    const pending = appWorker.fetch(request('/media/asset_synthetic0123456789/complete'), {
+      PRO_ROOM_PUBLIC_API: {
+        fetch: vi.fn(
+          () =>
+            new Promise<Response>((resolve) => {
+              finish = resolve;
+            }),
+        ),
+      },
+    });
+    await vi.advanceTimersByTimeAsync(5_001);
+    expect(events()).toEqual([]);
+    finish(new Response('{}', { headers: { 'Content-Type': 'application/json' } }));
+    expect((await pending).status).toBe(200);
+    expect(events()).toEqual([]);
+  });
+
   it('classifies a rejected service fetch without trusting caller generation or inventing release identity', async () => {
     const response = await appWorker.fetch(request(), {
       PRO_ROOM_PUBLIC_API: {

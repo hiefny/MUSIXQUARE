@@ -872,6 +872,23 @@ const kn: Record<I18nKey, string> = {
   'pro.active_tab_message': 'ಇಲ್ಲಿ ಮುಂದುವರಿದರೆ ಹಿಂದಿನ ಸಂಪರ್ಕ ಕಡಿತಗೊಳ್ಳುತ್ತದೆ.',
   'pro.active_tab_replaced': 'ಈ PRO ರೂಮ್ ಈಗಾಗಲೇ ಮತ್ತೊಂದು ಟ್ಯಾಬ್‌ನಲ್ಲಿ ತೆರೆದಿದೆ',
   'pro.use_this_tab': 'ಇಲ್ಲಿ ಮುಂದುವರಿಸಿ',
+  'pro.upload.retry_unavailable':
+    'ಈ ಅಪ್‌ಲೋಡ್ ಅನ್ನು ಇನ್ನು ಪೂರ್ಣಗೊಳಿಸಲು ಸಾಧ್ಯವಿಲ್ಲ. ಫೈಲ್ ಅನ್ನು ಮತ್ತೆ ಆಯ್ಕೆಮಾಡಿ.',
+  'pro.upload.failed_retryable': 'ಅಪ್‌ಲೋಡ್ ಪೂರ್ಣಗೊಳಿಸಲು ಸಾಧ್ಯವಾಗಲಿಲ್ಲ. ದಯವಿಟ್ಟು ಮತ್ತೆ ಪ್ರಯತ್ನಿಸಿ.',
+  'pro.upload.empty_file': 'ಖಾಲಿ ಫೈಲ್ ಅನ್ನು ಅಪ್‌ಲೋಡ್ ಮಾಡಲು ಸಾಧ್ಯವಿಲ್ಲ.',
+  'pro.upload.file_too_large': 'ಈ ಫೈಲ್ ಪ್ರತಿ ಫೈಲ್‌ಗೆ ಇರುವ 200 MB ಮಿತಿಗಿಂತ ದೊಡ್ಡದಾಗಿದೆ.',
+  'pro.upload.quota_exceeded': 'ಈ PRO ರೂಮ್ 1 GB ಸಂಗ್ರಹ ಮಿತಿಯನ್ನು ತಲುಪಿದೆ.',
+  'pro.upload.playlist_full': 'ಪ್ಲೇಲಿಸ್ಟ್ ತುಂಬಿದೆ.',
+  'pro.upload.room_capacity': 'ಈ PRO ರೂಮ್‌ಗೆ ಇನ್ನಷ್ಟು ಟ್ರ್ಯಾಕ್‌ಗಳನ್ನು ಸೇರಿಸಲು ಸಾಧ್ಯವಿಲ್ಲ.',
+  'pro.upload.room_state_limit':
+    'ಈ PRO ರೂಮ್‌ನಲ್ಲಿ ಈಗ ಇನ್ನಷ್ಟು ಬದಲಾವಣೆಗಳನ್ನು ಮಾಡಲು ಸಾಧ್ಯವಿಲ್ಲ. ಸ್ವಲ್ಪ ಸಮಯದ ನಂತರ ಫೈಲ್ ಅನ್ನು ಮತ್ತೆ ಆಯ್ಕೆಮಾಡಿ.',
+  'pro.upload.pending_limit':
+    'ಈ PRO ರೂಮ್‌ನಲ್ಲಿ ಪೂರ್ಣಗೊಳ್ಳದ ಅಪ್‌ಲೋಡ್‌ಗಳು ತುಂಬಾ ಹೆಚ್ಚಾಗಿವೆ. ಸ್ವಲ್ಪ ಸಮಯದ ನಂತರ ಮತ್ತೆ ಪ್ರಯತ್ನಿಸಿ.',
+  'pro.upload.playlist_switched':
+    'ಈ ಟ್ರ್ಯಾಕ್ ಸೇರಿಸುವ ಮೊದಲೇ ಬೇರೆ ಪ್ಲೇಲಿಸ್ಟ್ ಸಕ್ರಿಯವಾಯಿತು. ಫೈಲ್ ಅನ್ನು ಮತ್ತೆ ಆಯ್ಕೆಮಾಡಿ.',
+  'pro.upload.permission_required': 'ಮೀಡಿಯಾ ನಿರ್ವಹಣೆಯ ಅನುಮತಿ ಅಗತ್ಯವಿದೆ.',
+  'pro.upload.failed_file': '{{name}}: {{reason}}',
+  'pro.upload.confirming': 'ಅಪ್‌ಲೋಡ್ ಪೂರ್ಣಗೊಳಿಸಲಾಗುತ್ತಿದೆ {{current}}/{{total}}',
   'pro.upload.batch_progress': 'ಟ್ರ್ಯಾಕ್‌ಗಳು ಅಪ್‌ಲೋಡ್ ಆಗುತ್ತಿವೆ {{current}}/{{total}}',
   'pro.upload.batch_failed_title': 'ಕೆಲವು ಟ್ರ್ಯಾಕ್‌ಗಳನ್ನು ಅಪ್‌ಲೋಡ್ ಮಾಡಲಾಗಲಿಲ್ಲ',
   'pro.upload.batch_failed_message':
@@ -881,6 +898,8 @@ const kn: Record<I18nKey, string> = {
   'pro.downloading': 'ಫೈಲ್ ಲೋಡ್ ಆಗುತ್ತಿದೆ...',
   'pro.quota_exceeded': 'ಈ PRO ರೂಮ್ 1 GB ಸಂಗ್ರಹ ಮಿತಿಯನ್ನು ತಲುಪಿದೆ',
   'pro.file_too_large': 'ಈ ಫೈಲ್ ಪ್ರತಿ ಫೈಲ್‌ಗೆ ಇರುವ 200 MB ಮಿತಿಗಿಂತ ದೊಡ್ಡದಾಗಿದೆ',
+  'pro.room_state_limit':
+    'ಈ PRO ರೂಮ್‌ನಲ್ಲಿ ಈಗ ಇನ್ನಷ್ಟು ಬದಲಾವಣೆಗಳನ್ನು ಮಾಡಲು ಸಾಧ್ಯವಿಲ್ಲ\nಸ್ವಲ್ಪ ಸಮಯದ ನಂತರ ಮತ್ತೆ ಪ್ರಯತ್ನಿಸಿ',
 
   // ─── HTML Blocks (used with data-i18n-html) ──────────────────────
   'help.install_app_html':

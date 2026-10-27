@@ -461,10 +461,11 @@ function isValidSettingsSyncState(value: unknown): boolean {
 }
 
 const PROTOCOL_VALIDATORS: Partial<Record<MsgType, (data: Record<string, unknown>) => boolean>> = {
-  // Optional for rolling compatibility. Unknown bounded strings reach the
-  // consumer and normalize to DISPLAY rather than becoming user-visible.
-  [MSG.SYSTEM_AUDIO_START]: (d) =>
-    d.surface === undefined || (typeof d.surface === 'string' && d.surface.length <= 16),
+  // Every sender builds START with createSystemAudioStartFrame, which always
+  // carries the surface (old-version survey OV-A08). Unknown bounded strings
+  // still reach the consumer and normalize to DISPLAY rather than becoming
+  // user-visible.
+  [MSG.SYSTEM_AUDIO_START]: (d) => typeof d.surface === 'string' && d.surface.length <= 16,
   [MSG.JOIN_BOOTSTRAP_HELLO]: isJoinBootstrapHello,
   [MSG.JOIN_BOOTSTRAP_APPLIED]: isJoinBootstrapApplied,
   [MSG.SETTINGS_SYNC_SNAPSHOT]: (d) =>
@@ -1023,9 +1024,12 @@ const PROTOCOL_VALIDATORS: Partial<Record<MsgType, (data: Record<string, unknown
   [MSG.REQUEST_CHAT_COMMAND]: (d) =>
     typeof d.command === 'string' && Array.isArray(d.args) && (d.args as unknown[]).length <= 32,
 
+  // Every sender (makeReadyMessage) always carries the audience (old-version
+  // survey OV-A08). A frame with the old per-channel `tracks` list stays
+  // refused.
   [MSG.SYSTEM_AUDIO_SFU_READY]: (d) =>
     d.version === 2 &&
-    (d.audience === undefined || d.audience === 'remote' || d.audience === 'all') &&
+    (d.audience === 'remote' || d.audience === 'all') &&
     (d.handoffFromDirect === undefined || d.handoffFromDirect === true) &&
     typeof d.sessionId === 'string' &&
     d.sessionId.length > 0 &&

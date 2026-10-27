@@ -877,6 +877,23 @@ const pl: Record<I18nKey, string> = {
   'pro.active_tab_message': 'Kontynuowanie tutaj zakończy poprzednie połączenie.',
   'pro.active_tab_replaced': 'Ten pokój PRO jest już otwarty w innej karcie',
   'pro.use_this_tab': 'Kontynuuj tu',
+  'pro.upload.retry_unavailable':
+    'Nie można już dokończyć tego przesyłania. Wybierz plik ponownie.',
+  'pro.upload.failed_retryable': 'Nie udało się dokończyć przesyłania. Spróbuj ponownie.',
+  'pro.upload.empty_file': 'Nie można przesłać pustego pliku.',
+  'pro.upload.file_too_large': 'Ten plik przekracza limit 200 MB na plik.',
+  'pro.upload.quota_exceeded': 'Ten pokój PRO osiągnął limit 1 GB miejsca.',
+  'pro.upload.playlist_full': 'Playlista jest pełna.',
+  'pro.upload.room_capacity': 'Ten pokój PRO nie pomieści więcej utworów.',
+  'pro.upload.room_state_limit':
+    'Ten pokój PRO nie może teraz przyjąć więcej zmian. Wybierz plik ponownie za chwilę.',
+  'pro.upload.pending_limit':
+    'W tym pokoju PRO jest zbyt wiele niedokończonych przesyłań. Spróbuj ponownie za chwilę.',
+  'pro.upload.playlist_switched':
+    'Zanim ten utwór został dodany, aktywna stała się inna playlista. Wybierz plik ponownie.',
+  'pro.upload.permission_required': 'Wymagane jest uprawnienie do zarządzania multimediami.',
+  'pro.upload.failed_file': '{{name}}: {{reason}}',
+  'pro.upload.confirming': 'Kończenie przesyłania {{current}}/{{total}}',
   'pro.upload.batch_progress': 'Przesyłanie utworów {{current}}/{{total}}',
   'pro.upload.batch_failed_title': 'Nie udało się przesłać części utworów',
   'pro.upload.batch_failed_message':
@@ -886,6 +903,8 @@ const pl: Record<I18nKey, string> = {
   'pro.downloading': 'Ładowanie pliku…',
   'pro.quota_exceeded': 'Ten pokój PRO osiągnął limit 1 GB miejsca',
   'pro.file_too_large': 'Ten plik przekracza limit 200 MB na plik',
+  'pro.room_state_limit':
+    'Ten pokój PRO nie może teraz przyjąć więcej zmian\nSpróbuj ponownie za chwilę',
 
   // ─── HTML Blocks (used with data-i18n-html) ────────────────────
   'help.install_app_html':

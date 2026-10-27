@@ -879,6 +879,23 @@ const nl: Record<I18nKey, string> = {
   'pro.active_tab_message': 'Als je hier doorgaat, wordt de eerdere verbinding verbroken.',
   'pro.active_tab_replaced': 'Deze PRO-kamer is al geopend in een ander tabblad',
   'pro.use_this_tab': 'Hier doorgaan',
+  'pro.upload.retry_unavailable':
+    'Deze upload kan niet meer worden voltooid. Selecteer het bestand opnieuw.',
+  'pro.upload.failed_retryable': 'De upload kon niet worden voltooid. Probeer het opnieuw.',
+  'pro.upload.empty_file': 'Een leeg bestand kan niet worden geüpload.',
+  'pro.upload.file_too_large': 'Dit bestand overschrijdt de limiet van 200 MB per bestand.',
+  'pro.upload.quota_exceeded': 'Deze PRO-kamer heeft de opslaglimiet van 1 GB bereikt.',
+  'pro.upload.playlist_full': 'De afspeellijst is vol.',
+  'pro.upload.room_capacity': 'Deze PRO-kamer kan geen tracks meer bevatten.',
+  'pro.upload.room_state_limit':
+    'Deze PRO-kamer kan op dit moment geen wijzigingen meer verwerken. Selecteer het bestand straks opnieuw.',
+  'pro.upload.pending_limit':
+    'Deze PRO-kamer heeft te veel onvoltooide uploads. Probeer het straks opnieuw.',
+  'pro.upload.playlist_switched':
+    'Er werd een andere afspeellijst actief voordat deze track werd toegevoegd. Selecteer het bestand opnieuw.',
+  'pro.upload.permission_required': 'Toestemming voor mediabeheer is vereist.',
+  'pro.upload.failed_file': '{{name}}: {{reason}}',
+  'pro.upload.confirming': 'Upload afronden {{current}}/{{total}}',
   'pro.upload.batch_progress': 'Tracks uploaden {{current}}/{{total}}',
   'pro.upload.batch_failed_title': 'Sommige tracks konden niet worden geüpload',
   'pro.upload.batch_failed_message':
@@ -888,6 +905,8 @@ const nl: Record<I18nKey, string> = {
   'pro.downloading': 'Bestand laden...',
   'pro.quota_exceeded': 'Deze PRO-kamer heeft de opslaglimiet van 1 GB bereikt',
   'pro.file_too_large': 'Dit bestand overschrijdt de limiet van 200 MB per bestand',
+  'pro.room_state_limit':
+    'Deze PRO-kamer kan op dit moment geen wijzigingen meer verwerken\nProbeer het straks opnieuw',
 
   // HTML help blocks
   'help.install_app_html':

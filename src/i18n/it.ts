@@ -883,6 +883,23 @@ const it: Record<I18nKey, string> = {
   'pro.active_tab_message': 'Continuando qui, la connessione precedente verrà interrotta.',
   'pro.active_tab_replaced': 'Questa stanza PRO è già aperta in un’altra scheda',
   'pro.use_this_tab': 'Continua qui',
+  'pro.upload.retry_unavailable':
+    'Questo caricamento non può più essere completato. Seleziona di nuovo il file.',
+  'pro.upload.failed_retryable': 'Impossibile completare il caricamento. Riprova.',
+  'pro.upload.empty_file': 'Non è possibile caricare un file vuoto.',
+  'pro.upload.file_too_large': 'Questo file supera il limite di 200 MB per file.',
+  'pro.upload.quota_exceeded': 'Questa stanza PRO ha raggiunto il limite di archiviazione di 1 GB.',
+  'pro.upload.playlist_full': 'La playlist è piena.',
+  'pro.upload.room_capacity': 'Questa stanza PRO non può contenere altre tracce.',
+  'pro.upload.room_state_limit':
+    'Questa stanza PRO al momento non può accettare altre modifiche. Seleziona di nuovo il file tra poco.',
+  'pro.upload.pending_limit':
+    'In questa stanza PRO ci sono troppi caricamenti non completati. Riprova tra poco.',
+  'pro.upload.playlist_switched':
+    'Un’altra playlist è diventata attiva prima che questa traccia venisse aggiunta. Seleziona di nuovo il file.',
+  'pro.upload.permission_required': 'È richiesto il permesso per gestire i contenuti.',
+  'pro.upload.failed_file': '{{name}}: {{reason}}',
+  'pro.upload.confirming': 'Completamento del caricamento {{current}}/{{total}}',
   'pro.upload.batch_progress': 'Caricamento tracce {{current}}/{{total}}',
   'pro.upload.batch_failed_title': 'Impossibile caricare alcune tracce',
   'pro.upload.batch_failed_message':
@@ -892,6 +909,8 @@ const it: Record<I18nKey, string> = {
   'pro.downloading': 'Caricamento del file...',
   'pro.quota_exceeded': 'Questa stanza PRO ha raggiunto il limite di archiviazione di 1 GB',
   'pro.file_too_large': 'Questo file supera il limite di 200 MB per file',
+  'pro.room_state_limit':
+    'Questa stanza PRO al momento non può accettare altre modifiche\nRiprova tra poco',
 
   // ─── HTML Blocks (used with data-i18n-html) ────────────────────
   'help.install_app_html':

@@ -853,6 +853,22 @@ const en: Record<I18nKey, string> = {
   'pro.active_tab_message': 'Continuing here will disconnect the previous connection.',
   'pro.active_tab_replaced': 'This PRO room is already open in another tab',
   'pro.use_this_tab': 'Continue here',
+  'pro.upload.retry_unavailable': 'This upload can no longer be completed. Select the file again.',
+  'pro.upload.failed_retryable': 'The upload could not be completed. Please try again.',
+  'pro.upload.empty_file': 'An empty file cannot be uploaded.',
+  'pro.upload.file_too_large': 'This file is larger than the 200 MB per-file limit.',
+  'pro.upload.quota_exceeded': 'This PRO room has reached its 1 GB storage limit.',
+  'pro.upload.playlist_full': 'The playlist is full.',
+  'pro.upload.room_capacity': 'This PRO room cannot hold any more tracks.',
+  'pro.upload.room_state_limit':
+    'This PRO room cannot accept more changes right now. Select the file again in a little while.',
+  'pro.upload.pending_limit':
+    'This PRO room has too many unfinished uploads. Please try again in a little while.',
+  'pro.upload.playlist_switched':
+    'Another playlist became active before this track was added. Select the file again.',
+  'pro.upload.permission_required': 'Media management permission is required.',
+  'pro.upload.failed_file': '{{name}}: {{reason}}',
+  'pro.upload.confirming': 'Finishing upload {{current}}/{{total}}',
   'pro.upload.batch_progress': 'Uploading tracks {{current}}/{{total}}',
   'pro.upload.batch_failed_title': 'Some tracks couldn’t be uploaded',
   'pro.upload.batch_failed_message':
@@ -862,6 +878,8 @@ const en: Record<I18nKey, string> = {
   'pro.downloading': 'Loading file...',
   'pro.quota_exceeded': 'This PRO room has reached its 1 GB storage limit',
   'pro.file_too_large': 'This file is larger than the 200 MB per-file limit',
+  'pro.room_state_limit':
+    'This PRO room cannot accept more changes right now\nPlease try again in a little while',
 
   // ─── HTML Blocks (used with data-i18n-html) ────────────────────
   'help.install_app_html':

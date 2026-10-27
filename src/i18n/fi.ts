@@ -866,6 +866,23 @@ const fi: Record<I18nKey, string> = {
   'pro.active_tab_message': 'Jos jatkat tässä, aiempi yhteys katkaistaan.',
   'pro.active_tab_replaced': 'Tämä PRO-huone on jo avoinna toisessa välilehdessä',
   'pro.use_this_tab': 'Jatka tässä',
+  'pro.upload.retry_unavailable':
+    'Tätä lähetystä ei voi enää viimeistellä. Valitse tiedosto uudelleen.',
+  'pro.upload.failed_retryable': 'Lähetystä ei voitu viimeistellä. Yritä uudelleen.',
+  'pro.upload.empty_file': 'Tyhjää tiedostoa ei voi lähettää.',
+  'pro.upload.file_too_large': 'Tiedosto ylittää tiedostokohtaisen 200 MB:n rajan.',
+  'pro.upload.quota_exceeded': 'Tämän PRO-huoneen 1 GB:n tallennustila on täynnä.',
+  'pro.upload.playlist_full': 'Soittolista on täynnä.',
+  'pro.upload.room_capacity': 'Tähän PRO-huoneeseen ei mahdu enempää kappaleita.',
+  'pro.upload.room_state_limit':
+    'Tähän PRO-huoneeseen ei voi juuri nyt tehdä enempää muutoksia. Valitse tiedosto uudelleen hetken kuluttua.',
+  'pro.upload.pending_limit':
+    'Tässä PRO-huoneessa on liian monta keskeneräistä lähetystä. Yritä hetken kuluttua uudelleen.',
+  'pro.upload.playlist_switched':
+    'Toinen soittolista otettiin käyttöön ennen kuin tämä kappale lisättiin. Valitse tiedosto uudelleen.',
+  'pro.upload.permission_required': 'Median hallintaoikeus vaaditaan.',
+  'pro.upload.failed_file': '{{name}}: {{reason}}',
+  'pro.upload.confirming': 'Viimeistellään lähetystä {{current}}/{{total}}',
   'pro.upload.batch_progress': 'Lähetetään kappaleita {{current}}/{{total}}',
   'pro.upload.batch_failed_title': 'Joitakin kappaleita ei voitu lähettää',
   'pro.upload.batch_failed_message':
@@ -875,6 +892,8 @@ const fi: Record<I18nKey, string> = {
   'pro.downloading': 'Ladataan tiedostoa…',
   'pro.quota_exceeded': 'Tämän PRO-huoneen 1 GB:n tallennustila on täynnä',
   'pro.file_too_large': 'Tiedosto ylittää tiedostokohtaisen 200 MB:n rajan',
+  'pro.room_state_limit':
+    'Tähän PRO-huoneeseen ei voi juuri nyt tehdä enempää muutoksia\nYritä hetken kuluttua uudelleen',
 
   // ─── HTML Blocks (used with data-i18n-html) ────────────────────
   'help.install_app_html':

@@ -12,6 +12,8 @@ import { getTrackPosition, isFilePipelineBusyForPlay, seekTo } from '../../playe
 import { isProPlaybackTrackSelectionPending } from '../../pro-room/playback-authority-hooks.ts';
 import { STANDARD_ROOM_OWNER_PRODUCT_CAPABILITIES } from '../../network/standard-room-authority.ts';
 import { t } from '../../i18n/index.ts';
+import { markStandardRoomAuthorityConfirmed, setRoomContext } from '../../rooms/authority.ts';
+import type { DataConnection } from '../../types/index.ts';
 
 const QUEUE_ITEM_ID = '10000000-0000-4000-8000-000000000001';
 
@@ -57,6 +59,41 @@ beforeEach(() => {
 });
 
 describe('initSeekBar playback mode gates', () => {
+  it('updates pending permission feedback without enabling the seek gesture', () => {
+    const host = { peer: 'host', open: true } as DataConnection;
+    setState('network.appRole', 'guest');
+    setState('network.hostConn', host);
+    setState('playback.mode', 'file');
+    setState('playback.activity', 'paused');
+    initSeekBar();
+    const slider = document.getElementById('seek-slider') as HTMLInputElement;
+    expect(slider.title).toBe(t('toast.playback_control_checking'));
+    expect(slider.getAttribute('aria-disabled')).toBe('true');
+
+    markStandardRoomAuthorityConfirmed(host);
+    bus.emit('network:role-badge-update');
+    expect(slider.title).toBe(t('toast.playback_control_required'));
+
+    const context = {
+      kind: 'pro' as const,
+      roomId: '000001',
+      role: 'member' as const,
+      coordinatorId: null,
+      epoch: 1,
+      snapshotRevision: 1,
+      capabilities: ['playback.control' as const],
+    };
+    setRoomContext(context, 'pending');
+    expect(slider.title).toBe(t('toast.playback_control_checking'));
+    slider.value = '50';
+    slider.dispatchEvent(new Event('change'));
+    expect(seekTo).not.toHaveBeenCalled();
+
+    setRoomContext(context);
+    expect(slider.getAttribute('aria-disabled')).toBe('false');
+    expect(slider.hasAttribute('title')).toBe(false);
+  });
+
   it('repaints authoritative position changes while file playback remains paused', () => {
     setState('playback.mode', 'file');
     setState('playback.activity', 'paused');

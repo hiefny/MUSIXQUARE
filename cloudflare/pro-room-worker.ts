@@ -1,5 +1,6 @@
-// Resource owner: RO-07, RO-08 (signaling broadcast delivery and asset duration
-// reads; see docs/design/resource-ownership-registry.md).
+// Resource owner: RO-07, RO-08, RO-53 (signaling broadcast delivery, asset
+// duration reads and the browser receipt ledger; see
+// docs/design/resource-ownership-registry.md).
 import {
   ACCOUNT_ASSERTION_AUDIENCE_PRO_ROOM,
   ACCOUNT_ASSERTION_HEADER,
@@ -62,8 +63,16 @@ import {
   ProRoomDiagnostics,
   type ProRoomDiagnosticDetail,
   type ProRoomDiagnosticEvent,
+  type ProRoomDiagnosticEventReason,
 } from './pro-room-diagnostics.ts';
 import { hasExactKeys, isSafeNonNegativeInteger } from './pro-room-validation.ts';
+import { PRO_ROOM_MEDIA_COPY_TIMEOUT_MS } from './pro-room-media-timing.ts';
+import {
+  PRO_ROOM_BOT_REQUEST_LEASE_MS,
+  PRO_ROOM_REQUEST_RECEIPT_TTL_MS,
+  proRoomCompletionReceiptTtlMs,
+  proRoomPlaybackReceiptTtlMs,
+} from './pro-room-receipt-timing.ts';
 import {
   PRO_ROOM_ACTIVATION_CLAIM_MAX_LIFETIME_MS as ACTIVATION_CLAIM_MAX_LIFETIME_MS,
   PRO_ROOM_OWNER_TRANSFER_CLAIM_DEFAULT_LIFETIME_MS as OWNER_TRANSFER_CLAIM_DEFAULT_LIFETIME_MS,
@@ -601,6 +610,8 @@ interface RoomAsset extends StagingCleanupFields {
   assetId: string;
   objectKey: string;
   stagingObjectKey?: string;
+  // Durable source identity: ambiguous copies must never adopt different bytes.
+  completionSourceEtag?: string;
   version: number;
   byteLength: number;
   mime: string;
@@ -767,6 +778,8 @@ interface DeveloperMediaUpload extends DeveloperNamedMetadata {
 
 interface StagingTombstone extends StagingCleanupFields {
   objectKey: string;
+  // A bounded CopyObject request can still finish remotely after cancellation.
+  finalObjectKey?: string;
   emptySinceMs?: number | null;
   cleanupAfterMs: number;
 }
@@ -1135,7 +1148,6 @@ const BOT_MEMBER_MINUTE_LIMIT = 3;
 const BOT_ROOM_HOUR_LIMIT = 100;
 const BOT_MEMBER_MINUTE_MS = 60 * 1000;
 const BOT_ROOM_HOUR_MS = 60 * 60 * 1000;
-const BOT_REQUEST_LEASE_MS = 45 * 1000;
 // Active PRO participants share one host-inclusive 100-device ceiling, and
 // signaling applies the same limit to their authenticated control sockets.
 // Admission reserves one of those places for the room owner: at most 99
@@ -1153,6 +1165,13 @@ const ASSET_MAX_ITEMS = 1024;
 const RESERVED_ASSET_MAX_ITEMS = 32;
 const RESERVED_ASSET_MAX_ITEMS_PER_PARTICIPANT = 8;
 const RESERVED_ASSET_MAX_ITEMS_PER_DEVELOPER_KEY = 2;
+// The browser receipt ledger that every participant's playlist, media,
+// playback and BOT mutations share (RO-53). A receipt lives only as long as
+// the App can send its request again (cloudflare/pro-room-receipt-timing.ts),
+// so the cap bounds receipts per window, not per day. Keep 256: a 9.0.17
+// Worker refuses to load a room whose ledger holds more, so a rolled-back
+// Worker could not open it. A raise needs two releases (load first, write
+// second) or a separate ledger field.
 const IDEMPOTENCY_MAX_ITEMS = 256;
 // Developer mutations receive their own full 24-hour replay budget. Because
 // the complete room core is deliberately bounded to one 1.2 MiB value, this
@@ -1283,7 +1302,12 @@ const SYSTEM_AUDIO_CLAIM_TTL_MS = 45 * 1000;
 const SYSTEM_AUDIO_LIVE_TTL_MS = 2 * 60 * 60 * 1000;
 const SYSTEM_AUDIO_TRACK_NAME_MAX_LENGTH = 160;
 const SYSTEM_AUDIO_TRACK_MID_MAX_LENGTH = 64;
+// Developer mutation receipts (the public 24-hour replay contract, and BOT's
+// internal key, whose receipt is the only dedupe a late run of the same BOT
+// request has for its additions) and presence-close receipts. Browser
+// receipts use the windows of RO-53 instead.
 const IDEMPOTENCY_TTL_MS = 24 * 60 * 60 * 1000;
+const BROWSER_COMPLETION_RECEIPT_KEY_RE = /^participant:[^:]+:complete:[^:]+$/;
 const ASSET_DELETE_PENDING_EXPIRES_AT_MS = Number.MAX_SAFE_INTEGER;
 // Session admission sits behind the App facade's bounded response window. A
 // room mutation can therefore commit after the browser receives a gateway
@@ -1308,13 +1332,6 @@ const SESSION_ADMISSION_LIMIT = 200;
 const SESSION_ADMISSION_WINDOW_MS = 10 * 60 * 1000;
 const SESSION_ADMISSION_THROTTLE_MAX_ITEMS = 1024;
 const PRO_ROOM_ADMISSION_KEY_HEADER = 'x-mxqr-pro-admission-key';
-// Playback controls are high-frequency, short-retry mutations. The browser
-// retries one command for at most a few seconds, so retaining every full
-// command response for 24 hours can saturate the shared 256-item browser
-// ledger during ordinary all-day playback. Keep a generous ten-minute replay
-// fence for controls while preserving the 24-hour contract for playlist,
-// media, account, and other destructive browser mutations.
-const PLAYBACK_IDEMPOTENCY_TTL_MS = 10 * 60 * 1000;
 // Apart from its admission receipt, which has its own throttled ledger,
 // presence close is the only browser receipt an ordinary member writes, and
 // resuming presence is never throttled. Its receipts therefore live in their
@@ -3183,6 +3200,21 @@ async function readResponseBytesLimited(response: Response, maxBytes: number, si
   return bytes;
 }
 
+/**
+ * Says which stage of a bounded internal fetch failed. The message stays the
+ * generic one every existing caller already treats as unavailable.
+ */
+class BoundedFetchError extends Error {
+  constructor(
+    readonly stage: 'fetch' | 'body' | 'timeout',
+    /** The response status when headers arrived before the failure. */
+    readonly status: number | null,
+  ) {
+    super('INTERNAL_RESPONSE_UNAVAILABLE');
+    this.name = 'BoundedFetchError';
+  }
+}
+
 async function fetchWithDeadline(
   fetcher: FetchOperation,
   request: Request,
@@ -3192,6 +3224,7 @@ async function fetchWithDeadline(
   const controller = new AbortController();
   let timeoutId: ReturnType<typeof setTimeout> | null = null;
   let timedOut = false;
+  const observed: { status: number | null } = { status: null };
   const operation = Promise.resolve()
     .then(() => fetcher(new Request(request, { signal: controller.signal })))
     .then(async (response) => {
@@ -3199,6 +3232,7 @@ async function fetchWithDeadline(
         cancelReadableBody(response, 'INTERNAL_RESPONSE_TIMEOUT');
         return null;
       }
+      observed.status = response.status;
       const bytes = await readResponseBytesLimited(response, maxBytes, controller.signal);
       return timedOut ? null : { response, bytes };
     })
@@ -3214,7 +3248,13 @@ async function fetchWithDeadline(
   });
   try {
     const result = await Promise.race([operation, timeout]);
-    if (!result) throw new Error('INTERNAL_RESPONSE_UNAVAILABLE');
+    if (!result) {
+      // Only the deadline aborts this controller.
+      throw new BoundedFetchError(
+        controller.signal.aborted ? 'timeout' : observed.status === null ? 'fetch' : 'body',
+        observed.status,
+      );
+    }
     return result;
   } finally {
     if (timeoutId !== null) clearTimeout(timeoutId);
@@ -4013,6 +4053,157 @@ async function createR2PresignedUrl({
   const signingKey = await hmacBytes(serviceKey, 'aws4_request');
   const signature = hex(await hmacBytes(signingKey, stringToSign));
   return `https://${host}${canonicalUri}?${query}&X-Amz-Signature=${signature}`;
+}
+
+function isCopySourceEtag(value: unknown): value is string {
+  return typeof value === 'string' && /^[A-Za-z0-9_-]{1,256}$/.test(value);
+}
+
+// CopyObject may report an error inside a 200 response, so only a
+// CopyObjectResult root with exactly one ETag counts as a result. The rest is
+// tolerated because R2's S3 output has no production history here: any XML
+// declaration, namespace or attributes, unknown child elements (checksums, for
+// example), &quot; or &#34; quotes, or none. The final HEAD must still show
+// this ETag together with the reserved and pinned metadata.
+function copyObjectResultEtag(bytes: Uint8Array): string | null {
+  let xml;
+  try {
+    xml = new TextDecoder('utf-8', { fatal: true, ignoreBOM: false }).decode(bytes);
+  } catch {
+    return null;
+  }
+  const root =
+    /^\s*(?:<\?xml\s[^>]*\?>\s*)?<CopyObjectResult(\s[^>]*)?>([\s\S]*)<\/CopyObjectResult>\s*$/.exec(
+      xml,
+    );
+  if (!root || root[1]?.trimEnd().endsWith('/')) return null;
+  const etags = [...root[2]!.matchAll(/<ETag>([^<]*)<\/ETag>/g)];
+  if (etags.length !== 1) return null;
+  const value = etags[0]![1]!.replace(/&quot;|&#34;|&#x22;/gi, '"').trim();
+  const etag = /^"([^"]*)"$/.exec(value)?.[1] ?? value;
+  return isCopySourceEtag(etag) ? etag : null;
+}
+
+type MediaCopyReason = ProRoomDiagnosticEventReason<'media_copy'>;
+type MediaCopyFallbackReason = ProRoomDiagnosticEventReason<'media_copy_fallback'>;
+type MediaCopyResult =
+  | { readonly ok: true; readonly etag: string }
+  | { readonly ok: false; readonly reason: MediaCopyReason; readonly status: number | null };
+
+function mediaCopyStatusReason(status: number): MediaCopyReason {
+  if (status === 412) return 'precondition';
+  if (status >= 400 && status <= 499) return 'status_4xx';
+  if (status >= 500 && status <= 599) return 'status_5xx';
+  return 'status_other';
+}
+
+/** The file size as a power-of-two MiB bucket for diagnostics, never the byte count. */
+function mediaSizeBucketMiB(byteLength: number) {
+  let bucket = 1;
+  while (bucket * 1024 * 1024 < byteLength) bucket *= 2;
+  return bucket;
+}
+
+// Never throws. Every way the presigned copy can fail is classified for the
+// binding fallback and its bounded diagnostic; none of them decides on its own
+// that the pinned source changed.
+async function copyReservedMediaObject(
+  env: ProRoomEnvPort,
+  asset: RoomAsset,
+  metadata: Record<string, string>,
+): Promise<MediaCopyResult> {
+  const config = r2S3Config(env);
+  // The caller has already checked the staging key and the durable pin.
+  if (!config || !asset.stagingObjectKey || !isCopySourceEtag(asset.completionSourceEtag)) {
+    return { ok: false, reason: 'unconfigured', status: null };
+  }
+  const headers: HeaderRecord = {
+    'content-type': asset.mime,
+    'x-amz-copy-source': `/${awsEncode(config.bucketName)}/${encodeObjectPath(asset.stagingObjectKey)}`,
+    'x-amz-copy-source-if-match': `"${asset.completionSourceEtag}"`,
+    'x-amz-metadata-directive': 'REPLACE',
+    ...Object.fromEntries(
+      Object.entries(metadata).map(([key, value]) => [`x-amz-meta-${key}`, value]),
+    ),
+  };
+  const url = await createR2PresignedUrl({
+    env,
+    method: 'PUT',
+    objectKey: asset.objectKey,
+    headers,
+    expiresInSeconds: Math.ceil(PRO_ROOM_MEDIA_COPY_TIMEOUT_MS / 1000),
+    now: new Date(),
+  });
+  if (!url) return { ok: false, reason: 'unconfigured', status: null };
+  let response;
+  let bytes;
+  try {
+    ({ response, bytes } = await fetchWithDeadline(
+      (request) => fetch(request),
+      new Request(url, { method: 'PUT', headers }),
+      PRO_ROOM_MEDIA_COPY_TIMEOUT_MS,
+    ));
+  } catch (error) {
+    const failure = error instanceof BoundedFetchError ? error : null;
+    return {
+      ok: false,
+      reason:
+        failure?.stage === 'timeout' ? 'timeout' : failure?.stage === 'body' ? 'body' : 'network',
+      status: failure?.status ?? null,
+    };
+  }
+  if (response.status !== 200) {
+    return { ok: false, reason: mediaCopyStatusReason(response.status), status: response.status };
+  }
+  const etag = copyObjectResultEtag(bytes);
+  return etag ? { ok: true, etag } : { ok: false, reason: 'parse', status: 200 };
+}
+
+/**
+ * The binding promotion that browser completion used through 9.0.16: stream the
+ * staging object into the final key through the Worker. It runs only after the
+ * presigned copy left no verified final object, writes the same key with the
+ * same pinned metadata, and, as before, has no deadline of its own.
+ */
+async function promoteStagedMediaThroughBinding(
+  bucket: R2BucketPort,
+  source: { readonly stagingObjectKey: string; readonly sourceEtag: string },
+  asset: RoomAsset,
+  metadata: Record<string, string>,
+  verify: (object: R2ObjectPort | null) => boolean,
+): Promise<
+  | { readonly reason: 'ok'; readonly finalObject: R2ObjectPort | null }
+  | { readonly reason: Exclude<MediaCopyFallbackReason, 'ok'> }
+> {
+  let staged;
+  try {
+    staged = await bucket.get(source.stagingObjectKey);
+  } catch {
+    return { reason: 'storage' };
+  }
+  if (!staged?.body) return { reason: 'source_missing' };
+  // One read returns one object version, so this ETag names the bytes streamed
+  // below. Bytes that replaced the pinned upload are never promoted.
+  if (staged.etag !== source.sourceEtag) {
+    cancelReadableBody(staged.body, 'MEDIA_COPY_SOURCE_CHANGED');
+    return { reason: 'source_mismatch' };
+  }
+  let finalObject;
+  try {
+    await bucket.put(asset.objectKey, staged.body, {
+      httpMetadata: { contentType: asset.mime },
+      customMetadata: metadata,
+    });
+    finalObject = await bucket.head(asset.objectKey);
+  } catch {
+    // R2 PUT is atomic, so a retry can verify an object this write created.
+    return { reason: 'storage' };
+  }
+  if (!verify(finalObject)) {
+    await bucket.delete(asset.objectKey).catch(() => {});
+    return { reason: 'verify' };
+  }
+  return { reason: 'ok', finalObject };
 }
 
 class RoomStateCapacityError extends Error {
@@ -7019,7 +7210,8 @@ export class MusixquareProRoom {
         changed = true;
       }
     }
-    return changed;
+    // A named asset's completion can no longer be retried (RO-53).
+    return this.releaseSettledCompletionReceipts(referenced) || changed;
   }
 
   retainStagingTombstone(asset: RoomAsset, nowMs = Date.now()) {
@@ -7031,6 +7223,7 @@ export class MusixquareProRoom {
     );
     this.activeRoom.stagingTombstones[asset.assetId] = {
       objectKey: asset.stagingObjectKey,
+      ...(asset.completionSourceEtag ? { finalObjectKey: asset.objectKey } : {}),
       cleanupAfterMs,
     };
   }
@@ -7169,16 +7362,20 @@ export class MusixquareProRoom {
 
   async advanceStagingObjectCleanup(
     record: StagingTombstone | RoomAsset,
-    objectKey: string,
+    objectKey: string | string[],
     nowMs: number,
     cleanupField: 'cleanupAfterMs' | 'stagingCleanupAfterMs' = 'cleanupAfterMs',
     emptyField: 'emptySinceMs' | 'stagingEmptySinceMs' = 'emptySinceMs',
   ) {
     const bucket = this.env.PRO_MEDIA_BUCKET;
     if (!bucket) throw new Error('PRO_ROOM_MEDIA_BUCKET_NOT_CONFIGURED');
-    const object = await bucket.head(objectKey);
-    if (object) {
-      await bucket.delete(objectKey);
+    let foundObject = false;
+    for (const key of new Set(Array.isArray(objectKey) ? objectKey : [objectKey])) {
+      if (!(await bucket.head(key))) continue;
+      foundObject = true;
+      await bucket.delete(key);
+    }
+    if (foundObject) {
       // A late completion resets the continuous-empty proof even when this
       // cleanup successfully removed it.
       if (emptyField === 'emptySinceMs') record.emptySinceMs = nowMs;
@@ -7520,10 +7717,9 @@ export class MusixquareProRoom {
           new RegExp(`^${prefix}/media/([A-Za-z0-9_-]{16,128})/duration$`),
         )?.[1];
         const deletedAssetId = deleteMediaMatch?.[1];
-        // Completion may leave a verified immutable final object in R2 before
-        // the room-state commit. Its retry path now treats that object as the
-        // recovery source, so rewinding the in-memory reservation on a storage
-        // commit failure is both safe and required. Deletion is different: its
+        // Completion checkpoints its source pin before copying, then handles
+        // final commit rollback internally so this outer checkpoint cannot
+        // rewind past that durable identity. Deletion is different: its
         // helper restores the already-durable pending marker after a post-R2
         // commit failure, and the outer checkpoint must not rewind past that
         // intent into the pre-deletion state.
@@ -7990,11 +8186,10 @@ export class MusixquareProRoom {
         fingerprint,
         {
           leaseToken,
-          leaseExpiresAtMs: nowMs + BOT_REQUEST_LEASE_MS,
+          leaseExpiresAtMs: nowMs + PRO_ROOM_BOT_REQUEST_LEASE_MS,
           playlistRevision: this.activeRoom.playlistRevision,
         },
         200,
-        nowMs + IDEMPOTENCY_TTL_MS,
       );
       await this.persist();
     }
@@ -16431,6 +16626,89 @@ export class MusixquareProRoom {
     return this.idempotencyExpiresAt(record) <= nowMs;
   }
 
+  /**
+   * RO-53: the longest a browser-ledger receipt of `scope` may live, from
+   * now. A receipt only makes a request sent again with the same key replay
+   * its first answer, so it lives as long as the App can still send it:
+   * - every single-request scope: the request window;
+   * - playback: twice one presence window plus one attempt, because a frozen
+   *   page's timer can send the second attempt until its presence lapses;
+   * - upload completion: the GC grace, because the batch failure dialog's
+   *   Retry reuses the key while the unnamed asset can still be appended.
+   *   releaseSettledCompletionReceipts frees it sooner.
+   * Past these windows the fences (revisions, asset state, presence) keep a
+   * late resend from applying twice; the receipt is not what does that.
+   */
+  browserReceiptLifetimeMs(scope: string) {
+    if (scope.endsWith(':playback-authority')) {
+      return proRoomPlaybackReceiptTtlMs(this.presenceTtlMs());
+    }
+    if (scope.endsWith(':complete')) return proRoomCompletionReceiptTtlMs(this.assetGcGraceMs());
+    return PRO_ROOM_REQUEST_RECEIPT_TTL_MS;
+  }
+
+  /**
+   * The absolute expiry for a new receipt. A browser receipt never outlives
+   * its scope's lifetime, even when the caller asks for longer (a
+   * reservation's own expiry). Other ledgers keep the caller's expiry or 24
+   * hours. Every value is finite, so a rolled-back Worker without this
+   * method's rules still expires each receipt.
+   */
+  receiptExpiresAtMs(scope: string, requestedExpiresAtMs?: number, nowMs = Date.now()) {
+    if (this.idempotencyLedger(scope).records !== this.activeRoom.idempotency) {
+      return requestedExpiresAtMs ?? nowMs + IDEMPOTENCY_TTL_MS;
+    }
+    const latestMs = nowMs + this.browserReceiptLifetimeMs(scope);
+    return requestedExpiresAtMs === undefined ? latestMs : Math.min(requestedExpiresAtMs, latestMs);
+  }
+
+  /**
+   * Cut a browser receipt that an earlier Worker wrote (24 hours for most
+   * scopes, again after a rollback to one) to its scope's lifetime from now,
+   * so a ledger filled under the old windows frees within one window. The
+   * deletion marker owns pending delete receipts, which are left alone.
+   */
+  capBrowserReceiptLifetime(storageKey: string, record: IdempotencyRecord, nowMs: number) {
+    if (record.kind === 'asset-delete-pending') return false;
+    // Idempotency keys never contain ':', so the scope ends at the last one.
+    const scope = storageKey.slice(0, storageKey.lastIndexOf(':'));
+    const latestMs = nowMs + this.browserReceiptLifetimeMs(scope);
+    if (record.expiresAtMs <= latestMs) return false;
+    record.expiresAtMs = latestMs;
+    return true;
+  }
+
+  /**
+   * Release the browser completion receipts no retry can need any more. The
+   * App keeps a completion key until it has the answer and then appends the
+   * asset, so once a playlist names the asset, or the asset is no longer a
+   * ready one, that completion is never sent again. The match reads the
+   * stored answer, so the receipt keeps the shape a 9.0.17 Worker knows, and
+   * a receipt without one simply waits for its expiry.
+   */
+  releaseSettledCompletionReceipts(referenced: ReadonlySet<string>) {
+    let changed = false;
+    for (const [storageKey, record] of Object.entries(this.activeRoom.idempotency)) {
+      if (record.kind !== undefined || !BROWSER_COMPLETION_RECEIPT_KEY_RE.test(storageKey)) {
+        continue;
+      }
+      const receiptAsset = record.body?.asset;
+      const assetId = isRecord(receiptAsset) ? receiptAsset.assetId : undefined;
+      if (typeof assetId !== 'string') continue;
+      const asset = this.activeRoom.assets[assetId];
+      if (
+        asset?.status === 'ready' &&
+        asset.deletionPending === undefined &&
+        !referenced.has(assetId)
+      ) {
+        continue;
+      }
+      delete this.activeRoom.idempotency[storageKey];
+      changed = true;
+    }
+    return changed;
+  }
+
   idempotencyRecord(scope: string, key: string) {
     const storageKey = `${scope}:${key}`;
     const { records } = this.idempotencyLedger(scope);
@@ -16526,21 +16804,18 @@ export class MusixquareProRoom {
     fingerprint: string,
     body: JsonRecord,
     status = 200,
-    expiresAtMs = Date.now() + IDEMPOTENCY_TTL_MS,
+    expiresAtMs?: number,
   ) {
     const records = this.reserveIdempotencySlot(scope, key);
-    const playbackAuthority = scope.endsWith(':playback-authority');
     records[`${scope}:${key}`] = {
       fingerprint,
       body: structuredClone(body),
       status,
       // No reader here since 2026-10-26. Kept so that a PRO Worker from before
-      // then, after a rollback, does not take these 10-minute receipts for
+      // then, after a rollback, does not take these short receipts for
       // unmarked 24-hour ones and expire them at once.
-      ...(playbackAuthority ? { kind: 'playback-authority' } : {}),
-      expiresAtMs: playbackAuthority
-        ? Math.min(expiresAtMs, Date.now() + PLAYBACK_IDEMPOTENCY_TTL_MS)
-        : expiresAtMs,
+      ...(scope.endsWith(':playback-authority') ? { kind: 'playback-authority' } : {}),
+      expiresAtMs: this.receiptExpiresAtMs(scope, expiresAtMs),
     };
   }
 
@@ -16556,7 +16831,7 @@ export class MusixquareProRoom {
       kind: 'snapshot',
       committedRevision,
       status: 200,
-      expiresAtMs: Date.now() + IDEMPOTENCY_TTL_MS,
+      expiresAtMs: this.receiptExpiresAtMs(scope),
     };
   }
 
@@ -17255,6 +17530,9 @@ export class MusixquareProRoom {
     if (typeof stagingObjectKey !== 'string' || !isSafeInteger(uploadExpiresAtMs)) {
       return errorResponse('ROOM_STATE_INVALID', 503);
     }
+    if (asset.completionSourceEtag !== undefined && !isCopySourceEtag(asset.completionSourceEtag)) {
+      return errorResponse('ROOM_STATE_INVALID', 503);
+    }
     const finalMetadata = {
       'mxqr-room': this.activeRoom.roomCode,
       'mxqr-generation': String(assetRoomGeneration),
@@ -17275,6 +17553,10 @@ export class MusixquareProRoom {
       );
     };
 
+    const finalObjectMatchesReservation = (object: R2ObjectPort | null) =>
+      objectMatchesReservation(object) &&
+      (asset.completionSourceEtag === undefined ||
+        object?.customMetadata?.['mxqr-copy-source-etag'] === asset.completionSourceEtag);
     let stagingObject;
     let finalObject;
     try {
@@ -17289,10 +17571,10 @@ export class MusixquareProRoom {
     // A prior completion may have created and verified the immutable final
     // object, then lost the Durable Object commit or response. Treat that exact
     // object as the recovery source instead of requiring staging to survive.
-    if (!objectMatchesReservation(finalObject) && !stagingObject) {
+    if (!finalObjectMatchesReservation(finalObject) && !stagingObject) {
       return errorResponse('UPLOAD_INCOMPLETE', 409);
     }
-    if (!objectMatchesReservation(finalObject) && !objectMatchesReservation(stagingObject)) {
+    if (!finalObjectMatchesReservation(finalObject) && !objectMatchesReservation(stagingObject)) {
       try {
         await this.env.PRO_MEDIA_BUCKET.delete(stagingObjectKey);
       } catch {
@@ -17308,51 +17590,123 @@ export class MusixquareProRoom {
       return errorResponse('UPLOAD_MISMATCH', 409);
     }
 
-    if (!objectMatchesReservation(finalObject)) {
-      try {
-        const staged = await this.env.PRO_MEDIA_BUCKET.get(stagingObjectKey);
-        if (!staged?.body) return errorResponse('UPLOAD_INCOMPLETE', 409);
-        await this.env.PRO_MEDIA_BUCKET.put(asset.objectKey, staged.body, {
-          httpMetadata: { contentType: asset.mime },
-          customMetadata: finalMetadata,
-        });
-        finalObject = await this.env.PRO_MEDIA_BUCKET.head(asset.objectKey);
-      } catch {
-        // Keep both keys. R2 PUT is atomic and a retry can verify/recover an
-        // already-created final object even when the post-PUT HEAD failed.
+    if (!finalObjectMatchesReservation(finalObject)) {
+      if (!isCopySourceEtag(stagingObject?.etag)) {
         return errorResponse('MEDIA_STORAGE_UNAVAILABLE', 503);
       }
-      if (!objectMatchesReservation(finalObject)) {
-        await this.env.PRO_MEDIA_BUCKET.delete(asset.objectKey).catch(() => {});
-        return errorResponse('MEDIA_STORAGE_UNAVAILABLE', 503);
+      if (
+        asset.completionSourceEtag !== undefined &&
+        asset.completionSourceEtag !== stagingObject.etag
+      ) {
+        return errorResponse('UPLOAD_MISMATCH', 409);
+      }
+      if (asset.completionSourceEtag === undefined) {
+        // Persist before any external copy. A cancelled request may still
+        // complete remotely; every retry must copy the same source identity.
+        asset.completionSourceEtag = stagingObject.etag;
+        await this.persist();
+      }
+      const bucket = this.env.PRO_MEDIA_BUCKET;
+      const sourceEtag = asset.completionSourceEtag;
+      const pinnedMetadata = { ...finalMetadata, 'mxqr-copy-source-etag': sourceEtag };
+      const sizeBucketMiB = mediaSizeBucketMiB(asset.byteLength);
+      const copyStartedAtMs = Date.now();
+      const copied = await copyReservedMediaObject(this.env, asset, pinnedMetadata);
+      let copyReason: MediaCopyReason = copied.ok ? 'ok' : copied.reason;
+      if (copied.ok) {
+        try {
+          finalObject = await bucket.head(asset.objectKey);
+          if (finalObject?.etag !== copied.etag) copyReason = 'etag_mismatch';
+          else if (!finalObjectMatchesReservation(finalObject)) copyReason = 'metadata_mismatch';
+        } catch {
+          copyReason = 'head';
+        }
+      }
+      this.recordDiagnostic('media_copy', {
+        operation: 'media_complete',
+        reason: copyReason,
+        status: copied.ok ? 200 : copied.status,
+        elapsedMs: Date.now() - copyStartedAtMs,
+        sizeBucketMiB,
+      });
+      if (copyReason !== 'ok') {
+        // The presigned copy has no production history before 9.0.17, so any
+        // outcome short of a verified final object falls back to the binding
+        // promotion 9.0.16 used. After a timed-out copy this request has
+        // already spent the 8 s copy deadline, so a fallback slower than the
+        // remaining facade budget times out there; the same-key retry then
+        // replays the stored answer. Only a read showing that the pinned
+        // source changed refuses to write.
+        const fallbackStartedAtMs = Date.now();
+        const promoted = await promoteStagedMediaThroughBinding(
+          bucket,
+          { stagingObjectKey, sourceEtag },
+          asset,
+          pinnedMetadata,
+          finalObjectMatchesReservation,
+        );
+        this.recordDiagnostic('media_copy_fallback', {
+          operation: 'media_complete',
+          reason: promoted.reason,
+          elapsedMs: Date.now() - fallbackStartedAtMs,
+          sizeBucketMiB,
+        });
+        // Otherwise keep both keys and the durable pin. A retry verifies and
+        // reuses an exact final object, including one a late copy commits.
+        if (promoted.reason !== 'ok') return errorResponse('MEDIA_STORAGE_UNAVAILABLE', 503);
+        finalObject = promoted.finalObject;
       }
     }
-    const completedAtMs = Date.now();
-    asset.status = 'ready';
-    delete asset.expiresAtMs;
-    asset.completedAtMs = completedAtMs;
-    // The optional client length (read by an App's bundled copy of the same,
-    // possibly older reader) stays part of the idempotency fingerprint but is
-    // never timing evidence: the server reads the stored object itself.
-    this.enqueueAssetDurationProbe(asset);
-    asset.stagingCleanupAfterMs = Math.max(uploadExpiresAtMs + 5_000, completedAtMs + 60_000);
-    this.activeRoom.quota.reservedBytes -= asset.byteLength;
-    this.activeRoom.quota.usedBytes += asset.byteLength;
-    // Completion and playlist insertion are separate idempotent operations.
-    // Start a conservative orphan deadline now; a later accepted snapshot that
-    // references this asset clears the marker.
-    this.reconcileAssetGarbageCollection(completedAtMs);
-    this.activeRoom.revision += 1;
-    const responseBody = { asset: publicAsset(asset), quota: { ...this.activeRoom.quota } };
-    this.storeIdempotency(scope, key, fingerprint, responseBody);
-    await this.persist();
+    let committed;
+    try {
+      // This checkpoint includes the already-durable source pin. Do not let a
+      // final commit failure rewind the outer route to its pre-copy checkpoint.
+      committed = await this.withStateCapacityRollback(
+        async () => {
+          const completedAtMs = Date.now();
+          asset.status = 'ready';
+          delete asset.expiresAtMs;
+          asset.completedAtMs = completedAtMs;
+          // The optional client length (read by an App's bundled copy of the same,
+          // possibly older reader) stays part of the idempotency fingerprint but is
+          // never timing evidence: the server reads the stored object itself.
+          this.enqueueAssetDurationProbe(asset);
+          asset.stagingCleanupAfterMs = Math.max(uploadExpiresAtMs + 5_000, completedAtMs + 60_000);
+          this.activeRoom.quota.reservedBytes -= asset.byteLength;
+          this.activeRoom.quota.usedBytes += asset.byteLength;
+          // Completion and playlist insertion are separate idempotent operations.
+          // Start a conservative orphan deadline now; a later accepted snapshot that
+          // references this asset clears the marker.
+          this.reconcileAssetGarbageCollection(completedAtMs);
+          this.activeRoom.revision += 1;
+          const responseBody = { asset: publicAsset(asset), quota: { ...this.activeRoom.quota } };
+          // The receipt outlives the orphan deadline above, so a same-key
+          // Retry replays until the unnamed asset is collected (RO-53).
+          this.storeIdempotency(
+            scope,
+            key,
+            fingerprint,
+            responseBody,
+            200,
+            completedAtMs + proRoomCompletionReceiptTtlMs(this.assetGcGraceMs()),
+          );
+          await this.persist();
+          return jsonResponse(responseBody);
+        },
+        { rollbackStorageFailure: true },
+      );
+    } catch (error) {
+      if (!(error instanceof RoomStateStorageCommitError)) throw error;
+      return errorResponse('MEDIA_STORAGE_UNAVAILABLE', 503);
+    }
+    if (!committed.ok) return committed;
     // Commit metadata and idempotency before deleting the only client-uploaded
     // copy. If cleanup is interrupted, alarm GC retries via
     // stagingCleanupAfterMs; if persistence failed, the next completion can
     // recover from the verified final object above.
     const cleanup = this.env.PRO_MEDIA_BUCKET.delete(stagingObjectKey).catch(() => {});
     if (typeof this.state.waitUntil === 'function') this.state.waitUntil(cleanup);
-    return jsonResponse(responseBody);
+    return committed;
   }
 
   async handleMediaDuration(request: Request, assetId: string) {
@@ -17599,6 +17953,8 @@ export class MusixquareProRoom {
       if (this.idempotencyRecordIsExpired(record, nowMs)) {
         delete this.activeRoom.idempotency[key];
         changed = true;
+      } else {
+        changed = this.capBrowserReceiptLifetime(key, record, nowMs) || changed;
       }
     }
     for (const [key, record] of Object.entries(this.activeRoom.presenceCloseIdempotency)) {
@@ -17648,7 +18004,9 @@ export class MusixquareProRoom {
       try {
         const quietWindowComplete = await this.advanceStagingObjectCleanup(
           tombstone,
-          tombstone.objectKey,
+          tombstone.finalObjectKey
+            ? [tombstone.objectKey, tombstone.finalObjectKey]
+            : tombstone.objectKey,
           nowMs,
         );
         if (quietWindowComplete) delete this.activeRoom.stagingTombstones[assetId];

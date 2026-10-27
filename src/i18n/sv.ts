@@ -869,6 +869,23 @@ const sv: Record<I18nKey, string> = {
   'pro.active_tab_message': 'Om du fortsätter här avslutas den tidigare anslutningen.',
   'pro.active_tab_replaced': 'PRO-rummet är redan öppet i en annan flik',
   'pro.use_this_tab': 'Fortsätt här',
+  'pro.upload.retry_unavailable':
+    'Den här uppladdningen kan inte längre slutföras. Välj filen igen.',
+  'pro.upload.failed_retryable': 'Uppladdningen kunde inte slutföras. Försök igen.',
+  'pro.upload.empty_file': 'En tom fil kan inte laddas upp.',
+  'pro.upload.file_too_large': 'Filen är större än gränsen på 200 MB per fil.',
+  'pro.upload.quota_exceeded': 'PRO-rummet har nått lagringsgränsen på 1 GB.',
+  'pro.upload.playlist_full': 'Spellistan är full.',
+  'pro.upload.room_capacity': 'PRO-rummet har inte plats för fler spår.',
+  'pro.upload.room_state_limit':
+    'PRO-rummet kan inte ta emot fler ändringar just nu. Välj filen igen om en liten stund.',
+  'pro.upload.pending_limit':
+    'PRO-rummet har för många ofärdiga uppladdningar. Försök igen om en liten stund.',
+  'pro.upload.playlist_switched':
+    'En annan spellista blev aktiv innan spåret lades till. Välj filen igen.',
+  'pro.upload.permission_required': 'Behörighet att hantera media krävs.',
+  'pro.upload.failed_file': '{{name}}: {{reason}}',
+  'pro.upload.confirming': 'Slutför uppladdning {{current}}/{{total}}',
   'pro.upload.batch_progress': 'Laddar upp spår {{current}}/{{total}}',
   'pro.upload.batch_failed_title': 'Vissa spår kunde inte laddas upp',
   'pro.upload.batch_failed_message':
@@ -878,6 +895,8 @@ const sv: Record<I18nKey, string> = {
   'pro.downloading': 'Läser in filen…',
   'pro.quota_exceeded': 'PRO-rummet har nått lagringsgränsen på 1 GB',
   'pro.file_too_large': 'Filen är större än gränsen på 200 MB per fil',
+  'pro.room_state_limit':
+    'PRO-rummet kan inte ta emot fler ändringar just nu\nFörsök igen om en liten stund',
 
   // ─── HTML Blocks (used with data-i18n-html) ────────────────────
   'help.install_app_html':

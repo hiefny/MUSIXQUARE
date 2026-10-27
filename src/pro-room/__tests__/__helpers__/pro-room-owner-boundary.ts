@@ -59,9 +59,12 @@ import {
  *   production. Request deadlines (900 ms broadcast, 2 s registry read, 10 s
  *   duration read) never expire because every fake answers at once, and no
  *   test moves time while an R2 read is parked.
- * - DurationBucket models the R2 calls the room makes: `head`, unranged `get`
- *   (upload completion copy), ranged `get` (duration reads by
- *   `readProRoomFileDuration`), `put`, `delete`, `list`. A presigned client
+ * - DurationBucket models the R2 calls the room makes: `head`, ranged `get`
+ *   (duration reads by `readProRoomFileDuration`), `put`, `delete`, `list`.
+ *   `copyBoundaryR2Object` models the external S3 CopyObject route: the source
+ *   ETag condition, separate final bytes, replacement metadata and XML result.
+ *   Suites that complete uploads install it at the global fetch boundary.
+ *   A presigned client
  *   upload is modelled by `upload()`, which stores the bytes under the key and
  *   metadata the presigned URL names. A ranged read yields one macrotask, as
  *   I/O does, so a read loop (the hot loop the continuation guards prevent)
@@ -246,9 +249,15 @@ interface RangeRead {
 
 interface StoredObject {
   bytes: Uint8Array;
+  etag: string;
   httpMetadata: { contentType?: string };
   customMetadata: Record<string, string>;
 }
+
+const SYNTHETIC_SOURCE_ETAG = '00000000000000000000000000000001';
+const SYNTHETIC_FINAL_ETAG = '00000000000000000000000000000002';
+const R2_ACCOUNT_ID = '01353882e4eea3a5acaa0c45e8336af4';
+const R2_BUCKET_NAME = 'musixquare-pro-media';
 
 /** `readProRoomFileDuration` opens every read with this prefix range. */
 const PROBE_PREFIX_BYTES = 10;
@@ -284,6 +293,7 @@ class DurationBucket {
     }
     this.objects.set(key, {
       bytes,
+      etag: SYNTHETIC_SOURCE_ETAG,
       httpMetadata: { contentType: headers['content-type'] },
       customMetadata,
     });
@@ -329,6 +339,7 @@ class DurationBucket {
     return object
       ? {
           size: object.bytes.byteLength,
+          etag: object.etag,
           httpMetadata: { ...object.httpMetadata },
           customMetadata: { ...object.customMetadata },
         }
@@ -360,6 +371,7 @@ class DurationBucket {
       : object.bytes.slice();
     return {
       size: object.bytes.byteLength,
+      etag: object.etag,
       httpMetadata: { ...object.httpMetadata },
       customMetadata: { ...object.customMetadata },
       body: new Response(bytes).body!,
@@ -374,6 +386,7 @@ class DurationBucket {
     const bytes = new Uint8Array(await new Response(body).arrayBuffer());
     this.objects.set(key, {
       bytes,
+      etag: SYNTHETIC_FINAL_ETAG,
       httpMetadata: { ...options.httpMetadata },
       customMetadata: { ...options.customMetadata },
     });
@@ -391,6 +404,42 @@ class DurationBucket {
       .map((key) => ({ key }));
     return { objects, truncated: false };
   }
+}
+
+/** Copy the staged bytes through the same external boundary as R2 S3. */
+export async function copyBoundaryR2Object(
+  request: Request,
+  buckets: Iterable<DurationBucket>,
+): Promise<Response> {
+  const url = new URL(request.url);
+  if (request.method !== 'PUT' || url.hostname !== `${R2_ACCOUNT_ID}.r2.cloudflarestorage.com`)
+    throw new Error('Unexpected external request');
+  const source = request.headers.get('x-amz-copy-source');
+  const prefix = `/${R2_BUCKET_NAME}/`;
+  if (!source?.startsWith(prefix) || !url.pathname.startsWith(prefix))
+    throw new Error('Unexpected copy path');
+  const sourceKey = decodeURIComponent(source.slice(prefix.length));
+  const finalKey = decodeURIComponent(url.pathname.slice(prefix.length));
+  const bucket = [...buckets].find((candidate) => candidate.objects.has(sourceKey));
+  const staged = bucket?.objects.get(sourceKey);
+  if (!bucket || !staged) return new Response(null, { status: 404 });
+  if (request.headers.get('x-amz-copy-source-if-match') !== `"${staged.etag}"`)
+    return new Response(null, { status: 412 });
+  expect(request.headers.get('x-amz-metadata-directive')).toBe('REPLACE');
+  const metadata = Object.fromEntries(
+    [...request.headers]
+      .filter(([name]) => name.startsWith('x-amz-meta-'))
+      .map(([name, value]) => [name.slice('x-amz-meta-'.length), value]),
+  );
+  bucket.objects.set(finalKey, {
+    bytes: staged.bytes.slice(),
+    etag: SYNTHETIC_FINAL_ETAG,
+    httpMetadata: { contentType: request.headers.get('content-type') ?? undefined },
+    customMetadata: metadata,
+  });
+  return new Response(
+    `<?xml version="1.0" encoding="UTF-8"?><CopyObjectResult xmlns="http://s3.amazonaws.com/doc/2006-03-01/"><LastModified>2026-10-27T00:00:00Z</LastModified><ETag>&quot;${SYNTHETIC_FINAL_ETAG}&quot;</ETag></CopyObjectResult>`,
+  );
 }
 
 /** FLAC bytes whose STREAMINFO declares `seconds` at 44.1 kHz. */
@@ -514,10 +563,10 @@ export async function activatedProRoom(
     PRO_ROOM_SESSION_SECRET: SECRET('session'),
     MXQR_PRO_ROOM_ACCOUNT_ASSERTION_SECRET: ASSERTION_SECRET,
     PRO_SIGNALING_SECRET: SECRET('signaling'),
-    R2_ACCOUNT_ID: '01353882e4eea3a5acaa0c45e8336af4',
+    R2_ACCOUNT_ID,
     R2_ACCESS_KEY_ID: 'boundary-access-key',
     R2_SECRET_ACCESS_KEY: 'boundary-secret-key'.padEnd(40, 'k'),
-    R2_BUCKET_NAME: 'musixquare-pro-media',
+    R2_BUCKET_NAME,
     PRO_MEDIA_BUCKET: bucket,
     PRO_SIGNALING_ROOMS: signaling.namespace,
     MUSIXQUARE_ADMIN_DB: admin,

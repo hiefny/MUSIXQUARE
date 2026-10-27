@@ -94,7 +94,7 @@ const READ_ALLOWLIST = new Map<string, ReadAllowance>([
   ],
   [
     'src/network/system-audio-sfu.ts',
-    { appRole: 11, isOperator: 0, reason: 'compatibility-consumer' },
+    { appRole: 10, isOperator: 0, reason: 'compatibility-consumer' },
   ],
   ['src/player/playlist.ts', { appRole: 1, isOperator: 0, reason: 'standard-fenced' }],
   ['src/rooms/authority.ts', { appRole: 4, isOperator: 1, reason: 'canonical-authority-adapter' }],
@@ -331,7 +331,6 @@ const CALLSITE_FINGERPRINTS = new Map<string, readonly string[]>([
       "read:appRole @ callback-call:bus.on(\"system-audio:incoming-call\")#1 :: if (getState('network.appRole') !== 'guest')",
       "read:appRole @ callback-call:bus.on(\"system-audio:streams-ready\")#1 :: if (getState('network.appRole') !== 'host')",
       "read:appRole @ function:beginBoundedHostRetry :: if (hostRetryCount >= HOST_SFU_MAX_RETRIES || !isSystemAudioActive() || getState('network.appRole') !== 'host' || !hasLocalSfuHostPeers())",
-      "read:appRole @ function:handleSfuCapability :: if (getState('network.appRole') !== 'host' || !conn?.peer)",
       "read:appRole @ function:isGuestSfuReceiver :: return getState('network.appRole') === 'guest'",
       "read:appRole @ function:publishToEligiblePeer :: if (getState('network.appRole') !== 'host')",
       "read:appRole @ function:runBoundedHostRetry :: if (!isSystemAudioActive() || getState('network.appRole') !== 'host')",
@@ -422,9 +421,11 @@ const CALLSITE_FINGERPRINTS = new Map<string, readonly string[]>([
   [
     'src/ui/player-controls.ts',
     [
-      'event:appRole @ function:initPlayerControls :: _busScope.on("state:network.appRole", () => { updateRoleBadge(); syncMediaSourceButtonAuthority(); syncQueueModeButtonAuthority(); syncPlayButtonAuthority(); syncMainSyncButtonState(); })',
+      // Existing role listeners also repaint the centralized pending/denied
+      // volume label; no new legacy authority decision or subscription.
+      'event:appRole @ function:initPlayerControls :: _busScope.on("state:network.appRole", () => { updateRoleBadge(); syncVolumeAuthorityUI(); syncMediaSourceButtonAuthority(); syncQueueModeButtonAuthority(); syncPlayButtonAuthority(); syncMainSyncButtonState(); })',
       'event:appRole @ function:initPlayerControls :: _busScope.on("state:network.appRole", closeManualSyncIfInvalid)',
-      'event:isOperator @ function:initPlayerControls :: _busScope.on("state:network.isOperator", (isOperator) => { if (!isOperator && isProRoomTrackChangeIntentPending()) { clearProRoomTrackChangeIntent(); } syncMediaSourceButtonAuthority(); syncQueueModeButtonAuthority(); syncPlayButtonAuthority(); })',
+      'event:isOperator @ function:initPlayerControls :: _busScope.on("state:network.isOperator", (isOperator) => { if (!isOperator && isProRoomTrackChangeIntentPending()) { clearProRoomTrackChangeIntent(); } syncMediaSourceButtonAuthority(); syncQueueModeButtonAuthority(); syncPlayButtonAuthority(); syncVolumeAuthorityUI(); })',
       "read:appRole @ function:getConnectedDeviceCount :: variable appRole = getState('network.appRole') => consumers [appRole -> if (!hostConn && (appRole === 'host' || sessionStarted || peerConnected > 0))]",
       "read:appRole @ function:handleLogoReturnToMain :: variable appRole = getState('network.appRole') => consumers [appRole -> variable hasSession = !!(hostConn || appRole === 'host')]",
       "read:appRole @ function:syncPlayButtonAuthority :: variable roomAuthorityApplies = context.kind === 'pro' || getState('network.appRole') !== 'idle' => consumers [roomAuthorityApplies -> variable hasAuthority = !roomAuthorityApplies || hasRoomCapability('playback.control')]",

@@ -3,6 +3,7 @@
 // authority fence row; see docs/design/resource-ownership-registry.md).
 import { handleProBotRequest } from './pro-bot.ts';
 import { reportProRoomFrontDiagnostic } from './pro-room-diagnostics.ts';
+import { PRO_ROOM_MEDIA_COMPLETE_TIMEOUT_MS } from './pro-room-media-timing.ts';
 import { parseAnnouncementExpiry } from './announcement-expiry.ts';
 import {
   handleProYouTubeDurationRequest,
@@ -374,7 +375,7 @@ const ADMIN_ANNOUNCEMENT_HISTORY_KEY = 'admin-announcement-history.json';
 const ADMIN_ANNOUNCEMENT_HISTORY_LIMIT = 100;
 const ADMIN_ANNOUNCEMENT_ID_RE = /^[A-Za-z0-9._:-]{1,128}$/;
 const ADMIN_MAINTENANCE_PREVIEW_PATH = '/admin/maintenance-preview';
-const ADMIN_ASSET_VERSION = '9.0.15';
+const ADMIN_ASSET_VERSION = '9.0.18';
 const SORO_RSS_MAX_BYTES = 20 * 1024 * 1024;
 const SORO_RSS_FETCH_TIMEOUT_MS = 2500;
 const SORO_BACKGROUND_REFRESH_MIN_INTERVAL_MS = 5 * 60 * 1000;
@@ -1164,7 +1165,11 @@ async function handleProRoomFacade(request: Request, env: AppEnv, url: URL) {
         ? 'presence_enter'
         : upstreamPath.endsWith('/presence/close')
           ? 'presence_close'
-          : 'other';
+          : /^\/v1\/rooms\/\d{6}\/media\/reservations$/.test(upstreamPath)
+            ? 'media_reserve'
+            : /^\/v1\/rooms\/\d{6}\/media\/[A-Za-z0-9_-]{16,128}\/complete$/.test(upstreamPath)
+              ? 'media_complete'
+              : 'other';
   const reportUpstreamFailure = (
     reason: 'response_timeout' | 'body_timeout' | 'fetch' | 'body' | 'response',
   ) => {
@@ -1186,7 +1191,9 @@ async function handleProRoomFacade(request: Request, env: AppEnv, url: URL) {
       (boundedRequest) => proRoomPublicApi.fetch(boundedRequest),
       new Request(upstreamUrl, upstreamInit),
       PRO_ROOM_SERVICE_RESPONSE_MAX_BYTES,
-      PRO_ROOM_SERVICE_RESPONSE_TIMEOUT_MS,
+      request.method === 'POST' && diagnosticOperation === 'media_complete'
+        ? PRO_ROOM_MEDIA_COMPLETE_TIMEOUT_MS
+        : PRO_ROOM_SERVICE_RESPONSE_TIMEOUT_MS,
       reportUpstreamFailure,
     );
   } catch {

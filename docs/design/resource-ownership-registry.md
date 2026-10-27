@@ -114,7 +114,7 @@ each record also states the step in words.
 | RO-18 | Host-to-guest bulk lanes                                 | Transfer       | duplicated         | 4 (C5-3, C5-11 reduced, C5-12) |
 | RO-19 | Guest fetch of the current track                         | Transfer       | owner-in-place     | Done (4, C5-3)                 |
 | RO-20 | PRO system-audio lease and publication                   | System audio   | owner-in-place     | None                           |
-| RO-21 | PRO checkpoint re-apply after a disruption               | PRO room       | duplicated         | 5B (C4-13, P5-D11 B)           |
+| RO-21 | PRO checkpoint re-apply after a disruption               | PRO room       | owner-in-place     | Done (5B, C4-13)               |
 | RO-22 | Waiting service worker activation                        | Page lifecycle | duplicated         | 0d, 3                          |
 | RO-23 | App-owned page navigation                                | Page lifecycle | duplicated         | 0d, 2                          |
 | RO-24 | `inert` page lock                                        | Page lifecycle | owner-in-place     | Done (2, C6-11)                |
@@ -131,7 +131,6 @@ each record also states the step in words.
 | RO-36 | Failed-PLAY confirm closure stays on the bus             | Audio          | accepted-exception | Revisit in Phase 7             |
 | RO-37 | Defensive retry-versus-semantic branch stays in `app.ts` | Audio          | accepted-exception | Revisit in Phase 7             |
 | RO-39 | Two Cloudflare Realtime control clients                  | System audio   | accepted-exception | Revisit after a build check    |
-| RO-41 | Two PRO re-apply owners serialized, not deduplicated     | PRO room       | accepted-exception | Revisit in 5B (C4-13)          |
 | RO-42 | PRO-only capture policy stays eager                      | System audio   | accepted-exception | Revisit after a build check    |
 | RO-43 | Update prompt stays eager                                | Page lifecycle | accepted-exception | None (C6-15 rejected)          |
 | RO-44 | AudioContext native-call guard is syntactic              | Audio          | accepted-exception | Phase 7                        |
@@ -142,6 +141,8 @@ each record also states the step in words.
 | RO-49 | Queue and demo start anchors stay two                    | Output rejoin  | accepted-exception | Revisit on an anchor defect    |
 | RO-50 | App build floor                                          | Workers        | owner-in-place     | None                           |
 | RO-51 | Return-from-background dialog                            | Page lifecycle | duplicated         | One slot on a 4th requester    |
+| RO-52 | PRO browser completion final object                      | Workers        | owner-in-place     | Revisit on copy diagnostics    |
+| RO-53 | PRO browser receipt ledger                               | Workers        | owner-in-place     | None                           |
 
 ## Machine-readable ID list
 
@@ -179,7 +180,7 @@ RO-17 duplicated
 RO-18 duplicated
 RO-19 owner-in-place
 RO-20 owner-in-place
-RO-21 duplicated
+RO-21 owner-in-place
 RO-22 duplicated
 RO-23 duplicated
 RO-24 owner-in-place
@@ -196,7 +197,6 @@ RO-34 accepted-exception
 RO-36 accepted-exception
 RO-37 accepted-exception
 RO-39 accepted-exception
-RO-41 accepted-exception
 RO-42 accepted-exception
 RO-43 accepted-exception
 RO-44 accepted-exception
@@ -207,6 +207,8 @@ RO-48 accepted-exception
 RO-49 accepted-exception
 RO-50 owner-in-place
 RO-51 duplicated
+RO-52 owner-in-place
+RO-53 owner-in-place
 ```
 
 ## Resource records
@@ -360,7 +362,9 @@ RO-51 duplicated
   (`beginTrustedSystemAudioReception`, which runs `stopAllMedia`, takes the restore meta and
   claims the `'system-audio'` placeholder), the 30 s receive watchdog, the delivery-handoff
   interrupt and the end of reception (`endTrustedSystemAudioReception`, which restores the title
-  only while the slot still holds the placeholder or the `'system-audio'` owner). A route joins
+  only while the slot still holds the placeholder or the `'system-audio'` owner; since 5B-G4 not
+  over the sharer's own claim, and since 5B-G5 an end nested in a start before its claim keeps
+  that start's restore point, below). A route joins
   every end through one port (`registerSystemAudioReceiveRoute`), which the end calls after
   taking the restore point and clearing the watchdog and before it drops the receiving flag; the
   Standard direct call is the only route with an end port. Since C4-6 the same port also carries
@@ -385,7 +389,23 @@ RO-51 duplicated
   track and reports a context that is not running once the slot confirms the graph, and its
   `cleanupGuestSfu` detaches the route and ends the reception only when its subscription
   attached (`getSystemAudioReceiveRouteSnapshot`). The SFU does not join the end port: an end
-  leaves its transport, source and primer to that cleanup, as before. Since C4-5 the PRO
+  leaves its transport, source and primer to that cleanup, as before. Since 5B-G3 (owner
+  decision P5-D5 A, gap 1) a failed subscription with no successor (its subscribe with no
+  pending READY, or its subscriber PC's `'failed'` state) goes through one helper
+  (`failGuestSfuSubscription`): when it attached nothing while the slot is receiving, it
+  continued a reception a re-publication left playing (the re-publication's
+  `cleanupGuestSfu(false)` keeps the receiving flag), so it hands that reception off (the
+  placeholder and restore point stay, receiving drops, the slot deadline is armed from the
+  failure, and a READY within it still attaches; otherwise the deadline's `receive_failed` and
+  the previous title follow). Before, the guest stayed playing in silence with no deadline and
+  no notice until STOP. Any other failure cleans up as before: an attached subscription ends
+  the reception (gap 8), and a failed first subscription leaves the start's deadline to end it
+  (gap 13). The handoff was chosen over an immediate end with `receive_failed`: it is the
+  existing Standard SFU semantic for a failed subscription that continues a reception (the
+  handoff to a pending READY), it matches gap 13 (left as is), a later READY within the 30 s
+  still attaches, and it adds no timer, notice or frame. The Standard routes exclude each other
+  (a direct call retires the SFU route before it attaches, and a direct-failure READY ends the
+  direct reception before it subscribes), so a receiving flag there is the SFU's own. Since C4-5 the PRO
   coordinator (`src/pro-room/system-audio-service.ts`) is a slot input too, as one route
   (`'pro-coordinator'`) for both of its transports, because it held one source and one primer
   whichever transport (PRO SFU or LAN-direct, `src/network/pro-system-audio-direct.ts`)
@@ -395,21 +415,74 @@ RO-51 duplicated
   as before), priming its track once the slot confirms the graph and clearing its direct receive
   deadline once the source is connected; it logs no connected line. The SFU `'subscribed'` state
   resumes the route (`resumeSystemAudioRoute`: the reception start again only while the route
-  still has a source). The disconnect grace, a retry and a receiver fallback interrupt the slot
-  with `deadline: 'route'` (`interruptTrustedSystemAudioReception`: the receiving flag drops
-  and no watchdog is armed, because the coordinator owns its deadlines); the retry and the
-  fallback detach the route first, the disconnect grace keeps the source. The coordinator's
+  still has a source). Since 5B-G1 (owner decision P5-D5 A, gaps 2 and 3) the attach and the
+  resume are fenced in the slot: a route attaches or resumes only while the slot's receive
+  placeholder is the current meta (a STOP, a force-stop, a deadline expiry and a share end
+  restore the previous title, and a successor owner sets its own meta). The fence reads only the
+  placeholder, not the slot's phase, and comes before the graph: a refused attach returns
+  `'not-receiving'` (the attach's result is
+  `'attached' | 'not-receiving' | 'graph-unavailable'`, where it returned a boolean), writes
+  nothing and drops the route's source
+  and primer, and a refused resume claims nothing and drops them too. No route ends the reception,
+  throws or notifies on a refusal: the Standard direct call stays open and current and drops its
+  replacement deadline (a guest close would make the host hand the guest to the SFU with STOP,
+  START and READY, whose START stops a successor; STOP or the end closes it), the Standard SFU
+  closes its subscription as for the trust boundary's refusal (the share route stays frozen),
+  and the PRO coordinator closes a refused SFU track's subscription for that publication
+  (since 5B-G2, below) and keeps a LAN-direct route open. Accepted with the fence (the 5B-G1
+  plan's risk, confirmed in review): a meta-null writer can remove the placeholder while a
+  Standard guest still receives (the current-item removal in `player/playlist.ts`: removed,
+  emptied or rebased). If a replacement direct call's attach is then refused, the slot drops the
+  previous call's source but leaves `systemAudio.isReceiving` set and the guest drops the
+  replacement deadline, so the share reads as playing, silent and with no deadline, until the
+  host's STOP. The host's own removal stops its capture first (a removal plays a successor or
+  empties the queue, and a START needs queue authority), so that window is about one round trip.
+  `'graph-unavailable'` keeps each route's throw and policy. The disconnect grace, a retry and a receiver fallback (and
+  since 5B-G6 the SFU subscriber's budget expiry, below) interrupt the slot with
+  `deadline: 'route'` (`interruptTrustedSystemAudioReception`: the
+  receiving flag drops
+  and no watchdog is armed, because the coordinator owns its deadlines); the retry, the
+  fallback and the budget expiry detach the route first, the disconnect grace keeps the source.
+  The coordinator's
   cleanups detach the route, and its direct receive deadline asks the slot whether the route
   attached a source. It keeps the subscription key, the same-publication retry that skips the
-  start (G6), the direct receive deadline with its five releases and the order in which a
-  LAN-direct start arms it after the start, and registers no end port: an end leaves its source,
-  primer and subscription to the coordinator's own cleanups (the force-stop gap the PRO contract
-  suite pins). Since C4-6 (owner decision P5-D7 A) the two bus pairs the routes shared are slot
-  inputs, and every start and interrupt names its deadline kind (`ReceiveDeadline`, replacing
+  start (G6), the direct receive deadline with its five releases (since 5B-G2 the route end
+  below clears it too, repeating the force-stop listener's release; an SFU key never has it
+  armed) and the order in which a LAN-direct start arms it after the start, and registers no
+  end port: an end leaves its source, primer and subscription to the coordinator's own
+  cleanups. Since 5B-G2 (owner decision P5-D5
+  A, gaps 4 and 5) one of those cleanups ends the route when the reception of an unchanged
+  publication ends: the coordinator's `system-audio:force-stop` listener (while it holds a
+  remote publication's key) and a refused SFU track of the live publication (the trust
+  boundary's refusal or the attach fence, while the subscriber still delivers it) clear the
+  pending retry, the disconnect grace and the direct receive deadline, detach the route, drop
+  the subscribe in flight, stop the SFU subscriber and mark the publication ended
+  (`coordinatorEndedKey`). The SFU branch of the reconcile then subscribes and begins nothing
+  for that publication (a heartbeat, a room-context re-emission or a retry), the reconcile and
+  retry catches treat the subscribe that stop aborted as no failure (no warn, notice or retry),
+  and every key change clears the mark (`cleanupCoordinatorGraph`), so a new publication is
+  never blocked. A force-stop nested in the coordinator's own start (its `stopAllMedia` while
+  local capture runs) leaves that start alone: a depth counter in a `try`/`finally` around each
+  of the two direct starts tells it apart, and the listener then only clears the direct receive
+  deadline, as before. The LAN-direct receiver route stays open after a force-stop or a refused
+  direct track, by choice: a silent local close would make the publisher fail the whole share
+  over to the SFU, a `'stopped'` close would invite a re-offer on the next publisher reconcile,
+  and the open route carries no Cloudflare traffic; a re-offered track meets the attach fence.
+  On a force-stop the route's source and primer drop all the same, and the route stays open
+  until the publication changes or ends or the room resets. Two cases stay as they were before
+  5B-G2, accepted with that choice and outside gaps 4 and 5: a receiver fallback of that open
+  route after a force-stop still shows `connection_unstable` once (its handler does not read the
+  ended mark), and a refused resume (a `'subscribed'` after another owner replaced the
+  placeholder of an attached SFU reception) drops the source and primer but leaves the SFU
+  subscription open until the publication changes, since of the refusals only a refused attach
+  and the boundary's refusal end the route. Since C4-6 (owner decision P5-D7 A) the two bus
+  pairs the routes shared are slot inputs, and every start and interrupt names its deadline
+  kind (`ReceiveDeadline`, replacing
   the `receiveWatchdog` boolean): `'slot'` arms the slot's 30 s deadline (the host START and the
   Standard SFU after a direct-route failure), `'route'` arms none (the PRO coordinator's two
-  starts and three interrupts). A Standard SFU delivery handoff (a failed subscription handing
-  over to a pending READY, or a direct call replacing the SFU) calls
+  starts and three interrupts; four since 5B-G6, which added the SFU budget expiry). A Standard SFU delivery handoff (a failed subscription handing
+  over to a pending READY, since 5B-G3 a failed re-subscription that attached nothing while the
+  slot is receiving, or a direct call replacing the SFU) calls
   `handOffTrustedSystemAudioReception`, which interrupts under the slot deadline while the
   placeholder is up; the SFU keeps the guest-role check (`isGuestSfuReceiver`) the guest's
   `system-audio:delivery-handoff` listener made. The slot deadline and the direct call's
@@ -423,20 +496,107 @@ RO-51 duplicated
   (`cleanupGuestSfu()`); the fan-out still reaches no other route. Both bus events are gone from the event map. The timer
   names (`sys-audio-guest-*`) are unchanged. Since C4-7 the PRO coordinator imports neither
   Standard adapter (`system-audio-guest.ts`, `system-audio-sfu.ts`): it starts, waits on and
-  ends a reception through the slot, its end still behind the `!latestView.isLocalOwner` guard
-  in `cleanupCoordinatorGraph` (the `'system-audio'` owner is also a local share's claim), which
-  `resetProSystemAudioService` still runs before it forgets the local owner; it reads the
+  ends a reception through the slot, its end behind the `!latestView.isLocalOwner` guard in
+  `cleanupCoordinatorGraph` (the `'system-audio'` owner is also a local share's claim; since
+  5B-G4 widened by the slot's query, below), which `resetProSystemAudioService` still runs
+  before it forgets the local owner; it reads the
   receive deadline from its home (`DIRECT_RECEIVE_DEADLINE_MS`); and it retires the Standard SFU
   route through the slot's adopt (`adoptSystemAudioReceiveRoute('pro-coordinator')`, where it
-  called the SFU adapter's cleanup: the room turning PRO, the top of every live reconcile and a
-  retry's cleanup). The adopt runs every other registered route's `retire` and changes nothing in
-  the slot itself; the Standard SFU registers one (its subscription through
-  `cleanupGuestSfu(false)` and its frozen share route, no reception end), and no other route has
-  one. Since C4-8 no route reaches the slot through another: `src/network/system-audio-guest.ts`
+  called the SFU adapter's cleanup: the room turning PRO and a retry's cleanup; 5B-OV1 removed
+  the one at the top of every live reconcile, a coordinator-era remnant with nothing to retire:
+  a PRO room starts no Standard SFU subscription, since `network.hostConn` stays null there and
+  the Standard SFU adapter refuses a READY). The adopt runs every other registered route's
+  `retire` and changes nothing in the slot itself; the Standard SFU registers one (its
+  subscription through `cleanupGuestSfu(false)` and its frozen share route, no reception end),
+  and no other route has one. Since C4-8 no route reaches the slot through another: `src/network/system-audio-guest.ts`
   no longer re-exports the slot's start, trust-boundary wait and end (the last as
   `cleanupGuestSystemAudio`), the Standard SFU imports them from the slot, and the guest keeps
-  the host START/STOP trust gate. The maintained contract is
-  [System-audio receive ownership](system-audio-receive-ownership.md).
+  the host START/STOP trust gate. Since 5B-G4 (owner decision P5-D5 A, gap 6) the slot tells its
+  own claim from the sharer's: the `'system-audio'` owner is also this device's own share, which
+  `src/audio/system-capture.ts` claims with sharing meta (`systemAudioMode: 'sharing'`). The end
+  still consumes the restore point, answers the waiters, clears the deadline, runs the route
+  ports and drops the receiving flag, but writes the title, releases the owner and sets idle only
+  while the placeholder is current or the `'system-audio'` owner's meta is not the sharer's; the
+  sharer's claim is left to the capture module (the narrowest rule: any other state keeps its
+  handling). The start never takes the sharer's meta as its restore point, whether the share is
+  still claimed or its transition teardown left that title idle (`system-capture.ts` sets idle
+  and keeps the meta), because restoring it after the received share would show "System Audio
+  Sharing" while idle. A read-only query, `hasTrustedSystemAudioReception()` (a start claiming or
+  holding its restore point, the placeholder current, or the receiving flag set), lets the PRO
+  coordinator end the slot over this device's own publication only while the slot still holds a
+  reception: its cleanup's guard keeps `playback.mode === 'system-audio'` and now reads
+  `!latestView.isLocalOwner || hasTrustedSystemAudioReception()`, so the guard is unchanged for
+  a listener's view. That is the S11 case, a sharing claim made while this device still received:
+  before, the local-owner guard skipped the whole end and left the receiving flag set with no
+  source and the restore point held for a later end to replay over the sharing meta. The end's
+  rule itself applies to every caller, a listener's view included: a sharer's SFU publisher
+  recovery releases the lease and acquires it again while capture keeps sharing, the release's
+  idle view is not the local owner's, so the cleanup runs the end over the capture's claim, and
+  capture is not told during that expected lease transition nor claims again after the
+  re-commit. Before 5B-G4 that end released the claim and left playback idle with no title for
+  the rest of the share; since 5B-G4 the sharer keeps its sharing title (pinned after the 5B-G4
+  review, anchor tests below). The guard
+  stays rather than going: every reconcile of the own publication (each 15 s heartbeat) runs
+  that cleanup, and an unguarded end would bump the generation, cancel every waiter, run the
+  route ports and stamp the `/debug sa` cleanup time on every heartbeat of a sharer. A stale held
+  restore point on a sharer (a reception interrupted, then the sharing claim) is consumed with no
+  title write at the next end, and a later start overwrites it. Since 5B-G5 (owner decision P5-D5
+  A, gap 7) an end nested in a start before its placeholder claim (the start's `stopAllMedia`
+  emits `system-audio:force-stop` while local capture runs, and the guest's listener ends the
+  reception) ends what preceded that start, not the start: the slot stays `'claiming'` with the
+  start's generation and restore point, so the start commits into `'held'`, its STOP or share end
+  restores what it took, and a boundary wait opened after that end joins the start. The nested
+  end still answers the open waiters (false, as before), clears the deadline, runs the route
+  ports and drops the receiving flag, and writes no title, releases nothing and sets nothing
+  idle, because the start claims the slot right after. Before, it consumed the start's restore
+  point and moved the generation on, so the start's own end left no title and a wait opened
+  after it joined a generation no start commits. Only an end before the claim is nested in this
+  sense: one that lands once the placeholder is up (from a listener of the claim; none is known)
+  ends that start as any end does. 5B-G4 comes first on purpose: a start over the sharer's title
+  takes no restore point, so on a PRO device that was sharing (the only production path, which
+  needs a second desktop sharer) the share end still leaves no title rather than "System Audio
+  Sharing". The LAN-direct order part of gap 7 is kept: the coordinator arms its direct receive
+  deadline after the start returns, so the nested force-stop cannot clear it, and the 5B-G2 depth
+  counter keeps that force-stop from ending the new subscription. Since 5B-G6 (owner decision
+  P5-D5 A, gaps 11 and 12) the coordinator hears two route closures. A LAN-direct publisher's
+  `'stopped'` close (sent only from its explicit stop, before it releases the share) closes the
+  current receiver route, live or not, and the transport now calls a new callback,
+  `onLiveRouteStopped` (`ProSystemAudioDirectTransportCallbacks`, after `acceptClose` closed the
+  route); the coordinator checks the live direct publication (generation, publication id, remote
+  owner and its own key), clears the direct receive deadline, detaches its route and ends the
+  reception while the slot still holds one (`hasTrustedSystemAudioReception()`; the end leaves a
+  successor alone), with no notice. It keeps the publication key, so a heartbeat of the
+  unchanged live state begins nothing again (the direct branch begins only on a key change, and
+  no ended mark is needed), and the post-share restore still follows the server's idle state,
+  because the view drives it; PRO room playback stays blocked while the view is live, so the
+  early end starts nothing early. An end rather than an interrupt: an interrupt keeps the placeholder with receiving off, which shows the play button's loading
+  spinner and reports the Media Session as paused on every LAN-direct listener until the idle
+  state, a new visible state on the most common stop path; the end shows what the idle state
+  shows, only earlier. `'superseded'` and a non-live `'fallback'` close the route only, as before.
+  The PRO SFU subscriber's own budget expiry (its `'stopped'` event with an expired descriptor of
+  the live remote publication) clears the disconnect grace, detaches the route and interrupts with
+  `deadline: 'route'`, with no notice, keeping the placeholder and the key; the idle state then
+  ends the reception, or, when it is late, the next heartbeat's refused subscribe (one
+  `connection_unstable` and the no-network backoff,
+  `system-audio-subscriber-watchdog.test.ts` "PRO SFU subscription that rejects synchronously",
+  unchanged) comes first. Every PRO SFU descriptor carries the share's live budget
+  (`liveExpiresAt`: two hours, or a promotion's fresh budget), the instant the server's alarm ends
+  the share and the publisher's capture stops; the listener's timer needs no network hop, so it
+  usually fires first at the normal end of every PRO SFU share that reaches its two-hour limit,
+  promoted or not (also earlier when the listener's clock runs ahead, and long before a late idle
+  state). Each SFU listener therefore shows the pending state (the play button's loading spinner,
+  the play icon off, the Media Session reporting paused) from its budget until the idle state,
+  usually about a second, where before 5B-G6 it showed the share playing in silence. An interrupt
+  rather than an end there: the stop is the listener's own clock reading the budget, not a
+  publisher or server signal, so the view still holds the share live; and an end would need the
+  5B-G2 ended mark for an unchanged expired live state, so that a late heartbeat would not show
+  `connection_unstable` over an idle slot, which would change that pinned retry path. P5-D5 A
+  left end or interrupt to the plan, so an end with the ended mark stays a later option with no
+  frame change; the device sheet has no two-hour share. The coordinator's own subscriber stops
+  carry an unexpired descriptor or another publication, or come after its cleanup cleared the key
+  or its route end marked the publication ended, so the handler ignores them; a retry's cleanup
+  of an expired subscription detaches and interrupts the same way itself. The maintained contract
+  is [System-audio receive ownership](system-audio-receive-ownership.md).
 - **Target single owner:** the receive-slot module `src/network/system-audio-receive-slot.ts`
   (owner decision P5-D4 A, 2026-10-25; created in Phase 5 C4-2, deferred-only). Route adapters
   register and call begin, attach, interrupt, resume, detach, adopt and end; the later Phase 5
@@ -448,10 +608,22 @@ RO-51 duplicated
   coordinator (`src/pro-room/system-audio-service.ts`), which the PRO SFU and LAN-direct
   transports feed; those transports never call the slot. `src/audio/system-capture.ts` claims the `'system-audio'` playback owner for
   this device's own share (the sharer's claim, not a reception; the guard's CHECK 9 counts it
-  apart) and otherwise only emits `system-audio:*` events, as the Standard host does.
+  apart, and since 5B-G4 the slot's end and start tell it apart by its sharing meta) and
+  otherwise only emits `system-audio:*` events, as the Standard host does.
 - **Lifecycle operations:** begin reception, attach, set receiving, claim the playback owner, arm
   or clear the receive deadline, interrupt, resume, detach, adopt, expire, cleanup with meta
-  restore.
+  restore. Since 5B-G1 the attach and the resume pass the slot's fence first (the receive
+  placeholder is the current meta) and a refused one detaches the route. Since 5B-G2 the PRO
+  coordinator ends its route (and marks the publication ended) on a force-stop outside its own
+  start and on a refused SFU track. Since 5B-G3 a failed Standard SFU re-subscription that
+  attached nothing while the slot is receiving hands the reception off under the slot deadline.
+  Since 5B-G4 the end leaves the sharer's claim (a `'system-audio'` owner with sharing meta)
+  alone, the start takes no restore point over the sharer's title, and the PRO coordinator asks
+  `hasTrustedSystemAudioReception()` before it ends the slot over its own publication. Since
+  5B-G5 an end nested in a start before its placeholder claim keeps that start's claim,
+  generation and restore point. Since 5B-G6 the PRO coordinator ends the reception on a
+  LAN-direct publisher's `'stopped'` close and interrupts it on its SFU subscriber's budget
+  expiry.
 - **Deadline owner:** per route today, named at each start and interrupt since C4-6
   (`ReceiveDeadline`). Standard P2P: the 30 s receive watchdog, the receive slot's since C4-2
   (timer `sys-audio-guest-receive-watchdog`, the guest receive watchdog in the guard's
@@ -465,6 +637,28 @@ RO-51 duplicated
   Standard SFU guests react to the slot's expiry through their `onDeadline` port (the
   `system-audio:receive-timeout` bus listener until C4-6).
   Target: one receive deadline per attempt in the slot.
+- **Route parity (owner decision P5-D10 A, recorded in 5B-G1):** Phase 5 changes no parity
+  between the routes; the differences below are kept on purpose. 5B-G2 and 5B-G6 completed the
+  last two rows in their own changes. Since 5B-G6 the PRO SFU subscriber's own budget expiry
+  interrupts the reception with no notice (gap 12), usually just before the server's idle state at
+  every PRO SFU share's two-hour end, so PRO SFU listeners show the pending state briefly there.
+
+  | Aspect                                              | Standard direct                       | Standard SFU                            | PRO SFU                                                                                | PRO LAN-direct                                              |
+  | --------------------------------------------------- | ------------------------------------- | --------------------------------------- | -------------------------------------------------------------------------------------- | ----------------------------------------------------------- |
+  | Playout hint 0.5 s                                  | yes                                   | yes                                     | yes                                                                                    | none                                                        |
+  | Initial unmute wait (2 s)                           | yes                                   | no                                      | no                                                                                     | no                                                          |
+  | Decoder primer                                      | on arrival, before the trust boundary | once the slot confirms the graph        | once the slot confirms the graph                                                       | once the slot confirms the graph                            |
+  | Which attach starts the reception                   | `first-for-slot`                      | `first-for-route`                       | `every-attach`                                                                         | `every-attach`                                              |
+  | Deadline                                            | slot 30 s                             | slot 30 s                               | route: backoff 2.5 to 30 s                                                             | route: direct deadline 30 s                                 |
+  | Deadline notice                                     | `receive_failed`, end                 | `receive_failed`, end                   | `connection_unstable` once per generation, placeholder kept                            | `connection_unstable` once per generation, placeholder kept |
+  | Live route failure                                  | silent end (gap 8)                    | silent end (gap 8)                      | `connection_unstable`, retry                                                           | `connection_unstable`, fallback                             |
+  | Failed first subscription                           | n/a                                   | silent until the slot deadline (gap 13) | `connection_unstable`, retry                                                           | fallback, `connection_unstable`                             |
+  | Error while pending                                 | silent end (gap 14)                   | n/a                                     | n/a                                                                                    | n/a                                                         |
+  | Refused attach (slot ended or another owner, 5B-G1) | call kept open, route media dropped   | subscription closed, route frozen       | subscription stopped, publication marked ended (5B-G2); a refused resume keeps it open | route media dropped, route kept open                        |
+  | Publisher's explicit stop                           | STOP frame: end                       | STOP frame: end                         | server idle state: end                                                                 | `'stopped'` close: end (5B-G6), then the server idle state  |
+
+  Gaps are those of [Today's gaps](system-audio-receive-ownership.md#todays-gaps).
+
 - **Timing-constant home:** the deferred-only `src/network/system-audio-media.ts` (Phase 5 5A,
   C4-1). It holds the receivers' playout-delay hint (`SYSTEM_AUDIO_PLAYOUT_DELAY_S`, 0.5 s, set
   through `applySystemAudioPlayoutDelay` on the Standard direct, Standard SFU and PRO SFU
@@ -529,10 +723,14 @@ RO-51 duplicated
     subscription and thaws its share route with no activity change, notice or force-stop, and
     leaves the placeholder and the Standard start's slot deadline as they were), its S11 rows
     and the `system-audio-service.test.ts` rows "retires the Standard SFU guest route at the top
-    of every live reconcile, whoever publishes, and never on idle" and "skips the receive end in
-    the coordinator cleanup while this device publishes, the reset included" (the local-owner
-    guard and the reset order); after it by the `system-audio-sfu.test.ts` row "is retired by the
-    PRO coordinator's adopt" (the SFU's retire through the real slot adopt).
+    of every live reconcile, whoever publishes, and never on idle" (since 5B-OV1 "retires the
+    Standard SFU guest route on no live reconcile, whoever publishes, and never on idle") and
+    "skips the receive end in the coordinator cleanup while this device publishes, the reset
+    included" (the local-owner guard and the reset order; since 5B-G4 "ends the reception in the
+    coordinator cleanup while this device publishes only when the slot still holds one ...");
+    after it by the
+    `system-audio-sfu.test.ts` row "is retired by the PRO coordinator's adopt" (the SFU's retire
+    through the real slot adopt).
   - The removal of the guest's compatibility aliases (C4-8) is pinned, before it, by the suites
     that called the slot through them, which import the slot's own names since then with their
     assertions unchanged (`system-audio-guest.test.ts`,
@@ -541,6 +739,173 @@ RO-51 duplicated
     `src/youtube/__tests__/load-lifecycle.test.ts`; `system-audio-sfu.test.ts` moved its stubs
     with the SFU's imports), and by the resource-ownership guard test "allows no route adapter a
     direct write".
+  - The attach fence (5B-G1) is pinned by rows that failed before it: the
+    `system-audio-guest.test.ts` group "attach fence: the slot ended or another owner plays
+    (5B-G1)" (an attach after an end or a successor returns `'not-receiving'` before the graph,
+    writes nothing and drops the route's source and primer; a resume after either claims nothing
+    and drops them; a refused replacement direct call stays open with no replacement deadline
+    until STOP), the Standard suite's "S9, fixed in 5B-G1" and "S9 (SFU), fixed in 5B-G1", the
+    PRO suite's "S8b, fixed in 5B-G1", the "successor during initAudio" pair and "5B-G1: a
+    'subscribed' for the live publication after a successor replaced the placeholder ...", and
+    the transport suite's two "S8b ($route), fixed in 5B-G1" rows. The host guard row
+    `system-audio-host.test.ts` "keeps an opened direct call with no close or error for 60 s with
+    no SFU handoff" (passes before and after) shows, with the Standard S9 row's open call, that a
+    refused direct attach causes no host handoff. `system-audio-sfu.test.ts` reads the
+    placeholder as committed (its start is a stub), and `system-audio-service.test.ts`'s stubbed
+    start commits it and its stubbed end retires it.
+  - The PRO coordinator's force-stop and successor teardown (5B-G2) is pinned by rows that
+    failed before it: the PRO suite's pair "5B-G2 ($route): force-stop ends the PRO reception
+    without a restore, and the coordinator source and primer with it ..." (SFU: the subscription
+    closes; LAN-direct: an attached direct source and primer drop while the route stays open
+    until the room reset; on both a heartbeat of the same publication subscribes, attaches and
+    begins nothing; the LAN-direct row also fails if the force-stop teardown skips a LAN-direct
+    publication), "G6 and 5B-G2: a force-stop during a retry backoff ..." (the pending retry
+    never subscribes), "5B-G2: a force-stop while a retry's
+    subscribe is in flight ..." (no warn from the retry's catch), "trusted boundary, 5B-G2: ..."
+    (the boundary's refusal closes the subscription) and the "S9 (SFU), fixed in 5B-G1" row (the
+    fence's refusal closes it); the transport suite's "S8b (SFU), fixed in 5B-G1" row (one
+    `tracks-close`, no new session) and the pair "5B-G2 (SFU): $cause between the exposed track
+    and the completed subscription ..." (a force-stop or a successor while `renegotiate` is in
+    flight: no notice, one `tracks-close`, no new Realtime session within 60 s, the reconcile
+    catch's fence). Guards that pass before and after: the PRO "begin re-entrancy" row (the new
+    subscription stays open after the nested force-stop, which the depth counter protects),
+    "5B-G2 guard: after a force-stop ended a publication, the next publication begins and
+    attaches again" and the transport "begin re-entrancy (LAN-direct)" row; the LAN-direct rows
+    of the S8b and S9 pairs keep the route open, and the transport row "expected today: a direct
+    track delivered after a force-stop ..." keeps it open until the share end closes it. The two
+    accepted cases above are pinned with today's outcome: the PRO row "accepted with the open
+    LAN-direct route (RO-04): a receiver fallback ..." (one `connection_unstable`, nothing else
+    changes; it fails before 5B-G2 only at its precondition, the dropped source) and the end of
+    the PRO row "5B-G1: a 'subscribed' for the live publication after a successor replaced the
+    placeholder ..." (the subscription stays open through a heartbeat, with one subscribe and one
+    start, until the share end closes it; unchanged from before 5B-G2).
+  - The Standard SFU re-publication handoff (5B-G3) is pinned by rows that failed before it:
+    the Standard suite's "re-publication, fixed in 5B-G3: a failed re-subscription while
+    receiving hands the reception off to the slot deadline ..." (the subscribe fails with no
+    pending READY: pending under the placeholder with the slot deadline armed at the failure,
+    then one `receive_failed` and the previous title 30 s later) and its pair "5B-G3: an ICE
+    failure of the re-subscription $when hands the reception off the same way" (the subscriber
+    PC fails before the offer exposes its track, or while the exposed track waits in
+    `initAudio()`). Guards that pass before and after: "5B-G3 guard: a READY inside the deadline
+    a failed re-subscription leaves subscribes and attaches with no notice", and the rows that
+    keep the helper's two conditions, the Standard "a live subscriber connection failure ..."
+    (an attached subscription ends silently, gap 8), the lifecycle "expected today: a failed
+    first SFU subscription ..." (gap 13) and the Standard "S3: a handoff re-arms the 30 s slot
+    deadline from the handoff, not from START" (each fails when its condition is dropped).
+  - The sharer's own claim (5B-G4) is pinned by rows that failed before it: the PRO suite's
+    "S11, fixed in 5B-G4: a sharing claim made while still receiving ends the reception under
+    the claim ..." (receiving drops with the claim intact, through the reset and a force-stop),
+    "begin re-entrancy: ..." (activities `['pending']`, no idle flash) and "5B-G4: a remote share
+    that begins over an idle stale sharing title ... leaves no title when it ends"; the
+    `system-audio-service.test.ts` pair "ends the reception in the coordinator cleanup while this
+    device publishes only when the slot still holds one ..." (the query mocked false: no end, as
+    before; true: one end on a heartbeat bind and one on the reset); and the
+    `system-audio-guest.test.ts` rows "leaves a 'system-audio' claim with sharing meta alone at
+    the end, and still ends the reception (5B-G4)" and "takes no restore point when a start begins
+    over $over (5B-G4)" (an active sharing claim, an idle stale sharing title). New with the
+    query: `system-audio-guest.test.ts` "answers whether the slot holds a reception ..." (each of
+    its four conditions alone). Guards that pass before and after: the PRO "5B-G4 guard: a remote
+    share that begins while this device's sharing claim is active ..." (fails if the start takes
+    the sharer's meta once the end leaves the claim alone), "5B-G4 guard: a sharer's heartbeat
+    reconciles end nothing in the slot ..." (the `/debug` cleanup time stays; fails without the
+    service guard), the S11 row "a listener that becomes the publisher keeps its sharing claim
+    ..." and the guest unit "5B-G4 guard: still restores a receiving 'system-audio' owner whose
+    meta a meta-null writer cleared" (fails if the rule narrows to the placeholder only). Added
+    after the 5B-G4 review, for a path the change already covered: the PRO "5B-G4: a sharer whose
+    view passes through idle while its capture still runs (publisher recovery's release and
+    re-acquire) keeps its sharing claim" (fails on the parent of 5B-G4: playback idle with no
+    title after the release's idle view) and the service suite's "publisher recovery reaches the
+    slot end through the release's idle view while this device's capture keeps sharing" (passes
+    before and after: the real recovery runs the end between the release and the re-acquire,
+    and capture is not told).
+  - The nested end's restore point (5B-G5) is pinned by rows that failed before it: the
+    `system-audio-guest.test.ts` rows "keeps the start's restore point through a cleanup nested
+    in the start, which still answers an earlier wait false (5B-G5)" (was "lets a cleanup nested
+    in the start empty the restore point while the start still commits": STOP now restores the
+    title from before the start) and "answers a wait opened after a cleanup nested in the start
+    with that start (5B-G5)". Guards that pass before and after: the guest unit "5B-G5 guard: an
+    end inside the start once its placeholder is up ends that start" (fails if every end inside
+    a claiming start counts as nested), the PRO "begin re-entrancy" row (its result is unchanged:
+    since 5B-G4 its start takes no restore point over the sharer's title) and the transport
+    "begin re-entrancy (LAN-direct)" row (the direct deadline armed after the start). Since
+    5B-G5 the guest unit query row "answers whether the slot holds a reception ..." sets its
+    placeholder-only step directly.
+  - The route closures the slot hears (5B-G6) are pinned by rows that failed before it: the
+    transport suite's "gap 11, fixed in 5B-G6: a publisher close 'stopped' ends the LAN-direct
+    reception at once with the previous title ..." (was "expected today: a publisher close
+    'stopped' closes the LAN route without telling the slot ...": idle with the previous title at
+    the close, no notice or close back in 60 s, two heartbeats begin nothing, the share end asks
+    for the post-share restore once), "5B-G6: a publisher close 'stopped' before any track ends
+    the pending reception at once ..." (no notice at 30 s; until the 5B-G6 review its title also
+    claimed the direct receive deadline's clear, which it cannot see) and the first half of
+    "two-hour budget re-publication case, gap 12 fixed in 5B-G6 ..." (at the promotion budget: one
+    `tracks-close`, receiving off, pending, no source or primer, no notice; the heartbeat half
+    unchanged). Added in the 5B-G6 review, both failing without the change: the transport row
+    "5B-G6: a plain share's two-hour end (no promotion) reaches the subscriber's own budget expiry
+    first ..." (at the share's budget: one `tracks-close`, the `'system-audio'` mode kept with
+    activity pending, no source, primer or notice; the idle state then gives the previous title
+    and one restore; on the parent the slot stayed playing until the idle state) and the service
+    unit row "clears the direct receive deadline on the live publisher's 'stopped' close and ends
+    the reception only while the slot holds one (5B-G6)" (another publication or owner changes
+    nothing; fails without the deadline clear or with an unguarded end). Not pinned, harmless:
+    the SFU stop handler's ended-mark check (after a 5B-G2 route end the subscriber is already
+    stopped and a second interrupt is a no-op). Guards that pass before and after: the
+    transport rows "5B-G6 guard: a publisher close 'superseded' closes the LAN route without
+    telling the slot ..." (fails if the transport reports every close) and "5B-G6 guard: the
+    subscriber stop the coordinator's own cleanups run emits 'stopped' with the live, unexpired
+    descriptor, which changes nothing in the slot" (fails without the expiry condition). New
+    with the callback:
+    `src/network/__tests__/pro-system-audio-direct.test.ts` "reports only a publisher's 'stopped'
+    close of the current receiver route, once and with no close back (5B-G6)" and the PRO suite's
+    "5B-G6: a publisher's 'stopped' close ends the reception with the previous title and no
+    notice; after a successor replaced the pending placeholder it leaves the successor alone"
+    (through the fake transport's `publisherStopped`).
+  - The removal of the coordinator's adopt at the top of every live reconcile (5B-OV1, neutral;
+    old-version survey, OV-A03 note) is pinned, before and after, by the PRO suite's "5B-OV1
+    guard: a Standard READY delivered in a PRO room starts no Standard subscription" (the frame
+    reaches the Standard SFU adapter, which refuses it with no host connection; it fails once a
+    host connection is set), its two S7 rows (the room turning PRO still retires an attached or
+    a still-connecting Standard subscription) and the transport rows "expected today ($route):
+    heartbeats and a room-context re-emission while receiving reuse the live route ...". The
+    service unit row "retires the Standard SFU guest route on no live reconcile, whoever
+    publishes, and never on idle" fails on the parent, where four live reconciles adopted. The
+    two remaining adopt sites are pinned by the S7 rows (the room turning PRO, on the real bus;
+    the service unit suite clears the bus after each test, so its listeners hear only its first
+    test) and the service unit row "retires a failed playing SFU subscription inside the
+    placeholder until the retry track attaches" (a retry's cleanup).
+  - The removal of the host side of the Standard SFU capability negotiation and of the READY
+    `'all'` fence (5B-OV2, old-version; survey OV-B05, OV-B06) changes only the sender of the
+    slot's Standard inputs. A host on this build treats every LAN guest as SFU-capable (a LAN
+    guest past the eight direct slots, a late LAN guest of an all-SFU share and a failed LAN
+    direct call go to the SFU with `'all'`; no peer is `'unsupported'`), ignores
+    `SYSTEM_AUDIO_SFU_CAPABILITY` (it passes the validator and is dropped because no handler is
+    registered; guests keep sending it until a later floor, OV-F06) and sends a failed-direct
+    remote peer READY
+    `{ audience: 'remote', handoffFromDirect: true }` where it sent `'all'`. The Standard suite's
+    "OV-B06 acceptance (route direct): ..." and its pair "OV-B06 acceptance (route unselected,
+    guest classified $type): ..." pass before and after: the unchanged 9.0.12/9.0.13 guest code
+    takes that READY from the `'direct'` route (end, reset, a start with the same surface) and,
+    after the host's STOP and START, from `'unselected'` (the marker passes the LAN check even
+    for a guest classified local), freezes `'sfu-remote'` with `guestRejectLateDirectRoute`,
+    subscribes and refuses a late direct call. The host-side rows that failed before it are in
+    `system-audio-delivery.test.ts`, `system-audio-host.test.ts` (a ninth LAN guest starts on
+    the SFU with no STOP; a failed LAN direct call gets STOP, START and the SFU handoff),
+    `system-audio-sfu.test.ts` (the READY audience, the late LAN retry from the peer event alone,
+    no capability handler) and `system-audio-start.test.ts` (the SFU module's late-LAN START
+    sender went with the capability handler; five START senders remain).
+  - The START `surface` and SFU_READY `audience` requirement (5B-OV3, old-version; survey
+    OV-A08) changes only which frames reach the slot's Standard inputs: a START needs a bounded
+    `surface` string (an unknown one still reads as DISPLAY) and a READY an `audience`, as every
+    9.0.12 and 9.0.13 sender includes; a READY with the old `tracks` list stays refused, and the
+    SFU adapter copies the audience instead of defaulting it. Pinned by
+    `src/network/__tests__/protocol.test.ts` "rejects a START without a surface (5B-OV3)" and
+    "rejects a READY without an audience (5B-OV3)" (both fail on the parent) and "accepts an
+    unknown short surface and reads it as display; refuses an unbounded or non-string one"
+    (passes before and after). The removal of the dead channel argument of
+    `system-audio:incoming-call` (5B-OV3, neutral; SA-9) keeps the direct call's log lines, timer
+    names (`sys-audio-guest-replacement-watchdog-STEREO`, `sys-audio-guest-trust-gate-STEREO-<n>`)
+    and `/debug sa` channel record, pinned by the receive evidence-log suites and
+    `system-audio-guest.test.ts`.
   - Cross-owner: `src/pro-room/__tests__/system-audio-subscriber-watchdog.test.ts` runs the real
     guest module and slot with the service (G1), with a spy retire registered for the Standard
     SFU route since C4-7. `system-audio-service.test.ts` hand-mocks state, so it cannot see the
@@ -556,7 +921,9 @@ RO-51 duplicated
     `beginTrustedSystemAudioReception` start (any use without the literal
     `{ deadline: 'route' }` since C4-6) appears in a new function. The
     start returns early while the placeholder is active, so an armed start on the retry path
-    would re-arm the watchdog before the SFU start runs. Since Phase 5 prep (T5) it also counts the
+    would re-arm the watchdog before the SFU start runs. Since 5B-G2 the coordinator's two
+    starts sit in a `try`/`finally` depth wrapper; the check still finds the SFU start as a
+    direct call before the subscribe in the same function (one SFU reception start). Since Phase 5 prep (T5) it also counts the
     slot's direct writers per file, exactly: `setSystemAudioReceiving` value uses (3: the slot),
     `claimPlaybackOwner` uses that can claim `'system-audio'` (3: the slot 2 and the sharer's own
     claim in `system-capture.ts`), `widener.input` uses (3: the file playback route's 2 in
@@ -598,7 +965,14 @@ RO-51 duplicated
   behaviour ([Today's gaps](system-audio-receive-ownership.md#todays-gaps): the attach fence,
   an end that covers every route, route closes the slot does not hear, the re-entrant restore
   point) are behaviour changes for train 5B (owner decision P5-D5 A), each with its failing test
-  first. Exception RO-39.
+  first. Train 5B (9.0.16 / v789, released 2026-10-27): 5B-G1 added the attach fence (gaps 2 and 3), 5B-G2
+  the PRO coordinator's force-stop and successor teardown (gaps 4 and 5), 5B-G3 the
+  Standard SFU re-publication handoff (gap 1), 5B-G4 the sharer's own claim (gap 6), 5B-G5
+  the nested end's restore point (gap 7) and 5B-G6 the route closures the slot hears (gaps 11
+  and 12), and 5B-OV1 to 5B-OV3 removed old-version and dead paths around the slot (OV-A04, the
+  coordinator's adopt on every live reconcile, OV-B05, OV-B06, OV-A08 and SA-9) with no owner
+  change ([Phase 5 train 5B report](phase5-5b-receive-slot-behaviour-2026-10-26.md)); the record
+  stays `duplicated`. Exception RO-39.
 
 ### RO-05 Guest YouTube re-align retry chains
 
@@ -1690,21 +2064,38 @@ RO-51 duplicated
 - **Resource:** the local media endpoint as driven by `playbackController.reconcile`
   (`src/pro-room/playback-controller.ts`), whose prepare step pauses the YouTube iframe until
   release.
-- **Current owners/flows:** foreground recovery in `src/pro-room/runtime.ts`
-  (`recoverVisibleProRoomPlayback`, `visibilityReturnReconciledGeneration`, triggered by
-  `visibilitychange` and the background-return Sync) and the post-share restore in
-  `system-audio-service.ts` (`restorePlaybackAfterRelease`, `resumePlaybackAfterShare`, held while
-  the page is hidden). The controller's scheduler runs one flight at a time and queues the other
-  owner; nothing checks across owners whether a revision was already re-applied.
-- **Target single owner:** `runtime.ts` as the background-return repair authority, with the
-  service deciding when to restore. Deduplication changes behaviour and needs an owner decision
-  (RO-41).
-- **Allowed requesters:** the runtime's visibility handler, the post-share restore through the
-  runtime's restore callback.
+- **Current owners/flows:** `src/pro-room/runtime.ts` is the background-return repair authority
+  since Phase 5 train 5B (plan step C4-13, owner decision P5-D11 B). Its foreground recovery
+  (`recoverVisibleProRoomPlayback`, triggered by `visibilitychange` and the background-return
+  Sync) and the restore callback it gives `system-audio-service.ts` both record a repaired return
+  in `visibilityReturnReconciledGeneration`. The post-share restore in the service
+  (`restorePlaybackAfterRelease`, `resumePlaybackAfterShare`, held while the page is hidden) only
+  decides when to restore and runs through that callback. The callback marks the return it began
+  in when its reconcile applied, its liveness is still current, the page is shown and no hide
+  came since it began (the generation it captured is still `visibilityReturnGeneration`). A
+  foreground pass reconciles as its own owner (the pass object), whose liveness goes stale once
+  its return is marked: the scheduler drops it while it is still queued, or it stops at its next
+  boundary. In the F3 order the drain starts it just before the restore callback resumes, so it
+  runs its forced heartbeat and resolves false before its clock wait and prepare. A pass whose
+  return is marked settles instead of scheduling a retry. Because the pass has its own owner, a
+  manual Sync pressed during it queues behind it instead of joining (before, it joined only a pass
+  already widened to every medium).
+- **Target single owner:** reached (`runtime.ts`); the service keeps the decision of when to
+  restore.
+- **Allowed requesters:** the runtime's visibility handler, the background-return Sync, and the
+  post-share restore through the runtime's restore callback.
 - **Lifecycle operations:** reconcile with `rendezvous`, `youtubeOnly` and `preparePaused`.
-- **Deadline owner:** each ladder; the scheduler serializes them.
+- **Deadline owner:** each ladder; the scheduler serializes them, and a marked return retires the
+  foreground ladder.
 - **Timing-constant home:** `VISIBILITY_PLAYBACK_RECOVERY_RETRY_MS` (`runtime.ts`) and
-  `PLAYBACK_RESTORE_DELAYS_MS` (`system-audio-service.ts`), both capped at 15 s.
+  `PLAYBACK_RESTORE_DELAYS_MS` (`system-audio-service.ts`), both capped at 15 s, unchanged by
+  C4-13.
+- **Not deduplicated (residual, no record):** the opposite order. When the restore's own pass fails
+  (for example its fresh clock sample after the page is shown) and the foreground repair queued
+  behind it then applies, the restore's retry (250 ms) still arms the same revision again: the
+  service decides when to restore and the restore does not read the mark. Pinned as today's
+  behaviour by `runtime-system-audio-join.test.ts` "5B-C4-13 residual, expected today: …"; not
+  heard on a device. Revisit if Phase 5 device step 5P-5 still reports a second stop after 5B.
 - **Anchor tests:**
   - Supersession: `src/pro-room/__tests__/runtime-server-playback.test.ts` "joins an in-flight
     YouTube visibility pass instead of starting a second rendezvous".
@@ -1714,13 +2105,15 @@ RO-51 duplicated
   - Visibility: `runtime-server-playback.test.ts` "does not re-apply a YouTube checkpoint the
     visibility pass already re-applied"; `system-audio-service.test.ts` "holds restoration retries
     while hidden and resumes them when shown, without a cap".
-  - Cross-owner: `src/pro-room/__tests__/runtime-system-audio-join.test.ts` "F3 baseline: a
-    share that ends while hidden, with a failed first restore, re-arms the YouTube renderer once
-    per owner when shown" runs the post-share restore and the foreground recovery together
-    (Phase 5 C4-0, #454) and pins today's double re-arm.
-- **Status:** `duplicated`. Exception RO-41. Owner decision P5-D11 B (2026-10-25) schedules the
-  deduplication (plan step C4-13) for Phase 5 train 5B, with the F3 baseline flipped as its
-  failing test.
+  - Cross-owner: `src/pro-room/__tests__/runtime-system-audio-join.test.ts` "F3, fixed in
+    5B-C4-13: a share that ends while hidden, with a failed first restore, re-arms the YouTube
+    renderer once when shown" (the C4-0 F3 baseline of #454, flipped) and "5B-C4-13: a post-share
+    restore still running when the page is shown, which applies after the show, reconciles that
+    return"; guards in the same file: a restore that applies while the page is hidden leaves the
+    repair to the show, a restore that began before a hide and show does not reconcile the newer
+    return, a later hide and show repairs again, and a file item, whose restore completes without
+    applying, is still repaired by the background-return Sync.
+- **Status:** `owner-in-place`. Exception RO-41 was deleted with C4-13 (Phase 5 train 5B).
 
 ### RO-22 Waiting service worker activation
 
@@ -2531,24 +2924,6 @@ entry needs the owner's acceptance and is not implied by this registry.
   2026-10-25).
 - **Status:** `accepted-exception`.
 
-### RO-41 Two PRO re-apply owners serialized, not deduplicated
-
-- **Parent:** RO-21. Plan step C4-13 scheduled for Phase 5 train 5B (owner decision P5-D11 B,
-  2026-10-25).
-- **Exception:** foreground recovery and the post-share restore stay separate reconcile owners.
-- **Evidence:** deduplication changes behaviour, so it is not part of the behaviour-neutral train
-  5A. The unit harness reproduces the second re-arm: since Phase 5 C4-0 (#454),
-  `runtime-system-audio-join.test.ts` "F3 baseline" shows a share that ends while the page is
-  hidden, after a failed first restore, prepare the same revision twice when the page is shown.
-  It is not seen on a device yet (Phase 5 device step 5P-5). The sync flight recorder does not
-  mark it: a same-revision re-arm records no `pro-checkpoint` event (Phase 5 prep T8), so a
-  device run can report the second pause only by ear.
-- **Behaviour risk:** a possible second pause of the YouTube iframe on return (unit evidence, not
-  yet heard on a device); no known-accepted entry.
-- **Revisit when:** train 5B lands C4-13 (that change deletes this record and updates RO-21), or
-  the owner's later device run of 5P-5 changes the decision.
-- **Status:** `accepted-exception`.
-
 ### RO-42 PRO-only capture policy stays eager
 
 - **Parent:** RO-20. Plan step C4-14 deferred.
@@ -2855,6 +3230,204 @@ entry needs the owner's acceptance and is not implied by this registry.
 - **Status:** `duplicated` (three dialog holders, each with its own abort, coordinated by
   precedence and one pending query). Added with forced update Inc 5 (train 9.0.14), when the
   forced dialog became the third requester on the slot; it replaces the side-flow entry.
+
+### RO-52 PRO browser completion final object
+
+- **Resource:** the final R2 object of one reserved PRO asset during browser completion
+  (`handleCompleteMedia` in `cloudflare/pro-room-worker.ts`): the object at `asset.objectKey`,
+  promoted from the staging upload whose ETag is durably pinned in
+  `RoomAsset.completionSourceEtag` before any write, with that pin in its
+  `mxqr-copy-source-etag` metadata. PRO upload reliability train (9.0.17,
+  [report](pro-upload-reliability-2026-10-27.md)).
+- **Current owners/flows:** the completion handler is the single owner; the room's mutation
+  serialization runs one completion at a time. Two writers act on the key inside it, one after
+  the other:
+  - the presigned R2 CopyObject (`copyReservedMediaObject`), conditional on the pinned ETag and
+    bounded by `fetchWithDeadline`. A copy abandoned at its deadline can still commit at R2;
+  - the binding promotion (`promoteStagedMediaThroughBinding`), the get/put path every browser
+    completion used through 9.0.16. It runs only when the copy left no verified final object:
+    any non-200 status (412 included), a network error, the deadline, an unparseable or
+    oversized result, a failed post-copy HEAD, an ETag or metadata mismatch, or missing S3
+    credentials. It reads the staging object once and writes only when that read's ETag equals
+    the pin, so a replacement upload is never promoted.
+
+  Both write the same key with the same pinned metadata, and the final HEAD checks that
+  metadata, not which writer won, so a late copy that commits after the fallback leaves an
+  equivalent object. A late object after the asset is deleted, as a reservation or as a ready
+  asset the fallback completed, is collected by the existing staging tombstone
+  (`StagingTombstone.finalObjectKey`, the room alarm). Deletion leaves that tombstone while the
+  asset still holds its staging key: a ready asset drops the key only after the staging object
+  has been absent for the hour-long quiet window, which starts at least 60 s after completion,
+  while the copy's presigned URL expires after 8 s. A copy still committing after that hour is
+  outside this record. Each attempt records one bounded `media_copy` and, when it runs, one
+  `media_copy_fallback` diagnostic; a plain `media_copy` success logs only its first detail per
+  window and never takes the repeated-detail budget that failures and fallbacks share. Developer
+  API completion (`handleInternalDeveloperMediaUploadComplete`) keeps its own stream copy for the
+  assets it reserves; it is a separate route on separate assets.
+
+- **Target single owner:** reached (the handler). Retiring the fallback removes the second writer;
+  that is an owner decision once production `media_copy` records show the copy is reliable.
+- **Allowed requesters:** the browser completion route, through the upload queue's per-file
+  continuation in `src/pro-room/upload-queue.ts`, which owns user retries. Nothing schedules a
+  completion retry on the server. How long a same-key completion retry still replays is the
+  completion receipt's lifetime in the browser receipt ledger (RO-53): until a playlist names the
+  asset, at most until orphan cleanup collects it.
+- **Lifecycle operations:** pin the source, copy, verify by HEAD, fall back, verify again, commit,
+  keep the pin for a same-key retry, collect a late object.
+- **Deadline owner:** `fetchWithDeadline` for the copy; the App facade for the whole request. The
+  fallback has no deadline of its own, as completion had none through 9.0.16. After a timed-out
+  copy the request has already spent the 8 s copy deadline inside the room's mutation queue, so
+  the facade times out whenever the fallback takes more than the remaining 2 s, where the 9.0.16
+  binding stream had the whole 5 s control budget. When the fallback outlasts the facade, the
+  same-key retry replays the stored answer or re-verifies the final object. In an
+  `all` release the PRO Worker deploys before the App Worker, so for that window the old facade's
+  5 s control budget fronts the new copy; a slow completion then times out at the facade as it
+  did on 9.0.16, and the retry recovers it the same way.
+- **Timing-constant home:** `cloudflare/pro-room-media-timing.ts`:
+  `PRO_ROOM_MEDIA_COPY_TIMEOUT_MS` (8 s) and `PRO_ROOM_MEDIA_COMPLETE_TIMEOUT_MS` (derived, 10 s),
+  which the App facade imports.
+- **Anchor tests:** in `src/pro-room/__tests__/pro-room-worker.test.ts`, "persistent PRO room
+  private media accounting":
+  - Supersession: "fails a definite source change without a fallback write, then reports
+    UPLOAD_MISMATCH" and "refuses changed staging bytes after an ambiguous copy, including a cold
+    restart" (replacement bytes never win, through either writer).
+  - User pause/stop: n/a (server; the upload queue owns user cancellation).
+  - Teardown: "reclaims a final object recreated by a timed-out copy after reservation deletion",
+    "reclaims a final object a timed-out copy commits after its fallback-completed asset is
+    deleted" and "recovers the final object after the CopyObject response is lost without another
+    copy".
+  - Visibility: n/a.
+  - Fallback: "completes through the binding fallback after %s from the copy", "completes through
+    the binding fallback when the copy has %s at its deadline", "keeps the pinned reservation
+    retryable when the fallback finds %s"; diagnostics bounds in
+    `src/pro-room/__tests__/pro-room-diagnostics.test.ts` "emits media copy outcomes, the first
+    success included, with only bounded timing and size buckets" and "keeps the repeated detail
+    budget for copy failures and fallbacks in a room full of successes".
+  - Facade budget: `src/core/__tests__/pro-room-proxy-diagnostics.test.ts` "keeps only media
+    completion alive beyond the control deadline without success diagnostics".
+- **Status:** `owner-in-place`. Added with the PRO upload reliability train (9.0.17), when the
+  binding fallback became a second writer beside the presigned copy.
+
+### RO-53 PRO browser receipt ledger
+
+- **Resource:** the browser receipt ledger of the PRO room Durable Object
+  (`activeRoom.idempotency` in `cloudflare/pro-room-worker.ts`), at most `IDEMPOTENCY_MAX_ITEMS`
+  (256) receipts shared by every participant. It holds every scope that `idempotencyLedger` does
+  not send elsewhere (`session-create:*`, `*:presence-close` and `developer:*` have their own
+  ledgers): `participant:<id>:snapshot`, `:playlist-switch`, `:playlist-transfer`, `:reserve`,
+  `:complete`, `:delete` and `:playback-authority`, and `bot-context:<tokenHash>` and
+  `bot-execute:<tokenHash>`. A receipt makes a request sent again with the same idempotency key
+  replay its first answer. A full ledger refuses a new mutation with
+  `ROOM_STATE_CAPACITY_EXCEEDED` and never evicts a live receipt. Receipt retention train (owner
+  decision 2026-10-27, [report](pro-receipt-retention-2026-10-27.md)).
+- **Current owners/flows:** the ledger methods of `MusixquareProRoom` are the single owner:
+  `idempotencyLedger`, `reserveIdempotencySlot`, `storeIdempotency`, `storeSnapshotIdempotency`,
+  `replayIdempotency`, `idempotencyRecord`, `idempotencyExpiresAt`, and since this train
+  `browserReceiptLifetimeMs`, `receiptExpiresAtMs`, `capBrowserReceiptLifetime` and
+  `releaseSettledCompletionReceipts`. `prune` (before every room request and on every alarm)
+  expires receipts and cuts longer ones, and `scheduleAlarm` wakes the room at the earliest
+  expiry. Two other lifecycle machines act on receipts:
+  - the asset deletion marker owns the `asset-delete-pending` receipt of an explicit delete
+    (`beginAssetDeletion`, `continueAssetDeletion`, load repair in
+    `normalizeLoadedAssetDeletions`). Its expiry is the marker, not wall time, and the cut leaves
+    it alone;
+  - the asset GC reconciliation (`reconcileAssetGarbageCollection`, on every committed playlist
+    change and every prune) asks the owner to release the completion receipts whose asset a
+    playlist names or that is no longer a ready asset (`releaseSettledCompletionReceipts`). The
+    match reads the stored answer, so no field is added.
+
+  A receipt lives only as long as the App can send its request again with the same key, in active
+  page time:
+  - single-request scopes (playlist edits, playlist switch and transfer, reserve, the final
+    delete receipt, BOT context and execute, BOT destructive terminal receipts):
+    `PRO_ROOM_REQUEST_RECEIPT_TTL_MS`, at least twice the longest single-request window. Every
+    browser control request is sent once under the 15 s `DEFAULT_CONTROL_REQUEST_TIMEOUT_MS`;
+    the playlist manager, reserve and delete make a fresh key for every attempt; a BOT execute
+    must reach the room inside the 45 s context lease, and the requester relays its result inside
+    its own 15 s deadline. Reserve keeps the earlier of its reservation expiry and the window;
+  - playback (`proRoomPlaybackReceiptTtlMs`): the App's second attempt reuses the key and starts
+    from a timer, so a frozen page can send it until its device's presence lapses
+    (`requireSession` with active presence). The receipt keeps the window, or twice one presence
+    window plus one attempt when that is longer (45 s presence in production, so the window);
+  - upload completion (`proRoomCompletionReceiptTtlMs`): the batch failure dialog's Retry
+    (`src/pro-room/upload-queue.ts`, RO-52) reuses the completion key while the upload's RAM-only
+    continuation lives. The receipt lives until a playlist names the asset or the asset is gone,
+    and at most `completedAtMs` plus the orphan GC grace, so it never ends before the unnamed
+    asset it describes.
+
+  A receipt an earlier Worker wrote (24 hours, or again after a rollback to one) is cut to its
+  scope's lifetime from now at the first prune and persisted. Past its window a same-key resend
+  gets the fence answer and is never applied twice: `REVISION_CONFLICT` (compare-and-set base
+  revision), `PLAYBACK_REVISION_CONFLICT`, `ASSET_NOT_FOUND`, `PRESENCE_EXPIRED`, or a second
+  reservation that expires unused for reserve. Playback relies on presence as well as on its
+  revision: a command that went to `preparing` and was then cancelled (queue item removed,
+  superseded) does not bump the playback revision, so the presence lapse stops a late second
+  attempt. That bounds the attempt to one presence window plus one attempt after the receipt was
+  written, inside the presence-derived receipt lifetime. A late BOT run with the same
+  `requestId` starts anew: its additions replay through BOT's 24-hour Developer mutation
+  receipt, removals and clears answer `BOT_ACTION_FAILED`, queue mode is fenced by its
+  Developer mutation receipt and base revision, and playback commands (play after add included)
+  replay only while their 10-minute Developer command receipt lives. Nothing in the App or the
+  App Worker sends a `requestId` twice. The windows cover resends in active page time; the
+  fences, with presence for playback, are what make a later resend safe. Session-create receipts
+  can outlive a reload (`sessionStorage`), but they are in their own ledger.
+
+- **Target single owner:** reached (the ledger methods). The cap stays 256: a 9.0.17 Worker
+  refuses to load a room whose ledger holds more (`assertBoundedRoomState`), so a raise needs two
+  releases (load first, write second) or a separate ledger field.
+- **Allowed requesters:** the Worker handlers `handleCompactSnapshotMutation` with
+  `commitParticipantSnapshot`, `handlePlaylistSwitch`, `handlePlaylistTransfer`,
+  `handleCreateReservation`, `handleCompleteMedia`, `handleDeleteMedia` with
+  `continueAssetDeletion`, `handlePlaybackCommand`, `handleInternalBotContext` and
+  `handleInternalBotExecute` with the BOT terminal receipts of
+  `handleInternalDeveloperQueueMutation` and `removeInactivePlaylistItems`; the `bot.result` relay
+  check in `handleInternalAuthorityCheck` reads. Client senders: `src/pro-room/playlist-state-manager.ts`,
+  `src/pro-room/media-transfer.ts` with `src/pro-room/upload-queue.ts`,
+  `src/pro-room/playback-controller.ts`, and the chat `/bot` path through `cloudflare/pro-bot.ts`.
+- **Lifecycle operations:** reserve a slot, store, replay, expire, cut to the scope's lifetime,
+  release a settled completion receipt, fence a pending delete (the marker).
+- **Deadline owner:** none; receipts are fences, not attempts. Each request's deadline stays with
+  its sender (the App's 15 s control deadline, the playback controller's attempt timeout, the BOT
+  pipeline and lease).
+- **Timing-constant home:** `cloudflare/pro-room-receipt-timing.ts`:
+  `PRO_ROOM_REQUEST_RECEIPT_TTL_MS` (2 min), `PRO_ROOM_BOT_REQUEST_LEASE_MS` (45 s, moved from the
+  Worker), `PRO_ROOM_PLAYBACK_COMMAND_REQUEST_TIMEOUT_MS` (6 s) and
+  `PRO_ROOM_PLAYBACK_COMMAND_ATTEMPTS` (2), both moved from `src/pro-room/playback-controller.ts`,
+  which imports them, and the derived `proRoomPlaybackReceiptTtlMs` and
+  `proRoomCompletionReceiptTtlMs`. The presence window, orphan GC grace and reservation lifetime
+  stay the Worker's configured `PRESENCE_TTL_SECONDS`, `ASSET_GC_GRACE_SECONDS` and
+  `RESERVATION_TTL_SECONDS` (`cloudflare/wrangler.pro-room.toml`). Other ledgers keep their own
+  values: Developer mutation and presence-close `IDEMPOTENCY_TTL_MS` (24 h), session-create and
+  Developer command receipts 10 min.
+- **Anchor tests:**
+  - Ordering: `src/pro-room/__tests__/pro-room-receipt-timing.test.ts` (the window is at least
+    twice the longest single-request window; playback covers twice one presence window plus one
+    attempt over the whole presence clamp and the wrangler value; completion covers the GC grace;
+    its copies of the Worker's accepted ranges for the presence window, GC grace and reservation
+    lifetime are pinned against the Worker's own reading of them).
+  - Supersession: in `src/pro-room/__tests__/pro-room-worker.test.ts`, "PRO browser receipt
+    retention": "replays a same-key edit inside its window and fences it once the receipt is
+    gone", "never copies a track twice when a copy is sent again after its window" and "keeps BOT
+    Developer receipts for 24 hours so a late run of the same request adds nothing twice".
+  - User pause/stop: n/a (server).
+  - Teardown: "replays an unnamed completion until orphan cleanup collects its asset, then answers
+    ASSET_NOT_FOUND", "releases a completion receipt as soon as a playlist names its asset", "cuts
+    receipts an earlier Worker kept for 24 hours to their window and persists the cut", "alarms and
+    durably prunes idle idempotency and rate-limit ledgers at their deadlines" and, for the
+    marker's receipt, "keeps a pending delete receipt fenced past its old TTL and rejects same-key
+    reuse".
+  - Visibility: "fences a playback command a frozen page sends again after its window".
+  - Capacity and rollback shape: "lets a full ledger accept edits again one window later instead
+    of one day", "takes far more than 256 edits from a busy room without filling the ledger" and
+    "keeps each browser receipt only as long as its request can be sent again".
+  - Sender premises: `src/pro-room/__tests__/playlist-state-manager.test.ts` "refreshes and
+    rebases once on a CAS conflict with a fresh key for the changed body",
+    `src/pro-room/__tests__/media-transfer.test.ts` "retries only completion with the same
+    body/key and reuses its ready result for append retries" and
+    `src/pro-room/__tests__/runtime-server-playback.test.ts` "replays one lost playback response
+    with the same idempotency key".
+- **Status:** `owner-in-place`. Added with the receipt retention train, when the cut of longer
+  receipts and the completion release became machines beside the ledger's own expiry.
 
 ## Checked side flows without a record
 

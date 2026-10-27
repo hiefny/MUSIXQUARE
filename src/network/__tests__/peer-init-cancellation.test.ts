@@ -43,8 +43,6 @@ import { __standardRoomPrerequisitesForTests } from '../standard-room-prerequisi
 import {
   claimGuestDirectSystemAudioRoute,
   getGuestSystemAudioShareRoute,
-  getSystemAudioShareDeliverySnapshot,
-  markLocalSystemAudioSfuCapable,
 } from '../system-audio-delivery.ts';
 import {
   cancelPendingSessionSetup,
@@ -1024,14 +1022,12 @@ describe('network initialization ownership', () => {
     await waitForTransportCalls(1);
     await vi.waitFor(() => expect(getPeer()).toBe(pendingPeer));
 
-    markLocalSystemAudioSfuCapable('stale-capability');
     claimGuestDirectSystemAudioRoute();
     cancelPendingSessionSetup();
 
     await expect(init).rejects.toThrow('NETWORK_INIT_CANCELLED');
     expect(pendingPeer.destroy).toHaveBeenCalled();
     expect(getPeer()).toBeNull();
-    expect(getSystemAudioShareDeliverySnapshot().capablePeerIds).toEqual([]);
     expect(getGuestSystemAudioShareRoute()).toBe('unselected');
   });
 
@@ -1043,7 +1039,6 @@ describe('network initialization ownership', () => {
     await waitForTransportCalls(1);
     await vi.waitFor(() => expect(getPeer()).toBe(pendingPeer));
 
-    markLocalSystemAudioSfuCapable('stale-capability');
     claimGuestDirectSystemAudioRoute();
     leaveSession();
 
@@ -1051,7 +1046,6 @@ describe('network initialization ownership', () => {
     expect(pendingPeer.destroy).toHaveBeenCalled();
     expect(getPeer()).toBeNull();
     expect(getState('network.appRole')).toBe('idle');
-    expect(getSystemAudioShareDeliverySnapshot().capablePeerIds).toEqual([]);
     expect(getGuestSystemAudioShareRoute()).toBe('unselected');
   });
 

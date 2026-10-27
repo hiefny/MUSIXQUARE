@@ -888,6 +888,23 @@ const el: Record<I18nKey, string> = {
   'pro.active_tab_message': 'Αν συνεχίσετε εδώ, η προηγούμενη σύνδεση θα τερματιστεί.',
   'pro.active_tab_replaced': 'Αυτό το δωμάτιο PRO είναι ήδη ανοιχτό σε άλλη καρτέλα',
   'pro.use_this_tab': 'Συνέχεια εδώ',
+  'pro.upload.retry_unavailable':
+    'Αυτή η αποστολή δεν μπορεί πλέον να ολοκληρωθεί. Επιλέξτε ξανά το αρχείο.',
+  'pro.upload.failed_retryable': 'Δεν ήταν δυνατή η ολοκλήρωση της αποστολής. Δοκιμάστε ξανά.',
+  'pro.upload.empty_file': 'Δεν είναι δυνατή η αποστολή κενού αρχείου.',
+  'pro.upload.file_too_large': 'Αυτό το αρχείο υπερβαίνει το όριο των 200 MB ανά αρχείο.',
+  'pro.upload.quota_exceeded': 'Αυτό το δωμάτιο PRO έφτασε το όριο αποθήκευσης 1 GB.',
+  'pro.upload.playlist_full': 'Η λίστα αναπαραγωγής είναι πλήρης.',
+  'pro.upload.room_capacity': 'Αυτό το δωμάτιο PRO δεν χωράει άλλα κομμάτια.',
+  'pro.upload.room_state_limit':
+    'Αυτό το δωμάτιο PRO δεν μπορεί να δεχτεί άλλες αλλαγές αυτή τη στιγμή. Επιλέξτε ξανά το αρχείο σε λίγο.',
+  'pro.upload.pending_limit':
+    'Σε αυτό το δωμάτιο PRO υπάρχουν πάρα πολλές αποστολές που δεν έχουν ολοκληρωθεί. Δοκιμάστε ξανά σε λίγο.',
+  'pro.upload.playlist_switched':
+    'Άλλη λίστα αναπαραγωγής έγινε ενεργή πριν προστεθεί αυτό το κομμάτι. Επιλέξτε ξανά το αρχείο.',
+  'pro.upload.permission_required': 'Απαιτείται δικαίωμα διαχείρισης πολυμέσων.',
+  'pro.upload.failed_file': '{{name}}: {{reason}}',
+  'pro.upload.confirming': 'Ολοκλήρωση αποστολής {{current}}/{{total}}',
   'pro.upload.batch_progress': 'Αποστολή κομματιών {{current}}/{{total}}',
   'pro.upload.batch_failed_title': 'Δεν ήταν δυνατή η αποστολή ορισμένων κομματιών',
   'pro.upload.batch_failed_message':
@@ -897,6 +914,8 @@ const el: Record<I18nKey, string> = {
   'pro.downloading': 'Φόρτωση αρχείου...',
   'pro.quota_exceeded': 'Αυτό το δωμάτιο PRO έφτασε το όριο αποθήκευσης 1 GB',
   'pro.file_too_large': 'Αυτό το αρχείο υπερβαίνει το όριο των 200 MB ανά αρχείο',
+  'pro.room_state_limit':
+    'Αυτό το δωμάτιο PRO δεν μπορεί να δεχτεί άλλες αλλαγές αυτή τη στιγμή\nΔοκιμάστε ξανά σε λίγο',
 
   // ─── HTML Blocks (used with data-i18n-html) ────────────────────
   'help.install_app_html':

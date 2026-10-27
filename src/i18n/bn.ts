@@ -859,6 +859,22 @@ const bn: Record<I18nKey, string> = {
   'pro.active_tab_message': 'এখানে চালিয়ে গেলে আগের সংযোগটি বিচ্ছিন্ন হবে।',
   'pro.active_tab_replaced': 'এই PRO রুম ইতিমধ্যে অন্য একটি ট্যাবে খোলা আছে',
   'pro.use_this_tab': 'এখানে চালিয়ে যান',
+  'pro.upload.retry_unavailable': 'এই আপলোড আর সম্পূর্ণ করা যাবে না। ফাইলটি আবার বেছে নিন।',
+  'pro.upload.failed_retryable': 'আপলোড সম্পূর্ণ করা যায়নি। আবার চেষ্টা করুন।',
+  'pro.upload.empty_file': 'খালি ফাইল আপলোড করা যাবে না।',
+  'pro.upload.file_too_large': 'এই ফাইলটি প্রতি ফাইলের 200 MB সীমার চেয়ে বড়।',
+  'pro.upload.quota_exceeded': 'এই PRO রুমের 1 GB স্টোরেজ সীমা পূর্ণ হয়েছে।',
+  'pro.upload.playlist_full': 'প্লেলিস্ট পূর্ণ হয়ে গেছে।',
+  'pro.upload.room_capacity': 'এই PRO রুমে আর কোনো ট্র্যাক রাখা যাবে না।',
+  'pro.upload.room_state_limit':
+    'এই PRO রুমে এখন আর কোনো পরিবর্তন করা যাবে না। কিছুক্ষণ পরে ফাইলটি আবার বেছে নিন।',
+  'pro.upload.pending_limit':
+    'এই PRO রুমে অসম্পূর্ণ আপলোড অনেক বেশি। কিছুক্ষণ পরে আবার চেষ্টা করুন।',
+  'pro.upload.playlist_switched':
+    'এই ট্র্যাকটি যোগ হওয়ার আগেই অন্য একটি প্লেলিস্ট চালু হয়েছে। ফাইলটি আবার বেছে নিন।',
+  'pro.upload.permission_required': 'মিডিয়া পরিচালনার অনুমতি প্রয়োজন।',
+  'pro.upload.failed_file': '{{name}}: {{reason}}',
+  'pro.upload.confirming': 'আপলোড শেষ করা হচ্ছে {{current}}/{{total}}',
   'pro.upload.batch_progress': 'ট্র্যাক আপলোড হচ্ছে {{current}}/{{total}}',
   'pro.upload.batch_failed_title': 'কিছু ট্র্যাক আপলোড করা যায়নি',
   'pro.upload.batch_failed_message':
@@ -868,6 +884,8 @@ const bn: Record<I18nKey, string> = {
   'pro.downloading': 'ফাইল লোড হচ্ছে...',
   'pro.quota_exceeded': 'এই PRO রুমের 1 GB স্টোরেজ সীমা পূর্ণ হয়েছে',
   'pro.file_too_large': 'এই ফাইলটি প্রতি ফাইলের 200 MB সীমার চেয়ে বড়',
+  'pro.room_state_limit':
+    'এই PRO রুমে এখন আর কোনো পরিবর্তন করা যাবে না\nকিছুক্ষণ পরে আবার চেষ্টা করুন',
 
   // ─── HTML Blocks (used with data-i18n-html) ──────────────────────
   'help.install_app_html':

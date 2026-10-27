@@ -1,7 +1,16 @@
 import { readFile } from 'node:fs/promises';
 import { createRequire } from 'node:module';
 import type { DatabaseSync, StatementSync } from 'node:sqlite';
-import { afterEach, describe, expect, it, vi, type Mock } from 'vitest';
+import {
+  afterEach,
+  beforeEach,
+  describe,
+  expect,
+  it,
+  vi,
+  type Mock,
+  type MockInstance,
+} from 'vitest';
 import { assertProMediaCorsPreflight } from '../../../scripts/live-pro-media-cors-smoke.mts';
 import {
   ACCOUNT_ASSERTION_AUDIENCE_PRO_ROOM,
@@ -12,6 +21,11 @@ import appWorker from '../../../cloudflare/app-worker.ts';
 import { handleProBotRequest } from '../../../cloudflare/pro-bot.ts';
 import { normalizeStoredEffects } from '../../../cloudflare/pro-room-effects.ts';
 import * as fileDuration from '../../../cloudflare/pro-room-media-duration.ts';
+import { PRO_ROOM_MEDIA_COPY_TIMEOUT_MS } from '../../../cloudflare/pro-room-media-timing.ts';
+import {
+  PRO_ROOM_PLAYBACK_COMMAND_REQUEST_TIMEOUT_MS,
+  PRO_ROOM_REQUEST_RECEIPT_TTL_MS,
+} from '../../../cloudflare/pro-room-receipt-timing.ts';
 import {
   issueProRoomActivationClaim,
   issueProRoomOwnerRecoveryClaim,
@@ -192,9 +206,50 @@ function expectProMediaUploadContract(upload: {
 // Every signaling fake below that answers broadcasts is wrapped, so a request
 // builder change that sends a body or header signaling would refuse fails here.
 const signalingBroadcasts = signalingBroadcastContract();
+const copyBuckets = new Set<FakeR2Bucket>();
+const SYNTHETIC_SOURCE_ETAG = '00000000000000000000000000000001';
+const SYNTHETIC_FINAL_ETAG = '00000000000000000000000000000002';
+
+async function fakeCopyObject(request: Request) {
+  const url = new URL(request.url);
+  if (request.method !== 'PUT' || url.hostname !== `${R2_ACCOUNT_ID}.r2.cloudflarestorage.com`)
+    throw new Error('Unexpected external request');
+  const source = request.headers.get('x-amz-copy-source');
+  const prefix = '/musixquare-pro-media/';
+  if (!source?.startsWith(prefix) || !url.pathname.startsWith(prefix))
+    throw new Error('Unexpected copy path');
+  const sourceKey = decodeURIComponent(source.slice(prefix.length));
+  const finalKey = decodeURIComponent(url.pathname.slice(prefix.length));
+  const bucket = [...copyBuckets].find((candidate) => candidate.objects.has(sourceKey));
+  if (!bucket) return new Response(null, { status: 404 });
+  const staged = await bucket.head(sourceKey);
+  if (request.headers.get('x-amz-copy-source-if-match') !== `"${staged.etag}"`)
+    return new Response(null, { status: 412 });
+  expect(request.headers.get('x-amz-metadata-directive')).toBe('REPLACE');
+  const metadata = Object.fromEntries(
+    [...request.headers]
+      .filter(([name]) => name.startsWith('x-amz-meta-'))
+      .map(([name, value]) => [name.slice('x-amz-meta-'.length), value]),
+  );
+  bucket.objects.set(finalKey, {
+    size: staged.size,
+    etag: SYNTHETIC_FINAL_ETAG,
+    httpMetadata: { contentType: request.headers.get('content-type') },
+    customMetadata: metadata,
+  });
+  return new Response(
+    `<?xml version="1.0" encoding="UTF-8"?><CopyObjectResult xmlns="http://s3.amazonaws.com/doc/2006-03-01/"><LastModified>2026-10-27T00:00:00Z</LastModified><ETag>&quot;${SYNTHETIC_FINAL_ETAG}&quot;</ETag></CopyObjectResult>`,
+  );
+}
+
+beforeEach(() => {
+  copyBuckets.clear();
+  vi.stubGlobal('fetch', vi.fn(fakeCopyObject));
+});
 
 afterEach(async () => {
   vi.useRealTimers();
+  vi.unstubAllGlobals();
   if (vi.isMockFunction(fileDuration.readProRoomFileDuration))
     vi.mocked(fileDuration.readProRoomFileDuration).mockRestore();
   for (const database of entitlementDatabases) database.close();
@@ -3803,6 +3858,10 @@ class FakeR2Bucket {
   readonly deleted: string[] = [];
   deleteError: Error | null = null;
 
+  constructor() {
+    copyBuckets.add(this);
+  }
+
   async list(options: { prefix?: string; limit?: number } = {}): Promise<unknown> {
     const prefix = options.prefix ?? '';
     const limit = options.limit ?? 1000;
@@ -3815,12 +3874,15 @@ class FakeR2Bucket {
   }
 
   async head(key: string) {
-    return structuredClone(this.objects.get(key)) ?? null;
+    const object = this.objects.get(key);
+    return object ? { etag: SYNTHETIC_SOURCE_ETAG, ...structuredClone(object) } : null;
   }
 
   async get(key: string) {
     const object = this.objects.get(key);
-    return object ? { ...structuredClone(object), body: { size: object.size } } : null;
+    return object
+      ? { etag: SYNTHETIC_SOURCE_ETAG, ...structuredClone(object), body: { size: object.size } }
+      : null;
   }
 
   async put(
@@ -20989,15 +21051,29 @@ describe('persistent PRO room authentication, presence, and state', () => {
       ),
     ).toBe(true);
 
-    internal.storeIdempotency('member:idle-probe', 'browser-receipt', 'browser-fingerprint', {
-      ok: true,
-    });
+    internal.storeIdempotency(
+      'participant:idle-probe:delete',
+      'browser-receipt',
+      'browser-fingerprint',
+      { ok: true },
+    );
+    // A browser receipt an earlier Worker kept for 24 hours (RO-53).
+    const earlierKey = 'participant:idle-probe:playlist-transfer:earlier-receipt';
+    internal.room.idempotency[earlierKey] = {
+      fingerprint: 'earlier-fingerprint',
+      kind: 'snapshot',
+      committedRevision: 0,
+      status: 200,
+      expiresAtMs: startedAtMs + 24 * 60 * 60 * 1000,
+    };
     internal.storeIdempotency(
       'developer:idle-probe',
       'developer-receipt',
       'developer-fingerprint',
       { ok: true },
     );
+    const browserExpiresAtMs = startedAtMs + PRO_ROOM_REQUEST_RECEIPT_TTL_MS;
+    const cutExpiresAtMs = browserExpiresAtMs + PRO_ROOM_REQUEST_RECEIPT_TTL_MS;
     const rateResetAtMs = startedAtMs + 60 * 60 * 1000;
     const receiptExpiresAtMs = startedAtMs + 24 * 60 * 60 * 1000;
     internal.room.rateLimits['member-hour:idle-probe'] = { count: 1, resetAtMs: rateResetAtMs };
@@ -21007,6 +21083,23 @@ describe('persistent PRO room authentication, presence, and state', () => {
     state.storage.alarm = null;
 
     await internal.scheduleAlarm();
+    expect(state.storage.alarm).toBe(browserExpiresAtMs);
+
+    // The new receipt expires; the earlier one is cut to one window from now,
+    // durably, and the alarm follows the cut.
+    vi.setSystemTime(browserExpiresAtMs);
+    state.storage.alarm = null;
+    await internal.alarm();
+    expect(Object.keys(internal.room.idempotency)).toEqual([earlierKey]);
+    expect(internal.room.idempotency[earlierKey]).toMatchObject({ expiresAtMs: cutExpiresAtMs });
+    expect(storedCanonicalRoom(state).idempotency).toEqual(internal.room.idempotency);
+    expect(state.storage.alarm).toBe(cutExpiresAtMs);
+
+    vi.setSystemTime(cutExpiresAtMs);
+    state.storage.alarm = null;
+    await internal.alarm();
+    expect(internal.room.idempotency).toEqual({});
+    expect(storedCanonicalRoom(state).idempotency).toEqual({});
     expect(state.storage.alarm).toBe(rateResetAtMs);
 
     vi.setSystemTime(rateResetAtMs + 1);
@@ -21014,7 +21107,6 @@ describe('persistent PRO room authentication, presence, and state', () => {
     await internal.alarm();
     expect(internal.room.rateLimits).toEqual({});
     expect(internal.room.botRateLimits).toEqual({});
-    expect(Object.keys(internal.room.idempotency)).toHaveLength(1);
     expect(Object.keys(internal.room.developerMutationIdempotency)).toHaveLength(1);
     expect(state.storage.alarm).toBe(receiptExpiresAtMs);
     expect(storedCanonicalRoom(state)).toMatchObject({
@@ -22920,93 +23012,751 @@ describe('PRO owner transfer and the room entry password', () => {
 });
 
 describe('persistent PRO room private media accounting', () => {
-  it('recovers participant completion after final R2 creation outlives a failed room commit', async () => {
+  async function copyFixture(byteLength = 4096) {
     const context = await activatedRoom();
-    const reservationResponse = await context.worker.fetch(
-      jsonRequest(
-        '/media/reservations',
-        'POST',
-        { byteLength: 4096, name: 'recover.flac', mime: 'audio/flac' },
-        context.ownerCookie,
-        `${IDEMPOTENCY_KEY}-participant-recover-reserve`,
+    const reservation = await responseJson(
+      await context.worker.fetch(
+        jsonRequest(
+          '/media/reservations',
+          'POST',
+          { byteLength, name: 'copy.flac', mime: 'audio/flac' },
+          context.ownerCookie,
+          `${IDEMPOTENCY_KEY}-copy-reserve`,
+        ),
       ),
     );
-    const reservation = await responseJson(reservationResponse);
     const assetId = reservation.reservation.assetId as string;
-    const internal = context.worker as unknown as { room: StoredRoom };
-    const asset = structuredClone(internal.room.assets[assetId]!);
-    context.bucket.objects.set(asset.stagingObjectKey, {
-      size: asset.byteLength,
+    const asset = context.worker.room!.assets[assetId]!;
+    context.bucket.objects.set(asset.stagingObjectKey!, {
+      size: byteLength,
       httpMetadata: { contentType: asset.mime },
       customMetadata: {
         'mxqr-room': ROOM_CODE,
-        'mxqr-generation': String(asset.roomGeneration ?? 0),
-        'mxqr-asset': asset.assetId,
+        'mxqr-generation': String(asset.roomGeneration),
+        'mxqr-asset': assetId,
         'mxqr-version': String(asset.version),
-        'mxqr-bytes': String(asset.byteLength),
+        'mxqr-bytes': String(byteLength),
       },
     });
-
-    const originalPut = context.state.storage.put.bind(context.state.storage);
-    let failCoreOnce = true;
-    context.state.storage.put = async (key, value) => {
-      if (failCoreOnce && key === 'pro-room:v2:core') {
-        failCoreOnce = false;
-        throw new Error('simulated participant completion commit failure');
-      }
-      return originalPut(key, value);
-    };
     const completion = () =>
       request(
         `/media/${assetId}/complete`,
         {
           method: 'POST',
-          headers: {
-            'idempotency-key': `${IDEMPOTENCY_KEY}-participant-recover-complete`,
-          },
+          headers: { 'idempotency-key': `${IDEMPOTENCY_KEY}-copy-complete` },
         },
         context.ownerCookie,
       );
+    return { ...context, assetId, asset, completion };
+  }
 
-    await expect(context.worker.fetch(completion())).rejects.toMatchObject({
-      name: 'RoomStateStorageCommitError',
+  it('server-copies a large reservation with a durable source condition and no Worker byte stream', async () => {
+    const context = await copyFixture(200 * 1024 * 1024);
+    const get = vi.spyOn(context.bucket, 'get');
+    const put = vi.spyOn(context.bucket, 'put');
+    vi.mocked(fetch).mockImplementation(async (resource) => {
+      expect(storedCanonicalRoom(context.state).assets[context.assetId]).toMatchObject({
+        status: 'reserved',
+        completionSourceEtag: SYNTHETIC_SOURCE_ETAG,
+      });
+      const copyRequest = resource as Request;
+      expect(copyRequest.headers.get('x-amz-copy-source-if-match')).toBe(
+        `"${SYNTHETIC_SOURCE_ETAG}"`,
+      );
+      expect(new URL(copyRequest.url).searchParams.get('X-Amz-SignedHeaders')).toContain(
+        'x-amz-copy-source-if-match',
+      );
+      return fakeCopyObject(copyRequest);
     });
-    expect(internal.room.assets[assetId]).toMatchObject({ status: 'reserved' });
-    expect(internal.room.quota).toMatchObject({ usedBytes: 0, reservedBytes: asset.byteLength });
-    expect(context.bucket.objects.get(asset.objectKey)).toMatchObject({
-      size: asset.byteLength,
-      httpMetadata: { contentType: asset.mime },
+    const [first, duplicate] = await Promise.all([
+      context.worker.fetch(context.completion()),
+      context.worker.fetch(context.completion()),
+    ]);
+    expect(first.status).toBe(200);
+    expect(duplicate.status).toBe(200);
+    expect(fetch).toHaveBeenCalledOnce();
+    // Registration may read a bounded duration header from final storage;
+    // promotion itself must never fetch the whole staged body.
+    for (const call of get.mock.calls) expect(call).toHaveLength(2);
+    expect(get).not.toHaveBeenCalledWith(context.asset.stagingObjectKey);
+    expect(put).not.toHaveBeenCalled();
+    expect(context.asset.objectKey).not.toBe(context.asset.stagingObjectKey);
+    expect(context.bucket.objects.get(context.asset.objectKey)).toMatchObject({
+      etag: SYNTHETIC_FINAL_ETAG,
+      customMetadata: { 'mxqr-copy-source-etag': SYNTHETIC_SOURCE_ETAG },
     });
-    expect(context.bucket.objects.has(asset.stagingObjectKey)).toBe(true);
+    expect(context.worker.room!.quota).toMatchObject({
+      usedBytes: context.asset.byteLength,
+      reservedBytes: 0,
+    });
+  });
 
-    // Recreate the isolate after the client-uploaded staging object has gone
-    // away. The exact final object is sufficient to finish the reserved
-    // transaction without charging the room twice.
-    context.state.storage.put = originalPut;
-    context.bucket.objects.delete(asset.stagingObjectKey);
+  // The presigned CopyObject has not run against production R2 before 9.0.17.
+  // Any outcome short of a verified final object falls back to the binding
+  // get/put that browser completion used through 9.0.16, under the same pinned
+  // source and final checks, and every attempt leaves one bounded diagnostic.
+  describe('copy fallback and outcome diagnostics', () => {
+    type CopyContext = Awaited<ReturnType<typeof copyFixture>>;
+    let log: MockInstance<typeof console.log>;
+
+    beforeEach(() => {
+      log = vi.spyOn(console, 'log').mockImplementation(() => {});
+    });
+
+    afterEach(() => {
+      log.mockRestore();
+    });
+
+    const copyOutcomes = () =>
+      log.mock.calls
+        .map(([record]) => record as Record<string, unknown>)
+        .filter(
+          (record) =>
+            record?.diagnostic === 'pro_room' &&
+            (record.event === 'media_copy' || record.event === 'media_copy_fallback'),
+        )
+        .map(({ event, reason, operation, status, elapsedMs, sizeBucketMiB }) => ({
+          event,
+          reason,
+          operation,
+          status,
+          elapsedMs,
+          sizeBucketMiB,
+        }));
+
+    const outcome = (
+      event: 'media_copy' | 'media_copy_fallback',
+      reason: string,
+      status: number | null,
+      sizeBucketMiB = 1,
+    ) => ({
+      event,
+      reason,
+      operation: 'media_complete',
+      status,
+      elapsedMs: expect.any(Number),
+      sizeBucketMiB,
+    });
+
+    function expectNoCopySecrets(context: CopyContext) {
+      const logged = JSON.stringify(log.mock.calls);
+      for (const secret of [
+        'test-access-key',
+        'test-secret-key',
+        'X-Amz',
+        'r2.cloudflarestorage.com',
+        context.asset.objectKey,
+        context.asset.stagingObjectKey!,
+        context.assetId,
+        SYNTHETIC_SOURCE_ETAG,
+        SYNTHETIC_FINAL_ETAG,
+        'copy.flac',
+      ]) {
+        expect(logged).not.toContain(secret);
+      }
+    }
+
+    function expectReadyFromPinnedSource(context: CopyContext) {
+      expect(context.bucket.objects.get(context.asset.objectKey)).toMatchObject({
+        size: context.asset.byteLength,
+        httpMetadata: { contentType: context.asset.mime },
+        customMetadata: {
+          'mxqr-asset': context.assetId,
+          'mxqr-bytes': String(context.asset.byteLength),
+          'mxqr-copy-source-etag': SYNTHETIC_SOURCE_ETAG,
+        },
+      });
+      expect(storedCanonicalRoom(context.state).assets[context.assetId]).toMatchObject({
+        status: 'ready',
+        completionSourceEtag: SYNTHETIC_SOURCE_ETAG,
+      });
+      expect(context.worker.room!.quota).toMatchObject({
+        usedBytes: context.asset.byteLength,
+        reservedBytes: 0,
+      });
+    }
+
+    function expectPinnedReservationKept(context: CopyContext) {
+      expect(storedCanonicalRoom(context.state).assets[context.assetId]).toMatchObject({
+        status: 'reserved',
+        completionSourceEtag: SYNTHETIC_SOURCE_ETAG,
+      });
+      expect(context.worker.room!.quota).toMatchObject({
+        usedBytes: 0,
+        reservedBytes: context.asset.byteLength,
+      });
+    }
+
+    it.each([
+      [
+        'a 403 response',
+        () => new Response('<Error><Code>AccessDenied</Code></Error>', { status: 403 }),
+        'status_4xx',
+        403,
+      ],
+      ['a 501 response', () => new Response(null, { status: 501 }), 'status_5xx', 501],
+      ['a 204 response', () => new Response(null, { status: 204 }), 'status_other', 204],
+      [
+        'a network error',
+        () => Promise.reject(new TypeError('copy network failure')),
+        'network',
+        null,
+      ],
+      [
+        'an embedded error document',
+        () => new Response('<Error><Code>InternalError</Code></Error>'),
+        'parse',
+        200,
+      ],
+      ['a self-closing result', () => new Response('<CopyObjectResult/>'), 'parse', 200],
+      [
+        'a result without an ETag',
+        () =>
+          new Response(
+            '<CopyObjectResult><LastModified>2026-10-27T00:00:00Z</LastModified></CopyObjectResult>',
+          ),
+        'parse',
+        200,
+      ],
+      ['invalid UTF-8', () => new Response(new Uint8Array([0xc3, 0x28])), 'parse', 200],
+      ['an oversized body', () => new Response(' '.repeat(20 * 1024)), 'body', 200],
+      [
+        'a 412 while the pinned source is unchanged',
+        () => new Response(null, { status: 412 }),
+        'precondition',
+        412,
+      ],
+    ] as const)(
+      'completes through the binding fallback after %s from the copy',
+      async (_name, respond, reason, status) => {
+        const context = await copyFixture();
+        const get = vi.spyOn(context.bucket, 'get');
+        const put = vi.spyOn(context.bucket, 'put');
+        vi.mocked(fetch).mockImplementationOnce(async () => respond());
+        const result = await context.worker.fetch(context.completion());
+        expect(result.status).toBe(200);
+        expect(get).toHaveBeenCalledWith(context.asset.stagingObjectKey);
+        // The same final key and metadata the copy would have written.
+        expect(put).toHaveBeenCalledExactlyOnceWith(context.asset.objectKey, expect.anything(), {
+          httpMetadata: { contentType: context.asset.mime },
+          customMetadata: {
+            'mxqr-room': ROOM_CODE,
+            'mxqr-generation': String(context.asset.roomGeneration),
+            'mxqr-asset': context.assetId,
+            'mxqr-version': String(context.asset.version),
+            'mxqr-bytes': String(context.asset.byteLength),
+            'mxqr-copy-source-etag': SYNTHETIC_SOURCE_ETAG,
+          },
+        });
+        expectReadyFromPinnedSource(context);
+        expect(copyOutcomes()).toEqual([
+          outcome('media_copy', reason, status),
+          outcome('media_copy_fallback', 'ok', null),
+        ]);
+        expectNoCopySecrets(context);
+      },
+    );
+
+    it.each(['a stalled body', 'no response'] as const)(
+      'completes through the binding fallback when the copy has %s at its deadline',
+      async (mode) => {
+        const context = await copyFixture();
+        vi.useFakeTimers();
+        const cancel = vi.fn();
+        let started!: () => void;
+        const ready = new Promise<void>((resolve) => {
+          started = resolve;
+        });
+        vi.mocked(fetch).mockImplementationOnce(async () => {
+          started();
+          return mode === 'a stalled body'
+            ? new Response(new ReadableStream<Uint8Array>({ cancel }))
+            : new Promise<Response>(() => {});
+        });
+        const pending = context.worker.fetch(context.completion());
+        await ready;
+        await vi.advanceTimersByTimeAsync(PRO_ROOM_MEDIA_COPY_TIMEOUT_MS + 1);
+        expect((await pending).status).toBe(200);
+        if (mode === 'a stalled body') expect(cancel).toHaveBeenCalledOnce();
+        expectReadyFromPinnedSource(context);
+        const [copy, fallback, ...rest] = copyOutcomes();
+        expect(rest).toEqual([]);
+        // A stalled body still reports the status its headers carried.
+        expect(copy).toEqual(
+          outcome('media_copy', 'timeout', mode === 'a stalled body' ? 200 : null),
+        );
+        expect(copy!.elapsedMs).toBeGreaterThanOrEqual(PRO_ROOM_MEDIA_COPY_TIMEOUT_MS);
+        expect(fallback).toEqual(outcome('media_copy_fallback', 'ok', null));
+      },
+    );
+
+    it('completes through the binding fallback without sending a copy when S3 credentials are missing', async () => {
+      const context = await copyFixture();
+      const env = (context.worker as unknown as { env: Record<string, unknown> }).env;
+      env.R2_SECRET_ACCESS_KEY = '';
+      const put = vi.spyOn(context.bucket, 'put');
+      expect((await context.worker.fetch(context.completion())).status).toBe(200);
+      expect(fetch).not.toHaveBeenCalled();
+      expect(put).toHaveBeenCalledOnce();
+      expectReadyFromPinnedSource(context);
+      expect(copyOutcomes()).toEqual([
+        outcome('media_copy', 'unconfigured', null),
+        outcome('media_copy_fallback', 'ok', null),
+      ]);
+      expectNoCopySecrets(context);
+    });
+
+    it('rewrites the final object through the binding fallback when the post-copy HEAD fails', async () => {
+      const context = await copyFixture();
+      const head = context.bucket.head.bind(context.bucket);
+      let copied = false;
+      let failedHead = false;
+      vi.spyOn(context.bucket, 'head').mockImplementation(async (key) => {
+        if (copied && !failedHead && key === context.asset.objectKey) {
+          failedHead = true;
+          throw new Error('R2 HEAD unavailable');
+        }
+        return head(key);
+      });
+      const put = vi.spyOn(context.bucket, 'put');
+      vi.mocked(fetch).mockImplementationOnce(async (resource) => {
+        const response = await fakeCopyObject(resource as Request);
+        copied = true;
+        return response;
+      });
+      expect((await context.worker.fetch(context.completion())).status).toBe(200);
+      expect(failedHead).toBe(true);
+      expect(put).toHaveBeenCalledOnce();
+      expectReadyFromPinnedSource(context);
+      expect(copyOutcomes()).toEqual([
+        outcome('media_copy', 'head', 200),
+        outcome('media_copy_fallback', 'ok', null),
+      ]);
+    });
+
+    it.each([
+      [
+        'lower-case encoding',
+        `<?xml version="1.0" encoding="utf-8"?><CopyObjectResult xmlns="http://s3.amazonaws.com/doc/2006-03-01/"><LastModified>2026-10-27T00:00:00Z</LastModified><ETag>&quot;${SYNTHETIC_FINAL_ETAG}&quot;</ETag></CopyObjectResult>`,
+      ],
+      [
+        'numeric quote entities',
+        `<CopyObjectResult><ETag>&#34;${SYNTHETIC_FINAL_ETAG}&#34;</ETag><LastModified>2026-10-27T00:00:00.000Z</LastModified></CopyObjectResult>`,
+      ],
+      [
+        'an unquoted ETag',
+        `<CopyObjectResult><ETag>${SYNTHETIC_FINAL_ETAG}</ETag></CopyObjectResult>`,
+      ],
+      [
+        'unknown child elements',
+        `<?xml version='1.0' encoding='UTF-8' standalone='yes'?>\n<CopyObjectResult xmlns="http://s3.amazonaws.com/doc/2006-03-01/">\n  <LastModified>2026-10-27T00:00:00Z</LastModified>\n  <ETag>"${SYNTHETIC_FINAL_ETAG}"</ETag>\n  <ChecksumCRC32>AAAAAA==</ChecksumCRC32>\n  <ChecksumType>FULL_OBJECT</ChecksumType>\n</CopyObjectResult>\n`,
+      ],
+    ] as const)(
+      'accepts a CopyObject result with %s and still verifies it by HEAD',
+      async (_name, body) => {
+        const context = await copyFixture(200 * 1024 * 1024);
+        const get = vi.spyOn(context.bucket, 'get');
+        const put = vi.spyOn(context.bucket, 'put');
+        vi.mocked(fetch).mockImplementationOnce(async (resource) => {
+          await fakeCopyObject(resource as Request);
+          return new Response(body);
+        });
+        expect((await context.worker.fetch(context.completion())).status).toBe(200);
+        expect(get).not.toHaveBeenCalledWith(context.asset.stagingObjectKey);
+        expect(put).not.toHaveBeenCalled();
+        expect(context.bucket.objects.get(context.asset.objectKey)).toMatchObject({
+          etag: SYNTHETIC_FINAL_ETAG,
+        });
+        expectReadyFromPinnedSource(context);
+        expect(copyOutcomes()).toEqual([outcome('media_copy', 'ok', 200, 256)]);
+        expectNoCopySecrets(context);
+      },
+    );
+
+    it.each([
+      [
+        'an ETag that differs from the copy result',
+        'etag_mismatch',
+        (object: Record<string, any>) => {
+          object.etag = '00000000000000000000000000000009';
+        },
+      ],
+      [
+        'metadata without the pinned source',
+        'metadata_mismatch',
+        (object: Record<string, any>) => {
+          object.customMetadata['mxqr-copy-source-etag'] = 'wrong-source';
+        },
+      ],
+    ] as const)(
+      'rewrites a copied final object with %s through the binding fallback',
+      async (_name, reason, corrupt) => {
+        const context = await copyFixture();
+        const put = vi.spyOn(context.bucket, 'put');
+        vi.mocked(fetch).mockImplementationOnce(async (resource) => {
+          const response = await fakeCopyObject(resource as Request);
+          corrupt(context.bucket.objects.get(context.asset.objectKey)!);
+          return response;
+        });
+        expect((await context.worker.fetch(context.completion())).status).toBe(200);
+        expect(put).toHaveBeenCalledOnce();
+        expectReadyFromPinnedSource(context);
+        expect(copyOutcomes()).toEqual([
+          outcome('media_copy', reason, 200),
+          outcome('media_copy_fallback', 'ok', null),
+        ]);
+      },
+    );
+
+    it('fails a definite source change without a fallback write, then reports UPLOAD_MISMATCH', async () => {
+      const context = await copyFixture();
+      const put = vi.spyOn(context.bucket, 'put');
+      vi.mocked(fetch).mockImplementationOnce(async (resource) => {
+        // A late re-upload replaces the staging bytes after the pin HEAD.
+        context.bucket.objects.get(context.asset.stagingObjectKey!)!.etag =
+          '00000000000000000000000000000003';
+        return fakeCopyObject(resource as Request);
+      });
+      const result = await context.worker.fetch(context.completion());
+      expect(result.status).toBe(503);
+      expect(await responseJson(result)).toMatchObject({ error: 'MEDIA_STORAGE_UNAVAILABLE' });
+      expect(put).not.toHaveBeenCalled();
+      expect(context.bucket.objects.has(context.asset.objectKey)).toBe(false);
+      expectPinnedReservationKept(context);
+      expect(copyOutcomes()).toEqual([
+        outcome('media_copy', 'precondition', 412),
+        outcome('media_copy_fallback', 'source_mismatch', null),
+      ]);
+
+      const retry = await context.worker.fetch(context.completion());
+      expect(retry.status).toBe(409);
+      expect(await responseJson(retry)).toMatchObject({ error: 'UPLOAD_MISMATCH' });
+      expect(fetch).toHaveBeenCalledOnce();
+      expectNoCopySecrets(context);
+    });
+
+    it.each([
+      [
+        'the staging object gone',
+        'source_missing',
+        (context: CopyContext) => {
+          vi.mocked(fetch).mockImplementationOnce(async () => {
+            context.bucket.objects.delete(context.asset.stagingObjectKey!);
+            return new Response(null, { status: 500 });
+          });
+        },
+      ],
+      [
+        'R2 refusing the staging read',
+        'storage',
+        (context: CopyContext) => {
+          vi.mocked(fetch).mockResolvedValueOnce(new Response(null, { status: 500 }));
+          vi.spyOn(context.bucket, 'get').mockRejectedValueOnce(new Error('R2 read unavailable'));
+        },
+      ],
+      [
+        'R2 refusing the final write',
+        'storage',
+        (context: CopyContext) => {
+          vi.mocked(fetch).mockResolvedValueOnce(new Response(null, { status: 500 }));
+          vi.spyOn(context.bucket, 'put').mockRejectedValueOnce(new Error('R2 write unavailable'));
+        },
+      ],
+      [
+        'a written final object that fails verification',
+        'verify',
+        (context: CopyContext) => {
+          vi.mocked(fetch).mockResolvedValueOnce(new Response(null, { status: 500 }));
+          vi.spyOn(context.bucket, 'put').mockImplementationOnce(async (key) => {
+            context.bucket.objects.set(key, { size: 1, httpMetadata: {}, customMetadata: {} });
+          });
+        },
+      ],
+    ] as const)(
+      'keeps the pinned reservation retryable when the fallback finds %s',
+      async (_name, reason, arrange) => {
+        const context = await copyFixture();
+        arrange(context);
+        const result = await context.worker.fetch(context.completion());
+        expect(result.status).toBe(503);
+        expect(await responseJson(result)).toMatchObject({ error: 'MEDIA_STORAGE_UNAVAILABLE' });
+        expect(context.bucket.objects.has(context.asset.objectKey)).toBe(false);
+        expectPinnedReservationKept(context);
+        expect(copyOutcomes()).toEqual([
+          outcome('media_copy', 'status_5xx', 500),
+          outcome('media_copy_fallback', reason, null),
+        ]);
+      },
+    );
+  });
+
+  it('refuses changed staging bytes after an ambiguous copy, including a cold restart', async () => {
+    const context = await copyFixture();
+    vi.mocked(fetch).mockImplementationOnce(async () => {
+      // The copy response is lost while a late re-upload replaces staging, so
+      // the binding fallback must not adopt the replacement bytes either.
+      context.bucket.objects.get(context.asset.stagingObjectKey!)!.etag =
+        '00000000000000000000000000000003';
+      throw new Error('copy response lost');
+    });
+    expect((await context.worker.fetch(context.completion())).status).toBe(503);
+    expect(context.bucket.objects.has(context.asset.objectKey)).toBe(false);
     const restarted = new MusixquareProRoom(
       context.state as never,
       environment(context.bucket) as never,
     );
-    const recovered = await restarted.fetch(completion());
-    expect(recovered.status).toBe(200);
-    await expect(recovered.json()).resolves.toMatchObject({
-      asset: { assetId },
-      quota: { usedBytes: asset.byteLength, reservedBytes: 0 },
-    });
-    const restartedInternal = restarted as unknown as { room: StoredRoom };
-    expect(restartedInternal.room.assets[assetId]).toMatchObject({ status: 'ready' });
-    expect(restartedInternal.room.quota).toMatchObject({
-      usedBytes: asset.byteLength,
-      reservedBytes: 0,
-    });
-
-    const replay = await restarted.fetch(completion());
-    expect(replay.status).toBe(200);
-    await expect(replay.json()).resolves.toMatchObject({
-      quota: { usedBytes: asset.byteLength, reservedBytes: 0 },
+    for (const worker of [context.worker, restarted]) {
+      const response = await worker.fetch(context.completion());
+      expect(response.status).toBe(409);
+      expect(await responseJson(response)).toMatchObject({ error: 'UPLOAD_MISMATCH' });
+    }
+    expect(fetch).toHaveBeenCalledOnce();
+    expect(storedCanonicalRoom(context.state).assets[context.assetId]).toMatchObject({
+      completionSourceEtag: SYNTHETIC_SOURCE_ETAG,
     });
   });
+
+  it('does not start a copy before its source identity is durably committed', async () => {
+    const context = await copyFixture();
+    const originalPut = context.state.storage.put.bind(context.state.storage);
+    context.state.storage.put = async (key, value) => {
+      if (key === 'pro-room:v2:core') throw new Error('source pin write failed');
+      return originalPut(key, value);
+    };
+    await expect(context.worker.fetch(context.completion())).rejects.toMatchObject({
+      name: 'RoomStateStorageCommitError',
+    });
+    expect(fetch).not.toHaveBeenCalled();
+    expect(context.worker.room!.assets[context.assetId]!.completionSourceEtag).toBeUndefined();
+    expect(storedCanonicalRoom(context.state).assets[context.assetId]).not.toHaveProperty(
+      'completionSourceEtag',
+    );
+  });
+
+  it('reclaims a final object recreated by a timed-out copy after reservation deletion', async () => {
+    const context = await copyFixture();
+    vi.useFakeTimers();
+    // The binding fallback is unavailable too, so the reservation stays open.
+    vi.spyOn(context.bucket, 'get').mockRejectedValueOnce(new Error('R2 read unavailable'));
+    let finish!: (response: Response) => void;
+    let started!: () => void;
+    const ready = new Promise<void>((resolve) => {
+      started = resolve;
+    });
+    let copyRequest!: Request;
+    vi.mocked(fetch).mockImplementationOnce(async (resource) => {
+      copyRequest = resource as Request;
+      started();
+      return new Promise<Response>((resolve) => {
+        finish = resolve;
+      });
+    });
+    const pending = context.worker.fetch(context.completion());
+    await ready;
+    await vi.advanceTimersByTimeAsync(PRO_ROOM_MEDIA_COPY_TIMEOUT_MS + 1);
+    expect((await pending).status).toBe(503);
+    const staged = structuredClone(context.bucket.objects.get(context.asset.stagingObjectKey!));
+    const deleted = await context.worker.fetch(
+      request(
+        `/media/${context.assetId}`,
+        {
+          method: 'DELETE',
+          headers: { 'idempotency-key': `${IDEMPOTENCY_KEY}-copy-delete` },
+        },
+        context.ownerCookie,
+      ),
+    );
+    expect(deleted.status).toBe(200);
+    expect(context.worker.room!.stagingTombstones[context.assetId]).toMatchObject({
+      finalObjectKey: context.asset.objectKey,
+    });
+    // Simulate the remote copy committing after abort and physical deletion.
+    context.bucket.objects.set(context.asset.stagingObjectKey!, staged);
+    finish(await fakeCopyObject(copyRequest));
+    await vi.advanceTimersByTimeAsync(0);
+    context.worker.room!.stagingTombstones[context.assetId]!.cleanupAfterMs = Date.now();
+    await context.worker.alarm();
+    expect(context.bucket.objects.has(context.asset.objectKey)).toBe(false);
+    expect(context.bucket.objects.has(context.asset.stagingObjectKey!)).toBe(false);
+    expect(context.worker.room!.assets[context.assetId]).toBeUndefined();
+    expect(context.worker.room!.quota).toMatchObject({ usedBytes: 0, reservedBytes: 0 });
+  });
+
+  it('reclaims a final object a timed-out copy commits after its fallback-completed asset is deleted', async () => {
+    const context = await copyFixture();
+    const staged = structuredClone(context.bucket.objects.get(context.asset.stagingObjectKey!));
+    vi.useFakeTimers();
+    let finish!: (response: Response) => void;
+    let started!: () => void;
+    const ready = new Promise<void>((resolve) => {
+      started = resolve;
+    });
+    let copyRequest!: Request;
+    vi.mocked(fetch).mockImplementationOnce(async (resource) => {
+      copyRequest = resource as Request;
+      started();
+      return new Promise<Response>((resolve) => {
+        finish = resolve;
+      });
+    });
+    const pending = context.worker.fetch(context.completion());
+    await ready;
+    await vi.advanceTimersByTimeAsync(PRO_ROOM_MEDIA_COPY_TIMEOUT_MS + 1);
+    // The binding fallback completed the asset after the copy deadline.
+    expect((await pending).status).toBe(200);
+    expect(context.worker.room!.assets[context.assetId]).toMatchObject({ status: 'ready' });
+    const deleted = await context.worker.fetch(
+      request(
+        `/media/${context.assetId}`,
+        {
+          method: 'DELETE',
+          headers: { 'idempotency-key': `${IDEMPOTENCY_KEY}-ready-copy-delete` },
+        },
+        context.ownerCookie,
+      ),
+    );
+    expect(deleted.status).toBe(200);
+    expect(context.bucket.objects.has(context.asset.objectKey)).toBe(false);
+    // The ready asset still held its staging key, so its deletion leaves the
+    // tombstone that also watches the final key.
+    expect(context.worker.room!.stagingTombstones[context.assetId]).toMatchObject({
+      finalObjectKey: context.asset.objectKey,
+    });
+    // The abandoned copy read its source before the deadline and commits only now.
+    context.bucket.objects.set(context.asset.stagingObjectKey!, staged);
+    finish(await fakeCopyObject(copyRequest));
+    await vi.advanceTimersByTimeAsync(0);
+    expect(context.bucket.objects.has(context.asset.objectKey)).toBe(true);
+    context.worker.room!.stagingTombstones[context.assetId]!.cleanupAfterMs = Date.now();
+    await context.worker.alarm();
+    expect(context.bucket.objects.has(context.asset.objectKey)).toBe(false);
+    expect(context.bucket.objects.has(context.asset.stagingObjectKey!)).toBe(false);
+    expect(context.worker.room!.assets[context.assetId]).toBeUndefined();
+    expect(context.worker.room!.quota).toMatchObject({ usedBytes: 0, reservedBytes: 0 });
+  });
+
+  it('recovers the final object after the CopyObject response is lost without another copy', async () => {
+    const context = await copyFixture();
+    // The binding fallback is unavailable too, so only a retry can finish.
+    vi.spyOn(context.bucket, 'get').mockRejectedValueOnce(new Error('R2 read unavailable'));
+    vi.mocked(fetch).mockImplementationOnce(async (resource) => {
+      await fakeCopyObject(resource as Request);
+      throw new Error('copy result lost');
+    });
+    expect((await context.worker.fetch(context.completion())).status).toBe(503);
+    context.bucket.objects.delete(context.asset.stagingObjectKey!);
+    expect((await context.worker.fetch(context.completion())).status).toBe(200);
+    expect(fetch).toHaveBeenCalledOnce();
+  });
+
+  it('recovers a legacy final object without requiring a new source pin or surviving staging', async () => {
+    const context = await copyFixture();
+    context.bucket.objects.set(
+      context.asset.objectKey,
+      structuredClone(context.bucket.objects.get(context.asset.stagingObjectKey!)),
+    );
+    context.bucket.objects.delete(context.asset.stagingObjectKey!);
+    expect((await context.worker.fetch(context.completion())).status).toBe(200);
+    expect(fetch).not.toHaveBeenCalled();
+    expect(context.worker.room!.assets[context.assetId]!.completionSourceEtag).toBeUndefined();
+  });
+
+  it.each(['same isolate', 'cold restart'])(
+    'recovers participant completion in %s after final R2 creation outlives a failed room commit',
+    async (mode) => {
+      const context = await activatedRoom();
+      const reservationResponse = await context.worker.fetch(
+        jsonRequest(
+          '/media/reservations',
+          'POST',
+          { byteLength: 4096, name: 'recover.flac', mime: 'audio/flac' },
+          context.ownerCookie,
+          `${IDEMPOTENCY_KEY}-participant-recover-reserve`,
+        ),
+      );
+      const reservation = await responseJson(reservationResponse);
+      const assetId = reservation.reservation.assetId as string;
+      const internal = context.worker as unknown as { room: StoredRoom };
+      const asset = structuredClone(internal.room.assets[assetId]!);
+      context.bucket.objects.set(asset.stagingObjectKey, {
+        size: asset.byteLength,
+        httpMetadata: { contentType: asset.mime },
+        customMetadata: {
+          'mxqr-room': ROOM_CODE,
+          'mxqr-generation': String(asset.roomGeneration ?? 0),
+          'mxqr-asset': asset.assetId,
+          'mxqr-version': String(asset.version),
+          'mxqr-bytes': String(asset.byteLength),
+        },
+      });
+
+      const originalPut = context.state.storage.put.bind(context.state.storage);
+      let failCoreOnce = true;
+      context.state.storage.put = async (key, value) => {
+        if (failCoreOnce && key === 'pro-room:v2:core') {
+          if ((value as { core: StoredRoom }).core.assets[assetId]?.status === 'ready') {
+            failCoreOnce = false;
+            throw new Error('simulated participant completion commit failure');
+          }
+        }
+        return originalPut(key, value);
+      };
+      const completion = () =>
+        request(
+          `/media/${assetId}/complete`,
+          {
+            method: 'POST',
+            headers: {
+              'idempotency-key': `${IDEMPOTENCY_KEY}-participant-recover-complete`,
+            },
+          },
+          context.ownerCookie,
+        );
+
+      expect((await context.worker.fetch(completion())).status).toBe(503);
+      expect(internal.room.assets[assetId]).toMatchObject({
+        status: 'reserved',
+        completionSourceEtag: SYNTHETIC_SOURCE_ETAG,
+      });
+      expect(storedCanonicalRoom(context.state).assets[assetId]).toMatchObject({
+        completionSourceEtag: SYNTHETIC_SOURCE_ETAG,
+      });
+      expect(internal.room.quota).toMatchObject({ usedBytes: 0, reservedBytes: asset.byteLength });
+      expect(context.bucket.objects.get(asset.objectKey)).toMatchObject({
+        size: asset.byteLength,
+        httpMetadata: { contentType: asset.mime },
+      });
+      expect(context.bucket.objects.has(asset.stagingObjectKey)).toBe(true);
+
+      // Recreate the isolate after the client-uploaded staging object has gone
+      // away. The exact final object is sufficient to finish the reserved
+      // transaction without charging the room twice.
+      context.state.storage.put = originalPut;
+      context.bucket.objects.delete(asset.stagingObjectKey);
+      const restarted =
+        mode === 'same isolate'
+          ? context.worker
+          : new MusixquareProRoom(context.state as never, environment(context.bucket) as never);
+      const recovered = await restarted.fetch(completion());
+      expect(recovered.status).toBe(200);
+      await expect(recovered.json()).resolves.toMatchObject({
+        asset: { assetId },
+        quota: { usedBytes: asset.byteLength, reservedBytes: 0 },
+      });
+      const restartedInternal = restarted as unknown as { room: StoredRoom };
+      expect(restartedInternal.room.assets[assetId]).toMatchObject({ status: 'ready' });
+      expect(restartedInternal.room.quota).toMatchObject({
+        usedBytes: asset.byteLength,
+        reservedBytes: 0,
+      });
+
+      const replay = await restarted.fetch(completion());
+      expect(replay.status).toBe(200);
+      await expect(replay.json()).resolves.toMatchObject({
+        quota: { usedBytes: asset.byteLength, reservedBytes: 0 },
+      });
+    },
+  );
 
   it('reclaims both staging and an uncommitted final object when the reservation expires', async () => {
     const context = await activatedRoom();
@@ -23040,23 +23790,27 @@ describe('persistent PRO room private media accounting', () => {
     let failCoreOnce = true;
     context.state.storage.put = async (key, value) => {
       if (failCoreOnce && key === 'pro-room:v2:core') {
-        failCoreOnce = false;
-        throw new Error('simulated abandoned completion commit failure');
+        if ((value as { core: StoredRoom }).core.assets[assetId]?.status === 'ready') {
+          failCoreOnce = false;
+          throw new Error('simulated abandoned completion commit failure');
+        }
       }
       return originalPut(key, value);
     };
-    await expect(
-      context.worker.fetch(
-        request(
-          `/media/${assetId}/complete`,
-          {
-            method: 'POST',
-            headers: { 'idempotency-key': `${IDEMPOTENCY_KEY}-abandoned-complete` },
-          },
-          context.ownerCookie,
-        ),
-      ),
-    ).rejects.toMatchObject({ name: 'RoomStateStorageCommitError' });
+    expect(
+      (
+        await context.worker.fetch(
+          request(
+            `/media/${assetId}/complete`,
+            {
+              method: 'POST',
+              headers: { 'idempotency-key': `${IDEMPOTENCY_KEY}-abandoned-complete` },
+            },
+            context.ownerCookie,
+          ),
+        )
+      ).status,
+    ).toBe(503);
     expect(context.bucket.objects.has(asset.objectKey)).toBe(true);
     expect(context.bucket.objects.has(asset.stagingObjectKey)).toBe(true);
 
@@ -27935,5 +28689,705 @@ describe('PRO room requests only Apps below the 787 build floor sent', () => {
         )
       ).status,
     ).toBe(200);
+  });
+});
+
+// Owner decision 2026-10-27 (RO-53): a browser receipt lives only as long as
+// the App can send the same request again, and upload completion lives until a
+// playlist names its asset or orphan cleanup collects it.
+describe('PRO browser receipt retention', () => {
+  type RoomContext = Awaited<ReturnType<typeof activatedRoom>>;
+  type Internal = {
+    room: Record<string, any>;
+    env: Record<string, unknown>;
+    storeSnapshotIdempotency(
+      scope: string,
+      key: string,
+      fingerprint: string,
+      committedRevision: number,
+    ): void;
+    persist(): Promise<void>;
+  };
+  const FIRST = '53000000-0000-4000-8000-000000000001';
+  const SECOND = '53000000-0000-4000-8000-000000000002';
+  const youtubePlaylist = [
+    {
+      queueItemId: FIRST,
+      name: 'Receipt video A',
+      source: { kind: 'youtube', videoId: 'dQw4w9WgXcQ' },
+    },
+    {
+      queueItemId: SECOND,
+      name: 'Receipt video B',
+      source: { kind: 'youtube', videoId: 'M7lc1UVf-VE' },
+    },
+  ];
+  const WINDOW_MS = PRO_ROOM_REQUEST_RECEIPT_TTL_MS;
+  // The Worker's own default asset GC grace and reservation lifetime, read from
+  // the Worker, which environment() keeps (it configures neither).
+  const workerDefaults = { env: {} } as unknown as MusixquareProRoom;
+  const GC_GRACE_MS = MusixquareProRoom.prototype.assetGcGraceMs.call(workerDefaults);
+  const RESERVATION_MS =
+    MusixquareProRoom.prototype.reservationTtlSeconds.call(workerDefaults) * 1000;
+  const DAY_MS = 24 * 60 * 60 * 1000;
+  const BOT_TRACK = {
+    videoId: 'dQw4w9WgXcQ',
+    name: 'Test Song',
+    title: 'Test Song',
+    artist: 'Test Artist',
+  };
+  const BOT_PLAN = {
+    intent: 'add_youtube',
+    trackQueries: ['Test Artist Test Song official audio'],
+    playAddedIndex: -1,
+    answer: 'Added one track.',
+  };
+
+  const internalOf = (context: RoomContext) => context.worker as unknown as Internal;
+  const participantIdOf = (context: RoomContext) =>
+    context.activationEnvelope.snapshot.viewer.participantId as string;
+
+  async function startRoom() {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date('2026-10-27T03:00:00.000Z'));
+    return activatedRoom();
+  }
+
+  /** Move the clock while the owner's page keeps its presence, as an open page does. */
+  function advanceKeepingPresence(context: RoomContext, ms: number) {
+    vi.setSystemTime(Date.now() + ms);
+    const nowMs = Date.now();
+    const room = internalOf(context).room;
+    for (const session of Object.values(room.sessions) as Array<Record<string, any>>) {
+      if (session.accountId) session.accountLeaseExpiresAtMs = nowMs + 60_000;
+    }
+    for (const participant of Object.values(room.presence.participants) as Array<
+      Record<string, any>
+    >) {
+      participant.lastSeenAtMs = nowMs;
+    }
+  }
+
+  async function currentSnapshot(context: RoomContext) {
+    return (
+      await responseJson(await context.worker.fetch(request('/snapshot', {}, context.ownerCookie)))
+    ).snapshot as Record<string, any>;
+  }
+
+  function compactBody(snapshot: Record<string, any>, playlist: Array<Record<string, any>>) {
+    return {
+      baseRevision: snapshot.revision,
+      playlistOrder: playlist.map((item) => item.queueItemId),
+      upserts: playlist,
+      currentQueueItemId: null,
+      playback: {
+        coordinatorEpoch: snapshot.presence.coordinatorEpoch,
+        revision: snapshot.playback.revision,
+        state: 'idle',
+        queueItemId: null,
+        positionSeconds: 0,
+        updatedAtMs: Date.now(),
+        youtubeVideoId: null,
+        youtubeSubIndex: null,
+      },
+    };
+  }
+
+  /** One request, built once, so a retry sends the same key and the same bytes. */
+  async function compactEdit(
+    context: RoomContext,
+    playlist: Array<Record<string, any>>,
+    key: string,
+  ) {
+    const body = compactBody(await currentSnapshot(context), playlist);
+    return () =>
+      context.worker.fetch(
+        jsonRequest('/snapshot/compact', 'POST', body, context.ownerCookie, key),
+      );
+  }
+
+  async function editOnce(context: RoomContext, playlist: Array<Record<string, any>>, key: string) {
+    return (await compactEdit(context, playlist, key))();
+  }
+
+  async function runBot(context: RoomContext, requestId: string) {
+    const lease = await internalBotRequest(
+      context.worker,
+      'context',
+      { roomCode: ROOM_CODE, requestId, prompt: 'add one test song' },
+      context.ownerCookie,
+    );
+    expect(lease.status).toBe(200);
+    const { leaseToken } = await responseJson(lease);
+    return internalBotRequest(
+      context.worker,
+      'execute',
+      { roomCode: ROOM_CODE, requestId, leaseToken, plan: BOT_PLAN, tracks: [BOT_TRACK] },
+      context.ownerCookie,
+    );
+  }
+
+  async function commitTransition(context: RoomContext, transition: Record<string, any>) {
+    const ready = await context.worker.fetch(
+      jsonRequest(
+        `/playback/transitions/${transition.transitionId}/ready`,
+        'POST',
+        { basePlaybackRevision: transition.basePlaybackRevision, status: 'ready' },
+        context.ownerCookie,
+      ),
+    );
+    expect(ready.status).toBe(200);
+  }
+
+  /** The longest a browser receipt of this storage key may live from now. */
+  function scopeMaximumMs(storageKey: string) {
+    return /^participant:[^:]+:complete:/u.test(storageKey) ? GC_GRACE_MS : WINDOW_MS;
+  }
+
+  it('keeps each browser receipt only as long as its request can be sent again', async () => {
+    const context = await startRoom();
+    const internal = internalOf(context);
+    const room = internal.room;
+    const participantId = participantIdOf(context);
+    const receipt = (operation: string, key: string) =>
+      room.idempotency[`participant:${participantId}:${operation}:${key}`];
+
+    expect((await editOnce(context, youtubePlaylist, 'receipt-ttl-snapshot-01')).status).toBe(200);
+    expect(receipt('snapshot', 'receipt-ttl-snapshot-01')).toEqual({
+      fingerprint: expect.any(String),
+      kind: 'snapshot',
+      committedRevision: room.revision,
+      status: 200,
+      expiresAtMs: Date.now() + WINDOW_MS,
+    });
+
+    const selected = await context.worker.fetch(
+      jsonRequest(
+        '/playback/commands',
+        'POST',
+        {
+          type: 'select',
+          baseRevision: room.playback.revision,
+          queueItemId: FIRST,
+          state: 'playing',
+          positionSeconds: 0,
+        },
+        context.ownerCookie,
+        'receipt-ttl-playback-01',
+      ),
+    );
+    expect(selected.status).toBe(202);
+    // The marker stays so a Worker from before 2026-10-26 reads the expiry as written.
+    expect(receipt('playback-authority', 'receipt-ttl-playback-01')).toMatchObject({
+      kind: 'playback-authority',
+      status: 202,
+      expiresAtMs: Date.now() + WINDOW_MS,
+    });
+    await commitTransition(context, (await responseJson(selected)).transition);
+
+    const copied = await context.worker.fetch(
+      jsonRequest(
+        '/playlists/transfer',
+        'POST',
+        { baseRevision: room.revision, queueItemIds: [FIRST], targetSlots: [1], mode: 'copy' },
+        context.ownerCookie,
+        'receipt-ttl-transfer-01',
+      ),
+    );
+    expect(copied.status).toBe(200);
+    expect(receipt('playlist-transfer', 'receipt-ttl-transfer-01')).toMatchObject({
+      kind: 'snapshot',
+      expiresAtMs: Date.now() + WINDOW_MS,
+    });
+    const switched = await context.worker.fetch(
+      jsonRequest(
+        '/playlists/switch',
+        'POST',
+        { baseRevision: room.revision, slot: 1 },
+        context.ownerCookie,
+        'receipt-ttl-switch-01',
+      ),
+    );
+    expect(switched.status).toBe(200);
+    expect(receipt('playlist-switch', 'receipt-ttl-switch-01')).toMatchObject({
+      kind: 'snapshot',
+      expiresAtMs: Date.now() + WINDOW_MS,
+    });
+
+    const reserved = await context.worker.fetch(
+      jsonRequest(
+        '/media/reservations',
+        'POST',
+        { byteLength: 4096, name: 'receipt.flac', mime: 'audio/flac' },
+        context.ownerCookie,
+        'receipt-ttl-reserve-01',
+      ),
+    );
+    expect(reserved.status).toBe(200);
+    expect((await responseJson(reserved)).reservation.expiresAtMs).toBe(
+      Date.now() + RESERVATION_MS,
+    );
+    expect(receipt('reserve', 'receipt-ttl-reserve-01').expiresAtMs).toBe(Date.now() + WINDOW_MS);
+
+    const { assetId } = await completeReadyAsset(context, 'receipt-ttl');
+    const completionKey = `${IDEMPOTENCY_KEY}-receipt-ttl-complete`;
+    expect(receipt('complete', completionKey).expiresAtMs).toBe(
+      room.assets[assetId].completedAtMs + GC_GRACE_MS,
+    );
+    const deleted = await context.worker.fetch(
+      request(
+        `/media/${assetId}`,
+        { method: 'DELETE', headers: { 'idempotency-key': 'receipt-ttl-delete-01' } },
+        context.ownerCookie,
+      ),
+    );
+    expect(deleted.status).toBe(200);
+    expect(receipt('delete', 'receipt-ttl-delete-01')).toEqual({
+      fingerprint: expect.any(String),
+      body: await responseJson(deleted),
+      status: 200,
+      expiresAtMs: Date.now() + WINDOW_MS,
+    });
+
+    expect((await runBot(context, 'receipt-ttl-bot-0001')).status).toBe(200);
+    const botKeys = Object.keys(room.idempotency).filter((key) => key.startsWith('bot-'));
+    expect(botKeys).toHaveLength(2);
+    for (const key of botKeys) {
+      expect(key).toMatch(/^bot-(?:context|execute):[^:]+:receipt-ttl-bot-0001$/u);
+      expect(room.idempotency[key].expiresAtMs).toBe(Date.now() + WINDOW_MS);
+    }
+    // BOT's own Developer receipts and an issued key's receipts keep their
+    // 24-hour replay: the public contract, and the only dedupe a late BOT run
+    // of the same request has for its additions.
+    const developer = await mutateInternalDeveloperQueue(
+      context.worker,
+      DEVELOPER_KEY_ID,
+      'receipt-ttl-developer-01',
+      { type: 'add_youtube_batch', items: [{ videoId: '9bZkp7q19f0', name: 'Developer song' }] },
+    );
+    expect(developer.status).toBe(201);
+    const developerReceipts = Object.entries(room.developerMutationIdempotency) as Array<
+      [string, Record<string, any>]
+    >;
+    expect(developerReceipts.map(([key]) => key.split(':').slice(0, 2).join(':')).sort()).toEqual(
+      [`developer:${DEVELOPER_KEY_ID}`, 'developer:MxqrGeminiBot001'].sort(),
+    );
+    for (const [, record] of developerReceipts) {
+      expect(record.expiresAtMs).toBe(Date.now() + DAY_MS);
+    }
+
+    // Only shapes a 9.0.17 PRO Worker already loads: no new kind, body-less
+    // snapshot receipts, a finite absolute expiry and at most 256 receipts.
+    const nowMs = Date.now();
+    const entries = Object.entries(room.idempotency) as Array<[string, Record<string, any>]>;
+    expect(entries.length).toBeGreaterThan(0);
+    expect(entries.length).toBeLessThanOrEqual(256);
+    for (const [storageKey, record] of entries) {
+      expect([undefined, 'snapshot', 'playback-authority', 'asset-delete-pending']).toContain(
+        record.kind,
+      );
+      if (record.kind === 'snapshot') expect(record).not.toHaveProperty('body');
+      if (record.kind === 'asset-delete-pending') continue;
+      expect(Number.isSafeInteger(record.expiresAtMs), storageKey).toBe(true);
+      expect(record.expiresAtMs, storageKey).toBeLessThanOrEqual(
+        nowMs + scopeMaximumMs(storageKey),
+      );
+    }
+    await internal.persist();
+    const restarted = new MusixquareProRoom(
+      context.state as never,
+      environment(context.bucket) as never,
+    );
+    expect((await restarted.fetch(request('/snapshot', {}, context.ownerCookie))).status).toBe(200);
+  });
+
+  it('keeps a playback receipt for twice the presence window when presence outlasts the request window', async () => {
+    const context = await startRoom();
+    const internal = internalOf(context);
+    internal.env.PRESENCE_TTL_SECONDS = '300';
+    expect((await editOnce(context, youtubePlaylist, 'receipt-presence-snap-01')).status).toBe(200);
+    const selected = await context.worker.fetch(
+      jsonRequest(
+        '/playback/commands',
+        'POST',
+        { type: 'select', baseRevision: internal.room.playback.revision, queueItemId: FIRST },
+        context.ownerCookie,
+        'receipt-presence-playback-01',
+      ),
+    );
+    expect(selected.status).toBe(202);
+    expect(
+      internal.room.idempotency[
+        `participant:${participantIdOf(context)}:playback-authority:receipt-presence-playback-01`
+      ].expiresAtMs,
+    ).toBe(Date.now() + 2 * (300_000 + PRO_ROOM_PLAYBACK_COMMAND_REQUEST_TIMEOUT_MS));
+  });
+
+  it('replays a same-key edit inside its window and fences it once the receipt is gone', async () => {
+    const context = await startRoom();
+    const room = internalOf(context).room;
+    const edit = await compactEdit(context, youtubePlaylist, 'receipt-fence-snapshot-01');
+    expect((await edit()).status).toBe(200);
+    const revision = room.revision;
+
+    advanceKeepingPresence(context, WINDOW_MS - 1);
+    const replay = await edit();
+    expect(replay.status).toBe(200);
+    expect((await responseJson(replay)).snapshot.revision).toBe(revision);
+
+    advanceKeepingPresence(context, 2);
+    const late = await edit();
+    expect(late.status).toBe(409);
+    await expect(late.json()).resolves.toEqual({ error: 'REVISION_CONFLICT' });
+    expect(room.revision).toBe(revision);
+    expect(room.playlist.map((item: Record<string, any>) => item.queueItemId)).toEqual([
+      FIRST,
+      SECOND,
+    ]);
+  });
+
+  it('never copies a track twice when a copy is sent again after its window', async () => {
+    const context = await startRoom();
+    const room = internalOf(context).room;
+    expect((await editOnce(context, youtubePlaylist, 'receipt-copy-snapshot-01')).status).toBe(200);
+    const body = {
+      baseRevision: room.revision,
+      queueItemIds: [FIRST, SECOND],
+      targetSlots: [1],
+      mode: 'copy',
+    };
+    const copy = () =>
+      context.worker.fetch(
+        jsonRequest(
+          '/playlists/transfer',
+          'POST',
+          body,
+          context.ownerCookie,
+          'receipt-copy-transfer-01',
+        ),
+      );
+    expect((await copy()).status).toBe(200);
+    expect(room.playlistSlots.inactive[1]).toHaveLength(2);
+
+    advanceKeepingPresence(context, WINDOW_MS - 1);
+    expect((await copy()).status).toBe(200);
+    expect(room.playlistSlots.inactive[1]).toHaveLength(2);
+
+    advanceKeepingPresence(context, 2);
+    const late = await copy();
+    expect(late.status).toBe(409);
+    await expect(late.json()).resolves.toEqual({ error: 'REVISION_CONFLICT' });
+    expect(room.playlistSlots.inactive[1]).toHaveLength(2);
+  });
+
+  it('fences a playback command a frozen page sends again after its window', async () => {
+    const context = await startRoom();
+    const room = internalOf(context).room;
+    expect((await editOnce(context, youtubePlaylist, 'receipt-late-snapshot-01')).status).toBe(200);
+    const body = {
+      type: 'select',
+      baseRevision: room.playback.revision,
+      queueItemId: FIRST,
+      state: 'playing',
+      positionSeconds: 0,
+    };
+    const command = () =>
+      context.worker.fetch(
+        jsonRequest(
+          '/playback/commands',
+          'POST',
+          body,
+          context.ownerCookie,
+          'receipt-late-playback-01',
+        ),
+      );
+    const first = await command();
+    expect(first.status).toBe(202);
+    const firstBody = await responseJson(first);
+    await commitTransition(context, firstBody.transition);
+    const committedRevision = room.playback.revision;
+
+    advanceKeepingPresence(context, WINDOW_MS - 1);
+    const replay = await command();
+    expect(replay.status).toBe(202);
+    expect(await responseJson(replay)).toEqual(firstBody);
+    expect(room.pendingPlaybackTransition).toBeNull();
+
+    // The page was frozen past the window while its heartbeats kept presence;
+    // its timer now sends the second attempt with the same key.
+    advanceKeepingPresence(context, 2);
+    const late = await command();
+    expect(late.status).toBe(409);
+    await expect(late.json()).resolves.toEqual({ error: 'PLAYBACK_REVISION_CONFLICT' });
+    expect(room.pendingPlaybackTransition).toBeNull();
+    expect(room.playback.revision).toBe(committedRevision);
+  });
+
+  it('lets a full ledger accept edits again one window later instead of one day', async () => {
+    const context = await startRoom();
+    const internal = internalOf(context);
+    const room = internal.room;
+    expect((await editOnce(context, youtubePlaylist, 'receipt-full-seed-01')).status).toBe(200);
+    for (let index = 0; Object.keys(room.idempotency).length < 256; index += 1) {
+      internal.storeSnapshotIdempotency(
+        `participant:${participantIdOf(context)}:snapshot`,
+        `receipt-full-${String(index).padStart(4, '0')}`,
+        'f'.repeat(43),
+        room.revision,
+      );
+    }
+    const reordered = [youtubePlaylist[1]!, youtubePlaylist[0]!];
+    const refused = await editOnce(context, reordered, 'receipt-full-edit-01');
+    expect(refused.status).toBe(409);
+    await expect(refused.json()).resolves.toEqual({ error: 'ROOM_STATE_CAPACITY_EXCEEDED' });
+
+    advanceKeepingPresence(context, WINDOW_MS);
+    expect((await editOnce(context, reordered, 'receipt-full-edit-02')).status).toBe(200);
+  });
+
+  it('takes far more than 256 edits from a busy room without filling the ledger', async () => {
+    const context = await startRoom();
+    const room = internalOf(context).room;
+    let snapshot = await currentSnapshot(context);
+    let largestLedger = 0;
+    for (let index = 0; index < 600; index += 1) {
+      const order = index % 2 === 0 ? youtubePlaylist : [youtubePlaylist[1]!, youtubePlaylist[0]!];
+      const response = await context.worker.fetch(
+        jsonRequest(
+          '/snapshot/compact',
+          'POST',
+          compactBody(snapshot, order),
+          context.ownerCookie,
+          `receipt-busy-${String(index).padStart(4, '0')}`,
+        ),
+      );
+      expect(response.status, `edit ${index}`).toBe(200);
+      snapshot = (await responseJson(response)).snapshot;
+      largestLedger = Math.max(largestLedger, Object.keys(room.idempotency).length);
+      advanceKeepingPresence(context, 1_000);
+    }
+    expect(largestLedger).toBeLessThanOrEqual(WINDOW_MS / 1_000 + 1);
+  });
+
+  it('replays an unnamed completion until orphan cleanup collects its asset, then answers ASSET_NOT_FOUND', async () => {
+    const context = await startRoom();
+    const room = internalOf(context).room;
+    const { assetId, completeEnvelope } = await completeReadyAsset(context, 'receipt-unnamed');
+    const key = `${IDEMPOTENCY_KEY}-receipt-unnamed-complete`;
+    const storageKey = `participant:${participantIdOf(context)}:complete:${key}`;
+    const completedAtMs = room.assets[assetId].completedAtMs as number;
+    expect(room.idempotency[storageKey].expiresAtMs).toBe(completedAtMs + GC_GRACE_MS);
+    const copies = vi.mocked(fetch).mock.calls.length;
+    const retry = () =>
+      context.worker.fetch(
+        request(
+          `/media/${assetId}/complete`,
+          { method: 'POST', headers: { 'idempotency-key': key } },
+          context.ownerCookie,
+        ),
+      );
+
+    advanceKeepingPresence(context, 10 * 60 * 1000);
+    const replay = await retry();
+    expect(replay.status).toBe(200);
+    expect(await responseJson(replay)).toEqual(completeEnvelope);
+
+    advanceKeepingPresence(context, completedAtMs + GC_GRACE_MS - Date.now());
+    const collected = await retry();
+    expect(collected.status).toBe(404);
+    await expect(collected.json()).resolves.toEqual({ error: 'ASSET_NOT_FOUND' });
+    expect(room.assets[assetId]).toBeUndefined();
+    expect(room.idempotency[storageKey]).toBeUndefined();
+    expect(vi.mocked(fetch).mock.calls.length).toBe(copies);
+  });
+
+  it('releases a completion receipt as soon as a playlist names its asset', async () => {
+    const context = await startRoom();
+    const room = internalOf(context).room;
+    const { assetId, asset } = await completeReadyAsset(context, 'receipt-named');
+    const key = `${IDEMPOTENCY_KEY}-receipt-named-complete`;
+    const storageKey = `participant:${participantIdOf(context)}:complete:${key}`;
+    expect(room.idempotency[storageKey]).toBeDefined();
+
+    expect(
+      (await replacePlaylist(context, [playlistItem(FIRST, asset)], 'receipt-named')).status,
+    ).toBe(200);
+    expect(room.idempotency[storageKey]).toBeUndefined();
+    expect(storedCanonicalRoom(context.state).idempotency[storageKey]).toBeUndefined();
+
+    const copies = vi.mocked(fetch).mock.calls.length;
+    const retry = await context.worker.fetch(
+      request(
+        `/media/${assetId}/complete`,
+        { method: 'POST', headers: { 'idempotency-key': key } },
+        context.ownerCookie,
+      ),
+    );
+    expect(retry.status).toBe(404);
+    await expect(retry.json()).resolves.toEqual({ error: 'ASSET_NOT_FOUND' });
+    expect(room.assets[assetId]).toMatchObject({ status: 'ready' });
+    expect(room.assets[assetId].gcAfterMs).toBeUndefined();
+    expect(vi.mocked(fetch).mock.calls.length).toBe(copies);
+  });
+
+  it('cuts receipts an earlier Worker kept for 24 hours to their window and persists the cut', async () => {
+    const context = await startRoom();
+    const room = internalOf(context).room;
+    const participantId = participantIdOf(context);
+    const scope = (operation: string) => `participant:${participantId}:${operation}`;
+    const named = await completeReadyAsset(context, 'receipt-cut-named');
+    const unnamed = await completeReadyAsset(context, 'receipt-cut-unnamed');
+    expect(
+      (await replacePlaylist(context, [playlistItem(FIRST, named.asset)], 'receipt-cut')).status,
+    ).toBe(200);
+
+    // A delete held open by R2 keeps its marker-owned pending receipt.
+    const pendingReserve = await responseJson(
+      await context.worker.fetch(
+        jsonRequest(
+          '/media/reservations',
+          'POST',
+          { byteLength: 4096, name: 'pending.wav', mime: 'audio/wav' },
+          context.ownerCookie,
+          'receipt-cut-pending-reserve',
+        ),
+      ),
+    );
+    const pendingAsset = room.assets[pendingReserve.reservation.assetId];
+    context.bucket.objects.set(pendingAsset.stagingObjectKey, { size: pendingAsset.byteLength });
+    context.bucket.deleteError = new Error('hold the deletion open');
+    expect(
+      (
+        await context.worker.fetch(
+          request(
+            `/media/${pendingAsset.assetId}`,
+            { method: 'DELETE', headers: { 'idempotency-key': 'receipt-cut-pending-delete' } },
+            context.ownerCookie,
+          ),
+        )
+      ).status,
+    ).toBe(503);
+    const pendingKey = `${scope('delete')}:receipt-cut-pending-delete`;
+    expect(room.idempotency[pendingKey]).toMatchObject({ kind: 'asset-delete-pending' });
+
+    // The ledger a 9.0.17 Worker leaves: 24 hours for most receipts, the
+    // reservation expiry for reserve and 10 minutes for playback.
+    const writtenAtMs = Date.now();
+    const fingerprint = 'f'.repeat(43);
+    const tokenHash = 'h'.repeat(43);
+    const snapshotReceipt = (expiresAtMs: number) => ({
+      fingerprint,
+      kind: 'snapshot',
+      committedRevision: room.revision,
+      status: 200,
+      expiresAtMs,
+    });
+    const bodyReceipt = (body: Record<string, unknown>, expiresAtMs: number) => ({
+      fingerprint,
+      body,
+      status: 200,
+      expiresAtMs,
+    });
+    const earlier: Record<string, Record<string, unknown>> = {
+      [`${scope('snapshot')}:earlier-snapshot`]: snapshotReceipt(writtenAtMs + DAY_MS),
+      [`${scope('playlist-switch')}:earlier-switch`]: snapshotReceipt(writtenAtMs + DAY_MS),
+      [`${scope('playlist-transfer')}:earlier-transfer`]: snapshotReceipt(writtenAtMs + DAY_MS),
+      [`${scope('reserve')}:earlier-reserve`]: bodyReceipt(
+        { ok: true },
+        writtenAtMs + RESERVATION_MS,
+      ),
+      [`${scope('delete')}:earlier-delete`]: bodyReceipt({ ok: true }, writtenAtMs + DAY_MS),
+      [`${scope('playback-authority')}:earlier-playback`]: {
+        ...bodyReceipt({ ok: true }, writtenAtMs + 10 * 60 * 1000),
+        kind: 'playback-authority',
+      },
+      [`bot-context:${tokenHash}:earlier-bot-request`]: bodyReceipt(
+        { leaseToken: 'l'.repeat(32), leaseExpiresAtMs: writtenAtMs, playlistRevision: 0 },
+        writtenAtMs + DAY_MS,
+      ),
+      [`bot-execute:${tokenHash}:earlier-bot-request`]: bodyReceipt(
+        { ok: true, summary: 'Done.', addedCount: 0, playbackChanged: false },
+        writtenAtMs + DAY_MS,
+      ),
+      [`${scope('complete')}:earlier-complete-named`]: bodyReceipt(
+        { asset: structuredClone(named.completeEnvelope.asset), quota: { usedBytes: 0 } },
+        writtenAtMs + DAY_MS,
+      ),
+      [`${scope('complete')}:earlier-complete-unnamed`]: bodyReceipt(
+        { asset: structuredClone(unnamed.completeEnvelope.asset), quota: { usedBytes: 0 } },
+        writtenAtMs + DAY_MS,
+      ),
+      [`${scope('snapshot')}:recent-snapshot`]: snapshotReceipt(writtenAtMs + 30_000),
+    };
+    Object.assign(room.idempotency, structuredClone(earlier));
+    room.developerMutationIdempotency[
+      `developer:${DEVELOPER_KEY_ID}:queue:add_youtube_batch:earlier-developer`
+    ] = { fingerprint, kind: 'developer-queue', status: 201, expiresAtMs: writtenAtMs + DAY_MS };
+    const otherLedgers = structuredClone({
+      developerMutationIdempotency: room.developerMutationIdempotency,
+      sessionCreateIdempotency: room.sessionCreateIdempotency,
+      presenceCloseIdempotency: room.presenceCloseIdempotency,
+    });
+    const pendingReceipt = structuredClone(room.idempotency[pendingKey]);
+    const unnamedOwnKey = `${scope('complete')}:${IDEMPOTENCY_KEY}-receipt-cut-unnamed-complete`;
+    const unnamedOwn = structuredClone(room.idempotency[unnamedOwnKey]);
+    expect(unnamedOwn.expiresAtMs).toBe(room.assets[unnamed.assetId].completedAtMs + GC_GRACE_MS);
+
+    advanceKeepingPresence(context, 1_000);
+    const prunedAtMs = Date.now();
+    expect((await context.worker.fetch(request('/snapshot', {}, context.ownerCookie))).status).toBe(
+      200,
+    );
+
+    for (const key of [
+      `${scope('snapshot')}:earlier-snapshot`,
+      `${scope('playlist-switch')}:earlier-switch`,
+      `${scope('playlist-transfer')}:earlier-transfer`,
+      `${scope('reserve')}:earlier-reserve`,
+      `${scope('delete')}:earlier-delete`,
+      `${scope('playback-authority')}:earlier-playback`,
+      `bot-context:${tokenHash}:earlier-bot-request`,
+      `bot-execute:${tokenHash}:earlier-bot-request`,
+    ]) {
+      expect(room.idempotency[key], key).toEqual({
+        ...earlier[key],
+        expiresAtMs: prunedAtMs + WINDOW_MS,
+      });
+    }
+    // Named by a playlist: released. Unnamed: cut to the GC grace.
+    expect(room.idempotency[`${scope('complete')}:earlier-complete-named`]).toBeUndefined();
+    expect(room.idempotency[`${scope('complete')}:earlier-complete-unnamed`]).toEqual({
+      ...earlier[`${scope('complete')}:earlier-complete-unnamed`],
+      expiresAtMs: prunedAtMs + GC_GRACE_MS,
+    });
+    // Receipts already inside their window stay as written.
+    expect(room.idempotency[`${scope('snapshot')}:recent-snapshot`]).toEqual(
+      earlier[`${scope('snapshot')}:recent-snapshot`],
+    );
+    expect(room.idempotency[unnamedOwnKey]).toEqual(unnamedOwn);
+    expect(room.idempotency[pendingKey]).toEqual(pendingReceipt);
+    expect({
+      developerMutationIdempotency: room.developerMutationIdempotency,
+      sessionCreateIdempotency: room.sessionCreateIdempotency,
+      presenceCloseIdempotency: room.presenceCloseIdempotency,
+    }).toEqual(otherLedgers);
+    expect(storedCanonicalRoom(context.state).idempotency).toEqual(room.idempotency);
+  });
+
+  it('keeps BOT Developer receipts for 24 hours so a late run of the same request adds nothing twice', async () => {
+    const context = await startRoom();
+    const room = internalOf(context).room;
+    const requestId = 'receipt-late-bot-0001';
+    expect((await runBot(context, requestId)).status).toBe(200);
+    expect(room.playlist).toHaveLength(1);
+    const playlistRevision = room.playlistRevision;
+
+    // Nothing in the App sends a requestId twice. If it ever did after the
+    // window, the browser receipts are gone and a new run starts; BOT's own
+    // Developer receipt still replays the addition instead of adding again.
+    advanceKeepingPresence(context, WINDOW_MS + 1);
+    expect((await runBot(context, requestId)).status).toBe(200);
+    expect(room.playlist).toHaveLength(1);
+    expect(room.playlistRevision).toBe(playlistRevision);
   });
 });

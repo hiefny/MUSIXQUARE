@@ -156,12 +156,24 @@ export interface ProSystemAudioDirectFallbackEvent {
   publicationId: string;
 }
 
+/** The publisher whose 'stopped' close ended this receiver's current route. */
+export interface ProSystemAudioDirectRouteStoppedEvent {
+  participantId: string;
+  generation: number;
+  publicationId: string;
+}
+
 interface ProSystemAudioDirectTransportCallbacks {
   getLocalIdentity: () => { participantId: string } | null;
   authorizeInboundOffer: (context: ProSystemAudioDirectInboundOfferContext) => boolean;
   authorizeInboundSignal: (context: ProSystemAudioDirectInboundSignalContext) => boolean;
   onReceiverTrackReady: (event: ProSystemAudioDirectTrackReadyEvent) => void | Promise<void>;
   onLiveRouteFallback: (event: ProSystemAudioDirectFallbackEvent) => void;
+  /**
+   * The publisher closed this receiver's current route with 'stopped' (its
+   * explicit stop), live or not; the route is already closed (5B-G6).
+   */
+  onLiveRouteStopped: (event: ProSystemAudioDirectRouteStoppedEvent) => void;
 }
 
 interface ProSystemAudioDirectAttemptOptions {
@@ -1972,6 +1984,20 @@ function acceptClose(signal: DirectCloseSignal, senderParticipantId: string): vo
   }
   receiverRoute = null;
   closeReceiverRoute(route, signal.reason, false);
+  // A publisher sends 'stopped' only from its explicit stop, before it
+  // releases the share, so the server's idle state follows. Tell the service,
+  // which ends the reception now (5B-G6, gap 11); 'superseded' and a
+  // non-live 'fallback' close the route only, as before.
+  if (signal.reason !== 'stopped') return;
+  try {
+    callbacks?.onLiveRouteStopped({
+      participantId: route.ownerParticipantId,
+      generation: route.generation,
+      publicationId: route.publicationId,
+    });
+  } catch (error) {
+    log.warn('[ProSysAudioDirect] Receiver stop callback failed', error);
+  }
 }
 
 function handleRealtimeFrame(frame: ProServerEventEnvelope | ProRealtimeRelayEnvelope): void {

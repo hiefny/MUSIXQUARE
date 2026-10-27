@@ -867,6 +867,22 @@ const te: Record<I18nKey, string> = {
   'pro.active_tab_message': 'ఇక్కడ కొనసాగితే మునుపటి కనెక్షన్ నిలిపివేయబడుతుంది.',
   'pro.active_tab_replaced': 'ఈ PRO గది ఇప్పటికే మరో ట్యాబ్‌లో తెరిచి ఉంది',
   'pro.use_this_tab': 'ఇక్కడ కొనసాగించండి',
+  'pro.upload.retry_unavailable': 'ఈ అప్‌లోడ్‌ను ఇక పూర్తి చేయలేము. ఫైల్‌ను మళ్లీ ఎంచుకోండి.',
+  'pro.upload.failed_retryable': 'అప్‌లోడ్‌ను పూర్తి చేయలేకపోయాం. దయచేసి మళ్లీ ప్రయత్నించండి.',
+  'pro.upload.empty_file': 'ఖాళీ ఫైల్‌ను అప్‌లోడ్ చేయలేరు.',
+  'pro.upload.file_too_large': 'ఈ ఫైల్ ఒక్కో ఫైల్‌కు ఉన్న 200 MB పరిమితి కంటే పెద్దది.',
+  'pro.upload.quota_exceeded': 'ఈ PRO గది 1 GB స్టోరేజ్ పరిమితిని చేరుకుంది.',
+  'pro.upload.playlist_full': 'ప్లేలిస్ట్ నిండిపోయింది.',
+  'pro.upload.room_capacity': 'ఈ PRO గదిలో ఇక మరిన్ని ట్రాక్‌లను జోడించలేము.',
+  'pro.upload.room_state_limit':
+    'ఈ PRO గదిలో ప్రస్తుతం మరిన్ని మార్పులు చేయలేము. కొద్దిసేపటి తర్వాత ఫైల్‌ను మళ్లీ ఎంచుకోండి.',
+  'pro.upload.pending_limit':
+    'ఈ PRO గదిలో పూర్తికాని అప్‌లోడ్‌లు చాలా ఎక్కువగా ఉన్నాయి. కొద్దిసేపటి తర్వాత మళ్లీ ప్రయత్నించండి.',
+  'pro.upload.playlist_switched':
+    'ఈ ట్రాక్‌ను జోడించే ముందే మరో ప్లేలిస్ట్ సక్రియమైంది. ఫైల్‌ను మళ్లీ ఎంచుకోండి.',
+  'pro.upload.permission_required': 'మీడియా నిర్వహణ అనుమతి అవసరం.',
+  'pro.upload.failed_file': '{{name}}: {{reason}}',
+  'pro.upload.confirming': 'అప్‌లోడ్ పూర్తవుతోంది {{current}}/{{total}}',
   'pro.upload.batch_progress': 'ట్రాక్‌లు అప్‌లోడ్ అవుతున్నాయి {{current}}/{{total}}',
   'pro.upload.batch_failed_title': 'కొన్ని ట్రాక్‌లను అప్‌లోడ్ చేయలేకపోయాం',
   'pro.upload.batch_failed_message':
@@ -876,6 +892,8 @@ const te: Record<I18nKey, string> = {
   'pro.downloading': 'ఫైల్ లోడ్ అవుతోంది...',
   'pro.quota_exceeded': 'ఈ PRO గది 1 GB స్టోరేజ్ పరిమితిని చేరుకుంది',
   'pro.file_too_large': 'ఈ ఫైల్ ఒక్కో ఫైల్‌కు ఉన్న 200 MB పరిమితి కంటే పెద్దది',
+  'pro.room_state_limit':
+    'ఈ PRO గదిలో ప్రస్తుతం మరిన్ని మార్పులు చేయలేము\nకొద్దిసేపటి తర్వాత మళ్లీ ప్రయత్నించండి',
 
   // ─── HTML Blocks (used with data-i18n-html) ──────────────────────
   'help.install_app_html':

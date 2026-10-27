@@ -845,6 +845,22 @@ const gu: Record<I18nKey, string> = {
   'pro.active_tab_message': 'અહીં આગળ વધવાથી અગાઉનું જોડાણ બંધ થઈ જશે.',
   'pro.active_tab_replaced': 'આ PRO રૂમ પહેલેથી બીજા ટૅબમાં ખુલ્લો છે',
   'pro.use_this_tab': 'અહીં આગળ વધો',
+  'pro.upload.retry_unavailable': 'આ અપલોડ હવે પૂર્ણ થઈ શકશે નહીં. ફાઇલ ફરીથી પસંદ કરો.',
+  'pro.upload.failed_retryable': 'અપલોડ પૂર્ણ થઈ શક્યું નહીં. ફરી પ્રયાસ કરો.',
+  'pro.upload.empty_file': 'ખાલી ફાઇલ અપલોડ કરી શકાતી નથી.',
+  'pro.upload.file_too_large': 'આ ફાઇલ દરેક ફાઇલ માટેની 200 MB મર્યાદાથી મોટી છે.',
+  'pro.upload.quota_exceeded': 'આ PRO રૂમમાં સંગ્રહની 1 GB મર્યાદા પૂરી થઈ છે.',
+  'pro.upload.playlist_full': 'પ્લેલિસ્ટ ભરાઈ ગઈ છે.',
+  'pro.upload.room_capacity': 'આ PRO રૂમમાં હવે વધુ ટ્રૅક ઉમેરી શકાશે નહીં.',
+  'pro.upload.room_state_limit':
+    'આ PRO રૂમમાં હમણાં વધુ ફેરફારો કરી શકાશે નહીં. થોડી વાર પછી ફાઇલ ફરીથી પસંદ કરો.',
+  'pro.upload.pending_limit':
+    'આ PRO રૂમમાં અધૂરાં અપલોડ ઘણાં વધારે છે. થોડી વાર પછી ફરી પ્રયાસ કરો.',
+  'pro.upload.playlist_switched':
+    'આ ટ્રૅક ઉમેરાય તે પહેલાં બીજી પ્લેલિસ્ટ સક્રિય થઈ. ફાઇલ ફરીથી પસંદ કરો.',
+  'pro.upload.permission_required': 'મીડિયા સંચાલનની પરવાનગી જરૂરી છે.',
+  'pro.upload.failed_file': '{{name}}: {{reason}}',
+  'pro.upload.confirming': 'અપલોડ પૂરું થઈ રહ્યું છે {{current}}/{{total}}',
   'pro.upload.batch_progress': 'ટ્રૅક અપલોડ થઈ રહ્યા છે {{current}}/{{total}}',
   'pro.upload.batch_failed_title': 'કેટલાક ટ્રૅક અપલોડ થઈ શક્યા નથી',
   'pro.upload.batch_failed_message':
@@ -854,6 +870,8 @@ const gu: Record<I18nKey, string> = {
   'pro.downloading': 'ફાઇલ લોડ થઈ રહી છે...',
   'pro.quota_exceeded': 'આ PRO રૂમમાં સંગ્રહની 1 GB મર્યાદા પૂરી થઈ છે',
   'pro.file_too_large': 'આ ફાઇલ દરેક ફાઇલ માટેની 200 MB મર્યાદાથી મોટી છે',
+  'pro.room_state_limit':
+    'આ PRO રૂમમાં હમણાં વધુ ફેરફારો કરી શકાશે નહીં\nથોડી વાર પછી ફરી પ્રયાસ કરો',
 
   // ─── HTML Blocks (used with data-i18n-html) ──────────────────────
   'help.install_app_html':

@@ -885,6 +885,22 @@ const fil: Record<I18nKey, string> = {
   'pro.active_tab_message': 'Kapag nagpatuloy ka rito, mapuputol ang naunang koneksyon.',
   'pro.active_tab_replaced': 'Bukas na sa ibang tab ang PRO room na ito',
   'pro.use_this_tab': 'Ituloy rito',
+  'pro.upload.retry_unavailable': 'Hindi na makukumpleto ang upload na ito. Piliin muli ang file.',
+  'pro.upload.failed_retryable': 'Hindi makumpleto ang upload. Subukan muli.',
+  'pro.upload.empty_file': 'Hindi maaaring mag-upload ng walang laman na file.',
+  'pro.upload.file_too_large': 'Lumampas ang file na ito sa 200 MB na limitasyon bawat file.',
+  'pro.upload.quota_exceeded': 'Naabot na ng PRO room na ito ang 1 GB na limitasyon sa storage.',
+  'pro.upload.playlist_full': 'Puno na ang playlist.',
+  'pro.upload.room_capacity': 'Hindi na makakapagdagdag ng iba pang track sa PRO room na ito.',
+  'pro.upload.room_state_limit':
+    'Hindi muna makakatanggap ng iba pang pagbabago ang PRO room na ito. Piliin muli ang file maya-maya.',
+  'pro.upload.pending_limit':
+    'Masyadong maraming hindi pa natatapos na upload sa PRO room na ito. Subukan ulit maya-maya.',
+  'pro.upload.playlist_switched':
+    'Naging aktibo ang ibang playlist bago naidagdag ang track na ito. Piliin muli ang file.',
+  'pro.upload.permission_required': 'Kailangan ang pahintulot na mamahala ng media.',
+  'pro.upload.failed_file': '{{name}}: {{reason}}',
+  'pro.upload.confirming': 'Tinatapos ang pag-upload {{current}}/{{total}}',
   'pro.upload.batch_progress': 'Ina-upload ang mga track {{current}}/{{total}}',
   'pro.upload.batch_failed_title': 'Hindi na-upload ang ilang track',
   'pro.upload.batch_failed_message':
@@ -894,6 +910,8 @@ const fil: Record<I18nKey, string> = {
   'pro.downloading': 'Nilo-load ang file...',
   'pro.quota_exceeded': 'Naabot na ng PRO room na ito ang 1 GB na limitasyon sa storage',
   'pro.file_too_large': 'Lumampas ang file na ito sa 200 MB na limitasyon bawat file',
+  'pro.room_state_limit':
+    'Hindi muna makakatanggap ng iba pang pagbabago ang PRO room na ito\nSubukan ulit maya-maya',
 
   // ─── Mga HTML Block (ginagamit sa data-i18n-html) ────────────────
   'help.install_app_html':

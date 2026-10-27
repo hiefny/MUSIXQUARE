@@ -866,6 +866,22 @@ const uk: Record<I18nKey, string> = {
   'pro.active_tab_message': 'Якщо продовжити тут, попереднє з’єднання буде завершено.',
   'pro.active_tab_replaced': 'Цю кімнату PRO вже відкрито в іншій вкладці',
   'pro.use_this_tab': 'Продовжити тут',
+  'pro.upload.retry_unavailable': 'Це надсилання більше неможливо завершити. Виберіть файл знову.',
+  'pro.upload.failed_retryable': 'Не вдалося завершити надсилання. Спробуйте ще раз.',
+  'pro.upload.empty_file': 'Неможливо надіслати порожній файл.',
+  'pro.upload.file_too_large': 'Цей файл перевищує ліміт у 200 МБ на один файл.',
+  'pro.upload.quota_exceeded': 'Ця кімната PRO досягла ліміту сховища в 1 ГБ.',
+  'pro.upload.playlist_full': 'Плейліст заповнений.',
+  'pro.upload.room_capacity': 'До цієї кімнати PRO більше не можна додати треки.',
+  'pro.upload.room_state_limit':
+    'Ця кімната PRO зараз не може прийняти більше змін. Виберіть файл знову трохи згодом.',
+  'pro.upload.pending_limit':
+    'У цій кімнаті PRO забагато незавершених надсилань. Спробуйте ще раз трохи згодом.',
+  'pro.upload.playlist_switched':
+    'Перед додаванням цього треку активним став інший плейлист. Виберіть файл знову.',
+  'pro.upload.permission_required': 'Потрібен дозвіл на керування медіа.',
+  'pro.upload.failed_file': '{{name}}: {{reason}}',
+  'pro.upload.confirming': 'Завершення надсилання: {{current}}/{{total}}',
   'pro.upload.batch_progress': 'Надсилання треків: {{current}}/{{total}}',
   'pro.upload.batch_failed_title': 'Деякі треки не вдалося надіслати',
   'pro.upload.batch_failed_message':
@@ -875,6 +891,8 @@ const uk: Record<I18nKey, string> = {
   'pro.downloading': 'Завантаження файла...',
   'pro.quota_exceeded': 'Ця кімната PRO досягла ліміту сховища в 1 ГБ',
   'pro.file_too_large': 'Цей файл перевищує ліміт у 200 МБ на один файл',
+  'pro.room_state_limit':
+    'Ця кімната PRO зараз не може прийняти більше змін\nСпробуйте ще раз трохи згодом',
 
   // ─── HTML-блоки (для data-i18n-html) ─────────────────────────────
   'help.install_app_html':

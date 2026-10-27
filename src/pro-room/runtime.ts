@@ -161,7 +161,10 @@ import {
 } from './playlist-state-manager.ts';
 import { ProRoomUploadQueue } from './upload-queue.ts';
 import { setActiveProRoomUploadQueue } from './active-upload-queue.ts';
-import { resolveProRoomUploadFailureDialog } from './upload-failure-dialog.ts';
+import {
+  describeProRoomUploadFailures,
+  resolveProRoomUploadFailureDialog,
+} from './upload-failure-dialog.ts';
 import {
   findRemovedProRoomQueueItemIds,
   resolveProRoomRemovalTransition,
@@ -200,6 +203,9 @@ const QUEUE_ADDITION_REORDER_WINDOW_MS = 100;
 const EXPLICIT_LEAVE_CLOSE_TIMEOUT_MS = 1_200;
 const api = new ProRoomApiClient();
 configureProSystemAudioService(api, async (liveness) => {
+  // The service decides when to restore; this runtime owns whether the
+  // background return it ran in is repaired (RO-21).
+  const returnGeneration = visibilityReturnGeneration;
   const restored = await playbackController.reconcile({
     showLoading: false,
     youtubeOnly: true,
@@ -207,6 +213,16 @@ configureProSystemAudioService(api, async (liveness) => {
     preparePaused: true,
     liveness,
   });
+  if (
+    restored &&
+    liveness.isCurrent() &&
+    isPageVisible() &&
+    returnGeneration === visibilityReturnGeneration
+  ) {
+    // Applied while this return is shown, with no hide since the pass began:
+    // a foreground repair waiting behind it would arm the same checkpoint again.
+    visibilityReturnReconciledGeneration = returnGeneration;
+  }
   if (restored || !liveness.isCurrent()) return true;
   const snapshot = playlistManager?.snapshot ?? controller.snapshot;
   if (!snapshot) return false;
@@ -243,7 +259,10 @@ let visibilityPlaybackRecoveryScope: 'youtube' | 'all' = 'youtube';
 let visibilityPlaybackRecoveryFlight: object | null = null;
 /** Advances on every hidden transition: one value per background return. */
 let visibilityReturnGeneration = 0;
-/** The return whose checkpoint a foreground repair has already re-applied. */
+/**
+ * The return whose checkpoint a foreground repair, or a post-share restore
+ * applied while that return was shown, has already re-applied.
+ */
 let visibilityReturnReconciledGeneration = -1;
 let playlistManager: ProRoomPlaylistStateManager | null = null;
 let playlistProjection: ProRoomPlaylistProjection | null = null;
@@ -295,7 +314,7 @@ let terminalRecoveryDialogAbort: AbortController | null = null;
 let presenceRecoveryAbort: AbortController | null = null;
 let controlChannelRecoveryAttempt = 0;
 let controlChannelRecoveryGeneration: number | null = null;
-let accountAuthorityFailClosed = false;
+let accountAuthorityStatus: 'confirmed' | 'pending' | 'denied' = 'confirmed';
 let accountLeaseRenewalOwner: symbol | null = null;
 let accountIdentityLeaseExpiresAtMs: number | null = null;
 let accountIdentityLeaseRetryAttempt = 0;
@@ -556,7 +575,7 @@ function recoverAccountMediaHooksFromCanonicalSnapshot(snapshot: ProRoomSnapshot
   // still-latched fail-closed filter. Restore its legitimate anonymous (and
   // potentially one-shot delegated) capabilities only after the same exact
   // transaction has renewed successfully.
-  accountAuthorityFailClosed = false;
+  accountAuthorityStatus = 'confirmed';
   const context = controller.context;
   if (active && context) applyAuthority(context);
 }
@@ -875,16 +894,22 @@ function applyLocalQueueOrder(order: readonly QueueItemId[]): void {
   if (getState('playlist.isShuffle')) reconcileShuffleOrderForCurrentPlaylist();
 }
 
+function playlistErrorCode(error: unknown): unknown {
+  return error && typeof error === 'object' ? (error as { code?: unknown }).code : null;
+}
+
 function reportPlaylistError(error: unknown): void {
   log.warn('[PRO] Persistent playlist operation failed', error);
-  const code = error && typeof error === 'object' ? (error as { code?: unknown }).code : null;
+  const code = playlistErrorCode(error);
   const message =
     code === 'PRO_ROOM_MEDIA_UPLOAD_SIZE_INVALID'
       ? t('pro.file_too_large')
       : code === 'ROOM_QUOTA_EXCEEDED'
         ? t('pro.quota_exceeded')
         : code === 'ROOM_STATE_CAPACITY_EXCEEDED'
-          ? t('playlist.mutation_retry')
+          ? // Usually the room's receipt ledger is full (RO-53). Nothing
+            // changed in the playlist, and receipts expire within minutes.
+            t('pro.room_state_limit')
           : code === 'PLAYLIST_CAPACITY_EXCEEDED' ||
               code === 'PRO_ROOM_PLAYLIST_LIMIT_REACHED' ||
               code === 'REQUEST_TOO_LARGE'
@@ -1237,7 +1262,7 @@ function installMediaHooks(
   const createUploadQueue = (signal: AbortSignal): ProRoomUploadQueue => {
     const queue = new ProRoomUploadQueue({
       signal,
-      run: async ({ id, file }, context) => {
+      run: async ({ id, file, retryState }, context) => {
         if (signal.aborted || !isPlaylistLeaseCurrent(lease)) return;
         const progressText = t('pro.upload.batch_progress', {
           current: context.current,
@@ -1251,12 +1276,27 @@ function installMediaHooks(
           showLoader(true, progressText, loaderId);
         }
         reportTransferProgress(loaderId, (context.current - 1) / context.total);
+        let confirming = false;
         await manager.addLocalFile(
           {
             queueItemId: id,
             file,
+            retryState,
             onProgress: (fraction) => {
+              if (context.signal.aborted || !isPlaylistLeaseCurrent(lease) || uploadQueue !== queue)
+                return;
               context.onProgress(fraction);
+              if (fraction >= 1 && !confirming) {
+                confirming = true;
+                showLoader(
+                  true,
+                  t('pro.upload.confirming', {
+                    current: context.current,
+                    total: context.total,
+                  }),
+                  loaderId,
+                );
+              }
               reportTransferProgress(
                 loaderId,
                 (context.current - 1 + Math.max(0, Math.min(1, fraction))) / context.total,
@@ -1285,21 +1325,29 @@ function installMediaHooks(
           queue.dismissFailedBatch(result.batchId);
           return;
         }
+        const canRetry = result.retryableCount > 0;
+        const failureReasons = describeProRoomUploadFailures(result.failures, t);
         observeProRoomRuntimeTask(
           resolveProRoomUploadFailureDialog({
             queue,
             batchId: result.batchId,
+            canRetry,
             show: () =>
               showDialog({
                 title: t('pro.upload.batch_failed_title'),
-                message: t('pro.upload.batch_failed_message', {
-                  total: result.requestedCount,
-                  failed: result.failedCount,
-                }),
-                buttonText: t('common.retry'),
-                secondaryText: t('common.close'),
-                defaultFocus: 'secondary',
+                message: [
+                  t('pro.upload.batch_failed_message', {
+                    total: result.requestedCount,
+                    failed: result.failedCount,
+                  }),
+                  ...failureReasons,
+                ].join('\n'),
+                buttonText: t(canRetry ? 'common.retry' : 'common.close'),
+                ...(canRetry
+                  ? { secondaryText: t('common.close'), defaultFocus: 'secondary' as const }
+                  : {}),
                 dismissible: true,
+                contentLayout: 'reading',
               }),
             isCurrent: () =>
               !signal.aborted && uploadQueue === queue && isPlaylistLeaseCurrent(lease),
@@ -1476,7 +1524,14 @@ function installMediaHooks(
         // Revoked queue authority aborts the request; restore without a toast.
         if (signal.aborted) return;
         log.warn('[PRO] Playlist reorder failed', error);
-        bus.emit('ui:show-toast', t('playlist.reorder_failed'));
+        bus.emit(
+          'ui:show-toast',
+          t(
+            playlistErrorCode(error) === 'ROOM_STATE_CAPACITY_EXCEEDED'
+              ? 'pro.room_state_limit'
+              : 'playlist.reorder_failed',
+          ),
+        );
       });
       return true;
     },
@@ -2560,7 +2615,7 @@ export function requestActiveProRoomPlaybackReconciliation(
   return playbackController.requestReconciliation(options);
 }
 
-function applyAuthority(context: RoomContext): void {
+function applyAuthority(context: RoomContext, authorityStatus = accountAuthorityStatus): void {
   const pending = pendingFileDownload;
   if (pending && !shouldRetainPendingProDownload(pending.roomCode, context)) {
     pending.controller.abort();
@@ -2570,16 +2625,16 @@ function applyAuthority(context: RoomContext): void {
     preload.controller.abort();
   }
   const acceptedContext =
-    accountAuthorityFailClosed && context.kind === 'pro'
+    authorityStatus !== 'confirmed' && context.kind === 'pro'
       ? {
           ...context,
-          // No account-bound authority may survive a definitive local logout
-          // while detachment is in flight. Ordinary PRO members have no
-          // implicit control baseline, so fail closed to an empty projection.
+          // Unresolved or revoked account identity cannot retain local control.
+          // Ordinary PRO members have no implicit control baseline, so fail
+          // closed until the exact account projection is accepted.
           capabilities: [],
         }
       : context;
-  setRoomContext(acceptedContext);
+  setRoomContext(acceptedContext, authorityStatus === 'pending' ? 'pending' : 'confirmed');
   batchSetState({
     'network.sessionCode': acceptedContext.roomId ?? '',
     'network.lastJoinCode': acceptedContext.roomId ?? '',
@@ -2600,7 +2655,7 @@ function stopLifecycle(): void {
   playbackController.stopLifecycle();
   accountReconciler.stop();
   accountIdentityGeneration += 1;
-  accountAuthorityFailClosed = false;
+  accountAuthorityStatus = 'confirmed';
   accountMediaHookRenewal = null;
   accountMediaHookRecovery = null;
   accountLeaseRenewalOwner = null;
@@ -2675,7 +2730,7 @@ async function acceptAccountReconciliationSnapshot(
   // The App cookie may already name a successor account while the room still
   // projects its predecessor. Keep all account-derived authority closed from
   // the first synchronous edge until one exact final server identity settles.
-  accountAuthorityFailClosed = true;
+  accountAuthorityStatus = 'pending';
   const initialContext = controller.context;
   if (active && initialContext) applyAuthority(initialContext);
   const renewal = invalidateProRoomMediaHookSession();
@@ -2714,7 +2769,7 @@ async function acceptAccountReconciliationSnapshot(
     // `snapshot:null` proves detachment but says the old presence no longer
     // exists. Keep every account-bound capability revoked while the normal
     // non-takeover enter path establishes a new anonymous incarnation.
-    accountAuthorityFailClosed = true;
+    accountAuthorityStatus = 'pending';
     const previousContext = controller.context;
     if (active && previousContext) applyAuthority(previousContext);
     const recovered = await controller.reenterAfterDetachedPresence(signal);
@@ -2742,7 +2797,7 @@ async function acceptAccountReconciliationSnapshot(
         // expose accountId, so atomically shed the old room identity before
         // proving the new one. Persistent grants for both accounts stay server
         // owned; this physical session carries neither across the switch.
-        accountAuthorityFailClosed = true;
+        accountAuthorityStatus = 'pending';
         const context = controller.context;
         if (active && context) applyAuthority(context);
         let anonymousDetachCommitted = false;
@@ -2796,7 +2851,7 @@ async function acceptAccountReconciliationSnapshot(
       (operation === 'detach' && snapshot.viewer?.isAuthenticated === true)
     ) {
       finalCommitRejected = true;
-      accountAuthorityFailClosed = true;
+      accountAuthorityStatus = 'pending';
       const context = controller.context;
       if (active && context) applyAuthority(context);
       throw new ProRoomApiError('INVALID_RESPONSE');
@@ -2829,7 +2884,7 @@ async function acceptAccountReconciliationSnapshot(
       controller.isSessionLeaseCurrent(lease, committedIdentity.roomCode) &&
       isAccountMediaHookCommitIdentityCurrent(committedIdentity)
     ) {
-      accountAuthorityFailClosed = false;
+      accountAuthorityStatus = 'confirmed';
       const context = controller.context;
       if (active && context) applyAuthority(context);
       renewAccountMediaHooksIfCurrent(
@@ -2882,17 +2937,17 @@ const accountReconciler = new ProRoomAccountReconciler({
   attach: (signal) => acceptAccountReconciliationSnapshot('attach', signal),
   detach: (signal) => acceptAccountReconciliationSnapshot('detach', signal),
   failClosed: () => {
-    accountAuthorityFailClosed = true;
+    accountAuthorityStatus = 'pending';
     const context = controller.context;
     if (active && context) applyAuthority(context);
   },
   acceptAuthenticated: () => {
-    accountAuthorityFailClosed = false;
+    accountAuthorityStatus = 'confirmed';
     const context = controller.context;
     if (active && context) applyAuthority(context);
   },
   acceptAnonymous: () => {
-    accountAuthorityFailClosed = false;
+    accountAuthorityStatus = 'confirmed';
     const context = controller.context;
     if (active && context) applyAuthority(context);
   },
@@ -2943,7 +2998,7 @@ async function recoverTerminalSession(error: ProRoomApiError): Promise<void> {
     const recoveryAbort = new AbortController();
     presenceRecoveryAbort = recoveryAbort;
     const context = controller.context;
-    if (context) applyAuthority({ ...context, capabilities: [] });
+    if (context) applyAuthority(context, 'pending');
     resetProSystemAudioService();
     resetPlaylistRuntime();
     try {
@@ -3300,7 +3355,7 @@ async function renewAccountIdentityLease(): Promise<void> {
       return;
     }
     if (failure === 'reattach') {
-      accountAuthorityFailClosed = true;
+      accountAuthorityStatus = 'pending';
       accountIdentityLeaseExpiresAtMs = null;
       accountIdentityLeaseRetryAttempt = 0;
       const context = controller.context;
@@ -3313,7 +3368,7 @@ async function renewAccountIdentityLease(): Promise<void> {
       // or is no longer provable. Stop trusting account-only local controls now;
       // the Worker lease independently removes server authority within its
       // bounded window even if this tab never receives a cross-tab event.
-      accountAuthorityFailClosed = true;
+      accountAuthorityStatus = 'denied';
       accountIdentityLeaseExpiresAtMs = null;
       accountIdentityLeaseRetryAttempt = 0;
       nextRenewalDelayMs = null;
@@ -3399,6 +3454,10 @@ function activeSnapshotNeedsVisibilityRecovery(scope: 'youtube' | 'all'): boolea
   return !item || scope === 'all' || item.source.kind === 'youtube';
 }
 
+function isPageVisible(): boolean {
+  return typeof document !== 'undefined' && document.visibilityState === 'visible';
+}
+
 function settleVisibilityPlaybackRecovery(): void {
   visibilityPlaybackRecoveryPending = false;
   visibilityPlaybackRecoveryAttempt = 0;
@@ -3457,10 +3516,17 @@ async function recoverVisibleProRoomPlayback(): Promise<void> {
   try {
     // Rejoin through the planned local rendezvous: a direct seek-and-play
     // would start this iframe late by its seek latency for the whole track.
+    // The pass is its own reconcile owner and goes stale once this return is
+    // reconciled, also by the post-share restore it may wait behind (RO-21):
+    // the scheduler then drops it, or it stops at its next boundary.
     reconciled = await playbackController.reconcile({
       showLoading: false,
       youtubeOnly: scope === 'youtube',
       rendezvous: true,
+      liveness: {
+        identity: flight,
+        isCurrent: () => visibilityReturnReconciledGeneration !== generation,
+      },
     });
   } catch (error) {
     failed = true;
@@ -3478,7 +3544,8 @@ async function recoverVisibleProRoomPlayback(): Promise<void> {
     await recoverVisibleProRoomPlayback();
     return;
   }
-  if (reconciled) {
+  if (reconciled || visibilityReturnReconciledGeneration === generation) {
+    // Repaired by this pass or, while it waited, by the post-share restore.
     visibilityReturnReconciledGeneration = generation;
     settleVisibilityPlaybackRecovery();
     return;

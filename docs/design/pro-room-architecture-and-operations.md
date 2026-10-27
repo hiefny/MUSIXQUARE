@@ -520,8 +520,11 @@ instead of attempting another route.
 The Durable Object accepts only the exact same-publication `lan-direct` to SFU
 mutation; SFU to direct, a different live publication ID, and mixed direct/SFU
 delivery fail closed. The authenticated client reducer accepts that equal-rank
-replacement only for the same `publicationId`; peer fan-out and every other
-same-generation mutation remain state conflicts. As soon as canonical live
+replacement only for the same `publicationId`; every other same-generation
+mutation remains a state conflict. The client takes this state only from the
+authenticated resource (its GET, a presence heartbeat carrying the same read,
+and the lease operations' responses); Phase 5 train 5B removed the unused
+peer fan-out entry point. As soon as canonical live
 state is SFU, `system-audio.signal` authority is denied in both directions, so
 stale direct offer/answer/candidate/close frames cannot continue under the
 shared ID. Promotion is therefore one-way for the publication lifetime.
@@ -563,13 +566,28 @@ only stable row order, so a large YouTube queue cannot prevent an R2 reservation
 or completion record from being committed.
 
 Browser/participant receipts and Developer API mutation receipts use separate
-256-entry ledgers. Each live receipt is retained for its endpoint's full
-idempotency window (normally 24 hours); saturation never evicts an unexpired
-receipt. A new mutation instead fails closed with
-`ROOM_STATE_CAPACITY_EXCEEDED` before its state can commit, while duplicate
-retries of already accepted add, clear, media, and queue-mode operations remain
-replayable. This deliberately favors exactly-once behavior over accepting more
-than 256 distinct Developer API mutations inside one live window.
+256-entry ledgers. Saturation never evicts an unexpired receipt. A new mutation
+instead fails closed with `ROOM_STATE_CAPACITY_EXCEEDED` before its state can
+commit. A Developer API mutation receipt (an issued key's or BOT's internal
+one) is retained for the full 24-hour window, so duplicate retries of already
+accepted add, clear, media, and queue-mode operations remain replayable. This
+deliberately favors exactly-once behavior over accepting more than 256 distinct
+Developer API mutations inside one live window.
+
+A browser receipt lives only as long as the App can send its request again with
+the same key (owner decision 2026-10-27, resource ownership RO-53, timing in
+`cloudflare/pro-room-receipt-timing.ts`): two minutes for playlist edits,
+playlist switch and transfer, reservations, deletes and BOT runs; the same for
+playback unless a longer configured presence window needs more, because a
+frozen page can send the second attempt until its presence lapses; and for
+upload completion until a playlist names the asset, at most until orphan
+cleanup collects the unnamed asset (15 minutes in production). Receipts an
+earlier Worker kept for 24 hours are cut to these windows at the next prune.
+Past its window a resent request meets the revision, asset-state or presence
+fence instead of a replay, so it is never applied twice. The browser ledger
+stays at 256 entries because a 9.0.17 Worker refuses to load a room whose
+ledger holds more; 256 now bounds receipts per window, not per day.
+[Receipt retention report](pro-receipt-retention-2026-10-27.md).
 Presence-close receipts follow different rules (below): they have their own
 ledger, a session keeps only its latest one and loses it when the session goes,
 and a close never fails closed on a full ledger; it commits without a receipt.
@@ -686,6 +704,21 @@ valid delayed mutation response that advanced its CAS base may return an
 already accepted newer snapshot without projecting the older state. Equal
 revision conflicts remain errors, and ambiguous upload recovery still checks
 the exact queue-item and asset identity before treating the append as committed.
+The upload queue owns a RAM-only continuation for each file. Once PUT succeeds,
+an explicit retry reuses its asset and exact completion idempotency key/body;
+after completion it retries only canonical insertion. Cancellation, dismissal,
+room replacement and authority retirement discard that continuation. Ambiguous
+completion or insertion never triggers immediate asset deletion; the existing
+server orphan collector remains the cleanup authority. Empty and oversized
+files retain their failure reason, do not enter the network path, and are
+excluded from retry without preventing other selected files from proceeding.
+A continuation stays pinned to the playlist that was active when its upload
+started, so a playlist switch before insertion is also terminal: the dialog asks
+for the file again instead of offering a retry that cannot succeed. Because that
+ends the task, the playlist state manager deletes the asset the task already
+reserved or completed and clears the continuation, so selecting the file again
+does not count it twice against the room quota; the server refuses to delete an
+asset that any playlist names.
 
 While at least one authoritative presence remains, natural completion no longer
 depends on an awake playback controller. The room alarm uses identity-fenced
@@ -791,9 +824,29 @@ path.
   generations.
 - The server chooses every object key. The client receives only short-lived
   presigned PUT/GET URLs for the private bucket. Upload URLs target disposable
-  staging keys; completion verifies the staging object, streams it to a fresh
-  immutable final key, and retains cleanup state until the reusable staging URL
-  has expired.
+  staging keys. Browser completion uses a server-authenticated R2 CopyObject
+  request to a separate final key, conditional on the staging ETag durably
+  pinned in `completionSourceEtag` before copying, instead of streaming the full
+  file through the Worker. Final HEAD validation
+  remains mandatory. When the copy leaves no verified final object (any non-200
+  status, network error, timeout, unreadable result, HEAD, ETag or metadata
+  mismatch, or missing credentials), completion falls back to the 9.0.16 binding
+  copy, which does stream the full file through the Worker, with the same pinned
+  source ETag, final key, metadata and HEAD checks; it writes nothing when a
+  binding read shows the staging source changed. The fallback has no deadline
+  of its own, so after a copy that ran to its 8-second deadline only 2 seconds
+  of the facade budget remain. Each attempt is counted in the bounded
+  `media_copy` or `media_copy_fallback` diagnostics, and the fallback is the
+  second writer on the final key
+  ([RO-52](resource-ownership-registry.md#ro-52-pro-browser-completion-final-object),
+  [report](pro-upload-reliability-2026-10-27.md#복사-안전장치-바인딩-대체-경로와-복사-진단)).
+  The upload URL never authorizes writes to the ready key,
+  even after deletion. The existing tombstone owner also retains `finalObjectKey`
+  to collect a late copy after deletion; final metadata records the pinned
+  source ETag. Existing staging expiry and final-object recovery remain in force.
+  Copy and completion-facade deadlines come from `pro-room-media-timing.ts`.
+  Developer API completion retains its existing
+  stream-copy path.
 - Upload completion becomes `ready` only after R2 HEAD matches the reserved
   byte count, media type, room, generation, asset ID, version, and optional
   client-supplied SHA-256 metadata. The current R2 promotion path does not

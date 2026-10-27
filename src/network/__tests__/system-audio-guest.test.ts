@@ -13,7 +13,9 @@ import {
 import { SYSTEM_AUDIO_RECEIVE_TIMEOUT_MS } from '../system-audio-media.ts';
 import {
   claimPlaybackOwner,
+  createSystemAudioTrackMeta,
   setPlaybackFilePlaying,
+  setPlaybackIdle,
   setPlaybackLifecycleState,
   setPlaybackTransferState,
   setSystemAudioReceiving,
@@ -26,11 +28,18 @@ import {
   resetGuestSystemAudioShareRoute,
 } from '../system-audio-delivery.ts';
 import {
+  attachSystemAudioSource,
   awaitTrustedSystemAudioReceptionBoundary,
   beginTrustedSystemAudioReception,
+  detachSystemAudioRoute,
   endTrustedSystemAudioReception,
+  getSystemAudioReceiveRouteSnapshot,
   handOffTrustedSystemAudioReception,
+  hasTrustedSystemAudioReception,
+  interruptTrustedSystemAudioReception,
+  primeSystemAudioDecoder,
   registerSystemAudioReceiveRoute,
+  resumeSystemAudioRoute,
 } from '../system-audio-receive-slot.ts';
 import {
   cleanupWebRtcAudioDecoderPrimer,
@@ -259,10 +268,10 @@ describe('system audio guest receive watchdog', () => {
     const pc = { setLocalDescription, setRemoteDescription } as unknown as RTCPeerConnection;
     const originalSetLocalDescription = pc.setLocalDescription;
     const originalSetRemoteDescription = pc.setRemoteDescription;
-    await handleData({ type: MSG.SYSTEM_AUDIO_START }, hostConn);
+    await handleData({ type: MSG.SYSTEM_AUDIO_START, surface: 'display' }, hostConn);
 
     const incoming = createMediaConnection('host', pc);
-    bus.emit('system-audio:incoming-call', incoming.mediaConn, 'STEREO');
+    bus.emit('system-audio:incoming-call', incoming.mediaConn);
 
     expect(incoming.mediaConn.answer).toHaveBeenCalledWith(undefined, {
       sdpTransform: expect.any(Function),
@@ -275,13 +284,13 @@ describe('system audio guest receive watchdog', () => {
   });
 
   it('closes the exact incoming call when the transport answer throws synchronously', async () => {
-    await handleData({ type: MSG.SYSTEM_AUDIO_START }, hostConn);
+    await handleData({ type: MSG.SYSTEM_AUDIO_START, surface: 'display' }, hostConn);
     const incoming = createMediaConnection();
     vi.mocked(incoming.mediaConn.answer).mockImplementation(() => {
       throw new Error('answer setup failed');
     });
 
-    bus.emit('system-audio:incoming-call', incoming.mediaConn, 'STEREO');
+    bus.emit('system-audio:incoming-call', incoming.mediaConn);
 
     expect(incoming.mediaConn.close).toHaveBeenCalledTimes(1);
   });
@@ -291,7 +300,7 @@ describe('system audio guest receive watchdog', () => {
     setPlaybackFilePlaying();
     setState('player.currentTrackMeta', previousMeta);
 
-    await handleData({ type: MSG.SYSTEM_AUDIO_START }, hostConn);
+    await handleData({ type: MSG.SYSTEM_AUDIO_START, surface: 'display' }, hostConn);
 
     expect(stopAllMedia).toHaveBeenCalledWith({ silent: true, cancelInFlight: true });
     expect(getState('player.currentTrackMeta')?.name).toBe('system-audio-receiving');
@@ -311,8 +320,8 @@ describe('system audio guest receive watchdog', () => {
     const hostStarted = vi.fn();
     bus.on('system-audio:host-started', hostStarted);
 
-    await handleData({ type: MSG.SYSTEM_AUDIO_START }, hostConn);
-    await handleData({ type: MSG.SYSTEM_AUDIO_START }, hostConn);
+    await handleData({ type: MSG.SYSTEM_AUDIO_START, surface: 'display' }, hostConn);
+    await handleData({ type: MSG.SYSTEM_AUDIO_START, surface: 'display' }, hostConn);
 
     expect(hostStarted).toHaveBeenCalledTimes(1);
   });
@@ -350,14 +359,14 @@ describe('system audio guest receive watchdog', () => {
     } as unknown as AudioContext);
 
     const incoming = createMediaConnection();
-    bus.emit('system-audio:incoming-call', incoming.mediaConn, 'STEREO');
+    bus.emit('system-audio:incoming-call', incoming.mediaConn);
     incoming.emit('stream', audioStreamWithTrack());
     await flushAsyncStreamHandler();
 
     expect(initAudio).not.toHaveBeenCalled();
     expect(getState('systemAudio.isReceiving')).toBe(false);
 
-    await handleData({ type: MSG.SYSTEM_AUDIO_START }, hostConn);
+    await handleData({ type: MSG.SYSTEM_AUDIO_START, surface: 'display' }, hostConn);
     await flushAsyncStreamHandler();
 
     expect(initAudio).toHaveBeenCalledTimes(1);
@@ -367,10 +376,10 @@ describe('system audio guest receive watchdog', () => {
 
   it('settles a muted stream after its normal unmute stabilization window', async () => {
     stubAudioSource();
-    await handleData({ type: MSG.SYSTEM_AUDIO_START }, hostConn);
+    await handleData({ type: MSG.SYSTEM_AUDIO_START, surface: 'display' }, hostConn);
     const incoming = createMediaConnection();
     const muted = mutableMutedAudioStream();
-    bus.emit('system-audio:incoming-call', incoming.mediaConn, 'STEREO');
+    bus.emit('system-audio:incoming-call', incoming.mediaConn);
     incoming.emit('stream', muted.stream);
     await flushAsyncStreamHandler();
 
@@ -391,10 +400,10 @@ describe('system audio guest receive watchdog', () => {
 
   it('keeps the existing bounded fallback when a muted track never unmutes', async () => {
     stubAudioSource();
-    await handleData({ type: MSG.SYSTEM_AUDIO_START }, hostConn);
+    await handleData({ type: MSG.SYSTEM_AUDIO_START, surface: 'display' }, hostConn);
     const incoming = createMediaConnection();
     const muted = mutableMutedAudioStream();
-    bus.emit('system-audio:incoming-call', incoming.mediaConn, 'STEREO');
+    bus.emit('system-audio:incoming-call', incoming.mediaConn);
     incoming.emit('stream', muted.stream);
     await flushAsyncStreamHandler();
 
@@ -409,10 +418,10 @@ describe('system audio guest receive watchdog', () => {
 
   it('cancels a muted-track wait on force-stop and fences its late unmute from a successor', async () => {
     stubAudioSource();
-    await handleData({ type: MSG.SYSTEM_AUDIO_START }, hostConn);
+    await handleData({ type: MSG.SYSTEM_AUDIO_START, surface: 'display' }, hostConn);
     const stale = createMediaConnection();
     const muted = mutableMutedAudioStream();
-    bus.emit('system-audio:incoming-call', stale.mediaConn, 'STEREO');
+    bus.emit('system-audio:incoming-call', stale.mediaConn);
     stale.emit('stream', muted.stream);
     await flushAsyncStreamHandler();
     expect(muted.listenerCount()).toBe(1);
@@ -425,9 +434,9 @@ describe('system audio guest receive watchdog', () => {
     expect(stale.mediaConn.close).toHaveBeenCalledOnce();
     expect(initAudio).not.toHaveBeenCalled();
 
-    await handleData({ type: MSG.SYSTEM_AUDIO_START }, hostConn);
+    await handleData({ type: MSG.SYSTEM_AUDIO_START, surface: 'display' }, hostConn);
     const successor = createMediaConnection();
-    bus.emit('system-audio:incoming-call', successor.mediaConn, 'STEREO');
+    bus.emit('system-audio:incoming-call', successor.mediaConn);
     successor.emit('stream', audioStreamWithTrack());
     await flushAsyncStreamHandler();
     expect(initAudio).toHaveBeenCalledOnce();
@@ -443,15 +452,15 @@ describe('system audio guest receive watchdog', () => {
 
   it('cancels the prior muted-track wait when the channel connection is replaced', async () => {
     stubAudioSource();
-    await handleData({ type: MSG.SYSTEM_AUDIO_START }, hostConn);
+    await handleData({ type: MSG.SYSTEM_AUDIO_START, surface: 'display' }, hostConn);
     const stale = createMediaConnection();
     const muted = mutableMutedAudioStream();
-    bus.emit('system-audio:incoming-call', stale.mediaConn, 'STEREO');
+    bus.emit('system-audio:incoming-call', stale.mediaConn);
     stale.emit('stream', muted.stream);
     await flushAsyncStreamHandler();
 
     const successor = createMediaConnection();
-    bus.emit('system-audio:incoming-call', successor.mediaConn, 'STEREO');
+    bus.emit('system-audio:incoming-call', successor.mediaConn);
     successor.emit('stream', audioStreamWithTrack());
     await flushAsyncStreamHandler();
 
@@ -469,10 +478,10 @@ describe('system audio guest receive watchdog', () => {
   });
 
   it('cancels a muted-track wait when its current connection closes', async () => {
-    await handleData({ type: MSG.SYSTEM_AUDIO_START }, hostConn);
+    await handleData({ type: MSG.SYSTEM_AUDIO_START, surface: 'display' }, hostConn);
     const incoming = createMediaConnection();
     const muted = mutableMutedAudioStream();
-    bus.emit('system-audio:incoming-call', incoming.mediaConn, 'STEREO');
+    bus.emit('system-audio:incoming-call', incoming.mediaConn);
     incoming.emit('stream', muted.stream);
     await flushAsyncStreamHandler();
 
@@ -491,7 +500,7 @@ describe('system audio guest receive watchdog', () => {
     const mediaConn = { close: vi.fn() };
     freezeGuestSystemAudioSfuRoute('all');
 
-    bus.emit('system-audio:incoming-call', mediaConn, 'STEREO');
+    bus.emit('system-audio:incoming-call', mediaConn);
 
     expect(mediaConn.close).toHaveBeenCalledTimes(1);
   });
@@ -503,7 +512,7 @@ describe('system audio guest receive watchdog', () => {
     setPlaybackTransferState(TRANSFER_STATE.READY);
     setPlaybackFilePlaying();
 
-    await handleData({ type: MSG.SYSTEM_AUDIO_START }, hostConn);
+    await handleData({ type: MSG.SYSTEM_AUDIO_START, surface: 'display' }, hostConn);
 
     timerMocks.timers.get(watchdogName)?.();
 
@@ -518,7 +527,7 @@ describe('system audio guest receive watchdog', () => {
   it('clears the watchdog once a stream is marked as receiving', async () => {
     setState('player.currentTrackMeta', { type: 'file', name: 'previous-track' });
 
-    await handleData({ type: MSG.SYSTEM_AUDIO_START }, hostConn);
+    await handleData({ type: MSG.SYSTEM_AUDIO_START, surface: 'display' }, hostConn);
     const watchdog = timerMocks.timers.get(watchdogName);
     expect(watchdog).toBeTypeOf('function');
 
@@ -533,7 +542,7 @@ describe('system audio guest receive watchdog', () => {
   });
 
   it('leaves the receive deadline to a caller that retries its own subscription', async () => {
-    await handleData({ type: MSG.SYSTEM_AUDIO_START }, hostConn);
+    await handleData({ type: MSG.SYSTEM_AUDIO_START, surface: 'display' }, hostConn);
     // Another owner replaced the placeholder without receive cleanup.
     setState('player.currentTrackMeta', { type: 'file', name: 'successor-track' });
     expect(timerMocks.timers.has(watchdogName)).toBe(true);
@@ -547,7 +556,7 @@ describe('system audio guest receive watchdog', () => {
   it('re-arms the watchdog while preserving the placeholder during adapter handoff', async () => {
     const previousMeta: TrackMeta = { type: 'file', name: 'previous-track' };
     setState('player.currentTrackMeta', previousMeta);
-    await handleData({ type: MSG.SYSTEM_AUDIO_START }, hostConn);
+    await handleData({ type: MSG.SYSTEM_AUDIO_START, surface: 'display' }, hostConn);
     setSystemAudioReceiving(true);
     expect(timerMocks.timers.has(watchdogName)).toBe(false);
 
@@ -564,7 +573,7 @@ describe('system audio guest receive watchdog', () => {
     setPlaybackFilePlaying();
     setState('player.currentTrackMeta', previousMeta);
 
-    await handleData({ type: MSG.SYSTEM_AUDIO_START }, hostConn);
+    await handleData({ type: MSG.SYSTEM_AUDIO_START, surface: 'display' }, hostConn);
     setSystemAudioReceiving(true);
     claimPlaybackOwner('system-audio');
 
@@ -581,11 +590,11 @@ describe('system audio guest receive watchdog', () => {
     const toast = vi.fn();
     bus.on('ui:show-toast', toast);
     setState('player.currentTrackMeta', previousMeta);
-    await handleData({ type: MSG.SYSTEM_AUDIO_START }, hostConn);
+    await handleData({ type: MSG.SYSTEM_AUDIO_START, surface: 'display' }, hostConn);
 
     vi.mocked(initAudio).mockRejectedValueOnce(new Error('audio init failed'));
     const failed = createMediaConnection();
-    bus.emit('system-audio:incoming-call', failed.mediaConn, 'STEREO');
+    bus.emit('system-audio:incoming-call', failed.mediaConn);
     expect(failed.emit('stream', audioStreamWithTrack())).toBeUndefined();
     await flushAsyncStreamHandler();
 
@@ -599,9 +608,9 @@ describe('system audio guest receive watchdog', () => {
     vi.mocked(getAudioContext).mockReturnValue({
       createMediaStreamSource: vi.fn(() => source),
     } as unknown as AudioContext);
-    await handleData({ type: MSG.SYSTEM_AUDIO_START }, hostConn);
+    await handleData({ type: MSG.SYSTEM_AUDIO_START, surface: 'display' }, hostConn);
     const retry = createMediaConnection();
-    bus.emit('system-audio:incoming-call', retry.mediaConn, 'STEREO');
+    bus.emit('system-audio:incoming-call', retry.mediaConn);
     retry.emit('stream', audioStreamWithTrack());
     await flushAsyncStreamHandler();
 
@@ -613,11 +622,11 @@ describe('system audio guest receive watchdog', () => {
   it('treats a missing audio graph as an immediate receive failure', async () => {
     const previousMeta: TrackMeta = { type: 'file', name: 'previous-track' };
     setState('player.currentTrackMeta', previousMeta);
-    await handleData({ type: MSG.SYSTEM_AUDIO_START }, hostConn);
+    await handleData({ type: MSG.SYSTEM_AUDIO_START, surface: 'display' }, hostConn);
     vi.mocked(getWidener).mockReturnValueOnce(null);
 
     const failed = createMediaConnection();
-    bus.emit('system-audio:incoming-call', failed.mediaConn, 'STEREO');
+    bus.emit('system-audio:incoming-call', failed.mediaConn);
     failed.emit('stream', audioStreamWithTrack());
     await flushAsyncStreamHandler();
 
@@ -628,9 +637,9 @@ describe('system audio guest receive watchdog', () => {
   });
 
   it('rejects an empty stream before publishing receive state', async () => {
-    await handleData({ type: MSG.SYSTEM_AUDIO_START }, hostConn);
+    await handleData({ type: MSG.SYSTEM_AUDIO_START, surface: 'display' }, hostConn);
     const failed = createMediaConnection();
-    bus.emit('system-audio:incoming-call', failed.mediaConn, 'STEREO');
+    bus.emit('system-audio:incoming-call', failed.mediaConn);
     failed.emit('stream', emptyAudioStream());
     await flushAsyncStreamHandler();
 
@@ -656,15 +665,15 @@ describe('system audio guest receive watchdog', () => {
     bus.on('ui:show-toast', toast);
 
     setState('player.currentTrackMeta', { type: 'file', name: 'previous-track' });
-    await handleData({ type: MSG.SYSTEM_AUDIO_START }, hostConn);
+    await handleData({ type: MSG.SYSTEM_AUDIO_START, surface: 'display' }, hostConn);
     const stale = createMediaConnection();
-    bus.emit('system-audio:incoming-call', stale.mediaConn, 'STEREO');
+    bus.emit('system-audio:incoming-call', stale.mediaConn);
     stale.emit('stream', audioStreamWithTrack());
     await flushAsyncStreamHandler();
     expect(initAudio).toHaveBeenCalledTimes(1);
 
     const replacement = createMediaConnection();
-    bus.emit('system-audio:incoming-call', replacement.mediaConn, 'STEREO');
+    bus.emit('system-audio:incoming-call', replacement.mediaConn);
     replacement.emit('stream', audioStreamWithTrack());
     await flushAsyncStreamHandler();
     expect(getState('systemAudio.isReceiving')).toBe(true);
@@ -687,9 +696,9 @@ describe('system audio guest receive watchdog', () => {
       const source = stubAudioSource();
       const previousMeta: TrackMeta = { type: 'file', name: 'previous-track' };
       setState('player.currentTrackMeta', previousMeta);
-      await handleData({ type: MSG.SYSTEM_AUDIO_START }, hostConn);
+      await handleData({ type: MSG.SYSTEM_AUDIO_START, surface: 'display' }, hostConn);
       const incoming = createMediaConnection();
-      bus.emit('system-audio:incoming-call', incoming.mediaConn, 'STEREO');
+      bus.emit('system-audio:incoming-call', incoming.mediaConn);
       incoming.emit('stream', audioStreamWithTrack());
       await flushAsyncStreamHandler();
       expect(initAudio).toHaveBeenCalledOnce();
@@ -714,9 +723,9 @@ describe('system audio guest receive watchdog', () => {
       () => new Promise<void>((resolve) => (resolveInit = resolve)),
     );
     const source = stubAudioSource();
-    await handleData({ type: MSG.SYSTEM_AUDIO_START }, hostConn);
+    await handleData({ type: MSG.SYSTEM_AUDIO_START, surface: 'display' }, hostConn);
     const incoming = createMediaConnection();
-    bus.emit('system-audio:incoming-call', incoming.mediaConn, 'STEREO');
+    bus.emit('system-audio:incoming-call', incoming.mediaConn);
     incoming.emit('stream', audioStreamWithTrack());
     await flushAsyncStreamHandler();
     expect(initAudio).toHaveBeenCalledOnce();
@@ -742,15 +751,15 @@ describe('system audio guest receive watchdog', () => {
       createMediaStreamSource: vi.fn(() => source),
     } as unknown as AudioContext);
 
-    await handleData({ type: MSG.SYSTEM_AUDIO_START }, hostConn);
+    await handleData({ type: MSG.SYSTEM_AUDIO_START, surface: 'display' }, hostConn);
     const stale = createMediaConnection();
-    bus.emit('system-audio:incoming-call', stale.mediaConn, 'STEREO');
+    bus.emit('system-audio:incoming-call', stale.mediaConn);
     vi.mocked(stale.mediaConn.close).mockImplementation(() => {
       stale.emit('close');
     });
 
     const replacement = createMediaConnection();
-    bus.emit('system-audio:incoming-call', replacement.mediaConn, 'STEREO');
+    bus.emit('system-audio:incoming-call', replacement.mediaConn);
     replacement.emit('stream', audioStreamWithTrack());
     await flushAsyncStreamHandler();
 
@@ -768,16 +777,16 @@ describe('system audio guest receive watchdog', () => {
     const toast = vi.fn();
     bus.on('ui:show-toast', toast);
     setState('player.currentTrackMeta', previousMeta);
-    await handleData({ type: MSG.SYSTEM_AUDIO_START }, hostConn);
+    await handleData({ type: MSG.SYSTEM_AUDIO_START, surface: 'display' }, hostConn);
 
     const active = createMediaConnection();
-    bus.emit('system-audio:incoming-call', active.mediaConn, 'STEREO');
+    bus.emit('system-audio:incoming-call', active.mediaConn);
     active.emit('stream', audioStreamWithTrack());
     await flushAsyncStreamHandler();
     expect(getState('systemAudio.isReceiving')).toBe(true);
 
     const silentReplacement = createMediaConnection();
-    bus.emit('system-audio:incoming-call', silentReplacement.mediaConn, 'STEREO');
+    bus.emit('system-audio:incoming-call', silentReplacement.mediaConn);
 
     expect(active.mediaConn.close).toHaveBeenCalledTimes(1);
     expect(getState('systemAudio.isReceiving')).toBe(true);
@@ -796,15 +805,15 @@ describe('system audio guest receive watchdog', () => {
     vi.mocked(getAudioContext).mockReturnValue({
       createMediaStreamSource: vi.fn(() => source),
     } as unknown as AudioContext);
-    await handleData({ type: MSG.SYSTEM_AUDIO_START }, hostConn);
+    await handleData({ type: MSG.SYSTEM_AUDIO_START, surface: 'display' }, hostConn);
 
     const active = createMediaConnection();
-    bus.emit('system-audio:incoming-call', active.mediaConn, 'STEREO');
+    bus.emit('system-audio:incoming-call', active.mediaConn);
     active.emit('stream', audioStreamWithTrack());
     await flushAsyncStreamHandler();
 
     const replacement = createMediaConnection();
-    bus.emit('system-audio:incoming-call', replacement.mediaConn, 'STEREO');
+    bus.emit('system-audio:incoming-call', replacement.mediaConn);
     const staleWatchdog = timerMocks.timers.get(stereoReplacementWatchdogName);
     expect(staleWatchdog).toBeTypeOf('function');
 
@@ -828,10 +837,10 @@ describe('system audio guest receive watchdog', () => {
       playoutDelayHint?: number;
     };
     const pc = { getReceivers: vi.fn(() => [video, audio, trackless]) };
-    await handleData({ type: MSG.SYSTEM_AUDIO_START }, hostConn);
+    await handleData({ type: MSG.SYSTEM_AUDIO_START, surface: 'display' }, hostConn);
 
     const incoming = createMediaConnection('host', pc as unknown as RTCPeerConnection);
-    bus.emit('system-audio:incoming-call', incoming.mediaConn, 'STEREO');
+    bus.emit('system-audio:incoming-call', incoming.mediaConn);
     incoming.emit('stream', audioStreamWithTrack());
     await flushAsyncStreamHandler();
 
@@ -857,10 +866,10 @@ describe('system audio guest receive watchdog', () => {
       vi.mocked(getWidener).mockReturnValueOnce(
         widener as unknown as ReturnType<typeof getWidener>,
       );
-      await handleData({ type: MSG.SYSTEM_AUDIO_START }, hostConn);
+      await handleData({ type: MSG.SYSTEM_AUDIO_START, surface: 'display' }, hostConn);
 
       const incoming = createMediaConnection();
-      bus.emit('system-audio:incoming-call', incoming.mediaConn, 'STEREO');
+      bus.emit('system-audio:incoming-call', incoming.mediaConn);
       const stream = audioStreamWithTrack();
       incoming.emit('stream', stream);
       await flushAsyncStreamHandler();
@@ -897,11 +906,11 @@ describe('system audio guest receive watchdog', () => {
     ])(
       'keeps $failure on the call /debug channel and logs it as the stream graph failure',
       async ({ arrange, message, graphLog }) => {
-        await handleData({ type: MSG.SYSTEM_AUDIO_START }, hostConn);
+        await handleData({ type: MSG.SYSTEM_AUDIO_START, surface: 'display' }, hostConn);
         arrange();
 
         const failed = createMediaConnection();
-        bus.emit('system-audio:incoming-call', failed.mediaConn, 'STEREO');
+        bus.emit('system-audio:incoming-call', failed.mediaConn);
         failed.emit('stream', audioStreamWithTrack());
         await flushAsyncStreamHandler();
 
@@ -961,7 +970,7 @@ describe('system audio guest receive watchdog', () => {
       expect(wait.value).toBe(false);
 
       // A later start does not answer a wait that already timed out.
-      await handleData({ type: MSG.SYSTEM_AUDIO_START }, hostConn);
+      await handleData({ type: MSG.SYSTEM_AUDIO_START, surface: 'display' }, hostConn);
       await flushAsyncStreamHandler();
       expect(wait.value).toBe(false);
     });
@@ -970,7 +979,7 @@ describe('system audio guest receive watchdog', () => {
       const early = settledValue(awaitTrustedSystemAudioReceptionBoundary('STEREO'));
       expect(timerNamesWithPrefix('sys-audio-guest-trust-gate-STEREO-')).toHaveLength(1);
 
-      await handleData({ type: MSG.SYSTEM_AUDIO_START }, hostConn);
+      await handleData({ type: MSG.SYSTEM_AUDIO_START, surface: 'display' }, hostConn);
       await flushAsyncStreamHandler();
       expect(early.value).toBe(true);
       expect(timerNamesWithPrefix('sys-audio-guest-trust-gate-')).toEqual([]);
@@ -1010,9 +1019,13 @@ describe('system audio guest receive watchdog', () => {
       expect(timerNamesWithPrefix('sys-audio-guest-trust-gate-')).toEqual([]);
     });
 
-    // Today's behaviour, the Standard START sibling of PRO gap 7 (a nested
-    // force-stop empties the restore point), pinned so the move keeps it.
-    it('lets a cleanup nested in the start empty the restore point while the start still commits', async () => {
+    // Fixed in 5B-G5 (gap 7, P5-D5 A), the Standard START sibling of the PRO
+    // begin re-entrancy: a cleanup nested in the start (its stopAllMedia
+    // emits force-stop while local capture runs) ends what preceded the
+    // start and keeps the start's claim and restore point. It still answers
+    // a wait opened before the start false, as before. Before 5B-G5 it
+    // emptied the restore point, so STOP left no title.
+    it("keeps the start's restore point through a cleanup nested in the start, which still answers an earlier wait false (5B-G5)", async () => {
       const previousMeta: TrackMeta = { type: 'file', name: 'previous-track' };
       setState('player.currentTrackMeta', previousMeta);
       const early = settledValue(awaitTrustedSystemAudioReceptionBoundary('STEREO'));
@@ -1020,7 +1033,7 @@ describe('system audio guest receive watchdog', () => {
         bus.emit('system-audio:force-stop');
       });
 
-      await handleData({ type: MSG.SYSTEM_AUDIO_START }, hostConn);
+      await handleData({ type: MSG.SYSTEM_AUDIO_START, surface: 'display' }, hostConn);
       await flushAsyncStreamHandler();
 
       expect(early.value).toBe(false);
@@ -1028,13 +1041,67 @@ describe('system audio guest receive watchdog', () => {
       expect(timerMocks.delays.get(watchdogName)).toBe(30_000);
 
       await handleData({ type: MSG.SYSTEM_AUDIO_STOP }, hostConn);
-      expect(getState('player.currentTrackMeta')).toBeNull();
+      expect(getState('player.currentTrackMeta')).toEqual(previousMeta);
+      expect(getState('playback.mode')).toBeNull();
       expect(getState('playback.activity')).toBe('idle');
+    });
+
+    // 5B-G5: the nested end keeps the start's generation, so a wait opened
+    // after it and before the placeholder claim joins that start. Before
+    // 5B-G5 the end moved the slot on and the wait joined a generation no
+    // start commits (false after 30 s). The start and end are called
+    // directly (the suite shares one inbound rate-limit bucket for the host
+    // connection).
+    it('answers a wait opened after a cleanup nested in the start with that start (5B-G5)', async () => {
+      const previousMeta: TrackMeta = { type: 'file', name: 'previous-track' };
+      setState('player.currentTrackMeta', previousMeta);
+      let late!: { value: boolean | undefined };
+      transportMocks.stopAllMedia.mockImplementationOnce(() => {
+        bus.emit('system-audio:force-stop');
+        expect(getState('player.currentTrackMeta')).toEqual(previousMeta);
+        late = settledValue(awaitTrustedSystemAudioReceptionBoundary('pro-stereo'));
+      });
+
+      expect(beginTrustedSystemAudioReception(undefined, { deadline: 'route' })).toBe(true);
+      await flushAsyncStreamHandler();
+
+      expect(late.value).toBe(true);
+      expect(timerNamesWithPrefix('sys-audio-guest-trust-gate-')).toEqual([]);
+      expect(getState('player.currentTrackMeta')?.systemAudioPlaceholder).toBe(true);
+
+      endTrustedSystemAudioReception();
+      expect(getState('player.currentTrackMeta')).toEqual(previousMeta);
+      expect(getState('playback.activity')).toBe('idle');
+    });
+
+    // 5B-G5 guard, passes before and after: only an end before the start's
+    // placeholder claim is nested in the start. One that lands once the
+    // placeholder is up (from a listener of the claim; none is known in the
+    // app) ends that start as any end does: the title comes back and a later
+    // end has no restore point to replay.
+    it('5B-G5 guard: an end inside the start once its placeholder is up ends that start', async () => {
+      const previousMeta: TrackMeta = { type: 'file', name: 'previous-track' };
+      setState('player.currentTrackMeta', previousMeta);
+      bus.on('system-audio:host-started', () => {
+        expect(getState('player.currentTrackMeta')?.systemAudioPlaceholder).toBe(true);
+        endTrustedSystemAudioReception();
+      });
+
+      expect(beginTrustedSystemAudioReception(undefined, { deadline: 'route' })).toBe(true);
+
+      expect(getState('player.currentTrackMeta')).toEqual(previousMeta);
+      expect(getState('playback.mode')).toBeNull();
+      expect(getState('playback.activity')).toBe('idle');
+      expect(hasTrustedSystemAudioReception()).toBe(false);
+
+      setState('player.currentTrackMeta', { type: 'file', name: 'later-track' });
+      endTrustedSystemAudioReception();
+      expect(getState('player.currentTrackMeta')).toEqual({ type: 'file', name: 'later-track' });
     });
 
     it('takes a fresh restore point when a start follows a successor that replaced the placeholder', async () => {
       setState('player.currentTrackMeta', { type: 'file', name: 'first-track' });
-      await handleData({ type: MSG.SYSTEM_AUDIO_START }, hostConn);
+      await handleData({ type: MSG.SYSTEM_AUDIO_START, surface: 'display' }, hostConn);
       const successorMeta: TrackMeta = { type: 'file', name: 'successor-track' };
       setState('player.currentTrackMeta', successorMeta);
 
@@ -1045,9 +1112,150 @@ describe('system audio guest receive watchdog', () => {
       expect(getState('player.currentTrackMeta')).toEqual(successorMeta);
     });
 
+    // The read-only query the PRO coordinator asks before it ends the slot
+    // over this device's own publication (5B-G4). Each step holds one of its
+    // four conditions alone.
+    it('answers whether the slot holds a reception: while a start claims, its placeholder is up, its restore point is held or the slot receives; not after the end (5B-G4)', () => {
+      expect(hasTrustedSystemAudioReception()).toBe(false);
+
+      // A start claiming (inside its stopAllMedia, before the placeholder).
+      let whileClaiming: boolean | undefined;
+      transportMocks.stopAllMedia.mockImplementationOnce(() => {
+        expect(getState('player.currentTrackMeta')).toBeNull();
+        whileClaiming = hasTrustedSystemAudioReception();
+      });
+      expect(beginTrustedSystemAudioReception(undefined, { deadline: 'route' })).toBe(true);
+      expect(whileClaiming).toBe(true);
+
+      // Its restore point held while a successor replaced the placeholder.
+      claimPlaybackOwner('file', { currentTrackMeta: { type: 'file', name: 'successor-file' } });
+      setPlaybackFilePlaying();
+      expect(getState('systemAudio.isReceiving')).toBe(false);
+      expect(hasTrustedSystemAudioReception()).toBe(true);
+      endTrustedSystemAudioReception();
+      expect(hasTrustedSystemAudioReception()).toBe(false);
+
+      // The placeholder alone, set directly: since 5B-G5 a start that runs
+      // through a nested end holds its restore point too, so no slot input
+      // leaves the phase idle over the placeholder.
+      setState('player.currentTrackMeta', createSystemAudioTrackMeta('receiving'));
+      expect(getState('player.currentTrackMeta')?.systemAudioPlaceholder).toBe(true);
+      expect(hasTrustedSystemAudioReception()).toBe(true);
+      endTrustedSystemAudioReception();
+      expect(hasTrustedSystemAudioReception()).toBe(false);
+
+      // The receiving flag alone.
+      setSystemAudioReceiving(true);
+      expect(hasTrustedSystemAudioReception()).toBe(true);
+      setSystemAudioReceiving(false);
+      expect(hasTrustedSystemAudioReception()).toBe(false);
+    });
+
+    // 5B-G4 (gap 6, P5-D5 A): the 'system-audio' owner is also this device's
+    // own share (system-capture.ts claims it with sharing meta). The end
+    // still does all of its own work but leaves that claim to the capture
+    // module.
+    it("leaves a 'system-audio' claim with sharing meta alone at the end, and still ends the reception (5B-G4)", async () => {
+      const source = stubAudioSource();
+      const previousMeta: TrackMeta = { type: 'file', name: 'previous-track' };
+      setState('player.currentTrackMeta', previousMeta);
+      // As the host START does (frames are left out: the suite shares one
+      // inbound rate-limit bucket for the host connection).
+      expect(beginTrustedSystemAudioReception(undefined, { deadline: 'slot' })).toBe(true);
+      const call = createMediaConnection();
+      bus.emit('system-audio:incoming-call', call.mediaConn);
+      call.emit('stream', audioStreamWithTrack());
+      await flushAsyncStreamHandler();
+      expect(getState('systemAudio.isReceiving')).toBe(true);
+
+      // This device starts its own share while it still receives.
+      const sharingMeta = createSystemAudioTrackMeta('sharing');
+      claimPlaybackOwner('system-audio', { currentTrackMeta: sharingMeta });
+      const wait = settledValue(awaitTrustedSystemAudioReceptionBoundary('sfu-stereo'));
+      const toast = vi.fn();
+      bus.on('ui:show-toast', toast);
+
+      endTrustedSystemAudioReception();
+      await flushAsyncStreamHandler();
+
+      // The reception's own parts end: the waiters, the route ports (the
+      // direct call closes and its source leaves), the receiving flag.
+      expect(wait.value).toBe(false);
+      expect(call.mediaConn.close).toHaveBeenCalledOnce();
+      expect(source.disconnect).toHaveBeenCalledOnce();
+      expect(getState('systemAudio.isReceiving')).toBe(false);
+      // The sharer's claim stays: no title write, no release, no idle.
+      expect(getState('player.currentTrackMeta')).toEqual(sharingMeta);
+      expect(getState('playback.mode')).toBe('system-audio');
+      expect(getState('playback.activity')).toBe('playing');
+      expect(toast).not.toHaveBeenCalled();
+
+      // The restore point is consumed: a second end (a STOP) writes nothing.
+      endTrustedSystemAudioReception();
+      expect(getState('player.currentTrackMeta')).toEqual(sharingMeta);
+      expect(getState('playback.mode')).toBe('system-audio');
+      expect(getState('playback.activity')).toBe('playing');
+    });
+
+    // Passes before and after 5B-G4: the rule excludes only the sharer's
+    // claim, so any other 'system-audio' owner keeps today's end.
+    it("5B-G4 guard: still restores a receiving 'system-audio' owner whose meta a meta-null writer cleared", async () => {
+      stubAudioSource();
+      const previousMeta: TrackMeta = { type: 'file', name: 'previous-track' };
+      setState('player.currentTrackMeta', previousMeta);
+      expect(beginTrustedSystemAudioReception(undefined, { deadline: 'slot' })).toBe(true);
+      const call = createMediaConnection();
+      bus.emit('system-audio:incoming-call', call.mediaConn);
+      call.emit('stream', audioStreamWithTrack());
+      await flushAsyncStreamHandler();
+      // The Standard guest's current-item removal (player/playlist.ts).
+      setState('player.currentTrackMeta', null);
+      expect(getState('playback.mode')).toBe('system-audio');
+
+      endTrustedSystemAudioReception();
+
+      expect(getState('player.currentTrackMeta')).toEqual(previousMeta);
+      expect(getState('playback.mode')).toBeNull();
+      expect(getState('playback.activity')).toBe('idle');
+    });
+
+    it.each([
+      {
+        over: 'an active sharing claim',
+        share: () =>
+          claimPlaybackOwner('system-audio', {
+            currentTrackMeta: createSystemAudioTrackMeta('sharing'),
+          }),
+      },
+      {
+        // system-capture.ts's transition teardown (a force-stop) sets playback
+        // idle and keeps the sharing meta for the next flow.
+        over: 'an idle stale sharing title',
+        share: () => {
+          claimPlaybackOwner('system-audio', {
+            currentTrackMeta: createSystemAudioTrackMeta('sharing'),
+          });
+          setPlaybackIdle();
+        },
+      },
+    ])('takes no restore point when a start begins over $over (5B-G4)', async ({ share }) => {
+      share();
+      expect(getState('player.currentTrackMeta')?.systemAudioMode).toBe('sharing');
+
+      // The host START's start and STOP's end, called directly.
+      expect(beginTrustedSystemAudioReception(undefined, { deadline: 'slot' })).toBe(true);
+      expect(getState('player.currentTrackMeta')?.systemAudioPlaceholder).toBe(true);
+
+      // Before 5B-G4 the end restored the sharing title, idle.
+      endTrustedSystemAudioReception();
+      expect(getState('player.currentTrackMeta')).toBeNull();
+      expect(getState('playback.mode')).toBeNull();
+      expect(getState('playback.activity')).toBe('idle');
+    });
+
     it("runs the other routes' deadline reactions before the cleanup and shows the notice after it", async () => {
       setState('player.currentTrackMeta', { type: 'file', name: 'previous-track' });
-      await handleData({ type: MSG.SYSTEM_AUDIO_START }, hostConn);
+      await handleData({ type: MSG.SYSTEM_AUDIO_START, surface: 'display' }, hostConn);
       const seen: string[] = [];
       sfuDeadlineReaction = () => {
         seen.push(`deadline ${getState('player.currentTrackMeta')?.name}`);
@@ -1071,7 +1279,7 @@ describe('system audio guest receive watchdog', () => {
     // slot's deadline fan-out keeps that containment for a route's reaction.
     it("contains a route's throwing deadline reaction and still ends the reception and shows the notice", async () => {
       setState('player.currentTrackMeta', { type: 'file', name: 'previous-track' });
-      await handleData({ type: MSG.SYSTEM_AUDIO_START }, hostConn);
+      await handleData({ type: MSG.SYSTEM_AUDIO_START, surface: 'display' }, hostConn);
       const failure = new Error('deadline reaction failed');
       sfuDeadlineReaction = () => {
         throw failure;
@@ -1097,13 +1305,13 @@ describe('system audio guest receive watchdog', () => {
     it("runs the same reactions when the direct call's replacement deadline expires the reception", async () => {
       stubAudioSource();
       setState('player.currentTrackMeta', { type: 'file', name: 'previous-track' });
-      await handleData({ type: MSG.SYSTEM_AUDIO_START }, hostConn);
+      await handleData({ type: MSG.SYSTEM_AUDIO_START, surface: 'display' }, hostConn);
       const active = createMediaConnection();
-      bus.emit('system-audio:incoming-call', active.mediaConn, 'STEREO');
+      bus.emit('system-audio:incoming-call', active.mediaConn);
       active.emit('stream', audioStreamWithTrack());
       await flushAsyncStreamHandler();
       const replacement = createMediaConnection();
-      bus.emit('system-audio:incoming-call', replacement.mediaConn, 'STEREO');
+      bus.emit('system-audio:incoming-call', replacement.mediaConn);
       const seen: string[] = [];
       sfuDeadlineReaction = () => {
         seen.push(`deadline ${getState('player.currentTrackMeta')?.name}`);
@@ -1129,7 +1337,7 @@ describe('system audio guest receive watchdog', () => {
       const toast = vi.fn();
       sfuDeadlineReaction = timeout;
       bus.on('ui:show-toast', toast);
-      await handleData({ type: MSG.SYSTEM_AUDIO_START }, hostConn);
+      await handleData({ type: MSG.SYSTEM_AUDIO_START, surface: 'display' }, hostConn);
       const successorMeta: TrackMeta = { type: 'file', name: 'successor-file' };
       claimPlaybackOwner('file', { currentTrackMeta: successorMeta });
       setPlaybackFilePlaying();
@@ -1145,7 +1353,7 @@ describe('system audio guest receive watchdog', () => {
     // The guest-role half moved with the SFU's call in C4-6
     // (system-audio-sfu.test.ts, "guest SFU receive slot inputs").
     it('ignores a delivery handoff once the placeholder is gone', async () => {
-      await handleData({ type: MSG.SYSTEM_AUDIO_START }, hostConn);
+      await handleData({ type: MSG.SYSTEM_AUDIO_START, surface: 'display' }, hostConn);
       setSystemAudioReceiving(true);
       expect(timerMocks.timers.has(watchdogName)).toBe(false);
 
@@ -1161,13 +1369,13 @@ describe('system audio guest receive watchdog', () => {
       vi.mocked(primeWebRtcAudioDecoder).mockReturnValueOnce(primer);
       const previousMeta: TrackMeta = { type: 'file', name: 'previous-track' };
       setState('player.currentTrackMeta', previousMeta);
-      await handleData({ type: MSG.SYSTEM_AUDIO_START }, hostConn);
+      await handleData({ type: MSG.SYSTEM_AUDIO_START, surface: 'display' }, hostConn);
       const active = createMediaConnection();
-      bus.emit('system-audio:incoming-call', active.mediaConn, 'STEREO');
+      bus.emit('system-audio:incoming-call', active.mediaConn);
       active.emit('stream', audioStreamWithTrack());
       await flushAsyncStreamHandler();
       const replacement = createMediaConnection();
-      bus.emit('system-audio:incoming-call', replacement.mediaConn, 'STEREO');
+      bus.emit('system-audio:incoming-call', replacement.mediaConn);
       expect(timerMocks.timers.has(stereoReplacementWatchdogName)).toBe(true);
       expect(getSystemAudioGuestDebugSnapshot()).toMatchObject({
         gotStereo: true,
@@ -1203,7 +1411,7 @@ describe('system audio guest receive watchdog', () => {
       const now = vi.spyOn(Date, 'now');
       try {
         now.mockReturnValue(1_000);
-        await handleData({ type: MSG.SYSTEM_AUDIO_START }, hostConn);
+        await handleData({ type: MSG.SYSTEM_AUDIO_START, surface: 'display' }, hostConn);
         expect(getSystemAudioGuestDebugSnapshot()).toMatchObject({
           placeholder: true,
           lastStartAt: 1_000,
@@ -1213,7 +1421,7 @@ describe('system audio guest receive watchdog', () => {
         });
 
         now.mockReturnValue(2_000);
-        await handleData({ type: MSG.SYSTEM_AUDIO_START }, hostConn);
+        await handleData({ type: MSG.SYSTEM_AUDIO_START, surface: 'display' }, hostConn);
         expect(getSystemAudioGuestDebugSnapshot()).toMatchObject({
           lastStartAt: 1_000,
           lastStartIgnoredAt: 2_000,
@@ -1265,6 +1473,219 @@ describe('system audio guest receive watchdog', () => {
       } finally {
         now.mockRestore();
       }
+    });
+  });
+
+  // 5B-G1 (gaps 2 and 3, P5-D5 A): the slot attaches and resumes only while
+  // its receive placeholder is the current meta. A refused attach or resume
+  // writes nothing and drops what that route still holds. Driven through the
+  // PRO coordinator's route, which registers no end port, so its source and
+  // primer outlive an end (gap 4) and the refusal is what drops them here.
+  describe('attach fence: the slot ended or another owner plays (5B-G1)', () => {
+    const ROUTE = 'pro-coordinator';
+    const previousMeta: TrackMeta = { type: 'file', name: 'previous-track' };
+    const successorMeta: TrackMeta = { type: 'file', name: 'successor-file' };
+    let firstSource: { connect: ReturnType<typeof vi.fn>; disconnect: ReturnType<typeof vi.fn> };
+    let createMediaStreamSource: ReturnType<typeof vi.fn>;
+    let primer: WebRtcAudioDecoderPrimer;
+    let visualizerStarts: ReturnType<typeof vi.fn<() => void>>;
+
+    function prime(): void {
+      vi.mocked(primeWebRtcAudioDecoder).mockReturnValueOnce(primer);
+      primeSystemAudioDecoder(ROUTE, [], {
+        streamKey: 'stream-key',
+        label: 'stereo',
+        logPrefix: '[ProSysAudio]',
+      });
+    }
+
+    function attach(
+      request: Parameters<typeof attachSystemAudioSource>[2] = {
+        startsReception: 'every-attach',
+      },
+    ) {
+      return attachSystemAudioSource(ROUTE, { stream: audioStreamWithTrack() }, request);
+    }
+
+    function claimSuccessor(): void {
+      claimPlaybackOwner('file', { currentTrackMeta: successorMeta });
+      setPlaybackFilePlaying();
+    }
+
+    beforeEach(() => {
+      detachSystemAudioRoute(ROUTE);
+      firstSource = { connect: vi.fn(), disconnect: vi.fn() };
+      createMediaStreamSource = vi.fn(() => firstSource);
+      vi.mocked(getAudioContext).mockReturnValue({
+        createMediaStreamSource,
+      } as unknown as AudioContext);
+      primer = { streamKey: 'stream-key' } as WebRtcAudioDecoderPrimer;
+      visualizerStarts = vi.fn<() => void>();
+      bus.on('visualizer:start', visualizerStarts);
+      setState('player.currentTrackMeta', previousMeta);
+      vi.mocked(cleanupWebRtcAudioDecoderPrimer).mockClear();
+    });
+
+    it("refuses an attach after the reception ended: 'not-receiving' before the graph, nothing written, the route's source and primer dropped", () => {
+      expect(beginTrustedSystemAudioReception(undefined, { deadline: 'route' })).toBe(true);
+      prime();
+      attach();
+      expect(getState('systemAudio.isReceiving')).toBe(true);
+      endTrustedSystemAudioReception();
+      expect(getState('player.currentTrackMeta')).toEqual(previousMeta);
+      expect(getSystemAudioReceiveRouteSnapshot(ROUTE)).toEqual({
+        sourceAttached: true,
+        decoderPrimed: true,
+      });
+      visualizerStarts.mockClear();
+      vi.mocked(getAudioContext).mockClear();
+      vi.mocked(getWidener).mockClear();
+      const onGraphReady = vi.fn();
+      const onConnected = vi.fn();
+      const onReceptionStart = vi.fn();
+
+      const result = attach({
+        startsReception: 'every-attach',
+        onGraphReady,
+        onConnected,
+        onReceptionStart,
+      });
+
+      // The fence comes before the graph: a refused attach never reports a
+      // missing graph and never builds a source.
+      expect(getAudioContext).not.toHaveBeenCalled();
+      expect(getWidener).not.toHaveBeenCalled();
+      expect(createMediaStreamSource).toHaveBeenCalledOnce();
+      expect(onGraphReady).not.toHaveBeenCalled();
+      expect(onConnected).not.toHaveBeenCalled();
+      expect(onReceptionStart).not.toHaveBeenCalled();
+      expect(visualizerStarts).not.toHaveBeenCalled();
+      expect(getState('systemAudio.isReceiving')).toBe(false);
+      expect(getState('playback.mode')).toBeNull();
+      expect(getState('playback.activity')).toBe('idle');
+      expect(getState('player.currentTrackMeta')).toEqual(previousMeta);
+      expect(firstSource.disconnect).toHaveBeenCalledOnce();
+      expect(cleanupWebRtcAudioDecoderPrimer).toHaveBeenCalledWith(primer);
+      expect(getSystemAudioReceiveRouteSnapshot(ROUTE)).toEqual({
+        sourceAttached: false,
+        decoderPrimed: false,
+      });
+      expect(result).toBe('not-receiving');
+    });
+
+    it('refuses an attach once a successor replaced the placeholder and drops the primer the route took; the end leaves the successor', () => {
+      expect(beginTrustedSystemAudioReception(undefined, { deadline: 'route' })).toBe(true);
+      prime();
+      claimSuccessor();
+
+      const result = attach();
+
+      expect(createMediaStreamSource).not.toHaveBeenCalled();
+      expect(visualizerStarts).not.toHaveBeenCalled();
+      expect(cleanupWebRtcAudioDecoderPrimer).toHaveBeenCalledWith(primer);
+      expect(getSystemAudioReceiveRouteSnapshot(ROUTE)).toEqual({
+        sourceAttached: false,
+        decoderPrimed: false,
+      });
+      expect(getState('systemAudio.isReceiving')).toBe(false);
+      expect(getState('playback.mode')).toBe('file');
+      expect(getState('playback.activity')).toBe('playing');
+      expect(getState('player.currentTrackMeta')).toEqual(successorMeta);
+      expect(result).toBe('not-receiving');
+
+      endTrustedSystemAudioReception();
+      expect(getState('playback.mode')).toBe('file');
+      expect(getState('player.currentTrackMeta')).toEqual(successorMeta);
+    });
+
+    it.each([
+      { after: 'the reception ended', retire: () => endTrustedSystemAudioReception() },
+      { after: 'a successor replaced the placeholder', retire: claimSuccessor },
+    ])(
+      "refuses a resume after $after: claims nothing and drops the route's source and primer",
+      ({ retire }) => {
+        expect(beginTrustedSystemAudioReception(undefined, { deadline: 'route' })).toBe(true);
+        prime();
+        attach();
+        expect(getState('systemAudio.isReceiving')).toBe(true);
+        // The PRO SFU's disconnect grace: receiving drops, the source stays.
+        interruptTrustedSystemAudioReception({ deadline: 'route' });
+        retire();
+        const mode = getState('playback.mode');
+        const activity = getState('playback.activity');
+        const meta = getState('player.currentTrackMeta');
+        visualizerStarts.mockClear();
+
+        resumeSystemAudioRoute(ROUTE);
+
+        expect(getState('systemAudio.isReceiving')).toBe(false);
+        expect(getState('playback.mode')).toBe(mode);
+        expect(mode).not.toBe('system-audio');
+        expect(getState('playback.activity')).toBe(activity);
+        expect(getState('player.currentTrackMeta')).toEqual(meta);
+        expect(visualizerStarts).not.toHaveBeenCalled();
+        expect(firstSource.disconnect).toHaveBeenCalledOnce();
+        expect(cleanupWebRtcAudioDecoderPrimer).toHaveBeenCalledWith(primer);
+        expect(getSystemAudioReceiveRouteSnapshot(ROUTE)).toEqual({
+          sourceAttached: false,
+          decoderPrimed: false,
+        });
+      },
+    );
+
+    it('keeps a refused replacement call open and current with no replacement deadline: no expiry, no notice, no close', async () => {
+      const toast = vi.fn();
+      bus.on('ui:show-toast', toast);
+      await handleData({ type: MSG.SYSTEM_AUDIO_START, surface: 'display' }, hostConn);
+      const active = createMediaConnection();
+      bus.emit('system-audio:incoming-call', active.mediaConn);
+      active.emit('stream', audioStreamWithTrack());
+      await flushAsyncStreamHandler();
+      expect(getState('systemAudio.isReceiving')).toBe(true);
+      expect(getSystemAudioGuestDebugSnapshot()).toMatchObject({ gotStereo: true });
+
+      // A replacement call while receiving arms its replacement deadline.
+      // While its stream waits in initAudio the placeholder leaves without an
+      // end: a guest's current-item removal sets the meta to null
+      // (player/playlist.ts), one of the two meta-null writers 5B-G1 accepts.
+      // (A successor claim cannot take the mode while the receiving flag is
+      // set, so this is the window in which a receiving direct call meets
+      // the fence.)
+      let resolveInit!: () => void;
+      vi.mocked(initAudio).mockImplementationOnce(
+        () => new Promise<void>((resolve) => (resolveInit = resolve)),
+      );
+      const replacement = createMediaConnection();
+      bus.emit('system-audio:incoming-call', replacement.mediaConn);
+      expect(timerMocks.timers.has(stereoReplacementWatchdogName)).toBe(true);
+      replacement.emit('stream', audioStreamWithTrack());
+      await flushAsyncStreamHandler();
+      setState('player.currentTrackMeta', null);
+      resolveInit();
+      await flushAsyncStreamHandler();
+
+      // The slot refuses the attach and drops the route's previous source
+      // (the replaced call's stream), so nothing of the share stays on the
+      // graph. The refused call stays open: closing it would hand this guest
+      // to the SFU on the host (STOP, START, READY). Its replacement deadline
+      // goes with the refusal, so it cannot expire the reception (and close
+      // the call) 30 s later with receive_failed.
+      expect(createMediaStreamSource).toHaveBeenCalledOnce();
+      expect(firstSource.disconnect).toHaveBeenCalledOnce();
+      expect(getSystemAudioGuestDebugSnapshot()).toMatchObject({
+        gotStereo: false,
+        sourceStereo: false,
+      });
+      expect(replacement.mediaConn.close).not.toHaveBeenCalled();
+      expect(timerMocks.timers.has(stereoReplacementWatchdogName)).toBe(false);
+      expect(getState('player.currentTrackMeta')).toBeNull();
+      expect(toast).not.toHaveBeenCalled();
+
+      // STOP closes the call through the route's end port, with no notice.
+      await handleData({ type: MSG.SYSTEM_AUDIO_STOP }, hostConn);
+      expect(replacement.mediaConn.close).toHaveBeenCalledOnce();
+      expect(getState('systemAudio.isReceiving')).toBe(false);
+      expect(toast).not.toHaveBeenCalled();
     });
   });
 });

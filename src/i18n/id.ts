@@ -791,6 +791,23 @@ const id: Record<I18nKey, string> = {
   'pro.active_tab_message': 'Melanjutkan di sini akan memutus koneksi sebelumnya.',
   'pro.active_tab_replaced': 'Ruang PRO ini sudah terbuka di tab lain',
   'pro.use_this_tab': 'Lanjut di sini',
+  'pro.upload.retry_unavailable':
+    'Unggahan ini tidak dapat diselesaikan lagi. Pilih kembali file tersebut.',
+  'pro.upload.failed_retryable': 'Unggahan tidak dapat diselesaikan. Coba lagi.',
+  'pro.upload.empty_file': 'File kosong tidak dapat diunggah.',
+  'pro.upload.file_too_large': 'File ini melebihi batas 200 MB per file.',
+  'pro.upload.quota_exceeded': 'Ruang PRO ini telah mencapai batas penyimpanan 1 GB.',
+  'pro.upload.playlist_full': 'Daftar putar sudah penuh.',
+  'pro.upload.room_capacity': 'Ruang PRO ini tidak dapat menampung media lagi.',
+  'pro.upload.room_state_limit':
+    'Ruang PRO ini tidak dapat menerima perubahan lagi untuk saat ini. Pilih kembali file tersebut sebentar lagi.',
+  'pro.upload.pending_limit':
+    'Terlalu banyak unggahan yang belum selesai di ruang PRO ini. Coba lagi sebentar lagi.',
+  'pro.upload.playlist_switched':
+    'Daftar putar lain menjadi aktif sebelum media ini ditambahkan. Pilih kembali file tersebut.',
+  'pro.upload.permission_required': 'Izin untuk mengelola media diperlukan.',
+  'pro.upload.failed_file': '{{name}}: {{reason}}',
+  'pro.upload.confirming': 'Menyelesaikan unggahan {{current}}/{{total}}',
   'pro.upload.batch_progress': 'Mengunggah media {{current}}/{{total}}',
   'pro.upload.batch_failed_title': 'Beberapa media tidak dapat diunggah',
   'pro.upload.batch_failed_message':
@@ -800,6 +817,8 @@ const id: Record<I18nKey, string> = {
   'pro.downloading': 'Memuat file...',
   'pro.quota_exceeded': 'Ruang PRO ini telah mencapai batas penyimpanan 1 GB',
   'pro.file_too_large': 'File ini melebihi batas 200 MB per file',
+  'pro.room_state_limit':
+    'Ruang PRO ini tidak dapat menerima perubahan lagi untuk saat ini\nCoba lagi sebentar lagi',
 
   // Chat
   'chat.title': 'Chat',

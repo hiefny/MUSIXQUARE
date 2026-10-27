@@ -29,13 +29,13 @@ describe('central guest queue authority gate', () => {
     setState('network.hostConn', conn);
 
     await handleData({ type: MSG.PLAY, time: 0, queueItemId: QID }, conn);
-    await handleData({ type: MSG.SYSTEM_AUDIO_START }, conn);
+    await handleData({ type: MSG.SYSTEM_AUDIO_START, surface: 'display' }, conn);
     expect(play).not.toHaveBeenCalled();
     expect(systemAudio).not.toHaveBeenCalled();
 
     markQueueAuthorityReady(conn);
     await handleData({ type: MSG.PLAY, time: 0, queueItemId: QID }, conn);
-    await handleData({ type: MSG.SYSTEM_AUDIO_START }, conn);
+    await handleData({ type: MSG.SYSTEM_AUDIO_START, surface: 'display' }, conn);
     expect(play).toHaveBeenCalledTimes(1);
     expect(systemAudio).toHaveBeenCalledTimes(1);
   });

@@ -52,6 +52,149 @@ describe('bounded PRO server diagnostics', () => {
     expect(vi.getTimerCount()).toBe(0);
   });
 
+  it('emits media copy outcomes, the first success included, with only bounded timing and size buckets', () => {
+    const log = vi.spyOn(console, 'log').mockImplementation(() => {});
+    const diagnostics = new ProRoomDiagnostics(() => context);
+    diagnostics.record('media_copy', {
+      operation: 'media_complete',
+      reason: 'ok',
+      status: 200,
+      elapsedMs: 1_234,
+      sizeBucketMiB: 256,
+    });
+    diagnostics.record('media_copy', {
+      operation: 'media_complete',
+      reason: 'status_4xx',
+      status: 403,
+      elapsedMs: 80,
+      sizeBucketMiB: 1,
+    });
+    diagnostics.record('media_copy_fallback', {
+      operation: 'media_complete',
+      reason: 'ok',
+      elapsedMs: 3_000,
+      sizeBucketMiB: 1,
+    });
+    const base = {
+      diagnostic: 'pro_room',
+      schema: 1,
+      kind: 'event',
+      ...context,
+      observedAtMs: 1_000_000,
+      operation: 'media_complete',
+      retryAfterSeconds: null,
+    };
+    expect(log.mock.calls.map(([record]) => record)).toEqual([
+      {
+        ...base,
+        event: 'media_copy',
+        reason: 'ok',
+        status: 200,
+        elapsedMs: 1_234,
+        sizeBucketMiB: 256,
+      },
+      {
+        ...base,
+        event: 'media_copy',
+        reason: 'status_4xx',
+        status: 403,
+        elapsedMs: 80,
+        sizeBucketMiB: 1,
+      },
+      {
+        ...base,
+        event: 'media_copy_fallback',
+        reason: 'ok',
+        status: null,
+        elapsedMs: 3_000,
+        sizeBucketMiB: 1,
+      },
+    ]);
+
+    // An exact byte count, a non-power-of-two bucket, negative or fractional
+    // timings and unknown reasons never reach the log as plausible values.
+    diagnostics.record('media_copy', {
+      reason: 'timeout',
+      elapsedMs: -1,
+      sizeBucketMiB: 171_657_316,
+    });
+    diagnostics.record('media_copy', {
+      reason: 'private-reason',
+      elapsedMs: 1.5,
+      sizeBucketMiB: 3,
+    } as unknown as ProRoomDiagnosticDetail);
+    expect(log.mock.calls.slice(-2).map(([record]) => record)).toEqual([
+      expect.objectContaining({ reason: 'timeout', elapsedMs: null, sizeBucketMiB: null }),
+      expect.objectContaining({ reason: null, elapsedMs: null, sizeBucketMiB: null }),
+    ]);
+    diagnostics.record('room_full', { elapsedMs: 5, sizeBucketMiB: 1 } as ProRoomDiagnosticDetail);
+    expect(log.mock.calls.at(-1)?.[0]).not.toHaveProperty('elapsedMs');
+    expect(log.mock.calls.at(-1)?.[0]).not.toHaveProperty('sizeBucketMiB');
+
+    // A repeated plain success is a summary count only: it neither logs a
+    // detail nor counts as a suppressed one.
+    for (let i = 0; i < 10; i += 1) {
+      diagnostics.record('media_copy', { reason: 'ok', elapsedMs: 900, sizeBucketMiB: 1 });
+    }
+    expect(log).toHaveBeenCalledTimes(6);
+    vi.advanceTimersByTime(60_000);
+    diagnostics.flushIfDue();
+    expect(log.mock.calls.at(-1)?.[0]).toMatchObject({
+      kind: 'summary',
+      counts: {
+        'media_copy:ok': 11,
+        'media_copy:status_4xx': 1,
+        'media_copy:timeout': 1,
+        'media_copy_fallback:ok': 1,
+        media_copy: 1,
+        room_full: 1,
+      },
+      suppressedDetails: 0,
+    });
+    expect(JSON.stringify(log.mock.calls)).not.toContain('private');
+  });
+
+  it('keeps the repeated detail budget for copy failures and fallbacks in a room full of successes', () => {
+    const log = vi.spyOn(console, 'log').mockImplementation(() => {});
+    const diagnostics = new ProRoomDiagnostics(() => context);
+    const copied = () =>
+      diagnostics.record('media_copy', { reason: 'ok', status: 200, elapsedMs: 700 });
+    for (let i = 0; i < 20; i += 1) copied();
+    // Every failed copy and its fallback still log, up to the shared budget.
+    for (let i = 0; i < 3; i += 1) {
+      diagnostics.record('media_copy', { reason: 'timeout', elapsedMs: 8_000 });
+      diagnostics.record('media_copy_fallback', { reason: 'ok', elapsedMs: 3_000 });
+      copied();
+    }
+    const details = () =>
+      log.mock.calls
+        .map(([record]) => record as Record<string, unknown>)
+        .filter((record) => record.kind === 'event')
+        .map((record) => `${record.event}:${record.reason}`);
+    expect(details()).toEqual([
+      'media_copy:ok',
+      ...Array.from({ length: 3 }, () => ['media_copy:timeout', 'media_copy_fallback:ok']).flat(),
+    ]);
+
+    // Past the budget only failures and fallbacks are suppressed, and the
+    // summary still counts every attempt.
+    diagnostics.record('media_copy', { reason: 'timeout', elapsedMs: 8_000 });
+    diagnostics.record('media_copy_fallback', { reason: 'ok', elapsedMs: 3_000 });
+    copied();
+    expect(details()).toHaveLength(7);
+    vi.advanceTimersByTime(60_000);
+    diagnostics.flushIfDue();
+    expect(log.mock.calls.at(-1)?.[0]).toMatchObject({
+      kind: 'summary',
+      counts: {
+        'media_copy:ok': 24,
+        'media_copy:timeout': 4,
+        'media_copy_fallback:ok': 4,
+      },
+      suppressedDetails: 2,
+    });
+  });
+
   it('distinguishes resident, current, and affected presence and preserves aggregate affected totals', () => {
     const log = vi.spyOn(console, 'log').mockImplementation(() => {});
     const diagnostics = new ProRoomDiagnostics(() => context);

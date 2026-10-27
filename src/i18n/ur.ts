@@ -856,6 +856,22 @@ const ur: Record<I18nKey, string> = {
   'pro.active_tab_message': 'یہاں جاری رکھنے سے پچھلا کنکشن منقطع ہو جائے گا۔',
   'pro.active_tab_replaced': 'یہ PRO کمرہ پہلے ہی دوسرے ٹیب میں کھلا ہے',
   'pro.use_this_tab': 'یہیں جاری',
+  'pro.upload.retry_unavailable': 'یہ اپ لوڈ اب مکمل نہیں کیا جا سکتا۔ فائل دوبارہ منتخب کریں۔',
+  'pro.upload.failed_retryable': 'اپ لوڈ مکمل نہیں ہو سکا۔ براہِ کرم دوبارہ کوشش کریں۔',
+  'pro.upload.empty_file': 'خالی فائل اپ لوڈ نہیں کی جا سکتی۔',
+  'pro.upload.file_too_large': 'یہ فائل فی فائل 200 MB کی حد سے بڑی ہے۔',
+  'pro.upload.quota_exceeded': 'اس PRO کمرے کی 1 GB اسٹوریج حد پوری ہو گئی ہے۔',
+  'pro.upload.playlist_full': 'پلے لسٹ بھر گئی ہے۔',
+  'pro.upload.room_capacity': 'اس PRO کمرے میں مزید ٹریک شامل نہیں کیے جا سکتے۔',
+  'pro.upload.room_state_limit':
+    'اس PRO کمرے میں ابھی مزید تبدیلیاں نہیں کی جا سکتیں۔ تھوڑی دیر بعد فائل دوبارہ منتخب کریں۔',
+  'pro.upload.pending_limit':
+    'اس PRO کمرے میں نامکمل اپ لوڈ بہت زیادہ ہیں۔ تھوڑی دیر بعد دوبارہ کوشش کریں۔',
+  'pro.upload.playlist_switched':
+    'یہ ٹریک شامل ہونے سے پہلے دوسری پلے لسٹ فعال ہو گئی۔ فائل دوبارہ منتخب کریں۔',
+  'pro.upload.permission_required': 'میڈیا کے انتظام کی اجازت درکار ہے۔',
+  'pro.upload.failed_file': '{{name}}: {{reason}}',
+  'pro.upload.confirming': 'اپ لوڈ مکمل ہو رہا ہے {{current}}/{{total}}',
   'pro.upload.batch_progress': 'ٹریک اپ لوڈ ہو رہے ہیں {{current}}/{{total}}',
   'pro.upload.batch_failed_title': 'کچھ ٹریک اپ لوڈ نہیں ہو سکے',
   'pro.upload.batch_failed_message':
@@ -865,6 +881,8 @@ const ur: Record<I18nKey, string> = {
   'pro.downloading': 'فائل لوڈ ہو رہی ہے...',
   'pro.quota_exceeded': 'اس PRO کمرے کی 1 GB اسٹوریج حد پوری ہو گئی ہے',
   'pro.file_too_large': 'یہ فائل فی فائل 200 MB کی حد سے بڑی ہے',
+  'pro.room_state_limit':
+    'اس PRO کمرے میں ابھی مزید تبدیلیاں نہیں کی جا سکتیں\nتھوڑی دیر بعد دوبارہ کوشش کریں',
 
   // ─── HTML Blocks (used with data-i18n-html) ─────────────────────
   'help.install_app_html':

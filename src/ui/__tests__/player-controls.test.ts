@@ -19,7 +19,7 @@ import {
   setSystemAudioReceiving,
 } from '../../player/ownership.ts';
 import { STANDARD_ROOM_OWNER_PRODUCT_CAPABILITIES } from '../../network/standard-room-authority.ts';
-import { markStandardRoomAuthorityConfirmed } from '../../rooms/authority.ts';
+import { markStandardRoomAuthorityConfirmed, setRoomContext } from '../../rooms/authority.ts';
 import { roomCapabilityRequiredTip } from '../../rooms/permission-feedback.ts';
 import type { DataConnection } from '../../types/index.ts';
 import { broadcastYouTubeSync, guestRendezvousSync } from '../../youtube/sync.ts';
@@ -2359,6 +2359,61 @@ describe('initPlayerControls playback mode rendering', () => {
       positionSeconds: 30,
     });
     expectYouTubeSyncOverlay(false);
+  });
+
+  it('refreshes pending standard labels when the first plain-member projection changes no flags', () => {
+    renderPlaybackControls();
+    const host = makeConnection('host');
+    setState('network.appRole', 'guest');
+    setState('network.hostConn', host);
+    initPlayerControls();
+    const play = document.getElementById('play-btn')!;
+    const media = document.getElementById('btn-media-source')!;
+    expect(play.title).toBe(t('toast.playback_control_checking'));
+    expect(media.title).toBe(t('toast.media_management_checking'));
+
+    markStandardRoomAuthorityConfirmed(host);
+    setState('network.standardRoomCapabilities', null);
+    setState('network.isOperator', false);
+    bus.emit('network:role-badge-update');
+
+    expect(play.title).toBe(t('toast.playback_control_required'));
+    expect(media.title).toBe(t('toast.media_management_required'));
+    expect(play.getAttribute('aria-disabled')).toBe('true');
+  });
+
+  it('keeps PRO actions blocked with checking labels until the account answer is accepted', () => {
+    renderPlaybackControls();
+    const context = {
+      kind: 'pro' as const,
+      roomId: '000001',
+      role: 'member' as const,
+      coordinatorId: null,
+      epoch: 1,
+      snapshotRevision: 1,
+      capabilities: ['playback.control' as const, 'media.add' as const],
+    };
+    setRoomContext(context, 'pending');
+    initPlayerControls();
+    bus.emit('ui:play-btn-state', true);
+    const play = document.getElementById('play-btn')!;
+    const media = document.getElementById('btn-media-source')!;
+    expect(play.getAttribute('aria-disabled')).toBe('true');
+    expect(play.title).toBe(t('toast.playback_control_checking'));
+    expect(media.title).toBe(t('toast.media_management_checking'));
+    media.click();
+    expect(showToast).toHaveBeenCalledWith(t('toast.media_management_checking'));
+
+    setRoomContext({ ...context, capabilities: [] });
+    expect(play.title).toBe(t('toast.playback_control_required'));
+    expect(media.title).toBe(t('toast.media_management_required'));
+    expect(play.getAttribute('aria-disabled')).toBe('true');
+
+    setRoomContext(context);
+    bus.emit('ui:play-btn-state', true);
+    expect(play.getAttribute('aria-disabled')).toBe('false');
+    expect(play.hasAttribute('title')).toBe(false);
+    expect(media.hasAttribute('title')).toBe(false);
   });
 
   it('updates a ready PRO play button immediately when playback authority is revoked or granted', () => {

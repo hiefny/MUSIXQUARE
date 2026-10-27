@@ -61,7 +61,7 @@ function makeConnection(overrides: ConnectionOverrides): DataConnection {
 }
 
 function makeMessage(): AnyProtocolMsg {
-  return { type: MSG.SYSTEM_AUDIO_START };
+  return { type: MSG.SYSTEM_AUDIO_START, surface: 'display' };
 }
 
 function makeIceStats(

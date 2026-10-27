@@ -3,7 +3,12 @@ import { log } from '../core/log.ts';
 import { getState } from '../core/state.ts';
 import { getPeer } from '../network/peer-state.ts';
 import type { StandardRoomAssertionRequest } from '../network/transport/types.ts';
-import { getRoomContext } from '../rooms/authority.ts';
+import {
+  beginStandardRoomAccountAuthorityCheck,
+  getRoomContext,
+  resetStandardRoomAccountAuthorityCheck,
+  settleStandardRoomAccountAuthorityCheck,
+} from '../rooms/authority.ts';
 import {
   AccountApiError,
   getStandardRoomIdentityAssertions,
@@ -75,13 +80,18 @@ export async function requestStandardRoomAccountAssertion(
   input: StandardRoomAssertionRequest,
 ): Promise<StandardRoomIdentityAssertions | undefined> {
   const snapshot = getAccountSnapshot();
-  if (snapshot.status === 'loading' || snapshot.status === 'unavailable') return undefined;
+  if (snapshot.status === 'loading' || snapshot.status === 'unavailable') {
+    beginStandardRoomAccountAuthorityCheck(input);
+    return undefined;
+  }
   if (snapshot.configured === false) {
+    settleStandardRoomAccountAuthorityCheck(beginStandardRoomAccountAuthorityCheck(input), true);
     return { accountAssertion: null, deletionAssertion: null };
   }
   const key = assertionRequestKey(input);
   const existing = _assertionsInFlight.get(key);
   if (existing) return existing;
+  const authorityCheck = beginStandardRoomAccountAuthorityCheck(input);
 
   const request = requestStandardRoomAccountAssertionUncoalesced(input)
     .then((assertions) => {
@@ -90,7 +100,14 @@ export async function requestStandardRoomAccountAssertion(
       // return an assertion minted for the superseded account projection; the
       // account-state subscriber starts a fresh transport refresh for the new
       // projection.
-      return assertionRequestKey(input) === key ? assertions : undefined;
+      if (assertionRequestKey(input) !== key) return undefined;
+      if (assertions) {
+        settleStandardRoomAccountAuthorityCheck(
+          authorityCheck,
+          assertions.accountAssertion === null,
+        );
+      }
+      return assertions;
     })
     .finally(() => {
       if (_assertionsInFlight.get(key) === request) _assertionsInFlight.delete(key);
@@ -119,6 +136,17 @@ function handleAccountProjection(snapshot: Readonly<AccountSnapshot>): void {
   // lease expires, while the transport's 5-second retry remains armed.
   if (key === null || key === _lastAccountProjectionKey) return;
   _lastAccountProjectionKey = key;
+  const peerId = getState('network.myId');
+  if (peerId) {
+    beginStandardRoomAccountAuthorityCheck(
+      {
+        roomCode: getState('network.lastJoinCode'),
+        peerId,
+        role: 'guest',
+      },
+      true,
+    );
+  }
   refreshCurrentStandardRoomIdentity();
 }
 
@@ -128,7 +156,13 @@ export function initAccountRoomIdentity(): void {
   _lastAccountProjectionKey = accountProjectionKey(getAccountSnapshot());
   _unsubscribeAccount = subscribeAccount(handleAccountProjection);
   _busScope.dispose();
-  _busScope.on('state:setup.sessionStarted', refreshCurrentStandardRoomIdentity);
+  _busScope.on('state:setup.sessionStarted', (started) => {
+    if (!started) resetStandardRoomAccountAuthorityCheck();
+    refreshCurrentStandardRoomIdentity();
+  });
+  _busScope.on('state:network.hostConn', (conn) => {
+    if (!conn) resetStandardRoomAccountAuthorityCheck();
+  });
   _busScope.on('setup:guest-join-success', refreshCurrentStandardRoomIdentity);
   const deleteCurrentStandardRoomIdentity = () => {
     if (!getState('setup.sessionStarted') || getRoomContext().kind === 'pro') return;
@@ -140,6 +174,7 @@ export function initAccountRoomIdentity(): void {
 }
 
 export function __resetAccountRoomIdentityForTests(): void {
+  resetStandardRoomAccountAuthorityCheck();
   _unsubscribeAccount?.();
   _unsubscribeAccount = null;
   _busScope.dispose();

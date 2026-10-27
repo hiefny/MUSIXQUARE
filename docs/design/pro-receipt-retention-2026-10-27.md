@@ -270,6 +270,40 @@ presence 45초에서 2 × (45 + 6) = 102초라 2분이 정한다. 완료는 운�
   accepted: expected 45 to be 600"으로 실패하는 것을 확인하고 되돌렸다.
 - 한계: 라운드 1과 같다(exact-main 후보 아님, 빌드·초기 전송 예산·E2E 안 돌림).
 
+## QA 라운드 3(로컬, 빌드와 E2E 포함)
+
+- 시험한 코드: 문서 커밋 `01341215`(런타임은 `3805601a`, 테스트는 `ea220066`과 같음), 로컬 Windows,
+  Node 24.20.0 / npm 12.0.2. 비교 기준은 같은 의존성으로 빌드한 `53a66d65`(운영 9.0.17)다.
+- 통과: `tsc --noEmit`, `typecheck:tests`, `check:workers`, `lint`, `format:check`, 전체 단위
+  실행(`--maxWorkers=6`) 683 files / 16,249, Worker 묶음 68 files / 3,237(커버리지 포함 기준치
+  통과, `cloudflare/pro-room-worker.ts` 문장 87.65 · 분기 83.87 · 함수 96.2 · 줄 91.71로 라운드
+  1·2와 같음), `test:coverage:critical` 88 files / 3,462(기준치 통과), `check:worker-bundles`(Worker
+  6개 dry-run, PRO 방 827.25 KiB / gzip 161.89 KiB), 가드(navigation-sinks, dead-exports, bus-pairing,
+  import-graph 398 files·순환 0, lifecycle-writes, release-identity, resource-ownership 49 records /
+  444 files).
+- `build:checked`: `guard:sw-cache-version` 한 단계만 실패했다. v790(`53a66d65`) 뒤 PWA 런타임 파일
+  46개(언어 파일 42개, `src/pro-room` 4개)가 바뀌었는데 SW 캐시를 올리지 않았다는 이유뿐이며, 버전은
+  릴리스 준비 때 올리므로 예상한 실패다. 이 단계만 뺀 나머지 24단계(빌드와 빌드 뒤 가드 포함)는 모두
+  통과했다.
+- 초기 전송: 예산 통과(entry 841.5 KiB raw / 247.6 KiB gzip, eager JS 455.9 KiB gzip, eager 전체
+  2,001.5 KiB raw / 532.5 KiB gzip). main과 견주면 eager JS gzip 466,797 B에서 466,825 B(+28 B,
+  유지 상한 491,568 B까지 24,743 B 남음), eager 전체 gzip +29 B이고 entry raw는 861,703 B 그대로다.
+  늘어난 것은 새 영어 문구와 키(`en.js` +111 B raw, i18n 키 목록 +129 B raw)뿐이다.
+- E2E(Chromium, 기본 설정): `test:e2e:critical` 65개 통과(`pro-upload-recovery` 4개와
+  `critical-browser`의 PRO 입장·복구 경로 포함). PRO 묶음 30개 통과(`pro-upload-recovery` 4,
+  `pro-entry-retry` 2, `pro-entry-password` 10, `pro-entry-app-update` 2, `pro-activation-account`
+  12). PRO 재생목록 변경을 서버 응답으로 돌리는 E2E는 `pro-upload-recovery`의 추가 경로뿐이고, 원장이
+  찬 경우의 토스트는 단위 테스트(`runtime-playlist-capacity-copy`)만 확인한다.
+- 후보 E2E: 위 가드만 뺀 `build:checked`의 운영 빌드에서 `test:e2e:candidate` 19개 통과.
+- Target: 운영 `53a66d65`와 견준 런타임 경로 변경(`scripts/release-deployment-state.mts`의 경로
+  목록)은 App 47개, PRO 방 2개, 나머지 네 Worker 0개이고 의존성 변경은 없어 `all`이다.
+- 관찰: `guard:sw-cache-version`은 `cloudflare/` 파일을 PWA 런타임으로 세지 않아, 앱이 가져다 쓰는
+  `cloudflare/pro-room-receipt-timing.ts`만 바뀐 변경은 캐시 올리기를 요구받지 않는다.
+  `cloudflare/pro-room-media-timing.ts`에도 있던 틈이고, 이 열차는 `src` 파일도 바꾸므로 릴리스
+  준비의 올리기에는 영향이 없다. 이 열차에서는 가드를 바꾸지 않았다.
+- 한계: 로컬 결과는 exact-main 후보가 아니다. SW 캐시를 올린 뒤의 `build:checked` 전체, 전체
+  Playwright와 WebKit E2E, PR CI, exact-main CI, 릴리스 smoke는 돌리지 않았다.
+
 ## 확인하지 않은 것
 
 - 운영 방의 실제 원장 상태와 배포 뒤 첫 prune이 기존 24시간 영수증을 자르는 모습.
@@ -278,4 +312,5 @@ presence 45초에서 2 × (45 + 6) = 102초라 2분이 정한다. 완료는 운�
   실제로 되돌려 보지는 않았다.
 - 실제 기기에서 멈춘 페이지의 늦은 재생 재전송(가짜 시계와 presence 유지로만 확인).
 - 42개 언어 문구의 원어민 검토.
-- `build:checked`, 초기 JS 예산, Playwright E2E, PR CI, exact-main CI, 릴리스 smoke.
+- SW 캐시를 올린 뒤의 `build:checked` 전체, 전체 Playwright와 WebKit E2E, PR CI, exact-main CI,
+  릴리스 smoke. 라운드 3은 SW 캐시 가드만 뺀 빌드, 초기 전송 예산, E2E 일부를 로컬에서 돌렸다.

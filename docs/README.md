@@ -108,7 +108,9 @@ runbooks. Neither belongs in a general setup document.
   UI bundle, target `all`). The report lists each scope's old and new window, the review
   adjustments, rollback and its one-off check, what stays as is, the tests-first evidence (12
   Worker and 9 client tests failing on `53a66d65`; the BOT one pins new behaviour rather than an
-  old defect) and QA rounds 1 and 2 with their tested SHAs and limits.
+  old defect) and QA rounds 1 to 3 with their tested SHAs and limits (round 3 adds the build
+  without the cache-epoch guard, eager JS +28 B gzip against main, and the critical, PRO and
+  candidate E2E).
 - [PRO upload completion and authority feedback (2026-10-27)](design/pro-upload-reliability-2026-10-27.md):
   production diagnosis, R2-internal copy without streaming a full file through the Worker,
   a binding-copy fallback with bounded copy diagnostics (RO-52), completion retry continuity,

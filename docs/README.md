@@ -97,14 +97,21 @@ runbooks. Neither belongs in a general setup document.
   production diagnosis, R2-internal copy without streaming a full file through the Worker,
   a binding-copy fallback with bounded copy diagnostics (RO-52), completion retry continuity,
   explicit file-limit, room-capacity and receipt-ledger feedback, and pending authority labels.
-  PR #503 (9.0.17 / v790 from bump `a233dd7b`, not yet released, target `all` because the App,
-  PRO room and signaling Workers have runtime path changes against production) merged main up to
-  the Phase 5 5B record `0228276e` (#506) in `d88cbb3b`; the owner approved its merge, release
-  and record on 2026-10-27. The report lists each QA round with its tested SHA and limits,
-  including the final local checks after the bump: unit 16,222, Worker 3,220, critical E2E 65/65,
-  critical coverage 3,452, PRO upload Playwright 4/4, candidate Playwright 19/19, and eager JS
-  466,797 B (+1,145 B against production main `a930030a`). It also covers the failed-release
-  rollback of the PRO Worker and the room receipt-ledger limit left to the owner.
+  PR #503 (9.0.17 / v790 from bump `a233dd7b`, released 2026-10-27 13:42 KST in Release
+  40450793853 from main `53a66d65`, target `all` because the App, PRO room and signaling
+  Workers have runtime path changes against production; all six Workers were redeployed) merged
+  main up to the Phase 5 5B record `0228276e` (#506) in `d88cbb3b`; the owner approved its
+  merge, release and record on 2026-10-27. The report lists each QA round with its tested SHA and
+  limits, including the final local checks after the bump (unit 16,222, Worker 3,220, critical
+  E2E 65/65, critical coverage 3,452, PRO upload Playwright 4/4, candidate Playwright 19/19, and
+  eager JS 466,797 B, +1,145 B against production main `a930030a`) and the PR CI, automated
+  review, exact-main CI, release and public-check round (no automated review findings on the first
+  runtime `f2f25d90` and no automated review result for the final head `6064a195`, the six new
+  Worker versions, the smokes with the strict page floor read of 787 and build-790 Standard
+  signaling admission, no pre-deploy floor `status`, the public floor at 787 with live App 790,
+  and the Drift Audit). It also covers the failed-release rollback of the PRO Worker, the
+  App-only rollback's 5-second facade, and the room receipt-ledger limit, whose retention the
+  owner decided to shorten in its own train after the UI bundle.
 - [Phase 5 train 5B: receive-slot behaviour fixes and the system-audio old-version items (2026-10-26)](design/phase5-5b-receive-slot-behaviour-2026-10-26.md):
   release evidence for the structure program's second Phase 5 app train (9.0.16 / v789 from bump
   `198b8cf8`, released 2026-10-27 10:18 KST in Release 40431540366 from main `a930030a`, target

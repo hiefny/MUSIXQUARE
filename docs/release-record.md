@@ -46,6 +46,70 @@ gh run list --workflow e2e.yml --branch main --limit 3
 해결하면 근거(커밋, 실행 ID, 문서)를 PR 설명에 적고 이 목록에서 지운다. 근거
 없이 완료로 표시하지 않는다.
 
+### 구조 개선 Phase 5 5B(9.0.16/v789, 배포 전): 시스템 오디오 수신 슬롯의 틈 고치기와 시스템 오디오 옛 버전 항목
+
+- [ ] 5B 범위와 상태(오너 결정 2026-10-25 약 04:00 KST의 P5-D5 A와 P5-D11 B, 답이 없는 P5-D10은 기본값 A, P5-D12와
+      P5-D13은 기본값 A. 옛 버전 정책 약 16:40 KST, 열차 2와 병렬 2026-10-26 약 14:10 KST): 앱 업데이트 두 번(P5-D3 A)
+      가운데 둘째인 동작 열차다. 5A가 만든 수신 슬롯(registry RO-04)에서 C4-0이 오늘 동작으로 고정한 틈을 라벨 붙인
+      묶음 여섯으로 고쳤다. 5B-G1 붙이기 울타리(틈 2, 3), 5B-G2 PRO force-stop과 후속 주인 정리(4, 5), 5B-G3 일반방
+      SFU 재발행(1, 바로 `receive_failed`로 끝내지 않고 슬롯의 30초 마감으로 넘김), 5B-G4 공유자 자신의 claim(6), 5B-G5
+      중첩 end의 복원점(7), 5B-G6 슬롯이 듣는 경로 닫힘(11은 end, 12는 interrupt)이다. 5B-C4-13은 숨김 중 공유 끝 뒤
+      복귀 수리를 한 번만 arm한다(틈 10, F3 단위 재현이 실패 테스트, RO-21 owner-in-place, RO-41 삭제). 같은 파일의 옛
+      버전 항목(5B-OV1 OV-A04와 코디네이터 잔재, 5B-OV2 OV-B05와 OV-B06, 5B-OV3 OV-A08의 시스템 오디오 부분)과 죽은 채널
+      인자(SA-9)를 지웠다. 틈 8, 9, 13, 14와 SA-2는 그대로이고 SA-8은 범위 밖이다. 수신 패리티는 바꾸지 않고 RO-04에
+      표로 적었다. 브랜치 `agent/phase5-5b`(`4d7650c0`에서 시작, origin/main `cb159851`을 `2fc81c70`으로, 그 뒤 main에
+      머지된 릴리스 A `5dd7cc1f`를 `0d59df41`로, 릴리스 A 배포 뒤 그 기록 `1ff7fdf2`(#504, 문서만)를 `08509f84`로 합침.
+      글자 충돌은 `docs/README.md`와 이 절뿐이고, room-authority 경계 테스트의 기준치는 두 갈래가 따로 내린 읽기를
+      합쳐 80으로 내림. 기록 합침 뒤 가드 기준값은 그대로): 증분마다 테스트 먼저와 코드 한 쌍(5B-G1 `1f8c7a66` →
+      `e74e10da`, 5B-G2 `09a5743f` → `bf80584d`와 리뷰 `b0234155`, 5B-G3 `0e451e80` → `a2894382`, 5B-G4 `c29dc8ec` →
+      `8a2c7164`와 리뷰 `98c4b040`, 5B-G5 `fefac7a7` → `b4b724b9`, 5B-G6 `9336aeb2` → `95b04ea3`와 리뷰 `99b335b6`,
+      5B-C4-13 `29e5fb72` → `c852c465`, 5B-OV1 `3fd45d5b` → `7293697f`, 5B-OV2 `43b21ea1` → `04f07124`, 5B-OV3 `1ab5f0b8` →
+      `fddbda0a`, 중립 `c0b86b62`). 테스트 먼저 행은 부모 코드에서 실패했고(G1 13, G2 8, G3 3, G4 7, G5 2, G6 3, C4-13 1,
+      OV2 18, OV3 2), 열차 끝에 기준과 모든 코드 커밋에서 시스템 오디오 묶음 26 files를 다시 돌렸다(744에서 800 tests까지,
+      실패 없음). 릴리스 A 합침 뒤 로컬 검증(`0d59df41`): 단위 680 files / 16,108, Worker 67 files / 3,182, 핵심 커버리지
+      87 files / 3,444, typecheck(전체)·`check:workers`·lint·format, 가드(resource-ownership 47 records / 442 files와 수신
+      슬롯 쓰기 3·3·3·1, dead-exports 20/20·76/76, bus-pairing 202/202, import-graph, lifecycle-writes,
+      room-authority-boundaries 직접 읽기 80, transport-health), `build:checked` 전체, SW 앱 셸 96 자산, critical E2E
+      61/61, `e2e/system-audio-controls.test.ts` 5/5(G1과 G3 커밋에서도 5/5), 초기 JS 465,651 B(main `5dd7cc1f` 465,767 B
+      대비 -116 B) PASS. 첫 합침 `2fc81c70`에서도 같은 묶음이 PASS였다(보고서 QA 라운드 5). `guard:sw-cache-version`은
+      합침 커밋을 bump로 읽어 PASS로 나오지만 bump는 여전히 필요하다(보고서 QA 라운드 5의 관찰). 릴리스 A의 배포
+      (2026-10-27 06:20 KST)와 기록 PR #504 뒤 main을 다시 합쳤다(QA 라운드 7). 마지막 런타임 커밋은 bump `198b8cf8`
+      (9.0.16 / v789, 앱 빌드 789, 올리기 직전 fetch한 origin/main `1ff7fdf2`는 9.0.15 / v788)이고 그 뒤는 문서뿐이다.
+      bump 뒤 최종 검사(`198b8cf8`, QA 라운드 8): `guard:release-identity` 9.0.16·v789, `guard:sw-cache-version` PASS(실제
+      bump를 읽음), typecheck(전체)·`typecheck:tests`·`check:workers`·lint·format, 단위 680 files / 16,108, Worker 67 files /
+      3,182, `build:checked` 전체(SW 앱 셸 96 자산), 가드(room-authority 직접 읽기 80·구독 22·쓰기 13, resource-ownership
+      47 records / 442 files와 슬롯 쓰기 3·3·3·1, dead-exports 20/76, bus-pairing 202/202, import-graph, lifecycle-writes,
+      navigation-sinks), critical E2E 61/61, 핵심 커버리지 87 files / 3,444, 후보 Playwright 19/19, `e2e/system-audio-controls.test.ts`
+      5/5, 초기 JS 465,652 B(운영 main `5dd7cc1f` 465,767 B 대비 −115 B, 유지 상한까지 25,916 B) PASS. 운영 `5dd7cc1f`와
+      견준 런타임 경로 변경은 App 17개, 다른 다섯 Worker 0개라 target `app`이다. 남은 것: PR CI, Codex, exact-main CI, 릴리스
+      smoke, 배포(target `app`, Developer API D1 `false`, `raise_app_build_floor` `false`, 업데이트 창이 뜸). 로컬 결과는
+      exact-main-SHA 후보를 대신하지 않는다. 되돌리기 경계(9.0.15 / v788로의 App 되돌리기는 바닥 787 위라 `lower` 없이 됨)는
+      [보고서의 배포·회복](design/phase5-5b-receive-slot-behaviour-2026-10-26.md#배포회복)에 있고 배포 뒤 §4로 옮긴다. [5B 보고서](design/phase5-5b-receive-slot-behaviour-2026-10-26.md),
+      [QA 라운드 6](design/phase5-5b-receive-slot-behaviour-2026-10-26.md#6-릴리스-a-합침-뒤-다시-돌리기-0d59df41-2026-10-27),
+      [QA 라운드 7](design/phase5-5b-receive-slot-behaviour-2026-10-26.md#7-릴리스-a-기록-합침-08509f84-2026-10-27),
+      [QA 라운드 8](design/phase5-5b-receive-slot-behaviour-2026-10-26.md#8-bump-뒤-최종-검사-198b8cf8-9016--v789-2026-10-27).
+- [ ] 5B 호환(AGENTS.md: 호환이 바뀜): 시스템 오디오 계약 표지 `single-stereo-v3+heartbeat-state-v1`, D1, 비밀,
+      바인딩은 그대로다. 보내는 프레임 변화는 OV-B06 하나다. 이 빌드의 방장은 직접 경로가 실패한 원격 피어에 READY
+      `{ audience: 'remote', handoffFromDirect: true }`를 보낸다(전에는 `'all'`). 9.0.12~9.0.15 게스트가 'direct'와
+      'unselected' 두 경로에서 받는다. OV-B05: 방장은 `SYSTEM_AUDIO_SFU_CAPABILITY`를 처리하지 않고(검사 뒤 버림) 모든
+      LAN 피어를 SFU 가능으로 본다. 게스트는 나중 floor까지 표지를 계속 보낸다(OV-F06). OV-A08: 이 빌드의 수신기는
+      `surface` 없는 START와 `audience` 없는 SFU_READY를 거절한다(9.0.12~9.0.15의 보내는 쪽은 모두 둘 다 넣고, 모르는
+      짧은 surface는 계속 'display'로 읽음). OV-A04: PRO 시스템 오디오 컨트롤러의 인증 없는 피어 fan-out 수신 경로를
+      지웠다(8.3.72부터 운영 호출자 없음). G1~G6, C4-13, SA-9, 코디네이터 잔재는 프레임을 바꾸지 않는다(G6은 로컬 전송
+      콜백 하나). 이 빌드가 보내는 모든 프레임은 9.0.12~9.0.15 정확한 키 수신기가 받는다. 최소 빌드 787 아래는 새 입장과
+      재접속에서 거절되므로 운영의 혼합은 9.0.14, 운영 중인 릴리스 A(9.0.15)와 5B 사이다. 옛 버전 항목이 floor 아래
+      클라이언트에서 가져가는 것(8.4.37 이하 LAN 게스트의 직접 실패 뒤 STOP 대신 30초 뒤 `receive_failed`, 8.4.38~8.4.39
+      원격 게스트의 늦은 직접 통화 울타리, 8.4.29 전 방장이 floor 전에 연 방의 START 거절)은 보고서의
+      [호환과 혼합 버전](design/phase5-5b-receive-slot-behaviour-2026-10-26.md#호환과-혼합-버전)에 있다.
+- [ ] 5B 배포 뒤 실기기 확인(게이트 아님, 2026-10-25 결정): 5B 코드로 실제 기기를 돌리지 않았다. 기기 기대값은 결과보다
+      먼저 보고서에 고정했고, 그 통과와 퇴행 기준은 메인 세션이 결과와 견줄 때만 쓴다. 오너는 5A 보고서의 기기 시트만
+      보고 돌린다(블라인드). 바뀜이 예상되는 단계는 5P-5(C4-13)와 PRO LAN-direct 청취자의 공유 중지(5B-G6 틈 11)이고,
+      선택 확인 둘은 PRO SFU 공유가 두 시간 제한에 닿을 때(5B-G6 틈 12)와 PRO 데스크톱 공유자의 SFU 발행자 복구(5B-G4)다.
+      그 밖의 Set 5S·5P 단계는 바뀜 예상이 없고, 그 단계의 퇴행은 5B 퇴행 후보다. 아래 5A 항목의 기기 세션이 아직 없으므로
+      첫 세션이 5B 뒤면 5P-5 값은 고친 뒤 근거로만 적는다. 혼합 버전 기기 행은 하지 않는다(P5-D9 C).
+      [기기 기대값](design/phase5-5b-receive-slot-behaviour-2026-10-26.md#기기-기대값-결과보다-먼저-고정),
+      [실기기로 확인하지 않은 것](design/phase5-5b-receive-slot-behaviour-2026-10-26.md#실기기로-확인하지-않은-것).
+
 ### 구버전 호환 코드 제거 열차 2 릴리스 A(9.0.15/v788) 배포 뒤 확인: 바닥 787 아래만 섬기던 앱 쪽 호환 코드
 
 - [ ] 범위와 상태(오너 정책 2026-10-25 약 16:40 KST, 바닥 결정 약 18:30 KST, 작은 통신 필드 2026-10-26 약 00:10 KST, 5B와 병렬 약 14:10 KST): 최소 앱
@@ -1719,14 +1783,15 @@ PRO 방장 공지의 중도 참여 복원은 별도 정책이며 이번 서비�
       21:30 KST 배포) Phase 4는 4D까지 앱 업데이트 네 번이 됐다(기기 확인이 실패하면 9.0.10의 보조 경로 동작으로
       forward revert, RO-35는 4D에서 지움). 오너 결정(2026-10-25, P5-D3 A): Phase 5도 앱 업데이트 두 번이다.
       5A(수신 슬롯 이동, 동작 그대로, 9.0.12 / v785로 2026-10-26 10:34 KST 배포됨)와 5B(오너가 고르는 동작
-      변경, 각자 실패 테스트 먼저)다.
+      변경, 각자 실패 테스트 먼저, 배포 전 항목은 이 절 맨 위)다.
       [결정 근거](design/resource-ownership-registry.md#consolidation-phases),
       [게이트에 막힌 실행](design/server-constant-homes-2026-10-23.md#호환성),
       [4A 보고서](design/phase4-4a-transport-rejoin-2026-10-24.md#오너-결정-2026-10-24),
       [4B 보고서](design/phase4-4b-behaviour-2026-10-25.md#오너-결정-2026-10-25),
       [4C 보고서](design/phase4-4c-link-liveness-2026-10-25.md#오너-결정),
       [4D 보고서](design/phase4-4d-side-route-owner-2026-10-25.md#오너-결정),
-      [5A 보고서](design/phase5-5a-receive-slot-2026-10-25.md#오너-결정).
+      [5A 보고서](design/phase5-5a-receive-slot-2026-10-25.md#오너-결정),
+      [5B 보고서](design/phase5-5b-receive-slot-behaviour-2026-10-26.md#오너-결정).
 - [ ] 8.11.32 배포 뒤 실기 확인(2026-10-21 03:41 KST 배포됨): iPhone에서 재생목록 길게 누르기가 글자를 선택하지
       않는지, 데스크톱 길게 클릭·끌기 가장자리 자동 스크롤, 백그라운드 복귀마다 Sync(일반방 YouTube 방장이 돌아올 때마다
       게스트가 최대 3초에 한 번 다시 맞춘다), 권한 확인 중 안내, 화면 보호기 두 번 탭 종료·저음 밝기를 실제 기기로 본다.

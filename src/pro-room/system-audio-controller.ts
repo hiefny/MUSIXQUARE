@@ -215,16 +215,11 @@ export class ProRoomSystemAudioController {
     this.#assertOperationCurrent(roomCode, epoch);
     // This dedicated authenticated resource is the source of truth for the
     // one-way LAN-direct -> SFU promotion, which intentionally changes the
-    // publication at the same generation/live rank. Peer fanout still goes
-    // through acceptProSystemAudioState() and cannot rewrite equal-rank state.
+    // publication at the same generation/live rank. It is the only source of
+    // state: this GET, a presence heartbeat carrying the same read, and the
+    // lease operations' own responses. A PRO room has had no peer fan-out of
+    // this state since 7.0.0.
     return this.#acceptAuthenticatedProSystemAudioState(incoming);
-  }
-
-  acceptProSystemAudioState(value: unknown): ProRoomSystemAudioState {
-    if (!this.#session) throw new ProRoomSystemAudioControllerError('SESSION_INACTIVE');
-    const incoming = parseProRoomSystemAudioState(value);
-    if (!incoming) throw new ProRoomSystemAudioControllerError('INVALID_STATE');
-    return this.#acceptParsedState(incoming, false);
   }
 
   /**
@@ -240,13 +235,10 @@ export class ProRoomSystemAudioController {
     if (!this.#session) throw new ProRoomSystemAudioControllerError('SESSION_INACTIVE');
     const incoming = parseProRoomSystemAudioState(value);
     if (!incoming) throw new ProRoomSystemAudioControllerError('INVALID_STATE');
-    return this.#acceptParsedState(incoming, true);
+    return this.#acceptParsedState(incoming);
   }
 
-  #acceptParsedState(
-    incoming: ProRoomSystemAudioState,
-    authenticated: boolean,
-  ): ProRoomSystemAudioState {
+  #acceptParsedState(incoming: ProRoomSystemAudioState): ProRoomSystemAudioState {
     const current = this.#state;
     if (current) {
       if (incoming.generation < current.generation) return cloneState(current);
@@ -272,12 +264,12 @@ export class ProRoomSystemAudioController {
               incoming.status === 'live' &&
               isProRoomSystemAudioSfuPublication(current.publication) &&
               isProRoomSystemAudioDirectPublication(incoming.publication);
-            // The only canonical equal-rank mutation is the authenticated,
-            // same-publication LAN-direct -> SFU promotion. A delayed older
-            // GET may still return the direct descriptor after that commit;
-            // retain the terminal SFU route instead of resurrecting P2P.
+            // The only canonical equal-rank mutation is the same-publication
+            // LAN-direct -> SFU promotion. A delayed older GET may still
+            // return the direct descriptor after that commit; retain the
+            // terminal SFU route instead of resurrecting P2P.
             if (staleSfuToDirect) return cloneState(current);
-            if (!authenticated || !directToSfu) {
+            if (!directToSfu) {
               throw new ProRoomSystemAudioControllerError('STATE_CONFLICT');
             }
           } else {

@@ -842,7 +842,7 @@ export interface ProtocolMap {
   'request-chat-command': { command: string; args: string[] };
 
   // ── System Audio Sharing ──────────────────────────────────────
-  'system-audio-start': { surface?: SystemAudioSurface };
+  'system-audio-start': { surface: SystemAudioSurface };
   'system-audio-sfu-capability': {
     version: 2;
     localAudience: true;
@@ -850,7 +850,7 @@ export interface ProtocolMap {
   'system-audio-sfu-ready': {
     version: 2;
     /** `all` lets a LAN guest consume the publication instead of P2P. */
-    audience?: 'remote' | 'all';
+    audience: 'remote' | 'all';
     /** Authenticated recovery from a failed warm direct-media negotiation. */
     handoffFromDirect?: true;
     sessionId: string;
@@ -1685,7 +1685,7 @@ interface BaseEventMap {
   'system-audio:stop': [options?: { reason?: SystemAudioStopReason }];
   'system-audio:force-stop': [];
   'system-audio:streams-ready': [];
-  'system-audio:incoming-call': [mediaConn: unknown, channel: string];
+  'system-audio:incoming-call': [mediaConn: unknown];
   'system-audio:sfu-fallback': [reason: string];
   'system-audio:sfu-peer-needed': [peerId: string, reason: string];
   'system-audio:host-started': [];

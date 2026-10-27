@@ -93,6 +93,30 @@ runbooks. Neither belongs in a general setup document.
 
 ## Maintained evidence and completed records
 
+- [Phase 5 train 5B: receive-slot behaviour fixes and the system-audio old-version items (2026-10-26)](design/phase5-5b-receive-slot-behaviour-2026-10-26.md):
+  evidence for the structure program's second Phase 5 app train (not yet released; it ships after
+  the forced-update train 9.0.14 / v787 with its client floor 787, release W and the removal
+  train's App release A 9.0.15 / v788, released 2026-10-27 06:20 KST, in one line; 9.0.16 / v789
+  from bump `198b8cf8` after merging main up to release A's record `1ff7fdf2`; target `app`, App 17
+  runtime paths and 0 for the other five Workers against production `5dd7cc1f`). It fixes the gaps that C4-0 pinned as today's behaviour in the system-audio receive
+  slot (RO-04) in six labelled groups, each with its failing test first: the attach fence (gaps 2
+  and 3), the PRO coordinator's force-stop and successor teardown (4, 5), the Standard SFU
+  re-publication handoff (1), the sharer's own claim (6), the nested end's restore point (7) and
+  the route closures the slot hears (11, 12). C4-13 makes the post-share restore and the
+  foreground repair arm a hidden share end's return once (gap 10; RO-21 owner-in-place, RO-41
+  deleted). It also removes the system-audio old-version items (OV-A04, the coordinator-era
+  adopt, OV-B05, OV-B06, OV-A08) and the dead channel argument of the direct call event (SA-9).
+  The report lists the owner decisions, the plan critique and its dispositions, each increment
+  with its commits, tests-first evidence and fixed device expectation, what stays as is (gaps 8,
+  9, 13, 14, SA-2 and an owner observation on the direct call's boundary refusal), the
+  compatibility lines for the release record (one changed sent frame, the failed-direct READY
+  audience) with who loses what for each old-version item, the QA rounds (per increment, a
+  train-end replay of the system-audio suites at every code commit, the final checks, the lane
+  checks again after each of the two main merges, the guard counts after the release A record merge,
+  and the final checks after the bump: unit 16,108, Worker 3,182, critical E2E 61/61, critical
+  coverage 3,444, candidate Playwright 19/19, system-audio Playwright 5/5), the eager JS delta
+  (465,652 B, -115 B against production main `5dd7cc1f`), the deploy target and rollback boundaries, a `guard:sw-cache-version`
+  false pass on a merge commit (no tooling change) and what was not verified on devices.
 - [Old-version removal train 2, release A: App compatibility code below the 787 build floor (2026-10-26)](design/old-version-removal-2a-app-2026-10-26.md):
   release evidence for the App release of the second removal train (9.0.15 / v788 from bump
   `8407046a`, released 2026-10-27 06:20 KST in Release 40403240275 from main `5dd7cc1f`, target

@@ -44,8 +44,11 @@ import { getAudioTrackStreamKey } from './webrtc-audio-decoder-primer.ts';
 // ─── Tuning ───────────────────────────────────────────────────────
 // The playout-delay hint and the receive deadline live in
 // system-audio-media.ts with the other routes'.
-const SYSTEM_AUDIO_REPLACEMENT_WATCHDOG_PREFIX = 'sys-audio-guest-replacement-watchdog';
+// The direct call carries the one native stereo track, its only call type.
+// 'STEREO' still labels its log lines, its timer names and its /debug sa
+// channel record.
 const SYSTEM_AUDIO_CHANNEL = 'STEREO';
+const SYSTEM_AUDIO_REPLACEMENT_WATCHDOG = `sys-audio-guest-replacement-watchdog-${SYSTEM_AUDIO_CHANNEL}`;
 // The direct call's route in the receive slot, which holds its source and
 // decoder primer.
 const DIRECT_ROUTE = 'standard-direct';
@@ -55,7 +58,7 @@ const DIRECT_ROUTE = 'standard-direct';
 let _mediaConnStereo: MediaConnection | null = null;
 
 let _initialUnmuteWaitSeq = 0;
-const _replacementWatchdogs = new Map<string, MediaConnection>();
+let _replacementWatchdogConn: MediaConnection | null = null;
 
 interface InitialUnmuteWaiter {
   mediaConn: MediaConnection;
@@ -80,22 +83,12 @@ interface GuestChannelDebug {
   pc?: RTCPeerConnection;
 }
 
-const _debugChannels = new Map<string, GuestChannelDebug>();
+let _debugChannel: GuestChannelDebug | null = null;
 let _debugLastStopAt = 0;
 
 function errorToDebugString(error: unknown): string {
   if (error instanceof Error) return error.message;
   return String(error);
-}
-
-function currentMediaConnection(channel: string): MediaConnection | null {
-  return channel === SYSTEM_AUDIO_CHANNEL ? _mediaConnStereo : null;
-}
-
-function setCurrentMediaConnection(channel: string, mediaConn: MediaConnection | null): boolean {
-  if (channel !== SYSTEM_AUDIO_CHANNEL) return false;
-  _mediaConnStereo = mediaConn;
-  return true;
 }
 
 function closeMediaConnection(mediaConn: MediaConnection | null): void {
@@ -114,26 +107,22 @@ function cancelInitialUnmuteWaiters(mediaConn?: MediaConnection): void {
   }
 }
 
-function replaceCurrentMediaConnection(channel: string, mediaConn: MediaConnection): boolean {
-  const previous = currentMediaConnection(channel);
-  if (!setCurrentMediaConnection(channel, mediaConn)) return false;
+function replaceCurrentMediaConnection(mediaConn: MediaConnection): void {
+  const previous = _mediaConnStereo;
+  _mediaConnStereo = mediaConn;
   if (previous && previous !== mediaConn) {
     cancelInitialUnmuteWaiters(previous);
     closeMediaConnection(previous);
   }
-  return true;
 }
 
-function isCurrentMediaConnection(channel: string, mediaConn: MediaConnection): boolean {
-  return currentMediaConnection(channel) === mediaConn;
+function isCurrentMediaConnection(mediaConn: MediaConnection): boolean {
+  return _mediaConnStereo === mediaConn;
 }
 
-function getDebugChannel(channel: string): GuestChannelDebug {
-  const existing = _debugChannels.get(channel);
-  if (existing) return existing;
-  const created: GuestChannelDebug = { channel, streamTracks: [] };
-  _debugChannels.set(channel, created);
-  return created;
+function getDebugChannel(): GuestChannelDebug {
+  _debugChannel ??= { channel: SYSTEM_AUDIO_CHANNEL, streamTracks: [] };
+  return _debugChannel;
 }
 
 function readMetadataType(metadata: MediaConnection['metadata']): string {
@@ -146,36 +135,28 @@ function isSystemAudioPlaceholder(): boolean {
   return isSystemAudioPlaceholderMeta(currentMeta);
 }
 
-function replacementWatchdogName(channel: string): string {
-  return `${SYSTEM_AUDIO_REPLACEMENT_WATCHDOG_PREFIX}-${channel}`;
+function clearReplacementWatchdog(mediaConn?: MediaConnection): void {
+  if (mediaConn && _replacementWatchdogConn !== mediaConn) return;
+  _replacementWatchdogConn = null;
+  clearManagedTimer(SYSTEM_AUDIO_REPLACEMENT_WATCHDOG);
 }
 
-function clearReplacementWatchdog(channel: string, mediaConn?: MediaConnection): void {
-  if (mediaConn && _replacementWatchdogs.get(channel) !== mediaConn) return;
-  _replacementWatchdogs.delete(channel);
-  clearManagedTimer(replacementWatchdogName(channel));
-}
-
-function armReplacementWatchdog(channel: string, mediaConn: MediaConnection): void {
-  _replacementWatchdogs.set(channel, mediaConn);
+function armReplacementWatchdog(mediaConn: MediaConnection): void {
+  _replacementWatchdogConn = mediaConn;
   setManagedTimer(
-    replacementWatchdogName(channel),
+    SYSTEM_AUDIO_REPLACEMENT_WATCHDOG,
     () => {
-      if (_replacementWatchdogs.get(channel) !== mediaConn) return;
-      _replacementWatchdogs.delete(channel);
-      if (!isCurrentMediaConnection(channel, mediaConn)) return;
+      if (_replacementWatchdogConn !== mediaConn) return;
+      _replacementWatchdogConn = null;
+      if (!isCurrentMediaConnection(mediaConn)) return;
 
-      log.warn(`[SysAudioGuest] Timed out waiting for replacement ${channel} stream`);
+      log.warn(`[SysAudioGuest] Timed out waiting for replacement ${SYSTEM_AUDIO_CHANNEL} stream`);
       // The receive slot runs the routes' deadline reactions, ends the
       // reception and shows receive_failed, as its own deadline does.
       expireTrustedSystemAudioReception();
     },
     SYSTEM_AUDIO_RECEIVE_TIMEOUT_MS,
   );
-}
-
-function clearAllReplacementWatchdogs(): void {
-  clearReplacementWatchdog(SYSTEM_AUDIO_CHANNEL);
 }
 
 function describeAudioTracks(tracks: MediaStreamTrack[]): string {
@@ -186,23 +167,22 @@ function describeAudioTracks(tracks: MediaStreamTrack[]): string {
   );
 }
 
-function primeGuestWindowsAudioDecoder(channel: string, tracks: MediaStreamTrack[]): void {
+function primeGuestWindowsAudioDecoder(tracks: MediaStreamTrack[]): void {
   primeSystemAudioDecoder(DIRECT_ROUTE, tracks, {
-    streamKey: getAudioTrackStreamKey(channel, tracks),
-    label: channel,
+    streamKey: getAudioTrackStreamKey(SYSTEM_AUDIO_CHANNEL, tracks),
+    label: SYSTEM_AUDIO_CHANNEL,
     logPrefix: '[SysAudioGuest]',
   });
 }
 
 async function waitForInitialUnmute(
-  channel: string,
   tracks: MediaStreamTrack[],
   mediaConn: MediaConnection,
 ): Promise<boolean> {
   if (tracks.length === 0 || tracks.every((track) => !track.muted)) return true;
 
   log.info(
-    `[SysAudioGuest] ${channel} stream arrived muted; waiting for unmute before graph attach`,
+    `[SysAudioGuest] ${SYSTEM_AUDIO_CHANNEL} stream arrived muted; waiting for unmute before graph attach`,
   );
 
   return new Promise<boolean>((resolve) => {
@@ -223,7 +203,7 @@ async function waitForInitialUnmute(
       settled = true;
       cleanup();
       log.info(
-        `[SysAudioGuest] ${channel} graph attach after ${reason}: ${describeAudioTracks(tracks)}`,
+        `[SysAudioGuest] ${SYSTEM_AUDIO_CHANNEL} graph attach after ${reason}: ${describeAudioTracks(tracks)}`,
       );
       resolve(ready);
     };
@@ -252,7 +232,8 @@ export function getSystemAudioGuestDebugSnapshot() {
   // gotStereo and sourceStereo both mean "the direct call attached a source";
   // the primer is reported apart (it is taken before the trust boundary).
   const direct = getSystemAudioReceiveRouteSnapshot(DIRECT_ROUTE);
-  const channels = [..._debugChannels.values()].map((channel) => ({
+  const debugChannels = _debugChannel ? [_debugChannel] : [];
+  const channels = debugChannels.map((channel) => ({
     channel: channel.channel,
     incomingAt: channel.incomingAt,
     peerId: channel.peerId,
@@ -289,7 +270,7 @@ export function getSystemAudioGuestDebugSnapshot() {
     watchdogTimedOutAt: slot.watchdogTimedOutAt,
     watchdogActive: slot.watchdogActive,
     channels,
-    peerConnections: [..._debugChannels.values()]
+    peerConnections: debugChannels
       .filter((channel): channel is GuestChannelDebug & { pc: RTCPeerConnection } => !!channel.pc)
       .map((channel) => ({
         label: `guest:${channel.channel}:${(channel.peerId || '?').slice(0, 8)}`,
@@ -300,9 +281,9 @@ export function getSystemAudioGuestDebugSnapshot() {
 
 // ─── Handle Incoming Media Call ───────────────────────────────────
 
-async function handleIncomingCall(mediaConn: MediaConnection, channel: string): Promise<void> {
-  log.info(`[SysAudioGuest] Incoming ${channel} channel call`);
-  const debug = getDebugChannel(channel);
+async function handleIncomingCall(mediaConn: MediaConnection): Promise<void> {
+  log.info(`[SysAudioGuest] Incoming ${SYSTEM_AUDIO_CHANNEL} channel call`);
+  const debug = getDebugChannel();
   debug.incomingAt = Date.now();
   debug.peerId = mediaConn.peer;
   debug.metadataType = readMetadataType(mediaConn.metadata);
@@ -316,12 +297,8 @@ async function handleIncomingCall(mediaConn: MediaConnection, channel: string): 
   debug.error = undefined;
   debug.pc = mediaConn.peerConnection;
 
-  const previousConnection = currentMediaConnection(channel);
-  if (!replaceCurrentMediaConnection(channel, mediaConn)) {
-    log.warn(`[SysAudioGuest] Ignored unsupported channel call: ${channel}`);
-    closeMediaConnection(mediaConn);
-    return;
-  }
+  const previousConnection = _mediaConnStereo;
+  replaceCurrentMediaConnection(mediaConn);
   if (
     previousConnection &&
     previousConnection !== mediaConn &&
@@ -332,14 +309,16 @@ async function handleIncomingCall(mediaConn: MediaConnection, channel: string): 
     // emitting `stream`. Track the exact successor independently of the
     // initial receive watchdog so a silent handoff cannot leave a permanent
     // receiving=true / no-audio state.
-    armReplacementWatchdog(channel, mediaConn);
+    armReplacementWatchdog(mediaConn);
   }
 
   const attachStream = async (remoteStream: MediaStream): Promise<void> => {
-    if (!isCurrentMediaConnection(channel, mediaConn)) return;
-    log.info(`[SysAudioGuest] Received ${channel} stream`);
+    if (!isCurrentMediaConnection(mediaConn)) return;
+    log.info(`[SysAudioGuest] Received ${SYSTEM_AUDIO_CHANNEL} stream`);
     const streamTracks = remoteStream.getAudioTracks();
-    log.info(`[SysAudioGuest] ${channel} stream tracks: ${describeAudioTracks(streamTracks)}`);
+    log.info(
+      `[SysAudioGuest] ${SYSTEM_AUDIO_CHANNEL} stream tracks: ${describeAudioTracks(streamTracks)}`,
+    );
     debug.streamAt = Date.now();
     debug.streamTracks = streamTracks.map(
       (track) => `${track.id.slice(0, 8)}:${track.readyState}${track.muted ? ':muted' : ''}`,
@@ -352,18 +331,19 @@ async function handleIncomingCall(mediaConn: MediaConnection, channel: string): 
     // playing media element asks the decoder to consume it. Prime immediately
     // after validating the tracks so the bounded unmute wait below observes
     // the decoder wake-up instead of timing out before the primer is attached.
-    primeGuestWindowsAudioDecoder(channel, streamTracks);
-    const unmuteWaitAccepted = await waitForInitialUnmute(channel, streamTracks, mediaConn);
-    if (!unmuteWaitAccepted || !isCurrentMediaConnection(channel, mediaConn)) return;
+    primeGuestWindowsAudioDecoder(streamTracks);
+    const unmuteWaitAccepted = await waitForInitialUnmute(streamTracks, mediaConn);
+    if (!unmuteWaitAccepted || !isCurrentMediaConnection(mediaConn)) return;
 
     // PeerJS media and data channels are independently ordered. A stream can
     // arrive before the authenticated SYSTEM_AUDIO_START frame, or while the
     // prior file output is still draining. Do not connect that stream
     // to the audible graph until the exact trusted owner-switch boundary has
     // committed.
-    const trustedReceptionReady = await awaitTrustedSystemAudioReceptionBoundary(channel);
-    if (!trustedReceptionReady || !isCurrentMediaConnection(channel, mediaConn)) {
-      if (isCurrentMediaConnection(channel, mediaConn)) {
+    const trustedReceptionReady =
+      await awaitTrustedSystemAudioReceptionBoundary(SYSTEM_AUDIO_CHANNEL);
+    if (!trustedReceptionReady || !isCurrentMediaConnection(mediaConn)) {
+      if (isCurrentMediaConnection(mediaConn)) {
         closeMediaConnection(mediaConn);
       }
       return;
@@ -379,7 +359,7 @@ async function handleIncomingCall(mediaConn: MediaConnection, channel: string): 
     }
 
     await initAudio();
-    if (!isCurrentMediaConnection(channel, mediaConn)) return;
+    if (!isCurrentMediaConnection(mediaConn)) return;
     // The receive slot swaps the call's previous source for this stream and,
     // on a reception's first attach, sets receiving and claims the owner. The
     // primer above stays as it is: a later stream may already have replaced
@@ -392,12 +372,23 @@ async function handleIncomingCall(mediaConn: MediaConnection, channel: string): 
         onConnected: () => {
           debug.graphAt = Date.now();
           debug.graphError = undefined;
-          clearReplacementWatchdog(channel, mediaConn);
+          clearReplacementWatchdog(mediaConn);
         },
-        connectedLog: `[SysAudioGuest] System audio connected to graph (${channel})`,
+        connectedLog: `[SysAudioGuest] System audio connected to graph (${SYSTEM_AUDIO_CHANNEL})`,
       },
     );
-    if (!attached) {
+    if (attached === 'not-receiving') {
+      // The reception ended or another owner plays (5B-G1); the slot dropped
+      // this route's source and primer. Keep the call open and current: a
+      // guest close sends media-close, and while the share is active the
+      // host hands this guest to the SFU with STOP, START and READY, whose
+      // START would stop the successor. STOP or the reception's end closes
+      // it through the end port. Its replacement deadline goes too, so it
+      // cannot expire the reception (and close the call) later.
+      clearReplacementWatchdog(mediaConn);
+      return;
+    }
+    if (attached === 'graph-unavailable') {
       log.error('[SysAudioGuest] Audio graph not ready');
       throw new Error('audio-graph-not-ready');
     }
@@ -407,9 +398,9 @@ async function handleIncomingCall(mediaConn: MediaConnection, channel: string): 
     void attachStream(remoteStream).catch((error: unknown) => {
       // A replacement connection can win while initial unmute/audio init is
       // awaiting. A stale rejection must never tear down its successor.
-      if (!isCurrentMediaConnection(channel, mediaConn)) return;
+      if (!isCurrentMediaConnection(mediaConn)) return;
       debug.graphError = errorToDebugString(error);
-      log.warn(`[SysAudioGuest] ${channel} stream graph failed:`, error);
+      log.warn(`[SysAudioGuest] ${SYSTEM_AUDIO_CHANNEL} stream graph failed:`, error);
       endTrustedSystemAudioReception();
       bus.emit('ui:show-toast', t('system_audio.receive_failed'));
     });
@@ -417,17 +408,17 @@ async function handleIncomingCall(mediaConn: MediaConnection, channel: string): 
 
   mediaConn.on('close', () => {
     cancelInitialUnmuteWaiters(mediaConn);
-    if (!isCurrentMediaConnection(channel, mediaConn)) return;
-    log.info(`[SysAudioGuest] ${channel} MediaConnection closed`);
+    if (!isCurrentMediaConnection(mediaConn)) return;
+    log.info(`[SysAudioGuest] ${SYSTEM_AUDIO_CHANNEL} MediaConnection closed`);
     debug.closedAt = Date.now();
-    clearReplacementWatchdog(channel, mediaConn);
-    setCurrentMediaConnection(channel, null);
+    clearReplacementWatchdog(mediaConn);
+    _mediaConnStereo = null;
     endTrustedSystemAudioReception();
   });
 
   mediaConn.on('error', (err: unknown) => {
-    if (!isCurrentMediaConnection(channel, mediaConn)) return;
-    log.warn(`[SysAudioGuest] ${channel} error:`, err);
+    if (!isCurrentMediaConnection(mediaConn)) return;
+    log.warn(`[SysAudioGuest] ${SYSTEM_AUDIO_CHANNEL} error:`, err);
     debug.error = errorToDebugString(err);
     // Cloudflare media calls share the data RTCPeerConnection. Closing the
     // exact failed call lets the transport serialize an identity-fenced SDP
@@ -442,7 +433,7 @@ async function handleIncomingCall(mediaConn: MediaConnection, channel: string): 
     debug.answerAt = Date.now();
     debug.answerError = undefined;
   } catch (err) {
-    log.warn(`[SysAudioGuest] ${channel} answer failed:`, err);
+    log.warn(`[SysAudioGuest] ${SYSTEM_AUDIO_CHANNEL} answer failed:`, err);
     debug.answerError = errorToDebugString(err);
     closeMediaConnection(mediaConn);
   }
@@ -455,7 +446,7 @@ async function handleIncomingCall(mediaConn: MediaConnection, channel: string): 
 // receiving flag drops (system-audio-receive-slot.ts).
 function endStandardDirectReception(): void {
   cancelInitialUnmuteWaiters();
-  clearAllReplacementWatchdogs();
+  clearReplacementWatchdog();
   detachSystemAudioRoute(DIRECT_ROUTE);
   // Clear identities before close() so synchronous/stale close events cannot
   // recursively clean the graph or null a replacement connection.
@@ -512,12 +503,7 @@ export function registerSystemAudioGuestListeners(): void {
     },
   );
 
-  bus.on('system-audio:incoming-call', (mediaConn: unknown, channel: string) => {
-    if (channel !== SYSTEM_AUDIO_CHANNEL) {
-      log.warn(`[SysAudioGuest] Rejected obsolete system-audio call type: ${channel}`);
-      closeMediaConnection(mediaConn as MediaConnection);
-      return;
-    }
+  bus.on('system-audio:incoming-call', (mediaConn: unknown) => {
     if (!claimGuestDirectSystemAudioRoute()) {
       log.info('[SysAudioGuest] Ignored stale direct call after all-audience SFU route froze');
       try {
@@ -527,7 +513,7 @@ export function registerSystemAudioGuestListeners(): void {
       }
       return;
     }
-    handleIncomingCall(mediaConn as MediaConnection, channel).catch((e) =>
+    handleIncomingCall(mediaConn as MediaConnection).catch((e) =>
       log.error('[SysAudioGuest] handleIncomingCall failed:', e),
     );
   });

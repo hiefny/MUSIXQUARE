@@ -9,9 +9,7 @@ import {
   getRemainingDirectSystemAudioCapacity,
   getSystemAudioShareDeliverySnapshot,
   isSystemAudioDirectFailurePeer,
-  markLocalSystemAudioSfuCapable,
   promoteSystemAudioPeerDeliveryToSfu,
-  resetLocalSystemAudioSfuCapabilities,
   resetGuestSystemAudioShareRoute,
   resolveSystemAudioPeerDelivery,
 } from '../system-audio-delivery.ts';
@@ -33,69 +31,93 @@ function peer(
 
 afterEach(() => {
   endSystemAudioShareDelivery();
-  resetLocalSystemAudioSfuCapabilities();
   resetGuestSystemAudioShareRoute();
 });
 
+// Every LAN guest can consume an all-audience SFU publication (5B-OV2,
+// old-version survey OV-B05): the host no longer reads the guests'
+// SYSTEM_AUDIO_SFU_CAPABILITY marker, which only told it apart from clients
+// below 8.4.38. A LAN guest beyond the eight direct slots, and every late LAN
+// guest of an all-SFU share, goes to the SFU with the 'all' audience; nothing
+// is 'unsupported'.
 describe('bounded system-audio delivery policy', () => {
-  it('keeps the original eight LAN guests direct and sends a late ninth capable guest to SFU', () => {
+  it('keeps the original eight LAN guests direct and sends a late ninth guest to SFU', () => {
     const initial = Array.from({ length: 8 }, (_, index) => peer(`local-${index + 1}`));
-    initial.forEach((item) => markLocalSystemAudioSfuCapable(item.id));
     expect(beginSystemAudioShareDelivery(initial)).toBe('hybrid');
     initial.forEach((item) => expect(resolveSystemAudioPeerDelivery(item)).toBe('direct'));
 
     const ninth = peer('local-9');
-    markLocalSystemAudioSfuCapable(ninth.id);
     expect(resolveSystemAudioPeerDelivery(ninth)).toBe('sfu');
     initial.forEach((item) => expect(resolveSystemAudioPeerDelivery(item)).toBe('direct'));
   });
 
-  it('leaves an incapable late ninth guest unsupported instead of exceeding eight direct calls', () => {
-    const initial = Array.from({ length: 8 }, (_, index) => peer(`legacy-base-${index + 1}`));
-    beginSystemAudioShareDelivery(initial);
+  it('gives late LAN guests a free direct slot first, then the SFU with the all audience, never a ninth direct call (5B-OV2)', () => {
+    const initial = Array.from({ length: 7 }, (_, index) => peer(`base-${index + 1}`));
+    expect(beginSystemAudioShareDelivery(initial)).toBe('hybrid');
 
-    const lateLegacy = peer('legacy-late-9');
-    expect(resolveSystemAudioPeerDelivery(lateLegacy)).toBe('unsupported');
-    expect(getSystemAudioShareDeliverySnapshot().directPeerIds).toHaveLength(8);
-    expect(getSystemAudioShareDeliverySnapshot().sfuPeerIds).not.toContain(lateLegacy.id);
+    const late = [peer('late-8'), peer('late-9'), peer('late-10')];
+    expect(resolveSystemAudioPeerDelivery(late[0])).toBe('direct');
+    expect(resolveSystemAudioPeerDelivery(late[1])).toBe('sfu');
+    expect(resolveSystemAudioPeerDelivery(late[2])).toBe('sfu');
+    expect(getFrozenSystemAudioSfuAudience(late[1].id)).toBe('all');
+    expect(getFrozenSystemAudioSfuAudience(late[2].id)).toBe('all');
+    const snapshot = getSystemAudioShareDeliverySnapshot();
+    expect(snapshot.directPeerIds).toHaveLength(8);
+    expect(snapshot.sfuPeerIds).toEqual([late[1].id, late[2].id]);
   });
 
-  it('freezes a 9+ current-client LAN room entirely on SFU at share start', () => {
+  it('freezes a 9+ LAN room entirely on SFU at share start', () => {
     const peers = Array.from({ length: 9 }, (_, index) => peer(`all-${index + 1}`));
-    peers.forEach((item) => markLocalSystemAudioSfuCapable(item.id));
 
     expect(beginSystemAudioShareDelivery(peers)).toBe('all-sfu');
-    peers.forEach((item) => expect(resolveSystemAudioPeerDelivery(item)).toBe('sfu'));
+    peers.forEach((item) => {
+      expect(resolveSystemAudioPeerDelivery(item)).toBe('sfu');
+      expect(getFrozenSystemAudioSfuAudience(item.id)).toBe('all');
+    });
     expect(getSystemAudioShareDeliverySnapshot().directPeerIds).toHaveLength(0);
   });
 
-  it('uses free direct slots for late legacy guests without moving an all-SFU audience', () => {
-    const current = Array.from({ length: 9 }, (_, index) => peer(`sfu-${index + 1}`));
-    current.forEach((item) => markLocalSystemAudioSfuCapable(item.id));
-    expect(beginSystemAudioShareDelivery(current)).toBe('all-sfu');
+  it('sends late LAN guests of an all-SFU share to the SFU too, leaving the direct slots free (5B-OV2)', () => {
+    const initial = Array.from({ length: 9 }, (_, index) => peer(`sfu-${index + 1}`));
+    expect(beginSystemAudioShareDelivery(initial)).toBe('all-sfu');
 
-    const lateLegacy = Array.from({ length: 9 }, (_, index) => peer(`late-legacy-${index + 1}`));
-    lateLegacy.slice(0, 8).forEach((item) => {
-      expect(resolveSystemAudioPeerDelivery(item)).toBe('direct');
+    const late = Array.from({ length: 9 }, (_, index) => peer(`late-${index + 1}`));
+    late.forEach((item) => {
+      expect(resolveSystemAudioPeerDelivery(item)).toBe('sfu');
+      expect(getFrozenSystemAudioSfuAudience(item.id)).toBe('all');
     });
-    expect(resolveSystemAudioPeerDelivery(lateLegacy[8])).toBe('unsupported');
 
-    current.forEach((item) => expect(resolveSystemAudioPeerDelivery(item)).toBe('sfu'));
+    initial.forEach((item) => expect(resolveSystemAudioPeerDelivery(item)).toBe('sfu'));
     const snapshot = getSystemAudioShareDeliverySnapshot();
-    expect(snapshot.sfuPeerIds).toHaveLength(9);
-    expect(snapshot.directPeerIds).toEqual(lateLegacy.slice(0, 8).map((item) => item.id));
+    expect(snapshot.sfuPeerIds).toHaveLength(18);
+    expect(snapshot.directPeerIds).toEqual([]);
+    expect(getRemainingDirectSystemAudioCapacity()).toBe(8);
   });
 
-  it('prioritizes legacy LAN clients for eight direct slots and never overflows them', () => {
-    const legacy = peer('legacy-1');
-    const current = Array.from({ length: 9 }, (_, index) => peer(`current-${index + 1}`));
-    current.forEach((item) => markLocalSystemAudioSfuCapable(item.id));
+  it('never overflows the eight direct slots: ten LAN guests start on the SFU and leave the direct budget to fallbacks (5B-OV2)', () => {
+    const lan = Array.from({ length: 10 }, (_, index) => peer(`lan-${index + 1}`));
 
-    expect(beginSystemAudioShareDelivery([legacy, ...current])).toBe('hybrid');
-    expect(resolveSystemAudioPeerDelivery(legacy)).toBe('direct');
-    expect(getSystemAudioShareDeliverySnapshot().directPeerIds).toHaveLength(8);
-    expect(getSystemAudioShareDeliverySnapshot().sfuPeerIds).toHaveLength(2);
-    expect(getRemainingDirectSystemAudioCapacity(['fallback-a'])).toBe(0);
+    expect(beginSystemAudioShareDelivery(lan)).toBe('all-sfu');
+    const snapshot = getSystemAudioShareDeliverySnapshot();
+    expect(snapshot.directPeerIds).toEqual([]);
+    expect(snapshot.sfuPeerIds).toHaveLength(10);
+    expect(getRemainingDirectSystemAudioCapacity(['fallback-a'])).toBe(7);
+  });
+
+  it('gives a hybrid share the direct slots to its LAN guests in join order, then to remote guests, and sends remote overflow to the SFU', () => {
+    const lan = [peer('lan-3'), peer('lan-1'), peer('lan-2')];
+    const remote = Array.from({ length: 7 }, (_, index) => peer(`rmt-${index + 4}`, 'remote'));
+
+    expect(beginSystemAudioShareDelivery([lan[0], ...remote, lan[1], lan[2]])).toBe('hybrid');
+    const snapshot = getSystemAudioShareDeliverySnapshot();
+    expect(snapshot.directPeerIds).toEqual([
+      'lan-1',
+      'lan-2',
+      'lan-3',
+      ...remote.slice(0, 5).map((item) => item.id),
+    ]);
+    expect(snapshot.sfuPeerIds).toEqual(remote.slice(5).map((item) => item.id));
+    expect(snapshot.sfuAudiences).toEqual({ 'rmt-9': 'remote', 'rmt-10': 'remote' });
   });
 
   it('counts frozen direct routes and unique fallback IDs against one shared cap', () => {
@@ -106,7 +128,7 @@ describe('bounded system-audio delivery policy', () => {
     expect(getRemainingDirectSystemAudioCapacity(['fallback-a', 'fallback-b'])).toBe(0);
   });
 
-  it('keeps a ninth remote on SFU and never lets a late local route exceed eight direct calls', () => {
+  it('keeps a ninth remote on SFU and sends a late LAN guest to the SFU, never past eight direct calls (5B-OV2)', () => {
     const remote = Array.from({ length: 9 }, (_, index) => peer(`remote-${index + 1}`, 'remote'));
     beginSystemAudioShareDelivery(remote);
     remote.slice(0, 8).forEach((item) => {
@@ -115,11 +137,12 @@ describe('bounded system-audio delivery policy', () => {
     expect(resolveSystemAudioPeerDelivery(remote[8])).toBe('sfu');
 
     const lateLocal = peer('late-local');
-    expect(resolveSystemAudioPeerDelivery(lateLocal)).toBe('unsupported');
+    expect(resolveSystemAudioPeerDelivery(lateLocal)).toBe('sfu');
+    expect(getFrozenSystemAudioSfuAudience(lateLocal.id)).toBe('all');
     const snapshot = getSystemAudioShareDeliverySnapshot();
     expect(snapshot.fallbackDirectPeerIds).toHaveLength(0);
     expect(snapshot.directPeerIds).toHaveLength(8);
-    expect(snapshot.sfuPeerIds).toEqual([remote[8].id]);
+    expect(snapshot.sfuPeerIds).toEqual([remote[8].id, lateLocal.id]);
     expect(getRemainingDirectSystemAudioCapacity()).toBe(0);
   });
 
@@ -158,6 +181,21 @@ describe('bounded system-audio delivery policy', () => {
     });
   });
 
+  it('promotes a failed warm LAN direct route to the SFU with the all audience (5B-OV2)', () => {
+    const local = peer('failed-direct-local');
+    beginSystemAudioShareDelivery([local]);
+    expect(resolveSystemAudioPeerDelivery(local)).toBe('direct');
+
+    expect(promoteSystemAudioPeerDeliveryToSfu(local)).toBe(true);
+    expect(isSystemAudioDirectFailurePeer(local.id)).toBe(true);
+    expect(resolveSystemAudioPeerDelivery(local)).toBe('sfu');
+    expect(getFrozenSystemAudioSfuAudience(local.id)).toBe('all');
+    expect(getSystemAudioShareDeliverySnapshot()).toMatchObject({
+      directPeerIds: [],
+      sfuPeerIds: [local.id],
+    });
+  });
+
   it('rejects a late direct call after explicit failure handoff while preserving ordinary fallback', () => {
     expect(freezeGuestSystemAudioSfuRoute('remote', true)).toBe(true);
     expect(claimGuestDirectSystemAudioRoute()).toBe(false);
@@ -185,21 +223,11 @@ describe('bounded system-audio delivery policy', () => {
 
   it('keeps an all-audience SFU route frozen when ICE relabels that peer as remote', () => {
     const peers = Array.from({ length: 9 }, (_, index) => peer(`audience-${index + 1}`));
-    peers.forEach((item) => markLocalSystemAudioSfuCapable(item.id));
     beginSystemAudioShareDelivery(peers);
     expect(getFrozenSystemAudioSfuAudience(peers[0].id)).toBe('all');
 
     const relabeled = { ...peers[0], connectionType: 'remote' as const };
     expect(resolveSystemAudioPeerDelivery(relabeled)).toBe('sfu');
     expect(getFrozenSystemAudioSfuAudience(relabeled.id)).toBe('all');
-  });
-
-  it('retains capability between shares but clears it for a new transport generation', () => {
-    markLocalSystemAudioSfuCapable('same-transport-peer');
-    endSystemAudioShareDelivery();
-    expect(getSystemAudioShareDeliverySnapshot().capablePeerIds).toContain('same-transport-peer');
-
-    resetLocalSystemAudioSfuCapabilities();
-    expect(getSystemAudioShareDeliverySnapshot().capablePeerIds).toEqual([]);
   });
 });

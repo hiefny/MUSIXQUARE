@@ -34,8 +34,8 @@ vi.mock('../opus-stereo-sdp.ts', () => ({ forceStereoSdp: (sdp: string) => sdp }
 import { registerSystemAudioHostListeners } from '../system-audio-host.ts';
 import {
   endSystemAudioShareDelivery,
+  getFrozenSystemAudioSfuAudience,
   getSystemAudioShareDeliverySnapshot,
-  resetLocalSystemAudioSfuCapabilities,
 } from '../system-audio-delivery.ts';
 
 function makeLocalPeer(index: number): ConnectedPeer {
@@ -77,7 +77,6 @@ beforeEach(() => {
   resetState();
   vi.clearAllMocks();
   endSystemAudioShareDelivery();
-  resetLocalSystemAudioSfuCapabilities();
   setState('network.appRole', 'host');
   mocks.isSystemAudioActive.mockReturnValue(true);
   mocks.getCapturedAudioStream.mockReturnValue(null);
@@ -88,21 +87,47 @@ afterEach(() => {
   bus.emit('system-audio:stop');
   bus.clear();
   endSystemAudioShareDelivery();
-  resetLocalSystemAudioSfuCapabilities();
 });
 
 describe('bounded direct system-audio host delivery', () => {
-  it('immediately stops a ninth legacy LAN guest before checking direct-call support', () => {
+  // Every LAN guest is SFU-capable (5B-OV2, old-version survey OV-B05): the
+  // host no longer tells guests that sent SYSTEM_AUDIO_SFU_CAPABILITY from
+  // clients below 8.4.38, so no LAN guest is 'unsupported' and none gets an
+  // immediate STOP.
+  it('starts a nine-LAN-guest share on the SFU with no direct call and no STOP (5B-OV2)', () => {
     const peers = Array.from({ length: 9 }, (_, index) => makeLocalPeer(index + 1));
     setState('network.connectedPeers', peers);
 
     bus.emit('system-audio:streams-ready');
 
-    expect(mocks.getPeer).toHaveBeenCalledTimes(8);
-    expect(mocks.safeSend).toHaveBeenCalledTimes(9);
-    expect(mocks.safeSend).toHaveBeenCalledWith(peers[8].conn, {
-      type: MSG.SYSTEM_AUDIO_STOP,
+    expect(mocks.getPeer).not.toHaveBeenCalled();
+    expect(mocks.safeSend).not.toHaveBeenCalled();
+    expect(getSystemAudioShareDeliverySnapshot()).toMatchObject({
+      mode: 'all-sfu',
+      directPeerIds: [],
+      sfuPeerIds: peers.map((peer) => peer.id),
     });
+  });
+
+  it('sends a late ninth LAN guest START and leaves it to the SFU, with no direct call and no STOP (5B-OV2)', () => {
+    const peers = Array.from({ length: 8 }, (_, index) => makeLocalPeer(index + 1));
+    const call = vi.fn(() => makeMediaConnection().mediaConn);
+    mocks.getPeer.mockReturnValue({ call });
+    mocks.getCapturedAudioStream.mockReturnValue({} as MediaStream);
+    setState('network.connectedPeers', peers);
+    bus.emit('system-audio:streams-ready');
+    expect(call).toHaveBeenCalledTimes(8);
+
+    const late = makeLocalPeer(9);
+    setState('network.connectedPeers', [...peers, late]);
+    bus.emit('orchestrator:peer-joined', late.id);
+
+    expect(call).toHaveBeenCalledTimes(8);
+    expect(
+      mocks.safeSend.mock.calls.filter(([conn]) => conn === late.conn).map(([, frame]) => frame),
+    ).toEqual([expect.objectContaining({ type: MSG.SYSTEM_AUDIO_START })]);
+    expect(getSystemAudioShareDeliverySnapshot().sfuPeerIds).toEqual([late.id]);
+    expect(getFrozenSystemAudioSfuAudience(late.id)).toBe('all');
   });
 
   it('releases the old frozen route when the same peerId gets a new exact connection', () => {
@@ -187,6 +212,127 @@ describe('bounded direct system-audio host delivery', () => {
       sfuPeerIds: [remote.id],
     });
   });
+
+  it('hands a failed LAN direct call to the SFU with the all audience instead of only stopping it (5B-OV2)', () => {
+    const local = makeLocalPeer(1);
+    const direct = makeMediaConnection();
+    mocks.getPeer.mockReturnValue({ call: vi.fn(() => direct.mediaConn) });
+    mocks.getCapturedAudioStream.mockReturnValue({} as MediaStream);
+    setState('network.connectedPeers', [local]);
+    const handoff = vi.fn();
+    bus.on('system-audio:sfu-peer-needed', handoff);
+
+    bus.emit('system-audio:streams-ready');
+    direct.emit('error', new Error('offer failed'));
+
+    expect(handoff).toHaveBeenCalledWith(local.id, 'offer failed');
+    expect(getSystemAudioShareDeliverySnapshot()).toMatchObject({
+      directPeerIds: [],
+      sfuPeerIds: [local.id],
+    });
+    expect(getFrozenSystemAudioSfuAudience(local.id)).toBe('all');
+    expect(
+      mocks.safeSend.mock.calls.filter(([conn]) => conn === local.conn).map(([, frame]) => frame),
+    ).toEqual([
+      { type: MSG.SYSTEM_AUDIO_STOP },
+      expect.objectContaining({ type: MSG.SYSTEM_AUDIO_START }),
+    ]);
+  });
+
+  // 5B-G1 guard (passes before and after): a guest whose attach the receive
+  // slot refuses keeps its direct call open (system-audio-receive-slot-
+  // contract.test.ts, S9 row: closeCount 0 until STOP). The host hands a peer
+  // to the SFU only on the call's close, its error or the connect timeout
+  // before 'open', so an open call that stays open gets no STOP, START or
+  // READY handoff.
+  it.each([
+    {
+      transport: 'a fresh media peer connection (PeerJS)',
+      pc: () =>
+        ({
+          connectionState: 'new',
+          iceConnectionState: 'new',
+          setLocalDescription: vi.fn(async () => {}),
+          getSenders: vi.fn(() => []),
+        }) as unknown as RTCPeerConnection,
+      connects: (pc: RTCPeerConnection) => {
+        Object.assign(pc, { connectionState: 'connected', iceConnectionState: 'connected' });
+      },
+    },
+    {
+      transport: 'an already-connected shared peer connection (Cloudflare)',
+      pc: () =>
+        ({
+          connectionState: 'connected',
+          iceConnectionState: 'connected',
+          setLocalDescription: vi.fn(async () => {}),
+          getSenders: vi.fn(() => []),
+        }) as unknown as RTCPeerConnection,
+      connects: () => undefined,
+    },
+  ])(
+    'keeps an opened direct call with no close or error for 60 s with no SFU handoff, on $transport',
+    async ({ pc: makePc, connects }) => {
+      vi.useFakeTimers();
+      const { setManagedTimer, clearManagedTimer } = await import('../../core/timers.ts');
+      const timers = new Map<string, ReturnType<typeof setTimeout>>();
+      vi.mocked(clearManagedTimer).mockImplementation((name: string) => {
+        clearTimeout(timers.get(name));
+        timers.delete(name);
+      });
+      vi.mocked(setManagedTimer).mockImplementation(
+        (name: string, fn: () => void, delayMs: number) => {
+          clearTimeout(timers.get(name));
+          timers.set(
+            name,
+            setTimeout(() => {
+              timers.delete(name);
+              fn();
+            }, delayMs),
+          );
+        },
+      );
+      try {
+        for (const peer of [makeLocalPeer(1), makeRemotePeer(2)]) {
+          bus.emit('system-audio:stop');
+          bus.clear();
+          endSystemAudioShareDelivery();
+          vi.mocked(mocks.safeSend).mockClear();
+          registerSystemAudioHostListeners();
+          const pc = makePc();
+          const direct = makeMediaConnection(pc);
+          mocks.getPeer.mockReturnValue({ call: vi.fn(() => direct.mediaConn) });
+          mocks.getCapturedAudioStream.mockReturnValue({} as MediaStream);
+          setState('network.connectedPeers', [peer]);
+          const handoff = vi.fn();
+          bus.on('system-audio:sfu-peer-needed', handoff);
+
+          bus.emit('system-audio:streams-ready');
+          connects(pc);
+          direct.emit('open');
+          await vi.advanceTimersByTimeAsync(60_000);
+
+          expect(handoff).not.toHaveBeenCalled();
+          expect(direct.mediaConn.close).not.toHaveBeenCalled();
+          expect(getSystemAudioShareDeliverySnapshot()).toMatchObject({
+            directPeerIds: [peer.id],
+            sfuPeerIds: [],
+          });
+          const frames = mocks.safeSend.mock.calls
+            .filter(([conn]) => conn === peer.conn)
+            .map(([, frame]) => (frame as { type: string }).type);
+          expect(frames).not.toContain(MSG.SYSTEM_AUDIO_STOP);
+          expect(frames).not.toContain(MSG.SYSTEM_AUDIO_START);
+          expect(frames).not.toContain(MSG.SYSTEM_AUDIO_SFU_READY);
+        }
+      } finally {
+        for (const timer of timers.values()) clearTimeout(timer);
+        vi.mocked(setManagedTimer).mockReset();
+        vi.mocked(clearManagedTimer).mockReset();
+        vi.useRealTimers();
+      }
+    },
+  );
 
   it('hands a stalled offer on an already-connected shared peer connection to the SFU', async () => {
     const remote = makeRemotePeer(1);

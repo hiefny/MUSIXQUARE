@@ -168,8 +168,10 @@ promotes that exact publication to SFU. The PRO reducer
 permits only same-ID direct-to-SFU replacement; it never permits SFU-to-direct
 demotion, a second live ID, or a direct/SFU split. The authenticated client
 reducer likewise accepts an equal-rank direct-to-SFU replacement only for the
-same `publicationId`; peer fan-out and all other equal-generation replacements
-remain conflicts. Once canonical live state is SFU, the internal authority
+same `publicationId`; all other equal-generation replacements remain conflicts,
+and the client takes this state only from the authenticated resource (Phase 5
+train 5B removed the unused peer fan-out entry point). Once canonical live
+state is SFU, the internal authority
 check rejects `system-audio.signal` in both directions even if a stale frame
 reuses that generation and publication ID. This one-way rule keeps every
 listener on one canonical media contract. A fifth active device revokes system

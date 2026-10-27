@@ -66,7 +66,8 @@ gh run list --workflow e2e.yml --branch main --limit 3
       main `a930030a` 대비 +1,145 B). 배포: head `6064a195`의 PR #503이 squash `53a66d65`(2026-10-27 13:28 KST, 트리가
       `6064a195`와 같고 부모는 `0228276e`)로 main에 들어갔다. PR CI 40447427779가 11/11 통과했다. 자동 코드 리뷰는 처음
       런타임 `f2f25d90`에서만 결과가 있고(지적 없음, 👍), 그 뒤 head(최종 `6064a195` 포함)에는 결과가 없다(§1 검증
-      범위). 오너 결정대로 자동 게이트가 통과해 따로 묻지 않고 exact-main CI 40449960573 뒤
+      범위). 오너가 2026-10-27에 이 PR의 병합·배포를 정식 절차대로 승인했으므로 따로 묻지 않고(자동 코드 리뷰는
+      최종 head에 결과가 없고, 나머지 자동 게이트는 통과했다) exact-main CI 40449960573 뒤
       [Release 40450793853](https://github.com/hiefny/MUSIXQUARE/actions/runs/40450793853)(target `all`, Developer API
       D1 false, `raise_app_build_floor` false, attempt 1)로 13:42 KST에 배포했다(§1). 여섯 Worker 모두 이 SHA의
       버전이다(PRO room `30535561`, signaling `2ba5a053`, App `b851d58c`, 그리고 바뀐 경로가 0인 remote-share·Developer

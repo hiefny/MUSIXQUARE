@@ -495,7 +495,20 @@ describe('public design-system page contract', () => {
     expect(playback?.querySelector('.tab-action-btn-sample')).toBeNull();
     expect(playlist?.querySelectorAll('.tab-action-btn-sample')).toHaveLength(3);
     expect(components.querySelector('.playlist-select[aria-pressed="true"]')).toBeTruthy();
+    // Like the app (playlist.select_track), each minus keeps one neutral name
+    // in both states; the minus also picks tracks to move or copy.
+    expect(
+      [...components.querySelectorAll<HTMLButtonElement>('.playlist-select')].map((button) =>
+        button.getAttribute('aria-label'),
+      ),
+    ).toEqual([
+      'Select Goldberg Aria.wav',
+      'Select Cello Suite No. 1 Prelude',
+      'Select Well-Tempered Clavier Book I',
+    ]);
     expect(selectionPanel?.getAttribute('role')).toBe('group');
+    // The app names the bar by its visible count title, never "Remove from playlist".
+    expect(selectionPanel?.getAttribute('aria-label')).toBe('2 selected');
     const selectionActions = [
       ...(selectionPanel?.querySelectorAll<HTMLButtonElement>('button') ?? []),
     ];

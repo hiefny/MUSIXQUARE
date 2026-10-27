@@ -94,11 +94,12 @@ runbooks. Neither belongs in a general setup document.
 ## Maintained evidence and completed records
 
 - [Phase 5 train 5B: receive-slot behaviour fixes and the system-audio old-version items (2026-10-26)](design/phase5-5b-receive-slot-behaviour-2026-10-26.md):
-  evidence for the structure program's second Phase 5 app train (not yet released; it ships after
-  the forced-update train 9.0.14 / v787 with its client floor 787, release W and the removal
-  train's App release A 9.0.15 / v788, released 2026-10-27 06:20 KST, in one line; 9.0.16 / v789
-  from bump `198b8cf8` after merging main up to release A's record `1ff7fdf2`; target `app`, App 17
-  runtime paths and 0 for the other five Workers against production `5dd7cc1f`). It fixes the gaps that C4-0 pinned as today's behaviour in the system-audio receive
+  release evidence for the structure program's second Phase 5 app train (9.0.16 / v789 from bump
+  `198b8cf8`, released 2026-10-27 10:18 KST in Release 40431540366 from main `a930030a`, target
+  `app`, with the update dialog; it shipped after the forced-update train 9.0.14 / v787 with its
+  client floor 787, release W and the removal train's App release A 9.0.15 / v788 in one line,
+  after merging main up to release A's record `1ff7fdf2`; App 17 runtime paths and 0 for the other
+  five Workers against production `5dd7cc1f`). It fixes the gaps that C4-0 pinned as today's behaviour in the system-audio receive
   slot (RO-04) in six labelled groups, each with its failing test first: the attach fence (gaps 2
   and 3), the PRO coordinator's force-stop and successor teardown (4, 5), the Standard SFU
   re-publication handoff (1), the sharer's own claim (6), the nested end's restore point (7) and
@@ -114,14 +115,20 @@ runbooks. Neither belongs in a general setup document.
   train-end replay of the system-audio suites at every code commit, the final checks, the lane
   checks again after each of the two main merges, the guard counts after the release A record merge,
   and the final checks after the bump: unit 16,108, Worker 3,182, critical E2E 61/61, critical
-  coverage 3,444, candidate Playwright 19/19, system-audio Playwright 5/5), the eager JS delta
-  (465,652 B, -115 B against production main `5dd7cc1f`), the deploy target and rollback boundaries, a `guard:sw-cache-version`
+  coverage 3,444, candidate Playwright 19/19, system-audio Playwright 5/5), the PR CI, Codex,
+  exact-main CI, release and public-check round (Codex with no findings on `e9dc1ed3`, App
+  `317f176f` with the five unchanged release W Workers, the smokes with the strict page floor read
+  of 787 and build-789 Standard signaling admission, no pre-deploy floor `status`, the public floor
+  at 787 with live App 789, the Drift Audit, and one low review finding on a stale code comment
+  carried to the UI bundle), the eager JS delta
+  (465,652 B, -115 B against production main `5dd7cc1f`), the deploy target and rollback boundaries
+  (including what relies on the 787 floor), a `guard:sw-cache-version`
   false pass on a merge commit (no tooling change) and what was not verified on devices.
 - [Old-version removal train 2, release A: App compatibility code below the 787 build floor (2026-10-26)](design/old-version-removal-2a-app-2026-10-26.md):
   release evidence for the App release of the second removal train (9.0.15 / v788 from bump
   `8407046a`, released 2026-10-27 06:20 KST in Release 40403240275 from main `5dd7cc1f`, target
   `app`, with the update dialog; its Worker release W shipped first on 2026-10-27 03:34 KST and
-  keeps its own report, and Phase 5 5B follows as 9.0.16 / v789). It
+  keeps its own report, and Phase 5 5B followed as 9.0.16 / v789 on 2026-10-27 10:18 KST). It
   removes App code that only served clients below the App build floor 787 (9.0.14), on in
   production since 2026-10-26 16:15 KST. Increment A-1, C5-12 Inc 3: after ICE
   recovery a preload yields to the main lane for the same tuple without waiting for the host's

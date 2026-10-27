@@ -104,25 +104,34 @@ runbooks. Neither belongs in a general setup document.
   24 hours. The cap stays 256 so a rollback to the 9.0.17 PRO Worker still loads the room (checked
   once against the `53a66d65` Worker code). A full ledger now shows `pro.room_state_limit`
   (42 locales) on every playlist path instead of "The playlist changed". Branch
-  `agent/pro-receipt-ttl`, not merged or released and without a version bump (it ships after the
-  UI bundle, target `all`). The report lists each scope's old and new window, the review
-  adjustments, rollback and its one-off check, what stays as is, the tests-first evidence (12
-  Worker and 9 client tests failing on `53a66d65`; the BOT one pins new behaviour rather than an
-  old defect) and QA rounds 1 to 3 with their tested SHAs and limits (round 3 adds the build
-  without the cache-epoch guard, eager JS +28 B gzip against main, and the critical, PRO and
-  candidate E2E).
+  `agent/pro-receipt-ttl` (main merged up to the 9.0.17 record `809c9466`, #507), not merged or
+  released and without a version bump yet. After the owner's same-day order change it ships first
+  as 9.0.18 / v791 (target `all`) and the UI bundle follows as 9.0.19 / v792. The report lists
+  each scope's old and new window, the review adjustments, rollback and its one-off check, what
+  stays as is, the tests-first evidence (12 Worker and 9 client tests failing on `53a66d65`; the
+  BOT one pins new behaviour rather than an old defect) and QA rounds 1 to 4 with their tested
+  SHAs and limits (round 3 adds the build without the cache-epoch guard, eager JS +28 B gzip
+  against main, and the critical, PRO and candidate E2E; round 4 covers the main merge).
 - [PRO upload completion and authority feedback (2026-10-27)](design/pro-upload-reliability-2026-10-27.md):
   production diagnosis, R2-internal copy without streaming a full file through the Worker,
   a binding-copy fallback with bounded copy diagnostics (RO-52), completion retry continuity,
   explicit file-limit, room-capacity and receipt-ledger feedback, and pending authority labels.
-  PR #503 (9.0.17 / v790 from bump `a233dd7b`, not yet released, target `all` because the App,
-  PRO room and signaling Workers have runtime path changes against production) merged main up to
-  the Phase 5 5B record `0228276e` (#506) in `d88cbb3b`; the owner approved its merge, release
-  and record on 2026-10-27. The report lists each QA round with its tested SHA and limits,
-  including the final local checks after the bump: unit 16,222, Worker 3,220, critical E2E 65/65,
-  critical coverage 3,452, PRO upload Playwright 4/4, candidate Playwright 19/19, and eager JS
-  466,797 B (+1,145 B against production main `a930030a`). It also covers the failed-release
-  rollback of the PRO Worker and the room receipt-ledger limit left to the owner.
+  PR #503 (9.0.17 / v790 from bump `a233dd7b`, released 2026-10-27 13:42 KST in Release
+  40450793853 from main `53a66d65`, target `all` because the App, PRO room and signaling
+  Workers have runtime path changes against production; all six Workers were redeployed) merged
+  main up to the Phase 5 5B record `0228276e` (#506) in `d88cbb3b`; the owner approved its
+  merge, release and record on 2026-10-27. The report lists each QA round with its tested SHA and
+  limits, including the final local checks after the bump (unit 16,222, Worker 3,220, critical
+  E2E 65/65, critical coverage 3,452, PRO upload Playwright 4/4, candidate Playwright 19/19, and
+  eager JS 466,797 B, +1,145 B against production main `a930030a`) and the PR CI, automated
+  review, exact-main CI, release and public-check round (no automated review findings on the first
+  runtime `f2f25d90` and no automated review result for the final head `6064a195`, the six new
+  Worker versions, the smokes with the strict page floor read of 787 and build-790 Standard
+  signaling admission, no pre-deploy floor `status`, the public floor at 787 with live App 790,
+  and the Drift Audit). It also covers the failed-release rollback of the PRO Worker, the
+  App-only rollback's 5-second facade, and the room receipt-ledger limit, whose retention the
+  owner decided to shorten in its own train (9.0.18 / v791, ahead of the UI bundle after the
+  owner's same-day order change).
 - [Phase 5 train 5B: receive-slot behaviour fixes and the system-audio old-version items (2026-10-26)](design/phase5-5b-receive-slot-behaviour-2026-10-26.md):
   release evidence for the structure program's second Phase 5 app train (9.0.16 / v789 from bump
   `198b8cf8`, released 2026-10-27 10:18 KST in Release 40431540366 from main `a930030a`, target

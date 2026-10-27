@@ -2,9 +2,9 @@
 
 | Field              | Value                                                                                                                                                                 |
 | ------------------ | --------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Status             | 브랜치 `agent/pro-receipt-ttl`의 로컬 커밋. PR, 병합, 배포 모두 아직 없음                                                                                             |
-| Base               | `origin/main` `53a66d65`(운영 9.0.17 / v790, PR #503 뒤, 최소 앱 빌드 787)                                                                                            |
-| Version            | 올리지 않음. 이 열차는 UI 묶음 다음에 나가며, 앱 SemVer와 SW 캐시는 그 릴리스 준비 때 올린다                                                                          |
+| Status             | 브랜치 `agent/pro-receipt-ttl`의 로컬 커밋(main `809c9466`까지 합침). PR, 병합, 배포 모두 아직 없음                                                                 |
+| Base               | `origin/main` `53a66d65`(운영 9.0.17 / v790, PR #503 뒤, 최소 앱 빌드 787). 라운드 4에서 9.0.17 배포 기록 `809c9466`(#507, 문서만)을 합침                      |
+| Version            | 아직 올리지 않음. 바뀐 순서대로 UI 묶음보다 먼저 9.0.18 / v791로 나가며, 앱 SemVer와 SW 캐시는 릴리스 준비의 마지막 런타임 커밋에서 올린다                          |
 | Scope              | PRO 방 브라우저 영수증 원장의 보관 시간(PRO 방 Worker), 원장이 찼을 때의 재생목록 안내(App, 42개 언어), 재생 명령 시도 상수와 BOT 임대 시간을 영수증 시간 집으로 옮김 |
 | Target             | `all`. App과 PRO 방 Worker 둘 다 런타임 경로가 바뀌어 부분 릴리스는 막힌다. 앱 번들이 바뀌므로 배포 때 업데이트 창이 뜬다                                             |
 | Resource ownership | [RO-53](resource-ownership-registry.md#ro-53-pro-browser-receipt-ledger) 신설(`owner-in-place`), RO-52의 허용 요청자 문구에 완료 영수증 수명 연결                     |
@@ -38,6 +38,9 @@ PRO 방 Durable Object에는 브라우저 요청의 영수증 원장(`activeRoom
   적용하는 것이기 때문이다.
 - 업로드 완료는 한 문서 안에서 재시도가 더 오래 이어질 수 있으므로 따로 판단한다.
 - 원장이 찼을 때 보이는 문구를 고친다.
+- 같은 날 순서를 바꿨다. UI 묶음이 다른 작업에서 아직 구현 중이라 이 열차가 먼저 9.0.18 / v791(target
+  `all`)로 나가고, UI 묶음이 9.0.19 / v792로 뒤따른다. Phase 5.5는 둘 다 나간 뒤에도 오너 승인을
+  기다린다.
 
 ## 바뀐 것
 
@@ -303,6 +306,26 @@ presence 45초에서 2 × (45 + 6) = 102초라 2분이 정한다. 완료는 운�
   준비의 올리기에는 영향이 없다. 이 열차에서는 가드를 바꾸지 않았다.
 - 한계: 로컬 결과는 exact-main 후보가 아니다. SW 캐시를 올린 뒤의 `build:checked` 전체, 전체
   Playwright와 WebKit E2E, PR CI, exact-main CI, 릴리스 smoke는 돌리지 않았다.
+
+## QA 라운드 4(main 합침, 문서만)
+
+- 시험한 코드: 합침 커밋(부모 `a03cd574`와 origin/main `809c9466`). main 쪽 새 커밋은 9.0.17 배포
+  기록 #507 하나이고 문서만 바꿨다(`docs/README.md`, `docs/release-record.md`,
+  `docs/release-history.md`, 두 보고서). 런타임과 테스트는 `a03cd574`와 같다. 로컬 Windows, Node
+  24.20.0.
+- 충돌: `docs/release-record.md` §2 첫머리 하나. main의 §1과 §2·§4 현재 상태를 그대로 두고, 이 열차의
+  항목을 §2 맨 위에 다시 얹어 #503의 배포·기록과 바뀐 순서에 맞췄다. 운영·보안의 영수증 원장 항목은
+  main의 오너 결정 문장과 이 브랜치의 문장을 하나로 합쳤고, 이 보고서를 계속 가리키며 열어 둔다.
+  RO-53은 main에 없어 번호를 그대로 두었다.
+- 순서 고침: main 기록의 #503 항목과 5B 항목, 운영·보안의 영수증 원장 항목, §4의 9.0.17 되돌리기
+  번호, `docs/README.md`의 #503 줄과 이 열차 줄. §1은 배포 때마다 덮어쓰는 절이라 손대지 않았다.
+  §1의 '다음 순서' 문장은 이 열차의 배포 기록이 덮어쓴다.
+- 다시 돌린 것(문서를 읽거나 세는 검사): `guard:brand-capitalization` 989 sources, resource-ownership
+  49 records / 444 files, room-authority 직접 읽기 80·구독 22·쓰기 13, bus-pairing 202/202,
+  dead-exports, import-graph 398 files·순환 0, lifecycle-writes, navigation-sinks, release-identity
+  (9.0.17 / v790), 문서 경로를 읽는 단위 테스트 5 files / 163. 가드 수는 라운드 3과 같다.
+- 한계: 문서만 합쳤으므로 런타임 검사는 다시 돌리지 않았다. 버전을 올린 뒤의 릴리스 준비 라운드에서
+  전부 돌린다.
 
 ## 확인하지 않은 것
 

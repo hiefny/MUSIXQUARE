@@ -79,14 +79,14 @@ than 32 characters, or is a malformed prefixed keyring. Every keyring secret has
 the same 32-character minimum. This secret value is shared only by signaling and
 Remote Share; do not reuse the upload-token or app capability secrets.
 `/security-config` advertises assertion version, mode, and whether it is
-required. Signaling advertises version 1 in `peer-open`, and new clients use the
-correlated WebSocket
+required. For each session request the App asks the host's signaling socket for
+a fresh assertion through the correlated WebSocket
 `remote-share-upload-assertion-request` / `remote-share-upload-assertion`
-exchange only when that feature is present. This avoids treating an old
-signaling deployment as a transient assertion failure. Once a client has
-observed version 1, a disconnect, missing marker, or older replacement
-signaling deployment fails closed instead of returning to a missing-header
-request.
+exchange. Since App 9.0.15 it does not read signaling's `peer-open` assertion
+markers first: there is no assertion-free upload path, so a disconnect, a
+timeout, or a signaling Worker without the assertion secret (which refuses
+each request with `remote-share-upload-assertion-error`) fails the upload
+closed instead of returning to a missing-header request.
 
 The Remote Share D1 binding writes only these two aggregate minute-bucket
 counters through `ctx.waitUntil`; it never stores the room, peer, actor,
@@ -356,15 +356,22 @@ never treated as a legacy HMAC string.
 
 Before changing the binding, first deploy the keyring-capable release to both
 Workers. Remote Share `/security-config` must report
-`roomUploadAssertionKeyringVersion: 1`, and signaling's authenticated host
-`peer-open` must report `remoteShareUploadAssertionKeyringVersion: 1`. The
-strict live Remote Share smoke verifies both markers and, during a release,
-their expected Worker version IDs. Record those two live version IDs against the
-approved release before rotation. A 200 response without the keyring marker is
-not sufficient: an older Remote Share Worker treats the prefixed JSON as one
-plain HMAC secret and can look healthy while rejecting every assertion. If
-either marker or approved version is missing, do not change either secret;
-finish or repair the two-Worker code rollout first.
+`roomUploadAssertionKeyringVersion: 1`. Signaling is checked by its version, not
+by a marker: record the live version IDs of both Workers against the approved
+release. Then confirm a real allocation with the strict live Remote Share smoke
+(`npm run smoke:live:remote-share -- --require-assertion`): its authenticated
+host asks signaling for an upload assertion, and Remote Share accepts it for a
+whole-object session. During a release the smoke also waits for the expected
+version ID of each Worker. The smoke does not read signaling's `peer-open`
+markers, so it passes whether or not signaling advertises them.
+`--require-assertion` checks nothing more than a plain run: both modes require
+the assertion and keyring readiness of Remote Share and a real assertion for
+the allocation, and the flag only sets `assertionExplicitlyRequested` in the
+output. A 200 response without the keyring marker is not sufficient: an older
+Remote Share Worker treats the prefixed JSON as one plain HMAC secret and can
+look healthy while rejecting every assertion. If the keyring marker, either
+approved version ID, or the real allocation is missing, do not change either
+secret; finish or repair the two-Worker code rollout first.
 
 Rotate in this order:
 

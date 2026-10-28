@@ -67,7 +67,6 @@ function open(expectedVersion = 'version', hostAppBuild = 785) {
     { roomUploadAssertionVersion: 1 },
     expectedVersion,
     'secret',
-    true,
     hostAppBuild,
   );
 }

@@ -422,7 +422,6 @@ async function openRoomUploadAssertionAuthorityAttempt(
   readiness: RemoteShareReadiness,
   expectedSignalingVersion: string,
   hostSecret: string,
-  requireKeyringVersion: boolean,
   hostAppBuild: number,
 ): Promise<{
   provider: RoomUploadAssertionProvider | null;
@@ -518,15 +517,13 @@ async function openRoomUploadAssertionAuthorityAttempt(
         `remote-share signaling version mismatch: expected ${expectedSignalingVersion}, received ${actualSignalingVersion || '<missing>'}`,
       );
     }
-    if (peerOpen.remoteShareUploadAssertionVersion !== 1) {
-      socket.close(1000, 'remote-share assertion unsupported');
-      throw new Error('required Remote Share upload assertion is unavailable from signaling');
-    }
-    if (requireKeyringVersion && peerOpen.remoteShareUploadAssertionKeyringVersion !== 1) {
-      socket.close(1000, 'remote-share assertion keyring unsupported');
-      throw new Error('Remote Share upload assertion keyring is unavailable from signaling');
-    }
 
+    // No peer-open marker is read: this room is proven by a real assertion
+    // request and the shape of its answer, and then by the allocation Remote
+    // Share grants for that assertion. The smoke therefore passes on a
+    // Signaling Worker with or without the assertion markers (a rerun after
+    // automated recovery may meet either), while one without the assertion
+    // secret still fails, on its own refusal of the request.
     const provider: RoomUploadAssertionProvider = async (request) => {
       const correlationId = `rsaq_${randomBytes(24).toString('base64url')}`;
       const responsePromise = waitForSignalingMessage(
@@ -608,7 +605,6 @@ async function withSignalingVersionConvergence<T>(
 async function openRoomUploadAssertionAuthority(
   roomId: string,
   readiness: RemoteShareReadiness,
-  requireKeyringVersion: boolean,
 ): Promise<{
   provider: RoomUploadAssertionProvider | null;
   close(): void;
@@ -623,7 +619,6 @@ async function openRoomUploadAssertionAuthority(
       readiness,
       expectedSignalingVersion,
       hostSecret,
-      requireKeyringVersion,
       build,
     ),
   );
@@ -1105,6 +1100,9 @@ async function runWholeObjectSmoke(
 
 async function main(): Promise<void> {
   const byteCount = parseByteCount();
+  // Both modes require the assertion readiness and prove a real assertion and
+  // allocation; the release's strict step still passes --require-assertion,
+  // which the output reports and nothing else checks.
   const requireAssertion = requireRoomUploadAssertion();
   // Exercise the same namespace the product can actually allocate. The object
   // UUID still makes concurrent smoke objects unique if two runs pick the same
@@ -1114,7 +1112,7 @@ async function main(): Promise<void> {
   const token = await requestCapabilityToken();
   const readiness = await waitForRemoteShareWorkerReady();
   await assertRemoteShareRejectsTossOrigins();
-  const authority = await openRoomUploadAssertionAuthority(roomId, readiness, requireAssertion);
+  const authority = await openRoomUploadAssertionAuthority(roomId, readiness);
   let wholeObject: Record<string, unknown>;
   try {
     const anonymousProbeFile = new File([sourceBytes], FILE_NAME, { type: FILE_MIME });

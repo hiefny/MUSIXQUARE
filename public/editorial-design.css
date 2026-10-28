@@ -2626,7 +2626,7 @@
 
 .dialog-actions {
   display: flex;
-  gap: 12px;
+  gap: 12px 10px;
   justify-content: flex-end;
 }
 

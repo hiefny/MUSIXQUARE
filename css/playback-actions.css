@@ -84,7 +84,8 @@
 @layer components {
   /* play-action-buttons row */
   .play-actions-row {
-    --play-action-gap: 12px;
+    /* Sync and Media sit 10px apart, the shared side-by-side pill gap. */
+    --play-action-gap: 10px;
     --play-action-padding-x: 14px;
     --play-action-icon-size: 20px;
     --play-action-label-color: var(--text-sub);

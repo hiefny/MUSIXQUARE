@@ -5528,7 +5528,7 @@ or pointers. Keep :focus-visible and :active outside the gate (src/ui/__tests__/
   }
 
   /* The signed-out view stacks the Google pill and Close without an action
-     group, so this margin is their surface gap: the shared 12px. */
+     group, so this margin is their surface gap: the shared 12px down. */
   .account-dialog-login-close {
     max-width: 100%;
     width: 100%;
@@ -6150,13 +6150,14 @@ or pointers. Keep :focus-visible and :active outside the gate (src/ui/__tests__/
   /* Let the browser's intrinsic sizing decide whether localized actions fit.
      max-content keeps short pairs together; flex wrapping gives each action a
      full row only when their rendered text and padding no longer fit.
-     The 12px gap between pill surfaces, across and down, is the play tab's and
-     the setup actions' gap; action-rhythm-contract.test.ts keeps them equal. */
+     Pill surfaces sit 10px apart side by side and 12px apart when one wraps
+     below another, like the play tab and the setup actions;
+     action-rhythm-contract.test.ts keeps them equal. */
   .adaptive-action-group {
     display: flex;
     flex-wrap: wrap;
     align-items: stretch;
-    gap: 12px;
+    gap: 12px 10px;
   }
 
   .adaptive-action-group > :is(button, a):not([hidden]) {
@@ -6596,6 +6597,17 @@ or pointers. Keep :focus-visible and :active outside the gate (src/ui/__tests__/
     transition: transform 0.2s;
   }
 
+  /* At 360px and below dialog pills take 24px side padding instead of 28px,
+     so more localized pairs keep one row (owner decision 2026-10-28). The
+     min-width stays. This stays in the base layer beside the shared rules, so
+     the more specific account action rule keeps its 18px. */
+  @media (max-width: 360px) {
+    .dialog-primary,
+    .dialog-secondary {
+      padding-inline: 24px;
+    }
+  }
+
   .dialog-primary:active {
     transform: scale(0.97);
   }
@@ -6728,12 +6740,13 @@ or pointers. Keep :focus-visible and :active outside the gate (src/ui/__tests__/
     margin-bottom: 42px;
   }
 
-  /* Keep setup actions outside the scrollable step body. */
+  /* Keep setup actions outside the scrollable step body. The shared pill
+     gap: 10px side by side, 12px down. */
   .ob-actions {
     flex: none;
     display: flex;
     flex-direction: row;
-    gap: 12px;
+    gap: 12px 10px;
     padding: 16px 28px calc(24px + env(safe-area-inset-bottom, 0));
     margin-top: auto;
     background: var(--bg);
@@ -6960,7 +6973,7 @@ or pointers. Keep :focus-visible and :active outside the gate (src/ui/__tests__/
 
   .ob-actions.horizontal-with-back {
     flex-direction: row;
-    gap: 12px;
+    gap: 12px 10px;
     align-items: center;
   }
 
@@ -9070,9 +9083,9 @@ or pointers. Keep :focus-visible and :active outside the gate (src/ui/__tests__/
   }
 
   /* The Reset / Done pair is an adaptive action group (index.html): 56px
-     pills 12px apart like every dialog action, each sized by its label, and
-     each on its own full row only when the localized pair no longer fits.
-     Labels wrap only at word boundaries. */
+     pills 10px apart side by side and 12px down like every dialog action,
+     each sized by its label, and each on its own full row only when the
+     localized pair no longer fits. Labels wrap only at word boundaries. */
   .sync-bottom-row {
     width: 100%;
     margin-top: 16px;
@@ -11105,7 +11118,7 @@ or pointers. Keep :focus-visible and :active outside the gate (src/ui/__tests__/
   }
 
   /* The YouTube link dialog's action row: .ob-actions owns its flex layout
-     and the shared 12px pill gap, so this utility only sets the top margin. */
+     and the shared pill gap, so this utility only sets the top margin. */
   .setup-card-mt-8-row {
     margin-top: 8px;
   }

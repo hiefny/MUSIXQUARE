@@ -325,9 +325,14 @@ Accepted on 2026-10-27 by the owner (UI bundle train, released 2026-10-28 as 9.0
 sits under the `:where(html[data-hover-pointer])` gate that `src/ui/hover-pointer.ts` owns, so the
 laptop and studio postures of a convertible hover alike. Chromium 79, the engine of 2021 LG webOS
 TVs with a pointer remote, cannot parse `:where()` and drops each gated rule whole, so those TVs
-show no hover effects; in 9.0.18 their `@media (hover: hover)` rules applied. Focus, press and
-state rules sit outside the gate, and `guard:legacy-tv-build` fails a rule that lists `:where()`
-next to other selectors, so they are not dropped with it. No control depends on hover alone.
+show no hover effects; in 9.0.18 their `@media (hover: hover)` rules applied. Press, state and
+plain `:focus` rules sit outside the gate, and `guard:legacy-tv-build` fails a built rule that
+lists `:where()` next to other selectors, so the gate does not drop them. Keyboard focus looks are
+another matter: Chromium 79 predates `:focus-visible` (Chrome 86), so no `:focus-visible` style
+applies on those TVs, with or without the gate, as before 9.0.19. Corrected on 2026-10-29: this
+entry first said that every focus rule was kept there
+([9.0.20 report](design/ui-followup-920-2026-10-29.md#v4-멤버-내보내기-아이콘의-키보드-포커스)).
+No control depends on hover alone.
 Revisit if a TV report shows a control that only hover reveals or the gate starts to carry more
 than hover styles. [Report](design/ui-bundle-2026-10-27.md#u3-호버-관문-하나-추천표-410)
 

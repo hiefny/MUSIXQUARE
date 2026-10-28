@@ -129,14 +129,14 @@ isolate 재시도 테스트를 표지 경로로 마치게 바꿈, 구현 점검�
 
 리베이스로 SHA가 바뀌었다. 내용은 리베이스 전과 같고, 형제 테스트와 이 보고서 커밋만 라운드 2에서 더했다.
 
-| 증분                         | 커밋(`1a99fe49` 위)   | 리베이스 전(`6a23c46e` 위) | 바꾼 파일                                             | 시험                                       |
-| ---------------------------- | --------------------- | -------------------------- | ----------------------------------------------------- | ------------------------------------------ |
-| 테스트 먼저                  | `89fc0b74`            | `8e714781`                 | `src/pro-room/__tests__/pro-room-worker.test.ts`      | 부모 런타임에서 실패(위 표)                |
-| 런타임                       | `7530c698`            | `16b5a2ee`                 | `cloudflare/pro-room-worker.ts`                       | 라운드 1(`16b5a2ee`), 라운드 2             |
-| RO-53 기록                   | `5c65dacf`            | `cff05dc1`                 | `docs/design/resource-ownership-registry.md`          | resource-ownership 가드(라운드 1, 2)       |
-| 같은 isolate 재시도 테스트   | `7d57a01b`            | `c3f51f2c`                 | 테스트 파일                                           | 라운드 1(`c3f51f2c`), 라운드 2             |
-| prune이 마치는 재시도 테스트 | `f8f2b453`            | 없음                       | 테스트 파일                                           | 라운드 2                                   |
-| 보고서와 기록                | 이 보고서의 문서 커밋 | 없음                       | 이 보고서, `docs/README.md`, `docs/release-record.md` | 라운드 2(문서만, 코드는 `f8f2b453`과 같음) |
+| 증분                         | 커밋(`1a99fe49` 위)             | 리베이스 전(`6a23c46e` 위) | 바꾼 파일                                             | 시험                                       |
+| ---------------------------- | ------------------------------- | -------------------------- | ----------------------------------------------------- | ------------------------------------------ |
+| 테스트 먼저                  | `89fc0b74`                      | `8e714781`                 | `src/pro-room/__tests__/pro-room-worker.test.ts`      | 부모 런타임에서 실패(위 표)                |
+| 런타임                       | `7530c698`                      | `16b5a2ee`                 | `cloudflare/pro-room-worker.ts`                       | 라운드 1(`16b5a2ee`), 라운드 2             |
+| RO-53 기록                   | `5c65dacf`                      | `cff05dc1`                 | `docs/design/resource-ownership-registry.md`          | resource-ownership 가드(라운드 1, 2)       |
+| 같은 isolate 재시도 테스트   | `7d57a01b`                      | `c3f51f2c`                 | 테스트 파일                                           | 라운드 1(`c3f51f2c`), 라운드 2             |
+| prune이 마치는 재시도 테스트 | `f8f2b453`                      | 없음                       | 테스트 파일                                           | 라운드 2                                   |
+| 보고서와 기록                | `4be3dfa0`, 결과를 적은 뒤 커밋 | 없음                       | 이 보고서, `docs/README.md`, `docs/release-record.md` | 라운드 2(문서만, 코드는 `f8f2b453`과 같음) |
 
 ## QA 라운드 1(구현 세션, 리베이스 전)
 
@@ -149,13 +149,42 @@ isolate 재시도 테스트를 표지 경로로 마치게 바꿈, 구현 점검�
 
 ## QA 라운드 2(9.0.19 main 위, 로컬)
 
-- 시험한 코드: 이 보고서의 문서 커밋(코드와 테스트는 `f8f2b453`과 같음), 기반 `1a99fe49`, 로컬 Windows, Node 24.20.0 / npm
-  12.0.2.
+- 시험한 코드: 문서 커밋 `4be3dfa0`(코드와 테스트는 `f8f2b453`과 같고, 그 뒤 이 결과를 적은 문서 커밋만 뒤따름), 기반
+  `1a99fe49`, 로컬 Windows, Node 24.20.0 / npm 12.0.2.
 - 시작 전 확인: `git diff 6a23c46e 1a99fe49`에서 `cloudflare/pro-room-worker.ts`, Worker 테스트 파일, 등록부,
   `src/pro-room/media-transfer.ts`, `src/pro-room/playlist-state-manager.ts`, `src/pro-room/api.ts`는 바뀌지 않았다
   (`cloudflare/`에서는 App Worker의 `ADMIN_ASSET_VERSION` 한 줄뿐). 그래서 계획의 줄 번호, 새 key 전제, 되돌리기 대상이
   그대로다. 리베이스는 충돌 없이 끝났고 Worker 테스트 파일은 리베이스 직후 529/529, 형제 테스트를 더한 뒤 530/530이다.
-- 게이트: 아래 결과 커밋에서 채운다.
+- 통과: `tsc --noEmit`, `typecheck:tests`, `check:workers`(Worker 타입 검사 여섯, PRO 방 모듈, Developer API 경계, 선언
+  소유, D1 계약, 운영 drift 계약), `lint`, `format:check`, 바꾼 문서 셋의 `prettier --check`.
+- 전체 단위 실행(`--maxWorkers=4`): 688 files / 16,378 통과. main의 16,372에 이 열차의 테스트 여섯(새 테스트 넷, 형제 테스트,
+  `it.each`로 둘이 된 가득 찬 원장 테스트의 한 경우)을 더한 수다.
+- Worker 묶음 커버리지(`test:coverage:workers`): 68 files / 3,243 통과, 기준치 통과(전체 문장 86.64 · 분기 83.45 · 함수
+  94.31 · 줄 90.91). `cloudflare/pro-room-worker.ts`는 문장 87.74 · 분기 84.07 · 함수 96.21 · 줄 91.8로, 9.0.18 라운드(문장
+  87.65 · 분기 83.87 · 함수 96.2 · 줄 91.71, 68 files / 3,237)보다 넷 모두 조금 높다.
+- `test:coverage:critical`: 88 files / 3,462 통과, 기준치 통과(문장 80.82 · 분기 75.56 · 함수 86.75 · 줄 84.68). 9.0.18
+  라운드와 같은 파일과 테스트 수다(이 열차는 `src/` 런타임을 바꾸지 않음).
+- `build:checked`: 25단계 모두 통과했다. `guard:sw-cache-version`은 'v792 (1a99fe49) covers all committed PWA runtime
+  changes'로 bump 없이 통과했다. 바뀐 런타임 파일이 `cloudflare/pro-room-worker.ts`뿐이고 App 런타임 경로가 바뀌지 않았기
+  때문이다. `guard:release-identity`는 9.0.19 / v792, room-authority는 직접 읽기 80 · 구독 22 · 쓰기 13, source-complexity의
+  `cloudflare/pro-room-worker.ts`는 18,265 / 20,000줄이다. 초기 전송 예산 통과(entry 843.1 KiB raw / 248.1 KiB gzip, eager JS
+  456.5 KiB gzip, eager 전체 2,010.4 KiB raw / 533.4 KiB gzip), SW 앱 셸 95 자산. 빌드의 진입 파일 이름(`main-661mTt5C.js`,
+  `main-nTYuVNeU.css`, `bootstrap.js?cache=v792`)이 운영 9.0.19의 공개 `/`(2026-10-28 라운드 2 중 GET)와 같다.
+- `check:worker-bundles`(`build:checked` 뒤): Worker 6개 dry-run 통과. PRO 방 829.23 KiB / gzip 162.29 KiB(9.0.18 배포
+  827.25 / 161.89 KiB에서 +1.98 / +0.40 KiB), App 986.17 / gzip 201.36 KiB.
+- 가드: dead-exports, import-graph(399 files · 2,076 edges · 순환 0), bus-pairing(202/202), lifecycle-writes,
+  navigation-sinks(399 files), `node scripts/check-resource-ownership.mts`(49 records / 445 files). resource-ownership,
+  import-graph, bus-pairing, room-authority의 수는 `1a99fe49`에서 같은 날 잰 값과 같다.
+- Target: `scripts/release-deployment-state.mts`의 부분 릴리스 판정(`verifyPartialReleaseCompatibility`)을 target
+  `pro-room`, 후보 `4be3dfa0`으로 로컬에서 돌렸다. 운영 조회 대신 기록된 운영 버전과 release message를 넣었다: App은 9.0.19
+  Release 40670881163이 배포한 `5a4284d6`(`git:1a99fe49`), 나머지 다섯은 release-record §1의 9.0.18 버전(`git:53a4f397`).
+  고르지 않은 다섯 Worker(remote-share, signaling, Developer API facade, Developer API, App)가 모두 `compatible`(바뀐 경로
+  0개, App 의존성 변화 없음)이고, 고른 PRO 방의 `53a4f397` 대비 바뀐 런타임 경로는 `cloudflare/pro-room-worker.ts` 하나다.
+  계약 표지, D1 manifest, Wrangler 설정, `package.json`과 `package-lock.json`은 main과 같다. 그래서 target `pro-room`이
+  통과하고 `all`이 필요 없다.
+- 되돌리기 일회 확인: 위 '9.0.18 Worker 코드로 한 번 확인'(임시 테스트 둘 통과, 임시 worktree는 지움).
+- 실행하지 않은 것: 로컬 E2E(App이 그대로), 실기기, 운영 Cloudflare 조회.
+- 한계: 로컬 결과는 exact-main 후보가 아니다. PR CI, 자동 코드 리뷰, exact-main CI, 릴리스 smoke는 돌리지 않았다.
 
 ## 되돌리기
 

@@ -114,7 +114,7 @@ runbooks. Neither belongs in a general setup document.
   evidence and checks, the assembly fixes, the review findings and their handling, visible changes,
   19 owner items left open (two found by the assembled 42-locale sweep: the demo header track title
   wrapping after the persistent exit, and dialog titles measured for the first time), mixed
-  versions and rollback, and QA rounds 1 to 5: per increment, assembly, the final checks and
+  versions and rollback, and QA rounds 1 to 6: per increment, assembly, the final checks and
   release prep at the bump (full unit 16,528 on a rerun after load timeouts, Worker and critical
   coverage, `build:checked`, worker bundles, candidate 19, critical 98 and 289 related E2E, the
   partial-release decision of App 98, PRO room 2 and signaling 1 runtime paths), the sweep
@@ -123,10 +123,15 @@ runbooks. Neither belongs in a general setup document.
   on the same candidate, the first two failing at the signaling smoke (an HTTP 503 WebSocket
   upgrade, then a 1006 close) and rolled back automatically with a successful recovery boundary
   job, the third deploying all six Workers, the smokes, the public assets at v793 with the V5
-  developer docs, the public floor at 787 with live App 793, and the Drift Audit). PR #516 (squash
-  `226219c5`) was released on 2026-10-29 05:52 KST in Release 40766362722 with target `all`. A
-  manual Full E2E on main `c37220df` (run 40708045873) also failed in tests this train does not
-  change; the release record keeps those five failures open while their cause is investigated.
+  developer docs, the public floor at 787 with live App 793, and the Drift Audit), and round 6, a
+  local WebKit comparison of the bump against 9.0.19 on a second Windows machine (Windows WebKit
+  26.6 with iPhone 13 emulation: every 9.0.20 suite failure also fails on 9.0.19 or is fixed
+  by #518; of ten probe cases worse than 9.0.19, three from the weight roles go to the owner and
+  seven one-line-longer titles stay as decided). PR #516 (squash `226219c5`) was released on
+  2026-10-29 05:52 KST in Release 40766362722 with target `all`. A manual Full E2E on main
+  `c37220df` (run 40708045873) also failed in tests this train does not change; #518 (`edd6ee94`,
+  tests only) found and fixed their cause, and the release record keeps those five failures open
+  until a Full E2E run on main at or after #518 passes.
 - [PRO receipt follow-up train A (2026-10-28)](design/pro-receipt-followup-a-2026-10-28.md):
   the owner's decision of 2026-10-28 on item 3 of the receipt retention follow-ups, shipped as a
   PRO room Worker-only train (target `pro-room`; the App stays 9.0.19 / v792, so no update

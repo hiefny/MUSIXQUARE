@@ -3,7 +3,7 @@ import type { Page } from '@playwright/test';
 // src/app.ts records 52 eager wiring initializers, I18n, and SyncWorker.
 // Room-session implementations and SyncFlightRecorder are deliberately absent:
 // their readiness is gated at room/demo entry, not counted as bootstrap work.
-const EXPECTED_BOOTSTRAP_STEP_COUNT = 54;
+export const EXPECTED_BOOTSTRAP_STEP_COUNT = 54;
 
 interface BootstrapObservation {
   state: string | null;

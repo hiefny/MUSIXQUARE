@@ -2430,7 +2430,9 @@ RO-53 owner-in-place
   the setup-guest Back buttons) serves `src/pro-room/setup-flow.ts`, `src/ui/connect.ts` and
   `src/ui/setup-guest.ts`; `returnToRoomStart` (the /CODE return, which checks the room code once
   at its sink and optionally writes the reconnect marker) serves `sw-register.ts`,
-  `src/ui/setup.ts` and `src/ui/connect.ts`. Connect requests a fresh admission only after
+  `src/ui/setup.ts`, `src/ui/connect.ts` and the lost-session dialog's Restart for a guest in
+  `src/network/peer.ts` (2026-10-28), whose Restart for anyone else and Go back are its two
+  `scheduleDocumentReload` requests. Connect requests a fresh admission only after
   the user chooses to rejoin an expired Standard room; observing expiry never navigates.
   `scheduleSessionReset` is still called directly from `app.ts` (the confirmed Back leave),
   `src/ui/player-controls.ts` (the logo reset) and `src/pro-room/runtime.ts` (terminal PRO

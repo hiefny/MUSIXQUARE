@@ -174,7 +174,10 @@ const OWNER_REQUESTER_BASELINE: Baseline = new Map<string, Allowance>([
     'src/core/session-reset.ts',
     { count: 1, reason: "the owner's own bounded reload after a back-forward cache return" },
   ],
-  ['src/network/peer.ts', { count: 1, reason: 'reload after a stale session' }],
+  [
+    'src/network/peer.ts',
+    { count: 2, reason: "the lost-session dialog's Restart reload and Go back leave" },
+  ],
   [
     'src/pro-room/runtime.ts',
     { count: 3, reason: 'terminal PRO recovery: superseded tab, removal, session end' },

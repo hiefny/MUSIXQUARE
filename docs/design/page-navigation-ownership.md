@@ -59,8 +59,8 @@ prepare?(signal), navigate, isCurrent? })`. The first request in a document
 The requesters, each with its count and reason, are listed in the
 navigation-sink guard: the confirmed Back leave and the lazy-feature reload in
 `app.ts`, the logo reset, the PRO terminal recovery, the update reload, setup's
-reconnect and recovery paths, the keep-open notice and the stale-session
-reload.
+reconnect and recovery paths, the keep-open notice and the lost-session
+dialog's Restart and Go back reloads.
 
 ## Busy rule (owner decisions 1 and 13)
 

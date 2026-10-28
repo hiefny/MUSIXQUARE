@@ -819,7 +819,7 @@ test.describe('content-based adaptive action groups', () => {
   });
 
   for (const viewportWidth of [360, 390, 1440]) {
-    test(`contains the manual sync Reset / Done pair in every locale at ${viewportWidth}px`, async ({
+    test(`contains the manual sync Done / Reset pair in every locale at ${viewportWidth}px`, async ({
       page,
     }) => {
       // The authored panel, opened, in each locale's own font. The recipe
@@ -894,8 +894,11 @@ test.describe('content-based adaptive action groups', () => {
         expect(pair.rowScrollWidth, `${pair.lang} row overflow`).toBeLessThanOrEqual(
           pair.rowClientWidth,
         );
-        const [reset, done] = pair.buttons;
-        for (const button of [reset!, done!]) {
+        // Done, the exit, comes first (left, mirrored in RTL); Reset follows.
+        const [done, reset] = pair.buttons;
+        expect(done!.id, pair.lang).toMatch(/-sync-done-btn$/u);
+        expect(reset!.id, pair.lang).toMatch(/-sync-reset-btn$/u);
+        for (const button of [done!, reset!]) {
           expect(button.left, `${button.id} inside the panel`).toBeGreaterThanOrEqual(
             pair.contentLeft - 0.5,
           );
@@ -910,12 +913,12 @@ test.describe('content-based adaptive action groups', () => {
           );
           expect(button.height, `${button.id} pill height`).toBeGreaterThanOrEqual(56 - 0.5);
         }
-        // Side by side 10px apart, or Done on its own row 12px below.
+        // Side by side 10px apart with Done on the left, or Reset on its own
+        // row 12px below.
         if (Math.abs(reset!.top - done!.top) < 0.5) {
-          const gap = Math.max(done!.left - reset!.right, reset!.left - done!.right);
-          expect(gap, pair.lang).toBeCloseTo(10, 1);
+          expect(reset!.left - done!.right, pair.lang).toBeCloseTo(10, 1);
         } else {
-          expect(done!.top - reset!.bottom, pair.lang).toBeCloseTo(12, 1);
+          expect(reset!.top - done!.bottom, pair.lang).toBeCloseTo(12, 1);
         }
       }
     });

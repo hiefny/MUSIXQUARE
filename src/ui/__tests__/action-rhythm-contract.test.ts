@@ -247,9 +247,9 @@ describe('action pill rhythm contract', () => {
       ),
     ];
     expect(actions.length).toBeGreaterThanOrEqual(20);
-    // The manual sync panel's Reset / Done pair is checked like a dialog's.
+    // The manual sync panel's Done / Reset pair is checked like a dialog's.
     expect(actions.map((action) => action.id)).toEqual(
-      expect.arrayContaining(['btn-auto-sync', 'btn-sync-done']),
+      expect.arrayContaining(['btn-sync-done', 'btn-auto-sync']),
     );
     for (const action of actions) {
       const heights = appliedValues(action, ['height', 'min-height']);
@@ -469,6 +469,26 @@ describe('action pill rhythm contract', () => {
         'white-space: normal',
       ]);
     }
+  });
+
+  it('puts the manual sync exit, Done, on the left of Reset', () => {
+    // Owner policy (2026-10-28): in a two-button pair the exit is on the left
+    // with the secondary look and the action on the right with the primary
+    // fill; RTL mirrors the row with the document. One panel serves the
+    // standard room, PRO and the demo.
+    const row = appMarkup().querySelector('#manual-sync-overlay .sync-bottom-row')!;
+    const [done, reset] = row.querySelectorAll(':scope > button');
+    expect([done?.id, reset?.id]).toEqual(['btn-sync-done', 'btn-auto-sync']);
+    expect(done?.getAttribute('data-i18n')).toBe('common.done');
+    expect(reset?.getAttribute('data-i18n')).toBe('common.reset');
+    expect(appliedValues(done!, ['background', 'color']).sort()).toEqual([
+      'background: var(--surface-2)',
+      'color: var(--text-sub)',
+    ]);
+    expect(appliedValues(reset!, ['background', 'color']).sort()).toEqual([
+      'background: var(--primary-filled)',
+      'color: white',
+    ]);
   });
 
   it('shows the same dialog rhythm on the design-system page and the sign-in completion card', () => {

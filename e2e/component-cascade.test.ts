@@ -195,8 +195,8 @@ const actionLabelMarkup = `
     <button class="leave-session-btn"><svg viewBox="0 0 24 24"></svg><span data-label="leave-session" data-danger>Log out</span></button>
     <button class="btn-copy-invite-link"><svg viewBox="0 0 24 24"></svg><span data-label="invite-link">Log out</span></button>
     <div class="sync-bottom-row">
-      <button class="sync-reset-btn" data-label="sync-reset">Log out</button>
       <button class="sync-done-btn" data-label="sync-done">Log out</button>
+      <button class="sync-reset-btn" data-label="sync-reset">Log out</button>
     </div>
     <div class="playlist-title-area">
       <button class="playlist-selection-toggle" data-label="select-all">Log out</button>

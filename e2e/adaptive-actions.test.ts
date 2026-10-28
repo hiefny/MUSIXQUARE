@@ -1593,8 +1593,10 @@ test.describe('content-based adaptive action groups', () => {
   // may take more rows than with the 9.0.18 typography. The compact members
   // (Sign out, Delete account and the media source options) take the chip
   // role's 14px up to 719px; the wider sizes show that the CTA role has room
-  // above it.
-  type SweptLabel = { selector: string; typography: string };
+  // above it. A context entry is a neighbour that shares a label's row: it
+  // takes its 9.0.18 typography in the reference pass too, so the label
+  // there gets the room it had in 9.0.18, but it is not measured itself.
+  type SweptLabel = { selector: string; typography: string; context?: true };
   const SWEPT_SLOTS_9_0_18: Record<string, SweptLabel[]> = {
     'account pair': [
       {
@@ -1635,6 +1637,13 @@ test.describe('content-based adaptive action groups', () => {
         typography:
           'font-size: 15px; font-weight: 600; line-height: 1.25; letter-spacing: -0.3px; ' +
           'word-break: normal; line-break: auto',
+      },
+      {
+        // The Beta badge beside the system audio label: 9.0.18 set it at
+        // 700, and the label role's 600 leaves the label half a pixel more.
+        selector: '.media-source-beta-badge',
+        typography: 'font-size: 11px; font-weight: 700; letter-spacing: 0',
+        context: true,
       },
     ],
     'selection toggle': [
@@ -1945,7 +1954,7 @@ test.describe('content-based adaptive action groups', () => {
               slots[slot]!.forEach((entry, index) => {
                 for (const label of outer.querySelectorAll<HTMLElement>(entry.selector)) {
                   if (label.closest('[data-unmeasured]')) continue;
-                  label.dataset.sweptLabel = `${slot}#${index}`;
+                  label.dataset[entry.context ? 'sweptContext' : 'sweptLabel'] = `${slot}#${index}`;
                 }
               });
               root.appendChild(outer);
@@ -2060,9 +2069,13 @@ test.describe('content-based adaptive action groups', () => {
       );
     const shipped = await measure();
     await page.evaluate((slots) => {
-      for (const label of document.querySelectorAll<HTMLElement>('[data-swept-label]')) {
+      for (const label of document.querySelectorAll<HTMLElement>(
+        '[data-swept-label], [data-swept-context]',
+      )) {
         const probe = label.closest<HTMLElement>('.swept-slot-probe')!;
-        const [slot, index] = label.dataset.sweptLabel!.split('#') as [string, string];
+        const [slot, index] = (label.dataset.sweptLabel ?? label.dataset.sweptContext)!.split(
+          '#',
+        ) as [string, string];
         for (const declaration of slots[slot]![Number(index)]!.typography.split(';')) {
           const [property, value] = declaration.split(':').map((part) => part.trim());
           // As in 9.0.18, right-to-left labels take no tracking.

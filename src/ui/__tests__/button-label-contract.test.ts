@@ -81,6 +81,14 @@ const ROLE_CLASSES: Readonly<Record<string, { role: Exclude<Role, 'cta'>; reason
     reason: 'The desktop settings section tabs, a row of four under the panel title.',
   },
 };
+// Unclassed action buttons in the CTA role, named by the container that styles
+// them. Their rule resets the native button font and then reads every CTA
+// token: size, weight, line height and tracking.
+const CTA_CONTAINERS: Readonly<Record<string, string>> = {
+  '.bootstrap-failure':
+    'The startup failure Retry is an action button outside the app shell, so it takes ' +
+    'the CTA role like every action button.',
+};
 // Unclassed demo tour controls, named by the container that styles them. They
 // keep their own responsive sizes and share the label weight and tracking.
 const SHARED_WEIGHT_CONTAINERS: Readonly<Record<string, string>> = {
@@ -91,6 +99,10 @@ const SHARED_WEIGHT_CONTAINERS: Readonly<Record<string, string>> = {
     'The demo role switch keeps its 13px segments (12px on phones, larger on the desktop ' +
     'tour) and shares the label weight and tracking.',
 };
+const CONTAINER_BUTTONS = [
+  ...Object.keys(CTA_CONTAINERS),
+  ...Object.keys(SHARED_WEIGHT_CONTAINERS),
+];
 // Text in the CTA role inside a button that is not an action, with its own
 // line height and the reason.
 const CTA_TEXT: Readonly<Record<string, { lineHeight: string; reason: string }>> = {
@@ -122,7 +134,9 @@ const NOT_ROLE_BUTTONS: Readonly<Record<string, string>> = {
   'btn-playlist-select': 'Icon-only selection mark.',
   'btn-playlist-remove': 'Icon-only upload cancel.',
   'playlist-selection-action': 'Icon-only selection bar circle.',
-  'playlist-switch-button': 'Icon-only playlist switch.',
+  'playlist-switch-button':
+    "Playlist title switch: its visible label is the active slot's name in the tab title " +
+    'face, content rather than an action label, beside a chevron.',
   'btn-kick-device': 'Icon-only device row action.',
   'btn-kick-physical-device': 'Icon-only device row action.',
   'chat-youtube-btn': 'YouTube card inside a chat bubble.',
@@ -156,12 +170,6 @@ const NOT_ROLE_BUTTONS: Readonly<Record<string, string>> = {
   'ob-dot': 'Carousel page dot.',
   'ob-nav-arrow': 'Icon-only carousel arrow.',
   'account-google-button': 'Google sign-in button, drawn to the Google brand specification.',
-};
-
-// Unclassed buttons outside every role, named by the container that styles them.
-const CONTAINER_BUTTONS: Readonly<Record<string, string>> = {
-  '.bootstrap-failure':
-    'Startup failure fallback outside the app shell; it inherits the page font.',
 };
 
 // Buttons that TypeScript creates without a class and styles inline.
@@ -344,9 +352,9 @@ function styledButton(selector: string): StyledLabel | null {
   for (const name of Object.keys(CTA_TEXT)) {
     if (hasClass(positive, name.slice(1))) return { name, role: 'cta' };
   }
-  for (const container of Object.keys(SHARED_WEIGHT_CONTAINERS)) {
+  for (const container of CONTAINER_BUTTONS) {
     if (new RegExp(`${escapeRegExp(container)}(?![\\w-])[^,]*\\bbutton\\b`, 'u').test(positive)) {
-      return { name: container, role: null };
+      return { name: container, role: container in CTA_CONTAINERS ? 'cta' : null };
     }
   }
   return null;
@@ -1136,10 +1144,12 @@ function resolveAcross(
 /** Label typography a declaration may not set on a role member or its label. */
 function labelViolation(declaration: Declaration, styled: StyledLabel): boolean {
   if (declaration.prop === 'font-family') return true;
-  // The demo tour controls reset the native button font ahead of their own
-  // longhands in the same rule.
+  // The buttons named by their container (the startup failure Retry and the
+  // demo tour controls) reset the native button font ahead of their own
+  // longhands in the same rule; the cascade resolver checks that the
+  // longhands win.
   if (declaration.prop === 'font') {
-    return !(styled.role === null && declaration.value === 'inherit');
+    return !(CONTAINER_BUTTONS.includes(styled.name) && declaration.value === 'inherit');
   }
   if (declaration.prop === 'font-size') {
     return styled.role !== null && declaration.value !== ROLE_SIZE_TOKENS[styled.role];
@@ -1647,7 +1657,7 @@ function roleLabels(markup: Document, within = ''): Element[] {
     ...ACTION_BUTTON_CLASSES.map((name) => `.${name}`),
     ...Object.keys(ROLE_CLASSES).map((name) => `.${name}`),
     ...Object.keys(CTA_TEXT),
-    ...Object.keys(SHARED_WEIGHT_CONTAINERS).map((container) => `${container} button`),
+    ...CONTAINER_BUTTONS.map((container) => `${container} button`),
   ]
     .map((selector) => `${within} ${selector}`.trim())
     .join(', ');
@@ -1985,6 +1995,25 @@ describe('action button label contract', () => {
         LABEL_TOKENS['letter-spacing'],
       ]);
       expect(ruleValues(appCss, selector, 'line-height'), selector).toEqual([lineHeight]);
+    }
+    // The startup failure Retry reads every CTA token after its font reset.
+    for (const container of Object.keys(CTA_CONTAINERS)) {
+      const selector = `${container} button`;
+      for (const [property, token] of Object.entries(LABEL_TOKENS)) {
+        expect(ruleValues(appCss, selector, property), `${selector} ${property}`).toEqual([token]);
+      }
+      const font: string[] = [];
+      appCss.walkRules((rule) => {
+        if (!rule.selectors.map((entry) => entry.trim()).includes(selector)) return;
+        rule.walkDecls((declaration) => {
+          if (FONT_PROPERTIES.includes(declaration.prop)) font.push(declaration.prop);
+        });
+      });
+      // After any font shorthand, so the shorthand does not reset them.
+      const shorthand = font.lastIndexOf('font');
+      for (const property of Object.keys(LABEL_TOKENS)) {
+        expect(font.indexOf(property), `${selector} ${property}`).toBeGreaterThan(shorthand);
+      }
     }
     // The demo tour controls share the weight and tracking.
     for (const container of Object.keys(SHARED_WEIGHT_CONTAINERS)) {
@@ -2438,13 +2467,9 @@ describe('action button label contract', () => {
 
   it('classifies every button in the app markup and the TypeScript templates', () => {
     const unclassified: string[] = [];
-    const containers = [
-      ...Object.keys(CONTAINER_BUTTONS),
-      ...Object.keys(SHARED_WEIGHT_CONTAINERS),
-    ];
     for (const button of appMarkup().querySelectorAll('button')) {
       if ([...button.classList].some(registered)) continue;
-      if (containers.some((container) => button.closest(container))) continue;
+      if (CONTAINER_BUTTONS.some((container) => button.closest(container))) continue;
       unclassified.push(`index.html ${button.outerHTML.slice(0, 80)}`);
     }
     for (const button of templateButtons()) {
@@ -2468,10 +2493,7 @@ describe('action button label contract', () => {
       ...Object.keys(NOT_ROLE_BUTTONS),
     ].filter((name) => !used.has(name));
     expect(stale).toEqual([]);
-    for (const container of [
-      ...Object.keys(CONTAINER_BUTTONS),
-      ...Object.keys(SHARED_WEIGHT_CONTAINERS),
-    ]) {
+    for (const container of CONTAINER_BUTTONS) {
       expect(markup.querySelector(`${container} button`), container).not.toBeNull();
     }
     for (const selector of Object.keys(CTA_TEXT)) {

@@ -309,7 +309,6 @@ function setChatDrawerBackgroundInert(makeInert: boolean): void {
 
 function updateChatDrawerHandleAccessibility(drawer: HTMLElement): void {
   const header = drawer.querySelector<HTMLElement>('.chat-drawer-header');
-  const closeButton = drawer.querySelector<HTMLButtonElement>('.chat-drawer-close');
   if (!header) return;
 
   if (!isMobileChatDrawer() || !isChatDrawerOpen()) {
@@ -321,7 +320,6 @@ function updateChatDrawerHandleAccessibility(drawer: HTMLElement): void {
     header.removeAttribute('aria-valuenow');
     header.removeAttribute('aria-keyshortcuts');
     header.tabIndex = -1;
-    if (closeButton) closeButton.tabIndex = isMobileChatDrawer() ? -1 : 0;
     return;
   }
 
@@ -346,8 +344,9 @@ function updateChatDrawerHandleAccessibility(drawer: HTMLElement): void {
     header.removeAttribute('aria-valuenow');
     header.setAttribute('aria-keyshortcuts', 'Enter Space Escape');
   }
+  // The sheet's visible Close (owner decision 2026-10-28) stays in the Tab
+  // cycle, before the handle.
   header.tabIndex = 0;
-  if (closeButton) closeButton.tabIndex = -1;
 }
 
 function syncChatDrawerModalAccessibility(

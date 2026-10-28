@@ -8359,11 +8359,25 @@ or pointers. Keep :focus-visible and :active outside the gate (src/ui/__tests__/
     fill: currentColor;
   }
 
-  /* Cascade after the base close-button rule so mobile keeps the drawer chrome hidden. */
+  /* Cascade after the base close-button rule so mobile keeps the drawer title hidden. */
   @media (max-width: 1279px), (max-height: 719px) {
-    .chat-drawer-title,
-    .chat-drawer-close {
+    .chat-drawer-title {
       display: none;
+    }
+
+    /* The sheet's visible Close at the top start (owner decision 2026-10-28),
+       beside its outside-tap close. It overlays the 36px handle row's start
+       without adding height, so the handle bar stays centred; its 20px icon
+       sits 16px in, like the sheet's content. */
+    .chat-drawer-close {
+      position: relative;
+      z-index: 1;
+      align-self: flex-start;
+      flex: none;
+      width: 36px;
+      height: 36px;
+      margin-inline-start: 8px;
+      margin-bottom: -36px;
     }
   }
 
@@ -12139,8 +12153,7 @@ or pointers. Keep :focus-visible and :active outside the gate (src/ui/__tests__/
       padding: 16px 20px;
     }
 
-    .chat-drawer-title,
-    .chat-drawer-close {
+    .chat-drawer-title {
       display: none;
     }
 

@@ -794,7 +794,7 @@ const nb: Record<I18nKey, string> = {
   'pro.activation_account_title': 'Velg en konto for dette PRO-rommet',
   'pro.activation_account_message': 'Vil du registrere dette rommet på kontoen «{{name}}»?',
   'pro.activation_account_login_message': 'Logg inn med kontoen du vil registrere dette rommet på.',
-  'pro.activation_account_continue': 'Fortsett',
+  'pro.activation_account_continue': 'Registrer',
   'pro.activation_account_switch': 'Annen konto',
   'pro.activation_account_unavailable': 'Kunne ikke bekrefte kontoen din. Prøv igjen om litt.',
   'pro.claim_retry_title': 'Vil du prøve PRO-lenken på nytt?',

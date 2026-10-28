@@ -804,7 +804,7 @@ const bg: Record<I18nKey, string> = {
   'pro.activation_account_message': 'Да регистрираме ли тази стая към профила „{{name}}“?',
   'pro.activation_account_login_message':
     'Влез в профила, към който искаш да регистрираш тази стая.',
-  'pro.activation_account_continue': 'Продължаване',
+  'pro.activation_account_continue': 'Регистриране',
   'pro.activation_account_switch': 'Друг профил',
   'pro.activation_account_unavailable':
     'Не успяхме да потвърдим профила ти. Опитай отново след малко.',

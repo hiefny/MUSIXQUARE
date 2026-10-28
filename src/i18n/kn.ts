@@ -800,7 +800,7 @@ const kn: Record<I18nKey, string> = {
   'pro.activation_account_message': 'ಈ ರೂಮ್ ಅನ್ನು “{{name}}” ಖಾತೆಗೆ ನೋಂದಾಯಿಸಬೇಕೆ?',
   'pro.activation_account_login_message':
     'ಈ ರೂಮ್ ಅನ್ನು ಯಾವ ಖಾತೆಗೆ ನೋಂದಾಯಿಸಬೇಕೋ ಆ ಖಾತೆಯಿಂದ ಸೈನ್ ಇನ್ ಮಾಡಿ.',
-  'pro.activation_account_continue': 'ಮುಂದುವರಿಸಿ',
+  'pro.activation_account_continue': 'ನೋಂದಾಯಿಸಿ',
   'pro.activation_account_switch': 'ಮತ್ತೊಂದು ಖಾತೆ',
   'pro.activation_account_unavailable':
     'ನಿಮ್ಮ ಖಾತೆಯನ್ನು ಪರಿಶೀಲಿಸಲಾಗಲಿಲ್ಲ. ಸ್ವಲ್ಪ ಸಮಯದ ನಂತರ ಮತ್ತೆ ಪ್ರಯತ್ನಿಸಿ.',

@@ -813,7 +813,7 @@ const it: Record<I18nKey, string> = {
   'pro.activation_account_message': 'Vuoi registrare questa stanza all’account “{{name}}”?',
   'pro.activation_account_login_message':
     'Accedi con l’account a cui vuoi registrare questa stanza.',
-  'pro.activation_account_continue': 'Continua',
+  'pro.activation_account_continue': 'Registra',
   'pro.activation_account_switch': 'Altro account',
   'pro.activation_account_unavailable':
     'Non siamo riusciti a verificare il tuo account. Riprova tra poco.',

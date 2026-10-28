@@ -667,7 +667,7 @@ const zhHans: Record<I18nKey, string> = {
   'pro.activation_account_title': '选择此 PRO 房间的注册账号',
   'pro.activation_account_message': '要将此房间注册到“{{name}}”账号吗？',
   'pro.activation_account_login_message': '请登录要用于注册此房间的账号。',
-  'pro.activation_account_continue': '继续',
+  'pro.activation_account_continue': '注册',
   'pro.activation_account_switch': '其他账号',
   'pro.activation_account_unavailable': '无法确认账号信息，请稍后重试。',
   'pro.claim_retry_title': '要使用 PRO 链接重试吗？',

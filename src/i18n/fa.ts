@@ -779,7 +779,7 @@ const fa: Record<I18nKey, string> = {
   'pro.activation_account_title': 'انتخاب حساب برای این اتاق PRO',
   'pro.activation_account_message': 'این اتاق در حساب «{{name}}» ثبت شود؟',
   'pro.activation_account_login_message': 'با حسابی وارد شوید که می‌خواهید این اتاق در آن ثبت شود.',
-  'pro.activation_account_continue': 'ادامه',
+  'pro.activation_account_continue': 'ثبت',
   'pro.activation_account_switch': 'حساب دیگر',
   'pro.activation_account_unavailable': 'اطلاعات حساب شما بررسی نشد. کمی بعد دوباره تلاش کنید.',
   'pro.claim_retry_title': 'پیوند PRO دوباره امتحان شود؟',

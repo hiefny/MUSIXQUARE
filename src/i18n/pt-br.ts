@@ -737,7 +737,7 @@ const ptBr: Record<I18nKey, string> = {
   'pro.activation_account_title': 'Escolha uma conta para esta sala PRO',
   'pro.activation_account_message': 'Registrar esta sala na conta “{{name}}”?',
   'pro.activation_account_login_message': 'Entre com a conta em que você quer registrar esta sala.',
-  'pro.activation_account_continue': 'Continuar',
+  'pro.activation_account_continue': 'Registrar',
   'pro.activation_account_switch': 'Outra conta',
   'pro.activation_account_unavailable':
     'Não foi possível verificar sua conta. Tente novamente em instantes.',

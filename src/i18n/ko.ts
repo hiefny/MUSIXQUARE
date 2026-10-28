@@ -769,7 +769,7 @@ const ko = {
   'pro.activation_account_title': 'PRO 방을 등록할 계정',
   'pro.activation_account_message': '“{{name}}” 계정에 이 방을 등록할까요?',
   'pro.activation_account_login_message': '이 방을 등록할 계정으로 로그인해 주세요.',
-  'pro.activation_account_continue': '이 계정으로 등록',
+  'pro.activation_account_continue': '등록',
   'pro.activation_account_switch': '다른 계정으로 로그인',
   'pro.activation_account_unavailable':
     '계정 정보를 확인하지 못했어요. 잠시 후 다시 시도해 주세요.',

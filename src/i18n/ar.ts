@@ -770,7 +770,7 @@ const ar: Record<I18nKey, string> = {
   'pro.activation_account_title': 'اختر حسابًا لتسجيل غرفة PRO هذه',
   'pro.activation_account_message': 'هل تريد تسجيل هذه الغرفة في الحساب «{{name}}»؟',
   'pro.activation_account_login_message': 'سجّل الدخول بالحساب الذي تريد تسجيل هذه الغرفة فيه.',
-  'pro.activation_account_continue': 'متابعة',
+  'pro.activation_account_continue': 'تسجيل',
   'pro.activation_account_switch': 'حساب آخر',
   'pro.activation_account_unavailable': 'تعذّر التحقق من حسابك. يرجى المحاولة مجددًا بعد قليل.',
   'pro.claim_retry_title': 'هل تريد تجربة رابط PRO مجددًا؟',

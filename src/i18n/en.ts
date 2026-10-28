@@ -783,7 +783,7 @@ const en: Record<I18nKey, string> = {
   'pro.activation_account_message': 'Register this room to the “{{name}}” account?',
   'pro.activation_account_login_message':
     'Sign in to the account you want to register this room to.',
-  'pro.activation_account_continue': 'Continue',
+  'pro.activation_account_continue': 'Register',
   'pro.activation_account_switch': 'Another account',
   'pro.activation_account_unavailable':
     'We couldn’t verify your account. Please try again shortly.',

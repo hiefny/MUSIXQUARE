@@ -775,7 +775,7 @@ const gu: Record<I18nKey, string> = {
   'pro.activation_account_title': 'આ PRO રૂમ માટે ખાતું પસંદ કરો',
   'pro.activation_account_message': 'આ રૂમ “{{name}}” ખાતામાં નોંધાવવો છે?',
   'pro.activation_account_login_message': 'આ રૂમ જે ખાતામાં નોંધાવવો હોય તે ખાતાથી સાઇન ઇન કરો.',
-  'pro.activation_account_continue': 'આગળ વધો',
+  'pro.activation_account_continue': 'નોંધાવો',
   'pro.activation_account_switch': 'બીજું ખાતું',
   'pro.activation_account_unavailable':
     'તમારું ખાતું ચકાસી શકાયું નથી. થોડી વારમાં ફરી પ્રયાસ કરો.',

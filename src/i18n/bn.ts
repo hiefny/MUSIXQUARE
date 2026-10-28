@@ -787,7 +787,7 @@ const bn: Record<I18nKey, string> = {
   'pro.activation_account_message': '“{{name}}” অ্যাকাউন্টে এই রুমটি নিবন্ধন করবেন?',
   'pro.activation_account_login_message':
     'যে অ্যাকাউন্টে এই রুমটি নিবন্ধন করতে চান, সেটি দিয়ে সাইন ইন করুন।',
-  'pro.activation_account_continue': 'চালিয়ে যান',
+  'pro.activation_account_continue': 'নিবন্ধন করুন',
   'pro.activation_account_switch': 'অন্য অ্যাকাউন্ট',
   'pro.activation_account_unavailable':
     'আপনার অ্যাকাউন্ট যাচাই করা যায়নি। একটু পর আবার চেষ্টা করুন।',

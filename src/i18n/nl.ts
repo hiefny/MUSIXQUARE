@@ -808,7 +808,7 @@ const nl: Record<I18nKey, string> = {
   'pro.activation_account_message': 'Deze kamer registreren op het account “{{name}}”?',
   'pro.activation_account_login_message':
     'Log in met het account waarop je deze kamer wilt registreren.',
-  'pro.activation_account_continue': 'Doorgaan',
+  'pro.activation_account_continue': 'Registreren',
   'pro.activation_account_switch': 'Ander account',
   'pro.activation_account_unavailable':
     'We konden je account niet verifiëren. Probeer het zo opnieuw.',

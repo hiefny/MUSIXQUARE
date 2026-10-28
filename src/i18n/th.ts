@@ -769,7 +769,7 @@ const th: Record<I18nKey, string> = {
   'pro.activation_account_title': 'เลือกบัญชีสำหรับห้อง PRO นี้',
   'pro.activation_account_message': 'ลงทะเบียนห้องนี้กับบัญชี “{{name}}” ไหม?',
   'pro.activation_account_login_message': 'เข้าสู่ระบบด้วยบัญชีที่ต้องการลงทะเบียนห้องนี้',
-  'pro.activation_account_continue': 'ไปต่อ',
+  'pro.activation_account_continue': 'ลงทะเบียน',
   'pro.activation_account_switch': 'บัญชีอื่น',
   'pro.activation_account_unavailable': 'ตรวจสอบข้อมูลบัญชีไม่ได้ ลองอีกครั้งในอีกสักครู่',
   'pro.claim_retry_title': 'ลองใช้ลิงก์ PRO อีกครั้งไหม?',

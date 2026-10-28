@@ -805,7 +805,7 @@ const ml: Record<I18nKey, string> = {
   'pro.activation_account_title': 'ഈ PRO റൂമിനായി ഒരു അക്കൗണ്ട് തിരഞ്ഞെടുക്കുക',
   'pro.activation_account_message': 'ഈ റൂം “{{name}}” അക്കൗണ്ടിൽ രജിസ്റ്റർ ചെയ്യണോ?',
   'pro.activation_account_login_message': 'ഈ റൂം രജിസ്റ്റർ ചെയ്യേണ്ട അക്കൗണ്ടിൽ സൈൻ ഇൻ ചെയ്യുക.',
-  'pro.activation_account_continue': 'തുടരുക',
+  'pro.activation_account_continue': 'രജിസ്റ്റർ ചെയ്യുക',
   'pro.activation_account_switch': 'മറ്റൊരു അക്കൗണ്ട്',
   'pro.activation_account_unavailable':
     'നിങ്ങളുടെ അക്കൗണ്ട് സ്ഥിരീകരിക്കാനായില്ല. അൽപ്പസമയത്തിനകം വീണ്ടും ശ്രമിക്കുക.',

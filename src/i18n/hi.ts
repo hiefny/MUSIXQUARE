@@ -788,7 +788,7 @@ const hi: Record<I18nKey, string> = {
   'pro.activation_account_message': 'इस रूम को “{{name}}” अकाउंट में रजिस्टर करना है?',
   'pro.activation_account_login_message':
     'जिस अकाउंट में यह रूम रजिस्टर करना है, उससे साइन इन करें।',
-  'pro.activation_account_continue': 'जारी रखें',
+  'pro.activation_account_continue': 'रजिस्टर करें',
   'pro.activation_account_switch': 'दूसरा अकाउंट',
   'pro.activation_account_unavailable':
     'आपके अकाउंट की जानकारी जाँची नहीं जा सकी। कृपया थोड़ी देर बाद फिर कोशिश करें।',

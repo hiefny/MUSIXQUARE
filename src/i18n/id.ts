@@ -721,7 +721,7 @@ const id: Record<I18nKey, string> = {
   'pro.activation_account_message': 'Daftarkan ruang ini ke akun “{{name}}”?',
   'pro.activation_account_login_message':
     'Masuk ke akun yang ingin Anda gunakan untuk mendaftarkan ruang ini.',
-  'pro.activation_account_continue': 'Lanjutkan',
+  'pro.activation_account_continue': 'Daftarkan',
   'pro.activation_account_switch': 'Akun lain',
   'pro.activation_account_unavailable':
     'Akun Anda tidak dapat diverifikasi. Coba lagi sebentar lagi.',

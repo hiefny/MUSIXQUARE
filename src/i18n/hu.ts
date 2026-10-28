@@ -803,7 +803,7 @@ const hu: Record<I18nKey, string> = {
   'pro.activation_account_message': 'Regisztrálod ezt a szobát a következő fiókhoz: „{{name}}”?',
   'pro.activation_account_login_message':
     'Jelentkezz be azzal a fiókkal, amelyhez ezt a szobát regisztrálni szeretnéd.',
-  'pro.activation_account_continue': 'Folytatás',
+  'pro.activation_account_continue': 'Regisztrálás',
   'pro.activation_account_switch': 'Másik fiók',
   'pro.activation_account_unavailable':
     'Nem sikerült ellenőrizni a fiókodat. Próbáld újra hamarosan.',

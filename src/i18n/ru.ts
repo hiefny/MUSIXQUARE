@@ -801,7 +801,7 @@ const ru: Record<I18nKey, string> = {
   'pro.activation_account_message': 'Зарегистрировать эту комнату на аккаунт «{{name}}»?',
   'pro.activation_account_login_message':
     'Войдите в аккаунт, на который хотите зарегистрировать эту комнату.',
-  'pro.activation_account_continue': 'Продолжить',
+  'pro.activation_account_continue': 'Зарегистрировать',
   'pro.activation_account_switch': 'Другой аккаунт',
   'pro.activation_account_unavailable':
     'Не удалось проверить аккаунт. Повторите попытку чуть позже.',

@@ -808,7 +808,7 @@ const ms: Record<I18nKey, string> = {
   'pro.activation_account_message': 'Daftarkan bilik ini di bawah akaun “{{name}}”?',
   'pro.activation_account_login_message':
     'Log masuk dengan akaun yang anda mahu gunakan untuk mendaftarkan bilik ini.',
-  'pro.activation_account_continue': 'Teruskan',
+  'pro.activation_account_continue': 'Daftarkan',
   'pro.activation_account_switch': 'Akaun lain',
   'pro.activation_account_unavailable':
     'Tidak dapat mengesahkan akaun anda. Sila cuba lagi sebentar nanti.',

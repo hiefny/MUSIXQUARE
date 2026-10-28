@@ -807,7 +807,7 @@ const pl: Record<I18nKey, string> = {
   'pro.activation_account_message': 'Zarejestrować ten pokój na koncie „{{name}}”?',
   'pro.activation_account_login_message':
     'Zaloguj się na konto, na którym chcesz zarejestrować ten pokój.',
-  'pro.activation_account_continue': 'Kontynuuj',
+  'pro.activation_account_continue': 'Zarejestruj',
   'pro.activation_account_switch': 'Inne konto',
   'pro.activation_account_unavailable':
     'Nie udało się zweryfikować konta. Spróbuj ponownie za chwilę.',

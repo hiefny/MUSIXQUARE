@@ -795,7 +795,7 @@ const uk: Record<I18nKey, string> = {
   'pro.activation_account_message': 'Зареєструвати цю кімнату на обліковий запис «{{name}}»?',
   'pro.activation_account_login_message':
     'Увійдіть в обліковий запис, на який хочете зареєструвати цю кімнату.',
-  'pro.activation_account_continue': 'Продовжити',
+  'pro.activation_account_continue': 'Зареєструвати',
   'pro.activation_account_switch': 'Інший акаунт',
   'pro.activation_account_unavailable':
     'Не вдалося перевірити обліковий запис. Спробуйте ще раз трохи згодом.',

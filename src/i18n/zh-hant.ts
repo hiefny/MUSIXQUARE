@@ -667,7 +667,7 @@ const zhHant: Record<I18nKey, string> = {
   'pro.activation_account_title': '選擇要登記此 PRO 房間的帳號',
   'pro.activation_account_message': '要將此房間登記至「{{name}}」帳號嗎？',
   'pro.activation_account_login_message': '請登入要登記此房間的帳號。',
-  'pro.activation_account_continue': '繼續',
+  'pro.activation_account_continue': '登記',
   'pro.activation_account_switch': '其他帳號',
   'pro.activation_account_unavailable': '無法確認帳號資訊，請稍後再試。',
   'pro.claim_retry_title': '要使用 PRO 連結重試嗎？',

@@ -799,7 +799,7 @@ const cs: Record<I18nKey, string> = {
   'pro.activation_account_message': 'Zaregistrovat tuto místnost k účtu „{{name}}“?',
   'pro.activation_account_login_message':
     'Přihlaste se k účtu, ke kterému chcete tuto místnost zaregistrovat.',
-  'pro.activation_account_continue': 'Pokračovat',
+  'pro.activation_account_continue': 'Zaregistrovat',
   'pro.activation_account_switch': 'Jiný účet',
   'pro.activation_account_unavailable': 'Účet se nepodařilo ověřit. Zkuste to za chvíli znovu.',
   'pro.claim_retry_title': 'Zkusit odkaz PRO znovu?',

@@ -740,7 +740,7 @@ const es: Record<I18nKey, string> = {
   'pro.activation_account_message': '¿Registrar esta sala en la cuenta “{{name}}”?',
   'pro.activation_account_login_message':
     'Inicia sesión con la cuenta en la que quieres registrar esta sala.',
-  'pro.activation_account_continue': 'Continuar',
+  'pro.activation_account_continue': 'Registrar',
   'pro.activation_account_switch': 'Otra cuenta',
   'pro.activation_account_unavailable':
     'No se pudo verificar tu cuenta. Inténtalo de nuevo en un momento.',

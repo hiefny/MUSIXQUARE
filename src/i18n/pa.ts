@@ -789,7 +789,7 @@ const pa: Record<I18nKey, string> = {
   'pro.activation_account_title': 'ਇਸ PRO ਰੂਮ ਲਈ ਖਾਤਾ ਚੁਣੋ',
   'pro.activation_account_message': 'ਇਹ ਰੂਮ “{{name}}” ਖਾਤੇ ਨਾਲ ਰਜਿਸਟਰ ਕਰਨਾ ਹੈ?',
   'pro.activation_account_login_message': 'ਜਿਸ ਖਾਤੇ ਨਾਲ ਇਹ ਰੂਮ ਰਜਿਸਟਰ ਕਰਨਾ ਹੈ, ਉਸ ਨਾਲ ਸਾਈਨ ਇਨ ਕਰੋ।',
-  'pro.activation_account_continue': 'ਅੱਗੇ ਵਧੋ',
+  'pro.activation_account_continue': 'ਰਜਿਸਟਰ ਕਰੋ',
   'pro.activation_account_switch': 'ਹੋਰ ਖਾਤਾ',
   'pro.activation_account_unavailable':
     'ਖਾਤੇ ਦੀ ਜਾਣਕਾਰੀ ਜਾਂਚੀ ਨਹੀਂ ਜਾ ਸਕੀ। ਥੋੜ੍ਹੀ ਦੇਰ ਬਾਅਦ ਦੁਬਾਰਾ ਕੋਸ਼ਿਸ਼ ਕਰੋ।',

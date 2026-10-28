@@ -799,7 +799,7 @@ const sv: Record<I18nKey, string> = {
   'pro.activation_account_message': 'Vill du registrera rummet på kontot ”{{name}}”?',
   'pro.activation_account_login_message':
     'Logga in med det konto som du vill registrera rummet på.',
-  'pro.activation_account_continue': 'Fortsätt',
+  'pro.activation_account_continue': 'Registrera',
   'pro.activation_account_switch': 'Annat konto',
   'pro.activation_account_unavailable':
     'Det gick inte att verifiera ditt konto. Försök igen om en liten stund.',

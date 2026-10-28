@@ -795,7 +795,7 @@ const fi: Record<I18nKey, string> = {
   'pro.activation_account_message': 'Rekisteröidäänkö tämä huone tilille ”{{name}}”?',
   'pro.activation_account_login_message':
     'Kirjaudu tilille, johon haluat rekisteröidä tämän huoneen.',
-  'pro.activation_account_continue': 'Jatka',
+  'pro.activation_account_continue': 'Rekisteröi',
   'pro.activation_account_switch': 'Toinen tili',
   'pro.activation_account_unavailable':
     'Tilisi tietoja ei voitu tarkistaa. Yritä hetken kuluttua uudelleen.',

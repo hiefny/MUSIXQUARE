@@ -796,7 +796,7 @@ const da: Record<I18nKey, string> = {
   'pro.activation_account_title': 'Vælg en konto til dette PRO-rum',
   'pro.activation_account_message': 'Vil du registrere dette rum på kontoen ”{{name}}”?',
   'pro.activation_account_login_message': 'Log ind med den konto, du vil registrere dette rum på.',
-  'pro.activation_account_continue': 'Fortsæt',
+  'pro.activation_account_continue': 'Registrer',
   'pro.activation_account_switch': 'Anden konto',
   'pro.activation_account_unavailable': 'Kunne ikke bekræfte din konto. Prøv igen om lidt.',
   'pro.claim_retry_title': 'Prøv PRO-linket igen?',

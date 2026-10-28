@@ -813,7 +813,7 @@ const ta: Record<I18nKey, string> = {
   'pro.activation_account_message': 'இந்த அறையை “{{name}}” கணக்கில் பதிவுசெய்யவா?',
   'pro.activation_account_login_message':
     'இந்த அறையைப் பதிவுசெய்ய விரும்பும் கணக்கில் உள்நுழையவும்.',
-  'pro.activation_account_continue': 'தொடர்',
+  'pro.activation_account_continue': 'பதிவுசெய்',
   'pro.activation_account_switch': 'வேறொரு கணக்கு',
   'pro.activation_account_unavailable':
     'உங்கள் கணக்கைச் சரிபார்க்க முடியவில்லை. சிறிது நேரத்தில் மீண்டும் முயலவும்.',

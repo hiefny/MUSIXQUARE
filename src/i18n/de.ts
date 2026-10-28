@@ -740,7 +740,7 @@ const de: Record<I18nKey, string> = {
   'pro.activation_account_message': 'Diesen Raum für das Konto „{{name}}“ registrieren?',
   'pro.activation_account_login_message':
     'Melde dich mit dem Konto an, für das du diesen Raum registrieren möchtest.',
-  'pro.activation_account_continue': 'Fortfahren',
+  'pro.activation_account_continue': 'Registrieren',
   'pro.activation_account_switch': 'Anderes Konto',
   'pro.activation_account_unavailable':
     'Dein Konto konnte nicht überprüft werden. Bitte versuche es gleich noch einmal.',

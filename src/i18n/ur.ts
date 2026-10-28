@@ -784,7 +784,7 @@ const ur: Record<I18nKey, string> = {
   'pro.activation_account_message': 'یہ کمرہ ”{{name}}“ اکاؤنٹ میں رجسٹر کریں؟',
   'pro.activation_account_login_message':
     'اس اکاؤنٹ سے سائن ان کریں جس میں آپ یہ کمرہ رجسٹر کرنا چاہتے ہیں۔',
-  'pro.activation_account_continue': 'جاری رکھیں',
+  'pro.activation_account_continue': 'رجسٹر کریں',
   'pro.activation_account_switch': 'دوسرا اکاؤنٹ',
   'pro.activation_account_unavailable':
     'آپ کے اکاؤنٹ کی تصدیق نہیں ہو سکی۔ کچھ دیر بعد دوبارہ کوشش کریں۔',

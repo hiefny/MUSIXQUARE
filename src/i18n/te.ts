@@ -795,7 +795,7 @@ const te: Record<I18nKey, string> = {
   'pro.activation_account_title': 'ఈ PRO గది కోసం ఖాతాను ఎంచుకోండి',
   'pro.activation_account_message': 'ఈ గదిని “{{name}}” ఖాతాకు నమోదు చేయాలా?',
   'pro.activation_account_login_message': 'ఈ గదిని నమోదు చేసే ఖాతాతో సైన్ ఇన్ చేయండి.',
-  'pro.activation_account_continue': 'కొనసాగించు',
+  'pro.activation_account_continue': 'నమోదు చేయి',
   'pro.activation_account_switch': 'మరో ఖాతా',
   'pro.activation_account_unavailable':
     'మీ ఖాతాను ధృవీకరించలేకపోయాం. కాసేపట్లో మళ్లీ ప్రయత్నించండి.',

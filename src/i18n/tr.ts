@@ -781,7 +781,7 @@ const tr: Record<I18nKey, string> = {
   'pro.activation_account_title': 'Bu PRO odası için bir hesap seç',
   'pro.activation_account_message': 'Bu oda “{{name}}” hesabına kaydedilsin mi?',
   'pro.activation_account_login_message': 'Bu odayı kaydetmek istediğin hesapla oturum aç.',
-  'pro.activation_account_continue': 'Devam et',
+  'pro.activation_account_continue': 'Kaydet',
   'pro.activation_account_switch': 'Başka hesap',
   'pro.activation_account_unavailable': 'Hesabın doğrulanamadı. Biraz sonra tekrar dene.',
   'pro.claim_retry_title': 'PRO bağlantısıyla tekrar denensin mi?',

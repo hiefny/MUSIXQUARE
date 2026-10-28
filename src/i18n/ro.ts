@@ -810,7 +810,7 @@ const ro: Record<I18nKey, string> = {
   'pro.activation_account_message': 'Înregistrezi această cameră în contul „{{name}}”?',
   'pro.activation_account_login_message':
     'Autentifică-te în contul în care vrei să înregistrezi această cameră.',
-  'pro.activation_account_continue': 'Continuă',
+  'pro.activation_account_continue': 'Înregistrează',
   'pro.activation_account_switch': 'Alt cont',
   'pro.activation_account_unavailable':
     'Contul nu a putut fi verificat. Încearcă din nou în curând.',

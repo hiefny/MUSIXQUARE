@@ -709,7 +709,7 @@ const vi: Record<I18nKey, string> = {
   'pro.activation_account_message': 'Đăng ký phòng này vào tài khoản “{{name}}”?',
   'pro.activation_account_login_message':
     'Hãy đăng nhập vào tài khoản mà bạn muốn đăng ký phòng này.',
-  'pro.activation_account_continue': 'Tiếp tục',
+  'pro.activation_account_continue': 'Đăng ký',
   'pro.activation_account_switch': 'Tài khoản khác',
   'pro.activation_account_unavailable':
     'Không thể xác minh tài khoản của bạn. Vui lòng thử lại sau giây lát.',

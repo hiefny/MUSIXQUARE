@@ -813,7 +813,7 @@ const fil: Record<I18nKey, string> = {
   'pro.activation_account_message': 'Irehistro ang kuwartong ito sa account na “{{name}}”?',
   'pro.activation_account_login_message':
     'Mag-sign in gamit ang account kung saan mo gustong irehistro ang kuwartong ito.',
-  'pro.activation_account_continue': 'Magpatuloy',
+  'pro.activation_account_continue': 'Irehistro',
   'pro.activation_account_switch': 'Ibang account',
   'pro.activation_account_unavailable':
     'Hindi namin ma-verify ang account mo. Pakisubukan muli maya-maya.',

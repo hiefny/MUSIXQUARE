@@ -722,7 +722,7 @@ const ja: Record<I18nKey, string> = {
   'pro.activation_account_title': 'このPROルームを登録するアカウント',
   'pro.activation_account_message': 'アカウント「{{name}}」にこのルームを登録しますか？',
   'pro.activation_account_login_message': 'このルームを登録するアカウントでログインしてください。',
-  'pro.activation_account_continue': '続行',
+  'pro.activation_account_continue': '登録',
   'pro.activation_account_switch': '別のアカウント',
   'pro.activation_account_unavailable':
     'アカウント情報を確認できませんでした。しばらくしてからもう一度お試しください。',

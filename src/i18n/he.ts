@@ -766,7 +766,7 @@ const he: Record<I18nKey, string> = {
   'pro.activation_account_title': 'בחירת חשבון לחדר ה-PRO',
   'pro.activation_account_message': 'לרשום את החדר הזה בחשבון „{{name}}”?',
   'pro.activation_account_login_message': 'יש להתחבר לחשבון שבו רוצים לרשום את החדר הזה.',
-  'pro.activation_account_continue': 'המשך',
+  'pro.activation_account_continue': 'רישום',
   'pro.activation_account_switch': 'חשבון אחר',
   'pro.activation_account_unavailable': 'לא הצלחנו לאמת את פרטי החשבון. כדאי לנסות שוב בעוד רגע.',
   'pro.claim_retry_title': 'לנסות שוב את קישור ה-PRO?',

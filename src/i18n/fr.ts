@@ -733,7 +733,7 @@ const fr: Record<I18nKey, string> = {
   'pro.activation_account_message': 'Enregistrer ce salon sur le compte « {{name}} » ?',
   'pro.activation_account_login_message':
     'Connectez-vous au compte sur lequel vous souhaitez enregistrer ce salon.',
-  'pro.activation_account_continue': 'Continuer',
+  'pro.activation_account_continue': 'Enregistrer',
   'pro.activation_account_switch': 'Autre compte',
   'pro.activation_account_unavailable':
     'Impossible de vérifier votre compte. Réessayez dans un instant.',

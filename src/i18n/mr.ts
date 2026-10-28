@@ -788,7 +788,7 @@ const mr: Record<I18nKey, string> = {
   'pro.activation_account_message': 'ही रूम “{{name}}” या खात्यावर नोंदवायची?',
   'pro.activation_account_login_message':
     'ही रूम ज्या खात्यावर नोंदवायची आहे, त्या खात्याने साइन इन करा.',
-  'pro.activation_account_continue': 'पुढे जा',
+  'pro.activation_account_continue': 'नोंदवा',
   'pro.activation_account_switch': 'दुसरे खाते',
   'pro.activation_account_unavailable':
     'तुमचे खाते पडताळता आले नाही. थोड्या वेळाने पुन्हा प्रयत्न करा.',

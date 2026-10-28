@@ -817,7 +817,7 @@ const el: Record<I18nKey, string> = {
   'pro.activation_account_message': 'Να καταχωριστεί αυτό το δωμάτιο στον λογαριασμό «{{name}}»;',
   'pro.activation_account_login_message':
     'Συνδεθείτε στον λογαριασμό στον οποίο θέλετε να καταχωριστεί αυτό το δωμάτιο.',
-  'pro.activation_account_continue': 'Συνέχεια',
+  'pro.activation_account_continue': 'Καταχώριση',
   'pro.activation_account_switch': 'Άλλος λογαριασμός',
   'pro.activation_account_unavailable':
     'Δεν ήταν δυνατή η επαλήθευση του λογαριασμού σας. Δοκιμάστε ξανά σε λίγο.',

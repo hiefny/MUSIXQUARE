@@ -88,7 +88,11 @@ let _finishAccountDialogClose: (() => void) | null = null;
 let _profilePromptShownScope: string | null | undefined;
 let _profilePromptActive: ReturnType<typeof captureAccountMutationIntent> | null = null;
 let _profilePromptOperation: Promise<AccountNicknameChangeOutcome> | null = null;
+// Log out and account deletion hold the whole dialog until they settle.
 let _accountActionPending = false;
+// A sign-in Retry is only a session read: it holds its own button, never
+// the dialog's Close.
+let _accountRetryPending = false;
 let _accountLoginPopup: Window | null = null;
 let _accountLoginPopupMonitor: ReturnType<typeof setInterval> | null = null;
 let _accountLoginPopupAttempt: {
@@ -938,6 +942,7 @@ function renderAccountDialog(snapshot: Readonly<AccountSnapshot> = getAccountSna
   const google = byId<HTMLAnchorElement>('btn-account-google');
   const googleLabel = byId<HTMLElement>('account-google-label');
   const loginClose = byId<HTMLButtonElement>('btn-account-login-close');
+  const loginRetry = byId<HTMLButtonElement>('btn-account-login-retry');
   const legal = byId<HTMLElement>('account-legal-links');
   const actions = byId<HTMLElement>('account-dialog-actions');
   const logout = byId<HTMLButtonElement>('btn-account-logout');
@@ -955,6 +960,7 @@ function renderAccountDialog(snapshot: Readonly<AccountSnapshot> = getAccountSna
     !google ||
     !googleLabel ||
     !loginClose ||
+    !loginRetry ||
     !legal ||
     !actions ||
     !logout ||
@@ -983,6 +989,14 @@ function renderAccountDialog(snapshot: Readonly<AccountSnapshot> = getAccountSna
   loginClose.textContent = t('common.close');
   loginClose.classList.remove('dialog-primary');
   loginClose.classList.add('dialog-secondary');
+  loginActions.classList.remove('adaptive-action-group');
+  // A running Retry keeps its label; only the button itself waits.
+  loginRetry.hidden = true;
+  loginRetry.textContent = t('common.retry');
+  loginRetry.dataset.accountStateDisabled = String(_accountRetryPending);
+  loginRetry.disabled = _accountRetryPending || _accountActionPending;
+  if (_accountRetryPending) loginRetry.setAttribute('aria-busy', 'true');
+  else loginRetry.removeAttribute('aria-busy');
   legal.hidden = true;
   actions.hidden = true;
   centerClose.textContent = t('common.close');
@@ -1026,17 +1040,19 @@ function renderAccountDialog(snapshot: Readonly<AccountSnapshot> = getAccountSna
   title.textContent = t(canOfferLogin ? 'account.login_title' : 'account.account_title');
   loginActions.hidden = false;
   loginClose.hidden = false;
-  if (snapshot.status === 'loading') {
-    message.textContent = t('common.wait');
-    loginClose.classList.remove('dialog-secondary');
-    loginClose.classList.add('dialog-primary');
+  if (isAccountRetryView(snapshot)) {
+    // Owner policy (2026-10-28): a leavable state always shows its exit.
+    // Close stays on the left of Retry, and a running Retry (a loading
+    // snapshot) keeps this view instead of the loading one.
+    message.textContent = t('account.unavailable');
+    loginActions.classList.add('adaptive-action-group');
+    loginRetry.hidden = false;
     syncRenderedTextFonts();
     return;
   }
 
-  if (snapshot.status === 'unavailable' || snapshot.configured === false) {
-    message.textContent = t('account.unavailable');
-    if (snapshot.status === 'unavailable') loginClose.textContent = t('common.retry');
+  if (snapshot.status === 'loading' || snapshot.configured === false) {
+    message.textContent = t(snapshot.status === 'loading' ? 'common.wait' : 'account.unavailable');
     loginClose.classList.remove('dialog-secondary');
     loginClose.classList.add('dialog-primary');
     syncRenderedTextFonts();
@@ -1051,6 +1067,13 @@ function renderAccountDialog(snapshot: Readonly<AccountSnapshot> = getAccountSna
   syncRenderedTextFonts();
 }
 
+/** Sign-in is unavailable, or the user's Retry of it is still reading. */
+function isAccountRetryView(snapshot: Readonly<AccountSnapshot>): boolean {
+  return (
+    snapshot.status === 'unavailable' || (_accountRetryPending && snapshot.status === 'loading')
+  );
+}
+
 function getFocusableElements(): HTMLElement[] {
   const dialog = byId<HTMLElement>('account-dialog');
   if (!dialog) return [];
@@ -1063,6 +1086,7 @@ function getFocusableElements(): HTMLElement[] {
 
 function closeAccountDialog(): void {
   const overlay = byId<HTMLElement>('account-dialog-overlay');
+  // Only log out and deletion hold the dialog open; a running Retry does not.
   if (!overlay?.classList.contains('show') || _accountActionPending) return;
   overlay.classList.remove('show');
   _finishAccountDialogClose?.();
@@ -1083,6 +1107,11 @@ function getPreferredAccountDialogFocus(snapshot: Readonly<AccountSnapshot>): HT
   }
   if (snapshot.status === 'authenticated') {
     return byId<HTMLElement>('btn-account-title-edit');
+  }
+  if (isAccountRetryView(snapshot)) {
+    // While Retry reads, focus waits on the dialog: a repeated Enter on the
+    // disabled Retry must not fall through to Close.
+    return byId<HTMLElement>(_accountRetryPending ? 'account-dialog' : 'btn-account-login-retry');
   }
   return byId<HTMLElement>('btn-account-login-close');
 }
@@ -1216,6 +1245,25 @@ async function runAccountNicknameChange(
   }
 }
 
+async function retryAccountSignIn(): Promise<void> {
+  if (_accountRetryPending || _accountActionPending) return;
+  if (getAccountSnapshot().status !== 'unavailable') return;
+  _accountRetryPending = true;
+  renderAccountDialog();
+  const isOpen = () => byId<HTMLElement>('account-dialog-overlay')?.classList.contains('show');
+  if (isOpen()) focusWithoutScroll(getPreferredAccountDialogFocus(getAccountSnapshot()));
+  try {
+    await retryAccountSessionRefresh();
+  } finally {
+    _accountRetryPending = false;
+    renderAccountDialog();
+    // A dialog closed during the read keeps the focus its close restored.
+    if (isOpen() && getAccountSnapshot().status === 'unavailable') {
+      focusWithoutScroll(byId<HTMLButtonElement>('btn-account-login-retry'));
+    }
+  }
+}
+
 function bindAccountDialog(): void {
   const overlay = byId<HTMLElement>('account-dialog-overlay');
   if (!overlay || overlay.dataset.accountBound === '1') return;
@@ -1227,23 +1275,9 @@ function bindAccountDialog(): void {
     showToast(t('account.action_failed'));
   };
 
-  byId<HTMLButtonElement>('btn-account-login-close')?.addEventListener('click', () => {
-    const closeLoginDialog = async (): Promise<void> => {
-      if (getAccountSnapshot().status === 'unavailable') {
-        setPending(true);
-        try {
-          await retryAccountSessionRefresh();
-        } finally {
-          setPending(false);
-          if (getAccountSnapshot().status === 'unavailable') {
-            focusWithoutScroll(byId<HTMLButtonElement>('btn-account-login-close'));
-          }
-        }
-        return;
-      }
-      closeAccountDialog();
-    };
-    closeLoginDialog().catch(reportUnhandledAccountDialogAction);
+  byId<HTMLButtonElement>('btn-account-login-close')?.addEventListener('click', closeAccountDialog);
+  byId<HTMLButtonElement>('btn-account-login-retry')?.addEventListener('click', () => {
+    retryAccountSignIn().catch(reportUnhandledAccountDialogAction);
   });
   byId<HTMLButtonElement>('btn-account-center-close')?.addEventListener(
     'click',
@@ -1283,9 +1317,8 @@ function bindAccountDialog(): void {
     monitorAccountLoginPopup(opened.popup);
     focusAccountLoginPopup(opened.popup);
   });
-  overlay.addEventListener('click', (event) => {
-    if (event.target === overlay) closeAccountDialog();
-  });
+  // Owner policy (2026-10-28): the backdrop never closes the dialog. Every
+  // view has a visible Close, and Back and Escape close it as that Close.
   onWindowBack(overlay, () => {
     if (!overlay.classList.contains('show')) return false;
     closeAccountDialog();
@@ -1502,6 +1535,7 @@ export function __resetAccountUiForTests(): void {
   _profilePromptActive = null;
   _profilePromptOperation = null;
   _accountActionPending = false;
+  _accountRetryPending = false;
   _accountStats = null;
   _accountStatsOwner = null;
   _accountStatsLoading = false;

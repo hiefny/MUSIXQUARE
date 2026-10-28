@@ -2743,7 +2743,7 @@ describe('optional account UI', () => {
     const accountActionsRules =
       stylesheet.match(/\.account-dialog-actions\s*\{([^}]*)\}/)?.[1] ?? '';
     const adaptiveActionsRules =
-      stylesheet.match(/\.adaptive-action-group\s*\{([^}]*)\}/)?.[1] ?? '';
+      stylesheet.match(/^\s{2}\.adaptive-action-group\s*\{([^}]*)\}/m)?.[1] ?? '';
     const adaptiveButtonRules =
       stylesheet.match(
         /\.adaptive-action-group\s*>\s*:is\(button, a\):not\(\[hidden\]\)\s*\{([^}]*)\}/,

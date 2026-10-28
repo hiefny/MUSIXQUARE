@@ -5219,6 +5219,7 @@ or pointers. Keep :focus-visible and :active outside the gate (src/ui/__tests__/
   .account-dialog-title-edit[hidden],
   .account-dialog-login-actions[hidden],
   .account-dialog-login-close[hidden],
+  .account-dialog-login-retry[hidden],
   .account-legal-links[hidden],
   .account-dialog-stats[hidden],
   .account-dialog-actions[hidden] {
@@ -5477,6 +5478,13 @@ or pointers. Keep :focus-visible and :active outside the gate (src/ui/__tests__/
     margin-top: 0;
   }
 
+  /* While sign-in is unavailable, Close and Retry are the view's one pair,
+     Close first: account.ts gives the row the shared adaptive action group,
+     whose gap separates them, so Close drops the stack margin. */
+  .account-dialog-login-actions.adaptive-action-group > .account-dialog-login-close {
+    margin-top: 0;
+  }
+
   .account-legal-links,
   .language-translate-link {
     margin-top: 16px;
@@ -5571,10 +5579,17 @@ or pointers. Keep :focus-visible and :active outside the gate (src/ui/__tests__/
     }
 
     /* Close's top margin is the signed-out view's action gap. A primary
-       Close (sign-in loading or unavailable) is the only action and keeps
-       no margin. */
-    html:not(.keyboard-open) .account-dialog-login-close:not(.dialog-primary) {
+       Close (sign-in loading or switched off) is the only action and keeps
+       no margin, and the unavailable view's Close / Retry pair takes the
+       gap of its action group instead. */
+    html:not(.keyboard-open)
+      .account-dialog-login-actions:not(.adaptive-action-group)
+      > .account-dialog-login-close:not(.dialog-primary) {
       margin-top: 6px;
+    }
+
+    html:not(.keyboard-open) .account-dialog-login-actions.adaptive-action-group {
+      gap: 6px;
     }
 
     html:not(.keyboard-open) .account-dialog-login-actions .account-google-button,

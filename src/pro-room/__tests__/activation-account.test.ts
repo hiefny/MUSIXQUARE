@@ -68,7 +68,6 @@ describe('PRO activation account confirmation', () => {
       }),
     );
     const options = mocks.dialog.mock.calls[0]?.[0];
-    expect(options).not.toHaveProperty('actionLayout');
     expect(options).not.toHaveProperty('onSecondaryActivation');
     expect(mocks.login).not.toHaveBeenCalled();
   });
@@ -96,7 +95,6 @@ describe('PRO activation account confirmation', () => {
     );
     const options = mocks.dialog.mock.calls[0]?.[0];
     expect(options).not.toHaveProperty('linkText');
-    expect(options).not.toHaveProperty('actionLayout');
     expect(mocks.login).not.toHaveBeenCalled();
   });
 

@@ -216,7 +216,6 @@ describe('Dialog System', () => {
         const promise = showDialog({
           title: 'Choose account',
           secondaryText: 'Sign in with another account',
-          actionLayout: 'stacked',
           onPrimaryActivation: primary,
           onSecondaryActivation: () => order.push('activation'),
         }).then((result) => {
@@ -236,50 +235,6 @@ describe('Dialog System', () => {
         expect(order).toEqual(['activation', 'resolved:secondary']);
       },
     );
-
-    it('keeps primary first in stacked keyboard order and restores the next ordinary dialog', async () => {
-      const { showDialog, closeDialog } = await import('../dialog.ts');
-      const controller = new AbortController();
-      const onSecondaryActivation = vi.fn();
-      const stacked = showDialog({
-        title: 'Choose account',
-        secondaryText: 'Switch account',
-        actionLayout: 'stacked',
-        onSecondaryActivation,
-        signal: controller.signal,
-      });
-      const ordinary = showDialog({ title: 'Next', secondaryText: 'Cancel' });
-      const actions = document.querySelector('.dialog-actions')!;
-      const primary = document.getElementById('btn-dialog-ok')!;
-      const secondary = document.getElementById('btn-dialog-secondary')!;
-      expect([...actions.children]).toEqual([primary, secondary]);
-      expect(actions.classList.contains('dialog-actions-stacked')).toBe(true);
-
-      secondary.focus();
-      secondary.dispatchEvent(
-        new KeyboardEvent('keydown', { key: 'Tab', bubbles: true, cancelable: true }),
-      );
-      expect(document.activeElement).toBe(primary);
-      primary.dispatchEvent(
-        new KeyboardEvent('keydown', {
-          key: 'Tab',
-          shiftKey: true,
-          bubbles: true,
-          cancelable: true,
-        }),
-      );
-      expect(document.activeElement).toBe(secondary);
-
-      controller.abort();
-      vi.advanceTimersByTime(10);
-      await expect(stacked).resolves.toEqual({ action: 'superseded' });
-      expect([...actions.children]).toEqual([secondary, primary]);
-      expect(actions.classList.contains('dialog-actions-stacked')).toBe(false);
-      secondary.click();
-      await expect(ordinary).resolves.toEqual({ action: 'secondary' });
-      expect(onSecondaryActivation).not.toHaveBeenCalled();
-      closeDialog();
-    });
 
     it('still resolves a secondary action when its browser activation hook fails', async () => {
       const { showDialog } = await import('../dialog.ts');
@@ -310,11 +265,10 @@ describe('Dialog System', () => {
       });
       observer.observe(document.body, { childList: true, subtree: true });
       try {
-        const stacked = showDialog({
+        const first = showDialog({
           title: 'Register room',
           buttonText: 'Register with this account',
           secondaryText: 'Sign in with another account',
-          actionLayout: 'stacked',
         });
         const ordinary = showDialog({
           title: 'Next ordinary dialog',
@@ -329,7 +283,7 @@ describe('Dialog System', () => {
         );
 
         closeDialog('ok');
-        await stacked;
+        await first;
         vi.advanceTimersByTime(10);
         await Promise.resolve();
         expect(document.getElementById('dialog-title')?.textContent).toBe('Next ordinary dialog');

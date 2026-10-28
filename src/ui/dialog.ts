@@ -38,8 +38,6 @@ interface DialogOptions {
    */
   closeOnBack?: boolean;
   defaultFocus?: 'primary' | 'secondary';
-  /** Places primary then secondary on separate full-width rows. */
-  actionLayout?: 'stacked';
   /** Scrollable, selectable user-authored copy with independently directed text. */
   contentLayout?: 'reading';
   /** Runs synchronously inside the validated primary click/Enter gesture. */
@@ -386,8 +384,8 @@ function _openDialog(opts: DialogOptions | string, resolve: (result: DialogResul
       : 'primary';
 
   // These elements become runtime-owned once a dialog opens. Static bootstrap
-  // translation keys must not overwrite custom copy when action rows move or
-  // the i18n observer translates a newly inserted element.
+  // translation keys must not overwrite custom copy when the i18n observer
+  // translates a newly inserted element.
   titleEl.removeAttribute('data-i18n');
   okBtn.removeAttribute('data-i18n');
   secondaryBtn?.removeAttribute('data-i18n');
@@ -611,18 +609,6 @@ function _openDialog(opts: DialogOptions | string, resolve: (result: DialogResul
       overlay.classList.remove('dialog-with-link');
       linkBtn.hidden = true;
     });
-  }
-  const stackedActions = o.actionLayout === 'stacked';
-  const actions = okBtn.closest('.dialog-actions');
-  if (stackedActions && actions) {
-    actions.classList.add('dialog-actions-stacked');
-    cleanup.push(() => actions.classList.remove('dialog-actions-stacked'));
-    if (secondaryBtn?.parentElement === actions && okBtn.parentElement === actions) {
-      // Keep keyboard and screen-reader order aligned with the visible rows.
-      const originalNextSibling = okBtn.nextSibling;
-      actions.insertBefore(okBtn, secondaryBtn);
-      cleanup.push(() => actions.insertBefore(okBtn, originalNextSibling));
-    }
   }
   const on = (target: EventTarget | null, type: string, handler: EventListener) => {
     if (!target) return;
@@ -980,7 +966,7 @@ function _openDialog(opts: DialogOptions | string, resolve: (result: DialogResul
 
     if (ke.key === 'Tab') {
       const secondary = secondaryShown() ? secondaryBtn : null;
-      const actionButtons = stackedActions ? [okBtn, secondary] : [secondary, okBtn];
+      const actionButtons = [secondary, okBtn];
       if (hasLink) actionButtons.push(linkBtn);
       const pageTarget =
         choicePageShown && choice

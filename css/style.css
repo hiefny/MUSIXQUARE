@@ -6144,15 +6144,6 @@ or pointers. Keep :focus-visible and :active outside the gate (src/ui/__tests__/
     flex-basis: 100%;
   }
 
-  .dialog-actions.dialog-actions-stacked {
-    flex-direction: column;
-  }
-
-  .dialog-actions.dialog-actions-stacked > button:not([hidden]) {
-    width: 100%;
-    flex: 0 0 auto;
-  }
-
   /* A small text action under the [exit | primary] pair, like the language
      dialog's translate link (owner decision 2026-10-28): the PRO account
      choice's "another account". Its text sits 16px under the pair and keeps

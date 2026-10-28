@@ -941,6 +941,20 @@ describe('App build floor script', () => {
       expect(world.time - T0).toBe(30_000);
     });
 
+    it('stops when the App report that ends the wait leaves the effective floor short', async () => {
+      const world = new FloorWorld({ stored: 794, liveBuild: 794 });
+      // The last App report (build 794) is more than five minutes old, and the
+      // App has since gone back to build 793, which the next report brings.
+      world.reportedAt = T0 - 360_000;
+      world.liveBuild = 793;
+      expect(world.effective()).toBe(0);
+      await expect(runAppBuildFloorCommand(check(794), world.deps({}))).rejects.toThrow(
+        'The effective App build floor 793 is below build 794, which the PRO Worker of this release requires (stored 794, live App reported 793)',
+      );
+      expect(world.logs.join('\n')).toContain('waiting for a new App report');
+      expect(world.time - T0).toBe(30_000);
+    });
+
     it('stops when the effective floor is still 0 after the App report wait', async () => {
       const world = new FloorWorld({ stored: 794, liveBuild: 794, cron: false });
       world.reportedAt = T0 - 360_000;
@@ -948,6 +962,30 @@ describe('App build floor script', () => {
         'The effective App build floor stayed 0',
       );
       expect(world.time - T0).toBeGreaterThanOrEqual(APP_BUILD_FLOOR_CRON_REPORT_TIMEOUT_MS);
+    });
+
+    it('stops when the status turns unreadable in the App report wait and stays so', async () => {
+      const world = new FloorWorld({ stored: 794, liveBuild: 794, cron: false });
+      world.reportedAt = T0 - 360_000;
+      const deps = world.deps({});
+      const fetcher = deps.fetcher;
+      deps.fetcher = async (input, init) => {
+        const answer = await fetcher(input, init);
+        // The first status read shows the effective floor 0; every later one fails.
+        if (new URL(input).pathname === APP_BUILD_FLOOR_PUBLIC_STATUS_PATH) {
+          world.statusUnavailable = true;
+        }
+        return answer;
+      };
+      await expect(runAppBuildFloorCommand(check(794), deps)).rejects.toThrow(
+        /could not be read while waiting for a new App report.*HTTP 503 \(APP_BUILD_FLOOR_UNAVAILABLE\)/u,
+      );
+      expect(world.logs.join('\n')).toContain('waiting for a new App report');
+      expect(statusReads(world).length).toBeGreaterThan(2);
+      expect(world.time - T0).toBeGreaterThanOrEqual(APP_BUILD_FLOOR_CRON_REPORT_TIMEOUT_MS);
+      // Read-only to the end: no token and no floor change.
+      expect(world.tokenRequests()).toHaveLength(0);
+      expect(world.opsRequests()).toHaveLength(0);
     });
 
     it('stops when the status stays unreadable through the re-reads', async () => {

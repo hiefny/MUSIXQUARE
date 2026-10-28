@@ -114,13 +114,27 @@ runbooks. Neither belongs in a general setup document.
   evidence and checks, the assembly fixes, the review findings and their handling, visible changes,
   19 owner items left open (two found by the assembled 42-locale sweep: the demo header track title
   wrapping after the persistent exit, and dialog titles measured for the first time), mixed
-  versions and rollback, and QA rounds 1 to 4: per increment, assembly, the final checks and
+  versions and rollback, and QA rounds 1 to 6: per increment, assembly, the final checks and
   release prep at the bump (full unit 16,528 on a rerun after load timeouts, Worker and critical
   coverage, `build:checked`, worker bundles, candidate 19, critical 98 and 289 related E2E, the
-  partial-release decision of App 98, PRO room 2 and signaling 1 runtime paths), and the sweep
-  against 9.0.19 on Windows and Linux font emulation. Not merged or released yet; the post-deploy
-  record adds round 5. A manual Full E2E on main `c37220df` (run 40708045873) also failed in tests
-  this train does not change, recorded with the report's limits.
+  partial-release decision of App 98, PRO room 2 and signaling 1 runtime paths), the sweep
+  against 9.0.19 on Windows and Linux font emulation, and round 5 (one PR CI run and a no-findings
+  automated review on the final head `a40da6ff`, the exact-main CI, three Production Release runs
+  on the same candidate, the first two failing at the signaling smoke (an HTTP 503 WebSocket
+  upgrade, then a 1006 close) and rolled back automatically with a successful recovery boundary
+  job, the third deploying all six Workers, the smokes, the public assets at v793 with the V5
+  developer docs, the public floor at 787 with live App 793, and the Drift Audit), and round 6, a
+  local WebKit comparison of the bump against 9.0.19 on a second Windows machine (Windows WebKit
+  26.6 with iPhone 13 emulation: every 9.0.20 suite failure also fails on 9.0.19 or is fixed
+  by #518; of ten probe cases worse than 9.0.19, three from the weight roles go to the owner, and
+  seven titles gain a line under the 2026-10-28 title-tracking rule with no clipping; the comparison
+  recommends no change to their line counts, which stay open as owner items 3, 13 and 19). PR #516
+  (squash `226219c5`) was released on 2026-10-29 05:52 KST in Release 40766362722 with target `all`.
+  A manual Full E2E on main `c37220df` (run 40708045873) also failed in tests this train does not
+  change; #518 (`edd6ee94`, tests only) found and fixed their cause, and the Full E2E run
+  40773241908 on main `edd6ee94` (the 9.0.20 runtime) passed in Linux Chromium and Linux WebKit,
+  which closed that open item. The rare media source focus race the same investigation found stays
+  open as a planned runtime fix for the next App release.
 - [PRO receipt follow-up train A (2026-10-28)](design/pro-receipt-followup-a-2026-10-28.md):
   the owner's decision of 2026-10-28 on item 3 of the receipt retention follow-ups, shipped as a
   PRO room Worker-only train (target `pro-room`; the App stays 9.0.19 / v792, so no update
@@ -132,7 +146,7 @@ runbooks. Neither belongs in a general setup document.
   ledger while R2 deletes succeed, and uploads hold one two-minute receipt per file, about 256
   files a window instead of 128. Only same-key resends the App never sends get new answers
   (`ASSET_NOT_FOUND` at once, or a new reservation). The same report records the owner's
-  decisions on items 1 and 2 (implemented in 9.0.20) and on item 4 and BOT's 24-hour Developer
+  decisions on items 1 and 2 (released in 9.0.20) and on item 4 and BOT's 24-hour Developer
   mutation receipts (kept, with the rationale in RO-53). It lists each increment with its
   commits (tested on main `1a99fe49`, then rebased onto the docs-only 9.0.19 record `2bed0a50`
   with identical runtime and tests, both SHAs listed), the tests-first evidence (12 titles, 13

@@ -87,7 +87,7 @@ Not windows, unchanged: toasts, loaders, the session-reset screen, the iOS
 YouTube tap-to-play shield, the developer `/debug` overlays (Escape and tap
 still close them), playlist selection, and the setup steps themselves.
 
-Changed 2026-10-28 (owner decision, planned for 9.0.20): Escape now does
+Changed 2026-10-28 (owner decision, released in 9.0.20): Escape now does
 exactly what Back does on every window. One page-level listener in
 `ui/dom.ts` offers an Escape that no control used to the window Back would
 reach, through the same layers and handlers, so the window closes, steps

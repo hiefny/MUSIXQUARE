@@ -680,12 +680,12 @@ gh workflow run app-build-floor.yml --ref main -f action=lower -f min_app_build=
   same `set` again; with the floor already stored it only verifies. If the PRO front door refused
   the target build or Signaling misbehaved (for example the Signaling smoke below refused a host),
   `lower` at once and investigate: to 0 for the first floor, and for any later raise to the
-  previous verified floor, not to 0. That is the stored value the last successful `set` proved,
-  such as a same-value `set` run just before the raise. A `lower` proves only what holds at the
-  effective floor N of that moment, which may be below its target: the PRO front door refuses
-  build N-1 and admits build N, and Signaling refuses build N-1 (at 0, only a PRO admission). It
-  never proves that Signaling admits a host. So once it succeeds, run the Signaling smoke of the
-  first floor again: both rooms must admit their host and guest, and
+  previous verified floor, not to 0. That is the value stored before the raise as its last
+  successful run proved it, normally a same-value `set` just before the raise. A `lower` proves
+  only what holds at the effective floor N of that moment, which may be below its target: the PRO
+  front door refuses build N-1 and admits build N, and Signaling refuses build N-1 (at 0, only a
+  PRO admission). It never proves that Signaling admits a host. So once it succeeds, run the
+  Signaling smoke of the first floor again: both rooms must admit their host and guest, and
   `legacyCompatibility.refusedBelowAppBuildFloor` must equal the lowered floor (retry once after
   a transient 502 or 503). Lower to 0 only when a host is still refused or that `lower` run fails.
   If the hosts are admitted but that value is not the lowered floor (for example
@@ -709,15 +709,16 @@ gh workflow run app-build-floor.yml --ref main -f action=lower -f min_app_build=
   Otherwise the release continues only when the public status shows both the stored and the
   effective floor at that build or above. The step reads an unreadable status again for 30
   seconds, and while the effective floor is 0 (no App report for five minutes) it waits up to 3
-  minutes for a new App report; then it stops the release. After such a stop, dispatch again once
-  the status shows a fresh `reportedAt` from the next App report (every minute). If the stopped
-  App report or the unreadable status needs a repair that ships with target `pro-room` or `all`,
-  that repair pull request clears the value (a lower value cannot pass while the effective floor
-  is 0); once the status shows both floors at the required build again, a small tooling pull
-  request writes it back while the PRO Worker still requires it. An `app` release does not run
-  the step. A stored or a non-zero effective floor below the value does not pass by waiting: do
-  not clear the value then unless the same pull request ends the requirement, or the PRO Worker
-  ships with a requirement that the floor does not enforce.
+  minutes for a new App report; a status still unreadable or an effective floor still 0 then
+  stops the release. After such a stop, dispatch again once the status shows a fresh `reportedAt`
+  from the next App report (every minute). If the stopped App report or the unreadable status
+  needs a repair that ships with target `pro-room` or `all`, that repair pull request clears the
+  value (a lower value cannot pass while the effective floor is 0); once the status shows both
+  floors at the required build again, a small tooling pull request writes it back while the PRO
+  Worker still requires it. An `app` release does not run the step. A stored or a non-zero
+  effective floor below the value does not pass by waiting: do not clear the value then unless
+  the same pull request ends the requirement, or the PRO Worker ships with a requirement that the
+  floor does not enforce.
 - First floor (owner decision 2026-10-25): the App 9.0.14 release ships with the floor at 0 and
   `raise_app_build_floor` false. Once its smokes and public assets are verified, run `status`
   (the live App build is the released one and the App report is fresh), then `check` (the OIDC

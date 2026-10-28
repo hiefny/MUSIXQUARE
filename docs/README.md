@@ -93,6 +93,34 @@ runbooks. Neither belongs in a general setup document.
 
 ## Maintained evidence and completed records
 
+- [UI follow-up train 9.0.20: dialog exits, weight roles and the PRO receipt follow-ups (2026-10-29)](design/ui-followup-920-2026-10-29.md):
+  one app update (9.0.20 / v793, bump `e1e638bf`, target `all`, with the update dialog; the build
+  floor stays 787) on main `91aa77bb` (App 9.0.19, PRO room train A). It deletes the hidden
+  settings device list and the kick icons' dead opacity (V1), describes the locked reverb, EQ and
+  virtual effect groups in a sentence for screen readers (V2, translation guide rule 10), keeps
+  the manual sync panel in view on short screens and lowers the compact sidebar wordmark rule from
+  370px to 360px (V3), turns the member kick icon red on keyboard focus (V4), shows the room limit
+  toast when a full ledger refuses a person's PRO playback command (B1, receipt item 1), splits PRO
+  room capacity refusals by cause and answers a full playlist with `PLAYLIST_CAPACITY_EXCEEDED`
+  (B2, receipt item 2, PRO room Worker and the shared diagnostics file, so the signaling, PRO room
+  and App Workers all redeploy), documents the Developer API replay receipt windows (V5), and
+  answers the PRO room registration question with its own verb in 42 locales. The dialog exits
+  (owner decisions of 2026-10-28, F1 to F15 and four review fixes): no modal closes on an outside
+  click except the phone chat sheet, every leavable state shows a visible exit on the left, and
+  Escape does exactly what Back does on every window. Every app text takes one of five weight roles
+  (title 700, selected 700, unselected 500, label 600, body 400), titles are tracked by script and
+  the body is kerned, and by the owner's decision of 2026-10-29 the header loading status stays at
+  label 600 beside the account pill. The report lists each increment with its final and pre-assembly commits, tests-first
+  evidence and checks, the assembly fixes, the review findings and their handling, visible changes,
+  19 owner items left open (two found by the assembled 42-locale sweep: the demo header track title
+  wrapping after the persistent exit, and dialog titles measured for the first time), mixed
+  versions and rollback, and QA rounds 1 to 4: per increment, assembly, the final checks and
+  release prep at the bump (full unit 16,528 on a rerun after load timeouts, Worker and critical
+  coverage, `build:checked`, worker bundles, candidate 19, critical 98 and 289 related E2E, the
+  partial-release decision of App 98, PRO room 2 and signaling 1 runtime paths), and the sweep
+  against 9.0.19 on Windows and Linux font emulation. Not merged or released yet; the post-deploy
+  record adds round 5. A manual Full E2E on main `c37220df` (run 40708045873) also failed in tests
+  this train does not change, recorded with the report's limits.
 - [PRO receipt follow-up train A (2026-10-28)](design/pro-receipt-followup-a-2026-10-28.md):
   the owner's decision of 2026-10-28 on item 3 of the receipt retention follow-ups, shipped as a
   PRO room Worker-only train (target `pro-room`; the App stays 9.0.19 / v792, so no update
@@ -1114,6 +1142,9 @@ labeled portion still supports a current guard or operating interpretation:
   merging App 8.9.6). Local unit, coverage, build, and Chromium browser checks
   with screenshots; no real-device or native-speaker review. The chat notice, toast, and
   deferral were replaced on 2026-10-17 by [one update dialog everywhere](design/update-dialog-everywhere-2026-10-17.md).
+  Note (2026-10-29): the owner reversed the Refresh-only recovery dialog on 2026-10-28; from
+  9.0.20 it shows Close on the left and Refresh on the right, and closing it leaves the room as it
+  is ([9.0.20 report, F10](design/ui-followup-920-2026-10-29.md#고친-것)).
 - [Standard-room owner PIN — 2026-10-11](design/standard-room-owner-pin-2026-10-11.md) —
   App 8.10.0 with the signaling Worker (released 2026-10-12, target `all`; tested at
   v655, ships as v659 with the in-room update prompt):

@@ -8,7 +8,8 @@
   including the isolated control side route's outage deadline (Phase 4 C5-9, train 4D);
   2026-10-26, the host probe and the ICE restart binding no longer read Worker or peer
   markers (old-version removal train 2); 2026-10-29, the initial SDP exchange and the restart
-  answer no longer carry `iceRestartVersion` (old-version removal train 3)
+  answer no longer carry `iceRestartVersion`, and the Worker's peer-open no longer advertises the
+  liveness protocol (old-version removal train 3)
 
 ## Problem
 
@@ -27,13 +28,14 @@ the exact socket generation is retired and the existing 1/2/4/8/15-second recove
 (`SIGNALING_RECOVERY_BACKOFF_MS` in `src/network/signaling-health.ts`) starts automatically.
 Existing WebRTC data channels, playback, and system-audio media stay intact.
 
-The Worker advertises protocol version 1 only from deployed Workers carrying version metadata,
-but every Durable Object answers the fixed probe: it uses `setWebSocketAutoResponse()` when
+Every Durable Object answers the fixed probe: it uses `setWebSocketAutoResponse()` when
 available, with an explicit local/test fallback. Since old-version removal train 2 (App build
-floor 787, 2026-10-26) the host no longer reads the advertisement and probes every admitted
-Standard host WebSocket. The HTTP bridge socket, guests and PRO rooms do not run the periodic
-probe. Browser `offline` and `online` events are fast hints for the same Standard-host recovery
-path.
+floor 787, 2026-10-26) the host probes every admitted Standard host WebSocket without reading a
+peer-open advertisement. Until train 3 (App build floor 789) deployed Workers carrying version
+metadata still advertised protocol version 1 there; since then the version metadata adds only
+`workerVersionId` to the peer-open. The HTTP bridge socket, guests and PRO rooms do not run the
+periodic probe. Browser `offline` and `online` events are fast hints for the same Standard-host
+recovery path.
 
 Returning to the foreground also restarts an exhausted Standard-host signaling
 budget, without replacing the room identity, RTC channels, or local playback.

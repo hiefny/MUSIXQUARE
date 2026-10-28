@@ -31,8 +31,6 @@ import {
 import {
   createRemoteShareUploadAssertion,
   parseRemoteShareUploadAssertionKeyring,
-  REMOTE_SHARE_UPLOAD_ASSERTION_KEYRING_VERSION,
-  REMOTE_SHARE_UPLOAD_ASSERTION_VERSION,
   type RemoteShareUploadAssertionKeyring,
 } from './remote-share-upload-assertion.ts';
 import {
@@ -531,7 +529,6 @@ const GUEST_AUTH_TIMEOUT_MS = 10_000;
 const ROOM_META_KEY = 'roomMeta';
 const ATTACHMENT_VERSION = 1;
 const WS_RATE_LIMIT_PER_MINUTE = 120;
-const SIGNALING_LIVENESS_VERSION = 1 as const;
 const SIGNALING_LIVENESS_PING = '{"type":"signaling-liveness-ping","version":1}';
 const SIGNALING_LIVENESS_PONG = '{"type":"signaling-liveness-pong","version":1}';
 const STANDARD_WS_RATE_WINDOW_MS = 60_000;
@@ -1010,15 +1007,14 @@ async function createStandardRoomPinVerifier(
   );
 }
 
-function workerVersionFields(env: SignalingEnvPort): {
-  workerVersionId?: string;
-  signalingLivenessVersion?: typeof SIGNALING_LIVENESS_VERSION;
-} {
+// Peer-open carries only the deployed version id (release smokes and
+// diagnostics read it). Since old-version removal train 3 (survey OV-F08) it
+// advertises no liveness, upload assertion or PIN membership marker: no App the
+// floor admits reads one.
+function workerVersionFields(env: SignalingEnvPort): { workerVersionId?: string } {
   const metadata = env.CF_VERSION_METADATA;
   const workerVersionId = isRecord(metadata) ? metadata.id : undefined;
-  return typeof workerVersionId === 'string' && workerVersionId
-    ? { workerVersionId, signalingLivenessVersion: SIGNALING_LIVENESS_VERSION }
-    : {};
+  return typeof workerVersionId === 'string' && workerVersionId ? { workerVersionId } : {};
 }
 
 function remoteShareUploadAssertionSecret(env: SignalingEnvPort): string {
@@ -1028,15 +1024,6 @@ function remoteShareUploadAssertionSecret(env: SignalingEnvPort): string {
     parseRemoteShareUploadAssertionKeyring(secret)
     ? secret
     : '';
-}
-
-function remoteShareUploadAssertionFeatureFields(env: SignalingEnvPort): JsonRecord {
-  return remoteShareUploadAssertionSecret(env)
-    ? {
-        remoteShareUploadAssertionVersion: REMOTE_SHARE_UPLOAD_ASSERTION_VERSION,
-        remoteShareUploadAssertionKeyringVersion: REMOTE_SHARE_UPLOAD_ASSERTION_KEYRING_VERSION,
-      }
-    : {};
 }
 
 function defaultGuestBindings(): GuestBindings {
@@ -6504,11 +6491,7 @@ export class MusixquareRoom {
         ...(identity
           ? { memberIdentity: standardRoomMemberIdentityFromAttachment(attachment) }
           : {}),
-        ...remoteShareUploadAssertionFeatureFields(this.env),
         ...workerVersionFields(this.env),
-        // Host-only capability: room-password-set may carry existingParticipants
-        // and keptPeerIds on this socket. Old clients ignore unknown keys.
-        standardRoomPinMembershipVersion: STANDARD_ROOM_PIN_MEMBERSHIP_VERSION,
         roomPasswordMutationId: pinMutationId,
         roomPasswordApplied: true,
       })
@@ -8081,9 +8064,8 @@ export class MusixquareRoom {
             throw new Error('STANDARD_ROOM_PIN_PEPPER_UNAVAILABLE');
           }
         }
-        // Validation admits membership fields only with an 8-digit PIN, and the
-        // App sends them only to a socket whose peer-open advertised this
-        // Worker's membership version.
+        // Validation admits membership fields only with an 8-digit PIN. The App
+        // has sent them without reading a peer-open marker since 9.0.15.
         const directive = verifier ? standardRoomPinMembershipDirective(message) : null;
         try {
           const membership = await this.nextStandardRoomPinMembership(

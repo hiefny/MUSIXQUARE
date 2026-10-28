@@ -768,6 +768,17 @@ gh workflow run app-build-floor.yml --ref main -f action=lower -f min_app_build=
   9.0.14 tab opened in that window cannot create a Standard room or reconnect as host
   (`HOST_AUTH_FIRST_FRAME_INVALID`) until it applies the update dialog back to the restored App
   (v786). Guests are not affected: the older guest validator ignores the extra key.
+- Once a Signaling Worker that no longer advertises the peer-open markers is live (9.0.21,
+  old-version removal train 3), an emergency recovery that takes the App below 9.0.15 rolls
+  Signaling back first, in this order only: (1) Signaling to the version in that release's
+  recovery checkpoint (9.0.14 or later, which still advertises them), (2) `lower` to the target
+  build (787 for 9.0.14, 0 for an older App), (3) the App. Rolling Signaling back first loses
+  nothing: an App of 9.0.15 or later reads none of the markers, and every Signaling Worker of
+  9.0.14 or later accepts a first offer and answer without `iceRestartVersion`. Rolling the App
+  back first lets a 9.0.14 tab opened in between meet the newer Signaling Worker: its Remote
+  Share uploads fail with `REMOTE_SHARE_UPLOAD_ASSERTION_UNAVAILABLE`, and its host liveness
+  probe and PIN membership choice are off. The App-first rule above applies only when Signaling
+  itself goes below 9.0.14.
 - The service-control object that holds the floor (`MusixquareServiceControl`) lives in the PRO
   Worker script; every other Worker binds it with `script_name = "musixquare-pro-room"`. Rolling
   the PRO Worker back below 9.0.14 therefore turns the floor off for every Worker, Signaling

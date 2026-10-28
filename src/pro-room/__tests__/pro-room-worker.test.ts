@@ -28834,7 +28834,7 @@ describe('PRO room requests only Apps below the 787 build floor sent', () => {
     expect(await responseJson(replay)).toEqual({ ok: true });
   });
 
-  it('closes presence with the body the App sends today exactly as before', async () => {
+  it('closes presence with the full body that older Apps still send exactly as before', async () => {
     const context = await activatedRoom(ROOM_CODE, true);
     const member = await joinPublicRoom(context.worker);
     const body = {

@@ -1363,7 +1363,7 @@ describe('PRO room cookie session API', () => {
     ).rejects.toMatchObject({ code: 'INVALID_RESPONSE' });
   });
 
-  it('uses one small credentialed keepalive request for a confirmed unload close', async () => {
+  it('uses one small credentialed keepalive request without a playback observation for a presence close', async () => {
     const snapshot = activeSnapshot();
     const fetchMock = vi.fn<typeof fetch>().mockResolvedValue(jsonResponse({ ok: true }));
     const client = new ProRoomApiClient({ fetch: fetchMock });
@@ -1391,13 +1391,14 @@ describe('PRO room cookie session API', () => {
     expect(headers.get('idempotency-key')).toBeNull();
     expect(headers.get('x-mxqr-pro-participant-id')).toBeNull();
     expect(headers.get('x-mxqr-pro-presence-incarnation')).toBeNull();
+    // The body names only the exact presence incarnation and the receipt key.
+    // `baseRevision`, `currentQueueItemId` and `playback` are no longer sent:
+    // the PRO Worker never read them and has taken them as optional since
+    // old-version removal train 2.
     expect(JSON.parse(String(init.body))).toEqual({
       idempotencyKey: IDEMPOTENCY_KEY,
       expectedParticipantId: snapshot.viewer!.participantId,
       expectedPresenceIncarnationId: snapshot.viewer!.presenceIncarnationId,
-      baseRevision: snapshot.revision,
-      currentQueueItemId: snapshot.currentQueueItemId,
-      playback: snapshot.playback,
     });
     expect(new TextEncoder().encode(String(init.body)).byteLength).toBeLessThan(64 * 1024);
   });

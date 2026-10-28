@@ -319,7 +319,9 @@ describe('action pill rhythm contract', () => {
         const rule = declaration.parent;
         if (rule?.type !== 'rule') return;
         const selectors = (rule as unknown as { selectors: string[] }).selectors;
-        if (!selectors.some((selector) => /\.dialog-(?:primary|secondary)(?![\w-])/u.test(selector))) {
+        if (
+          !selectors.some((selector) => /\.dialog-(?:primary|secondary)(?![\w-])/u.test(selector))
+        ) {
           return;
         }
         const condition = conditionOf(declaration);
@@ -327,7 +329,7 @@ describe('action pill rhythm contract', () => {
         conditions.add(condition);
         if (condition !== NARROW_DIALOG) return;
         let layer = 'no layer';
-        for (let parent = rule.parent; parent; parent = parent.parent) {
+        for (let parent = rule.parent as Node | undefined; parent; parent = parent.parent as Node) {
           if (parent.type === 'atrule' && (parent as AtRule).name === 'layer') {
             layer = (parent as AtRule).params;
           }

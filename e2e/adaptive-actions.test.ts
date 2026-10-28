@@ -880,12 +880,17 @@ test.describe('content-based adaptive action groups', () => {
 
   test('gives dialog pills 24px side padding at 360px and below', async ({ page }) => {
     // Owner decision (2026-10-28): the shared 28px drops to 24px at 360px and
-    // below; min-width stays 100px and the account actions keep their 18px.
+    // below; min-width stays, and the account actions keep their 18px. Inside
+    // an adaptive action group the group's min-width 0 wins, as before; a pill
+    // outside a group keeps the shared 100px.
     await installLayoutProbe(
       page,
       `<div id="dialog-pair" class="dialog-actions adaptive-action-group">
         <button id="pair-secondary" class="dialog-secondary">Cancel</button>
         <button id="pair-primary" class="dialog-primary">OK</button>
+      </div>
+      <div id="single-action">
+        <button id="single-primary" class="dialog-primary">OK</button>
       </div>
       <div id="account-actions" class="account-dialog-actions adaptive-action-group">
         <button id="account-logout" class="dialog-secondary">Log out</button>
@@ -914,8 +919,9 @@ test.describe('content-based adaptive action groups', () => {
       await page.setViewportSize({ width, height: 800 });
       await page.waitForFunction((value) => innerWidth === value, width);
       expect(await padding(), `${width}px`).toEqual({
-        'pair-secondary': `${side} ${side} 100px`,
-        'pair-primary': `${side} ${side} 100px`,
+        'pair-secondary': `${side} ${side} 0px`,
+        'pair-primary': `${side} ${side} 0px`,
+        'single-primary': `${side} ${side} 100px`,
         'account-logout': '18px 18px 0px',
         'account-delete': '18px 18px 0px',
       });

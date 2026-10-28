@@ -106,12 +106,13 @@ runbooks. Neither belongs in a general setup document.
   (`ASSET_NOT_FOUND` at once, or a new reservation). The same report records the owner's
   decisions on items 1 and 2 (implemented in 9.0.20) and on item 4 and BOT's 24-hour Developer
   mutation receipts (kept, with the rationale in RO-53). It lists each increment with its
-  commits (rebased onto main `1a99fe49`), the tests-first evidence (12 titles, 13 cases failing
-  on the 9.0.18 PRO room runtime), the changed answers, QA rounds 1 and 2 with their tested SHAs
-  and limits, the rollback to the 9.0.18 PRO room Worker `61e60919` with its one-off check
-  against the `53a4f397` Worker code, mixed versions, and the limits (bulk deletes during an R2
-  outage, a reservation that corrupt-marker load repair restores without its receipt, nothing
-  run on real devices). Not merged or released.
+  commits (tested on main `1a99fe49`, then rebased onto the docs-only 9.0.19 record `2bed0a50`
+  with identical runtime and tests, both SHAs listed), the tests-first evidence (12 titles, 13
+  cases failing on the 9.0.18 PRO room runtime), the changed answers, QA rounds 1 and 2 with
+  their tested SHAs and limits, the rollback to the 9.0.18 PRO room Worker `61e60919` with its
+  one-off check against the `53a4f397` Worker code, mixed versions, and the limits (bulk deletes
+  during an R2 outage, a reservation that corrupt-marker load repair restores without its
+  receipt, nothing run on real devices). Not merged or released.
 - [UI bundle: the UI audit and hint-copy audit recommendations (2026-10-27)](design/ui-bundle-2026-10-27.md):
   the owner's 2026-10-27 instruction to ship every recommended direction of the two audits as one
   app update, with the owner's final decisions of 2026-10-28 (U14), which supersede the earlier

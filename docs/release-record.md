@@ -1332,7 +1332,7 @@ App 8.11.20/v723에서 일반 직접 전송·프리로드의 local threshold를 
 
 '운영·보안'의 PRO 방 변경 영수증 원장 항목에서 (4) BOT 재생 명령의 24시간 울타리를 닫는다. 오너 결정(2026-10-28 아침):
 추천대로 울타리를 두지 않고 근거만 적는다. BOT의 24시간 Developer 변경 영수증도 그대로 둔다. 근거는 RO-53의 BOT 문단(열차 A
-커밋 `5c65dacf`)에 있다. 같은 `requestId`를 다시 보내는 곳이 없다. 채팅은 메시지마다 새 `requestId`를 만들고
+커밋 `e7a4f572`, 리베이스 전 `5c65dacf`)에 있다. 같은 `requestId`를 다시 보내는 곳이 없다. 채팅은 메시지마다 새 `requestId`를 만들고
 (`src/ui/chat.ts`의 `createProRoomIdempotencyKey()`, 1220~1223행), App Worker는 BOT 컨텍스트와 실행을 한 번씩만 부른다
 (`cloudflare/pro-bot.ts` 2212~2221행, 2284~2293행). 손본 클라이언트가 일부러 다시 보내도 새 `requestId`와 같은 권한 검사와
 같은 BOT 한도(멤버마다 분당 3회, 방마다 시간당 100회)를 받으므로 울타리가 더 막는 것이 없고, 울타리를 두면 BOT 추가와 공개

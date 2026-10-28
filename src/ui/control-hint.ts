@@ -11,7 +11,8 @@
  * usually there for keyboard and screen reader users already. Where it is
  * not (a group whose own controls are natively disabled, a group whose
  * aria-describedby outranks title, or a reader that skips titles), the
- * `describe` option also makes the reason a description.
+ * `describe` option also makes the reason a description, or a sentence that
+ * gives it when the control's own description is read right after.
  * src/ui/__tests__/hover-hint-policy.test.ts keeps every other title write out
  * of the app, except titles that name or complete content.
  */
@@ -46,8 +47,14 @@ interface UnavailableOptions {
    * Also make the reason the control's description: a hidden
    * `#<id>-reason` node (authored, or made beside the control) that
    * aria-describedby lists first, ahead of any description the control has.
+   * `true` describes it with the reason itself. A string is the sentence to
+   * describe it with instead: a screen reader joins descriptions with a
+   * single space, so a reason read ahead of another description is a
+   * description sentence key, not the hint's phrase
+   * (docs/i18n-translation-guide.md §2 rule 10). Either way the node empties
+   * once the control is available again, or unavailable without a reason.
    */
-  readonly describe?: boolean;
+  readonly describe?: boolean | string;
 }
 
 function describeReason(element: Element, reason: string): void {
@@ -89,7 +96,12 @@ export function setControlUnavailable(
     element.setAttribute('aria-disabled', disabled);
   }
   render(element, state);
-  if (options.describe) describeReason(element, reason ?? '');
+  // Checked by type, so an empty sentence still empties the node.
+  if (typeof options.describe === 'string') {
+    describeReason(element, reason ? options.describe : '');
+  } else if (options.describe) {
+    describeReason(element, reason ?? '');
+  }
 }
 
 /** Set or clear the mode a press starts; an unavailable reason takes priority. */

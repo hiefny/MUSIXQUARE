@@ -199,6 +199,8 @@ const hi: Record<I18nKey, string> = {
   'settings.sync_settings': 'सेटिंग्स सिंक',
   'settings.sync_settings_desc':
     'जिन डिवाइसों पर यह सेटिंग चालू है, उनका वॉल्यूम और ऑडियो इफ़ेक्ट सिंक होते हैं।',
+  'settings.audio_locked_desc': 'ऑडियो सेटिंग्स केवल रूम एडमिन बदल सकते हैं।',
+  'settings.audio_lock_checking_desc': 'एडमिन अनुमति जाँची जा रही है।',
   'settings.virtual_effects_title': 'वर्चुअल इफ़ेक्ट',
   'settings.virtual_effects_desc':
     'ऑडियो पर कृत्रिम रूप से बनाए गए इफ़ेक्ट लागू करें। इससे आवाज़ बहुत विकृत हो सकती है।',

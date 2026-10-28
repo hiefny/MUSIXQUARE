@@ -32,6 +32,7 @@ import { getStandardRolePreset } from './player-controls.ts';
 import { cancelRangeDrag, syncRangeProgress } from './range-drag.ts';
 import { showToast } from './toast.ts';
 import {
+  roomCapabilityFeedbackDescription,
   roomCapabilityFeedbackTip,
   showRoomCapabilityRequired,
 } from '../rooms/permission-feedback.ts';
@@ -158,13 +159,18 @@ function _updateHostCtrlLockUI(): void {
   // Taps on a locked group explain the lock with a toast; the group's hint
   // gives the same reason on hover. The choice groups keep their section
   // description, which outranks a title, so the reason is also a description
-  // they list first.
+  // they list first. A screen reader joins it to the section description
+  // with a single space, so there it is a sentence, not the hint's phrase.
   const reason = locked ? roomCapabilityFeedbackTip('effects.control') : null;
+  // Passed locked or not, so an unlock also empties the reason node.
+  const description = roomCapabilityFeedbackDescription('effects.control');
   HOST_CTRL_LOCK_IDS.forEach((id) => {
     const el = getUiElement(id);
     if (el) {
       el.classList.toggle('host-ctrl-locked', locked);
-      setControlUnavailable(el, reason, { describe: HOST_CTRL_DESCRIBED_GROUPS.has(id) });
+      setControlUnavailable(el, reason, {
+        describe: HOST_CTRL_DESCRIBED_GROUPS.has(id) ? description : false,
+      });
       // Disable range inputs to prevent visual desync (slider moves but audio unchanged)
       el.querySelectorAll<HTMLInputElement>('input[type="range"]').forEach((input) => {
         if (locked) cancelRangeDrag(input);

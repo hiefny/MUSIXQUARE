@@ -200,6 +200,8 @@ const fi: Record<I18nKey, string> = {
   'settings.sync_settings': 'Asetusten synkronointi',
   'settings.sync_settings_desc':
     'Laitteet, joissa tämä asetus on käytössä, synkronoivat äänenvoimakkuuden ja äänitehosteet.',
+  'settings.audio_locked_desc': 'Vain huoneen ylläpitäjät voivat muuttaa ääniasetuksia.',
+  'settings.audio_lock_checking_desc': 'Tarkistetaan ylläpitäjäoikeuksia.',
   'settings.virtual_effects_title': 'Virtuaalitehosteet',
   'settings.virtual_effects_desc':
     'Käytä äänessä keinotekoisesti luotuja tehosteita. Tämä voi aiheuttaa voimakasta säröä.',

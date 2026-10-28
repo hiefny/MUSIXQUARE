@@ -199,6 +199,8 @@ const gu: Record<I18nKey, string> = {
   'settings.sync_settings': 'સેટિંગ્સ સિંક',
   'settings.sync_settings_desc':
     'આ સેટિંગ ચાલુ હોય તે ડિવાઇસ અવાજનું સ્તર અને ઑડિયો ઇફેક્ટ સિંક કરે છે.',
+  'settings.audio_locked_desc': 'ફક્ત રૂમના સંચાલકો ઑડિયો સેટિંગ્સ બદલી શકે છે.',
+  'settings.audio_lock_checking_desc': 'સંચાલક પરવાનગી તપાસી રહ્યાં છીએ.',
   'settings.virtual_effects_title': 'વર્ચ્યુઅલ ઇફેક્ટ',
   'settings.virtual_effects_desc':
     'ઑડિયો પર કૃત્રિમ રીતે બનાવેલા ઇફેક્ટ લગાવો. તેનાથી અવાજ ઘણો વિકૃત થઈ શકે છે.',

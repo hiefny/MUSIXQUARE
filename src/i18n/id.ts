@@ -128,6 +128,8 @@ const id: Record<I18nKey, string> = {
   'settings.sync_settings': 'Sinkronisasi pengaturan',
   'settings.sync_settings_desc':
     'Perangkat yang mengaktifkan pengaturan ini menyinkronkan volume dan efek audionya.',
+  'settings.audio_locked_desc': 'Hanya admin ruang dapat mengubah pengaturan audio.',
+  'settings.audio_lock_checking_desc': 'Memeriksa izin admin.',
   'settings.virtual_effects_title': 'Efek virtual',
   'settings.virtual_effects_desc':
     'Terapkan efek sintetis pada audio. Efek ini dapat menyebabkan distorsi berat.',

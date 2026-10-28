@@ -199,6 +199,8 @@ const ru: Record<I18nKey, string> = {
   'settings.sync_settings': 'Синхронизация настроек',
   'settings.sync_settings_desc':
     'На устройствах, где включена эта настройка, синхронизируются громкость и звуковые эффекты.',
+  'settings.audio_locked_desc': 'Только администраторы комнаты могут менять звук.',
+  'settings.audio_lock_checking_desc': 'Проверяем права администратора.',
   'settings.virtual_effects_title': 'Виртуальные эффекты',
   'settings.virtual_effects_desc':
     'Применяет синтезированные эффекты к звуку. Это может вызвать сильные искажения.',

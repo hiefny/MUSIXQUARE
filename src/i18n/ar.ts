@@ -196,6 +196,8 @@ const ar: Record<I18nKey, string> = {
   'settings.sync_settings': 'مزامنة الإعدادات',
   'settings.sync_settings_desc':
     'تُزامن الأجهزة التي فعّلت هذا الخيار مستوى الصوت والمؤثرات الصوتية بينها.',
+  'settings.audio_locked_desc': 'لا يمكن تغيير إعدادات الصوت إلا لمسؤولي الغرفة.',
+  'settings.audio_lock_checking_desc': 'جارٍ التحقق من صلاحية المسؤول.',
   'settings.virtual_effects_title': 'المؤثرات الافتراضية',
   'settings.virtual_effects_desc': 'تطبيق مؤثرات مُولّدة على الصوت. قد يؤدي ذلك إلى تشوّه شديد.',
   'settings.virtual_effect_bass': 'الجهير',

@@ -200,6 +200,8 @@ const el: Record<I18nKey, string> = {
   'settings.sync_settings': 'Συγχρονισμός ρυθμίσεων',
   'settings.sync_settings_desc':
     'Οι συσκευές με ενεργή αυτή την επιλογή συγχρονίζουν την ένταση και τα ηχητικά εφέ.',
+  'settings.audio_locked_desc': 'Μόνο οι διαχειριστές μπορούν να αλλάξουν τον ήχο.',
+  'settings.audio_lock_checking_desc': 'Ελέγχονται τα δικαιώματα διαχειριστή.',
   'settings.virtual_effects_title': 'Εικονικά εφέ',
   'settings.virtual_effects_desc':
     'Εφαρμόζει συνθετικά εφέ στον ήχο. Ενδέχεται να προκαλέσουν έντονη παραμόρφωση.',

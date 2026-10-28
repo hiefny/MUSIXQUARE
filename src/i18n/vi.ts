@@ -127,6 +127,8 @@ const vi: Record<I18nKey, string> = {
   'settings.sync_settings': 'Đồng bộ cài đặt',
   'settings.sync_settings_desc':
     'Các thiết bị bật cài đặt này sẽ đồng bộ âm lượng và hiệu ứng âm thanh.',
+  'settings.audio_locked_desc': 'Chỉ quản trị viên phòng được đổi cài đặt âm thanh.',
+  'settings.audio_lock_checking_desc': 'Đang kiểm tra quyền quản trị.',
   'settings.virtual_effects_title': 'Hiệu ứng ảo',
   'settings.virtual_effects_desc':
     'Áp dụng hiệu ứng tổng hợp cho âm thanh. Âm thanh có thể bị méo nhiều.',

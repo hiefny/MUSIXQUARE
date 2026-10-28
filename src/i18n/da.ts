@@ -199,6 +199,8 @@ const da: Record<I18nKey, string> = {
   'settings.sync_settings': 'Synkronisering af indstillinger',
   'settings.sync_settings_desc':
     'Enheder med denne indstilling slået til synkroniserer lydstyrke og lydeffekter.',
+  'settings.audio_locked_desc': 'Kun rumadministratorer kan ændre lydindstillingerne.',
+  'settings.audio_lock_checking_desc': 'Tjekker administratorrettigheder.',
   'settings.virtual_effects_title': 'Virtuelle effekter',
   'settings.virtual_effects_desc':
     'Anvend syntetiserede effekter på lyden. Det kan give kraftig forvrængning.',

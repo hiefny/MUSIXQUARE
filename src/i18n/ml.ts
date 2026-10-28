@@ -201,6 +201,8 @@ const ml: Record<I18nKey, string> = {
   'settings.sync_settings': 'ക്രമീകരണങ്ങളുടെ സിങ്ക്',
   'settings.sync_settings_desc':
     'ഈ ക്രമീകരണം ഓൺ ചെയ്തിരിക്കുന്ന ഡിവൈസുകളുടെ ശബ്ദനിലയും ഓഡിയോ ഇഫക്റ്റുകളും സിങ്ക് ചെയ്യും.',
+  'settings.audio_locked_desc': 'റൂം അഡ്മിനുകൾക്ക് മാത്രമേ ഓഡിയോ ക്രമീകരണങ്ങൾ മാറ്റാനാകൂ.',
+  'settings.audio_lock_checking_desc': 'അഡ്മിൻ അനുമതി പരിശോധിക്കുന്നു.',
   'settings.virtual_effects_title': 'വിർച്വൽ ഇഫക്റ്റുകൾ',
   'settings.virtual_effects_desc':
     'ഓഡിയോയിൽ കൃത്രിമമായി സൃഷ്ടിച്ച ഇഫക്റ്റുകൾ പ്രയോഗിക്കുക. ഇത് ശക്തമായ വികലത ഉണ്ടാക്കിയേക്കാം.',

@@ -198,6 +198,8 @@ const mr: Record<I18nKey, string> = {
   'settings.sync_settings': 'सेटिंग्ज सिंक',
   'settings.sync_settings_desc':
     'हे सेटिंग सुरू असलेली डिव्हाइस आवाजाची पातळी आणि ऑडिओ इफेक्ट सिंक करतात.',
+  'settings.audio_locked_desc': 'फक्त रूमचे प्रशासक ऑडिओ सेटिंग्ज बदलू शकतात.',
+  'settings.audio_lock_checking_desc': 'प्रशासकीय परवानगी तपासत आहोत.',
   'settings.virtual_effects_title': 'आभासी इफेक्ट',
   'settings.virtual_effects_desc':
     'ऑडिओवर कृत्रिमरीत्या तयार केलेले इफेक्ट लावा. यामुळे आवाज मोठ्या प्रमाणात विकृत होऊ शकतो.',

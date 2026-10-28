@@ -197,6 +197,8 @@ const he: Record<I18nKey, string> = {
   'settings.sync_settings': 'סנכרון הגדרות',
   'settings.sync_settings_desc':
     'מכשירים שהאפשרות מופעלת בהם מסנכרנים ביניהם את עוצמת הקול ואפקטי השמע.',
+  'settings.audio_locked_desc': 'רק מנהלי החדר יכולים לשנות את הגדרות השמע.',
+  'settings.audio_lock_checking_desc': 'בודקים את הרשאת המנהל.',
   'settings.virtual_effects_title': 'אפקטים וירטואליים',
   'settings.virtual_effects_desc':
     'החלת אפקטים מסונתזים על השמע. הפעולה עלולה לגרום לעיוות משמעותי.',

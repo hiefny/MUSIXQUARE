@@ -199,6 +199,8 @@ const nl: Record<I18nKey, string> = {
   'settings.sync_settings': 'Instellingen synchroniseren',
   'settings.sync_settings_desc':
     'Apparaten waarop deze instelling aanstaat, synchroniseren volume en audio-effecten.',
+  'settings.audio_locked_desc': 'Alleen kamerbeheerders kunnen audio-instellingen wijzigen.',
+  'settings.audio_lock_checking_desc': 'Beheerdersrechten worden gecontroleerd.',
   'settings.virtual_effects_title': 'Virtuele effecten',
   'settings.virtual_effects_desc':
     'Past gesynthetiseerde effecten toe op het geluid. Dit kan sterke vervorming veroorzaken.',

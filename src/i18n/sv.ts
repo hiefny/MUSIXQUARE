@@ -200,6 +200,8 @@ const sv: Record<I18nKey, string> = {
   'settings.sync_settings': 'Synkronisera inställningar',
   'settings.sync_settings_desc':
     'Enheter med den här inställningen aktiverad synkroniserar volym och ljudeffekter.',
+  'settings.audio_locked_desc': 'Bara rumsadministratörer kan ändra ljudinställningar.',
+  'settings.audio_lock_checking_desc': 'Kontrollerar administratörsbehörighet.',
   'settings.virtual_effects_title': 'Virtuella effekter',
   'settings.virtual_effects_desc':
     'Lägg syntetiserade effekter på ljudet. Det kan orsaka kraftig distorsion.',

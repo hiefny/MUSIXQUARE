@@ -199,6 +199,8 @@ const hu: Record<I18nKey, string> = {
   'settings.sync_settings': 'Beállítások szinkronizálása',
   'settings.sync_settings_desc':
     'Az ezt bekapcsoló eszközök szinkronizálják a hangerőt és a hangeffektusokat.',
+  'settings.audio_locked_desc': 'A hangbeállításokat csak a szoba adminisztrátorai módosíthatják.',
+  'settings.audio_lock_checking_desc': 'Adminisztrátori jogosultság ellenőrzése folyamatban.',
   'settings.virtual_effects_title': 'Virtuális effektusok',
   'settings.virtual_effects_desc':
     'Szintetizált effektusokat alkalmaz a hangra. Erős torzítást okozhatnak.',

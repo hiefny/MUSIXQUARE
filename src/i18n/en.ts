@@ -199,6 +199,8 @@ const en: Record<I18nKey, string> = {
   'settings.sync_settings': 'Settings sync',
   'settings.sync_settings_desc':
     'Devices with this setting on sync their volume and audio effects.',
+  'settings.audio_locked_desc': 'Only room admins can change audio settings.',
+  'settings.audio_lock_checking_desc': 'Checking administrator permissions.',
   'settings.virtual_effects_title': 'Virtual effects',
   'settings.virtual_effects_desc':
     'Apply synthesized effects to the audio. This may cause heavy distortion.',

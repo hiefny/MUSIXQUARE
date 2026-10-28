@@ -197,6 +197,8 @@ const ur: Record<I18nKey, string> = {
   'settings.sync_settings': 'ترتیبات سنک کریں',
   'settings.sync_settings_desc':
     'جن آلات پر یہ ترتیب آن ہو، ان کی آواز اور آڈیو ایفیکٹس آپس میں سنک ہوتے ہیں۔',
+  'settings.audio_locked_desc': 'صرف کمرے کے منتظم آڈیو ترتیبات بدل سکتے ہیں۔',
+  'settings.audio_lock_checking_desc': 'منتظم کی اجازت کی جانچ ہو رہی ہے۔',
   'settings.virtual_effects_title': 'ورچوئل ایفیکٹس',
   'settings.virtual_effects_desc':
     'آڈیو پر مصنوعی ایفیکٹس لگائیں۔ اس سے آواز بہت زیادہ بگڑ سکتی ہے۔',

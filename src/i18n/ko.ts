@@ -195,6 +195,8 @@ const ko = {
   'settings.ui_sounds': 'UI 사운드',
   'settings.sync_settings': '설정 동기화',
   'settings.sync_settings_desc': '이 설정이 켜진 기기들끼리 볼륨과 음향 효과가 동기화돼요.',
+  'settings.audio_locked_desc': '방 관리자만 음향 설정을 변경할 수 있어요.',
+  'settings.audio_lock_checking_desc': '관리자 권한을 확인 중이에요.',
   'settings.virtual_effects_title': '가상 효과',
   'settings.virtual_effects_desc': '음향에 합성 기술을 적용해요. 왜곡이 심해질 수 있어요.',
   'settings.virtual_effect_bass': '베이스',

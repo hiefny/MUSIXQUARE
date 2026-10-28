@@ -199,6 +199,8 @@ const cs: Record<I18nKey, string> = {
   'settings.sync_settings': 'Synchronizace nastavení',
   'settings.sync_settings_desc':
     'Zařízení, která mají tuto volbu zapnutou, si navzájem synchronizují hlasitost a zvukové efekty.',
+  'settings.audio_locked_desc': 'Zvukové nastavení mohou měnit jen správci místnosti.',
+  'settings.audio_lock_checking_desc': 'Ověřujeme oprávnění správce.',
   'settings.virtual_effects_title': 'Virtuální efekty',
   'settings.virtual_effects_desc':
     'Použije na zvuk syntetizované efekty. Mohou způsobit výrazné zkreslení.',

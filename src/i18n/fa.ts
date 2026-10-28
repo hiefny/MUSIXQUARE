@@ -197,6 +197,8 @@ const fa: Record<I18nKey, string> = {
   'settings.sync_settings': 'همگام‌سازی تنظیمات',
   'settings.sync_settings_desc':
     'دستگاه‌هایی که این گزینه در آن‌ها روشن است، میزان صدا و جلوه‌های صوتی را با هم همگام می‌کنند.',
+  'settings.audio_locked_desc': 'فقط مدیران اتاق می‌توانند تنظیمات صدا را تغییر دهند.',
+  'settings.audio_lock_checking_desc': 'در حال بررسی مجوز مدیریت.',
   'settings.virtual_effects_title': 'جلوه‌های مجازی',
   'settings.virtual_effects_desc':
     'جلوه‌های ساخته‌شده را روی صدا اعمال کنید. ممکن است صدا به‌شدت دچار اعوجاج شود.',

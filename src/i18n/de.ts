@@ -129,6 +129,8 @@ const de: Record<I18nKey, string> = {
   'settings.sync_settings': 'Einstellungen synchronisieren',
   'settings.sync_settings_desc':
     'Geräte mit aktivierter Einstellung synchronisieren Lautstärke und Audioeffekte.',
+  'settings.audio_locked_desc': 'Nur Raumadmins können Audioeinstellungen ändern.',
+  'settings.audio_lock_checking_desc': 'Administratorrechte werden geprüft.',
   'settings.virtual_effects_title': 'Virtuelle Effekte',
   'settings.virtual_effects_desc':
     'Wendet synthetisierte Effekte auf den Klang an. Dies kann zu starken Verzerrungen führen.',

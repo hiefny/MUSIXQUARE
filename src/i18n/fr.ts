@@ -129,6 +129,8 @@ const fr: Record<I18nKey, string> = {
   'settings.sync_settings': 'Synchronisation des réglages',
   'settings.sync_settings_desc':
     'Les appareils avec ce réglage activé synchronisent leur volume et leurs effets audio.',
+  'settings.audio_locked_desc': 'Seuls les admins du salon peuvent modifier les réglages audio.',
+  'settings.audio_lock_checking_desc': 'Vérification des droits d’administrateur.',
   'settings.virtual_effects_title': 'Effets virtuels',
   'settings.virtual_effects_desc':
     'Appliquez des effets synthétisés au son. Cela peut provoquer une forte distorsion.',

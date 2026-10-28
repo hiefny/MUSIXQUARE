@@ -201,6 +201,8 @@ const ms: Record<I18nKey, string> = {
   'settings.sync_settings': 'Penyegerakan tetapan',
   'settings.sync_settings_desc':
     'Peranti yang menghidupkan tetapan ini akan menyegerakkan kelantangan dan kesan audio.',
+  'settings.audio_locked_desc': 'Hanya pentadbir bilik boleh menukar tetapan audio.',
+  'settings.audio_lock_checking_desc': 'Menyemak kebenaran pentadbir.',
   'settings.virtual_effects_title': 'Kesan maya',
   'settings.virtual_effects_desc':
     'Gunakan kesan tersintesis pada audio. Ini mungkin menyebabkan herotan yang ketara.',

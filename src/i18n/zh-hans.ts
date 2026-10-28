@@ -124,6 +124,8 @@ const zhHans: Record<I18nKey, string> = {
   'settings.ui_sounds': 'UI 音效',
   'settings.sync_settings': '设置同步',
   'settings.sync_settings_desc': '开启此设置的设备之间会同步音量和音效。',
+  'settings.audio_locked_desc': '只有房间管理员可以更改音频设置。',
+  'settings.audio_lock_checking_desc': '正在确认管理员权限。',
   'settings.virtual_effects_title': '虚拟效果',
   'settings.virtual_effects_desc': '将合成效果应用于音频，可能会导致严重失真。',
   'settings.virtual_effect_bass': '低音',

@@ -198,6 +198,8 @@ const bn: Record<I18nKey, string> = {
   'settings.sync_settings': 'সেটিংস সিঙ্ক',
   'settings.sync_settings_desc':
     'যেসব ডিভাইসে এই সেটিং চালু আছে, সেগুলোর ভলিউম ও অডিও ইফেক্ট সিঙ্ক হবে।',
+  'settings.audio_locked_desc': 'শুধু রুম অ্যাডমিন অডিও সেটিংস পরিবর্তন করতে পারবেন।',
+  'settings.audio_lock_checking_desc': 'অ্যাডমিন অনুমতি যাচাই করা হচ্ছে।',
   'settings.virtual_effects_title': 'ভার্চুয়াল ইফেক্ট',
   'settings.virtual_effects_desc':
     'অডিওতে কৃত্রিমভাবে তৈরি ইফেক্ট প্রয়োগ করুন। এতে শব্দ অনেক বিকৃত হতে পারে।',

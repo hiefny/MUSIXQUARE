@@ -201,6 +201,8 @@ const kn: Record<I18nKey, string> = {
   'settings.sync_settings': 'ಸೆಟ್ಟಿಂಗ್‌ಗಳ ಸಿಂಕ್',
   'settings.sync_settings_desc':
     'ಈ ಸೆಟ್ಟಿಂಗ್ ಆನ್ ಇರುವ ಸಾಧನಗಳು ತಮ್ಮ ಧ್ವನಿಮಟ್ಟ ಮತ್ತು ಆಡಿಯೊ ಪರಿಣಾಮಗಳನ್ನು ಸಿಂಕ್ ಮಾಡುತ್ತವೆ.',
+  'settings.audio_locked_desc': 'ರೂಮ್ ನಿರ್ವಾಹಕರು ಮಾತ್ರ ಆಡಿಯೊ ಸೆಟ್ಟಿಂಗ್‌ಗಳನ್ನು ಬದಲಿಸಬಹುದು.',
+  'settings.audio_lock_checking_desc': 'ನಿರ್ವಾಹಕ ಅನುಮತಿಯನ್ನು ಪರಿಶೀಲಿಸಲಾಗುತ್ತಿದೆ.',
   'settings.virtual_effects_title': 'ವರ್ಚುವಲ್ ಪರಿಣಾಮಗಳು',
   'settings.virtual_effects_desc':
     'ಆಡಿಯೊಗೆ ಕೃತಕವಾಗಿ ಸೃಷ್ಟಿಸಿದ ಪರಿಣಾಮಗಳನ್ನು ಅನ್ವಯಿಸಿ. ಇದರಿಂದ ಧ್ವನಿ ತೀವ್ರವಾಗಿ ವಿಕೃತವಾಗಬಹುದು.',

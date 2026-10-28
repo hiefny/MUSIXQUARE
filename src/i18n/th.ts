@@ -194,6 +194,8 @@ const th: Record<I18nKey, string> = {
   'settings.sync_settings': 'ซิงก์การตั้งค่า',
   'settings.sync_settings_desc':
     'อุปกรณ์ที่เปิดการตั้งค่านี้จะซิงก์ระดับเสียงและเอฟเฟกต์เสียงระหว่างกัน',
+  'settings.audio_locked_desc': 'ผู้ดูแลห้องเท่านั้นที่เปลี่ยนการตั้งค่าเสียงได้',
+  'settings.audio_lock_checking_desc': 'กำลังตรวจสอบสิทธิ์ผู้ดูแล',
   'settings.virtual_effects_title': 'เอฟเฟกต์เสมือน',
   'settings.virtual_effects_desc':
     'ใช้เอฟเฟกต์สังเคราะห์กับเสียง ซึ่งอาจทำให้เสียงผิดเพี้ยนอย่างมาก',

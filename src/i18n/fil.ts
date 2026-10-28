@@ -201,6 +201,8 @@ const fil: Record<I18nKey, string> = {
   'settings.sync_settings': 'Pag-sync ng mga setting',
   'settings.sync_settings_desc':
     'Sini-sync ng mga device na naka-on ito ang kanilang volume at mga audio effect.',
+  'settings.audio_locked_desc': 'Mga admin lang ng kuwarto ang makakapagbago ng audio.',
+  'settings.audio_lock_checking_desc': 'Sinusuri ang pahintulot ng administrator.',
   'settings.virtual_effects_title': 'Mga virtual na effect',
   'settings.virtual_effects_desc':
     'Maglagay ng mga synthesized effect sa audio. Maaari itong magdulot ng matinding distortion.',

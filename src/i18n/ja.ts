@@ -128,6 +128,8 @@ const ja: Record<I18nKey, string> = {
   'settings.sync_settings': '設定の同期',
   'settings.sync_settings_desc':
     'この設定をオンにしたデバイス同士で、音量とオーディオ効果が同期されます。',
+  'settings.audio_locked_desc': '音響設定を変更できるのはルーム管理者だけです。',
+  'settings.audio_lock_checking_desc': '管理者権限を確認しています。',
   'settings.virtual_effects_title': 'バーチャルエフェクト',
   'settings.virtual_effects_desc':
     '音声に合成エフェクトをかけます。強い歪みが生じる場合があります。',

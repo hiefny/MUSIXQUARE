@@ -198,6 +198,8 @@ const pl: Record<I18nKey, string> = {
   'settings.sync_settings': 'Synchronizacja ustawień',
   'settings.sync_settings_desc':
     'Urządzenia, na których to ustawienie jest włączone, synchronizują głośność i efekty dźwiękowe.',
+  'settings.audio_locked_desc': 'Tylko administratorzy pokoju mogą zmieniać ustawienia dźwięku.',
+  'settings.audio_lock_checking_desc': 'Sprawdzamy uprawnienia administratora.',
   'settings.virtual_effects_title': 'Efekty wirtualne',
   'settings.virtual_effects_desc':
     'Zastosuj syntetyczne efekty dźwiękowe. Może to powodować silne zniekształcenia.',

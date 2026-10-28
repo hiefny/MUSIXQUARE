@@ -200,6 +200,8 @@ const ro: Record<I18nKey, string> = {
   'settings.sync_settings': 'Sincronizarea setărilor',
   'settings.sync_settings_desc':
     'Dispozitivele care au această opțiune activă își sincronizează volumul și efectele audio.',
+  'settings.audio_locked_desc': 'Numai administratorii camerei pot schimba setările audio.',
+  'settings.audio_lock_checking_desc': 'Se verifică drepturile de administrator.',
   'settings.virtual_effects_title': 'Efecte virtuale',
   'settings.virtual_effects_desc':
     'Aplică efecte sintetizate sunetului. Acestea pot cauza distorsiuni puternice.',

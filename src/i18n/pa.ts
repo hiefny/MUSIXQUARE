@@ -201,6 +201,8 @@ const pa: Record<I18nKey, string> = {
   'settings.sync_settings': 'ਸੈਟਿੰਗਾਂ ਦਾ ਸਿੰਕ',
   'settings.sync_settings_desc':
     'ਜਿਨ੍ਹਾਂ ਡਿਵਾਈਸਾਂ ਉੱਤੇ ਇਹ ਸੈਟਿੰਗ ਚਾਲੂ ਹੈ, ਉਹ ਆਪਣੀ ਆਵਾਜ਼ ਦੇ ਪੱਧਰ ਅਤੇ ਆਡੀਓ ਪ੍ਰਭਾਵਾਂ ਨੂੰ ਸਿੰਕ ਕਰਦੀਆਂ ਹਨ।',
+  'settings.audio_locked_desc': 'ਸਿਰਫ਼ ਰੂਮ ਪ੍ਰਬੰਧਕ ਆਡੀਓ ਸੈਟਿੰਗਾਂ ਬਦਲ ਸਕਦੇ ਹਨ।',
+  'settings.audio_lock_checking_desc': 'ਪ੍ਰਬੰਧਕ ਇਜਾਜ਼ਤ ਦੀ ਜਾਂਚ ਹੋ ਰਹੀ ਹੈ।',
   'settings.virtual_effects_title': 'ਵਰਚੁਅਲ ਪ੍ਰਭਾਵ',
   'settings.virtual_effects_desc':
     'ਆਡੀਓ ਉੱਤੇ ਬਣਾਉਟੀ ਪ੍ਰਭਾਵ ਲਗਾਓ। ਇਸ ਨਾਲ ਆਵਾਜ਼ ਬਹੁਤ ਜ਼ਿਆਦਾ ਵਿਗੜ ਸਕਦੀ ਹੈ।',

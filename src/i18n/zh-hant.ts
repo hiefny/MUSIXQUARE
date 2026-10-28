@@ -123,6 +123,8 @@ const zhHant: Record<I18nKey, string> = {
   'settings.ui_sounds': 'UI 音效',
   'settings.sync_settings': '設定同步',
   'settings.sync_settings_desc': '開啟此設定的裝置之間會同步音量和音效。',
+  'settings.audio_locked_desc': '只有房間管理員可以變更音訊設定。',
+  'settings.audio_lock_checking_desc': '正在確認管理員權限。',
   'settings.virtual_effects_title': '虛擬效果',
   'settings.virtual_effects_desc': '將合成效果套用至音訊，可能會造成嚴重失真。',
   'settings.virtual_effect_bass': '低音',

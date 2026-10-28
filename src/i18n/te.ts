@@ -200,6 +200,8 @@ const te: Record<I18nKey, string> = {
   'settings.sync_settings': 'సెట్టింగ్‌ల సింక్',
   'settings.sync_settings_desc':
     'ఈ సెట్టింగ్ ఆన్‌లో ఉన్న పరికరాల వాల్యూమ్, ఆడియో ఎఫెక్ట్‌లు సింక్ అవుతాయి.',
+  'settings.audio_locked_desc': 'గది అడ్మిన్‌లు మాత్రమే ఆడియో సెట్టింగ్‌లను మార్చగలరు.',
+  'settings.audio_lock_checking_desc': 'అడ్మిన్ అనుమతిని తనిఖీ చేస్తున్నాం.',
   'settings.virtual_effects_title': 'వర్చువల్ ఎఫెక్ట్‌లు',
   'settings.virtual_effects_desc':
     'ఆడియోకు కృత్రిమంగా రూపొందించిన ఎఫెక్ట్‌లను వర్తింపజేస్తుంది. దీనివల్ల సౌండ్ ఎక్కువగా వక్రీకరించబడవచ్చు.',

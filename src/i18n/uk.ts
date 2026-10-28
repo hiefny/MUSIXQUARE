@@ -199,6 +199,8 @@ const uk: Record<I18nKey, string> = {
   'settings.sync_settings': 'Синхронізація налаштувань',
   'settings.sync_settings_desc':
     'Пристрої з увімкненим параметром синхронізують гучність і звукові ефекти.',
+  'settings.audio_locked_desc': 'Змінювати звукові параметри можуть лише адміністратори кімнати.',
+  'settings.audio_lock_checking_desc': 'Перевіряємо права адміністратора.',
   'settings.virtual_effects_title': 'Віртуальні ефекти',
   'settings.virtual_effects_desc':
     'Застосовувати до звуку синтезовані ефекти. Це може спричинити сильні спотворення.',

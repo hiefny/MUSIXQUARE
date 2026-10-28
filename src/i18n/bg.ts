@@ -200,6 +200,8 @@ const bg: Record<I18nKey, string> = {
   'settings.sync_settings': 'Синхронизиране на настройките',
   'settings.sync_settings_desc':
     'Устройствата с включена опция синхронизират силата на звука и звуковите ефекти.',
+  'settings.audio_locked_desc': 'Само администратори на стаята могат да променят звука.',
+  'settings.audio_lock_checking_desc': 'Проверяваме администраторските права.',
   'settings.virtual_effects_title': 'Виртуални ефекти',
   'settings.virtual_effects_desc':
     'Прилага синтезирани ефекти към звука. Възможно е силно изкривяване.',

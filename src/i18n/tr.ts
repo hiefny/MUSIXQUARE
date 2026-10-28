@@ -196,6 +196,8 @@ const tr: Record<I18nKey, string> = {
   'settings.sync_settings': 'Ayar senkronizasyonu',
   'settings.sync_settings_desc':
     'Bu ayarın açık olduğu cihazlar ses düzeyini ve ses efektlerini senkronize eder.',
+  'settings.audio_locked_desc': 'Ses ayarlarını yalnızca oda yöneticileri değiştirebilir.',
+  'settings.audio_lock_checking_desc': 'Yönetici yetkisi kontrol ediliyor.',
   'settings.virtual_effects_title': 'Sanal efektler',
   'settings.virtual_effects_desc':
     'Sese sentezlenmiş efektler uygular. Bu, yoğun bozulmaya neden olabilir.',

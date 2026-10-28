@@ -128,6 +128,9 @@ const ptBr: Record<I18nKey, string> = {
   'settings.sync_settings': 'Sincronização de configurações',
   'settings.sync_settings_desc':
     'Os dispositivos com esta configuração ativada sincronizam o volume e os efeitos de áudio.',
+  'settings.audio_locked_desc':
+    'Só administradores da sala podem alterar as configurações de áudio.',
+  'settings.audio_lock_checking_desc': 'Verificando a permissão de administrador.',
   'settings.virtual_effects_title': 'Efeitos virtuais',
   'settings.virtual_effects_desc':
     'Aplica efeitos sintetizados ao áudio. Isso pode causar forte distorção.',

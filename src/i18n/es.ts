@@ -128,6 +128,8 @@ const es: Record<I18nKey, string> = {
   'settings.sync_settings': 'Sincronización de ajustes',
   'settings.sync_settings_desc':
     'Los dispositivos con este ajuste activado sincronizan el volumen y los efectos de audio.',
+  'settings.audio_locked_desc': 'Solo los admins de la sala pueden cambiar los ajustes de audio.',
+  'settings.audio_lock_checking_desc': 'Comprobando el permiso de administrador.',
   'settings.virtual_effects_title': 'Efectos virtuales',
   'settings.virtual_effects_desc':
     'Aplica efectos sintetizados al audio. Puede causar una distorsión intensa.',

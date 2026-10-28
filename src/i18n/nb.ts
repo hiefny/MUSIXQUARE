@@ -200,6 +200,8 @@ const nb: Record<I18nKey, string> = {
   'settings.sync_settings': 'Synkronisering av innstillinger',
   'settings.sync_settings_desc':
     'Enheter som har denne innstillingen slått på, synkroniserer volum og lydeffekter.',
+  'settings.audio_locked_desc': 'Bare romadministratorer kan endre lydinnstillingene.',
+  'settings.audio_lock_checking_desc': 'Sjekker administratorrettigheter.',
   'settings.virtual_effects_title': 'Virtuelle effekter',
   'settings.virtual_effects_desc':
     'Bruk syntetiserte effekter på lyden. Dette kan føre til kraftig forvrengning.',

@@ -3,7 +3,8 @@
  *
  * Both reuse the language picker's dialog, list and row components. The
  * switcher marks the active playlist with the picker's check and grey row;
- * confirming another playlist switches the whole room to it. The move dialog
+ * confirming another playlist switches the whole room to it, and Cancel on
+ * the left leaves without switching. The move dialog
  * lists the other playlists with the playlist's minus/check multi-select and
  * copies or moves the selected tracks there. Loaded on first use.
  */
@@ -214,6 +215,11 @@ function bindDialogs(): void {
   if (_bound) return;
   _bound = true;
   getUiElement('btn-playlist-slots-done')?.addEventListener('click', confirmSlots);
+  // The visible exit (owner policy 2026-10-28): like Back and Escape, it
+  // closes without switching; the next opening starts from the active slot.
+  getUiElement('btn-playlist-slots-cancel')?.addEventListener('click', () =>
+    closeOverlay(SLOTS_OVERLAY_ID),
+  );
   getUiElement('btn-playlist-transfer-copy')?.addEventListener('click', () => runTransfer('copy'));
   getUiElement('btn-playlist-transfer-move')?.addEventListener('click', () => runTransfer('move'));
   getUiElement('btn-playlist-transfer-close')?.addEventListener('click', () =>

@@ -20,6 +20,7 @@ import {
   type ProRoomPlaylistStateApiForTests as ProRoomPlaylistStateApi,
   type ProRoomLocalFileRetryState,
 } from '../playlist-state-manager.ts';
+import { proSnapshot } from './__helpers__/pro-snapshot.ts';
 
 const ROOM_CODE = '000000';
 const A = '11111111-1111-4111-8111-111111111111';
@@ -63,8 +64,7 @@ function r2(
 }
 
 function activeSnapshot(overrides: Partial<ProRoomSnapshot> = {}): ProRoomSnapshot {
-  return {
-    schemaVersion: 1,
+  return proSnapshot({
     roomCode: ROOM_CODE,
     status: 'active',
     runtime: 'awake',
@@ -87,7 +87,6 @@ function activeSnapshot(overrides: Partial<ProRoomSnapshot> = {}): ProRoomSnapsh
     presence: {
       coordinatorEpoch: 1,
       revision: 1,
-      coordinatorParticipantId: null,
       participants: [
         {
           participantId: 'participant_00001',
@@ -117,10 +116,7 @@ function activeSnapshot(overrides: Partial<ProRoomSnapshot> = {}): ProRoomSnapsh
       displayName: 'Developer',
       role: 'owner',
       capabilities: [...OWNER_CAPABILITIES],
-      coordinatorEligible: false,
     },
-    memberIdentityVersion: 1,
-    authorityVersion: 1,
     administrators: [
       {
         memberId: MEMBER_ID,
@@ -139,7 +135,7 @@ function activeSnapshot(overrides: Partial<ProRoomSnapshot> = {}): ProRoomSnapsh
       },
     ],
     ...overrides,
-  };
+  });
 }
 
 function asset(assetId: string): ProRoomR2Source {

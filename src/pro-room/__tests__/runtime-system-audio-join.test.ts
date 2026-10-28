@@ -25,6 +25,7 @@ import { ProRoomPlaybackController } from '../playback-controller.ts';
 import { joinProRoom, requestProRoomBackgroundReturnSync } from '../runtime.ts';
 import { getProSystemAudioViewState, refreshProSystemAudioState } from '../system-audio-service.ts';
 import { proHeartbeat } from './__helpers__/pro-heartbeat.ts';
+import { proSnapshot } from './__helpers__/pro-snapshot.ts';
 
 const ROOM_CODE = '000001';
 const ROOM_EPOCH = 7;
@@ -50,8 +51,7 @@ function roomSnapshot(media: 'youtube' | 'file' = 'youtube'): ProRoomSnapshot {
     role: 'member' as const,
     capabilities: [...capabilitiesForProRoomRole('member')],
   };
-  return {
-    schemaVersion: 1,
+  return proSnapshot({
     roomCode: ROOM_CODE,
     status: 'active',
     runtime: 'awake',
@@ -92,7 +92,6 @@ function roomSnapshot(media: 'youtube' | 'file' = 'youtube'): ProRoomSnapshot {
     presence: {
       coordinatorEpoch: ROOM_EPOCH,
       revision: 1,
-      coordinatorParticipantId: null,
       participants: [
         { ...member, devicePlatform: 'other', joinedAtMs: 2 },
         {
@@ -114,9 +113,7 @@ function roomSnapshot(media: 'youtube' | 'file' = 'youtube'): ProRoomSnapshot {
       usedBytes: 0,
       reservedBytes: 0,
     },
-    viewer: { ...member, presenceIncarnationId: 'presence_0000000001', coordinatorEligible: false },
-    memberIdentityVersion: 1,
-    authorityVersion: 1,
+    viewer: { ...member, presenceIncarnationId: 'presence_0000000001' },
     administrators: [
       {
         memberId: 'member_0000000002',
@@ -134,7 +131,7 @@ function roomSnapshot(media: 'youtube' | 'file' = 'youtube'): ProRoomSnapshot {
         onlineDeviceCount: 1,
       },
     ],
-  };
+  });
 }
 
 function idleShare(generation = 0): ProRoomSystemAudioState {

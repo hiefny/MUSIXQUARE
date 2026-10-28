@@ -22,6 +22,7 @@ import { requestProRoomLeave } from '../lifecycle-hook.ts';
 import { ServerProRoomNetworkBridge } from '../network-bridge.ts';
 import { changeActiveProRoomPin, joinProRoom } from '../runtime.ts';
 import { proHeartbeat } from './__helpers__/pro-heartbeat.ts';
+import { proSnapshot } from './__helpers__/pro-snapshot.ts';
 
 const ROOM_CODE = '000001';
 const PARTICIPANT_ID = 'participant_ended_1';
@@ -42,9 +43,7 @@ const mockedShowDialog = vi.mocked(showDialog);
 
 function snapshot(role: ProRoomRole, presenceIncarnationId = PRESENCE_ID): ProRoomSnapshot {
   const capabilities = [...capabilitiesForProRoomRole(role)];
-  return {
-    schemaVersion: 1,
-    memberIdentityVersion: 1,
+  return proSnapshot({
     roomCode: ROOM_CODE,
     status: 'active',
     runtime: 'awake',
@@ -67,7 +66,6 @@ function snapshot(role: ProRoomRole, presenceIncarnationId = PRESENCE_ID): ProRo
     presence: {
       coordinatorEpoch: 1,
       revision: 1,
-      coordinatorParticipantId: null,
       participants: [
         {
           participantId: PARTICIPANT_ID,
@@ -97,9 +95,7 @@ function snapshot(role: ProRoomRole, presenceIncarnationId = PRESENCE_ID): ProRo
       displayName: 'Minsu',
       role,
       capabilities,
-      coordinatorEligible: false,
     },
-    authorityVersion: 1,
     // Exactly one owner record; the viewer is that owner or an ordinary member.
     administrators: [
       {
@@ -118,7 +114,7 @@ function snapshot(role: ProRoomRole, presenceIncarnationId = PRESENCE_ID): ProRo
         onlineDeviceCount: role === 'owner' ? 1 : 0,
       },
     ],
-  };
+  });
 }
 
 function signalingAccess(presenceIncarnationId = PRESENCE_ID): ProRoomSignalingAccess {

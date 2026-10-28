@@ -25,6 +25,7 @@ import {
 } from '../playback-authority-hooks.ts';
 import { acceptProRoomRealtimeFrameForTests, joinProRoom } from '../runtime.ts';
 import { idleProSystemAudio, proHeartbeat } from './__helpers__/pro-heartbeat.ts';
+import { proSnapshot } from './__helpers__/pro-snapshot.ts';
 
 const ROOM = '000001';
 const ITEM = '58000000-0000-4000-8000-000000000001' as QueueItemId;
@@ -48,8 +49,7 @@ function snapshot(revision = 1, canControl = true): ProRoomSnapshot {
     displayName: 'Controller',
     role: 'controller' as const,
   };
-  return {
-    schemaVersion: 1,
+  return proSnapshot({
     roomCode: ROOM,
     status: 'active',
     runtime: 'awake',
@@ -88,7 +88,6 @@ function snapshot(revision = 1, canControl = true): ProRoomSnapshot {
     presence: {
       coordinatorEpoch: 1,
       revision,
-      coordinatorParticipantId: null,
       participants: [
         {
           ...member,
@@ -110,10 +109,7 @@ function snapshot(revision = 1, canControl = true): ProRoomSnapshot {
       participantId: 'participant_00002',
       presenceIncarnationId: 'presence_0000000002',
       capabilities,
-      coordinatorEligible: false,
     },
-    memberIdentityVersion: 1,
-    authorityVersion: 1,
     administrators: [
       {
         memberId: 'member_0000000001',
@@ -132,7 +128,7 @@ function snapshot(revision = 1, canControl = true): ProRoomSnapshot {
       },
       { ...member, permissions, inheritedPermissions: [], onlineDeviceCount: 1 },
     ],
-  };
+  });
 }
 
 describe('PRO playback control authority across pending HTTP responses', () => {

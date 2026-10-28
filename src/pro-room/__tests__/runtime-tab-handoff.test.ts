@@ -20,15 +20,14 @@ import { ProRoomPlaylistStateManager } from '../playlist-state-manager.ts';
 import { joinProRoom } from '../runtime.ts';
 import { ProRoomSessionController } from '../session-controller.ts';
 import { proHeartbeat } from './__helpers__/pro-heartbeat.ts';
+import { proSnapshot } from './__helpers__/pro-snapshot.ts';
 
 const ROOM_CODE = '000001';
 const PARTICIPANT_ID = 'participant_lease_1';
 const PRESENCE_ID = 'presence_lease_1';
 
 function snapshot(presenceIncarnationId = PRESENCE_ID): ProRoomSnapshot {
-  return {
-    schemaVersion: 1,
-    memberIdentityVersion: 1,
+  return proSnapshot({
     roomCode: ROOM_CODE,
     status: 'active',
     runtime: 'awake',
@@ -51,7 +50,6 @@ function snapshot(presenceIncarnationId = PRESENCE_ID): ProRoomSnapshot {
     presence: {
       coordinatorEpoch: 1,
       revision: 1,
-      coordinatorParticipantId: null,
       participants: [
         {
           participantId: PARTICIPANT_ID,
@@ -81,9 +79,7 @@ function snapshot(presenceIncarnationId = PRESENCE_ID): ProRoomSnapshot {
       displayName: 'Minsu',
       role: 'owner',
       capabilities: [...capabilitiesForProRoomRole('owner')],
-      coordinatorEligible: false,
     },
-    authorityVersion: 1,
     administrators: [
       {
         memberId: 'member_lease_0001',
@@ -101,7 +97,7 @@ function snapshot(presenceIncarnationId = PRESENCE_ID): ProRoomSnapshot {
         onlineDeviceCount: 1,
       },
     ],
-  };
+  });
 }
 
 function signalingAccess(presenceIncarnationId = PRESENCE_ID): ProRoomSignalingAccess {

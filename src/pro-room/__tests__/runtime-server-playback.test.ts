@@ -61,6 +61,7 @@ import {
   requestProRoomBackgroundReturnSync,
 } from '../runtime.ts';
 import { idleProSystemAudio, proHeartbeat } from './__helpers__/pro-heartbeat.ts';
+import { proAdministratorDirectory, proSnapshot } from './__helpers__/pro-snapshot.ts';
 
 const nativeCreateSessionForQa20 = ProRoomApiClient.prototype.createSession;
 const nativeHeartbeatForQa20 = ProRoomApiClient.prototype.heartbeat;
@@ -94,8 +95,7 @@ function playback(
 }
 
 function snapshot(currentPlayback = playback(0)): ProRoomSnapshot {
-  return {
-    schemaVersion: 1,
+  return proSnapshot({
     roomCode: ROOM_CODE,
     status: 'active',
     runtime: 'awake',
@@ -115,7 +115,6 @@ function snapshot(currentPlayback = playback(0)): ProRoomSnapshot {
     presence: {
       coordinatorEpoch: ROOM_EPOCH,
       revision: 1,
-      coordinatorParticipantId: null,
       participants: [
         {
           participantId: PARTICIPANT_ID,
@@ -145,10 +144,7 @@ function snapshot(currentPlayback = playback(0)): ProRoomSnapshot {
       displayName: 'Equal member',
       role: 'owner',
       capabilities: [...capabilitiesForProRoomRole('owner')],
-      coordinatorEligible: false,
     },
-    memberIdentityVersion: 1,
-    authorityVersion: 1,
     administrators: [
       {
         memberId: 'member_0000000001',
@@ -166,7 +162,7 @@ function snapshot(currentPlayback = playback(0)): ProRoomSnapshot {
         onlineDeviceCount: 1,
       },
     ],
-  };
+  });
 }
 
 function signalingAccess(): ProRoomSignalingAccess {
@@ -4501,10 +4497,7 @@ describe('coordinator-free PRO playback runtime', { concurrent: false }, () => {
           }
           expect(path).toContain('/administrators/member_target_0001');
           expect(init?.method).toBe('PUT');
-          const encoded = JSON.stringify({
-            authorityVersion: 1,
-            administrators: granted.administrators,
-          });
+          const encoded = JSON.stringify(proAdministratorDirectory(granted.administrators));
           return new Response(
             new ReadableStream<Uint8Array>({
               start(body) {
@@ -4719,10 +4712,7 @@ describe('coordinator-free PRO playback runtime', { concurrent: false }, () => {
           });
         expect(path).toContain('/administrators/member_target_0001');
         expect(init?.method).toBe('DELETE');
-        const encoded = JSON.stringify({
-          authorityVersion: 1,
-          administrators: snapshot().administrators,
-        });
+        const encoded = JSON.stringify(proAdministratorDirectory(snapshot().administrators));
         return new Response(
           new ReadableStream<Uint8Array>({
             start(body) {
@@ -4830,7 +4820,7 @@ describe('coordinator-free PRO playback runtime', { concurrent: false }, () => {
         }
         expect(path).toContain('/administrators/member_target_0001');
         expect(init?.method).toBe('PUT');
-        return Response.json({ authorityVersion: 1, administrators: granted.administrators });
+        return Response.json(proAdministratorDirectory(granted.administrators));
       },
     });
     await nativeCreateSessionForQa20.call(client, { code: ROOM_CODE, pin: '12345678' });
@@ -4892,7 +4882,7 @@ describe('coordinator-free PRO playback runtime', { concurrent: false }, () => {
             session: { expiresAtMs: Date.now() + 60_000 },
           });
         expect(path).toContain('/administrators/member_target_0001');
-        return Response.json({ authorityVersion: 1, administrators: granted });
+        return Response.json(proAdministratorDirectory(granted));
       },
     });
     await nativeCreateSessionForQa20.call(client, { code: ROOM_CODE, pin: '12345678' });

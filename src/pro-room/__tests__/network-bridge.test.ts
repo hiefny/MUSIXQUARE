@@ -30,6 +30,7 @@ import {
   type ProPlaybackMediaEndpoint,
 } from '../playback-authority-hooks.ts';
 import { proHeartbeat } from './__helpers__/pro-heartbeat.ts';
+import { proSnapshot } from './__helpers__/pro-snapshot.ts';
 
 type SocketListener = (event: { data?: unknown; reason?: string }) => void;
 
@@ -105,8 +106,7 @@ const OWNER_CAPABILITIES = [
 ] as const;
 
 function snapshot(): ProRoomSnapshot {
-  return {
-    schemaVersion: 1,
+  return proSnapshot({
     roomCode: ROOM_CODE,
     status: 'active',
     runtime: 'awake',
@@ -129,7 +129,6 @@ function snapshot(): ProRoomSnapshot {
     presence: {
       coordinatorEpoch: 2,
       revision: 3,
-      coordinatorParticipantId: null,
       participants: [
         {
           participantId: PARTICIPANT_ID,
@@ -159,10 +158,7 @@ function snapshot(): ProRoomSnapshot {
       displayName: 'Equal member',
       role: 'owner',
       capabilities: [...OWNER_CAPABILITIES],
-      coordinatorEligible: false,
     },
-    memberIdentityVersion: 1,
-    authorityVersion: 1,
     administrators: [
       {
         memberId: MEMBER_ID,
@@ -180,7 +176,7 @@ function snapshot(): ProRoomSnapshot {
         onlineDeviceCount: 1,
       },
     ],
-  };
+  });
 }
 
 function access(): ProRoomSignalingAccess {

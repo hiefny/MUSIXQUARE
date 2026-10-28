@@ -17,6 +17,7 @@ import {
   type ProRoomSystemAudioPublication,
   type ProRoomSystemAudioState,
 } from '../contracts.ts';
+import { proSnapshot } from './__helpers__/pro-snapshot.ts';
 
 type ProSystemAudioDirectActivation = Parameters<typeof activateProSystemAudioDirectPublication>[0];
 type ProSystemAudioDirectAttemptOptions = Parameters<
@@ -211,8 +212,7 @@ const api = {
 };
 
 function snapshot(incarnation = 'presence_local_01', roomCode = '000001'): ProRoomSnapshot {
-  return {
-    schemaVersion: 1,
+  return proSnapshot({
     roomCode,
     status: 'active',
     runtime: 'awake',
@@ -235,7 +235,6 @@ function snapshot(incarnation = 'presence_local_01', roomCode = '000001'): ProRo
     presence: {
       coordinatorEpoch: 1,
       revision: 1,
-      coordinatorParticipantId: null,
       participants: [
         {
           participantId: LOCAL_ID,
@@ -288,10 +287,7 @@ function snapshot(incarnation = 'presence_local_01', roomCode = '000001'): ProRo
         'asset.upload',
         'members.manage',
       ],
-      coordinatorEligible: false,
     },
-    memberIdentityVersion: 1,
-    authorityVersion: 1,
     administrators: [
       {
         memberId: 'member_owner_0001',
@@ -309,7 +305,7 @@ function snapshot(incarnation = 'presence_local_01', roomCode = '000001'): ProRo
         onlineDeviceCount: 0,
       },
     ],
-  };
+  });
 }
 
 function idle(generation = 0): ProRoomSystemAudioState {

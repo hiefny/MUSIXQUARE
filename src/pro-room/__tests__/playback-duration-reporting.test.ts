@@ -19,6 +19,7 @@ import {
 import { ProRoomPlaybackController } from '../playback-controller.ts';
 import * as serverClock from '../network-bridge.ts';
 import { installProClockSnapshotMocks } from './__helpers__/pro-clock-fixture.ts';
+import { proSnapshot } from './__helpers__/pro-snapshot.ts';
 
 vi.mock('../network-bridge.ts', () => ({
   getProRoomServerNow: () => Date.now(),
@@ -69,8 +70,7 @@ function ready(
 }
 
 function fixture() {
-  const snapshot: ProRoomSnapshot = {
-    schemaVersion: 1,
+  const snapshot: ProRoomSnapshot = proSnapshot({
     roomCode: ROOM,
     status: 'active',
     runtime: 'awake',
@@ -84,7 +84,6 @@ function fixture() {
     presence: {
       coordinatorEpoch: 7,
       revision: 1,
-      coordinatorParticipantId: null,
       participants: [],
     },
     quota: {
@@ -94,10 +93,8 @@ function fixture() {
       reservedBytes: 0,
     },
     viewer: null,
-    memberIdentityVersion: 1,
-    authorityVersion: 1,
     administrators: [],
-  };
+  });
   const lease = { generation: 1, roomCode: ROOM };
   const abort = new AbortController();
   let current = true;

@@ -10,12 +10,12 @@ import {
   claimLegacyYouTubeManifestCandidates,
   hydrateProRoomYouTubeManifests,
 } from '../youtube-manifest-policy.ts';
+import { proSnapshot } from './__helpers__/pro-snapshot.ts';
 
 const QUEUE_ITEM_ID = '11111111-1111-4111-8111-111111111111';
 
 function snapshot(videoIds: string[]): ProRoomSnapshot {
-  return {
-    schemaVersion: 1,
+  return proSnapshot({
     roomCode: '000001',
     status: 'active',
     runtime: 'awake',
@@ -49,7 +49,6 @@ function snapshot(videoIds: string[]): ProRoomSnapshot {
     presence: {
       coordinatorEpoch: 1,
       revision: 1,
-      coordinatorParticipantId: null,
       participants: [],
     },
     quota: {
@@ -59,8 +58,6 @@ function snapshot(videoIds: string[]): ProRoomSnapshot {
       reservedBytes: 0,
     },
     viewer: null,
-    memberIdentityVersion: 1,
-    authorityVersion: 1,
     administrators: [
       {
         memberId: 'member_owner_0001',
@@ -78,7 +75,7 @@ function snapshot(videoIds: string[]): ProRoomSnapshot {
         onlineDeviceCount: 0,
       },
     ],
-  };
+  });
 }
 
 describe('PRO YouTube manifest runtime projection', () => {

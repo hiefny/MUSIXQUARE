@@ -25,6 +25,7 @@ import {
 } from '../playback-authority-hooks.ts';
 import { joinProRoom, requestFirstAppendSelectionForTests } from '../runtime.ts';
 import { proHeartbeat } from './__helpers__/pro-heartbeat.ts';
+import { proSnapshot } from './__helpers__/pro-snapshot.ts';
 
 /**
  * A full PRO room receipt ledger refuses playback commands with
@@ -155,8 +156,7 @@ function snapshot(phase: 'idle' | 'paused' = 'paused'): ProRoomSnapshot {
   };
   // Paused on the first track, or idle where an added first track starts.
   const current = phase === 'paused' ? FIRST : null;
-  return {
-    schemaVersion: 1,
+  return proSnapshot({
     roomCode: ROOM,
     status: 'active',
     runtime: 'awake',
@@ -182,7 +182,6 @@ function snapshot(phase: 'idle' | 'paused' = 'paused'): ProRoomSnapshot {
     presence: {
       coordinatorEpoch: 1,
       revision: 1,
-      coordinatorParticipantId: null,
       participants: [
         {
           ...member,
@@ -204,10 +203,7 @@ function snapshot(phase: 'idle' | 'paused' = 'paused'): ProRoomSnapshot {
       participantId: 'participant_00002',
       presenceIncarnationId: 'presence_0000000002',
       capabilities,
-      coordinatorEligible: false,
     },
-    memberIdentityVersion: 1,
-    authorityVersion: 1,
     administrators: [
       {
         memberId: 'member_0000000001',
@@ -227,7 +223,7 @@ function snapshot(phase: 'idle' | 'paused' = 'paused'): ProRoomSnapshot {
       { ...member, permissions, inheritedPermissions: [], onlineDeviceCount: 1 },
     ],
     playlistSlots: SLOTS,
-  };
+  });
 }
 
 /** Let a late toast or settlement surface before the lists are read. */

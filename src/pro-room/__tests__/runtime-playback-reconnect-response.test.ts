@@ -28,6 +28,7 @@ import {
 } from '../playback-authority-hooks.ts';
 import { joinProRoom } from '../runtime.ts';
 import { proHeartbeat } from './__helpers__/pro-heartbeat.ts';
+import { proSnapshot } from './__helpers__/pro-snapshot.ts';
 
 type SocketEvent = { data?: unknown; reason: string };
 class FakeWebSocket {
@@ -109,8 +110,7 @@ function snapshot(revision = 1, canControl = true): ProRoomSnapshot {
     displayName: 'Controller',
     role: 'controller' as const,
   };
-  return {
-    schemaVersion: 1,
+  return proSnapshot({
     roomCode: ROOM,
     status: 'active',
     runtime: 'awake',
@@ -149,7 +149,6 @@ function snapshot(revision = 1, canControl = true): ProRoomSnapshot {
     presence: {
       coordinatorEpoch: 1,
       revision,
-      coordinatorParticipantId: null,
       participants: [
         {
           ...member,
@@ -171,10 +170,7 @@ function snapshot(revision = 1, canControl = true): ProRoomSnapshot {
       participantId: 'participant_00002',
       presenceIncarnationId: 'presence_0000000002',
       capabilities,
-      coordinatorEligible: false,
     },
-    memberIdentityVersion: 1,
-    authorityVersion: 1,
     administrators: [
       {
         memberId: 'member_0000000001',
@@ -193,7 +189,7 @@ function snapshot(revision = 1, canControl = true): ProRoomSnapshot {
       },
       { ...member, permissions, inheritedPermissions: [], onlineDeviceCount: 1 },
     ],
-  };
+  });
 }
 
 describe('PRO pending command responses across real channel recovery', () => {

@@ -5,6 +5,7 @@ import {
   projectAuthoritativeProDevices,
   projectProPresenceMembers,
 } from '../presence-projection.ts';
+import { proPresence, proViewer } from './__helpers__/pro-snapshot.ts';
 
 function diffProRoomPresenceMembersForTests(
   previous: readonly ProRoomPresenceParticipant[],
@@ -48,14 +49,9 @@ function snapshot(participants: ProRoomPresenceParticipant[]): ProRoomSnapshot {
   const viewer = participants[1] ?? participants[0];
   return {
     roomCode: '000001',
-    presence: {
-      revision: 5,
-      coordinatorEpoch: 9,
-      coordinatorParticipantId: null,
-      participants,
-    },
+    presence: proPresence({ coordinatorEpoch: 9, revision: 5, participants }),
     viewer: viewer
-      ? {
+      ? proViewer({
           memberId: viewer.memberId || viewer.participantId,
           memberDisplayNumber: viewer.memberDisplayNumber,
           isAuthenticated: viewer.isAuthenticated,
@@ -64,8 +60,7 @@ function snapshot(participants: ProRoomPresenceParticipant[]): ProRoomSnapshot {
           displayName: viewer.displayName,
           role: viewer.role,
           capabilities: viewer.capabilities || [],
-          coordinatorEligible: false,
-        }
+        })
       : null,
   } as ProRoomSnapshot;
 }

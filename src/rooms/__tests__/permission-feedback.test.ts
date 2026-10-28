@@ -10,6 +10,7 @@ import type { DataConnection, RoomCapability } from '../../types/index.ts';
 import { showToast } from '../../ui/toast.ts';
 import { markStandardRoomAuthorityConfirmed, setRoomContext } from '../authority.ts';
 import {
+  roomCapabilityFeedbackDescription,
   roomCapabilityFeedbackMessage,
   roomCapabilityFeedbackTip,
   showRoomCapabilityRequired,
@@ -54,6 +55,13 @@ function definitiveTipKey(capability: RoomCapability): I18nKey {
   return TIP_CASES.find(([candidate]) => candidate === capability)![1];
 }
 
+// A lock reason read ahead of a section's own description is a sentence
+// (rule 10): the denial, and the check while the answer is pending. The hint
+// keeps its phrase.
+const DESCRIPTION_CASES = [
+  ['effects.control', 'settings.audio_locked_desc', 'settings.audio_lock_checking_desc'],
+] as const satisfies readonly (readonly [RoomCapability, I18nKey, I18nKey])[];
+
 const CHECKING_CASES = [
   ['media.add', 'toast.media_management_checking'],
   ['queue.mutate', 'toast.media_management_checking'],
@@ -91,6 +99,21 @@ describe('room permission feedback', () => {
   it.each(CASES)('maps %s to its exact user-facing requirement', (capability, key) => {
     expect(roomCapabilityFeedbackMessage(capability)).toBe(t(key));
   });
+
+  it.each(DESCRIPTION_CASES)(
+    'describes locked %s with a sentence, not the hint',
+    (capability, key, checkingKey) => {
+      expect(roomCapabilityFeedbackDescription(capability)).toBe(t(key));
+      expect(roomCapabilityFeedbackDescription(capability)).not.toBe(
+        roomCapabilityFeedbackTip(capability),
+      );
+      // Korean descriptions are 해요체 sentences; the hint ends in a noun form.
+      for (const sentence of [key, checkingKey]) {
+        expect(ko[sentence], sentence).toMatch(/요\.$/u);
+        expect(en[sentence], sentence).toMatch(/\.$/u);
+      }
+    },
+  );
 
   it('shows the mapped requirement instead of a legacy role-only message', () => {
     showRoomCapabilityRequired('playback.control');
@@ -205,6 +228,37 @@ describe('room permission feedback while the answer is pending', () => {
 
       setRoomContext(context);
       expect(roomCapabilityFeedbackTip(capability)).toBe(t(definitiveTipKey(capability)));
+    },
+  );
+
+  it.each(DESCRIPTION_CASES)(
+    'describes %s with the checking sentence until the guest role is confirmed',
+    (capability, key, checkingKey) => {
+      const connection = joinStandardRoomAsGuest();
+      expect(roomCapabilityFeedbackDescription(capability)).toBe(t(checkingKey));
+
+      markStandardRoomAuthorityConfirmed(connection);
+      expect(roomCapabilityFeedbackDescription(capability)).toBe(t(key));
+    },
+  );
+
+  it.each(DESCRIPTION_CASES)(
+    'describes %s with the checking sentence during PRO account reconciliation',
+    (capability, key, checkingKey) => {
+      const context = {
+        kind: 'pro' as const,
+        roomId: '000001',
+        role: 'member' as const,
+        coordinatorId: null,
+        epoch: 1,
+        snapshotRevision: 1,
+        capabilities: [],
+      };
+      setRoomContext(context, 'pending');
+      expect(roomCapabilityFeedbackDescription(capability)).toBe(t(checkingKey));
+
+      setRoomContext(context);
+      expect(roomCapabilityFeedbackDescription(capability)).toBe(t(key));
     },
   );
 

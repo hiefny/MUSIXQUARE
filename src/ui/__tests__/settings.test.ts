@@ -81,10 +81,17 @@ const reverbRangeInputs = (() => {
 })();
 
 function installEffectSettingsDom(): void {
+  // Like the app, each choice group is described by its section description.
   document.body.insertAdjacentHTML(
     'beforeend',
     `
-      <div class="channel-grid" id="grid-reverb">
+      <p id="settings-reverb-description">${t('settings.reverb_desc')}</p>
+      <div
+        class="channel-grid"
+        id="grid-reverb"
+        role="group"
+        aria-describedby="settings-reverb-description"
+      >
         <button class="ch-opt" data-rvb-type="studio">Studio</button>
         <button class="ch-opt" data-rvb-type="arena">Arena</button>
         <button class="ch-opt" data-rvb-type="advanced">Advanced</button>
@@ -102,13 +109,25 @@ function installEffectSettingsDom(): void {
         <span id="val-rvb-highcut">20.0kHz</span>
         <input type="range" id="reverb-highcut-slider" min="0" max="100" step="1" value="0" />
       </div>
-      <div class="channel-grid" id="grid-eq">
+      <p id="settings-eq-description">${t('settings.eq_desc')}</p>
+      <div
+        class="channel-grid"
+        id="grid-eq"
+        role="group"
+        aria-describedby="settings-eq-description"
+      >
         <button class="ch-opt" data-eq-type="bright">Bright</button>
         <button class="ch-opt" data-eq-type="warm">Warm</button>
         <button class="ch-opt" data-eq-type="advanced">Advanced</button>
         <button class="ch-opt active" data-eq-type="off">Off</button>
       </div>
-      <div class="channel-grid" id="grid-virtual-effects">
+      <p id="settings-virtual-effects-description">${t('settings.virtual_effects_desc')}</p>
+      <div
+        class="channel-grid"
+        id="grid-virtual-effects"
+        role="group"
+        aria-describedby="settings-virtual-effects-description"
+      >
         <button class="ch-opt" data-virtual-effect="bass" aria-pressed="false">Bass</button>
         <button class="ch-opt" data-virtual-effect="treble" aria-pressed="false">Treble</button>
         <button class="ch-opt" data-virtual-effect="surround" aria-pressed="false">Surround</button>
@@ -217,6 +236,15 @@ function installSettingsSyncDom(): void {
       )
       .join('')}`,
   );
+}
+
+/** A control's description: the texts it references, joined by one space. */
+function describedText(element: Element): string {
+  return (element.getAttribute('aria-describedby') ?? '')
+    .split(/\s+/u)
+    .filter(Boolean)
+    .map((id) => document.getElementById(id)?.textContent?.trim() ?? '')
+    .join(' ');
 }
 
 beforeEach(() => {
@@ -500,16 +528,21 @@ describe('settings synchronization preference', () => {
 
     const reverb = document.getElementById('grid-reverb')!;
     expect(reverb.getAttribute('aria-disabled')).toBe('true');
+    // The hint names the check in one phrase; the description, read ahead of
+    // the section's own, says it in a sentence.
     expect(reverb.title).toBe(t('player.admin_permission_checking_tip'));
     expect(document.getElementById('grid-reverb-reason')?.textContent).toBe(
-      t('player.admin_permission_checking_tip'),
+      t('settings.audio_lock_checking_desc'),
+    );
+    expect(describedText(reverb)).toBe(
+      "Checking administrator permissions. Adjust the sound's reverb and resonance.",
     );
 
     markStandardRoomAuthorityConfirmed(host);
     bus.emit('network:role-badge-update');
     expect(reverb.title).toBe(t('player.volume_locked_tip'));
     expect(document.getElementById('grid-reverb-reason')?.textContent).toBe(
-      t('player.volume_locked_tip'),
+      t('settings.audio_locked_desc'),
     );
   });
 
@@ -538,13 +571,23 @@ describe('settings synchronization preference', () => {
       expect(group.title).toBe(roomCapabilityFeedbackTip('effects.control'));
     }
     // The three choice groups keep their section description, which outranks
-    // a title, so the reason is also a description they reference first.
+    // a title, so the reason is also a description they reference first. A
+    // screen reader joins the two with one space, so there the reason is a
+    // sentence of its own, not the hint's phrase.
     for (const id of ['grid-reverb', 'grid-eq', 'grid-virtual-effects']) {
       const group = document.getElementById(id)!;
       expect(group.getAttribute('aria-describedby')?.split(' ')[0], id).toBe(`${id}-reason`);
       expect(document.getElementById(`${id}-reason`)?.textContent, id).toBe(
-        roomCapabilityFeedbackTip('effects.control'),
+        t('settings.audio_locked_desc'),
       );
+    }
+    expect(describedText(groups[0]!)).toBe(
+      "Only room admins can change audio settings. Adjust the sound's reverb and resonance.",
+    );
+    // The slider areas take no description.
+    for (const id of ['reverb-sliders-area', 'eq-sliders-area']) {
+      expect(document.getElementById(id)?.hasAttribute('aria-describedby'), id).toBe(false);
+      expect(document.getElementById(`${id}-reason`), id).toBeNull();
     }
 
     await setLanguageMode('ko');
@@ -552,11 +595,11 @@ describe('settings synchronization preference', () => {
     for (const group of groups) {
       expect(group.title).toBe(roomCapabilityFeedbackTip('effects.control'));
     }
-    // A one-phrase reason, not the toast's two sentences.
+    // A one-phrase hint, not the toast's two sentences.
     expect(groups[0]!.title).toBe('음향 설정은 방 관리자만 변경 가능');
-
+    // The description follows the language too, as the owner's sentence.
     expect(document.getElementById('grid-eq-reason')?.textContent).toBe(
-      '음향 설정은 방 관리자만 변경 가능',
+      '방 관리자만 음향 설정을 변경할 수 있어요.',
     );
 
     document.querySelector<HTMLElement>('[data-settings-sync="off"]')?.click();
@@ -568,7 +611,9 @@ describe('settings synchronization preference', () => {
       expect(document.getElementById(id)?.getAttribute('aria-describedby') ?? '', id).not.toContain(
         `${id}-reason`,
       );
+      expect(document.getElementById(`${id}-reason`)?.textContent, id).toBe('');
     }
+    expect(describedText(groups[0]!)).toBe("Adjust the sound's reverb and resonance.");
   });
 
   it('shows translated effect indicators for ON, hides them for OFF, and restores them for ON', () => {

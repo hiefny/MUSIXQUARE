@@ -29,6 +29,10 @@ import { APP_DICTIONARIES } from '../catalogs.ts';
  * a new key cannot skip these checks. Visible labels (the text is the name),
  * descriptions (aria-describedby takes body sentences) and the excluded rows
  * keep their own copy rules.
+ *
+ * A lock reason read ahead of a section's own description is a description
+ * key of its own, a sentence (rule 10), never the hint's phrase or a toast: a
+ * screen reader joins descriptions with a single space.
  */
 type Kind =
   | 'action'
@@ -48,10 +52,24 @@ type Kind =
 interface Entry {
   readonly kinds: readonly Kind[];
   /** A check this key may skip, with the reason. */
-  readonly exempt?: { readonly enSentenceCase?: string };
+  readonly exempt?: {
+    readonly enSentenceCase?: string;
+    /** Locales whose lock reason description keeps its hint's words. */
+    readonly repeatsHint?: Readonly<Record<string, string>>;
+  };
   /** Allows one ", value" suffix carrying a current value. */
   readonly allowsValueSuffix?: true;
 }
+
+/**
+ * Thai writes no sentence-final mark and a space already separates its
+ * sentences (settings.eq_desc is two), so the hint phrase reads as a sentence
+ * ahead of the section description. A native review may pick another form;
+ * then the exception goes.
+ */
+const THAI_HINT_IS_A_SENTENCE = {
+  th: 'a space, not a mark, ends a Thai sentence, so the hint already reads as one',
+};
 
 const REGISTRY: Readonly<Record<string, Entry>> = {
   // Common actions and places.
@@ -224,6 +242,17 @@ const REGISTRY: Readonly<Record<string, Entry>> = {
   'settings.virtual_effects_desc': { kinds: ['description'] },
   'youtube.enter_link_prompt': { kinds: ['description'] },
 
+  // Lock reasons read ahead of a section description (rule 10): sentences of
+  // their own, while the *_tip phrase stays the hover hint.
+  'settings.audio_lock_checking_desc': {
+    kinds: ['description'],
+    exempt: { repeatsHint: THAI_HINT_IS_A_SENTENCE },
+  },
+  'settings.audio_locked_desc': {
+    kinds: ['description'],
+    exempt: { repeatsHint: THAI_HINT_IS_A_SENTENCE },
+  },
+
   // Fallback values put into a name or title, not names themselves.
   'common.info': { kinds: ['excluded'] },
   'common.peer': { kinds: ['excluded'] },
@@ -337,6 +366,10 @@ const IMPORTED_KEY_TABLES: Readonly<
     file: 'src/rooms/permission-feedback.ts',
     tables: ['const ROOM_CAPABILITY_TIP_KEYS', 'const ROOM_CAPABILITY_CHECKING_TIP_KEYS'],
   },
+  roomCapabilityFeedbackDescription: {
+    file: 'src/rooms/permission-feedback.ts',
+    tables: ['const ROOM_CAPABILITY_DESCRIPTION_KEYS'],
+  },
   // The toast mapper. Its keys in a label sink are toast copy in a hint, which
   // the toast check below rejects.
   roomCapabilityFeedbackMessage: {
@@ -383,11 +416,20 @@ function splitArguments(args: string): string[] {
   return parts;
 }
 
+interface Sink {
+  readonly pattern: RegExp;
+  /** The argument that carries the text; without one, the rest of the line. */
+  readonly argument?: number;
+  /** Writes a description read ahead of the control's own, not a name or hint. */
+  readonly describes?: true;
+}
+
 /**
  * Label sinks: every place a name, a hint or a value text is written, with
- * the argument that carries the text.
+ * the argument that carries the text, and setControlUnavailable's describe
+ * option, which writes a lock reason as a description.
  */
-const SINKS: ReadonlyArray<{ readonly pattern: RegExp; readonly argument?: number }> = [
+const SINKS: readonly Sink[] = [
   {
     pattern: /\bsetAttribute\(\s*(?=['"](?:aria-label|aria-valuetext|data-i18n-aria-label)['"])/gu,
     argument: 1,
@@ -397,12 +439,15 @@ const SINKS: ReadonlyArray<{ readonly pattern: RegExp; readonly argument?: numbe
   { pattern: /\bariaLabel\s*[:=]/gu },
   { pattern: /aria-label="\$\{/gu },
   { pattern: /\.title\s*=(?!=)/gu },
+  { pattern: /\bdescribe:/gu, describes: true },
 ];
 
-/** Every key one source file hands to a label sink. */
-function sinkKeys(code: string): string[] {
+const DESCRIPTION_SINKS = SINKS.filter((sink) => sink.describes);
+
+/** Every key one source file hands to a label sink (or only to the given sinks). */
+function sinkKeys(code: string, sinks: readonly Sink[] = SINKS): string[] {
   const keys: string[] = [];
-  for (const { pattern, argument } of SINKS) {
+  for (const { pattern, argument } of sinks) {
     for (const match of code.matchAll(pattern)) {
       const start = (match.index ?? 0) + match[0].length;
       const statement =
@@ -780,5 +825,124 @@ describe('hint and accessible-name copy policy', () => {
       '{{total}}개 중 {{current}}번째 설명',
       'Slide {{current}} of {{total}}',
     ]);
+  });
+});
+
+// ─── Lock reason descriptions ───────────────────────────────────
+
+/** Lock reasons read ahead of a section description (rule 10). */
+const LOCK_REASON_DESCRIPTIONS = [
+  'settings.audio_locked_desc',
+  'settings.audio_lock_checking_desc',
+] as const;
+
+/** The hint phrases and toasts that give the same lock reasons. */
+const LOCK_REASON_COPY = [
+  'player.volume_locked_tip',
+  'player.admin_permission_checking_tip',
+  'toast.settings_sync_admin_required',
+  'toast.admin_permission_checking',
+] as const;
+
+/** A value's sentence-final mark, or '' when it ends without one. */
+const finalMark = (value: string): string => /[.。．।۔…!?！？؟]$/u.exec(value)?.[0] ?? '';
+
+/** The keys that are registered as anything but a description. */
+const notDescriptions = (keys: Iterable<string>): string[] =>
+  [...keys].filter((key) => REGISTRY[key]?.kinds.join() !== 'description');
+
+describe('lock reason description copy', () => {
+  it('describes a lock with description keys only', () => {
+    // setControlUnavailable's describe option puts the reason ahead of the
+    // section's own description, and a screen reader joins the two with a
+    // single space: a hint's phrase or a toast there runs into the section's
+    // first sentence (rule 10).
+    const found = new Map<string, string>();
+    for (const file of appSources()) {
+      const code = stripComments(readFileSync(file, 'utf8'));
+      for (const key of sinkKeys(code, DESCRIPTION_SINKS)) {
+        if (!found.has(key)) found.set(key, file);
+      }
+    }
+    expect([...found.keys()].sort()).toEqual([...LOCK_REASON_DESCRIPTIONS].sort());
+    expect(notDescriptions(found.keys())).toEqual([]);
+
+    // The scan follows the description helper to its table, and finds a hint
+    // phrase that reaches the option.
+    const keys = sinkKeys(
+      `
+      const description = roomCapabilityFeedbackDescription('effects.control');
+      setControlUnavailable(group, reason, { describe: description });
+      setControlUnavailable(volume, reason, { describe: true });
+      setControlUnavailable(other, reason, { describe: roomCapabilityFeedbackTip('effects.control') });
+    `,
+      DESCRIPTION_SINKS,
+    );
+    expect(keys).toEqual(
+      expect.arrayContaining([...LOCK_REASON_DESCRIPTIONS, 'player.volume_locked_tip']),
+    );
+    expect(notDescriptions(keys)).toContain('player.volume_locked_tip');
+  });
+
+  it('writes each lock reason description as one sentence in every locale', () => {
+    // Rule 10: one line in the locale's own source (no English fallback),
+    // ending the way that locale ends settings.reverb_desc, the section
+    // description it is read ahead of. Only Thai ends a sentence without a
+    // mark.
+    const problems: string[] = [];
+    const unmarked: string[] = [];
+    for (const [locale, dictionary] of Object.entries(APP_DICTIONARIES)) {
+      const byKey = dictionary as Readonly<Record<string, string>>;
+      const source = readFileSync(`src/i18n/${locale}.ts`, 'utf8');
+      const mark = finalMark(byKey['settings.reverb_desc'] ?? '');
+      if (!mark) unmarked.push(locale);
+      for (const key of LOCK_REASON_DESCRIPTIONS) {
+        const value = byKey[key] ?? '';
+        if (!value) problems.push(`${locale}.${key}: missing`);
+        if (!source.includes(`'${key}':`)) problems.push(`${locale}.${key}: falls back to English`);
+        if (value.includes('\n')) problems.push(`${locale}.${key}: breaks the line`);
+        const ending = finalMark(value);
+        if (ending !== mark) {
+          problems.push(`${locale}.${key}: ends with '${ending}', not '${mark}'`);
+        }
+      }
+    }
+    expect(problems).toEqual([]);
+    expect(unmarked).toEqual(['th']);
+  });
+
+  it('keeps each lock reason description apart from its hint and toast copy', () => {
+    // The hint keeps its phrase and the toast its lines, so the description
+    // is a sentence of its own in every locale. An exception says why, and
+    // goes once the locale's description no longer repeats that copy.
+    const problems: string[] = [];
+    for (const [locale, dictionary] of Object.entries(APP_DICTIONARIES)) {
+      const byKey = dictionary as Readonly<Record<string, string>>;
+      const copy = new Set<string>();
+      for (const key of LOCK_REASON_COPY) {
+        const value = byKey[key] ?? '';
+        copy.add(value);
+        for (const line of value.split('\n')) copy.add(line);
+      }
+      for (const key of LOCK_REASON_DESCRIPTIONS) {
+        const repeats = copy.has(byKey[key] ?? '');
+        const exempt = REGISTRY[key]?.exempt?.repeatsHint?.[locale];
+        if (repeats && !exempt) problems.push(`${locale}.${key}: repeats its hint or toast`);
+        if (exempt && !repeats) problems.push(`${locale}.${key}: exempt, but repeats nothing`);
+      }
+    }
+    expect(problems).toEqual([]);
+  });
+
+  it('pins the lock reason descriptions in Korean and English', () => {
+    // Owner decision (2026-10-28): the toast's own words, as sentences.
+    expect([ko['settings.audio_locked_desc'], en['settings.audio_locked_desc']]).toEqual([
+      '방 관리자만 음향 설정을 변경할 수 있어요.',
+      'Only room admins can change audio settings.',
+    ]);
+    expect([
+      ko['settings.audio_lock_checking_desc'],
+      en['settings.audio_lock_checking_desc'],
+    ]).toEqual(['관리자 권한을 확인 중이에요.', 'Checking administrator permissions.']);
   });
 });

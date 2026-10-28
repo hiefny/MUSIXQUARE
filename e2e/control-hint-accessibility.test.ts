@@ -1,15 +1,27 @@
 import { expect, test, type CDPSession, type Page } from '@playwright/test';
+import {
+  cleanupContexts,
+  createHostGuestContexts,
+  type HostGuestPair,
+} from './helpers/context-factory.ts';
 import { uploadFixtures } from './helpers/file-upload.ts';
 import { injectPeerServer } from './helpers/peer-server.ts';
-import { setupHostAndStart } from './helpers/setup-flow.ts';
-import { waitForPlaylistCount } from './helpers/wait.ts';
+import { connectHostAndGuest, setupHostAndStart } from './helpers/setup-flow.ts';
+import {
+  navigateToSubtab,
+  navigateToTab,
+  waitForPlaylistCount,
+  waitForState,
+} from './helpers/wait.ts';
 
 /**
  * Hover hint policy (src/ui/control-hint.ts): an unavailable control's reason
  * is written when its state changes, never when a pointer arrives, so keyboard
  * and screen reader users get the same reason as a description. A host who
  * has not chosen media yet has an unavailable sync button and seek bar; this
- * reads both from Chromium's accessibility tree without moving the mouse.
+ * reads both from Chromium's accessibility tree without moving the mouse. A
+ * guest whose audio settings follow the room reads each locked effect group's
+ * reason as a sentence ahead of the group's section description.
  */
 
 interface AxSummary {
@@ -124,6 +136,43 @@ test.describe('Control hints for keyboard and screen reader users', () => {
     await expect(status).toHaveText('');
     await expect(titleButton).not.toHaveAttribute('aria-pressed');
     await expect(titleButton).not.toHaveAttribute('tabindex');
+    await cdp.detach();
+  });
+});
+
+test.describe('Locked audio settings for screen reader users', () => {
+  let pair: HostGuestPair;
+
+  test.beforeEach(async ({ browser }) => {
+    pair = await createHostGuestContexts(browser);
+  });
+
+  test.afterEach(async () => {
+    await cleanupContexts(pair);
+  });
+
+  test('a locked effect group reads its lock as a sentence before its description', async () => {
+    const guest = pair.guestPage;
+    await guest.addInitScript(() => localStorage.setItem('musixquare-lang', 'en'));
+    await connectHostAndGuest(pair.hostPage, guest);
+    await waitForState(guest, 'audio.settingsSyncEnabled', true);
+    await navigateToTab(guest, 'settings');
+    await navigateToSubtab(guest, 'audio');
+
+    const reverb = guest.locator('#grid-reverb');
+    await expect(reverb).toHaveAttribute('aria-disabled', 'true');
+    // The hover hint keeps the phrase once the host's role projection is in.
+    await expect(reverb).toHaveAttribute('title', 'Only room admins can change audio settings');
+
+    const cdp = await guest.context().newCDPSession(guest);
+    await cdp.send('Accessibility.enable');
+    // Chromium joins the reason and the section description with one space,
+    // so the reason ends its own sentence.
+    const description = async () =>
+      normalize((await accessibleSummary(guest, cdp, '#grid-reverb')).description);
+    await expect.poll(description).toBe(
+      "Only room admins can change audio settings. Adjust the sound's reverb and resonance.",
+    );
     await cdp.detach();
   });
 });

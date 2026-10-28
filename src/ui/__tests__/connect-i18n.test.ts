@@ -2820,10 +2820,13 @@ describe('member-level connection and administrator UI', () => {
     expect(administratorCrownRules).toContain('color: var(--text-muted)');
     expect(chatAdministratorCrownRules).toContain('color: var(--text-muted)');
     expect(chatCrownRules).toContain('top: -1px');
+    // Online and offline administrators differ by color; both names take the
+    // member list's unselected weight (weight roles, 2026-10-28), since the
+    // administrator list has no selected row.
     expect(onlineAdministratorNameRules).toContain('color: var(--text-main)');
-    expect(onlineAdministratorNameRules).toContain('font-weight: 600');
+    expect(onlineAdministratorNameRules).not.toContain('font-weight');
     expect(offlineAdministratorNameRules).toContain('color: var(--text-muted)');
-    expect(offlineAdministratorNameRules).toContain('font-weight: 500');
+    expect(offlineAdministratorNameRules).not.toContain('font-weight');
   });
 
   it('focuses the permission switches without scrolling the modal', async () => {

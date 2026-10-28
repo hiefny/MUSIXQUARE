@@ -275,14 +275,19 @@ describe('public design-system page contract', () => {
     // Owner decision (2026-10-28): the button label roles. Every action
     // button label (CTA) is 15px / 600 / 1.25 with normal letter spacing,
     // choice chips take 14px and section tabs and segments 13px; only the
-    // color differs within a role.
+    // color differs within a role. The weight comes from the five weight
+    // role tokens (final policy, 2026-10-28), which the mirror repeats too.
     const labelTokens = {
       '--button-label-size': '15px',
-      '--button-label-weight': '600',
       '--button-label-line-height': '1.25',
       '--button-label-letter-spacing': 'normal',
       '--button-label-chip-size': '14px',
       '--button-label-tab-size': '13px',
+      '--font-weight-title': '700',
+      '--font-weight-selected': '700',
+      '--font-weight-unselected': '500',
+      '--font-weight-label': '600',
+      '--font-weight-body': '400',
     } as const;
     const appStylesheet = readFileSync(resolve('css/style.css'), 'utf8');
     for (const [token, value] of Object.entries(labelTokens)) {
@@ -293,7 +298,7 @@ describe('public design-system page contract', () => {
     }
     const readsLabelTokens = (rules: string): void => {
       expect(rules).toContain('font-size: var(--button-label-size)');
-      expect(rules).toContain('font-weight: var(--button-label-weight)');
+      expect(rules).toContain('font-weight: var(--font-weight-label)');
       expect(rules).toContain('line-height: var(--button-label-line-height)');
       expect(rules).toContain('letter-spacing: var(--button-label-letter-spacing)');
     };
@@ -326,6 +331,7 @@ describe('public design-system page contract', () => {
     );
     expect(advertisedTokens).toEqual(
       expect.arrayContaining([
+        '--font-weight-*',
         '--button-label-*',
         '--button-label-chip-size',
         '--button-label-tab-size',
@@ -730,7 +736,7 @@ describe('public design-system page contract', () => {
       /\.app-loading-header-logo\s*\{[^}]*width:\s*142\.667px;[^}]*height:\s*16px;[^}]*mask-position:\s*left top;[^}]*mask-size:\s*100% 108\.333%;/su,
     );
     expect(designStylesheet).toMatch(
-      /\.app-loading-header-badge\s*\{[^}]*padding:\s*6px 14px;[^}]*font-size:\s*11px;[^}]*font-weight:\s*700;[^}]*line-height:\s*normal;/su,
+      /\.app-loading-header-badge\s*\{[^}]*padding:\s*6px 14px;[^}]*font-size:\s*11px;[^}]*font-weight:\s*var\(--font-weight-label\);[^}]*line-height:\s*normal;/su,
     );
     expect(designStylesheet).not.toContain('.app-loading-header-badge i');
     expect(designStylesheet).not.toContain('.role-sample i');

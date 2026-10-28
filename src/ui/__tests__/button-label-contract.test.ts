@@ -14,17 +14,20 @@ import {
 import { describe, expect, it } from 'vitest';
 
 // Owner decisions (2026-10-27, final 2026-10-28): every button label takes
-// one of three roles, and labels in one role differ only by color. The roles
-// share the weight 600 and normal tracking: CTA (every action button) 15px /
-// 1.25, chip (choice chips) 14px and tab (section tabs and segments) 13px.
-// The owner withdrew the earlier 700, which clumped in dark mode, Korean most
-// of all, and accepted the lighter weight beside the icons. Each component
+// one of three size roles, and labels in one role differ only by color: CTA
+// (every action button) 15px / 1.25, chip (choice chips) 14px and tab
+// (section tabs and segments) 13px, all with normal tracking. Action buttons
+// take the label weight 600 in every size slot; the owner withdrew the
+// earlier 700, which clumped in dark mode, Korean most of all. Under the
+// final weight policy (weight-role-contract.test.ts) choice chips, section
+// tabs and the demo tour's step indicator and role switch are selection
+// groups: 700 on the selected item and 500 on the others. Each component
 // rule reads its role's tokens itself, the same way component rules read
 // --radius-pill; a global override would lose to cascade layers and ID
 // selectors.
 const LABEL_TOKENS: Readonly<Record<string, string>> = {
   'font-size': 'var(--button-label-size)',
-  'font-weight': 'var(--button-label-weight)',
+  'font-weight': 'var(--font-weight-label)',
   'line-height': 'var(--button-label-line-height)',
   'letter-spacing': 'var(--button-label-letter-spacing)',
 };
@@ -35,9 +38,9 @@ const ROLE_SIZE_TOKENS: Readonly<Record<Role, string>> = {
   chip: 'var(--button-label-chip-size)',
   tab: 'var(--button-label-tab-size)',
 };
+// The weight tokens' values are pinned by weight-role-contract.test.ts.
 const LABEL_VALUES: Readonly<Record<string, string>> = {
   '--button-label-size': '15px',
-  '--button-label-weight': '600',
   '--button-label-line-height': '1.25',
   '--button-label-letter-spacing': 'normal',
   '--button-label-chip-size': '14px',
@@ -69,15 +72,27 @@ const ACTION_BUTTON_CLASSES = [
   'sync-done-btn',
 ] as const;
 
+// A selection group's weight tokens: the selected item and every other item
+// (weight roles, 2026-10-28).
+const SELECTION_WEIGHTS = {
+  selected: 'var(--font-weight-selected)',
+  unselected: 'var(--font-weight-unselected)',
+} as const;
 // Buttons in another role, by class, with the reason. They read their role's
-// size token and share the weight and tracking.
-const ROLE_CLASSES: Readonly<Record<string, { role: Exclude<Role, 'cta'>; reason: string }>> = {
+// size token and share the tracking; both are selection groups, and
+// `selected` names the state the app toggles on the chosen one.
+const ROLE_CLASSES: Readonly<
+  Record<string, { role: Exclude<Role, 'cta'>; selected: string; reason: string }>
+> = {
   'ch-opt': {
     role: 'chip',
+    selected:
+      ".ch-opt.active, .ch-opt.selected, #demo-overlay .ch-opt.demo-choice[aria-pressed='true']",
     reason: 'Choice chips sit two to four per row down to 360px.',
   },
   'subtab-pill': {
     role: 'tab',
+    selected: '.subtab-pill.active',
     reason: 'The desktop settings section tabs, a row of four under the panel title.',
   },
 };
@@ -90,14 +105,21 @@ const CTA_CONTAINERS: Readonly<Record<string, string>> = {
     'the CTA role like every action button.',
 };
 // Unclassed demo tour controls, named by the container that styles them. They
-// keep their own responsive sizes and share the label weight and tracking.
-const SHARED_WEIGHT_CONTAINERS: Readonly<Record<string, string>> = {
-  '.demo-step-nav':
-    'The demo step indicator keeps its 13px steps (larger on the desktop tour) and ' +
-    'shares the label weight and tracking.',
-  '.demo-role-segmented':
-    'The demo role switch keeps its 13px segments (12px on phones, larger on the desktop ' +
-    'tour) and shares the label weight and tracking.',
+// keep their own responsive sizes and share the tracking; both are selection
+// groups, and `selected` names the state the app toggles on the chosen one.
+const SHARED_WEIGHT_CONTAINERS: Readonly<Record<string, { selected: string; reason: string }>> = {
+  '.demo-step-nav': {
+    selected: '.demo-step-nav button.active, .demo-step-nav button.is-collapsing',
+    reason:
+      'The demo step indicator keeps its 13px steps (larger on the desktop tour); the ' +
+      'current step is the selected one, and keeps its weight while its label folds away.',
+  },
+  '.demo-role-segmented': {
+    selected: ".demo-role-segmented button[aria-pressed='true']",
+    reason:
+      'The demo role switch keeps its 13px segments (12px on phones, larger on the ' +
+      'desktop tour); the chosen role is the selected one.',
+  },
 };
 const CONTAINER_BUTTONS = [
   ...Object.keys(CTA_CONTAINERS),
@@ -338,8 +360,10 @@ const actionAliases = (() => {
 
 interface StyledLabel {
   name: string;
-  /** The role whose size token the rule must read; null shares only the weight. */
+  /** The role whose size token the rule must read; null keeps its own size. */
   role: Role | null;
+  /** A selection group reads the selected and unselected weights. */
+  selection?: boolean;
 }
 
 /** The role member a selector styles, ignoring negations. */
@@ -352,14 +376,15 @@ function styledButton(selector: string): StyledLabel | null {
     if (new RegExp(`${alias}(?![\\w-])`, 'u').test(positive)) return { name: alias, role: 'cta' };
   }
   for (const [name, { role }] of Object.entries(ROLE_CLASSES)) {
-    if (hasClass(positive, name)) return { name, role };
+    if (hasClass(positive, name)) return { name, role, selection: true };
   }
   for (const name of Object.keys(CTA_TEXT)) {
     if (hasClass(positive, name.slice(1))) return { name, role: 'cta' };
   }
   for (const container of CONTAINER_BUTTONS) {
     if (new RegExp(`${escapeRegExp(container)}(?![\\w-])[^,]*\\bbutton\\b`, 'u').test(positive)) {
-      return { name: container, role: container in CTA_CONTAINERS ? 'cta' : null };
+      if (container in CTA_CONTAINERS) return { name: container, role: 'cta' };
+      return { name: container, role: null, selection: true };
     }
   }
   return null;
@@ -1165,6 +1190,9 @@ function labelViolation(declaration: Declaration, styled: StyledLabel): boolean 
     // The tab role and the demo tour controls keep their own line box.
     if (styled.role === null || styled.role === 'tab') return false;
   }
+  if (declaration.prop === 'font-weight' && styled.selection) {
+    return !(Object.values(SELECTION_WEIGHTS) as string[]).includes(declaration.value);
+  }
   return declaration.value !== LABEL_TOKENS[declaration.prop];
 }
 
@@ -1578,7 +1606,9 @@ const typography = (
   'font-variation-settings': 'normal',
 });
 // The roles as they resolve. The compact members take the chip role's size in
-// the CTA's line box, and the demo finish pair the tab role's size.
+// the CTA's line box, and the demo finish pair the tab role's size. The 600
+// here is the action weight; expectedWeight() gives a selection group's
+// items 700 or 500 instead.
 const ROLE_LABELS = {
   cta: typography('15px', '600', '1.25', 'normal'),
   chip: typography('14px', '600', '1.25', 'normal'),
@@ -1623,8 +1653,29 @@ const SHARED_WEIGHT_SELECTOR = Object.keys(SHARED_WEIGHT_CONTAINERS)
   .map((container) => `${container} button`)
   .join(', ');
 
+/**
+ * The weight a label must resolve to: a selection group's chosen item 700
+ * and its other items 500 (weight roles, 2026-10-28), every action 600.
+ */
+function expectedWeight(element: Element): string {
+  for (const [name, { selected }] of Object.entries(ROLE_CLASSES)) {
+    const member = element.closest(`.${name}`);
+    if (member) return member.matches(selected) ? '700' : '500';
+  }
+  for (const [container, { selected }] of Object.entries(SHARED_WEIGHT_CONTAINERS)) {
+    const member = element.closest(`${container} button`);
+    if (member) return member.matches(selected) ? '700' : '500';
+  }
+  return '600';
+}
+
 /** The role typography an action label must resolve to, by its membership. */
-function expectedRole(element: Element, { environment }: ResolveContext): Expected {
+function expectedRole(element: Element, context: ResolveContext): Expected {
+  const expected = expectedSizeRole(element, context);
+  return expected === UNSHOWN ? expected : { ...expected, 'font-weight': expectedWeight(element) };
+}
+
+function expectedSizeRole(element: Element, { environment }: ResolveContext): Expected {
   if (
     element.closest(HIDDEN_CLOSE.selector) &&
     mediaMatches(atMedia(HIDDEN_CLOSE.condition), environment)
@@ -1763,6 +1814,19 @@ const ROLE_SLOTS: readonly RoleSlot[] = [
             for (const step of steps) step.classList.remove('active');
           };
         },
+      },
+      // As src/demo/mode.ts presses the current role and effect choices.
+      {
+        name: 'demo role chosen',
+        apply: setAttribute(
+          ".demo-role-segmented button[data-demo-role='0']",
+          'aria-pressed',
+          'true',
+        ),
+      },
+      {
+        name: 'demo effect chosen',
+        apply: setAttribute('#demo-overlay .ch-opt.demo-choice', 'aria-pressed', 'true'),
       },
     ],
     targets: (markup) => roleLabels(markup, '#demo-overlay'),
@@ -1968,14 +2032,43 @@ describe('action button label contract', () => {
         expect(ruleValues(appCss, `.${name}`, property), `.${name} ${property}`).toEqual([token]);
       }
     }
-    // Choice chips read the chip size and share the rest.
+    // A selection group's chosen state reads the selected weight, in every
+    // sheet and condition that styles it.
+    const selectedWeights = (list: string): string[] =>
+      splitTopLevel(list).flatMap((selector) =>
+        sheets.flatMap(({ root }) => {
+          const values: string[] = [];
+          root.walkRules((rule) => {
+            if (
+              !rule.selectors.map((entry) => entry.replace(/\s+/gu, ' ').trim()).includes(selector)
+            ) {
+              return;
+            }
+            rule.each((node) => {
+              if (node.type === 'decl' && node.prop === 'font-weight') values.push(node.value);
+            });
+          });
+          return values;
+        }),
+      );
+    for (const { selected } of [
+      ...Object.values(ROLE_CLASSES),
+      ...Object.values(SHARED_WEIGHT_CONTAINERS),
+    ]) {
+      expect(selectedWeights(selected), selected).toEqual(
+        splitTopLevel(selected).map(() => SELECTION_WEIGHTS.selected),
+      );
+    }
+    // Choice chips read the chip size and the unselected weight, and share
+    // the rest.
     expect(ruleValues(appCss, '.ch-opt', 'font-size')).toEqual([ROLE_SIZE_TOKENS.chip]);
-    for (const property of ['font-weight', 'line-height', 'letter-spacing']) {
+    expect(ruleValues(appCss, '.ch-opt', 'font-weight')).toEqual([SELECTION_WEIGHTS.unselected]);
+    for (const property of ['line-height', 'letter-spacing']) {
       expect(ruleValues(appCss, '.ch-opt', property), `.ch-opt ${property}`).toEqual([
         LABEL_TOKENS[property],
       ]);
     }
-    // The desktop settings tabs read the tab size and the shared weight.
+    // The desktop settings tabs read the tab size and the unselected weight.
     const tabRules: string[] = [];
     for (const { root } of sheets) {
       root.walkRules('.subtab-pill', (rule) => {
@@ -1988,7 +2081,7 @@ describe('action button label contract', () => {
     }
     expect(tabRules).toEqual([
       `font-size: ${ROLE_SIZE_TOKENS.tab}`,
-      `font-weight: ${LABEL_TOKENS['font-weight']}`,
+      `font-weight: ${SELECTION_WEIGHTS.unselected}`,
     ]);
     // The chat preview text reads the CTA tokens and keeps its line box.
     for (const [selector, { lineHeight }] of Object.entries(CTA_TEXT)) {
@@ -2020,11 +2113,12 @@ describe('action button label contract', () => {
         expect(font.indexOf(property), `${selector} ${property}`).toBeGreaterThan(shorthand);
       }
     }
-    // The demo tour controls share the weight and tracking.
+    // The demo tour controls read the unselected weight and share the
+    // tracking.
     for (const container of Object.keys(SHARED_WEIGHT_CONTAINERS)) {
       const selector = `${container} button`;
       expect(ruleValues(appCss, selector, 'font-weight'), selector).toEqual([
-        LABEL_TOKENS['font-weight'],
+        SELECTION_WEIGHTS.unselected,
       ]);
       expect(ruleValues(appCss, selector, 'letter-spacing'), selector).toEqual([
         LABEL_TOKENS['letter-spacing'],
@@ -2230,7 +2324,9 @@ describe('action button label contract', () => {
     // demo tour controls' own sizes and the hidden two-column Close.
     const values = (property: ResolvedProperty): string[] =>
       [...new Set([...resolved].map((entry) => (JSON.parse(entry) as Expected)[property]))].sort();
-    expect(values('font-weight')).toEqual(['600']);
+    // Actions resolve to the label weight; the selection groups' chosen and
+    // other items to the selected and unselected weights.
+    expect(values('font-weight')).toEqual(['500', '600', '700']);
     expect(values('letter-spacing')).toEqual(['normal']);
     expect(values('font-variation-settings')).toEqual(['normal']);
     // The two demo tour controls keep their own sizes (clamped on the
@@ -2419,12 +2515,32 @@ describe('action button label contract', () => {
             }
           }`,
       },
-      'the desktop settings tabs at 700': {
+      // Before the weight roles the tabs shared the label weight; now one
+      // weight on both states would flatten the selection group.
+      'the desktop settings tabs back at one weight in a later layer': {
         slots: ['every role member'],
         css: `
-          @layer desktop {
-            .subtab-pill.active {
-              font-weight: 700;
+          @layer states {
+            .subtab-pill {
+              font-weight: 600;
+            }
+          }`,
+      },
+      'a selected chip at the unselected weight': {
+        slots: ['every role member'],
+        css: `
+          @layer states {
+            .ch-opt.active {
+              font-weight: var(--font-weight-unselected);
+            }
+          }`,
+      },
+      'every demo role at the selected weight': {
+        slots: ['demo'],
+        css: `
+          @layer components {
+            .demo-role-segmented button span {
+              font-weight: var(--font-weight-selected);
             }
           }`,
       },

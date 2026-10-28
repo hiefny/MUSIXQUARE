@@ -73,7 +73,7 @@ describe('auxiliary design-system development samples', () => {
     expect(leave).toContain('color: var(--danger-foreground, #ff3b30);');
     expect(leave).toContain('background: var(--control-danger, rgba(255, 59, 48, 0.09));');
     expect(leave).toContain('font-size: var(--button-label-size, 15px);');
-    expect(leave).toContain('font-weight: var(--button-label-weight, 600);');
+    expect(leave).toContain('font-weight: var(--font-weight-label, 600);');
     expect(leave).toContain('line-height: var(--button-label-line-height, 1.25);');
     expect(leave).toContain('letter-spacing: var(--button-label-letter-spacing, normal);');
     expect(rule('.mq-track-remove:hover')).toContain('color: var(--danger-foreground, #ff3b30);');
@@ -84,27 +84,35 @@ describe('auxiliary design-system development samples', () => {
   it('gives the sample buttons the button label roles', () => {
     // Owner decision (2026-10-28): the CTA role (15px / 600 / 1.25 / normal)
     // on every action button and the chip role (14px) on choice cards, with
-    // the production values as fallbacks.
+    // the production values as fallbacks. Under the final weight policy the
+    // CTA reads the label weight and the choice and role cards, selection
+    // groups, read the unselected weight with the selected weight on the
+    // chosen card.
     const rule = (selector: string): string => {
       const escaped = selector.replace(/[.*+?^${}()|[\]\\]/gu, '\\$&');
       return appCss.match(new RegExp(`(?:^|\\n)${escaped}\\s*\\{([^}]*)\\}`, 'u'))?.[1] ?? '';
     };
     const shared = [
-      'font-weight: var(--button-label-weight, 600);',
       'line-height: var(--button-label-line-height, 1.25);',
       'letter-spacing: var(--button-label-letter-spacing, normal);',
     ];
     for (const selector of ['.mq-cta', '.mq-leave-session']) {
       const declarations = rule(selector);
       expect(declarations, selector).toContain('font-size: var(--button-label-size, 15px);');
+      expect(declarations, selector).toContain('font-weight: var(--font-weight-label, 600);');
       for (const declaration of shared) expect(declarations, selector).toContain(declaration);
     }
-    for (const selector of ['.mq-setting-option', '.mq-role .label']) {
+    for (const [selector, selected] of [
+      ['.mq-setting-option', '.mq-setting-option.active'],
+      ['.mq-role .label', '.mq-role.active .label'],
+    ] as const) {
       const declarations = rule(selector);
       expect(declarations, selector).toContain('font-size: var(--button-label-chip-size, 14px);');
+      expect(declarations, selector).toContain('font-weight: var(--font-weight-unselected, 500);');
       for (const declaration of shared) expect(declarations, selector).toContain(declaration);
+      expect(rule(selected), selected).toContain('font-weight: var(--font-weight-selected, 700);');
     }
-    expect(appCss).not.toMatch(/var\(--button-label-weight, 700\)/u);
+    expect(appCss).not.toMatch(/--button-label-weight|--font-weight-display/u);
     expect(appReadme).toContain('the button label roles: the CTA role (15px / 600)');
   });
 

@@ -42,6 +42,8 @@ import developerApiWorker, {
 } from '../../../cloudflare/developer-api-worker.ts';
 import { MAX_SYSTEM_AUDIO_DEVICES, SYSTEM_AUDIO_SHARE_LIMIT_MS } from '../../core/constants.ts';
 import {
+  parseProRoomPlaybackCommitEvent,
+  parseProRoomPlaybackPrepareEvent,
   ProRoomApiClient,
   ProRoomApiError,
   type SwitchProRoomPlaylistInput,
@@ -30790,5 +30792,170 @@ describe('PRO snapshot carriers: entry policy and playlist summaries on every pa
     }
     expect(sites).toHaveLength(21);
     expect(sites.sort()).toEqual(CARRIERS.map((carrier) => carrier.site).sort());
+  });
+});
+
+describe('PRO browser parsers on the actual Worker answers', () => {
+  // Cross-contract rows beyond the snapshot: the browser's ProRoomApiClient
+  // and its playback event parsers read what this in-process Worker actually
+  // answers and delivers, as the activation round trip does for the
+  // snapshot. Each parsed value must equal the wire value it came from, so a
+  // field the Worker starts sending must be kept by the parser in the same
+  // change, and a parser cannot narrow before the Worker stops sending.
+  const FIRST = '11111111-1111-4111-8111-111111111111';
+  const SECOND = '22222222-2222-4222-8222-222222222222';
+
+  /** A browser client whose requests reach `worker` through the App facade's path. */
+  function browserFor(worker: MusixquareProRoom, accountId?: string) {
+    let cookie = '';
+    const answers: Array<Record<string, any>> = [];
+    const fetchImplementation: typeof fetch = async (input, init) => {
+      const incoming = new Request(input, init);
+      const url = new URL(incoming.url);
+      url.pathname = url.pathname.replace('/api/pro-room', '');
+      let forwarded = new Request(url, incoming);
+      forwarded.headers.set('x-mxqr-pro-room-code', ROOM_CODE);
+      forwarded.headers.set('x-mxqr-pro-room-generation', '0');
+      forwarded.headers.set('x-mxqr-pro-ip-hash', accountId || 'parser-contract-member');
+      if (cookie) forwarded.headers.set('cookie', cookie);
+      if (accountId) forwarded = await withAccountAssertion(forwarded, accountId, 'Owner');
+      const response = await worker.fetch(forwarded);
+      const sessionCookie = response.headers
+        .getSetCookie()
+        .find((entry) => entry.startsWith('__Host-mxqr_pro_session_'));
+      if (sessionCookie) cookie = sessionCookie.split(';')[0]!;
+      if (response.headers.get('content-type')?.startsWith('application/json')) {
+        answers.push((await response.clone().json()) as Record<string, any>);
+      }
+      return response;
+    };
+    return {
+      api: new ProRoomApiClient({ fetch: fetchImplementation }),
+      /** The JSON body of the latest answer, as the Worker sent it. */
+      lastAnswer: () => answers.at(-1)!,
+    };
+  }
+
+  /** An open room with its owner and one member in the room, and every signaling broadcast. */
+  async function openRoom() {
+    const worker = new MusixquareProRoom(new FakeState() as never, environment() as never);
+    const broadcasts: Array<Record<string, any>> = [];
+    (worker as unknown as { env: Record<string, unknown> }).env.PRO_SIGNALING_ROOMS = {
+      idFromName: (name: string) => name,
+      get: () => ({
+        fetch: signalingBroadcasts.wrap(async (input: Request) => {
+          const body = (await input.clone().json()) as Record<string, any>;
+          broadcasts.push(body);
+          const eligible = Array.isArray(body.targets) ? body.targets.length : 0;
+          return Response.json({ broadcast: true, eligible, sent: eligible });
+        }),
+      }),
+    };
+    const owner = browserFor(worker, ACTIVATION_OWNER_ACCOUNT_ID);
+    const member = browserFor(worker);
+    const claimToken = await issueProRoomActivationClaim(ROOM_CODE, ACTIVATION_SECRET, {
+      nowMs: Date.now() - 1000,
+      expiresAtMs: Date.now() + 60_000,
+      nonce: 'browser-parser-contract',
+    });
+    await owner.api.activate({ code: ROOM_CODE, claimToken, expectedAccountScope: 'a'.repeat(43) });
+    const memberSnapshot = await member.api.createSession({ code: ROOM_CODE });
+    return { worker, owner, member, memberId: memberSnapshot.viewer!.memberId, broadcasts };
+  }
+
+  it('parses the administrator directory the Worker answers to a grant and a revocation', async () => {
+    const { owner, memberId } = await openRoom();
+    const permissions = {
+      'media.add': true,
+      'playback.control': true,
+      'members.kick': false,
+      'chat.notice': false,
+    };
+
+    const granted = await owner.api.updateAdministrator(ROOM_CODE, memberId, permissions);
+    expect(granted.administrators).toEqual(owner.lastAnswer().administrators);
+    expect(granted.administrators.find((row) => row.memberId === memberId)).toMatchObject({
+      role: 'controller',
+      permissions,
+    });
+
+    const revoked = await owner.api.revokeAdministrator(ROOM_CODE, memberId);
+    expect(revoked.administrators).toEqual(owner.lastAnswer().administrators);
+    expect(revoked.administrators.map((row) => row.memberId)).not.toContain(memberId);
+  });
+
+  it('parses the PREPARE and COMMIT events the Worker answers and delivers', async () => {
+    const { owner, member, broadcasts } = await openRoom();
+    const empty = await owner.api.getSnapshot(ROOM_CODE);
+    await owner.api.updateCompactSnapshot({
+      code: ROOM_CODE,
+      baseRevision: empty.revision,
+      playlistOrder: [FIRST, SECOND],
+      upserts: [
+        { queueItemId: FIRST, name: 'First', source: { kind: 'youtube', videoId: 'dQw4w9WgXcQ' } },
+        {
+          queueItemId: SECOND,
+          name: 'Second',
+          source: { kind: 'youtube', videoId: '9bZkp7q19f0' },
+        },
+      ],
+      currentQueueItemId: null,
+      playback: empty.playback,
+      idempotencyKey: 'browser-parser-contract-playlist',
+    });
+    const before = await owner.api.getSnapshot(ROOM_CODE);
+
+    // The PREPARE of a playback command answer.
+    const selected = await owner.api.executePlaybackCommand({
+      code: ROOM_CODE,
+      command: {
+        type: 'select',
+        baseRevision: before.playback.revision,
+        queueItemId: FIRST,
+        state: 'playing',
+        positionSeconds: 0,
+      },
+      idempotencyKey: 'browser-parser-contract-select',
+    });
+    expect(selected.status).toBe('preparing');
+    expect(selected.transition).toEqual(owner.lastAnswer().transition);
+    const transition = selected.transition!;
+
+    // The pending PREPARE of a signaling ticket.
+    const access = await member.api.createSignalingTicket(ROOM_CODE);
+    expect(access.pendingPlaybackTransition).toEqual(member.lastAnswer().pendingPlaybackTransition);
+    expect(access.pendingPlaybackTransition?.transitionId).toBe(transition.transitionId);
+
+    const ready = (api: ProRoomApiClient) =>
+      api.reportPlaybackTransitionReady({
+        code: ROOM_CODE,
+        transitionId: transition.transitionId,
+        basePlaybackRevision: transition.basePlaybackRevision,
+        status: 'ready',
+      });
+    await expect(ready(owner.api)).resolves.toBe('waiting');
+    await expect(ready(member.api)).resolves.toBe('committed');
+    const playing = await owner.api.getSnapshot(ROOM_CODE);
+    const paused = await owner.api.executePlaybackCommand({
+      code: ROOM_CODE,
+      command: { type: 'pause', baseRevision: playing.playback.revision },
+      idempotencyKey: 'browser-parser-contract-pause',
+    });
+    expect(paused.status).toBe('committed');
+
+    // The events signaling delivers: the PREPARE, its COMMIT, and the direct
+    // COMMIT of the pause.
+    const events = broadcasts
+      .map((broadcast) => broadcast.event as Record<string, any>)
+      .filter((event) => String(event.type).startsWith('pro-playback-'));
+    expect(events.map((event) => [event.type, event.transitionId])).toEqual([
+      ['pro-playback-prepare', transition.transitionId],
+      ['pro-playback-commit', transition.transitionId],
+      ['pro-playback-commit', null],
+    ]);
+    const [prepare, commit, directCommit] = events;
+    expect(parseProRoomPlaybackPrepareEvent(prepare)).toEqual(prepare);
+    expect(parseProRoomPlaybackCommitEvent(commit)).toEqual(commit);
+    expect(parseProRoomPlaybackCommitEvent(directCommit)).toEqual(directCommit);
   });
 });

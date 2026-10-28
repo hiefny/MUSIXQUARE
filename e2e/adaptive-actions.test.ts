@@ -124,7 +124,7 @@ const LOCALIZED_ACTIONS = Object.entries(LOCALES).map(([code, dictionary]) => ({
   ],
 }));
 
-// The manual sync panel's Reset / Done pair and value label in every locale.
+// The manual sync panel's Done / Reset pair and value label in every locale.
 const SYNC_PAIR_LABELS: Record<string, { reset: string; done: string; label: string }> =
   Object.fromEntries(
     Object.entries(LOCALES).map(([code, dictionary]) => [
@@ -139,7 +139,7 @@ const SYNC_PAIR_LABELS: Record<string, { reset: string; done: string; label: str
 
 // Owner decision (2026-10-28, option C): at 360px tall and below the manual
 // sync panel keeps 12px from the screen edges and trims its own spacing; at
-// 350px and below its Reset / Done pair takes the account dialog's 44px pills,
+// 350px and below its Done / Reset pair takes the account dialog's 44px pills,
 // 6px apart. 667x375 and 640x361 keep the shared values.
 const SYNC_SHORT_VIEWPORTS = [
   { width: 568, height: 320, step: 'pills' },
@@ -1117,7 +1117,7 @@ test.describe('content-based adaptive action groups', () => {
           result.panel.bottom - Number.parseFloat(geometry.padding[1]) + 0.5,
         );
         if (twoRows) {
-          // A wrapped Reset sits no closer to the nudge row than to Done.
+          // A wrapped Done sits no closer to the nudge row than to Reset.
           expect(first!.top - result.nudge.bottom, `${where} pair margin`).toBeGreaterThanOrEqual(
             second!.top - first!.bottom - 0.5,
           );

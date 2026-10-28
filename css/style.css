@@ -9064,7 +9064,7 @@ or pointers. Keep :focus-visible and :active outside the gate (src/ui/__tests__/
 
   /* Short landscape phones keep the manual sync body and its pair in view.
      The pair's top margin never drops below its own row gap, so a wrapped
-     Reset never sits closer to the nudge row than to Done. No keyboard-open
+     Done never sits closer to the nudge row than to Reset. No keyboard-open
      guard: these rules only change spacing inside the fixed overlay, so they
      cannot feed keyboard detection, and a guard would move the value field
      while it is being edited. */

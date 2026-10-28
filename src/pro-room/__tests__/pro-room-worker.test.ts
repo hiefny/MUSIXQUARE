@@ -29699,3 +29699,453 @@ describe('PRO browser receipt retention', () => {
     expect(room.playlistRevision).toBe(playlistRevision);
   });
 });
+
+// Receipt train B, item 2 (9.0.20). A refused commit's `state_capacity`
+// diagnostic names the bound that refused it and the caller that met it. On a
+// browser route a playlist's own budget, which only removing tracks frees,
+// answers PLAYLIST_CAPACITY_EXCEEDED; every other answer stays as it was.
+describe('PRO room capacity refusal reasons', () => {
+  type RoomContext = Awaited<ReturnType<typeof activatedRoom>>;
+  type Internal = {
+    room: Record<string, any>;
+    ready: Promise<void> | undefined;
+    persist(): Promise<boolean>;
+  };
+  const PLAYLIST_BUDGET_BYTES = 3 * 1024 * 1024;
+  const CORE_BUDGET_BYTES = 1200 * 1024;
+  let log: MockInstance<typeof console.log>;
+
+  beforeEach(() => {
+    log = vi.spyOn(console, 'log').mockImplementation(() => {});
+  });
+
+  afterEach(() => {
+    log.mockRestore();
+  });
+
+  const internalOf = (context: RoomContext) => context.worker as unknown as Internal;
+
+  async function startRoom() {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date('2026-10-28T03:00:00.000Z'));
+    return activatedRoom();
+  }
+
+  /** The reason, operation and status of each `state_capacity` detail line. */
+  function capacityRefusals() {
+    return log.mock.calls
+      .map(([record]) => record as Record<string, unknown>)
+      .filter(
+        (record) =>
+          record?.diagnostic === 'pro_room' &&
+          record.kind === 'event' &&
+          record.event === 'state_capacity',
+      )
+      .map(({ reason, operation, status }) => ({ reason, operation, status }));
+  }
+
+  /** YouTube items of one size: four text fields of `textLength` characters each. */
+  function sizedItems(count: number, firstIndex: number, textLength = 1_000) {
+    const text = 'x'.repeat(textLength);
+    return Array.from({ length: count }, (_, offset) => {
+      const id = (firstIndex + offset).toString(16);
+      return {
+        queueItemId: `${id.padStart(8, '0')}-0000-4000-8000-${id.padStart(12, '0')}`,
+        name: text,
+        title: text,
+        artist: text,
+        thumbnail: text,
+        source: { kind: 'youtube', videoId: 'dQw4w9WgXcQ' },
+      };
+    });
+  }
+
+  const playlistBytes = (items: unknown[]) => Buffer.byteLength(JSON.stringify(items));
+  // n sized items take n * (ITEM_BYTES + 1) + 1 bytes with their commas and
+  // brackets, so FULL_COUNT of them fit one 3 MiB playlist and one more does not.
+  const ITEM_BYTES = playlistBytes(sizedItems(1, 0)) - 2;
+  const FULL_COUNT = Math.floor((PLAYLIST_BUDGET_BYTES - 1) / (ITEM_BYTES + 1));
+
+  /** The stored core record's bytes, measured as the Worker measures them. */
+  function coreBytes(room: Record<string, any>) {
+    const { playlist, playlistSlots: _playlistSlots, ...core } = room;
+    const playlistOrder = playlist.map((item: { queueItemId: string }) => item.queueItemId);
+    return Buffer.byteLength(JSON.stringify({ schemaVersion: 2, core, playlistOrder }));
+  }
+
+  /** Pads the core record to exactly `bytes` with an unexpired rate limit entry. */
+  function padCoreTo(room: Record<string, any>, bytes: number) {
+    const entry = { count: 0, resetAtMs: Date.now() + 60 * 60 * 1000, padding: '' };
+    room.rateLimits['capacity-padding'] = entry;
+    entry.padding = 'P'.repeat(bytes - coreBytes(room));
+  }
+
+  /** Fills the browser receipt ledger with other participants' unexpired receipts. */
+  function fillBrowserLedger(context: RoomContext) {
+    const { worker } = context;
+    for (let index = 0; Object.keys(worker.room!.idempotency).length < 256; index += 1) {
+      worker.storeIdempotency(
+        `participant:capacity-filler-${index}:compact`,
+        `capacity-filler-${String(index).padStart(4, '0')}`,
+        'f'.repeat(43),
+        { ok: true },
+      );
+    }
+  }
+
+  /** Fills the Developer receipt ledger, which the public API and BOT share. */
+  function fillDeveloperLedger(context: RoomContext) {
+    const ledger = internalOf(context).room.developerMutationIdempotency;
+    const expiresAtMs = Date.now() + 60 * 60 * 1000;
+    for (let index = 0; Object.keys(ledger).length < 256; index += 1) {
+      ledger[`developer:${DEVELOPER_KEY_ID}:queue:add_youtube:capacity-filler-${index}`] = {
+        fingerprint: 'f'.repeat(43),
+        kind: 'developer-queue',
+        status: 201,
+        expiresAtMs,
+      };
+    }
+  }
+
+  /** A browser edit that sends the whole order and only the changed items. */
+  function compactEdit(
+    context: RoomContext,
+    playlist: ReadonlyArray<{ queueItemId: string }>,
+    upserts: unknown[],
+    key: string,
+  ) {
+    return context.worker.fetch(
+      jsonRequest(
+        '/snapshot/compact',
+        'POST',
+        {
+          baseRevision: internalOf(context).room.revision,
+          playlistOrder: playlist.map((item) => item.queueItemId),
+          upserts,
+          currentQueueItemId: null,
+          playback: null,
+        },
+        context.ownerCookie,
+        key,
+      ),
+    );
+  }
+
+  async function runBotAdd(context: RoomContext, requestId: string, tracks: unknown[]) {
+    const lease = await internalBotRequest(
+      context.worker,
+      'context',
+      { roomCode: ROOM_CODE, requestId, prompt: 'add songs' },
+      context.ownerCookie,
+    );
+    expect(lease.status).toBe(200);
+    const { leaseToken } = await responseJson(lease);
+    return internalBotRequest(
+      context.worker,
+      'execute',
+      {
+        roomCode: ROOM_CODE,
+        requestId,
+        leaseToken,
+        plan: { intent: 'add_youtube', trackQueries: ['capacity songs'], playAddedIndex: -1 },
+        tracks,
+      },
+      context.ownerCookie,
+    );
+  }
+
+  it('names a full browser receipt ledger and keeps its answer', async () => {
+    const context = await startRoom();
+    fillBrowserLedger(context);
+    const added = sizedItems(1, 0, 16);
+    const refused = await compactEdit(context, added, added, 'capacity-browser-ledger');
+    expect(refused.status).toBe(409);
+    await expect(refused.json()).resolves.toEqual({ error: 'ROOM_STATE_CAPACITY_EXCEEDED' });
+    expect(internalOf(context).room.playlist).toEqual([]);
+    expect(capacityRefusals()).toEqual([
+      { reason: 'browser_receipt', operation: 'snapshot', status: 409 },
+    ]);
+  });
+
+  it('names a full Developer receipt ledger and the caller that met it', async () => {
+    const context = await startRoom();
+    fillDeveloperLedger(context);
+    const api = await mutateInternalDeveloperQueue(
+      context.worker,
+      DEVELOPER_KEY_ID,
+      'capacity-developer-ledger',
+      { type: 'add_youtube', videoId: 'dQw4w9WgXcQ', name: 'Refused' },
+    );
+    expect(api.status).toBe(409);
+    await expect(api.json()).resolves.toEqual({ error: 'ROOM_STATE_CAPACITY_EXCEEDED' });
+    const bot = await runBotAdd(context, 'capacity-developer-ledger-bot', [
+      { videoId: 'M7lc1UVf-VE', name: 'Refused by BOT' },
+    ]);
+    expect(bot.status).toBe(409);
+    await expect(bot.json()).resolves.toEqual({ error: 'BOT_ACTION_FAILED' });
+    expect(internalOf(context).room.playlist).toEqual([]);
+    expect(capacityRefusals()).toEqual([
+      { reason: 'developer_receipt', operation: 'developer', status: 409 },
+      { reason: 'developer_receipt', operation: 'bot', status: 409 },
+    ]);
+  });
+
+  it('keeps the core reason and answer when an edit passes the core budget', async () => {
+    const context = await startRoom();
+    padCoreTo(internalOf(context).room, CORE_BUDGET_BYTES - 64);
+    await internalOf(context).persist();
+    const revision = internalOf(context).room.revision;
+    const added = sizedItems(1, 0, 16);
+    const refused = await compactEdit(context, added, added, 'capacity-core-budget');
+    expect(refused.status).toBe(409);
+    await expect(refused.json()).resolves.toEqual({ error: 'ROOM_STATE_CAPACITY_EXCEEDED' });
+    expect(internalOf(context).room).toMatchObject({ revision, playlist: [] });
+    expect(capacityRefusals().map(({ reason }) => reason)).toEqual(['core']);
+  });
+
+  it('answers a browser edit past the playlist budget as a full playlist', async () => {
+    const context = await startRoom();
+    const internal = internalOf(context);
+    const seeded = sizedItems(FULL_COUNT, 0);
+    internal.room.playlist = structuredClone(seeded);
+    await internal.persist();
+    const before = {
+      revision: internal.room.revision,
+      playlistRevision: internal.room.playlistRevision,
+    };
+    const added = sizedItems(1, FULL_COUNT);
+    const playlist = [...seeded, ...added];
+    expect(playlistBytes(playlist)).toBeGreaterThan(PLAYLIST_BUDGET_BYTES);
+    const refused = await compactEdit(context, playlist, added, 'capacity-playlist-add');
+    expect(refused.status).toBe(409);
+    await expect(refused.json()).resolves.toEqual({ error: 'PLAYLIST_CAPACITY_EXCEEDED' });
+    expect(internal.room).toMatchObject(before);
+    expect(internal.room.playlist).toEqual(seeded);
+    expect(storedCanonicalRoom(context.state)).toMatchObject({ ...before, playlist: seeded });
+    expect(capacityRefusals()).toEqual([
+      { reason: 'playlist_budget', operation: 'snapshot', status: 409 },
+    ]);
+  });
+
+  it('answers an owner edit of track details past the playlist budget as a full playlist', async () => {
+    const context = await startRoom();
+    const internal = internalOf(context);
+    const seeded = sizedItems(FULL_COUNT, 0);
+    internal.room.playlist = structuredClone(seeded);
+    await internal.persist();
+    const longer = 'y'.repeat(2_048);
+    const [first, ...rest] = seeded;
+    const edited = { ...first!, name: longer, title: longer, artist: longer, thumbnail: longer };
+    expect(playlistBytes([edited, ...rest])).toBeGreaterThan(PLAYLIST_BUDGET_BYTES);
+    const refused = await compactEdit(context, seeded, [edited], 'capacity-playlist-details');
+    expect(refused.status).toBe(409);
+    await expect(refused.json()).resolves.toEqual({ error: 'PLAYLIST_CAPACITY_EXCEEDED' });
+    expect(internal.room.playlist).toEqual(seeded);
+    expect(capacityRefusals()).toEqual([
+      { reason: 'playlist_budget', operation: 'snapshot', status: 409 },
+    ]);
+  });
+
+  it('answers a copy that fills another playlist past its budget as a full playlist', async () => {
+    const context = await startRoom();
+    const internal = internalOf(context);
+    const copied = sizedItems(1, 0);
+    const other = sizedItems(FULL_COUNT, 0x10000);
+    internal.room.playlist = structuredClone(copied);
+    internal.room.playlistSlots = { activeSlot: 0, inactive: [[], structuredClone(other), []] };
+    await internal.persist();
+    expect(playlistBytes([...other, ...copied])).toBeGreaterThan(PLAYLIST_BUDGET_BYTES);
+    const revision = internal.room.revision;
+    const refused = await context.worker.fetch(
+      jsonRequest(
+        '/playlists/transfer',
+        'POST',
+        {
+          baseRevision: revision,
+          queueItemIds: copied.map((item) => item.queueItemId),
+          targetSlots: [1],
+          mode: 'copy',
+        },
+        context.ownerCookie,
+        'capacity-playlist-copy',
+      ),
+    );
+    expect(refused.status).toBe(409);
+    await expect(refused.json()).resolves.toEqual({ error: 'PLAYLIST_CAPACITY_EXCEEDED' });
+    expect(internal.room.revision).toBe(revision);
+    expect(internal.room.playlistSlots.inactive[1]).toEqual(other);
+    expect(capacityRefusals()).toEqual([
+      { reason: 'playlist_budget', operation: 'other', status: 409 },
+    ]);
+  });
+
+  it('keeps the Developer API and BOT answers when an addition passes the playlist budget', async () => {
+    const context = await startRoom();
+    const internal = internalOf(context);
+    const seeded = sizedItems(FULL_COUNT, 0);
+    internal.room.playlist = structuredClone(seeded);
+    await internal.persist();
+    // Two tracks with every text field at the Developer limit take more bytes
+    // than one sized item, so either addition passes the budget.
+    const text = 'z'.repeat(512);
+    const tracks = ['M7lc1UVf-VE', '9bZkp7q19f0'].map((videoId) => ({
+      videoId,
+      name: text,
+      title: text,
+      artist: text,
+      thumbnail: text,
+    }));
+    const api = await mutateInternalDeveloperQueue(
+      context.worker,
+      DEVELOPER_KEY_ID,
+      'capacity-playlist-developer',
+      { type: 'add_youtube_batch', items: tracks },
+    );
+    expect(api.status).toBe(409);
+    await expect(api.json()).resolves.toEqual({ error: 'ROOM_STATE_CAPACITY_EXCEEDED' });
+    const bot = await runBotAdd(context, 'capacity-playlist-bot', tracks);
+    expect(bot.status).toBe(409);
+    await expect(bot.json()).resolves.toEqual({ error: 'BOT_ACTION_FAILED' });
+    expect(internal.room.playlist).toEqual(seeded);
+  });
+
+  it('keeps the core reason and answer when an edit passes both budgets', async () => {
+    const context = await startRoom();
+    const internal = internalOf(context);
+    const seeded = sizedItems(FULL_COUNT, 0);
+    internal.room.playlist = structuredClone(seeded);
+    padCoreTo(internal.room, CORE_BUDGET_BYTES - 64);
+    await internal.persist();
+    const added = sizedItems(1, FULL_COUNT);
+    const playlist = [...seeded, ...added];
+    expect(playlistBytes(playlist)).toBeGreaterThan(PLAYLIST_BUDGET_BYTES);
+    const refused = await compactEdit(context, playlist, added, 'capacity-both-budgets');
+    expect(refused.status).toBe(409);
+    await expect(refused.json()).resolves.toEqual({ error: 'ROOM_STATE_CAPACITY_EXCEEDED' });
+    expect(internal.room.playlist).toEqual(seeded);
+    expect(capacityRefusals().map(({ reason }) => reason)).toEqual(['core']);
+  });
+
+  it.each(['active', 'inactive'] as const)(
+    'still refuses to load a room whose %s playlist is stored past its budget',
+    async (stored) => {
+      const context = await startRoom();
+      const items = sizedItems(FULL_COUNT + 1, 0);
+      const ids = items.map((item) => item.queueItemId);
+      const data = context.state.storage.data;
+      if (stored === 'active') {
+        const core = data.get('pro-room:v2:core') as Record<string, unknown>;
+        for (const item of items) data.set(`pro-room:v2:playlist:${item.queueItemId}`, item);
+        data.set('pro-room:v2:core', { ...core, playlistOrder: ids });
+      } else {
+        for (const item of items) data.set(`pro-room:v2:slot-item:${item.queueItemId}`, item);
+        data.set('pro-room:v2:slots', { schemaVersion: 1, activeSlot: 0, orders: [[], ids, []] });
+      }
+      const restarted = new MusixquareProRoom(
+        context.state as never,
+        environment(context.bucket) as never,
+      );
+      const ready = (restarted as unknown as Internal).ready;
+      ready?.catch(() => undefined);
+      await expect(ready).rejects.toMatchObject({
+        name: 'RoomStateCapacityError',
+        message: 'PRO room state exceeds its bounded storage budget',
+      });
+    },
+  );
+
+  it('names the full browser ledger that a BOT run finds at its terminal receipt', async () => {
+    const context = await startRoom();
+    const requestId = 'capacity-bot-slot-0001';
+    const lease = await internalBotRequest(
+      context.worker,
+      'context',
+      { roomCode: ROOM_CODE, requestId, prompt: 'add a song' },
+      context.ownerCookie,
+    );
+    expect(lease.status).toBe(200);
+    const { leaseToken } = await responseJson(lease);
+    fillBrowserLedger(context);
+    const refused = await internalBotRequest(
+      context.worker,
+      'execute',
+      {
+        roomCode: ROOM_CODE,
+        requestId,
+        leaseToken,
+        plan: { intent: 'add_youtube', trackQueries: ['one song'], playAddedIndex: -1 },
+        tracks: [{ videoId: 'dQw4w9WgXcQ', name: 'Capacity song' }],
+      },
+      context.ownerCookie,
+    );
+    expect(refused.status).toBe(409);
+    await expect(refused.json()).resolves.toEqual({ error: 'ROOM_STATE_CAPACITY_EXCEEDED' });
+    expect(internalOf(context).room.playlist).toEqual([]);
+    // The next BOT turn meets the same full ledger at its first stage.
+    const nextLease = await internalBotRequest(
+      context.worker,
+      'context',
+      { roomCode: ROOM_CODE, requestId: 'capacity-bot-slot-0002', prompt: 'add a song' },
+      context.ownerCookie,
+    );
+    expect(nextLease.status).toBe(409);
+    expect(capacityRefusals()).toEqual([
+      { reason: 'browser_receipt', operation: 'bot', status: 409 },
+      { reason: 'browser_receipt', operation: 'bot', status: 409 },
+    ]);
+  });
+
+  it('names the core check that refuses a browser upload completion', async () => {
+    const context = await startRoom();
+    const reserved = await context.worker.fetch(
+      jsonRequest(
+        '/media/reservations',
+        'POST',
+        { byteLength: 4096, name: 'capacity.flac', mime: 'audio/flac' },
+        context.ownerCookie,
+        'capacity-browser-reserve',
+      ),
+    );
+    expect(reserved.status).toBe(200);
+    const { assetId } = (await responseJson(reserved)).reservation;
+    padCoreTo(internalOf(context).room, CORE_BUDGET_BYTES - 1024);
+    await internalOf(context).persist();
+    const refused = await context.worker.fetch(
+      request(
+        `/media/${assetId}/complete`,
+        { method: 'POST', headers: { 'idempotency-key': 'capacity-browser-complete' } },
+        context.ownerCookie,
+      ),
+    );
+    expect(refused.status).toBe(409);
+    await expect(refused.json()).resolves.toEqual({ error: 'ROOM_STATE_CAPACITY_EXCEEDED' });
+    expect(internalOf(context).room.assets[assetId].status).toBe('reserved');
+    expect(capacityRefusals()).toEqual([
+      { reason: 'core', operation: 'media_complete', status: 409 },
+    ]);
+  });
+
+  it('names the core check that refuses a Developer upload completion', async () => {
+    const context = await startRoom();
+    const reserved = await createInternalDeveloperUpload(
+      context.worker,
+      DEVELOPER_KEY_ID,
+      'capacity-developer-reserve',
+      { name: 'Capacity.wav', byteLength: 44, mime: 'audio/wav' },
+    );
+    expect(reserved.status).toBe(201);
+    const { assetId } = await responseJson(reserved);
+    padCoreTo(internalOf(context).room, CORE_BUDGET_BYTES - 1024);
+    await internalOf(context).persist();
+    const refused = await completeInternalDeveloperUpload(
+      context.worker,
+      DEVELOPER_KEY_ID,
+      'capacity-developer-complete',
+      assetId,
+    );
+    expect(refused.status).toBe(409);
+    await expect(refused.json()).resolves.toEqual({ error: 'ROOM_STATE_CAPACITY_EXCEEDED' });
+    expect(internalOf(context).room.assets[assetId].status).toBe('reserved');
+    expect(capacityRefusals()).toEqual([{ reason: 'core', operation: 'developer', status: 409 }]);
+  });
+});

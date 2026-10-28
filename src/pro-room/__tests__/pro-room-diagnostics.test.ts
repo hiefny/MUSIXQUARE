@@ -348,6 +348,44 @@ describe('bounded PRO server diagnostics', () => {
     expect(log.mock.calls.at(-1)?.[0]).toMatchObject({ kind: 'event', reason: 'pin' });
   });
 
+  it('names each state capacity cause and the caller that met it, and drops unknown ones', () => {
+    const log = vi.spyOn(console, 'log').mockImplementation(() => {});
+    const diagnostics = new ProRoomDiagnostics(() => context);
+    const refusals: ProRoomDiagnosticDetail[] = [
+      { reason: 'browser_receipt', operation: 'snapshot', status: 409 },
+      { reason: 'developer_receipt', operation: 'developer', status: 409 },
+      { reason: 'developer_receipt', operation: 'bot', status: 409 },
+      { reason: 'playlist_budget', operation: 'snapshot', status: 409 },
+    ];
+    for (const detail of refusals) diagnostics.record('state_capacity', detail);
+    diagnostics.record('state_capacity', {
+      reason: 'private-reason',
+      operation: 'private-operation',
+      status: 409,
+    } as unknown as ProRoomDiagnosticDetail);
+    expect(log.mock.calls.map(([record]) => [record.reason, record.operation])).toEqual([
+      ['browser_receipt', 'snapshot'],
+      ['developer_receipt', 'developer'],
+      ['developer_receipt', 'bot'],
+      ['playlist_budget', 'snapshot'],
+      [null, null],
+    ]);
+
+    // The counter keys stay event:reason; the caller is in the detail lines only.
+    vi.advanceTimersByTime(60_000);
+    diagnostics.flushIfDue();
+    expect(log.mock.calls.at(-1)?.[0]).toMatchObject({
+      kind: 'summary',
+      counts: {
+        'state_capacity:browser_receipt': 1,
+        'state_capacity:developer_receipt': 2,
+        'state_capacity:playlist_budget': 1,
+        state_capacity: 1,
+      },
+    });
+    expect(JSON.stringify(log.mock.calls)).not.toContain('private');
+  });
+
   it('cannot reset the failure budget through repeated sleep/close flushes', () => {
     const log = vi.spyOn(console, 'log').mockImplementation(() => {});
     const diagnostics = new ProRoomDiagnostics(() => context);

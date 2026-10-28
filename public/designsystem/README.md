@@ -124,7 +124,10 @@ Pretendard lacks coverage.
   / Join a Room pair keep weight 600, and account deletion keeps 14px (also on
   screens up to 350px tall); in the phone layout up to 719px the media source
   options keep weight 600 and -0.3px tracking and the YouTube link dialog's
-  Cancel / Add pair keeps weight 600.
+  Cancel / Add pair keeps weight 600. The setup screen's single action pill
+  beside Back (Start, Please wait, Joining, Retry, Refresh) keeps weight 600
+  on phones, where it is 84px wide at 320px, and in the 196px pill of the
+  two-column setup panel; only the desktop setup panel's 324px pill takes 700.
 - Verify font changes with `npm run guard:font-assets` and
   `npm run guard:font-build`.
 

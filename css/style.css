@@ -7035,10 +7035,31 @@ or pointers. Keep :focus-visible and :active outside the gate (src/ui/__tests__/
      phones up to 420px, and the YouTube link dialog's Cancel and Add pair in
      the phone layout up to 719px. At 700 the Bulgarian Join a Room wraps at
      360px, and Add wraps in German and Hungarian at 360px and in Bulgarian at
-     421px, where 9.0.18 kept one line. */
+     421px, where 9.0.18 kept one line. The setup action pill beside Back
+     (#btn-setup-confirm: Start, Please wait, Joining, Retry and Refresh,
+     filled or secondary) keeps 600 beside them: it is 84px wide at 320px,
+     and at 700 Retry wraps in Turkish at 320px, Brazilian Portuguese at
+     340px and Tamil at 375px, and Please wait in French and Urdu and Refresh
+     in Urdu at 320px, where 9.0.18 kept one line; the Tamil Please wait, a
+     pill as wide as its one word, reaches 4.5px further past the setup panel
+     edge at 320px. */
   @media (max-width: 420px) {
     #btn-setup-host,
-    #btn-setup-guest {
+    #btn-setup-guest,
+    #btn-setup-confirm {
+      font-weight: 600;
+    }
+  }
+
+  /* Above 420px the setup action pill stays narrow: 185px at 421px in the
+     phone layout and 196px in the two-column setup panel (720 to 1279px, and
+     from 1280px on screens under 720px tall). At 700 the Malayalam Please
+     wait wraps at 425 to 432px and in that panel, where 9.0.18 kept one line,
+     so the pill keeps 600 in the shared not-desktop layout band
+     (src/core/layout-breakpoints.ts); only the desktop panel, whose pill is
+     324px wide, keeps 700. */
+  @media (max-width: 1279px), (max-height: 719px) {
+    #btn-setup-confirm {
       font-weight: 600;
     }
   }

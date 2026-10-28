@@ -2386,6 +2386,11 @@
   color: var(--danger-foreground);
 }
 
+.btn-kick-device:focus-visible,
+.btn-kick-physical-device:focus-visible {
+  color: var(--danger-foreground);
+}
+
 .device-sublist-sample {
   margin: 0 0 8px;
   padding: 0 16px 8px 56px;

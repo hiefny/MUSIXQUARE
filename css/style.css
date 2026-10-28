@@ -4358,12 +4358,17 @@ or pointers. Keep :focus-visible and :active outside the gate (src/ui/__tests__/
     fill: currentColor;
   }
 
-  :where(html[data-hover-pointer]) .device-subrow:hover .btn-kick-physical-device:hover,
-  .btn-kick-physical-device:focus-visible {
+  :where(html[data-hover-pointer]) .device-subrow:hover .btn-kick-physical-device:hover {
     color: var(--danger-foreground);
   }
 
   :where(html[data-hover-pointer]) .device-row:hover .btn-kick-device:hover {
+    color: var(--danger-foreground);
+  }
+
+  /* Keyboard focus turns both kick icons red, as hover does. */
+  .btn-kick-device:focus-visible,
+  .btn-kick-physical-device:focus-visible {
     color: var(--danger-foreground);
   }
 

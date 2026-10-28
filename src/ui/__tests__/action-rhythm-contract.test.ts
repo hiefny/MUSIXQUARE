@@ -291,13 +291,25 @@ describe('action pill rhythm contract', () => {
         ':is(#account-dialog-actions, #account-dialog-login-actions) > :is(button, a)',
       ),
     ];
-    expect(pills.length).toBe(5);
+    // Log out, Delete, Close; Google, Close, and Retry for the unavailable view.
+    expect(pills.length).toBe(6);
     const shortPills = new Set(
       pills.flatMap((pill) => appliedValues(pill, ['height', 'min-height'], SHORT_SCREEN)),
     );
     expect(shortPills.size, [...shortPills].join(', ')).toBe(1);
 
-    // While sign-in is loading or unavailable, Close is the view's only
+    // While sign-in is unavailable, Close and Retry are one pair laid out by
+    // the shared adaptive action group (account.ts adds the class): the group
+    // gap separates them, short screens give it the signed-in view's gap, and
+    // Close drops the stack margin.
+    const signedOutRow = markup.getElementById('account-dialog-login-actions')!;
+    signedOutRow.classList.add('adaptive-action-group');
+    expect(appliedValues(signedOutRow, ['gap'], SHORT_SCREEN)).toEqual([`gap: ${shortGap[0]}`]);
+    expect(appliedValues(signedOutClose, ['margin-top'], SHORT_SCREEN)).toEqual([]);
+    expect(appliedValues(signedOutClose, ['margin-top'])).toContain('margin-top: 0');
+    signedOutRow.classList.remove('adaptive-action-group');
+
+    // While sign-in is loading or switched off, Close is the view's only
     // (primary) action and keeps no margin above it.
     signedOutClose.classList.add('dialog-primary');
     expect(appliedValues(signedOutClose, ['margin-top'], SHORT_SCREEN)).toEqual([]);

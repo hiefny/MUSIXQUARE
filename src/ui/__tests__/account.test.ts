@@ -76,6 +76,11 @@ function renderAccountDialog(): void {
             id="btn-account-login-close"
             hidden
           ></button>
+          <button
+            class="dialog-primary account-dialog-login-retry"
+            id="btn-account-login-retry"
+            hidden
+          ></button>
           <nav id="account-legal-links" hidden>
             <a id="account-privacy" href="/privacy"></a>
             <a id="account-terms" href="/terms"></a>
@@ -1501,13 +1506,111 @@ describe('optional account UI', () => {
     );
     expect(document.getElementById('account-dialog-title')?.textContent).toBe('Account');
     expect(document.getElementById('btn-account-google')?.hidden).toBe(true);
-    expect(document.getElementById('account-dialog-login-actions')?.hidden).toBe(false);
-    const close = document.getElementById('btn-account-login-close');
-    expect(close?.hidden).toBe(false);
-    expect(close?.classList.contains('dialog-primary')).toBe(true);
-    expect(close?.classList.contains('dialog-secondary')).toBe(false);
-    expect(close?.textContent).toBe('Retry');
+    const actions = document.getElementById('account-dialog-login-actions')!;
+    expect(actions.hidden).toBe(false);
+    // Owner report (2026-10-28): this view offered only Retry. It is a pair
+    // now, Close on the left and Retry on the right, laid out by the shared
+    // adaptive action group.
+    expect(actions.classList.contains('adaptive-action-group')).toBe(true);
+    const close = document.getElementById('btn-account-login-close') as HTMLButtonElement;
+    const retry = document.getElementById('btn-account-login-retry') as HTMLButtonElement;
+    expect(close.hidden).toBe(false);
+    expect(close.textContent).toBe('Close');
+    expect(close.classList.contains('dialog-secondary')).toBe(true);
+    expect(close.classList.contains('dialog-primary')).toBe(false);
+    expect(retry.hidden).toBe(false);
+    expect(retry.disabled).toBe(false);
+    expect(retry.textContent).toBe('Retry');
+    expect(retry.classList.contains('dialog-primary')).toBe(true);
+    expect(close.compareDocumentPosition(retry)).toBe(Node.DOCUMENT_POSITION_FOLLOWING);
+    await Promise.resolve();
+    expect(document.activeElement).toBe(retry);
   });
+
+  it('closes the unavailable view with its Close action without retrying', async () => {
+    vi.mocked(fetch).mockRejectedValue(new TypeError('offline'));
+    initAccount();
+    await vi.waitFor(() => expect(getAccountSnapshot().status).toBe('unavailable'));
+    const calls = vi.mocked(fetch).mock.calls.length;
+    openAccountDialog();
+
+    document.getElementById('btn-account-login-close')?.click();
+
+    expect(document.getElementById('account-dialog-overlay')?.classList.contains('show')).toBe(
+      false,
+    );
+    expect(vi.mocked(fetch).mock.calls.length).toBe(calls);
+  });
+
+  it('keeps Close working while a retry reads, without taking focus back afterwards', async () => {
+    let rejectRetry!: (error: unknown) => void;
+    vi.mocked(fetch)
+      .mockRejectedValueOnce(new TypeError('offline'))
+      .mockReturnValueOnce(
+        new Promise<Response>((_resolve, reject) => {
+          rejectRetry = reject;
+        }),
+      )
+      .mockRejectedValue(new TypeError('offline'));
+    initAccount();
+    await vi.waitFor(() => expect(getAccountSnapshot().status).toBe('unavailable'));
+    const opener = document.getElementById('opener') as HTMLButtonElement;
+    opener.focus();
+    openAccountDialog();
+    const close = document.getElementById('btn-account-login-close') as HTMLButtonElement;
+    const retry = document.getElementById('btn-account-login-retry') as HTMLButtonElement;
+
+    retry.click();
+    await vi.waitFor(() => expect(fetch).toHaveBeenCalledTimes(2));
+
+    // Only Retry waits: it keeps its label, and Close stays usable on the left.
+    expect(retry.hidden).toBe(false);
+    expect(retry.disabled).toBe(true);
+    expect(retry.getAttribute('aria-busy')).toBe('true');
+    expect(retry.textContent).toBe('Retry');
+    expect(close.hidden).toBe(false);
+    expect(close.disabled).toBe(false);
+    expect(close.textContent).toBe('Close');
+    expect(document.getElementById('account-dialog')?.getAttribute('aria-busy')).toBe('false');
+
+    close.click();
+    expect(document.getElementById('account-dialog-overlay')?.classList.contains('show')).toBe(
+      false,
+    );
+    expect(document.activeElement).toBe(opener);
+
+    rejectRetry(new TypeError('offline'));
+    await vi.waitFor(() => expect(getAccountSnapshot().status).toBe('unavailable'));
+    await vi.waitFor(() => expect(retry.disabled).toBe(false));
+    await Promise.resolve();
+    expect(retry.hasAttribute('aria-busy')).toBe(false);
+    expect(document.activeElement).toBe(opener);
+  });
+
+  it.each(['login', 'unavailable'] as const)(
+    'stays open when the backdrop around the %s view is clicked',
+    async (view) => {
+      if (view === 'login') {
+        vi.mocked(fetch).mockResolvedValue(
+          jsonResponse({ configured: true, authenticated: false, account: null }),
+        );
+      } else {
+        vi.mocked(fetch).mockRejectedValue(new TypeError('offline'));
+      }
+      initAccount();
+      await vi.waitFor(() =>
+        expect(getAccountSnapshot().status).toBe(view === 'login' ? 'anonymous' : 'unavailable'),
+      );
+      openAccountDialog();
+      const overlay = document.getElementById('account-dialog-overlay')!;
+
+      // Policy (2026-10-28): a modal never closes on an outside click or tap.
+      overlay.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true }));
+
+      expect(overlay.classList.contains('show')).toBe(true);
+      expect(overlay.getAttribute('aria-hidden')).toBe('false');
+    },
+  );
 
   it('offers an explicit retry and restores sign-in without closing the dialog', async () => {
     vi.mocked(fetch)
@@ -1519,7 +1622,7 @@ describe('optional account UI', () => {
     await vi.waitFor(() => expect(getAccountSnapshot().status).toBe('unavailable'));
     openAccountDialog();
 
-    document.getElementById('btn-account-login-close')?.click();
+    document.getElementById('btn-account-login-retry')?.click();
 
     await vi.waitFor(() => expect(getAccountSnapshot().status).toBe('anonymous'));
     expect(document.getElementById('account-dialog-overlay')?.classList.contains('show')).toBe(
@@ -1533,7 +1636,7 @@ describe('optional account UI', () => {
     initAccount();
     await vi.waitFor(() => expect(getAccountSnapshot().status).toBe('unavailable'));
     openAccountDialog();
-    const retry = document.getElementById('btn-account-login-close') as HTMLButtonElement;
+    const retry = document.getElementById('btn-account-login-retry') as HTMLButtonElement;
 
     retry.click();
 
@@ -2772,6 +2875,13 @@ describe('optional account UI', () => {
     ).not.toBeNull();
     expect(
       accountDialog?.querySelector('#btn-account-center-close.adaptive-action-group-full'),
+    ).not.toBeNull();
+    // The unavailable view's pair: Close first (left, mirrored in RTL), then
+    // Retry, its own primary action instead of a relabelled Close.
+    expect(
+      accountDialog?.querySelector(
+        '#account-dialog-login-actions > #btn-account-login-close.dialog-secondary + #btn-account-login-retry.dialog-primary[hidden]',
+      ),
     ).not.toBeNull();
   });
 

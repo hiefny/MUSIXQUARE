@@ -30149,3 +30149,491 @@ describe('PRO room capacity refusal reasons', () => {
     expect(capacityRefusals()).toEqual([{ reason: 'core', operation: 'developer', status: 409 }]);
   });
 });
+
+describe('PRO snapshot carriers: entry policy and playlist summaries on every path', () => {
+  // The room adds `passwordRequired` and `playlistSlots` to every successful
+  // JSON answer that carries a snapshot (withEntryPolicyResponse, after the
+  // route ran), while publicSnapshot builds the snapshot when the route calls
+  // it. One row per publicSnapshot call, each request sent without the
+  // retired opt-in headers, pins both values. Snapshot v2 moves the two fields
+  // into publicSnapshot and drops that wrapper's addition; every row must
+  // keep its values through that move.
+  const MEMBER_ACCOUNT_ID = 'acct_carriermember000000001';
+  const TARGET_ACCOUNT_ID = 'acct_carriertarget000000001';
+  const FIRST = '11111111-1111-4111-8111-111111111111';
+  const SECOND = '22222222-2222-4222-8222-222222222222';
+  const MEMBER_ADMISSION = { pin: '12345678', requestId: 'carrier-member-admission-0001' };
+
+  type CarrierRoom = Awaited<ReturnType<typeof carrierRoom>>;
+  type PlaylistSlotsSummary = { activeSlot: number; slots: Array<{ count: number; bytes: null }> };
+
+  interface Carrier {
+    /** The PRO Worker method whose publicSnapshot call builds the answer. */
+    site: string;
+    route: string;
+    passwordRequired: boolean;
+    playlistSlots: PlaylistSlotsSummary;
+    run(room: CarrierRoom): Promise<Response>;
+  }
+
+  function slots(activeSlot: number, counts: [number, number, number]): PlaylistSlotsSummary {
+    return { activeSlot, slots: counts.map((count) => ({ count, bytes: null })) };
+  }
+
+  /** The playlists of carrierRoom: one track, and its copy in the second playlist. */
+  const SEEDED = slots(0, [1, 1, 0]);
+
+  function track(queueItemId: string) {
+    return {
+      queueItemId,
+      name: `Carrier track ${queueItemId.slice(0, 1)}`,
+      source: { kind: 'youtube', videoId: 'dQw4w9WgXcQ' },
+    };
+  }
+
+  /** Fetches without the opt-in headers, which the PRO Worker no longer reads. */
+  function send(worker: MusixquareProRoom, input: Request): Promise<Response> {
+    expect(input.headers.has('x-mxqr-pro-entry-policy')).toBe(false);
+    expect(input.headers.has('x-mxqr-pro-playlist-slots')).toBe(false);
+    return worker.fetch(input);
+  }
+
+  async function ownerView(context: { worker: MusixquareProRoom; ownerCookie: string }) {
+    const response = await send(context.worker, request('/snapshot', {}, context.ownerCookie));
+    expect(response.status).toBe(200);
+    return (await responseJson(response)).snapshot as Record<string, any>;
+  }
+
+  /**
+   * A protected room (PIN 12345678) with one track, its copy in the second
+   * playlist, and a member admitted beside the owner.
+   */
+  async function carrierRoom() {
+    const context = await activatedRoom();
+    expect((await replacePlaylist(context, [track(FIRST)], 'carrier-seed')).status).toBe(200);
+    const copied = await send(
+      context.worker,
+      jsonRequest(
+        '/playlists/transfer',
+        'POST',
+        {
+          baseRevision: (await ownerView(context)).revision,
+          queueItemIds: [FIRST],
+          targetSlots: [1],
+          mode: 'copy',
+        },
+        context.ownerCookie,
+        'carrier-seed-copy-0001',
+      ),
+    );
+    expect(copied.status).toBe(200);
+    const joined = await send(context.worker, jsonRequest('/sessions', 'POST', MEMBER_ADMISSION));
+    expect(joined.status).toBe(200);
+    const memberCookie = cookieFrom(joined);
+    const envelope = await responseJson(joined);
+    bindCookiePresence(memberCookie, envelope);
+    return {
+      ...context,
+      memberCookie,
+      member: envelope.snapshot.viewer as { memberId: string; participantId: string },
+    };
+  }
+
+  async function linkMemberAccount(room: CarrierRoom) {
+    return send(
+      room.worker,
+      await withAccountAssertion(
+        request('/sessions/current/account', { method: 'POST' }, room.memberCookie),
+        MEMBER_ACCOUNT_ID,
+        'Carrier member',
+      ),
+    );
+  }
+
+  async function leave(room: CarrierRoom, cookie: string) {
+    return send(room.worker, request('/presence/current', { method: 'DELETE' }, cookie));
+  }
+
+  /** A participant compact snapshot that appends a second track. */
+  async function appendSecondTrack(room: CarrierRoom) {
+    const current = await ownerView(room);
+    return {
+      baseRevision: current.revision,
+      playlistOrder: [FIRST, SECOND],
+      upserts: [track(SECOND)],
+      currentQueueItemId: null,
+      playback: {
+        coordinatorEpoch: current.presence.coordinatorEpoch,
+        revision: current.playback.revision,
+        state: 'idle',
+        queueItemId: null,
+        positionSeconds: 0,
+        updatedAtMs: Date.now(),
+        youtubeVideoId: null,
+        youtubeSubIndex: null,
+      },
+    };
+  }
+
+  async function switchTo(room: CarrierRoom, slot: number, key: string) {
+    return send(
+      room.worker,
+      jsonRequest(
+        '/playlists/switch',
+        'POST',
+        { baseRevision: (await ownerView(room)).revision, slot },
+        room.ownerCookie,
+        key,
+      ),
+    );
+  }
+
+  async function transferOwnership(room: CarrierRoom) {
+    const internalRequest = (path: string, body: Record<string, unknown>) =>
+      new Request(`https://pro-room.internal/internal/admin/${path}`, {
+        method: 'POST',
+        headers: {
+          'content-type': 'application/json',
+          'x-mxqr-pro-room-code': ROOM_CODE,
+          'x-mxqr-pro-room-generation': '0',
+        },
+        body: JSON.stringify(body),
+      });
+    const issued = await send(
+      room.worker,
+      internalRequest('owner-transfer-claim', {
+        targetAccountId: TARGET_ACCOUNT_ID,
+        roomGeneration: 0,
+      }),
+    );
+    expect(issued.status).toBe(200);
+    const { transferUrl } = await responseJson(issued);
+    const claimToken = decodeURIComponent(new URL(transferUrl).hash.replace(/^#pro-transfer=/, ''));
+    const requestId = 'owner_transfer_carrier_0001';
+    const prepared = await send(
+      room.worker,
+      await withAccountAssertion(
+        jsonRequest('/owner-transfer/prepare', 'POST', { claimToken, requestId }),
+        TARGET_ACCOUNT_ID,
+        'Carrier target',
+      ),
+    );
+    expect(prepared.status).toBe(200);
+    const { transferId, commitProof } = await responseJson(prepared);
+    const revokedAtMs = Date.now();
+    return send(
+      room.worker,
+      internalRequest('owner-transfer/commit', {
+        roomGeneration: 0,
+        transferId,
+        commitProof,
+        targetAccountId: TARGET_ACCOUNT_ID,
+        requestId,
+        revocationReceipt: await ownerTransferRevocationReceipt({
+          roomCode: ROOM_CODE,
+          roomGeneration: 0,
+          transferId,
+          targetAccountId: TARGET_ACCOUNT_ID,
+          requestId,
+          revokedAtMs,
+          expiresAtMs: revokedAtMs + 15 * 60 * 1000,
+        }),
+      }),
+    );
+  }
+
+  const CARRIERS: Carrier[] = [
+    {
+      site: 'handleActivation',
+      route: 'POST /activation',
+      passwordRequired: false,
+      playlistSlots: slots(0, [0, 0, 0]),
+      async run() {
+        const worker = new MusixquareProRoom(new FakeState() as never, environment() as never);
+        const claimToken = await issueProRoomActivationClaim(ROOM_CODE, ACTIVATION_SECRET, {
+          nowMs: Date.now() - 1000,
+          expiresAtMs: Date.now() + 60_000,
+          nonce: 'carrier-activation',
+        });
+        return send(
+          worker,
+          await withAccountAssertion(
+            jsonRequest('/activation', 'POST', { claimToken }),
+            ACTIVATION_OWNER_ACCOUNT_ID,
+            'Owner',
+          ),
+        );
+      },
+    },
+    {
+      site: 'handleOwnerRecovery',
+      route: 'POST /owner-recovery',
+      passwordRequired: true,
+      playlistSlots: SEEDED,
+      async run(room) {
+        const claimToken = await issueProRoomOwnerRecoveryClaim(ROOM_CODE, ACTIVATION_SECRET, {
+          nowMs: Date.now() - 1000,
+          expiresAtMs: Date.now() + 60_000,
+          nonce: 'carrier-owner-recovery',
+          ownerAuthorityEpoch: storedCanonicalRoom(room.state).ownerAuthorityEpoch,
+        });
+        return send(
+          room.worker,
+          await withAccountAssertion(
+            jsonRequest('/owner-recovery', 'POST', { claimToken }),
+            ACTIVATION_OWNER_ACCOUNT_ID,
+            'Owner',
+          ),
+        );
+      },
+    },
+    {
+      site: 'handleCreateSession',
+      route: 'POST /sessions (a new admission)',
+      passwordRequired: true,
+      playlistSlots: SEEDED,
+      run: (room) =>
+        send(
+          room.worker,
+          jsonRequest('/sessions', 'POST', {
+            pin: '12345678',
+            requestId: 'carrier-second-admission-0001',
+          }),
+        ),
+    },
+    {
+      site: 'handleCreateSession',
+      route: 'POST /sessions (the receipt replays an admission)',
+      passwordRequired: true,
+      playlistSlots: SEEDED,
+      run: (room) => send(room.worker, jsonRequest('/sessions', 'POST', MEMBER_ADMISSION)),
+    },
+    {
+      site: 'handleCreateSession',
+      route: 'POST /sessions (the session recovers an admission past its receipt)',
+      passwordRequired: true,
+      playlistSlots: SEEDED,
+      run(room) {
+        (room.worker as unknown as { room: Record<string, any> }).room.sessionCreateIdempotency =
+          {};
+        return send(room.worker, jsonRequest('/sessions', 'POST', MEMBER_ADMISSION));
+      },
+    },
+    {
+      site: 'handleGetSnapshot',
+      route: 'GET /snapshot',
+      passwordRequired: true,
+      playlistSlots: SEEDED,
+      run: (room) => send(room.worker, request('/snapshot', {}, room.memberCookie)),
+    },
+    {
+      site: 'handleAttachCurrentAccount',
+      route: 'POST /sessions/current/account (links the account)',
+      passwordRequired: true,
+      playlistSlots: SEEDED,
+      run: (room) => linkMemberAccount(room),
+    },
+    {
+      site: 'handleAttachCurrentAccount',
+      route: 'POST /sessions/current/account (proves the linked account again)',
+      passwordRequired: true,
+      playlistSlots: SEEDED,
+      async run(room) {
+        expect((await linkMemberAccount(room)).status).toBe(200);
+        return linkMemberAccount(room);
+      },
+    },
+    {
+      site: 'handleDetachCurrentAccount',
+      route: 'DELETE /sessions/current/account',
+      passwordRequired: true,
+      playlistSlots: SEEDED,
+      async run(room) {
+        expect((await linkMemberAccount(room)).status).toBe(200);
+        return send(room.worker, detachRequest(room.memberCookie));
+      },
+    },
+    {
+      site: 'handleEnterPresence',
+      route: 'POST /presence/enter',
+      passwordRequired: true,
+      playlistSlots: SEEDED,
+      async run(room) {
+        expect((await leave(room, room.memberCookie)).status).toBe(200);
+        return send(room.worker, request('/presence/enter', { method: 'POST' }, room.memberCookie));
+      },
+    },
+    {
+      site: 'handleHeartbeat',
+      route: 'POST /presence/heartbeat (the full answer)',
+      passwordRequired: true,
+      playlistSlots: SEEDED,
+      run: (room) =>
+        send(room.worker, request('/presence/heartbeat', { method: 'POST' }, room.memberCookie)),
+    },
+    {
+      site: 'handleLeavePresence',
+      route: 'DELETE /presence/current (others stay: the departing snapshot)',
+      passwordRequired: true,
+      playlistSlots: SEEDED,
+      run: (room) => leave(room, room.memberCookie),
+    },
+    {
+      site: 'handleLeavePresence',
+      route: 'DELETE /presence/current (the last device leaves)',
+      passwordRequired: true,
+      playlistSlots: SEEDED,
+      async run(room) {
+        expect((await leave(room, room.memberCookie)).status).toBe(200);
+        return leave(room, room.ownerCookie);
+      },
+    },
+    {
+      site: 'handleKickPresence',
+      route: 'POST /presence/kick',
+      passwordRequired: true,
+      playlistSlots: SEEDED,
+      run: (room) =>
+        send(
+          room.worker,
+          jsonRequest(
+            '/presence/kick',
+            'POST',
+            { targetMemberId: room.member.memberId },
+            room.ownerCookie,
+          ),
+        ),
+    },
+    {
+      site: 'handleKickPhysicalPresence',
+      route: 'POST /presence/kick-device',
+      passwordRequired: true,
+      playlistSlots: SEEDED,
+      run: (room) =>
+        send(
+          room.worker,
+          jsonRequest(
+            '/presence/kick-device',
+            'POST',
+            { targetParticipantId: room.member.participantId },
+            room.ownerCookie,
+          ),
+        ),
+    },
+    {
+      site: 'commitParticipantSnapshot',
+      route: 'POST /snapshot/compact',
+      passwordRequired: true,
+      playlistSlots: slots(0, [2, 1, 0]),
+      async run(room) {
+        const body = await appendSecondTrack(room);
+        return send(
+          room.worker,
+          jsonRequest('/snapshot/compact', 'POST', body, room.ownerCookie, 'carrier-compact-0001'),
+        );
+      },
+    },
+    {
+      site: 'replayIdempotency',
+      route: 'POST /snapshot/compact (the receipt replays the snapshot)',
+      passwordRequired: true,
+      playlistSlots: slots(0, [2, 1, 0]),
+      async run(room) {
+        const body = await appendSecondTrack(room);
+        const compact = () =>
+          send(
+            room.worker,
+            jsonRequest(
+              '/snapshot/compact',
+              'POST',
+              body,
+              room.ownerCookie,
+              'carrier-compact-0002',
+            ),
+          );
+        expect((await compact()).status).toBe(200);
+        const revision = (await ownerView(room)).revision;
+        const replayed = await compact();
+        expect((await ownerView(room)).revision).toBe(revision);
+        return replayed;
+      },
+    },
+    {
+      site: 'handlePlaylistSwitch',
+      route: 'POST /playlists/switch (to the active playlist)',
+      passwordRequired: true,
+      playlistSlots: SEEDED,
+      run: (room) => switchTo(room, 0, 'carrier-switch-same-0001'),
+    },
+    {
+      site: 'handlePlaylistSwitch',
+      route: 'POST /playlists/switch',
+      passwordRequired: true,
+      playlistSlots: slots(1, [1, 1, 0]),
+      run: (room) => switchTo(room, 1, 'carrier-switch-0001'),
+    },
+    {
+      site: 'handlePlaylistTransfer',
+      route: 'POST /playlists/transfer',
+      passwordRequired: true,
+      playlistSlots: slots(0, [1, 1, 1]),
+      async run(room) {
+        return send(
+          room.worker,
+          jsonRequest(
+            '/playlists/transfer',
+            'POST',
+            {
+              baseRevision: (await ownerView(room)).revision,
+              queueItemIds: [FIRST],
+              targetSlots: [2],
+              mode: 'copy',
+            },
+            room.ownerCookie,
+            'carrier-transfer-0001',
+          ),
+        );
+      },
+    },
+    {
+      site: 'ownerTransferCommitResponse',
+      route: 'POST /internal/admin/owner-transfer/commit',
+      passwordRequired: false,
+      playlistSlots: SEEDED,
+      run: (room) => transferOwnership(room),
+    },
+  ];
+
+  it.each(CARRIERS)(
+    '$site carries both fields: $route',
+    async ({ run, passwordRequired, playlistSlots }) => {
+      const room = await carrierRoom();
+      const response = await run(room);
+      expect(response.status).toBe(200);
+      const { snapshot } = await responseJson(response);
+      expect({
+        passwordRequired: snapshot.passwordRequired,
+        playlistSlots: snapshot.playlistSlots,
+      }).toEqual({ passwordRequired, playlistSlots });
+      expect(parseProRoomSnapshot(snapshot)).not.toBeNull();
+    },
+  );
+
+  it('has one row for each publicSnapshot call of the PRO Worker', async () => {
+    const source = await readFile(
+      new URL('../../../cloudflare/pro-room-worker.ts', import.meta.url),
+      'utf8',
+    );
+    const sites: string[] = [];
+    let method = '';
+    for (const line of source.split('\n')) {
+      const header = /^ {2}(?:(?:private|protected|public|static|async) )*([A-Za-z]\w*)\(/.exec(
+        line,
+      );
+      if (header) method = header[1]!;
+      sites.push(...Array.from(line.matchAll(/(?<!function )\bpublicSnapshot\(/g), () => method));
+    }
+    expect(sites).toHaveLength(21);
+    expect(sites.sort()).toEqual(CARRIERS.map((carrier) => carrier.site).sort());
+  });
+});

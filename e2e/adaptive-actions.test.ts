@@ -71,6 +71,11 @@ const SWEPT_SLOT_KEYS = {
   selectedCount: 'playlist.selected_count',
   host: 'setup.host_button',
   guest: 'setup.guest_button',
+  start: 'common.start',
+  wait: 'common.wait',
+  joining: 'setup.joining',
+  retry: 'common.retry',
+  refresh: 'common.refresh',
   cancel: 'common.cancel',
   add: 'player.play_start',
 } as const;
@@ -1158,14 +1163,16 @@ test.describe('content-based adaptive action groups', () => {
     });
   }
 
-  // The label sweep's narrow slots (PR #510 QA round 8; button-label-contract
-  // names each exception). Each locale's slot is rendered from the authored
-  // markup in its own containers and measured twice in the same browser and
-  // fonts: as shipped, and with each excepted label's 9.0.18 typography
-  // inline. No label may wrap to more lines, break inside more words, or
-  // reach further past its pill or past the viewport, and no action pair may
-  // take more rows than with the 9.0.18 typography. The widths above each
-  // exception's boundary show that the shipped 700 labels have room there.
+  // The label sweep's narrow slots (PR #510 QA rounds 8 and 9;
+  // button-label-contract names each exception). Each locale's slot is
+  // rendered from the authored markup in its own containers and measured
+  // twice in the same browser and fonts: as shipped, and with each excepted
+  // label's 9.0.18 typography inline. No label may wrap to more lines, break
+  // inside more words, reach further past its pill or past the viewport, or
+  // lose more of its glyphs to an overflow that cuts it off, and no action
+  // pair may take more rows than with the 9.0.18 typography. The widths above
+  // each exception's boundary show that the shipped 700 labels have room
+  // there.
   const SWEPT_SLOTS_9_0_18: Record<string, { selector: string; typography: string }> = {
     'account deletion': {
       selector: '#btn-account-delete',
@@ -1196,6 +1203,10 @@ test.describe('content-based adaptive action groups', () => {
       selector: '#btn-setup-host, #btn-setup-guest',
       typography: 'font-size: 15px; font-weight: 600; line-height: normal; letter-spacing: normal',
     },
+    'setup confirm': {
+      selector: '#btn-setup-confirm',
+      typography: 'font-size: 15px; font-weight: 600; line-height: normal; letter-spacing: normal',
+    },
     'YouTube link actions': {
       selector: '#btn-yt-cancel, #youtube-play-btn',
       typography: 'font-size: 15px; font-weight: 600; line-height: normal; letter-spacing: normal',
@@ -1203,7 +1214,10 @@ test.describe('content-based adaptive action groups', () => {
   };
   // The phone widths, both sides of the 420px and 719/720px boundaries, a
   // width inside the band where media labels still wrapped at 700 (482 to
-  // 488px), and two landscape phones (568x320 compresses the account dialog).
+  // 488px), one inside the band where the Malayalam Please wait of the setup
+  // action pill still wrapped at 700 (425 to 432px), and two landscape phones
+  // (568x320 compresses the account dialog; 844x390 has the two-column setup
+  // panel, whose action pill is 196px wide).
   const SWEPT_SLOT_VIEWPORTS: Array<[number, number]> = [
     [320, 800],
     [340, 800],
@@ -1213,6 +1227,7 @@ test.describe('content-based adaptive action groups', () => {
     [410, 800],
     [420, 800],
     [421, 800],
+    [428, 800],
     [482, 800],
     [719, 800],
     [720, 800],
@@ -1376,6 +1391,33 @@ test.describe('content-based adaptive action groups', () => {
             text(target, '#btn-setup-guest', locale.swept.guest);
             return [outer];
           },
+          // Every label of the pill beside Back: Start, Joining..., Retry and
+          // Refresh filled, the host's Please wait secondary while its room
+          // code loads, and the iOS YouTube gate's Please wait filled.
+          'setup confirm': (locale) =>
+            (
+              [
+                ['start', 'primary', false],
+                ['joining', 'primary', true],
+                ['retry', 'primary', false],
+                ['refresh', 'primary', false],
+                ['wait', 'secondary', true],
+                ['wait', 'primary', true],
+              ] as const
+            ).map(([label, kind, disabled]) => {
+              const { outer, target } = inPlace('#setup-actions');
+              outer.classList.add('active');
+              // As src/ui/setup-shared.ts renders one action beside Back.
+              target.classList.add('horizontal-with-back');
+              target.innerHTML =
+                '<button type="button" id="btn-setup-back" class="btn-ob-icon">' +
+                '<svg viewBox="0 0 24 24"></svg></button>' +
+                `<button type="button" id="btn-setup-confirm" class="btn-ob-${kind}"></button>`;
+              const confirm = target.querySelector<HTMLButtonElement>('#btn-setup-confirm')!;
+              confirm.textContent = locale.swept[label];
+              confirm.disabled = disabled;
+              return outer;
+            }),
           'YouTube link actions': (locale) => {
             const overlay = authored.getElementById('youtube-url-overlay')!;
             const outer = overlay.cloneNode(true) as HTMLElement;
@@ -1455,12 +1497,31 @@ test.describe('content-based adaptive action groups', () => {
                   if (lineCount([...part.getClientRects()]) > 1) broken += 1;
                 }
               }
+              // Glyphs that the label's own or an ancestor's overflow cuts
+              // off (a pill that grows to its longest word can push the row
+              // past the setup panel).
+              let clipped = 0;
+              for (
+                let node: HTMLElement | null = label;
+                node && node !== probe.parentElement;
+                node = node.parentElement
+              ) {
+                const style = getComputedStyle(node);
+                const box = node.getBoundingClientRect();
+                if (style.overflowX !== 'visible') {
+                  clipped = Math.max(clipped, box.left - left, right - box.right);
+                }
+                if (style.overflowY !== 'visible') {
+                  clipped = Math.max(clipped, box.top - top, bottom - box.bottom);
+                }
+              }
               return {
                 id: `${probe.dataset.slot} ${lang} #${probe.dataset.instance} ${label.textContent?.trim()}`,
                 lines: lineCount(glyphs),
                 broken,
                 horizontal: Math.max(0, pill.left - left, right - pill.right),
                 vertical: Math.max(0, pill.top - top, bottom - pill.bottom),
+                clipped,
                 viewport: Math.max(
                   0,
                   -left,
@@ -1498,8 +1559,8 @@ test.describe('content-based adaptive action groups', () => {
     const reference = await measure();
 
     // Per locale: account, 4 invite modes, leave, help, 2 media states, 5
-    // toggle states, setup and YouTube.
-    expect(built).toBe(localesWithFonts.length * 16);
+    // toggle states, setup choice, 6 setup confirm labels and YouTube.
+    expect(built).toBe(localesWithFonts.length * 22);
     expect(reference.map((entry) => entry.id)).toEqual(shipped.map((entry) => entry.id));
     shipped.forEach((entry, index) => {
       const before = reference[index]! as Record<string, unknown>;

@@ -12,6 +12,7 @@ import {
   type Rule,
 } from 'postcss';
 import { describe, expect, it } from 'vitest';
+import { isDesktopLayoutSize, NOT_DESKTOP_LAYOUT_QUERY } from '../../core/layout-breakpoints.ts';
 
 // Owner decision (2026-10-27): every action button reads one label style, so
 // labels differ only by color. Each component rule reads the button label
@@ -215,6 +216,21 @@ const SWEPT_SELECTION_TOGGLE =
 const SWEPT_SETUP_CHOICE =
   'Create a Room and Join a Room keep the 9.0.18 weight 600 together on phones up to 420px: ' +
   'at 700 the Bulgarian Join a Room wraps at 360px where 9.0.18 kept one line.';
+// QA round 9: the setup screen's failure, waiting, transient and recovery
+// states, which the first sweep reached only in English.
+const SWEPT_SETUP_CONFIRM =
+  'The setup action pill beside Back (Start, Please wait, Joining, Retry and Refresh, filled or ' +
+  'secondary) keeps the 9.0.18 weight 600 on phones up to 420px, beside Create a Room and ' +
+  'Join a Room: it is 84px wide at 320px, and at 700 Retry wraps in Turkish at 320px, ' +
+  'Brazilian Portuguese at 340px and Tamil at 375px, and Please wait in French and Urdu and ' +
+  'Refresh in Urdu at 320px, where 9.0.18 kept one line; the Tamil Please wait, a pill as ' +
+  'wide as its one word, reaches 4.5px further past the setup panel edge at 320px.';
+const SWEPT_SETUP_CONFIRM_WIDER =
+  'Above 420px the setup action pill stays narrow: 185px at 421px in the phone layout and ' +
+  '196px in the two-column setup panel (720 to 1279px, and from 1280px on screens under ' +
+  '720px tall). At 700 the Malayalam Please wait wraps at 425 to 432px and in that panel, ' +
+  'where 9.0.18 kept one line, so the pill keeps 600 in the shared not-desktop layout band ' +
+  '(src/core/layout-breakpoints.ts); only the desktop panel, whose pill is 324px wide, keeps 700.';
 const SWEPT_YOUTUBE_ACTIONS =
   'The YouTube link dialog Cancel and Add pair keeps the 9.0.18 weight 600 in the phone ' +
   'layout up to 719px: at 700 Add wraps in German and Hungarian at 360px and in Bulgarian at ' +
@@ -273,6 +289,18 @@ const COMPACT_OVERRIDES: ReadonlyArray<{
     declaration: 'font-weight: 600',
     reason: SWEPT_SETUP_CHOICE,
   })),
+  {
+    condition: '@media (max-width: 420px)',
+    selector: '#btn-setup-confirm',
+    declaration: 'font-weight: 600',
+    reason: SWEPT_SETUP_CONFIRM,
+  },
+  {
+    condition: `@media ${NOT_DESKTOP_LAYOUT_QUERY}`,
+    selector: '#btn-setup-confirm',
+    declaration: 'font-weight: 600',
+    reason: SWEPT_SETUP_CONFIRM_WIDER,
+  },
   ...['#btn-yt-cancel', '#youtube-play-btn'].map((selector) => ({
     condition: '@media (max-width: 719px)',
     selector,
@@ -1612,6 +1640,45 @@ const SWEPT_NARROW_SLOTS: readonly NarrowSlot[] = [
     expected: upTo(420, SEMIBOLD_LABEL),
   },
   {
+    name: 'setup confirm',
+    prepare: (markup) => {
+      markup.getElementById('setup-overlay')!.classList.add('active');
+      // As src/ui/setup-shared.ts renders one action beside Back.
+      markup.getElementById('setup-actions')!.classList.add('horizontal-with-back');
+      mount(
+        markup,
+        '#setup-actions',
+        '<button id="btn-setup-back" type="button" class="btn-ob-icon" aria-label="Go back">' +
+          '<svg viewBox="0 0 24 24"></svg></button>' +
+          '<button id="btn-setup-confirm" type="button" class="btn-ob-primary">Retry</button>',
+      );
+    },
+    states: [
+      ...SHARED_PAGE_STATES,
+      // The host's Please wait while its room code loads: secondary and disabled.
+      {
+        name: 'waiting (secondary)',
+        apply: (markup) => {
+          const button = markup.getElementById('btn-setup-confirm')!;
+          button.className = 'btn-ob-secondary';
+          button.setAttribute('disabled', '');
+          return () => {
+            button.className = 'btn-ob-primary';
+            button.removeAttribute('disabled');
+          };
+        },
+      },
+      // Joining..., with Back disabled too.
+      { name: 'joining', apply: setAttribute('#setup-actions > button', 'disabled') },
+      // The iOS YouTube gate's Please wait on the filled pill.
+      { name: 'gate busy', apply: setAttribute('#btn-setup-confirm', 'aria-busy', 'true') },
+    ],
+    targets: (markup) => [markup.getElementById('btn-setup-confirm')!],
+    // 600 everywhere but the desktop setup panel (the desktop layout band).
+    expected: ({ environment }) =>
+      isDesktopLayoutSize(environment.width, environment.height) ? SHARED_LABEL : SEMIBOLD_LABEL,
+  },
+  {
     name: 'YouTube link actions',
     prepare: (markup) => {
       markup.getElementById('youtube-url-overlay')!.classList.add('active');
@@ -1714,6 +1781,37 @@ const NARROW_SLOT_MUTATIONS: Record<string, { slots: string[]; css: string }> = 
     @layer responsive {
       .onboarding-overlay .ob-actions.vertical > button {
         font-weight: var(--button-label-weight);
+      }
+    }`,
+  },
+  'setup confirm back to 700 in the row beside Back': {
+    slots: ['setup confirm'],
+    css: `
+    @layer responsive {
+      .onboarding-overlay .ob-actions.horizontal-with-back > button {
+        font-weight: var(--button-label-weight);
+      }
+    }`,
+  },
+  'setup confirm back to 700 in the two-column setup panel': {
+    slots: ['setup confirm'],
+    css: `
+    @layer responsive {
+      @media (min-width: 720px) and (max-width: 1279px) {
+        #setup-overlay .setup-mobile-view .ob-actions > button {
+          font-weight: var(--button-label-weight);
+        }
+      }
+    }`,
+  },
+  'setup confirm Please wait back to 700 on 375px phones': {
+    slots: ['setup confirm'],
+    css: `
+    @layer states {
+      @media (min-width: 361px) and (max-width: 389px) {
+        .ob-actions .btn-ob-secondary:disabled {
+          font-weight: var(--button-label-weight);
+        }
       }
     }`,
   },
@@ -1988,7 +2086,9 @@ describe('action button label contract', () => {
       );
     }
     expect(failures.slice(0, 20), `${failures.length} resolutions differ`).toEqual([]);
-  });
+    // Every slot in every state, direction, theme and environment: about 12s
+    // alone and longer beside the full suite.
+  }, 60_000);
 
   it('samples both sides of every media boundary in both orientations', () => {
     // A range between two samples cannot hide: each width and height that a

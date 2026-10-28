@@ -339,6 +339,64 @@ describe('public design-system page contract', () => {
     );
   });
 
+  it('points the app samples and the type helpers at the weight role tokens', () => {
+    // Weight roles (owner decision 2026-10-28): the samples of app text read
+    // the role tokens like the app rules they mirror, instead of a number.
+    const ruleBody = (stylesheet: string, selector: string): string => {
+      const escaped = selector.replace(/[.*+?^${}()|[\]\\]/gu, '\\$&');
+      // A top-level rule's whole selector list, at the start of a line after a
+      // rule or a comment.
+      const bodies = [
+        ...stylesheet.matchAll(new RegExp(`(?:^|[}/]\\n+)${escaped}\\s*\\{([^}]*)\\}`, 'gu')),
+      ].map((match) => match[1]!);
+      expect(bodies, selector).toHaveLength(1);
+      return bodies[0]!;
+    };
+    const weightOf = (stylesheet: string, selector: string): string[] =>
+      [...ruleBody(stylesheet, selector).matchAll(/font-weight:\s*([^;]+);/gu)].map((match) =>
+        match[1]!.trim(),
+      );
+    const role = (name: string): string => `var(--font-weight-${name})`;
+    for (const [selector, weight] of [
+      ['.app-loading-header-status', role('body')],
+      ['.playlist-name', role('unselected')],
+      ['.playlist-item.active .playlist-name', role('selected')],
+      ['.device-row-sample .d-name', role('unselected')],
+      ['.device-row-sample.is-current-member :is(.d-order, .d-name)', role('selected')],
+      ['.range-specimen-title,\n.range-slider-header', role('label')],
+      ['.range-slider-header strong', role('title')],
+      ['.spec .s20', role('title')],
+      ['.app-bottom-nav .tab', role('unselected')],
+    ] as const) {
+      expect(weightOf(designStylesheet, selector), selector).toEqual([weight]);
+    }
+    // The logo is a mask with no text, so the rule it shares with the
+    // loading status sets no weight or tracking.
+    const shared = ruleBody(
+      designStylesheet,
+      '.app-loading-header-logo,\n.app-loading-header-status',
+    );
+    expect(shared).not.toMatch(/font-weight|letter-spacing/u);
+
+    for (const [selector, weight] of [
+      ['.tab-title,\n.type-display', role('title')],
+      ['.type-h2', role('title')],
+      ['.track-title,\n.type-title', role('title')],
+      ['.type-body', role('body')],
+      ['.type-body-sub', role('body')],
+      ['.type-label', role('label')],
+      ['.btn-label', role('label')],
+      ['.type-caption', role('body')],
+      ['.type-badge', role('label')],
+      ['.type-micro', role('label')],
+      ['.type-code', role('title')],
+    ] as const) {
+      expect(weightOf(designTokenStylesheet, selector), selector).toEqual([weight]);
+    }
+    // The role tokens replace the old weight scale aliases.
+    expect(designTokenStylesheet).not.toMatch(/--fw-/u);
+  });
+
   it('shows the current playlist leading state, source icons, disclosure, and check circles', () => {
     const playlist = sectionWithHeading('Components').querySelector<HTMLElement>('.pl');
     expect(playlist).toBeTruthy();

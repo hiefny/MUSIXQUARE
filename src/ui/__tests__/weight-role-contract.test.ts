@@ -11,7 +11,10 @@ import { APP_DICTIONARIES } from '../../i18n/catalogs.ts';
 // roles and nothing else. Text never goes above 700 (max-font-weight.test.ts).
 // - title 700: headings and display values (dialog, sheet and section titles,
 //   the setup greeting, the playlist title switch, the account title, the
-//   player track title, the invite code and room PIN digits).
+//   player track title, the invite code and room PIN digits, and the code
+//   entry digits: the guest's invite code entry, the room PIN entry and the
+//   manual sync value). Titles also share one tracking by script
+//   (title-tracking-contract.test.ts).
 // - selected 700 / unselected 500: in a list or group where one item is
 //   selected, current or playing (it also turns the accent color), that item
 //   takes the selected weight and every other item the unselected weight
@@ -718,8 +721,8 @@ const ROLE_SPOT_CHECKS: ReadonlyArray<{
   },
   {
     selector: '#setup-join-code',
-    role: 'body',
-    reason: "The guest's code entry is input text, though it shares the invite code field rule.",
+    role: 'title',
+    reason: "The guest's code entry digits are a display value, like the host's invite code.",
   },
   {
     selector: '.setup-greeting-text',
@@ -751,11 +754,15 @@ const ROLE_SPOT_CHECKS: ReadonlyArray<{
   { selector: '.time-info', role: 'body', reason: 'The seek timestamps.' },
   { selector: '.track-artist', role: 'body', reason: 'The line under the player title.' },
   { selector: '.track-title', role: 'title', reason: 'The player track title.' },
-  { selector: '.chat-input', role: 'body', reason: 'The chat composer text.' },
+  {
+    selector: '.chat-input:not(.sync-col-value)',
+    role: 'body',
+    reason: 'The chat composer text; the manual sync value reuses the class.',
+  },
   {
     selector: '.dialog-input-segment',
-    role: 'body',
-    reason: 'The room PIN entry is input text, like the single-field dialog input.',
+    role: 'title',
+    reason: 'The room PIN entry digits are a display value, like the PIN display.',
     mount: [
       '#dialog-message',
       // As src/ui/dialog.ts renders the split PIN entry.
@@ -767,7 +774,7 @@ const ROLE_SPOT_CHECKS: ReadonlyArray<{
   },
   {
     selector: '.dialog-input-separator',
-    role: 'body',
+    role: 'title',
     reason: 'The hyphen between the PIN halves matches the digits beside it.',
   },
   { selector: '.dialog-input', role: 'body', reason: 'Dialog input text.' },
@@ -788,8 +795,8 @@ const ROLE_SPOT_CHECKS: ReadonlyArray<{
   { selector: '.eq-label', role: 'label', reason: 'The band name under each slider.' },
   {
     selector: '#manual-sync-value',
-    role: 'body',
-    reason: 'The manual sync editor is typed input text.',
+    role: 'title',
+    reason: 'The manual sync value is a display value, though it is typed like chat input.',
   },
   { selector: '.sync-col-label', role: 'label', reason: 'The manual sync field label.' },
   {

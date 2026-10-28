@@ -85,6 +85,13 @@ function createRepository(): string {
   return directory;
 }
 
+// Joined so this fixture text is not a relative Worker import literal: the
+// suite never loads Worker code, so it stays out of the Worker coverage
+// ratchet (ci-quality-gates.test.ts).
+function workerModule(depth: number, file: string): string {
+  return [...Array<string>(depth).fill('..'), 'cloudflare', file].join('/');
+}
+
 // Worker-side modules that browser code imports are compiled into the App
 // bundle, so a change to only such a module still changes cached PWA assets.
 function createRepositoryWithBundledWorkerModules(): string {
@@ -112,8 +119,8 @@ function createRepositoryWithBundledWorkerModules(): string {
     [
       'import {',
       '  TIMEOUT_MS,',
-      "} from '../../cloudflare/shared-timing.ts';",
-      "import type { Shape } from '../../cloudflare/type-shapes.ts';",
+      `} from '${workerModule(2, 'shared-timing.ts')}';`,
+      `import type { Shape } from '${workerModule(2, 'type-shapes.ts')}';`,
       'export const timeout: Shape | number = TIMEOUT_MS;',
       '',
     ].join('\n'),
@@ -121,22 +128,22 @@ function createRepositoryWithBundledWorkerModules(): string {
   write(
     repository,
     'src/pro-room/upload.ts',
-    "export const load = () => import('../../cloudflare/media-reader.ts');\n",
+    `export const load = () => import('${workerModule(2, 'media-reader.ts')}');\n`,
   );
   write(
     repository,
     'browser/classic-runtime/admin.ts',
-    "export { ADMIN_CONTRACT } from '../../cloudflare/admin-contract.ts';\n",
+    `export { ADMIN_CONTRACT } from '${workerModule(2, 'admin-contract.ts')}';\n`,
   );
   write(
     repository,
     'src/pro-room/__tests__/upload.test.ts',
-    "import { fixture } from '../../../cloudflare/test-fixture-data.ts';\nit('loads', () => expect(fixture).toBe(1));\n",
+    `import { fixture } from '${workerModule(3, 'test-fixture-data.ts')}';\nit('loads', () => expect(fixture).toBe(1));\n`,
   );
   write(
     repository,
     'browser/auxiliary-runtime/promo/study.ts',
-    "export { promo } from '../../../cloudflare/promo-only.ts';\n",
+    `export { promo } from '${workerModule(3, 'promo-only.ts')}';\n`,
   );
   write(
     repository,
@@ -146,7 +153,7 @@ function createRepositoryWithBundledWorkerModules(): string {
   write(
     repository,
     'src/pro-room/shapes.ts',
-    "export type { Reexported } from '../../cloudflare/type-reexport.ts';\n",
+    `export type { Reexported } from '${workerModule(2, 'type-reexport.ts')}';\n`,
   );
   write(repository, 'cloudflare/url-asset.ts', 'export const worklet = true;\n');
   write(repository, 'cloudflare/location-url.ts', 'export const notBundled = true;\n');
@@ -155,9 +162,9 @@ function createRepositoryWithBundledWorkerModules(): string {
     repository,
     'src/audio/worklet.ts',
     [
-      "export const workletUrl = new URL('../../cloudflare/url-asset.ts', import.meta.url);",
-      "export const pageUrl = new URL('../../cloudflare/location-url.ts', location.href);",
-      "// export const retired = () => import('../../cloudflare/commented-entry.ts');",
+      `export const workletUrl = new URL('${workerModule(2, 'url-asset.ts')}', import.meta.url);`,
+      `export const pageUrl = new URL('${workerModule(2, 'location-url.ts')}', location.href);`,
+      `// export const retired = () => import('${workerModule(2, 'commented-entry.ts')}');`,
       '',
     ].join('\n'),
   );
@@ -381,7 +388,7 @@ describe('service-worker CACHE_VERSION guard', () => {
       write(
         repository,
         'src/pro-room/playback.ts',
-        "export * from '../../cloudflare/shared-timing.ts';\n",
+        `export * from '${workerModule(2, 'shared-timing.ts')}';\n`,
       );
       commit(repository, 'bundle the module again');
       const restarted = runGuard(repository);

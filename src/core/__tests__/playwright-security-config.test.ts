@@ -79,6 +79,9 @@ describe('Playwright browser security profile', () => {
     expect(candidateSmoke).toContain(
       '/designsystem/fonts/PretendardVariable.woff2 due to access control checks.',
     );
+    expect(candidateSmoke).toContain(
+      '/api/app-build-floor/effective due to access control checks.',
+    );
     expect(pageErrors).not.toContain('access control checks');
   });
 

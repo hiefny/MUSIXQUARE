@@ -87,15 +87,17 @@ Not windows, unchanged: toasts, loaders, the session-reset screen, the iOS
 YouTube tap-to-play shield, the developer `/debug` overlays (Escape and tap
 still close them), playlist selection, and the setup steps themselves.
 
-Changed 2026-10-28 (owner decision, shipped in 9.0.20): Escape now does
+Changed 2026-10-28 (owner decision, planned for 9.0.20): Escape now does
 exactly what Back does on every window. One page-level listener in
 `ui/dom.ts` offers an Escape that no control used to the window Back would
 reach, through the same layers and handlers, so the window closes, steps
 back or stays exactly as on Back, wherever focus rests (also on the page
 body after a press on a backdrop). A common dialog therefore closes as
-`back` on Escape too (before, only a dialog with the `dismissible` option
-did, and that option is gone), the second page of a two-page dialog steps
-back first, and the audio recovery dialog and the forced update stay open.
+`back` on Escape too (before, Escape closed only a dialog with the
+`dismissible` option and a two-page dialog from either page, both with the
+result `escape`; the option is gone), the second page of a two-page dialog
+steps back first, and the audio recovery dialog and the forced update stay
+open.
 The connection recovery window and the demo now answer Escape as they
 answer Back. Unlike an unused Back, an unused Escape does not open the
 leave confirmation. The same train stopped backdrop presses from closing

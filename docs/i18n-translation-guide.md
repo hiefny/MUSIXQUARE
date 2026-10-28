@@ -120,7 +120,8 @@ is missing** — so a complete file must define every key.
       because a space already separates Thai sentences, and may keep the
       tip's words.
     - The `*_tip` phrase (rule 9) stays the hover hint.
-    - Other description keys follow the English source's punctuation.
+    - Other description keys follow the English source's punctuation, in
+      your locale's marks (Thai uses none).
     - A key name ending in `_desc` is not enough: `common.next_desc` is a
       button name (rule 9).
     - `src/i18n/__tests__/control-name-copy-policy.test.ts` checks both

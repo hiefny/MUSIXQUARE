@@ -83,7 +83,7 @@ replay. Only the incoming page fades (0.24 s, off under reduced motion).
   closes from either page with no change, as the language list closes on
   Escape. A pointer 다음 does not paint a keyboard ring on the checked row
   (the language list's rule for its first focus); the next key restores it.
-  Changed 2026-10-28 (owner decision, shipped in 9.0.20): Escape now does
+  Changed 2026-10-28 (owner decision, planned for 9.0.20): Escape now does
   what Back does, so on step 2 it returns to step 1 as 이전 does, and a
   second Escape closes with no change. The same day's exit rule puts a
   dialog's way out on the left; 이전 on step 2 is a named exception to it,

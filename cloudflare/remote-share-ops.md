@@ -378,7 +378,8 @@ Its authenticated host asks signaling for an upload assertion, and Remote Share
 accepts it for a whole-object session. The smoke waits up to two minutes for
 each Worker to answer with its expected version ID and fails otherwise. Without
 the two variables it checks no version at all, so always set them, as the
-release's strict smoke does. The smoke does not read signaling's `peer-open`
+release's strict smoke does for target `all` (a signaling-only release leaves the
+Remote Share variable empty). The smoke does not read signaling's `peer-open`
 markers: it passes on a signaling Worker that holds the assertion secret whether
 or not that Worker advertises them, and one without the secret fails on its own
 refusal of the assertion request.

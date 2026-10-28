@@ -4323,35 +4323,20 @@ describe('connect account nickname authority', () => {
 });
 
 describe('connect leave session request', () => {
-  // Owner policy (2026-10-28): a guest who cannot end the room's demo leaves
-  // through the demo's visible exit. The request opens the room's own Leave
-  // Session confirmation, Cancel on the left.
-  it('opens the Leave Session confirmation and leaves only on OK', async () => {
+  // Owner decision (2026-10-28): a guest who cannot end the room's demo
+  // leaves through one confirmation for the tour's visible exit, Escape and
+  // Back alike: the [Stay | Leave] one an unused Back opens (app.ts). The
+  // connect tab's own Leave Session confirmation stays on its own buttons.
+  it("leaves the demo's request to leave to the Back confirmation", async () => {
     setState('network.appRole', 'guest');
     setState('network.hostConn', makeConnection());
     initConnect();
 
-    mockedShowDialog.mockResolvedValueOnce({ action: 'secondary' });
     bus.emit('ui:request-leave-session');
-    await vi.waitFor(() => expect(mockedShowDialog).toHaveBeenCalledOnce());
-    const options = lastDialogOptions();
-    expect(options.title).toBe(t('dialog.return_home_title'));
-    expect(options.message).toBe(
-      `${t('dialog.return_home_msg')}
-${t('dialog.return_home_detail')}`,
-    );
-    expect(options.buttonText).toBe(t('common.ok'));
-    expect(options.secondaryText).toBe(t('common.cancel'));
     await Promise.resolve();
     await Promise.resolve();
-    expect(navigateHome).not.toHaveBeenCalled();
 
-    mockedShowDialog.mockResolvedValueOnce({ action: 'ok' });
-    bus.emit('ui:request-leave-session');
-    await vi.waitFor(() =>
-      expect(navigateHome).toHaveBeenCalledExactlyOnceWith(t('dialog.leaving_session'), {
-        history: 'replace',
-      }),
-    );
+    expect(mockedShowDialog).not.toHaveBeenCalled();
+    expect(navigateHome).not.toHaveBeenCalled();
   });
 });

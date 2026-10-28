@@ -237,13 +237,22 @@ describe('history Back on the demo', () => {
     expect(mocks.safeSend).toHaveBeenCalledWith(hostConn, { type: MSG.REQUEST_DEMO_EXIT });
   });
 
-  it('passes Back to the leave confirmation for a guest who cannot end it', () => {
+  // Owner decision (2026-10-28): Escape behaves exactly like Back, and the
+  // tour's visible exit, Escape and Back lead a guest who cannot end the
+  // room's demo to one leave confirmation, the [Stay | Leave] one Back opens.
+  // Back used to pass on to it unused, which Escape cannot do, so the demo
+  // now asks for it for all three.
+  it('asks to leave the room on Back for a guest who cannot end it, as its exit does', () => {
     joinAsGuest(['media.add', 'playback.control']);
+    const leave = vi.fn();
+    bus.on('ui:request-leave-session', leave);
 
-    expect(demoBack()).toBe(false);
+    expect(demoBack()).toBe(true);
 
+    expect(leave).toHaveBeenCalledOnce();
     expect(mocks.safeSend).not.toHaveBeenCalled();
     expect(mocks.showToast).not.toHaveBeenCalled();
+    expect(getState('demo.active')).toBe(true);
   });
 
   it('holds Back only while the exit curtain is still running', () => {
@@ -330,20 +339,23 @@ describe('history Back on the demo', () => {
     expect(mocks.safeSend).toHaveBeenCalledWith(hostConn, { type: MSG.REQUEST_DEMO_EXIT });
   });
 
-  it('leaves Escape unused for a guest who cannot end it, and for a hidden demo', () => {
+  it('asks to leave the room on Escape for a guest who cannot end it, as Back does', () => {
     joinAsGuest(['media.add', 'playback.control']);
+    const leave = vi.fn();
+    bus.on('ui:request-leave-session', leave);
     const overlay = document.getElementById('demo-overlay')!;
     overlay.classList.add('active');
 
-    // Escape reaches only the top window: unlike Back it never goes on to
-    // the leave confirmation.
-    expect(pressEscape().defaultPrevented).toBe(false);
+    expect(pressEscape().defaultPrevented).toBe(true);
+    expect(leave).toHaveBeenCalledOnce();
     expect(mocks.safeSend).not.toHaveBeenCalled();
     expect(mocks.showToast).not.toHaveBeenCalled();
 
+    // A hidden demo is no window: Escape reaches it no more than Back does.
     overlay.classList.remove('active');
     setState('network.standardRoomCapabilities', ['room.configure'] as never);
     expect(pressEscape().defaultPrevented).toBe(false);
+    expect(leave).toHaveBeenCalledOnce();
     expect(mocks.safeSend).not.toHaveBeenCalled();
   });
 

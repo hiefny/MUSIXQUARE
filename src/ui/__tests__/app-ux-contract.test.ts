@@ -156,6 +156,15 @@ describe('app UX markup contract', () => {
     expect(i18nIndex).toBeGreaterThan(restoreIndex);
   });
 
+  // Owner decision (2026-10-28): the demo tour's exits for a guest who cannot
+  // end it (its visible exit, Escape and Back) open the same [Stay | Leave]
+  // confirmation an unused Back opens, through the Back guard.
+  it('routes a request to leave the room to the Back guard confirmation', () => {
+    expect(appRuntimeSource).toContain(
+      "bus.on('ui:request-leave-session', controller.requestLeave);",
+    );
+  });
+
   it('lists the privacy policy before the terms in the login legal links, as Google does', () => {
     const links = [...appDocument.querySelectorAll<HTMLAnchorElement>('#account-legal-links a')];
     expect(links.map((link) => link.getAttribute('href'))).toEqual(['/privacy', '/terms']);

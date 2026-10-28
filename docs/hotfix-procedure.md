@@ -702,23 +702,29 @@ gh workflow run app-build-floor.yml --ref main -f action=lower -f min_app_build=
 - A Production Release with target `pro-room` or `all` checks the floor before it changes
   anything: its step "Check the App build floor the PRO Worker requires" runs after the
   partial-release dependency compatibility check and before the recovery checkpoint, so a stop
-  changes nothing and starts no recovery. `MXQR_PRO_ROOM_REQUIRED_APP_BUILD` on that step names
+  changes nothing and starts no recovery. The step checks the floor once, at that moment; nothing
+  later in the release checks it again. `MXQR_PRO_ROOM_REQUIRED_APP_BUILD` on that step names
   the App build that the PRO Worker on `main` requires of every client. The value lives in
   `.github/workflows/release.yml`, outside every runtime path list, so writing or clearing it never
   changes a release target; while it is empty the step only logs that nothing is required.
   Otherwise the release continues only when the public status shows both the stored and the
   effective floor at that build or above. The step reads an unreadable status again for 30
-  seconds, and while the effective floor is 0 (no App report for five minutes) it waits up to 3
-  minutes for a new App report; a status still unreadable or an effective floor still 0 then
-  stops the release. After such a stop, dispatch again once the status shows a fresh `reportedAt`
-  from the next App report (every minute). If the stopped App report or the unreadable status
-  needs a repair that ships with target `pro-room` or `all`, that repair pull request clears the
+  seconds. It waits only while the stored floor reaches the value but the effective floor is 0
+  (no App report for five minutes): then it waits up to 3 minutes for a new App report, and a
+  status still unreadable or an effective floor still 0 then stops the release. After such a
+  stop, dispatch again once the status shows a fresh `reportedAt` from the next App report
+  (every minute). If the stopped App report or the unreadable status needs a repair that ships
+  with target `pro-room` or `all`, that repair pull request clears the
   value (a lower value cannot pass while the effective floor is 0); once the status shows both
   floors at the required build again, a small tooling pull request writes it back while the PRO
   Worker still requires it. An `app` release does not run the step. A stored or a non-zero
   effective floor below the value does not pass by waiting: do not clear the value then unless
   the same pull request also ends the requirement; otherwise the PRO Worker ships with a
-  requirement that the floor does not enforce.
+  requirement that the floor does not enforce. A local emergency deployment of `pro-room` or
+  `all-workers` (`scripts/emergency-deploy.mts`) does not run this check. While the value in
+  `release.yml` is set, read the public App build floor status first
+  (`curl -s https://musixquare.com/api/app-build-floor`) and go ahead only when both
+  `minAppBuild` and `effectiveMinAppBuild` reach the value.
 - First floor (owner decision 2026-10-25): the App 9.0.14 release ships with the floor at 0 and
   `raise_app_build_floor` false. Once its smokes and public assets are verified, run `status`
   (the live App build is the released one and the App report is fresh), then `check` (the OIDC

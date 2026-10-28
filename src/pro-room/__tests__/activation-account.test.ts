@@ -63,7 +63,6 @@ describe('PRO activation account confirmation', () => {
         buttonText: 'pro.activation_account_continue',
         secondaryText: 'pro.activation_account_switch',
         actionLayout: 'stacked',
-        dismissible: true,
       }),
     );
     expect(mocks.login).not.toHaveBeenCalled();

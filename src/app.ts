@@ -486,8 +486,7 @@ function runAudioRecoveryRequest(request: AudioRecoveryRequest): Promise<boolean
     title: t('dialog.audio_recovery_title'),
     message: t('dialog.audio_recovery_message'),
     buttonText: t('dialog.audio_recovery_action'),
-    dismissible: false,
-    // Only this tap can restart the audio; Back keeps the dialog.
+    // Only this tap can restart the audio; Back and Escape keep the dialog.
     closeOnBack: false,
     defaultFocus: 'primary',
     signal: abortController.signal,
@@ -1087,7 +1086,6 @@ const runLazyFeatureRecovery = createReloadRecoveryLatch<LazyFeatureFailure>({
       title: t('dialog.feature_refresh_title'),
       message: t('dialog.feature_refresh_msg'),
       buttonText: t('common.refresh'),
-      dismissible: false,
       defaultFocus: 'primary',
     });
     return result.action === 'ok' ? 'accept' : 'decline';

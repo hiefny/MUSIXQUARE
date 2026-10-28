@@ -94,7 +94,6 @@ function showStandardRoomPinRemovalNotice(
     message: () =>
       t(enabled ? 'connect.pin_enabled_removed_message' : 'connect.pin_changed_removed_message'),
     buttonText: () => t('common.ok'),
-    dismissible: false,
   })
     .catch((e) => log.warn('[Setup] Room password removal dialog error:', e))
     .finally(() => {
@@ -784,7 +783,6 @@ export function initSetup(): void {
       title: t('connect.kicked_title'),
       message: t('connect.kicked_message'),
       buttonText: t('common.ok'),
-      dismissible: false,
     })
       .catch((e) => log.warn('[Setup] Kick dialog error:', e))
       .finally(() => {

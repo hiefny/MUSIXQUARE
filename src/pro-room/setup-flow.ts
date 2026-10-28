@@ -328,7 +328,6 @@ async function requestClaimAccountLogin(options: {
             : 'pro.claim_login_button',
       ),
       secondaryText: t('common.cancel'),
-      dismissible: false,
       defaultFocus: 'primary',
       onPrimaryActivation: () => {
         loginAttempt.current = requestAccountLoginPopup(popupOptions);
@@ -439,7 +438,6 @@ async function runClaimProtectedOperation<T>(
         message: t('pro.claim_retry_message'),
         buttonText: t('common.retry'),
         secondaryText: t('common.close'),
-        dismissible: false,
         defaultFocus: 'primary',
       });
       if (result.action === 'ok') continue;
@@ -758,7 +756,6 @@ export async function enterProRoomFromSetup(code: string): Promise<ProRoomSetupE
         message: t('pro.active_tab_message'),
         buttonText: t('pro.use_this_tab'),
         secondaryText: t('common.cancel'),
-        dismissible: false,
         defaultFocus: 'secondary',
       });
       if (result.action !== 'ok') return false;

@@ -62,7 +62,6 @@ export function showProRoomRemovalNotice(
     message: () =>
       t(reason === 'DEVICE_REMOVED' ? 'pro.device_removed_message' : 'pro.removed_message'),
     buttonText: () => t('common.ok'),
-    dismissible: false,
     ...(signal ? { signal } : {}),
   });
 }
@@ -86,7 +85,6 @@ export function showProRoomPinRemovalNotice(
           : 'pro.pin_changed_removed_message',
       ),
     buttonText: () => t('common.ok'),
-    dismissible: false,
     ...(signal ? { signal } : {}),
   });
 }

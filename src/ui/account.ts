@@ -1206,7 +1206,6 @@ async function runAccountNicknameChange(
         buttonText: () => t('common.ok'),
         secondaryText: () => (account?.profileComplete ? t('common.cancel') : t('common.later')),
         defaultFocus: 'primary',
-        dismissible: true,
         signal: intent.signal,
       });
       if (result.action !== 'ok' || !intent.isCurrent()) return 'cancelled';

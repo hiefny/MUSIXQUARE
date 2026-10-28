@@ -100,7 +100,6 @@ export async function confirmProRoomActivationAccount(): Promise<string | null> 
         buttonText: t(hasAccount ? 'pro.activation_account_continue' : 'pro.claim_login_button'),
         secondaryText: t(hasAccount ? 'pro.activation_account_switch' : 'common.cancel'),
         actionLayout: 'stacked',
-        dismissible: true,
         defaultFocus: 'primary',
         signal: intent?.signal,
         ...(hasAccount ? { onSecondaryActivation: openLogin } : { onPrimaryActivation: openLogin }),

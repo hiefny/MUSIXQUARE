@@ -2368,7 +2368,7 @@ describe('Chat Module', () => {
       document.getElementById('chat-pinned-notice-text')!.click();
       expect(show).toHaveBeenCalledOnce();
       expect(show).toHaveBeenCalledWith(
-        expect.objectContaining({ message: text, contentLayout: 'reading', dismissible: true }),
+        expect.objectContaining({ message: text, contentLayout: 'reading' }),
       );
       await Promise.resolve();
       await Promise.resolve();

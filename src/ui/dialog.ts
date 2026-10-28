@@ -31,14 +31,10 @@ interface DialogOptions {
   secondaryText?: DialogText;
   cancelText?: DialogText;
   /**
-   * No effect. Escape now follows history Back for every dialog, and an
-   * outside click or tap never closes one (owner policy, 2026-10-28).
-   */
-  dismissible?: boolean;
-  /**
    * History Back and Escape close the dialog as `back`, a cancel, by
    * default. Set false for a dialog whose primary tap is required; Back and
-   * Escape then leave it open.
+   * Escape then leave it open. An outside click or tap never closes a dialog
+   * (owner policy, 2026-10-28).
    */
   closeOnBack?: boolean;
   defaultFocus?: 'primary' | 'secondary';

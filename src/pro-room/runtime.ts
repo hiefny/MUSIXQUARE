@@ -1346,7 +1346,6 @@ function installMediaHooks(
                 ...(canRetry
                   ? { secondaryText: t('common.close'), defaultFocus: 'secondary' as const }
                   : {}),
-                dismissible: true,
                 contentLayout: 'reading',
               }),
             isCurrent: () =>

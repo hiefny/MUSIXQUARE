@@ -629,7 +629,6 @@ export function showPinnedNotice(): void {
     message: notice.text,
     buttonText: () => t('common.close'),
     contentLayout: 'reading',
-    dismissible: true,
     signal: controller.signal,
   })
     .catch((error) => log.warn('[Chat] Notice dialog failed:', error))

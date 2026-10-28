@@ -589,7 +589,6 @@ describe('Standard-room PIN removal and wrong-PIN limit', () => {
       const options = dialogOptions();
       expect(text(options.title)).toBe(title);
       expect(text(options.message)).toBe(message);
-      expect(options.dismissible).toBe(false);
       await flush();
       expect(scheduleSessionReset).toHaveBeenCalledOnce();
       expect(scheduleDocumentReload).not.toHaveBeenCalled();

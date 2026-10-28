@@ -70,7 +70,6 @@ interface OpenDialog {
   readonly later: boolean;
   /** `closeOnBack` as asked: false keeps the dialog open on history Back. */
   readonly closeOnBack: boolean | undefined;
-  readonly dismissible: boolean | undefined;
   /** How it closed: the answer, or 'superseded' when the machine withdrew it. */
   readonly outcome: string | undefined;
   /** 'fallback' is the dialog module's answer when its DOM is missing. */
@@ -90,7 +89,6 @@ const mocks = vi.hoisted(() => {
     message: string;
     later: boolean;
     closeOnBack: boolean | undefined;
-    dismissible: boolean | undefined;
     outcome: string | undefined;
     answer(action: string): void;
   }> = [];
@@ -112,7 +110,6 @@ const mocks = vi.hoisted(() => {
       message: string | (() => string);
       secondaryText?: string;
       closeOnBack?: boolean;
-      dismissible?: boolean;
       signal?: AbortSignal;
     }): Promise<{ action: string }> {
       return new Promise((resolve) => {
@@ -123,7 +120,6 @@ const mocks = vi.hoisted(() => {
           message,
           later: options.secondaryText !== undefined,
           closeOnBack: options.closeOnBack,
-          dismissible: options.dismissible,
           outcome: undefined as string | undefined,
           answer: (action: string): void => finish(action),
         };
@@ -2496,7 +2492,6 @@ describe('forced update on the real navigation owner (train 9.0.14)', () => {
     expect(port.isForcedAppUpdatePending()).toBe(true);
     expect(dialogLog()).toEqual([`doc1 forced ${MSG_APPLY}`]);
     expect(dialog(0)).toMatchObject({ later: false, closeOnBack: false });
-    expect(dialog(0).dismissible).not.toBe(true);
     // The startup offer of that worker waited for quiet loads; it yields.
     await at(2_000);
     expect(dialogLog()).toEqual([`doc1 forced ${MSG_APPLY}`]);

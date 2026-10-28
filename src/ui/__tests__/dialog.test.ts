@@ -529,7 +529,7 @@ describe('Dialog System', () => {
       await promise;
     });
 
-    it.each([{}, { dismissible: true }])(
+    it.each([{}, { closeOnBack: false }])(
       'never closes on a click or tap outside the panel (%o)',
       async (options) => {
         // Owner policy (2026-10-28): a modal never closes on an outside click
@@ -1630,7 +1630,7 @@ describe('history Back on dialogs', () => {
   it('closes a one-button notice as a cancel, as Escape does', async () => {
     const { offerBackToTopWindow } = await import('../dom.ts');
     const { showDialog } = await import('../dialog.ts');
-    const promise = showDialog({ title: 'Notice', message: 'Read me', dismissible: false });
+    const promise = showDialog({ title: 'Notice', message: 'Read me' });
     vi.advanceTimersByTime(10);
 
     expect(offerBackToTopWindow().handled).toBe(true);

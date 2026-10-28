@@ -543,7 +543,8 @@ release-record §2에 열려 있다.
   PRO 방 영수증 보관 시간을 줄이는 자기 열차를 내는 순서였다. 같은 날 오너 부재 중 UI 묶음이
   아직 다른 작업에서 구현 중이라 바로 배포 원칙(오너 결정 2026-10-25)에 따라 순서를 바꿨고,
   영수증 열차가 이 PR의 배포 기록 #507 뒤 2026-10-27 18:14 KST에 9.0.18 / v791(target `all`,
-  Release 40478660296)로 먼저 나갔다. UI 묶음은 9.0.19 / v792로 뒤따르고, Phase 5.5(구버전
+  Release 40478660296)로 먼저 나갔다. UI 묶음은 2026-10-28 19:19 KST에 9.0.19 / v792(target `app`,
+  Release 40670881163)로 뒤따랐고, Phase 5.5(구버전
   제거 열차 3과 PRO 스냅샷 v2)는 그 뒤 오너 승인을 기다린다(릴리스 기록 §2).
 - **signaling 재배포의 재연결.** signaling 동작은 그대로지만, signaling Worker를 배포하면
   Durable Object가 다시 시작해 모든 Standard 방의 소켓이 다시 연결된다(hotfix 절차의 App
@@ -581,8 +582,8 @@ release-record §2에 열려 있다.
   facade 시간 초과로 보이고, 아직 열린 9.0.17 탭은 같은 키 재시도로, 9.0.16 탭은 파일 전체를
   다시 올려 회복하며, 남은 예약과 asset은 기존 서버 고아 정리가 치운다. ready 미디어는 바뀌지
   않는다. 되돌리는 릴리스는 hotfix 절차대로 운영보다 높은 번호를 쓴다. 9.0.18 / v791은 영수증
-  보관 시간 열차가 썼고(2026-10-27 18:14 KST 배포), UI 묶음이 9.0.19 / v792를 쓰므로 9.0.20 /
-  v793 이상이다(그 전에 다른 앱 업데이트가 나가면 그다음 번호).
+  보관 시간 열차가 썼고(2026-10-27 18:14 KST 배포), UI 묶음이 9.0.19 / v792로 나갔으므로(2026-10-28
+  19:19 KST) 9.0.20 / v793 이상이다(그 전에 다른 앱 업데이트가 나가면 그다음 번호).
 - Browser retry continuation is session-local, not a persistent resumable
   upload protocol. Closing/reloading the document discards it.
 - Developer API completion still copies; this PR addresses the reported
@@ -709,5 +710,5 @@ audio or mobile soak run.
   보관 시간을 줄이기로 정했고('보관 시간 줄이기'), 그 일은 Phase 5.5 전의 자기 열차로 했다.
   오너는 그 열차를 UI 묶음 다음에 두었으나, 같은 날 오너 부재 중 UI 묶음이 아직 구현 중이라 바로
   배포 원칙(2026-10-25)에 따라 먼저 냈다. 그 열차는 2026-10-27 18:14 KST에 9.0.18 / v791(target
-  `all`, Release 40478660296)로 나갔고, UI 묶음은 9.0.19 / v792로 뒤따른다. 운영 방의 첫 prune
+  `all`, Release 40478660296)로 나갔고, UI 묶음은 2026-10-28 19:19 KST에 9.0.19 / v792로 뒤따랐다. 운영 방의 첫 prune
   같은 배포 뒤 확인과 남은 오너 결정이 있어 그 항목은 열려 있다(릴리스 기록 §2).

@@ -122,18 +122,25 @@ runbooks. Neither belongs in a general setup document.
   lose hover looks only, known risk #20); a shorter playlist minus at the chevron weight; one
   control-hint owner with reasons as descriptions; a fixed minus name and a status cell for the
   selection count; noun-form names and hints in 42 locales with a locale review; the English
-  `YouTube Video` kept; and the removal of an unreachable red "Disconnected" badge. Branch
-  `agent/ui-bundle` (last code commit `af713563`) merged main at 9.0.18 / v791 (`6a23c46e`); its
-  last runtime commit is the bump `c2ef3d97` to 9.0.19 / v792 (App build 792), target `app` (App 84
-  runtime paths against production, every other Worker 0, with the update dialog), not merged or
-  released. The report lists each increment (U1 to U16, the locale review and the release-prep
+  `YouTube Video` kept; and the removal of an unreachable red "Disconnected" badge. PR #510
+  (9.0.19 / v792 from bump `c2ef3d97`, App build 792, last code commit `af713563`, released
+  2026-10-28 19:19 KST in Release 40670881163 from main `1a99fe49`, target `app` because only the
+  App has runtime path changes against production, 84 paths, so the other five Workers keep their
+  9.0.18 versions, with the update dialog) merged main at 9.0.18 / v791 (`6a23c46e`) in
+  `2eaaf4c5`. The report lists each increment (U1 to U16, the locale review and the release-prep
   bump) with its commits, tests-first evidence and tested SHA, the U14 role table, the
   measurements against 9.0.18 (26,628 real-app cases, the two-button stack counts, the preview
   comparison), the guards added, the review findings and their handling, visible changes, owner
-  decisions left open, QA rounds 1 to 13 (round 13, after the second PR CI failed on Linux font hinting and U16 rebuilt
+  decisions left open, QA rounds 1 to 14 (round 13, after the second PR CI failed on Linux font hinting and U16 rebuilt
   the chain on U15 and re-applied the bump, reproduces the CI failure with a local Linux font
-  emulation, measures 0 media labels worse than 9.0.18 at every CI size, and passes the full `build:checked`, unit 16,372, the candidate E2E (19), the critical E2E (94, with the narrow-slot probe at 19 sizes) and four touched or related E2E files (61)), what was not verified (real devices, WebKit, screen readers) and the owner device
-  check list.
+  emulation, measures 0 media labels worse than 9.0.18 at every CI size, and passes the full `build:checked`, unit 16,372, the candidate E2E (19), the critical E2E (94, with the narrow-slot probe at 19 sizes) and four touched or related E2E files (61); round 14
+  is the PR CI, automated review, exact-main CI, release and public-check round: the final PR CI
+  and the exact-main CI pass the critical browser gate on Linux, so the U16 fix holds there; the
+  automated review ran only on the first head `1524c1d4`, not on U12 to U16; the App-only deploy
+  with the five other Workers left at 9.0.18, the smokes with the strict page floor read of 787
+  and build-792 Standard signaling admission, no pre-deploy floor `status`, the public floor at
+  787 with live App 792, and the Drift Audit), what was not verified (real devices,
+  WebKit, screen readers, the production update dialog) and the owner device check list.
 - [PRO room receipt retention (2026-10-27)](design/pro-receipt-retention-2026-10-27.md):
   the PRO room's shared browser receipt ledger (256 receipts) keeps each receipt only as long as
   the App can send its request again (owner decision 2026-10-27, RO-53): two minutes for edits,
@@ -153,7 +160,7 @@ runbooks. Neither belongs in a general setup document.
   redeployed, with the update dialog) merged main up to the 9.0.17 record `809c9466` (#507) in
   `d572aef1`. It shipped first (a same-day order change made while the owner was away, under the
   deploy-when-ready rule, because the UI bundle was still in progress; the owner had placed it
-  after the UI bundle), and the UI bundle follows as 9.0.19 / v792. The report lists each scope's
+  after the UI bundle), and the UI bundle followed as 9.0.19 / v792 on 2026-10-28. The report lists each scope's
   old and new window, the review adjustments, rollback and its one-off check, what stays as is,
   the tests-first evidence (12 Worker and 9 client tests failing on `53a66d65`; the BOT one pins
   new behaviour rather than an old defect) and QA rounds 1 to 7 with their tested SHAs and limits

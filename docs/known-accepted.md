@@ -321,7 +321,7 @@ a seek, or repeated denials, after a revoke.
 
 ### 20. Chromium 79 TVs Show No Hover Effects
 
-Accepted on 2026-10-27 by the owner (UI bundle train, planned 9.0.19 / v792). Every `:hover` rule
+Accepted on 2026-10-27 by the owner (UI bundle train, released 2026-10-28 as 9.0.19 / v792). Every `:hover` rule
 sits under the `:where(html[data-hover-pointer])` gate that `src/ui/hover-pointer.ts` owns, so the
 laptop and studio postures of a convertible hover alike. Chromium 79, the engine of 2021 LG webOS
 TVs with a pointer remote, cannot parse `:where()` and drops each gated rule whole, so those TVs

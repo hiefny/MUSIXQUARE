@@ -475,13 +475,23 @@ describe('onboarding diagnostics overlay', () => {
       (button) => button.textContent === 'CLOSE',
     ) as HTMLButtonElement;
 
+    // Owner decision (2026-10-28): the exit comes first, on the left, then
+    // the actions: CLOSE, COPY, REFRESH. CLOSE keeps the first focus.
+    const refreshButton = Array.from(overlay?.querySelectorAll('button') || []).find(
+      (button) => button.textContent === 'REFRESH',
+    ) as HTMLButtonElement;
+    expect(
+      Array.from(overlay?.querySelectorAll('.onboarding-diagnostics-actions > button') || []).map(
+        (button) => button.textContent,
+      ),
+    ).toEqual(['CLOSE', 'COPY', 'REFRESH']);
     expect(backgroundButton.inert).toBe(true);
     expect(document.activeElement).toBe(closeButton);
-    document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Tab', bubbles: true }));
-    expect(document.activeElement).toBe(copyButton);
     document.dispatchEvent(
       new KeyboardEvent('keydown', { key: 'Tab', shiftKey: true, bubbles: true }),
     );
+    expect(document.activeElement).toBe(refreshButton);
+    document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Tab', bubbles: true }));
     expect(document.activeElement).toBe(closeButton);
 
     expect(() => copyButton.click()).not.toThrow();

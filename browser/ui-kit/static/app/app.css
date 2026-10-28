@@ -60,7 +60,7 @@
   cursor: pointer;
   font: inherit;
   font-size: 11px;
-  font-weight: 700;
+  font-weight: var(--font-weight-label, 600);
 }
 
 .mq-nav {
@@ -96,7 +96,7 @@
   cursor: pointer;
   font: inherit;
   font-size: 10px;
-  font-weight: 500;
+  font-weight: var(--font-weight-unselected, 500);
 }
 
 .mq-nav .tab svg {
@@ -109,6 +109,7 @@
 .mq-nav .tab.active,
 .mq-nav .tab.active span {
   color: var(--primary);
+  font-weight: var(--font-weight-selected, 700);
 }
 
 .mq-nav .tab:active svg {
@@ -136,7 +137,7 @@
 .mq-title {
   margin: 18px 0 8px;
   font-size: 28px;
-  font-weight: 700;
+  font-weight: var(--font-weight-title, 700);
   letter-spacing: -0.03em;
 }
 
@@ -185,7 +186,7 @@
   cursor: pointer;
   font: inherit;
   font-size: var(--button-label-size, 15px);
-  font-weight: var(--button-label-weight, 600);
+  font-weight: var(--font-weight-label, 600);
   line-height: var(--button-label-line-height, 1.25);
   letter-spacing: var(--button-label-letter-spacing, normal);
   transition:
@@ -226,7 +227,7 @@
 .mq-card-hdr h3 {
   margin: 0;
   font-size: 15px;
-  font-weight: 700;
+  font-weight: var(--font-weight-title, 700);
 }
 
 .mq-badge {
@@ -235,7 +236,7 @@
   background: var(--surface-2);
   color: var(--text-sub);
   font-size: 10px;
-  font-weight: 700;
+  font-weight: var(--font-weight-label, 600);
   letter-spacing: 0.08em;
 }
 
@@ -331,7 +332,7 @@
 .mq-track .title {
   margin: 0;
   font-size: 20px;
-  font-weight: 700;
+  font-weight: var(--font-weight-title, 700);
   letter-spacing: -0.5px;
 }
 
@@ -339,7 +340,7 @@
   margin-top: 2px;
   color: var(--text-sub);
   font-size: 13px;
-  font-weight: 500;
+  font-weight: var(--font-weight-body, 400);
 }
 
 .mq-seek {
@@ -368,7 +369,7 @@
   color: var(--text-sub);
   font-size: 11px;
   font-variant-numeric: tabular-nums;
-  font-weight: 600;
+  font-weight: var(--font-weight-body, 400);
 }
 
 .mq-list {
@@ -429,7 +430,7 @@
   width: 40px;
   color: var(--text-muted);
   font-size: 14px;
-  font-weight: 600;
+  font-weight: var(--font-weight-unselected, 500);
   text-align: center;
 }
 
@@ -472,7 +473,7 @@
   padding: 0;
   color: var(--text-main);
   font-size: 15px;
-  font-weight: 500;
+  font-weight: var(--font-weight-unselected, 500);
   text-align: left;
 }
 
@@ -522,8 +523,9 @@
   color: var(--primary);
 }
 
+.mq-list .row.active .mq-track-leading .idx,
 .mq-list .row.active .mq-track-name {
-  font-weight: 700;
+  font-weight: var(--font-weight-selected, 700);
 }
 
 .mq-setting-section {
@@ -552,7 +554,7 @@
   margin: 0;
   color: var(--text-main);
   font-size: 18px;
-  font-weight: 700;
+  font-weight: var(--font-weight-title, 700);
   letter-spacing: -0.5px;
 }
 
@@ -585,7 +587,7 @@
   cursor: pointer;
   font: inherit;
   font-size: var(--button-label-chip-size, 14px);
-  font-weight: var(--button-label-weight, 600);
+  font-weight: var(--font-weight-unselected, 500);
   line-height: var(--button-label-line-height, 1.25);
   letter-spacing: var(--button-label-letter-spacing, normal);
   transition: all 0.3s var(--ease-out);
@@ -607,6 +609,7 @@ svg.stroke-icon {
   border-color: transparent;
   background: var(--control-active, rgba(var(--primary-rgb), 0.13));
   color: var(--primary);
+  font-weight: var(--font-weight-selected, 700);
 }
 
 .mq-leave-section {
@@ -630,7 +633,7 @@ svg.stroke-icon {
   cursor: pointer;
   font: inherit;
   font-size: var(--button-label-size, 15px);
-  font-weight: var(--button-label-weight, 600);
+  font-weight: var(--font-weight-label, 600);
   line-height: var(--button-label-line-height, 1.25);
   letter-spacing: var(--button-label-letter-spacing, normal);
   transition:
@@ -684,7 +687,7 @@ svg.stroke-icon {
 .mq-start .tagline {
   color: var(--text-sub);
   font-size: 16px;
-  font-weight: 500;
+  font-weight: var(--font-weight-body, 400);
   line-height: 1.5;
 }
 
@@ -705,7 +708,7 @@ svg.stroke-icon {
   cursor: pointer;
   font: inherit;
   font-size: 13px;
-  font-weight: 600;
+  font-weight: var(--font-weight-label, 600);
 }
 
 .mq-role-hero {
@@ -758,14 +761,18 @@ svg.stroke-icon {
 
 .mq-role .label {
   font-size: var(--button-label-chip-size, 14px);
-  font-weight: var(--button-label-weight, 600);
+  font-weight: var(--font-weight-unselected, 500);
   line-height: var(--button-label-line-height, 1.25);
   letter-spacing: var(--button-label-letter-spacing, normal);
 }
 
+.mq-role.active .label {
+  font-weight: var(--font-weight-selected, 700);
+}
+
 .mq-role .hint {
   font-size: 11px;
-  font-weight: 500;
+  font-weight: var(--font-weight-body, 400);
   opacity: 0.85;
 }
 
@@ -780,7 +787,7 @@ svg.stroke-icon {
 .mq-invite .lbl {
   color: var(--text-sub);
   font-size: 9px;
-  font-weight: 700;
+  font-weight: var(--font-weight-label, 600);
   letter-spacing: 0.14em;
   text-transform: uppercase;
 }
@@ -788,7 +795,7 @@ svg.stroke-icon {
 .mq-invite .code {
   font-size: 52px;
   font-variant-numeric: tabular-nums;
-  font-weight: 700;
+  font-weight: var(--font-weight-title, 700);
   letter-spacing: 0.12em;
 }
 
@@ -811,7 +818,7 @@ svg.stroke-icon {
 .mq-device .nm {
   flex: 1;
   font-size: 14px;
-  font-weight: 600;
+  font-weight: var(--font-weight-unselected, 500);
 }
 
 .mq-device .role {
@@ -820,7 +827,7 @@ svg.stroke-icon {
   background: var(--surface-2);
   color: var(--text-sub);
   font-size: 10px;
-  font-weight: 700;
+  font-weight: var(--font-weight-label, 600);
   letter-spacing: 0.08em;
 }
 
@@ -842,7 +849,7 @@ svg.stroke-icon {
   background: var(--surface-1);
   color: var(--text-main);
   font-size: 14px;
-  font-weight: 600;
+  font-weight: var(--font-weight-body, 400);
 }
 
 @keyframes mq-toast-in {

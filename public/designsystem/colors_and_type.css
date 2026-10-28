@@ -115,12 +115,22 @@
     var(--font-primary), 'Noto Sans', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto,
     sans-serif;
   --font-sans: var(--font-sans-ko);
-  --font-weight-display: 700;
-  /* Button label roles; labels in one role differ only by color. Every role
-     shares the weight and tracking. CTA: every action button. Chip: choice
-     chips. Tab: section tabs and segments. */
+  /* Weight roles; text takes one of five weights and never goes above 700.
+     Title: headings and display values. Selected / unselected: the one
+     selected, current or playing item of a list or group, and every other
+     item. Label: names on controls and markers. Body: sentences and
+     auxiliary text. */
+  --font-weight-title: 700;
+  --font-weight-selected: 700;
+  --font-weight-unselected: 500;
+  --font-weight-label: 600;
+  --font-weight-body: 400;
+  /* Button label roles; labels in one role differ only by color. CTA (every
+     action button) 15px, chip (choice chips) 14px, tab (section tabs and
+     segments) 13px. Action buttons take the label weight in every size
+     slot; choice chips and section tabs are selection groups and take the
+     selected and unselected weights. Every role shares the tracking. */
   --button-label-size: 15px;
-  --button-label-weight: 600;
   --button-label-line-height: 1.25;
   --button-label-letter-spacing: normal;
   --button-label-chip-size: 14px;
@@ -352,14 +362,14 @@ body {
 .tab-title,
 .type-display {
   font-size: var(--fs-28);
-  font-weight: var(--font-weight-display);
+  font-weight: var(--font-weight-title);
   color: var(--text-main);
   letter-spacing: var(--ls-tight);
 }
 
 .type-h2 {
   font-size: var(--fs-24);
-  font-weight: var(--font-weight-display);
+  font-weight: var(--font-weight-title);
   color: var(--text-main);
   letter-spacing: var(--ls-tight);
 }
@@ -374,13 +384,13 @@ body {
 
 .type-body {
   font-size: var(--fs-16);
-  font-weight: var(--fw-medium);
+  font-weight: var(--fw-regular);
   color: var(--text-main);
 }
 
 .type-body-sub {
   font-size: var(--fs-15);
-  font-weight: var(--fw-medium);
+  font-weight: var(--fw-regular);
   color: var(--text-sub);
 }
 
@@ -392,7 +402,7 @@ body {
 
 .btn-label {
   font-size: var(--button-label-size);
-  font-weight: var(--button-label-weight);
+  font-weight: var(--font-weight-label);
   line-height: var(--button-label-line-height);
   letter-spacing: var(--button-label-letter-spacing);
   color: var(--text-main);
@@ -400,20 +410,20 @@ body {
 
 .type-caption {
   font-size: var(--fs-12);
-  font-weight: var(--fw-semibold);
+  font-weight: var(--fw-regular);
   color: var(--text-sub);
   font-variant-numeric: tabular-nums;
 }
 
 .type-badge {
   font-size: var(--fs-11);
-  font-weight: var(--fw-bold);
+  font-weight: var(--fw-semibold);
   color: var(--text-sub);
 }
 
 .type-micro {
   font-size: var(--fs-9);
-  font-weight: var(--fw-bold);
+  font-weight: var(--fw-semibold);
   color: var(--text-sub);
   letter-spacing: var(--ls-wide);
   text-transform: uppercase;
@@ -421,7 +431,7 @@ body {
 
 .type-code {
   font-size: var(--fs-16);
-  font-weight: var(--font-weight-display);
+  font-weight: var(--font-weight-title);
   font-variant-numeric: tabular-nums;
   letter-spacing: var(--ls-wide);
 }

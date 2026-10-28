@@ -118,12 +118,13 @@ Pretendard lacks coverage.
   the desktop settings section tabs, the bottom navigation labels and the
   language, playlist slot and transfer lists. Label 600
   (`--font-weight-label`): names on controls and markers, such as action
-  button labels, badges, small meta labels and form field labels, and the
+  button labels, badges, small meta labels and form field labels, the
   header loading status, which takes the logo's place beside the account
-  pill while media loads (owner decision 2026-10-29). Body 400
-  (`--font-weight-body`): sentences and auxiliary text, such as
-  descriptions, dialog body text, hints, toasts, chat messages, the small
-  line under a name, timestamps, counters, input text and placeholders.
+  pill while media loads, and toast text, which keeps its 9.0.19 weight
+  (owner decisions 2026-10-29). Body 400 (`--font-weight-body`): sentences
+  and auxiliary text, such as descriptions, dialog body text, hints, chat
+  messages, the small line under a name, timestamps, counters, input text
+  and placeholders.
   Each rule reads its role's token itself.
 - Titles and display values track by script (owner decision 2026-10-28).
   Every rule on the title weight reads `--title-letter-spacing`: -0.02em in

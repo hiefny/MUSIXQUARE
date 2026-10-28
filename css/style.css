@@ -115,9 +115,10 @@ or pointers. Keep :focus-visible and :active outside the gate (src/ui/__tests__/
          item and every other item (track and device rows, choice chips,
          section tabs, the bottom navigation, the language list).
        - Label: names on controls and markers (action button labels,
-         badges, small meta labels, form field labels).
-       - Body: sentences and auxiliary text (descriptions, hints, toasts,
-         chat messages, the line under a name, timestamps, counters, input
+         badges, small meta labels, form field labels), and toast text,
+         which keeps its 9.0.19 weight (owner decision 2026-10-29).
+       - Body: sentences and auxiliary text (descriptions, hints, chat
+         messages, the line under a name, timestamps, counters, input
          text). */
     --font-weight-title: 700;
     --font-weight-selected: 700;
@@ -4982,7 +4983,7 @@ or pointers. Keep :focus-visible and :active outside the gate (src/ui/__tests__/
     padding: 14px 28px;
     border-radius: 100px;
     font-size: 14px;
-    font-weight: var(--font-weight-body);
+    font-weight: var(--font-weight-label);
     line-height: 1.45;
     max-width: min(calc(100vw - 48px), 560px);
     text-align: center;

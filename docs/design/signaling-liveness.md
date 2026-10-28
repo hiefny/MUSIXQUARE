@@ -7,7 +7,8 @@
 - **Amended:** 2026-10-25, the link-liveness owner of established RTC recovery (Phase 4),
   including the isolated control side route's outage deadline (Phase 4 C5-9, train 4D);
   2026-10-26, the host probe and the ICE restart binding no longer read Worker or peer
-  markers (old-version removal train 2)
+  markers (old-version removal train 2); 2026-10-29, the initial SDP exchange and the restart
+  answer no longer carry `iceRestartVersion` (old-version removal train 3)
 
 ## Problem
 
@@ -107,13 +108,14 @@ The browser reports the signaling interruption with its role and surviving chann
 the provider separately records socket close and host liveness-probe failures. These records
 locate the failed layer without claiming a network or server root cause from a warning alone.
 
-Standard clients mark the initial SDP exchange with `iceRestartVersion: 1`. Since old-version
-removal train 2 (App build floor 787, 2026-10-26) neither end reads that mark on the first offer
-or answer: every Standard end since 8.6.39 can restart, and the floor admits none older. The
-restart offer still carries the mark with `restartOf`, which the host and the signaling Worker
-require. A guest can restart ICE on the existing peer connection,
-including after a host network change, using `restartOf` to bind the offer to that exact
-initial negotiation. The host's authenticated signaling route, member identity, departure
+Since old-version removal train 2 (App build floor 787, 2026-10-26) neither end reads an
+`iceRestartVersion: 1` mark on the first offer or answer: every Standard end since 8.6.39 can
+restart, and the floor admits none older. Since train 3 (App build floor 789) a Standard client
+marks neither the first offer nor any answer; an end before train 3 still marks them, and the
+signaling Worker relays both forms. The restart offer still carries the mark with `restartOf`,
+which the host and the signaling Worker require. A guest can restart ICE on the existing peer
+connection, including after a host network change, using `restartOf` to bind the offer to that
+exact initial negotiation. The host's authenticated signaling route, member identity, departure
 sequence, and live connection ownership remain mandatory. Recovery does not rejoin the room,
 replace its data channels, or bypass access checks. PRO retains its existing recovery path.
 

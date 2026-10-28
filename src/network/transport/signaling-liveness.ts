@@ -19,11 +19,11 @@ let nextMonitorId = 0;
  * Host-only application liveness for one exact signaling WebSocket generation.
  *
  * The transport starts this monitor for every admitted Standard-room host
- * WebSocket, whether or not the Worker's peer-open advertises protocol version
- * 1: every signaling Worker answers the fixed ping (old-version removal train
- * 2). The HTTP bridge and PRO rooms never run it. Normal server traffic
- * postpones the probe. A missing pong retires only the signaling socket;
- * existing WebRTC data channels and media continue while peer.ts reconnects.
+ * WebSocket without reading a peer-open marker: every signaling Worker answers
+ * the fixed ping (old-version removal train 2). The HTTP bridge and PRO rooms
+ * never run it. Normal server traffic postpones the probe. A missing pong
+ * retires only the signaling socket; existing WebRTC data channels and media
+ * continue while peer.ts reconnects.
  */
 export class SignalingSocketLivenessMonitor {
   private readonly monitorId = ++nextMonitorId;

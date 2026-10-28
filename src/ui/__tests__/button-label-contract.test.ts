@@ -170,6 +170,9 @@ const NOT_ROLE_BUTTONS: Readonly<Record<string, string>> = {
   'ob-dot': 'Carousel page dot.',
   'ob-nav-arrow': 'Icon-only carousel arrow.',
   'account-google-button': 'Google sign-in button, drawn to the Google brand specification.',
+  'dialog-link-action':
+    "Small text link under a dialog's button pair, like the language dialog's translate " +
+    'link (owner decision 2026-10-28).',
 };
 
 // Buttons that TypeScript creates without a class and styles inline.

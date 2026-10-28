@@ -6153,6 +6153,40 @@ or pointers. Keep :focus-visible and :active outside the gate (src/ui/__tests__/
     flex: 0 0 auto;
   }
 
+  /* A small text action under the [exit | primary] pair, like the language
+     dialog's translate link (owner decision 2026-10-28): the PRO account
+     choice's "another account". Its text sits 16px under the pair and keeps
+     the dialog's 30px bottom inset, which moves here from the action row;
+     the padding makes a 30px tap target around the 12px text. */
+  #dialog-overlay.dialog-with-link .dialog-actions {
+    padding-bottom: 0;
+  }
+
+  .dialog-link-action {
+    align-self: center;
+    max-width: calc(100% - 48px);
+    margin: 10px 24px 24px;
+    padding: 6px 8px;
+    border: none;
+    border-radius: var(--radius-s);
+    background: none;
+    color: var(--text-muted);
+    font-size: 12px;
+    line-height: 1.5;
+    text-decoration: underline;
+    text-underline-offset: 3px;
+    cursor: pointer;
+  }
+
+  .dialog-link-action[hidden] {
+    display: none;
+  }
+
+  .dialog-link-action:focus-visible {
+    outline: 2px solid var(--primary);
+    outline-offset: 2px;
+  }
+
   /* The dialog owns its 30px bottom inset like every other dialog, so the
      buttons keep it whether or not a footer line (translate link, storage
      usage) follows them. */

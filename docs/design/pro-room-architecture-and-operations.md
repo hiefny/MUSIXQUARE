@@ -234,8 +234,10 @@ matched provider data/code checkpoint.
   before this confirmation, without another Google sign-in or an invented name.
   If the same session already has a nickname prompt open, the claim flow awaits
   that prompt's result; deferring it also stops activation.
-  The two full-width actions are stacked, with registration above account
-  switching (English: `Register` / `Another account`). Account confirmation
+  Since 2026-10-28 (owner decision) a signed-in user sees Cancel on the left
+  of registration (English: `Cancel` / `Register`), with account switching
+  (`Another account`) as a small text link under the pair; without an account
+  the pair is `Cancel` / `Sign in`. Account confirmation
   submits activation without a PIN step; the new room starts without an entry
   password. An owner can require a manually chosen eight-digit password later
   in room settings.

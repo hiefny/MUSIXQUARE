@@ -46,6 +46,15 @@ interface DialogOptions {
   onPrimaryActivation?: () => void;
   /** Runs synchronously inside the secondary click/Enter gesture. */
   onSecondaryActivation?: () => void;
+  /**
+   * A small text action under the [exit | primary] pair, like the language
+   * dialog's translate link (owner decision 2026-10-28), for a dialog whose
+   * exit and primary leave one more action. It resolves `link`. Not shown
+   * with `choiceStep`.
+   */
+  linkText?: DialogText;
+  /** Runs synchronously inside the link's click/Enter gesture. */
+  onLinkActivation?: () => void;
   /** Cancels a queued or active dialog without disturbing another dialog. */
   signal?: AbortSignal;
   /**
@@ -349,6 +358,7 @@ function _openDialog(opts: DialogOptions | string, resolve: (result: DialogResul
   const msgEl = document.getElementById('dialog-message');
   const okBtn = document.getElementById('btn-dialog-ok') as HTMLButtonElement | null;
   const secondaryBtn = document.getElementById('btn-dialog-secondary') as HTMLButtonElement | null;
+  const linkBtn = document.getElementById('btn-dialog-link') as HTMLButtonElement | null;
 
   if (!overlay || !titleEl || !msgEl || !okBtn) {
     showToast(typeof opts === 'string' ? opts : dialogText(opts?.message) || t('common.info'));
@@ -564,6 +574,13 @@ function _openDialog(opts: DialogOptions | string, resolve: (result: DialogResul
     }
   }
 
+  const linkText = choice ? '' : dialogText(o.linkText).trim();
+  const hasLink = !!linkText && !!linkBtn;
+  if (linkBtn) {
+    linkBtn.hidden = !hasLink;
+    linkBtn.textContent = linkText;
+  }
+
   const prevFocus = document.activeElement;
 
   overlay.classList.add('show');
@@ -585,6 +602,14 @@ function _openDialog(opts: DialogOptions | string, resolve: (result: DialogResul
       overlay.classList.remove('dialog-reading');
       msgEl.removeAttribute('dir');
       msgEl.removeAttribute('tabindex');
+    });
+  }
+  if (hasLink && linkBtn) {
+    // The link takes the dialog's bottom inset from the action row.
+    overlay.classList.add('dialog-with-link');
+    cleanup.push(() => {
+      overlay.classList.remove('dialog-with-link');
+      linkBtn.hidden = true;
     });
   }
   const stackedActions = o.actionLayout === 'stacked';
@@ -681,6 +706,7 @@ function _openDialog(opts: DialogOptions | string, resolve: (result: DialogResul
       secondaryBtn.hidden = !currentSecondary;
       if (currentSecondary) secondaryBtn.textContent = currentSecondary;
     }
+    if (hasLink && linkBtn) linkBtn.textContent = dialogText(o.linkText).trim() || linkText;
   };
 
   const refreshCopy = () => {
@@ -856,6 +882,14 @@ function _openDialog(opts: DialogOptions | string, resolve: (result: DialogResul
     }
     done('secondary');
   };
+  const activateLink = () => {
+    try {
+      o.onLinkActivation?.();
+    } catch (error) {
+      log.debug('[Dialog] Link activation hook failed:', error);
+    }
+    done('link');
+  };
 
   // History Back is a cancel, never a button: no activation hook runs, and
   // callers see `back`. The choice page steps back to the first page first.
@@ -885,6 +919,7 @@ function _openDialog(opts: DialogOptions | string, resolve: (result: DialogResul
   if ((hasSecondary || choice) && secondaryBtn) {
     on(secondaryBtn, 'click', activateSecondary);
   }
+  if (hasLink && linkBtn) on(linkBtn, 'click', activateLink);
 
   // Enter key on input confirms dialog (with validation)
   if (_dialogInput) {
@@ -936,6 +971,9 @@ function _openDialog(opts: DialogOptions | string, resolve: (result: DialogResul
       ) {
         ke.preventDefault();
         activateSecondary();
+      } else if (hasLink && focused === linkBtn) {
+        ke.preventDefault();
+        activateLink();
       }
       return;
     }
@@ -943,6 +981,7 @@ function _openDialog(opts: DialogOptions | string, resolve: (result: DialogResul
     if (ke.key === 'Tab') {
       const secondary = secondaryShown() ? secondaryBtn : null;
       const actionButtons = stackedActions ? [okBtn, secondary] : [secondary, okBtn];
+      if (hasLink) actionButtons.push(linkBtn);
       const pageTarget =
         choicePageShown && choice
           ? choice.focusTarget()

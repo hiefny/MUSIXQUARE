@@ -1712,7 +1712,6 @@ describe('history Back on dialogs', () => {
 
 describe('link action under the pair', () => {
   const overlay = () => document.getElementById('dialog-overlay')!;
-  const ok = () => document.getElementById('btn-dialog-ok') as HTMLButtonElement;
   const secondary = () => document.getElementById('btn-dialog-secondary') as HTMLButtonElement;
   const link = () => document.getElementById('btn-dialog-link') as HTMLButtonElement;
   const press = (target: HTMLElement, key: string, shiftKey = false) =>

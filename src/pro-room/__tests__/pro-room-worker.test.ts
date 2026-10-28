@@ -24049,6 +24049,70 @@ describe('persistent PRO room private media accounting', () => {
     expect(storedCanonicalRoom(context.state).idempotency[receiptKey]).toBeUndefined();
   });
 
+  it('lets the next prune finish a same-isolate delete retry, so the retry answers ASSET_NOT_FOUND', async () => {
+    const context = await activatedRoom();
+    const { assetId, asset } = await completeReadyAsset(
+      context,
+      'delete-same-isolate-prune',
+      10_240,
+    );
+    const originalPut = context.state.storage.put.bind(context.state.storage);
+    let intentPersisted = false;
+    let failFinalCommitOnce = true;
+    context.state.storage.put = async (key, value) => {
+      if (key === 'pro-room:v2:core') {
+        const envelope = value as { core?: StoredRoom };
+        if (envelope.core?.assets[assetId]?.deletionPending) intentPersisted = true;
+        else if (intentPersisted && failFinalCommitOnce) {
+          failFinalCommitOnce = false;
+          throw new Error('simulated same-isolate finalization failure');
+        }
+      }
+      return originalPut(key, value);
+    };
+    const deleteKey = `${IDEMPOTENCY_KEY}-delete-same-isolate-prune`;
+    const deletion = () =>
+      request(
+        `/media/${assetId}`,
+        { method: 'DELETE', headers: { 'idempotency-key': deleteKey } },
+        context.ownerCookie,
+      );
+
+    await expect(context.worker.fetch(deletion())).rejects.toMatchObject({
+      name: 'RoomStateStorageCommitError',
+    });
+    const internal = context.worker as unknown as {
+      room: StoredRoom & { idempotency: Record<string, any> };
+    };
+    const participantId = context.activationEnvelope.snapshot.viewer.participantId as string;
+    const receiptKey = `participant:${participantId}:delete:${deleteKey}`;
+    expect(internal.room.idempotency[receiptKey]).toMatchObject({ kind: 'asset-delete-pending' });
+    expect(internal.room.quota).toMatchObject({ usedBytes: asset.byteLength, reservedBytes: 0 });
+    // The restored marker keeps the first request's retry time, which is
+    // already due, so the retry's prune finishes the delete before routing.
+    expect(internal.room.assets[assetId]!.deletionPending!.retryAtMs).toBeLessThanOrEqual(
+      Date.now(),
+    );
+    const revision = internal.room.revision;
+
+    context.state.storage.put = originalPut;
+    const retry = await context.worker.fetch(deletion());
+    // That commit released the pending receipt and stored no final receipt
+    // (RO-53), so the handler finds no marker, receipt or asset.
+    expect(retry.status).toBe(404);
+    await expect(retry.json()).resolves.toEqual({ error: 'ASSET_NOT_FOUND' });
+    expect(context.bucket.objects.has(asset.objectKey)).toBe(false);
+    expect(internal.room.assets[assetId]).toBeUndefined();
+    expect(internal.room.idempotency[receiptKey]).toBeUndefined();
+    expect(internal.room.quota).toMatchObject({ usedBytes: 0, reservedBytes: 0 });
+    expect(internal.room.revision).toBe(revision + 1);
+    const stored = storedCanonicalRoom(context.state);
+    expect(stored.assets[assetId]).toBeUndefined();
+    expect(stored.idempotency[receiptKey]).toBeUndefined();
+    expect(stored.quota).toMatchObject({ usedBytes: 0, reservedBytes: 0 });
+    expect(stored.revision).toBe(revision + 1);
+  });
+
   it('normalizes a malformed deletion marker without deleting a referenced legacy asset', async () => {
     const context = await activatedRoom();
     const { assetId, asset } = await completeReadyAsset(context, 'malformed-delete-marker', 11_264);

@@ -3,6 +3,7 @@ import { readFileSync, readdirSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { APP_DICTIONARIES as LOCALES } from '../src/i18n/catalogs.ts';
 import { LANGUAGE_OPTIONS, languageDirection } from '../src/i18n/locales.ts';
+import { isDesktopLayoutSize } from '../src/core/layout-breakpoints.ts';
 
 const APP_STYLES = readFileSync(resolve('css/style.css'), 'utf8');
 const DESKTOP_STYLES = readFileSync(resolve('css/desktop.css'), 'utf8');
@@ -1090,9 +1091,10 @@ test.describe('content-based adaptive action groups', () => {
   });
 
   // The demo finish pair (Track info / Exit Tour) sits two per row in fixed
-  // 54px pills on phones up to 420px, where it is a named narrow-slot
-  // exception (U12, button-label-contract): it keeps the 9.0.18 label weight
-  // 600. Each locale's pair is measured beside a copy that carries the 9.0.18
+  // 54px pills on phones up to 420px, where it takes the tab role's 13px
+  // (button-label-contract): at the chip role's 14px the Tamil Exit Tour
+  // reaches past its pill at 320 and 340px where 9.0.18 kept it inside. Each
+  // locale's pair is measured beside a copy that carries the 9.0.18
   // label and pill (13px / 600 / normal line height and tracking, 10px side
   // padding, 10px gap, 20px icon) in the same browser and fonts, so the pin
   // holds on any platform: no label or icon may reach further past its pill
@@ -1216,61 +1218,102 @@ test.describe('content-based adaptive action groups', () => {
     });
   }
 
-  // The label sweep's narrow slots (PR #510 QA rounds 8 and 9;
-  // button-label-contract names each exception). Each locale's slot is
+  // The narrow slots of the label sweeps (PR #510 QA rounds 8 to 10) under
+  // the button label roles (owner decision 2026-10-28; button-label-contract
+  // names the compact members with their reasons). Each locale's slot is
   // rendered from the authored markup in its own containers and measured
-  // twice in the same browser and fonts: as shipped, and with each excepted
-  // label's 9.0.18 typography inline. No label may wrap to more lines, break
-  // inside more words, reach further past its pill or past the viewport, or
-  // lose more of its glyphs to an overflow that cuts it off, and no action
-  // pair may take more rows than with the 9.0.18 typography. The widths above
-  // each exception's boundary show that the shipped 700 labels have room
-  // there.
-  const SWEPT_SLOTS_9_0_18: Record<string, { selector: string; typography: string }> = {
-    'account deletion': {
-      selector: '#btn-account-delete',
-      typography: 'font-size: 14px; font-weight: 700; line-height: 1.2; letter-spacing: normal',
-    },
-    'invite link': {
-      selector: '.btn-copy-invite-link > span:last-child',
-      typography: 'font-size: 15px; font-weight: 600; line-height: 1.3; letter-spacing: normal',
-    },
-    'leave session': {
-      selector: '#btn-leave-session > span',
-      typography: 'font-size: 15px; font-weight: 600; line-height: normal; letter-spacing: normal',
-    },
-    'help actions': {
-      selector: '.help-actions > button > span',
-      typography: 'font-size: 15px; font-weight: 600; line-height: 1.3; letter-spacing: normal',
-    },
-    'media sources': {
-      selector:
-        '#btn-local-file > span, #btn-youtube-source > span, #btn-system-audio .media-source-label-text',
-      typography: 'font-size: 15px; font-weight: 600; line-height: 1.25; letter-spacing: -0.3px',
-    },
-    'selection toggle': {
-      selector: '.playlist-selection-toggle',
-      typography: 'font-size: 15px; font-weight: 600; line-height: 1.2; letter-spacing: normal',
-    },
-    'setup choice': {
-      selector: '#btn-setup-host, #btn-setup-guest',
-      typography: 'font-size: 15px; font-weight: 600; line-height: normal; letter-spacing: normal',
-    },
-    'setup confirm': {
-      selector: '#btn-setup-confirm',
-      typography: 'font-size: 15px; font-weight: 600; line-height: normal; letter-spacing: normal',
-    },
-    'YouTube link actions': {
-      selector: '#btn-yt-cancel, #youtube-play-btn',
-      typography: 'font-size: 15px; font-weight: 600; line-height: normal; letter-spacing: normal',
-    },
+  // twice in the same browser and fonts: as shipped, and with each label's
+  // 9.0.18 typography inline. No label may wrap to more lines, break inside
+  // more words, reach further past its pill or past the viewport, or lose
+  // more of its glyphs to an overflow that cuts it off, and no action pair
+  // may take more rows than with the 9.0.18 typography. The compact members
+  // (Sign out, Delete account and the media source options) take the chip
+  // role's 14px up to 719px; the wider sizes show that the CTA role has room
+  // above it.
+  type SweptLabel = { selector: string; typography: string };
+  const SWEPT_SLOTS_9_0_18: Record<string, SweptLabel[]> = {
+    'account pair': [
+      {
+        selector: '#btn-account-logout',
+        typography:
+          'font-size: 15px; font-weight: 700; line-height: normal; letter-spacing: normal',
+      },
+      {
+        selector: '#btn-account-delete',
+        typography: 'font-size: 14px; font-weight: 700; line-height: 1.2; letter-spacing: normal',
+      },
+    ],
+    'invite link': [
+      {
+        selector: '.btn-copy-invite-link > span:last-child',
+        typography: 'font-size: 15px; font-weight: 600; line-height: 1.3; letter-spacing: normal',
+      },
+    ],
+    'leave session': [
+      {
+        selector: '#btn-leave-session > span',
+        typography:
+          'font-size: 15px; font-weight: 600; line-height: normal; letter-spacing: normal',
+      },
+    ],
+    'help actions': [
+      {
+        selector: '.help-actions > button > span',
+        typography: 'font-size: 15px; font-weight: 600; line-height: 1.3; letter-spacing: normal',
+      },
+    ],
+    'media sources': [
+      {
+        selector:
+          '#btn-local-file > span, #btn-youtube-source > span, #btn-system-audio .media-source-label-text',
+        // 9.0.18 also broke these labels with the default rules; the shipped
+        // labels wrap at word boundaries (Korean) and phrases (Japanese).
+        typography:
+          'font-size: 15px; font-weight: 600; line-height: 1.25; letter-spacing: -0.3px; ' +
+          'word-break: normal; line-break: auto',
+      },
+    ],
+    'selection toggle': [
+      {
+        selector: '.playlist-selection-toggle',
+        typography: 'font-size: 15px; font-weight: 600; line-height: 1.2; letter-spacing: normal',
+      },
+    ],
+    'setup choice': [
+      {
+        selector: '#btn-setup-host, #btn-setup-guest',
+        typography:
+          'font-size: 15px; font-weight: 600; line-height: normal; letter-spacing: normal',
+      },
+    ],
+    'setup confirm': [
+      {
+        selector: '#btn-setup-confirm',
+        typography:
+          'font-size: 15px; font-weight: 600; line-height: normal; letter-spacing: normal',
+      },
+    ],
+    'YouTube link actions': [
+      {
+        selector: '#btn-yt-cancel, #youtube-play-btn',
+        typography:
+          'font-size: 15px; font-weight: 600; line-height: normal; letter-spacing: normal',
+      },
+    ],
+    'play actions': [
+      {
+        selector: '.play-action-label',
+        typography: 'font-size: 15px; font-weight: 600; line-height: 1.25; letter-spacing: -0.3px',
+      },
+    ],
   };
   // The phone widths, both sides of the 420px and 719/720px boundaries, a
-  // width inside the band where media labels still wrapped at 700 (482 to
-  // 488px), one inside the band where the Malayalam Please wait of the setup
-  // action pill still wrapped at 700 (425 to 432px), and two landscape phones
-  // (568x320 compresses the account dialog; 844x390 has the two-column setup
-  // panel, whose action pill is 196px wide).
+  // width inside the band where media labels wrapped at 700 (482 to 488px),
+  // one inside the band where the Malayalam Please wait of the setup action
+  // pill wrapped at 700 (425 to 432px), two landscape phones (568x320
+  // compresses the account dialog; 844x390 has the two-column setup panel,
+  // whose action pill is 196px wide), a tablet, and both sides of the desktop
+  // dashboard boundary.
   const SWEPT_SLOT_VIEWPORTS: Array<[number, number]> = [
     [320, 800],
     [340, 800],
@@ -1286,9 +1329,14 @@ test.describe('content-based adaptive action groups', () => {
     [720, 800],
     [568, 320],
     [844, 390],
+    [1024, 768],
+    [1279, 800],
+    [1280, 719],
+    [1280, 800],
+    [1440, 900],
   ];
   for (const [viewportWidth, viewportHeight] of SWEPT_SLOT_VIEWPORTS) {
-    test(`keeps the swept narrow slots no worse than 9.0.18 in every locale at ${viewportWidth}x${viewportHeight}`, async ({
+    test(`keeps the narrow slots' role labels no worse than 9.0.18 in every locale at ${viewportWidth}x${viewportHeight}`, async ({
       page,
     }) => {
       const worse: string[] = [];
@@ -1310,7 +1358,13 @@ test.describe('content-based adaptive action groups', () => {
             (locale) => locale.dir === direction,
           );
           probedLocales += localesWithFonts.length;
-          await probeSweptSlots(page, localesWithFonts, worse, theme);
+          await probeSweptSlots(
+            page,
+            localesWithFonts,
+            worse,
+            theme,
+            isDesktopLayoutSize(viewportWidth, viewportHeight) ? DESKTOP_SWEPT_SLOTS : undefined,
+          );
         }
       }
       expect(probedLocales).toBe(84);
@@ -1320,14 +1374,20 @@ test.describe('content-based adaptive action groups', () => {
     });
   }
 
+  // The desktop sizes compare the play actions only: the stacked fixed
+  // overlays of this probe are not laid out like one open dialog there.
+  const DESKTOP_SWEPT_SLOTS = ['play actions'];
+
   async function probeSweptSlots(
     page: Page,
     localesWithFonts: Awaited<ReturnType<typeof localizedActionsWithFonts>>,
     worse: string[],
     theme: string,
+    only?: readonly string[],
   ): Promise<void> {
+    const slotNames = only ?? Object.keys(SWEPT_SLOTS_9_0_18);
     const built = await page.evaluate(
-      ({ locales, markup, slots }) => {
+      ({ locales, markup, slots, names }) => {
         const root = document.getElementById('swept-slot-probes')!;
         // Compare finished layouts: no transition may run between the two
         // measurements.
@@ -1359,7 +1419,7 @@ test.describe('content-based adaptive action groups', () => {
         };
         type Locale = (typeof locales)[number];
         const builders: Record<string, (locale: Locale) => HTMLElement[]> = {
-          'account deletion': (locale) => {
+          'account pair': (locale) => {
             const { outer, target } = inPlace('#account-dialog-actions');
             outer.classList.add('show');
             target.hidden = false;
@@ -1376,7 +1436,8 @@ test.describe('content-based adaptive action groups', () => {
               // As src/ui/connect.ts mounts it.
               target.insertAdjacentHTML(
                 'beforeend',
-                '<button type="button" class="btn-copy-invite-link"><svg viewBox="0 0 24 24"></svg>' +
+                '<button type="button" class="btn-copy-invite-link">' +
+                  '<svg viewBox="0 0 24 24"></svg>' +
                   '<span class="material-elastic-spinner signaling-recovery-spinner"></span>' +
                   '<span></span></button>',
               );
@@ -1426,6 +1487,7 @@ test.describe('content-based adaptive action groups', () => {
               target.querySelector(':scope > .tab-title')!.after(title);
               const toggle = document.createElement('button');
               toggle.type = 'button';
+              // As src/ui/playlist-removal.ts mounts it.
               toggle.className = 'playlist-selection-toggle';
               toggle.textContent =
                 count === 'all' ? locale.swept.deselectAll : `${locale.swept.selectAll} (${count})`;
@@ -1481,10 +1543,33 @@ test.describe('content-based adaptive action groups', () => {
               '';
             return [outer];
           },
+          // Sync and Media, and Stop Sharing across both slots while sharing.
+          'play actions': (locale) =>
+            [false, true].map((sharing) => {
+              const { outer, target } = inPlace('.play-action-buttons');
+              outer.classList.add('active');
+              target.dataset.sharing = String(sharing);
+              text(target, '.play-action-sync-content .play-action-label', locale.player.sync);
+              text(target, '.play-action-media-content .play-action-label', locale.player.media);
+              text(target, '.play-action-stop-content .play-action-label', locale.player.stop);
+              // Only the labels on screen: Sync and Media at rest, Stop
+              // Sharing while sharing.
+              for (const content of target.querySelectorAll<HTMLElement>(
+                sharing
+                  ? '.play-action-sync-content, .play-action-media-content'
+                  : '.play-action-stop-content',
+              )) {
+                content.dataset.unmeasured = '';
+              }
+              // The sharing motion sets the slot width from the row (below).
+              target.dataset.slotFromRow = '';
+              return outer;
+            }),
         };
         let instances = 0;
         for (const locale of locales) {
           for (const [slot, build] of Object.entries(builders)) {
+            if (!names.includes(slot)) continue;
             for (const outer of build(locale)) {
               outer.classList.add('swept-slot-probe');
               outer.dataset.slot = slot;
@@ -1493,16 +1578,29 @@ test.describe('content-based adaptive action groups', () => {
               outer.dir = locale.dir;
               outer.style.setProperty('--font-sans', locale.fontFamily);
               outer.style.fontFamily = locale.fontFamily;
-              for (const label of outer.querySelectorAll<HTMLElement>(slots[slot]!.selector)) {
-                label.dataset.sweptLabel = slot;
-              }
+              slots[slot]!.forEach((entry, index) => {
+                for (const label of outer.querySelectorAll<HTMLElement>(entry.selector)) {
+                  if (label.closest('[data-unmeasured]')) continue;
+                  label.dataset.sweptLabel = `${slot}#${index}`;
+                }
+              });
               root.appendChild(outer);
             }
           }
         }
+        // As src/ui/sharing-action-motion.ts sizes the play action slots.
+        for (const row of root.querySelectorAll<HTMLElement>('[data-slot-from-row]')) {
+          const gap = Number.parseFloat(getComputedStyle(row).columnGap) || 0;
+          row.style.setProperty('--play-action-slot-width', `${(row.clientWidth - gap) / 2}px`);
+        }
         return instances;
       },
-      { locales: localesWithFonts, markup: APP_MARKUP, slots: SWEPT_SLOTS_9_0_18 },
+      {
+        locales: localesWithFonts,
+        markup: APP_MARKUP,
+        slots: SWEPT_SLOTS_9_0_18,
+        names: slotNames,
+      },
     );
     await waitForLayoutFonts(page);
 
@@ -1600,7 +1698,8 @@ test.describe('content-based adaptive action groups', () => {
     await page.evaluate((slots) => {
       for (const label of document.querySelectorAll<HTMLElement>('[data-swept-label]')) {
         const probe = label.closest<HTMLElement>('.swept-slot-probe')!;
-        for (const declaration of slots[label.dataset.sweptLabel!]!.typography.split(';')) {
+        const [slot, index] = label.dataset.sweptLabel!.split('#') as [string, string];
+        for (const declaration of slots[slot]![Number(index)]!.typography.split(';')) {
           const [property, value] = declaration.split(':').map((part) => part.trim());
           // As in 9.0.18, right-to-left labels take no tracking.
           const resolved = property === 'letter-spacing' && probe.dir === 'rtl' ? 'normal' : value!;
@@ -1611,9 +1710,19 @@ test.describe('content-based adaptive action groups', () => {
     await waitForLayoutFonts(page);
     const reference = await measure();
 
-    // Per locale: account, 4 invite modes, leave, help, 2 media states, 5
-    // toggle states, setup choice, 6 setup confirm labels and YouTube.
-    expect(built).toBe(localesWithFonts.length * 22);
+    // Instances per locale: 4 invite modes, 2 media states, 5 toggle states,
+    // 6 setup confirm labels, 2 play action states, one of each other slot.
+    const instances: Record<string, number> = {
+      'invite link': 4,
+      'media sources': 2,
+      'selection toggle': 5,
+      'setup confirm': 6,
+      'play actions': 2,
+    };
+    expect(built).toBe(
+      localesWithFonts.length *
+        slotNames.reduce((total, slot) => total + (instances[slot] ?? 1), 0),
+    );
     expect(reference.map((entry) => entry.id)).toEqual(shipped.map((entry) => entry.id));
     shipped.forEach((entry, index) => {
       const before = reference[index]! as Record<string, unknown>;

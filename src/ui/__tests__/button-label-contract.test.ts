@@ -12,26 +12,39 @@ import {
   type Rule,
 } from 'postcss';
 import { describe, expect, it } from 'vitest';
-import { isDesktopLayoutSize, NOT_DESKTOP_LAYOUT_QUERY } from '../../core/layout-breakpoints.ts';
 
-// Owner decision (2026-10-27): every action button reads one label style, so
-// labels differ only by color. Each component rule reads the button label
-// tokens itself, the same way component rules read --radius-pill; a global
-// override would lose to cascade layers and ID selectors.
+// Owner decisions (2026-10-27, final 2026-10-28): every button label takes
+// one of three roles, and labels in one role differ only by color. The roles
+// share the weight 600 and normal tracking: CTA (every action button) 15px /
+// 1.25, chip (choice chips) 14px and tab (section tabs and segments) 13px.
+// The owner withdrew the earlier 700, which clumped in dark mode, Korean most
+// of all, and accepted the lighter weight beside the icons. Each component
+// rule reads its role's tokens itself, the same way component rules read
+// --radius-pill; a global override would lose to cascade layers and ID
+// selectors.
 const LABEL_TOKENS: Readonly<Record<string, string>> = {
   'font-size': 'var(--button-label-size)',
   'font-weight': 'var(--button-label-weight)',
   'line-height': 'var(--button-label-line-height)',
   'letter-spacing': 'var(--button-label-letter-spacing)',
 };
+type Role = 'cta' | 'chip' | 'tab';
+// The size token each role reads; the other label tokens are shared.
+const ROLE_SIZE_TOKENS: Readonly<Record<Role, string>> = {
+  cta: 'var(--button-label-size)',
+  chip: 'var(--button-label-chip-size)',
+  tab: 'var(--button-label-tab-size)',
+};
 const LABEL_VALUES: Readonly<Record<string, string>> = {
   '--button-label-size': '15px',
-  '--button-label-weight': '700',
+  '--button-label-weight': '600',
   '--button-label-line-height': '1.25',
   '--button-label-letter-spacing': 'normal',
+  '--button-label-chip-size': '14px',
+  '--button-label-tab-size': '13px',
 };
 // font-variation-settings can set the weight axis of the variable label face
-// past font-weight, so action button rules may not set it either.
+// past font-weight, so button rules may not set it either.
 const FONT_PROPERTIES = [
   'font',
   'font-family',
@@ -39,9 +52,9 @@ const FONT_PROPERTIES = [
   ...Object.keys(LABEL_TOKENS),
 ];
 
-// A verb label on a pill, plus the selection bar's text action. Their rules
-// may declare label typography only through the tokens above, and may not
-// paint a hard-coded red (destructive labels read --danger-foreground).
+// The CTA role: a verb label on a pill, plus the selection bar's text action.
+// Their rules may declare label typography only through the tokens above, and
+// may not paint a hard-coded red (destructive labels read --danger-foreground).
 const ACTION_BUTTON_CLASSES = [
   'dialog-primary',
   'dialog-secondary',
@@ -56,51 +69,45 @@ const ACTION_BUTTON_CLASSES = [
   'sync-done-btn',
 ] as const;
 
-// Buttons that keep their own label size and share the rest of the label style.
-const OWN_SIZE_CLASSES: Readonly<Record<string, string>> = {
-  'ch-opt':
-    'Choice cards sit two to four per row down to 360px. They keep 14px until ' +
-    '15px is shown to fit every locale, and share the label weight, line height ' +
-    'and letter spacing.',
+// Buttons in another role, by class, with the reason. They read their role's
+// size token and share the weight and tracking.
+const ROLE_CLASSES: Readonly<Record<string, { role: Exclude<Role, 'cta'>; reason: string }>> = {
+  'ch-opt': {
+    role: 'chip',
+    reason: 'Choice chips sit two to four per row down to 360px.',
+  },
+  'subtab-pill': {
+    role: 'tab',
+    reason: 'The desktop settings section tabs, a row of four under the panel title.',
+  },
+};
+// Unclassed demo tour controls, named by the container that styles them. They
+// keep their own responsive sizes and share the label weight and tracking.
+const SHARED_WEIGHT_CONTAINERS: Readonly<Record<string, string>> = {
+  '.demo-step-nav':
+    'The demo step indicator keeps its 13px steps (larger on the desktop tour) and ' +
+    'shares the label weight and tracking.',
+  '.demo-role-segmented':
+    'The demo role switch keeps its 13px segments (12px on phones, larger on the desktop ' +
+    'tour) and shares the label weight and tracking.',
+};
+// Text in the CTA role inside a button that is not an action, with its own
+// line height and the reason.
+const CTA_TEXT: Readonly<Record<string, { lineHeight: string; reason: string }>> = {
+  '.chat-preview-text': {
+    lineHeight: '1.3',
+    reason:
+      'The play tab chat preview shows the latest message in the CTA role. One line ' +
+      'that an overflow cuts off keeps the 9.0.18 1.3 line box for tall scripts.',
+  },
 };
 
-// Labels that keep their own weight and tracking and share the label size and
-// line height, each with the reason. The rule stays in the base layer, so the
-// right-to-left reset (components layer) still removes the tracking.
-const COMPACT_PLAY_ACTIONS =
-  'The play tab keeps Sync and Media compact: each label sits beside its icon in a ' +
-  '130px slot at the real 320px width and must stay on one line in every locale. ' +
-  'At 700 the Finnish Synkronoi wraps with Linux fonts (PR #510 CI), so both keep ' +
-  'the 9.0.18 label weight and tracking.';
-const OWN_LABEL_DECLARATIONS: ReadonlyArray<{
-  selector: string;
-  declaration: string;
-  reason: string;
-}> = [
-  { selector: '#btn-sync span', declaration: 'font-weight: 600', reason: COMPACT_PLAY_ACTIONS },
-  {
-    selector: '#btn-sync span',
-    declaration: 'letter-spacing: -0.3px',
-    reason: COMPACT_PLAY_ACTIONS,
-  },
-  {
-    selector: '#btn-media-source span',
-    declaration: 'font-weight: 600',
-    reason: COMPACT_PLAY_ACTIONS,
-  },
-  {
-    selector: '#btn-media-source span',
-    declaration: 'letter-spacing: -0.3px',
-    reason: COMPACT_PLAY_ACTIONS,
-  },
-];
-
 // Every other button class in index.html and the TypeScript templates, with
-// the reason it is not an action button. A new button class must join one list.
-const NOT_ACTION_BUTTONS: Readonly<Record<string, string>> = {
+// the reason it carries no button label role. A new button class must join
+// one list.
+const NOT_ROLE_BUTTONS: Readonly<Record<string, string>> = {
   'btn-ob-icon': 'Icon-only setup button.',
   'nav-item': 'Bottom navigation: a small label under an icon.',
-  'subtab-pill': 'Settings section tab, not an action.',
   'role-badge': 'Header status badge: a small fixed-width pill.',
   'd-op-btn': 'Device row permission chip: a small fixed-width pill.',
   'sync-nudge-btn': 'Manual sync nudge chip with a numeric label.',
@@ -119,7 +126,7 @@ const NOT_ACTION_BUTTONS: Readonly<Record<string, string>> = {
   'btn-kick-device': 'Icon-only device row action.',
   'btn-kick-physical-device': 'Icon-only device row action.',
   'chat-youtube-btn': 'YouTube card inside a chat bubble.',
-  'chat-preview-btn': 'Chat preview bar showing the latest message.',
+  'chat-preview-btn': 'Chat preview bar; its message text takes the CTA role (CTA_TEXT).',
   'chat-drawer-close': 'Icon-only chat control.',
   'chat-pinned-notice-dismiss': 'Icon-only chat control.',
   'chat-pinned-notice-open': 'Icon-only chat control.',
@@ -151,10 +158,8 @@ const NOT_ACTION_BUTTONS: Readonly<Record<string, string>> = {
   'account-google-button': 'Google sign-in button, drawn to the Google brand specification.',
 };
 
-// Unclassed buttons in index.html, named by the container that styles them.
+// Unclassed buttons outside every role, named by the container that styles them.
 const CONTAINER_BUTTONS: Readonly<Record<string, string>> = {
-  '.demo-step-nav': 'Demo step indicator steps.',
-  '.demo-role-segmented': 'Demo role segmented control.',
   '.bootstrap-failure':
     'Startup failure fallback outside the app shell; it inherits the page font.',
 };
@@ -171,165 +176,63 @@ const NESTED_EXCEPTIONS: Readonly<Record<string, string>> = {
   'btn-icon-bg': 'Media source icon tile; the YouTube tile keeps the brand red.',
 };
 
-// Viewport compactions that may resize an action label, with the reason.
+// The narrow slots (owner decision 2026-10-28). Every action label was
+// measured against 9.0.18 (origin/main 6a23c46e) in all 42 locales at 320,
+// 340, 360, 375 and 390px and beyond (the UI bundle report, QA round 10).
+// Where the CTA role wraps, splits a word, stacks a pair or reaches past its
+// pill or the screen further than 9.0.18, the slot takes a smaller role size
+// under a named condition instead of an ad hoc value. Line height, weight and
+// tracking stay the shared tokens.
+//
+// The compact members: their markup carries .btn-label-compact, which takes
+// the chip role's 14px under the one shared narrow condition.
+const COMPACT_CLASS = 'btn-label-compact';
+const COMPACT_CONDITION = '@media (max-width: 719px)';
+const COMPACT_MEMBERS: Readonly<Record<string, string>> = {
+  '#btn-local-file':
+    'The media source options: at 15px with normal tracking the local file and system ' +
+    'audio labels wrap or split a word in more locales than 9.0.18 (600, -0.3px) in the ' +
+    'phone layout.',
+  '#btn-youtube-source': 'The media source options stay alike (#btn-local-file).',
+  '#btn-system-audio': 'The media source options stay alike (#btn-local-file).',
+  '#btn-account-logout':
+    'Sign out and Delete account keep one size (owner decision 2026-10-28). At 15px the ' +
+    'pair stacks or wraps in more locales than 9.0.18 (Sign out 15px / 700, Delete ' +
+    'account 14px / 700).',
+  '#btn-account-delete': 'Sign out and Delete account keep one size (#btn-account-logout).',
+};
+// The demo tour's two-per-row actions take the tab role's 13px on phones up
+// to 420px.
 const DEMO_FINISH_PAIR =
-  'The demo finish pair sits two per row in 54px pills on phones up to 420px; ' +
-  'the smaller label keeps both localized labels beside their icons.';
-// The same named narrow-slot exception as the compact play actions (U12).
-const DEMO_FINISH_PAIR_WEIGHT =
-  'The demo finish pair keeps the 9.0.18 label weight 600 in its 13px label on phones ' +
-  'up to 420px: at 700 more localized labels spill past their fixed 54px pills at ' +
-  '320px and 340px (Malayalam and Tamil Exit Tour) than in 9.0.18. The adaptive-actions ' +
-  'probe pins every locale at 320, 340 and 360px to no worse than 9.0.18.';
-// The label sweep (PR #510 QA round 8): every label whose typography this
-// train changed, in all 42 locales at 320 to 390px and around every width
-// boundary, against origin/main 9.0.18 (6a23c46e). These slots wrapped,
-// broke a word, stacked a pair or reached past their pill or the viewport
-// where 9.0.18 did not, so each keeps its 9.0.18 label typography up to the
-// width where the shared label has room again (the swept-slot probe in
-// adaptive-actions pins every locale). Line height stays the shared token.
-const SWEPT_ACCOUNT_DELETION =
-  'Account deletion keeps its 9.0.18 14px label on phones up to 420px and screens up to 350px ' +
-  'tall: at 15px the Greek and Malayalam labels wrap at 320 and 340px, and Log out and ' +
-  'Delete account stack in English at 360px and in French at 568x320 where 9.0.18 kept them ' +
-  'on one row. The dialog stops widening at 400px, so taller screens above 420px keep 15px.';
-const SWEPT_INVITE_LINK =
-  'The connect tab invite button keeps the 9.0.18 weight 600 in every mode on phones up to ' +
-  "420px: at 700 'Room connection ended' wraps in Italian and Romanian at 390px and the " +
-  'Tamil copy label at 410px, where 9.0.18 kept one line.';
-const SWEPT_LEAVE_SESSION =
-  'Leave Session on the connect tab keeps the 9.0.18 weight 600 on phones up to 420px: at ' +
-  '700 the Malayalam label wraps at 390px where 9.0.18 kept one line.';
-const SWEPT_HELP_ACTIONS =
-  'The help tab tour and screensaver pills keep the 9.0.18 weight 600 together on phones up ' +
-  'to 420px: at 700 the screensaver label wraps in Malay, Hungarian, Romanian and Tamil ' +
-  'between 340 and 375px where 9.0.18 kept one line.';
-const SWEPT_MEDIA_SOURCES =
-  'The three media source options keep the 9.0.18 label weight and tracking, 600 and ' +
-  '-0.3px, in the phone layout up to 719px: at 700 local file and system audio labels wrap ' +
-  "or break a word in up to 30 locales between 320 and 488px (German 'Systemaudio' splits " +
-  'at 320px). The rule stays in the base layer, so right-to-left labels take no tracking.';
-const SWEPT_SELECTION_TOGGLE =
-  'The deletion-mode Select all / Deselect all toggle keeps the 9.0.18 weight 600 on phones ' +
-  'up to 420px: at 700 the Tamil and Malayalam labels reach past the screen edge at 320 and ' +
-  '340px, further than in 9.0.18.';
-const SWEPT_SETUP_CHOICE =
-  'Create a Room and Join a Room keep the 9.0.18 weight 600 together on phones up to 420px: ' +
-  'at 700 the Bulgarian Join a Room wraps at 360px where 9.0.18 kept one line.';
-// QA round 9: the setup screen's failure, waiting, transient and recovery
-// states, which the first sweep reached only in English.
-const SWEPT_SETUP_CONFIRM =
-  'The setup action pill beside Back (Start, Please wait, Joining, Retry and Refresh, filled or ' +
-  'secondary) keeps the 9.0.18 weight 600 on phones up to 420px, beside Create a Room and ' +
-  'Join a Room: it is 84px wide at 320px, and at 700 Retry wraps in Turkish at 320px, ' +
-  'Brazilian Portuguese at 340px and Tamil at 375px, and Please wait in French and Urdu and ' +
-  'Refresh in Urdu at 320px, where 9.0.18 kept one line; the Tamil Please wait, a pill as ' +
-  'wide as its one word, reaches 4.5px further past the setup panel edge at 320px.';
-const SWEPT_SETUP_CONFIRM_WIDER =
-  'Above 420px the setup action pill stays narrow: 185px at 421px in the phone layout and ' +
-  '196px in the two-column setup panel (720 to 1279px, and from 1280px on screens under ' +
-  '720px tall). At 700 the Malayalam Please wait wraps at 425 to 432px and in that panel, ' +
-  'where 9.0.18 kept one line, so the pill keeps 600 in the shared not-desktop layout band ' +
-  '(src/core/layout-breakpoints.ts); only the desktop panel, whose pill is 324px wide, keeps 700.';
-const SWEPT_YOUTUBE_ACTIONS =
-  'The YouTube link dialog Cancel and Add pair keeps the 9.0.18 weight 600 in the phone ' +
-  'layout up to 719px: at 700 Add wraps in German and Hungarian at 360px and in Bulgarian at ' +
-  '421px where 9.0.18 kept one line.';
-const COMPACT_OVERRIDES: ReadonlyArray<{
+  'The demo finish pair sits two per row in 54px pills on phones up to 420px. At the chip ' +
+  "role's 14px the Tamil Exit Tour reaches past its pill at 320 and 340px where 9.0.18 " +
+  "(13px / 600) kept it inside, so the pair takes the tab role's 13px there.";
+const DEMO_EFFECT_CHOICES =
+  'The demo effect choice cards sit two per row on phones up to 420px. At the chip ' +
+  "role's 14px the Russian Bass Boost and Surround and the Malay Bass Boost wrap at " +
+  "320px where 9.0.18 (13.5px / 700) kept one line, so the cards take the tab role's " +
+  '13px there, beside the finish pair.';
+// Declarations that may give an action label a size other than its role's,
+// each under its condition and with the reason.
+const NARROW_OVERRIDES: ReadonlyArray<{
   condition: string;
   selector: string;
   declaration: string;
   reason: string;
 }> = [
-  {
-    condition: '@media (max-width: 420px), (max-height: 350px)',
-    selector: '#btn-account-delete',
-    declaration: 'font-size: 14px',
-    reason: SWEPT_ACCOUNT_DELETION,
-  },
-  {
-    condition: '@media (max-width: 420px)',
-    selector: '.btn-copy-invite-link',
-    declaration: 'font-weight: 600',
-    reason: SWEPT_INVITE_LINK,
-  },
-  {
-    condition: '@media (max-width: 420px)',
-    selector: '#btn-leave-session',
-    declaration: 'font-weight: 600',
-    reason: SWEPT_LEAVE_SESSION,
-  },
-  ...['#btn-demo-media-mobile', '#btn-screensaver-mobile'].map((selector) => ({
-    condition: '@media (max-width: 420px)',
-    selector,
-    declaration: 'font-weight: 600',
-    reason: SWEPT_HELP_ACTIONS,
-  })),
-  ...[
-    '#btn-local-file > span',
-    '#btn-youtube-source > span',
-    '#btn-system-audio .media-source-label-text',
-  ].flatMap((selector) =>
-    ['font-weight: 600', 'letter-spacing: -0.3px'].map((declaration) => ({
-      condition: '@media (max-width: 719px)',
+  ...['.demo-large-actions .accent-action-btn', '.demo-large-actions .leave-session-btn'].map(
+    (selector) => ({
+      condition: '@media (max-width: 420px)',
       selector,
-      declaration,
-      reason: SWEPT_MEDIA_SOURCES,
-    })),
+      declaration: `font-size: ${ROLE_SIZE_TOKENS.tab}`,
+      reason: DEMO_FINISH_PAIR,
+    }),
   ),
   {
     condition: '@media (max-width: 420px)',
-    selector: '.playlist-selection-toggle',
-    declaration: 'font-weight: 600',
-    reason: SWEPT_SELECTION_TOGGLE,
-  },
-  ...['#btn-setup-host', '#btn-setup-guest'].map((selector) => ({
-    condition: '@media (max-width: 420px)',
-    selector,
-    declaration: 'font-weight: 600',
-    reason: SWEPT_SETUP_CHOICE,
-  })),
-  {
-    condition: '@media (max-width: 420px)',
-    selector: '#btn-setup-confirm',
-    declaration: 'font-weight: 600',
-    reason: SWEPT_SETUP_CONFIRM,
-  },
-  {
-    condition: `@media ${NOT_DESKTOP_LAYOUT_QUERY}`,
-    selector: '#btn-setup-confirm',
-    declaration: 'font-weight: 600',
-    reason: SWEPT_SETUP_CONFIRM_WIDER,
-  },
-  ...['#btn-yt-cancel', '#youtube-play-btn'].map((selector) => ({
-    condition: '@media (max-width: 719px)',
-    selector,
-    declaration: 'font-weight: 600',
-    reason: SWEPT_YOUTUBE_ACTIONS,
-  })),
-  {
-    condition: '@media (max-width: 420px)',
-    selector: '.demo-large-actions .accent-action-btn',
-    declaration: 'font-size: 13px',
-    reason: DEMO_FINISH_PAIR,
-  },
-  {
-    condition: '@media (max-width: 420px)',
-    selector: '.demo-large-actions .leave-session-btn',
-    declaration: 'font-size: 13px',
-    reason: DEMO_FINISH_PAIR,
-  },
-  {
-    condition: '@media (max-width: 420px)',
-    selector: '.demo-large-actions .accent-action-btn',
-    declaration: 'font-weight: 600',
-    reason: DEMO_FINISH_PAIR_WEIGHT,
-  },
-  {
-    condition: '@media (max-width: 420px)',
-    selector: '.demo-large-actions .leave-session-btn',
-    declaration: 'font-weight: 600',
-    reason: DEMO_FINISH_PAIR_WEIGHT,
+    selector: '.demo-effects-content .demo-large-actions .ch-opt.demo-choice',
+    declaration: `font-size: ${ROLE_SIZE_TOKENS.tab}`,
+    reason: DEMO_EFFECT_CHOICES,
   },
   {
     condition:
@@ -409,6 +312,7 @@ function withoutNegations(selector: string): string {
 
 const hasClass = (selector: string, className: string): boolean =>
   new RegExp(`\\.${className}(?![\\w-])`, 'u').test(selector);
+const escapeRegExp = (value: string): string => value.replace(/[.*+?^${}()|[\]\\]/gu, '\\$&');
 
 const actionAliases = (() => {
   const ids = [
@@ -419,18 +323,31 @@ const actionAliases = (() => {
   return ids.map((id) => `#${id}`);
 })();
 
-/** The action (or own-size) class a selector styles, ignoring negations. */
-function styledButton(selector: string): { name: string; ownSize: boolean } | null {
+interface StyledLabel {
+  name: string;
+  /** The role whose size token the rule must read; null shares only the weight. */
+  role: Role | null;
+}
+
+/** The role member a selector styles, ignoring negations. */
+function styledButton(selector: string): StyledLabel | null {
   const positive = withoutNegations(selector);
   for (const name of ACTION_BUTTON_CLASSES) {
-    if (hasClass(positive, name)) return { name, ownSize: false };
+    if (hasClass(positive, name)) return { name, role: 'cta' };
   }
   for (const alias of actionAliases) {
-    if (new RegExp(`${alias}(?![\\w-])`, 'u').test(positive))
-      return { name: alias, ownSize: false };
+    if (new RegExp(`${alias}(?![\\w-])`, 'u').test(positive)) return { name: alias, role: 'cta' };
   }
-  for (const name of Object.keys(OWN_SIZE_CLASSES)) {
-    if (hasClass(positive, name)) return { name, ownSize: true };
+  for (const [name, { role }] of Object.entries(ROLE_CLASSES)) {
+    if (hasClass(positive, name)) return { name, role };
+  }
+  for (const name of Object.keys(CTA_TEXT)) {
+    if (hasClass(positive, name.slice(1))) return { name, role: 'cta' };
+  }
+  for (const container of Object.keys(SHARED_WEIGHT_CONTAINERS)) {
+    if (new RegExp(`${escapeRegExp(container)}(?![\\w-])[^,]*\\bbutton\\b`, 'u').test(positive)) {
+      return { name: container, role: null };
+    }
   }
   return null;
 }
@@ -439,20 +356,10 @@ function styledButton(selector: string): { name: string; ownSize: boolean } | nu
 const isNestedException = (selector: string): boolean =>
   Object.keys(NESTED_EXCEPTIONS).some((name) => hasClass(withoutNegations(selector), name));
 
-function isCompactOverride(declaration: Declaration, selector: string): boolean {
-  return COMPACT_OVERRIDES.some(
+function isNarrowOverride(declaration: Declaration, selector: string): boolean {
+  return NARROW_OVERRIDES.some(
     (allowed) =>
       allowed.condition === conditionOf(declaration) &&
-      allowed.selector === selector.replace(/\s+/gu, ' ').trim() &&
-      allowed.declaration === `${declaration.prop}: ${declaration.value}`,
-  );
-}
-
-/** A label's own weight or tracking, outside every condition. */
-function isOwnLabelDeclaration(declaration: Declaration, selector: string): boolean {
-  return OWN_LABEL_DECLARATIONS.some(
-    (allowed) =>
-      conditionOf(declaration) === null &&
       allowed.selector === selector.replace(/\s+/gu, ' ').trim() &&
       allowed.declaration === `${declaration.prop}: ${declaration.value}`,
   );
@@ -766,6 +673,56 @@ function cascadeOrder(first: CascadeCandidate, second: CascadeCandidate): number
   return compareSpecificity(first.specificity, second.specificity) || first.order - second.order;
 }
 
+/** The type, IDs and classes that the rightmost compound of a selector requires. */
+interface Compound {
+  tag: string | null;
+  ids: string[];
+  classes: string[];
+}
+const compounds = new Map<string, Compound | null>();
+function rightmostCompound(selector: string): Compound | null {
+  if (compounds.has(selector)) return compounds.get(selector)!;
+  let depth = 0;
+  let start = 0;
+  for (let index = selector.length - 1; index >= 0; index -= 1) {
+    const character = selector[index]!;
+    if (character === ')' || character === ']') depth += 1;
+    else if (character === '(' || character === '[') depth -= 1;
+    else if (depth === 0 && /[\s>+~]/u.test(character)) {
+      start = index + 1;
+      break;
+    }
+  }
+  const compound = selector.slice(start);
+  let result: Compound | null = null;
+  // Escaped names are left to the full match.
+  if (!compound.includes('\\')) {
+    let bare = '';
+    depth = 0;
+    for (const character of compound) {
+      if (character === '(' || character === '[') depth += 1;
+      if (depth === 0) bare += character;
+      if (character === ')' || character === ']') depth -= 1;
+    }
+    result = {
+      tag: /^[a-z][\w-]*/iu.exec(bare)?.[0]?.toLowerCase() ?? null,
+      ids: [...bare.matchAll(/#([\w-]+)/gu)].map((match) => match[1]!),
+      classes: [...bare.matchAll(/\.([\w-]+)/gu)].map((match) => match[1]!),
+    };
+  }
+  compounds.set(selector, result);
+  return result;
+}
+
+/** Whether an element cannot match a selector, judged by its rightmost compound alone. */
+function cannotMatch(element: Element, selector: string): boolean {
+  const compound = rightmostCompound(selector);
+  if (!compound) return false;
+  if (compound.tag && element.localName !== compound.tag) return true;
+  if (compound.ids.some((id) => element.id !== id)) return true;
+  return compound.classes.some((name) => !element.classList.contains(name));
+}
+
 /**
  * Resolves label typography on one document state. Selector matching depends
  * only on the document, so it is cached; media conditions are applied per
@@ -776,6 +733,22 @@ function cascadeResolver(
 ) {
   // The declarations that match each element, strongest first.
   const matched = new Map<Element, Map<string, CascadeCandidate[]>>();
+  // Whether each element matches each selector, shared by every property.
+  const selectorMatches = new Map<Element, Map<string, boolean>>();
+  const matches = (element: Element, candidate: CascadeCandidate & { selector: string }) => {
+    let bySelector = selectorMatches.get(element);
+    if (!bySelector) selectorMatches.set(element, (bySelector = new Map()));
+    let result = bySelector.get(candidate.selector);
+    if (result === undefined) {
+      try {
+        result = !cannotMatch(element, candidate.selector) && element.matches(candidate.selector);
+      } catch {
+        throw new Error(`jsdom cannot match ${candidate.where}`);
+      }
+      bySelector.set(candidate.selector, result);
+    }
+    return result;
+  };
   const matchedInOrder = (element: Element, properties: readonly string[]) => {
     let byKey = matched.get(element);
     if (!byKey) matched.set(element, (byKey = new Map()));
@@ -784,13 +757,7 @@ function cascadeResolver(
     if (!list) {
       list = properties
         .flatMap((property) => declarations.get(property) ?? [])
-        .filter((candidate) => {
-          try {
-            return element.matches(candidate.selector);
-          } catch {
-            throw new Error(`jsdom cannot match ${candidate.where}`);
-          }
-        })
+        .filter((candidate) => matches(element, candidate))
         .sort((first, second) => cascadeOrder(second, first));
       byKey.set(key, list);
     }
@@ -814,7 +781,33 @@ function cascadeResolver(
       return substitute(element, String(fallback).trim(), environment);
     });
 
-  const custom = (element: Element, name: string, environment: MediaEnvironment): string | null => {
+  // Values already resolved on this document state, by element, environment
+  // and property: labels share their ancestors' inherited values.
+  const memo = new Map<Element, Map<MediaEnvironment, Map<string, string | null>>>();
+  const remembered = (
+    element: Element,
+    environment: MediaEnvironment,
+    key: string,
+    compute: () => string | null,
+  ): string | null => {
+    let byEnvironment = memo.get(element);
+    if (!byEnvironment) memo.set(element, (byEnvironment = new Map()));
+    let byKey = byEnvironment.get(environment);
+    if (!byKey) byEnvironment.set(environment, (byKey = new Map()));
+    if (byKey.has(key)) return byKey.get(key)!;
+    const value = compute();
+    byKey.set(key, value);
+    return value;
+  };
+
+  const custom = (element: Element, name: string, environment: MediaEnvironment): string | null =>
+    remembered(element, environment, name, () => customValue(element, name, environment));
+
+  const customValue = (
+    element: Element,
+    name: string,
+    environment: MediaEnvironment,
+  ): string | null => {
     const found = winner(element, [name], environment);
     if (!found || found.value === 'inherit' || found.value === 'unset') {
       return element.parentElement ? custom(element.parentElement, name, environment) : null;
@@ -823,6 +816,13 @@ function cascadeResolver(
   };
 
   const resolve = (
+    element: Element,
+    property: ResolvedProperty,
+    environment: MediaEnvironment,
+  ): string =>
+    remembered(element, environment, property, () => resolveValue(element, property, environment))!;
+
+  const resolveValue = (
     element: Element,
     property: ResolvedProperty,
     environment: MediaEnvironment,
@@ -939,21 +939,67 @@ function conditionApplies(atRule: AtRule, environment: MediaEnvironment): boolea
 }
 
 /**
+ * The conditional group rules that can change label typography: those around
+ * a declaration of a resolved property or the font shorthand, or of a custom
+ * property that such a declaration reads, directly or through other custom
+ * properties.
+ */
+function labelConditions(stylesheets: ReadonlyArray<{ path: string; root: Root }>): AtRule[] {
+  const typography: Declaration[] = [];
+  const customs = new Map<string, Declaration[]>();
+  for (const { root } of stylesheets) {
+    root.walkDecls((declaration) => {
+      if (declaration.prop.startsWith('--')) {
+        customs.set(declaration.prop, [...(customs.get(declaration.prop) ?? []), declaration]);
+      } else if (
+        declaration.prop === 'font' ||
+        (RESOLVED_PROPERTIES as readonly string[]).includes(declaration.prop)
+      ) {
+        typography.push(declaration);
+      }
+    });
+  }
+  const read = new Set<string>();
+  const queue = [...typography];
+  while (queue.length > 0) {
+    const declaration = queue.pop()!;
+    for (const match of declaration.value.matchAll(/var\(\s*(--[\w-]+)/gu)) {
+      const name = match[1]!;
+      if (read.has(name)) continue;
+      read.add(name);
+      queue.push(...(customs.get(name) ?? []));
+    }
+  }
+  const relevant = new Set<AtRule>();
+  for (const declaration of [
+    ...typography,
+    ...[...read].flatMap((name) => customs.get(name) ?? []),
+  ]) {
+    for (
+      let parent = declaration.parent as Node | undefined;
+      parent;
+      parent = parent.parent as Node
+    ) {
+      if (parent.type !== 'atrule') continue;
+      const atRule = parent as AtRule;
+      // Container queries do not depend on the viewport; a label declaration
+      // under one fails the resolver instead (conditionsApply).
+      if (atRule.name === 'media' || atRule.name === 'supports') relevant.add(atRule);
+    }
+  }
+  return [...relevant];
+}
+
+/**
  * Every derived viewport, alone and with each media preference, reduced to
- * one environment per distinct set of matching conditions: the cascade reads
- * nothing else from the environment, so the others resolve identically.
+ * one environment per distinct set of matching conditions that can change
+ * label typography: the cascade reads nothing else from the environment, so
+ * the others resolve identically.
  */
 function resolverEnvironments(
   stylesheets: ReadonlyArray<{ path: string; root: Root }>,
 ): MediaEnvironment[] {
-  const conditions: AtRule[] = [];
-  for (const { root } of stylesheets) {
-    root.walkAtRules((atRule) => {
-      // Container queries do not depend on the viewport; a label declaration
-      // under one fails the resolver instead (conditionsApply).
-      if (atRule.name === 'media' || atRule.name === 'supports') conditions.push(atRule);
-    });
-  }
+  const conditions = labelConditions(stylesheets);
   const environments = resolverViewports(stylesheets).flatMap(([width, height]) => {
     const base: MediaEnvironment = {
       width,
@@ -1033,7 +1079,12 @@ function resolveAcross(
   targets: (markup: Document) => Element[],
   visit: (
     resolved: Record<ResolvedProperty, string>,
-    context: { label: string; direction: string; environment: MediaEnvironment },
+    context: {
+      label: string;
+      direction: string;
+      environment: MediaEnvironment;
+      element: Element;
+    },
   ) => void,
 ): number {
   let declarations = declarationCache.get(stylesheets);
@@ -1071,6 +1122,7 @@ function resolveAcross(
                 `${element.tagName.toLowerCase()} ${element.textContent?.trim()}`,
               direction,
               environment,
+              element,
             });
           }
         }
@@ -1081,10 +1133,23 @@ function resolveAcross(
   return resolutions;
 }
 
-/** Label typography a declaration may set on an action button or its label. */
-function labelViolation(declaration: Declaration, ownSize: boolean): boolean {
-  if (declaration.prop === 'font' || declaration.prop === 'font-family') return true;
-  if (ownSize && declaration.prop === 'font-size') return false;
+/** Label typography a declaration may not set on a role member or its label. */
+function labelViolation(declaration: Declaration, styled: StyledLabel): boolean {
+  if (declaration.prop === 'font-family') return true;
+  // The demo tour controls reset the native button font ahead of their own
+  // longhands in the same rule.
+  if (declaration.prop === 'font') {
+    return !(styled.role === null && declaration.value === 'inherit');
+  }
+  if (declaration.prop === 'font-size') {
+    return styled.role !== null && declaration.value !== ROLE_SIZE_TOKENS[styled.role];
+  }
+  if (declaration.prop === 'line-height') {
+    const text = CTA_TEXT[styled.name];
+    if (text) return declaration.value !== text.lineHeight;
+    // The tab role and the demo tour controls keep their own line box.
+    if (styled.role === null || styled.role === 'tab') return false;
+  }
   return declaration.value !== LABEL_TOKENS[declaration.prop];
 }
 
@@ -1432,28 +1497,27 @@ function templateButtons(): TemplateButton[] {
 
 const registered = (name: string): boolean =>
   (ACTION_BUTTON_CLASSES as readonly string[]).includes(name) ||
-  name in OWN_SIZE_CLASSES ||
-  name in NOT_ACTION_BUTTONS;
+  name in ROLE_CLASSES ||
+  name in NOT_ROLE_BUTTONS;
 
-/** index.html with the action buttons that TypeScript mounts at runtime. */
-function markupWithRuntimeActions(): Document {
-  const markup = appMarkup();
-  const mount = (selector: string, html: string): void => {
+/** Mount the action buttons that TypeScript renders at runtime, as it renders them. */
+function mountRuntimeActions(markup: Document): void {
+  const mountIn = (selector: string, html: string): void => {
     const container = markup.querySelector(selector);
     expect(container, selector).not.toBeNull();
     container!.insertAdjacentHTML('beforeend', html);
   };
-  mount(
+  mountIn(
     '#qr-container',
     '<button type="button" class="btn-copy-invite-link"><svg viewBox="0 0 24 24"></svg>' +
       '<span class="material-elastic-spinner signaling-recovery-spinner" aria-hidden="true"></span>' +
       '<span data-i18n="connect.copy_invite_link">Copy invite link</span></button>',
   );
-  mount(
+  mountIn(
     '.playlist-title-area',
     '<button type="button" class="playlist-selection-toggle">Select all</button>',
   );
-  mount(
+  mountIn(
     '#setup-actions',
     '<button type="button" class="btn-ob-secondary">Back</button>' +
       '<button type="button" class="btn-ob-primary">Start</button>',
@@ -1462,41 +1526,149 @@ function markupWithRuntimeActions(): Document {
   vertical.removeAttribute('id');
   vertical.classList.add('vertical');
   markup.getElementById('setup-actions')!.after(vertical);
+}
+
+/** index.html with the action buttons that TypeScript mounts at runtime. */
+function markupWithRuntimeActions(): Document {
+  const markup = appMarkup();
+  mountRuntimeActions(markup);
   return markup;
 }
 
-// The named narrow-slot exceptions (U12 and the label sweep), each pinned by
-// the value that wins the cascade on the real markup in every page state that
-// app rules key on, both directions and themes and every derived viewport.
+// Every action label resolves to a named role: the value that wins the cascade
+// on the real markup, in every page state that app rules key on, both
+// directions and themes and every derived viewport. A '*' leaves a property to
+// the member (the tab role and the demo tour controls keep their line box).
 interface ResolveContext {
   direction: string;
   environment: MediaEnvironment;
 }
-interface NarrowSlot {
+type Expected = Record<ResolvedProperty, string>;
+interface RoleSlot {
   name: string;
   prepare: (markup: Document) => void;
   states: readonly PageState[];
   targets: (markup: Document) => Element[];
-  expected: (context: ResolveContext) => Record<ResolvedProperty, string>;
 }
 const typography = (
   size: string,
   weight: string,
   lineHeight: string,
   letterSpacing: string,
-): Record<ResolvedProperty, string> => ({
+): Expected => ({
   'font-size': size,
   'font-weight': weight,
   'line-height': lineHeight,
   'letter-spacing': letterSpacing,
   'font-variation-settings': 'normal',
 });
-const SHARED_LABEL = typography('15px', '700', '1.25', 'normal');
-const SEMIBOLD_LABEL = typography('15px', '600', '1.25', 'normal');
-const upTo =
-  (maxWidth: number, narrow: Record<ResolvedProperty, string>) =>
-  ({ environment }: ResolveContext): Record<ResolvedProperty, string> =>
-    environment.width <= maxWidth ? narrow : SHARED_LABEL;
+// The roles as they resolve. The compact members take the chip role's size in
+// the CTA's line box, and the demo finish pair the tab role's size.
+const ROLE_LABELS = {
+  cta: typography('15px', '600', '1.25', 'normal'),
+  chip: typography('14px', '600', '1.25', 'normal'),
+  tab: typography('13px', '600', '*', 'normal'),
+} as const;
+const COMPACT_LABEL = ROLE_LABELS.chip;
+const DEMO_PAIR_NARROW_LABEL = typography('13px', '600', '1.25', 'normal');
+const SHARED_WEIGHT_LABEL = typography('*', '600', '*', 'normal');
+const HIDDEN_LABEL = typography('0', '600', '1.25', 'normal');
+// A label the layout hides takes no role.
+const UNSHOWN: Expected = {
+  'font-size': '*',
+  'font-weight': '*',
+  'line-height': '*',
+  'letter-spacing': '*',
+  'font-variation-settings': '*',
+};
+// The desktop settings tabs show only in the desktop layout; elsewhere their
+// row is hidden (css/style.css) and its buttons carry no label style.
+const TAB_CONDITION = (() => {
+  const conditions = new Set<string | null>();
+  for (const { root } of sheets) {
+    root.walkRules('.subtab-pill', (rule) => {
+      if (rule.some((node) => node.type === 'decl' && node.prop === 'font-size')) {
+        conditions.add(conditionOf(rule));
+      }
+    });
+  }
+  const [condition, ...others] = [...conditions];
+  if (!condition || others.length > 0) {
+    throw new Error(`the tab role needs one condition: ${[...conditions].join(' / ')}`);
+  }
+  return condition;
+})();
+
+const COMPACT_MEMBER_SELECTOR = Object.keys(COMPACT_MEMBERS).join(', ');
+const atMedia = (condition: string): string => condition.replace(/^@media\s+/u, '');
+const compactApplies = (environment: MediaEnvironment): boolean =>
+  mediaMatches(atMedia(COMPACT_CONDITION), environment);
+const HIDDEN_CLOSE = NARROW_OVERRIDES.find((entry) => entry.declaration === 'font-size: 0')!;
+const SHARED_WEIGHT_SELECTOR = Object.keys(SHARED_WEIGHT_CONTAINERS)
+  .map((container) => `${container} button`)
+  .join(', ');
+
+/** The role typography an action label must resolve to, by its membership. */
+function expectedRole(element: Element, { environment }: ResolveContext): Expected {
+  if (
+    element.closest(HIDDEN_CLOSE.selector) &&
+    mediaMatches(atMedia(HIDDEN_CLOSE.condition), environment)
+  ) {
+    return HIDDEN_LABEL;
+  }
+  if (element.closest(SHARED_WEIGHT_SELECTOR)) return SHARED_WEIGHT_LABEL;
+  // The demo tour's two-per-row actions and choice cards (NARROW_OVERRIDES).
+  if (element.closest('.demo-large-actions') && environment.width <= 420) {
+    return DEMO_PAIR_NARROW_LABEL;
+  }
+  if (element.closest('.subtab-pill') && !mediaMatches(atMedia(TAB_CONDITION), environment)) {
+    return UNSHOWN;
+  }
+  for (const [name, { role }] of Object.entries(ROLE_CLASSES)) {
+    if (element.closest(`.${name}`)) return ROLE_LABELS[role];
+  }
+  for (const [selector, { lineHeight }] of Object.entries(CTA_TEXT)) {
+    if (element.closest(selector)) return { ...ROLE_LABELS.cta, 'line-height': lineHeight };
+  }
+  if (element.closest(COMPACT_MEMBER_SELECTOR) && compactApplies(environment)) {
+    return COMPACT_LABEL;
+  }
+  return ROLE_LABELS.cta;
+}
+
+const matchesExpected = (resolved: Expected, expected: Expected): boolean =>
+  RESOLVED_PROPERTIES.every(
+    (property) => expected[property] === '*' || resolved[property] === expected[property],
+  );
+
+/** Every role member (inside `within`) and the HTML elements of its label. */
+function roleLabels(markup: Document, within = ''): Element[] {
+  const members = [
+    ...ACTION_BUTTON_CLASSES.map((name) => `.${name}`),
+    ...Object.keys(ROLE_CLASSES).map((name) => `.${name}`),
+    ...Object.keys(CTA_TEXT),
+    ...Object.keys(SHARED_WEIGHT_CONTAINERS).map((container) => `${container} button`),
+  ]
+    .map((selector) => `${within} ${selector}`.trim())
+    .join(', ');
+  const nested = Object.keys(NESTED_EXCEPTIONS)
+    .map((name) => `.${name}`)
+    .join(', ');
+  // The member and every element inside it that holds label text itself.
+  const holdsText = (element: Element): boolean =>
+    [...element.childNodes].some(
+      (node) => node.nodeType === node.TEXT_NODE && (node.textContent ?? '').trim() !== '',
+    );
+  return [...new Set(markup.querySelectorAll(members))].flatMap((member) => [
+    member,
+    ...[...member.querySelectorAll('*')].filter(
+      (element) =>
+        element.namespaceURI === 'http://www.w3.org/1999/xhtml' &&
+        !element.closest(nested) &&
+        holdsText(element),
+    ),
+  ]);
+}
 
 /** Mount a control that TypeScript renders at runtime, as it renders it. */
 const mount = (markup: Document, selector: string, html: string): void => {
@@ -1517,321 +1689,23 @@ const removeAttribute =
     return () => element.setAttribute(name, before!);
   };
 
-// The label sweep's narrow slots (PR #510 QA round 8; SWEPT_* reasons above).
-const SWEPT_NARROW_SLOTS: readonly NarrowSlot[] = [
+const ROLE_SLOTS: readonly RoleSlot[] = [
   {
-    name: 'account deletion',
+    // Every role member in index.html and the runtime-mounted actions, with
+    // every overlay open.
+    name: 'every role member',
     prepare: (markup) => {
-      markup.getElementById('account-dialog-overlay')!.classList.add('show');
-      markup.getElementById('account-dialog-actions')!.removeAttribute('hidden');
-    },
-    states: [
-      ...SHARED_PAGE_STATES,
-      { name: 'busy', apply: setAttribute('#account-dialog', 'aria-busy', 'true') },
-    ],
-    targets: (markup) => [markup.getElementById('btn-account-delete')!],
-    expected: ({ environment }) =>
-      environment.width <= 420 || environment.height <= 350
-        ? typography('14px', '700', '1.25', 'normal')
-        : SHARED_LABEL,
-  },
-  {
-    name: 'invite link',
-    prepare: (markup) => {
-      showTab('tab-connect')(markup);
-      // As src/ui/connect.ts mounts it.
-      mount(
-        markup,
-        '#qr-container',
-        '<button type="button" class="btn-copy-invite-link" data-mode="copy">' +
-          '<svg viewBox="0 0 24 24"></svg>' +
-          '<span class="material-elastic-spinner signaling-recovery-spinner"></span>' +
-          '<span data-i18n="connect.copy_invite_link">Copy invite link</span></button>',
-      );
-    },
-    states: [
-      ...SHARED_PAGE_STATES,
-      ...['recover', 'recovering', 'expired'].map((mode) => ({
-        name: `${mode} mode`,
-        apply: setAttribute('#qr-container .btn-copy-invite-link', 'data-mode', mode),
-      })),
-    ],
-    targets: (markup) => [
-      ...markup.querySelectorAll(
-        '#qr-container .btn-copy-invite-link, #qr-container .btn-copy-invite-link > span[data-i18n]',
-      ),
-    ],
-    expected: upTo(420, SEMIBOLD_LABEL),
-  },
-  {
-    name: 'leave session',
-    prepare: showTab('tab-connect'),
-    states: SHARED_PAGE_STATES,
-    targets: (markup) => [
-      ...markup.querySelectorAll('#btn-leave-session, #btn-leave-session > span'),
-    ],
-    expected: upTo(420, SEMIBOLD_LABEL),
-  },
-  {
-    name: 'help actions',
-    prepare: showTab('tab-guide'),
-    states: SHARED_PAGE_STATES,
-    targets: (markup) => [
-      ...markup.querySelectorAll(
-        '#btn-demo-media-mobile, #btn-demo-media-mobile > span, ' +
-          '#btn-screensaver-mobile, #btn-screensaver-mobile > span',
-      ),
-    ],
-    expected: upTo(420, SEMIBOLD_LABEL),
-  },
-  {
-    name: 'media sources',
-    prepare: (markup) => {
-      markup.getElementById('media-source-overlay')!.classList.add('active');
-    },
-    states: [
-      ...SHARED_PAGE_STATES,
-      // Phones cannot capture system audio.
-      { name: 'system audio unsupported', apply: toggleClass('#btn-system-audio', 'unsupported') },
-    ],
-    targets: (markup) => [
-      ...markup.querySelectorAll(
-        '#btn-local-file > span, #btn-youtube-source > span, ' +
-          '#btn-system-audio .media-source-label-text',
-      ),
-    ],
-    expected: ({ direction, environment }) =>
-      environment.width <= 719
-        ? typography('15px', '600', '1.25', direction === 'rtl' ? 'normal' : '-0.3px')
-        : SHARED_LABEL,
-  },
-  {
-    name: 'selection toggle',
-    prepare: (markup) => {
-      showTab('tab-playlist')(markup);
-      // As src/ui/playlist-removal.ts lays out the deletion mode.
-      markup.querySelector('#tab-playlist > .tab-header')!.classList.add('is-removal-selecting');
-      mount(
-        markup,
-        '#tab-playlist .playlist-title-area',
-        '<button type="button" class="playlist-selection-toggle" ' +
-          'data-selection-action="select-all">Select all (999)</button>',
-      );
+      mountRuntimeActions(markup);
+      for (const overlay of markup.querySelectorAll('[id$="-overlay"]')) {
+        overlay.classList.add('show', 'active');
+      }
     },
     states: SHARED_PAGE_STATES,
-    targets: (markup) => [...markup.querySelectorAll('.playlist-selection-toggle')],
-    expected: upTo(420, SEMIBOLD_LABEL),
+    targets: (markup) => roleLabels(markup),
   },
-  {
-    name: 'setup choice',
-    prepare: (markup) => {
-      markup.getElementById('setup-overlay')!.classList.add('active');
-      // As src/ui/setup.ts renders the room choice.
-      markup.getElementById('setup-actions')!.classList.add('vertical');
-      mount(
-        markup,
-        '#setup-actions',
-        '<button id="btn-setup-host" type="button" class="btn-ob-primary">Create a Room</button>' +
-          '<button id="btn-setup-guest" type="button" class="btn-ob-secondary">Join a Room</button>',
-      );
-    },
-    states: SHARED_PAGE_STATES,
-    targets: (markup) => [...markup.querySelectorAll('#btn-setup-host, #btn-setup-guest')],
-    expected: upTo(420, SEMIBOLD_LABEL),
-  },
-  {
-    name: 'setup confirm',
-    prepare: (markup) => {
-      markup.getElementById('setup-overlay')!.classList.add('active');
-      // As src/ui/setup-shared.ts renders one action beside Back.
-      markup.getElementById('setup-actions')!.classList.add('horizontal-with-back');
-      mount(
-        markup,
-        '#setup-actions',
-        '<button id="btn-setup-back" type="button" class="btn-ob-icon" aria-label="Go back">' +
-          '<svg viewBox="0 0 24 24"></svg></button>' +
-          '<button id="btn-setup-confirm" type="button" class="btn-ob-primary">Retry</button>',
-      );
-    },
-    states: [
-      ...SHARED_PAGE_STATES,
-      // The host's Please wait while its room code loads: secondary and disabled.
-      {
-        name: 'waiting (secondary)',
-        apply: (markup) => {
-          const button = markup.getElementById('btn-setup-confirm')!;
-          button.className = 'btn-ob-secondary';
-          button.setAttribute('disabled', '');
-          return () => {
-            button.className = 'btn-ob-primary';
-            button.removeAttribute('disabled');
-          };
-        },
-      },
-      // Joining..., with Back disabled too.
-      { name: 'joining', apply: setAttribute('#setup-actions > button', 'disabled') },
-      // The iOS YouTube gate's Please wait on the filled pill.
-      { name: 'gate busy', apply: setAttribute('#btn-setup-confirm', 'aria-busy', 'true') },
-    ],
-    targets: (markup) => [markup.getElementById('btn-setup-confirm')!],
-    // 600 everywhere but the desktop setup panel (the desktop layout band).
-    expected: ({ environment }) =>
-      isDesktopLayoutSize(environment.width, environment.height) ? SHARED_LABEL : SEMIBOLD_LABEL,
-  },
-  {
-    name: 'YouTube link actions',
-    prepare: (markup) => {
-      markup.getElementById('youtube-url-overlay')!.classList.add('active');
-    },
-    states: [
-      ...SHARED_PAGE_STATES,
-      { name: 'link entered', apply: removeAttribute('#youtube-play-btn', 'disabled') },
-    ],
-    targets: (markup) => [...markup.querySelectorAll('#btn-yt-cancel, #youtube-play-btn')],
-    expected: upTo(719, SEMIBOLD_LABEL),
-  },
-];
-
-// A rule each swept slot's guard must catch: a token read in a later layer,
-// between two samples or on short screens only.
-const NARROW_SLOT_MUTATIONS: Record<string, { slots: string[]; css: string }> = {
-  'account deletion back to 15px in a later layer': {
-    slots: ['account deletion'],
-    css: `
-    @layer responsive {
-      .account-dialog-actions .dialog-secondary {
-        font-size: var(--button-label-size);
-      }
-    }`,
-  },
-  'account deletion back to 15px on short screens only': {
-    slots: ['account deletion'],
-    css: `
-    @layer states {
-      @media (min-width: 421px) and (max-height: 350px) {
-        .account-dialog-actions .dialog-danger {
-          font-size: var(--button-label-size);
-        }
-      }
-    }`,
-  },
-  'invite link back to 700 on 375px phones': {
-    slots: ['invite link'],
-    css: `
-    @layer states {
-      @media (min-width: 361px) and (max-width: 389px) {
-        .qr-container .btn-copy-invite-link {
-          font-weight: var(--button-label-weight);
-        }
-      }
-    }`,
-  },
-  'leave session back to 700 in landscape': {
-    slots: ['leave session'],
-    css: `
-    @layer components {
-      @media (orientation: landscape) {
-        .section-group > .leave-session-btn {
-          font-weight: var(--button-label-weight);
-        }
-      }
-    }`,
-  },
-  'help actions back to 700 in a later layer': {
-    slots: ['help actions'],
-    css: `
-    @layer components {
-      .help-actions .accent-action-btn {
-        font-weight: var(--button-label-weight);
-      }
-    }`,
-  },
-  'media sources lose their tracking in a later layer': {
-    slots: ['media sources'],
-    css: `
-    @layer components {
-      .setup-slot-list .file-select-btn span {
-        letter-spacing: var(--button-label-letter-spacing);
-      }
-    }`,
-  },
-  'media sources back to 700 between 421 and 719px': {
-    slots: ['media sources'],
-    css: `
-    @layer responsive {
-      @media (min-width: 421px) and (max-width: 719px) {
-        #media-source-overlay .file-select-btn > span {
-          font-weight: var(--button-label-weight);
-        }
-      }
-    }`,
-  },
-  'selection toggle back to 700 through the weight axis': {
-    slots: ['selection toggle'],
-    css: `
-    @layer states {
-      .tab-header.is-removal-selecting .playlist-selection-toggle {
-        font-variation-settings: 'wght' 700;
-      }
-    }`,
-  },
-  'setup choice back to 700 in a later layer': {
-    slots: ['setup choice'],
-    css: `
-    @layer responsive {
-      .onboarding-overlay .ob-actions.vertical > button {
-        font-weight: var(--button-label-weight);
-      }
-    }`,
-  },
-  'setup confirm back to 700 in the row beside Back': {
-    slots: ['setup confirm'],
-    css: `
-    @layer responsive {
-      .onboarding-overlay .ob-actions.horizontal-with-back > button {
-        font-weight: var(--button-label-weight);
-      }
-    }`,
-  },
-  'setup confirm back to 700 in the two-column setup panel': {
-    slots: ['setup confirm'],
-    css: `
-    @layer responsive {
-      @media (min-width: 720px) and (max-width: 1279px) {
-        #setup-overlay .setup-mobile-view .ob-actions > button {
-          font-weight: var(--button-label-weight);
-        }
-      }
-    }`,
-  },
-  'setup confirm Please wait back to 700 on 375px phones': {
-    slots: ['setup confirm'],
-    css: `
-    @layer states {
-      @media (min-width: 361px) and (max-width: 389px) {
-        .ob-actions .btn-ob-secondary:disabled {
-          font-weight: var(--button-label-weight);
-        }
-      }
-    }`,
-  },
-  'YouTube link actions back to 700 at 421px': {
-    slots: ['YouTube link actions'],
-    css: `
-    @layer states {
-      @media (min-width: 421px) and (max-width: 421px) {
-        .setup-card-mt-8-row > button {
-          font-weight: var(--button-label-weight);
-        }
-      }
-    }`,
-  },
-};
-
-const NARROW_SLOTS: readonly NarrowSlot[] = [
   {
     // The play tab's Sync, Media and Stop Sharing labels.
-    name: 'compact play actions',
+    name: 'play actions',
     prepare: () => undefined,
     states: [
       ...SHARED_PAGE_STATES,
@@ -1846,67 +1720,175 @@ const NARROW_SLOTS: readonly NarrowSlot[] = [
       { name: 'system audio', apply: toggleClass('body', 'mode-system-audio') },
       { name: 'spectrum', apply: toggleClass('body', 'viz-spectrum') },
     ],
-    targets: (markup) => [
-      ...markup.querySelectorAll(
-        '#btn-sync .play-action-label, #btn-media-source .play-action-label',
-      ),
-    ],
-    expected: ({ direction }) =>
-      typography('15px', '600', '1.25', direction === 'rtl' ? 'normal' : '-0.3px'),
+    targets: (markup) => roleLabels(markup, '.play-action-buttons'),
   },
   {
-    // The demo finish pair, Track info and Exit Tour, and their labels.
-    name: 'demo finish pair',
+    // The demo tour: the finish pair, the effect choices, the step indicator
+    // and the role switch.
+    name: 'demo',
     prepare: (markup) => {
       // As src/demo/mode.ts applies the demo.
       markup.body.classList.add('mode-demo', 'demo-mobile');
       markup.getElementById('demo-overlay')!.classList.add('active');
       for (const panel of markup.querySelectorAll('.demo-step-panel')) {
-        panel.classList.toggle('active', panel.getAttribute('data-demo-panel') === '4');
+        panel.classList.add('active');
       }
     },
     states: [
       ...SHARED_PAGE_STATES,
       { name: 'demo chrome hiding', apply: toggleClass('body', 'demo-chrome-hiding') },
+      {
+        name: 'demo step active',
+        apply: (markup) => {
+          const steps = [...markup.querySelectorAll('.demo-step-nav button')].filter(
+            (step) => !step.classList.contains('active'),
+          );
+          for (const step of steps) step.classList.add('active');
+          return () => {
+            for (const step of steps) step.classList.remove('active');
+          };
+        },
+      },
     ],
-    targets: (markup) => [
-      ...markup.querySelectorAll(
-        '[data-demo-info], [data-demo-info] > span, [data-demo-exit], [data-demo-exit] > span',
-      ),
-    ],
-    expected: ({ environment }) =>
-      environment.width <= 420 ? typography('13px', '600', '1.25', 'normal') : SHARED_LABEL,
+    targets: (markup) => roleLabels(markup, '#demo-overlay'),
   },
-  ...SWEPT_NARROW_SLOTS,
+  {
+    name: 'account pair',
+    prepare: (markup) => {
+      markup.getElementById('account-dialog-overlay')!.classList.add('show');
+      markup.getElementById('account-dialog-actions')!.removeAttribute('hidden');
+    },
+    states: [
+      ...SHARED_PAGE_STATES,
+      { name: 'busy', apply: setAttribute('#account-dialog', 'aria-busy', 'true') },
+    ],
+    targets: (markup) => roleLabels(markup, '#account-dialog-actions'),
+  },
+  {
+    name: 'invite link',
+    prepare: (markup) => {
+      showTab('tab-connect')(markup);
+      mountRuntimeActions(markup);
+    },
+    states: [
+      ...SHARED_PAGE_STATES,
+      ...['recover', 'recovering', 'expired'].map((mode) => ({
+        name: `${mode} mode`,
+        apply: setAttribute('#qr-container .btn-copy-invite-link', 'data-mode', mode),
+      })),
+    ],
+    targets: (markup) => roleLabels(markup, '#qr-container'),
+  },
+  {
+    name: 'media sources',
+    prepare: (markup) => {
+      markup.getElementById('media-source-overlay')!.classList.add('active');
+    },
+    states: [
+      ...SHARED_PAGE_STATES,
+      // Phones cannot capture system audio.
+      { name: 'system audio unsupported', apply: toggleClass('#btn-system-audio', 'unsupported') },
+    ],
+    targets: (markup) => roleLabels(markup, '#media-source-overlay'),
+  },
+  {
+    name: 'selection toggle',
+    prepare: (markup) => {
+      showTab('tab-playlist')(markup);
+      // As src/ui/playlist-removal.ts lays out the deletion mode.
+      markup.querySelector('#tab-playlist > .tab-header')!.classList.add('is-removal-selecting');
+      mountRuntimeActions(markup);
+    },
+    states: SHARED_PAGE_STATES,
+    targets: (markup) => roleLabels(markup, '#tab-playlist .playlist-title-area'),
+  },
+  {
+    name: 'setup actions',
+    prepare: (markup) => {
+      markup.getElementById('setup-overlay')!.classList.add('active');
+      // As src/ui/setup.ts renders the room choice, and src/ui/setup-shared.ts
+      // one action beside Back.
+      mount(
+        markup,
+        '#setup-actions',
+        '<button id="btn-setup-host" type="button" class="btn-ob-primary">Create a Room</button>' +
+          '<button id="btn-setup-guest" type="button" class="btn-ob-secondary">Join a Room</button>',
+      );
+      const beside = markup.getElementById('setup-actions')!.cloneNode(false) as HTMLElement;
+      beside.removeAttribute('id');
+      beside.classList.add('horizontal-with-back');
+      beside.innerHTML =
+        '<button id="btn-setup-back" type="button" class="btn-ob-icon" aria-label="Go back">' +
+        '<svg viewBox="0 0 24 24"></svg></button>' +
+        '<button id="btn-setup-confirm" type="button" class="btn-ob-primary">Retry</button>';
+      markup.getElementById('setup-actions')!.after(beside);
+    },
+    states: [
+      ...SHARED_PAGE_STATES,
+      { name: 'room choice', apply: toggleClass('#setup-actions', 'vertical') },
+      // The host's Please wait while its room code loads: secondary and disabled.
+      {
+        name: 'waiting (secondary)',
+        apply: (markup) => {
+          const button = markup.getElementById('btn-setup-confirm')!;
+          button.className = 'btn-ob-secondary';
+          button.setAttribute('disabled', '');
+          return () => {
+            button.className = 'btn-ob-primary';
+            button.removeAttribute('disabled');
+          };
+        },
+      },
+      // Joining..., with Back disabled too.
+      { name: 'joining', apply: setAttribute('.horizontal-with-back > button', 'disabled') },
+      // The iOS YouTube gate's Please wait on the filled pill.
+      { name: 'gate busy', apply: setAttribute('#btn-setup-confirm', 'aria-busy', 'true') },
+    ],
+    targets: (markup) => roleLabels(markup, '#setup-overlay .ob-actions'),
+  },
+  {
+    name: 'YouTube link actions',
+    prepare: (markup) => {
+      markup.getElementById('youtube-url-overlay')!.classList.add('active');
+    },
+    states: [
+      ...SHARED_PAGE_STATES,
+      { name: 'link entered', apply: removeAttribute('#youtube-play-btn', 'disabled') },
+    ],
+    targets: (markup) => roleLabels(markup, '#youtube-url-overlay'),
+  },
 ];
 
 class FirstFailure extends Error {}
 
 /**
- * Every resolution of the named narrow slots that differs from its
- * expectation, or only the first one (a mutation check needs no more).
+ * Every resolution of the role slots that is not its role, or only the first
+ * one (a mutation check needs no more).
  */
-function narrowSlotFailures(
+function roleFailures(
   stylesheets: ReadonlyArray<{ path: string; root: Root }>,
   options: { firstOnly?: boolean; slots?: readonly string[] } = {},
 ): {
   failures: string[];
   resolutions: Record<string, number>;
+  resolved: Set<string>;
 } {
   const failures: string[] = [];
   const resolutions: Record<string, number> = {};
+  const resolved = new Set<string>();
   try {
-    for (const slot of NARROW_SLOTS) {
+    for (const slot of ROLE_SLOTS) {
       if (options.slots && !options.slots.includes(slot.name)) continue;
       resolutions[slot.name] = resolveAcross(
         stylesheets,
         slot.prepare,
         slot.states,
         slot.targets,
-        (resolved, context) => {
-          const want = slot.expected(context);
-          if (JSON.stringify(resolved) === JSON.stringify(want)) return;
-          failures.push(`${slot.name} ${context.label}: ${JSON.stringify(resolved)}`);
+        (value, context) => {
+          const expected = expectedRole(context.element, context);
+          if (expected !== UNSHOWN) resolved.add(JSON.stringify(value));
+          if (matchesExpected(value, expected)) return;
+          failures.push(`${slot.name} ${context.label}: ${JSON.stringify(value)}`);
           if (options.firstOnly) throw new FirstFailure();
         },
       );
@@ -1914,28 +1896,37 @@ function narrowSlotFailures(
   } catch (error) {
     if (!(error instanceof FirstFailure)) throw error;
   }
-  return { failures, resolutions };
+  return { failures, resolutions, resolved };
 }
 
 describe('action button label contract', () => {
-  it('defines the button label tokens and the danger foreground once on the root', () => {
+  it('defines the button label role tokens and the danger foreground once on the root', () => {
     for (const [token, value] of Object.entries(LABEL_VALUES)) {
       expect(ruleValues(appCss, ':root', token), token).toEqual([value]);
-      for (const { path, root } of sheets) {
-        const owners: string[] = [];
-        root.walkDecls(token, (declaration) => {
-          owners.push(where(declaration, path));
-        });
-        expect(owners.length, `${token} owners in ${path}`).toBe(path === 'css/style.css' ? 1 : 0);
-      }
     }
+    // Every other declaration of a label token is the compact role's swap.
+    const owners: string[] = [];
+    for (const { path, root } of sheets) {
+      root.walkDecls(/^--button-label-/u, (declaration) => {
+        const rule = declaration.parent as Rule;
+        if (rule.selector === ':root') return;
+        owners.push(
+          `${path} ${conditionOf(declaration)} ${rule.selector} ` +
+            `{ ${declaration.prop}: ${declaration.value} }`,
+        );
+      });
+    }
+    expect(owners).toEqual([
+      `css/style.css ${COMPACT_CONDITION} .${COMPACT_CLASS} ` +
+        `{ --button-label-size: ${ROLE_SIZE_TOKENS.chip} }`,
+    ]);
     expect(ruleValues(appCss, ':root', '--danger-foreground')).toEqual(['#ff3b30']);
     // Owner decision (2026-10-27, evening): the default light theme keeps the
     // red of 9.0.18 instead of a darker one; only high contrast darkens it.
     expect(ruleValues(appCss, "html[data-theme='light']", '--danger-foreground')).toEqual([]);
   });
 
-  it('lets action button rules set label typography only through the tokens', () => {
+  it('lets role member rules set label typography only through the role tokens', () => {
     const violations: string[] = [];
     for (const { path, root } of sheets) {
       root.walkDecls((declaration) => {
@@ -1944,10 +1935,9 @@ describe('action button label contract', () => {
         if (rule?.type !== 'rule') return;
         for (const selector of (rule as unknown as { selectors: string[] }).selectors) {
           if (selector.includes('::') || isNestedException(selector)) continue;
-          const button = styledButton(selector);
-          if (!button || !labelViolation(declaration, button.ownSize)) continue;
-          if (isCompactOverride(declaration, selector)) continue;
-          if (isOwnLabelDeclaration(declaration, selector)) continue;
+          const styled = styledButton(selector);
+          if (!styled || !labelViolation(declaration, styled)) continue;
+          if (isNarrowOverride(declaration, selector)) continue;
           violations.push(
             `${where(declaration, path)} ${selector.replace(/\s+/gu, ' ')} { ${declaration.prop}: ${declaration.value} }`,
           );
@@ -1957,41 +1947,103 @@ describe('action button label contract', () => {
     expect(violations).toEqual([]);
   });
 
-  it("reads every label token from each action button's own rule", () => {
+  it("reads each role's label tokens from every member's own rule", () => {
     for (const name of ACTION_BUTTON_CLASSES) {
       for (const [property, token] of Object.entries(LABEL_TOKENS)) {
         expect(ruleValues(appCss, `.${name}`, property), `.${name} ${property}`).toEqual([token]);
       }
     }
-    // Choice cards keep their size and share the rest.
-    expect(ruleValues(appCss, '.ch-opt', 'font-size')).toEqual(['14px']);
+    // Choice chips read the chip size and share the rest.
+    expect(ruleValues(appCss, '.ch-opt', 'font-size')).toEqual([ROLE_SIZE_TOKENS.chip]);
     for (const property of ['font-weight', 'line-height', 'letter-spacing']) {
       expect(ruleValues(appCss, '.ch-opt', property), `.ch-opt ${property}`).toEqual([
         LABEL_TOKENS[property],
       ]);
     }
+    // The desktop settings tabs read the tab size and the shared weight.
+    const tabRules: string[] = [];
+    for (const { root } of sheets) {
+      root.walkRules('.subtab-pill', (rule) => {
+        rule.walkDecls((declaration) => {
+          if (FONT_PROPERTIES.includes(declaration.prop)) {
+            tabRules.push(`${declaration.prop}: ${declaration.value}`);
+          }
+        });
+      });
+    }
+    expect(tabRules).toEqual([
+      `font-size: ${ROLE_SIZE_TOKENS.tab}`,
+      `font-weight: ${LABEL_TOKENS['font-weight']}`,
+    ]);
+    // The chat preview text reads the CTA tokens and keeps its line box.
+    for (const [selector, { lineHeight }] of Object.entries(CTA_TEXT)) {
+      expect(ruleValues(appCss, selector, 'font-size'), selector).toEqual([ROLE_SIZE_TOKENS.cta]);
+      expect(ruleValues(appCss, selector, 'font-weight'), selector).toEqual([
+        LABEL_TOKENS['font-weight'],
+      ]);
+      expect(ruleValues(appCss, selector, 'letter-spacing'), selector).toEqual([
+        LABEL_TOKENS['letter-spacing'],
+      ]);
+      expect(ruleValues(appCss, selector, 'line-height'), selector).toEqual([lineHeight]);
+    }
+    // The demo tour controls share the weight and tracking.
+    for (const container of Object.keys(SHARED_WEIGHT_CONTAINERS)) {
+      const selector = `${container} button`;
+      expect(ruleValues(appCss, selector, 'font-weight'), selector).toEqual([
+        LABEL_TOKENS['font-weight'],
+      ]);
+      expect(ruleValues(appCss, selector, 'letter-spacing'), selector).toEqual([
+        LABEL_TOKENS['letter-spacing'],
+      ]);
+    }
   });
 
-  it('keeps the compact play action labels at their 9.0.18 weight and tracking', () => {
-    // PR #510 CI (Linux fonts): at 700 the Finnish Synkronoi wrapped to two
-    // lines in its 130px slot at the real 320px width. Sync and Media (and
-    // Stop Sharing, inside the media button) keep 600 and -0.3px as in 9.0.18
-    // and read the shared size and line height, the same 15px / 1.25 as 9.0.18.
-    for (const selector of ['#btn-sync span', '#btn-media-source span']) {
-      expect(ruleValues(appCss, selector, 'font-weight'), selector).toEqual(['600']);
-      expect(ruleValues(appCss, selector, 'letter-spacing'), selector).toEqual(['-0.3px']);
-      expect(ruleValues(appCss, selector, 'font-size'), selector).toEqual([]);
-      expect(ruleValues(appCss, selector, 'line-height'), selector).toEqual([]);
+  it('gives the compact role to its named members only, under one shared condition', () => {
+    // One rule swaps the size token on the members' buttons, in the base
+    // layer beside the tokens, and nothing else styles the class.
+    const compactRules: string[] = [];
+    for (const { path, root } of sheets) {
+      root.walkRules((rule) => {
+        if (!rule.selectors.some((selector) => hasClass(selector, COMPACT_CLASS))) return;
+        compactRules.push(
+          `${path} ${layerOf(rule)} ${conditionOf(rule)} ${rule.selector} ` +
+            rule.nodes.map((node) => node.toString()).join('; '),
+        );
+      });
     }
-    expect(ruleValues(appCss, '.file-select-btn', 'font-size')).toEqual([
-      LABEL_TOKENS['font-size'],
+    expect(compactRules).toEqual([
+      `css/style.css base ${COMPACT_CONDITION} .${COMPACT_CLASS} ` +
+        `--button-label-size: ${ROLE_SIZE_TOKENS.chip}`,
     ]);
-    expect(ruleValues(appCss, '.file-select-btn', 'line-height')).toEqual([
-      LABEL_TOKENS['line-height'],
-    ]);
-    expect(LABEL_VALUES['--button-label-size']).toBe('15px');
-    expect(LABEL_VALUES['--button-label-line-height']).toBe('1.25');
-    // No other rule sets their label typography.
+    // The class sits on the named members and nowhere else: index.html and
+    // the TypeScript templates.
+    const markup = appMarkup();
+    expect(
+      [...markup.querySelectorAll(`.${COMPACT_CLASS}`)].map((element) => `#${element.id}`).sort(),
+    ).toEqual(Object.keys(COMPACT_MEMBERS).sort());
+    expect(templateButtons().filter((button) => button.classes.includes(COMPACT_CLASS))).toEqual(
+      [],
+    );
+    for (const [member, reason] of Object.entries(COMPACT_MEMBERS)) {
+      const element = markup.querySelector(member);
+      expect(element, member).not.toBeNull();
+      expect(
+        element!.matches(ACTION_BUTTON_CLASSES.map((name) => `.${name}`).join(', ')),
+        `${member} is an action button`,
+      ).toBe(true);
+      expect(reason.length, member).toBeGreaterThan(20);
+    }
+    // Every narrow override names its reason too.
+    for (const override of NARROW_OVERRIDES) {
+      expect(override.reason.length, override.selector).toBeGreaterThan(20);
+    }
+  });
+
+  it('gives the play actions and media sources no label typography of their own', () => {
+    // The 9.0.18 600 / -0.3px of Sync, Media, Stop Sharing and the media
+    // source options is gone (owner decision 2026-10-28): the labels inherit
+    // the CTA role from .file-select-btn, and the media sources take the
+    // compact role through their markup class.
     const owners: string[] = [];
     for (const { path, root } of sheets) {
       root.walkDecls((declaration) => {
@@ -1999,34 +2051,23 @@ describe('action button label contract', () => {
         const rule = declaration.parent as unknown as { type: string; selectors?: string[] };
         if (rule.type !== 'rule') return;
         for (const selector of rule.selectors ?? []) {
-          if (!/#btn-(?:sync|media-source)(?![\w-])|play-action-label/u.test(selector)) continue;
+          if (isNestedException(selector)) continue;
+          if (
+            !/#btn-(?:sync|media-source|local-file|youtube-source|system-audio)(?![\w-])|play-action-label|media-source-label-text/u.test(
+              selector,
+            )
+          ) {
+            continue;
+          }
+          if (isNarrowOverride(declaration as Declaration, selector)) continue;
           owners.push(`${path} ${selector.replace(/\s+/gu, ' ').trim()} ${declaration.prop}`);
         }
       });
     }
-    expect(owners.sort()).toEqual([
-      'css/style.css #btn-media-source span font-weight',
-      'css/style.css #btn-media-source span letter-spacing',
-      'css/style.css #btn-sync span font-weight',
-      'css/style.css #btn-sync span letter-spacing',
-    ]);
-    // As in 9.0.18, the tracking sits in the base layer and the right-to-left
-    // reset in the components layer, so Arabic and Hebrew labels take none.
-    appCss.walkRules((rule) => {
-      if (!rule.selectors.some((selector) => selector.trim() === '#btn-sync span')) return;
-      expect(layerOf(rule)).toBe('base');
-    });
-    const rtlReset =
-      "html[dir='rtl'] :where(h1, h2, h3, h4, p, button, label, span, input, textarea)";
-    const rtlLayers: Array<string | null> = [];
-    for (const { root } of sheets) {
-      root.walkRules((rule) => {
-        if (rule.selectors.some((selector) => selector.replace(/\s+/gu, ' ').trim() === rtlReset)) {
-          rtlLayers.push(layerOf(rule));
-        }
-      });
+    expect(owners).toEqual([]);
+    for (const property of Object.keys(LABEL_TOKENS)) {
+      expect(ruleValues(appCss, '.file-select-btn span', property), property).toEqual([]);
     }
-    expect(rtlLayers).toEqual(['components']);
   });
 
   it('computes cascade order, specificity and media conditions like the browser', () => {
@@ -2073,12 +2114,13 @@ describe('action button label contract', () => {
     expect(cascadeOrder(candidate(2, 1, false, 5), candidate(2, 1, false, 9))).toBeLessThan(0);
   });
 
-  it('resolves the named narrow-slot exceptions through the whole cascade', () => {
-    // Every direction, theme and page state below, in each derived viewport and
-    // media preference: the value that wins the cascade, not only the rule that
-    // sets it, keeps the 9.0.18 typography on the narrow slots.
-    const { failures, resolutions } = narrowSlotFailures(sheets);
-    for (const slot of NARROW_SLOTS) {
+  it('resolves every action label to a named role through the whole cascade', () => {
+    // Every direction, theme and page state, in each derived viewport and
+    // media preference: the value that wins the cascade on every role member
+    // and its label is its role (the compact members and the demo finish
+    // pair take their smaller role size only under their condition).
+    const { failures, resolutions, resolved } = roleFailures(sheets);
+    for (const slot of ROLE_SLOTS) {
       const markup = appMarkup();
       slot.prepare(markup);
       expect(resolutions[slot.name], slot.name).toBe(
@@ -2086,9 +2128,26 @@ describe('action button label contract', () => {
       );
     }
     expect(failures.slice(0, 20), `${failures.length} resolutions differ`).toEqual([]);
-    // Every slot in every state, direction, theme and environment: about 12s
-    // alone and longer beside the full suite.
-  }, 60_000);
+    // Only the role typographies occur: CTA, chip (also the compact members),
+    // the demo pair's tab size, the tab role, the chat preview's line box, the
+    // demo tour controls' own sizes and the hidden two-column Close.
+    const values = (property: ResolvedProperty): string[] =>
+      [...new Set([...resolved].map((entry) => (JSON.parse(entry) as Expected)[property]))].sort();
+    expect(values('font-weight')).toEqual(['600']);
+    expect(values('letter-spacing')).toEqual(['normal']);
+    expect(values('font-variation-settings')).toEqual(['normal']);
+    // The two demo tour controls keep their own sizes (clamped on the
+    // desktop tour, 12px segments on phones).
+    expect(values('font-size')).toEqual([
+      '0',
+      '12px',
+      '13px',
+      '14px',
+      '15px',
+      'clamp(12.5px, 1vw, 14.5px)',
+      'clamp(13px, 1vw, 15px)',
+    ]);
+  }, 240_000);
 
   it('samples both sides of every media boundary in both orientations', () => {
     // A range between two samples cannot hide: each width and height that a
@@ -2120,121 +2179,198 @@ describe('action button label contract', () => {
       }
     }
     expect(gaps).toEqual([]);
-    // Every distinct set of matching conditions keeps one environment, and
-    // every media preference is still sampled.
+    // Every distinct set of the conditions that can change label typography
+    // keeps one environment, and every media preference such a condition
+    // reads is still sampled.
+    const conditions = labelConditions(sheets);
+    const condition = (environment: MediaEnvironment): string =>
+      conditions.map((atRule) => (conditionApplies(atRule, environment) ? '1' : '0')).join('');
+    expect(new Set(RESOLVER_ENVIRONMENTS.map(condition)).size).toBe(RESOLVER_ENVIRONMENTS.length);
+    const features: Record<(typeof MEDIA_PREFERENCES)[number], string> = {
+      reducedMotion: 'prefers-reduced-motion',
+      forcedColors: 'forced-colors',
+      contrastMore: 'prefers-contrast',
+      standalone: 'display-mode',
+      touchCallout: '-webkit-touch-callout',
+    };
     for (const flag of MEDIA_PREFERENCES) {
+      if (!conditions.some((atRule) => atRule.params.includes(features[flag]))) continue;
       expect(
         RESOLVER_ENVIRONMENTS.some((environment) => environment[flag]),
         flag,
       ).toBe(true);
     }
-    expect(RESOLVER_ENVIRONMENTS.length).toBeGreaterThan(40);
+    expect(conditions.length).toBeGreaterThan(5);
+    // At least the phone, the phone layout, the two-column and the desktop
+    // label bands.
+    expect(RESOLVER_ENVIRONMENTS.length).toBeGreaterThanOrEqual(4);
   });
 
-  it('catches a later-layer, between-sample or variation rule that turns a narrow slot back', () => {
-    // The PR #510 review mutations. Rule-level checks accept the token reads
-    // (they are not violations); only the resolved cascade shows the label
-    // back at 700. The fixed 22-viewport list missed the ranges between its
-    // samples and the landscape-only phone range; the derived viewports and
-    // font-variation-settings catch them.
+  it('catches a later-layer, between-sample or variation rule that turns a role away', () => {
+    // Rule-level checks accept token reads (they are not violations); only
+    // the resolved cascade shows a label off its role. The derived viewports
+    // catch ranges between two samples and orientation-only ranges.
     const mutations: Record<string, { slots: string[]; css: string }> = {
-      'later-layer token reads': {
-        slots: ['compact play actions', 'demo finish pair'],
+      'the 700 weight back in a later layer': {
+        slots: ['every role member', 'play actions'],
         css: `
           @layer components {
             .file-select-btn span {
-              font-weight: var(--button-label-weight);
-              letter-spacing: var(--button-label-letter-spacing);
-            }
-          }
-          @layer responsive {
-            .accent-action-btn,
-            .leave-session-btn {
-              font-weight: var(--button-label-weight);
+              font-weight: 700;
             }
           }`,
       },
-      'play actions between two samples (375px phones)': {
-        slots: ['compact play actions'],
+      'the play actions tracking back on 375px phones': {
+        slots: ['play actions'],
         css: `
           @layer states {
             @media (min-width: 361px) and (max-width: 389px) {
               .play-actions-row span {
-                font-weight: var(--button-label-weight);
+                letter-spacing: -0.3px;
               }
             }
           }`,
       },
-      'demo pair between two samples': {
-        slots: ['demo finish pair'],
+      'the media sources tracking back in a later layer': {
+        slots: ['media sources'],
+        css: `
+          @layer components {
+            .setup-slot-list .file-select-btn span {
+              letter-spacing: -0.3px;
+            }
+          }`,
+      },
+      'the compact role past its condition': {
+        slots: ['media sources', 'account pair'],
+        css: `
+          @layer base {
+            @media (min-width: 720px) and (max-width: 1279px) {
+              .${COMPACT_CLASS} {
+                --button-label-size: ${ROLE_SIZE_TOKENS.chip};
+              }
+            }
+          }`,
+      },
+      'a compact member back at the CTA size on landscape phones': {
+        slots: ['account pair'],
+        css: `
+          @layer responsive {
+            @media (orientation: landscape) {
+              #btn-account-delete {
+                --button-label-size: 15px;
+              }
+            }
+          }`,
+      },
+      'the demo pair back at the CTA size between two samples': {
+        slots: ['demo'],
         css: `
           @layer states {
             @media (min-width: 361px) and (max-width: 389px) {
               .demo-large-actions span {
-                font-weight: var(--button-label-weight);
+                font-size: var(--button-label-size);
               }
             }
           }`,
       },
-      'demo pair on landscape phones only': {
-        slots: ['demo finish pair'],
+      'a chip at the CTA size on landscape phones': {
+        slots: ['every role member'],
         css: `
           @layer states {
-            @media (max-width: 420px) and (orientation: landscape) {
-              .demo-large-actions span {
-                font-weight: var(--button-label-weight);
+            @media (max-width: 719px) and (orientation: landscape) {
+              .ch-opt span {
+                font-size: var(--button-label-size);
               }
             }
           }`,
       },
-      'weight axis through font-variation-settings': {
-        slots: ['compact play actions'],
+      'the setup action beside Back at 700 in a later layer': {
+        slots: ['setup actions'],
         css: `
-          @layer components {
-            .play-actions-row span {
+          @layer responsive {
+            .onboarding-overlay .ob-actions.horizontal-with-back > button {
+              font-weight: 700;
+            }
+          }`,
+      },
+      'the invite link at 700 while recovering': {
+        slots: ['invite link'],
+        css: `
+          @layer states {
+            .btn-copy-invite-link[data-mode='recovering'] span {
+              font-weight: 700;
+            }
+          }`,
+      },
+      'the selection toggle at 700 through the weight axis': {
+        slots: ['selection toggle'],
+        css: `
+          @layer states {
+            .tab-header.is-removal-selecting .playlist-selection-toggle {
               font-variation-settings: 'wght' 700;
             }
           }`,
       },
-      ...NARROW_SLOT_MUTATIONS,
+      'the YouTube link actions at 700 at 421px': {
+        slots: ['YouTube link actions'],
+        css: `
+          @layer states {
+            @media (min-width: 421px) and (max-width: 421px) {
+              .setup-card-mt-8-row > button {
+                font-weight: 700;
+              }
+            }
+          }`,
+      },
+      'the desktop settings tabs at 700': {
+        slots: ['every role member'],
+        css: `
+          @layer desktop {
+            .subtab-pill.active {
+              font-weight: 700;
+            }
+          }`,
+      },
+      'the chat preview text at 700': {
+        slots: ['every role member'],
+        css: `
+          @layer components {
+            .chat-preview-btn span {
+              font-weight: 700;
+            }
+          }`,
+      },
     };
-    // Each mutation turns every slot it names back somewhere.
+    // Each mutation turns every slot it names away from its role somewhere.
     for (const [name, { slots, css }] of Object.entries(mutations)) {
       const mutated = [...sheets, { path: 'mutation.css', root: parseCss(css) }];
       for (const slot of slots) {
         expect(
-          NARROW_SLOTS.map((entry) => entry.name),
+          ROLE_SLOTS.map((entry) => entry.name),
           name,
         ).toContain(slot);
         expect(
-          narrowSlotFailures(mutated, { firstOnly: true, slots: [slot] }).failures,
+          roleFailures(mutated, { firstOnly: true, slots: [slot] }).failures,
           `${name}: ${slot}`,
         ).toHaveLength(1);
       }
-    }
-    // Every swept slot has a mutation.
-    for (const slot of SWEPT_NARROW_SLOTS) {
-      expect(
-        Object.values(NARROW_SLOT_MUTATIONS).some((mutation) => mutation.slots.includes(slot.name)),
-        slot.name,
-      ).toBe(true);
     }
     // A label-typography violation at rule level too.
     expect(
       labelViolation(
         (parseCss('.file-select-btn { font-variation-settings: "wght" 700 }').first as Rule)
           .first as Declaration,
-        false,
+        { name: 'file-select-btn', role: 'cta' },
       ),
     ).toBe(true);
     expect(FONT_PROPERTIES).toContain('font-variation-settings');
-  });
+  }, 120_000);
 
-  it('resolves only the label tokens on every action button in the app markup', () => {
+  it('resolves only the role tokens on every action button in the app markup', () => {
     // Selectors that never name the button (an ID, a container, a descendant
     // span) are caught here: every font declaration that any app rule applies
     // to an action button or its label text, in any layer or condition, in
-    // both directions and both themes, must be a token read.
+    // both directions and both themes, must be a role token read.
     const markup = markupWithRuntimeActions();
     const root = markup.documentElement;
     const actions = [
@@ -2287,9 +2423,8 @@ describe('action button label contract', () => {
                 if (GLOBAL_RESETS[selector.replace(/\s+/gu, ' ').trim()]?.declaration === value) {
                   continue;
                 }
-                if (!labelViolation(declaration, false)) continue;
-                if (isCompactOverride(declaration, selector)) continue;
-                if (isOwnLabelDeclaration(declaration, selector)) continue;
+                if (!labelViolation(declaration, { name: selector, role: 'cta' })) continue;
+                if (isNarrowOverride(declaration, selector)) continue;
                 violations.add(`${where(declaration, rule.path)} ${selector} { ${value} }`);
               }
             }
@@ -2303,9 +2438,13 @@ describe('action button label contract', () => {
 
   it('classifies every button in the app markup and the TypeScript templates', () => {
     const unclassified: string[] = [];
+    const containers = [
+      ...Object.keys(CONTAINER_BUTTONS),
+      ...Object.keys(SHARED_WEIGHT_CONTAINERS),
+    ];
     for (const button of appMarkup().querySelectorAll('button')) {
       if ([...button.classList].some(registered)) continue;
-      if (Object.keys(CONTAINER_BUTTONS).some((container) => button.closest(container))) continue;
+      if (containers.some((container) => button.closest(container))) continue;
       unclassified.push(`index.html ${button.outerHTML.slice(0, 80)}`);
     }
     for (const button of templateButtons()) {
@@ -2325,12 +2464,18 @@ describe('action button label contract', () => {
     ]);
     const stale = [
       ...ACTION_BUTTON_CLASSES,
-      ...Object.keys(OWN_SIZE_CLASSES),
-      ...Object.keys(NOT_ACTION_BUTTONS),
+      ...Object.keys(ROLE_CLASSES),
+      ...Object.keys(NOT_ROLE_BUTTONS),
     ].filter((name) => !used.has(name));
     expect(stale).toEqual([]);
-    for (const container of Object.keys(CONTAINER_BUTTONS)) {
+    for (const container of [
+      ...Object.keys(CONTAINER_BUTTONS),
+      ...Object.keys(SHARED_WEIGHT_CONTAINERS),
+    ]) {
       expect(markup.querySelector(`${container} button`), container).not.toBeNull();
+    }
+    for (const selector of Object.keys(CTA_TEXT)) {
+      expect(markup.querySelector(`button ${selector}`), selector).not.toBeNull();
     }
     for (const where of Object.keys(INLINE_STYLED_BUTTONS)) {
       const unclassed = templates.filter(
@@ -2341,7 +2486,7 @@ describe('action button label contract', () => {
     for (const name of Object.keys(NESTED_EXCEPTIONS)) {
       expect(markup.querySelector(`.file-select-btn .${name}`), name).not.toBeNull();
     }
-    for (const allowed of COMPACT_OVERRIDES) {
+    for (const allowed of NARROW_OVERRIDES) {
       const declarations: string[] = [];
       appCss.walkRules((rule) => {
         if (conditionOf(rule) !== allowed.condition) return;
@@ -2351,10 +2496,6 @@ describe('action button label contract', () => {
         });
       });
       expect(declarations, allowed.selector).toContain(allowed.declaration);
-    }
-    for (const allowed of OWN_LABEL_DECLARATIONS) {
-      const [property, value] = allowed.declaration.split(': ');
-      expect(ruleValues(appCss, allowed.selector, property!), allowed.selector).toEqual([value]);
     }
     const resets = new Map<string, string[]>();
     for (const { root } of sheets) {
@@ -2537,7 +2678,11 @@ describe('action button label contract', () => {
     // danger modifier: the label reads the role and the shared label tokens,
     // and the surface darkens on hover and press as in 9.0.18.
     const remove = appMarkup().getElementById('btn-account-delete')!;
-    expect([...remove.classList]).toEqual(['dialog-secondary', 'dialog-danger']);
+    // Its label role class aside (COMPACT_MEMBERS).
+    expect([...remove.classList].filter((name) => name !== COMPACT_CLASS)).toEqual([
+      'dialog-secondary',
+      'dialog-danger',
+    ]);
     const danger = '.dialog-secondary.dialog-danger';
     const dangerHover = `:where(html[data-hover-pointer]) ${danger}:hover`;
     const dangerPress = `${danger}:active`;

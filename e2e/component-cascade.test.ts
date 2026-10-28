@@ -158,20 +158,18 @@ for (const mode of [
   });
 }
 
-// Owner decision (2026-10-27): every action button label renders the button
-// label tokens after every layer, ID selector and responsive override, so
-// labels differ only by color. Destructive labels share one danger color.
-// The named narrow-slot exception (U12): the play tab's compact Sync, Media
-// and Stop Sharing labels keep the 9.0.18 weight and tracking (600, -0.3px),
-// and the demo finish pair keeps the 9.0.18 weight 600 in its 13px label on
-// phones up to 420px.
-const COMPACT_PLAY_ACTION_LABELS = ['play-sync', 'play-media', 'play-stop'];
+// Owner decisions (2026-10-27, final 2026-10-28): every action button label
+// renders the CTA role (15px / 600 / 1.25 / normal tracking) after every
+// layer, ID selector and responsive override, so labels differ only by color.
+// Destructive labels share one danger color. The compact members
+// (.btn-label-compact: Sign out, Delete account and the media source options)
+// take the chip role's 14px in the phone layout up to 719px, and the demo
+// finish pair takes the tab role's 13px on phones up to 420px
+// (button-label-contract names each with its reason).
+const COMPACT_LABELS = ['account-logout', 'account-delete', 'media-option'];
+const COMPACT_MAX_WIDTH = 719;
 const DEMO_FINISH_LABELS = ['demo-info', 'demo-exit'];
 const COMPACT_DEMO_MAX_WIDTH = 420;
-// The label sweep's narrow slots that this generic markup carries (PR #510 QA
-// round 8): the invite button and the deletion-mode toggle keep the 9.0.18
-// weight 600 on phones up to 420px. The other swept slots are named by ID.
-const SWEPT_NARROW_LABELS = ['invite-link', 'select-all'];
 const actionLabelMarkup = `
   <main>
     <div class="dialog-actions adaptive-action-group">
@@ -179,8 +177,8 @@ const actionLabelMarkup = `
       <button class="dialog-primary" data-label="dialog-primary">Log out</button>
     </div>
     <div class="account-dialog-actions adaptive-action-group">
-      <button class="dialog-secondary" data-label="account-logout">Log out</button>
-      <button class="dialog-secondary dialog-danger" data-label="account-delete" data-danger>Log out</button>
+      <button class="dialog-secondary btn-label-compact" data-label="account-logout">Log out</button>
+      <button class="dialog-secondary dialog-danger btn-label-compact" data-label="account-delete" data-danger>Log out</button>
       <button class="dialog-primary account-dialog-account-close adaptive-action-group-full" data-label="account-close">Log out</button>
     </div>
     <div class="ob-actions">
@@ -203,7 +201,7 @@ const actionLabelMarkup = `
     <div class="playlist-title-area">
       <button class="playlist-selection-toggle" data-label="select-all">Log out</button>
     </div>
-    <button class="file-select-btn"><div class="btn-icon-bg"></div><span data-label="media-option">Log out</span></button>
+    <button class="file-select-btn btn-label-compact"><div class="btn-icon-bg"></div><span data-label="media-option">Log out</span></button>
     <div class="play-actions-row">
       <div class="play-action-buttons">
         <button class="file-select-btn file-select-btn-large flex-1" id="btn-sync">
@@ -269,15 +267,10 @@ for (const mode of [
       expect(styles, label).toHaveLength(21);
       const family = styles[0]!.fontFamily;
       const compactDemo = viewport.width <= COMPACT_DEMO_MAX_WIDTH;
+      const compactLayout = viewport.width <= COMPACT_MAX_WIDTH;
       for (const style of styles) {
-        // The compact play actions keep the 9.0.18 weight and tracking so
-        // every locale stays on one line at 320px (button-label-contract);
-        // right-to-left labels take no tracking, as in 9.0.18. The demo
-        // finish pair keeps 600 in its 13px label up to 420px, where its
-        // fixed pills are narrowest.
-        const compactPlayAction = COMPACT_PLAY_ACTION_LABELS.includes(style.label ?? '');
         const demoFinish = compactDemo && DEMO_FINISH_LABELS.includes(style.label ?? '');
-        const sweptNarrow = compactDemo && SWEPT_NARROW_LABELS.includes(style.label ?? '');
+        const compact = compactLayout && COMPACT_LABELS.includes(style.label ?? '');
         expect(
           {
             fontSize: style.fontSize,
@@ -288,21 +281,20 @@ for (const mode of [
           },
           `${label} ${style.label}`,
         ).toEqual({
-          fontSize: demoFinish ? '13px' : '15px',
-          fontWeight: compactPlayAction || demoFinish || sweptNarrow ? '600' : '700',
-          lineHeight: demoFinish ? '16.25px' : '18.75px',
-          letterSpacing: compactPlayAction && mode.direction === 'ltr' ? '-0.3px' : 'normal',
+          fontSize: demoFinish ? '13px' : compact ? '14px' : '15px',
+          fontWeight: '600',
+          lineHeight: demoFinish ? '16.25px' : compact ? '17.5px' : '18.75px',
+          letterSpacing: 'normal',
           fontFamily: family,
         });
       }
       expect(
-        styles.filter((style) => style.fontWeight === '600').map((style) => style.label),
+        styles.filter((style) => style.fontSize !== '15px').map((style) => style.label),
         label,
-      ).toEqual(
-        compactDemo
-          ? ['invite-link', 'select-all', ...COMPACT_PLAY_ACTION_LABELS, ...DEMO_FINISH_LABELS]
-          : COMPACT_PLAY_ACTION_LABELS,
-      );
+      ).toEqual([
+        ...(compactLayout ? ['account-logout', 'account-delete', 'media-option'] : []),
+        ...(compactDemo ? DEMO_FINISH_LABELS : []),
+      ]);
       // Owner decision (2026-10-27, evening): both default palettes keep the
       // #ff3b30 of 9.0.18.
       expect(

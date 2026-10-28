@@ -272,13 +272,17 @@ describe('public design-system page contract', () => {
   });
 
   it('publishes the button label tokens and keeps every label sample on them', () => {
-    // Owner decision (2026-10-27): every action button label is 15px / 700 /
-    // 1.25 with normal letter spacing; only its color differs.
+    // Owner decision (2026-10-28): the button label roles. Every action
+    // button label (CTA) is 15px / 600 / 1.25 with normal letter spacing,
+    // choice chips take 14px and section tabs and segments 13px; only the
+    // color differs within a role.
     const labelTokens = {
       '--button-label-size': '15px',
-      '--button-label-weight': '700',
+      '--button-label-weight': '600',
       '--button-label-line-height': '1.25',
       '--button-label-letter-spacing': 'normal',
+      '--button-label-chip-size': '14px',
+      '--button-label-tab-size': '13px',
     } as const;
     const appStylesheet = readFileSync(resolve('css/style.css'), 'utf8');
     for (const [token, value] of Object.entries(labelTokens)) {
@@ -304,7 +308,7 @@ describe('public design-system page contract', () => {
       tag: tag.textContent?.trim(),
       sample: tag.nextElementSibling?.className,
     }));
-    expect(scale).toContainEqual({ tag: '15 / 700', sample: 'btn-label' });
+    expect(scale).toContainEqual({ tag: '15 / 600', sample: 'btn-label' });
     expect(scale.map((row) => row.tag)).not.toContain('14 / 600');
     const preview = new DOMParser().parseFromString(
       readFileSync(resolve('public/designsystem/preview/type-scale.html'), 'utf8'),
@@ -314,13 +318,19 @@ describe('public design-system page contract', () => {
       tag: tag.textContent?.trim(),
       sample: tag.nextElementSibling?.className,
     }));
-    expect(previewScale).toContainEqual({ tag: '15/700', sample: 'btn-label' });
+    expect(previewScale).toContainEqual({ tag: '15/600', sample: 'btn-label' });
     expect(previewScale.map((row) => row.tag)).not.toContain('14/600');
 
     const advertisedTokens = [...designDocument.querySelectorAll('.tokens .tok')].map((token) =>
       (token.textContent ?? '').trim(),
     );
-    expect(advertisedTokens).toContain('--button-label-*');
+    expect(advertisedTokens).toEqual(
+      expect.arrayContaining([
+        '--button-label-*',
+        '--button-label-chip-size',
+        '--button-label-tab-size',
+      ]),
+    );
   });
 
   it('shows the current playlist leading state, source icons, disclosure, and check circles', () => {

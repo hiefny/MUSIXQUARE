@@ -528,6 +528,30 @@ describe('Dialog System', () => {
       vi.advanceTimersByTime(10);
       await promise;
     });
+
+    it.each([{}, { dismissible: true }])(
+      'never closes on a click or tap outside the panel (%o)',
+      async (options) => {
+        // Owner policy (2026-10-28): a modal never closes on an outside click
+        // or tap; its visible Close or Cancel, Back and Escape are the exits.
+        const { showDialog, closeDialog } = await import('../dialog.ts');
+        const resolved = vi.fn();
+        const promise = showDialog({ title: 'Outside', secondaryText: 'Close', ...options });
+        const observed = promise.then(resolved);
+        vi.advanceTimersByTime(10);
+        const overlay = document.getElementById('dialog-overlay')!;
+
+        overlay.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true }));
+        await Promise.resolve();
+
+        expect(resolved).not.toHaveBeenCalled();
+        expect(overlay.classList.contains('show')).toBe(true);
+        closeDialog('secondary');
+        vi.advanceTimersByTime(10);
+        await observed;
+        expect(resolved).toHaveBeenCalledWith({ action: 'secondary' });
+      },
+    );
   });
 
   describe('Dialog Queue', () => {

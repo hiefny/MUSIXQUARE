@@ -227,7 +227,7 @@
     .track-title {
       font-size: 24px;
       font-weight: var(--font-weight-title);
-      letter-spacing: -0.02em;
+      letter-spacing: var(--title-letter-spacing);
       color: var(--text-main);
       /* Lock line-box to 36px (24 × 1.5) so the title's own height matches
            the 36px right-side content (buttons / invite wrapper) in tab
@@ -823,7 +823,7 @@
       font-weight: var(--font-weight-title);
       color: var(--text-main);
       text-transform: none;
-      letter-spacing: normal;
+      letter-spacing: var(--title-letter-spacing);
     }
 
     /* Keep supporting copy on the same desktop inset as its title and

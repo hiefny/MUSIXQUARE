@@ -125,6 +125,11 @@
   --font-weight-unselected: 500;
   --font-weight-label: 600;
   --font-weight-body: 400;
+  /* Title tracking by script: titles and display values read it, -0.02em in
+     Latin, Cyrillic and Greek UI languages and 0 in the scripts the
+     html:lang() rule below lists. Codes and PIN digits keep their own wider
+     tracking, and no other text tightens. */
+  --title-letter-spacing: -0.02em;
   /* Button label roles; labels in one role differ only by color. CTA (every
      action button) 15px, chip (choice chips) 14px, tab (section tabs and
      segments) 13px. Action buttons take the label weight in every size
@@ -149,16 +154,30 @@
   --fs-24: 24px;
   --fs-28: 28px;
 
-  /* Weights (Pretendard variable 45→920; text never goes above 700) */
-  --fw-regular: 400;
-  --fw-medium: 500;
-  --fw-semibold: 600;
-  --fw-bold: 700;
-
-  /* Letter spacing */
-  --ls-tight: -0.03em; /* tab-title */
-  --ls-tight-sm: -0.5px; /* track-title */
+  /* Letter spacing of codes and small uppercase labels */
   --ls-wide: 0.1em; /* invite-code */
+}
+
+/* Titles keep their natural spacing in Korean, Japanese, Chinese, Thai, the
+   Indic scripts, Arabic, Urdu, Persian and Hebrew. */
+html:lang(ko),
+html:lang(ja),
+html:lang(zh),
+html:lang(th),
+html:lang(hi),
+html:lang(bn),
+html:lang(ta),
+html:lang(te),
+html:lang(mr),
+html:lang(gu),
+html:lang(kn),
+html:lang(ml),
+html:lang(pa),
+html:lang(ar),
+html:lang(ur),
+html:lang(fa),
+html:lang(he) {
+  --title-letter-spacing: 0;
 }
 
 html[data-theme='light'] {
@@ -354,6 +373,7 @@ html[data-theme='light'][data-contrast='more'] {
 body {
   font-family: var(--font-sans);
   font-size: var(--fs-14);
+  font-kerning: normal;
   color: var(--text-main);
   background: var(--bg);
   -webkit-font-smoothing: antialiased;
@@ -364,39 +384,39 @@ body {
   font-size: var(--fs-28);
   font-weight: var(--font-weight-title);
   color: var(--text-main);
-  letter-spacing: var(--ls-tight);
+  letter-spacing: var(--title-letter-spacing);
 }
 
 .type-h2 {
   font-size: var(--fs-24);
   font-weight: var(--font-weight-title);
   color: var(--text-main);
-  letter-spacing: var(--ls-tight);
+  letter-spacing: var(--title-letter-spacing);
 }
 
 .track-title,
 .type-title {
   font-size: var(--fs-20);
-  font-weight: var(--fw-bold);
+  font-weight: var(--font-weight-title);
   color: var(--text-main);
-  letter-spacing: var(--ls-tight-sm);
+  letter-spacing: var(--title-letter-spacing);
 }
 
 .type-body {
   font-size: var(--fs-16);
-  font-weight: var(--fw-regular);
+  font-weight: var(--font-weight-body);
   color: var(--text-main);
 }
 
 .type-body-sub {
   font-size: var(--fs-15);
-  font-weight: var(--fw-regular);
+  font-weight: var(--font-weight-body);
   color: var(--text-sub);
 }
 
 .type-label {
   font-size: var(--fs-14);
-  font-weight: var(--fw-semibold);
+  font-weight: var(--font-weight-label);
   color: var(--text-main);
 }
 
@@ -410,20 +430,20 @@ body {
 
 .type-caption {
   font-size: var(--fs-12);
-  font-weight: var(--fw-regular);
+  font-weight: var(--font-weight-body);
   color: var(--text-sub);
   font-variant-numeric: tabular-nums;
 }
 
 .type-badge {
   font-size: var(--fs-11);
-  font-weight: var(--fw-semibold);
+  font-weight: var(--font-weight-label);
   color: var(--text-sub);
 }
 
 .type-micro {
   font-size: var(--fs-9);
-  font-weight: var(--fw-semibold);
+  font-weight: var(--font-weight-label);
   color: var(--text-sub);
   letter-spacing: var(--ls-wide);
   text-transform: uppercase;

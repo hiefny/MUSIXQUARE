@@ -107,8 +107,10 @@ Pretendard lacks coverage.
 - Text takes one of five weight roles and nothing else (owner decision
   2026-10-28). Title 700 (`--font-weight-title`): headings and display
   values, such as dialog, sheet and section titles, the setup greeting, the
-  playlist title switch, the account title, the player track title and the
-  invite code and PIN digits. Selected 700 and unselected 500
+  playlist title switch, the account title, the player track title, the
+  invite code and PIN digits and the code entry digits (the guest's invite
+  code entry, the room PIN entry and the manual sync value). Selected 700
+  and unselected 500
   (`--font-weight-selected`, `--font-weight-unselected`): in a list or group
   where one item is selected, current or playing and turns the accent color,
   that item and every other item, such as track rows (name and index),
@@ -121,6 +123,14 @@ Pretendard lacks coverage.
   descriptions, dialog body text, hints, toasts, chat messages, the small
   line under a name, timestamps, counters, input text and placeholders.
   Each rule reads its role's token itself.
+- Titles and display values track by script (owner decision 2026-10-28).
+  Every rule on the title weight reads `--title-letter-spacing`: -0.02em in
+  Latin, Cyrillic and Greek UI languages and 0 in Korean, Japanese,
+  Chinese, Thai, the Indic scripts, Arabic, Urdu, Persian and Hebrew,
+  chosen with `html:lang()` on the document language. Codes and PIN digits
+  keep their own wider tracking, and no other text uses a negative letter
+  spacing; small uppercase labels may track wider. The body kerns its text
+  with `font-kerning: normal`.
 - Use tabular numerals for clocks, invite codes, counters, and latency.
 - Keep compact labels legible; do not rely on extreme tracking or uppercase
   for hierarchy.

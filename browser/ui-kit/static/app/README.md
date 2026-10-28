@@ -22,7 +22,8 @@ The sample currently demonstrates:
   chip role (14px, 700 selected / 500 unselected) on the choice and role cards,
   with every size and weight read from the design-system tokens;
 - the five weight roles (title 700, selected 700, unselected 500, label 600,
-  body 400) on every sample text;
+  body 400) on every sample text, with the titles on the title tracking
+  (`--title-letter-spacing`);
 - a dedicated leave-session action, separate from the header account badge;
 - the filled-first icon language plus intentional stroked exceptions such as language, device, and reorder glyphs.
 

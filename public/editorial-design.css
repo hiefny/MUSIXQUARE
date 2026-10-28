@@ -278,17 +278,17 @@
 .spec .s28 {
   font-size: 28px;
   font-weight: var(--font-weight-title);
-  letter-spacing: -0.03em;
+  letter-spacing: var(--title-letter-spacing);
 }
 .spec .s24 {
   font-size: 24px;
   font-weight: var(--font-weight-title);
-  letter-spacing: -0.03em;
+  letter-spacing: var(--title-letter-spacing);
 }
 .spec .s20 {
   font-size: 20px;
-  font-weight: 700;
-  letter-spacing: -0.5px;
+  font-weight: var(--font-weight-title);
+  letter-spacing: var(--title-letter-spacing);
 }
 .spec .s16 {
   font-size: 16px;
@@ -998,7 +998,7 @@
   gap: 8px;
   color: var(--text-main);
   font-size: 15px;
-  font-weight: 500;
+  font-weight: var(--font-weight-unselected);
 }
 
 .playlist-name > span {
@@ -1010,7 +1010,7 @@
 
 .playlist-item.active .playlist-name {
   color: var(--primary);
-  font-weight: 700;
+  font-weight: var(--font-weight-selected);
 }
 
 .playlist-source {
@@ -1285,7 +1285,7 @@
   margin-bottom: 8px;
   color: var(--text-sub);
   font-size: 12px;
-  font-weight: 600;
+  font-weight: var(--font-weight-label);
 }
 
 .range-slider-header {
@@ -1298,8 +1298,9 @@
 .range-slider-header strong {
   color: var(--primary);
   font-size: 12px;
-  font-weight: 700;
+  font-weight: var(--font-weight-title);
   font-variant-numeric: tabular-nums;
+  letter-spacing: var(--title-letter-spacing);
 }
 
 @property --range-progress {
@@ -1601,6 +1602,7 @@
 
 .range-eq-value {
   font-weight: var(--font-weight-title);
+  letter-spacing: var(--title-letter-spacing);
   color: var(--primary);
 }
 
@@ -1773,7 +1775,7 @@
   height: 16px;
   font-size: 14px;
   font-weight: var(--font-weight-label);
-  letter-spacing: -0.3px;
+  letter-spacing: 0;
   line-height: 16px;
 }
 
@@ -2104,8 +2106,6 @@
   position: absolute;
   left: 24px;
   z-index: 1;
-  font-weight: 700;
-  letter-spacing: -0.04em;
 }
 
 .app-loading-header-logo {
@@ -2269,7 +2269,7 @@
 
 .device-row-sample.is-current-member :is(.d-order, .d-name) {
   color: var(--primary);
-  font-weight: 700;
+  font-weight: var(--font-weight-selected);
 }
 
 .device-row-sample .d-order {
@@ -2286,7 +2286,7 @@
   flex: 1;
   color: var(--text-main);
   font-size: 16px;
-  font-weight: 500;
+  font-weight: var(--font-weight-unselected);
 }
 
 .device-row-sample .d-name-label {
@@ -2486,7 +2486,7 @@
   color: var(--grey-600);
   font-family: inherit;
   font-size: 10px;
-  font-weight: 500;
+  font-weight: var(--font-weight-unselected);
   cursor: pointer;
 }
 
@@ -2625,7 +2625,7 @@
 .dialog-title {
   font-size: 20px;
   font-weight: var(--font-weight-title);
-  letter-spacing: -0.02em;
+  letter-spacing: var(--title-letter-spacing);
 }
 
 .dialog-message {

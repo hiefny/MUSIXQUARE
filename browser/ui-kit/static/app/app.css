@@ -138,7 +138,7 @@
   margin: 18px 0 8px;
   font-size: 28px;
   font-weight: var(--font-weight-title, 700);
-  letter-spacing: -0.03em;
+  letter-spacing: var(--title-letter-spacing, -0.02em);
 }
 
 .mq-iconbtn {
@@ -228,6 +228,7 @@
   margin: 0;
   font-size: 15px;
   font-weight: var(--font-weight-title, 700);
+  letter-spacing: var(--title-letter-spacing, -0.02em);
 }
 
 .mq-badge {
@@ -333,7 +334,7 @@
   margin: 0;
   font-size: 20px;
   font-weight: var(--font-weight-title, 700);
-  letter-spacing: -0.5px;
+  letter-spacing: var(--title-letter-spacing, -0.02em);
 }
 
 .mq-track .artist {
@@ -555,7 +556,7 @@
   color: var(--text-main);
   font-size: 18px;
   font-weight: var(--font-weight-title, 700);
-  letter-spacing: -0.5px;
+  letter-spacing: var(--title-letter-spacing, -0.02em);
 }
 
 .mq-setting-description {

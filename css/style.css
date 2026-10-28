@@ -109,7 +109,7 @@ or pointers. Keep :focus-visible and :active outside the gate (src/ui/__tests__/
        weights and nothing else, and never goes above 700. Each rule reads
        its role's token itself; weight-role-contract.test.ts holds the list.
        - Title: headings and display values (titles, the player track
-         title, the invite code and PIN digits).
+         title, the invite code and PIN digits, the code entry digits).
        - Selected / unselected: in a list or group where one item is
          selected, current or playing (it also turns the accent color), that
          item and every other item (track and device rows, choice chips,
@@ -124,6 +124,13 @@ or pointers. Keep :focus-visible and :active outside the gate (src/ui/__tests__/
     --font-weight-unselected: 500;
     --font-weight-label: 600;
     --font-weight-body: 400;
+    /* Title tracking by script (owner decision 2026-10-28). Every rule on
+       the title weight reads it, except the code and PIN digits, which keep
+       their own wider tracking: -0.02em in Latin, Cyrillic and Greek UI
+       languages, 0 in the scripts the html:lang() rule after the font
+       stacks lists. No other text tightens its tracking;
+       title-tracking-contract.test.ts holds the lists. */
+    --title-letter-spacing: -0.02em;
     /* Button label roles (owner decision 2026-10-28). Every button label
        takes one size role, and labels in one role differ only by color.
        Each component rule reads the role's tokens itself, like
@@ -495,6 +502,9 @@ or pointers. Keep :focus-visible and :active outside the gate (src/ui/__tests__/
     background-color: var(--bg);
     color: var(--text-main);
     font-family: var(--font-sans);
+    /* Kern every text run (owner decision 2026-10-28); controls that reset
+       their font with font: inherit keep it. */
+    font-kerning: normal;
     -webkit-text-size-adjust: 100%;
     text-size-adjust: 100%;
 
@@ -611,6 +621,30 @@ or pointers. Keep :focus-visible and :active outside the gate (src/ui/__tests__/
 
   html:lang(el-GR) {
     --font-sans: var(--font-sans-greek);
+  }
+
+  /* Titles keep their natural spacing in Korean, Japanese, Chinese, Thai,
+     the Indic scripts, Arabic, Urdu, Persian and Hebrew (owner decision
+     2026-10-28, --title-letter-spacing). The ranges match the document
+     language and every region tag under it. */
+  html:lang(ko),
+  html:lang(ja),
+  html:lang(zh),
+  html:lang(th),
+  html:lang(hi),
+  html:lang(bn),
+  html:lang(ta),
+  html:lang(te),
+  html:lang(mr),
+  html:lang(gu),
+  html:lang(kn),
+  html:lang(ml),
+  html:lang(pa),
+  html:lang(ar),
+  html:lang(ur),
+  html:lang(fa),
+  html:lang(he) {
+    --title-letter-spacing: 0;
   }
 
   @keyframes fadeIn {
@@ -1480,7 +1514,7 @@ or pointers. Keep :focus-visible and :active outside the gate (src/ui/__tests__/
     font-size: 28px;
     font-weight: var(--font-weight-title);
     color: var(--text-main);
-    letter-spacing: -0.03em;
+    letter-spacing: var(--title-letter-spacing);
   }
 
   /* With several playlists the title is one large button, like the first-run
@@ -1937,7 +1971,7 @@ or pointers. Keep :focus-visible and :active outside the gate (src/ui/__tests__/
     font-size: 20px;
     font-weight: var(--font-weight-title);
     color: var(--text-main);
-    letter-spacing: -0.5px;
+    letter-spacing: var(--title-letter-spacing);
     line-height: 32px;
     display: inline-block;
     white-space: nowrap;
@@ -3696,7 +3730,7 @@ or pointers. Keep :focus-visible and :active outside the gate (src/ui/__tests__/
     font-weight: var(--font-weight-title);
     color: var(--text-main);
     text-transform: none;
-    letter-spacing: -0.5px;
+    letter-spacing: var(--title-letter-spacing);
   }
 
   .settings-option-description {
@@ -3957,6 +3991,7 @@ or pointers. Keep :focus-visible and :active outside the gate (src/ui/__tests__/
     font-size: 11px;
     color: var(--primary);
     font-weight: var(--font-weight-title);
+    letter-spacing: var(--title-letter-spacing);
   }
 
   .eq-label {
@@ -4059,6 +4094,7 @@ or pointers. Keep :focus-visible and :active outside the gate (src/ui/__tests__/
   .val-disp {
     color: var(--primary);
     font-weight: var(--font-weight-title);
+    letter-spacing: var(--title-letter-spacing);
   }
 
   /* ── Device List Row (playlist-unified) ─────────────────────────── */
@@ -4705,6 +4741,7 @@ or pointers. Keep :focus-visible and :active outside the gate (src/ui/__tests__/
   .help-title {
     font-size: 17px;
     font-weight: var(--font-weight-title);
+    letter-spacing: var(--title-letter-spacing);
     color: var(--text-main);
     margin-bottom: 20px;
     display: flex;
@@ -4750,6 +4787,7 @@ or pointers. Keep :focus-visible and :active outside the gate (src/ui/__tests__/
   /* The service notes' subheadings ("Privacy Policy"). */
   .legal-desc strong {
     font-weight: var(--font-weight-title);
+    letter-spacing: var(--title-letter-spacing);
   }
 
   .help-list {
@@ -5377,6 +5415,7 @@ or pointers. Keep :focus-visible and :active outside the gate (src/ui/__tests__/
     color: var(--text-main);
     font-size: 22px;
     font-weight: var(--font-weight-title);
+    letter-spacing: var(--title-letter-spacing);
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
@@ -5746,7 +5785,7 @@ or pointers. Keep :focus-visible and :active outside the gate (src/ui/__tests__/
   .dialog-title {
     font-size: 20px;
     font-weight: var(--font-weight-title);
-    letter-spacing: -0.02em;
+    letter-spacing: var(--title-letter-spacing);
     color: var(--text-main);
     min-width: 0;
   }
@@ -5846,7 +5885,8 @@ or pointers. Keep :focus-visible and :active outside the gate (src/ui/__tests__/
     color: var(--text-main);
     font-family: inherit;
     font-size: 22px;
-    font-weight: var(--font-weight-body);
+    /* The room PIN entry digits are a display value, like the PIN. */
+    font-weight: var(--font-weight-title);
     font-variant-numeric: tabular-nums;
     line-height: 36px;
     letter-spacing: 0.12em;
@@ -5866,7 +5906,7 @@ or pointers. Keep :focus-visible and :active outside the gate (src/ui/__tests__/
   .dialog-input-separator {
     color: var(--text-muted);
     font-size: 22px;
-    font-weight: var(--font-weight-body);
+    font-weight: var(--font-weight-title);
     line-height: 36px;
     transform: translateY(4px);
     user-select: none;
@@ -6821,6 +6861,7 @@ or pointers. Keep :focus-visible and :active outside the gate (src/ui/__tests__/
   .ob-slide .ob-title {
     font-size: 24px;
     font-weight: var(--font-weight-title);
+    letter-spacing: var(--title-letter-spacing);
     margin-bottom: 11.5px;
     color: var(--text-main);
   }
@@ -6857,7 +6898,7 @@ or pointers. Keep :focus-visible and :active outside the gate (src/ui/__tests__/
     font-size: 20px;
     font-weight: var(--font-weight-title);
     color: var(--text-main);
-    letter-spacing: -0.5px;
+    letter-spacing: var(--title-letter-spacing);
   }
 
   .ob-desc {
@@ -7062,7 +7103,7 @@ or pointers. Keep :focus-visible and :active outside the gate (src/ui/__tests__/
     font-size: 24px;
     font-weight: var(--font-weight-title);
     margin-bottom: var(--setup-heading-margin, 8px);
-    letter-spacing: -0.03em;
+    letter-spacing: var(--title-letter-spacing);
     color: var(--text-main);
     line-height: 1.2;
   }
@@ -7473,7 +7514,8 @@ or pointers. Keep :focus-visible and :active outside the gate (src/ui/__tests__/
     border-radius: 0;
     padding: 8px 0;
     font-size: 32px;
-    font-weight: var(--font-weight-body);
+    /* The host's invite code and the guest's code entry are display values. */
+    font-weight: var(--font-weight-title);
     letter-spacing: 0.12em;
     color: var(--text-main);
     caret-color: var(--text-main);
@@ -7483,12 +7525,6 @@ or pointers. Keep :focus-visible and :active outside the gate (src/ui/__tests__/
     transition: border-bottom-color 0.3s ease;
     outline: none;
     box-shadow: none;
-  }
-
-  /* The host's read-only invite code is a display value; the guest's entry
-     is input text. */
-  .setup-join-input[readonly] {
-    font-weight: var(--font-weight-title);
   }
 
   .setup-join-input::placeholder {
@@ -7937,6 +7973,7 @@ or pointers. Keep :focus-visible and :active outside the gate (src/ui/__tests__/
   /* The header line of command output (/help, /users, /debug). */
   .chat-group.system .chat-text strong {
     font-weight: var(--font-weight-title);
+    letter-spacing: var(--title-letter-spacing);
   }
 
   .chat-time {
@@ -8387,6 +8424,7 @@ or pointers. Keep :focus-visible and :active outside the gate (src/ui/__tests__/
   .chat-drawer-title {
     font-size: 20px;
     font-weight: var(--font-weight-title);
+    letter-spacing: var(--title-letter-spacing);
     color: var(--text-main);
   }
 
@@ -8810,7 +8848,7 @@ or pointers. Keep :focus-visible and :active outside the gate (src/ui/__tests__/
   .chat-yt-label {
     font-size: 14px;
     font-weight: var(--font-weight-label);
-    letter-spacing: -0.3px;
+    letter-spacing: 0;
     line-height: 16px;
     /* Match SVG height exactly */
     height: 16px;
@@ -9017,12 +9055,13 @@ or pointers. Keep :focus-visible and :active outside the gate (src/ui/__tests__/
     letter-spacing: 0.3px;
   }
 
+  /* The manual sync value is a display value, typed like chat input. */
   .sync-col-value {
     font-size: 28px;
-    font-weight: var(--font-weight-body);
+    font-weight: var(--font-weight-title);
     font-variant-numeric: tabular-nums;
     color: var(--text-main);
-    letter-spacing: -0.5px;
+    letter-spacing: 0;
   }
 
   .sync-manual-input {
@@ -9320,7 +9359,7 @@ or pointers. Keep :focus-visible and :active outside the gate (src/ui/__tests__/
     font-size: 18px;
     font-weight: var(--font-weight-title);
     line-height: 1.25;
-    letter-spacing: 0;
+    letter-spacing: var(--title-letter-spacing);
     color: var(--text-main);
     overflow-wrap: anywhere;
   }
@@ -9678,7 +9717,7 @@ or pointers. Keep :focus-visible and :active outside the gate (src/ui/__tests__/
     font-size: 22px;
     line-height: 1.25;
     font-weight: var(--font-weight-title);
-    letter-spacing: 0;
+    letter-spacing: var(--title-letter-spacing);
     color: var(--text-main);
   }
 
@@ -10972,6 +11011,7 @@ or pointers. Keep :focus-visible and :active outside the gate (src/ui/__tests__/
   .bootstrap-failure strong {
     font-size: 22px;
     font-weight: var(--font-weight-title);
+    letter-spacing: var(--title-letter-spacing);
   }
 
   .bootstrap-failure p {
@@ -11226,6 +11266,7 @@ or pointers. Keep :focus-visible and :active outside the gate (src/ui/__tests__/
   .yt-preview-title {
     font-size: 13px;
     font-weight: var(--font-weight-title);
+    letter-spacing: var(--title-letter-spacing);
     color: var(--text-main);
     margin: 0;
     line-height: 1.35;
@@ -12587,7 +12628,7 @@ or pointers. Keep :focus-visible and :active outside the gate (src/ui/__tests__/
     .desktop-step-header h2 {
       font-size: var(--setup-h2);
       font-weight: var(--font-weight-title);
-      letter-spacing: -0.03em;
+      letter-spacing: var(--title-letter-spacing);
       color: var(--text-main);
       margin-bottom: var(--setup-heading-margin, var(--setup-h2-mb));
       line-height: 1.2;

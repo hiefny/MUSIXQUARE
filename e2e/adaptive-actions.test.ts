@@ -490,6 +490,48 @@ test.describe('content-based adaptive action groups', () => {
     expect(heights[0]).toBeLessThan(56);
   });
 
+  for (const direction of ['ltr', 'rtl'] as const) {
+    test(`pairs Close and Retry while sign-in is unavailable (${direction})`, async ({ page }) => {
+      // Owner report (2026-10-28): the unavailable view needs a visible exit.
+      // account.ts gives the signed-out row the adaptive action group there:
+      // Close comes first (left, mirrored in RTL), Retry beside it, the same
+      // 10px across and 56px pills as every dialog pair.
+      await installLayoutProbe(
+        page,
+        `<div id="login-actions" class="account-dialog-login-actions adaptive-action-group">
+          <a class="account-google-button" href="#" hidden></a>
+          <button id="login-close" class="dialog-secondary account-dialog-login-close">Close</button>
+          <button id="login-retry" class="dialog-primary account-dialog-login-retry">Retry</button>
+        </div>`,
+        { viewportWidth: 390, direction },
+      );
+
+      const [close, retry] = await actionMetrics(page, '#login-actions');
+      expect(close!.id).toBe('login-close');
+      expect(Math.abs(close!.y - retry!.y)).toBeLessThan(0.5);
+      const gap =
+        direction === 'ltr'
+          ? retry!.x - (close!.x + close!.width)
+          : close!.x - (retry!.x + retry!.width);
+      expect(gap).toBeCloseTo(10, 1);
+      expect(close!.height).toBeCloseTo(56, 1);
+      expect(retry!.height).toBeCloseTo(56, 1);
+
+      // Very short screens compress the pair like the signed-in actions.
+      await page.setViewportSize({ width: 568, height: 320 });
+      await page.waitForFunction(() => innerHeight === 320);
+      const [shortClose, shortRetry] = await actionMetrics(page, '#login-actions');
+      expect(Math.abs(shortClose!.y - shortRetry!.y)).toBeLessThan(0.5);
+      const shortGap =
+        direction === 'ltr'
+          ? shortRetry!.x - (shortClose!.x + shortClose!.width)
+          : shortClose!.x - (shortRetry!.x + shortRetry!.width);
+      expect(shortGap).toBeCloseTo(6, 1);
+      expect(shortClose!.height).toBeCloseTo(44, 1);
+      expect(shortRetry!.height).toBeCloseTo(44, 1);
+    });
+  }
+
   test('keeps the YouTube link dialog actions on the shared pill gap', async ({ page }) => {
     // The row also carries a one-off utility class from the inline-style
     // extraction; it must not reopen a different gap than the shared 10px

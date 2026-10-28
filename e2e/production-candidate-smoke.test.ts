@@ -1,5 +1,12 @@
 import { randomUUID } from 'node:crypto';
-import { expect, test, type APIRequestContext, type Page, type Request } from '@playwright/test';
+import {
+  expect,
+  test,
+  type APIRequestContext,
+  type Page,
+  type Request,
+  type Response,
+} from '@playwright/test';
 
 import { E2E_APP_ORIGIN } from './config.ts';
 import {
@@ -94,14 +101,16 @@ function expectNoUnexpectedPageErrors(errors: Error[], browserName: string): voi
     return;
   }
 
-  // While the deliberately stalled navigation is pending, WebKit refuses any
-  // fetch the outgoing page starts: it never sends the request and logs this
+  // Within a few ms of the deliberately stalled navigation's start, WebKit
+  // stops the outgoing page's loads. A fetch that page starts before that is
+  // sent and then cancelled without a page error. Only a fetch it starts
+  // after that is refused: WebKit never sends the request and logs this
   // access-control wording, which Playwright reports as a page error split at
-  // the URL's first colon. Here those fetches are the page's own start-up
-  // reads: the account session (at pageshow, or a recovery retry), the App
-  // build floor (at window load) and the primary font's recovery fetch. Keep
-  // the exception local to this timeout smoke, exact by origin/path/message,
-  // and bounded to one per URL.
+  // the URL's first colon. Here the refused fetches are the page's own
+  // start-up reads: the account session (at pageshow, or a recovery retry),
+  // the App build floor (at window load) and the primary font's recovery
+  // fetch. Keep the exception local to this timeout smoke, exact by
+  // origin/path/message, and bounded to one per URL.
   const signatures = errors.map(pageErrorSignature);
   expect(
     signatures.filter((signature) => !WEBKIT_NAVIGATION_TIMEOUT_DIAGNOSTICS.has(signature)),
@@ -143,11 +152,23 @@ test.describe('Exact production candidate', () => {
 
     let chromiumOffline = false;
     let webkitOutageToken: string | null = null;
+    let fallbackFloorResponsePromise: Promise<Response> | null = null;
     let releaseFailure: Error | null = null;
     try {
       if (browserName === 'webkit') {
-        webkitOutageToken = randomUUID();
-        await armWebKitNavigationOutage(request, webkitOutageToken);
+        const outageToken = randomUUID();
+        webkitOutageToken = outageToken;
+        await armWebKitNavigationOutage(request, outageToken);
+        // An allowed App build floor row must come from the outgoing page, so
+        // the fallback page's own load-time floor read has to get its real
+        // answer. A refused read has no request event, and a read the outgoing
+        // page sent belongs to that page's URL, so match on the fallback URL.
+        fallbackFloorResponsePromise = page.waitForResponse(
+          (response) =>
+            new URL(response.url()).pathname === '/api/app-build-floor/effective' &&
+            new URL(response.frame().url()).searchParams.get(NAVIGATION_OUTAGE_QUERY_PARAMETER) ===
+              outageToken,
+        );
         const outageUrl = `/?${NAVIGATION_OUTAGE_QUERY_PARAMETER}=${encodeURIComponent(webkitOutageToken)}`;
         const navigationResponse = await page.goto(outageUrl, { waitUntil: 'domcontentloaded' });
         if (!navigationResponse) throw new Error('WEBKIT_OUTAGE_NAVIGATION_RESPONSE_MISSING');
@@ -199,6 +220,10 @@ test.describe('Exact production candidate', () => {
         .poll(() => readCachedNavigationMarkers(page), { timeout: 5_000 })
         .toHaveLength(1);
       await expect(page.locator('#tab-play')).toBeVisible();
+      if (fallbackFloorResponsePromise) {
+        // The controlled preview answers the API routes it does not configure with 503.
+        expect((await fallbackFloorResponsePromise).status()).toBe(503);
+      }
       expectNoUnexpectedPageErrors(getPageErrors(page), browserName);
 
       const fallbackErrorSignatures = getPageErrors(page).map(pageErrorSignature);
@@ -211,16 +236,28 @@ test.describe('Exact production candidate', () => {
       }
 
       const relevantRequestFailures: string[] = [];
+      // The floor read cancels the body of an answer that is not a floor (here
+      // the preview's 503), and WebKit can then report that answered read as a
+      // cancelled load. Only a floor read that failed with no answer counts.
+      const answeredFloorReads = new WeakSet<Request>();
+      const trackFloorAnswer = (response: Response): void => {
+        if (new URL(response.url()).pathname === '/api/app-build-floor/effective') {
+          answeredFloorReads.add(response.request());
+        }
+      };
       const trackRelevantFailure = (failedRequest: Request): void => {
         if (browserName !== 'webkit') return;
         const pathname = new URL(failedRequest.url()).pathname;
         if (
           pathname === '/api/auth/session' ||
+          (pathname === '/api/app-build-floor/effective' &&
+            !answeredFloorReads.has(failedRequest)) ||
           pathname === '/designsystem/fonts/PretendardVariable.woff2'
         ) {
           relevantRequestFailures.push(failedRequest.url());
         }
       };
+      page.on('response', trackFloorAnswer);
       page.on('requestfailed', trackRelevantFailure);
       try {
         const authResponsePromise = page.waitForResponse(
@@ -244,6 +281,7 @@ test.describe('Exact production candidate', () => {
         expect(getPageErrors(page).map(pageErrorSignature)).toEqual(fallbackErrorSignatures);
       } finally {
         page.off('requestfailed', trackRelevantFailure);
+        page.off('response', trackFloorAnswer);
       }
     } finally {
       if (webkitOutageToken) {

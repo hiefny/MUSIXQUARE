@@ -1100,8 +1100,11 @@ const runLazyFeatureRecovery = createReloadRecoveryLatch<LazyFeatureFailure>({
   reload(_failure, onRecovered) {
     scheduleDocumentReload(t('dialog.refreshing_session'), onRecovered);
   },
-  onDeclined() {
-    showToast(t('error.network_generic'));
+  onDeclined({ feature }) {
+    // Close, Back and Escape are a choice, so no error toast follows them
+    // (owner decision 2026-10-28). A dialog that could not open already
+    // showed its message as a toast (showDialog's fallback).
+    log.info(`[App] ${feature} reload recovery declined; the feature stays unopened`);
   },
   onRecovered({ feature, error }) {
     // A WebKit reload can be cancelled or become a no-op while the old

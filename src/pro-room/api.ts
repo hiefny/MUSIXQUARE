@@ -2006,18 +2006,6 @@ export class ProRoomApiClient {
     });
   }
 
-  async leavePresence(code: string, signal?: AbortSignal): Promise<ProRoomSnapshot> {
-    const path = roomPath(code);
-    const snapshot = await this.#request(`${path}/presence/current`, {
-      method: 'DELETE',
-      signal,
-      activeRoomCode: code,
-      parser: (value) => parseSnapshotEnvelope(value, code),
-    });
-    this.clearPresenceIdentity(code);
-    return snapshot;
-  }
-
   /**
    * Release the exact presence incarnation in one keepalive request. This
    * intentionally does not close the cookie session:

@@ -1167,7 +1167,7 @@ describe('PRO room cookie session API', () => {
     );
   });
 
-  it('leaves presence explicitly and obtains a member ticket with the pending transition', async () => {
+  it('obtains a member ticket with the pending transition', async () => {
     const ticket = `v1.${'s'.repeat(32)}.${'T'.repeat(43)}`;
     const pendingPlaybackTransition = {
       type: 'pro-playback-prepare' as const,
@@ -1189,19 +1189,17 @@ describe('PRO room cookie session API', () => {
     const fetchMock = vi.fn<typeof fetch>();
     const client = new ProRoomApiClient({ fetch: fetchMock });
     await establishPresence(client, fetchMock);
-    fetchMock
-      .mockResolvedValueOnce(
-        jsonResponse({
-          ticket,
-          expiresAtMs: 1_900_000_000_000,
-          role: 'member',
-          coordinatorEpoch: 4,
-          presenceIncarnationId: activeSnapshot().viewer!.presenceIncarnationId,
-          ticketSequence: 7,
-          pendingPlaybackTransition,
-        }),
-      )
-      .mockResolvedValueOnce(jsonResponse({ snapshot: activeSnapshot() }));
+    fetchMock.mockResolvedValueOnce(
+      jsonResponse({
+        ticket,
+        expiresAtMs: 1_900_000_000_000,
+        role: 'member',
+        coordinatorEpoch: 4,
+        presenceIncarnationId: activeSnapshot().viewer!.presenceIncarnationId,
+        ticketSequence: 7,
+        pendingPlaybackTransition,
+      }),
+    );
 
     await expect(client.createSignalingTicket(ROOM_CODE)).resolves.toEqual({
       ticket,
@@ -1222,13 +1220,11 @@ describe('PRO room cookie session API', () => {
     expect(ticketHeaders.get('x-mxqr-pro-presence-incarnation')).toBe(
       activeSnapshot().viewer!.presenceIncarnationId,
     );
-    await expect(client.leavePresence(ROOM_CODE)).resolves.toEqual(activeSnapshot());
 
     expect(fetchMock.mock.calls.map((call) => new URL(String(call[0])).pathname)).toEqual([
       `${PRO_ROOM_PRODUCTION_PATH}/v1/rooms/000001/signaling-tickets`,
-      `${PRO_ROOM_PRODUCTION_PATH}/v1/rooms/000001/presence/current`,
     ]);
-    expect(fetchMock.mock.calls.map((call) => call[1]?.method)).toEqual(['POST', 'DELETE']);
+    expect(fetchMock.mock.calls.map((call) => call[1]?.method)).toEqual(['POST']);
   });
 
   it('rejects legacy coordinator tickets and tickets missing the pending-transition field', async () => {

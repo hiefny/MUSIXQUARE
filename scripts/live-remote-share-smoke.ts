@@ -50,6 +50,19 @@ const RETRYABLE_SESSION_ERRORS = new Set([
 ]);
 // One rate-limit retry per smoke process, for the signaling host upgrade.
 const SMOKE_RATE_LIMIT_RETRY = createRateLimitUnavailableRetry();
+// The App's check of an assertion answer: normalizeRemoteShareUploadAssertionResponse
+// in src/network/transport/cloudflare-signaling.ts takes exactly these keys, and
+// the App takes a compact assertion of 64 to REMOTE_SHARE_UPLOAD_ASSERTION_MAX_LENGTH
+// (src/share/r2-client.ts) characters. The App exports neither, so the smoke
+// lifetime test pins this copy to both.
+const UPLOAD_ASSERTION_ANSWER_KEYS = Object.freeze([
+  'type',
+  'correlationId',
+  'assertion',
+  'expiresAt',
+]);
+const UPLOAD_ASSERTION_MIN_LENGTH = 64;
+const UPLOAD_ASSERTION_MAX_LENGTH = 4096;
 
 interface RemoteShareReadiness {
   roomUploadAssertionVersion: 1;
@@ -545,8 +558,14 @@ async function openRoomUploadAssertionAuthorityAttempt(
       if (response.type === 'remote-share-upload-assertion-error') {
         throw new Error(`remote-share assertion rejected: ${String(response.errorType)}`);
       }
+      const answerKeys = Object.keys(response).sort();
+      const expectedKeys = [...UPLOAD_ASSERTION_ANSWER_KEYS].sort();
       if (
+        answerKeys.length !== expectedKeys.length ||
+        answerKeys.some((key, index) => key !== expectedKeys[index]) ||
         typeof response.assertion !== 'string' ||
+        response.assertion.length < UPLOAD_ASSERTION_MIN_LENGTH ||
+        response.assertion.length > UPLOAD_ASSERTION_MAX_LENGTH ||
         !/^[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+$/.test(response.assertion) ||
         !Number.isSafeInteger(response.expiresAt) ||
         Number(response.expiresAt) <= 0

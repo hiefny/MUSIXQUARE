@@ -379,7 +379,12 @@ export function addChatMessage(
 // System messages bypass `chat:message-rendered` on purpose: they're local
 // notices (command output, errors) that shouldn't touch preview/unread.
 
-export function addSystemChatMessage(text: string): void {
+export interface SystemChatMessageOptions {
+  /** The first line heads command output (/help, /users, /debug). */
+  heading?: boolean;
+}
+
+export function addSystemChatMessage(text: string, options: SystemChatMessageOptions = {}): void {
   const container = document.getElementById('chat-messages');
   if (!container) return;
 
@@ -405,9 +410,10 @@ export function addSystemChatMessage(text: string): void {
   const chatTextDiv = document.createElement('div');
   chatTextDiv.className = 'chat-text';
   chatTextDiv.dir = 'auto';
-  // First line bold if multi-line (command output headers like /help, /users, /debug)
+  // Command output (/help, /users, /debug) shows its first line as a heading.
+  // Other notices are sentences, even when they span two lines.
   const msgLines = text.split('\n');
-  if (msgLines.length > 1) {
+  if (options.heading && msgLines.length > 1) {
     const strong = document.createElement('strong');
     strong.textContent = msgLines[0];
     chatTextDiv.appendChild(strong);

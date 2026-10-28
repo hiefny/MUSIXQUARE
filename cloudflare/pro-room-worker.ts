@@ -1168,10 +1168,10 @@ const RESERVED_ASSET_MAX_ITEMS_PER_DEVELOPER_KEY = 2;
 // The browser receipt ledger that every participant's playlist, media,
 // playback and BOT mutations share (RO-53). A receipt lives only as long as
 // the App can send its request again (cloudflare/pro-room-receipt-timing.ts),
-// so the cap bounds receipts per window, not per day. Keep 256: a 9.0.17
-// Worker refuses to load a room whose ledger holds more, so a rolled-back
-// Worker could not open it. A raise needs two releases (load first, write
-// second) or a separate ledger field.
+// so the cap bounds receipts per window, not per day. Keep 256: a 9.0.17 or
+// 9.0.18 Worker refuses to load a room whose ledger holds more, so a
+// rolled-back Worker could not open it. A raise needs two releases (load
+// first, write second) or a separate ledger field.
 const IDEMPOTENCY_MAX_ITEMS = 256;
 // Developer mutations receive their own full 24-hour replay budget. Because
 // the complete room core is deliberately bounded to one 1.2 MiB value, this
@@ -1308,6 +1308,7 @@ const SYSTEM_AUDIO_TRACK_MID_MAX_LENGTH = 64;
 // receipts use the windows of RO-53 instead.
 const IDEMPOTENCY_TTL_MS = 24 * 60 * 60 * 1000;
 const BROWSER_COMPLETION_RECEIPT_KEY_RE = /^participant:[^:]+:complete:[^:]+$/;
+const BROWSER_RESERVE_RECEIPT_KEY_RE = /^participant:[^:]+:reserve:[^:]+$/;
 const ASSET_DELETE_PENDING_EXPIRES_AT_MS = Number.MAX_SAFE_INTEGER;
 // Session admission sits behind the App facade's bounded response window. A
 // room mutation can therefore commit after the browser receives a gateway
@@ -7210,8 +7211,11 @@ export class MusixquareProRoom {
         changed = true;
       }
     }
-    // A named asset's completion can no longer be retried (RO-53).
-    return this.releaseSettledCompletionReceipts(referenced) || changed;
+    // A named asset's completion, and the reservation of an asset that left
+    // `reserved`, can no longer be retried (RO-53). Both releases always run.
+    const releasedCompletions = this.releaseSettledCompletionReceipts(referenced);
+    const releasedReservations = this.releaseSettledReserveReceipts();
+    return releasedCompletions || releasedReservations || changed;
   }
 
   retainStagingTombstone(asset: RoomAsset, nowMs = Date.now()) {
@@ -7239,9 +7243,10 @@ export class MusixquareProRoom {
       status: 503,
       body: { error: 'MEDIA_STORAGE_UNAVAILABLE' },
       // The matching deletion marker, rather than wall-clock time, owns this
-      // fence. Normalization removes a dangling receipt once no marker points
-      // at it, so an interrupted deletion cannot lose exactly-once protection
-      // and a corrupt receipt cannot leak capacity forever.
+      // fence, and the commit that finishes the delete releases it.
+      // Normalization removes a dangling receipt once no marker points at it,
+      // so an interrupted deletion cannot lose exactly-once protection and a
+      // corrupt receipt cannot leak capacity forever.
       expiresAtMs: ASSET_DELETE_PENDING_EXPIRES_AT_MS,
     };
   }
@@ -7341,12 +7346,13 @@ export class MusixquareProRoom {
       delete this.activeRoom.assets[assetId];
       this.activeRoom.revision += 1;
       const responseBody = this.assetDeletionResponse(assetId);
-      if (request) {
-        this.storeIdempotency(request.scope, request.key, request.fingerprint, responseBody);
-      }
-      // Only this commit releases quota and removes the ledger row. If it
-      // fails, the previously committed marker survives restart and R2
-      // deletion is safely replayed until this canonical transition lands.
+      if (request) this.releaseIdempotencyRecord(request.scope, request.key);
+      // Only this commit releases quota and removes the ledger row. It stores
+      // no final receipt (RO-53): the asset ID is never reused, so a same-key
+      // resend finds no asset and answers ASSET_NOT_FOUND, and a delete holds
+      // a receipt slot only while its R2 objects are deleted. If it fails, the
+      // previously committed marker survives restart and R2 deletion is
+      // safely replayed until this canonical transition lands.
       await this.persist();
       return responseBody;
     } catch (error) {
@@ -16630,7 +16636,9 @@ export class MusixquareProRoom {
    * RO-53: the longest a browser-ledger receipt of `scope` may live, from
    * now. A receipt only makes a request sent again with the same key replay
    * its first answer, so it lives as long as the App can still send it:
-   * - every single-request scope: the request window;
+   * - every single-request scope: the request window.
+   *   releaseSettledReserveReceipts frees a reservation's sooner, once its
+   *   asset leaves `reserved`;
    * - playback: twice one presence window plus one attempt, because a frozen
    *   page's timer can send the second attempt until its presence lapses;
    * - upload completion: the GC grace, because the batch failure dialog's
@@ -16709,6 +16717,33 @@ export class MusixquareProRoom {
     return changed;
   }
 
+  /**
+   * Release the browser reserve receipts no retry can need any more. The App
+   * makes a fresh reserve key for every upload attempt and moves on to the
+   * upload only with the answer, so once the asset is gone, no longer
+   * `reserved` or being deleted, that reservation is never sent again. Like
+   * the completion release, the match reads the stored answer, and a receipt
+   * without one waits for its expiry. A completion releases its own
+   * reservation's receipt inside its commit, which frees the slot its
+   * completion receipt then takes.
+   */
+  releaseSettledReserveReceipts() {
+    let changed = false;
+    for (const [storageKey, record] of Object.entries(this.activeRoom.idempotency)) {
+      if (record.kind !== undefined || !BROWSER_RESERVE_RECEIPT_KEY_RE.test(storageKey)) {
+        continue;
+      }
+      const reservation = record.body?.reservation;
+      const assetId = isRecord(reservation) ? reservation.assetId : undefined;
+      if (typeof assetId !== 'string') continue;
+      const asset = this.activeRoom.assets[assetId];
+      if (asset?.status === 'reserved' && asset.deletionPending === undefined) continue;
+      delete this.activeRoom.idempotency[storageKey];
+      changed = true;
+    }
+    return changed;
+  }
+
   idempotencyRecord(scope: string, key: string) {
     const storageKey = `${scope}:${key}`;
     const { records } = this.idempotencyLedger(scope);
@@ -16717,6 +16752,19 @@ export class MusixquareProRoom {
     if (!this.idempotencyRecordIsExpired(record)) return record;
     delete records[storageKey];
     return undefined;
+  }
+
+  /**
+   * Release the receipt of a request that can never need it again: the
+   * pending receipt of a delete whose commit finishes it (RO-53). Returns
+   * whether the ledger held one.
+   */
+  releaseIdempotencyRecord(scope: string, key: string) {
+    const storageKey = `${scope}:${key}`;
+    const { records } = this.idempotencyLedger(scope);
+    if (!records[storageKey]) return false;
+    delete records[storageKey];
+    return true;
   }
 
   reserveIdempotencySlot(

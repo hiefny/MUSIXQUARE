@@ -313,19 +313,6 @@ const SELECTION_GROUPS: readonly SelectionGroup[] = [
     },
   },
   {
-    name: 'legacy device list rows (hidden in every layout, no current row)',
-    unselected: ['.section-row'],
-    selected: [],
-    mount: (markup) => {
-      const list = mountIn(
-        markup,
-        '#device-list',
-        '<div class="section-row"><span class="d-name">Member</span><span class="d-status">Connected</span></div>',
-      );
-      return samples(list, [['.section-row', 'unselected']]);
-    },
-  },
-  {
     name: 'choice chips',
     unselected: ['.ch-opt'],
     selected: [

@@ -2243,7 +2243,7 @@ PRO 방장 공지의 중도 참여 복원은 별도 정책이며 이번 서비�
 - target `pro-room`·`all` 릴리스는 그 호환 검사 뒤, recovery checkpoint 전에 읽기만 하는 PRO
   최소 빌드 사전 검사(`scripts/app-build-floor.mts pro-room-guard`)를 돈다. 요구 값
   `MXQR_PRO_ROOM_REQUIRED_APP_BUILD`는 [release.yml](../.github/workflows/release.yml)의 그 단계에
-  있고(런타임 경로 밖), Phase 5.5의 PRO 스냅샷 v2 보내기 릴리스(R2)가 적을 때까지 비어 있어 지금은
+  있고(런타임 경로 밖), PRO 스냅샷 v2 보내기 릴리스(Phase 5.5 R2)가 적을 때까지 비어 있어 지금은
   아무것도 막지 않는다. 비상 로컬 배포는 이 검사를 돌지 않는다. 멈춤과 출구는
   [운영](hotfix-procedure.md#app-build-floor)이 정본이다.
 - Developer API D1 `false`는 데이터 계층을 건드리지 않는다는 뜻이 아니다. `all`은

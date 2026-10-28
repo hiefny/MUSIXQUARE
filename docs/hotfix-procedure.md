@@ -699,6 +699,25 @@ gh workflow run app-build-floor.yml --ref main -f action=lower -f min_app_build=
   when that build is the live App. If it fails, the release stays committed and is not rolled
   back; rerun `set` with the standalone workflow. Later raises need no separate owner approval
   (owner decision 2026-10-25): the release that needs one sets the input.
+- A Production Release with target `pro-room` or `all` checks the floor before it changes
+  anything: its step "Check the App build floor the PRO Worker requires" runs after the
+  partial-release dependency compatibility check and before the recovery checkpoint, so a stop
+  changes nothing and starts no recovery. `MXQR_PRO_ROOM_REQUIRED_APP_BUILD` on that step names
+  the App build that the PRO Worker on `main` requires of every client. The value lives in
+  `.github/workflows/release.yml`, outside every runtime path list, so writing or clearing it never
+  changes a release target; while it is empty the step only logs that nothing is required.
+  Otherwise the release continues only when the public status shows both the stored and the
+  effective floor at that build or above. The step reads an unreadable status again for 30
+  seconds, and while the effective floor is 0 (no App report for five minutes) it waits up to 3
+  minutes for a new App report; then it stops the release. After such a stop, dispatch again once
+  the status shows a fresh `reportedAt` from the next App report (every minute). If the stopped
+  App report or the unreadable status needs a repair that ships with target `pro-room` or `all`,
+  that repair pull request clears the value (a lower value cannot pass while the effective floor
+  is 0); once the status shows both floors at the required build again, a small tooling pull
+  request writes it back while the PRO Worker still requires it. An `app` release does not run
+  the step. A stored or a non-zero effective floor below the value does not pass by waiting: do
+  not clear the value then unless the same pull request ends the requirement, or the PRO Worker
+  ships with a requirement that the floor does not enforce.
 - First floor (owner decision 2026-10-25): the App 9.0.14 release ships with the floor at 0 and
   `raise_app_build_floor` false. Once its smokes and public assets are verified, run `status`
   (the live App build is the released one and the App report is fresh), then `check` (the OIDC

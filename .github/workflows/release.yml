@@ -254,6 +254,19 @@ jobs:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
         run: node scripts/release-deployment-state.mts compatibility "$RELEASE_TARGET" "${{ github.sha }}"
 
+      # Read-only and before the checkpoint, so a stop changes nothing and
+      # starts no recovery. When the PRO Worker on main requires every client to
+      # be at least an App build, the public floor status must show the stored
+      # and the effective floor at that build or above. The value lives here,
+      # outside every runtime path list; empty means no requirement.
+      - name: Check the App build floor the PRO Worker requires
+        id: pro_room_app_build_floor_check
+        if: inputs.target == 'pro-room' || inputs.target == 'all'
+        timeout-minutes: 10
+        env:
+          MXQR_PRO_ROOM_REQUIRED_APP_BUILD: ''
+        run: node scripts/app-build-floor.mts pro-room-guard
+
       - name: Prepare deployment records
         run: mkdir -p release-artifacts/deployments
 
@@ -1715,6 +1728,7 @@ jobs:
           echo "- Developer API D1 changes requested: \`${{ inputs.apply_developer_api_d1 }}\`" >> "$GITHUB_STEP_SUMMARY"
           echo "- PRO generation readiness restore: \`${{ steps.pro_room_generation_cutover.outcome || 'not-requested' }}\`" >> "$GITHUB_STEP_SUMMARY"
           echo "- Standard HTTPS signaling fallback smoke: \`${{ steps.standard_http_signaling_smoke.outcome || 'not-requested' }}\`" >> "$GITHUB_STEP_SUMMARY"
+          echo "- PRO App build floor check: \`${{ steps.pro_room_app_build_floor_check.outcome || 'not-requested' }}\`" >> "$GITHUB_STEP_SUMMARY"
           echo "- App build floor raise: \`${{ steps.app_build_floor_raise.outcome || 'not-requested' }}\`" >> "$GITHUB_STEP_SUMMARY"
           echo "- Final signaling Custom Domain candidate verification: \`${{ steps.signaling_domain_candidate_verification.outcome || 'not-requested' }}\`" >> "$GITHUB_STEP_SUMMARY"
           echo "- Recovery PRO generation fence: \`${{ steps.pro_room_generation_cutover_disable.outcome || 'not-requested' }}\`" >> "$GITHUB_STEP_SUMMARY"

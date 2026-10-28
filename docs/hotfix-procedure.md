@@ -717,8 +717,8 @@ gh workflow run app-build-floor.yml --ref main -f action=lower -f min_app_build=
   floors at the required build again, a small tooling pull request writes it back while the PRO
   Worker still requires it. An `app` release does not run the step. A stored or a non-zero
   effective floor below the value does not pass by waiting: do not clear the value then unless
-  the same pull request ends the requirement, or the PRO Worker ships with a requirement that the
-  floor does not enforce.
+  the same pull request also ends the requirement; otherwise the PRO Worker ships with a
+  requirement that the floor does not enforce.
 - First floor (owner decision 2026-10-25): the App 9.0.14 release ships with the floor at 0 and
   `raise_app_build_floor` false. Once its smokes and public assets are verified, run `status`
   (the live App build is the released one and the App report is fresh), then `check` (the OIDC

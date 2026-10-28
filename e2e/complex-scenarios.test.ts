@@ -821,27 +821,19 @@ test.describe('State Consistency After Complex Flows', () => {
     await clickPlayButton(pair.hostPage);
     await waitForPlayState(pair.hostPage, false);
 
+    // Next and Previous start the track they move to (playTrack), so each
+    // leaves the player playing. Until 9.0.19 the play button was always named
+    // Play/Pause, so waitForPlayState matched either state and the extra Play
+    // press this test made after Previous paused the player unnoticed. Since
+    // 9.0.19 the button is named Play or Pause like its icon.
     await pair.hostPage.click('#btn-next');
-    await pair.hostPage.waitForFunction(
-      () => {
-        const get = (window as any).__MUSIXQUARE_GET_STATE__;
-        return get && get('files.current') !== null;
-      },
-      undefined,
-      { timeout: 10_000 },
-    );
+    await waitForCurrentQueueIndex(pair.hostPage, 1);
+    await waitForPlaybackProjection(pair.hostPage, 'PLAYING_AUDIO');
 
+    // Previous within the first 3 seconds moves back instead of restarting.
     await pair.hostPage.click('#btn-prev');
-    await pair.hostPage.waitForFunction(
-      () => {
-        const get = (window as any).__MUSIXQUARE_GET_STATE__;
-        return get && get('files.current') !== null;
-      },
-      undefined,
-      { timeout: 10_000 },
-    );
-
-    await clickPlayButton(pair.hostPage);
+    await waitForCurrentQueueIndex(pair.hostPage, 0);
+    await waitForPlaybackProjection(pair.hostPage, 'PLAYING_AUDIO');
     await waitForPlayState(pair.hostPage, true);
 
     await navigateToTab(pair.hostPage, 'playlist');

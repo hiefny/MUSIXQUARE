@@ -108,11 +108,19 @@ runbooks. Neither belongs in a general setup document.
   mutation receipts (kept, with the rationale in RO-53). It lists each increment with its
   commits (tested on main `1a99fe49`, then rebased onto the docs-only 9.0.19 record `2bed0a50`
   with identical runtime and tests, both SHAs listed), the tests-first evidence (12 titles, 13
-  cases failing on the 9.0.18 PRO room runtime), the changed answers, QA rounds 1 and 2 with
-  their tested SHAs and limits, the rollback to the 9.0.18 PRO room Worker `61e60919` with its
-  one-off check against the `53a4f397` Worker code, mixed versions, and the limits (bulk deletes
-  during an R2 outage, a reservation that corrupt-marker load repair restores without its
-  receipt, nothing run on real devices). Not merged or released.
+  cases failing on the 9.0.18 PRO room runtime), the changed answers, QA rounds 1 to 3 with
+  their tested SHAs and limits (round 3 is the PR CI, automated review, exact-main CI, release and
+  public-check round: one PR CI run and a no-findings automated review on the final head
+  `b0530a8f`, the `pro-room` deploy with the App and the other four Workers left as they were, the
+  PRO room smoke reading the new version on its first attempt, the public assets still at v792,
+  the public floor at 787 with live App 792, and the Drift Audit), the rollback to the 9.0.18 PRO
+  room Worker `61e60919` with its one-off check against the `53a4f397` Worker code and the
+  release's checkpoint holding that Worker, mixed versions, and the limits (bulk deletes during an
+  R2 outage, a reservation that corrupt-marker load repair restores without its receipt, nothing
+  run on real devices). PR #512 (squash `7824d301`) was released on 2026-10-28 22:03 KST in
+  Release 40692809244 with target `pro-room`, so only the PRO room Worker changed (`a04acac1`).
+  The ledger state in a production room cannot be read from outside, so the production bulk-delete
+  check stays open in the release record.
 - [UI bundle: the UI audit and hint-copy audit recommendations (2026-10-27)](design/ui-bundle-2026-10-27.md):
   the owner's 2026-10-27 instruction to ship every recommended direction of the two audits as one
   app update, with the owner's final decisions of 2026-10-28 (U14), which supersede the earlier

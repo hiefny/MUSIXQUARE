@@ -1605,7 +1605,7 @@ or pointers. Keep :focus-visible and :active outside the gate (src/ui/__tests__/
     justify-content: center;
     color: var(--text-sub);
     font-size: 14px;
-    font-weight: var(--font-weight-body);
+    font-weight: var(--font-weight-label);
     text-align: center;
     padding: 0 32px;
     pointer-events: none;
@@ -1907,7 +1907,7 @@ or pointers. Keep :focus-visible and :active outside the gate (src/ui/__tests__/
 
   .youtube-sync-loading-overlay > span:not(.material-elastic-spinner) {
     font-size: 15px;
-    font-weight: var(--font-weight-body);
+    font-weight: var(--font-weight-label);
     line-height: 1.5;
     text-align: center;
   }
@@ -2911,6 +2911,12 @@ or pointers. Keep :focus-visible and :active outside the gate (src/ui/__tests__/
     font-style: italic;
     font-size: 11px;
     opacity: 0.6;
+  }
+
+  /* The waiting row of a playlist whose items still load; the deferred
+     load hint, a sentence that stays until the playlist plays, stays body. */
+  .sub-playlist[data-render-state='loading'] > .sub-track-item.loading {
+    font-weight: var(--font-weight-label);
   }
 
   /* Expand Toggle */
@@ -4590,6 +4596,7 @@ or pointers. Keep :focus-visible and :active outside the gate (src/ui/__tests__/
 
   .qr-placeholder {
     font-size: 13px;
+    font-weight: var(--font-weight-label);
     color: var(--text-sub);
     text-align: center;
     padding: 32px 0;
@@ -5035,7 +5042,7 @@ or pointers. Keep :focus-visible and :active outside the gate (src/ui/__tests__/
     margin: 0;
     color: var(--text-main);
     font-size: 15px;
-    font-weight: var(--font-weight-body);
+    font-weight: var(--font-weight-label);
     line-height: 1.5;
     text-align: center;
   }
@@ -5410,6 +5417,11 @@ or pointers. Keep :focus-visible and :active outside the gate (src/ui/__tests__/
     line-height: 1.58;
     white-space: pre-wrap;
     word-break: keep-all;
+  }
+
+  /* The waiting line while the account loads (src/ui/account.ts). */
+  .account-dialog-message[data-account-waiting] {
+    font-weight: var(--font-weight-label);
   }
 
   .account-dialog-nickname {
@@ -5937,6 +5949,7 @@ or pointers. Keep :focus-visible and :active outside the gate (src/ui/__tests__/
 
   .dialog-hint.error {
     color: var(--danger-foreground);
+    font-weight: var(--font-weight-label);
   }
 
   .dialog-input.shake {
@@ -7456,7 +7469,7 @@ or pointers. Keep :focus-visible and :active outside the gate (src/ui/__tests__/
     margin: 12px 0 0;
     color: var(--danger-foreground);
     font-size: 13px;
-    font-weight: var(--font-weight-body);
+    font-weight: var(--font-weight-label);
     line-height: 1.45;
     text-align: center;
     white-space: pre-line;
@@ -9801,7 +9814,7 @@ or pointers. Keep :focus-visible and :active outside the gate (src/ui/__tests__/
     margin: 0;
     color: var(--text-muted);
     font-size: 12px;
-    font-weight: var(--font-weight-body);
+    font-weight: var(--font-weight-label);
   }
 
   .demo-role-diagram {
@@ -11292,6 +11305,20 @@ or pointers. Keep :focus-visible and :active outside the gate (src/ui/__tests__/
     text-align: start;
     margin: 4px 0 0 0;
     font-weight: var(--font-weight-body);
+  }
+
+  /* The progress, result and error lines come and go with a search or a
+     link lookup, so they take the label weight; the resting prompts stay
+     body. src/youtube/search.ts names each line's key in data-i18n. */
+  .yt-preview-meta:is(
+    [data-i18n='youtube.searching'],
+    [data-i18n='youtube.fetching_info'],
+    [data-i18n='youtube.search_no_results'],
+    [data-i18n='youtube.invalid_link'],
+    [data-i18n='youtube.search_failed'],
+    [data-i18n='youtube.fetch_failed']
+  ) {
+    font-weight: var(--font-weight-label);
   }
 
   /* Onboarding slider strip block (id=ob-slider-area) */

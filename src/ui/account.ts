@@ -983,6 +983,7 @@ function renderAccountDialog(snapshot: Readonly<AccountSnapshot> = getAccountSna
   content.hidden = false;
   loginActions.hidden = true;
   message.hidden = false;
+  message.removeAttribute('data-account-waiting');
   nickname.hidden = true;
   google.hidden = true;
   loginClose.hidden = true;
@@ -1052,7 +1053,10 @@ function renderAccountDialog(snapshot: Readonly<AccountSnapshot> = getAccountSna
   }
 
   if (snapshot.status === 'loading' || snapshot.configured === false) {
-    message.textContent = t(snapshot.status === 'loading' ? 'common.wait' : 'account.unavailable');
+    const waiting = snapshot.status === 'loading';
+    message.textContent = t(waiting ? 'common.wait' : 'account.unavailable');
+    // The waiting line takes the label weight while it lasts (css/style.css).
+    message.toggleAttribute('data-account-waiting', waiting);
     loginClose.classList.remove('dialog-secondary');
     loginClose.classList.add('dialog-primary');
     syncRenderedTextFonts();

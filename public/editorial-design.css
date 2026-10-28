@@ -2527,7 +2527,7 @@
   color: var(--text-main);
   display: inline-block;
   font-size: 13px;
-  font-weight: var(--font-weight-body);
+  font-weight: var(--font-weight-label);
   backdrop-filter: none;
   -webkit-backdrop-filter: none;
 }

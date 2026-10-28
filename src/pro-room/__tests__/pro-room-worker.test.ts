@@ -24014,7 +24014,9 @@ describe('persistent PRO room private media accounting', () => {
     await expect(context.worker.fetch(deletion())).rejects.toMatchObject({
       name: 'RoomStateStorageCommitError',
     });
-    const internal = context.worker as unknown as { room: StoredRoom };
+    const internal = context.worker as unknown as {
+      room: StoredRoom & { idempotency: Record<string, any> };
+    };
     expect(internal.room.assets[assetId]).toMatchObject({
       deletionPending: { reason: 'explicit' },
     });
@@ -24022,8 +24024,16 @@ describe('persistent PRO room private media accounting', () => {
       usedBytes: asset.byteLength,
       reservedBytes: 0,
     });
+    // Memory is back on the durable marker, its pending receipt included.
+    const participantId = context.activationEnvelope.snapshot.viewer.participantId as string;
+    const receiptKey = `participant:${participantId}:delete:${deleteKey}`;
+    expect(internal.room.idempotency[receiptKey]).toMatchObject({ kind: 'asset-delete-pending' });
 
     context.state.storage.put = originalPut;
+    // The restored marker is due at once, so the next request's prune would
+    // finish the delete before routing. Hold it as an R2 failure would, so
+    // this same-key retry finishes the delete itself through the marker.
+    internal.room.assets[assetId]!.deletionPending!.retryAtMs = Date.now() + 60_000;
     const retry = await context.worker.fetch(deletion());
     expect(retry.status).toBe(200);
     await expect(retry.json()).resolves.toMatchObject({
@@ -24033,6 +24043,10 @@ describe('persistent PRO room private media accounting', () => {
     });
     expect(internal.room.assets[assetId]).toBeUndefined();
     expect(storedCanonicalRoom(context.state).assets[assetId]).toBeUndefined();
+    // The retry's commit released the restored pending receipt and stored no
+    // final receipt (RO-53).
+    expect(internal.room.idempotency[receiptKey]).toBeUndefined();
+    expect(storedCanonicalRoom(context.state).idempotency[receiptKey]).toBeUndefined();
   });
 
   it('normalizes a malformed deletion marker without deleting a referenced legacy asset', async () => {

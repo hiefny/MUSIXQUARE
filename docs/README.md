@@ -93,6 +93,47 @@ runbooks. Neither belongs in a general setup document.
 
 ## Maintained evidence and completed records
 
+- [UI bundle: the UI audit and hint-copy audit recommendations (2026-10-27)](design/ui-bundle-2026-10-27.md):
+  the owner's 2026-10-27 instruction to ship every recommended direction of the two audits as one
+  app update, with the owner's final decisions of 2026-10-28 (U14), which supersede the earlier
+  15px / 700 label style, its narrow-slot exceptions (U12, U13 and the round 9 setup pill) and the
+  12px side-by-side gap. Button labels take one of three roles as root tokens: CTA, every action
+  button, 15px / 600 / 1.25 with normal tracking; chip, the choice chips, 14px; tab, the desktop
+  settings section tabs, 13px (the owner's local preview of 9.0.18 at 600 is the final draft; 700
+  clumped in dark mode, Korean most of all). Where the CTA role measured worse than 9.0.18 in 42
+  locales at 320 to 390px, the slot stays inside the roles: `.btn-label-compact` takes the chip
+  size up to 719px on Sign out and Delete account (always one size) and the media source options,
+  whose labels also wrap at word boundaries (Korean keep-all, Japanese phrases), and the demo tour's
+  two-per-row actions take the tab size up to 420px. Action pills sit 10px apart side by side and
+  12px stacked, 56px tall, with 24px side padding on dialog pills at 360px and below; the Korean
+  invite pill, administrator permissions title and demo step chips keep their 9.0.18 text. The
+  final check's fix (U15) puts the startup failure Retry in the CTA role like every other action
+  button (15px / 600 / 1.25, normal tracking); phrase breaking for the Japanese setup action pill
+  was tried and dropped, because the wider pill pushed the Back and pill group 12.8px right of the
+  screen center against the setup centering decision (8.11.16), so owner item 14 is open again. The
+  PR CI fix (U16) draws the media source options, their BETA badge included, without font hinting on
+  Linux (`text-rendering: geometricPrecision`, not on the play tab Sync and Media): Linux Chromium
+  hinted Pretendard to whole-pixel advances, so the compact labels wrapped more than 9.0.18 in the
+  second PR CI. Windows line breaks are unchanged and no owner decision changes. The
+  bundle also gives every red text or icon one `--danger-foreground` role (the default themes keep
+  production's `#ff3b30` and the 9.0.18 tints, the high-contrast palettes keep the 4.5:1 contract,
+  account deletion keeps its 9.0.18 tints); one runtime hover gate owned by
+  `src/ui/hover-pointer.ts` (convertibles hover alike in laptop and studio posture; Chromium 79 TVs
+  lose hover looks only, known risk #20); a shorter playlist minus at the chevron weight; one
+  control-hint owner with reasons as descriptions; a fixed minus name and a status cell for the
+  selection count; noun-form names and hints in 42 locales with a locale review; the English
+  `YouTube Video` kept; and the removal of an unreachable red "Disconnected" badge. Branch
+  `agent/ui-bundle` (last code commit `af713563`) merged main at 9.0.18 / v791 (`6a23c46e`); its
+  last runtime commit is the bump `c2ef3d97` to 9.0.19 / v792 (App build 792), target `app` (App 84
+  runtime paths against production, every other Worker 0, with the update dialog), not merged or
+  released. The report lists each increment (U1 to U16, the locale review and the release-prep
+  bump) with its commits, tests-first evidence and tested SHA, the U14 role table, the
+  measurements against 9.0.18 (26,628 real-app cases, the two-button stack counts, the preview
+  comparison), the guards added, the review findings and their handling, visible changes, owner
+  decisions left open, QA rounds 1 to 13 (round 13, after the second PR CI failed on Linux font hinting and U16 rebuilt
+  the chain on U15 and re-applied the bump, reproduces the CI failure with a local Linux font
+  emulation, measures 0 media labels worse than 9.0.18 at every CI size, and passes the full `build:checked`, unit 16,372, the candidate E2E (19), the critical E2E (94, with the narrow-slot probe at 19 sizes) and four touched or related E2E files (61)), what was not verified (real devices, WebKit, screen readers) and the owner device
+  check list.
 - [PRO room receipt retention (2026-10-27)](design/pro-receipt-retention-2026-10-27.md):
   the PRO room's shared browser receipt ledger (256 receipts) keeps each receipt only as long as
   the App can send its request again (owner decision 2026-10-27, RO-53): two minutes for edits,

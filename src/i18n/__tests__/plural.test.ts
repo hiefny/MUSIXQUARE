@@ -30,15 +30,13 @@ describe('count-sensitive translations', () => {
   });
 
   it('registers every audited count-sensitive message', () => {
-    expect(Object.keys(PLURAL_PARAM_BY_KEY)).toHaveLength(20);
+    expect(Object.keys(PLURAL_PARAM_BY_KEY)).toHaveLength(19);
   });
 
   it('uses natural English singular and plural copy for all count-sensitive messages', async () => {
     const t = await loadTranslator('en-US');
 
     const cases = [
-      ['playlist.delete_selected', { count: 1 }, 'Delete 1 selected track'],
-      ['playlist.delete_selected', { count: 2 }, 'Delete 2 selected tracks'],
       ['connect.device_list', { count: 1 }, '1 Connected Device'],
       ['connect.device_list', { count: 2 }, '2 Connected Devices'],
       ['connect.administrator_list', { count: 1 }, '1 Administrator'],
@@ -178,8 +176,9 @@ describe('count-sensitive translations', () => {
       'Alex a adăugat 20 de piste, inclusiv Prima',
     );
 
-    // The singular has its own form; the plural label keeps the count after a neutral noun.
-    expect(t('playlist.delete_selected', { count: 1 })).toBe('Șterge 1 pistă selectată');
+    // The singular has its own form; twenty and up take the "de" plural.
+    expect(t('toast.deleted_tracks', { count: 1 })).toBe('1 pistă ștearsă');
+    expect(t('toast.deleted_tracks', { count: 20 })).toBe('20 de piste șterse');
     expect(t('toast.unsupported_files_excluded', { count: 20 })).toBe(
       'Fișiere neacceptate omise: 20',
     );
@@ -200,19 +199,21 @@ describe('count-sensitive translations', () => {
   });
 
   it('uses singular copy in Urdu, Hebrew, and Nordic locales while retaining neutral fallbacks', async () => {
+    // Swedish and Norwegian "spår"/"spor" do not change, so they show the
+    // singular on a noun that does.
     const cases = [
-      ['ur-PK', 'منتخب کیا گیا 1 ٹریک حذف کریں', 'منتخب کیے گئے 2 ٹریک حذف کریں'],
-      ['he-IL', 'מחיקת 1 רצועה שנבחרה', 'מחיקת 2 הרצועות שנבחרו'],
-      ['sv-SE', 'Radera 1 markerat spår', 'Radera 2 markerade spår'],
-      ['da-DK', 'Slet 1 markeret nummer', 'Slet 2 markerede numre'],
-      ['nb-NO', 'Slett 1 merket spor', 'Slett 2 merkede spor'],
-      ['fi-FI', 'Poista 1 valittu kappale', 'Poista 2 valittua kappaletta'],
+      ['ur-PK', 'toast.deleted_tracks', '1 ٹریک حذف ہوا', '2 ٹریک حذف ہوئے'],
+      ['he-IL', 'toast.deleted_tracks', 'נמחקה 1 רצועה', 'נמחקו 2 רצועות'],
+      ['sv-SE', 'dialog.file_drop.message', 'Lägg till 1 fil?', 'Lägg till 2 filer?'],
+      ['da-DK', 'toast.deleted_tracks', '1 nummer blev slettet', '2 numre blev slettet'],
+      ['nb-NO', 'dialog.file_drop.message', 'Vil du legge til 1 fil?', 'Vil du legge til 2 filer?'],
+      ['fi-FI', 'toast.deleted_tracks', 'Poistettiin 1 kappale', 'Poistettiin 2 kappaletta'],
     ] as const;
 
-    for (const [locale, singular, plural] of cases) {
+    for (const [locale, key, singular, plural] of cases) {
       const t = await loadTranslator(locale);
-      expect(t('playlist.delete_selected', { count: 1 }), locale).toBe(singular);
-      expect(t('playlist.delete_selected', { count: 2 }), locale).toBe(plural);
+      expect(t(key, { count: 1 }), locale).toBe(singular);
+      expect(t(key, { count: 2 }), locale).toBe(plural);
     }
   });
 
@@ -311,7 +312,7 @@ describe('count-sensitive translations', () => {
     const t = await loadTranslator('th-TH');
 
     const cases = [
-      ['playlist.delete_selected', { count: 2 }, 'ลบ 2 รายการที่เลือก'],
+      ['toast.deleted_tracks', { count: 2 }, 'ลบ 2 รายการแล้ว'],
       ['connect.device_list', { count: 2 }, 'อุปกรณ์ที่เชื่อมต่อ 2 เครื่อง'],
       ['connect.administrator_list', { count: 2 }, 'ผู้ดูแล 2 คน'],
       [
@@ -340,7 +341,7 @@ describe('count-sensitive translations', () => {
     const t = await loadTranslator('id-ID');
 
     const cases = [
-      ['playlist.delete_selected', { count: 2 }, 'Hapus 2 media terpilih'],
+      ['toast.deleted_tracks', { count: 2 }, '2 media dihapus'],
       ['connect.device_list', { count: 2 }, '2 perangkat tersambung'],
       ['connect.administrator_list', { count: 2 }, '2 admin'],
       [
@@ -373,7 +374,7 @@ describe('count-sensitive translations', () => {
     const t = await loadTranslator('tr-TR');
 
     const cases = [
-      ['playlist.delete_selected', { count: 2 }, 'Seçilen 2 medyayı sil'],
+      ['toast.deleted_tracks', { count: 2 }, '2 medya öğesi silindi'],
       ['connect.device_list', { count: 2 }, '2 bağlı cihaz'],
       ['connect.administrator_list', { count: 2 }, '2 yönetici'],
       [

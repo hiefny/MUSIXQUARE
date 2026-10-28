@@ -71,7 +71,9 @@ test.describe('Standard-room owner PIN', () => {
     await page.locator('#btn-dialog-ok').click();
 
     await expect(page.locator('#dialog-overlay')).not.toHaveClass(/show/);
-    await expect(toggle).toHaveAttribute('aria-pressed', 'true');
+    await expect(toggle).toHaveAttribute('aria-checked', 'true');
+    await expect(toggle).toHaveAttribute('role', 'switch');
+    await expect(toggle).toHaveAccessibleName('Room password');
     const row = page.locator('.room-password-code-row:visible');
     await expect(row.locator('.room-password-code')).toHaveText('••••-••••');
     await expect(row.locator('.room-password-code')).toHaveAttribute('aria-hidden', 'true');
@@ -82,11 +84,12 @@ test.describe('Standard-room owner PIN', () => {
       'aria-label',
       'Show password',
     );
-    await expect(row.locator('.room-password-refresh')).toHaveAttribute('aria-pressed', 'false');
+    // The eye names what a press does now, like its icon, without aria-pressed.
+    await expect(row.locator('.room-password-refresh')).not.toHaveAttribute('aria-pressed', /./);
 
     // Turning protection off is immediate and asks nothing.
     await toggle.click();
-    await expect(toggle).toHaveAttribute('aria-pressed', 'false');
+    await expect(toggle).toHaveAttribute('aria-checked', 'false');
     await expect(page.locator('#dialog-overlay')).not.toHaveClass(/show/);
     await expect(row.locator('.room-password-code')).toHaveText('- - - - - - - -');
     await expect(row.locator('.room-password-refresh')).toBeHidden();
@@ -112,7 +115,7 @@ test.describe('Standard-room owner PIN', () => {
     await host.locator('.dialog-choice-option', { hasText: 'Everyone rejoins' }).click();
     await afterPageSwap(host);
     await host.locator('#btn-dialog-ok').click();
-    await expect(toggle).toHaveAttribute('aria-pressed', 'true');
+    await expect(toggle).toHaveAttribute('aria-checked', 'true');
 
     const guest = pair.guestPage;
     await expect(guest.locator('#dialog-title')).toHaveText('Room password set');
@@ -137,7 +140,7 @@ test.describe('Standard-room owner PIN', () => {
     );
     await afterPageSwap(host);
     await host.locator('#btn-dialog-ok').click();
-    await expect(toggle).toHaveAttribute('aria-pressed', 'true');
+    await expect(toggle).toHaveAttribute('aria-checked', 'true');
 
     await host.waitForTimeout(1000);
     await expect(pair.guestPage.locator('#dialog-overlay')).not.toHaveClass(/show/);

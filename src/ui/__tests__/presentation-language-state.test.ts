@@ -6,7 +6,10 @@ import { clearAllManagedTimers } from '../../core/timers.ts';
 import { __resetAccountStateForTests, applyAccountSession } from '../../account/state.ts';
 import { getResolvedLanguage, setLanguageMode, t } from '../../i18n/index.ts';
 import { markStandardRoomAuthorityConfirmed, setRoomContext } from '../../rooms/authority.ts';
-import { roomCapabilityFeedbackMessage } from '../../rooms/permission-feedback.ts';
+import {
+  roomCapabilityFeedbackMessage,
+  roomCapabilityFeedbackTip,
+} from '../../rooms/permission-feedback.ts';
 import type { DataConnection } from '../../types/index.ts';
 import { initPlayerControls } from '../player-controls.ts';
 
@@ -110,9 +113,16 @@ describe('presentation copy follows the selected language without another state 
         status === 'pending'
           ? 'toast.playback_control_checking'
           : 'toast.playback_control_required';
+      // The hover hint is the one-phrase form of the same answer; a tap still
+      // gets the toast's sentences.
+      const tipKey =
+        status === 'pending'
+          ? 'player.playback_control_checking_tip'
+          : 'player.playback_control_required_tip';
       for (const button of buttons) {
         expect(roomCapabilityFeedbackMessage('playback.control')).toBe(t(feedbackKey));
-        expect(button.title).toBe(roomCapabilityFeedbackMessage('playback.control'));
+        expect(roomCapabilityFeedbackTip('playback.control')).toBe(t(tipKey));
+        expect(button.title).toBe(t(tipKey));
         expect(button.getAttribute('aria-disabled')).toBe('true');
       }
 
@@ -121,7 +131,7 @@ describe('presentation copy follows the selected language without another state 
         expect(getResolvedLanguage()).toBe(language);
         for (const button of buttons) {
           expect(roomCapabilityFeedbackMessage('playback.control')).toBe(t(feedbackKey));
-          expect(button.title).toBe(roomCapabilityFeedbackMessage('playback.control'));
+          expect(button.title).toBe(t(tipKey));
           expect(button.getAttribute('aria-disabled')).toBe('true');
         }
         expect(getState('room.context')).toBe(room);

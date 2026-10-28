@@ -62,6 +62,52 @@ describe('auxiliary design-system development samples', () => {
     expect(appShell).not.toContain('onLeave');
   });
 
+  it('paints destructive labels with the danger foreground and the button label tokens', () => {
+    // public/designsystem/README.md: --danger-foreground colors destructive
+    // labels over --control-danger; the filled --danger-filled is a surface.
+    const rule = (selector: string): string => {
+      const escaped = selector.replace(/[.*+?^${}()|[\]\\]/gu, '\\$&');
+      return appCss.match(new RegExp(`(?:^|\\n)${escaped}\\s*\\{([^}]*)\\}`, 'u'))?.[1] ?? '';
+    };
+    const leave = rule('.mq-leave-session');
+    expect(leave).toContain('color: var(--danger-foreground, #ff3b30);');
+    expect(leave).toContain('background: var(--control-danger, rgba(255, 59, 48, 0.09));');
+    expect(leave).toContain('font-size: var(--button-label-size, 15px);');
+    expect(leave).toContain('font-weight: var(--button-label-weight, 600);');
+    expect(leave).toContain('line-height: var(--button-label-line-height, 1.25);');
+    expect(leave).toContain('letter-spacing: var(--button-label-letter-spacing, normal);');
+    expect(rule('.mq-track-remove:hover')).toContain('color: var(--danger-foreground, #ff3b30);');
+    expect(appCss).not.toMatch(/color:\s*var\(--danger-filled/u);
+    expect(appCss).not.toMatch(/#ef4444/u);
+  });
+
+  it('gives the sample buttons the button label roles', () => {
+    // Owner decision (2026-10-28): the CTA role (15px / 600 / 1.25 / normal)
+    // on every action button and the chip role (14px) on choice cards, with
+    // the production values as fallbacks.
+    const rule = (selector: string): string => {
+      const escaped = selector.replace(/[.*+?^${}()|[\]\\]/gu, '\\$&');
+      return appCss.match(new RegExp(`(?:^|\\n)${escaped}\\s*\\{([^}]*)\\}`, 'u'))?.[1] ?? '';
+    };
+    const shared = [
+      'font-weight: var(--button-label-weight, 600);',
+      'line-height: var(--button-label-line-height, 1.25);',
+      'letter-spacing: var(--button-label-letter-spacing, normal);',
+    ];
+    for (const selector of ['.mq-cta', '.mq-leave-session']) {
+      const declarations = rule(selector);
+      expect(declarations, selector).toContain('font-size: var(--button-label-size, 15px);');
+      for (const declaration of shared) expect(declarations, selector).toContain(declaration);
+    }
+    for (const selector of ['.mq-setting-option', '.mq-role .label']) {
+      const declarations = rule(selector);
+      expect(declarations, selector).toContain('font-size: var(--button-label-chip-size, 14px);');
+      for (const declaration of shared) expect(declarations, selector).toContain(declaration);
+    }
+    expect(appCss).not.toMatch(/var\(--button-label-weight, 700\)/u);
+    expect(appReadme).toContain('the button label roles: the CTA role (15px / 600)');
+  });
+
   it('uses the 64px playback action and 28px glyph', () => {
     expect(appCss).toMatch(/\.mq-fab\s*\{[^}]*width:\s*64px;[^}]*height:\s*64px;/u);
     expect(appCss).toMatch(/\.mq-fab svg\s*\{[^}]*width:\s*28px;[^}]*height:\s*28px;/u);

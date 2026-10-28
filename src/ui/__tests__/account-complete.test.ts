@@ -118,7 +118,7 @@ describe('account completion localization', () => {
     expect(stylesheet).toMatch(/--primary:\s*#3b82f6;/);
     expect(stylesheet).toMatch(/main\s*{[^}]*border-radius:\s*var\(--radius-l\);/s);
     expect(stylesheet).toContain("url('/designsystem/assets/logo-wordmark.svg')");
-    expect(stylesheet).toMatch(/button\s*{[^}]*min-height:\s*54px;[^}]*border-radius:\s*999px;/s);
+    expect(stylesheet).toMatch(/button\s*{[^}]*min-height:\s*56px;[^}]*border-radius:\s*999px;/s);
     expect(stylesheet).toMatch(/button:focus-visible\s*{/);
   });
 

@@ -216,14 +216,14 @@ for (const width of [390, 1280]) {
     await waitForState(page, 'room.context.kind', 'pro');
     expect(state.sessions[0]).not.toHaveProperty('pin');
     const toggle = await showPasswordSettings(page);
-    await expect(toggle).toHaveAttribute('aria-pressed', 'true');
+    await expect(toggle).toHaveAttribute('aria-checked', 'true');
     await toggle.click();
-    await expect(toggle).toHaveAttribute('aria-pressed', 'false');
+    await expect(toggle).toHaveAttribute('aria-checked', 'false');
     expect(state.changes).toEqual([{ pin: null }]);
     await toggle.click();
     await expect(page.locator('.dialog-input-segment')).toHaveCount(2);
     await page.locator('#btn-dialog-secondary').click();
-    await expect(toggle).toHaveAttribute('aria-pressed', 'false');
+    await expect(toggle).toHaveAttribute('aria-checked', 'false');
     expect(state.changes).toHaveLength(1);
     await toggle.click();
     await page.locator('.dialog-input-segment').first().fill('0000');
@@ -235,7 +235,7 @@ for (const width of [390, 1280]) {
     expect(state.changes).toHaveLength(1);
     await afterPageSwap(page);
     await page.locator('#btn-dialog-ok').click();
-    await expect(toggle).toHaveAttribute('aria-pressed', 'true');
+    await expect(toggle).toHaveAttribute('aria-checked', 'true');
     // Keeping the people in the room is the default choice.
     expect(state.changes).toEqual([
       { pin: null },
@@ -245,7 +245,7 @@ for (const width of [390, 1280]) {
     await toggle.click();
     await expect.poll(() => state.changes.length).toBe(3);
     await expect(toggle).toBeEnabled();
-    await expect(toggle).toHaveAttribute('aria-pressed', 'true');
+    await expect(toggle).toHaveAttribute('aria-checked', 'true');
   });
 }
 
@@ -261,7 +261,7 @@ test('owner alone sets the PIN on one page, with OK and nobody to choose', async
   await page.locator('.dialog-input-segment').first().fill('0000');
   await page.locator('.dialog-input-segment').last().fill('0000');
   await page.locator('#btn-dialog-ok').click();
-  await expect(toggle).toHaveAttribute('aria-pressed', 'true');
+  await expect(toggle).toHaveAttribute('aria-checked', 'true');
   await expect(page.locator('.dialog-choice-frame')).toBeHidden();
   // No weak-PIN refusal, and nobody else to keep or remove.
   expect(state.changes).toEqual([{ pin: '00000000', existingParticipants: 'keep_present' }]);
@@ -317,7 +317,7 @@ test('owner sets the PIN, then chooses who stays on a second page', async ({ pag
   expect(state.changes).toEqual([]);
   await afterPageSwap(page);
   await next.click();
-  await expect(toggle).toHaveAttribute('aria-pressed', 'true');
+  await expect(toggle).toHaveAttribute('aria-checked', 'true');
   expect(state.changes).toEqual([{ pin: '00000034', existingParticipants: 'keep_present' }]);
 
   await page

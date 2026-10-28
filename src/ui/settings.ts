@@ -32,7 +32,11 @@ import {
 import { getStandardRolePreset } from './player-controls.ts';
 import { cancelRangeDrag, syncRangeProgress } from './range-drag.ts';
 import { showToast } from './toast.ts';
-import { showRoomCapabilityRequired } from '../rooms/permission-feedback.ts';
+import {
+  roomCapabilityFeedbackTip,
+  showRoomCapabilityRequired,
+} from '../rooms/permission-feedback.ts';
+import { setControlUnavailable } from './control-hint.ts';
 import { syncAppThemeChrome, syncDemoThemeChrome } from './theme-chrome.ts';
 import { initCustomScrollbar } from './custom-scrollbar.ts';
 import { getUiElement, onWindowBack, syncOverlayState } from './dom.ts';
@@ -55,6 +59,12 @@ const HOST_CTRL_LOCK_IDS = [
   'eq-sliders-area',
   'grid-virtual-effects',
 ] as const;
+/** The locked groups that are named groups (role=group) with a description. */
+const HOST_CTRL_DESCRIBED_GROUPS: ReadonlySet<string> = new Set([
+  'grid-reverb',
+  'grid-eq',
+  'grid-virtual-effects',
+]);
 
 type VirtualEffect = 'bass' | 'treble' | 'surround';
 
@@ -147,17 +157,32 @@ function _bindHostCtrlLockedAttemptToasts(): void {
 
 function _updateHostCtrlLockUI(): void {
   const locked = _isGuestLocked();
+  // Taps on a locked group explain the lock with a toast; the group's hint
+  // gives the same reason on hover. The choice groups keep their section
+  // description, which outranks a title, so the reason is also a description
+  // they list first.
+  const reason = locked ? roomCapabilityFeedbackTip('effects.control') : null;
   HOST_CTRL_LOCK_IDS.forEach((id) => {
     const el = getUiElement(id);
     if (el) {
       el.classList.toggle('host-ctrl-locked', locked);
-      el.setAttribute('aria-disabled', locked ? 'true' : 'false');
+      setControlUnavailable(el, reason, { describe: HOST_CTRL_DESCRIBED_GROUPS.has(id) });
       // Disable range inputs to prevent visual desync (slider moves but audio unchanged)
       el.querySelectorAll<HTMLInputElement>('input[type="range"]').forEach((input) => {
         if (locked) cancelRangeDrag(input);
         input.disabled = locked;
       });
     }
+  });
+}
+
+/** Each band slider is named by the equalizer and its frequency (data-eq-freq). */
+function syncEqBandLabels(): void {
+  document.querySelectorAll<HTMLInputElement>('.eq-slider[data-eq-freq]').forEach((slider) => {
+    slider.setAttribute(
+      'aria-label',
+      t('settings.eq_band_aria', { freq: slider.dataset.eqFreq ?? '' }),
+    );
   });
 }
 
@@ -653,7 +678,6 @@ interface DeviceListRow {
   label?: unknown;
   isOp?: unknown;
   isHost?: unknown;
-  status?: unknown;
 }
 
 function isDeviceListRow(value: unknown): value is DeviceListRow {
@@ -683,12 +707,12 @@ function renderDeviceList(list: ReadonlyArray<DeviceListRow>): void {
     name.appendChild(document.createTextNode(' '));
     name.appendChild(shortId);
 
-    const statusClass = p.status === 'connected' ? 'active' : 'inactive';
-    const statusText = p.status === 'connected' ? t('common.connected') : t('common.disconnected');
-
+    // Device lists carry room members only (the host broadcast keeps
+    // connected peers; PRO presence lists live participants), so every row
+    // is connected.
     const status = document.createElement('span');
-    status.className = `d-status ${statusClass}`;
-    status.textContent = statusText;
+    status.className = 'd-status active';
+    status.textContent = t('common.connected');
 
     row.appendChild(name);
 
@@ -944,6 +968,7 @@ export function initSettings(): void {
   };
 
   _bindHostCtrlLockedAttemptToasts();
+  syncEqBandLabels();
 
   document
     .querySelectorAll<HTMLElement>('#grid-settings-sync [data-settings-sync]')
@@ -1227,6 +1252,8 @@ export function initSettings(): void {
   _busScope.on('i18n:changed', () => {
     const list = getState('network.lastKnownDeviceList') || [];
     renderDeviceList(list.filter(isDeviceListRow));
+    _updateHostCtrlLockUI();
+    syncEqBandLabels();
     refreshLanguageControls();
     updateLanguageScrollMask();
     syncStandardRoleDescription();

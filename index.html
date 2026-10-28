@@ -17,7 +17,7 @@
          link href-less until then prevents a race that could pin install UI to
          the wrong language. -->
     <link id="app-manifest" rel="manifest" />
-    <script src="/bootstrap.js?cache=v791"></script>
+    <script src="/bootstrap.js?cache=v792"></script>
 
     <link rel="canonical" href="https://musixquare.com/" />
     <!-- mxqr-hreflang:start -->
@@ -173,7 +173,7 @@
           class="app-logo header-default-content"
           id="app-logo"
           type="button"
-          aria-label="Go to Home"
+          aria-label="Go to home screen"
           data-i18n-aria-label="nav.go_home"
         >
           <svg
@@ -312,7 +312,6 @@
               id="visualizerCanvas"
               role="button"
               tabindex="0"
-              aria-pressed="false"
               aria-labelledby="visualizer-accessible-label visualizer-current-mode"
               aria-describedby="visualizer-mode-hint"
             ></canvas>
@@ -354,7 +353,8 @@
             <button
               class="fullscreen-btn"
               id="btn-fullscreen"
-              aria-label="Toggle fullscreen"
+              aria-pressed="false"
+              aria-label="Full screen"
               data-i18n-aria-label="player.fullscreen"
             >
               <svg viewBox="0 0 24 24" aria-hidden="true">
@@ -388,7 +388,7 @@
               step="0.1"
               aria-disabled="true"
               aria-valuetext="No media playing"
-              aria-label="Seek"
+              aria-label="Playback position"
               data-i18n-aria-label="player.seek"
             />
             <div class="time-info">
@@ -412,8 +412,8 @@
               <button
                 class="play-fab"
                 id="play-btn"
-                aria-label="Play/Pause"
-                data-i18n-aria-label="player.play_pause"
+                aria-label="Play"
+                data-i18n-aria-label="player.play_aria"
                 aria-disabled="true"
               >
                 <svg id="icon-play" viewBox="0 0 24 24" aria-hidden="true">
@@ -441,11 +441,12 @@
             </div>
 
             <div class="vol-group-playback" id="volume-control-group" role="group">
+              <span id="volume-control-group-reason" hidden></span>
               <button
                 id="vol-icon-btn"
                 class="volume-icon-button"
                 type="button"
-                aria-label="Toggle mute"
+                aria-label="Mute"
                 data-i18n-aria-label="player.toggle_mute"
               >
                 <svg class="volume-icon" viewBox="0 0 24 24" aria-hidden="true">
@@ -468,7 +469,7 @@
                 min="0"
                 max="100"
                 value="100"
-                aria-label="Adjust volume"
+                aria-label="Volume"
                 data-i18n-aria-label="player.volume"
               />
             </div>
@@ -566,9 +567,8 @@
           <button
             class="tab-action-btn"
             id="btn-repeat"
-            aria-pressed="false"
-            aria-label="Change repeat mode"
-            data-i18n-aria-label="player.repeat_mode"
+            aria-label="Repeat off"
+            data-i18n-aria-label="player.repeat_off_aria"
           >
             <svg viewBox="0 0 24 24" aria-hidden="true">
               <path d="M7 7h10v3l4-4-4-4v3H5v6h2V7zm10 10H7v-3l-4 4 4 4v-3h12v-6h-2v4z" />
@@ -578,7 +578,7 @@
             class="tab-action-btn"
             id="btn-shuffle"
             aria-pressed="false"
-            aria-label="Change shuffle mode"
+            aria-label="Shuffle"
             data-i18n-aria-label="player.shuffle_mode"
           >
             <svg viewBox="0 0 24 24" aria-hidden="true">
@@ -622,8 +622,6 @@
         <button
           type="button"
           class="settings-invite-wrapper invite-code-container invite-meta-cluster"
-          title="Click to copy invite code"
-          data-i18n-title="toast.click_copy_invite"
         >
           <span class="invite-meta-label" data-i18n="settings.invite_code">Invite code</span>
           <span class="invite-code-value invite-meta-value">------</span>
@@ -641,16 +639,19 @@
 
         <div class="section-group room-password-section">
           <div class="section-header-row">
-            <span class="section-title" data-i18n="connect.room_password_title"
+            <span
+              class="section-title"
+              id="room-password-title"
+              data-i18n="connect.room_password_title"
               >Room password</span
             >
             <button
               type="button"
               class="room-password-toggle"
               id="room-password-toggle"
-              aria-pressed="false"
-              aria-label="Toggle room password requirement"
-              data-i18n-aria-label="connect.room_password_toggle_aria"
+              role="switch"
+              aria-checked="false"
+              aria-labelledby="room-password-title"
             >
               <span class="room-password-toggle-knob" aria-hidden="true"></span>
             </button>
@@ -723,8 +724,6 @@
         <button
           type="button"
           class="settings-invite-wrapper invite-code-container invite-meta-cluster"
-          title="Click to copy invite code"
-          data-i18n-title="toast.click_copy_invite"
         >
           <span class="invite-meta-label" data-i18n="settings.invite_code">Invite code</span>
           <span class="invite-code-value invite-meta-value">------</span>
@@ -851,8 +850,6 @@
         <button
           type="button"
           class="settings-invite-wrapper invite-code-container invite-meta-cluster"
-          title="Click to copy invite code"
-          data-i18n-title="toast.click_copy_invite"
         >
           <span class="invite-meta-label" data-i18n="settings.invite_code">Invite code</span>
           <span class="invite-code-value invite-meta-value">------</span>
@@ -938,8 +935,8 @@
                 id="btn-language-select"
                 data-lang-action="select"
                 aria-pressed="false"
-                data-i18n-aria-label="settings.language_select_aria"
-                aria-label="Open language list"
+                data-i18n-aria-label="settings.language_manual_aria"
+                aria-label="Select language manually"
               >
                 <svg viewBox="0 0 24 24" aria-hidden="true">
                   <circle
@@ -1275,7 +1272,7 @@
                       min="60"
                       max="200"
                       value="120"
-                      aria-label="Subwoofer Cutoff Frequency"
+                      aria-label="Subwoofer cutoff frequency"
                       data-i18n-aria-label="settings.subwoofer_cutoff"
                     />
                   </div>
@@ -1295,8 +1292,8 @@
                     type="button"
                     class="settings-sync-indicator"
                     data-settings-sync-indicator
-                    aria-label="Settings sync is on"
-                    data-i18n-aria-label="toast.settings_sync_enabled"
+                    aria-label="Settings sync"
+                    data-i18n-aria-label="settings.sync_settings"
                     hidden
                   >
                     <svg viewBox="0 -960 960 960" aria-hidden="true">
@@ -1474,8 +1471,8 @@
                     type="button"
                     class="settings-sync-indicator"
                     data-settings-sync-indicator
-                    aria-label="Settings sync is on"
-                    data-i18n-aria-label="toast.settings_sync_enabled"
+                    aria-label="Settings sync"
+                    data-i18n-aria-label="settings.sync_settings"
                     hidden
                   >
                     <svg viewBox="0 -960 960 960" aria-hidden="true">
@@ -1541,7 +1538,8 @@
                         max="12"
                         value="0"
                         id="eq-slider-0"
-                        aria-label="EQ 60Hz"
+                        data-eq-freq="60Hz"
+                        aria-label="Equalizer 60Hz"
                       />
                       <span class="eq-label">60</span>
                     </div>
@@ -1554,7 +1552,8 @@
                         max="12"
                         value="0"
                         id="eq-slider-1"
-                        aria-label="EQ 230Hz"
+                        data-eq-freq="230Hz"
+                        aria-label="Equalizer 230Hz"
                       />
                       <span class="eq-label">230</span>
                     </div>
@@ -1567,7 +1566,8 @@
                         max="12"
                         value="0"
                         id="eq-slider-2"
-                        aria-label="EQ 910Hz"
+                        data-eq-freq="910Hz"
+                        aria-label="Equalizer 910Hz"
                       />
                       <span class="eq-label">910</span>
                     </div>
@@ -1580,7 +1580,8 @@
                         max="12"
                         value="0"
                         id="eq-slider-3"
-                        aria-label="EQ 3.6kHz"
+                        data-eq-freq="3.6kHz"
+                        aria-label="Equalizer 3.6kHz"
                       />
                       <span class="eq-label">3.6k</span>
                     </div>
@@ -1593,7 +1594,8 @@
                         max="12"
                         value="0"
                         id="eq-slider-4"
-                        aria-label="EQ 14kHz"
+                        data-eq-freq="14kHz"
+                        aria-label="Equalizer 14kHz"
                       />
                       <span class="eq-label">14k</span>
                     </div>
@@ -1615,8 +1617,8 @@
                     type="button"
                     class="settings-sync-indicator"
                     data-settings-sync-indicator
-                    aria-label="Settings sync is on"
-                    data-i18n-aria-label="toast.settings_sync_enabled"
+                    aria-label="Settings sync"
+                    data-i18n-aria-label="settings.sync_settings"
                     hidden
                   >
                     <svg viewBox="0 -960 960 960" aria-hidden="true">
@@ -1725,16 +1727,19 @@
 
             <div class="section-group room-password-section">
               <div class="section-header-row">
-                <span class="section-title" data-i18n="connect.room_password_title"
+                <span
+                  class="section-title"
+                  id="desktop-room-password-title"
+                  data-i18n="connect.room_password_title"
                   >Room password</span
                 >
                 <button
                   type="button"
                   class="room-password-toggle"
                   id="desktop-room-password-toggle"
-                  aria-pressed="false"
-                  aria-label="Toggle room password requirement"
-                  data-i18n-aria-label="connect.room_password_toggle_aria"
+                  role="switch"
+                  aria-checked="false"
+                  aria-labelledby="desktop-room-password-title"
                 >
                   <span class="room-password-toggle-knob" aria-hidden="true"></span>
                 </button>
@@ -1946,7 +1951,7 @@
           type="button"
           class="chat-pinned-notice-dismiss"
           id="btn-chat-notice-close"
-          aria-label="Dismiss notice"
+          aria-label="Close notice"
           data-i18n-aria-label="chat.pinned_close"
         >
           <svg
@@ -2022,7 +2027,7 @@
             aria-haspopup="listbox"
             aria-expanded="false"
             aria-controls="chat-command-suggestions"
-            aria-label="Message input"
+            aria-label="Chat message"
             data-i18n-aria-label="chat.input_label"
             data-placeholder="Message or '/' for commands..."
             data-i18n-data-placeholder="chat.placeholder"
@@ -2663,13 +2668,16 @@
                     type="button"
                     class="ob-dot active"
                     data-idx="0"
-                    aria-label="1 / 4"
+                    aria-label="Slide 1 of 4"
                     aria-current="true"
                   ></button>
-                  <button type="button" class="ob-dot" data-idx="1" aria-label="2 / 4"></button>
-                  <button type="button" class="ob-dot" data-idx="2" aria-label="3 / 4"></button>
-                  <button type="button" class="ob-dot" data-idx="3" aria-label="4 / 4"></button>
+                  <button type="button" class="ob-dot" data-idx="1" aria-label="Slide 2 of 4"></button>
+                  <button type="button" class="ob-dot" data-idx="2" aria-label="Slide 3 of 4"></button>
+                  <button type="button" class="ob-dot" data-idx="3" aria-label="Slide 4 of 4"></button>
                 </div>
+                <span id="ob-carousel-pause-hint" hidden data-i18n="setup.carousel_pause"
+                  >Pause automatic slide rotation</span
+                >
                 <button
                   type="button"
                   class="ob-nav-arrow ob-nav-next"
@@ -2726,8 +2734,8 @@
                 class="setup-host-qr setup-host-qr-room"
                 role="img"
                 aria-hidden="true"
-                data-i18n-aria-label="connect.qr_title"
-                aria-label="Invite via QR or Link"
+                data-i18n-aria-label="connect.invite_qr_aria"
+                aria-label="Invite QR code"
               ></div>
               <span
                 class="material-elastic-spinner setup-host-qr-loading-spinner"
@@ -2783,7 +2791,7 @@
                 type="button"
                 aria-busy="false"
                 data-i18n-aria-label="setup.scan_qr"
-                aria-label="Tap to scan"
+                aria-label="Scan QR code"
               >
                 <svg class="setup-qr-scan-symbol" viewBox="0 -960 960 960" aria-hidden="true">
                   <path
@@ -3182,8 +3190,12 @@
           id="account-dialog-actions"
           hidden
         >
-          <button type="button" class="dialog-secondary" id="btn-account-logout"></button>
-          <button type="button" class="account-delete-button" id="btn-account-delete"></button>
+          <button type="button" class="dialog-secondary btn-label-compact" id="btn-account-logout"></button>
+          <button
+            type="button"
+            class="dialog-secondary dialog-danger btn-label-compact"
+            id="btn-account-delete"
+          ></button>
           <button
             type="button"
             class="dialog-primary account-dialog-account-close adaptive-action-group-full"
@@ -3305,10 +3317,7 @@
             data-i18n="settings.language_dialog_title"
             >Select Language</span
           >
-          <span
-            class="feature-badge media-source-beta-badge language-dialog-beta-badge"
-            aria-label="Beta"
-          >
+          <span class="feature-badge media-source-beta-badge language-dialog-beta-badge">
             BETA
           </span>
         </div>
@@ -3489,7 +3498,7 @@
             </div>
           </div>
         </div>
-        <div class="sync-bottom-row">
+        <div class="sync-bottom-row adaptive-action-group">
           <button class="sync-reset-btn" id="btn-auto-sync" data-i18n="common.reset">Reset</button>
           <button class="sync-done-btn" id="btn-sync-done" data-i18n="common.done">Done</button>
         </div>
@@ -3536,8 +3545,8 @@
                     type="button"
                     class="demo-play-button"
                     data-demo-play
-                    aria-label="Play/Pause"
-                    data-i18n-aria-label="player.play_pause"
+                    aria-label="Play"
+                    data-i18n-aria-label="player.play_aria"
                   >
                     <svg viewBox="0 0 24 24" aria-hidden="true">
                       <path data-demo-play-icon d="M8 5v14l11-7z" />
@@ -3566,11 +3575,12 @@
                   id="demo-volume-control-group"
                   role="group"
                 >
+                  <span id="demo-volume-control-group-reason" hidden></span>
                   <button
                     id="demo-vol-icon-btn"
                     class="volume-icon-button"
                     type="button"
-                    aria-label="Toggle mute"
+                    aria-label="Mute"
                     data-i18n-aria-label="player.toggle_mute"
                   >
                     <svg class="volume-icon" viewBox="0 0 24 24" aria-hidden="true">
@@ -3594,7 +3604,7 @@
                     max="100"
                     value="100"
                     step="1"
-                    aria-label="Adjust volume"
+                    aria-label="Volume"
                     data-i18n-aria-label="player.volume"
                   />
                 </div>
@@ -3661,7 +3671,9 @@
 
             <article class="demo-step-panel" data-demo-panel="2">
               <div class="demo-step-copy">
-                <h2 data-i18n="setup.what_sound">What should this device play?</h2>
+                <h2 id="demo-role-title" data-i18n="setup.what_sound">
+                  What should this device play?
+                </h2>
                 <p data-i18n="setup.change_later">You can adjust this anytime in Settings.</p>
               </div>
               <div class="demo-step-content demo-role-content">
@@ -3730,8 +3742,7 @@
                 <div
                   class="demo-role-segmented"
                   role="group"
-                  aria-label="Set this device's role"
-                  data-i18n-aria-label="setup.set_role"
+                  aria-labelledby="demo-role-title"
                 >
                   <button type="button" data-demo-role="-1" aria-pressed="false">
                     <svg viewBox="0 0 24 24" aria-hidden="true">
@@ -3907,7 +3918,7 @@
         </div>
 
         <div class="setup-slot-list" data-custom-scroll data-custom-scroll-contained>
-          <button class="file-select-btn" id="btn-local-file">
+          <button class="file-select-btn btn-label-compact" id="btn-local-file">
             <div class="btn-icon-bg">
               <svg viewBox="0 0 24 24">
                 <path d="M9 16h6v-6h4l-7-7-7 7h4zm-4 2h14v2H5z" />
@@ -3924,7 +3935,7 @@
             accept=".mp3,.wav,.flac,.m4a,.aac,.ogg,.aif,.aiff,.caf,audio/*"
             hidden
           />
-          <button class="file-select-btn" id="btn-youtube-source">
+          <button class="file-select-btn btn-label-compact" id="btn-youtube-source">
             <div class="btn-icon-bg youtube">
               <svg viewBox="0 0 24 24">
                 <path
@@ -3934,7 +3945,7 @@
             </div>
             <span data-i18n="help.youtube_compat">YouTube</span>
           </button>
-          <button class="file-select-btn" id="btn-system-audio">
+          <button class="file-select-btn btn-label-compact" id="btn-system-audio">
             <div class="btn-icon-bg">
               <svg viewBox="0 0 24 24">
                 <path
@@ -3954,7 +3965,7 @@
               <span class="media-source-label-text" data-i18n="system_audio.button"
                 >System Audio</span
               >
-              <span class="feature-badge media-source-beta-badge" aria-label="Beta">BETA</span>
+              <span class="feature-badge media-source-beta-badge">BETA</span>
             </span>
           </button>
         </div>
@@ -4002,7 +4013,7 @@
               class="setup-join-input yt-intro-text"
               dir="auto"
               role="textbox"
-              aria-label="Enter YouTube link or search"
+              aria-label="YouTube link or search term"
               aria-describedby="youtube-preview-status"
               data-i18n-aria-label="youtube.enter_source"
               data-placeholder="https://youtube.com/…"

@@ -34,6 +34,7 @@ import { getRoomContext, hasRoomCapability } from '../rooms/authority.ts';
 import { showRoomCapabilityRequired } from '../rooms/permission-feedback.ts';
 import { beginProRoomTrackChangeIntent } from '../player/track-change-intent.ts';
 import { applyUserTextFontFallback } from './user-text-font.ts';
+import { setControlHint, setControlUnavailable } from './control-hint.ts';
 import { renderPlaylistSlotName } from './playlist-slot-names.ts';
 import { SELECTION_TOGGLE_PATHS } from './selection-mark.ts';
 import { getTrackDisplayTitle } from '../player/track-display.ts';
@@ -742,15 +743,12 @@ function createProRoomUploadCancel(row: ProRoomUploadRow): HTMLButtonElement {
   button.dataset.proUploadAction = 'cancel';
   button.dataset.proUploadId = row.id;
   button.disabled = isConfirming;
+  button.setAttribute('aria-label', t('pro.upload.cancel_file', { name: row.name }));
   if (isConfirming) {
     button.tabIndex = -1;
-    button.setAttribute('aria-disabled', 'true');
+    // The cancel keeps its name; the finishing upload is why it cannot be used.
+    setControlUnavailable(button, t('pro.upload.confirming_file', { name: row.name }));
   }
-  const label = t(isConfirming ? 'pro.upload.confirming_file' : 'pro.upload.cancel_file', {
-    name: row.name,
-  });
-  button.setAttribute('aria-label', label);
-  button.title = label;
   button.innerHTML =
     '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M19 6.41 17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12Z"/></svg>';
   return button;
@@ -868,6 +866,10 @@ export function updatePlaylistUI(): void {
   const currentYouTubeSubIndex = getState('youtube.currentSubIndex') ?? -1;
   const canEditPlaylist = canRemoveRows();
   const canReorder = canEditPlaylist && playlist.length > 1;
+  // Outside selection mode the minus also starts the mode, which its hint
+  // says. Once the selection controller loads it owns the hint (afterRender
+  // runs after every render); until then the view writes the resting one.
+  const selectHint = _removalController ? null : t('playlist.select_mode_hint');
 
   playlist.forEach((item, idx) => {
     const isCurrent = item.queueItemId === currentQueueItemId;
@@ -883,22 +885,20 @@ export function updatePlaylistUI(): void {
     const expandButton = item.playlistId
       ? `<button type="button" class="expand-toggle ${isExpanded(item) ? 'active' : ''}"
           data-action="expand" data-queue-item-id="${escapeHtml(item.queueItemId)}"
-          aria-label="${escapeHtml(t('playlist.toggle'))}" aria-expanded="${isExpanded(item)}">
+          aria-label="${escapeHtml(t('playlist.item_tracks_aria', { title: displayName }))}" aria-expanded="${isExpanded(item)}">
           <svg viewBox="0 0 24 24" aria-hidden="true"><path d="m6.5 9 5.5 5.5L17.5 9"/></svg>
         </button>`
       : '';
     const isRemovalSelected = _removalController?.isSelected(item.queueItemId) ?? false;
-    const selectLabel = t(
-      isRemovalSelected ? 'playlist.deselect_for_deletion' : 'playlist.select_for_deletion',
-      { title: displayName },
-    );
+    // One name in every state: aria-pressed alone says whether it is picked.
+    const selectLabel = t('playlist.select_track', { title: displayName });
     // A minus marks a row that can be selected; once selected it shows the
     // language list's check mark in the same stroke style.
     const selectButton = canEditPlaylist
       ? `<button type="button" class="btn-playlist-select" data-action="select"
           data-queue-item-id="${escapeHtml(item.queueItemId)}"
           aria-pressed="${isRemovalSelected}"
-          aria-label="${escapeHtml(selectLabel)}" title="${escapeHtml(selectLabel)}">
+          aria-label="${escapeHtml(selectLabel)}">
           <svg viewBox="0 0 24 24" aria-hidden="true">${SELECTION_TOGGLE_PATHS}</svg>
         </button>`
       : '';
@@ -911,6 +911,8 @@ export function updatePlaylistUI(): void {
       ${expandButton}
       ${selectButton}
     `;
+    const renderedSelect = row.querySelector<HTMLElement>('.btn-playlist-select');
+    if (renderedSelect && selectHint) setControlHint(renderedSelect, selectHint);
     const renderedName = row.querySelector<HTMLElement>('.track-name-text');
     if (renderedName) applyUserTextFontFallback(renderedName, displayName);
     entry.appendChild(row);
@@ -1032,8 +1034,11 @@ function installDomDelegation(list: HTMLElement): void {
         event.preventDefault();
         event.stopPropagation();
         const id = queueItemIdFromElement(select ?? null);
-        if (id && _removalController) _removalController.toggle(id);
-        else if (id) _pendingRemovalToggle = id;
+        if (id && _removalController) {
+          // A pick made before the controller loaded goes first.
+          replayPendingRemovalToggle();
+          _removalController.toggle(id);
+        } else if (id) _pendingRemovalToggle = id;
         return;
       }
       const subItem = target.closest<HTMLElement>('.sub-track-item[data-sub-index]');
@@ -1077,6 +1082,12 @@ function canRemoveRows(): boolean {
 // Selection, deletion and their motion start from a tap on a row's minus or a
 // held press, so this controller also loads after the list mounts. A minus
 // tapped before it arrives is replayed once it does.
+function replayPendingRemovalToggle(): void {
+  const pending = _pendingRemovalToggle;
+  _pendingRemovalToggle = null;
+  if (pending) _removalController?.toggle(pending);
+}
+
 function loadRemovalController(list: HTMLElement): void {
   const load = ++_removalLoad;
   void import('./playlist-removal.ts').then(
@@ -1110,9 +1121,14 @@ function loadRemovalController(list: HTMLElement): void {
         onMove: openPlaylistTransferDialogLazily,
       });
       _removalController.afterRender();
-      const pending = _pendingRemovalToggle;
-      _pendingRemovalToggle = null;
-      if (pending) _removalController.toggle(pending);
+      // The controller has just added its empty status cell. Replay the early
+      // pick a frame later, so the cell is in the accessibility tree before
+      // its first count and that count is announced.
+      if (_pendingRemovalToggle) {
+        requestAnimationFrame(() => {
+          if (load === _removalLoad) replayPendingRemovalToggle();
+        });
+      }
     },
     () => {},
   );

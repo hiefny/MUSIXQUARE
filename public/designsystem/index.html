@@ -440,7 +440,7 @@
               <span class="tag">24 / 700</span><span class="s24">Device role</span>
               <span class="tag">20 / 700</span><span class="s20">Goldberg Aria</span>
               <span class="tag">16 / 500</span><span class="s16">Enter a 6-digit room code</span>
-              <span class="tag">14 / 600</span><span class="s14">Load local files</span>
+              <span class="tag">15 / 600</span><span class="btn-label">Load local files</span>
               <span class="tag">12 / 600</span><span class="s12">00:42 / 03:18</span>
             </div>
           </div>
@@ -798,8 +798,7 @@
                   <button
                     type="button"
                     class="tab-action-btn-sample active-one"
-                    aria-label="Repeat one"
-                    aria-pressed="true"
+                    aria-label="Repeat current track"
                   >
                     <svg viewBox="0 0 24 24" aria-hidden="true">
                       <path d="M7 7h10v3l4-4-4-4v3H5v6h2V7zm10 10H7v-3l-4 4 4 4v-3h12v-6h-2v4z" />
@@ -842,11 +841,11 @@
                     <button
                       type="button"
                       class="playlist-select"
-                      aria-label="Deselect Goldberg Aria.wav for deletion"
+                      aria-label="Select Goldberg Aria.wav"
                       aria-pressed="true"
                     >
                       <svg viewBox="0 0 24 24" aria-hidden="true">
-                        <path class="playlist-select-minus" d="M6.05 12h11.9" />
+                        <path class="playlist-select-minus" d="M7 12h10" />
                         <path class="playlist-select-mark" d="M4.65 11.95l4.55 4.55L19.35 6.35" />
                       </svg>
                     </button>
@@ -872,11 +871,11 @@
                     <button
                       type="button"
                       class="playlist-select"
-                      aria-label="Deselect Cello Suite No. 1 Prelude for deletion"
+                      aria-label="Select Cello Suite No. 1 Prelude"
                       aria-pressed="true"
                     >
                       <svg viewBox="0 0 24 24" aria-hidden="true">
-                        <path class="playlist-select-minus" d="M6.05 12h11.9" />
+                        <path class="playlist-select-minus" d="M7 12h10" />
                         <path class="playlist-select-mark" d="M4.65 11.95l4.55 4.55L19.35 6.35" />
                       </svg>
                     </button>
@@ -900,7 +899,7 @@
                       class="expand-toggle active"
                       data-action="expand"
                       data-queue-item-id="design-playlist-3"
-                      aria-label="Expand/collapse playlist"
+                      aria-label="Tracks in Well-Tempered Clavier Book I"
                       aria-expanded="true"
                     >
                       <svg viewBox="0 0 24 24" aria-hidden="true">
@@ -910,11 +909,11 @@
                     <button
                       type="button"
                       class="playlist-select"
-                      aria-label="Select Well-Tempered Clavier Book I for deletion"
+                      aria-label="Select Well-Tempered Clavier Book I"
                       aria-pressed="false"
                     >
                       <svg viewBox="0 0 24 24" aria-hidden="true">
-                        <path class="playlist-select-minus" d="M6.05 12h11.9" />
+                        <path class="playlist-select-minus" d="M7 12h10" />
                         <path class="playlist-select-mark" d="M4.65 11.95l4.55 4.55L19.35 6.35" />
                       </svg>
                     </button>
@@ -983,12 +982,11 @@
                   </ul>
                 </li>
               </ul>
-              <div class="playlist-selection-bar" role="group" aria-label="Remove from playlist">
+              <div class="playlist-selection-bar" role="group" aria-label="2 selected">
                 <button
                   type="button"
                   class="playlist-selection-action playlist-selection-delete"
                   aria-label="Delete"
-                  title="Delete"
                 >
                   <svg viewBox="0 0 24 24" aria-hidden="true">
                     <path
@@ -1000,7 +998,6 @@
                   type="button"
                   class="playlist-selection-action playlist-selection-cancel"
                   aria-label="Cancel"
-                  title="Cancel"
                 >
                   <svg viewBox="0 0 24 24" aria-hidden="true">
                     <path
@@ -1029,14 +1026,13 @@
                         type="button"
                         class="d-op-btn administrator-action-button administrator-state-button grant"
                         data-administrator-state="inactive"
-                        aria-label="Grant"
-                        title="Grant"
+                        aria-label="Grant administrator permissions to julesk"
                       >
                         <svg viewBox="0 0 24 24" aria-hidden="true">
                           <path d="M5 16 3 5l5.5 5L12 4l3.5 6L21 5l-2 11H5zm1 2h12v2H6z" />
                         </svg>
                       </button>
-                      <button type="button" class="btn-kick-device" aria-label="Remove julesk">
+                      <button type="button" class="btn-kick-device" aria-label="Kick julesk">
                         <svg viewBox="0 0 24 24" aria-hidden="true">
                           <path
                             d="M19 6.41 17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12Z"
@@ -1055,8 +1051,7 @@
                         type="button"
                         class="d-op-btn administrator-action-button administrator-state-button grant"
                         data-administrator-state="inactive"
-                        aria-label="Grant"
-                        title="Grant"
+                        aria-label="Grant administrator permissions to noa_home"
                       >
                         <svg viewBox="0 0 24 24" aria-hidden="true">
                           <path d="M5 16 3 5l5.5 5L12 4l3.5 6L21 5l-2 11H5zm1 2h12v2H6z" />
@@ -1065,7 +1060,7 @@
                       <button
                         type="button"
                         class="device-expand-toggle active"
-                        aria-label="Collapse noa_home devices"
+                        aria-label="Connected devices for noa_home"
                         aria-expanded="true"
                         aria-controls="design-device-sublist-3"
                       >
@@ -1073,7 +1068,7 @@
                           <path d="m6.5 9 5.5 5.5L17.5 9" />
                         </svg>
                       </button>
-                      <button type="button" class="btn-kick-device" aria-label="Remove noa_home">
+                      <button type="button" class="btn-kick-device" aria-label="Kick noa_home">
                         <svg viewBox="0 0 24 24" aria-hidden="true">
                           <path
                             d="M19 6.41 17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12Z"
@@ -1093,7 +1088,7 @@
                       <button
                         type="button"
                         class="btn-kick-physical-device"
-                        aria-label="Remove macOS device (A1B2)"
+                        aria-label="Kick macOS device (A1B2)"
                       >
                         <svg viewBox="0 0 24 24" aria-hidden="true">
                           <path
@@ -1108,7 +1103,7 @@
                       <button
                         type="button"
                         class="btn-kick-physical-device"
-                        aria-label="Remove Windows device (C3D4)"
+                        aria-label="Kick Windows device (C3D4)"
                       >
                         <svg viewBox="0 0 24 24" aria-hidden="true">
                           <path
@@ -1123,7 +1118,7 @@
                       <button
                         type="button"
                         class="btn-kick-physical-device"
-                        aria-label="Remove iOS device (E5F6)"
+                        aria-label="Kick iOS device (E5F6)"
                       >
                         <svg viewBox="0 0 24 24" aria-hidden="true">
                           <path
@@ -1138,7 +1133,7 @@
                       <button
                         type="button"
                         class="btn-kick-physical-device"
-                        aria-label="Remove Android device (G7H8)"
+                        aria-label="Kick Android device (G7H8)"
                       >
                         <svg viewBox="0 0 24 24" aria-hidden="true">
                           <path
@@ -1512,6 +1507,33 @@
           <div class="token-row">
             <span class="tok">--control-danger-hover</span><span class="val">red 13% / 11%</span
             ><span class="use">Hovered destructive surface</span>
+          </div>
+          <div class="token-row">
+            <span class="tok">--control-danger-pill-*</span
+            ><span class="val">red 8% / 12% / 18%</span
+            ><span class="use">Leave session and Stop sharing at rest, hover and press</span>
+          </div>
+          <div class="token-row">
+            <span class="tok">--control-danger-dialog-*</span
+            ><span class="val">danger-filled 10% / 16% / 20%</span
+            ><span class="use">Delete account at rest, hover and press</span>
+          </div>
+          <div class="token-row">
+            <span class="tok">--danger-foreground</span><span class="val">#ff3b30</span
+            ><span class="use">Destructive and error text and icons</span>
+          </div>
+          <div class="token-row">
+            <span class="tok">--button-label-*</span
+            ><span class="val">15px / 600 / 1.25 / normal</span
+            ><span class="use">Every action button label (CTA role)</span>
+          </div>
+          <div class="token-row">
+            <span class="tok">--button-label-chip-size</span><span class="val">14px</span
+            ><span class="use">Choice chip labels (chip role)</span>
+          </div>
+          <div class="token-row">
+            <span class="tok">--button-label-tab-size</span><span class="val">13px</span
+            ><span class="use">Section tab and segment labels (tab role)</span>
           </div>
           <div class="token-row">
             <span class="tok">--range-fill-idle</span><span class="val">text-main 75%</span

@@ -15,7 +15,7 @@ const CLOSE_PATH =
   'M19 6.41 17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12Z';
 const EXPAND_PATH = 'm6.5 9 5.5 5.5L17.5 9';
 const CHECK_PATH = 'M4.65 11.95l4.55 4.55L19.35 6.35';
-const MINUS_PATH = 'M6.05 12h11.9';
+const MINUS_PATH = 'M7 12h10';
 const DELETE_PATH = 'M6 19c0 1.1.9 2 2 2h8c1.1 0 2-.9 2-2V7H6v12zM19 4h-3.5l-1-1h-5l-1 1H5v2h14V4z';
 const CROWN_PATH = 'M5 16 3 5l5.5 5L12 4l3.5 6L21 5l-2 11H5zm1 2h12v2H6z';
 const REPEAT_PATH = 'M7 7h10v3l4-4-4-4v3H5v6h2V7zm10 10H7v-3l-4 4 4 4v-3h12v-6h-2v4z';
@@ -236,10 +236,17 @@ describe('public design-system page contract', () => {
       '--danger-filled': '#ef4444',
       '--warning-filled': '#f59e0b',
       '--warning-foreground': '#f59e0b',
+      '--danger-foreground': '#ff3b30',
       '--youtube-filled': '#ff0033',
       '--control-active': 'rgba(var(--primary-rgb), 0.13)',
       '--control-danger': 'rgba(255, 59, 48, 0.09)',
       '--control-danger-hover': 'rgba(255, 59, 48, 0.13)',
+      '--control-danger-pill': 'rgba(255, 59, 48, 0.08)',
+      '--control-danger-pill-hover': 'rgba(255, 59, 48, 0.12)',
+      '--control-danger-pill-press': 'rgba(255, 59, 48, 0.18)',
+      '--control-danger-dialog': 'rgba(239, 68, 68, 0.1)',
+      '--control-danger-dialog-hover': 'rgba(239, 68, 68, 0.16)',
+      '--control-danger-dialog-press': 'rgba(239, 68, 68, 0.2)',
     } as const;
 
     const advertisedTokens = [...designDocument.querySelectorAll('.tokens .tok')].map((token) =>
@@ -256,9 +263,74 @@ describe('public design-system page contract', () => {
         '--control-active',
         '--control-danger',
         '--control-danger-hover',
+        '--control-danger-pill-*',
+        '--control-danger-dialog-*',
+        '--danger-foreground',
       ]),
     );
     expect(designSource).not.toContain('The only accent');
+  });
+
+  it('publishes the button label tokens and keeps every label sample on them', () => {
+    // Owner decision (2026-10-28): the button label roles. Every action
+    // button label (CTA) is 15px / 600 / 1.25 with normal letter spacing,
+    // choice chips take 14px and section tabs and segments 13px; only the
+    // color differs within a role.
+    const labelTokens = {
+      '--button-label-size': '15px',
+      '--button-label-weight': '600',
+      '--button-label-line-height': '1.25',
+      '--button-label-letter-spacing': 'normal',
+      '--button-label-chip-size': '14px',
+      '--button-label-tab-size': '13px',
+    } as const;
+    const appStylesheet = readFileSync(resolve('css/style.css'), 'utf8');
+    for (const [token, value] of Object.entries(labelTokens)) {
+      expect(customPropertyValue(designTokenStylesheet, token), `${token} public mirror`).toBe(
+        value,
+      );
+      expect(customPropertyValue(appStylesheet, token), `${token} production`).toBe(value);
+    }
+    const readsLabelTokens = (rules: string): void => {
+      expect(rules).toContain('font-size: var(--button-label-size)');
+      expect(rules).toContain('font-weight: var(--button-label-weight)');
+      expect(rules).toContain('line-height: var(--button-label-line-height)');
+      expect(rules).toContain('letter-spacing: var(--button-label-letter-spacing)');
+    };
+    readsLabelTokens(designTokenStylesheet.match(/\n\.btn-label\s*\{([^}]*)\}/u)?.[1] ?? '');
+    readsLabelTokens(designStylesheet.match(/\n\.btn\s*\{([^}]*)\}/u)?.[1] ?? '');
+    readsLabelTokens(
+      designStylesheet.match(/\n\.dialog-secondary,\s*\.dialog-primary\s*\{([^}]*)\}/u)?.[1] ?? '',
+    );
+
+    // The type scale shows the button label at its real size and weight.
+    const scale = [...designDocument.querySelectorAll('.spec .tag')].map((tag) => ({
+      tag: tag.textContent?.trim(),
+      sample: tag.nextElementSibling?.className,
+    }));
+    expect(scale).toContainEqual({ tag: '15 / 600', sample: 'btn-label' });
+    expect(scale.map((row) => row.tag)).not.toContain('14 / 600');
+    const preview = new DOMParser().parseFromString(
+      readFileSync(resolve('public/designsystem/preview/type-scale.html'), 'utf8'),
+      'text/html',
+    );
+    const previewScale = [...preview.querySelectorAll('.card .tag')].map((tag) => ({
+      tag: tag.textContent?.trim(),
+      sample: tag.nextElementSibling?.className,
+    }));
+    expect(previewScale).toContainEqual({ tag: '15/600', sample: 'btn-label' });
+    expect(previewScale.map((row) => row.tag)).not.toContain('14/600');
+
+    const advertisedTokens = [...designDocument.querySelectorAll('.tokens .tok')].map((token) =>
+      (token.textContent ?? '').trim(),
+    );
+    expect(advertisedTokens).toEqual(
+      expect.arrayContaining([
+        '--button-label-*',
+        '--button-label-chip-size',
+        '--button-label-tab-size',
+      ]),
+    );
   });
 
   it('shows the current playlist leading state, source icons, disclosure, and check circles', () => {
@@ -319,7 +391,8 @@ describe('public design-system page contract', () => {
     expect(thirdExpand?.type).toBe('button');
     expect(thirdExpand?.dataset.action).toBe('expand');
     expect(thirdExpand?.dataset.queueItemId).toBe('design-playlist-3');
-    expect(thirdExpand?.getAttribute('aria-label')).toBe('Expand/collapse playlist');
+    // Named by what it opens, so repeated rows never share one name.
+    expect(thirdExpand?.getAttribute('aria-label')).toBe('Tracks in Well-Tempered Clavier Book I');
     expect(thirdExpand?.getAttribute('aria-expanded')).toBe('true');
     expect(thirdExpand?.classList.contains('active')).toBe(true);
     expect(thirdExpand?.querySelector('svg')?.getAttribute('viewBox')).toBe('0 0 24 24');
@@ -424,8 +497,10 @@ describe('public design-system page contract', () => {
     expect(normalizedPath(mediaIcon?.querySelector('path')?.getAttribute('d') ?? null)).toBe(
       normalizedPath(PLAY_MEDIA_PATH),
     );
+    // Like the app: repeat is named by its current mode and has no pressed
+    // state; shuffle keeps one name with a pressed state.
     expect(playlistActions.map((button) => button.getAttribute('aria-label'))).toEqual([
-      'Repeat one',
+      'Repeat current track',
       'Shuffle',
       'Add media',
     ]);
@@ -434,14 +509,29 @@ describe('public design-system page contract', () => {
         normalizedPath(button.querySelector('path')?.getAttribute('d') ?? null),
       ),
     ).toEqual([REPEAT_PATH, SHUFFLE_PATH, ADD_PATH].map(normalizedPath));
-    expect(
-      playlistActions.filter((button) => button.getAttribute('aria-pressed') === 'true'),
-    ).toHaveLength(1);
+    expect(playlistActions.map((button) => button.getAttribute('aria-pressed'))).toEqual([
+      null,
+      'false',
+      null,
+    ]);
     expect(playlist?.querySelector('.lbl')?.textContent?.trim()).toBe('Playlist area');
     expect(playback?.querySelector('.tab-action-btn-sample')).toBeNull();
     expect(playlist?.querySelectorAll('.tab-action-btn-sample')).toHaveLength(3);
     expect(components.querySelector('.playlist-select[aria-pressed="true"]')).toBeTruthy();
+    // Like the app (playlist.select_track), each minus keeps one neutral name
+    // in both states; the minus also picks tracks to move or copy.
+    expect(
+      [...components.querySelectorAll<HTMLButtonElement>('.playlist-select')].map((button) =>
+        button.getAttribute('aria-label'),
+      ),
+    ).toEqual([
+      'Select Goldberg Aria.wav',
+      'Select Cello Suite No. 1 Prelude',
+      'Select Well-Tempered Clavier Book I',
+    ]);
     expect(selectionPanel?.getAttribute('role')).toBe('group');
+    // The app names the bar by its visible count title, never "Remove from playlist".
+    expect(selectionPanel?.getAttribute('aria-label')).toBe('2 selected');
     const selectionActions = [
       ...(selectionPanel?.querySelectorAll<HTMLButtonElement>('button') ?? []),
     ];
@@ -450,6 +540,12 @@ describe('public design-system page contract', () => {
       'Cancel',
     ]);
     expect(selectionActions.map((button) => button.textContent?.trim())).toEqual(['', '']);
+    // The app names these actions without repeating the name as a tooltip.
+    expect(selectionActions.filter((button) => button.hasAttribute('title'))).toEqual([]);
+    // The device row kick icons turn the destructive label red on hover.
+    expect(designStylesheet).toMatch(
+      /\.btn-kick-device:hover,\s*\.btn-kick-physical-device:hover\s*\{\s*color:\s*var\(--danger-foreground\);/u,
+    );
     expect(
       selectionActions.map((button) =>
         normalizedPath(button.querySelector('path')?.getAttribute('d') ?? null),
@@ -663,12 +759,16 @@ describe('public design-system page contract', () => {
         title: button.title,
       })),
     ).toEqual(
-      ['#2', '#3'].map((member) => ({
-        label: 'Grant',
+      [
+        ['#2', 'julesk'],
+        ['#3', 'noa_home'],
+      ].map(([member, name]) => ({
+        label: `Grant administrator permissions to ${name}`,
         member,
         path: normalizedPath(CROWN_PATH),
         state: 'inactive',
-        title: 'Grant',
+        // Names are never repeated as tooltips (hover hint policy).
+        title: '',
       })),
     );
     expect(designStylesheet).toMatch(
@@ -696,10 +796,10 @@ describe('public design-system page contract', () => {
       row.querySelector<HTMLButtonElement>('.btn-kick-physical-device'),
     );
     expect(physicalKickButtons.map((button) => button?.getAttribute('aria-label'))).toEqual([
-      'Remove macOS device (A1B2)',
-      'Remove Windows device (C3D4)',
-      'Remove iOS device (E5F6)',
-      'Remove Android device (G7H8)',
+      'Kick macOS device (A1B2)',
+      'Kick Windows device (C3D4)',
+      'Kick iOS device (E5F6)',
+      'Kick Android device (G7H8)',
     ]);
     expect(
       physicalKickButtons.every(
@@ -797,6 +897,92 @@ describe('public design-system page contract', () => {
     expect(designTokenStylesheet).toContain('@media (forced-colors: active)');
     expect(designTokenStylesheet).toMatch(/--bg:\s*Canvas\s*!important/iu);
     expect(designTokenStylesheet).toMatch(/--primary-filled:\s*Highlight\s*!important/iu);
+    // The destructive label role darkens only where light contrast is raised.
+    expect(designTokenStylesheet).toMatch(
+      /html\[data-theme='light'\]\[data-contrast='more'\]\s*\{[^}]*--danger-foreground:\s*#a4001d;/u,
+    );
+    expect(designTokenStylesheet).toMatch(
+      /html\[data-theme='light'\]:not\(\[data-contrast='normal'\]\)\s*\{[^}]*--danger-foreground:\s*#a4001d;/u,
+    );
+    expect(designTokenStylesheet).toMatch(/--danger-foreground:\s*ButtonText\s*!important/iu);
+  });
+
+  it('mirrors the danger foreground and the destructive tints of every palette', () => {
+    // Owner decision (2026-10-27, evening): the default palettes keep the red
+    // and destructive tints of 9.0.18; only high contrast darkens the red, and
+    // its tints keep #a4001d at 4.5:1. The leave-session and stop-sharing pill
+    // tints take the high-contrast tints there. Account deletion keeps its
+    // 9.0.18 tints in the default palettes (late evening) and the resting
+    // high-contrast tint at rest, on hover and on press.
+    const appStylesheet = readFileSync(resolve('css/style.css'), 'utf8');
+    const block = (stylesheet: string, selector: string): string => {
+      const escaped = selector.replace(/[.*+?^${}()|[\]\\]/gu, '\\$&');
+      const blocks = [...stylesheet.matchAll(new RegExp(`${escaped}\\s*\\{([^}]*)\\}`, 'gu'))];
+      expect(blocks.length, selector).toBeGreaterThan(0);
+      return blocks.map((match) => match[1]).join('\n');
+    };
+    for (const stylesheet of [appStylesheet, designTokenStylesheet]) {
+      expect(
+        customPropertyValue(block(stylesheet, "html[data-theme='light']"), '--danger-foreground'),
+      ).toBeUndefined();
+    }
+    const highContrastPills = {
+      '--control-danger-pill': 'var(--control-danger)',
+      '--control-danger-pill-hover': 'var(--control-danger-hover)',
+      '--control-danger-pill-press': 'var(--control-danger-hover)',
+      '--control-danger-dialog': 'var(--control-danger)',
+      '--control-danger-dialog-hover': 'var(--control-danger)',
+      '--control-danger-dialog-press': 'var(--control-danger)',
+    };
+    const expected: Array<[string, Record<string, string>]> = [
+      [
+        "html[data-theme='light']",
+        {
+          '--control-danger': 'rgba(255, 59, 48, 0.075)',
+          '--control-danger-hover': 'rgba(255, 59, 48, 0.11)',
+        },
+      ],
+      ["html[data-contrast='more']", highContrastPills],
+      ["html:not([data-contrast='normal'])", highContrastPills],
+      [
+        "html[data-theme='light'][data-contrast='more']",
+        {
+          '--danger-foreground': '#a4001d',
+          '--control-danger': 'rgba(176, 0, 32, 0.16)',
+          '--control-danger-hover': 'rgba(176, 0, 32, 0.24)',
+        },
+      ],
+      [
+        "html[data-theme='light']:not([data-contrast='normal'])",
+        {
+          '--danger-foreground': '#a4001d',
+          '--control-danger': 'rgba(176, 0, 32, 0.16)',
+          '--control-danger-hover': 'rgba(176, 0, 32, 0.24)',
+        },
+      ],
+    ];
+    for (const [selector, tokens] of expected) {
+      for (const [token, value] of Object.entries(tokens)) {
+        expect(
+          customPropertyValue(block(appStylesheet, selector), token),
+          `${selector} ${token}`,
+        ).toBe(value);
+        expect(
+          customPropertyValue(block(designTokenStylesheet, selector), token),
+          `${selector} ${token} public mirror`,
+        ).toBe(value);
+      }
+    }
+    const tokenRows = Object.fromEntries(
+      [...designDocument.querySelectorAll('.tokens .token-row')].map((row) => [
+        row.querySelector('.tok')?.textContent?.trim(),
+        row.querySelector('.val')?.textContent?.trim(),
+      ]),
+    );
+    expect(tokenRows['--danger-foreground']).toBe('#ff3b30');
+    expect(tokenRows['--control-danger-hover']).toBe('red 13% / 11%');
+    expect(tokenRows['--control-danger-pill-*']).toBe('red 8% / 12% / 18%');
+    expect(tokenRows['--control-danger-dialog-*']).toBe('danger-filled 10% / 16% / 20%');
   });
 
   it('describes filled icons as the default and exposes a deliberate stroke exception', () => {

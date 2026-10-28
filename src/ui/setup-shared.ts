@@ -16,6 +16,7 @@ import { clearManagedTimer, setManagedTimer } from '../core/timers.ts';
 import { isCompactLandscape } from '../core/platform.ts';
 import { DESKTOP_LAYOUT_QUERY } from '../core/layout-breakpoints.ts';
 import { animateTransition, updateOverlayOpenClass } from './dom.ts';
+import { hasHoverPointer, isHovered } from './hover-pointer.ts';
 import { showToast } from './toast.ts';
 import {
   updateRoleBadge,
@@ -434,7 +435,7 @@ interface SetupButton {
   textKey?: I18nKey;
   html?: string;
   ariaLabel?: string;
-  kind?: 'primary' | 'secondary' | 'text-link' | 'icon-only';
+  kind?: 'primary' | 'secondary' | 'icon-only';
   disabled?: boolean;
   onClick?: (() => void) | null;
 }
@@ -487,7 +488,6 @@ function renderSetupActions(buttons: SetupButton[], layout: SetupActionsLayout):
     b.type = 'button';
 
     if (btn.kind === 'secondary') b.className = 'btn-ob-secondary';
-    else if (btn.kind === 'text-link') b.className = 'btn-ob-text-link';
     else if (btn.kind === 'icon-only') b.className = 'btn-ob-icon';
     else b.className = 'btn-ob-primary';
 
@@ -532,25 +532,20 @@ function canScheduleObCarouselAutoplay(): boolean {
   );
 }
 
-function hasHoverCapableInput(): boolean {
-  try {
-    return window.matchMedia('(any-hover: hover)').matches;
-  } catch {
-    return false;
-  }
-}
-
 function updateObCarouselA11y(): void {
   const track = setupEl('ob-slider-track');
   const autoplayEligible = !_obCarouselUserStopped && !_obCarouselReducedMotion;
   if (track) track.setAttribute('aria-live', autoplayEligible ? 'off' : 'polite');
 
+  // Each dot is named by its slide. While slides still rotate, a press also
+  // stops the rotation, which the dot carries as its description.
   document.querySelectorAll<HTMLElement>('.ob-dot').forEach((dot, idx) => {
-    const position = `${idx + 1} / ${TOTAL_OB_SLIDES}`;
     dot.setAttribute(
       'aria-label',
-      autoplayEligible ? `${position}, ${t('setup.carousel_pause')}` : position,
+      t('setup.carousel_dot_aria', { current: idx + 1, total: TOTAL_OB_SLIDES }),
     );
+    if (autoplayEligible) dot.setAttribute('aria-describedby', 'ob-carousel-pause-hint');
+    else dot.removeAttribute('aria-describedby');
   });
 }
 
@@ -642,7 +637,7 @@ export function initObCarousel(signal: AbortSignal): void {
   area?.addEventListener(
     'mouseenter',
     () => {
-      if (!hasHoverCapableInput()) return;
+      if (!hasHoverPointer()) return;
       _obCarouselHoverPaused = true;
       clearObCarouselAutoplayTimer();
     },
@@ -714,7 +709,7 @@ export function initObCarousel(signal: AbortSignal): void {
         return;
       }
 
-      _obCarouselHoverPaused = hasHoverCapableInput() && area?.matches(':hover') === true;
+      _obCarouselHoverPaused = area !== null && isHovered(area);
       scheduleObCarouselAutoplay();
     },
     { signal },

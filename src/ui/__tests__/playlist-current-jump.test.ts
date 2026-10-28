@@ -2,6 +2,7 @@
  * @vitest-environment jsdom
  */
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { t } from '../../i18n/index.ts';
 import type { QueueItemId } from '../../types/index.ts';
 import {
   createPlaylistCurrentJumpController,
@@ -104,6 +105,10 @@ describe('playlist current-track jump affordance', () => {
       expect(button.classList).toContain('show');
       expect(button.classList).not.toContain('is-above');
       expect(button.tabIndex).toBe(0);
+      // Named, not titled: a tooltip would only repeat the name.
+      expect(button.getAttribute('aria-label')).toBe(t('playlist.jump_to_current'));
+      expect(button.hasAttribute('title')).toBe(false);
+      expect(button.hasAttribute('data-i18n-title')).toBe(false);
 
       button.click();
       expect(onActivate).toHaveBeenCalledWith(selection);

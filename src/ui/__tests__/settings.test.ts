@@ -2,13 +2,14 @@
  * @vitest-environment jsdom
  */
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { readFileSync } from 'node:fs';
+import { readdirSync, readFileSync } from 'node:fs';
 import { bus } from '../../core/events.ts';
 import { getState, resetState, setState } from '../../core/state.ts';
 import { showToast } from '../toast.ts';
 import { LANGUAGE_OPTIONS, setLanguageMode, t } from '../../i18n/index.ts';
 import { hasLocaleFont } from '../../i18n/locale-fonts.ts';
 import { markStandardRoomAuthorityConfirmed } from '../../rooms/authority.ts';
+import { roomCapabilityFeedbackTip } from '../../rooms/permission-feedback.ts';
 import type { DataConnection } from '../../types/index.ts';
 import { configureSystemAudioCaptureActivityProbe } from '../../audio/system-audio-policy.ts';
 import {
@@ -113,13 +114,14 @@ function installEffectSettingsDom(): void {
         <button class="ch-opt active" data-virtual-effect="off" aria-pressed="true">Off</button>
       </div>
       <div id="eq-sliders-area" class="reverb-sliders-area collapsed">
-        ${Array.from(
-          { length: 5 },
-          (_, i) => `
+        ${['60Hz', '230Hz', '910Hz', '3.6kHz', '14kHz']
+          .map(
+            (freq, i) => `
             <span id="eq-val-${i}">0</span>
-            <input type="range" class="eq-slider" id="eq-slider-${i}" min="-12" max="12" value="0" />
+            <input type="range" class="eq-slider" id="eq-slider-${i}" data-eq-freq="${freq}" min="-12" max="12" value="0" />
           `,
-        ).join('')}
+          )
+          .join('')}
       </div>
     `,
   );
@@ -207,7 +209,7 @@ function installSettingsSyncDom(): void {
           type="button"
           id="settings-${effect}-sync-indicator"
           data-settings-sync-indicator
-          data-i18n-aria-label="toast.settings_sync_enabled"
+          data-i18n-aria-label="settings.sync_settings"
           aria-label=""
           hidden
         ></button>`,
@@ -486,6 +488,88 @@ describe('settings synchronization preference', () => {
     expect(document.getElementById('grid-reverb')?.classList).not.toContain('host-ctrl-locked');
   });
 
+  it('names the pending check on locked audio settings groups until the answer arrives', () => {
+    installSettingsSyncDom();
+    installEffectSettingsDom();
+    const host = { peer: 'host', open: true } as DataConnection;
+    setState('setup.sessionStarted', true);
+    setState('network.appRole', 'guest');
+    setState('network.hostConn', host);
+    initSettings();
+
+    const reverb = document.getElementById('grid-reverb')!;
+    expect(reverb.getAttribute('aria-disabled')).toBe('true');
+    expect(reverb.title).toBe(t('player.admin_permission_checking_tip'));
+    expect(document.getElementById('grid-reverb-reason')?.textContent).toBe(
+      t('player.admin_permission_checking_tip'),
+    );
+
+    markStandardRoomAuthorityConfirmed(host);
+    bus.emit('network:role-badge-update');
+    expect(reverb.title).toBe(t('player.volume_locked_tip'));
+    expect(document.getElementById('grid-reverb-reason')?.textContent).toBe(
+      t('player.volume_locked_tip'),
+    );
+  });
+
+  it('keeps the lock reason on every locked audio settings group until it unlocks', async () => {
+    installSettingsSyncDom();
+    installEffectSettingsDom();
+    const host = { peer: 'host', open: true } as DataConnection;
+    setState('setup.sessionStarted', true);
+    setState('network.appRole', 'guest');
+    setState('network.hostConn', host);
+    // The host's role projection has arrived; the lock is a final answer.
+    markStandardRoomAuthorityConfirmed(host);
+    initSettings();
+
+    const groups = [
+      'grid-reverb',
+      'reverb-sliders-area',
+      'grid-eq',
+      'eq-sliders-area',
+      'grid-virtual-effects',
+    ].map((id) => document.getElementById(id)!);
+    // Taps on a locked group explain the lock with a toast; hovering the
+    // group gives the same reason, written when the lock arrives.
+    for (const group of groups) {
+      expect(group.getAttribute('aria-disabled')).toBe('true');
+      expect(group.title).toBe(roomCapabilityFeedbackTip('effects.control'));
+    }
+    // The three choice groups keep their section description, which outranks
+    // a title, so the reason is also a description they reference first.
+    for (const id of ['grid-reverb', 'grid-eq', 'grid-virtual-effects']) {
+      const group = document.getElementById(id)!;
+      expect(group.getAttribute('aria-describedby')?.split(' ')[0], id).toBe(`${id}-reason`);
+      expect(document.getElementById(`${id}-reason`)?.textContent, id).toBe(
+        roomCapabilityFeedbackTip('effects.control'),
+      );
+    }
+
+    await setLanguageMode('ko');
+    bus.emit('i18n:changed', 'ko');
+    for (const group of groups) {
+      expect(group.title).toBe(roomCapabilityFeedbackTip('effects.control'));
+    }
+    // A one-phrase reason, not the toast's two sentences.
+    expect(groups[0]!.title).toBe('음향 설정은 방 관리자만 변경 가능');
+
+    expect(document.getElementById('grid-eq-reason')?.textContent).toBe(
+      '음향 설정은 방 관리자만 변경 가능',
+    );
+
+    document.querySelector<HTMLElement>('[data-settings-sync="off"]')?.click();
+    for (const group of groups) {
+      expect(group.getAttribute('aria-disabled')).toBe('false');
+      expect(group.hasAttribute('title')).toBe(false);
+    }
+    for (const id of ['grid-reverb', 'grid-eq', 'grid-virtual-effects']) {
+      expect(document.getElementById(id)?.getAttribute('aria-describedby') ?? '', id).not.toContain(
+        `${id}-reason`,
+      );
+    }
+  });
+
   it('shows translated effect indicators for ON, hides them for OFF, and restores them for ON', () => {
     installSettingsSyncDom();
     setLanguageMode('ko');
@@ -497,7 +581,7 @@ describe('settings synchronization preference', () => {
     expect(indicators).toHaveLength(3);
     expect(indicators.every((indicator) => indicator.hidden === false)).toBe(true);
     expect(
-      indicators.every((indicator) => indicator.ariaLabel === t('toast.settings_sync_enabled')),
+      indicators.every((indicator) => indicator.ariaLabel === t('settings.sync_settings')),
     ).toBe(true);
 
     bus.emit('settings-sync:changed', false);
@@ -560,6 +644,41 @@ describe('initSettings PRO device authority', () => {
     expect(document.querySelector('.d-name')?.textContent).not.toContain('ADMIN');
     expect(document.querySelector('.btn-action')).toBeNull();
     expect(document.querySelector('.d-status')?.textContent).toBe('Connected');
+  });
+});
+
+describe('initSettings device list status', () => {
+  it('shows one connected badge, the only status a device list carries', () => {
+    // Every device list lists room members only: the host broadcast keeps
+    // peers whose status is 'connected' (peer.test.ts) and the PRO presence
+    // projection marks every participant connected
+    // (runtime-member-projection.test.ts). A disconnected badge never had a
+    // row to show on, so neither it, its rule nor its copy remains.
+    document.body.insertAdjacentHTML('beforeend', '<div id="device-list"></div>');
+    initSettings();
+    const deviceList = [
+      { id: 'host-1', label: 'HOST', status: 'connected', isHost: true, isOp: true },
+      { id: 'peer-1', label: 'Peer 1', status: 'connected', isHost: false, isOp: false },
+    ];
+    setState('network.lastKnownDeviceList', deviceList);
+    bus.emit('network:device-list-update', deviceList);
+
+    const badges = [...document.querySelectorAll('#device-list .d-status')];
+    expect(badges.map((badge) => badge.className)).toEqual(['d-status active', 'd-status active']);
+    expect(badges.map((badge) => badge.textContent)).toEqual(['Connected', 'Connected']);
+
+    const settingsSource = readFileSync('src/ui/settings.ts', 'utf8');
+    expect(settingsSource).not.toMatch(/common\.disconnected|'inactive'/u);
+    expect(readFileSync('css/style.css', 'utf8')).not.toMatch(/\.d-status\.inactive\b/u);
+    const locales = readdirSync('src/i18n').filter((name) =>
+      /^[a-z]{2,3}(?:-[a-z]+)?\.ts$/u.test(name),
+    );
+    expect(locales).toHaveLength(42);
+    for (const locale of locales) {
+      const source = readFileSync(`src/i18n/${locale}`, 'utf8');
+      expect(source, locale).toContain("'common.connected'");
+      expect(source, locale).not.toContain("'common.disconnected'");
+    }
   });
 });
 
@@ -896,6 +1015,31 @@ describe('settings subtab scrollbar affordance', () => {
       true,
     );
     expect(reveal).toHaveBeenCalledWith(settingsPanel);
+  });
+});
+
+describe('initSettings equalizer band names', () => {
+  it('names each band slider by the equalizer and its frequency in the selected language', async () => {
+    installEffectSettingsDom();
+    await setLanguageMode('en');
+    initSettings();
+
+    const names = () =>
+      [...document.querySelectorAll<HTMLInputElement>('.eq-slider')].map((slider) =>
+        slider.getAttribute('aria-label'),
+      );
+    expect(names()).toEqual([
+      'Equalizer 60Hz',
+      'Equalizer 230Hz',
+      'Equalizer 910Hz',
+      'Equalizer 3.6kHz',
+      'Equalizer 14kHz',
+    ]);
+
+    await setLanguageMode('ko');
+    bus.emit('i18n:changed', 'ko');
+    expect(names()[0]).toBe(t('settings.eq_band_aria', { freq: '60Hz' }));
+    expect(names()[0]).toBe('이퀄라이저 60Hz');
   });
 });
 

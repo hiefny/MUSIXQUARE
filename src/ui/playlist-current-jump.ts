@@ -63,9 +63,7 @@ function createButton(panel: HTMLElement): HTMLButtonElement {
   button.id = 'btn-playlist-current-track';
   button.className = 'chat-scroll-down-btn playlist-current-jump-btn';
   button.setAttribute('aria-label', t('playlist.jump_to_current'));
-  button.setAttribute('title', t('playlist.jump_to_current'));
   button.setAttribute('data-i18n-aria-label', 'playlist.jump_to_current');
-  button.setAttribute('data-i18n-title', 'playlist.jump_to_current');
   button.setAttribute('aria-controls', 'playlist-ui');
   button.setAttribute('aria-hidden', 'true');
   button.tabIndex = -1;

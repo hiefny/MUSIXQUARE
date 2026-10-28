@@ -319,6 +319,18 @@ revoked mid-drag, then accepts a fresh accessibility seek" pins this; a mutation
 `cancelRangeDrag` there fails it. Revisit if range-drag gains a seek-specific path or a report shows
 a seek, or repeated denials, after a revoke.
 
+### 20. Chromium 79 TVs Show No Hover Effects
+
+Accepted on 2026-10-27 by the owner (UI bundle train, planned 9.0.19 / v792). Every `:hover` rule
+sits under the `:where(html[data-hover-pointer])` gate that `src/ui/hover-pointer.ts` owns, so the
+laptop and studio postures of a convertible hover alike. Chromium 79, the engine of 2021 LG webOS
+TVs with a pointer remote, cannot parse `:where()` and drops each gated rule whole, so those TVs
+show no hover effects; in 9.0.18 their `@media (hover: hover)` rules applied. Focus, press and
+state rules sit outside the gate, and `guard:legacy-tv-build` fails a rule that lists `:where()`
+next to other selectors, so they are not dropped with it. No control depends on hover alone.
+Revisit if a TV report shows a control that only hover reveals or the gate starts to carry more
+than hover styles. [Report](design/ui-bundle-2026-10-27.md#u3-호버-관문-하나-추천표-410)
+
 ## Retired Risks
 
 These older draft findings and subsequently resolved risks should no longer be

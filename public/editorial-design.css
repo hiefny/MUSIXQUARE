@@ -294,10 +294,6 @@
   font-size: 16px;
   font-weight: 500;
 }
-.spec .s14 {
-  font-size: 14px;
-  font-weight: 600;
-}
 .spec .s12 {
   color: var(--text-sub);
   font-size: 12px;
@@ -643,8 +639,10 @@
   align-items: center;
   justify-content: center;
   gap: 10px;
-  font-size: 14px;
-  font-weight: 700;
+  font-size: var(--button-label-size);
+  font-weight: var(--button-label-weight);
+  line-height: var(--button-label-line-height);
+  letter-spacing: var(--button-label-letter-spacing);
   white-space: nowrap;
   cursor: pointer;
   transition:
@@ -1060,10 +1058,17 @@
   height: 22px;
   fill: none;
   stroke: currentColor;
-  stroke-width: 1.8;
   stroke-linecap: butt;
   stroke-linejoin: miter;
   transition: transform 0.2s ease;
+}
+
+/* The app's row line icons share one weight: the chevrons and the selection
+   minus. The check stays heavier as the selected mark. */
+.expand-toggle svg,
+.device-expand-toggle svg,
+.playlist-select-minus {
+  stroke-width: 1.8;
 }
 
 .expand-toggle.active svg {
@@ -1151,17 +1156,13 @@
 .playlist-select-mark {
   fill: none;
   stroke: currentColor;
-  stroke-width: 2.4;
   stroke-linecap: butt;
   stroke-linejoin: miter;
 }
 
 .playlist-select-mark {
+  stroke-width: 2.4;
   opacity: 0;
-}
-
-.playlist-select-minus {
-  stroke-width: 1.9;
 }
 
 .playlist-select[aria-pressed='true'] {
@@ -2332,12 +2333,12 @@
   fill: currentColor;
 }
 
+/* Its 1.8 weight comes from the shared line-icon rule with .expand-toggle. */
 .device-expand-toggle svg {
   width: 22px;
   height: 22px;
   fill: none;
   stroke: currentColor;
-  stroke-width: 1.8;
   stroke-linecap: butt;
   stroke-linejoin: miter;
   transition: transform 0.2s ease;
@@ -2382,7 +2383,7 @@
 
 .btn-kick-device:hover,
 .btn-kick-physical-device:hover {
-  color: #ff4d4f;
+  color: var(--danger-foreground);
 }
 
 .device-sublist-sample {
@@ -2625,20 +2626,22 @@
 
 .dialog-actions {
   display: flex;
-  gap: 10px;
+  gap: 12px 10px;
   justify-content: flex-end;
 }
 
 .dialog-secondary,
 .dialog-primary {
-  min-height: 54px;
+  min-height: 56px;
   min-width: 100px;
   padding: 0 24px;
   border: 0;
   border-radius: 999px;
   font-family: inherit;
-  font-size: 15px;
-  font-weight: 700;
+  font-size: var(--button-label-size);
+  font-weight: var(--button-label-weight);
+  line-height: var(--button-label-line-height);
+  letter-spacing: var(--button-label-letter-spacing);
   cursor: pointer;
 }
 

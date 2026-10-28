@@ -1132,8 +1132,9 @@ function syncDemoStep(step = _demoStep, revealScrollbar = false): void {
     const isFinal = _demoStep >= 4;
     btn.classList.toggle('active', isFinal);
     btn.classList.toggle('is-final', isFinal);
+    // Named, not titled: the arrow's name or the final step's visible text
+    // would only repeat as a tooltip.
     btn.setAttribute('aria-label', t(isFinal ? 'demo.step_finish' : 'common.next'));
-    btn.setAttribute('title', t(isFinal ? 'demo.step_finish' : 'common.next'));
   });
   const overlay = document.getElementById('demo-overlay');
   if (revealScrollbar && overlay?.classList.contains('active')) {
@@ -1278,6 +1279,12 @@ function syncPlayButton(): void {
     });
   document.querySelectorAll<HTMLElement>('[data-demo-play-icon]').forEach((path) => {
     path.setAttribute('d', playing ? 'M6 19h4V5H6v14zm8-14v14h4V5h-4z' : 'M8 5v14l11-7z');
+  });
+  // Like its icon, the button names what a press does now (no aria-pressed).
+  const playNameKey = playing ? 'common.pause' : 'player.play_aria';
+  document.querySelectorAll<HTMLElement>('[data-demo-play]').forEach((button) => {
+    button.setAttribute('data-i18n-aria-label', playNameKey);
+    button.setAttribute('aria-label', t(playNameKey));
   });
 }
 

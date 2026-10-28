@@ -789,11 +789,12 @@ describe('Standard SFU guest receive', () => {
 
   // 5B-OV2 (old-version survey OV-B06): a host on this build sends a failed-
   // direct remote peer READY { audience: 'remote', handoffFromDirect: true },
-  // where hosts up to 9.0.13 sent 'all' (the S4 row above). These rows pass
-  // before and after: the guest side is unchanged, so a 9.0.12/9.0.13 guest
-  // accepts the frame on both routes the host can leave it on, freezes
-  // 'sfu-remote' with guestRejectLateDirectRoute set, and refuses a late direct
-  // call exactly as the 'sfu-all' freeze did.
+  // where hosts up to 9.0.15 sent 'all' (the S4 row above). These rows pass
+  // before and after: the guest side is unchanged, so a 9.0.14 or 9.0.15
+  // guest (the oldest the 787 floor admits) accepts the frame on both routes
+  // the host can leave it on, freezes 'sfu-remote' with
+  // guestRejectLateDirectRoute set, and refuses a late direct call exactly as
+  // the 'sfu-all' freeze did.
   it('OV-B06 acceptance (route direct): a remote READY with the handoff marker ends the direct reception, re-begins with the same surface, subscribes and refuses a late direct call', async () => {
     await start('window');
     const call = directCall();

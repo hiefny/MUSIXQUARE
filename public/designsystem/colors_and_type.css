@@ -30,6 +30,7 @@
   --danger-filled: #ef4444;
   --warning-filled: #f59e0b;
   --warning-foreground: #f59e0b;
+  --danger-foreground: #ff3b30; /* every destructive or error text and icon */
   --youtube-filled: #ff0033;
   --accent: var(--primary);
   --accent-rgb: var(--primary-rgb);
@@ -45,6 +46,12 @@
   --control-active: rgba(var(--primary-rgb), 0.13);
   --control-danger: rgba(255, 59, 48, 0.09);
   --control-danger-hover: rgba(255, 59, 48, 0.13);
+  --control-danger-pill: rgba(255, 59, 48, 0.08); /* leave session and stop sharing */
+  --control-danger-pill-hover: rgba(255, 59, 48, 0.12);
+  --control-danger-pill-press: rgba(255, 59, 48, 0.18);
+  --control-danger-dialog: rgba(239, 68, 68, 0.1); /* Delete account */
+  --control-danger-dialog-hover: rgba(239, 68, 68, 0.16);
+  --control-danger-dialog-press: rgba(239, 68, 68, 0.2);
 
   /* Neutral navigation scale */
   --grey-600: #6b7684;
@@ -109,6 +116,15 @@
     sans-serif;
   --font-sans: var(--font-sans-ko);
   --font-weight-display: 700;
+  /* Button label roles; labels in one role differ only by color. Every role
+     shares the weight and tracking. CTA: every action button. Chip: choice
+     chips. Tab: section tabs and segments. */
+  --button-label-size: 15px;
+  --button-label-weight: 600;
+  --button-label-line-height: 1.25;
+  --button-label-letter-spacing: normal;
+  --button-label-chip-size: 14px;
+  --button-label-tab-size: 13px;
 
   /* Size scale */
   --fs-9: 9px;
@@ -189,6 +205,12 @@ html[data-contrast='more'] {
   --control-active: rgba(var(--primary-rgb), 0.28);
   --control-danger: rgba(176, 0, 32, 0.24);
   --control-danger-hover: rgba(176, 0, 32, 0.34);
+  --control-danger-pill: var(--control-danger);
+  --control-danger-pill-hover: var(--control-danger-hover);
+  --control-danger-pill-press: var(--control-danger-hover);
+  --control-danger-dialog: var(--control-danger);
+  --control-danger-dialog-hover: var(--control-danger);
+  --control-danger-dialog-press: var(--control-danger);
   --glass-bg: var(--surface-1);
   --glass-border: #262626;
   --scrollbar-thumb: rgba(255, 255, 255, 0.65);
@@ -204,6 +226,9 @@ html[data-theme='light'][data-contrast='more'] {
   --divider: #d4d6d8;
   --primary: #0047a8;
   --primary-rgb: 0, 71, 168;
+  --danger-foreground: #a4001d;
+  --control-danger: rgba(176, 0, 32, 0.16);
+  --control-danger-hover: rgba(176, 0, 32, 0.24);
   --text-main: #000000;
   --text-sub: #111111;
   --text-muted: #333333;
@@ -244,6 +269,12 @@ html[data-theme='light'][data-contrast='more'] {
     --control-active: rgba(var(--primary-rgb), 0.28);
     --control-danger: rgba(176, 0, 32, 0.24);
     --control-danger-hover: rgba(176, 0, 32, 0.34);
+    --control-danger-pill: var(--control-danger);
+    --control-danger-pill-hover: var(--control-danger-hover);
+    --control-danger-pill-press: var(--control-danger-hover);
+    --control-danger-dialog: var(--control-danger);
+    --control-danger-dialog-hover: var(--control-danger);
+    --control-danger-dialog-press: var(--control-danger);
     --glass-bg: var(--surface-1);
     --glass-border: #262626;
     --scrollbar-thumb: rgba(255, 255, 255, 0.65);
@@ -259,6 +290,9 @@ html[data-theme='light'][data-contrast='more'] {
     --divider: #d4d6d8;
     --primary: #0047a8;
     --primary-rgb: 0, 71, 168;
+    --danger-foreground: #a4001d;
+    --control-danger: rgba(176, 0, 32, 0.16);
+    --control-danger-hover: rgba(176, 0, 32, 0.24);
     --text-main: #000000;
     --text-sub: #111111;
     --text-muted: #333333;
@@ -288,6 +322,7 @@ html[data-theme='light'][data-contrast='more'] {
     --danger-filled: Highlight !important;
     --warning-filled: Highlight !important;
     --warning-foreground: LinkText !important;
+    --danger-foreground: ButtonText !important;
     --youtube-filled: Highlight !important;
     --text-main: CanvasText !important;
     --text-sub: CanvasText !important;
@@ -349,10 +384,17 @@ body {
   color: var(--text-sub);
 }
 
-.type-label,
-.btn-label {
+.type-label {
   font-size: var(--fs-14);
   font-weight: var(--fw-semibold);
+  color: var(--text-main);
+}
+
+.btn-label {
+  font-size: var(--button-label-size);
+  font-weight: var(--button-label-weight);
+  line-height: var(--button-label-line-height);
+  letter-spacing: var(--button-label-letter-spacing);
   color: var(--text-main);
 }
 

@@ -200,9 +200,7 @@ function isVisuallyAvailable(
 }
 
 function updateButtonLabel(button: HTMLButtonElement): void {
-  const label = t(CLEAR_LABEL_KEY);
-  button.setAttribute('aria-label', label);
-  button.title = label;
+  button.setAttribute('aria-label', t(CLEAR_LABEL_KEY));
 }
 
 function nextAvailableEditorId(ownerDocument: Document): string {
@@ -317,7 +315,6 @@ function createClearableEditorsController(
     button.className = BUTTON_CLASS;
     button.dataset.clearableEditorButton = '';
     button.dataset.i18nAriaLabel = CLEAR_LABEL_KEY;
-    button.dataset.i18nTitle = CLEAR_LABEL_KEY;
     button.innerHTML =
       '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M19 6.41 17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12Z"/></svg>';
     updateButtonLabel(button);

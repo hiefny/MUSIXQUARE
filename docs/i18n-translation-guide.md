@@ -87,6 +87,28 @@ is missing** — so a complete file must define every key.
    ellipses stay. Line breaks still follow the English reference (rule 2).
    `src/i18n/__tests__/toast-copy-policy.test.ts` lists the toast keys and
    fails on a violation.
+9. **Accessible names and hover hints are short phrases, not sentences**
+   (decided 2026-10-27). They are the `*_aria` and `*_tip` keys and every
+   other key a screen reader reads as a control's name or a hover hint shows
+   (`src/i18n/__tests__/control-name-copy-policy.test.ts` lists them all).
+   - Follow the English structure: a phrase stays a phrase, on one line,
+     without a final period (`.`, `。`, `।`, `۔`), with the same placeholders.
+   - Actions read as your UI's action form (imperative or noun), like the
+     buttons around them: `Kick {{name}}`, `Scan QR code`.
+   - A toggle keeps one name and the screen reader says its state, so never
+     add "toggle", "switch", "on/off" or "expand/collapse" to it: `Mute`,
+     `Shuffle`, `Full screen`, `Connected devices for {{name}}`.
+   - A mode or state name stays a mode or state phrase, not an action:
+     `Repeat off`, `Repeat all`, `Repeat current track`, `Syncing`.
+   - A reason hint names the state that blocks the control in one phrase
+     (`Playback control permission required`, `Not ready yet`). The toast for
+     the same denial keeps its own sentences.
+   - Use the words your locale already uses in the app: the kick verb of
+     `connect.kick_yes`, the role of `connect.administrator_role`, the track
+     word of `playlist.slot_tracks` and the pause of `common.pause`.
+   - Korean (the source) ends a name or hint in a noun form: an action noun
+     (`삭제`, `이동`), a native verb with -기 (`닫기`, `열기`) or a state noun
+     (`필요`, `중`, `없음`). Never -하기, a 해요체 sentence, `클릭하여` or `탭하여`.
 
 ---
 
@@ -112,7 +134,8 @@ is missing** — so a complete file must define every key.
   Use each region's everyday word for *speaker* (zh-Hans 音箱, zh-Hant 喇叭 — not a
   forced match). `common.left` / `common.right` stay the bare direction word.
 - **One word for "admin":** pick a single term for the admin/operator role and use
-  it consistently across every key (`common.grant`, `chat.cmd_d_op`,
+  it consistently across every key (`connect.administrator_role`,
+  `connect.administrator_grant_aria`, `chat.cmd_d_op`,
   `toast.operator_required`, `network.op_granted`, …). Don't alternate
   admin/operator/manager.
 - **Computer, not desktop hardware:** system-audio hosting requires a
@@ -148,10 +171,11 @@ the first machine pass).
 | `role.right` / `role.left` / `role.center` | Right / Left / Center | the device's role = **"[position] speaker"** (e.g. Left Speaker) | bare direction with no "speaker"; "channel" |
 | `common.on` | On | toggle state **enabled / powered on** | preposition "on / upon / atop" |
 | `common.off` | Off | toggle state **disabled** | "away / distant" |
-| `common.grant`, `chat.cmd_d_op` | Grant admin | **verb: give** someone the admin role | noun "a grant / subsidy / funding" |
-| `common.revoke`, `chat.cmd_d_deop` | Revoke admin | **verb: take away** the admin role | "annul / invalidate" (too legalistic) |
+| `connect.administrator_grant_aria`, `chat.cmd_d_op` | Grant administrator permissions to {{name}} / Grant administrator | **verb: give** someone the admin role | noun "a grant / subsidy / funding" |
+| `common.revoke`, `chat.cmd_d_deop` | Revoke / Revoke administrator | **verb: take away** the admin role | "annul / invalidate" (too legalistic) |
 | `connect.kick_*`, `chat.cmd_d_kick`, `toast.device_kicked` | Kick | **eject / remove** a device from the session | physical "kick / strike / football" |
-| `player.seek` | Seek | **scrub** the playback position | "search / look for" |
+| `player.seek` | Playback position | the **position slider's name**: where playback is in the track | "search / look for"; a place or location |
+| `chat.seek_to` | Seek to {{time}} | **jump** playback to that time | "search / look for" |
 | `player.play_media` "Play media", `player.play_together` "Play in Sync", `player.play_speakers` "Use as Speaker" | Play / Sync | **play back audio**; *sync* = synchronized playback | "play a game / have fun"; "channel" |
 | `common.mix` | Mix | **audio mix** (combine sources) | "stir / blend (cooking)" |
 | `common.original` | Original | **unprocessed audio** (effects off) | "novel / creative / first-ever" |
@@ -189,13 +213,19 @@ Output rules:
 - Escape an apostrophe inside the value as \' (or use the language's curly quote).
 - Tone: friendly, casual — a party/music app. Labels short & idiomatic (imperative
   or noun per your language's UI norm, not dictionary infinitives).
+- Keys ending in _aria or _tip are accessible names and hover hints: a short phrase
+  on one line, no final period, no sentence. Toggle, mode and state names stay
+  mode or state phrases (Mute, Shuffle, Repeat off, Syncing), never "Toggle …",
+  "on/off" or "expand/collapse". Use the words the app already uses in your
+  language for kick, administrator, track and pause.
 
 These short labels are AMBIGUOUS. Use the intended meaning, NOT the wrong sense:
 - Right / Left  = speaker SIDE (right-hand / left-hand), not "correct" or "departed"
 - On / Off      = toggle state (enabled / disabled), not the preposition "on"
 - Grant / Revoke admin = give / take away the admin ROLE (verbs), not a "subsidy"
 - Kick          = eject a device from the session, not a physical kick/football
-- Seek          = scrub the playback position, not "search"
+- Seek          = jump the playback position, not "search"
+- Playback position = the position slider's name, not a place
 - Play          = play back audio/media, not "play a game"
 - Mix           = audio mix, not "stir/blend"
 - Original      = unprocessed audio (effects off)
@@ -221,8 +251,8 @@ Their current English sources — paste into the §5 prompt if re-doing them:
 'common.right': 'Right',
 'common.on': 'On',
 'common.off': 'Off',
-'common.grant': 'Grant admin',
-'common.revoke': 'Revoke admin',
+'connect.administrator_grant_aria': 'Grant administrator permissions to {{name}}',
+'common.revoke': 'Revoke',
 'common.mix': 'Mix',
 'common.original': 'Original',
 'common.peer': 'Peer',
@@ -231,20 +261,21 @@ Their current English sources — paste into the §5 prompt if re-doing them:
 'role.center': 'Center Speaker',
 'role.left': 'Left Speaker',
 'role.right': 'Right Speaker',
-'player.seek': 'Seek',
+'player.seek': 'Playback position',
+'chat.seek_to': 'Seek to {{time}}',
 'player.play_together': 'Play in Sync',
 'player.play_speakers': 'Use as Speaker',
 'settings.light': 'Light',
 'settings.dark': 'Dark',
 'settings.leave_session': 'Leave Session',
 'nav.home': 'Home',
-'nav.go_home': 'Go to Home',
+'nav.go_home': 'Go to home screen',
 'connect.kick_title': 'Kick device',
 'connect.kick_yes': 'Kick',
 'connect.kicked_title': 'Kicked',
 'chat.cmd_d_kick': 'Kick device',
-'chat.cmd_d_op': 'Grant admin',
-'chat.cmd_d_deop': 'Revoke admin',
+'chat.cmd_d_op': 'Grant administrator',
+'chat.cmd_d_deop': 'Revoke administrator',
 'toast.device_kicked': '{{name}} has been kicked',
 'demo.session_title': 'This is room {{code}}.',
 ```
@@ -262,5 +293,9 @@ Their current English sources — paste into the §5 prompt if re-doing them:
 - [ ] `common.right` ≠ the same value as `common.ok` (the classic tell).
 - [ ] Direction labels match: `common.left`/`role.left` and
       `common.right`/`role.right` are real left/right words.
-- [ ] Buttons read as actions, not infinitives or status nouns.
+- [ ] Action buttons read as actions (imperative or noun, per your language), not
+      infinitives. Toggle, mode and status names (`Mute`, `Repeat off`,
+      `Repeat all`, `Syncing`) stay mode or state phrases.
+- [ ] `*_aria` and `*_tip` values are one-line phrases without a final period
+      (`npm exec vitest run -- src/i18n/__tests__/control-name-copy-policy.test.ts`).
 - [ ] Register feels casual/friendly, not machine-formal.

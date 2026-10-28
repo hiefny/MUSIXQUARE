@@ -33,12 +33,15 @@ describe('sharing action motion lifecycle', () => {
       <div class="play-action-buttons" style="column-gap:12px">
         <button id="sync">Sync</button><button id="media">Media</button>
       </div>`;
+    // src/ui/hover-pointer.ts marks a mouse user; touch tests clear it.
+    document.documentElement.setAttribute('data-hover-pointer', '');
   });
 
   afterEach(() => {
     abort.abort();
     vi.useRealTimers();
     vi.unstubAllGlobals();
+    document.documentElement.removeAttribute('data-hover-pointer');
   });
 
   function setup() {
@@ -224,6 +227,24 @@ describe('sharing action motion lifecycle', () => {
     );
     expect(container.dataset.hoverLocked).toBe('true');
     pointer('pointermove', 41);
+    expect(container.dataset.hoverLocked).toBeUndefined();
+  });
+
+  it('does not hold the lock for a :hover a touch press left latched', () => {
+    const { container, media, hover, motion } = setup();
+    motion.update(false);
+    const tap = new MouseEvent('pointerdown', { clientX: 280, clientY: 20, bubbles: true });
+    Object.defineProperty(tap, 'pointerType', { value: 'touch' });
+    document.dispatchEvent(tap);
+    // The hover owner clears its flag on a touch press; the tapped button
+    // still matches :hover until something else is touched.
+    document.documentElement.removeAttribute('data-hover-pointer');
+    hover.media = true;
+    motion.update(true);
+    expect(container.style.getPropertyValue('--motion-media-bg')).toBe(
+      'var(--play-action-stop-surface)',
+    );
+    widthTransitionEnd(media);
     expect(container.dataset.hoverLocked).toBeUndefined();
   });
 

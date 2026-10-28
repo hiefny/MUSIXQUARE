@@ -20,6 +20,7 @@ import {
 } from '../../player/ownership.ts';
 import { STANDARD_ROOM_OWNER_PRODUCT_CAPABILITIES } from '../../network/standard-room-authority.ts';
 import { markStandardRoomAuthorityConfirmed, setRoomContext } from '../../rooms/authority.ts';
+import { roomCapabilityFeedbackTip } from '../../rooms/permission-feedback.ts';
 import type { DataConnection } from '../../types/index.ts';
 import { broadcastYouTubeSync, guestRendezvousSync } from '../../youtube/sync.ts';
 import {
@@ -862,7 +863,8 @@ describe('updateRoleBadge', () => {
     updateRoleBadge();
 
     expect(document.getElementById('role-text')?.textContent).toBe('Account');
-    expect(badge.getAttribute('aria-label')).toContain('Please wait');
+    // The name is the visible text; the dialog the badge opens says why.
+    expect(badge.getAttribute('aria-label')).toBe(t('account.account_title'));
     expect(badge.getAttribute('aria-label')).not.toBe(t('account.login_title'));
   });
 
@@ -1214,6 +1216,50 @@ describe('PRO room media-source capabilities', () => {
     expect(document.getElementById('btn-shuffle')?.getAttribute('aria-disabled')).toBe('false');
     expect(repeat).toHaveBeenCalledTimes(1);
     expect(shuffle).toHaveBeenCalledTimes(1);
+  });
+
+  it('keeps the reason on repeat and shuffle while the queue mode is locked', async () => {
+    document.body.innerHTML = `
+      <button id="btn-repeat" aria-label="Repeat"></button>
+      <button id="btn-shuffle" aria-label="Shuffle"></button>
+    `;
+    setState('network.appRole', 'guest');
+    const host = makeConnection('host-1');
+    setState('network.hostConn', host);
+    // The host's role projection has arrived; the lock is a final answer.
+    markStandardRoomAuthorityConfirmed(host);
+    setState('network.isOperator', true);
+    setState('network.standardRoomCapabilities', ['playback.control']);
+    initPlayerControls();
+
+    const buttons = ['btn-repeat', 'btn-shuffle'].map((id) => document.getElementById(id)!);
+    for (const button of buttons) {
+      expect(button.getAttribute('aria-disabled')).toBe('true');
+      // Written when the lock arrives, before any pointer, so it is also the
+      // screen reader description; the name stays the control's name.
+      expect(button.title).toBe(roomCapabilityFeedbackTip('queue.mutate'));
+      expect(button.title).toBe('Media management permission required');
+      expect(button.getAttribute('aria-label')).not.toBe(button.title);
+    }
+
+    const previousLanguage = getResolvedLanguage();
+    try {
+      await setLanguageMode('ko');
+      bus.emit('i18n:changed', 'ko');
+      for (const button of buttons) {
+        expect(button.title).toBe(roomCapabilityFeedbackTip('queue.mutate'));
+        expect(button.title).toBe('미디어 관리 권한 필요');
+      }
+    } finally {
+      await setLanguageMode(previousLanguage);
+      bus.emit('i18n:changed', previousLanguage);
+    }
+
+    setState('network.standardRoomCapabilities', ['playback.control', 'queue.mutate']);
+    for (const button of buttons) {
+      expect(button.getAttribute('aria-disabled')).toBe('false');
+      expect(button.hasAttribute('title')).toBe(false);
+    }
   });
 
   it('lets a PRO administrator add files and YouTube entries but keeps live capture owner-only', () => {
@@ -1783,6 +1829,12 @@ describe('initPlayerControls playback mode rendering', () => {
     const stopLabel = mediaBtn?.querySelector('.play-action-stop-content .play-action-label');
 
     expect(icon?.getAttribute('d')).toBe('M6 19h4V5H6v14zm8-14v14h4V5h-4z');
+    // Like its icon, the button names what a press does now, without
+    // aria-pressed: Pause while playing, Play otherwise.
+    const playButton = document.getElementById('play-btn');
+    expect(playButton?.getAttribute('aria-label')).toBe(t('common.pause'));
+    expect(playButton?.getAttribute('data-i18n-aria-label')).toBe('common.pause');
+    expect(playButton?.hasAttribute('aria-pressed')).toBe(false);
     expect(actions?.getAttribute('data-sharing')).toBe('true');
     expect(mediaLabel?.getAttribute('data-i18n')).toBe('player.play_media_compact');
     expect(stopLabel?.textContent).toBe(t('system_audio.stop'));
@@ -1792,6 +1844,9 @@ describe('initPlayerControls playback mode rendering', () => {
     setPlaybackIdle();
 
     expect(icon?.getAttribute('d')).toBe('M8 5v14l11-7z');
+    expect(playButton?.getAttribute('aria-label')).toBe(t('player.play_aria'));
+    expect(playButton?.getAttribute('data-i18n-aria-label')).toBe('player.play_aria');
+    expect(playButton?.hasAttribute('aria-pressed')).toBe(false);
     expect(actions?.getAttribute('data-sharing')).toBe('false');
     expect(mediaLabel?.getAttribute('data-i18n')).toBe('player.play_media_compact');
     expect(mediaBtn?.getAttribute('data-i18n-aria-label')).toBe('player.play_media');
@@ -2317,17 +2372,56 @@ describe('initPlayerControls playback mode rendering', () => {
     initPlayerControls();
     const play = document.getElementById('play-btn')!;
     const media = document.getElementById('btn-media-source')!;
-    expect(play.title).toBe(t('toast.playback_control_checking'));
-    expect(media.title).toBe(t('toast.media_management_checking'));
+    // Hints are one phrase; the toast keeps its retry sentence for a tap.
+    expect(play.title).toBe(t('player.playback_control_checking_tip'));
+    expect(media.title).toBe(t('player.media_management_checking_tip'));
 
     markStandardRoomAuthorityConfirmed(host);
     setState('network.standardRoomCapabilities', null);
     setState('network.isOperator', false);
     bus.emit('network:role-badge-update');
 
-    expect(play.title).toBe(t('toast.playback_control_required'));
-    expect(media.title).toBe(t('toast.media_management_required'));
+    expect(play.title).toBe(t('player.playback_control_required_tip'));
+    expect(media.title).toBe(t('player.media_management_required_tip'));
     expect(play.getAttribute('aria-disabled')).toBe('true');
+  });
+
+  it('refreshes the repeat, shuffle and volume reasons when the pending answer arrives', () => {
+    document.body.innerHTML = `
+      <button id="btn-repeat" aria-label="Repeat"></button>
+      <button id="btn-shuffle" aria-label="Shuffle"></button>
+      <div id="volume-control-group" role="group">
+        <span id="volume-control-group-reason" hidden></span>
+        <button id="vol-icon-btn" aria-label="Mute"></button>
+        <input type="range" id="volume-slider" min="0" max="100" value="100" />
+      </div>
+    `;
+    const host = makeConnection('host');
+    setState('setup.sessionStarted', true);
+    setState('network.appRole', 'guest');
+    setState('network.hostConn', host);
+    setState('audio.settingsSyncEnabled', true);
+    initPlayerControls();
+    const queueButtons = ['btn-repeat', 'btn-shuffle'].map((id) => document.getElementById(id)!);
+    const volume = document.getElementById('volume-control-group')!;
+    const reason = document.getElementById('volume-control-group-reason')!;
+    for (const button of queueButtons) {
+      expect(button.title).toBe(t('player.media_management_checking_tip'));
+    }
+    expect(volume.title).toBe(t('player.admin_permission_checking_tip'));
+    expect(reason.textContent).toBe(t('player.admin_permission_checking_tip'));
+
+    // A plain-member answer changes no capability flag; only the role
+    // projection tells the labels that the check is over.
+    markStandardRoomAuthorityConfirmed(host);
+    bus.emit('network:role-badge-update');
+
+    for (const button of queueButtons) {
+      expect(button.title).toBe(t('player.media_management_required_tip'));
+      expect(button.getAttribute('aria-disabled')).toBe('true');
+    }
+    expect(volume.title).toBe(t('player.volume_locked_tip'));
+    expect(reason.textContent).toBe(t('player.volume_locked_tip'));
   });
 
   it('keeps PRO actions blocked with checking labels until the account answer is accepted', () => {
@@ -2347,14 +2441,14 @@ describe('initPlayerControls playback mode rendering', () => {
     const play = document.getElementById('play-btn')!;
     const media = document.getElementById('btn-media-source')!;
     expect(play.getAttribute('aria-disabled')).toBe('true');
-    expect(play.title).toBe(t('toast.playback_control_checking'));
-    expect(media.title).toBe(t('toast.media_management_checking'));
+    expect(play.title).toBe(t('player.playback_control_checking_tip'));
+    expect(media.title).toBe(t('player.media_management_checking_tip'));
     media.click();
     expect(showToast).toHaveBeenCalledWith(t('toast.media_management_checking'));
 
     setRoomContext({ ...context, capabilities: [] });
-    expect(play.title).toBe(t('toast.playback_control_required'));
-    expect(media.title).toBe(t('toast.media_management_required'));
+    expect(play.title).toBe(t('player.playback_control_required_tip'));
+    expect(media.title).toBe(t('player.media_management_required_tip'));
     expect(play.getAttribute('aria-disabled')).toBe('true');
 
     setRoomContext(context);
@@ -2660,6 +2754,58 @@ describe('initPlayerControls playback mode rendering', () => {
 });
 
 describe('initPlayerControls fullscreen fallback', () => {
+  it('keeps the Full screen name and reports the state with aria-pressed', async () => {
+    document.body.innerHTML = `
+      <div class="video-wrapper">
+        <button
+          id="btn-fullscreen"
+          aria-pressed="false"
+          aria-label="Full screen"
+          data-i18n-aria-label="player.fullscreen"
+        ></button>
+      </div>
+    `;
+    const wrapper = document.querySelector('.video-wrapper') as HTMLElement;
+    const toggle = document.getElementById('btn-fullscreen') as HTMLButtonElement;
+    let fullscreenElement: Element | null = null;
+    Object.defineProperty(document, 'fullscreenElement', {
+      configurable: true,
+      get: () => fullscreenElement,
+    });
+    try {
+      initPlayerControls();
+      expect(toggle.getAttribute('aria-pressed')).toBe('false');
+
+      fullscreenElement = wrapper;
+      document.dispatchEvent(new Event('fullscreenchange'));
+      expect(toggle.getAttribute('aria-pressed')).toBe('true');
+      expect(toggle.getAttribute('aria-label')).toBe('Full screen');
+
+      fullscreenElement = null;
+      document.dispatchEvent(new Event('fullscreenchange'));
+      expect(toggle.getAttribute('aria-pressed')).toBe('false');
+
+      // The screensaver holds document fullscreen; the video does not fill
+      // the screen, so the toggle is not pressed.
+      fullscreenElement = document.documentElement;
+      document.dispatchEvent(new Event('fullscreenchange'));
+      expect(toggle.getAttribute('aria-pressed')).toBe('false');
+      fullscreenElement = null;
+      document.dispatchEvent(new Event('fullscreenchange'));
+
+      // The iOS shell fills the screen without a fullscreen element.
+      wrapper.classList.add('fake-fullscreen');
+      await Promise.resolve();
+      expect(toggle.getAttribute('aria-pressed')).toBe('true');
+      wrapper.classList.remove('fake-fullscreen');
+      await Promise.resolve();
+      expect(toggle.getAttribute('aria-pressed')).toBe('false');
+      expect(toggle.getAttribute('aria-label')).toBe('Full screen');
+    } finally {
+      Reflect.deleteProperty(document, 'fullscreenElement');
+    }
+  });
+
   it('does not enter fake fullscreen when a rejected native request settles after mode exit', async () => {
     document.body.innerHTML = `
       <div class="video-wrapper">
@@ -2978,7 +3124,8 @@ describe('initPlayerControls volume icon', () => {
   function renderVolumeControls(): HTMLElement {
     document.body.innerHTML = `
       <div id="volume-control-group" class="vol-group-playback" role="group">
-      <button id="vol-icon-btn" aria-label="Toggle mute">
+      <span id="volume-control-group-reason" hidden></span>
+      <button id="vol-icon-btn" aria-label="Mute">
         <svg class="volume-icon" viewBox="0 0 24 24" aria-hidden="true">
           <path class="volume-speaker" d="M3 9v6h4l5 5V4L7 9H3z"></path>
           <path class="volume-wave volume-wave-inner" d="M15.2 8.5a4.9 4.9 0 0 1 0 7"></path>
@@ -3076,7 +3223,17 @@ describe('initPlayerControls volume icon', () => {
 
       const group = document.getElementById('volume-control-group')!;
       expect(group.tabIndex).toBe(0);
-      expect(group.getAttribute('aria-label')).toBe(t('toast.settings_sync_admin_required'));
+      // The group takes the attempts, so it carries the reason: as its hover
+      // hint and its description. Its name stays the control's name.
+      expect(group.getAttribute('aria-label')).toBe(t('player.volume'));
+      expect(group.getAttribute('aria-disabled')).toBe('true');
+      expect(group.title).toBe(roomCapabilityFeedbackTip('effects.control'));
+      expect(group.title).toBe('Only room admins can change audio settings');
+      // A hint is not read everywhere, so the reason is also the description.
+      const reason = document.getElementById('volume-control-group-reason');
+      expect(group.getAttribute('aria-describedby')).toBe('volume-control-group-reason');
+      expect(reason?.hidden).toBe(true);
+      expect(reason?.textContent).toBe(t('player.volume_locked_tip'));
       group.click();
       expect(showToast).toHaveBeenCalledExactlyOnceWith(t('toast.settings_sync_admin_required'));
 
@@ -3103,6 +3260,8 @@ describe('initPlayerControls volume icon', () => {
       bus.emit('settings-sync:changed', false);
       expect(group.hasAttribute('tabindex')).toBe(false);
       expect(group.getAttribute('aria-label')).toBe(t('player.volume'));
+      expect(group.getAttribute('aria-disabled')).toBe('false');
+      expect(group.hasAttribute('title')).toBe(false);
       vi.mocked(showToast).mockClear();
       (document.getElementById('vol-icon-btn') as HTMLButtonElement).click();
       expect(setVolume).toHaveBeenCalledExactlyOnceWith(0);
@@ -3162,7 +3321,7 @@ describe('initPlayerControls sync button', () => {
               <button id="btn-demo-next-track">Next</button>
             </div>
             <div class="demo-inline-volume" id="demo-volume-control-group">
-              <button id="demo-vol-icon-btn" aria-label="Toggle mute"></button>
+              <button id="demo-vol-icon-btn" aria-label="Mute"></button>
               <input id="demo-volume-slider" type="range" min="0" max="100" />
             </div>
             <button id="btn-demo-sync">Sync</button>
@@ -3173,7 +3332,7 @@ describe('initPlayerControls sync button', () => {
       <button id="btn-sync"><span data-i18n="player.sync_compact">Sync</span></button>
       <button id="play-btn"><svg><path d=""></path></svg></button>
       <button id="btn-media-source"><span data-i18n="player.play_media_compact">Media</span></button>
-      <button id="vol-icon-btn" aria-label="Toggle mute"></button>
+      <button id="vol-icon-btn" aria-label="Mute"></button>
       <input id="volume-slider" type="range" min="0" max="100" />
       <div id="manual-sync-overlay" aria-hidden="true">
         <div role="dialog" aria-modal="true" aria-label="Sync">
@@ -3461,6 +3620,9 @@ describe('initPlayerControls sync button', () => {
     expect(button.disabled).toBe(true);
     expect(button.getAttribute('aria-disabled')).toBe('true');
     expect(slider.disabled).toBe(true);
+    const group = document.getElementById('demo-volume-control-group')!;
+    expect(group.getAttribute('aria-label')).toBe(t('player.volume'));
+    expect(group.title).toBe(roomCapabilityFeedbackTip('effects.control'));
     button.click();
     button.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true }));
     slider.value = '20';
@@ -3486,9 +3648,11 @@ describe('initPlayerControls sync button', () => {
     );
     const group = parsed.getElementById('demo-volume-control-group')!;
     expect(Array.from(group.children).map((child) => child.id)).toEqual([
+      'demo-volume-control-group-reason',
       'demo-vol-icon-btn',
       'demo-volume-slider',
     ]);
+    expect(parsed.getElementById('demo-volume-control-group-reason')?.hidden).toBe(true);
     expect(parsed.getElementById('btn-demo-previous')).toBeNull();
     const header = parsed.querySelector('.demo-track-header')!;
     expect(header.querySelector('[data-demo-play]')).not.toBeNull();
@@ -3592,10 +3756,9 @@ describe('initPlayerControls sync button', () => {
 
     initPlayerControls();
     expect(document.getElementById('btn-sync')?.getAttribute('aria-disabled')).toBe('true');
-    // The tooltip keeps the toast's sentence line break, which replaces a period.
-    expect(document.getElementById('btn-sync')?.title).toBe(
-      "There's no media to sync\nSelect something to play first",
-    );
+    // The hint names the state in one phrase, as on the seek bar; the tap
+    // below keeps the toast's sentences.
+    expect(document.getElementById('btn-sync')?.title).toBe('No media playing');
     document.getElementById('btn-sync')?.click();
 
     expect(showToast).toHaveBeenCalledWith(
@@ -4089,8 +4252,9 @@ describe('initPlayerControls sync button', () => {
     expect(button.getAttribute('aria-disabled')).toBe('true');
     expect(button.textContent).toBe('Syncing…');
     expect(button.querySelector('span')?.getAttribute('data-i18n')).toBe('player.syncing_compact');
-    expect(button.getAttribute('aria-label')).toBe('Syncing...');
-    expect(button.getAttribute('data-i18n-aria-label')).toBe('toast.yt_sync_start');
+    // The full name of the shortened visible label, without the ellipsis.
+    expect(button.getAttribute('aria-label')).toBe('Syncing');
+    expect(button.getAttribute('data-i18n-aria-label')).toBe('player.syncing_aria');
 
     resolveReconciliation(true);
     await vi.waitFor(() => expect(button.getAttribute('aria-busy')).toBe('false'));

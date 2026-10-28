@@ -107,6 +107,27 @@ Pretendard lacks coverage.
 - Use tabular numerals for clocks, invite codes, counters, and latency.
 - Keep compact labels legible; do not rely on extreme tracking or uppercase
   for hierarchy.
+- Button labels take one of three roles, and labels in one role differ only
+  by color (owner decision 2026-10-28; the earlier 700 clumped in dark mode,
+  Korean most of all). Every role shares weight 600 and normal letter
+  spacing. CTA, every action button: 15px with line height 1.25 (dialogs,
+  setup, the play tab's chat preview text and Sync / Media / Stop Sharing,
+  the account dialog, the connect tab, the help tab pills, manual sync, the
+  YouTube link dialog, the deletion-mode Select all and the media source
+  options). Chip, the choice chips (`.ch-opt`): 14px. Tab, the desktop
+  settings section tabs: 13px. Each component rule reads
+  `--button-label-size` (or `--button-label-chip-size` or
+  `--button-label-tab-size`), `--button-label-weight`,
+  `--button-label-line-height`, and `--button-label-letter-spacing` itself;
+  do not retype the values.
+- Narrow slots stay inside the roles. A button whose CTA label wraps, splits
+  a word or stacks its pair where 9.0.18 did not carries `.btn-label-compact`
+  and takes the chip role's 14px in the phone layout up to 719px: Sign out
+  and Delete account (always the same size) and the media source options.
+  The demo finish pair's two 54px pills take the tab role's 13px on phones
+  up to 420px. The demo tour's step indicator and role switch keep their own
+  sizes and share the weight, and the media source Close hides its label in
+  the two-column 40px icon circle.
 - Verify font changes with `npm run guard:font-assets` and
   `npm run guard:font-build`.
 
@@ -119,6 +140,15 @@ semantic token structure.
 - `--bg`, `--surface-1`, `--surface-2`, and `--surface-3` establish depth.
 - `--text-main`, `--text-sub`, and `--text-muted` establish text hierarchy.
 - `--divider` separates dense sections without creating card borders.
+- `--danger-foreground` colors every destructive, error and validation text
+  or icon, over `--control-danger` or on a plain surface (#ff3b30 in both
+  default themes, #a4001d in light high contrast); never hard-code a red or
+  paint text with the filled `--danger-filled`. Red surfaces use the
+  `--control-danger` tints (leave session and stop sharing read its
+  `--control-danger-pill` tints, Delete account its `--control-danger-dialog`
+  tints of `--danger-filled`), or `--danger-filled` under white icons; white
+  text on it needs its own contrast check (white on #ef4444 is 3.76:1). Only
+  the YouTube mark keeps its brand red.
 - Reuse the existing radius, safe-area, motion, and range-control tokens from
   `css/style.css`; do not duplicate token values in feature styles.
 
@@ -197,7 +227,10 @@ Prefer an existing path from `index.html` before introducing a new icon.
   The selection check (`src/ui/selection-mark.ts`) uses butt ends and a
   mitred corner, and the selection minus, a single segment, uses butt ends.
   The playlist-row and device expand chevrons (`.expand-toggle`,
-  `.device-expand-toggle`) use butt ends and a mitred corner. The pinned
+  `.device-expand-toggle`) use butt ends and a mitred corner. The chevrons
+  and the minus read one 1.8 line weight from a single rule, and the minus
+  draws 10 of 24 units (about 9.2px at 22px), shorter than the chevron
+  beside it; the check keeps its heavier 2.4 as the selected mark. The pinned
   notice's X uses butt ends (its two strokes never join). The playlist
   switcher's title chevron (`.playlist-switch-button`) stays round, and the
   rounded stroke samples in `preview/iconography.html` are generic.

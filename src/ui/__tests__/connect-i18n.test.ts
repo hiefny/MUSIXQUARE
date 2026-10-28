@@ -576,18 +576,17 @@ describe('connect signaling health status', () => {
     expect(stylesheet).not.toContain(".signaling-recovery-dialog[data-state='retrying']");
     expect(stylesheet).not.toContain('.signaling-recovery-header');
     expect(stylesheet).toContain(
-      "[data-theme='light'] .btn-copy-invite-link[data-mode='copy']:hover",
+      ":where(html[data-hover-pointer])[data-theme='light'] .btn-copy-invite-link[data-mode='copy']:hover",
     );
     expect(stylesheet).not.toContain("[data-theme='light'] .btn-copy-invite-link:hover");
     // Owner decision (2026-10-24): expiry keeps the neutral copy look, so it
-    // shares the copy hover/active and touch-reset rules at the same specificity.
-    // Selectors are matched whole: the plain :hover one is also a substring of
-    // the :hover:not(:active) ones, so a substring check would pass without it.
+    // shares the copy hover and active rules at the same specificity. Hover
+    // sits behind the runtime hover gate, so touch needs no reset rule.
+    // Selectors are matched whole.
+    expect(stylesheet).not.toContain(':hover:not(:active)');
     for (const selector of [
-      "[data-theme='light'] .btn-copy-invite-link[data-mode='expired']:hover",
+      ":where(html[data-hover-pointer])[data-theme='light'] .btn-copy-invite-link[data-mode='expired']:hover",
       "[data-theme='light'] .btn-copy-invite-link[data-mode='expired']:active",
-      ".btn-copy-invite-link[data-mode='expired']:hover:not(:active)",
-      "[data-theme='light'] .btn-copy-invite-link[data-mode='expired']:hover:not(:active)",
     ]) {
       const expiredRules = cssRulesWithSelector(stylesheet, selector);
       expect(expiredRules, selector).toHaveLength(1);
@@ -900,10 +899,12 @@ describe('connect i18n refresh', () => {
     expect(grant?.tagName).toBe('BUTTON');
     expect(grant?.type).toBe('button');
     expect(grant?.textContent).toBe('');
-    expect(grant?.ariaLabel).toBe('Grant');
-    expect(grant?.title).toBe('Grant');
+    // Row actions name their target, so repeated rows never share one name.
+    expect(grant?.ariaLabel).toBe('Grant administrator permissions to Peer');
+    // Names are never repeated as tooltips (hover hint policy).
+    expect(grant?.hasAttribute('title')).toBe(false);
     expect(document.querySelector<HTMLButtonElement>('.btn-kick-device')?.ariaLabel).toBe(
-      'Kick device',
+      'Kick Peer',
     );
   });
 
@@ -1052,13 +1053,14 @@ describe('connect i18n refresh', () => {
       expect(button?.querySelector('svg')?.getAttribute('aria-hidden')).toBe('true');
     }
 
-    expect(grant?.ariaLabel).toBe('Grant');
-    expect(grant?.title).toBe('Grant');
+    expect(grant?.ariaLabel).toBe('Grant administrator permissions to Member');
+    // Names are never repeated as tooltips (hover hint policy).
+    expect(grant?.hasAttribute('title')).toBe(false);
     expect(grant?.classList).toContain('administrator-state-button');
     expect(grant?.dataset.administratorState).toBe('inactive');
     expect(grant?.querySelector(`path[d="${crownPath}"]`)).not.toBeNull();
     expect(revoke?.ariaLabel).toBe('Revoke administrator permissions from Admin');
-    expect(revoke?.title).toBe('Revoke administrator permissions from Admin');
+    expect(revoke?.hasAttribute('title')).toBe(false);
     expect(revoke?.classList).not.toContain('administrator-state-button');
     expect(revoke?.dataset.administratorState).toBeUndefined();
     expect(revoke?.querySelector(`path[d="${revokePath}"]`)).not.toBeNull();
@@ -1158,8 +1160,9 @@ describe('connect i18n refresh', () => {
     expect(kickButtons).toHaveLength(2);
     kickButtons[0]?.click();
 
+    expect(kickButtons[0]?.getAttribute('aria-label')).toBe('Friend 님 내보내기');
     expect(mockedShowDialog).toHaveBeenCalledWith({
-      title: '강제퇴장시키기',
+      title: '기기 내보내기',
       message: 'Friend 님과 연결된 모든 기기를 내보낼까요?',
       buttonText: '내보내기',
       secondaryText: '취소',
@@ -1761,11 +1764,11 @@ describe('member-level connection and administrator UI', () => {
     const kickPhysicalDeviceButton = targetEntry?.querySelector<HTMLButtonElement>(
       '.btn-kick-physical-device',
     );
-    expect(kickPhysicalDeviceButton?.getAttribute('aria-label')).toContain('iOS 기기 (A7F2)');
+    expect(kickPhysicalDeviceButton?.getAttribute('aria-label')).toBe('iOS 기기 (A7F2) 내보내기');
     kickPhysicalDeviceButton?.click();
 
     expect(mockedShowDialog).toHaveBeenCalledWith({
-      title: '강제퇴장시키기',
+      title: '기기 내보내기',
       message: 'iOS 기기 (A7F2)를 내보낼까요?',
       buttonText: '내보내기',
       secondaryText: '취소',
@@ -2670,7 +2673,7 @@ describe('member-level connection and administrator UI', () => {
       /#desktop-connect-content \.qr-container,\s*#desktop-connect-content \.administrator-list,\s*#desktop-connect-content \.device-list,/,
     );
     expect(stylesheet).toMatch(
-      /\.administrator-permission-row:hover,\s*\.administrator-permission-row:focus-visible\s*{\s*background:\s*transparent;/,
+      /:where\(html\[data-hover-pointer\]\) \.administrator-permission-row:hover,\s*\.administrator-permission-row:focus-visible\s*{\s*background:\s*transparent;/,
     );
     expect(stylesheet).not.toContain('.d-device-count');
     expect(deviceSubrowRules).toContain('font-size: 13px');
@@ -2708,6 +2711,11 @@ describe('member-level connection and administrator UI', () => {
     const expandIconRules =
       stylesheet.match(/\.expand-toggle svg,\s*\.device-expand-toggle svg\s*\{([^}]*)\}/)?.[1] ??
       '';
+    // The chevrons share their line weight with the playlist minus.
+    const lineIconWeightRules =
+      stylesheet.match(
+        /\.expand-toggle svg,\s*\.device-expand-toggle svg,\s*\.playlist-select-minus\s*\{([^}]*)\}/,
+      )?.[1] ?? '';
     const playlistExpandButtonRules = stylesheet.match(/\.expand-toggle\s*\{([^}]*)\}/)?.[1] ?? '';
     const playlistRemoveIconRules =
       stylesheet.match(/\.btn-playlist-remove svg\s*\{([^}]*)\}/)?.[1] ?? '';
@@ -2724,7 +2732,7 @@ describe('member-level connection and administrator UI', () => {
     expect(expandIconRules).toContain('height: 22px');
     expect(expandIconRules).toContain('fill: none');
     expect(expandIconRules).toContain('stroke: currentColor');
-    expect(expandIconRules).toContain('stroke-width: 1.8');
+    expect(lineIconWeightRules).toContain('stroke-width: 1.8');
     expect(expandIconRules).toContain('stroke-linecap: butt');
     expect(expandIconRules).toContain('stroke-linejoin: miter');
     expect(playlistExpandButtonRules).toContain('width: 44px');
@@ -2783,7 +2791,7 @@ describe('member-level connection and administrator UI', () => {
     expect(revokeActionRules).toContain('height: 28px');
     expect(revokeIconRules).toContain('width: 16px');
     expect(revokeIconRules).toContain('height: 16px');
-    expect(revokeHoverRules).toContain('color: #ff4d4f');
+    expect(revokeHoverRules).toContain('color: var(--danger-foreground)');
     expect(stylesheet).not.toContain('administrator-crown-slash');
     expect(stylesheet).not.toContain(
       '.administrator-action-button.revoke.administrator-state-button',
@@ -3389,7 +3397,7 @@ describe('PRO optional entry password controls', () => {
       ),
     );
     expect(getState('network.roomPasswordRequired')).toBe(false);
-    expect(document.getElementById('room-password-toggle')?.getAttribute('aria-pressed')).toBe(
+    expect(document.getElementById('room-password-toggle')?.getAttribute('aria-checked')).toBe(
       'false',
     );
     setState('network.roomPasswordRequired', true);
@@ -3399,7 +3407,7 @@ describe('PRO optional entry password controls', () => {
         false,
       ),
     );
-    expect(document.getElementById('room-password-toggle')?.getAttribute('aria-pressed')).toBe(
+    expect(document.getElementById('room-password-toggle')?.getAttribute('aria-checked')).toBe(
       'true',
     );
     expect(document.getElementById('room-password-code')?.textContent).toBe('••••-••••');
@@ -3538,7 +3546,7 @@ describe('PRO optional entry password controls', () => {
       ),
     );
     expect(getState('network.roomPasswordRequired')).toBe(false);
-    expect(document.getElementById('room-password-toggle')?.getAttribute('aria-pressed')).toBe(
+    expect(document.getElementById('room-password-toggle')?.getAttribute('aria-checked')).toBe(
       'false',
     );
   });
@@ -3581,7 +3589,7 @@ describe('PRO optional entry password controls', () => {
     document.getElementById('room-password-toggle')?.click();
     await vi.waitFor(() => expect(showToast).toHaveBeenCalled());
     expect(getState('network.roomPasswordRequired')).toBe(true);
-    expect(document.getElementById('room-password-toggle')?.getAttribute('aria-pressed')).toBe(
+    expect(document.getElementById('room-password-toggle')?.getAttribute('aria-checked')).toBe(
       'true',
     );
   });
@@ -3678,7 +3686,7 @@ describe('Standard-room owner PIN controls', () => {
     expect(document.getElementById('room-password-status')?.textContent).toBe(
       t('connect.room_password_on'),
     );
-    expect(toggle().getAttribute('aria-pressed')).toBe('true');
+    expect(toggle().getAttribute('aria-checked')).toBe('true');
   });
 
   it('asks who stays when someone else is present, keeping them by default', async () => {
@@ -3730,14 +3738,14 @@ describe('Standard-room owner PIN controls', () => {
     expect(code().textContent).toBe('••••-••••');
     expect(pencil().hidden).toBe(false);
     expect(pencil().getAttribute('aria-label')).toBe(t('connect.room_password_show'));
-    expect(pencil().getAttribute('aria-pressed')).toBe('false');
+    expect(pencil().hasAttribute('aria-pressed')).toBe(false);
     expect(pencil().querySelector('path')?.getAttribute('d')).toContain('M12 4.5');
 
     pencil().click();
     expect(code().textContent).toBe('5566-7788');
     expect(code().getAttribute('aria-hidden')).toBe('false');
     expect(pencil().getAttribute('aria-label')).toBe(t('connect.room_password_hide'));
-    expect(pencil().getAttribute('aria-pressed')).toBe('true');
+    expect(pencil().hasAttribute('aria-pressed')).toBe(false);
     expect(mockedShowDialog).toHaveBeenCalledOnce();
 
     pencil().click();
@@ -3853,7 +3861,7 @@ describe('Standard-room owner PIN controls', () => {
     toggle().click();
     await vi.waitFor(() => expect(showToast).toHaveBeenCalledWith(t('error.network_generic')));
     expect(getState('network.roomPasswordRequired')).toBe(false);
-    expect(toggle().getAttribute('aria-pressed')).toBe('false');
+    expect(toggle().getAttribute('aria-checked')).toBe('false');
   });
 
   it('turns protection off at once, with no dialog and no choice', () => {

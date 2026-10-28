@@ -84,13 +84,11 @@ function syncVisualizerControlAccessibility(mode: VisualizerMode): void {
   const demo = isDemoVisualizerPresentation();
   canvas?.setAttribute('role', demo ? 'img' : 'button');
   canvas?.setAttribute('tabindex', demo ? '-1' : '0');
-  if (demo) {
-    canvas?.removeAttribute('aria-pressed');
-    canvas?.removeAttribute('aria-describedby');
-  } else {
-    canvas?.setAttribute('aria-pressed', String(mode === 'spectrum'));
-    canvas?.setAttribute('aria-describedby', 'visualizer-mode-hint');
-  }
+  // The name carries the current mode (circular or spectrum), so a press
+  // cycles modes without aria-pressed.
+  canvas?.removeAttribute('aria-pressed');
+  if (demo) canvas?.removeAttribute('aria-describedby');
+  else canvas?.setAttribute('aria-describedby', 'visualizer-mode-hint');
   canvas?.setAttribute('data-visualizer-mode', mode);
 
   const modeLabel = document.getElementById('visualizer-current-mode');

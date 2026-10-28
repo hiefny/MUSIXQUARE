@@ -1,8 +1,9 @@
 /**
  * Overflow-aware playlist title marquee.
  *
- * CSS decides *when* an overflowing title may move (hover/focus on a
- * hover-capable device, or the exact current row on a coarse touch device).
+ * CSS decides *when* an overflowing title may move (keyboard focus, hover while
+ * src/ui/hover-pointer.ts reports a hover pointer, or, in a narrow layout
+ * without one, the exact current row).
  * This module only measures the amount of hidden text, so short titles remain
  * completely static and the animation never changes row geometry.
  */

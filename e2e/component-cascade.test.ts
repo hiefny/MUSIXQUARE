@@ -17,6 +17,10 @@ const appCss = ['css/style.css', 'css/desktop.css', 'css/rtl.css']
 const compiledCss = postcss([cascadeLayers(), isPseudoClass({ preserve: false })])
   .process(appCss, { from: undefined })
   .then((result) => result.css);
+// The whole app stylesheet as css/app.css imports it, play-tab actions included.
+const compiledActionCss = postcss([cascadeLayers(), isPseudoClass({ preserve: false })])
+  .process(`${appCss}\n${readFileSync('css/playback-actions.css', 'utf8')}`, { from: undefined })
+  .then((result) => result.css);
 
 const viewports = [
   { width: 360, height: 800 },
@@ -152,6 +156,279 @@ for (const mode of [
       expect(shapes.others, label).toEqual(others);
     }
   });
+}
+
+// Owner decisions (2026-10-27, final 2026-10-28): every action button label
+// renders the CTA role (15px / 600 / 1.25 / normal tracking) after every
+// layer, ID selector and responsive override, so labels differ only by color.
+// Destructive labels share one danger color. The compact members
+// (.btn-label-compact: Sign out, Delete account and the media source options)
+// take the chip role's 14px in the phone layout up to 719px, and the demo
+// finish pair takes the tab role's 13px on phones up to 420px
+// (button-label-contract names each with its reason).
+const COMPACT_LABELS = ['account-logout', 'account-delete', 'media-option'];
+const COMPACT_MAX_WIDTH = 719;
+const DEMO_FINISH_LABELS = ['demo-info', 'demo-exit'];
+const COMPACT_DEMO_MAX_WIDTH = 420;
+const actionLabelMarkup = `
+  <main>
+    <div class="dialog-actions adaptive-action-group">
+      <button class="dialog-secondary" data-label="dialog-secondary">Log out</button>
+      <button class="dialog-primary" data-label="dialog-primary">Log out</button>
+    </div>
+    <div class="account-dialog-actions adaptive-action-group">
+      <button class="dialog-secondary btn-label-compact" data-label="account-logout">Log out</button>
+      <button class="dialog-secondary dialog-danger btn-label-compact" data-label="account-delete" data-danger>Log out</button>
+      <button class="dialog-primary account-dialog-account-close adaptive-action-group-full" data-label="account-close">Log out</button>
+    </div>
+    <div class="ob-actions">
+      <button class="btn-ob-secondary" data-label="setup-secondary">Log out</button>
+      <button class="btn-ob-primary" data-label="setup-primary">Log out</button>
+    </div>
+    <div class="ob-actions vertical">
+      <button class="btn-ob-primary" data-label="setup-vertical">Log out</button>
+    </div>
+    <button class="accent-action-btn"><svg viewBox="0 0 24 24"></svg><span data-label="accent">Log out</span></button>
+    <div class="help-actions">
+      <button class="accent-action-btn"><svg viewBox="0 0 24 24"></svg><span data-label="help-accent">Log out</span></button>
+    </div>
+    <button class="leave-session-btn"><svg viewBox="0 0 24 24"></svg><span data-label="leave-session" data-danger>Log out</span></button>
+    <button class="btn-copy-invite-link"><svg viewBox="0 0 24 24"></svg><span data-label="invite-link">Log out</span></button>
+    <div class="sync-bottom-row">
+      <button class="sync-reset-btn" data-label="sync-reset">Log out</button>
+      <button class="sync-done-btn" data-label="sync-done">Log out</button>
+    </div>
+    <div class="playlist-title-area">
+      <button class="playlist-selection-toggle" data-label="select-all">Log out</button>
+    </div>
+    <button class="file-select-btn btn-label-compact"><div class="btn-icon-bg"></div><span data-label="media-option">Log out</span></button>
+    <div class="play-actions-row">
+      <div class="play-action-buttons">
+        <button class="file-select-btn file-select-btn-large flex-1" id="btn-sync">
+          <span class="play-action-sync-content"><svg viewBox="0 0 24 24"></svg><span class="play-action-label" data-label="play-sync">Log out</span></span>
+        </button>
+        <button class="file-select-btn file-select-btn-large flex-1" id="btn-media-source">
+          <span class="play-action-media-content"><svg viewBox="0 0 24 24"></svg><span class="play-action-label" data-label="play-media">Log out</span></span>
+          <span class="play-action-stop-content"><svg viewBox="6 6 12 12"></svg><span class="play-action-label" data-label="play-stop" data-danger>Log out</span></span>
+        </button>
+      </div>
+    </div>
+    <div class="demo-large-actions">
+      <button class="accent-action-btn demo-link-button"><svg viewBox="0 0 24 24"></svg><span data-label="demo-info">Log out</span></button>
+      <button class="leave-session-btn demo-exit-button"><svg viewBox="0 0 24 24"></svg><span data-label="demo-exit" data-danger>Log out</span></button>
+    </div>
+  </main>`;
+
+async function actionLabelStyles(page: import('@playwright/test').Page) {
+  return page.evaluate(async () => {
+    // Reduced motion shortens transitions to 0.01ms instead of removing them,
+    // so a viewport change that resizes the demo finish pair starts a short
+    // font-size transition on its inherited labels. Read the settled values.
+    await Promise.all(
+      document
+        .getAnimations()
+        .filter((animation) => animation instanceof CSSTransition)
+        .map((animation) => animation.finished.catch(() => undefined)),
+    );
+    return [...document.querySelectorAll<HTMLElement>('[data-label]')].map((label) => {
+      const css = getComputedStyle(label);
+      return {
+        label: label.dataset.label,
+        fontSize: css.fontSize,
+        fontWeight: css.fontWeight,
+        lineHeight: css.lineHeight,
+        letterSpacing: css.letterSpacing,
+        fontFamily: css.fontFamily,
+        danger: label.hasAttribute('data-danger') ? css.color : null,
+      };
+    });
+  });
+}
+
+for (const mode of [
+  { theme: 'dark', direction: 'ltr' },
+  { theme: 'light', direction: 'ltr' },
+  { theme: 'light', direction: 'rtl' },
+] as const) {
+  test(`action button labels share one style across responsive layers (${mode.theme} ${mode.direction})`, async ({
+    page,
+  }) => {
+    await page.emulateMedia({ reducedMotion: 'reduce' });
+    await page.setContent(`<!doctype html>
+      <html dir="${mode.direction}" data-theme="${mode.theme}">
+        <head><meta name="viewport" content="width=device-width, initial-scale=1"><style>${await compiledActionCss}</style></head>
+        <body class="fouc-loaded">${actionLabelMarkup}</body>
+      </html>`);
+
+    for (const viewport of viewports) {
+      await page.setViewportSize(viewport);
+      const label = `${viewport.width}x${viewport.height}`;
+      const styles = await actionLabelStyles(page);
+      expect(styles, label).toHaveLength(21);
+      const family = styles[0]!.fontFamily;
+      const compactDemo = viewport.width <= COMPACT_DEMO_MAX_WIDTH;
+      const compactLayout = viewport.width <= COMPACT_MAX_WIDTH;
+      for (const style of styles) {
+        const demoFinish = compactDemo && DEMO_FINISH_LABELS.includes(style.label ?? '');
+        const compact = compactLayout && COMPACT_LABELS.includes(style.label ?? '');
+        expect(
+          {
+            fontSize: style.fontSize,
+            fontWeight: style.fontWeight,
+            lineHeight: style.lineHeight,
+            letterSpacing: style.letterSpacing,
+            fontFamily: style.fontFamily,
+          },
+          `${label} ${style.label}`,
+        ).toEqual({
+          fontSize: demoFinish ? '13px' : compact ? '14px' : '15px',
+          fontWeight: '600',
+          lineHeight: demoFinish ? '16.25px' : compact ? '17.5px' : '18.75px',
+          letterSpacing: 'normal',
+          fontFamily: family,
+        });
+      }
+      expect(
+        styles.filter((style) => style.fontSize !== '15px').map((style) => style.label),
+        label,
+      ).toEqual([
+        ...(compactLayout ? ['account-logout', 'account-delete', 'media-option'] : []),
+        ...(compactDemo ? DEMO_FINISH_LABELS : []),
+      ]);
+      // Owner decision (2026-10-27, evening): both default palettes keep the
+      // #ff3b30 of 9.0.18.
+      expect(
+        styles.filter((style) => style.danger !== null).map((style) => style.danger),
+        label,
+      ).toEqual(Array(4).fill('rgb(255, 59, 48)'));
+    }
+  });
+}
+
+test('destructive labels and surfaces share one red per palette, darker only in light high contrast', async ({
+  page,
+}) => {
+  // Owner decision (2026-10-27, evening): the default palettes keep the reds
+  // and tints of 9.0.18; only the high-contrast palettes are tuned. Late
+  // evening: account deletion rests, hovers and presses on its 9.0.18 tints
+  // in the default palettes, and high contrast keeps its resting tint.
+  await page.emulateMedia({ reducedMotion: 'reduce' });
+  await page.setViewportSize({ width: 390, height: 844 });
+  for (const palette of [
+    {
+      theme: 'dark',
+      contrast: 'normal',
+      color: 'rgb(255, 59, 48)',
+      surfaces: { remove: [239, 68, 68, 0.1], leave: [255, 59, 48, 0.08] },
+      remove: { hover: [239, 68, 68, 0.16], press: [239, 68, 68, 0.2] },
+    },
+    {
+      theme: 'light',
+      contrast: 'normal',
+      color: 'rgb(255, 59, 48)',
+      surfaces: { remove: [239, 68, 68, 0.1], leave: [255, 59, 48, 0.08] },
+      remove: { hover: [239, 68, 68, 0.16], press: [239, 68, 68, 0.2] },
+    },
+    {
+      theme: 'dark',
+      contrast: 'more',
+      color: 'rgb(255, 59, 48)',
+      surfaces: { remove: [176, 0, 32, 0.24], leave: [176, 0, 32, 0.24] },
+      remove: { hover: [176, 0, 32, 0.24], press: [176, 0, 32, 0.24] },
+    },
+    {
+      theme: 'light',
+      contrast: 'more',
+      color: 'rgb(164, 0, 29)',
+      surfaces: { remove: [176, 0, 32, 0.16], leave: [176, 0, 32, 0.16] },
+      remove: { hover: [176, 0, 32, 0.16], press: [176, 0, 32, 0.16] },
+    },
+  ] as const) {
+    const name = `${palette.theme} ${palette.contrast}`;
+    await page.setContent(`<!doctype html>
+      <html data-theme="${palette.theme}" data-contrast="${palette.contrast}">
+        <head><meta name="viewport" content="width=device-width, initial-scale=1"><style>${await compiledActionCss}</style></head>
+        <body class="fouc-loaded">${actionLabelMarkup}</body>
+      </html>`);
+    const styles = await actionLabelStyles(page);
+    // Account deletion, leave session, stop sharing and the demo exit.
+    expect(
+      styles.filter((style) => style.danger !== null).map((style) => style.danger),
+      name,
+    ).toEqual(Array(4).fill(palette.color));
+    const surfaces = await page.evaluate(() => {
+      const channels = (color: string) =>
+        (/rgba?\(([^)]*)\)/u.exec(color)?.[1] ?? '')
+          .split(/[\s,/]+/u)
+          .filter(Boolean)
+          .map(Number);
+      const row = document.querySelector('.play-actions-row')!;
+      const probe = document.createElement('span');
+      row.appendChild(probe);
+      probe.style.backgroundColor = 'var(--play-action-stop-surface)';
+      const stop = getComputedStyle(probe).backgroundColor;
+      probe.remove();
+      return {
+        remove: channels(
+          getComputedStyle(document.querySelector('.dialog-danger')!).backgroundColor,
+        ),
+        leave: channels(
+          getComputedStyle(document.querySelector('.leave-session-btn')!).backgroundColor,
+        ),
+        stop: channels(stop),
+      };
+    });
+    for (const [surface, expected] of [
+      ['remove', palette.surfaces.remove],
+      ['leave', palette.surfaces.leave],
+      ['stop', palette.surfaces.leave],
+    ] as const) {
+      const actual = surfaces[surface];
+      expect(actual.slice(0, 3), `${name} ${surface}`).toEqual(expected.slice(0, 3));
+      expect(Math.abs(actual[3]! - expected[3]), `${name} ${surface} alpha`).toBeLessThan(0.003);
+    }
+
+    // Account deletion through the hover gate: a mouse hover shows the hover
+    // tint and a press over it the press tint, while the label keeps the role.
+    await page.evaluate(() => document.documentElement.setAttribute('data-hover-pointer', ''));
+    const remove = page.locator('.dialog-danger');
+    const removeState = () =>
+      remove.evaluate((element) => {
+        const css = getComputedStyle(element);
+        return { background: css.backgroundColor, color: css.color };
+      });
+    await remove.hover();
+    for (const [state, expected] of [
+      ['hover', palette.remove.hover],
+      ['press', palette.remove.press],
+    ] as const) {
+      if (state === 'press') await page.mouse.down();
+      await expect
+        .poll(
+          async () => {
+            const actual = rgbaChannels((await removeState()).background);
+            return (
+              actual.slice(0, 3).join(',') === expected.slice(0, 3).join(',') &&
+              Math.abs((actual[3] ?? 1) - expected[3]) < 0.003
+            );
+          },
+          { message: `${name} account deletion ${state} surface` },
+        )
+        .toBe(true);
+      expect((await removeState()).color, `${name} account deletion ${state} label`).toBe(
+        palette.color,
+      );
+    }
+    await page.mouse.up();
+    await page.mouse.move(0, 0);
+  }
+});
+
+function rgbaChannels(color: string): number[] {
+  return (/rgba?\(([^)]*)\)/u.exec(color)?.[1] ?? '')
+    .split(/[\s,/]+/u)
+    .filter(Boolean)
+    .map(Number);
 }
 
 test('reduced motion and boot blocking remain authoritative over entrance styles', async ({

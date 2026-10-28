@@ -235,7 +235,9 @@ describe('Translation key integrity', () => {
   it('keeps compact player actions paired with full accessible labels', () => {
     const compactActionPairs = [
       ['player.sync_compact', 'common.sync'],
-      ['player.syncing_compact', 'toast.yt_sync_start'],
+      // The full name drops the visible label's ellipsis; the overlay status
+      // keeps toast.yt_sync_start.
+      ['player.syncing_compact', 'player.syncing_aria'],
       ['player.play_media_compact', 'player.play_media'],
       ['system_audio.stop_compact', 'system_audio.stop'],
     ] as const;
@@ -254,6 +256,9 @@ describe('Translation key integrity', () => {
     }
   });
 
+  // The denied-seek toast names what is blocked. The bar's hover hint and
+  // unavailable value text use the short state system_audio.sharing instead,
+  // like the sync and media buttons: the hint sits on the bar itself.
   it('keeps system-audio seek feedback explicit and distinct from sync feedback', () => {
     const expected: Record<keyof typeof locales, string> = {
       ko: '시스템 오디오 공유 중에는 재생 위치를 이동할 수 없어요',
@@ -288,7 +293,9 @@ describe('Translation key integrity', () => {
   });
 
   it('keeps repeated modal actions concise except for approved Korean legacy labels', () => {
-    const roleActionKeys = ['common.grant', 'common.revoke'] as const;
+    // The grant crown is named per member (connect.administrator_grant_aria);
+    // revoke stays the dialog action.
+    const roleActionKeys = ['common.revoke'] as const;
 
     for (const [locale, dict] of Object.entries(locales)) {
       const administratorRole = dict['connect.administrator_role'].toLocaleLowerCase();
@@ -303,14 +310,13 @@ describe('Translation key integrity', () => {
       expect(dict['pro.use_this_tab'], `${locale}.PRO tab action`).toBeTruthy();
     }
 
-    expect(en['common.grant']).toBe('Grant');
     expect(en['common.revoke']).toBe('Revoke');
     expect(en['connect.signaling_recover_action']).toBe('Reconnect');
     expect(en['pro.use_this_tab']).toBe('Continue here');
-    expect(ko['common.grant']).toBe('관리자 부여');
     expect(ko['common.revoke']).toBe('관리자 해제');
     expect(ko['pro.use_this_tab']).toBe('여기서 계속');
-    expect(ko['common.next']).toBe('다음으로');
+    // Owner direction 2026-10-27 (hint and name copy): a noun, not -으로.
+    expect(ko['common.next']).toBe('다음');
     expect(ko['common.start']).toBe('시작하기');
     expect(ko['dialog.continue']).toBe('계속하기');
     expect(ko['dialog.continue_using']).toBe('계속 사용');
@@ -334,7 +340,6 @@ describe('Translation key integrity', () => {
       'common.next',
       'common.start',
       'common.done',
-      'common.grant',
       'common.revoke',
       'connect.signaling_recover_action',
       'connect.signaling_retry',
@@ -354,7 +359,6 @@ describe('Translation key integrity', () => {
       'pro.use_this_tab',
     ] as const;
     const safetyDistinctPairs = [
-      ['common.grant', 'common.revoke'],
       ['connect.signaling_recover_action', 'connect.signaling_retry'],
       // Joining again after expiry leaves the page and stops playback; it must
       // never read like the in-place recovery it replaces on the same button.
@@ -751,7 +755,8 @@ describe('Translation key integrity', () => {
         expect(dict[key], `${locale}.${key}`).not.toMatch(crossoverTerms);
       }
     }
-    expect(en['settings.subwoofer_cutoff']).toBe('Subwoofer Cutoff Frequency');
+    // Sentence case, like every other accessible name (hint and name copy).
+    expect(en['settings.subwoofer_cutoff']).toBe('Subwoofer cutoff frequency');
     expect(ko['settings.subwoofer_cutoff']).toBe('서브우퍼 컷오프 주파수');
   });
 
@@ -1158,6 +1163,110 @@ describe('Standard-room owner PIN copy', () => {
         'connect.pin_changed_removed_message',
       ]) {
         expect(dictionaries[locale]![key], `${locale}.${key}`).toContain(term);
+      }
+    }
+  });
+});
+
+describe('Playlist selection copy', () => {
+  const dictionaries = APP_DICTIONARIES as Readonly<Record<string, Record<string, string>>>;
+  /**
+   * The delete wording each locale used when the minus was named "Select
+   * {{title}} for deletion". The minus also picks tracks to move or copy, so
+   * neither its name nor its hint may say delete.
+   */
+  const RETIRED_DELETION_WORDS: Readonly<Record<string, string>> = {
+    ar: 'حذف',
+    bg: 'изтрива',
+    bn: 'মুছে',
+    cs: 'smaz',
+    da: 'slet',
+    de: 'lösch',
+    el: 'διαγραφ',
+    en: 'delet',
+    es: 'elimin',
+    fa: 'حذف',
+    fi: 'poist',
+    fil: 'delete',
+    fr: 'suppr',
+    gu: 'કાઢી',
+    he: 'מחיק',
+    hi: 'मिटा',
+    hu: 'törl',
+    id: 'hapus',
+    it: 'elimin',
+    ja: '削除',
+    kn: 'ಅಳಿಸ',
+    ko: '삭제',
+    ml: 'ഇല്ലാതാക്ക',
+    mr: 'हटव',
+    ms: 'padam',
+    nb: 'slett',
+    nl: 'verwijder',
+    pa: 'ਮਿਟਾ',
+    pl: 'usun',
+    'pt-br': 'exclu',
+    ro: 'șterg',
+    ru: 'удал',
+    sv: 'borttag',
+    ta: 'நீக்குவ',
+    te: 'తొలగ',
+    th: 'ลบ',
+    tr: 'sil',
+    uk: 'видал',
+    ur: 'حذف',
+    vi: 'xóa',
+    'zh-hans': '删除',
+    'zh-hant': '刪除',
+  };
+  const RETIRED_KEYS = [
+    'playlist.select_for_deletion',
+    'playlist.deselect_for_deletion',
+    'playlist.remove_title',
+    'playlist.delete_selected',
+  ];
+
+  it('pins the approved Korean and English name and hint', () => {
+    expect([ko['playlist.select_track'], ko['playlist.select_mode_hint']]).toEqual([
+      '{{title}} 선택',
+      '이 트랙을 선택하고 선택 모드로 들어가기',
+    ]);
+    expect([en['playlist.select_track'], en['playlist.select_mode_hint']]).toEqual([
+      'Select {{title}}',
+      'Select this track and enter selection mode',
+    ]);
+  });
+
+  it('gives every locale a neutral, single-line name and mode hint', () => {
+    expect(Object.keys(dictionaries)).toHaveLength(42);
+    expect(Object.keys(RETIRED_DELETION_WORDS).sort()).toEqual(Object.keys(dictionaries).sort());
+    for (const [locale, dict] of Object.entries(dictionaries)) {
+      const name = dict['playlist.select_track'];
+      const hint = dict['playlist.select_mode_hint'];
+      expect(name, `${locale} name`).toBeTruthy();
+      expect(hint, `${locale} hint`).toBeTruthy();
+      // The name carries the track title once; the hint is one shared phrase.
+      expect(name!.match(/\{\{\w+\}\}/g), `${locale} name`).toEqual(['{{title}}']);
+      expect(hint, `${locale} hint`).not.toMatch(/\{\{/);
+      for (const value of [name!, hint!]) {
+        expect(value.trim(), locale).toBe(value);
+        // A name and a hint are phrases: one line and no closing period.
+        expect(value, locale).not.toMatch(/\n|[.。．।۔]$/u);
+        expect(value.toLocaleLowerCase(locale), `${locale} says delete`).not.toContain(
+          RETIRED_DELETION_WORDS[locale],
+        );
+      }
+      expect(hint, locale).not.toBe(name);
+      if (locale !== 'en') {
+        expect(name, `${locale} name must not fall back to English`).not.toBe(
+          en['playlist.select_track'],
+        );
+        expect(hint, `${locale} hint must not fall back to English`).not.toBe(
+          en['playlist.select_mode_hint'],
+        );
+      }
+      for (const key of RETIRED_KEYS) {
+        expect(dict, `${locale} drops ${key}`).not.toHaveProperty(key);
       }
     }
   });

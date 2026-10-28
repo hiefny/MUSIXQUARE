@@ -89,3 +89,23 @@ describe('demo disclosure closing settlement', () => {
     expect(document.querySelector('.demo-controls-expanded')).toBeNull();
   });
 });
+
+describe('demo settings disclosure name', () => {
+  it('keeps the Settings name and tells open or closed with aria-expanded', async () => {
+    // A disclosure keeps one name (hint and name copy rule); its back-arrow
+    // icon while open is not a reason to rename it Close.
+    const opener = document.getElementById('btn-demo-settings')!;
+    const closing = offerBackToTopWindow();
+    end('transform');
+    await closing.settled;
+    expect(opener.getAttribute('aria-expanded')).toBe('false');
+
+    opener.setAttribute('aria-label', 'Settings');
+    opener.setAttribute('data-i18n-aria-label', 'nav.settings');
+    opener.click();
+    expect(opener.getAttribute('aria-expanded')).toBe('true');
+    expect(opener.getAttribute('aria-label')).toBe('Settings');
+    expect(opener.getAttribute('data-i18n-aria-label')).toBe('nav.settings');
+    expect(opener.hasAttribute('title')).toBe(false);
+  });
+});

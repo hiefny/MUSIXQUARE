@@ -26,7 +26,7 @@ test.describe('RTL player layout', () => {
                   <path d="M6 6h2v12H6zm3.5 6l8.5 6V6z" />
                 </svg>
               </button>
-              <button class="play-fab" id="play-btn" aria-label="Play/Pause"></button>
+              <button class="play-fab" id="play-btn" aria-label="Play"></button>
               <button class="ctrl-btn" id="btn-next" aria-label="Next track">
                 <svg viewBox="0 0 24 24" aria-hidden="true">
                   <path d="M6 18l8.5-6L6 6v12zM16 6v12h2V6h-2z" />
@@ -34,7 +34,7 @@ test.describe('RTL player layout', () => {
               </button>
             </div>
             <div class="vol-group-playback">
-              <button id="vol-icon-btn" aria-label="Toggle mute"></button>
+              <button id="vol-icon-btn" aria-label="Mute"></button>
               <input id="volume-slider" type="range" min="0" max="100" value="100" />
             </div>
           </div>

@@ -23,12 +23,14 @@ import { getCurrentQueueItemId } from '../player/queue-model.ts';
 import { getRoomContext, hasRoomCapability } from '../rooms/authority.ts';
 import {
   roomCapabilityFeedbackMessage,
+  roomCapabilityFeedbackTip,
   showRoomCapabilityRequired,
 } from '../rooms/permission-feedback.ts';
 import { t } from '../i18n/index.ts';
 import { isYouTubeZeroStartInFlight } from '../youtube/zero-start.ts';
 import { isProPlaybackTrackSelectionPending } from '../pro-room/playback-authority-hooks.ts';
 import type { ProPlaybackUiControlPendingEvent, QueueItemId } from '../types/index.ts';
+import { setControlUnavailable } from './control-hint.ts';
 import { syncRangeProgress } from './range-drag.ts';
 import { showToast } from './toast.ts';
 
@@ -58,6 +60,19 @@ function getSeekUnavailableMessage(reason: SeekUnavailableReason): string {
   return t('player.no_media');
 }
 
+/**
+ * The bar's hint and its unavailable value text name the blocking state in one
+ * phrase; a denied drag keeps the toast's sentence above. Sharing reads the
+ * same as on the sync and media buttons: the hint sits on the bar itself, so it
+ * need not say what is blocked.
+ */
+function getSeekUnavailableTip(reason: SeekUnavailableReason): string {
+  if (reason === 'permission') return roomCapabilityFeedbackTip('playback.control');
+  if (reason === 'system-audio') return t('system_audio.sharing');
+  if (reason === 'not-ready') return t('player.not_ready_tip');
+  return t('player.no_media');
+}
+
 const UNAVAILABLE_TIME_TEXT = '-:--';
 
 function getTimelineUnavailableReason(): 'no-media' | 'system-audio' | null {
@@ -76,8 +91,10 @@ function renderUnavailableTimeline(
   if (slider) {
     setSeekSliderValue(slider, '0');
     setSeekSliderMax(slider, '0');
-    slider.setAttribute('aria-disabled', 'true');
-    slider.setAttribute('aria-valuetext', getSeekUnavailableMessage(reason).replace(/\n/g, ' '));
+    // The control-hint helper owns availability; the seek gate's reason, when
+    // there is one, names the blocking state more precisely than the timeline.
+    setControlUnavailable(slider, getSeekUnavailableTip(getSeekUnavailableReason() ?? reason));
+    slider.setAttribute('aria-valuetext', getSeekUnavailableTip(reason));
   }
   if (current) current.innerText = UNAVAILABLE_TIME_TEXT;
   if (total) total.innerText = UNAVAILABLE_TIME_TEXT;
@@ -188,14 +205,7 @@ function syncSeekAvailability(
 ): void {
   if (!slider) return;
   const reason = getSeekUnavailableReason();
-  slider.setAttribute('aria-disabled', String(reason !== null));
-  if (reason) {
-    // Toast copy separates sentences with line breaks instead of periods; the
-    // tooltip keeps those breaks.
-    slider.title = getSeekUnavailableMessage(reason);
-  } else {
-    slider.removeAttribute('title');
-  }
+  setControlUnavailable(slider, reason ? getSeekUnavailableTip(reason) : null);
 }
 
 function finishSeekDraft(slider?: HTMLInputElement): void {

@@ -83,8 +83,122 @@ async function cssColor(page: Page, value: string): Promise<string> {
   }, value);
 }
 
+async function hasHoverPointer(page: Page): Promise<boolean> {
+  return page.evaluate(() => document.documentElement.hasAttribute('data-hover-pointer'));
+}
+
+/** The row's number and grip opacities and its minus color, once settled. */
+async function rowLook(page: Page, index: number) {
+  return page
+    .locator('#playlist-ui .track-item')
+    .nth(index)
+    .evaluate((row) => ({
+      number: getComputedStyle(row.querySelector('.playlist-reorder-handle .track-idx')!).opacity,
+      grip: getComputedStyle(row.querySelector('.playlist-reorder-grip')!).opacity,
+      minus: getComputedStyle(row.querySelector('.btn-playlist-select')!).color,
+    }));
+}
+
+/** A touch tap in the gap between two playlist rows, which takes no action. */
+async function tapNeutral(page: Page): Promise<void> {
+  const point = await page.locator('#playlist-ui').evaluate((list) => {
+    const entries = list.querySelectorAll(':scope > .playlist-entry');
+    const above = entries[2]!.getBoundingClientRect();
+    const below = entries[3]!.getBoundingClientRect();
+    const x = above.left + above.width / 2;
+    const y = (above.bottom + below.top) / 2;
+    const target = document.elementFromPoint(x, y);
+    if (!target || target.closest('button, a, input, [role="button"], .track-item')) {
+      throw new Error(`No inert spot between rows: ${target?.outerHTML.slice(0, 80)}`);
+    }
+    return { x, y };
+  });
+  await page.touchscreen.tap(point.x, point.y);
+}
+
+/** Adds an expanded and a folded YouTube playlist row after the five tracks. */
+async function addYouTubePlaylists(page: Page): Promise<void> {
+  await page.evaluate(() => {
+    const w = window as unknown as {
+      __MUSIXQUARE_GET_STATE__: (path: string) => unknown;
+      __MUSIXQUARE_SET_STATE__: (path: string, value: unknown) => void;
+    };
+    w.__MUSIXQUARE_SET_STATE__('youtube.subItemsMap', {
+      PL_edit_open: { ids: ['vopen000001', 'vopen000002'], titles: ['Open one', 'Open two'] },
+    });
+    const items = w.__MUSIXQUARE_GET_STATE__('playlist.items') as unknown[];
+    w.__MUSIXQUARE_SET_STATE__('playlist.items', [
+      ...items,
+      {
+        queueItemId: '00000000-0000-4000-8000-0000000000e1',
+        type: 'youtube',
+        name: 'Open list',
+        title: 'Open list',
+        videoId: 'vopen000001',
+        playlistId: 'PL_edit_open',
+        isExpanded: true,
+      },
+      {
+        queueItemId: '00000000-0000-4000-8000-0000000000e2',
+        type: 'youtube',
+        name: 'Closed list',
+        title: 'Closed list',
+        videoId: 'vclosed0001',
+        playlistId: 'PL_edit_closed',
+        isExpanded: false,
+      },
+    ]);
+  });
+  await waitForPlaylistCount(page, FIXTURES.length + 2);
+}
+
 test.describe('Playlist edit mode (mouse)', () => {
   test.use({ viewport: { width: 1440, height: 900 } });
+
+  // Owner direction (2026-10-27, UI audit items 4 and 10): the minus turns
+  // blue on hover and on keyboard focus, and in edit mode a row hover keeps
+  // the number (reordering is off) and lights the minus instead.
+  test('the minus turns blue on hover and focus, and an edit-mode row hover keeps its number', async ({
+    page,
+  }) => {
+    test.setTimeout(90_000);
+    await openFiveTrackPlaylist(page, false);
+    expect(await hasHoverPointer(page)).toBe(true);
+    const primary = await cssColor(page, 'var(--primary)');
+    const checks = page.locator('#playlist-ui .btn-playlist-select');
+    const minusColor = (index: number) =>
+      checks.nth(index).evaluate((button) => getComputedStyle(button).color);
+
+    await page.mouse.move(0, 0);
+    const resting = await minusColor(2);
+    expect(resting).not.toBe(primary);
+    await checks.nth(2).hover();
+    await expect.poll(() => minusColor(2)).toBe(primary);
+    await page.mouse.move(0, 0);
+    await expect.poll(() => minusColor(2)).toBe(resting);
+
+    await page.locator('#playlist-ui .track-name').nth(2).focus();
+    await page.keyboard.press('Tab');
+    await expect(checks.nth(2)).toBeFocused();
+    expect(await checks.nth(2).evaluate((button) => button.matches(':focus-visible'))).toBe(true);
+    await expect.poll(() => minusColor(2)).toBe(primary);
+    await checks.nth(2).blur();
+
+    // Outside edit mode a row hover trades the number for the grip.
+    await page.locator('#playlist-ui .track-name').nth(3).hover();
+    await expect.poll(() => rowLook(page, 3)).toEqual({ number: '0', grip: '1', minus: resting });
+
+    await checks.nth(0).click();
+    await expect(page.locator('.playlist-selection-bar')).toBeVisible();
+    await page.locator('#playlist-ui .track-name').nth(3).hover();
+    await expect.poll(() => rowLook(page, 3)).toEqual({ number: '1', grip: '0', minus: primary });
+    expect(await rowLook(page, 2)).toEqual({ number: '1', grip: '0', minus: resting });
+
+    await checks.nth(0).click();
+    await expect(page.locator('.playlist-selection-bar')).toBeHidden();
+    await page.locator('#playlist-ui .track-name').nth(2).hover();
+    await expect.poll(() => rowLook(page, 2)).toEqual({ number: '0', grip: '1', minus: resting });
+  });
 
   test('check circles enter edit mode and paint joined blocks and lone pills', async ({ page }) => {
     test.setTimeout(90_000);
@@ -138,7 +252,7 @@ test.describe('Playlist edit mode (mouse)', () => {
     });
 
     // The panel holds three circular icon buttons: move (the room has other
-    // playlists), delete and close.
+    // playlists), delete and close. They are named, not titled.
     const actions = page.locator('.playlist-selection-bar .playlist-selection-action');
     await expect(actions).toHaveCount(3);
     const actionLooks = await actions.evaluateAll((buttons) =>
@@ -161,7 +275,7 @@ test.describe('Playlist edit mode (mouse)', () => {
     expect(actionLooks).toEqual([
       {
         label: 'Move',
-        title: 'Move',
+        title: null,
         text: '',
         width: 54,
         height: 54,
@@ -172,7 +286,7 @@ test.describe('Playlist edit mode (mouse)', () => {
       },
       {
         label: 'Delete',
-        title: 'Delete',
+        title: null,
         text: '',
         width: 54,
         height: 54,
@@ -183,7 +297,7 @@ test.describe('Playlist edit mode (mouse)', () => {
       },
       {
         label: 'Cancel',
-        title: 'Cancel',
+        title: null,
         text: '',
         width: 54,
         height: 54,
@@ -373,38 +487,7 @@ test.describe('Playlist edit mode (mouse)', () => {
   test('edit mode folds YouTube playlists and restores each expansion', async ({ page }) => {
     test.setTimeout(90_000);
     await openFiveTrackPlaylist(page, false);
-    await page.evaluate(() => {
-      const w = window as unknown as {
-        __MUSIXQUARE_GET_STATE__: (path: string) => unknown;
-        __MUSIXQUARE_SET_STATE__: (path: string, value: unknown) => void;
-      };
-      w.__MUSIXQUARE_SET_STATE__('youtube.subItemsMap', {
-        PL_edit_open: { ids: ['vopen000001', 'vopen000002'], titles: ['Open one', 'Open two'] },
-      });
-      const items = w.__MUSIXQUARE_GET_STATE__('playlist.items') as unknown[];
-      w.__MUSIXQUARE_SET_STATE__('playlist.items', [
-        ...items,
-        {
-          queueItemId: '00000000-0000-4000-8000-0000000000e1',
-          type: 'youtube',
-          name: 'Open list',
-          title: 'Open list',
-          videoId: 'vopen000001',
-          playlistId: 'PL_edit_open',
-          isExpanded: true,
-        },
-        {
-          queueItemId: '00000000-0000-4000-8000-0000000000e2',
-          type: 'youtube',
-          name: 'Closed list',
-          title: 'Closed list',
-          videoId: 'vclosed0001',
-          playlistId: 'PL_edit_closed',
-          isExpanded: false,
-        },
-      ]);
-    });
-    await waitForPlaylistCount(page, 7);
+    await addYouTubePlaylists(page);
     const subList = page.locator('#playlist-ui .sub-playlist');
     const toggles = page.locator('#playlist-ui .expand-toggle');
     await expect(subList).toHaveCount(1);
@@ -422,6 +505,92 @@ test.describe('Playlist edit mode (mouse)', () => {
     await expect(toggles.nth(0)).toHaveAttribute('aria-expanded', 'true');
     await expect(toggles.nth(1)).toHaveAttribute('aria-expanded', 'false');
     await expect(toggles.nth(1)).toBeVisible();
+  });
+
+  // UI audit items 8 and 9 (2026-10-27): the minus draws with the chevron's
+  // line weight and is about 9.2px long, shorter than the chevron beside it;
+  // the check it turns into keeps its heavier selected-mark weight.
+  test('the minus shares the chevron line weight, sits shorter, and turns into the heavier check', async ({
+    page,
+  }) => {
+    test.setTimeout(90_000);
+    await openFiveTrackPlaylist(page, false);
+    await addYouTubePlaylists(page);
+    const row = page.locator('#playlist-ui .track-item').filter({
+      has: page.locator('.expand-toggle'),
+    });
+    const icons = () =>
+      row.first().evaluate((element) => {
+        const chevron = element.querySelector('.expand-toggle svg path')!;
+        const minus = element.querySelector('.btn-playlist-select .playlist-select-minus')!;
+        const check = element.querySelector('.btn-playlist-select .playlist-select-mark')!;
+        return {
+          chevronStroke: getComputedStyle(chevron).strokeWidth,
+          minusStroke: getComputedStyle(minus).strokeWidth,
+          checkStroke: getComputedStyle(check).strokeWidth,
+          chevronLength: chevron.getBoundingClientRect().width,
+          minusLength: minus.getBoundingClientRect().width,
+          minusOpacity: getComputedStyle(minus).opacity,
+          checkOpacity: getComputedStyle(check).opacity,
+        };
+      });
+
+    const resting = await icons();
+    expect(resting).toMatchObject({
+      chevronStroke: '1.8px',
+      minusStroke: '1.8px',
+      checkStroke: '2.4px',
+      minusOpacity: '1',
+      checkOpacity: '0',
+    });
+    // Butt ends: the path is the ink, 10 of 24 units at 22px.
+    expect(resting.minusLength).toBeCloseTo((10 * 22) / 24, 1);
+    expect(resting.minusLength).toBeLessThan(resting.chevronLength);
+
+    await row.first().locator('.btn-playlist-select').click();
+    await expect(row.first().locator('.btn-playlist-select')).toHaveAttribute(
+      'aria-pressed',
+      'true',
+    );
+    await expect
+      .poll(async () => {
+        const { minusOpacity, checkOpacity, checkStroke } = await icons();
+        return { minusOpacity, checkOpacity, checkStroke };
+      })
+      .toEqual({ minusOpacity: '0', checkOpacity: '1', checkStroke: '2.4px' });
+  });
+});
+
+// A convertible in tablet posture (for example a Surface Laptop Studio in
+// studio mode) reports no hover-capable input, yet its pen or mouse hovers.
+// Chromium emulates that report with touch on a desktop viewport.
+test.describe('Playlist row hover on a convertible in tablet posture', () => {
+  test.use({ viewport: { width: 1440, height: 900 }, hasTouch: true, isMobile: false });
+
+  test('a moving mouse or pen hovers like a laptop, and a touch press ends it', async ({
+    page,
+  }) => {
+    test.setTimeout(90_000);
+    await openFiveTrackPlaylist(page, false);
+    expect(await page.evaluate(() => matchMedia('(any-hover: hover)').matches)).toBe(false);
+    const primary = await cssColor(page, 'var(--primary)');
+    const checks = page.locator('#playlist-ui .btn-playlist-select');
+
+    await tapNeutral(page);
+    expect(await hasHoverPointer(page)).toBe(false);
+    // Arriving tracks show every grip for 2s (the reorder hint); wait it out.
+    await expect.poll(() => rowLook(page, 2)).toMatchObject({ number: '1', grip: '0' });
+    const resting = await rowLook(page, 2);
+    expect(resting.minus).not.toBe(primary);
+
+    await page.mouse.move(0, 0);
+    await checks.nth(2).hover();
+    expect(await hasHoverPointer(page)).toBe(true);
+    await expect.poll(() => rowLook(page, 2)).toEqual({ number: '0', grip: '1', minus: primary });
+
+    await tapNeutral(page);
+    expect(await hasHoverPointer(page)).toBe(false);
+    await expect.poll(() => rowLook(page, 2)).toEqual(resting);
   });
 });
 
@@ -692,6 +861,32 @@ test.describe('Playlist edit mode (touch)', () => {
     await touch(cdp, 'touchMove', at(to));
     await touch(cdp, 'touchEnd', []);
   }
+
+  test('a tapped minus keeps no hover look on a phone', async ({ page }) => {
+    test.setTimeout(90_000);
+    await openFiveTrackPlaylist(page, true);
+    const primary = await cssColor(page, 'var(--primary)');
+    const checks = page.locator('#playlist-ui .btn-playlist-select');
+    const minusColor = () => checks.nth(1).evaluate((button) => getComputedStyle(button).color);
+    const resting = await minusColor();
+    expect(resting).not.toBe(primary);
+
+    // The setup helpers click with a mouse; from here on only touch is used.
+    const minus = await centerOf(checks.nth(1));
+    await page.touchscreen.tap(minus.x, minus.y);
+    expect(await pressedStates(page)).toEqual(selected([1]));
+    await page.touchscreen.tap(minus.x, minus.y);
+    await expect(page.locator('.playlist-selection-bar')).toBeHidden();
+    expect(await hasHoverPointer(page)).toBe(false);
+    // Chromium's touch emulation does not latch :hover after a tap (polled for
+    // the full expect timeout, 2026-10-27), so this test cannot show the gate
+    // overriding a latched hover. src/ui/__tests__/hover-pointer.test.ts holds
+    // that property: a touch press clears the flag and isHovered() ignores a
+    // latched :hover, and every :hover rule sits under the flag.
+    await expect.poll(minusColor).toBe(resting);
+    // Arriving tracks show every grip for 2s (the reorder hint); a tap never does.
+    await expect.poll(() => rowLook(page, 1)).toMatchObject({ number: '1', grip: '0' });
+  });
 
   test('a check-column swipe and a two-finger pan select ranges without scrolling', async ({
     page,

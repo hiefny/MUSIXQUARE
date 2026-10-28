@@ -68,6 +68,23 @@ export function assertLegacyCss(css: string): void {
     throw new Error('Built CSS contains a selector-list :not() unsupported by Chromium 79.');
   }
 
+  // Chromium 79 predates :where(), so it drops every rule whose selector list
+  // has one. The hover gate (:where(html[data-hover-pointer])) may cost the TV
+  // engines their hover looks, never a focus, press or state style that the
+  // minifier merged into the same rule.
+  const mixedWhereRules: string[] = [];
+  root.walkRules((rule) => {
+    const parent = rule.parent as { type?: string; name?: string } | undefined;
+    if (parent?.type === 'atrule' && /keyframes$/u.test(parent.name ?? '')) return;
+    const gated = rule.selectors.map((selector) => selector.includes(':where('));
+    if (gated.includes(true) && gated.includes(false)) mixedWhereRules.push(rule.selector);
+  });
+  if (mixedWhereRules.length > 0) {
+    throw new Error(
+      `Built CSS mixes :where() and plain selectors in one rule, which Chromium 79 drops whole: ${mixedWhereRules.slice(0, 3).join(' | ')}`,
+    );
+  }
+
   let hasLegacyBootBodyFallback = false;
   let hasLegacyBootFailureFallback = false;
   root.walkRules((rule) => {

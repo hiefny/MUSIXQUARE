@@ -434,6 +434,10 @@ const TARGET_RUNTIME_PATHS = Object.freeze({
     'tsconfig.service-worker.json',
     'tsconfig.ui-kit.json',
     'cloudflare/app-static-assets/_headers',
+    // vite.config.ts helpers whose values reach the emitted App: browser
+    // targets and the locale recovery assets.
+    'scripts/browser-target.ts',
+    'scripts/locale-recovery-assets.ts',
     'scripts/classic-runtime-assets.ts',
     'scripts/translation-catalog.ts',
     'scripts/translation-catalog-assets.ts',

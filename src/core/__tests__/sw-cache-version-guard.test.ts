@@ -85,6 +85,105 @@ function createRepository(): string {
   return directory;
 }
 
+// Joined so this fixture text is not a relative Worker import literal: the
+// suite never loads Worker code, so it stays out of the Worker coverage
+// ratchet (ci-quality-gates.test.ts).
+function workerModule(depth: number, file: string): string {
+  return [...Array<string>(depth).fill('..'), 'cloudflare', file].join('/');
+}
+
+// Worker-side modules that browser code imports are compiled into the App
+// bundle, so a change to only such a module still changes cached PWA assets.
+function createRepositoryWithBundledWorkerModules(): string {
+  const repository = createRepository();
+  write(repository, 'cloudflare/shared-timing.ts', 'export const TIMEOUT_MS = 1_000;\n');
+  write(
+    repository,
+    'cloudflare/media-reader.ts',
+    "import { readBody } from './media-body.ts';\nexport const read = readBody;\n",
+  );
+  write(repository, 'cloudflare/media-body.ts', 'export const readBody = () => 1;\n');
+  write(repository, 'cloudflare/admin-contract.ts', 'export const ADMIN_CONTRACT = 1;\n');
+  write(repository, 'cloudflare/worker-only-timing.ts', 'export const WORKER_TIMEOUT_MS = 8;\n');
+  write(
+    repository,
+    'cloudflare/app-worker.ts',
+    "import { WORKER_TIMEOUT_MS } from './worker-only-timing.ts';\nexport default { WORKER_TIMEOUT_MS };\n",
+  );
+  write(repository, 'cloudflare/type-shapes.ts', 'export interface Shape {\n  id: string;\n}\n');
+  write(repository, 'cloudflare/test-fixture-data.ts', 'export const fixture = 1;\n');
+  write(repository, 'cloudflare/promo-only.ts', 'export const promo = 1;\n');
+  write(
+    repository,
+    'src/pro-room/playback.ts',
+    [
+      'import {',
+      '  TIMEOUT_MS,',
+      `} from '${workerModule(2, 'shared-timing.ts')}';`,
+      `import type { Shape } from '${workerModule(2, 'type-shapes.ts')}';`,
+      'export const timeout: Shape | number = TIMEOUT_MS;',
+      '',
+    ].join('\n'),
+  );
+  write(
+    repository,
+    'src/pro-room/upload.ts',
+    `export const load = () => import('${workerModule(2, 'media-reader.ts')}');\n`,
+  );
+  write(
+    repository,
+    'browser/classic-runtime/admin.ts',
+    `export { ADMIN_CONTRACT } from '${workerModule(2, 'admin-contract.ts')}';\n`,
+  );
+  write(
+    repository,
+    'src/pro-room/__tests__/upload.test.ts',
+    `import { fixture } from '${workerModule(3, 'test-fixture-data.ts')}';\nit('loads', () => expect(fixture).toBe(1));\n`,
+  );
+  write(
+    repository,
+    'browser/auxiliary-runtime/promo/study.ts',
+    `export { promo } from '${workerModule(3, 'promo-only.ts')}';\n`,
+  );
+  write(
+    repository,
+    'cloudflare/type-reexport.ts',
+    'export interface Reexported {\n  id: string;\n}\n',
+  );
+  write(
+    repository,
+    'src/pro-room/shapes.ts',
+    `export type { Reexported } from '${workerModule(2, 'type-reexport.ts')}';\n`,
+  );
+  write(repository, 'cloudflare/url-asset.ts', 'export const worklet = true;\n');
+  write(repository, 'cloudflare/location-url.ts', 'export const notBundled = true;\n');
+  write(repository, 'cloudflare/commented-entry.ts', 'export const retired = true;\n');
+  write(
+    repository,
+    'src/audio/worklet.ts',
+    [
+      `export const workletUrl = new URL('${workerModule(2, 'url-asset.ts')}', import.meta.url);`,
+      `export const pageUrl = new URL('${workerModule(2, 'location-url.ts')}', location.href);`,
+      `// export const retired = () => import('${workerModule(2, 'commented-entry.ts')}');`,
+      '',
+    ].join('\n'),
+  );
+  write(repository, 'cloudflare/html-entry.ts', 'export const boot = true;\n');
+  write(
+    repository,
+    'index.html',
+    [
+      '<!doctype html>',
+      '<!-- <script type="module" src="/cloudflare/commented-entry.ts"></script> -->',
+      '<script type="module" src="/cloudflare/html-entry.ts"></script>',
+      '',
+    ].join('\n'),
+  );
+  write(repository, SERVICE_WORKER_MANIFEST_PATH, serviceWorkerManifest(3));
+  commit(repository, 'bundle shared Worker modules and bump cache');
+  return repository;
+}
+
 function runGuard(directory: string, ...args: string[]): ReturnType<typeof spawnSync> {
   return spawnSync(process.execPath, [SCRIPT_PATH, '--repo', directory, ...args], {
     cwd: process.cwd(),
@@ -140,6 +239,8 @@ describe('service-worker CACHE_VERSION guard', () => {
     ['scripts/localized-html-lib.mts', 'export const title = "changed";\n'],
     ['scripts/locale-seo-metadata.mts', 'export const locale = "changed";\n'],
     ['scripts/service-worker-app-shell-guard-lib.mts', 'export const worker = "changed.js";\n'],
+    ['scripts/browser-target.ts', "export const LEGACY_APP_BROWSER_TARGET = 'chrome80';\n"],
+    ['scripts/locale-recovery-assets.ts', 'export const recovery = "changed";\n'],
     ['fonts/noto/noto-sans-devanagari/devanagari.woff2', 'updated locale font bytes'],
     ['tsconfig.ui-kit.json', '{"compilerOptions":{"strict":true}}\n'],
   ])('tracks the browser build input %s as a PWA runtime change', (filePath, source) => {
@@ -192,6 +293,134 @@ describe('service-worker CACHE_VERSION guard', () => {
     const result = runGuard(repository);
     expect(result.status).toBe(0);
     expect(result.stdout).toContain('PASS: v2');
+  });
+
+  it.each([
+    ['a multi-line static import', 'cloudflare/shared-timing.ts'],
+    ['a dynamic import()', 'cloudflare/media-reader.ts'],
+    ['a dynamically imported module', 'cloudflare/media-body.ts'],
+    ['an export-from in browser/', 'cloudflare/admin-contract.ts'],
+  ])('treats a Worker module the App bundle reaches through %s as PWA runtime', (_label, file) => {
+    const repository = createRepositoryWithBundledWorkerModules();
+    expect(runGuard(repository).status).toBe(0);
+
+    write(repository, file, 'export const changed = true;\n');
+    commit(repository, `change only ${file}`);
+
+    const result = runGuard(repository);
+    expect(result.status).toBe(1);
+    expect(result.stderr).toContain('committed PWA runtime changes are newer than v3');
+    expect(result.stderr).toContain(file);
+  });
+
+  it('keeps Worker-only, type-only, test-only, and promo-only Worker imports out of the PWA', () => {
+    const repository = createRepositoryWithBundledWorkerModules();
+    for (const file of [
+      'cloudflare/app-worker.ts',
+      'cloudflare/worker-only-timing.ts',
+      'cloudflare/type-shapes.ts',
+      'cloudflare/type-reexport.ts',
+      'cloudflare/location-url.ts',
+      'cloudflare/commented-entry.ts',
+      'cloudflare/test-fixture-data.ts',
+      'cloudflare/promo-only.ts',
+    ]) {
+      write(repository, file, 'export const changed = true;\n');
+    }
+    commit(repository, 'change modules the App bundle does not contain');
+
+    const result = runGuard(repository);
+    expect(result.status).toBe(0);
+    expect(result.stdout).toContain('PASS: v3');
+  });
+
+  it('derives the fixture bundle from every reference kind the build follows', async () => {
+    const { bundledSupportPathsAt } = await import('../../../scripts/check-sw-cache-version.mts');
+    const repository = createRepositoryWithBundledWorkerModules();
+
+    // Static, dynamic, transitive, and export-from imports, a
+    // new URL(..., import.meta.url) asset, and an index.html script. Not a
+    // type-only re-export, a URL resolved against the page, a commented-out
+    // import() or script tag, or anything only Workers, tests, or promo
+    // studies import.
+    expect(bundledSupportPathsAt(repository, 'HEAD')).toEqual(
+      [
+        'cloudflare/admin-contract.ts',
+        'cloudflare/html-entry.ts',
+        'cloudflare/media-body.ts',
+        'cloudflare/media-reader.ts',
+        'cloudflare/shared-timing.ts',
+        'cloudflare/url-asset.ts',
+      ].sort(),
+    );
+  });
+
+  it('counts a module the bump commit bundled after the App stops importing it', () => {
+    const repository = createRepositoryWithBundledWorkerModules();
+    write(repository, 'cloudflare/shared-timing.ts', 'export const TIMEOUT_MS = 2_000;\n');
+    write(repository, 'src/pro-room/playback.ts', 'export const timeout = 2_000;\n');
+    commit(repository, 'change the module and stop bundling it');
+
+    const stopped = runGuard(repository);
+    expect(stopped.status).toBe(1);
+    expect(stopped.stderr).toContain('src/pro-room/playback.ts');
+    expect(stopped.stderr).toContain('cloudflare/shared-timing.ts');
+  });
+
+  // Two guard runs, each building the import graph at both ends of its range.
+  // The three-run test this replaced took about 12 seconds on a loaded Windows
+  // machine, close to the 15-second default, so this one gets more room.
+  it(
+    'counts a module the App imports again after a bump that did not bundle it',
+    {
+      timeout: 30_000,
+    },
+    () => {
+      const repository = createRepositoryWithBundledWorkerModules();
+      write(repository, 'cloudflare/shared-timing.ts', 'export const TIMEOUT_MS = 2_000;\n');
+      write(repository, 'src/pro-room/playback.ts', 'export const timeout = 2_000;\n');
+      write(repository, SERVICE_WORKER_MANIFEST_PATH, serviceWorkerManifest(4));
+      commit(repository, 'stop bundling the module and bump cache to v4');
+      write(repository, 'cloudflare/shared-timing.ts', 'export const TIMEOUT_MS = 3_000;\n');
+      commit(repository, 'change the module the App no longer bundles');
+      expect(runGuard(repository).status).toBe(0);
+
+      write(
+        repository,
+        'src/pro-room/playback.ts',
+        `export * from '${workerModule(2, 'shared-timing.ts')}';\n`,
+      );
+      commit(repository, 'bundle the module again');
+      const restarted = runGuard(repository);
+      expect(restarted.status).toBe(1);
+      expect(restarted.stderr).toContain('src/pro-room/playback.ts');
+      expect(restarted.stderr).toContain('cloudflare/shared-timing.ts');
+    },
+  );
+
+  it('derives the bundled Worker modules of this repository from its import graph', async () => {
+    const { bundledSupportPathsAt } = await import('../../../scripts/check-sw-cache-version.mts');
+    const { runtimePathsForWorker } = await import('../../../scripts/release-deployment-state.mts');
+    const bundled = bundledSupportPathsAt(process.cwd(), 'HEAD');
+
+    // Modules src/ imports statically, through a dynamic import, and one hop
+    // further inside cloudflare/.
+    expect(bundled).toEqual(
+      expect.arrayContaining([
+        'cloudflare/app-build-floor-contract.ts',
+        'cloudflare/display-name-policy.ts',
+        'cloudflare/pro-room-receipt-timing.ts',
+        'cloudflare/pro-room-media-duration.ts',
+        'cloudflare/pro-room-body.ts',
+        'cloudflare/pro-room-mp4-duration.ts',
+      ]),
+    );
+    // Imported only by Workers.
+    expect(bundled).not.toContain('cloudflare/app-worker.ts');
+    expect(bundled).not.toContain('cloudflare/pro-room-media-timing.ts');
+    // Whatever the App bundle compiles in must also ship with an App release.
+    const appReleasePaths = runtimePathsForWorker('app');
+    for (const file of bundled) expect(appReleasePaths).toContain(file);
   });
 
   it('allows removing retired promo studies without exempting adjacent browser runtime', () => {

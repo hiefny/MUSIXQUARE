@@ -1556,6 +1556,8 @@ describe('release deployment rollback state', () => {
         expect(paths).toContain('.workshop/sitemap');
         expect(paths).toContain('cloudflare/app-static-assets/_headers');
         expect(paths).toContain('scripts/classic-runtime-assets.ts');
+        expect(paths).toContain('scripts/browser-target.ts');
+        expect(paths).toContain('scripts/locale-recovery-assets.ts');
         expect(paths).toContain('scripts/translation-catalog.ts');
         expect(paths).toContain('scripts/translation-catalog-assets.ts');
         expect(paths).not.toContain('scripts/auxiliary-browser-assets.ts');

@@ -573,7 +573,14 @@ committed `HEAD` passes `npm run build:checked`; the guard passes once the lates
 bump covers the resulting app tree. Repository-only documents such as `README.md`,
 `CONTRIBUTING.md`, `docs/**`, and `cloudflare/*ops.md`, plus Worker-only and
 test-only changes that do not advance product SemVer or its browser admin
-mirror, do not require a bump. Files under `public/**` and the
+mirror, do not require a bump. A Worker module that browser code imports, such
+as `cloudflare/app-build-floor-contract.ts` or
+`cloudflare/pro-room-receipt-timing.ts`, is compiled into the App bundle and
+does require one; the guard derives these files from the value-import graph of
+`src/`, `browser/`, `index.html`, and the public `.workshop` pages at both ends
+of the checked range. The `vite.config.ts` helpers that change the emitted App,
+`scripts/browser-target.ts` and `scripts/locale-recovery-assets.ts`, also
+require one. Files under `public/**` and the
 production `.workshop/{landing,privacy,terms,faq,developers,translate,sitemap}/**` trees are App
 artifact inputs and do require a covering bump. The guard reads committed
 first-parent `HEAD`, not the working tree, so run `npm run build:checked` after

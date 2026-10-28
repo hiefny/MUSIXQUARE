@@ -402,6 +402,26 @@ describe('title tracking contract', () => {
     // The host's read-only code no longer needs its own weight rule.
     expect(appRules.filter((rule) => rule.selector === '.setup-join-input[readonly]')).toEqual([]);
   });
+
+  it('breaks the Korean setup and media titles only between words', () => {
+    // With the flat Korean title tracking, the media source title takes a
+    // second line at 390px, and Korean otherwise breaks between any two
+    // syllables, inside 선택해주세요 (typography sweep, 2026-10-28). The
+    // paragraph under these titles already keeps its words whole. Only
+    // Korean: Japanese and Chinese have no spaces between words, so keep-all
+    // would hold a whole title on one line.
+    const title = findRule(appRules, '.setup-header-text h2');
+    const korean = findRule(appRules, 'html:lang(ko) .setup-header-text h2');
+    expect(korean.path).toBe('css/style.css');
+    expect(korean.context).toBe(title.context);
+    expect(values(korean.rule, 'word-break')).toEqual(['keep-all']);
+    const breaking = appRules.filter(
+      (rule) =>
+        rule.selectors.some((selector) => selector.endsWith('.setup-header-text h2')) &&
+        values(rule.rule, 'word-break').length > 0,
+    );
+    expect(breaking.map(ruleKey)).toEqual(['css/style.css html:lang(ko) .setup-header-text h2']);
+  });
 });
 
 describe('design-system title tracking mirror', () => {

@@ -19,6 +19,7 @@ import {
 } from '../credentials.ts';
 import { applyProRoomSnapshotMonotonically } from '../revision.ts';
 import { parseProRoomPlaylistItem, parseProRoomSnapshot } from '../snapshot.ts';
+import { proSnapshot } from './__helpers__/pro-snapshot.ts';
 
 const Q1 = '11111111-1111-4111-8111-111111111111';
 const Q2 = '22222222-2222-4222-8222-222222222222';
@@ -43,8 +44,7 @@ const OWNER_PERMISSIONS = {
 } as const;
 
 function activeSnapshot(): ProRoomSnapshot {
-  return {
-    schemaVersion: 1,
+  return proSnapshot({
     roomCode: '000001',
     status: 'active',
     runtime: 'awake',
@@ -90,7 +90,6 @@ function activeSnapshot(): ProRoomSnapshot {
     presence: {
       coordinatorEpoch: 3,
       revision: 5,
-      coordinatorParticipantId: null,
       participants: [
         {
           participantId: PARTICIPANT_ID,
@@ -120,10 +119,7 @@ function activeSnapshot(): ProRoomSnapshot {
       displayName: 'Owner',
       role: 'owner',
       capabilities: [...OWNER_CAPABILITIES],
-      coordinatorEligible: false,
     },
-    memberIdentityVersion: 1,
-    authorityVersion: 1,
     administrators: [
       {
         memberId: MEMBER_ID,
@@ -136,12 +132,11 @@ function activeSnapshot(): ProRoomSnapshot {
         onlineDeviceCount: 1,
       },
     ],
-  };
+  });
 }
 
 function unactivatedSnapshot(): ProRoomSnapshot {
-  return {
-    schemaVersion: 1,
+  return proSnapshot({
     roomCode: '000000',
     status: 'unactivated',
     runtime: 'sleeping',
@@ -164,7 +159,6 @@ function unactivatedSnapshot(): ProRoomSnapshot {
     presence: {
       coordinatorEpoch: 0,
       revision: 0,
-      coordinatorParticipantId: null,
       participants: [],
     },
     quota: {
@@ -174,8 +168,6 @@ function unactivatedSnapshot(): ProRoomSnapshot {
       reservedBytes: 0,
     },
     viewer: null,
-    memberIdentityVersion: 1,
-    authorityVersion: 1,
     administrators: [
       {
         memberId: MEMBER_ID,
@@ -188,14 +180,12 @@ function unactivatedSnapshot(): ProRoomSnapshot {
         onlineDeviceCount: 0,
       },
     ],
-  };
+  });
 }
 
 function authorityMemberSnapshot(capabilities: ProRoomCapability[]): ProRoomSnapshot {
   const value = activeSnapshot();
   const memberId = 'member_ordinary_0001';
-  value.memberIdentityVersion = 1;
-  value.authorityVersion = 1;
   value.administrators = [
     {
       memberId: 'member_owner_0000001',
@@ -478,7 +468,6 @@ describe('PRO room snapshot validation', () => {
     const sleeping = activeSnapshot();
     sleeping.runtime = 'sleeping';
     sleeping.presence.participants = [];
-    sleeping.presence.coordinatorParticipantId = null;
     sleeping.administrators[0]!.onlineDeviceCount = 0;
     expect(parseProRoomSnapshot(sleeping)).not.toBeNull();
   });
@@ -518,11 +507,9 @@ describe('PRO room snapshot validation', () => {
     suspended.status = 'suspended';
     suspended.runtime = 'sleeping';
     suspended.presence.participants = [];
-    suspended.presence.coordinatorParticipantId = null;
     suspended.administrators[0]!.onlineDeviceCount = 0;
     if (!suspended.viewer) throw new Error('fixture');
     suspended.viewer.capabilities = [];
-    suspended.viewer.coordinatorEligible = false;
     expect(parseProRoomSnapshot(suspended)).not.toBeNull();
 
     suspended.viewer.capabilities = ['playback.control'];

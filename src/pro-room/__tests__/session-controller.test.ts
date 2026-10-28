@@ -14,13 +14,13 @@ import {
   type ProRoomTransportBridge,
 } from '../session-controller.ts';
 import { idleProSystemAudio, proHeartbeat } from './__helpers__/pro-heartbeat.ts';
+import { proSnapshot } from './__helpers__/pro-snapshot.ts';
 
 const ROOM_CODE = '000001';
 const PARTICIPANT_ID = 'participant_00001';
 
 function snapshot(overrides: Partial<ProRoomSnapshot> = {}): ProRoomSnapshot {
-  const value: ProRoomSnapshot = {
-    schemaVersion: 1,
+  const value: ProRoomSnapshot = proSnapshot({
     roomCode: ROOM_CODE,
     status: 'active',
     runtime: 'awake',
@@ -43,7 +43,6 @@ function snapshot(overrides: Partial<ProRoomSnapshot> = {}): ProRoomSnapshot {
     presence: {
       coordinatorEpoch: 1,
       revision: 1,
-      coordinatorParticipantId: null,
       participants: [
         {
           participantId: PARTICIPANT_ID,
@@ -87,10 +86,7 @@ function snapshot(overrides: Partial<ProRoomSnapshot> = {}): ProRoomSnapshot {
         'members.manage',
         'room.configure',
       ],
-      coordinatorEligible: false,
     },
-    memberIdentityVersion: 1,
-    authorityVersion: 1,
     administrators: [
       {
         memberId: 'member_0000000001',
@@ -109,7 +105,7 @@ function snapshot(overrides: Partial<ProRoomSnapshot> = {}): ProRoomSnapshot {
       },
     ],
     ...overrides,
-  };
+  });
 
   if (!Object.prototype.hasOwnProperty.call(overrides, 'administrators')) {
     const authorityParticipants = new Map(
@@ -300,7 +296,6 @@ describe('PRO room session controller', () => {
     transport.reconfigure.mockClear();
     const linked = snapshot({
       revision: 2,
-      memberIdentityVersion: 1,
       viewer: {
         ...snapshot().viewer!,
         memberDisplayNumber: 0,
@@ -334,7 +329,6 @@ describe('PRO room session controller', () => {
     await controller.join({ code: ROOM_CODE, pin: '12345678' });
     const linked = snapshot({
       revision: 2,
-      memberIdentityVersion: 1,
       viewer: {
         ...snapshot().viewer!,
         memberId: 'member_authenticated_2',
@@ -374,7 +368,6 @@ describe('PRO room session controller', () => {
     const initial = await controller.join({ code: ROOM_CODE, pin: '12345678' });
     const linked = snapshot({
       revision: 2,
-      memberIdentityVersion: 1,
       viewer: {
         ...initial.viewer!,
         memberId: 'member_authenticated_2',
@@ -404,7 +397,6 @@ describe('PRO room session controller', () => {
   it('accepts a detached anonymous snapshot and rebuilds the display-name-bound control channel', async () => {
     const { api, transport, controller } = fixtures();
     const linked = snapshot({
-      memberIdentityVersion: 1,
       viewer: {
         ...snapshot().viewer!,
         memberDisplayNumber: 0,
@@ -429,8 +421,6 @@ describe('PRO room session controller', () => {
     transport.reconfigure.mockClear();
     const detached = snapshot({
       revision: 2,
-      memberIdentityVersion: 1,
-      authorityVersion: 1,
       administrators: [
         {
           memberId: 'member_0000000001',
@@ -701,7 +691,6 @@ describe('PRO room session controller', () => {
         ...snapshot().presence,
         revision: 2,
         coordinatorEpoch: 2,
-        coordinatorParticipantId: null,
         participants: [
           ...snapshot().presence.participants,
           {
@@ -914,7 +903,6 @@ describe('PRO room session controller', () => {
         ...snapshot().presence,
         revision: 2,
         coordinatorEpoch: 2,
-        coordinatorParticipantId: null,
         participants: [
           ...snapshot().presence.participants,
           {

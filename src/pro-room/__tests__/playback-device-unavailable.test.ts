@@ -15,6 +15,7 @@ import {
 import { ProRoomPlaybackController } from '../playback-controller.ts';
 import * as serverClock from '../network-bridge.ts';
 import { installProClockSnapshotMocks } from './__helpers__/pro-clock-fixture.ts';
+import { proSnapshot } from './__helpers__/pro-snapshot.ts';
 
 vi.mock('../network-bridge.ts', () => ({
   getProRoomServerNow: () => Date.now(),
@@ -45,8 +46,7 @@ function playback(queueItemId = FAILED_ITEM, revision = 12): ProRoomPlaybackChec
 }
 
 function snapshot(checkpoint = playback()): ProRoomSnapshot {
-  return {
-    schemaVersion: 1,
+  return proSnapshot({
     roomCode: ROOM,
     status: 'active',
     runtime: 'awake',
@@ -70,15 +70,12 @@ function snapshot(checkpoint = playback()): ProRoomSnapshot {
     presence: {
       coordinatorEpoch: EPOCH,
       revision: 1,
-      coordinatorParticipantId: null,
       participants: [],
     },
     quota: { limitBytes: 10_000, perAssetLimitBytes: 5_000, usedBytes: 8192, reservedBytes: 0 },
     viewer: null,
-    memberIdentityVersion: 1,
-    authorityVersion: 1,
     administrators: [],
-  };
+  });
 }
 
 function ready(request: Readonly<ProPlaybackPrepareRequest>): ProPlaybackPrepareResult {

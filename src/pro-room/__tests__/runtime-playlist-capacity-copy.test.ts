@@ -28,6 +28,7 @@ import {
 import { ServerProRoomNetworkBridge } from '../network-bridge.ts';
 import { joinProRoom } from '../runtime.ts';
 import { proHeartbeat } from './__helpers__/pro-heartbeat.ts';
+import { proSnapshot } from './__helpers__/pro-snapshot.ts';
 
 /**
  * A full PRO room receipt ledger answers ROOM_STATE_CAPACITY_EXCEEDED (RO-53).
@@ -62,8 +63,7 @@ function snapshot(): ProRoomSnapshot {
     displayName: 'Controller',
     role: 'controller' as const,
   };
-  return {
-    schemaVersion: 1,
+  return proSnapshot({
     roomCode: ROOM,
     status: 'active',
     runtime: 'awake',
@@ -89,7 +89,6 @@ function snapshot(): ProRoomSnapshot {
     presence: {
       coordinatorEpoch: 1,
       revision: 1,
-      coordinatorParticipantId: null,
       participants: [
         {
           ...member,
@@ -111,10 +110,7 @@ function snapshot(): ProRoomSnapshot {
       participantId: 'participant_00002',
       presenceIncarnationId: 'presence_0000000002',
       capabilities,
-      coordinatorEligible: false,
     },
-    memberIdentityVersion: 1,
-    authorityVersion: 1,
     administrators: [
       {
         memberId: 'member_0000000001',
@@ -134,7 +130,7 @@ function snapshot(): ProRoomSnapshot {
       { ...member, permissions, inheritedPermissions: [], onlineDeviceCount: 1 },
     ],
     playlistSlots: SLOTS,
-  };
+  });
 }
 
 async function join(canonical: ProRoomSnapshot, failure: Error): Promise<void> {

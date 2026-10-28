@@ -2,12 +2,12 @@ import { describe, expect, it } from 'vitest';
 import type { ProRoomSnapshot } from '../contracts.ts';
 import { PRO_ROOM_MAX_ASSET_BYTES, PRO_ROOM_QUOTA_BYTES } from '../contracts.ts';
 import { projectProRoomContext } from '../context.ts';
+import { proSnapshot } from './__helpers__/pro-snapshot.ts';
 
 const PARTICIPANT_ID = 'participant_00001';
 
 function snapshot(): ProRoomSnapshot {
-  return {
-    schemaVersion: 1,
+  return proSnapshot({
     roomCode: '000001',
     status: 'active',
     runtime: 'awake',
@@ -30,7 +30,6 @@ function snapshot(): ProRoomSnapshot {
     presence: {
       coordinatorEpoch: 3,
       revision: 2,
-      coordinatorParticipantId: null,
       participants: [
         {
           participantId: PARTICIPANT_ID,
@@ -74,10 +73,7 @@ function snapshot(): ProRoomSnapshot {
         'members.manage',
         'room.configure',
       ],
-      coordinatorEligible: false,
     },
-    memberIdentityVersion: 1,
-    authorityVersion: 1,
     administrators: [
       {
         memberId: 'member_0000000001',
@@ -95,7 +91,7 @@ function snapshot(): ProRoomSnapshot {
         onlineDeviceCount: 1,
       },
     ],
-  };
+  });
 }
 
 describe('PRO room authority projection', () => {
@@ -124,7 +120,6 @@ describe('PRO room authority projection', () => {
 
   it('projects fine-grained client permissions without changing the PRO wire vocabulary', () => {
     const value = snapshot();
-    value.authorityVersion = 1;
     value.administrators = [
       {
         memberId: value.viewer!.memberId,
@@ -162,9 +157,7 @@ describe('PRO room authority projection', () => {
       ...value.viewer!,
       role: 'controller',
       capabilities: ['playback.control'],
-      coordinatorEligible: false,
     };
-    value.authorityVersion = 1;
     value.administrators = [
       {
         memberId: value.viewer.memberId,
@@ -194,9 +187,7 @@ describe('PRO room authority projection', () => {
       memberDisplayNumber: 1,
       role: 'member',
       capabilities: [],
-      coordinatorEligible: false,
     };
-    value.authorityVersion = 1;
     value.administrators = [
       {
         memberId: 'member_owner_0000001',

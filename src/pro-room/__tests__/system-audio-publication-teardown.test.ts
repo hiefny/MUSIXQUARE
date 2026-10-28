@@ -33,6 +33,7 @@ import { bus } from '../../core/events.ts';
 import { clearAllManagedTimers, getManagedTimer, setManagedTimer } from '../../core/timers.ts';
 import type { ProRoomApiClient } from '../api.ts';
 import type { ProRoomSnapshot, ProRoomSystemAudioState } from '../contracts.ts';
+import { proSnapshot, type ProSnapshotFields } from './__helpers__/pro-snapshot.ts';
 
 const mocks = vi.hoisted(() => ({
   broadcastSystemMessage: vi.fn(),
@@ -176,8 +177,7 @@ function participant(participantId: string, memberNumber: number, capabilities: 
 }
 
 function snapshot(incarnation = 'presence_local_01'): ProRoomSnapshot {
-  return {
-    schemaVersion: 1,
+  return proSnapshot({
     roomCode: '000001',
     status: 'active',
     runtime: 'awake',
@@ -200,7 +200,6 @@ function snapshot(incarnation = 'presence_local_01'): ProRoomSnapshot {
     presence: {
       coordinatorEpoch: 1,
       revision: 1,
-      coordinatorParticipantId: null,
       participants: [
         participant(LOCAL_ID, 1, [...PLAYBACK_CONTROL]),
         participant(REMOTE_ID, 2, []),
@@ -216,12 +215,9 @@ function snapshot(incarnation = 'presence_local_01'): ProRoomSnapshot {
       displayName: 'Member 1',
       role: 'member',
       capabilities: [...PLAYBACK_CONTROL],
-      coordinatorEligible: false,
     },
-    memberIdentityVersion: 1,
-    authorityVersion: 1,
     administrators: [],
-  } as unknown as ProRoomSnapshot;
+  } as unknown as ProSnapshotFields);
 }
 
 function idle(generation = 0): ProRoomSystemAudioState {

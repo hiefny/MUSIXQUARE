@@ -8,6 +8,7 @@ import {
   sameProRoomAccountCommitIdentity,
 } from '../account-runtime-identity.ts';
 import type { ProRoomSnapshot } from '../contracts.ts';
+import { proViewer, type ProViewerFields } from './__helpers__/pro-snapshot.ts';
 
 function account(
   status: AccountSnapshot['status'],
@@ -23,12 +24,10 @@ function account(
   };
 }
 
-function snapshot(
-  overrides: Partial<NonNullable<ProRoomSnapshot['viewer']>> = {},
-): ProRoomSnapshot {
+function snapshot(overrides: Partial<ProViewerFields> = {}): ProRoomSnapshot {
   return {
     roomCode: '000001',
-    viewer: {
+    viewer: proViewer({
       memberId: 'member_0000000001',
       memberDisplayNumber: 1,
       isAuthenticated: true,
@@ -37,9 +36,8 @@ function snapshot(
       displayName: 'Owner',
       role: 'owner',
       capabilities: [],
-      coordinatorEligible: false,
       ...overrides,
-    },
+    }),
   } as ProRoomSnapshot;
 }
 

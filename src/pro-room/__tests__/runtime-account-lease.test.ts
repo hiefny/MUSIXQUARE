@@ -28,15 +28,14 @@ import { ServerProRoomNetworkBridge } from '../network-bridge.ts';
 import { ProRoomPlaylistStateManager } from '../playlist-state-manager.ts';
 import { acceptProRoomRealtimeFrameForTests, joinProRoom } from '../runtime.ts';
 import { idleProSystemAudio, proHeartbeat } from './__helpers__/pro-heartbeat.ts';
+import { proSnapshot } from './__helpers__/pro-snapshot.ts';
 
 const ROOM_CODE = '000001';
 const PARTICIPANT_ID = 'participant_lease_1';
 const PRESENCE_ID = 'presence_lease_1';
 
 function snapshot(presenceIncarnationId = PRESENCE_ID): ProRoomSnapshot {
-  return {
-    schemaVersion: 1,
-    memberIdentityVersion: 1,
+  return proSnapshot({
     roomCode: ROOM_CODE,
     status: 'active',
     runtime: 'awake',
@@ -59,7 +58,6 @@ function snapshot(presenceIncarnationId = PRESENCE_ID): ProRoomSnapshot {
     presence: {
       coordinatorEpoch: 1,
       revision: 1,
-      coordinatorParticipantId: null,
       participants: [
         {
           participantId: PARTICIPANT_ID,
@@ -89,9 +87,7 @@ function snapshot(presenceIncarnationId = PRESENCE_ID): ProRoomSnapshot {
       displayName: 'Minsu',
       role: 'owner',
       capabilities: [...capabilitiesForProRoomRole('owner')],
-      coordinatorEligible: false,
     },
-    authorityVersion: 1,
     administrators: [
       {
         memberId: 'member_lease_0001',
@@ -109,7 +105,7 @@ function snapshot(presenceIncarnationId = PRESENCE_ID): ProRoomSnapshot {
         onlineDeviceCount: 1,
       },
     ],
-  };
+  });
 }
 
 function signalingAccess(presenceIncarnationId = PRESENCE_ID): ProRoomSignalingAccess {
@@ -704,7 +700,6 @@ describe('PRO runtime account identity lease', { concurrent: false }, () => {
     } as const;
     const initial: ProRoomSnapshot = {
       ...snapshot(),
-      authorityVersion: 1,
       administrators: [
         {
           memberId: 'member_lease_0001',
@@ -789,8 +784,6 @@ describe('PRO runtime account identity lease', { concurrent: false }, () => {
     ] as const;
     const delegated: ProRoomSnapshot = {
       ...initial,
-      memberIdentityVersion: 1,
-      authorityVersion: 1,
       administrators: [
         {
           memberId: initial.viewer!.memberId,

@@ -42,6 +42,8 @@ import developerApiWorker, {
 } from '../../../cloudflare/developer-api-worker.ts';
 import { MAX_SYSTEM_AUDIO_DEVICES, SYSTEM_AUDIO_SHARE_LIMIT_MS } from '../../core/constants.ts';
 import {
+  parseProRoomPlaybackCommitEvent,
+  parseProRoomPlaybackPrepareEvent,
   ProRoomApiClient,
   ProRoomApiError,
   type SwitchProRoomPlaylistInput,
@@ -2624,6 +2626,161 @@ describe('PRO room server-authoritative playback', () => {
     await expect(seekPausedResponse.json()).resolves.toMatchObject({
       status: 'committed',
       playback: { state: 'paused', positionSeconds: 44 },
+    });
+  });
+
+  it('gives every rendezvous command the start kind of one table', async () => {
+    // The reference for the explicit start kind of snapshot v2: today a
+    // zero-start transition is marked only by its 2999 ms deadline and its
+    // 699 ms COMMIT lead; every other one gets 3000 ms and 700 ms. Each row
+    // runs in a fresh room with the owner as the whole cohort.
+    const ZERO_START = { deadlineMs: 2_999, commitLeadMs: 699 };
+    const SCHEDULED_CONTROL = { deadlineMs: 3_000, commitLeadMs: 700 };
+    type Room = Awaited<ReturnType<typeof activatedRoom>>;
+    type Realtime = ReturnType<typeof installRealtimeRecorder>;
+    const startKind = async (
+      context: Room,
+      realtime: Realtime,
+      transition: { transitionId: string; basePlaybackRevision: number },
+      readyCookie = context.ownerCookie,
+    ) => {
+      const pending = realtime.internal.room.pendingPlaybackTransition;
+      expect(pending.transitionId).toBe(transition.transitionId);
+      const deadlineMs = pending.deadlineAtMs - pending.createdAtMs;
+      const ready = await context.worker.fetch(
+        jsonRequest(
+          `/playback/transitions/${transition.transitionId}/ready`,
+          'POST',
+          { basePlaybackRevision: transition.basePlaybackRevision, status: 'ready' },
+          readyCookie,
+        ),
+      );
+      expect(ready.status).toBe(200);
+      await expect(ready.json()).resolves.toMatchObject({ status: 'committed' });
+      const commit = realtime.messages.find(
+        (message) =>
+          message.event?.type === 'pro-playback-commit' &&
+          message.event.transitionId === transition.transitionId,
+      )?.event;
+      return { deadlineMs, commitLeadMs: commit.executeAtMs - commit.serverTimeMs };
+    };
+    const commandKind = async (
+      prepare: (context: Room) => Promise<void>,
+      command: (playback: Record<string, any>) => Record<string, unknown>,
+    ) => {
+      const context = await activatedRoom();
+      const realtime = installRealtimeRecorder(context);
+      expect(
+        (await replacePlaylist(context, duplicateVideoPlaylist, 'start-kind-table')).status,
+      ).toBe(200);
+      await prepare(context);
+      const response = await context.worker.fetch(
+        jsonRequest(
+          '/playback/commands',
+          'POST',
+          command(realtime.internal.room.playback),
+          context.ownerCookie,
+          'start-kind-table-command',
+        ),
+      );
+      expect(response.status).toBe(202);
+      return startKind(context, realtime, (await responseJson(response)).transition);
+    };
+    const idle = async () => undefined;
+    const playing = (queueItemId: string) => async (context: Room) => {
+      await selectAndCommit(context, queueItemId, { key: 'start-kind-table-playing' });
+    };
+    const observation = (type: 'ended' | 'unavailable') => (playback: Record<string, any>) => ({
+      type,
+      baseRevision: playback.revision,
+      queueItemId: firstQueueItemId,
+      mediaKind: 'youtube',
+      observedPositionSeconds: 0.1,
+      durationSeconds: type === 'ended' ? 0.1 : null,
+      youtubeVideoId: 'dQw4w9WgXcQ',
+      youtubeSubIndex: 0,
+    });
+    const wake = async () => {
+      const context = await activatedRoom();
+      const realtime = installRealtimeRecorder(context);
+      expect(
+        (await replacePlaylist(context, duplicateVideoPlaylist, 'start-kind-table')).status,
+      ).toBe(200);
+      await selectAndCommit(context, firstQueueItemId, { key: 'start-kind-table-playing' });
+      expect(
+        (
+          await context.worker.fetch(
+            request('/presence/current', { method: 'DELETE' }, context.ownerCookie),
+          )
+        ).status,
+      ).toBe(200);
+      const returning = await addMember(context);
+      expect(realtime.internal.room.pendingPlaybackTransition.resumeFromSleep).toBe(true);
+      return startKind(
+        context,
+        realtime,
+        realtime.internal.room.pendingPlaybackTransition,
+        returning.cookie,
+      );
+    };
+
+    const table = {
+      'play from idle': await commandKind(idle, (playback) => ({
+        type: 'play',
+        baseRevision: playback.revision,
+      })),
+      'play from paused': await commandKind(
+        async (context) => {
+          await selectAndCommit(context, firstQueueItemId, {
+            state: 'paused',
+            positionSeconds: 12,
+            key: 'start-kind-table-paused',
+          });
+        },
+        (playback) => ({ type: 'play', baseRevision: playback.revision }),
+      ),
+      'seek while playing': await commandKind(playing(firstQueueItemId), (playback) => ({
+        type: 'seek',
+        baseRevision: playback.revision,
+        positionSeconds: 33,
+      })),
+      'select to play': await commandKind(idle, (playback) => ({
+        type: 'select',
+        baseRevision: playback.revision,
+        queueItemId: firstQueueItemId,
+        state: 'playing',
+        positionSeconds: 0,
+      })),
+      'select to pause': await commandKind(idle, (playback) => ({
+        type: 'select',
+        baseRevision: playback.revision,
+        queueItemId: firstQueueItemId,
+        state: 'paused',
+        positionSeconds: 0,
+      })),
+      next: await commandKind(playing(firstQueueItemId), (playback) => ({
+        type: 'next',
+        baseRevision: playback.revision,
+      })),
+      previous: await commandKind(playing(secondQueueItemId), (playback) => ({
+        type: 'previous',
+        baseRevision: playback.revision,
+      })),
+      ended: await commandKind(playing(firstQueueItemId), observation('ended')),
+      unavailable: await commandKind(playing(firstQueueItemId), observation('unavailable')),
+      'wake to resume playing': await wake(),
+    };
+    expect(table).toEqual({
+      'play from idle': ZERO_START,
+      'play from paused': SCHEDULED_CONTROL,
+      'seek while playing': SCHEDULED_CONTROL,
+      'select to play': ZERO_START,
+      'select to pause': ZERO_START,
+      next: ZERO_START,
+      previous: ZERO_START,
+      ended: ZERO_START,
+      unavailable: ZERO_START,
+      'wake to resume playing': SCHEDULED_CONTROL,
     });
   });
 
@@ -30147,5 +30304,658 @@ describe('PRO room capacity refusal reasons', () => {
     await expect(refused.json()).resolves.toEqual({ error: 'ROOM_STATE_CAPACITY_EXCEEDED' });
     expect(internalOf(context).room.assets[assetId].status).toBe('reserved');
     expect(capacityRefusals()).toEqual([{ reason: 'core', operation: 'developer', status: 409 }]);
+  });
+});
+
+describe('PRO snapshot carriers: entry policy and playlist summaries on every path', () => {
+  // The room adds `passwordRequired` and `playlistSlots` to every successful
+  // JSON answer that carries a snapshot (withEntryPolicyResponse, after the
+  // route ran), while publicSnapshot builds the snapshot when the route calls
+  // it. One row per publicSnapshot call, each request sent without the
+  // retired opt-in headers, pins both values. Snapshot v2 moves the two fields
+  // into publicSnapshot and drops that wrapper's addition; every row must
+  // keep its values through that move.
+  const MEMBER_ACCOUNT_ID = 'acct_carriermember000000001';
+  const TARGET_ACCOUNT_ID = 'acct_carriertarget000000001';
+  const FIRST = '11111111-1111-4111-8111-111111111111';
+  const SECOND = '22222222-2222-4222-8222-222222222222';
+  const MEMBER_ADMISSION = { pin: '12345678', requestId: 'carrier-member-admission-0001' };
+
+  type CarrierRoom = Awaited<ReturnType<typeof carrierRoom>>;
+  type PlaylistSlotsSummary = { activeSlot: number; slots: Array<{ count: number; bytes: null }> };
+
+  interface Carrier {
+    /** The PRO Worker method whose publicSnapshot call builds the answer. */
+    site: string;
+    route: string;
+    passwordRequired: boolean;
+    playlistSlots: PlaylistSlotsSummary;
+    run(room: CarrierRoom): Promise<Response>;
+  }
+
+  function slots(activeSlot: number, counts: [number, number, number]): PlaylistSlotsSummary {
+    return { activeSlot, slots: counts.map((count) => ({ count, bytes: null })) };
+  }
+
+  /** The playlists of carrierRoom: one track, and its copy in the second playlist. */
+  const SEEDED = slots(0, [1, 1, 0]);
+
+  function track(queueItemId: string) {
+    return {
+      queueItemId,
+      name: `Carrier track ${queueItemId.slice(0, 1)}`,
+      source: { kind: 'youtube', videoId: 'dQw4w9WgXcQ' },
+    };
+  }
+
+  /** Fetches without the opt-in headers, which the PRO Worker no longer reads. */
+  function send(worker: MusixquareProRoom, input: Request): Promise<Response> {
+    expect(input.headers.has('x-mxqr-pro-entry-policy')).toBe(false);
+    expect(input.headers.has('x-mxqr-pro-playlist-slots')).toBe(false);
+    return worker.fetch(input);
+  }
+
+  async function ownerView(context: { worker: MusixquareProRoom; ownerCookie: string }) {
+    const response = await send(context.worker, request('/snapshot', {}, context.ownerCookie));
+    expect(response.status).toBe(200);
+    return (await responseJson(response)).snapshot as Record<string, any>;
+  }
+
+  /**
+   * A protected room (PIN 12345678) with one track, its copy in the second
+   * playlist, and a member admitted beside the owner.
+   */
+  async function carrierRoom() {
+    const context = await activatedRoom();
+    expect((await replacePlaylist(context, [track(FIRST)], 'carrier-seed')).status).toBe(200);
+    const copied = await send(
+      context.worker,
+      jsonRequest(
+        '/playlists/transfer',
+        'POST',
+        {
+          baseRevision: (await ownerView(context)).revision,
+          queueItemIds: [FIRST],
+          targetSlots: [1],
+          mode: 'copy',
+        },
+        context.ownerCookie,
+        'carrier-seed-copy-0001',
+      ),
+    );
+    expect(copied.status).toBe(200);
+    const joined = await send(context.worker, jsonRequest('/sessions', 'POST', MEMBER_ADMISSION));
+    expect(joined.status).toBe(200);
+    const memberCookie = cookieFrom(joined);
+    const envelope = await responseJson(joined);
+    bindCookiePresence(memberCookie, envelope);
+    return {
+      ...context,
+      memberCookie,
+      member: envelope.snapshot.viewer as { memberId: string; participantId: string },
+    };
+  }
+
+  async function linkMemberAccount(room: CarrierRoom) {
+    return send(
+      room.worker,
+      await withAccountAssertion(
+        request('/sessions/current/account', { method: 'POST' }, room.memberCookie),
+        MEMBER_ACCOUNT_ID,
+        'Carrier member',
+      ),
+    );
+  }
+
+  async function leave(room: CarrierRoom, cookie: string) {
+    return send(room.worker, request('/presence/current', { method: 'DELETE' }, cookie));
+  }
+
+  /** A participant compact snapshot that appends a second track. */
+  async function appendSecondTrack(room: CarrierRoom) {
+    const current = await ownerView(room);
+    return {
+      baseRevision: current.revision,
+      playlistOrder: [FIRST, SECOND],
+      upserts: [track(SECOND)],
+      currentQueueItemId: null,
+      playback: {
+        coordinatorEpoch: current.presence.coordinatorEpoch,
+        revision: current.playback.revision,
+        state: 'idle',
+        queueItemId: null,
+        positionSeconds: 0,
+        updatedAtMs: Date.now(),
+        youtubeVideoId: null,
+        youtubeSubIndex: null,
+      },
+    };
+  }
+
+  async function switchTo(room: CarrierRoom, slot: number, key: string) {
+    return send(
+      room.worker,
+      jsonRequest(
+        '/playlists/switch',
+        'POST',
+        { baseRevision: (await ownerView(room)).revision, slot },
+        room.ownerCookie,
+        key,
+      ),
+    );
+  }
+
+  async function transferOwnership(room: CarrierRoom) {
+    const internalRequest = (path: string, body: Record<string, unknown>) =>
+      new Request(`https://pro-room.internal/internal/admin/${path}`, {
+        method: 'POST',
+        headers: {
+          'content-type': 'application/json',
+          'x-mxqr-pro-room-code': ROOM_CODE,
+          'x-mxqr-pro-room-generation': '0',
+        },
+        body: JSON.stringify(body),
+      });
+    const issued = await send(
+      room.worker,
+      internalRequest('owner-transfer-claim', {
+        targetAccountId: TARGET_ACCOUNT_ID,
+        roomGeneration: 0,
+      }),
+    );
+    expect(issued.status).toBe(200);
+    const { transferUrl } = await responseJson(issued);
+    const claimToken = decodeURIComponent(new URL(transferUrl).hash.replace(/^#pro-transfer=/, ''));
+    const requestId = 'owner_transfer_carrier_0001';
+    const prepared = await send(
+      room.worker,
+      await withAccountAssertion(
+        jsonRequest('/owner-transfer/prepare', 'POST', { claimToken, requestId }),
+        TARGET_ACCOUNT_ID,
+        'Carrier target',
+      ),
+    );
+    expect(prepared.status).toBe(200);
+    const { transferId, commitProof } = await responseJson(prepared);
+    const revokedAtMs = Date.now();
+    return send(
+      room.worker,
+      internalRequest('owner-transfer/commit', {
+        roomGeneration: 0,
+        transferId,
+        commitProof,
+        targetAccountId: TARGET_ACCOUNT_ID,
+        requestId,
+        revocationReceipt: await ownerTransferRevocationReceipt({
+          roomCode: ROOM_CODE,
+          roomGeneration: 0,
+          transferId,
+          targetAccountId: TARGET_ACCOUNT_ID,
+          requestId,
+          revokedAtMs,
+          expiresAtMs: revokedAtMs + 15 * 60 * 1000,
+        }),
+      }),
+    );
+  }
+
+  const CARRIERS: Carrier[] = [
+    {
+      site: 'handleActivation',
+      route: 'POST /activation',
+      passwordRequired: false,
+      playlistSlots: slots(0, [0, 0, 0]),
+      async run() {
+        const worker = new MusixquareProRoom(new FakeState() as never, environment() as never);
+        const claimToken = await issueProRoomActivationClaim(ROOM_CODE, ACTIVATION_SECRET, {
+          nowMs: Date.now() - 1000,
+          expiresAtMs: Date.now() + 60_000,
+          nonce: 'carrier-activation',
+        });
+        return send(
+          worker,
+          await withAccountAssertion(
+            jsonRequest('/activation', 'POST', { claimToken }),
+            ACTIVATION_OWNER_ACCOUNT_ID,
+            'Owner',
+          ),
+        );
+      },
+    },
+    {
+      site: 'handleOwnerRecovery',
+      route: 'POST /owner-recovery',
+      passwordRequired: true,
+      playlistSlots: SEEDED,
+      async run(room) {
+        const claimToken = await issueProRoomOwnerRecoveryClaim(ROOM_CODE, ACTIVATION_SECRET, {
+          nowMs: Date.now() - 1000,
+          expiresAtMs: Date.now() + 60_000,
+          nonce: 'carrier-owner-recovery',
+          ownerAuthorityEpoch: storedCanonicalRoom(room.state).ownerAuthorityEpoch,
+        });
+        return send(
+          room.worker,
+          await withAccountAssertion(
+            jsonRequest('/owner-recovery', 'POST', { claimToken }),
+            ACTIVATION_OWNER_ACCOUNT_ID,
+            'Owner',
+          ),
+        );
+      },
+    },
+    {
+      site: 'handleCreateSession',
+      route: 'POST /sessions (a new admission)',
+      passwordRequired: true,
+      playlistSlots: SEEDED,
+      run: (room) =>
+        send(
+          room.worker,
+          jsonRequest('/sessions', 'POST', {
+            pin: '12345678',
+            requestId: 'carrier-second-admission-0001',
+          }),
+        ),
+    },
+    {
+      site: 'handleCreateSession',
+      route: 'POST /sessions (the receipt replays an admission)',
+      passwordRequired: true,
+      playlistSlots: SEEDED,
+      run: (room) => send(room.worker, jsonRequest('/sessions', 'POST', MEMBER_ADMISSION)),
+    },
+    {
+      site: 'handleCreateSession',
+      route: 'POST /sessions (the session recovers an admission past its receipt)',
+      passwordRequired: true,
+      playlistSlots: SEEDED,
+      run(room) {
+        (room.worker as unknown as { room: Record<string, any> }).room.sessionCreateIdempotency =
+          {};
+        return send(room.worker, jsonRequest('/sessions', 'POST', MEMBER_ADMISSION));
+      },
+    },
+    {
+      site: 'handleGetSnapshot',
+      route: 'GET /snapshot',
+      passwordRequired: true,
+      playlistSlots: SEEDED,
+      run: (room) => send(room.worker, request('/snapshot', {}, room.memberCookie)),
+    },
+    {
+      site: 'handleAttachCurrentAccount',
+      route: 'POST /sessions/current/account (links the account)',
+      passwordRequired: true,
+      playlistSlots: SEEDED,
+      run: (room) => linkMemberAccount(room),
+    },
+    {
+      site: 'handleAttachCurrentAccount',
+      route: 'POST /sessions/current/account (proves the linked account again)',
+      passwordRequired: true,
+      playlistSlots: SEEDED,
+      async run(room) {
+        expect((await linkMemberAccount(room)).status).toBe(200);
+        return linkMemberAccount(room);
+      },
+    },
+    {
+      site: 'handleDetachCurrentAccount',
+      route: 'DELETE /sessions/current/account',
+      passwordRequired: true,
+      playlistSlots: SEEDED,
+      async run(room) {
+        expect((await linkMemberAccount(room)).status).toBe(200);
+        return send(room.worker, detachRequest(room.memberCookie));
+      },
+    },
+    {
+      site: 'handleEnterPresence',
+      route: 'POST /presence/enter',
+      passwordRequired: true,
+      playlistSlots: SEEDED,
+      async run(room) {
+        expect((await leave(room, room.memberCookie)).status).toBe(200);
+        return send(room.worker, request('/presence/enter', { method: 'POST' }, room.memberCookie));
+      },
+    },
+    {
+      site: 'handleHeartbeat',
+      route: 'POST /presence/heartbeat (the full answer)',
+      passwordRequired: true,
+      playlistSlots: SEEDED,
+      run: (room) =>
+        send(room.worker, request('/presence/heartbeat', { method: 'POST' }, room.memberCookie)),
+    },
+    {
+      site: 'handleLeavePresence',
+      route: 'DELETE /presence/current (others stay: the departing snapshot)',
+      passwordRequired: true,
+      playlistSlots: SEEDED,
+      run: (room) => leave(room, room.memberCookie),
+    },
+    {
+      site: 'handleLeavePresence',
+      route: 'DELETE /presence/current (the last device leaves)',
+      passwordRequired: true,
+      playlistSlots: SEEDED,
+      async run(room) {
+        expect((await leave(room, room.memberCookie)).status).toBe(200);
+        return leave(room, room.ownerCookie);
+      },
+    },
+    {
+      site: 'handleKickPresence',
+      route: 'POST /presence/kick',
+      passwordRequired: true,
+      playlistSlots: SEEDED,
+      run: (room) =>
+        send(
+          room.worker,
+          jsonRequest(
+            '/presence/kick',
+            'POST',
+            { targetMemberId: room.member.memberId },
+            room.ownerCookie,
+          ),
+        ),
+    },
+    {
+      site: 'handleKickPhysicalPresence',
+      route: 'POST /presence/kick-device',
+      passwordRequired: true,
+      playlistSlots: SEEDED,
+      run: (room) =>
+        send(
+          room.worker,
+          jsonRequest(
+            '/presence/kick-device',
+            'POST',
+            { targetParticipantId: room.member.participantId },
+            room.ownerCookie,
+          ),
+        ),
+    },
+    {
+      site: 'commitParticipantSnapshot',
+      route: 'POST /snapshot/compact',
+      passwordRequired: true,
+      playlistSlots: slots(0, [2, 1, 0]),
+      async run(room) {
+        const body = await appendSecondTrack(room);
+        return send(
+          room.worker,
+          jsonRequest('/snapshot/compact', 'POST', body, room.ownerCookie, 'carrier-compact-0001'),
+        );
+      },
+    },
+    {
+      site: 'replayIdempotency',
+      route: 'POST /snapshot/compact (the receipt replays the snapshot)',
+      passwordRequired: true,
+      playlistSlots: slots(0, [2, 1, 0]),
+      async run(room) {
+        const body = await appendSecondTrack(room);
+        const compact = () =>
+          send(
+            room.worker,
+            jsonRequest(
+              '/snapshot/compact',
+              'POST',
+              body,
+              room.ownerCookie,
+              'carrier-compact-0002',
+            ),
+          );
+        expect((await compact()).status).toBe(200);
+        const revision = (await ownerView(room)).revision;
+        const replayed = await compact();
+        expect((await ownerView(room)).revision).toBe(revision);
+        return replayed;
+      },
+    },
+    {
+      site: 'handlePlaylistSwitch',
+      route: 'POST /playlists/switch (to the active playlist)',
+      passwordRequired: true,
+      playlistSlots: SEEDED,
+      run: (room) => switchTo(room, 0, 'carrier-switch-same-0001'),
+    },
+    {
+      site: 'handlePlaylistSwitch',
+      route: 'POST /playlists/switch',
+      passwordRequired: true,
+      playlistSlots: slots(1, [1, 1, 0]),
+      run: (room) => switchTo(room, 1, 'carrier-switch-0001'),
+    },
+    {
+      site: 'handlePlaylistTransfer',
+      route: 'POST /playlists/transfer',
+      passwordRequired: true,
+      playlistSlots: slots(0, [1, 1, 1]),
+      async run(room) {
+        return send(
+          room.worker,
+          jsonRequest(
+            '/playlists/transfer',
+            'POST',
+            {
+              baseRevision: (await ownerView(room)).revision,
+              queueItemIds: [FIRST],
+              targetSlots: [2],
+              mode: 'copy',
+            },
+            room.ownerCookie,
+            'carrier-transfer-0001',
+          ),
+        );
+      },
+    },
+    {
+      site: 'ownerTransferCommitResponse',
+      route: 'POST /internal/admin/owner-transfer/commit',
+      passwordRequired: false,
+      playlistSlots: SEEDED,
+      run: (room) => transferOwnership(room),
+    },
+  ];
+
+  it.each(CARRIERS)(
+    '$site carries both fields: $route',
+    async ({ run, passwordRequired, playlistSlots }) => {
+      const room = await carrierRoom();
+      const response = await run(room);
+      expect(response.status).toBe(200);
+      const { snapshot } = await responseJson(response);
+      expect({
+        passwordRequired: snapshot.passwordRequired,
+        playlistSlots: snapshot.playlistSlots,
+      }).toEqual({ passwordRequired, playlistSlots });
+      expect(parseProRoomSnapshot(snapshot)).not.toBeNull();
+    },
+  );
+
+  it('has one row for each publicSnapshot call of the PRO Worker', async () => {
+    const source = await readFile(
+      new URL('../../../cloudflare/pro-room-worker.ts', import.meta.url),
+      'utf8',
+    );
+    const sites: string[] = [];
+    let method = '';
+    for (const line of source.split('\n')) {
+      const header = /^ {2}(?:(?:private|protected|public|static|async) )*([A-Za-z]\w*)\(/.exec(
+        line,
+      );
+      if (header) method = header[1]!;
+      sites.push(...Array.from(line.matchAll(/(?<!function )\bpublicSnapshot\(/g), () => method));
+    }
+    expect(sites).toHaveLength(21);
+    expect(sites.sort()).toEqual(CARRIERS.map((carrier) => carrier.site).sort());
+  });
+});
+
+describe('PRO browser parsers on the actual Worker answers', () => {
+  // Cross-contract rows beyond the snapshot: the browser's ProRoomApiClient
+  // and its playback event parsers read what this in-process Worker actually
+  // answers and delivers, as the activation round trip does for the
+  // snapshot. Each parsed value must equal the wire value it came from, so a
+  // field the Worker starts sending must be kept by the parser in the same
+  // change, and a parser cannot narrow before the Worker stops sending.
+  const FIRST = '11111111-1111-4111-8111-111111111111';
+  const SECOND = '22222222-2222-4222-8222-222222222222';
+
+  /** A browser client whose requests reach `worker` through the App facade's path. */
+  function browserFor(worker: MusixquareProRoom, accountId?: string) {
+    let cookie = '';
+    const answers: Array<Record<string, any>> = [];
+    const fetchImplementation: typeof fetch = async (input, init) => {
+      const incoming = new Request(input, init);
+      const url = new URL(incoming.url);
+      url.pathname = url.pathname.replace('/api/pro-room', '');
+      let forwarded = new Request(url, incoming);
+      forwarded.headers.set('x-mxqr-pro-room-code', ROOM_CODE);
+      forwarded.headers.set('x-mxqr-pro-room-generation', '0');
+      forwarded.headers.set('x-mxqr-pro-ip-hash', accountId || 'parser-contract-member');
+      if (cookie) forwarded.headers.set('cookie', cookie);
+      if (accountId) forwarded = await withAccountAssertion(forwarded, accountId, 'Owner');
+      const response = await worker.fetch(forwarded);
+      const sessionCookie = response.headers
+        .getSetCookie()
+        .find((entry) => entry.startsWith('__Host-mxqr_pro_session_'));
+      if (sessionCookie) cookie = sessionCookie.split(';')[0]!;
+      if (response.headers.get('content-type')?.startsWith('application/json')) {
+        answers.push((await response.clone().json()) as Record<string, any>);
+      }
+      return response;
+    };
+    return {
+      api: new ProRoomApiClient({ fetch: fetchImplementation }),
+      /** The JSON body of the latest answer, as the Worker sent it. */
+      lastAnswer: () => answers.at(-1)!,
+    };
+  }
+
+  /** An open room with its owner and one member in the room, and every signaling broadcast. */
+  async function openRoom() {
+    const worker = new MusixquareProRoom(new FakeState() as never, environment() as never);
+    const broadcasts: Array<Record<string, any>> = [];
+    (worker as unknown as { env: Record<string, unknown> }).env.PRO_SIGNALING_ROOMS = {
+      idFromName: (name: string) => name,
+      get: () => ({
+        fetch: signalingBroadcasts.wrap(async (input: Request) => {
+          const body = (await input.clone().json()) as Record<string, any>;
+          broadcasts.push(body);
+          const eligible = Array.isArray(body.targets) ? body.targets.length : 0;
+          return Response.json({ broadcast: true, eligible, sent: eligible });
+        }),
+      }),
+    };
+    const owner = browserFor(worker, ACTIVATION_OWNER_ACCOUNT_ID);
+    const member = browserFor(worker);
+    const claimToken = await issueProRoomActivationClaim(ROOM_CODE, ACTIVATION_SECRET, {
+      nowMs: Date.now() - 1000,
+      expiresAtMs: Date.now() + 60_000,
+      nonce: 'browser-parser-contract',
+    });
+    await owner.api.activate({ code: ROOM_CODE, claimToken, expectedAccountScope: 'a'.repeat(43) });
+    const memberSnapshot = await member.api.createSession({ code: ROOM_CODE });
+    return { worker, owner, member, memberId: memberSnapshot.viewer!.memberId, broadcasts };
+  }
+
+  it('parses the administrator directory the Worker answers to a grant and a revocation', async () => {
+    const { owner, memberId } = await openRoom();
+    const permissions = {
+      'media.add': true,
+      'playback.control': true,
+      'members.kick': false,
+      'chat.notice': false,
+    };
+
+    const granted = await owner.api.updateAdministrator(ROOM_CODE, memberId, permissions);
+    expect(granted.administrators).toEqual(owner.lastAnswer().administrators);
+    expect(granted.administrators.find((row) => row.memberId === memberId)).toMatchObject({
+      role: 'controller',
+      permissions,
+    });
+
+    const revoked = await owner.api.revokeAdministrator(ROOM_CODE, memberId);
+    expect(revoked.administrators).toEqual(owner.lastAnswer().administrators);
+    expect(revoked.administrators.map((row) => row.memberId)).not.toContain(memberId);
+  });
+
+  it('parses the PREPARE and COMMIT events the Worker answers and delivers', async () => {
+    const { owner, member, broadcasts } = await openRoom();
+    const empty = await owner.api.getSnapshot(ROOM_CODE);
+    await owner.api.updateCompactSnapshot({
+      code: ROOM_CODE,
+      baseRevision: empty.revision,
+      playlistOrder: [FIRST, SECOND],
+      upserts: [
+        { queueItemId: FIRST, name: 'First', source: { kind: 'youtube', videoId: 'dQw4w9WgXcQ' } },
+        {
+          queueItemId: SECOND,
+          name: 'Second',
+          source: { kind: 'youtube', videoId: '9bZkp7q19f0' },
+        },
+      ],
+      currentQueueItemId: null,
+      playback: empty.playback,
+      idempotencyKey: 'browser-parser-contract-playlist',
+    });
+    const before = await owner.api.getSnapshot(ROOM_CODE);
+
+    // The PREPARE of a playback command answer.
+    const selected = await owner.api.executePlaybackCommand({
+      code: ROOM_CODE,
+      command: {
+        type: 'select',
+        baseRevision: before.playback.revision,
+        queueItemId: FIRST,
+        state: 'playing',
+        positionSeconds: 0,
+      },
+      idempotencyKey: 'browser-parser-contract-select',
+    });
+    expect(selected.status).toBe('preparing');
+    expect(selected.transition).toEqual(owner.lastAnswer().transition);
+    const transition = selected.transition!;
+
+    // The pending PREPARE of a signaling ticket.
+    const access = await member.api.createSignalingTicket(ROOM_CODE);
+    expect(access.pendingPlaybackTransition).toEqual(member.lastAnswer().pendingPlaybackTransition);
+    expect(access.pendingPlaybackTransition?.transitionId).toBe(transition.transitionId);
+
+    const ready = (api: ProRoomApiClient) =>
+      api.reportPlaybackTransitionReady({
+        code: ROOM_CODE,
+        transitionId: transition.transitionId,
+        basePlaybackRevision: transition.basePlaybackRevision,
+        status: 'ready',
+      });
+    await expect(ready(owner.api)).resolves.toBe('waiting');
+    await expect(ready(member.api)).resolves.toBe('committed');
+    const playing = await owner.api.getSnapshot(ROOM_CODE);
+    const paused = await owner.api.executePlaybackCommand({
+      code: ROOM_CODE,
+      command: { type: 'pause', baseRevision: playing.playback.revision },
+      idempotencyKey: 'browser-parser-contract-pause',
+    });
+    expect(paused.status).toBe('committed');
+
+    // The events signaling delivers: the PREPARE, its COMMIT, and the direct
+    // COMMIT of the pause.
+    const events = broadcasts
+      .map((broadcast) => broadcast.event as Record<string, any>)
+      .filter((event) => String(event.type).startsWith('pro-playback-'));
+    expect(events.map((event) => [event.type, event.transitionId])).toEqual([
+      ['pro-playback-prepare', transition.transitionId],
+      ['pro-playback-commit', transition.transitionId],
+      ['pro-playback-commit', null],
+    ]);
+    const [prepare, commit, directCommit] = events;
+    expect(parseProRoomPlaybackPrepareEvent(prepare)).toEqual(prepare);
+    expect(parseProRoomPlaybackCommitEvent(commit)).toEqual(commit);
+    expect(parseProRoomPlaybackCommitEvent(directCommit)).toEqual(directCommit);
   });
 });

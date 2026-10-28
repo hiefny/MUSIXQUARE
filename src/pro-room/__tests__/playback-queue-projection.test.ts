@@ -27,6 +27,7 @@ import { installProClockSnapshotMocks } from './__helpers__/pro-clock-fixture.ts
 import { ServerProRoomNetworkBridge } from '../network-bridge.ts';
 import { acceptProRoomRealtimeFrameForTests, joinProRoom } from '../runtime.ts';
 import { proHeartbeat } from './__helpers__/pro-heartbeat.ts';
+import { proSnapshot } from './__helpers__/pro-snapshot.ts';
 
 const ROOM = '000001';
 const PARTICIPANT = 'participant_00001';
@@ -44,8 +45,7 @@ const sources: ProRoomR2Source[] = [1, 2, 3].map((value) => ({
 const nativeDownload = ProRoomMediaTransfer.prototype.download;
 
 function roomSnapshot(): ProRoomSnapshot {
-  return {
-    schemaVersion: 1,
+  return proSnapshot({
     roomCode: ROOM,
     status: 'active',
     runtime: 'awake',
@@ -72,7 +72,6 @@ function roomSnapshot(): ProRoomSnapshot {
     presence: {
       coordinatorEpoch: 1,
       revision: 1,
-      coordinatorParticipantId: null,
       participants: [
         {
           participantId: PARTICIPANT,
@@ -102,10 +101,7 @@ function roomSnapshot(): ProRoomSnapshot {
       displayName: 'Owner',
       role: 'owner',
       capabilities: [...capabilitiesForProRoomRole('owner')],
-      coordinatorEligible: false,
     },
-    memberIdentityVersion: 1,
-    authorityVersion: 1,
     administrators: [
       {
         memberId: 'member_0000000001',
@@ -123,7 +119,7 @@ function roomSnapshot(): ProRoomSnapshot {
         onlineDeviceCount: 1,
       },
     ],
-  };
+  });
 }
 
 function deliver(event: Record<string, unknown> & { type: string }): void {

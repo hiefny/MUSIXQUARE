@@ -29,6 +29,7 @@ import { ProRoomPlaybackController } from '../playback-controller.ts';
 import { resolveProRoomRemovalTransition } from '../playlist-transition.ts';
 import * as proRoomClock from '../network-bridge.ts';
 import { installProClockSnapshotMocks } from './__helpers__/pro-clock-fixture.ts';
+import { proSnapshot } from './__helpers__/pro-snapshot.ts';
 
 // Keep controller, authority fencing, playlist preparation and invalidation real.
 // The decode seam controls per-device outcomes without requiring a browser codec.
@@ -87,8 +88,7 @@ function checkpoint(
 }
 
 function snapshot(playback: ProRoomPlaybackCheckpoint): ProRoomSnapshot {
-  return {
-    schemaVersion: 1,
+  return proSnapshot({
     roomCode: getState('room.context').roomId ?? ROOM,
     status: 'active',
     runtime: 'awake',
@@ -112,15 +112,12 @@ function snapshot(playback: ProRoomPlaybackCheckpoint): ProRoomSnapshot {
     presence: {
       coordinatorEpoch: playback.coordinatorEpoch,
       revision: 1,
-      coordinatorParticipantId: null,
       participants: [],
     },
     quota: { limitBytes: 1000, perAssetLimitBytes: 1000, usedBytes: 8, reservedBytes: 0 },
     viewer: null,
-    memberIdentityVersion: 1,
-    authorityVersion: 1,
     administrators: [],
-  };
+  });
 }
 
 function publishResident(file: File, queueItemId: QueueItemId, sessionId = 5): void {

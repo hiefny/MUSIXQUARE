@@ -17,6 +17,7 @@ import {
 } from '../contracts.ts';
 import { parseProRoomSnapshot } from '../snapshot.ts';
 import { idleProSystemAudio } from './__helpers__/pro-heartbeat.ts';
+import { proAdministratorDirectory, proSnapshot } from './__helpers__/pro-snapshot.ts';
 
 const ROOM_CODE = '000001';
 const PRO_ROOM_PRODUCTION_PATH = new URL(PRO_ROOM_PRODUCTION_ENDPOINT).pathname;
@@ -48,36 +49,32 @@ const DELEGATED_PERMISSIONS: ProRoomPermissionSet = {
 const DELEGATED_MEMBER_ID = 'member_0000000002';
 
 function administratorDirectory() {
-  return {
-    authorityVersion: 1 as const,
-    administrators: [
-      {
-        memberId: 'member_0000000001',
-        memberDisplayNumber: 0,
-        isAuthenticated: true,
-        displayName: 'Owner',
-        role: 'owner' as const,
-        permissions: OWNER_PERMISSIONS,
-        inheritedPermissions: Object.keys(OWNER_PERMISSIONS) as Array<keyof ProRoomPermissionSet>,
-        onlineDeviceCount: 1,
-      },
-      {
-        memberId: DELEGATED_MEMBER_ID,
-        memberDisplayNumber: 2,
-        isAuthenticated: true,
-        displayName: 'Friend',
-        role: 'controller' as const,
-        permissions: DELEGATED_PERMISSIONS,
-        inheritedPermissions: [] as Array<keyof ProRoomPermissionSet>,
-        onlineDeviceCount: 2,
-      },
-    ],
-  };
+  return proAdministratorDirectory([
+    {
+      memberId: 'member_0000000001',
+      memberDisplayNumber: 0,
+      isAuthenticated: true,
+      displayName: 'Owner',
+      role: 'owner' as const,
+      permissions: OWNER_PERMISSIONS,
+      inheritedPermissions: Object.keys(OWNER_PERMISSIONS) as Array<keyof ProRoomPermissionSet>,
+      onlineDeviceCount: 1,
+    },
+    {
+      memberId: DELEGATED_MEMBER_ID,
+      memberDisplayNumber: 2,
+      isAuthenticated: true,
+      displayName: 'Friend',
+      role: 'controller' as const,
+      permissions: DELEGATED_PERMISSIONS,
+      inheritedPermissions: [] as Array<keyof ProRoomPermissionSet>,
+      onlineDeviceCount: 2,
+    },
+  ]);
 }
 
 function activeSnapshot(roomCode = ROOM_CODE): ProRoomSnapshot {
-  return {
-    schemaVersion: 1,
+  return proSnapshot({
     roomCode,
     status: 'active',
     runtime: 'awake',
@@ -106,7 +103,6 @@ function activeSnapshot(roomCode = ROOM_CODE): ProRoomSnapshot {
     presence: {
       coordinatorEpoch: 1,
       revision: 1,
-      coordinatorParticipantId: null,
       participants: [
         {
           participantId: 'participant_00001',
@@ -136,10 +132,7 @@ function activeSnapshot(roomCode = ROOM_CODE): ProRoomSnapshot {
       displayName: 'Owner',
       role: 'owner',
       capabilities: [...OWNER_CAPABILITIES],
-      coordinatorEligible: false,
     },
-    memberIdentityVersion: 1,
-    authorityVersion: 1,
     administrators: [
       {
         memberId: 'member_0000000001',
@@ -152,7 +145,7 @@ function activeSnapshot(roomCode = ROOM_CODE): ProRoomSnapshot {
         onlineDeviceCount: 1,
       },
     ],
-  };
+  });
 }
 
 function jsonResponse(value: unknown, init: ResponseInit = {}): Response {
@@ -873,7 +866,6 @@ describe('PRO room cookie session API', () => {
   it('attaches the current App account through the cookie facade without a browser identity body', async () => {
     const linked = activeSnapshot();
     linked.revision = 4;
-    linked.memberIdentityVersion = 1;
     linked.viewer = {
       ...linked.viewer!,
       memberDisplayNumber: 0,
@@ -941,8 +933,6 @@ describe('PRO room cookie session API', () => {
   it('detaches the current account by room session cookie without requiring live presence headers', async () => {
     const detached = activeSnapshot();
     detached.revision = 5;
-    detached.memberIdentityVersion = 1;
-    detached.authorityVersion = 1;
     detached.administrators = [
       {
         memberId: 'member_0000000001',

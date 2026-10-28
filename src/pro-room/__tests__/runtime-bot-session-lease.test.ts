@@ -14,13 +14,13 @@ import { requestProRoomLeave } from '../lifecycle-hook.ts';
 import { parseProRoomSignalingTicket } from '../credentials.ts';
 import { ServerProRoomNetworkBridge } from '../network-bridge.ts';
 import { joinProRoom, requestActiveProRoomBotCommand } from '../runtime.ts';
+import { proSnapshot } from './__helpers__/pro-snapshot.ts';
 
 const ROOM_CODE = '000002';
 const PARTICIPANT_ID = 'participant_00002';
 
 function roomSnapshot(): ProRoomSnapshot {
-  return {
-    schemaVersion: 1,
+  return proSnapshot({
     roomCode: ROOM_CODE,
     status: 'active',
     runtime: 'awake',
@@ -43,7 +43,6 @@ function roomSnapshot(): ProRoomSnapshot {
     presence: {
       coordinatorEpoch: 1,
       revision: 1,
-      coordinatorParticipantId: null,
       participants: [
         {
           participantId: PARTICIPANT_ID,
@@ -73,10 +72,7 @@ function roomSnapshot(): ProRoomSnapshot {
       displayName: 'Owner',
       role: 'owner',
       capabilities: [...capabilitiesForProRoomRole('owner')],
-      coordinatorEligible: false,
     },
-    memberIdentityVersion: 1,
-    authorityVersion: 1,
     administrators: [
       {
         memberId: 'member_0000000002',
@@ -94,7 +90,7 @@ function roomSnapshot(): ProRoomSnapshot {
         onlineDeviceCount: 1,
       },
     ],
-  };
+  });
 }
 
 describe('PRO BOT runtime session lease', { concurrent: false }, () => {

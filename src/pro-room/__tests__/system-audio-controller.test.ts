@@ -11,15 +11,15 @@ import {
   type ProRoomSystemAudioControllerObserverForTests,
   type ProRoomSystemAudioViewState,
 } from '../system-audio-controller.ts';
+import { proSnapshot } from './__helpers__/pro-snapshot.ts';
 
 const LOCAL_ID = 'participant_local1';
 const COORDINATOR_ID = 'participant_coord1';
 const REMOTE_ID = 'participant_remote1';
 const LEASE_ID = 'L'.repeat(43);
 
-function sessionSnapshot(coordinatorParticipantId = COORDINATOR_ID): ProRoomSnapshot {
-  return {
-    schemaVersion: 1,
+function sessionSnapshot(): ProRoomSnapshot {
+  return proSnapshot({
     roomCode: '000001',
     status: 'active',
     runtime: 'awake',
@@ -42,7 +42,6 @@ function sessionSnapshot(coordinatorParticipantId = COORDINATOR_ID): ProRoomSnap
     presence: {
       coordinatorEpoch: 1,
       revision: 1,
-      coordinatorParticipantId,
       participants: [
         {
           participantId: COORDINATOR_ID,
@@ -101,10 +100,7 @@ function sessionSnapshot(coordinatorParticipantId = COORDINATOR_ID): ProRoomSnap
         'asset.upload',
         'members.manage',
       ],
-      coordinatorEligible: false,
     },
-    memberIdentityVersion: 1,
-    authorityVersion: 1,
     administrators: [
       {
         memberId: 'member_owner_0001',
@@ -122,7 +118,7 @@ function sessionSnapshot(coordinatorParticipantId = COORDINATOR_ID): ProRoomSnap
         onlineDeviceCount: 0,
       },
     ],
-  };
+  });
 }
 
 function idle(generation = 0): ProRoomSystemAudioState {
@@ -381,7 +377,7 @@ describe('ProRoomSystemAudioController', () => {
     api.acquireSystemAudioLease.mockResolvedValue({ systemAudio: preparing(), leaseId: LEASE_ID });
     await controller.acquireProSystemAudioLease();
 
-    const afterHandoff = sessionSnapshot(LOCAL_ID);
+    const afterHandoff = sessionSnapshot();
     afterHandoff.presence.coordinatorEpoch = 2;
     afterHandoff.playback.coordinatorEpoch = 2;
     controller.bindSession(afterHandoff);

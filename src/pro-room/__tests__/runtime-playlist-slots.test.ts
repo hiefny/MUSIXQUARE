@@ -21,6 +21,7 @@ import {
 import { ServerProRoomNetworkBridge } from '../network-bridge.ts';
 import { joinProRoom } from '../runtime.ts';
 import { proHeartbeat } from './__helpers__/pro-heartbeat.ts';
+import { proSnapshot } from './__helpers__/pro-snapshot.ts';
 
 const ROOM = '012345';
 const ITEM = '5a000000-0000-4000-8000-000000000001' as QueueItemId;
@@ -48,8 +49,7 @@ function snapshot(playlistSlots: PlaylistSlotsSummary | undefined, canMutate = t
     displayName: 'Controller',
     role: 'controller' as const,
   };
-  const value: ProRoomSnapshot = {
-    schemaVersion: 1,
+  const value: ProRoomSnapshot = proSnapshot({
     roomCode: ROOM,
     status: 'active',
     runtime: 'awake',
@@ -74,7 +74,6 @@ function snapshot(playlistSlots: PlaylistSlotsSummary | undefined, canMutate = t
     presence: {
       coordinatorEpoch: 1,
       revision: 1,
-      coordinatorParticipantId: null,
       participants: [
         {
           ...member,
@@ -96,10 +95,7 @@ function snapshot(playlistSlots: PlaylistSlotsSummary | undefined, canMutate = t
       participantId: 'participant_00002',
       presenceIncarnationId: 'presence_0000000002',
       capabilities,
-      coordinatorEligible: false,
     },
-    memberIdentityVersion: 1,
-    authorityVersion: 1,
     administrators: [
       {
         memberId: 'member_0000000001',
@@ -118,7 +114,7 @@ function snapshot(playlistSlots: PlaylistSlotsSummary | undefined, canMutate = t
       },
       { ...member, permissions, inheritedPermissions: [], onlineDeviceCount: 1 },
     ],
-  };
+  });
   return playlistSlots ? { ...value, playlistSlots } : value;
 }
 

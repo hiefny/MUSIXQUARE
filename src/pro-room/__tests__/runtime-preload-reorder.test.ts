@@ -32,6 +32,7 @@ import {
   prepareProPlaybackAuthority,
 } from '../playback-authority-hooks.ts';
 import { proHeartbeat } from './__helpers__/pro-heartbeat.ts';
+import { proSnapshot } from './__helpers__/pro-snapshot.ts';
 
 const downloadMedia = ProRoomMediaTransfer.prototype.download;
 
@@ -73,8 +74,7 @@ const PROMOTED_FILE = new File(['play'], 'promoted-in-flight.flac', {
 });
 
 function roomSnapshot(): ProRoomSnapshot {
-  return {
-    schemaVersion: 1,
+  return proSnapshot({
     roomCode: ROOM_CODE,
     status: 'active',
     runtime: 'awake',
@@ -118,7 +118,6 @@ function roomSnapshot(): ProRoomSnapshot {
     presence: {
       coordinatorEpoch: 1,
       revision: 1,
-      coordinatorParticipantId: null,
       participants: [
         {
           participantId: PARTICIPANT_ID,
@@ -148,10 +147,7 @@ function roomSnapshot(): ProRoomSnapshot {
       displayName: 'Owner',
       role: 'owner',
       capabilities: [...capabilitiesForProRoomRole('owner')],
-      coordinatorEligible: false,
     },
-    memberIdentityVersion: 1,
-    authorityVersion: 1,
     administrators: [
       {
         memberId: 'member_0000000001',
@@ -169,7 +165,7 @@ function roomSnapshot(): ProRoomSnapshot {
         onlineDeviceCount: 1,
       },
     ],
-  };
+  });
 }
 
 function signalingAccess(): ProRoomSignalingAccess {

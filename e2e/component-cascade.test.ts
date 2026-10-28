@@ -221,6 +221,16 @@ const actionLabelMarkup = `
 
 async function actionLabelStyles(page: import('@playwright/test').Page) {
   return page.evaluate(async () => {
+    // WebKit can apply a resized viewport's media queries in its next
+    // rendering update rather than on a style read, although innerWidth and
+    // matchMedia already report the new width. A transition it then starts
+    // from that read can also leave an inheriting label (the media option's
+    // span under .file-select-btn) at the old size after the button's own
+    // transition finishes. Wait two frames first so the new cascade and its
+    // transitions come from a rendering update.
+    await new Promise<void>((resolve) =>
+      requestAnimationFrame(() => requestAnimationFrame(() => resolve())),
+    );
     // Reduced motion shortens transitions to 0.01ms instead of removing them,
     // so a viewport change that resizes the demo finish pair starts a short
     // font-size transition on its inherited labels. Read the settled values.

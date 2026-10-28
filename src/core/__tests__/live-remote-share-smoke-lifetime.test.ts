@@ -22,7 +22,10 @@ class SmokeSocket extends EventEmitter {
   }
 }
 
-type OpenAuthority = (...args: unknown[]) => Promise<{ close(): void }>;
+type AssertionProvider = (request: Record<string, unknown>) => Promise<string>;
+type OpenAuthority = (
+  ...args: unknown[]
+) => Promise<{ provider: AssertionProvider | null; close(): void }>;
 type Convergence = <T>(
   attempt: (hostSecret: string) => Promise<T>,
   options: Record<string, unknown>,
@@ -290,5 +293,105 @@ describe('live remote-share smoke App build', () => {
     );
     const error = await outcome;
     expect((error as Error).message).toContain('below the App build floor 786');
+  });
+});
+
+const ASSERTION_MARKERS = {
+  remoteShareUploadAssertionVersion: 1,
+  remoteShareUploadAssertionKeyringVersion: 1,
+};
+const ASSERTION_REQUEST = {
+  actorId: 'rsa_smoke-actor',
+  requestId: 'rs3_smoke-request',
+  sessionId: 1_800_000_000_000,
+  queueItemId: 'smoke-queue-item',
+  size: 32,
+  bodySha256: 'smoke-body-digest',
+};
+
+async function admitHost(markers: Record<string, unknown>) {
+  const outcome = open();
+  SmokeSocket.current.emit('open');
+  await vi.advanceTimersByTimeAsync(0);
+  SmokeSocket.current.emit(
+    'message',
+    Buffer.from(JSON.stringify({ type: 'peer-open', workerVersionId: 'version', ...markers })),
+  );
+  const authority = await outcome;
+  expect(authority.provider).not.toBeNull();
+  return authority;
+}
+
+/** Answers the latest assertion request on the smoke socket and returns that request. */
+function answerAssertionRequest(answer: Record<string, unknown>): Record<string, unknown> {
+  const request = sentFrames().at(-1)!;
+  SmokeSocket.current.emit(
+    'message',
+    Buffer.from(JSON.stringify({ correlationId: request.correlationId, ...answer })),
+  );
+  return request;
+}
+
+describe('live remote-share smoke room proof', () => {
+  // An older Signaling Worker advertises the assertion markers in the host
+  // peer-open and a newer one does not. The smoke must pass on both (a rerun
+  // after automated recovery may meet the older one), so a real assertion
+  // request and its answer prove the room instead of a marker, and Remote
+  // Share then accepts that assertion for a real allocation.
+  it.each([
+    ['with', ASSERTION_MARKERS],
+    ['without', {}],
+  ])(
+    'proves the room with a real assertion on a Signaling Worker %s the peer-open markers',
+    async (_label, markers) => {
+      vi.useFakeTimers();
+      const authority = await admitHost(markers);
+      const assertion = authority.provider!(ASSERTION_REQUEST);
+      const request = answerAssertionRequest({
+        type: 'remote-share-upload-assertion',
+        assertion: 'assertion-payload.assertion-signature',
+        expiresAt: 1_800_000_060,
+      });
+      expect(request).toEqual({
+        type: 'remote-share-upload-assertion-request',
+        correlationId: expect.stringMatching(/^rsaq_[A-Za-z0-9_-]{32}$/u),
+        ...ASSERTION_REQUEST,
+      });
+      await expect(assertion).resolves.toBe('assertion-payload.assertion-signature');
+      expect(SmokeSocket.current.terminate).not.toHaveBeenCalled();
+      authority.close();
+      expect(SmokeSocket.current.close).toHaveBeenCalledOnce();
+    },
+  );
+
+  it('fails the room proof with the Signaling refusal when no assertion can be issued', async () => {
+    // A Signaling Worker without the assertion secret advertises no marker
+    // either; its own refusal of the real request now fails the smoke.
+    vi.useFakeTimers();
+    const authority = await admitHost({});
+    const assertion = authority.provider!(ASSERTION_REQUEST);
+    answerAssertionRequest({
+      type: 'remote-share-upload-assertion-error',
+      errorType: 'REMOTE_SHARE_UPLOAD_ASSERTION_UNAVAILABLE',
+    });
+    await expect(assertion).rejects.toThrow(
+      'remote-share assertion rejected: REMOTE_SHARE_UPLOAD_ASSERTION_UNAVAILABLE',
+    );
+    authority.close();
+  });
+
+  it.each([
+    { assertion: 'not-a-compact-token', expiresAt: 1_800_000_060 },
+    { assertion: 'assertion-payload.assertion-signature', expiresAt: 0 },
+    { assertion: 'assertion-payload.assertion-signature' },
+  ])('fails the room proof on an assertion answer of the wrong shape %o', async (answer) => {
+    vi.useFakeTimers();
+    const authority = await admitHost({});
+    const assertion = authority.provider!(ASSERTION_REQUEST);
+    answerAssertionRequest({ type: 'remote-share-upload-assertion', ...answer });
+    await expect(assertion).rejects.toThrow(
+      'remote-share signaling returned an invalid upload assertion',
+    );
+    authority.close();
   });
 });

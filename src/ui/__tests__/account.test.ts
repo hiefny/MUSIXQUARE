@@ -761,6 +761,31 @@ describe('optional account UI', () => {
     await vi.waitFor(() => expect(getAccountSnapshot().status).toBe('anonymous'));
   });
 
+  it('marks the waiting line while the account loads, and only then', async () => {
+    // Owner rule (2026-10-29): the waiting line reads at the label weight
+    // while it lasts (weight-role-contract.test.ts); the sign-in and
+    // unavailable text stay body.
+    let resolveSession!: (response: Response) => void;
+    vi.mocked(fetch).mockReturnValue(
+      new Promise<Response>((resolve) => {
+        resolveSession = resolve;
+      }),
+    );
+    initAccount();
+
+    openAccountDialog();
+
+    const message = document.getElementById('account-dialog-message')!;
+    expect(getAccountSnapshot().status).toBe('loading');
+    expect(message.textContent).toBe('Please wait...');
+    expect(message.hasAttribute('data-account-waiting')).toBe(true);
+
+    resolveSession(jsonResponse({ configured: true, authenticated: false, account: null }));
+    await vi.waitFor(() => expect(getAccountSnapshot().status).toBe('anonymous'));
+    await vi.waitFor(() => expect(message.textContent).not.toBe('Please wait...'));
+    expect(message.hasAttribute('data-account-waiting')).toBe(false);
+  });
+
   it('uses a completion popup from an installed PWA so an active room stays live', async () => {
     vi.mocked(fetch).mockResolvedValue(
       jsonResponse({ configured: true, authenticated: false, account: null }),
@@ -1571,6 +1596,10 @@ describe('optional account UI', () => {
     await vi.waitFor(() => expect(fetch).toHaveBeenCalledTimes(2));
 
     // Only Retry waits: it keeps its label, and Close stays usable on the left.
+    // The message keeps the unavailable text, which is not a waiting line.
+    const message = document.getElementById('account-dialog-message')!;
+    expect(message.textContent).toContain('temporarily unavailable');
+    expect(message.hasAttribute('data-account-waiting')).toBe(false);
     expect(retry.hidden).toBe(false);
     expect(retry.disabled).toBe(true);
     expect(retry.getAttribute('aria-busy')).toBe('true');

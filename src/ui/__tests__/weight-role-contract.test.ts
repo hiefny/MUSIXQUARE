@@ -238,17 +238,17 @@ const SELECTION_GROUPS: readonly SelectionGroup[] = [
     selected: ['.sub-track-item.active .sub-idx', '.sub-track-item.active .sub-name'],
     mount: (markup) => {
       // As src/ui/playlist-view.ts renders the video rows and the deferred
-      // load hint, whose sentence reuses .sub-name.
+      // load hint, whose sentence reuses .sub-name and stays body. The
+      // waiting row of a list still loading is a ROLE_SPOT_CHECKS label row.
       const list = mountIn(
         markup,
         '#playlist-ui',
         `<li class="playlist-entry is-playlist">
           <div class="track-item"></div>
-          <ul class="sub-playlist">
+          <ul class="sub-playlist" data-render-state="items">
             <li class="sub-track-item active" data-sub-index="0" role="button" aria-current="true"><span class="sub-idx playlist-current-leading"><span class="sub-idx-number">1</span></span><span class="sub-name" dir="auto"><span class="playlist-title-marquee-content">Current video</span></span></li>
             <li class="sub-track-item" data-sub-index="1" role="button"><span class="sub-idx"><span class="sub-idx-number">2</span></span><span class="sub-name" dir="auto"><span class="playlist-title-marquee-content">Other video</span></span></li>
             <li class="sub-track-item loading"><span class="sub-name">Play to load the full track list</span></li>
-            <li class="sub-track-item loading">Loading...</li>
           </ul>
         </li>`,
       );
@@ -693,14 +693,36 @@ function resolvedRoles(element: Element | null): Set<WeightRole | 'off-role'> {
   return roles;
 }
 
+// The line under the YouTube add sheet's input (#youtube-preview-status)
+// shows one translation key at a time and names it in data-i18n. The
+// progress, result and error lines appear because something happened and
+// give way to the next state, so they read at the label weight; the resting
+// prompts stay body (owner rule 2026-10-29).
+const YOUTUBE_STATUS_ROLES = {
+  'youtube.searching': 'label',
+  'youtube.fetching_info': 'label',
+  'youtube.search_no_results': 'label',
+  'youtube.invalid_link': 'label',
+  'youtube.search_failed': 'label',
+  'youtube.fetch_failed': 'label',
+  'youtube.enter_link_prompt': 'body',
+  'youtube.search_prompt': 'body',
+  'youtube.search_selected': 'body',
+} as const satisfies Readonly<Record<string, WeightRole>>;
+
 // Named text whose role the generic checks cannot see: one element per
 // split between two roles in a shared rule or class.
 const ROLE_SPOT_CHECKS: ReadonlyArray<{
   selector: string;
   role: WeightRole;
   reason: string;
-  /** Markup that TypeScript renders, mounted after the named element. */
-  mount?: readonly [string, string];
+  /**
+   * Markup that TypeScript renders, mounted after the named element, or at
+   * the position the third entry names.
+   */
+  mount?: readonly [string, string, InsertPosition?];
+  /** Attributes the app sets in this state; the check sets them and restores them after. */
+  state?: Readonly<Record<string, string>>;
 }> = [
   {
     selector: '#setup-code',
@@ -742,6 +764,115 @@ const ROLE_SPOT_CHECKS: ReadonlyArray<{
     selector: '#toast-msg',
     role: 'label',
     reason: 'Toast text keeps the 9.0.19 weight (owner decision 2026-10-29).',
+  },
+  // Owner rule (2026-10-29): text that appears because something happened
+  // and goes away on its own, or when that moment or mode ends, reads at the
+  // label weight, and so do red error lines. Text that is there whenever the
+  // screen opens and stays if left alone is body.
+  {
+    selector: '#session-reset-message',
+    role: 'label',
+    reason: 'The full-screen line while the app reloads or leaves the session.',
+  },
+  {
+    selector: '#youtube-sync-loading-overlay > span:not(.material-elastic-spinner)',
+    role: 'label',
+    reason: "The 'Syncing...' line over the YouTube video while a sync runs.",
+  },
+  ...Object.entries(YOUTUBE_STATUS_ROLES).map(([key, role]) => ({
+    selector: '#youtube-preview-status',
+    role,
+    state: { 'data-i18n': key },
+    reason:
+      role === 'label'
+        ? `The YouTube add sheet's ${key} line, a progress, result or error line.`
+        : `The YouTube add sheet's resting ${key} prompt.`,
+  })),
+  {
+    selector: '.qr-placeholder',
+    role: 'label',
+    reason: "The QR box's 'Start a session first' line, until a session draws its QR.",
+  },
+  {
+    selector: '.qr-placeholder',
+    role: 'label',
+    state: { 'data-i18n': 'connect.generating_qr' },
+    reason: "The QR box's 'Generating QR code...' line until the QR is drawn.",
+  },
+  {
+    selector: "[data-render-state='loading'] > .sub-track-item.loading",
+    role: 'label',
+    reason: 'The waiting row of an expanded YouTube playlist whose items still load.',
+    mount: [
+      '#playlist-ui',
+      // As src/ui/playlist-view.ts renders a playlist whose items have not arrived.
+      '<li class="playlist-entry is-playlist"><div class="track-item"></div>' +
+        '<ul class="sub-playlist" data-render-state="loading">' +
+        '<li class="sub-track-item loading">Waiting for playback info...</li></ul></li>',
+      'beforeend',
+    ],
+  },
+  {
+    selector: '.demo-session-qr-placeholder',
+    role: 'label',
+    reason: "The demo QR box's 'Start a session first' line until the demo code arrives.",
+    mount: [
+      '#demo-session-qr',
+      // As src/demo/mode.ts renders the placeholder without a valid code.
+      '<p class="demo-session-qr-placeholder">Start a session first</p>',
+      'beforeend',
+    ],
+  },
+  { selector: '.setup-inline-error', role: 'label', reason: 'The red error lines on setup.' },
+  {
+    selector: '#dialog-input-hint',
+    role: 'label',
+    state: { class: 'dialog-hint error' },
+    reason: "A red dialog input error such as 'Enter 8 digits', until the next input.",
+    mount: [
+      '#dialog-message',
+      // As src/ui/dialog.ts renders the hint under a dialog input.
+      '<div id="dialog-input-hint" class="dialog-hint" aria-live="polite">Hint</div>',
+      'beforeend',
+    ],
+  },
+  { selector: '#dialog-input-hint', role: 'body', reason: 'The dialog input hint at rest.' },
+  {
+    selector: '#account-dialog-message',
+    role: 'label',
+    state: { 'data-account-waiting': '' },
+    reason: "The account dialog's 'Please wait...' line while the account loads.",
+  },
+  {
+    selector: '#account-dialog-message',
+    role: 'body',
+    reason: "The account dialog's sign-in, nickname and unavailable text.",
+  },
+  {
+    selector: '.youtube-settings-note',
+    role: 'label',
+    reason: 'The note over the blurred audio settings for as long as YouTube mode lasts.',
+  },
+  {
+    selector: '.system-audio-playlist-note',
+    role: 'label',
+    reason: 'The note over the blurred playlist for as long as system audio is shared.',
+  },
+  {
+    selector: '.list-empty-state',
+    role: 'body',
+    reason: "The empty playlist hint, there whenever a room first opens ('No media yet').",
+  },
+  { selector: '.chat-empty', role: 'body', reason: 'The empty chat hint, there until a message.' },
+  {
+    selector: '#setup-auto-join-subtitle',
+    role: 'body',
+    reason: 'The invite link screen subtitle, like the other setup subtitles.',
+  },
+  {
+    selector: '.dialog-message',
+    role: 'body',
+    reason: 'Dialog body text, in dialogs that close themselves too.',
   },
   { selector: '.time-info', role: 'body', reason: 'The seek timestamps.' },
   { selector: '.track-artist', role: 'body', reason: 'The line under the player title.' },
@@ -801,16 +932,22 @@ const ROLE_SPOT_CHECKS: ReadonlyArray<{
     role: 'label',
     reason: 'The header loading status replaces the logo beside the label-weight account pill.',
   },
-  { selector: '.youtube-settings-note', role: 'body', reason: 'A note over a disabled panel.' },
-  {
-    selector: '.system-audio-playlist-note',
-    role: 'body',
-    reason: 'The note over the playlist while system audio is shared.',
-  },
   { selector: '.section-title', role: 'title', reason: 'Section headings, counted ones too.' },
   { selector: '.dialog-title', role: 'title', reason: 'Dialog and sheet titles.' },
   { selector: '.room-password-code', role: 'title', reason: 'The PRO room PIN display.' },
 ];
+
+/** Sets a state's attributes on an element and returns what puts them back. */
+function setState(element: Element, state: Readonly<Record<string, string>> = {}): () => void {
+  const before = Object.keys(state).map((name) => [name, element.getAttribute(name)] as const);
+  for (const [name, value] of Object.entries(state)) element.setAttribute(name, value);
+  return () => {
+    for (const [name, value] of before) {
+      if (value === null) element.removeAttribute(name);
+      else element.setAttribute(name, value);
+    }
+  };
+}
 
 // TypeScript and the translations may render bold elements only where an app
 // rule gives them a role: each source names the rule.
@@ -1020,21 +1157,46 @@ describe('weight role contract', () => {
       if (!mount) continue;
       const anchor = markup.querySelector(mount[0]);
       expect(anchor, mount[0]).not.toBeNull();
-      anchor!.insertAdjacentHTML('afterend', mount[1]);
+      anchor!.insertAdjacentHTML(mount[2] ?? 'afterend', mount[1]);
     }
     const failures: string[] = [];
-    for (const { selector, role, reason } of ROLE_SPOT_CHECKS) {
+    for (const { selector, role, reason, state } of ROLE_SPOT_CHECKS) {
       expect(reason.length, selector).toBeGreaterThan(10);
       const elements = [...markup.querySelectorAll(selector)];
       expect(elements.length, selector).toBeGreaterThan(0);
+      const named = state ? `${selector} ${JSON.stringify(state)}` : selector;
       for (const element of elements) {
+        const restore = setState(element, state);
         const roles = resolvedRoles(element);
+        const sample = element.outerHTML.slice(0, 80);
+        restore();
         if (roles.size !== 1 || !roles.has(role)) {
-          failures.push(`${selector} ${element.outerHTML.slice(0, 80)}: ${[...roles]}`);
+          failures.push(`${named} ${sample}: ${[...roles]}`);
         }
       }
     }
     expect(failures).toEqual([]);
+  });
+
+  it('gives every line the YouTube add sheet writes under its input a role', () => {
+    // src/youtube/search.ts writes the line through setStatus and, for a
+    // failed lookup, directly; each write names its key in data-i18n, which
+    // the label rule reads.
+    const source = read('src/youtube/search.ts');
+    const written = new Set<string>();
+    for (const call of source.matchAll(/(?<!function )setStatus\(([^;]*)\);/gu)) {
+      for (const key of call[1]!.matchAll(/'(youtube\.\w+)'/gu)) written.add(key[1]!);
+    }
+    for (const write of source.matchAll(/Status\.setAttribute\('data-i18n', '([\w.]+)'\)/gu)) {
+      written.add(write[1]!);
+    }
+    const resting = appMarkup().getElementById('youtube-preview-status')?.getAttribute('data-i18n');
+    expect(resting).toBe('youtube.enter_link_prompt');
+    written.add(resting!);
+    expect([...written].sort()).toEqual(Object.keys(YOUTUBE_STATUS_ROLES).sort());
+    for (const [locale, catalog] of Object.entries(APP_DICTIONARIES)) {
+      for (const key of written) expect(catalog, `${locale} ${key}`).toHaveProperty([key]);
+    }
   });
 
   it('gives every bold element in the app markup a role rule', () => {

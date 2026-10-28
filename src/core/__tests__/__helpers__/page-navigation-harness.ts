@@ -416,6 +416,8 @@ export interface PageNavigationShell {
   setAppState(patch: Partial<AppStateModel>): void;
   /** The 'setup:app-entrance' event (setup-shared.ts:310) the guard listens to. */
   appEntrance(): void;
+  /** The 'ui:request-leave-session' event (demo/mode.ts) the guard listens to. */
+  requestLeaveSession(): void;
   pagehide(persisted: boolean): void;
   pageshow(persisted: boolean): void;
   /**
@@ -563,6 +565,8 @@ export function bootPageNavigationShell(options: BootOptions = {}): PageNavigati
   appEntranceListeners.add(controller.handleStateChange);
   disposers.push(onOverlayStackChange(controller.handleStateChange));
   disposers.push(onNavigationPendingChange(controller.handleStateChange));
+  // app.ts routes 'ui:request-leave-session' (the demo tour's exits) here.
+  const requestLeaveSession = controller.requestLeave;
   window.addEventListener('popstate', controller.handlePopState, { signal });
   window.addEventListener('pagehide', controller.suspend, { signal });
   window.addEventListener('pageshow', controller.resume, { signal });
@@ -622,6 +626,7 @@ export function bootPageNavigationShell(options: BootOptions = {}): PageNavigati
     appEntrance() {
       for (const listener of [...appEntranceListeners]) listener();
     },
+    requestLeaveSession,
     pagehide: (persisted) => dispatchPageTransition('pagehide', persisted),
     pageshow: (persisted) => dispatchPageTransition('pageshow', persisted),
     leaveDocument: departDocument,

@@ -2274,9 +2274,6 @@ export function initConnect(): void {
   };
   getUiElement('btn-leave-session')?.addEventListener('click', leaveHandler);
   getUiElement('desktop-btn-leave-session')?.addEventListener('click', leaveHandler);
-  // The same confirmation for a window whose exit leaves the room: the demo
-  // tour, for a guest who cannot end the room's demo.
-  _busScope.on('ui:request-leave-session', leaveHandler);
 
   // Account nickname buttons (mobile + desktop)
   const nicknameChangeHandler = () => {

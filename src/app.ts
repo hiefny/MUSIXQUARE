@@ -997,6 +997,10 @@ function initBackButtonGuard(): void {
   // A Back absorbed while a navigation held the page re-arms once it settles
   // in this document (owner decision 5, 2026-10-23).
   onNavigationPendingChange(controller.handleStateChange);
+  // An exit that leaves the room asks through the same confirmation as an
+  // unused Back: the demo tour of a guest who cannot end it, on its visible
+  // exit, Escape and Back alike (owner decision 2026-10-28).
+  bus.on('ui:request-leave-session', controller.requestLeave);
   window.addEventListener('popstate', controller.handlePopState);
   window.addEventListener('pagehide', controller.suspend);
   window.addEventListener('pageshow', controller.resume);

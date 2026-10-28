@@ -1373,7 +1373,7 @@ interface BaseEventMap {
   'ui:player-panel-visible': [];
   'ui:visualizer-check': [];
   'ui:close-chat-drawer': [];
-  /** Open the room's Leave Session confirmation, as its Leave Session button does. */
+  /** Open the [Stay | Leave] confirmation an unused history Back opens. */
   'ui:request-leave-session': [];
   'ui:open-screensaver': [];
   'ui:ui-sounds-changed': [enabled: boolean];

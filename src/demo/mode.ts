@@ -1637,16 +1637,17 @@ function canRequestDemoExit(): boolean {
 }
 
 /**
- * History Back ends the demo for whoever its exit button would end it for.
- * A guest who cannot end it is not trapped behind it: Back passes on to the
- * room's leave confirmation instead.
+ * History Back and Escape do what the tour's visible exit does: end the demo
+ * for whoever may end it, and for a guest who cannot, ask to leave the room
+ * through the [Stay | Leave] confirmation an unused Back opens (owner
+ * decision 2026-10-28). Escape never goes on past the window it reaches, so
+ * the demo asks for that confirmation itself instead of leaving Back unused.
  */
 function handleDemoBack(overlay: HTMLElement): boolean {
   if (!getState('demo.active') && !getState('demo.loading')) {
     // The exit curtain is still running; let it finish.
     return overlay.classList.contains('exiting');
   }
-  if (!canRequestDemoExit()) return false;
   requestDemoExit();
   return true;
 }
@@ -1660,8 +1661,9 @@ function requestDemoExit(): void {
       return;
     }
     // The room's demo is the host's to end. A guest who cannot end it leaves
-    // the room instead, through the room's Leave Session confirmation, so
-    // the tour's exits are never dead ends (owner policy 2026-10-28).
+    // the room instead, so the tour's exits are never dead ends (owner policy
+    // 2026-10-28). The visible exit, Finish tour, Escape and Back all open the
+    // [Stay | Leave] confirmation an unused Back opens (app.ts).
     bus.emit('ui:request-leave-session');
     return;
   }

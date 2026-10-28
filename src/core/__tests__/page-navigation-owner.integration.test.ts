@@ -2014,3 +2014,38 @@ describe('the PRO claim fence at the scheduleDocumentReload boundary', () => {
     expect(s.sinks.count('reload')).toBe(1);
   });
 });
+
+describe('(i) a leave request from an exit that leaves the room', () => {
+  // Owner decision (2026-10-28): the demo tour of a guest who cannot end it
+  // leaves the room. Its visible exit, Escape and Back open the confirmation
+  // an unused Back opens, with the guard entry still in place.
+  it('asks once, then leaves through the guard and base entries in one departure [added: dialog exits 2026-10-28]', async () => {
+    const s = boot({ app: IN_ROOM });
+    await advance(GUARD_ARM_MS);
+    expect(s.history.marker()).toBe('guard');
+
+    s.requestLeaveSession();
+    s.requestLeaveSession();
+    await advance(0);
+    expect(s.leaveConfirmation.requests).toBe(1);
+    expect(s.resetMessage()).toBe(MSG_LEAVING);
+    await advance(PAINT_MS);
+    expect(s.leaveSession).toHaveBeenCalledOnce();
+    await advance(TRAVERSAL_TASK_MS * 2);
+    expect(s.history.departures).toEqual(['back']);
+    expect(s.sinks.count('replace')).toBe(0);
+  });
+
+  it('keeps the room and its guard when the guest stays [added: dialog exits 2026-10-28]', async () => {
+    const s = boot({ app: IN_ROOM, leaveAnswer: false });
+    await advance(GUARD_ARM_MS);
+
+    s.requestLeaveSession();
+    await advance(GUARD_ARM_MS);
+    expect(s.leaveConfirmation.requests).toBe(1);
+    expect(s.leaveSession).not.toHaveBeenCalled();
+    expect(s.history.departures).toEqual([]);
+    expect(s.history.marker()).toBe('guard');
+    expect(s.history.pushes).toHaveLength(1);
+  });
+});

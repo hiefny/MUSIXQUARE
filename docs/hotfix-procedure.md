@@ -678,7 +678,22 @@ gh workflow run app-build-floor.yml --ref main -f action=lower -f min_app_build=
   `curl -s https://musixquare.com/api/app-build-floor`. If the stored floor is the target and the
   failure was transient (a rate limit, a late cron report, a cached client read), dispatch the
   same `set` again; with the floor already stored it only verifies. If the PRO front door refused
-  the target build or Signaling misbehaved, run `lower` to 0 at once and investigate.
+  the target build or Signaling misbehaved (for example the Signaling smoke below refused a host),
+  `lower` at once and investigate: to 0 for the first floor, and for any later raise to the
+  previous verified floor, not to 0. That is the stored value the last successful `set` proved,
+  such as a same-value `set` run just before the raise. A `lower` proves only what holds at the
+  effective floor N of that moment, which may be below its target: the PRO front door refuses
+  build N-1 and admits build N, and Signaling refuses build N-1 (at 0, only a PRO admission). It
+  never proves that Signaling admits a host. So once it succeeds, run the Signaling smoke of the
+  first floor again: both rooms must admit their host and guest, and
+  `legacyCompatibility.refusedBelowAppBuildFloor` must equal the lowered floor (retry once after
+  a transient 502 or 503). Lower to 0 only when a host is still refused or that `lower` run fails.
+  If the hosts are admitted but that value is not the lowered floor (for example
+  `admittedWithoutAppBuild`), do not lower to 0: read the status again (the effective floor and
+  the App report's `reportedAt`) and run the smoke again. That answer comes from a window in which
+  the effective floor is 0 (an App report more than five minutes old, or a failed floor read in a
+  new isolate). If the App report has stopped, fix that first and keep the lowered floor: lowering
+  to 0 would leave the cause in place and the floor off after the reports return.
 - A release that needs a floor sets the Production Release input `raise_app_build_floor` (target
   `app` or `all`). The raise runs only after the commit marker, and only to this release's build
   when that build is the live App. If it fails, the release stays committed and is not rolled

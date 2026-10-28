@@ -255,7 +255,7 @@ export function cmdDebug(args: string[]): void {
   }
 
   const debugText = lines.join('\n');
-  addSystemChatMessage(debugText);
+  addSystemChatMessage(debugText, { heading: true });
 
   // Auto-copy to clipboard
   try {

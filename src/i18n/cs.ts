@@ -94,7 +94,6 @@ const cs: Record<I18nKey, string> = {
   'common.left': 'Levý',
   'common.right': 'Pravý',
   'common.woofer': 'Woofer',
-  'common.connected': 'Připojeno',
   'common.revoke': 'Odebrat',
   'common.system': 'Systém',
   'common.unknown': 'Neznámé',
@@ -200,6 +199,8 @@ const cs: Record<I18nKey, string> = {
   'settings.sync_settings': 'Synchronizace nastavení',
   'settings.sync_settings_desc':
     'Zařízení, která mají tuto volbu zapnutou, si navzájem synchronizují hlasitost a zvukové efekty.',
+  'settings.audio_locked_desc': 'Zvukové nastavení mohou měnit jen správci místnosti.',
+  'settings.audio_lock_checking_desc': 'Ověřujeme oprávnění správce.',
   'settings.virtual_effects_title': 'Virtuální efekty',
   'settings.virtual_effects_desc':
     'Použije na zvuk syntetizované efekty. Mohou způsobit výrazné zkreslení.',
@@ -270,7 +271,6 @@ const cs: Record<I18nKey, string> = {
   'settings.leave_session': 'Opustit relaci',
   'connect.rename_reserved': 'Tato přezdívka je vyhrazena.',
   'connect.rename_profanity': 'Byla zjištěna nevhodná slova.',
-  'settings.devices_title': 'Připojená zařízení',
   'settings.invite_share': 'Pozvat a sdílet',
   'settings.subtab.general': 'Obecné',
   'settings.subtab.audio': 'Zvuk',
@@ -799,7 +799,7 @@ const cs: Record<I18nKey, string> = {
   'pro.activation_account_message': 'Zaregistrovat tuto místnost k účtu „{{name}}“?',
   'pro.activation_account_login_message':
     'Přihlaste se k účtu, ke kterému chcete tuto místnost zaregistrovat.',
-  'pro.activation_account_continue': 'Pokračovat',
+  'pro.activation_account_continue': 'Zaregistrovat',
   'pro.activation_account_switch': 'Jiný účet',
   'pro.activation_account_unavailable': 'Účet se nepodařilo ověřit. Zkuste to za chvíli znovu.',
   'pro.claim_retry_title': 'Zkusit odkaz PRO znovu?',

@@ -275,14 +275,19 @@ describe('public design-system page contract', () => {
     // Owner decision (2026-10-28): the button label roles. Every action
     // button label (CTA) is 15px / 600 / 1.25 with normal letter spacing,
     // choice chips take 14px and section tabs and segments 13px; only the
-    // color differs within a role.
+    // color differs within a role. The weight comes from the five weight
+    // role tokens (final policy, 2026-10-28), which the mirror repeats too.
     const labelTokens = {
       '--button-label-size': '15px',
-      '--button-label-weight': '600',
       '--button-label-line-height': '1.25',
       '--button-label-letter-spacing': 'normal',
       '--button-label-chip-size': '14px',
       '--button-label-tab-size': '13px',
+      '--font-weight-title': '700',
+      '--font-weight-selected': '700',
+      '--font-weight-unselected': '500',
+      '--font-weight-label': '600',
+      '--font-weight-body': '400',
     } as const;
     const appStylesheet = readFileSync(resolve('css/style.css'), 'utf8');
     for (const [token, value] of Object.entries(labelTokens)) {
@@ -293,7 +298,7 @@ describe('public design-system page contract', () => {
     }
     const readsLabelTokens = (rules: string): void => {
       expect(rules).toContain('font-size: var(--button-label-size)');
-      expect(rules).toContain('font-weight: var(--button-label-weight)');
+      expect(rules).toContain('font-weight: var(--font-weight-label)');
       expect(rules).toContain('line-height: var(--button-label-line-height)');
       expect(rules).toContain('letter-spacing: var(--button-label-letter-spacing)');
     };
@@ -326,11 +331,70 @@ describe('public design-system page contract', () => {
     );
     expect(advertisedTokens).toEqual(
       expect.arrayContaining([
+        '--font-weight-*',
         '--button-label-*',
         '--button-label-chip-size',
         '--button-label-tab-size',
       ]),
     );
+  });
+
+  it('points the app samples and the type helpers at the weight role tokens', () => {
+    // Weight roles (owner decision 2026-10-28): the samples of app text read
+    // the role tokens like the app rules they mirror, instead of a number.
+    const ruleBody = (stylesheet: string, selector: string): string => {
+      const escaped = selector.replace(/[.*+?^${}()|[\]\\]/gu, '\\$&');
+      // A top-level rule's whole selector list, at the start of a line after a
+      // rule or a comment.
+      const bodies = [
+        ...stylesheet.matchAll(new RegExp(`(?:^|[}/]\\n+)${escaped}\\s*\\{([^}]*)\\}`, 'gu')),
+      ].map((match) => match[1]!);
+      expect(bodies, selector).toHaveLength(1);
+      return bodies[0]!;
+    };
+    const weightOf = (stylesheet: string, selector: string): string[] =>
+      [...ruleBody(stylesheet, selector).matchAll(/font-weight:\s*([^;]+);/gu)].map((match) =>
+        match[1]!.trim(),
+      );
+    const role = (name: string): string => `var(--font-weight-${name})`;
+    for (const [selector, weight] of [
+      ['.app-loading-header-status', role('label')],
+      ['.playlist-name', role('unselected')],
+      ['.playlist-item.active .playlist-name', role('selected')],
+      ['.device-row-sample .d-name', role('unselected')],
+      ['.device-row-sample.is-current-member :is(.d-order, .d-name)', role('selected')],
+      ['.range-specimen-title,\n.range-slider-header', role('label')],
+      ['.range-slider-header strong', role('title')],
+      ['.spec .s20', role('title')],
+      ['.app-bottom-nav .tab', role('unselected')],
+    ] as const) {
+      expect(weightOf(designStylesheet, selector), selector).toEqual([weight]);
+    }
+    // The logo is a mask with no text, so the rule it shares with the
+    // loading status sets no weight or tracking.
+    const shared = ruleBody(
+      designStylesheet,
+      '.app-loading-header-logo,\n.app-loading-header-status',
+    );
+    expect(shared).not.toMatch(/font-weight|letter-spacing/u);
+
+    for (const [selector, weight] of [
+      ['.tab-title,\n.type-display', role('title')],
+      ['.type-h2', role('title')],
+      ['.track-title,\n.type-title', role('title')],
+      ['.type-body', role('body')],
+      ['.type-body-sub', role('body')],
+      ['.type-label', role('label')],
+      ['.btn-label', role('label')],
+      ['.type-caption', role('body')],
+      ['.type-badge', role('label')],
+      ['.type-micro', role('label')],
+      ['.type-code', role('title')],
+    ] as const) {
+      expect(weightOf(designTokenStylesheet, selector), selector).toEqual([weight]);
+    }
+    // The role tokens replace the old weight scale aliases.
+    expect(designTokenStylesheet).not.toMatch(/--fw-/u);
   });
 
   it('shows the current playlist leading state, source icons, disclosure, and check circles', () => {
@@ -542,9 +606,16 @@ describe('public design-system page contract', () => {
     expect(selectionActions.map((button) => button.textContent?.trim())).toEqual(['', '']);
     // The app names these actions without repeating the name as a tooltip.
     expect(selectionActions.filter((button) => button.hasAttribute('title'))).toEqual([]);
-    // The device row kick icons turn the destructive label red on hover.
+    // The device row kick icons turn the destructive label red on hover and,
+    // like the app, for keyboard focus, which keeps its ring.
     expect(designStylesheet).toMatch(
       /\.btn-kick-device:hover,\s*\.btn-kick-physical-device:hover\s*\{\s*color:\s*var\(--danger-foreground\);/u,
+    );
+    expect(designStylesheet).toMatch(
+      /\.btn-kick-device:focus-visible,\s*\.btn-kick-physical-device:focus-visible\s*\{\s*color:\s*var\(--danger-foreground\);/u,
+    );
+    expect(designStylesheet).toMatch(
+      /\.btn-kick-device:focus-visible,\s*\.btn-kick-physical-device:focus-visible\s*\{\s*outline:\s*2px solid var\(--primary\);/u,
     );
     expect(
       selectionActions.map((button) =>
@@ -723,7 +794,7 @@ describe('public design-system page contract', () => {
       /\.app-loading-header-logo\s*\{[^}]*width:\s*142\.667px;[^}]*height:\s*16px;[^}]*mask-position:\s*left top;[^}]*mask-size:\s*100% 108\.333%;/su,
     );
     expect(designStylesheet).toMatch(
-      /\.app-loading-header-badge\s*\{[^}]*padding:\s*6px 14px;[^}]*font-size:\s*11px;[^}]*font-weight:\s*700;[^}]*line-height:\s*normal;/su,
+      /\.app-loading-header-badge\s*\{[^}]*padding:\s*6px 14px;[^}]*font-size:\s*11px;[^}]*font-weight:\s*var\(--font-weight-label\);[^}]*line-height:\s*normal;/su,
     );
     expect(designStylesheet).not.toContain('.app-loading-header-badge i');
     expect(designStylesheet).not.toContain('.role-sample i');

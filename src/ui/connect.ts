@@ -462,7 +462,7 @@ function initSignalingRecoveryDialog(): void {
   overlay.dataset.bound = 'true';
 
   confirm.addEventListener('click', () => closeSignalingRecoveryDialog());
-  // Back is the plain close button, without a retry.
+  // Back and Escape are the plain close button, without a retry.
   onWindowBack(overlay, () => {
     if (!overlay.classList.contains('show')) return false;
     closeSignalingRecoveryDialog();
@@ -825,6 +825,11 @@ async function _askRoomPin(
               },
             ],
             buttonText: () => t('common.ok'),
+            // Named exit exception (owner decision 2026-10-28, survey F13):
+            // page 2's left action is Back, not Close or Cancel. It applies
+            // nothing and returns to page 1 with the PIN kept, where Cancel
+            // on the left leaves; history Back and Escape step back the same
+            // way. It stays so the owner can still fix the PIN from page 2.
             backText: () => t('dialog.step_back'),
           },
         }
@@ -1731,9 +1736,9 @@ function initAdministratorPermissionsDialog(): void {
       showToast(t('error.network_generic'));
     });
   });
-  overlay.addEventListener('click', (event) => {
-    if (event.target === overlay) closeAdministratorPermissionsDialog();
-  });
+  // Owner policy (2026-10-28): the backdrop never closes the editor, so a
+  // press that ends off the panel keeps the draft. Cancel, Back and Escape
+  // close it.
   onWindowBack(overlay, () => {
     if (!overlay.classList.contains('show')) return false;
     closeAdministratorPermissionsDialog();
@@ -1741,11 +1746,6 @@ function initAdministratorPermissionsDialog(): void {
   });
   overlay.addEventListener('keydown', (event) => {
     if (!overlay.classList.contains('show')) return;
-    if (event.key === 'Escape') {
-      event.preventDefault();
-      closeAdministratorPermissionsDialog();
-      return;
-    }
     if (event.key !== 'Tab') return;
     const focusable = Array.from(
       overlay.querySelectorAll<HTMLElement>(

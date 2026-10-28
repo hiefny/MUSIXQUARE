@@ -94,7 +94,6 @@ const vi: Record<I18nKey, string> = {
   'common.left': 'Trái',
   'common.right': 'Phải',
   'common.woofer': 'Loa siêu trầm',
-  'common.connected': 'Đã kết nối',
   'common.revoke': 'Thu hồi',
   'common.system': 'Hệ thống',
   'common.unknown': 'Không rõ',
@@ -128,6 +127,8 @@ const vi: Record<I18nKey, string> = {
   'settings.sync_settings': 'Đồng bộ cài đặt',
   'settings.sync_settings_desc':
     'Các thiết bị bật cài đặt này sẽ đồng bộ âm lượng và hiệu ứng âm thanh.',
+  'settings.audio_locked_desc': 'Chỉ quản trị viên phòng được đổi cài đặt âm thanh.',
+  'settings.audio_lock_checking_desc': 'Đang kiểm tra quyền quản trị.',
   'settings.virtual_effects_title': 'Hiệu ứng ảo',
   'settings.virtual_effects_desc':
     'Áp dụng hiệu ứng tổng hợp cho âm thanh. Âm thanh có thể bị méo nhiều.',
@@ -197,7 +198,6 @@ const vi: Record<I18nKey, string> = {
   'settings.leave_session': 'Rời phòng',
   'connect.rename_reserved': 'Biệt danh này không thể sử dụng.',
   'connect.rename_profanity': 'Đã phát hiện từ ngữ không phù hợp.',
-  'settings.devices_title': 'Thiết bị đã kết nối',
   'settings.invite_share': 'Mời & Chia sẻ',
   'settings.subtab.general': 'Chung',
   'settings.subtab.audio': 'Âm thanh',
@@ -709,7 +709,7 @@ const vi: Record<I18nKey, string> = {
   'pro.activation_account_message': 'Đăng ký phòng này vào tài khoản “{{name}}”?',
   'pro.activation_account_login_message':
     'Hãy đăng nhập vào tài khoản mà bạn muốn đăng ký phòng này.',
-  'pro.activation_account_continue': 'Tiếp tục',
+  'pro.activation_account_continue': 'Đăng ký',
   'pro.activation_account_switch': 'Tài khoản khác',
   'pro.activation_account_unavailable':
     'Không thể xác minh tài khoản của bạn. Vui lòng thử lại sau giây lát.',

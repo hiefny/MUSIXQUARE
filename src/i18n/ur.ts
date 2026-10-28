@@ -94,7 +94,6 @@ const ur: Record<I18nKey, string> = {
   'common.left': 'بائیں',
   'common.right': 'دائیں',
   'common.woofer': 'ووفر',
-  'common.connected': 'منسلک',
   'common.revoke': 'واپس لیں',
   'common.system': 'سسٹم',
   'common.unknown': 'نامعلوم',
@@ -198,6 +197,8 @@ const ur: Record<I18nKey, string> = {
   'settings.sync_settings': 'ترتیبات سنک کریں',
   'settings.sync_settings_desc':
     'جن آلات پر یہ ترتیب آن ہو، ان کی آواز اور آڈیو ایفیکٹس آپس میں سنک ہوتے ہیں۔',
+  'settings.audio_locked_desc': 'صرف کمرے کے منتظم آڈیو ترتیبات بدل سکتے ہیں۔',
+  'settings.audio_lock_checking_desc': 'منتظم کی اجازت کی جانچ ہو رہی ہے۔',
   'settings.virtual_effects_title': 'ورچوئل ایفیکٹس',
   'settings.virtual_effects_desc':
     'آڈیو پر مصنوعی ایفیکٹس لگائیں۔ اس سے آواز بہت زیادہ بگڑ سکتی ہے۔',
@@ -267,7 +268,6 @@ const ur: Record<I18nKey, string> = {
   'settings.leave_session': 'سیشن چھوڑیں',
   'connect.rename_reserved': 'یہ عرفی نام استعمال نہیں کیا جا سکتا۔',
   'connect.rename_profanity': 'نامناسب الفاظ ملے ہیں۔',
-  'settings.devices_title': 'منسلک آلات',
   'settings.invite_share': 'دعوت اور شیئر',
   'settings.subtab.general': 'عمومی',
   'settings.subtab.audio': 'آڈیو',
@@ -784,7 +784,7 @@ const ur: Record<I18nKey, string> = {
   'pro.activation_account_message': 'یہ کمرہ ”{{name}}“ اکاؤنٹ میں رجسٹر کریں؟',
   'pro.activation_account_login_message':
     'اس اکاؤنٹ سے سائن ان کریں جس میں آپ یہ کمرہ رجسٹر کرنا چاہتے ہیں۔',
-  'pro.activation_account_continue': 'جاری رکھیں',
+  'pro.activation_account_continue': 'رجسٹر کریں',
   'pro.activation_account_switch': 'دوسرا اکاؤنٹ',
   'pro.activation_account_unavailable':
     'آپ کے اکاؤنٹ کی تصدیق نہیں ہو سکی۔ کچھ دیر بعد دوبارہ کوشش کریں۔',

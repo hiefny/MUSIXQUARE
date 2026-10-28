@@ -43,7 +43,7 @@
     justify-content: center;
     color: var(--text-sub);
     font-size: 14px;
-    font-weight: 600;
+    font-weight: var(--font-weight-body);
     text-align: center;
     padding: 0 32px;
     pointer-events: none;

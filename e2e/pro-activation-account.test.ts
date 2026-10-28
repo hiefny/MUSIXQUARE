@@ -11,13 +11,17 @@ const SECOND_SCOPE = 'b'.repeat(43);
 const COPY = {
   ko: {
     title: 'PRO 방을 등록할 계정',
-    primary: '이 계정으로 등록',
-    secondary: '다른 계정으로 로그인',
+    primary: '등록',
+    login: '로그인',
+    cancel: '취소',
+    link: '다른 계정으로 로그인',
   },
   en: {
     title: 'Choose an account for this PRO room',
-    primary: 'Continue',
-    secondary: 'Another account',
+    primary: 'Register',
+    login: 'Sign in',
+    cancel: 'Cancel',
+    link: 'Another account',
   },
 } as const;
 
@@ -133,53 +137,76 @@ async function openClaim(
   };
 }
 
-async function assertStackedActions(page: Page, locale: keyof typeof COPY): Promise<void> {
+// Owner decision 2026-10-28: [Cancel | primary] in the shared adaptive pair,
+// Cancel first, and for a signed-in account "another account" as a small text
+// link under the pair, like the language dialog's translate link.
+async function assertAccountActions(
+  page: Page,
+  locale: keyof typeof COPY,
+  signedIn = true,
+): Promise<void> {
   const dialog = page.locator('#dialog-overlay.show');
-  await expect(dialog.locator('button:visible')).toHaveCount(2);
-  await expect(page.locator('#btn-dialog-ok')).toHaveText(COPY[locale].primary);
-  await expect(page.locator('#btn-dialog-secondary')).toHaveText(COPY[locale].secondary);
+  await expect(dialog.locator('button:visible')).toHaveCount(signedIn ? 3 : 2);
+  await expect(page.locator('#btn-dialog-secondary')).toHaveText(COPY[locale].cancel);
+  await expect(page.locator('#btn-dialog-ok')).toHaveText(
+    signedIn ? COPY[locale].primary : COPY[locale].login,
+  );
+  if (signedIn) await expect(page.locator('#btn-dialog-link')).toHaveText(COPY[locale].link);
+  else await expect(page.locator('#btn-dialog-link')).toBeHidden();
   await page.evaluate(() => document.fonts.ready);
   const metrics = await dialog.evaluate((overlay) => {
-    const buttons = [...overlay.querySelectorAll<HTMLButtonElement>('button:not([hidden])')];
-    const actionBox = buttons[0]!.parentElement!;
-    const style = getComputedStyle(actionBox);
-    const availableWidth =
-      actionBox.clientWidth - parseFloat(style.paddingLeft) - parseFloat(style.paddingRight);
+    const box = (element: Element) => {
+      const rect = element.getBoundingClientRect();
+      return { x: rect.x, y: rect.y, width: rect.width, height: rect.height };
+    };
+    const pair = [...overlay.querySelectorAll<HTMLButtonElement>('.dialog-actions > button')]
+      .filter((button) => !button.hidden)
+      .map((button) => ({
+        id: button.id,
+        ...box(button),
+        clientWidth: button.clientWidth,
+        scrollWidth: button.scrollWidth,
+        clientHeight: button.clientHeight,
+        scrollHeight: button.scrollHeight,
+      }));
+    const link = overlay.querySelector<HTMLButtonElement>('#btn-dialog-link')!;
+    const linkStyle = getComputedStyle(link);
     return {
-      availableWidth,
-      buttons: buttons.map((button) => {
-        const rect = button.getBoundingClientRect();
-        const text = document.createRange();
-        text.selectNodeContents(button);
-        const lineTops = new Set([...text.getClientRects()].map((line) => Math.round(line.top)));
-        return {
-          id: button.id,
-          x: rect.x,
-          y: rect.y,
-          width: rect.width,
-          height: rect.height,
-          clientWidth: button.clientWidth,
-          scrollWidth: button.scrollWidth,
-          clientHeight: button.clientHeight,
-          scrollHeight: button.scrollHeight,
-          textLineCount: lineTops.size,
-        };
-      }),
+      pair,
+      panel: box(overlay.querySelector('.dialog')!),
+      link: link.hidden ? null : box(link),
+      linkFontSize: linkStyle.fontSize,
+      linkDecoration: linkStyle.textDecorationLine,
     };
   });
-  expect(metrics.buttons.map((button) => button.id)).toEqual([
-    'btn-dialog-ok',
+  expect(metrics.pair.map((button) => button.id)).toEqual([
     'btn-dialog-secondary',
+    'btn-dialog-ok',
   ]);
-  const [primary, secondary] = metrics.buttons;
-  expect(secondary!.y).toBeGreaterThanOrEqual(primary!.y + primary!.height + 9);
-  expect(Math.abs(primary!.x - secondary!.x)).toBeLessThan(1);
-  for (const button of metrics.buttons) {
-    expect(Math.abs(button.width - metrics.availableWidth)).toBeLessThan(1);
+  const [cancel, primary] = metrics.pair;
+  if (Math.abs(cancel!.y - primary!.y) < 1) {
+    // One row: Cancel on the left, 10px from the primary.
+    expect(primary!.x - (cancel!.x + cancel!.width)).toBeCloseTo(10, 0);
+  } else {
+    // Wrapped: Cancel above, 12px from the primary.
+    expect(primary!.y - (cancel!.y + cancel!.height)).toBeCloseTo(12, 0);
+  }
+  for (const button of metrics.pair) {
+    expect(button.height).toBeCloseTo(56, 0);
     expect(button.scrollWidth).toBeLessThanOrEqual(button.clientWidth);
     expect(button.scrollHeight).toBeLessThanOrEqual(button.clientHeight);
-    expect(button.textLineCount, `${button.id} must keep its complete label on one line`).toBe(1);
   }
+  if (!signedIn) return;
+  const link = metrics.link!;
+  const pairBottom = Math.max(...metrics.pair.map((button) => button.y + button.height));
+  // The link's text sits 16px under the pair and 30px above the dialog's
+  // bottom edge, inside a 30px tap target, centred under the pair.
+  expect(link.y - pairBottom).toBeCloseTo(10, 0);
+  expect(metrics.panel.y + metrics.panel.height - (link.y + link.height)).toBeCloseTo(24, 0);
+  expect(link.height).toBeGreaterThanOrEqual(24);
+  expect(link.x + link.width / 2).toBeCloseTo(metrics.panel.x + metrics.panel.width / 2, 0);
+  expect(metrics.linkFontSize).toBe('12px');
+  expect(metrics.linkDecoration).toBe('underline');
 }
 
 test.describe('PRO activation account confirmation', () => {
@@ -191,7 +218,7 @@ test.describe('PRO activation account confirmation', () => {
         await page.setViewportSize({ width, height: 820 });
         const state = await openClaim(page, locale);
         await expect(page.locator('#dialog-message')).toContainText('Minsu');
-        await assertStackedActions(page, locale);
+        await assertAccountActions(page, locale);
         if (process.env.MXQR_ACCOUNT_PREVIEW_DIR && width === 320) {
           await mkdir(process.env.MXQR_ACCOUNT_PREVIEW_DIR, { recursive: true });
           await page.locator('#dialog-overlay.show .dialog').screenshot({
@@ -220,6 +247,7 @@ test.describe('PRO activation account confirmation', () => {
   }) => {
     const state = await openClaim(page, 'en', { anonymous: true });
     await expect(page.locator('#dialog-message')).not.toContainText('Minsu');
+    await assertAccountActions(page, 'en', false);
     const popupPromise = page.waitForEvent('popup');
     await page.locator('#btn-dialog-ok').click();
     const popup = await popupPromise;
@@ -229,7 +257,7 @@ test.describe('PRO activation account confirmation', () => {
     await popup.close();
     await expect(page.locator('#dialog-message')).toContainText('Jisoo');
     await expect(page.locator('.dialog-input-segment')).toHaveCount(0);
-    await assertStackedActions(page, 'en');
+    await assertAccountActions(page, 'en');
     await page.locator('#btn-dialog-ok').click();
     await expect.poll(() => state.mutations.length).toBe(1);
     expect(state.mutations[0]!.body).toEqual({ claimToken: CLAIM, ownerName: expect.any(String) });
@@ -258,12 +286,12 @@ test.describe('PRO activation account confirmation', () => {
     await expect(page.locator('.dialog-input-segment')).toHaveCount(0);
   });
 
-  test('switching accounts opens a popup from Enter and requires fresh confirmation', async ({
+  test('the account link opens a popup from Enter and requires fresh confirmation', async ({
     page,
   }) => {
     const state = await openClaim(page, 'ko');
     const popupPromise = page.waitForEvent('popup');
-    await page.locator('#btn-dialog-secondary').focus();
+    await page.locator('#btn-dialog-link').focus();
     await page.keyboard.press('Enter');
     const popup = await popupPromise;
     await expect(popup).toHaveTitle('Local sign-in fixture');
@@ -273,7 +301,7 @@ test.describe('PRO activation account confirmation', () => {
     await expect(page.locator('#dialog-message')).toContainText('Jisoo');
     await expect(page.locator('.dialog-input-segment')).toHaveCount(0);
     expect(state.mutations).toEqual([]);
-    await page.keyboard.press('Escape');
+    await page.locator('#btn-dialog-secondary').click();
     await expect(page.locator('#dialog-overlay')).not.toHaveClass(/show/u);
     expect(state.mutations).toEqual([]);
   });

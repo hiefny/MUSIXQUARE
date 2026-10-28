@@ -27,6 +27,18 @@ function overlay(id: string, cls: string, shown = true): HTMLElement {
   return element;
 }
 
+/** Press Escape with focus on `target`, as a real key press bubbles from it. */
+function pressEscape(target: EventTarget, init: KeyboardEventInit = {}): KeyboardEvent {
+  const event = new KeyboardEvent('keydown', {
+    key: 'Escape',
+    bubbles: true,
+    cancelable: true,
+    ...init,
+  });
+  target.dispatchEvent(event);
+  return event;
+}
+
 describe('history Back to the topmost window', () => {
   beforeEach(() => {
     document.body.innerHTML = '';
@@ -336,6 +348,143 @@ describe('history Back to the topmost window', () => {
 
     expect(hasOpenWindow()).toBe(true);
     expect(offerBackToTopWindow().handled).toBe(false);
+  });
+
+  // Owner decision (2026-10-28): Escape behaves exactly like Back, for the
+  // top window only, and never passes a key the window does not use on.
+  describe('Escape as Back', () => {
+    it('reaches a window only while it is the one Back would reach', () => {
+      const media = overlay('media-source-overlay', 'active');
+      const source = document.createElement('button');
+      media.appendChild(source);
+      syncOverlayState('media-source-overlay');
+      const language = overlay('language-dialog-overlay', 'show');
+      syncOverlayState('language-dialog-overlay');
+      const mediaBack = vi.fn(() => true);
+      const languageBack = vi.fn(() => {
+        language.classList.remove('show');
+        return true;
+      });
+      onWindowBack(media, mediaBack);
+      onWindowBack(language, languageBack);
+
+      // Even a key that starts inside the window below goes to the top one.
+      expect(pressEscape(source).defaultPrevented).toBe(true);
+      expect(languageBack).toHaveBeenCalledOnce();
+      expect(mediaBack).not.toHaveBeenCalled();
+
+      expect(pressEscape(source).defaultPrevented).toBe(true);
+      expect(mediaBack).toHaveBeenCalledOnce();
+    });
+
+    it('gives a layer inside the window the first chance, as Back does', () => {
+      const demo = overlay('demo-overlay', 'active');
+      const header = document.createElement('div');
+      demo.appendChild(header);
+      syncOverlayState('demo-overlay');
+      let expanded = true;
+      const layerBack = vi.fn(() => {
+        if (!expanded) return false;
+        expanded = false;
+        return true;
+      });
+      const demoBack = vi.fn(() => true);
+      onWindowBack(header, layerBack);
+      onWindowBack(demo, demoBack);
+
+      expect(pressEscape(document.body).defaultPrevented).toBe(true);
+      expect(demoBack).not.toHaveBeenCalled();
+      expect(pressEscape(document.body).defaultPrevented).toBe(true);
+      expect(demoBack).toHaveBeenCalledOnce();
+    });
+
+    // A press on a backdrop leaves focus on the page body, outside every
+    // window, where a listener on the window itself never hears the key.
+    // Back still reaches the window from there, so Escape must too.
+    it('hands an Escape no window used to the top window, wherever focus rests', () => {
+      const media = overlay('media-source-overlay', 'active');
+      syncOverlayState('media-source-overlay');
+      const language = overlay('language-dialog-overlay', 'show');
+      syncOverlayState('language-dialog-overlay');
+      const mediaBack = vi.fn(() => {
+        media.classList.remove('active');
+        return true;
+      });
+      const languageBack = vi.fn(() => {
+        language.classList.remove('show');
+        return true;
+      });
+      onWindowBack(media, mediaBack);
+      onWindowBack(language, languageBack);
+
+      const first = pressEscape(document.body);
+      expect(first.defaultPrevented).toBe(true);
+      expect(languageBack).toHaveBeenCalledOnce();
+      expect(mediaBack).not.toHaveBeenCalled();
+
+      const second = pressEscape(document.body);
+      expect(second.defaultPrevented).toBe(true);
+      expect(languageBack).toHaveBeenCalledOnce();
+      expect(mediaBack).toHaveBeenCalledOnce();
+    });
+
+    it('closes only the top window, and only once, for one Escape from inside it', () => {
+      const account = overlay('account-dialog-overlay', 'show');
+      syncOverlayState('account-dialog-overlay');
+      const dialog = overlay('dialog-overlay', 'show');
+      const ok = document.createElement('button');
+      dialog.appendChild(ok);
+      syncOverlayState('dialog-overlay');
+      const accountBack = vi.fn(() => {
+        account.classList.remove('show');
+        return true;
+      });
+      const dialogBack = vi.fn(() => {
+        dialog.classList.remove('show');
+        return true;
+      });
+      onWindowBack(account, accountBack);
+      onWindowBack(dialog, dialogBack);
+      ok.focus();
+
+      expect(pressEscape(ok).defaultPrevented).toBe(true);
+      expect(dialogBack).toHaveBeenCalledOnce();
+      // The window the closing one uncovers keeps this key's press.
+      expect(accountBack).not.toHaveBeenCalled();
+      expect(account.classList.contains('show')).toBe(true);
+    });
+
+    it('leaves an Escape a window already used, or one an IME is composing', () => {
+      const language = overlay('language-dialog-overlay', 'show');
+      syncOverlayState('language-dialog-overlay');
+      const languageBack = vi.fn(() => true);
+      onWindowBack(language, languageBack);
+      const control = document.createElement('input');
+      language.appendChild(control);
+      control.addEventListener('keydown', (event) => event.preventDefault(), { once: true });
+
+      pressEscape(control);
+      pressEscape(document.body, { isComposing: true });
+      pressEscape(document.body, { keyCode: 229 });
+
+      expect(languageBack).not.toHaveBeenCalled();
+    });
+
+    it('reports a key the window does not use, and never reaches the page or setup', () => {
+      const setup = overlay('setup-overlay', 'active');
+      const setupBack = vi.fn(() => true);
+      onWindowBack(setup, setupBack);
+      syncOverlayState('setup-overlay');
+      expect(pressEscape(document.body).defaultPrevented).toBe(false);
+      expect(setupBack).not.toHaveBeenCalled();
+
+      const demo = overlay('demo-overlay', 'active');
+      syncOverlayState('demo-overlay');
+      const demoBack = vi.fn(() => false);
+      onWindowBack(demo, demoBack);
+      expect(pressEscape(document.body).defaultPrevented).toBe(false);
+      expect(demoBack).toHaveBeenCalledOnce();
+    });
   });
 
   it('uses the Back when a window handler throws, so the page never leaves', () => {

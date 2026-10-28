@@ -96,7 +96,6 @@ const de: Record<I18nKey, string> = {
   'common.left': 'Links',
   'common.right': 'Rechts',
   'common.woofer': 'Woofer',
-  'common.connected': 'Verbunden',
   'common.revoke': 'Entziehen',
   'common.system': 'System',
   'common.unknown': 'Unbekannt',
@@ -130,6 +129,8 @@ const de: Record<I18nKey, string> = {
   'settings.sync_settings': 'Einstellungen synchronisieren',
   'settings.sync_settings_desc':
     'Geräte mit aktivierter Einstellung synchronisieren Lautstärke und Audioeffekte.',
+  'settings.audio_locked_desc': 'Nur Raumadmins können Audioeinstellungen ändern.',
+  'settings.audio_lock_checking_desc': 'Administratorrechte werden geprüft.',
   'settings.virtual_effects_title': 'Virtuelle Effekte',
   'settings.virtual_effects_desc':
     'Wendet synthetisierte Effekte auf den Klang an. Dies kann zu starken Verzerrungen führen.',
@@ -200,7 +201,6 @@ const de: Record<I18nKey, string> = {
   'settings.leave_session': 'Raum verlassen',
   'connect.rename_reserved': 'Dieser Nickname ist reserviert.',
   'connect.rename_profanity': 'Der Nickname enthält unzulässige Begriffe.',
-  'settings.devices_title': 'Verbundene Geräte',
   'settings.invite_share': 'Einladen & Teilen',
   'settings.subtab.general': 'Allgemein',
   'settings.subtab.audio': 'Audio',
@@ -740,7 +740,7 @@ const de: Record<I18nKey, string> = {
   'pro.activation_account_message': 'Diesen Raum für das Konto „{{name}}“ registrieren?',
   'pro.activation_account_login_message':
     'Melde dich mit dem Konto an, für das du diesen Raum registrieren möchtest.',
-  'pro.activation_account_continue': 'Fortfahren',
+  'pro.activation_account_continue': 'Registrieren',
   'pro.activation_account_switch': 'Anderes Konto',
   'pro.activation_account_unavailable':
     'Dein Konto konnte nicht überprüft werden. Bitte versuche es gleich noch einmal.',

@@ -94,7 +94,7 @@ afterEach(async () => {
   vi.unstubAllGlobals();
 });
 
-async function coverPendingDialogWithOAuthCancellation(dismissible = false): Promise<void> {
+async function coverPendingDialogWithOAuthCancellation(): Promise<void> {
   openAccountDialog();
   element('btn-account-google').click();
   const login = new URL(popupUrl, location.origin);
@@ -106,7 +106,6 @@ async function coverPendingDialogWithOAuthCancellation(dismissible = false): Pro
   pendingDialog = showDialog({
     message: 'Pending confirmation',
     secondaryText: 'Cancel',
-    dismissible,
   });
   await new Promise((resolve) => setTimeout(resolve, 0));
   expect(element('dialog-overlay').hasAttribute('inert')).toBe(false);
@@ -168,7 +167,7 @@ describe('common dialog keyboard ownership after an OAuth popup completes', () =
   });
 
   it('does not reuse Account Escape after Account synchronously uncovers the common dialog', async () => {
-    await coverPendingDialogWithOAuthCancellation(true);
+    await coverPendingDialogWithOAuthCancellation();
     element('btn-account-google').dispatchEvent(
       new KeyboardEvent('keydown', {
         key: 'Escape',
@@ -180,7 +179,7 @@ describe('common dialog keyboard ownership after an OAuth popup completes', () =
     expect(element('dialog-overlay').hasAttribute('inert')).toBe(false);
     expect(element('dialog-overlay').classList.contains('show')).toBe(true);
 
-    // A new Escape belongs to the newly uncovered dismissible dialog.
+    // A new Escape belongs to the newly uncovered dialog, as Back would.
     element('btn-dialog-secondary').dispatchEvent(
       new KeyboardEvent('keydown', {
         key: 'Escape',

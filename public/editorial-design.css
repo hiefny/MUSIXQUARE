@@ -277,33 +277,33 @@
 
 .spec .s28 {
   font-size: 28px;
-  font-weight: var(--font-weight-display);
-  letter-spacing: -0.03em;
+  font-weight: var(--font-weight-title);
+  letter-spacing: var(--title-letter-spacing);
 }
 .spec .s24 {
   font-size: 24px;
-  font-weight: var(--font-weight-display);
-  letter-spacing: -0.03em;
+  font-weight: var(--font-weight-title);
+  letter-spacing: var(--title-letter-spacing);
 }
 .spec .s20 {
   font-size: 20px;
-  font-weight: 700;
-  letter-spacing: -0.5px;
+  font-weight: var(--font-weight-title);
+  letter-spacing: var(--title-letter-spacing);
 }
 .spec .s16 {
   font-size: 16px;
-  font-weight: 500;
+  font-weight: var(--font-weight-body);
 }
 .spec .s12 {
   color: var(--text-sub);
   font-size: 12px;
-  font-weight: 600;
+  font-weight: var(--font-weight-body);
 }
 
 .display-glyph {
   color: var(--text-main);
   font-size: 160px;
-  font-weight: var(--font-weight-display);
+  font-weight: var(--font-weight-title);
   letter-spacing: -0.05em;
   line-height: 0.9;
 }
@@ -640,7 +640,7 @@
   justify-content: center;
   gap: 10px;
   font-size: var(--button-label-size);
-  font-weight: var(--button-label-weight);
+  font-weight: var(--font-weight-label);
   line-height: var(--button-label-line-height);
   letter-spacing: var(--button-label-letter-spacing);
   white-space: nowrap;
@@ -786,7 +786,7 @@
   background: #fff;
   color: var(--primary);
   font-size: 9px;
-  font-weight: var(--font-weight-display);
+  font-weight: var(--font-weight-label);
   line-height: 1;
 }
 
@@ -811,7 +811,7 @@
   background: var(--surface-2);
   color: var(--text-sub);
   font-size: 11px;
-  font-weight: 700;
+  font-weight: var(--font-weight-label);
 }
 
 .role-sample.connected {
@@ -830,7 +830,7 @@
   background: rgba(255, 255, 255, 0.08);
   color: var(--text-sub);
   font-size: 11px;
-  font-weight: 700;
+  font-weight: var(--font-weight-label);
 }
 
 .choice-grid {
@@ -853,13 +853,14 @@
   color: var(--text-main);
   font: inherit;
   font-size: 14px;
-  font-weight: 700;
+  font-weight: var(--font-weight-unselected);
   cursor: pointer;
 }
 
 .choice-card.selected {
   background: var(--control-active);
   color: var(--primary);
+  font-weight: var(--font-weight-selected);
 }
 
 .choice-card svg {
@@ -975,11 +976,12 @@
   place-items: center;
   color: var(--text-muted);
   font-size: 14px;
-  font-weight: 600;
+  font-weight: var(--font-weight-unselected);
 }
 
 .playlist-leading.playing {
   color: var(--primary);
+  font-weight: var(--font-weight-selected);
 }
 
 .playlist-leading svg {
@@ -996,7 +998,7 @@
   gap: 8px;
   color: var(--text-main);
   font-size: 15px;
-  font-weight: 500;
+  font-weight: var(--font-weight-unselected);
 }
 
 .playlist-name > span {
@@ -1008,7 +1010,7 @@
 
 .playlist-item.active .playlist-name {
   color: var(--primary);
-  font-weight: 700;
+  font-weight: var(--font-weight-selected);
 }
 
 .playlist-source {
@@ -1116,7 +1118,7 @@
   place-items: center;
   color: var(--text-muted);
   font-size: 11px;
-  font-weight: 600;
+  font-weight: var(--font-weight-unselected);
 }
 
 .sub-name {
@@ -1125,6 +1127,7 @@
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+  font-weight: var(--font-weight-unselected);
 }
 
 .playlist-select {
@@ -1282,7 +1285,7 @@
   margin-bottom: 8px;
   color: var(--text-sub);
   font-size: 12px;
-  font-weight: 600;
+  font-weight: var(--font-weight-label);
 }
 
 .range-slider-header {
@@ -1295,8 +1298,9 @@
 .range-slider-header strong {
   color: var(--primary);
   font-size: 12px;
-  font-weight: 700;
+  font-weight: var(--font-weight-title);
   font-variant-numeric: tabular-nums;
+  letter-spacing: var(--title-letter-spacing);
 }
 
 @property --range-progress {
@@ -1398,7 +1402,7 @@
   justify-content: space-between;
   color: var(--text-sub);
   font-size: 12px;
-  font-weight: 600;
+  font-weight: var(--font-weight-body);
   font-variant-numeric: tabular-nums;
 }
 
@@ -1592,11 +1596,13 @@
   position: relative;
   z-index: 1;
   font-size: 11px;
-  font-weight: 700;
+  font-weight: var(--font-weight-label);
   font-variant-numeric: tabular-nums;
 }
 
 .range-eq-value {
+  font-weight: var(--font-weight-title);
+  letter-spacing: var(--title-letter-spacing);
   color: var(--primary);
 }
 
@@ -1643,7 +1649,7 @@
   margin: 0 2px 4px;
   color: var(--text-sub);
   font-size: 11px;
-  font-weight: 700;
+  font-weight: var(--font-weight-label);
 }
 
 .chat-bubble {
@@ -1768,8 +1774,8 @@
 .chat-yt-label {
   height: 16px;
   font-size: 14px;
-  font-weight: var(--font-weight-display);
-  letter-spacing: -0.3px;
+  font-weight: var(--font-weight-label);
+  letter-spacing: 0;
   line-height: 16px;
 }
 
@@ -1794,7 +1800,7 @@
   margin-bottom: 2px;
   color: var(--text-muted);
   font-size: 10px;
-  font-weight: 500;
+  font-weight: var(--font-weight-body);
   font-variant-numeric: tabular-nums;
   white-space: nowrap;
 }
@@ -1844,7 +1850,7 @@
   min-width: 0;
   flex: 1;
   overflow: hidden;
-  font-weight: 700;
+  font-weight: var(--font-weight-label);
   line-height: normal;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -1888,7 +1894,7 @@
   color: var(--text-sub);
   font: inherit;
   font-size: 13px;
-  font-weight: 600;
+  font-weight: var(--font-weight-unselected);
   text-align: center;
   cursor: pointer;
 }
@@ -1896,6 +1902,7 @@
 .subtab-pill.active {
   border-bottom-color: var(--primary);
   color: var(--primary);
+  font-weight: var(--font-weight-selected);
 }
 
 .subtab-pill:focus-visible {
@@ -1930,7 +1937,7 @@
   background: transparent;
   color: var(--text-main);
   font-size: 15px;
-  font-weight: 500;
+  font-weight: var(--font-weight-body);
   line-height: 20px;
   outline: 0;
 }
@@ -2099,8 +2106,6 @@
   position: absolute;
   left: 24px;
   z-index: 1;
-  font-weight: 700;
-  letter-spacing: -0.04em;
 }
 
 .app-loading-header-logo {
@@ -2120,7 +2125,8 @@
 
 .app-loading-header-status {
   font-size: 13px;
-  font-weight: 600;
+  /* Like the app's header loading status: label, beside the account pill. */
+  font-weight: var(--font-weight-label);
   transform: translateY(100%);
   opacity: 0;
   animation:
@@ -2139,7 +2145,7 @@
   background: var(--primary-filled);
   color: #fff;
   font-size: 11px;
-  font-weight: 700;
+  font-weight: var(--font-weight-label);
   line-height: normal;
   /* Like the app header, the account pill stays usable while loading. */
 }
@@ -2264,7 +2270,7 @@
 
 .device-row-sample.is-current-member :is(.d-order, .d-name) {
   color: var(--primary);
-  font-weight: 700;
+  font-weight: var(--font-weight-selected);
 }
 
 .device-row-sample .d-order {
@@ -2272,7 +2278,7 @@
   flex-shrink: 0;
   color: var(--text-muted);
   font-size: 14px;
-  font-weight: 600;
+  font-weight: var(--font-weight-unselected);
   text-align: center;
 }
 
@@ -2281,7 +2287,7 @@
   flex: 1;
   color: var(--text-main);
   font-size: 16px;
-  font-weight: 500;
+  font-weight: var(--font-weight-unselected);
 }
 
 .device-row-sample .d-name-label {
@@ -2386,6 +2392,11 @@
   color: var(--danger-foreground);
 }
 
+.btn-kick-device:focus-visible,
+.btn-kick-physical-device:focus-visible {
+  color: var(--danger-foreground);
+}
+
 .device-sublist-sample {
   margin: 0 0 8px;
   padding: 0 16px 8px 56px;
@@ -2418,7 +2429,7 @@
   flex: 0 0 20px;
   color: var(--text-muted);
   font-size: 11px;
-  font-weight: 600;
+  font-weight: var(--font-weight-unselected);
   text-align: center;
 }
 
@@ -2428,6 +2439,7 @@
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+  font-weight: var(--font-weight-unselected);
 }
 
 .nav-stage {
@@ -2475,7 +2487,7 @@
   color: var(--grey-600);
   font-family: inherit;
   font-size: 10px;
-  font-weight: 500;
+  font-weight: var(--font-weight-unselected);
   cursor: pointer;
 }
 
@@ -2495,6 +2507,7 @@
 
 .app-bottom-nav .tab.active {
   color: var(--primary);
+  font-weight: var(--font-weight-selected);
 }
 
 .app-bottom-nav .tab.active span {
@@ -2514,7 +2527,7 @@
   color: var(--text-main);
   display: inline-block;
   font-size: 13px;
-  font-weight: 600;
+  font-weight: var(--font-weight-body);
   backdrop-filter: none;
   -webkit-backdrop-filter: none;
 }
@@ -2612,15 +2625,15 @@
 
 .dialog-title {
   font-size: 20px;
-  font-weight: var(--font-weight-display);
-  letter-spacing: -0.02em;
+  font-weight: var(--font-weight-title);
+  letter-spacing: var(--title-letter-spacing);
 }
 
 .dialog-message {
   margin-bottom: 24px;
   color: var(--text-sub);
   font-size: 15px;
-  font-weight: 500;
+  font-weight: var(--font-weight-body);
   line-height: 1.6;
 }
 
@@ -2639,7 +2652,7 @@
   border-radius: 999px;
   font-family: inherit;
   font-size: var(--button-label-size);
-  font-weight: var(--button-label-weight);
+  font-weight: var(--font-weight-label);
   line-height: var(--button-label-line-height);
   letter-spacing: var(--button-label-letter-spacing);
   cursor: pointer;

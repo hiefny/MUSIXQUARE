@@ -353,8 +353,14 @@ describe('onboarding diagnostics overlay', () => {
         <button id="btn-dialog-ok"></button><button id="btn-dialog-secondary"></button></div>`;
     syncOverlayState('setup-overlay');
     openOnboardingDiagnostics();
-    // A late authenticated session can open this ordinary nickname dialog.
-    const pending = showDialog({ title: 'Nickname', message: 'Complete your profile' });
+    // A late dialog opens above the diagnostics. Escape is Back (owner
+    // decision 2026-10-28) and would close an ordinary dialog, so this one
+    // needs its tap, as audio recovery does, to keep the lock under test.
+    const pending = showDialog({
+      title: 'Tap to resume',
+      message: 'Only this tap restarts audio',
+      closeOnBack: false,
+    });
     try {
       const diagnostics = document.getElementById('onboarding-diagnostics-overlay')!;
       const dialog = document.getElementById('dialog-overlay')!;
@@ -469,13 +475,23 @@ describe('onboarding diagnostics overlay', () => {
       (button) => button.textContent === 'CLOSE',
     ) as HTMLButtonElement;
 
+    // Owner decision (2026-10-28): the exit comes first, on the left, then
+    // the actions: CLOSE, COPY, REFRESH. CLOSE keeps the first focus.
+    const refreshButton = Array.from(overlay?.querySelectorAll('button') || []).find(
+      (button) => button.textContent === 'REFRESH',
+    ) as HTMLButtonElement;
+    expect(
+      Array.from(overlay?.querySelectorAll('.onboarding-diagnostics-actions > button') || []).map(
+        (button) => button.textContent,
+      ),
+    ).toEqual(['CLOSE', 'COPY', 'REFRESH']);
     expect(backgroundButton.inert).toBe(true);
     expect(document.activeElement).toBe(closeButton);
-    document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Tab', bubbles: true }));
-    expect(document.activeElement).toBe(copyButton);
     document.dispatchEvent(
       new KeyboardEvent('keydown', { key: 'Tab', shiftKey: true, bubbles: true }),
     );
+    expect(document.activeElement).toBe(refreshButton);
+    document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Tab', bubbles: true }));
     expect(document.activeElement).toBe(closeButton);
 
     expect(() => copyButton.click()).not.toThrow();

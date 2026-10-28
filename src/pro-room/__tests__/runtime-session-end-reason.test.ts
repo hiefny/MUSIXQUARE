@@ -264,7 +264,6 @@ describe('PRO runtime session-end reasons', { concurrent: false }, () => {
       expect(renderedText(options.title)).toBe(t(titleKey));
       expect(renderedText(options.message)).toBe(t(messageKey));
       expect(renderedText(options.buttonText)).toBe(t('common.ok'));
-      expect(options.dismissible).toBe(false);
       expect(options.signal).toBeInstanceOf(AbortSignal);
       expect(sessionStorage.getItem(ACK_KEY)).toBe(ROOM_CODE);
       expect(sessionReset.scheduleSessionReset).toHaveBeenCalledOnce();
@@ -299,7 +298,6 @@ describe('PRO runtime session-end reasons', { concurrent: false }, () => {
       const options = lastDialog();
       expect(renderedText(options.title)).toBe(t(titleKey));
       expect(renderedText(options.message)).toBe(t(messageKey));
-      expect(options.dismissible).toBe(false);
       expect(sessionReset.scheduleDocumentReload).not.toHaveBeenCalled();
       answer.resolve({ action: 'ok' });
       await vi.advanceTimersByTimeAsync(0);

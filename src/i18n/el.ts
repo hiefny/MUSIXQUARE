@@ -95,7 +95,6 @@ const el: Record<I18nKey, string> = {
   'common.left': 'Αριστερό',
   'common.right': 'Δεξί',
   'common.woofer': 'Woofer',
-  'common.connected': 'Συνδεδεμένο',
   'common.revoke': 'Ανάκληση',
   'common.system': 'Σύστημα',
   'common.unknown': 'Άγνωστο',
@@ -201,6 +200,8 @@ const el: Record<I18nKey, string> = {
   'settings.sync_settings': 'Συγχρονισμός ρυθμίσεων',
   'settings.sync_settings_desc':
     'Οι συσκευές με ενεργή αυτή την επιλογή συγχρονίζουν την ένταση και τα ηχητικά εφέ.',
+  'settings.audio_locked_desc': 'Μόνο οι διαχειριστές μπορούν να αλλάξουν τον ήχο.',
+  'settings.audio_lock_checking_desc': 'Ελέγχονται τα δικαιώματα διαχειριστή.',
   'settings.virtual_effects_title': 'Εικονικά εφέ',
   'settings.virtual_effects_desc':
     'Εφαρμόζει συνθετικά εφέ στον ήχο. Ενδέχεται να προκαλέσουν έντονη παραμόρφωση.',
@@ -273,7 +274,6 @@ const el: Record<I18nKey, string> = {
   'settings.leave_session': 'Έξοδος από συνεδρία',
   'connect.rename_reserved': 'Αυτό το ψευδώνυμο είναι δεσμευμένο.',
   'connect.rename_profanity': 'Εντοπίστηκαν ακατάλληλες λέξεις.',
-  'settings.devices_title': 'Συνδεδεμένες συσκευές',
   'settings.invite_share': 'Πρόσκληση και κοινοποίηση',
   'settings.subtab.general': 'Γενικά',
   'settings.subtab.audio': 'Ήχος',
@@ -817,7 +817,7 @@ const el: Record<I18nKey, string> = {
   'pro.activation_account_message': 'Να καταχωριστεί αυτό το δωμάτιο στον λογαριασμό «{{name}}»;',
   'pro.activation_account_login_message':
     'Συνδεθείτε στον λογαριασμό στον οποίο θέλετε να καταχωριστεί αυτό το δωμάτιο.',
-  'pro.activation_account_continue': 'Συνέχεια',
+  'pro.activation_account_continue': 'Καταχώριση',
   'pro.activation_account_switch': 'Άλλος λογαριασμός',
   'pro.activation_account_unavailable':
     'Δεν ήταν δυνατή η επαλήθευση του λογαριασμού σας. Δοκιμάστε ξανά σε λίγο.',

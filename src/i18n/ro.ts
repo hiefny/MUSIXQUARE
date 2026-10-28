@@ -95,7 +95,6 @@ const ro: Record<I18nKey, string> = {
   'common.left': 'Stânga',
   'common.right': 'Dreapta',
   'common.woofer': 'Woofer',
-  'common.connected': 'Conectat',
   'common.revoke': 'Revocă',
   'common.system': 'Sistem',
   'common.unknown': 'Necunoscut',
@@ -201,6 +200,8 @@ const ro: Record<I18nKey, string> = {
   'settings.sync_settings': 'Sincronizarea setărilor',
   'settings.sync_settings_desc':
     'Dispozitivele care au această opțiune activă își sincronizează volumul și efectele audio.',
+  'settings.audio_locked_desc': 'Numai administratorii camerei pot schimba setările audio.',
+  'settings.audio_lock_checking_desc': 'Se verifică drepturile de administrator.',
   'settings.virtual_effects_title': 'Efecte virtuale',
   'settings.virtual_effects_desc':
     'Aplică efecte sintetizate sunetului. Acestea pot cauza distorsiuni puternice.',
@@ -273,7 +274,6 @@ const ro: Record<I18nKey, string> = {
   'settings.leave_session': 'Părăsește sesiunea',
   'connect.rename_reserved': 'Acest pseudonim este rezervat.',
   'connect.rename_profanity': 'Au fost detectate cuvinte nepotrivite.',
-  'settings.devices_title': 'Dispozitive conectate',
   'settings.invite_share': 'Invită și distribuie',
   'settings.subtab.general': 'General',
   'settings.subtab.audio': 'Audio',
@@ -810,7 +810,7 @@ const ro: Record<I18nKey, string> = {
   'pro.activation_account_message': 'Înregistrezi această cameră în contul „{{name}}”?',
   'pro.activation_account_login_message':
     'Autentifică-te în contul în care vrei să înregistrezi această cameră.',
-  'pro.activation_account_continue': 'Continuă',
+  'pro.activation_account_continue': 'Înregistrează',
   'pro.activation_account_switch': 'Alt cont',
   'pro.activation_account_unavailable':
     'Contul nu a putut fi verificat. Încearcă din nou în curând.',

@@ -3,6 +3,7 @@
  */
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { readdirSync, readFileSync } from 'node:fs';
+import { parse as parseCss } from 'postcss';
 import { bus } from '../../core/events.ts';
 import { getState, resetState, setState } from '../../core/state.ts';
 import { showToast } from '../toast.ts';
@@ -10,7 +11,7 @@ import { LANGUAGE_OPTIONS, setLanguageMode, t } from '../../i18n/index.ts';
 import { hasLocaleFont } from '../../i18n/locale-fonts.ts';
 import { markStandardRoomAuthorityConfirmed } from '../../rooms/authority.ts';
 import { roomCapabilityFeedbackTip } from '../../rooms/permission-feedback.ts';
-import type { DataConnection } from '../../types/index.ts';
+import type { DataConnection, RoomContext } from '../../types/index.ts';
 import { configureSystemAudioCaptureActivityProbe } from '../../audio/system-audio-policy.ts';
 import {
   acceptCanonicalRoomSettings,
@@ -80,10 +81,17 @@ const reverbRangeInputs = (() => {
 })();
 
 function installEffectSettingsDom(): void {
+  // Like the app, each choice group is described by its section description.
   document.body.insertAdjacentHTML(
     'beforeend',
     `
-      <div class="channel-grid" id="grid-reverb">
+      <p id="settings-reverb-description">${t('settings.reverb_desc')}</p>
+      <div
+        class="channel-grid"
+        id="grid-reverb"
+        role="group"
+        aria-describedby="settings-reverb-description"
+      >
         <button class="ch-opt" data-rvb-type="studio">Studio</button>
         <button class="ch-opt" data-rvb-type="arena">Arena</button>
         <button class="ch-opt" data-rvb-type="advanced">Advanced</button>
@@ -101,13 +109,25 @@ function installEffectSettingsDom(): void {
         <span id="val-rvb-highcut">20.0kHz</span>
         <input type="range" id="reverb-highcut-slider" min="0" max="100" step="1" value="0" />
       </div>
-      <div class="channel-grid" id="grid-eq">
+      <p id="settings-eq-description">${t('settings.eq_desc')}</p>
+      <div
+        class="channel-grid"
+        id="grid-eq"
+        role="group"
+        aria-describedby="settings-eq-description"
+      >
         <button class="ch-opt" data-eq-type="bright">Bright</button>
         <button class="ch-opt" data-eq-type="warm">Warm</button>
         <button class="ch-opt" data-eq-type="advanced">Advanced</button>
         <button class="ch-opt active" data-eq-type="off">Off</button>
       </div>
-      <div class="channel-grid" id="grid-virtual-effects">
+      <p id="settings-virtual-effects-description">${t('settings.virtual_effects_desc')}</p>
+      <div
+        class="channel-grid"
+        id="grid-virtual-effects"
+        role="group"
+        aria-describedby="settings-virtual-effects-description"
+      >
         <button class="ch-opt" data-virtual-effect="bass" aria-pressed="false">Bass</button>
         <button class="ch-opt" data-virtual-effect="treble" aria-pressed="false">Treble</button>
         <button class="ch-opt" data-virtual-effect="surround" aria-pressed="false">Surround</button>
@@ -216,6 +236,15 @@ function installSettingsSyncDom(): void {
       )
       .join('')}`,
   );
+}
+
+/** A control's description: the texts it references, joined by one space. */
+function describedText(element: Element): string {
+  return (element.getAttribute('aria-describedby') ?? '')
+    .split(/\s+/u)
+    .filter(Boolean)
+    .map((id) => document.getElementById(id)?.textContent?.trim() ?? '')
+    .join(' ');
 }
 
 beforeEach(() => {
@@ -499,16 +528,21 @@ describe('settings synchronization preference', () => {
 
     const reverb = document.getElementById('grid-reverb')!;
     expect(reverb.getAttribute('aria-disabled')).toBe('true');
+    // The hint names the check in one phrase; the description, read ahead of
+    // the section's own, says it in a sentence.
     expect(reverb.title).toBe(t('player.admin_permission_checking_tip'));
     expect(document.getElementById('grid-reverb-reason')?.textContent).toBe(
-      t('player.admin_permission_checking_tip'),
+      t('settings.audio_lock_checking_desc'),
+    );
+    expect(describedText(reverb)).toBe(
+      "Checking administrator permissions. Adjust the sound's reverb and resonance.",
     );
 
     markStandardRoomAuthorityConfirmed(host);
     bus.emit('network:role-badge-update');
     expect(reverb.title).toBe(t('player.volume_locked_tip'));
     expect(document.getElementById('grid-reverb-reason')?.textContent).toBe(
-      t('player.volume_locked_tip'),
+      t('settings.audio_locked_desc'),
     );
   });
 
@@ -537,13 +571,23 @@ describe('settings synchronization preference', () => {
       expect(group.title).toBe(roomCapabilityFeedbackTip('effects.control'));
     }
     // The three choice groups keep their section description, which outranks
-    // a title, so the reason is also a description they reference first.
+    // a title, so the reason is also a description they reference first. A
+    // screen reader joins the two with one space, so there the reason is a
+    // sentence of its own, not the hint's phrase.
     for (const id of ['grid-reverb', 'grid-eq', 'grid-virtual-effects']) {
       const group = document.getElementById(id)!;
       expect(group.getAttribute('aria-describedby')?.split(' ')[0], id).toBe(`${id}-reason`);
       expect(document.getElementById(`${id}-reason`)?.textContent, id).toBe(
-        roomCapabilityFeedbackTip('effects.control'),
+        t('settings.audio_locked_desc'),
       );
+    }
+    expect(describedText(groups[0]!)).toBe(
+      "Only room admins can change audio settings. Adjust the sound's reverb and resonance.",
+    );
+    // The slider areas take no description.
+    for (const id of ['reverb-sliders-area', 'eq-sliders-area']) {
+      expect(document.getElementById(id)?.hasAttribute('aria-describedby'), id).toBe(false);
+      expect(document.getElementById(`${id}-reason`), id).toBeNull();
     }
 
     await setLanguageMode('ko');
@@ -551,11 +595,11 @@ describe('settings synchronization preference', () => {
     for (const group of groups) {
       expect(group.title).toBe(roomCapabilityFeedbackTip('effects.control'));
     }
-    // A one-phrase reason, not the toast's two sentences.
+    // A one-phrase hint, not the toast's two sentences.
     expect(groups[0]!.title).toBe('음향 설정은 방 관리자만 변경 가능');
-
+    // The description follows the language too, as the owner's sentence.
     expect(document.getElementById('grid-eq-reason')?.textContent).toBe(
-      '음향 설정은 방 관리자만 변경 가능',
+      '방 관리자만 음향 설정을 변경할 수 있어요.',
     );
 
     document.querySelector<HTMLElement>('[data-settings-sync="off"]')?.click();
@@ -567,7 +611,9 @@ describe('settings synchronization preference', () => {
       expect(document.getElementById(id)?.getAttribute('aria-describedby') ?? '', id).not.toContain(
         `${id}-reason`,
       );
+      expect(document.getElementById(`${id}-reason`)?.textContent, id).toBe('');
     }
+    expect(describedText(groups[0]!)).toBe("Adjust the sound's reverb and resonance.");
   });
 
   it('shows translated effect indicators for ON, hides them for OFF, and restores them for ON', () => {
@@ -610,26 +656,70 @@ describe('settings synchronization preference', () => {
   });
 });
 
-describe('initSettings PRO device authority', () => {
-  it('does not render the legacy ADMIN badge or grant/revoke action', () => {
+describe('hidden settings device list removal', () => {
+  // The audio panel used to end in a "Connected devices" section that
+  // style.css and desktop.css hid at every width; the connect tab and the
+  // desktop connect subtab list the room's devices. Its markup, renderer,
+  // rules and copy are gone. The device list state and its event stay with
+  // their other readers (connect, chat, demo, account statistics).
+  it('leaves no markup, rule, renderer or copy of the hidden list', () => {
+    const markup = readFileSync('index.html', 'utf8');
+    for (const fragment of [
+      'settings-device-section',
+      'id="device-list"',
+      'settings.devices_title',
+    ]) {
+      expect(markup, fragment).not.toContain(fragment);
+    }
+
+    // css/app.css imports these four files; together they are the app stylesheet.
+    const retired = /(?:\.settings-device-section|#device-list|\.d-status|\.section-row)(?![\w-])/u;
+    for (const path of [
+      'css/style.css',
+      'css/desktop.css',
+      'css/rtl.css',
+      'css/playback-actions.css',
+    ]) {
+      parseCss(readFileSync(path, 'utf8')).walkRules((rule) => {
+        expect(retired.test(rule.selector), `${path}: ${rule.selector}`).toBe(false);
+      });
+    }
+
+    const settingsSource = readFileSync('src/ui/settings.ts', 'utf8');
+    for (const fragment of [
+      'network:device-list-update',
+      'lastKnownDeviceList',
+      'renderDeviceList',
+      'common.connected',
+    ]) {
+      expect(settingsSource, fragment).not.toContain(fragment);
+    }
+
+    const locales = readdirSync('src/i18n').filter((name) =>
+      /^[a-z]{2,3}(?:-[a-z]+)?\.ts$/u.test(name),
+    );
+    expect(locales).toHaveLength(42);
+    for (const locale of locales) {
+      const source = readFileSync(`src/i18n/${locale}`, 'utf8');
+      // The disconnected badge and its copy went first, in 9.0.19.
+      for (const key of ['common.connected', 'common.disconnected', 'settings.devices_title']) {
+        expect(source, `${locale}: ${key}`).not.toContain(`'${key}'`);
+      }
+    }
+  });
+
+  it('keeps a stray device-list node empty through list, room and language updates', async () => {
     document.body.insertAdjacentHTML('beforeend', '<div id="device-list"></div>');
     initSettings();
+    const stray = document.getElementById('device-list')!;
 
     const deviceList = [
-      {
-        id: 'peer-1',
-        label: 'Привет',
-        status: 'connected',
-        isHost: false,
-        isOp: true,
-      },
+      { id: 'host-1', label: 'HOST', status: 'connected', isHost: true, isOp: true },
+      { id: 'peer-1', label: 'Привет', status: 'connected', isHost: false, isOp: false },
     ];
     setState('network.lastKnownDeviceList', deviceList);
     bus.emit('network:device-list-update', deviceList);
-
-    expect(document.querySelector('.d-name')?.textContent).not.toContain('ADMIN');
-    expect(document.querySelector('.d-name')?.classList).toContain('user-text-font-ru');
-    expect(document.querySelector('.btn-action')).toBeNull();
+    expect(stray.innerHTML).toBe('');
 
     setState('room.context', {
       kind: 'pro',
@@ -640,45 +730,40 @@ describe('initSettings PRO device authority', () => {
       snapshotRevision: 1,
       capabilities: ['members.manage'],
     });
+    expect(stray.innerHTML).toBe('');
 
-    expect(document.querySelector('.d-name')?.textContent).not.toContain('ADMIN');
-    expect(document.querySelector('.btn-action')).toBeNull();
-    expect(document.querySelector('.d-status')?.textContent).toBe('Connected');
+    await setLanguageMode('ko');
+    bus.emit('i18n:changed', 'ko');
+    expect(stray.innerHTML).toBe('');
   });
-});
 
-describe('initSettings device list status', () => {
-  it('shows one connected badge, the only status a device list carries', () => {
-    // Every device list lists room members only: the host broadcast keeps
-    // peers whose status is 'connected' (peer.test.ts) and the PRO presence
-    // projection marks every participant connected
-    // (runtime-member-projection.test.ts). A disconnected badge never had a
-    // row to show on, so neither it, its rule nor its copy remains.
-    document.body.insertAdjacentHTML('beforeend', '<div id="device-list"></div>');
+  it('keeps re-deciding the audio settings lock when the room context changes', () => {
+    // The list shared its room-context subscription with the lock, and its
+    // test was the only one that changed the context after start.
+    installEffectSettingsDom();
     initSettings();
-    const deviceList = [
-      { id: 'host-1', label: 'HOST', status: 'connected', isHost: true, isOp: true },
-      { id: 'peer-1', label: 'Peer 1', status: 'connected', isHost: false, isOp: false },
-    ];
-    setState('network.lastKnownDeviceList', deviceList);
-    bus.emit('network:device-list-update', deviceList);
+    const reverb = document.getElementById('grid-reverb')!;
+    const slider = document.getElementById('reverb-slider') as HTMLInputElement;
+    expect(reverb.classList.contains('host-ctrl-locked')).toBe(false);
 
-    const badges = [...document.querySelectorAll('#device-list .d-status')];
-    expect(badges.map((badge) => badge.className)).toEqual(['d-status active', 'd-status active']);
-    expect(badges.map((badge) => badge.textContent)).toEqual(['Connected', 'Connected']);
+    const member: RoomContext = {
+      kind: 'pro',
+      roomId: '000001',
+      role: 'member',
+      coordinatorId: 'coordinator-1',
+      epoch: 1,
+      snapshotRevision: 1,
+      capabilities: [],
+    };
+    setState('room.context', member);
+    expect(reverb.classList.contains('host-ctrl-locked')).toBe(true);
+    expect(reverb.getAttribute('aria-disabled')).toBe('true');
+    expect(slider.disabled).toBe(true);
 
-    const settingsSource = readFileSync('src/ui/settings.ts', 'utf8');
-    expect(settingsSource).not.toMatch(/common\.disconnected|'inactive'/u);
-    expect(readFileSync('css/style.css', 'utf8')).not.toMatch(/\.d-status\.inactive\b/u);
-    const locales = readdirSync('src/i18n').filter((name) =>
-      /^[a-z]{2,3}(?:-[a-z]+)?\.ts$/u.test(name),
-    );
-    expect(locales).toHaveLength(42);
-    for (const locale of locales) {
-      const source = readFileSync(`src/i18n/${locale}`, 'utf8');
-      expect(source, locale).toContain("'common.connected'");
-      expect(source, locale).not.toContain("'common.disconnected'");
-    }
+    setState('room.context', { ...member, snapshotRevision: 2, capabilities: ['effects.control'] });
+    expect(reverb.classList.contains('host-ctrl-locked')).toBe(false);
+    expect(reverb.getAttribute('aria-disabled')).toBe('false');
+    expect(slider.disabled).toBe(false);
   });
 });
 
@@ -980,6 +1065,32 @@ describe('initSettings language controls', () => {
     trigger.click();
     overlay.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
 
+    expect(overlay.classList.contains('show')).toBe(false);
+    expect(document.activeElement).toBe(trigger);
+  });
+
+  // A press on the backdrop moves focus off the dialog to the page body,
+  // where a listener on the overlay never hears the key. Back still closes
+  // the dialog from there, and Escape behaves exactly like Back (owner
+  // decision 2026-10-28).
+  it('closes on Escape after a backdrop click, as Back does', () => {
+    installLanguageSettingsDom();
+    initSettings();
+
+    const trigger = document.getElementById('btn-language-select') as HTMLButtonElement;
+    const overlay = document.getElementById('language-dialog-overlay')!;
+    trigger.focus();
+    trigger.click();
+    overlay.dispatchEvent(new MouseEvent('mousedown', { bubbles: true, cancelable: true }));
+    if (document.activeElement instanceof HTMLElement) document.activeElement.blur();
+    overlay.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true }));
+    expect(overlay.classList.contains('show')).toBe(true);
+    expect(document.activeElement).toBe(document.body);
+
+    const escape = new KeyboardEvent('keydown', { key: 'Escape', bubbles: true, cancelable: true });
+    document.body.dispatchEvent(escape);
+
+    expect(escape.defaultPrevented).toBe(true);
     expect(overlay.classList.contains('show')).toBe(false);
     expect(document.activeElement).toBe(trigger);
   });

@@ -96,7 +96,6 @@ const fr: Record<I18nKey, string> = {
   'common.left': 'Gauche',
   'common.right': 'Droite',
   'common.woofer': 'Caisson de basses',
-  'common.connected': 'Connecté',
   'common.revoke': 'Retirer',
   'common.system': 'Système',
   'common.unknown': 'Inconnu',
@@ -130,6 +129,8 @@ const fr: Record<I18nKey, string> = {
   'settings.sync_settings': 'Synchronisation des réglages',
   'settings.sync_settings_desc':
     'Les appareils avec ce réglage activé synchronisent leur volume et leurs effets audio.',
+  'settings.audio_locked_desc': 'Seuls les admins du salon peuvent modifier les réglages audio.',
+  'settings.audio_lock_checking_desc': 'Vérification des droits d’administrateur.',
   'settings.virtual_effects_title': 'Effets virtuels',
   'settings.virtual_effects_desc':
     'Appliquez des effets synthétisés au son. Cela peut provoquer une forte distorsion.',
@@ -199,7 +200,6 @@ const fr: Record<I18nKey, string> = {
   'settings.leave_session': 'Quitter le salon',
   'connect.rename_reserved': 'Ce pseudo est réservé.',
   'connect.rename_profanity': 'Des termes inappropriés ont été détectés.',
-  'settings.devices_title': 'Appareils connectés',
   'settings.invite_share': 'Inviter et partager',
   'settings.subtab.general': 'Général',
   'settings.subtab.audio': 'Audio',
@@ -733,7 +733,7 @@ const fr: Record<I18nKey, string> = {
   'pro.activation_account_message': 'Enregistrer ce salon sur le compte « {{name}} » ?',
   'pro.activation_account_login_message':
     'Connectez-vous au compte sur lequel vous souhaitez enregistrer ce salon.',
-  'pro.activation_account_continue': 'Continuer',
+  'pro.activation_account_continue': 'Enregistrer',
   'pro.activation_account_switch': 'Autre compte',
   'pro.activation_account_unavailable':
     'Impossible de vérifier votre compte. Réessayez dans un instant.',

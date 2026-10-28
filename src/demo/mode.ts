@@ -1637,16 +1637,17 @@ function canRequestDemoExit(): boolean {
 }
 
 /**
- * History Back ends the demo for whoever its exit button would end it for.
- * A guest who cannot end it is not trapped behind it: Back passes on to the
- * room's leave confirmation instead.
+ * History Back and Escape do what the tour's visible exit does: end the demo
+ * for whoever may end it, and for a guest who cannot, ask to leave the room
+ * through the [Stay | Leave] confirmation an unused Back opens (owner
+ * decision 2026-10-28). Escape never goes on past the window it reaches, so
+ * the demo asks for that confirmation itself instead of leaving Back unused.
  */
 function handleDemoBack(overlay: HTMLElement): boolean {
   if (!getState('demo.active') && !getState('demo.loading')) {
     // The exit curtain is still running; let it finish.
     return overlay.classList.contains('exiting');
   }
-  if (!canRequestDemoExit()) return false;
   requestDemoExit();
   return true;
 }
@@ -1659,7 +1660,11 @@ function requestDemoExit(): void {
       if (safeSend(hostConn, { type: MSG.REQUEST_DEMO_EXIT })) showToast(t('demo.try_later_toast'));
       return;
     }
-    showToast(t('demo.host_only_exit'));
+    // The room's demo is the host's to end. A guest who cannot end it leaves
+    // the room instead, so the tour's exits are never dead ends (owner policy
+    // 2026-10-28). The visible exit, Finish tour, Escape and Back all open the
+    // [Stay | Leave] confirmation an unused Back opens (app.ts).
+    bus.emit('ui:request-leave-session');
     return;
   }
   exitDemoMode();
@@ -1891,6 +1896,9 @@ function bindDemoDom(): void {
   document.body.dataset.demoBound = '1';
 
   const overlay = document.getElementById('demo-overlay');
+  // Escape reaches this handler too, through dom.ts's one Escape listener
+  // (owner decision 2026-10-28): the open settings disclosure first, then
+  // the demo's exit, while the demo is the top window.
   if (overlay) onWindowBack(overlay, () => handleDemoBack(overlay));
 
   document.querySelectorAll<HTMLElement>('[data-demo-role]').forEach((btn) => {
@@ -1919,6 +1927,11 @@ function bindDemoDom(): void {
   document.querySelectorAll<HTMLElement>('[data-demo-exit]').forEach((btn) => {
     btn.addEventListener('click', () => bus.emit('demo:request-exit'));
   });
+  // The tour's persistent exit at the header's start, on every step (owner
+  // policy 2026-10-28). It ends the demo exactly as the step-4 exit does.
+  document
+    .getElementById('btn-demo-exit')
+    ?.addEventListener('click', () => bus.emit('demo:request-exit'));
   document.querySelectorAll<HTMLElement>('[data-demo-play]').forEach((btn) => {
     btn.addEventListener('click', () => bus.emit('demo:toggle-play'));
   });

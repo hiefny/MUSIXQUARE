@@ -1373,6 +1373,8 @@ interface BaseEventMap {
   'ui:player-panel-visible': [];
   'ui:visualizer-check': [];
   'ui:close-chat-drawer': [];
+  /** Open the [Stay | Leave] confirmation an unused history Back opens. */
+  'ui:request-leave-session': [];
   'ui:open-screensaver': [];
   'ui:ui-sounds-changed': [enabled: boolean];
   'i18n:changed': [lang: string];

@@ -92,7 +92,6 @@ const tr: Record<I18nKey, string> = {
   'common.left': 'Sol',
   'common.right': 'Sağ',
   'common.woofer': 'Woofer',
-  'common.connected': 'Bağlı',
   'common.revoke': 'Kaldır',
   'common.system': 'Sistem',
   'common.unknown': 'Bilinmeyen',
@@ -197,6 +196,8 @@ const tr: Record<I18nKey, string> = {
   'settings.sync_settings': 'Ayar senkronizasyonu',
   'settings.sync_settings_desc':
     'Bu ayarın açık olduğu cihazlar ses düzeyini ve ses efektlerini senkronize eder.',
+  'settings.audio_locked_desc': 'Ses ayarlarını yalnızca oda yöneticileri değiştirebilir.',
+  'settings.audio_lock_checking_desc': 'Yönetici yetkisi kontrol ediliyor.',
   'settings.virtual_effects_title': 'Sanal efektler',
   'settings.virtual_effects_desc':
     'Sese sentezlenmiş efektler uygular. Bu, yoğun bozulmaya neden olabilir.',
@@ -266,7 +267,6 @@ const tr: Record<I18nKey, string> = {
   'settings.leave_session': 'Bu Odadan Ayrıl',
   'connect.rename_reserved': 'Bu takma ad kullanılamaz.',
   'connect.rename_profanity': 'Takma ad uygunsuz ifadeler içeriyor.',
-  'settings.devices_title': 'Bağlı Cihazlar',
   'settings.invite_share': 'Davet ve Paylaşım',
   'settings.subtab.general': 'Genel',
   'settings.subtab.audio': 'Ses',
@@ -781,7 +781,7 @@ const tr: Record<I18nKey, string> = {
   'pro.activation_account_title': 'Bu PRO odası için bir hesap seç',
   'pro.activation_account_message': 'Bu oda “{{name}}” hesabına kaydedilsin mi?',
   'pro.activation_account_login_message': 'Bu odayı kaydetmek istediğin hesapla oturum aç.',
-  'pro.activation_account_continue': 'Devam et',
+  'pro.activation_account_continue': 'Kaydet',
   'pro.activation_account_switch': 'Başka hesap',
   'pro.activation_account_unavailable': 'Hesabın doğrulanamadı. Biraz sonra tekrar dene.',
   'pro.claim_retry_title': 'PRO bağlantısıyla tekrar denensin mi?',

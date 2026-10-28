@@ -96,7 +96,6 @@ const sv: Record<I18nKey, string> = {
   'common.left': 'Vänster',
   'common.right': 'Höger',
   'common.woofer': 'Woofer',
-  'common.connected': 'Ansluten',
   'common.revoke': 'Återkalla',
   'common.system': 'System',
   'common.unknown': 'Okänd',
@@ -201,6 +200,8 @@ const sv: Record<I18nKey, string> = {
   'settings.sync_settings': 'Synkronisera inställningar',
   'settings.sync_settings_desc':
     'Enheter med den här inställningen aktiverad synkroniserar volym och ljudeffekter.',
+  'settings.audio_locked_desc': 'Bara rumsadministratörer kan ändra ljudinställningar.',
+  'settings.audio_lock_checking_desc': 'Kontrollerar administratörsbehörighet.',
   'settings.virtual_effects_title': 'Virtuella effekter',
   'settings.virtual_effects_desc':
     'Lägg syntetiserade effekter på ljudet. Det kan orsaka kraftig distorsion.',
@@ -273,7 +274,6 @@ const sv: Record<I18nKey, string> = {
   'settings.leave_session': 'Lämna sessionen',
   'connect.rename_reserved': 'Det här smeknamnet är reserverat.',
   'connect.rename_profanity': 'Smeknamnet innehåller olämpliga ord.',
-  'settings.devices_title': 'Anslutna enheter',
   'settings.invite_share': 'Bjud in och dela',
   'settings.subtab.general': 'Allmänt',
   'settings.subtab.audio': 'Ljud',
@@ -799,7 +799,7 @@ const sv: Record<I18nKey, string> = {
   'pro.activation_account_message': 'Vill du registrera rummet på kontot ”{{name}}”?',
   'pro.activation_account_login_message':
     'Logga in med det konto som du vill registrera rummet på.',
-  'pro.activation_account_continue': 'Fortsätt',
+  'pro.activation_account_continue': 'Registrera',
   'pro.activation_account_switch': 'Annat konto',
   'pro.activation_account_unavailable':
     'Det gick inte att verifiera ditt konto. Försök igen om en liten stund.',

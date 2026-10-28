@@ -25,21 +25,29 @@ interface DialogOptions {
   buttonText?: DialogText;
   secondaryText?: DialogText;
   cancelText?: DialogText;
-  dismissible?: boolean;
   /**
-   * History Back closes the dialog as `back`, a cancel, by default. Set false
-   * for a dialog whose primary tap is required; Back then leaves it open.
+   * History Back and Escape close the dialog as `back`, a cancel, by
+   * default. Set false for a dialog whose primary tap is required; Back and
+   * Escape then leave it open. An outside click or tap never closes a dialog
+   * (owner policy, 2026-10-28).
    */
   closeOnBack?: boolean;
   defaultFocus?: 'primary' | 'secondary';
-  /** Places primary then secondary on separate full-width rows. */
-  actionLayout?: 'stacked';
   /** Scrollable, selectable user-authored copy with independently directed text. */
   contentLayout?: 'reading';
   /** Runs synchronously inside the validated primary click/Enter gesture. */
   onPrimaryActivation?: () => void;
   /** Runs synchronously inside the secondary click/Enter gesture. */
   onSecondaryActivation?: () => void;
+  /**
+   * A small text action under the [exit | primary] pair, like the language
+   * dialog's translate link (owner decision 2026-10-28), for a dialog whose
+   * exit and primary leave one more action. It resolves `link`. Not shown
+   * with `choiceStep`.
+   */
+  linkText?: DialogText;
+  /** Runs synchronously inside the link's click/Enter gesture. */
+  onLinkActivation?: () => void;
   /** Cancels a queued or active dialog without disturbing another dialog. */
   signal?: AbortSignal;
   /**
@@ -67,6 +75,9 @@ interface DialogOptions {
    * action validates the input and shows this page in place; its secondary
    * action returns to the first page with the input kept, and its primary
    * action resolves `ok` with the input value and the checked `choiceValue`.
+   * That left `backText` action is a named exception to the exit-on-the-left
+   * policy (owner decision 2026-10-28): the first page's exit is one step
+   * back. Its one caller is the room PIN dialog (connect.ts).
    */
   choiceStep?: {
     /** Replaces the dialog title while the page is shown. */
@@ -343,6 +354,7 @@ function _openDialog(opts: DialogOptions | string, resolve: (result: DialogResul
   const msgEl = document.getElementById('dialog-message');
   const okBtn = document.getElementById('btn-dialog-ok') as HTMLButtonElement | null;
   const secondaryBtn = document.getElementById('btn-dialog-secondary') as HTMLButtonElement | null;
+  const linkBtn = document.getElementById('btn-dialog-link') as HTMLButtonElement | null;
 
   if (!overlay || !titleEl || !msgEl || !okBtn) {
     showToast(typeof opts === 'string' ? opts : dialogText(opts?.message) || t('common.info'));
@@ -363,7 +375,6 @@ function _openDialog(opts: DialogOptions | string, resolve: (result: DialogResul
         : '';
   const secondaryText = dialogText(secondaryTextRaw).trim();
   const hasSecondary = !!secondaryText;
-  const dismissible = o.dismissible === true;
   const defaultFocus = o.defaultFocus
     ? String(o.defaultFocus)
     : hasSecondary
@@ -371,8 +382,8 @@ function _openDialog(opts: DialogOptions | string, resolve: (result: DialogResul
       : 'primary';
 
   // These elements become runtime-owned once a dialog opens. Static bootstrap
-  // translation keys must not overwrite custom copy when action rows move or
-  // the i18n observer translates a newly inserted element.
+  // translation keys must not overwrite custom copy when the i18n observer
+  // translates a newly inserted element.
   titleEl.removeAttribute('data-i18n');
   okBtn.removeAttribute('data-i18n');
   secondaryBtn?.removeAttribute('data-i18n');
@@ -559,6 +570,13 @@ function _openDialog(opts: DialogOptions | string, resolve: (result: DialogResul
     }
   }
 
+  const linkText = choice ? '' : dialogText(o.linkText).trim();
+  const hasLink = !!linkText && !!linkBtn;
+  if (linkBtn) {
+    linkBtn.hidden = !hasLink;
+    linkBtn.textContent = linkText;
+  }
+
   const prevFocus = document.activeElement;
 
   overlay.classList.add('show');
@@ -582,17 +600,13 @@ function _openDialog(opts: DialogOptions | string, resolve: (result: DialogResul
       msgEl.removeAttribute('tabindex');
     });
   }
-  const stackedActions = o.actionLayout === 'stacked';
-  const actions = okBtn.closest('.dialog-actions');
-  if (stackedActions && actions) {
-    actions.classList.add('dialog-actions-stacked');
-    cleanup.push(() => actions.classList.remove('dialog-actions-stacked'));
-    if (secondaryBtn?.parentElement === actions && okBtn.parentElement === actions) {
-      // Keep keyboard and screen-reader order aligned with the visible rows.
-      const originalNextSibling = okBtn.nextSibling;
-      actions.insertBefore(okBtn, secondaryBtn);
-      cleanup.push(() => actions.insertBefore(okBtn, originalNextSibling));
-    }
+  if (hasLink && linkBtn) {
+    // The link takes the dialog's bottom inset from the action row.
+    overlay.classList.add('dialog-with-link');
+    cleanup.push(() => {
+      overlay.classList.remove('dialog-with-link');
+      linkBtn.hidden = true;
+    });
   }
   const on = (target: EventTarget | null, type: string, handler: EventListener) => {
     if (!target) return;
@@ -676,6 +690,7 @@ function _openDialog(opts: DialogOptions | string, resolve: (result: DialogResul
       secondaryBtn.hidden = !currentSecondary;
       if (currentSecondary) secondaryBtn.textContent = currentSecondary;
     }
+    if (hasLink && linkBtn) linkBtn.textContent = dialogText(o.linkText).trim() || linkText;
   };
 
   const refreshCopy = () => {
@@ -851,9 +866,19 @@ function _openDialog(opts: DialogOptions | string, resolve: (result: DialogResul
     }
     done('secondary');
   };
+  const activateLink = () => {
+    try {
+      o.onLinkActivation?.();
+    } catch (error) {
+      log.debug('[Dialog] Link activation hook failed:', error);
+    }
+    done('link');
+  };
 
   // History Back is a cancel, never a button: no activation hook runs, and
   // callers see `back`. The choice page steps back to the first page first.
+  // Escape takes the same path through dom.ts's one Escape listener (owner
+  // decision 2026-10-28).
   const backListener = new AbortController();
   cleanup.push(() => backListener.abort());
   onWindowBack(
@@ -867,11 +892,6 @@ function _openDialog(opts: DialogOptions | string, resolve: (result: DialogResul
     backListener.signal,
   );
 
-  on(overlay, 'click', (e) => {
-    if (!dismissible || !_dialogActive) return;
-    if (e.target === overlay) done('overlay');
-  });
-
   if (choice) {
     // The taller choice page moves the actions down, so the second press of a
     // double press on Next can land on a row instead of OK. Keep the default
@@ -884,6 +904,7 @@ function _openDialog(opts: DialogOptions | string, resolve: (result: DialogResul
   if ((hasSecondary || choice) && secondaryBtn) {
     on(secondaryBtn, 'click', activateSecondary);
   }
+  if (hasLink && linkBtn) on(linkBtn, 'click', activateLink);
 
   // Enter key on input confirms dialog (with validation)
   if (_dialogInput) {
@@ -903,14 +924,6 @@ function _openDialog(opts: DialogOptions | string, resolve: (result: DialogResul
     const ke = e as KeyboardEvent;
     if (ke.defaultPrevented || overlay.hasAttribute('inert')) return;
     if (ke.isComposing || ke.keyCode === 229) return;
-    if (ke.key === 'Escape') {
-      // A stepped dialog closes on Escape from either page, like the language
-      // list; nothing is applied until its final primary action.
-      if (!dismissible && !choice) return;
-      ke.preventDefault();
-      done('escape');
-      return;
-    }
 
     if (ke.key === 'Enter') {
       if (choice && ke.repeat) {
@@ -938,13 +951,17 @@ function _openDialog(opts: DialogOptions | string, resolve: (result: DialogResul
       ) {
         ke.preventDefault();
         activateSecondary();
+      } else if (hasLink && focused === linkBtn) {
+        ke.preventDefault();
+        activateLink();
       }
       return;
     }
 
     if (ke.key === 'Tab') {
       const secondary = secondaryShown() ? secondaryBtn : null;
-      const actionButtons = stackedActions ? [okBtn, secondary] : [secondary, okBtn];
+      const actionButtons = [secondary, okBtn];
+      if (hasLink) actionButtons.push(linkBtn);
       const pageTarget =
         choicePageShown && choice
           ? choice.focusTarget()

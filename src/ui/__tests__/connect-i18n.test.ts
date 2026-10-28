@@ -29,10 +29,11 @@ import { __resetAccountStateForTests, applyAccountSession } from '../../account/
 import { ProRoomApiError } from '../../pro-room/api.ts';
 import type { ProRoomAdministrator } from '../../pro-room/contracts.ts';
 import { log } from '../../core/log.ts';
-import { returnToRoomStart } from '../../core/navigation.ts';
+import { navigateHome, returnToRoomStart } from '../../core/navigation.ts';
 
 vi.mock('../../core/navigation.ts', async (importOriginal) => ({
   ...(await importOriginal<typeof import('../../core/navigation.ts')>()),
+  navigateHome: vi.fn(),
   returnToRoomStart: vi.fn(() => true),
 }));
 
@@ -310,6 +311,19 @@ describe('connect signaling health status', () => {
     );
     expect(retry.textContent).toBe('새로 입장');
     expect(button.dataset.mode).toBe('expired');
+
+    // Owner decision (2026-10-28): Escape behaves exactly like Back, which
+    // closes this dialog as its plain close, without a retry. The key used to
+    // do nothing here.
+    retry.focus();
+    const escape = new KeyboardEvent('keydown', { key: 'Escape', bubbles: true, cancelable: true });
+    retry.dispatchEvent(escape);
+    expect(escape.defaultPrevented).toBe(true);
+    expect(overlay.classList.contains('show')).toBe(false);
+    expect(vi.mocked(returnToRoomStart)).not.toHaveBeenCalled();
+    button.click();
+    expect(overlay.classList.contains('show')).toBe(true);
+    expect(dialog.dataset.state).toBe('expired');
 
     retry.click();
     expect(mockedRetryPeerSignalingConnection).toHaveBeenCalledOnce();
@@ -2722,7 +2736,9 @@ describe('member-level connection and administrator UI', () => {
     const playlistRemoveButtonRules =
       stylesheet.match(/\.btn-playlist-remove\s*\{([^}]*)\}/)?.[1] ?? '';
     const memberKickIconRules = stylesheet.match(/\.btn-kick-device svg\s*\{([^}]*)\}/)?.[1] ?? '';
-    const memberKickButtonRules = stylesheet.match(/\.btn-kick-device\s*\{([^}]*)\}/)?.[1] ?? '';
+    // Selector by selector: an unanchored `.btn-kick-device {` pattern reads
+    // whichever rule first ends in that compound, such as a row-hover rule.
+    const memberKickButtonRules = cssRulesWithSelector(stylesheet, '.btn-kick-device');
     const kickButtonBaseRules =
       stylesheet.match(/\.btn-kick-device,\s*\.btn-kick-physical-device\s*\{([^}]*)\}/)?.[1] ?? '';
     const physicalDeviceKickIconRules =
@@ -2749,7 +2765,12 @@ describe('member-level connection and administrator UI', () => {
     expect(memberKickIconRules).toContain('height: 16px');
     expect(memberKickIconRules).toContain('stroke: currentColor');
     expect(memberKickIconRules).toContain('stroke-width: 0.5');
-    expect(memberKickButtonRules).toContain('opacity: 1');
+    // The member button keeps only the rule it shares with the physical-device
+    // button, and nothing dims either, so neither declares an opacity.
+    expect(memberKickButtonRules.map((rule) => rule.selectors)).toEqual([
+      ['.btn-kick-device', '.btn-kick-physical-device'],
+    ]);
+    expect(memberKickButtonRules[0]!.declarations.join('\n')).not.toContain('opacity');
     expect(kickButtonBaseRules).toContain('color: var(--text-muted)');
     expect(physicalDeviceKickIconRules).toContain('width: 16px');
     expect(physicalDeviceKickIconRules).toContain('height: 16px');
@@ -2799,10 +2820,13 @@ describe('member-level connection and administrator UI', () => {
     expect(administratorCrownRules).toContain('color: var(--text-muted)');
     expect(chatAdministratorCrownRules).toContain('color: var(--text-muted)');
     expect(chatCrownRules).toContain('top: -1px');
+    // Online and offline administrators differ by color; both names take the
+    // member list's unselected weight (weight roles, 2026-10-28), since the
+    // administrator list has no selected row.
     expect(onlineAdministratorNameRules).toContain('color: var(--text-main)');
-    expect(onlineAdministratorNameRules).toContain('font-weight: 600');
+    expect(onlineAdministratorNameRules).not.toContain('font-weight');
     expect(offlineAdministratorNameRules).toContain('color: var(--text-muted)');
-    expect(offlineAdministratorNameRules).toContain('font-weight: 500');
+    expect(offlineAdministratorNameRules).not.toContain('font-weight');
   });
 
   it('focuses the permission switches without scrolling the modal', async () => {
@@ -2920,6 +2944,131 @@ describe('member-level connection and administrator UI', () => {
     ).toBe(true);
     expect(mediaPermission.getAttribute('aria-checked')).toBe('false');
     expect(oldSettings?.isConnected).toBe(true);
+  });
+
+  it('keeps an unsaved permission draft through an outside click until Cancel', () => {
+    setState('network.appRole', 'guest');
+    setState('network.myId', 'owner-device');
+    setState('room.context', {
+      kind: 'pro',
+      roomId: '000001',
+      role: 'member',
+      coordinatorId: null,
+      epoch: 1,
+      snapshotRevision: 1,
+      capabilities: ['room.configure'],
+    });
+    initConnect();
+    bus.emit('pro-room:administrators-updated', [
+      {
+        memberId: 'owner-member',
+        memberDisplayNumber: 0,
+        isAuthenticated: true,
+        displayName: 'Owner',
+        role: 'owner',
+        permissions: { ...FULL_ADMIN_PERMISSIONS_FOR_TEST },
+        inheritedPermissions: ['media.add', 'playback.control', 'members.kick', 'chat.notice'],
+        onlineDeviceCount: 1,
+      },
+      {
+        memberId: 'admin-member',
+        memberDisplayNumber: 1,
+        isAuthenticated: true,
+        displayName: 'Admin',
+        role: 'controller',
+        permissions: { ...FULL_ADMIN_PERMISSIONS_FOR_TEST },
+        inheritedPermissions: [],
+        onlineDeviceCount: 1,
+      },
+    ] satisfies ProRoomAdministrator[]);
+    document
+      .querySelector<HTMLButtonElement>(
+        '#connect-administrator-list .administrator-action-button.settings',
+      )
+      ?.click();
+    const overlay = document.getElementById('administrator-permissions-overlay')!;
+    const mediaPermission = document.querySelector<HTMLButtonElement>(
+      '[data-administrator-permission="media.add"]',
+    )!;
+    mediaPermission.click();
+    expect(mediaPermission.getAttribute('aria-checked')).toBe('false');
+
+    // Owner policy (2026-10-28): a modal never closes on an outside click or
+    // tap, including a press that starts on a row and ends off the panel.
+    overlay.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true }));
+
+    expect(overlay.classList.contains('show')).toBe(true);
+    expect(mediaPermission.getAttribute('aria-checked')).toBe('false');
+    document.getElementById('btn-administrator-permissions-cancel')!.click();
+    expect(overlay.classList.contains('show')).toBe(false);
+  });
+
+  // A press on the backdrop moves focus off the editor to the page body,
+  // where a listener on the overlay never hears the key. Back still closes
+  // the editor from there, and Escape behaves exactly like Back (owner
+  // decision 2026-10-28): it closes without saving, as Cancel does.
+  it('closes the permission editor on Escape after a backdrop click, as Back does', () => {
+    setState('network.appRole', 'guest');
+    setState('network.myId', 'owner-device');
+    setState('room.context', {
+      kind: 'pro',
+      roomId: '000001',
+      role: 'member',
+      coordinatorId: null,
+      epoch: 1,
+      snapshotRevision: 1,
+      capabilities: ['room.configure'],
+    });
+    initConnect();
+    bus.emit('pro-room:administrators-updated', [
+      {
+        memberId: 'owner-member',
+        memberDisplayNumber: 0,
+        isAuthenticated: true,
+        displayName: 'Owner',
+        role: 'owner',
+        permissions: { ...FULL_ADMIN_PERMISSIONS_FOR_TEST },
+        inheritedPermissions: ['media.add', 'playback.control', 'members.kick', 'chat.notice'],
+        onlineDeviceCount: 1,
+      },
+      {
+        memberId: 'admin-member',
+        memberDisplayNumber: 1,
+        isAuthenticated: true,
+        displayName: 'Admin',
+        role: 'controller',
+        permissions: { ...FULL_ADMIN_PERMISSIONS_FOR_TEST },
+        inheritedPermissions: [],
+        onlineDeviceCount: 1,
+      },
+    ] satisfies ProRoomAdministrator[]);
+    const openEditor = () =>
+      document
+        .querySelector<HTMLButtonElement>(
+          '#connect-administrator-list .administrator-action-button.settings',
+        )
+        ?.click();
+    openEditor();
+    const overlay = document.getElementById('administrator-permissions-overlay')!;
+    const mediaPermission = () =>
+      document.querySelector<HTMLButtonElement>('[data-administrator-permission="media.add"]')!;
+    mediaPermission().focus();
+    mediaPermission().click();
+    expect(mediaPermission().getAttribute('aria-checked')).toBe('false');
+
+    overlay.dispatchEvent(new MouseEvent('mousedown', { bubbles: true, cancelable: true }));
+    if (document.activeElement instanceof HTMLElement) document.activeElement.blur();
+    overlay.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true }));
+    expect(overlay.classList.contains('show')).toBe(true);
+    expect(document.activeElement).toBe(document.body);
+    const escape = new KeyboardEvent('keydown', { key: 'Escape', bubbles: true, cancelable: true });
+    document.body.dispatchEvent(escape);
+
+    expect(escape.defaultPrevented).toBe(true);
+    expect(overlay.classList.contains('show')).toBe(false);
+    expect(mockedUpdateActiveProRoomAdministrator).not.toHaveBeenCalled();
+    openEditor();
+    expect(mediaPermission().getAttribute('aria-checked')).toBe('true');
   });
 
   it('closes a permission draft when its room incarnation or management authority is lost', () => {
@@ -3465,7 +3614,7 @@ describe('PRO optional entry password controls', () => {
     },
   );
 
-  it.each(['escape', 'secondary', 'superseded'])(
+  it.each(['back', 'secondary', 'superseded'])(
     'sends nothing when the two-step dialog ends with %s',
     async (action) => {
       openOwnerSettings(false);
@@ -3794,7 +3943,7 @@ describe('Standard-room owner PIN controls', () => {
     expect(lastDialogOptions().choiceStep).toBeUndefined();
   });
 
-  it.each(['secondary', 'escape', 'superseded'])(
+  it.each(['secondary', 'back', 'superseded'])(
     'sends nothing and leaves the room open when the dialog ends with %s',
     async (action) => {
       openHostSettings(false, [presentPeer('guest-1')]);
@@ -4173,5 +4322,24 @@ describe('connect account nickname authority', () => {
     if (!options || typeof options === 'string')
       throw new Error('expected nickname dialog options');
     expect(options?.inputField?.validator?.('HOST')).toBe('사용할 수 없는 이름이에요.');
+  });
+});
+
+describe('connect leave session request', () => {
+  // Owner decision (2026-10-28): a guest who cannot end the room's demo
+  // leaves through one confirmation for the tour's visible exit, Escape and
+  // Back alike: the [Stay | Leave] one an unused Back opens (app.ts). The
+  // connect tab's own Leave Session confirmation stays on its own buttons.
+  it("leaves the demo's request to leave to the Back confirmation", async () => {
+    setState('network.appRole', 'guest');
+    setState('network.hostConn', makeConnection());
+    initConnect();
+
+    bus.emit('ui:request-leave-session');
+    await Promise.resolve();
+    await Promise.resolve();
+
+    expect(mockedShowDialog).not.toHaveBeenCalled();
+    expect(navigateHome).not.toHaveBeenCalled();
   });
 });

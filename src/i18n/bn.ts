@@ -94,7 +94,6 @@ const bn: Record<I18nKey, string> = {
   'common.left': 'বাম',
   'common.right': 'ডান',
   'common.woofer': 'উফার',
-  'common.connected': 'সংযুক্ত',
   'common.revoke': 'প্রত্যাহার করুন',
   'common.system': 'সিস্টেম',
   'common.unknown': 'অজানা',
@@ -199,6 +198,8 @@ const bn: Record<I18nKey, string> = {
   'settings.sync_settings': 'সেটিংস সিঙ্ক',
   'settings.sync_settings_desc':
     'যেসব ডিভাইসে এই সেটিং চালু আছে, সেগুলোর ভলিউম ও অডিও ইফেক্ট সিঙ্ক হবে।',
+  'settings.audio_locked_desc': 'শুধু রুম অ্যাডমিন অডিও সেটিংস পরিবর্তন করতে পারবেন।',
+  'settings.audio_lock_checking_desc': 'অ্যাডমিন অনুমতি যাচাই করা হচ্ছে।',
   'settings.virtual_effects_title': 'ভার্চুয়াল ইফেক্ট',
   'settings.virtual_effects_desc':
     'অডিওতে কৃত্রিমভাবে তৈরি ইফেক্ট প্রয়োগ করুন। এতে শব্দ অনেক বিকৃত হতে পারে।',
@@ -268,7 +269,6 @@ const bn: Record<I18nKey, string> = {
   'settings.leave_session': 'সেশন ছেড়ে যান',
   'connect.rename_reserved': 'এই ডাকনামটি ব্যবহার করা যাবে না।',
   'connect.rename_profanity': 'আপত্তিকর শব্দ পাওয়া গেছে।',
-  'settings.devices_title': 'সংযুক্ত ডিভাইস',
   'settings.invite_share': 'আমন্ত্রণ ও শেয়ার',
   'settings.subtab.general': 'সাধারণ',
   'settings.subtab.audio': 'অডিও',
@@ -787,7 +787,7 @@ const bn: Record<I18nKey, string> = {
   'pro.activation_account_message': '“{{name}}” অ্যাকাউন্টে এই রুমটি নিবন্ধন করবেন?',
   'pro.activation_account_login_message':
     'যে অ্যাকাউন্টে এই রুমটি নিবন্ধন করতে চান, সেটি দিয়ে সাইন ইন করুন।',
-  'pro.activation_account_continue': 'চালিয়ে যান',
+  'pro.activation_account_continue': 'নিবন্ধন করুন',
   'pro.activation_account_switch': 'অন্য অ্যাকাউন্ট',
   'pro.activation_account_unavailable':
     'আপনার অ্যাকাউন্ট যাচাই করা যায়নি। একটু পর আবার চেষ্টা করুন।',

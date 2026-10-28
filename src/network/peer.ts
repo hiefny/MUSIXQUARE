@@ -11,6 +11,7 @@ import { t } from '../i18n/index.ts';
 import { bus } from '../core/events.ts';
 import { getState, setState, batchSetState } from '../core/state.ts';
 import { scheduleDocumentReload } from '../core/session-reset.ts';
+import { returnToRoomStart } from '../core/navigation.ts';
 import { deactivateNoSleep } from '../core/wake-lock.ts';
 import { showDialog } from '../ui/dialog.ts';
 import { MAX_GUEST_SLOTS, TRANSFER_STATE, PLAYBACK_STATE } from '../core/constants.ts';
@@ -65,6 +66,7 @@ import {
 
 import { handleHostIncomingConnection } from './host.ts';
 import { setInitNetwork, initGuestProtocolHandlers, invalidateGuestJoinAttempt } from './guest.ts';
+import { keepLinkCloseForNextPage } from './last-link-close.ts';
 
 // ─── Re-exports (preserves external import surface) ─────────────────
 
@@ -795,14 +797,29 @@ function schedulePeerDisconnectGrace(peer: PeerInstance): void {
         bus.emit('player:stop-all-media', { cancelInFlight: true, clearBuffer: true });
       }
       resetSignalingHealth();
+      // [Go back | Restart], like the guest's host-disconnected dialog in
+      // setup.ts. Go back and Back leave for the home screen. Restart returns
+      // a guest to its room's start screen, where Start joins again; anyone
+      // else, or a guest without a valid code, reloads into a new session.
       showDialog({
         title: t('network.disconnected'),
         message: t('dialog.session_lost_msg'),
         buttonText: t('dialog.session_lost_btn'),
+        secondaryText: t('dialog.go_back'),
       })
         .then((res) => {
-          if (res.action !== 'ok') return; // ESC / background dismiss
-          scheduleDocumentReload(t('dialog.refreshing_session'));
+          if (res.action === 'ok') {
+            const code = role === 'guest' ? getState('network.lastJoinCode') : '';
+            const returned = returnToRoomStart(code, {
+              message: t('dialog.refreshing_session'),
+              reconnect: true,
+              fallback: () => scheduleDocumentReload(t('dialog.refreshing_session')),
+            });
+            if (returned) keepLinkCloseForNextPage();
+          } else if (res.action === 'secondary' || res.action === 'back') {
+            keepLinkCloseForNextPage();
+            scheduleDocumentReload(t('dialog.leaving_session'));
+          }
         })
         .catch((error) => {
           log.warn('[Transport] Session-loss dialog failed', error);

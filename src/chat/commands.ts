@@ -559,7 +559,7 @@ function cmdHelp(): void {
     }
   }
   lines.push(t('chat.cmd_help_target_hint'));
-  addSystemChatMessage(lines.join('\n'));
+  addSystemChatMessage(lines.join('\n'), { heading: true });
 }
 
 function cmdUsers(): void {
@@ -610,7 +610,7 @@ function cmdUsers(): void {
     lines.push(`#${member.memberDisplayNumber}. ${member.label}${deviceCount}${suffix}`);
   }
 
-  addSystemChatMessage(lines.join('\n'));
+  addSystemChatMessage(lines.join('\n'), { heading: true });
 }
 
 function getBotRoomId(): string | null {

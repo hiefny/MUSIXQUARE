@@ -156,6 +156,15 @@ describe('app UX markup contract', () => {
     expect(i18nIndex).toBeGreaterThan(restoreIndex);
   });
 
+  // Owner decision (2026-10-28): the demo tour's exits for a guest who cannot
+  // end it (its visible exit, Escape and Back) open the same [Stay | Leave]
+  // confirmation an unused Back opens, through the Back guard.
+  it('routes a request to leave the room to the Back guard confirmation', () => {
+    expect(appRuntimeSource).toContain(
+      "bus.on('ui:request-leave-session', controller.requestLeave);",
+    );
+  });
+
   it('lists the privacy policy before the terms in the login legal links, as Google does', () => {
     const links = [...appDocument.querySelectorAll<HTMLAnchorElement>('#account-legal-links a')];
     expect(links.map((link) => link.getAttribute('href'))).toEqual(['/privacy', '/terms']);
@@ -570,6 +579,29 @@ describe('app UX markup contract', () => {
     expect(appRuntimeSource).toContain('showToast(updateCompletion)');
   });
 
+  // Owner decision (2026-10-28): Close, Back and Escape on the lazy-feature
+  // recovery dialog are a choice, so declining shows no error toast after it
+  // (it read like an error after a choice). Real failures keep theirs: a
+  // dialog that cannot open shows its own message as a toast (showDialog's
+  // fallback), and a failed presentation or a reload that returns to the
+  // stale document show error.network_generic.
+  it('shows no error toast after a deliberate decline of the lazy-feature recovery', () => {
+    const recoveryStart = appRuntimeSource.indexOf('const runLazyFeatureRecovery');
+    const recoveryEnd = appRuntimeSource.indexOf('\n// bootstrap.js', recoveryStart);
+    const recoverySource = appRuntimeSource.slice(recoveryStart, recoveryEnd);
+    const hook = (name: string, next: string) =>
+      recoverySource.slice(recoverySource.indexOf(`${name}(`), recoverySource.indexOf(`${next}(`));
+
+    expect(recoverySource).toContain("return result.action === 'ok' ? 'accept' : 'decline';");
+    expect(hook('onDeclined', 'onRecovered')).not.toContain('showToast');
+    expect(hook('onRecovered', 'onPresentationFailure')).toContain(
+      "showToast(t('error.network_generic'))",
+    );
+    expect(recoverySource.slice(recoverySource.indexOf('onPresentationFailure('))).toContain(
+      "showToast(t('error.network_generic'))",
+    );
+  });
+
   it('turns a terminal lazy-feature failure into an explicit reload action', () => {
     const recoveryStart = appRuntimeSource.indexOf('const runLazyFeatureRecovery');
     const recoveryEnd = appRuntimeSource.indexOf('\n// bootstrap.js', recoveryStart);
@@ -592,17 +624,22 @@ describe('app UX markup contract', () => {
 
     expect(appRuntimeSource).toContain("bus.on('app:lazy-feature-load-failed'");
     expect(appRuntimeSource).toContain("buttonText: t('common.refresh')");
-    // Owner decision 2026-10-11: the recovery dialog keeps opening in rooms and
-    // stays non-dismissible with Refresh as its only action, but uses its own
-    // copy instead of the waiting-worker update dialog's title and message.
+    // Owner decision 2026-10-11: the recovery dialog keeps opening in rooms
+    // and uses its own copy instead of the waiting-worker update dialog's
+    // title and message.
     expect(recoverySource).toContain("title: t('dialog.feature_refresh_title')");
     expect(recoverySource).toContain("message: t('dialog.feature_refresh_msg')");
     expect(recoverySource).toContain("buttonText: t('common.refresh')");
-    expect(recoverySource).toContain('dismissible: false');
     expect(recoverySource).not.toContain('dialog.sw_update_');
-    // No second button, and no abort signal or room check that would hide or
-    // retract it in a room the way the waiting-worker update dialog is.
-    expect(recoverySource).not.toMatch(/secondaryText|cancelText|signal:|appRole|Deferred/u);
+    // Owner decision 2026-10-28, reversing 2026-10-11 decision 7: Close sits
+    // on the left of Refresh. Closing declines like Back, so only that feature
+    // stays unopened and the room stays as it is.
+    expect(recoverySource).toContain("secondaryText: t('common.close')");
+    expect(recoverySource).not.toContain('cancelText');
+    expect(recoverySource).toContain("return result.action === 'ok' ? 'accept' : 'decline';");
+    // No abort signal or room check that would hide or retract it in a room
+    // the way the waiting-worker update dialog was before 2026-10-17.
+    expect(recoverySource).not.toMatch(/signal:|appRole|Deferred/u);
     expect(appRuntimeSource).toContain("scheduleDocumentReload(t('dialog.refreshing_session')");
     expect(recoverySource).toContain("showToast(t('error.network_generic'))");
     expect(recoverySource.match(/reportLazyFeatureLoadFailure\(/gu)).toHaveLength(1);

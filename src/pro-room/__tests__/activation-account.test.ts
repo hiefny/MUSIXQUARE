@@ -54,18 +54,47 @@ beforeEach(() => {
 });
 
 describe('PRO activation account confirmation', () => {
-  it('refreshes and explicitly confirms the named account with two stacked buttons', async () => {
+  it('refreshes and explicitly confirms the named account beside Cancel', async () => {
     await expect(confirmProRoomActivationAccount()).resolves.toBe(A.statsScope);
     expect(mocks.refresh).toHaveBeenCalledOnce();
-    expect(mocks.dialog).toHaveBeenCalledWith(
+    // Owner decision 2026-10-28: [Cancel | Continue], with another account as
+    // a small text link under the pair.
+    expect(mocks.dialog).toHaveBeenCalledExactlyOnceWith(
       expect.objectContaining({
         message: 'pro.activation_account_message:Account A',
         buttonText: 'pro.activation_account_continue',
-        secondaryText: 'pro.activation_account_switch',
-        actionLayout: 'stacked',
-        dismissible: true,
+        secondaryText: 'common.cancel',
+        linkText: 'pro.activation_account_switch',
       }),
     );
+    const options = mocks.dialog.mock.calls[0]?.[0];
+    expect(options).not.toHaveProperty('onSecondaryActivation');
+    expect(mocks.login).not.toHaveBeenCalled();
+  });
+
+  it.each(['secondary', 'back'])(
+    'cancels a signed-in confirmation on %s without opening login',
+    async (action) => {
+      mocks.dialog.mockResolvedValueOnce({ action });
+      await expect(confirmProRoomActivationAccount()).resolves.toBeNull();
+      expect(mocks.dialog).toHaveBeenCalledOnce();
+      expect(mocks.login).not.toHaveBeenCalled();
+    },
+  );
+
+  it('offers Cancel beside Log in without an account and no account link', async () => {
+    session = ANONYMOUS;
+    mocks.dialog.mockResolvedValue({ action: 'secondary' });
+    await expect(confirmProRoomActivationAccount()).resolves.toBeNull();
+    expect(mocks.dialog).toHaveBeenCalledExactlyOnceWith(
+      expect.objectContaining({
+        message: 'pro.activation_account_login_message',
+        buttonText: 'pro.claim_login_button',
+        secondaryText: 'common.cancel',
+      }),
+    );
+    const options = mocks.dialog.mock.calls[0]?.[0];
+    expect(options).not.toHaveProperty('linkText');
     expect(mocks.login).not.toHaveBeenCalled();
   });
 
@@ -88,15 +117,15 @@ describe('PRO activation account confirmation', () => {
     expect(mocks.login).toHaveBeenCalledWith({ forceGoogleAccountChooser: true });
   });
 
-  it('opens the account chooser in the secondary gesture and confirms the replacement account', async () => {
+  it('opens the account chooser in the link gesture and confirms the replacement account', async () => {
     mocks.login.mockImplementation(async () => {
       session = B;
       return 'authenticated';
     });
     mocks.dialog.mockImplementationOnce(async (options) => {
-      options.onSecondaryActivation();
+      options.onLinkActivation();
       expect(mocks.login).toHaveBeenCalledWith({ forceGoogleAccountChooser: true });
-      return { action: 'secondary' };
+      return { action: 'link' };
     });
     await expect(confirmProRoomActivationAccount()).resolves.toBe(B.statsScope);
     expect(mocks.dialog).toHaveBeenCalledTimes(2);
@@ -140,8 +169,8 @@ describe('PRO activation account confirmation', () => {
       mocks.login.mockResolvedValue(outcome);
       mocks.dialog
         .mockImplementationOnce(async (options) => {
-          options.onSecondaryActivation();
-          return { action: 'secondary' };
+          options.onLinkActivation();
+          return { action: 'link' };
         })
         .mockResolvedValueOnce({ action: 'close' });
       await expect(confirmProRoomActivationAccount()).resolves.toBeNull();

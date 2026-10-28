@@ -95,7 +95,6 @@ const te: Record<I18nKey, string> = {
   'common.left': 'ఎడమ',
   'common.right': 'కుడి',
   'common.woofer': 'వూఫర్',
-  'common.connected': 'కనెక్ట్ అయింది',
   'common.revoke': 'ఉపసంహరించు',
   'common.system': 'సిస్టమ్',
   'common.unknown': 'తెలియనిది',
@@ -201,6 +200,8 @@ const te: Record<I18nKey, string> = {
   'settings.sync_settings': 'సెట్టింగ్‌ల సింక్',
   'settings.sync_settings_desc':
     'ఈ సెట్టింగ్ ఆన్‌లో ఉన్న పరికరాల వాల్యూమ్, ఆడియో ఎఫెక్ట్‌లు సింక్ అవుతాయి.',
+  'settings.audio_locked_desc': 'గది అడ్మిన్‌లు మాత్రమే ఆడియో సెట్టింగ్‌లను మార్చగలరు.',
+  'settings.audio_lock_checking_desc': 'అడ్మిన్ అనుమతిని తనిఖీ చేస్తున్నాం.',
   'settings.virtual_effects_title': 'వర్చువల్ ఎఫెక్ట్‌లు',
   'settings.virtual_effects_desc':
     'ఆడియోకు కృత్రిమంగా రూపొందించిన ఎఫెక్ట్‌లను వర్తింపజేస్తుంది. దీనివల్ల సౌండ్ ఎక్కువగా వక్రీకరించబడవచ్చు.',
@@ -269,7 +270,6 @@ const te: Record<I18nKey, string> = {
   'settings.leave_session': 'సెషన్ నుండి బయటకు వెళ్లు',
   'connect.rename_reserved': 'ఈ మారుపేరు రిజర్వ్ చేయబడింది.',
   'connect.rename_profanity': 'అనుచిత పదాలు గుర్తించబడ్డాయి.',
-  'settings.devices_title': 'కనెక్ట్ అయిన పరికరాలు',
   'settings.invite_share': 'ఆహ్వానం & షేరింగ్',
   'settings.subtab.general': 'సాధారణం',
   'settings.subtab.audio': 'ఆడియో',
@@ -795,7 +795,7 @@ const te: Record<I18nKey, string> = {
   'pro.activation_account_title': 'ఈ PRO గది కోసం ఖాతాను ఎంచుకోండి',
   'pro.activation_account_message': 'ఈ గదిని “{{name}}” ఖాతాకు నమోదు చేయాలా?',
   'pro.activation_account_login_message': 'ఈ గదిని నమోదు చేసే ఖాతాతో సైన్ ఇన్ చేయండి.',
-  'pro.activation_account_continue': 'కొనసాగించు',
+  'pro.activation_account_continue': 'నమోదు చేయి',
   'pro.activation_account_switch': 'మరో ఖాతా',
   'pro.activation_account_unavailable':
     'మీ ఖాతాను ధృవీకరించలేకపోయాం. కాసేపట్లో మళ్లీ ప్రయత్నించండి.',

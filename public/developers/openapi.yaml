@@ -288,7 +288,7 @@ paths:
         frozen until participants return, and canonical state remains readable across sleep/wake cycles.
       parameters:
         - $ref: '#/components/parameters/RoomCode'
-        - $ref: '#/components/parameters/IdempotencyKey'
+        - $ref: '#/components/parameters/CommandIdempotencyKey'
       requestBody:
         required: true
         content:
@@ -492,7 +492,7 @@ paths:
       description: Reserves room capacity and returns a short-lived direct R2 PUT request.
       parameters:
         - $ref: '#/components/parameters/RoomCode'
-        - $ref: '#/components/parameters/IdempotencyKey'
+        - $ref: '#/components/parameters/UploadIdempotencyKey'
       requestBody:
         required: true
         content:
@@ -576,6 +576,42 @@ components:
         24-hour replay receipt and never evicts a live receipt to admit a newer request. If a room
         exhausts that bounded window, a new mutation fails without being applied with
         ROOM_STATE_CAPACITY_EXCEEDED; previously accepted keys remain replayable.
+      schema:
+        type: string
+        minLength: 16
+        maxLength: 128
+        pattern: '^[A-Za-z0-9][A-Za-z0-9._~-]{14,126}[A-Za-z0-9]$'
+    CommandIdempotencyKey:
+      name: Idempotency-Key
+      in: header
+      required: true
+      description: |
+        Reuse the same value only when retrying the same command. MUSIXQUARE retains a bounded
+        10-minute replay receipt, counted from when the command was accepted, and never evicts a live
+        receipt to admit a newer command. Inside that window, a retry with the same key and body returns the
+        same commandId with its current state without submitting the command again, and getRoomCommand
+        returns that command by its commandId. After the window, neither the key nor the commandId is
+        guaranteed to be remembered, and a resend can be accepted as a new command. If a room exhausts that
+        bounded window, a new command fails without being applied with COMMAND_CAPACITY_EXCEEDED until its
+        oldest receipt expires, at most 10 minutes later.
+      schema:
+        type: string
+        minLength: 16
+        maxLength: 128
+        pattern: '^[A-Za-z0-9][A-Za-z0-9._~-]{14,126}[A-Za-z0-9]$'
+    UploadIdempotencyKey:
+      name: Idempotency-Key
+      in: header
+      required: true
+      description: |
+        Reuse the same value only when retrying the same reservation. MUSIXQUARE keeps this replay receipt
+        only until the signed PUT URL expires at the reservation's uploadExpiresAtMs, 10 minutes after the
+        reservation by default and never more than 60 minutes, so a retry never returns an expired URL.
+        Inside that window, a retry with the same key and body returns the same reservation. After it, the
+        key is no longer remembered and a resend creates a new reservation that holds its own room capacity;
+        an abandoned earlier reservation is released when it expires. The receipt shares the bounded mutation
+        ledger, so if a room exhausts it, a new reservation fails without being applied with
+        ROOM_STATE_CAPACITY_EXCEEDED.
       schema:
         type: string
         minLength: 16

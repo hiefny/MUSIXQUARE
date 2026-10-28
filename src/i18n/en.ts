@@ -95,7 +95,6 @@ const en: Record<I18nKey, string> = {
   'common.left': 'Left',
   'common.right': 'Right',
   'common.woofer': 'Woofer',
-  'common.connected': 'Connected',
   'common.revoke': 'Revoke',
   'common.system': 'System',
   'common.unknown': 'Unknown',
@@ -200,6 +199,8 @@ const en: Record<I18nKey, string> = {
   'settings.sync_settings': 'Settings sync',
   'settings.sync_settings_desc':
     'Devices with this setting on sync their volume and audio effects.',
+  'settings.audio_locked_desc': 'Only room admins can change audio settings.',
+  'settings.audio_lock_checking_desc': 'Checking administrator permissions.',
   'settings.virtual_effects_title': 'Virtual effects',
   'settings.virtual_effects_desc':
     'Apply synthesized effects to the audio. This may cause heavy distortion.',
@@ -269,7 +270,6 @@ const en: Record<I18nKey, string> = {
   'settings.leave_session': 'Leave Session',
   'connect.rename_reserved': 'This nickname is reserved.',
   'connect.rename_profanity': 'Inappropriate words detected.',
-  'settings.devices_title': 'Connected Devices',
   'settings.invite_share': 'Invite & Share',
   'settings.subtab.general': 'General',
   'settings.subtab.audio': 'Audio',
@@ -783,7 +783,7 @@ const en: Record<I18nKey, string> = {
   'pro.activation_account_message': 'Register this room to the “{{name}}” account?',
   'pro.activation_account_login_message':
     'Sign in to the account you want to register this room to.',
-  'pro.activation_account_continue': 'Continue',
+  'pro.activation_account_continue': 'Register',
   'pro.activation_account_switch': 'Another account',
   'pro.activation_account_unavailable':
     'We couldn’t verify your account. Please try again shortly.',

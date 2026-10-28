@@ -281,6 +281,18 @@ describe('PRO playlist feedback when the room receipt ledger is full', () => {
     ).toEqual([t('playlist.queue_full')]);
   });
 
+  // A playlist past its own byte budget answers PLAYLIST_CAPACITY_EXCEEDED on
+  // the paths that make a playlist larger: adding, editing details, copying
+  // and moving tracks to another playlist.
+  it.each([PATHS[0]!, PATHS[1]!, PATHS[5]!, PATHS[6]!])(
+    'says the playlist is full when its byte budget refuses to $name',
+    async (path) => {
+      expect(
+        await toastsAfter(path, new ProRoomApiError('PLAYLIST_CAPACITY_EXCEEDED', 409)),
+      ).toEqual([t('playlist.queue_full')]);
+    },
+  );
+
   it('keeps the move failure message for other errors', async () => {
     expect(await toastsAfter(PATHS[3]!, new ProRoomApiError('NETWORK_ERROR'))).toEqual([
       t('playlist.reorder_failed'),

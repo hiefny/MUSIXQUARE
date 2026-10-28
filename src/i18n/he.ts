@@ -94,7 +94,6 @@ const he: Record<I18nKey, string> = {
   'common.left': 'שמאל',
   'common.right': 'ימין',
   'common.woofer': 'וופר',
-  'common.connected': 'מחובר',
   'common.revoke': 'שלילת ההרשאות',
   'common.system': 'מערכת',
   'common.unknown': 'לא ידוע',
@@ -198,6 +197,8 @@ const he: Record<I18nKey, string> = {
   'settings.sync_settings': 'סנכרון הגדרות',
   'settings.sync_settings_desc':
     'מכשירים שהאפשרות מופעלת בהם מסנכרנים ביניהם את עוצמת הקול ואפקטי השמע.',
+  'settings.audio_locked_desc': 'רק מנהלי החדר יכולים לשנות את הגדרות השמע.',
+  'settings.audio_lock_checking_desc': 'בודקים את הרשאת המנהל.',
   'settings.virtual_effects_title': 'אפקטים וירטואליים',
   'settings.virtual_effects_desc':
     'החלת אפקטים מסונתזים על השמע. הפעולה עלולה לגרום לעיוות משמעותי.',
@@ -265,7 +266,6 @@ const he: Record<I18nKey, string> = {
   'settings.leave_session': 'יציאה מהחדר',
   'connect.rename_reserved': 'הכינוי הזה שמור.',
   'connect.rename_profanity': 'זוהתה שפה בלתי הולמת.',
-  'settings.devices_title': 'מכשירים מחוברים',
   'settings.invite_share': 'הזמנה ושיתוף',
   'settings.subtab.general': 'כללי',
   'settings.subtab.audio': 'שמע',
@@ -766,7 +766,7 @@ const he: Record<I18nKey, string> = {
   'pro.activation_account_title': 'בחירת חשבון לחדר ה-PRO',
   'pro.activation_account_message': 'לרשום את החדר הזה בחשבון „{{name}}”?',
   'pro.activation_account_login_message': 'יש להתחבר לחשבון שבו רוצים לרשום את החדר הזה.',
-  'pro.activation_account_continue': 'המשך',
+  'pro.activation_account_continue': 'רישום',
   'pro.activation_account_switch': 'חשבון אחר',
   'pro.activation_account_unavailable': 'לא הצלחנו לאמת את פרטי החשבון. כדאי לנסות שוב בעוד רגע.',
   'pro.claim_retry_title': 'לנסות שוב את קישור ה-PRO?',

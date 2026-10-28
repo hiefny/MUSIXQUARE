@@ -2430,7 +2430,9 @@ RO-53 owner-in-place
   the setup-guest Back buttons) serves `src/pro-room/setup-flow.ts`, `src/ui/connect.ts` and
   `src/ui/setup-guest.ts`; `returnToRoomStart` (the /CODE return, which checks the room code once
   at its sink and optionally writes the reconnect marker) serves `sw-register.ts`,
-  `src/ui/setup.ts` and `src/ui/connect.ts`. Connect requests a fresh admission only after
+  `src/ui/setup.ts`, `src/ui/connect.ts` and the lost-session dialog's Restart for a guest in
+  `src/network/peer.ts` (2026-10-28), whose Restart for anyone else and Go back are its two
+  `scheduleDocumentReload` requests. Connect requests a fresh admission only after
   the user chooses to rejoin an expired Standard room; observing expiry never navigates.
   `scheduleSessionReset` is still called directly from `app.ts` (the confirmed Back leave),
   `src/ui/player-controls.ts` (the logo reset) and `src/pro-room/runtime.ts` (terminal PRO
@@ -2802,7 +2804,11 @@ RO-53 owner-in-place
   fallback), wired in `app.ts`; each has a popstate listener. The controller is the owner per
   [Back closes the top window](back-closes-top-window-2026-10-17.md).
 - **Target single owner:** unchanged (`back-button-guard.ts`).
-- **Allowed requesters:** windows registered for Back; the hard navigation home belongs to RO-23.
+- **Allowed requesters:** windows registered for Back, and an exit that leaves the room through
+  the controller's `requestLeave()`, which opens the same leave confirmation an unused Back opens
+  (2026-10-28: `app.ts` routes `ui:request-leave-session` there, sent by the demo tour of a guest
+  who cannot end it on its visible exit, Finish tour, Escape and Back); the hard navigation home
+  belongs to RO-23.
 - **Lifecycle operations:** push or replace a guard, `history.back()`, leave attempt, suspend and
   resume.
 - **Deadline owner:** `LEAVE_FALLBACK_MS` (1 s), which fires before the session reset's 2 s commit
@@ -2819,6 +2825,9 @@ RO-53 owner-in-place
   - Re-arm after a recovered navigation: `page-navigation-owner.integration.test.ts` "(h) ... is
     absorbed, and the guard re-arms when the deadline recovers" and `back-button-guard.test.ts`
     "re-arms one guard when a navigation absorbed a Back and then settles".
+  - Leave request: `back-button-guard.test.ts` "opens the unused-Back leave confirmation for an
+    exit that leaves the room" and `page-navigation-owner.integration.test.ts` "(i) a leave
+    request from an exit that leaves the room".
 - **Status:** `owner-in-place`. Phase 2 C6-12 (owner decision 5, 2026-10-23, which reverses part
   of the 2026-10-17 Back decision): the guard subscribes `handleStateChange` to the navigation
   owner's `onNavigationPendingChange`, sent at the end of settle after the queue and the attempt's

@@ -96,7 +96,6 @@ const ta: Record<I18nKey, string> = {
   'common.left': 'இடது',
   'common.right': 'வலது',
   'common.woofer': 'வூஃபர்',
-  'common.connected': 'இணைக்கப்பட்டது',
   'common.revoke': 'திரும்பப் பெறு',
   'common.system': 'சிஸ்டம்',
   'common.unknown': 'தெரியாதது',
@@ -203,6 +202,8 @@ const ta: Record<I18nKey, string> = {
   'settings.sync_settings': 'அமைப்புகள் ஒத்திசைவு',
   'settings.sync_settings_desc':
     'இந்த அமைப்பு இயக்கப்பட்டுள்ள சாதனங்களின் ஒலியளவும் ஆடியோ விளைவுகளும் ஒத்திசைக்கப்படும்.',
+  'settings.audio_locked_desc': 'அறை நிர்வாகிகள் மட்டுமே ஆடியோ அமைப்புகளை மாற்ற முடியும்.',
+  'settings.audio_lock_checking_desc': 'நிர்வாகி அனுமதி சரிபார்க்கப்படுகிறது.',
   'settings.virtual_effects_title': 'விர்ச்சுவல் விளைவுகள்',
   'settings.virtual_effects_desc':
     'ஆடியோவில் செயற்கையாக உருவாக்கப்பட்ட விளைவுகளைப் பயன்படுத்தும். இது ஒலியை மிகவும் சிதைக்கலாம்.',
@@ -277,7 +278,6 @@ const ta: Record<I18nKey, string> = {
   'settings.leave_session': 'அமர்விலிருந்து வெளியேறு',
   'connect.rename_reserved': 'இந்தப் புனைப்பெயர் ஒதுக்கப்பட்டுள்ளது.',
   'connect.rename_profanity': 'பொருத்தமற்ற சொற்கள் கண்டறியப்பட்டன.',
-  'settings.devices_title': 'இணைக்கப்பட்ட சாதனங்கள்',
   'settings.invite_share': 'அழைப்பு மற்றும் பகிர்வு',
   'settings.subtab.general': 'பொது',
   'settings.subtab.audio': 'ஆடியோ',
@@ -813,7 +813,7 @@ const ta: Record<I18nKey, string> = {
   'pro.activation_account_message': 'இந்த அறையை “{{name}}” கணக்கில் பதிவுசெய்யவா?',
   'pro.activation_account_login_message':
     'இந்த அறையைப் பதிவுசெய்ய விரும்பும் கணக்கில் உள்நுழையவும்.',
-  'pro.activation_account_continue': 'தொடர்',
+  'pro.activation_account_continue': 'பதிவுசெய்',
   'pro.activation_account_switch': 'வேறொரு கணக்கு',
   'pro.activation_account_unavailable':
     'உங்கள் கணக்கைச் சரிபார்க்க முடியவில்லை. சிறிது நேரத்தில் மீண்டும் முயலவும்.',

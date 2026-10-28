@@ -95,7 +95,6 @@ const kn: Record<I18nKey, string> = {
   'common.left': 'ಎಡ',
   'common.right': 'ಬಲ',
   'common.woofer': 'ವೂಫರ್',
-  'common.connected': 'ಸಂಪರ್ಕಗೊಂಡಿದೆ',
   'common.revoke': 'ಹಿಂಪಡೆಯಿರಿ',
   'common.system': 'ಸಿಸ್ಟಮ್',
   'common.unknown': 'ತಿಳಿದಿಲ್ಲ',
@@ -202,6 +201,8 @@ const kn: Record<I18nKey, string> = {
   'settings.sync_settings': 'ಸೆಟ್ಟಿಂಗ್‌ಗಳ ಸಿಂಕ್',
   'settings.sync_settings_desc':
     'ಈ ಸೆಟ್ಟಿಂಗ್ ಆನ್ ಇರುವ ಸಾಧನಗಳು ತಮ್ಮ ಧ್ವನಿಮಟ್ಟ ಮತ್ತು ಆಡಿಯೊ ಪರಿಣಾಮಗಳನ್ನು ಸಿಂಕ್ ಮಾಡುತ್ತವೆ.',
+  'settings.audio_locked_desc': 'ರೂಮ್ ನಿರ್ವಾಹಕರು ಮಾತ್ರ ಆಡಿಯೊ ಸೆಟ್ಟಿಂಗ್‌ಗಳನ್ನು ಬದಲಿಸಬಹುದು.',
+  'settings.audio_lock_checking_desc': 'ನಿರ್ವಾಹಕ ಅನುಮತಿಯನ್ನು ಪರಿಶೀಲಿಸಲಾಗುತ್ತಿದೆ.',
   'settings.virtual_effects_title': 'ವರ್ಚುವಲ್ ಪರಿಣಾಮಗಳು',
   'settings.virtual_effects_desc':
     'ಆಡಿಯೊಗೆ ಕೃತಕವಾಗಿ ಸೃಷ್ಟಿಸಿದ ಪರಿಣಾಮಗಳನ್ನು ಅನ್ವಯಿಸಿ. ಇದರಿಂದ ಧ್ವನಿ ತೀವ್ರವಾಗಿ ವಿಕೃತವಾಗಬಹುದು.',
@@ -274,7 +275,6 @@ const kn: Record<I18nKey, string> = {
   'settings.leave_session': 'ಸೆಷನ್‌ನಿಂದ ಹೊರಡಿ',
   'connect.rename_reserved': 'ಈ ಅಡ್ಡಹೆಸರನ್ನು ಕಾಯ್ದಿರಿಸಲಾಗಿದೆ.',
   'connect.rename_profanity': 'ಅನುಚಿತ ಪದಗಳು ಕಂಡುಬಂದಿವೆ.',
-  'settings.devices_title': 'ಸಂಪರ್ಕಗೊಂಡ ಸಾಧನಗಳು',
   'settings.invite_share': 'ಆಮಂತ್ರಿಸಿ ಮತ್ತು ಹಂಚಿಕೊಳ್ಳಿ',
   'settings.subtab.general': 'ಸಾಮಾನ್ಯ',
   'settings.subtab.audio': 'ಆಡಿಯೊ',
@@ -800,7 +800,7 @@ const kn: Record<I18nKey, string> = {
   'pro.activation_account_message': 'ಈ ರೂಮ್ ಅನ್ನು “{{name}}” ಖಾತೆಗೆ ನೋಂದಾಯಿಸಬೇಕೆ?',
   'pro.activation_account_login_message':
     'ಈ ರೂಮ್ ಅನ್ನು ಯಾವ ಖಾತೆಗೆ ನೋಂದಾಯಿಸಬೇಕೋ ಆ ಖಾತೆಯಿಂದ ಸೈನ್ ಇನ್ ಮಾಡಿ.',
-  'pro.activation_account_continue': 'ಮುಂದುವರಿಸಿ',
+  'pro.activation_account_continue': 'ನೋಂದಾಯಿಸಿ',
   'pro.activation_account_switch': 'ಮತ್ತೊಂದು ಖಾತೆ',
   'pro.activation_account_unavailable':
     'ನಿಮ್ಮ ಖಾತೆಯನ್ನು ಪರಿಶೀಲಿಸಲಾಗಲಿಲ್ಲ. ಸ್ವಲ್ಪ ಸಮಯದ ನಂತರ ಮತ್ತೆ ಪ್ರಯತ್ನಿಸಿ.',

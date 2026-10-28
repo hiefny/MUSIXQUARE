@@ -95,7 +95,6 @@ const da: Record<I18nKey, string> = {
   'common.left': 'Venstre',
   'common.right': 'Højre',
   'common.woofer': 'Woofer',
-  'common.connected': 'Forbundet',
   'common.revoke': 'Tilbagekald',
   'common.system': 'System',
   'common.unknown': 'Ukendt',
@@ -200,6 +199,8 @@ const da: Record<I18nKey, string> = {
   'settings.sync_settings': 'Synkronisering af indstillinger',
   'settings.sync_settings_desc':
     'Enheder med denne indstilling slået til synkroniserer lydstyrke og lydeffekter.',
+  'settings.audio_locked_desc': 'Kun rumadministratorer kan ændre lydindstillingerne.',
+  'settings.audio_lock_checking_desc': 'Tjekker administratorrettigheder.',
   'settings.virtual_effects_title': 'Virtuelle effekter',
   'settings.virtual_effects_desc':
     'Anvend syntetiserede effekter på lyden. Det kan give kraftig forvrængning.',
@@ -269,7 +270,6 @@ const da: Record<I18nKey, string> = {
   'settings.leave_session': 'Forlad sessionen',
   'connect.rename_reserved': 'Dette kaldenavn er reserveret.',
   'connect.rename_profanity': 'Kaldenavnet indeholder upassende ord.',
-  'settings.devices_title': 'Forbundne enheder',
   'settings.invite_share': 'Inviter og del',
   'settings.subtab.general': 'Generelt',
   'settings.subtab.audio': 'Lyd',
@@ -796,7 +796,7 @@ const da: Record<I18nKey, string> = {
   'pro.activation_account_title': 'Vælg en konto til dette PRO-rum',
   'pro.activation_account_message': 'Vil du registrere dette rum på kontoen ”{{name}}”?',
   'pro.activation_account_login_message': 'Log ind med den konto, du vil registrere dette rum på.',
-  'pro.activation_account_continue': 'Fortsæt',
+  'pro.activation_account_continue': 'Registrer',
   'pro.activation_account_switch': 'Anden konto',
   'pro.activation_account_unavailable': 'Kunne ikke bekræfte din konto. Prøv igen om lidt.',
   'pro.claim_retry_title': 'Prøv PRO-linket igen?',

@@ -486,8 +486,7 @@ function runAudioRecoveryRequest(request: AudioRecoveryRequest): Promise<boolean
     title: t('dialog.audio_recovery_title'),
     message: t('dialog.audio_recovery_message'),
     buttonText: t('dialog.audio_recovery_action'),
-    dismissible: false,
-    // Only this tap can restart the audio; Back keeps the dialog.
+    // Only this tap can restart the audio; Back and Escape keep the dialog.
     closeOnBack: false,
     defaultFocus: 'primary',
     signal: abortController.signal,
@@ -998,6 +997,10 @@ function initBackButtonGuard(): void {
   // A Back absorbed while a navigation held the page re-arms once it settles
   // in this document (owner decision 5, 2026-10-23).
   onNavigationPendingChange(controller.handleStateChange);
+  // An exit that leaves the room asks through the same confirmation as an
+  // unused Back: the demo tour of a guest who cannot end it, on its visible
+  // exit, Escape and Back alike (owner decision 2026-10-28).
+  bus.on('ui:request-leave-session', controller.requestLeave);
   window.addEventListener('popstate', controller.handlePopState);
   window.addEventListener('pagehide', controller.suspend);
   window.addEventListener('pageshow', controller.resume);
@@ -1081,13 +1084,15 @@ type LazyFeatureFailure = {
 const runLazyFeatureRecovery = createReloadRecoveryLatch<LazyFeatureFailure>({
   async present() {
     // Its own copy, not the waiting-worker update dialog's: this dialog can
-    // open in a room (where that dialog is deferred) and says the app was
-    // updated and needs a refresh to keep working. Owner decision 2026-10-11.
+    // open in a room and says the app was updated and needs a refresh to keep
+    // working. Owner decision 2026-10-11. Close on the left (owner decision
+    // 2026-10-28, reversing decision 7) declines like Back: only the feature
+    // that failed stays unopened, and the room stays as it is.
     const result = await showDialog({
       title: t('dialog.feature_refresh_title'),
       message: t('dialog.feature_refresh_msg'),
       buttonText: t('common.refresh'),
-      dismissible: false,
+      secondaryText: t('common.close'),
       defaultFocus: 'primary',
     });
     return result.action === 'ok' ? 'accept' : 'decline';
@@ -1095,8 +1100,11 @@ const runLazyFeatureRecovery = createReloadRecoveryLatch<LazyFeatureFailure>({
   reload(_failure, onRecovered) {
     scheduleDocumentReload(t('dialog.refreshing_session'), onRecovered);
   },
-  onDeclined() {
-    showToast(t('error.network_generic'));
+  onDeclined({ feature }) {
+    // Close, Back and Escape are a choice, so no error toast follows them
+    // (owner decision 2026-10-28). A dialog that could not open already
+    // showed its message as a toast (showDialog's fallback).
+    log.info(`[App] ${feature} reload recovery declined; the feature stays unopened`);
   },
   onRecovered({ feature, error }) {
     // A WebKit reload can be cancelled or become a no-op while the old

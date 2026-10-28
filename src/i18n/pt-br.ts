@@ -95,7 +95,6 @@ const ptBr: Record<I18nKey, string> = {
   'common.left': 'Esquerda',
   'common.right': 'Direita',
   'common.woofer': 'Woofer',
-  'common.connected': 'Conectado',
   'common.revoke': 'Revogar',
   'common.system': 'Sistema',
   'common.unknown': 'Desconhecido',
@@ -129,6 +128,9 @@ const ptBr: Record<I18nKey, string> = {
   'settings.sync_settings': 'Sincronização de configurações',
   'settings.sync_settings_desc':
     'Os dispositivos com esta configuração ativada sincronizam o volume e os efeitos de áudio.',
+  'settings.audio_locked_desc':
+    'Só administradores da sala podem alterar as configurações de áudio.',
+  'settings.audio_lock_checking_desc': 'Verificando a permissão de administrador.',
   'settings.virtual_effects_title': 'Efeitos virtuais',
   'settings.virtual_effects_desc':
     'Aplica efeitos sintetizados ao áudio. Isso pode causar forte distorção.',
@@ -200,7 +202,6 @@ const ptBr: Record<I18nKey, string> = {
   'settings.leave_session': 'Sair da sala',
   'connect.rename_reserved': 'Este apelido é reservado.',
   'connect.rename_profanity': 'O apelido contém termos impróprios.',
-  'settings.devices_title': 'Dispositivos conectados',
   'settings.invite_share': 'Convidar e compartilhar',
   'settings.subtab.general': 'Geral',
   'settings.subtab.audio': 'Áudio',
@@ -736,7 +737,7 @@ const ptBr: Record<I18nKey, string> = {
   'pro.activation_account_title': 'Escolha uma conta para esta sala PRO',
   'pro.activation_account_message': 'Registrar esta sala na conta “{{name}}”?',
   'pro.activation_account_login_message': 'Entre com a conta em que você quer registrar esta sala.',
-  'pro.activation_account_continue': 'Continuar',
+  'pro.activation_account_continue': 'Registrar',
   'pro.activation_account_switch': 'Outra conta',
   'pro.activation_account_unavailable':
     'Não foi possível verificar sua conta. Tente novamente em instantes.',

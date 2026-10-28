@@ -308,6 +308,8 @@ describe('PRO Durable Object admission diagnostics', () => {
       expect.objectContaining({
         event: 'state_capacity',
         reason: 'session_receipt',
+        // The admission route keeps the name its admission diagnostics give it.
+        operation: 'sessions',
         livePresence: 1,
         sessionReceipts: 240,
       }),

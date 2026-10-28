@@ -696,7 +696,8 @@ export function onOverlayStackChange(listener: () => void): () => void {
 // owner decides what Back does there: close, step back, or keep a window
 // that needs an explicit answer. A layer inside a window, such as a
 // disclosure, gets the first chance. A Back that no window uses falls through
-// to the session guard or the browser.
+// to the session guard or the browser. Escape is Back from the keyboard: one
+// page listener offers it to the same window (owner decision 2026-10-28).
 
 const WINDOW_BACK_EVENT = 'mxqr:window-back';
 const WINDOW_BACK_LAYER_ATTRIBUTE = 'data-window-back';
@@ -717,6 +718,7 @@ export function onWindowBack(
   handler: () => boolean,
   signal?: AbortSignal,
 ): void {
+  installWindowEscape();
   element.setAttribute(WINDOW_BACK_LAYER_ATTRIBUTE, '');
   element.addEventListener(
     WINDOW_BACK_EVENT,
@@ -777,11 +779,8 @@ export function syncOverlayStateAfterExternalLock(): void {
   if (top && (active === top || !top.contains(active))) focusTopModal();
 }
 
-/** Offer Back to one window, preserving that owner's actual closing boundary. */
-export function offerBackToTopWindow(): WindowBackResult {
-  syncModalStack();
-  const root = topWindowElement();
-  if (!root) return { handled: false, settled: whenBackSurfaceSettled() };
+/** Offer Back to `root`'s layers, the topmost first, then to `root` itself. */
+function dispatchWindowBack(root: HTMLElement): boolean {
   // Later layers in document order sit above earlier ones.
   const layers = Array.from(
     root.querySelectorAll<HTMLElement>(`[${WINDOW_BACK_LAYER_ATTRIBUTE}]`),
@@ -794,9 +793,53 @@ export function offerBackToTopWindow(): WindowBackResult {
     } finally {
       _backDispatchDepth -= 1;
     }
-    if (event.defaultPrevented) return { handled: true, settled: whenBackSurfaceSettled() };
+    if (event.defaultPrevented) return true;
   }
-  return { handled: false, settled: whenBackSurfaceSettled() };
+  return false;
+}
+
+/** Offer Back to one window, preserving that owner's actual closing boundary. */
+export function offerBackToTopWindow(): WindowBackResult {
+  syncModalStack();
+  const root = topWindowElement();
+  if (!root) return { handled: false, settled: whenBackSurfaceSettled() };
+  const handled = dispatchWindowBack(root);
+  return { handled, settled: whenBackSurfaceSettled() };
+}
+
+/**
+ * Escape is history Back from the keyboard (owner decision 2026-10-28). Offer
+ * it to the window Back would reach, through the same layers and handlers, so
+ * a window closes, steps back or stays exactly as it does on Back. Returns
+ * whether that window used the key. Unlike an unused Back, an unused Escape
+ * does not go on to the session guard's leave confirmation.
+ */
+function offerEscapeToTopWindow(): boolean {
+  syncModalStack();
+  const root = topWindowElement();
+  return root ? dispatchWindowBack(root) : false;
+}
+
+let _windowEscapeInstalled = false;
+
+/**
+ * The one Escape listener for every window, installed with the first Back
+ * handler. Focus can rest anywhere when the key is pressed: on the page body
+ * after a press on a backdrop, where a listener on the window itself never
+ * hears it, as well as inside the window. It listens on `window`, so every
+ * listener on the document and on the focused control runs first, and it
+ * takes only an Escape none of them used: a control inside a window, such as
+ * the chat command autocomplete, keeps its own Escape. One Escape reaches one
+ * window, once.
+ */
+function installWindowEscape(): void {
+  if (_windowEscapeInstalled) return;
+  _windowEscapeInstalled = true;
+  window.addEventListener('keydown', (event) => {
+    if (event.key !== 'Escape' || event.defaultPrevented) return;
+    if (event.isComposing || event.keyCode === 229) return;
+    if (offerEscapeToTopWindow()) event.preventDefault();
+  });
 }
 
 // ─── Observer (single watcher, both effects) ─────────────────────

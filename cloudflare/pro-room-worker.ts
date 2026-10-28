@@ -1719,6 +1719,21 @@ function devicePlatformFromRequest(request: Request): string {
   return 'other';
 }
 
+/** The diagnostic operation of an admission route (path after the room prefix), or null. */
+function admissionOperation(suffix: string) {
+  return suffix === '/sessions'
+    ? 'sessions'
+    : suffix === '/presence/enter'
+      ? 'presence_enter'
+      : suffix === '/presence/close' || suffix === '/presence/current' || suffix === '/presence'
+        ? 'presence_close'
+        : suffix === '/sessions/current/close'
+          ? 'session_close'
+          : suffix === '/presence/heartbeat'
+            ? 'heartbeat'
+            : null;
+}
+
 function corsHeaders(origin: string): HeaderRecord {
   return {
     'access-control-allow-origin': origin,
@@ -4207,10 +4222,19 @@ async function promoteStagedMediaThroughBinding(
   return { reason: 'ok', finalObject };
 }
 
+// The `state_capacity` reason of a refused commit. A full receipt ledger names
+// its ledger, `playlist_budget` is a playlist's own length or bytes, which only
+// removing tracks frees, and `core` is every other bound of the room.
+type RoomStateCapacityReason =
+  | 'core'
+  | 'session_receipt'
+  | 'presence_close_receipt'
+  | 'browser_receipt'
+  | 'developer_receipt'
+  | 'playlist_budget';
+
 class RoomStateCapacityError extends Error {
-  constructor(
-    readonly diagnosticReason: 'core' | 'session_receipt' | 'presence_close_receipt' = 'core',
-  ) {
+  constructor(readonly diagnosticReason: RoomStateCapacityReason = 'core') {
     super('PRO room state exceeds its bounded storage budget');
     this.name = 'RoomStateCapacityError';
   }
@@ -4375,6 +4399,9 @@ function proRoomAdmissionAddressPrefix(rawIp: string): string {
     .join(':')}::/64`;
 }
 
+// Two stages that pass and refuse the same states as one check, on load as on
+// every commit; they only name the reason. The room's own bounds come first,
+// so a state past both kinds keeps the neutral `core` answer.
 function assertBoundedRoomState(room: ProRoomState) {
   if (
     Object.keys(room.presence.participants).length > PRESENCE_MAX_ITEMS ||
@@ -4410,15 +4437,31 @@ function assertBoundedRoomState(room: ProRoomState) {
     Object.keys(room.developerCommandIdempotency || {}).length >
       DEVELOPER_COMMAND_IDEMPOTENCY_MAX_ITEMS ||
     serializedCoreStateByteLength(room) > STATE_MAX_BYTES ||
+    !wellFormedPlaylistSlots(room)
+  ) {
+    throw new RoomStateCapacityError('core');
+  }
+  if (
     serializedPlaylistStateByteLength(room) > PLAYLIST_STATE_MAX_BYTES ||
-    room.playlist.some(
-      (item: PlaylistItem) =>
-        encoder.encode(playlistItemSignature(item)).byteLength > PLAYLIST_ITEM_MAX_BYTES,
-    ) ||
+    !room.playlist.every(playlistItemWithinBudget) ||
     !boundedPlaylistSlots(room)
   ) {
-    throw new RoomStateCapacityError();
+    throw new RoomStateCapacityError('playlist_budget');
   }
+}
+
+// Queue item IDs are unique across every playlist. The stored record is
+// rejected on load otherwise, so no commit may persist a collision.
+function wellFormedPlaylistSlots(room: ProRoomState) {
+  const slots = room.playlistSlots;
+  if (!slots) return true;
+  const ids = [...room.playlist, ...inactivePlaylistItems(slots)].map((item) => item.queueItemId);
+  return (
+    new Set(ids).size === ids.length &&
+    isPlaylistSlot(slots.activeSlot) &&
+    slots.inactive.length === PRO_ROOM_PLAYLIST_SLOT_COUNT &&
+    slots.inactive[slots.activeSlot]?.length === 0
+  );
 }
 
 // Each inactive playlist has the active playlist's bounds. Keeping its order
@@ -4426,24 +4469,16 @@ function assertBoundedRoomState(room: ProRoomState) {
 function boundedPlaylistSlots(room: ProRoomState) {
   const slots = room.playlistSlots;
   if (!slots) return true;
-  // Queue item IDs are unique across every playlist. The stored record is
-  // rejected on load otherwise, so no commit may persist a collision.
-  const ids = [...room.playlist, ...inactivePlaylistItems(slots)].map((item) => item.queueItemId);
-  return (
-    new Set(ids).size === ids.length &&
-    isPlaylistSlot(slots.activeSlot) &&
-    slots.inactive.length === PRO_ROOM_PLAYLIST_SLOT_COUNT &&
-    slots.inactive[slots.activeSlot]?.length === 0 &&
-    slots.inactive.every(
-      (items) =>
-        items.length <= PLAYLIST_MAX_ITEMS &&
-        encoder.encode(JSON.stringify(items)).byteLength <= PLAYLIST_STATE_MAX_BYTES &&
-        items.every(
-          (item) =>
-            encoder.encode(playlistItemSignature(item)).byteLength <= PLAYLIST_ITEM_MAX_BYTES,
-        ),
-    )
+  return slots.inactive.every(
+    (items) =>
+      items.length <= PLAYLIST_MAX_ITEMS &&
+      encoder.encode(JSON.stringify(items)).byteLength <= PLAYLIST_STATE_MAX_BYTES &&
+      items.every(playlistItemWithinBudget),
   );
+}
+
+function playlistItemWithinBudget(item: PlaylistItem) {
+  return encoder.encode(playlistItemSignature(item)).byteLength <= PLAYLIST_ITEM_MAX_BYTES;
 }
 
 export default {
@@ -6674,7 +6709,15 @@ export class MusixquareProRoom {
 
   async withStateCapacityRollback<T>(
     callback: () => T | Promise<T>,
-    options: { rollbackStorageFailure?: boolean } = {},
+    options: {
+      rollbackStorageFailure?: boolean;
+      // The answer when a playlist's own budget refused the commit. Only the
+      // browser room routes pass it: every App from the 787 floor shows it as
+      // a full playlist, while the Developer API and BOT keep their answers.
+      playlistBudgetCode?: 'PLAYLIST_CAPACITY_EXCEEDED';
+      // The refused operation, for the diagnostic's detail line.
+      operation?: NonNullable<ProRoomDiagnosticDetail['operation']>;
+    } = {},
   ): Promise<T | Response> {
     const checkpoint = this.captureInMemoryState();
     const rollbackStorageFailure = options.rollbackStorageFailure === true;
@@ -6685,8 +6728,17 @@ export class MusixquareProRoom {
       if (error instanceof RoomStateCapacityError) {
         this.restoreInMemoryState(checkpoint);
         await this.persist();
-        this.recordDiagnostic('state_capacity', { reason: error.diagnosticReason, status: 409 });
-        return errorResponse('ROOM_STATE_CAPACITY_EXCEEDED', 409);
+        this.recordDiagnostic('state_capacity', {
+          reason: error.diagnosticReason,
+          status: 409,
+          ...(options.operation === undefined ? {} : { operation: options.operation }),
+        });
+        return errorResponse(
+          error.diagnosticReason === 'playlist_budget' && options.playlistBudgetCode
+            ? options.playlistBudgetCode
+            : 'ROOM_STATE_CAPACITY_EXCEEDED',
+          409,
+        );
       }
       if (rollbackStorageFailure && error instanceof RoomStateStorageCommitError) {
         // The SQLite transaction failed atomically, so the durable state still
@@ -7446,6 +7498,7 @@ export class MusixquareProRoom {
         if (url.pathname === '/internal/bot/context') {
           return this.withStateCapacityRollback(() => this.handleInternalBotContext(request), {
             rollbackStorageFailure: true,
+            operation: 'bot',
           });
         }
         // Each execution stage owns its rollback boundary. A later failure
@@ -7673,6 +7726,7 @@ export class MusixquareProRoom {
             // object. Restore the durable reservation after a failed state
             // transaction so same-isolate retries cannot replay a ghost receipt.
             rollbackStorageFailure: true,
+            operation: 'developer',
           },
         );
       });
@@ -7730,6 +7784,16 @@ export class MusixquareProRoom {
         // commit failure, and the outer checkpoint must not rewind past that
         // intent into the pre-deletion state.
         const hasIrreversibleMediaDelete = request.method === 'DELETE' && deleteMediaMatch !== null;
+        // The operation a capacity refusal's diagnostic names. Admission routes
+        // keep the names withAdmissionDiagnostics gives them.
+        const capacityOperation =
+          url.pathname === `${prefix}/snapshot/compact`
+            ? 'snapshot'
+            : url.pathname === `${prefix}/media/reservations`
+              ? 'media_reserve'
+              : completedAssetId
+                ? 'media_complete'
+                : (admissionOperation(url.pathname.slice(prefix.length)) ?? 'other');
         return this.withStateCapacityRollback(
           async () => {
             const administratorMatch = url.pathname.match(
@@ -7815,7 +7879,11 @@ export class MusixquareProRoom {
               return this.handleDeleteMedia(request, deletedAssetId);
             return errorResponse('NOT_FOUND', 404);
           },
-          { rollbackStorageFailure: !hasIrreversibleMediaDelete },
+          {
+            rollbackStorageFailure: !hasIrreversibleMediaDelete,
+            playlistBudgetCode: 'PLAYLIST_CAPACITY_EXCEEDED',
+            operation: capacityOperation,
+          },
         );
       }),
     );
@@ -7851,18 +7919,7 @@ export class MusixquareProRoom {
     const suffix = new URL(request.url).pathname.slice(
       `/v1/rooms/${this.activeRoom.roomCode}`.length,
     );
-    const operation =
-      suffix === '/sessions'
-        ? 'sessions'
-        : suffix === '/presence/enter'
-          ? 'presence_enter'
-          : suffix === '/presence/close' || suffix === '/presence/current' || suffix === '/presence'
-            ? 'presence_close'
-            : suffix === '/sessions/current/close'
-              ? 'session_close'
-              : suffix === '/presence/heartbeat'
-                ? 'heartbeat'
-                : null;
+    const operation = admissionOperation(suffix);
     if (!operation) return task();
     // Only admission needs an identity comparison. Heartbeats have no success
     // log or snapshot scan; existing traffic merely flushes a pending summary.
@@ -8224,7 +8281,7 @@ export class MusixquareProRoom {
           }),
           true,
         ),
-      { rollbackStorageFailure: true },
+      { rollbackStorageFailure: true, operation: 'bot' },
     );
     if (!response.ok) return false;
     const result = await response
@@ -8356,6 +8413,11 @@ export class MusixquareProRoom {
       this.reserveIdempotencySlot(scope, parsed.value.requestId);
     } catch (error) {
       if (!(error instanceof RoomStateCapacityError)) throw error;
+      this.recordDiagnostic('state_capacity', {
+        reason: error.diagnosticReason,
+        status: 409,
+        operation: 'bot',
+      });
       return errorResponse('ROOM_STATE_CAPACITY_EXCEEDED', 409);
     }
     const mutateQueue = (input: Request, terminal: BotTerminalOptions | null = null) =>
@@ -8363,6 +8425,7 @@ export class MusixquareProRoom {
         () => this.handleInternalDeveloperQueueMutation(input, terminal, true),
         {
           rollbackStorageFailure: true,
+          operation: 'bot',
         },
       );
 
@@ -8525,7 +8588,7 @@ export class MusixquareProRoom {
             }),
             true,
           ),
-        { rollbackStorageFailure: true },
+        { rollbackStorageFailure: true, operation: 'bot' },
       );
       if (!queueModeResponse.ok) return errorResponse('BOT_ACTION_FAILED', 409);
     } else if (plan.intent === 'virtual_treble') {
@@ -8557,7 +8620,7 @@ export class MusixquareProRoom {
         await this.persist();
         return jsonResponse(responseBody);
       },
-      { rollbackStorageFailure: true },
+      { rollbackStorageFailure: true, operation: 'bot' },
     );
   }
 
@@ -9654,6 +9717,11 @@ export class MusixquareProRoom {
     }
     if (!this.env.PRO_MEDIA_BUCKET) return errorResponse('MEDIA_NOT_CONFIGURED', 503);
     if (serializedCoreStateByteLength(this.activeRoom) > STATE_MAX_BYTES - 32 * 1024) {
+      this.recordDiagnostic('state_capacity', {
+        reason: 'core',
+        status: 409,
+        operation: 'developer',
+      });
       return errorResponse('ROOM_STATE_CAPACITY_EXCEEDED', 409);
     }
     const assetRoomGeneration = asset.roomGeneration;
@@ -16788,7 +16856,9 @@ export class MusixquareProRoom {
           ? 'session_receipt'
           : scope.endsWith(PRESENCE_CLOSE_IDEMPOTENCY_SCOPE_SUFFIX)
             ? 'presence_close_receipt'
-            : 'core',
+            : scope.startsWith('developer:')
+              ? 'developer_receipt'
+              : 'browser_receipt',
       );
     }
     return records;
@@ -17567,6 +17637,11 @@ export class MusixquareProRoom {
     }
     if (!this.env.PRO_MEDIA_BUCKET) return errorResponse('MEDIA_NOT_CONFIGURED', 503);
     if (serializedCoreStateByteLength(this.activeRoom) > STATE_MAX_BYTES - 8 * 1024) {
+      this.recordDiagnostic('state_capacity', {
+        reason: 'core',
+        status: 409,
+        operation: 'media_complete',
+      });
       return errorResponse('ROOM_STATE_CAPACITY_EXCEEDED', 409);
     }
     const assetRoomGeneration = asset.roomGeneration;
@@ -17741,7 +17816,7 @@ export class MusixquareProRoom {
           await this.persist();
           return jsonResponse(responseBody);
         },
-        { rollbackStorageFailure: true },
+        { rollbackStorageFailure: true, operation: 'media_complete' },
       );
     } catch (error) {
       if (!(error instanceof RoomStateStorageCommitError)) throw error;

@@ -209,9 +209,15 @@ console.log(await response.json());</code></pre>
           </div>
         </dl>
         <p>
-          Every mutation requires a unique <code>Idempotency-Key</code> header. Reusing the same key with the same body
-          never repeats the operation and returns the latest sanitized state; reusing it with a different body is
-          rejected.
+          Every mutation requires a unique <code>Idempotency-Key</code> header. Reuse a key only to retry the same
+          request after an uncertain result; reusing it with a different body is rejected. How long a key is
+          remembered depends on the request. A command's key is remembered for 10 minutes from when the command was
+          accepted. Inside that window, a retry with the same key and body returns the same <code>commandId</code>
+          with its current status without submitting the command again, and <code>/commands/{commandId}</code>
+          returns the command. After the window, neither the key nor the command is guaranteed to be remembered, and
+          resending the key can submit a new command. An upload reservation's key is remembered only until its signed
+          upload URL expires, and every other mutation key, such as a queue, queue-mode, or upload-completion key, for
+          24 hours.
         </p>
         <pre class="policy-code"><code>const response = await fetch(`${baseUrl}/rooms/${roomCode}/commands`, {
   method: 'POST',
@@ -627,6 +633,13 @@ await fetch(
           never starts playback automatically.
         </p>
         <p>
+          A reservation's <code>Idempotency-Key</code> is remembered only until its signed upload URL expires at
+          <code>uploadExpiresAtMs</code>, 10 minutes after the reservation by default and never more than 60 minutes,
+          so a retry never returns an expired URL. Before then, a retry with the same key and body returns the same
+          reservation. After it, the same key creates a new reservation that holds its own capacity, and the earlier
+          one is released when it expires. The completion request's key is remembered for 24 hours.
+        </p>
+        <p>
           Audio files deliberately do not use a binary-in-JSON batch endpoint. Each file keeps its own reservation,
           direct R2 upload, completion, checksum, quota check, and idempotency key. Multiple files can use the same
           three-step helper with at most two in flight per API key:
@@ -722,7 +735,7 @@ await Promise.all(workers);</code></pre>
           </div>
           <div data-api-error-code="COMMAND_CAPACITY_EXCEEDED">
             <dt><code>COMMAND_CAPACITY_EXCEEDED</code> &middot; 409 &middot; retryable: false</dt>
-            <dd>Too many playback commands are still active. Let existing commands settle, read current state, then submit a new intent with a new idempotency key.</dd>
+            <dd>Too many commands are still active, or the room's 10-minute command replay window is full. Let existing commands settle, read current state, then submit a new intent with a new idempotency key. A full replay window frees as accepted commands pass 10 minutes, so a new command can be refused for up to 10 minutes.</dd>
           </div>
           <div data-api-error-code="COORDINATOR_INCOMPATIBLE">
             <dt><code>COORDINATOR_INCOMPATIBLE</code> &middot; 409 &middot; retryable: false</dt>

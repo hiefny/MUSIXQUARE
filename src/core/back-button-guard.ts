@@ -148,9 +148,21 @@ export function createBackButtonGuardController(deps: BackButtonGuardControllerD
     }
   };
 
+  /**
+   * Open the confirmation an unused Back opens, for an exit that leaves the
+   * room instead of closing a window (the demo tour of a guest who cannot end
+   * it, on its visible exit, Escape or Back). One confirmation at a time.
+   */
+  const requestLeave = (): void => {
+    if (suspended || leaving || deps.isNavigationPending()) return;
+    if (!deps.isSessionActive() || confirmationPending) return;
+    confirmLeave();
+  };
+
   return {
     handleStateChange,
     handlePopState,
+    requestLeave,
     suspend(): void {
       suspended = true;
       cancelArm();

@@ -76,13 +76,19 @@ vi.mock('../../ui/toast.ts', () => ({
   updateLoader: vi.fn(),
 }));
 
-vi.mock('../../ui/dom.ts', () => ({
-  beginBackSurfaceTransition: vi.fn(() => mocks.finishBackSurface),
-  updateOverlayOpenClass: vi.fn(),
-  onWindowBack: vi.fn((element: HTMLElement, handler: () => boolean) => {
-    mocks.backHandlers.push({ element, handler });
-  }),
-}));
+vi.mock('../../ui/dom.ts', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('../../ui/dom.ts')>();
+  return {
+    beginBackSurfaceTransition: vi.fn(() => mocks.finishBackSurface),
+    updateOverlayOpenClass: vi.fn(),
+    // The real registration also installs dom.ts's one Escape listener,
+    // which offers the key to the window Back would reach: the demo here.
+    onWindowBack: vi.fn((element: HTMLElement, handler: () => boolean) => {
+      mocks.backHandlers.push({ element, handler });
+      actual.onWindowBack(element, handler);
+    }),
+  };
+});
 
 vi.mock('../../ui/theme-chrome.ts', () => ({
   syncAppThemeChrome: vi.fn(),
@@ -119,6 +125,13 @@ function demoBack(): boolean {
   const entry = mocks.backHandlers.find((candidate) => candidate.element === overlay);
   if (!entry) throw new Error('The demo did not register a Back handler');
   return entry.handler();
+}
+
+/** Escape with focus left on the page body, which Back reaches too. */
+function pressEscape(): KeyboardEvent {
+  const event = new KeyboardEvent('keydown', { key: 'Escape', bubbles: true, cancelable: true });
+  document.body.dispatchEvent(event);
+  return event;
 }
 
 function joinAsGuest(capabilities: string[]): DataConnection {
@@ -172,7 +185,10 @@ describe('history Back on the demo', () => {
       vi.fn(() => ({ matches: false, addEventListener: vi.fn(), removeEventListener: vi.fn() })),
     );
     delete document.body.dataset.demoBound;
-    document.body.innerHTML = '<div id="demo-overlay" class="demo-overlay"></div>';
+    document.body.innerHTML = `
+      <div id="demo-overlay" class="demo-overlay">
+        <button type="button" id="btn-demo-exit"></button>
+      </div>`;
     mocks.loadDemoFile.mockImplementation(async () => {
       setCurrentAudioBuffer({ duration: 120 } as AudioBuffer);
     });
@@ -221,13 +237,22 @@ describe('history Back on the demo', () => {
     expect(mocks.safeSend).toHaveBeenCalledWith(hostConn, { type: MSG.REQUEST_DEMO_EXIT });
   });
 
-  it('passes Back to the leave confirmation for a guest who cannot end it', () => {
+  // Owner decision (2026-10-28): Escape behaves exactly like Back, and the
+  // tour's visible exit, Escape and Back lead a guest who cannot end the
+  // room's demo to one leave confirmation, the [Stay | Leave] one Back opens.
+  // Back used to pass on to it unused, which Escape cannot do, so the demo
+  // now asks for it for all three.
+  it('asks to leave the room on Back for a guest who cannot end it, as its exit does', () => {
     joinAsGuest(['media.add', 'playback.control']);
+    const leave = vi.fn();
+    bus.on('ui:request-leave-session', leave);
 
-    expect(demoBack()).toBe(false);
+    expect(demoBack()).toBe(true);
 
+    expect(leave).toHaveBeenCalledOnce();
     expect(mocks.safeSend).not.toHaveBeenCalled();
     expect(mocks.showToast).not.toHaveBeenCalled();
+    expect(getState('demo.active')).toBe(true);
   });
 
   it('holds Back only while the exit curtain is still running', () => {
@@ -285,6 +310,93 @@ describe('history Back on the demo', () => {
     await flush(920);
     expect(curtain.style.opacity).toBe('0');
     expect(mocks.finishBackSurface).toHaveBeenCalledOnce();
+  });
+
+  // Owner decision (2026-10-28): Escape behaves exactly like Back. The demo
+  // ignored the key before.
+  it('ends the demo on Escape for the host, as Back does', async () => {
+    setState('network.appRole', 'host');
+    setState('setup.sessionStarted', true);
+    bus.emit('demo:enter');
+    await flush();
+    FakeXHR.pending[0]?.onload?.();
+    await flush(50);
+    expect(getState('demo.active')).toBe(true);
+    document.getElementById('demo-overlay')!.classList.add('active');
+
+    expect(pressEscape().defaultPrevented).toBe(true);
+    await flush(50);
+
+    expect(getState('demo.active')).toBe(false);
+  });
+
+  it('asks the host to end it on Escape for a guest with room control', () => {
+    const hostConn = joinAsGuest(['room.configure']);
+    document.getElementById('demo-overlay')!.classList.add('active');
+
+    expect(pressEscape().defaultPrevented).toBe(true);
+
+    expect(mocks.safeSend).toHaveBeenCalledWith(hostConn, { type: MSG.REQUEST_DEMO_EXIT });
+  });
+
+  it('asks to leave the room on Escape for a guest who cannot end it, as Back does', () => {
+    joinAsGuest(['media.add', 'playback.control']);
+    const leave = vi.fn();
+    bus.on('ui:request-leave-session', leave);
+    const overlay = document.getElementById('demo-overlay')!;
+    overlay.classList.add('active');
+
+    expect(pressEscape().defaultPrevented).toBe(true);
+    expect(leave).toHaveBeenCalledOnce();
+    expect(mocks.safeSend).not.toHaveBeenCalled();
+    expect(mocks.showToast).not.toHaveBeenCalled();
+
+    // A hidden demo is no window: Escape reaches it no more than Back does.
+    overlay.classList.remove('active');
+    setState('network.standardRoomCapabilities', ['room.configure'] as never);
+    expect(pressEscape().defaultPrevented).toBe(false);
+    expect(leave).toHaveBeenCalledOnce();
+    expect(mocks.safeSend).not.toHaveBeenCalled();
+  });
+
+  // Owner policy (2026-10-28): the tour shows a visible exit at the top
+  // start on every step. It ends the demo for whoever may end it, and a
+  // guest who cannot end the room's demo gets the leave confirmation instead
+  // of the host-only toast.
+  it('ends the demo for the host from the exit at the top start', async () => {
+    setState('network.appRole', 'host');
+    setState('setup.sessionStarted', true);
+    bus.emit('demo:enter');
+    await flush();
+    FakeXHR.pending[0]?.onload?.();
+    await flush(50);
+    expect(getState('demo.active')).toBe(true);
+
+    document.getElementById('btn-demo-exit')!.click();
+    await flush(50);
+
+    expect(getState('demo.active')).toBe(false);
+  });
+
+  it('asks the host to end it from the exit for a guest with room control', () => {
+    const hostConn = joinAsGuest(['room.configure']);
+
+    document.getElementById('btn-demo-exit')!.click();
+
+    expect(mocks.safeSend).toHaveBeenCalledWith(hostConn, { type: MSG.REQUEST_DEMO_EXIT });
+  });
+
+  it('offers the leave confirmation from the exit to a guest who cannot end it', () => {
+    joinAsGuest(['media.add', 'playback.control']);
+    const leave = vi.fn();
+    bus.on('ui:request-leave-session', leave);
+
+    document.getElementById('btn-demo-exit')!.click();
+
+    expect(leave).toHaveBeenCalledOnce();
+    expect(mocks.safeSend).not.toHaveBeenCalled();
+    expect(mocks.showToast).not.toHaveBeenCalled();
+    expect(getState('demo.active')).toBe(true);
   });
 
   it('releases the old exit settlement when a fresh demo supersedes its curtain', () => {

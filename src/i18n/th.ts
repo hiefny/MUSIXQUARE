@@ -91,7 +91,6 @@ const th: Record<I18nKey, string> = {
   'common.left': 'ซ้าย',
   'common.right': 'ขวา',
   'common.woofer': 'วูฟเฟอร์',
-  'common.connected': 'เชื่อมต่อแล้ว',
   'common.revoke': 'ถอนสิทธิ์',
   'common.system': 'ระบบ',
   'common.unknown': 'ไม่ทราบ',
@@ -195,6 +194,8 @@ const th: Record<I18nKey, string> = {
   'settings.sync_settings': 'ซิงก์การตั้งค่า',
   'settings.sync_settings_desc':
     'อุปกรณ์ที่เปิดการตั้งค่านี้จะซิงก์ระดับเสียงและเอฟเฟกต์เสียงระหว่างกัน',
+  'settings.audio_locked_desc': 'ผู้ดูแลห้องเท่านั้นที่เปลี่ยนการตั้งค่าเสียงได้',
+  'settings.audio_lock_checking_desc': 'กำลังตรวจสอบสิทธิ์ผู้ดูแล',
   'settings.virtual_effects_title': 'เอฟเฟกต์เสมือน',
   'settings.virtual_effects_desc':
     'ใช้เอฟเฟกต์สังเคราะห์กับเสียง ซึ่งอาจทำให้เสียงผิดเพี้ยนอย่างมาก',
@@ -263,7 +264,6 @@ const th: Record<I18nKey, string> = {
   'settings.leave_session': 'ออกจากห้อง',
   'connect.rename_reserved': 'ไม่อนุญาตให้ใช้ชื่อเล่นนี้',
   'connect.rename_profanity': 'ตรวจพบชื่อเล่นที่ไม่เหมาะสม',
-  'settings.devices_title': 'อุปกรณ์ที่เชื่อมต่อ',
   'settings.invite_share': 'เชิญและแชร์',
   'settings.subtab.general': 'ทั่วไป',
   'settings.subtab.audio': 'เสียง',
@@ -769,7 +769,7 @@ const th: Record<I18nKey, string> = {
   'pro.activation_account_title': 'เลือกบัญชีสำหรับห้อง PRO นี้',
   'pro.activation_account_message': 'ลงทะเบียนห้องนี้กับบัญชี “{{name}}” ไหม?',
   'pro.activation_account_login_message': 'เข้าสู่ระบบด้วยบัญชีที่ต้องการลงทะเบียนห้องนี้',
-  'pro.activation_account_continue': 'ไปต่อ',
+  'pro.activation_account_continue': 'ลงทะเบียน',
   'pro.activation_account_switch': 'บัญชีอื่น',
   'pro.activation_account_unavailable': 'ตรวจสอบข้อมูลบัญชีไม่ได้ ลองอีกครั้งในอีกสักครู่',
   'pro.claim_retry_title': 'ลองใช้ลิงก์ PRO อีกครั้งไหม?',

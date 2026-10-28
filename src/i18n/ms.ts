@@ -96,7 +96,6 @@ const ms: Record<I18nKey, string> = {
   'common.left': 'Kiri',
   'common.right': 'Kanan',
   'common.woofer': 'Wufer',
-  'common.connected': 'Disambungkan',
   'common.revoke': 'Tarik balik',
   'common.system': 'Sistem',
   'common.unknown': 'Tidak diketahui',
@@ -202,6 +201,8 @@ const ms: Record<I18nKey, string> = {
   'settings.sync_settings': 'Penyegerakan tetapan',
   'settings.sync_settings_desc':
     'Peranti yang menghidupkan tetapan ini akan menyegerakkan kelantangan dan kesan audio.',
+  'settings.audio_locked_desc': 'Hanya pentadbir bilik boleh menukar tetapan audio.',
+  'settings.audio_lock_checking_desc': 'Menyemak kebenaran pentadbir.',
   'settings.virtual_effects_title': 'Kesan maya',
   'settings.virtual_effects_desc':
     'Gunakan kesan tersintesis pada audio. Ini mungkin menyebabkan herotan yang ketara.',
@@ -275,7 +276,6 @@ const ms: Record<I18nKey, string> = {
   'settings.leave_session': 'Tinggalkan Sesi',
   'connect.rename_reserved': 'Nama panggilan ini dikhaskan.',
   'connect.rename_profanity': 'Perkataan tidak sesuai dikesan.',
-  'settings.devices_title': 'Peranti Disambungkan',
   'settings.invite_share': 'Jemput & Kongsi',
   'settings.subtab.general': 'Umum',
   'settings.subtab.audio': 'Audio',
@@ -808,7 +808,7 @@ const ms: Record<I18nKey, string> = {
   'pro.activation_account_message': 'Daftarkan bilik ini di bawah akaun “{{name}}”?',
   'pro.activation_account_login_message':
     'Log masuk dengan akaun yang anda mahu gunakan untuk mendaftarkan bilik ini.',
-  'pro.activation_account_continue': 'Teruskan',
+  'pro.activation_account_continue': 'Daftarkan',
   'pro.activation_account_switch': 'Akaun lain',
   'pro.activation_account_unavailable':
     'Tidak dapat mengesahkan akaun anda. Sila cuba lagi sebentar nanti.',

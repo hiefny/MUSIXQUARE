@@ -134,6 +134,7 @@ describe('app.ts wiring copied by the page navigation harness', () => {
         "bus.on('setup:app-entrance', controller.handleStateChange);",
         'onOverlayStackChange(controller.handleStateChange);',
         'onNavigationPendingChange(controller.handleStateChange);',
+        "bus.on('ui:request-leave-session', controller.requestLeave);",
         "window.addEventListener('popstate', controller.handlePopState);",
         "window.addEventListener('pagehide', controller.suspend);",
         "window.addEventListener('pageshow', controller.resume);",

@@ -123,7 +123,9 @@ test.describe('Comprehensive UI', () => {
     await expect(chatBtn).toBeVisible();
     await openChatDrawer(pair.hostPage);
 
-    await expect(pair.hostPage.locator('#btn-chat-close')).toBeHidden();
+    // The sheet keeps its outside-tap close beside its visible Close (owner
+    // decision 2026-10-28).
+    await expect(pair.hostPage.locator('#btn-chat-close')).toBeVisible();
     const backdrop = pair.hostPage.locator('#chat-backdrop');
     await expect(backdrop).toBeVisible();
     const backdropPoint = await pair.hostPage.evaluate(() => {
@@ -143,6 +145,46 @@ test.describe('Comprehensive UI', () => {
       .locator('#chat-drawer')
       .evaluate((el) => el.classList.contains('open'));
     expect(isOpen).toBe(false);
+  });
+
+  test('chat sheet shows a Close at the top start that closes it', async () => {
+    // Owner decision (2026-10-28): the phone sheet gains a visible Close at
+    // the top start of its handle row; the handle bar stays centred.
+    await useMobileHostViewport();
+    await connectHostAndGuest(pair.hostPage, pair.guestPage);
+    await openChatDrawer(pair.hostPage);
+    await expect
+      .poll(() =>
+        pair.hostPage
+          .locator('#chat-drawer')
+          .evaluate((drawer) => getComputedStyle(drawer).transform),
+      )
+      .toMatch(/^(none|matrix\(1, 0, 0, 1, 0, 0\))$/u);
+
+    const close = pair.hostPage.locator('#btn-chat-close');
+    await expect(close).toBeVisible();
+    await expect(close).toHaveAccessibleName('Close chat');
+    const geometry = await pair.hostPage.evaluate(() => {
+      const drawer = document.getElementById('chat-drawer')!.getBoundingClientRect();
+      const header = document.querySelector('.chat-drawer-header')!.getBoundingClientRect();
+      const button = document.getElementById('btn-chat-close')!.getBoundingClientRect();
+      const icon = document.querySelector('#btn-chat-close svg')!.getBoundingClientRect();
+      return {
+        iconInset: icon.left - drawer.left,
+        buttonSize: [button.width, button.height],
+        centreOffset: button.top + button.height / 2 - (header.top + header.height / 2),
+        headerHeight: header.height,
+      };
+    });
+    // The 20px icon sits 16px in, like the sheet's content, and the 36px
+    // button is centred on the 36px handle row without adding height.
+    expect(geometry.iconInset).toBeCloseTo(16, 0);
+    expect(geometry.buttonSize).toEqual([36, 36]);
+    expect(Math.abs(geometry.centreOffset)).toBeLessThan(0.5);
+    expect(geometry.headerHeight).toBeCloseTo(36, 0);
+
+    await close.click();
+    await waitForClass(pair.hostPage, '#chat-drawer', 'open', false);
   });
 
   test('chat input field and send button exist', async () => {

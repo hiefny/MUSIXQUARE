@@ -104,30 +104,63 @@ Pretendard lacks coverage.
 - Use the existing variable-weight range instead of separate font files.
 - Keep every text weight at 700 or below, including titles, codes and badges.
   Heavier weights lose legibility on low-resolution screens.
+- Text takes one of five weight roles and nothing else (owner decision
+  2026-10-28). Title 700 (`--font-weight-title`): headings and display
+  values, such as dialog, sheet and section titles, the setup greeting, the
+  playlist title switch, the account title, the player track title, the
+  invite code and PIN digits and the code entry digits (the guest's invite
+  code entry, the room PIN entry and the manual sync value). Selected 700
+  and unselected 500
+  (`--font-weight-selected`, `--font-weight-unselected`): in a list or group
+  where one item is selected, current or playing and turns the accent color,
+  that item and every other item, such as track rows (name and index),
+  device rows (name and order number) and device sub-rows, choice chips,
+  the desktop settings section tabs, the bottom navigation labels and the
+  language, playlist slot and transfer lists. Label 600
+  (`--font-weight-label`): names on controls and markers, such as action
+  button labels, badges, small meta labels and form field labels, and the
+  header loading status, which takes the logo's place beside the account
+  pill while media loads (owner decision 2026-10-29). Body 400
+  (`--font-weight-body`): sentences and auxiliary text, such as
+  descriptions, dialog body text, hints, toasts, chat messages, the small
+  line under a name, timestamps, counters, input text and placeholders.
+  Each rule reads its role's token itself.
+- Titles and display values track by script (owner decision 2026-10-28).
+  Every rule on the title weight reads `--title-letter-spacing`: -0.02em in
+  Latin, Cyrillic and Greek UI languages and 0 in Korean, Japanese,
+  Chinese, Thai, the Indic scripts, Arabic, Urdu, Persian and Hebrew,
+  chosen with `html:lang()` on the document language. Codes and PIN digits
+  keep their own wider tracking, and no other text uses a negative letter
+  spacing; small uppercase labels may track wider. The body kerns its text
+  with `font-kerning: normal`.
 - Use tabular numerals for clocks, invite codes, counters, and latency.
 - Keep compact labels legible; do not rely on extreme tracking or uppercase
   for hierarchy.
-- Button labels take one of three roles, and labels in one role differ only
-  by color (owner decision 2026-10-28; the earlier 700 clumped in dark mode,
-  Korean most of all). Every role shares weight 600 and normal letter
+- Button labels take one of three size roles, and labels in one role differ
+  only by color (owner decision 2026-10-28). Every role shares normal letter
   spacing. CTA, every action button: 15px with line height 1.25 (dialogs,
   setup, the play tab's chat preview text and Sync / Media / Stop Sharing,
   the account dialog, the connect tab, the help tab pills, manual sync, the
   YouTube link dialog, the deletion-mode Select all and the media source
   options). Chip, the choice chips (`.ch-opt`): 14px. Tab, the desktop
-  settings section tabs: 13px. Each component rule reads
-  `--button-label-size` (or `--button-label-chip-size` or
-  `--button-label-tab-size`), `--button-label-weight`,
-  `--button-label-line-height`, and `--button-label-letter-spacing` itself;
-  do not retype the values.
+  settings section tabs: 13px. Action buttons take the label weight 600 in
+  every size slot, including the narrow members that borrow the chip or tab
+  size (the earlier 700 clumped in dark mode, Korean most of all). Choice
+  chips and section tabs are selection groups and take 700 selected and 500
+  unselected. Each component rule reads `--button-label-size` (or
+  `--button-label-chip-size` or `--button-label-tab-size`), its weight role
+  token, `--button-label-line-height`, and `--button-label-letter-spacing`
+  itself; do not retype the values.
 - Narrow slots stay inside the roles. A button whose CTA label wraps, splits
   a word or stacks its pair where 9.0.18 did not carries `.btn-label-compact`
   and takes the chip role's 14px in the phone layout up to 719px: Sign out
   and Delete account (always the same size) and the media source options.
   The demo finish pair's two 54px pills take the tab role's 13px on phones
-  up to 420px. The demo tour's step indicator and role switch keep their own
-  sizes and share the weight, and the media source Close hides its label in
-  the two-column 40px icon circle.
+  up to 420px and keep the label weight; the demo effect choice cards are
+  choice chips and take 700 selected and 500 unselected. The demo tour's
+  step indicator and role switch keep their own sizes and are selection
+  groups too (the current step and the chosen role 700, the others 500), and
+  the media source Close hides its label in the two-column 40px icon circle.
 - Verify font changes with `npm run guard:font-assets` and
   `npm run guard:font-build`.
 

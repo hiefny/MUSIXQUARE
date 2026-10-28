@@ -39,10 +39,12 @@ const CAPABILITY_CHECKING_TOAST = {
 } as const satisfies Record<RoomCapability, I18nKey | null>;
 
 /**
- * The reason a locked control shows as its hint and accessible description: a
- * short state phrase, not the toast's sentence (docs/i18n-translation-guide.md
- * §2 rule 9). Only capabilities that lock a visible control have
- * one; the tap still explains the denial with the toast above.
+ * The reason a locked control shows as its hint, and as the description of a
+ * control with no other one (the volume group): a short state phrase, not the
+ * toast's sentence (docs/i18n-translation-guide.md §2 rule 9). A reason read
+ * ahead of a section's own description is a sentence from the description
+ * table below instead (rule 10). Only capabilities that lock a visible control
+ * have one; the tap still explains the denial with the toast above.
  */
 const ROOM_CAPABILITY_TIP_KEYS = {
   'media.add': 'player.media_management_required_tip',
@@ -66,6 +68,26 @@ const ROOM_CAPABILITY_CHECKING_TIP_KEYS = {
   'effects.control': 'player.admin_permission_checking_tip',
 } as const satisfies Record<RoomCapabilityWithTip, I18nKey>;
 
+interface DescriptionKeys {
+  readonly required: I18nKey;
+  readonly checking: I18nKey;
+}
+
+/**
+ * The same reason as a sentence, for a locked group whose section description
+ * is read right after it: a screen reader joins the two with a single space,
+ * so the hint's phrase would run into that description
+ * (docs/i18n-translation-guide.md §2 rule 10). The hint keeps the phrase.
+ */
+const ROOM_CAPABILITY_DESCRIPTION_KEYS = {
+  'effects.control': {
+    required: 'settings.audio_locked_desc',
+    checking: 'settings.audio_lock_checking_desc',
+  },
+} as const satisfies Partial<Record<RoomCapabilityWithTip, DescriptionKeys>>;
+
+type RoomCapabilityWithDescription = keyof typeof ROOM_CAPABILITY_DESCRIPTION_KEYS;
+
 /**
  * The definitive denial for a capability whose answer is already known: the
  * toast's sentence.
@@ -84,6 +106,18 @@ export function roomCapabilityFeedbackTip(capability: RoomCapabilityWithTip): st
     return t(ROOM_CAPABILITY_CHECKING_TIP_KEYS[capability]);
   }
   return t(ROOM_CAPABILITY_TIP_KEYS[capability]);
+}
+
+/**
+ * The locked group's reason as its description sentence, decided like the
+ * hint: the check while the answer is pending, otherwise the definitive
+ * denial.
+ */
+export function roomCapabilityFeedbackDescription(
+  capability: RoomCapabilityWithDescription,
+): string {
+  const keys = ROOM_CAPABILITY_DESCRIPTION_KEYS[capability];
+  return t(roomCapabilityStatus(capability) === 'pending' ? keys.checking : keys.required);
 }
 
 /**

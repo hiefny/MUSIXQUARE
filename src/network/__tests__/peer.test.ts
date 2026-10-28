@@ -237,8 +237,8 @@ describe('broadcastDeviceList', () => {
   });
 
   it('lists only connected members, so every row it sends is connected', () => {
-    // The settings device list draws one connected badge on every row and
-    // has no other status to show.
+    // Every reader takes a row for a member who is in the room, and none
+    // shows another status.
     const send = vi.fn();
     const conn = makeConnection({ open: true, send });
     const peer = (id: string, status: string, joinOrder: number) => ({

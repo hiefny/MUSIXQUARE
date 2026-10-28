@@ -95,7 +95,6 @@ const nl: Record<I18nKey, string> = {
   'common.left': 'Links',
   'common.right': 'Rechts',
   'common.woofer': 'Woofer',
-  'common.connected': 'Verbonden',
   'common.revoke': 'Intrekken',
   'common.system': 'Systeem',
   'common.unknown': 'Onbekend',
@@ -200,6 +199,8 @@ const nl: Record<I18nKey, string> = {
   'settings.sync_settings': 'Instellingen synchroniseren',
   'settings.sync_settings_desc':
     'Apparaten waarop deze instelling aanstaat, synchroniseren volume en audio-effecten.',
+  'settings.audio_locked_desc': 'Alleen kamerbeheerders kunnen audio-instellingen wijzigen.',
+  'settings.audio_lock_checking_desc': 'Beheerdersrechten worden gecontroleerd.',
   'settings.virtual_effects_title': 'Virtuele effecten',
   'settings.virtual_effects_desc':
     'Past gesynthetiseerde effecten toe op het geluid. Dit kan sterke vervorming veroorzaken.',
@@ -272,7 +273,6 @@ const nl: Record<I18nKey, string> = {
   'settings.leave_session': 'Kamer verlaten',
   'connect.rename_reserved': 'Deze bijnaam is gereserveerd.',
   'connect.rename_profanity': 'Ongepaste woorden gedetecteerd.',
-  'settings.devices_title': 'Verbonden apparaten',
   'settings.invite_share': 'Uitnodigen en delen',
   'settings.subtab.general': 'Algemeen',
   'settings.subtab.audio': 'Audio',
@@ -808,7 +808,7 @@ const nl: Record<I18nKey, string> = {
   'pro.activation_account_message': 'Deze kamer registreren op het account “{{name}}”?',
   'pro.activation_account_login_message':
     'Log in met het account waarop je deze kamer wilt registreren.',
-  'pro.activation_account_continue': 'Doorgaan',
+  'pro.activation_account_continue': 'Registreren',
   'pro.activation_account_switch': 'Ander account',
   'pro.activation_account_unavailable':
     'We konden je account niet verifiëren. Probeer het zo opnieuw.',

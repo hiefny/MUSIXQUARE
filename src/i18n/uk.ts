@@ -94,7 +94,6 @@ const uk: Record<I18nKey, string> = {
   'common.left': 'Лівий',
   'common.right': 'Правий',
   'common.woofer': 'Вуфер',
-  'common.connected': 'Підключено',
   'common.revoke': 'Відкликати',
   'common.system': 'Система',
   'common.unknown': 'Невідомо',
@@ -200,6 +199,8 @@ const uk: Record<I18nKey, string> = {
   'settings.sync_settings': 'Синхронізація налаштувань',
   'settings.sync_settings_desc':
     'Пристрої з увімкненим параметром синхронізують гучність і звукові ефекти.',
+  'settings.audio_locked_desc': 'Змінювати звукові параметри можуть лише адміністратори кімнати.',
+  'settings.audio_lock_checking_desc': 'Перевіряємо права адміністратора.',
   'settings.virtual_effects_title': 'Віртуальні ефекти',
   'settings.virtual_effects_desc':
     'Застосовувати до звуку синтезовані ефекти. Це може спричинити сильні спотворення.',
@@ -271,7 +272,6 @@ const uk: Record<I18nKey, string> = {
   'settings.leave_session': 'Вийти із сеансу',
   'connect.rename_reserved': 'Цей псевдонім зарезервовано.',
   'connect.rename_profanity': 'Виявлено неприйнятні слова.',
-  'settings.devices_title': 'Підключені пристрої',
   'settings.invite_share': 'Запросити й поділитися',
   'settings.subtab.general': 'Загальні',
   'settings.subtab.audio': 'Аудіо',
@@ -795,7 +795,7 @@ const uk: Record<I18nKey, string> = {
   'pro.activation_account_message': 'Зареєструвати цю кімнату на обліковий запис «{{name}}»?',
   'pro.activation_account_login_message':
     'Увійдіть в обліковий запис, на який хочете зареєструвати цю кімнату.',
-  'pro.activation_account_continue': 'Продовжити',
+  'pro.activation_account_continue': 'Зареєструвати',
   'pro.activation_account_switch': 'Інший акаунт',
   'pro.activation_account_unavailable':
     'Не вдалося перевірити обліковий запис. Спробуйте ще раз трохи згодом.',

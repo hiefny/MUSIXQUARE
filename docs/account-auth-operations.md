@@ -135,8 +135,11 @@ and records the supersession. Votes do not grant approval or publish copy.
 Approval export contains only approvals whose exact baseline still matches the
 deployed catalog. Already-applied text is omitted; any other stale approval
 rejects the entire export with `STALE_APPROVED_SUGGESTIONS` so it must be reviewed
-again. The reviewed export is applied to repository sources, checked in CI and
-released through the normal pipeline. No API rewrites running translations.
+again. Removing a key from the catalog makes every suggestion for it stale,
+approvals already applied included, so reject them after the release that
+removes the key or the next export fails. The reviewed export is applied to
+repository sources, checked in CI and released through the normal pipeline.
+No API rewrites running translations.
 An author may withdraw an approval before its text is applied. Removing an
 account or suggestion does not revert translations already accepted into source
 history; changing published wording requires a separate reviewed release.

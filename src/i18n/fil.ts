@@ -96,7 +96,6 @@ const fil: Record<I18nKey, string> = {
   'common.left': 'Kaliwa',
   'common.right': 'Kanan',
   'common.woofer': 'Woofer',
-  'common.connected': 'Nakakonekta',
   'common.revoke': 'Bawiin',
   'common.system': 'System',
   'common.unknown': 'Hindi kilala',
@@ -202,6 +201,8 @@ const fil: Record<I18nKey, string> = {
   'settings.sync_settings': 'Pag-sync ng mga setting',
   'settings.sync_settings_desc':
     'Sini-sync ng mga device na naka-on ito ang kanilang volume at mga audio effect.',
+  'settings.audio_locked_desc': 'Mga admin lang ng kuwarto ang makakapagbago ng audio.',
+  'settings.audio_lock_checking_desc': 'Sinusuri ang pahintulot ng administrator.',
   'settings.virtual_effects_title': 'Mga virtual na effect',
   'settings.virtual_effects_desc':
     'Maglagay ng mga synthesized effect sa audio. Maaari itong magdulot ng matinding distortion.',
@@ -275,7 +276,6 @@ const fil: Record<I18nKey, string> = {
   'settings.leave_session': 'Umalis sa Session',
   'connect.rename_reserved': 'Nakalaan ang palayaw na ito.',
   'connect.rename_profanity': 'May natukoy na hindi angkop na salita.',
-  'settings.devices_title': 'Mga Nakakonektang Device',
   'settings.invite_share': 'Mag-imbita at Magbahagi',
   'settings.subtab.general': 'Pangkalahatan',
   'settings.subtab.audio': 'Audio',
@@ -813,7 +813,7 @@ const fil: Record<I18nKey, string> = {
   'pro.activation_account_message': 'Irehistro ang kuwartong ito sa account na “{{name}}”?',
   'pro.activation_account_login_message':
     'Mag-sign in gamit ang account kung saan mo gustong irehistro ang kuwartong ito.',
-  'pro.activation_account_continue': 'Magpatuloy',
+  'pro.activation_account_continue': 'Irehistro',
   'pro.activation_account_switch': 'Ibang account',
   'pro.activation_account_unavailable':
     'Hindi namin ma-verify ang account mo. Pakisubukan muli maya-maya.',

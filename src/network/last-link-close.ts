@@ -5,10 +5,10 @@
  *
  * The Standard transport notes the first cause of every logical close (RO-15,
  * the 4A "Logical connection closed" info line). When the guest's disconnect
- * dialog reloads the page, or the page reloads after the host removed the
- * guest, setup keeps the page's last close in this tab's sessionStorage, and
- * the next page in the tab that logs info lines logs it once for
- * `/debug console` and removes it. It is the page's most recent Standard close,
+ * dialog or the lost-session dialog (network/peer.ts) reloads the page, or the
+ * page reloads after the host removed the guest, the page keeps its last close
+ * in this tab's sessionStorage, and the next page in the tab that logs info
+ * lines logs it once for `/debug console` and removes it. It is the page's most recent Standard close,
  * which its time identifies, not necessarily the host link's: the removal
  * reload is decided while that link is still open, so it usually keeps an
  * earlier close or nothing. Only the cause token and the close time are kept:

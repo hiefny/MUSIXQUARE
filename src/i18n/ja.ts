@@ -95,7 +95,6 @@ const ja: Record<I18nKey, string> = {
   'common.left': '左',
   'common.right': '右',
   'common.woofer': 'ウーファー',
-  'common.connected': '接続済み',
   'common.revoke': '解除',
   'common.system': 'システム',
   'common.unknown': '不明',
@@ -129,6 +128,8 @@ const ja: Record<I18nKey, string> = {
   'settings.sync_settings': '設定の同期',
   'settings.sync_settings_desc':
     'この設定をオンにしたデバイス同士で、音量とオーディオ効果が同期されます。',
+  'settings.audio_locked_desc': '音響設定を変更できるのはルーム管理者だけです。',
+  'settings.audio_lock_checking_desc': '管理者権限を確認しています。',
   'settings.virtual_effects_title': 'バーチャルエフェクト',
   'settings.virtual_effects_desc':
     '音声に合成エフェクトをかけます。強い歪みが生じる場合があります。',
@@ -200,7 +201,6 @@ const ja: Record<I18nKey, string> = {
   'settings.leave_session': 'ルームを退出',
   'connect.rename_reserved': 'この名前は使用できません。',
   'connect.rename_profanity': 'この名前には不適切な表現が含まれています。',
-  'settings.devices_title': '接続中のデバイス',
   'settings.invite_share': '招待と共有',
   'settings.subtab.general': '一般',
   'settings.subtab.audio': 'オーディオ',
@@ -722,7 +722,7 @@ const ja: Record<I18nKey, string> = {
   'pro.activation_account_title': 'このPROルームを登録するアカウント',
   'pro.activation_account_message': 'アカウント「{{name}}」にこのルームを登録しますか？',
   'pro.activation_account_login_message': 'このルームを登録するアカウントでログインしてください。',
-  'pro.activation_account_continue': '続行',
+  'pro.activation_account_continue': '登録',
   'pro.activation_account_switch': '別のアカウント',
   'pro.activation_account_unavailable':
     'アカウント情報を確認できませんでした。しばらくしてからもう一度お試しください。',

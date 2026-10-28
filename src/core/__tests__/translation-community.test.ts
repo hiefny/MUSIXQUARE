@@ -853,6 +853,52 @@ describe('translation community actual auth and SQLite contract', () => {
     expect(oversized.status).toBe(413);
     expect(oversized.body.error).toBe('EXPORT_TOO_LARGE');
   });
+  it('stales every approval of a key the catalog drops, applied ones included, until rejected', async () => {
+    // A release that deletes a key leaves its suggestions in D1. Without a
+    // catalog entry no row matches its baseline, and an approval that was
+    // already applied stops reading as applied, so each one blocks the export
+    // until an administrator rejects it.
+    const applied = (await submit()).body.suggestion;
+    await admin(applied.id, 'approved', 1);
+    updateCanonical('Encerrar');
+    const submitted = await call(PREFIX, 'POST', {
+      requestId: crypto.randomUUID(),
+      draft: draft('닫을게요', 'ko', 'app:common.close'),
+    });
+    const fresh = submitted.body.suggestion;
+    await admin(fresh.id, 'approved', 1);
+    const before = await exportApprovedForTest();
+    expect(before.status).toBe(200);
+    expect(before.body.drafts.map((item) => item.suggestionId)).toEqual([fresh.id]);
+
+    const withoutKey = new Map<string, Catalog>();
+    for (const [code, catalog] of catalogs) {
+      const next = structuredClone(catalog);
+      next.entries = next.entries.filter((item) => item.id !== 'app:common.close');
+      withoutKey.set(code, next);
+    }
+    env.ASSETS = assetsPort(createTranslationCatalogAssets(withoutKey));
+    const queue = await handleAdminTranslationCommunityRequest(
+      new Request(`${ORIGIN}/api/admin/translations?locale=pt-br&status=all`),
+      env,
+    );
+    expect(await queue!.json()).toMatchObject({
+      suggestions: [{ id: applied.id, status: 'approved', outdated: true, applied: false }],
+    });
+    const stale = await exportApprovedForTest();
+    expect(stale.status).toBe(409);
+    expect(stale.body.error).toBe('STALE_APPROVED_SUGGESTIONS');
+
+    expect((await admin(fresh.id, 'rejected', 2)).status).toBe(200);
+    const appliedOnly = await exportApprovedForTest();
+    expect(appliedOnly.status).toBe(409);
+    expect(appliedOnly.body.error).toBe('STALE_APPROVED_SUGGESTIONS');
+
+    expect((await admin(applied.id, 'rejected', 2)).status).toBe(200);
+    const cleared = await exportApprovedForTest();
+    expect(cleared.status).toBe(200);
+    expect(cleared.body.drafts).toEqual([]);
+  });
   it('cascades actual account deletion through contributions, votes, counters and review history', async () => {
     const one = (await submit()).body.suggestion;
     const two = (await submit('Concluir', TOKEN_B)).body.suggestion;

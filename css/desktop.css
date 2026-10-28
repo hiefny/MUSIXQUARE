@@ -226,8 +226,8 @@
     .chat-drawer-title,
     .track-title {
       font-size: 24px;
-      font-weight: var(--font-weight-display);
-      letter-spacing: -0.02em;
+      font-weight: var(--font-weight-title);
+      letter-spacing: var(--title-letter-spacing);
       color: var(--text-main);
       /* Lock line-box to 36px (24 × 1.5) so the title's own height matches
            the 36px right-side content (buttons / invite wrapper) in tab
@@ -477,7 +477,7 @@
       flex: 1;
       padding: 10px 0;
       font-size: var(--button-label-tab-size);
-      font-weight: var(--button-label-weight);
+      font-weight: var(--font-weight-unselected);
       color: var(--text-sub);
       background: none;
       border: none;
@@ -497,6 +497,7 @@
     .subtab-pill.active {
       color: var(--primary);
       border-bottom-color: var(--primary);
+      font-weight: var(--font-weight-selected);
     }
 
     /* Sub-panels: only active visible */
@@ -511,12 +512,6 @@
 
     .settings-subtab-panel.active {
       display: block;
-    }
-
-    /* Device list in settings audio panel — hidden on desktop too
-       (connection UI lives in the "연결" sub-tab instead) */
-    .settings-device-section {
-      display: none;
     }
 
     /* Connect sub-panel content — match 20px inner padding of other panels */
@@ -825,10 +820,10 @@
 
     .section-title {
       font-size: 17px;
-      font-weight: 700;
+      font-weight: var(--font-weight-title);
       color: var(--text-main);
       text-transform: none;
-      letter-spacing: normal;
+      letter-spacing: var(--title-letter-spacing);
     }
 
     /* Keep supporting copy on the same desktop inset as its title and
@@ -847,7 +842,7 @@
 
     /* Subdue control labels so section titles retain hierarchy. */
     .slider-header {
-      font-weight: 500;
+      font-weight: var(--font-weight-label);
       color: var(--text-sub);
       margin-bottom: 8px;
     }
@@ -857,7 +852,6 @@
     }
 
     .slider-header .val-disp {
-      font-weight: 700;
       color: var(--primary);
     }
 

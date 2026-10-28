@@ -96,7 +96,6 @@ const nb: Record<I18nKey, string> = {
   'common.left': 'Venstre',
   'common.right': 'Høyre',
   'common.woofer': 'Woofer',
-  'common.connected': 'Tilkoblet',
   'common.revoke': 'Trekk tilbake',
   'common.system': 'System',
   'common.unknown': 'Ukjent',
@@ -201,6 +200,8 @@ const nb: Record<I18nKey, string> = {
   'settings.sync_settings': 'Synkronisering av innstillinger',
   'settings.sync_settings_desc':
     'Enheter som har denne innstillingen slått på, synkroniserer volum og lydeffekter.',
+  'settings.audio_locked_desc': 'Bare romadministratorer kan endre lydinnstillingene.',
+  'settings.audio_lock_checking_desc': 'Sjekker administratorrettigheter.',
   'settings.virtual_effects_title': 'Virtuelle effekter',
   'settings.virtual_effects_desc':
     'Bruk syntetiserte effekter på lyden. Dette kan føre til kraftig forvrengning.',
@@ -271,7 +272,6 @@ const nb: Record<I18nKey, string> = {
   'settings.leave_session': 'Forlat økten',
   'connect.rename_reserved': 'Dette kallenavnet er reservert.',
   'connect.rename_profanity': 'Kallenavnet inneholder upassende ord.',
-  'settings.devices_title': 'Tilkoblede enheter',
   'settings.invite_share': 'Inviter og del',
   'settings.subtab.general': 'Generelt',
   'settings.subtab.audio': 'Lyd',
@@ -794,7 +794,7 @@ const nb: Record<I18nKey, string> = {
   'pro.activation_account_title': 'Velg en konto for dette PRO-rommet',
   'pro.activation_account_message': 'Vil du registrere dette rommet på kontoen «{{name}}»?',
   'pro.activation_account_login_message': 'Logg inn med kontoen du vil registrere dette rommet på.',
-  'pro.activation_account_continue': 'Fortsett',
+  'pro.activation_account_continue': 'Registrer',
   'pro.activation_account_switch': 'Annen konto',
   'pro.activation_account_unavailable': 'Kunne ikke bekrefte kontoen din. Prøv igjen om litt.',
   'pro.claim_retry_title': 'Vil du prøve PRO-lenken på nytt?',

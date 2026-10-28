@@ -7,13 +7,20 @@ import { getState, resetState, setState } from '../../core/state.ts';
 import { clearAllManagedTimers, getManagedTimer } from '../../core/timers.ts';
 import type { DataConnection, PeerInstance } from '../../types/index.ts';
 import { registerProRoomSignalingReconnectHandler } from '../../pro-room/lifecycle-hook.ts';
+import { t } from '../../i18n/index.ts';
 
 const mocks = vi.hoisted(() => ({
   createTransportPeer: vi.fn(),
   fetchWithCapability: vi.fn(),
   getRuntimeTransportConfig: vi.fn(),
   prepareRoomSessionFeatures: vi.fn((_signal?: AbortSignal) => Promise.resolve()),
-  showDialog: vi.fn(async () => ({ action: 'cancel' })),
+  returnToRoomStart: vi.fn((code: unknown, options: { fallback: () => void }) => {
+    if (typeof code === 'string' && /^\d{6}$/.test(code)) return true;
+    options.fallback();
+    return false;
+  }),
+  scheduleDocumentReload: vi.fn(),
+  showDialog: vi.fn(async (): Promise<{ action: string }> => ({ action: 'cancel' })),
   showToast: vi.fn(),
 }));
 
@@ -34,6 +41,16 @@ vi.mock('../transport/config.ts', () => ({
 vi.mock('../room-session-feature-loader.ts', () => ({
   prepareRoomSessionFeatures: mocks.prepareRoomSessionFeatures,
 }));
+
+vi.mock('../../core/session-reset.ts', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('../../core/session-reset.ts')>();
+  return { ...actual, scheduleDocumentReload: mocks.scheduleDocumentReload };
+});
+
+vi.mock('../../core/navigation.ts', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('../../core/navigation.ts')>();
+  return { ...actual, returnToRoomStart: mocks.returnToRoomStart };
+});
 
 vi.mock('../../ui/dialog.ts', () => ({ showDialog: mocks.showDialog }));
 vi.mock('../../ui/toast.ts', () => ({ showToast: mocks.showToast }));
@@ -1188,5 +1205,69 @@ describe('network initialization ownership', () => {
     expect(getState('network.myId')).toBe('HOST-B');
     expect(ready).toHaveBeenCalledTimes(1);
     expect(ready).toHaveBeenCalledWith('HOST-B');
+  });
+});
+
+describe('lost-session dialog', () => {
+  async function loseGuestSession(action: string, code = '123456'): Promise<void> {
+    vi.useFakeTimers();
+    mocks.showDialog.mockResolvedValueOnce({ action });
+    const peer = makePeer('STANDARD-GUEST', true);
+    mocks.createTransportPeer.mockResolvedValueOnce(peer);
+    await createHostSessionWithShortCode(1);
+    setState('setup.sessionStarted', true);
+    setState('network.appRole', 'guest');
+    setState('network.lastJoinCode', code);
+    setState('network.hostConn', null);
+
+    peer.fire('disconnected');
+    await vi.advanceTimersByTimeAsync(5_000);
+    expect(mocks.showDialog).toHaveBeenCalledOnce();
+    await vi.advanceTimersByTimeAsync(0);
+  }
+
+  it('offers Go back on the left of Restart', async () => {
+    await loseGuestSession('superseded');
+
+    expect(mocks.showDialog).toHaveBeenCalledWith(
+      expect.objectContaining({
+        title: t('network.disconnected'),
+        message: t('dialog.session_lost_msg'),
+        buttonText: t('dialog.session_lost_btn'),
+        secondaryText: t('dialog.go_back'),
+      }),
+    );
+    expect(mocks.scheduleDocumentReload).not.toHaveBeenCalled();
+    expect(mocks.returnToRoomStart).not.toHaveBeenCalled();
+  });
+
+  it.each(['secondary', 'back'])(
+    'leaves for the home screen when it closes as %s',
+    async (action) => {
+      await loseGuestSession(action);
+
+      expect(mocks.scheduleDocumentReload).toHaveBeenCalledExactlyOnceWith(
+        t('dialog.leaving_session'),
+      );
+      expect(mocks.returnToRoomStart).not.toHaveBeenCalled();
+    },
+  );
+
+  it("returns a guest to its room's start screen on Restart", async () => {
+    await loseGuestSession('ok', '123456');
+
+    expect(mocks.returnToRoomStart).toHaveBeenCalledExactlyOnceWith(
+      '123456',
+      expect.objectContaining({ message: t('dialog.refreshing_session'), reconnect: true }),
+    );
+    expect(mocks.scheduleDocumentReload).not.toHaveBeenCalled();
+  });
+
+  it('reloads into a new session on Restart when the guest has no room code', async () => {
+    await loseGuestSession('ok', '');
+
+    expect(mocks.scheduleDocumentReload).toHaveBeenCalledExactlyOnceWith(
+      t('dialog.refreshing_session'),
+    );
   });
 });

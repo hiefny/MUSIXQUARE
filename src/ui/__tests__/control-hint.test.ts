@@ -13,6 +13,7 @@ import { setControlHint, setControlUnavailable } from '../control-hint.ts';
 
 const REASON = 'Playback control permission required';
 const HINT = 'Select this track and enter selection mode';
+const SENTENCE = 'Playback control permission is required.';
 
 function iconButton(): HTMLButtonElement {
   const button = document.createElement('button');
@@ -192,12 +193,59 @@ describe('control hint writes', () => {
     expect(group.getAttribute('aria-describedby')).toBe('volume-control-group-reason');
     setControlUnavailable(group, null, { describe: true });
     expect(group.hasAttribute('aria-describedby')).toBe(false);
-    // Without the option nothing is described, and no node is made.
+    // Without the option, or with false, nothing is described and no node is made.
     const plain = iconButton();
     plain.id = 'plain';
     setControlUnavailable(plain, REASON);
+    setControlUnavailable(plain, REASON, { describe: false });
     expect(plain.hasAttribute('aria-describedby')).toBe(false);
     expect(document.getElementById('plain-reason')).toBeNull();
+  });
+
+  it('describes the reason with a sentence of its own while the hint keeps the phrase', () => {
+    // A description joins its parts with a single space, so a reason read
+    // ahead of the group's own description is a sentence, not the hint's
+    // phrase, or it runs into that description.
+    document.body.innerHTML = `
+      <p id="reverb-description">Adjust the reverb.</p>
+      <div id="grid-reverb" role="group" aria-describedby="reverb-description">
+        <button type="button">Studio</button>
+      </div>`;
+    const group = document.getElementById('grid-reverb')!;
+    setControlUnavailable(group, REASON, { describe: SENTENCE });
+    const reason = document.getElementById('grid-reverb-reason')!;
+    expect(hintOf(group)).toEqual({ title: REASON, ariaDisabled: 'true' });
+    expect(reason.hidden).toBe(true);
+    expect(reason.textContent).toBe(SENTENCE);
+    expect(group.getAttribute('aria-describedby')).toBe('grid-reverb-reason reverb-description');
+
+    // Unavailable without words: there is no reason to describe.
+    setControlUnavailable(group, '', { describe: SENTENCE });
+    expect(reason.textContent).toBe('');
+    expect(group.getAttribute('aria-describedby')).toBe('reverb-description');
+
+    setControlUnavailable(group, REASON, { describe: SENTENCE });
+    setControlUnavailable(group, null, { describe: SENTENCE });
+    expect(reason.textContent).toBe('');
+    expect(group.getAttribute('aria-describedby')).toBe('reverb-description');
+    expect(hintOf(group)).toEqual({ title: null, ariaDisabled: 'false' });
+  });
+
+  it('clears a sentence description once available, even an empty sentence', () => {
+    document.body.innerHTML = `
+      <p id="eq-description">Adjust the tone.</p>
+      <div id="grid-eq" role="group" aria-describedby="eq-description"></div>`;
+    const group = document.getElementById('grid-eq')!;
+    setControlUnavailable(group, REASON, { describe: SENTENCE });
+    setControlUnavailable(group, null, { describe: '' });
+    expect(document.getElementById('grid-eq-reason')!.textContent).toBe('');
+    expect(group.getAttribute('aria-describedby')).toBe('eq-description');
+
+    // An empty sentence describes nothing; the hint still names the reason.
+    setControlUnavailable(group, REASON, { describe: '' });
+    expect(document.getElementById('grid-eq-reason')!.textContent).toBe('');
+    expect(group.getAttribute('aria-describedby')).toBe('eq-description');
+    expect(hintOf(group)).toEqual({ title: REASON, ariaDisabled: 'true' });
   });
 
   it('keeps each control’s hint to itself', () => {

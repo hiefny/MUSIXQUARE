@@ -96,7 +96,6 @@ const pa: Record<I18nKey, string> = {
   'common.left': 'ਖੱਬਾ',
   'common.right': 'ਸੱਜਾ',
   'common.woofer': 'ਵੂਫ਼ਰ',
-  'common.connected': 'ਜੁੜਿਆ ਹੋਇਆ',
   'common.revoke': 'ਵਾਪਸ ਲਓ',
   'common.system': 'ਸਿਸਟਮ',
   'common.unknown': 'ਅਣਜਾਣ',
@@ -202,6 +201,8 @@ const pa: Record<I18nKey, string> = {
   'settings.sync_settings': 'ਸੈਟਿੰਗਾਂ ਦਾ ਸਿੰਕ',
   'settings.sync_settings_desc':
     'ਜਿਨ੍ਹਾਂ ਡਿਵਾਈਸਾਂ ਉੱਤੇ ਇਹ ਸੈਟਿੰਗ ਚਾਲੂ ਹੈ, ਉਹ ਆਪਣੀ ਆਵਾਜ਼ ਦੇ ਪੱਧਰ ਅਤੇ ਆਡੀਓ ਪ੍ਰਭਾਵਾਂ ਨੂੰ ਸਿੰਕ ਕਰਦੀਆਂ ਹਨ।',
+  'settings.audio_locked_desc': 'ਸਿਰਫ਼ ਰੂਮ ਪ੍ਰਬੰਧਕ ਆਡੀਓ ਸੈਟਿੰਗਾਂ ਬਦਲ ਸਕਦੇ ਹਨ।',
+  'settings.audio_lock_checking_desc': 'ਪ੍ਰਬੰਧਕ ਇਜਾਜ਼ਤ ਦੀ ਜਾਂਚ ਹੋ ਰਹੀ ਹੈ।',
   'settings.virtual_effects_title': 'ਵਰਚੁਅਲ ਪ੍ਰਭਾਵ',
   'settings.virtual_effects_desc':
     'ਆਡੀਓ ਉੱਤੇ ਬਣਾਉਟੀ ਪ੍ਰਭਾਵ ਲਗਾਓ। ਇਸ ਨਾਲ ਆਵਾਜ਼ ਬਹੁਤ ਜ਼ਿਆਦਾ ਵਿਗੜ ਸਕਦੀ ਹੈ।',
@@ -271,7 +272,6 @@ const pa: Record<I18nKey, string> = {
   'settings.leave_session': 'ਸੈਸ਼ਨ ਛੱਡੋ',
   'connect.rename_reserved': 'ਇਹ ਉਪਨਾਮ ਰਾਖਵਾਂ ਹੈ।',
   'connect.rename_profanity': 'ਅਣਉਚਿਤ ਸ਼ਬਦ ਮਿਲੇ ਹਨ।',
-  'settings.devices_title': 'ਜੁੜੀਆਂ ਡਿਵਾਈਸਾਂ',
   'settings.invite_share': 'ਸੱਦਾ ਦਿਓ ਅਤੇ ਸਾਂਝਾ ਕਰੋ',
   'settings.subtab.general': 'ਆਮ',
   'settings.subtab.audio': 'ਆਡੀਓ',
@@ -789,7 +789,7 @@ const pa: Record<I18nKey, string> = {
   'pro.activation_account_title': 'ਇਸ PRO ਰੂਮ ਲਈ ਖਾਤਾ ਚੁਣੋ',
   'pro.activation_account_message': 'ਇਹ ਰੂਮ “{{name}}” ਖਾਤੇ ਨਾਲ ਰਜਿਸਟਰ ਕਰਨਾ ਹੈ?',
   'pro.activation_account_login_message': 'ਜਿਸ ਖਾਤੇ ਨਾਲ ਇਹ ਰੂਮ ਰਜਿਸਟਰ ਕਰਨਾ ਹੈ, ਉਸ ਨਾਲ ਸਾਈਨ ਇਨ ਕਰੋ।',
-  'pro.activation_account_continue': 'ਅੱਗੇ ਵਧੋ',
+  'pro.activation_account_continue': 'ਰਜਿਸਟਰ ਕਰੋ',
   'pro.activation_account_switch': 'ਹੋਰ ਖਾਤਾ',
   'pro.activation_account_unavailable':
     'ਖਾਤੇ ਦੀ ਜਾਣਕਾਰੀ ਜਾਂਚੀ ਨਹੀਂ ਜਾ ਸਕੀ। ਥੋੜ੍ਹੀ ਦੇਰ ਬਾਅਦ ਦੁਬਾਰਾ ਕੋਸ਼ਿਸ਼ ਕਰੋ।',

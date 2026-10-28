@@ -95,7 +95,6 @@ const fi: Record<I18nKey, string> = {
   'common.left': 'Vasen',
   'common.right': 'Oikea',
   'common.woofer': 'Bassokaiutin',
-  'common.connected': 'Yhdistetty',
   'common.revoke': 'Peru oikeudet',
   'common.system': 'Järjestelmä',
   'common.unknown': 'Tuntematon',
@@ -201,6 +200,8 @@ const fi: Record<I18nKey, string> = {
   'settings.sync_settings': 'Asetusten synkronointi',
   'settings.sync_settings_desc':
     'Laitteet, joissa tämä asetus on käytössä, synkronoivat äänenvoimakkuuden ja äänitehosteet.',
+  'settings.audio_locked_desc': 'Vain huoneen ylläpitäjät voivat muuttaa ääniasetuksia.',
+  'settings.audio_lock_checking_desc': 'Tarkistetaan ylläpitäjäoikeuksia.',
   'settings.virtual_effects_title': 'Virtuaalitehosteet',
   'settings.virtual_effects_desc':
     'Käytä äänessä keinotekoisesti luotuja tehosteita. Tämä voi aiheuttaa voimakasta säröä.',
@@ -270,7 +271,6 @@ const fi: Record<I18nKey, string> = {
   'settings.leave_session': 'Poistu istunnosta',
   'connect.rename_reserved': 'Tämä nimimerkki on varattu.',
   'connect.rename_profanity': 'Nimimerkissä on sopimattomia sanoja.',
-  'settings.devices_title': 'Yhdistetyt laitteet',
   'settings.invite_share': 'Kutsu ja jaa',
   'settings.subtab.general': 'Yleiset',
   'settings.subtab.audio': 'Ääni',
@@ -795,7 +795,7 @@ const fi: Record<I18nKey, string> = {
   'pro.activation_account_message': 'Rekisteröidäänkö tämä huone tilille ”{{name}}”?',
   'pro.activation_account_login_message':
     'Kirjaudu tilille, johon haluat rekisteröidä tämän huoneen.',
-  'pro.activation_account_continue': 'Jatka',
+  'pro.activation_account_continue': 'Rekisteröi',
   'pro.activation_account_switch': 'Toinen tili',
   'pro.activation_account_unavailable':
     'Tilisi tietoja ei voitu tarkistaa. Yritä hetken kuluttua uudelleen.',

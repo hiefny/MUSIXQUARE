@@ -93,7 +93,6 @@ const fa: Record<I18nKey, string> = {
   'common.left': 'چپ',
   'common.right': 'راست',
   'common.woofer': 'ووفر',
-  'common.connected': 'متصل',
   'common.revoke': 'لغو مجوز',
   'common.system': 'سیستم',
   'common.unknown': 'ناشناخته',
@@ -198,6 +197,8 @@ const fa: Record<I18nKey, string> = {
   'settings.sync_settings': 'همگام‌سازی تنظیمات',
   'settings.sync_settings_desc':
     'دستگاه‌هایی که این گزینه در آن‌ها روشن است، میزان صدا و جلوه‌های صوتی را با هم همگام می‌کنند.',
+  'settings.audio_locked_desc': 'فقط مدیران اتاق می‌توانند تنظیمات صدا را تغییر دهند.',
+  'settings.audio_lock_checking_desc': 'در حال بررسی مجوز مدیریت.',
   'settings.virtual_effects_title': 'جلوه‌های مجازی',
   'settings.virtual_effects_desc':
     'جلوه‌های ساخته‌شده را روی صدا اعمال کنید. ممکن است صدا به‌شدت دچار اعوجاج شود.',
@@ -266,7 +267,6 @@ const fa: Record<I18nKey, string> = {
   'settings.leave_session': 'خروج از جلسه',
   'connect.rename_reserved': 'این نام مستعار رزرو شده است.',
   'connect.rename_profanity': 'واژه‌های نامناسب شناسایی شد.',
-  'settings.devices_title': 'دستگاه‌های متصل',
   'settings.invite_share': 'دعوت و اشتراک‌گذاری',
   'settings.subtab.general': 'عمومی',
   'settings.subtab.audio': 'صدا',
@@ -779,7 +779,7 @@ const fa: Record<I18nKey, string> = {
   'pro.activation_account_title': 'انتخاب حساب برای این اتاق PRO',
   'pro.activation_account_message': 'این اتاق در حساب «{{name}}» ثبت شود؟',
   'pro.activation_account_login_message': 'با حسابی وارد شوید که می‌خواهید این اتاق در آن ثبت شود.',
-  'pro.activation_account_continue': 'ادامه',
+  'pro.activation_account_continue': 'ثبت',
   'pro.activation_account_switch': 'حساب دیگر',
   'pro.activation_account_unavailable': 'اطلاعات حساب شما بررسی نشد. کمی بعد دوباره تلاش کنید.',
   'pro.claim_retry_title': 'پیوند PRO دوباره امتحان شود؟',

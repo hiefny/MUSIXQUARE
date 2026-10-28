@@ -426,6 +426,47 @@ describe('deferred Back guard', () => {
     expect(h.deps.pushGuard).toHaveBeenCalledTimes(2);
   });
 
+  // Owner decision (2026-10-28): the demo tour of a guest who cannot end it
+  // leaves the room. Its visible exit, Escape and Back all ask through the
+  // one confirmation an unused Back opens, [Stay | Leave].
+  it('opens the unused-Back leave confirmation for an exit that leaves the room', async () => {
+    const h = harness();
+    await h.start();
+
+    h.controller.requestLeave();
+    h.controller.requestLeave();
+    expect(h.deps.requestLeaveConfirmation).toHaveBeenCalledOnce();
+    expect(h.windows.map((x) => x.name)).toEqual(['leave']);
+
+    // Back on the confirmation means Stay; the guard stays in place.
+    h.pop();
+    await h.arm();
+    expect(h.windows).toEqual([]);
+    expect(h.deps.onLeaveConfirmed).not.toHaveBeenCalled();
+    expect(h.deps.navigateBack).not.toHaveBeenCalled();
+    expect(h.deps.pushGuard).toHaveBeenCalledTimes(2);
+
+    h.controller.requestLeave();
+    expect(h.deps.requestLeaveConfirmation).toHaveBeenCalledTimes(2);
+    h.confirmations[1]!.resolve(true);
+    await h.arm();
+    expect(h.deps.onLeaveConfirmed).toHaveBeenCalledOnce();
+    expect(h.deps.pushGuard).toHaveBeenCalledTimes(2);
+  });
+
+  it('opens no leave confirmation outside a session or while the page is held', async () => {
+    const h = harness();
+    h.controller.requestLeave();
+    await h.start();
+    h.state.navigating = true;
+    h.controller.requestLeave();
+    h.state.navigating = false;
+    h.controller.suspend();
+    h.controller.requestLeave();
+
+    expect(h.deps.requestLeaveConfirmation).not.toHaveBeenCalled();
+  });
+
   it('reports failures without loops even when a diagnostic observer throws', async () => {
     const error = new Error('unavailable');
     const h = harness({

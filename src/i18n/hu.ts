@@ -94,7 +94,6 @@ const hu: Record<I18nKey, string> = {
   'common.left': 'Bal',
   'common.right': 'Jobb',
   'common.woofer': 'Mélynyomó',
-  'common.connected': 'Csatlakoztatva',
   'common.revoke': 'Visszavonás',
   'common.system': 'Rendszer',
   'common.unknown': 'Ismeretlen',
@@ -200,6 +199,8 @@ const hu: Record<I18nKey, string> = {
   'settings.sync_settings': 'Beállítások szinkronizálása',
   'settings.sync_settings_desc':
     'Az ezt bekapcsoló eszközök szinkronizálják a hangerőt és a hangeffektusokat.',
+  'settings.audio_locked_desc': 'A hangbeállításokat csak a szoba adminisztrátorai módosíthatják.',
+  'settings.audio_lock_checking_desc': 'Adminisztrátori jogosultság ellenőrzése folyamatban.',
   'settings.virtual_effects_title': 'Virtuális effektusok',
   'settings.virtual_effects_desc':
     'Szintetizált effektusokat alkalmaz a hangra. Erős torzítást okozhatnak.',
@@ -270,7 +271,6 @@ const hu: Record<I18nKey, string> = {
   'settings.leave_session': 'Munkamenet elhagyása',
   'connect.rename_reserved': 'Ez a becenév foglalt.',
   'connect.rename_profanity': 'Nem megfelelő szavakat észleltünk.',
-  'settings.devices_title': 'Csatlakoztatott eszközök',
   'settings.invite_share': 'Meghívás és megosztás',
   'settings.subtab.general': 'Általános',
   'settings.subtab.audio': 'Hang',
@@ -803,7 +803,7 @@ const hu: Record<I18nKey, string> = {
   'pro.activation_account_message': 'Regisztrálod ezt a szobát a következő fiókhoz: „{{name}}”?',
   'pro.activation_account_login_message':
     'Jelentkezz be azzal a fiókkal, amelyhez ezt a szobát regisztrálni szeretnéd.',
-  'pro.activation_account_continue': 'Folytatás',
+  'pro.activation_account_continue': 'Regisztrálás',
   'pro.activation_account_switch': 'Másik fiók',
   'pro.activation_account_unavailable':
     'Nem sikerült ellenőrizni a fiókodat. Próbáld újra hamarosan.',

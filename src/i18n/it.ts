@@ -93,7 +93,6 @@ const it: Record<I18nKey, string> = {
   'common.left': 'Sinistra',
   'common.right': 'Destra',
   'common.woofer': 'Woofer',
-  'common.connected': 'Connesso',
   'common.revoke': 'Revoca',
   'common.system': 'Sistema',
   'common.unknown': 'Sconosciuto',
@@ -200,6 +199,9 @@ const it: Record<I18nKey, string> = {
   'settings.sync_settings': 'Sincronizzazione impostazioni',
   'settings.sync_settings_desc':
     'I dispositivi con questa impostazione attiva sincronizzano volume ed effetti audio.',
+  'settings.audio_locked_desc':
+    'Solo gli admin della stanza possono cambiare le impostazioni audio.',
+  'settings.audio_lock_checking_desc': 'Stiamo verificando i permessi di amministratore.',
   'settings.virtual_effects_title': 'Effetti virtuali',
   'settings.virtual_effects_desc':
     'Applica effetti sintetizzati all’audio. Può causare una forte distorsione.',
@@ -271,7 +273,6 @@ const it: Record<I18nKey, string> = {
   'settings.leave_session': 'Esci dalla stanza',
   'connect.rename_reserved': 'Questo nickname è riservato.',
   'connect.rename_profanity': 'Il nickname contiene termini inappropriati.',
-  'settings.devices_title': 'Dispositivi connessi',
   'settings.invite_share': 'Invito e condivisione',
   'settings.subtab.general': 'Generale',
   'settings.subtab.audio': 'Audio',
@@ -812,7 +813,7 @@ const it: Record<I18nKey, string> = {
   'pro.activation_account_message': 'Vuoi registrare questa stanza all’account “{{name}}”?',
   'pro.activation_account_login_message':
     'Accedi con l’account a cui vuoi registrare questa stanza.',
-  'pro.activation_account_continue': 'Continua',
+  'pro.activation_account_continue': 'Registra',
   'pro.activation_account_switch': 'Altro account',
   'pro.activation_account_unavailable':
     'Non siamo riusciti a verificare il tuo account. Riprova tra poco.',

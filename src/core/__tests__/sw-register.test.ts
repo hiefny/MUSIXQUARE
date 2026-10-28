@@ -2063,7 +2063,6 @@ describe('service-worker cache-retirement client handshake', () => {
         const options = moduleMocks.showDialog.mock.calls[0]![0] as Record<string, unknown>;
         expect(options).toEqual(forcedUpdateDialog('dialog.sw_update_apply_msg'));
         expect(options).not.toHaveProperty('secondaryText');
-        expect(options.dismissible).not.toBe(true);
         expect(port.isForcedAppUpdatePending()).toBe(true);
 
         answer({ action: 'ok' });

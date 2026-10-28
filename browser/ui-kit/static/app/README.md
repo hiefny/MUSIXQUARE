@@ -19,7 +19,11 @@ The sample currently demonstrates:
 - playlist capsules with source glyphs, current play/pause state, reorder affordance, and remove action;
 - flat, divider-separated General settings sections and two-column choice cards;
 - the button label roles: the CTA role (15px / 600) on the action pills and the
-  chip role (14px / 600) on choice cards, read from the design-system tokens;
+  chip role (14px, 700 selected / 500 unselected) on the choice and role cards,
+  with every size and weight read from the design-system tokens;
+- the five weight roles (title 700, selected 700, unselected 500, label 600,
+  body 400) on every sample text, with the titles on the title tracking
+  (`--title-letter-spacing`);
 - a dedicated leave-session action, separate from the header account badge;
 - the filled-first icon language plus intentional stroked exceptions such as language, device, and reorder glyphs.
 

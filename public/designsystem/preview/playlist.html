@@ -70,7 +70,7 @@
       .idx {
         width: 40px;
         font-size: 14px;
-        font-weight: 600;
+        font-weight: var(--font-weight-unselected);
         text-align: center;
       }
       .state {
@@ -140,8 +140,9 @@
       .item.active .name {
         color: var(--primary);
       }
+      .item.active .idx,
       .item.active .name {
-        font-weight: 700;
+        font-weight: var(--font-weight-selected);
       }
     </style>
   </head>

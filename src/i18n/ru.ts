@@ -92,7 +92,6 @@ const ru: Record<I18nKey, string> = {
   'common.left': 'Левый',
   'common.right': 'Правый',
   'common.woofer': 'Вуфер',
-  'common.connected': 'Подключено',
   'common.revoke': 'Отозвать',
   'common.system': 'Система',
   'common.unknown': 'Неизвестно',
@@ -200,6 +199,8 @@ const ru: Record<I18nKey, string> = {
   'settings.sync_settings': 'Синхронизация настроек',
   'settings.sync_settings_desc':
     'На устройствах, где включена эта настройка, синхронизируются громкость и звуковые эффекты.',
+  'settings.audio_locked_desc': 'Только администраторы комнаты могут менять звук.',
+  'settings.audio_lock_checking_desc': 'Проверяем права администратора.',
   'settings.virtual_effects_title': 'Виртуальные эффекты',
   'settings.virtual_effects_desc':
     'Применяет синтезированные эффекты к звуку. Это может вызвать сильные искажения.',
@@ -271,7 +272,6 @@ const ru: Record<I18nKey, string> = {
   'settings.leave_session': 'Выйти из комнаты',
   'connect.rename_reserved': 'Этот псевдоним зарезервирован.',
   'connect.rename_profanity': 'Обнаружена ненормативная лексика.',
-  'settings.devices_title': 'Подключённые устройства',
   'settings.invite_share': 'Приглашения и общий доступ',
   'settings.subtab.general': 'Общие',
   'settings.subtab.audio': 'Аудио',
@@ -801,7 +801,7 @@ const ru: Record<I18nKey, string> = {
   'pro.activation_account_message': 'Зарегистрировать эту комнату на аккаунт «{{name}}»?',
   'pro.activation_account_login_message':
     'Войдите в аккаунт, на который хотите зарегистрировать эту комнату.',
-  'pro.activation_account_continue': 'Продолжить',
+  'pro.activation_account_continue': 'Зарегистрировать',
   'pro.activation_account_switch': 'Другой аккаунт',
   'pro.activation_account_unavailable':
     'Не удалось проверить аккаунт. Повторите попытку чуть позже.',

@@ -95,7 +95,6 @@ const hi: Record<I18nKey, string> = {
   'common.left': 'बायाँ',
   'common.right': 'दायाँ',
   'common.woofer': 'वूफ़र',
-  'common.connected': 'कनेक्टेड',
   'common.revoke': 'वापस लें',
   'common.system': 'सिस्टम',
   'common.unknown': 'अज्ञात',
@@ -200,6 +199,8 @@ const hi: Record<I18nKey, string> = {
   'settings.sync_settings': 'सेटिंग्स सिंक',
   'settings.sync_settings_desc':
     'जिन डिवाइसों पर यह सेटिंग चालू है, उनका वॉल्यूम और ऑडियो इफ़ेक्ट सिंक होते हैं।',
+  'settings.audio_locked_desc': 'ऑडियो सेटिंग्स केवल रूम एडमिन बदल सकते हैं।',
+  'settings.audio_lock_checking_desc': 'एडमिन अनुमति जाँची जा रही है।',
   'settings.virtual_effects_title': 'वर्चुअल इफ़ेक्ट',
   'settings.virtual_effects_desc':
     'ऑडियो पर कृत्रिम रूप से बनाए गए इफ़ेक्ट लागू करें। इससे आवाज़ बहुत विकृत हो सकती है।',
@@ -268,7 +269,6 @@ const hi: Record<I18nKey, string> = {
   'settings.leave_session': 'सेशन छोड़ें',
   'connect.rename_reserved': 'यह निकनेम आरक्षित है।',
   'connect.rename_profanity': 'अनुचित शब्द मिले हैं।',
-  'settings.devices_title': 'कनेक्ट किए गए डिवाइस',
   'settings.invite_share': 'आमंत्रित करें और साझा करें',
   'settings.subtab.general': 'सामान्य',
   'settings.subtab.audio': 'ऑडियो',
@@ -788,7 +788,7 @@ const hi: Record<I18nKey, string> = {
   'pro.activation_account_message': 'इस रूम को “{{name}}” अकाउंट में रजिस्टर करना है?',
   'pro.activation_account_login_message':
     'जिस अकाउंट में यह रूम रजिस्टर करना है, उससे साइन इन करें।',
-  'pro.activation_account_continue': 'जारी रखें',
+  'pro.activation_account_continue': 'रजिस्टर करें',
   'pro.activation_account_switch': 'दूसरा अकाउंट',
   'pro.activation_account_unavailable':
     'आपके अकाउंट की जानकारी जाँची नहीं जा सकी। कृपया थोड़ी देर बाद फिर कोशिश करें।',

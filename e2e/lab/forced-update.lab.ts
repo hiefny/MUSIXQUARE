@@ -182,7 +182,7 @@ test.describe('forced update over the local signaling Worker', () => {
     // The forced dialog owns the refusal: no creation error text under it.
     await expect(page.locator('#setup-host-error')).not.toContainText("Couldn't create session");
 
-    // Escape and history Back keep it (not dismissible, `closeOnBack: false`).
+    // Escape and history Back keep it (`closeOnBack: false`).
     await page.keyboard.press('Escape');
     await expect(page.locator('#dialog-overlay')).toBeVisible();
     await expect

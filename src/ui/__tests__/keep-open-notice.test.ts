@@ -211,21 +211,37 @@ describe('host-waiting loader', () => {
 describe('long host silence', () => {
   it('offers to leave and reloads into the home screen on request', async () => {
     const { bus, t } = await boot(false);
-    mocks.showDialog.mockResolvedValue({ action: 'secondary' });
+    mocks.showDialog.mockResolvedValue({ action: 'ok' });
     presence(bus, 'unresponsive');
 
     bus.emit('host-presence:long-unresponsive');
     await vi.waitFor(() => expect(mocks.scheduleDocumentReload).toHaveBeenCalled());
 
+    // Keep waiting is the exit, on the left; leaving is the action on the right.
     expect(mocks.showDialog).toHaveBeenCalledWith(
       expect.objectContaining({
         title: t('dialog.host_unresponsive_title'),
-        buttonText: t('dialog.keep_waiting'),
-        secondaryText: t('dialog.leave_session'),
+        buttonText: t('dialog.leave_session'),
+        secondaryText: t('dialog.keep_waiting'),
       }),
     );
     expect(mocks.scheduleDocumentReload).toHaveBeenCalledWith(t('dialog.leaving_session'));
   });
+
+  it.each(['secondary', 'back', 'superseded'])(
+    'keeps waiting when the offer closes as %s',
+    async (action) => {
+      const { bus } = await boot(false);
+      mocks.showDialog.mockResolvedValue({ action });
+      presence(bus, 'unresponsive');
+
+      bus.emit('host-presence:long-unresponsive');
+      await vi.waitFor(() => expect(mocks.showDialog).toHaveBeenCalledOnce());
+      await vi.advanceTimersByTimeAsync(0);
+
+      expect(mocks.scheduleDocumentReload).not.toHaveBeenCalled();
+    },
+  );
 
   it('withdraws the offer when the host answers again', async () => {
     const { bus } = await boot(false);

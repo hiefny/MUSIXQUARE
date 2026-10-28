@@ -1346,7 +1346,6 @@ function installMediaHooks(
                 ...(canRetry
                   ? { secondaryText: t('common.close'), defaultFocus: 'secondary' as const }
                   : {}),
-                dismissible: true,
                 contentLayout: 'reading',
               }),
             isCurrent: () =>
@@ -2718,6 +2717,7 @@ const playbackController = new ProRoomPlaybackController({
   reportMediaDuration: (input, signal) => api.reportMediaDuration(input, signal),
   executePlaybackCommand: (input, signal) => api.executePlaybackCommand(input, signal),
   recoverTerminalSession: (error) => recoverTerminalSession(error),
+  reportPlaybackCommandLimit: () => bus.emit('ui:show-toast', t('pro.room_state_limit')),
 });
 
 async function acceptAccountReconciliationSnapshot(

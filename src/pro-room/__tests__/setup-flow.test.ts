@@ -375,7 +375,6 @@ describe('PRO room setup flow', () => {
       message: 'pro.active_tab_message',
       buttonText: 'pro.use_this_tab',
       secondaryText: 'common.cancel',
-      dismissible: false,
       defaultFocus: 'secondary',
     });
     expect(mocks.announceTakeover).not.toHaveBeenCalled();
@@ -507,7 +506,6 @@ describe('PRO room setup flow', () => {
       message: 'pro.active_tab_message',
       buttonText: 'pro.use_this_tab',
       secondaryText: 'common.cancel',
-      dismissible: false,
       defaultFocus: 'secondary',
     });
     expect(mocks.announceTakeover).not.toHaveBeenCalled();
@@ -1379,7 +1377,6 @@ describe('PRO room setup flow', () => {
       message: 'pro.claim_retry_message',
       buttonText: 'common.retry',
       secondaryText: 'common.close',
-      dismissible: false,
     });
     expect(JSON.stringify(sessionStorage)).not.toContain(CLAIM);
     expect(JSON.stringify(localStorage)).not.toContain(CLAIM);
@@ -1556,7 +1553,6 @@ describe('PRO room setup after the owner ended this session', () => {
       const options = mocks.showDialog.mock.calls[0]![0];
       expect(rendered(options.title)).toBe(title);
       expect(rendered(options.message)).toBe(message);
-      expect(options.dismissible).toBe(false);
       expect(mocks.probeJoin).not.toHaveBeenCalled();
       expect(mocks.join).not.toHaveBeenCalled();
       expect(sessionStorage.getItem(ACK_KEY)).toBe(ROOM_CODE);

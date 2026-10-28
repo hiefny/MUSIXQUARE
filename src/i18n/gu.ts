@@ -95,7 +95,6 @@ const gu: Record<I18nKey, string> = {
   'common.left': 'ડાબું',
   'common.right': 'જમણું',
   'common.woofer': 'વૂફર',
-  'common.connected': 'જોડાયેલ',
   'common.revoke': 'પરવાનગી રદ કરો',
   'common.system': 'સિસ્ટમ',
   'common.unknown': 'અજ્ઞાત',
@@ -200,6 +199,8 @@ const gu: Record<I18nKey, string> = {
   'settings.sync_settings': 'સેટિંગ્સ સિંક',
   'settings.sync_settings_desc':
     'આ સેટિંગ ચાલુ હોય તે ડિવાઇસ અવાજનું સ્તર અને ઑડિયો ઇફેક્ટ સિંક કરે છે.',
+  'settings.audio_locked_desc': 'ફક્ત રૂમના સંચાલકો ઑડિયો સેટિંગ્સ બદલી શકે છે.',
+  'settings.audio_lock_checking_desc': 'સંચાલક પરવાનગી તપાસી રહ્યાં છીએ.',
   'settings.virtual_effects_title': 'વર્ચ્યુઅલ ઇફેક્ટ',
   'settings.virtual_effects_desc':
     'ઑડિયો પર કૃત્રિમ રીતે બનાવેલા ઇફેક્ટ લગાવો. તેનાથી અવાજ ઘણો વિકૃત થઈ શકે છે.',
@@ -268,7 +269,6 @@ const gu: Record<I18nKey, string> = {
   'settings.leave_session': 'સત્રમાંથી બહાર નીકળો',
   'connect.rename_reserved': 'આ ઉપનામ અનામત છે.',
   'connect.rename_profanity': 'અયોગ્ય શબ્દો મળ્યા.',
-  'settings.devices_title': 'જોડાયેલા ડિવાઇસ',
   'settings.invite_share': 'આમંત્રિત કરો અને શેર કરો',
   'settings.subtab.general': 'સામાન્ય',
   'settings.subtab.audio': 'ઑડિયો',
@@ -775,7 +775,7 @@ const gu: Record<I18nKey, string> = {
   'pro.activation_account_title': 'આ PRO રૂમ માટે ખાતું પસંદ કરો',
   'pro.activation_account_message': 'આ રૂમ “{{name}}” ખાતામાં નોંધાવવો છે?',
   'pro.activation_account_login_message': 'આ રૂમ જે ખાતામાં નોંધાવવો હોય તે ખાતાથી સાઇન ઇન કરો.',
-  'pro.activation_account_continue': 'આગળ વધો',
+  'pro.activation_account_continue': 'નોંધાવો',
   'pro.activation_account_switch': 'બીજું ખાતું',
   'pro.activation_account_unavailable':
     'તમારું ખાતું ચકાસી શકાયું નથી. થોડી વારમાં ફરી પ્રયાસ કરો.',

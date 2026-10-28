@@ -50,6 +50,14 @@ function createDialogDOM(): void {
   actions.appendChild(secondaryBtn);
   actions.appendChild(okBtn);
   overlay.appendChild(actions);
+
+  const linkBtn = document.createElement('button');
+  linkBtn.type = 'button';
+  linkBtn.id = 'btn-dialog-link';
+  linkBtn.className = 'dialog-link-action';
+  linkBtn.hidden = true;
+  Object.defineProperty(linkBtn, 'offsetParent', { value: overlay, configurable: true });
+  overlay.appendChild(linkBtn);
   document.body.appendChild(overlay);
 }
 
@@ -208,7 +216,6 @@ describe('Dialog System', () => {
         const promise = showDialog({
           title: 'Choose account',
           secondaryText: 'Sign in with another account',
-          actionLayout: 'stacked',
           onPrimaryActivation: primary,
           onSecondaryActivation: () => order.push('activation'),
         }).then((result) => {
@@ -228,50 +235,6 @@ describe('Dialog System', () => {
         expect(order).toEqual(['activation', 'resolved:secondary']);
       },
     );
-
-    it('keeps primary first in stacked keyboard order and restores the next ordinary dialog', async () => {
-      const { showDialog, closeDialog } = await import('../dialog.ts');
-      const controller = new AbortController();
-      const onSecondaryActivation = vi.fn();
-      const stacked = showDialog({
-        title: 'Choose account',
-        secondaryText: 'Switch account',
-        actionLayout: 'stacked',
-        onSecondaryActivation,
-        signal: controller.signal,
-      });
-      const ordinary = showDialog({ title: 'Next', secondaryText: 'Cancel' });
-      const actions = document.querySelector('.dialog-actions')!;
-      const primary = document.getElementById('btn-dialog-ok')!;
-      const secondary = document.getElementById('btn-dialog-secondary')!;
-      expect([...actions.children]).toEqual([primary, secondary]);
-      expect(actions.classList.contains('dialog-actions-stacked')).toBe(true);
-
-      secondary.focus();
-      secondary.dispatchEvent(
-        new KeyboardEvent('keydown', { key: 'Tab', bubbles: true, cancelable: true }),
-      );
-      expect(document.activeElement).toBe(primary);
-      primary.dispatchEvent(
-        new KeyboardEvent('keydown', {
-          key: 'Tab',
-          shiftKey: true,
-          bubbles: true,
-          cancelable: true,
-        }),
-      );
-      expect(document.activeElement).toBe(secondary);
-
-      controller.abort();
-      vi.advanceTimersByTime(10);
-      await expect(stacked).resolves.toEqual({ action: 'superseded' });
-      expect([...actions.children]).toEqual([secondary, primary]);
-      expect(actions.classList.contains('dialog-actions-stacked')).toBe(false);
-      secondary.click();
-      await expect(ordinary).resolves.toEqual({ action: 'secondary' });
-      expect(onSecondaryActivation).not.toHaveBeenCalled();
-      closeDialog();
-    });
 
     it('still resolves a secondary action when its browser activation hook fails', async () => {
       const { showDialog } = await import('../dialog.ts');
@@ -302,11 +265,10 @@ describe('Dialog System', () => {
       });
       observer.observe(document.body, { childList: true, subtree: true });
       try {
-        const stacked = showDialog({
+        const first = showDialog({
           title: 'Register room',
           buttonText: 'Register with this account',
           secondaryText: 'Sign in with another account',
-          actionLayout: 'stacked',
         });
         const ordinary = showDialog({
           title: 'Next ordinary dialog',
@@ -321,7 +283,7 @@ describe('Dialog System', () => {
         );
 
         closeDialog('ok');
-        await stacked;
+        await first;
         vi.advanceTimersByTime(10);
         await Promise.resolve();
         expect(document.getElementById('dialog-title')?.textContent).toBe('Next ordinary dialog');
@@ -528,6 +490,30 @@ describe('Dialog System', () => {
       vi.advanceTimersByTime(10);
       await promise;
     });
+
+    it.each([{}, { closeOnBack: false }])(
+      'never closes on a click or tap outside the panel (%o)',
+      async (options) => {
+        // Owner policy (2026-10-28): a modal never closes on an outside click
+        // or tap; its visible Close or Cancel, Back and Escape are the exits.
+        const { showDialog, closeDialog } = await import('../dialog.ts');
+        const resolved = vi.fn();
+        const promise = showDialog({ title: 'Outside', secondaryText: 'Close', ...options });
+        const observed = promise.then(resolved);
+        vi.advanceTimersByTime(10);
+        const overlay = document.getElementById('dialog-overlay')!;
+
+        overlay.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true }));
+        await Promise.resolve();
+
+        expect(resolved).not.toHaveBeenCalled();
+        expect(overlay.classList.contains('show')).toBe(true);
+        closeDialog('secondary');
+        vi.advanceTimersByTime(10);
+        await observed;
+        expect(resolved).toHaveBeenCalledWith({ action: 'secondary' });
+      },
+    );
   });
 
   describe('Dialog Queue', () => {
@@ -612,7 +598,6 @@ describe('Dialog System', () => {
       const resolved = vi.fn();
       const promise = showDialog({
         title: 'Rename',
-        dismissible: true,
         inputField: { defaultValue: '한' },
         onPrimaryActivation,
       });
@@ -633,8 +618,9 @@ describe('Dialog System', () => {
 
       input.textContent = '한글';
       input.dispatchEvent(new KeyboardEvent('keydown', { key: options.key, bubbles: true }));
+      // Escape is history Back from the keyboard: a cancel, resolved as `back`.
       expect(await promise).toEqual({
-        action: options.key === 'Enter' ? 'ok' : 'escape',
+        action: options.key === 'Enter' ? 'ok' : 'back',
         inputValue: '한글',
       });
       await observed;
@@ -642,54 +628,89 @@ describe('Dialog System', () => {
       vi.advanceTimersByTime(10);
     });
 
-    it('Escape closes dismissible dialog', async () => {
+    // Owner decision (2026-10-28): Escape behaves exactly like history Back.
+    // It used to close only a dialog that opted in with `dismissible`, while
+    // Back closed every dialog (the 8.11.9 split this replaces).
+    it.each([
+      { name: 'a one-button notice', options: { title: 'Notice', message: 'Read me' } },
+      {
+        name: 'a confirmation',
+        options: { title: 'Leave?', buttonText: 'Leave', secondaryText: 'Stay' },
+      },
+    ])('Escape closes $name as Back does, without either activation hook', async (entry) => {
       const { showDialog } = await import('../dialog.ts');
-      const promise = showDialog({ title: 'Esc Test', dismissible: true });
+      const onPrimaryActivation = vi.fn();
+      const onSecondaryActivation = vi.fn();
+      const promise = showDialog({
+        ...entry.options,
+        onPrimaryActivation,
+        onSecondaryActivation,
+      });
       vi.advanceTimersByTime(10);
 
-      window.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape' }));
-      vi.advanceTimersByTime(10);
+      const escape = new KeyboardEvent('keydown', { key: 'Escape', cancelable: true });
+      window.dispatchEvent(escape);
 
-      const result = await promise;
-      expect(result.action).toBe('escape');
+      expect(escape.defaultPrevented).toBe(true);
+      expect(await promise).toEqual({ action: 'back' });
+      expect(onPrimaryActivation).not.toHaveBeenCalled();
+      expect(onSecondaryActivation).not.toHaveBeenCalled();
+      expect(document.getElementById('dialog-overlay')?.classList.contains('show')).toBe(false);
+      vi.advanceTimersByTime(10);
     });
 
-    it('Escape does NOT close regular dialogs by default', async () => {
+    it('Escape keeps a dialog whose tap is required, as Back does, and still uses the key', async () => {
       const { showDialog, closeDialog } = await import('../dialog.ts');
       let resolved = false;
-      const promise = showDialog({ title: 'Default Esc Test' });
+      const promise = showDialog({ title: 'Tap to resume', closeOnBack: false });
       const observedResolution = promise.then(() => {
         resolved = true;
       });
       vi.advanceTimersByTime(10);
 
-      window.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape' }));
+      const escape = new KeyboardEvent('keydown', { key: 'Escape', cancelable: true });
+      window.dispatchEvent(escape);
       vi.advanceTimersByTime(10);
 
+      expect(escape.defaultPrevented).toBe(true);
       expect(resolved).toBe(false);
+      expect(document.getElementById('dialog-overlay')?.classList.contains('show')).toBe(true);
 
       closeDialog('ok');
       vi.advanceTimersByTime(10);
       await observedResolution;
     });
 
-    it('Escape does NOT close non-dismissible dialog', async () => {
+    it('Escape reaches only the top window, never a dialog below another one', async () => {
+      const { __resetModalStackForTests, syncOverlayState } = await import('../dom.ts');
       const { showDialog, closeDialog } = await import('../dialog.ts');
+      __resetModalStackForTests();
       let resolved = false;
-      const promise = showDialog({ title: 'No Esc', dismissible: false });
+      const promise = showDialog({ title: 'Below', secondaryText: 'Cancel' });
       const observedResolution = promise.then(() => {
         resolved = true;
       });
       vi.advanceTimersByTime(10);
+      const above = document.createElement('div');
+      above.id = 'account-dialog-overlay';
+      above.className = 'show';
+      document.body.appendChild(above);
+      syncOverlayState('account-dialog-overlay');
 
-      window.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape' }));
-      vi.advanceTimersByTime(10);
+      const escape = new KeyboardEvent('keydown', { key: 'Escape', cancelable: true });
+      window.dispatchEvent(escape);
+      await Promise.resolve();
 
+      expect(escape.defaultPrevented).toBe(false);
       expect(resolved).toBe(false);
+      expect(document.getElementById('dialog-overlay')?.classList.contains('show')).toBe(true);
 
+      above.remove();
+      syncOverlayState();
       closeDialog('ok');
       vi.advanceTimersByTime(10);
       await observedResolution;
+      __resetModalStackForTests();
     });
   });
 
@@ -825,7 +846,6 @@ describe('Dialog System', () => {
       const promise = showDialog({
         message: 'Read this notice',
         contentLayout: 'reading',
-        dismissible: true,
         secondaryText: 'Cancel',
         onPrimaryActivation: activated,
       });
@@ -855,7 +875,7 @@ describe('Dialog System', () => {
         // Native Tab advances within the cycle; only its boundaries are trapped.
         expect(key('Tab').defaultPrevented).toBe(false);
         expect(key('Escape').defaultPrevented).toBe(true);
-        await expect(promise).resolves.toEqual({ action: 'escape' });
+        await expect(promise).resolves.toEqual({ action: 'back' });
         expect(document.activeElement).toBe(launcher);
         expect(overlay.classList.contains('show')).toBe(false);
         expect(overlay.querySelector('.cscroll-track')).toBeNull();
@@ -1142,7 +1162,7 @@ describe('Dialog System', () => {
       vi.advanceTimersByTime(10);
     });
 
-    it('goes back with Enter on Back and closes on Escape from either page', async () => {
+    it('goes back with Enter on Back, and Escape steps back before it closes, as Back does', async () => {
       const { showDialog } = await import('../dialog.ts');
       const first = showDialog({
         title: 'PIN',
@@ -1159,7 +1179,7 @@ describe('Dialog System', () => {
       expect(key(secondary(), 'Enter').defaultPrevented).toBe(true);
       expect(frame().hidden).toBe(true);
       key(window, 'Escape');
-      expect(await first).toMatchObject({ action: 'escape', inputValue: '12345678' });
+      expect(await first).toMatchObject({ action: 'back', inputValue: '12345678' });
       vi.advanceTimersByTime(10);
 
       const second = showDialog({
@@ -1172,8 +1192,15 @@ describe('Dialog System', () => {
       vi.advanceTimersByTime(10);
       fillPin('1234', '5678');
       ok().click();
+      expect(frame().hidden).toBe(false);
+      // Owner decision (2026-10-28): Escape is Back, so the choice page steps
+      // back to the PIN page first instead of closing from either page.
+      expect(key(window, 'Escape').defaultPrevented).toBe(true);
+      expect(frame().hidden).toBe(true);
+      expect(secondary().textContent).toBe('Cancel');
+      expect(document.getElementById('dialog-overlay')?.classList.contains('show')).toBe(true);
       key(window, 'Escape');
-      expect(await second).toMatchObject({ action: 'escape' });
+      expect(await second).toMatchObject({ action: 'back', inputValue: '12345678' });
       vi.advanceTimersByTime(10);
     });
 
@@ -1562,10 +1589,10 @@ describe('history Back on dialogs', () => {
     vi.advanceTimersByTime(10);
   });
 
-  it('closes a one-button notice that Escape would keep', async () => {
+  it('closes a one-button notice as a cancel, as Escape does', async () => {
     const { offerBackToTopWindow } = await import('../dom.ts');
     const { showDialog } = await import('../dialog.ts');
-    const promise = showDialog({ title: 'Notice', message: 'Read me', dismissible: false });
+    const promise = showDialog({ title: 'Notice', message: 'Read me' });
     vi.advanceTimersByTime(10);
 
     expect(offerBackToTopWindow().handled).toBe(true);
@@ -1634,5 +1661,141 @@ describe('history Back on dialogs', () => {
     expect(offerBackToTopWindow().handled).toBe(true);
     expect(await promise).toMatchObject({ action: 'back', inputValue: '12345678' });
     vi.advanceTimersByTime(10);
+  });
+});
+
+describe('link action under the pair', () => {
+  const overlay = () => document.getElementById('dialog-overlay')!;
+  const secondary = () => document.getElementById('btn-dialog-secondary') as HTMLButtonElement;
+  const link = () => document.getElementById('btn-dialog-link') as HTMLButtonElement;
+  const press = (target: HTMLElement, key: string, shiftKey = false) =>
+    target.dispatchEvent(
+      new KeyboardEvent('keydown', { key, shiftKey, bubbles: true, cancelable: true }),
+    );
+
+  it('keeps a hidden text action after the pair in the common dialog markup', () => {
+    // Owner decision 2026-10-28: a third action is a small text link under
+    // the [exit | primary] pair, like the language dialog's translate link.
+    const parsed = new DOMParser().parseFromString(INDEX_SOURCE, 'text/html');
+    const button = parsed.getElementById('btn-dialog-link');
+    const actions = parsed.getElementById('btn-dialog-ok')?.parentElement;
+    expect(button?.tagName).toBe('BUTTON');
+    expect(button?.getAttribute('type')).toBe('button');
+    expect(button?.classList.contains('dialog-link-action')).toBe(true);
+    expect(button?.hasAttribute('hidden')).toBe(true);
+    expect(button?.hasAttribute('data-i18n')).toBe(false);
+    expect(button?.closest('#dialog-overlay')).not.toBeNull();
+    expect(button?.previousElementSibling).toBe(actions);
+    expect(STYLE_SOURCE).toMatch(
+      /#dialog-overlay\.dialog-with-link \.dialog-actions\s*\{[^}]*padding-bottom:\s*0;/s,
+    );
+    expect(STYLE_SOURCE).toMatch(/\.dialog-link-action\s*\{[^}]*font-size:\s*12px;/s);
+    expect(STYLE_SOURCE).toMatch(/\.dialog-link-action\s*\{[^}]*text-decoration:\s*underline;/s);
+  });
+
+  it.each(['click', 'Enter'])(
+    'shows the link under the pair and runs only its hook inside the %s gesture',
+    async (gesture) => {
+      const { showDialog } = await import('../dialog.ts');
+      const order: string[] = [];
+      const onPrimaryActivation = vi.fn();
+      const onSecondaryActivation = vi.fn();
+      const promise = showDialog({
+        title: 'Choose an account',
+        buttonText: 'Continue',
+        secondaryText: 'Cancel',
+        linkText: 'Another account',
+        onPrimaryActivation,
+        onSecondaryActivation,
+        onLinkActivation: () => order.push('activation'),
+      }).then((result) => {
+        order.push(`resolved:${result.action}`);
+      });
+      vi.advanceTimersByTime(10);
+      expect(link().hidden).toBe(false);
+      expect(link().textContent).toBe('Another account');
+      expect(overlay().classList.contains('dialog-with-link')).toBe(true);
+      expect(secondary().hidden).toBe(false);
+
+      if (gesture === 'click') link().click();
+      else {
+        link().focus();
+        press(link(), 'Enter');
+      }
+      expect(order).toEqual(['activation']);
+      await promise;
+      expect(order).toEqual(['activation', 'resolved:link']);
+      expect(onPrimaryActivation).not.toHaveBeenCalled();
+      expect(onSecondaryActivation).not.toHaveBeenCalled();
+      expect(link().hidden).toBe(true);
+      expect(overlay().classList.contains('dialog-with-link')).toBe(false);
+    },
+  );
+
+  it('still resolves the link when its browser activation hook fails', async () => {
+    const { showDialog } = await import('../dialog.ts');
+    const promise = showDialog({
+      secondaryText: 'Cancel',
+      linkText: 'Another account',
+      onLinkActivation: () => {
+        throw new Error('Popup blocked');
+      },
+    });
+    link().click();
+    await expect(promise).resolves.toEqual({ action: 'link' });
+  });
+
+  it('cycles Tab from the link back to the exit and Shift+Tab from the exit to the link', async () => {
+    const { showDialog, closeDialog } = await import('../dialog.ts');
+    const promise = showDialog({
+      title: 'Choose an account',
+      buttonText: 'Continue',
+      secondaryText: 'Cancel',
+      linkText: 'Another account',
+    });
+    vi.advanceTimersByTime(10);
+
+    link().focus();
+    press(link(), 'Tab');
+    expect(document.activeElement).toBe(secondary());
+    press(secondary(), 'Tab', true);
+    expect(document.activeElement).toBe(link());
+
+    closeDialog('secondary');
+    await expect(promise).resolves.toEqual({ action: 'secondary' });
+  });
+
+  it('closes on Back as a cancel without running the link hook', async () => {
+    const { __resetModalStackForTests, offerBackToTopWindow } = await import('../dom.ts');
+    const { showDialog } = await import('../dialog.ts');
+    __resetModalStackForTests();
+    const onLinkActivation = vi.fn();
+    const promise = showDialog({
+      secondaryText: 'Cancel',
+      linkText: 'Another account',
+      onLinkActivation,
+    });
+    vi.advanceTimersByTime(10);
+
+    expect(offerBackToTopWindow().handled).toBe(true);
+    await expect(promise).resolves.toMatchObject({ action: 'back' });
+    expect(onLinkActivation).not.toHaveBeenCalled();
+    vi.advanceTimersByTime(10);
+  });
+
+  it('hides the link for the next dialog that has none', async () => {
+    const { showDialog, closeDialog } = await import('../dialog.ts');
+    const first = showDialog({ secondaryText: 'Cancel', linkText: 'Another account' });
+    const next = showDialog({ title: 'Next', secondaryText: 'Keep editing' });
+    expect(link().hidden).toBe(false);
+
+    closeDialog('ok');
+    await first;
+    vi.advanceTimersByTime(10);
+    expect(document.getElementById('dialog-title')?.textContent).toBe('Next');
+    expect(link().hidden).toBe(true);
+    expect(overlay().classList.contains('dialog-with-link')).toBe(false);
+    closeDialog('secondary');
+    await expect(next).resolves.toEqual({ action: 'secondary' });
   });
 });

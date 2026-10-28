@@ -92,7 +92,6 @@ const pl: Record<I18nKey, string> = {
   'common.left': 'Lewy',
   'common.right': 'Prawy',
   'common.woofer': 'Subwoofer',
-  'common.connected': 'Połączono',
   'common.revoke': 'Odbierz',
   'common.system': 'System',
   'common.unknown': 'Nieznany',
@@ -199,6 +198,8 @@ const pl: Record<I18nKey, string> = {
   'settings.sync_settings': 'Synchronizacja ustawień',
   'settings.sync_settings_desc':
     'Urządzenia, na których to ustawienie jest włączone, synchronizują głośność i efekty dźwiękowe.',
+  'settings.audio_locked_desc': 'Tylko administratorzy pokoju mogą zmieniać ustawienia dźwięku.',
+  'settings.audio_lock_checking_desc': 'Sprawdzamy uprawnienia administratora.',
   'settings.virtual_effects_title': 'Efekty wirtualne',
   'settings.virtual_effects_desc':
     'Zastosuj syntetyczne efekty dźwiękowe. Może to powodować silne zniekształcenia.',
@@ -271,7 +272,6 @@ const pl: Record<I18nKey, string> = {
   'settings.leave_session': 'Wyjdź z pokoju',
   'connect.rename_reserved': 'Ten pseudonim jest zarezerwowany.',
   'connect.rename_profanity': 'Wykryto niedozwolone słowa.',
-  'settings.devices_title': 'Połączone urządzenia',
   'settings.invite_share': 'Zaproszenia i udostępnianie',
   'settings.subtab.general': 'Ogólne',
   'settings.subtab.audio': 'Dźwięk',
@@ -807,7 +807,7 @@ const pl: Record<I18nKey, string> = {
   'pro.activation_account_message': 'Zarejestrować ten pokój na koncie „{{name}}”?',
   'pro.activation_account_login_message':
     'Zaloguj się na konto, na którym chcesz zarejestrować ten pokój.',
-  'pro.activation_account_continue': 'Kontynuuj',
+  'pro.activation_account_continue': 'Zarejestruj',
   'pro.activation_account_switch': 'Inne konto',
   'pro.activation_account_unavailable':
     'Nie udało się zweryfikować konta. Spróbuj ponownie za chwilę.',

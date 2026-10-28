@@ -94,7 +94,6 @@ const bg: Record<I18nKey, string> = {
   'common.left': 'Ляво',
   'common.right': 'Дясно',
   'common.woofer': 'Уфер',
-  'common.connected': 'Свързано',
   'common.revoke': 'Отнемане',
   'common.system': 'Система',
   'common.unknown': 'Неизвестно',
@@ -201,6 +200,8 @@ const bg: Record<I18nKey, string> = {
   'settings.sync_settings': 'Синхронизиране на настройките',
   'settings.sync_settings_desc':
     'Устройствата с включена опция синхронизират силата на звука и звуковите ефекти.',
+  'settings.audio_locked_desc': 'Само администратори на стаята могат да променят звука.',
+  'settings.audio_lock_checking_desc': 'Проверяваме администраторските права.',
   'settings.virtual_effects_title': 'Виртуални ефекти',
   'settings.virtual_effects_desc':
     'Прилага синтезирани ефекти към звука. Възможно е силно изкривяване.',
@@ -270,7 +271,6 @@ const bg: Record<I18nKey, string> = {
   'settings.leave_session': 'Напускане на сесията',
   'connect.rename_reserved': 'Този псевдоним е запазен.',
   'connect.rename_profanity': 'Открити са неподходящи думи.',
-  'settings.devices_title': 'Свързани устройства',
   'settings.invite_share': 'Покана и споделяне',
   'settings.subtab.general': 'Общи',
   'settings.subtab.audio': 'Звук',
@@ -804,7 +804,7 @@ const bg: Record<I18nKey, string> = {
   'pro.activation_account_message': 'Да регистрираме ли тази стая към профила „{{name}}“?',
   'pro.activation_account_login_message':
     'Влез в профила, към който искаш да регистрираш тази стая.',
-  'pro.activation_account_continue': 'Продължаване',
+  'pro.activation_account_continue': 'Регистриране',
   'pro.activation_account_switch': 'Друг профил',
   'pro.activation_account_unavailable':
     'Не успяхме да потвърдим профила ти. Опитай отново след малко.',

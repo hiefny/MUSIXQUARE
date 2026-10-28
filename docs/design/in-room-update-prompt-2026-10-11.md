@@ -74,6 +74,9 @@ this behaviour after the review (decision 6 below).
    copy instead of the update dialog's: "새로고침이 필요해요" / "MUSIXQUARE가
    업데이트되었어요. 정상적으로 사용하려면 새로고침이 필요해요." See the
    [recovery dialog copy follow-up](#recovery-dialog-copy-follow-up-2026-10-11).
+   Reversed by the owner on 2026-10-28: the dialog now shows 닫기 on the left
+   of 새로고침. Closing declines it as Back does, so only the feature that
+   failed stays unopened and the room stays as it is. The copy is unchanged.
 
 ## Change
 

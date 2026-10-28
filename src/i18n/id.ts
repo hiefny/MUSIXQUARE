@@ -95,7 +95,6 @@ const id: Record<I18nKey, string> = {
   'common.left': 'Kiri',
   'common.right': 'Kanan',
   'common.woofer': 'Woofer',
-  'common.connected': 'Tersambung',
   'common.revoke': 'Cabut',
   'common.system': 'Sistem',
   'common.unknown': 'Tidak diketahui',
@@ -129,6 +128,8 @@ const id: Record<I18nKey, string> = {
   'settings.sync_settings': 'Sinkronisasi pengaturan',
   'settings.sync_settings_desc':
     'Perangkat yang mengaktifkan pengaturan ini menyinkronkan volume dan efek audionya.',
+  'settings.audio_locked_desc': 'Hanya admin ruang dapat mengubah pengaturan audio.',
+  'settings.audio_lock_checking_desc': 'Memeriksa izin admin.',
   'settings.virtual_effects_title': 'Efek virtual',
   'settings.virtual_effects_desc':
     'Terapkan efek sintetis pada audio. Efek ini dapat menyebabkan distorsi berat.',
@@ -201,7 +202,6 @@ const id: Record<I18nKey, string> = {
   'settings.leave_session': 'Keluar ruang',
   'connect.rename_reserved': 'Nama panggilan ini tidak dapat digunakan.',
   'connect.rename_profanity': 'Nama panggilan mengandung kata yang tidak pantas.',
-  'settings.devices_title': 'Perangkat tersambung',
   'settings.invite_share': 'Undang & Bagikan',
   'settings.subtab.general': 'Umum',
   'settings.subtab.audio': 'Audio',
@@ -721,7 +721,7 @@ const id: Record<I18nKey, string> = {
   'pro.activation_account_message': 'Daftarkan ruang ini ke akun “{{name}}”?',
   'pro.activation_account_login_message':
     'Masuk ke akun yang ingin Anda gunakan untuk mendaftarkan ruang ini.',
-  'pro.activation_account_continue': 'Lanjutkan',
+  'pro.activation_account_continue': 'Daftarkan',
   'pro.activation_account_switch': 'Akun lain',
   'pro.activation_account_unavailable':
     'Akun Anda tidak dapat diverifikasi. Coba lagi sebentar lagi.',

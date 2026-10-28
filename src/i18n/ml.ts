@@ -95,7 +95,6 @@ const ml: Record<I18nKey, string> = {
   'common.left': 'ഇടത്',
   'common.right': 'വലത്',
   'common.woofer': 'വൂഫർ',
-  'common.connected': 'ബന്ധിപ്പിച്ചു',
   'common.revoke': 'പിൻവലിക്കുക',
   'common.system': 'സിസ്റ്റം',
   'common.unknown': 'അജ്ഞാതം',
@@ -202,6 +201,8 @@ const ml: Record<I18nKey, string> = {
   'settings.sync_settings': 'ക്രമീകരണങ്ങളുടെ സിങ്ക്',
   'settings.sync_settings_desc':
     'ഈ ക്രമീകരണം ഓൺ ചെയ്തിരിക്കുന്ന ഡിവൈസുകളുടെ ശബ്ദനിലയും ഓഡിയോ ഇഫക്റ്റുകളും സിങ്ക് ചെയ്യും.',
+  'settings.audio_locked_desc': 'റൂം അഡ്മിനുകൾക്ക് മാത്രമേ ഓഡിയോ ക്രമീകരണങ്ങൾ മാറ്റാനാകൂ.',
+  'settings.audio_lock_checking_desc': 'അഡ്മിൻ അനുമതി പരിശോധിക്കുന്നു.',
   'settings.virtual_effects_title': 'വിർച്വൽ ഇഫക്റ്റുകൾ',
   'settings.virtual_effects_desc':
     'ഓഡിയോയിൽ കൃത്രിമമായി സൃഷ്ടിച്ച ഇഫക്റ്റുകൾ പ്രയോഗിക്കുക. ഇത് ശക്തമായ വികലത ഉണ്ടാക്കിയേക്കാം.',
@@ -274,7 +275,6 @@ const ml: Record<I18nKey, string> = {
   'settings.leave_session': 'സെഷനിൽ നിന്ന് പുറത്തുകടക്കുക',
   'connect.rename_reserved': 'ഈ വിളിപ്പേര് സംവരണം ചെയ്തതാണ്.',
   'connect.rename_profanity': 'അനുചിതമായ വാക്കുകൾ കണ്ടെത്തി.',
-  'settings.devices_title': 'ബന്ധിപ്പിച്ച ഡിവൈസുകൾ',
   'settings.invite_share': 'ക്ഷണിക്കൂ, പങ്കിടൂ',
   'settings.subtab.general': 'പൊതുവായത്',
   'settings.subtab.audio': 'ഓഡിയോ',
@@ -805,7 +805,7 @@ const ml: Record<I18nKey, string> = {
   'pro.activation_account_title': 'ഈ PRO റൂമിനായി ഒരു അക്കൗണ്ട് തിരഞ്ഞെടുക്കുക',
   'pro.activation_account_message': 'ഈ റൂം “{{name}}” അക്കൗണ്ടിൽ രജിസ്റ്റർ ചെയ്യണോ?',
   'pro.activation_account_login_message': 'ഈ റൂം രജിസ്റ്റർ ചെയ്യേണ്ട അക്കൗണ്ടിൽ സൈൻ ഇൻ ചെയ്യുക.',
-  'pro.activation_account_continue': 'തുടരുക',
+  'pro.activation_account_continue': 'രജിസ്റ്റർ ചെയ്യുക',
   'pro.activation_account_switch': 'മറ്റൊരു അക്കൗണ്ട്',
   'pro.activation_account_unavailable':
     'നിങ്ങളുടെ അക്കൗണ്ട് സ്ഥിരീകരിക്കാനായില്ല. അൽപ്പസമയത്തിനകം വീണ്ടും ശ്രമിക്കുക.',

@@ -124,16 +124,58 @@ const LOCALIZED_ACTIONS = Object.entries(LOCALES).map(([code, dictionary]) => ({
   ],
 }));
 
-// The manual sync panel's Reset / Done pair in every locale.
-const SYNC_PAIR_LABELS: Record<string, { reset: string; done: string }> = Object.fromEntries(
-  Object.entries(LOCALES).map(([code, dictionary]) => [
-    code,
-    {
-      reset: (dictionary as Record<string, string>)['common.reset']!,
-      done: (dictionary as Record<string, string>)['common.done']!,
-    },
-  ]),
-);
+// The manual sync panel's Done / Reset pair and value label in every locale.
+const SYNC_PAIR_LABELS: Record<string, { reset: string; done: string; label: string }> =
+  Object.fromEntries(
+    Object.entries(LOCALES).map(([code, dictionary]) => [
+      code,
+      {
+        reset: (dictionary as Record<string, string>)['common.reset']!,
+        done: (dictionary as Record<string, string>)['common.done']!,
+        label: (dictionary as Record<string, string>)['player.manual_sync_label']!,
+      },
+    ]),
+  );
+
+// Owner decision (2026-10-28, option C): at 360px tall and below the manual
+// sync panel keeps 12px from the screen edges and trims its own spacing; at
+// 350px and below its Done / Reset pair takes the account dialog's 44px pills,
+// 6px apart. 667x375 and 640x361 keep the shared values.
+const SYNC_SHORT_VIEWPORTS = [
+  { width: 568, height: 320, step: 'pills' },
+  { width: 640, height: 300, step: 'pills' },
+  { width: 640, height: 350, step: 'pills' },
+  { width: 700, height: 342, step: 'pills' },
+  { width: 640, height: 351, step: 'spacing' },
+  { width: 640, height: 360, step: 'spacing' },
+  { width: 740, height: 360, step: 'spacing' },
+  { width: 640, height: 361, step: 'shared' },
+  { width: 667, height: 375, step: 'shared' },
+] as const;
+
+const SYNC_STEP_GEOMETRY = {
+  pills: {
+    padding: ['12px', '12px'],
+    display: ['4px', '12px'],
+    pairMargin: '8px',
+    gaps: ['6px', '6px'],
+    pill: 44,
+  },
+  spacing: {
+    padding: ['12px', '12px'],
+    display: ['4px', '12px'],
+    pairMargin: '12px',
+    gaps: ['12px', '10px'],
+    pill: 56,
+  },
+  shared: {
+    padding: ['16px', '20px'],
+    display: ['12px', '20px'],
+    pairMargin: '16px',
+    gaps: ['12px', '10px'],
+    pill: 56,
+  },
+} as const;
 
 type ActionMetrics = {
   id: string;
@@ -490,6 +532,48 @@ test.describe('content-based adaptive action groups', () => {
     expect(heights[0]).toBeLessThan(56);
   });
 
+  for (const direction of ['ltr', 'rtl'] as const) {
+    test(`pairs Close and Retry while sign-in is unavailable (${direction})`, async ({ page }) => {
+      // Owner report (2026-10-28): the unavailable view needs a visible exit.
+      // account.ts gives the signed-out row the adaptive action group there:
+      // Close comes first (left, mirrored in RTL), Retry beside it, the same
+      // 10px across and 56px pills as every dialog pair.
+      await installLayoutProbe(
+        page,
+        `<div id="login-actions" class="account-dialog-login-actions adaptive-action-group">
+          <a class="account-google-button" href="#" hidden></a>
+          <button id="login-close" class="dialog-secondary account-dialog-login-close">Close</button>
+          <button id="login-retry" class="dialog-primary account-dialog-login-retry">Retry</button>
+        </div>`,
+        { viewportWidth: 390, direction },
+      );
+
+      const [close, retry] = await actionMetrics(page, '#login-actions');
+      expect(close!.id).toBe('login-close');
+      expect(Math.abs(close!.y - retry!.y)).toBeLessThan(0.5);
+      const gap =
+        direction === 'ltr'
+          ? retry!.x - (close!.x + close!.width)
+          : close!.x - (retry!.x + retry!.width);
+      expect(gap).toBeCloseTo(10, 1);
+      expect(close!.height).toBeCloseTo(56, 1);
+      expect(retry!.height).toBeCloseTo(56, 1);
+
+      // Very short screens compress the pair like the signed-in actions.
+      await page.setViewportSize({ width: 568, height: 320 });
+      await page.waitForFunction(() => innerHeight === 320);
+      const [shortClose, shortRetry] = await actionMetrics(page, '#login-actions');
+      expect(Math.abs(shortClose!.y - shortRetry!.y)).toBeLessThan(0.5);
+      const shortGap =
+        direction === 'ltr'
+          ? shortRetry!.x - (shortClose!.x + shortClose!.width)
+          : shortClose!.x - (shortRetry!.x + shortRetry!.width);
+      expect(shortGap).toBeCloseTo(6, 1);
+      expect(shortClose!.height).toBeCloseTo(44, 1);
+      expect(shortRetry!.height).toBeCloseTo(44, 1);
+    });
+  }
+
   test('keeps the YouTube link dialog actions on the shared pill gap', async ({ page }) => {
     // The row also carries a one-off utility class from the inline-style
     // extraction; it must not reopen a different gap than the shared 10px
@@ -777,7 +861,7 @@ test.describe('content-based adaptive action groups', () => {
   });
 
   for (const viewportWidth of [360, 390, 1440]) {
-    test(`contains the manual sync Reset / Done pair in every locale at ${viewportWidth}px`, async ({
+    test(`contains the manual sync Done / Reset pair in every locale at ${viewportWidth}px`, async ({
       page,
     }) => {
       // The authored panel, opened, in each locale's own font. The recipe
@@ -852,8 +936,11 @@ test.describe('content-based adaptive action groups', () => {
         expect(pair.rowScrollWidth, `${pair.lang} row overflow`).toBeLessThanOrEqual(
           pair.rowClientWidth,
         );
-        const [reset, done] = pair.buttons;
-        for (const button of [reset!, done!]) {
+        // Done, the exit, comes first (left, mirrored in RTL); Reset follows.
+        const [done, reset] = pair.buttons;
+        expect(done!.id, pair.lang).toMatch(/-sync-done-btn$/u);
+        expect(reset!.id, pair.lang).toMatch(/-sync-reset-btn$/u);
+        for (const button of [done!, reset!]) {
           expect(button.left, `${button.id} inside the panel`).toBeGreaterThanOrEqual(
             pair.contentLeft - 0.5,
           );
@@ -868,16 +955,293 @@ test.describe('content-based adaptive action groups', () => {
           );
           expect(button.height, `${button.id} pill height`).toBeGreaterThanOrEqual(56 - 0.5);
         }
-        // Side by side 10px apart, or Done on its own row 12px below.
+        // Side by side 10px apart with Done on the left, or Reset on its own
+        // row 12px below.
         if (Math.abs(reset!.top - done!.top) < 0.5) {
-          const gap = Math.max(done!.left - reset!.right, reset!.left - done!.right);
-          expect(gap, pair.lang).toBeCloseTo(10, 1);
+          expect(reset!.left - done!.right, pair.lang).toBeCloseTo(10, 1);
         } else {
-          expect(done!.top - reset!.bottom, pair.lang).toBeCloseTo(12, 1);
+          expect(reset!.top - done!.bottom, pair.lang).toBeCloseTo(12, 1);
         }
       }
     });
   }
+
+  test('keeps the whole manual sync panel on the first screen of short landscape phones', async ({
+    page,
+  }, testInfo) => {
+    // One authored panel, opened, takes each locale's labels and font in turn
+    // at each size of SYNC_SHORT_VIEWPORTS.
+    await installLayoutProbe(page, '', { viewportWidth: 640, viewportHeight: 360 });
+    const localesWithFonts = await localizedActionsWithFonts(page);
+    await page.evaluate((markup) => {
+      const authored = new DOMParser().parseFromString(markup, 'text/html');
+      const overlay = document.importNode(authored.getElementById('manual-sync-overlay')!, true);
+      // Opened before insertion, so the panel starts settled without its
+      // entrance transition.
+      overlay.classList.add('show');
+      document.body.appendChild(overlay);
+    }, APP_MARKUP);
+
+    const recorded: Array<{
+      size: string;
+      twoRowLocales: string[];
+      nudgeVisible: Record<string, number>;
+    }> = [];
+    for (const viewport of SYNC_SHORT_VIEWPORTS) {
+      const size = `${viewport.width}x${viewport.height}`;
+      await page.setViewportSize({ width: viewport.width, height: viewport.height });
+      await page.waitForFunction(
+        ({ width, height }) => innerWidth === width && innerHeight === height,
+        viewport,
+      );
+      const panels = await page.evaluate(
+        async ({ locales, labels }) => {
+          const overlay = document.querySelector<HTMLElement>('.manual-sync-overlay')!;
+          const panel = overlay.querySelector<HTMLElement>('.sync-glass-panel')!;
+          const body = overlay.querySelector<HTMLElement>('.sync-scroll-body')!;
+          const display = overlay.querySelector<HTMLElement>('.sync-manual-display')!;
+          const label = overlay.querySelector<HTMLElement>('.sync-col-label')!;
+          const value = overlay.querySelector<HTMLElement>('#manual-sync-value')!;
+          const nudge = overlay.querySelector<HTMLElement>('.sync-nudge-row')!;
+          const pair = overlay.querySelector<HTMLElement>('.sync-bottom-row')!;
+          const reset = pair.querySelector<HTMLElement>('.sync-reset-btn')!;
+          const done = pair.querySelector<HTMLElement>('.sync-done-btn')!;
+          const box = (element: HTMLElement) => {
+            const rect = element.getBoundingClientRect();
+            return { top: rect.top, bottom: rect.bottom, left: rect.left, right: rect.right };
+          };
+          const positions = () => ({ panel: box(panel), value: box(value), pair: box(pair) });
+          const results = [];
+          for (const locale of locales) {
+            overlay.lang = locale.htmlLang;
+            overlay.style.setProperty('--font-sans', locale.fontFamily);
+            overlay.style.fontFamily = locale.fontFamily;
+            label.textContent = labels[locale.code]!.label;
+            reset.textContent = labels[locale.code]!.reset;
+            done.textContent = labels[locale.code]!.done;
+            // Flush styles before awaiting the locale's glyph requests.
+            panel.getBoundingClientRect();
+            await document.fonts.ready;
+            const panelStyle = getComputedStyle(panel);
+            const displayStyle = getComputedStyle(display);
+            const pairStyle = getComputedStyle(pair);
+            const settled = positions();
+            // A raised keyboard must not move the field or the pair.
+            document.documentElement.classList.add('keyboard-open');
+            const keyboardOpen = positions();
+            document.documentElement.classList.remove('keyboard-open');
+            results.push({
+              code: locale.code,
+              panel: box(panel),
+              padding: [panelStyle.paddingTop, panelStyle.paddingBottom],
+              body: {
+                ...box(body),
+                scrollHeight: body.scrollHeight,
+                clientHeight: body.clientHeight,
+              },
+              display: [displayStyle.marginTop, displayStyle.marginBottom],
+              nudge: box(nudge),
+              pair: box(pair),
+              pairMargin: pairStyle.marginTop,
+              gaps: [pairStyle.rowGap, pairStyle.columnGap],
+              pills: [reset, done].map((button) => ({
+                ...box(button),
+                height: button.getBoundingClientRect().height,
+                clientWidth: button.clientWidth,
+                clientHeight: button.clientHeight,
+                scrollWidth: button.scrollWidth,
+                scrollHeight: button.scrollHeight,
+              })),
+              settled,
+              keyboardOpen,
+            });
+          }
+          return results;
+        },
+        { locales: localesWithFonts, labels: SYNC_PAIR_LABELS },
+      );
+      expect(panels).toHaveLength(42);
+
+      const geometry = SYNC_STEP_GEOMETRY[viewport.step];
+      const twoRowLocales: string[] = [];
+      const nudgeVisible: Record<string, number> = {};
+      for (const result of panels) {
+        const where = `${result.code} ${size}`;
+        expect(
+          {
+            padding: result.padding,
+            display: result.display,
+            pairMargin: result.pairMargin,
+            gaps: result.gaps,
+          },
+          where,
+        ).toEqual({
+          padding: geometry.padding,
+          display: geometry.display,
+          pairMargin: geometry.pairMargin,
+          gaps: geometry.gaps,
+        });
+        for (const pill of result.pills) {
+          // A label wrapping inside a pill would grow it past its height.
+          expect(pill.height, `${where} pill height`).toBeCloseTo(geometry.pill, 0);
+          expect(pill.scrollWidth, `${where} clips its label`).toBeLessThanOrEqual(
+            pill.clientWidth,
+          );
+          expect(pill.scrollHeight, `${where} clips its label`).toBeLessThanOrEqual(
+            pill.clientHeight,
+          );
+        }
+        expect(result.keyboardOpen, `${where} keyboard-open`).toEqual(result.settled);
+        const [first, second] = [...result.pills].sort((a, b) => a.top - b.top);
+        const twoRows = second!.top - first!.top >= 0.5;
+        if (twoRows) twoRowLocales.push(result.code);
+        if (viewport.step === 'shared') {
+          // Recorded only: how much of the nudge row the first screen shows.
+          if (twoRows) {
+            nudgeVisible[result.code] =
+              Math.min(result.nudge.bottom, result.body.bottom) - result.nudge.top;
+          }
+          continue;
+        }
+        // 360px and below: the body does not scroll, so the nudge row is on
+        // the first screen, and the panel keeps 12px from the screen edges.
+        expect(result.body.scrollHeight, `${where} body scrolls`).toBeLessThanOrEqual(
+          result.body.clientHeight + 1,
+        );
+        expect(result.panel.top, `${where} panel top`).toBeGreaterThanOrEqual(12 - 0.5);
+        expect(result.panel.bottom, `${where} panel bottom`).toBeLessThanOrEqual(
+          viewport.height - 12 + 0.5,
+        );
+        expect(result.pair.top, `${where} pair`).toBeGreaterThanOrEqual(result.panel.top);
+        expect(result.pair.bottom, `${where} pair`).toBeLessThanOrEqual(
+          result.panel.bottom - Number.parseFloat(geometry.padding[1]) + 0.5,
+        );
+        if (twoRows) {
+          // A wrapped Done sits no closer to the nudge row than to Reset.
+          expect(first!.top - result.nudge.bottom, `${where} pair margin`).toBeGreaterThanOrEqual(
+            second!.top - first!.bottom - 0.5,
+          );
+        }
+      }
+      recorded.push({ size, twoRowLocales, nudgeVisible });
+    }
+    await testInfo.attach('manual sync short-screen rows', {
+      body: JSON.stringify(recorded, null, 2),
+      contentType: 'application/json',
+    });
+  });
+
+  test('keeps the five labelled sidebar tabs beside the wordmark above 360px in every locale', async ({
+    page,
+  }) => {
+    // Owner decision (2026-10-28): the compact sidebar yields its wordmark at
+    // the app's 360px short-height step, the manual sync spacing step, rather
+    // than at a 370px threshold of its own. Above 360px the five labelled tabs
+    // fit between either room's wordmark and the account badge in every
+    // locale (measured 2026-10-29 from 361px to 370px).
+    await installLayoutProbe(page, '', { viewportWidth: 740, viewportHeight: 361 });
+    const localesWithFonts = await localizedActionsWithFonts(page);
+    await page.evaluate((markup) => {
+      const authored = new DOMParser().parseFromString(markup, 'text/html');
+      for (const selector of ['#main-header', '.bottom-nav']) {
+        document.body.appendChild(document.importNode(authored.querySelector(selector)!, true));
+      }
+    }, APP_MARKUP);
+    const locales = localesWithFonts.map((locale) => ({
+      ...locale,
+      // The badge reads Account until the account state settles.
+      accountTitle: (LOCALES as Record<string, Record<string, string>>)[locale.code]![
+        'account.account_title'
+      ]!,
+    }));
+
+    for (const height of [361, 370, 360]) {
+      await page.setViewportSize({ width: 740, height });
+      await page.waitForFunction((value) => innerHeight === value, height);
+      const sidebars = await page.evaluate(async (entries) => {
+        const root = document.documentElement;
+        const header = document.getElementById('main-header')!;
+        const nav = document.querySelector<HTMLElement>('.bottom-nav')!;
+        const logo = document.getElementById('app-logo')!;
+        const badge = document.getElementById('role-badge')!;
+        const tabs = [...nav.querySelectorAll<HTMLElement>(':scope > .nav-item')];
+        const box = (element: Element) => {
+          const rect = element.getBoundingClientRect();
+          return { top: rect.top, bottom: rect.bottom };
+        };
+        const results = [];
+        for (const locale of entries) {
+          for (const element of [header, nav]) {
+            element.lang = locale.htmlLang;
+            element.style.setProperty('--font-sans', locale.fontFamily);
+            element.style.fontFamily = locale.fontFamily;
+          }
+          tabs.forEach((tab, index) => {
+            tab.querySelector('span')!.textContent = locale.nav[index]!;
+          });
+          document.getElementById('role-text')!.textContent = locale.accountTitle;
+          for (const pro of [false, true]) {
+            root.toggleAttribute('data-pro-room', pro);
+            // Flush styles before awaiting the locale's glyph requests.
+            nav.getBoundingClientRect();
+            await document.fonts.ready;
+            results.push({
+              id: `${locale.code}${pro ? ' PRO' : ''}`,
+              direction: getComputedStyle(nav).flexDirection,
+              wordmarkShown: getComputedStyle(logo).display !== 'none',
+              logo: box(logo),
+              nav: box(nav),
+              badge: box(badge),
+              tabs: tabs.map((tab) => {
+                const label = tab.querySelector<HTMLElement>('span')!;
+                const text = document.createRange();
+                text.selectNodeContents(label);
+                return {
+                  ...box(tab),
+                  labelShown: getComputedStyle(label).display !== 'none',
+                  labelWidth: label.getBoundingClientRect().width,
+                  textWidth: text.getBoundingClientRect().width,
+                  clientHeight: label.clientHeight,
+                  scrollHeight: label.scrollHeight,
+                };
+              }),
+            });
+          }
+        }
+        root.removeAttribute('data-pro-room');
+        return results;
+      }, locales);
+      expect(sidebars).toHaveLength(84);
+
+      for (const sidebar of sidebars) {
+        const where = `${sidebar.id} 740x${height}`;
+        expect(sidebar.direction, where).toBe('column');
+        expect(sidebar.wordmarkShown, `${where} wordmark`).toBe(height > 360);
+        if (sidebar.wordmarkShown) {
+          expect(sidebar.nav.top, `${where} below the wordmark`).toBeGreaterThanOrEqual(
+            sidebar.logo.bottom,
+          );
+        }
+        expect(sidebar.nav.top, where).toBeGreaterThanOrEqual(0);
+        expect(sidebar.nav.bottom, `${where} above the account badge`).toBeLessThanOrEqual(
+          sidebar.badge.top,
+        );
+        expect(sidebar.tabs, where).toHaveLength(5);
+        sidebar.tabs.forEach((tab, index) => {
+          const label = `${where} tab ${index + 1}`;
+          expect(tab.labelShown, `${label} label`).toBe(true);
+          // Fractional widths: the labels end in an ellipsis when cut.
+          expect(tab.textWidth, `${label} ellipsis`).toBeLessThanOrEqual(tab.labelWidth + 0.5);
+          expect(tab.scrollHeight, `${label} one line`).toBeLessThanOrEqual(tab.clientHeight);
+          if (index > 0) {
+            expect(tab.top, `${label} overlap`).toBeGreaterThanOrEqual(
+              sidebar.tabs[index - 1]!.bottom - 0.5,
+            );
+          }
+        });
+      }
+    }
+  });
 
   test('gives dialog pills 24px side padding at 360px and below', async ({ page }) => {
     // Owner decision (2026-10-28): the shared 28px drops to 24px at 360px and
@@ -1229,8 +1593,10 @@ test.describe('content-based adaptive action groups', () => {
   // may take more rows than with the 9.0.18 typography. The compact members
   // (Sign out, Delete account and the media source options) take the chip
   // role's 14px up to 719px; the wider sizes show that the CTA role has room
-  // above it.
-  type SweptLabel = { selector: string; typography: string };
+  // above it. A context entry is a neighbour that shares a label's row: it
+  // takes its 9.0.18 typography in the reference pass too, so the label
+  // there gets the room it had in 9.0.18, but it is not measured itself.
+  type SweptLabel = { selector: string; typography: string; context?: true };
   const SWEPT_SLOTS_9_0_18: Record<string, SweptLabel[]> = {
     'account pair': [
       {
@@ -1271,6 +1637,13 @@ test.describe('content-based adaptive action groups', () => {
         typography:
           'font-size: 15px; font-weight: 600; line-height: 1.25; letter-spacing: -0.3px; ' +
           'word-break: normal; line-break: auto',
+      },
+      {
+        // The Beta badge beside the system audio label: 9.0.18 set it at
+        // 700, and the label role's 600 leaves the label half a pixel more.
+        selector: '.media-source-beta-badge',
+        typography: 'font-size: 11px; font-weight: 700; letter-spacing: 0',
+        context: true,
       },
     ],
     'selection toggle': [
@@ -1581,7 +1954,7 @@ test.describe('content-based adaptive action groups', () => {
               slots[slot]!.forEach((entry, index) => {
                 for (const label of outer.querySelectorAll<HTMLElement>(entry.selector)) {
                   if (label.closest('[data-unmeasured]')) continue;
-                  label.dataset.sweptLabel = `${slot}#${index}`;
+                  label.dataset[entry.context ? 'sweptContext' : 'sweptLabel'] = `${slot}#${index}`;
                 }
               });
               root.appendChild(outer);
@@ -1696,9 +2069,13 @@ test.describe('content-based adaptive action groups', () => {
       );
     const shipped = await measure();
     await page.evaluate((slots) => {
-      for (const label of document.querySelectorAll<HTMLElement>('[data-swept-label]')) {
+      for (const label of document.querySelectorAll<HTMLElement>(
+        '[data-swept-label], [data-swept-context]',
+      )) {
         const probe = label.closest<HTMLElement>('.swept-slot-probe')!;
-        const [slot, index] = label.dataset.sweptLabel!.split('#') as [string, string];
+        const [slot, index] = (label.dataset.sweptLabel ?? label.dataset.sweptContext)!.split(
+          '#',
+        ) as [string, string];
         for (const declaration of slots[slot]![Number(index)]!.typography.split(';')) {
           const [property, value] = declaration.split(':').map((part) => part.trim());
           // As in 9.0.18, right-to-left labels take no tracking.

@@ -188,13 +188,6 @@ function close(cancelPending = true): void {
 function handleOverlayKeydown(event: KeyboardEvent): void {
   const overlay = document.getElementById('manual-sync-overlay');
   if (!overlay?.classList.contains('show')) return;
-  if (event.key === 'Escape') {
-    if (event.isComposing || event.keyCode === 229) return;
-    event.preventDefault();
-    event.stopPropagation();
-    close();
-    return;
-  }
   if (event.key !== 'Tab') return;
   const focusables = Array.from(
     overlay.querySelectorAll<HTMLElement>(
@@ -273,17 +266,12 @@ function bindEditor(editor: HTMLElement): void {
       completeEdit();
       return;
     }
+    // An IME keeps its Escape. Any other Escape goes on to dom.ts's one
+    // Escape listener and closes the panel as Back and Done do (owner
+    // decision 2026-10-28): focus leaves the editor, and the blur below
+    // applies the edited value.
     if (event.key !== 'Escape') return;
-    if (event.isComposing || event.keyCode === 229 || isComposing) {
-      event.stopPropagation();
-      return;
-    }
-    event.preventDefault();
-    event.stopPropagation();
-    skipNextBlurCommit = true;
-    renderEditorValue(editor);
-    editor.blur();
-    close();
+    if (event.isComposing || event.keyCode === 229 || isComposing) event.stopPropagation();
   });
   editor.addEventListener('blur', () => {
     editor.removeAttribute('data-editing');

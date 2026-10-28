@@ -94,16 +94,20 @@ export async function confirmProRoomActivationAccount(): Promise<string | null> 
       const message = hasAccount
         ? t('pro.activation_account_message', { name: snapshot.account!.nickname })
         : t('pro.activation_account_login_message');
+      // [Cancel | primary] (owner decision 2026-10-28). A signed-in user
+      // confirms the named account, and another account is the small text
+      // link under the pair; without an account the primary signs in. The
+      // login popup opens inside the gesture that asks for it.
       result = await showDialog({
         title: t('pro.activation_account_title'),
         message: popupMessage ? `${message}\n\n${popupMessage}` : message,
         buttonText: t(hasAccount ? 'pro.activation_account_continue' : 'pro.claim_login_button'),
-        secondaryText: t(hasAccount ? 'pro.activation_account_switch' : 'common.cancel'),
-        actionLayout: 'stacked',
-        dismissible: true,
+        secondaryText: t('common.cancel'),
         defaultFocus: 'primary',
         signal: intent?.signal,
-        ...(hasAccount ? { onSecondaryActivation: openLogin } : { onPrimaryActivation: openLogin }),
+        ...(hasAccount
+          ? { linkText: t('pro.activation_account_switch'), onLinkActivation: openLogin }
+          : { onPrimaryActivation: openLogin }),
       });
       if (intent && !intent.isCurrent() && !loginAttempt.current) continue;
       if (hasAccount && result.action === 'ok') return scope;
@@ -111,7 +115,7 @@ export async function confirmProRoomActivationAccount(): Promise<string | null> 
       intent?.dispose();
     }
 
-    if (result.action !== (hasAccount ? 'secondary' : 'ok')) return null;
+    if (result.action !== (hasAccount ? 'link' : 'ok')) return null;
     const outcome = await (loginAttempt.current ?? Promise.resolve('error'));
     if (outcome === 'authenticated') {
       popupMessage = null;

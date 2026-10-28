@@ -619,7 +619,7 @@ test('keeps the Design System rail and examples coherent at every layout size', 
     expect(components.interfacePatterns.headerLogo.maskSize).toBe('100% 108.333%');
     expect(components.interfacePatterns.headerBadge).toEqual({
       fontSize: '11px',
-      fontWeight: '700',
+      fontWeight: '600',
       lineHeight: 'normal',
       padding: '6px 14px',
     });

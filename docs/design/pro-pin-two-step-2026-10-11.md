@@ -83,6 +83,13 @@ replay. Only the incoming page fades (0.24 s, off under reduced motion).
   closes from either page with no change, as the language list closes on
   Escape. A pointer 다음 does not paint a keyboard ring on the checked row
   (the language list's rule for its first focus); the next key restores it.
+  Changed 2026-10-28 (owner decision, planned for 9.0.20): Escape now does
+  what Back does, so on step 2 it returns to step 1 as 이전 does, and a
+  second Escape closes with no change. The same day's exit rule puts a
+  dialog's way out on the left; 이전 on step 2 is a named exception to it,
+  because it returns to step 1, where 취소 leaves
+  (`src/ui/__tests__/window-exit-guard.test.ts`,
+  [9.0.20 report](ui-followup-920-2026-10-29.md#대화상자-나가기-조사-f1--f15)).
 - Double press: 다음/확인 and 취소/이전 share their buttons, and the taller
   step 2 moves them down under the cursor. For 400 ms after a page swap the
   dialog ignores action presses and pointer clicks on rows, and it ignores

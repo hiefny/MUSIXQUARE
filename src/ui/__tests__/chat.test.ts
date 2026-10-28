@@ -374,13 +374,18 @@ describe('Chat Module', () => {
         new KeyboardEvent('keydown', { key: 'Tab', bubbles: true, cancelable: true }),
       );
       expect(document.activeElement).toBe(ok);
-      document
-        .getElementById('btn-dialog-ok')!
-        .dispatchEvent(
-          new KeyboardEvent('keydown', { key: 'Escape', bubbles: true, cancelable: true }),
-        );
+      const escape = new KeyboardEvent('keydown', {
+        key: 'Escape',
+        bubbles: true,
+        cancelable: true,
+      });
+      document.getElementById('btn-dialog-ok')!.dispatchEvent(escape);
+      // Escape is Back (owner decision 2026-10-28): it closes only the top
+      // window, the dialog, and leaves the drawer below it open.
+      expect(escape.defaultPrevented).toBe(true);
+      expect(await pending).toEqual({ action: 'back' });
       expect(drawer.classList.contains('open')).toBe(true);
-      expect(document.getElementById('dialog-overlay')?.classList.contains('show')).toBe(true);
+      expect(document.getElementById('dialog-overlay')?.classList.contains('show')).toBe(false);
     } finally {
       closeDialog();
       await pending;
@@ -1953,9 +1958,8 @@ describe('Chat Module', () => {
         <section class="tab-content active" id="tab-play"></section>
         <div id="chat-backdrop"></div>
         <div id="chat-drawer" data-chat-snap="half" tabindex="-1">
-          <div class="chat-drawer-header">
-            <button class="chat-drawer-close" id="btn-chat-close"></button>
-          </div>
+          <button type="button" class="chat-drawer-close" id="btn-chat-close"></button>
+          <div class="chat-drawer-header"></div>
           <div id="chat-messages" tabindex="-1"></div>
           <div id="chat-input" contenteditable="true" tabindex="0"></div>
           <button id="btn-chat-send"></button>
@@ -1994,10 +1998,18 @@ describe('Chat Module', () => {
       expect(document.activeElement).toBe(input);
       input.dispatchEvent(new KeyboardEvent('keydown', { key: 'Tab', bubbles: true }));
       expect(document.activeElement).toBe(document.getElementById('btn-chat-send'));
+      // The sheet's visible Close (owner decision 2026-10-28) starts the
+      // cycle, before the handle.
+      const close = document.getElementById('btn-chat-close') as HTMLButtonElement;
       document
         .getElementById('btn-chat-send')
         ?.dispatchEvent(new KeyboardEvent('keydown', { key: 'Tab', bubbles: true }));
-      expect(document.activeElement).toBe(header);
+      expect(document.activeElement).toBe(close);
+      close.dispatchEvent(
+        new KeyboardEvent('keydown', { key: 'Tab', shiftKey: true, bubbles: true }),
+      );
+      expect(document.activeElement).toBe(document.getElementById('btn-chat-send'));
+      header.focus();
 
       header.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
       await Promise.resolve();
@@ -2363,7 +2375,7 @@ describe('Chat Module', () => {
       document.getElementById('chat-pinned-notice-text')!.click();
       expect(show).toHaveBeenCalledOnce();
       expect(show).toHaveBeenCalledWith(
-        expect.objectContaining({ message: text, contentLayout: 'reading', dismissible: true }),
+        expect.objectContaining({ message: text, contentLayout: 'reading' }),
       );
       await Promise.resolve();
       await Promise.resolve();

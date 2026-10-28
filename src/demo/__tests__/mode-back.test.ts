@@ -184,7 +184,10 @@ describe('history Back on the demo', () => {
       vi.fn(() => ({ matches: false, addEventListener: vi.fn(), removeEventListener: vi.fn() })),
     );
     delete document.body.dataset.demoBound;
-    document.body.innerHTML = '<div id="demo-overlay" class="demo-overlay"></div>';
+    document.body.innerHTML = `
+      <div id="demo-overlay" class="demo-overlay">
+        <button type="button" id="btn-demo-exit"></button>
+      </div>`;
     mocks.loadDemoFile.mockImplementation(async () => {
       setCurrentAudioBuffer({ duration: 120 } as AudioBuffer);
     });
@@ -341,6 +344,46 @@ describe('history Back on the demo', () => {
     setState('network.standardRoomCapabilities', ['room.configure'] as never);
     expect(pressEscape().defaultPrevented).toBe(false);
     expect(mocks.safeSend).not.toHaveBeenCalled();
+  });
+
+  // Owner policy (2026-10-28): the tour shows a visible exit at the top
+  // start on every step. It ends the demo for whoever may end it, and a
+  // guest who cannot end the room's demo gets the leave confirmation instead
+  // of the host-only toast.
+  it('ends the demo for the host from the exit at the top start', async () => {
+    setState('network.appRole', 'host');
+    setState('setup.sessionStarted', true);
+    bus.emit('demo:enter');
+    await flush();
+    FakeXHR.pending[0]?.onload?.();
+    await flush(50);
+    expect(getState('demo.active')).toBe(true);
+
+    document.getElementById('btn-demo-exit')!.click();
+    await flush(50);
+
+    expect(getState('demo.active')).toBe(false);
+  });
+
+  it('asks the host to end it from the exit for a guest with room control', () => {
+    const hostConn = joinAsGuest(['room.configure']);
+
+    document.getElementById('btn-demo-exit')!.click();
+
+    expect(mocks.safeSend).toHaveBeenCalledWith(hostConn, { type: MSG.REQUEST_DEMO_EXIT });
+  });
+
+  it('offers the leave confirmation from the exit to a guest who cannot end it', () => {
+    joinAsGuest(['media.add', 'playback.control']);
+    const leave = vi.fn();
+    bus.on('ui:request-leave-session', leave);
+
+    document.getElementById('btn-demo-exit')!.click();
+
+    expect(leave).toHaveBeenCalledOnce();
+    expect(mocks.safeSend).not.toHaveBeenCalled();
+    expect(mocks.showToast).not.toHaveBeenCalled();
+    expect(getState('demo.active')).toBe(true);
   });
 
   it('releases the old exit settlement when a fresh demo supersedes its curtain', () => {

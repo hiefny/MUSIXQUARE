@@ -691,7 +691,8 @@ test.describe('Linelight demo mode', () => {
         return {
           gap: Number.parseFloat(styles.columnGap),
           width: actions.width,
-          buttonGap: exit.left - info.right,
+          // Exit Tour sits left of Track info (owner policy 2026-10-28).
+          buttonGap: info.left - exit.right,
           height: Math.max(info.height, exit.height),
           actionsHeight: actions.height,
         };
@@ -703,6 +704,7 @@ test.describe('Linelight demo mode', () => {
     const desktopFinishActions = await readFinishActions();
     expect(preDesktopFinishActions.width).toBeGreaterThanOrEqual(440);
     expect(preDesktopFinishActions.width).toBeLessThanOrEqual(650);
+    expect(preDesktopFinishActions.buttonGap).toBeGreaterThanOrEqual(6);
     expect(preDesktopFinishActions.buttonGap).toBeLessThanOrEqual(10);
     expect(
       Math.abs(desktopFinishActions.width - preDesktopFinishActions.width),
@@ -713,6 +715,7 @@ test.describe('Linelight demo mode', () => {
     expect(desktopFinishActions.gap).toBeLessThanOrEqual(8);
     expect(desktopFinishActions.width).toBeGreaterThanOrEqual(440);
     expect(desktopFinishActions.width).toBeLessThanOrEqual(650);
+    expect(desktopFinishActions.buttonGap).toBeGreaterThanOrEqual(6);
     expect(desktopFinishActions.buttonGap).toBeLessThanOrEqual(10);
     expect(desktopFinishActions.height).toBeGreaterThanOrEqual(56);
     expect(desktopFinishActions.height).toBeLessThanOrEqual(60);

@@ -21,6 +21,7 @@ async function expectDemoHidden(page: Page): Promise<void> {
     '.demo-track-title',
     '.demo-track-artist',
     '.demo-controls-pill',
+    '#btn-demo-exit',
     '#btn-demo-settings',
     '#demo-inline-controls',
     '[data-demo-play]',
@@ -366,3 +367,63 @@ test('demo inline controls remain keyboard accessible with reduced motion', asyn
   await page.keyboard.press('Tab');
   await expect(controls.locator('[data-demo-play]')).not.toBeFocused();
 });
+
+for (const direction of ['ltr', 'rtl'] as const) {
+  test(`demo shows its exit at the top start on every step and ends there (${direction})`, async ({
+    page,
+  }) => {
+    // Owner policy (2026-10-28): every leavable window shows a visible exit.
+    // The tour's sits before the settings opener at the header's start
+    // (mirrored in RTL), on every step. The open settings pill takes that
+    // place with its own back arrow, so the start always leads out of the
+    // top layer, and the inline controls keep their full width.
+    await page.setViewportSize({ width: 390, height: 844 });
+    await enterDemo(page);
+    if (direction === 'rtl') {
+      await page.evaluate(() => document.documentElement.setAttribute('dir', 'rtl'));
+    }
+    const exit = page.locator('#btn-demo-exit');
+    const settings = page.locator('#btn-demo-settings');
+    const stage = page.locator('.demo-visual-stage');
+    for (let step = 1; step <= 4; step += 1) {
+      await expect(exit).toBeVisible();
+      await expect(exit).toHaveAccessibleName('Exit Tour');
+      const exitBox = (await exit.boundingBox())!;
+      const settingsBox = (await settings.boundingBox())!;
+      const stageBox = (await stage.boundingBox())!;
+      expect(Math.abs(exitBox.y - settingsBox.y), `step ${step}`).toBeLessThan(0.5);
+      expect(exitBox.width).toBeCloseTo(44, 0);
+      expect(exitBox.height).toBeCloseTo(44, 0);
+      if (direction === 'ltr') {
+        expect(exitBox.x - stageBox.x, `step ${step}`).toBeCloseTo(16, 0);
+        expect(settingsBox.x - (exitBox.x + exitBox.width)).toBeCloseTo(12, 0);
+      } else {
+        const stageRight = stageBox.x + stageBox.width;
+        expect(stageRight - (exitBox.x + exitBox.width), `step ${step}`).toBeCloseTo(16, 0);
+        expect(exitBox.x - (settingsBox.x + settingsBox.width)).toBeCloseTo(12, 0);
+      }
+      if (step < 4) await page.locator('[data-demo-next]').click();
+    }
+
+    const exitBox = (await exit.boundingBox())!;
+    await settings.click();
+    await expectExpanded(page, true);
+    await expect(exit).toBeHidden();
+    await expect(page.locator('#demo-volume-slider')).toHaveCSS('width', '74px');
+    await expect
+      .poll(async () => {
+        const pill = (await page.locator('.demo-controls-pill').boundingBox())!;
+        return direction === 'ltr'
+          ? Math.round(pill.x - exitBox.x)
+          : Math.round(exitBox.x + exitBox.width - (pill.x + pill.width));
+      })
+      .toBe(0);
+    await settings.click();
+    await expectExpanded(page, false);
+    await expect(exit).toBeVisible();
+
+    await exit.click();
+    await expect.poll(() => readState(page, 'demo.active')).toBe(false);
+    await expectDemoHidden(page);
+  });
+}

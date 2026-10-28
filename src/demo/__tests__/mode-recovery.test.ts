@@ -357,12 +357,17 @@ describe('demo recovery pins (DEMO-1 / DEMO-4)', () => {
     expect(mocks.safeSend).not.toHaveBeenCalled();
     expect(mocks.showToast).toHaveBeenCalledWith(t('demo.host_only_exit'));
 
+    // The room's demo is the host's to end: this guest's way out is leaving
+    // the room, through the leave confirmation (owner policy 2026-10-28).
     mocks.showToast.mockClear();
+    const leave = vi.fn();
+    bus.on('ui:request-leave-session', leave);
     bus.emit('demo:request-exit');
     await flush();
 
     expect(mocks.safeSend).not.toHaveBeenCalled();
-    expect(mocks.showToast).toHaveBeenCalledWith(t('demo.host_only_exit'));
+    expect(mocks.showToast).not.toHaveBeenCalled();
+    expect(leave).toHaveBeenCalledOnce();
   });
 
   it('accepts REQUEST_DEMO_ENTER and REQUEST_DEMO_EXIT on the host from a verified owner peer', async () => {

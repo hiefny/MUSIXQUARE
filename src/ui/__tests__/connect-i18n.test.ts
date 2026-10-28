@@ -29,10 +29,11 @@ import { __resetAccountStateForTests, applyAccountSession } from '../../account/
 import { ProRoomApiError } from '../../pro-room/api.ts';
 import type { ProRoomAdministrator } from '../../pro-room/contracts.ts';
 import { log } from '../../core/log.ts';
-import { returnToRoomStart } from '../../core/navigation.ts';
+import { navigateHome, returnToRoomStart } from '../../core/navigation.ts';
 
 vi.mock('../../core/navigation.ts', async (importOriginal) => ({
   ...(await importOriginal<typeof import('../../core/navigation.ts')>()),
+  navigateHome: vi.fn(),
   returnToRoomStart: vi.fn(() => true),
 }));
 
@@ -4250,5 +4251,39 @@ describe('connect account nickname authority', () => {
     if (!options || typeof options === 'string')
       throw new Error('expected nickname dialog options');
     expect(options?.inputField?.validator?.('HOST')).toBe('사용할 수 없는 이름이에요.');
+  });
+});
+
+describe('connect leave session request', () => {
+  // Owner policy (2026-10-28): a guest who cannot end the room's demo leaves
+  // through the demo's visible exit. The request opens the room's own Leave
+  // Session confirmation, Cancel on the left.
+  it('opens the Leave Session confirmation and leaves only on OK', async () => {
+    setState('network.appRole', 'guest');
+    setState('network.hostConn', makeConnection());
+    initConnect();
+
+    mockedShowDialog.mockResolvedValueOnce({ action: 'secondary' });
+    bus.emit('ui:request-leave-session');
+    await vi.waitFor(() => expect(mockedShowDialog).toHaveBeenCalledOnce());
+    const options = lastDialogOptions();
+    expect(options.title).toBe(t('dialog.return_home_title'));
+    expect(options.message).toBe(
+      `${t('dialog.return_home_msg')}
+${t('dialog.return_home_detail')}`,
+    );
+    expect(options.buttonText).toBe(t('common.ok'));
+    expect(options.secondaryText).toBe(t('common.cancel'));
+    await Promise.resolve();
+    await Promise.resolve();
+    expect(navigateHome).not.toHaveBeenCalled();
+
+    mockedShowDialog.mockResolvedValueOnce({ action: 'ok' });
+    bus.emit('ui:request-leave-session');
+    await vi.waitFor(() =>
+      expect(navigateHome).toHaveBeenCalledExactlyOnceWith(t('dialog.leaving_session'), {
+        history: 'replace',
+      }),
+    );
   });
 });

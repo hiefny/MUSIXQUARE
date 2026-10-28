@@ -107,9 +107,10 @@ runbooks. Neither belongs in a general setup document.
   two-per-row actions take the tab size up to 420px. Action pills sit 10px apart side by side and
   12px stacked, 56px tall, with 24px side padding on dialog pills at 360px and below; the Korean
   invite pill, administrator permissions title and demo step chips keep their 9.0.18 text. The
-  final check's fixes (U15) give the startup failure Retry the label weight (600, at the page
-  font's 16px) and Japanese setup action pills phrase breaking, so Please wait stays on one line
-  from 320 to 420px. The
+  final check's fix (U15) puts the startup failure Retry in the CTA role like every other action
+  button (15px / 600 / 1.25, normal tracking); phrase breaking for the Japanese setup action pill
+  was tried and dropped, because the wider pill pushed the Back and pill group 12.8px right of the
+  screen center against the setup centering decision (8.11.16), so owner item 14 is open again. The
   bundle also gives every red text or icon one `--danger-foreground` role (the default themes keep
   production's `#ff3b30` and the 9.0.18 tints, the high-contrast palettes keep the 4.5:1 contract,
   account deletion keeps its 9.0.18 tints); one runtime hover gate owned by
@@ -118,15 +119,15 @@ runbooks. Neither belongs in a general setup document.
   control-hint owner with reasons as descriptions; a fixed minus name and a status cell for the
   selection count; noun-form names and hints in 42 locales with a locale review; the English
   `YouTube Video` kept; and the removal of an unreachable red "Disconnected" badge. Branch
-  `agent/ui-bundle` (last code commit `4b42ccd5`) merged main at 9.0.18 / v791 (`6a23c46e`); its
-  last runtime commit is the bump `1a0022ef` to 9.0.19 / v792 (App build 792), target `app` (App 84
+  `agent/ui-bundle` (last code commit `901439c0`) merged main at 9.0.18 / v791 (`6a23c46e`); its
+  last runtime commit is the bump `5e37f177` to 9.0.19 / v792 (App build 792), target `app` (App 84
   runtime paths against production, every other Worker 0, with the update dialog), not merged or
   released. The report lists each increment (U1 to U15, the locale review and the release-prep
   bump) with its commits, tests-first evidence and tested SHA, the U14 role table, the
   measurements against 9.0.18 (26,628 real-app cases, the two-button stack counts, the preview
   comparison), the guards added, the review findings and their handling, visible changes, owner
-  decisions left open, QA rounds 1 to 11 (round 11, after U15 and the re-applied bump, passes
-  the full `build:checked`, unit 16,372, the candidate E2E (19), the critical E2E (95, with the narrow-slot probe at 19 sizes and the new Japanese setup pill probe) and the three touched or related E2E files (57)), what was not verified (real devices, WebKit, screen readers) and the owner device
+  decisions left open, QA rounds 1 to 12 (round 12, after decisions A and B rebuilt the chain on U14 and re-applied the
+  bump, passes the full `build:checked`, unit 16,371, the candidate E2E (19), the critical E2E (94, with the narrow-slot probe at 19 sizes) and the three touched or related E2E files (56)), what was not verified (real devices, WebKit, screen readers) and the owner device
   check list.
 - [PRO room receipt retention (2026-10-27)](design/pro-receipt-retention-2026-10-27.md):
   the PRO room's shared browser receipt ledger (256 receipts) keeps each receipt only as long as

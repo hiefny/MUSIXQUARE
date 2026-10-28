@@ -23895,19 +23895,27 @@ describe('persistent PRO room private media accounting', () => {
       reservedBytes: 0,
     });
 
-    const replay = await context.worker.fetch(
+    // The commit that finished the delete released its receipt (RO-53), so
+    // the same key finds neither a receipt nor the asset and changes nothing.
+    const internal = context.worker as unknown as {
+      room: StoredRoom & { idempotency: Record<string, any> };
+    };
+    const participantId = context.activationEnvelope.snapshot.viewer.participantId as string;
+    const receiptKey = `participant:${participantId}:delete:${deleteKey}`;
+    expect(internal.room.idempotency[receiptKey]).toBeUndefined();
+    const revision = internal.room.revision;
+    const resent = await context.worker.fetch(
       request(
         `/media/${assetId}`,
         { method: 'DELETE', headers: { 'idempotency-key': deleteKey } },
         context.ownerCookie,
       ),
     );
-    expect(replay.status).toBe(200);
-    await expect(replay.json()).resolves.toMatchObject({
-      ok: true,
-      assetId,
-      quota: { usedBytes: 0, reservedBytes: 0 },
-    });
+    expect(resent.status).toBe(404);
+    await expect(resent.json()).resolves.toEqual({ error: 'ASSET_NOT_FOUND' });
+    expect(internal.room.quota).toMatchObject({ usedBytes: 0, reservedBytes: 0 });
+    expect(internal.room.revision).toBe(revision);
+    expect(internal.room.idempotency[receiptKey]).toBeUndefined();
   });
 
   it('recovers an explicit deletion after R2 succeeds but the final DO commit fails', async () => {
@@ -23962,16 +23970,20 @@ describe('persistent PRO room private media accounting', () => {
       usedBytes: 0,
       reservedBytes: 0,
     });
+    // The recovered commit took the pending receipt out of storage as well.
+    const participantId = context.activationEnvelope.snapshot.viewer.participantId as string;
+    const receiptKey = `participant:${participantId}:delete:${deleteKey}`;
+    expect(storedCanonicalRoom(context.state).idempotency[receiptKey]).toBeUndefined();
 
-    const replay = await restarted.fetch(
+    const resent = await restarted.fetch(
       request(
         `/media/${assetId}`,
         { method: 'DELETE', headers: { 'idempotency-key': deleteKey } },
         context.ownerCookie,
       ),
     );
-    expect(replay.status).toBe(200);
-    await expect(replay.json()).resolves.toMatchObject({ quota: { usedBytes: 0 } });
+    expect(resent.status).toBe(404);
+    await expect(resent.json()).resolves.toEqual({ error: 'ASSET_NOT_FOUND' });
   });
 
   it('retries delete finalization in the same isolate after its DO commit fails', async () => {
@@ -24179,62 +24191,63 @@ describe('persistent PRO room private media accounting', () => {
     });
   });
 
-  it('restores durable pending state when final receipt storage is at capacity', async () => {
-    const context = await activatedRoom();
-    const { assetId, asset } = await completeReadyAsset(context, 'receipt-capacity', 13_312);
-    context.bucket.deleteError = new Error('persist the deletion intent first');
-    const deleteKey = `${IDEMPOTENCY_KEY}-receipt-capacity-delete`;
-    const failed = await context.worker.fetch(
-      request(
-        `/media/${assetId}`,
-        { method: 'DELETE', headers: { 'idempotency-key': deleteKey } },
-        context.ownerCookie,
-      ),
-    );
-    expect(failed.status).toBe(503);
-    const internal = context.worker as unknown as {
-      room: StoredRoom & { idempotency: Record<string, any> };
-      persist(): Promise<void>;
-      continueAssetDeletion(assetId: string, nowMs: number): Promise<Record<string, any> | null>;
-    };
-    internal.room.idempotency = {};
-    for (let index = 0; index < 256; index += 1) {
-      internal.room.idempotency[`capacity-filler-${index}`] = {
-        fingerprint: 'f'.repeat(43),
-        status: 200,
-        body: { ok: true },
-        expiresAtMs: Date.now() + 60_000,
+  // The commit that finishes a delete stores no receipt (RO-53), so a full
+  // ledger never holds it back: it frees the slot of its pending receipt, or
+  // takes none when load repair found no slot for that receipt.
+  it.each([
+    ['its pending receipt holds one of the 256 slots', true],
+    ['load repair left it without a pending receipt', false],
+  ] as const)(
+    'finishes a pending delete on a full ledger and gives its slot back (%s)',
+    async (_label, keepsPendingReceipt) => {
+      const context = await activatedRoom();
+      const { assetId, asset } = await completeReadyAsset(context, 'receipt-capacity', 13_312);
+      context.bucket.deleteError = new Error('persist the deletion intent first');
+      const deleteKey = `${IDEMPOTENCY_KEY}-receipt-capacity-delete`;
+      const failed = await context.worker.fetch(
+        request(
+          `/media/${assetId}`,
+          { method: 'DELETE', headers: { 'idempotency-key': deleteKey } },
+          context.ownerCookie,
+        ),
+      );
+      expect(failed.status).toBe(503);
+      const internal = context.worker as unknown as {
+        room: StoredRoom & { idempotency: Record<string, any> };
+        persist(): Promise<void>;
+        continueAssetDeletion(assetId: string, nowMs: number): Promise<Record<string, any> | null>;
       };
-    }
-    await internal.persist();
-    context.bucket.deleteError = null;
+      const participantId = context.activationEnvelope.snapshot.viewer.participantId as string;
+      const pendingKey = `participant:${participantId}:delete:${deleteKey}`;
+      const pendingReceipt = internal.room.idempotency[pendingKey];
+      expect(pendingReceipt).toMatchObject({ kind: 'asset-delete-pending' });
+      internal.room.idempotency = keepsPendingReceipt ? { [pendingKey]: pendingReceipt } : {};
+      for (let index = 0; Object.keys(internal.room.idempotency).length < 256; index += 1) {
+        internal.room.idempotency[`capacity-filler-${index}`] = {
+          fingerprint: 'f'.repeat(43),
+          status: 200,
+          body: { ok: true },
+          expiresAtMs: Date.now() + 60_000,
+        };
+      }
+      await internal.persist();
+      context.bucket.deleteError = null;
+      const fillers = Object.keys(internal.room.idempotency).filter((key) => key !== pendingKey);
+      expect(fillers).toHaveLength(keepsPendingReceipt ? 255 : 256);
 
-    await expect(internal.continueAssetDeletion(assetId, Date.now())).rejects.toMatchObject({
-      name: 'RoomStateCapacityError',
-    });
-    expect(context.bucket.objects.has(asset.objectKey)).toBe(false);
-    expect(internal.room.assets[assetId]).toMatchObject({
-      status: 'deleting',
-      deletionPending: { reason: 'explicit', originalStatus: 'ready' },
-    });
-    expect(internal.room.quota).toMatchObject({
-      usedBytes: asset.byteLength,
-      reservedBytes: 0,
-    });
-    expect(storedCanonicalRoom(context.state).assets[assetId]).toMatchObject({
-      status: 'deleting',
-      deletionPending: { reason: 'explicit', originalStatus: 'ready' },
-    });
-
-    delete internal.room.idempotency['capacity-filler-0'];
-    const recovered = await internal.continueAssetDeletion(assetId, Date.now());
-    expect(recovered).toMatchObject({
-      ok: true,
-      assetId,
-      quota: { usedBytes: 0, reservedBytes: 0 },
-    });
-    expect(internal.room.assets[assetId]).toBeUndefined();
-  });
+      const finished = await internal.continueAssetDeletion(assetId, Date.now());
+      expect(finished).toMatchObject({
+        ok: true,
+        assetId,
+        quota: { usedBytes: 0, reservedBytes: 0 },
+      });
+      expect(context.bucket.objects.has(asset.objectKey)).toBe(false);
+      expect(internal.room.assets[assetId]).toBeUndefined();
+      expect(storedCanonicalRoom(context.state).assets[assetId]).toBeUndefined();
+      expect(Object.keys(internal.room.idempotency)).toEqual(fillers);
+      expect(storedCanonicalRoom(context.state).idempotency).toEqual(internal.room.idempotency);
+    },
+  );
 
   it('removes a dangling pending receipt so it cannot leak ledger capacity', async () => {
     const context = await activatedRoom();
@@ -24537,14 +24550,17 @@ describe('persistent PRO room private media accounting', () => {
     expect(stored.assets[assetId]).toBeUndefined();
     expect(stored.quota).toMatchObject({ usedBytes: 0, reservedBytes: 0 });
 
-    const replay = await worker.fetch(
+    // A finished delete keeps no receipt (RO-53): the same key finds no asset
+    // and deletes nothing again.
+    const resent = await worker.fetch(
       request(
         `/media/${assetId}`,
         { method: 'DELETE', headers: { 'idempotency-key': `${IDEMPOTENCY_KEY}-cancel` } },
         ownerCookie,
       ),
     );
-    expect(await responseJson(replay)).toEqual(removeEnvelope);
+    expect(resent.status).toBe(404);
+    await expect(resent.json()).resolves.toEqual({ error: 'ASSET_NOT_FOUND' });
     expect(bucket.deleted.filter((key) => key === asset.stagingObjectKey)).toHaveLength(1);
   });
 
@@ -28694,7 +28710,9 @@ describe('PRO room requests only Apps below the 787 build floor sent', () => {
 
 // Owner decision 2026-10-27 (RO-53): a browser receipt lives only as long as
 // the App can send the same request again, and upload completion lives until a
-// playlist names its asset or orphan cleanup collects it.
+// playlist names its asset or orphan cleanup collects it. Since the follow-up
+// of 2026-10-28, a finished delete keeps no receipt and a reservation's goes
+// once its asset leaves `reserved`.
 describe('PRO browser receipt retention', () => {
   type RoomContext = Awaited<ReturnType<typeof activatedRoom>>;
   type Internal = {
@@ -28930,6 +28948,10 @@ describe('PRO browser receipt retention', () => {
     expect(receipt('reserve', 'receipt-ttl-reserve-01').expiresAtMs).toBe(Date.now() + WINDOW_MS);
 
     const { assetId } = await completeReadyAsset(context, 'receipt-ttl');
+    // The completion released its own reservation's receipt; the reservation
+    // still reserved keeps its window.
+    expect(receipt('reserve', `${IDEMPOTENCY_KEY}-receipt-ttl-reserve`)).toBeUndefined();
+    expect(receipt('reserve', 'receipt-ttl-reserve-01').expiresAtMs).toBe(Date.now() + WINDOW_MS);
     const completionKey = `${IDEMPOTENCY_KEY}-receipt-ttl-complete`;
     expect(receipt('complete', completionKey).expiresAtMs).toBe(
       room.assets[assetId].completedAtMs + GC_GRACE_MS,
@@ -28942,12 +28964,8 @@ describe('PRO browser receipt retention', () => {
       ),
     );
     expect(deleted.status).toBe(200);
-    expect(receipt('delete', 'receipt-ttl-delete-01')).toEqual({
-      fingerprint: expect.any(String),
-      body: await responseJson(deleted),
-      status: 200,
-      expiresAtMs: Date.now() + WINDOW_MS,
-    });
+    // A finished delete keeps no receipt: its asset is gone for good.
+    expect(receipt('delete', 'receipt-ttl-delete-01')).toBeUndefined();
 
     expect((await runBot(context, 'receipt-ttl-bot-0001')).status).toBe(200);
     const botKeys = Object.keys(room.idempotency).filter((key) => key.startsWith('bot-'));
@@ -29169,6 +29187,83 @@ describe('PRO browser receipt retention', () => {
     expect(largestLedger).toBeLessThanOrEqual(WINDOW_MS / 1_000 + 1);
   });
 
+  it('deletes 300 files inside one window without filling the ledger', async () => {
+    const context = await startRoom();
+    const internal = internalOf(context);
+    const room = internal.room;
+    // Finished, unnamed uploads written straight into the room: uploading them
+    // would keep each completion receipt for the GC grace and fill the ledger
+    // before the first delete.
+    const startedAtMs = Date.now();
+    const assetIds: string[] = [];
+    for (let index = 0; index < 300; index += 1) {
+      const assetId = `asset_receipt_bulk_${String(index).padStart(4, '0')}`;
+      const objectKey = `bulk/${assetId}/object`;
+      assetIds.push(assetId);
+      room.assets[assetId] = {
+        status: 'ready',
+        assetId,
+        roomGeneration: room.roomGeneration,
+        version: 1,
+        objectKey,
+        byteLength: 4096,
+        mime: 'audio/flac',
+        name: `${assetId}.flac`,
+        createdAtMs: startedAtMs,
+        completedAtMs: startedAtMs,
+      };
+      room.quota.usedBytes += 4096;
+      context.bucket.objects.set(objectKey, { size: 4096 });
+    }
+    await internal.persist();
+    const startLedger = Object.keys(room.idempotency).length;
+    let largestLedger = startLedger;
+    for (const [index, assetId] of assetIds.entries()) {
+      const key = `receipt-bulk-delete-${String(index).padStart(4, '0')}`;
+      const deleted = await context.worker.fetch(
+        request(
+          `/media/${assetId}`,
+          { method: 'DELETE', headers: { 'idempotency-key': key } },
+          context.ownerCookie,
+        ),
+      );
+      expect(deleted.status, `delete ${index}`).toBe(200);
+      largestLedger = Math.max(largestLedger, Object.keys(room.idempotency).length);
+      advanceKeepingPresence(context, 300);
+    }
+    expect(Date.now() - startedAtMs).toBeLessThan(WINDOW_MS);
+    // Each delete held one slot only while its R2 objects went.
+    expect(largestLedger).toBe(startLedger);
+    expect(room.assets).toEqual({});
+    expect(room.quota).toMatchObject({ usedBytes: 0, reservedBytes: 0 });
+    expect((await editOnce(context, youtubePlaylist, 'receipt-bulk-edit-01')).status).toBe(200);
+  }, 60_000);
+
+  it('uploads 200 small files inside one window without filling the ledger', async () => {
+    const context = await startRoom();
+    const room = internalOf(context).room;
+    const startedAtMs = Date.now();
+    const startLedger = Object.keys(room.idempotency).length;
+    let largestLedger = startLedger;
+    const playlist: Array<Record<string, unknown>> = [];
+    for (let index = 0; index < 200; index += 1) {
+      const suffix = `receipt-bulk-upload-${String(index).padStart(3, '0')}`;
+      const { asset } = await completeReadyAsset(context, suffix);
+      const queueItemId = `54000000-0000-4000-8000-${String(index).padStart(12, '0')}`;
+      playlist.push(playlistItem(queueItemId, asset));
+      const appended = await editOnce(context, playlist, `${suffix}-append`);
+      expect(appended.status, `file ${index}`).toBe(200);
+      largestLedger = Math.max(largestLedger, Object.keys(room.idempotency).length);
+      advanceKeepingPresence(context, 500);
+    }
+    expect(Date.now() - startedAtMs).toBeLessThan(WINDOW_MS);
+    // One receipt per file, its append's: the reservation's went with the
+    // completion, and the completion's with the append.
+    expect(largestLedger).toBeLessThanOrEqual(startLedger + 200);
+    expect(Object.keys(room.idempotency).filter((key) => key.includes(':reserve:'))).toEqual([]);
+    expect(room.playlist).toHaveLength(200);
+  }, 60_000);
+
   it('replays an unnamed completion until orphan cleanup collects its asset, then answers ASSET_NOT_FOUND', async () => {
     const context = await startRoom();
     const room = internalOf(context).room;
@@ -29230,6 +29325,128 @@ describe('PRO browser receipt retention', () => {
     expect(vi.mocked(fetch).mock.calls.length).toBe(copies);
   });
 
+  it('replays a reservation while it is reserved and releases its receipt once the asset leaves reserved', async () => {
+    const context = await startRoom();
+    const room = internalOf(context).room;
+    const receiptKey = (key: string) => `participant:${participantIdOf(context)}:reserve:${key}`;
+    const reserve = (key: string) =>
+      context.worker.fetch(
+        jsonRequest(
+          '/media/reservations',
+          'POST',
+          { byteLength: 4096, name: `${key}.flac`, mime: 'audio/flac' },
+          context.ownerCookie,
+          key,
+        ),
+      );
+
+    const first = await reserve('receipt-reserve-done-01');
+    expect(first.status).toBe(200);
+    const firstBody = await responseJson(first);
+    const assetId = firstBody.reservation.assetId as string;
+    const assetCount = Object.keys(room.assets).length;
+    const { reservedBytes } = room.quota;
+    const replay = await reserve('receipt-reserve-done-01');
+    expect(replay.status).toBe(200);
+    expect(await responseJson(replay)).toEqual(firstBody);
+    expect(Object.keys(room.assets)).toHaveLength(assetCount);
+    expect(room.quota.reservedBytes).toBe(reservedBytes);
+
+    // Completion moves the asset out of `reserved` and releases the receipt
+    // inside its own commit, before any other request.
+    const asset = room.assets[assetId];
+    context.bucket.objects.set(asset.stagingObjectKey, {
+      size: asset.byteLength,
+      httpMetadata: { contentType: asset.mime },
+      customMetadata: {
+        'mxqr-room': ROOM_CODE,
+        'mxqr-generation': String(asset.roomGeneration),
+        'mxqr-asset': assetId,
+        'mxqr-version': String(asset.version),
+        'mxqr-bytes': String(asset.byteLength),
+      },
+    });
+    const completed = await context.worker.fetch(
+      request(
+        `/media/${assetId}/complete`,
+        { method: 'POST', headers: { 'idempotency-key': 'receipt-reserve-done-02' } },
+        context.ownerCookie,
+      ),
+    );
+    expect(completed.status).toBe(200);
+    const doneKey = receiptKey('receipt-reserve-done-01');
+    expect(room.idempotency[doneKey]).toBeUndefined();
+    expect(storedCanonicalRoom(context.state).idempotency[doneKey]).toBeUndefined();
+    // So the same key now makes a second reservation. The App never sends it:
+    // every upload attempt reserves under a fresh key.
+    const again = await reserve('receipt-reserve-done-01');
+    expect(again.status).toBe(200);
+    const againAssetId = (await responseJson(again)).reservation.assetId as string;
+    expect(againAssetId).not.toBe(assetId);
+    expect(room.assets[assetId]).toMatchObject({ status: 'ready' });
+    expect(room.assets[againAssetId]).toMatchObject({ status: 'reserved' });
+
+    // A reservation the App deletes after a failed upload: the next request's
+    // prune releases its receipt and stores the release.
+    const cancelled = await responseJson(await reserve('receipt-reserve-cancel-01'));
+    const removed = await context.worker.fetch(
+      request(
+        `/media/${cancelled.reservation.assetId}`,
+        { method: 'DELETE', headers: { 'idempotency-key': 'receipt-reserve-cancel-02' } },
+        context.ownerCookie,
+      ),
+    );
+    expect(removed.status).toBe(200);
+    expect((await context.worker.fetch(request('/snapshot', {}, context.ownerCookie))).status).toBe(
+      200,
+    );
+    const cancelledKey = receiptKey('receipt-reserve-cancel-01');
+    expect(room.idempotency[cancelledKey]).toBeUndefined();
+    expect(storedCanonicalRoom(context.state).idempotency[cancelledKey]).toBeUndefined();
+  });
+
+  it('leaves no receipt once a delete commits, so a same-key resend answers ASSET_NOT_FOUND', async () => {
+    const context = await startRoom();
+    const room = internalOf(context).room;
+    const first = await completeReadyAsset(context, 'receipt-delete-first');
+    const second = await completeReadyAsset(context, 'receipt-delete-second');
+    const key = 'receipt-delete-key-01';
+    const storageKey = `participant:${participantIdOf(context)}:delete:${key}`;
+    const deletion = (assetId: string) =>
+      context.worker.fetch(
+        request(
+          `/media/${assetId}`,
+          { method: 'DELETE', headers: { 'idempotency-key': key } },
+          context.ownerCookie,
+        ),
+      );
+
+    const deleted = await deletion(first.assetId);
+    expect(deleted.status).toBe(200);
+    await expect(deleted.json()).resolves.toMatchObject({ ok: true, assetId: first.assetId });
+    expect(room.idempotency[storageKey]).toBeUndefined();
+    expect(storedCanonicalRoom(context.state).idempotency[storageKey]).toBeUndefined();
+    const quota = structuredClone(room.quota);
+    const revision = room.revision;
+    const objectDeletes = context.bucket.deleted.length;
+
+    const resent = await deletion(first.assetId);
+    expect(resent.status).toBe(404);
+    await expect(resent.json()).resolves.toEqual({ error: 'ASSET_NOT_FOUND' });
+    expect(room.quota).toEqual(quota);
+    expect(room.revision).toBe(revision);
+    expect(context.bucket.deleted).toHaveLength(objectDeletes);
+
+    // Without a receipt the key no longer answers IDEMPOTENCY_CONFLICT for
+    // another asset: it deletes that one under the usual checks. The App
+    // never sends this either, since every delete gets a fresh key.
+    const other = await deletion(second.assetId);
+    expect(other.status).toBe(200);
+    await expect(other.json()).resolves.toMatchObject({ ok: true, assetId: second.assetId });
+    expect(room.assets[second.assetId]).toBeUndefined();
+    expect(room.idempotency[storageKey]).toBeUndefined();
+  });
+
   it('cuts receipts an earlier Worker kept for 24 hours to their window and persists the cut', async () => {
     const context = await startRoom();
     const room = internalOf(context).room;
@@ -29288,6 +29505,12 @@ describe('PRO browser receipt retention', () => {
       status: 200,
       expiresAtMs,
     });
+    // A reservation's answer as an earlier Worker stored it, naming `assetId`.
+    const reserveReceipt = (assetId: string) =>
+      bodyReceipt(
+        { ...pendingReserve, reservation: { ...pendingReserve.reservation, assetId } },
+        writtenAtMs + RESERVATION_MS,
+      );
     const earlier: Record<string, Record<string, unknown>> = {
       [`${scope('snapshot')}:earlier-snapshot`]: snapshotReceipt(writtenAtMs + DAY_MS),
       [`${scope('playlist-switch')}:earlier-switch`]: snapshotReceipt(writtenAtMs + DAY_MS),
@@ -29317,6 +29540,10 @@ describe('PRO browser receipt retention', () => {
         { asset: structuredClone(unnamed.completeEnvelope.asset), quota: { usedBytes: 0 } },
         writtenAtMs + DAY_MS,
       ),
+      // Reservations whose asset has left `reserved` since: one named and
+      // ready, one held in deletion.
+      [`${scope('reserve')}:earlier-reserve-named`]: reserveReceipt(named.assetId),
+      [`${scope('reserve')}:earlier-reserve-pending`]: reserveReceipt(pendingAsset.assetId),
       [`${scope('snapshot')}:recent-snapshot`]: snapshotReceipt(writtenAtMs + 30_000),
     };
     Object.assign(room.idempotency, structuredClone(earlier));
@@ -29360,6 +29587,9 @@ describe('PRO browser receipt retention', () => {
       ...earlier[`${scope('complete')}:earlier-complete-unnamed`],
       expiresAtMs: prunedAtMs + GC_GRACE_MS,
     });
+    // Their asset left `reserved`: released, whatever expiry they carried.
+    expect(room.idempotency[`${scope('reserve')}:earlier-reserve-named`]).toBeUndefined();
+    expect(room.idempotency[`${scope('reserve')}:earlier-reserve-pending`]).toBeUndefined();
     // Receipts already inside their window stay as written.
     expect(room.idempotency[`${scope('snapshot')}:recent-snapshot`]).toEqual(
       earlier[`${scope('snapshot')}:recent-snapshot`],

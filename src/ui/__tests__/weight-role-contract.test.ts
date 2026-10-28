@@ -20,9 +20,10 @@ import { APP_DICTIONARIES } from '../../i18n/catalogs.ts';
 //   takes the selected weight and every other item the unselected weight
 //   (SELECTION_GROUPS).
 // - label 600: names on controls and markers: every action button label,
-//   badges, small meta labels such as 'invite code' and form field labels.
+//   badges, small meta labels such as 'invite code' and form field labels,
+//   and toast text, which kept its 9.0.19 weight (owner decision 2026-10-29).
 // - body 400: sentences and auxiliary text: descriptions, dialog body text,
-//   hints, toasts, chat messages, the small line under a name, timestamps,
+//   hints, chat messages, the small line under a name, timestamps,
 //   counters, input text and placeholders.
 // Every rule reads its role's token itself, the same way component rules read
 // the button label size tokens; size, color and spacing stay with the
@@ -737,7 +738,11 @@ const ROLE_SPOT_CHECKS: ReadonlyArray<{
     role: 'label',
     reason: "The administrator 'included' badge.",
   },
-  { selector: '#toast-msg', role: 'body', reason: 'Toast text.' },
+  {
+    selector: '#toast-msg',
+    role: 'label',
+    reason: 'Toast text keeps the 9.0.19 weight (owner decision 2026-10-29).',
+  },
   { selector: '.time-info', role: 'body', reason: 'The seek timestamps.' },
   { selector: '.track-artist', role: 'body', reason: 'The line under the player title.' },
   { selector: '.track-title', role: 'title', reason: 'The player track title.' },

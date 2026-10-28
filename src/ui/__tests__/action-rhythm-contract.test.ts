@@ -3,7 +3,7 @@
  */
 import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
-import { parse as parseCss, type AtRule, type Node, type Root } from 'postcss';
+import { parse as parseCss, type AtRule, type Node, type Root, type Rule } from 'postcss';
 import { describe, expect, it } from 'vitest';
 
 // Owner decisions (2026-10-27, revised 2026-10-28): action pills keep 10px
@@ -50,6 +50,56 @@ const CONDITIONAL_EXCEPTIONS: ReadonlyArray<{
   },
 ];
 
+const SHORT_SCREEN = '@media (max-height: 350px)';
+// Owner decisions (2026-10-28): the manual sync panel trims its own spacing
+// at 360px tall and below (option C), and the app keeps one height threshold
+// there: the compact sidebar yields its wordmark at the same 360px.
+const SHORT_PANEL = '@media (max-height: 360px)';
+
+// Short-screen compressions: where an action row or pill trades the shared
+// rhythm for reachable actions on a short landscape phone, with the reason.
+// The scan below fails on any other short-screen value and on an entry it no
+// longer finds.
+const SHORT_SCREEN_COMPRESSIONS: ReadonlyArray<{
+  condition: string;
+  element: string;
+  declaration: string;
+  reason: string;
+}> = [
+  {
+    condition: SHORT_SCREEN,
+    element: '#account-dialog-actions',
+    declaration: 'gap: 6px',
+    reason: 'Account dialog: both views keep every action reachable without scrolling.',
+  },
+  {
+    condition: SHORT_SCREEN,
+    element: ':is(#account-dialog-actions, #account-dialog-login-actions) > :is(button, a)',
+    declaration: 'min-height: 44px',
+    reason: 'Account dialog: 44px touch-target pills in the signed-in and signed-out views.',
+  },
+  {
+    condition: '@media (max-height: 480px)',
+    element: '#dialog-overlay.dialog-stepped .dialog-actions > button',
+    declaration: 'min-height: 48px',
+    reason: 'Stepped dialog: both choices usually fit without scrolling (runtime class).',
+  },
+  {
+    condition: SHORT_SCREEN,
+    element: '#manual-sync-overlay .sync-bottom-row',
+    declaration: 'gap: 6px',
+    reason:
+      "Manual sync pair (owner option C, 2026-10-28): the account dialog's gap, " +
+      'without a keyboard guard so the value field stays put while it is edited.',
+  },
+  {
+    condition: SHORT_SCREEN,
+    element: '#manual-sync-overlay .sync-bottom-row > button',
+    declaration: 'min-height: 44px',
+    reason: "Manual sync pair (owner option C, 2026-10-28): the account dialog's pills.",
+  },
+];
+
 const read = (path: string): string => readFileSync(resolve(path), 'utf8');
 const appCss = parseCss(read('css/style.css'));
 const playCss = parseCss(read('css/playback-actions.css'));
@@ -60,7 +110,6 @@ const appSheets = [
   parseCss(read('css/rtl.css')),
   playCss,
 ];
-const SHORT_SCREEN = '@media (max-height: 350px)';
 
 function inlineStyles(path: string): Root {
   const styles = [...read(path).matchAll(/<style>([\s\S]*?)<\/style>/gu)].map((match) => match[1]);
@@ -174,6 +223,38 @@ function gapAxes(declarations: readonly string[]): { down: string[]; across: str
     }
   }
   return axes;
+}
+
+/** The innermost cascade layer around a node, or null outside every layer. */
+function layerOf(node: Node): string | null {
+  for (let parent = node.parent; parent; parent = parent.parent) {
+    if (parent.type === 'atrule' && (parent as AtRule).name === 'layer') {
+      return (parent as AtRule).params;
+    }
+  }
+  return null;
+}
+
+/** Rules of the app sheets whose nearest condition is `condition`. */
+function rulesUnder(condition: string): Rule[] {
+  const rules: Rule[] = [];
+  for (const sheet of appSheets) {
+    sheet.walkRules((rule) => {
+      if (conditionOf(rule) === condition) rules.push(rule);
+    });
+  }
+  return rules;
+}
+
+function manualSyncPanel() {
+  const overlay = appMarkup().getElementById('manual-sync-overlay')!;
+  const pair = overlay.querySelector('.sync-bottom-row')!;
+  return {
+    panel: overlay.querySelector('.sync-glass-panel')!,
+    display: overlay.querySelector('.sync-manual-display')!,
+    pair,
+    pills: [...pair.querySelectorAll(':scope > button')],
+  };
 }
 
 describe('action pill rhythm contract', () => {
@@ -385,11 +466,12 @@ describe('action pill rhythm contract', () => {
   });
 
   it('lets only short screens compress dialog actions below the shared rhythm', () => {
-    // Short landscape phones trade the rhythm for reachable actions (44px
-    // pills and a 6px gap in the account dialog, 48px pills in the stepped
-    // dialog). Any other viewport condition that resizes an action row or
-    // pill, in any of the four app sheets and through any selector shape
-    // (an ID, a container, a descendant rule), would split the rhythm again.
+    // Short landscape phones trade the rhythm for reachable actions, only in
+    // the named SHORT_SCREEN_COMPRESSIONS (the account dialog, the stepped
+    // dialog and the manual sync pair). Any other viewport condition that
+    // resizes an action row or pill, in any of the four app sheets and
+    // through any selector shape (an ID, a container, a descendant rule),
+    // would split the rhythm again.
     const gaps = ['gap', 'row-gap', 'column-gap'];
     const heights = ['height', 'min-height'];
     const shared: Record<string, string> = {
@@ -408,6 +490,9 @@ describe('action pill rhythm contract', () => {
       });
     }
     const markup = appMarkup();
+    // The generic dialog becomes a stepped dialog at runtime; let the scan see
+    // that state's short-screen rules too.
+    markup.getElementById('dialog-overlay')!.classList.add('dialog-stepped');
     const rows = [
       ...markup.querySelectorAll(
         ':is(.adaptive-action-group, .dialog-actions, .ob-actions, .account-dialog-login-actions)',
@@ -417,6 +502,9 @@ describe('action pill rhythm contract', () => {
     expect(pills.length).toBeGreaterThanOrEqual(20);
     const overrides: string[] = [];
     const exceptionsSeen = new Set<string>();
+    const compressionsSeen = new Set<string>();
+    const compressionKey = (entry: (typeof SHORT_SCREEN_COMPRESSIONS)[number]) =>
+      `${entry.condition} ${entry.element} ${entry.declaration}`;
     for (const condition of conditions) {
       for (const [elements, properties] of [
         [rows, gaps],
@@ -439,6 +527,14 @@ describe('action pill rhythm contract', () => {
             const where = `${condition} ${describeElement(element)} ${value}`;
             overrides.push(where);
             expect(condition, where).toMatch(/^@media \(max-height: \d+px\)$/u);
+            const compression = SHORT_SCREEN_COMPRESSIONS.find(
+              (named) =>
+                named.condition === condition &&
+                element.matches(named.element) &&
+                named.declaration === value,
+            );
+            expect(compression, `${where} is not a named short-screen compression`).toBeDefined();
+            compressionsSeen.add(compressionKey(compression!));
             // Each compressed value is smaller than the shared value of its
             // axis (a one-value gap shorthand sets both axes).
             const reference = shared[property]!.trim().split(/\s+/u);
@@ -454,6 +550,9 @@ describe('action pill rhythm contract', () => {
     expect(overrides.length).toBeGreaterThan(0);
     expect([...exceptionsSeen].sort()).toEqual(
       CONDITIONAL_EXCEPTIONS.map((allowed) => allowed.element).sort(),
+    );
+    expect([...compressionsSeen].sort()).toEqual(
+      SHORT_SCREEN_COMPRESSIONS.map(compressionKey).sort(),
     );
   });
 
@@ -489,6 +588,175 @@ describe('action pill rhythm contract', () => {
       'background: var(--primary-filled)',
       'color: white',
     ]);
+  });
+
+  it('trims only the manual sync panel spacing at 360px and below', () => {
+    // Owner option C (2026-10-28), first step: the panel keeps 12px from the
+    // screen edges and pulls in its own spacing, so the nudge row and the pair
+    // stay on the first screen. Pill size and type keep the shared values.
+    const { panel, display, pair, pills } = manualSyncPanel();
+    expect(
+      appliedValues(
+        panel,
+        ['max-height', 'padding', 'padding-block', 'padding-top', 'padding-bottom'],
+        SHORT_PANEL,
+      ),
+    ).toEqual([
+      'max-height: calc(100vh - 24px)',
+      'max-height: calc(100dvh - 24px)',
+      'padding-block: 12px',
+    ]);
+    expect(
+      appliedValues(
+        display,
+        ['margin', 'margin-block', 'margin-top', 'margin-bottom'],
+        SHORT_PANEL,
+      ),
+    ).toEqual(['margin-block: 4px 12px']);
+    expect(appliedValues(pair, ['margin', 'margin-block', 'margin-top'], SHORT_PANEL)).toEqual([
+      'margin-top: 12px',
+    ]);
+    for (const element of [pair, ...pills]) {
+      expect(
+        appliedValues(
+          element,
+          ['gap', 'row-gap', 'column-gap', 'height', 'min-height'],
+          SHORT_PANEL,
+        ),
+        describeElement(element),
+      ).toEqual([]);
+    }
+    // Both steps sit in the base layer beside the panel's own rules, and
+    // neither declares type: the pair keeps the button label role.
+    const syncRules = [SHORT_PANEL, SHORT_SCREEN].flatMap((condition) =>
+      rulesUnder(condition).filter((rule) =>
+        rule.selectors.some((selector) => selector.includes('.sync-')),
+      ),
+    );
+    expect(syncRules).toHaveLength(5);
+    for (const rule of syncRules) {
+      expect(layerOf(rule), rule.selector).toBe('base');
+      rule.walkDecls((declaration) => {
+        expect(declaration.prop, rule.selector).not.toMatch(/^font|^letter-spacing$/u);
+      });
+    }
+  });
+
+  it("gives the manual sync pair the account dialog's short-screen pills at 350px and below", () => {
+    // Owner option C (2026-10-28), second step: the pair joins the account
+    // dialog's 350px trade instead of opening another pill threshold. The
+    // account values are read, not repeated, so changing one side fails.
+    const accountRow = appMarkup().getElementById('account-dialog-actions')!;
+    const accountGap = appliedValues(accountRow, ['gap', 'row-gap', 'column-gap'], SHORT_SCREEN);
+    const accountPills = [
+      ...new Set(
+        [...accountRow.querySelectorAll(':scope > :is(button, a)')].flatMap((pill) =>
+          appliedValues(pill, ['height', 'min-height'], SHORT_SCREEN),
+        ),
+      ),
+    ];
+    expect(accountGap).toHaveLength(1);
+    expect(accountPills).toHaveLength(1);
+
+    const { pair, pills } = manualSyncPanel();
+    expect(appliedValues(pair, ['gap', 'row-gap', 'column-gap'], SHORT_SCREEN)).toEqual(accountGap);
+    expect(appliedValues(pair, ['margin', 'margin-block', 'margin-top'], SHORT_SCREEN)).toEqual([
+      'margin-top: 8px',
+    ]);
+    expect(pills.map((pill) => pill.id)).toEqual(['btn-sync-done', 'btn-auto-sync']);
+    for (const pill of pills) {
+      expect(appliedValues(pill, ['height', 'min-height'], SHORT_SCREEN), pill.id).toEqual(
+        accountPills,
+      );
+      // The shared pill size is a minimum, so the smaller minimum takes over
+      // without a height reset and a wrapped label still grows the pill.
+      expect(appliedValues(pill, ['height']), pill.id).toEqual([]);
+    }
+  });
+
+  it('keeps the manual sync steps free of the keyboard guard the account dialog keeps', () => {
+    // These rules change only spacing inside the fixed overlay, so they cannot
+    // feed keyboard detection (the visual viewport height). A guard would grow
+    // the pair back to 56px and 12px the moment the value field raises the
+    // keyboard on a short landscape phone, moving the centred field while it
+    // is edited, and shrink it again when the keyboard closes. The account
+    // dialog keeps its guard; checking both blocks also catches a guard
+    // dropped from, or added to, the wrong one.
+    const syncSelectors = [SHORT_PANEL, SHORT_SCREEN].flatMap((condition) =>
+      rulesUnder(condition)
+        .flatMap((rule) => rule.selectors)
+        .filter((selector) => selector.includes('.sync-')),
+    );
+    expect(syncSelectors).toHaveLength(6);
+    for (const selector of syncSelectors) expect(selector).not.toContain('keyboard-open');
+
+    const accountSelectors = rulesUnder(SHORT_SCREEN)
+      .flatMap((rule) => rule.selectors)
+      .filter((selector) => selector.includes('.account-'));
+    expect(accountSelectors.length).toBeGreaterThan(0);
+    for (const selector of accountSelectors) {
+      expect(selector).toMatch(/^html:not\(\.keyboard-open\) /u);
+    }
+  });
+
+  it('never sets the manual sync pair closer to the nudge row than to its own wrapped row', () => {
+    // A wrapped Done sits below the nudge row by the pair's top margin and
+    // above Reset by the pair's row gap. The margin stays at least the row gap
+    // at every step (row-gap, since the two axes can differ), so the pair
+    // never reads as part of the nudge row.
+    const { pair } = manualSyncPanel();
+    const steps: Array<{ condition: string | null; margin: number; rowGap: number }> = [];
+    let margin = Number.NaN;
+    let rowGap = Number.NaN;
+    // Each step applies on top of the wider ones before it.
+    for (const condition of [null, SHORT_PANEL, SHORT_SCREEN]) {
+      const margins = appliedValues(pair, ['margin-top'], condition);
+      const { down } = gapAxes(appliedValues(pair, ['gap', 'row-gap', 'column-gap'], condition));
+      expect(margins.length, String(condition)).toBeLessThanOrEqual(1);
+      expect(down.length, String(condition)).toBeLessThanOrEqual(1);
+      if (margins[0]) margin = pixels(margins[0].replace(/^margin-top:\s*/u, ''));
+      if (down[0]) rowGap = pixels(down[0]);
+      steps.push({ condition, margin, rowGap });
+      expect(margin, String(condition)).toBeGreaterThanOrEqual(rowGap);
+    }
+    expect(steps).toEqual([
+      { condition: null, margin: 16, rowGap: Number.parseFloat(ACTION_GAP_DOWN) },
+      { condition: SHORT_PANEL, margin: 12, rowGap: Number.parseFloat(ACTION_GAP_DOWN) },
+      { condition: SHORT_SCREEN, margin: 8, rowGap: 6 },
+    ]);
+    // The 350px step must follow the 360px one to win where both apply.
+    const pairRuleLine = (condition: string) =>
+      rulesUnder(condition).find(
+        (rule) => rule.selector === '.sync-bottom-row.adaptive-action-group',
+      )?.source?.start?.line ?? -1;
+    expect(pairRuleLine(SHORT_PANEL)).toBeGreaterThan(0);
+    expect(pairRuleLine(SHORT_SCREEN)).toBeGreaterThan(pairRuleLine(SHORT_PANEL));
+  });
+
+  it("puts the manual sync spacing step on the compact sidebar's wordmark threshold", () => {
+    // Owner decision (2026-10-28): one short-height threshold rather than a
+    // new 360px one beside the sidebar's 370px wordmark rule. Above 360px the
+    // five labelled sidebar tabs fit beside the wordmark in every locale
+    // (measured 2026-10-29), so the wordmark rule moved to 360px and the
+    // manual sync step shares it.
+    const wordmarkHidden = new Set<string>();
+    appCss.walkRules((rule) => {
+      if (!rule.selectors.includes('html:not(.keyboard-open) #app-logo')) return;
+      rule.walkDecls('display', (declaration) => {
+        if (declaration.value === 'none') wordmarkHidden.add(conditionOf(rule) ?? 'always');
+      });
+    });
+    expect([...wordmarkHidden]).toContain(SHORT_PANEL);
+    const heightThresholds = new Set<string>();
+    for (const sheet of appSheets) {
+      sheet.walkAtRules('media', (rule) => {
+        for (const match of rule.params.matchAll(/max-height:\s*(\d+)px/gu)) {
+          heightThresholds.add(match[1]!);
+        }
+      });
+    }
+    expect(heightThresholds.has('360')).toBe(true);
+    expect(heightThresholds.has('370')).toBe(false);
   });
 
   it('shows the same dialog rhythm on the design-system page and the sign-in completion card', () => {

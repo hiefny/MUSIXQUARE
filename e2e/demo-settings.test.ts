@@ -227,16 +227,32 @@ for (const theme of ['dark', 'light'] as const) {
 
     await toggle.click();
     await sync.click();
+    // Owner option C (2026-10-28): at 350px tall and below the panel trims its
+    // spacing and the pair takes 44px pills, so a 240px landscape screen shows
+    // the whole panel without scrolling.
     await page.setViewportSize({ width: 844, height: 240 });
     const scrollBody = panel.locator('.sync-scroll-body');
     await expect(panel).toHaveCSS('opacity', '1');
     await expect(panel).toHaveCSS('transform', 'matrix(1, 0, 0, 1, 0, 0)');
     await expect
+      .poll(() => scrollBody.evaluate((element) => element.scrollHeight <= element.clientHeight))
+      .toBe(true);
+    await expect(scrollBody).not.toHaveClass(/has-scroll-overflow/);
+    for (const pill of ['#btn-auto-sync', '#btn-sync-done']) {
+      await expect(page.locator(pill)).toHaveCSS('height', '44px');
+    }
+    const fitted = (await panel.boundingBox())!;
+    expect(fitted.y).toBeGreaterThanOrEqual(12);
+    expect(fitted.y + fitted.height).toBeLessThanOrEqual(240 - 12);
+    await page.screenshot({ path: testInfo.outputPath('demo-inline-sync-landscape.png') });
+    // A shorter screen still scrolls the body while the pair stays put.
+    await page.setViewportSize({ width: 844, height: 200 });
+    await expect
       .poll(() => scrollBody.evaluate((element) => element.scrollHeight > element.clientHeight))
       .toBe(true);
     const bounds = (await panel.boundingBox())!;
     expect(bounds.y).toBeGreaterThanOrEqual(0);
-    expect(bounds.y + bounds.height).toBeLessThanOrEqual(240);
+    expect(bounds.y + bounds.height).toBeLessThanOrEqual(200);
     await expect(scrollBody).toHaveClass(/has-scroll-overflow/);
     const footer = panel.locator('.sync-bottom-row');
     const footerBeforeScroll = (await footer.boundingBox())!;
@@ -244,7 +260,7 @@ for (const theme of ['dark', 'light'] as const) {
     await page.mouse.wheel(0, 220);
     await expect.poll(() => scrollBody.evaluate((element) => element.scrollTop)).toBeGreaterThan(0);
     expect((await footer.boundingBox())!.y).toBe(footerBeforeScroll.y);
-    await page.screenshot({ path: testInfo.outputPath('demo-inline-sync-landscape.png') });
+    await page.screenshot({ path: testInfo.outputPath('demo-inline-sync-landscape-scroll.png') });
     await page.locator('#btn-sync-done').click();
     await expectExpanded(page, true);
     await emit(page, 'demo:request-exit');
@@ -267,6 +283,88 @@ for (const theme of ['dark', 'light'] as const) {
     await page.locator('#btn-sync-done').click();
   });
 }
+
+test('keeps the manual sync value field in view while the keyboard is open on short screens', async ({
+  page,
+}, testInfo) => {
+  // The panel's short-screen steps carry no keyboard-open guard, so raising
+  // the keyboard from the value field never resizes the panel around it.
+  await page.setViewportSize({ width: 390, height: 844 });
+  await enterDemo(page);
+  const root = page.locator('html');
+  const panel = page.locator('#manual-sync-overlay .sync-glass-panel');
+  const editor = page.locator('#manual-sync-value');
+  await page.locator('#btn-demo-settings').click();
+  await page.locator('#btn-demo-sync').click();
+  await expect(panel).toHaveCSS('opacity', '1');
+  await expect(panel).toHaveCSS('transform', 'matrix(1, 0, 0, 1, 0, 0)');
+  const layout = () =>
+    page.evaluate(
+      () =>
+        new Promise<Record<'panel' | 'body' | 'editor' | 'pair', { top: number; bottom: number }>>(
+          (resolve) => {
+            requestAnimationFrame(() =>
+              requestAnimationFrame(() => {
+                const box = (selector: string) => {
+                  const rect = document.querySelector(selector)!.getBoundingClientRect();
+                  return { top: rect.top, bottom: rect.bottom };
+                };
+                resolve({
+                  panel: box('#manual-sync-overlay .sync-glass-panel'),
+                  body: box('#manual-sync-overlay .sync-scroll-body'),
+                  editor: box('#manual-sync-value'),
+                  pair: box('#manual-sync-overlay .sync-bottom-row'),
+                });
+              }),
+            );
+          },
+        ),
+    );
+
+  // A 568x320 landscape phone: the field and the pair stay where they are.
+  await page.setViewportSize({ width: 568, height: 320 });
+  await editor.focus();
+  const landscape = await layout();
+  await root.evaluate((element) => element.classList.add('keyboard-open'));
+  const landscapeKeyboard = await layout();
+  await root.evaluate((element) => element.classList.remove('keyboard-open'));
+  expect(landscapeKeyboard.editor).toEqual(landscape.editor);
+  expect(landscapeKeyboard.pair).toEqual(landscape.pair);
+
+  // A browser whose keyboard shrinks the layout viewport (the viewport meta
+  // has no interactive-widget) takes a 360x640 phone to 360x330 while the
+  // value is edited. The field must stay whole inside the screen and the
+  // panel's body; how far it moves is recorded.
+  await page.setViewportSize({ width: 360, height: 640 });
+  await editor.focus();
+  const portrait = await layout();
+  await page.setViewportSize({ width: 360, height: 330 });
+  await root.evaluate((element) => element.classList.add('keyboard-open'));
+  const shrunk = await layout();
+  await root.evaluate((element) => element.classList.remove('keyboard-open'));
+  await testInfo.attach('manual sync value field with the keyboard open', {
+    body: JSON.stringify(
+      {
+        landscape,
+        landscapeKeyboard,
+        portrait,
+        shrunk,
+        editorMoved: shrunk.editor.top - portrait.editor.top,
+      },
+      null,
+      2,
+    ),
+    contentType: 'application/json',
+  });
+  expect(shrunk.editor.top).toBeGreaterThanOrEqual(0);
+  expect(shrunk.editor.bottom).toBeLessThanOrEqual(330);
+  expect(shrunk.editor.top).toBeGreaterThanOrEqual(shrunk.body.top);
+  expect(shrunk.editor.bottom).toBeLessThanOrEqual(shrunk.body.bottom);
+  expect(shrunk.body.top).toBeGreaterThanOrEqual(shrunk.panel.top);
+  expect(shrunk.body.bottom).toBeLessThanOrEqual(shrunk.panel.bottom);
+  await page.screenshot({ path: testInfo.outputPath('demo-sync-keyboard-portrait.png') });
+  await page.locator('#btn-sync-done').click();
+});
 
 test('demo virtual effects stay reflected in settings after enabling and disabling them', async ({
   page,

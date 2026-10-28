@@ -172,11 +172,15 @@ describe('PRO room branding', () => {
     expect(compactSidebarStyles).toMatch(
       /html\[data-pro-room\]\s+#app-logo\s*\{\s*align-self:\s*flex-start;\s*margin-inline-start:\s*13px;/,
     );
+    // Owner decision (2026-10-28): the wordmark yields at the app's 360px
+    // short-height step (the manual sync panel's spacing step), not at its own
+    // 370px. Above 360px the five labelled tabs fit beside it in every locale.
     expect(compactSidebarStyles).toMatch(
-      /@media\s*\(max-height:\s*370px\)[\s\S]*?html:not\(\.keyboard-open\) #app-logo\s*\{\s*display:\s*none\s*;/,
+      /@media\s*\(max-height:\s*360px\)\s*\{\s*html:not\(\.keyboard-open\) #app-logo\s*\{\s*display:\s*none\s*;/,
     );
+    expect(compactSidebarStyles).not.toMatch(/max-height:\s*370px/);
     expect(compactSidebarStyles).toMatch(/@media\s*\(max-height:\s*300px\)/);
-    expect(compactSidebarStyles.indexOf('@media (max-height: 370px)')).toBeLessThan(
+    expect(compactSidebarStyles.indexOf('@media (max-height: 360px)')).toBeLessThan(
       compactSidebarStyles.indexOf('@media (max-height: 300px)'),
     );
   });

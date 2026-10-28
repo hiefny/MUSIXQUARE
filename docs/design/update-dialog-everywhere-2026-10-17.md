@@ -100,7 +100,8 @@ navigations are network-first.
 - Unchanged: the cross-tab election that lets one tab present a generation's
   dialog, the generation checks, the silent activation of a same-generation
   worker, the hourly update check, and the lazy-feature recovery dialog in
-  `src/app.ts` (owner-approved exception 2026-10-11).
+  `src/app.ts` (owner-approved exception 2026-10-11; since 2026-10-28 it
+  offers 닫기 beside 새로고침).
 
 ### Review fixes
 

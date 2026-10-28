@@ -1080,12 +1080,15 @@ type LazyFeatureFailure = {
 const runLazyFeatureRecovery = createReloadRecoveryLatch<LazyFeatureFailure>({
   async present() {
     // Its own copy, not the waiting-worker update dialog's: this dialog can
-    // open in a room (where that dialog is deferred) and says the app was
-    // updated and needs a refresh to keep working. Owner decision 2026-10-11.
+    // open in a room and says the app was updated and needs a refresh to keep
+    // working. Owner decision 2026-10-11. Close on the left (owner decision
+    // 2026-10-28, reversing decision 7) declines like Back: only the feature
+    // that failed stays unopened, and the room stays as it is.
     const result = await showDialog({
       title: t('dialog.feature_refresh_title'),
       message: t('dialog.feature_refresh_msg'),
       buttonText: t('common.refresh'),
+      secondaryText: t('common.close'),
       defaultFocus: 'primary',
     });
     return result.action === 'ok' ? 'accept' : 'decline';

@@ -21,15 +21,13 @@ describe('connected-device list layout', () => {
     const stylesheet = await readFile('css/style.css', 'utf8');
     const kickButtonRules =
       stylesheet.match(/\.btn-kick-device,\s*\.btn-kick-physical-device\s*\{([^}]*)\}/)?.[1] ?? '';
-    const deviceHoverRules =
-      stylesheet.match(
-        /:where\(html\[data-hover-pointer\]\) \.device-subrow:hover \.btn-kick-physical-device\s*\{([^}]*)\}/,
-      )?.[1] ?? '';
 
-    // Visible on every input without a pointer-specific override; hover only
-    // colors it (src/ui/hover-pointer.ts owns when hover applies).
-    expect(kickButtonRules).toContain('opacity: 1');
-    expect(deviceHoverRules).toContain('opacity: 1');
+    // Visible on every input without a pointer-specific override, and nothing
+    // dims it, so no rule restores an opacity on row hover; hover only colors
+    // it (src/ui/hover-pointer.ts owns when hover applies).
+    expect(kickButtonRules).toContain('color: var(--text-muted)');
+    expect(kickButtonRules).not.toContain('opacity');
+    expect(stylesheet).not.toMatch(/\.device-(?:row|subrow):hover \.btn-kick-[\w-]+\s*\{/);
     expect(stylesheet).not.toMatch(/@media \(pointer: coarse\)/);
     expect(stylesheet).toMatch(
       /:where\(html\[data-hover-pointer\]\) \.device-subrow:hover \.btn-kick-physical-device:hover,\s*\.btn-kick-physical-device:focus-visible\s*\{[^}]*color:\s*var\(--danger-foreground\);/s,

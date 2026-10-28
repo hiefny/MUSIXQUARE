@@ -309,7 +309,7 @@ test.describe('Multi-Guest', () => {
         document.getElementById('connect-device-list') ||
         document.getElementById('desktop-device-list');
       if (!list) return 0;
-      return list.querySelectorAll('.device-row, .section-row').length;
+      return list.querySelectorAll('.device-row').length;
     });
     expect(deviceRows).toBeGreaterThanOrEqual(4); // host + 3 guests
   });

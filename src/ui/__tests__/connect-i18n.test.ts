@@ -2722,7 +2722,9 @@ describe('member-level connection and administrator UI', () => {
     const playlistRemoveButtonRules =
       stylesheet.match(/\.btn-playlist-remove\s*\{([^}]*)\}/)?.[1] ?? '';
     const memberKickIconRules = stylesheet.match(/\.btn-kick-device svg\s*\{([^}]*)\}/)?.[1] ?? '';
-    const memberKickButtonRules = stylesheet.match(/\.btn-kick-device\s*\{([^}]*)\}/)?.[1] ?? '';
+    // Selector by selector: an unanchored `.btn-kick-device {` pattern reads
+    // whichever rule first ends in that compound, such as a row-hover rule.
+    const memberKickButtonRules = cssRulesWithSelector(stylesheet, '.btn-kick-device');
     const kickButtonBaseRules =
       stylesheet.match(/\.btn-kick-device,\s*\.btn-kick-physical-device\s*\{([^}]*)\}/)?.[1] ?? '';
     const physicalDeviceKickIconRules =
@@ -2749,7 +2751,12 @@ describe('member-level connection and administrator UI', () => {
     expect(memberKickIconRules).toContain('height: 16px');
     expect(memberKickIconRules).toContain('stroke: currentColor');
     expect(memberKickIconRules).toContain('stroke-width: 0.5');
-    expect(memberKickButtonRules).toContain('opacity: 1');
+    // The member button keeps only the rule it shares with the physical-device
+    // button, and nothing dims either, so neither declares an opacity.
+    expect(memberKickButtonRules.map((rule) => rule.selectors)).toEqual([
+      ['.btn-kick-device', '.btn-kick-physical-device'],
+    ]);
+    expect(memberKickButtonRules[0]!.declarations.join('\n')).not.toContain('opacity');
     expect(kickButtonBaseRules).toContain('color: var(--text-muted)');
     expect(physicalDeviceKickIconRules).toContain('width: 16px');
     expect(physicalDeviceKickIconRules).toContain('height: 16px');

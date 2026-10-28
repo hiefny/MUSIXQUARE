@@ -2977,7 +2977,8 @@ describe('action button label contract', () => {
 
     // The reds that were hard-coded read the role now: error and validation
     // text and the destructive row icons. (The unreachable disconnected
-    // device badge is gone; settings.test.ts keeps it out.)
+    // device badge went with the hidden settings device list; settings.test.ts
+    // 'hidden settings device list removal' keeps them out.)
     const roleReaders: Array<[string, string]> = [
       ['.dialog-hint.error', 'color'],
       ['.dialog-input.invalid', 'border-bottom-color'],
@@ -3084,5 +3085,29 @@ describe('action button label contract', () => {
     }
     // The setup screens never used the text-link button kind.
     expect(read('src/ui/setup-shared.ts')).not.toMatch(/text-link/u);
+  });
+
+  it('gives the device removal icons no opacity to restore', () => {
+    // The member and physical-device removal icons show on every input and
+    // no rule dims them, so a rule that names them sets or animates no
+    // opacity; hover and focus only color them.
+    const removal = /\.btn-kick-(?:physical-)?device(?![\w-])/u;
+    const violations: string[] = [];
+    for (const { path, root } of sheets) {
+      root.walkRules((rule) => {
+        if (!removal.test(rule.selector)) return;
+        rule.each((node) => {
+          if (node.type !== 'decl') return;
+          const animated =
+            /^transition(?:-property)?$/u.test(node.prop) && /\bopacity\b/u.test(node.value);
+          if (node.prop === 'opacity' || animated) {
+            violations.push(
+              `${where(node, path)} ${rule.selector} { ${node.prop}: ${node.value} }`,
+            );
+          }
+        });
+      });
+    }
+    expect(violations).toEqual([]);
   });
 });

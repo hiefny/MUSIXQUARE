@@ -3,6 +3,7 @@
  */
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { readdirSync, readFileSync } from 'node:fs';
+import { parse as parseCss } from 'postcss';
 import { bus } from '../../core/events.ts';
 import { getState, resetState, setState } from '../../core/state.ts';
 import { showToast } from '../toast.ts';
@@ -10,7 +11,7 @@ import { LANGUAGE_OPTIONS, setLanguageMode, t } from '../../i18n/index.ts';
 import { hasLocaleFont } from '../../i18n/locale-fonts.ts';
 import { markStandardRoomAuthorityConfirmed } from '../../rooms/authority.ts';
 import { roomCapabilityFeedbackTip } from '../../rooms/permission-feedback.ts';
-import type { DataConnection } from '../../types/index.ts';
+import type { DataConnection, RoomContext } from '../../types/index.ts';
 import { configureSystemAudioCaptureActivityProbe } from '../../audio/system-audio-policy.ts';
 import {
   acceptCanonicalRoomSettings,
@@ -610,26 +611,70 @@ describe('settings synchronization preference', () => {
   });
 });
 
-describe('initSettings PRO device authority', () => {
-  it('does not render the legacy ADMIN badge or grant/revoke action', () => {
+describe('hidden settings device list removal', () => {
+  // The audio panel used to end in a "Connected devices" section that
+  // style.css and desktop.css hid at every width; the connect tab and the
+  // desktop connect subtab list the room's devices. Its markup, renderer,
+  // rules and copy are gone. The device list state and its event stay with
+  // their other readers (connect, chat, demo, account statistics).
+  it('leaves no markup, rule, renderer or copy of the hidden list', () => {
+    const markup = readFileSync('index.html', 'utf8');
+    for (const fragment of [
+      'settings-device-section',
+      'id="device-list"',
+      'settings.devices_title',
+    ]) {
+      expect(markup, fragment).not.toContain(fragment);
+    }
+
+    // css/app.css imports these four files; together they are the app stylesheet.
+    const retired = /(?:\.settings-device-section|#device-list|\.d-status|\.section-row)(?![\w-])/u;
+    for (const path of [
+      'css/style.css',
+      'css/desktop.css',
+      'css/rtl.css',
+      'css/playback-actions.css',
+    ]) {
+      parseCss(readFileSync(path, 'utf8')).walkRules((rule) => {
+        expect(retired.test(rule.selector), `${path}: ${rule.selector}`).toBe(false);
+      });
+    }
+
+    const settingsSource = readFileSync('src/ui/settings.ts', 'utf8');
+    for (const fragment of [
+      'network:device-list-update',
+      'lastKnownDeviceList',
+      'renderDeviceList',
+      'common.connected',
+    ]) {
+      expect(settingsSource, fragment).not.toContain(fragment);
+    }
+
+    const locales = readdirSync('src/i18n').filter((name) =>
+      /^[a-z]{2,3}(?:-[a-z]+)?\.ts$/u.test(name),
+    );
+    expect(locales).toHaveLength(42);
+    for (const locale of locales) {
+      const source = readFileSync(`src/i18n/${locale}`, 'utf8');
+      // The disconnected badge and its copy went first, in 9.0.19.
+      for (const key of ['common.connected', 'common.disconnected', 'settings.devices_title']) {
+        expect(source, `${locale}: ${key}`).not.toContain(`'${key}'`);
+      }
+    }
+  });
+
+  it('keeps a stray device-list node empty through list, room and language updates', async () => {
     document.body.insertAdjacentHTML('beforeend', '<div id="device-list"></div>');
     initSettings();
+    const stray = document.getElementById('device-list')!;
 
     const deviceList = [
-      {
-        id: 'peer-1',
-        label: 'Привет',
-        status: 'connected',
-        isHost: false,
-        isOp: true,
-      },
+      { id: 'host-1', label: 'HOST', status: 'connected', isHost: true, isOp: true },
+      { id: 'peer-1', label: 'Привет', status: 'connected', isHost: false, isOp: false },
     ];
     setState('network.lastKnownDeviceList', deviceList);
     bus.emit('network:device-list-update', deviceList);
-
-    expect(document.querySelector('.d-name')?.textContent).not.toContain('ADMIN');
-    expect(document.querySelector('.d-name')?.classList).toContain('user-text-font-ru');
-    expect(document.querySelector('.btn-action')).toBeNull();
+    expect(stray.innerHTML).toBe('');
 
     setState('room.context', {
       kind: 'pro',
@@ -640,45 +685,40 @@ describe('initSettings PRO device authority', () => {
       snapshotRevision: 1,
       capabilities: ['members.manage'],
     });
+    expect(stray.innerHTML).toBe('');
 
-    expect(document.querySelector('.d-name')?.textContent).not.toContain('ADMIN');
-    expect(document.querySelector('.btn-action')).toBeNull();
-    expect(document.querySelector('.d-status')?.textContent).toBe('Connected');
+    await setLanguageMode('ko');
+    bus.emit('i18n:changed', 'ko');
+    expect(stray.innerHTML).toBe('');
   });
-});
 
-describe('initSettings device list status', () => {
-  it('shows one connected badge, the only status a device list carries', () => {
-    // Every device list lists room members only: the host broadcast keeps
-    // peers whose status is 'connected' (peer.test.ts) and the PRO presence
-    // projection marks every participant connected
-    // (runtime-member-projection.test.ts). A disconnected badge never had a
-    // row to show on, so neither it, its rule nor its copy remains.
-    document.body.insertAdjacentHTML('beforeend', '<div id="device-list"></div>');
+  it('keeps re-deciding the audio settings lock when the room context changes', () => {
+    // The list shared its room-context subscription with the lock, and its
+    // test was the only one that changed the context after start.
+    installEffectSettingsDom();
     initSettings();
-    const deviceList = [
-      { id: 'host-1', label: 'HOST', status: 'connected', isHost: true, isOp: true },
-      { id: 'peer-1', label: 'Peer 1', status: 'connected', isHost: false, isOp: false },
-    ];
-    setState('network.lastKnownDeviceList', deviceList);
-    bus.emit('network:device-list-update', deviceList);
+    const reverb = document.getElementById('grid-reverb')!;
+    const slider = document.getElementById('reverb-slider') as HTMLInputElement;
+    expect(reverb.classList.contains('host-ctrl-locked')).toBe(false);
 
-    const badges = [...document.querySelectorAll('#device-list .d-status')];
-    expect(badges.map((badge) => badge.className)).toEqual(['d-status active', 'd-status active']);
-    expect(badges.map((badge) => badge.textContent)).toEqual(['Connected', 'Connected']);
+    const member: RoomContext = {
+      kind: 'pro',
+      roomId: '000001',
+      role: 'member',
+      coordinatorId: 'coordinator-1',
+      epoch: 1,
+      snapshotRevision: 1,
+      capabilities: [],
+    };
+    setState('room.context', member);
+    expect(reverb.classList.contains('host-ctrl-locked')).toBe(true);
+    expect(reverb.getAttribute('aria-disabled')).toBe('true');
+    expect(slider.disabled).toBe(true);
 
-    const settingsSource = readFileSync('src/ui/settings.ts', 'utf8');
-    expect(settingsSource).not.toMatch(/common\.disconnected|'inactive'/u);
-    expect(readFileSync('css/style.css', 'utf8')).not.toMatch(/\.d-status\.inactive\b/u);
-    const locales = readdirSync('src/i18n').filter((name) =>
-      /^[a-z]{2,3}(?:-[a-z]+)?\.ts$/u.test(name),
-    );
-    expect(locales).toHaveLength(42);
-    for (const locale of locales) {
-      const source = readFileSync(`src/i18n/${locale}`, 'utf8');
-      expect(source, locale).toContain("'common.connected'");
-      expect(source, locale).not.toContain("'common.disconnected'");
-    }
+    setState('room.context', { ...member, snapshotRevision: 2, capabilities: ['effects.control'] });
+    expect(reverb.classList.contains('host-ctrl-locked')).toBe(false);
+    expect(reverb.getAttribute('aria-disabled')).toBe('false');
+    expect(slider.disabled).toBe(false);
   });
 });
 

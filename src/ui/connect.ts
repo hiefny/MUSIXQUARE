@@ -1731,9 +1731,9 @@ function initAdministratorPermissionsDialog(): void {
       showToast(t('error.network_generic'));
     });
   });
-  overlay.addEventListener('click', (event) => {
-    if (event.target === overlay) closeAdministratorPermissionsDialog();
-  });
+  // Owner policy (2026-10-28): the backdrop never closes the editor, so a
+  // press that ends off the panel keeps the draft. Cancel, Back and Escape
+  // close it.
   onWindowBack(overlay, () => {
     if (!overlay.classList.contains('show')) return false;
     closeAdministratorPermissionsDialog();

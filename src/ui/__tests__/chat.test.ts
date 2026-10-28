@@ -374,13 +374,18 @@ describe('Chat Module', () => {
         new KeyboardEvent('keydown', { key: 'Tab', bubbles: true, cancelable: true }),
       );
       expect(document.activeElement).toBe(ok);
-      document
-        .getElementById('btn-dialog-ok')!
-        .dispatchEvent(
-          new KeyboardEvent('keydown', { key: 'Escape', bubbles: true, cancelable: true }),
-        );
+      const escape = new KeyboardEvent('keydown', {
+        key: 'Escape',
+        bubbles: true,
+        cancelable: true,
+      });
+      document.getElementById('btn-dialog-ok')!.dispatchEvent(escape);
+      // Escape is Back (owner decision 2026-10-28): it closes only the top
+      // window, the dialog, and leaves the drawer below it open.
+      expect(escape.defaultPrevented).toBe(true);
+      expect(await pending).toEqual({ action: 'back' });
       expect(drawer.classList.contains('open')).toBe(true);
-      expect(document.getElementById('dialog-overlay')?.classList.contains('show')).toBe(true);
+      expect(document.getElementById('dialog-overlay')?.classList.contains('show')).toBe(false);
     } finally {
       closeDialog();
       await pending;

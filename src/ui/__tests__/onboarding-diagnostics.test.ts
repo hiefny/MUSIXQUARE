@@ -353,8 +353,14 @@ describe('onboarding diagnostics overlay', () => {
         <button id="btn-dialog-ok"></button><button id="btn-dialog-secondary"></button></div>`;
     syncOverlayState('setup-overlay');
     openOnboardingDiagnostics();
-    // A late authenticated session can open this ordinary nickname dialog.
-    const pending = showDialog({ title: 'Nickname', message: 'Complete your profile' });
+    // A late dialog opens above the diagnostics. Escape is Back (owner
+    // decision 2026-10-28) and would close an ordinary dialog, so this one
+    // needs its tap, as audio recovery does, to keep the lock under test.
+    const pending = showDialog({
+      title: 'Tap to resume',
+      message: 'Only this tap restarts audio',
+      closeOnBack: false,
+    });
     try {
       const diagnostics = document.getElementById('onboarding-diagnostics-overlay')!;
       const dialog = document.getElementById('dialog-overlay')!;

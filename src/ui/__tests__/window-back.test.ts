@@ -8,6 +8,7 @@ import {
   beginBackSurfaceTransition,
   hasOpenWindow,
   offerBackToTopWindow,
+  offerEscapeToWindow,
   onOverlayStackChange,
   onWindowBack,
   syncOverlayState,
@@ -336,6 +337,67 @@ describe('history Back to the topmost window', () => {
 
     expect(hasOpenWindow()).toBe(true);
     expect(offerBackToTopWindow().handled).toBe(false);
+  });
+
+  // Owner decision (2026-10-28): Escape behaves exactly like Back, for the
+  // top window only, and never passes a key the window does not use on.
+  describe('Escape as Back', () => {
+    it('reaches a window only while it is the one Back would reach', () => {
+      const media = overlay('media-source-overlay', 'active');
+      syncOverlayState('media-source-overlay');
+      const language = overlay('language-dialog-overlay', 'show');
+      syncOverlayState('language-dialog-overlay');
+      const mediaBack = vi.fn(() => true);
+      const languageBack = vi.fn(() => {
+        language.classList.remove('show');
+        return true;
+      });
+      onWindowBack(media, mediaBack);
+      onWindowBack(language, languageBack);
+
+      expect(offerEscapeToWindow(media)).toBe(false);
+      expect(mediaBack).not.toHaveBeenCalled();
+      expect(offerEscapeToWindow(language)).toBe(true);
+      expect(languageBack).toHaveBeenCalledOnce();
+
+      expect(offerEscapeToWindow(media)).toBe(true);
+      expect(mediaBack).toHaveBeenCalledOnce();
+    });
+
+    it('gives a layer inside the window the first chance, as Back does', () => {
+      const demo = overlay('demo-overlay', 'active');
+      const header = document.createElement('div');
+      demo.appendChild(header);
+      syncOverlayState('demo-overlay');
+      let expanded = true;
+      const layerBack = vi.fn(() => {
+        if (!expanded) return false;
+        expanded = false;
+        return true;
+      });
+      const demoBack = vi.fn(() => true);
+      onWindowBack(header, layerBack);
+      onWindowBack(demo, demoBack);
+
+      expect(offerEscapeToWindow(demo)).toBe(true);
+      expect(demoBack).not.toHaveBeenCalled();
+      expect(offerEscapeToWindow(demo)).toBe(true);
+      expect(demoBack).toHaveBeenCalledOnce();
+    });
+
+    it('reports a key the window does not use, and never reaches the page or setup', () => {
+      const setup = overlay('setup-overlay', 'active');
+      const setupBack = vi.fn(() => true);
+      onWindowBack(setup, setupBack);
+      syncOverlayState('setup-overlay');
+      expect(offerEscapeToWindow(setup)).toBe(false);
+      expect(setupBack).not.toHaveBeenCalled();
+
+      const demo = overlay('demo-overlay', 'active');
+      syncOverlayState('demo-overlay');
+      onWindowBack(demo, () => false);
+      expect(offerEscapeToWindow(demo)).toBe(false);
+    });
   });
 
   it('uses the Back when a window handler throws, so the page never leaves', () => {

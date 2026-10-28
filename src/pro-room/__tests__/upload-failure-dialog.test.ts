@@ -220,7 +220,7 @@ describe('PRO upload failure dialog ownership', () => {
     expect(queue.dismissFailedBatch).toHaveBeenCalledWith('batch-1');
   });
 
-  it.each(['secondary', 'escape'])(
+  it.each(['secondary', 'back'])(
     'dismisses the failed batch only after the explicit %s action',
     async (action) => {
       const queue = createQueue();

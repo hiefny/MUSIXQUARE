@@ -636,7 +636,6 @@ describe('Dialog System', () => {
       const resolved = vi.fn();
       const promise = showDialog({
         title: 'Rename',
-        dismissible: true,
         inputField: { defaultValue: '한' },
         onPrimaryActivation,
       });
@@ -657,8 +656,9 @@ describe('Dialog System', () => {
 
       input.textContent = '한글';
       input.dispatchEvent(new KeyboardEvent('keydown', { key: options.key, bubbles: true }));
+      // Escape is history Back from the keyboard: a cancel, resolved as `back`.
       expect(await promise).toEqual({
-        action: options.key === 'Enter' ? 'ok' : 'escape',
+        action: options.key === 'Enter' ? 'ok' : 'back',
         inputValue: '한글',
       });
       await observed;
@@ -666,54 +666,89 @@ describe('Dialog System', () => {
       vi.advanceTimersByTime(10);
     });
 
-    it('Escape closes dismissible dialog', async () => {
+    // Owner decision (2026-10-28): Escape behaves exactly like history Back.
+    // It used to close only a dialog that opted in with `dismissible`, while
+    // Back closed every dialog (the 8.11.9 split this replaces).
+    it.each([
+      { name: 'a one-button notice', options: { title: 'Notice', message: 'Read me' } },
+      {
+        name: 'a confirmation',
+        options: { title: 'Leave?', buttonText: 'Leave', secondaryText: 'Stay' },
+      },
+    ])('Escape closes $name as Back does, without either activation hook', async (entry) => {
       const { showDialog } = await import('../dialog.ts');
-      const promise = showDialog({ title: 'Esc Test', dismissible: true });
+      const onPrimaryActivation = vi.fn();
+      const onSecondaryActivation = vi.fn();
+      const promise = showDialog({
+        ...entry.options,
+        onPrimaryActivation,
+        onSecondaryActivation,
+      });
       vi.advanceTimersByTime(10);
 
-      window.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape' }));
-      vi.advanceTimersByTime(10);
+      const escape = new KeyboardEvent('keydown', { key: 'Escape', cancelable: true });
+      window.dispatchEvent(escape);
 
-      const result = await promise;
-      expect(result.action).toBe('escape');
+      expect(escape.defaultPrevented).toBe(true);
+      expect(await promise).toEqual({ action: 'back' });
+      expect(onPrimaryActivation).not.toHaveBeenCalled();
+      expect(onSecondaryActivation).not.toHaveBeenCalled();
+      expect(document.getElementById('dialog-overlay')?.classList.contains('show')).toBe(false);
+      vi.advanceTimersByTime(10);
     });
 
-    it('Escape does NOT close regular dialogs by default', async () => {
+    it('Escape keeps a dialog whose tap is required, as Back does, and still uses the key', async () => {
       const { showDialog, closeDialog } = await import('../dialog.ts');
       let resolved = false;
-      const promise = showDialog({ title: 'Default Esc Test' });
+      const promise = showDialog({ title: 'Tap to resume', closeOnBack: false });
       const observedResolution = promise.then(() => {
         resolved = true;
       });
       vi.advanceTimersByTime(10);
 
-      window.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape' }));
+      const escape = new KeyboardEvent('keydown', { key: 'Escape', cancelable: true });
+      window.dispatchEvent(escape);
       vi.advanceTimersByTime(10);
 
+      expect(escape.defaultPrevented).toBe(true);
       expect(resolved).toBe(false);
+      expect(document.getElementById('dialog-overlay')?.classList.contains('show')).toBe(true);
 
       closeDialog('ok');
       vi.advanceTimersByTime(10);
       await observedResolution;
     });
 
-    it('Escape does NOT close non-dismissible dialog', async () => {
+    it('Escape reaches only the top window, never a dialog below another one', async () => {
+      const { __resetModalStackForTests, syncOverlayState } = await import('../dom.ts');
       const { showDialog, closeDialog } = await import('../dialog.ts');
+      __resetModalStackForTests();
       let resolved = false;
-      const promise = showDialog({ title: 'No Esc', dismissible: false });
+      const promise = showDialog({ title: 'Below', secondaryText: 'Cancel' });
       const observedResolution = promise.then(() => {
         resolved = true;
       });
       vi.advanceTimersByTime(10);
+      const above = document.createElement('div');
+      above.id = 'account-dialog-overlay';
+      above.className = 'show';
+      document.body.appendChild(above);
+      syncOverlayState('account-dialog-overlay');
 
-      window.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape' }));
-      vi.advanceTimersByTime(10);
+      const escape = new KeyboardEvent('keydown', { key: 'Escape', cancelable: true });
+      window.dispatchEvent(escape);
+      await Promise.resolve();
 
+      expect(escape.defaultPrevented).toBe(false);
       expect(resolved).toBe(false);
+      expect(document.getElementById('dialog-overlay')?.classList.contains('show')).toBe(true);
 
+      above.remove();
+      syncOverlayState();
       closeDialog('ok');
       vi.advanceTimersByTime(10);
       await observedResolution;
+      __resetModalStackForTests();
     });
   });
 
@@ -849,7 +884,6 @@ describe('Dialog System', () => {
       const promise = showDialog({
         message: 'Read this notice',
         contentLayout: 'reading',
-        dismissible: true,
         secondaryText: 'Cancel',
         onPrimaryActivation: activated,
       });
@@ -879,7 +913,7 @@ describe('Dialog System', () => {
         // Native Tab advances within the cycle; only its boundaries are trapped.
         expect(key('Tab').defaultPrevented).toBe(false);
         expect(key('Escape').defaultPrevented).toBe(true);
-        await expect(promise).resolves.toEqual({ action: 'escape' });
+        await expect(promise).resolves.toEqual({ action: 'back' });
         expect(document.activeElement).toBe(launcher);
         expect(overlay.classList.contains('show')).toBe(false);
         expect(overlay.querySelector('.cscroll-track')).toBeNull();
@@ -1166,7 +1200,7 @@ describe('Dialog System', () => {
       vi.advanceTimersByTime(10);
     });
 
-    it('goes back with Enter on Back and closes on Escape from either page', async () => {
+    it('goes back with Enter on Back, and Escape steps back before it closes, as Back does', async () => {
       const { showDialog } = await import('../dialog.ts');
       const first = showDialog({
         title: 'PIN',
@@ -1183,7 +1217,7 @@ describe('Dialog System', () => {
       expect(key(secondary(), 'Enter').defaultPrevented).toBe(true);
       expect(frame().hidden).toBe(true);
       key(window, 'Escape');
-      expect(await first).toMatchObject({ action: 'escape', inputValue: '12345678' });
+      expect(await first).toMatchObject({ action: 'back', inputValue: '12345678' });
       vi.advanceTimersByTime(10);
 
       const second = showDialog({
@@ -1196,8 +1230,15 @@ describe('Dialog System', () => {
       vi.advanceTimersByTime(10);
       fillPin('1234', '5678');
       ok().click();
+      expect(frame().hidden).toBe(false);
+      // Owner decision (2026-10-28): Escape is Back, so the choice page steps
+      // back to the PIN page first instead of closing from either page.
+      expect(key(window, 'Escape').defaultPrevented).toBe(true);
+      expect(frame().hidden).toBe(true);
+      expect(secondary().textContent).toBe('Cancel');
+      expect(document.getElementById('dialog-overlay')?.classList.contains('show')).toBe(true);
       key(window, 'Escape');
-      expect(await second).toMatchObject({ action: 'escape' });
+      expect(await second).toMatchObject({ action: 'back', inputValue: '12345678' });
       vi.advanceTimersByTime(10);
     });
 
@@ -1586,7 +1627,7 @@ describe('history Back on dialogs', () => {
     vi.advanceTimersByTime(10);
   });
 
-  it('closes a one-button notice that Escape would keep', async () => {
+  it('closes a one-button notice as a cancel, as Escape does', async () => {
     const { offerBackToTopWindow } = await import('../dom.ts');
     const { showDialog } = await import('../dialog.ts');
     const promise = showDialog({ title: 'Notice', message: 'Read me', dismissible: false });

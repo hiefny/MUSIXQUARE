@@ -353,8 +353,9 @@ test('owner sets the PIN, then chooses who stays on a second page', async ({ pag
   // "Everyone rejoins" sends the legacy body every Worker understands.
   expect(state.changes[1]).toEqual({ pin: '11112222' });
 
-  // A double click on Next stops on the second page (its OK is not pressed),
-  // and Escape there closes without a change.
+  // A double click on Next stops on the second page (its OK is not pressed).
+  // Escape is Back (owner decision, 2026-10-28): it steps back to the first
+  // page, then closes, without a change.
   await page
     .locator('#room-password-refresh:visible, #desktop-room-password-refresh:visible')
     .click();
@@ -364,6 +365,10 @@ test('owner sets the PIN, then chooses who stays on a second page', async ({ pag
   await expect(title).toHaveText('What should happen to current participants?');
   await expect(keep).toBeChecked();
   expect(state.changes).toHaveLength(2);
+  await page.keyboard.press('Escape');
+  await expect(title).toHaveText('Change room password');
+  await expect(segments.first()).toHaveValue('3333');
+  await expect(page.locator('#dialog-overlay')).toHaveClass(/show/);
   await page.keyboard.press('Escape');
   await expect(page.locator('#dialog-overlay')).not.toHaveClass(/show/);
   expect(state.changes).toHaveLength(2);

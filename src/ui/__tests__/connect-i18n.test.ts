@@ -311,6 +311,19 @@ describe('connect signaling health status', () => {
     expect(retry.textContent).toBe('새로 입장');
     expect(button.dataset.mode).toBe('expired');
 
+    // Owner decision (2026-10-28): Escape behaves exactly like Back, which
+    // closes this dialog as its plain close, without a retry. The key used to
+    // do nothing here.
+    retry.focus();
+    const escape = new KeyboardEvent('keydown', { key: 'Escape', bubbles: true, cancelable: true });
+    retry.dispatchEvent(escape);
+    expect(escape.defaultPrevented).toBe(true);
+    expect(overlay.classList.contains('show')).toBe(false);
+    expect(vi.mocked(returnToRoomStart)).not.toHaveBeenCalled();
+    button.click();
+    expect(overlay.classList.contains('show')).toBe(true);
+    expect(dialog.dataset.state).toBe('expired');
+
     retry.click();
     expect(mockedRetryPeerSignalingConnection).toHaveBeenCalledOnce();
     expect(vi.mocked(returnToRoomStart)).toHaveBeenCalledExactlyOnceWith(
@@ -3529,7 +3542,7 @@ describe('PRO optional entry password controls', () => {
     },
   );
 
-  it.each(['escape', 'secondary', 'superseded'])(
+  it.each(['back', 'secondary', 'superseded'])(
     'sends nothing when the two-step dialog ends with %s',
     async (action) => {
       openOwnerSettings(false);
@@ -3858,7 +3871,7 @@ describe('Standard-room owner PIN controls', () => {
     expect(lastDialogOptions().choiceStep).toBeUndefined();
   });
 
-  it.each(['secondary', 'escape', 'superseded'])(
+  it.each(['secondary', 'back', 'superseded'])(
     'sends nothing and leaves the room open when the dialog ends with %s',
     async (action) => {
       openHostSettings(false, [presentPeer('guest-1')]);

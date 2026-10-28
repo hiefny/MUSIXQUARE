@@ -9001,10 +9001,12 @@ or pointers. Keep :focus-visible and :active outside the gate (src/ui/__tests__/
     background: var(--surface-3);
   }
 
-  /* The Reset / Done pair is an adaptive action group (index.html): 56px
+  /* The Done / Reset pair is an adaptive action group (index.html): 56px
      pills 10px apart side by side and 12px down like every dialog action,
      each sized by its label, and each on its own full row only when the
-     localized pair no longer fits. Labels wrap only at word boundaries. */
+     localized pair no longer fits. Labels wrap only at word boundaries.
+     Done, the exit, comes first with the secondary look and Reset, the
+     action, follows with the primary fill (owner policy 2026-10-28). */
   .sync-bottom-row {
     width: 100%;
     margin-top: 16px;
@@ -9026,22 +9028,22 @@ or pointers. Keep :focus-visible and :active outside the gate (src/ui/__tests__/
       transform 0.1s;
   }
 
-  .sync-reset-btn {
+  .sync-done-btn {
     background: var(--surface-2);
     color: var(--text-sub);
   }
 
-  .sync-reset-btn:active {
+  .sync-done-btn:active {
     transform: scale(0.96);
     background: var(--surface-3);
   }
 
-  .sync-done-btn {
+  .sync-reset-btn {
     background: var(--primary-filled);
     color: white;
   }
 
-  .sync-done-btn:active {
+  .sync-reset-btn:active {
     transform: scale(0.96);
     opacity: 0.85;
   }

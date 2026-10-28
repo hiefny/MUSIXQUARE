@@ -357,13 +357,31 @@ never treated as a legacy HMAC string.
 Before changing the binding, first deploy the keyring-capable release to both
 Workers. Remote Share `/security-config` must report
 `roomUploadAssertionKeyringVersion: 1`. Signaling is checked by its version, not
-by a marker: record the live version IDs of both Workers against the approved
-release. Then confirm a real allocation with the strict live Remote Share smoke
-(`npm run smoke:live:remote-share -- --require-assertion`): its authenticated
-host asks signaling for an upload assertion, and Remote Share accepts it for a
-whole-object session. During a release the smoke also waits for the expected
-version ID of each Worker. The smoke does not read signaling's `peer-open`
-markers, so it passes whether or not signaling advertises them.
+by a marker: read the live version IDs of both Workers (the `version_id` at 100
+percent) and record them against the approved release:
+
+```bash
+npm run --silent wrangler -- deployments status --config cloudflare/wrangler.remote-share.toml --json
+npm run --silent wrangler -- deployments status --config cloudflare/wrangler.signaling.toml --json
+```
+
+Then confirm a real allocation with the strict live Remote Share smoke, run with
+both expected version variables set to those IDs:
+
+```bash
+MXQR_EXPECTED_REMOTE_SHARE_VERSION=<remote-share-version-id> \
+MXQR_EXPECTED_SIGNALING_VERSION=<signaling-version-id> \
+npm run smoke:live:remote-share -- --require-assertion
+```
+
+Its authenticated host asks signaling for an upload assertion, and Remote Share
+accepts it for a whole-object session. The smoke waits up to two minutes for
+each Worker to answer with its expected version ID and fails otherwise. Without
+the two variables it checks no version at all, so always set them, as the
+release's strict smoke does. The smoke does not read signaling's `peer-open`
+markers: it passes on a signaling Worker that holds the assertion secret whether
+or not that Worker advertises them, and one without the secret fails on its own
+refusal of the assertion request.
 `--require-assertion` checks nothing more than a plain run: both modes require
 the assertion and keyring readiness of Remote Share and a real assertion for
 the allocation, and the flag only sets `assertionExplicitlyRequested` in the
@@ -380,15 +398,21 @@ Rotate in this order:
 2. Put the two-slot keyring on **Remote Share first**. Confirm
    `/security-config` remains healthy and still reports keyring version 1. It
    now verifies both old unkeyed/current traffic and the future keyed assertion.
-3. Put the byte-identical keyring on **signaling second**. Run the strict live
-   Remote Share smoke and confirm a real allocation succeeds. Never swap these
-   first two steps: a new keyed assertion cannot be verified by the old plain
-   Remote Share configuration.
+3. Put the byte-identical keyring on **signaling second**. Each secret change
+   makes a new Worker version, so read both live version IDs again with the two
+   `deployments status` commands above, then run the strict live Remote Share
+   smoke with `MXQR_EXPECTED_REMOTE_SHARE_VERSION` and
+   `MXQR_EXPECTED_SIGNALING_VERSION` set to them and confirm a real allocation
+   succeeds. Never swap these first two steps: a new keyed assertion cannot be
+   verified by the old plain Remote Share configuration.
 4. Wait at least 90 seconds after the signaling update (the 60-second assertion
    lifetime plus the full 30-second verifier clock-skew allowance).
 5. Remove `previous` from Remote Share first, then set the same current-only
-   keyring on signaling. Re-run the strict smoke. Keep the retired secret out of
-   both Workers after evidence is saved.
+   keyring on signaling. Read both live version IDs again with the two
+   `deployments status` commands and re-run the strict smoke with
+   `MXQR_EXPECTED_REMOTE_SHARE_VERSION` and `MXQR_EXPECTED_SIGNALING_VERSION`
+   set to them. Keep the retired secret out of both Workers after evidence is
+   saved.
 
 Before step 5, rollback means restoring the old plain value on signaling first
 and then on Remote Share. After previous-key removal, repair forward with the

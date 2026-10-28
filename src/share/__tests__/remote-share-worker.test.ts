@@ -1417,6 +1417,41 @@ describe('remote-share Worker capability gate', () => {
     expect(remoteShareOpsSource).not.toContain('only when that feature is present');
     expect(remoteShareOpsSource).toContain('live version IDs of both Workers');
     expect(remoteShareOpsSource).toContain('confirm a real allocation');
+    // The operator reads both live version IDs and gives them to the strict
+    // smoke, which otherwise checks no version: in the readiness paragraph and
+    // again in rotation steps 3 and 5, after each secret change.
+    const opsProse = remoteShareOpsSource.replace(/\s+/gu, ' ');
+    for (const config of ['remote-share', 'signaling']) {
+      expect(opsProse).toContain(
+        `npm run --silent wrangler -- deployments status --config cloudflare/wrangler.${config}.toml --json`,
+      );
+    }
+    expect(opsProse).toContain(
+      'MXQR_EXPECTED_REMOTE_SHARE_VERSION=<remote-share-version-id> \\ ' +
+        'MXQR_EXPECTED_SIGNALING_VERSION=<signaling-version-id> \\ ' +
+        'npm run smoke:live:remote-share -- --require-assertion',
+    );
+    const rotationSteps = remoteShareOpsSource
+      .slice(
+        remoteShareOpsSource.indexOf('Rotate in this order:'),
+        remoteShareOpsSource.indexOf('Before step 5, rollback'),
+      )
+      .split(/\n(?=\d\. )/u)
+      .map((step) => step.replace(/\s+/gu, ' '));
+    for (const number of ['3', '5']) {
+      const step = rotationSteps.find((text) => text.startsWith(`${number}. `)) ?? '';
+      expect(step, `rotation step ${number}`).toContain('`deployments status` commands');
+      expect(step, `rotation step ${number}`).toContain(
+        '`MXQR_EXPECTED_REMOTE_SHARE_VERSION` and `MXQR_EXPECTED_SIGNALING_VERSION` set to them',
+      );
+    }
+    // A signaling Worker without the assertion secret fails the smoke.
+    expect(opsProse).toContain(
+      'it passes on a signaling Worker that holds the assertion secret whether or not ' +
+        'that Worker advertises them, and one without the secret fails on its own refusal ' +
+        'of the assertion request.',
+    );
+    expect(opsProse).not.toContain('so it passes whether or not signaling advertises');
     expect(remoteShareOpsSource).toContain('`--require-assertion` checks nothing more');
     expect(remoteShareOpsSource).toContain('A 200 response without the keyring marker is');
     expect(remoteShareOpsSource).toContain('Wait at least 90 seconds');

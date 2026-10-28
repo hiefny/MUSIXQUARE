@@ -12,7 +12,7 @@ beforeEach(() => {
   bus.clear();
   language = getLanguageMode();
   document.body.innerHTML =
-    '<div id="dialog-overlay"><div role="dialog"><h2 id="dialog-title"></h2><div id="dialog-message"></div><div class="dialog-actions"><button id="btn-dialog-secondary"></button><button id="btn-dialog-ok"></button></div></div></div>';
+    '<div id="dialog-overlay"><div role="dialog"><h2 id="dialog-title"></h2><div id="dialog-message"></div><div class="dialog-actions"><button id="btn-dialog-secondary"></button><button id="btn-dialog-ok"></button></div><button id="btn-dialog-link" hidden></button></div></div>';
   setLanguageMode('en');
 });
 afterEach(() => {
@@ -88,6 +88,23 @@ describe('dialog locale lifetime', () => {
     expect(document.getElementById('dialog-input-hint')?.textContent).toBe('Literal hint');
     closeDialog();
     await pending;
+  });
+
+  it('refreshes the link under the pair with the locale', async () => {
+    const pending = showDialog({
+      title: () => t('pro.activation_account_title'),
+      buttonText: () => t('pro.activation_account_continue'),
+      secondaryText: () => t('common.cancel'),
+      linkText: () => t('pro.activation_account_switch'),
+    });
+    const link = document.getElementById('btn-dialog-link')!;
+    expect(link.textContent).toBe(t('pro.activation_account_switch'));
+    setLanguageMode('ko');
+    expect(link.textContent).toBe(t('pro.activation_account_switch'));
+    expect(link.textContent).not.toBe('Another account');
+    expect(link.hidden).toBe(false);
+    closeDialog('secondary');
+    await expect(pending).resolves.toEqual({ action: 'secondary' });
   });
 
   it('re-reads callback copy when its refreshOn subscription fires, until it closes', async () => {

@@ -50,6 +50,14 @@ function createDialogDOM(): void {
   actions.appendChild(secondaryBtn);
   actions.appendChild(okBtn);
   overlay.appendChild(actions);
+
+  const linkBtn = document.createElement('button');
+  linkBtn.type = 'button';
+  linkBtn.id = 'btn-dialog-link';
+  linkBtn.className = 'dialog-link-action';
+  linkBtn.hidden = true;
+  Object.defineProperty(linkBtn, 'offsetParent', { value: overlay, configurable: true });
+  overlay.appendChild(linkBtn);
   document.body.appendChild(overlay);
 }
 
@@ -1699,5 +1707,142 @@ describe('history Back on dialogs', () => {
     expect(offerBackToTopWindow().handled).toBe(true);
     expect(await promise).toMatchObject({ action: 'back', inputValue: '12345678' });
     vi.advanceTimersByTime(10);
+  });
+});
+
+describe('link action under the pair', () => {
+  const overlay = () => document.getElementById('dialog-overlay')!;
+  const ok = () => document.getElementById('btn-dialog-ok') as HTMLButtonElement;
+  const secondary = () => document.getElementById('btn-dialog-secondary') as HTMLButtonElement;
+  const link = () => document.getElementById('btn-dialog-link') as HTMLButtonElement;
+  const press = (target: HTMLElement, key: string, shiftKey = false) =>
+    target.dispatchEvent(
+      new KeyboardEvent('keydown', { key, shiftKey, bubbles: true, cancelable: true }),
+    );
+
+  it('keeps a hidden text action after the pair in the common dialog markup', () => {
+    // Owner decision 2026-10-28: a third action is a small text link under
+    // the [exit | primary] pair, like the language dialog's translate link.
+    const parsed = new DOMParser().parseFromString(INDEX_SOURCE, 'text/html');
+    const button = parsed.getElementById('btn-dialog-link');
+    const actions = parsed.getElementById('btn-dialog-ok')?.parentElement;
+    expect(button?.tagName).toBe('BUTTON');
+    expect(button?.getAttribute('type')).toBe('button');
+    expect(button?.classList.contains('dialog-link-action')).toBe(true);
+    expect(button?.hasAttribute('hidden')).toBe(true);
+    expect(button?.hasAttribute('data-i18n')).toBe(false);
+    expect(button?.closest('#dialog-overlay')).not.toBeNull();
+    expect(button?.previousElementSibling).toBe(actions);
+    expect(STYLE_SOURCE).toMatch(
+      /#dialog-overlay\.dialog-with-link \.dialog-actions\s*\{[^}]*padding-bottom:\s*0;/s,
+    );
+    expect(STYLE_SOURCE).toMatch(/\.dialog-link-action\s*\{[^}]*font-size:\s*12px;/s);
+    expect(STYLE_SOURCE).toMatch(/\.dialog-link-action\s*\{[^}]*text-decoration:\s*underline;/s);
+  });
+
+  it.each(['click', 'Enter'])(
+    'shows the link under the pair and runs only its hook inside the %s gesture',
+    async (gesture) => {
+      const { showDialog } = await import('../dialog.ts');
+      const order: string[] = [];
+      const onPrimaryActivation = vi.fn();
+      const onSecondaryActivation = vi.fn();
+      const promise = showDialog({
+        title: 'Choose an account',
+        buttonText: 'Continue',
+        secondaryText: 'Cancel',
+        linkText: 'Another account',
+        onPrimaryActivation,
+        onSecondaryActivation,
+        onLinkActivation: () => order.push('activation'),
+      }).then((result) => {
+        order.push(`resolved:${result.action}`);
+      });
+      vi.advanceTimersByTime(10);
+      expect(link().hidden).toBe(false);
+      expect(link().textContent).toBe('Another account');
+      expect(overlay().classList.contains('dialog-with-link')).toBe(true);
+      expect(secondary().hidden).toBe(false);
+
+      if (gesture === 'click') link().click();
+      else {
+        link().focus();
+        press(link(), 'Enter');
+      }
+      expect(order).toEqual(['activation']);
+      await promise;
+      expect(order).toEqual(['activation', 'resolved:link']);
+      expect(onPrimaryActivation).not.toHaveBeenCalled();
+      expect(onSecondaryActivation).not.toHaveBeenCalled();
+      expect(link().hidden).toBe(true);
+      expect(overlay().classList.contains('dialog-with-link')).toBe(false);
+    },
+  );
+
+  it('still resolves the link when its browser activation hook fails', async () => {
+    const { showDialog } = await import('../dialog.ts');
+    const promise = showDialog({
+      secondaryText: 'Cancel',
+      linkText: 'Another account',
+      onLinkActivation: () => {
+        throw new Error('Popup blocked');
+      },
+    });
+    link().click();
+    await expect(promise).resolves.toEqual({ action: 'link' });
+  });
+
+  it('cycles Tab from the link back to the exit and Shift+Tab from the exit to the link', async () => {
+    const { showDialog, closeDialog } = await import('../dialog.ts');
+    const promise = showDialog({
+      title: 'Choose an account',
+      buttonText: 'Continue',
+      secondaryText: 'Cancel',
+      linkText: 'Another account',
+    });
+    vi.advanceTimersByTime(10);
+
+    link().focus();
+    press(link(), 'Tab');
+    expect(document.activeElement).toBe(secondary());
+    press(secondary(), 'Tab', true);
+    expect(document.activeElement).toBe(link());
+
+    closeDialog('secondary');
+    await expect(promise).resolves.toEqual({ action: 'secondary' });
+  });
+
+  it('closes on Back as a cancel without running the link hook', async () => {
+    const { __resetModalStackForTests, offerBackToTopWindow } = await import('../dom.ts');
+    const { showDialog } = await import('../dialog.ts');
+    __resetModalStackForTests();
+    const onLinkActivation = vi.fn();
+    const promise = showDialog({
+      secondaryText: 'Cancel',
+      linkText: 'Another account',
+      onLinkActivation,
+    });
+    vi.advanceTimersByTime(10);
+
+    expect(offerBackToTopWindow().handled).toBe(true);
+    await expect(promise).resolves.toMatchObject({ action: 'back' });
+    expect(onLinkActivation).not.toHaveBeenCalled();
+    vi.advanceTimersByTime(10);
+  });
+
+  it('hides the link for the next dialog that has none', async () => {
+    const { showDialog, closeDialog } = await import('../dialog.ts');
+    const first = showDialog({ secondaryText: 'Cancel', linkText: 'Another account' });
+    const next = showDialog({ title: 'Next', secondaryText: 'Keep editing' });
+    expect(link().hidden).toBe(false);
+
+    closeDialog('ok');
+    await first;
+    vi.advanceTimersByTime(10);
+    expect(document.getElementById('dialog-title')?.textContent).toBe('Next');
+    expect(link().hidden).toBe(true);
+    expect(overlay().classList.contains('dialog-with-link')).toBe(false);
+    closeDialog('secondary');
+    await expect(next).resolves.toEqual({ action: 'secondary' });
   });
 });

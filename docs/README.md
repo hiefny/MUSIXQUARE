@@ -95,50 +95,36 @@ runbooks. Neither belongs in a general setup document.
 
 - [UI bundle: the UI audit and hint-copy audit recommendations (2026-10-27)](design/ui-bundle-2026-10-27.md):
   the owner's 2026-10-27 instruction to ship every recommended direction of the two audits as one
-  app update. Dialog actions take the play tab's rhythm (12px between painted surfaces, 56px
-  pills; spacing stays a recipe bound by a contract test, two-action rows keep their
-  content-sized split); every action label reads one 15px / 700 / 1.25 style (one named
-  narrow-slot exception, U12: the play tab's compact Sync and Media labels keep the 9.0.18 600
-  weight and -0.3px tracking so every locale stays on one line at 320px, after PR #510's first CI
-  wrapped the Finnish label with Linux fonts, and the demo finish pair keeps 600 in its 13px label
-  up to 420px, after the U12 review found more locales past its 54px pills; U13, a label sweep of
-  every element whose label typography changed, in 42 locales against 9.0.18, adds eight narrow
-  slots that keep their 9.0.18 weight, tracking or size up to 420px or 719px where 700 wrapped,
-  split a word or stacked a pair, and round 9 adds the setup action pill beside Back, 600 outside
-  the desktop setup panel, after the setup flow states were measured in 42 locales) and every red
-  text or icon one `--danger-foreground` role; one runtime hover gate owned by `src/ui/hover-pointer.ts`
-  (convertibles hover alike in laptop and studio posture; Chromium 79 TVs lose hover looks only);
-  a shorter playlist minus at the chevron weight; one control-hint owner with reasons as
-  descriptions; a fixed minus name and a status cell for the selection count; noun-form names and
-  hints in 42 locales with a locale review. The owner's danger-red decisions are recorded in
-  order: a darker light red first, then (the same evening) production's `#ff3b30` and the 9.0.18
-  tints in the default themes, with the 4.5:1 contract kept for the high-contrast palettes only
-  and new pill tints that keep leave session and stop sharing exactly as in 9.0.18. After the
-  final review the owner kept account deletion on its 9.0.18 tints in the default themes, kept
-  the English `YouTube Video`, and accepted the Chromium 79 TV hover loss (known risk #20). An
-  unreachable red "Disconnected" badge in the hidden settings device list was removed. Branch
-  `agent/ui-bundle` (last code commit `2ea34b8d`) merged main at 9.0.18 / v791 (`6a23c46e`) and
-  restated #503's pending-check hover titles as one-phrase checking tips; its last runtime commit
-  is the bump `1a9ed56a` to 9.0.19 / v792 (App build 792), target `app` (App 83 runtime paths
-  against production, every other Worker 0, with the update dialog), not merged or released. The
-  report lists each increment (U1 to U13 and its round 9 follow-up, the locale review and the
-  release-prep bump) with its commits, tests-first evidence and tested SHA, measurements before
-  and after (42 locales at
-  360 / 375 / 390px, frame sheets, hover census, minus ink, contrast, eager transfer), the guards
-  added, the review findings and their handling, visible changes, owner decisions left open, QA
-  rounds 1 to 9 (round 5, after the first bump, passes the full `build:checked`, unit 16,362, Worker
-  3,237, critical coverage 3,462, the critical, candidate and 26 train E2E files, and eager JS
-  +639 B gzip against main; round 6, after U12 and the re-applied bump, passes the full
-  `build:checked`, unit 16,363, the candidate and critical E2E and the two label E2E files; round
-  7, after the review fix and the re-applied bump, passes the full `build:checked`, unit 16,366,
-  the candidate and critical E2E (74, with the new 42-locale demo-pair probe) and the label and
-  demo E2E files; round 8, after the label sweep U13 and the re-applied bump, passes the full
-  `build:checked`, unit 16,367, the candidate E2E (19), the critical E2E (87, with the new
-  eight-slot 42-locale probe) and the two label E2E files (43); round 9, after the setup-state
-  sweep and the re-applied bump, passes the full `build:checked`, unit 16,367, the candidate E2E
-  (19), the critical E2E (88, with the nine-slot probe at 14 sizes) and the two label E2E files
-  (44)), what was not verified (real devices, WebKit, screen readers) and the owner device check
-  list.
+  app update, with the owner's final decisions of 2026-10-28 (U14), which supersede the earlier
+  15px / 700 label style, its narrow-slot exceptions (U12, U13 and the round 9 setup pill) and the
+  12px side-by-side gap. Button labels take one of three roles as root tokens: CTA, every action
+  button, 15px / 600 / 1.25 with normal tracking; chip, the choice chips, 14px; tab, the desktop
+  settings section tabs, 13px (the owner's local preview of 9.0.18 at 600 is the final draft; 700
+  clumped in dark mode, Korean most of all). Where the CTA role measured worse than 9.0.18 in 42
+  locales at 320 to 390px, the slot stays inside the roles: `.btn-label-compact` takes the chip
+  size up to 719px on Sign out and Delete account (always one size) and the media source options,
+  whose labels also wrap at word boundaries (Korean keep-all, Japanese phrases), and the demo tour's
+  two-per-row actions take the tab size up to 420px. Action pills sit 10px apart side by side and
+  12px stacked, 56px tall, with 24px side padding on dialog pills at 360px and below; the Korean
+  invite pill, administrator permissions title and demo step chips keep their 9.0.18 text. The
+  bundle also gives every red text or icon one `--danger-foreground` role (the default themes keep
+  production's `#ff3b30` and the 9.0.18 tints, the high-contrast palettes keep the 4.5:1 contract,
+  account deletion keeps its 9.0.18 tints); one runtime hover gate owned by
+  `src/ui/hover-pointer.ts` (convertibles hover alike in laptop and studio posture; Chromium 79 TVs
+  lose hover looks only, known risk #20); a shorter playlist minus at the chevron weight; one
+  control-hint owner with reasons as descriptions; a fixed minus name and a status cell for the
+  selection count; noun-form names and hints in 42 locales with a locale review; the English
+  `YouTube Video` kept; and the removal of an unreachable red "Disconnected" badge. Branch
+  `agent/ui-bundle` (last code commit `5f15d017`) merged main at 9.0.18 / v791 (`6a23c46e`); its
+  last runtime commit is the bump `4df505a1` to 9.0.19 / v792 (App build 792), target `app` (App 84
+  runtime paths against production, every other Worker 0, with the update dialog), not merged or
+  released. The report lists each increment (U1 to U14, the locale review and the release-prep
+  bump) with its commits, tests-first evidence and tested SHA, the U14 role table, the
+  measurements against 9.0.18 (26,628 real-app cases, the two-button stack counts, the preview
+  comparison), the guards added, the review findings and their handling, visible changes, owner
+  decisions left open, QA rounds 1 to 10 (round 10, after U14 and the re-applied bump, passes
+  the full `build:checked`, unit 16,371, the candidate E2E (19), the critical E2E (94, with the narrow-slot probe at 19 sizes) and the two label E2E files (50)), what was not verified (real devices, WebKit, screen readers) and the owner device
+  check list.
 - [PRO room receipt retention (2026-10-27)](design/pro-receipt-retention-2026-10-27.md):
   the PRO room's shared browser receipt ledger (256 receipts) keeps each receipt only as long as
   the App can send its request again (owner decision 2026-10-27, RO-53): two minutes for edits,

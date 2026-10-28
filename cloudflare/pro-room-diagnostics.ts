@@ -36,7 +36,17 @@ const EVENT_REASONS = {
     'bot',
     'ledger_capacity',
   ],
-  state_capacity: ['core', 'session_receipt', 'presence_close_receipt', 'member_limit'],
+  // A full receipt ledger is named by its ledger. `playlist_budget` is a
+  // playlist's own length or bytes, which only removing tracks frees.
+  state_capacity: [
+    'core',
+    'session_receipt',
+    'presence_close_receipt',
+    'browser_receipt',
+    'developer_receipt',
+    'playlist_budget',
+    'member_limit',
+  ],
   presence_active_elsewhere: [],
   presence_identity_mismatch: [],
   // This means a server-observed numeric projection violation. It does not
@@ -112,6 +122,10 @@ const OPERATIONS = [
   'media_reserve',
   'media_complete',
   'alarm',
+  // BOT stages and Developer API routes share the Developer receipt ledger;
+  // these two tell their refusals apart.
+  'bot',
+  'developer',
   'other',
 ] as const;
 

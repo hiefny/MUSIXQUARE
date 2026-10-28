@@ -12279,8 +12279,10 @@ or pointers. Keep :focus-visible and :active outside the gate (src/ui/__tests__/
     /* A browser-owned landscape toolbar leaves current iPhones around 342px
        tall. The five labelled tabs still fit once the decorative wordmark rail
        yields its space, so preserve their labels through that common viewport
-       instead of entering icon-only mode immediately. */
-    @media (max-height: 370px) {
+       instead of entering icon-only mode immediately. Above 360px they fit
+       beside the wordmark in every locale, so the rail yields at the app's
+       360px short-height step, which the manual sync panel also uses. */
+    @media (max-height: 360px) {
       html:not(.keyboard-open) #app-logo {
         display: none;
       }

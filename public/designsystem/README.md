@@ -118,7 +118,9 @@ Pretendard lacks coverage.
   the desktop settings section tabs, the bottom navigation labels and the
   language, playlist slot and transfer lists. Label 600
   (`--font-weight-label`): names on controls and markers, such as action
-  button labels, badges, small meta labels and form field labels. Body 400
+  button labels, badges, small meta labels and form field labels, and the
+  header loading status, which takes the logo's place beside the account
+  pill while media loads (owner decision 2026-10-29). Body 400
   (`--font-weight-body`): sentences and auxiliary text, such as
   descriptions, dialog body text, hints, toasts, chat messages, the small
   line under a name, timestamps, counters, input text and placeholders.

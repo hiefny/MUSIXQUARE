@@ -2125,7 +2125,8 @@
 
 .app-loading-header-status {
   font-size: 13px;
-  font-weight: var(--font-weight-body);
+  /* Like the app's header loading status: label, beside the account pill. */
+  font-weight: var(--font-weight-label);
   transform: translateY(100%);
   opacity: 0;
   animation:

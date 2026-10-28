@@ -452,7 +452,7 @@ describe('connect signaling health status', () => {
     expect(spinner?.querySelector('svg')?.getAttribute('viewBox')).toBe('0 0 44 44');
     expect(spinner?.querySelector('circle')?.getAttribute('r')).toBe('18');
     expect(spinner?.querySelector('circle')?.getAttribute('pathLength')).toBe('100');
-    expect(button.querySelector('span[data-i18n]')?.textContent).toBe('초대 링크 복사');
+    expect(button.querySelector('span[data-i18n]')?.textContent).toBe('초대 링크 복사하기');
   });
 
   it('does not render a persistent server-health indicator in the QR area', async () => {
@@ -498,8 +498,8 @@ describe('connect signaling health status', () => {
       expect(button.dataset.mode).toBe('copy');
       expect(button.getAttribute('aria-disabled')).toBe('false');
       expect(button.getAttribute('aria-busy')).toBe('false');
-      expect(button.getAttribute('aria-label')).toBe('초대 링크 복사');
-      expect(button.textContent).toBe('초대 링크 복사');
+      expect(button.getAttribute('aria-label')).toBe('초대 링크 복사하기');
+      expect(button.textContent).toBe('초대 링크 복사하기');
     }
   });
 
@@ -868,7 +868,7 @@ describe('connect signaling health status', () => {
     expect(overlay.classList.contains('show')).toBe(false);
     expect(button.dataset.mode).toBe('copy');
     expect(button.disabled).toBe(false);
-    expect(button.textContent).toBe('초대 링크 복사');
+    expect(button.textContent).toBe('초대 링크 복사하기');
   });
 });
 
@@ -2631,7 +2631,7 @@ describe('member-level connection and administrator UI', () => {
 
     const dialog = document.getElementById('administrator-permissions-dialog');
     const title = document.getElementById('administrator-permissions-title');
-    expect(title?.textContent).toBe('MUSIXQUARE 님의 권한');
+    expect(title?.textContent).toBe('MUSIXQUARE님의 권한');
     expect(dialog?.getAttribute('aria-labelledby')).toBe('administrator-permissions-title');
     expect(dialog?.hasAttribute('aria-describedby')).toBe(false);
     expect(document.getElementById('administrator-permissions-member')).toBeNull();

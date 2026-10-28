@@ -703,6 +703,30 @@ describe('hint and accessible-name copy policy', () => {
     expect(REGISTRY['common.youtube_video']?.exempt?.enSentenceCase).toBeTruthy();
   });
 
+  it('keeps the 9.0.18 Korean of the visible labels the owner kept', () => {
+    // Owner decision (2026-10-28): these visible labels stay as 9.0.18 in
+    // every locale. They are screen text, not hint or name copy, so the noun
+    // form above does not reach them: the invite pill and the administrator
+    // permissions title are written by src/ui/connect.ts, and the demo step
+    // chips show their own text (the final step's also names its button).
+    const kept: Readonly<Record<string, string>> = {
+      'connect.copy_invite_link': '초대 링크 복사하기',
+      'connect.permissions_title': '{{name}}님의 권한',
+      'demo.step_connect': '1. 기기 연결하기',
+      'demo.step_role': '2. 역할 설정하기',
+      'demo.step_effects': '3. 고급 음향 효과',
+      'demo.step_finish': '4. 체험 종료하기',
+    };
+    for (const [key, value] of Object.entries(kept)) {
+      expect(ko[key], key).toBe(value);
+      expect(nameKeys(), key).not.toContain(key);
+    }
+    // The other kick wording of this train stays.
+    expect(ko['connect.kick_title']).toBe('기기 내보내기');
+    expect(ko['connect.kicked_title']).toBe('방에서 내보내졌어요');
+    expect(ko['connect.permission_members_kick']).toBe('멤버 내보내기');
+  });
+
   it('titles the Korean kicked dialog without repeating its message', () => {
     // Like the PRO removal dialog: the title says what happened, the message
     // says who did it.

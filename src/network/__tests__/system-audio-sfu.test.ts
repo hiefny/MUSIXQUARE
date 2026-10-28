@@ -1947,22 +1947,22 @@ describe('LAN SFU audience negotiation', () => {
     expect(getSystemAudioShareDeliverySnapshot().sfuPeerIds).not.toContain('replaced-peer');
   });
 
-  it('advertises local-audience support when a guest data connection opens', async () => {
+  it('sends the host no SFU capability marker when a guest data connection opens', async () => {
+    // Phase 5.5 train 3 (old-version survey OV-F06): hosts from 9.0.16 treat
+    // every LAN guest as SFU-capable without reading the marker (5B-OV2), and
+    // the 789 client floor admits no host that still reads it.
     const mod = await import('../system-audio-sfu.ts');
     mod.registerSystemAudioSfuListeners();
     bus.emit('system-audio:stop');
     const hostConn = { open: true, send: vi.fn(), peer: 'host' } as unknown as DataConnection;
     setState('network.appRole', 'guest');
     setState('network.hostConn', hostConn);
+    const { safeSend } = await import('../peer-state.ts');
+    vi.mocked(safeSend).mockClear();
 
     bus.emit('network:peer-connected', hostConn);
 
-    const { safeSend } = await import('../peer-state.ts');
-    expect(safeSend).toHaveBeenCalledWith(hostConn, {
-      type: MSG.SYSTEM_AUDIO_SFU_CAPABILITY,
-      version: 2,
-      localAudience: true,
-    });
+    expect(safeSend).not.toHaveBeenCalled();
   });
 
   it('accepts only an explicit all-audience publication while classified local', async () => {

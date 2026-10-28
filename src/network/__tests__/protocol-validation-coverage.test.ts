@@ -19,7 +19,7 @@ describe('protocol validation coverage', () => {
   it('classifies every declared message type', () => {
     const types = Object.values(MSG);
 
-    expect(types).toHaveLength(102);
+    expect(types).toHaveLength(101);
     expect(new Set(types).size).toBe(types.length);
   });
 
@@ -27,6 +27,13 @@ describe('protocol validation coverage', () => {
     // Old-version removal train 2 (OV-F06): hosts route local guests by room
     // size alone since train 1, so guests stop advertising R2 support.
     expect(Object.values(MSG)).not.toContain('file-r2-capability');
+  });
+
+  it('no longer declares the guest SFU capability marker', () => {
+    // Phase 5.5 train 3 (OV-F06): hosts from 9.0.16 treat every LAN guest as
+    // SFU-capable without reading the marker (5B-OV2), and the 789 client
+    // floor admits no older host, so guests stop sending it.
+    expect(Object.values(MSG)).not.toContain('system-audio-sfu-capability');
   });
 
   it('no longer declares the coordinator-era PRO file preload hint', () => {

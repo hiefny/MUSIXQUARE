@@ -46,6 +46,26 @@ gh run list --workflow e2e.yml --branch main --limit 3
 해결하면 근거(커밋, 실행 ID, 문서)를 PR 설명에 적고 이 목록에서 지운다. 근거
 없이 완료로 표시하지 않는다.
 
+### PRO 영수증 후속 열차 A(PRO 방 Worker만, App 9.0.19/v792 그대로) 배포 전: 끝난 삭제와 끝난 예약의 영수증 놓기
+
+- [ ] 범위와 상태(오너 결정 2026-10-28 아침, 9.0.18이 남긴 영수증 원장 결정의 3번, 브랜치 `agent/receipt-train-a`, 미병합·
+      미배포): 명시적 삭제를 마치는 커밋은 진행 중 영수증을 원장 주인(`releaseIdempotencyRecord`)으로 놓고 최종 영수증을
+      쓰지 않는다. 예약 영수증은 asset이 없거나, `reserved`가 아니거나, 삭제 중이면 놓는다(`releaseSettledReserveReceipts`,
+      완료는 자기 예약의 자리를 완료 커밋 안에서 돌려받음). 그래서 R2 삭제가 성공하는 한 일괄 삭제는 원장을 채우지 않고,
+      업로드는 파일마다 2분짜리 영수증 하나라 2분에 약 256개까지 받는다. 바뀌는 답은 앱이 보내지 않는 같은 key 재전송뿐이다
+      (끝난 삭제는 바로 404 `ASSET_NOT_FOUND`, 예약 상태를 벗어난 asset의 예약은 새 예약). 원장 한도 256, 영수증 모양, 시간
+      집은 그대로다. RO-53은 같은 주인을 넓혔고 새 기계는 없다. 바뀌는 런타임 파일은 `cloudflare/pro-room-worker.ts` 하나라
+      target `pro-room`(Developer API D1 false, `raise_app_build_floor` false)이고, App은 9.0.19 / v792 그대로라 업데이트 창이
+      없다. 순서: 9.0.19 뒤, 9.0.20 앞. 9.0.19는 2026-10-28 19:19 KST(deploy job 완료, Release 40670881163)에 App만
+      배포됐고 배포 기록 #511이 main에 들어갔다(아래 UI 묶음 항목). 9.0.20 런타임 커밋이 열차 A 배포보다 먼저 main에
+      들어오면 `pro-room`이 막히므로 열차 A를 9.0.20에 합쳐 `all`로 낸다. 되돌리기 대상은 checkpoint의 직전 PRO
+      방 Worker, 곧 9.0.18의 `61e60919`(9.0.19는 PRO 방 Worker를 다시 배포하지 않음)이고, 새 Worker가 쓴 상태를
+      `53a4f397`의 Worker 코드로 한 번 불러와 확인했다. 남은 게이트: PR CI, 자동 코드 리뷰, exact-main CI, Production
+      Release(target `pro-room`), 배포 기록 PR. 로컬 결과는 exact-main-SHA 후보를 대신하지 않는다.
+      [변경·QA·되돌리기 보고서](design/pro-receipt-followup-a-2026-10-28.md),
+      [9.0.18 Worker 코드로 한 번 확인](design/pro-receipt-followup-a-2026-10-28.md#9018-worker-코드로-한-번-확인),
+      [한계](design/pro-receipt-followup-a-2026-10-28.md#한계).
+
 ### UI 묶음(9.0.19/v792) 배포 뒤 확인: 버튼 라벨 역할표, 알약 간격, 호버 관문 하나, 위험 빨강 역할, 이름·힌트 문구
 
 - [ ] 범위와 상태(오너 지시 2026-10-27 07:15 KST, PR #510): UI 감사와 힌트 문구 감사의 추천 방향을 전부 한 묶음으로 반영해 배포한다(오너
@@ -166,7 +186,7 @@ gh run list --workflow e2e.yml --branch main --limit 3
       이 열차를 먼저 냈다. UI 묶음(UI 감사와 힌트 문구 감사의 권고)은 이 기록 #509를 합쳐 2026-10-28 19:19 KST에 9.0.19 /
       v792(target `app`, Release 40670881163, 위 UI 묶음 항목)로 뒤따랐고, Phase 5.5(구버전 제거 열차 3과 PRO 스냅샷 v2)는
       그 뒤 오너 승인을 기다린다. 아래 '운영·보안'의 영수증 원장 한도 항목은 배포 뒤
-      확인과 오너 결정이 남아 열어 둔다. 로컬 결과는 exact-main-SHA 후보를 대신하지 않았다.
+      확인이 남아 열어 둔다(오너 결정과 후속은 그 항목에 있음). 로컬 결과는 exact-main-SHA 후보를 대신하지 않았다.
       [변경·QA·되돌리기 보고서](design/pro-receipt-retention-2026-10-27.md),
       [QA 라운드 5](design/pro-receipt-retention-2026-10-27.md#qa-라운드-5릴리스-준비-bump-뒤),
       [QA 라운드 7](design/pro-receipt-retention-2026-10-27.md#qa-라운드-7pr-ci-자동-리뷰-exact-main-ci-배포와-공개-확인).
@@ -1310,6 +1330,15 @@ App 8.11.20/v723에서 일반 직접 전송·프리로드의 local threshold를 
 
 ### 최근 해결 근거
 
+'운영·보안'의 PRO 방 변경 영수증 원장 항목에서 (4) BOT 재생 명령의 24시간 울타리를 닫는다. 오너 결정(2026-10-28 아침):
+추천대로 울타리를 두지 않고 근거만 적는다. BOT의 24시간 Developer 변경 영수증도 그대로 둔다. 근거는 RO-53의 BOT 문단(열차 A
+커밋 `5c65dacf`)에 있다. 같은 `requestId`를 다시 보내는 곳이 없다. 채팅은 메시지마다 새 `requestId`를 만들고
+(`src/ui/chat.ts`의 `createProRoomIdempotencyKey()`, 1220~1223행), App Worker는 BOT 컨텍스트와 실행을 한 번씩만 부른다
+(`cloudflare/pro-bot.ts` 2212~2221행, 2284~2293행). 손본 클라이언트가 일부러 다시 보내도 새 `requestId`와 같은 권한 검사와
+같은 BOT 한도(멤버마다 분당 3회, 방마다 시간당 100회)를 받으므로 울타리가 더 막는 것이 없고, 울타리를 두면 BOT 추가와 공개
+API가 함께 쓰는 Developer 변경 원장을 쓴다. 런타임 변경은 없다.
+[열차 A 보고서의 4번의 근거](design/pro-receipt-followup-a-2026-10-28.md#4번의-근거).
+
 구버전 호환 코드 제거 열차 2 릴리스 W의 '배포 직후 floor 도구 운영 확인(W-verify)' 항목을 닫는다. 2026-10-27 03:34 KST
 릴리스 W 배포([Release 40378059253](https://github.com/hiefny/MUSIXQUARE/actions/runs/40378059253), target `all`, smoke와
 공개 자산 확인)가 끝나고 같은 동시성 그룹에 돌거나 기다리는 실행이 없을 때 App Build Floor workflow를 `set`,
@@ -1993,16 +2022,21 @@ PRO 방장 공지의 중도 참여 복원은 별도 정책이며 이번 서비�
       찼을 때 재생목록 편집·전환·이동/복사와 끌어 옮기기는 "재생목록이 변경됐어요"(`playlist.mutation_retry`, 끌어
       옮기기는 `playlist.reorder_failed`) 대신 `pro.room_state_limit`를 보여 준다. 배포 뒤 확인으로 열어 둔다: 운영
       방에서 첫 prune이 9.0.17이 남긴 24시간 영수증을 자르는 모습은 보지 않았다(운영 원장 상태는 바깥에서 읽을 수
-      없음). 보고서가 오너 결정으로 남긴 것도 열려 있다. (1) 원장이 찼을 때 재생 조작 실패에 안내를 보일지(지금은 재생
-      버튼이 아이콘만 되돌아가고 안내가 없음). (2) 같은 코드가 방 코어 1.2 MiB·재생목록 3 MiB 바이트 예산이나 revision
-      넘침에서도 나오는 경우의 문구(앱이 원장 넘침과 구분하지 못해 "잠시 후 다시 시도"가 낙관적임, 나중에 별도 진단
-      이유로 나눌 수 있음). (3) 파일 수백 개 일괄 삭제와 아주 작은 파일의 큰 일괄 업로드가 2분 안에 원장을 채우는 경우
-      (최종 삭제 영수증을 없애거나 일괄 삭제를 만들지). (4) BOT 재생 명령의 늦은 같은 요청(같은 `requestId`로 10분 뒤
-      시작한 새 BOT 실행이 재생 명령을 한 번 더 적용할 수 있음, 지금은 같은 `requestId`를 다시 보내는 곳이 없음)에도
-      24시간 울타리가 필요한지.
+      없음). 보고서가 오너 결정으로 남긴 넷은 2026-10-28 아침 오너가 모두 정했고, 남은 것은 다음과 같다. (1) 원장이 찼을
+      때 재생 조작 실패(지금은 재생 버튼이 아이콘만 되돌아가고 안내가 없음): 오너 결정(2026-10-28)으로 사람이 누른 재생
+      명령에 `pro.room_state_limit` 토스트를 띄운다. 9.0.20에서 구현한다. (2) 같은 코드가 방 코어 1.2 MiB·재생목록 3 MiB
+      바이트 예산이나 revision 넘침에서도 나오는 경우의 문구(앱이 원장 넘침과 구분하지 못해 "잠시 후 다시 시도"가
+      낙관적임): 오너 결정(2026-10-28)으로 재생목록 크기 한도만 기존 `PLAYLIST_CAPACITY_EXCEEDED`('재생목록이 가득
+      찼어요')로 돌려주고 나머지는 지금 문구 그대로 두며, 진단 이유를 원인별로 나눈다. 9.0.20에서 구현한다. (3) 파일
+      수백 개 일괄 삭제와 아주 작은 파일의 큰 일괄 업로드가 2분 안에 원장을 채우는 경우: 오너 결정(2026-10-28)대로 열차
+      A가 고친다(끝난 삭제는 최종 영수증을 쓰지 않고, 예약 영수증은 asset이 예약 상태를 벗어나면 놓음, PRO 방 Worker만,
+      target `pro-room`, §2 첫 항목). 지우는 것은 열차 A의 배포 근거가 생긴 뒤다. 운영 방에서 일괄 삭제가 원장을 채우지
+      않는 모습은 바깥에서 볼 수 없으므로 그때 배포 뒤 확인 한 줄로 남긴다. 옛 (4)(BOT 재생 명령의 24시간 울타리)는
+      닫았다(§2 최근 해결 근거).
       [보고서의 라운드 9와 한계 절](design/pro-upload-reliability-2026-10-27.md#limits-and-deferred-live-confirmation),
       [영수증 보관 시간 보고서](design/pro-receipt-retention-2026-10-27.md),
-      [바꾸지 않은 것과 이유](design/pro-receipt-retention-2026-10-27.md#바꾸지-않은-것과-이유)
+      [바꾸지 않은 것과 이유](design/pro-receipt-retention-2026-10-27.md#바꾸지-않은-것과-이유),
+      [열차 A 보고서](design/pro-receipt-followup-a-2026-10-28.md)
 
 ### 후속 작업과 유지 결정
 

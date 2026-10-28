@@ -93,6 +93,25 @@ runbooks. Neither belongs in a general setup document.
 
 ## Maintained evidence and completed records
 
+- [PRO receipt follow-up train A (2026-10-28)](design/pro-receipt-followup-a-2026-10-28.md):
+  the owner's decision of 2026-10-28 on item 3 of the receipt retention follow-ups, shipped as a
+  PRO room Worker-only train (target `pro-room`; the App stays 9.0.19 / v792, so no update
+  dialog). The commit that finishes an explicit delete releases the delete's pending receipt
+  through the ledger owner (`releaseIdempotencyRecord`) and stores no final receipt, and
+  `releaseSettledReserveReceipts` releases a reserve receipt once its asset is gone, no longer
+  `reserved` or being deleted, so a completion frees its reservation's slot inside its own
+  commit (RO-53, same owner, no new machine). A bulk delete no longer fills the shared 256-slot
+  ledger while R2 deletes succeed, and uploads hold one two-minute receipt per file, about 256
+  files a window instead of 128. Only same-key resends the App never sends get new answers
+  (`ASSET_NOT_FOUND` at once, or a new reservation). The same report records the owner's
+  decisions on items 1 and 2 (implemented in 9.0.20) and on item 4 and BOT's 24-hour Developer
+  mutation receipts (kept, with the rationale in RO-53). It lists each increment with its
+  commits (rebased onto main `1a99fe49`), the tests-first evidence (12 titles, 13 cases failing
+  on the 9.0.18 PRO room runtime), the changed answers, QA rounds 1 and 2 with their tested SHAs
+  and limits, the rollback to the 9.0.18 PRO room Worker `61e60919` with its one-off check
+  against the `53a4f397` Worker code, mixed versions, and the limits (bulk deletes during an R2
+  outage, a reservation that corrupt-marker load repair restores without its receipt, nothing
+  run on real devices). Not merged or released.
 - [UI bundle: the UI audit and hint-copy audit recommendations (2026-10-27)](design/ui-bundle-2026-10-27.md):
   the owner's 2026-10-27 instruction to ship every recommended direction of the two audits as one
   app update, with the owner's final decisions of 2026-10-28 (U14), which supersede the earlier

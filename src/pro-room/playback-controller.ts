@@ -118,6 +118,7 @@ interface ProRoomPlaybackControllerPorts {
     signal?: AbortSignal,
   ): ReturnType<ProRoomApiClient['executePlaybackCommand']>;
   recoverTerminalSession(error: ProRoomApiError): Promise<void>;
+  reportPlaybackCommandLimit?(): void;
 }
 
 interface ActiveServerPlaybackTransition {
@@ -195,6 +196,7 @@ interface ProRoomPlaybackControllerState {
   unregisterCommandHandler: (() => void) | null;
   commandTail: Promise<void>;
   commandRequestSequence: number;
+  userCommandSequence: number;
   commandGeneration: number;
   highestKnownRevision: number;
   lastAppliedRevision: number;
@@ -224,6 +226,7 @@ function createInitialState(): ProRoomPlaybackControllerState {
     unregisterCommandHandler: null,
     commandTail: Promise.resolve(),
     commandRequestSequence: 0,
+    userCommandSequence: 0,
     commandGeneration: 0,
     highestKnownRevision: -1,
     lastAppliedRevision: -1,
@@ -1888,6 +1891,7 @@ function createImplementation(
     intent: Readonly<ProPlaybackUserIntent>,
     exactBasePlaybackRevision?: number,
     canSubmit: () => boolean = () => true,
+    userCommand?: number,
   ): Promise<void> {
     const context = getState('room.context');
     const snapshot = ports.getCanonicalSnapshot();
@@ -2042,6 +2046,15 @@ function createImplementation(
         return;
       }
       log.warn('[PRO Playback] Server command failed', error);
+      if (
+        userCommand === state.userCommandSequence &&
+        error instanceof ProRoomApiError &&
+        error.code === 'ROOM_STATE_CAPACITY_EXCEEDED'
+      ) {
+        // Usually the room's receipt ledger is full (RO-53): nothing changed,
+        // and receipts expire within minutes. Only the newest gesture says so.
+        ports.reportPlaybackCommandLimit?.();
+      }
       // Both attempts used the same idempotency key, so a lost first response was
       // already recovered without executing twice. Reconcile any canonical room
       // movement before releasing the participant-local projection.
@@ -2127,6 +2140,10 @@ function createImplementation(
       intent.kind === 'advance-sub-video'
         ? intent.observedPlaybackRevision
         : undefined;
+    // A person's command is numbered when queued, so only the newest gesture
+    // reports a full receipt ledger. The revision-fenced media observations
+    // and the first-append selection take no number and stay silent.
+    const userCommand = exactBaseRevision === undefined ? ++state.userCommandSequence : undefined;
     const commandGeneration = state.commandGeneration;
     const authorityGeneration = commandAuthorityGeneration;
     const seekSource = intent.kind === 'seek' ? getCommandPlayback() : null;
@@ -2158,7 +2175,7 @@ function createImplementation(
         }
         return Promise.resolve();
       }
-      return submitPlaybackIntent(intent, exactBaseRevision, canSubmit);
+      return submitPlaybackIntent(intent, exactBaseRevision, canSubmit, userCommand);
     };
     const operation = state.commandTail.then(submit, submit);
     state.commandTail = operation.catch(() => undefined);

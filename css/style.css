@@ -10824,6 +10824,9 @@ or pointers. Keep :focus-visible and :active outside the gate (src/ui/__tests__/
     line-height: 1.6;
   }
 
+  /* Retry is an action button, so it takes the CTA label role of the owner's
+     role table (2026-10-28). The role tokens follow the font reset so the
+     reset cannot undo them. */
   .bootstrap-failure button {
     min-width: 160px;
     min-height: 48px;
@@ -10832,7 +10835,10 @@ or pointers. Keep :focus-visible and :active outside the gate (src/ui/__tests__/
     border-radius: var(--radius-pill);
     color: #fff;
     font: inherit;
-    font-weight: 700;
+    font-size: var(--button-label-size);
+    font-weight: var(--button-label-weight);
+    line-height: var(--button-label-line-height);
+    letter-spacing: var(--button-label-letter-spacing);
     background: var(--primary);
     cursor: pointer;
   }

@@ -393,9 +393,13 @@ describe('duplicate guest connection handoff', () => {
     const overflow = makeIncomingConn('guest-overflow');
     handleHostIncomingConnection(overflow);
 
-    expect(overflow.send).toHaveBeenCalledWith(
-      expect.objectContaining({ type: MSG.SESSION_FULL, i18nKey: 'network.session_full_detail' }),
-    );
+    // The exact frame: only the key, which every guest on the 789 build floor
+    // translates in its own language (Phase 5.5 train 3 stopped sending the
+    // host-language `message`).
+    expect(overflow.send).toHaveBeenCalledExactlyOnceWith({
+      type: MSG.SESSION_FULL,
+      i18nKey: 'network.session_full_detail',
+    });
     // Close is deferred so the rejection frame can flush first.
     expect(overflow.close).not.toHaveBeenCalled();
     vi.advanceTimersByTime(500);
@@ -404,6 +408,65 @@ describe('duplicate guest connection handoff', () => {
     expect(getState('network.connectedPeers')).toHaveLength(MAX_GUEST_SLOTS);
     expect(getState('network.activeHostConnByPeerId').has('guest-overflow')).toBe(false);
     expect(getState('network.peerLabels')['guest-overflow']).toBeUndefined();
+  });
+
+  it('rejects a connection with SESSION_FULL and an immediate close when another peer holds every slot, leaving no record', () => {
+    // Fewer connected peers than the ceiling, but no free presentation slot.
+    const holders = Array.from({ length: MAX_GUEST_SLOTS }, (_, index) => `holder-${index + 1}`);
+    setState('network.peerSlots', [null, ...holders]);
+    setState('network.peerSlotByPeerId', new Map(holders.map((id, index) => [id, index + 1])));
+
+    const unslotted = makeIncomingConn('guest-unslotted');
+    handleHostIncomingConnection(unslotted);
+
+    expect(unslotted.send).toHaveBeenCalledExactlyOnceWith({
+      type: MSG.SESSION_FULL,
+      i18nKey: 'network.session_full_detail',
+    });
+    expect(unslotted.close).toHaveBeenCalledTimes(1);
+    expect(unslotted.send.mock.invocationCallOrder[0]).toBeLessThan(
+      unslotted.close.mock.invocationCallOrder[0]!,
+    );
+
+    expect(getState('network.connectedPeers')).toEqual([]);
+    expect(getState('network.activeHostConnByPeerId').has('guest-unslotted')).toBe(false);
+    expect(getState('network.peerLabels')['guest-unslotted']).toBeUndefined();
+    expect(getState('network.peerSlotByPeerId').has('guest-unslotted')).toBe(false);
+  });
+
+  it('rejects a connection with SESSION_FULL and an immediate close when the room fills while its slot is assigned, leaving no record', () => {
+    const racing = Array.from({ length: MAX_GUEST_SLOTS }, (_, index) =>
+      makeSlottedPeer(`racing-${index + 1}`, index + 1, vi.fn()),
+    );
+    let filled = false;
+    // Label assignment publishes synchronously; concurrent joins fill the room
+    // between the slot allocation and the re-check before this peer is added.
+    const stop = bus.on('state:network.peerLabels', () => {
+      if (filled) return;
+      filled = true;
+      setState('network.connectedPeers', racing);
+    });
+    const late = makeIncomingConn('guest-late');
+    try {
+      handleHostIncomingConnection(late);
+    } finally {
+      stop();
+    }
+
+    expect(filled).toBe(true);
+    expect(late.send).toHaveBeenCalledExactlyOnceWith({
+      type: MSG.SESSION_FULL,
+      i18nKey: 'network.session_full_detail',
+    });
+    expect(late.close).toHaveBeenCalledTimes(1);
+    expect(late.send.mock.invocationCallOrder[0]).toBeLessThan(
+      late.close.mock.invocationCallOrder[0]!,
+    );
+
+    expect(getState('network.connectedPeers')).toEqual(racing);
+    expect(getState('network.activeHostConnByPeerId').has('guest-late')).toBe(false);
+    expect(getState('network.peerLabels')['guest-late']).toBeUndefined();
+    expect(getState('network.peerSlotByPeerId').has('guest-late')).toBe(false);
   });
 
   it('suppresses the transient connection toast when the fifth device ends system audio', () => {

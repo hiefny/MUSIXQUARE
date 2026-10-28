@@ -12,6 +12,7 @@ import {
   ownerSnapshot,
   fulfillProJson,
   heartbeatReply,
+  setProPlaylist,
 } from './helpers/pro-room-fixture.ts';
 
 async function expectDialogInsideOverlay(page: Page): Promise<void> {
@@ -61,13 +62,13 @@ async function uploadFixture(page: Page, completionError = 'PRO_ROOM_API_UNAVAIL
     },
   );
   const snapshot = ownerSnapshot();
-  snapshot.playlist = [
+  setProPlaylist(snapshot, [
     {
       queueItemId: '11111111-1111-4111-8111-111111111111',
       name: 'Existing track',
       source: { kind: 'youtube', videoId: 'dQw4w9WgXcQ' },
     },
-  ];
+  ]);
   const asset = {
     kind: 'pro-r2',
     assetId: 'asset_upload_00001',
@@ -145,7 +146,7 @@ async function uploadFixture(page: Page, completionError = 'PRO_ROOM_API_UNAVAIL
     } else if (pathname.endsWith('/snapshot/compact')) {
       calls.appends += 1;
       const body = request.postDataJSON() as { upserts: unknown[] };
-      snapshot.playlist = [...(snapshot.playlist as unknown[]), ...body.upserts];
+      setProPlaylist(snapshot, [...(snapshot.playlist as unknown[]), ...body.upserts]);
       snapshot.revision = Number(snapshot.revision) + 1;
       snapshot.playlistRevision = Number(snapshot.playlistRevision) + 1;
       await fulfillProJson(page, route, { snapshot });

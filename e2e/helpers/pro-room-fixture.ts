@@ -7,6 +7,39 @@ export const PRESENCE_INCARNATION_ID = 'presence_0000000001';
 export const MEMBER_ID = 'member_0000000001';
 export const PRO_SIGNALING_ORIGIN = E2E_APP_ORIGIN.replace(/^http/u, 'ws');
 
+/**
+ * The `playlistSlots` summary a PRO Worker sends with every snapshot when
+ * `playlist` is the active playlist, the first of three. `bytes` adds up the
+ * file sizes and is null without files.
+ */
+function playlistSlotsOf(playlist: readonly unknown[]): Record<string, unknown> {
+  let bytes: number | null = null;
+  for (const item of playlist as ReadonlyArray<{
+    source?: { kind?: string; byteLength?: number };
+  }>) {
+    if (item.source?.kind === 'pro-r2') bytes = (bytes ?? 0) + Number(item.source.byteLength);
+  }
+  return {
+    activeSlot: 0,
+    slots: [
+      { count: playlist.length, bytes },
+      { count: 0, bytes: null },
+      { count: 0, bytes: null },
+    ],
+  };
+}
+
+/**
+ * Replaces the active playlist of a snapshot fixture and recounts its
+ * `playlistSlots`. The App refuses a snapshot whose active playlist count
+ * differs from its playlist, so every change of a fixture's playlist goes
+ * through here.
+ */
+export function setProPlaylist(snapshot: Record<string, unknown>, playlist: unknown[]): void {
+  snapshot.playlist = playlist;
+  snapshot.playlistSlots = playlistSlotsOf(playlist);
+}
+
 export function ownerSnapshot(): Record<string, unknown> {
   const capabilities = [
     'queue.mutate',
@@ -22,7 +55,7 @@ export function ownerSnapshot(): Record<string, unknown> {
     'members.kick': true,
     'chat.notice': true,
   };
-  return {
+  const snapshot: Record<string, unknown> = {
     schemaVersion: 1,
     roomCode: PRO_ROOM_CODE,
     status: 'active',
@@ -93,6 +126,8 @@ export function ownerSnapshot(): Record<string, unknown> {
       },
     ],
   };
+  setProPlaylist(snapshot, []);
+  return snapshot;
 }
 
 /** A presence heartbeat reply, which carries the room's system-audio state. */

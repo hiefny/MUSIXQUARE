@@ -155,6 +155,8 @@ const NOT_ROLE_BUTTONS: Readonly<Record<string, string>> = {
   'demo-step-next': 'Demo step navigation pill, part of the step indicator.',
   'demo-play-button': 'Icon-only demo control.',
   'demo-settings-button': 'Icon-only demo control.',
+  'demo-exit-corner':
+    "Icon-only demo exit at the header's start on every step (owner policy 2026-10-28).",
   'ctrl-btn': 'Icon-only transport control.',
   'play-fab': 'Icon-only play button.',
   'volume-icon-button': 'Icon-only volume control.',

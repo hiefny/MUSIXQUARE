@@ -194,6 +194,13 @@ const REGISTRY: Readonly<Record<string, Entry>> = {
   'settings.sync_settings': { kinds: ['status', 'visible'] },
 
   // Setup, demo and help.
+  'demo.exit': {
+    kinds: ['action', 'visible'],
+    exempt: {
+      enSentenceCase:
+        "also the visible step-4 Exit Tour label, which keeps the 9.0.18 English; it names the tour's icon exit",
+    },
+  },
   'demo.step_finish': { kinds: ['visible'] },
   'demo.step_nav_label': { kinds: ['thing'] },
   'demo.track_list_label': { kinds: ['thing'] },

@@ -1664,7 +1664,10 @@ function requestDemoExit(): void {
       if (safeSend(hostConn, { type: MSG.REQUEST_DEMO_EXIT })) showToast(t('demo.try_later_toast'));
       return;
     }
-    showToast(t('demo.host_only_exit'));
+    // The room's demo is the host's to end. A guest who cannot end it leaves
+    // the room instead, through the room's Leave Session confirmation, so
+    // the tour's exits are never dead ends (owner policy 2026-10-28).
+    bus.emit('ui:request-leave-session');
     return;
   }
   exitDemoMode();
@@ -1937,6 +1940,11 @@ function bindDemoDom(): void {
   document.querySelectorAll<HTMLElement>('[data-demo-exit]').forEach((btn) => {
     btn.addEventListener('click', () => bus.emit('demo:request-exit'));
   });
+  // The tour's persistent exit at the header's start, on every step (owner
+  // policy 2026-10-28). It ends the demo exactly as the step-4 exit does.
+  document
+    .getElementById('btn-demo-exit')
+    ?.addEventListener('click', () => bus.emit('demo:request-exit'));
   document.querySelectorAll<HTMLElement>('[data-demo-play]').forEach((btn) => {
     btn.addEventListener('click', () => bus.emit('demo:toggle-play'));
   });

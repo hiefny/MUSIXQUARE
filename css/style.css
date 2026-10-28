@@ -9140,7 +9140,10 @@ or pointers. Keep :focus-visible and :active outside the gate (src/ui/__tests__/
     top: 0;
     z-index: 2;
     display: grid;
-    grid-template-columns: 44px minmax(0, 1fr);
+    /* The tour's exit, the settings opener, then the track copy. The exit
+       stays at the start on every step (owner policy 2026-10-28: a visible
+       exit on every leavable window); the grid mirrors it in RTL. */
+    grid-template-columns: 44px 44px minmax(0, 1fr);
     gap: 12px;
     align-items: center;
     min-width: 0;
@@ -9196,7 +9199,7 @@ or pointers. Keep :focus-visible and :active outside the gate (src/ui/__tests__/
   }
 
   .demo-track-copy {
-    grid-column: 2;
+    grid-column: 3;
     grid-row: 1;
     min-width: 0;
     opacity: 1;
@@ -9227,7 +9230,8 @@ or pointers. Keep :focus-visible and :active outside the gate (src/ui/__tests__/
   }
 
   .demo-play-button,
-  .demo-settings-button {
+  .demo-settings-button,
+  .demo-exit-corner {
     width: 44px;
     height: 44px;
     border: none;
@@ -9242,15 +9246,29 @@ or pointers. Keep :focus-visible and :active outside the gate (src/ui/__tests__/
   }
 
   .demo-play-button:active,
-  .demo-settings-button:active {
+  .demo-settings-button:active,
+  .demo-exit-corner:active {
     transform: scale(0.92);
   }
 
   .demo-play-button > svg,
-  .demo-settings-button > svg {
+  .demo-settings-button > svg,
+  .demo-exit-corner > svg {
     width: 24px;
     height: 24px;
     fill: currentColor;
+  }
+
+  .demo-exit-corner {
+    grid-column: 1;
+    grid-row: 1;
+    padding: 0;
+    opacity: 1;
+    visibility: visible;
+    transition:
+      opacity 0.3s ease,
+      transform 0.35s cubic-bezier(0.16, 1, 0.3, 1),
+      visibility 0s;
   }
 
   .demo-play-button.is-loading {
@@ -9276,7 +9294,9 @@ or pointers. Keep :focus-visible and :active outside the gate (src/ui/__tests__/
   .demo-controls-pill {
     position: relative;
     z-index: 1;
-    grid-column: 1 / -1;
+    /* Grows over the track copy; open, it also slides over the exit's place
+       (see .demo-controls-expanded). */
+    grid-column: 2 / -1;
     grid-row: 1;
     justify-self: start;
     display: flex;
@@ -9433,11 +9453,26 @@ or pointers. Keep :focus-visible and :active outside the gate (src/ui/__tests__/
     margin: 0;
   }
 
+  /* Open, the pill slides over the tour exit's place (its 44px column and
+     the 12px gap) and keeps its full width; its back arrow is the start's way
+     out until it closes, and the exit steps aside meanwhile. */
   .demo-controls-expanded .demo-controls-pill {
     width: 305px;
+    max-width: calc(100% + 56px);
     height: 48px;
     /* Grow around the opener's center without moving the title's grid row. */
     margin-block: -2px;
+    margin-inline-start: -56px;
+  }
+
+  .demo-controls-expanded .demo-exit-corner {
+    opacity: 0;
+    visibility: hidden;
+    transform: scale(0.7);
+    transition:
+      opacity 0.3s ease,
+      transform 0.35s cubic-bezier(0.16, 1, 0.3, 1),
+      visibility 0s linear 0.35s;
   }
 
   .demo-controls-expanded .demo-track-copy {
@@ -9494,6 +9529,7 @@ or pointers. Keep :focus-visible and :active outside the gate (src/ui/__tests__/
     .demo-track-header .demo-controls-pill,
     .demo-track-header .demo-inline-controls,
     .demo-track-header .demo-track-copy,
+    .demo-track-header .demo-exit-corner,
     .demo-settings-button > .demo-settings-open-icon,
     .demo-settings-button > .demo-settings-close-icon {
       transition: none;

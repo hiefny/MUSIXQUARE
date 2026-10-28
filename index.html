@@ -3519,6 +3519,19 @@
         >
           <div id="demo-visualizer-slot" class="demo-visualizer-slot"></div>
           <div class="demo-track-header">
+            <button
+              type="button"
+              class="demo-exit-corner"
+              id="btn-demo-exit"
+              aria-label="Exit Tour"
+              data-i18n-aria-label="demo.exit"
+            >
+              <svg viewBox="0 0 24 24" aria-hidden="true">
+                <path
+                  d="M10.09 15.59L11.5 17l5-5-5-5-1.41 1.41L12.67 11H3v2h9.67l-2.58 2.59zM19 3H5c-1.11 0-2 .9-2 2v4h2V5h14v14H5v-4H3v4c0 1.1.89 2 2 2h14c1.1 0 2-.9 2-2V5c0-1.1-.9-2-2-2z"
+                />
+              </svg>
+            </button>
             <div class="demo-controls-pill">
               <button
                 type="button"
@@ -3879,14 +3892,6 @@
                   </div>
                 </div>
                 <div class="demo-large-actions">
-                  <button type="button" class="accent-action-btn demo-link-button" data-demo-info>
-                    <svg viewBox="0 0 24 24" aria-hidden="true">
-                      <path
-                        d="M14 3v2h3.59l-9.83 9.83 1.41 1.41L19 6.41V10h2V3h-7zM19 19H5V5h5V3H5c-1.1 0-2 .9-2 2v14c0 1.1.9 2 2 2h14c1.1 0 2-.9 2-2v-5h-2v5z"
-                      />
-                    </svg>
-                    <span data-i18n="demo.track_info">Track info</span>
-                  </button>
                   <button type="button" class="leave-session-btn demo-exit-button" data-demo-exit>
                     <svg viewBox="0 0 24 24" aria-hidden="true">
                       <path
@@ -3894,6 +3899,14 @@
                       />
                     </svg>
                     <span data-i18n="demo.exit">Exit Tour</span>
+                  </button>
+                  <button type="button" class="accent-action-btn demo-link-button" data-demo-info>
+                    <svg viewBox="0 0 24 24" aria-hidden="true">
+                      <path
+                        d="M14 3v2h3.59l-9.83 9.83 1.41 1.41L19 6.41V10h2V3h-7zM19 19H5V5h5V3H5c-1.1 0-2 .9-2 2v14c0 1.1.9 2 2 2h14c1.1 0 2-.9 2-2v-5h-2v5z"
+                      />
+                    </svg>
+                    <span data-i18n="demo.track_info">Track info</span>
                   </button>
                 </div>
               </div>

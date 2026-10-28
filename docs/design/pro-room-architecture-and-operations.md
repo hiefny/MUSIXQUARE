@@ -758,13 +758,14 @@ calibration converges); it does not restart the room-wide transition.
 
 On a confirmed non-bfcache `pagehide`, the browser sends one small credentialed
 `text/plain` keepalive mutation that removes that exact participant incarnation
-from presence. The body's playback observation (`baseRevision`,
-`currentQueueItemId`, `playback`) is optional since 2026-10-26; when present it
-is still checked, and it never replaces the server's canonical anchor. The request
-deliberately keeps the room-scoped cookie
-session alive so reopening the fixed link can resume without an avoidable PIN
-prompt. An explicit in-product leave remains a different action: it releases
-presence and revokes the exact current server session.
+from presence. Its body names only that incarnation and a receipt key: since
+9.0.21 the App sends no playback observation. The PRO Worker has taken the
+observation (`baseRevision`, `currentQueueItemId`, `playback`) as optional since
+2026-10-26; when an older App still sends it, it is checked, and it never
+replaces the server's canonical anchor. The request deliberately keeps the
+room-scoped cookie session alive so reopening the fixed link can resume without
+an avoidable PIN prompt. An explicit in-product leave remains a different
+action: it releases presence and revokes the exact current server session.
 
 Explicit leave invalidates the local PRO authority, playlist hooks, transport,
 and asynchronous-operation lease before its first await. The old room's atomic
@@ -1276,15 +1277,25 @@ subsumed by v3.
 
 The PRO Worker of 2026-10-26 stopped serving the request shapes of Apps below
 the 787 build floor. Restoring the PRO Worker it replaced needs no new floor
-while every App sends the entry-policy and playlist-slots opt-in headers and
-the presence close's `baseRevision`, `currentQueueItemId` and `playback`, as
-9.0.14 and later do: that build answers them the same way, its load
+only while every App sends the entry-policy and playlist-slots opt-in headers
+and the presence close's `baseRevision`, `currentQueueItemId` and `playback`,
+as 9.0.14 to 9.0.20 do: that build answers them the same way, its load
 normalization re-adds `developerControlVersion` to participants and developer
 commands, the stored `coordinatorParticipantId` is the null it always wrote,
 and playback receipts keep their `kind` marker, so it does not shorten them.
-The boundary moves when the App stops sending the three close fields: below
-the 2026-10-26 Worker that close is refused (400) and the participant stays
-listed until presence expires, so that release records the new boundary here.
+From 9.0.21 the App sends the presence close without those three fields, and
+the replaced Worker refuses that body (400 `INVALID_REQUEST`). Once 9.0.21 or
+a later App has been live, do not restore the PRO Worker below the 2026-10-26
+Worker by hand, even after an App rollback: a tab opened on 9.0.21 or later
+keeps sending the shorter close until it reloads. Under the replaced Worker a
+participant who closes such a tab stays listed until presence expires (45
+seconds), a reload or an applied update meets the "A previous connection
+remains" handoff dialog instead of a silent resume, and a room whose last
+participant left that way freezes and sleeps only after that expiry. Explicit
+leave still ends through the fenced session close. Automated recovery stays
+above this line, because every PRO Worker in a later recovery checkpoint is
+the 2026-10-26 Worker or newer; `docs/hotfix-procedure.md` carries the same
+rule.
 The App Worker of the same release no longer passes the opt-in headers to the
 internal ownership-transfer commit. Under the replaced PRO Worker that commit
 answers without `passwordRequired` and `playlistSlots`; the App parser takes

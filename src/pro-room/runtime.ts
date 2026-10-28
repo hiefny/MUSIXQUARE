@@ -3894,10 +3894,9 @@ function leaveActiveProRoom(signal?: AbortSignal): Promise<void> {
   // `leave()` also supersedes an authentication/transport open that has not
   // published a snapshot yet. Skipping it when snapshot is null can let a
   // cancelled setup request finish later and silently re-enter the room.
-  // Start one atomic final-checkpoint + presence-close fetch with the old
-  // room's cookie before invalidating local authority. This avoids a later
-  // async leave request accidentally authenticating with a newly-created
-  // same-room cookie.
+  // Start one atomic presence-close fetch with the old room's cookie before
+  // invalidating local authority. This avoids a later async leave request
+  // accidentally authenticating with a newly-created same-room cookie.
   const snapshot = playlistManager?.snapshot ?? controller.snapshot;
   // Release a locally-owned media lease promptly. Presence removal is the
   // authoritative fallback when this best-effort request races navigation.
@@ -3924,17 +3923,14 @@ function startAtomicPresenceClose(snapshot: ProRoomSnapshot): Promise<void> | nu
     return null;
   }
 
-  // The DO derives the freeze position from its own canonical server-time
-  // anchor when the final presence leaves. A browser observation here would
-  // reintroduce browser authority and background-tab clock drift.
-  const checkpoint = { currentQueueItemId: null, playback: null };
+  // The close carries no playback observation. The DO derives the freeze
+  // position from its own canonical server-time anchor when the final
+  // presence leaves; a browser observation would reintroduce browser
+  // authority and background-tab clock drift.
   return api.closePresenceOnUnload({
     code: snapshot.roomCode,
     expectedParticipantId: viewer.participantId,
     expectedPresenceIncarnationId: viewer.presenceIncarnationId,
-    baseRevision: snapshot.revision,
-    currentQueueItemId: checkpoint.currentQueueItemId,
-    playback: checkpoint.playback,
     idempotencyKey,
   });
 }

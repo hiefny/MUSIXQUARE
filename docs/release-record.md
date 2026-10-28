@@ -2709,13 +2709,23 @@ PRO 방장 공지의 중도 참여 복원은 별도 정책이며 이번 서비�
   배포했다(Release 40378059253, `a3893f04`). 계약 표지, 새 바닥, D1, 비밀, 바인딩은 바꾸지 않았다.
   - 코드 되돌리기가 기본이다. Worker만 바뀐 revert는 SemVer와 SW 캐시를 올리지 않아도 된다. 급할 때의 Cloudflare
     되돌리기는 이 릴리스의 checkpoint(artifact 12676946405, 9.0.14 `dd9c9d4d`의 여섯 Worker)로 할 수 있고, 증분마다의
-    경계는 보고서 각 표의 '되돌리기' 행과 같다(W-1·W-3·W-4 앞 Worker는 9.0.14 이상 App의 요청을 그대로 받는다).
+    경계는 보고서 각 표의 '되돌리기' 행과 같다(W-1·W-3·W-4 앞 Worker는 9.0.14 이상 App의 요청을 그대로 받는다). 다만
+    9.0.21(구버전 제거 열차 3) 이상 App이 한 번이라도 live가 된 뒤에는 이 checkpoint의 PRO Worker로 되돌리지 않는다
+    (App을 먼저 되돌려도 같다, 아래 'PRO를 W-2 앞으로' 항목).
   - 한 Worker만 되돌릴 때의 예외: PRO만 W-2 앞으로 되돌리고 App Worker를 W-4에 두면 소유권 이전 링크의 답에
     `passwordRequired`와 `playlistSlots`가 빠진다. App 파서는 둘을 선택으로 받고 방 암호는 commit한 대로 꺼져 있지만, 새
     소유자 설정은 다음 스냅샷 revision까지 암호를 켜짐으로 보일 수 있다. 둘을 함께 되돌리거나 앞으로 고친다.
-  - PRO를 W-2 앞으로 되돌려도 새 바닥은 필요 없다(9.0.14 이상 App은 opt-in 머리글과 presence/close 세 필드를 보낸다).
-    지운 저장 이주 셋의 대상 기록은 모두 만료됐고, 부모로 되돌리면 그 이주가 돌아올 뿐이다. App이 close 세 필드를 그만
-    보내는 열차 3에서 이 경계가 움직이고, 그 열차가 적는다.
+  - PRO를 W-2 앞으로 되돌리는 데 새 바닥은 필요 없다. 지운 저장 이주 셋의 대상 기록은 모두 만료됐고, 부모로 되돌리면
+    그 이주가 돌아올 뿐이다. 다만 W-2 앞 PRO Worker는 presence/close의 세 필드(`baseRevision`, `currentQueueItemId`,
+    `playback`)를 요구한다. 9.0.14~9.0.20 App은 보내지만 9.0.21(구버전 제거 열차 3)부터 App은 보내지 않으므로 그
+    Worker는 그 close를 400 `INVALID_REQUEST`로 거절한다. 그래서 9.0.21 이상 App이 한 번이라도 live가 된 뒤에는 PRO를
+    W-2 앞(위 checkpoint의 `dd9c9d4d` 버전 포함)으로 손으로 되돌리지 않는다. App을 되돌려도 9.0.21 이상으로 연 탭은
+    새로 고칠 때까지 세 필드 없이 close를 보낸다. 되돌리면 그런 탭을 닫은 참가자가 presence 만료(45초)까지 목록에
+    남고, 새로고침과 업데이트 적용이 조용한 재개 대신 '이전 연결이 남아 있어요' 넘김 대화상자를 띄우며, 마지막 참가자가
+    그렇게 떠난 방은 그 만료 뒤에야 재생을 멈추고 `sleeping`이 된다. 명시적 나가기는 fenced session close로 끝난다.
+    실패 자동 복구는 실패한 릴리스의 checkpoint만 되돌리고 W 뒤 checkpoint의 PRO는 모두 W 이상이라 이 선을 넘지
+    않는다. 계약 표지는 바꾸지 않고 이 문장과 [hotfix-procedure](hotfix-procedure.md#normal-hotfix)로만 둔다(표지는
+    바꾼 그 릴리스의 자동 복구만 막는다).
   - Signaling을 9.0.14 아래로 되돌리면(이미 절차 밖, 아래 9.0.14 항목) release smoke와 floor 도구가 옛 모양으로 다시 해
     보지 않고 두 원인을 적은 채 즉시 실패한다(W-3가 옛 Signaling Worker 재시도 갈래를 지움).
   - 아래 '9.0.14 최소 앱 빌드'의 경계와 PRO 입장 정책 표지(PRO·App의 9.0.4 아래 자동 복구를 막음)는 그대로다.

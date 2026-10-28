@@ -191,6 +191,28 @@ neither automatic nor manual recovery restores either Worker below the marker;
 repair forward with an `all` release. Any change to this marker requires
 target `all`. See [the transfer change](design/phase2-navigation-ui-shells-2026-10-23.md#호환성과-배포-순서).
 
+From 9.0.21 (old-version removal train 3) the App's PRO presence close
+(`POST /presence/close`, sent on a confirmed `pagehide` and at the start of an
+explicit leave) carries only its receipt key and the captured participant and
+presence incarnation, without `baseRevision`, `currentQueueItemId` and
+`playback`. The PRO Worker of old-version removal train 2 (`a3893f04`, deployed
+2026-10-27 KST, version `319f6e8f`) and every later one take those fields as
+optional. An older PRO Worker, including the 9.0.14 (`dd9c9d4d`) version in
+that release's recovery checkpoint, refuses the shorter body with 400
+`INVALID_REQUEST`. Once 9.0.21 or a later App has been live, never restore the
+PRO Worker below that train 2 Worker by hand, even after rolling the App back:
+a tab opened on 9.0.21 or later keeps sending the shorter close until it
+reloads. Under such a Worker a participant who closes such a tab stays listed
+until presence expires (45 seconds), a reload or an applied update shows the
+"A previous connection remains" handoff dialog instead of resuming silently,
+and a room whose last participant left that way freezes its playback and
+sleeps only once that presence expires. An explicit leave still ends through
+the fenced session close. Automated recovery stays above this line: it
+restores only the failing release's recovery checkpoint, and every PRO Worker
+captured in a checkpoint since train 2 is that Worker or a later one. No
+contract marker changes for this boundary; a marker would stop only the
+automated recovery of the release that changed it.
+
 The complete serial Playwright suite is intentionally not a production deploy
 gate. The `Full E2E` workflow runs it together with the targeted iPhone WebKit
 smoke every Tuesday at 03:17 KST and remains manually dispatchable when a change

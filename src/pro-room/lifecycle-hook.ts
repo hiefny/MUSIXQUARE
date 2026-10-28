@@ -9,8 +9,9 @@ function bindConfirmedPageHide(): void {
   if (pageHideBound || typeof window === 'undefined') return;
   pageHideBound = true;
   // Capture runs before the app-wide pagehide listener that tears down peer
-  // and player state. The keepalive request must be issued while the final
-  // playback observation and authenticated room context are still intact.
+  // and player state. The keepalive request must be issued while the
+  // authenticated room context (the exact participant and presence
+  // incarnation it releases) is still intact.
   window.addEventListener(
     'pagehide',
     (event) => {
@@ -32,7 +33,7 @@ export function registerProRoomLeaveHandler(handler: (() => void | Promise<void>
   leaveHandler = handler;
 }
 
-/** Register the unload-only atomic checkpoint + presence close operation. */
+/** Register the unload-only atomic presence close operation. */
 export function registerProRoomHardCloseHandler(handler: (() => boolean) | null): void {
   hardCloseHandler = handler;
   confirmedUnloadHandled = false;

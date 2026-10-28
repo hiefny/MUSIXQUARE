@@ -1372,9 +1372,6 @@ describe('PRO room cookie session API', () => {
       code: ROOM_CODE,
       expectedParticipantId: snapshot.viewer!.participantId,
       expectedPresenceIncarnationId: snapshot.viewer!.presenceIncarnationId,
-      baseRevision: snapshot.revision,
-      currentQueueItemId: snapshot.currentQueueItemId,
-      playback: snapshot.playback,
       idempotencyKey: IDEMPOTENCY_KEY,
     });
 
@@ -1413,9 +1410,6 @@ describe('PRO room cookie session API', () => {
         code: ROOM_CODE,
         expectedParticipantId: 'not-valid',
         expectedPresenceIncarnationId: snapshot.viewer!.presenceIncarnationId,
-        baseRevision: snapshot.revision,
-        currentQueueItemId: snapshot.currentQueueItemId,
-        playback: snapshot.playback,
         idempotencyKey: IDEMPOTENCY_KEY,
       }),
     ).rejects.toMatchObject({ code: 'INVALID_PARTICIPANT_ID' });
@@ -1426,9 +1420,6 @@ describe('PRO room cookie session API', () => {
         code: ROOM_CODE,
         expectedParticipantId: snapshot.viewer!.participantId,
         expectedPresenceIncarnationId: 'stale',
-        baseRevision: snapshot.revision,
-        currentQueueItemId: snapshot.currentQueueItemId,
-        playback: snapshot.playback,
         idempotencyKey: IDEMPOTENCY_KEY,
       }),
     ).rejects.toMatchObject({ code: 'INVALID_PRESENCE_INCARNATION_ID' });

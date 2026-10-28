@@ -354,17 +354,17 @@ interface UpdateProRoomQueueModeInput {
 }
 
 /**
- * Small unload-safe mutation used only after a confirmed pagehide. Playback is
- * server-authoritative, so every participant sends a null checkpoint while
- * releasing its exact presence incarnation.
+ * Small unload-safe mutation used on a confirmed pagehide and at the start of
+ * an explicit leave. Playback is server-authoritative, so the request names
+ * only the exact presence incarnation it releases and carries no playback
+ * observation. The PRO Worker has taken `baseRevision`, `currentQueueItemId`
+ * and `playback` as optional since old-version removal train 2; an older one
+ * refuses this body (docs/hotfix-procedure.md keeps that PRO rollback line).
  */
 interface CloseProRoomPresenceInput {
   code: string;
   expectedParticipantId: string;
   expectedPresenceIncarnationId: string;
-  baseRevision: number;
-  currentQueueItemId: string | null;
-  playback: ProRoomPlaybackCheckpoint | null;
   idempotencyKey: string;
 }
 
@@ -2027,12 +2027,6 @@ export class ProRoomApiClient {
    */
   async closePresenceOnUnload(input: CloseProRoomPresenceInput): Promise<void> {
     const path = roomPath(input.code);
-    if (!isSafeNonNegativeInteger(input.baseRevision)) {
-      throw new ProRoomApiError('INVALID_REVISION');
-    }
-    if (input.currentQueueItemId !== null && !isProRoomQueueItemId(input.currentQueueItemId)) {
-      throw new ProRoomApiError('INVALID_QUEUE_ITEM_ID');
-    }
     await this.#request(`${path}/presence/close`, {
       method: 'POST',
       body: {
@@ -2045,9 +2039,6 @@ export class ProRoomApiClient {
           input.expectedPresenceIncarnationId,
           'INVALID_PRESENCE_INCARNATION_ID',
         ),
-        baseRevision: input.baseRevision,
-        currentQueueItemId: input.currentQueueItemId,
-        playback: input.playback,
       },
       keepalive: true,
       simpleTextBody: true,

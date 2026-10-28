@@ -365,6 +365,32 @@ describe('App build floor script arguments', () => {
       parseAppBuildFloorArgs(['set', '785'], { MXQR_APP_BUILD_FLOOR_REASON: 'x'.repeat(201) }),
     ).toThrow('reason');
   });
+
+  it('reads the App build the PRO Worker requires from the release workflow value', () => {
+    // An empty or missing value means the PRO Worker requires no App build.
+    expect(parseAppBuildFloorArgs(['pro-room-guard'], {})).toEqual({
+      action: 'pro-room-guard',
+      requiredAppBuild: null,
+    });
+    expect(
+      parseAppBuildFloorArgs(['pro-room-guard', ''], { MXQR_PRO_ROOM_REQUIRED_APP_BUILD: '' }),
+    ).toEqual({ action: 'pro-room-guard', requiredAppBuild: null });
+    expect(
+      parseAppBuildFloorArgs(['pro-room-guard'], { MXQR_PRO_ROOM_REQUIRED_APP_BUILD: '794' }),
+    ).toEqual({ action: 'pro-room-guard', requiredAppBuild: 794 });
+    for (const value of ['0', '-1', '794.5', '0794', 'v794', '2147483648']) {
+      expect(
+        () =>
+          parseAppBuildFloorArgs(['pro-room-guard'], { MXQR_PRO_ROOM_REQUIRED_APP_BUILD: value }),
+        value,
+      ).toThrow('MXQR_PRO_ROOM_REQUIRED_APP_BUILD');
+    }
+    expect(() =>
+      parseAppBuildFloorArgs(['pro-room-guard', '794'], {
+        MXQR_PRO_ROOM_REQUIRED_APP_BUILD: '794',
+      }),
+    ).toThrow('Usage');
+  });
 });
 
 describe('App build floor live App build', () => {
@@ -853,6 +879,105 @@ describe('App build floor script', () => {
     });
   });
 
+  describe('Production Release check of the App build the PRO Worker requires', () => {
+    function check(requiredAppBuild: number | null) {
+      return { action: 'pro-room-guard', requiredAppBuild } as const;
+    }
+
+    function statusReads(world: FloorWorld) {
+      return world.requests.filter(
+        (request) => new URL(request.url).pathname === APP_BUILD_FLOOR_PUBLIC_STATUS_PATH,
+      );
+    }
+
+    it('skips without a request while the PRO Worker requires no App build', async () => {
+      const world = new FloorWorld({ stored: 787, liveBuild: 793 });
+      await expect(runAppBuildFloorCommand(check(null), world.deps({}))).resolves.toBeNull();
+      expect(world.requests).toEqual([]);
+      expect(world.logs.join('\n')).toContain('requires no App build');
+    });
+
+    it('passes when the stored and the effective floor reach the required build', async () => {
+      const world = new FloorWorld({ stored: 794, revision: 3, liveBuild: 795 });
+      await expect(runAppBuildFloorCommand(check(794), world.deps({}))).resolves.toBeNull();
+      // Read-only: one public status read, no token, no change, no proof.
+      expect(world.requests.map((request) => new URL(request.url).pathname)).toEqual([
+        APP_BUILD_FLOOR_PUBLIC_STATUS_PATH,
+      ]);
+      expect(world.tokenRequests()).toHaveLength(0);
+      expect(world.signalingProbes).toEqual([]);
+      expect(world.revision).toBe(3);
+      expect(world.time).toBe(T0);
+      expect(world.logs.join('\n')).toContain('stored 794 and effective 794 reach build 794');
+    });
+
+    it('stops at once when the stored floor is below the required build', async () => {
+      const world = new FloorWorld({ stored: 793, liveBuild: 794 });
+      await expect(runAppBuildFloorCommand(check(794), world.deps({}))).rejects.toThrow(
+        'The stored App build floor 793 is below build 794, which the PRO Worker of this release requires',
+      );
+      expect(statusReads(world)).toHaveLength(1);
+      expect(world.time).toBe(T0);
+    });
+
+    it('stops at once when the effective floor is below the required build', async () => {
+      // The live App reports build 793, so the entry gates enforce 793.
+      const world = new FloorWorld({ stored: 794, liveBuild: 793 });
+      await expect(runAppBuildFloorCommand(check(794), world.deps({}))).rejects.toThrow(
+        'The effective App build floor 793 is below build 794, which the PRO Worker of this release requires',
+      );
+      expect(statusReads(world)).toHaveLength(1);
+      expect(world.time).toBe(T0);
+    });
+
+    it('waits for a new App report while the effective floor is 0, then passes', async () => {
+      const world = new FloorWorld({ stored: 794, liveBuild: 794 });
+      // The last App report is more than five minutes old: nothing is enforced.
+      world.reportedAt = T0 - 360_000;
+      expect(world.effective()).toBe(0);
+      await expect(runAppBuildFloorCommand(check(794), world.deps({}))).resolves.toBeNull();
+      expect(world.logs.join('\n')).toContain('waiting for a new App report');
+      // The minute cron reported at the next minute, 30 s after the first read.
+      expect(world.time - T0).toBe(30_000);
+    });
+
+    it('stops when the effective floor is still 0 after the App report wait', async () => {
+      const world = new FloorWorld({ stored: 794, liveBuild: 794, cron: false });
+      world.reportedAt = T0 - 360_000;
+      await expect(runAppBuildFloorCommand(check(794), world.deps({}))).rejects.toThrow(
+        'The effective App build floor stayed 0',
+      );
+      expect(world.time - T0).toBeGreaterThanOrEqual(APP_BUILD_FLOOR_CRON_REPORT_TIMEOUT_MS);
+    });
+
+    it('stops when the status stays unreadable through the re-reads', async () => {
+      const world = new FloorWorld({ stored: 794, liveBuild: 794, statusUnavailable: true });
+      await expect(runAppBuildFloorCommand(check(794), world.deps({}))).rejects.toThrow(
+        /could not be read within 30 s.*HTTP 503 \(APP_BUILD_FLOOR_UNAVAILABLE\)/u,
+      );
+      expect(statusReads(world).length).toBeGreaterThan(1);
+      expect(world.time - T0).toBeGreaterThanOrEqual(30_000);
+    });
+
+    it('passes once a failing status read recovers within the re-reads', async () => {
+      const world = new FloorWorld({ stored: 794, liveBuild: 794 });
+      const deps = world.deps({});
+      const fetcher = deps.fetcher;
+      let failures = 2;
+      deps.fetcher = async (input, init) => {
+        if (failures > 0 && new URL(input).pathname === APP_BUILD_FLOOR_PUBLIC_STATUS_PATH) {
+          failures -= 1;
+          return json({ minAppBuild: 794 }, 200);
+        }
+        return fetcher(input, init);
+      };
+      await expect(runAppBuildFloorCommand(check(794), deps)).resolves.toBeNull();
+      expect(failures).toBe(0);
+      expect(world.time - T0).toBeGreaterThan(0);
+      expect(world.time - T0).toBeLessThan(30_000);
+    });
+  });
+
   it('formats unknown values in the summary', () => {
     expect(
       formatAppBuildFloorSummary(
@@ -947,6 +1072,45 @@ describe('App build floor workflows', () => {
     expect(release).toContain("needs.deploy.outputs.production_committed != 'true'");
     expect(workflowStep(release, 'Release summary')).toContain(
       "App build floor raise: \\`${{ steps.app_build_floor_raise.outcome || 'not-requested' }}\\`",
+    );
+  });
+
+  it('checks the App build the PRO Worker requires before a PRO release changes anything', () => {
+    const step = workflowStep(release, 'Check the App build floor the PRO Worker requires');
+    expect(step).toContain('id: pro_room_app_build_floor_check');
+    expect(step).toContain("if: inputs.target == 'pro-room' || inputs.target == 'all'");
+    // Its own budget: the status re-reads and the App report wait fit in it.
+    expect(step).toMatch(/\n {8}timeout-minutes: 10\n/u);
+    // The value lives in this workflow, outside every runtime path list; empty
+    // means the PRO Worker requires no App build.
+    expect(step).toMatch(/\n {10}MXQR_PRO_ROOM_REQUIRED_APP_BUILD: '(?:[1-9]\d*)?'\n/u);
+    expect(step).toContain('run: node scripts/app-build-floor.mts pro-room-guard');
+    expect(step).not.toContain('secrets.');
+    expect(step).not.toContain('continue-on-error');
+
+    // Read-only, beside the partial-release compatibility check: after Node and
+    // the dependencies, before the recovery checkpoint, the mutation
+    // authorization and the room-code fence, so a stop changes nothing and
+    // starts no recovery.
+    const deploy = release.slice(release.indexOf('\n  deploy:'), release.indexOf('\n  recovery:'));
+    const at = (name: string): number => {
+      const index = deploy.indexOf(`\n      - name: ${name}\n`);
+      expect(index, name).toBeGreaterThan(-1);
+      return index;
+    };
+    const checkStep = at('Check the App build floor the PRO Worker requires');
+    expect(checkStep).toBeGreaterThan(at('Install dependencies with pinned npm'));
+    expect(checkStep).toBeGreaterThan(at('Verify partial release dependency compatibility'));
+    for (const later of [
+      'Capture immutable Worker and R2 recovery checkpoint',
+      'Authorize production mutations from persisted checkpoint',
+      'Fence room-code reuse during dependency rollout',
+      'Deploy and record PRO room Worker',
+    ]) {
+      expect(checkStep, later).toBeLessThan(at(later));
+    }
+    expect(workflowStep(release, 'Release summary')).toContain(
+      "PRO App build floor check: \\`${{ steps.pro_room_app_build_floor_check.outcome || 'not-requested' }}\\`",
     );
   });
 

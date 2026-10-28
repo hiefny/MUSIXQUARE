@@ -357,6 +357,21 @@ describe('release deployment rollback state', () => {
     }
   });
 
+  it('keeps the App build the PRO Worker requires and its floor check outside every Worker contract', () => {
+    // The release workflow holds the value and the floor tool checks it, so a
+    // pull request that writes or clears the value changes no runtime path and
+    // keeps its release target (a contract marker file would force `all`).
+    for (const worker of [...releaseTargetWorkers('all')]) {
+      const mapped = runtimePathsForWorker(worker);
+      for (const file of ['.github/workflows/release.yml', 'scripts/app-build-floor.mts']) {
+        expect(
+          mapped.some((path) => file === path || file.startsWith(`${path}/`)),
+          `${worker}: ${file}`,
+        ).toBe(false);
+      }
+    }
+  });
+
   it('maps Worker-side modules bundled into the browser App into the App contract', () => {
     // The App bundle also ships cloudflare/ modules that browser code imports
     // (for example the PRO upload probe's media duration readers). A change to

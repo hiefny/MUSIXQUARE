@@ -14,6 +14,7 @@ import { showToast } from './toast.ts';
 import {
   copyTextToClipboard,
   getUiElement,
+  offerEscapeToWindow,
   onWindowBack,
   syncOverlayState,
   trackClosingCssTransition,
@@ -480,6 +481,12 @@ function initSignalingRecoveryDialog(): void {
     closeSignalingRecoveryDialog(true);
   });
   overlay.addEventListener('keydown', (event) => {
+    if (event.key === 'Escape') {
+      // Escape is Back from the keyboard (owner decision 2026-10-28).
+      if (event.defaultPrevented || event.isComposing || event.keyCode === 229) return;
+      if (offerEscapeToWindow(overlay)) event.preventDefault();
+      return;
+    }
     if (event.key !== 'Tab') return;
     const focusables = [confirm, retry].filter((button) => !button.hidden && !button.disabled);
     if (focusables.length === 0) return;

@@ -9,7 +9,12 @@ import { bus } from '../core/events.ts';
 import { clearManagedTimer, setManagedTimer } from '../core/timers.ts';
 import { showToast } from './toast.ts';
 import { t } from '../i18n/index.ts';
-import { syncOverlayState, normalizeEmptyContentEditable, onWindowBack } from './dom.ts';
+import {
+  syncOverlayState,
+  normalizeEmptyContentEditable,
+  offerEscapeToWindow,
+  onWindowBack,
+} from './dom.ts';
 import { applyUserTextFontFallback } from './user-text-font.ts';
 import { destroyCustomScrollbar, initCustomScrollbar } from './custom-scrollbar.ts';
 import { createSelectionCheckSvg } from './selection-mark.ts';
@@ -26,13 +31,14 @@ interface DialogOptions {
   secondaryText?: DialogText;
   cancelText?: DialogText;
   /**
-   * Escape closes the dialog as `escape`. An outside click or tap never
-   * closes a dialog (owner policy, 2026-10-28).
+   * No effect. Escape now follows history Back for every dialog, and an
+   * outside click or tap never closes one (owner policy, 2026-10-28).
    */
   dismissible?: boolean;
   /**
-   * History Back closes the dialog as `back`, a cancel, by default. Set false
-   * for a dialog whose primary tap is required; Back then leaves it open.
+   * History Back and Escape close the dialog as `back`, a cancel, by
+   * default. Set false for a dialog whose primary tap is required; Back and
+   * Escape then leave it open.
    */
   closeOnBack?: boolean;
   defaultFocus?: 'primary' | 'secondary';
@@ -367,7 +373,6 @@ function _openDialog(opts: DialogOptions | string, resolve: (result: DialogResul
         : '';
   const secondaryText = dialogText(secondaryTextRaw).trim();
   const hasSecondary = !!secondaryText;
-  const dismissible = o.dismissible === true;
   const defaultFocus = o.defaultFocus
     ? String(o.defaultFocus)
     : hasSecondary
@@ -858,6 +863,7 @@ function _openDialog(opts: DialogOptions | string, resolve: (result: DialogResul
 
   // History Back is a cancel, never a button: no activation hook runs, and
   // callers see `back`. The choice page steps back to the first page first.
+  // Escape takes the same path (owner decision 2026-10-28).
   const backListener = new AbortController();
   cleanup.push(() => backListener.abort());
   onWindowBack(
@@ -903,11 +909,8 @@ function _openDialog(opts: DialogOptions | string, resolve: (result: DialogResul
     if (ke.defaultPrevented || overlay.hasAttribute('inert')) return;
     if (ke.isComposing || ke.keyCode === 229) return;
     if (ke.key === 'Escape') {
-      // A stepped dialog closes on Escape from either page, like the language
-      // list; nothing is applied until its final primary action.
-      if (!dismissible && !choice) return;
-      ke.preventDefault();
-      done('escape');
+      // Escape is Back from the keyboard, for the top window only.
+      if (offerEscapeToWindow(overlay)) ke.preventDefault();
       return;
     }
 

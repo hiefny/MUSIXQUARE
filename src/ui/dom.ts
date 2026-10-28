@@ -777,11 +777,8 @@ export function syncOverlayStateAfterExternalLock(): void {
   if (top && (active === top || !top.contains(active))) focusTopModal();
 }
 
-/** Offer Back to one window, preserving that owner's actual closing boundary. */
-export function offerBackToTopWindow(): WindowBackResult {
-  syncModalStack();
-  const root = topWindowElement();
-  if (!root) return { handled: false, settled: whenBackSurfaceSettled() };
+/** Offer Back to `root`'s layers, the topmost first, then to `root` itself. */
+function dispatchWindowBack(root: HTMLElement): boolean {
   // Later layers in document order sit above earlier ones.
   const layers = Array.from(
     root.querySelectorAll<HTMLElement>(`[${WINDOW_BACK_LAYER_ATTRIBUTE}]`),
@@ -794,9 +791,32 @@ export function offerBackToTopWindow(): WindowBackResult {
     } finally {
       _backDispatchDepth -= 1;
     }
-    if (event.defaultPrevented) return { handled: true, settled: whenBackSurfaceSettled() };
+    if (event.defaultPrevented) return true;
   }
-  return { handled: false, settled: whenBackSurfaceSettled() };
+  return false;
+}
+
+/** Offer Back to one window, preserving that owner's actual closing boundary. */
+export function offerBackToTopWindow(): WindowBackResult {
+  syncModalStack();
+  const root = topWindowElement();
+  if (!root) return { handled: false, settled: whenBackSurfaceSettled() };
+  const handled = dispatchWindowBack(root);
+  return { handled, settled: whenBackSurfaceSettled() };
+}
+
+/**
+ * Escape is history Back from the keyboard (owner decision 2026-10-28). Offer
+ * it to `root` only while `root` is the window Back would reach, through the
+ * same layers and handlers, so a window closes, steps back or stays exactly
+ * as it does on Back. Returns whether that window used the key. Unlike an
+ * unused Back, an unused Escape does not go on to the session guard's leave
+ * confirmation.
+ */
+export function offerEscapeToWindow(root: HTMLElement): boolean {
+  syncModalStack();
+  if (topWindowElement() !== root) return false;
+  return dispatchWindowBack(root);
 }
 
 // ─── Observer (single watcher, both effects) ─────────────────────

@@ -2627,6 +2627,161 @@ describe('PRO room server-authoritative playback', () => {
     });
   });
 
+  it('gives every rendezvous command the start kind of one table', async () => {
+    // The reference for the explicit start kind of snapshot v2: today a
+    // zero-start transition is marked only by its 2999 ms deadline and its
+    // 699 ms COMMIT lead; every other one gets 3000 ms and 700 ms. Each row
+    // runs in a fresh room with the owner as the whole cohort.
+    const ZERO_START = { deadlineMs: 2_999, commitLeadMs: 699 };
+    const SCHEDULED_CONTROL = { deadlineMs: 3_000, commitLeadMs: 700 };
+    type Room = Awaited<ReturnType<typeof activatedRoom>>;
+    type Realtime = ReturnType<typeof installRealtimeRecorder>;
+    const startKind = async (
+      context: Room,
+      realtime: Realtime,
+      transition: { transitionId: string; basePlaybackRevision: number },
+      readyCookie = context.ownerCookie,
+    ) => {
+      const pending = realtime.internal.room.pendingPlaybackTransition;
+      expect(pending.transitionId).toBe(transition.transitionId);
+      const deadlineMs = pending.deadlineAtMs - pending.createdAtMs;
+      const ready = await context.worker.fetch(
+        jsonRequest(
+          `/playback/transitions/${transition.transitionId}/ready`,
+          'POST',
+          { basePlaybackRevision: transition.basePlaybackRevision, status: 'ready' },
+          readyCookie,
+        ),
+      );
+      expect(ready.status).toBe(200);
+      await expect(ready.json()).resolves.toMatchObject({ status: 'committed' });
+      const commit = realtime.messages.find(
+        (message) =>
+          message.event?.type === 'pro-playback-commit' &&
+          message.event.transitionId === transition.transitionId,
+      )?.event;
+      return { deadlineMs, commitLeadMs: commit.executeAtMs - commit.serverTimeMs };
+    };
+    const commandKind = async (
+      prepare: (context: Room) => Promise<void>,
+      command: (playback: Record<string, any>) => Record<string, unknown>,
+    ) => {
+      const context = await activatedRoom();
+      const realtime = installRealtimeRecorder(context);
+      expect(
+        (await replacePlaylist(context, duplicateVideoPlaylist, 'start-kind-table')).status,
+      ).toBe(200);
+      await prepare(context);
+      const response = await context.worker.fetch(
+        jsonRequest(
+          '/playback/commands',
+          'POST',
+          command(realtime.internal.room.playback),
+          context.ownerCookie,
+          'start-kind-table-command',
+        ),
+      );
+      expect(response.status).toBe(202);
+      return startKind(context, realtime, (await responseJson(response)).transition);
+    };
+    const idle = async () => undefined;
+    const playing = (queueItemId: string) => async (context: Room) => {
+      await selectAndCommit(context, queueItemId, { key: 'start-kind-table-playing' });
+    };
+    const observation = (type: 'ended' | 'unavailable') => (playback: Record<string, any>) => ({
+      type,
+      baseRevision: playback.revision,
+      queueItemId: firstQueueItemId,
+      mediaKind: 'youtube',
+      observedPositionSeconds: 0.1,
+      durationSeconds: type === 'ended' ? 0.1 : null,
+      youtubeVideoId: 'dQw4w9WgXcQ',
+      youtubeSubIndex: 0,
+    });
+    const wake = async () => {
+      const context = await activatedRoom();
+      const realtime = installRealtimeRecorder(context);
+      expect(
+        (await replacePlaylist(context, duplicateVideoPlaylist, 'start-kind-table')).status,
+      ).toBe(200);
+      await selectAndCommit(context, firstQueueItemId, { key: 'start-kind-table-playing' });
+      expect(
+        (
+          await context.worker.fetch(
+            request('/presence/current', { method: 'DELETE' }, context.ownerCookie),
+          )
+        ).status,
+      ).toBe(200);
+      const returning = await addMember(context);
+      expect(realtime.internal.room.pendingPlaybackTransition.resumeFromSleep).toBe(true);
+      return startKind(
+        context,
+        realtime,
+        realtime.internal.room.pendingPlaybackTransition,
+        returning.cookie,
+      );
+    };
+
+    const table = {
+      'play from idle': await commandKind(idle, (playback) => ({
+        type: 'play',
+        baseRevision: playback.revision,
+      })),
+      'play from paused': await commandKind(
+        async (context) => {
+          await selectAndCommit(context, firstQueueItemId, {
+            state: 'paused',
+            positionSeconds: 12,
+            key: 'start-kind-table-paused',
+          });
+        },
+        (playback) => ({ type: 'play', baseRevision: playback.revision }),
+      ),
+      'seek while playing': await commandKind(playing(firstQueueItemId), (playback) => ({
+        type: 'seek',
+        baseRevision: playback.revision,
+        positionSeconds: 33,
+      })),
+      'select to play': await commandKind(idle, (playback) => ({
+        type: 'select',
+        baseRevision: playback.revision,
+        queueItemId: firstQueueItemId,
+        state: 'playing',
+        positionSeconds: 0,
+      })),
+      'select to pause': await commandKind(idle, (playback) => ({
+        type: 'select',
+        baseRevision: playback.revision,
+        queueItemId: firstQueueItemId,
+        state: 'paused',
+        positionSeconds: 0,
+      })),
+      next: await commandKind(playing(firstQueueItemId), (playback) => ({
+        type: 'next',
+        baseRevision: playback.revision,
+      })),
+      previous: await commandKind(playing(secondQueueItemId), (playback) => ({
+        type: 'previous',
+        baseRevision: playback.revision,
+      })),
+      ended: await commandKind(playing(firstQueueItemId), observation('ended')),
+      unavailable: await commandKind(playing(firstQueueItemId), observation('unavailable')),
+      'wake to resume playing': await wake(),
+    };
+    expect(table).toEqual({
+      'play from idle': ZERO_START,
+      'play from paused': SCHEDULED_CONTROL,
+      'seek while playing': SCHEDULED_CONTROL,
+      'select to play': ZERO_START,
+      'select to pause': ZERO_START,
+      next: ZERO_START,
+      previous: ZERO_START,
+      ended: ZERO_START,
+      unavailable: ZERO_START,
+      'wake to resume playing': SCHEDULED_CONTROL,
+    });
+  });
+
   it('wakes resume-playing through a sole-member PREPARE from the frozen position', async () => {
     vi.useFakeTimers();
     const startedAtMs = Date.parse('2026-07-20T03:00:00.000Z');

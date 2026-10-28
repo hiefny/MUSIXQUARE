@@ -596,7 +596,9 @@ export function openOnboardingDiagnostics(): void {
   const refreshButton = createAction('REFRESH');
   const closeButton = createAction('CLOSE');
   copyButton.disabled = true;
-  actions.append(copyButton, refreshButton, closeButton);
+  // The exit first, on the left like every window's (owner decision
+  // 2026-10-28), then the actions; CLOSE keeps the first focus.
+  actions.append(closeButton, copyButton, refreshButton);
   overlay.append(status, actions);
 
   let disposed = false;

@@ -358,7 +358,7 @@ describe('public design-system page contract', () => {
       );
     const role = (name: string): string => `var(--font-weight-${name})`;
     for (const [selector, weight] of [
-      ['.app-loading-header-status', role('body')],
+      ['.app-loading-header-status', role('label')],
       ['.playlist-name', role('unselected')],
       ['.playlist-item.active .playlist-name', role('selected')],
       ['.device-row-sample .d-name', role('unselected')],

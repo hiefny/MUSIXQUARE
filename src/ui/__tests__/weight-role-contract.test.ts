@@ -791,7 +791,11 @@ const ROLE_SPOT_CHECKS: ReadonlyArray<{
     role: 'label',
     reason: 'The play tab chat preview keeps the CTA role of the button label table.',
   },
-  { selector: '.header-loading-text', role: 'body', reason: 'The header loading status.' },
+  {
+    selector: '.header-loading-text',
+    role: 'label',
+    reason: 'The header loading status replaces the logo beside the label-weight account pill.',
+  },
   { selector: '.youtube-settings-note', role: 'body', reason: 'A note over a disabled panel.' },
   {
     selector: '.system-audio-playlist-note',

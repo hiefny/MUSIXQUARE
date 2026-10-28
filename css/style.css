@@ -1317,7 +1317,9 @@ or pointers. Keep :focus-visible and :active outside the gate (src/ui/__tests__/
     align-items: center;
 
     font-size: 14px;
-    font-weight: var(--font-weight-body);
+    /* Label, not body (owner decision 2026-10-29): the status stands in for
+       the logo beside the label-weight account pill. */
+    font-weight: var(--font-weight-label);
     color: var(--text-main);
     white-space: nowrap;
     overflow: hidden;

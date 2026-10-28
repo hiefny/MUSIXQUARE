@@ -1719,6 +1719,21 @@ function devicePlatformFromRequest(request: Request): string {
   return 'other';
 }
 
+/** The diagnostic operation of an admission route (path after the room prefix), or null. */
+function admissionOperation(suffix: string) {
+  return suffix === '/sessions'
+    ? 'sessions'
+    : suffix === '/presence/enter'
+      ? 'presence_enter'
+      : suffix === '/presence/close' || suffix === '/presence/current' || suffix === '/presence'
+        ? 'presence_close'
+        : suffix === '/sessions/current/close'
+          ? 'session_close'
+          : suffix === '/presence/heartbeat'
+            ? 'heartbeat'
+            : null;
+}
+
 function corsHeaders(origin: string): HeaderRecord {
   return {
     'access-control-allow-origin': origin,
@@ -7769,8 +7784,8 @@ export class MusixquareProRoom {
         // commit failure, and the outer checkpoint must not rewind past that
         // intent into the pre-deletion state.
         const hasIrreversibleMediaDelete = request.method === 'DELETE' && deleteMediaMatch !== null;
-        // The operation a capacity refusal's diagnostic names, read from the
-        // path as withAdmissionDiagnostics reads it.
+        // The operation a capacity refusal's diagnostic names. Admission routes
+        // keep the names withAdmissionDiagnostics gives them.
         const capacityOperation =
           url.pathname === `${prefix}/snapshot/compact`
             ? 'snapshot'
@@ -7778,7 +7793,7 @@ export class MusixquareProRoom {
               ? 'media_reserve'
               : completedAssetId
                 ? 'media_complete'
-                : 'other';
+                : (admissionOperation(url.pathname.slice(prefix.length)) ?? 'other');
         return this.withStateCapacityRollback(
           async () => {
             const administratorMatch = url.pathname.match(
@@ -7904,18 +7919,7 @@ export class MusixquareProRoom {
     const suffix = new URL(request.url).pathname.slice(
       `/v1/rooms/${this.activeRoom.roomCode}`.length,
     );
-    const operation =
-      suffix === '/sessions'
-        ? 'sessions'
-        : suffix === '/presence/enter'
-          ? 'presence_enter'
-          : suffix === '/presence/close' || suffix === '/presence/current' || suffix === '/presence'
-            ? 'presence_close'
-            : suffix === '/sessions/current/close'
-              ? 'session_close'
-              : suffix === '/presence/heartbeat'
-                ? 'heartbeat'
-                : null;
+    const operation = admissionOperation(suffix);
     if (!operation) return task();
     // Only admission needs an identity comparison. Heartbeats have no success
     // log or snapshot scan; existing traffic merely flushes a pending summary.

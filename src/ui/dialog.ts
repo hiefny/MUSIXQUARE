@@ -80,6 +80,9 @@ interface DialogOptions {
    * action validates the input and shows this page in place; its secondary
    * action returns to the first page with the input kept, and its primary
    * action resolves `ok` with the input value and the checked `choiceValue`.
+   * That left `backText` action is a named exception to the exit-on-the-left
+   * policy (owner decision 2026-10-28): the first page's exit is one step
+   * back. Its one caller is the room PIN dialog (connect.ts).
    */
   choiceStep?: {
     /** Replaces the dialog title while the page is shown. */

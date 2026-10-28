@@ -832,6 +832,11 @@ async function _askRoomPin(
               },
             ],
             buttonText: () => t('common.ok'),
+            // Named exit exception (owner decision 2026-10-28, survey F13):
+            // page 2's left action is Back, not Close or Cancel. It applies
+            // nothing and returns to page 1 with the PIN kept, where Cancel
+            // on the left leaves; history Back and Escape step back the same
+            // way. It stays so the owner can still fix the PIN from page 2.
             backText: () => t('dialog.step_back'),
           },
         }

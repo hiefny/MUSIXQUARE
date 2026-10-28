@@ -980,7 +980,7 @@ describe('bounded large-room SFU failure policy', () => {
     expect(retryTimerCalls()).toHaveLength(0);
   });
 
-  it('spends the same bounded retry on a late LAN guest from its peer event alone, with no capability handler and no START of its own (5B-OV2)', async () => {
+  it('spends the same bounded retry on a late LAN guest from its peer event alone, with no START of its own (5B-OV2)', async () => {
     const mod = await import('../system-audio-sfu.ts');
     mod.registerSystemAudioSfuListeners();
     bus.emit('system-audio:stop');
@@ -1001,17 +1001,9 @@ describe('bounded large-room SFU failure policy', () => {
     await waitForNewSessionCalls(1);
     await rejectAllRealtimeCalls();
 
-    // The host ignores SYSTEM_AUDIO_SFU_CAPABILITY (old-version survey
-    // OV-B05): the frame still passes the protocol validator, which drops it
-    // with no handler, and current guests keep sending it until a later
-    // client floor (OV-F06).
-    const { registerHandler } = await import('../protocol.ts');
-    expect(
-      vi
-        .mocked(registerHandler)
-        .mock.calls.some((call) => call[0] === MSG.SYSTEM_AUDIO_SFU_CAPABILITY),
-    ).toBe(false);
-
+    // The late LAN guest's peer event alone triggers the retry: the host reads
+    // no capability marker (old-version survey OV-B05), and guests stopped
+    // sending one in Phase 5.5 train 3 (OV-F06).
     const localPeer = makeLocalPeer('late-local-evaluated');
     setState('network.connectedPeers', [...remotePeers, localPeer]);
     bus.emit('orchestrator:peer-evaluated', localPeer.id);

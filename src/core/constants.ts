@@ -242,7 +242,6 @@ export const MSG = {
 
   // ── System Audio Sharing ────────────────────────────────────────
   SYSTEM_AUDIO_START: 'system-audio-start',
-  SYSTEM_AUDIO_SFU_CAPABILITY: 'system-audio-sfu-capability',
   SYSTEM_AUDIO_SFU_READY: 'system-audio-sfu-ready',
   SYSTEM_AUDIO_STOP: 'system-audio-stop',
 

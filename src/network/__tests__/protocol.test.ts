@@ -844,26 +844,6 @@ describe('track-scoped playback request validation', () => {
 });
 
 describe('system-audio SFU frame validation', () => {
-  it('accepts only the explicit current LAN capability marker', async () => {
-    const handler = vi.fn();
-    const conn = makeConnection('peer-system-audio-capability');
-    registerHandler(MSG.SYSTEM_AUDIO_SFU_CAPABILITY, handler);
-
-    await handleData(
-      { type: MSG.SYSTEM_AUDIO_SFU_CAPABILITY, version: 2, localAudience: true },
-      conn,
-    );
-    for (const invalid of [
-      { type: MSG.SYSTEM_AUDIO_SFU_CAPABILITY, version: 1, localAudience: true },
-      { type: MSG.SYSTEM_AUDIO_SFU_CAPABILITY, version: 1, localAudience: false },
-      { type: MSG.SYSTEM_AUDIO_SFU_CAPABILITY, version: 1, localAudience: 'true' },
-    ]) {
-      await handleData(invalid, conn);
-    }
-
-    expect(handler).toHaveBeenCalledTimes(1);
-  });
-
   it('rejects an unknown SFU audience marker', async () => {
     const handler = vi.fn();
     const conn = makeConnection('peer-system-audio-ready');

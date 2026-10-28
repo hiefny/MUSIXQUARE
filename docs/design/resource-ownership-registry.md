@@ -877,9 +877,10 @@ RO-53 owner-in-place
     `'all'` fence (5B-OV2, old-version; survey OV-B05, OV-B06) changes only the sender of the
     slot's Standard inputs. A host on this build treats every LAN guest as SFU-capable (a LAN
     guest past the eight direct slots, a late LAN guest of an all-SFU share and a failed LAN
-    direct call go to the SFU with `'all'`; no peer is `'unsupported'`), ignores
-    `SYSTEM_AUDIO_SFU_CAPABILITY` (it passes the validator and is dropped because no handler is
-    registered; guests keep sending it until a later floor, OV-F06) and sends a failed-direct
+    direct call go to the SFU with `'all'`; no peer is `'unsupported'`), ignores the guests' SFU
+    capability marker (no handler is registered; Phase 5.5 train 3, OV-F06, later stopped the
+    guest sender and removed the kind, its validator and payload type, so the marker a 9.0.16 to
+    9.0.20 guest still sends meets no validator or handler) and sends a failed-direct
     remote peer READY
     `{ audience: 'remote', handoffFromDirect: true }` where it sent `'all'`. The Standard suite's
     "OV-B06 acceptance (route direct): ..." and its pair "OV-B06 acceptance (route unselected,
@@ -890,9 +891,12 @@ RO-53 owner-in-place
     subscribes and refuses a late direct call. The host-side rows that failed before it are in
     `system-audio-delivery.test.ts`, `system-audio-host.test.ts` (a ninth LAN guest starts on
     the SFU with no STOP; a failed LAN direct call gets STOP, START and the SFU handoff),
-    `system-audio-sfu.test.ts` (the READY audience, the late LAN retry from the peer event alone,
-    no capability handler) and `system-audio-start.test.ts` (the SFU module's late-LAN START
-    sender went with the capability handler; five START senders remain).
+    `system-audio-sfu.test.ts` (the READY audience, the late LAN retry from the peer event alone)
+    and `system-audio-start.test.ts` (the SFU module's late-LAN START sender went with the
+    capability handler; five START senders remain). Since train 3, `system-audio-start.test.ts`
+    "drops the raw SFU capability marker 9.0.16 to 9.0.20 guests still send, ..." passes before
+    and after: through the protocol router and the guest's exact live connection, the marker
+    changes no frame, call, publication or route.
   - The START `surface` and SFU_READY `audience` requirement (5B-OV3, old-version; survey
     OV-A08) changes only which frames reach the slot's Standard inputs: a START needs a bounded
     `surface` string (an unknown one still reads as DISPLAY) and a READY an `audience`, as every

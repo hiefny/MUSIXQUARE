@@ -331,11 +331,13 @@ describe('PRO playback feedback when the room receipt ledger is full', () => {
   afterEach(async () => {
     stopObserving?.();
     stopObserving = null;
+    // Wait for this session's own close: a test that left and rejoined has
+    // already closed one, and restoring the mocks first would send this one.
+    const closeSession = vi.mocked(ProRoomApiClient.prototype.closeSessionFenced);
+    const closedBefore = closeSession.mock.calls.length;
     requestProRoomLeave();
     await vi.waitFor(() => expect(getState('room.context').kind).toBe('standard'));
-    await vi.waitFor(() =>
-      expect(ProRoomApiClient.prototype.closeSessionFenced).toHaveBeenCalled(),
-    );
+    await vi.waitFor(() => expect(closeSession.mock.calls.length).toBeGreaterThan(closedBefore));
     registerProPlaybackMediaEndpoint(null);
     setAccountAnonymous();
     vi.restoreAllMocks();

@@ -226,7 +226,7 @@
     .chat-drawer-title,
     .track-title {
       font-size: 24px;
-      font-weight: var(--font-weight-display);
+      font-weight: var(--font-weight-title);
       letter-spacing: -0.02em;
       color: var(--text-main);
       /* Lock line-box to 36px (24 × 1.5) so the title's own height matches
@@ -477,7 +477,7 @@
       flex: 1;
       padding: 10px 0;
       font-size: var(--button-label-tab-size);
-      font-weight: var(--button-label-weight);
+      font-weight: var(--font-weight-unselected);
       color: var(--text-sub);
       background: none;
       border: none;
@@ -497,6 +497,7 @@
     .subtab-pill.active {
       color: var(--primary);
       border-bottom-color: var(--primary);
+      font-weight: var(--font-weight-selected);
     }
 
     /* Sub-panels: only active visible */
@@ -819,7 +820,7 @@
 
     .section-title {
       font-size: 17px;
-      font-weight: 700;
+      font-weight: var(--font-weight-title);
       color: var(--text-main);
       text-transform: none;
       letter-spacing: normal;
@@ -841,7 +842,7 @@
 
     /* Subdue control labels so section titles retain hierarchy. */
     .slider-header {
-      font-weight: 500;
+      font-weight: var(--font-weight-label);
       color: var(--text-sub);
       margin-bottom: 8px;
     }
@@ -851,7 +852,6 @@
     }
 
     .slider-header .val-disp {
-      font-weight: 700;
       color: var(--primary);
     }
 

@@ -97,6 +97,7 @@ export function openScreensaver(pendingEntry?: ScreensaverEntry): void {
     border: '0',
     padding: '12px 20px',
     font: 'inherit',
+    fontWeight: 'var(--font-weight-label)',
     cursor: 'pointer',
     textShadow: 'none',
     boxShadow: 'none',

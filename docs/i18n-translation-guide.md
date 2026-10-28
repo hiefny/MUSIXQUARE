@@ -109,6 +109,22 @@ is missing** — so a complete file must define every key.
    - Korean (the source) ends a name or hint in a noun form: an action noun
      (`삭제`, `이동`), a native verb with -기 (`닫기`, `열기`) or a state noun
      (`필요`, `중`, `없음`). Never -하기, a 해요체 sentence, `클릭하여` or `탭하여`.
+10. **Lock reasons read before a section description are sentences** (decided
+    2026-10-28). A screen reader joins a locked group's reason and the
+    section's own description (`settings.reverb_desc`, `settings.eq_desc`,
+    `settings.virtual_effects_desc`) with a single space, so the reason there
+    has sentence keys of its own (`settings.audio_locked_desc`,
+    `settings.audio_lock_checking_desc`).
+    - Write each on one line, ending the way your locale ends
+      `settings.reverb_desc` (`.`, `。`, `।`, `۔`). Thai ends without a mark,
+      because a space already separates Thai sentences, and may keep the
+      tip's words.
+    - The `*_tip` phrase (rule 9) stays the hover hint.
+    - Other description keys follow the English source's punctuation.
+    - A key name ending in `_desc` is not enough: `common.next_desc` is a
+      button name (rule 9).
+    - `src/i18n/__tests__/control-name-copy-policy.test.ts` checks both
+      sentence keys in every locale.
 
 ---
 
@@ -298,4 +314,8 @@ Their current English sources — paste into the §5 prompt if re-doing them:
       `Repeat all`, `Syncing`) stay mode or state phrases.
 - [ ] `*_aria` and `*_tip` values are one-line phrases without a final period
       (`npm exec vitest run -- src/i18n/__tests__/control-name-copy-policy.test.ts`).
+- [ ] The lock-reason descriptions (`settings.audio_locked_desc`,
+      `settings.audio_lock_checking_desc`) are one-line sentences ending like
+      your locale's `settings.reverb_desc`, not the `*_tip` phrase (Thai may
+      keep the tip's words).
 - [ ] Register feels casual/friendly, not machine-formal.

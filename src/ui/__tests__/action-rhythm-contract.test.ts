@@ -695,7 +695,8 @@ describe('action pill rhythm contract', () => {
       .filter((selector) => selector.includes('.account-'));
     expect(accountSelectors.length).toBeGreaterThan(0);
     for (const selector of accountSelectors) {
-      expect(selector).toMatch(/^html:not\(\.keyboard-open\) /u);
+      // Prettier may wrap a long selector after the guard.
+      expect(selector).toMatch(/^html:not\(\.keyboard-open\)\s/u);
     }
   });
 

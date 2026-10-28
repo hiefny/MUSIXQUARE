@@ -1504,17 +1504,20 @@ describe('Cloudflare signaling protocol validation boundaries', () => {
 });
 
 describe('Cloudflare signaling Remote Share host assertions', () => {
-  it('advertises and issues an exact request-bound assertion only to the current host', async () => {
+  it('issues an exact request-bound assertion only to the current host without advertising it', async () => {
     const state = new FakeDurableObjectState();
     const room = new workerModule.MusixquareRoom(state, {
       MXQR_REMOTE_SHARE_UPLOAD_ASSERTION_SECRET: REMOTE_SHARE_UPLOAD_ASSERTION_SECRET,
     });
     const host = await authenticateHost(room, 'host-1', 'secret-a');
-    expect(sent(host)[0]).toMatchObject({
+    // Old-version removal train 3 (survey OV-F08): the peer-open carries no
+    // assertion or keyring marker; the App requests on any admitted host socket.
+    expect(sent(host)[0]).toEqual({
       type: 'peer-open',
+      peerId: '123456',
       roomId: '123456',
-      remoteShareUploadAssertionVersion: 1,
-      remoteShareUploadAssertionKeyringVersion: 1,
+      roomPasswordMutationId: TEST_PIN_MUTATION_ID,
+      roomPasswordApplied: true,
     });
 
     host.sent.length = 0;
@@ -1542,23 +1545,29 @@ describe('Cloudflare signaling Remote Share host assertions', () => {
     expect(verified).toMatchObject({ roomId: '123456', hostPeerId: 'host-1' });
   });
 
-  it('does not advertise the feature with a weak or ambiguous dedicated secret', async () => {
-    const state = new FakeDurableObjectState();
-    const room = new workerModule.MusixquareRoom(state, {
-      MXQR_REMOTE_SHARE_UPLOAD_ASSERTION_SECRET: 'too-short',
-    });
-    const host = await authenticateHost(room, 'host-1', 'secret-a');
-    expect(sent(host)[0]).not.toHaveProperty('remoteShareUploadAssertionVersion');
-    expect(sent(host)[0]).not.toHaveProperty('remoteShareUploadAssertionKeyringVersion');
+  it('answers REMOTE_SHARE_UPLOAD_ASSERTION_UNAVAILABLE with a weak or ambiguous dedicated secret', async () => {
+    // With no peer-open marker to withhold (survey OV-F08), a Worker that
+    // cannot sign refuses each request with its own error.
+    for (const [secret, peerId] of [
+      ['too-short', 'host-1'],
+      [REMOTE_SHARE_UPLOAD_ASSERTION_DUPLICATE_SECRET_KEYRING, 'host-2'],
+    ] as const) {
+      const room = new workerModule.MusixquareRoom(new FakeDurableObjectState(), {
+        MXQR_REMOTE_SHARE_UPLOAD_ASSERTION_SECRET: secret,
+      });
+      const host = await authenticateHost(room, peerId, 'secret-a');
+      expect(sent(host)[0]).toMatchObject({ type: 'peer-open', roomId: '123456' });
+      host.sent.length = 0;
 
-    const ambiguousState = new FakeDurableObjectState();
-    const ambiguousRoom = new workerModule.MusixquareRoom(ambiguousState, {
-      MXQR_REMOTE_SHARE_UPLOAD_ASSERTION_SECRET:
-        REMOTE_SHARE_UPLOAD_ASSERTION_DUPLICATE_SECRET_KEYRING,
-    });
-    const ambiguousHost = await authenticateHost(ambiguousRoom, 'host-2', 'secret-b');
-    expect(sent(ambiguousHost)[0]).not.toHaveProperty('remoteShareUploadAssertionVersion');
-    expect(sent(ambiguousHost)[0]).not.toHaveProperty('remoteShareUploadAssertionKeyringVersion');
+      await room.webSocketMessage(host, JSON.stringify(REMOTE_SHARE_UPLOAD_ASSERTION_REQUEST));
+      expect(sent(host)).toEqual([
+        {
+          type: 'remote-share-upload-assertion-error',
+          correlationId: REMOTE_SHARE_UPLOAD_ASSERTION_REQUEST.correlationId,
+          errorType: 'REMOTE_SHARE_UPLOAD_ASSERTION_UNAVAILABLE',
+        },
+      ]);
+    }
   });
 
   it('signs new assertions with the keyring current kid while retaining previous verification', async () => {
@@ -8360,29 +8369,43 @@ describe('Cloudflare signaling Worker hibernation behavior', () => {
     expect(sent(guest)).not.toContainEqual(expect.objectContaining({ type: 'peer-open' }));
   });
 
-  it('includes the deployed Worker version in every peer-open when metadata is bound', async () => {
-    const state = new FakeDurableObjectState();
-    const room = new workerModule.MusixquareRoom(state, {
-      CF_VERSION_METADATA: { id: 'worker-version-123' },
-    });
-
+  it('includes only the deployed Worker version in the host, guest and PRO member peer-open', async () => {
+    // Old-version removal train 3 (survey OV-F08): no liveness, assertion or
+    // PIN membership marker. The release smokes and diagnostics keep reading
+    // workerVersionId.
+    const env = { CF_VERSION_METADATA: { id: 'worker-version-123' } };
+    const room = new workerModule.MusixquareRoom(new FakeDurableObjectState(), env);
     const host = await authenticateHost(room, 'host-1', 'secret-a');
     const guest = await joinGuest(room, 'guest-1');
+    const proRoom = new workerModule.MusixquareRoom(new FakeDurableObjectState(), {
+      ...env,
+      PRO_SIGNALING_SECRET,
+    });
+    const member = await joinProMember(proRoom, { participantId: 'version-member' });
 
-    expect(sent(host)[0]).toMatchObject({
-      type: 'peer-open',
-      peerId: '123456',
-      roomId: '123456',
-      workerVersionId: 'worker-version-123',
-      signalingLivenessVersion: 1,
-    });
-    expect(sent(guest)[0]).toEqual({
-      type: 'peer-open',
-      peerId: 'guest-1',
-      roomId: '123456',
-      workerVersionId: 'worker-version-123',
-      signalingLivenessVersion: 1,
-    });
+    expect([sent(host)[0], sent(guest)[0], sent(member)[0]]).toEqual([
+      {
+        type: 'peer-open',
+        peerId: '123456',
+        roomId: '123456',
+        workerVersionId: 'worker-version-123',
+        roomPasswordMutationId: TEST_PIN_MUTATION_ID,
+        roomPasswordApplied: true,
+      },
+      {
+        type: 'peer-open',
+        peerId: 'guest-1',
+        roomId: '123456',
+        workerVersionId: 'worker-version-123',
+      },
+      {
+        type: 'peer-open',
+        peerId: 'version-member',
+        roomId: '000001',
+        roomGeneration: 0,
+        workerVersionId: 'worker-version-123',
+      },
+    ]);
   });
 
   it('keeps peer-open compatible when Worker version metadata is unavailable', async () => {
@@ -11662,15 +11685,21 @@ describe('Standard-room PIN membership and wrong-PIN limit', () => {
     return (await state.storage.get(MEMBERSHIP_KEY)) as MembershipRecord;
   }
 
-  it('advertises membership support on the host peer-open only', async () => {
+  it('advertises no membership marker on the host or guest peer-open', async () => {
+    // Old-version removal train 3 (survey OV-F08). Since train 2 (OV-A19) the
+    // App sends the membership choice without reading a marker.
     const { room, host } = await createHostRoom();
-    expect(sent(host)[0]).toMatchObject({
-      type: 'peer-open',
-      roomId: '123456',
-      standardRoomPinMembershipVersion: 1,
-    });
     const guest = await joinGuest(room, 'guest-1');
-    expect(sent(guest)[0]).toEqual({ type: 'peer-open', peerId: 'guest-1', roomId: '123456' });
+    expect([sent(host)[0], sent(guest)[0]]).toEqual([
+      {
+        type: 'peer-open',
+        peerId: '123456',
+        roomId: '123456',
+        roomPasswordMutationId: TEST_PIN_MUTATION_ID,
+        roomPasswordApplied: true,
+      },
+      { type: 'peer-open', peerId: 'guest-1', roomId: '123456' },
+    ]);
   });
 
   it('keeps chosen guests across a change with their old PIN and their reconnect secret', async () => {

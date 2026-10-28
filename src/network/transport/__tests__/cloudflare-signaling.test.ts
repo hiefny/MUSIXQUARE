@@ -7912,9 +7912,18 @@ describe('Standard-room PIN membership commits', () => {
     client.dispatch('open');
     await flushAsync();
     room.acceptPendingHost(server, '123456', new URL(client.url).searchParams.get('peerId') || '');
-    await room.webSocketMessage(server, JSON.stringify(sentOfType(client, 'host-auth')[0]));
+    const hostAuth = sentOfType(client, 'host-auth')[0];
+    await room.webSocketMessage(server, JSON.stringify(hostAuth));
     const opened = workerSentOfType(server, 'peer-open')[0];
-    expect(opened).toMatchObject({ standardRoomPinMembershipVersion: 1 });
+    // Old-version removal train 3 (survey OV-F08): the Worker advertises no
+    // membership marker, and the App sends the kept set without one.
+    expect(opened).toEqual({
+      type: 'peer-open',
+      peerId: '123456',
+      roomId: '123456',
+      roomPasswordMutationId: hostAuth?.pinMutationId,
+      roomPasswordApplied: true,
+    });
     client.dispatch('message', JSON.stringify(opened));
     await flushAsync();
     await room.webSocketMessage(server, JSON.stringify(lastPinFrame(client)));

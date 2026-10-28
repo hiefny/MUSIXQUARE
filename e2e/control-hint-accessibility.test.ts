@@ -170,9 +170,9 @@ test.describe('Locked audio settings for screen reader users', () => {
     // so the reason ends its own sentence.
     const description = async () =>
       normalize((await accessibleSummary(guest, cdp, '#grid-reverb')).description);
-    await expect.poll(description).toBe(
-      "Only room admins can change audio settings. Adjust the sound's reverb and resonance.",
-    );
+    await expect
+      .poll(description)
+      .toBe("Only room admins can change audio settings. Adjust the sound's reverb and resonance.");
     await cdp.detach();
   });
 });

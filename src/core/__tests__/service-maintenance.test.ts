@@ -213,6 +213,11 @@ describe('shared service-maintenance control', () => {
   });
 
   it('hard-limits 121 barrier-concurrent consumes through a named rate object', async () => {
+    // The rate object counts fixed calendar windows. Freeze the wall clock so a
+    // slow, coverage-instrumented run cannot cross a minute boundary midway
+    // through the burst and make the limit appear to reset.
+    vi.useFakeTimers({ toFake: ['Date'] });
+    vi.setSystemTime(1_800_000_000_000);
     const control = createAtomicRateControlBinding(121);
     const input = {
       scope: 'signaling-ws-open',
@@ -233,6 +238,9 @@ describe('shared service-maintenance control', () => {
     expect(outcomes.filter((outcome) => outcome.status === 'ok' && !outcome.allowed)).toHaveLength(
       1,
     );
+    expect(
+      new Set(outcomes.map((outcome) => (outcome.status === 'ok' ? outcome.resetAtMs : null))),
+    ).toEqual(new Set([1_800_000_060_000]));
     expect(control.rateFetchCount()).toBe(121);
     expect(control.objectNames()).toEqual([
       'musixquare-abuse-rate-v1:signaling-ws-open:opaque-signaling-rate-identity',

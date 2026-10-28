@@ -4493,6 +4493,9 @@ describe('Cloudflare app worker YouTube playlist manifest proxy', () => {
   };
 
   it('hard-limits barrier-concurrent paid requests with the atomic control object', async () => {
+    // All consumes in this assertion must belong to one fixed rate window.
+    vi.useFakeTimers({ toFake: ['Date'] });
+    vi.setSystemTime(1_800_000_000_000);
     const control = createAtomicRateControlBinding(11);
     const upstreamFetch = vi.fn(async () =>
       Response.json({
@@ -4899,6 +4902,9 @@ describe('Cloudflare app worker admin dashboard', () => {
   });
 
   it('atomically bounds concurrent admin login failures by pseudonymous client identity', async () => {
+    // All consumes in this assertion must belong to one fixed rate window.
+    vi.useFakeTimers({ toFake: ['Date'] });
+    vi.setSystemTime(1_800_000_000_000);
     const control = createAtomicRateControlBinding(20);
     const ip = '203.0.113.201';
     const adminSessionSecret = 'test-admin-session-secret-at-least-32';

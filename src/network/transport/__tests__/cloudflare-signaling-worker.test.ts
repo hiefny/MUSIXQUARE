@@ -2047,6 +2047,9 @@ describe('Cloudflare signaling Worker hibernation behavior', () => {
   });
 
   it('isolates standard WebSocket-open limits by HMAC-protected client IP', async () => {
+    // All 121 opens must land in one fixed 60-second rate window.
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date('2026-08-26T00:00:00.000Z'));
     const routed = workerEnv();
     routed.env.PRO_SIGNALING_SECRET = PRO_SIGNALING_SECRET;
     const open = (ip: string, peerId: string) =>

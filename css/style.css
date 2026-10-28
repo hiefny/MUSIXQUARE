@@ -3504,13 +3504,6 @@ or pointers. Keep :focus-visible and :active outside the gate (src/ui/__tests__/
     padding-bottom: 44px;
   }
 
-  /* Clip the final device row to the inherited section radius. */
-  #device-list:last-child {
-    border-bottom-left-radius: inherit;
-    border-bottom-right-radius: inherit;
-    overflow: hidden;
-  }
-
   .section-header-row {
     padding: 44px 0 16px;
     border-bottom: none;
@@ -3763,21 +3756,6 @@ or pointers. Keep :focus-visible and :active outside the gate (src/ui/__tests__/
 
   .host-ctrl-locked input[type='range'] {
     pointer-events: none;
-  }
-
-  .section-row {
-    padding: 10px 0;
-    display: flex;
-    justify-content: space-between;
-    align-items: center;
-    background: transparent;
-    color: var(--text-main);
-    font-size: 16px;
-    font-weight: 500;
-  }
-
-  .section-row:last-child {
-    border-bottom: none;
   }
 
   .reverb-sliders-area {
@@ -4347,18 +4325,6 @@ or pointers. Keep :focus-visible and :active outside the gate (src/ui/__tests__/
     opacity: 0.45;
   }
 
-  .d-status {
-    font-size: 11px;
-    font-weight: var(--font-weight-display);
-    padding: 4px 10px;
-    border-radius: 100px;
-  }
-
-  .d-status.active {
-    background: rgba(82, 196, 26, 0.2);
-    color: #52c41a;
-  }
-
   /* ── Kick Device Button (playlist-remove style) ────────────────── */
   .btn-kick-device,
   .btn-kick-physical-device {
@@ -4372,10 +4338,7 @@ or pointers. Keep :focus-visible and :active outside the gate (src/ui/__tests__/
     border: none;
     border-radius: var(--radius-pill);
     cursor: pointer;
-    opacity: 1;
-    transition:
-      opacity 0.15s,
-      color 0.15s;
+    transition: color 0.15s;
     color: var(--text-muted);
     padding: 0;
   }
@@ -4389,32 +4352,18 @@ or pointers. Keep :focus-visible and :active outside the gate (src/ui/__tests__/
     stroke-linejoin: round;
   }
 
-  .btn-kick-device {
-    opacity: 1;
-  }
-
   .btn-kick-physical-device svg {
     width: 16px;
     height: 16px;
     fill: currentColor;
   }
 
-  :where(html[data-hover-pointer]) .device-row:hover .btn-kick-device {
-    opacity: 1;
-  }
-
-  :where(html[data-hover-pointer]) .device-subrow:hover .btn-kick-physical-device {
-    opacity: 1;
-  }
-
   :where(html[data-hover-pointer]) .device-subrow:hover .btn-kick-physical-device:hover,
   .btn-kick-physical-device:focus-visible {
-    opacity: 1;
     color: var(--danger-foreground);
   }
 
   :where(html[data-hover-pointer]) .device-row:hover .btn-kick-device:hover {
-    opacity: 1;
     color: var(--danger-foreground);
   }
 
@@ -4704,11 +4653,6 @@ or pointers. Keep :focus-visible and :active outside the gate (src/ui/__tests__/
 
   /* The desktop Connect mirror is hidden while mobile #tab-connect is active. */
   .settings-subtab-panel[data-panel='connect'] {
-    display: none;
-  }
-
-  /* Device list in settings audio panel — hidden on mobile (shown in #tab-connect instead) */
-  .settings-device-section {
     display: none;
   }
 

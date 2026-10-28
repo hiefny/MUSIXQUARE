@@ -1,8 +1,7 @@
 /**
  * MUSIXQUARE — Settings Panel (UI)
  *
- * Manages: Theme, channel mode selection, EQ/reverb/stereo/vbass sliders,
- * device list rendering.
+ * Manages: Theme, channel mode selection, EQ/reverb/stereo/vbass sliders.
  */
 
 import { log } from '../core/log.ts';
@@ -42,7 +41,6 @@ import { initCustomScrollbar } from './custom-scrollbar.ts';
 import { getUiElement, onWindowBack, syncOverlayState } from './dom.ts';
 import { getRoomContext, hasRoomCapability } from '../rooms/authority.ts';
 import { isUiSoundsEnabled, playUiTouchSound, setUiSoundsEnabled } from '../audio/ui-sounds.ts';
-import { applyUserTextFontFallback } from './user-text-font.ts';
 import { createSelectionCheckSvg } from './selection-mark.ts';
 import { hasLocaleFont } from '../i18n/locale-font-contract.ts';
 import { languageDirection } from '../i18n/locales.ts';
@@ -671,57 +669,6 @@ function disableAllVirtualEffects(): void {
   showVirtualEffectActionToast(t('toast.virtual_effects_off'));
 }
 
-// ─── Device List ─────────────────────────────────────────────────
-
-interface DeviceListRow {
-  id?: unknown;
-  label?: unknown;
-  isOp?: unknown;
-  isHost?: unknown;
-}
-
-function isDeviceListRow(value: unknown): value is DeviceListRow {
-  return value !== null && typeof value === 'object';
-}
-
-function renderDeviceList(list: ReadonlyArray<DeviceListRow>): void {
-  const container = getUiElement('device-list');
-  if (!container) return;
-
-  container.replaceChildren();
-
-  list.forEach((p) => {
-    const row = document.createElement('div');
-    row.className = 'section-row';
-
-    const name = document.createElement('span');
-    name.className = 'd-name';
-    name.dir = 'auto';
-    name.textContent = String(p.label || t('common.peer'));
-    applyUserTextFontFallback(name, name.textContent);
-
-    const shortId = document.createElement('span');
-    shortId.dir = 'ltr';
-    shortId.style.cssText = 'font-size:11px; opacity:0.5; margin-left:4px;';
-    shortId.textContent = `(${String(p.id || '').slice(-4)})`;
-    name.appendChild(document.createTextNode(' '));
-    name.appendChild(shortId);
-
-    // Device lists carry room members only (the host broadcast keeps
-    // connected peers; PRO presence lists live participants), so every row
-    // is connected.
-    const status = document.createElement('span');
-    status.className = 'd-status active';
-    status.textContent = t('common.connected');
-
-    row.appendChild(name);
-
-    row.appendChild(status);
-
-    container.appendChild(row);
-  });
-}
-
 // ─── Lifecycle ──────────────────────────────────────────────────────
 
 const _busScope = createBusScope();
@@ -1230,28 +1177,12 @@ export function initSettings(): void {
   _busScope.on('state:network.hostConn', () => _updateHostCtrlLockUI());
   _busScope.on('state:network.appRole', () => _updateHostCtrlLockUI());
   _busScope.on('state:network.standardRoomCapabilities', () => _updateHostCtrlLockUI());
+  _busScope.on('state:room.context', () => _updateHostCtrlLockUI());
   _updateHostCtrlLockUI();
 
-  // Device list events
-  _busScope.on('network:device-list-update', (list: unknown[]) => {
-    if (Array.isArray(list)) renderDeviceList(list.filter(isDeviceListRow));
-  });
-
-  _busScope.on('state:room.context', () => {
-    const list = getState('network.lastKnownDeviceList') || [];
-    renderDeviceList(list.filter(isDeviceListRow));
-    _updateHostCtrlLockUI();
-  });
-
-  // Language switch → re-render device list so status/grant-revoke button
-  // labels pick up the new locale (those strings are composed at render
-  // time via t() and don't carry data-i18n attributes).
-  // Source must be lastKnownDeviceList (the canonical broadcast list):
-  // connectedPeers is host-only raw state — empty on guests, missing the
-  // host's own row — and re-rendering from it wipes the list.
+  // Language switch → refresh what this panel composes with t() at runtime
+  // (lock reasons, band names, role description) and the language picker.
   _busScope.on('i18n:changed', () => {
-    const list = getState('network.lastKnownDeviceList') || [];
-    renderDeviceList(list.filter(isDeviceListRow));
     _updateHostCtrlLockUI();
     syncEqBandLabels();
     refreshLanguageControls();

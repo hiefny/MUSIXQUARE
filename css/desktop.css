@@ -513,12 +513,6 @@
       display: block;
     }
 
-    /* Device list in settings audio panel — hidden on desktop too
-       (connection UI lives in the "연결" sub-tab instead) */
-    .settings-device-section {
-      display: none;
-    }
-
     /* Connect sub-panel content — match 20px inner padding of other panels */
     #desktop-connect-content .qr-container,
     #desktop-connect-content .administrator-list,

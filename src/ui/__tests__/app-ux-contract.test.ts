@@ -579,6 +579,29 @@ describe('app UX markup contract', () => {
     expect(appRuntimeSource).toContain('showToast(updateCompletion)');
   });
 
+  // Owner decision (2026-10-28): Close, Back and Escape on the lazy-feature
+  // recovery dialog are a choice, so declining shows no error toast after it
+  // (it read like an error after a choice). Real failures keep theirs: a
+  // dialog that cannot open shows its own message as a toast (showDialog's
+  // fallback), and a failed presentation or a reload that returns to the
+  // stale document show error.network_generic.
+  it('shows no error toast after a deliberate decline of the lazy-feature recovery', () => {
+    const recoveryStart = appRuntimeSource.indexOf('const runLazyFeatureRecovery');
+    const recoveryEnd = appRuntimeSource.indexOf('\n// bootstrap.js', recoveryStart);
+    const recoverySource = appRuntimeSource.slice(recoveryStart, recoveryEnd);
+    const hook = (name: string, next: string) =>
+      recoverySource.slice(recoverySource.indexOf(`${name}(`), recoverySource.indexOf(`${next}(`));
+
+    expect(recoverySource).toContain("return result.action === 'ok' ? 'accept' : 'decline';");
+    expect(hook('onDeclined', 'onRecovered')).not.toContain('showToast');
+    expect(hook('onRecovered', 'onPresentationFailure')).toContain(
+      "showToast(t('error.network_generic'))",
+    );
+    expect(recoverySource.slice(recoverySource.indexOf('onPresentationFailure('))).toContain(
+      "showToast(t('error.network_generic'))",
+    );
+  });
+
   it('turns a terminal lazy-feature failure into an explicit reload action', () => {
     const recoveryStart = appRuntimeSource.indexOf('const runLazyFeatureRecovery');
     const recoveryEnd = appRuntimeSource.indexOf('\n// bootstrap.js', recoveryStart);

@@ -220,9 +220,11 @@ test.describe('Exact production candidate', () => {
         .poll(() => readCachedNavigationMarkers(page), { timeout: 5_000 })
         .toHaveLength(1);
       await expect(page.locator('#tab-play')).toBeVisible();
+      let fallbackFloorResponse: Response | null = null;
       if (fallbackFloorResponsePromise) {
         // The controlled preview answers the API routes it does not configure with 503.
-        expect((await fallbackFloorResponsePromise).status()).toBe(503);
+        fallbackFloorResponse = await fallbackFloorResponsePromise;
+        expect(fallbackFloorResponse.status()).toBe(503);
       }
       expectNoUnexpectedPageErrors(getPageErrors(page), browserName);
 
@@ -240,6 +242,8 @@ test.describe('Exact production candidate', () => {
       // the preview's 503), and WebKit can then report that answered read as a
       // cancelled load. Only a floor read that failed with no answer counts.
       const answeredFloorReads = new WeakSet<Request>();
+      // The fallback page's own read was answered before this listener existed.
+      if (fallbackFloorResponse) answeredFloorReads.add(fallbackFloorResponse.request());
       const trackFloorAnswer = (response: Response): void => {
         if (new URL(response.url()).pathname === '/api/app-build-floor/effective') {
           answeredFloorReads.add(response.request());

@@ -105,19 +105,41 @@ test.describe('Multiple playlists', () => {
           { count: 0, bytes: null },
         ]);
 
-      // Switch the room to Playlist 2 through the switcher.
+      // Cancel leaves the switcher without switching, after another
+      // playlist was chosen (owner policy 2026-10-28: a visible exit).
       await host.locator('#btn-playlist-switch').click();
       const switcher = host.locator('#playlist-slots-overlay');
       await expect(switcher).toHaveClass(/\bshow\b/);
       const rows = host.locator('#playlist-slots-list .playlist-slot-option');
+      await rows.nth(1).click();
+      await host.locator('#btn-playlist-slots-cancel').click();
+      await expect(switcher).not.toHaveClass(/\bshow\b/);
+      expect(await readSlots(host)).toMatchObject({ activeSlot: 0 });
+      await expect(host.locator('#playlist-switch-label')).toHaveText('Playlist');
+
+      // Switch the room to Playlist 2 through the switcher.
+      await host.locator('#btn-playlist-switch').click();
+      await expect(switcher).toHaveClass(/\bshow\b/);
       await expect(rows).toHaveCount(3);
       await expect(rows.nth(0)).toHaveAttribute('aria-pressed', 'true');
       await expect(rows.nth(1)).toContainText('Playlist 2');
       await expect(rows.nth(1)).toContainText('2 tracks');
       await rows.nth(1).click();
       await snap(host, '04-switcher');
-      // Standard rooms show no storage line under OK; the inset stays.
+      // Cancel sits left of OK on one row, 10px apart.
+      const pair = await host.evaluate(() =>
+        ['btn-playlist-slots-cancel', 'btn-playlist-slots-done'].map((id) => {
+          const box = document.getElementById(id)!.getBoundingClientRect();
+          return { left: box.left, right: box.right, top: box.top };
+        }),
+      );
+      expect(pair[0]!.top).toBeCloseTo(pair[1]!.top, 1);
+      expect(pair[1]!.left - pair[0]!.right).toBeCloseTo(10, 1);
+      // Standard rooms show no storage line under the pair; the inset stays.
       await expect(host.locator('#playlist-storage-usage')).toBeHidden();
+      expect(await bottomInset(host, 'playlist-slots-overlay', 'btn-playlist-slots-cancel')).toBe(
+        30,
+      );
       expect(await bottomInset(host, 'playlist-slots-overlay', 'btn-playlist-slots-done')).toBe(30);
       await host.locator('#btn-playlist-slots-done').click();
       await expect(switcher).not.toHaveClass(/\bshow\b/);

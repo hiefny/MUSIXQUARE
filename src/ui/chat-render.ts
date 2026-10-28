@@ -379,7 +379,7 @@ export function addChatMessage(
 // System messages bypass `chat:message-rendered` on purpose: they're local
 // notices (command output, errors) that shouldn't touch preview/unread.
 
-export interface SystemChatMessageOptions {
+interface SystemChatMessageOptions {
   /** The first line heads command output (/help, /users, /debug). */
   heading?: boolean;
 }

@@ -2099,6 +2099,69 @@ describe('action button label contract', () => {
     }
   });
 
+  it('turns font hinting off for the media source options and nothing else', () => {
+    // Linux Chromium at device scale 1 hints Pretendard: FreeType snaps each
+    // advance to a whole pixel, so the compact 14px lowercase took the 15px
+    // advance and the BETA badge grew 2.5px, and the media source labels
+    // wrapped more than 9.0.18 in the PR #510 CI (Critical browser gate,
+    // adaptive-actions at 340, 360, 375 and 421px). text-rendering:
+    // geometricPrecision turns hinting off there. The whole option takes it,
+    // so the BETA badge inside is unhinted too. The play tab Sync and Media
+    // are .file-select-btn as well and keep the default rendering.
+    const OPTION_SELECTOR = '#media-source-overlay .file-select-btn';
+    const markup = appMarkup();
+    const options = [...markup.querySelectorAll(OPTION_SELECTOR)];
+    expect(options.map((element) => `#${element.id}`)).toEqual([
+      '#btn-local-file',
+      '#btn-youtube-source',
+      '#btn-system-audio',
+    ]);
+    expect(markup.querySelector(`${OPTION_SELECTOR} .media-source-beta-badge`)).not.toBeNull();
+    const playTab = ['btn-sync', 'btn-media-source'].map((id) => markup.getElementById(id)!);
+    for (const button of playTab) {
+      expect(button.classList.contains('file-select-btn'), button.id).toBe(true);
+      expect(button.matches(OPTION_SELECTOR), button.id).toBe(false);
+    }
+    // Every text-rendering declaration that can reach these buttons or what is
+    // inside them, by name or by matching the markup. Page and user states
+    // are set aside (attribute conditions such as the theme or the hover
+    // gate, language and direction, hover, press and focus), so a rule that
+    // applies only in one of them counts too.
+    const named =
+      /file-select-btn|#btn-(?:sync|media-source|local-file|youtube-source|system-audio)(?![\w-])|media-source|play-action|feature-badge/u;
+    const reaches = (selector: string): boolean => {
+      if (named.test(selector)) return true;
+      const plain = selector
+        .replace(/\[[^\]]*\]/gu, '')
+        .replace(/:(?:lang|dir)\([^)]*\)/gu, '')
+        .replace(/:(?:hover|active|focus-visible|focus-within|focus)(?![\w-])/gu, '');
+      try {
+        return [...options, ...playTab].some(
+          (button) => button.matches(plain) || button.querySelector(plain) !== null,
+        );
+      } catch {
+        return true;
+      }
+    };
+    const found: string[] = [];
+    for (const { path, root } of sheets) {
+      root.walkDecls('text-rendering', (declaration) => {
+        const rule = declaration.parent as unknown as Rule;
+        if (rule.type !== 'rule') return;
+        for (const selector of rule.selectors) {
+          if (!reaches(selector)) continue;
+          found.push(
+            `${path} ${layerOf(rule)} ${conditionOf(rule)} ` +
+              `${selector.replace(/\s+/gu, ' ').trim()} ${declaration.toString()}`,
+          );
+        }
+      });
+    }
+    expect(found).toEqual([
+      `css/style.css base null ${OPTION_SELECTOR} text-rendering: geometricPrecision`,
+    ]);
+  });
+
   it('computes cascade order, specificity and media conditions like the browser', () => {
     expect(specificity('#btn-sync span')).toEqual([1, 0, 1]);
     expect(specificity(':where(html[data-hover-pointer]) .accent-action-btn:hover')).toEqual([

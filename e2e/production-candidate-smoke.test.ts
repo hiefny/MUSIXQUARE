@@ -27,6 +27,10 @@ const WEBKIT_NAVIGATION_TIMEOUT_DIAGNOSTICS = new Set([
   ]),
   JSON.stringify([
     'Fetch API cannot load http',
+    `/${E2E_APP_HOST}/api/app-build-floor/effective due to access control checks.`,
+  ]),
+  JSON.stringify([
+    'Fetch API cannot load http',
     `/${E2E_APP_HOST}/designsystem/fonts/PretendardVariable.woff2 due to access control checks.`,
   ]),
 ]);
@@ -90,9 +94,14 @@ function expectNoUnexpectedPageErrors(errors: Error[], browserName: string): voi
     return;
   }
 
-  // WebKit reports these browser-authored diagnostics when aborting the one
-  // deliberately stalled navigation fetch. Keep the exception local to this
-  // timeout smoke, exact by origin/path/message, and bounded to one per URL.
+  // While the deliberately stalled navigation is pending, WebKit refuses any
+  // fetch the outgoing page starts: it never sends the request and logs this
+  // access-control wording, which Playwright reports as a page error split at
+  // the URL's first colon. Here those fetches are the page's own start-up
+  // reads: the account session (at pageshow, or a recovery retry), the App
+  // build floor (at window load) and the primary font's recovery fetch. Keep
+  // the exception local to this timeout smoke, exact by origin/path/message,
+  // and bounded to one per URL.
   const signatures = errors.map(pageErrorSignature);
   expect(
     signatures.filter((signature) => !WEBKIT_NAVIGATION_TIMEOUT_DIAGNOSTICS.has(signature)),

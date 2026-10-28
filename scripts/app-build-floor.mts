@@ -9,6 +9,10 @@
  *   node scripts/app-build-floor.mts raise             Production Release: raise to the
  *                                                      checked-out release build
  *   node scripts/app-build-floor.mts emergency-guard   local emergency App deploy guard
+ *   node scripts/app-build-floor.mts pro-room-guard    Production Release (pro-room, all):
+ *                                                      read-only check that the floor
+ *                                                      reaches the App build the PRO
+ *                                                      Worker requires
  *
  * Setters run only in GitHub Actions: the App Worker's ops route accepts a
  * GitHub OIDC token of the release or App Build Floor workflow on main, so no
@@ -95,7 +99,8 @@ export type AppBuildFloorCommand =
   | { readonly action: 'set'; readonly minAppBuild: number; readonly reason: string }
   | { readonly action: 'lower'; readonly minAppBuild: number; readonly reason: string }
   | { readonly action: 'raise'; readonly reason: string }
-  | { readonly action: 'emergency-guard' };
+  | { readonly action: 'emergency-guard' }
+  | { readonly action: 'pro-room-guard'; readonly requiredAppBuild: number | null };
 
 export interface AppBuildFloorStatus {
   readonly minAppBuild: number;
@@ -137,7 +142,7 @@ export interface AppBuildFloorRunResult {
 }
 
 const USAGE =
-  'Usage: node scripts/app-build-floor.mts <status|check|set <build>|lower <build>|raise|emergency-guard>';
+  'Usage: node scripts/app-build-floor.mts <status|check|set <build>|lower <build>|raise|emergency-guard|pro-room-guard>';
 
 function isJsonObject(value: unknown): value is JsonObject {
   return value !== null && typeof value === 'object' && !Array.isArray(value);
@@ -166,6 +171,22 @@ function commandReason(env: Env, fallback: string): string {
   return reason;
 }
 
+/**
+ * The App build that the PRO Worker on main requires of every client. The
+ * Production Release sets it on its check step, outside every runtime path
+ * list, so writing or clearing it never changes a release target; empty means
+ * no requirement.
+ */
+function requiredProRoomAppBuild(env: Env): number | null {
+  const value = env.MXQR_PRO_ROOM_REQUIRED_APP_BUILD?.trim() ?? '';
+  if (value === '') return null;
+  const build = parseAppBuild(value);
+  if (build === null || build === 0) {
+    throw usage('MXQR_PRO_ROOM_REQUIRED_APP_BUILD must be empty or a build from 1');
+  }
+  return build;
+}
+
 export function parseAppBuildFloorArgs(argv: readonly string[], env: Env): AppBuildFloorCommand {
   const [action, build, ...rest] = argv;
   if (rest.length > 0) throw usage('too many arguments');
@@ -173,6 +194,7 @@ export function parseAppBuildFloorArgs(argv: readonly string[], env: Env): AppBu
     case 'status':
     case 'check':
     case 'emergency-guard':
+    case 'pro-room-guard':
     case 'raise':
       // The workflow passes an empty build input for the actions without one.
       if (build !== undefined && build !== '') throw usage(`${action} takes no build`);
@@ -184,6 +206,9 @@ export function parseAppBuildFloorArgs(argv: readonly string[], env: Env): AppBu
             `Raised to the released build by Production Release (${runLabel(env)})`,
           ),
         };
+      }
+      if (action === 'pro-room-guard') {
+        return { action, requiredAppBuild: requiredProRoomAppBuild(env) };
       }
       return { action };
     case 'set':
@@ -731,6 +756,85 @@ async function guardEmergencyAppDeploy(deps: AppBuildFloorDependencies): Promise
   );
 }
 
+/**
+ * The Production Release check for targets pro-room and all, before anything
+ * changes: when the PRO Worker on main requires every client to be at least an
+ * App build, the stored and the effective floor must both reach it. Read-only,
+ * through the public status. An unreadable status is read again for the gates'
+ * propagation budget, and an effective floor of 0 (no App report for five
+ * minutes) waits as long as a floor change waits for a new App report; then
+ * the release stops while nothing has changed.
+ */
+async function guardProRoomRelease(
+  deps: AppBuildFloorDependencies,
+  required: number | null,
+): Promise<void> {
+  if (required === null) {
+    deps.log(
+      '[app-build-floor] the PRO Worker requires no App build (MXQR_PRO_ROOM_REQUIRED_APP_BUILD is empty); nothing to check',
+    );
+    return;
+  }
+  const requirement = `build ${required}, which the PRO Worker of this release requires`;
+  const exit = 'nothing has changed; see App Build Floor in docs/hotfix-procedure.md';
+  let lastReadError = 'no answer';
+  const readStatus = (): Promise<AppBuildFloorStatus | null> =>
+    readPublicStatus(deps).catch((error: unknown) => {
+      lastReadError = (error instanceof Error ? error.message : String(error)).replace(/\.$/u, '');
+      return null;
+    });
+  const unreadable = (when: string): Error =>
+    new Error(
+      `The App build floor status could not be read ${when} (last read: ${lastReadError}), ` +
+        `so ${requirement} is unchecked; ${exit}.`,
+    );
+
+  const read = await pollUntil(
+    deps,
+    PROPAGATION_TIMEOUT_MS,
+    PROPAGATION_POLL_MS,
+    readStatus,
+    (status) => status !== null,
+  );
+  if (read.value === null) throw unreadable(`within ${PROPAGATION_TIMEOUT_MS / 1000} s`);
+  let status = read.value;
+  if (status.minAppBuild >= required && status.effectiveMinAppBuild === 0) {
+    deps.log(
+      `[app-build-floor] the effective floor is 0 (last App report ${iso(status.reportedAt)}); waiting for a new App report`,
+    );
+    const reported = await pollUntil(
+      deps,
+      APP_BUILD_FLOOR_CRON_REPORT_TIMEOUT_MS,
+      CRON_REPORT_POLL_MS,
+      readStatus,
+      (value) => value !== null && value.effectiveMinAppBuild > 0,
+    );
+    if (reported.value === null) throw unreadable('while waiting for a new App report');
+    if (!reported.done) {
+      throw new Error(
+        `The effective App build floor stayed 0 for ${APP_BUILD_FLOOR_CRON_REPORT_TIMEOUT_MS / 60_000} minutes ` +
+          `without a new App report (last ${iso(reported.value.reportedAt)}), so the entry gates do not ` +
+          `enforce ${requirement}; ${exit}.`,
+      );
+    }
+    status = reported.value;
+  }
+  if (status.minAppBuild < required) {
+    throw new Error(
+      `The stored App build floor ${status.minAppBuild} is below ${requirement}; ${exit}.`,
+    );
+  }
+  if (status.effectiveMinAppBuild < required) {
+    throw new Error(
+      `The effective App build floor ${status.effectiveMinAppBuild} is below ${requirement} ` +
+        `(stored ${status.minAppBuild}, live App reported ${status.reportedLiveAppBuild ?? 'none'}); ${exit}.`,
+    );
+  }
+  deps.log(
+    `[app-build-floor] the floors stored ${status.minAppBuild} and effective ${status.effectiveMinAppBuild} reach ${requirement}`,
+  );
+}
+
 export async function runAppBuildFloorCommand(
   command: AppBuildFloorCommand,
   deps: AppBuildFloorDependencies,
@@ -793,6 +897,9 @@ export async function runAppBuildFloorCommand(
     }
     case 'emergency-guard':
       await guardEmergencyAppDeploy(deps);
+      return null;
+    case 'pro-room-guard':
+      await guardProRoomRelease(deps, command.requiredAppBuild);
       return null;
   }
 }

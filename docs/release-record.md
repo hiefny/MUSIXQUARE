@@ -584,8 +584,9 @@ gh run list --workflow e2e.yml --branch main --limit 3
       방)의 입장, 재접속, offer·answer 중계를 통과했고, 빌드 없는 방장은 `legacyCompatibility.refusedBelowAppBuildFloor`
       787로 정확히 거절됐다. 같은 릴리스의 Standard HTTPS 신호 smoke도 빌드 787 방장·게스트를 입장시켰다. 그 전의 근거는
       `set` 40284593490의 Signaling 786 거절(787 입장은 보지 않음)과 바닥 0일 때의 9.0.14 릴리스 smoke뿐이었다. 실제
-      기기의 게스트 입장은 따로 보지 않았다. 방장이 거절되면 곧바로 `lower` 0이다
-      ([운영](hotfix-procedure.md#app-build-floor)). [오너 기기 확인 A](design/forced-update-9-0-14-2026-10-25.md#오너-기기-확인-게이트-아님),
+      기기의 게스트 입장은 따로 보지 않았다. 방장이 거절되면 곧바로 `lower`다. 첫 최소 빌드(지금 787)는 0으로 내리고,
+      이후 올리기(열차 3 등)는 0이 아니라 직전에 확인된 바닥으로 내린 뒤 신호 smoke를 다시 돌려 방장이 여전히 거절되거나
+      그 `lower`가 실패할 때만 0으로 내린다(§4 '9.0.14 최소 앱 빌드', [운영](hotfix-procedure.md#app-build-floor)). [오너 기기 확인 A](design/forced-update-9-0-14-2026-10-25.md#오너-기기-확인-게이트-아님),
       [릴리스 W 보고서 QA 라운드 5](design/old-version-removal-2w-workers-2026-10-26.md#5-pr-ci-codex-exact-main-ci-배포와-w-verify-2026-10-27).
 - [ ] 배포 뒤 실기기 확인(게이트 아님): 맺어진 세션 유지(첫 최소 빌드 전에 연 방이 계속 재생하고 9.0.14 게스트가
       들어갈 수 있음), 그리고 다음 올리기 때 홈 화면 앱·Android·Windows의 복귀 강제 창(나중에 없음, Back으로 닫히지
@@ -2239,6 +2240,12 @@ PRO 방장 공지의 중도 참여 복원은 별도 정책이며 이번 서비�
 - 배포 대상은 매번 live SHA와 서버 의존성으로 다시 판정한다
   ([release-deployment-state.mts](../scripts/release-deployment-state.mts)).
   partial-release gate는 선택하지 않은 Worker에 남는 runtime 차이를 거부한다.
+- target `pro-room`·`all` 릴리스는 그 호환 검사 뒤, recovery checkpoint 전에 읽기만 하는 PRO
+  최소 빌드 사전 검사(`scripts/app-build-floor.mts pro-room-guard`)를 돈다. 요구 값
+  `MXQR_PRO_ROOM_REQUIRED_APP_BUILD`는 [release.yml](../.github/workflows/release.yml)의 그 단계에
+  있고(런타임 경로 밖), PRO 스냅샷 v2 보내기 릴리스(Phase 5.5 R2)가 적을 때까지 비어 있어 지금은
+  아무것도 막지 않는다. 비상 로컬 배포는 이 검사를 돌지 않는다. 멈춤과 출구는
+  [운영](hotfix-procedure.md#app-build-floor)이 정본이다.
 - Developer API D1 `false`는 데이터 계층을 건드리지 않는다는 뜻이 아니다. `all`은
   idempotent D1 baseline, R2 정책, room-code 재사용 fence를 적용하고 검증한다.
   `app`도 App 쪽 D1 baseline(번역 커뮤니티 등)은 적용·검증하지만, R2 정책과
@@ -2488,6 +2495,13 @@ PRO 방장 공지의 중도 참여 복원은 별도 정책이며 이번 서비�
   - 급히 내리기: App Build Floor workflow `lower`(0이면 끔, `gh workflow run app-build-floor.yml --ref main -f
 action=lower -f min_app_build=<build> -f reason="<why>"`). Production Release가 같은 동시성 그룹을 잡고 있거나
     GitHub Actions를 쓸 수 없으면 오너가 관리자 대시보드(Maintenance, App build floor 판, 내리기만)에서 내린다.
+  - 실패한 올리기의 복구: PRO 앞문이 목표 빌드를 거절하거나 Signaling이 잘못 동작하면(예: 신호 smoke가 방장을 거절)
+    곧바로 `lower`한다. 첫 최소 빌드는 0으로, 이후 올리기(열차 3 등)는 0이 아니라 직전에 확인된 바닥(올리기 전 마지막
+    성공 실행이 증명한 저장값, 보통 올리기 직전의 같은 값 `set`)으로 내린다. `lower`는 Signaling의 방장 입장을 증명하지
+    않으므로, 성공하면 첫 최소 빌드의 신호 smoke를 다시 돌려 두 방의 방장·게스트 입장과
+    `legacyCompatibility.refusedBelowAppBuildFloor` = 내린 바닥을 본다. 방장이 여전히 거절되거나 그 `lower`가 실패할
+    때만 0으로 내린다. 방장은 들어가는데 그 값이 내린 바닥이 아니면(유효 바닥이 0인 창) 0으로 내리지 않고 상태와 smoke를
+    다시 본다.
   - 새 D1 스키마·비밀·바인딩은 없다. 자동 실패 복구는 바꾸지 않았다(올리기는 커밋 표지 뒤나 같은 동시성 그룹의
     standalone workflow에서만 일어나므로, 자동 장치만으로는 저장값이 복구 checkpoint의 App 빌드를 넘지 않는다).
     [보고서의 배포·회복](design/forced-update-9-0-14-2026-10-25.md#배포회복)

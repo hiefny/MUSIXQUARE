@@ -678,12 +678,53 @@ gh workflow run app-build-floor.yml --ref main -f action=lower -f min_app_build=
   `curl -s https://musixquare.com/api/app-build-floor`. If the stored floor is the target and the
   failure was transient (a rate limit, a late cron report, a cached client read), dispatch the
   same `set` again; with the floor already stored it only verifies. If the PRO front door refused
-  the target build or Signaling misbehaved, run `lower` to 0 at once and investigate.
+  the target build or Signaling misbehaved (for example the Signaling smoke below refused a host),
+  `lower` at once and investigate: to 0 for the first floor, and for any later raise to the
+  previous verified floor, not to 0. That is the value stored before the raise as its last
+  successful run proved it, normally a same-value `set` just before the raise. A `lower` proves
+  only what holds at the effective floor N of that moment, which may be below its target: the PRO
+  front door refuses build N-1 and admits build N, and Signaling refuses build N-1 (at 0, only a
+  PRO admission). It never proves that Signaling admits a host. So once it succeeds, run the
+  Signaling smoke of the first floor again: both rooms must admit their host and guest, and
+  `legacyCompatibility.refusedBelowAppBuildFloor` must equal the lowered floor (retry once after
+  a transient 502 or 503). Lower to 0 only when a host is still refused or that `lower` run fails.
+  If the hosts are admitted but that value is not the lowered floor (for example
+  `admittedWithoutAppBuild`), do not lower to 0: read the status again (the effective floor and
+  the App report's `reportedAt`) and run the smoke again. That answer comes from a window in which
+  the effective floor is 0 (an App report more than five minutes old, or a failed floor read in a
+  new isolate). If the App report has stopped, fix that first and keep the lowered floor: lowering
+  to 0 would leave the cause in place and the floor off after the reports return.
 - A release that needs a floor sets the Production Release input `raise_app_build_floor` (target
   `app` or `all`). The raise runs only after the commit marker, and only to this release's build
   when that build is the live App. If it fails, the release stays committed and is not rolled
   back; rerun `set` with the standalone workflow. Later raises need no separate owner approval
   (owner decision 2026-10-25): the release that needs one sets the input.
+- A Production Release with target `pro-room` or `all` checks the floor before it changes
+  anything: its step "Check the App build floor the PRO Worker requires" runs after the
+  partial-release dependency compatibility check and before the recovery checkpoint, so a stop
+  changes nothing and starts no recovery. The step checks the floor once, at that moment; nothing
+  later in the release checks it again. `MXQR_PRO_ROOM_REQUIRED_APP_BUILD` on that step names
+  the App build that the PRO Worker on `main` requires of every client. The value lives in
+  `.github/workflows/release.yml`, outside every runtime path list, so writing or clearing it never
+  changes a release target; while it is empty the step only logs that nothing is required.
+  Otherwise the release continues only when the public status shows both the stored and the
+  effective floor at that build or above. The step reads an unreadable status again for 30
+  seconds. It waits only while the stored floor reaches the value but the effective floor is 0
+  (no App report for five minutes): then it waits up to 3 minutes for a new App report, and a
+  status still unreadable or an effective floor still 0 then stops the release. After such a
+  stop, dispatch again once the status shows a fresh `reportedAt` from the next App report
+  (every minute). If the stopped App report or the unreadable status needs a repair that ships
+  with target `pro-room` or `all`, that repair pull request clears the
+  value (a lower value cannot pass while the effective floor is 0); once the status shows both
+  floors at the required build again, a small tooling pull request writes it back while the PRO
+  Worker still requires it. An `app` release does not run the step. A stored or a non-zero
+  effective floor below the value does not pass by waiting: do not clear the value then unless
+  the same pull request also ends the requirement; otherwise the PRO Worker ships with a
+  requirement that the floor does not enforce. A local emergency deployment of `pro-room` or
+  `all-workers` (`scripts/emergency-deploy.mts`) does not run this check. While the value in
+  `release.yml` is set, read the public App build floor status first
+  (`curl -s https://musixquare.com/api/app-build-floor`) and go ahead only when both
+  `minAppBuild` and `effectiveMinAppBuild` reach the value.
 - First floor (owner decision 2026-10-25): the App 9.0.14 release ships with the floor at 0 and
   `raise_app_build_floor` false. Once its smokes and public assets are verified, run `status`
   (the live App build is the released one and the App report is fresh), then `check` (the OIDC

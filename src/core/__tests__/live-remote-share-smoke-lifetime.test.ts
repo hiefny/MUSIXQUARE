@@ -22,7 +22,10 @@ class SmokeSocket extends EventEmitter {
   }
 }
 
-type OpenAuthority = (...args: unknown[]) => Promise<{ close(): void }>;
+type AssertionProvider = (request: Record<string, unknown>) => Promise<string>;
+type OpenAuthority = (
+  ...args: unknown[]
+) => Promise<{ provider: AssertionProvider | null; close(): void }>;
 type Convergence = <T>(
   attempt: (hostSecret: string) => Promise<T>,
   options: Record<string, unknown>,
@@ -64,7 +67,6 @@ function open(expectedVersion = 'version', hostAppBuild = 785) {
     { roomUploadAssertionVersion: 1 },
     expectedVersion,
     'secret',
-    true,
     hostAppBuild,
   );
 }
@@ -290,5 +292,186 @@ describe('live remote-share smoke App build', () => {
     );
     const error = await outcome;
     expect((error as Error).message).toContain('below the App build floor 786');
+  });
+});
+
+const ASSERTION_MARKERS = {
+  remoteShareUploadAssertionVersion: 1,
+  remoteShareUploadAssertionKeyringVersion: 1,
+};
+const ASSERTION_REQUEST = {
+  actorId: 'rsa_smoke-actor',
+  requestId: 'rs3_smoke-request',
+  sessionId: 1_800_000_000_000,
+  queueItemId: 'smoke-queue-item',
+  size: 32,
+  bodySha256: 'smoke-body-digest',
+};
+
+/** A compact `payload.signature` token of the given length (at least 45). */
+function compactAssertion(length: number): string {
+  return `${'p'.repeat(length - 44)}.${'s'.repeat(43)}`;
+}
+
+// The shortest assertion the App accepts.
+const VALID_ASSERTION = compactAssertion(64);
+
+async function admitHost(markers: Record<string, unknown>) {
+  const outcome = open();
+  SmokeSocket.current.emit('open');
+  await vi.advanceTimersByTimeAsync(0);
+  SmokeSocket.current.emit(
+    'message',
+    Buffer.from(JSON.stringify({ type: 'peer-open', workerVersionId: 'version', ...markers })),
+  );
+  const authority = await outcome;
+  expect(authority.provider).not.toBeNull();
+  return authority;
+}
+
+/** Answers the latest assertion request on the smoke socket and returns that request. */
+function answerAssertionRequest(answer: Record<string, unknown>): Record<string, unknown> {
+  const request = sentFrames().at(-1)!;
+  SmokeSocket.current.emit(
+    'message',
+    Buffer.from(JSON.stringify({ correlationId: request.correlationId, ...answer })),
+  );
+  return request;
+}
+
+describe('live remote-share smoke room proof', () => {
+  // An older Signaling Worker advertises the assertion markers in the host
+  // peer-open and a newer one does not. The smoke must pass on both (a rerun
+  // after automated recovery may meet the older one), so a real assertion
+  // request and its answer prove the room instead of a marker, and Remote
+  // Share then accepts that assertion for a real allocation.
+  it.each([
+    ['with', ASSERTION_MARKERS],
+    ['without', {}],
+  ])(
+    'proves the room with a real assertion on a Signaling Worker %s the peer-open markers',
+    async (_label, markers) => {
+      vi.useFakeTimers();
+      const authority = await admitHost(markers);
+      const assertion = authority.provider!(ASSERTION_REQUEST);
+      const request = answerAssertionRequest({
+        type: 'remote-share-upload-assertion',
+        assertion: VALID_ASSERTION,
+        expiresAt: 1_800_000_060,
+      });
+      expect(request).toEqual({
+        type: 'remote-share-upload-assertion-request',
+        correlationId: expect.stringMatching(/^rsaq_[A-Za-z0-9_-]{32}$/u),
+        ...ASSERTION_REQUEST,
+      });
+      await expect(assertion).resolves.toBe(VALID_ASSERTION);
+      expect(SmokeSocket.current.terminate).not.toHaveBeenCalled();
+      authority.close();
+      expect(SmokeSocket.current.close).toHaveBeenCalledOnce();
+    },
+  );
+
+  it('fails the room proof with the Signaling refusal when no assertion can be issued', async () => {
+    // A Signaling Worker without the assertion secret advertises no marker
+    // either; its own refusal of the real request now fails the smoke.
+    vi.useFakeTimers();
+    const authority = await admitHost({});
+    const assertion = authority.provider!(ASSERTION_REQUEST);
+    answerAssertionRequest({
+      type: 'remote-share-upload-assertion-error',
+      errorType: 'REMOTE_SHARE_UPLOAD_ASSERTION_UNAVAILABLE',
+    });
+    await expect(assertion).rejects.toThrow(
+      'remote-share assertion rejected: REMOTE_SHARE_UPLOAD_ASSERTION_UNAVAILABLE',
+    );
+    authority.close();
+  });
+
+  // The App's own answer check (normalizeRemoteShareUploadAssertionResponse):
+  // exactly four keys and a compact token of 64 to 4096 characters.
+  it.each([
+    { assertion: 'not-a-compact-token', expiresAt: 1_800_000_060 },
+    { assertion: VALID_ASSERTION, expiresAt: 0 },
+    { assertion: VALID_ASSERTION },
+    { assertion: VALID_ASSERTION, expiresAt: 1_800_000_060, unexpected: true },
+    { assertion: compactAssertion(63), expiresAt: 1_800_000_060 },
+  ])('fails the room proof on an assertion answer of the wrong shape %o', async (answer) => {
+    vi.useFakeTimers();
+    const authority = await admitHost({});
+    const assertion = authority.provider!(ASSERTION_REQUEST);
+    answerAssertionRequest({ type: 'remote-share-upload-assertion', ...answer });
+    await expect(assertion).rejects.toThrow(
+      'remote-share signaling returned an invalid upload assertion',
+    );
+    authority.close();
+  });
+});
+
+describe('live remote-share smoke assertion answer contract', () => {
+  // The App does not export its assertion bounds or answer keys, and exporting
+  // them would change an App runtime path, so this test pins the smoke's copy
+  // to the values of the App's two checks.
+  function captured(text: string, pattern: RegExp, label: string): string {
+    const match = pattern.exec(text);
+    if (!match?.[1]) throw new Error(`${label} not found`);
+    return match[1];
+  }
+  const numberAt = (text: string, pattern: RegExp, label: string) =>
+    Number(captured(text, pattern, label).replaceAll('_', ''));
+  const keysAt = (text: string, pattern: RegExp, label: string) =>
+    [...captured(text, pattern, label).matchAll(/'([^']+)'/gu)].map(([, key]) => key).sort();
+
+  it('checks the same answer keys and assertion length bounds as the App', () => {
+    const uploadClient = readFileSync('src/share/r2-client.ts', 'utf8');
+    const signaling = readFileSync('src/network/transport/cloudflare-signaling.ts', 'utf8');
+    const smokeMin = numberAt(
+      source,
+      /\bconst UPLOAD_ASSERTION_MIN_LENGTH = ([\d_]+);/u,
+      'smoke minimum length',
+    );
+    const smokeMax = numberAt(
+      source,
+      /\bconst UPLOAD_ASSERTION_MAX_LENGTH = ([\d_]+);/u,
+      'smoke maximum length',
+    );
+    const smokeKeys = keysAt(
+      source,
+      /\bconst UPLOAD_ASSERTION_ANSWER_KEYS = Object\.freeze\((\[[^\]]*\])\);/u,
+      'smoke answer keys',
+    );
+
+    expect([smokeMin, smokeMax]).toEqual([64, 4096]);
+    expect(smokeMin).toBe(
+      numberAt(uploadClient, /\bassertion\.length < ([\d_]+) \|\|/u, 'upload minimum length'),
+    );
+    expect(smokeMax).toBe(
+      numberAt(
+        uploadClient,
+        /\bconst REMOTE_SHARE_UPLOAD_ASSERTION_MAX_LENGTH = ([\d_]+);/u,
+        'REMOTE_SHARE_UPLOAD_ASSERTION_MAX_LENGTH',
+      ),
+    );
+    expect(smokeMin).toBe(
+      numberAt(
+        signaling,
+        /\bcandidate\.assertion\.length < ([\d_]+) \|\|/u,
+        'signaling minimum length',
+      ),
+    );
+    expect(smokeMax).toBe(
+      numberAt(
+        signaling,
+        /\bconst REMOTE_SHARE_UPLOAD_ASSERTION_TOKEN_MAX_LENGTH = ([\d_]+);/u,
+        'REMOTE_SHARE_UPLOAD_ASSERTION_TOKEN_MAX_LENGTH',
+      ),
+    );
+    expect(smokeKeys).toEqual(['assertion', 'correlationId', 'expiresAt', 'type']);
+    expect(smokeKeys).toEqual(
+      keysAt(
+        signaling,
+        /hasExactObjectKeys\(candidate, (\[[^\]]*\])\) \|\|\s*candidate\.type !== 'remote-share-upload-assertion' \|\|/u,
+        'signaling answer keys',
+      ),
+    );
   });
 });

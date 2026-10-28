@@ -107,27 +107,27 @@ Pretendard lacks coverage.
 - Use tabular numerals for clocks, invite codes, counters, and latency.
 - Keep compact labels legible; do not rely on extreme tracking or uppercase
   for hierarchy.
-- Every action button label is 15px / 700 / 1.25 with normal letter spacing,
-  and only its color differs. Each component rule reads `--button-label-size`,
-  `--button-label-weight`, `--button-label-line-height`, and
-  `--button-label-letter-spacing` itself; do not retype the values. Named
-  exceptions keep their own values and share the rest: choice cards keep
-  14px; the play tab's compact Sync and Media actions keep weight 600 and
-  -0.3px tracking so every language's label stays on one line in its 130px
-  slot on a 320px screen; and on phones up to 420px the demo finish pair
-  keeps a 13px label at weight 600, because its two 54px pills share one row
-  and a heavier label would push more languages past the pill edge. A label
-  sweep of every locale against 9.0.18 named more narrow slots that keep
-  their 9.0.18 weight or size where the shared label wraps or overflows: on
-  phones up to 420px the invite button, Leave Session, the help tab's tour and
-  screensaver pills, the deletion-mode Select all toggle and the Create a Room
-  / Join a Room pair keep weight 600, and account deletion keeps 14px (also on
-  screens up to 350px tall); in the phone layout up to 719px the media source
-  options keep weight 600 and -0.3px tracking and the YouTube link dialog's
-  Cancel / Add pair keeps weight 600. The setup screen's single action pill
-  beside Back (Start, Please wait, Joining, Retry, Refresh) keeps weight 600
-  on phones, where it is 84px wide at 320px, and in the 196px pill of the
-  two-column setup panel; only the desktop setup panel's 324px pill takes 700.
+- Button labels take one of three roles, and labels in one role differ only
+  by color (owner decision 2026-10-28; the earlier 700 clumped in dark mode,
+  Korean most of all). Every role shares weight 600 and normal letter
+  spacing. CTA, every action button: 15px with line height 1.25 (dialogs,
+  setup, the play tab's chat preview text and Sync / Media / Stop Sharing,
+  the account dialog, the connect tab, the help tab pills, manual sync, the
+  YouTube link dialog, the deletion-mode Select all and the media source
+  options). Chip, the choice chips (`.ch-opt`): 14px. Tab, the desktop
+  settings section tabs: 13px. Each component rule reads
+  `--button-label-size` (or `--button-label-chip-size` or
+  `--button-label-tab-size`), `--button-label-weight`,
+  `--button-label-line-height`, and `--button-label-letter-spacing` itself;
+  do not retype the values.
+- Narrow slots stay inside the roles. A button whose CTA label wraps, splits
+  a word or stacks its pair where 9.0.18 did not carries `.btn-label-compact`
+  and takes the chip role's 14px in the phone layout up to 719px: Sign out
+  and Delete account (always the same size) and the media source options.
+  The demo finish pair's two 54px pills take the tab role's 13px on phones
+  up to 420px. The demo tour's step indicator and role switch keep their own
+  sizes and share the weight, and the media source Close hides its label in
+  the two-column 40px icon circle.
 - Verify font changes with `npm run guard:font-assets` and
   `npm run guard:font-build`.
 

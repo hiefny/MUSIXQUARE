@@ -116,11 +116,15 @@
     sans-serif;
   --font-sans: var(--font-sans-ko);
   --font-weight-display: 700;
-  /* Every action button label; only its color differs. */
+  /* Button label roles; labels in one role differ only by color. Every role
+     shares the weight and tracking. CTA: every action button. Chip: choice
+     chips. Tab: section tabs and segments. */
   --button-label-size: 15px;
-  --button-label-weight: 700;
+  --button-label-weight: 600;
   --button-label-line-height: 1.25;
   --button-label-letter-spacing: normal;
+  --button-label-chip-size: 14px;
+  --button-label-tab-size: 13px;
 
   /* Size scale */
   --fs-9: 9px;

@@ -106,13 +106,20 @@ or pointers. Keep :focus-visible and :active outside the gate (src/ui/__tests__/
       sans-serif;
     --font-sans: var(--font-sans-ko);
     --font-weight-display: 700;
-    /* One label style for every action button; only its color differs. Each
-       component rule reads these itself, like --radius-pill, and
-       button-label-contract.test.ts lists the buttons that keep their own. */
+    /* Button label roles (owner decision 2026-10-28). Every button label
+       takes one role, and labels in one role differ only by color. Each
+       component rule reads the role's tokens itself, like --radius-pill;
+       button-label-contract.test.ts names every member with its reason.
+       Every role shares the weight 600 and normal tracking.
+       - CTA: every action button, 15px / 1.25.
+       - Chip: choice chips (.ch-opt), 14px.
+       - Tab: section tabs and segments, 13px. */
     --button-label-size: 15px;
-    --button-label-weight: 700;
+    --button-label-weight: 600;
     --button-label-line-height: 1.25;
     --button-label-letter-spacing: normal;
+    --button-label-chip-size: 14px;
+    --button-label-tab-size: 13px;
 
     --glass-bg: var(--surface-1);
     --glass-border: transparent;
@@ -149,6 +156,18 @@ or pointers. Keep :focus-visible and :active outside the gate (src/ui/__tests__/
 
   :root[data-mxqr-font-recovery='true'] {
     --font-primary: 'MUSIXQUARE Pretendard Recovery';
+  }
+
+  /* The compact narrow slots (owner decision 2026-10-28): where the CTA role
+     reads worse than 9.0.18 in a narrow slot, the button carries
+     .btn-label-compact in its markup and takes the chip role's 14px under this
+     one condition. Its own rule still reads --button-label-size, so the label
+     keeps the CTA weight, line height and tracking.
+     button-label-contract.test.ts names every member with its reason. */
+  @media (max-width: 719px) {
+    .btn-label-compact {
+      --button-label-size: var(--button-label-chip-size);
+    }
   }
 
   /* Force UA color scheme per app theme.
@@ -3312,16 +3331,6 @@ or pointers. Keep :focus-visible and :active outside the gate (src/ui/__tests__/
     transition: opacity 0.15s ease;
   }
 
-  /* Named narrow-slot exception (label sweep, button-label-contract.test.ts):
-     on phones up to 420px the toggle keeps the 9.0.18 weight 600. At 700 the
-     Tamil and Malayalam labels reach past the screen edge at 320 and 340px,
-     further than in 9.0.18. */
-  @media (max-width: 420px) {
-    .playlist-selection-toggle {
-      font-weight: 600;
-    }
-  }
-
   .playlist-selection-toggle:active {
     opacity: 0.6;
   }
@@ -3975,9 +3984,8 @@ or pointers. Keep :focus-visible and :active outside the gate (src/ui/__tests__/
     color: var(--text-sub);
     padding: 18px 12px;
     border-radius: var(--radius-m);
-    /* Choice cards keep 14px in their two- to four-column grids and share the
-       rest of the action label style. */
-    font-size: 14px;
+    /* The chip label role: 14px in their two- to four-column grids. */
+    font-size: var(--button-label-chip-size);
     font-weight: var(--button-label-weight);
     line-height: var(--button-label-line-height);
     letter-spacing: var(--button-label-letter-spacing);
@@ -4527,20 +4535,6 @@ or pointers. Keep :focus-visible and :active outside the gate (src/ui/__tests__/
     fill: var(--danger-foreground);
   }
 
-  /* Named narrow-slot exceptions (label sweep, button-label-contract.test.ts):
-     on phones up to 420px the help tab's tour and screensaver pills and the
-     connect tab's Leave Session keep the 9.0.18 weight 600. At 700 the
-     screensaver label wraps in Malay, Hungarian, Romanian and Tamil between
-     340 and 375px, and Leave Session in Malayalam at 390px, where 9.0.18 kept
-     one line. The two help pills stay alike. */
-  @media (max-width: 420px) {
-    #btn-demo-media-mobile,
-    #btn-screensaver-mobile,
-    #btn-leave-session {
-      font-weight: 600;
-    }
-  }
-
   /* =============================================
    Connect Tab — QR / Device Slider / Device List
    ============================================= */
@@ -4636,16 +4630,6 @@ or pointers. Keep :focus-visible and :active outside the gate (src/ui/__tests__/
   .btn-copy-invite-link > span[data-i18n]:lang(zh-hant) {
     word-break: normal;
     line-break: strict;
-  }
-
-  /* Named narrow-slot exception (label sweep, button-label-contract.test.ts):
-     on phones up to 420px the invite button keeps the 9.0.18 weight 600 in
-     every mode. At 700 'Room connection ended' wraps in Italian and Romanian
-     at 390px and the Tamil copy label at 410px, where 9.0.18 kept one line. */
-  @media (max-width: 420px) {
-    .btn-copy-invite-link {
-      font-weight: 600;
-    }
   }
 
   :where(html[data-hover-pointer]) .btn-copy-invite-link:hover {
@@ -6540,9 +6524,8 @@ or pointers. Keep :focus-visible and :active outside the gate (src/ui/__tests__/
 
   /* Destructive secondary action (account deletion). Only the colors change:
      the label reads the danger role, and the surface keeps the 9.0.18 tints,
-     darker on hover and press. Size, label type and the press scale stay
-     the shared secondary action's (on narrow or very short screens the label
-     keeps its 9.0.18 14px, below). */
+     darker on hover and press. Size, label role and the press scale stay the
+     shared secondary action's, the same as Sign out beside it. */
   .dialog-secondary.dialog-danger {
     border-color: transparent;
     background: var(--control-danger-dialog);
@@ -6566,19 +6549,6 @@ or pointers. Keep :focus-visible and :active outside the gate (src/ui/__tests__/
      shows the press tint. */
   .dialog-secondary.dialog-danger:active {
     background: var(--control-danger-dialog-press);
-  }
-
-  /* Named narrow-slot exception to the shared label tokens (label sweep,
-     button-label-contract.test.ts): account deletion keeps its 9.0.18 14px
-     label where the dialog is narrowest or most compressed. At 15px the Greek
-     and Malayalam labels wrap at 320 and 340px, and Log out and Delete account
-     stack in English at 360px and in French at 568x320, where 9.0.18 kept
-     them on one row. The dialog stops widening at 400px, so taller screens
-     above 420px keep 15px. */
-  @media (max-width: 420px), (max-height: 350px) {
-    #btn-account-delete {
-      font-size: 14px;
-    }
   }
 
   .dialog-primary {
@@ -7041,47 +7011,6 @@ or pointers. Keep :focus-visible and :active outside the gate (src/ui/__tests__/
   .btn-ob-secondary {
     background: var(--surface-2);
     color: var(--text-main);
-  }
-
-  /* Named narrow-slot exceptions (label sweep, button-label-contract.test.ts):
-     Create a Room and Join a Room keep the 9.0.18 weight 600 together on
-     phones up to 420px, and the YouTube link dialog's Cancel and Add pair in
-     the phone layout up to 719px. At 700 the Bulgarian Join a Room wraps at
-     360px, and Add wraps in German and Hungarian at 360px and in Bulgarian at
-     421px, where 9.0.18 kept one line. The setup action pill beside Back
-     (#btn-setup-confirm: Start, Please wait, Joining, Retry and Refresh,
-     filled or secondary) keeps 600 beside them: it is 84px wide at 320px,
-     and at 700 Retry wraps in Turkish at 320px, Brazilian Portuguese at
-     340px and Tamil at 375px, and Please wait in French and Urdu and Refresh
-     in Urdu at 320px, where 9.0.18 kept one line; the Tamil Please wait, a
-     pill as wide as its one word, reaches 4.5px further past the setup panel
-     edge at 320px. */
-  @media (max-width: 420px) {
-    #btn-setup-host,
-    #btn-setup-guest,
-    #btn-setup-confirm {
-      font-weight: 600;
-    }
-  }
-
-  /* Above 420px the setup action pill stays narrow: 185px at 421px in the
-     phone layout and 196px in the two-column setup panel (720 to 1279px, and
-     from 1280px on screens under 720px tall). At 700 the Malayalam Please
-     wait wraps at 425 to 432px and in that panel, where 9.0.18 kept one line,
-     so the pill keeps 600 in the shared not-desktop layout band
-     (src/core/layout-breakpoints.ts); only the desktop panel, whose pill is
-     324px wide, keeps 700. */
-  @media (max-width: 1279px), (max-height: 719px) {
-    #btn-setup-confirm {
-      font-weight: 600;
-    }
-  }
-
-  @media (max-width: 719px) {
-    #btn-yt-cancel,
-    #youtube-play-btn {
-      font-weight: 600;
-    }
   }
 
   #btn-close-media-popup > svg {
@@ -8236,9 +8165,10 @@ or pointers. Keep :focus-visible and :active outside the gate (src/ui/__tests__/
   }
 
   .chat-preview-text {
-    font-size: 15px;
-    font-weight: 600;
+    font-size: var(--button-label-size);
+    font-weight: var(--button-label-weight);
     line-height: 1.3;
+    letter-spacing: var(--button-label-letter-spacing);
     color: var(--text-sub);
     white-space: nowrap;
     overflow: hidden;
@@ -9733,8 +9663,11 @@ or pointers. Keep :focus-visible and :active outside the gate (src/ui/__tests__/
     gap: 6px;
     padding: 0 8px;
     font: inherit;
+    /* The demo role switch keeps its own sizes and shares the button label
+       weight and tracking (button-label-contract.test.ts). */
     font-size: 13px;
-    font-weight: 700;
+    font-weight: var(--button-label-weight);
+    letter-spacing: var(--button-label-letter-spacing);
     cursor: pointer;
     white-space: nowrap;
     transition:
@@ -9820,7 +9753,6 @@ or pointers. Keep :focus-visible and :active outside the gate (src/ui/__tests__/
     justify-content: center;
     gap: 10px;
     border-radius: var(--radius-m);
-    font-size: 14px;
   }
 
   .demo-effects-content .demo-large-actions .ch-opt.demo-choice svg {
@@ -9908,9 +9840,11 @@ or pointers. Keep :focus-visible and :active outside the gate (src/ui/__tests__/
     backdrop-filter: none;
     -webkit-backdrop-filter: none;
     font: inherit;
+    /* The demo step indicator keeps its own sizes and shares the button label
+       weight and tracking (button-label-contract.test.ts). */
     font-size: 13px;
-    font-weight: 700;
-    letter-spacing: 0;
+    font-weight: var(--button-label-weight);
+    letter-spacing: var(--button-label-letter-spacing);
     line-height: 1.2;
     padding: 0;
     white-space: nowrap;
@@ -10218,26 +10152,25 @@ or pointers. Keep :focus-visible and :active outside the gate (src/ui/__tests__/
       display: none;
     }
 
-    /* Named narrow-slot exception to the shared label tokens, with the play
-       tab's compact Sync and Media (button-label-contract.test.ts): two 54px
-       pills share a row on these phones, so the demo finish pair keeps the
-       9.0.18 label weight 600 in its 13px label. At 700 the Malayalam and
-       Tamil Exit Tour labels reach past their pills at 320px and 340px where
-       9.0.18 kept them inside. Line height and tracking stay the shared
-       tokens. */
+    /* The demo tour's two-per-row actions take the tab role's 13px on these
+       phones (button-label-contract.test.ts). The finish pair's two 54px
+       pills share a row: at the chip role's 14px the Tamil Exit Tour reaches
+       past its pill at 320 and 340px where 9.0.18 (13px) kept it inside.
+       The effect choice cards: at 14px the Russian Bass Boost and Surround
+       and the Malay Bass Boost wrap at 320px where 9.0.18 (13.5px) kept one
+       line. */
     .demo-large-actions .accent-action-btn,
     .demo-large-actions .leave-session-btn {
       min-height: 54px;
       height: 54px;
       padding: 0 10px;
-      font-size: 13px;
-      font-weight: 600;
+      font-size: var(--button-label-tab-size);
     }
 
     .demo-effects-content .demo-large-actions .ch-opt.demo-choice {
       min-height: 104px;
       padding: 16px 10px;
-      font-size: 13.5px;
+      font-size: var(--button-label-tab-size);
     }
 
     .demo-track-title {
@@ -10281,8 +10214,8 @@ or pointers. Keep :focus-visible and :active outside the gate (src/ui/__tests__/
     padding: 0 20px;
     border: 2px solid transparent;
     cursor: pointer;
-    /* The label spans inherit these; the play tab's Sync and Media keep
-       their own weight and tracking (#btn-sync span below). */
+    /* The label spans inherit these, so the CTA role (or the compact role
+       a member's markup class gives) reaches them. */
     font-size: var(--button-label-size);
     font-weight: var(--button-label-weight);
     line-height: var(--button-label-line-height);
@@ -10345,6 +10278,29 @@ or pointers. Keep :focus-visible and :active outside the gate (src/ui/__tests__/
   .file-select-btn .media-source-label-text {
     flex: 1 1 auto;
     min-width: 0;
+  }
+
+  /* The media source option labels wrap at word boundaries, like the dialog
+     actions and the invite button: Korean keeps its words whole, with the
+     anywhere fallback above for a word longer than the line. Japanese
+     breaks between phrases where the browser can (word-break: auto-phrase,
+     else normal), and Chinese keeps its native strict breaking. With the
+     compact role's 14px, Korean split 공유 at 320px and Japanese split
+     読み込む at 360px where 9.0.18 broke between words. */
+  #media-source-overlay .file-select-btn span {
+    word-break: keep-all;
+  }
+
+  #media-source-overlay .file-select-btn span:lang(ja) {
+    word-break: normal;
+    word-break: auto-phrase;
+    line-break: strict;
+  }
+
+  #media-source-overlay .file-select-btn span:lang(zh-hans),
+  #media-source-overlay .file-select-btn span:lang(zh-hant) {
+    word-break: normal;
+    line-break: strict;
   }
 
   .feature-badge,
@@ -10416,9 +10372,8 @@ or pointers. Keep :focus-visible and :active outside the gate (src/ui/__tests__/
     fill: currentColor;
   }
 
-  /* Sync/Media colors. Their label size and line height are
-     .file-select-btn's and their label spans keep their own weight and
-     tracking (below); the play-action component owns layout. */
+  /* Sync/Media colors. Their labels take the CTA role from
+     .file-select-btn; the play-action component owns layout. */
   #btn-sync,
   #btn-media-source {
     border: none;
@@ -10454,38 +10409,12 @@ or pointers. Keep :focus-visible and :active outside the gate (src/ui/__tests__/
     margin: 0;
   }
 
-  /* Named narrow-slot exception to the shared label tokens, with the compact
-     demo finish pair (button-label-contract.test.ts): the compact play
-     actions keep the 9.0.18 label weight and tracking, 600 and -0.3px. Each
-     label sits beside its icon in a 130px slot at the real 320px width and
-     must stay on one line in every locale; at 700 the Finnish 'Synkronoi'
-     wraps with Linux fonts. Size and line height stay the shared tokens, the
-     same 15px / 1.25 as 9.0.18. This rule stays in the base layer, so the
-     right-to-left reset still removes the tracking, as in 9.0.18. */
   #btn-sync span,
   #btn-media-source span {
-    font-weight: 600;
-    letter-spacing: -0.3px;
     color: currentColor;
     min-width: 0;
     white-space: normal;
     overflow-wrap: anywhere;
-  }
-
-  /* Named narrow-slot exception (label sweep, button-label-contract.test.ts):
-     in the phone layout the three media source options keep the 9.0.18 label
-     weight and tracking, 600 and -0.3px. At 700 the local file and system
-     audio labels wrap or break a word in many locales between 320 and 488px
-     (German 'Systemaudio' splits at 320px) where 9.0.18 did not. This rule
-     stays in the base layer, so right-to-left labels take no tracking, as in
-     9.0.18. */
-  @media (max-width: 719px) {
-    #btn-local-file > span,
-    #btn-youtube-source > span,
-    #btn-system-audio .media-source-label-text {
-      font-weight: 600;
-      letter-spacing: -0.3px;
-    }
   }
 
   /* Keep explanatory clicks available while making readiness obvious before

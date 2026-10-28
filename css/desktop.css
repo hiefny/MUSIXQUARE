@@ -476,8 +476,8 @@
     .subtab-pill {
       flex: 1;
       padding: 10px 0;
-      font-size: 13px;
-      font-weight: 600;
+      font-size: var(--button-label-tab-size);
+      font-weight: var(--button-label-weight);
       color: var(--text-sub);
       background: none;
       border: none;

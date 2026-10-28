@@ -184,8 +184,10 @@
   color: #fff;
   cursor: pointer;
   font: inherit;
-  font-size: 15px;
-  font-weight: 700;
+  font-size: var(--button-label-size, 15px);
+  font-weight: var(--button-label-weight, 600);
+  line-height: var(--button-label-line-height, 1.25);
+  letter-spacing: var(--button-label-letter-spacing, normal);
   transition:
     filter 0.2s,
     transform 0.2s;
@@ -582,8 +584,10 @@
   color: var(--text-sub);
   cursor: pointer;
   font: inherit;
-  font-size: 14px;
-  font-weight: 700;
+  font-size: var(--button-label-chip-size, 14px);
+  font-weight: var(--button-label-weight, 600);
+  line-height: var(--button-label-line-height, 1.25);
+  letter-spacing: var(--button-label-letter-spacing, normal);
   transition: all 0.3s var(--ease-out);
 }
 
@@ -626,7 +630,7 @@ svg.stroke-icon {
   cursor: pointer;
   font: inherit;
   font-size: var(--button-label-size, 15px);
-  font-weight: var(--button-label-weight, 700);
+  font-weight: var(--button-label-weight, 600);
   line-height: var(--button-label-line-height, 1.25);
   letter-spacing: var(--button-label-letter-spacing, normal);
   transition:
@@ -753,8 +757,10 @@ svg.stroke-icon {
 }
 
 .mq-role .label {
-  font-size: 15px;
-  font-weight: 700;
+  font-size: var(--button-label-chip-size, 14px);
+  font-weight: var(--button-label-weight, 600);
+  line-height: var(--button-label-line-height, 1.25);
+  letter-spacing: var(--button-label-letter-spacing, normal);
 }
 
 .mq-role .hint {

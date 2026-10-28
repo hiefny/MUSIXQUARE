@@ -18,6 +18,8 @@ The sample currently demonstrates:
 - a 64px playback action with a 28px filled icon;
 - playlist capsules with source glyphs, current play/pause state, reorder affordance, and remove action;
 - flat, divider-separated General settings sections and two-column choice cards;
+- the button label roles: the CTA role (15px / 600) on the action pills and the
+  chip role (14px / 600) on choice cards, read from the design-system tokens;
 - a dedicated leave-session action, separate from the header account badge;
 - the filled-first icon language plus intentional stroked exceptions such as language, device, and reorder glyphs.
 

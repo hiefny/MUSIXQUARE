@@ -6,14 +6,23 @@ import { resolve } from 'node:path';
 import { parse as parseCss, type AtRule, type Node, type Root } from 'postcss';
 import { describe, expect, it } from 'vitest';
 
-// Owner decision (2026-10-27): action pills that sit next to or below each
-// other keep 12px between their painted surfaces, and every action pill is
-// 56px tall, in dialogs, on the play tab and on the setup screens. Spacing is
-// a recipe rather than an exported root token (see the design-system page's
-// component token note), so this contract binds the equal values instead of
-// a shared custom property. Change them together or not at all.
-const ACTION_GAP = '12px';
+// Owner decisions (2026-10-27, revised 2026-10-28): action pills keep 10px
+// between their painted surfaces side by side and 12px when one sits below
+// another, and every action pill is 56px tall, in dialogs, on the play tab and
+// on the setup screens. A pill group's gap shorthand is therefore `12px 10px`
+// (row gap, then column gap). Spacing is a recipe rather than an exported root
+// token (see the design-system page's component token note), so this contract
+// binds the equal values instead of a shared custom property. Change them
+// together or not at all.
+const ACTION_GAP_ACROSS = '10px';
+const ACTION_GAP_DOWN = '12px';
+const ACTION_GAP = `${ACTION_GAP_DOWN} ${ACTION_GAP_ACROSS}`;
 const PILL_HEIGHT = '56px';
+// Owner decision (2026-10-28): at 360px and below dialog pills take 24px side
+// padding instead of 28px; min-width stays, and the account actions keep their
+// own padding.
+const NARROW_DIALOG = '@media (max-width: 360px)';
+const NARROW_DIALOG_PADDING = 'padding-inline: 24px';
 
 // Role=dialog surfaces in index.html whose actions deliberately stay outside
 // the shared rhythm, with the reason. The scan below fails on any other
@@ -149,6 +158,24 @@ function pixels(value: string): number {
   return Number(match![1]);
 }
 
+/** The row (down) and column (across) gaps that gap declarations set. */
+function gapAxes(declarations: readonly string[]): { down: string[]; across: string[] } {
+  const axes = { down: [] as string[], across: [] as string[] };
+  for (const declaration of declarations) {
+    const [property, value] = declaration.split(/:\s*/u) as [string, string];
+    const parts = value.trim().split(/\s+/u);
+    if (property === 'gap') {
+      axes.down.push(parts[0]!);
+      axes.across.push(parts[1] ?? parts[0]!);
+    } else if (property === 'row-gap') {
+      axes.down.push(value.trim());
+    } else if (property === 'column-gap') {
+      axes.across.push(value.trim());
+    }
+  }
+  return axes;
+}
+
 describe('action pill rhythm contract', () => {
   it('keeps one gap between action pills in dialogs, on the play tab and on setup', () => {
     expect({
@@ -156,15 +183,17 @@ describe('action pill rhythm contract', () => {
       // The signed-out account view stacks the Google pill and Close without
       // a flex group, so the close action's top margin is that surface gap.
       signedOutClose: baseValue(appCss, '.account-dialog-login-close', 'margin-top'),
+      // Sync beside Media.
       playActionRow: baseValue(playCss, '.play-actions-row', '--play-action-gap'),
+      // The chat preview above the Sync / Media pair.
       playSecondaryArea: baseValue(appCss, '.play-secondary-area', 'gap'),
       setupActions: baseValue(appCss, '.ob-actions', 'gap'),
       setupActionsWithBack: baseValue(appCss, '.ob-actions.horizontal-with-back', 'gap'),
     }).toEqual({
       dialogActions: ACTION_GAP,
-      signedOutClose: ACTION_GAP,
-      playActionRow: ACTION_GAP,
-      playSecondaryArea: ACTION_GAP,
+      signedOutClose: ACTION_GAP_DOWN,
+      playActionRow: ACTION_GAP_ACROSS,
+      playSecondaryArea: ACTION_GAP_DOWN,
       setupActions: ACTION_GAP,
       setupActionsWithBack: ACTION_GAP,
     });
@@ -173,8 +202,9 @@ describe('action pill rhythm contract', () => {
   it('resolves the shared gap on every action row in the markup, utility classes included', () => {
     // A later layer or a one-off utility class on the row must not reopen a
     // different gap: every unconditional gap the row receives is the shared
-    // one. The first-screen host / join stack (.ob-actions.vertical, 16px) is
-    // added at runtime and stays the owner-tuned exception.
+    // 12px down and 10px across. The first-screen host / join stack
+    // (.ob-actions.vertical, 16px) is added at runtime and stays the
+    // owner-tuned exception.
     const rows = [
       ...appMarkup().querySelectorAll(':is(.adaptive-action-group, .dialog-actions, .ob-actions)'),
     ];
@@ -182,10 +212,9 @@ describe('action pill rhythm contract', () => {
     for (const row of rows) {
       const gaps = appliedValues(row, ['gap', 'row-gap', 'column-gap']);
       expect(gaps, `${describeElement(row)} has no gap`).not.toHaveLength(0);
-      expect(
-        gaps.filter((gap) => !gap.endsWith(`: ${ACTION_GAP}`)),
-        describeElement(row),
-      ).toEqual([]);
+      const { down, across } = gapAxes(gaps);
+      expect(new Set(down), describeElement(row)).toEqual(new Set([ACTION_GAP_DOWN]));
+      expect(new Set(across), describeElement(row)).toEqual(new Set([ACTION_GAP_ACROSS]));
     }
   });
 
@@ -252,7 +281,7 @@ describe('action pill rhythm contract', () => {
       value.replace(/^gap: /u, ''),
     );
     expect(shortGap).toHaveLength(1);
-    expect(pixels(shortGap[0]!)).toBeLessThan(pixels(ACTION_GAP));
+    expect(pixels(shortGap[0]!)).toBeLessThan(pixels(ACTION_GAP_ACROSS));
     expect(appliedValues(signedOutClose, ['margin-top'], SHORT_SCREEN)).toEqual([
       `margin-top: ${shortGap[0]}`,
     ]);
@@ -275,6 +304,62 @@ describe('action pill rhythm contract', () => {
     expect(appliedValues(signedOutClose, ['margin-top'])).toContain('margin-top: 0');
   });
 
+  it('gives dialog pills 24px side padding at 360px and below', () => {
+    // Owner decision (2026-10-28): more localized pairs share one row on the
+    // narrowest phones. The shared rule keeps 28px and its 100px min-width.
+    for (const selector of ['.dialog-primary', '.dialog-secondary']) {
+      expect(baseValue(appCss, selector, 'padding'), selector).toBe('0 28px');
+      expect(baseValue(appCss, selector, 'min-width'), selector).toBe('100px');
+    }
+    const narrowRules: string[] = [];
+    const conditions = new Set<string>();
+    for (const sheet of appSheets) {
+      sheet.walkDecls((declaration) => {
+        if (!/^padding/u.test(declaration.prop) && declaration.prop !== 'min-width') return;
+        const rule = declaration.parent;
+        if (rule?.type !== 'rule') return;
+        const selectors = (rule as unknown as { selectors: string[] }).selectors;
+        if (!selectors.some((selector) => /\.dialog-(?:primary|secondary)(?![\w-])/u.test(selector))) {
+          return;
+        }
+        const condition = conditionOf(declaration);
+        if (condition === null) return;
+        conditions.add(condition);
+        if (condition !== NARROW_DIALOG) return;
+        let layer = 'no layer';
+        for (let parent = rule.parent; parent; parent = parent.parent) {
+          if (parent.type === 'atrule' && (parent as AtRule).name === 'layer') {
+            layer = (parent as AtRule).params;
+          }
+        }
+        narrowRules.push(
+          `${selectors.join(', ')} { ${declaration.prop}: ${declaration.value} } in ${layer}`,
+        );
+      });
+    }
+    // One rule, in the base layer beside the shared rule, so the more specific
+    // account action rule (.account-dialog-actions .dialog-primary, 18px)
+    // still wins in the account dialog on the narrowest phones.
+    expect(narrowRules).toEqual([
+      `.dialog-primary, .dialog-secondary { ${NARROW_DIALOG_PADDING} } in base`,
+    ]);
+    expect([...conditions]).toEqual([NARROW_DIALOG]);
+    const markup = appMarkup();
+    for (const id of ['btn-dialog-ok', 'btn-dialog-secondary']) {
+      expect(
+        appliedValues(
+          markup.getElementById(id)!,
+          ['padding', 'padding-inline', 'padding-left', 'padding-right', 'min-width'],
+          NARROW_DIALOG,
+        ),
+        id,
+      ).toEqual([NARROW_DIALOG_PADDING]);
+    }
+    expect(baseValue(appCss, '.account-dialog-actions .dialog-secondary', 'padding-inline')).toBe(
+      '18px',
+    );
+  });
+
   it('lets two dialog actions keep their natural content-sized split', () => {
     // Owner decision (2026-10-27): a two-action row such as Stay / Leave sizes
     // each pill by its label and wraps only when the pair no longer fits.
@@ -295,8 +380,8 @@ describe('action pill rhythm contract', () => {
     const heights = ['height', 'min-height'];
     const shared: Record<string, string> = {
       gap: ACTION_GAP,
-      'row-gap': ACTION_GAP,
-      'column-gap': ACTION_GAP,
+      'row-gap': ACTION_GAP_DOWN,
+      'column-gap': ACTION_GAP_ACROSS,
       height: PILL_HEIGHT,
       'min-height': PILL_HEIGHT,
     };
@@ -340,7 +425,14 @@ describe('action pill rhythm contract', () => {
             const where = `${condition} ${describeElement(element)} ${value}`;
             overrides.push(where);
             expect(condition, where).toMatch(/^@media \(max-height: \d+px\)$/u);
-            expect(pixels(raw), where).toBeLessThan(pixels(shared[property]!));
+            // Each compressed value is smaller than the shared value of its
+            // axis (a one-value gap shorthand sets both axes).
+            const reference = shared[property]!.trim().split(/\s+/u);
+            const compressed = raw.trim().split(/\s+/u);
+            for (const [index, limit] of reference.entries()) {
+              const part = compressed[index] ?? compressed[0]!;
+              expect(pixels(part), where).toBeLessThan(pixels(limit));
+            }
           }
         }
       }

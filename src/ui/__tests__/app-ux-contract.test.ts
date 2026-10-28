@@ -324,7 +324,7 @@ describe('app UX markup contract', () => {
       /\.play-action-buttons :is\(#btn-sync, #btn-media-source\)\s*\{[^}]*min-height:\s*56px;[^}]*height:\s*auto;[^}]*padding:\s*0;/u,
     );
     expect(playbackActionsStylesheet).toMatch(
-      /\.play-actions-row\s*\{[^}]*--play-action-gap:\s*12px;[^}]*--play-action-padding-x:\s*14px;[^}]*--play-action-icon-size:\s*20px;[^}]*gap:\s*var\(--play-action-gap\);/u,
+      /\.play-actions-row\s*\{[^}]*--play-action-gap:\s*10px;[^}]*--play-action-padding-x:\s*14px;[^}]*--play-action-icon-size:\s*20px;[^}]*gap:\s*var\(--play-action-gap\);/u,
     );
     expect(playbackActionsStylesheet).toContain(
       'width: calc((100% - var(--play-action-gap)) / 2);',

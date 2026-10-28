@@ -216,10 +216,10 @@ async function installLayoutProbe(
       }
 
       /* The application reserves 24px on each mobile side and two 160px
-         action slots plus a 12px gap on desktop. Keep the authored button
+         action slots plus a 10px gap on desktop. Keep the authored button
          subtree and its cascade; only supply its surrounding panel's width. */
       .locale-merged-player-actions {
-        width: ${viewportWidth < 1280 ? viewportWidth - 48 : 332}px;
+        width: ${viewportWidth < 1280 ? viewportWidth - 48 : 330}px;
         max-width: none;
         margin: 0;
       }
@@ -413,8 +413,9 @@ test.describe('content-based adaptive action groups', () => {
   });
 
   test('spaces and sizes dialog pills like the play-tab actions', async ({ page }) => {
-    // Owner decision (2026-10-27): 12px between painted pill surfaces and
-    // 56px pills, the same as the play tab's sync and media actions.
+    // Owner decisions (2026-10-27, revised 2026-10-28): 10px between painted
+    // pill surfaces side by side, 12px when stacked, and 56px pills, the same
+    // as the play tab's sync and media actions.
     await installLayoutProbe(
       page,
       `<div id="account-actions" class="account-dialog-actions adaptive-action-group">
@@ -438,7 +439,7 @@ test.describe('content-based adaptive action groups', () => {
 
     const [logout, deleteAccount, close] = await actionMetrics(page, '#account-actions');
     expect(Math.abs(logout!.y - deleteAccount!.y)).toBeLessThan(0.5);
-    expect(deleteAccount!.x - (logout!.x + logout!.width)).toBeCloseTo(12, 1);
+    expect(deleteAccount!.x - (logout!.x + logout!.width)).toBeCloseTo(10, 1);
     expect(close!.y - (logout!.y + logout!.height)).toBeCloseTo(12, 1);
     for (const action of [logout!, deleteAccount!, close!]) {
       expect(action.height, action.id).toBeCloseTo(56, 1);
@@ -490,7 +491,8 @@ test.describe('content-based adaptive action groups', () => {
 
   test('keeps the YouTube link dialog actions on the shared pill gap', async ({ page }) => {
     // The row also carries a one-off utility class from the inline-style
-    // extraction; it must not reopen a different gap.
+    // extraction; it must not reopen a different gap than the shared 10px
+    // across.
     await installLayoutProbe(
       page,
       `<div id="youtube-url-overlay">
@@ -504,7 +506,7 @@ test.describe('content-based adaptive action groups', () => {
 
     const [cancel, play] = await actionMetrics(page, '#youtube-actions');
     expect(Math.abs(cancel!.y - play!.y)).toBeLessThan(0.5);
-    expect(play!.x - (cancel!.x + cancel!.width)).toBeCloseTo(12, 1);
+    expect(play!.x - (cancel!.x + cancel!.width)).toBeCloseTo(10, 1);
     expect(cancel!.height).toBeCloseTo(56, 1);
     expect(play!.height).toBeCloseTo(56, 1);
   });
@@ -865,16 +867,60 @@ test.describe('content-based adaptive action groups', () => {
           );
           expect(button.height, `${button.id} pill height`).toBeGreaterThanOrEqual(56 - 0.5);
         }
-        // Side by side with the shared 12px gap, or Done on its own row.
+        // Side by side 10px apart, or Done on its own row 12px below.
         if (Math.abs(reset!.top - done!.top) < 0.5) {
           const gap = Math.max(done!.left - reset!.right, reset!.left - done!.right);
-          expect(gap, pair.lang).toBeCloseTo(12, 1);
+          expect(gap, pair.lang).toBeCloseTo(10, 1);
         } else {
           expect(done!.top - reset!.bottom, pair.lang).toBeCloseTo(12, 1);
         }
       }
     });
   }
+
+  test('gives dialog pills 24px side padding at 360px and below', async ({ page }) => {
+    // Owner decision (2026-10-28): the shared 28px drops to 24px at 360px and
+    // below; min-width stays 100px and the account actions keep their 18px.
+    await installLayoutProbe(
+      page,
+      `<div id="dialog-pair" class="dialog-actions adaptive-action-group">
+        <button id="pair-secondary" class="dialog-secondary">Cancel</button>
+        <button id="pair-primary" class="dialog-primary">OK</button>
+      </div>
+      <div id="account-actions" class="account-dialog-actions adaptive-action-group">
+        <button id="account-logout" class="dialog-secondary">Log out</button>
+        <button id="account-delete" class="dialog-secondary dialog-danger">Delete account</button>
+      </div>`,
+      { viewportWidth: 320 },
+    );
+    const padding = () =>
+      page.locator('button').evaluateAll((buttons) =>
+        Object.fromEntries(
+          buttons.map((button) => {
+            const style = getComputedStyle(button);
+            return [
+              button.id,
+              [style.paddingLeft, style.paddingRight, style.minWidth].join(' '),
+            ] as const;
+          }),
+        ),
+      );
+    for (const [width, side] of [
+      [320, '24px'],
+      [360, '24px'],
+      [361, '28px'],
+      [390, '28px'],
+    ] as const) {
+      await page.setViewportSize({ width, height: 800 });
+      await page.waitForFunction((value) => innerWidth === value, width);
+      expect(await padding(), `${width}px`).toEqual({
+        'pair-secondary': `${side} ${side} 100px`,
+        'pair-primary': `${side} ${side} 100px`,
+        'account-logout': '18px 18px 0px',
+        'account-delete': '18px 18px 0px',
+      });
+    }
+  });
 
   test('keeps every compact player action contained at the real 320px width', async ({ page }) => {
     await installLayoutProbe(page, '<main id="player-action-probes"></main>');
@@ -904,7 +950,7 @@ test.describe('content-based adaptive action groups', () => {
               row.classList.add('locale-player-actions');
               if (className) row.classList.add('text-200');
               row.dataset.scale = scale;
-              row.style.setProperty('--play-action-slot-width', '130px');
+              row.style.setProperty('--play-action-slot-width', '131px');
               row.querySelector<HTMLElement>(
                 '.play-action-stop-content .play-action-label',
               )!.textContent = locale.player.stop;
@@ -976,7 +1022,8 @@ test.describe('content-based adaptive action groups', () => {
       );
 
     for (const action of playerActions) {
-      expect(action.buttonWidth, `${action.id} must use the real 130px slot`).toBe(130);
+      // 272px between the 24px sides at 320px, less the 10px gap, halved.
+      expect(action.buttonWidth, `${action.id} must use the real 131px slot`).toBe(131);
       // The transparent full-row stop frame deliberately extends beyond the
       // split media button. Judge the visible icon and label, while preserving
       // the clipping boundary that keeps that outgoing frame offscreen.
@@ -1585,7 +1632,7 @@ test.describe('content-based adaptive action groups', () => {
       const row = authored.querySelector<HTMLElement>('.play-action-buttons')!;
       row.classList.add('locale-merged-player-actions');
       row.dataset.hoverLocked = 'true';
-      row.style.setProperty('--play-action-slot-width', '130px');
+      row.style.setProperty('--play-action-slot-width', '131px');
       // This isolated CSS contract deliberately supplies the controller's
       // lock state. A distinct target exposes specificity regressions even
       // when the theme's resting and hover surfaces are visually similar.
@@ -1602,7 +1649,7 @@ test.describe('content-based adaptive action groups', () => {
         await row.evaluate((element, value) => {
           (element as HTMLElement).dataset.sharing = String(value);
         }, sharing);
-        await expect(media).toHaveCSS('width', `${sharing ? 272 : 130}px`);
+        await expect(media).toHaveCSS('width', `${sharing ? 272 : 131}px`);
         // Chromium can retain stale hover after geometry moves underneath a
         // stationary pointer. Move out and back so this test truly exercises
         // the competing :hover rule; the runtime test covers stationary input.
@@ -1661,7 +1708,7 @@ test.describe('content-based adaptive action groups', () => {
                 if (scale === '200') row.classList.add('text-200');
                 row.dataset.probe = `${locale.code}-${scale}`;
                 row.dataset.sharing = 'true';
-                row.style.setProperty('--play-action-slot-width', `${(rowWidth - 12) / 2}px`);
+                row.style.setProperty('--play-action-slot-width', `${(rowWidth - 10) / 2}px`);
                 const sync = row.querySelector<HTMLButtonElement>('#btn-sync')!;
                 sync.disabled = true;
                 sync.inert = true;
@@ -1682,7 +1729,7 @@ test.describe('content-based adaptive action groups', () => {
           {
             locales: localesWithFonts,
             markup: APP_MARKUP,
-            rowWidth: viewportWidth < 1280 ? viewportWidth - 48 : 332,
+            rowWidth: viewportWidth < 1280 ? viewportWidth - 48 : 330,
           },
         );
         await waitForLayoutFonts(page);
@@ -1805,7 +1852,7 @@ test.describe('content-based adaptive action groups', () => {
             sync.removeAttribute('aria-hidden');
           }
         });
-        const expectedSlot = ((viewportWidth < 1280 ? viewportWidth - 48 : 332) - 12) / 2;
+        const expectedSlot = ((viewportWidth < 1280 ? viewportWidth - 48 : 330) - 10) / 2;
         await expect
           .poll(() =>
             page
@@ -1839,7 +1886,7 @@ test.describe('content-based adaptive action groups', () => {
           expect(row.media.width, row.id).toBeCloseTo(expectedSlot, 1);
           const gap =
             direction === 'rtl' ? row.sync.left - row.media.right : row.media.left - row.sync.right;
-          expect(gap, row.id).toBeCloseTo(12, 1);
+          expect(gap, row.id).toBeCloseTo(10, 1);
         }
       });
     }

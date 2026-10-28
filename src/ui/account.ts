@@ -1324,11 +1324,6 @@ function bindAccountDialog(): void {
     return true;
   });
   overlay.addEventListener('keydown', (event) => {
-    if (event.key === 'Escape') {
-      event.preventDefault();
-      closeAccountDialog();
-      return;
-    }
     if (event.key !== 'Tab') return;
     const focusable = getFocusableElements();
     if (focusable.length === 0) {

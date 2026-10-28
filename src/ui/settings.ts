@@ -968,11 +968,7 @@ export function initSettings(): void {
   $on('btn-language-system', 'click', () => setLanguageMode('system'));
   $on('btn-language-dialog-done', 'click', () => closeLanguageDialog());
   const languageOverlay = getUiElement('language-dialog-overlay');
-  languageOverlay?.addEventListener('keydown', (e) => {
-    if (e.key !== 'Escape') return;
-    e.preventDefault();
-    closeLanguageDialog();
-  });
+  // Back and Escape close the list, as Done does.
   if (languageOverlay) {
     onWindowBack(languageOverlay, () => {
       if (!languageOverlay.classList.contains('show')) return false;

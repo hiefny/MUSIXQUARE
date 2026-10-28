@@ -548,18 +548,7 @@ function getOverlayFocusableElements(overlay: HTMLElement): HTMLElement[] {
   );
 }
 
-function handleFullscreenOverlayKeydown(
-  overlay: HTMLElement,
-  event: KeyboardEvent,
-  onClose: () => void,
-): void {
-  if (event.key === 'Escape') {
-    if (event.isComposing || event.keyCode === 229) return;
-    event.preventDefault();
-    event.stopPropagation();
-    onClose();
-    return;
-  }
+function handleFullscreenOverlayKeydown(overlay: HTMLElement, event: KeyboardEvent): void {
   if (event.key !== 'Tab') return;
 
   cycleFocusWithin(event, getOverlayFocusableElements(overlay), overlay);
@@ -1254,8 +1243,9 @@ export function initPlayerControls(): void {
     if (!overlay || overlay.dataset.keyboardBound === '1') return;
     overlay.dataset.keyboardBound = '1';
     overlay.addEventListener('keydown', (event) => {
-      handleFullscreenOverlayKeydown(overlay, event, close);
+      handleFullscreenOverlayKeydown(overlay, event);
     });
+    // Back and Escape close the window as its own Close or Cancel does.
     onWindowBack(overlay, () => {
       if (!overlay.classList.contains('active')) return false;
       close();

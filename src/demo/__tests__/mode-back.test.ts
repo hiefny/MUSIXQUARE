@@ -76,18 +76,19 @@ vi.mock('../../ui/toast.ts', () => ({
   updateLoader: vi.fn(),
 }));
 
-vi.mock('../../ui/dom.ts', () => ({
-  beginBackSurfaceTransition: vi.fn(() => mocks.finishBackSurface),
-  updateOverlayOpenClass: vi.fn(),
-  onWindowBack: vi.fn((element: HTMLElement, handler: () => boolean) => {
-    mocks.backHandlers.push({ element, handler });
-  }),
-  // The real helper offers Escape to the window only while Back would reach
-  // it (window-back.test.ts); here the demo is that window.
-  offerEscapeToWindow: vi.fn((root: HTMLElement) =>
-    mocks.backHandlers.some((entry) => entry.element === root && entry.handler()),
-  ),
-}));
+vi.mock('../../ui/dom.ts', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('../../ui/dom.ts')>();
+  return {
+    beginBackSurfaceTransition: vi.fn(() => mocks.finishBackSurface),
+    updateOverlayOpenClass: vi.fn(),
+    // The real registration also installs dom.ts's one Escape listener,
+    // which offers the key to the window Back would reach: the demo here.
+    onWindowBack: vi.fn((element: HTMLElement, handler: () => boolean) => {
+      mocks.backHandlers.push({ element, handler });
+      actual.onWindowBack(element, handler);
+    }),
+  };
+});
 
 vi.mock('../../ui/theme-chrome.ts', () => ({
   syncAppThemeChrome: vi.fn(),

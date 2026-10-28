@@ -228,11 +228,7 @@ function bindDialogs(): void {
   for (const id of [SLOTS_OVERLAY_ID, TRANSFER_OVERLAY_ID]) {
     const overlay = getUiElement(id);
     if (!overlay) continue;
-    overlay.addEventListener('keydown', (event) => {
-      if (event.key !== 'Escape') return;
-      event.preventDefault();
-      closeOverlay(id);
-    });
+    // Back and Escape close without switching or transferring.
     onWindowBack(overlay, () => {
       if (!overlay.classList.contains('show')) return false;
       closeOverlay(id);

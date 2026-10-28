@@ -188,13 +188,6 @@ function close(cancelPending = true): void {
 function handleOverlayKeydown(event: KeyboardEvent): void {
   const overlay = document.getElementById('manual-sync-overlay');
   if (!overlay?.classList.contains('show')) return;
-  if (event.key === 'Escape') {
-    if (event.isComposing || event.keyCode === 229) return;
-    event.preventDefault();
-    event.stopPropagation();
-    close();
-    return;
-  }
   if (event.key !== 'Tab') return;
   const focusables = Array.from(
     overlay.querySelectorAll<HTMLElement>(

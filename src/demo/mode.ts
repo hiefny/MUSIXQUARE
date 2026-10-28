@@ -47,12 +47,7 @@ import { registerHandlers } from '../network/protocol.ts';
 import { hideSetupOverlay } from '../ui/setup-shared.ts';
 import { showDialog } from '../ui/dialog.ts';
 import { showLoader, showToast, updateLoader } from '../ui/toast.ts';
-import {
-  beginBackSurfaceTransition,
-  offerEscapeToWindow,
-  onWindowBack,
-  updateOverlayOpenClass,
-} from '../ui/dom.ts';
+import { beginBackSurfaceTransition, onWindowBack, updateOverlayOpenClass } from '../ui/dom.ts';
 import { syncExclusivePressedState } from '../core/aria-state.ts';
 import { syncAppThemeChrome, syncDemoThemeChrome } from '../ui/theme-chrome.ts';
 import type { FileMeta, QueueItemId, ResidentFile, TrackMeta } from '../types/index.ts';
@@ -1899,20 +1894,10 @@ function bindDemoDom(): void {
   document.body.dataset.demoBound = '1';
 
   const overlay = document.getElementById('demo-overlay');
-  if (overlay) {
-    onWindowBack(overlay, () => handleDemoBack(overlay));
-    // Escape is Back from the keyboard (owner decision 2026-10-28): the open
-    // settings disclosure first, then the demo's exit, while the demo is the
-    // top window. A guest who cannot end the demo keeps it; unlike Back, the
-    // key never goes on to the leave confirmation. Listen on the document so
-    // the key works while focus rests on the page body.
-    document.addEventListener('keydown', (event) => {
-      if (event.key !== 'Escape' || event.defaultPrevented) return;
-      if (event.isComposing || event.keyCode === 229) return;
-      if (!overlay.classList.contains('active')) return;
-      if (offerEscapeToWindow(overlay)) event.preventDefault();
-    });
-  }
+  // Escape reaches this handler too, through dom.ts's one Escape listener
+  // (owner decision 2026-10-28): the open settings disclosure first, then
+  // the demo's exit, while the demo is the top window.
+  if (overlay) onWindowBack(overlay, () => handleDemoBack(overlay));
 
   document.querySelectorAll<HTMLElement>('[data-demo-role]').forEach((btn) => {
     btn.addEventListener('click', () => bus.emit('demo:set-role', Number(btn.dataset.demoRole)));

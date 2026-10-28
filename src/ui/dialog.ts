@@ -9,12 +9,7 @@ import { bus } from '../core/events.ts';
 import { clearManagedTimer, setManagedTimer } from '../core/timers.ts';
 import { showToast } from './toast.ts';
 import { t } from '../i18n/index.ts';
-import {
-  syncOverlayState,
-  normalizeEmptyContentEditable,
-  offerEscapeToWindow,
-  onWindowBack,
-} from './dom.ts';
+import { syncOverlayState, normalizeEmptyContentEditable, onWindowBack } from './dom.ts';
 import { applyUserTextFontFallback } from './user-text-font.ts';
 import { destroyCustomScrollbar, initCustomScrollbar } from './custom-scrollbar.ts';
 import { createSelectionCheckSvg } from './selection-mark.ts';
@@ -882,7 +877,8 @@ function _openDialog(opts: DialogOptions | string, resolve: (result: DialogResul
 
   // History Back is a cancel, never a button: no activation hook runs, and
   // callers see `back`. The choice page steps back to the first page first.
-  // Escape takes the same path (owner decision 2026-10-28).
+  // Escape takes the same path through dom.ts's one Escape listener (owner
+  // decision 2026-10-28).
   const backListener = new AbortController();
   cleanup.push(() => backListener.abort());
   onWindowBack(
@@ -928,11 +924,6 @@ function _openDialog(opts: DialogOptions | string, resolve: (result: DialogResul
     const ke = e as KeyboardEvent;
     if (ke.defaultPrevented || overlay.hasAttribute('inert')) return;
     if (ke.isComposing || ke.keyCode === 229) return;
-    if (ke.key === 'Escape') {
-      // Escape is Back from the keyboard, for the top window only.
-      if (offerEscapeToWindow(overlay)) ke.preventDefault();
-      return;
-    }
 
     if (ke.key === 'Enter') {
       if (choice && ke.repeat) {

@@ -14,7 +14,6 @@ import { showToast } from './toast.ts';
 import {
   copyTextToClipboard,
   getUiElement,
-  offerEscapeToWindow,
   onWindowBack,
   syncOverlayState,
   trackClosingCssTransition,
@@ -463,7 +462,7 @@ function initSignalingRecoveryDialog(): void {
   overlay.dataset.bound = 'true';
 
   confirm.addEventListener('click', () => closeSignalingRecoveryDialog());
-  // Back is the plain close button, without a retry.
+  // Back and Escape are the plain close button, without a retry.
   onWindowBack(overlay, () => {
     if (!overlay.classList.contains('show')) return false;
     closeSignalingRecoveryDialog();
@@ -481,12 +480,6 @@ function initSignalingRecoveryDialog(): void {
     closeSignalingRecoveryDialog(true);
   });
   overlay.addEventListener('keydown', (event) => {
-    if (event.key === 'Escape') {
-      // Escape is Back from the keyboard (owner decision 2026-10-28).
-      if (event.defaultPrevented || event.isComposing || event.keyCode === 229) return;
-      if (offerEscapeToWindow(overlay)) event.preventDefault();
-      return;
-    }
     if (event.key !== 'Tab') return;
     const focusables = [confirm, retry].filter((button) => !button.hidden && !button.disabled);
     if (focusables.length === 0) return;
@@ -1753,11 +1746,6 @@ function initAdministratorPermissionsDialog(): void {
   });
   overlay.addEventListener('keydown', (event) => {
     if (!overlay.classList.contains('show')) return;
-    if (event.key === 'Escape') {
-      event.preventDefault();
-      closeAdministratorPermissionsDialog();
-      return;
-    }
     if (event.key !== 'Tab') return;
     const focusable = Array.from(
       overlay.querySelectorAll<HTMLElement>(

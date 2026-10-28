@@ -8,7 +8,6 @@ import {
   beginBackSurfaceTransition,
   hasOpenWindow,
   offerBackToTopWindow,
-  offerEscapeToWindow,
   onOverlayStackChange,
   onWindowBack,
   syncOverlayState,
@@ -356,6 +355,8 @@ describe('history Back to the topmost window', () => {
   describe('Escape as Back', () => {
     it('reaches a window only while it is the one Back would reach', () => {
       const media = overlay('media-source-overlay', 'active');
+      const source = document.createElement('button');
+      media.appendChild(source);
       syncOverlayState('media-source-overlay');
       const language = overlay('language-dialog-overlay', 'show');
       syncOverlayState('language-dialog-overlay');
@@ -367,12 +368,12 @@ describe('history Back to the topmost window', () => {
       onWindowBack(media, mediaBack);
       onWindowBack(language, languageBack);
 
-      expect(offerEscapeToWindow(media)).toBe(false);
-      expect(mediaBack).not.toHaveBeenCalled();
-      expect(offerEscapeToWindow(language)).toBe(true);
+      // Even a key that starts inside the window below goes to the top one.
+      expect(pressEscape(source).defaultPrevented).toBe(true);
       expect(languageBack).toHaveBeenCalledOnce();
+      expect(mediaBack).not.toHaveBeenCalled();
 
-      expect(offerEscapeToWindow(media)).toBe(true);
+      expect(pressEscape(source).defaultPrevented).toBe(true);
       expect(mediaBack).toHaveBeenCalledOnce();
     });
 
@@ -391,9 +392,9 @@ describe('history Back to the topmost window', () => {
       onWindowBack(header, layerBack);
       onWindowBack(demo, demoBack);
 
-      expect(offerEscapeToWindow(demo)).toBe(true);
+      expect(pressEscape(document.body).defaultPrevented).toBe(true);
       expect(demoBack).not.toHaveBeenCalled();
-      expect(offerEscapeToWindow(demo)).toBe(true);
+      expect(pressEscape(document.body).defaultPrevented).toBe(true);
       expect(demoBack).toHaveBeenCalledOnce();
     });
 
@@ -474,13 +475,15 @@ describe('history Back to the topmost window', () => {
       const setupBack = vi.fn(() => true);
       onWindowBack(setup, setupBack);
       syncOverlayState('setup-overlay');
-      expect(offerEscapeToWindow(setup)).toBe(false);
+      expect(pressEscape(document.body).defaultPrevented).toBe(false);
       expect(setupBack).not.toHaveBeenCalled();
 
       const demo = overlay('demo-overlay', 'active');
       syncOverlayState('demo-overlay');
-      onWindowBack(demo, () => false);
-      expect(offerEscapeToWindow(demo)).toBe(false);
+      const demoBack = vi.fn(() => false);
+      onWindowBack(demo, demoBack);
+      expect(pressEscape(document.body).defaultPrevented).toBe(false);
+      expect(demoBack).toHaveBeenCalledOnce();
     });
   });
 

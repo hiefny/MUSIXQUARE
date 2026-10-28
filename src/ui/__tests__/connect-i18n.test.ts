@@ -2929,6 +2929,63 @@ describe('member-level connection and administrator UI', () => {
     expect(oldSettings?.isConnected).toBe(true);
   });
 
+  it('keeps an unsaved permission draft through an outside click until Cancel', () => {
+    setState('network.appRole', 'guest');
+    setState('network.myId', 'owner-device');
+    setState('room.context', {
+      kind: 'pro',
+      roomId: '000001',
+      role: 'member',
+      coordinatorId: null,
+      epoch: 1,
+      snapshotRevision: 1,
+      capabilities: ['room.configure'],
+    });
+    initConnect();
+    bus.emit('pro-room:administrators-updated', [
+      {
+        memberId: 'owner-member',
+        memberDisplayNumber: 0,
+        isAuthenticated: true,
+        displayName: 'Owner',
+        role: 'owner',
+        permissions: { ...FULL_ADMIN_PERMISSIONS_FOR_TEST },
+        inheritedPermissions: ['media.add', 'playback.control', 'members.kick', 'chat.notice'],
+        onlineDeviceCount: 1,
+      },
+      {
+        memberId: 'admin-member',
+        memberDisplayNumber: 1,
+        isAuthenticated: true,
+        displayName: 'Admin',
+        role: 'controller',
+        permissions: { ...FULL_ADMIN_PERMISSIONS_FOR_TEST },
+        inheritedPermissions: [],
+        onlineDeviceCount: 1,
+      },
+    ] satisfies ProRoomAdministrator[]);
+    document
+      .querySelector<HTMLButtonElement>(
+        '#connect-administrator-list .administrator-action-button.settings',
+      )
+      ?.click();
+    const overlay = document.getElementById('administrator-permissions-overlay')!;
+    const mediaPermission = document.querySelector<HTMLButtonElement>(
+      '[data-administrator-permission="media.add"]',
+    )!;
+    mediaPermission.click();
+    expect(mediaPermission.getAttribute('aria-checked')).toBe('false');
+
+    // Owner policy (2026-10-28): a modal never closes on an outside click or
+    // tap, including a press that starts on a row and ends off the panel.
+    overlay.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true }));
+
+    expect(overlay.classList.contains('show')).toBe(true);
+    expect(mediaPermission.getAttribute('aria-checked')).toBe('false');
+    document.getElementById('btn-administrator-permissions-cancel')!.click();
+    expect(overlay.classList.contains('show')).toBe(false);
+  });
+
   it('closes a permission draft when its room incarnation or management authority is lost', () => {
     setState('network.appRole', 'guest');
     setState('network.myId', 'owner-device');

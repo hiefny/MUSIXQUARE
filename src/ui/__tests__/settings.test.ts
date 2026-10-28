@@ -1068,6 +1068,32 @@ describe('initSettings language controls', () => {
     expect(overlay.classList.contains('show')).toBe(false);
     expect(document.activeElement).toBe(trigger);
   });
+
+  // A press on the backdrop moves focus off the dialog to the page body,
+  // where a listener on the overlay never hears the key. Back still closes
+  // the dialog from there, and Escape behaves exactly like Back (owner
+  // decision 2026-10-28).
+  it('closes on Escape after a backdrop click, as Back does', () => {
+    installLanguageSettingsDom();
+    initSettings();
+
+    const trigger = document.getElementById('btn-language-select') as HTMLButtonElement;
+    const overlay = document.getElementById('language-dialog-overlay')!;
+    trigger.focus();
+    trigger.click();
+    overlay.dispatchEvent(new MouseEvent('mousedown', { bubbles: true, cancelable: true }));
+    if (document.activeElement instanceof HTMLElement) document.activeElement.blur();
+    overlay.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true }));
+    expect(overlay.classList.contains('show')).toBe(true);
+    expect(document.activeElement).toBe(document.body);
+
+    const escape = new KeyboardEvent('keydown', { key: 'Escape', bubbles: true, cancelable: true });
+    document.body.dispatchEvent(escape);
+
+    expect(escape.defaultPrevented).toBe(true);
+    expect(overlay.classList.contains('show')).toBe(false);
+    expect(document.activeElement).toBe(trigger);
+  });
 });
 
 describe('settings subtab scrollbar affordance', () => {

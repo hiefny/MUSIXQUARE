@@ -113,6 +113,13 @@ function renderAccountDialog(): void {
   `;
 }
 
+/** A press on a backdrop: the browser moves focus off the dialog to the page body. */
+function pressBackdrop(overlay: HTMLElement): void {
+  overlay.dispatchEvent(new MouseEvent('mousedown', { bubbles: true, cancelable: true }));
+  if (document.activeElement instanceof HTMLElement) document.activeElement.blur();
+  overlay.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true }));
+}
+
 /**
  * Whether this document's unload is exempt from the leave confirmation: a
  * beforeunload in a room is not cancelled (page-lifecycle's own handler).
@@ -1611,6 +1618,32 @@ describe('optional account UI', () => {
       expect(overlay.getAttribute('aria-hidden')).toBe('false');
     },
   );
+
+  // A press on the backdrop moves focus off the dialog to the page body,
+  // where a listener on the overlay never hears the key. Back still closes
+  // the dialog from there, and Escape behaves exactly like Back (owner
+  // decision 2026-10-28).
+  it('closes the unavailable view on Escape after a backdrop click, as Back does', async () => {
+    vi.mocked(fetch).mockRejectedValue(new TypeError('offline'));
+    initAccount();
+    await vi.waitFor(() => expect(getAccountSnapshot().status).toBe('unavailable'));
+    const opener = document.getElementById('opener') as HTMLButtonElement;
+    opener.focus();
+    openAccountDialog();
+    await Promise.resolve();
+    const overlay = document.getElementById('account-dialog-overlay')!;
+
+    pressBackdrop(overlay);
+    expect(overlay.classList.contains('show')).toBe(true);
+    expect(document.activeElement).toBe(document.body);
+    const escape = new KeyboardEvent('keydown', { key: 'Escape', bubbles: true, cancelable: true });
+    document.body.dispatchEvent(escape);
+
+    expect(escape.defaultPrevented).toBe(true);
+    expect(overlay.classList.contains('show')).toBe(false);
+    expect(overlay.getAttribute('aria-hidden')).toBe('true');
+    expect(document.activeElement).toBe(opener);
+  });
 
   it('offers an explicit retry and restores sign-in without closing the dialog', async () => {
     vi.mocked(fetch)

@@ -3000,6 +3000,74 @@ describe('member-level connection and administrator UI', () => {
     expect(overlay.classList.contains('show')).toBe(false);
   });
 
+  // A press on the backdrop moves focus off the editor to the page body,
+  // where a listener on the overlay never hears the key. Back still closes
+  // the editor from there, and Escape behaves exactly like Back (owner
+  // decision 2026-10-28): it closes without saving, as Cancel does.
+  it('closes the permission editor on Escape after a backdrop click, as Back does', () => {
+    setState('network.appRole', 'guest');
+    setState('network.myId', 'owner-device');
+    setState('room.context', {
+      kind: 'pro',
+      roomId: '000001',
+      role: 'member',
+      coordinatorId: null,
+      epoch: 1,
+      snapshotRevision: 1,
+      capabilities: ['room.configure'],
+    });
+    initConnect();
+    bus.emit('pro-room:administrators-updated', [
+      {
+        memberId: 'owner-member',
+        memberDisplayNumber: 0,
+        isAuthenticated: true,
+        displayName: 'Owner',
+        role: 'owner',
+        permissions: { ...FULL_ADMIN_PERMISSIONS_FOR_TEST },
+        inheritedPermissions: ['media.add', 'playback.control', 'members.kick', 'chat.notice'],
+        onlineDeviceCount: 1,
+      },
+      {
+        memberId: 'admin-member',
+        memberDisplayNumber: 1,
+        isAuthenticated: true,
+        displayName: 'Admin',
+        role: 'controller',
+        permissions: { ...FULL_ADMIN_PERMISSIONS_FOR_TEST },
+        inheritedPermissions: [],
+        onlineDeviceCount: 1,
+      },
+    ] satisfies ProRoomAdministrator[]);
+    const openEditor = () =>
+      document
+        .querySelector<HTMLButtonElement>(
+          '#connect-administrator-list .administrator-action-button.settings',
+        )
+        ?.click();
+    openEditor();
+    const overlay = document.getElementById('administrator-permissions-overlay')!;
+    const mediaPermission = () =>
+      document.querySelector<HTMLButtonElement>('[data-administrator-permission="media.add"]')!;
+    mediaPermission().focus();
+    mediaPermission().click();
+    expect(mediaPermission().getAttribute('aria-checked')).toBe('false');
+
+    overlay.dispatchEvent(new MouseEvent('mousedown', { bubbles: true, cancelable: true }));
+    if (document.activeElement instanceof HTMLElement) document.activeElement.blur();
+    overlay.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true }));
+    expect(overlay.classList.contains('show')).toBe(true);
+    expect(document.activeElement).toBe(document.body);
+    const escape = new KeyboardEvent('keydown', { key: 'Escape', bubbles: true, cancelable: true });
+    document.body.dispatchEvent(escape);
+
+    expect(escape.defaultPrevented).toBe(true);
+    expect(overlay.classList.contains('show')).toBe(false);
+    expect(mockedUpdateActiveProRoomAdministrator).not.toHaveBeenCalled();
+    openEditor();
+    expect(mediaPermission().getAttribute('aria-checked')).toBe('true');
+  });
+
   it('closes a permission draft when its room incarnation or management authority is lost', () => {
     setState('network.appRole', 'guest');
     setState('network.myId', 'owner-device');

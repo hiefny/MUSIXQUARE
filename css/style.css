@@ -7108,6 +7108,13 @@ or pointers. Keep :focus-visible and :active outside the gate (src/ui/__tests__/
     line-height: 1.2;
   }
 
+  /* Korean breaks between any two syllables; keep a wrapping title's words
+     whole, like the paragraph below it. Japanese and Chinese have no spaces,
+     so they keep the normal breaks (title-tracking-contract.test.ts). */
+  html:lang(ko) .setup-header-text h2 {
+    word-break: keep-all;
+  }
+
   .setup-header-text p {
     font-size: 16px;
     color: var(--text-sub);

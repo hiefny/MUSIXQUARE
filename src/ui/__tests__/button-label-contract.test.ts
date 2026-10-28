@@ -2990,6 +2990,8 @@ describe('action button label contract', () => {
         'var(--danger-foreground)',
       ]);
     }
+    // The revoke icon and both device kick icons turn red for keyboard focus
+    // as well as for a hover pointer.
     for (const icon of [
       ':where(html[data-hover-pointer]) .clearable-editor-button:hover',
       ':where(html[data-hover-pointer]) .btn-playlist-remove:not(:disabled):hover',
@@ -2998,6 +3000,7 @@ describe('action button label contract', () => {
       ':where(html[data-hover-pointer]) .device-subrow:hover .btn-kick-physical-device:hover',
       '.btn-kick-physical-device:focus-visible',
       ':where(html[data-hover-pointer]) .device-row:hover .btn-kick-device:hover',
+      '.btn-kick-device:focus-visible',
     ]) {
       expect(ruleValues(appCss, icon, 'color'), icon).toEqual(['var(--danger-foreground)']);
     }

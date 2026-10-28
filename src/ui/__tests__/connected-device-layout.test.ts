@@ -30,7 +30,12 @@ describe('connected-device list layout', () => {
     expect(stylesheet).not.toMatch(/\.device-(?:row|subrow):hover \.btn-kick-[\w-]+\s*\{/);
     expect(stylesheet).not.toMatch(/@media \(pointer: coarse\)/);
     expect(stylesheet).toMatch(
-      /:where\(html\[data-hover-pointer\]\) \.device-subrow:hover \.btn-kick-physical-device:hover,\s*\.btn-kick-physical-device:focus-visible\s*\{[^}]*color:\s*var\(--danger-foreground\);/s,
+      /:where\(html\[data-hover-pointer\]\) \.device-subrow:hover \.btn-kick-physical-device:hover\s*\{[^}]*color:\s*var\(--danger-foreground\);/s,
+    );
+    // Keyboard focus colors it and the member kick icon in one rule of their
+    // own, apart from the gated hover rules.
+    expect(stylesheet).toMatch(
+      /(?:\}|\*\/)\s*\.btn-kick-device:focus-visible,\s*\.btn-kick-physical-device:focus-visible\s*\{\s*color:\s*var\(--danger-foreground\);\s*\}/,
     );
   });
 });

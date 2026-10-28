@@ -542,9 +542,16 @@ describe('public design-system page contract', () => {
     expect(selectionActions.map((button) => button.textContent?.trim())).toEqual(['', '']);
     // The app names these actions without repeating the name as a tooltip.
     expect(selectionActions.filter((button) => button.hasAttribute('title'))).toEqual([]);
-    // The device row kick icons turn the destructive label red on hover.
+    // The device row kick icons turn the destructive label red on hover and,
+    // like the app, for keyboard focus, which keeps its ring.
     expect(designStylesheet).toMatch(
       /\.btn-kick-device:hover,\s*\.btn-kick-physical-device:hover\s*\{\s*color:\s*var\(--danger-foreground\);/u,
+    );
+    expect(designStylesheet).toMatch(
+      /\.btn-kick-device:focus-visible,\s*\.btn-kick-physical-device:focus-visible\s*\{\s*color:\s*var\(--danger-foreground\);/u,
+    );
+    expect(designStylesheet).toMatch(
+      /\.btn-kick-device:focus-visible,\s*\.btn-kick-physical-device:focus-visible\s*\{\s*outline:\s*2px solid var\(--primary\);/u,
     );
     expect(
       selectionActions.map((button) =>

@@ -211,3 +211,63 @@ describe('manual sync initial editor selection', () => {
     expect(document.activeElement).toBe(document.getElementById('btn-sync-done'));
   });
 });
+
+// Owner decision (2026-10-28): Escape behaves exactly like Back. Back and
+// Done close the panel by moving focus off the editor, which applies the
+// edited value on blur; Escape used to discard the draft instead.
+describe('manual sync editor on Escape', () => {
+  function closeWith(exit: 'Back' | 'Escape'): KeyboardEvent | null {
+    if (exit === 'Back') {
+      expect(offerBackToTopWindow().handled).toBe(true);
+      return null;
+    }
+    const escape = new KeyboardEvent('keydown', { key: 'Escape', bubbles: true, cancelable: true });
+    editor().dispatchEvent(escape);
+    return escape;
+  }
+
+  it.each(['Back', 'Escape'] as const)('applies the edited value and closes on %s', (exit) => {
+    openDemoSyncRuntime();
+    expect(document.activeElement).toBe(editor());
+    const commits = vi.fn();
+    const unsubscribe = bus.on('sync:set-manual-offset', commits);
+    try {
+      editor().textContent = '123';
+
+      const escape = closeWith(exit);
+
+      if (escape) expect(escape.defaultPrevented).toBe(true);
+      expect(commits).toHaveBeenCalledExactlyOnceWith(123);
+      expect(editor().textContent).toBe('+123');
+      expect(document.getElementById('manual-sync-overlay')?.getAttribute('aria-hidden')).toBe(
+        'true',
+      );
+      expect(document.activeElement).toBe(document.getElementById('btn-sync'));
+    } finally {
+      unsubscribe();
+    }
+  });
+
+  it.each(['Back', 'Escape'] as const)(
+    'restores the current value for a draft that is not a number on %s',
+    (exit) => {
+      setState('sync.localOffset', -0.456);
+      openDemoSyncRuntime();
+      const commits = vi.fn();
+      const unsubscribe = bus.on('sync:set-manual-offset', commits);
+      try {
+        editor().textContent = '-';
+
+        closeWith(exit);
+
+        expect(commits).not.toHaveBeenCalled();
+        expect(editor().textContent).toBe('-456');
+        expect(document.getElementById('manual-sync-overlay')?.getAttribute('aria-hidden')).toBe(
+          'true',
+        );
+      } finally {
+        unsubscribe();
+      }
+    },
+  );
+});

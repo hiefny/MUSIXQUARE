@@ -25,6 +25,10 @@ interface DialogOptions {
   buttonText?: DialogText;
   secondaryText?: DialogText;
   cancelText?: DialogText;
+  /**
+   * Escape closes the dialog as `escape`. An outside click or tap never
+   * closes a dialog (owner policy, 2026-10-28).
+   */
   dismissible?: boolean;
   /**
    * History Back closes the dialog as `back`, a cancel, by default. Set false
@@ -866,11 +870,6 @@ function _openDialog(opts: DialogOptions | string, resolve: (result: DialogResul
     },
     backListener.signal,
   );
-
-  on(overlay, 'click', (e) => {
-    if (!dismissible || !_dialogActive) return;
-    if (e.target === overlay) done('overlay');
-  });
 
   if (choice) {
     // The taller choice page moves the actions down, so the second press of a

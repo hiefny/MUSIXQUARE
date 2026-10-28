@@ -11,12 +11,12 @@ const SECOND_SCOPE = 'b'.repeat(43);
 const COPY = {
   ko: {
     title: 'PRO 방을 등록할 계정',
-    primary: '이 계정으로 등록',
+    primary: '등록',
     secondary: '다른 계정으로 로그인',
   },
   en: {
     title: 'Choose an account for this PRO room',
-    primary: 'Continue',
+    primary: 'Register',
     secondary: 'Another account',
   },
 } as const;

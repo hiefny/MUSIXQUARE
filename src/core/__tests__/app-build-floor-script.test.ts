@@ -920,6 +920,20 @@ describe('App build floor script', () => {
       expect(world.time).toBe(T0);
     });
 
+    it('stops at once on a stored floor below the required build even while the effective floor is 0', async () => {
+      const world = new FloorWorld({ stored: 793, liveBuild: 794 });
+      // The last App report is more than five minutes old: nothing is enforced.
+      // A new App report cannot raise the stored floor, so nothing waits for it.
+      world.reportedAt = T0 - 360_000;
+      expect(world.effective()).toBe(0);
+      await expect(runAppBuildFloorCommand(check(794), world.deps({}))).rejects.toThrow(
+        'The stored App build floor 793 is below build 794',
+      );
+      expect(statusReads(world)).toHaveLength(1);
+      expect(world.time).toBe(T0);
+      expect(world.logs.join('\n')).not.toContain('waiting for a new App report');
+    });
+
     it('stops at once when the effective floor is below the required build', async () => {
       // The live App reports build 793, so the entry gates enforce 793.
       const world = new FloorWorld({ stored: 794, liveBuild: 793 });

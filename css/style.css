@@ -115,11 +115,16 @@ or pointers. Keep :focus-visible and :active outside the gate (src/ui/__tests__/
          item and every other item (track and device rows, choice chips,
          section tabs, the bottom navigation, the language list).
        - Label: names on controls and markers (action button labels,
-         badges, small meta labels, form field labels), and toast text,
-         which keeps its 9.0.19 weight (owner decision 2026-10-29).
-       - Body: sentences and auxiliary text (descriptions, hints, chat
-         messages, the line under a name, timestamps, counters, input
-         text). */
+         badges, small meta labels, form field labels). Transient text
+         too (owner rule 2026-10-29): text that appears because something
+         happened and goes away on its own, or when that moment or mode
+         ends (toasts, loading and waiting lines, the full-screen session
+         message, progress and result lines, mode notes over a blurred
+         panel), and red error lines.
+       - Body: text that is there whenever you open the screen and stays
+         if left alone (descriptions, dialog body text, hints, empty-list
+         hints, chat messages, the line under a name, timestamps,
+         counters, input text). */
     --font-weight-title: 700;
     --font-weight-selected: 700;
     --font-weight-unselected: 500;

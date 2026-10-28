@@ -118,11 +118,18 @@ Pretendard lacks coverage.
   the desktop settings section tabs, the bottom navigation labels and the
   language, playlist slot and transfer lists. Label 600
   (`--font-weight-label`): names on controls and markers, such as action
-  button labels, badges, small meta labels and form field labels, the
-  header loading status, which takes the logo's place beside the account
-  pill while media loads, and toast text, which keeps its 9.0.19 weight
-  (owner decisions 2026-10-29). Body 400 (`--font-weight-body`): sentences
-  and auxiliary text, such as descriptions, dialog body text, hints, chat
+  button labels, badges, small meta labels and form field labels, and
+  transient text, which appears because something happened and goes away
+  on its own or when that moment or mode ends (owner rule 2026-10-29):
+  toasts, loading and waiting lines (the header loading status that takes
+  the logo's place beside the account pill, 'Syncing...' over a YouTube
+  video, 'Generating QR code...'), the full-screen session message,
+  progress and result lines such as 'Searching YouTube...' and 'No videos
+  found', red error lines, and mode notes over a blurred panel such as
+  'Sharing System Audio'. Body 400 (`--font-weight-body`): text that is
+  there whenever you open the screen and stays if left alone, such as
+  descriptions, dialog body text (in dialogs that close themselves too),
+  hints and resting prompts, empty-list hints such as 'No media yet', chat
   messages, the small line under a name, timestamps, counters, input text
   and placeholders.
   Each rule reads its role's token itself.

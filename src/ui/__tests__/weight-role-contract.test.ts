@@ -20,11 +20,17 @@ import { APP_DICTIONARIES } from '../../i18n/catalogs.ts';
 //   takes the selected weight and every other item the unselected weight
 //   (SELECTION_GROUPS).
 // - label 600: names on controls and markers: every action button label,
-//   badges, small meta labels such as 'invite code' and form field labels,
-//   and toast text, which kept its 9.0.19 weight (owner decision 2026-10-29).
-// - body 400: sentences and auxiliary text: descriptions, dialog body text,
-//   hints, chat messages, the small line under a name, timestamps,
-//   counters, input text and placeholders.
+//   badges, small meta labels such as 'invite code' and form field labels.
+//   Transient text too (owner rule 2026-10-29): text that appears because
+//   something happened and goes away on its own, or when that moment or
+//   mode ends, such as toasts, the header loading status and other loading
+//   and waiting lines, the full-screen session message, progress and result
+//   lines and the mode notes over a blurred panel; and red error lines.
+// - body 400: text that is there whenever you open the screen and stays if
+//   left alone: descriptions, dialog body text (in dialogs that close
+//   themselves too), hints, empty-list hints such as 'No media yet', chat
+//   messages, the small line under a name, timestamps, counters, input text
+//   and placeholders.
 // Every rule reads its role's token itself, the same way component rules read
 // the button label size tokens; size, color and spacing stay with the
 // component.

@@ -80,16 +80,18 @@ function offerToLeave(): void {
   if (leaveOffer || getHostPresence() !== 'unresponsive') return;
   const offer = new AbortController();
   leaveOffer = offer;
+  // Keep waiting is the exit, so it sits on the left and takes the initial
+  // focus; Back keeps waiting too. Only the primary Leave session leaves.
   showDialog({
     title: t('dialog.host_unresponsive_title'),
     message: t('dialog.host_unresponsive_message'),
-    buttonText: t('dialog.keep_waiting'),
-    secondaryText: t('dialog.leave_session'),
+    buttonText: t('dialog.leave_session'),
+    secondaryText: t('dialog.keep_waiting'),
     signal: offer.signal,
   })
     .then((result) => {
       if (leaveOffer === offer) leaveOffer = null;
-      if (result.action === 'secondary') scheduleDocumentReload(t('dialog.leaving_session'));
+      if (result.action === 'ok') scheduleDocumentReload(t('dialog.leaving_session'));
     })
     .catch((error: unknown) => {
       if (leaveOffer === offer) leaveOffer = null;

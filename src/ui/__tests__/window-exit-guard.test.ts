@@ -167,6 +167,24 @@ const WINDOW_EXITS: Readonly<Record<string, WindowExit>> = {
 };
 const CHAT_SHEET_SELECTOR = '#chat-drawer.open[aria-modal="true"]';
 
+// A modal never closes on an outside click or tap (owner policy 2026-10-28).
+// The outside closes that stay, by name, with the reason; the scan below
+// fails on any other and on an entry that matches nothing.
+interface OutsideCloseException {
+  readonly file: string;
+  readonly element: string;
+  readonly reason: string;
+}
+const OUTSIDE_CLOSE_EXCEPTIONS: Readonly<Record<string, OutsideCloseException>> = {
+  'phone chat sheet': {
+    file: 'src/ui/chat.ts',
+    element: 'chat-backdrop',
+    reason:
+      'A bottom sheet keeps its outside-tap close (owner decision 2026-10-28), beside ' +
+      'the visible Close at its top start.',
+  },
+};
+
 // ─── Source reading ──────────────────────────────────────────────
 
 const read = (path: string): string => readFileSync(resolve(path), 'utf8');
@@ -753,6 +771,107 @@ function sourceExitProblems(
   return problems;
 }
 
+// ─── Outside clicks ──────────────────────────────────────────────
+
+const POINTER_EVENTS = new Set([
+  'click',
+  'auxclick',
+  'dblclick',
+  'pointerdown',
+  'pointerup',
+  'mousedown',
+  'mouseup',
+  'touchstart',
+  'touchend',
+]);
+const EQUALITY = new Set([
+  ts.SyntaxKind.EqualsEqualsEqualsToken,
+  ts.SyntaxKind.ExclamationEqualsEqualsToken,
+  ts.SyntaxKind.EqualsEqualsToken,
+  ts.SyntaxKind.ExclamationEqualsToken,
+]);
+
+interface OutsideClose {
+  readonly file: string;
+  readonly line: number;
+  readonly element: string;
+  readonly how: string;
+}
+
+/** The body of a listener written inline or declared in the same file. */
+function listenerBody(node: ts.Expression): ts.Node | null {
+  const expression = unwrap(node);
+  if (ts.isArrowFunction(expression) || ts.isFunctionExpression(expression)) {
+    return expression.body;
+  }
+  if (!ts.isIdentifier(expression)) return null;
+  const declaration = declarationOf(expression);
+  if (declaration && ts.isFunctionDeclaration(declaration)) return declaration.body ?? null;
+  return declaration && ts.isVariableDeclaration(declaration) && declaration.initializer
+    ? listenerBody(declaration.initializer)
+    : null;
+}
+
+const isEventTarget = (node: ts.Expression): boolean => {
+  const expression = unwrap(node);
+  return ts.isPropertyAccessExpression(expression)
+    ? expression.name.text === 'target'
+    : ts.isIdentifier(expression) && expression.text === 'target';
+};
+
+/**
+ * Pointer listeners that close a window from outside it: one whose event
+ * target is the window element itself (its dimmed area), one on the window
+ * that asks whether the target is inside a part of it, and any on a backdrop.
+ */
+function outsideCloses(windows: ReadonlySet<string>): OutsideClose[] {
+  const found: OutsideClose[] = [];
+  const types = [...POINTER_EVENTS].map((type) => `'${type}'`);
+  for (const { path, text } of SOURCE_FILES) {
+    if (!types.some((type) => text.includes(type))) continue;
+    walk(parse(path), (node) => {
+      if (!ts.isCallExpression(node)) return;
+      const callee = unwrap(node.expression);
+      const listener =
+        ts.isPropertyAccessExpression(callee) && callee.name.text === 'addEventListener'
+          ? { receiver: callee.expression, type: node.arguments[0], handler: node.arguments[1] }
+          : // A helper such as the dialog's on(target, type, handler).
+            { receiver: node.arguments[0], type: node.arguments[1], handler: node.arguments[2] };
+      const type = listener.type ? stringValue(listener.type) : null;
+      if (!type || !POINTER_EVENTS.has(type) || !listener.receiver || !listener.handler) return;
+      const body = listenerBody(listener.handler);
+      if (!body) return;
+      const receiver = elementIdOf(listener.receiver);
+      const add = (element: string, how: string): void => {
+        found.push({ file: path, line: lineOf(node), element, how });
+      };
+      if (receiver?.endsWith('backdrop')) add(receiver, `${type} on a backdrop`);
+      walk(body, (child) => {
+        if (ts.isBinaryExpression(child) && EQUALITY.has(child.operatorToken.kind)) {
+          const other = isEventTarget(child.left)
+            ? child.right
+            : isEventTarget(child.right)
+              ? child.left
+              : null;
+          if (!other) return;
+          const value = unwrap(other);
+          const id =
+            ts.isPropertyAccessExpression(value) && value.name.text === 'currentTarget'
+              ? receiver
+              : elementIdOf(value);
+          if (id && windows.has(id)) add(id, `${type} whose target is the window itself`);
+          return;
+        }
+        if (!receiver || !windows.has(receiver) || !ts.isCallExpression(child)) return;
+        if (calleeName(child) === 'contains' && child.arguments.some(isEventTarget)) {
+          add(receiver, `${type} that asks whether its target is inside`);
+        }
+      });
+    });
+  }
+  return found;
+}
+
 describe('every leavable window shows a visible exit (owner policy 2026-10-28)', () => {
   it('gives every showDialog state an exit on the left, or names why it has none', () => {
     const { calls, findings } = scanDialogs();
@@ -804,5 +923,27 @@ describe('every leavable window shows a visible exit (owner policy 2026-10-28)',
       }
     }
     expect(problems).toEqual([]);
+  });
+});
+
+describe('no modal closes on an outside click (owner policy 2026-10-28)', () => {
+  it('keeps every window registered in dom.ts open on an outside click, except the phone chat sheet', () => {
+    const windows = new Set([...registeredOverlayIds(), 'chat-drawer']);
+    expect(windows).toContain('account-dialog-overlay');
+    const found = outsideCloses(windows);
+    const exceptionOf = (close: OutsideClose): string | undefined =>
+      Object.entries(OUTSIDE_CLOSE_EXCEPTIONS).find(
+        ([, exception]) => exception.file === close.file && exception.element === close.element,
+      )?.[0];
+
+    expect(
+      found
+        .filter((close) => !exceptionOf(close))
+        .map((close) => `${close.file}:${close.line} ${close.element}: ${close.how}`),
+    ).toEqual([]);
+    const stale = Object.keys(OUTSIDE_CLOSE_EXCEPTIONS).filter(
+      (name) => !found.some((close) => exceptionOf(close) === name),
+    );
+    expect(stale).toEqual([]);
   });
 });

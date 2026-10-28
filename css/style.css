@@ -9062,6 +9062,42 @@ or pointers. Keep :focus-visible and :active outside the gate (src/ui/__tests__/
     opacity: 0.85;
   }
 
+  /* Short landscape phones keep the manual sync body and its pair in view.
+     The pair's top margin never drops below its own row gap, so a wrapped
+     Reset never sits closer to the nudge row than to Done. No keyboard-open
+     guard: these rules only change spacing inside the fixed overlay, so they
+     cannot feed keyboard detection, and a guard would move the value field
+     while it is being edited. */
+  @media (max-height: 360px) {
+    .sync-glass-panel {
+      max-height: calc(100vh - 24px);
+      max-height: calc(100dvh - 24px);
+      padding-block: 12px;
+    }
+
+    .sync-manual-display {
+      margin-block: 4px 12px;
+    }
+
+    .sync-bottom-row.adaptive-action-group {
+      margin-top: 12px;
+    }
+  }
+
+  /* At 350px or less the pair takes the account dialog's short-screen pills
+     (44px, 6px apart; see .account-dialog-actions above). */
+  @media (max-height: 350px) {
+    .sync-bottom-row.adaptive-action-group {
+      gap: 6px;
+      margin-top: 8px;
+    }
+
+    .sync-bottom-row.adaptive-action-group > .sync-reset-btn,
+    .sync-bottom-row.adaptive-action-group > .sync-done-btn {
+      min-height: 44px;
+    }
+  }
+
   /* Light / Dark Mode Handling is automatic via var(--surface-1) */
 
   /* Demo Mode */

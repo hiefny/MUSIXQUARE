@@ -131,8 +131,10 @@ runbooks. Neither belongs in a general setup document.
   recommends no change to their line counts, which stay open as owner items 3, 13 and 19). PR #516
   (squash `226219c5`) was released on 2026-10-29 05:52 KST in Release 40766362722 with target `all`.
   A manual Full E2E on main `c37220df` (run 40708045873) also failed in tests this train does not
-  change; #518 (`edd6ee94`, tests only) found and fixed their cause, and the release record keeps
-  those five failures open until a Full E2E run on main at or after #518 passes.
+  change; #518 (`edd6ee94`, tests only) found and fixed their cause, and the Full E2E run
+  40773241908 on main `edd6ee94` (the 9.0.20 runtime) passed in Linux Chromium and Linux WebKit,
+  which closed that open item. The rare media source focus race the same investigation found stays
+  open as a planned runtime fix for the next App release.
 - [PRO receipt follow-up train A (2026-10-28)](design/pro-receipt-followup-a-2026-10-28.md):
   the owner's decision of 2026-10-28 on item 3 of the receipt retention follow-ups, shipped as a
   PRO room Worker-only train (target `pro-room`; the App stays 9.0.19 / v792, so no update

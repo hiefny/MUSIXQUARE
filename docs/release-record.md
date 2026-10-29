@@ -46,6 +46,67 @@ gh run list --workflow e2e.yml --branch main --limit 3
 해결하면 근거(커밋, 실행 ID, 문서)를 PR 설명에 적고 이 목록에서 지운다. 근거
 없이 완료로 표시하지 않는다.
 
+### 번역 페이지 입구 열차(9.0.24/v797) 배포 전: 언어 기본값, 방문 통계, 로그인 취소 안내
+
+- [ ] 범위와 상태(오너 승인 2026-10-29, 미병합·미배포): 운영 번역 제안 0건(아래 9.0.23 항목의 관리자·공개 목록 확인)에
+      대한 진단이 제출 경로는 돌고 입구에서 사람을 잃는다고 봤고(운영 `/translate`는 포르투갈어(브라질)와 첫 About 문구에
+      고정, 로그인 뒤에도 포르투갈어, 애널리틱스 로더 없음, `accountAuth` 취소·실패에 말이 없음), 오너가 세 가지를 승인했다.
+      1 언어 기본값: 지원 코드인 `?locale`, 아니면 App과 한 모듈(새 `src/i18n/language-match.ts`, App의 `_matchLanguage`
+      논리를 옮김)로 맞춘 브라우저 언어, 아니면 영어로 열고, 카탈로그에 있는 `?phrase`를 고르며, 방문자가 바꾼 언어와 문구를
+      `replaceState`로 주소에, 보이는 언어와 카탈로그 id로 두 로그인 링크의 `returnTo`에 지킨다(Worker 상한 1,024 바이트를
+      넘으면 문구를 뺌, 상한 사본은 시험이 고정). 2 방문 통계: FAQ와 같은 `/analytics-bootstrap.js` 로더를 페이지 스크립트
+      앞에 두었다(운영 `/translate`와 `/faq`의 CSP는 글자까지 같음, 로더와 Worker는 그대로). 3 로그인 결과:
+      `accountAuth=cancelled`면 'Sign-in was cancelled.', `error`면 'Couldn’t sign in. Try again.'(페이지 기존 글과 같은 둥근
+      따옴표, 오너 후속 결정으로 유지)을 기존 제출 상태 글에 보이고 `success`는 글 없이, 모두 `accountAuth`만 지우고 다른
+      매개변수와 조각은 둔다. 새 화면 글은 이 두 줄뿐이다. 두 리뷰(승인) 뒤 오너 후속 결정: App 언어 창의 번역 참여 링크는
+      App 언어가 페이지가 브라우저에서 고를 언어(공유 `resolvePreferredLanguage`)와 같으면 그냥 `/translate`, 다르면
+      `/translate?locale=<App 언어>`다(열리는 언어는 같고 대부분의 도착이 쿼리 없이 세어짐). 첫 카탈로그 불러오기가 실패한 뒤
+      Retry도 주소 문구를 고르고(`pendingPhrase`), 첫 불러오기가 주소 문구를 고르면 목록을 그 쪽(순서 ÷ 20)으로 연다. 브랜치
+      `agent/translate-entry`는 main `a8d8f9c4`(#529, Phase 5.5 R2 `0e5a9b87`(#528)의 기록) 위다(증분은 `5a5afb0e` 위에서
+      만들어 `d3a9b66a`(#527) 위로, 다시 `a8d8f9c4` 위로 옮김. 코드 커밋은 patch-id 같음, R2의 PRO 방 Worker 변경은 이 열차의
+      런타임 경로 밖). 테스트 먼저 넷(`dfdc88e6`, `f038e1d3`, `8e6ac3c0`, 후속 `692f7f2a`, 부모에서 18, 2, 4, 9줄 실패, 옮긴 뒤
+      새 부모에서도 같은 줄)과 구현 넷(`171a673a`, `cc7c4d14`, `37393816`, 후속 `5c516ec8`), README 숫자(`85b9ffa4`, 언어마다
+      App 803·About 74 문구) 뒤의 마지막 런타임 커밋이 bump `4d74f552`(옮기기 전 `5b029d22`, 9.0.24 / v797, 앱 빌드 797,
+      9.0.23의 `060dce82`와 같은 거울 여섯 파일, 앞선 `72f2015a`를 후속 뒤로 다시 만듦)이고 문서 커밋만 뒤따른다. main
+      `a8d8f9c4`와 견준 런타임 경로 변경은 App 14, 나머지 다섯 Worker 0이라 예상 target `app`이다(로컬 판정,
+      `changedAppRuntimeDependencies`는 빈 목록). 운영 배포 SHA와 견줘도 App 14(9.0.23 `5a5afb0e`), PRO 방 0(R2 `0e5a9b87`),
+      다른 넷 0(9.0.22 `71f5b96c`)이다. 앱 SemVer와 SW 캐시가 바뀌어 업데이트 창이 뜬다(최소 앱 빌드 795 위 탭에는 '나중에'가
+      있는 보통 창). Developer API D1과 `raise_app_build_floor`는 둘 다 false이고 바닥에 기대는 것을 더하지
+      않는다. D1 스키마, 비밀, 바인딩, Wrangler 설정, CORS, 계약 표지, 통신 모양, API 요청·응답, 저장 데이터 모양, 저장 키,
+      의존성은 바뀌지 않는다. 자원 소유권 레지스트리 그대로(49 records / 448 files, 새 공유 파일 +1; 페이지의 주소 쓰기는
+      `main.ts`의 함수 하나가 맡고 `.workshop`은 가드 범위 밖), dead-exports test-only 20·self-only 76 그대로. SW 앱 셸은
+      `locales` 청크가 App과 번역 페이지가 함께 쓰는 `api` 청크에 합쳐져 95 → 94다(eager JS 456.6 KiB gzip 그대로). 로컬
+      QA(보고서 라운드 1 ~ 8, 전체 검사는 버전 올리기 트리 `5b029d22`, 옮긴 뒤 `4d74f552`): 증분마다 테스트 먼저, npm audit 0,
+      단위 706 files / 16,777(옮긴 뒤 16,782, 더한 5는 R2의 시험), typecheck, lint, format, 가드, `check:workers`, 핵심 커버리지
+      90 / 3,515, 도구 커버리지 14 / 433, `build:checked`(`guard:release-identity` 9.0.24 / v797, `guard:sw-cache-version`
+      PASS v797 (5b029d22), 옮긴 뒤 PASS v797 (4d74f552)), 번역 E2E
+      6, critical E2E 100(Chromium, 재시도 없음), 운영 빌드 측정(ko, ja, de-AT, zh-TW, pt-PT, sw-KE가 ko, ja, de, zh-hant,
+      pt-br, en으로 열림, `?locale=fr` 우선, 틀린 `?locale` 무시, `?phrase` 고름, cancelled·error 줄과 `accountAuth`만 빠진
+      주소; 한국어 브라우저에서 App 언어 ko·시스템이면 링크 `/translate`로 ko, ja면 `/translate?locale=ja`로 ja, 첫 카탈로그
+      503 뒤 Try again이 `player.volume`을 고름, 주소 문구 `player.volume`은 5 / 44쪽, `hero.h1`은 41 / 44쪽). PR, PR CI, 자동
+      코드 리뷰, exact-main CI, 배포는 아직이고 로컬 결과는 exact-main-SHA 후보를 대신하지 않는다. 배포 뒤 기록 PR이 이 항목을
+      '배포 뒤 확인'으로 바꾸고 §1, §4, `release-history.md`를 고친다.
+      [변경·QA 보고서](design/translate-entry-2026-10-29.md),
+      [QA 라운드 6](design/translate-entry-2026-10-29.md#6-전체-검사-다시-5b029d22-2026-10-29-2343--10-30-0000-kst),
+      [QA 라운드 7](design/translate-entry-2026-10-29.md#7-운영-빌드-측정-다시-5b029d22의-buildchecked-산출물-vite-preview---mode-production-2026-10-30-0000-kst),
+      [QA 라운드 8](design/translate-entry-2026-10-29.md#8-main-a8d8f9c4r2와-그-기록-위로-다시-옮김-테스트-먼저와-전체-검사-다시-4d74f552-2026-10-30-0227--0244-kst).
+- [ ] 되돌리기 경계: 기본은 더 높은 SemVer와 캐시 epoch의 코드 되돌리기(9.0.25 / v798 이상)다. App만 9.0.23으로 되돌리면
+      번역 페이지가 포르투갈어 고정과 로더 없음으로 돌아가고 다른 것은 같다. 9.0.23의 빌드 796은 저장 최소 빌드 795 이상이라
+      `lower`가 필요 없고, 순서와 바닥은 §4 머리의 현재 경계 줄을 따른다. 새 계약 표지와 forward floor가 없어 실패한 실행의 자동
+      복구(App을 checkpoint로)를 막지 않는다.
+      [보고서의 되돌리기](design/translate-entry-2026-10-29.md#되돌리기).
+- [ ] 통계에 안 잡히는 도착(오너 후속 결정 2026-10-29, 게이트 아님): 로더의 쿼리 규칙(애널리틱스 개인정보 경계)은 그대로
+      두고, App 링크가 App 언어와 브라우저 맞추기가 같을 때 쿼리 없이 열려 세어진다. 여전히 세지 않는 것: App 언어가 브라우저와
+      다를 때의 App 링크(`/translate?locale=…`), 로그인 복귀, 방문자가 언어나 문구를 골라 주소에 쿼리가 생긴 뒤 `/translate`에서
+      연 같은 출처 페이지(referrer에 쿼리가 실려 그 페이지의 로더가 닫힘), 이미 `?locale`이나 `?phrase`가 든 주소로 다시 오는 것
+      (고른 뒤의 새로고침, 북마크, 방문 기록 복원, 공유한 `?locale`·`?phrase` 링크). 주소 문구 쪽 넘기기는 쪽만 맞추고 목록의 자체
+      스크롤(높이 320px)은 그대로라, 쪽 안 다섯째 줄부터는 목록을 내려야 보인다(라운드 7 측정).
+      [바꾸지 않은 것과 통계에 안 잡히는 도착](design/translate-entry-2026-10-29.md#바꾸지-않은-것과-통계에-안-잡히는-도착).
+- [ ] 확인하지 않은 것: 운영의 실제 제안 제출(로그인하지 않음), Google OAuth 동의 화면의 게시 상태(테스트 모드면 시험
+      사용자만 로그인), 배포 뒤 Web Analytics의 `/translate` 방문, 실제 Google 취소·실패 왕복(표지를 주소에 넣어 봄),
+      Safari·WebKit·Firefox, 휴대폰, 화면 낭독기, 운영 브라우저의 업데이트 창.
+      [확인하지 않은 것](design/translate-entry-2026-10-29.md#확인하지-않은-것).
+
 ### PRO 스냅샷 schemaVersion 2 보내기(Phase 5.5 R2, PRO 방 Worker만, App 9.0.23/v796 그대로) 배포 뒤 확인: 바닥 795 뒤 v2 보내기
 
 - [ ] 범위와 상태(오너 승인 2026-10-29 약 04:20 KST, 계획 질문 2026-10-28 모두 권장 기본, PR #528): PRO Worker가 모든

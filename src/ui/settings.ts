@@ -28,6 +28,7 @@ import {
   type I18nKey,
   type LanguageCode,
 } from '../i18n/index.ts';
+import { resolvePreferredLanguage } from '../i18n/language-match.ts';
 import { getStandardRolePreset } from './player-controls.ts';
 import { cancelRangeDrag, syncRangeProgress } from './range-drag.ts';
 import { showToast } from './toast.ts';
@@ -693,6 +694,17 @@ function refreshLanguageControls(): void {
     const active = option.dataset.lang === resolved;
     setPressedState(option, active);
   });
+
+  // Translators start on the language they see here. When the page would pick the same
+  // language from the browser, the link stays queryless so the analytics loader counts it.
+  document
+    .querySelector<HTMLAnchorElement>('#language-dialog-overlay .language-translate-link a')
+    ?.setAttribute(
+      'href',
+      resolved === resolvePreferredLanguage(navigator)
+        ? '/translate'
+        : `/translate?locale=${encodeURIComponent(resolved)}`,
+    );
 }
 
 function renderLanguageOptions(): void {

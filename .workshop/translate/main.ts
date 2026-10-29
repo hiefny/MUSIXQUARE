@@ -11,6 +11,13 @@ import { loadTranslationCatalog } from './catalog-client';
 import { createStorageSession } from './storage-session';
 import { initCommunity } from './community';
 import { createDraftRevisionId } from './draft-revision';
+import {
+  DEFAULT_PHRASE_ID,
+  readTranslateAddress,
+  takeSignInResult,
+  translateAddressSearch,
+  translateSignInReturn,
+} from './address';
 
 interface Language {
   code: string;
@@ -42,10 +49,23 @@ const initial = loadDrafts();
 const draftKey = (locale: string, id: string) => `${locale}:${id}`;
 const drafts = new Map(initial.drafts.map((draft) => [draftKey(draft.locale, draft.id), draft]));
 const pageSize = 20;
+const address = readTranslateAddress(window.location.search, window.navigator);
+const signIn = takeSignInResult(window.location.search);
+// Shown once in the submit status after the first phrase is selected.
+let signInMessage =
+  signIn.result === 'cancelled'
+    ? 'Sign-in was cancelled.'
+    : signIn.result === 'error'
+      ? 'Couldn’t sign in. Try again.'
+      : '';
 let catalog: Catalog | null = null;
-let selectedId = 'about:hero.h1';
+let selectedId = DEFAULT_PHRASE_ID;
+// Untrusted. Requested by every load, Retry included, until the first phrase is selected.
+let pendingPhrase = address.phrase;
 let page = 0;
-let requestedLocale = 'pt-br';
+let requestedLocale = address.locale;
+// The address follows the visitor's own language or phrase choice, not the first view.
+let addressChosen = false;
 let request: AbortController | undefined;
 let saveTimer: ReturnType<typeof setTimeout> | undefined;
 const community = initCommunity({
@@ -110,6 +130,28 @@ function persist(): boolean {
     ? 'Saved locally'
     : 'Not saved. Copy your changes.';
   return result.ok;
+}
+
+/** This page's only history writer. */
+function writeAddress(search: string): void {
+  if (search === window.location.search) return;
+  const { pathname, hash } = window.location;
+  window.history.replaceState(window.history.state, '', `${pathname}${search}${hash}`);
+}
+
+function updateSignInReturn(phrase: string | null): void {
+  community.setSignInReturn(
+    translateSignInReturn(
+      window.location.pathname,
+      catalog?.locale.code ?? requestedLocale,
+      phrase,
+    ),
+  );
+}
+
+function rememberSelection(): void {
+  if (!catalog || !selectedEntry()) return;
+  writeAddress(translateAddressSearch(window.location.search, catalog.locale.code, selectedId));
 }
 
 function selectedEntry(): Entry | undefined {
@@ -225,6 +267,8 @@ function renderResults(): void {
     button.append(key, text);
     button.addEventListener('click', () => {
       selectEntry(entry.id);
+      addressChosen = true;
+      rememberSelection();
       element('editor').scrollIntoView({ behavior: 'auto', block: 'start' });
       proposal.focus({ preventScroll: true });
     });
@@ -282,10 +326,12 @@ function renderReferences(entry: Entry): void {
 function selectEntry(id: string): void {
   if (saveTimer !== undefined) persist();
   selectedId = id;
+  pendingPhrase = null;
   const entry = selectedEntry();
   element('editor').hidden = !entry;
   community.clearSubmitStatus();
   if (catalog) community.setContext(catalog.locale.code, entry);
+  updateSignInReturn(entry ? entry.id : null);
   if (!entry || !catalog) return;
   const draft = currentDraft();
   renderReferences(entry);
@@ -334,7 +380,8 @@ function updateDraft(): void {
   saveTimer = setTimeout(persist, 300);
 }
 
-async function loadCatalog(locale: string, id = selectedId): Promise<void> {
+async function loadCatalog(locale: string, id = pendingPhrase ?? selectedId): Promise<void> {
+  const fromAddress = id === pendingPhrase;
   if (saveTimer !== undefined) persist();
   request?.abort();
   const active = new AbortController();
@@ -361,12 +408,20 @@ async function loadCatalog(locale: string, id = selectedId): Promise<void> {
     language.disabled = surface.disabled = search.disabled = false;
     page = 0;
     const available = filteredEntries();
-    selectEntry(
-      available.find((entry) => entry.id === id)?.id ??
-        available[0]?.id ??
-        next.entries[0]?.id ??
-        '',
-    );
+    // A requested phrase is untrusted: it only ever selects an id this catalog holds.
+    const preferred = [id, DEFAULT_PHRASE_ID]
+      .map((candidate) => available.find((entry) => entry.id === candidate))
+      .find((entry) => !!entry);
+    // An address phrase opens on the page of the list that shows it.
+    if (fromAddress && preferred?.id === id) {
+      page = Math.floor(available.indexOf(preferred) / pageSize);
+    }
+    selectEntry(preferred?.id ?? available[0]?.id ?? next.entries[0]?.id ?? '');
+    if (addressChosen) rememberSelection();
+    if (signInMessage) {
+      element('submit-status').textContent = signInMessage;
+      signInMessage = '';
+    }
   } catch (error) {
     if (active.signal.aborted) return;
     element('load-error').textContent = 'Couldn’t load translations.';
@@ -379,6 +434,7 @@ async function loadCatalog(locale: string, id = selectedId): Promise<void> {
 }
 
 language.addEventListener('change', () => {
+  addressChosen = true;
   loadCatalog(language.value).catch(reportActionFailure);
 });
 surface.addEventListener('change', () => {
@@ -442,5 +498,8 @@ reviewButton.addEventListener('click', () => {
   proposal.focus();
 });
 setStorageWarning(initial.warning);
+// The sign-in marker is read once; locale, phrase and the fragment stay.
+writeAddress(signIn.search);
+updateSignInReturn(null);
 
 loadCatalog(requestedLocale).catch(reportActionFailure);

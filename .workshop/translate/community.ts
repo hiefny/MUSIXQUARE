@@ -1,11 +1,11 @@
 import {
   CommunityApiError,
-  TRANSLATION_SIGN_IN_URL,
   communityErrorMessage,
   getAccountSession,
   listSuggestions,
   recommendSuggestion,
   submitSuggestion,
+  translationSignInUrl,
   withdrawSuggestion,
   type AccountSessionResponse,
   type Suggestion,
@@ -49,7 +49,10 @@ export function initCommunity(options: CommunityOptions, root: Document = docume
   let disposed = false;
   const busy = new Set<string>();
 
-  signIn.href = voteSignIn.href = TRANSLATION_SIGN_IN_URL;
+  function setSignInReturn(returnTo: string): void {
+    signIn.href = voteSignIn.href = translationSignInUrl(returnTo);
+  }
+  setSignInReturn('/translate');
 
   function reportFailure(error: unknown): void {
     if (!disposed) boardStatus.textContent = communityErrorMessage(error);
@@ -358,6 +361,7 @@ export function initCommunity(options: CommunityOptions, root: Document = docume
 
   return {
     updateSubmit,
+    setSignInReturn,
     clearSubmitStatus() {
       submitStatus.textContent = '';
     },

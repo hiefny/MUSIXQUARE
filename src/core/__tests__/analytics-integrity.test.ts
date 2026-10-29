@@ -16,6 +16,7 @@ const STATIC_ANALYTICS_PAGES = [
   '.workshop/privacy/privacy.html',
   '.workshop/sitemap/sitemap.html',
   '.workshop/terms/terms.html',
+  '.workshop/translate/translate.html',
   'public/blog/index.html',
   'public/designsystem/index.html',
   'public/history/index.html',
@@ -113,6 +114,16 @@ describe('Cloudflare Web Analytics loading boundary', () => {
     expect(accountComplete).not.toContain('/analytics-bootstrap.js');
   });
 
+  it('decides on the translation page arrival address before the page rewrites it', () => {
+    const source = readFileSync(resolve('.workshop/translate/translate.html'), 'utf8');
+    const loader = source.indexOf('<script defer src="/analytics-bootstrap.js"></script>');
+    const page = source.indexOf('<script type="module" src="/.workshop/translate/main.ts">');
+    // Deferred and module scripts run in document order: the loader sees the
+    // arrival URL, so a sign-in return (?accountAuth=...) is not counted again.
+    expect(loader).toBeGreaterThan(-1);
+    expect(page).toBeGreaterThan(loader);
+  });
+
   it('allows only the guarded first-party loader to inject the approved script', async () => {
     const runtimeSourceFiles = analyticsFiles
       .filter((path) => ['.js', '.ts'].includes(extname(path)))
@@ -139,6 +150,7 @@ describe('Cloudflare Web Analytics loading boundary', () => {
   it.each([
     ['musixquare.com', '/privacy'],
     ['listen.musixquare.com', '/blog'],
+    ['musixquare.com', '/translate'],
   ])('loads on production queryless non-room URL %s%s', async (hostname, pathname) => {
     const scripts = await runStandaloneAnalyticsLoader({ hostname, pathname, search: '' });
 
@@ -161,6 +173,8 @@ describe('Cloudflare Web Analytics loading boundary', () => {
     ['musixquare.com', '/privacy', '?lang=ko', ''],
     ['musixquare.com', '/privacy', '?claim_token=secret', ''],
     ['musixquare.com', '/privacy', '', '#claim_token=secret'],
+    ['musixquare.com', '/translate', '?locale=ko', ''],
+    ['musixquare.com', '/translate', '?accountAuth=cancelled', ''],
     ['localhost', '/privacy', '', ''],
     ['preview.example.com', '/privacy', '', ''],
   ])(
@@ -174,6 +188,8 @@ describe('Cloudflare Web Analytics loading boundary', () => {
     'https://musixquare.com/000001',
     'https://musixquare.com/000001/',
     'https://musixquare.com/about?claim_token=secret',
+    // A page opened from /translate after the visitor's choice wrote ?locale.
+    'https://musixquare.com/translate?locale=ko&phrase=app%3Aplay',
   ])(
     'fails closed when the document referrer can expose room or query state: %s',
     async (referrer) => {

@@ -22,12 +22,46 @@ The normal checked build produces `dist/translate.html`, its script and styles,
 serves the public route and normalizes slash/HTML aliases. Publish through the
 ordinary exact-commit App release workflow in `docs/hotfix-procedure.md`.
 
+## Language and address
+
+The page opens on `?locale=<code>` when it names a supported language. Otherwise
+it opens on the browser language, matched exactly as the App matches it
+(`src/i18n/language-match.ts`, shared by both), and on English when none is
+supported. `?phrase=<surface>:<key>` selects that phrase when the catalog holds
+it, also after Retry when the first catalog load failed, and the list opens on the
+page that shows it; otherwise the first phrase (`about:hero.h1`) is selected.
+Query values are only compared with known language codes and catalog ids; they
+are never rendered.
+
+When the visitor changes the language or the phrase, `history.replaceState`
+keeps `locale` and `phrase` in the address (other parameters stay). Both sign-in
+links return to the shown language and phrase. The phrase is dropped if the
+return would pass the Worker's 1,024-byte `returnTo` bound. The App language
+dialog's Help translate link opens the page in the App language and follows
+language changes: it is the plain `/translate` when the page would pick the same
+language from the browser, and `/translate?locale=<App language>` otherwise.
+
+After Google sign-in the Worker returns with `accountAuth=success|cancelled|error`.
+The page removes the marker with `replaceState`, keeping `locale`, `phrase` and
+the fragment. A cancelled or failed sign-in shows "Sign-in was cancelled." or
+"Couldn’t sign in. Try again." in the submit status; success shows nothing new.
+
+## Visit statistics
+
+Like the other standalone pages, the page loads the guarded
+`/analytics-bootstrap.js` before its own script. The loader counts only
+production, queryless, fragment-free arrivals without a query in the referrer,
+so `/translate` (also the App language dialog link when the App language matches
+the browser) is counted. Not counted: the dialog link with `?locale` (the App
+language differs from the browser), a sign-in return, and a page opened from
+`/translate` after the address gained a query.
+
 ## Editing and storage
 
 - All 42 languages, including English and Korean, accept wording suggestions.
   English is shown as the source for every language. Korean references remain in
   stored proposals for maintainer review and baseline validation.
-- Actual App/About strings: currently 728 App and 74 About keys per locale.
+- Actual App/About strings: currently 803 App and 74 About keys per locale.
   The generator validates source key sets dynamically.
 - Search, page filtering (All by default), reference comparison, optional explanation,
   and character count.
@@ -95,9 +129,11 @@ reused; no separate translation login or database is required.
 
 - `translate.html` / `translate.css`: document layout and editor controls.
 - `main.ts`: selection, references, editing, and local draft persistence.
+- `address.ts`: opening language and phrase, address query, and sign-in return.
 - `drafts.ts` / `storage-session.ts`: validation and storage boundaries.
 - `catalog-client.ts`: static manifest and locale reads.
 - `community.ts` / `community-client.ts`: public contributions and account UI.
+- `src/i18n/language-match.ts`: language matching shared with the App.
 - `src/i18n/translation-community.ts`: shared DTOs and wording checks.
 - `cloudflare/translation-community.ts`: public and protected review APIs.
 - `scripts/apply-translation-suggestions.mts`: reviewed source-file application.
@@ -106,7 +142,8 @@ reused; no separate translation login or database is required.
 - `dev/`: isolated preview and legacy read-only preview endpoint.
 
 Existing workshop/tooling TypeScript and ESLint projects include these files.
-Vitest covers drafts, storage conflicts, catalog packaging, navigation,
+Vitest covers drafts, storage conflicts, catalog packaging, navigation, the
+opening language and phrase, the address and sign-in return, sign-in results,
 Worker routes, account/CSRF checks, recommendation and approval concurrency,
 deletion cascades, literal application, and service-worker behavior. Local
 community verification evidence is under `scratch/translation-community-2026-09-08/`.

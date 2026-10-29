@@ -5,7 +5,10 @@ import type { Draft } from './drafts';
 
 export { getAccountSession, type AccountSessionResponse, type Suggestion };
 
-export const TRANSLATION_SIGN_IN_URL = '/api/auth/google/start?returnTo=%2Ftranslate';
+/** Google sign-in that comes back to `returnTo` on this origin. */
+export function translationSignInUrl(returnTo: string): string {
+  return `/api/auth/google/start?returnTo=${encodeURIComponent(returnTo)}`;
+}
 const ENDPOINT = '/api/translations/suggestions';
 
 export interface SuggestionQuery {

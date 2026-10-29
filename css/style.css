@@ -9891,7 +9891,13 @@ or pointers. Keep :focus-visible and :active outside the gate (src/ui/__tests__/
     fill: currentColor;
   }
 
-  @container demo-role-options (max-width: 340px) {
+  /* The icon gives way whenever a label beside it would have less than 4px
+     to spare (owner decision 2026-10-29). The widest label, Greek Αριστερό,
+     takes 60px at the phones' 13px and 57.7px at the two-column 12.5px; a
+     container over 448px leaves it 65px and 62px beside the 19px icon, its
+     gap and the 8px padding, and 440px would not (demo-role-icon.test.ts,
+     chip-label-width.test.ts). */
+  @container demo-role-options (max-width: 448px) {
     .demo-role-segmented button {
       gap: 0;
       padding-inline: 4px;

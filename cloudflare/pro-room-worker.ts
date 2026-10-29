@@ -2498,9 +2498,10 @@ function publicSnapshot(room: ProRoomState, session: RoomSession | null = null) 
     playlistRevision: room.playlistRevision,
     effectsRevision: room.effects.revision,
     queueModeRevision: room.queueMode.revision,
-    // Developer ownership is private server state. Keeping the public v1
-    // playlist exact lets cached clients round-trip snapshots without learning
-    // or being able to forge API-key attribution.
+    // Developer ownership is private server state. Keeping the public playlist
+    // rows exact (the same keys in snapshot schemaVersion 1 and 2) lets cached
+    // clients round-trip snapshots without learning or being able to forge
+    // API-key attribution.
     playlist: room.playlist.map(publicPlaylistItem),
     currentQueueItemId: room.currentQueueItemId,
     playback: structuredClone(room.playback),
@@ -4912,7 +4913,8 @@ export class MusixquareProRoom {
       return;
     }
     // Effects predate this dedicated resource. An old room starts from the
-    // same neutral DSP state as a fresh client, without changing snapshot v1.
+    // same neutral DSP state as a fresh client; the snapshot carries only
+    // effectsRevision, never the effects themselves.
     this.activeRoom.effects = initialEffectsState();
     this.effectsMigrationPending = true;
   }
@@ -16212,10 +16214,11 @@ export class MusixquareProRoom {
   async handleLeavePresence(request: Request) {
     const auth = await this.requireSession(request, { activePresence: true });
     if (auth.response) return auth.response;
-    // The v1 client contract requires an awake snapshot's viewer to remain in
-    // its presence list. When other peers remain, return the last internally
-    // consistent departing snapshot while persisting the newer server state;
-    // the caller is leaving and must not apply a phantom post-leave viewer.
+    // The App's snapshot parser (schemaVersion 1 and 2 alike) requires an
+    // awake snapshot's viewer to remain in its presence list. When other peers
+    // remain, return the last internally consistent departing snapshot while
+    // persisting the newer server state; the caller is leaving and must not
+    // apply a phantom post-leave viewer.
     const departingSnapshot = publicSnapshot(this.activeRoom, auth.session);
     const hadOtherParticipants = Object.keys(this.activeRoom.presence.participants).length > 1;
     this.removePresence(auth.session.participantId, Date.now());

@@ -2,7 +2,7 @@
 
 - **Status:** Accepted and implemented as the current production contract
 - **Decision date:** 2026-07-20
-- **Last repository contract review:** 2026-10-12
+- **Last repository contract review:** 2026-10-29 (PRO snapshot schemaVersion 2)
 - **Applies to:** persistent PRO rooms in the reserved `0xxxxx` namespace
 - **Does not apply to:** ordinary temporary rooms
 - **Compatibility:** the PRO cutover does not support the former
@@ -213,7 +213,10 @@ without mutating the room.
 ### 4. Canonical timeline and fences
 
 The Durable Object stores a non-ticking anchor rather than writing once per
-second. The first schema retains several transitional wire names:
+second. The first schema named its fields as below, and PRO snapshot
+schemaVersion 2 keeps those names, the transitional `presence.coordinatorEpoch`
+included (§13). The pending transition is stored state and never part of a
+snapshot:
 
 ```text
 presence.coordinatorEpoch       room/control incarnation fence
@@ -225,7 +228,7 @@ playback.queueItemId            queue occurrence or null
 playback.youtubeVideoId/index   immutable YouTube identity when applicable
 playback.positionSeconds        position at the anchor
 playback.updatedAtMs            anchor server time
-pendingPlaybackTransition       null | persisted PREPARE/cohort/READY descriptor
+pendingPlaybackTransition       null | persisted PREPARE/cohort/READY descriptor and start kind
 ```
 
 For a playing state, canonical position at server time `t` is:
@@ -302,8 +305,8 @@ playing seek, next/previous, automatic advance, and wake—use one server-owned
 transition:
 
 1. The server aborts any older transition, resolves the target from the
-   canonical queue, increments `playbackRevision`, persists a PREPARE descriptor,
-   and broadcasts `playback.prepare`.
+   canonical queue, increments `playbackRevision`, persists a PREPARE descriptor
+   with its start kind, and broadcasts `playback.prepare` naming that kind.
 2. The candidate set is the bounded authoritative active-presence set at
    PREPARE, represented by server-issued presence-incarnation IDs. It is not
    derived by asking the PRO object to enumerate signaling sockets. A presence
@@ -317,11 +320,12 @@ transition:
 4. When every candidate is ready, every candidate has returned a terminal
    `ready | failed` report, or the bounded decision deadline arrives, the
    server fixes the canonical target and chooses a future `executeAtMs` using
-   the configured COMMIT lead. A reported failure cannot later become ready,
+   the fixed 700 ms COMMIT lead. A reported failure cannot later become ready,
    so waiting until the deadline after every candidate has already reported
    adds latency without changing the accepted cohort.
 5. The server persists the playing anchor and broadcasts one
-   `playback.commit`. Only that frame may make a prepared client audible.
+   `playback.commit` that names the same start kind. Only that frame may make
+   a prepared client audible.
 6. A candidate that did not become ready is excluded; the room starts without
    it, and it later follows the catch-up path.
 
@@ -334,13 +338,41 @@ server publishes `playback.cancel` for the old `transitionId`; late READY,
 COMMIT, timer, report, and media callbacks for it are harmless because their
 fences no longer match.
 
-The readiness deadline is bounded by policy (initially the existing three
-second user-facing budget), and every COMMIT receives a fixed 700 ms future
-lead from the server decision time. Normal all-ready transitions commit
-immediately. The PRO room Durable Object persists that deadline and installs a
-one-shot alarm; there is no client deadline-nudge endpoint and no recurring
-server timer. If persistence completes after the nominal deadline, alarm
-scheduling uses a next-tick deadline so PREPARE cannot remain stranded.
+The readiness deadline is three seconds after PREPARE (the existing
+user-facing budget), and a transition COMMIT executes 700 ms after the server
+decision. Both values live in the PRO playback timing home
+`cloudflare/pro-room-playback-timing.ts` (`PRO_ROOM_PLAYBACK_TRANSITION_DEADLINE_MS`
+and `PRO_ROOM_PLAYBACK_COMMIT_LEAD_MS`, resource ownership RO-03). A direct
+COMMIT, which has no transition (for example pause, stop, a paused seek, or a
+start while no realtime presence remains), uses the same lead; a queue edit or
+playlist switch that clears playback commits its idle anchor at once. Normal
+all-ready transitions commit immediately. The PRO room Durable Object persists
+that deadline and installs a one-shot alarm; there is no client deadline-nudge
+endpoint and no recurring server timer. If persistence completes after the
+nominal deadline, alarm scheduling uses a next-tick deadline so PREPARE cannot
+remain stranded.
+
+Every PREPARE and every transition COMMIT names the transition's start kind in
+the optional top-level field `timingMode`, typed by the start-kind union
+`ProRoomPlaybackTimingMode` of the same timing home. The server classifies once,
+when it opens the transition: `zero-start` for a start from silence (play from
+idle, select, next, previous, and the automatic advance after ENDED or an
+unavailable item) and `scheduled-control` for resume from pause, a playing
+seek, and the wake transition. The stored transition keeps its kind, so a
+coalesced ENDED report, the PREPARE in a command answer or a signaling ticket,
+and the COMMIT always agree. A direct COMMIT names no kind and reads as
+`scheduled-control`, as does an unknown value. The App grants learned startup
+lead only to a zero-start COMMIT that matches a PREPARE it prepared; catch-up
+and participant-local paths stay `scheduled-control`, so the field describes
+the server's transition, not the path a client took. The PRO Worker names the
+kind since PRO snapshot schemaVersion 2. Earlier PRO Workers encoded zero-start
+as a 2999 ms deadline and a 699 ms COMMIT lead: the App reads that encoding on
+a transition COMMIT without the field until it stops reading snapshot
+schemaVersion 1, and the PRO Worker reads it on a transition an earlier Worker
+stored until a later PRO release drops it. Phase 6 of the structure improvement
+plan builds on this contract unchanged: the kind on every PREPARE and
+transition COMMIT, the classification, the time basis, the three-second
+barrier, the 700 ms lead, the event envelope, and the signaling event budget.
 
 ### 7. Late join and recovery
 
@@ -485,8 +517,9 @@ BOT requests, and Developer API requests all invoke that same reducer.
 ### 9. Presence, sleep, and wake
 
 Presence remains a server-owned membership concept and contains no coordinator
-identity. The first snapshot schema retains only a
-`coordinatorParticipantId: null` compatibility field. When the final
+identity. PRO snapshot schemaVersion 2 also drops the
+`coordinatorParticipantId: null` compatibility field that the first schema
+kept; the stored room state still holds that key as null. When the final
 participant disappears, the Durable Object:
 
 1. projects the current playing anchor to the server removal time;
@@ -628,7 +661,7 @@ unchanged.
 
 ### 13. Transitional compatibility names
 
-The first implementation checkpoint deliberately retains two internal names
+The first implementation checkpoint deliberately retained two internal names
 without retaining their former authority semantics:
 
 - persisted and wire-level `coordinatorEpoch` is the room/control incarnation
@@ -637,10 +670,18 @@ without retaining their former authority semantics:
   mode for the shared media/UI shell; it creates no peer topology and grants no
   server capability.
 
-Renaming these values belongs to a later snapshot/wire schema version. Until
-then, new code must derive PRO permissions from `room.context.capabilities` and
-must never infer PRO authority from `appRole`, `hostConn`, or the legacy field
-name.
+PRO snapshot schemaVersion 2 removed the snapshot's constant fields of the
+browser-coordinator era (`presence.coordinatorParticipantId`,
+`viewer.coordinatorEligible`, `memberIdentityVersion`, and `authorityVersion`,
+which also left the administrator directory answer) and kept both names
+(owner decision 2026-10-28). `coordinatorEpoch` is a live fence that the PRO
+Worker, the Signaling Worker (realtime tickets and the PRO server-event
+envelope), and the App all carry, so renaming it would change both Worker
+contracts and the App in one `all` release and gain no behaviour. Client-only
+coordinator names that never reach the wire stay for the same reason. A rename
+remains possible in a later schema version. Until then, new code must derive
+PRO permissions from `room.context.capabilities` and must never infer PRO
+authority from `appRole`, `hostConn`, or the legacy field name.
 
 ## Historical rollout plan and completed cutover boundary
 
@@ -667,8 +708,8 @@ maintenance response was executed verbatim:
    Developer API, BOT, ENDED, unavailable, and physical iOS/Android smoke
    matrix. Reopen PRO entry only after version IDs and live results are saved.
    The proposed post-observation rename of `coordinatorEpoch` and the local-host
-   compatibility symbols was deliberately not part of that cutover. It remains a
-   future versioned snapshot/wire-schema decision; the compatibility names retain
+   compatibility symbols was deliberately not part of that cutover, and PRO
+   snapshot schemaVersion 2 kept them too (§13); the compatibility names retain
    the non-authoritative meanings defined above. Signaling tickets remain part of
    the server channel, while the former browser-coordinator election,
    command-dispatch/ACK storage, and peer-star branches remain removed.
@@ -726,9 +767,9 @@ the scope could otherwise be mistaken for PRO.
 ## Acceptance criteria
 
 - No PRO snapshot, ticket, UI state, or protocol event exposes a non-null
-  coordinator participant or depends on one. The first schema may still expose
-  `coordinatorParticipantId: null` and the transitional `coordinatorEpoch`
-  control-incarnation name.
+  coordinator participant or depends on one. PRO snapshot schemaVersion 2 has
+  no `coordinatorParticipantId` (the first schema exposed it only as null);
+  both keep the transitional `coordinatorEpoch` control-incarnation name.
 - No browser-originated timestamp or playback checkpoint can replace the
   canonical server anchor.
 - Concurrent UI, BOT, Developer API, ENDED, and unavailable actions converge

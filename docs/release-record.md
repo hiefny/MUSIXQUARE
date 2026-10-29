@@ -86,22 +86,28 @@ gh run list --workflow e2e.yml --branch main --limit 3
       build floor the PRO Worker requires' 단계는 `app`에서 돌지 않는다(요구 값도 비어 있음). (6) 배포 직후(게이트
       아님) 보고서 '배포 직후 확인과 기기 확인'의 나눠 줄 절차 A ~ C와 선택 D를 합성 방(오너가 가진 PRO 방)에서
       9.0.25 탭으로 하게 한다. 확인하는 사람에게는 절차와 관찰 목록만 건네고, 판정은 그 절의 판정 기준(건네지 않음)으로
-      한다. dispatch 직전 읽기와 배포 직후 확인은 보고서 QA 라운드 3, 4에 싣는다(지금은 자리만).
+      한다. 방이 뜨지 않거나 하트비트가 거절되면 그 절의 '실패하면'대로 App을 9.0.25 릴리스 checkpoint의 App으로 손으로
+      되돌리고(저장 바닥이 795인 동안 `lower` 없음), PRO Worker는 그대로 두며, §1과 `Last source review`를 덮어쓰고
+      이력에 한 행을 더한 뒤, 출처 규칙대로 다음 수리 릴리스를 `all`로 낸다. dispatch 직전 읽기와 배포 직후 확인은 보고서
+      QA 라운드 3, 4에 싣는다(지금은 자리만).
       [배포 조건과 순서](design/phase5-5-r3-v1-receive-stop-2026-10-30.md#배포-조건과-순서),
       [배포 직후 확인과 기기 확인](design/phase5-5-r3-v1-receive-stop-2026-10-30.md#배포-직후-확인과-기기-확인-게이트-아님),
       [QA 라운드 3](design/phase5-5-r3-v1-receive-stop-2026-10-30.md#3-운영-전제-자리).
 - [ ] 되돌리기 경계(이 런타임 변경이 §4에 적음): §4 머리의 현재 경계 줄 (8), (9)와 §4의 이 릴리스 항목이 정본이다.
       기본은 더 높은 SemVer와 캐시 epoch의 코드 되돌리기(9.0.26 / v799 이상)다. 실패한 `app`의 자동 복구는 App만
-      checkpoint(그 직전 live App, 두 스키마를 모두 읽음)로 되돌리고 안전하다. 손으로는: 이 App이 배포된 뒤 PRO를
-      schemaVersion 2를 처음 보내는 PRO Worker 아래로 되돌리지 않는다(꼭 해야 하면 App을 그 checkpoint App으로 먼저, 그
-      뒤 PRO를 9.0.22의 PRO Worker로). App을 795 아래로는 App을 그 checkpoint App으로, PRO를 9.0.22의 PRO Worker로,
-      9.0.15 아래면 Signaling, `lower`, App 순서로만 하고, 그 뒤 수리는 schemaVersion 2를 그대로 보내고 곧 바닥을 795로
-      다시 올린다.
+      checkpoint(그 직전 live App, 두 스키마를 모두 읽음)로 되돌리고 안전하다. 다만 `app`의 배포 뒤 smoke는 HTTP뿐이라
+      9.0.25 파서로 PRO 답을 읽지 않으므로, 9.0.25가 실제 schemaVersion 2 스냅샷, 하트비트, 관리자, 시스템 오디오 답을
+      거절하는 결함은 커밋 표지를 지나고 자동 복구는 돌지 않는다(그때는 위 배포 조건 (6)의 실패 처리). 손으로는: 이
+      App이 배포된 뒤 PRO를 schemaVersion 2를 처음 보내는 PRO Worker 아래로 되돌리지 않는다(꼭 해야 하면 App을 그
+      checkpoint App으로 먼저, 그 뒤 PRO를 9.0.22의 PRO Worker로). App을 795 아래로는 App을 그 checkpoint App으로, PRO를
+      9.0.22의 PRO Worker로, 9.0.15 아래면 Signaling, `lower`, App 순서로만 하고, 그 뒤 수리는 schemaVersion 2를 그대로
+      보내고 곧 바닥을 795로 다시 올린다.
       [보고서의 되돌리기](design/phase5-5-r3-v1-receive-stop-2026-10-30.md#되돌리기),
       [혼합 버전](design/phase5-5-r3-v1-receive-stop-2026-10-30.md#혼합-버전).
 - [ ] 확인하지 않은 것: main 위로 옮긴 뒤 테스트 먼저 다시 돌리기와 bump 뒤 `build:checked`(이 브랜치의
       `guard:sw-cache-version`은 bump가 없어 실패), 운영 단계와 배포, 실제 schemaVersion 2 PRO Worker와 이 App의
-      브라우저 왕복(로컬 e2e는 고정값과 모의 답이고, Worker와 App 파서를 잇는 것은 in-process 교차 계약 행), 실기기와 iOS
+      브라우저 왕복(로컬 e2e는 고정값과 모의 답이고, Worker와 App 파서를 잇는 것은 in-process 교차 계약 행이며, 릴리스의
+      배포 뒤 smoke도 HTTP뿐이라 배포 직후 확인이 처음 본다), 실기기와 iOS
       Safari, WebKit 레인 전체, Full E2E. 전송 계층의 PRO 신호 모드(티켓 role 'coordinator' 포함)는 2026-07-20 뒤 운영
       호출이 없는데 R3-6은 개발자 프레임만 지웠다(보고서 R3-6). 오너 기기 확인 후보 둘(하트비트가 COMMIT을 앞지른
       기기의 시작 종류, LAN-direct 공유 동안 9.0.25 탭의 하트비트)은 게이트가 아니고 보고서의 블라인드 절차로 한다.
@@ -2963,7 +2969,14 @@ PRO 방장 공지의 중도 참여 복원은 별도 정책이며 이번 서비�
     할 수 있다. 바닥 795 이상이라 `lower`가 필요 없다. 이미 열린 9.0.25 탭은 새로 고칠 때까지 남는다.
   - 실패한 `app` 실행의 자동 복구: App을 checkpoint로 되돌린다. 위와 같은 이유로 안전하다. Worker 호환 바닥 평가가 실패하면
     대비 목록이 App을 건너뛰어 9.0.25 App이 실패 표시인 채 live로 남는다. (6)의 PRO Worker와 짝이 맞는 의도한 상태라
-    안전하고 앞으로 고친다.
+    안전하고 앞으로 고친다. 다만 `app`의 배포 뒤 smoke(App generation, 익명 계정 경계, PRO 방 smoke의 health·bootstrap
+    카나리아 둘·익명 스냅샷 401, Standard HTTPS)는 HTTP만 보고 9.0.25 파서로 PRO 답을 읽지 않으므로, 9.0.25가 실제
+    schemaVersion 2 스냅샷, 하트비트, 관리자, 시스템 오디오 답을 거절하는 결함(9.0.25 탭의 모든 PRO 방이 깨짐)은 커밋
+    표지까지 가고 이 복구는 돌지 않는다. 그 결함은 배포 직후 확인이 처음 보고, 그때는
+    [그 실패 처리](design/phase5-5-r3-v1-receive-stop-2026-10-30.md#실패하면-배포-직후-확인)대로 위 급할 때의 Cloudflare
+    되돌리기를 손으로 하고(저장 바닥이 795인 동안 `lower` 없음) PRO Worker는 그대로 두며, §1을 덮어쓰고 이력에 한 줄을
+    더한다. 그 App 버전은 `Rollback:` 메시지라 git 출처가 없으므로 다음 수리 릴리스는 `all`이다
+    ([운영](hotfix-procedure.md#normal-hotfix)).
   - PRO Worker는 위 현재 경계 줄 (8)대로 (6)의 PRO Worker 아래로 손으로 되돌리지 않고, App을 795 아래로는 (9)의 합친
     순서로만 내린다. (6)의 PRO Worker가 불러올 때 숫자 LAN-direct를 null로 바꾸는 변환은 뒤의 PRO 정리에서도 지우지
     않는다. 그 뒤 한 번도 불러오지 않은 방은 숫자를 저장한 채 남고, 변환을 지우면 9.0.25 탭이 그 방의 하트비트 답 전체를

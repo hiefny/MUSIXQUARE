@@ -38,7 +38,7 @@ const ja: Record<I18nKey, string> = {
   'setup.carousel_dot_aria': '{{total}}枚中{{current}}枚目のスライド',
   'common.message': 'メッセージ',
   'common.mix': 'ミックス',
-  'common.wait': 'お待ちください...',
+  'common.wait': '準備中...',
   'common.guest': '参加者',
   'common.help': 'ヘルプ',
   'common.increase': '増やす',

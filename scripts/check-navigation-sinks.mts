@@ -185,7 +185,7 @@ const OWNER_REQUESTER_BASELINE: Baseline = new Map<string, Allowance>([
   ['src/sw-register.ts', { count: 1, reason: 'the update reload outside a room' }],
   ['src/ui/keep-open-notice.ts', { count: 1, reason: 'leave from the keep-open notice' }],
   ['src/ui/player-controls.ts', { count: 1, reason: 'the logo reset (prepare: SW promotion)' }],
-  ['src/ui/setup-guest.ts', { count: 3, reason: 'guest join recovery reloads' }],
+  ['src/ui/setup-guest.ts', { count: 2, reason: 'guest join recovery reloads' }],
   ['src/ui/setup-host.ts', { count: 1, reason: 'host start recovery reload' }],
   ['src/ui/setup.ts', { count: 4, reason: 'reconnect and PIN-removal fallbacks' }],
 ]);

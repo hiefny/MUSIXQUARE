@@ -80,6 +80,7 @@ function setup(
 ) {
   const snapshot = {
     roomCode: ROOM,
+    playlist: [],
     playback,
     presence: { coordinatorEpoch: 1 },
   } as unknown as ProRoomSnapshot;
@@ -363,4 +364,88 @@ describe('PRO snapshot restoration and system audio ownership', () => {
       expect.objectContaining({ state: 'playing', committedPlaybackRevision: 1 }),
     );
   });
+
+  // The start kind belongs to the transition the PRO Worker made, not to the
+  // route that brought its checkpoint (ZS-06): a heartbeat snapshot or a
+  // reconciliation that lands the prepared checkpoint before the COMMIT frame
+  // commits it with the kind its PREPARE named.
+  it.each(['restore', 'reconcile'] as const)(
+    'commits a %s that lands a zero-start PREPARE checkpoint before its COMMIT as zero-start',
+    async (route) => {
+      const target = checkpoint('playing');
+      const { controller, snapshot, prepare, commit, reportReady } = setup(target);
+      controller.acceptPrepare({
+        type: 'pro-playback-prepare',
+        transitionId: `transition_${'z'.repeat(22)}`,
+        serverTimeMs: 10_000,
+        deadlineAtMs: 13_000,
+        basePlaybackRevision: 0,
+        target,
+        timingMode: 'zero-start',
+      });
+      await vi.waitFor(() => expect(reportReady).toHaveBeenCalledOnce());
+      if (route === 'restore') {
+        await controller.restorePersistedPlayback(snapshot);
+      } else {
+        await controller.reconcile({ showLoading: false, youtubeOnly: false, rendezvous: false });
+      }
+      await vi.waitFor(() => expect(commit).toHaveBeenCalledOnce());
+      expect(prepare).toHaveBeenCalledOnce();
+      expect(commit).toHaveBeenCalledWith(
+        expect.objectContaining({
+          committedPlaybackRevision: 1,
+          state: 'playing',
+          timingMode: 'zero-start',
+        }),
+      );
+    },
+  );
+
+  // Without a matching zero-start PREPARE a restored checkpoint follows the
+  // running timeline (ZS-09): a late join that saw no PREPARE, a PREPARE that
+  // names scheduled-control or no kind, and a zero-start PREPARE whose
+  // reserved revision the room committed with another checkpoint.
+  it.each([
+    { label: 'without a PREPARE', prepare: null, replaced: false },
+    {
+      label: 'after a scheduled-control PREPARE',
+      prepare: { timingMode: 'scheduled-control' },
+      replaced: false,
+    },
+    { label: 'after a PREPARE that names no kind', prepare: {}, replaced: false },
+    {
+      label: 'after a zero-start PREPARE of a replaced checkpoint',
+      prepare: { timingMode: 'zero-start' },
+      replaced: true,
+    },
+  ] as const)(
+    'restores a checkpoint $label as a scheduled control',
+    async ({ prepare, replaced }) => {
+      const target = checkpoint('playing');
+      const { controller, snapshot, commit, reportReady } = setup(
+        replaced ? { ...target, positionSeconds: 35 } : target,
+      );
+      if (prepare) {
+        controller.acceptPrepare({
+          type: 'pro-playback-prepare',
+          transitionId: `transition_${'z'.repeat(22)}`,
+          serverTimeMs: 10_000,
+          deadlineAtMs: 13_000,
+          basePlaybackRevision: 0,
+          target,
+          ...prepare,
+        });
+        await vi.waitFor(() => expect(reportReady).toHaveBeenCalledOnce());
+      }
+      await controller.restorePersistedPlayback(snapshot);
+      await vi.waitFor(() => expect(commit).toHaveBeenCalledOnce());
+      expect(commit).toHaveBeenCalledWith(
+        expect.objectContaining({
+          committedPlaybackRevision: 1,
+          state: 'playing',
+          timingMode: 'scheduled-control',
+        }),
+      );
+    },
+  );
 });

@@ -46,6 +46,7 @@ import {
   parseProRoomPlaybackPrepareEvent,
   ProRoomApiClient,
   ProRoomApiError,
+  type ProRoomBootstrap,
   type SwitchProRoomPlaylistInput,
   type TransferProRoomPlaylistTracksInput,
   type UpdateProRoomCompactSnapshotInput,
@@ -31530,5 +31531,56 @@ describe('PRO browser parsers on the actual Worker answers', () => {
     const compact = await member.api.heartbeat(ROOM_CODE, undefined, full.snapshot);
     expect(member.lastAnswer().notModified).toBe(true);
     expectRead(compact.systemAudio, member.lastAnswer().systemAudio);
+  });
+
+  // Bootstrap is the one answer outside the snapshot whose field the App
+  // requires in every state: passwordRequired, false when the room is open
+  // and true when it asks for a PIN. A release's smokes fetch bootstrap over
+  // HTTP only, so this row parses it with the browser client in each state,
+  // together with the snapshot carriers the rows above do not reach: the PIN
+  // session, the presence entry and the account detach.
+  it('parses the bootstrap in every state and the PIN session, presence entry and detach the Worker answers', async () => {
+    const worker = new MusixquareProRoom(new FakeState() as never, environment() as never);
+    const owner = browserFor(worker, ACTIVATION_OWNER_ACCOUNT_ID);
+    const visitor = browserFor(worker);
+    const bootstraps: Array<{ parsed: ProRoomBootstrap; wire: Record<string, any> }> = [];
+    const bootstrap = async () => {
+      const parsed = await visitor.api.getBootstrap(ROOM_CODE);
+      bootstraps.push({ parsed, wire: visitor.lastAnswer() });
+      return parsed;
+    };
+
+    expect((await bootstrap()).status).toBe('activation_required');
+    const claimToken = await issueProRoomActivationClaim(ROOM_CODE, ACTIVATION_SECRET, {
+      nowMs: Date.now() - 1000,
+      expiresAtMs: Date.now() + 60_000,
+      nonce: 'browser-parser-contract-bootstrap',
+    });
+    await owner.api.activate({
+      code: ROOM_CODE,
+      claimToken,
+      expectedAccountScope: 'a'.repeat(43),
+    });
+    expect(await bootstrap()).toMatchObject({ status: 'open', passwordRequired: false });
+    await owner.api.changePin(ROOM_CODE, '87654321');
+    expect(await bootstrap()).toMatchObject({ status: 'pin_required', passwordRequired: true });
+
+    const pinSession = await visitor.api.createSession({ code: ROOM_CODE, pin: '87654321' });
+    expect(pinSession.passwordRequired).toBe(true);
+    expect(pinSession).toStrictEqual(visitor.lastAnswer().snapshot);
+    const entered = await visitor.api.enterPresence(ROOM_CODE, { takeover: true });
+    expect(entered).toStrictEqual(visitor.lastAnswer().snapshot);
+    const detached = await owner.api.detachCurrentAccount(ROOM_CODE);
+    expect(detached.snapshot?.viewer?.isAuthenticated).toBe(false);
+    expect(detached).toStrictEqual(owner.lastAnswer());
+
+    (worker as unknown as { room: { status: string } }).room.status = 'suspended';
+    expect((await bootstrap()).status).toBe('suspended');
+
+    expect(bootstraps).toHaveLength(4);
+    for (const { parsed, wire } of bootstraps) {
+      expect(typeof wire.passwordRequired).toBe('boolean');
+      expect(parsed).toStrictEqual(wire);
+    }
   });
 });

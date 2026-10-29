@@ -4,6 +4,7 @@ import { bus } from '../../core/events.ts';
 import { MSG } from '../../core/constants.ts';
 import { clearAllManagedTimers } from '../../core/timers.ts';
 import { createLazyFeatureLoadError } from '../../core/lazy-feature-failure.ts';
+import { t } from '../../i18n/index.ts';
 import type { DataConnection, PeerInstance } from '../../types/index.ts';
 import { registerProRoomSignalingEpochAdvanceHandler } from '../../pro-room/lifecycle-hook.ts';
 import { resetProRoomTransportRecovery } from '../../pro-room/transport-recovery.ts';
@@ -225,11 +226,12 @@ describe('joinSession reconnect racing', () => {
     const conn = conns[0];
     conn.fire('data', {
       type: MSG.SESSION_FULL,
-      message: 'Room is full',
+      // A Korean host's own text, which the guest does not read.
+      message: '이 방에는 이미 방장 포함 최대 100대가 연결되어 있어요.',
     });
     conn.fire('open');
 
-    expect(sessionFull).toHaveBeenCalledWith('Room is full');
+    expect(sessionFull).toHaveBeenCalledWith(t('network.session_full'));
     expect(conn.close).toHaveBeenCalledOnce();
     expect(getState('network.hostConn')).toBeNull();
     expect(getState('network.isConnecting')).toBe(false);

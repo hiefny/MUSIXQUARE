@@ -490,10 +490,10 @@ describe('bounded control-frame validation', () => {
     }
   });
 
-  it('accepts session-full and operator notices that carry only a translation key', async () => {
-    // Old-version removal train 2 (Q4, receive side): every current guest
-    // translates i18nKey first, so a host may later drop the fallback text.
-    // An operator notice still needs one of the two.
+  it('reads session-full and operator notices by their translation key alone', async () => {
+    // Guests read only i18nKey. The hosts' fallback `message` and `text`
+    // (sent up to 9.0.21) are unread keys with no bound of their own, and an
+    // operator notice needs its key.
     const sessionFull = vi.fn();
     const operatorToast = vi.fn();
     registerHandler(MSG.SESSION_FULL, sessionFull);
@@ -503,23 +503,23 @@ describe('bounded control-frame validation', () => {
       { type: MSG.SESSION_FULL, message: 'Room is full', i18nKey: 'network.session_full_detail' },
       { type: MSG.SESSION_FULL, i18nKey: 'network.session_full_detail' },
       { type: MSG.SESSION_FULL },
+      { type: MSG.SESSION_FULL, message: '' },
+      { type: MSG.SESSION_FULL, message: 'x'.repeat(513) },
+      { type: MSG.SESSION_FULL, message: 5 },
     ];
     const toastFrames = [
       { type: MSG.OPERATOR_TOAST, text: 'notice', i18nKey: 'toast.remote_decode_device_wait' },
       { type: MSG.OPERATOR_TOAST, i18nKey: 'toast.remote_decode_device_wait' },
-      { type: MSG.OPERATOR_TOAST, text: 'notice' },
+      { type: MSG.OPERATOR_TOAST, text: 5, i18nKey: 'toast.remote_decode_device_wait' },
     ];
     for (const frame of [...sessionFrames, ...toastFrames]) await handleData(frame, conn);
 
     for (const invalid of [
-      { type: MSG.SESSION_FULL, message: '' },
-      { type: MSG.SESSION_FULL, message: 'x'.repeat(513) },
-      { type: MSG.SESSION_FULL, message: 5 },
       { type: MSG.SESSION_FULL, i18nKey: 'x'.repeat(128) },
       { type: MSG.OPERATOR_TOAST },
+      { type: MSG.OPERATOR_TOAST, text: 'notice' },
       { type: MSG.OPERATOR_TOAST, i18nParams: { name: 'a' } },
       { type: MSG.OPERATOR_TOAST, text: 'x'.repeat(301) },
-      { type: MSG.OPERATOR_TOAST, text: 5, i18nKey: 'toast.remote_decode_device_wait' },
       { type: MSG.OPERATOR_TOAST, i18nKey: 'x'.repeat(128) },
       { type: MSG.OPERATOR_TOAST, i18nKey: 'toast.remote_decode_device_wait', i18nParams: null },
     ]) {
@@ -553,7 +553,7 @@ describe('bounded control-frame validation', () => {
     await handleData({ type: MSG.OPERATOR_GRANT, capabilities: [] }, conn);
     await handleData({ type: MSG.OPERATOR_REVOKE, silent: false }, conn);
 
-    await handleData({ type: MSG.SESSION_FULL, message: '' }, conn);
+    await handleData({ type: MSG.SESSION_FULL, i18nKey: 'x'.repeat(128) }, conn);
     await handleData({ type: MSG.KICK_DEVICE, reason: 'x'.repeat(257) }, conn);
     await handleData({ type: MSG.OPERATOR_GRANT, capabilities: ['root.admin'] }, conn);
     await handleData({ type: MSG.OPERATOR_GRANT, capabilities: ['media.add', 'media.add'] }, conn);

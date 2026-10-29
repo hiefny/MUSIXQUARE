@@ -94,48 +94,57 @@ runbooks. Neither belongs in a general setup document.
 ## Maintained evidence and completed records
 
 - [UI follow-up train 9.0.21: transient text at 600 and chips on one line (2026-10-29)](design/ui-followup-921-2026-10-29.md):
-  in progress, not merged or released; the assembled next app update after 9.0.20 (9.0.21 / v794,
-  bump `a538da11`, expected target `app` with 58 App runtime paths and none in the other five
-  Workers, with the update dialog). It carries the owner's decisions of 2026-10-29: toast text back
-  at label 600, the screensaver track title at 600, and the rule that transient text (toasts,
-  loading and waiting lines, the full-screen session message, progress and result lines, mode notes)
-  and red error lines read at label 600 while text that stays on the screen reads at body 400 (app,
-  `/events`, design system; the resting `/events` nickname hint goes from 650 to 400); and chips
-  that fit on one line at the selected 700: a HarfBuzz width guard test for 14 groups in 42 locales
-  (two direct devDependencies the lockfile already held), the settings and setup role chips on the
-  demo's short role words (four `role.*` keys removed), shorter copy in 38 locales (152 lines;
-  English '3. Effects'; a shortened Advanced chip says Manual, in Tamil the catalog's word,
-  owner-confirmed), the demo role switch icon hidden up to a 448px container (phones 421 to 532px
-  wide, two-column layouts 851 to 1120px), and 14 accepted labels under the 4px spare. Assembly
-  added the help tab's role names on the chip words in 42 locales, the review fixes to the guard (it
-  reads back the CSS declarations each label box comes from and the label letter spacing token, so a
-  change to one of them fails, while a new rule that narrows a box does not; accepted labels match
-  by screen, with the el and pt-br near misses at 720x360 listed), the Turkish step 4 in sentence
-  case, the Node 24.22.2 and qs 6.16.1 security increment (Dependabot alert 33,
-  GHSA-6pq8-jhm2-2vcw), and the media picker focus race fix the 9.0.20 record left for the next App
-  release (a keyboard open keeps focus that a fast Tab moved inside the picker before the 0 ms focus
-  timer ran; a pointer open still focuses the picker surface). Branch `agent/ui-921` is on main
-  `0bbd077e`, rebased twice with identical patches, and its assembly review moved the bump after the
-  review fixes. The release record's §2 carries a pre-deploy item for 9.0.21 (scope, dependencies
-  and the Node pin, the widened owner step for outdated approved translation suggestions, rollback
-  boundary, open owner items, what was not verified). The report lists the owner decisions, each
+  released on 2026-10-29 15:23 KST in Release 40828643393 (PR #522, squash `3bfdffcb`): the next
+  app update after 9.0.20 (9.0.21 / v794, bump `a538da11`, target `app` with 58 App runtime paths
+  and none in the other five Workers, with the update dialog; the build floor stays 787). Only the
+  App Worker changed (`06e79397`); the other five keep their 9.0.20 versions. It carries the owner's
+  decisions of 2026-10-29: toast text back at label 600, the screensaver track title at 600, and the
+  rule that transient text (toasts, loading and waiting lines, the full-screen session message,
+  progress and result lines, mode notes) and red error lines read at label 600 while text that stays
+  on the screen reads at body 400 (app, `/events`, design system; the resting `/events` nickname
+  hint goes from 650 to 400); and chips that fit on one line at the selected 700: a HarfBuzz width
+  guard test for 14 groups in 42 locales (two direct devDependencies the lockfile already held), the
+  settings and setup role chips on the demo's short role words (four `role.*` keys removed), shorter
+  copy in 38 locales (152 lines; English '3. Effects'; a shortened Advanced chip says Manual, in
+  Tamil the catalog's word, owner-confirmed), the demo role switch icon hidden up to a 448px
+  container (phones 421 to 532px wide, two-column layouts 851 to 1120px), and 14 accepted labels
+  under the 4px spare. Assembly added the help tab's role names on the chip words in 42 locales, the
+  review fixes to the guard (it reads back the CSS declarations each label box comes from and the
+  label letter spacing token, so a change to one of them fails, while a new rule that narrows a box
+  does not; accepted labels match by screen, with the el and pt-br near misses at 720x360 listed),
+  the Turkish step 4 in sentence case, the Node 24.22.2 and qs 6.16.1 security increment (Dependabot
+  alert 33, GHSA-6pq8-jhm2-2vcw, expected to close once GitHub reads the lockfile on main), and the
+  media picker focus race fix the 9.0.20 record left for the next App release (a keyboard open keeps
+  focus that a fast Tab moved inside the picker before the 0 ms focus timer ran; a pointer open
+  still focuses the picker surface). Branch `agent/ui-921` is on main `0bbd077e`, rebased twice
+  with identical patches, and its assembly review moved the bump after the review fixes. The release
+  record's §2 now carries the 9.0.21 post-deploy items (scope and status, post-deploy checks, open
+  owner items and the owner step for outdated approved translation suggestions) and §4 its rollback
+  boundary (a forward revert at 9.0.22 / v795 or later, or the checkpoint's 9.0.20 App
+  `50d6557f`); the release closed the focus race item and the 9.0.20 owner decisions this train
+  implemented. The report lists the owner decisions, each
   increment with its commits and tests-first evidence, the SHA map after assembly, the review
   findings, visible changes, what did not change, open owner items (among them seven native checks),
-  mixed versions and rollback, the work left for release preparation (among them the post-deploy
-  rejection or re-review of every outdated approved suggestion in admin Translations, not only those
-  of the removed `role.*` keys, and three stale commit message statements for the squash message),
-  and QA rounds 1 to 5: per increment; the rebase and full gate at `986f0c35`; the Chromium and
-  WebKit comparison with main (211 weight pairs, 17,052 chip readings in 42 locales, 302 screenshot
-  pairs with no unexplained difference); the assembly gate at `c7c50314` on Node 24.22.2; and the
-  gate after the assembly review at `a538da11` (npm audit 0, unit 700 files / 16,615 with no skip,
-  typecheck, lint, format, every static-lane guard, `check:workers`, critical, release-tooling and
-  Worker coverage, `build:checked` with the cache-version and release-identity guards and the
-  budgets, `check:worker-bundles`, Chromium candidate E2E 19 and critical E2E 98, and the A5 check
-  in Chromium and WebKit: with a Tab that lands before the timer, the build without the fix returned
-  focus to the first action in 20 of 20 opens in both engines and the fixed build kept it in 20 of
-  20). It also lists what was not verified (WebKit without WebRTC or Web Audio, real devices and iOS
-  Safari, Linux fonts, related E2E and the full WebKit lane, native review) and the owner device
-  check list.
+  mixed versions and rollback, what release preparation did and what is left (the squash message
+  fixed three stale commit message statements; the rejection or re-review of every outdated
+  approved suggestion in admin Translations is the owner's), and QA rounds 1 to 6: per increment;
+  the rebase and full gate at `986f0c35`; the Chromium and WebKit comparison with main (211 weight
+  pairs, 17,052 chip readings in 42 locales, 302 screenshot pairs with no unexplained difference);
+  the assembly gate at `c7c50314` on Node 24.22.2; the gate after the assembly review at `a538da11`
+  (npm audit 0, unit 700 files / 16,615 with no skip, typecheck, lint, format, every static-lane
+  guard, `check:workers`, critical, release-tooling and Worker coverage, `build:checked` with the
+  cache-version and release-identity guards and the budgets, `check:worker-bundles`, Chromium
+  candidate E2E 19 and critical E2E 98, and the A5 check in Chromium and WebKit: with a Tab that
+  lands before the timer, the build without the fix returned focus to the first action in 20 of 20
+  opens in both engines and the fixed build kept it in 20 of 20); and round 6 (the PR CI and a
+  no-findings automated review on the final head `19dc9e3a`, the exact-main CI on Node 24.22.2 with
+  unit 700 files / 16,614 plus the known skip and Linux Chromium candidate 19 and critical 98, one
+  Production Release with target `app` whose smokes all passed on the first try, the public service
+  worker and bootstrap at v794, the public floor at 787 with live App 794, and the Drift Audit at 32
+  pass / 0 fail / 5 manual-only). It also lists what was not verified (WebKit without WebRTC or Web
+  Audio, real devices and iOS Safari, Linux fonts, related E2E and the full WebKit lane, a full
+  serial E2E on the 9.0.21 runtime, native review, the update dialog in a production browser) and
+  the owner device check list.
 - [UI follow-up train 9.0.20: dialog exits, weight roles and the PRO receipt follow-ups (2026-10-29)](design/ui-followup-920-2026-10-29.md):
   one app update (9.0.20 / v793, bump `e1e638bf`, target `all`, with the update dialog; the build
   floor stays 787) on main `91aa77bb` (App 9.0.19, PRO room train A). It deletes the hidden
@@ -176,8 +185,9 @@ runbooks. Neither belongs in a general setup document.
   A manual Full E2E on main `c37220df` (run 40708045873) also failed in tests this train does not
   change; #518 (`edd6ee94`, tests only) found and fixed their cause, and the Full E2E run
   40773241908 on main `edd6ee94` (the 9.0.20 runtime) passed in Linux Chromium and Linux WebKit,
-  which closed that open item. The rare media source focus race the same investigation found stays
-  open as a planned runtime fix for the next App release.
+  which closed that open item. The rare media source focus race the same investigation found was
+  fixed in 9.0.21 (released on 2026-10-29 15:23 KST), which closed that item and, with its chip
+  copy, owner item 4 and the selected-700 part of owner item 13.
 - [PRO receipt follow-up train A (2026-10-28)](design/pro-receipt-followup-a-2026-10-28.md):
   the owner's decision of 2026-10-28 on item 3 of the receipt retention follow-ups, shipped as a
   PRO room Worker-only train (target `pro-room`; the App stays 9.0.19 / v792, so no update

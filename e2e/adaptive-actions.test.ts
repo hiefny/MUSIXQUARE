@@ -124,7 +124,7 @@ const LOCALIZED_ACTIONS = Object.entries(LOCALES).map(([code, dictionary]) => ({
   ],
 }));
 
-// The manual sync panel's Done / Reset pair and value label in every locale.
+// The manual sync panel's Reset / Done pair and value label in every locale.
 const SYNC_PAIR_LABELS: Record<string, { reset: string; done: string; label: string }> =
   Object.fromEntries(
     Object.entries(LOCALES).map(([code, dictionary]) => [
@@ -137,9 +137,21 @@ const SYNC_PAIR_LABELS: Record<string, { reset: string; done: string; label: str
     ]),
   );
 
+// The PRO room registration dialog's [Cancel | Register] labels in every locale.
+const PRO_REGISTER_LABELS: Record<string, { cancel: string; register: string }> =
+  Object.fromEntries(
+    Object.entries(LOCALES).map(([code, dictionary]) => [
+      code,
+      {
+        cancel: (dictionary as Record<string, string>)['common.cancel']!,
+        register: (dictionary as Record<string, string>)['pro.activation_account_continue']!,
+      },
+    ]),
+  );
+
 // Owner decision (2026-10-28, option C): at 360px tall and below the manual
 // sync panel keeps 12px from the screen edges and trims its own spacing; at
-// 350px and below its Done / Reset pair takes the account dialog's 44px pills,
+// 350px and below its Reset / Done pair takes the account dialog's 44px pills,
 // 6px apart. 667x375 and 640x361 keep the shared values.
 const SYNC_SHORT_VIEWPORTS = [
   { width: 568, height: 320, step: 'pills' },
@@ -861,7 +873,7 @@ test.describe('content-based adaptive action groups', () => {
   });
 
   for (const viewportWidth of [360, 390, 1440]) {
-    test(`contains the manual sync Done / Reset pair in every locale at ${viewportWidth}px`, async ({
+    test(`contains the manual sync Reset / Done pair in every locale at ${viewportWidth}px`, async ({
       page,
     }) => {
       // The authored panel, opened, in each locale's own font. The recipe
@@ -936,11 +948,12 @@ test.describe('content-based adaptive action groups', () => {
         expect(pair.rowScrollWidth, `${pair.lang} row overflow`).toBeLessThanOrEqual(
           pair.rowClientWidth,
         );
-        // Done, the exit, comes first (left, mirrored in RTL); Reset follows.
-        const [done, reset] = pair.buttons;
-        expect(done!.id, pair.lang).toMatch(/-sync-done-btn$/u);
+        // Reset comes first; Done, which applies and closes the panel, follows
+        // on the right (owner decision 2026-10-29; mirrored in RTL).
+        const [reset, done] = pair.buttons;
         expect(reset!.id, pair.lang).toMatch(/-sync-reset-btn$/u);
-        for (const button of [done!, reset!]) {
+        expect(done!.id, pair.lang).toMatch(/-sync-done-btn$/u);
+        for (const button of [reset!, done!]) {
           expect(button.left, `${button.id} inside the panel`).toBeGreaterThanOrEqual(
             pair.contentLeft - 0.5,
           );
@@ -955,16 +968,114 @@ test.describe('content-based adaptive action groups', () => {
           );
           expect(button.height, `${button.id} pill height`).toBeGreaterThanOrEqual(56 - 0.5);
         }
-        // Side by side 10px apart with Done on the left, or Reset on its own
+        // Side by side 10px apart with Done on the right, or Done on its own
         // row 12px below.
         if (Math.abs(reset!.top - done!.top) < 0.5) {
-          expect(reset!.left - done!.right, pair.lang).toBeCloseTo(10, 1);
+          expect(done!.left - reset!.right, pair.lang).toBeCloseTo(10, 1);
         } else {
-          expect(reset!.top - done!.bottom, pair.lang).toBeCloseTo(12, 1);
+          expect(done!.top - reset!.bottom, pair.lang).toBeCloseTo(12, 1);
         }
       }
     });
   }
+
+  // The PRO room registration dialog (pro-room/activation-account.ts) pairs
+  // [Cancel | Register], and a pair that no longer fits one row stacks by
+  // design (F5). Owner decision (2026-10-29, item 1a): the registration label
+  // is held to this layout, not to a label length. In the authored dialog,
+  // each locale's pair keeps every label on one line inside its pill and
+  // inside the dialog from 320 to 420px; which locales stack is recorded.
+  test('keeps the PRO room registration labels whole in every locale from 320 to 420px', async ({
+    page,
+  }, testInfo) => {
+    const stacked: Record<string, string[]> = {};
+    for (const viewportWidth of [320, 340, 360, 375, 390, 412, 420]) {
+      for (const direction of ['ltr', 'rtl'] as const) {
+        await installLayoutProbe(page, '<main id="pro-register-probes"></main>', {
+          viewportWidth,
+          direction,
+        });
+        const locales = (await localizedActionsWithFonts(page)).filter(
+          (locale) => locale.dir === direction,
+        );
+        const pairs = await page.evaluate(
+          async ({ locales, markup, labels }) => {
+            const authored = new DOMParser().parseFromString(markup, 'text/html');
+            const source = authored.getElementById('dialog-overlay')!;
+            const root = document.getElementById('pro-register-probes')!;
+            const results = [];
+            for (const locale of locales) {
+              // One dialog at a time: it keeps its id, which its rules read.
+              const overlay = document.importNode(source, true) as HTMLElement;
+              overlay.classList.add('show');
+              overlay.lang = locale.htmlLang;
+              overlay.style.setProperty('--font-sans', locale.fontFamily);
+              overlay.style.fontFamily = locale.fontFamily;
+              const cancel = overlay.querySelector<HTMLButtonElement>('#btn-dialog-secondary')!;
+              const register = overlay.querySelector<HTMLButtonElement>('#btn-dialog-ok')!;
+              cancel.hidden = false;
+              cancel.textContent = labels[locale.code]!.cancel;
+              register.textContent = labels[locale.code]!.register;
+              root.appendChild(overlay);
+              overlay.getBoundingClientRect();
+              await document.fonts.ready;
+              const panel = overlay.querySelector<HTMLElement>('.dialog')!.getBoundingClientRect();
+              const measure = (button: HTMLButtonElement) => {
+                const rect = button.getBoundingClientRect();
+                const text = document.createRange();
+                text.selectNodeContents(button);
+                const lines = new Set(
+                  [...text.getClientRects()].map((line) => Math.round(line.top + line.height / 2)),
+                ).size;
+                return {
+                  lines,
+                  top: rect.top,
+                  left: rect.left,
+                  right: rect.right,
+                  overflowX: button.scrollWidth - button.clientWidth,
+                  overflowY: button.scrollHeight - button.clientHeight,
+                };
+              };
+              results.push({
+                code: locale.code,
+                panel: { left: panel.left, right: panel.right },
+                cancel: measure(cancel),
+                register: measure(register),
+              });
+              overlay.remove();
+            }
+            return results;
+          },
+          { locales, markup: APP_MARKUP, labels: PRO_REGISTER_LABELS },
+        );
+        expect(pairs).toHaveLength(locales.length);
+        for (const pair of pairs) {
+          const where = `${pair.code} ${viewportWidth}px`;
+          for (const [name, button] of [
+            ['Cancel', pair.cancel],
+            ['Register', pair.register],
+          ] as const) {
+            expect(button.lines, `${where} ${name} wraps`).toBe(1);
+            expect(button.overflowX, `${where} ${name} clips its label`).toBeLessThanOrEqual(0);
+            expect(button.overflowY, `${where} ${name} clips its label`).toBeLessThanOrEqual(0);
+            expect(button.left, `${where} ${name} inside the dialog`).toBeGreaterThanOrEqual(
+              pair.panel.left - 0.5,
+            );
+            expect(button.right, `${where} ${name} inside the dialog`).toBeLessThanOrEqual(
+              pair.panel.right + 0.5,
+            );
+          }
+          if (Math.abs(pair.cancel.top - pair.register.top) >= 0.5) {
+            (stacked[viewportWidth] ??= []).push(pair.code);
+          }
+        }
+      }
+    }
+    await testInfo.attach('PRO room registration pairs that stack', {
+      body: JSON.stringify(stacked, null, 2),
+      contentType: 'application/json',
+    });
+  });
 
   test('keeps the whole manual sync panel on the first screen of short landscape phones', async ({
     page,
@@ -1117,7 +1228,7 @@ test.describe('content-based adaptive action groups', () => {
           result.panel.bottom - Number.parseFloat(geometry.padding[1]) + 0.5,
         );
         if (twoRows) {
-          // A wrapped Done sits no closer to the nudge row than to Reset.
+          // A wrapped Reset sits no closer to the nudge row than to Done.
           expect(first!.top - result.nudge.bottom, `${where} pair margin`).toBeGreaterThanOrEqual(
             second!.top - first!.bottom - 0.5,
           );
@@ -1223,10 +1334,14 @@ test.describe('content-based adaptive action groups', () => {
           );
         }
         expect(sidebar.nav.top, where).toBeGreaterThanOrEqual(0);
-        expect(sidebar.nav.bottom, `${where} above the account badge`).toBeLessThanOrEqual(
+        expect(sidebar.tabs, where).toHaveLength(5);
+        // The last tab's pill, not the tab list's box: the list's 8px of
+        // transparent padding may meet the badge. Arabic, Persian and Urdu
+        // set the badge in a taller line, 3px from that box at 740x361 but
+        // 11px from the pill (owner decision 2026-10-29, item 6).
+        expect(sidebar.tabs[4]!.bottom, `${where} above the account badge`).toBeLessThanOrEqual(
           sidebar.badge.top,
         );
-        expect(sidebar.tabs, where).toHaveLength(5);
         sidebar.tabs.forEach((tab, index) => {
           const label = `${where} tab ${index + 1}`;
           expect(tab.labelShown, `${label} label`).toBe(true);
@@ -1462,13 +1577,15 @@ test.describe('content-based adaptive action groups', () => {
   // label and pill (13px / 600 / normal line height and tracking, 10px side
   // padding, 10px gap, 20px icon) in the same browser and fonts, so the pin
   // holds on any platform: no label or icon may reach further past its pill
-  // than in 9.0.18. Tamil Exit Tour is wider than its pill at 320px in 9.0.18
-  // too; that pre-existing case is an owner item in the UI bundle report.
+  // than in 9.0.18. Owner decision (2026-10-29, item 17): each icon keeps its
+  // 20px (it used to shrink before the label did, to 0px for the Tamil and
+  // Malayalam Exit Tour), so the 9.0.18 copy keeps a shrinking icon, and the
+  // Tamil and Malayalam Exit Tour take shorter words that fit beside it.
   const DEMO_FINISH_9_0_18 = {
     button:
       'font-size: 13px; font-weight: 600; line-height: normal; letter-spacing: normal; ' +
       'height: 54px; min-height: 54px; padding: 0 10px; gap: 10px;',
-    icon: 'width: 20px; height: 20px;',
+    icon: 'width: 20px; height: 20px; flex-shrink: 1;',
   };
   for (const viewportWidth of [320, 340, 360]) {
     test(`keeps the demo finish pair no worse than 9.0.18 in every locale at ${viewportWidth}px`, async ({
@@ -1534,6 +1651,7 @@ test.describe('content-based adaptive action groups', () => {
               typography: [style.fontSize, style.fontWeight, style.lineHeight, style.letterSpacing],
               width: pill.width,
               height: pill.height,
+              icon: [icon.width, icon.height],
               horizontal: Math.max(0, pill.left - left, right - pill.right),
               vertical: Math.max(0, pill.top - top, bottom - pill.bottom),
             };
@@ -1568,6 +1686,7 @@ test.describe('content-based adaptive action groups', () => {
           expect(shipped.height, `${id} pill height`).toBeCloseTo(54, 1);
           expect(reference.height, `${id} 9.0.18 pill height`).toBeCloseTo(54, 1);
           expect(shipped.width, `${id} pill width`).toBeCloseTo(reference.width, 1);
+          for (const side of shipped.icon) expect(side, `${id} icon`).toBeCloseTo(20, 1);
           for (const axis of ['horizontal', 'vertical'] as const) {
             if (shipped[axis] > reference[axis] + 0.5) {
               worse.push(

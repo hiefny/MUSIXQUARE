@@ -796,6 +796,8 @@ const ms: Record<I18nKey, string> = {
     'Anda telah memasukkan kata laluan yang salah terlalu banyak kali. Cuba lagi sebentar nanti.',
   'dialog.session_lost_msg':
     'Aplikasi memasuki mod tidur atau kehilangan sambungan, jadi peranti lain sudah terputus. Mulakan semula untuk membuka sesi baharu.',
+  'dialog.session_lost_guest_msg':
+    'Aplikasi memasuki mod tidur atau kehilangan sambungan, jadi peranti lain sudah terputus. Mulakan semula untuk menyertai bilik ini sekali lagi.',
   'dialog.session_lost_btn': 'Mulakan semula',
 
   // ─── Bilik PRO ───────────────────────────────────────────────────

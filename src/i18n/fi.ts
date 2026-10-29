@@ -783,6 +783,8 @@ const fi: Record<I18nKey, string> = {
     'Annoit väärän salasanan liian monta kertaa. Yritä hetken kuluttua uudelleen.',
   'dialog.session_lost_msg':
     'Sovellus siirtyi lepotilaan tai menetti yhteyden, joten muiden laitteiden yhteydet ovat jo katkenneet. Aloita uusi istunto käynnistämällä uudelleen.',
+  'dialog.session_lost_guest_msg':
+    'Sovellus siirtyi lepotilaan tai menetti yhteyden, joten muiden laitteiden yhteydet ovat jo katkenneet. Liity takaisin tähän huoneeseen käynnistämällä uudelleen.',
   'dialog.session_lost_btn': 'Aloita alusta',
 
   // ─── PRO Rooms ──────────────────────────────────────────────

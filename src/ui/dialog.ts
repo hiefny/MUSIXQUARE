@@ -33,6 +33,12 @@ interface DialogOptions {
    */
   closeOnBack?: boolean;
   defaultFocus?: 'primary' | 'secondary';
+  /**
+   * `danger` gives the primary action account deletion's danger look, for a
+   * primary that leaves the session (owner decision 2026-10-29). Only its
+   * colors change: position, label and the initial focus stay.
+   */
+  tone?: 'danger';
   /** Scrollable, selectable user-authored copy with independently directed text. */
   contentLayout?: 'reading';
   /** Runs synchronously inside the validated primary click/Enter gesture. */
@@ -557,6 +563,11 @@ function _openDialog(opts: DialogOptions | string, resolve: (result: DialogResul
   dialogPanel?.setAttribute('aria-describedby', msgEl.id);
 
   okBtn.textContent = buttonText;
+  // Set the tone before the overlay shows. Showing it makes a focused
+  // main-app button inert, and the focus move computes the newly shown
+  // primary action's style; a tone added after that would run the danger
+  // background transition from the blue primary for its first 180 ms.
+  okBtn.classList.toggle('dialog-danger', o.tone === 'danger');
 
   if (secondaryBtn) {
     // The static markup uses the HTML5 `hidden` attribute to avoid inline
@@ -584,6 +595,10 @@ function _openDialog(opts: DialogOptions | string, resolve: (result: DialogResul
   syncOverlayState('dialog-overlay');
 
   const cleanup: (() => void)[] = [];
+  if (o.tone === 'danger') {
+    // Runs after closeDialog has hidden the overlay, so it runs no transition.
+    cleanup.push(() => okBtn.classList.remove('dialog-danger'));
+  }
   const reading = o.contentLayout === 'reading' && !inputCfg && !choice;
   if (reading) {
     overlay.classList.add('dialog-reading');

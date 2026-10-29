@@ -81,12 +81,14 @@ function offerToLeave(): void {
   const offer = new AbortController();
   leaveOffer = offer;
   // Keep waiting is the exit, so it sits on the left and takes the initial
-  // focus; Back keeps waiting too. Only the primary Leave session leaves.
+  // focus; Back keeps waiting too. Only the primary Leave session leaves, in
+  // the danger tone of the leave confirmation (owner decision 2026-10-29).
   showDialog({
     title: t('dialog.host_unresponsive_title'),
     message: t('dialog.host_unresponsive_message'),
     buttonText: t('dialog.leave_session'),
     secondaryText: t('dialog.keep_waiting'),
+    tone: 'danger',
     signal: offer.signal,
   })
     .then((result) => {

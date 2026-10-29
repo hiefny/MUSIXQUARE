@@ -657,6 +657,8 @@ const zhHant: Record<I18nKey, string> = {
   'dialog.room_password_rate_limited_later': '密碼錯誤次數過多。請稍後再試一次。',
   'dialog.session_lost_msg':
     '應用程式進入睡眠或失去連線，與其他裝置的連線已中斷。請重新開始以建立新房間。',
+  'dialog.session_lost_guest_msg':
+    '應用程式進入睡眠或失去連線，與其他裝置的連線已中斷。請重新開始以再次加入這個房間。',
   'dialog.session_lost_btn': '重新開始',
 
   // ─── PRO Rooms ──────────────────────────────────────────────

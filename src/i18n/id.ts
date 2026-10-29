@@ -710,6 +710,8 @@ const id: Record<I18nKey, string> = {
     'Anda terlalu sering memasukkan sandi yang salah. Coba lagi sebentar lagi.',
   'dialog.session_lost_msg':
     'Aplikasi tertidur atau kehilangan koneksi, jadi perangkat lain sudah terputus. Mulai ulang untuk membuat ruang baru.',
+  'dialog.session_lost_guest_msg':
+    'Aplikasi tertidur atau kehilangan koneksi, jadi perangkat lain sudah terputus. Mulai ulang untuk bergabung lagi ke ruang ini.',
   'dialog.session_lost_btn': 'Mulai ulang',
 
   // ─── PRO Rooms ──────────────────────────────────────────────

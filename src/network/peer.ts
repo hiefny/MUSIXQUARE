@@ -11,7 +11,7 @@ import { t } from '../i18n/index.ts';
 import { bus } from '../core/events.ts';
 import { getState, setState, batchSetState } from '../core/state.ts';
 import { scheduleDocumentReload } from '../core/session-reset.ts';
-import { returnToRoomStart } from '../core/navigation.ts';
+import { isRoomStartCode, returnToRoomStart } from '../core/navigation.ts';
 import { deactivateNoSleep } from '../core/wake-lock.ts';
 import { showDialog } from '../ui/dialog.ts';
 import { MAX_GUEST_SLOTS, TRANSFER_STATE, PLAYBACK_STATE } from '../core/constants.ts';
@@ -801,15 +801,19 @@ function schedulePeerDisconnectGrace(peer: PeerInstance): void {
       // setup.ts. Go back and Back leave for the home screen. Restart returns
       // a guest to its room's start screen, where Start joins again; anyone
       // else, or a guest without a valid code, reloads into a new session.
+      // The body says which (owner decision 2026-10-29): the code that picks
+      // it is the one Restart uses.
+      const code = role === 'guest' ? getState('network.lastJoinCode') : '';
       showDialog({
         title: t('network.disconnected'),
-        message: t('dialog.session_lost_msg'),
+        message: t(
+          isRoomStartCode(code) ? 'dialog.session_lost_guest_msg' : 'dialog.session_lost_msg',
+        ),
         buttonText: t('dialog.session_lost_btn'),
         secondaryText: t('dialog.go_back'),
       })
         .then((res) => {
           if (res.action === 'ok') {
-            const code = role === 'guest' ? getState('network.lastJoinCode') : '';
             const returned = returnToRoomStart(code, {
               message: t('dialog.refreshing_session'),
               reconnect: true,

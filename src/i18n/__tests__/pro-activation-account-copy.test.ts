@@ -57,14 +57,13 @@ const PREVIOUS_LABELS: Readonly<Record<string, string>> = {
   'zh-hant': '繼續',
 };
 
-/**
- * The dialog stacks both actions full width. Full-width action buttons hold at
- * most 22 graphemes (docs/design/short-wait-labels-2026-10-14.md §1).
+/*
+ * The dialog pairs [Cancel | Register] and stacks the pair by design when it
+ * no longer fits one row (F5). Owner decision (2026-10-29, item 1a): the
+ * label is held to that layout, measured in every locale from 320 to 420px
+ * (e2e/adaptive-actions.test.ts, "keeps the PRO room registration labels
+ * whole"), not to the full-width 22-grapheme rule this dialog no longer uses.
  */
-const FULL_WIDTH_BUTTON_MAX_GRAPHEMES = 22;
-
-const graphemes = new Intl.Segmenter(undefined, { granularity: 'grapheme' });
-const graphemeCount = (value: string): number => [...graphemes.segment(value)].length;
 const ENGLISH_REGISTER = /(?:^|[^\p{L}])register(?:$|[^\p{L}])/iu;
 
 const dictionaries = Object.entries(APP_DICTIONARIES) as Array<[string, TranslationDictionary]>;
@@ -97,10 +96,6 @@ describe('PRO room registration button copy', () => {
       expect(label, `${locale}.${KEY} matches the other action`).not.toBe(
         dictionary['pro.activation_account_switch'],
       );
-      expect(
-        graphemeCount(label),
-        `${locale}.${KEY} exceeds ${FULL_WIDTH_BUTTON_MAX_GRAPHEMES} graphemes`,
-      ).toBeLessThanOrEqual(FULL_WIDTH_BUTTON_MAX_GRAPHEMES);
       if (locale !== 'en') {
         expect(label, `${locale}.${KEY} copies English`).not.toBe(english);
         expect(label, `${locale}.${KEY} uses the English word`).not.toMatch(ENGLISH_REGISTER);

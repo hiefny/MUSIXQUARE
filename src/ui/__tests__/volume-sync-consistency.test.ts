@@ -108,8 +108,8 @@ beforeEach(() => {
           <button id="btn-nudge-plus1">+1</button>
           <button id="btn-nudge-plus10">+10</button>
         </div>
-        <button id="btn-sync-done">Done</button>
         <button id="btn-auto-sync">Reset</button>
+        <button id="btn-sync-done">Done</button>
       </div>
     </div>
   `;

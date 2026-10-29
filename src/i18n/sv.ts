@@ -350,7 +350,7 @@ const sv: Record<I18nKey, string> = {
   'demo.prompt_cta': 'Starta rundturen',
   'demo.prompt_later': 'Senare',
   'demo.try_later_toast': 'Du kan prova när som helst på fliken Hjälp',
-  'demo.track_info': 'Spårinformation',
+  'demo.track_info': 'Spårinfo',
   'demo.exit': 'Avsluta demon',
   'demo.credit': 'Demospår',
   'demo.role_title': 'Ange enhetens roll',
@@ -787,6 +787,8 @@ const sv: Record<I18nKey, string> = {
     'Du har angett fel lösenord för många gånger. Försök igen om en liten stund.',
   'dialog.session_lost_msg':
     'Appen försattes i viloläge eller tappade anslutningen, så de andra enheterna har redan kopplats bort. Starta om för att påbörja en ny session.',
+  'dialog.session_lost_guest_msg':
+    'Appen försattes i viloläge eller tappade anslutningen, så de andra enheterna har redan kopplats bort. Starta om för att ansluta till det här rummet igen.',
   'dialog.session_lost_btn': 'Starta om',
 
   // ─── PRO Rooms ──────────────────────────────────────────────

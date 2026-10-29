@@ -797,6 +797,8 @@ const nl: Record<I18nKey, string> = {
     'Je hebt te vaak een verkeerd wachtwoord ingevoerd. Probeer het straks opnieuw.',
   'dialog.session_lost_msg':
     'De app ging in de slaapstand of verloor de verbinding, waardoor de andere apparaten al zijn losgekoppeld. Start opnieuw om een nieuwe kamer te maken.',
+  'dialog.session_lost_guest_msg':
+    'De app ging in de slaapstand of verloor de verbinding, waardoor de andere apparaten al zijn losgekoppeld. Start opnieuw om weer aan deze kamer deel te nemen.',
   'dialog.session_lost_btn': 'Herstarten',
 
   // ─── PRO Rooms ──────────────────────────────────────────────

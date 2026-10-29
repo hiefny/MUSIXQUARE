@@ -727,6 +727,8 @@ const ptBr: Record<I18nKey, string> = {
     'Você digitou a senha errada muitas vezes. Tente novamente daqui a pouco.',
   'dialog.session_lost_msg':
     'O app entrou em repouso ou perdeu a conexão, então os outros dispositivos já foram desconectados. Reinicie para criar uma nova sala.',
+  'dialog.session_lost_guest_msg':
+    'O app entrou em repouso ou perdeu a conexão, então os outros dispositivos já foram desconectados. Reinicie para entrar nesta sala de novo.',
   'dialog.session_lost_btn': 'Reiniciar',
 
   // ─── PRO Rooms ──────────────────────────────────────────────

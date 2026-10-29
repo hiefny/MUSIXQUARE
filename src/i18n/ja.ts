@@ -38,7 +38,7 @@ const ja: Record<I18nKey, string> = {
   'setup.carousel_dot_aria': '{{total}}枚中{{current}}枚目のスライド',
   'common.message': 'メッセージ',
   'common.mix': 'ミックス',
-  'common.wait': 'お待ちください...',
+  'common.wait': '準備中...',
   'common.guest': '参加者',
   'common.help': 'ヘルプ',
   'common.increase': '増やす',
@@ -712,6 +712,8 @@ const ja: Record<I18nKey, string> = {
     'パスワードを何度も間違えました。しばらくしてからもう一度お試しください。',
   'dialog.session_lost_msg':
     'アプリがスリープしたか接続を失ったため、他のデバイスはすでに切断されています。ページを再読み込みして新しいルームを始めてください。',
+  'dialog.session_lost_guest_msg':
+    'アプリがスリープしたか接続を失ったため、他のデバイスはすでに切断されています。ページを再読み込みして、このルームにもう一度参加してください。',
   'dialog.session_lost_btn': '再読み込み',
 
   // ─── PRO Rooms ──────────────────────────────────────────────

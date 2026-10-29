@@ -187,7 +187,9 @@ describe('history Back on the demo', () => {
     delete document.body.dataset.demoBound;
     document.body.innerHTML = `
       <div id="demo-overlay" class="demo-overlay">
-        <button type="button" id="btn-demo-exit"></button>
+        <article class="demo-step-panel" data-demo-panel="4">
+          <button type="button" id="finish-exit" data-demo-exit></button>
+        </article>
       </div>`;
     mocks.loadDemoFile.mockImplementation(async () => {
       setCurrentAudioBuffer({ duration: 120 } as AudioBuffer);
@@ -359,11 +361,11 @@ describe('history Back on the demo', () => {
     expect(mocks.safeSend).not.toHaveBeenCalled();
   });
 
-  // Owner policy (2026-10-28): the tour shows a visible exit at the top
-  // start on every step. It ends the demo for whoever may end it, and a
+  // Exit Tour on the last step ends the demo for whoever may end it, and a
   // guest who cannot end the room's demo gets the leave confirmation instead
-  // of the host-only toast.
-  it('ends the demo for the host from the exit at the top start', async () => {
+  // of the host-only toast (owner policy 2026-10-28). Steps 1 to 3 have no
+  // exit of their own and leave through Back (owner decision 2026-10-29).
+  it('ends the demo for the host from Exit Tour', async () => {
     setState('network.appRole', 'host');
     setState('setup.sessionStarted', true);
     bus.emit('demo:enter');
@@ -372,26 +374,26 @@ describe('history Back on the demo', () => {
     await flush(50);
     expect(getState('demo.active')).toBe(true);
 
-    document.getElementById('btn-demo-exit')!.click();
+    document.getElementById('finish-exit')!.click();
     await flush(50);
 
     expect(getState('demo.active')).toBe(false);
   });
 
-  it('asks the host to end it from the exit for a guest with room control', () => {
+  it('asks the host to end it from Exit Tour for a guest with room control', () => {
     const hostConn = joinAsGuest(['room.configure']);
 
-    document.getElementById('btn-demo-exit')!.click();
+    document.getElementById('finish-exit')!.click();
 
     expect(mocks.safeSend).toHaveBeenCalledWith(hostConn, { type: MSG.REQUEST_DEMO_EXIT });
   });
 
-  it('offers the leave confirmation from the exit to a guest who cannot end it', () => {
+  it('offers the leave confirmation from Exit Tour to a guest who cannot end it', () => {
     joinAsGuest(['media.add', 'playback.control']);
     const leave = vi.fn();
     bus.on('ui:request-leave-session', leave);
 
-    document.getElementById('btn-demo-exit')!.click();
+    document.getElementById('finish-exit')!.click();
 
     expect(leave).toHaveBeenCalledOnce();
     expect(mocks.safeSend).not.toHaveBeenCalled();

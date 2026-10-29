@@ -722,6 +722,8 @@ const fr: Record<I18nKey, string> = {
     'Vous avez saisi un mot de passe incorrect trop de fois. Réessayez dans quelques instants.',
   'dialog.session_lost_msg':
     'L’application est passée en veille ou a perdu la connexion. Les autres appareils sont donc déjà déconnectés. Redémarrez pour créer un nouveau salon.',
+  'dialog.session_lost_guest_msg':
+    'L’application est passée en veille ou a perdu la connexion. Les autres appareils sont donc déjà déconnectés. Redémarrez pour rejoindre à nouveau ce salon.',
   'dialog.session_lost_btn': 'Redémarrer',
 
   // ─── PRO Rooms ──────────────────────────────────────────────

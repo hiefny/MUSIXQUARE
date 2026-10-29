@@ -1232,13 +1232,62 @@ describe('lost-session dialog', () => {
     expect(mocks.showDialog).toHaveBeenCalledWith(
       expect.objectContaining({
         title: t('network.disconnected'),
-        message: t('dialog.session_lost_msg'),
         buttonText: t('dialog.session_lost_btn'),
         secondaryText: t('dialog.go_back'),
       }),
     );
     expect(mocks.scheduleDocumentReload).not.toHaveBeenCalled();
     expect(mocks.returnToRoomStart).not.toHaveBeenCalled();
+  });
+
+  // Owner decision (2026-10-29, item 8): the body says what Restart does.
+  // A guest with a room code goes back to that room's start screen and joins
+  // it again; anyone else reloads into a new session. The same predicate
+  // picks the body and the action, so the two never disagree.
+  it('tells a guest with a room code that Restart joins this room again', async () => {
+    await loseGuestSession('superseded', '123456');
+
+    expect(mocks.showDialog).toHaveBeenCalledWith(
+      expect.objectContaining({ message: t('dialog.session_lost_guest_msg') }),
+    );
+  });
+
+  it.each(['', '12345', '../x'])(
+    'keeps the new-session body for a guest whose code %j cannot return to a room',
+    async (code) => {
+      await loseGuestSession('superseded', code);
+
+      expect(mocks.showDialog).toHaveBeenCalledWith(
+        expect.objectContaining({ message: t('dialog.session_lost_msg') }),
+      );
+    },
+  );
+
+  it('keeps the new-session body for a host, whose Restart reloads', async () => {
+    vi.useFakeTimers();
+    mocks.showDialog.mockResolvedValueOnce({ action: 'ok' });
+    const peer = makePeer('STANDARD-HOST', true);
+    mocks.createTransportPeer.mockResolvedValueOnce(peer);
+    await createHostSessionWithShortCode(1);
+    setState('setup.sessionStarted', true);
+    setState('network.appRole', 'host');
+    // A host without a room code cannot recover signaling in place.
+    setState('network.sessionCode', '');
+    // A host never returns to a room's start screen, even with a code it joined before.
+    setState('network.lastJoinCode', '123456');
+    setState('network.connectedPeers', []);
+
+    peer.fire('disconnected');
+    await vi.advanceTimersByTimeAsync(5_000);
+    await vi.advanceTimersByTimeAsync(0);
+
+    expect(mocks.showDialog).toHaveBeenCalledExactlyOnceWith(
+      expect.objectContaining({ message: t('dialog.session_lost_msg') }),
+    );
+    expect(mocks.returnToRoomStart).toHaveBeenCalledExactlyOnceWith('', expect.anything());
+    expect(mocks.scheduleDocumentReload).toHaveBeenCalledExactlyOnceWith(
+      t('dialog.refreshing_session'),
+    );
   });
 
   it.each(['secondary', 'back'])(

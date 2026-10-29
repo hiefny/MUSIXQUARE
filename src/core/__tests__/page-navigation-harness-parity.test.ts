@@ -117,11 +117,10 @@ describe('app.ts wiring copied by the page navigation harness', () => {
         'navigateBack: () => history.back(),',
         'requestFrame: (callback) => window.requestAnimationFrame(callback),',
         'cancelFrame: (id) => window.cancelAnimationFrame(id),',
-        // The harness answers the leave dialog itself.
-        'requestLeaveConfirmation: async () => { const result = await showDialog({',
-        "title: t('dialog.return_home_title'), message: t('dialog.return_home_detail'),",
-        "buttonText: t('common.leave'), secondaryText: t('common.stay'), defaultFocus: 'secondary', });",
-        "return result.action === 'ok'; },",
+        // The harness answers the leave dialog itself. Its copy and labels
+        // live in ui/leave-session-confirmation.ts (owner decision
+        // 2026-10-29, items 9 and 12).
+        "requestLeaveConfirmation: () => confirmLeaveSession('history'),",
         "onLeaveConfirmed: () => { const reset = scheduleSessionReset(t('dialog.leaving_session'), () => {",
         "try { leaveSession(); } catch (e) { log.warn('[App] leaveSession failed:', e); }",
         'backHistory.leave(); });',

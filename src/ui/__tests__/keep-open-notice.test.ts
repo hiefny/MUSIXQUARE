@@ -217,13 +217,19 @@ describe('long host silence', () => {
     bus.emit('host-presence:long-unresponsive');
     await vi.waitFor(() => expect(mocks.scheduleDocumentReload).toHaveBeenCalled());
 
-    // Keep waiting is the exit, on the left; leaving is the action on the right.
+    // Keep waiting is the exit, on the left; leaving is the action on the
+    // right, in the danger tone of every leave confirmation (owner decision
+    // 2026-10-29, item 9). Keep waiting keeps the first focus.
     expect(mocks.showDialog).toHaveBeenCalledWith(
       expect.objectContaining({
         title: t('dialog.host_unresponsive_title'),
         buttonText: t('dialog.leave_session'),
         secondaryText: t('dialog.keep_waiting'),
+        tone: 'danger',
       }),
+    );
+    expect(mocks.showDialog).not.toHaveBeenCalledWith(
+      expect.objectContaining({ defaultFocus: 'primary' }),
     );
     expect(mocks.scheduleDocumentReload).toHaveBeenCalledWith(t('dialog.leaving_session'));
   });

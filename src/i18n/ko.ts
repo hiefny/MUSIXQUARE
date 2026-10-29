@@ -759,6 +759,8 @@ const ko = {
   'dialog.room_password_rate_limited_later': '암호를 여러 번 틀렸어요. 잠시 후 다시 시도해 주세요.',
   'dialog.session_lost_msg':
     '앱이 잠시 꺼지거나 절전 상태로 들어가서 다른 기기들과 연결이 끊어졌어요. 다시 시작하면 새 세션을 열 수 있어요.',
+  'dialog.session_lost_guest_msg':
+    '앱이 잠시 꺼지거나 절전 상태로 들어가서 다른 기기들과 연결이 끊어졌어요. 다시 시작하면 이 방에 다시 들어갈 수 있어요.',
   'dialog.session_lost_btn': '다시 시작',
 
   // ─── PRO Rooms ──────────────────────────────────────────────

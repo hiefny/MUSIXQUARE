@@ -1664,6 +1664,125 @@ describe('history Back on dialogs', () => {
   });
 });
 
+describe('danger tone on the primary action', () => {
+  // Owner decision (2026-10-29, items 9 and 12): a primary action that
+  // leaves the session takes the account deletion's danger look. Only its
+  // colors change; position, label and the initial focus stay.
+  const primary = () => document.getElementById('btn-dialog-ok') as HTMLButtonElement;
+  const secondary = () => document.getElementById('btn-dialog-secondary') as HTMLButtonElement;
+
+  // A failed assertion must not leave a dialog open or queued for the next test.
+  afterEach(async () => {
+    const { closeDialog } = await import('../dialog.ts');
+    for (let index = 0; index < 3; index += 1) {
+      closeDialog('superseded');
+      vi.advanceTimersByTime(10);
+    }
+  });
+
+  it('marks the primary action danger while the dialog is open, and only that dialog', async () => {
+    const { showDialog, closeDialog } = await import('../dialog.ts');
+    const leave = showDialog({
+      title: 'Leave Session',
+      buttonText: 'Leave',
+      secondaryText: 'Stay',
+      tone: 'danger',
+    });
+    const next = showDialog({ title: 'Next', buttonText: 'OK', secondaryText: 'Cancel' });
+    vi.advanceTimersByTime(10);
+
+    expect(primary().classList.contains('dialog-danger')).toBe(true);
+    expect(secondary().classList.contains('dialog-danger')).toBe(false);
+    // The exit keeps the first focus.
+    expect(document.activeElement).toBe(secondary());
+
+    closeDialog('ok');
+    await expect(leave).resolves.toMatchObject({ action: 'ok' });
+    expect(primary().classList.contains('dialog-danger')).toBe(false);
+    vi.advanceTimersByTime(10);
+    expect(document.getElementById('dialog-title')?.textContent).toBe('Next');
+    expect(primary().classList.contains('dialog-danger')).toBe(false);
+    closeDialog('secondary');
+    await expect(next).resolves.toMatchObject({ action: 'secondary' });
+  });
+
+  it('keeps the primary action blue without a tone', async () => {
+    const { showDialog, closeDialog } = await import('../dialog.ts');
+    const promise = showDialog({ title: 'Plain', buttonText: 'OK', secondaryText: 'Cancel' });
+    vi.advanceTimersByTime(10);
+    expect(primary().classList.contains('dialog-danger')).toBe(false);
+    closeDialog('secondary');
+    await promise;
+  });
+
+  it('has the tone on the primary action before the overlay shows', async () => {
+    // Showing the overlay makes a focused main-app button inert, and the
+    // focus move computes the newly shown primary action's style. A tone
+    // added after that starts the background transition from the blue
+    // primary, so Leave flashes blue for about 180 ms. Read the primary
+    // action's class at the moment the overlay gains `show`, from one
+    // observer's records in mutation order.
+    const { showDialog, closeDialog } = await import('../dialog.ts');
+    const overlay = document.getElementById('dialog-overlay')!;
+    const toneAtShow = async (open: () => Promise<unknown>, action: string) => {
+      const observer = new MutationObserver(() => {});
+      for (const target of [overlay, primary()]) {
+        observer.observe(target, {
+          attributes: true,
+          attributeFilter: ['class'],
+          attributeOldValue: true,
+        });
+      }
+      const result = open();
+      vi.advanceTimersByTime(10);
+      const records = observer.takeRecords();
+      observer.disconnect();
+      // A record holds the class before its change; the class after it is
+      // the next record's old value for that element, or the current class.
+      const classAfter = (index: number) => {
+        const target = records[index]!.target as Element;
+        const next = records.slice(index + 1).find((record) => record.target === target);
+        return next ? (next.oldValue ?? '') : target.getAttribute('class') || '';
+      };
+      const classBefore = (target: Element) => {
+        const first = records.find((record) => record.target === target);
+        return first ? (first.oldValue ?? '') : target.getAttribute('class') || '';
+      };
+      const classes = new Map<Node, string>([
+        [overlay, classBefore(overlay)],
+        [primary(), classBefore(primary())],
+      ]);
+      const seen: boolean[] = [];
+      records.forEach((record, index) => {
+        const had = /\bshow\b/.test(classes.get(overlay) ?? '');
+        classes.set(record.target, classAfter(index));
+        if (record.target === overlay && !had && /\bshow\b/.test(classes.get(overlay) ?? '')) {
+          seen.push(/\bdialog-danger\b/.test(classes.get(primary()) ?? ''));
+        }
+      });
+      closeDialog(action);
+      await result;
+      vi.advanceTimersByTime(10);
+      return seen;
+    };
+
+    const leave = () =>
+      showDialog({
+        title: 'Leave Session',
+        buttonText: 'Leave',
+        secondaryText: 'Stay',
+        tone: 'danger',
+      });
+    const plain = () => showDialog({ title: 'Plain', buttonText: 'OK', secondaryText: 'Cancel' });
+
+    expect(await toneAtShow(leave, 'ok')).toEqual([true]);
+    // The tone leaves with its dialog, so the next plain dialog shows blue.
+    expect(await toneAtShow(plain, 'secondary')).toEqual([false]);
+    expect(await toneAtShow(leave, 'secondary')).toEqual([true]);
+    expect(primary().classList.contains('dialog-danger')).toBe(false);
+  });
+});
+
 describe('link action under the pair', () => {
   const overlay = () => document.getElementById('dialog-overlay')!;
   const secondary = () => document.getElementById('btn-dialog-secondary') as HTMLButtonElement;

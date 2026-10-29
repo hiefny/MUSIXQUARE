@@ -360,6 +360,54 @@ test('confirming Leave reaches the actual previous document without leaving an i
   await expect(page.locator('#previous-document')).toBeVisible();
 });
 
+test('the leave confirmation shows Leave in the danger tint from its first frame', async ({
+  page,
+  browserName,
+}) => {
+  await openRoom(page, browserName);
+  // With motion on, a tone set after the overlay shows runs the 0.18 s
+  // background transition from the blue primary action.
+  await page.emulateMedia({ reducedMotion: 'no-preference' });
+  // A main-app button keeps focus when Back fires. Showing the confirmation
+  // makes it inert, and moving focus into the dialog computes the newly shown
+  // Leave button's style before the dialog code can add the tone.
+  await page.locator('#btn-media-source').focus();
+  // Keep the pointer off the dialog's actions so no hover tint is read.
+  await page.mouse.move(1, 1);
+  await page.evaluate(() => {
+    const overlay = document.getElementById('dialog-overlay')!;
+    const leave = document.getElementById('btn-dialog-ok')!;
+    const samples: string[] = [];
+    (window as unknown as { __leaveToneSamples: string[] }).__leaveToneSamples = samples;
+    new MutationObserver((_records, observer) => {
+      if (!overlay.classList.contains('show')) return;
+      observer.disconnect();
+      samples.push(getComputedStyle(leave).backgroundColor);
+      requestAnimationFrame(() => samples.push(getComputedStyle(leave).backgroundColor));
+    }).observe(overlay, { attributes: true, attributeFilter: ['class'] });
+  });
+  await goBackAndRearm(page);
+  await expect(page.locator('#btn-dialog-ok')).toHaveText('Leave');
+  const readSamples = () =>
+    page.evaluate(() => (window as unknown as { __leaveToneSamples: string[] }).__leaveToneSamples);
+  await expect.poll(async () => (await readSamples()).length).toBe(2);
+  // The danger tint resolved in the same dialog, from the token the CSS reads.
+  const tint = await page.evaluate(() => {
+    const probe = document.createElement('span');
+    probe.style.background = 'var(--control-danger-dialog)';
+    document.getElementById('btn-dialog-ok')!.parentElement!.appendChild(probe);
+    const color = getComputedStyle(probe).backgroundColor;
+    probe.remove();
+    return color;
+  });
+  expect(tint).not.toBe('rgba(0, 0, 0, 0)');
+  // A tone set after `show` read the blue primary rgb(59, 130, 246) in both.
+  expect(await readSamples()).toEqual([tint, tint]);
+  await expect(page.locator('#btn-dialog-ok')).toHaveCSS('background-color', tint);
+  await page.locator('#btn-dialog-secondary').click();
+  await expect(page.locator('#dialog-overlay')).not.toHaveClass(/\bshow\b/);
+});
+
 test('a required audio recovery dialog survives Back without leaving the session', async ({
   page,
   browserName,

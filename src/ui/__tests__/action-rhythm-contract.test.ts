@@ -328,9 +328,9 @@ describe('action pill rhythm contract', () => {
       ),
     ];
     expect(actions.length).toBeGreaterThanOrEqual(20);
-    // The manual sync panel's Done / Reset pair is checked like a dialog's.
+    // The manual sync panel's Reset / Done pair is checked like a dialog's.
     expect(actions.map((action) => action.id)).toEqual(
-      expect.arrayContaining(['btn-sync-done', 'btn-auto-sync']),
+      expect.arrayContaining(['btn-auto-sync', 'btn-sync-done']),
     );
     for (const action of actions) {
       const heights = appliedValues(action, ['height', 'min-height']);
@@ -570,21 +570,23 @@ describe('action pill rhythm contract', () => {
     }
   });
 
-  it('puts the manual sync exit, Done, on the left of Reset', () => {
-    // Owner policy (2026-10-28): in a two-button pair the exit is on the left
-    // with the secondary look and the action on the right with the primary
-    // fill; RTL mirrors the row with the document. One panel serves the
-    // standard room, PRO and the demo.
+  it("keeps Done, the manual sync panel's finishing action, on the right of Reset", () => {
+    // Owner decision (2026-10-29, item 11): the exit-on-the-left rule
+    // (2026-10-28) is for dialog [Cancel | Action] pairs. This panel's main
+    // action finishes it: Done applies the value and closes, so it stays on
+    // the right with the primary fill and Reset on the left with the
+    // secondary look, as before 9.0.20; RTL mirrors the row with the
+    // document. One panel serves the standard room, PRO and the demo.
     const row = appMarkup().querySelector('#manual-sync-overlay .sync-bottom-row')!;
-    const [done, reset] = row.querySelectorAll(':scope > button');
-    expect([done?.id, reset?.id]).toEqual(['btn-sync-done', 'btn-auto-sync']);
+    const [reset, done] = row.querySelectorAll(':scope > button');
+    expect([reset?.id, done?.id]).toEqual(['btn-auto-sync', 'btn-sync-done']);
     expect(done?.getAttribute('data-i18n')).toBe('common.done');
     expect(reset?.getAttribute('data-i18n')).toBe('common.reset');
-    expect(appliedValues(done!, ['background', 'color']).sort()).toEqual([
+    expect(appliedValues(reset!, ['background', 'color']).sort()).toEqual([
       'background: var(--surface-2)',
       'color: var(--text-sub)',
     ]);
-    expect(appliedValues(reset!, ['background', 'color']).sort()).toEqual([
+    expect(appliedValues(done!, ['background', 'color']).sort()).toEqual([
       'background: var(--primary-filled)',
       'color: white',
     ]);
@@ -663,7 +665,7 @@ describe('action pill rhythm contract', () => {
     expect(appliedValues(pair, ['margin', 'margin-block', 'margin-top'], SHORT_SCREEN)).toEqual([
       'margin-top: 8px',
     ]);
-    expect(pills.map((pill) => pill.id)).toEqual(['btn-sync-done', 'btn-auto-sync']);
+    expect(pills.map((pill) => pill.id)).toEqual(['btn-auto-sync', 'btn-sync-done']);
     for (const pill of pills) {
       expect(appliedValues(pill, ['height', 'min-height'], SHORT_SCREEN), pill.id).toEqual(
         accountPills,

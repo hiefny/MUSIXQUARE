@@ -787,6 +787,8 @@ const cs: Record<I18nKey, string> = {
     'Příliš mnohokrát jste zadali nesprávné heslo. Zkuste to znovu za chvíli.',
   'dialog.session_lost_msg':
     'Aplikace přešla do režimu spánku nebo ztratila spojení, takže ostatní zařízení už byla odpojena. Restartováním zahájíte novou relaci.',
+  'dialog.session_lost_guest_msg':
+    'Aplikace přešla do režimu spánku nebo ztratila spojení, takže ostatní zařízení už byla odpojena. Restartováním se k této místnosti znovu připojíte.',
   'dialog.session_lost_btn': 'Restartovat',
 
   // ─── PRO Rooms ──────────────────────────────────────────────

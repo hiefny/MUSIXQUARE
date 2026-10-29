@@ -5802,12 +5802,16 @@ or pointers. Keep :focus-visible and :active outside the gate (src/ui/__tests__/
     padding: 30px 32px 8px;
   }
 
+  /* A title word longer than the line breaks rather than leave the dialog
+     (owner decision 2026-10-29; the Tamil host-unresponsive title ran 2.4px
+     out at 320px). Japanese and Chinese keep their words whole below. */
   .dialog-title {
     font-size: 20px;
     font-weight: var(--font-weight-title);
     letter-spacing: var(--title-letter-spacing);
     color: var(--text-main);
     min-width: 0;
+    overflow-wrap: anywhere;
   }
 
   .dialog-message {
@@ -5821,10 +5825,6 @@ or pointers. Keep :focus-visible and :active outside the gate (src/ui/__tests__/
 
   /* Full notices use the normal dialog surface/motion, with copy scrolling
      inside the straight edges so its scrollbar never meets the rounded corners. */
-  #dialog-overlay.dialog-reading .dialog-title {
-    overflow-wrap: anywhere;
-  }
-
   #dialog-overlay.dialog-reading .dialog-message {
     flex-shrink: 1;
     min-height: 48px;
@@ -6676,6 +6676,28 @@ or pointers. Keep :focus-visible and :active outside the gate (src/ui/__tests__/
     transform: scale(0.97);
   }
 
+  /* A primary action that leaves the session (dialog.ts tone 'danger': the
+     leave confirmation and the host-unresponsive offer) takes account
+     deletion's colors (owner decision 2026-10-29). Only the colors change:
+     size, label role and the press scale stay the primary action's. */
+  .dialog-primary.dialog-danger {
+    background: var(--control-danger-dialog);
+    color: var(--danger-foreground);
+    transition:
+      background-color 0.18s ease,
+      transform 0.2s;
+  }
+
+  :where(html[data-hover-pointer]) .dialog-primary.dialog-danger:hover {
+    background: var(--control-danger-dialog-hover);
+  }
+
+  /* After the hover rule with the same specificity, so a hovered press
+     shows the press tint. */
+  .dialog-primary.dialog-danger:active {
+    background: var(--control-danger-dialog-press);
+  }
+
   /* Dark theme toast */
   [data-theme='dark'] .toast > span {
     background: var(--surface-1);
@@ -7127,12 +7149,31 @@ or pointers. Keep :focus-visible and :active outside the gate (src/ui/__tests__/
     letter-spacing: var(--title-letter-spacing);
     color: var(--text-main);
     line-height: 1.2;
+    overflow-wrap: anywhere;
   }
 
   /* Korean breaks between any two syllables; keep a wrapping title's words
-     whole, like the paragraph below it. Japanese and Chinese have no spaces,
-     so they keep the normal breaks (title-tracking-contract.test.ts). */
+     whole, like the paragraph below it. Japanese and Chinese titles keep
+     their words whole too (owner decision 2026-10-29): Japanese breaks
+     between phrases where the browser can (auto-phrase) and elsewhere keeps
+     its words whole like Korean; Chinese keeps its words whole and breaks at
+     its spaces. A word longer than the line still breaks (overflow-wrap
+     above), and the stepped dialog keeps its own rule
+     (title-tracking-contract.test.ts). */
   html:lang(ko) .setup-header-text h2 {
+    word-break: keep-all;
+  }
+
+  html:lang(ja) .setup-header-text h2,
+  html:lang(ja) .dialog-title {
+    word-break: keep-all;
+    word-break: auto-phrase;
+  }
+
+  html:lang(zh-Hans) .setup-header-text h2,
+  html:lang(zh-Hant) .setup-header-text h2,
+  html:lang(zh-Hans) .dialog-title,
+  html:lang(zh-Hant) .dialog-title {
     word-break: keep-all;
   }
 
@@ -9137,12 +9178,14 @@ or pointers. Keep :focus-visible and :active outside the gate (src/ui/__tests__/
     background: var(--surface-3);
   }
 
-  /* The Done / Reset pair is an adaptive action group (index.html): 56px
+  /* The Reset / Done pair is an adaptive action group (index.html): 56px
      pills 10px apart side by side and 12px down like every dialog action,
      each sized by its label, and each on its own full row only when the
      localized pair no longer fits. Labels wrap only at word boundaries.
-     Done, the exit, comes first with the secondary look and Reset, the
-     action, follows with the primary fill (owner policy 2026-10-28). */
+     Reset comes first with the secondary look; Done, which applies the
+     value and closes the panel, finishes it on the right with the primary
+     fill. Exit on the left is for dialog [Cancel | Action] pairs (owner
+     decision 2026-10-29). */
   .sync-bottom-row {
     width: 100%;
     margin-top: 16px;
@@ -9164,29 +9207,29 @@ or pointers. Keep :focus-visible and :active outside the gate (src/ui/__tests__/
       transform 0.1s;
   }
 
-  .sync-done-btn {
+  .sync-reset-btn {
     background: var(--surface-2);
     color: var(--text-sub);
   }
 
-  .sync-done-btn:active {
+  .sync-reset-btn:active {
     transform: scale(0.96);
     background: var(--surface-3);
   }
 
-  .sync-reset-btn {
+  .sync-done-btn {
     background: var(--primary-filled);
     color: white;
   }
 
-  .sync-reset-btn:active {
+  .sync-done-btn:active {
     transform: scale(0.96);
     opacity: 0.85;
   }
 
   /* Short landscape phones keep the manual sync body and its pair in view.
      The pair's top margin never drops below its own row gap, so a wrapped
-     Done never sits closer to the nudge row than to Reset. No keyboard-open
+     Reset never sits closer to the nudge row than to Done. No keyboard-open
      guard: these rules only change spacing inside the fixed overlay, so they
      cannot feed keyboard detection, and a guard would move the value field
      while it is being edited. */
@@ -9312,10 +9355,7 @@ or pointers. Keep :focus-visible and :active outside the gate (src/ui/__tests__/
     top: 0;
     z-index: 2;
     display: grid;
-    /* The tour's exit, the settings opener, then the track copy. The exit
-       stays at the start on every step (owner policy 2026-10-28: a visible
-       exit on every leavable window); the grid mirrors it in RTL. */
-    grid-template-columns: 44px 44px minmax(0, 1fr);
+    grid-template-columns: 44px minmax(0, 1fr);
     gap: 12px;
     align-items: center;
     min-width: 0;
@@ -9371,7 +9411,7 @@ or pointers. Keep :focus-visible and :active outside the gate (src/ui/__tests__/
   }
 
   .demo-track-copy {
-    grid-column: 3;
+    grid-column: 2;
     grid-row: 1;
     min-width: 0;
     opacity: 1;
@@ -9383,13 +9423,19 @@ or pointers. Keep :focus-visible and :active outside the gate (src/ui/__tests__/
       visibility 0s;
   }
 
+  /* The header names the track alone (its album is in the track list and
+     the track info) on one line; an ellipsis is the net for a name longer
+     than the line (owner decision 2026-10-29). */
   .demo-track-title {
     font-size: 18px;
     font-weight: var(--font-weight-title);
     line-height: 1.25;
     letter-spacing: var(--title-letter-spacing);
     color: var(--text-main);
-    overflow-wrap: anywhere;
+    overflow: hidden;
+    white-space: nowrap;
+    text-overflow: ellipsis;
+    overflow-wrap: normal;
   }
 
   .demo-track-artist {
@@ -9402,8 +9448,7 @@ or pointers. Keep :focus-visible and :active outside the gate (src/ui/__tests__/
   }
 
   .demo-play-button,
-  .demo-settings-button,
-  .demo-exit-corner {
+  .demo-settings-button {
     width: 44px;
     height: 44px;
     border: none;
@@ -9418,29 +9463,15 @@ or pointers. Keep :focus-visible and :active outside the gate (src/ui/__tests__/
   }
 
   .demo-play-button:active,
-  .demo-settings-button:active,
-  .demo-exit-corner:active {
+  .demo-settings-button:active {
     transform: scale(0.92);
   }
 
   .demo-play-button > svg,
-  .demo-settings-button > svg,
-  .demo-exit-corner > svg {
+  .demo-settings-button > svg {
     width: 24px;
     height: 24px;
     fill: currentColor;
-  }
-
-  .demo-exit-corner {
-    grid-column: 1;
-    grid-row: 1;
-    padding: 0;
-    opacity: 1;
-    visibility: visible;
-    transition:
-      opacity 0.3s ease,
-      transform 0.35s cubic-bezier(0.16, 1, 0.3, 1),
-      visibility 0s;
   }
 
   .demo-play-button.is-loading {
@@ -9466,9 +9497,7 @@ or pointers. Keep :focus-visible and :active outside the gate (src/ui/__tests__/
   .demo-controls-pill {
     position: relative;
     z-index: 1;
-    /* Grows over the track copy; open, it also slides over the exit's place
-       (see .demo-controls-expanded). */
-    grid-column: 2 / -1;
+    grid-column: 1 / -1;
     grid-row: 1;
     justify-self: start;
     display: flex;
@@ -9625,26 +9654,11 @@ or pointers. Keep :focus-visible and :active outside the gate (src/ui/__tests__/
     margin: 0;
   }
 
-  /* Open, the pill slides over the tour exit's place (its 44px column and
-     the 12px gap) and keeps its full width; its back arrow is the start's way
-     out until it closes, and the exit steps aside meanwhile. */
   .demo-controls-expanded .demo-controls-pill {
     width: 305px;
-    max-width: calc(100% + 56px);
     height: 48px;
     /* Grow around the opener's center without moving the title's grid row. */
     margin-block: -2px;
-    margin-inline-start: -56px;
-  }
-
-  .demo-controls-expanded .demo-exit-corner {
-    opacity: 0;
-    visibility: hidden;
-    transform: scale(0.7);
-    transition:
-      opacity 0.3s ease,
-      transform 0.35s cubic-bezier(0.16, 1, 0.3, 1),
-      visibility 0s linear 0.35s;
   }
 
   .demo-controls-expanded .demo-track-copy {
@@ -9701,7 +9715,6 @@ or pointers. Keep :focus-visible and :active outside the gate (src/ui/__tests__/
     .demo-track-header .demo-controls-pill,
     .demo-track-header .demo-inline-controls,
     .demo-track-header .demo-track-copy,
-    .demo-track-header .demo-exit-corner,
     .demo-settings-button > .demo-settings-open-icon,
     .demo-settings-button > .demo-settings-close-icon {
       transition: none;
@@ -9929,6 +9942,12 @@ or pointers. Keep :focus-visible and :active outside the gate (src/ui/__tests__/
     flex-direction: row;
     justify-content: center;
     gap: 10px;
+  }
+
+  /* Each icon keeps its size; only the label wraps (owner decision
+     2026-10-29). As a flex item it used to shrink before the label did. */
+  .demo-large-actions > button > svg {
+    flex-shrink: 0;
   }
 
   .demo-large-actions .accent-action-btn {

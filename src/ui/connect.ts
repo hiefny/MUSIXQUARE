@@ -10,6 +10,7 @@ import { bus, createBusScope } from '../core/events.ts';
 import { getState, setState } from '../core/state.ts';
 import { t } from '../i18n/index.ts';
 import { showDialog } from './dialog.ts';
+import { confirmLeaveSession } from './leave-session-confirmation.ts';
 import { showToast } from './toast.ts';
 import {
   copyTextToClipboard,
@@ -2257,16 +2258,9 @@ export function initConnect(): void {
 
   // Leave Session buttons (mobile + desktop)
   const leaveHandler = () => {
-    showDialog({
-      title: t('dialog.return_home_title'),
-      message: `${t('dialog.return_home_msg')}\n${t('dialog.return_home_detail')}`,
-      buttonText: t('common.ok'),
-      secondaryText: t('common.cancel'),
-    })
-      .then((res) => {
-        if (res && res.action === 'ok') {
-          navigateHome(t('dialog.leaving_session'), { history: 'replace' });
-        }
+    confirmLeaveSession('start-screen')
+      .then((leave) => {
+        if (leave) navigateHome(t('dialog.leaving_session'), { history: 'replace' });
       })
       .catch((error) => {
         log.warn('[Connect] Leave-session dialog failed', error);

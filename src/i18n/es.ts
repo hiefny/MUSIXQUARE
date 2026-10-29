@@ -729,6 +729,8 @@ const es: Record<I18nKey, string> = {
     'Ingresaste una contraseña incorrecta demasiadas veces. Vuelve a intentarlo en un rato.',
   'dialog.session_lost_msg':
     'La app se suspendió o perdió conexión, así que los demás dispositivos ya se desconectaron. Reinicia para crear una sala nueva.',
+  'dialog.session_lost_guest_msg':
+    'La app se suspendió o perdió conexión, así que los demás dispositivos ya se desconectaron. Reinicia para volver a unirte a esta sala.',
   'dialog.session_lost_btn': 'Reiniciar',
 
   // ─── PRO Rooms ──────────────────────────────────────────────

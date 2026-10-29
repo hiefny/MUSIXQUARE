@@ -60,9 +60,11 @@ gh run list --workflow e2e.yml --branch main --limit 3
       빈 목록). 앱 SemVer와 SW 캐시를 바꾸지 않아 업데이트 창이 없다. `.github/workflows/release.yml`의 PRO 최소 빌드 요구 값을
       795로 적었다(런타임 경로 밖, §3). D1 스키마, 비밀, 바인딩, Wrangler 설정, CORS, 계약 표지, 의존성은 바뀌지 않는다. 저장
       모양은 대기 transition과 outbox 기록의 선택 키 `timingMode`와 LAN-direct의 null만 바뀐다. 자원 소유권 새 레코드 없음
-      (RO-07, RO-03 문장만). 로컬 QA는 보고서 라운드 1(증분마다 테스트 먼저를 부모에서 돌려 새 행과 바뀐 행만 실패)과 라운드
-      2(기록 커밋의 전체 기본 검사)다. 9.0.22가 머지되면 이 브랜치를 main 위로 옮기고 테스트 먼저 셋을 옮긴 부모에서 다시
-      돌린다. 열차 끝 리뷰, PR, PR CI, 자동 코드 리뷰, exact-main CI, 배포는 아직이고 로컬 결과는 exact-main-SHA 후보를
+      (RO-07, RO-03 문장만). 로컬 QA: 보고서 라운드 1(증분마다 테스트 먼저를 부모에서 돌려 새 행과 바뀐 행만 실패)과 라운드
+      2(기록 커밋 `e90ab14d`의 전체 기본 검사: 단위 702 files / 16,687, Worker 69 / 3,315, 핵심 커버리지 90 / 3,515,
+      release-tooling 14 / 432, typecheck, `check:workers`, lint, format, 가드, `build:checked`, `check:worker-bundles` 모두 통과,
+      고정 v2 기록의 되돌리기 행 셋을 9.0.22 PRO Worker 코드로 다시 돌려 통과). 9.0.22가 머지되면 이 브랜치를 main 위로 옮기고
+      테스트 먼저 셋을 옮긴 부모에서 다시 돌린다. 열차 끝 리뷰, PR, PR CI, 자동 코드 리뷰, exact-main CI, 배포는 아직이고 로컬 결과는 exact-main-SHA 후보를
       대신하지 않는다. 배포 뒤 기록 PR이 이 항목을 '배포 뒤 확인'으로 바꾸고 §4의 이 릴리스 항목과 현재 경계 줄 (5),
       hotfix-procedure의 계약 문장에 머지 SHA와 Release ID를 채운다.
       [변경·QA 보고서](design/phase5-5-r2-v2-send-2026-10-29.md),
@@ -91,8 +93,9 @@ gh run list --workflow e2e.yml --branch main --limit 3
       outbox의 PREPARE·transition COMMIT을 콜드 재시작으로 불러와 차례로 배달하고 커밋)이 9.0.22 PRO Worker 코드에서
       통과했고, 그 Worker는 null LAN-direct를 같은 공유로 읽어 숫자로 답한다. PRO 방 smoke는 새 모양을 읽지 않아 그 결함은
       커밋 표지까지 가므로 그때는 손으로 9.0.22 PRO Worker로 되돌리고 다음 수리는 `all`이다. 그 아래 PRO Worker로는 손으로
-      되돌리지 않는다(9.0.22 PRO의 R1-9 부모 실행이 보인 대로 그 Worker는 대기 전환을 CANCEL 없이 버리고 outbox를 통째로
-      버림). App을 795 아래로는 PRO, (9.0.15 아래면 Signaling), `lower`, App 순서로만.
+      되돌리지 않는다(R1-9 테스트 먼저를 9.0.22 앞 PRO Worker 코드에서 돌린 실행이 보인 대로, 그 Worker는 대기 전환을 CANCEL
+      없이 버리고 outbox를 통째로 버리며 null LAN-direct 공유를 다음 세대에서 끝냄). App을 795 아래로는 PRO, (9.0.15 아래면
+      Signaling), `lower`, App 순서로만.
       [보고서의 되돌리기](design/phase5-5-r2-v2-send-2026-10-29.md#되돌리기),
       [혼합 버전](design/phase5-5-r2-v2-send-2026-10-29.md#혼합-버전).
 - [ ] 확인하지 않은 것: 운영 단계(F2, F2 직후 신호 smoke, 배포와 배포 직후 합성 방 확인), 9.0.22 머지 뒤 옮긴 부모의 테스트

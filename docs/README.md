@@ -112,8 +112,11 @@ runbooks. Neither belongs in a general setup document.
   plan, the exact-count guards, mixed versions, rollback (the release record's §4 current boundary
   line items 5 and 6: the PRO step first below build 795, never below the 9.0.22 PRO Worker, and
   the repair exits), deploy conditions and order, user-visible changes, records, QA rounds 1 and 2
-  with placeholders for the production preconditions and the release (rounds 3 and 4), owner
-  device check candidates and what was not verified.
+  (per increment; the full gate at the records commit `e90ab14d`: unit 702 files / 16,687, Worker
+  69 / 3,315, critical 90 / 3,515, release-tooling 14 / 432, typecheck, lint, format, every guard,
+  `build:checked`, `check:worker-bundles`, and the three rollback rows rerun on the 9.0.22 PRO
+  Worker) with placeholders for the production preconditions and the release (rounds 3 and 4),
+  owner device check candidates and what was not verified.
 - [UI owner decisions train 9.0.23: the items 9.0.20 left open (2026-10-29)](design/ui-owner-923-2026-10-29.md):
   released on 2026-10-29 21:22 KST in Release 40872467902 (PR #526, squash `5a5afb0e`): the next app
   update after 9.0.22 (9.0.23 / v796, App build 796, bump `060dce82`, target `app` with 57 App runtime

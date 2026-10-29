@@ -152,6 +152,11 @@ is missing** — so a complete file must define every key.
   Keep them short enough for the narrowest chip on one line;
   `chip-label-width.test.ts` checks every locale. `common.left` /
   `common.right` also name the roles in chat, so they stay plain direction words.
+  The help tab's role list (`player.play_speakers_html`) names the four roles
+  with the same chip words: only the name inside each `<strong>` follows them,
+  and the description, separators and markup stay as they are.
+  `help-role-names.test.ts` checks this, so a suggestion for that key that keeps
+  longer names such as "Left Speaker" fails the export PR.
 - **One word for "admin":** pick a single term for the admin/operator role and use
   it consistently across every key (`connect.administrator_role`,
   `connect.administrator_grant_aria`, `chat.cmd_d_op`,

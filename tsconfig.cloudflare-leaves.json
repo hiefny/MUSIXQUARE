@@ -26,6 +26,7 @@
     "cloudflare/pro-room-media-duration.ts",
     "cloudflare/pro-room-media-timing.ts",
     "cloudflare/pro-room-receipt-timing.ts",
+    "cloudflare/pro-room-playback-timing.ts",
     "cloudflare/pro-room-mp4-duration.ts",
     "cloudflare/pro-room-claims.ts",
     "cloudflare/pro-room-crypto.ts",

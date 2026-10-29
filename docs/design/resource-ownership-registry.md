@@ -339,7 +339,36 @@ RO-53 owner-in-place
   `PRO_YOUTUBE_UNBARRIERED_PREPARE_TIMEOUT_MS` (10 s, equal to the Standard `prepareTimeoutMs`,
   imported by `playlist.ts`), both in `iframe.ts`; these are the effective values. Target:
   `src/youtube/constants.ts` (Phase 0d, C2-1).
+
+  The PRO playback transition those budgets serve has its own home since Phase 5.5,
+  `cloudflare/pro-room-playback-timing.ts`, which the PRO Worker and the App import: the barrier
+  `PRO_ROOM_PLAYBACK_TRANSITION_DEADLINE_MS` (3 s), the COMMIT lead
+  `PRO_ROOM_PLAYBACK_COMMIT_LEAD_MS` (700 ms) and the start-kind union `ProRoomPlaybackTimingMode`
+  (the App's `ProPlaybackTimingMode`). The file is on both the pro-room and the app runtime
+  paths, so a release that changes it targets `all`. Kept out of it on purpose:
+  - the zero-start encoding of PRO Workers before PRO snapshot schemaVersion 2, one below each
+    value: a 2999 ms stored deadline and a 699 ms COMMIT lead. `cloudflare/pro-room-worker.ts`
+    and `src/pro-room/playback-controller.ts` keep their own copies because they drop them in
+    different releases (the Worker stops writing the 699 ms lead, then the App stops reading it,
+    then the Worker stops reading the 2999 ms deadline). A shared export would be dead in
+    between, which `guard:dead-exports` refuses, and would turn those PRO-only and App-only
+    releases into `all`;
+  - the App's own budgets in `playback-controller.ts` that only share a value: the clock wait of
+    a COMMIT that arrives without a current server clock (`PLAYBACK_COMMIT_CLOCK_WAIT_MS`,
+    700 ms), the lead of a participant-local reconciliation
+    (`PLAYBACK_RECONCILIATION_RENDEZVOUS_LEAD_MS`, 700 ms) and the late YouTube rejoin threshold
+    and minimum lead (`LATE_YOUTUBE_COMMIT_THRESHOLD_MS` 1.5 s, `LATE_YOUTUBE_COMMIT_LEAD_MS`
+    3 s). Each measures the device's own remaining time (`executeAtMs` against the server clock
+    once the wait ends; measured iframe preparation for a rejoin), so none becomes wrong when the
+    Worker's lead or barrier changes. The guard lists them as report-only pairs.
+
+  The ordering test that the barriered 2.3 s fits inside the 3 s barrier waits for Phase 0d C2-1,
+  which moves 2.3 s to `src/youtube/constants.ts`: until then it is a module constant of
+  `iframe.ts` and `authority-arm.ts`, and a test-only export is not allowed.
 - **Anchor tests:**
+  - Timing home: `src/pro-room/__tests__/pro-room-playback-timing.test.ts` (the barrier and the
+    lead and no other value, the zero-start encoding before schemaVersion 2 one below each, one
+    start-kind union in the Worker and the App).
   - Supersession: `src/youtube/__tests__/authority-arm.test.ts` "supersedes a prepared occurrence
     when the iframe instance is replaced".
   - User pause/stop: `authority-arm.test.ts` "cancels a long negative-offset wait before a pause or
@@ -2851,7 +2880,8 @@ entry needs the owner's acceptance and is not implied by this registry.
 - **Parent:** RO-07. Plan step C7-5 dropped.
 - **Exception:** a delivered presence snapshot does not make a backing-off playback head due at
   once.
-- **Evidence:** a PREPARE cannot wait out a long backoff: `PLAYBACK_TRANSITION_DEADLINE_MS` (3 s)
+- **Evidence:** a PREPARE cannot wait out a long backoff: the transition barrier
+  `PRO_ROOM_PLAYBACK_TRANSITION_DEADLINE_MS` (3 s, `cloudflare/pro-room-playback-timing.ts`, RO-03)
   commits the transition and the COMMIT replaces the head with a record due immediately. One
   ordering miss retries after 1 s; a lag near 60 s needs about six consecutive failures (a
   signaling outage). Clients also get canonical state from the 15 s heartbeat snapshot. The

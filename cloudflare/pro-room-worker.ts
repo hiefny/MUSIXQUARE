@@ -68,6 +68,11 @@ import {
 import { hasExactKeys, isSafeNonNegativeInteger } from './pro-room-validation.ts';
 import { PRO_ROOM_MEDIA_COPY_TIMEOUT_MS } from './pro-room-media-timing.ts';
 import {
+  PRO_ROOM_PLAYBACK_COMMIT_LEAD_MS,
+  PRO_ROOM_PLAYBACK_TRANSITION_DEADLINE_MS,
+  type ProRoomPlaybackTimingMode,
+} from './pro-room-playback-timing.ts';
+import {
   PRO_ROOM_BOT_REQUEST_LEASE_MS,
   PRO_ROOM_REQUEST_RECEIPT_TTL_MS,
   proRoomCompletionReceiptTtlMs,
@@ -813,7 +818,7 @@ interface PlaybackTransition {
    * stores it. This Worker never writes it; it reads it so that it can load
    * and commit that Worker's transitions (playbackTransitionTimingMode).
    */
-  timingMode?: 'zero-start' | 'scheduled-control';
+  timingMode?: ProRoomPlaybackTimingMode;
   developerCommandId: string | null;
 }
 
@@ -1376,22 +1381,24 @@ const MAX_DISPLAY_NAME_LENGTH = 64;
 const MAX_MEDIA_NAME_LENGTH = 2048;
 const MAX_TEXT_LENGTH = 2048;
 const PLAYBACK_MAX_POSITION_SECONDS = 7 * 24 * 60 * 60;
-const PLAYBACK_TRANSITION_DEADLINE_MS = 3_000;
+// The transition barrier and COMMIT lead come from the shared timing home
+// (pro-room-playback-timing.ts). The zero-start encoding below stays in this
+// file because the Worker and the App drop it in different releases.
+//
 // Encode the transition kind in a numeric field that older Workers already
 // accept. This keeps an in-flight transition readable after a Worker rollback;
 // the one millisecond deadline difference is operationally inert. A PRO
 // Worker that sends PRO snapshot schemaVersion 2 names the kind in
 // `timingMode` instead, with a 3000 ms deadline for either kind; this Worker
 // reads both (playbackTransitionTimingMode) and writes only this encoding.
-const PLAYBACK_ZERO_START_TRANSITION_DEADLINE_MS = PLAYBACK_TRANSITION_DEADLINE_MS - 1;
-const PLAYBACK_COMMIT_LEAD_MS = 700;
+const PLAYBACK_ZERO_START_TRANSITION_DEADLINE_MS = PRO_ROOM_PLAYBACK_TRANSITION_DEADLINE_MS - 1;
 // Strict event parsers make a new COMMIT JSON key unsafe during a rolling PWA
 // deployment. A -1ms lead is an inert marker to old clients and lets refreshed
 // clients recognize only an explicitly classified true zero-start. Legacy and
 // unknown 700ms transitions fail safely as ordinary scheduled controls. This
 // Worker commits every zero-start transition with this lead, including one
 // whose kind a schemaVersion 2 Worker named, so every App still reads the kind.
-const PLAYBACK_ZERO_START_COMMIT_LEAD_MS = PLAYBACK_COMMIT_LEAD_MS - 1;
+const PLAYBACK_ZERO_START_COMMIT_LEAD_MS = PRO_ROOM_PLAYBACK_COMMIT_LEAD_MS - 1;
 // A browser ENDED event is an observation, not a control command.  When the
 // media reports a finite duration, require both the browser cursor and the
 // server-projected room cursor to be genuinely near that end.  Unknown/live
@@ -3746,7 +3753,7 @@ function parsePlaybackAuthorityCommand(value: unknown): PlaybackAuthorityCommand
   return null;
 }
 
-function isPlaybackTimingMode(value: unknown): value is 'zero-start' | 'scheduled-control' {
+function isPlaybackTimingMode(value: unknown): value is ProRoomPlaybackTimingMode {
   return value === 'zero-start' || value === 'scheduled-control';
 }
 
@@ -3756,9 +3763,7 @@ function isPlaybackTimingMode(value: unknown): value is 'zero-start' | 'schedule
  * earlier Worker, a zero-start deadline one millisecond short. A wake is
  * scheduled-control.
  */
-function playbackTransitionTimingMode(
-  pending: PlaybackTransition,
-): 'zero-start' | 'scheduled-control' {
+function playbackTransitionTimingMode(pending: PlaybackTransition): ProRoomPlaybackTimingMode {
   if (pending.timingMode !== undefined) return pending.timingMode;
   return pending.resumeFromSleep !== true &&
     pending.deadlineAtMs - pending.createdAtMs === PLAYBACK_ZERO_START_TRANSITION_DEADLINE_MS
@@ -3794,7 +3799,7 @@ function normalizeStoredPlaybackTransition(
     !isSafeNonNegativeInteger(value.createdAtMs) ||
     !isSafeNonNegativeInteger(value.deadlineAtMs) ||
     value.deadlineAtMs < value.createdAtMs ||
-    value.deadlineAtMs - value.createdAtMs > PLAYBACK_TRANSITION_DEADLINE_MS ||
+    value.deadlineAtMs - value.createdAtMs > PRO_ROOM_PLAYBACK_TRANSITION_DEADLINE_MS ||
     (value.resumeFromSleep !== undefined && value.resumeFromSleep !== true) ||
     (value.timingMode !== undefined && !isPlaybackTimingMode(value.timingMode)) ||
     (value.developerCommandId !== null &&
@@ -3916,7 +3921,7 @@ function normalizeStoredPlaybackBroadcastRecord(
       !isSafeNonNegativeInteger(event.serverTimeMs) ||
       !isSafeNonNegativeInteger(event.deadlineAtMs) ||
       event.deadlineAtMs < event.serverTimeMs ||
-      event.deadlineAtMs - event.serverTimeMs > PLAYBACK_TRANSITION_DEADLINE_MS
+      event.deadlineAtMs - event.serverTimeMs > PRO_ROOM_PLAYBACK_TRANSITION_DEADLINE_MS
     ) {
       return null;
     }
@@ -13365,7 +13370,7 @@ export class MusixquareProRoom {
     developerCommandId: string | null = null,
   ): PlaybackAuthorityResult {
     const cancelEvent = this.cancelPendingPlayback('superseded', nowMs);
-    const executeAtMs = nowMs + PLAYBACK_COMMIT_LEAD_MS;
+    const executeAtMs = nowMs + PRO_ROOM_PLAYBACK_COMMIT_LEAD_MS;
     target.updatedAtMs = executeAtMs;
     this.activeRoom.currentQueueItemId = target.queueItemId;
     this.activeRoom.playback = target;
@@ -13387,7 +13392,7 @@ export class MusixquareProRoom {
     nowMs: number,
     developerCommandId: string | null = null,
     options: {
-      timingMode?: 'zero-start' | 'scheduled-control';
+      timingMode?: ProRoomPlaybackTimingMode;
       resumeFromSleep?: boolean;
     } = {},
   ): PlaybackAuthorityResult {
@@ -13424,7 +13429,7 @@ export class MusixquareProRoom {
       nowMs +
       (timingMode === 'zero-start'
         ? PLAYBACK_ZERO_START_TRANSITION_DEADLINE_MS
-        : PLAYBACK_TRANSITION_DEADLINE_MS);
+        : PRO_ROOM_PLAYBACK_TRANSITION_DEADLINE_MS);
     const pending: PlaybackTransition = {
       transitionId,
       coordinatorEpoch: this.activeRoom.presence.coordinatorEpoch,
@@ -13460,7 +13465,7 @@ export class MusixquareProRoom {
       nowMs +
       (playbackTransitionTimingMode(pending) === 'zero-start'
         ? PLAYBACK_ZERO_START_COMMIT_LEAD_MS
-        : PLAYBACK_COMMIT_LEAD_MS);
+        : PRO_ROOM_PLAYBACK_COMMIT_LEAD_MS);
     pending.target.updatedAtMs = executeAtMs;
     this.activeRoom.currentQueueItemId = pending.target.queueItemId;
     this.activeRoom.playback = pending.target;
@@ -13503,7 +13508,7 @@ export class MusixquareProRoom {
         : playback.positionSeconds;
     let target: PlaybackState | null;
     let requiresPrepare = false;
-    let timingMode: 'zero-start' | 'scheduled-control' = 'scheduled-control';
+    let timingMode: ProRoomPlaybackTimingMode = 'scheduled-control';
 
     if (command.type === 'play') {
       if (playback.state === 'playing') return { status: 'unchanged', event: null };
@@ -13535,7 +13540,7 @@ export class MusixquareProRoom {
         'paused',
         currentPosition +
           (playback.state === 'playing' && playbackClockRunning
-            ? PLAYBACK_COMMIT_LEAD_MS / 1_000
+            ? PRO_ROOM_PLAYBACK_COMMIT_LEAD_MS / 1_000
             : 0),
         nowMs,
         currentIdentity,

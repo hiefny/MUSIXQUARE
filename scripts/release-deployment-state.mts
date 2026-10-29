@@ -361,6 +361,7 @@ const TARGET_RUNTIME_PATHS = Object.freeze({
     'cloudflare/pro-room-diagnostics.ts',
     'cloudflare/pro-room-media-timing.ts',
     'cloudflare/pro-room-receipt-timing.ts',
+    'cloudflare/pro-room-playback-timing.ts',
     'cloudflare/pro-room-body.ts',
     'cloudflare/pro-room-media-duration.ts',
     'cloudflare/pro-room-mp4-duration.ts',
@@ -452,6 +453,8 @@ const TARGET_RUNTIME_PATHS = Object.freeze({
     'cloudflare/pro-room-diagnostics.ts',
     'cloudflare/pro-room-media-timing.ts',
     'cloudflare/pro-room-receipt-timing.ts',
+    // The PRO playback timing home: the App's start-kind union comes from it.
+    'cloudflare/pro-room-playback-timing.ts',
     'cloudflare/announcement-expiry.ts',
     'cloudflare/signaling-protocol.ts',
     'cloudflare/standard-room-pin-membership.ts',

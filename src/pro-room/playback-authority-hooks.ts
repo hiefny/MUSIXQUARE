@@ -1,3 +1,4 @@
+import type { ProRoomPlaybackTimingMode } from '../../cloudflare/pro-room-playback-timing.ts';
 import { log } from '../core/log.ts';
 import { bus } from '../core/events.ts';
 import { getState } from '../core/state.ts';
@@ -342,9 +343,10 @@ export interface ProPlaybackPrepareRequest {
  * `zero-start` additionally permits learned startup lead; ordinary controls
  * follow the running server timeline without that startup-only correction.
  * The PRO Worker names the kind as `timingMode` on each PREPARE and
- * transition COMMIT since PRO snapshot schemaVersion 2 (see api.ts).
+ * transition COMMIT since PRO snapshot schemaVersion 2 (see api.ts). The
+ * union is the one the Worker uses, from their shared timing home.
  */
-export type ProPlaybackTimingMode = 'zero-start' | 'scheduled-control';
+export type ProPlaybackTimingMode = ProRoomPlaybackTimingMode;
 
 export type ProPlaybackPrepareFailureReason =
   | 'inactive-room'

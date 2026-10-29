@@ -217,9 +217,11 @@ interface AcceptedLabel {
 }
 
 /**
- * Labels the owner accepted below the 4px spare (decisions 2026-10-29 (d) and
- * (e)): no padding change, and each stays listed with its text and width. A
- * changed text, or a width that moves, is checked again.
+ * Labels kept below the 4px spare, with no padding change, each listed with its
+ * text and width: the ones the owner accepted (decisions 2026-10-29 (d) and
+ * (e)), and the Tamil Manual chips of decision (c), whose catalog word கைமுறை
+ * leaves 2.31px, like the near misses of (e). A changed text, or a width that
+ * moves, is checked again.
  */
 const ACCEPTED: readonly AcceptedLabel[] = [
   {
@@ -239,6 +241,24 @@ const ACCEPTED: readonly AcceptedLabel[] = [
     width: 80.21,
     box: 82,
     why: 'no shorter Malayalam spelling for the Studio preset; one line',
+  },
+  {
+    locale: 'ta',
+    group: 'grid-reverb',
+    key: 'settings.rvb_advanced',
+    text: 'கைமுறை',
+    width: 79.69,
+    box: 82,
+    why: "Manual (decision (c)) in the catalog's word, as in கைமுறை ஒத்திசைவு; one line",
+  },
+  {
+    locale: 'ta',
+    group: 'grid-eq',
+    key: 'settings.eq_advanced',
+    text: 'கைமுறை',
+    width: 79.69,
+    box: 82,
+    why: 'the same word as the reverb chip; one line',
   },
   {
     locale: 'ko',

@@ -364,9 +364,9 @@ const it: Record<I18nKey, string> = {
   'demo.role_center_short': 'Centro',
   'demo.step_nav_label': 'Fasi del tour',
   'demo.step_connect': '1. Connetti',
-  'demo.step_role': '2. Imposta il ruolo',
-  'demo.step_effects': '3. Effetti audio',
-  'demo.step_finish': '4. Termina il tour',
+  'demo.step_role': '2. Ruolo',
+  'demo.step_effects': '3. Effetti',
+  'demo.step_finish': '4. Termina',
   'demo.session_title': 'La tua stanza: {{code}}',
   'demo.session_subtitle': 'Puoi invitare altri dispositivi in qualsiasi momento',
   'demo.session_body_connected':

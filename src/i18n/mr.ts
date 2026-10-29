@@ -359,7 +359,7 @@ const mr: Record<I18nKey, string> = {
   'demo.step_nav_label': 'डेमोचे टप्पे',
   'demo.step_connect': '1. कनेक्ट करा',
   'demo.step_role': '2. भूमिका ठरवा',
-  'demo.step_effects': '3. ऑडिओ इफेक्ट',
+  'demo.step_effects': '3. इफेक्ट',
   'demo.step_finish': '4. डेमो बंद करा',
   'demo.session_title': 'ही {{code}} क्रमांकाची रूम आहे.',
   'demo.session_subtitle': 'दुसऱ्या डिव्हाइसला कधीही आमंत्रित करू शकता.',

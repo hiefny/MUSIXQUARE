@@ -358,9 +358,9 @@ const te: Record<I18nKey, string> = {
   'demo.role_center_short': 'సెంటర్',
   'demo.step_nav_label': 'డెమో దశలు',
   'demo.step_connect': '1. కనెక్ట్',
-  'demo.step_role': '2. పాత్రను సెట్ చేయి',
-  'demo.step_effects': '3. ఆడియో ఎఫెక్ట్‌లు',
-  'demo.step_finish': '4. డెమోను ముగించు',
+  'demo.step_role': '2. పాత్ర ఎంపిక',
+  'demo.step_effects': '3. ఎఫెక్ట్‌లు',
+  'demo.step_finish': '4. ముగించు',
   'demo.session_title': 'ఇది {{code}} గది.',
   'demo.session_subtitle': 'మరో పరికరాన్ని ఎప్పుడైనా ఆహ్వానించవచ్చు.',
   'demo.session_body_connected':

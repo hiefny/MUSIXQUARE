@@ -365,9 +365,9 @@ const de: Record<I18nKey, string> = {
   'demo.role_center_short': 'Mitte',
   'demo.step_nav_label': 'Demo-Schritte',
   'demo.step_connect': '1. Verbinden',
-  'demo.step_role': '2. Rolle festlegen',
-  'demo.step_effects': '3. Audioeffekte',
-  'demo.step_finish': '4. Tour beenden',
+  'demo.step_role': '2. Rolle',
+  'demo.step_effects': '3. Effekte',
+  'demo.step_finish': '4. Beenden',
   'demo.session_title': 'Dein Raum: {{code}}',
   'demo.session_subtitle': 'Du kannst jederzeit ein weiteres Gerät einladen.',
   'demo.session_body_connected':

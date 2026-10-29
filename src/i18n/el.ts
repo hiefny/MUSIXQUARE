@@ -364,9 +364,9 @@ const el: Record<I18nKey, string> = {
   'demo.role_center_short': 'Κέντρο',
   'demo.step_nav_label': 'Βήματα επίδειξης',
   'demo.step_connect': '1. Σύνδεση',
-  'demo.step_role': '2. Ορισμός ρόλου',
-  'demo.step_effects': '3. Ηχητικά εφέ',
-  'demo.step_finish': '4. Τέλος περιήγησης',
+  'demo.step_role': '2. Ρόλος',
+  'demo.step_effects': '3. Εφέ',
+  'demo.step_finish': '4. Τέλος',
   'demo.session_title': 'Το δωμάτιό σας: {{code}}',
   'demo.session_subtitle': 'Μπορείτε να προσκαλέσετε άλλη συσκευή οποιαδήποτε στιγμή.',
   'demo.session_body_connected':

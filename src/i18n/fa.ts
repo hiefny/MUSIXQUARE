@@ -356,7 +356,7 @@ const fa: Record<I18nKey, string> = {
   'demo.step_nav_label': 'مراحل دمو',
   'demo.step_connect': '1. اتصال',
   'demo.step_role': '2. تنظیم نقش',
-  'demo.step_effects': '3. جلوه‌های صوتی',
+  'demo.step_effects': '3. جلوه‌ها',
   'demo.step_finish': '4. پایان دمو',
   'demo.session_title': 'اتاق شما: {{code}}',
   'demo.session_subtitle': 'هر زمان خواستید می‌توانید دستگاه دیگری دعوت کنید.',

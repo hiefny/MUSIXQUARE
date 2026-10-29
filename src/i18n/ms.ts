@@ -366,9 +366,9 @@ const ms: Record<I18nKey, string> = {
   'demo.role_center_short': 'Tengah',
   'demo.step_nav_label': 'Langkah demo',
   'demo.step_connect': '1. Sambung',
-  'demo.step_role': '2. Tetapkan peranan',
-  'demo.step_effects': '3. Kesan audio',
-  'demo.step_finish': '4. Tamatkan demo',
+  'demo.step_role': '2. Peranan',
+  'demo.step_effects': '3. Kesan',
+  'demo.step_finish': '4. Selesai',
   'demo.session_title': 'Bilik anda: {{code}}',
   'demo.session_subtitle': 'Anda boleh menjemput peranti lain pada bila-bila masa.',
   'demo.session_body_connected':

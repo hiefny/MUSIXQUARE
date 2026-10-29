@@ -364,7 +364,7 @@ const nb: Record<I18nKey, string> = {
   'demo.step_connect': '1. Koble til',
   'demo.step_role': '2. Angi rolle',
   'demo.step_effects': '3. Lydeffekter',
-  'demo.step_finish': '4. Avslutt demoen',
+  'demo.step_finish': '4. Avslutt',
   'demo.session_title': 'Rommet ditt: {{code}}',
   'demo.session_subtitle': 'Du kan invitere en annen enhet når som helst.',
   'demo.session_body_connected':

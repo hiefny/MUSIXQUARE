@@ -362,9 +362,9 @@ const fr: Record<I18nKey, string> = {
   'demo.role_center_short': 'Centre',
   'demo.step_nav_label': 'Étapes de la démo',
   'demo.step_connect': '1. Connexion',
-  'demo.step_role': '2. Définir le rôle',
-  'demo.step_effects': '3. Effets audio',
-  'demo.step_finish': '4. Quitter la démo',
+  'demo.step_role': '2. Rôle',
+  'demo.step_effects': '3. Effets',
+  'demo.step_finish': '4. Terminer',
   'demo.session_title': 'Votre salon : {{code}}',
   'demo.session_subtitle': 'Vous pouvez inviter un autre appareil à tout moment.',
   'demo.session_body_connected':

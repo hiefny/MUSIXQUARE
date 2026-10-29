@@ -202,7 +202,7 @@ const bg: Record<I18nKey, string> = {
   'settings.virtual_effects_desc':
     'Прилага синтезирани ефекти към звука. Възможно е силно изкривяване.',
   'settings.virtual_effect_bass': 'Бас',
-  'settings.virtual_effect_treble': 'Високи честоти',
+  'settings.virtual_effect_treble': 'Високи',
   'settings.virtual_effect_surround': 'Съраунд',
   'settings.language_desc': 'Избери език или използвай системния език.',
   'settings.theme_desc': 'Избери светла или тъмна тема.',
@@ -362,9 +362,9 @@ const bg: Record<I18nKey, string> = {
   'demo.role_center_short': 'Център',
   'demo.step_nav_label': 'Стъпки на демонстрацията',
   'demo.step_connect': '1. Свързване',
-  'demo.step_role': '2. Задаване на роля',
-  'demo.step_effects': '3. Звукови ефекти',
-  'demo.step_finish': '4. Край на демото',
+  'demo.step_role': '2. Роля',
+  'demo.step_effects': '3. Ефекти',
+  'demo.step_finish': '4. Край',
   'demo.session_title': 'Твоята стая: {{code}}',
   'demo.session_subtitle': 'Можеш да поканиш друго устройство по всяко време.',
   'demo.session_body_connected':

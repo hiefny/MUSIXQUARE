@@ -361,9 +361,9 @@ const cs: Record<I18nKey, string> = {
   'demo.role_center_short': 'Střed',
   'demo.step_nav_label': 'Kroky ukázky',
   'demo.step_connect': '1. Připojení',
-  'demo.step_role': '2. Nastavení role',
-  'demo.step_effects': '3. Zvukové efekty',
-  'demo.step_finish': '4. Ukončení ukázky',
+  'demo.step_role': '2. Výběr role',
+  'demo.step_effects': '3. Efekty',
+  'demo.step_finish': '4. Ukončení',
   'demo.session_title': 'Vaše místnost: {{code}}',
   'demo.session_subtitle': 'Další zařízení můžete pozvat kdykoli.',
   'demo.session_body_connected':

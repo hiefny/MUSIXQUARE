@@ -270,7 +270,7 @@ const hu: Record<I18nKey, string> = {
   'settings.invite_share': 'Meghívás és megosztás',
   'settings.subtab.general': 'Általános',
   'settings.subtab.audio': 'Hang',
-  'settings.subtab.connect': 'Kapcsolódás',
+  'settings.subtab.connect': 'Kapcsolat',
   'settings.subtab.help': 'Súgó',
 
   // ─── Connect ───────────────────────────────────────────────────
@@ -356,13 +356,13 @@ const hu: Record<I18nKey, string> = {
   'demo.bass_boost': 'Több mély',
   'demo.treble_boost': 'Több magas',
   'demo.surround': 'Térhangzás',
-  'demo.role_bass_short': 'Mélyhang',
+  'demo.role_bass_short': 'Mély',
   'demo.role_center_short': 'Közép',
   'demo.step_nav_label': 'A bemutató lépései',
-  'demo.step_connect': '1. Kapcsolódás',
-  'demo.step_role': '2. Szerep beállítása',
-  'demo.step_effects': '3. Hangeffektusok',
-  'demo.step_finish': '4. Bemutató bezárása',
+  'demo.step_connect': '1. Kapcsolat',
+  'demo.step_role': '2. Szerep',
+  'demo.step_effects': '3. Effektusok',
+  'demo.step_finish': '4. Befejezés',
   'demo.session_title': 'Szobád: {{code}}',
   'demo.session_subtitle': 'Bármikor meghívhatsz egy másik eszközt.',
   'demo.session_body_connected':

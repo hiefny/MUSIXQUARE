@@ -359,7 +359,7 @@ const en: Record<I18nKey, string> = {
   'demo.step_nav_label': 'Demo steps',
   'demo.step_connect': '1. Connect',
   'demo.step_role': '2. Set role',
-  'demo.step_effects': '3. Audio effects',
+  'demo.step_effects': '3. Effects',
   'demo.step_finish': '4. Finish tour',
   'demo.session_title': 'This is room {{code}}.',
   'demo.session_subtitle': 'You can invite another device anytime.',

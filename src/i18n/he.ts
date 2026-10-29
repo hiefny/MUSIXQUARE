@@ -353,7 +353,7 @@ const he: Record<I18nKey, string> = {
   'demo.role_center_short': 'מרכז',
   'demo.step_nav_label': 'שלבי ההדגמה',
   'demo.step_connect': '1. חיבור',
-  'demo.step_role': '2. הגדרת תפקיד',
+  'demo.step_role': '2. תפקיד',
   'demo.step_effects': '3. אפקטי שמע',
   'demo.step_finish': '4. סיום ההדגמה',
   'demo.session_title': 'החדר שלך: {{code}}',

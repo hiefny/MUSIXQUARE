@@ -364,8 +364,8 @@ const sv: Record<I18nKey, string> = {
   'demo.step_nav_label': 'Demosteg',
   'demo.step_connect': '1. Anslut',
   'demo.step_role': '2. Ange roll',
-  'demo.step_effects': '3. Ljudeffekter',
-  'demo.step_finish': '4. Avsluta demon',
+  'demo.step_effects': '3. Effekter',
+  'demo.step_finish': '4. Avsluta',
   'demo.session_title': 'Ditt rum: {{code}}',
   'demo.session_subtitle': 'Du kan bjuda in en annan enhet när som helst.',
   'demo.session_body_connected':

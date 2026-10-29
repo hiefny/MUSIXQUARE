@@ -358,9 +358,9 @@ const bn: Record<I18nKey, string> = {
   'demo.role_center_short': 'সেন্টার',
   'demo.step_nav_label': 'ডেমোর ধাপ',
   'demo.step_connect': '1. সংযোগ করুন',
-  'demo.step_role': '2. ভূমিকা নির্ধারণ করুন',
-  'demo.step_effects': '3. অডিও ইফেক্ট',
-  'demo.step_finish': '4. ডেমো বন্ধ করুন',
+  'demo.step_role': '2. ভূমিকা বাছুন',
+  'demo.step_effects': '3. ইফেক্ট',
+  'demo.step_finish': '4. শেষ করুন',
   'demo.session_title': 'এটি {{code}} নম্বর রুম।',
   'demo.session_subtitle': 'যেকোনো সময় অন্য ডিভাইস আমন্ত্রণ জানাতে পারবেন।',
   'demo.session_body_connected':

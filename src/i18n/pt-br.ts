@@ -363,9 +363,9 @@ const ptBr: Record<I18nKey, string> = {
   'demo.role_center_short': 'Centro',
   'demo.step_nav_label': 'Etapas da demo',
   'demo.step_connect': '1. Conectar',
-  'demo.step_role': '2. Definir função',
-  'demo.step_effects': '3. Efeitos de áudio',
-  'demo.step_finish': '4. Encerrar tour',
+  'demo.step_role': '2. Função',
+  'demo.step_effects': '3. Efeitos',
+  'demo.step_finish': '4. Encerrar',
   'demo.session_title': 'Sua sala: {{code}}',
   'demo.session_subtitle': 'Você pode convidar outro dispositivo quando quiser.',
   'demo.session_body_connected':

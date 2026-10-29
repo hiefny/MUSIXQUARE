@@ -364,7 +364,7 @@ const da: Record<I18nKey, string> = {
   'demo.step_connect': '1. Forbind',
   'demo.step_role': '2. Angiv rolle',
   'demo.step_effects': '3. Lydeffekter',
-  'demo.step_finish': '4. Afslut demoen',
+  'demo.step_finish': '4. Afslut',
   'demo.session_title': 'Dit rum: {{code}}',
   'demo.session_subtitle': 'Du kan når som helst invitere en anden enhed.',
   'demo.session_body_connected':

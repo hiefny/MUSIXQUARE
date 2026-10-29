@@ -573,11 +573,12 @@ html[data-theme='light'] .google-button {
   font-weight: 650;
 }
 
-/* At rest the nickname line is a hint that stays, not a message, so it keeps
-   its weight; its error reads at 600 like the other error lines. */
+/* At rest the nickname line is a hint that stays, not a message, so it reads
+   at the body weight 400 like the app's dialog hint (.dialog-hint); its
+   error reads at 600 like the other error lines. */
 .nickname-message {
   color: var(--text-muted);
-  font-weight: 650;
+  font-weight: 400;
   text-align: left;
 }
 

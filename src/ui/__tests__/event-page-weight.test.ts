@@ -103,4 +103,10 @@ describe('/events page weights', () => {
   ])('keeps %s, a title, button or step description, at %s', (selector, weight) => {
     expect(weightIn(page(), selector)).toBe(weight);
   });
+
+  it('reads the resting nickname hint at the body weight, like the app dialog hint', () => {
+    // '12자 이내로 입력해 주세요.' stays under the field until the nickname
+    // is wrong, so it is body text; its error state reads at 600 above.
+    expect(weightIn(page(), '#nickname-message')).toBe('400');
+  });
 });

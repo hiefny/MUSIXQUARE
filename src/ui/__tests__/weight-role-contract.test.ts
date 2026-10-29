@@ -1014,6 +1014,26 @@ describe('weight role contract', () => {
     }
   });
 
+  it('states the label and body roles alike in the root note and the token sheet', () => {
+    // The design-system token sheet mirrors the note above the role tokens in
+    // css/style.css (owner rule 2026-10-29): transient text and red error
+    // lines take the label weight, and text that stays when a screen opens
+    // is body.
+    for (const path of ['css/style.css', 'public/designsystem/colors_and_type.css']) {
+      const css = read(path);
+      const end = css.indexOf('--font-weight-title:');
+      const note = css.slice(css.lastIndexOf('/*', end), end).replace(/\s+/gu, ' ').toLowerCase();
+      for (const phrase of [
+        'transient text',
+        'goes away on its own',
+        'red error lines',
+        'there whenever you open the screen',
+      ]) {
+        expect(note, `${path}: ${phrase}`).toContain(phrase);
+      }
+    }
+  });
+
   it('gives every text weight in the app stylesheet a role token', () => {
     const violations: string[] = [];
     const exceptions = { ...NON_TEXT_WEIGHTS, ...BRAND_WEIGHTS };

@@ -1086,13 +1086,13 @@ describe('coordinator-free PRO playback runtime', { concurrent: false }, () => {
     const off = bus.on('pro-playback:transition-loading', (loading) => loadingStates.push(loading));
     try {
       acceptProRoomRealtimeFrameForTests(
-        serverFrame(prepareEvent(TRANSITION_COMMIT) as unknown as Record<string, unknown>),
+        serverFrame({ ...prepareEvent(TRANSITION_COMMIT), timingMode: 'zero-start' }),
       );
       await vi.waitFor(() => expect(reportReady).toHaveBeenCalledOnce());
       expect(loadingStates).toEqual([true]);
 
       acceptProRoomRealtimeFrameForTests(
-        serverFrame(commitEvent(TRANSITION_COMMIT, 1, 699) as unknown as Record<string, unknown>),
+        serverFrame({ ...commitEvent(TRANSITION_COMMIT, 1, 700), timingMode: 'zero-start' }),
       );
       await vi.waitFor(() => expect(commitMedia).toHaveBeenCalledOnce());
       expect(loadingStates).toEqual([true]);
@@ -3114,14 +3114,13 @@ describe('coordinator-free PRO playback runtime', { concurrent: false }, () => {
   });
 
   it('applies one matching COMMIT, ignores duplicate/stale epochs, and fences CANCEL by transition', async () => {
-    const prepared = prepareEvent(TRANSITION_COMMIT);
-    acceptProRoomRealtimeFrameForTests(serverFrame(prepared as unknown as Record<string, unknown>));
+    acceptProRoomRealtimeFrameForTests(
+      serverFrame({ ...prepareEvent(TRANSITION_COMMIT), timingMode: 'zero-start' }),
+    );
     await vi.waitFor(() => expect(reportReady).toHaveBeenCalledOnce());
 
-    const committed = commitEvent(TRANSITION_COMMIT, 1, 699);
-    acceptProRoomRealtimeFrameForTests(
-      serverFrame(committed as unknown as Record<string, unknown>),
-    );
+    const committed = { ...commitEvent(TRANSITION_COMMIT, 1, 700), timingMode: 'zero-start' };
+    acceptProRoomRealtimeFrameForTests(serverFrame(committed));
     await vi.waitFor(() => expect(commitMedia).toHaveBeenCalledOnce());
     expect(commitMedia).toHaveBeenCalledWith(
       expect.objectContaining({
@@ -3134,9 +3133,7 @@ describe('coordinator-free PRO playback runtime', { concurrent: false }, () => {
       }),
     );
 
-    acceptProRoomRealtimeFrameForTests(
-      serverFrame(committed as unknown as Record<string, unknown>),
-    );
+    acceptProRoomRealtimeFrameForTests(serverFrame(committed));
     acceptProRoomRealtimeFrameForTests(
       serverFrame(commitEvent(null, 2) as unknown as Record<string, unknown>, ROOM_EPOCH + 1),
     );
@@ -3157,38 +3154,32 @@ describe('coordinator-free PRO playback runtime', { concurrent: false }, () => {
     expect(cancelMedia).not.toHaveBeenCalled();
   });
 
-  it('treats the legacy transition timing as a scheduled control', async () => {
-    const prepared = prepareEvent(TRANSITION_COMMIT);
-    acceptProRoomRealtimeFrameForTests(serverFrame(prepared as unknown as Record<string, unknown>));
-    await vi.waitFor(() => expect(reportReady).toHaveBeenCalledOnce());
+  // The lead of a COMMIT says when it starts, never which kind of start. A
+  // transition COMMIT that names no kind follows the running timeline at any
+  // lead, the 699 ms that marked a zero-start before PRO snapshot
+  // schemaVersion 2 included (ZS-05).
+  it.each([699, 700, 702])(
+    'starts a transition COMMIT that names no start kind at a %i ms lead as a scheduled control',
+    async (wireLeadMs) => {
+      acceptProRoomRealtimeFrameForTests(
+        serverFrame(prepareEvent(TRANSITION_COMMIT) as unknown as Record<string, unknown>),
+      );
+      await vi.waitFor(() => expect(reportReady).toHaveBeenCalledOnce());
 
-    acceptProRoomRealtimeFrameForTests(
-      serverFrame(commitEvent(TRANSITION_COMMIT, 1, 700) as unknown as Record<string, unknown>),
-    );
-    await vi.waitFor(() => expect(commitMedia).toHaveBeenCalledOnce());
-    expect(commitMedia).toHaveBeenCalledWith(
-      expect.objectContaining({ timingMode: 'scheduled-control' }),
-    );
-  });
-
-  it('treats an unknown transition timing as a scheduled control', async () => {
-    const nextPrepared = prepareEvent(TRANSITION_FAILED);
-    acceptProRoomRealtimeFrameForTests(
-      serverFrame(nextPrepared as unknown as Record<string, unknown>),
-    );
-    await vi.waitFor(() => expect(reportReady).toHaveBeenCalledOnce());
-    acceptProRoomRealtimeFrameForTests(
-      serverFrame(commitEvent(TRANSITION_FAILED, 1, 702) as unknown as Record<string, unknown>),
-    );
-    await vi.waitFor(() => expect(commitMedia).toHaveBeenCalledOnce());
-    expect(commitMedia).toHaveBeenCalledWith(
-      expect.objectContaining({ timingMode: 'scheduled-control' }),
-    );
-  });
+      acceptProRoomRealtimeFrameForTests(
+        serverFrame(
+          commitEvent(TRANSITION_COMMIT, 1, wireLeadMs) as unknown as Record<string, unknown>,
+        ),
+      );
+      await vi.waitFor(() => expect(commitMedia).toHaveBeenCalledOnce());
+      expect(commitMedia).toHaveBeenCalledWith(
+        expect.objectContaining({ committedPlaybackRevision: 1, timingMode: 'scheduled-control' }),
+      );
+    },
+  );
 
   // PRO snapshot schemaVersion 2 names the start kind on every PREPARE and
-  // transition COMMIT (Q4). The named kind decides, whatever the lead; the
-  // three rows above keep the 699 ms lead rule for a COMMIT without it.
+  // transition COMMIT (Q4). The named kind decides, whatever the lead.
   it.each([
     { timingMode: 'zero-start', wireLeadMs: 700, prepareNamesKind: true },
     { timingMode: 'scheduled-control', wireLeadMs: 699, prepareNamesKind: true },

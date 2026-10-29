@@ -2078,6 +2078,76 @@ describe('PRO room server-authoritative playback', () => {
     });
   });
 
+  it('reads the start kind a stored transition names when it coalesces a duplicate ENDED', async () => {
+    // A PRO Worker that sends PRO snapshot schemaVersion 2 stores every
+    // transition with a 3000 ms deadline and names its kind in timingMode.
+    // This Worker reads that kind as it reads the 2999 ms deadline above: a
+    // duplicate ENDED joins a stored zero-start transition and replaces a
+    // stored scheduled-control one.
+    const duplicateEnded = async (timingMode: 'zero-start' | 'scheduled-control') => {
+      const context = await activatedRoom();
+      const realtime = installRealtimeRecorder(context);
+      expect(
+        (await replacePlaylist(context, duplicateVideoPlaylist, `named-kind-${timingMode}`)).status,
+      ).toBe(200);
+      await selectAndCommit(context, firstQueueItemId, { key: `named-kind-select-${timingMode}` });
+      const endedBody = {
+        type: 'ended',
+        baseRevision: realtime.internal.room.playback.revision,
+        queueItemId: firstQueueItemId,
+        mediaKind: 'youtube',
+        observedPositionSeconds: 0.1,
+        durationSeconds: 0.1,
+        youtubeVideoId: 'dQw4w9WgXcQ',
+        youtubeSubIndex: 0,
+      };
+      const ended = async (sequence: number) => {
+        const response = await context.worker.fetch(
+          jsonRequest(
+            '/playback/commands',
+            'POST',
+            endedBody,
+            context.ownerCookie,
+            `named-kind-ended-${timingMode}-${sequence}`,
+          ),
+        );
+        expect(response.status).toBe(202);
+        return (await responseJson(response)).transition as Record<string, any>;
+      };
+      const first = await ended(1);
+      const stored = realtime.internal.room.pendingPlaybackTransition;
+      expect(stored.transitionId).toBe(first.transitionId);
+      stored.deadlineAtMs = stored.createdAtMs + 3_000;
+      stored.timingMode = timingMode;
+      const second = await ended(2);
+      return { first, second, stored, realtime };
+    };
+
+    const zeroStart = await duplicateEnded('zero-start');
+    expect(zeroStart.second.transitionId).toBe(zeroStart.first.transitionId);
+    expect(zeroStart.second.deadlineAtMs).toBe(zeroStart.stored.createdAtMs + 3_000);
+    expect(zeroStart.realtime.internal.room.pendingPlaybackTransition).toMatchObject({
+      transitionId: zeroStart.first.transitionId,
+      timingMode: 'zero-start',
+    });
+    expect(
+      zeroStart.realtime.messages.filter(
+        (message) =>
+          message.event?.type === 'pro-playback-prepare' &&
+          message.event.transitionId === zeroStart.first.transitionId,
+      ),
+    ).toHaveLength(1);
+
+    const scheduledControl = await duplicateEnded('scheduled-control');
+    expect(scheduledControl.second.transitionId).not.toBe(scheduledControl.first.transitionId);
+    expect(scheduledControl.realtime.messages.map((message) => message.event)).toContainEqual({
+      type: 'pro-playback-cancel',
+      transitionId: scheduledControl.first.transitionId,
+      serverTimeMs: expect.any(Number),
+      reason: 'superseded',
+    });
+  });
+
   it('accepts ENDED only for the exact playing identity at a defensible end position', async () => {
     const context = await activatedRoom();
     expect(
@@ -3421,6 +3491,55 @@ describe('PRO room server-authoritative playback', () => {
 
     expect(dispatch).toHaveBeenCalledTimes(2);
     expect(internal.room.pendingPlaybackBroadcasts).toEqual([]);
+  });
+
+  it('lets the outbox write path queue a PREPARE and a transition COMMIT that name either timingMode', async () => {
+    // Every new outbox record passes the loader's normalizer, so a Worker that
+    // names the start kind on each PREPARE and transition COMMIT (PRO snapshot
+    // schemaVersion 2) depends on this gate: a refused record makes
+    // enqueuePlaybackBroadcast return false and the broadcast is never sent.
+    // No route of this Worker writes the field, so the gate is called directly
+    // with the events this Worker sent.
+    const context = await activatedRoom();
+    const realtime = installRealtimeRecorder(context);
+    const outbox = context.worker as unknown as {
+      room: Record<string, any>;
+      enqueuePlaybackBroadcast(event: Record<string, unknown>, targets: string[]): boolean;
+      flushPendingPlaybackBroadcasts(): Promise<boolean>;
+    };
+    expect(
+      (await replacePlaylist(context, duplicateVideoPlaylist, 'outbox-named-kind')).status,
+    ).toBe(200);
+    await selectAndCommit(context, firstQueueItemId, { key: 'outbox-named-kind-select' });
+    const sent = (type: string) =>
+      realtime.messages.find((message) => message.event?.type === type) as Record<string, any>;
+    const prepare = sent('pro-playback-prepare');
+    const commit = sent('pro-playback-commit');
+    expect(commit.event.transitionId).toBe(prepare.event.transitionId);
+
+    for (const timingMode of ['zero-start', 'scheduled-control'] as const) {
+      for (const message of [prepare, commit]) {
+        const event = { ...message.event, timingMode };
+        expect(outbox.enqueuePlaybackBroadcast(event, message.targets)).toBe(true);
+        expect(outbox.room.pendingPlaybackBroadcasts.at(-1)).toMatchObject({
+          transitionId: message.event.transitionId,
+          event,
+        });
+      }
+    }
+    // The queued COMMIT goes out with its field.
+    realtime.messages.length = 0;
+    await outbox.flushPendingPlaybackBroadcasts();
+    expect(realtime.messages.map((message) => message.event)).toEqual([
+      { ...commit.event, timingMode: 'scheduled-control' },
+    ]);
+    // Only the two kinds are a start kind.
+    expect(
+      outbox.enqueuePlaybackBroadcast(
+        { ...prepare.event, timingMode: 'late-start' },
+        prepare.targets,
+      ),
+    ).toBe(false);
   });
 
   describe('one signaling broadcast transport (RO-07, plan step C7-3)', () => {
@@ -25519,6 +25638,139 @@ describe('PRO room system-audio ownership lease', () => {
       expect.objectContaining({ generation: 12, status: 'idle', leaseId: null }),
     );
     expect(JSON.stringify(stored.systemAudio)).not.toContain('sessionOwnerToken');
+  });
+
+  it('loads a live LAN-direct stored without a media deadline as the same share with the compatibility deadline', async () => {
+    // A PRO Worker that sends PRO snapshot schemaVersion 2 stores a live
+    // LAN-direct with liveExpiresAt null. This Worker is where that Worker's
+    // failed release (and a manual rollback) returns, and every App before
+    // that schema version refuses a live state without a positive deadline, so
+    // the share must stay the same live one and answer a number again.
+    vi.useFakeTimers();
+    const startedAtMs = new Date('2026-10-29T00:00:00.000Z').getTime();
+    vi.setSystemTime(startedAtMs);
+    const context = await activatedRoom();
+    const { worker, state, ownerCookie, activationEnvelope } = context;
+    const acquired = await acquireSystemAudio(worker, ownerCookie);
+    const generation = acquired.systemAudio.generation as number;
+    const directPublication = {
+      publicationId: publication.publicationId,
+      transport: 'lan-direct',
+      protocolVersion: 2,
+    } as const;
+    const committed = await worker.fetch(
+      jsonRequest(
+        '/system-audio/commit',
+        'POST',
+        { generation, leaseId: acquired.leaseId, publication: directPublication },
+        ownerCookie,
+      ),
+    );
+    expect(committed.status).toBe(200);
+    const restart = () =>
+      new MusixquareProRoom(context.state as never, environment(context.bucket) as never);
+    const liveState = (liveExpiresAt: number) => ({
+      generation,
+      status: 'live',
+      ownerParticipantId: activationEnvelope.snapshot.viewer.participantId,
+      claimExpiresAt: null,
+      liveExpiresAt,
+      publication: directPublication,
+    });
+
+    // A numeric deadline loads unchanged.
+    vi.setSystemTime(startedAtMs + 5_000);
+    expect(
+      await responseJson(await restart().fetch(request('/system-audio', {}, ownerCookie))),
+    ).toEqual({ systemAudio: liveState(startedAtMs + SYSTEM_AUDIO_SHARE_LIMIT_MS) });
+
+    const envelope = structuredClone(state.storage.data.get('pro-room:v2:core')) as {
+      core: Record<string, any>;
+    };
+    envelope.core.systemAudio.liveExpiresAt = null;
+    state.storage.data.set('pro-room:v2:core', envelope);
+    vi.setSystemTime(startedAtMs + 10_000);
+    const loadedAtMs = Date.now();
+    const restarted = restart();
+    const compatibility = liveState(loadedAtMs + SYSTEM_AUDIO_SHARE_LIMIT_MS);
+
+    // The same live share, with the deadline a first commit at load would have
+    // stored, and the first prune stores it (the migration mark).
+    expect(
+      await responseJson(await restarted.fetch(request('/system-audio', {}, ownerCookie))),
+    ).toEqual({ systemAudio: compatibility });
+    expect(storedCanonicalRoom(state).systemAudio).toMatchObject({
+      generation,
+      status: 'live',
+      liveExpiresAt: compatibility.liveExpiresAt,
+      publication: directPublication,
+    });
+    // Both heartbeats and the lease heartbeat answer the same number.
+    const full = await responseJson(
+      await restarted.fetch(request('/presence/heartbeat', { method: 'POST' }, ownerCookie)),
+    );
+    expect(full.systemAudio).toEqual(compatibility);
+    const known = full.snapshot;
+    const compact = await responseJson(
+      await restarted.fetch(
+        jsonRequest(
+          '/presence/heartbeat',
+          'POST',
+          {
+            revision: known.revision,
+            playlistRevision: known.playlistRevision,
+            presenceRevision: known.presence.revision,
+            playbackRevision: known.playback.revision,
+            coordinatorEpoch: known.presence.coordinatorEpoch,
+          },
+          ownerCookie,
+        ),
+      ),
+    );
+    expect(compact.notModified).toBe(true);
+    expect(compact.systemAudio).toEqual(compatibility);
+    const lease = await restarted.fetch(
+      jsonRequest(
+        '/system-audio/heartbeat',
+        'POST',
+        { generation, leaseId: acquired.leaseId },
+        ownerCookie,
+      ),
+    );
+    expect(lease.status).toBe(200);
+    expect((await responseJson(lease)).systemAudio).toEqual(compatibility);
+  });
+
+  it('keeps fencing a live SFU publication stored without its media deadline', async () => {
+    const { worker, state, ownerCookie, activationEnvelope } = await activatedRoom();
+    const internal = worker as unknown as {
+      room: { systemAudio: Record<string, unknown> };
+    };
+    internal.room.systemAudio = {
+      generation: 11,
+      status: 'live',
+      ownerParticipantId: activationEnvelope.snapshot.viewer.participantId,
+      ownerPresenceIncarnationId: activationEnvelope.snapshot.viewer.presenceIncarnationId,
+      leaseId: 'z'.repeat(43),
+      claimExpiresAt: null,
+      liveExpiresAt: null,
+      publication,
+    };
+
+    const observed = await responseJson(
+      await worker.fetch(request('/system-audio', {}, ownerCookie)),
+    );
+    expect(observed.systemAudio).toEqual({
+      generation: 12,
+      status: 'idle',
+      ownerParticipantId: null,
+      claimExpiresAt: null,
+      liveExpiresAt: null,
+      publication: null,
+    });
+    expect(storedCanonicalRoom(state).systemAudio).toEqual(
+      expect.objectContaining({ generation: 12, status: 'idle', leaseId: null }),
+    );
   });
 
   it('holds preparing for at most 45 seconds and an SFU publication for at most two hours without heartbeat extension', async () => {

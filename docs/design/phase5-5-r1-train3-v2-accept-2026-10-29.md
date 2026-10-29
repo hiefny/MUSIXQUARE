@@ -2,7 +2,7 @@
 
 | Field              | Value                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                  |
 | ------------------ | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Status             | 초안(2026-10-29). 구현과 증분별 검사(QA 라운드 1), 세 갈래 열차 끝 리뷰(모두 승인, 높음·중간 0), main 9.0.21 위로 옮기기, 리뷰 반영, 버전 올리기, 옮긴 부모에서 테스트 먼저 다시 돌리기와 전체 검사(QA 라운드 2 ~ 5)까지 끝났고 미병합·미배포다. 브랜치 `agent/p55-r1`은 main `3bfdffcb`(9.0.21, #522) 위의 커밋이다: 증분 21(테스트 먼저 10, 코드 10, LEAVE-1 하나), R1-11 문서 2, 9.0.22 이름 바로잡기 `513729f6`, 리뷰 반영 시험 `38c0dee2`와 문서 `b7d91b2c`, 버전 올리기 `336a5133`, 이 보고서와 릴리스 기록 커밋. 마지막 런타임 커밋은 버전 올리기 `336a5133`이고 그 뒤는 문서뿐이다. 릴리스 기록 §2의 '9.0.22 배포 전' 항목이 이 브랜치에 있다. 배포 전 운영 단계(P2 직후 운영 remote-share smoke 두 형태, F1 바닥 789, F1 직후 신호 입장 smoke), PR, PR CI, 자동 코드 리뷰, exact-main CI, 배포는 아직이다(QA 라운드 6, 7은 자리만)                                                                                                                                                                                            |
+| Status             | 초안(2026-10-29). 구현과 증분별 검사(QA 라운드 1), 세 갈래 열차 끝 리뷰(모두 승인, 높음·중간 0), main 9.0.21 위로 옮기기, 리뷰 반영, 버전 올리기, 옮긴 부모에서 테스트 먼저 다시 돌리기와 전체 검사(QA 라운드 2 ~ 5)까지 끝났고 미병합·미배포다. 브랜치 `agent/p55-r1`은 main `3bfdffcb`(9.0.21, #522) 위의 커밋이다: 증분 21(테스트 먼저 10, 코드 10, LEAVE-1 하나), R1-11 문서 2, 9.0.22 이름 바로잡기 `513729f6`, 리뷰 반영 시험 `38c0dee2`와 문서 `b7d91b2c`, 버전 올리기 `336a5133`, 이 보고서와 릴리스 기록을 더한 `f9825aa4`, QA 라운드 5를 적은 문서 커밋. 마지막 런타임 커밋은 버전 올리기 `336a5133`이고 그 뒤는 문서뿐이다. 릴리스 기록 §2의 '9.0.22 배포 전' 항목이 이 브랜치에 있다. 배포 전 운영 단계(P2 직후 운영 remote-share smoke 두 형태, F1 바닥 789, F1 직후 신호 입장 smoke), PR, PR CI, 자동 코드 리뷰, exact-main CI, 배포는 아직이다(QA 라운드 6, 7은 자리만)                                                                                                                                                 |
 | Base               | main `3bfdffcb`(#522 squash, 9.0.21 / v794, target `app`, 이 문서를 쓸 때 배포 중). 그 앞의 main: P2 #519(`7241e89d`, 도구·문서만: remote-share smoke가 peer-open 표지 없이 실제 확인서로 방을 증명, PRO가 요구하는 앱 빌드의 릴리스 전 검사, 바닥 올리기 실패 문장), #520(시험만), #521(9.0.20 기록). 증분은 main `edd6ee94`(#518. 런타임은 9.0.20 `226219c5`, 그 위 P1 #517과 #518은 시험만) 위에서 만들었고(마지막 `c058a98a`), 2026-10-29 15:25 KST에 `3bfdffcb` 위로 옮겼다. 옮길 때 미디어 고르기 창 포커스 경쟁 한 쌍(`95051a6c` 테스트 먼저, `b612c051` 구현)은 뺐다(아래 '뺀 쌍'). 옮긴 증분 21커밋은 커밋마다 `git patch-id --stable`이 같다. R1-11 문서 두 커밋은 P2와 9.0.20 기록이 바꾼 앞뒤 줄 때문에 patch-id만 다르고 더한 줄은 같다(SHA 대응은 '옮긴 뒤 SHA' 표)                                                                                                                                                                                                                                                      |
 | Version            | 9.0.22 / v795, 앱 빌드 795. 마지막 런타임 커밋 `336a5133`이 모든 거울(`package.json`, `package-lock.json` 두 곳, App Worker의 `ADMIN_ASSET_VERSION`, 관리자 스크립트의 `ADMIN_SCRIPT_VERSION`, `SERVICE_WORKER_CACHE_VERSION`, `index.html`의 bootstrap 쿼리)을 올렸다. `guard:release-identity` 'MUSIXQUARE 9.0.22; service-worker cache epoch v795', `guard:sw-cache-version` 'PASS: v795 (336a5133) covers all committed PWA runtime changes'. 앱 SemVer와 SW 캐시가 바뀌므로 업데이트 창이 뜬다. F1 뒤 바닥 789 위의 9.0.16 ~ 9.0.21 탭(빌드 789 ~ 794)에는 '나중에'가 있는 보통 창이다. 795는 PRO 스냅샷 schemaVersion 2를 받는 첫 빌드이고 F2의 바닥이다                                                                                                                                                                                                                                                                                                                                                                         |
 | Scope              | Phase 5.5 계획의 R1(증분 R1-1 ~ R1-11). 구버전 제거 열차 3(보내는 쪽): SESSION_FULL `message`와 OPERATOR_TOAST `text`(STD-1, STD-2), 게스트의 SFU 능력 표지와 그 메시지 종류(SAC-1, SAC-2, SAC-4), Standard 첫 offer와 모든 answer의 `iceRestartVersion`(SIG-4, SIG-3 src), signaling peer-open의 표지 넷(SIG-1, OV-F08), PRO presence/close의 재생 관찰 세 필드(PRES-1, PRES-2 문서)와 부르는 곳 없는 `leavePresence`(LEAVE-1). PRO 스냅샷 v2 받기: App이 스냅샷 schemaVersion 1과 2를 한 메모리 모양으로 읽음(A1, PSK-04 관리자 목록, PSK-12, PSK-17), PREPARE와 COMMIT의 시작 종류 `timingMode`(ZS-01), `liveExpiresAt` null인 live LAN-direct(PLE-01, M6), PRO Worker가 저장된 `timingMode`와 null LAN-direct 마감을 읽음(ZS-02, PLE-02), Worker와 App의 PRO 재생 전환 공유 시간 집(ZS-07). 문서: 바닥을 릴리스 전에 올리는 규칙(RM-03)과 release-record §4의 현재 경계 줄(M8). PRO Worker는 아직 v1과 숫자 마감만 쓴다. 저장 모양, D1, 비밀, 바인딩, Wrangler 설정, CORS, 계약 표지는 바꾸지 않는다                               |
@@ -154,8 +154,9 @@ LEAVE-1(`d456f28c`, 테스트 먼저 없음): `ProRoomApiClient.leavePresence`(D
 revision의 두 와이어가 `revision.ts`에서 같게 비교되므로 v2를 보내기 시작하는 PRO Worker가 설치된 revision을 충돌로 바꾸지 않는다
 (membership 경고, `PRO_ROOM_SNAPSHOT_CONFLICT`, `PRO_ROOM_PLAYLIST_SNAPSHOT_CONFLICT`). `PRO_ROOM_SNAPSHOT_SCHEMA_VERSION`은 1 → 2로
 메모리 스키마를 뜻하게 됐고 export 수는 그대로다. 관리자 목록 GET, PUT, DELETE는 `{ administrators }`와
-`{ authorityVersion: 1, administrators }`를 모두 받는다(PSK-04). `pro-room-invalidated`의 '시스템 오디오 호환 새로 읽기'는 그 필드를
-보내던 PRO Worker가 9.0.4 표지 커밋 `d6ac67f3`보다 앞(`2fa55871`)이라 복구로도 돌아오지 않으므로 지웠다(PSK-12). 시험 도우미의
+`{ authorityVersion: 1, administrators }`를 모두 받는다(PSK-04). `pro-room-invalidated`의 '시스템 오디오 호환 새로 읽기'는
+지웠다(PSK-12). 그것이 읽던 `systemAudioGeneration`은 `2fa55871`(2026-08-19)에서 PRO Worker를 떠났고, 9.0.4 PRO 입장 정책 표지
+커밋 `d6ac67f3`이 그 커밋을 담으므로 실패 복구나 비상 배포로도 그 필드를 보내는 Worker가 돌아오지 않는다. 시험 도우미의
 기본 출력을 v2로 바꾼 것은 테스트 먼저가 아니라 코드 커밋이다(테스트 먼저에서 바꾸면 부모에서 기존 행이 한꺼번에 실패함).
 
 범위 이동: 이 증분이 R3-1의 일부(`snapshot.ts`의 코디네이터 검사, 잠든 방 조건의 코디네이터 절)와 R2-1의 일부
@@ -268,7 +269,7 @@ R1-6이 `parseProRoomSnapshot`의 잠든 방 조건에서 코디네이터 절을
 |            |            |            |            | `c058a98a` | `9d767021`(앞뒤 줄만 다름) |
 
 옮기기에서 뺀 것: `95051a6c`, `b612c051`(아래). 옮긴 뒤 더한 것: `513729f6`, `38c0dee2`, `b7d91b2c`, `336a5133`, 이 보고서와 기록
-커밋.
+커밋(`f9825aa4`와 QA 라운드 5를 적은 커밋).
 
 ## 뺀 쌍: 미디어 고르기 창 포커스 경쟁
 
@@ -476,9 +477,31 @@ files / 3,515(80.89 / 75.63 / 86.86 / 84.74), release-tooling 커버리지 14 fi
 번들' 값, SW 앱 셸 95 자산, 레거시 TV 정적 검사, prod-hooks, prod-security, 글꼴), `check:worker-bundles` 여섯 Worker, 후보 E2E 19 / 19,
 단위 702 files / 16,684, Worker 69 files / 3,311, typecheck 전체, `format:check`. 모두 통과.
 
-### 5. 보고서·기록 커밋 뒤 전체 검사 (FINAL_GATE_HEAD)
+### 5. 보고서와 기록 커밋 뒤 전체 검사 (`f9825aa4`, 2026-10-29 16:55 ~ 17:20 KST)
 
-FINAL_GATE_DETAILS
+`f9825aa4`는 이 보고서, 릴리스 기록 §2 항목, `docs/README.md` 항목을 처음 더한 커밋이고 런타임 트리는 bump `336a5133`과 같다.
+Node 24.22.2 / npm 12.0.2, vitest `--maxWorkers=6`, 시작 때 작업 트리 깨끗함. 모든 단계가 종료 코드 0이다.
+
+- `npm audit`(high 이상) 0.
+- 단위 702 files / 16,684(skip 0). Worker 커버리지 69 files / 3,311(전체 86.69 / 83.54 / 94.31 / 90.96). 핵심 커버리지 90 files /
+  3,515(80.89 / 75.63 / 86.86 / 84.74). release-tooling 커버리지 14 files / 433.
+- typecheck 전체(`types:workers:check` 포함), `check:workers`, lint, `format:check`.
+- 가드: dead-exports(399 files, 2,111 bindings, 완전히 죽은 것 0, 시험 전용 20, 자기 전용 76), import-graph(399 files, 2,077 edges,
+  순환 0), bus-pairing 203 / 203, lifecycle-writes, navigation-sinks, room-authority-boundaries(직접 읽기 79, 구독 22, 쓰기 13, PRO
+  읽기 0, 스냅샷 읽기 0), transport-health, standard-room-hot-path, chunk-pump, source-complexity(`cloudflare/pro-room-worker.ts`
+  18,405 / 20,000, `cloudflare/signaling-worker.ts` 8,403 / 10,000, `src/pro-room/runtime.ts` 4,157 / 10,000),
+  `node scripts/check-resource-ownership.mts`(49 records / 446 files, 같은 값 쌍 27은 보고만).
+- smoke 단위 시험 6 files / 208, Worker 설정의 remote-share와 smoke 시험 3 files / 126, R1-5 Worker 행 3 files / 579.
+- `guard:release-identity` 'MUSIXQUARE 9.0.22; service-worker cache epoch v795', `guard:sw-cache-version` 'PASS: v795 (336a5133)
+  covers all committed PWA runtime changes'.
+- `build:checked` 전체: 진입 842.2 KiB raw / 247.9 KiB gzip, eager JS 456.5 KiB gzip, eager total 2,017.1 KiB raw / 534.1 KiB gzip,
+  SW 앱 셸 95 자산, 레거시 TV(Chromium 79) 정적 검사, prod-security.
+- `check:worker-bundles` 여섯 Worker(wrangler `deploy --dry-run`, 배포 없음, 크기는 앞의 '초기 JS와 Worker 번들'과 같음).
+- 후보 E2E 19 / 19(production 빌드), critical E2E 98 / 98(`build:e2e`), PRO Playwright 30 / 30, C5-0 랩 `route-outage` 4 / 4.
+  포트는 다른 작업과 겹치지 않게 E2E 4616 / 9616, 랩 4394 / 8884 / 9384를 썼다.
+- 끝에 production `dist`를 다시 빌드했다(`guard:prod-hooks` OK).
+
+라운드 3, 4와 숫자가 같다. 이 커밋 뒤의 커밋은 이 라운드를 적은 문서뿐이다.
 
 ### 6. 운영 전제: P2 smoke, F1, F1 신호 입장 smoke (자리, 배포 전에 채움)
 

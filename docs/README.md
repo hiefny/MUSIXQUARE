@@ -120,7 +120,12 @@ runbooks. Neither belongs in a general setup document.
   the review findings and their handling, stale commit message statements for the squash message,
   visible changes, records and registry, bundle sizes, QA rounds 1 to 5 (per increment; the
   tests-first commits rerun on their rebased parents; the gate after the move at `b7d91b2c`; the
-  checks after the bump at `336a5133`; the gate after the report commit) with placeholders for the
+  checks after the bump at `336a5133`; the full gate at the report commit `f9825aa4`: npm audit 0,
+  unit 702 files / 16,684, Worker 69 / 3,311, critical 90 / 3,515, release-tooling 14 / 433,
+  typecheck, lint, format, every guard, resource ownership 49 records / 446 files, room-authority
+  79 / 22 / 13 / 0, bus-pairing 203, the smoke unit rows and the R1-5 Worker rows,
+  `build:checked`, `check:worker-bundles`, candidate E2E 19, critical E2E 98, PRO Playwright 30
+  and the C5-0 lab 4) with placeholders for the
   production preconditions and the release (rounds 6 and 7), owner device check candidates and
   what was not verified. The release record's §2 carries a pre-deploy item for 9.0.22.
 - [UI follow-up train 9.0.21: transient text at 600 and chips on one line (2026-10-29)](design/ui-followup-921-2026-10-29.md):

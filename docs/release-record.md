@@ -69,13 +69,15 @@ gh run list --workflow e2e.yml --branch main --limit 3
       옮긴 뒤 `b7d91b2c`의 전체 검사(단위 702 files / 16,684, Worker 69 / 3,311, 핵심 커버리지 90 / 3,515, typecheck, lint,
       format, 가드, 후보 E2E 19, critical E2E 98, PRO Playwright 30, C5-0 랩 4, smoke 단위 시험과 R1-5 Worker 행), bump 뒤
       `336a5133`의 `build:checked`(`guard:release-identity` 9.0.22 / v795, `guard:sw-cache-version` v795, eager JS 456.5 KiB
-      gzip)와 `check:worker-bundles` 여섯 Worker. PR, PR CI, 자동 코드 리뷰, exact-main CI, 배포는 아직이고 로컬 결과는
-      exact-main-SHA 후보를 대신하지 않는다. 배포 뒤 기록 PR이 이 항목을 '배포 뒤 확인'으로 바꾸고, §1 '의존성·호환'의
-      보내는 쪽 문장과 §4의 이 릴리스 항목(Release와 checkpoint ID)을 더하며, 아래 릴리스 A 항목의 '9.0.14 기기와의 혼합 방'
-      기기 확인을 F1 근거로 고치거나 닫는다.
+      gzip)와 `check:worker-bundles` 여섯 Worker, 이 항목을 더한 문서 커밋 `f9825aa4`(런타임은 bump와 같음)에서 같은 전체
+      검사와 `build:checked`, `check:worker-bundles`, E2E 셋과 C5-0 랩을 다시 돌려 모두 통과(숫자 같음). PR, PR CI, 자동 코드
+      리뷰, exact-main CI, 배포는 아직이고 로컬 결과는 exact-main-SHA 후보를 대신하지 않는다. 배포 뒤 기록 PR이 이 항목을
+      '배포 뒤 확인'으로 바꾸고, §1 '의존성·호환'의 보내는 쪽 문장과 §4의 이 릴리스 항목(Release와 checkpoint ID)을
+      더하며, 아래 릴리스 A 항목의 '9.0.14 기기와의 혼합 방' 기기 확인을 F1 근거로 고치거나 닫는다.
       [변경·QA 보고서](design/phase5-5-r1-train3-v2-accept-2026-10-29.md),
       [QA 라운드 3](design/phase5-5-r1-train3-v2-accept-2026-10-29.md#3-옮긴-뒤-전체-검사-b7d91b2c-2026-10-29-1538--1611-kst-bump-전),
-      [QA 라운드 4](design/phase5-5-r1-train3-v2-accept-2026-10-29.md#4-bump-뒤-검사-336a5133-9022--v795-2026-10-29-1611--1621-kst).
+      [QA 라운드 4](design/phase5-5-r1-train3-v2-accept-2026-10-29.md#4-bump-뒤-검사-336a5133-9022--v795-2026-10-29-1611--1621-kst),
+      [QA 라운드 5](design/phase5-5-r1-train3-v2-accept-2026-10-29.md#5-보고서와-기록-커밋-뒤-전체-검사-f9825aa4-2026-10-29-1655--1720-kst).
 - [ ] 배포 조건(모두 채운 뒤에만 이 PR을 머지하고 dispatch한다): (1) 9.0.21의 배포와 그 기록 PR이 main에 있다. (2) P2(#519)
       직후 운영 remote-share smoke 두 형태(`npm run smoke:live:remote-share`와 `-- --require-assertion`)가 통과했다. 이
       릴리스의 signaling은 peer-open 확인서 표지를 광고하지 않으므로 P2 앞 smoke로는 릴리스가 실패해 자동 복구된다. (3) F1:

@@ -46,6 +46,79 @@ gh run list --workflow e2e.yml --branch main --limit 3
 해결하면 근거(커밋, 실행 ID, 문서)를 PR 설명에 적고 이 목록에서 지운다. 근거
 없이 완료로 표시하지 않는다.
 
+### 구버전 제거 열차 3과 PRO 스냅샷 v2 받기(Phase 5.5 R1, 9.0.22/v795) 배포 전: 바닥 789 뒤에만 낸다
+
+- [ ] 범위와 상태(오너 승인 2026-10-29 약 04:20 KST, 계획 질문 2026-10-28 모두 권장 기본, 미병합·미배포): 보내는 쪽 열차
+      3은 SESSION_FULL `message`와 OPERATOR_TOAST `text`, 게스트의 SFU 능력 표지와 그 메시지 종류(선언된 종류 102 → 101),
+      Standard 첫 offer와 모든 answer의 `iceRestartVersion`, signaling peer-open의 표지 넷(`workerVersionId`만 남음), PRO
+      presence/close의 세 필드(`baseRevision`, `currentQueueItemId`, `playback`)를 보내지 않고, 부르는 곳 없는
+      `leavePresence`를 지운다. PRO 스냅샷 v2 받기는 App이 스냅샷 schemaVersion 1과 2를 한 메모리 모양으로, PREPARE와
+      COMMIT의 선택 필드 `timingMode`를, `liveExpiresAt` null인 live LAN-direct를 읽고, PRO Worker가 저장된 `timingMode`와
+      null LAN-direct 마감을 읽는다(쓰기는 아직 v1 모양과 숫자 마감만). Worker와 App의 PRO 재생 전환 공유 시간 집
+      `cloudflare/pro-room-playback-timing.ts`(RO-03)를 더한다. 9.0.20 기록이 다음 App 릴리스로 남긴 미디어 고르기 창
+      포커스 경쟁 고침은 이 열차에서 뺐다(9.0.21이 실음). 브랜치 `agent/p55-r1`은 main `3bfdffcb`(9.0.21, #522) 위이고
+      증분 21커밋(테스트 먼저 10, 코드 10, LEAVE-1 하나)은 `edd6ee94` 위에서 만든 것과 patch-id가 같다. 마지막 런타임
+      커밋은 bump `336a5133`(9.0.22 / v795, 앱 빌드 795, 버전 거울 여섯 파일)이고 문서 커밋만 뒤따른다. 운영 9.0.21 App
+      `3bfdffcb`과 9.0.20 `226219c5`의 다른 다섯 Worker와 견준 런타임 경로 변경은 App 27, PRO 방 2, signaling 2, 나머지
+      0이라 target `all`이다(로컬 판정, `changedAppRuntimeDependencies`는 빈 목록). 앱 SemVer와 SW 캐시가 바뀌어 업데이트
+      창이 뜬다(바닥 789 위의 9.0.16 ~ 9.0.21 탭에는 '나중에'가 있는 보통 창). Developer API D1과
+      `raise_app_build_floor`는 둘 다 false다. D1 스키마, 비밀, 바인딩, Wrangler 설정, CORS, 계약 표지, 저장 데이터 모양,
+      의존성은 바뀌지 않는다. 자원 소유권 49 records / 446 files(새 공유 파일 +1), room-authority 직접 읽기 80 → 79·구독
+      22·쓰기 13·PRO 읽기 0, bus-pairing 203 / 203. 선언된 메시지 종류 102 → 101은 R1-2의 테스트 먼저 커밋에서 바뀐 받아들인
+      예외다(보고서 '정확한 개수 가드'). 로컬 QA(보고서 라운드 1 ~ 5): 증분마다 테스트 먼저(옮긴 부모에서도 같은 행만 실패),
+      옮긴 뒤 `b7d91b2c`의 전체 검사(단위 702 files / 16,684, Worker 69 / 3,311, 핵심 커버리지 90 / 3,515, typecheck, lint,
+      format, 가드, 후보 E2E 19, critical E2E 98, PRO Playwright 30, C5-0 랩 4, smoke 단위 시험과 R1-5 Worker 행), bump 뒤
+      `336a5133`의 `build:checked`(`guard:release-identity` 9.0.22 / v795, `guard:sw-cache-version` v795, eager JS 456.5 KiB
+      gzip)와 `check:worker-bundles` 여섯 Worker. PR, PR CI, 자동 코드 리뷰, exact-main CI, 배포는 아직이고 로컬 결과는
+      exact-main-SHA 후보를 대신하지 않는다. 배포 뒤 기록 PR이 이 항목을 '배포 뒤 확인'으로 바꾸고, §1 '의존성·호환'의
+      보내는 쪽 문장과 §4의 이 릴리스 항목(Release와 checkpoint ID)을 더하며, 아래 릴리스 A 항목의 '9.0.14 기기와의 혼합 방'
+      기기 확인을 F1 근거로 고치거나 닫는다.
+      [변경·QA 보고서](design/phase5-5-r1-train3-v2-accept-2026-10-29.md),
+      [QA 라운드 3](design/phase5-5-r1-train3-v2-accept-2026-10-29.md#3-옮긴-뒤-전체-검사-b7d91b2c-2026-10-29-1538--1611-kst-bump-전),
+      [QA 라운드 4](design/phase5-5-r1-train3-v2-accept-2026-10-29.md#4-bump-뒤-검사-336a5133-9022--v795-2026-10-29-1611--1621-kst).
+- [ ] 배포 조건(모두 채운 뒤에만 이 PR을 머지하고 dispatch한다): (1) 9.0.21의 배포와 그 기록 PR이 main에 있다. (2) P2(#519)
+      직후 운영 remote-share smoke 두 형태(`npm run smoke:live:remote-share`와 `-- --require-assertion`)가 통과했다. 이
+      릴리스의 signaling은 peer-open 확인서 표지를 광고하지 않으므로 P2 앞 smoke로는 릴리스가 실패해 자동 복구된다. (3) F1:
+      App Build Floor `status`, 같은 값 `set min_app_build=787`, `set min_app_build=789`, `status`. 마지막 `set`의 conclusion
+      success와 그 뒤 `status`의 저장·유효 789. (4) F1 직후 배포된 main에서 `MXQR_EXPECTED_SIGNALING_VERSION` 없이 돌린 신호
+      입장 smoke가 두 방의 방장·게스트를 들이고 `legacyCompatibility.refusedBelowAppBuildFloor` 789를 낸다(`appBuild.build`는
+      live 794). 실패 처리는 [운영](hotfix-procedure.md#app-build-floor)의 바닥 올리기 규칙이다: 일시적이면 다시, 방장이
+      거절되면 `lower 787`과 smoke 다시, 0은 방장이 여전히 거절되거나 그 `lower`가 실패할 때만, 값만 어긋나면 status를 다시
+      읽고 smoke 다시. 어느 실패든 F1이 789로 성공할 때까지 이 PR을 머지하지 않는다. (5) 이 PR은 dispatch 직전에만 머지하고,
+      그때부터 이 릴리스의 기록 PR까지 다른 PR을 머지하지 않으며 exact-main CI success를 본다. (6) dispatch 직전에 `status`를
+      다시 읽어 저장·유효 789와 300초 안의 App 보고를 확인하고 바닥 실행이 돌거나 기다리지 않음을 본다. 그 뒤 Release
+      target `all`, Developer API D1 false, `raise_app_build_floor` false. 'Check the App build floor the PRO Worker
+      requires' 단계는 요구 값이 비어 있어 아무것도 막지 않는다. 릴리스 안 신호 smoke의 `refusedBelowAppBuildFloor` 789가
+      signaling 배포 때 바닥 아래 방장을 다시 거른 근거이고, `admittedWithoutAppBuild`면 보고서에 적고 target `signaling`
+      재배포를 오너가 정한다. F2(바닥 795)는 이 릴리스의 배포·기록 뒤, PRO 스냅샷 v2를 보내는 PRO Worker 릴리스(R2) 전에
+      같은 순서(같은 값 `set 789`, `set 795`, `status`, 신호 입장 smoke에서 `appBuild.build`와 `refusedBelowAppBuildFloor`
+      모두 795)로 하고, 그 실행이 성공하고 smoke가 통과하기 전에는 R2를 dispatch하지 않는다. 795 앞 빌드는 v2 스냅샷,
+      `timingMode`가 든 PREPARE·COMMIT, null `liveExpiresAt`을 모두 거절한다. P2 smoke, F1 실행, F1 smoke의 결과는 보고서
+      QA 라운드 6에 싣는다(지금은 자리만).
+      [배포 조건과 순서](design/phase5-5-r1-train3-v2-accept-2026-10-29.md#배포-조건과-순서),
+      [QA 라운드 6](design/phase5-5-r1-train3-v2-accept-2026-10-29.md#6-운영-전제-p2-smoke-f1-f1-신호-입장-smoke-자리-배포-전에-채움).
+- [ ] 되돌리기 경계(이 런타임 변경이 §4에 적음): §4 머리의 '아래 모든 항목보다 우선하는 현재 경계' 줄이 정본이다. 기본은
+      더 높은 SemVer와 캐시 epoch의 코드 되돌리기(9.0.23 / v796 이상)다. 실패한 `all`의 자동 복구는 여섯 Worker를
+      checkpoint(App은 9.0.21, 다섯은 9.0.20 버전)로 되돌리고 안전하다(v2를 쓰는 곳이 없고, 되돌린 App과 signaling은 지운
+      필드와 표지를 다시 보낼 뿐이며 789 이상은 두 모양을 받음). 다만 실패한 `all`은 PRO 세대 cutover를 disabled로 남겨
+      다음에 성공한 `all`까지 해지된 방 코드의 다시 등록이 `PRO_ROOM_GENERATION_CUTOVER_NOT_READY` 503이다. 손으로는:
+      바닥 아래로 App을 되돌리기 전 `lower`가 먼저, 9.0.22 Signaling 뒤 App을 9.0.15 아래로는 Signaling, `lower`, App
+      순서로만, 9.0.22 이상 App이 live가 된 뒤 PRO를 릴리스 W(`a3893f04`, PRO `319f6e8f`) 앞으로는 되돌리지 않음(그 Worker는
+      세 필드 없는 presence/close를 400으로 거절). R1-9 테스트 먼저를 운영 PRO Worker와 같은 바이트의 부모에서 돌린 실행이
+      R1 앞 PRO가 `timingMode`가 든 저장 전환을 null로 하고 outbox를 통째로 버리며 null LAN-direct를 다음 세대 idle로
+      울타리침을 보였다. 그래서 R2가 v2 기록을 쓴 뒤에는 이 릴리스의 PRO Worker 아래로 되돌리지 않고, 그 문장은 R2 런타임
+      PR이 §4와 hotfix-procedure에 적는다.
+      [보고서의 되돌리기](design/phase5-5-r1-train3-v2-accept-2026-10-29.md#되돌리기),
+      [R1-9 부모 실행](design/phase5-5-r1-train3-v2-accept-2026-10-29.md#r1-9-pro-worker가-저장된-시작-종류와-null-lan-direct-마감을-읽음-zs-02-ple-02).
+- [ ] 확인하지 않은 것: 운영 단계 셋(P2 smoke, F1, F1 smoke)과 배포, 신호 Durable Object 재시작 쓸기(Cloudflare 문서상
+      동작), 실기기와 iOS Safari, WebKit 레인 전체, Full E2E, 9.0.14·9.0.15 끝과의 혼합 방(바닥이 들이지 않음), v2를 실제로
+      보내는 PRO Worker(R2 몫, e2e PRO 고정값은 아직 v1), 2.3 s 준비 예산과 공유 시간 집의 순서 시험(Phase 0d C2-1). 오너
+      기기 확인 후보 둘(PRO 탭을 닫은 참가자가 곧 빠지는지, 같은 LAN 일반방의 시스템 오디오 직접 실패 뒤 SFU로 넘어가는지)은
+      게이트가 아니다.
+      [확인하지 않은 것](design/phase5-5-r1-train3-v2-accept-2026-10-29.md#확인하지-않은-것),
+      [오너 기기 확인 후보](design/phase5-5-r1-train3-v2-accept-2026-10-29.md#오너-기기-확인-후보-게이트-아님).
+
+
 ### UI 후속 열차(9.0.21/v794) 배포 뒤 확인: 잠깐 뜨는 글자 600, 칩 한 줄, 미디어 고르기 창 포커스 경쟁
 
 - [ ] 범위와 상태(오너 결정 2026-10-29, PR #522): 굵기 W1 ~ W4(토스트 글자 이름표 600(9.0.19 굵기), 화면 보호기

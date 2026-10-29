@@ -350,9 +350,10 @@ RO-53 owner-in-place
   - the zero-start encoding of PRO Workers before PRO snapshot schemaVersion 2, one below each
     value: a 2999 ms stored deadline and a 699 ms COMMIT lead. `cloudflare/pro-room-worker.ts`
     and `src/pro-room/playback-controller.ts` keep their own copies because they drop them in
-    different releases (the Worker stops writing the 699 ms lead, then the App stops reading it,
-    then the Worker stops reading the 2999 ms deadline). A shared export would be dead in
-    between, which `guard:dead-exports` refuses, and would turn those PRO-only and App-only
+    different releases: the Worker stopped writing the 699 ms lead when it started to send
+    schemaVersion 2 and keeps only the 2999 ms deadline it reads, then the App stops reading the
+    699 ms lead, then the Worker stops reading the 2999 ms deadline. A shared export would be dead
+    in between, which `guard:dead-exports` refuses, and would turn those PRO-only and App-only
     releases into `all`;
   - the App's own budgets in `playback-controller.ts` that only share a value: the clock wait of
     a COMMIT that arrives without a current server clock (`PLAYBACK_COMMIT_CLOCK_WAIT_MS`,
@@ -1159,9 +1160,10 @@ RO-53 owner-in-place
     Phase 5.5 old-version removal train 3 (9.0.22) the shapes take one optional key, the start
     kind `timingMode` (`'zero-start'` or `'scheduled-control'`) of a PREPARE or COMMIT event: the
     loader keeps it and the write path (`enqueuePlaybackBroadcast`, whose new records pass the
-    same check) queues it, so this Worker loads and delivers the records of a later Worker that
-    names the kind. This Worker writes none, and any other value fails the check like any other
-    malformed record.
+    same check) queues it. Since PRO snapshot schemaVersion 2 the Worker writes it on every
+    PREPARE and transition COMMIT (a direct COMMIT names no kind), so the 9.0.22 PRO Worker, the
+    rollback target of that change, loads and delivers every record it writes. Any other value
+    fails the check like any other malformed record.
 
   The lanes keep their contracts and execution modes:
   - presence (`pendingPresenceBroadcast`, `deliverPresenceBroadcast`, `settlePresenceBroadcast`,
@@ -1217,18 +1219,21 @@ RO-53 owner-in-place
   - Mixed versions: `pro-room-signaling-delivery.test.ts` "durable record shapes (rollback
     contract)", against the frozen records in
     `src/pro-room/__tests__/__helpers__/pro-room-outbox-records-51ab2be3.ts` (both directions,
-    and the 16-attempt cap on load). The optional start kind: `pro-room-signaling-delivery.test.ts`
-    "keeps a stored transition that names timingMode %s across a cold restart and commits it with
-    the %i ms lead" and "keeps and delivers in order a transition COMMIT and a PREPARE that name
-    timingMode across a cold restart", and `pro-room-worker.test.ts` "lets the outbox write path
-    queue a PREPARE and a transition COMMIT that name either timingMode".
+    and the 16-attempt cap on load). The start kind, against the frozen records of
+    `src/pro-room/__tests__/__helpers__/pro-room-playback-records-v2.ts`: the Worker writes them
+    byte for byte, and "keeps and delivers in order a transition COMMIT and a PREPARE that name
+    timingMode across a cold restart" also holds on the 9.0.22 PRO Worker, where it first ran.
+    The write path: `pro-room-worker.test.ts` "lets the outbox write path queue a PREPARE and a
+    transition COMMIT that name either timingMode", and the real signaling Worker in
+    `pro-room-signaling-contract-workerd`.
 - **Status:** `owner-in-place`. Phase 0d named the constants once (C7-1). Phase 1 C7-3 merged the
   two request builders ([report](pro-room-signaling-transport-2026-10-23.md)); C7-4 gave the
   outbox one due time, one alarm drain, one epoch hook and one load normalizer, with no behaviour
   change ([report](pro-room-outbox-duration-owners-2026-10-23.md)). The trigger modes, due time,
   caps and epoch hook are pinned in `pro-room-signaling-delivery.test.ts`; the request against the
   real signaling Worker in `pro-room-signaling-contract-workerd`. Durable record shapes are frozen
-  apart from the optional `timingMode` key (Phase 5.5 train 3).
+  apart from the optional `timingMode` key, read since Phase 5.5 train 3 (9.0.22) and written
+  since PRO snapshot schemaVersion 2.
   Exceptions RO-31, RO-46.
 
 ### RO-08 PRO asset duration read

@@ -814,9 +814,9 @@ interface PlaybackTransition {
   ready: Record<string, 'ready' | 'failed'>;
   resumeFromSleep?: true;
   /**
-   * The start kind as a PRO Worker that sends PRO snapshot schemaVersion 2
-   * stores it. This Worker never writes it; it reads it so that it can load
-   * and commit that Worker's transitions (playbackTransitionTimingMode).
+   * The start kind. This Worker stores it on every transition it opens; one
+   * that a PRO Worker before PRO snapshot schemaVersion 2 stored has none and
+   * keeps that Worker's deadline encoding (playbackTransitionTimingMode).
    */
   timingMode?: ProRoomPlaybackTimingMode;
   developerCommandId: string | null;
@@ -1383,23 +1383,17 @@ const MAX_MEDIA_NAME_LENGTH = 2048;
 const MAX_TEXT_LENGTH = 2048;
 const PLAYBACK_MAX_POSITION_SECONDS = 7 * 24 * 60 * 60;
 // The transition barrier and COMMIT lead come from the shared timing home
-// (pro-room-playback-timing.ts). The zero-start encoding below stays in this
-// file because the Worker and the App drop it in different releases.
+// (pro-room-playback-timing.ts). This Worker names the start kind in
+// `timingMode` on every transition it stores and on its PREPARE and COMMIT,
+// with that barrier and lead for either kind (PRO snapshot schemaVersion 2).
 //
-// Encode the transition kind in a numeric field that older Workers already
-// accept. This keeps an in-flight transition readable after a Worker rollback;
-// the one millisecond deadline difference is operationally inert. A PRO
-// Worker that sends PRO snapshot schemaVersion 2 names the kind in
-// `timingMode` instead, with a 3000 ms deadline for either kind; this Worker
-// reads both (playbackTransitionTimingMode) and writes only this encoding.
+// PRO Workers before it marked a zero-start transition with a stored deadline
+// one millisecond short of the barrier (and a COMMIT lead one millisecond
+// short). Such a transition can still be pending when this Worker loads the
+// room, so it keeps reading that deadline (playbackTransitionTimingMode) until
+// a later PRO release drops it. The value stays in this file because the
+// Worker and the App drop that encoding in different releases.
 const PLAYBACK_ZERO_START_TRANSITION_DEADLINE_MS = PRO_ROOM_PLAYBACK_TRANSITION_DEADLINE_MS - 1;
-// Strict event parsers make a new COMMIT JSON key unsafe during a rolling PWA
-// deployment. A -1ms lead is an inert marker to old clients and lets refreshed
-// clients recognize only an explicitly classified true zero-start. Legacy and
-// unknown 700ms transitions fail safely as ordinary scheduled controls. This
-// Worker commits every zero-start transition with this lead, including one
-// whose kind a schemaVersion 2 Worker named, so every App still reads the kind.
-const PLAYBACK_ZERO_START_COMMIT_LEAD_MS = PRO_ROOM_PLAYBACK_COMMIT_LEAD_MS - 1;
 // A browser ENDED event is an observation, not a control command.  When the
 // media reports a finite duration, require both the browser cursor and the
 // server-projected room cursor to be genuinely near that end.  Unknown/live
@@ -3758,10 +3752,10 @@ function isPlaybackTimingMode(value: unknown): value is ProRoomPlaybackTimingMod
 }
 
 /**
- * The start kind of a stored transition: the kind it names (a PRO Worker that
- * sends PRO snapshot schemaVersion 2 stores it), else the encoding of every
- * earlier Worker, a zero-start deadline one millisecond short. A wake is
- * scheduled-control.
+ * The start kind of a stored transition: the kind it names (this Worker
+ * stores it on every transition), else the encoding of every PRO Worker
+ * before PRO snapshot schemaVersion 2, a zero-start deadline one millisecond
+ * short. A wake is scheduled-control.
  */
 function playbackTransitionTimingMode(pending: PlaybackTransition): ProRoomPlaybackTimingMode {
   if (pending.timingMode !== undefined) return pending.timingMode;
@@ -3901,12 +3895,12 @@ function normalizeStoredPlaybackBroadcastRecord(
   }
 
   const event = value.event;
-  // A PRO Worker that sends PRO snapshot schemaVersion 2 names the start kind
-  // (`timingMode`) on every PREPARE and transition COMMIT. This Worker's
-  // events never carry it, but its new records pass this same check
-  // (playbackBroadcastRecord), so the optional key lets that Worker's records
-  // load and be sent here. A direct COMMIT never names a kind; reading one
-  // there too keeps a stray key from dropping the whole outbox.
+  // This Worker names the start kind (`timingMode`) on every PREPARE and
+  // transition COMMIT, and its new records pass this same check
+  // (playbackBroadcastRecord). The key stays optional: a record that a PRO
+  // Worker before PRO snapshot schemaVersion 2 left behind has none. A direct
+  // COMMIT never names a kind; reading one there too keeps a stray key from
+  // dropping the whole outbox.
   if (value.kind === 'prepare') {
     if (
       !hasExactKeys(
@@ -13194,13 +13188,20 @@ export class MusixquareProRoom {
     };
   }
 
-  playbackCommitEvent(transitionId: string | null, executeAtMs: number, nowMs: number) {
+  /** A transition COMMIT names its start kind; a direct COMMIT (no transition) has none. */
+  playbackCommitEvent(
+    transitionId: string | null,
+    executeAtMs: number,
+    nowMs: number,
+    timingMode?: ProRoomPlaybackTimingMode,
+  ) {
     return {
       type: 'pro-playback-commit',
       transitionId,
       serverTimeMs: nowMs,
       executeAtMs,
       playback: structuredClone(this.activeRoom.playback),
+      ...(timingMode === undefined ? {} : { timingMode }),
     };
   }
 
@@ -13212,6 +13213,7 @@ export class MusixquareProRoom {
       deadlineAtMs: pending.deadlineAtMs,
       basePlaybackRevision: pending.basePlaybackRevision,
       target: structuredClone(pending.target),
+      timingMode: playbackTransitionTimingMode(pending),
     };
   }
 
@@ -13393,22 +13395,18 @@ export class MusixquareProRoom {
       return cancelEvent ? { ...committed, cancelEvent } : committed;
     }
     const transitionId = `transition_${randomToken(16)}`;
-    const deadlineAtMs =
-      nowMs +
-      (timingMode === 'zero-start'
-        ? PLAYBACK_ZERO_START_TRANSITION_DEADLINE_MS
-        : PRO_ROOM_PLAYBACK_TRANSITION_DEADLINE_MS);
     const pending: PlaybackTransition = {
       transitionId,
       coordinatorEpoch: this.activeRoom.presence.coordinatorEpoch,
       basePlaybackRevision: this.activeRoom.playback.revision,
       createdAtMs: nowMs,
-      deadlineAtMs,
+      deadlineAtMs: nowMs + PRO_ROOM_PLAYBACK_TRANSITION_DEADLINE_MS,
       target,
       cohort,
       ready: {},
       developerCommandId,
       ...(options.resumeFromSleep === true ? { resumeFromSleep: true } : {}),
+      timingMode,
     };
     this.activeRoom.pendingPlaybackTransition = pending;
     return {
@@ -13429,11 +13427,7 @@ export class MusixquareProRoom {
     ) {
       return { cancelEvent: this.cancelPendingPlayback('stale', nowMs), event: null };
     }
-    const executeAtMs =
-      nowMs +
-      (playbackTransitionTimingMode(pending) === 'zero-start'
-        ? PLAYBACK_ZERO_START_COMMIT_LEAD_MS
-        : PRO_ROOM_PLAYBACK_COMMIT_LEAD_MS);
+    const executeAtMs = nowMs + PRO_ROOM_PLAYBACK_COMMIT_LEAD_MS;
     pending.target.updatedAtMs = executeAtMs;
     this.activeRoom.currentQueueItemId = pending.target.queueItemId;
     this.activeRoom.playback = pending.target;
@@ -13445,7 +13439,12 @@ export class MusixquareProRoom {
     }
     return {
       cancelEvent: null,
-      event: this.playbackCommitEvent(pending.transitionId, executeAtMs, nowMs),
+      event: this.playbackCommitEvent(
+        pending.transitionId,
+        executeAtMs,
+        nowMs,
+        playbackTransitionTimingMode(pending),
+      ),
     };
   }
 

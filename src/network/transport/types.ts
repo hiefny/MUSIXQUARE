@@ -1,45 +1,10 @@
-import { parseRoomEffectsPatch, type RoomEffectsPatch } from '../../core/room-effects.ts';
-
 export type TransportProvider = 'peerjs' | 'cloudflare';
 
-type DeveloperCommand =
-  | { readonly type: 'play' }
-  | { readonly type: 'pause' }
-  | { readonly type: 'next' }
-  | { readonly type: 'seek'; readonly positionSeconds: number }
-  | { readonly type: 'play_item'; readonly queueItemId: string }
-  | { readonly type: 'set_effects'; readonly effects: RoomEffectsPatch };
-
-export interface DeveloperCommandFrame {
-  readonly type: 'developer-command';
-  readonly version: 1 | 2 | 3;
-  readonly roomCode: string;
-  readonly coordinatorEpoch: number;
-  readonly commandId: string;
-  readonly expiresAtMs: number;
-  readonly expected: {
-    readonly queueItemId: string | null;
-    readonly playlistRevision: number;
-    readonly playbackRevision: number;
-  };
-  readonly command: DeveloperCommand;
-}
-
 /**
- * Authenticated signaling-service hint that the persistent PRO snapshot has
- * advanced. It carries no mutable state: each recipient must refresh the
- * authoritative snapshot before applying anything locally.
+ * Authenticated, server-originated description of one accepted PRO queue add.
+ * It reaches the App only as the `addition` of a `pro-room-invalidated` PRO
+ * server event.
  */
-export interface DeveloperInvalidationFrame {
-  readonly type: 'developer-invalidation';
-  readonly version: 1;
-  readonly roomCode: string;
-  readonly coordinatorEpoch: number;
-  readonly revision: number;
-  readonly playlistRevision: number;
-}
-
-/** Authenticated, server-originated description of one accepted PRO queue add. */
 export interface ProQueueAdditionFrame {
   readonly type: 'pro-queue-addition';
   readonly version: 1;
@@ -52,11 +17,6 @@ export interface ProQueueAdditionFrame {
   /** Optional during rollout; current servers include it when the first added row has a title. */
   readonly firstTitle?: string;
 }
-
-const DEVELOPER_COMMAND_ID_RE = /^cmd_[A-Za-z0-9_-]{22}$/;
-const DEVELOPER_COMMAND_QUEUE_ITEM_ID_RE =
-  /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
-const DEVELOPER_COMMAND_MAX_SEEK_SECONDS = 7 * 24 * 60 * 60;
 
 function isPlainRecord(value: unknown): value is Record<string, unknown> {
   return value !== null && typeof value === 'object' && !Array.isArray(value);
@@ -76,10 +36,6 @@ function isNonNegativeSafeInteger(value: unknown): value is number {
   return typeof value === 'number' && Number.isSafeInteger(value) && value >= 0;
 }
 
-function isDeveloperQueueItemId(value: unknown): value is string {
-  return typeof value === 'string' && DEVELOPER_COMMAND_QUEUE_ITEM_ID_RE.test(value);
-}
-
 function hasUnsafeQueueMetadataCharacter(value: string): boolean {
   return [...value].some((character) => {
     const codePoint = character.codePointAt(0) ?? 0;
@@ -90,130 +46,6 @@ function hasUnsafeQueueMetadataCharacter(value: string): boolean {
       (codePoint >= 0x2066 && codePoint <= 0x2069)
     );
   });
-}
-
-/**
- * Strictly validates the only signaling frame that may cross into the
- * developer-control executor. Ordinary WebRTC signaling remains private to
- * the transport implementation.
- */
-export function parseDeveloperCommandFrame(value: unknown): DeveloperCommandFrame | null {
-  if (
-    !isPlainRecord(value) ||
-    !hasExactKeys(value, [
-      'type',
-      'version',
-      'roomCode',
-      'coordinatorEpoch',
-      'commandId',
-      'expiresAtMs',
-      'expected',
-      'command',
-    ]) ||
-    value.type !== 'developer-command' ||
-    (value.version !== 1 && value.version !== 2 && value.version !== 3) ||
-    typeof value.roomCode !== 'string' ||
-    !/^0\d{5}$/.test(value.roomCode) ||
-    !isNonNegativeSafeInteger(value.coordinatorEpoch) ||
-    value.coordinatorEpoch < 1 ||
-    typeof value.commandId !== 'string' ||
-    !DEVELOPER_COMMAND_ID_RE.test(value.commandId) ||
-    !isNonNegativeSafeInteger(value.expiresAtMs) ||
-    value.expiresAtMs < 1 ||
-    !isPlainRecord(value.expected) ||
-    !hasExactKeys(value.expected, ['queueItemId', 'playlistRevision', 'playbackRevision']) ||
-    (value.expected.queueItemId !== null && !isDeveloperQueueItemId(value.expected.queueItemId)) ||
-    !isNonNegativeSafeInteger(value.expected.playlistRevision) ||
-    !isNonNegativeSafeInteger(value.expected.playbackRevision) ||
-    !isPlainRecord(value.command)
-  ) {
-    return null;
-  }
-
-  let command: DeveloperCommand;
-  if (
-    (value.command.type === 'play' ||
-      value.command.type === 'pause' ||
-      value.command.type === 'next') &&
-    hasExactKeys(value.command, ['type'])
-  ) {
-    command = { type: value.command.type };
-  } else if (
-    value.command.type === 'seek' &&
-    hasExactKeys(value.command, ['type', 'positionSeconds']) &&
-    typeof value.command.positionSeconds === 'number' &&
-    Number.isFinite(value.command.positionSeconds) &&
-    value.command.positionSeconds >= 0 &&
-    value.command.positionSeconds <= DEVELOPER_COMMAND_MAX_SEEK_SECONDS
-  ) {
-    command = { type: 'seek', positionSeconds: value.command.positionSeconds };
-  } else if (
-    value.command.type === 'play_item' &&
-    hasExactKeys(value.command, ['type', 'queueItemId']) &&
-    isDeveloperQueueItemId(value.command.queueItemId)
-  ) {
-    command = { type: 'play_item', queueItemId: value.command.queueItemId };
-  } else if (
-    value.command.type === 'set_effects' &&
-    hasExactKeys(value.command, ['type', 'effects'])
-  ) {
-    const effects = parseRoomEffectsPatch(value.command.effects);
-    if (!effects) return null;
-    command = { type: 'set_effects', effects };
-  } else {
-    return null;
-  }
-
-  const requiredVersion = command.type === 'next' ? 3 : command.type === 'set_effects' ? 2 : 1;
-  if (value.version !== requiredVersion) return null;
-
-  return {
-    type: 'developer-command',
-    version: value.version,
-    roomCode: value.roomCode,
-    coordinatorEpoch: value.coordinatorEpoch,
-    commandId: value.commandId,
-    expiresAtMs: value.expiresAtMs,
-    expected: {
-      queueItemId: value.expected.queueItemId as string | null,
-      playlistRevision: value.expected.playlistRevision,
-      playbackRevision: value.expected.playbackRevision,
-    },
-    command,
-  };
-}
-
-export function parseDeveloperInvalidationFrame(value: unknown): DeveloperInvalidationFrame | null {
-  if (
-    !isPlainRecord(value) ||
-    !hasExactKeys(value, [
-      'type',
-      'version',
-      'roomCode',
-      'coordinatorEpoch',
-      'revision',
-      'playlistRevision',
-    ]) ||
-    value.type !== 'developer-invalidation' ||
-    value.version !== 1 ||
-    typeof value.roomCode !== 'string' ||
-    !/^0\d{5}$/.test(value.roomCode) ||
-    !isNonNegativeSafeInteger(value.coordinatorEpoch) ||
-    value.coordinatorEpoch < 1 ||
-    !isNonNegativeSafeInteger(value.revision) ||
-    !isNonNegativeSafeInteger(value.playlistRevision)
-  ) {
-    return null;
-  }
-
-  return {
-    type: 'developer-invalidation',
-    version: 1,
-    roomCode: value.roomCode,
-    coordinatorEpoch: value.coordinatorEpoch,
-    revision: value.revision,
-    playlistRevision: value.playlistRevision,
-  };
 }
 
 export function parseProQueueAdditionFrame(value: unknown): ProQueueAdditionFrame | null {
@@ -546,9 +378,6 @@ export interface TransportPeer {
   on(event: 'disconnected', callback: () => void): void;
   on(event: 'signaling-recovery-blocked', callback: () => void): void;
   on(event: 'pro-epoch-advanced', callback: () => void): void;
-  on(event: 'developer-command', callback: (frame: DeveloperCommandFrame) => void): void;
-  on(event: 'developer-invalidation', callback: (frame: DeveloperInvalidationFrame) => void): void;
-  on(event: 'pro-queue-addition', callback: (frame: ProQueueAdditionFrame) => void): void;
   on(event: 'connection', callback: (conn: TransportDataConnection) => void): void;
   on(
     event: 'room-identity',
@@ -564,9 +393,6 @@ export interface TransportPeer {
   off(event: 'disconnected', callback: () => void): void;
   off(event: 'signaling-recovery-blocked', callback: () => void): void;
   off(event: 'pro-epoch-advanced', callback: () => void): void;
-  off(event: 'developer-command', callback: (frame: DeveloperCommandFrame) => void): void;
-  off(event: 'developer-invalidation', callback: (frame: DeveloperInvalidationFrame) => void): void;
-  off(event: 'pro-queue-addition', callback: (frame: ProQueueAdditionFrame) => void): void;
   off(event: 'connection', callback: (conn: TransportDataConnection) => void): void;
   off(
     event: 'room-identity',

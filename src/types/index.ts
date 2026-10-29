@@ -20,7 +20,6 @@ export type { SystemAudioSurface } from '../core/system-audio-profile.ts';
 // ─── Peer / Network ────────────────────────────────────────────────
 
 import type {
-  ProQueueAdditionFrame,
   StandardRoomMemberIdentity,
   TransportDataConnection,
   TransportMediaConnection,
@@ -1506,7 +1505,6 @@ interface BaseEventMap {
   'network:peer-ice-recovered': [conn: DataConnection];
   'network:data': [data: unknown, conn: DataConnection];
   'network:error': [error: unknown];
-  'network:pro-queue-addition': [frame: ProQueueAdditionFrame];
   'network:broadcast': [data: unknown];
   'network:broadcast-except': [peerId: string, data: unknown];
   'network:toggle-operator': [peerId: string];

@@ -4060,8 +4060,6 @@ function acceptQueueAddition(frame: ProQueueAdditionFrame): void {
   scheduleAcceptedQueueAdditionFlush();
 }
 
-bus.on('network:pro-queue-addition', acceptQueueAddition);
-
 onProRoomRealtimeConnection((connected) => {
   if (!active) return;
   if (connected) {

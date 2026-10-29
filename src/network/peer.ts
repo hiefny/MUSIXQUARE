@@ -912,11 +912,6 @@ function setupPeerEvents(peer: PeerInstance): void {
     bus.emit('network:standard-room-account-deleted', { memberId });
   });
 
-  peer.on('pro-queue-addition', (frame) => {
-    if (getPeer() !== peer) return;
-    bus.emit('network:pro-queue-addition', frame);
-  });
-
   peer.on('pro-epoch-advanced', () => {
     if (getPeer() !== peer) return;
     log.info('[Transport] PRO coordinator epoch advanced; rebuilding transport');

@@ -62,6 +62,7 @@ import {
   localProductionApiFallbackEnabled,
 } from '../network/api-endpoints.ts';
 import { ProRoomApiError, type ProRoomSessionEndReason } from './api-error.ts';
+import type { ProPlaybackTimingMode } from './playback-authority-hooks.ts';
 
 export { ProRoomApiError } from './api-error.ts';
 
@@ -153,6 +154,12 @@ export interface ProRoomPlaybackPrepareEvent {
   deadlineAtMs: number;
   basePlaybackRevision: number;
   target: ProRoomPlaybackCheckpoint;
+  /**
+   * The start kind the Worker gave this transition. PRO snapshot schemaVersion
+   * 2 names it on every PREPARE and transition COMMIT; it stays optional, and
+   * a value outside the two kinds reads as scheduled-control.
+   */
+  timingMode?: ProPlaybackTimingMode;
 }
 
 export interface ProRoomPlaybackCommitEvent {
@@ -161,6 +168,8 @@ export interface ProRoomPlaybackCommitEvent {
   serverTimeMs: number;
   executeAtMs: number;
   playback: ProRoomPlaybackCheckpoint;
+  /** As on the PREPARE. A direct COMMIT (transitionId null) is always a scheduled control. */
+  timingMode?: ProPlaybackTimingMode;
 }
 
 export interface ProRoomPlaybackCancelEvent {
@@ -1119,19 +1128,28 @@ function parseSessionEnvelope(value: unknown, expectedCode: string): ProRoomSnap
   return snapshot?.roomCode === expectedCode ? snapshot : null;
 }
 
+/**
+ * The optional start kind of a PREPARE or COMMIT. A kind this App does not
+ * know reads as scheduled-control and never drops the event: the kind only
+ * grants learned startup lead (Q4).
+ */
+function playbackTimingModeField(
+  value: JsonRecord,
+): Pick<ProRoomPlaybackPrepareEvent, 'timingMode'> {
+  if (value.timingMode === undefined) return {};
+  return { timingMode: value.timingMode === 'zero-start' ? 'zero-start' : 'scheduled-control' };
+}
+
 export function parseProRoomPlaybackPrepareEvent(
   value: unknown,
 ): ProRoomPlaybackPrepareEvent | null {
   if (
     !isRecord(value) ||
-    !hasExactKeys(value, [
-      'type',
-      'transitionId',
-      'serverTimeMs',
-      'deadlineAtMs',
-      'basePlaybackRevision',
-      'target',
-    ]) ||
+    !hasExactKeys(
+      value,
+      ['type', 'transitionId', 'serverTimeMs', 'deadlineAtMs', 'basePlaybackRevision', 'target'],
+      ['timingMode'],
+    ) ||
     value.type !== 'pro-playback-prepare' ||
     typeof value.transitionId !== 'string' ||
     !PLAYBACK_TRANSITION_ID_RE.test(value.transitionId) ||
@@ -1151,13 +1169,18 @@ export function parseProRoomPlaybackPrepareEvent(
     deadlineAtMs: value.deadlineAtMs,
     basePlaybackRevision: value.basePlaybackRevision,
     target,
+    ...playbackTimingModeField(value),
   };
 }
 
 export function parseProRoomPlaybackCommitEvent(value: unknown): ProRoomPlaybackCommitEvent | null {
   if (
     !isRecord(value) ||
-    !hasExactKeys(value, ['type', 'transitionId', 'serverTimeMs', 'executeAtMs', 'playback']) ||
+    !hasExactKeys(
+      value,
+      ['type', 'transitionId', 'serverTimeMs', 'executeAtMs', 'playback'],
+      ['timingMode'],
+    ) ||
     value.type !== 'pro-playback-commit' ||
     (value.transitionId !== null &&
       (typeof value.transitionId !== 'string' ||
@@ -1175,6 +1198,7 @@ export function parseProRoomPlaybackCommitEvent(value: unknown): ProRoomPlayback
     serverTimeMs: value.serverTimeMs,
     executeAtMs: value.executeAtMs,
     playback,
+    ...playbackTimingModeField(value),
   };
 }
 

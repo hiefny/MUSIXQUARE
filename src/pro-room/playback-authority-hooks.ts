@@ -341,6 +341,8 @@ export interface ProPlaybackPrepareRequest {
  * Every playing path compensates fixed platform audio-output delay.
  * `zero-start` additionally permits learned startup lead; ordinary controls
  * follow the running server timeline without that startup-only correction.
+ * The PRO Worker names the kind as `timingMode` on each PREPARE and
+ * transition COMMIT since PRO snapshot schemaVersion 2 (see api.ts).
  */
 export type ProPlaybackTimingMode = 'zero-start' | 'scheduled-control';
 

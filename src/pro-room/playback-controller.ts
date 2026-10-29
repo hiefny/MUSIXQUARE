@@ -1216,13 +1216,17 @@ function createImplementation(
       ? Date.now() + clock.offsetMs
       : serverNowForFrame(event.serverTimeMs, receivedAtMs);
     const signedDelayMs = event.executeAtMs - nowMs;
-    // Wire-compatible rollout marker: old clients treat 699ms as an ordinary
-    // future COMMIT instant. Refreshed clients grant learned startup lead only
-    // to this explicit marker; all playing paths retain fixed output delay.
-    // Legacy, direct, and malformed timings remain running-timeline controls.
+    // Only a transition COMMIT can start at zero, and its named kind decides
+    // (PRO snapshot schemaVersion 2). Without it, the Worker's wire-compatible
+    // rollout marker stands: a 699ms lead, which old clients treat as an
+    // ordinary future COMMIT instant. Only zero-start grants learned startup
+    // lead; all playing paths retain fixed output delay. Legacy, direct, and
+    // malformed timings remain running-timeline controls.
     const zeroStart =
       event.transitionId !== null &&
-      event.executeAtMs - event.serverTimeMs === PRO_PLAYBACK_ZERO_START_WIRE_LEAD_MS;
+      (event.timingMode === undefined
+        ? event.executeAtMs - event.serverTimeMs === PRO_PLAYBACK_ZERO_START_WIRE_LEAD_MS
+        : event.timingMode === 'zero-start');
     return {
       scheduleDelayMs: Math.max(0, signedDelayMs),
       signedDelayMs,

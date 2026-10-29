@@ -1,6 +1,11 @@
 import type { DevicePlatform, PlaylistSlotsSummary, QueueItemId } from '../types/index.ts';
 
-export const PRO_ROOM_SNAPSHOT_SCHEMA_VERSION = 1 as const;
+/**
+ * PRO snapshot schemaVersion 2, the shape of every parsed snapshot. Until the
+ * App stops accepting snapshot schemaVersion 1, the parser also reads that
+ * wire into this shape (`snapshot.ts`).
+ */
+export const PRO_ROOM_SNAPSHOT_SCHEMA_VERSION = 2 as const;
 export const PRO_ROOM_QUOTA_BYTES = 1024 * 1024 * 1024;
 export const PRO_ROOM_MAX_ASSET_BYTES = 200 * 1024 * 1024;
 export const PRO_ROOM_MAX_PLAYLIST_ITEMS = 1000;
@@ -154,7 +159,6 @@ export interface ProRoomAdministrator {
 export interface ProRoomPresenceSnapshot {
   coordinatorEpoch: number;
   revision: number;
-  coordinatorParticipantId: string | null;
   participants: ProRoomPresenceParticipant[];
 }
 
@@ -175,7 +179,6 @@ export interface ProRoomViewerSnapshot {
   displayName: string;
   role: ProRoomRole;
   capabilities: ProRoomCapability[];
-  coordinatorEligible: boolean;
 }
 
 export type ProRoomSystemAudioStatus = 'idle' | 'preparing' | 'live';
@@ -261,13 +264,18 @@ interface ProRoomSystemAudioLiveState extends ProRoomSystemAudioStateBase {
 /**
  * Authoritative PRO live-share ownership returned by the dedicated
  * `/system-audio` resource and, since 9.0.0, by every presence heartbeat. It
- * stays outside snapshot v1, whose strict key set other replies still share.
+ * stays outside the snapshot, whose exact key sets other replies still share.
  */
 export type ProRoomSystemAudioState =
   ProRoomSystemAudioIdleState | ProRoomSystemAudioPreparingState | ProRoomSystemAudioLiveState;
 
-/** Authoritative, fully validated room state returned after activation/authentication. */
-interface ProRoomSnapshotV1 {
+/**
+ * Authoritative, fully validated room state returned after
+ * activation/authentication. A schemaVersion 1 reply parses to this same
+ * schemaVersion 2 shape without its four coordinator-era keys, so one revision
+ * compares equal across a Worker that changes the wire version.
+ */
+export interface ProRoomSnapshot {
   schemaVersion: typeof PRO_ROOM_SNAPSHOT_SCHEMA_VERSION;
   roomCode: string;
   status: ProRoomStatus;
@@ -284,8 +292,6 @@ interface ProRoomSnapshotV1 {
   presence: ProRoomPresenceSnapshot;
   quota: ProRoomQuotaSnapshot;
   viewer: ProRoomViewerSnapshot | null;
-  memberIdentityVersion: 1;
-  authorityVersion: 1;
   administrators: ProRoomAdministrator[];
   /**
    * Every playlist of the room; `playlist` above is the active one. Present
@@ -293,8 +299,6 @@ interface ProRoomSnapshotV1 {
    */
   playlistSlots?: PlaylistSlotsSummary;
 }
-
-export type ProRoomSnapshot = ProRoomSnapshotV1;
 
 /**
  * One presence heartbeat reply. A compact "not modified" reply resolves to

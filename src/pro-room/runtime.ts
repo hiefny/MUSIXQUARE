@@ -1239,11 +1239,7 @@ function publishProRoomMembership(snapshot: ProRoomSnapshot): void {
   publishedProMembershipSource = snapshot;
   setState('network.roomPasswordRequired', result.snapshot.passwordRequired !== false);
   reconcileAuthoritativePeers(result.snapshot);
-  const administrators =
-    result.snapshot.authorityVersion === 1 && result.snapshot.administrators
-      ? result.snapshot.administrators
-      : [];
-  publishProRoomAdministratorDirectory(administrators);
+  publishProRoomAdministratorDirectory(result.snapshot.administrators);
 }
 
 function installMediaHooks(
@@ -4118,16 +4114,6 @@ function acceptProRoomRealtimeFrame(
 
   if (frame.event.type === 'pro-room-invalidated' || frame.event.type === 'pro-presence-snapshot') {
     observeProRoomRuntimeTask(runHeartbeat(true), 'realtime invalidation heartbeat');
-    if (
-      frame.event.type === 'pro-room-invalidated' &&
-      typeof frame.event.systemAudioGeneration === 'number' &&
-      Number.isSafeInteger(frame.event.systemAudioGeneration) &&
-      frame.event.systemAudioGeneration >= 0
-    ) {
-      void refreshSystemAudioState().catch((error) => {
-        log.warn('[PRO] Realtime system-audio compatibility refresh failed', error);
-      });
-    }
     return;
   }
   if (frame.event.type === 'system-audio-invalidated') {

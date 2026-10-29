@@ -19,26 +19,22 @@ import type {
  * the four keys, so no fixture writes them itself.
  *
  * `proSnapshotV1` and `proSnapshotV2` build one wire version each, for rows
- * that pin a version. The default output is today's v1 wire, which is also
- * the parsed (memory) shape: the keys come out in the parser's order. When the
- * App starts accepting snapshot v2, that change's code commit switches this
- * default output to the v2 wire (the memory shape both wires then parse to),
- * so the rows that compare a parsed snapshot with its fixture keep passing.
- * The switch belongs in the code commit, not in its test-first commit, where
- * the parent's v1-only parser would refuse every fixture at once.
+ * that pin a version. The default output is the v2 wire, which is also the
+ * parsed (memory) shape that both wires parse to: the keys come out in the
+ * parser's order, so the rows that compare a parsed snapshot with its fixture
+ * pass for either wire. The default switched from the v1 wire in the code
+ * commit of the App change that started accepting v2, not in its test-first
+ * commit, where the parent's v1-only parser would have refused every fixture.
  */
 
-/** A presence block without its coordinator-era key. */
-export type ProPresenceFields = Omit<ProRoomPresenceSnapshot, 'coordinatorParticipantId'>;
+/** A presence block: the memory shape, which has no coordinator-era key. */
+export type ProPresenceFields = ProRoomPresenceSnapshot;
 
-/** A viewer without its coordinator-era key. */
-export type ProViewerFields = Omit<ProRoomViewerSnapshot, 'coordinatorEligible'>;
+/** A viewer: the memory shape, which has no coordinator-era key. */
+export type ProViewerFields = ProRoomViewerSnapshot;
 
-/** Every snapshot field a fixture chooses: all but the schema version and the version keys. */
-export type ProSnapshotFields = Omit<
-  ProRoomSnapshot,
-  'schemaVersion' | 'memberIdentityVersion' | 'authorityVersion' | 'presence' | 'viewer'
-> & {
+/** Every snapshot field a fixture chooses: all but the schema version. */
+export type ProSnapshotFields = Omit<ProRoomSnapshot, 'schemaVersion' | 'presence' | 'viewer'> & {
   presence: ProPresenceFields;
   viewer: ProViewerFields | null;
 };
@@ -139,17 +135,17 @@ export function proSnapshotV2(fields: ProSnapshotFields): ProSnapshotV2Wire {
 
 /** The snapshot's presence block in the default output. */
 export function proPresence(fields: ProPresenceFields): ProRoomPresenceSnapshot {
-  return presenceV1(fields);
+  return presenceV2(fields);
 }
 
 /** The snapshot's viewer in the default output. */
 export function proViewer(fields: ProViewerFields): ProRoomViewerSnapshot {
-  return viewerV1(fields);
+  return viewerV2(fields);
 }
 
 /** A complete PRO room snapshot in the default output. */
 export function proSnapshot(fields: ProSnapshotFields): ProRoomSnapshot {
-  return proSnapshotV1(fields);
+  return proSnapshotV2(fields);
 }
 
 /** The administrator directory answer that goes with snapshot schemaVersion 1. */
@@ -169,8 +165,7 @@ export function proAdministratorDirectoryV2(administrators: ProRoomAdministrator
 
 /** The administrator directory answer of GET, PUT and DELETE `/administrators` in the default output. */
 export function proAdministratorDirectory(administrators: ProRoomAdministrator[]): {
-  authorityVersion: 1;
   administrators: ProRoomAdministrator[];
 } {
-  return proAdministratorDirectoryV1(administrators);
+  return proAdministratorDirectoryV2(administrators);
 }

@@ -7,8 +7,8 @@ export type ProRoomRepeatMode = 0 | 1 | 2;
 
 /**
  * Rolling-deploy-safe persistent queue behavior for a PRO room. This stays
- * outside snapshot v1 so an older strict client can continue joining while a
- * newer Worker is deployed.
+ * outside the snapshot, whose key set every client checks exactly, so an
+ * older client can continue joining while a newer Worker is deployed.
  */
 export interface ProRoomQueueModeSnapshot {
   schemaVersion: 1;

@@ -427,7 +427,7 @@ describe('PRO room snapshot validation', () => {
     expect(parseProRoomSnapshot(snapshot)).toBeNull();
   });
 
-  it('parses the active v1 snapshot and returns a detached JSON-safe copy', () => {
+  it('parses the active snapshot and returns a detached JSON-safe copy', () => {
     const raw = activeSnapshot();
     const parsed = parseProRoomSnapshot(raw);
     expect(parsed).toEqual(raw);

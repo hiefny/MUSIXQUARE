@@ -229,8 +229,8 @@ export interface ProRoomAccountDetachResult {
   snapshot: ProRoomSnapshot | null;
 }
 
+/** The administrator directory answer of GET, PUT and DELETE `/administrators`. */
 interface ProRoomAdministratorDirectory {
-  authorityVersion: 1;
   administrators: ProRoomAdministrator[];
 }
 
@@ -807,8 +807,10 @@ function parseAccountDetachResult(
 function parseAdministratorDirectory(value: unknown): ProRoomAdministratorDirectory | null {
   if (
     !isRecord(value) ||
-    !hasExactKeys(value, ['authorityVersion', 'administrators']) ||
-    value.authorityVersion !== 1 ||
+    // A PRO Worker that sends snapshot schemaVersion 1 adds the same retired
+    // authority marker to this answer, always 1. It is checked and dropped.
+    !hasExactKeys(value, ['administrators'], ['authorityVersion']) ||
+    (value.authorityVersion !== undefined && value.authorityVersion !== 1) ||
     !Array.isArray(value.administrators) ||
     value.administrators.length > PRO_ROOM_MAX_ADMINISTRATOR_ITEMS
   ) {
@@ -825,7 +827,7 @@ function parseAdministratorDirectory(value: unknown): ProRoomAdministratorDirect
   if (administrators.filter((administrator) => administrator.role === 'owner').length !== 1) {
     return null;
   }
-  return { authorityVersion: 1, administrators };
+  return { administrators };
 }
 
 function validateAdministratorPermissions(value: ProRoomPermissionSet): ProRoomPermissionSet {

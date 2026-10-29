@@ -9,7 +9,8 @@ interface ProRoomSnapshotApplyResult {
 }
 
 function snapshotsEqual(left: ProRoomSnapshot, right: ProRoomSnapshot): boolean {
-  // Parsed snapshots have an exact v1 key set and contain JSON-only values.
+  // Parsed snapshots have one exact key set and key order, whichever wire
+  // version carried them, and contain JSON-only values.
   return JSON.stringify(left) === JSON.stringify(right);
 }
 

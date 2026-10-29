@@ -163,7 +163,6 @@ const NOT_ROLE_BUTTONS: Readonly<Record<string, string>> = {
   'btn-kick-physical-device': 'Icon-only device row action.',
   'chat-youtube-btn': 'YouTube card inside a chat bubble.',
   'chat-preview-btn': 'Chat preview bar; its message text takes the CTA role (CTA_TEXT).',
-  'chat-drawer-close': 'Icon-only chat control.',
   'chat-pinned-notice-dismiss': 'Icon-only chat control.',
   'chat-pinned-notice-open': 'Icon-only chat control.',
   'chat-scroll-down-btn': 'Icon-only scroll control.',

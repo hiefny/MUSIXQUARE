@@ -123,9 +123,7 @@ test.describe('Comprehensive UI', () => {
     await expect(chatBtn).toBeVisible();
     await openChatDrawer(pair.hostPage);
 
-    // The sheet keeps its outside-tap close beside its visible Close (owner
-    // decision 2026-10-28).
-    await expect(pair.hostPage.locator('#btn-chat-close')).toBeVisible();
+    // A bottom sheet keeps its outside-tap close (owner decision 2026-10-28).
     const backdrop = pair.hostPage.locator('#chat-backdrop');
     await expect(backdrop).toBeVisible();
     const backdropPoint = await pair.hostPage.evaluate(() => {
@@ -147,9 +145,10 @@ test.describe('Comprehensive UI', () => {
     expect(isOpen).toBe(false);
   });
 
-  test('chat sheet shows a Close at the top start that closes it', async () => {
-    // Owner decision (2026-10-28): the phone sheet gains a visible Close at
-    // the top start of its handle row; the handle bar stays centred.
+  test('chat sheet shows no Close and its handle closes it by tap and keyboard', async () => {
+    // Owner decision (2026-10-30): the phone sheet shows no Close (9.0.20 put
+    // one at the top start of its handle row). As before 9.0.20, its drag
+    // handle, an outside tap (above) and Escape close it.
     await useMobileHostViewport();
     await connectHostAndGuest(pair.hostPage, pair.guestPage);
     await openChatDrawer(pair.hostPage);
@@ -161,29 +160,39 @@ test.describe('Comprehensive UI', () => {
       )
       .toMatch(/^(none|matrix\(1, 0, 0, 1, 0, 0\))$/u);
 
-    const close = pair.hostPage.locator('#btn-chat-close');
-    await expect(close).toBeVisible();
-    await expect(close).toHaveAccessibleName('Close chat');
+    const drawer = pair.hostPage.locator('#chat-drawer');
+    const handle = drawer.locator('.chat-drawer-header');
+    await expect(drawer.getByRole('button', { name: 'Close chat' })).toHaveCount(0);
+    await expect(handle).toHaveAttribute('role', 'separator');
+    await expect(handle).toHaveAccessibleName('Chat');
     const geometry = await pair.hostPage.evaluate(() => {
-      const drawer = document.getElementById('chat-drawer')!.getBoundingClientRect();
+      const sheet = document.getElementById('chat-drawer')!.getBoundingClientRect();
       const header = document.querySelector('.chat-drawer-header')!.getBoundingClientRect();
-      const button = document.getElementById('btn-chat-close')!.getBoundingClientRect();
-      const icon = document.querySelector('#btn-chat-close svg')!.getBoundingClientRect();
+      const topStart = document.elementFromPoint(sheet.left + 26, header.top + header.height / 2);
       return {
-        iconInset: icon.left - drawer.left,
-        buttonSize: [button.width, button.height],
-        centreOffset: button.top + button.height / 2 - (header.top + header.height / 2),
+        headerOffset: header.top - sheet.top,
         headerHeight: header.height,
+        topStartIsHandle: topStart?.classList.contains('chat-drawer-header') ?? false,
       };
     });
-    // The 20px icon sits 16px in, like the sheet's content, and the 36px
-    // button is centred on the 36px handle row without adding height.
-    expect(geometry.iconInset).toBeCloseTo(16, 0);
-    expect(geometry.buttonSize).toEqual([36, 36]);
-    expect(Math.abs(geometry.centreOffset)).toBeLessThan(0.5);
+    // The 36px handle row is the top of the sheet, and its start, where the
+    // Close was, is the handle itself.
+    expect(geometry.headerOffset).toBeCloseTo(0, 0);
     expect(geometry.headerHeight).toBeCloseTo(36, 0);
+    expect(geometry.topStartIsHandle).toBe(true);
 
-    await close.click();
+    // The first Tab in the sheet reaches the handle, and Enter on it closes.
+    await pair.hostPage.keyboard.press('Tab');
+    await expect(handle).toBeFocused();
+    await pair.hostPage.keyboard.press('Enter');
+    await waitForClass(pair.hostPage, '#chat-drawer', 'open', false);
+
+    await openChatDrawer(pair.hostPage);
+    await handle.click();
+    await waitForClass(pair.hostPage, '#chat-drawer', 'open', false);
+
+    await openChatDrawer(pair.hostPage);
+    await pair.hostPage.keyboard.press('Escape');
     await waitForClass(pair.hostPage, '#chat-drawer', 'open', false);
   });
 

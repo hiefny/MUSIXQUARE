@@ -887,7 +887,6 @@ describe('Chat Module', () => {
         <div id="chat-messages" tabindex="-1"></div>
         <button id="btn-chat-scroll-down"></button>
         <button id="btn-chat-send"></button>
-        <button id="btn-chat-close"></button>
         <div class="chat-input-wrapper"><div id="chat-input" contenteditable="true"></div></div>
         <div id="chat-pinned-notice"></div>
       `;
@@ -1052,7 +1051,9 @@ describe('Chat Module', () => {
         drawer.dispatchEvent(event);
       }
 
-      it.each(['back', 'button'] as const)(
+      // The sheet has no Close (owner decision 2026-10-30): Back, a tap on its
+      // handle and an outside tap close it.
+      it.each(['back', 'handle', 'backdrop'] as const)(
         'waits for the drawer transform after closing through %s',
         async (source) => {
           const { initChat, toggleChatDrawer } = await import('../chat.ts');
@@ -1062,8 +1063,10 @@ describe('Chat Module', () => {
           await whenBackSurfaceSettled(); // Opening is not a closing surface.
           finishTransform(drawer);
 
+          const handle = drawer.querySelector<HTMLElement>('.chat-drawer-header')!;
           if (source === 'back') expect(offerBackToTopWindow().handled).toBe(true);
-          else document.getElementById('btn-chat-close')!.click();
+          else if (source === 'handle') handle.click();
+          else document.getElementById('chat-backdrop')!.click();
           const observed = vi.fn();
           const settled = whenBackSurfaceSettled().then(observed);
           await Promise.resolve();
@@ -1958,7 +1961,6 @@ describe('Chat Module', () => {
         <section class="tab-content active" id="tab-play"></section>
         <div id="chat-backdrop"></div>
         <div id="chat-drawer" data-chat-snap="half" tabindex="-1">
-          <button type="button" class="chat-drawer-close" id="btn-chat-close"></button>
           <div class="chat-drawer-header"></div>
           <div id="chat-messages" tabindex="-1"></div>
           <div id="chat-input" contenteditable="true" tabindex="0"></div>
@@ -1998,18 +2000,10 @@ describe('Chat Module', () => {
       expect(document.activeElement).toBe(input);
       input.dispatchEvent(new KeyboardEvent('keydown', { key: 'Tab', bubbles: true }));
       expect(document.activeElement).toBe(document.getElementById('btn-chat-send'));
-      // The sheet's visible Close (owner decision 2026-10-28) starts the
-      // cycle, before the handle.
-      const close = document.getElementById('btn-chat-close') as HTMLButtonElement;
       document
         .getElementById('btn-chat-send')
         ?.dispatchEvent(new KeyboardEvent('keydown', { key: 'Tab', bubbles: true }));
-      expect(document.activeElement).toBe(close);
-      close.dispatchEvent(
-        new KeyboardEvent('keydown', { key: 'Tab', shiftKey: true, bubbles: true }),
-      );
-      expect(document.activeElement).toBe(document.getElementById('btn-chat-send'));
-      header.focus();
+      expect(document.activeElement).toBe(header);
 
       header.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
       await Promise.resolve();
@@ -2043,6 +2037,75 @@ describe('Chat Module', () => {
       header.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true }));
       expect(drawer.classList.contains('open')).toBe(false);
       document.documentElement.style.removeProperty('--app-height');
+    });
+
+    it('starts the real phone sheet at its handle and closes it from the handle, outside and Escape', async () => {
+      // Owner decision (2026-10-30): the sheet shows no Close (9.0.20 put one
+      // before the handle). As before 9.0.20, its keyboard cycle starts at the
+      // handle, and the handle, an outside tap and Escape close it.
+      const markup = new DOMParser().parseFromString(
+        readFileSync('index.html', 'utf8'),
+        'text/html',
+      );
+      document.body.innerHTML = `
+        <button id="chat-preview-btn">
+          <span id="chat-preview-badge"></span>
+          <span class="chat-preview-text"></span>
+        </button>
+        <header id="main-header"></header>
+        <section class="tab-content active" id="tab-play"></section>
+      `;
+      for (const id of ['chat-backdrop', 'chat-drawer']) {
+        document.body.append(document.importNode(markup.getElementById(id)!, true));
+      }
+      vi.spyOn(window, 'innerWidth', 'get').mockReturnValue(390);
+      vi.spyOn(window, 'innerHeight', 'get').mockReturnValue(844);
+      document.documentElement.style.setProperty('--app-height', '844px');
+
+      const { initChat, toggleChatDrawer } = await import('../chat.ts');
+      initChat();
+      const drawer = document.getElementById('chat-drawer')!;
+      const header = drawer.querySelector<HTMLElement>('.chat-drawer-header')!;
+      const send = document.getElementById('btn-chat-send')!;
+      const isOpen = (): boolean => drawer.classList.contains('open');
+      const key = (target: Element, name: string, shiftKey = false): void => {
+        target.dispatchEvent(new KeyboardEvent('keydown', { key: name, shiftKey, bubbles: true }));
+      };
+      const open = (): void => {
+        toggleChatDrawer();
+        expect(isOpen()).toBe(true);
+        expect(document.activeElement).toBe(header);
+      };
+
+      try {
+        open();
+        expect(header.getAttribute('role')).toBe('separator');
+        expect(header.getAttribute('aria-label')).toBe('chat.title');
+        expect(header.getAttribute('aria-keyshortcuts')).toContain('Escape');
+        // The handle starts the cycle: Shift+Tab wraps to Send, the sheet's
+        // last control, and Tab from Send comes back to the handle.
+        key(header, 'Tab', true);
+        expect(document.activeElement).toBe(send);
+        key(send, 'Tab');
+        expect(document.activeElement).toBe(header);
+
+        key(header, 'Enter');
+        expect(isOpen()).toBe(false);
+        open();
+        key(header, ' ');
+        expect(isOpen()).toBe(false);
+        open();
+        header.click();
+        expect(isOpen()).toBe(false);
+        open();
+        document.getElementById('chat-backdrop')!.click();
+        expect(isOpen()).toBe(false);
+        open();
+        key(header, 'Escape');
+        expect(isOpen()).toBe(false);
+      } finally {
+        document.documentElement.style.removeProperty('--app-height');
+      }
     });
 
     it('marks the compact preview from the sender and message scripts', async () => {
@@ -2099,7 +2162,6 @@ describe('Chat Module', () => {
           <div id="chat-messages"><span id="chat-copy-hint"></span><div class="chat-empty"></div></div>
           <button id="btn-chat-scroll-down"></button>
           <button id="btn-chat-send"></button>
-          <button id="btn-chat-close"></button>
           <div class="chat-input-wrapper">
             <div id="chat-input" contenteditable="true"></div>
           </div>

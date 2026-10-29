@@ -1,84 +1,64 @@
 /**
  * @vitest-environment jsdom
  *
- * Owner decision (2026-10-28): the phone and tablet chat sheet keeps its
- * outside-tap close and gains a visible Close at the top start. The desktop
- * chat panel is not a window and shows no Close.
+ * Owner decision (2026-10-30): the phone and tablet chat sheet shows no Close.
+ * 9.0.20 put a visible Close at its top start (owner decision 2026-10-28,
+ * dialog exit item F12); the owner saw it on a device and asked for it to go.
+ * The sheet closes as before 9.0.20: a tap or a swipe down on its drag handle,
+ * Enter or Space on the focused handle, an outside tap on the backdrop, Escape
+ * and Back (chat.test.ts). The desktop chat panel is not a window.
  */
-import { readFileSync } from 'node:fs';
+import { readdirSync, readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
-import { parse as parseCss, type AtRule, type Node, type Root } from 'postcss';
+import { parse as parseCss } from 'postcss';
 import { describe, expect, it } from 'vitest';
 
-const SHEET_MEDIA = '(max-width: 1279px), (max-height: 719px)';
+const read = (path: string): string => readFileSync(resolve(path), 'utf8');
 
-const markup = new DOMParser().parseFromString(
-  readFileSync(resolve('index.html'), 'utf8'),
-  'text/html',
-);
-const appCss = parseCss(readFileSync(resolve('css/style.css'), 'utf8'));
-const desktopCss = parseCss(readFileSync(resolve('css/desktop.css'), 'utf8'));
+const markup = new DOMParser().parseFromString(read('index.html'), 'text/html');
 
-function mediaOf(node: Node): string | null {
-  for (let parent = node.parent; parent; parent = parent.parent) {
-    if (parent.type === 'atrule' && (parent as AtRule).name === 'media') {
-      return (parent as AtRule).params;
-    }
-  }
-  return null;
-}
-
-/** `prop: value` declarations of rules that list `selector`, with their media. */
-function declarations(root: Root, selector: string): { media: string | null; decl: string }[] {
-  const found: { media: string | null; decl: string }[] = [];
-  root.walkRules((rule) => {
-    if (!rule.selectors.includes(selector)) return;
-    rule.each((node) => {
-      if (node.type === 'decl') {
-        found.push({ media: mediaOf(rule), decl: `${node.prop}: ${node.value}` });
-      }
-    });
-  });
-  return found;
-}
-
-describe('chat sheet Close', () => {
-  it('sits before the drag handle, not inside it, named Close chat', () => {
+describe('chat sheet without a Close', () => {
+  it('starts the sheet with its drag handle, which holds no control', () => {
     const drawer = markup.getElementById('chat-drawer')!;
-    const close = markup.getElementById('btn-chat-close')!;
     const header = drawer.querySelector('.chat-drawer-header')!;
-    // The handle becomes a focusable separator or button on the sheet, so a
-    // Close inside it would be a control nested in a control.
-    expect(close.parentElement).toBe(drawer);
-    expect(close.nextElementSibling).toBe(header);
-    expect(header.contains(close)).toBe(false);
-    expect(close.getAttribute('type')).toBe('button');
-    expect(close.getAttribute('data-i18n-aria-label')).toBe('chat.close');
+    // The sheet makes the handle a focusable separator or button, so it is the
+    // sheet's first control and nothing sits before it or inside it.
+    expect(drawer.firstElementChild).toBe(header);
+    expect(header.querySelector('button')).toBeNull();
+    expect(markup.getElementById('btn-chat-close')).toBeNull();
+    expect(drawer.querySelector('.chat-drawer-close')).toBeNull();
   });
 
-  it('shows on the sheet at the top start of the handle row', () => {
-    const sheetRules = [
-      ...declarations(appCss, '.chat-drawer-close'),
-      ...declarations(appCss, '#btn-chat-close'),
-    ];
-    expect(
-      sheetRules.filter(({ decl }) => decl === 'display: none'),
-      'the sheet hides its Close',
-    ).toEqual([]);
-    // A 36px icon button over the handle row's start: it takes no height of
-    // its own, so the handle bar stays centred.
-    const onSheet = sheetRules.filter(({ media }) => media === SHEET_MEDIA).map(({ decl }) => decl);
-    expect(onSheet).toEqual(
-      expect.arrayContaining([
-        'align-self: flex-start',
-        'width: 36px',
-        'height: 36px',
-        'margin-bottom: -36px',
-      ]),
+  it('leaves no markup, rule, wiring or copy of the Close', () => {
+    const html = read('index.html');
+    for (const fragment of ['btn-chat-close', 'chat-drawer-close', 'chat.close']) {
+      expect(html, fragment).not.toContain(fragment);
+    }
+
+    // css/app.css imports these four files; together they are the app stylesheet.
+    const retired = /(?:\.chat-drawer-close|#btn-chat-close)(?![\w-])/u;
+    for (const path of [
+      'css/style.css',
+      'css/desktop.css',
+      'css/rtl.css',
+      'css/playback-actions.css',
+    ]) {
+      parseCss(read(path)).walkRules((rule) => {
+        expect(retired.test(rule.selector), `${path}: ${rule.selector}`).toBe(false);
+      });
+    }
+
+    const chatSource = read('src/ui/chat.ts');
+    for (const fragment of ['btn-chat-close', 'chat-drawer-close']) {
+      expect(chatSource, fragment).not.toContain(fragment);
+    }
+
+    const locales = readdirSync(resolve('src/i18n')).filter((name) =>
+      /^[a-z]{2,3}(?:-[a-z]+)?\.ts$/u.test(name),
     );
-    // The desktop panel is not a window.
-    expect(declarations(desktopCss, '#btn-chat-close').map(({ decl }) => decl)).toContain(
-      'display: none',
-    );
+    expect(locales).toHaveLength(42);
+    for (const locale of locales) {
+      expect(read(`src/i18n/${locale}`), locale).not.toContain(`'chat.close'`);
+    }
   });
 });

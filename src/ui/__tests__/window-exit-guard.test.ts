@@ -12,7 +12,9 @@ import type { I18nKey } from '../../i18n/ko.ts';
 // action on the right (the adaptive action group mirrors both for
 // right-to-left languages). No dialog leaves a person with action buttons
 // alone, as the sign-in view did when it offered only Retry. These guards read
-// the source, so a new dialog or window names its exit before it ships.
+// the source, so a new dialog or window names its exit before it ships. The
+// phone chat sheet is the one window whose exit is its drag handle, not a
+// button (owner decision 2026-10-30).
 
 // A lone button with one of these labels only closes, so it is the exit.
 const CLOSE_ONLY_LABELS: readonly I18nKey[] = ['common.ok', 'common.close', 'dialog.got_it'];
@@ -73,7 +75,6 @@ const WINDOW_EXIT_LABELS: readonly string[] = [
   // they are tapped, so nothing waits on Done.
   'common.done',
   'demo.exit',
-  'chat.close',
   'screensaver.back',
   // The onboarding diagnostics are an English-only support tool.
   'CLOSE',
@@ -87,7 +88,8 @@ const WINDOW_EXIT_LABELS: readonly string[] = [
 // `finishesRightOf` names a panel whose exit is its main action: Done applies
 // and closes, so it sits on the right of the pair's other action, with the
 // reason. Exit on the left is for dialog [Cancel | Action] pairs (owner
-// decision 2026-10-29).
+// decision 2026-10-29). A `handle` entry is a sheet whose exit is the drag
+// handle at its top instead of a button, with the reason.
 type Placement =
   | { readonly leftOf: string }
   | { readonly finishesRightOf: string; readonly reason: string }
@@ -95,6 +97,7 @@ type Placement =
   | 'top start';
 type WindowExit =
   | { readonly notAWindow: string }
+  | { readonly handle: string; readonly reason: string }
   | { readonly markup: ReadonlyArray<{ readonly exit: string; readonly placement: Placement }> }
   | {
       readonly source: string;
@@ -181,7 +184,11 @@ const WINDOW_EXITS: Readonly<Record<string, WindowExit>> = {
   },
   // The phone chat sheet: dom.ts reaches it outside the registry.
   'chat-drawer': {
-    markup: [{ exit: '#btn-chat-close', placement: 'top start' }],
+    handle: '.chat-drawer-header',
+    reason:
+      'A bottom sheet: a tap or a swipe down on its drag handle at the top, Enter or Space on ' +
+      'the focused handle, an outside tap, Escape and Back close it. It shows no Close: the ' +
+      'one 9.0.20 put at its top start went (owner decision 2026-10-30).',
   },
 };
 const CHAT_SHEET_SELECTOR = '#chat-drawer.open[aria-modal="true"]';
@@ -199,8 +206,8 @@ const OUTSIDE_CLOSE_EXCEPTIONS: Readonly<Record<string, OutsideCloseException>> 
     file: 'src/ui/chat.ts',
     element: 'chat-backdrop',
     reason:
-      'A bottom sheet keeps its outside-tap close (owner decision 2026-10-28), beside ' +
-      'the visible Close at its top start.',
+      'A bottom sheet keeps its outside-tap close (owner decision 2026-10-28) beside its ' +
+      'drag handle, its exit since its visible Close went (owner decision 2026-10-30).',
   },
 };
 
@@ -729,6 +736,39 @@ function markupExitProblems(
   return problems;
 }
 
+/**
+ * A sheet whose exit is its drag handle: the handle is the sheet's first
+ * element, holds no control (the sheet makes the handle itself a focusable
+ * separator or button), and no button of the sheet is labelled as an exit. A
+ * sheet that shows a Close names it as a markup exit instead.
+ */
+function handleExitProblems(
+  windowId: string,
+  root: Element,
+  handle: string,
+  reason: string,
+): string[] {
+  const where = `${windowId} ${handle}`;
+  const element = root.querySelector(handle);
+  if (!element) return [`${where} is missing from index.html`];
+  const problems: string[] = [];
+  if (!reason) problems.push(`${where} names no reason to have no exit button`);
+  if (root.firstElementChild !== element) problems.push(`${where} is not the window's top`);
+  if (element.querySelector('button, a[href], input, select, textarea, [tabindex]')) {
+    problems.push(`${where} holds a control`);
+  }
+  for (const button of root.querySelectorAll('button')) {
+    const exits = markupLabels(button).filter((label) => WINDOW_EXIT_LABELS.includes(label));
+    if (exits.length) {
+      problems.push(
+        `${windowId} #${button.id} is labelled as an exit (${exits.join(', ')}): name it as ` +
+          'a markup exit',
+      );
+    }
+  }
+  return problems;
+}
+
 function sourceExitProblems(
   windowId: string,
   path: string,
@@ -947,6 +987,10 @@ describe('every leavable window shows a visible exit (owner policy 2026-10-28)',
       const root = markup.getElementById(windowId);
       if (!root) {
         problems.push(`${windowId} is missing from index.html`);
+        continue;
+      }
+      if ('handle' in entry) {
+        problems.push(...handleExitProblems(windowId, root, entry.handle, entry.reason));
         continue;
       }
       for (const { exit, placement } of entry.markup) {

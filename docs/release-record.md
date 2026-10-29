@@ -3034,7 +3034,6 @@ PRO 방장 공지의 중도 참여 복원은 별도 정책이며 이번 서비�
   outbox 기록의 선택 키 `timingMode`와 LAN-direct의 null뿐이다. 9.0.22 앞 빌드(795 미만)는 이 셋을 모두 정확한 키로
   거절하므로 바닥 795가 먼저다.
   - 기본은 런타임 변경(`cloudflare/pro-room-worker.ts`)을 되돌려 `pro-room`으로 다시 내는 코드 되돌리기다. SemVer와 SW
-  - 기본은 런타임 변경(`cloudflare/pro-room-worker.ts`)을 되돌려 `pro-room`으로 다시 내는 코드 되돌리기다. SemVer와 SW
     캐시를 올리지 않는다. 되돌린 Worker는 9.0.22의 PRO Worker와 같은 코드라 이 Worker가 저장한 모양을 읽는다. 9.0.25가
     배포된 뒤에는 이 항목의 되돌리기 모두를 위 현재 경계 줄 (8), (9)가 대신한다: 이 변경만 되돌리면 PRO가 schemaVersion
     1을 보내 9.0.25 App의 PRO 방이 모두 깨진다.

@@ -350,7 +350,7 @@ const sv: Record<I18nKey, string> = {
   'demo.prompt_cta': 'Starta rundturen',
   'demo.prompt_later': 'Senare',
   'demo.try_later_toast': 'Du kan prova när som helst på fliken Hjälp',
-  'demo.track_info': 'Spårinformation',
+  'demo.track_info': 'Spårinfo',
   'demo.exit': 'Avsluta demon',
   'demo.credit': 'Demospår',
   'demo.role_title': 'Ange enhetens roll',

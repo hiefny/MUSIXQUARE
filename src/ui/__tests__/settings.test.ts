@@ -80,6 +80,10 @@ const reverbRangeInputs = (() => {
   };
 })();
 
+const translateLinkHtml = new DOMParser()
+  .parseFromString(readFileSync('index.html', 'utf8'), 'text/html')
+  .querySelector('#language-dialog-overlay .language-translate-link')!.outerHTML;
+
 function installEffectSettingsDom(): void {
   // Like the app, each choice group is described by its section description.
   document.body.insertAdjacentHTML(
@@ -819,6 +823,27 @@ describe('initSettings language controls', () => {
     expect(path?.getAttribute('stroke-width')).toBe('2.4');
     expect(path?.getAttribute('stroke-linecap')).toBe('butt');
     expect(path?.getAttribute('stroke-linejoin')).toBe('miter');
+  });
+
+  it('opens the translation page in the App language and follows language changes', async () => {
+    vi.spyOn(window.navigator, 'language', 'get').mockReturnValue('ja-JP');
+    vi.spyOn(window.navigator, 'languages', 'get').mockReturnValue(['ja-JP']);
+    setLanguageMode('ko');
+    installLanguageSettingsDom();
+    document.querySelector('.language-dialog')?.insertAdjacentHTML('beforeend', translateLinkHtml);
+    initSettings();
+    const link = () =>
+      document.querySelector<HTMLAnchorElement>(
+        '#language-dialog-overlay .language-translate-link a',
+      );
+
+    expect(link()?.getAttribute('href')).toBe('/translate?locale=ko');
+    setLanguageMode('pt-br');
+    await vi.waitFor(() => expect(link()?.getAttribute('href')).toBe('/translate?locale=pt-br'));
+    setLanguageMode('system');
+    await vi.waitFor(() => expect(link()?.getAttribute('href')).toBe('/translate?locale=ja'));
+    expect(link()?.target).toBe('_blank');
+    expect(link()?.rel).toBe('noopener noreferrer');
   });
 
   it('opens the language dialog with all supported languages and a custom scrollbar', async () => {

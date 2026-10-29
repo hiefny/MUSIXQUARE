@@ -1,6 +1,7 @@
 import { readFileSync } from 'node:fs';
 import { JSDOM } from 'jsdom';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { LANGUAGE_OPTIONS } from '../locales.ts';
 import { initCommunity } from '../../../.workshop/translate/community';
 import { CommunityApiError, type Suggestion } from '../../../.workshop/translate/community-client';
 import { DRAFT_STORAGE_KEY, loadDrafts, type Draft } from '../../../.workshop/translate/drafts';
@@ -611,5 +612,195 @@ describe('translation editor submission integration', () => {
     expect(button('submit-suggestion').disabled).toBe(true);
     button('review-source').click();
     await vi.waitFor(() => expect(button('submit-suggestion').disabled).toBe(false));
+  });
+});
+
+describe('translation page language and phrase address', () => {
+  const languages = LANGUAGE_OPTIONS.map(({ code, nativeName, htmlLang }) => ({
+    code,
+    nativeName,
+    htmlLang,
+  }));
+  const longKey = `hero.${'x'.repeat(1100)}`;
+  const entries = [
+    {
+      id: 'app:app.search_title',
+      surface: 'app' as const,
+      key: 'app.search_title',
+      sourceEn: 'MUSIXQUARE',
+      sourceKo: 'MUSIXQUARE',
+    },
+    {
+      id: draft.id,
+      surface: draft.surface,
+      key: draft.key,
+      sourceEn: draft.sourceEn,
+      sourceKo: draft.sourceKo,
+    },
+    {
+      id: 'app:play',
+      surface: 'app' as const,
+      key: 'play',
+      sourceEn: 'Play',
+      sourceKo: '재생',
+    },
+    {
+      id: `about:${longKey}`,
+      surface: 'about' as const,
+      key: longKey,
+      sourceEn: 'Long',
+      sourceKo: 'Long',
+    },
+  ];
+  const signInHref = (returnTo: string) =>
+    `/api/auth/google/start?returnTo=${encodeURIComponent(returnTo)}`;
+
+  function catalogFor(code: string) {
+    const locale = languages.find((language) => language.code === code);
+    if (!locale) throw new Error(`Unexpected catalog request: ${code}`);
+    return {
+      locale,
+      languages,
+      entries: entries.map((entry) => ({ ...entry, current: `${entry.sourceEn} (${code})` })),
+    };
+  }
+
+  async function openPage(url: string, browserLanguages: readonly string[]) {
+    dom.window.close();
+    dom = new JSDOM(html, { url });
+    Object.defineProperty(dom.window.navigator, 'languages', {
+      configurable: true,
+      get: () => browserLanguages,
+    });
+    Object.defineProperty(dom.window.navigator, 'language', {
+      configurable: true,
+      get: () => browserLanguages[0] ?? '',
+    });
+    dom.window.HTMLElement.prototype.scrollIntoView = () => undefined;
+    vi.resetModules();
+    vi.stubGlobal('window', dom.window);
+    vi.stubGlobal('document', dom.window.document);
+    vi.stubGlobal('Option', dom.window.Option);
+    api.session.mockResolvedValue({
+      configured: true,
+      authenticated: false,
+      account: null,
+      statsScope: null,
+    });
+    api.catalog.mockImplementation(async (code: string) => catalogFor(code));
+    await import('../../../.workshop/translate/main');
+    await vi.waitFor(() =>
+      expect(dom.window.document.getElementById('editor')?.hidden).toBe(false),
+    );
+  }
+
+  const requestedLocales = () => api.catalog.mock.calls.map(([code]) => code as string);
+  const selectedKey = () => dom.window.document.getElementById('selected-key')?.textContent;
+  const languageSelect = () => dom.window.document.getElementById('language') as HTMLSelectElement;
+  const signInLinks = () =>
+    ['suggest-sign-in', 'vote-sign-in'].map((id) =>
+      dom.window.document.getElementById(id)?.getAttribute('href'),
+    );
+
+  it.each([
+    [['ko-KR', 'en-US'], 'ko'],
+    [['ja'], 'ja'],
+    [['de-AT', 'de'], 'de'],
+    [['zh-TW'], 'zh-hant'],
+    [['pt-PT'], 'pt-br'],
+    [['sw-KE'], 'en'],
+    [['sw-KE', 'fr-CA', 'ko'], 'fr'],
+  ])('opens browser languages %j on %s like the App', async (browserLanguages, expected) => {
+    await openPage('https://musixquare.com/translate', browserLanguages);
+    expect(requestedLocales()).toEqual([expected]);
+    expect(languageSelect().value).toBe(expected);
+    expect(selectedKey()).toBe(draft.key);
+    expect(dom.window.location.search).toBe('');
+  });
+
+  it('prefers a supported ?locale over the browser language', async () => {
+    await openPage('https://musixquare.com/translate?locale=fr', ['ko-KR']);
+    expect(requestedLocales()).toEqual(['fr']);
+    expect(languageSelect().value).toBe('fr');
+  });
+
+  it.each(['xx', 'pt-PT', 'FR', '<img src=x onerror=alert(1)>', ''])(
+    'ignores unsupported ?locale=%s and never renders it',
+    async (value) => {
+      await openPage(`https://musixquare.com/translate?locale=${encodeURIComponent(value)}`, [
+        'ko-KR',
+      ]);
+      expect(requestedLocales()).toEqual(['ko']);
+      expect(dom.window.document.querySelector('img')).toBeNull();
+      expect(dom.window.document.body.innerHTML).not.toContain('onerror');
+    },
+  );
+
+  it('selects an existing ?phrase and keeps the first phrase for an unknown one', async () => {
+    await openPage('https://musixquare.com/translate?locale=ja&phrase=app%3Aplay', ['ko']);
+    expect(selectedKey()).toBe('play');
+    expect(
+      dom.window.document.querySelector('[data-entry-id="app:play"]')?.getAttribute('aria-current'),
+    ).toBe('true');
+    vi.unstubAllGlobals();
+    await openPage(
+      'https://musixquare.com/translate?locale=ja&phrase=app%3A%3Cb%3Emissing%3C%2Fb%3E',
+      ['ko'],
+    );
+    expect(selectedKey()).toBe(draft.key);
+    expect(dom.window.document.querySelector('b')).toBeNull();
+  });
+
+  it('keeps the chosen language and phrase in the address and the sign-in return', async () => {
+    await openPage('https://musixquare.com/translate', ['ko-KR']);
+    const historyLength = dom.window.history.length;
+    // The return is built from the shown language and catalog phrase, never from raw query text.
+    const shown = signInHref(
+      `/translate?${new URLSearchParams({ locale: 'ko', phrase: draft.id })}`,
+    );
+    expect(signInLinks()).toEqual([shown, shown]);
+    expect(dom.window.location.search).toBe('');
+
+    languageSelect().value = 'fr';
+    languageSelect().dispatchEvent(new dom.window.Event('change'));
+    await vi.waitFor(() => expect(dom.window.location.search).toContain('locale=fr'));
+    expect(new URLSearchParams(dom.window.location.search).get('phrase')).toBe(draft.id);
+
+    dom.window.document.querySelector<HTMLButtonElement>('[data-entry-id="app:play"]')!.click();
+    expect(selectedKey()).toBe('play');
+    const params = new URLSearchParams(dom.window.location.search);
+    expect(Object.fromEntries(params)).toEqual({ locale: 'fr', phrase: 'app:play' });
+    expect(dom.window.location.pathname).toBe('/translate');
+    expect(dom.window.history.length).toBe(historyLength);
+    const returnTo = `/translate${dom.window.location.search}`;
+    expect(signInLinks()).toEqual([signInHref(returnTo), signInHref(returnTo)]);
+  });
+
+  it('returns from sign-in to the same language and phrase', async () => {
+    await openPage(
+      'https://musixquare.com/translate?locale=fr&phrase=app%3Aplay&accountAuth=success',
+      ['ko-KR'],
+    );
+    expect(requestedLocales()).toEqual(['fr']);
+    expect(selectedKey()).toBe('play');
+  });
+
+  it('drops the phrase from an over-long sign-in return so the Worker keeps the page', async () => {
+    await openPage(
+      `https://musixquare.com/translate?locale=ko&phrase=${encodeURIComponent(`about:${longKey}`)}`,
+      ['en-US'],
+    );
+    expect(selectedKey()).toBe(longKey);
+    expect(signInLinks()).toEqual([
+      signInHref('/translate?locale=ko'),
+      signInHref('/translate?locale=ko'),
+    ]);
+  });
+
+  it('pins the sign-in return bound to the Worker limit', () => {
+    const limit = (path: string) =>
+      /RETURN_TO_MAX_UTF8_BYTES = (\d[\d_]*);/u.exec(readFileSync(path, 'utf8'))?.[1];
+    expect(limit('.workshop/translate/address.ts')).toBe(limit('cloudflare/account-auth.ts'));
+    expect(limit('cloudflare/account-auth.ts')).toBe('1024');
   });
 });

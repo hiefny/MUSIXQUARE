@@ -143,18 +143,22 @@ runbooks. Neither belongs in a general setup document.
   the Drift Audit at 32 pass / 0 fail / 5 manual-only, the release owner's check that 9.0.25 shows
   the not-yet-activated dialog for the synthetic room 000000, and the post-deploy check in a PRO
   room the owner owns on 2026-10-30 from 07:28 to 07:49 KST, run and judged by the release owner
-  against the criteria fixed beforehand in Microsoft Edge on a Windows desktop with an iOS Safari
-  phone listening: entry and two YouTube starts (both with the PREPARE selected and zero-start)
-  passed, a one-off `PRO_SIGNALING_START_FAILED` warning after the update reload did not recur,
-  all five shares took the SFU path so LAN-direct stays unverified, the administrator grant and
-  revoke was not run, and nothing was rolled back), the post-deploy check and owner device check
-  candidates as a blind hand-out (procedure and observations, with the pass criteria kept apart),
-  the manual App rollback to the release's checkpoint App when the post-deploy check fails, and
-  what was not verified. The post-deploy check also found why LAN-direct almost never engages on
-  the same Wi-Fi: the probe answer came back in 0.75 s and ICE connected host to host, but the
+  (A and B were not run blind) against the criteria fixed beforehand in Microsoft Edge on a
+  Windows desktop with an iOS Safari phone listening: entry and two YouTube starts (both with the
+  PREPARE selected and zero-start) passed, a one-off `PRO_SIGNALING_START_FAILED` warning after
+  the update reload did not recur, all five shares took the SFU path so LAN-direct stays
+  unverified, the administrator grant and revoke was not run, and nothing was rolled back), the
+  post-deploy check and owner device check candidates written as a blind hand-out (procedure and
+  observations, with the pass criteria kept apart), the manual App rollback to the release's
+  checkpoint App when the post-deploy check fails, and what was not verified. The post-deploy
+  check also found why its shares did not use LAN-direct in the observed setup (an Edge sharer
+  and an iOS Safari listener on the owner's home Wi-Fi, five shares; R2's one share from Edge
+  also went to SFU): the probe answer came back in 0.75 s and ICE connected host to host, but the
   media answer missed the attempt's 2 s total deadline (`DIRECT_NEGOTIATION_TIMEOUT_MS`, set on
-  2026-08-29), so the publisher took the SFU preflight; it is not a 9.0.25 regression. The release
-  record's §2 now carries the R3 post-deploy items (scope and status, the post-deploy check with
+  2026-08-29), so the publisher took the SFU preflight; it is not a 9.0.25 regression, and
+  whether LAN-direct misses on the same Wi-Fi in general stays a hypothesis for the owner
+  decision, since a faster answering device could fit inside 2 s. The release record's §2 now
+  carries the R3 post-deploy items (scope and status, the post-deploy check with
   its results, and the owner device check candidates, which have no results), a new owner decision
   item on that 2 s deadline (no code change), and the Phase 5.5 completion item with the
   runtime-dependency merge freeze; its §4 entry and current boundary lines (5) and (8) name the

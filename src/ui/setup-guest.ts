@@ -298,7 +298,11 @@ async function _handleProRoomJoin(code: string): Promise<void> {
     const joined = await enterProRoomFromSetup(code);
     if (!isCurrent()) return;
     if (joined === 'reload-required') {
-      _renderProRoomReloadRequired();
+      // The Refresh needed dialog already explained it. Draw [Back | Refresh]
+      // as the other Refresh needed paths do (setup.ts): Back leaves the way
+      // this route came, home for an invite link, a step back on the setup
+      // screen for a typed code (owner decision 2026-10-29).
+      restoreGuestJoinControlsAfterFailure(null, true);
       return;
     }
     if (!joined) {
@@ -321,29 +325,6 @@ async function _handleProRoomJoin(code: string): Promise<void> {
   } finally {
     if (_proJoinGeneration === generation) _proJoinGeneration = null;
   }
-}
-
-function _renderProRoomReloadRequired(): void {
-  setupSetGuestJoinBusy(false);
-  setupRenderActions(
-    [
-      {
-        id: 'btn-setup-back',
-        html: BACK_SVG,
-        ariaLabel: t('dialog.go_back'),
-        kind: 'icon-only',
-        onClick: () => undefined,
-        disabled: true,
-      },
-      {
-        id: 'btn-setup-confirm',
-        text: t('common.refresh'),
-        kind: 'primary',
-        onClick: () => scheduleDocumentReload(t('dialog.refreshing_session')),
-      },
-    ],
-    'horizontal-with-back',
-  );
 }
 
 function proceedToGuestCode(mode: number): void {

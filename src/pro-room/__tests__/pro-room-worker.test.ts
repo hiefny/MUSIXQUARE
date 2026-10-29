@@ -1383,8 +1383,11 @@ describe('PRO room server-authoritative playback', () => {
 
   it('never elects a browser coordinator and signs every signaling ticket as a named member', async () => {
     const context = await activatedRoom();
-    expect(context.activationEnvelope.snapshot.presence.coordinatorParticipantId).toBeNull();
-    expect(context.activationEnvelope.snapshot.viewer.coordinatorEligible).toBe(false);
+    // Snapshot schemaVersion 2 has no coordinator key at all.
+    expect(context.activationEnvelope.snapshot.presence).not.toHaveProperty(
+      'coordinatorParticipantId',
+    );
+    expect(context.activationEnvelope.snapshot.viewer).not.toHaveProperty('coordinatorEligible');
     expect(context.activationEnvelope.snapshot.viewer.capabilities).not.toContain(
       'coordinator.eligible',
     );
@@ -3936,10 +3939,14 @@ describe('PRO room server-authoritative playback', () => {
     const snapshot = await responseJson(
       await restarted.fetch(request('/snapshot', {}, context.ownerCookie)),
     );
-    expect(snapshot.snapshot.presence).toMatchObject({
-      coordinatorParticipantId: null,
-      coordinatorEpoch: 8,
-    });
+    // The stored coordinator is cleared and the fence advanced once; the public
+    // snapshot (schemaVersion 2) has no coordinator key.
+    expect(
+      (restarted as unknown as { room: Record<string, any> }).room.presence
+        .coordinatorParticipantId,
+    ).toBeNull();
+    expect(snapshot.snapshot.presence).toMatchObject({ coordinatorEpoch: 8 });
+    expect(snapshot.snapshot.presence).not.toHaveProperty('coordinatorParticipantId');
     expect(snapshot.snapshot.playback).toMatchObject({
       coordinatorEpoch: 8,
       revision: 10,
@@ -14524,7 +14531,9 @@ describe('persistent PRO room authentication, presence, and state', () => {
     const secondCookie = cookieFrom(secondResponse);
     bindCookiePresence(secondCookie, second);
 
-    expect(second.snapshot.memberIdentityVersion).toBe(1);
+    // Snapshot schemaVersion 2 replaces the member identity marker.
+    expect(second.snapshot.schemaVersion).toBe(2);
+    expect(second.snapshot).not.toHaveProperty('memberIdentityVersion');
     expect(second.snapshot.viewer).toMatchObject({
       memberId: first.snapshot.viewer.memberId,
       memberDisplayNumber: first.snapshot.viewer.memberDisplayNumber,
@@ -15116,13 +15125,14 @@ describe('persistent PRO room authentication, presence, and state', () => {
     const friend = await addAuthorityMember(context);
 
     expect(friend.envelope.snapshot).toMatchObject({
-      memberIdentityVersion: 1,
-      authorityVersion: 1,
+      schemaVersion: 2,
       viewer: {
         role: 'member',
         capabilities: [],
       },
     });
+    expect(friend.envelope.snapshot).not.toHaveProperty('memberIdentityVersion');
+    expect(friend.envelope.snapshot).not.toHaveProperty('authorityVersion');
     expect(friend.envelope.snapshot.administrators).toMatchObject([
       {
         role: 'owner',
@@ -15291,6 +15301,36 @@ describe('persistent PRO room authentication, presence, and state', () => {
       ),
     );
     expect(deniedKick.status).toBe(403);
+  });
+
+  it('answers GET, PUT and DELETE /administrators with the directory alone', async () => {
+    // The directory that goes with snapshot schemaVersion 2 has no authority
+    // marker, like the snapshot itself.
+    const context = await activatedRoom();
+    const friend = await addAuthorityMember(context);
+    const memberId = friend.envelope.snapshot.viewer.memberId as string;
+    const answers = [
+      await context.worker.fetch(request('/administrators', {}, context.ownerCookie)),
+      await context.worker.fetch(
+        jsonRequest(
+          `/administrators/${memberId}`,
+          'PUT',
+          { permissions: fullDelegatedPermissions },
+          context.ownerCookie,
+        ),
+      ),
+      await context.worker.fetch(
+        request(`/administrators/${memberId}`, { method: 'DELETE' }, context.ownerCookie),
+      ),
+    ];
+    const directories = await Promise.all(answers.map((answer) => responseJson(answer)));
+    expect(answers.map((answer) => answer.status)).toEqual([200, 200, 200]);
+    expect(directories.map((directory) => Object.keys(directory))).toEqual([
+      ['administrators'],
+      ['administrators'],
+      ['administrators'],
+    ]);
+    expect(directories.map((directory) => directory.administrators.length)).toEqual([1, 2, 1]);
   });
 
   it('lets only the owner delegate canonical permissions and exposes a chat-notice check seam', async () => {
@@ -20393,7 +20433,7 @@ describe('persistent PRO room authentication, presence, and state', () => {
     expect(ownerAfterRotationResponse.status).toBe(200);
     const ownerAfterRotation = await responseJson(ownerAfterRotationResponse);
     expect(ownerAfterRotation.snapshot.presence.coordinatorEpoch).toBe(epochBeforeRotation + 1);
-    expect(ownerAfterRotation.snapshot.presence.coordinatorParticipantId).toBeNull();
+    expect(ownerAfterRotation.snapshot.presence).not.toHaveProperty('coordinatorParticipantId');
     await expectSessionRequired(
       worker.fetch(request('/snapshot', {}, controllerCookie)),
       'PIN_CHANGED',
@@ -20425,7 +20465,7 @@ describe('persistent PRO room authentication, presence, and state', () => {
     const memberAfterOwnerLeave = await responseJson(
       await worker.fetch(request('/snapshot', {}, firstMemberCookie)),
     );
-    expect(memberAfterOwnerLeave.snapshot.presence.coordinatorParticipantId).toBeNull();
+    expect(memberAfterOwnerLeave.snapshot.presence).not.toHaveProperty('coordinatorParticipantId');
 
     const ownerReentryResponse = await worker.fetch(
       request('/presence/enter', { method: 'POST' }, ownerCookie),
@@ -20437,7 +20477,7 @@ describe('persistent PRO room authentication, presence, and state', () => {
     const presenceRevisionBeforeRotation = ownerReentry.snapshot.presence.revision as number;
     const playbackRevisionBeforeRotation = ownerReentry.snapshot.playback.revision as number;
     expect(ownerReentry.snapshot.presence.participants).toHaveLength(3);
-    expect(ownerReentry.snapshot.presence.coordinatorParticipantId).toBeNull();
+    expect(ownerReentry.snapshot.presence).not.toHaveProperty('coordinatorParticipantId');
 
     const rotate = await worker.fetch(
       jsonRequest('/pin', 'POST', { pin: '87654321' }, ownerCookie),
@@ -20447,7 +20487,7 @@ describe('persistent PRO room authentication, presence, and state', () => {
       await worker.fetch(request('/snapshot', {}, ownerCookie)),
     );
     expect(ownerAfterRotation.snapshot.presence.coordinatorEpoch).toBe(epochBeforeRotation + 1);
-    expect(ownerAfterRotation.snapshot.presence.coordinatorParticipantId).toBeNull();
+    expect(ownerAfterRotation.snapshot.presence).not.toHaveProperty('coordinatorParticipantId');
     expect(ownerAfterRotation.snapshot.presence.participants).toEqual([
       expect.objectContaining({ participantId: ownerAfterRotation.snapshot.viewer.participantId }),
     ]);
@@ -20497,10 +20537,8 @@ describe('persistent PRO room authentication, presence, and state', () => {
     );
     const asleepEnvelope = await responseJson(asleep);
     expect(Object.keys(asleepEnvelope)).toEqual(['snapshot']);
-    expect(asleepEnvelope.snapshot).toMatchObject({
-      runtime: 'sleeping',
-      presence: { coordinatorParticipantId: null },
-    });
+    expect(asleepEnvelope.snapshot.runtime).toBe('sleeping');
+    expect(asleepEnvelope.snapshot.presence).not.toHaveProperty('coordinatorParticipantId');
 
     const rejectedHeartbeat = await worker.fetch(
       request('/presence/heartbeat', { method: 'POST' }, ownerCookie),
@@ -21617,10 +21655,10 @@ describe('persistent PRO room authentication, presence, and state', () => {
     expect(leave.status).toBe(200);
     const elected = await responseJson(await worker.fetch(request('/snapshot', {}, memberCookie)));
     expect(elected.snapshot.presence).toMatchObject({
-      coordinatorParticipantId: null,
       coordinatorEpoch: beforeEpoch,
       participants: [expect.objectContaining({ participantId: memberParticipantId })],
     });
+    expect(elected.snapshot.presence).not.toHaveProperty('coordinatorParticipantId');
     expect(put.mock.calls.filter(([key]) => key === 'pro-room:v2:core')).toHaveLength(2);
     expect(internal.pendingHeartbeatFlushGeneration).toBeNull();
     expect(vi.getTimerCount()).toBe(0);
@@ -21720,7 +21758,7 @@ describe('persistent PRO room authentication, presence, and state', () => {
       await worker.fetch(request('/snapshot', {}, controllerCookie)),
     );
     expect(current.snapshot.presence.participants).toHaveLength(1);
-    expect(current.snapshot.presence.coordinatorParticipantId).toBeNull();
+    expect(current.snapshot.presence).not.toHaveProperty('coordinatorParticipantId');
   });
 
   it('keeps room authority stable while a confirmed tab takeover rotates only its incarnation', async () => {
@@ -21833,7 +21871,7 @@ describe('persistent PRO room authentication, presence, and state', () => {
     expect(entered.snapshot.presence.coordinatorEpoch).toBe(
       ownerBefore.snapshot.presence.coordinatorEpoch,
     );
-    expect(entered.snapshot.presence.coordinatorParticipantId).toBeNull();
+    expect(entered.snapshot.presence).not.toHaveProperty('coordinatorParticipantId');
   });
 
   it('fences every old-tab active request after a same-cookie tab enters', async () => {
@@ -30560,13 +30598,43 @@ describe('PRO room capacity refusal reasons', () => {
 });
 
 describe('PRO snapshot carriers: entry policy and playlist summaries on every path', () => {
-  // The room adds `passwordRequired` and `playlistSlots` to every successful
-  // JSON answer that carries a snapshot (withEntryPolicyResponse, after the
-  // route ran), while publicSnapshot builds the snapshot when the route calls
-  // it. One row per publicSnapshot call, each request sent without the
-  // retired opt-in headers, pins both values. Snapshot v2 moves the two fields
-  // into publicSnapshot and drops that wrapper's addition; every row must
-  // keep its values through that move.
+  // Every successful answer that carries a snapshot carries snapshot
+  // schemaVersion 2: the room's entry policy (`passwordRequired`) and playlist
+  // summaries (`playlistSlots`) beside the room state, and none of the four
+  // constant keys of the retired browser-coordinator era. That key set is the
+  // App parser's memory shape, so the parsed snapshot equals the wire. One row
+  // per publicSnapshot call, each request sent without the retired opt-in
+  // headers, pins the key set and both values.
+  const SNAPSHOT_V2_KEYS = [
+    'schemaVersion',
+    'roomCode',
+    'status',
+    'passwordRequired',
+    'runtime',
+    'revision',
+    'playlistRevision',
+    'effectsRevision',
+    'queueModeRevision',
+    'playlist',
+    'currentQueueItemId',
+    'playback',
+    'presence',
+    'quota',
+    'viewer',
+    'administrators',
+    'playlistSlots',
+  ];
+  const PRESENCE_V2_KEYS = ['coordinatorEpoch', 'revision', 'participants'];
+  const VIEWER_V2_KEYS = [
+    'memberId',
+    'memberDisplayNumber',
+    'isAuthenticated',
+    'participantId',
+    'presenceIncarnationId',
+    'displayName',
+    'role',
+    'capabilities',
+  ];
   const MEMBER_ACCOUNT_ID = 'acct_carriermember000000001';
   const TARGET_ACCOUNT_ID = 'acct_carriertarget000000001';
   const FIRST = '11111111-1111-4111-8111-111111111111';
@@ -31014,7 +31082,7 @@ describe('PRO snapshot carriers: entry policy and playlist summaries on every pa
   ];
 
   it.each(CARRIERS)(
-    '$site carries both fields: $route',
+    '$site carries snapshot schemaVersion 2 with both fields: $route',
     async ({ run, passwordRequired, playlistSlots }) => {
       const room = await carrierRoom();
       const response = await run(room);
@@ -31024,7 +31092,12 @@ describe('PRO snapshot carriers: entry policy and playlist summaries on every pa
         passwordRequired: snapshot.passwordRequired,
         playlistSlots: snapshot.playlistSlots,
       }).toEqual({ passwordRequired, playlistSlots });
-      expect(parseProRoomSnapshot(snapshot)).not.toBeNull();
+      expect(snapshot.schemaVersion).toBe(2);
+      expect(Object.keys(snapshot).sort()).toEqual([...SNAPSHOT_V2_KEYS].sort());
+      expect(Object.keys(snapshot.presence).sort()).toEqual([...PRESENCE_V2_KEYS].sort());
+      expect(snapshot.viewer).not.toBeNull();
+      expect(Object.keys(snapshot.viewer).sort()).toEqual([...VIEWER_V2_KEYS].sort());
+      expect(parseProRoomSnapshot(snapshot)).toStrictEqual(snapshot);
     },
   );
 
@@ -31110,11 +31183,27 @@ describe('PRO browser parsers on the actual Worker answers', () => {
       expiresAtMs: Date.now() + 60_000,
       nonce: 'browser-parser-contract',
     });
-    await owner.api.activate({ code: ROOM_CODE, claimToken, expectedAccountScope: 'a'.repeat(43) });
+    const activated = await owner.api.activate({
+      code: ROOM_CODE,
+      claimToken,
+      expectedAccountScope: 'a'.repeat(43),
+    });
+    const activation = { parsed: activated, wire: owner.lastAnswer().snapshot };
     const memberSnapshot = await member.api.createSession({ code: ROOM_CODE });
-    return { worker, owner, member, memberId: memberSnapshot.viewer!.memberId, broadcasts };
+    const admission = { parsed: memberSnapshot, wire: member.lastAnswer().snapshot };
+    return {
+      worker,
+      owner,
+      member,
+      memberId: memberSnapshot.viewer!.memberId,
+      broadcasts,
+      activation,
+      admission,
+    };
   }
 
+  // The directory answer that goes with snapshot schemaVersion 2 is the
+  // administrators alone, which is also what the parser returns.
   it('parses the administrator directory the Worker answers to a grant and a revocation', async () => {
     const { owner, memberId } = await openRoom();
     const permissions = {
@@ -31125,15 +31214,83 @@ describe('PRO browser parsers on the actual Worker answers', () => {
     };
 
     const granted = await owner.api.updateAdministrator(ROOM_CODE, memberId, permissions);
-    expect(granted.administrators).toEqual(owner.lastAnswer().administrators);
+    expect(granted).toStrictEqual(owner.lastAnswer());
     expect(granted.administrators.find((row) => row.memberId === memberId)).toMatchObject({
       role: 'controller',
       permissions,
     });
 
     const revoked = await owner.api.revokeAdministrator(ROOM_CODE, memberId);
-    expect(revoked.administrators).toEqual(owner.lastAnswer().administrators);
+    expect(revoked).toStrictEqual(owner.lastAnswer());
     expect(revoked.administrators.map((row) => row.memberId)).not.toContain(memberId);
+  });
+
+  // Snapshot schemaVersion 2 is the parser's memory shape: each parsed
+  // snapshot equals the wire snapshot it came from, key for key, through every
+  // envelope the browser reads.
+  it('parses each snapshot the Worker answers into the wire it came from', async () => {
+    const { owner, member, activation, admission } = await openRoom();
+    const reads: Array<{ parsed: ProRoomSnapshot; wire: Record<string, any> }> = [
+      activation,
+      admission,
+    ];
+    const read = async (
+      browser: ReturnType<typeof browserFor>,
+      parsed: Promise<ProRoomSnapshot>,
+    ) => {
+      const snapshot = await parsed;
+      reads.push({ parsed: snapshot, wire: browser.lastAnswer().snapshot });
+      return snapshot;
+    };
+
+    const empty = await read(owner, owner.api.getSnapshot(ROOM_CODE));
+    const appended = await read(
+      owner,
+      owner.api.updateCompactSnapshot({
+        code: ROOM_CODE,
+        baseRevision: empty.revision,
+        playlistOrder: [FIRST],
+        upserts: [
+          {
+            queueItemId: FIRST,
+            name: 'First',
+            source: { kind: 'youtube', videoId: 'dQw4w9WgXcQ' },
+          },
+        ],
+        currentQueueItemId: null,
+        playback: empty.playback,
+        idempotencyKey: 'browser-parser-contract-snapshot',
+      }),
+    );
+    const copied = await read(
+      owner,
+      owner.api.transferPlaylistTracks({
+        code: ROOM_CODE,
+        baseRevision: appended.revision,
+        queueItemIds: [FIRST],
+        targetSlots: [1],
+        mode: 'copy',
+        idempotencyKey: 'browser-parser-contract-copy',
+      }),
+    );
+    await read(
+      owner,
+      owner.api.switchPlaylist({
+        code: ROOM_CODE,
+        baseRevision: copied.revision,
+        slot: 1,
+        idempotencyKey: 'browser-parser-contract-switch',
+      }),
+    );
+    await read(member, member.api.getSnapshot(ROOM_CODE));
+    const full = await member.api.heartbeat(ROOM_CODE);
+    reads.push({ parsed: full.snapshot, wire: member.lastAnswer().snapshot });
+
+    expect(reads).toHaveLength(8);
+    for (const { parsed, wire } of reads) {
+      expect(wire.schemaVersion).toBe(2);
+      expect(parsed).toStrictEqual(wire);
+    }
   });
 
   it('parses the PREPARE and COMMIT events the Worker answers and delivers', async () => {

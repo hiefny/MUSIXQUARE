@@ -52,4 +52,11 @@ describe('copy that fits its slot', () => {
     // pill. Sporinfo reads like the Danish Nummerinfo and German Titelinfo.
     expect(APP_DICTIONARIES.nb['demo.track_info']).toBe('Sporinfo');
   });
+
+  it('labels the Swedish tour track info in a word that fits beside its 20px icon', () => {
+    // Same pill as above. With Linux CI fonts, Spårinformation ran 2.50px out
+    // of it at 320px (Windows fonts fit). Spårinfo matches the Norwegian
+    // Sporinfo and the Danish Nummerinfo.
+    expect(APP_DICTIONARIES.sv['demo.track_info']).toBe('Spårinfo');
+  });
 });

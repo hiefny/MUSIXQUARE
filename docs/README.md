@@ -98,7 +98,7 @@ runbooks. Neither belongs in a general setup document.
   update after 9.0.23 (9.0.24 / v797, App build 797, bump `4d74f552`, target `app` with 14 App runtime
   paths and none in the other five Workers, with the update dialog; the build floor stays 795). Only
   the App Worker changed (`dddfabe3` to `dd820d37`); the PRO room Worker keeps R2's `ef882f7c` and the
-  other four their 9.0.22 versions. Branch `agent/translate-entry` is on main `a8d8f9c4` (Phase 5.5
+  other four their 9.0.22 versions. Branch `agent/translate-entry` was on main `a8d8f9c4` (Phase 5.5
   R2 `0e5a9b87` and its record #529; the R2 PRO Worker change is outside this train's runtime paths).
   It carries the owner's decisions of 2026-10-29 for the public `/translate` page,
   which had no suggestions in production, and the
@@ -139,7 +139,7 @@ runbooks. Neither belongs in a general setup document.
   check candidates, none with results yet, and the arrivals the loader does not count) and §4 its
   rollback boundary (a forward revert at 9.0.25 / v798 or later, or the checkpoint's 9.0.23 App
   `dddfabe3` without `lower`). Phase 5.5 R3, where the App stops receiving PRO snapshot
-  schemaVersion 1, is still to come as 9.0.25 / v798.
+  schemaVersion 1, is still to come as 9.0.25 / v798 (the next number if another App update ships first).
 - [Phase 5.5 R2: the PRO Worker sends PRO snapshot schemaVersion 2 (2026-10-29)](design/phase5-5-r2-v2-send-2026-10-29.md):
   released on 2026-10-30 00:30 KST in Release 40901986997 (PR #528, squash `0e5a9b87`): the second
   runtime release of Phase 5.5, PRO room Worker only (target `pro-room` with 1 PRO room runtime path

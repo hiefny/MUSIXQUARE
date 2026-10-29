@@ -93,6 +93,30 @@ runbooks. Neither belongs in a general setup document.
 
 ## Maintained evidence and completed records
 
+- [Translate page entry train 9.0.24: language default, visit statistics, sign-in result (2026-10-29)](design/translate-entry-2026-10-29.md):
+  in progress, not merged or released; the next app update after 9.0.23 (9.0.24 / v797, App build
+  797, bump `5b029d22`, expected target `app` with 14 App runtime paths and none in the other five
+  Workers, with the update dialog; the build floor stays 789). It carries the owner's decisions of
+  2026-10-29 for the public `/translate` page, which had no suggestions in production, and the
+  owner's follow-ups after two approving reviews: the page opens on a supported `?locale`,
+  otherwise the browser language matched exactly as the App matches it (one shared
+  `src/i18n/language-match.ts`), otherwise English; `?phrase` selects a catalog phrase, also after
+  Retry when the first catalog load failed, and the list opens on that phrase's page; language and
+  phrase changes stay in the address and both sign-in returns, so Google sign-in comes back to the
+  same language and phrase; the App language dialog's Help translate link opens the page in the App
+  language, as the plain `/translate` when the browser gives the same language and with
+  `?locale=<App language>` otherwise, so most arrivals are queryless and counted while the analytics
+  loader's query rule stays unchanged; the page loads the standalone analytics loader like FAQ (the
+  same CSP as `/faq`); and a cancelled or failed sign-in shows one of the two owner-approved lines
+  (with the page's typographic apostrophe) in the existing submit status and removes only
+  `accountAuth` from the address, keeping the other parameters and the fragment. The report lists
+  the diagnosis, the tests-first rows (18, 2, 4 and 9 failing on their parents), the gate at the
+  bump tree (706 files / 16,777 unit tests, critical coverage 90 / 3,515, critical E2E 100,
+  translation E2E 6, `build:checked` 9.0.24 / v797), the browser measurements of the App
+  link, Retry and paging, the arrivals the loader still does not count (an App language that
+  differs from the browser, sign-in returns, and pages opened from `/translate` after its address
+  gained a query), and what was not verified (a real production submission and the Google OAuth
+  publishing status).
 - [Phase 5.5 R2: the PRO Worker sends PRO snapshot schemaVersion 2 (2026-10-29)](design/phase5-5-r2-v2-send-2026-10-29.md):
   released on 2026-10-30 00:30 KST in Release 40901986997 (PR #528, squash `0e5a9b87`): the second
   runtime release of Phase 5.5, PRO room Worker only (target `pro-room` with 1 PRO room runtime path

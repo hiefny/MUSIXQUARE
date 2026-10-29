@@ -1826,6 +1826,70 @@ describe('PRO system-audio service orchestration', () => {
     });
   });
 
+  // A live LAN-direct has no media deadline (its liveExpiresAt reads as null,
+  // PLE-01). The SFU descriptor and the publisher deadline exist only for a
+  // numeric SFU live, here the promotion of the same publication. Each answer
+  // is queued only when it is due, so a failed step leaves none to the next row.
+  it('subscribes to an SFU descriptor only from a numeric SFU live, never from a LAN-direct one', async () => {
+    const direct = { ...directLive(), liveExpiresAt: null };
+    api.getSystemAudioState.mockResolvedValueOnce(direct);
+    mocks.subscribe.mockClear();
+
+    await expect(refreshProSystemAudioState()).resolves.toEqual(direct);
+    await vi.waitFor(() =>
+      expect(mocks.activateDirect).toHaveBeenCalledWith({
+        ownerParticipantId: REMOTE_ID,
+        generation: 1,
+        publicationId: 'publication_00001',
+      }),
+    );
+    expect(mocks.subscribe).not.toHaveBeenCalled();
+    expect(getProSystemAudioViewState()).toMatchObject({ phase: 'live', liveExpiresAt: null });
+
+    api.getSystemAudioState.mockResolvedValueOnce(live());
+    await expect(refreshProSystemAudioState()).resolves.toEqual(live());
+    await vi.waitFor(() => expect(mocks.subscribe).toHaveBeenCalledTimes(1));
+    expect(mocks.subscribe).toHaveBeenCalledWith(
+      expect.objectContaining({ sessionId: 'realtime_session_01', expiresAt: 1_900_007_200_000 }),
+    );
+  });
+
+  it('sets the publisher deadline only from a numeric SFU live, never from a LAN-direct one', async () => {
+    mocks.attemptDirect.mockImplementation(async (options) => directDescriptor(options));
+    api.getSystemAudioState.mockResolvedValueOnce(idle());
+    api.acquireSystemAudioLease.mockResolvedValueOnce({
+      systemAudio: preparing(),
+      leaseId: LEASE_ID,
+    });
+    const committedWithDeadline = async (request: {
+      publication: ProRoomSystemAudioPublication;
+    }) => ({
+      ...localLiveWithPublication(request.publication),
+      liveExpiresAt: 'sessionId' in request.publication ? 1_900_007_200_000 : null,
+    });
+    api.commitSystemAudioPublication.mockImplementationOnce(committedWithDeadline);
+
+    await refreshProSystemAudioState();
+    await acquireLocalProSystemAudioLease();
+    await expect(
+      publishLocalProSystemAudio({ id: 'capture-stereo' } as MediaStreamTrack),
+    ).resolves.toMatchObject({ liveExpiresAt: null, publication: { transport: 'lan-direct' } });
+    await vi.waitFor(() => expect(mocks.reconcileDirect).toHaveBeenCalled());
+    expect(mocks.publish).not.toHaveBeenCalled();
+    expect(mocks.updatePublisherExpiry).not.toHaveBeenCalled();
+    expect(getProSystemAudioViewState()).toMatchObject({ phase: 'live', liveExpiresAt: null });
+
+    // A late join the direct routes cannot reach promotes the publication.
+    api.commitSystemAudioPublication.mockImplementationOnce(committedWithDeadline);
+    mocks.reconcileDirect.mockReset().mockResolvedValueOnce(false).mockResolvedValue(true);
+    bindProSystemAudioSession(snapshotWithLateParticipant());
+    await vi.waitFor(() =>
+      expect(mocks.updatePublisherExpiry).toHaveBeenCalledWith(1_900_007_200_000),
+    );
+    expect(mocks.updatePublisherExpiry).toHaveBeenCalledTimes(1);
+    expect(getProSystemAudioViewState()).toMatchObject({ liveExpiresAt: 1_900_007_200_000 });
+  });
+
   it.each(['trusted-boundary', 'audio-resume'] as const)(
     'does not resurrect a failed SFU subscriber after its %s wait settles',
     async (boundary) => {
@@ -2263,7 +2327,7 @@ describe('PRO system-audio service orchestration', () => {
     mocks.resetDirect.mockClear();
 
     staleRequest.resolve(directLive());
-    await expect(staleRefresh).resolves.toEqual(directLive());
+    await expect(staleRefresh).resolves.toEqual({ ...directLive(), liveExpiresAt: null });
     await expect(forcedRefresh).resolves.toEqual(idle(1));
 
     expect(api.getSystemAudioState).toHaveBeenCalledTimes(2);

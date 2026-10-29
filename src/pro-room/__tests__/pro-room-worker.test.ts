@@ -30958,4 +30958,39 @@ describe('PRO browser parsers on the actual Worker answers', () => {
     expect(parseProRoomPlaybackCommitEvent(commit)).toEqual(commit);
     expect(parseProRoomPlaybackCommitEvent(directCommit)).toEqual(directCommit);
   });
+
+  // The one deliberate difference from the wire: a live LAN-direct has no
+  // media deadline, so its liveExpiresAt reads as null whatever this Worker
+  // sends there, its numeric compatibility value or null (PLE-01).
+  it('reads the live LAN-direct the Worker answers and heartbeats with no media deadline', async () => {
+    const { owner, member } = await openRoom();
+    const grant = await owner.api.acquireSystemAudioLease(ROOM_CODE);
+    const direct = {
+      publicationId: 'publication_parser_contract_01',
+      transport: 'lan-direct',
+      protocolVersion: 2,
+    } as const;
+    const lease = {
+      code: ROOM_CODE,
+      generation: grant.systemAudio.generation,
+      leaseId: grant.leaseId,
+    };
+    const expectRead = (parsed: unknown, wire: Record<string, any>) => {
+      expect(wire).toMatchObject({ status: 'live', publication: direct });
+      expect(parsed).toEqual({ ...wire, liveExpiresAt: null });
+    };
+
+    const committed = await owner.api.commitSystemAudioPublication({
+      ...lease,
+      publication: direct,
+    });
+    expectRead(committed, owner.lastAnswer().systemAudio);
+    expectRead(await owner.api.getSystemAudioState(ROOM_CODE), owner.lastAnswer().systemAudio);
+    expectRead(await owner.api.heartbeatSystemAudioLease(lease), owner.lastAnswer().systemAudio);
+    const full = await member.api.heartbeat(ROOM_CODE);
+    expectRead(full.systemAudio, member.lastAnswer().systemAudio);
+    const compact = await member.api.heartbeat(ROOM_CODE, undefined, full.snapshot);
+    expect(member.lastAnswer().notModified).toBe(true);
+    expectRead(compact.systemAudio, member.lastAnswer().systemAudio);
+  });
 });

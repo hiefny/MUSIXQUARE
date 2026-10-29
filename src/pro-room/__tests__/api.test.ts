@@ -1109,6 +1109,52 @@ describe('PRO room cookie session API', () => {
     });
   });
 
+  // A live LAN-direct has no media deadline: PRO snapshot schemaVersion 2
+  // sends liveExpiresAt null, earlier Workers a numeric compatibility value,
+  // and both read as null (PLE-01). One invalid systemAudio would void the
+  // whole heartbeat reply.
+  it.each([null, 1_800_000])(
+    'reads a live LAN-direct with liveExpiresAt %s as null in a full and a compact heartbeat',
+    async (liveExpiresAt) => {
+      const snapshot = activeSnapshot();
+      const fetchMock = vi.fn<typeof fetch>();
+      const client = new ProRoomApiClient({ fetch: fetchMock });
+      await establishPresence(client, fetchMock, snapshot);
+      const direct = {
+        generation: 4,
+        status: 'live',
+        ownerParticipantId: 'participant_00002',
+        claimExpiresAt: null,
+        publication: {
+          publicationId: 'publication_000000001',
+          transport: 'lan-direct',
+          protocolVersion: 2,
+        },
+      } as const;
+      fetchMock
+        .mockResolvedValueOnce(
+          jsonResponse({ snapshot, systemAudio: { ...direct, liveExpiresAt } }),
+        )
+        .mockResolvedValueOnce(
+          jsonResponse({
+            notModified: true,
+            revision: snapshot.revision,
+            playlistRevision: snapshot.playlistRevision,
+            presenceRevision: snapshot.presence.revision,
+            playbackRevision: snapshot.playback.revision,
+            coordinatorEpoch: snapshot.presence.coordinatorEpoch,
+            systemAudio: { ...direct, liveExpiresAt },
+          }),
+        );
+
+      const full = await client.heartbeat(ROOM_CODE);
+      expect(full.systemAudio).toEqual({ ...direct, liveExpiresAt: null });
+      const compact = await client.heartbeat(ROOM_CODE, undefined, snapshot);
+      expect(compact.snapshot).toBe(snapshot);
+      expect(compact.systemAudio).toEqual({ ...direct, liveExpiresAt: null });
+    },
+  );
+
   it('rejects a compact heartbeat reply that does not match the caller snapshot', async () => {
     const snapshot = activeSnapshot();
     const fetchMock = vi.fn<typeof fetch>();
@@ -2273,6 +2319,39 @@ describe('PRO room system-audio lease API', () => {
       leaseId,
     });
   });
+
+  // A live LAN-direct has no media deadline: PRO snapshot schemaVersion 2
+  // sends liveExpiresAt null, earlier Workers a numeric compatibility value,
+  // and both read as null (PLE-01).
+  it.each([null, 1_900_007_200_000])(
+    'reads a live LAN-direct with liveExpiresAt %s as null from the state resource and lease answers',
+    async (liveExpiresAt) => {
+      const direct = {
+        publicationId: 'publication_00001',
+        transport: 'lan-direct',
+        protocolVersion: 2,
+      } as const;
+      const wire = { ...live, liveExpiresAt, publication: direct };
+      const fetchMock = vi.fn<typeof fetch>();
+      const client = new ProRoomApiClient({ fetch: fetchMock });
+      await establishPresence(client, fetchMock);
+      fetchMock.mockImplementation(async () => jsonResponse({ systemAudio: wire }));
+      const read = { ...live, liveExpiresAt: null, publication: direct };
+
+      await expect(client.getSystemAudioState(ROOM_CODE)).resolves.toEqual(read);
+      await expect(
+        client.commitSystemAudioPublication({
+          code: ROOM_CODE,
+          generation: 1,
+          leaseId,
+          publication: direct,
+        }),
+      ).resolves.toEqual(read);
+      await expect(
+        client.heartbeatSystemAudioLease({ code: ROOM_CODE, generation: 1, leaseId }),
+      ).resolves.toEqual(read);
+    },
+  );
 
   it('rejects malformed credentials and any leaked private field before accepting state', async () => {
     const fetchMock = vi.fn<typeof fetch>();

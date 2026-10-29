@@ -124,7 +124,7 @@ const LOCALIZED_ACTIONS = Object.entries(LOCALES).map(([code, dictionary]) => ({
   ],
 }));
 
-// The manual sync panel's Done / Reset pair and value label in every locale.
+// The manual sync panel's Reset / Done pair and value label in every locale.
 const SYNC_PAIR_LABELS: Record<string, { reset: string; done: string; label: string }> =
   Object.fromEntries(
     Object.entries(LOCALES).map(([code, dictionary]) => [
@@ -139,7 +139,7 @@ const SYNC_PAIR_LABELS: Record<string, { reset: string; done: string; label: str
 
 // Owner decision (2026-10-28, option C): at 360px tall and below the manual
 // sync panel keeps 12px from the screen edges and trims its own spacing; at
-// 350px and below its Done / Reset pair takes the account dialog's 44px pills,
+// 350px and below its Reset / Done pair takes the account dialog's 44px pills,
 // 6px apart. 667x375 and 640x361 keep the shared values.
 const SYNC_SHORT_VIEWPORTS = [
   { width: 568, height: 320, step: 'pills' },
@@ -861,7 +861,7 @@ test.describe('content-based adaptive action groups', () => {
   });
 
   for (const viewportWidth of [360, 390, 1440]) {
-    test(`contains the manual sync Done / Reset pair in every locale at ${viewportWidth}px`, async ({
+    test(`contains the manual sync Reset / Done pair in every locale at ${viewportWidth}px`, async ({
       page,
     }) => {
       // The authored panel, opened, in each locale's own font. The recipe
@@ -936,11 +936,12 @@ test.describe('content-based adaptive action groups', () => {
         expect(pair.rowScrollWidth, `${pair.lang} row overflow`).toBeLessThanOrEqual(
           pair.rowClientWidth,
         );
-        // Done, the exit, comes first (left, mirrored in RTL); Reset follows.
-        const [done, reset] = pair.buttons;
-        expect(done!.id, pair.lang).toMatch(/-sync-done-btn$/u);
+        // Reset comes first; Done, which applies and closes the panel, follows
+        // on the right (owner decision 2026-10-29; mirrored in RTL).
+        const [reset, done] = pair.buttons;
         expect(reset!.id, pair.lang).toMatch(/-sync-reset-btn$/u);
-        for (const button of [done!, reset!]) {
+        expect(done!.id, pair.lang).toMatch(/-sync-done-btn$/u);
+        for (const button of [reset!, done!]) {
           expect(button.left, `${button.id} inside the panel`).toBeGreaterThanOrEqual(
             pair.contentLeft - 0.5,
           );
@@ -955,12 +956,12 @@ test.describe('content-based adaptive action groups', () => {
           );
           expect(button.height, `${button.id} pill height`).toBeGreaterThanOrEqual(56 - 0.5);
         }
-        // Side by side 10px apart with Done on the left, or Reset on its own
+        // Side by side 10px apart with Done on the right, or Done on its own
         // row 12px below.
         if (Math.abs(reset!.top - done!.top) < 0.5) {
-          expect(reset!.left - done!.right, pair.lang).toBeCloseTo(10, 1);
+          expect(done!.left - reset!.right, pair.lang).toBeCloseTo(10, 1);
         } else {
-          expect(reset!.top - done!.bottom, pair.lang).toBeCloseTo(12, 1);
+          expect(done!.top - reset!.bottom, pair.lang).toBeCloseTo(12, 1);
         }
       }
     });
@@ -1117,7 +1118,7 @@ test.describe('content-based adaptive action groups', () => {
           result.panel.bottom - Number.parseFloat(geometry.padding[1]) + 0.5,
         );
         if (twoRows) {
-          // A wrapped Done sits no closer to the nudge row than to Reset.
+          // A wrapped Reset sits no closer to the nudge row than to Done.
           expect(first!.top - result.nudge.bottom, `${where} pair margin`).toBeGreaterThanOrEqual(
             second!.top - first!.bottom - 0.5,
           );

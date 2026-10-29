@@ -3437,8 +3437,8 @@ describe('initPlayerControls sync button', () => {
             <button id="btn-nudge-plus1">+1</button>
             <button id="btn-nudge-plus10">+10</button>
           </div>
-          <button id="btn-sync-done">Done</button>
           <button id="btn-auto-sync">Reset</button>
+          <button id="btn-sync-done">Done</button>
         </div>
       </div>
     `;
@@ -3513,15 +3513,13 @@ describe('initPlayerControls sync button', () => {
     expect(row.hidden).toBe(false);
     expect(overlay.querySelectorAll('.sync-nudge-row button')).toHaveLength(4);
 
-    // Isolate nudge/Done/Reset: both entry points keep the same adjustment
+    // Isolate nudge/Reset/Done: both entry points keep the same adjustment
     // controls reachable, while the inline volume controls stay outside.
-    // Reset, the pair's right action, is the last stop (owner policy
-    // 2026-10-28: the exit, Done, sits on the left).
     for (const element of overlay.querySelectorAll<HTMLElement>('button, input, [tabindex]')) {
       if (!row.contains(element) && element !== done && element !== reset) element.tabIndex = -1;
     }
-    reset.focus();
-    reset.dispatchEvent(new KeyboardEvent('keydown', { key: 'Tab', bubbles: true }));
+    done.focus();
+    done.dispatchEvent(new KeyboardEvent('keydown', { key: 'Tab', bubbles: true }));
     expect(document.activeElement).toBe(document.getElementById('btn-nudge-minus10'));
 
     setState('demo.active', false);
@@ -3529,8 +3527,8 @@ describe('initPlayerControls sync button', () => {
     await settleManualSyncOverlayOpen();
     expect(row.hidden).toBe(false);
     expect(overlay.classList.contains('show')).toBe(true);
-    reset.focus();
-    reset.dispatchEvent(new KeyboardEvent('keydown', { key: 'Tab', bubbles: true }));
+    done.focus();
+    done.dispatchEvent(new KeyboardEvent('keydown', { key: 'Tab', bubbles: true }));
     expect(document.activeElement).toBe(document.getElementById('btn-nudge-minus10'));
   });
 
@@ -4752,7 +4750,6 @@ describe('initPlayerControls sync button', () => {
     await settleManualSyncOverlayOpen();
     const overlay = document.getElementById('manual-sync-overlay')!;
     const done = document.getElementById('btn-sync-done')!;
-    const reset = document.getElementById('btn-auto-sync')!;
     const mute = document.getElementById('demo-vol-icon-btn') as HTMLButtonElement;
     const slider = document.getElementById('demo-volume-slider') as HTMLInputElement;
     const editor = document.getElementById('manual-sync-value')!;
@@ -4765,12 +4762,12 @@ describe('initPlayerControls sync button', () => {
       document.getElementById('btn-nudge-minus1'),
       document.getElementById('btn-nudge-plus1'),
       document.getElementById('btn-nudge-plus10'),
+      document.getElementById('btn-auto-sync'),
       done,
-      reset,
     ]);
-    reset.focus();
+    done.focus();
 
-    reset.dispatchEvent(new KeyboardEvent('keydown', { key: 'Tab', bubbles: true }));
+    done.dispatchEvent(new KeyboardEvent('keydown', { key: 'Tab', bubbles: true }));
     expect(document.activeElement).toBe(editor);
     editor.dispatchEvent(
       new KeyboardEvent('keydown', {
@@ -4779,7 +4776,7 @@ describe('initPlayerControls sync button', () => {
         bubbles: true,
       }),
     );
-    expect(document.activeElement).toBe(reset);
+    expect(document.activeElement).toBe(done);
   });
 
   it.each(['hidden', 'disabled'] as const)(
@@ -4819,7 +4816,6 @@ describe('initPlayerControls sync button', () => {
     const overlay = document.getElementById('manual-sync-overlay')!;
     const first = document.getElementById('manual-sync-value') as HTMLElement;
     const done = document.getElementById('btn-sync-done') as HTMLButtonElement;
-    const last = document.getElementById('btn-auto-sync') as HTMLButtonElement;
     trigger.focus();
 
     initPlayerControls();
@@ -4832,26 +4828,17 @@ describe('initPlayerControls sync button', () => {
     expect(trigger.hasAttribute('inert')).toBe(true);
     expect(document.activeElement).toBe(first);
 
-    // Reset, the pair's right action, ends the cycle; Done, the exit, sits
-    // before it (owner policy 2026-10-28), so Tab from Done is the browser's.
+    // Done, the panel's finishing action on the right, is the last stop
+    // (owner decision 2026-10-29).
     done.focus();
-    const tabFromDone = new KeyboardEvent('keydown', {
-      key: 'Tab',
-      bubbles: true,
-      cancelable: true,
-    });
-    done.dispatchEvent(tabFromDone);
-    expect(tabFromDone.defaultPrevented).toBe(false);
-    last.focus();
-    last.dispatchEvent(new KeyboardEvent('keydown', { key: 'Tab', bubbles: true }));
+    done.dispatchEvent(new KeyboardEvent('keydown', { key: 'Tab', bubbles: true }));
     expect(document.activeElement).toBe(first);
 
     first.dispatchEvent(
       new KeyboardEvent('keydown', { key: 'Tab', shiftKey: true, bubbles: true }),
     );
-    expect(document.activeElement).toBe(last);
+    expect(document.activeElement).toBe(done);
 
-    done.focus();
     done.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
     expect(overlay.classList.contains('show')).toBe(false);
     expect(overlay.getAttribute('aria-hidden')).toBe('true');

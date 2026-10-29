@@ -84,7 +84,15 @@ const WINDOW_EXIT_LABELS: readonly string[] = [
 // at runtime. `leftOf` is the action the exit sits left of in its pair;
 // `own row` is a row of its own (alone, or the full-width row under a pair);
 // `top start` is the window's first control, in its top start corner.
-type Placement = { readonly leftOf: string } | 'own row' | 'top start';
+// `finishesRightOf` names a panel whose exit is its main action: Done applies
+// and closes, so it sits on the right of the pair's other action, with the
+// reason. Exit on the left is for dialog [Cancel | Action] pairs (owner
+// decision 2026-10-29).
+type Placement =
+  | { readonly leftOf: string }
+  | { readonly finishesRightOf: string; readonly reason: string }
+  | 'own row'
+  | 'top start';
 type WindowExit =
   | { readonly notAWindow: string }
   | { readonly markup: ReadonlyArray<{ readonly exit: string; readonly placement: Placement }> }
@@ -154,7 +162,17 @@ const WINDOW_EXITS: Readonly<Record<string, WindowExit>> = {
     markup: [{ exit: '#btn-playlist-transfer-close', placement: 'own row' }],
   },
   'manual-sync-overlay': {
-    markup: [{ exit: '#btn-sync-done', placement: { leftOf: '#btn-auto-sync' } }],
+    markup: [
+      {
+        exit: '#btn-sync-done',
+        placement: {
+          finishesRightOf: '#btn-auto-sync',
+          reason:
+            'Done applies the edited value and closes the panel, its main action, so it ' +
+            'keeps the right of [Reset | Done] as before 9.0.20 (owner decision 2026-10-29).',
+        },
+      },
+    ],
   },
   'onboarding-diagnostics-overlay': {
     source: 'src/ui/onboarding-diagnostics.ts',
@@ -680,6 +698,18 @@ function markupExitProblems(
   if (placement === 'top start') {
     if (root.querySelector('button') !== element) {
       problems.push(`${where} is not the window's first control`);
+    }
+  } else if (typeof placement === 'object' && 'finishesRightOf' in placement) {
+    if (!placement.reason) problems.push(`${where} names no reason to sit on the right`);
+    if (!markupLabels(element).includes('common.done')) {
+      problems.push(`${where} sits on the right but does not finish the window (Done)`);
+    }
+    const partner = root.querySelector(placement.finishesRightOf);
+    if (!partner) problems.push(`${where}: its pair ${placement.finishesRightOf} is missing`);
+    else if (partner.parentElement !== element.parentElement) {
+      problems.push(`${where} is not in one row with ${placement.finishesRightOf}`);
+    } else if (!(element.compareDocumentPosition(partner) & Node.DOCUMENT_POSITION_PRECEDING)) {
+      problems.push(`${where} is not on the right of ${placement.finishesRightOf}`);
     }
   } else if (placement === 'own row') {
     const row = element.parentElement;

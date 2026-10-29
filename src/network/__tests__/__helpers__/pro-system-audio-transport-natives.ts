@@ -23,16 +23,19 @@ import { makeAudioTrack } from './system-audio-receive-harness.ts';
 // pushed with setConnectionState() to the 'connectionstatechange' listeners.
 //
 // LAN mode, calibrated against pro-system-audio-direct.ts acceptOffer and
-// acceptMediaOffer and the 'host-host' locality in pro-system-audio-direct
+// proveReceiverRoute and the 'host-host' locality in pro-system-audio-direct
 // .test.ts: setLocalDescription(answer) gathers one mDNS host candidate and
 // connects; getStats() reports one selected, succeeded host-to-host pair from
-// 192.168.1.10 to an mDNS remote whose foundation and port match LAN_CANDIDATE;
-// a media offer fires ontrack with the track its `a=msid:` line names (none
-// when the line is missing). Runtime states go to onconnectionstatechange and
-// oniceconnectionstatechange, as the receiver registers them.
+// 192.168.1.10 to an mDNS remote whose foundation and port match LAN_CANDIDATE,
+// so the receiver proves its pair on the first proof poll (every 25 ms) after
+// that candidate arrives; the offer fires ontrack with the track its `a=msid:`
+// line names (none when the line is missing). Runtime states go to
+// onconnectionstatechange and oniceconnectionstatechange, as the receiver
+// registers them.
 //
-// Neither mode models ICE, DTLS, media flow, track 'ended' events or the
-// publisher side (addTrack, data channels, sctp).
+// Neither mode models ICE, DTLS, media flow, track 'ended' events, the probe
+// data channel (so no receiver pair proof reaches a publisher) or the
+// publisher side (addTrack, replaceTrack, sctp).
 
 type PeerConnectionMode = 'sfu' | 'lan';
 
@@ -258,8 +261,9 @@ export const proRelay = new ProRelayFake();
 
 // ─── LAN-direct publisher signals ───────────────────────────────────
 // The frames a remote LAN-direct publisher sends one listener, in the shapes
-// pro-system-audio-direct.ts parseSignal accepts: a data-channel probe offer,
-// one LAN host candidate, then the media offer naming its stereo track.
+// pro-system-audio-direct.ts parseSignal accepts: one offer carrying the probe
+// data channel and the audio m-section that names its stereo track, then one
+// LAN host candidate.
 
 export interface LanPublisherRoute {
   roomCode: string;
@@ -281,26 +285,8 @@ function lanSignal(route: LanPublisherRoute, kind: string): Record<string, unkno
   };
 }
 
-export function sendLanProbeOffer(route: LanPublisherRoute): void {
-  proRelay.deliver(route.roomCode, route.ownerParticipantId, {
-    ...lanSignal(route, 'offer'),
-    phase: 'probe',
-    description: {
-      type: 'offer',
-      sdp: 'v=0\r\nm=application 9 UDP/DTLS/SCTP webrtc-datachannel\r\n',
-    },
-  });
-}
-
-export function sendLanCandidate(route: LanPublisherRoute): void {
-  proRelay.deliver(route.roomCode, route.ownerParticipantId, {
-    ...lanSignal(route, 'candidate'),
-    candidate: { candidate: LAN_CANDIDATE },
-  });
-}
-
-/** The media offer; `withTrack: false` leaves out the msid, so no track arrives. */
-export function sendLanMediaOffer(
+/** The one offer; `withTrack: false` leaves out the msid, so no track arrives. */
+export function sendLanOffer(
   route: LanPublisherRoute,
   trackId: string,
   options: { withTrack?: boolean } = {},
@@ -312,8 +298,17 @@ export function sendLanMediaOffer(
     trackId,
     description: {
       type: 'offer',
-      sdp: `v=0\r\nm=audio 9 UDP/TLS/RTP/SAVPF 111\r\na=rtpmap:111 opus/48000/2\r\n${msid}`,
+      sdp:
+        'v=0\r\nm=application 9 UDP/DTLS/SCTP webrtc-datachannel\r\n' +
+        `m=audio 9 UDP/TLS/RTP/SAVPF 111\r\na=rtpmap:111 opus/48000/2\r\n${msid}`,
     },
+  });
+}
+
+export function sendLanCandidate(route: LanPublisherRoute): void {
+  proRelay.deliver(route.roomCode, route.ownerParticipantId, {
+    ...lanSignal(route, 'candidate'),
+    candidate: { candidate: LAN_CANDIDATE },
   });
 }
 

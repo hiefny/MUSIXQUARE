@@ -88,8 +88,7 @@ import {
   proRelay,
   sendLanCandidate,
   sendLanClose,
-  sendLanMediaOffer,
-  sendLanProbeOffer,
+  sendLanOffer,
   type LanPublisherRoute,
 } from '../../network/__tests__/__helpers__/pro-system-audio-transport-natives.ts';
 import {
@@ -281,18 +280,22 @@ function lanRoute(overrides: Partial<LanPublisherRoute> = {}): LanPublisherRoute
   };
 }
 
-/** The remote LAN-direct publisher negotiates its route and offers its track. */
+/** The receiver's pair proof poll, pro-system-audio-direct.ts DIRECT_PAIR_POLL_MS. */
+const LAN_PROOF_POLL_MS = 25;
+
+/**
+ * The remote LAN-direct publisher offers its track in one round trip; the
+ * receiver proves its pair on the next proof poll after the candidate.
+ */
 async function lanPublisherDelivers(
   route = lanRoute(),
   trackId = 'direct-audio-1',
   options: { withTrack?: boolean } = {},
 ): Promise<void> {
-  sendLanProbeOffer(route);
+  sendLanOffer(route, trackId, options);
   await advance(0);
   sendLanCandidate(route);
-  await advance(0);
-  sendLanMediaOffer(route, trackId, options);
-  await advance(0);
+  await advance(LAN_PROOF_POLL_MS);
 }
 
 const routes = [
@@ -722,19 +725,19 @@ describe('PRO SFU reception through the real subscriber', () => {
 });
 
 describe('PRO LAN-direct reception through the real transport', () => {
-  it('S6: the track attaches once the probe and media offers prove a same-LAN pair, with no playout hint; the share end closes the route without a signal', async () => {
+  it('S6: the track attaches once the one offer proves a same-LAN pair, with no playout hint; the share end closes the route without a signal', async () => {
     await applyState(live(directPublication()));
     expect(slot()).toMatchObject({ receiving: false, activity: 'pending', placeholder: true });
 
-    sendLanProbeOffer(lanRoute());
+    sendLanOffer(lanRoute(), 'direct-audio-1');
     await advance(0);
-    expect(proRelay.signals('answer').map((signal) => signal.phase)).toEqual(['probe']);
-    sendLanCandidate(lanRoute());
-    await advance(0);
+    expect(proRelay.signals('answer').map((signal) => signal.phase)).toEqual(['media']);
+    // The track arrived with the offer, but the pair is not proven yet.
     expect(slot().receiving).toBe(false);
-    sendLanMediaOffer(lanRoute(), 'direct-audio-1');
-    await advance(0);
-    expect(proRelay.signals('answer').map((signal) => signal.phase)).toEqual(['probe', 'media']);
+    sendLanCandidate(lanRoute());
+    await advance(LAN_PROOF_POLL_MS - 1);
+    expect(slot().receiving).toBe(false);
+    await advance(1);
     expect(slot()).toMatchObject({
       receiving: true,
       activity: 'playing',
@@ -791,10 +794,10 @@ describe('PRO LAN-direct reception through the real transport', () => {
     expect(media.stopAllMedia).toHaveBeenCalledTimes(2);
   });
 
-  it("deadlines: a media answer whose track never arrives falls back after the transport's 5 s, which also clears the coordinator's 30 s deadline: one notice in a minute", async () => {
+  it("deadlines: a proven route whose track never arrives falls back after the transport's 5 s, which also clears the coordinator's 30 s deadline: one notice in a minute", async () => {
     await applyState(live(directPublication()));
     await lanPublisherDelivers(lanRoute(), 'direct-audio-1', { withTrack: false });
-    expect(proRelay.signals('answer').map((signal) => signal.phase)).toEqual(['probe', 'media']);
+    expect(proRelay.signals('answer').map((signal) => signal.phase)).toEqual(['media']);
 
     await advance(4_999);
     expect(seen.toasts).toEqual([]);
@@ -844,7 +847,8 @@ describe('PRO LAN-direct reception through the real transport', () => {
       expect(webAudio.sources).toHaveLength(0);
       expect(lanConnections()).toHaveLength(1);
       expect(lanConnections()[0].closed).toBe(false);
-      expect(proRelay.signals('answer')).toHaveLength(2);
+      // The route's one answer, as the one-round-trip protocol sends.
+      expect(proRelay.signals('answer')).toHaveLength(1);
       expect(slot()).toMatchObject(after());
 
       // Only the share end closes the route; it still asks for the post-share
@@ -930,10 +934,12 @@ describe('PRO LAN-direct reception through the real transport', () => {
   // reads no timer names, so system-audio-service.test.ts pins the clear.
   it("5B-G6: a publisher close 'stopped' before any track ends the pending reception at once: no notice at 30 s", async () => {
     await applyState(live(directPublication()));
-    sendLanProbeOffer(lanRoute());
+    // The offer is answered, but without the publisher's candidate the pair
+    // stays unproven and the track waits.
+    sendLanOffer(lanRoute(), 'direct-audio-1');
     await advance(0);
-    sendLanCandidate(lanRoute());
-    await advance(0);
+    expect(proRelay.signals('answer')).toHaveLength(1);
+    await advance(LAN_PROOF_POLL_MS * 4);
     expect(slot()).toMatchObject({ receiving: false, activity: 'pending', placeholder: true });
 
     sendLanClose(lanRoute(), 'stopped');

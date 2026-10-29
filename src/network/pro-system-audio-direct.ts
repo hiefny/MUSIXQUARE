@@ -4,6 +4,14 @@
  * The authenticated PRO realtime socket carries only targeted SDP/ICE. Media
  * peer connections deliberately use host candidates exclusively: this module
  * never loads TURN credentials or calls the Cloudflare Realtime media API.
+ *
+ * One signaling round trip per route: the publisher's single offer carries the
+ * audio m-section (its sender holds no track yet) and the probe data channel.
+ * Once its selected pair is a proven LAN pair the receiver says so on that
+ * channel; once both ends have proven it the publisher attaches the track. No
+ * audio leaves before both proofs, and the publisher reports the route only
+ * after both. The offer and answer keep the relay's `phase: 'media'` shape;
+ * a receiver ignores the retired probe offer.
  */
 
 import { MAX_SYSTEM_AUDIO_DEVICES } from '../core/constants.ts';
@@ -18,8 +26,14 @@ import { sendProRoomRealtime } from '../pro-room/realtime-sender.ts';
 import { forceStereoSdp } from './opus-stereo-sdp.ts';
 import { tuneSystemAudioLanDirectSender } from './system-audio-media.ts';
 
+/** From the publisher's offer to its answer; also the receiver's proof window. */
 const DIRECT_NEGOTIATION_TIMEOUT_MS = 2_000;
+/** From the answer to both ends' LAN pair proofs. */
+const DIRECT_PAIR_PROOF_TIMEOUT_MS = 1_000;
 const DIRECT_PAIR_POLL_MS = 25;
+const DIRECT_CHANNEL_LABEL = 'MUSIXQUARE-lan-probe';
+/** Sent once by the receiver on the probe channel after its own LAN pair proof. */
+const RECEIVER_PAIR_PROVEN_MESSAGE = 'receiver-pair-proven';
 const SIGNAL_ID_RE = /^[A-Za-z0-9][A-Za-z0-9_-]{15,127}$/;
 const PARTICIPANT_ID_RE = /^[A-Za-z0-9_-]{1,96}$/;
 const ROUTE_TOKEN_RE = /^[A-Za-z0-9._:-]{1,192}$/;
@@ -61,7 +75,8 @@ async function withinDirectDeadline<T>(
 type DirectDirection = 'publisher' | 'subscriber';
 type DirectCloseReason = 'stopped' | 'fallback' | 'superseded';
 type DirectSignalKind = 'offer' | 'answer' | 'candidate' | 'close';
-type DirectNegotiationPhase = 'probe' | 'media';
+type PairWaitResult = 'proven' | 'non-local' | 'disconnected' | 'closed' | 'deadline';
+type PublisherNegotiationStage = 'offer' | 'answer' | 'pair' | 'receiver-proof' | 'attach';
 
 interface DirectSignalBase {
   kind: DirectSignalKind;
@@ -72,14 +87,7 @@ interface DirectSignalBase {
   negotiationId: string;
 }
 
-interface DirectProbeOfferSignal extends DirectSignalBase {
-  kind: 'offer';
-  direction: 'publisher';
-  phase: 'probe';
-  description: { type: 'offer'; sdp: string };
-}
-
-interface DirectMediaOfferSignal extends DirectSignalBase {
+interface DirectOfferSignal extends DirectSignalBase {
   kind: 'offer';
   direction: 'publisher';
   phase: 'media';
@@ -87,12 +95,10 @@ interface DirectMediaOfferSignal extends DirectSignalBase {
   trackId: string;
 }
 
-type DirectOfferSignal = DirectProbeOfferSignal | DirectMediaOfferSignal;
-
 interface DirectAnswerSignal extends DirectSignalBase {
   kind: 'answer';
   direction: 'subscriber';
-  phase: DirectNegotiationPhase;
+  phase: 'media';
   description: { type: 'answer'; sdp: string };
 }
 
@@ -134,8 +140,7 @@ export interface ProSystemAudioDirectInboundSignalContext {
 export interface ProSystemAudioDirectInboundOfferContext extends ProSystemAudioDirectInboundSignalContext {
   kind: 'offer';
   ownerParticipantId: string;
-  phase: DirectNegotiationPhase;
-  trackId: string | null;
+  trackId: string;
 }
 
 export interface ProSystemAudioDirectTrackReadyEvent {
@@ -217,10 +222,12 @@ interface PublisherRoute {
   provenLocal: boolean;
   failed: boolean;
   closed: boolean;
+  /** Why the route ended before its negotiation finished, for the result line. */
+  endReason: string | null;
   reproofFlight: Promise<boolean> | null;
-  probeAnswered: boolean;
-  mediaAnswered: boolean;
-  mediaTrackAdded: boolean;
+  answered: boolean;
+  /** The receiver's own LAN pair proof arrived on the probe channel. */
+  receiverProven: boolean;
   committed: boolean;
 }
 
@@ -245,7 +252,7 @@ interface ReceiverRoute {
   publicationId: string;
   negotiationId: string;
   pc: RTCPeerConnection;
-  trackId: string | null;
+  channel: RTCDataChannel | null;
   track: MediaStreamTrack | null;
   queuedLocalCandidates: RTCIceCandidateInit[];
   queuedRemoteCandidates: RTCIceCandidateInit[];
@@ -257,13 +264,11 @@ interface ReceiverRoute {
   answerSent: boolean;
   remoteDescriptionReady: boolean;
   trackDelivered: boolean;
-  mediaAnswerSent: boolean;
   live: boolean;
   fallbackSent: boolean;
   closed: boolean;
-  phase: DirectNegotiationPhase;
   provenLocal: boolean;
-  mediaOfferPending: boolean;
+  proofSent: boolean;
 }
 
 interface PreOfferCandidateBucket {
@@ -330,8 +335,9 @@ function parseDescription<T extends 'offer' | 'answer'>(
   return null;
 }
 
-function sdpHasAudioMedia(sdp: string): boolean {
-  return sdp.split(/\r?\n/).some((line) => /^m=audio(?:\s|$)/i.test(line.trim()));
+/** A route carries exactly one audio m-section: the publisher's track. */
+function sdpHasOneAudioMedia(sdp: string): boolean {
+  return sdp.split(/\r?\n/).filter((line) => /^m=audio(?:\s|$)/i.test(line.trim())).length === 1;
 }
 
 function forceDirectStereoSdp(sdp: string): string {
@@ -392,27 +398,18 @@ function parseSignal(value: unknown): DirectSignal | null {
     publicationId: value.publicationId,
     negotiationId: value.negotiationId,
   };
+  // The retired two-round-trip protocol's 'probe' offer and answer parse to
+  // null, so a mixed-version pair never builds a route and uses the SFU.
   if (value.kind === 'offer' && value.direction === 'publisher') {
-    if (value.phase !== 'probe' && value.phase !== 'media') return null;
-    const requiredKeys =
-      value.phase === 'probe'
-        ? [...commonKeys, 'phase', 'description']
-        : [...commonKeys, 'phase', 'description', 'trackId'];
-    if (!hasExactKeys(value, requiredKeys)) return null;
-    const description = parseDescription(value.description, 'offer');
-    if (!description) return null;
-    if (value.phase === 'probe') {
-      if (sdpHasAudioMedia(description.sdp)) return null;
-      return {
-        ...base,
-        kind: 'offer',
-        direction: 'publisher',
-        phase: 'probe',
-        description,
-      };
+    if (
+      value.phase !== 'media' ||
+      !hasExactKeys(value, [...commonKeys, 'phase', 'description', 'trackId']) ||
+      !validTrackId(value.trackId)
+    ) {
+      return null;
     }
-    if (!sdpHasAudioMedia(description.sdp)) return null;
-    if (!validTrackId(value.trackId)) return null;
+    const description = parseDescription(value.description, 'offer');
+    if (!description || !sdpHasOneAudioMedia(description.sdp)) return null;
     return {
       ...base,
       kind: 'offer',
@@ -423,26 +420,16 @@ function parseSignal(value: unknown): DirectSignal | null {
     };
   }
   if (value.kind === 'answer' && value.direction === 'subscriber') {
-    if (
-      (value.phase !== 'probe' && value.phase !== 'media') ||
-      !hasExactKeys(value, [...commonKeys, 'phase', 'description'])
-    ) {
+    if (value.phase !== 'media' || !hasExactKeys(value, [...commonKeys, 'phase', 'description'])) {
       return null;
     }
     const description = parseDescription(value.description, 'answer');
-    if (
-      description &&
-      ((value.phase === 'probe' && sdpHasAudioMedia(description.sdp)) ||
-        (value.phase === 'media' && !sdpHasAudioMedia(description.sdp)))
-    ) {
-      return null;
-    }
-    return description
+    return description && sdpHasOneAudioMedia(description.sdp)
       ? {
           ...base,
           kind: 'answer',
           direction: 'subscriber',
-          phase: value.phase,
+          phase: 'media',
           description,
         }
       : null;
@@ -1031,6 +1018,7 @@ function closePublisherRoute(
   route.pc.onicecandidate = null;
   route.pc.onconnectionstatechange = null;
   route.pc.oniceconnectionstatechange = null;
+  route.probeChannel.onmessage = null;
   try {
     route.probeChannel.close();
   } catch {
@@ -1070,6 +1058,9 @@ function closeReceiverRoute(
   route.pc.onconnectionstatechange = null;
   route.pc.oniceconnectionstatechange = null;
   route.pc.ontrack = null;
+  route.pc.ondatachannel = null;
+  if (route.channel) route.channel.onopen = null;
+  route.channel = null;
   route.pc.close();
   route.queuedLocalCandidates.length = 0;
   route.queuedRemoteCandidates.length = 0;
@@ -1157,6 +1148,7 @@ function notifyReceiverFallback(route: ReceiverRoute, reason: string): void {
 function failPublisherRoute(route: PublisherRoute, reason: string): void {
   if (route.closed) return;
   route.failed = true;
+  route.endReason ??= reason;
   const session = publisherSession;
   const newestDesiredStillOwnsRoute = Boolean(
     session &&
@@ -1177,6 +1169,8 @@ function failReceiverRoute(route: ReceiverRoute, reason: string): void {
   if (route.closed) return;
   if (route.live) notifyReceiverFallback(route, reason);
   else {
+    // A live route's fallback reaches the service; this one ends silently.
+    log.info(`[ProSysAudioDirect] Receiver route ended before live (${reason})`);
     if (receiverRoute === route) receiverRoute = null;
     closeReceiverRoute(route, 'fallback', true);
   }
@@ -1285,7 +1279,7 @@ function createPublisherRoute(
   routeToken: string,
 ): PublisherRoute {
   const pc = new RTCPeerConnection({ iceServers: [], bundlePolicy: 'max-bundle' });
-  const probeChannel = pc.createDataChannel('MUSIXQUARE-lan-probe', { ordered: false });
+  const probeChannel = pc.createDataChannel(DIRECT_CHANNEL_LABEL, { ordered: false });
   const route: PublisherRoute = {
     participantId,
     routeToken,
@@ -1306,13 +1300,16 @@ function createPublisherRoute(
     provenLocal: false,
     failed: false,
     closed: false,
+    endReason: null,
     reproofFlight: null,
-    probeAnswered: false,
-    mediaAnswered: false,
-    mediaTrackAdded: false,
+    answered: false,
+    receiverProven: false,
     committed: false,
   };
   session.routes.set(participantId, route);
+  probeChannel.onmessage = (event) => {
+    if (!route.closed && event.data === RECEIVER_PAIR_PROVEN_MESSAGE) route.receiverProven = true;
+  };
   pc.onicecandidate = (event) => {
     if (!event.candidate || route.closed) return;
     const candidate = sanitizeLanCandidateInit(candidateInit(event.candidate));
@@ -1340,92 +1337,66 @@ function createPublisherRoute(
   return route;
 }
 
-async function waitForLocalPair(
-  session: PublisherSession,
-  route: PublisherRoute,
+/** Polls one end's selected pair until it is a proven LAN pair or the wait ends. */
+async function waitForProvenPair(
+  pc: RTCPeerConnection,
+  acceptedRemoteMdnsKeys: ReadonlySet<string>,
+  isCurrent: () => boolean,
   timeoutMs: number,
-): Promise<boolean> {
+): Promise<PairWaitResult> {
   const expiresAt = Date.now() + timeoutMs;
-  while (publisherRouteIsCurrent(session, route) && Date.now() <= expiresAt) {
-    if (pcDisconnected(route.pc)) return false;
-    if (pcConnected(route.pc)) {
-      const locality = await selectedPairLocality(route.pc, route.acceptedRemoteMdnsKeys);
-      if (!publisherRouteIsCurrent(session, route)) return false;
-      if (locality === 'same-subnet') {
-        route.provenLocal = true;
-        return true;
-      }
-      if (locality === 'non-local') return false;
+  while (Date.now() <= expiresAt) {
+    if (!isCurrent()) return 'closed';
+    if (pcDisconnected(pc)) return 'disconnected';
+    if (pcConnected(pc)) {
+      const locality = await selectedPairLocality(pc, acceptedRemoteMdnsKeys);
+      if (!isCurrent()) return 'closed';
+      if (locality === 'same-subnet') return 'proven';
+      if (locality === 'non-local') return 'non-local';
     }
     await delay(Math.min(DIRECT_PAIR_POLL_MS, Math.max(1, expiresAt - Date.now())));
   }
-  return false;
+  return isCurrent() ? 'deadline' : 'closed';
 }
 
-async function waitForPublisherAnswer(
+async function waitForPublisherRoute(
   session: PublisherSession,
   route: PublisherRoute,
-  phase: DirectNegotiationPhase,
+  done: () => boolean,
   timeoutMs: number,
 ): Promise<boolean> {
   const expiresAt = Date.now() + timeoutMs;
   while (publisherRouteIsCurrent(session, route) && Date.now() <= expiresAt) {
-    if (phase === 'probe' ? route.probeAnswered : route.mediaAnswered) return true;
+    if (done()) return true;
     await delay(Math.min(DIRECT_PAIR_POLL_MS, Math.max(1, expiresAt - Date.now())));
   }
   return false;
 }
 
-async function sendPublisherOffer(
-  session: PublisherSession,
-  route: PublisherRoute,
-  phase: DirectNegotiationPhase,
-): Promise<void> {
+async function sendPublisherOffer(session: PublisherSession, route: PublisherRoute): Promise<void> {
   const offer = await route.pc.createOffer();
   if (!publisherRouteIsCurrent(session, route)) throw new Error('DIRECT_ROUTE_SUPERSEDED');
-  const previousOfferSent = route.offerSent;
-  route.offerSent = false;
-  const localOffer =
-    phase === 'media' && offer.sdp ? { ...offer, sdp: forceDirectStereoSdp(offer.sdp) } : offer;
+  const localOffer = offer.sdp ? { ...offer, sdp: forceDirectStereoSdp(offer.sdp) } : offer;
   await route.pc.setLocalDescription(localOffer);
   if (!publisherRouteIsCurrent(session, route)) throw new Error('DIRECT_ROUTE_SUPERSEDED');
   const description = route.pc.localDescription ?? localOffer;
-  const outboundSdp =
-    phase === 'media' && description.sdp ? forceDirectStereoSdp(description.sdp) : description.sdp;
+  const outboundSdp = description.sdp ? forceDirectStereoSdp(description.sdp) : description.sdp;
   const sanitizedSdp = outboundSdp ? sanitizeLanSdp(outboundSdp) : '';
-  if (
-    description.type !== 'offer' ||
-    !sanitizedSdp ||
-    (phase === 'probe' && sdpHasAudioMedia(sanitizedSdp)) ||
-    (phase === 'media' && !sdpHasAudioMedia(sanitizedSdp))
-  ) {
+  if (description.type !== 'offer' || !sanitizedSdp || !sdpHasOneAudioMedia(sanitizedSdp)) {
     throw new Error('DIRECT_OFFER_INVALID');
   }
-  const sent =
-    phase === 'probe'
-      ? sendSignal({
-          kind: 'offer',
-          targetParticipantId: route.participantId,
-          direction: 'publisher',
-          phase: 'probe',
-          generation: session.generation,
-          publicationId: session.publicationId,
-          negotiationId: route.negotiationId,
-          description: { type: 'offer', sdp: sanitizedSdp },
-        })
-      : sendSignal({
-          kind: 'offer',
-          targetParticipantId: route.participantId,
-          direction: 'publisher',
-          phase: 'media',
-          generation: session.generation,
-          publicationId: session.publicationId,
-          negotiationId: route.negotiationId,
-          description: { type: 'offer', sdp: sanitizedSdp },
-          trackId: session.track.id,
-        });
-  route.offerSent = previousOfferSent || sent;
-  if (!sent) throw new Error('DIRECT_OFFER_SEND_FAILED');
+  route.offerSent = sendSignal({
+    kind: 'offer',
+    targetParticipantId: route.participantId,
+    direction: 'publisher',
+    phase: 'media',
+    generation: session.generation,
+    publicationId: session.publicationId,
+    negotiationId: route.negotiationId,
+    description: { type: 'offer', sdp: sanitizedSdp },
+    trackId: session.track.id,
+  });
+  if (!route.offerSent) throw new Error('DIRECT_OFFER_SEND_FAILED');
   flushPublisherLocalCandidates(route);
 }
 
@@ -1485,53 +1456,127 @@ async function reproveLivePublisherRoute(
   scheduleLivePublisherRouteReproof(session, route);
 }
 
+/**
+ * One route's single round trip: the offer must be answered within
+ * `answerTimeoutMs`, then both ends must prove the LAN pair within
+ * DIRECT_PAIR_PROOF_TIMEOUT_MS. A route that never answers or never connects
+ * therefore fails as fast as before, and one result line per route names the
+ * stage it reached.
+ */
 async function negotiatePublisherRoute(
   session: PublisherSession,
   participantId: string,
   routeToken: string,
-  timeoutMs: number,
+  answerTimeoutMs: number,
 ): Promise<boolean> {
+  const startedAt = Date.now();
+  const marks: string[] = [];
+  const mark = (name: string) => marks.push(`${name} ${Date.now() - startedAt}`);
+  let stage: PublisherNegotiationStage = 'offer';
+  let cause = 'deadline';
   let route: PublisherRoute | null = null;
+  let proven = false;
   try {
     route = createPublisherRoute(session, participantId, routeToken);
     const negotiatingRoute = route;
-    const operation = async (): Promise<boolean> => {
-      const expiresAt = Date.now() + timeoutMs;
-      const remaining = () => Math.max(1, expiresAt - Date.now());
-      await sendPublisherOffer(session, negotiatingRoute, 'probe');
-      if (!(await waitForPublisherAnswer(session, negotiatingRoute, 'probe', remaining())))
-        return false;
-      if (!(await waitForLocalPair(session, negotiatingRoute, remaining()))) return false;
-      if (!publisherRouteIsCurrent(session, negotiatingRoute)) return false;
-
-      const stream = new MediaStream([session.track]);
-      tuneSystemAudioLanDirectSender(negotiatingRoute.pc.addTrack(session.track, stream));
-      negotiatingRoute.mediaTrackAdded = true;
-      negotiatingRoute.remoteDescriptionReady = false;
-      await sendPublisherOffer(session, negotiatingRoute, 'media');
-      if (!(await waitForPublisherAnswer(session, negotiatingRoute, 'media', remaining())))
-        return false;
-      const proven = await waitForLocalPair(session, negotiatingRoute, remaining());
-      return proven && negotiatingRoute.mediaTrackAdded;
-    };
-    // Native SDP/statistics promises may outlive the polling deadline. Retire
+    const isCurrent = () => publisherRouteIsCurrent(session, negotiatingRoute);
+    const endedCause = () => negotiatingRoute.endReason ?? (isCurrent() ? 'deadline' : 'closed');
+    // Native SDP/statistics promises may outlive a stage deadline. Retire
     // only this route so the existing caller can select its single SFU fallback.
-    return await withinDirectDeadline(operation(), timeoutMs, () => {
+    const retire = (): boolean => {
+      cause = 'deadline';
       negotiatingRoute.failed = true;
-      if (session.routes.get(participantId) === negotiatingRoute)
+      if (session.routes.get(participantId) === negotiatingRoute) {
         session.routes.delete(participantId);
+      }
       closePublisherRoute(negotiatingRoute, 'fallback', negotiatingRoute.offerSent);
       return false;
-    });
+    };
+    const sender = negotiatingRoute.pc.addTrack(session.track, new MediaStream([session.track]));
+    tuneSystemAudioLanDirectSender(sender);
+    const answered = await withinDirectDeadline(
+      (async () => {
+        // The sender carries no audio until both ends prove the LAN pair.
+        await sender.replaceTrack(null);
+        if (!isCurrent()) throw new Error('DIRECT_ROUTE_SUPERSEDED');
+        await sendPublisherOffer(session, negotiatingRoute);
+        stage = 'answer';
+        const answerExpiresAt = startedAt + answerTimeoutMs;
+        if (
+          !(await waitForPublisherRoute(
+            session,
+            negotiatingRoute,
+            () => negotiatingRoute.answered,
+            Math.max(1, answerExpiresAt - Date.now()),
+          ))
+        ) {
+          cause = endedCause();
+          return false;
+        }
+        mark('answer');
+        return true;
+      })(),
+      answerTimeoutMs,
+      retire,
+    );
+    if (answered) {
+      stage = 'pair';
+      const proofExpiresAt = Date.now() + DIRECT_PAIR_PROOF_TIMEOUT_MS;
+      proven = await withinDirectDeadline(
+        (async () => {
+          const pair = await waitForProvenPair(
+            negotiatingRoute.pc,
+            negotiatingRoute.acceptedRemoteMdnsKeys,
+            isCurrent,
+            DIRECT_PAIR_PROOF_TIMEOUT_MS,
+          );
+          if (pair !== 'proven') {
+            cause = pair === 'closed' ? endedCause() : pair;
+            return false;
+          }
+          negotiatingRoute.provenLocal = true;
+          mark('pair');
+          stage = 'receiver-proof';
+          if (
+            !(await waitForPublisherRoute(
+              session,
+              negotiatingRoute,
+              () => negotiatingRoute.receiverProven,
+              Math.max(1, proofExpiresAt - Date.now()),
+            ))
+          ) {
+            cause = endedCause();
+            return false;
+          }
+          mark('receiver');
+          stage = 'attach';
+          await sender.replaceTrack(session.track);
+          if (isCurrent()) return true;
+          cause = endedCause();
+          return false;
+        })(),
+        DIRECT_PAIR_PROOF_TIMEOUT_MS,
+        retire,
+      );
+    }
   } catch (error) {
+    cause =
+      route && !publisherRouteIsCurrent(session, route) ? (route.endReason ?? 'closed') : 'error';
     log.debug('[ProSysAudioDirect] Publisher negotiation failed', error);
     if (route) {
       route.failed = true;
       if (session.routes.get(participantId) === route) session.routes.delete(participantId);
       closePublisherRoute(route, 'fallback', route.offerSent);
     }
-    return false;
   }
+  const elapsedMs = Date.now() - startedAt;
+  const detail = marks.length > 0 ? marks.join(', ') : 'no answer';
+  log.info(
+    proven
+      ? `[ProSysAudioDirect] LAN route to ${participantId.slice(-4)} proven in ${elapsedMs} ms (${detail})`
+      : `[ProSysAudioDirect] LAN route to ${participantId.slice(-4)} not proven at ${stage} after ${elapsedMs} ms (${cause}; ${detail})`,
+  );
+  return proven;
 }
 
 function receiverPublicationMatches(route: ReceiverRoute): boolean {
@@ -1554,25 +1599,24 @@ function maybeDeliverReceiverTrack(route: ReceiverRoute): void {
   ) {
     return;
   }
-  if (!route.mediaAnswerSent || !track) {
-    if (route.mediaAnswerSent) {
-      setManagedTimer(
-        receiverTrackReadyTimerName(route),
-        () => {
-          if (
-            receiverRoute === route &&
-            !route.closed &&
-            route.live &&
-            route.mediaAnswerSent &&
-            !route.trackDelivered &&
-            !route.track
-          ) {
-            notifyReceiverFallback(route, 'receiver-track-timeout');
-          }
-        },
-        RECEIVER_TRACK_READY_TIMEOUT_MS,
-      );
-    }
+  // The receiver's own pair proof comes first; it delivers again once done.
+  if (!route.answerSent || !route.provenLocal) return;
+  if (!track) {
+    setManagedTimer(
+      receiverTrackReadyTimerName(route),
+      () => {
+        if (
+          receiverRoute === route &&
+          !route.closed &&
+          route.live &&
+          !route.trackDelivered &&
+          !route.track
+        ) {
+          notifyReceiverFallback(route, 'receiver-track-timeout');
+        }
+      },
+      RECEIVER_TRACK_READY_TIMEOUT_MS,
+    );
     return;
   }
   clearManagedTimer(receiverTrackReadyTimerName(route));
@@ -1599,16 +1643,9 @@ function maybeDeliverReceiverTrack(route: ReceiverRoute): void {
 }
 
 function acceptReceiverTrack(route: ReceiverRoute, track: MediaStreamTrack): void {
-  if (
-    route.closed ||
-    route.phase !== 'media' ||
-    !route.provenLocal ||
-    !route.trackId ||
-    track.kind !== 'audio'
-  ) {
-    return;
-  }
-  if (track.id !== route.trackId || route.track) return;
+  // The route's one audio m-section is the publisher's track, whatever id this
+  // browser gives the remote track. It waits here for the pair proof.
+  if (route.closed || route.track || track.kind !== 'audio') return;
   route.track = track;
   track.addEventListener('ended', () => {
     if (receiverRoute === route && route.live) failReceiverRoute(route, 'track-ended');
@@ -1616,10 +1653,21 @@ function acceptReceiverTrack(route: ReceiverRoute, track: MediaStreamTrack): voi
   maybeDeliverReceiverTrack(route);
 }
 
-function createReceiverRoute(
-  signal: DirectProbeOfferSignal,
-  ownerParticipantId: string,
-): ReceiverRoute {
+function sendReceiverPairProof(route: ReceiverRoute): void {
+  const channel = route.channel;
+  if (route.closed || route.proofSent || !route.provenLocal || channel?.readyState !== 'open') {
+    return;
+  }
+  try {
+    channel.send(RECEIVER_PAIR_PROVEN_MESSAGE);
+    route.proofSent = true;
+  } catch (error) {
+    log.debug('[ProSysAudioDirect] Receiver pair proof send failed', error);
+    failReceiverRoute(route, 'receiver-proof-send-failed');
+  }
+}
+
+function createReceiverRoute(signal: DirectOfferSignal, ownerParticipantId: string): ReceiverRoute {
   const pc = new RTCPeerConnection({ iceServers: [], bundlePolicy: 'max-bundle' });
   const route: ReceiverRoute = {
     ownerParticipantId,
@@ -1627,7 +1675,7 @@ function createReceiverRoute(
     publicationId: signal.publicationId,
     negotiationId: signal.negotiationId,
     pc,
-    trackId: null,
+    channel: null,
     track: null,
     queuedLocalCandidates: [],
     queuedRemoteCandidates: [],
@@ -1639,13 +1687,11 @@ function createReceiverRoute(
     answerSent: false,
     remoteDescriptionReady: false,
     trackDelivered: false,
-    mediaAnswerSent: false,
     live: false,
     fallbackSent: false,
     closed: false,
-    phase: 'probe',
     provenLocal: false,
-    mediaOfferPending: false,
+    proofSent: false,
   };
   pc.onicecandidate = (event) => {
     if (!event.candidate || route.closed) return;
@@ -1661,7 +1707,7 @@ function createReceiverRoute(
       failReceiverRoute(route, 'local-candidate-limit');
       return;
     }
-    if (!route.answerSent || route.mediaOfferPending) route.queuedLocalCandidates.push(candidate);
+    if (!route.answerSent) route.queuedLocalCandidates.push(candidate);
     else if (!sendReceiverCandidate(route, candidate)) {
       failReceiverRoute(route, 'candidate-send-failed');
     }
@@ -1672,49 +1718,49 @@ function createReceiverRoute(
   pc.onconnectionstatechange = () => handleReceiverConnectionState(route);
   pc.oniceconnectionstatechange = () => handleReceiverConnectionState(route);
   pc.ontrack = (event) => acceptReceiverTrack(route, event.track);
+  pc.ondatachannel = (event) => {
+    if (route.closed || route.channel || event.channel.label !== DIRECT_CHANNEL_LABEL) return;
+    route.channel = event.channel;
+    event.channel.onopen = () => sendReceiverPairProof(route);
+    sendReceiverPairProof(route);
+  };
   return route;
 }
 
-async function waitForReceiverLocalPair(
-  route: ReceiverRoute,
-  timeoutMs = DIRECT_NEGOTIATION_TIMEOUT_MS,
-): Promise<boolean> {
-  const expiresAt = Date.now() + timeoutMs;
-  while (
-    receiverRoute === route &&
-    !route.closed &&
-    route.phase === 'probe' &&
-    Date.now() <= expiresAt
-  ) {
-    if (pcDisconnected(route.pc)) return false;
-    if (pcConnected(route.pc)) {
-      const locality = await selectedPairLocality(route.pc, route.acceptedRemoteMdnsKeys);
-      if (receiverRoute !== route || route.closed || route.phase !== 'probe') return false;
-      if (locality === 'same-subnet') return true;
-      if (locality === 'non-local') return false;
-    }
-    await delay(Math.min(DIRECT_PAIR_POLL_MS, Math.max(1, expiresAt - Date.now())));
+/** The receiver proves its own selected pair after answering, then tells the publisher. */
+async function proveReceiverRoute(route: ReceiverRoute): Promise<void> {
+  const startedAt = Date.now();
+  const result = await waitForProvenPair(
+    route.pc,
+    route.acceptedRemoteMdnsKeys,
+    () => receiverRoute === route && !route.closed,
+    DIRECT_NEGOTIATION_TIMEOUT_MS,
+  );
+  if (result === 'closed') return;
+  const elapsedMs = Date.now() - startedAt;
+  if (result !== 'proven') {
+    log.info(`[ProSysAudioDirect] Receiver LAN pair not proven (${result} after ${elapsedMs} ms)`);
+    failReceiverRoute(route, 'receiver-locality-unproven');
+    return;
   }
-  return false;
+  log.info(`[ProSysAudioDirect] Receiver LAN pair proven in ${elapsedMs} ms`);
+  route.provenLocal = true;
+  sendReceiverPairProof(route);
+  maybeDeliverReceiverTrack(route);
 }
 
-function sendReceiverAnswer(
-  route: ReceiverRoute,
-  phase: DirectNegotiationPhase,
-  description: RTCSessionDescriptionInit,
-): boolean {
-  const outboundSdp =
-    phase === 'media' && description.sdp ? forceDirectStereoSdp(description.sdp) : description.sdp;
+function sendReceiverAnswer(route: ReceiverRoute, description: RTCSessionDescriptionInit): boolean {
+  const outboundSdp = description.sdp ? forceDirectStereoSdp(description.sdp) : description.sdp;
   const sanitizedSdp = outboundSdp ? sanitizeLanSdp(outboundSdp) : '';
   return Boolean(
     description.type === 'answer' &&
     sanitizedSdp &&
-    (phase === 'media') === sdpHasAudioMedia(sanitizedSdp) &&
+    sdpHasOneAudioMedia(sanitizedSdp) &&
     sendSignal({
       kind: 'answer',
       targetParticipantId: route.ownerParticipantId,
       direction: 'subscriber',
-      phase,
+      phase: 'media',
       generation: route.generation,
       publicationId: route.publicationId,
       negotiationId: route.negotiationId,
@@ -1723,65 +1769,7 @@ function sendReceiverAnswer(
   );
 }
 
-async function acceptMediaOffer(
-  signal: DirectMediaOfferSignal,
-  ownerParticipantId: string,
-): Promise<void> {
-  const route = receiverRoute;
-  if (
-    !route ||
-    route.closed ||
-    route.mediaOfferPending ||
-    route.phase !== 'probe' ||
-    route.ownerParticipantId !== ownerParticipantId ||
-    !samePublication(route, signal.generation, signal.publicationId) ||
-    route.negotiationId !== signal.negotiationId
-  ) {
-    return;
-  }
-  route.mediaOfferPending = true;
-  try {
-    if (!(await waitForReceiverLocalPair(route))) {
-      failReceiverRoute(route, 'receiver-locality-unproven');
-      return;
-    }
-    if (receiverRoute !== route || route.closed || route.phase !== 'probe') return;
-    route.provenLocal = true;
-    route.phase = 'media';
-    route.trackId = signal.trackId;
-    route.remoteDescriptionReady = false;
-    await route.pc.setRemoteDescription({
-      ...signal.description,
-      sdp: forceDirectStereoSdp(signal.description.sdp),
-    });
-    if (receiverRoute !== route || route.closed || route.phase !== 'media') return;
-    route.remoteDescriptionReady = true;
-    await flushReceiverRemoteCandidates(route);
-    const answer = await route.pc.createAnswer();
-    if (receiverRoute !== route || route.closed || route.phase !== 'media') return;
-    const localAnswer = answer.sdp ? { ...answer, sdp: forceDirectStereoSdp(answer.sdp) } : answer;
-    await route.pc.setLocalDescription(localAnswer);
-    if (receiverRoute !== route || route.closed || route.phase !== 'media') return;
-    const description = route.pc.localDescription ?? localAnswer;
-    if (!sendReceiverAnswer(route, 'media', description)) {
-      throw new Error('DIRECT_MEDIA_ANSWER_SEND_FAILED');
-    }
-    route.mediaAnswerSent = true;
-    flushReceiverLocalCandidates(route);
-    maybeDeliverReceiverTrack(route);
-  } catch (error) {
-    log.debug('[ProSysAudioDirect] Receiver media negotiation failed', error);
-    if (receiverRoute === route) failReceiverRoute(route, 'receiver-media-negotiation-failed');
-  } finally {
-    route.mediaOfferPending = false;
-  }
-}
-
 async function acceptOffer(signal: DirectOfferSignal, ownerParticipantId: string): Promise<void> {
-  if (signal.phase === 'media') {
-    await acceptMediaOffer(signal, ownerParticipantId);
-    return;
-  }
   const previous = receiverRoute;
   const negotiationKey = receiverNegotiationKey(
     ownerParticipantId,
@@ -1815,22 +1803,26 @@ async function acceptOffer(signal: DirectOfferSignal, ownerParticipantId: string
     }
     receiverRoute = route;
     route.live = receiverPublicationMatches(route);
-    await route.pc.setRemoteDescription(signal.description);
+    await route.pc.setRemoteDescription({
+      ...signal.description,
+      sdp: forceDirectStereoSdp(signal.description.sdp),
+    });
     if (receiverRoute !== route || route.closed) return;
     route.remoteDescriptionReady = true;
     await flushReceiverRemoteCandidates(route);
     const answer = await route.pc.createAnswer();
     if (receiverRoute !== route || route.closed) return;
-    await route.pc.setLocalDescription(answer);
+    const localAnswer = answer.sdp ? { ...answer, sdp: forceDirectStereoSdp(answer.sdp) } : answer;
+    await route.pc.setLocalDescription(localAnswer);
     if (receiverRoute !== route || route.closed) return;
-    const description = route.pc.localDescription ?? answer;
+    const description = route.pc.localDescription ?? localAnswer;
     if (description.type !== 'answer' || !description.sdp) {
       throw new Error('DIRECT_ANSWER_INVALID');
     }
-    route.answerSent = sendReceiverAnswer(route, 'probe', description);
+    route.answerSent = sendReceiverAnswer(route, description);
     if (!route.answerSent) throw new Error('DIRECT_ANSWER_SEND_FAILED');
     flushReceiverLocalCandidates(route);
-    maybeDeliverReceiverTrack(route);
+    observeDirectTask(proveReceiverRoute(route), 'Receiver pair proof');
   } catch (error) {
     log.debug('[ProSysAudioDirect] Receiver negotiation failed', error);
     if (route && receiverRoute === route) failReceiverRoute(route, 'receiver-negotiation-failed');
@@ -1850,24 +1842,21 @@ async function acceptAnswer(
     signal.targetParticipantId !== callbacks?.getLocalIdentity()?.participantId ||
     !samePublication(route, signal.generation, signal.publicationId) ||
     route.negotiationId !== signal.negotiationId ||
-    (signal.phase === 'probe' && (route.probeAnswered || route.mediaTrackAdded)) ||
-    (signal.phase === 'media' &&
-      (!route.probeAnswered || !route.mediaTrackAdded || route.mediaAnswered))
+    !route.offerSent ||
+    route.answered
   ) {
     return;
   }
   try {
-    const remoteDescription =
-      signal.phase === 'media'
-        ? { ...signal.description, sdp: forceDirectStereoSdp(signal.description.sdp) }
-        : signal.description;
-    await route.pc.setRemoteDescription(remoteDescription);
+    await route.pc.setRemoteDescription({
+      ...signal.description,
+      sdp: forceDirectStereoSdp(signal.description.sdp),
+    });
     if (!publisherRouteIsCurrent(session, route)) return;
     route.remoteDescriptionReady = true;
     await flushPublisherRemoteCandidates(route);
     if (!publisherRouteIsCurrent(session, route)) return;
-    if (signal.phase === 'probe') route.probeAnswered = true;
-    else route.mediaAnswered = true;
+    route.answered = true;
   } catch (error) {
     log.debug('[ProSysAudioDirect] Answer rejected', error);
     failPublisherRoute(route, 'answer-rejected');
@@ -1965,6 +1954,7 @@ function acceptClose(signal: DirectCloseSignal, senderParticipantId: string): vo
       notifyPublisherFallback(route, 'receiver-requested-fallback');
       return;
     }
+    route.endReason ??= `receiver-${signal.reason}`;
     closePublisherRoute(route, signal.reason, false);
     session.routes.delete(senderParticipantId);
     return;
@@ -2017,8 +2007,7 @@ function handleRealtimeFrame(frame: ProServerEventEnvelope | ProRealtimeRelayEnv
         ...context,
         kind: 'offer',
         ownerParticipantId: senderParticipantId,
-        phase: signal.phase,
-        trackId: signal.phase === 'media' ? signal.trackId : null,
+        trackId: signal.trackId,
       })
     ) {
       return;
@@ -2079,9 +2068,13 @@ export async function attemptProSystemAudioDirectPublication(
   const epoch = lifecycleEpoch;
   const timeoutMs = Math.max(1, options.timeoutMs ?? DIRECT_NEGOTIATION_TIMEOUT_MS);
   const results = await Promise.all(
-    [...targets].map(([participantId, routeToken]) =>
-      negotiatePublisherRoute(session, participantId, routeToken, timeoutMs),
-    ),
+    [...targets].map(async ([participantId, routeToken]) => {
+      const proven = await negotiatePublisherRoute(session, participantId, routeToken, timeoutMs);
+      // The publication needs every route, so the first failure ends the
+      // attempt: a remote listener need not wait for a slow LAN route.
+      if (!proven && publisherSession === session) closePublisherSession(session, 'fallback', true);
+      return proven;
+    }),
   );
   if (
     publisherSession !== session ||

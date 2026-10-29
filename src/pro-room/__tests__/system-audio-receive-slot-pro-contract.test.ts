@@ -34,8 +34,9 @@
  * spy), the Standard TURN loader, the local capture module (inactive), the
  * room API's GET /system-audio and the chat notice (publisher side only). The
  * PRO live budget is carried only as data: the server installs liveExpiresAt
- * at commit and again at a direct-to-SFU promotion, but the subscriber's own
- * expiry timer at that instant is not modelled, so no test reaches it.
+ * at an SFU commit and at a direct-to-SFU promotion (a LAN-direct live has
+ * none), but the subscriber's own expiry timer at that instant is not
+ * modelled, so no test reaches it.
  *
  * Each test pins main d84f53f5 (9.0.3), which carries two fix lanes that
  * changed rows pinned earlier on c08b6c39. G5 (9.0.2): a PRO LAN-direct
@@ -190,11 +191,12 @@ const directPublication = (): ProRoomSystemAudioPublication => ({
   protocolVersion: 2,
 });
 
+/** The PRO Worker answers an SFU live with its media deadline and a LAN-direct one with null. */
 function live(
   publication: ProRoomSystemAudioPublication,
   generation = 1,
   ownerParticipantId = REMOTE_ID,
-  liveExpiresAt = LIVE_EXPIRES_AT,
+  liveExpiresAt: number | null = 'sessionId' in publication ? LIVE_EXPIRES_AT : null,
 ): ProRoomSystemAudioState {
   return {
     generation,
@@ -898,7 +900,7 @@ describe('PRO LAN-direct reception', () => {
 
   it('a suspended context fails a direct attach into a receiver fallback; since 9.0.2 (G5) the placeholder then waits for the promotion', async () => {
     webAudio.suspend();
-    await applyState(live(directPublication(), 1, REMOTE_ID, Date.now() + LIVE_TTL_MS));
+    await applyState(live(directPublication()));
     proDirect.deliverTrack(makeAudioTrack('direct-audio-1'));
     await advance(500);
     expect(seen.toasts).toEqual(['system_audio.connection_unstable']);
@@ -925,16 +927,14 @@ describe('PRO LAN-direct reception', () => {
   });
 
   it('S7: a direct-to-SFU promotion moves the source without overlap and keeps the restore point', async () => {
-    const committedAt = Date.now();
-    await applyState(live(directPublication(), 1, REMOTE_ID, committedAt + LIVE_TTL_MS));
+    await applyState(live(directPublication()));
     proDirect.deliverTrack(makeAudioTrack('direct-audio-1'));
     await advance(0);
     await advance(20_000);
     const activitiesBefore = seen.activities.length;
 
-    // The server installs a fresh live budget at the promotion
-    // (pro-room-worker.ts), so the SFU publication expires later than the
-    // direct one did.
+    // The server installs the SFU live budget at the promotion
+    // (pro-room-worker.ts); the direct publication had none.
     const promotedAt = Date.now();
     await applyState(live(sfuPublication(), 1, REMOTE_ID, promotedAt + LIVE_TTL_MS));
     // A promotion is a new publication key: the direct source leaves, the
@@ -943,8 +943,8 @@ describe('PRO LAN-direct reception', () => {
     expect(slot()).toMatchObject({ receiving: false, placeholder: true, sources: [] });
     expect(seen.activities.slice(activitiesBefore)).toEqual(['pending', 'idle', 'pending']);
     expect(media.stopAllMedia).toHaveBeenCalledTimes(2);
-    // The descriptor carries the promotion's budget (20 s later than the
-    // direct commit's), not the direct publication's expiry.
+    // The descriptor carries the budget installed at the promotion, 20 s
+    // after the direct commit.
     expect(proSfu.descriptors.map((descriptor) => descriptor.expiresAt)).toEqual([
       promotedAt + LIVE_TTL_MS,
     ]);

@@ -61,7 +61,11 @@ import {
   requestProRoomBackgroundReturnSync,
 } from '../runtime.ts';
 import { idleProSystemAudio, proHeartbeat } from './__helpers__/pro-heartbeat.ts';
-import { proAdministratorDirectory, proSnapshot } from './__helpers__/pro-snapshot.ts';
+import {
+  proAdministratorDirectory,
+  proSnapshot,
+  recountProPlaylist,
+} from './__helpers__/pro-snapshot.ts';
 
 const nativeCreateSessionForQa20 = ProRoomApiClient.prototype.createSession;
 const nativeHeartbeatForQa20 = ProRoomApiClient.prototype.heartbeat;
@@ -368,7 +372,7 @@ describe('coordinator-free PRO playback runtime', { concurrent: false }, () => {
   });
 
   function savedYouTubePlaylists(): ProRoomSnapshot {
-    return {
+    return recountProPlaylist({
       ...snapshot(),
       revision: 2,
       playlistRevision: 2,
@@ -394,7 +398,7 @@ describe('coordinator-free PRO playback runtime', { concurrent: false }, () => {
           },
         },
       ],
-    };
+    });
   }
 
   it('restores saved YouTube manifests atomically on a cache-empty PRO reentry', async () => {
@@ -1082,13 +1086,13 @@ describe('coordinator-free PRO playback runtime', { concurrent: false }, () => {
     const off = bus.on('pro-playback:transition-loading', (loading) => loadingStates.push(loading));
     try {
       acceptProRoomRealtimeFrameForTests(
-        serverFrame(prepareEvent(TRANSITION_COMMIT) as unknown as Record<string, unknown>),
+        serverFrame({ ...prepareEvent(TRANSITION_COMMIT), timingMode: 'zero-start' }),
       );
       await vi.waitFor(() => expect(reportReady).toHaveBeenCalledOnce());
       expect(loadingStates).toEqual([true]);
 
       acceptProRoomRealtimeFrameForTests(
-        serverFrame(commitEvent(TRANSITION_COMMIT, 1, 699) as unknown as Record<string, unknown>),
+        serverFrame({ ...commitEvent(TRANSITION_COMMIT, 1, 700), timingMode: 'zero-start' }),
       );
       await vi.waitFor(() => expect(commitMedia).toHaveBeenCalledOnce());
       expect(loadingStates).toEqual([true]);
@@ -1190,7 +1194,7 @@ describe('coordinator-free PRO playback runtime', { concurrent: false }, () => {
     await new Promise((resolve) => setTimeout(resolve, 0));
     heartbeat.mockClear();
     systemAudio.mockClear();
-    const hydrated: ProRoomSnapshot = {
+    const hydrated: ProRoomSnapshot = recountProPlaylist({
       ...snapshot(),
       revision: 2,
       playlistRevision: 2,
@@ -1202,7 +1206,7 @@ describe('coordinator-free PRO playback runtime', { concurrent: false }, () => {
           source: { kind: 'youtube', videoId: ADDED_VIDEO_ID },
         },
       ],
-    };
+    });
     heartbeat.mockResolvedValue(proHeartbeat(hydrated));
     prepareMedia.mockImplementationOnce(async (request): Promise<ProPlaybackPrepareResult> => {
       expect(
@@ -1253,7 +1257,7 @@ describe('coordinator-free PRO playback runtime', { concurrent: false }, () => {
     heartbeat.mockClear();
     systemAudio.mockClear();
 
-    const hydrated: ProRoomSnapshot = {
+    const hydrated: ProRoomSnapshot = recountProPlaylist({
       ...snapshot(),
       revision: 2,
       playlistRevision: 2,
@@ -1265,7 +1269,7 @@ describe('coordinator-free PRO playback runtime', { concurrent: false }, () => {
           source: { kind: 'youtube', videoId: ADDED_VIDEO_ID },
         },
       ],
-    };
+    });
     heartbeat
       .mockResolvedValueOnce(proHeartbeat(snapshot()))
       .mockResolvedValue(proHeartbeat(hydrated));
@@ -1315,7 +1319,7 @@ describe('coordinator-free PRO playback runtime', { concurrent: false }, () => {
     heartbeat.mockClear();
 
     let rejectOlderHeartbeat!: (error: unknown) => void;
-    const hydrated: ProRoomSnapshot = {
+    const hydrated: ProRoomSnapshot = recountProPlaylist({
       ...snapshot(),
       revision: 2,
       playlistRevision: 2,
@@ -1327,7 +1331,7 @@ describe('coordinator-free PRO playback runtime', { concurrent: false }, () => {
           source: { kind: 'youtube', videoId: ADDED_VIDEO_ID },
         },
       ],
-    };
+    });
     heartbeat
       .mockImplementationOnce(
         () =>
@@ -1428,7 +1432,7 @@ describe('coordinator-free PRO playback runtime', { concurrent: false }, () => {
 
   it('preserves a repeat edit when its queue-mode refresh overlaps another local reorder', async () => {
     await new Promise((resolve) => setTimeout(resolve, 0));
-    let canonical = {
+    let canonical = recountProPlaylist({
       ...snapshot(),
       revision: 2,
       playlistRevision: 2,
@@ -1440,7 +1444,7 @@ describe('coordinator-free PRO playback runtime', { concurrent: false }, () => {
           source: { kind: 'youtube' as const, videoId: ADDED_VIDEO_ID },
         },
       ],
-    };
+    });
     let mode = {
       schemaVersion: 1 as const,
       view: 'queue-mode' as const,
@@ -1466,12 +1470,12 @@ describe('coordinator-free PRO playback runtime', { concurrent: false }, () => {
       .spyOn(ProRoomApiClient.prototype, 'updateCompactSnapshot')
       .mockImplementation(async (input) => {
         const rows = new Map(canonical.playlist.map((item) => [item.queueItemId, item]));
-        canonical = {
+        canonical = recountProPlaylist({
           ...canonical,
           revision: canonical.revision + 1,
           playlistRevision: canonical.playlistRevision + 1,
           playlist: input.playlistOrder!.map((queueItemId) => rows.get(queueItemId)!),
-        };
+        });
         mode = { ...mode, playlistRevision: canonical.playlistRevision };
         return canonical;
       });
@@ -2575,19 +2579,21 @@ describe('coordinator-free PRO playback runtime', { concurrent: false }, () => {
         reason: 'superseded',
       }),
     );
-    resolveHeartbeat({
-      ...snapshot(),
-      revision: 2,
-      playlistRevision: 2,
-      playlist: [
-        ...snapshot().playlist,
-        {
-          queueItemId: ADDED_QUEUE_ITEM_ID,
-          name: 'BOT-added track',
-          source: { kind: 'youtube', videoId: ADDED_VIDEO_ID },
-        },
-      ],
-    });
+    resolveHeartbeat(
+      recountProPlaylist({
+        ...snapshot(),
+        revision: 2,
+        playlistRevision: 2,
+        playlist: [
+          ...snapshot().playlist,
+          {
+            queueItemId: ADDED_QUEUE_ITEM_ID,
+            name: 'BOT-added track',
+            source: { kind: 'youtube', videoId: ADDED_VIDEO_ID },
+          },
+        ],
+      }),
+    );
     await vi.waitFor(() =>
       expect(
         getState('playlist.items').some((item) => item.queueItemId === ADDED_QUEUE_ITEM_ID),
@@ -3108,14 +3114,13 @@ describe('coordinator-free PRO playback runtime', { concurrent: false }, () => {
   });
 
   it('applies one matching COMMIT, ignores duplicate/stale epochs, and fences CANCEL by transition', async () => {
-    const prepared = prepareEvent(TRANSITION_COMMIT);
-    acceptProRoomRealtimeFrameForTests(serverFrame(prepared as unknown as Record<string, unknown>));
+    acceptProRoomRealtimeFrameForTests(
+      serverFrame({ ...prepareEvent(TRANSITION_COMMIT), timingMode: 'zero-start' }),
+    );
     await vi.waitFor(() => expect(reportReady).toHaveBeenCalledOnce());
 
-    const committed = commitEvent(TRANSITION_COMMIT, 1, 699);
-    acceptProRoomRealtimeFrameForTests(
-      serverFrame(committed as unknown as Record<string, unknown>),
-    );
+    const committed = { ...commitEvent(TRANSITION_COMMIT, 1, 700), timingMode: 'zero-start' };
+    acceptProRoomRealtimeFrameForTests(serverFrame(committed));
     await vi.waitFor(() => expect(commitMedia).toHaveBeenCalledOnce());
     expect(commitMedia).toHaveBeenCalledWith(
       expect.objectContaining({
@@ -3128,9 +3133,7 @@ describe('coordinator-free PRO playback runtime', { concurrent: false }, () => {
       }),
     );
 
-    acceptProRoomRealtimeFrameForTests(
-      serverFrame(committed as unknown as Record<string, unknown>),
-    );
+    acceptProRoomRealtimeFrameForTests(serverFrame(committed));
     acceptProRoomRealtimeFrameForTests(
       serverFrame(commitEvent(null, 2) as unknown as Record<string, unknown>, ROOM_EPOCH + 1),
     );
@@ -3151,38 +3154,32 @@ describe('coordinator-free PRO playback runtime', { concurrent: false }, () => {
     expect(cancelMedia).not.toHaveBeenCalled();
   });
 
-  it('treats the legacy transition timing as a scheduled control', async () => {
-    const prepared = prepareEvent(TRANSITION_COMMIT);
-    acceptProRoomRealtimeFrameForTests(serverFrame(prepared as unknown as Record<string, unknown>));
-    await vi.waitFor(() => expect(reportReady).toHaveBeenCalledOnce());
+  // The lead of a COMMIT says when it starts, never which kind of start. A
+  // transition COMMIT that names no kind follows the running timeline at any
+  // lead, the 699 ms that marked a zero-start before PRO snapshot
+  // schemaVersion 2 included (ZS-05).
+  it.each([699, 700, 702])(
+    'starts a transition COMMIT that names no start kind at a %i ms lead as a scheduled control',
+    async (wireLeadMs) => {
+      acceptProRoomRealtimeFrameForTests(
+        serverFrame(prepareEvent(TRANSITION_COMMIT) as unknown as Record<string, unknown>),
+      );
+      await vi.waitFor(() => expect(reportReady).toHaveBeenCalledOnce());
 
-    acceptProRoomRealtimeFrameForTests(
-      serverFrame(commitEvent(TRANSITION_COMMIT, 1, 700) as unknown as Record<string, unknown>),
-    );
-    await vi.waitFor(() => expect(commitMedia).toHaveBeenCalledOnce());
-    expect(commitMedia).toHaveBeenCalledWith(
-      expect.objectContaining({ timingMode: 'scheduled-control' }),
-    );
-  });
-
-  it('treats an unknown transition timing as a scheduled control', async () => {
-    const nextPrepared = prepareEvent(TRANSITION_FAILED);
-    acceptProRoomRealtimeFrameForTests(
-      serverFrame(nextPrepared as unknown as Record<string, unknown>),
-    );
-    await vi.waitFor(() => expect(reportReady).toHaveBeenCalledOnce());
-    acceptProRoomRealtimeFrameForTests(
-      serverFrame(commitEvent(TRANSITION_FAILED, 1, 702) as unknown as Record<string, unknown>),
-    );
-    await vi.waitFor(() => expect(commitMedia).toHaveBeenCalledOnce());
-    expect(commitMedia).toHaveBeenCalledWith(
-      expect.objectContaining({ timingMode: 'scheduled-control' }),
-    );
-  });
+      acceptProRoomRealtimeFrameForTests(
+        serverFrame(
+          commitEvent(TRANSITION_COMMIT, 1, wireLeadMs) as unknown as Record<string, unknown>,
+        ),
+      );
+      await vi.waitFor(() => expect(commitMedia).toHaveBeenCalledOnce());
+      expect(commitMedia).toHaveBeenCalledWith(
+        expect.objectContaining({ committedPlaybackRevision: 1, timingMode: 'scheduled-control' }),
+      );
+    },
+  );
 
   // PRO snapshot schemaVersion 2 names the start kind on every PREPARE and
-  // transition COMMIT (Q4). The named kind decides, whatever the lead; the
-  // three rows above keep the 699 ms lead rule for a COMMIT without it.
+  // transition COMMIT (Q4). The named kind decides, whatever the lead.
   it.each([
     { timingMode: 'zero-start', wireLeadMs: 700, prepareNamesKind: true },
     { timingMode: 'scheduled-control', wireLeadMs: 699, prepareNamesKind: true },

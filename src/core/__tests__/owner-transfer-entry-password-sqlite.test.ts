@@ -96,7 +96,8 @@ describe('owner-transfer link and the room entry password', () => {
     const claim = await issueClaim(test);
     const calls = recordRoomCalls(test);
 
-    // The App sends the claim, its request id and its opt-in headers only.
+    // An App up to 9.0.24 sends the claim, its request id and its opt-in
+    // headers only; a later one sends no opt-in header.
     const transferred = await postTransfer(test, claim, { entryPolicy: true });
     expect(transferred.status).toBe(200);
     // Since 2026-10-26 the facade no longer passes the browser's opt-ins to

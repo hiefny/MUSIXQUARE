@@ -24,7 +24,7 @@ import { ServerProRoomNetworkBridge } from '../network-bridge.ts';
 import { requestProRoomLeave } from '../lifecycle-hook.ts';
 import { acceptProRoomRealtimeFrameForTests, joinProRoom } from '../runtime.ts';
 import { proHeartbeat } from './__helpers__/pro-heartbeat.ts';
-import { proSnapshot } from './__helpers__/pro-snapshot.ts';
+import { proSnapshot, recountProPlaylist } from './__helpers__/pro-snapshot.ts';
 
 const ROOM_CODE = '000001';
 const PARTICIPANT_ID = 'participant_00001';
@@ -361,19 +361,21 @@ describe('PRO room runtime preload adoption', { concurrent: false }, () => {
     });
     const update = vi
       .spyOn(ProRoomApiClient.prototype, 'updateCompactSnapshot')
-      .mockImplementation(async (input) => ({
-        ...roomSnapshot(),
-        revision: input.baseRevision + 1,
-        playlistRevision: input.baseRevision + 1,
-        playlist: [],
-        currentQueueItemId: null,
-        playback: {
-          ...roomSnapshot().playback,
-          revision: 1,
-          queueItemId: null,
-          state: 'idle' as const,
-        },
-      }));
+      .mockImplementation(async (input) =>
+        recountProPlaylist({
+          ...roomSnapshot(),
+          revision: input.baseRevision + 1,
+          playlistRevision: input.baseRevision + 1,
+          playlist: [],
+          currentQueueItemId: null,
+          playback: {
+            ...roomSnapshot().playback,
+            revision: 1,
+            queueItemId: null,
+            state: 'idle' as const,
+          },
+        }),
+      );
     const deleteAsset = vi
       .spyOn(ProRoomMediaTransfer.prototype, 'deleteAsset')
       .mockResolvedValue({ assetId: CACHE_SOURCE.assetId, quota: roomSnapshot().quota });

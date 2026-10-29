@@ -436,6 +436,7 @@ describe('PRO LAN-direct listener and its reception deadline', () => {
   function directLive(): Extract<ProRoomSystemAudioState, { status: 'live' }> {
     return {
       ...live(),
+      liveExpiresAt: null,
       publication: {
         publicationId: 'publication_00001',
         transport: 'lan-direct',

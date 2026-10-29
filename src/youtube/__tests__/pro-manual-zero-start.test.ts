@@ -1003,7 +1003,7 @@ describe('PRO manual offset across YouTube zero-start', () => {
         state: 'playing' as const,
         queueItemId: SECOND_QUEUE_ITEM_ID,
         positionSeconds: 0,
-        updatedAtMs: Date.now() + 1_699,
+        updatedAtMs: Date.now() + 1_700,
         youtubeVideoId: 'VIDEOBBBBBB',
         youtubeSubIndex: 0,
       };
@@ -1040,6 +1040,7 @@ describe('PRO manual offset across YouTube zero-start', () => {
         deadlineAtMs: Date.now() + 3_000,
         basePlaybackRevision: 1,
         target: checkpoint,
+        timingMode: 'zero-start',
       });
       await vi.advanceTimersByTimeAsync(1_000);
       expect(ports.reportPlaybackTransitionReady).toHaveBeenCalledOnce();
@@ -1047,8 +1048,9 @@ describe('PRO manual offset across YouTube zero-start', () => {
         type: 'pro-playback-commit',
         transitionId: 'next-B',
         serverTimeMs: Date.now(),
-        executeAtMs: Date.now() + 699,
+        executeAtMs: Date.now() + 700,
         playback: checkpoint,
+        timingMode: 'zero-start',
       });
       await vi.advanceTimersByTimeAsync(500);
       expect(commit).toHaveBeenCalledOnce();

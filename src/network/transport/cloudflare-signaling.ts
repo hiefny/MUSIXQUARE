@@ -20,9 +20,6 @@ import {
 } from './standard-http-signaling.ts';
 import { SignalingSocketLivenessMonitor } from './signaling-liveness.ts';
 import type {
-  DeveloperCommandFrame,
-  DeveloperInvalidationFrame,
-  ProQueueAdditionFrame,
   ProSignalingOptions,
   TransportCloseReason,
   TransportConnectOptions,
@@ -43,11 +40,6 @@ import type {
   StandardRoomPinCommit,
   StandardRoomPinMembershipRequest,
   RemoteShareUploadAssertionRequest,
-} from './types.ts';
-import {
-  parseDeveloperCommandFrame,
-  parseDeveloperInvalidationFrame,
-  parseProQueueAdditionFrame,
 } from './types.ts';
 
 type SignalingMessage =
@@ -142,10 +134,7 @@ type SignalingMessage =
       memberIdentity: StandardRoomMemberIdentity | null;
       clearReason?: StandardRoomIdentityClearReason;
     }
-  | { type: 'account-member-deleted'; memberId: string }
-  | DeveloperCommandFrame
-  | DeveloperInvalidationFrame
-  | ProQueueAdditionFrame;
+  | { type: 'account-member-deleted'; memberId: string };
 
 type OutgoingSignal =
   | {
@@ -3676,40 +3665,6 @@ export class CloudflareSignalingPeer extends TinyEmitter implements TransportPee
       }
       return response;
     }
-    if (
-      value !== null &&
-      typeof value === 'object' &&
-      !Array.isArray(value) &&
-      (value as Record<string, unknown>).type === 'developer-command'
-    ) {
-      const command = parseDeveloperCommandFrame(value);
-      if (!command) throw createTransportError('server-error', 'INVALID_DEVELOPER_COMMAND');
-      return command;
-    }
-    if (
-      value !== null &&
-      typeof value === 'object' &&
-      !Array.isArray(value) &&
-      (value as Record<string, unknown>).type === 'developer-invalidation'
-    ) {
-      const invalidation = parseDeveloperInvalidationFrame(value);
-      if (!invalidation) {
-        throw createTransportError('server-error', 'INVALID_DEVELOPER_INVALIDATION');
-      }
-      return invalidation;
-    }
-    if (
-      value !== null &&
-      typeof value === 'object' &&
-      !Array.isArray(value) &&
-      (value as Record<string, unknown>).type === 'pro-queue-addition'
-    ) {
-      const addition = parseProQueueAdditionFrame(value);
-      if (!addition) {
-        throw createTransportError('server-error', 'INVALID_DEVELOPER_QUEUE_ADDITION');
-      }
-      return addition;
-    }
     return value as SignalingMessage;
   }
 
@@ -3774,37 +3729,6 @@ export class CloudflareSignalingPeer extends TinyEmitter implements TransportPee
         sourceSocket,
       );
       pending?.reject(new Error(message.errorType));
-      return;
-    }
-    if (message.type === 'developer-command') {
-      if (this.proSignalingAccess?.role !== 'coordinator') {
-        throw createTransportError('server-error', 'UNEXPECTED_DEVELOPER_COMMAND');
-      }
-      this.emit('developer-command', message);
-      return;
-    }
-    if (message.type === 'developer-invalidation') {
-      const access = this.proSignalingAccess;
-      if (
-        access?.role !== 'coordinator' ||
-        message.roomCode !== access.roomCode ||
-        message.coordinatorEpoch !== access.coordinatorEpoch
-      ) {
-        throw createTransportError('server-error', 'UNEXPECTED_DEVELOPER_INVALIDATION');
-      }
-      this.emit('developer-invalidation', message);
-      return;
-    }
-    if (message.type === 'pro-queue-addition') {
-      const access = this.proSignalingAccess;
-      if (
-        access?.role !== 'coordinator' ||
-        message.roomCode !== access.roomCode ||
-        message.coordinatorEpoch !== access.coordinatorEpoch
-      ) {
-        throw createTransportError('server-error', 'UNEXPECTED_DEVELOPER_QUEUE_ADDITION');
-      }
-      this.emit('pro-queue-addition', message);
       return;
     }
     if (message.type === 'peer-open') {
@@ -4012,15 +3936,6 @@ export class CloudflareSignalingPeer extends TinyEmitter implements TransportPee
   ): Promise<void> {
     const message = await this.parseSignal(raw);
     if (socket !== this.roomSockets.get(roomId)) return;
-    if (message.type === 'developer-command') {
-      throw createTransportError('server-error', 'UNEXPECTED_DEVELOPER_COMMAND');
-    }
-    if (message.type === 'developer-invalidation') {
-      throw createTransportError('server-error', 'UNEXPECTED_DEVELOPER_INVALIDATION');
-    }
-    if (message.type === 'pro-queue-addition') {
-      throw createTransportError('server-error', 'UNEXPECTED_DEVELOPER_QUEUE_ADDITION');
-    }
     if (message.type === 'peer-open') {
       this.standardRoomIdentityAdmittedGuestSockets.add(socket);
       this.noteSignalingSocketAdmitted(socket);

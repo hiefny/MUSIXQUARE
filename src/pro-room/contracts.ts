@@ -1,9 +1,8 @@
 import type { DevicePlatform, PlaylistSlotsSummary, QueueItemId } from '../types/index.ts';
 
 /**
- * PRO snapshot schemaVersion 2, the shape of every parsed snapshot. Until the
- * App stops accepting snapshot schemaVersion 1, the parser also reads that
- * wire into this shape (`snapshot.ts`).
+ * PRO snapshot schemaVersion 2, the only snapshot wire the App reads and the
+ * shape of every parsed snapshot (`snapshot.ts`).
  */
 export const PRO_ROOM_SNAPSHOT_SCHEMA_VERSION = 2 as const;
 export const PRO_ROOM_QUOTA_BYTES = 1024 * 1024 * 1024;
@@ -230,11 +229,10 @@ interface ProRoomSystemAudioStateBase {
   claimExpiresAt: number | null;
   /**
    * Fixed SFU media deadline, a positive timestamp on every SFU live state. A
-   * live LAN-direct publication has none and reads null here: owner presence
-   * and device-count authority end the direct route. PRO snapshot
-   * schemaVersion 2 sends it null, and the parser reads the numeric
-   * compatibility value of earlier PRO Workers as null too, so a Worker that
-   * changes the wire mid-share changes no parsed state.
+   * live LAN-direct publication has none and is null here, as PRO snapshot
+   * schemaVersion 2 sends it: owner presence and device-count authority end
+   * the direct route. The parser refuses the numeric compatibility value of
+   * earlier PRO Workers.
    */
   liveExpiresAt: number | null;
   publication: ProRoomSystemAudioPublication | null;
@@ -275,16 +273,15 @@ export type ProRoomSystemAudioState =
 
 /**
  * Authoritative, fully validated room state returned after
- * activation/authentication. A schemaVersion 1 reply parses to this same
- * schemaVersion 2 shape without its four coordinator-era keys, so one revision
- * compares equal across a Worker that changes the wire version.
+ * activation/authentication: PRO snapshot schemaVersion 2, the wire's own
+ * shape and key order.
  */
 export interface ProRoomSnapshot {
   schemaVersion: typeof PRO_ROOM_SNAPSHOT_SCHEMA_VERSION;
   roomCode: string;
   status: ProRoomStatus;
-  /** Missing on legacy v1 responses: consumers must treat it as protected. */
-  passwordRequired?: boolean;
+  /** Whether entering the room asks a non-owner for the room PIN. */
+  passwordRequired: boolean;
   runtime: ProRoomRuntimeStatus;
   revision: number;
   playlistRevision: number;
@@ -297,11 +294,8 @@ export interface ProRoomSnapshot {
   quota: ProRoomQuotaSnapshot;
   viewer: ProRoomViewerSnapshot | null;
   administrators: ProRoomAdministrator[];
-  /**
-   * Every playlist of the room; `playlist` above is the active one. Present
-   * only when the client opted in and the Worker supports playlists.
-   */
-  playlistSlots?: PlaylistSlotsSummary;
+  /** Every playlist of the room; `playlist` above is the active one. */
+  playlistSlots: PlaylistSlotsSummary;
 }
 
 /**

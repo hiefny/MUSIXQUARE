@@ -19,7 +19,7 @@ import { ServerProRoomNetworkBridge } from '../network-bridge.ts';
 import type { ProRoomQueueModeSnapshot } from '../queue-mode.ts';
 import { acceptProRoomRealtimeFrameForTests, joinProRoom } from '../runtime.ts';
 import { proHeartbeat } from './__helpers__/pro-heartbeat.ts';
-import { proSnapshot } from './__helpers__/pro-snapshot.ts';
+import { proSnapshot, recountProPlaylist } from './__helpers__/pro-snapshot.ts';
 
 const ROOM = '000001';
 const ITEM = '56000000-0000-4000-8000-000000000001' as QueueItemId;
@@ -393,7 +393,7 @@ describe('PRO queue-mode checkpoint authority across pending HTTP responses', ()
     async (freshShuffle) => {
       holdFirstResponse = false;
       holdQueueModeRead = true;
-      canonical = {
+      canonical = recountProPlaylist({
         ...canonical,
         revision: 2,
         playlistRevision: 2,
@@ -405,7 +405,7 @@ describe('PRO queue-mode checkpoint authority across pending HTTP responses', ()
             source: { kind: 'youtube', videoId: 'M7lc1UVf-VE' },
           },
         ],
-      };
+      });
       mode = { ...mode, playlistRevision: 2 };
       acceptProRoomRealtimeFrameForTests({
         type: 'pro-server-event',
@@ -473,12 +473,12 @@ describe('PRO queue-mode checkpoint authority across pending HTTP responses', ()
         expect(input.baseRevision).toBe(canonical.revision);
         const items = new Map(canonical.playlist.map((item) => [item.queueItemId, item]));
         for (const item of input.upserts) items.set(item.queueItemId, item);
-        canonical = {
+        canonical = recountProPlaylist({
           ...canonical,
           revision: canonical.revision + 1,
           playlistRevision: canonical.playlistRevision + 1,
           playlist: input.playlistOrder!.map((id) => items.get(id)!),
-        };
+        });
         // Server reconcileQueueModePlaylist keeps the queue-mode revision when
         // shuffle is OFF: both old and next shuffle orders are empty.
         expect(mode.shuffleEnabled).toBe(false);

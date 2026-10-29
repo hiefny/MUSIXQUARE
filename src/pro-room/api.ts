@@ -111,7 +111,7 @@ type ProRoomBootstrapStatus = 'activation_required' | 'pin_required' | 'open' | 
 export interface ProRoomBootstrap {
   roomCode: string;
   status: ProRoomBootstrapStatus;
-  passwordRequired?: boolean;
+  passwordRequired: boolean;
 }
 
 interface ProRoomAccountLease {
@@ -168,7 +168,10 @@ export interface ProRoomPlaybackCommitEvent {
   serverTimeMs: number;
   executeAtMs: number;
   playback: ProRoomPlaybackCheckpoint;
-  /** As on the PREPARE. A direct COMMIT (transitionId null) is always a scheduled control. */
+  /**
+   * As on the PREPARE. A transition COMMIT that names no kind, like a direct
+   * COMMIT (transitionId null), is a scheduled control.
+   */
   timingMode?: ProPlaybackTimingMode;
 }
 
@@ -238,7 +241,7 @@ export interface ProRoomAccountDetachResult {
   snapshot: ProRoomSnapshot | null;
 }
 
-/** The administrator directory answer of GET, PUT and DELETE `/administrators`. */
+/** The administrator directory answer of PUT and DELETE `/administrators/:memberId`. */
 interface ProRoomAdministratorDirectory {
   administrators: ProRoomAdministrator[];
 }
@@ -816,10 +819,7 @@ function parseAccountDetachResult(
 function parseAdministratorDirectory(value: unknown): ProRoomAdministratorDirectory | null {
   if (
     !isRecord(value) ||
-    // A PRO Worker that sends snapshot schemaVersion 1 adds the same retired
-    // authority marker to this answer, always 1. It is checked and dropped.
-    !hasExactKeys(value, ['administrators'], ['authorityVersion']) ||
-    (value.authorityVersion !== undefined && value.authorityVersion !== 1) ||
+    !hasExactKeys(value, ['administrators']) ||
     !Array.isArray(value.administrators) ||
     value.administrators.length > PRO_ROOM_MAX_ADMINISTRATOR_ITEMS
   ) {
@@ -1088,16 +1088,12 @@ function parseUploadHeaders(value: unknown): Record<string, string> | null {
 function parseBootstrap(value: unknown, expectedCode: string): ProRoomBootstrap | null {
   if (
     !isRecord(value) ||
-    !hasExactKeys(value, [
-      'roomCode',
-      'status',
-      ...('passwordRequired' in value ? ['passwordRequired'] : []),
-    ])
-  )
+    !hasExactKeys(value, ['roomCode', 'status', 'passwordRequired']) ||
+    typeof value.passwordRequired !== 'boolean' ||
+    value.roomCode !== expectedCode
+  ) {
     return null;
-  if (value.passwordRequired !== undefined && typeof value.passwordRequired !== 'boolean')
-    return null;
-  if (value.roomCode !== expectedCode) return null;
+  }
   if (
     value.status !== 'activation_required' &&
     value.status !== 'pin_required' &&
@@ -1106,13 +1102,9 @@ function parseBootstrap(value: unknown, expectedCode: string): ProRoomBootstrap 
   ) {
     return null;
   }
-  if (value.status === 'open' && value.passwordRequired !== false) return null;
-  if (value.status === 'pin_required' && value.passwordRequired === false) return null;
-  return {
-    roomCode: expectedCode,
-    status: value.status,
-    ...(value.passwordRequired === undefined ? {} : { passwordRequired: value.passwordRequired }),
-  };
+  if (value.status === 'open' && value.passwordRequired) return null;
+  if (value.status === 'pin_required' && !value.passwordRequired) return null;
+  return { roomCode: expectedCode, status: value.status, passwordRequired: value.passwordRequired };
 }
 
 function parseSessionEnvelope(value: unknown, expectedCode: string): ProRoomSnapshot | null {
@@ -1358,10 +1350,6 @@ export class ProRoomApiClient {
     }
 
     const headers = new Headers(options.headers);
-    // Opt in to additive entry policy fields; cached strict v1 clients retain their wire shape.
-    headers.set('X-MXQR-Pro-Entry-Policy', 'optional-v1');
-    // Same opt-in for the additive `playlistSlots` snapshot field.
-    headers.set('X-MXQR-Pro-Playlist-Slots', 'v1');
     // The page build: the PRO front door refuses a new entry below the App
     // build floor (forced update, train 9.0.14). A header, so no strict body
     // of an older client changes; a build without an epoch sends none (0).
@@ -1640,16 +1628,6 @@ export class ProRoomApiClient {
       signal,
       activeRoomCode: code,
       parser: (value) => parseSnapshotEnvelope(value, code),
-    });
-  }
-
-  getAdministrators(code: string, signal?: AbortSignal): Promise<ProRoomAdministratorDirectory> {
-    const path = roomPath(code);
-    return this.#request(`${path}/administrators`, {
-      signal,
-      activeRoomCode: code,
-      parser: parseAdministratorDirectory,
-      maxResponseBytes: MAX_ADMINISTRATOR_JSON_BYTES,
     });
   }
 

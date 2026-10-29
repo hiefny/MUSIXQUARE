@@ -26,7 +26,7 @@ async function localAccount(page: Page, incomplete: boolean, protectedRoom = fal
       return route.fulfill({
         json: protectedRoom
           ? { roomCode: '000001', status: 'pin_required', passwordRequired: true }
-          : { roomCode: '000001', status: 'activation_required' },
+          : { roomCode: '000001', status: 'activation_required', passwordRequired: true },
       });
     if (protectedRoom && url.pathname.endsWith('/v1/rooms/000001/presence/enter'))
       return route.fulfill({ status: 401, json: { error: 'SESSION_REQUIRED' } });

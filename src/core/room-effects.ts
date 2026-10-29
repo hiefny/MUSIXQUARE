@@ -24,14 +24,6 @@ export interface RoomEffectsState {
   };
 }
 
-export interface RoomEffectsPatch {
-  reverb?: Partial<RoomReverbState>;
-  equalizer?: RoomEffectsState['equalizer'];
-  virtualBass?: RoomEffectsState['virtualBass'];
-  virtualSurround?: RoomEffectsState['virtualSurround'];
-  virtualTreble?: RoomEffectsState['virtualTreble'];
-}
-
 /** Atomic PRO room authority used by the per-device settings-sync option. */
 export interface ProRoomSettingsSyncSnapshot {
   schemaVersion: 1;
@@ -157,85 +149,6 @@ export function parseRoomEffectsState(value: unknown): RoomEffectsState | null {
   return reverb && equalizer && virtualBass && virtualSurround && virtualTreble
     ? { reverb, equalizer, virtualBass, virtualSurround, virtualTreble }
     : null;
-}
-
-export function parseRoomEffectsPatch(value: unknown): RoomEffectsPatch | null {
-  if (
-    !isRecord(value) ||
-    Object.keys(value).length === 0 ||
-    !hasExactKeys(
-      value,
-      [],
-      ['reverb', 'equalizer', 'virtualBass', 'virtualSurround', 'virtualTreble'],
-    )
-  ) {
-    return null;
-  }
-  const patch: RoomEffectsPatch = {};
-  if (value.reverb !== undefined) {
-    if (
-      !isRecord(value.reverb) ||
-      Object.keys(value.reverb).length === 0 ||
-      !hasExactKeys(
-        value.reverb,
-        [],
-        ['mixPercent', 'decaySeconds', 'preDelaySeconds', 'lowCutPercent', 'highCutPercent'],
-      )
-    ) {
-      return null;
-    }
-    const ranges: Record<keyof RoomReverbState, readonly [number, number]> = {
-      mixPercent: [0, 100],
-      decaySeconds: [0.1, 10],
-      preDelaySeconds: [0, 1],
-      lowCutPercent: [0, 100],
-      highCutPercent: [0, 100],
-    };
-    const reverb: Partial<RoomReverbState> = {};
-    for (const key of Object.keys(value.reverb) as (keyof RoomReverbState)[]) {
-      const [min, max] = ranges[key];
-      const candidate = value.reverb[key];
-      if (!boundedNumber(candidate, min, max)) return null;
-      reverb[key] = candidate;
-    }
-    patch.reverb = reverb;
-  }
-  if (value.equalizer !== undefined) {
-    const equalizer = parseEqualizerState(value.equalizer);
-    if (!equalizer) return null;
-    patch.equalizer = equalizer;
-  }
-  if (value.virtualBass !== undefined) {
-    const virtualBass = parseVirtualBassState(value.virtualBass);
-    if (!virtualBass) return null;
-    patch.virtualBass = virtualBass;
-  }
-  if (value.virtualSurround !== undefined) {
-    const virtualSurround = parseVirtualSurroundState(value.virtualSurround);
-    if (!virtualSurround) return null;
-    patch.virtualSurround = virtualSurround;
-  }
-  if (value.virtualTreble !== undefined) {
-    const virtualTreble = parseVirtualTrebleState(value.virtualTreble);
-    if (!virtualTreble) return null;
-    patch.virtualTreble = virtualTreble;
-  }
-  return patch;
-}
-
-export function mergeRoomEffectsForTests(
-  current: RoomEffectsState,
-  patch: RoomEffectsPatch,
-): RoomEffectsState {
-  return {
-    reverb: { ...current.reverb, ...(patch.reverb ?? {}) },
-    equalizer: patch.equalizer
-      ? { bandsDb: [...patch.equalizer.bandsDb] }
-      : { bandsDb: [...current.equalizer.bandsDb] },
-    virtualBass: { ...(patch.virtualBass ?? current.virtualBass) },
-    virtualSurround: { ...(patch.virtualSurround ?? current.virtualSurround) },
-    virtualTreble: { ...(patch.virtualTreble ?? current.virtualTreble) },
-  };
 }
 
 export function roomEffectsEqual(left: RoomEffectsState, right: RoomEffectsState): boolean {

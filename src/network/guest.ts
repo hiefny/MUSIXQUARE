@@ -815,11 +815,11 @@ function handleSessionFull(data: Record<string, unknown>, conn?: DataConnection)
   const hostConn = getState('network.hostConn');
   if (!hostConn || conn !== hostConn) return;
 
-  // Prefer receiver-side translation (the host sent its OWN locale's text as
-  // fallback — a Korean host's rejection must not render Korean on an English
-  // guest). Mirrors handleOperatorToast: the translated !== key check guards
-  // against leaking the raw key on a dictionary miss (older bundle).
-  let msg = data.message ? String(data.message) : t('network.session_full');
+  // The guest owns the copy: the host's key translates in this guest's
+  // locale, and a missing key, or one this bundle does not know (t() returns
+  // the raw key), keeps the guest's own room-full copy. The host's
+  // own-language `message`, sent up to 9.0.21, is not read.
+  let msg = t('network.session_full');
   if (typeof data.i18nKey === 'string') {
     const translated = t(data.i18nKey as I18nKey);
     if (translated !== data.i18nKey) msg = translated;
@@ -993,17 +993,12 @@ function handleOperatorToast(data: Record<string, unknown>, conn?: DataConnectio
     data.i18nParams && typeof data.i18nParams === 'object' && !Array.isArray(data.i18nParams)
       ? (data.i18nParams as Record<string, string | number>)
       : undefined;
-  if (typeof data.i18nKey === 'string') {
-    const translated = t(data.i18nKey as I18nKey, params);
-    // t() returns the raw key on dictionary miss — fall through to the
-    // host-provided text fallback so OP guests on an older bundle render
-    // a readable message instead of leaking the key string.
-    if (translated !== data.i18nKey) {
-      showToast(translated);
-      return;
-    }
-  }
-  if (typeof data.text === 'string') showToast(data.text);
+  // The validator requires the key. t() returns the raw key on a dictionary
+  // miss, and such a notice shows nothing rather than that key. The host's
+  // own-language `text`, sent up to 9.0.21, is not read.
+  const key = data.i18nKey as I18nKey;
+  const translated = t(key, params);
+  if (translated !== key) showToast(translated);
 }
 
 // ─── Init Guest Protocol Handlers ─────────────────────────────────

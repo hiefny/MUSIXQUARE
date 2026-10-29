@@ -375,7 +375,7 @@ const ADMIN_ANNOUNCEMENT_HISTORY_KEY = 'admin-announcement-history.json';
 const ADMIN_ANNOUNCEMENT_HISTORY_LIMIT = 100;
 const ADMIN_ANNOUNCEMENT_ID_RE = /^[A-Za-z0-9._:-]{1,128}$/;
 const ADMIN_MAINTENANCE_PREVIEW_PATH = '/admin/maintenance-preview';
-const ADMIN_ASSET_VERSION = '9.0.24';
+const ADMIN_ASSET_VERSION = '9.0.25';
 const SORO_RSS_MAX_BYTES = 20 * 1024 * 1024;
 const SORO_RSS_FETCH_TIMEOUT_MS = 2500;
 const SORO_BACKGROUND_REFRESH_MIN_INTERVAL_MS = 5 * 60 * 1000;
@@ -8531,10 +8531,10 @@ async function handleProRoomOwnershipTransferSaga({
   } catch {
     return json({ error: 'PRO_ROOM_ACCOUNT_ASSERTION_UNAVAILABLE' }, 503);
   }
-  // The commit's snapshot is this link's answer. The PRO room adds
-  // `passwordRequired` (false since the 2026-10-23 owner decision) and
-  // `playlistSlots` to it as to activation's, so the new owner's settings show
-  // the real state; the browser's opt-in headers stay at this facade.
+  // The commit's snapshot is this link's answer. Like every PRO snapshot, it
+  // carries `passwordRequired` (false since the 2026-10-23 owner decision) and
+  // `playlistSlots` without any opt-in header, so the new owner's settings
+  // show the real state.
   const committed = await callProRoomAdminObject(
     env,
     roomCode,

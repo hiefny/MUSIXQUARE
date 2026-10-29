@@ -3139,198 +3139,6 @@ describe('Cloudflare PRO signaling client contract', () => {
     peer.destroy();
   });
 
-  it('emits a strictly parsed developer command only on a PRO coordinator socket', async () => {
-    installFakeWebSocket();
-    const ticket = clientProTicket('coordinator-device', { role: 'coordinator' });
-    const peer = new CloudflareSignalingPeer('000001', {
-      provider: 'cloudflare',
-      signalingUrl: 'wss://signal.example.test/api/rooms',
-      config: { iceServers: [] },
-      proSignaling: {
-        roomCode: '000001',
-        ticket,
-        role: 'coordinator',
-        coordinatorEpoch: 7,
-        presenceIncarnationId: 'presence-incarnation-0001',
-        ticketSequence: 1,
-      },
-    });
-    await Promise.resolve();
-    const received = vi.fn();
-    peer.on('developer-command', received);
-    const command = {
-      type: 'developer-command',
-      version: 1,
-      roomCode: '000001',
-      coordinatorEpoch: 7,
-      commandId: 'cmd_1234567890123456789012',
-      expiresAtMs: 1_900_000_000_000,
-      expected: {
-        queueItemId: '11111111-1111-4111-8111-111111111111',
-        playlistRevision: 4,
-        playbackRevision: 9,
-      },
-      command: { type: 'seek', positionSeconds: 12.5 },
-    };
-
-    FakeWebSocket.instances[0].dispatch('message', JSON.stringify(command));
-    await flushAsync();
-
-    expect(received).toHaveBeenCalledOnce();
-    expect(received).toHaveBeenCalledWith(command);
-    peer.destroy();
-  });
-
-  it('emits a strictly parsed developer invalidation only for its exact PRO coordinator epoch', async () => {
-    installFakeWebSocket();
-    const ticket = clientProTicket('coordinator-device', { role: 'coordinator' });
-    const peer = new CloudflareSignalingPeer('000001', {
-      provider: 'cloudflare',
-      signalingUrl: 'wss://signal.example.test/api/rooms',
-      config: { iceServers: [] },
-      proSignaling: {
-        roomCode: '000001',
-        ticket,
-        role: 'coordinator',
-        coordinatorEpoch: 7,
-        presenceIncarnationId: 'presence-incarnation-0001',
-        ticketSequence: 1,
-      },
-    });
-    await Promise.resolve();
-    const received = vi.fn();
-    const errors = vi.fn();
-    peer.on('developer-invalidation', received);
-    peer.on('error', errors);
-    const invalidation = {
-      type: 'developer-invalidation',
-      version: 1,
-      roomCode: '000001',
-      coordinatorEpoch: 7,
-      revision: 12,
-      playlistRevision: 5,
-    };
-
-    FakeWebSocket.instances[0].dispatch('message', JSON.stringify(invalidation));
-    await flushAsync();
-    expect(received).toHaveBeenCalledOnce();
-    expect(received).toHaveBeenCalledWith(invalidation);
-
-    FakeWebSocket.instances[0].dispatch(
-      'message',
-      JSON.stringify({ ...invalidation, coordinatorEpoch: 8 }),
-    );
-    await flushAsync();
-    expect(received).toHaveBeenCalledOnce();
-    expect(errors).toHaveBeenCalledOnce();
-    expect(errors.mock.calls[0]?.[0]).toMatchObject({
-      type: 'server-error',
-      message: 'UNEXPECTED_DEVELOPER_INVALIDATION',
-    });
-    peer.destroy();
-  });
-
-  it('emits a strictly parsed queue-addition event only for its exact PRO coordinator epoch', async () => {
-    installFakeWebSocket();
-    const ticket = clientProTicket('coordinator-device', { role: 'coordinator' });
-    const peer = new CloudflareSignalingPeer('000001', {
-      provider: 'cloudflare',
-      signalingUrl: 'wss://signal.example.test/api/rooms',
-      config: { iceServers: [] },
-      proSignaling: {
-        roomCode: '000001',
-        ticket,
-        role: 'coordinator',
-        coordinatorEpoch: 7,
-        presenceIncarnationId: 'presence-incarnation-0001',
-        ticketSequence: 1,
-      },
-    });
-    await Promise.resolve();
-    const received = vi.fn();
-    const errors = vi.fn();
-    peer.on('pro-queue-addition', received);
-    peer.on('error', errors);
-    const addition = {
-      type: 'pro-queue-addition',
-      version: 1,
-      roomCode: '000001',
-      coordinatorEpoch: 7,
-      playlistRevision: 5,
-      eventId: 'qa_000001_5_12',
-      actorName: 'Studio bot',
-      count: 12,
-    };
-
-    FakeWebSocket.instances[0].dispatch('message', JSON.stringify(addition));
-    await flushAsync();
-    expect(received).toHaveBeenCalledOnce();
-    expect(received).toHaveBeenCalledWith(addition);
-
-    FakeWebSocket.instances[0].dispatch(
-      'message',
-      JSON.stringify({ ...addition, coordinatorEpoch: 8 }),
-    );
-    await flushAsync();
-    expect(received).toHaveBeenCalledOnce();
-    expect(errors).toHaveBeenCalledOnce();
-    expect(errors.mock.calls[0]?.[0]).toMatchObject({
-      type: 'server-error',
-      message: 'UNEXPECTED_DEVELOPER_QUEUE_ADDITION',
-    });
-    peer.destroy();
-  });
-
-  it('rejects a malformed developer command without forwarding it', async () => {
-    installFakeWebSocket();
-    const ticket = clientProTicket('coordinator-device', { role: 'coordinator' });
-    const peer = new CloudflareSignalingPeer('000001', {
-      provider: 'cloudflare',
-      signalingUrl: 'wss://signal.example.test/api/rooms',
-      config: { iceServers: [] },
-      proSignaling: {
-        roomCode: '000001',
-        ticket,
-        role: 'coordinator',
-        coordinatorEpoch: 7,
-        presenceIncarnationId: 'presence-incarnation-0001',
-        ticketSequence: 1,
-      },
-    });
-    await Promise.resolve();
-    const received = vi.fn();
-    const errors = vi.fn();
-    peer.on('developer-command', received);
-    peer.on('error', errors);
-
-    FakeWebSocket.instances[0].dispatch(
-      'message',
-      JSON.stringify({
-        type: 'developer-command',
-        version: 1,
-        roomCode: '000001',
-        coordinatorEpoch: 7,
-        commandId: 'cmd_1234567890123456789012',
-        expiresAtMs: 1_900_000_000_000,
-        expected: {
-          queueItemId: null,
-          playlistRevision: 4,
-          playbackRevision: 9,
-        },
-        command: { type: 'play', unexpected: true },
-      }),
-    );
-    await flushAsync();
-
-    expect(received).not.toHaveBeenCalled();
-    expect(errors).toHaveBeenCalledOnce();
-    expect(errors.mock.calls[0]?.[0]).toMatchObject({
-      type: 'server-error',
-      message: 'INVALID_DEVELOPER_COMMAND',
-    });
-    peer.destroy();
-  });
-
   it('rebuilds RTC only for an epoch-advanced close and preserves it for an ordinary signaling blip', async () => {
     installFakeWebSocket();
     const makePeer = (sequence: number) => {
@@ -3560,6 +3368,114 @@ describe('Cloudflare PRO signaling client contract', () => {
     socket.dispatch('open');
     expect(sentOfType(socket, 'guest-auth')).toHaveLength(0);
     expect(() => peer.connect('000000')).toThrowError('PRO_SIGNALING_ROOM_MISMATCH');
+    peer.destroy();
+  });
+});
+
+// The browser coordinator's developer frames: no Worker has sent them since
+// the PRO room moved its authority to the server (the Signaling Worker answers
+// its retired internal developer paths with 409), and a PRO queue addition
+// arrives only inside a PRO server event. The transport reads none of them.
+describe('retired PRO developer signaling frames', () => {
+  const retiredFrames = [
+    {
+      type: 'developer-command',
+      version: 1,
+      roomCode: '000001',
+      coordinatorEpoch: 7,
+      commandId: 'cmd_1234567890123456789012',
+      expiresAtMs: 1_900_000_000_000,
+      expected: { queueItemId: null, playlistRevision: 4, playbackRevision: 9 },
+      command: { type: 'play' },
+    },
+    {
+      type: 'developer-invalidation',
+      version: 1,
+      roomCode: '000001',
+      coordinatorEpoch: 7,
+      revision: 12,
+      playlistRevision: 5,
+    },
+    {
+      type: 'pro-queue-addition',
+      version: 1,
+      roomCode: '000001',
+      coordinatorEpoch: 7,
+      playlistRevision: 5,
+      eventId: 'qa_000001_5_12',
+      actorName: 'Studio bot',
+      count: 12,
+    },
+  ];
+  const cases = retiredFrames.map((frame) => [frame.type, frame] as const);
+
+  it.each(cases)('ignores a %s frame on a Standard host socket', async (_type, frame) => {
+    installFakeWebSocket();
+    const peer = createHostPeer();
+    const errors = vi.fn();
+    peer.on('error', errors);
+    await Promise.resolve();
+    const socket = FakeWebSocket.instances[0]!;
+    socket.dispatch('open');
+    socket.dispatch(
+      'message',
+      JSON.stringify({ type: 'peer-open', peerId: '123456', roomId: '123456' }),
+    );
+    await flushAsync();
+
+    socket.dispatch('message', JSON.stringify(frame));
+    await flushAsync();
+
+    expect(errors).not.toHaveBeenCalled();
+    expect(socket.readyState).toBe(FakeWebSocket.OPEN);
+    peer.destroy();
+  });
+
+  it.each(cases)('ignores a %s frame on a Standard guest socket', async (_type, frame) => {
+    const { peer, conn, socket } = await establishGuest();
+    const errors = vi.fn();
+    conn.on('error', errors);
+
+    socket.dispatch('message', JSON.stringify(frame));
+    await flushAsync();
+
+    expect(errors).not.toHaveBeenCalled();
+    expect(socket.readyState).toBe(FakeWebSocket.OPEN);
+    peer.destroy();
+  });
+
+  it.each(cases)('ignores a %s frame on a PRO member socket', async (_type, frame) => {
+    installFakeWebSocket();
+    installFakeRTCPeerConnection();
+    const peer = new CloudflareSignalingPeer(null, {
+      provider: 'cloudflare',
+      signalingUrl: 'wss://signal.example.test/api/rooms',
+      config: { iceServers: [] },
+      proSignaling: {
+        roomCode: '000001',
+        ticket: clientProTicket('stable-pro-member'),
+        role: 'member',
+        coordinatorEpoch: 7,
+        presenceIncarnationId: 'presence-incarnation-0001',
+        ticketSequence: 1,
+      },
+    });
+    const conn = peer.connect('000001');
+    const errors = vi.fn();
+    conn.on('error', errors);
+    const socket = FakeWebSocket.instances[0]!;
+    socket.dispatch('open');
+    socket.dispatch(
+      'message',
+      JSON.stringify({ type: 'peer-open', peerId: 'stable-pro-member', roomId: '000001' }),
+    );
+    await flushAsync();
+
+    socket.dispatch('message', JSON.stringify(frame));
+    await flushAsync();
+
+    expect(errors).not.toHaveBeenCalled();
+    expect(socket.readyState).toBe(FakeWebSocket.OPEN);
     peer.destroy();
   });
 });

@@ -227,6 +227,13 @@ function requestParts(fetchMock: ReturnType<typeof vi.fn<typeof fetch>>): {
   return { url: new URL(String(call[0])), init: call[1] ?? {} };
 }
 
+/** No PRO request carries the entry-policy or playlist-slots opt-in header. */
+function expectNoOptInHeaders(init: RequestInit | undefined): void {
+  const headers = new Headers(init?.headers);
+  expect(headers.has('X-MXQR-Pro-Entry-Policy')).toBe(false);
+  expect(headers.has('X-MXQR-Pro-Playlist-Slots')).toBe(false);
+}
+
 function presignedUrl(): string {
   const url = new URL(`https://${PRO_ROOM_R2_HOST}/pro-media/private-object`);
   url.searchParams.set('X-Amz-Algorithm', 'AWS4-HMAC-SHA256');
@@ -398,16 +405,16 @@ describe('PRO room endpoint boundary', () => {
   });
 
   it('keeps a default loopback PRO request on the Vite same-origin boundary', async () => {
-    const fetchMock = vi
-      .fn<typeof fetch>()
-      .mockResolvedValue(jsonResponse({ roomCode: ROOM_CODE, status: 'activation_required' }));
+    const bootstrap = {
+      roomCode: ROOM_CODE,
+      status: 'activation_required',
+      passwordRequired: true,
+    };
+    const fetchMock = vi.fn<typeof fetch>().mockResolvedValue(jsonResponse(bootstrap));
     const endpoint = resolveProRoomEndpoint(undefined, 'http://localhost:3000/app', 'false');
     const client = new ProRoomApiClient({ endpoint, fetch: fetchMock });
 
-    await expect(client.getBootstrap(ROOM_CODE)).resolves.toEqual({
-      roomCode: ROOM_CODE,
-      status: 'activation_required',
-    });
+    await expect(client.getBootstrap(ROOM_CODE)).resolves.toEqual(bootstrap);
 
     const { url } = requestParts(fetchMock);
     expect(url.toString()).toBe('http://localhost:3000/api/pro-room/v1/rooms/000001/bootstrap');
@@ -415,16 +422,16 @@ describe('PRO room endpoint boundary', () => {
   });
 
   it('bootstraps with cookies, no bearer, no query, and a bounded exact response', async () => {
-    const fetchMock = vi
-      .fn<typeof fetch>()
-      .mockResolvedValue(jsonResponse({ roomCode: ROOM_CODE, status: 'activation_required' }));
+    const bootstrap = {
+      roomCode: ROOM_CODE,
+      status: 'activation_required',
+      passwordRequired: true,
+    };
+    const fetchMock = vi.fn<typeof fetch>().mockResolvedValue(jsonResponse(bootstrap));
     const signal = new AbortController().signal;
     const client = new ProRoomApiClient({ fetch: fetchMock });
 
-    await expect(client.getBootstrap(ROOM_CODE, signal)).resolves.toEqual({
-      roomCode: ROOM_CODE,
-      status: 'activation_required',
-    });
+    await expect(client.getBootstrap(ROOM_CODE, signal)).resolves.toEqual(bootstrap);
 
     const { url, init } = requestParts(fetchMock);
     expect(url.toString()).toBe(`${PRO_ROOM_PRODUCTION_ENDPOINT}/v1/rooms/000001/bootstrap`);
@@ -513,6 +520,7 @@ describe('PRO room endpoint boundary', () => {
       jsonResponse({
         roomCode: ROOM_CODE,
         status: 'activation_required',
+        passwordRequired: true,
         claimToken: CLAIM_TOKEN,
       }),
     );
@@ -522,6 +530,33 @@ describe('PRO room endpoint boundary', () => {
       code: 'INVALID_RESPONSE',
     });
   });
+
+  // Every PRO Worker since release W answers bootstrap with the entry policy,
+  // so an answer without it is refused instead of read as a protected room.
+  it.each([
+    ['activation_required', true],
+    ['pin_required', true],
+    ['open', false],
+    ['suspended', true],
+  ] as const)(
+    'rejects a %s bootstrap answer without passwordRequired',
+    async (status, passwordRequired) => {
+      const fetchMock = vi
+        .fn<typeof fetch>()
+        .mockResolvedValueOnce(jsonResponse({ roomCode: ROOM_CODE, status, passwordRequired }))
+        .mockResolvedValueOnce(jsonResponse({ roomCode: ROOM_CODE, status }));
+      const client = new ProRoomApiClient({ fetch: fetchMock });
+
+      await expect(client.getBootstrap(ROOM_CODE)).resolves.toEqual({
+        roomCode: ROOM_CODE,
+        status,
+        passwordRequired,
+      });
+      await expect(client.getBootstrap(ROOM_CODE)).rejects.toMatchObject({
+        code: 'INVALID_RESPONSE',
+      });
+    },
+  );
 });
 
 describe('PRO room cookie session API', () => {
@@ -650,7 +685,7 @@ describe('PRO room cookie session API', () => {
     expect(url.pathname).toBe(`${PRO_ROOM_PRODUCTION_PATH}/v1/rooms/000001/owner-transfer`);
     expect(url.search).toBe('');
     expect(init).toMatchObject({ method: 'POST', credentials: 'include' });
-    expect(new Headers(init.headers).get('X-MXQR-Pro-Entry-Policy')).toBe('optional-v1');
+    expectNoOptInHeaders(init);
     expect(JSON.parse(String(init.body))).toEqual({
       claimToken: CLAIM_TOKEN,
       requestId: IDEMPOTENCY_KEY,
@@ -728,7 +763,7 @@ describe('PRO room cookie session API', () => {
     expect(fetchMock).toHaveBeenCalledOnce();
   });
 
-  it('opts in to optional entry policy and joins a public room without fabricating a PIN', async () => {
+  it('joins a public room without fabricating a PIN or sending an opt-in header', async () => {
     const snapshot = { ...activeSnapshot(), passwordRequired: false };
     const fetchMock = vi
       .fn<typeof fetch>()
@@ -746,9 +781,8 @@ describe('PRO room cookie session API', () => {
     await expect(
       client.createSession({ code: ROOM_CODE, requestId: IDEMPOTENCY_KEY }),
     ).resolves.toEqual(snapshot);
-    for (const [, init] of fetchMock.mock.calls) {
-      expect(new Headers(init?.headers).get('x-mxqr-pro-entry-policy')).toBe('optional-v1');
-    }
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+    for (const [, init] of fetchMock.mock.calls) expectNoOptInHeaders(init);
     expect(JSON.parse(String(fetchMock.mock.calls[1]?.[1]?.body))).toEqual({
       requestId: IDEMPOTENCY_KEY,
     });
@@ -802,9 +836,7 @@ describe('PRO room cookie session API', () => {
       { pin: '87654321' },
       { pin: '11223344', existingParticipants: 'keep_present' },
     ]);
-    for (const [, init] of fetchMock.mock.calls) {
-      expect(new Headers(init?.headers).get('x-mxqr-pro-entry-policy')).toBe('optional-v1');
-    }
+    for (const [, init] of fetchMock.mock.calls) expectNoOptInHeaders(init);
 
     // A keep request never succeeds on the legacy acknowledgement or a wrong echo.
     for (const body of [
@@ -1109,13 +1141,17 @@ describe('PRO room cookie session API', () => {
     });
   });
 
-  // A live LAN-direct has no media deadline: PRO snapshot schemaVersion 2
-  // sends liveExpiresAt null, earlier Workers a numeric compatibility value,
-  // and both read as null (PLE-01). One invalid systemAudio would void the
-  // whole heartbeat reply.
-  it.each([null, 1_800_000])(
-    'reads a live LAN-direct with liveExpiresAt %s as null in a full and a compact heartbeat',
-    async (liveExpiresAt) => {
+  // A live LAN-direct has no media deadline: every PRO Worker since PRO
+  // snapshot schemaVersion 2 sends liveExpiresAt null there, the only value
+  // this App reads (PLE-04). One invalid systemAudio voids the whole heartbeat
+  // reply, so the numeric compatibility value of earlier PRO Workers fails
+  // both forms with INVALID_RESPONSE.
+  it.each([
+    { outcome: 'reads', liveExpiresAt: null },
+    { outcome: 'refuses with INVALID_RESPONSE', liveExpiresAt: 1_800_000 },
+  ] as const)(
+    '$outcome a full and a compact heartbeat whose live LAN-direct has liveExpiresAt $liveExpiresAt',
+    async ({ liveExpiresAt }) => {
       const snapshot = activeSnapshot();
       const fetchMock = vi.fn<typeof fetch>();
       const client = new ProRoomApiClient({ fetch: fetchMock });
@@ -1125,33 +1161,43 @@ describe('PRO room cookie session API', () => {
         status: 'live',
         ownerParticipantId: 'participant_00002',
         claimExpiresAt: null,
+        liveExpiresAt,
         publication: {
           publicationId: 'publication_000000001',
           transport: 'lan-direct',
           protocolVersion: 2,
         },
       } as const;
-      fetchMock
-        .mockResolvedValueOnce(
-          jsonResponse({ snapshot, systemAudio: { ...direct, liveExpiresAt } }),
-        )
-        .mockResolvedValueOnce(
-          jsonResponse({
-            notModified: true,
-            revision: snapshot.revision,
-            playlistRevision: snapshot.playlistRevision,
-            presenceRevision: snapshot.presence.revision,
-            playbackRevision: snapshot.playback.revision,
-            coordinatorEpoch: snapshot.presence.coordinatorEpoch,
-            systemAudio: { ...direct, liveExpiresAt },
-          }),
-        );
+      fetchMock.mockResolvedValueOnce(jsonResponse({ snapshot, systemAudio: direct }));
+      if (liveExpiresAt === null) {
+        const full = await client.heartbeat(ROOM_CODE);
+        expect(full.systemAudio).toEqual(direct);
+      } else {
+        await expect(client.heartbeat(ROOM_CODE)).rejects.toMatchObject({
+          code: 'INVALID_RESPONSE',
+        });
+      }
 
-      const full = await client.heartbeat(ROOM_CODE);
-      expect(full.systemAudio).toEqual({ ...direct, liveExpiresAt: null });
-      const compact = await client.heartbeat(ROOM_CODE, undefined, snapshot);
-      expect(compact.snapshot).toBe(snapshot);
-      expect(compact.systemAudio).toEqual({ ...direct, liveExpiresAt: null });
+      fetchMock.mockResolvedValueOnce(
+        jsonResponse({
+          notModified: true,
+          revision: snapshot.revision,
+          playlistRevision: snapshot.playlistRevision,
+          presenceRevision: snapshot.presence.revision,
+          playbackRevision: snapshot.playback.revision,
+          coordinatorEpoch: snapshot.presence.coordinatorEpoch,
+          systemAudio: direct,
+        }),
+      );
+      if (liveExpiresAt === null) {
+        const compact = await client.heartbeat(ROOM_CODE, undefined, snapshot);
+        expect(compact.snapshot).toBe(snapshot);
+        expect(compact.systemAudio).toEqual(direct);
+      } else {
+        await expect(client.heartbeat(ROOM_CODE, undefined, snapshot)).rejects.toMatchObject({
+          code: 'INVALID_RESPONSE',
+        });
+      }
     },
   );
 
@@ -1793,7 +1839,7 @@ describe('PRO room cookie session API', () => {
 });
 
 describe('PRO room administrator API', () => {
-  it.each(['get', 'update', 'revoke'] as const)(
+  it.each(['update', 'revoke'] as const)(
     'accepts the complete maximum-sized administrator directory after %s',
     async (operation) => {
       const directory = administratorDirectory();
@@ -1815,11 +1861,9 @@ describe('PRO room administrator API', () => {
       await establishPresence(client, fetchMock);
       fetchMock.mockResolvedValueOnce(jsonResponse(directory));
       const result =
-        operation === 'get'
-          ? client.getAdministrators(ROOM_CODE)
-          : operation === 'update'
-            ? client.updateAdministrator(ROOM_CODE, DELEGATED_MEMBER_ID, DELEGATED_PERMISSIONS)
-            : client.revokeAdministrator(ROOM_CODE, DELEGATED_MEMBER_ID);
+        operation === 'update'
+          ? client.updateAdministrator(ROOM_CODE, DELEGATED_MEMBER_ID, DELEGATED_PERMISSIONS)
+          : client.revokeAdministrator(ROOM_CODE, DELEGATED_MEMBER_ID);
       await expect(result).resolves.toEqual(directory);
     },
   );
@@ -1838,12 +1882,12 @@ describe('PRO room administrator API', () => {
     const client = new ProRoomApiClient({ fetch: fetchMock });
     await establishPresence(client, fetchMock);
     fetchMock.mockResolvedValueOnce(jsonResponse(directory));
-    await expect(client.getAdministrators(ROOM_CODE)).rejects.toMatchObject({
-      code: 'INVALID_RESPONSE',
-    });
+    await expect(
+      client.updateAdministrator(ROOM_CODE, DELEGATED_MEMBER_ID, DELEGATED_PERMISSIONS),
+    ).rejects.toMatchObject({ code: 'INVALID_RESPONSE' });
   });
 
-  it.each(['get', 'update', 'revoke'] as const)(
+  it.each(['update', 'revoke'] as const)(
     'bounds an endless administrator %s response even if cancellation never settles',
     async (operation) => {
       const cancel = vi.fn(() => new Promise<void>(() => undefined));
@@ -1862,43 +1906,32 @@ describe('PRO room administrator API', () => {
         ),
       );
       const result =
-        operation === 'get'
-          ? client.getAdministrators(ROOM_CODE)
-          : operation === 'update'
-            ? client.updateAdministrator(ROOM_CODE, DELEGATED_MEMBER_ID, DELEGATED_PERMISSIONS)
-            : client.revokeAdministrator(ROOM_CODE, DELEGATED_MEMBER_ID);
+        operation === 'update'
+          ? client.updateAdministrator(ROOM_CODE, DELEGATED_MEMBER_ID, DELEGATED_PERMISSIONS)
+          : client.revokeAdministrator(ROOM_CODE, DELEGATED_MEMBER_ID);
       await expect(result).rejects.toMatchObject({ code: 'RESPONSE_TOO_LARGE', status: 200 });
       expect(cancel).toHaveBeenCalledOnce();
     },
   );
 
-  it('reads and mutates the room-scoped administrator directory with the active presence lease', async () => {
+  it('mutates the room-scoped administrator directory with the active presence lease', async () => {
     const fetchMock = vi.fn<typeof fetch>();
     const client = new ProRoomApiClient({ fetch: fetchMock });
     await establishPresence(client, fetchMock);
 
     fetchMock.mockResolvedValueOnce(jsonResponse(administratorDirectory()));
-    await expect(client.getAdministrators(ROOM_CODE)).resolves.toEqual(administratorDirectory());
-    let { url, init } = requestParts(fetchMock);
-    expect(url.pathname).toBe(`${PRO_ROOM_PRODUCTION_PATH}/v1/rooms/000001/administrators`);
-    expect(init.method).toBe('GET');
-    let headers = new Headers(init.headers);
-    expect(headers.get('x-mxqr-pro-participant-id')).toBe('participant_00001');
-    expect(headers.get('x-mxqr-pro-presence-incarnation')).toBe('presence_0000000001');
-
-    fetchMock.mockClear();
-    fetchMock.mockResolvedValueOnce(jsonResponse(administratorDirectory()));
     await expect(
       client.updateAdministrator(ROOM_CODE, DELEGATED_MEMBER_ID, DELEGATED_PERMISSIONS),
     ).resolves.toEqual(administratorDirectory());
-    ({ url, init } = requestParts(fetchMock));
+    let { url, init } = requestParts(fetchMock);
     expect(url.pathname).toBe(
       `${PRO_ROOM_PRODUCTION_PATH}/v1/rooms/000001/administrators/${DELEGATED_MEMBER_ID}`,
     );
     expect(init.method).toBe('PUT');
     expect(JSON.parse(String(init.body))).toEqual({ permissions: DELEGATED_PERMISSIONS });
-    headers = new Headers(init.headers);
+    const headers = new Headers(init.headers);
     expect(headers.get('x-mxqr-pro-participant-id')).toBe('participant_00001');
+    expect(headers.get('x-mxqr-pro-presence-incarnation')).toBe('presence_0000000001');
 
     fetchMock.mockClear();
     fetchMock.mockResolvedValueOnce(jsonResponse(administratorDirectory()));
@@ -1979,15 +2012,16 @@ describe('PRO room administrator API', () => {
     await establishPresence(client, fetchMock);
     fetchMock.mockResolvedValueOnce(jsonResponse(malformed));
 
-    await expect(client.getAdministrators(ROOM_CODE)).rejects.toMatchObject({
+    await expect(client.revokeAdministrator(ROOM_CODE, DELEGATED_MEMBER_ID)).rejects.toMatchObject({
       code: 'INVALID_RESPONSE',
     });
   });
 });
 
-describe('PRO snapshot schemaVersion 1 and 2 answers', () => {
-  // The App reads both wire versions into the schemaVersion 2 memory shape
-  // before any PRO Worker sends schemaVersion 2 (Phase 5.5).
+describe('PRO snapshot schemaVersion 2 answers', () => {
+  // Every PRO Worker since the one that first sent snapshot schemaVersion 2
+  // sends only that wire, and its administrator directory without the
+  // authority marker. The App refuses a schemaVersion 1 answer (Phase 5.5).
   const replies = [
     {
       reply: 'GET /snapshot',
@@ -2019,50 +2053,59 @@ describe('PRO snapshot schemaVersion 1 and 2 answers', () => {
       result: (snapshot: unknown) => ({ snapshot, systemAudio: idleProSystemAudio(3) }),
     },
   ];
-  const wires = [
-    { version: 1, wire: proSnapshotV1 },
-    { version: 2, wire: proSnapshotV2 },
-  ];
-
-  it.each(replies.flatMap((reply) => wires.map((wire) => ({ ...reply, ...wire }))))(
-    'reads the schemaVersion $version snapshot of a $reply answer into the memory shape',
-    async ({ fields, wire, answer, call, result }) => {
+  it.each(replies)(
+    'reads the schemaVersion 2 snapshot of a $reply answer into the memory shape',
+    async ({ fields, answer, call, result }) => {
       const fetchMock = vi.fn<typeof fetch>();
       const client = new ProRoomApiClient({ fetch: fetchMock });
       await establishPresence(client, fetchMock);
-      fetchMock.mockResolvedValueOnce(jsonResponse(answer(wire(fields()))));
+      fetchMock.mockResolvedValueOnce(jsonResponse(answer(proSnapshotV2(fields()))));
 
       await expect(call(client)).resolves.toEqual(result(proSnapshotV2(fields())));
     },
   );
 
-  it.each(['get', 'update', 'revoke'] as const)(
-    'reads the %s administrator directory of either snapshot version into one shape',
+  it.each(replies)(
+    'rejects the schemaVersion 1 snapshot of a $reply answer',
+    async ({ fields, answer, call }) => {
+      const fetchMock = vi.fn<typeof fetch>();
+      const client = new ProRoomApiClient({ fetch: fetchMock });
+      await establishPresence(client, fetchMock);
+      fetchMock.mockResolvedValueOnce(jsonResponse(answer(proSnapshotV1(fields()))));
+
+      await expect(call(client)).rejects.toMatchObject({ code: 'INVALID_RESPONSE' });
+    },
+  );
+
+  it.each(['update', 'revoke'] as const)(
+    'reads only the administrator directory without the authority marker after %s',
     async (operation) => {
       const fetchMock = vi.fn<typeof fetch>();
       const client = new ProRoomApiClient({ fetch: fetchMock });
       await establishPresence(client, fetchMock);
-      for (const answer of [
-        proAdministratorDirectoryV1(administratorRows()),
-        proAdministratorDirectoryV2(administratorRows()),
-      ]) {
-        fetchMock.mockResolvedValueOnce(jsonResponse(answer));
-        const result =
-          operation === 'get'
-            ? client.getAdministrators(ROOM_CODE)
-            : operation === 'update'
-              ? client.updateAdministrator(ROOM_CODE, DELEGATED_MEMBER_ID, DELEGATED_PERMISSIONS)
-              : client.revokeAdministrator(ROOM_CODE, DELEGATED_MEMBER_ID);
-        await expect(result).resolves.toEqual(proAdministratorDirectoryV2(administratorRows()));
-      }
+      const mutate = () =>
+        operation === 'update'
+          ? client.updateAdministrator(ROOM_CODE, DELEGATED_MEMBER_ID, DELEGATED_PERMISSIONS)
+          : client.revokeAdministrator(ROOM_CODE, DELEGATED_MEMBER_ID);
+
+      fetchMock.mockResolvedValueOnce(
+        jsonResponse(proAdministratorDirectoryV2(administratorRows())),
+      );
+      await expect(mutate()).resolves.toEqual(proAdministratorDirectoryV2(administratorRows()));
+
+      fetchMock.mockResolvedValueOnce(
+        jsonResponse(proAdministratorDirectoryV1(administratorRows())),
+      );
+      await expect(mutate()).rejects.toMatchObject({ code: 'INVALID_RESPONSE' });
     },
   );
 
-  it('rejects an administrator directory with any other authority marker or key', async () => {
+  it('rejects an administrator directory with any authority marker or other key', async () => {
     const fetchMock = vi.fn<typeof fetch>();
     const client = new ProRoomApiClient({ fetch: fetchMock });
     await establishPresence(client, fetchMock);
     for (const answer of [
+      { authorityVersion: 1, administrators: administratorRows() },
       { authorityVersion: 2, administrators: administratorRows() },
       { authorityVersion: '1', administrators: administratorRows() },
       { authorityVersion: null, administrators: administratorRows() },
@@ -2070,9 +2113,9 @@ describe('PRO snapshot schemaVersion 1 and 2 answers', () => {
       { authorityVersion: 1 },
     ]) {
       fetchMock.mockResolvedValueOnce(jsonResponse(answer));
-      await expect(client.getAdministrators(ROOM_CODE)).rejects.toMatchObject({
-        code: 'INVALID_RESPONSE',
-      });
+      await expect(
+        client.updateAdministrator(ROOM_CODE, DELEGATED_MEMBER_ID, DELEGATED_PERMISSIONS),
+      ).rejects.toMatchObject({ code: 'INVALID_RESPONSE' });
     }
   });
 });
@@ -2320,38 +2363,41 @@ describe('PRO room system-audio lease API', () => {
     });
   });
 
-  // A live LAN-direct has no media deadline: PRO snapshot schemaVersion 2
-  // sends liveExpiresAt null, earlier Workers a numeric compatibility value,
-  // and both read as null (PLE-01).
-  it.each([null, 1_900_007_200_000])(
-    'reads a live LAN-direct with liveExpiresAt %s as null from the state resource and lease answers',
-    async (liveExpiresAt) => {
-      const direct = {
-        publicationId: 'publication_00001',
-        transport: 'lan-direct',
-        protocolVersion: 2,
-      } as const;
-      const wire = { ...live, liveExpiresAt, publication: direct };
-      const fetchMock = vi.fn<typeof fetch>();
-      const client = new ProRoomApiClient({ fetch: fetchMock });
-      await establishPresence(client, fetchMock);
-      fetchMock.mockImplementation(async () => jsonResponse({ systemAudio: wire }));
-      const read = { ...live, liveExpiresAt: null, publication: direct };
-
-      await expect(client.getSystemAudioState(ROOM_CODE)).resolves.toEqual(read);
-      await expect(
+  // A live LAN-direct has no media deadline: every PRO Worker since PRO
+  // snapshot schemaVersion 2 sends liveExpiresAt null there, the only value
+  // this App reads. The numeric compatibility value of earlier PRO Workers
+  // fails the state resource and the lease answers (PLE-04).
+  it('reads a live LAN-direct from the state resource and lease answers only with liveExpiresAt null', async () => {
+    const direct = {
+      publicationId: 'publication_00001',
+      transport: 'lan-direct',
+      protocolVersion: 2,
+    } as const;
+    const fetchMock = vi.fn<typeof fetch>();
+    const client = new ProRoomApiClient({ fetch: fetchMock });
+    await establishPresence(client, fetchMock);
+    const answers = [
+      () => client.getSystemAudioState(ROOM_CODE),
+      () =>
         client.commitSystemAudioPublication({
           code: ROOM_CODE,
           generation: 1,
           leaseId,
           publication: direct,
         }),
-      ).resolves.toEqual(read);
-      await expect(
-        client.heartbeatSystemAudioLease({ code: ROOM_CODE, generation: 1, leaseId }),
-      ).resolves.toEqual(read);
-    },
-  );
+      () => client.heartbeatSystemAudioLease({ code: ROOM_CODE, generation: 1, leaseId }),
+    ];
+
+    const read = { ...live, liveExpiresAt: null, publication: direct };
+    fetchMock.mockImplementation(async () => jsonResponse({ systemAudio: read }));
+    for (const answer of answers) await expect(answer()).resolves.toEqual(read);
+
+    const numeric = { ...read, liveExpiresAt: 1_900_007_200_000 };
+    fetchMock.mockImplementation(async () => jsonResponse({ systemAudio: numeric }));
+    for (const answer of answers) {
+      await expect(answer()).rejects.toMatchObject({ code: 'INVALID_RESPONSE' });
+    }
+  });
 
   it('rejects malformed credentials and any leaked private field before accepting state', async () => {
     const fetchMock = vi.fn<typeof fetch>();
@@ -2808,10 +2854,10 @@ describe('PRO room playlists', () => {
     ],
   };
 
-  it('accepts the optional playlist summary and round-trips it', () => {
-    const legacy = parseProRoomSnapshot(activeSnapshot());
-    expect(legacy).not.toBeNull();
-    expect(legacy).not.toHaveProperty('playlistSlots');
+  it('requires the playlist summary and round-trips it', () => {
+    // Every PRO Worker since release W sends it with every snapshot.
+    const { playlistSlots: _omitted, ...withoutSummary } = activeSnapshot();
+    expect(parseProRoomSnapshot(withoutSummary)).toBeNull();
 
     const parsed = parseProRoomSnapshot({ ...activeSnapshot(), playlistSlots: SLOTS });
     expect(parsed?.playlistSlots).toEqual(SLOTS);
@@ -2841,7 +2887,7 @@ describe('PRO room playlists', () => {
     expect(parseProRoomSnapshot({ ...activeSnapshot(), playlistSlots })).toBeNull();
   });
 
-  it('opts every request in to playlist summaries', async () => {
+  it('reads playlist summaries without an opt-in header on any request', async () => {
     const fetchMock = vi
       .fn<typeof fetch>()
       .mockImplementation(async () =>
@@ -2852,9 +2898,7 @@ describe('PRO room playlists', () => {
     await expect(client.enterPresence(ROOM_CODE)).resolves.toMatchObject({ playlistSlots: SLOTS });
     await client.getSnapshot(ROOM_CODE);
     expect(fetchMock).toHaveBeenCalledTimes(2);
-    for (const [, init] of fetchMock.mock.calls) {
-      expect(new Headers(init?.headers).get('x-mxqr-pro-playlist-slots')).toBe('v1');
-    }
+    for (const [, init] of fetchMock.mock.calls) expectNoOptInHeaders(init);
   });
 
   it('sends a playlist switch with the room revision and caller idempotency', async () => {

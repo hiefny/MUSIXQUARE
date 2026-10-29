@@ -501,11 +501,9 @@ const PROTOCOL_VALIDATORS: Partial<Record<MsgType, (data: Record<string, unknown
     d.name.length > 0 &&
     (d.mime === undefined || typeof d.mime === 'string'),
   [MSG.DEVICE_LIST_UPDATE]: isDeviceListUpdate,
-  // Guests translate i18nKey first and fall back to their own room-full copy,
-  // so the host's fallback text is optional (old-version removal train 2).
-  [MSG.SESSION_FULL]: (d) =>
-    (d.message === undefined || isBoundedWireString(d.message, 512)) &&
-    (d.i18nKey === undefined || isBoundedWireString(d.i18nKey, 127)),
+  // Guests translate i18nKey or show their own room-full copy. The host's
+  // fallback `message`, sent up to 9.0.21, is an unread key.
+  [MSG.SESSION_FULL]: (d) => d.i18nKey === undefined || isBoundedWireString(d.i18nKey, 127),
   [MSG.KICK_DEVICE]: (d) => d.reason === undefined || isBoundedWireString(d.reason, 256),
   [MSG.OPERATOR_GRANT]: (d) =>
     // Rolling hosts may include transport-only roles. The guest handler owns
@@ -1014,12 +1012,11 @@ const PROTOCOL_VALIDATORS: Partial<Record<MsgType, (data: Record<string, unknown
     isBotChatResult(d.result),
   [MSG.HOST_COMMAND_REJECTED]: (d) =>
     d.reason === 'host-hidden' && isBoundedWireString(d.command, 64),
-  // Guests translate i18nKey first and show text only as its fallback, so a
-  // notice needs one of the two (old-version removal train 2).
+  // Guests show only the translated i18nKey, so a notice needs it. The host's
+  // fallback `text`, sent up to 9.0.21, is an unread key.
   [MSG.OPERATOR_TOAST]: (d) =>
-    (d.text !== undefined || d.i18nKey !== undefined) &&
-    (d.text === undefined || (typeof d.text === 'string' && d.text.length <= 300)) &&
-    (d.i18nKey === undefined || (typeof d.i18nKey === 'string' && d.i18nKey.length < 128)) &&
+    typeof d.i18nKey === 'string' &&
+    d.i18nKey.length < 128 &&
     (d.i18nParams === undefined || (typeof d.i18nParams === 'object' && d.i18nParams !== null)),
   [MSG.REQUEST_CHAT_COMMAND]: (d) =>
     typeof d.command === 'string' && Array.isArray(d.args) && (d.args as unknown[]).length <= 32,

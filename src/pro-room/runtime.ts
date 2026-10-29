@@ -775,11 +775,10 @@ export function shouldStopForAuthoritativeDeselectionForTests(
 
 /**
  * Mirror the room's playlist summaries and storage use for the playlist UI.
- * A Worker that predates playlists omits `playlistSlots`, which keeps the
- * switcher hidden. Unchanged values are not re-emitted on every heartbeat.
+ * Unchanged values are not re-emitted on every heartbeat.
  */
 function publishProRoomPlaylistSlots(snapshot: ProRoomSnapshot): void {
-  const slots = snapshot.playlistSlots ?? null;
+  const slots = snapshot.playlistSlots;
   if (JSON.stringify(getState('playlist.slots')) !== JSON.stringify(slots)) {
     setState('playlist.slots', slots);
   }
@@ -1237,7 +1236,7 @@ function publishProRoomMembership(snapshot: ProRoomSnapshot): void {
   if (result.outcome !== 'applied' || !result.snapshot) return;
   publishedProMembershipSnapshot = result.snapshot;
   publishedProMembershipSource = snapshot;
-  setState('network.roomPasswordRequired', result.snapshot.passwordRequired !== false);
+  setState('network.roomPasswordRequired', result.snapshot.passwordRequired);
   reconcileAuthoritativePeers(result.snapshot);
   publishProRoomAdministratorDirectory(result.snapshot.administrators);
 }
@@ -4060,8 +4059,6 @@ function acceptQueueAddition(frame: ProQueueAdditionFrame): void {
   }
   scheduleAcceptedQueueAdditionFlush();
 }
-
-bus.on('network:pro-queue-addition', acceptQueueAddition);
 
 onProRoomRealtimeConnection((connected) => {
   if (!active) return;

@@ -1197,8 +1197,6 @@ function createImplementation(
     );
   }
 
-  const PRO_PLAYBACK_ZERO_START_WIRE_LEAD_MS = 699;
-
   function playbackCommitTiming(
     event: ProRoomPlaybackCommitEvent,
     receivedAtMs: number,
@@ -1216,17 +1214,12 @@ function createImplementation(
       ? Date.now() + clock.offsetMs
       : serverNowForFrame(event.serverTimeMs, receivedAtMs);
     const signedDelayMs = event.executeAtMs - nowMs;
-    // Only a transition COMMIT can start at zero, and its named kind decides
-    // (PRO snapshot schemaVersion 2). Without it, the Worker's wire-compatible
-    // rollout marker stands: a 699ms lead, which old clients treat as an
-    // ordinary future COMMIT instant. Only zero-start grants learned startup
-    // lead; all playing paths retain fixed output delay. Legacy, direct, and
-    // malformed timings remain running-timeline controls.
-    const zeroStart =
-      event.transitionId !== null &&
-      (event.timingMode === undefined
-        ? event.executeAtMs - event.serverTimeMs === PRO_PLAYBACK_ZERO_START_WIRE_LEAD_MS
-        : event.timingMode === 'zero-start');
+    // Only a transition COMMIT that names zero-start starts at zero (PRO
+    // snapshot schemaVersion 2); its lead says when, never which kind. Only
+    // zero-start grants learned startup lead; all playing paths retain fixed
+    // output delay. A COMMIT that names no kind or another kind, and a direct
+    // COMMIT, remain running-timeline controls.
+    const zeroStart = event.transitionId !== null && event.timingMode === 'zero-start';
     return {
       scheduleDelayMs: Math.max(0, signedDelayMs),
       signedDelayMs,
@@ -2227,6 +2220,10 @@ function createImplementation(
       target.youtubeSubIndex === playback.youtubeSubIndex
         ? transition
         : null;
+    // The start kind belongs to the transition, not to the route that
+    // brought its checkpoint: a snapshot that lands the prepared checkpoint
+    // before its COMMIT frame commits with the kind its PREPARE named.
+    const timingMode = preparedTransition?.event.timingMode;
     acceptPlaybackCommit(
       {
         type: 'pro-playback-commit',
@@ -2236,6 +2233,7 @@ function createImplementation(
         // becomes calibrated while local media preparation is still pending.
         executeAtMs: playback.state === 'playing' ? playback.updatedAtMs : 0,
         playback,
+        ...(timingMode === undefined ? {} : { timingMode }),
       },
       isRequestCurrent,
       clock,

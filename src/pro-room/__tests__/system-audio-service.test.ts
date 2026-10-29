@@ -362,7 +362,7 @@ function directLive(
     status: 'live',
     ownerParticipantId,
     claimExpiresAt: null,
-    liveExpiresAt: 1_900_007_200_000,
+    liveExpiresAt: null,
     publication: {
       publicationId,
       transport: 'lan-direct',
@@ -371,6 +371,7 @@ function directLive(
   };
 }
 
+/** The PRO Worker answers an SFU live with its media deadline and a LAN-direct one with null. */
 function localLiveWithPublication(
   publication: ProRoomSystemAudioPublication,
   generation = 1,
@@ -380,7 +381,7 @@ function localLiveWithPublication(
     status: 'live',
     ownerParticipantId: LOCAL_ID,
     claimExpiresAt: null,
-    liveExpiresAt: 1_900_007_200_000,
+    liveExpiresAt: 'sessionId' in publication ? 1_900_007_200_000 : null,
     publication,
   };
 }
@@ -1826,12 +1827,12 @@ describe('PRO system-audio service orchestration', () => {
     });
   });
 
-  // A live LAN-direct has no media deadline (its liveExpiresAt reads as null,
-  // PLE-01). The SFU descriptor and the publisher deadline exist only for a
-  // numeric SFU live, here the promotion of the same publication. Each answer
-  // is queued only when it is due, so a failed step leaves none to the next row.
+  // A live LAN-direct has no media deadline (its liveExpiresAt is null). The
+  // SFU descriptor and the publisher deadline exist only for a numeric SFU
+  // live, here the promotion of the same publication. Each answer is queued
+  // only when it is due, so a failed step leaves none to the next row.
   it('subscribes to an SFU descriptor only from a numeric SFU live, never from a LAN-direct one', async () => {
-    const direct = { ...directLive(), liveExpiresAt: null };
+    const direct = directLive();
     api.getSystemAudioState.mockResolvedValueOnce(direct);
     mocks.subscribe.mockClear();
 
@@ -1861,12 +1862,8 @@ describe('PRO system-audio service orchestration', () => {
       systemAudio: preparing(),
       leaseId: LEASE_ID,
     });
-    const committedWithDeadline = async (request: {
-      publication: ProRoomSystemAudioPublication;
-    }) => ({
-      ...localLiveWithPublication(request.publication),
-      liveExpiresAt: 'sessionId' in request.publication ? 1_900_007_200_000 : null,
-    });
+    const committedWithDeadline = async (request: { publication: ProRoomSystemAudioPublication }) =>
+      localLiveWithPublication(request.publication);
     api.commitSystemAudioPublication.mockImplementationOnce(committedWithDeadline);
 
     await refreshProSystemAudioState();
@@ -2327,7 +2324,7 @@ describe('PRO system-audio service orchestration', () => {
     mocks.resetDirect.mockClear();
 
     staleRequest.resolve(directLive());
-    await expect(staleRefresh).resolves.toEqual({ ...directLive(), liveExpiresAt: null });
+    await expect(staleRefresh).resolves.toEqual(directLive());
     await expect(forcedRefresh).resolves.toEqual(idle(1));
 
     expect(api.getSystemAudioState).toHaveBeenCalledTimes(2);

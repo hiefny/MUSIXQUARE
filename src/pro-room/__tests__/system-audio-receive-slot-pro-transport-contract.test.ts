@@ -193,11 +193,12 @@ const directPublication = (publicationId = PUBLICATION_ID): ProRoomSystemAudioPu
   protocolVersion: 2,
 });
 
+/** The PRO Worker answers an SFU live with its media deadline and a LAN-direct one with null. */
 function live(
   publication: ProRoomSystemAudioPublication,
   generation = 1,
   ownerParticipantId = REMOTE_ID,
-  liveExpiresAt = LIVE_EXPIRES_AT,
+  liveExpiresAt: number | null = 'sessionId' in publication ? LIVE_EXPIRES_AT : null,
 ): ProRoomSystemAudioState {
   return {
     generation,
@@ -507,15 +508,17 @@ describe('PRO SFU reception through the real subscriber', () => {
 
   it('two-hour budget re-publication case, gap 12 fixed in 5B-G6: after a direct-to-SFU promotion the subscriber expires at the promotion budget and interrupts the reception at once with no notice; the next heartbeat still shows one notice and a no-network retry loop', async () => {
     const committedAt = Date.now();
-    await applyState(live(directPublication(), 1, REMOTE_ID, committedAt + LIVE_TTL_MS));
+    await applyState(live(directPublication()));
     await advance(20_000);
-    // The promotion installs a fresh live budget (pro-room-worker.ts).
+    // The promotion installs the SFU live budget (pro-room-worker.ts); the
+    // direct publication had none.
     const promotedAt = Date.now();
     await applyState(live(sfuPublication(), 1, REMOTE_ID, promotedAt + LIVE_TTL_MS));
     await advance(PRO_SUBSCRIBED_AT_MS);
     expect(slot()).toMatchObject({ receiving: true, sources: ['sfu-audio-1'] });
 
-    // The direct commit's budget passes without effect.
+    // Two hours after the direct commit nothing ends: the only budget is the
+    // promotion's.
     await advance(committedAt + LIVE_TTL_MS - Date.now());
     expect(sfuConnections()[0].closed).toBe(false);
     expect(realtime.count('tracks-close')).toBe(0);
@@ -756,7 +759,7 @@ describe('PRO LAN-direct reception through the real transport', () => {
   });
 
   it('a LAN ICE disconnect fails the route at once (no 2.5 s grace as on the SFU): a fallback close to the publisher, one notice, the source gone and the placeholder kept until the promotion attaches', async () => {
-    await applyState(live(directPublication(), 1, REMOTE_ID, Date.now() + LIVE_TTL_MS));
+    await applyState(live(directPublication()));
     await lanPublisherDelivers();
     expect(slot().receiving).toBe(true);
 

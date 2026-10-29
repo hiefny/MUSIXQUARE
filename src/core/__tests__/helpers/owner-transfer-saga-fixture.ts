@@ -588,7 +588,7 @@ export interface TransferRequestOptions {
    * records an intent, and the PRO room refuses it too.
    */
   newPin?: string | null;
-  /** Send the App's opt-in headers, as every App since 8.8.0 does. */
+  /** Send the App's opt-in headers, as every App from 8.8.0 to 9.0.24 does. */
   entryPolicy?: boolean;
   worker?: AppWorkerEntry;
 }

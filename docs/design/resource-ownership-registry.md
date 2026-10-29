@@ -348,13 +348,13 @@ RO-53 owner-in-place
   both the pro-room and the app runtime
   paths, so a release that changes it targets `all`. Kept out of it on purpose:
   - the zero-start encoding of PRO Workers before PRO snapshot schemaVersion 2, one below each
-    value: a 2999 ms stored deadline and a 699 ms COMMIT lead. `cloudflare/pro-room-worker.ts`
-    and `src/pro-room/playback-controller.ts` keep their own copies because they drop them in
+    value: a 2999 ms stored deadline and a 699 ms COMMIT lead. The Worker and the App drop it in
     different releases: the Worker stopped writing the 699 ms lead when it started to send
-    schemaVersion 2 and keeps only the 2999 ms deadline it reads, then the App stops reading the
-    699 ms lead, then the Worker stops reading the 2999 ms deadline. A shared export would be dead
-    in between, which `guard:dead-exports` refuses, and would turn those PRO-only and App-only
-    releases into `all`;
+    schemaVersion 2 and keeps only the 2999 ms deadline it reads
+    (`cloudflare/pro-room-worker.ts`), the App stopped reading the 699 ms lead when it stopped
+    accepting schemaVersion 1, and a later PRO release stops reading the 2999 ms deadline. A
+    shared export would be dead in between, which `guard:dead-exports` refuses, and would turn
+    those PRO-only and App-only releases into `all`;
   - the App's own budgets in `playback-controller.ts` that only share a value: the clock wait of
     a COMMIT that arrives without a current server clock (`PLAYBACK_COMMIT_CLOCK_WAIT_MS`,
     700 ms), the lead of a participant-local reconciliation
@@ -373,8 +373,8 @@ RO-53 owner-in-place
 
 - **Anchor tests:**
   - Timing home: `src/pro-room/__tests__/pro-room-playback-timing.test.ts` (the barrier and the
-    lead and no other value, the zero-start encoding before schemaVersion 2 one below each, one
-    start-kind union in the Worker and the App).
+    lead and no other value, the stored zero-start deadline before schemaVersion 2 one below the
+    barrier, one start-kind union in the Worker and the App).
   - Supersession: `src/youtube/__tests__/authority-arm.test.ts` "supersedes a prepared occurrence
     when the iframe instance is replaced".
   - User pause/stop: `authority-arm.test.ts` "cancels a long negative-offset wait before a pause or

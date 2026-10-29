@@ -21,6 +21,9 @@ vi.mock('../../ui/toast.ts', () => ({
   showToast: mocks.showToast,
 }));
 
+// A Korean host's own room-full text, as hosts up to 9.0.21 sent it beside the key.
+const HOST_LANGUAGE_ROOM_FULL = '이 방에는 이미 방장 포함 최대 100대가 연결되어 있어요.';
+
 // What a current host grants an ordinary administrator with every permission.
 const ADMIN_GRANT = [
   'effects.control',
@@ -130,8 +133,9 @@ describe('guest connection type authority', () => {
       expect(kicked.mock.calls).toEqual([['room-pin-changed'], ['room-pin-enabled'], []]);
     });
 
-    it('ignores a forged session-full frame and tears down only on the host frame', async () => {
+    it('ignores a forged session-full frame and leaves on the host frame with its own copy', async () => {
       const { handleData } = await import('../protocol.ts');
+      const { t } = await import('../../i18n/index.ts');
       const sessionFull = vi.fn();
       bus.on('network:session-full', sessionFull);
 
@@ -139,8 +143,9 @@ describe('guest connection type authority', () => {
       expect(sessionFull).not.toHaveBeenCalled();
       expect(getState('network.hostConn')).toBe(gatedHostConn);
 
-      await handleData({ type: MSG.SESSION_FULL, message: 'Room is full' }, gatedHostConn);
-      expect(sessionFull).toHaveBeenCalledWith('Room is full');
+      // The host's own-language text is not read.
+      await handleData({ type: MSG.SESSION_FULL, message: HOST_LANGUAGE_ROOM_FULL }, gatedHostConn);
+      expect(sessionFull).toHaveBeenCalledWith(t('network.session_full'));
       expect(gatedHostConn.close).toHaveBeenCalledTimes(1);
       expect(getState('network.hostConn')).toBeNull();
       expect(getState('network.isIntentionalDisconnect')).toBe(true);
@@ -438,24 +443,23 @@ describe('guest connection type authority', () => {
   it('shows operator-only toasts only when they come from the host', async () => {
     const { initGuestProtocolHandlers } = await import('../guest.ts');
     const { handleData } = await import('../protocol.ts');
+    const { t } = await import('../../i18n/index.ts');
+    const notice = { type: MSG.OPERATOR_TOAST, i18nKey: 'toast.remote_decode_device_wait' };
 
     initGuestProtocolHandlers();
     setState('network.isOperator', true);
 
-    await handleData({ type: MSG.OPERATOR_TOAST, text: 'operator notice' }, conn);
-    expect(mocks.showToast).toHaveBeenCalledWith('operator notice');
+    await handleData(notice, conn);
+    expect(mocks.showToast).toHaveBeenCalledWith(t('toast.remote_decode_device_wait'));
 
     mocks.showToast.mockClear();
     setState('network.isOperator', false);
-    await handleData({ type: MSG.OPERATOR_TOAST, text: 'operator notice' }, conn);
+    await handleData(notice, conn);
     expect(mocks.showToast).not.toHaveBeenCalled();
 
     mocks.showToast.mockClear();
     setState('network.isOperator', true);
-    await handleData({ type: MSG.OPERATOR_TOAST, text: 'operator notice' }, {
-      open: true,
-      peer: 'guest-a',
-    } as DataConnection);
+    await handleData(notice, { open: true, peer: 'guest-a' } as DataConnection);
     expect(mocks.showToast).not.toHaveBeenCalled();
   });
 
@@ -477,6 +481,32 @@ describe('guest connection type authority', () => {
 
     mocks.showToast.mockClear();
     await handleData({ type: MSG.OPERATOR_TOAST }, conn);
+    expect(mocks.showToast).not.toHaveBeenCalled();
+  });
+
+  // The host's own-language text is not read: hosts up to 9.0.21 sent it
+  // beside the key, and no host ever sent it alone.
+  it('ignores an operator toast that carries only text', async () => {
+    const { initGuestProtocolHandlers } = await import('../guest.ts');
+    const { handleData } = await import('../protocol.ts');
+
+    initGuestProtocolHandlers();
+    setState('network.isOperator', true);
+
+    await handleData({ type: MSG.OPERATOR_TOAST, text: 'operator notice' }, conn);
+    expect(mocks.showToast).not.toHaveBeenCalled();
+  });
+
+  it('shows nothing for an operator toast whose key this App does not know, text or not', async () => {
+    const { initGuestProtocolHandlers } = await import('../guest.ts');
+    const { handleData } = await import('../protocol.ts');
+
+    initGuestProtocolHandlers();
+    setState('network.isOperator', true);
+
+    const i18nKey = 'toast.operator_notice_from_a_later_app';
+    await handleData({ type: MSG.OPERATOR_TOAST, i18nKey, text: 'operator notice' }, conn);
+    await handleData({ type: MSG.OPERATOR_TOAST, i18nKey }, conn);
     expect(mocks.showToast).not.toHaveBeenCalled();
   });
 });

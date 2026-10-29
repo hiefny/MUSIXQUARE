@@ -18,7 +18,7 @@ import { ServerProRoomNetworkBridge } from '../network-bridge.ts';
 import type { ProRoomQueueModeSnapshot } from '../queue-mode.ts';
 import { acceptProRoomRealtimeFrameForTests, joinProRoom } from '../runtime.ts';
 import { proHeartbeat } from './__helpers__/pro-heartbeat.ts';
-import { proSnapshot } from './__helpers__/pro-snapshot.ts';
+import { proSnapshot, recountProPlaylist } from './__helpers__/pro-snapshot.ts';
 
 const ROOM = '000001';
 const ITEM = '56000000-0000-4000-8000-000000000001' as QueueItemId;
@@ -291,7 +291,7 @@ describe('PRO queue-mode required-read recovery', () => {
   }
 
   async function appendFromAnotherParticipant() {
-    canonical = {
+    canonical = recountProPlaylist({
       ...canonical,
       revision: canonical.revision + 1,
       playlistRevision: canonical.playlistRevision + 1,
@@ -303,7 +303,7 @@ describe('PRO queue-mode required-read recovery', () => {
           source: { kind: 'youtube', videoId: 'M7lc1UVf-VE' },
         },
       ],
-    };
+    });
     // The public Worker keeps the mode revision unchanged when appending while
     // shuffle is off, but its projection follows the new playlist revision.
     mode = { ...mode, playlistRevision: canonical.playlistRevision };

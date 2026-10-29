@@ -882,7 +882,7 @@ const fa: Record<I18nKey, string> = {
   'setup.how_to_connect_html':
     'برای اتصال، <strong>کد 6 رقمی</strong> میزبان را وارد کنید.<ul class="help-list"><li><strong>میزبان:</strong> «ساخت اتاق» ← مشاهدهٔ کد</li><li><strong>شرکت‌کننده:</strong> «پیوستن به اتاق» ← وارد کردن کد</li><li>تا <strong>100 دستگاه، با احتساب میزبان</strong> می‌توانند متصل شوند.</li></ul>',
   'player.play_speakers_html':
-    'هر شرکت‌کننده یک <strong>نقش (کانال خروجی)</strong> انتخاب می‌کند.<ul class="help-list"><li><strong>بلندگوی مرکزی:</strong> خروجی استریو (پیش‌فرض)</li><li><strong>بلندگوی چپ:</strong> خروجی کانال <bdi dir="ltr">L</bdi></li><li><strong>بلندگوی راست:</strong> خروجی کانال <bdi dir="ltr">R</bdi></li><li><strong>ساب‌ووفر:</strong> خروجی میکس فرکانس‌های پایین</li></ul>هر زمان خواستید می‌توانید نقش‌ها را در <strong>تنظیمات</strong> تغییر دهید.',
+    'هر شرکت‌کننده یک <strong>نقش (کانال خروجی)</strong> انتخاب می‌کند.<ul class="help-list"><li><strong>مرکز:</strong> خروجی استریو (پیش‌فرض)</li><li><strong>چپ:</strong> خروجی کانال <bdi dir="ltr">L</bdi></li><li><strong>راست:</strong> خروجی کانال <bdi dir="ltr">R</bdi></li><li><strong>بیس:</strong> خروجی میکس فرکانس‌های پایین</li></ul>هر زمان خواستید می‌توانید نقش‌ها را در <strong>تنظیمات</strong> تغییر دهید.',
   'player.play_media_action_html':
     'میزبان 3 گزینه دارد.<ul class="help-list"><li><strong>بارگیری فایل محلی:</strong> موسیقی را از دستگاه انتخاب کنید. همگام‌سازی دقیق پشتیبانی می‌شود</li><li><strong>YouTube گروهی:</strong> ویدیو و فهرست پخش پشتیبانی می‌شود. جداسازی کانال و جلوهٔ صوتی ندارد</li><li><strong>اشتراک‌گذاری صدای سیستم:</strong> وقتی میزبان با رایانه از مرورگری مبتنی بر Chromium استفاده کند در دسترس است</li></ul>',
   'help.need_help_html':

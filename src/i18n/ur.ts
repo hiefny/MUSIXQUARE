@@ -890,7 +890,7 @@ const ur: Record<I18nKey, string> = {
   'setup.how_to_connect_html':
     'منسلک ہونے کے لیے میزبان کا <strong>6 ہندسوں کا کوڈ</strong> درج کریں۔<ul class="help-list"><li><strong>میزبان:</strong> ”کمرہ بنائیں“ ← کوڈ دیکھیں</li><li><strong>شریک:</strong> ”کمرے میں شامل ہوں“ ← کوڈ درج کریں</li><li><strong>میزبان سمیت 100 آلات</strong> تک منسلک ہو سکتے ہیں۔</li></ul>',
   'player.play_speakers_html':
-    'ہر شریک ایک <strong>کردار (آؤٹ پٹ چینل)</strong> منتخب کرتا ہے۔<ul class="help-list"><li><strong>مرکزی اسپیکر:</strong> اسٹیریو (ڈیفالٹ) آؤٹ پٹ</li><li><strong>بایاں اسپیکر:</strong> <bdi dir="ltr">L</bdi> چینل آؤٹ پٹ</li><li><strong>دایاں اسپیکر:</strong> <bdi dir="ltr">R</bdi> چینل آؤٹ پٹ</li><li><strong>سب ووفر:</strong> کم فریکوئنسی مکس آؤٹ پٹ</li></ul>آپ کسی بھی وقت <strong>ترتیبات</strong> میں کردار بدل سکتے ہیں۔',
+    'ہر شریک ایک <strong>کردار (آؤٹ پٹ چینل)</strong> منتخب کرتا ہے۔<ul class="help-list"><li><strong>مرکز:</strong> اسٹیریو (ڈیفالٹ) آؤٹ پٹ</li><li><strong>بائیں:</strong> <bdi dir="ltr">L</bdi> چینل آؤٹ پٹ</li><li><strong>دائیں:</strong> <bdi dir="ltr">R</bdi> چینل آؤٹ پٹ</li><li><strong>بیس:</strong> کم فریکوئنسی مکس آؤٹ پٹ</li></ul>آپ کسی بھی وقت <strong>ترتیبات</strong> میں کردار بدل سکتے ہیں۔',
   'player.play_media_action_html':
     'میزبان کے پاس 3 اختیارات ہیں۔<ul class="help-list"><li><strong>مقامی فائل لوڈ کریں:</strong> اپنے آلے سے موسیقی منتخب کریں۔ درست سنک کی سہولت موجود ہے</li><li><strong>YouTube ساتھ دیکھیں:</strong> ویڈیوز اور پلے لسٹس چلائی جا سکتی ہیں۔ چینل تقسیم اور آڈیو ایفیکٹس دستیاب نہیں</li><li><strong>سسٹم آڈیو شیئرنگ:</strong> اس وقت دستیاب جب میزبان کمپیوٹر پر Chromium پر مبنی براؤزر استعمال کرے</li></ul>',
   'help.need_help_html':

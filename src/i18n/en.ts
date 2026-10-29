@@ -887,7 +887,7 @@ const en: Record<I18nKey, string> = {
   'setup.how_to_connect_html':
     'Enter the <strong>6-digit code</strong> from the host to connect.<ul class="help-list"><li><strong>Host:</strong> “Create a Room” → check code</li><li><strong>Participant:</strong> “Join a Room” → enter code</li><li>Up to <strong>100 devices, including the host</strong>, can connect.</li></ul>',
   'player.play_speakers_html':
-    'Each participant selects a <strong>role (output channel)</strong>.<ul class="help-list"><li><strong>Center Speaker:</strong> Stereo (default) output</li><li><strong>Left Speaker:</strong> <bdi dir="ltr">L</bdi> channel output</li><li><strong>Right Speaker:</strong> <bdi dir="ltr">R</bdi> channel output</li><li><strong>Subwoofer:</strong> Low-frequency mix output</li></ul>You can change roles anytime in <strong>Settings</strong>.',
+    'Each participant selects a <strong>role (output channel)</strong>.<ul class="help-list"><li><strong>Center:</strong> Stereo (default) output</li><li><strong>Left:</strong> <bdi dir="ltr">L</bdi> channel output</li><li><strong>Right:</strong> <bdi dir="ltr">R</bdi> channel output</li><li><strong>Bass:</strong> Low-frequency mix output</li></ul>You can change roles anytime in <strong>Settings</strong>.',
   'player.play_media_action_html':
     'The host has 3 options.<ul class="help-list"><li><strong>Load local file:</strong> Pick music from your device. Precise sync supported</li><li><strong>Watch YouTube together:</strong> Videos and playlists supported. No channel split or audio effects</li><li><strong>System Audio Sharing:</strong> Available when the host uses a Chromium-based browser on a computer</li></ul>',
   'help.need_help_html':

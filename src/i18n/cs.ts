@@ -902,7 +902,7 @@ const cs: Record<I18nKey, string> = {
   'setup.how_to_connect_html':
     'Připojte se zadáním <strong>šestimístného kódu</strong> od hostitele.<ul class="help-list"><li><strong>Hostitel:</strong> „Vytvořit místnost“ → zobrazit kód</li><li><strong>Účastník:</strong> „Připojit se k místnosti“ → zadat kód</li><li>Připojit se může až <strong>100 zařízení včetně hostitele</strong>.</li></ul>',
   'player.play_speakers_html':
-    'Každý účastník si vybere <strong>roli (výstupní kanál)</strong>.<ul class="help-list"><li><strong>Střed:</strong> stereofonní výstup (výchozí)</li><li><strong>Levý (Left):</strong> výstup kanálu <bdi dir="ltr">L</bdi></li><li><strong>Pravý (Right):</strong> výstup kanálu <bdi dir="ltr">R</bdi></li><li><strong>Subwoofer:</strong> smíšený výstup nízkých frekvencí</li></ul>Role můžete kdykoli změnit v <strong>Nastavení</strong>.',
+    'Každý účastník si vybere <strong>roli (výstupní kanál)</strong>.<ul class="help-list"><li><strong>Střed:</strong> stereofonní výstup (výchozí)</li><li><strong>Levý:</strong> výstup kanálu <bdi dir="ltr">L</bdi></li><li><strong>Pravý:</strong> výstup kanálu <bdi dir="ltr">R</bdi></li><li><strong>Basy:</strong> smíšený výstup nízkých frekvencí</li></ul>Role můžete kdykoli změnit v <strong>Nastavení</strong>.',
   'player.play_media_action_html':
     'Hostitel má 3 možnosti.<ul class="help-list"><li><strong>Načíst místní soubor:</strong> vyberte hudbu ze zařízení. Podporuje přesnou synchronizaci</li><li><strong>YouTube společně:</strong> podporuje videa a seznamy videí. Bez rozdělení kanálů a zvukových efektů</li><li><strong>Sdílení systémového zvuku:</strong> dostupné, když hostitel používá na počítači prohlížeč založený na platformě Chromium</li></ul>',
   'help.need_help_html':

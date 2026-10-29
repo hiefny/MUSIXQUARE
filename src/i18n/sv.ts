@@ -904,7 +904,7 @@ const sv: Record<I18nKey, string> = {
   'setup.how_to_connect_html':
     'Ange värdens <strong>6-siffriga kod</strong> för att ansluta.<ul class="help-list"><li><strong>Värd:</strong> ”Skapa ett rum” → kontrollera koden</li><li><strong>Deltagare:</strong> ”Anslut till ett rum” → ange koden</li><li>Upp till <strong>100 enheter inklusive värden</strong> kan ansluta.</li></ul>',
   'player.play_speakers_html':
-    'Varje deltagare väljer en <strong>roll (utgångskanal)</strong>.<ul class="help-list"><li><strong>Centerhögtalare:</strong> Stereo (standard)</li><li><strong>Vänster högtalare:</strong> <bdi dir="ltr">L</bdi>-kanal</li><li><strong>Höger högtalare:</strong> <bdi dir="ltr">R</bdi>-kanal</li><li><strong>Subwoofer:</strong> Mix av låga frekvenser</li></ul>Du kan när som helst ändra roller under <strong>Inställningar</strong>.',
+    'Varje deltagare väljer en <strong>roll (utgångskanal)</strong>.<ul class="help-list"><li><strong>Center:</strong> Stereo (standard)</li><li><strong>Vänster:</strong> <bdi dir="ltr">L</bdi>-kanal</li><li><strong>Höger:</strong> <bdi dir="ltr">R</bdi>-kanal</li><li><strong>Bas:</strong> Mix av låga frekvenser</li></ul>Du kan när som helst ändra roller under <strong>Inställningar</strong>.',
   'player.play_media_action_html':
     'Värden har 3 alternativ.<ul class="help-list"><li><strong>Läs in lokal fil:</strong> Välj musik på enheten. Noggrann synkronisering stöds</li><li><strong>YouTube tillsammans:</strong> Videor och spellistor stöds. Kanalseparering och ljudeffekter stöds inte</li><li><strong>Dela systemljud:</strong> Tillgängligt när värden använder en Chromium-baserad webbläsare på en dator</li></ul>',
   'help.need_help_html':

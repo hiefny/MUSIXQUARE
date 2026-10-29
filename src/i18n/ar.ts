@@ -872,7 +872,7 @@ const ar: Record<I18nKey, string> = {
   'setup.how_to_connect_html':
     'أدخل <strong>الرمز المؤلف من 6 أرقام</strong> الذي يظهر لدى المضيف للاتصال.<ul class="help-list"><li><strong>المضيف:</strong> «إنشاء غرفة» ← راجع الرمز</li><li><strong>المشارك:</strong> «الانضمام إلى غرفة» ← أدخل الرمز</li><li>يمكن اتصال ما يصل إلى <strong>100 جهاز، بما فيها جهاز المضيف</strong>.</li></ul>',
   'player.play_speakers_html':
-    'يختار كل مشارك <strong>دورًا (قناة إخراج)</strong>.<ul class="help-list"><li><strong>مكبر الصوت المركزي:</strong> خرج ستيريو (افتراضي)</li><li><strong>مكبر الصوت الأيسر:</strong> خرج قناة <bdi dir="ltr">L</bdi></li><li><strong>مكبر الصوت الأيمن:</strong> خرج قناة <bdi dir="ltr">R</bdi></li><li><strong>مضخم الصوت:</strong> خرج مزيج الترددات المنخفضة</li></ul>يمكنك تغيير الأدوار في أي وقت من <strong>الإعدادات</strong>.',
+    'يختار كل مشارك <strong>دورًا (قناة إخراج)</strong>.<ul class="help-list"><li><strong>وسط:</strong> خرج ستيريو (افتراضي)</li><li><strong>يسار:</strong> خرج قناة <bdi dir="ltr">L</bdi></li><li><strong>يمين:</strong> خرج قناة <bdi dir="ltr">R</bdi></li><li><strong>جهير:</strong> خرج مزيج الترددات المنخفضة</li></ul>يمكنك تغيير الأدوار في أي وقت من <strong>الإعدادات</strong>.',
   'player.play_media_action_html':
     'لدى المضيف 3 خيارات.<ul class="help-list"><li><strong>تحميل ملف محلي:</strong> اختر موسيقى من جهازك. يدعم المزامنة الدقيقة</li><li><strong>YouTube معًا:</strong> يدعم الفيديوهات وقوائم التشغيل. لا يدعم فصل القنوات أو المؤثرات الصوتية</li><li><strong>مشاركة صوت النظام:</strong> متاحة عندما يستخدم المضيف متصفحًا مبنيًا على Chromium على جهاز كمبيوتر</li></ul>',
   'help.need_help_html':

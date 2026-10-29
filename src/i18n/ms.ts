@@ -915,7 +915,7 @@ const ms: Record<I18nKey, string> = {
   'setup.how_to_connect_html':
     'Masukkan <strong>kod 6 digit</strong> daripada hos untuk menyambung.<ul class="help-list"><li><strong>Hos:</strong> “Cipta Bilik” → semak kod</li><li><strong>Peserta:</strong> “Sertai Bilik” → masukkan kod</li><li>Sehingga <strong>100 peranti, termasuk hos</strong>, boleh disambungkan.</li></ul>',
   'player.play_speakers_html':
-    'Setiap peserta memilih <strong>peranan (saluran output)</strong>.<ul class="help-list"><li><strong>Tengah:</strong> Output stereo (lalai)</li><li><strong>Kiri:</strong> Output saluran <bdi dir="ltr">L</bdi></li><li><strong>Kanan:</strong> Output saluran <bdi dir="ltr">R</bdi></li><li><strong>Subwufer:</strong> Output campuran frekuensi rendah</li></ul>Anda boleh menukar peranan pada bila-bila masa dalam <strong>Tetapan</strong>.',
+    'Setiap peserta memilih <strong>peranan (saluran output)</strong>.<ul class="help-list"><li><strong>Tengah:</strong> Output stereo (lalai)</li><li><strong>Kiri:</strong> Output saluran <bdi dir="ltr">L</bdi></li><li><strong>Kanan:</strong> Output saluran <bdi dir="ltr">R</bdi></li><li><strong>Bass:</strong> Output campuran frekuensi rendah</li></ul>Anda boleh menukar peranan pada bila-bila masa dalam <strong>Tetapan</strong>.',
   'player.play_media_action_html':
     'Hos mempunyai 3 pilihan.<ul class="help-list"><li><strong>Muatkan fail setempat:</strong> Pilih muzik daripada peranti anda. Penyegerakan tepat disokong</li><li><strong>YouTube Bersama:</strong> Video dan senarai main disokong. Tiada pemisahan saluran atau kesan audio</li><li><strong>Perkongsian Audio Sistem:</strong> Tersedia apabila hos menggunakan pelayar berasaskan Chromium pada komputer</li></ul>',
   'help.need_help_html':

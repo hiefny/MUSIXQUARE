@@ -894,7 +894,7 @@ const mr: Record<I18nKey, string> = {
   'setup.how_to_connect_html':
     'कनेक्ट होण्यासाठी होस्टकडील <strong>6-अंकी कोड</strong> प्रविष्ट करा.<ul class="help-list"><li><strong>होस्ट:</strong> “रूम तयार करा” → कोड तपासा</li><li><strong>सहभागी:</strong> “रूममध्ये सामील व्हा” → कोड प्रविष्ट करा</li><li><strong>होस्टसह जास्तीत जास्त 100 डिव्हाइस</strong> कनेक्ट होऊ शकतात.</li></ul>',
   'player.play_speakers_html':
-    'प्रत्येक सहभागी एक <strong>भूमिका (आउटपुट चॅनल)</strong> निवडतो.<ul class="help-list"><li><strong>मध्य स्पीकर:</strong> स्टिरिओ (डीफॉल्ट) आउटपुट</li><li><strong>डावा स्पीकर:</strong> <bdi dir="ltr">L</bdi> चॅनल आउटपुट</li><li><strong>उजवा स्पीकर:</strong> <bdi dir="ltr">R</bdi> चॅनल आउटपुट</li><li><strong>सबवूफर:</strong> कमी वारंवारतेचे मिश्रित आउटपुट</li></ul><strong>सेटिंग्ज</strong>मध्ये भूमिका कधीही बदलू शकता.',
+    'प्रत्येक सहभागी एक <strong>भूमिका (आउटपुट चॅनल)</strong> निवडतो.<ul class="help-list"><li><strong>मध्य:</strong> स्टिरिओ (डीफॉल्ट) आउटपुट</li><li><strong>डावा:</strong> <bdi dir="ltr">L</bdi> चॅनल आउटपुट</li><li><strong>उजवा:</strong> <bdi dir="ltr">R</bdi> चॅनल आउटपुट</li><li><strong>बेस:</strong> कमी वारंवारतेचे मिश्रित आउटपुट</li></ul><strong>सेटिंग्ज</strong>मध्ये भूमिका कधीही बदलू शकता.',
   'player.play_media_action_html':
     'होस्टकडे 3 पर्याय आहेत.<ul class="help-list"><li><strong>स्थानिक फाइल लोड करा:</strong> तुमच्या डिव्हाइसवरील संगीत निवडा. अचूक सिंक समर्थित</li><li><strong>YouTube एकत्र:</strong> व्हिडिओ आणि प्लेलिस्ट समर्थित. चॅनल विभाजन किंवा ऑडिओ इफेक्ट नाहीत</li><li><strong>सिस्टम ऑडिओ शेअरिंग:</strong> होस्ट संगणकावर Chromium-आधारित ब्राउझर वापरत असल्यास उपलब्ध</li></ul>',
   'help.need_help_html':

@@ -899,7 +899,7 @@ const da: Record<I18nKey, string> = {
   'setup.how_to_connect_html':
     'Indtast værtens <strong>6-cifrede kode</strong> for at oprette forbindelse.<ul class="help-list"><li><strong>Vært:</strong> ”Opret et rum” → se koden</li><li><strong>Deltager:</strong> ”Deltag i et rum” → indtast koden</li><li>Op til <strong>100 enheder inklusive værten</strong> kan oprette forbindelse.</li></ul>',
   'player.play_speakers_html':
-    'Hver deltager vælger en <strong>rolle (udgangskanal)</strong>.<ul class="help-list"><li><strong>Center:</strong> Stereo (standardudgang)</li><li><strong>Venstre:</strong> <bdi dir="ltr">L</bdi>-kanaludgang</li><li><strong>Højre:</strong> <bdi dir="ltr">R</bdi>-kanaludgang</li><li><strong>Subwoofer:</strong> Mix af lave frekvenser</li></ul>Du kan når som helst ændre roller under <strong>Indstillinger</strong>.',
+    'Hver deltager vælger en <strong>rolle (udgangskanal)</strong>.<ul class="help-list"><li><strong>Center:</strong> Stereo (standardudgang)</li><li><strong>Venstre:</strong> <bdi dir="ltr">L</bdi>-kanaludgang</li><li><strong>Højre:</strong> <bdi dir="ltr">R</bdi>-kanaludgang</li><li><strong>Bas:</strong> Mix af lave frekvenser</li></ul>Du kan når som helst ændre roller under <strong>Indstillinger</strong>.',
   'player.play_media_action_html':
     'Værten har 3 muligheder.<ul class="help-list"><li><strong>Indlæs lokal fil:</strong> Vælg musik på din enhed. Præcis synkronisering understøttes</li><li><strong>YouTube sammen:</strong> Videoer og afspilningslister understøttes. Kanaladskillelse og lydeffekter understøttes ikke</li><li><strong>Deling af systemlyd:</strong> Tilgængelig, når værten bruger en Chromium-baseret browser på en computer</li></ul>',
   'help.need_help_html':

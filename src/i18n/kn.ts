@@ -907,7 +907,7 @@ const kn: Record<I18nKey, string> = {
   'setup.how_to_connect_html':
     'ಸಂಪರ್ಕಿಸಲು ಹೋಸ್ಟ್‌ನ <strong>6-ಅಂಕಿಯ ಕೋಡ್</strong> ನಮೂದಿಸಿ.<ul class="help-list"><li><strong>ಹೋಸ್ಟ್:</strong> “ರೂಮ್ ರಚಿಸಿ” → ಕೋಡ್ ಪರಿಶೀಲಿಸಿ</li><li><strong>ಭಾಗವಹಿಸುವವರು:</strong> “ರೂಮ್‌ಗೆ ಸೇರಿ” → ಕೋಡ್ ನಮೂದಿಸಿ</li><li><strong>ಹೋಸ್ಟ್ ಸೇರಿ ಗರಿಷ್ಠ 100 ಸಾಧನಗಳು</strong> ಸಂಪರ್ಕಿಸಬಹುದು.</li></ul>',
   'player.play_speakers_html':
-    'ಪ್ರತಿ ಭಾಗವಹಿಸುವವರು ಒಂದು <strong>ಪಾತ್ರ (ಔಟ್‌ಪುಟ್ ಚಾನಲ್)</strong> ಆರಿಸುತ್ತಾರೆ.<ul class="help-list"><li><strong>ಮಧ್ಯದ ಸ್ಪೀಕರ್:</strong> ಸ್ಟೀರಿಯೊ (ಡೀಫಾಲ್ಟ್) ಔಟ್‌ಪುಟ್</li><li><strong>ಎಡ ಸ್ಪೀಕರ್:</strong> <bdi dir="ltr">L</bdi> ಚಾನಲ್ ಔಟ್‌ಪುಟ್</li><li><strong>ಬಲ ಸ್ಪೀಕರ್:</strong> <bdi dir="ltr">R</bdi> ಚಾನಲ್ ಔಟ್‌ಪುಟ್</li><li><strong>ಸಬ್‌ವೂಫರ್:</strong> ಕಡಿಮೆ ಆವರ್ತನದ ಮಿಶ್ರ ಔಟ್‌ಪುಟ್</li></ul><strong>ಸೆಟ್ಟಿಂಗ್‌ಗಳಲ್ಲಿ</strong> ಪಾತ್ರಗಳನ್ನು ಯಾವಾಗ ಬೇಕಾದರೂ ಬದಲಿಸಬಹುದು.',
+    'ಪ್ರತಿ ಭಾಗವಹಿಸುವವರು ಒಂದು <strong>ಪಾತ್ರ (ಔಟ್‌ಪುಟ್ ಚಾನಲ್)</strong> ಆರಿಸುತ್ತಾರೆ.<ul class="help-list"><li><strong>ಮಧ್ಯ:</strong> ಸ್ಟೀರಿಯೊ (ಡೀಫಾಲ್ಟ್) ಔಟ್‌ಪುಟ್</li><li><strong>ಎಡ:</strong> <bdi dir="ltr">L</bdi> ಚಾನಲ್ ಔಟ್‌ಪುಟ್</li><li><strong>ಬಲ:</strong> <bdi dir="ltr">R</bdi> ಚಾನಲ್ ಔಟ್‌ಪುಟ್</li><li><strong>ಬೇಸ್:</strong> ಕಡಿಮೆ ಆವರ್ತನದ ಮಿಶ್ರ ಔಟ್‌ಪುಟ್</li></ul><strong>ಸೆಟ್ಟಿಂಗ್‌ಗಳಲ್ಲಿ</strong> ಪಾತ್ರಗಳನ್ನು ಯಾವಾಗ ಬೇಕಾದರೂ ಬದಲಿಸಬಹುದು.',
   'player.play_media_action_html':
     'ಹೋಸ್ಟ್‌ಗೆ 3 ಆಯ್ಕೆಗಳಿವೆ.<ul class="help-list"><li><strong>ಸ್ಥಳೀಯ ಫೈಲ್ ಲೋಡ್ ಮಾಡಿ:</strong> ನಿಮ್ಮ ಸಾಧನದಿಂದ ಸಂಗೀತ ಆರಿಸಿ. ನಿಖರ ಸಿಂಕ್ ಬೆಂಬಲಿತವಾಗಿದೆ</li><li><strong>ಒಟ್ಟಿಗೆ YouTube:</strong> ವೀಡಿಯೊಗಳು ಮತ್ತು ಪ್ಲೇಲಿಸ್ಟ್‌ಗಳು ಬೆಂಬಲಿತವಾಗಿವೆ. ಚಾನಲ್ ವಿಭಜನೆ ಅಥವಾ ಆಡಿಯೊ ಪರಿಣಾಮಗಳಿಲ್ಲ</li><li><strong>ಸಿಸ್ಟಮ್ ಆಡಿಯೊ ಹಂಚಿಕೆ:</strong> ಹೋಸ್ಟ್ ಕಂಪ್ಯೂಟರ್‌ನಲ್ಲಿ Chromium-ಆಧಾರಿತ ಬ್ರೌಸರ್ ಬಳಸುವಾಗ ಲಭ್ಯವಿದೆ</li></ul>',
   'help.need_help_html':

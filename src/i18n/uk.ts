@@ -900,7 +900,7 @@ const uk: Record<I18nKey, string> = {
   'setup.how_to_connect_html':
     'Щоб підключитися, введіть <strong>6-значний код</strong> хоста.<ul class="help-list"><li><strong>Хост:</strong> «Створити кімнату» → переглянути код</li><li><strong>Учасник:</strong> «Приєднатися до кімнати» → ввести код</li><li>Можна підключити до <strong>100 пристроїв разом із хостом</strong>.</li></ul>',
   'player.play_speakers_html':
-    'Кожен учасник вибирає <strong>роль (вихідний канал)</strong>.<ul class="help-list"><li><strong>Центральний динамік:</strong> стереовихід (за замовчуванням)</li><li><strong>Лівий динамік:</strong> вихід каналу <bdi dir="ltr">L</bdi></li><li><strong>Правий динамік:</strong> вихід каналу <bdi dir="ltr">R</bdi></li><li><strong>Сабвуфер:</strong> вихід міксу низьких частот</li></ul>Роль можна будь-коли змінити в <strong>налаштуваннях</strong>.',
+    'Кожен учасник вибирає <strong>роль (вихідний канал)</strong>.<ul class="help-list"><li><strong>Центр:</strong> стереовихід (за замовчуванням)</li><li><strong>Лівий:</strong> вихід каналу <bdi dir="ltr">L</bdi></li><li><strong>Правий:</strong> вихід каналу <bdi dir="ltr">R</bdi></li><li><strong>Бас:</strong> вихід міксу низьких частот</li></ul>Роль можна будь-коли змінити в <strong>налаштуваннях</strong>.',
   'player.play_media_action_html':
     'Хост має 3 варіанти.<ul class="help-list"><li><strong>Завантажити локальний файл:</strong> вибрати музику на пристрої. Підтримується точна синхронізація</li><li><strong>YouTube разом:</strong> підтримуються відео й плейлісти. Без розділення каналів і звукових ефектів</li><li><strong>Трансляція системного аудіо:</strong> доступна, якщо хост використовує на комп’ютері браузер на основі Chromium</li></ul>',
   'help.need_help_html':

@@ -895,7 +895,7 @@ const pa: Record<I18nKey, string> = {
   'setup.how_to_connect_html':
     'ਕਨੈਕਟ ਕਰਨ ਲਈ ਹੋਸਟ ਦਾ <strong>6-ਅੰਕਾਂ ਵਾਲਾ ਕੋਡ</strong> ਦਾਖਲ ਕਰੋ।<ul class="help-list"><li><strong>ਹੋਸਟ:</strong> “ਰੂਮ ਬਣਾਓ” → ਕੋਡ ਵੇਖੋ</li><li><strong>ਭਾਗੀਦਾਰ:</strong> “ਰੂਮ ਵਿੱਚ ਸ਼ਾਮਲ ਹੋਵੋ” → ਕੋਡ ਦਾਖਲ ਕਰੋ</li><li><strong>ਹੋਸਟ ਸਮੇਤ ਵੱਧ ਤੋਂ ਵੱਧ 100 ਡਿਵਾਈਸਾਂ</strong> ਕਨੈਕਟ ਹੋ ਸਕਦੀਆਂ ਹਨ।</li></ul>',
   'player.play_speakers_html':
-    'ਹਰ ਭਾਗੀਦਾਰ ਇੱਕ <strong>ਭੂਮਿਕਾ (ਆਉਟਪੁੱਟ ਚੈਨਲ)</strong> ਚੁਣਦਾ ਹੈ।<ul class="help-list"><li><strong>ਵਿਚਕਾਰਲਾ ਸਪੀਕਰ:</strong> ਸਟੀਰੀਓ (ਡਿਫਾਲਟ) ਆਉਟਪੁੱਟ</li><li><strong>ਖੱਬਾ ਸਪੀਕਰ:</strong> <bdi dir="ltr">L</bdi> ਚੈਨਲ ਆਉਟਪੁੱਟ</li><li><strong>ਸੱਜਾ ਸਪੀਕਰ:</strong> <bdi dir="ltr">R</bdi> ਚੈਨਲ ਆਉਟਪੁੱਟ</li><li><strong>ਸਬਵੂਫ਼ਰ:</strong> ਘੱਟ ਫ੍ਰੀਕੁਐਂਸੀ ਦਾ ਮਿਸ਼ਰਤ ਆਉਟਪੁੱਟ</li></ul>ਤੁਸੀਂ <strong>ਸੈਟਿੰਗਾਂ</strong> ਵਿੱਚ ਭੂਮਿਕਾਵਾਂ ਕਦੇ ਵੀ ਬਦਲ ਸਕਦੇ ਹੋ।',
+    'ਹਰ ਭਾਗੀਦਾਰ ਇੱਕ <strong>ਭੂਮਿਕਾ (ਆਉਟਪੁੱਟ ਚੈਨਲ)</strong> ਚੁਣਦਾ ਹੈ।<ul class="help-list"><li><strong>ਵਿਚਲਾ:</strong> ਸਟੀਰੀਓ (ਡਿਫਾਲਟ) ਆਉਟਪੁੱਟ</li><li><strong>ਖੱਬਾ:</strong> <bdi dir="ltr">L</bdi> ਚੈਨਲ ਆਉਟਪੁੱਟ</li><li><strong>ਸੱਜਾ:</strong> <bdi dir="ltr">R</bdi> ਚੈਨਲ ਆਉਟਪੁੱਟ</li><li><strong>ਬੇਸ:</strong> ਘੱਟ ਫ੍ਰੀਕੁਐਂਸੀ ਦਾ ਮਿਸ਼ਰਤ ਆਉਟਪੁੱਟ</li></ul>ਤੁਸੀਂ <strong>ਸੈਟਿੰਗਾਂ</strong> ਵਿੱਚ ਭੂਮਿਕਾਵਾਂ ਕਦੇ ਵੀ ਬਦਲ ਸਕਦੇ ਹੋ।',
   'player.play_media_action_html':
     'ਹੋਸਟ ਕੋਲ 3 ਚੋਣਾਂ ਹਨ।<ul class="help-list"><li><strong>ਸਥਾਨਕ ਫ਼ਾਈਲ ਲੋਡ ਕਰੋ:</strong> ਆਪਣੀ ਡਿਵਾਈਸ ਵਿੱਚੋਂ ਸੰਗੀਤ ਚੁਣੋ। ਸਟੀਕ ਸਿੰਕ ਉਪਲਬਧ ਹੈ</li><li><strong>ਇਕੱਠੇ YouTube:</strong> ਵੀਡੀਓ ਅਤੇ ਪਲੇਲਿਸਟ ਚੱਲਦੀਆਂ ਹਨ। ਚੈਨਲ ਵੰਡ ਜਾਂ ਆਡੀਓ ਪ੍ਰਭਾਵ ਨਹੀਂ</li><li><strong>ਸਿਸਟਮ ਆਡੀਓ ਸਾਂਝਾ ਕਰਨਾ:</strong> ਜਦੋਂ ਹੋਸਟ ਕੰਪਿਊਟਰ ਉੱਤੇ Chromium-ਆਧਾਰਿਤ ਬ੍ਰਾਊਜ਼ਰ ਵਰਤਦਾ ਹੈ ਤਾਂ ਉਪਲਬਧ</li></ul>',
   'help.need_help_html':

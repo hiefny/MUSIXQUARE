@@ -472,7 +472,7 @@ for (const direction of ['ltr', 'rtl'] as const) {
     // Owner decision (2026-10-29, item 18): the header exit 9.0.20 added at
     // the top start goes. Steps 1 to 3 leave through Back, step 4 keeps Exit
     // Tour, and the header names the track without its album on one line.
-    await page.setViewportSize({ width: 320, height: 640 });
+    await page.setViewportSize({ width: 390, height: 844 });
     await enterDemo(page);
     if (direction === 'rtl') {
       await page.evaluate(() => document.documentElement.setAttribute('dir', 'rtl'));

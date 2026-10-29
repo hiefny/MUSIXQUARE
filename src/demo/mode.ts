@@ -985,8 +985,10 @@ function scheduleDemoLayoutRefresh(): void {
 
 function syncDemoTrackText(): void {
   const track = getCurrentDemoTrack();
+  // The header names the track alone: every demo track shares its album
+  // ("Linelight OST - "), which the track list and the track info show.
   document.querySelectorAll<HTMLElement>('.demo-track-title').forEach((el) => {
-    el.textContent = track.title;
+    el.textContent = track.shortTitle;
   });
   document.querySelectorAll<HTMLElement>('.demo-track-artist').forEach((el) => {
     el.textContent = `© ${track.artist}`;
@@ -1927,11 +1929,6 @@ function bindDemoDom(): void {
   document.querySelectorAll<HTMLElement>('[data-demo-exit]').forEach((btn) => {
     btn.addEventListener('click', () => bus.emit('demo:request-exit'));
   });
-  // The tour's persistent exit at the header's start, on every step (owner
-  // policy 2026-10-28). It ends the demo exactly as the step-4 exit does.
-  document
-    .getElementById('btn-demo-exit')
-    ?.addEventListener('click', () => bus.emit('demo:request-exit'));
   document.querySelectorAll<HTMLElement>('[data-demo-play]').forEach((btn) => {
     btn.addEventListener('click', () => bus.emit('demo:toggle-play'));
   });

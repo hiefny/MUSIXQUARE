@@ -28,15 +28,18 @@ The page opens on `?locale=<code>` when it names a supported language. Otherwise
 it opens on the browser language, matched exactly as the App matches it
 (`src/i18n/language-match.ts`, shared by both), and on English when none is
 supported. `?phrase=<surface>:<key>` selects that phrase when the catalog holds
-it; otherwise the first phrase (`about:hero.h1`) is selected. Query values are only
-compared with known language codes and catalog ids; they are never rendered.
+it, also after Retry when the first catalog load failed, and the list opens on the
+page that shows it; otherwise the first phrase (`about:hero.h1`) is selected.
+Query values are only compared with known language codes and catalog ids; they
+are never rendered.
 
 When the visitor changes the language or the phrase, `history.replaceState`
 keeps `locale` and `phrase` in the address (other parameters stay). Both sign-in
 links return to the shown language and phrase. The phrase is dropped if the
 return would pass the Worker's 1,024-byte `returnTo` bound. The App language
-dialog's Help translate link opens `/translate?locale=<App language>` and follows
-language changes.
+dialog's Help translate link opens the page in the App language and follows
+language changes: it is the plain `/translate` when the page would pick the same
+language from the browser, and `/translate?locale=<App language>` otherwise.
 
 After Google sign-in the Worker returns with `accountAuth=success|cancelled|error`.
 The page removes the marker with `replaceState`, keeping `locale`, `phrase` and
@@ -47,8 +50,11 @@ the fragment. A cancelled or failed sign-in shows "Sign-in was cancelled." or
 
 Like the other standalone pages, the page loads the guarded
 `/analytics-bootstrap.js` before its own script. The loader counts only
-production, queryless, fragment-free arrivals, so `/translate` is counted and
-`/translate?locale=…` (the App language dialog link) or a sign-in return is not.
+production, queryless, fragment-free arrivals without a query in the referrer,
+so `/translate` (also the App language dialog link when the App language matches
+the browser) is counted. Not counted: the dialog link with `?locale` (the App
+language differs from the browser), a sign-in return, and a page opened from
+`/translate` after the address gained a query.
 
 ## Editing and storage
 

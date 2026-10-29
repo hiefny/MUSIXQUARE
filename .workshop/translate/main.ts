@@ -60,6 +60,8 @@ let signInMessage =
       : '';
 let catalog: Catalog | null = null;
 let selectedId = DEFAULT_PHRASE_ID;
+// Untrusted. Requested by every load, Retry included, until the first phrase is selected.
+let pendingPhrase = address.phrase;
 let page = 0;
 let requestedLocale = address.locale;
 // The address follows the visitor's own language or phrase choice, not the first view.
@@ -324,6 +326,7 @@ function renderReferences(entry: Entry): void {
 function selectEntry(id: string): void {
   if (saveTimer !== undefined) persist();
   selectedId = id;
+  pendingPhrase = null;
   const entry = selectedEntry();
   element('editor').hidden = !entry;
   community.clearSubmitStatus();
@@ -377,7 +380,8 @@ function updateDraft(): void {
   saveTimer = setTimeout(persist, 300);
 }
 
-async function loadCatalog(locale: string, id = selectedId): Promise<void> {
+async function loadCatalog(locale: string, id = pendingPhrase ?? selectedId): Promise<void> {
+  const fromAddress = id === pendingPhrase;
   if (saveTimer !== undefined) persist();
   request?.abort();
   const active = new AbortController();
@@ -408,6 +412,10 @@ async function loadCatalog(locale: string, id = selectedId): Promise<void> {
     const preferred = [id, DEFAULT_PHRASE_ID]
       .map((candidate) => available.find((entry) => entry.id === candidate))
       .find((entry) => !!entry);
+    // An address phrase opens on the page of the list that shows it.
+    if (fromAddress && preferred?.id === id) {
+      page = Math.floor(available.indexOf(preferred) / pageSize);
+    }
     selectEntry(preferred?.id ?? available[0]?.id ?? next.entries[0]?.id ?? '');
     if (addressChosen) rememberSelection();
     if (signInMessage) {
@@ -494,4 +502,4 @@ setStorageWarning(initial.warning);
 writeAddress(signIn.search);
 updateSignInReturn(null);
 
-loadCatalog(requestedLocale, address.phrase ?? DEFAULT_PHRASE_ID).catch(reportActionFailure);
+loadCatalog(requestedLocale).catch(reportActionFailure);

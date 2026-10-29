@@ -3180,6 +3180,60 @@ describe('coordinator-free PRO playback runtime', { concurrent: false }, () => {
     );
   });
 
+  // PRO snapshot schemaVersion 2 names the start kind on every PREPARE and
+  // transition COMMIT (Q4). The named kind decides, whatever the lead; the
+  // three rows above keep the 699 ms lead rule for a COMMIT without it.
+  it.each([
+    { timingMode: 'zero-start', wireLeadMs: 700, prepareNamesKind: true },
+    { timingMode: 'scheduled-control', wireLeadMs: 699, prepareNamesKind: true },
+    // A transition prepared before the Worker named kinds, committed after.
+    { timingMode: 'zero-start', wireLeadMs: 700, prepareNamesKind: false },
+  ] as const)(
+    'starts a COMMIT that names $timingMode at a $wireLeadMs ms lead as $timingMode (PREPARE names it: $prepareNamesKind)',
+    async ({ timingMode, wireLeadMs, prepareNamesKind }) => {
+      const prepared = prepareEvent(TRANSITION_COMMIT);
+      acceptProRoomRealtimeFrameForTests(
+        serverFrame({ ...prepared, ...(prepareNamesKind ? { timingMode } : {}) }),
+      );
+      await vi.waitFor(() => expect(reportReady).toHaveBeenCalledOnce());
+
+      acceptProRoomRealtimeFrameForTests(
+        serverFrame({ ...commitEvent(TRANSITION_COMMIT, 1, wireLeadMs), timingMode }),
+      );
+      await vi.waitFor(() => expect(commitMedia).toHaveBeenCalledOnce());
+      expect(commitMedia).toHaveBeenCalledWith(
+        expect.objectContaining({ committedPlaybackRevision: 1, timingMode }),
+      );
+    },
+  );
+
+  it('reads a start kind it does not know as a scheduled control, even at the 699 ms lead', async () => {
+    acceptProRoomRealtimeFrameForTests(
+      serverFrame({ ...prepareEvent(TRANSITION_COMMIT), timingMode: 'learned-start' }),
+    );
+    await vi.waitFor(() => expect(reportReady).toHaveBeenCalledOnce());
+
+    acceptProRoomRealtimeFrameForTests(
+      serverFrame({ ...commitEvent(TRANSITION_COMMIT, 1, 699), timingMode: 'learned-start' }),
+    );
+    await vi.waitFor(() => expect(commitMedia).toHaveBeenCalledOnce());
+    expect(commitMedia).toHaveBeenCalledWith(
+      expect.objectContaining({ committedPlaybackRevision: 1, timingMode: 'scheduled-control' }),
+    );
+  });
+
+  // The kind belongs to the transition the Worker made, not to the route the
+  // COMMIT took: without its PREPARE here, no learned lead (ZS-09).
+  it('keeps a COMMIT that names zero-start without its PREPARE a scheduled control', async () => {
+    acceptProRoomRealtimeFrameForTests(
+      serverFrame({ ...commitEvent(TRANSITION_COMMIT, 1, 700), timingMode: 'zero-start' }),
+    );
+    await vi.waitFor(() => expect(commitMedia).toHaveBeenCalledOnce());
+    expect(commitMedia).toHaveBeenCalledWith(
+      expect.objectContaining({ committedPlaybackRevision: 1, timingMode: 'scheduled-control' }),
+    );
+  });
+
   it('advances command baseRevision after a canonical COMMIT', async () => {
     const prepared = prepareEvent(TRANSITION_COMMIT);
     acceptProRoomRealtimeFrameForTests(serverFrame(prepared as unknown as Record<string, unknown>));

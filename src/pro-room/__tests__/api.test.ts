@@ -1,5 +1,7 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import {
+  parseProRoomPlaybackCommitEvent,
+  parseProRoomPlaybackPrepareEvent,
   proRoomProductionEndpointForTests as PRO_ROOM_PRODUCTION_ENDPOINT,
   proRoomR2HostForTests as PRO_ROOM_R2_HOST,
   ProRoomApiClient,
@@ -188,6 +190,24 @@ function detachedFields(): ProSnapshotFields {
       ...administrator,
       onlineDeviceCount: 0,
     })),
+  };
+}
+
+/** The PREPARE of the active room's next playback revision, as the Worker sends it. */
+function playbackPrepareWire() {
+  const playback = activeFields().playback;
+  return {
+    type: 'pro-playback-prepare' as const,
+    transitionId: 'transition_1234567890123456789012',
+    serverTimeMs: 1_800_000_001_000,
+    deadlineAtMs: 1_800_000_004_000,
+    basePlaybackRevision: playback.revision,
+    target: {
+      ...playback,
+      revision: playback.revision + 1,
+      state: 'playing' as const,
+      updatedAtMs: 1_800_000_001_000,
+    },
   };
 }
 
@@ -1270,6 +1290,30 @@ describe('PRO room cookie session API', () => {
     expect(fetchMock.mock.calls.map((call) => call[1]?.method)).toEqual(['POST']);
   });
 
+  // PRO snapshot schemaVersion 2 names the start kind on every PREPARE (Q4).
+  // The parser builds a new object, so it must copy the field, or a later
+  // reader of this pending PREPARE would never see it.
+  it.each(['zero-start', 'scheduled-control'] as const)(
+    'keeps the %s timingMode of the pending PREPARE in a member ticket',
+    async (timingMode) => {
+      const access = {
+        ticket: `v1.${'s'.repeat(32)}.${'T'.repeat(43)}`,
+        expiresAtMs: 1_900_000_000_000,
+        role: 'member',
+        coordinatorEpoch: 1,
+        presenceIncarnationId: activeSnapshot().viewer!.presenceIncarnationId,
+        ticketSequence: 7,
+        pendingPlaybackTransition: { ...playbackPrepareWire(), timingMode },
+      };
+      const fetchMock = vi.fn<typeof fetch>();
+      const client = new ProRoomApiClient({ fetch: fetchMock });
+      await establishPresence(client, fetchMock);
+      fetchMock.mockResolvedValueOnce(jsonResponse(access));
+
+      await expect(client.createSignalingTicket(ROOM_CODE)).resolves.toEqual(access);
+    },
+  );
+
   it('rejects legacy coordinator tickets and tickets missing the pending-transition field', async () => {
     const ticket = `v1.${'s'.repeat(32)}.${'T'.repeat(43)}`;
     const envelope = {
@@ -1646,6 +1690,59 @@ describe('PRO room cookie session API', () => {
         idempotencyKey: IDEMPOTENCY_KEY,
       }),
     ).toThrow('PRO_ROOM_API_INVALID_YOUTUBE_IDENTITY');
+  });
+
+  it.each(['zero-start', 'scheduled-control'] as const)(
+    'keeps the %s timingMode of the PREPARE in a playback command answer',
+    async (timingMode) => {
+      const snapshot = activeSnapshot();
+      const answer = {
+        schemaVersion: 1,
+        roomCode: ROOM_CODE,
+        status: 'preparing',
+        transition: { ...playbackPrepareWire(), timingMode },
+        playback: snapshot.playback,
+        serverTimeMs: 1_800_000_001_000,
+      };
+      const fetchMock = vi.fn<typeof fetch>();
+      const client = new ProRoomApiClient({ fetch: fetchMock });
+      await establishPresence(client, fetchMock, snapshot);
+      fetchMock.mockResolvedValueOnce(jsonResponse(answer));
+
+      await expect(
+        client.executePlaybackCommand({
+          code: ROOM_CODE,
+          command: { type: 'play', baseRevision: snapshot.playback.revision },
+          idempotencyKey: IDEMPOTENCY_KEY,
+        }),
+      ).resolves.toEqual(answer);
+    },
+  );
+
+  // A start kind this App does not know is read as scheduled-control, never
+  // as a reason to drop the event (Q4): the kind only grants learned lead.
+  it('reads any other timingMode on a PREPARE or COMMIT as scheduled-control', () => {
+    const prepare = playbackPrepareWire();
+    const commit = {
+      type: 'pro-playback-commit' as const,
+      transitionId: prepare.transitionId,
+      serverTimeMs: 1_800_000_001_000,
+      executeAtMs: 1_800_000_001_699,
+      playback: prepare.target,
+    };
+    for (const timingMode of ['learned-start', 'Zero-Start', '', 0, null, {}]) {
+      expect(parseProRoomPlaybackPrepareEvent({ ...prepare, timingMode })).toEqual({
+        ...prepare,
+        timingMode: 'scheduled-control',
+      });
+      expect(parseProRoomPlaybackCommitEvent({ ...commit, timingMode })).toEqual({
+        ...commit,
+        timingMode: 'scheduled-control',
+      });
+    }
+    // Without the field the events parse exactly as before.
+    expect(parseProRoomPlaybackPrepareEvent(prepare)).toStrictEqual(prepare);
+    expect(parseProRoomPlaybackCommitEvent(commit)).toStrictEqual(commit);
   });
 });
 

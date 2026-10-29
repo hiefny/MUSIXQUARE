@@ -1821,7 +1821,7 @@ describe('PRO room cookie session API', () => {
 });
 
 describe('PRO room administrator API', () => {
-  it.each(['get', 'update', 'revoke'] as const)(
+  it.each(['update', 'revoke'] as const)(
     'accepts the complete maximum-sized administrator directory after %s',
     async (operation) => {
       const directory = administratorDirectory();
@@ -1843,11 +1843,9 @@ describe('PRO room administrator API', () => {
       await establishPresence(client, fetchMock);
       fetchMock.mockResolvedValueOnce(jsonResponse(directory));
       const result =
-        operation === 'get'
-          ? client.getAdministrators(ROOM_CODE)
-          : operation === 'update'
-            ? client.updateAdministrator(ROOM_CODE, DELEGATED_MEMBER_ID, DELEGATED_PERMISSIONS)
-            : client.revokeAdministrator(ROOM_CODE, DELEGATED_MEMBER_ID);
+        operation === 'update'
+          ? client.updateAdministrator(ROOM_CODE, DELEGATED_MEMBER_ID, DELEGATED_PERMISSIONS)
+          : client.revokeAdministrator(ROOM_CODE, DELEGATED_MEMBER_ID);
       await expect(result).resolves.toEqual(directory);
     },
   );
@@ -1866,12 +1864,12 @@ describe('PRO room administrator API', () => {
     const client = new ProRoomApiClient({ fetch: fetchMock });
     await establishPresence(client, fetchMock);
     fetchMock.mockResolvedValueOnce(jsonResponse(directory));
-    await expect(client.getAdministrators(ROOM_CODE)).rejects.toMatchObject({
-      code: 'INVALID_RESPONSE',
-    });
+    await expect(
+      client.updateAdministrator(ROOM_CODE, DELEGATED_MEMBER_ID, DELEGATED_PERMISSIONS),
+    ).rejects.toMatchObject({ code: 'INVALID_RESPONSE' });
   });
 
-  it.each(['get', 'update', 'revoke'] as const)(
+  it.each(['update', 'revoke'] as const)(
     'bounds an endless administrator %s response even if cancellation never settles',
     async (operation) => {
       const cancel = vi.fn(() => new Promise<void>(() => undefined));
@@ -1890,43 +1888,32 @@ describe('PRO room administrator API', () => {
         ),
       );
       const result =
-        operation === 'get'
-          ? client.getAdministrators(ROOM_CODE)
-          : operation === 'update'
-            ? client.updateAdministrator(ROOM_CODE, DELEGATED_MEMBER_ID, DELEGATED_PERMISSIONS)
-            : client.revokeAdministrator(ROOM_CODE, DELEGATED_MEMBER_ID);
+        operation === 'update'
+          ? client.updateAdministrator(ROOM_CODE, DELEGATED_MEMBER_ID, DELEGATED_PERMISSIONS)
+          : client.revokeAdministrator(ROOM_CODE, DELEGATED_MEMBER_ID);
       await expect(result).rejects.toMatchObject({ code: 'RESPONSE_TOO_LARGE', status: 200 });
       expect(cancel).toHaveBeenCalledOnce();
     },
   );
 
-  it('reads and mutates the room-scoped administrator directory with the active presence lease', async () => {
+  it('mutates the room-scoped administrator directory with the active presence lease', async () => {
     const fetchMock = vi.fn<typeof fetch>();
     const client = new ProRoomApiClient({ fetch: fetchMock });
     await establishPresence(client, fetchMock);
 
     fetchMock.mockResolvedValueOnce(jsonResponse(administratorDirectory()));
-    await expect(client.getAdministrators(ROOM_CODE)).resolves.toEqual(administratorDirectory());
-    let { url, init } = requestParts(fetchMock);
-    expect(url.pathname).toBe(`${PRO_ROOM_PRODUCTION_PATH}/v1/rooms/000001/administrators`);
-    expect(init.method).toBe('GET');
-    let headers = new Headers(init.headers);
-    expect(headers.get('x-mxqr-pro-participant-id')).toBe('participant_00001');
-    expect(headers.get('x-mxqr-pro-presence-incarnation')).toBe('presence_0000000001');
-
-    fetchMock.mockClear();
-    fetchMock.mockResolvedValueOnce(jsonResponse(administratorDirectory()));
     await expect(
       client.updateAdministrator(ROOM_CODE, DELEGATED_MEMBER_ID, DELEGATED_PERMISSIONS),
     ).resolves.toEqual(administratorDirectory());
-    ({ url, init } = requestParts(fetchMock));
+    let { url, init } = requestParts(fetchMock);
     expect(url.pathname).toBe(
       `${PRO_ROOM_PRODUCTION_PATH}/v1/rooms/000001/administrators/${DELEGATED_MEMBER_ID}`,
     );
     expect(init.method).toBe('PUT');
     expect(JSON.parse(String(init.body))).toEqual({ permissions: DELEGATED_PERMISSIONS });
-    headers = new Headers(init.headers);
+    const headers = new Headers(init.headers);
     expect(headers.get('x-mxqr-pro-participant-id')).toBe('participant_00001');
+    expect(headers.get('x-mxqr-pro-presence-incarnation')).toBe('presence_0000000001');
 
     fetchMock.mockClear();
     fetchMock.mockResolvedValueOnce(jsonResponse(administratorDirectory()));
@@ -2007,7 +1994,7 @@ describe('PRO room administrator API', () => {
     await establishPresence(client, fetchMock);
     fetchMock.mockResolvedValueOnce(jsonResponse(malformed));
 
-    await expect(client.getAdministrators(ROOM_CODE)).rejects.toMatchObject({
+    await expect(client.revokeAdministrator(ROOM_CODE, DELEGATED_MEMBER_ID)).rejects.toMatchObject({
       code: 'INVALID_RESPONSE',
     });
   });

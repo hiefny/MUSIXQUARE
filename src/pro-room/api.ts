@@ -238,7 +238,7 @@ export interface ProRoomAccountDetachResult {
   snapshot: ProRoomSnapshot | null;
 }
 
-/** The administrator directory answer of GET, PUT and DELETE `/administrators`. */
+/** The administrator directory answer of PUT and DELETE `/administrators/:memberId`. */
 interface ProRoomAdministratorDirectory {
   administrators: ProRoomAdministrator[];
 }
@@ -1629,16 +1629,6 @@ export class ProRoomApiClient {
       signal,
       activeRoomCode: code,
       parser: (value) => parseSnapshotEnvelope(value, code),
-    });
-  }
-
-  getAdministrators(code: string, signal?: AbortSignal): Promise<ProRoomAdministratorDirectory> {
-    const path = roomPath(code);
-    return this.#request(`${path}/administrators`, {
-      signal,
-      activeRoomCode: code,
-      parser: parseAdministratorDirectory,
-      maxResponseBytes: MAX_ADMINISTRATOR_JSON_BYTES,
     });
   }
 

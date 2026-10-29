@@ -1334,10 +1334,14 @@ test.describe('content-based adaptive action groups', () => {
           );
         }
         expect(sidebar.nav.top, where).toBeGreaterThanOrEqual(0);
-        expect(sidebar.nav.bottom, `${where} above the account badge`).toBeLessThanOrEqual(
+        expect(sidebar.tabs, where).toHaveLength(5);
+        // The last tab's pill, not the tab list's box: the list's 8px of
+        // transparent padding may meet the badge. Arabic, Persian and Urdu
+        // set the badge in a taller line, 3px from that box at 740x361 but
+        // 11px from the pill (owner decision 2026-10-29, item 6).
+        expect(sidebar.tabs[4]!.bottom, `${where} above the account badge`).toBeLessThanOrEqual(
           sidebar.badge.top,
         );
-        expect(sidebar.tabs, where).toHaveLength(5);
         sidebar.tabs.forEach((tab, index) => {
           const label = `${where} tab ${index + 1}`;
           expect(tab.labelShown, `${label} label`).toBe(true);

@@ -24,11 +24,13 @@ import { createLabelWidthHarness, type LabelWidthHarness } from './helpers/label
  * border, icon) at the screen that gives each group its narrowest box, and
  * written here as fixed numbers. LABEL_BOX_SOURCES records every declaration
  * a box is worked out from, as written, and the guard reads them back from
- * the stylesheets with postcss: a CSS change that moves a box fails here
- * until the box is worked out again, so the guard cannot go stale when the
- * CSS gets tighter. The demo role switch reads the one width the CSS sets
- * for it, the container width below which its icon hides, and
- * demo-role-icon.test.ts pins the switch's own declarations.
+ * the stylesheets with postcss: a change to a recorded declaration fails here
+ * until the box is worked out again. Only those declarations are read, so a
+ * new rule, or a more specific or later one, that narrows a box or spaces
+ * its letters does not fail here; work the box out again when adding one.
+ * The demo role switch reads the one width the CSS sets for it, the
+ * container width below which its icon hides, and demo-role-icon.test.ts
+ * pins the switch's own declarations.
  * Widths come from helpers/label-width-harness.ts, which matched Chromium
  * within 0.07px on all 42 locales; the 4px spare also absorbs iOS Safari's
  * subpixel differences, which the study could not measure.
@@ -241,6 +243,8 @@ const TOKEN_SOURCES = [
     '--font-weight-unselected': `${STEP_DIGIT.weight}`,
     '--button-label-chip-size': '14px',
     '--button-label-tab-size': '13px',
+    // The harness measures without letter spacing.
+    '--button-label-letter-spacing': 'normal',
   }),
 ];
 
@@ -253,6 +257,7 @@ const CHIP_SOURCES = [
     padding: '18px 12px',
     border: '2px solid transparent',
     'font-size': 'var(--button-label-chip-size)',
+    'letter-spacing': 'var(--button-label-letter-spacing)',
   }),
 ];
 
@@ -335,10 +340,14 @@ const LABEL_BOX_SOURCES: Readonly<Record<string, readonly BoxSource[]>> = {
     source('css/style.css', '.ch-opt', null, {
       border: '2px solid transparent',
       'font-size': 'var(--button-label-chip-size)',
+      'letter-spacing': 'var(--button-label-letter-spacing)',
     }),
   ],
   'demo role switch': [
     ...DEMO_PANEL_SOURCES,
+    source('css/style.css', '.demo-role-segmented button', null, {
+      'letter-spacing': 'var(--button-label-letter-spacing)',
+    }),
     // The phone rule; demo-role-icon.test.ts pins the switch's other values.
     source('css/style.css', '.demo-role-segmented button', PHONES, {
       padding: '0 5px',
@@ -388,6 +397,7 @@ const LABEL_BOX_SOURCES: Readonly<Record<string, readonly BoxSource[]>> = {
     source('css/style.css', '.demo-step-nav button', null, {
       border: '1px solid transparent',
       'font-size': '13px',
+      'letter-spacing': 'var(--button-label-letter-spacing)',
     }),
     source('css/style.css', '.demo-step-nav button:not(.demo-step-next)::before', null, {
       content: 'attr(data-demo-step)',

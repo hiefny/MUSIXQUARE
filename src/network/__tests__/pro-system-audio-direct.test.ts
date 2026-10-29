@@ -2,7 +2,7 @@
  * @vitest-environment jsdom
  */
 
-import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi, type MockInstance } from 'vitest';
 import * as direct from '../pro-system-audio-direct.ts';
 
 type DirectTransportCallbacks = Parameters<typeof direct.configureProSystemAudioDirectTransport>[0];
@@ -2124,5 +2124,198 @@ describe('PRO system-audio LAN-direct live lifecycle', () => {
           (entry.payload.candidate as RTCIceCandidateInit).usernameFragment === 'local-fragment',
       ),
     ).toBe(true);
+  });
+});
+
+// Field case, 2026-10-30: a desktop Edge sharer and an iPhone Safari listener on
+// one home Wi-Fi. The phone answered the probe offer in 0.75 s and the
+// host-to-host pair connected 0.09 s later, but the media answer did not arrive
+// inside the attempt's single 2 s budget, so every share went to the SFU. These
+// tests pin today's behaviour with a receiver paced like that phone: the media
+// answer takes 1.2 s.
+describe('PRO system-audio LAN-direct budget with a phone-paced receiver', () => {
+  const PROBE_ANSWER_MS = 750;
+  const ICE_CONNECT_MS = 90;
+  const MEDIA_ANSWER_MS = 1_200;
+  let setRemoteDescription: MockInstance<MockRTCPeerConnection['setRemoteDescription']> | null =
+    null;
+
+  function installPhonePacedReceiver(): void {
+    bridgeMocks.send.mockImplementation((channel, payload) => {
+      bridgeMocks.sent.push({ channel, payload });
+      if (payload.kind !== 'offer') return true;
+      const remoteParticipantId = String(payload.targetParticipantId);
+      const media = payload.phase === 'media';
+      setTimeout(
+        () => {
+          emitRelay(remoteParticipantId, {
+            kind: 'answer',
+            targetParticipantId: localParticipantId,
+            direction: 'subscriber',
+            phase: payload.phase,
+            generation: payload.generation,
+            publicationId: payload.publicationId,
+            negotiationId: payload.negotiationId,
+            description: {
+              type: 'answer',
+              sdp: media
+                ? `v=0\r\nm=audio 9 UDP/TLS/RTP/SAVPF 111\r\na=rtpmap:111 opus/48000/2\r\no=${remoteParticipantId}`
+                : `v=0\r\nm=application 9 UDP/DTLS/SCTP webrtc-datachannel\r\no=${remoteParticipantId}`,
+            },
+          });
+          // The phone trickles its host candidate once, after the probe answer;
+          // the bundled media renegotiation gathers nothing new.
+          if (media) return;
+          emitRelay(remoteParticipantId, {
+            kind: 'candidate',
+            targetParticipantId: localParticipantId,
+            direction: 'subscriber',
+            generation: payload.generation,
+            publicationId: payload.publicationId,
+            negotiationId: payload.negotiationId,
+            candidate: { candidate: safeCandidate('auto') },
+          });
+        },
+        media ? MEDIA_ANSWER_MS : PROBE_ANSWER_MS,
+      );
+      return true;
+    });
+    setRemoteDescription = vi
+      .spyOn(MockRTCPeerConnection.prototype, 'setRemoteDescription')
+      .mockImplementation(async function (
+        this: MockRTCPeerConnection,
+        description: RTCSessionDescriptionInit,
+      ) {
+        this.remoteDescription = description as RTCSessionDescription;
+        if (description.type === 'answer' && this.connectionState === 'new') {
+          setTimeout(() => this.emitConnected(), ICE_CONNECT_MS);
+        }
+      });
+  }
+
+  function offerPhases(): unknown[] {
+    return bridgeMocks.sent
+      .filter(
+        (entry) =>
+          entry.payload.kind === 'offer' && entry.payload.targetParticipantId === receiverA,
+      )
+      .map((entry) => entry.payload.phase);
+  }
+
+  function appliedAnswerSdps(): string[] {
+    return (setRemoteDescription?.mock.calls ?? [])
+      .map(([description]) => description)
+      .filter((description) => description.type === 'answer')
+      .map((description) => description.sdp ?? '');
+  }
+
+  afterEach(() => {
+    setRemoteDescription?.mockRestore();
+    setRemoteDescription = null;
+  });
+
+  it.each(['initial', 'late-join'] as const)(
+    'falls back at the shared 2 s deadline during %s negotiation although the probe leg proved the LAN pair',
+    async (phase) => {
+      vi.useFakeTimers();
+      const callbacks = configureCallbacks();
+      if (phase === 'late-join') {
+        await direct.attemptProSystemAudioDirectPublication({
+          track: audioTrack('capture-stereo'),
+          generation: 7,
+          publicationId,
+          targets: [],
+        });
+        await expect(
+          direct.activateProSystemAudioDirectPublication({
+            ownerParticipantId: publisherId,
+            generation: 7,
+            publicationId,
+          }),
+        ).resolves.toBe(true);
+      }
+      installPhonePacedReceiver();
+      let settled = false;
+      const attempt =
+        phase === 'initial'
+          ? direct.attemptProSystemAudioDirectPublication({
+              track: audioTrack('capture-stereo'),
+              generation: 7,
+              publicationId,
+              targets: [target(receiverA)],
+            })
+          : direct.reconcileProSystemAudioDirectTargets([target(receiverA)]);
+      void attempt.then(
+        () => {
+          settled = true;
+        },
+        () => undefined,
+      );
+
+      // The probe leg (answer, connected pair, locality proof) is done in under
+      // half the budget, and the media re-offer is already out.
+      await vi.advanceTimersByTimeAsync(1_000);
+      expect(offerPhases()).toEqual(['probe', 'media']);
+      expect(peerConnections[0]?.addTrack).toHaveBeenCalledTimes(1);
+      expect(peerConnections[0]?.close).not.toHaveBeenCalled();
+
+      // The media answer is due about 2.07 s after the start, past the deadline.
+      await vi.advanceTimersByTimeAsync(999);
+      expect(settled).toBe(false);
+      await vi.advanceTimersByTimeAsync(2);
+      expect(settled).toBe(true);
+      expect(await attempt).toBe(phase === 'initial' ? null : false);
+      expect(peerConnections[0]?.close).toHaveBeenCalledTimes(1);
+      expect(bridgeMocks.sent.at(-1)?.payload).toEqual(
+        expect.objectContaining({
+          kind: 'close',
+          targetParticipantId: receiverA,
+          reason: 'fallback',
+        }),
+      );
+      if (phase === 'initial') {
+        // A null attempt makes the service publish through the SFU instead.
+        expect(callbacks.onLiveRouteFallback).not.toHaveBeenCalled();
+      } else {
+        // A late-joining phone promotes the whole live LAN share to the SFU.
+        expect(callbacks.onLiveRouteFallback).toHaveBeenCalledTimes(1);
+        expect(callbacks.onLiveRouteFallback).toHaveBeenCalledWith({
+          role: 'publisher',
+          reason: 'late-join-negotiation-failed',
+          participantId: receiverA,
+          generation: 7,
+          publicationId,
+        });
+      }
+
+      // The late media answer reaches no route.
+      await vi.advanceTimersByTimeAsync(1_000);
+      expect(appliedAnswerSdps()).toHaveLength(1);
+      expect(appliedAnswerSdps()[0]).not.toContain('m=audio');
+    },
+  );
+
+  it('proves LAN-direct with the same receiver once the budget covers both round trips', async () => {
+    vi.useFakeTimers();
+    configureCallbacks();
+    installPhonePacedReceiver();
+    const attempt = direct.attemptProSystemAudioDirectPublication({
+      track: audioTrack('capture-stereo'),
+      generation: 7,
+      publicationId,
+      targets: [target(receiverA)],
+      timeoutMs: 4_000,
+    });
+
+    await vi.advanceTimersByTimeAsync(2_500);
+    await expect(attempt).resolves.toEqual({
+      publicationId,
+      transport: 'lan-direct',
+      protocolVersion: 2,
+    });
+    expect(offerPhases()).toEqual(['probe', 'media']);
+    expect(appliedAnswerSdps()).toHaveLength(2);
+    expect(appliedAnswerSdps()[1]).toContain('m=audio');
+    expect(peerConnections[0]?.close).not.toHaveBeenCalled();
   });
 });

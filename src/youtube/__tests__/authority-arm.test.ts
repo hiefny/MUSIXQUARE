@@ -910,4 +910,102 @@ describe('YouTubeAuthorityArmController', () => {
     });
     expect(count(player, 'seekTo')).toBe(seeks);
   });
+
+  describe('PRO late cohort join (pinned 2026-10-30)', () => {
+    // (b) Scenario: at the release the iframe buffers, and its PLAYING report
+    // is still in flight 1.8 s later although media started after 1 s. The
+    // arm pauses and fails the commit at exactly 1.8 s but never re-mutes, so
+    // whatever the iframe played inside that window was audible.
+    it('(b) pauses an unacknowledged release after exactly 1.8 s without re-muting it', async () => {
+      const { controller, player } = makeHarness();
+      await prepareReady(controller, 'resident', 0);
+      player.playVideo = () => {
+        player.__log.push({ op: 'playVideo', at: Date.now() });
+        player.__setState(3);
+      };
+      const committed = controller.commit({
+        ...identity,
+        executeDelayMs: 700,
+        timingMode: 'zero-start',
+      });
+      await vi.advanceTimersByTimeAsync(700);
+      const releasedAt = Date.now();
+      expect(player.__log.at(-1)).toEqual({ op: 'playVideo', at: releasedAt });
+      expect(player.__muted).toBe(false);
+
+      await vi.advanceTimersByTimeAsync(1_000);
+      player.__setState(1, false);
+      await vi.advanceTimersByTimeAsync(799);
+      expect(controller.phase).toBe('starting');
+      expect(player.__state).toBe(1);
+      expect(player.__muted).toBe(false);
+
+      await vi.advanceTimersByTimeAsync(1);
+      await expect(committed).resolves.toEqual({ status: 'failed', reason: 'release-timeout' });
+      expect(player.__log.filter((call) => call.op === 'pauseVideo').at(-1)?.at).toBe(
+        releasedAt + 1_800,
+      );
+      expect(player.__state).toBe(2);
+      expect(player.__muted).toBe(false);
+      expect(player.__log.filter((call) => call.op === 'mute' && call.at > releasedAt)).toEqual([]);
+      expect(controller.phase).toBe('idle');
+      // The PLAYING report that finally arrives is no longer the arm's.
+      expect(controller.handlePlayerStateChange(1)).toBe(false);
+    });
+
+    // (d) Scenario: a device ready up to 40 ms after executeAt commits the
+    // room position then (here 0.040 s) to a release prepared at 0:00. The
+    // arm ignores a target change of 40 ms or less and plays from 0:00 at
+    // once, that many ms behind the room; at 41 ms it seeks first.
+    it.each([
+      { lateMs: 40, seeks: 0, startsAt: 0 },
+      { lateMs: 41, seeks: 1, startsAt: 0.041 },
+    ])(
+      '(d) releases a commit $lateMs ms past its prepared 0:00 target with $seeks seek',
+      async ({ lateMs, seeks, startsAt }) => {
+        const { controller, player } = makeHarness();
+        await prepareReady(controller, 'resident', 0);
+        const seeksBefore = count(player, 'seekTo');
+        const committed = controller.commit({
+          ...identity,
+          executeDelayMs: 0,
+          targetSeconds: lateMs / 1_000,
+          timingMode: 'zero-start',
+        });
+        await vi.advanceTimersByTimeAsync(0);
+        await expect(committed).resolves.toMatchObject({
+          status: 'applied',
+          targetSeconds: startsAt,
+          catchUpSeconds: startsAt,
+        });
+        expect(count(player, 'seekTo')).toBe(seeksBefore + seeks);
+        expect(player.__currentTime).toBe(startsAt);
+      },
+    );
+
+    // (c) Scenario: a late join whose re-arm ended inside the last 400 ms of
+    // its plan commits the room position then (2.0 s) to a release settled at
+    // its planned 2.3 s (src/pro-room/__tests__/playback-late-cohort-join.test.ts).
+    // Looks like a defect: the arm never seeks backward, so the device plays
+    // from 2.3 s at once, 0.3 s ahead of the room.
+    it('(c) releases a commit target behind its prepared target from the prepared target', async () => {
+      const { controller, player } = makeHarness();
+      await prepareReady(controller, 'resident', 2.3);
+      const seeksBefore = count(player, 'seekTo');
+      const committed = controller.commit({
+        ...identity,
+        executeDelayMs: 0,
+        targetSeconds: 2.0,
+        timingMode: 'scheduled-control',
+      });
+      await vi.advanceTimersByTimeAsync(0);
+      await expect(committed).resolves.toMatchObject({
+        status: 'applied',
+        targetSeconds: 2.3,
+        catchUpSeconds: 0,
+      });
+      expect(count(player, 'seekTo')).toBe(seeksBefore);
+      expect(player.__currentTime).toBe(2.3);
+    });
+  });
 });

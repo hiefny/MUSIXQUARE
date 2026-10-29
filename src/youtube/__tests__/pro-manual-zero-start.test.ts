@@ -1350,3 +1350,77 @@ describe('PRO manual offset across YouTube zero-start', () => {
     expect(endpoint.player.getPlayerState()).toBe(2);
   });
 });
+
+describe('PRO late cohort join (pinned 2026-10-30)', () => {
+  // (c) Scenario: this device learned a 20 ms startup lead from an earlier
+  // zero-start (its iframe ran 80 ms behind the server timeline), then misses
+  // a song start and joins late. The controller sends that late join as a
+  // scheduled control 3 s ahead, see
+  // src/pro-room/__tests__/playback-late-cohort-join.test.ts. The endpoint
+  // passes no learned lead for it, and the arm would zero one anyway, so the
+  // play call lands exactly on the server instant, uncorrected for the
+  // startup delay the zero-start devices compensate. Nor does the late join
+  // teach the learner anything.
+  it('(c) applies no learned startup lead to a late-join scheduled control', async () => {
+    const endpoint = await createProEndpoint();
+    const first = endpoint.prepareNext(10);
+    await vi.advanceTimersByTimeAsync(1_000);
+    await first.preparing;
+    const firstRelease = endpoint.commit(first.authority, 10, 700, 'zero-start');
+    await vi.advanceTimersByTimeAsync(700);
+    await expect(firstRelease).resolves.toBe(true);
+    vi.mocked(endpoint.player.getCurrentTime).mockImplementation(
+      () => endpoint.currentTime() - 0.08,
+    );
+    await vi.advanceTimersByTimeAsync(2_000);
+    const learned = getProStartObservations().find((entry) => entry.kind === 'youtube-learning');
+    expect(learned?.detail).toMatchObject({ timingMode: 'zero-start', learningEnabled: true });
+    expect(learned?.detail.nextTimelineLeadMs).toBeCloseTo(20, 6);
+    vi.mocked(endpoint.player.getCurrentTime).mockImplementation(endpoint.currentTime);
+
+    resetProStartObservations();
+    const late = endpoint.prepareNext(12.3);
+    await vi.advanceTimersByTimeAsync(1_000);
+    await late.preparing;
+    const playsBefore = vi.mocked(endpoint.player.playVideo).mock.calls.length;
+    const lateRelease = endpoint.commit(late.authority, 12.3, 3_000, 'scheduled-control');
+    await vi.advanceTimersByTimeAsync(2_999);
+    expect(endpoint.player.playVideo).toHaveBeenCalledTimes(playsBefore);
+    await vi.advanceTimersByTimeAsync(1);
+    await expect(lateRelease).resolves.toBe(true);
+    expect(endpoint.player.playVideo).toHaveBeenCalledTimes(playsBefore + 1);
+    expect(
+      getProStartObservations().find((entry) => entry.kind === 'youtube-release')?.detail,
+    ).toMatchObject({
+      timingMode: 'scheduled-control',
+      platformLeadMs: 0,
+      timelineLeadMs: 0,
+      releaseLeadMs: 0,
+      scheduledLeadMs: 0,
+      requestedTargetSeconds: 12.3,
+      releasedTargetSeconds: 12.3,
+    });
+    await vi.advanceTimersByTimeAsync(2_000);
+    expect(
+      getProStartObservations().find((entry) => entry.kind === 'youtube-learning')?.detail,
+    ).toMatchObject({
+      timingMode: 'scheduled-control',
+      learningEnabled: false,
+      reason: 'scheduled-control-observation-only',
+    });
+
+    // For contrast: the next zero-start still carries the learned lead.
+    resetProStartObservations();
+    const next = endpoint.prepareNext(0);
+    await vi.advanceTimersByTimeAsync(1_000);
+    await next.preparing;
+    const nextRelease = endpoint.commit(next.authority, 0, 700, 'zero-start');
+    await vi.advanceTimersByTimeAsync(700);
+    await expect(nextRelease).resolves.toBe(true);
+    const zeroStart = getProStartObservations().find(
+      (entry) => entry.kind === 'youtube-release',
+    )?.detail;
+    expect(zeroStart).toMatchObject({ timingMode: 'zero-start' });
+    expect(zeroStart?.timelineLeadMs).toBeCloseTo(20, 6);
+  });
+});

@@ -55,7 +55,7 @@ production, queryless, fragment-free arrivals, so `/translate` is counted and
 - All 42 languages, including English and Korean, accept wording suggestions.
   English is shown as the source for every language. Korean references remain in
   stored proposals for maintainer review and baseline validation.
-- Actual App/About strings: currently 728 App and 74 About keys per locale.
+- Actual App/About strings: currently 803 App and 74 About keys per locale.
   The generator validates source key sets dynamically.
 - Search, page filtering (All by default), reference comparison, optional explanation,
   and character count.
@@ -127,6 +127,7 @@ reused; no separate translation login or database is required.
 - `drafts.ts` / `storage-session.ts`: validation and storage boundaries.
 - `catalog-client.ts`: static manifest and locale reads.
 - `community.ts` / `community-client.ts`: public contributions and account UI.
+- `src/i18n/language-match.ts`: language matching shared with the App.
 - `src/i18n/translation-community.ts`: shared DTOs and wording checks.
 - `cloudflare/translation-community.ts`: public and protected review APIs.
 - `scripts/apply-translation-suggestions.mts`: reviewed source-file application.
@@ -135,7 +136,8 @@ reused; no separate translation login or database is required.
 - `dev/`: isolated preview and legacy read-only preview endpoint.
 
 Existing workshop/tooling TypeScript and ESLint projects include these files.
-Vitest covers drafts, storage conflicts, catalog packaging, navigation,
+Vitest covers drafts, storage conflicts, catalog packaging, navigation, the
+opening language and phrase, the address and sign-in return, sign-in results,
 Worker routes, account/CSRF checks, recommendation and approval concurrency,
 deletion cascades, literal application, and service-worker behavior. Local
 community verification evidence is under `scratch/translation-community-2026-09-08/`.

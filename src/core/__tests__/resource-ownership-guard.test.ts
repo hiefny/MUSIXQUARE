@@ -632,6 +632,24 @@ describe('resource-ownership guard', { timeout: 60_000 }, () => {
       );
     });
 
+    it('rejects a same-named copy of the shared PRO playback transition timing (RO-03)', () => {
+      const findings = findingsOf(
+        withSources((sources) => {
+          const file = 'src/pro-room/playback-controller.ts';
+          sources.set(
+            file,
+            `${sources.get(file) ?? ''}\nconst PRO_ROOM_PLAYBACK_COMMIT_LEAD_MS = 700;\n` +
+              'void PRO_ROOM_PLAYBACK_COMMIT_LEAD_MS;\n',
+          );
+        }),
+      );
+      expect(findings).toContain(
+        'COPIED TIMING CONSTANT (principle 4): RO-03 ' +
+          'PRO_ROOM_PLAYBACK_COMMIT_LEAD_MS@cloudflare/pro-room-playback-timing.ts = ' +
+          'PRO_ROOM_PLAYBACK_COMMIT_LEAD_MS@src/pro-room/playback-controller.ts (700)',
+      );
+    });
+
     it('keeps differently named constants that only share a value report-only', () => {
       const input = withSources((sources) => {
         const file = 'src/player/background-return-sync.ts';

@@ -96,9 +96,9 @@ runbooks. Neither belongs in a general setup document.
 - [Phase 5.5 R2: the PRO Worker sends PRO snapshot schemaVersion 2 (2026-10-29)](design/phase5-5-r2-v2-send-2026-10-29.md):
   draft, not merged or released; the second runtime release of Phase 5.5, PRO room Worker only
   (target `pro-room` with 1 PRO room runtime path and none in the other five Workers; the App stays
-  9.0.23 / v796, so no SemVer, service worker cache or update dialog change), on main `5a5afb0e`
-  (9.0.23), rebased from the 9.0.22 branch head `7630b1a9` after 9.0.22 / v795 merged unchanged as
-  `71f5b96c` (#524) and shipped. It may ship only after the floor goes to 795 (F2, a same-value
+  9.0.23 / v796, so no SemVer, service worker cache or update dialog change), on main `d3a9b66a`
+  (the 9.0.23 record, #527), rebased from the 9.0.22 branch head `7630b1a9` after 9.0.22 / v795
+  merged unchanged as `71f5b96c` (#524) and shipped, and rebased again after 9.0.23 and its record. It may ship only after the floor goes to 795 (F2, a same-value
   `set` 789 then `set` 795) with a Signaling admission smoke that admits both rooms' host and guest
   with `refusedBelowAppBuildFloor` 795, and while the live PRO Worker is the 9.0.22 one
   (`6abc7131`). Every snapshot answer becomes schemaVersion 2 without the four coordinator-era
@@ -111,8 +111,8 @@ runbooks. Neither belongs in a general setup document.
   evidence, the frozen v2 record rows that also pass on the 9.0.22 PRO Worker (the rollback
   target), the decision to keep the `coordinatorEpoch` name, the deviations from the plan, the
   train-end review findings and what was done with them, the exact-count guards, mixed versions,
-  rollback (the release record's §4 current boundary line items 4 to 6: no lower below 795 on its
-  own, the PRO step first below build 795, never below the 9.0.22 PRO Worker, and the repair exits
+  rollback (the release record's §4 current boundary line items 4, 6 and 7: no lower below 795 on its
+  own and an App report that stops counts as a lower to 0, the PRO step first below build 795, never below the 9.0.22 PRO Worker, and the repair exits
   without automated recovery), deploy conditions and order, the blind post-deploy check in the
   synthetic room `000001`, user-visible changes, records, QA rounds 1 to 3 (per increment; the full
   gate at the records commit `e90ab14d`; after the rebase, the three tests-first commits rerun on

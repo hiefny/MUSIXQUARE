@@ -94,20 +94,23 @@ runbooks. Neither belongs in a general setup document.
 ## Maintained evidence and completed records
 
 - [Phase 5.5 R2: the PRO Worker sends PRO snapshot schemaVersion 2 (2026-10-29)](design/phase5-5-r2-v2-send-2026-10-29.md):
-  draft, not merged or released; the second runtime release of Phase 5.5, PRO room Worker only
-  (target `pro-room` with 1 PRO room runtime path and none in the other five Workers; the App stays
-  9.0.23 / v796, so no SemVer, service worker cache or update dialog change), on main `d3a9b66a`
-  (the 9.0.23 record, #527), rebased from the 9.0.22 branch head `7630b1a9` after 9.0.22 / v795
-  merged unchanged as `71f5b96c` (#524) and shipped (onto 9.0.23 `5a5afb0e`), and again after the
-  9.0.23 record.
-  It may ship only after the floor goes to 795 (F2, a same-value `set` 789 then `set` 795) with a
-  Signaling admission smoke that admits both rooms' host and guest with `refusedBelowAppBuildFloor`
-  795, and while the live PRO Worker is the 9.0.22 one (`6abc7131`). Every snapshot answer becomes
-  schemaVersion 2 without the four coordinator-era constants and carries `passwordRequired` and `playlistSlots` itself, the administrator directory
-  answer drops `authorityVersion`, every PREPARE and transition COMMIT names its start kind
-  `timingMode` with the 3 s barrier and the 700 ms lead for both kinds, and a live LAN-direct share
-  stores and answers a null `liveExpiresAt`. The release workflow's App build requirement for PRO
-  releases is set to 795, the build of the shipped 9.0.22. The report lists the owner decisions and
+  released on 2026-10-30 00:30 KST in Release 40901986997 (PR #528, squash `0e5a9b87`): the second
+  runtime release of Phase 5.5, PRO room Worker only (target `pro-room` with 1 PRO room runtime path
+  and none in the other five Workers; the App stays 9.0.23 / v796, so no SemVer, service worker
+  cache or update dialog change). Only the PRO room Worker changed (`6abc7131` to `ef882f7c`); the
+  App keeps its 9.0.23 version and the other four their 9.0.22 versions. The branch was rebased from
+  the 9.0.22 branch head `7630b1a9` onto 9.0.23 `5a5afb0e` and again onto the 9.0.23 record
+  `d3a9b66a` (#527). It shipped after Phase 5.5 F2 raised the App build floor from 789 to 795 at
+  00:12 KST (floor runs 40898835905, 40898944192, 40899114265 and 40899323158, revision 3, then a
+  Signaling admission smoke that admitted both rooms' host and guest at build 796 with
+  `refusedBelowAppBuildFloor` 795), while the live PRO Worker was the 9.0.22 one (`6abc7131`), and
+  the release's PRO floor check read stored and effective 795. Every snapshot answer is now
+  schemaVersion 2 without the four coordinator-era constants and carries `passwordRequired` and
+  `playlistSlots` itself, the administrator directory answer drops `authorityVersion`, every
+  PREPARE and transition COMMIT names its start kind `timingMode` with the 3 s barrier and the
+  700 ms lead for both kinds, and a live LAN-direct share stores and answers a null
+  `liveExpiresAt`. The release workflow's App build requirement for PRO releases is 795, the build
+  of the shipped 9.0.22. The report lists the owner decisions and
   order, what the 795 floor covers and where it cannot filter, each increment with its tests-first
   evidence, the frozen v2 record rows that also pass on the 9.0.22 PRO Worker (the rollback
   target), the decision to keep the `coordinatorEpoch` name, the deviations from the plan, the
@@ -115,16 +118,32 @@ runbooks. Neither belongs in a general setup document.
   done with them, the exact-count guards, mixed versions, rollback (the release record's §4 current
   boundary line items 4, 6 and 7: no lower below 795 on its own, an App report that stops counts as
   a lower to 0 for PRO rooms, the PRO step first below build 795, never below the 9.0.22 PRO
-  Worker, and the repair exits without automated recovery), deploy conditions and order, the blind
-  post-deploy check in the synthetic room `000001`, user-visible changes, records, QA rounds 1 to 3
-  (per increment; the full gate at the records commit `e90ab14d`; after each rebase, the three
-  tests-first commits rerun on their new parents with the same rows failing and the three rollback
-  rows rerun on the 9.0.22 PRO Worker; after the second rebase onto `d3a9b66a`, the full gate at
-  `57572709`: npm audit 0, unit 705 files / 16,716, Worker 69 / 3,316, critical 90 / 3,515,
-  release-tooling 14 / 433, typecheck, lint, format, every guard, `build:checked` still 9.0.23 /
-  v796 with no App bump, `check:worker-bundles`, Playwright PRO lane 30, critical 100 and candidate
-  19, target `pro-room` only) with placeholders for the production preconditions and the release
-  (rounds 4 and 5), owner device check candidates and what was not verified.
+  Worker, and the repair exits without automated recovery), deploy conditions and order with their
+  results, the blind post-deploy check (moved after the release to a PRO room the owner owns,
+  because the release smoke's PIN room has no owner account and the other smoke room is not
+  activated; no room code in the report; the owner ran it on 2026-10-30 from 00:39 to 00:55 KST in
+  Microsoft Edge on a Windows desktop: the snapshot v2 apply passed, one new zero-start start
+  passed, LAN-direct was not exercised as the share used SFU; no rollback), user-visible changes,
+  records, QA rounds 1 to 3 (per increment; the full gate at the records commit `e90ab14d`; after
+  each rebase, the three tests-first commits rerun on their new parents with the same rows failing
+  and the three rollback rows rerun on the 9.0.22 PRO Worker; after the second rebase onto
+  `d3a9b66a`, the full gate at `57572709`: npm audit 0, unit 705 files / 16,716, Worker 69 / 3,316,
+  critical 90 / 3,515, release-tooling 14 / 433, typecheck, lint, format, every guard,
+  `build:checked` still 9.0.23 / v796 with no App bump, `check:worker-bundles`, Playwright PRO lane
+  30, critical 100 and candidate 19, target `pro-room` only), round 4 (F2, its admission smoke and
+  the public floor read just before dispatch) and round 5 (the PR CI and a no-findings automated
+  review on the final head `7aecf6ce`, the exact-main CI on Node 24.22.2 with unit 705 files /
+  16,715 plus the known skip, Worker 69 / 3,316 and Linux Chromium candidate 19 and critical 100,
+  one Production Release with target `pro-room` whose PRO floor check, PRO media CORS smoke and PRO
+  room smoke passed on the first try, the public service worker still at v796, the public floor at
+  795 with live App 796, and the Drift Audit at 32 pass / 0 fail / 5 manual-only), owner device
+  check candidates and what was not verified. The release record's §2 now carries the R2
+  post-deploy items (scope and status, the post-deploy check with its blind result, and the owner
+  device check candidates, which have no results); its §4 entry and current boundary line (6) name the merge SHA, the
+  Release ID, checkpoint artifact 12909218206 (the 9.0.22 PRO Worker `6abc7131`) and the new PRO
+  Worker `ef882f7c`, and the hotfix procedure's contract sentence names the merge SHA, the Release
+  ID and the new PRO Worker. With the floor at 795, the §4 lines that rolled the App back to a
+  build below 795 without `lower` now take the PRO step and `lower` first.
 - [UI owner decisions train 9.0.23: the items 9.0.20 left open (2026-10-29)](design/ui-owner-923-2026-10-29.md):
   released on 2026-10-29 21:22 KST in Release 40872467902 (PR #526, squash `5a5afb0e`): the next app
   update after 9.0.22 (9.0.23 / v796, App build 796, bump `060dce82`, target `app` with 57 App runtime
@@ -182,8 +201,8 @@ runbooks. Neither belongs in a general setup document.
   from 787 to 789 at 18:16 KST (floor runs 40848023346, 40848126333, 40848295981 and 40848436128,
   then a Signaling admission smoke that admitted both rooms' host and guest at build 794 with
   `refusedBelowAppBuildFloor` 789). All six Workers run this SHA (App `e8966418`, PRO room
-  `6abc7131`, signaling `36579bdf`); the floor goes to 795 (F2) before the PRO Worker starts
-  sending snapshot v2 (R2), and R3 follows. Train 3 stops sending
+  `6abc7131`, signaling `36579bdf`); the floor went to 795 (F2, 2026-10-30) before the PRO Worker
+  started sending snapshot v2 (R2, released 2026-10-30 00:30 KST), and R3 follows. Train 3 stops sending
   the SESSION_FULL `message` and OPERATOR_TOAST `text`, the guest SFU capability marker and its
   kind (declared message kinds 102 to 101), `iceRestartVersion` on the first Standard offer and
   every answer, the four Signaling peer-open markers (only `workerVersionId` stays) and the PRO
@@ -219,7 +238,8 @@ runbooks. Neither belongs in a general setup document.
   the note that a 9.0.14 host under the 9.0.22 Signaling Worker loses its liveness probe and PIN
   membership choice (refused by the 789 floor anyway), owner device check candidates and what was
   not verified. The release record's §2 now carries the 9.0.22 post-deploy items (scope and
-  status, the owner device checks, and the next steps F2 to build 795, R2 and R3) and §4 its entry
+  status, the owner device checks, and the next steps: F2 to build 795 and R2, both done on
+  2026-10-30, then R3) and §4 its entry
   (a forward revert at 9.0.24 / v797 or later now that 9.0.23 shipped, or the checkpoint's 9.0.21 App `06e79397` and
   9.0.20 Workers); with the F1 evidence the record closed the release A item's device check of a
   mixed room with a 9.0.14 device.

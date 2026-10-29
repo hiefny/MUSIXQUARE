@@ -826,10 +826,10 @@ gh workflow run app-build-floor.yml --ref main -f action=lower -f min_app_build=
   probe and PIN membership choice are off. The App-first rule above applies only when Signaling
   itself goes below 9.0.14. Once the PRO Worker that first sends PRO snapshot schemaVersion 2
   is live, the PRO step of the next bullet comes before step (1).
-- Once the PRO Worker that first sends PRO snapshot schemaVersion 2 is live (a `pro-room`
-  release after the floor reached 795; its deployment record adds the merge SHA and Release ID
-  here, and until then its Production Release run and the live PRO Worker's deployment message
-  `git:<sha>` tell whether it shipped), an App rollback below 9.0.22 (build 795), the first
+- Once the PRO Worker that first sends PRO snapshot schemaVersion 2 is live (the `pro-room`
+  release of merge `0e5a9b87` (#528), Production Release 40901986997, which deployed PRO Worker
+  version `ef882f7c` on 2026-10-30 at 00:30 KST after the floor reached 795; it has been live
+  since then), an App rollback below 9.0.22 (build 795), the first
   build that reads that schema, runs only in this order: (1) the PRO Worker to the version in
   that release's recovery checkpoint (the 9.0.22 PRO Worker: 9.0.22 / v795, merge `71f5b96c`,
   PRO Worker version `6abc7131`), (2) when the App goes below 9.0.15,

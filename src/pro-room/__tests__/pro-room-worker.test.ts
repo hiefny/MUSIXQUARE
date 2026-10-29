@@ -31420,6 +31420,84 @@ describe('PRO browser parsers on the actual Worker answers', () => {
     expect(parseProRoomPlaybackCommitEvent(directCommit)).toEqual(directCommit);
   });
 
+  // The other start kind and the other COMMIT path: a seek of playing media is
+  // a scheduled-control rendezvous, and when nobody reports ready the alarm
+  // commits it at its deadline. Both events name the kind, and each parser
+  // keeps it.
+  it('parses the scheduled-control PREPARE and the deadline COMMIT the Worker answers and delivers', async () => {
+    vi.useFakeTimers({ toFake: ['Date'] });
+    const { worker, owner, member, broadcasts } = await openRoom();
+    const empty = await owner.api.getSnapshot(ROOM_CODE);
+    await owner.api.updateCompactSnapshot({
+      code: ROOM_CODE,
+      baseRevision: empty.revision,
+      playlistOrder: [FIRST],
+      upserts: [
+        { queueItemId: FIRST, name: 'First', source: { kind: 'youtube', videoId: 'dQw4w9WgXcQ' } },
+      ],
+      currentQueueItemId: null,
+      playback: empty.playback,
+      idempotencyKey: 'browser-parser-contract-seek-playlist',
+    });
+    const before = await owner.api.getSnapshot(ROOM_CODE);
+    const selected = await owner.api.executePlaybackCommand({
+      code: ROOM_CODE,
+      command: {
+        type: 'select',
+        baseRevision: before.playback.revision,
+        queueItemId: FIRST,
+        state: 'playing',
+        positionSeconds: 0,
+      },
+      idempotencyKey: 'browser-parser-contract-seek-select',
+    });
+    const ready = (api: ProRoomApiClient) =>
+      api.reportPlaybackTransitionReady({
+        code: ROOM_CODE,
+        transitionId: selected.transition!.transitionId,
+        basePlaybackRevision: selected.transition!.basePlaybackRevision,
+        status: 'ready',
+      });
+    await expect(ready(owner.api)).resolves.toBe('waiting');
+    await expect(ready(member.api)).resolves.toBe('committed');
+    const playing = await owner.api.getSnapshot(ROOM_CODE);
+
+    // The PREPARE of a seek answer.
+    const sought = await owner.api.executePlaybackCommand({
+      code: ROOM_CODE,
+      command: { type: 'seek', baseRevision: playing.playback.revision, positionSeconds: 33 },
+      idempotencyKey: 'browser-parser-contract-seek',
+    });
+    expect(sought.status).toBe('preparing');
+    expect(owner.lastAnswer().transition.timingMode).toBe('scheduled-control');
+    expect(sought.transition).toEqual(owner.lastAnswer().transition);
+    const transition = sought.transition!;
+
+    // The pending PREPARE of a signaling ticket.
+    const access = await member.api.createSignalingTicket(ROOM_CODE);
+    expect(member.lastAnswer().pendingPlaybackTransition.timingMode).toBe('scheduled-control');
+    expect(access.pendingPlaybackTransition).toEqual(member.lastAnswer().pendingPlaybackTransition);
+    expect(access.pendingPlaybackTransition?.transitionId).toBe(transition.transitionId);
+
+    // Nobody reports ready: the alarm commits the seek at its 3 s deadline.
+    vi.setSystemTime(Date.now() + 3_001);
+    await worker.alarm();
+    const events = broadcasts
+      .map((broadcast) => broadcast.event as Record<string, any>)
+      .filter((event) => event?.transitionId === transition.transitionId);
+    expect(events.map((event) => event.type)).toEqual([
+      'pro-playback-prepare',
+      'pro-playback-commit',
+    ]);
+    const [prepare, commit] = events;
+    expect([prepare!.timingMode, commit!.timingMode]).toEqual([
+      'scheduled-control',
+      'scheduled-control',
+    ]);
+    expect(parseProRoomPlaybackPrepareEvent(prepare)).toEqual(prepare);
+    expect(parseProRoomPlaybackCommitEvent(commit)).toEqual(commit);
+  });
+
   // The one deliberate difference from the wire: a live LAN-direct has no
   // media deadline, so its liveExpiresAt reads as null whatever this Worker
   // sends there, its numeric compatibility value or null (PLE-01).

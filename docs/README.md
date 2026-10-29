@@ -114,9 +114,11 @@ runbooks. Neither belongs in a general setup document.
   bump tree (706 files / 16,777 unit tests, critical coverage 90 / 3,515, critical E2E 100,
   translation E2E 6, `build:checked` 9.0.24 / v797), the browser measurements of the App
   link, Retry and paging, the arrivals the loader still does not count (an App language that
-  differs from the browser, sign-in returns, and pages opened from `/translate` after its address
-  gained a query), and what was not verified (a real production submission and the Google OAuth
-  publishing status).
+  differs from the browser, sign-in returns, pages opened from `/translate` after its address
+  gained a query, and any later arrival on an address that already carries `?locale` or `?phrase`:
+  a reload, bookmark or history restore after a choice, or a shared link), and what was not verified
+  (a real production submission, the Google OAuth publishing status, and whether production Web
+  Analytics records the `/translate` arrivals after deploy).
 - [Phase 5.5 R2: the PRO Worker sends PRO snapshot schemaVersion 2 (2026-10-29)](design/phase5-5-r2-v2-send-2026-10-29.md):
   released on 2026-10-30 00:30 KST in Release 40901986997 (PR #528, squash `0e5a9b87`): the second
   runtime release of Phase 5.5, PRO room Worker only (target `pro-room` with 1 PRO room runtime path

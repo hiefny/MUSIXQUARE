@@ -177,11 +177,13 @@ Translations 'No suggestions.', 같은 날 공개 목록 GET 42개 언어 모두
 
 - **통계에 안 잡히는 도착(후속 1, 개인정보 규칙 그대로).** 로더는 운영 호스트, 쿼리·조각 없음, referrer에 쿼리나 방 코드 경로
   없음일 때만 비컨을 붙이고, 이 규칙은 바꾸지 않았다. 세는 것: 쿼리 없는 `/translate`, 곧 App 언어가 브라우저 맞추기와 같을
-  때의 App 언어 창 링크(시스템 언어를 쓰는 App과, 브라우저와 같은 언어를 고른 App), App 법적 고지 바닥글의 Translate 링크, 외부
-  링크, 검색. 세지 않는 것: App 언어가 브라우저와 다를 때의 App 링크(`/translate?locale=…`), 로그인 복귀(`?locale=…&phrase=…`에
+  때의 App 언어 창 링크(시스템 언어를 쓰는 App과, 브라우저와 같은 언어를 고른 App), App 법적 고지 바닥글의 Translate 링크, 쿼리 없는
+  외부 링크, 검색. 세지 않는 것: App 언어가 브라우저와 다를 때의 App 링크(`/translate?locale=…`), 로그인 복귀(`?locale=…&phrase=…`에
   Worker가 `accountAuth`를 붙임. 로더는 페이지가 주소를 고치기 전에 판단함), 방문자가 언어나 문구를 골라 주소에 쿼리가 생긴 뒤
   `/translate`에서 연 같은 출처 페이지(바닥글의 About, Privacy, Terms, FAQ, Developers, History, Design System.
-  `Referrer-Policy: strict-origin-when-cross-origin`이라 같은 출처 referrer에 쿼리가 실려 그 페이지의 로더가 닫힘). 앞의 둘은
+  `Referrer-Policy: strict-origin-when-cross-origin`이라 같은 출처 referrer에 쿼리가 실려 그 페이지의 로더가 닫힘), 이미
+  `?locale`이나 `?phrase`가 든 주소로 다시 오는 것(언어나 문구를 고른 뒤의 새로고침, 북마크, 방문 기록 복원, 그리고 공유한
+  `?locale`·`?phrase` 링크. 예를 들어 번역자 모집에 올린 `/translate?locale=ko`). 앞의 둘과 마지막은
   (b) 로더가 `locale`을 허락하는 길로만 셀 수 있는데, 그것은 애널리틱스 개인정보 경계의 변경이라 오너가 고르지 않았다.
 - **아포스트로피(후속 4).** 오류 문장 'Couldn’t sign in. Try again.'은 페이지의 기존 글('Couldn’t load translations.',
   'Couldn’t complete this action. Try again.')과 같은 둥근 따옴표(’)를 그대로 쓴다. 오너가 승인한 문장은 곧은 따옴표로 적혀

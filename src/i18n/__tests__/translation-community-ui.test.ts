@@ -830,6 +830,14 @@ describe('translation page language and phrase address', () => {
     expect(current()).toBe('app:phrase.19');
     vi.unstubAllGlobals();
     await openPage(
+      'https://musixquare.com/translate?locale=ko&phrase=app%3Aphrase.20',
+      ['en-US'],
+      pagedCatalog,
+    );
+    expect(pageNumber()).toBe('2 / 3');
+    expect(current()).toBe('app:phrase.20');
+    vi.unstubAllGlobals();
+    await openPage(
       `https://musixquare.com/translate?locale=ko&phrase=${encodeURIComponent(draft.id)}`,
       ['en-US'],
       pagedCatalog,

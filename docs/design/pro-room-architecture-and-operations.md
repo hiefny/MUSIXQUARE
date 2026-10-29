@@ -1281,7 +1281,8 @@ The PRO Worker of 2026-10-26 stopped serving the request shapes of Apps below
 the 787 build floor. Restoring the PRO Worker it replaced needs no new floor
 only while every App sends the entry-policy and playlist-slots opt-in headers
 and the presence close's `baseRevision`, `currentQueueItemId` and `playback`,
-as 9.0.14 to 9.0.21 do: that build answers them the same way, its load
+as 9.0.14 to 9.0.21 do (9.0.22 stops sending the three close fields and 9.0.25
+the two headers): that build answers them the same way, its load
 normalization re-adds `developerControlVersion` to participants and developer
 commands, the stored `coordinatorParticipantId` is the null it always wrote,
 and playback receipts keep their `kind` marker, so it does not shorten them.
@@ -1300,10 +1301,13 @@ the 2026-10-26 Worker or newer; `docs/hotfix-procedure.md` carries the same
 rule.
 The App Worker of the same release no longer passes the opt-in headers to the
 internal ownership-transfer commit. Under the replaced PRO Worker that commit
-answers without `passwordRequired` and `playlistSlots`; the App parser takes
-both as optional, the room's entry password stays off as committed, and the
-new owner's settings may show it as on until a later snapshot revision carries
-the field. Restore the App Worker with the PRO Worker, or repair forward.
+answers without `passwordRequired` and `playlistSlots`; the App parser up to
+9.0.24 takes both as optional, the room's entry password stays off as
+committed, and the new owner's settings may show it as on until a later
+snapshot revision carries the field. Restore the App Worker with the PRO
+Worker, or repair forward. From 9.0.25 the App requires both and refuses the
+schemaVersion 1 snapshots that Worker sends, but that Worker is already behind
+the 9.0.22 line above.
 
 The PRO Worker that first sends PRO snapshot schemaVersion 2 also writes the
 start kind `timingMode` into the pending transition and the playback outbox
@@ -1318,6 +1322,23 @@ and ends such a share at the next system-audio generation. Builds below 795
 (9.0.22) refuse every schemaVersion 2 snapshot, so the App build floor reaches
 795 before that release ships; `docs/hotfix-procedure.md` carries the order for
 taking the App below that build afterwards.
+
+From 9.0.25 the App reads only PRO snapshot schemaVersion 2, takes the start
+kind only from `timingMode`, and refuses a live LAN-direct share with a numeric
+`liveExpiresAt` together with the heartbeat reply that carries it. Once 9.0.25
+has been live, the floor for a manual PRO rollback rises to the PRO Worker that
+first sends schemaVersion 2, even after an App rollback, because an open 9.0.25
+tab stays until it reloads: under an earlier PRO Worker it refuses every
+snapshot, drops the heartbeat replies of a room with a live LAN-direct share,
+and starts every COMMIT that names no start kind as a scheduled control. If
+that PRO Worker must still go, roll the App back first to the version in the
+9.0.25 release's recovery checkpoint (an App of 9.0.22 or later, which reads
+both schemas), then the PRO Worker to the 9.0.22 one. An App rollback below
+9.0.22 after 9.0.25 starts with that same App step; `docs/hotfix-procedure.md`
+carries the merged order and the repair after it, which keeps sending
+schemaVersion 2 and raises the floor to 795 again right after it. Every later
+PRO Worker keeps the load-time conversion of a stored numeric LAN-direct
+`liveExpiresAt` to null: a room not loaded since still stores the number.
 
 1. Stop the rollout and record the Worker versions and observed symptom. Do not
    delete the R2 bucket, Durable Object binding, class migration, or room data.
@@ -1343,5 +1364,5 @@ codes deployed and roll back the app alone. This is safer than reopening the
 codes or deleting persistent media. Once the PRO Worker that first sends PRO
 snapshot schemaVersion 2 has been live, this holds only for an App target of
 9.0.22 (build 795) or later; for an earlier target, first roll the PRO Worker
-back to the 9.0.22 PRO Worker and then follow the order in
-`docs/hotfix-procedure.md`.
+back to the 9.0.22 PRO Worker (once 9.0.25 has been live, after the App step
+above) and then follow the order in `docs/hotfix-procedure.md`.

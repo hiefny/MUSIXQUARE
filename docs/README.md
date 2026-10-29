@@ -93,6 +93,28 @@ runbooks. Neither belongs in a general setup document.
 
 ## Maintained evidence and completed records
 
+- [Phase 5.5 R3: the App stops reading PRO snapshot schemaVersion 1, 9.0.25 (2026-10-30)](design/phase5-5-r3-v1-receive-stop-2026-10-30.md):
+  draft, not merged or released; the third runtime release of Phase 5.5 (9.0.25 / v798 planned, App
+  build 798, bumped by the release owner once the branch moves onto main; target `app` with 15 App
+  runtime paths and none in the other five Workers, with the update dialog), on the branch head
+  `91601774` of the change that makes the PRO Worker send PRO snapshot schemaVersion 2. It may ship
+  only after that PRO Worker is deployed and recorded, while the live PRO Worker is that merge. The
+  App refuses the schemaVersion 1 wire and requires `passwordRequired` and `playlistSlots` on every
+  snapshot, `{ administrators }` alone from the administrator directory answers and
+  `passwordRequired` on every bootstrap; it reads the start kind only from `timingMode` (a
+  heartbeat snapshot that lands a prepared checkpoint before its COMMIT now starts with the
+  PREPARE's kind, an intended behaviour change), refuses a live LAN-direct share with a numeric
+  `liveExpiresAt`, stops sending the PRO entry-policy and playlist-slots opt-in headers, reads
+  SESSION_FULL and OPERATOR_TOAST by their key alone, and no longer reads the retired PRO developer
+  signaling frames (bus-pairing 203 to 202). The release workflow's App build requirement for PRO
+  releases is empty again. The report lists the owner decisions and order, what each refusal relies
+  on, each increment with its tests-first evidence, the deviations from the plan (among them the
+  narrowed PSK-11 cleanup and the checkpoint App after 9.0.24), the exact-count guards, mixed
+  versions, rollback (the release record's §4 current boundary line items 8 and 9: never below the
+  first schemaVersion 2 PRO Worker by hand, the App to the checkpoint App first, and the merged
+  order below build 795 with its repair), deploy conditions and order, user-visible changes,
+  records, QA round 1 (per increment) and round 2 (the full gate at the records commit), with
+  placeholders for the production rounds, owner device check candidates and what was not verified.
 - [Translate page entry train 9.0.24: language default, visit statistics, sign-in result (2026-10-29)](design/translate-entry-2026-10-29.md):
   released on 2026-10-30 03:20 KST in Release 40929481142 (PR #530, squash `78ec56f5`): the next app
   update after 9.0.23 (9.0.24 / v797, App build 797, bump `4d74f552`, target `app` with 14 App runtime

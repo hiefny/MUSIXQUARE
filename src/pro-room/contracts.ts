@@ -1,9 +1,8 @@
 import type { DevicePlatform, PlaylistSlotsSummary, QueueItemId } from '../types/index.ts';
 
 /**
- * PRO snapshot schemaVersion 2, the shape of every parsed snapshot. Until the
- * App stops accepting snapshot schemaVersion 1, the parser also reads that
- * wire into this shape (`snapshot.ts`).
+ * PRO snapshot schemaVersion 2, the only snapshot wire the App reads and the
+ * shape of every parsed snapshot (`snapshot.ts`).
  */
 export const PRO_ROOM_SNAPSHOT_SCHEMA_VERSION = 2 as const;
 export const PRO_ROOM_QUOTA_BYTES = 1024 * 1024 * 1024;
@@ -275,16 +274,15 @@ export type ProRoomSystemAudioState =
 
 /**
  * Authoritative, fully validated room state returned after
- * activation/authentication. A schemaVersion 1 reply parses to this same
- * schemaVersion 2 shape without its four coordinator-era keys, so one revision
- * compares equal across a Worker that changes the wire version.
+ * activation/authentication: PRO snapshot schemaVersion 2, the wire's own
+ * shape and key order.
  */
 export interface ProRoomSnapshot {
   schemaVersion: typeof PRO_ROOM_SNAPSHOT_SCHEMA_VERSION;
   roomCode: string;
   status: ProRoomStatus;
-  /** Missing on legacy v1 responses: consumers must treat it as protected. */
-  passwordRequired?: boolean;
+  /** Whether entering the room asks a non-owner for the room PIN. */
+  passwordRequired: boolean;
   runtime: ProRoomRuntimeStatus;
   revision: number;
   playlistRevision: number;
@@ -297,11 +295,8 @@ export interface ProRoomSnapshot {
   quota: ProRoomQuotaSnapshot;
   viewer: ProRoomViewerSnapshot | null;
   administrators: ProRoomAdministrator[];
-  /**
-   * Every playlist of the room; `playlist` above is the active one. Present
-   * only when the client opted in and the Worker supports playlists.
-   */
-  playlistSlots?: PlaylistSlotsSummary;
+  /** Every playlist of the room; `playlist` above is the active one. */
+  playlistSlots: PlaylistSlotsSummary;
 }
 
 /**

@@ -55,22 +55,6 @@ const DEVICE_PLATFORMS = new Set<DevicePlatform>([
   'other',
 ]);
 
-/**
- * Snapshot schemaVersion 1, the wire of every PRO Worker before schemaVersion
- * 2. It still carries four constant keys of the retired browser-coordinator
- * era, which the parser checks and drops.
- */
-const LEGACY_SNAPSHOT_SCHEMA_VERSION = 1;
-
-type SnapshotWireVersion =
-  typeof LEGACY_SNAPSHOT_SCHEMA_VERSION | typeof PRO_ROOM_SNAPSHOT_SCHEMA_VERSION;
-
-function parseSnapshotWireVersion(value: unknown): SnapshotWireVersion | null {
-  return value === LEGACY_SNAPSHOT_SCHEMA_VERSION || value === PRO_ROOM_SNAPSHOT_SCHEMA_VERSION
-    ? value
-    : null;
-}
-
 function isRecord(value: unknown): value is Record<string, unknown> {
   return value !== null && typeof value === 'object' && !Array.isArray(value);
 }
@@ -569,23 +553,9 @@ function parsePresenceParticipant(value: unknown): ProRoomPresenceParticipant | 
 }
 
 const PRESENCE_KEYS = ['coordinatorEpoch', 'revision', 'participants'] as const;
-const LEGACY_PRESENCE_KEYS = [...PRESENCE_KEYS, 'coordinatorParticipantId'] as const;
 
-function parsePresenceSnapshot(
-  value: unknown,
-  wireVersion: SnapshotWireVersion,
-): ProRoomPresenceSnapshot | null {
-  if (!isRecord(value)) return null;
-  if (wireVersion === LEGACY_SNAPSHOT_SCHEMA_VERSION) {
-    // PRO is coordinator-free as a protocol invariant. SchemaVersion 1 keeps
-    // the field name, but accepting a participant here would silently revive
-    // the retired browser-authority contract.
-    if (!hasExactKeys(value, LEGACY_PRESENCE_KEYS) || value.coordinatorParticipantId !== null) {
-      return null;
-    }
-  } else if (!hasExactKeys(value, PRESENCE_KEYS)) {
-    return null;
-  }
+function parsePresenceSnapshot(value: unknown): ProRoomPresenceSnapshot | null {
+  if (!isRecord(value) || !hasExactKeys(value, PRESENCE_KEYS)) return null;
   if (
     !isRevision(value.coordinatorEpoch) ||
     !isRevision(value.revision) ||
@@ -643,21 +613,9 @@ const VIEWER_KEYS = [
   'role',
   'capabilities',
 ] as const;
-const LEGACY_VIEWER_KEYS = [...VIEWER_KEYS, 'coordinatorEligible'] as const;
 
-function parseViewerSnapshot(
-  value: unknown,
-  wireVersion: SnapshotWireVersion,
-): ProRoomViewerSnapshot | null {
-  if (!isRecord(value)) return null;
-  if (wireVersion === LEGACY_SNAPSHOT_SCHEMA_VERSION) {
-    // No PRO capability makes a browser a playback coordinator any more.
-    if (!hasExactKeys(value, LEGACY_VIEWER_KEYS) || value.coordinatorEligible !== false) {
-      return null;
-    }
-  } else if (!hasExactKeys(value, VIEWER_KEYS)) {
-    return null;
-  }
+function parseViewerSnapshot(value: unknown): ProRoomViewerSnapshot | null {
+  if (!isRecord(value) || !hasExactKeys(value, VIEWER_KEYS)) return null;
   if (typeof value.memberId !== 'string' || !OPAQUE_ID_RE.test(value.memberId)) return null;
   if (typeof value.participantId !== 'string' || !OPAQUE_ID_RE.test(value.participantId)) {
     return null;
@@ -811,6 +769,7 @@ const SNAPSHOT_KEYS = [
   'schemaVersion',
   'roomCode',
   'status',
+  'passwordRequired',
   'runtime',
   'revision',
   'playlistRevision',
@@ -823,43 +782,27 @@ const SNAPSHOT_KEYS = [
   'quota',
   'viewer',
   'administrators',
+  'playlistSlots',
 ] as const;
-const LEGACY_SNAPSHOT_KEYS = [
-  ...SNAPSHOT_KEYS,
-  'memberIdentityVersion',
-  'authorityVersion',
-] as const;
-const OPTIONAL_SNAPSHOT_KEYS = ['passwordRequired', 'playlistSlots'] as const;
 
 /**
- * Reads snapshot schemaVersion 1 and 2 into one memory shape, schemaVersion 2,
- * with one key order. Equal revisions then compare equal whichever wire
- * carried them (`revision.ts`), so a Worker that changes the wire version
- * does not turn the installed revision into a conflict.
+ * Reads PRO snapshot schemaVersion 2 with its exact key set. Every PRO Worker
+ * since the one that first sent it sends no other wire, and the App refuses
+ * schemaVersion 1. The entry policy and the playlist summaries are required.
+ * The parsed snapshot has the wire's keys in this order, so it parses to
+ * itself (`playlist-state-manager.ts` clones by re-parsing) and equal
+ * revisions compare equal (`revision.ts`).
  */
 export function parseProRoomSnapshot(value: unknown): ProRoomSnapshot | null {
-  if (!isRecord(value)) return null;
-  const wireVersion = parseSnapshotWireVersion(value.schemaVersion);
-  if (wireVersion === null) return null;
-  const legacy = wireVersion === LEGACY_SNAPSHOT_SCHEMA_VERSION;
   if (
-    !hasExactKeysWithOptionals(
-      value,
-      legacy ? LEGACY_SNAPSHOT_KEYS : SNAPSHOT_KEYS,
-      OPTIONAL_SNAPSHOT_KEYS,
-    )
+    !isRecord(value) ||
+    value.schemaVersion !== PRO_ROOM_SNAPSHOT_SCHEMA_VERSION ||
+    !hasExactKeys(value, SNAPSHOT_KEYS)
   ) {
     return null;
   }
-  if (legacy && (value.memberIdentityVersion !== 1 || value.authorityVersion !== 1)) return null;
-  let playlistSlots: PlaylistSlotsSummary | undefined;
-  if (value.playlistSlots !== undefined) {
-    const parsedSlots = parsePlaylistSlots(value.playlistSlots);
-    if (!parsedSlots) return null;
-    playlistSlots = parsedSlots;
-  }
-  if (value.passwordRequired !== undefined && typeof value.passwordRequired !== 'boolean')
-    return null;
+  const playlistSlots = parsePlaylistSlots(value.playlistSlots);
+  if (!playlistSlots || typeof value.passwordRequired !== 'boolean') return null;
   if (
     !isProRoomCode(value.roomCode) ||
     !isStatus(value.status) ||
@@ -897,7 +840,7 @@ export function parseProRoomSnapshot(value: unknown): ProRoomSnapshot | null {
   }
 
   const playback = parseProRoomPlaybackCheckpoint(value.playback);
-  const presence = parsePresenceSnapshot(value.presence, wireVersion);
+  const presence = parsePresenceSnapshot(value.presence);
   const quota = parseQuotaSnapshot(value.quota);
   if (!playback || !presence || !quota) return null;
   const administrators: ProRoomAdministrator[] = [];
@@ -921,9 +864,7 @@ export function parseProRoomSnapshot(value: unknown): ProRoomSnapshot | null {
   if (playback.queueItemId !== null && !queueItemIds.has(playback.queueItemId)) return null;
   if (playback.queueItemId !== currentQueueItemId) return null;
   // The active slot summarizes the same playlist this snapshot carries.
-  if (playlistSlots && playlistSlots.slots[playlistSlots.activeSlot]?.count !== playlist.length) {
-    return null;
-  }
+  if (playlistSlots.slots[playlistSlots.activeSlot]?.count !== playlist.length) return null;
   if (playback.queueItemId !== null) {
     const playbackItem = playlist.find((item) => item.queueItemId === playback.queueItemId);
     if (!playbackItem) return null;
@@ -944,7 +885,7 @@ export function parseProRoomSnapshot(value: unknown): ProRoomSnapshot | null {
 
   let viewer: ProRoomViewerSnapshot | null = null;
   if (value.viewer !== null) {
-    viewer = parseViewerSnapshot(value.viewer, wireVersion);
+    viewer = parseViewerSnapshot(value.viewer);
     if (!viewer) return null;
     if (value.runtime === 'awake') {
       const participant = presence.participants.find(
@@ -1046,7 +987,7 @@ export function parseProRoomSnapshot(value: unknown): ProRoomSnapshot | null {
     schemaVersion: PRO_ROOM_SNAPSHOT_SCHEMA_VERSION,
     roomCode: value.roomCode,
     status: value.status,
-    ...(value.passwordRequired === undefined ? {} : { passwordRequired: value.passwordRequired }),
+    passwordRequired: value.passwordRequired,
     runtime: value.runtime,
     revision: value.revision,
     playlistRevision: value.playlistRevision,
@@ -1059,6 +1000,6 @@ export function parseProRoomSnapshot(value: unknown): ProRoomSnapshot | null {
     quota,
     viewer,
     administrators,
-    ...(playlistSlots === undefined ? {} : { playlistSlots }),
+    playlistSlots,
   };
 }

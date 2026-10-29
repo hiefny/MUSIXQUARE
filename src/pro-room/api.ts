@@ -111,7 +111,7 @@ type ProRoomBootstrapStatus = 'activation_required' | 'pin_required' | 'open' | 
 export interface ProRoomBootstrap {
   roomCode: string;
   status: ProRoomBootstrapStatus;
-  passwordRequired?: boolean;
+  passwordRequired: boolean;
 }
 
 interface ProRoomAccountLease {
@@ -816,10 +816,7 @@ function parseAccountDetachResult(
 function parseAdministratorDirectory(value: unknown): ProRoomAdministratorDirectory | null {
   if (
     !isRecord(value) ||
-    // A PRO Worker that sends snapshot schemaVersion 1 adds the same retired
-    // authority marker to this answer, always 1. It is checked and dropped.
-    !hasExactKeys(value, ['administrators'], ['authorityVersion']) ||
-    (value.authorityVersion !== undefined && value.authorityVersion !== 1) ||
+    !hasExactKeys(value, ['administrators']) ||
     !Array.isArray(value.administrators) ||
     value.administrators.length > PRO_ROOM_MAX_ADMINISTRATOR_ITEMS
   ) {
@@ -1088,16 +1085,12 @@ function parseUploadHeaders(value: unknown): Record<string, string> | null {
 function parseBootstrap(value: unknown, expectedCode: string): ProRoomBootstrap | null {
   if (
     !isRecord(value) ||
-    !hasExactKeys(value, [
-      'roomCode',
-      'status',
-      ...('passwordRequired' in value ? ['passwordRequired'] : []),
-    ])
-  )
+    !hasExactKeys(value, ['roomCode', 'status', 'passwordRequired']) ||
+    typeof value.passwordRequired !== 'boolean' ||
+    value.roomCode !== expectedCode
+  ) {
     return null;
-  if (value.passwordRequired !== undefined && typeof value.passwordRequired !== 'boolean')
-    return null;
-  if (value.roomCode !== expectedCode) return null;
+  }
   if (
     value.status !== 'activation_required' &&
     value.status !== 'pin_required' &&
@@ -1106,13 +1099,9 @@ function parseBootstrap(value: unknown, expectedCode: string): ProRoomBootstrap 
   ) {
     return null;
   }
-  if (value.status === 'open' && value.passwordRequired !== false) return null;
-  if (value.status === 'pin_required' && value.passwordRequired === false) return null;
-  return {
-    roomCode: expectedCode,
-    status: value.status,
-    ...(value.passwordRequired === undefined ? {} : { passwordRequired: value.passwordRequired }),
-  };
+  if (value.status === 'open' && value.passwordRequired) return null;
+  if (value.status === 'pin_required' && !value.passwordRequired) return null;
+  return { roomCode: expectedCode, status: value.status, passwordRequired: value.passwordRequired };
 }
 
 function parseSessionEnvelope(value: unknown, expectedCode: string): ProRoomSnapshot | null {

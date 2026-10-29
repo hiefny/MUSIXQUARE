@@ -1,5 +1,5 @@
 import { PLAYLIST_SLOT_COUNT } from '../core/constants.ts';
-import type { PlaylistSlotsSummary, PlaylistTransferMode } from '../types/index.ts';
+import type { PlaylistTransferMode } from '../types/index.ts';
 import type {
   SwitchProRoomPlaylistInput,
   TransferProRoomPlaylistTracksInput,
@@ -210,18 +210,6 @@ type SlotRequestBuilder = (snapshot: ProRoomSnapshot) => SlotRequest | null;
 
 function isPlaylistSlot(value: unknown): value is number {
   return isSafeNonNegativeInteger(value) && value < PLAYLIST_SLOT_COUNT;
-}
-
-function requirePlaylistSlots(snapshot: ProRoomSnapshot): PlaylistSlotsSummary {
-  if (!snapshot.playlistSlots) {
-    throw new ProRoomPlaylistStateError('PRO_ROOM_PLAYLIST_SLOTS_UNAVAILABLE');
-  }
-  return snapshot.playlistSlots;
-}
-
-/** A room without playlist summaries has one playlist, as the Worker treats it. */
-function activePlaylistSlot(snapshot: ProRoomSnapshot): number {
-  return snapshot.playlistSlots?.activeSlot ?? 0;
 }
 
 function cloneSnapshot(snapshot: ProRoomSnapshot): ProRoomSnapshot {
@@ -611,7 +599,7 @@ export class ProRoomPlaylistStateManager {
         throw new ProRoomPlaylistStateError('PRO_ROOM_PLAYLIST_SLOT_INVALID');
       }
       return this.#slotMutation((snapshot) => {
-        if (requirePlaylistSlots(snapshot).activeSlot === slot) return null;
+        if (snapshot.playlistSlots.activeSlot === slot) return null;
         return (baseRevision, idempotencyKey, signal) =>
           this.#slotApi().switchPlaylist(
             { code: this.#code, baseRevision, slot, idempotencyKey },
@@ -645,7 +633,7 @@ export class ProRoomPlaylistStateManager {
         throw new ProRoomPlaylistStateError('PRO_ROOM_PLAYLIST_TRANSFER_INVALID');
       }
       return this.#slotMutation((snapshot) => {
-        const { activeSlot } = requirePlaylistSlots(snapshot);
+        const { activeSlot } = snapshot.playlistSlots;
         const ids = snapshot.playlist
           .filter((item) => requested.has(item.queueItemId))
           .map((item) => item.queueItemId);
@@ -827,7 +815,7 @@ export class ProRoomPlaylistStateManager {
       // The compact append always edits the active playlist. When another
       // playlist became active since `targetSlot` was chosen, adding the row
       // would put it in that one, so the append stops instead.
-      if (targetSlot !== undefined && activePlaylistSlot(snapshot) !== targetSlot) {
+      if (targetSlot !== undefined && snapshot.playlistSlots.activeSlot !== targetSlot) {
         throw new ProRoomPlaylistStateError('PRO_ROOM_PLAYLIST_SWITCHED');
       }
       this.#assertCapacity(snapshot, 1);
@@ -916,7 +904,7 @@ export class ProRoomPlaylistStateManager {
     ) {
       throw new ProRoomPlaylistStateError('PRO_ROOM_MEDIA_UPLOAD_RETRY_MISMATCH');
     }
-    const targetSlot = retryState?.target?.slot ?? activePlaylistSlot(accepted);
+    const targetSlot = retryState?.target?.slot ?? accepted.playlistSlots.activeSlot;
     if (retryState && !retryState.target) {
       retryState.target = { owner: this, slot: targetSlot, queueItemId, file: input.file };
     }
@@ -935,7 +923,7 @@ export class ProRoomPlaylistStateManager {
       }
       throw new ProRoomPlaylistStateError('PRO_ROOM_PLAYLIST_QUEUE_ITEM_COLLISION');
     }
-    if (activePlaylistSlot(accepted) !== targetSlot) {
+    if (accepted.playlistSlots.activeSlot !== targetSlot) {
       const retained = retryState?.media.completion?.expectedSource.assetId;
       if (retryState && retained !== undefined) {
         await this.#releaseSwitchedUpload(retryState, retained);

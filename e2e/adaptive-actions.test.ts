@@ -1462,13 +1462,15 @@ test.describe('content-based adaptive action groups', () => {
   // label and pill (13px / 600 / normal line height and tracking, 10px side
   // padding, 10px gap, 20px icon) in the same browser and fonts, so the pin
   // holds on any platform: no label or icon may reach further past its pill
-  // than in 9.0.18. Tamil Exit Tour is wider than its pill at 320px in 9.0.18
-  // too; that pre-existing case is an owner item in the UI bundle report.
+  // than in 9.0.18. Owner decision (2026-10-29, item 17): each icon keeps its
+  // 20px (it used to shrink before the label did, to 0px for the Tamil and
+  // Malayalam Exit Tour), so the 9.0.18 copy keeps a shrinking icon, and the
+  // Tamil and Malayalam Exit Tour take shorter words that fit beside it.
   const DEMO_FINISH_9_0_18 = {
     button:
       'font-size: 13px; font-weight: 600; line-height: normal; letter-spacing: normal; ' +
       'height: 54px; min-height: 54px; padding: 0 10px; gap: 10px;',
-    icon: 'width: 20px; height: 20px;',
+    icon: 'width: 20px; height: 20px; flex-shrink: 1;',
   };
   for (const viewportWidth of [320, 340, 360]) {
     test(`keeps the demo finish pair no worse than 9.0.18 in every locale at ${viewportWidth}px`, async ({
@@ -1534,6 +1536,7 @@ test.describe('content-based adaptive action groups', () => {
               typography: [style.fontSize, style.fontWeight, style.lineHeight, style.letterSpacing],
               width: pill.width,
               height: pill.height,
+              icon: [icon.width, icon.height],
               horizontal: Math.max(0, pill.left - left, right - pill.right),
               vertical: Math.max(0, pill.top - top, bottom - pill.bottom),
             };
@@ -1568,6 +1571,7 @@ test.describe('content-based adaptive action groups', () => {
           expect(shipped.height, `${id} pill height`).toBeCloseTo(54, 1);
           expect(reference.height, `${id} 9.0.18 pill height`).toBeCloseTo(54, 1);
           expect(shipped.width, `${id} pill width`).toBeCloseTo(reference.width, 1);
+          for (const side of shipped.icon) expect(side, `${id} icon`).toBeCloseTo(20, 1);
           for (const axis of ['horizontal', 'vertical'] as const) {
             if (shipped[axis] > reference[axis] + 0.5) {
               worse.push(

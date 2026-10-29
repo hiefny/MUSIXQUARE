@@ -31,4 +31,18 @@ describe('copy that fits its slot', () => {
     expect(ta['dialog.host_unresponsive_title']).toBe('ஹோஸ்ட் சாதனம் பதில் தரவில்லை');
     expect(ta['dialog.host_unresponsive_title']).not.toContain('சாதனத்திலிருந்து');
   });
+
+  it('labels the Tamil and Malayalam tour exit in words that fit beside its 20px icon', () => {
+    // The demo's last step pairs Exit Tour with Track info in 128px pills at
+    // 320px (13px labels, 10px side padding, a 20px icon 10px from the label).
+    // டெமோவிலிருந்து வெளியேறு ran 4.8px out of its pill there and squeezed
+    // the icon to nothing; ഡെമോയിൽ നിന്ന് പുറത്തുകടക്കുക took three lines
+    // with no icon. With the icon kept at 20px both ran further out. Tamil
+    // now says leave (வெளியேறு, its common.leave) and Malayalam "leave the
+    // demo" (ഡെമോ വിടുക), both inside the pill from 320px.
+    const { ta, ml } = APP_DICTIONARIES;
+    expect(ta['demo.exit']).toBe('வெளியேறு');
+    expect(ta['demo.exit']).toBe(ta['common.leave']);
+    expect(ml['demo.exit']).toBe('ഡെമോ വിടുക');
+  });
 });

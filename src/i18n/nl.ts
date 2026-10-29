@@ -421,7 +421,6 @@ const nl: Record<I18nKey, string> = {
 
   // Chat
   'chat.title': 'Chat',
-  'chat.close': 'Chat sluiten',
   'chat.open': 'Chat openen',
   'chat.placeholder': "Bericht of '/' voor opdrachten...",
   'chat.input_label': 'Chatbericht',

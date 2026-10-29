@@ -407,7 +407,6 @@ const th: Record<I18nKey, string> = {
 
   // ─── Chat ────────────────────────────────────────────────────────
   'chat.title': 'แชต',
-  'chat.close': 'ปิดแชต',
   'chat.open': 'เปิดแชต',
   'chat.placeholder': 'ข้อความ หรือ / สำหรับคำสั่ง...',
   'chat.input_label': 'ข้อความแชต',

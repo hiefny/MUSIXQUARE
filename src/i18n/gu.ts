@@ -412,7 +412,6 @@ const gu: Record<I18nKey, string> = {
 
   // ─── Chat ────────────────────────────────────────────────────────
   'chat.title': 'ચૅટ',
-  'chat.close': 'ચૅટ બંધ કરો',
   'chat.open': 'ચૅટ ખોલો',
   'chat.placeholder': "સંદેશ લખો અથવા કમાન્ડ માટે '/' વાપરો...",
   'chat.input_label': 'ચૅટ સંદેશ',

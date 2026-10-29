@@ -419,7 +419,6 @@ const da: Record<I18nKey, string> = {
 
   // ─── Chat ────────────────────────────────────────────────────────
   'chat.title': 'Chat',
-  'chat.close': 'Luk chatten',
   'chat.open': 'Åbn chatten',
   'chat.placeholder': "Besked eller '/' for kommandoer…",
   'chat.input_label': 'Chatbesked',

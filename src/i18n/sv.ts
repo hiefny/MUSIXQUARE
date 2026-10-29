@@ -420,7 +420,6 @@ const sv: Record<I18nKey, string> = {
 
   // ─── Chat ────────────────────────────────────────────────────────
   'chat.title': 'Chatt',
-  'chat.close': 'Stäng chatten',
   'chat.open': 'Öppna chatten',
   'chat.placeholder': "Meddelande eller '/' för kommandon…",
   'chat.input_label': 'Chattmeddelande',

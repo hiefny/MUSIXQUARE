@@ -421,7 +421,6 @@ const ro: Record<I18nKey, string> = {
 
   // ─── Chat ────────────────────────────────────────────────────────
   'chat.title': 'Chat',
-  'chat.close': 'Închide chatul',
   'chat.open': 'Deschide chatul',
   'chat.placeholder': "Mesaj sau '/' pentru comenzi...",
   'chat.input_label': 'Mesaj de chat',

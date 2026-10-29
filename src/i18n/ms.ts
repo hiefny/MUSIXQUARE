@@ -424,7 +424,6 @@ const ms: Record<I18nKey, string> = {
 
   // ─── Sembang ─────────────────────────────────────────────────────
   'chat.title': 'Sembang',
-  'chat.close': 'Tutup sembang',
   'chat.open': 'Buka sembang',
   'chat.placeholder': "Mesej atau '/' untuk perintah...",
   'chat.input_label': 'Mesej sembang',

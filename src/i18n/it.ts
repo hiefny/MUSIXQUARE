@@ -425,7 +425,6 @@ const it: Record<I18nKey, string> = {
 
   // ─── Chat ────────────────────────────────────────────────────────
   'chat.title': 'Chat',
-  'chat.close': 'Chiudi la chat',
   'chat.open': 'Apri la chat',
   'chat.placeholder': 'Messaggio o / per comandi...',
   'chat.input_label': 'Messaggio di chat',

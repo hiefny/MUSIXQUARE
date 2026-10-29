@@ -837,7 +837,6 @@ const fr: Record<I18nKey, string> = {
 
   // Chat
   'chat.title': 'Chat',
-  'chat.close': 'Fermer le chat',
   'chat.open': 'Ouvrir le chat',
   'chat.placeholder': 'Message ou / pour afficher les commandes…',
   'chat.input_label': 'Message du chat',

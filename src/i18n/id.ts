@@ -822,7 +822,6 @@ const id: Record<I18nKey, string> = {
 
   // Chat
   'chat.title': 'Chat',
-  'chat.close': 'Tutup chat',
   'chat.open': 'Buka chat',
   'chat.placeholder': 'Pesan atau / untuk perintah...',
   'chat.input_label': 'Pesan chat',

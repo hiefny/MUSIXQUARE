@@ -418,7 +418,6 @@ const hu: Record<I18nKey, string> = {
 
   // ─── Chat ────────────────────────────────────────────────────────
   'chat.title': 'Csevegés',
-  'chat.close': 'Csevegés bezárása',
   'chat.open': 'Csevegés megnyitása',
   'chat.placeholder': "Üzenet vagy '/' a parancsokhoz...",
   'chat.input_label': 'Csevegőüzenet',

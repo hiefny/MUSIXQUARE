@@ -752,7 +752,6 @@ const zhHant: Record<I18nKey, string> = {
 
   // Chat
   'chat.title': '聊天',
-  'chat.close': '關閉聊天',
   'chat.open': '開啟聊天',
   'chat.placeholder': '輸入訊息，或輸入「/」使用指令…',
   'chat.input_label': '聊天訊息',

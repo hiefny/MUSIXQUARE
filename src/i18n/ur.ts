@@ -410,7 +410,6 @@ const ur: Record<I18nKey, string> = {
 
   // ─── Chat ────────────────────────────────────────────────────────
   'chat.title': 'چیٹ',
-  'chat.close': 'چیٹ بند کریں',
   'chat.open': 'چیٹ کھولیں',
   'chat.placeholder': 'پیغام یا کمانڈ کے لیے "/"...',
   'chat.input_label': 'چیٹ پیغام',

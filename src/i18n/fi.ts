@@ -418,7 +418,6 @@ const fi: Record<I18nKey, string> = {
 
   // ─── Chat ────────────────────────────────────────────────────────
   'chat.title': 'Chat',
-  'chat.close': 'Sulje chat',
   'chat.open': 'Avaa chat',
   'chat.placeholder': "Kirjoita viesti tai käytä komentoja merkillä '/'…",
   'chat.input_label': 'Chat-viesti',

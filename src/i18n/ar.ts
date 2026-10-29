@@ -403,7 +403,6 @@ const ar: Record<I18nKey, string> = {
 
   // ─── Chat ────────────────────────────────────────────────────────
   'chat.title': 'الدردشة',
-  'chat.close': 'إغلاق الدردشة',
   'chat.open': 'فتح الدردشة',
   'chat.placeholder': 'رسالة أو «/» للأوامر...',
   'chat.input_label': 'رسالة الدردشة',

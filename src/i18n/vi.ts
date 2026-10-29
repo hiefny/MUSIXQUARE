@@ -809,7 +809,6 @@ const vi: Record<I18nKey, string> = {
 
   // Chat
   'chat.title': 'Trò chuyện',
-  'chat.close': 'Đóng trò chuyện',
   'chat.open': 'Mở trò chuyện',
   'chat.placeholder': 'Tin nhắn hoặc / để xem lệnh...',
   'chat.input_label': 'Tin nhắn trò chuyện',

@@ -349,7 +349,7 @@ const nb: Record<I18nKey, string> = {
   'demo.prompt_cta': 'Start omvisningen',
   'demo.prompt_later': 'Senere',
   'demo.try_later_toast': 'Du kan prøve den når som helst fra Hjelp-fanen',
-  'demo.track_info': 'Sporinformasjon',
+  'demo.track_info': 'Sporinfo',
   'demo.exit': 'Avslutt demo',
   'demo.credit': 'Demospor',
   'demo.role_title': 'Angi rollen til denne enheten',

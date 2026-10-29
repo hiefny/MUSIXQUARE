@@ -356,7 +356,7 @@ const ta: Record<I18nKey, string> = {
   'demo.prompt_later': 'பின்னர்',
   'demo.try_later_toast': 'உதவி தாவலில் இருந்து எப்போது வேண்டுமானாலும் இதை முயலலாம்',
   'demo.track_info': 'டிராக் தகவல்',
-  'demo.exit': 'டெமோவிலிருந்து வெளியேறு',
+  'demo.exit': 'வெளியேறு',
   'demo.credit': 'டெமோ டிராக்',
   'demo.role_title': 'இந்தச் சாதனத்தின் பங்கை அமை',
   'demo.effects_title': 'விளைவுகளை முயன்று பார்',

@@ -45,4 +45,11 @@ describe('copy that fits its slot', () => {
     expect(ta['demo.exit']).toBe(ta['common.leave']);
     expect(ml['demo.exit']).toBe('ഡെമോ വിടുക');
   });
+
+  it('labels the Norwegian tour track info in a word that fits beside its 20px icon', () => {
+    // Beside Exit Tour, Track info gets the same 128px pill at 320px. Once
+    // its icon kept 20px, Sporinformasjon (one word) ran 0.77px out of the
+    // pill. Sporinfo reads like the Danish Nummerinfo and German Titelinfo.
+    expect(APP_DICTIONARIES.nb['demo.track_info']).toBe('Sporinfo');
+  });
 });

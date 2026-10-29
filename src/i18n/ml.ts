@@ -353,7 +353,7 @@ const ml: Record<I18nKey, string> = {
   'demo.prompt_later': 'പിന്നീട്',
   'demo.try_later_toast': 'സഹായം ടാബിൽ നിന്ന് എപ്പോൾ വേണമെങ്കിലും ഇത് പരീക്ഷിക്കാം',
   'demo.track_info': 'ട്രാക്ക് വിവരം',
-  'demo.exit': 'ഡെമോയിൽ നിന്ന് പുറത്തുകടക്കുക',
+  'demo.exit': 'ഡെമോ വിടുക',
   'demo.credit': 'ഡെമോ ട്രാക്ക്',
   'demo.role_title': 'ഈ ഡിവൈസിന്റെ റോൾ സജ്ജമാക്കുക',
   'demo.effects_title': 'ഇഫക്റ്റുകൾ പരീക്ഷിക്കുക',

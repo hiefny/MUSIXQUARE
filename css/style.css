@@ -9972,6 +9972,12 @@ or pointers. Keep :focus-visible and :active outside the gate (src/ui/__tests__/
     gap: 10px;
   }
 
+  /* Each icon keeps its size; only the label wraps (owner decision
+     2026-10-29). As a flex item it used to shrink before the label did. */
+  .demo-large-actions > button > svg {
+    flex-shrink: 0;
+  }
+
   .demo-large-actions .accent-action-btn {
     background: var(--control-active);
   }

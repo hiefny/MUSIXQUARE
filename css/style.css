@@ -9178,12 +9178,14 @@ or pointers. Keep :focus-visible and :active outside the gate (src/ui/__tests__/
     background: var(--surface-3);
   }
 
-  /* The Done / Reset pair is an adaptive action group (index.html): 56px
+  /* The Reset / Done pair is an adaptive action group (index.html): 56px
      pills 10px apart side by side and 12px down like every dialog action,
      each sized by its label, and each on its own full row only when the
      localized pair no longer fits. Labels wrap only at word boundaries.
-     Done, the exit, comes first with the secondary look and Reset, the
-     action, follows with the primary fill (owner policy 2026-10-28). */
+     Reset comes first with the secondary look; Done, which applies the
+     value and closes the panel, finishes it on the right with the primary
+     fill. Exit on the left is for dialog [Cancel | Action] pairs (owner
+     decision 2026-10-29). */
   .sync-bottom-row {
     width: 100%;
     margin-top: 16px;
@@ -9205,29 +9207,29 @@ or pointers. Keep :focus-visible and :active outside the gate (src/ui/__tests__/
       transform 0.1s;
   }
 
-  .sync-done-btn {
+  .sync-reset-btn {
     background: var(--surface-2);
     color: var(--text-sub);
   }
 
-  .sync-done-btn:active {
+  .sync-reset-btn:active {
     transform: scale(0.96);
     background: var(--surface-3);
   }
 
-  .sync-reset-btn {
+  .sync-done-btn {
     background: var(--primary-filled);
     color: white;
   }
 
-  .sync-reset-btn:active {
+  .sync-done-btn:active {
     transform: scale(0.96);
     opacity: 0.85;
   }
 
   /* Short landscape phones keep the manual sync body and its pair in view.
      The pair's top margin never drops below its own row gap, so a wrapped
-     Done never sits closer to the nudge row than to Reset. No keyboard-open
+     Reset never sits closer to the nudge row than to Done. No keyboard-open
      guard: these rules only change spacing inside the fixed overlay, so they
      cannot feed keyboard detection, and a guard would move the value field
      while it is being edited. */

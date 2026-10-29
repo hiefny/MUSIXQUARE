@@ -362,20 +362,21 @@ seek, and the wake transition. The stored transition keeps its kind, so a
 coalesced ENDED report, the PREPARE in a command answer or a signaling ticket,
 and the COMMIT always agree. A direct COMMIT names no kind and reads as
 `scheduled-control`, as does an unknown value. The App grants learned startup
-lead only to a zero-start transition it prepared: the COMMIT that matches the
-PREPARE, or a heartbeat snapshot or reconciliation that lands the prepared
-checkpoint before that COMMIT, starts with the kind the PREPARE named. Catch-up
-and participant-local paths stay `scheduled-control`, so the field describes
-the server's transition, not the path a client took. The PRO Worker names the
-kind since PRO snapshot schemaVersion 2. Earlier PRO Workers encoded zero-start
-as a 2999 ms deadline and a 699 ms COMMIT lead. The App stopped reading that
-encoding when it stopped reading snapshot schemaVersion 1: a transition COMMIT
-without the field is `scheduled-control` at any lead. The PRO Worker reads the
-deadline on a transition an earlier Worker stored until a later PRO release
-drops it. Phase 6 of the structure improvement
-plan builds on this contract unchanged: the kind on every PREPARE and
-transition COMMIT, the classification, the time basis, the three-second
-barrier, the 700 ms lead, the event envelope, and the signaling event budget.
+lead only to a zero-start transition it prepared: the COMMIT that matches that
+PREPARE starts with the kind the COMMIT names, and a heartbeat snapshot or
+reconciliation that lands the prepared checkpoint before that COMMIT starts
+with the kind the PREPARE named. Catch-up and participant-local paths stay
+`scheduled-control`, so the field describes the server's transition, not the
+path a client took. The PRO Worker names the kind since PRO snapshot
+schemaVersion 2. Earlier PRO Workers encoded zero-start as a 2999 ms deadline
+and a 699 ms COMMIT lead. The App stopped reading that encoding when it stopped
+reading snapshot schemaVersion 1: a transition COMMIT without the field is
+`scheduled-control` at any lead. The PRO Worker reads the deadline on a
+transition an earlier Worker stored until a later PRO release drops it. Phase 6
+of the structure improvement plan builds on this contract unchanged: the kind
+on every PREPARE and transition COMMIT, the classification, the time basis,
+the three-second barrier, the 700 ms lead, the event envelope, and the
+signaling event budget.
 
 ### 7. Late join and recovery
 

@@ -5802,12 +5802,16 @@ or pointers. Keep :focus-visible and :active outside the gate (src/ui/__tests__/
     padding: 30px 32px 8px;
   }
 
+  /* A title word longer than the line breaks rather than leave the dialog
+     (owner decision 2026-10-29; the Tamil host-unresponsive title ran 2.4px
+     out at 320px). Japanese and Chinese keep their words whole below. */
   .dialog-title {
     font-size: 20px;
     font-weight: var(--font-weight-title);
     letter-spacing: var(--title-letter-spacing);
     color: var(--text-main);
     min-width: 0;
+    overflow-wrap: anywhere;
   }
 
   .dialog-message {
@@ -5821,10 +5825,6 @@ or pointers. Keep :focus-visible and :active outside the gate (src/ui/__tests__/
 
   /* Full notices use the normal dialog surface/motion, with copy scrolling
      inside the straight edges so its scrollbar never meets the rounded corners. */
-  #dialog-overlay.dialog-reading .dialog-title {
-    overflow-wrap: anywhere;
-  }
-
   #dialog-overlay.dialog-reading .dialog-message {
     flex-shrink: 1;
     min-height: 48px;
@@ -7149,12 +7149,31 @@ or pointers. Keep :focus-visible and :active outside the gate (src/ui/__tests__/
     letter-spacing: var(--title-letter-spacing);
     color: var(--text-main);
     line-height: 1.2;
+    overflow-wrap: anywhere;
   }
 
   /* Korean breaks between any two syllables; keep a wrapping title's words
-     whole, like the paragraph below it. Japanese and Chinese have no spaces,
-     so they keep the normal breaks (title-tracking-contract.test.ts). */
+     whole, like the paragraph below it. Japanese and Chinese titles keep
+     their words whole too (owner decision 2026-10-29): Japanese breaks
+     between phrases where the browser can (auto-phrase) and elsewhere keeps
+     its words whole like Korean; Chinese keeps its words whole and breaks at
+     its spaces. A word longer than the line still breaks (overflow-wrap
+     above), and the stepped dialog keeps its own rule
+     (title-tracking-contract.test.ts). */
   html:lang(ko) .setup-header-text h2 {
+    word-break: keep-all;
+  }
+
+  html:lang(ja) .setup-header-text h2,
+  html:lang(ja) .dialog-title {
+    word-break: keep-all;
+    word-break: auto-phrase;
+  }
+
+  html:lang(zh-Hans) .setup-header-text h2,
+  html:lang(zh-Hant) .setup-header-text h2,
+  html:lang(zh-Hans) .dialog-title,
+  html:lang(zh-Hant) .dialog-title {
     word-break: keep-all;
   }
 

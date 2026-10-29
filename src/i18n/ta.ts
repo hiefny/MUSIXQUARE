@@ -763,7 +763,7 @@ const ta: Record<I18nKey, string> = {
   'dialog.got_it': 'புரிந்தது',
   'dialog.continue_using': 'தொடர்',
   'dialog.leave_session': 'வெளியேறு',
-  'dialog.host_unresponsive_title': 'ஹோஸ்ட் சாதனத்திலிருந்து பதில் இல்லை',
+  'dialog.host_unresponsive_title': 'ஹோஸ்ட் சாதனம் பதில் தரவில்லை',
   'dialog.host_unresponsive_message':
     'ஹோஸ்ட் சாதனத்தில் MUSIXQUARE திறந்துள்ளதா எனச் சரிபார்க்கவும்.\nநீங்கள் தொடர்ந்து காத்திருக்கலாம் அல்லது அமர்விலிருந்து வெளியேறலாம்.',
   'dialog.keep_waiting': 'தொடர்ந்து காத்திரு',

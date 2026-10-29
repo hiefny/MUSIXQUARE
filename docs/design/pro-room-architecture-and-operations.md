@@ -469,11 +469,12 @@ browser and the Durable Object. Public room state contains only the exact owner,
 generation, and one fenced publication descriptor. A 45-second preparing claim
 bounds abandoned native-picker attempts. An SFU publication receives a fixed
 two-hour deadline when it first commits and heartbeat cannot extend it. A
-LAN-direct publication carries a legacy numeric `liveExpiresAt` value for
-mixed-generation compatibility, but has no fixed duration cap because
-Cloudflare carries no media packets. Its exact owner presence, four-device
-fence, and bounded client authority-heartbeat watchdog still end orphaned or
-revoked shares.
+LAN-direct publication has no deadline (`liveExpiresAt` is null) and no fixed
+duration cap, because Cloudflare carries no media packets. PRO Workers before
+PRO snapshot schemaVersion 2 stored a numeric compatibility value there; the
+PRO Worker reads it as null and stores that with the room's next request or
+alarm. Its exact owner presence, four-device fence, and bounded client
+authority-heartbeat watchdog still end orphaned or revoked shares.
 
 The preferred PRO media path uses the protocol-v2 LAN-direct descriptor under
 the `single-stereo-v3` matched-release contract. System audio is limited to four
@@ -530,9 +531,9 @@ peer fan-out entry point. As soon as canonical live
 state is SFU, `system-audio.signal` authority is denied in both directions, so
 stale direct offer/answer/candidate/close frames cannot continue under the
 shared ID. Promotion is therefore one-way for the publication lifetime.
-The promotion atomically replaces direct's compatibility timestamp with server
-time plus two hours. A lost-response retry observes the same SFU publication
-without extending that deadline.
+The promotion atomically installs the SFU deadline, server time plus two hours,
+on the publication that had none while direct. A lost-response retry observes
+the same SFU publication without extending that deadline.
 
 Host candidates have a deliberate privacy boundary. The authenticated signaling
 relay carries only a small bounded set of component-1 UDP host candidates, and
@@ -1303,6 +1304,20 @@ both as optional, the room's entry password stays off as committed, and the
 new owner's settings may show it as on until a later snapshot revision carries
 the field. Restore the App Worker with the PRO Worker, or repair forward.
 
+The PRO Worker that first sends PRO snapshot schemaVersion 2 also writes the
+start kind `timingMode` into the pending transition and the playback outbox
+records it stores, and stores a live LAN-direct share's `liveExpiresAt` as
+null. The 9.0.22 PRO Worker (9.0.22 / v795, merge `71f5b96c`, PRO Worker
+version `6abc7131`) reads all three, so it is that release's recovery
+target and, once that Worker has been live, the floor for any manual PRO
+rollback: an earlier PRO Worker drops such a pending transition without a
+CANCEL (that start never happens and a loading indicator can stay until the
+next playback command), drops the whole outbox when one record does not match,
+and ends such a share at the next system-audio generation. Builds below 795
+(9.0.22) refuse every schemaVersion 2 snapshot, so the App build floor reaches
+795 before that release ships; `docs/hotfix-procedure.md` carries the order for
+taking the App below that build afterwards.
+
 1. Stop the rollout and record the Worker versions and observed symptom. Do not
    delete the R2 bucket, Durable Object binding, class migration, or room data.
 2. Let the release workflow perform conflict-aware recovery. When every
@@ -1324,4 +1339,8 @@ and session-secret rotation intentionally signs everyone out.
 
 If only the client is faulty, leave the PRO backend and reserved signaling
 codes deployed and roll back the app alone. This is safer than reopening the
-codes or deleting persistent media.
+codes or deleting persistent media. Once the PRO Worker that first sends PRO
+snapshot schemaVersion 2 has been live, this holds only for an App target of
+9.0.22 (build 795) or later; for an earlier target, first roll the PRO Worker
+back to the 9.0.22 PRO Worker and then follow the order in
+`docs/hotfix-procedure.md`.

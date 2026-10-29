@@ -14,6 +14,12 @@ import {
   presenceMarker51ab2be3,
 } from './__helpers__/pro-room-outbox-records-51ab2be3.ts';
 import {
+  prepareRecordV2,
+  storedTransitionV2,
+  transitionCommitRecordV2,
+  wakeTransitionV2,
+} from './__helpers__/pro-room-playback-records-v2.ts';
+import {
   scheduledControlTransitionV1,
   wakeTransitionV1,
   zeroStartTransitionV1,
@@ -582,7 +588,10 @@ describe('PRO signaling delivery lanes: ordering', () => {
  * rolled back across a shape change would therefore silently lose the
  * presence retry and the PREPARE/CANCEL/COMMIT records written by the newer
  * one. Plan step C7-4 (and any Phase 1 outbox owner) must keep these lists,
- * or add a versioned shape on purpose.
+ * or add a versioned shape on purpose. The one versioned addition so far is
+ * the start kind `timingMode` of a PREPARE and a transition COMMIT, which the
+ * PRO Worker sends with PRO snapshot schemaVersion 2 and the 9.0.22 PRO
+ * Worker, its rollback target, already loads (pro-room-playback-records-v2.ts).
  */
 const PRESENCE_MARKER_KEYS = [
   'attempts',
@@ -609,26 +618,24 @@ const PLAYBACK_EVENT_KEYS: Record<string, string[]> = {
     'deadlineAtMs',
     'serverTimeMs',
     'target',
+    'timingMode',
     'transitionId',
     'type',
   ],
   cancel: ['reason', 'serverTimeMs', 'transitionId', 'type'],
+  // A direct COMMIT: no transition, so no start kind.
   commit: ['executeAtMs', 'playback', 'serverTimeMs', 'transitionId', 'type'],
+  transitionCommit: [
+    'executeAtMs',
+    'playback',
+    'serverTimeMs',
+    'timingMode',
+    'transitionId',
+    'type',
+  ],
 };
 
 const sortedKeys = (value: unknown) => Object.keys(value as Record<string, unknown>).sort();
-
-/**
- * A frozen outbox record whose event also names its start kind, as a PRO
- * Worker that sends PRO snapshot schemaVersion 2 writes every PREPARE and
- * transition COMMIT.
- */
-function withTimingMode<StoredRecord extends { event: Record<string, unknown> }>(
-  record: StoredRecord,
-  timingMode: 'zero-start' | 'scheduled-control',
-): StoredRecord {
-  return { ...record, event: { ...record.event, timingMode } };
-}
 
 /** A copy of the stored `pro-room:v2:core` envelope, for rewriting records. */
 function storedEnvelope(test: ProRoomBoundary) {
@@ -669,7 +676,7 @@ describe('PRO signaling delivery lanes: durable record shapes (rollback contract
     }
   });
 
-  it("keeps and delivers a presence marker and PREPARE written in today's literal shape across a cold restart", async () => {
+  it('writes the presence marker in the 51ab2be3 shape and the PREPARE in the v2 shape, and delivers both 51ab2be3 records across a cold restart', async () => {
     const { test } = await playingRoom();
     test.signaling.failAll('pro-presence-snapshot', 'throw');
     await test.addMember();
@@ -678,9 +685,10 @@ describe('PRO signaling delivery lanes: durable record shapes (rollback contract
     await test.select(SECOND);
 
     // The records 51ab2be3 leaves behind, spelled out key by key in the frozen
-    // fixture. Byte equality with what the Worker under test stored pins the
-    // writer (new to old); loading them through a cold restart pins the
-    // loaders (old to new).
+    // fixture, and the PREPARE that names its start kind (PRO snapshot
+    // schemaVersion 2, a select is a zero-start). Byte equality with what the
+    // Worker under test stored pins the writer (new to old); loading the
+    // 51ab2be3 records through a cold restart pins the loaders (old to new).
     const stored = storedEnvelope(test);
     const marker = stored.core.pendingPresenceBroadcast as Record<string, any>;
     const transition = stored.core.pendingPlaybackTransition as Record<string, any>;
@@ -705,7 +713,20 @@ describe('PRO signaling delivery lanes: durable record shapes (rollback contract
     });
     expect(JSON.stringify(marker)).toBe(JSON.stringify(literalMarker));
     expect(JSON.stringify(stored.core.pendingPlaybackBroadcasts)).toBe(
-      JSON.stringify([literalPrepare]),
+      JSON.stringify([
+        prepareRecordV2({
+          coordinatorEpoch: 1,
+          transitionId: transition.transitionId,
+          basePlaybackRevision: transition.basePlaybackRevision,
+          targets: transition.cohort,
+          serverTimeMs: NOW,
+          target: transition.target,
+          createdAtMs: NOW,
+          attempts: 1,
+          retryAtMs: NOW + 1_000,
+          timingMode: 'zero-start',
+        }),
+      ]),
     );
     stored.core.pendingPresenceBroadcast = literalMarker;
     stored.core.pendingPlaybackBroadcasts = [literalPrepare];
@@ -779,11 +800,30 @@ describe('PRO signaling delivery lanes: durable record shapes (rollback contract
     expect(outbox(test)).toEqual([]);
   });
 
-  it('stores a zero-start transition as the frozen pre-v2 record and commits it after a cold restart', async () => {
+  it('stores a zero-start transition as the frozen v2 record and still commits a pre-v2 one after a cold restart', async () => {
     const { test } = await playingRoom();
     const transition = await test.select(SECOND);
     const stored = storedEnvelope(test);
     const pending = stored.core.pendingPlaybackTransition as Record<string, any>;
+    // New to old: the Worker stores the frozen v2 record byte for byte: the
+    // 3000 ms barrier and the named kind.
+    expect(JSON.stringify(pending)).toBe(
+      JSON.stringify(
+        storedTransitionV2({
+          transitionId: transition.transitionId,
+          coordinatorEpoch: 1,
+          basePlaybackRevision: transition.basePlaybackRevision,
+          createdAtMs: NOW,
+          target: pending.target,
+          cohort: pending.cohort,
+          timingMode: 'zero-start',
+        }),
+      ),
+    );
+
+    // Old to new: a pre-v2 record survives a cold restart, and its 2999 ms
+    // deadline alone makes the COMMIT a zero-start one, which the COMMIT
+    // names, with the one 700 ms lead.
     const literal = zeroStartTransitionV1({
       transitionId: transition.transitionId,
       coordinatorEpoch: 1,
@@ -792,28 +832,27 @@ describe('PRO signaling delivery lanes: durable record shapes (rollback contract
       target: pending.target,
       cohort: pending.cohort,
     });
-    // New to old: today's Worker stores the frozen record byte for byte.
-    expect(JSON.stringify(pending)).toBe(JSON.stringify(literal));
-
-    // Old to new: the frozen record survives a cold restart, and its 2999 ms
-    // deadline alone makes the COMMIT a zero-start one (699 ms lead).
     stored.core.pendingPlaybackTransition = literal;
     test.storage.data.set('pro-room:v2:core', stored);
     test.signaling.deliveries.length = 0;
     test.restart();
     await test.alarmAt(NOW + 3_000);
     expect(trace(test.signaling.deliveries)).toEqual(['3000 playback-commit e1 200']);
-    expect(test.signaling.deliveries[0]!.transitionId).toBe(transition.transitionId);
+    expect(test.signaling.deliveries[0]).toMatchObject({
+      transitionId: transition.transitionId,
+      timingMode: 'zero-start',
+    });
     expect(test.storedCore().pendingPlaybackTransition).toBeNull();
     expect(test.storedCore().playback).toEqual({
       ...literal.target,
-      updatedAtMs: NOW + 3_000 + 699,
+      updatedAtMs: NOW + 3_000 + 700,
     });
   });
 
-  it('stores a scheduled-control seek as the frozen pre-v2 record and commits it after a cold restart', async () => {
+  it('stores a scheduled-control seek as the frozen v2 record and still commits a pre-v2 one after a cold restart', async () => {
     const { test } = await playingRoom();
     const current = await test.snapshot();
+    test.signaling.failNext('pro-playback-prepare', 503);
     const seeked = await test.json('/playback/commands', {
       type: 'seek',
       baseRevision: current.playback.revision,
@@ -824,6 +863,39 @@ describe('PRO signaling delivery lanes: durable record shapes (rollback contract
     await test.settle();
     const stored = storedEnvelope(test);
     const pending = stored.core.pendingPlaybackTransition as Record<string, any>;
+    // New to old: the stored transition and its undelivered PREPARE are the
+    // frozen v2 records byte for byte.
+    expect(JSON.stringify(pending)).toBe(
+      JSON.stringify(
+        storedTransitionV2({
+          transitionId: transition.transitionId,
+          coordinatorEpoch: 1,
+          basePlaybackRevision: transition.basePlaybackRevision,
+          createdAtMs: NOW,
+          target: pending.target,
+          cohort: pending.cohort,
+          timingMode: 'scheduled-control',
+        }),
+      ),
+    );
+    expect(JSON.stringify(stored.core.pendingPlaybackBroadcasts)).toBe(
+      JSON.stringify([
+        prepareRecordV2({
+          coordinatorEpoch: 1,
+          transitionId: transition.transitionId,
+          basePlaybackRevision: transition.basePlaybackRevision,
+          targets: pending.cohort,
+          serverTimeMs: NOW,
+          target: pending.target,
+          createdAtMs: NOW,
+          attempts: 1,
+          retryAtMs: NOW + 1_000,
+          timingMode: 'scheduled-control',
+        }),
+      ]),
+    );
+
+    // Old to new: a pre-v2 record commits with the kind it reads, named.
     const literal = scheduledControlTransitionV1({
       transitionId: transition.transitionId,
       coordinatorEpoch: 1,
@@ -832,15 +904,17 @@ describe('PRO signaling delivery lanes: durable record shapes (rollback contract
       target: pending.target,
       cohort: pending.cohort,
     });
-    expect(JSON.stringify(pending)).toBe(JSON.stringify(literal));
-
     stored.core.pendingPlaybackTransition = literal;
+    stored.core.pendingPlaybackBroadcasts = [];
     test.storage.data.set('pro-room:v2:core', stored);
     test.signaling.deliveries.length = 0;
     test.restart();
     await test.alarmAt(NOW + 3_000);
     expect(trace(test.signaling.deliveries)).toEqual(['3000 playback-commit e1 200']);
-    expect(test.signaling.deliveries[0]!.transitionId).toBe(transition.transitionId);
+    expect(test.signaling.deliveries[0]).toMatchObject({
+      transitionId: transition.transitionId,
+      timingMode: 'scheduled-control',
+    });
     expect(test.storedCore().pendingPlaybackTransition).toBeNull();
     expect(test.storedCore().playback).toEqual({
       ...literal.target,
@@ -848,7 +922,7 @@ describe('PRO signaling delivery lanes: durable record shapes (rollback contract
     });
   });
 
-  it('stores a wake transition as the frozen pre-v2 record and commits it after a cold restart', async () => {
+  it('stores a wake transition as the frozen v2 record and still commits a pre-v2 one after a cold restart', async () => {
     const { test, member } = await playingRoom();
     await test.leave(member);
     await test.leave(test.ownerCookie);
@@ -856,16 +930,17 @@ describe('PRO signaling delivery lanes: durable record shapes (rollback contract
     await test.enter(test.ownerCookie);
     const stored = storedEnvelope(test);
     const pending = stored.core.pendingPlaybackTransition as Record<string, any>;
-    const literal = wakeTransitionV1({
+    const fields = {
       transitionId: pending.transitionId,
       coordinatorEpoch: 3,
       basePlaybackRevision: stored.core.playback.revision,
       createdAtMs: NOW + 10_000,
       target: pending.target,
       cohort: pending.cohort,
-    });
-    expect(JSON.stringify(pending)).toBe(JSON.stringify(literal));
+    };
+    expect(JSON.stringify(pending)).toBe(JSON.stringify(wakeTransitionV2(fields)));
 
+    const literal = wakeTransitionV1(fields);
     stored.core.pendingPlaybackTransition = literal;
     test.storage.data.set('pro-room:v2:core', stored);
     test.signaling.deliveries.length = 0;
@@ -876,43 +951,38 @@ describe('PRO signaling delivery lanes: durable record shapes (rollback contract
         (delivery) =>
           delivery.type === 'pro-playback-commit' && delivery.transitionId === literal.transitionId,
       ),
-    ).toMatchObject([{ coordinatorEpoch: 3, status: 200, at: NOW + 13_000 }]);
+    ).toMatchObject([
+      { coordinatorEpoch: 3, status: 200, at: NOW + 13_000, timingMode: 'scheduled-control' },
+    ]);
     expect(test.storedCore().pendingPlaybackTransition).toBeNull();
-    // A wake transition commits with the scheduled-control lead.
+    // A wake transition commits as a scheduled control.
     expect(test.storedCore().playback).toEqual({
       ...literal.target,
       updatedAtMs: NOW + 13_000 + 700,
     });
   });
 
-  // A PRO Worker that sends PRO snapshot schemaVersion 2 stores a transition
-  // with a 3000 ms deadline whatever its kind and names the kind in
-  // `timingMode`. This Worker is where that Worker's failed release (and a
-  // manual rollback) returns, so it must load those records, read the named
-  // kind, and still write only the pre-v2 shapes: a zero-start COMMIT keeps
-  // the 699 ms lead that every App reads today.
-  it.each([
-    ['zero-start', 699],
-    ['scheduled-control', 700],
-  ] as const)(
-    'keeps a stored transition that names timingMode %s across a cold restart and commits it with the %i ms lead',
-    async (timingMode, leadMs) => {
+  // The Worker stores a transition with the 3000 ms barrier whatever its kind
+  // and names the kind in `timingMode`. After a cold restart it reads the
+  // named kind back and commits with the 700 ms lead, the COMMIT naming the
+  // kind: the COMMIT record is the frozen v2 record byte for byte.
+  it.each(['zero-start', 'scheduled-control'] as const)(
+    'keeps a stored transition that names timingMode %s across a cold restart and commits it with that kind and the 700 ms lead',
+    async (timingMode) => {
       const { test, member } = await playingRoom();
       const transition = await test.select(SECOND);
       const owner = (await test.snapshot()).viewer.presenceIncarnationId as string;
       const stored = storedEnvelope(test);
       const pending = stored.core.pendingPlaybackTransition as Record<string, any>;
-      const literal = {
-        ...scheduledControlTransitionV1({
-          transitionId: transition.transitionId,
-          coordinatorEpoch: 1,
-          basePlaybackRevision: transition.basePlaybackRevision,
-          createdAtMs: NOW,
-          target: pending.target,
-          cohort: pending.cohort,
-        }),
+      const literal = storedTransitionV2({
+        transitionId: transition.transitionId,
+        coordinatorEpoch: 1,
+        basePlaybackRevision: transition.basePlaybackRevision,
+        createdAtMs: NOW,
+        target: pending.target,
+        cohort: pending.cohort,
         timingMode,
-      };
+      });
       stored.core.pendingPlaybackTransition = literal;
       test.storage.data.set('pro-room:v2:core', stored);
       test.signaling.failAll('pro-playback-commit', 503);
@@ -935,18 +1005,37 @@ describe('PRO signaling delivery lanes: durable record shapes (rollback contract
         ready: { [owner]: 'ready' },
       });
 
-      // The named kind alone sets the lead; the COMMIT keeps the pre-v2 keys.
       const committed = await report(member);
       expect(await committed.json()).toMatchObject({ status: 'committed' });
       expect(test.storedCore().pendingPlaybackTransition).toBeNull();
-      expect(test.storedCore().playback).toEqual({ ...literal.target, updatedAtMs: NOW + leadMs });
+      expect(test.storedCore().playback).toEqual({ ...literal.target, updatedAtMs: NOW + 700 });
       const [commit] = test.storedCore().pendingPlaybackBroadcasts as Array<Record<string, any>>;
-      expect(commit).toMatchObject({ kind: 'commit', transitionId: transition.transitionId });
-      expect(sortedKeys(commit!.event)).toEqual(PLAYBACK_EVENT_KEYS.commit);
-      expect(commit!.event.executeAtMs - commit!.event.serverTimeMs).toBe(leadMs);
+      expect(sortedKeys(commit!.event)).toEqual(PLAYBACK_EVENT_KEYS.transitionCommit);
+      expect(JSON.stringify(commit)).toBe(
+        JSON.stringify(
+          transitionCommitRecordV2({
+            coordinatorEpoch: 1,
+            transitionId: transition.transitionId,
+            basePlaybackRevision: transition.basePlaybackRevision,
+            targets: commit!.targets,
+            serverTimeMs: NOW,
+            playback: literal.target,
+            createdAtMs: NOW,
+            attempts: 1,
+            retryAtMs: NOW + 1_000,
+            timingMode,
+          }),
+        ),
+      );
     },
   );
 
+  // The rollback contract of the first PRO Worker that sends PRO snapshot
+  // schemaVersion 2. Its failed release, and a manual rollback, return to the
+  // 9.0.22 PRO Worker, so these rows hold on that Worker as well as on the
+  // Worker under test: the frozen v2 records survive a cold restart with
+  // their kind, the outbox delivers them in order, and the transition commits
+  // (with whichever lead the loading Worker uses, so neither is asserted).
   it('keeps and delivers in order a transition COMMIT and a PREPARE that name timingMode across a cold restart', async () => {
     const { test } = await playingRoom();
     test.signaling.failAll('pro-playback-commit', 503);
@@ -962,44 +1051,50 @@ describe('PRO signaling delivery lanes: durable record shapes (rollback contract
     await test.settle();
     const stored = storedEnvelope(test);
     const [commit, prepare] = stored.core.pendingPlaybackBroadcasts as Array<Record<string, any>>;
+    const pending = stored.core.pendingPlaybackTransition as Record<string, any>;
     expect([commit!.kind, prepare!.kind]).toEqual(['commit', 'prepare']);
     expect(commit!.transitionId).toEqual(expect.any(String));
+    expect(pending.transitionId).toBe(prepare!.transitionId);
 
-    // The pair the schemaVersion 2 Worker leaves behind: the frozen record
-    // keys, and the named kind on each event (the select's COMMIT is a
-    // zero-start, the seek's PREPARE a scheduled control).
+    // What the schemaVersion 2 Worker leaves behind here, as the frozen v2
+    // records: the select's COMMIT names a zero-start, the seek's transition
+    // and its PREPARE a scheduled control.
+    const literalTransition = storedTransitionV2({
+      transitionId: pending.transitionId,
+      coordinatorEpoch: 1,
+      basePlaybackRevision: pending.basePlaybackRevision,
+      createdAtMs: NOW,
+      target: pending.target,
+      cohort: pending.cohort,
+      timingMode: 'scheduled-control',
+    });
     const literalPair = [
-      withTimingMode(
-        commitRecord51ab2be3({
-          coordinatorEpoch: 1,
-          transitionId: commit!.transitionId,
-          basePlaybackRevision: commit!.basePlaybackRevision,
-          targets: commit!.targets,
-          serverTimeMs: commit!.event.serverTimeMs,
-          executeAtMs: commit!.event.executeAtMs,
-          playback: commit!.event.playback,
-          createdAtMs: commit!.createdAtMs,
-          attempts: 1,
-          retryAtMs: NOW + 1_000,
-        }),
-        'zero-start',
-      ),
-      withTimingMode(
-        prepareRecord51ab2be3({
-          coordinatorEpoch: 1,
-          transitionId: prepare!.transitionId,
-          basePlaybackRevision: prepare!.basePlaybackRevision,
-          targets: prepare!.targets,
-          serverTimeMs: prepare!.event.serverTimeMs,
-          deadlineAtMs: prepare!.event.deadlineAtMs,
-          target: prepare!.event.target,
-          createdAtMs: prepare!.createdAtMs,
-          attempts: 1,
-          retryAtMs: NOW + 1_000,
-        }),
-        'scheduled-control',
-      ),
+      transitionCommitRecordV2({
+        coordinatorEpoch: 1,
+        transitionId: commit!.transitionId,
+        basePlaybackRevision: commit!.basePlaybackRevision,
+        targets: commit!.targets,
+        serverTimeMs: NOW,
+        playback: commit!.event.playback,
+        createdAtMs: NOW,
+        attempts: 1,
+        retryAtMs: NOW + 1_000,
+        timingMode: 'zero-start',
+      }),
+      prepareRecordV2({
+        coordinatorEpoch: 1,
+        transitionId: prepare!.transitionId,
+        basePlaybackRevision: prepare!.basePlaybackRevision,
+        targets: prepare!.targets,
+        serverTimeMs: NOW,
+        target: pending.target,
+        createdAtMs: NOW,
+        attempts: 1,
+        retryAtMs: NOW + 1_000,
+        timingMode: 'scheduled-control',
+      }),
     ];
+    stored.core.pendingPlaybackTransition = literalTransition;
     stored.core.pendingPlaybackBroadcasts = literalPair;
     test.storage.data.set('pro-room:v2:core', stored);
     test.signaling.restore();
@@ -1016,7 +1111,88 @@ describe('PRO signaling delivery lanes: durable record shapes (rollback contract
       'scheduled-control',
     ]);
     expect(outbox(test)).toEqual([]);
+    expect(test.storedCore().pendingPlaybackTransition).toEqual(literalTransition);
+
+    // Every device reports READY: the kept transition commits.
+    expect(await test.ready(literalTransition)).toMatchObject({ status: 'committed' });
+    expect(test.storedCore().pendingPlaybackTransition).toBeNull();
+    expect(test.storedCore().playback).toMatchObject({
+      revision: literalTransition.target.revision,
+      state: 'playing',
+      positionSeconds: 30,
+    });
+    expect(trace(test.signaling.deliveries).slice(2)).toEqual(['1000 playback-commit e1 200']);
+    expect(test.signaling.deliveries[2]!.transitionId).toBe(literalTransition.transitionId);
   });
+
+  it.each([
+    ['a zero-start select', 'select'],
+    ['a wake', 'wake'],
+  ] as const)(
+    'keeps %s transition stored as the frozen v2 record across a cold restart and commits it',
+    async (_label, kind) => {
+      const { test, member } = await playingRoom();
+      let literal: ReturnType<typeof storedTransitionV2> | ReturnType<typeof wakeTransitionV2>;
+      let epoch: number;
+      if (kind === 'select') {
+        const transition = await test.select(SECOND);
+        const pending = storedEnvelope(test).core.pendingPlaybackTransition as Record<string, any>;
+        epoch = 1;
+        literal = storedTransitionV2({
+          transitionId: transition.transitionId,
+          coordinatorEpoch: epoch,
+          basePlaybackRevision: transition.basePlaybackRevision,
+          createdAtMs: NOW,
+          target: pending.target,
+          cohort: pending.cohort,
+          timingMode: 'zero-start',
+        });
+      } else {
+        await test.leave(member);
+        await test.leave(test.ownerCookie);
+        await test.advanceTo(NOW + 10_000);
+        await test.enter(test.ownerCookie);
+        const core = storedEnvelope(test).core;
+        const pending = core.pendingPlaybackTransition as Record<string, any>;
+        epoch = 3;
+        literal = wakeTransitionV2({
+          transitionId: pending.transitionId,
+          coordinatorEpoch: epoch,
+          basePlaybackRevision: core.playback.revision,
+          createdAtMs: NOW + 10_000,
+          target: pending.target,
+          cohort: pending.cohort,
+        });
+      }
+      const stored = storedEnvelope(test);
+      stored.core.pendingPlaybackTransition = literal;
+      test.storage.data.set('pro-room:v2:core', stored);
+      test.signaling.deliveries.length = 0;
+      test.restart();
+
+      // The cold restart keeps the record and its kind.
+      await test.snapshot();
+      expect(
+        (test.worker as unknown as { room: Record<string, any> }).room.pendingPlaybackTransition,
+      ).toEqual(literal);
+
+      // Every device reports READY: the transition commits and its COMMIT is sent.
+      expect(await test.ready(literal)).toMatchObject({ status: 'committed' });
+      expect(test.storedCore().pendingPlaybackTransition).toBeNull();
+      expect(test.storedCore().playback).toMatchObject({
+        revision: literal.target.revision,
+        state: 'playing',
+        queueItemId: literal.target.queueItemId,
+      });
+      expect(
+        test.signaling.deliveries.filter(
+          (delivery) =>
+            delivery.type === 'pro-playback-commit' &&
+            delivery.transitionId === literal.transitionId,
+        ),
+      ).toMatchObject([{ coordinatorEpoch: epoch, status: 200 }]);
+    },
+  );
 
   it(`keeps records at the old attempt cap (${OUTBOX_ATTEMPT_CAP_51AB2BE3}) and drops any above it on load`, async () => {
     const { test } = await playingRoom();

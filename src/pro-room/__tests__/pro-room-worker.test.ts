@@ -422,11 +422,12 @@ describe('PRO room server-authoritative playback', () => {
     expect(selectedResponse.status).toBe(202);
     const selected = await responseJson(selectedResponse);
     const internal = context.worker as unknown as { room: Record<string, any> };
-    expect(
-      internal.room.pendingPlaybackTransition.deadlineAtMs -
-        internal.room.pendingPlaybackTransition.createdAtMs,
-    ).toBe(2_999);
-    expect(internal.room.pendingPlaybackTransition).not.toHaveProperty('timingMode');
+    // A select is a zero-start: the stored transition and the answer's PREPARE
+    // name the kind, and the transition keeps the barrier of every other one.
+    const pending = internal.room.pendingPlaybackTransition;
+    expect(pending.deadlineAtMs - pending.createdAtMs).toBe(3_000);
+    expect(pending.timingMode).toBe('zero-start');
+    expect(selected.transition.timingMode).toBe('zero-start');
     const readyResponse = await context.worker.fetch(
       jsonRequest(
         `/playback/transitions/${selected.transition.transitionId}/ready`,
@@ -447,8 +448,8 @@ describe('PRO room server-authoritative playback', () => {
     const internal = context.worker as unknown as { room: Record<string, any> };
     const pending = internal.room.pendingPlaybackTransition;
     expect(pending).not.toBeNull();
-    expect(pending.deadlineAtMs - pending.createdAtMs).toBe(2_999);
-    expect(pending).not.toHaveProperty('timingMode');
+    expect(pending.deadlineAtMs - pending.createdAtMs).toBe(3_000);
+    expect(pending.timingMode).toBe('zero-start');
     const response = await context.worker.fetch(
       jsonRequest(
         `/playback/transitions/${pending.transitionId}/ready`,
@@ -1383,8 +1384,11 @@ describe('PRO room server-authoritative playback', () => {
 
   it('never elects a browser coordinator and signs every signaling ticket as a named member', async () => {
     const context = await activatedRoom();
-    expect(context.activationEnvelope.snapshot.presence.coordinatorParticipantId).toBeNull();
-    expect(context.activationEnvelope.snapshot.viewer.coordinatorEligible).toBe(false);
+    // Snapshot schemaVersion 2 has no coordinator key at all.
+    expect(context.activationEnvelope.snapshot.presence).not.toHaveProperty(
+      'coordinatorParticipantId',
+    );
+    expect(context.activationEnvelope.snapshot.viewer).not.toHaveProperty('coordinatorEligible');
     expect(context.activationEnvelope.snapshot.viewer.capabilities).not.toContain(
       'coordinator.eligible',
     );
@@ -2079,12 +2083,13 @@ describe('PRO room server-authoritative playback', () => {
   });
 
   it('reads the start kind a stored transition names when it coalesces a duplicate ENDED', async () => {
-    // A PRO Worker that sends PRO snapshot schemaVersion 2 stores every
-    // transition with a 3000 ms deadline and names its kind in timingMode.
-    // This Worker reads that kind as it reads the 2999 ms deadline above: a
-    // duplicate ENDED joins a stored zero-start transition and replaces a
-    // stored scheduled-control one.
-    const duplicateEnded = async (timingMode: 'zero-start' | 'scheduled-control') => {
+    // This Worker stores every transition with a 3000 ms deadline and names
+    // its kind in timingMode. It still reads the encoding of PRO Workers
+    // before PRO snapshot schemaVersion 2 (no timingMode, a 2999 ms deadline
+    // for a zero-start) on a transition one of them stored. A duplicate ENDED
+    // joins a stored zero-start transition and replaces a stored
+    // scheduled-control one.
+    const duplicateEnded = async (timingMode: 'zero-start' | 'scheduled-control' | 'pre-v2') => {
       const context = await activatedRoom();
       const realtime = installRealtimeRecorder(context);
       expect(
@@ -2117,8 +2122,13 @@ describe('PRO room server-authoritative playback', () => {
       const first = await ended(1);
       const stored = realtime.internal.room.pendingPlaybackTransition;
       expect(stored.transitionId).toBe(first.transitionId);
-      stored.deadlineAtMs = stored.createdAtMs + 3_000;
-      stored.timingMode = timingMode;
+      if (timingMode === 'pre-v2') {
+        stored.deadlineAtMs = stored.createdAtMs + 2_999;
+        delete stored.timingMode;
+      } else {
+        stored.deadlineAtMs = stored.createdAtMs + 3_000;
+        stored.timingMode = timingMode;
+      }
       const second = await ended(2);
       return { first, second, stored, realtime };
     };
@@ -2146,6 +2156,14 @@ describe('PRO room server-authoritative playback', () => {
       serverTimeMs: expect.any(Number),
       reason: 'superseded',
     });
+
+    // A pre-v2 zero-start joins too, keeps its stored encoding, and the
+    // PREPARE of the answer names the kind its deadline encodes.
+    const preV2 = await duplicateEnded('pre-v2');
+    expect(preV2.second.transitionId).toBe(preV2.first.transitionId);
+    expect(preV2.second.deadlineAtMs).toBe(preV2.stored.createdAtMs + 2_999);
+    expect(preV2.second.timingMode).toBe('zero-start');
+    expect(preV2.realtime.internal.room.pendingPlaybackTransition).not.toHaveProperty('timingMode');
   });
 
   it('accepts ENDED only for the exact playing identity at a defensible end position', async () => {
@@ -2700,12 +2718,19 @@ describe('PRO room server-authoritative playback', () => {
   });
 
   it('gives every rendezvous command the start kind of one table', async () => {
-    // The reference for the explicit start kind of snapshot v2: today a
-    // zero-start transition is marked only by its 2999 ms deadline and its
-    // 699 ms COMMIT lead; every other one gets 3000 ms and 700 ms. Each row
-    // runs in a fresh room with the owner as the whole cohort.
-    const ZERO_START = { deadlineMs: 2_999, commitLeadMs: 699 };
-    const SCHEDULED_CONTROL = { deadlineMs: 3_000, commitLeadMs: 700 };
+    // Snapshot v2 names the start kind in timingMode on the stored transition,
+    // on its PREPARE and on its COMMIT; every transition keeps the 3000 ms
+    // barrier and the 700 ms COMMIT lead whatever its kind. Each row runs in
+    // a fresh room with the owner as the whole cohort.
+    const startKindOf = (timingMode: 'zero-start' | 'scheduled-control') => ({
+      stored: timingMode,
+      prepare: timingMode,
+      commit: timingMode,
+      deadlineMs: 3_000,
+      commitLeadMs: 700,
+    });
+    const ZERO_START = startKindOf('zero-start');
+    const SCHEDULED_CONTROL = startKindOf('scheduled-control');
     type Room = Awaited<ReturnType<typeof activatedRoom>>;
     type Realtime = ReturnType<typeof installRealtimeRecorder>;
     const startKind = async (
@@ -2716,6 +2741,7 @@ describe('PRO room server-authoritative playback', () => {
     ) => {
       const pending = realtime.internal.room.pendingPlaybackTransition;
       expect(pending.transitionId).toBe(transition.transitionId);
+      const stored = pending.timingMode;
       const deadlineMs = pending.deadlineAtMs - pending.createdAtMs;
       const ready = await context.worker.fetch(
         jsonRequest(
@@ -2727,12 +2753,19 @@ describe('PRO room server-authoritative playback', () => {
       );
       expect(ready.status).toBe(200);
       await expect(ready.json()).resolves.toMatchObject({ status: 'committed' });
-      const commit = realtime.messages.find(
-        (message) =>
-          message.event?.type === 'pro-playback-commit' &&
-          message.event.transitionId === transition.transitionId,
-      )?.event;
-      return { deadlineMs, commitLeadMs: commit.executeAtMs - commit.serverTimeMs };
+      const sent = (type: string) =>
+        realtime.messages.find(
+          (message) =>
+            message.event?.type === type && message.event.transitionId === transition.transitionId,
+        )?.event;
+      const commit = sent('pro-playback-commit');
+      return {
+        stored,
+        prepare: sent('pro-playback-prepare')?.timingMode,
+        commit: commit.timingMode,
+        deadlineMs,
+        commitLeadMs: commit.executeAtMs - commit.serverTimeMs,
+      };
     };
     const commandKind = async (
       prepare: (context: Room) => Promise<void>,
@@ -2876,7 +2909,9 @@ describe('PRO room server-authoritative playback', () => {
       ).status,
     ).toBe(200);
     const frozenPosition = realtime.internal.room.playback.positionSeconds as number;
-    expect(frozenPosition).toBeCloseTo(24.301, 5);
+    // 15 s plus the 9.3 s played since the select's COMMIT executed, 700 ms
+    // after the Worker sent it.
+    expect(frozenPosition).toBeCloseTo(24.3, 5);
 
     vi.setSystemTime(startedAtMs + 2 * 60 * 60 * 1_000);
     const returning = await addMember(context);
@@ -3494,12 +3529,12 @@ describe('PRO room server-authoritative playback', () => {
   });
 
   it('lets the outbox write path queue a PREPARE and a transition COMMIT that name either timingMode', async () => {
-    // Every new outbox record passes the loader's normalizer, so a Worker that
+    // Every new outbox record passes the loader's normalizer, and this Worker
     // names the start kind on each PREPARE and transition COMMIT (PRO snapshot
-    // schemaVersion 2) depends on this gate: a refused record makes
-    // enqueuePlaybackBroadcast return false and the broadcast is never sent.
-    // No route of this Worker writes the field, so the gate is called directly
-    // with the events this Worker sent.
+    // schemaVersion 2), so its playback broadcasts depend on this gate: a
+    // refused record makes enqueuePlaybackBroadcast return false and the
+    // broadcast is never sent. The gate is also called directly with each
+    // kind on the events this Worker sent.
     const context = await activatedRoom();
     const realtime = installRealtimeRecorder(context);
     const outbox = context.worker as unknown as {
@@ -3516,6 +3551,10 @@ describe('PRO room server-authoritative playback', () => {
     const prepare = sent('pro-playback-prepare');
     const commit = sent('pro-playback-commit');
     expect(commit.event.transitionId).toBe(prepare.event.transitionId);
+    expect([prepare.event.timingMode, commit.event.timingMode]).toEqual([
+      'zero-start',
+      'zero-start',
+    ]);
 
     for (const timingMode of ['zero-start', 'scheduled-control'] as const) {
       for (const message of [prepare, commit]) {
@@ -3895,7 +3934,7 @@ describe('PRO room server-authoritative playback', () => {
     );
     expect(selected.status).toBe(202);
     const expiredDeadlineAtMs = Date.now() - 1;
-    realtime.internal.room.pendingPlaybackTransition.createdAtMs = expiredDeadlineAtMs - 2_999;
+    realtime.internal.room.pendingPlaybackTransition.createdAtMs = expiredDeadlineAtMs - 3_000;
     realtime.internal.room.pendingPlaybackTransition.deadlineAtMs = expiredDeadlineAtMs;
     const snapshot = await context.worker.fetch(request('/snapshot', {}, context.ownerCookie));
     expect(snapshot.status).toBe(200);
@@ -3907,8 +3946,13 @@ describe('PRO room server-authoritative playback', () => {
       'pro-playback-prepare',
       'pro-playback-commit',
     ]);
+    // The deadline COMMIT names the kind of the transition it commits.
+    expect(playbackMessages.map((message) => message.event.timingMode)).toEqual([
+      'zero-start',
+      'zero-start',
+    ]);
     const commit = playbackMessages[1]?.event;
-    expect(commit.executeAtMs - commit.serverTimeMs).toBe(699);
+    expect(commit.executeAtMs - commit.serverTimeMs).toBe(700);
     expect(realtime.internal.room.pendingPlaybackTransition).toBeNull();
     expect(realtime.internal.room.pendingPlaybackBroadcasts).toEqual([]);
   });
@@ -3936,10 +3980,14 @@ describe('PRO room server-authoritative playback', () => {
     const snapshot = await responseJson(
       await restarted.fetch(request('/snapshot', {}, context.ownerCookie)),
     );
-    expect(snapshot.snapshot.presence).toMatchObject({
-      coordinatorParticipantId: null,
-      coordinatorEpoch: 8,
-    });
+    // The stored coordinator is cleared and the fence advanced once; the public
+    // snapshot (schemaVersion 2) has no coordinator key.
+    expect(
+      (restarted as unknown as { room: Record<string, any> }).room.presence
+        .coordinatorParticipantId,
+    ).toBeNull();
+    expect(snapshot.snapshot.presence).toMatchObject({ coordinatorEpoch: 8 });
+    expect(snapshot.snapshot.presence).not.toHaveProperty('coordinatorParticipantId');
     expect(snapshot.snapshot.playback).toMatchObject({
       coordinatorEpoch: 8,
       revision: 10,
@@ -14524,7 +14572,9 @@ describe('persistent PRO room authentication, presence, and state', () => {
     const secondCookie = cookieFrom(secondResponse);
     bindCookiePresence(secondCookie, second);
 
-    expect(second.snapshot.memberIdentityVersion).toBe(1);
+    // Snapshot schemaVersion 2 replaces the member identity marker.
+    expect(second.snapshot.schemaVersion).toBe(2);
+    expect(second.snapshot).not.toHaveProperty('memberIdentityVersion');
     expect(second.snapshot.viewer).toMatchObject({
       memberId: first.snapshot.viewer.memberId,
       memberDisplayNumber: first.snapshot.viewer.memberDisplayNumber,
@@ -15116,13 +15166,14 @@ describe('persistent PRO room authentication, presence, and state', () => {
     const friend = await addAuthorityMember(context);
 
     expect(friend.envelope.snapshot).toMatchObject({
-      memberIdentityVersion: 1,
-      authorityVersion: 1,
+      schemaVersion: 2,
       viewer: {
         role: 'member',
         capabilities: [],
       },
     });
+    expect(friend.envelope.snapshot).not.toHaveProperty('memberIdentityVersion');
+    expect(friend.envelope.snapshot).not.toHaveProperty('authorityVersion');
     expect(friend.envelope.snapshot.administrators).toMatchObject([
       {
         role: 'owner',
@@ -15291,6 +15342,36 @@ describe('persistent PRO room authentication, presence, and state', () => {
       ),
     );
     expect(deniedKick.status).toBe(403);
+  });
+
+  it('answers GET, PUT and DELETE /administrators with the directory alone', async () => {
+    // The directory that goes with snapshot schemaVersion 2 has no authority
+    // marker, like the snapshot itself.
+    const context = await activatedRoom();
+    const friend = await addAuthorityMember(context);
+    const memberId = friend.envelope.snapshot.viewer.memberId as string;
+    const answers = [
+      await context.worker.fetch(request('/administrators', {}, context.ownerCookie)),
+      await context.worker.fetch(
+        jsonRequest(
+          `/administrators/${memberId}`,
+          'PUT',
+          { permissions: fullDelegatedPermissions },
+          context.ownerCookie,
+        ),
+      ),
+      await context.worker.fetch(
+        request(`/administrators/${memberId}`, { method: 'DELETE' }, context.ownerCookie),
+      ),
+    ];
+    const directories = await Promise.all(answers.map((answer) => responseJson(answer)));
+    expect(answers.map((answer) => answer.status)).toEqual([200, 200, 200]);
+    expect(directories.map((directory) => Object.keys(directory))).toEqual([
+      ['administrators'],
+      ['administrators'],
+      ['administrators'],
+    ]);
+    expect(directories.map((directory) => directory.administrators.length)).toEqual([1, 2, 1]);
   });
 
   it('lets only the owner delegate canonical permissions and exposes a chat-notice check seam', async () => {
@@ -20393,7 +20474,7 @@ describe('persistent PRO room authentication, presence, and state', () => {
     expect(ownerAfterRotationResponse.status).toBe(200);
     const ownerAfterRotation = await responseJson(ownerAfterRotationResponse);
     expect(ownerAfterRotation.snapshot.presence.coordinatorEpoch).toBe(epochBeforeRotation + 1);
-    expect(ownerAfterRotation.snapshot.presence.coordinatorParticipantId).toBeNull();
+    expect(ownerAfterRotation.snapshot.presence).not.toHaveProperty('coordinatorParticipantId');
     await expectSessionRequired(
       worker.fetch(request('/snapshot', {}, controllerCookie)),
       'PIN_CHANGED',
@@ -20425,7 +20506,7 @@ describe('persistent PRO room authentication, presence, and state', () => {
     const memberAfterOwnerLeave = await responseJson(
       await worker.fetch(request('/snapshot', {}, firstMemberCookie)),
     );
-    expect(memberAfterOwnerLeave.snapshot.presence.coordinatorParticipantId).toBeNull();
+    expect(memberAfterOwnerLeave.snapshot.presence).not.toHaveProperty('coordinatorParticipantId');
 
     const ownerReentryResponse = await worker.fetch(
       request('/presence/enter', { method: 'POST' }, ownerCookie),
@@ -20437,7 +20518,7 @@ describe('persistent PRO room authentication, presence, and state', () => {
     const presenceRevisionBeforeRotation = ownerReentry.snapshot.presence.revision as number;
     const playbackRevisionBeforeRotation = ownerReentry.snapshot.playback.revision as number;
     expect(ownerReentry.snapshot.presence.participants).toHaveLength(3);
-    expect(ownerReentry.snapshot.presence.coordinatorParticipantId).toBeNull();
+    expect(ownerReentry.snapshot.presence).not.toHaveProperty('coordinatorParticipantId');
 
     const rotate = await worker.fetch(
       jsonRequest('/pin', 'POST', { pin: '87654321' }, ownerCookie),
@@ -20447,7 +20528,7 @@ describe('persistent PRO room authentication, presence, and state', () => {
       await worker.fetch(request('/snapshot', {}, ownerCookie)),
     );
     expect(ownerAfterRotation.snapshot.presence.coordinatorEpoch).toBe(epochBeforeRotation + 1);
-    expect(ownerAfterRotation.snapshot.presence.coordinatorParticipantId).toBeNull();
+    expect(ownerAfterRotation.snapshot.presence).not.toHaveProperty('coordinatorParticipantId');
     expect(ownerAfterRotation.snapshot.presence.participants).toEqual([
       expect.objectContaining({ participantId: ownerAfterRotation.snapshot.viewer.participantId }),
     ]);
@@ -20497,10 +20578,8 @@ describe('persistent PRO room authentication, presence, and state', () => {
     );
     const asleepEnvelope = await responseJson(asleep);
     expect(Object.keys(asleepEnvelope)).toEqual(['snapshot']);
-    expect(asleepEnvelope.snapshot).toMatchObject({
-      runtime: 'sleeping',
-      presence: { coordinatorParticipantId: null },
-    });
+    expect(asleepEnvelope.snapshot.runtime).toBe('sleeping');
+    expect(asleepEnvelope.snapshot.presence).not.toHaveProperty('coordinatorParticipantId');
 
     const rejectedHeartbeat = await worker.fetch(
       request('/presence/heartbeat', { method: 'POST' }, ownerCookie),
@@ -21617,10 +21696,10 @@ describe('persistent PRO room authentication, presence, and state', () => {
     expect(leave.status).toBe(200);
     const elected = await responseJson(await worker.fetch(request('/snapshot', {}, memberCookie)));
     expect(elected.snapshot.presence).toMatchObject({
-      coordinatorParticipantId: null,
       coordinatorEpoch: beforeEpoch,
       participants: [expect.objectContaining({ participantId: memberParticipantId })],
     });
+    expect(elected.snapshot.presence).not.toHaveProperty('coordinatorParticipantId');
     expect(put.mock.calls.filter(([key]) => key === 'pro-room:v2:core')).toHaveLength(2);
     expect(internal.pendingHeartbeatFlushGeneration).toBeNull();
     expect(vi.getTimerCount()).toBe(0);
@@ -21720,7 +21799,7 @@ describe('persistent PRO room authentication, presence, and state', () => {
       await worker.fetch(request('/snapshot', {}, controllerCookie)),
     );
     expect(current.snapshot.presence.participants).toHaveLength(1);
-    expect(current.snapshot.presence.coordinatorParticipantId).toBeNull();
+    expect(current.snapshot.presence).not.toHaveProperty('coordinatorParticipantId');
   });
 
   it('keeps room authority stable while a confirmed tab takeover rotates only its incarnation', async () => {
@@ -21833,7 +21912,7 @@ describe('persistent PRO room authentication, presence, and state', () => {
     expect(entered.snapshot.presence.coordinatorEpoch).toBe(
       ownerBefore.snapshot.presence.coordinatorEpoch,
     );
-    expect(entered.snapshot.presence.coordinatorParticipantId).toBeNull();
+    expect(entered.snapshot.presence).not.toHaveProperty('coordinatorParticipantId');
   });
 
   it('fences every old-tab active request after a same-cookie tab enters', async () => {
@@ -25262,12 +25341,10 @@ describe('PRO room system-audio ownership lease', () => {
     expect(directEnvelope).toMatchObject({
       systemAudio: { status: 'live', generation, publication: directPublication },
     });
-    // Keep the numeric wire/storage shape during the matched rollout. It is
-    // a compatibility value for direct and must not be interpreted as a
-    // metered-media expiry by the v2 authority.
-    expect(directEnvelope.systemAudio.liveExpiresAt).toBe(
-      startedAtMs + SYSTEM_AUDIO_SHARE_LIMIT_MS,
-    );
+    // A LAN-direct publication meters no Cloudflare media, so it has no
+    // deadline, on the wire or in storage (PRO snapshot schemaVersion 2).
+    expect(directEnvelope.systemAudio.liveExpiresAt).toBeNull();
+    expect(storedCanonicalRoom(context.state).systemAudio.liveExpiresAt).toBeNull();
     expect((await commit(directPublication)).status).toBe(200);
     expect(
       (
@@ -25288,12 +25365,15 @@ describe('PRO room system-audio ownership lease', () => {
       systemAudio: { status: 'live', generation, publication: directPublication },
     });
     const restartedInternal = restarted as unknown as {
-      room: { systemAudio: { liveExpiresAt: number; status: string } };
+      room: { systemAudio: { liveExpiresAt: number | null; status: string } };
       alarm(): Promise<void>;
     };
+    // A past numeric value, as a PRO Worker before snapshot v2 left it, ends
+    // nothing: the alarm keeps the share live and clears the value.
     restartedInternal.room.systemAudio.liveExpiresAt = Date.now() - 1;
     await restartedInternal.alarm();
     expect(restartedInternal.room.systemAudio.status).toBe('live');
+    expect(restartedInternal.room.systemAudio.liveExpiresAt).toBeNull();
     const commitAfterRestart = (nextPublication: unknown) =>
       restarted.fetch(
         jsonRequest(
@@ -25640,12 +25720,12 @@ describe('PRO room system-audio ownership lease', () => {
     expect(JSON.stringify(stored.systemAudio)).not.toContain('sessionOwnerToken');
   });
 
-  it('loads a live LAN-direct stored without a media deadline as the same share with the compatibility deadline', async () => {
-    // A PRO Worker that sends PRO snapshot schemaVersion 2 stores a live
-    // LAN-direct with liveExpiresAt null. This Worker is where that Worker's
-    // failed release (and a manual rollback) returns, and every App before
-    // that schema version refuses a live state without a positive deadline, so
-    // the share must stay the same live one and answer a number again.
+  it('answers a live LAN-direct without a media deadline and loads a stored numeric one as the same share without it', async () => {
+    // A LAN-direct publication meters no Cloudflare media, so the Worker
+    // stores it, and answers it everywhere, with liveExpiresAt null (PRO
+    // snapshot schemaVersion 2). PRO Workers before that stored a numeric
+    // compatibility value; a room one of them left behind loads as the same
+    // live share without it, and its first request stores that.
     vi.useFakeTimers();
     const startedAtMs = new Date('2026-10-29T00:00:00.000Z').getTime();
     vi.setSystemTime(startedAtMs);
@@ -25658,6 +25738,14 @@ describe('PRO room system-audio ownership lease', () => {
       transport: 'lan-direct',
       protocolVersion: 2,
     } as const;
+    const liveState = {
+      generation,
+      status: 'live',
+      ownerParticipantId: activationEnvelope.snapshot.viewer.participantId,
+      claimExpiresAt: null,
+      liveExpiresAt: null,
+      publication: directPublication,
+    };
     const committed = await worker.fetch(
       jsonRequest(
         '/system-audio/commit',
@@ -25667,78 +25755,73 @@ describe('PRO room system-audio ownership lease', () => {
       ),
     );
     expect(committed.status).toBe(200);
+    expect(await responseJson(committed)).toEqual({ systemAudio: liveState });
+    expect(storedCanonicalRoom(state).systemAudio).toMatchObject({
+      status: 'live',
+      liveExpiresAt: null,
+    });
     const restart = () =>
       new MusixquareProRoom(context.state as never, environment(context.bucket) as never);
-    const liveState = (liveExpiresAt: number) => ({
-      generation,
-      status: 'live',
-      ownerParticipantId: activationEnvelope.snapshot.viewer.participantId,
-      claimExpiresAt: null,
-      liveExpiresAt,
-      publication: directPublication,
-    });
-
-    // A numeric deadline loads unchanged.
+    const getState = async (room: MusixquareProRoom) =>
+      (await responseJson(await room.fetch(request('/system-audio', {}, ownerCookie)))).systemAudio;
+    // The full and compact presence heartbeats and the lease heartbeat.
+    const heartbeats = async (room: MusixquareProRoom) => {
+      const full = await responseJson(
+        await room.fetch(request('/presence/heartbeat', { method: 'POST' }, ownerCookie)),
+      );
+      const known = full.snapshot;
+      const compact = await responseJson(
+        await room.fetch(
+          jsonRequest(
+            '/presence/heartbeat',
+            'POST',
+            {
+              revision: known.revision,
+              playlistRevision: known.playlistRevision,
+              presenceRevision: known.presence.revision,
+              playbackRevision: known.playback.revision,
+              coordinatorEpoch: known.presence.coordinatorEpoch,
+            },
+            ownerCookie,
+          ),
+        ),
+      );
+      expect(compact.notModified).toBe(true);
+      const lease = await room.fetch(
+        jsonRequest(
+          '/system-audio/heartbeat',
+          'POST',
+          { generation, leaseId: acquired.leaseId },
+          ownerCookie,
+        ),
+      );
+      expect(lease.status).toBe(200);
+      return [full.systemAudio, compact.systemAudio, (await responseJson(lease)).systemAudio];
+    };
+    expect(await getState(worker)).toEqual(liveState);
+    expect(await heartbeats(worker)).toEqual([liveState, liveState, liveState]);
     vi.setSystemTime(startedAtMs + 5_000);
-    expect(
-      await responseJson(await restart().fetch(request('/system-audio', {}, ownerCookie))),
-    ).toEqual({ systemAudio: liveState(startedAtMs + SYSTEM_AUDIO_SHARE_LIMIT_MS) });
+    expect(await getState(restart())).toEqual(liveState);
 
+    // The numeric value a PRO Worker before snapshot v2 stored at its commit.
     const envelope = structuredClone(state.storage.data.get('pro-room:v2:core')) as {
       core: Record<string, any>;
     };
-    envelope.core.systemAudio.liveExpiresAt = null;
+    envelope.core.systemAudio.liveExpiresAt = startedAtMs + SYSTEM_AUDIO_SHARE_LIMIT_MS;
     state.storage.data.set('pro-room:v2:core', envelope);
     vi.setSystemTime(startedAtMs + 10_000);
-    const loadedAtMs = Date.now();
     const restarted = restart();
-    const compatibility = liveState(loadedAtMs + SYSTEM_AUDIO_SHARE_LIMIT_MS);
 
-    // The same live share, with the deadline a first commit at load would have
-    // stored, and the first prune stores it (the migration mark).
-    expect(
-      await responseJson(await restarted.fetch(request('/system-audio', {}, ownerCookie))),
-    ).toEqual({ systemAudio: compatibility });
+    // The same live share without it, and the first request's prune stores
+    // that (the migration mark).
+    expect(await getState(restarted)).toEqual(liveState);
     expect(storedCanonicalRoom(state).systemAudio).toMatchObject({
       generation,
       status: 'live',
-      liveExpiresAt: compatibility.liveExpiresAt,
+      liveExpiresAt: null,
       publication: directPublication,
     });
-    // Both heartbeats and the lease heartbeat answer the same number.
-    const full = await responseJson(
-      await restarted.fetch(request('/presence/heartbeat', { method: 'POST' }, ownerCookie)),
-    );
-    expect(full.systemAudio).toEqual(compatibility);
-    const known = full.snapshot;
-    const compact = await responseJson(
-      await restarted.fetch(
-        jsonRequest(
-          '/presence/heartbeat',
-          'POST',
-          {
-            revision: known.revision,
-            playlistRevision: known.playlistRevision,
-            presenceRevision: known.presence.revision,
-            playbackRevision: known.playback.revision,
-            coordinatorEpoch: known.presence.coordinatorEpoch,
-          },
-          ownerCookie,
-        ),
-      ),
-    );
-    expect(compact.notModified).toBe(true);
-    expect(compact.systemAudio).toEqual(compatibility);
-    const lease = await restarted.fetch(
-      jsonRequest(
-        '/system-audio/heartbeat',
-        'POST',
-        { generation, leaseId: acquired.leaseId },
-        ownerCookie,
-      ),
-    );
-    expect(lease.status).toBe(200);
-    expect((await responseJson(lease)).systemAudio).toEqual(compatibility);
+    expect(await heartbeats(restarted)).toEqual([liveState, liveState, liveState]);
   });
 
   it('keeps fencing a live SFU publication stored without its media deadline', async () => {
@@ -30560,13 +30643,43 @@ describe('PRO room capacity refusal reasons', () => {
 });
 
 describe('PRO snapshot carriers: entry policy and playlist summaries on every path', () => {
-  // The room adds `passwordRequired` and `playlistSlots` to every successful
-  // JSON answer that carries a snapshot (withEntryPolicyResponse, after the
-  // route ran), while publicSnapshot builds the snapshot when the route calls
-  // it. One row per publicSnapshot call, each request sent without the
-  // retired opt-in headers, pins both values. Snapshot v2 moves the two fields
-  // into publicSnapshot and drops that wrapper's addition; every row must
-  // keep its values through that move.
+  // Every successful answer that carries a snapshot carries snapshot
+  // schemaVersion 2: the room's entry policy (`passwordRequired`) and playlist
+  // summaries (`playlistSlots`) beside the room state, and none of the four
+  // constant keys of the retired browser-coordinator era. That key set is the
+  // App parser's memory shape, so the parsed snapshot equals the wire. One row
+  // per publicSnapshot call, each request sent without the retired opt-in
+  // headers, pins the key set and both values.
+  const SNAPSHOT_V2_KEYS = [
+    'schemaVersion',
+    'roomCode',
+    'status',
+    'passwordRequired',
+    'runtime',
+    'revision',
+    'playlistRevision',
+    'effectsRevision',
+    'queueModeRevision',
+    'playlist',
+    'currentQueueItemId',
+    'playback',
+    'presence',
+    'quota',
+    'viewer',
+    'administrators',
+    'playlistSlots',
+  ];
+  const PRESENCE_V2_KEYS = ['coordinatorEpoch', 'revision', 'participants'];
+  const VIEWER_V2_KEYS = [
+    'memberId',
+    'memberDisplayNumber',
+    'isAuthenticated',
+    'participantId',
+    'presenceIncarnationId',
+    'displayName',
+    'role',
+    'capabilities',
+  ];
   const MEMBER_ACCOUNT_ID = 'acct_carriermember000000001';
   const TARGET_ACCOUNT_ID = 'acct_carriertarget000000001';
   const FIRST = '11111111-1111-4111-8111-111111111111';
@@ -31014,7 +31127,7 @@ describe('PRO snapshot carriers: entry policy and playlist summaries on every pa
   ];
 
   it.each(CARRIERS)(
-    '$site carries both fields: $route',
+    '$site carries snapshot schemaVersion 2 with both fields: $route',
     async ({ run, passwordRequired, playlistSlots }) => {
       const room = await carrierRoom();
       const response = await run(room);
@@ -31024,7 +31137,12 @@ describe('PRO snapshot carriers: entry policy and playlist summaries on every pa
         passwordRequired: snapshot.passwordRequired,
         playlistSlots: snapshot.playlistSlots,
       }).toEqual({ passwordRequired, playlistSlots });
-      expect(parseProRoomSnapshot(snapshot)).not.toBeNull();
+      expect(snapshot.schemaVersion).toBe(2);
+      expect(Object.keys(snapshot).sort()).toEqual([...SNAPSHOT_V2_KEYS].sort());
+      expect(Object.keys(snapshot.presence).sort()).toEqual([...PRESENCE_V2_KEYS].sort());
+      expect(snapshot.viewer).not.toBeNull();
+      expect(Object.keys(snapshot.viewer).sort()).toEqual([...VIEWER_V2_KEYS].sort());
+      expect(parseProRoomSnapshot(snapshot)).toStrictEqual(snapshot);
     },
   );
 
@@ -31110,11 +31228,27 @@ describe('PRO browser parsers on the actual Worker answers', () => {
       expiresAtMs: Date.now() + 60_000,
       nonce: 'browser-parser-contract',
     });
-    await owner.api.activate({ code: ROOM_CODE, claimToken, expectedAccountScope: 'a'.repeat(43) });
+    const activated = await owner.api.activate({
+      code: ROOM_CODE,
+      claimToken,
+      expectedAccountScope: 'a'.repeat(43),
+    });
+    const activation = { parsed: activated, wire: owner.lastAnswer().snapshot };
     const memberSnapshot = await member.api.createSession({ code: ROOM_CODE });
-    return { worker, owner, member, memberId: memberSnapshot.viewer!.memberId, broadcasts };
+    const admission = { parsed: memberSnapshot, wire: member.lastAnswer().snapshot };
+    return {
+      worker,
+      owner,
+      member,
+      memberId: memberSnapshot.viewer!.memberId,
+      broadcasts,
+      activation,
+      admission,
+    };
   }
 
+  // The directory answer that goes with snapshot schemaVersion 2 is the
+  // administrators alone, which is also what the parser returns.
   it('parses the administrator directory the Worker answers to a grant and a revocation', async () => {
     const { owner, memberId } = await openRoom();
     const permissions = {
@@ -31125,15 +31259,83 @@ describe('PRO browser parsers on the actual Worker answers', () => {
     };
 
     const granted = await owner.api.updateAdministrator(ROOM_CODE, memberId, permissions);
-    expect(granted.administrators).toEqual(owner.lastAnswer().administrators);
+    expect(granted).toStrictEqual(owner.lastAnswer());
     expect(granted.administrators.find((row) => row.memberId === memberId)).toMatchObject({
       role: 'controller',
       permissions,
     });
 
     const revoked = await owner.api.revokeAdministrator(ROOM_CODE, memberId);
-    expect(revoked.administrators).toEqual(owner.lastAnswer().administrators);
+    expect(revoked).toStrictEqual(owner.lastAnswer());
     expect(revoked.administrators.map((row) => row.memberId)).not.toContain(memberId);
+  });
+
+  // Snapshot schemaVersion 2 is the parser's memory shape: each parsed
+  // snapshot equals the wire snapshot it came from, key for key, through every
+  // envelope the browser reads.
+  it('parses each snapshot the Worker answers into the wire it came from', async () => {
+    const { owner, member, activation, admission } = await openRoom();
+    const reads: Array<{ parsed: ProRoomSnapshot; wire: Record<string, any> }> = [
+      activation,
+      admission,
+    ];
+    const read = async (
+      browser: ReturnType<typeof browserFor>,
+      parsed: Promise<ProRoomSnapshot>,
+    ) => {
+      const snapshot = await parsed;
+      reads.push({ parsed: snapshot, wire: browser.lastAnswer().snapshot });
+      return snapshot;
+    };
+
+    const empty = await read(owner, owner.api.getSnapshot(ROOM_CODE));
+    const appended = await read(
+      owner,
+      owner.api.updateCompactSnapshot({
+        code: ROOM_CODE,
+        baseRevision: empty.revision,
+        playlistOrder: [FIRST],
+        upserts: [
+          {
+            queueItemId: FIRST,
+            name: 'First',
+            source: { kind: 'youtube', videoId: 'dQw4w9WgXcQ' },
+          },
+        ],
+        currentQueueItemId: null,
+        playback: empty.playback,
+        idempotencyKey: 'browser-parser-contract-snapshot',
+      }),
+    );
+    const copied = await read(
+      owner,
+      owner.api.transferPlaylistTracks({
+        code: ROOM_CODE,
+        baseRevision: appended.revision,
+        queueItemIds: [FIRST],
+        targetSlots: [1],
+        mode: 'copy',
+        idempotencyKey: 'browser-parser-contract-copy',
+      }),
+    );
+    await read(
+      owner,
+      owner.api.switchPlaylist({
+        code: ROOM_CODE,
+        baseRevision: copied.revision,
+        slot: 1,
+        idempotencyKey: 'browser-parser-contract-switch',
+      }),
+    );
+    await read(member, member.api.getSnapshot(ROOM_CODE));
+    const full = await member.api.heartbeat(ROOM_CODE);
+    reads.push({ parsed: full.snapshot, wire: member.lastAnswer().snapshot });
+
+    expect(reads).toHaveLength(8);
+    for (const { parsed, wire } of reads) {
+      expect(wire.schemaVersion).toBe(2);
+      expect(parsed).toStrictEqual(wire);
+    }
   });
 
   it('parses the PREPARE and COMMIT events the Worker answers and delivers', async () => {
@@ -31170,11 +31372,15 @@ describe('PRO browser parsers on the actual Worker answers', () => {
       idempotencyKey: 'browser-parser-contract-select',
     });
     expect(selected.status).toBe('preparing');
+    // Every PREPARE and transition COMMIT names its start kind (a select is a
+    // zero-start), and each parser keeps it.
+    expect(owner.lastAnswer().transition.timingMode).toBe('zero-start');
     expect(selected.transition).toEqual(owner.lastAnswer().transition);
     const transition = selected.transition!;
 
     // The pending PREPARE of a signaling ticket.
     const access = await member.api.createSignalingTicket(ROOM_CODE);
+    expect(member.lastAnswer().pendingPlaybackTransition.timingMode).toBe('zero-start');
     expect(access.pendingPlaybackTransition).toEqual(member.lastAnswer().pendingPlaybackTransition);
     expect(access.pendingPlaybackTransition?.transitionId).toBe(transition.transitionId);
 
@@ -31206,9 +31412,90 @@ describe('PRO browser parsers on the actual Worker answers', () => {
       ['pro-playback-commit', null],
     ]);
     const [prepare, commit, directCommit] = events;
+    // A direct COMMIT has no transition and names no kind.
+    expect([prepare!.timingMode, commit!.timingMode]).toEqual(['zero-start', 'zero-start']);
+    expect(directCommit).not.toHaveProperty('timingMode');
     expect(parseProRoomPlaybackPrepareEvent(prepare)).toEqual(prepare);
     expect(parseProRoomPlaybackCommitEvent(commit)).toEqual(commit);
     expect(parseProRoomPlaybackCommitEvent(directCommit)).toEqual(directCommit);
+  });
+
+  // The other start kind and the other COMMIT path: a seek of playing media is
+  // a scheduled-control rendezvous, and when nobody reports ready the alarm
+  // commits it at its deadline. Both events name the kind, and each parser
+  // keeps it.
+  it('parses the scheduled-control PREPARE and the deadline COMMIT the Worker answers and delivers', async () => {
+    vi.useFakeTimers({ toFake: ['Date'] });
+    const { worker, owner, member, broadcasts } = await openRoom();
+    const empty = await owner.api.getSnapshot(ROOM_CODE);
+    await owner.api.updateCompactSnapshot({
+      code: ROOM_CODE,
+      baseRevision: empty.revision,
+      playlistOrder: [FIRST],
+      upserts: [
+        { queueItemId: FIRST, name: 'First', source: { kind: 'youtube', videoId: 'dQw4w9WgXcQ' } },
+      ],
+      currentQueueItemId: null,
+      playback: empty.playback,
+      idempotencyKey: 'browser-parser-contract-seek-playlist',
+    });
+    const before = await owner.api.getSnapshot(ROOM_CODE);
+    const selected = await owner.api.executePlaybackCommand({
+      code: ROOM_CODE,
+      command: {
+        type: 'select',
+        baseRevision: before.playback.revision,
+        queueItemId: FIRST,
+        state: 'playing',
+        positionSeconds: 0,
+      },
+      idempotencyKey: 'browser-parser-contract-seek-select',
+    });
+    const ready = (api: ProRoomApiClient) =>
+      api.reportPlaybackTransitionReady({
+        code: ROOM_CODE,
+        transitionId: selected.transition!.transitionId,
+        basePlaybackRevision: selected.transition!.basePlaybackRevision,
+        status: 'ready',
+      });
+    await expect(ready(owner.api)).resolves.toBe('waiting');
+    await expect(ready(member.api)).resolves.toBe('committed');
+    const playing = await owner.api.getSnapshot(ROOM_CODE);
+
+    // The PREPARE of a seek answer.
+    const sought = await owner.api.executePlaybackCommand({
+      code: ROOM_CODE,
+      command: { type: 'seek', baseRevision: playing.playback.revision, positionSeconds: 33 },
+      idempotencyKey: 'browser-parser-contract-seek',
+    });
+    expect(sought.status).toBe('preparing');
+    expect(owner.lastAnswer().transition.timingMode).toBe('scheduled-control');
+    expect(sought.transition).toEqual(owner.lastAnswer().transition);
+    const transition = sought.transition!;
+
+    // The pending PREPARE of a signaling ticket.
+    const access = await member.api.createSignalingTicket(ROOM_CODE);
+    expect(member.lastAnswer().pendingPlaybackTransition.timingMode).toBe('scheduled-control');
+    expect(access.pendingPlaybackTransition).toEqual(member.lastAnswer().pendingPlaybackTransition);
+    expect(access.pendingPlaybackTransition?.transitionId).toBe(transition.transitionId);
+
+    // Nobody reports ready: the alarm commits the seek at its 3 s deadline.
+    vi.setSystemTime(Date.now() + 3_001);
+    await worker.alarm();
+    const events = broadcasts
+      .map((broadcast) => broadcast.event as Record<string, any>)
+      .filter((event) => event?.transitionId === transition.transitionId);
+    expect(events.map((event) => event.type)).toEqual([
+      'pro-playback-prepare',
+      'pro-playback-commit',
+    ]);
+    const [prepare, commit] = events;
+    expect([prepare!.timingMode, commit!.timingMode]).toEqual([
+      'scheduled-control',
+      'scheduled-control',
+    ]);
+    expect(parseProRoomPlaybackPrepareEvent(prepare)).toEqual(prepare);
+    expect(parseProRoomPlaybackCommitEvent(commit)).toEqual(commit);
   });
 
   // The one deliberate difference from the wire: a live LAN-direct has no

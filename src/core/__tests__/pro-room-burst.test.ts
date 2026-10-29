@@ -164,6 +164,9 @@ function client(result: Result, ip: string): Client {
   expect(result.status, JSON.stringify(result.body)).toBe(200);
   const snapshot = parseProRoomSnapshot(result.body.snapshot);
   expect(snapshot, 'Every successful admission must pass the real client parser').not.toBeNull();
+  // The bundled Worker sends snapshot schemaVersion 2, the parser's memory
+  // shape, so nothing is dropped on the way in.
+  expect(snapshot).toStrictEqual(result.body.snapshot);
   expect(result.cookie).toMatch(/^__Host-mxqr_pro_session_/);
   return { cookie: result.cookie, snapshot: snapshot!, ip };
 }
@@ -183,8 +186,8 @@ function assertRoster(snapshot: ProRoomSnapshot, count: number): void {
         participant.memberDisplayNumber >= 1 && participant.memberDisplayNumber <= 100,
     ),
   ).toBe(true);
-  // The parser drops the retired coordinator key of a schemaVersion 1 wire
-  // after checking that it is null.
+  // Neither the memory shape nor the Worker's schemaVersion 2 wire has the
+  // retired coordinator key.
   expect(snapshot.presence).not.toHaveProperty('coordinatorParticipantId');
 }
 

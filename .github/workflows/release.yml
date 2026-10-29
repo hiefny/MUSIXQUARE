@@ -258,13 +258,15 @@ jobs:
       # starts no recovery. When the PRO Worker on main requires every client to
       # be at least an App build, the public floor status must show the stored
       # and the effective floor at that build or above. The value lives here,
-      # outside every runtime path list; empty means no requirement.
+      # outside every runtime path list; empty means no requirement. 795 is
+      # 9.0.22, the first App build that reads PRO snapshot schemaVersion 2,
+      # which the PRO Worker sends.
       - name: Check the App build floor the PRO Worker requires
         id: pro_room_app_build_floor_check
         if: inputs.target == 'pro-room' || inputs.target == 'all'
         timeout-minutes: 10
         env:
-          MXQR_PRO_ROOM_REQUIRED_APP_BUILD: ''
+          MXQR_PRO_ROOM_REQUIRED_APP_BUILD: '795'
         run: node scripts/app-build-floor.mts pro-room-guard
 
       - name: Prepare deployment records

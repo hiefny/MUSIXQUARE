@@ -112,11 +112,13 @@ describe('owner-transfer link and the room entry password', () => {
     ]);
     const snapshot = await snapshotOf(transferred);
     expect(snapshot.viewer).toMatchObject({ role: 'owner' });
-    // The commit's answer has the same additive fields as activation's, so the
-    // settings show the real state.
+    // The commit's answer is snapshot schemaVersion 2 with the entry policy
+    // and playlist summaries, as activation's is, so the settings show the
+    // real state. The facade passes it through: the parser keeps every key.
     expect(snapshot.passwordRequired).toBe(false);
     expect(snapshot.playlistSlots).toBeDefined();
-    expect(parseProRoomSnapshot(snapshot)).not.toBeNull();
+    expect(snapshot.schemaVersion).toBe(2);
+    expect(parseProRoomSnapshot(snapshot)).toStrictEqual(snapshot);
     expect(test.saga()).toBe('complete');
     expect(await test.canonical()).toMatchObject({ status: 'active', owner: 'target' });
     expect(await bootstrap(test)).toEqual({
@@ -171,7 +173,8 @@ describe('owner-transfer link and the room entry password', () => {
       // The PRO room no longer reads the opt-in headers.
       expect(snapshot.passwordRequired).toBe(false);
       expect(snapshot.playlistSlots).toBeDefined();
-      expect(parseProRoomSnapshot(snapshot)).not.toBeNull();
+      expect(snapshot.schemaVersion).toBe(2);
+      expect(parseProRoomSnapshot(snapshot)).toStrictEqual(snapshot);
       expect(await bootstrap(test)).toMatchObject({ status: 'open', passwordRequired: false });
     },
   );

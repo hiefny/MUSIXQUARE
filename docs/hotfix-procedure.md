@@ -211,7 +211,10 @@ the fenced session close. Automated recovery stays above this line: it
 restores only the failing release's recovery checkpoint, and every PRO Worker
 captured in a checkpoint since train 2 is that Worker or a later one. No
 contract marker changes for this boundary; a marker would stop only the
-automated recovery of the release that changed it.
+automated recovery of the release that changed it. Once the PRO Worker that
+first sends PRO snapshot schemaVersion 2 has been live, the floor for a manual
+PRO rollback rises to the 9.0.22 PRO Worker (9.0.22 / v795, merge `71f5b96c`,
+PRO Worker version `6abc7131`; see [App Build Floor](#app-build-floor)).
 
 The complete serial Playwright suite is intentionally not a production deploy
 gate. The `Full E2E` workflow runs it together with the targeted iPhone WebKit
@@ -681,10 +684,13 @@ gh workflow run app-build-floor.yml --ref main -f action=lower -f min_app_build=
   is verified end to end (the status, the PRO and Signaling refusal of build N-1, an App cron
   report newer than the change, and the page's client read within the edge-cache lifetime plus
   30 seconds) and ends with one summary line for section 1 of the
-  [release record](release-record.md). A `lower` is fail-safe, so a missing cron report after it
-  only leaves a warning; a `set` or raise without one fails. The admin dashboard can only lower
-  the floor. The Signaling check proves only the refusal of build N-1, not the admission of build
-  N; the PRO check proves both.
+  [release record](release-record.md). A `lower` is fail-safe for its verification, so a missing
+  cron report after it only leaves a warning; a `set` or raise without one fails. It is not safe
+  for PRO rooms in every state: once the PRO Worker that first sends PRO snapshot schemaVersion 2
+  is live, a `lower` below 795 on its own admits builds that refuse every schemaVersion 2 answer,
+  so it runs only as step (3) of that Worker's bullet below, after the PRO step. The admin
+  dashboard can only lower the floor. The Signaling check proves only the refusal of build N-1,
+  not the admission of build N; the PRO check proves both.
 - The workflow shares the Production Release concurrency group. Never dispatch it while a release
   is running or queued: GitHub keeps one pending run per group, and a newly queued run cancels
   the pending one. Take the run ID from
@@ -694,7 +700,8 @@ gh workflow run app-build-floor.yml --ref main -f action=lower -f min_app_build=
   A workflow `lower` therefore cannot run while a Production Release holds the group (its deploy
   job may take up to 240 minutes). If GitHub Actions is unavailable, or a Production Release is
   running or queued, the owner lowers the floor in the admin dashboard (Maintenance, App build
-  floor panel, lower only).
+  floor panel, lower only). Below 795 such a lower carries the PRO caveat at the end of the next
+  bullet.
 - A `set` changes the floor first and verifies it afterwards, so a run that does not end in
   success can leave the new floor stored and enforced. Read
   `curl -s https://musixquare.com/api/app-build-floor`. If the stored floor is the target and the
@@ -715,7 +722,11 @@ gh workflow run app-build-floor.yml --ref main -f action=lower -f min_app_build=
   the App report's `reportedAt`) and run the smoke again. That answer comes from a window in which
   the effective floor is 0 (an App report more than five minutes old, or a failed floor read in a
   new isolate). If the App report has stopped, fix that first and keep the lowered floor: lowering
-  to 0 would leave the cause in place and the floor off after the reports return.
+  to 0 would leave the cause in place and the floor off after the reports return. Once the PRO
+  Worker that first sends PRO snapshot schemaVersion 2 is live, any `lower` below 795 (0
+  included) also admits builds that refuse every schemaVersion 2 answer, so their PRO rooms
+  break: do step (1) of that Worker's bullet below first, or record the owner's choice to accept
+  that.
 - A release that needs a floor sets the Production Release input `raise_app_build_floor` (target
   `app` or `all`). The raise runs only after the commit marker, and only to this release's build
   when that build is the live App. If it fails, the release stays committed and is not rolled
@@ -813,7 +824,54 @@ gh workflow run app-build-floor.yml --ref main -f action=lower -f min_app_build=
   back first lets a 9.0.14 tab opened in between meet the newer Signaling Worker: its Remote
   Share uploads fail with `REMOTE_SHARE_UPLOAD_ASSERTION_UNAVAILABLE`, and its host liveness
   probe and PIN membership choice are off. The App-first rule above applies only when Signaling
-  itself goes below 9.0.14.
+  itself goes below 9.0.14. Once the PRO Worker that first sends PRO snapshot schemaVersion 2
+  is live, the PRO step of the next bullet comes before step (1).
+- Once the PRO Worker that first sends PRO snapshot schemaVersion 2 is live (a `pro-room`
+  release after the floor reached 795; its deployment record adds the merge SHA and Release ID
+  here, and until then its Production Release run and the live PRO Worker's deployment message
+  `git:<sha>` tell whether it shipped), an App rollback below 9.0.22 (build 795), the first
+  build that reads that schema, runs only in this order: (1) the PRO Worker to the version in
+  that release's recovery checkpoint (the 9.0.22 PRO Worker: 9.0.22 / v795, merge `71f5b96c`,
+  PRO Worker version `6abc7131`), (2) when the App goes below 9.0.15,
+  step (1) of the Signaling bullet above, (3) `lower` to the target build, (4) the App. Rolling
+  the App back first breaks the PRO rooms of every page opened from then on: the enforced floor
+  is the lower of the stored floor and the live App's report, so such a page is admitted and
+  then refuses every schemaVersion 2 snapshot. The 9.0.22 PRO Worker sends schemaVersion 1
+  again, names no start kind and answers a live LAN-direct share with a numeric
+  `liveExpiresAt`, so an App below 795 also reads a share started under the newer Worker.
+  While that newer Worker is live, never lower the floor below 795 except as step (3), after
+  step (1): a `lower` on its own admits builds that refuse every schemaVersion 2 answer. An App
+  report older than five minutes or a failed floor read in a new isolate has the same effect on
+  PRO rooms as a `lower` to 0, because the effective floor is then 0 (accepted policy; see where
+  the floor cannot filter in the
+  [train report](design/phase5-5-r2-v2-send-2026-10-29.md#바닥-795와-이-릴리스가-기대는-것)).
+  The fix is to restore the App report, not to lower the floor.
+  Never restore the PRO Worker below the 9.0.22 PRO Worker by hand: the newer Worker stores the
+  start kind `timingMode` in its pending transition and playback outbox records and a live
+  LAN-direct `liveExpiresAt` as null, and an earlier Worker drops such a pending transition
+  without a CANCEL (that start never happens and a loading indicator can stay until the next
+  playback command), drops the whole outbox and ends such a share at the next system-audio
+  generation. The automated recovery of that release returns to the 9.0.22 PRO Worker, which
+  loads all of them; but its PRO room smoke reads none of the new shapes, so a defect in them
+  passes the commit marker and needs step (1) by hand. Such a rollback has no Git provenance,
+  so the next repair release uses target `all` (see the provenance paragraph under
+  [Normal Hotfix](#normal-hotfix)), and that `all` gets no automated recovery for PRO,
+  Signaling or the App: the missing provenance makes its forward-repair check true, so if it
+  fails those three stay on the candidate and are repaired forward. Prepare the manual rollback
+  before dispatching it. After steps (1) to (4) the stored floor is below the 795
+  that `MXQR_PRO_ROOM_REQUIRED_APP_BUILD` names, so that repair stops at its floor check. By
+  default its pull request reverts the change that started sending schemaVersion 2 and clears
+  the value in the same change (a low floor and schemaVersion 1 belong together); afterwards
+  raise the floor to 795 again (a same-value `set`, `set` 795, `status` and the Signaling
+  admission smoke) before schemaVersion 2 ships again. Otherwise the repair pull request lowers
+  the value to the stored floor of that moment; the repair then sends schemaVersion 2 again,
+  pages below 795 opened in between see `INVALID_RESPONSE` in PRO rooms, and right after the
+  repair the floor goes back to 795 and the value is written back. While the stored floor stays
+  below 795 after such a rollback, never clear the value alone: the repair would then send
+  schemaVersion 2 under a floor that admits builds that cannot read it (the general rule for a
+  stored floor below the value, above). The other clears stay as they are: the exit for a
+  stopped App report or an unreadable status above, and the release that stops the App
+  accepting schemaVersion 1.
 - The service-control object that holds the floor (`MusixquareServiceControl`) lives in the PRO
   Worker script; every other Worker binds it with `script_name = "musixquare-pro-room"`. Rolling
   the PRO Worker back below 9.0.14 therefore turns the floor off for every Worker, Signaling
@@ -889,7 +947,10 @@ saved known-good version at 100%. When the App goes below the stored App build
 floor, run its `lower` first and wait for that run to succeed (see
 [App Build Floor](#app-build-floor)). After 9.0.22, an App rollback below 9.0.15
 rolls Signaling back to its checkpoint version first, then runs the `lower`, then
-rolls the App back:
+rolls the App back. Once the PRO Worker that first sends PRO snapshot
+schemaVersion 2 is live, an App rollback below 9.0.22 (build 795) rolls the PRO
+Worker back to the 9.0.22 PRO Worker (version `6abc7131`, deployed from
+`71f5b96c`) before all of these:
 
 ```bash
 # Only when the App goes below the stored App build floor (0 for an App older than 9.0.14):

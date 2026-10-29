@@ -814,9 +814,9 @@ interface PlaybackTransition {
   ready: Record<string, 'ready' | 'failed'>;
   resumeFromSleep?: true;
   /**
-   * The start kind as a PRO Worker that sends PRO snapshot schemaVersion 2
-   * stores it. This Worker never writes it; it reads it so that it can load
-   * and commit that Worker's transitions (playbackTransitionTimingMode).
+   * The start kind. This Worker stores it on every transition it opens; one
+   * that a PRO Worker before PRO snapshot schemaVersion 2 stored has none and
+   * keeps that Worker's deadline encoding (playbackTransitionTimingMode).
    */
   timingMode?: ProRoomPlaybackTimingMode;
   developerCommandId: string | null;
@@ -1143,7 +1143,8 @@ function exactInternalRoomGeneration(request: Request, payload: unknown) {
     : null;
 }
 
-const SCHEMA_VERSION = 1;
+// PRO snapshot schemaVersion (publicSnapshot), not the storage schema below.
+const SCHEMA_VERSION = 2;
 // Keep the bounded core and playlist rows in separate keys so a large queue
 // cannot crowd media completion metadata out of the Durable Object record.
 const STORAGE_V2_CORE_KEY = 'pro-room:v2:core';
@@ -1382,23 +1383,17 @@ const MAX_MEDIA_NAME_LENGTH = 2048;
 const MAX_TEXT_LENGTH = 2048;
 const PLAYBACK_MAX_POSITION_SECONDS = 7 * 24 * 60 * 60;
 // The transition barrier and COMMIT lead come from the shared timing home
-// (pro-room-playback-timing.ts). The zero-start encoding below stays in this
-// file because the Worker and the App drop it in different releases.
+// (pro-room-playback-timing.ts). This Worker names the start kind in
+// `timingMode` on every transition it stores and on its PREPARE and COMMIT,
+// with that barrier and lead for either kind (PRO snapshot schemaVersion 2).
 //
-// Encode the transition kind in a numeric field that older Workers already
-// accept. This keeps an in-flight transition readable after a Worker rollback;
-// the one millisecond deadline difference is operationally inert. A PRO
-// Worker that sends PRO snapshot schemaVersion 2 names the kind in
-// `timingMode` instead, with a 3000 ms deadline for either kind; this Worker
-// reads both (playbackTransitionTimingMode) and writes only this encoding.
+// PRO Workers before it marked a zero-start transition with a stored deadline
+// one millisecond short of the barrier (and a COMMIT lead one millisecond
+// short). Such a transition can still be pending when this Worker loads the
+// room, so it keeps reading that deadline (playbackTransitionTimingMode) until
+// a later PRO release drops it. The value stays in this file because the
+// Worker and the App drop that encoding in different releases.
 const PLAYBACK_ZERO_START_TRANSITION_DEADLINE_MS = PRO_ROOM_PLAYBACK_TRANSITION_DEADLINE_MS - 1;
-// Strict event parsers make a new COMMIT JSON key unsafe during a rolling PWA
-// deployment. A -1ms lead is an inert marker to old clients and lets refreshed
-// clients recognize only an explicitly classified true zero-start. Legacy and
-// unknown 700ms transitions fail safely as ordinary scheduled controls. This
-// Worker commits every zero-start transition with this lead, including one
-// whose kind a schemaVersion 2 Worker named, so every App still reads the kind.
-const PLAYBACK_ZERO_START_COMMIT_LEAD_MS = PRO_ROOM_PLAYBACK_COMMIT_LEAD_MS - 1;
 // A browser ENDED event is an observation, not a control command.  When the
 // media reports a finite duration, require both the browser cursor and the
 // server-projected room cursor to be genuinely near that end.  Unknown/live
@@ -2279,15 +2274,20 @@ function normalizeStoredSystemAudio(value: unknown): SystemAudioState | null {
   }
   const publication = parseSystemAudioPublication(value.publication);
   // An SFU publication meters Cloudflare media and always has a deadline. A
-  // LAN-direct one has none to meter: a PRO Worker that sends PRO snapshot
-  // schemaVersion 2 stores null there (normalizeLoadedSystemAudio answers a
-  // number again).
+  // LAN-direct one has none to meter, so its liveExpiresAt is null. PRO
+  // Workers before PRO snapshot schemaVersion 2 stored a numeric
+  // compatibility value there; it loads as null (normalizeLoadedSystemAudio
+  // stores that). Keep this conversion in later PRO releases too: a room that
+  // no Worker has loaded since still stores the number, and an App that
+  // refuses a numeric LAN-direct deadline drops the whole heartbeat answer.
+  const storedDeadline =
+    isSafeInteger(value.liveExpiresAt) && value.liveExpiresAt > 0 ? value.liveExpiresAt : undefined;
   const liveExpiresAt =
-    isSafeInteger(value.liveExpiresAt) && value.liveExpiresAt > 0
-      ? value.liveExpiresAt
-      : value.liveExpiresAt === null && publication !== null && 'transport' in publication
+    publication !== null && 'transport' in publication
+      ? storedDeadline !== undefined || value.liveExpiresAt === null
         ? null
-        : undefined;
+        : undefined
+      : storedDeadline;
   if (
     value.status !== 'live' ||
     value.claimExpiresAt !== null ||
@@ -2481,39 +2481,39 @@ function publicSnapshot(room: ProRoomState, session: RoomSession | null = null) 
         displayName: session.displayName,
         role: session.role,
         capabilities: room.status === 'active' ? sessionCapabilities(room, session) : [],
-        coordinatorEligible: false,
       }
     : null;
   // An awake snapshot may only advertise a viewer currently in presence.
   const safeViewer = room.runtime === 'awake' && !participant ? null : viewer;
+  // Snapshot schemaVersion 2, keys in the order of the App parser's memory
+  // shape. The entry policy and the playlist summaries come from the same room
+  // state as the playlist they describe.
   return {
     schemaVersion: SCHEMA_VERSION,
     roomCode: room.roomCode,
     status: room.status,
+    passwordRequired: room.passwordRequired,
     runtime: room.runtime,
     revision: room.revision,
     playlistRevision: room.playlistRevision,
     effectsRevision: room.effects.revision,
     queueModeRevision: room.queueMode.revision,
-    // Developer ownership is private server state. Keeping the public v1
-    // playlist exact lets cached clients round-trip snapshots without learning
-    // or being able to forge API-key attribution.
+    // Developer ownership is private server state. Keeping the public playlist
+    // rows exact (the same keys in snapshot schemaVersion 1 and 2) lets cached
+    // clients round-trip snapshots without learning or being able to forge
+    // API-key attribution.
     playlist: room.playlist.map(publicPlaylistItem),
     currentQueueItemId: room.currentQueueItemId,
     playback: structuredClone(room.playback),
     presence: {
       coordinatorEpoch: room.presence.coordinatorEpoch,
       revision: room.presence.revision,
-      // The strict 9.0.x snapshot parser requires the key. A PRO room has no
-      // browser coordinator, so it is always null.
-      coordinatorParticipantId: null,
       participants,
     },
     quota: { ...room.quota },
     viewer: safeViewer,
-    memberIdentityVersion: 1,
-    authorityVersion: 1,
     administrators: publicAdministrators(room),
+    playlistSlots: summarizePlaylistSlots(room.playlist, room.playlistSlots),
   };
 }
 
@@ -3758,10 +3758,10 @@ function isPlaybackTimingMode(value: unknown): value is ProRoomPlaybackTimingMod
 }
 
 /**
- * The start kind of a stored transition: the kind it names (a PRO Worker that
- * sends PRO snapshot schemaVersion 2 stores it), else the encoding of every
- * earlier Worker, a zero-start deadline one millisecond short. A wake is
- * scheduled-control.
+ * The start kind of a stored transition: the kind it names (this Worker
+ * stores it on every transition), else the encoding of every PRO Worker
+ * before PRO snapshot schemaVersion 2, a zero-start deadline one millisecond
+ * short. A wake is scheduled-control.
  */
 function playbackTransitionTimingMode(pending: PlaybackTransition): ProRoomPlaybackTimingMode {
   if (pending.timingMode !== undefined) return pending.timingMode;
@@ -3901,12 +3901,12 @@ function normalizeStoredPlaybackBroadcastRecord(
   }
 
   const event = value.event;
-  // A PRO Worker that sends PRO snapshot schemaVersion 2 names the start kind
-  // (`timingMode`) on every PREPARE and transition COMMIT. This Worker's
-  // events never carry it, but its new records pass this same check
-  // (playbackBroadcastRecord), so the optional key lets that Worker's records
-  // load and be sent here. A direct COMMIT never names a kind; reading one
-  // there too keeps a stray key from dropping the whole outbox.
+  // This Worker names the start kind (`timingMode`) on every PREPARE and
+  // transition COMMIT, and its new records pass this same check
+  // (playbackBroadcastRecord). The key stays optional: a record that a PRO
+  // Worker before PRO snapshot schemaVersion 2 left behind has none. A direct
+  // COMMIT never names a kind; reading one there too keeps a stray key from
+  // dropping the whole outbox.
   if (value.kind === 'prepare') {
     if (
       !hasExactKeys(
@@ -4877,19 +4877,15 @@ export class MusixquareProRoom {
     );
   }
 
-  normalizeLoadedSystemAudio(nowMs = Date.now()) {
+  normalizeLoadedSystemAudio() {
     if (!this.room) return;
-    const normalizedSystemAudio = normalizeStoredSystemAudio(this.activeRoom.systemAudio);
+    const stored = this.activeRoom.systemAudio;
+    const normalizedSystemAudio = normalizeStoredSystemAudio(stored);
     if (normalizedSystemAudio) {
-      if (normalizedSystemAudio.status === 'live' && normalizedSystemAudio.liveExpiresAt === null) {
-        // A PRO Worker that sends PRO snapshot schemaVersion 2 stores a live
-        // LAN-direct without a deadline. Every App before that schema version
-        // refuses a live state without a positive one (and with it the whole
-        // heartbeat answer), so the share stays live with the value its first
-        // commit here would store. Nothing reads it as a deadline: the
-        // reconcile and the alarm skip LAN-direct, and an SFU promotion
-        // installs a fresh budget. The mark makes the first prune store it.
-        normalizedSystemAudio.liveExpiresAt = nowMs + SYSTEM_AUDIO_LIVE_TTL_MS;
+      // A live LAN-direct that a PRO Worker before PRO snapshot schemaVersion
+      // 2 stored with a numeric compatibility deadline stays the same live
+      // share, now without one. The mark makes the first prune store that.
+      if (normalizedSystemAudio.liveExpiresAt !== stored.liveExpiresAt) {
         this.systemAudioMigrationPending = true;
       }
       this.activeRoom.systemAudio = normalizedSystemAudio;
@@ -4917,7 +4913,8 @@ export class MusixquareProRoom {
       return;
     }
     // Effects predate this dedicated resource. An old room starts from the
-    // same neutral DSP state as a fresh client, without changing snapshot v1.
+    // same neutral DSP state as a fresh client; the snapshot carries only
+    // effectsRevision, never the effects themselves.
     this.activeRoom.effects = initialEffectsState();
     this.effectsMigrationPending = true;
   }
@@ -7180,8 +7177,8 @@ export class MusixquareProRoom {
       this.activeRoom.systemAudio.publication &&
       !('transport' in this.activeRoom.systemAudio.publication)
     ) {
-      // A direct publication has no metered-media deadline. Do not wake the
-      // Durable Object for its compatibility-only liveExpiresAt value.
+      // Only an SFU publication has a metered-media deadline; a direct one has
+      // none (liveExpiresAt null), so it never wakes the Durable Object.
       candidates.push(this.activeRoom.systemAudio.liveExpiresAt);
     }
     for (const asset of Object.values(this.activeRoom.assets)) {
@@ -7667,14 +7664,11 @@ export class MusixquareProRoom {
       }
       if (request.method === 'POST' && url.pathname === '/internal/admin/owner-transfer/commit') {
         // The commit's snapshot becomes the transfer link's answer, with the
-        // same additive fields (`passwordRequired`, `playlistSlots`) as
-        // activation's.
+        // entry policy and playlist summaries every snapshot carries.
         return this.withMutation(() =>
-          this.withEntryPolicyResponse(request, () =>
-            this.withStateCapacityRollback(() => this.handleInternalOwnerTransferCommit(request), {
-              rollbackStorageFailure: true,
-            }),
-          ),
+          this.withStateCapacityRollback(() => this.handleInternalOwnerTransferCommit(request), {
+            rollbackStorageFailure: true,
+          }),
         );
       }
       if (
@@ -7815,7 +7809,7 @@ export class MusixquareProRoom {
       });
     }
     return this.withMutation(() =>
-      this.withEntryPolicyResponse(request, async () => {
+      this.withAdmissionDiagnostics(request, async () => {
         const accountDeletionResponse = await this.enforceOwnerAccountDeletionFence();
         if (accountDeletionResponse) return accountDeletionResponse;
         await this.prune(Date.now());
@@ -8092,32 +8086,6 @@ export class MusixquareProRoom {
       /* Keep the original response even if diagnostic parsing fails. */
     }
     return response;
-  }
-
-  /**
-   * Adds the room's entry policy (`passwordRequired`) and playlist summaries
-   * (`playlistSlots`) to every successful snapshot response. Both are
-   * optional snapshot fields of the 9.0.x parser, which every App at or above
-   * the 787 build floor uses. This runs inside the room mutation lock, so
-   * admission policy and snapshot are atomic. The browser's opt-in headers
-   * (`X-MXQR-Pro-Entry-Policy`, `X-MXQR-Pro-Playlist-Slots`) are no longer
-   * read; the CORS allow list keeps them because the App still sends them.
-   */
-  async withEntryPolicyResponse(request: Request, task: () => Promise<Response>) {
-    const response = await this.withAdmissionDiagnostics(request, task);
-    if (!response.ok || !response.headers.get('content-type')?.startsWith('application/json'))
-      return response;
-    const body: unknown = await response.clone().json();
-    if (!isRecord(body) || !isRecord(body.snapshot)) return response;
-    body.snapshot.passwordRequired = this.activeRoom.passwordRequired;
-    body.snapshot.playlistSlots = summarizePlaylistSlots(
-      this.activeRoom.playlist,
-      this.activeRoom.playlistSlots,
-    );
-    return new Response(JSON.stringify(body), {
-      status: response.status,
-      headers: response.headers,
-    });
   }
 
   handleBootstrap() {
@@ -11079,10 +11047,7 @@ export class MusixquareProRoom {
   }
 
   administratorResponse() {
-    return jsonResponse({
-      authorityVersion: 1,
-      administrators: publicAdministrators(this.activeRoom),
-    });
+    return jsonResponse({ administrators: publicAdministrators(this.activeRoom) });
   }
 
   async handleGetAdministrators(request: Request) {
@@ -12408,11 +12373,10 @@ export class MusixquareProRoom {
       (state.status === 'preparing' &&
         (!isSafeInteger(state.claimExpiresAt) || state.claimExpiresAt <= nowMs)) ||
       (state.status === 'live' &&
-        // LAN-direct keeps the legacy numeric field for mixed-generation
-        // readers, but no Cloudflare media allocation exists to meter. Its
-        // authority is instead bounded by the exact owner presence and the
-        // four-device fence above. The first one-way SFU promotion replaces
-        // this compatibility timestamp with a fresh, authoritative deadline.
+        // LAN-direct has no Cloudflare media allocation to meter and so no
+        // deadline (liveExpiresAt null). Its authority is instead bounded by
+        // the exact owner presence and the four-device fence above. The first
+        // one-way SFU promotion installs a fresh, authoritative deadline.
         !(
           state.publication &&
           'transport' in state.publication &&
@@ -12555,7 +12519,10 @@ export class MusixquareProRoom {
     const nowMs = Date.now();
     this.activeRoom.systemAudio.status = 'live';
     this.activeRoom.systemAudio.claimExpiresAt = null;
-    this.activeRoom.systemAudio.liveExpiresAt = nowMs + SYSTEM_AUDIO_LIVE_TTL_MS;
+    // An SFU publication gets its fixed media budget. A LAN-direct one meters
+    // no Cloudflare media and has no deadline until an SFU promotion.
+    this.activeRoom.systemAudio.liveExpiresAt =
+      'transport' in publication ? null : nowMs + SYSTEM_AUDIO_LIVE_TTL_MS;
     this.activeRoom.systemAudio.publication = publication;
     auth.participant.lastSeenAtMs = nowMs;
     await this.persist();
@@ -13226,13 +13193,20 @@ export class MusixquareProRoom {
     };
   }
 
-  playbackCommitEvent(transitionId: string | null, executeAtMs: number, nowMs: number) {
+  /** A transition COMMIT names its start kind; a direct COMMIT (no transition) has none. */
+  playbackCommitEvent(
+    transitionId: string | null,
+    executeAtMs: number,
+    nowMs: number,
+    timingMode?: ProRoomPlaybackTimingMode,
+  ) {
     return {
       type: 'pro-playback-commit',
       transitionId,
       serverTimeMs: nowMs,
       executeAtMs,
       playback: structuredClone(this.activeRoom.playback),
+      ...(timingMode === undefined ? {} : { timingMode }),
     };
   }
 
@@ -13244,6 +13218,7 @@ export class MusixquareProRoom {
       deadlineAtMs: pending.deadlineAtMs,
       basePlaybackRevision: pending.basePlaybackRevision,
       target: structuredClone(pending.target),
+      timingMode: playbackTransitionTimingMode(pending),
     };
   }
 
@@ -13425,22 +13400,18 @@ export class MusixquareProRoom {
       return cancelEvent ? { ...committed, cancelEvent } : committed;
     }
     const transitionId = `transition_${randomToken(16)}`;
-    const deadlineAtMs =
-      nowMs +
-      (timingMode === 'zero-start'
-        ? PLAYBACK_ZERO_START_TRANSITION_DEADLINE_MS
-        : PRO_ROOM_PLAYBACK_TRANSITION_DEADLINE_MS);
     const pending: PlaybackTransition = {
       transitionId,
       coordinatorEpoch: this.activeRoom.presence.coordinatorEpoch,
       basePlaybackRevision: this.activeRoom.playback.revision,
       createdAtMs: nowMs,
-      deadlineAtMs,
+      deadlineAtMs: nowMs + PRO_ROOM_PLAYBACK_TRANSITION_DEADLINE_MS,
       target,
       cohort,
       ready: {},
       developerCommandId,
       ...(options.resumeFromSleep === true ? { resumeFromSleep: true } : {}),
+      timingMode,
     };
     this.activeRoom.pendingPlaybackTransition = pending;
     return {
@@ -13461,11 +13432,7 @@ export class MusixquareProRoom {
     ) {
       return { cancelEvent: this.cancelPendingPlayback('stale', nowMs), event: null };
     }
-    const executeAtMs =
-      nowMs +
-      (playbackTransitionTimingMode(pending) === 'zero-start'
-        ? PLAYBACK_ZERO_START_COMMIT_LEAD_MS
-        : PRO_ROOM_PLAYBACK_COMMIT_LEAD_MS);
+    const executeAtMs = nowMs + PRO_ROOM_PLAYBACK_COMMIT_LEAD_MS;
     pending.target.updatedAtMs = executeAtMs;
     this.activeRoom.currentQueueItemId = pending.target.queueItemId;
     this.activeRoom.playback = pending.target;
@@ -13477,7 +13444,12 @@ export class MusixquareProRoom {
     }
     return {
       cancelEvent: null,
-      event: this.playbackCommitEvent(pending.transitionId, executeAtMs, nowMs),
+      event: this.playbackCommitEvent(
+        pending.transitionId,
+        executeAtMs,
+        nowMs,
+        playbackTransitionTimingMode(pending),
+      ),
     };
   }
 
@@ -16242,10 +16214,11 @@ export class MusixquareProRoom {
   async handleLeavePresence(request: Request) {
     const auth = await this.requireSession(request, { activePresence: true });
     if (auth.response) return auth.response;
-    // The v1 client contract requires an awake snapshot's viewer to remain in
-    // its presence list. When other peers remain, return the last internally
-    // consistent departing snapshot while persisting the newer server state;
-    // the caller is leaving and must not apply a phantom post-leave viewer.
+    // The App's snapshot parser (schemaVersion 1 and 2 alike) requires an
+    // awake snapshot's viewer to remain in its presence list. When other peers
+    // remain, return the last internally consistent departing snapshot while
+    // persisting the newer server state; the caller is leaving and must not
+    // apply a phantom post-leave viewer.
     const departingSnapshot = publicSnapshot(this.activeRoom, auth.session);
     const hadOtherParticipants = Object.keys(this.activeRoom.presence.participants).length > 1;
     this.removePresence(auth.session.participantId, Date.now());

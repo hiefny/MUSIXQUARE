@@ -124,7 +124,12 @@ runbooks. Neither belongs in a general setup document.
   Worker (910), and the full gate at the bump: npm audit 0, unit 706 files / 16,748, Worker 69 / 3,322,
   critical 90 / 3,521, release-tooling 14 / 433, typecheck, lint, format, every guard with no baseline
   change, `check:worker-bundles`, `build:checked` with `guard:release-identity` 9.0.25 / v798 and
-  `guard:sw-cache-version` PASS v798, and Chromium candidate 19, critical 100 and the PRO lane 39), with
+  `guard:sw-cache-version` PASS v798, and Chromium candidate 19, critical 100 and the PRO lane 39; then
+  the review fixes after the bump with no runtime change: a duplicated records line removed, a
+  tests-only cross-contract row that parses the in-process Worker's bootstrap in all four states and
+  its PIN session, presence entry and account detach answers (unit 16,749, Worker 3,323, cross-contract
+  911), and records that key the repair on the change being on main, add the post-deploy floor read
+  and Drift Audit, and keep runtime-dependency merges out until the PRO cleanup ships), with
   placeholders for the production rounds, the post-deploy check and the owner device check
   candidates as a blind hand-out (procedure and observations, with the pass criteria kept apart),
   the manual App rollback to the release's checkpoint App when the post-deploy check fails (the

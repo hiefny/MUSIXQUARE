@@ -58,7 +58,8 @@ gh run list --workflow e2e.yml --branch main --limit 3
       은퇴한 PRO 개발자 신호 프레임을 읽지 않는다. Production Release의 PRO 최소 빌드 요구 값을 다시 비웠다(§3). 브랜치
       `agent/p55-r3`은 PRO 스냅샷 schemaVersion 2 보내기 브랜치의 끝 `91601774` 위에서 만들어 2026-10-30에 main `d630269a`(9.0.24와
       그 기록 #531) 위로 옮겼다. 증분은 테스트 먼저 7, 코드 9, 서버 권한 ADR 문서 1, 기록 문서 4, bump `01f1a19b`(9.0.25 / v798, 앱
-      빌드 798, 9.0.24의 `4d74f552`와 같은 거울 여섯 파일, 마지막 런타임 커밋), 옮긴 뒤 기록 문서 1이다. 옮기며 R3의 자기 번호
+      빌드 798, 9.0.24의 `4d74f552`와 같은 거울 여섯 파일, 마지막 런타임 커밋), 그 뒤 기록 문서 3과 교차 계약 시험 1
+      (`5c0c6b6d`, 시험만)이다. 옮기며 R3의 자기 번호
       9.0.24 / v797을 9.0.25 / v798로 고쳤다(9.0.24는 번역 페이지 입구 열차). main `d630269a`와 운영 배포 SHA(App 9.0.24 `78ec56f5`,
       PRO room `0e5a9b87`, 다른 넷 9.0.22 `71f5b96c`) 어느 쪽과 견줘도 런타임 경로 변경은 App 18(`src/` 14, `cloudflare/app-worker.ts`의
       주석 하나와 버전, bump의 거울 셋), 나머지 다섯 Worker 0이고 App 런타임 의존성 차이가 없어 target `app`이다(로컬 판정, live
@@ -74,11 +75,15 @@ gh run list --workflow e2e.yml --branch main --limit 3
       출력을 이 파서로 읽는 in-process·workerd 행 910 통과. bump 트리의 전체 검사: npm audit 0, 단위 706 files / 16,748, Worker 69 /
       3,322, 핵심 90 / 3,521, release-tooling 14 / 433, typecheck, `check:workers`, `check:worker-bundles`, lint, format, 모든 가드,
       `build:checked`(`guard:release-identity` 9.0.25 / v798, `guard:sw-cache-version` PASS v798, eager JS 455.3 KiB gzip), Chromium
-      candidate 19, critical 100, PRO 레인 39)다. 열차 끝 리뷰, PR, PR CI, 자동 코드 리뷰, exact-main CI, 배포는 아직이고 로컬 결과는
+      candidate 19, critical 100, PRO 레인 39)다. 그 뒤 옮김과 bump를 본 리뷰 둘을 런타임 변경 없이 반영했다(기록의 겹친 줄
+      삭제, bootstrap 네 상태와 PIN 세션, presence 입장, 계정 분리를 브라우저 클라이언트로 읽는 교차 계약 행 하나, 기록 고침).
+      그 머리의 단위 706 files / 16,749, Worker 69 / 3,323, 교차 계약·workerd 911, typecheck, lint, format, 가드가 다시 통과했다
+      (QA 라운드 3의 끝). 열차 끝 리뷰, PR, PR CI, 자동 코드 리뷰, exact-main CI, 배포는 아직이고 로컬 결과는
       exact-main-SHA 후보를 대신하지 않는다. 배포 뒤 기록 PR이 이 항목을
-      '배포 뒤 확인'으로 바꾸고, §4의 이 릴리스 항목과 현재 경계 줄 (8)에 머지 SHA, Release ID, checkpoint ID를 채우며,
-      §1을 덮어쓸 때 이 App이 틀리게 만드는 '의존성·호환'의 두 문장(8.11.33 opt-in 머리글을 'App은 계속 보내고'와 릴리스
-      A의 'SESSION_FULL은 `message` 없이, OPERATOR_TOAST는 `text`와 `i18nKey` 가운데 하나만 있어도 받는다')을 고친다.
+      '배포 뒤 확인'으로 바꾸고, §4의 이 릴리스 항목과 현재 경계 줄 (8)에 머지 SHA, Release ID, checkpoint ID를 채우고,
+      현재 경계 줄 (5)를 9.0.25로(그 checkpoint App은 9.0.24 `dd820d37`) 고치며, §1을 덮어쓸 때 이 App이 틀리게 만드는
+      '의존성·호환'의 두 문장(8.11.33 opt-in 머리글을 'App은 계속 보내고'와 릴리스 A의 'SESSION_FULL은 `message` 없이,
+      OPERATOR_TOAST는 `text`와 `i18nKey` 가운데 하나만 있어도 받는다')을 고친다.
       [변경·QA 보고서](design/phase5-5-r3-v1-receive-stop-2026-10-30.md),
       [증분 한눈에](design/phase5-5-r3-v1-receive-stop-2026-10-30.md#증분-한눈에),
       [QA 라운드 2](design/phase5-5-r3-v1-receive-stop-2026-10-30.md#2-전체-검사),
@@ -86,21 +91,24 @@ gh run list --workflow e2e.yml --branch main --limit 3
 - [ ] 배포 조건(모두 채운 뒤에만 이 PR을 머지하고 dispatch한다): (1) PRO 스냅샷 schemaVersion 2를 처음 보내는 PRO
       Worker의 배포와 그 기록 PR이 main에 있고, 이 브랜치가 그 main 위로 옮겨졌으며 bump가 마지막 런타임 커밋이다(채움: #528
       `0e5a9b87`와 기록 #529가 main에 있고, 이 브랜치는 `d630269a` 위, bump `01f1a19b`. 머지 전에 main이 움직이면 다시 옮긴다). 그
-      PRO Worker를 손으로 되돌린 적이 있으면 그 뒤의 `all` 수리 릴리스 뒤에만, 그 변경을 되돌리는 수리 PR(9.0.25 전
-      비상 길의 기본 출구)을 탔으면 바닥 795와 그 PRO Worker를 다시 내고 기록한 뒤에만 낸다(그 전에는 PRO Worker
+      PRO Worker를 손으로 되돌린 적이 있으면 그 뒤의 `all` 수리 릴리스 뒤에만, 그 변경을 되돌리는 수리 PR(이 PR 머지
+      전 비상 길의 기본 출구)을 탔으면 바닥 795와 그 PRO Worker를 다시 내고 기록한 뒤에만 낸다(그 전에는 PRO Worker
       교차 계약 행이 이 PR의 머지를 막는다). (2) dispatch 직전 live PRO Worker의 배포 메시지가 그 PRO Worker 머지 SHA의
       `git:<sha>`(또는 그 뒤 PRO 런타임 변경이 없는 자손)다. App 대상 부분 게이트도 PRO가 HEAD와 같은 런타임 경로인지
       보고 'Rollback:' 메시지의 손 되돌리기 버전에서 막는다. (3) 그 PRO Worker의 배포부터 이 배포까지 런타임 의존성
-      변경을 머지하지 않았다. (4) 이 PR은 dispatch 직전에만 머지하고, 그때부터 이 릴리스의 기록 PR까지 다른 PR을
-      머지하지 않으며 exact-main CI success를 본다. (5) dispatch 직전 `status`를 다시 읽어 저장·유효 795와 300초 안의 App
+      변경을 머지하지 않았다. 이 배포부터 계획한 PRO 정리(`pro-room`)의 배포까지도 런타임 의존성 변경(Dependabot 포함)을
+      머지하지 않는다. 그 PRO 릴리스의 부분 게이트가 고르지 않은 App의 배포 SHA와 HEAD 사이 의존성 차이를 거절한다.
+      (4) 이 PR은 dispatch 직전에만 머지하고, 그때부터 이 릴리스의 기록 PR까지 다른 PR을 머지하지 않으며 exact-main CI
+      success를 본다. (5) dispatch 직전 `status`를 다시 읽어 저장·유효 795와 300초 안의 App
       보고를 확인한다. 그 뒤 Release target `app`, Developer API D1 false, `raise_app_build_floor` false. 'Check the App
       build floor the PRO Worker requires' 단계는 `app`에서 돌지 않는다(요구 값도 비어 있음). (6) 배포 직후(게이트
-      아님) 보고서 '배포 직후 확인과 기기 확인'의 나눠 줄 절차 A ~ C와 선택 D를 합성 방(오너가 가진 PRO 방)에서
+      아님) 공개 최소 빌드 상태를 읽어 저장·유효 795, live App 798, 300초 안의 App 보고를 확인하고 Operations Drift Audit을
+      돌린다. 그리고 보고서 '배포 직후 확인과 기기 확인'의 나눠 줄 절차 A ~ C와 선택 D를 합성 방(오너가 가진 PRO 방)에서
       9.0.25 탭으로 하게 한다. 확인하는 사람에게는 절차와 관찰 목록만 건네고, 판정은 그 절의 판정 기준(건네지 않음)으로
       한다. 방이 뜨지 않거나 하트비트가 거절되면 그 절의 '실패하면'대로 App을 9.0.25 릴리스 checkpoint의 App으로 손으로
       되돌리고(저장 바닥이 795인 동안 `lower` 없음), PRO Worker는 그대로 두며, §1과 `Last source review`를 덮어쓰고
-      이력에 한 행을 더한 뒤, 출처 규칙대로 다음 수리 릴리스를 `all`로 낸다. dispatch 직전 읽기와 배포 직후 확인은 보고서
-      QA 라운드 4, 5에 싣는다(지금은 자리만).
+      이력에 한 행을 더한 뒤, 출처 규칙대로 다음 수리 릴리스를 `all`로 낸다. dispatch 직전 읽기와 배포 직후의 공개 상태,
+      Drift Audit, 확인은 보고서 QA 라운드 4, 5에 싣는다(지금은 자리만).
       [배포 조건과 순서](design/phase5-5-r3-v1-receive-stop-2026-10-30.md#배포-조건과-순서),
       [배포 직후 확인과 기기 확인](design/phase5-5-r3-v1-receive-stop-2026-10-30.md#배포-직후-확인과-기기-확인-게이트-아님),
       [QA 라운드 4](design/phase5-5-r3-v1-receive-stop-2026-10-30.md#4-운영-전제-자리).
@@ -112,7 +120,9 @@ gh run list --workflow e2e.yml --branch main --limit 3
       App이 배포된 뒤 PRO를 schemaVersion 2를 처음 보내는 PRO Worker 아래로 되돌리지 않는다(꼭 해야 하면 App을 그
       checkpoint App으로 먼저, 그 뒤 PRO를 9.0.22의 PRO Worker로). App을 795 아래로는 App을 그 checkpoint App으로, PRO를
       9.0.22의 PRO Worker로, 9.0.15 아래면 Signaling, `lower`, App 순서로만 하고, 그 뒤 수리는 schemaVersion 2를 그대로
-      보내고 곧 바닥을 795로 다시 올린다.
+      보내고 곧 바닥을 795로 다시 올린다. 이 수리는 9.0.25가 live로 남았는지가 아니라 이 PR이 main에 있는지로 정한다: 머지
+      뒤 `app` 실행이 실패해 자동 복구가 App을 되돌려도 main의 App은 schemaVersion 1을 읽지 않고 요구 값은 비어 있다.
+      schemaVersion 1 보내기로 돌아가는 수리는 이 App 변경도 함께 되돌린다.
       [보고서의 되돌리기](design/phase5-5-r3-v1-receive-stop-2026-10-30.md#되돌리기),
       [혼합 버전](design/phase5-5-r3-v1-receive-stop-2026-10-30.md#혼합-버전).
 - [ ] 확인하지 않은 것: 운영 단계와 배포, 실제 schemaVersion 2 PRO Worker와 이 App의 브라우저 왕복(운영에서 이 App의
@@ -248,8 +258,9 @@ gh run list --workflow e2e.yml --branch main --limit 3
       갔으므로(`[ProSysAudioSFU] Published generation 1`) 'LAN-direct 미확인'으로 적는다(SFU 공유는 두 번째 기기에서
       2분 들렸고 공유하는 쪽 콘솔에 하트비트나 lease 경고가 없었음). 실패가 없어 PRO를 되돌리지 않았다. Edge DevTools 도구 막대의 오류
       1은 그 줄을 찾지 못해 귀속하지 못했다(앱 안 콘솔에는 없음). 뒤에 결함이 보이면 §4의 이 릴리스 항목대로 PRO를 손으로
-      9.0.22 PRO Worker(`6abc7131`)로 되돌리고 기록한다. PRO 방 smoke는 bootstrap 카나리아 둘과 익명 스냅샷 거절만 보므로
-      null LAN-direct는 운영에서 아직 읽지 않았다. 실기기, iOS Safari, WebKit 레인 전체, Full E2E, 바닥 795 전에 열려
+      9.0.22 PRO Worker(`6abc7131`)로 되돌리고 기록한다(9.0.25가 배포된 뒤에는 §4 현재 경계 줄 (8)대로 App을 먼저,
+      [9.0.25의 되돌리기](design/phase5-5-r3-v1-receive-stop-2026-10-30.md#되돌리기)). PRO 방 smoke는 bootstrap 카나리아
+      둘과 익명 스냅샷 거절만 보므로 null LAN-direct는 운영에서 아직 읽지 않았다. 실기기, iOS Safari, WebKit 레인 전체, Full E2E, 바닥 795 전에 열려
       전경에 남은 탭의 수(그 탭이 그 방의 시작을 3초 늦추는 비용은 2026-10-28 오너가 받아들임)도 보지 않았다. exact-main
       CI의 Critical browser gate와 로컬 Playwright(PRO 묶음, candidate, critical)는 App 런타임이 main과 같다는 레인 근거일
       뿐이고, e2e PRO 고정값은 아직 schemaVersion 1이며 PRO Worker를 띄우지 않아 이 Worker의 변경을 지나지 않는다.
@@ -2843,9 +2854,10 @@ PRO 방장 공지의 중도 참여 복원은 별도 정책이며 이번 서비�
   있고(런타임 경로 밖), PRO 스냅샷 schemaVersion 2를 처음 보내는 PRO Worker의 변경이 그 스키마를
   읽는 첫 빌드 795(9.0.22)로 적었고, App이 schemaVersion 1 받기를 그만두는 9.0.25의 런타임 변경이
   다시 비웠다. 그래서 그 둘 사이에만 `pro-room`·`all` 릴리스가 공개 status의 저장 바닥과 유효
-  바닥이 모두 795 이상일 때만 나아가고, 값이 빈 지금은 검사가 아무것도 막지 않는다. 9.0.25 뒤
-  App을 795 아래로 내린 비상 길의 수리는 schemaVersion 2를 그대로 보내고 곧바로 바닥을 795로
-  다시 올리므로 검사가 막을 것이 없다(§4 현재 경계 줄 (9)). 비상 로컬 배포는 이 검사를 돌지
+  바닥이 모두 795 이상일 때만 나아가고, 값이 빈 지금은 검사가 아무것도 막지 않는다. 9.0.25의
+  변경이 main에 들어온 뒤(9.0.25가 live로 남았는지와 관계없이) App을 795 아래로 내린 비상 길의
+  수리는 schemaVersion 2를 그대로 보내고 곧바로 바닥을 795로 다시 올리므로 검사가 막을 것이
+  없다(§4 현재 경계 줄 (6), (9)). 비상 로컬 배포는 이 검사를 돌지
   않는다. 멈춤과 출구는 [운영](hotfix-procedure.md#app-build-floor)이 정본이다.
 - Developer API D1 `false`는 데이터 계층을 건드리지 않는다는 뜻이 아니다. `all`은
   idempotent D1 baseline, R2 정책, room-code 재사용 fence를 적용하고 검증한다.
@@ -2934,9 +2946,11 @@ PRO 방장 공지의 중도 참여 복원은 별도 정책이며 이번 서비�
   한다: PRO를 그 릴리스 checkpoint의 버전(9.0.22의 PRO Worker: 9.0.22 / v795, 머지 `71f5b96c`, PRO 버전
   `6abc7131`)으로, App이 9.0.15 아래로 가면 (2)의 Signaling 단계, 대상 빌드로 `lower`, App. App을 먼저 내리면 강제 바닥이
   저장 바닥과 live App 보고 가운데 낮은 값이라, 그때부터 새로 연 페이지가 들어온 뒤 schemaVersion 2를 읽지 못해 PRO 방이
-  깨진다. (8)의 App이 배포되기 전에 이 길을 탔으면 그 뒤의 `all` 수리는 PRO 최소 빌드 사전 검사(요구 값 795)에서
-  멈추므로 수리 PR의 출구는 아래 그 항목이 적는다. (8)의 App이 배포된 뒤에는 이 순서를 글자대로 따르지 않고 (9)의
-  합친 순서를 따른다.
+  깨진다. 이 길 뒤의 `all` 수리는 그때 main에 (8)의 App 변경(schemaVersion 1 받기 중단)이 없으면 PRO 최소 빌드 사전
+  검사(요구 값 795)에서 멈추므로 수리 PR의 출구는 아래 그 항목이 적는다. 그 변경이 main에 있으면 9.0.25가 live로
+  남았는지와 관계없이(머지 뒤 `app` 실행이 실패해 자동 복구가 App을 되돌려도 main의 App은 schemaVersion 1을 읽지 않고
+  요구 값은 비어 있다) (9)의 수리를 따르고, schemaVersion 1 보내기로 돌아가는 수리는 그 App 변경도 함께 되돌린다.
+  (8)의 App이 배포된 뒤에는 이 순서를 글자대로 따르지 않고 (9)의 합친 순서를 따른다.
   (7) 같은 PRO Worker가 배포됐으므로 PRO를 9.0.22의 PRO Worker(`6abc7131`, `71f5b96c`)보다 앞 버전으로 손으로 되돌리지
   않는다(Durable Object 되돌리기 바닥): 그 Worker는 대기 transition과 outbox 기록에 시작 종류 `timingMode`를, live
   LAN-direct의 `liveExpiresAt`에 null을 저장하고, 9.0.22 앞 Worker는 그 대기 transition을 CANCEL 없이 버리고(그 시작은
@@ -2957,9 +2971,9 @@ PRO 방장 공지의 중도 참여 복원은 별도 정책이며 이번 서비�
   App이면 (a)에서 끝난다. PRO를 먼저 되돌리면 9.0.25 App이 live인 동안 PRO가 schemaVersion 1을 보내 열린 9.0.25 탭과 새로
   연 페이지가 모두 PRO 방에서 `INVALID_RESPONSE`를 받고, App을 먼저 795 아래로 내리면 (6)과 같이 새로 연 페이지가
   schemaVersion 2를 읽지 못한다. 이 길 뒤의 수리: (b)의 손 되돌리기로 PRO가 git 출처를 잃어 다음 수리 릴리스는 `all`이다.
-  main의 App이 schemaVersion 1을 읽지 않으므로 그 수리는 schemaVersion 2 보내기를 되돌리지 않고 그대로 배포하며(되돌리면
-  모든 PRO 방이 깨짐), 수리 직후 바닥을 795로 다시 올린다(그때의 저장 바닥으로 같은 값 `set`, `set` 795, `status`, 신호
-  입장 smoke). `set`은 live App 위로 올리지 못하므로 수리 전에는 할 수 없고, 그 사이 열린 795 앞 탭은 PRO 방에서
+  main의 App이 schemaVersion 1을 읽지 않으므로 그 수리는 schemaVersion 2 보내기를 되돌리지 않고 그대로 배포하며(그것만
+  되돌리면 모든 PRO 방이 깨지고, schemaVersion 1 보내기로 돌아가는 수리는 (8)의 App 변경도 함께 되돌린다), 수리 직후
+  바닥을 795로 다시 올린다(그때의 저장 바닥으로 같은 값 `set`, `set` 795, `status`, 신호 입장 smoke). `set`은 live App 위로 올리지 못하므로 수리 전에는 할 수 없고, 그 사이 열린 795 앞 탭은 PRO 방에서
   `INVALID_RESPONSE`를 본다. PRO 최소 빌드 요구 값은 9.0.25의 런타임 변경이 지웠으므로 사전 검사가 이 수리를 막지 않는다.
 - **PRO 스냅샷 schemaVersion 1 받기를 그만둔 App 9.0.25(배포 전, 9.0.25 / v798, App만):** 위 현재 경계 줄 (6)의 PRO
   Worker가 배포·기록된 뒤에 `app`으로 낸다. 머지 SHA, Release ID, checkpoint ID는 배포 기록 PR이 이 항목과 위 현재 경계
@@ -3053,9 +3067,9 @@ PRO 방장 공지의 중도 참여 복원은 별도 정책이며 이번 서비�
     R2 정책 평가나 Worker 호환 바닥 평가가 실패하면 대비 목록이 PRO를 건너뛰어 이 Worker가 실패 표시인 채 live로 남는다.
     바닥이 795라 새로 들어오는 App은 모두 schemaVersion 2를 읽으므로 안전하고 앞으로 고친다. 이 릴리스는 성공해 그
     복구는 돌지 않았다(recovery job skipped).
-  - 9.0.25 전에 위 현재 경계 줄 (6)으로 App을 795 아래로 내린 뒤의 수리(9.0.25 뒤에는 (9)의 수리): 그 `all` 수리
-    릴리스는 PRO 최소 빌드 사전 검사(요구 값 795)에서 멈춘다. 기본은 수리 PR이 이 변경(schemaVersion 2 보내기)을
-    되돌리며 요구 값을 함께 지우고(낮은 바닥과 schemaVersion 1 보내기가 맞음), 그 뒤 바닥을 795로 다시 올려 이 변경을
+  - main에 9.0.25의 변경(schemaVersion 1 받기 중단)이 없을 때 위 현재 경계 줄 (6)으로 App을 795 아래로 내린 뒤의 수리(그
+    변경이 main에 있으면 9.0.25가 live로 남았는지와 관계없이 (9)의 수리): 그 `all` 수리 릴리스는 PRO 최소 빌드 사전
+    검사(요구 값 795)에서 멈춘다. 기본은 수리 PR이 이 변경(schemaVersion 2 보내기)을 되돌리며 요구 값을 함께 지우고(낮은 바닥과 schemaVersion 1 보내기가 맞음), 그 뒤 바닥을 795로 다시 올려 이 변경을
     다시 낸다. 대안은 수리 PR이 요구 값을 그때의 저장 바닥으로 낮추는 것이다. 그러면 수리 릴리스가 schemaVersion 2를
     다시 보내 그 사이 연 795 앞 탭은 PRO 방에서 `INVALID_RESPONSE`를 보므로, 수리 직후 바닥을 795로 다시 올리고 값을
     되돌린다. 요구 값만 지우고 schemaVersion 2를 남기는 수리는 하지 않는다. App 보고가 멈추거나 공개 status를 읽지 못해

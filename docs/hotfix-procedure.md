@@ -865,7 +865,8 @@ gh workflow run app-build-floor.yml --ref main -f action=lower -f min_app_build=
   [Normal Hotfix](#normal-hotfix)), and that `all` gets no automated recovery for PRO,
   Signaling or the App: the missing provenance makes its forward-repair check true, so if it
   fails those three stay on the candidate and are repaired forward. Prepare the manual rollback
-  before dispatching it. Before 9.0.25, after steps (1) to (4) the stored floor is below the 795
+  before dispatching it. While `main` does not yet carry 9.0.25's change (the App that stops
+  reading schemaVersion 1), after steps (1) to (4) the stored floor is below the 795
   that `MXQR_PRO_ROOM_REQUIRED_APP_BUILD` names, so that repair stops at its floor check. By
   default its pull request reverts the change that started sending schemaVersion 2 and clears
   the value in the same change (a low floor and schemaVersion 1 belong together); afterwards
@@ -879,7 +880,12 @@ gh workflow run app-build-floor.yml --ref main -f action=lower -f min_app_build=
   builds that cannot read it (the general rule for a stored floor below the value, above). The
   other clears stay as they are: the exit for a stopped App report or an unreadable status
   above, and the release that stops the App accepting schemaVersion 1 (9.0.25). Once 9.0.25 is
-  live, do not follow this bullet literally: the merged order of the next bullet replaces it.
+  live, do not follow this bullet's order literally: the merged order of the next bullet
+  replaces it. The repair is keyed on `main`, not on what is live: once 9.0.25's change is
+  merged, the repair is the one in the next bullet even if 9.0.25 did not stay live (a failed
+  `app` run's automated recovery returns the App to its checkpoint, but `main` keeps an App that
+  reads only schemaVersion 2 and an empty value, so the check stops nothing and this bullet's
+  default pull request would ship that App with a PRO Worker that sends schemaVersion 1).
 - Once 9.0.25 (build 798), the App that no longer reads PRO snapshot schemaVersion 1, is live
   (an `app` release after the PRO Worker of the previous bullet; its deployment record adds the
   merge SHA and Release ID here), never roll the PRO Worker back below the PRO Worker that first
@@ -903,7 +909,8 @@ gh workflow run app-build-floor.yml --ref main -f action=lower -f min_app_build=
   says. Step (2) has no Git provenance, so the next repair release uses target `all`, again
   without automated recovery for PRO, Signaling or the App. That repair keeps sending
   schemaVersion 2: the App on `main` reads only schemaVersion 2, so reverting the change that
-  sends it would break every PRO room. Right after the repair, raise the floor to 795 again (a
+  sends it would break every PRO room. A repair that goes back to sending schemaVersion 1 also
+  reverts 9.0.25's App change. Right after the repair, raise the floor to 795 again (a
   same-value `set` at the stored floor of that moment, `set` 795, `status` and the Signaling
   admission smoke); `set` cannot go above the live App, so this cannot happen before the repair,
   and pages below 795 opened in between see `INVALID_RESPONSE` in PRO rooms.

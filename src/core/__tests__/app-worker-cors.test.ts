@@ -13780,6 +13780,41 @@ describe('Cloudflare app worker invite route', () => {
     },
   );
 
+  it('gives the translation workspace the FAQ document CSP, which admits the analytics loader', async () => {
+    const env = {
+      ASSETS: {
+        fetch: vi.fn(
+          async () =>
+            new Response('<!doctype html><title>Page</title>', {
+              status: 200,
+              headers: { 'Content-Type': 'text/html; charset=utf-8' },
+            }),
+        ),
+      },
+    };
+    const [translate, faq] = await Promise.all(
+      ['/translate', '/faq'].map((path) =>
+        appWorker.fetch(new Request(`https://musixquare.com${path}`), env),
+      ),
+    );
+    const csp = translate.headers.get('Content-Security-Policy');
+    expect(translate.status).toBe(200);
+    expect(faq.status).toBe(200);
+    expect(csp).toBe(faq.headers.get('Content-Security-Policy'));
+    const directive = (name: string) =>
+      csp
+        ?.split(';')
+        .map((part) => part.trim())
+        .find((part) => part.startsWith(`${name} `))
+        ?.split(/\s+/u);
+    expect(directive('script-src')).toEqual(
+      expect.arrayContaining(["'self'", 'https://static.cloudflareinsights.com']),
+    );
+    expect(directive('connect-src')).toEqual(
+      expect.arrayContaining(["'self'", 'https://cloudflareinsights.com']),
+    );
+  });
+
   it.each(['/translate/', '/Translate', '/TRANSLATE.HTML', '/translate.html/'])(
     'canonicalizes translation workspace %s and preserves query/fragment state',
     async (pathname) => {

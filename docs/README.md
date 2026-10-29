@@ -94,13 +94,15 @@ runbooks. Neither belongs in a general setup document.
 ## Maintained evidence and completed records
 
 - [Phase 5.5 R1: old-version removal train 3 and PRO snapshot v2 reading, 9.0.22 (2026-10-29)](design/phase5-5-r1-train3-v2-accept-2026-10-29.md):
-  in progress, not merged or released; the first runtime release of Phase 5.5 (9.0.22 / v795, App
-  build 795, bump `16d24d89`, target `all` with 27 App, 2 PRO room and 2 signaling runtime paths
-  and none in the other three Workers, with the update dialog), on main `3bfdffcb` (9.0.21). It
-  may ship only after the 9.0.21 record, the two production Remote Share smokes right after P2
-  (#519), the floor raise to 789 (F1, a same-value `set` 787 then `set` 789) and a Signaling
-  admission smoke that admits both rooms' host and guest with `refusedBelowAppBuildFloor` 789; the
-  floor goes to 795 (F2) before the PRO Worker starts sending snapshot v2. Train 3 stops sending
+  released on 2026-10-29 18:35 KST in Release 40850068382 (PR #524, squash `71f5b96c`): the first
+  runtime release of Phase 5.5 (9.0.22 / v795, App build 795, bump `16d24d89`, target `all` with 27
+  App, 2 PRO room and 2 signaling runtime paths and none in the other three Workers, with the update
+  dialog). It shipped after the 9.0.21 record and after Phase 5.5 F1 raised the App build floor
+  from 787 to 789 at 18:16 KST (floor runs 40848023346, 40848126333, 40848295981 and 40848436128,
+  then a Signaling admission smoke that admitted both rooms' host and guest at build 794 with
+  `refusedBelowAppBuildFloor` 789). All six Workers run this SHA (App `e8966418`, PRO room
+  `6abc7131`, signaling `36579bdf`); the floor goes to 795 (F2) before the PRO Worker starts
+  sending snapshot v2 (R2), and R3 follows. Train 3 stops sending
   the SESSION_FULL `message` and OPERATOR_TOAST `text`, the guest SFU capability marker and its
   kind (declared message kinds 102 to 101), `iceRestartVersion` on the first Standard offer and
   every answer, the four Signaling peer-open markers (only `workerVersionId` stays) and the PRO
@@ -125,9 +127,20 @@ runbooks. Neither belongs in a general setup document.
   typecheck, lint, format, every guard, resource ownership 49 records / 446 files, room-authority
   79 / 22 / 13 / 0, bus-pairing 203, the smoke unit rows and the R1-5 Worker rows,
   `build:checked`, `check:worker-bundles`, candidate E2E 19, critical E2E 98, PRO Playwright 30
-  and the C5-0 lab 4) with placeholders for the
-  production preconditions and the release (rounds 6 and 7), owner device check candidates and
-  what was not verified. The release record's §2 carries a pre-deploy item for 9.0.22.
+  and the C5-0 lab 4), round 6 (F1 and its admission smoke; the output of the smokes right after
+  P2 is not in the evidence, while the release's own two Remote Share smokes passed) and round 7
+  (the PR CI and a no-findings automated review on the final head `7630b1a9`, the exact-main CI on
+  Node 24.22.2 with unit 702 files / 16,683 plus the known skip and Linux Chromium candidate 19 and
+  critical 98, one Production Release with target `all` whose smokes all passed on the first try,
+  the Signaling smoke refusing a host without a build at 789, the public service worker at v795, the
+  public floor at 789 with live App 795, and the Drift Audit at 32 pass / 0 fail / 5 manual-only),
+  the note that a 9.0.14 host under the 9.0.22 Signaling Worker loses its liveness probe and PIN
+  membership choice (refused by the 789 floor anyway), owner device check candidates and what was
+  not verified. The release record's §2 now carries the 9.0.22 post-deploy items (scope and
+  status, the owner device checks, and the next steps F2 to build 795, R2 and R3) and §4 its entry
+  (a forward revert at 9.0.23 / v796 or later, or the checkpoint's 9.0.21 App `06e79397` and
+  9.0.20 Workers); with the F1 evidence the record closed the release A item's device check of a
+  mixed room with a 9.0.14 device.
 - [UI follow-up train 9.0.21: transient text at 600 and chips on one line (2026-10-29)](design/ui-followup-921-2026-10-29.md):
   released on 2026-10-29 15:23 KST in Release 40828643393 (PR #522, squash `3bfdffcb`): the next
   app update after 9.0.20 (9.0.21 / v794, bump `a538da11`, target `app` with 58 App runtime paths
@@ -155,7 +168,7 @@ runbooks. Neither belongs in a general setup document.
   with identical patches, and its assembly review moved the bump after the review fixes. The release
   record's §2 now carries the 9.0.21 post-deploy items (scope and status, post-deploy checks, open
   owner items and the owner step for outdated approved translation suggestions) and §4 its rollback
-  boundary (a forward revert at 9.0.22 / v795 or later, or the checkpoint's 9.0.20 App
+  boundary (a forward revert at 9.0.23 / v796 or later now that 9.0.22 shipped, or the checkpoint's 9.0.20 App
   `50d6557f`); the release closed the focus race item and the 9.0.20 owner decisions this train
   implemented. The report lists the owner decisions, each
   increment with its commits and tests-first evidence, the SHA map after assembly, the review

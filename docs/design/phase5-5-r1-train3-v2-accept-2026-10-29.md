@@ -1,14 +1,14 @@
 # Phase 5.5 R1: 구버전 제거 열차 3과 PRO 스냅샷 v2 받기 9.0.22 (2026-10-29)
 
-| Field              | Value                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                  |
-| ------------------ | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Status             | 초안(2026-10-29). 구현과 증분별 검사(QA 라운드 1), 세 갈래 열차 끝 리뷰(모두 승인, 높음·중간 0), main 9.0.21 위로 옮기기, 리뷰 반영, 버전 올리기, 옮긴 부모에서 테스트 먼저 다시 돌리기와 전체 검사(QA 라운드 2 ~ 5)까지 끝났고 미병합·미배포다. 브랜치 `agent/p55-r1`은 main `3bfdffcb`(9.0.21, #522) 위의 커밋이다: 증분 21(테스트 먼저 10, 코드 10, LEAVE-1 하나), R1-11 문서 2, 9.0.22 이름 바로잡기 `ca6e8b85`, 리뷰 반영 시험 `2e675b36`와 문서 `0ee7242f`, 버전 올리기 `16d24d89`, 이 보고서와 릴리스 기록을 더한 `9f2e0513`, QA 라운드 5를 적은 문서 커밋. 마지막 런타임 커밋은 버전 올리기 `16d24d89`이고 그 뒤는 문서뿐이다. 릴리스 기록 §2의 '9.0.22 배포 전' 항목이 이 브랜치에 있다. 배포 전 운영 단계(P2 직후 운영 remote-share smoke 두 형태, F1 바닥 789, F1 직후 신호 입장 smoke), PR, PR CI, 자동 코드 리뷰, exact-main CI, 배포는 아직이다(QA 라운드 6, 7은 자리만)                                                                                                                                                 |
-| Base               | main `096da175`(#523, 9.0.21 기록, 문서만). 처음에는 main `3bfdffcb`(#522 squash, 9.0.21 / v794, target `app`) 위로 옮겨 검사했고, 9.0.21 기록이 들어온 뒤 한 번 더 옮겼다. 두 기준의 차이는 문서 넷뿐이고 bump의 문서 밖 트리가 같아(`git diff`) 검사 결과는 그대로 쓴다. 이 문서의 열차 커밋 SHA는 두 번째로 옮긴 뒤 값이다. 그 앞의 main: P2 #519(`7241e89d`, 도구·문서만: remote-share smoke가 peer-open 표지 없이 실제 확인서로 방을 증명, PRO가 요구하는 앱 빌드의 릴리스 전 검사, 바닥 올리기 실패 문장), #520(시험만), #521(9.0.20 기록). 증분은 main `edd6ee94`(#518. 런타임은 9.0.20 `226219c5`, 그 위 P1 #517과 #518은 시험만) 위에서 만들었고(마지막 `c058a98a`), 2026-10-29 15:25 KST에 `3bfdffcb` 위로 옮겼다. 옮길 때 미디어 고르기 창 포커스 경쟁 한 쌍(`95051a6c` 테스트 먼저, `b612c051` 구현)은 뺐다(아래 '뺀 쌍'). 옮긴 증분 21커밋은 커밋마다 `git patch-id --stable`이 같다. R1-11 문서 두 커밋은 P2와 9.0.20 기록이 바꾼 앞뒤 줄 때문에 patch-id만 다르고 더한 줄은 같다(SHA 대응은 '옮긴 뒤 SHA' 표)           |
-| Version            | 9.0.22 / v795, 앱 빌드 795. 마지막 런타임 커밋 `16d24d89`이 모든 거울(`package.json`, `package-lock.json` 두 곳, App Worker의 `ADMIN_ASSET_VERSION`, 관리자 스크립트의 `ADMIN_SCRIPT_VERSION`, `SERVICE_WORKER_CACHE_VERSION`, `index.html`의 bootstrap 쿼리)을 올렸다. `guard:release-identity` 'MUSIXQUARE 9.0.22; service-worker cache epoch v795', `guard:sw-cache-version` 'PASS: v795 (16d24d89) covers all committed PWA runtime changes'. 앱 SemVer와 SW 캐시가 바뀌므로 업데이트 창이 뜬다. F1 뒤 바닥 789 위의 9.0.16 ~ 9.0.21 탭(빌드 789 ~ 794)에는 '나중에'가 있는 보통 창이다. 795는 PRO 스냅샷 schemaVersion 2를 받는 첫 빌드이고 F2의 바닥이다                                                                                                                                                                                                                                                                                                                                                                         |
-| Scope              | Phase 5.5 계획의 R1(증분 R1-1 ~ R1-11). 구버전 제거 열차 3(보내는 쪽): SESSION_FULL `message`와 OPERATOR_TOAST `text`(STD-1, STD-2), 게스트의 SFU 능력 표지와 그 메시지 종류(SAC-1, SAC-2, SAC-4), Standard 첫 offer와 모든 answer의 `iceRestartVersion`(SIG-4, SIG-3 src), signaling peer-open의 표지 넷(SIG-1, OV-F08), PRO presence/close의 재생 관찰 세 필드(PRES-1, PRES-2 문서)와 부르는 곳 없는 `leavePresence`(LEAVE-1). PRO 스냅샷 v2 받기: App이 스냅샷 schemaVersion 1과 2를 한 메모리 모양으로 읽음(A1, PSK-04 관리자 목록, PSK-12, PSK-17), PREPARE와 COMMIT의 시작 종류 `timingMode`(ZS-01), `liveExpiresAt` null인 live LAN-direct(PLE-01, M6), PRO Worker가 저장된 `timingMode`와 null LAN-direct 마감을 읽음(ZS-02, PLE-02), Worker와 App의 PRO 재생 전환 공유 시간 집(ZS-07). 문서: 바닥을 릴리스 전에 올리는 규칙(RM-03)과 release-record §4의 현재 경계 줄(M8). PRO Worker는 아직 v1과 숫자 마감만 쓴다. 저장 모양, D1, 비밀, 바인딩, Wrangler 설정, CORS, 계약 표지는 바꾸지 않는다                               |
-| Deploy target      | `all`. `scripts/release-deployment-state.mts`의 `changedRuntimePaths`와 Worker별 런타임 경로로 견준 로컬 git 판정(App은 9.0.21 `3bfdffcb`, 다른 다섯은 9.0.20 `226219c5` 대비. 9.0.21은 `app`이라 다섯 Worker는 9.0.20 버전 그대로이고, 다섯을 `3bfdffcb`와 견줘도 수가 같다): App 27(`src` 21, `cloudflare/app-worker.ts`, `cloudflare/pro-room-playback-timing.ts`, `cloudflare/standard-room-pin-membership.ts`, `browser/classic-runtime/admin.ts`, `index.html`, `scripts/service-worker-asset.ts`), PRO 방 2(`cloudflare/pro-room-worker.ts`, `cloudflare/pro-room-playback-timing.ts`), signaling 2(`cloudflare/signaling-worker.ts`, `cloudflare/standard-room-pin-membership.ts`), remote-share 0, Developer API facade 0, Developer API 0. `changedAppRuntimeDependencies`는 빈 목록이다. 9.0.21이 배포됐다는 전제의 판정이라 운영 조회를 대신하지 않는다. Developer API D1 `false`, `raise_app_build_floor` `false`. 이 릴리스는 바닥을 올리지 않는다: 배포 전 F1이 789로, 배포와 기록 뒤 R2 전에 F2가 795로 따로 `set`한다 |
-| Operations         | 이 열차는 아직 운영에 아무것도 하지 않았다. 배포 전 운영 단계와 dispatch 직전 다시 읽기는 '배포 조건과 순서'와 QA 라운드 6(자리)에 있다                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                |
-| Resource ownership | 새 복구·재시도·시간 제한·감시·생명주기 흐름이 없어 새 레코드는 없다. R1-10이 RO-03 시간 집에 공유 파일 `cloudflare/pro-room-playback-timing.ts`(전환 마감 3000 ms, COMMIT 앞섬 700 ms, 시작 종류 합집합)를 더하고 `scripts/check-resource-ownership.mts`의 시간 계약 하나를 더했다(RO-03, RO-31). RO-04(R1-2), RO-15(R1-3), RO-07(R1-9 뒤의 선택 키, 리뷰 반영 `0ee7242f`)도 같은 변경에서 고쳤다. `node scripts/check-resource-ownership.mts`: 49 records / 446 files(새 공유 파일로 +1), 같은 값 쌍 24 → 27(보고만, 셋 모두 새 계약의 App 예산), 기준치 변화 없음                                                                                                                                                                                                                                                                                                                                                                                                                                                                    |
+| Field              | Value                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                         |
+| ------------------ | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Status             | 배포됨(2026-10-29 18:35 KST, [Release 40850068382](https://github.com/hiefny/MUSIXQUARE/actions/runs/40850068382), target `all`, attempt 1 성공). 구현과 증분별 검사(QA 라운드 1), 세 갈래 열차 끝 리뷰(모두 승인, 높음·중간 0), main 9.0.21 위로 옮기기, 리뷰 반영, 버전 올리기, 옮긴 부모에서 테스트 먼저 다시 돌리기와 전체 검사(QA 라운드 2 ~ 5), 배포 전 운영 단계(Phase 5.5 F1 바닥 789와 그 직후 신호 입장 smoke, QA 라운드 6), PR CI, 자동 코드 리뷰, 머지, exact-main CI, 배포와 공개 확인(QA 라운드 7)이 끝났다. PR #524(head `7630b1a9`)는 F1 뒤 squash `71f5b96c`(2026-10-29 18:20 KST, 트리가 `7630b1a9`와 같음)로 main에 들어갔다. 브랜치 `agent/p55-r1`은 main `096da175`(#523) 위의 커밋이다: 증분 21(테스트 먼저 10, 코드 10, LEAVE-1 하나), R1-11 문서 2, 9.0.22 이름 바로잡기 `ca6e8b85`, 리뷰 반영 시험 `2e675b36`와 문서 `0ee7242f`, 버전 올리기 `16d24d89`, 이 보고서와 릴리스 기록을 더한 `9f2e0513`, QA 라운드 5를 적은 `8b8d5feb`, 두 번째로 옮긴 뒤의 문서 `7630b1a9`. 마지막 런타임 커밋은 버전 올리기 `16d24d89`이고 그 뒤는 문서뿐이다. 릴리스 기록의 §1, §2 '9.0.22 배포 뒤 확인' 항목, §4의 이 릴리스 항목은 배포 기록 PR이 적었다. 다음은 F2(바닥 795), R2, R3이고 그 결과는 이 보고서에 없다 |
+| Base               | main `096da175`(#523, 9.0.21 기록, 문서만). 처음에는 main `3bfdffcb`(#522 squash, 9.0.21 / v794, target `app`) 위로 옮겨 검사했고, 9.0.21 기록이 들어온 뒤 한 번 더 옮겼다. 두 기준의 차이는 문서 넷뿐이고 bump의 문서 밖 트리가 같아(`git diff`) 검사 결과는 그대로 쓴다. 이 문서의 열차 커밋 SHA는 두 번째로 옮긴 뒤 값이다. 그 앞의 main: P2 #519(`7241e89d`, 도구·문서만: remote-share smoke가 peer-open 표지 없이 실제 확인서로 방을 증명, PRO가 요구하는 앱 빌드의 릴리스 전 검사, 바닥 올리기 실패 문장), #520(시험만), #521(9.0.20 기록). 증분은 main `edd6ee94`(#518. 런타임은 9.0.20 `226219c5`, 그 위 P1 #517과 #518은 시험만) 위에서 만들었고(마지막 `c058a98a`), 2026-10-29 15:25 KST에 `3bfdffcb` 위로 옮겼다. 옮길 때 미디어 고르기 창 포커스 경쟁 한 쌍(`95051a6c` 테스트 먼저, `b612c051` 구현)은 뺐다(아래 '뺀 쌍'). 옮긴 증분 21커밋은 커밋마다 `git patch-id --stable`이 같다. R1-11 문서 두 커밋은 P2와 9.0.20 기록이 바꾼 앞뒤 줄 때문에 patch-id만 다르고 더한 줄은 같다(SHA 대응은 '옮긴 뒤 SHA' 표)                                                                                                                                                                                                  |
+| Version            | 9.0.22 / v795, 앱 빌드 795. 마지막 런타임 커밋 `16d24d89`이 모든 거울(`package.json`, `package-lock.json` 두 곳, App Worker의 `ADMIN_ASSET_VERSION`, 관리자 스크립트의 `ADMIN_SCRIPT_VERSION`, `SERVICE_WORKER_CACHE_VERSION`, `index.html`의 bootstrap 쿼리)을 올렸다. `guard:release-identity` 'MUSIXQUARE 9.0.22; service-worker cache epoch v795', `guard:sw-cache-version` 'PASS: v795 (16d24d89) covers all committed PWA runtime changes'. 앱 SemVer와 SW 캐시가 바뀌므로 업데이트 창이 뜬다. F1 뒤 바닥 789 위의 9.0.16 ~ 9.0.21 탭(빌드 789 ~ 794)에는 '나중에'가 있는 보통 창이다. 795는 PRO 스냅샷 schemaVersion 2를 받는 첫 빌드이고 F2의 바닥이다                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                |
+| Scope              | Phase 5.5 계획의 R1(증분 R1-1 ~ R1-11). 구버전 제거 열차 3(보내는 쪽): SESSION_FULL `message`와 OPERATOR_TOAST `text`(STD-1, STD-2), 게스트의 SFU 능력 표지와 그 메시지 종류(SAC-1, SAC-2, SAC-4), Standard 첫 offer와 모든 answer의 `iceRestartVersion`(SIG-4, SIG-3 src), signaling peer-open의 표지 넷(SIG-1, OV-F08), PRO presence/close의 재생 관찰 세 필드(PRES-1, PRES-2 문서)와 부르는 곳 없는 `leavePresence`(LEAVE-1). PRO 스냅샷 v2 받기: App이 스냅샷 schemaVersion 1과 2를 한 메모리 모양으로 읽음(A1, PSK-04 관리자 목록, PSK-12, PSK-17), PREPARE와 COMMIT의 시작 종류 `timingMode`(ZS-01), `liveExpiresAt` null인 live LAN-direct(PLE-01, M6), PRO Worker가 저장된 `timingMode`와 null LAN-direct 마감을 읽음(ZS-02, PLE-02), Worker와 App의 PRO 재생 전환 공유 시간 집(ZS-07). 문서: 바닥을 릴리스 전에 올리는 규칙(RM-03)과 release-record §4의 현재 경계 줄(M8). PRO Worker는 아직 v1과 숫자 마감만 쓴다. 저장 모양, D1, 비밀, 바인딩, Wrangler 설정, CORS, 계약 표지는 바꾸지 않는다                                                                                                                                                                                                                      |
+| Deploy target      | `all`. `scripts/release-deployment-state.mts`의 `changedRuntimePaths`와 Worker별 런타임 경로로 견준 로컬 git 판정(App은 9.0.21 `3bfdffcb`, 다른 다섯은 9.0.20 `226219c5` 대비. 9.0.21은 `app`이라 다섯 Worker는 9.0.20 버전 그대로이고, 다섯을 `3bfdffcb`와 견줘도 수가 같다): App 27(`src` 21, `cloudflare/app-worker.ts`, `cloudflare/pro-room-playback-timing.ts`, `cloudflare/standard-room-pin-membership.ts`, `browser/classic-runtime/admin.ts`, `index.html`, `scripts/service-worker-asset.ts`), PRO 방 2(`cloudflare/pro-room-worker.ts`, `cloudflare/pro-room-playback-timing.ts`), signaling 2(`cloudflare/signaling-worker.ts`, `cloudflare/standard-room-pin-membership.ts`), remote-share 0, Developer API facade 0, Developer API 0. `changedAppRuntimeDependencies`는 빈 목록이다. 9.0.21이 배포됐다는 전제의 판정이라 운영 조회를 대신하지 않는다. Developer API D1 `false`, `raise_app_build_floor` `false`. 이 릴리스는 바닥을 올리지 않았다: 배포 전 F1이 789로 올렸고(2026-10-29 18:16 KST), 배포와 기록 뒤 R2 전에 F2가 795로 따로 `set`한다. Release 40850068382는 target `all`로 돌았고 부분 릴리스 판정 단계는 `all`이라 건너뛰었다                                                                 |
+| Operations         | 배포 전 Phase 5.5 F1(2026-10-29 18:13 ~ 18:17 KST)이 App Build Floor workflow로 최소 앱 빌드를 787에서 789로 올렸고(status 40848023346, 같은 값 set 787 40848126333, set 789 40848295981, status 40848436128), 그 직후 신호 입장 smoke가 통과했다(QA 라운드 6). #524 머지(18:20 KST)와 exact-main CI 40848810946 뒤 공개 상태를 다시 읽고(18:29:43 KST 생성, 저장·유효 789) Release 40850068382가 18:30 ~ 18:35 KST에 여섯 Worker를 배포했다(QA 라운드 7). F2, R2, R3는 아직이다                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                              |
+| Resource ownership | 새 복구·재시도·시간 제한·감시·생명주기 흐름이 없어 새 레코드는 없다. R1-10이 RO-03 시간 집에 공유 파일 `cloudflare/pro-room-playback-timing.ts`(전환 마감 3000 ms, COMMIT 앞섬 700 ms, 시작 종류 합집합)를 더하고 `scripts/check-resource-ownership.mts`의 시간 계약 하나를 더했다(RO-03, RO-31). RO-04(R1-2), RO-15(R1-3), RO-07(R1-9 뒤의 선택 키, 리뷰 반영 `0ee7242f`)도 같은 변경에서 고쳤다. `node scripts/check-resource-ownership.mts`: 49 records / 446 files(새 공유 파일로 +1), 같은 값 쌍 24 → 27(보고만, 셋 모두 새 계약의 App 예산), 기준치 변화 없음                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                           |
 
 이 문서는 Phase 5.5의 첫 런타임 릴리스 R1의 증분과 QA를 기록한다. 근거는 공개하지 않는 작업 노트(`docs/private/`)의
 Phase 5.5 계획(2026-10-28)과 그 영역 조사이고, STD, SAC, SIG, PRES, PSK, ZS, PLE, RM, OV 번호와 Q 번호는 그 노트의
@@ -50,7 +50,8 @@ R1이 지우는 보내기를 요구하는 마지막 받는 쪽은 9.0.14(빌드 
 | signaling peer-open의 표지 넷                 | 9.0.14 App(생존 감시, 확인서 요청, PIN 참여자 선택)                 | 9.0.15부터 읽지 않음                                         |
 | PRO presence/close의 세 필드                  | 받는 쪽은 PRO Worker. 릴리스 W(`a3893f04`, PRO `319f6e8f`)부터 선택 | 바닥이 아니라 배포 순서와 §4 경계로 지킴(아래 R1-4)          |
 
-그래서 바닥은 max(릴리스 A 빌드 788, 5B 빌드 789), 곧 789이고 F1이 R1 머지 직전에 올린다. `raise_app_build_floor`는 쓰지 않는다.
+그래서 바닥은 max(릴리스 A 빌드 788, 5B 빌드 789), 곧 789이고 F1이 R1 머지 직전에 올렸다(2026-10-29 18:16 KST, QA 라운드 6).
+`raise_app_build_floor`는 쓰지 않는다.
 그 올리기는 커밋 표지 뒤에 이 릴리스 자신의 빌드(795)로만 올라 너무 늦고 너무 높다(RM-03, hotfix-procedure App Build Floor).
 
 바닥이 거르지 못하는 곳: 바닥 읽기는 실패하면 마지막 값이나 0이고(fail-open), App의 매분 보고가 5분 넘게 멈추면 유효 바닥은
@@ -59,7 +60,8 @@ R1이 지우는 보내기를 요구하는 마지막 받는 쪽은 9.0.14(빌드 
 하므로, F1 전에 들어와 아직 다시 잇지 않은 787, 788 방장은 그때 바닥에서 거절된다(맺어진 P2P는 산다). Cloudflare 문서상
 동작이고 이 프로젝트에서 확인하지 않았다. 릴리스 안 신호 smoke의 `legacyCompatibility.refusedBelowAppBuildFloor` 789가 그 쓸기
 무렵 유효 바닥의 근거다. `admittedWithoutAppBuild`였으면 쓸기가 빠졌을 수 있고 Phase 5.5 안에는 다음 신호 배포가 없으므로, 다시
-거르려면 target `signaling` 재배포가 필요하다(오너 판단).
+거르려면 target `signaling` 재배포가 필요하다(오너 판단). 9.0.22 릴리스 안 신호 smoke는 789였으므로 그 재배포는 필요 없다(QA
+라운드 7).
 
 v2 받기 쪽은 이 릴리스에 바닥이 필요 없다(받는 쪽만 넓힘, PRO Worker는 v1을 계속 보냄). 795 앞 빌드는 v2 스냅샷, `timingMode`가
 든 PREPARE·COMMIT, null `liveExpiresAt`을 모두 정확한 키로 거절하므로 R2 전에 F2가 바닥을 795로 올린다.
@@ -312,6 +314,14 @@ F1 뒤 운영에 들어올 수 있는 빌드는 789(9.0.16) 이상이다. '789 ~
 | 788(9.0.15)                                                                          | F1 바닥에서 새 입장과 재접속이 거절된다. 유효 바닥 0 창이나 바닥을 789 아래로 내린 동안 들어온 9.0.15 방장은 SFU 능력 표지를 읽으므로, 표지 없는 9.0.22 LAN 게스트의 직접 통화가 실패하면 SFU 대신 STOP만 보낸다. 9.0.15는 `message` 없는 SESSION_FULL과 `text` 없는 OPERATOR_TOAST를 받고 표지와 관계없이 첫 SDP를 묶으므로 그 밖의 손실은 없다(정책 수용) |
 | 787(9.0.14) 이하                                                                     | 위의 STOP에 더해, 유효 바닥 0 창이나 바닥을 788 아래로 내린 동안 '방 가득 참' 대신 일반 끊김, 관리자 알림 없음, 9.0.22 이상 끝과의 ICE 재시작 실패, 9.0.22 Signaling 아래에서 방장의 원격 공유 업로드 실패(`REMOTE_SHARE_UPLOAD_ASSERTION_UNAVAILABLE`)와 생존 감시·PIN 참여자 선택 꺼짐(정책 수용)                                                         |
 
+**9.0.22 Signaling Worker 아래의 9.0.14 방장:** 9.0.14 App은 Signaling peer-open의 표지(`signalingLivenessVersion`,
+`standardRoomPinMembershipVersion`)를 받아야 방장의 생존 감시(신호 소켓 ping)와 PIN 참여자 선택을 켠다. 그래서 그 표지를
+광고하지 않는 9.0.22 Signaling Worker 아래에서는 9.0.14 방장의 생존 감시와 PIN 참여자 선택이 꺼진다(확인서 표지도 없어
+원격 공유 업로드는 위 787 행처럼 실패). 9.0.15 이상 App은 그 표지를 읽지 않으므로 이 손실은 9.0.14 방장에게만 있다.
+2026-10-29 18:16 KST F1 뒤로는 바닥 789가 9.0.14의 새 입장과 재접속을 어차피 거절하므로, 이 조합은 유효 바닥 0 창이나
+바닥을 788 아래로 내린 동안에만 생긴다(정책 수용). 릴리스 안 신호 smoke는 9.0.22 Signaling에서 바닥 아래 방장을 789로
+거절했다(QA 라운드 7).
+
 ## 되돌리기
 
 기본은 더 높은 SemVer와 캐시 epoch의 코드 되돌리기다(9.0.23 / v796 이상).
@@ -330,8 +340,9 @@ F1 뒤 운영에 들어올 수 있는 빌드는 789(9.0.16) 이상이다. '789 ~
 
 1. F1 뒤 App을 789 아래(9.0.15 이하)로 CLI 되돌리기 전에는 대상 빌드로 `lower`를 먼저 한다. 지금 손이 닿는 checkpoint(9.0.20 793,
    9.0.21 794)는 789 위라 `lower`가 필요 없다. F2 뒤에는 795 아래로 되돌리기 전에 `lower`가 먼저다.
-2. 9.0.22 Signaling이 배포된 뒤 App을 9.0.15 아래로 내리는 비상 복구는 (a) Signaling을 표지를 광고하는 버전(9.0.22 릴리스 checkpoint의
-   9.0.14 이상 버전)으로, (b) `lower`(9.0.14면 787, 그 아래면 0), (c) App 순서로만 한다. App을 먼저 되돌리면 그 사이 연 9.0.14 탭은
+2. 9.0.22 Signaling이 배포된 뒤(2026-10-29 18:32 KST, `36579bdf`) App을 9.0.15 아래로 내리는 비상 복구는 (a) Signaling을 표지를
+   광고하는 버전(9.0.22 릴리스 checkpoint(artifact 12886313200)의 signaling `d212819f`, 9.0.20)으로, (b) `lower`(9.0.14면 787, 그
+   아래면 0), (c) App 순서로만 한다. App을 먼저 되돌리면 그 사이 연 9.0.14 탭은
    원격 공유 업로드가 실패하고 방장 생존 감시와 PIN 참여자 선택이 꺼진다. hotfix-procedure의 'App 먼저'는 Signaling을 9.0.14 아래로
    내릴 때의 규칙이다. R2 배포 뒤에는 그 앞에 PRO 단계가 생기며 R2 런타임 PR이 그 가리킴을 단다.
 3. 9.0.22 이상 App이 한 번이라도 live가 된 뒤에는 PRO Worker를 릴리스 W(`a3893f04`, PRO `319f6e8f`) 앞으로 손으로 되돌리지 않는다.
@@ -365,6 +376,13 @@ F1 뒤 운영에 들어올 수 있는 빌드는 789(9.0.16) 이상이다. '789 ~
 9. 그 뒤 F2: `status` → 같은 값 `set 789` → `set 795` → `status` → 신호 입장 smoke(`appBuild.build`와 `refusedBelowAppBuildFloor`
    모두 795). 실패하면 `lower 789`와 smoke 다시(0은 위와 같은 때만). F2가 성공하고 그 smoke가 통과하기 전에는 R2를 dispatch하지
    않는다.
+
+결과(QA 라운드 6, 7): 1은 기준 `096da175`(#523)가 보인다. 2는 P2 squash `7241e89d` 직후 운영 smoke 두 형태가 통과했다(08:26:45
+KST와 08:27:10 ~ 08:27:34 KST, 둘 다 `roomUploadAssertionMode` `required`), 릴리스 안의 두 형태도 통과했다. 3, 4, 7은 그대로
+채웠다. 5는 머지(18:20 KST) 뒤 exact-main CI success를 보고 dispatch했고, 릴리스의 'Verify release commit is still current main'
+단계가 18:30:15 KST에 main이 그대로 `71f5b96c`임을 확인했다. 6은 workflow `status` 실행이 아니라 공개 상태 읽기로 했다(배포 세션
+로그의 18:29:42 KST 줄, 18:29:43 KST 생성, 저장·유효 789, revision 2, live App 794, App 보고 56초 전). 바닥 실행이 돌거나 기다리지
+않았다는 근거는 없다. 8은 배포 기록 PR이 했다(릴리스 기록 §1, §2, §4와 `release-history.md`의 9.0.22 행). 9(F2)는 아직이다.
 
 ## 리뷰 지적과 처리
 
@@ -402,12 +420,14 @@ F1 뒤 운영에 들어올 수 있는 빌드는 789(9.0.16) 이상이다. '789 ~
 ## 기록과 레지스트리
 
 - release-record §2: '9.0.22 배포 전' 항목(이 변경), 5B 호환의 OV-B05 문장(`0ee7242f`). §4: 머리의 현재 경계 줄(`6c2623ea`,
-  `ca6e8b85`, `0ee7242f`), 릴리스 W 항목의 PRO 단서(`6cc09612`). §1은 배포 기록 PR이 덮어쓴다.
+  `ca6e8b85`, `0ee7242f`), 릴리스 W 항목의 PRO 단서(`6cc09612`). 배포 기록 PR이 §1을 덮어썼고, §2 항목을 '9.0.22 배포 뒤 확인'으로
+  바꿨으며, §4에 이 릴리스 항목을 더하고 현재 경계 줄에 F1과 checkpoint를 채웠다.
 - hotfix-procedure: presence/close 문단(R1-4), RM-03 문장(R1-11, `0ee7242f`), Signaling 먼저 문장(R1-5). release-versioning: RM-03.
 - known-accepted #12(R1-5), `cloudflare/standard-room-pin-ops.md`(R1-5), `docs/design/signaling-liveness.md`(R1-3, R1-5),
   `docs/design/pro-room-architecture-and-operations.md`(R1-4, `ca6e8b85`).
 - 레지스트리: RO-03, RO-31(R1-10), RO-04(R1-2), RO-15(R1-3), RO-07(`0ee7242f`). 새 레코드는 없다.
-- `docs/README.md` 증거 목록에 이 보고서. `release-history.md`는 배포 때.
+- `docs/README.md` 증거 목록에 이 보고서. `release-history.md`에는 배포 기록 PR이 9.0.22 한 행을 더했다(F1은 그 행에 적고 바닥
+  `set`의 행은 따로 두지 않음).
 
 ## 초기 JS와 Worker 번들
 
@@ -503,22 +523,106 @@ Node 24.22.2 / npm 12.0.2, vitest `--maxWorkers=6`, 시작 때 작업 트리 깨
 
 라운드 3, 4와 숫자가 같다. 이 커밋 뒤의 커밋은 이 라운드를 적은 문서뿐이다.
 
-### 6. 운영 전제: P2 smoke, F1, F1 신호 입장 smoke (자리, 배포 전에 채움)
+### 6. 운영 전제: P2 smoke, F1, F1 신호 입장 smoke (2026-10-29)
 
-- P2 직후 운영 remote-share smoke 두 형태: 돌린 main SHA, 시각, 각 마지막 JSON 줄의 `ok`, `anonymousSessionRejected`,
-  `assertionRequiredBySmoke`, `assertionExplicitlyRequested`(false, true), `roomUploadAssertionMode`, `wholeObject`. (아직)
-- F1 앞 공개 status(저장, 유효, revision, live, 보고 시각과 나이). (아직)
-- F1 실행: `status` run ID와 요약 줄, 같은 값 `set 787` run ID와 'the stored floor is already 787; verifying it'과 요약 줄,
-  `set 789` run ID와 'set to 789: changed (revision 1 before)'와 요약 줄, 뒤 `status` 요약 줄. 일시적 답 줄이 있었으면 그것도. (아직)
-- F1 직후 신호 입장 smoke: 시각, 체크아웃 SHA, 종료 코드, `appBuild.build`, 두 방의 입장·재접속·offer·answer, `refusedBelowAppBuildFloor`
-  789(방 코드는 적지 않음). 다시 돌렸으면 이유와 횟수. (아직)
-- `lower`를 했다면 그 run과 `lower` 뒤 smoke. (해당하면)
-- dispatch 직전 status 다시 읽기(저장·유효 789, 보고 나이). (아직)
+운영 GitHub Actions와 공개 상태의 기록이다(로그의 UTC를 KST로 바꿈). 실행 환경은 운영이고 바뀐 코드는 없다.
 
-### 7. PR CI, 자동 코드 리뷰, exact-main CI, 배포와 공개 확인 (자리)
+- P2 직후 운영 remote-share smoke 두 형태: P2(#519)가 squash `7241e89d`(2026-10-29 08:25:59 KST)로 main에 들어간 직후 그
+  main 체크아웃에서 돌렸다. 그때 운영 signaling은 9.0.20 `d212819f`(peer-open 표지를 아직 광고함)다.
+  `npm run smoke:live:remote-share`는 08:26:45 KST, `-- --require-assertion`은 08:27:10 ~ 08:27:34 KST였다(출력 파일 시각
+  08:27:00, 08:27:24 KST). 두 출력 모두 `ok` true, `anonymousSessionRejected` true, `assertionRequiredBySmoke` true,
+  `roomUploadAssertionMode` `required`이고, `assertionExplicitlyRequested`는 기본 형태 false, `--require-assertion` 형태 true다.
+  `wholeObject`는 whole-v1 왕복(32 B, 직접 R2 PUT, 바이트 일치, 권한 없는 읽기와 Range 거절, 위조 정리 거절, 정리 200 뒤 404)이다.
+  방 코드는 적지 않는다. 이것으로 배포 조건 2가 채워졌다. 표지 없는 signaling 위의 운영 근거는 이 릴리스 안의 remote-share
+  smoke 둘이다(QA 라운드 7): `npm run smoke:live:remote-share`(18:32:23 ~ 18:32:33 KST, 새 signaling 배포 전)와
+  `-- --require-assertion`(18:33:28 ~ 18:33:35 KST, peer-open 확인서 표지를 광고하지 않는 9.0.22 signaling `36579bdf` 위). 둘 다
+  위와 같은 값이었고, P2의 smoke가 표지 없는 signaling 위에서 실제 확인서로 방을 증명함을 운영에서 봤다.
+- F1 앞 status: [status 40848023346](https://github.com/hiefny/MUSIXQUARE/actions/runs/40848023346)(dispatch 18:13:57, 실행
+  18:14:01 ~ 18:14:27 KST, success)의 요약 줄은
+  `App build floor: stored 787, effective 787, revision 1, updated 2026-10-26T07:15:03.890Z; live App 794, reported 794 at 2026-10-29T09:13:47.383Z; client read 787`
+  이다(보고 나이 약 35초).
+- 같은 값 `set 787`: [set 40848126333](https://github.com/hiefny/MUSIXQUARE/actions/runs/40848126333)(dispatch 18:14:46, 실행
+  18:14:49 ~ 18:15:53 KST, success): `[app-build-floor] the stored floor is already 787; verifying it`. 요약 줄은 위와 같은 저장값
+  (revision 1)과 18:15:47 KST의 live 794 보고, client read 787이다.
+- `set 789`: [set 40848295981](https://github.com/hiefny/MUSIXQUARE/actions/runs/40848295981)(dispatch 18:16:02, 실행 18:16:05 ~
+  18:16:56 KST, success): `[app-build-floor] set to 789: changed (revision 1 before)`. 요약 줄은
+  `App build floor: stored 789, effective 789, revision 2, updated 2026-10-29T09:16:30.968Z; live App 794, reported 794 at 2026-10-29T09:16:47.454Z; client read 789`
+  이다.
+- 뒤 `status`: [status 40848436128](https://github.com/hiefny/MUSIXQUARE/actions/runs/40848436128)(dispatch 18:17:08, 실행 18:17:11
+  ~ 18:17:37 KST, success): 저장·유효 789, revision 2, 같은 갱신 시각과 보고, client read 789. 바로 뒤 공개 상태(18:17:48 KST
+  생성): `minAppBuild` 789, `effectiveMinAppBuild` 789, revision 2, `liveAppBuild` 794, `reportedLiveAppBuild` 794(18:17:47 KST
+  보고), state `valid`.
+- 네 실행의 로그에 일시적 답, 경고, 실패 줄은 없었고 다시 돌린 실행은 없다.
+- F1 직후 신호 입장 smoke: main `096da175` 체크아웃(그때 배포된 런타임은 9.0.21 `3bfdffcb`, 그 위 #523은 문서만), Node 24.22.2,
+  `MXQR_EXPECTED_SIGNALING_VERSION` 없음(출력의 `expectedVersion` null). 그때 운영 signaling은 9.0.20 `d212819f`다. 출력은 `ok`
+  true, `appBuild.build` 794, 두 신호 호스트를 엇갈려 쓴 두 방(암호 없는 방과 보호된 방)에서 방장·게스트 입장, 재접속 비밀이
+  없거나 틀린 재접속 거절, 거절된 대체 뒤 원래 게스트 유지, 끊긴 바인딩 보호, 정상 재접속, 방장 재접속, offer·answer 중계,
+  보호된 방의 틀린 암호 거절, 토스 출처 거절, 대체 신호 표면 검사 넷 통과, `legacyCompatibility.refusedBelowAppBuildFloor` 789다.
+  방 코드는 적지 않는다. 표준 오류 출력은 비어 있다. 실행 시각과 종료 코드는 이 보고서의 근거에 없고(18:17:37 KST의 `status`와
+  18:20 KST 머지 사이), 다시 돌린 일은 없다.
+- `lower`: 하지 않았다(해당 없음).
+- dispatch 직전 다시 읽기: 배포 세션 로그(머지, exact-main CI, dispatch를 차례로 적음)의 18:29:42 KST 줄이 exact-main CI
+  success(18:29:41 줄) 바로 뒤에 읽은 공개 상태를 적는다(로그 시각은 그 PC 시계). 공개 상태(18:29:43 KST 생성)가 저장·유효 789,
+  revision 2, live App 794(18:28:47 KST 보고, 56초 전으로 300초 안), state `valid`였다. workflow `status` 실행이 아니라 공개 상태
+  읽기이고, 바닥 실행이 돌거나 기다리지 않았다는 근거는 없다.
 
-PR 번호와 head, PR CI, 자동 코드 리뷰, 스쿼시 SHA, exact-main CI, Release run과 attempt, 여섯 Worker 버전, 릴리스 안 신호 smoke의
-`refusedBelowAppBuildFloor`, 공개 확인(저장·유효 789, live App 795), Drift Audit. (아직)
+결론: F1이 789로 성공했고 smoke가 두 방의 방장·게스트 입장과 `refusedBelowAppBuildFloor` 789를 보였으므로 배포 조건 3과 4가
+채워졌다. 바닥 `set`은 Production Release가 아니므로 `release-history.md`에 따로 행을 두지 않았다(첫 최소 빌드와 W-verify의 선례,
+9.0.22 행이 F1을 적음).
+
+### 7. PR CI, 자동 코드 리뷰, exact-main CI, 배포와 공개 확인 (2026-10-29)
+
+- PR #524: head `7630b1a9`(18:02:43 KST부터 머지까지 같음). PR CI
+  [40846753227](https://github.com/hiefny/MUSIXQUARE/actions/runs/40846753227)은 `7630b1a9`에서 success였다(18:13:30 KST와 머지 직전
+  18:19:58 KST에 확인, 이 보고서가 받은 근거는 결론과 head뿐이라 job별 수는 적지 않음).
+- 자동 코드 리뷰: 요약 댓글이 PR을 열 때('PR opened') `7630b1a` 코드 리뷰가 18:05:49 KST에 completed,
+  `has_any_findings`와 `has_unresolved_findings` false라고 적는다. 보안 리뷰는 돌지 않았다. 최종 head의 결과다.
+- 머지: F1과 그 smoke 뒤 18:20:04 KST에 squash `71f5b96c`(트리가 `7630b1a9`와 같고 부모는 `096da175`). 스쿼시 메시지는 PR
+  설명이다.
+- exact-main CI [40848810946](https://github.com/hiefny/MUSIXQUARE/actions/runs/40848810946): attempt 1, 11 jobs success(job 로그
+  18:20:09 ~ 18:29:22 KST), Node를 쓰는 10개 job 모두 Node 24.22.2(`Static checks`는 Node를 쓰지 않음). 의존성 감사 0, registry
+  서명 483·attestation 108, 단위 (1/2) 351 files / 7,677과 (2/2) 351 files / 9,006 + 기존 1 skip(Broad unit coverage ratchet
+  702 files / 16,683 + 1 skip), Worker 커버리지 69 files / 3,311, 핵심 커버리지 90 files / 3,515, 릴리스 도구 14 files / 433,
+  resource-ownership 49 records / 446 files, room-authority 79 / 22 / 13 / 0, dead-exports 0 / 20 / 76, import-graph 399 files /
+  2,077 edges / 순환 0, Critical browser gate(Linux Chromium) 후보 19(52.4 s)·critical 98(5.3 m),
+  `guard:release-identity` 'MUSIXQUARE 9.0.22; service-worker cache epoch v795', `guard:sw-cache-version`
+  'PASS: v795 (71f5b96c) covers all committed PWA runtime changes', `guard:brand-capitalization` PASS, `guard:legacy-tv-build`
+  (`main-DPzbb39N.js`, `main-DU3MkdN9.css`), 진입 842.2 KiB raw / 247.9 KiB gzip, eager JS 456.5 KiB gzip, eager total 2,017.1 KiB
+  raw / 534.1 KiB gzip, SW 앱 셸 95 자산. 후보는
+  [artifact 12886037381](https://github.com/hiefny/MUSIXQUARE/actions/runs/40848810946/artifacts/12886037381)(digest sha256
+  `c5d22388b733d4812c76aadfccf35afff08fc08427902131abc7dc7e0f3109d0`)다.
+- Release [40850068382](https://github.com/hiefny/MUSIXQUARE/actions/runs/40850068382): target `all`, Developer API D1 false,
+  `raise_app_build_floor` false, attempt 1, success. 18:29:46 KST 생성, 검증 job 18:29:49 ~ 18:30:02, deploy job 18:30:05 ~
+  18:35:00 KST, 독립 recovery job(Preserve failed-release recovery boundary) skipped. 후보를 내려받아 digest와 릴리스 파일 808개를
+  확인했고, 'Verify release commit is still current main'(18:30:15 KST), 계약 cutover 검사 다섯, 보안 가드, 여섯 Worker 번들
+  dry-run(Wrangler 4.148.0), 비밀 목록 확인이 통과했다. 부분 릴리스 판정은 `all`이라 skip이고, 'Check the App build floor the
+  PRO Worker requires'는 요구 값이 비어 아무것도 막지 않았다. checkpoint
+  [artifact 12886313200](https://github.com/hiefny/MUSIXQUARE/actions/runs/40850068382/artifacts/12886313200)(18:30:44 ~ 18:30:59
+  KST, 17 files)이 여섯 Worker(App `06e79397`, 다섯은 9.0.20 버전), R2 정책, signaling Custom Domain, Worker 호환 floor를 담았다.
+  방 코드 재사용 표지를 18:31:03 KST에 `disabled`로 막았고, D1 계약 열하나와 R2 정책 셋을 적용·확인했다.
+- 배포와 smoke(모두 첫 시도, 503·502 재시도 없음): PRO media Range CORS(18:32:00), PRO room `35d4e294` → `6abc7131`(18:32:10,
+  smoke 18:32:11 ~ 18:32:13, 12번 가운데 첫 시도에 새 버전), remote-share `734a1296` → `1ea9191a`(18:32:22, smoke 18:32:23 ~
+  18:32:33), signaling `d212819f` → `36579bdf`(18:32:53, signaling Custom Domain 시작·시도 증거 저장), signaling smoke(18:32:57 ~
+  18:33:20, 기대 버전 `36579bdf`, `appBuild.build` 795, 두 방의 방장·게스트 입장과 재접속·offer·answer,
+  `refusedBelowAppBuildFloor` 789, `admittedWithoutAppBuild` 없음), Remote Share host assertion(18:33:28 ~ 18:33:35,
+  `--require-assertion`), Developer API facade `aa374039` → `7ca55caa`(18:33:52), Developer API `8e5395c5` → `2c275ad3`(18:34:00,
+  canary smoke 18:34:01 ~ 18:34:15), App `06e79397` → `e8966418`(18:34:29, 새 자산 79개, 727개는 이미 있음), App
+  generation(18:34:31 ~ 18:34:37, `main-DPzbb39N.js` 862,442 B·23 assets, 세 번 연속 읽기로 수렴), 익명 계정 경계(18:34:38, strict
+  `effectiveMinAppBuild` 789), App 배포 뒤 PRO 공개 경계(18:34:39, `6abc7131`), Standard HTTPS signaling(18:34:40 ~ 18:34:43,
+  `appBuild.build` 795, `bridgeOpenMs` 방장 651ms·게스트 385ms). 시각은 모두 KST다.
+- 마무리: 최종 소유권 18:34:51 KST verified, 방 코드 재사용 표지 18:34:53 KST `ready`(release `71f5b96c`), signaling Custom
+  Domain 새 확인 18:34:56 KST success, 커밋 표지 저장. 바닥 올리기 단계와 실패 자동 복구 단계는 모두 skip이다.
+  [배포 원본](https://github.com/hiefny/MUSIXQUARE/actions/runs/40850068382/artifacts/12887355323)(72 files).
+- 릴리스 안 신호 smoke의 `refusedBelowAppBuildFloor` 789가 signaling 배포 때 바닥 아래 방장을 다시 거른 근거다.
+  `admittedWithoutAppBuild`가 아니었으므로 오너가 정할 target `signaling` 재배포는 없다.
+- 공개 확인: 공개 상태(18:37:15 KST 생성) `minAppBuild` 789, `effectiveMinAppBuild` 789, revision 2, `liveAppBuild` 795,
+  `reportedLiveAppBuild` 795(18:36:47 KST 보고), state `valid`. `/service-worker.js` 38,160 B, `CACHE_VERSION = "v795"`.
+- Drift Audit [40850884347](https://github.com/hiefny/MUSIXQUARE/actions/runs/40850884347)(`71f5b96c`, 18:35:52 ~ 18:36:26 KST):
+  automated-checks-passed, 32 pass / 0 fail / 5 manual-only. App build floor 행은 'Stored floor 789 (enforced 789) is within the
+  live App build 795 reported 34 s ago.'이고, 여섯 Worker의 비밀 이름·바인딩·subdomain·custom domain 행과 R2 CORS 셋·lifecycle 둘
+  행이 PASS다.
+- 건너뛴 것: 운영 브라우저의 업데이트 대화상자, signaling 배포 뒤 Standard 방 재연결, 운영에서 바뀐 동작(PRO presence/close,
+  시스템 오디오 SFU 넘김), 실기기, WebKit 레인 전체, 9.0.22 런타임의 Full E2E, `/`의 bootstrap 쿼리 읽기(이 보고서의 근거에 없음).
 
 ## 오너 기기 확인 후보 (게이트 아님)
 
@@ -531,7 +635,8 @@ PR 번호와 head, PR CI, 자동 코드 리뷰, 스쿼시 SHA, exact-main CI, Re
 
 ## 확인하지 않은 것
 
-- 운영: P2 직후 remote-share smoke 두 형태, F1, F1 직후 신호 입장 smoke, 이 릴리스의 배포와 그 안의 smoke(QA 라운드 6, 7은 자리).
+- 운영: dispatch 직전에 바닥 실행이 돌거나 기다리지 않았는지는 보지 않았다(공개 상태만 읽음, QA 라운드 6). 운영 브라우저의
+  업데이트 대화상자, signaling 배포 뒤 Standard 방의 재연결, 운영에서 바뀐 동작은 보지 않았다(QA 라운드 7).
 - 신호 Durable Object 재시작 쓸기는 Cloudflare 문서상 동작이고 이 프로젝트에서 확인하지 않았다.
 - 실기기, iOS Safari, WebKit 레인 전체, Full E2E. 9.0.14, 9.0.15 끝과 9.0.22의 혼합 방은 바닥이 들이지 않아 돌리지 않았다(정책 수용 창의
   손실은 코드와 시험으로만 봄).

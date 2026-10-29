@@ -801,6 +801,8 @@ const it: Record<I18nKey, string> = {
     'Hai inserito una password errata troppe volte. Riprova tra poco.',
   'dialog.session_lost_msg':
     'L’app è passata in modalità di risparmio energetico o ha perso la connessione, interrompendo il collegamento con gli altri dispositivi. Riavvia per aprire una nuova stanza.',
+  'dialog.session_lost_guest_msg':
+    'L’app è passata in modalità di risparmio energetico o ha perso la connessione, interrompendo il collegamento con gli altri dispositivi. Riavvia per rientrare in questa stanza.',
   'dialog.session_lost_btn': 'Riavvia',
 
   // ─── PRO Rooms ──────────────────────────────────────────────

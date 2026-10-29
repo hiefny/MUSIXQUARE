@@ -48,13 +48,21 @@ interface RoomStartReturn {
 }
 
 /**
+ * Whether `code` can lead back to a room's Start screen: the one check
+ * returnToRoomStart makes, for a caller whose copy says where its action goes.
+ */
+export function isRoomStartCode(code: unknown): code is string {
+  return typeof code === 'string' && ROOM_CODE_PATTERN.test(code);
+}
+
+/**
  * Return to a room's Start screen (its /CODE invite page), as a pushed history
  * entry like every /CODE return. The code is checked here, at the navigation
  * sink, so nothing else can put "../path" into the URL; anything but a
  * six-digit room code runs `fallback` instead. Returns whether it was a code.
  */
 export function returnToRoomStart(code: unknown, options: RoomStartReturn): boolean {
-  if (typeof code !== 'string' || !ROOM_CODE_PATTERN.test(code)) {
+  if (!isRoomStartCode(code)) {
     options.fallback();
     return false;
   }

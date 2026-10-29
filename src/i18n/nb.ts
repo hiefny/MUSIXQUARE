@@ -783,6 +783,8 @@ const nb: Record<I18nKey, string> = {
     'Du har skrevet inn feil passord for mange ganger. Prøv igjen om litt.',
   'dialog.session_lost_msg':
     'Appen gikk i dvale eller mistet tilkoblingen, så de andre enhetene er allerede frakoblet. Start på nytt for å begynne en ny økt.',
+  'dialog.session_lost_guest_msg':
+    'Appen gikk i dvale eller mistet tilkoblingen, så de andre enhetene er allerede frakoblet. Start på nytt for å bli med i dette rommet igjen.',
   'dialog.session_lost_btn': 'Start på nytt',
 
   // ─── PRO Rooms ──────────────────────────────────────────────

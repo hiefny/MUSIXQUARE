@@ -729,6 +729,8 @@ const de: Record<I18nKey, string> = {
     'Du hast das Passwort zu oft falsch eingegeben. Versuche es etwas später erneut.',
   'dialog.session_lost_msg':
     'Die App wurde in den Ruhezustand versetzt oder hat die Verbindung verloren. Die anderen Geräte wurden daher bereits getrennt. Starte neu, um einen neuen Raum zu öffnen.',
+  'dialog.session_lost_guest_msg':
+    'Die App wurde in den Ruhezustand versetzt oder hat die Verbindung verloren. Die anderen Geräte wurden daher bereits getrennt. Starte neu, um diesem Raum wieder beizutreten.',
   'dialog.session_lost_btn': 'Neu starten',
 
   // ─── PRO Rooms ──────────────────────────────────────────────

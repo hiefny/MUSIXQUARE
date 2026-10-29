@@ -698,6 +698,8 @@ const vi: Record<I18nKey, string> = {
     'Bạn đã nhập sai mật khẩu quá nhiều lần. Hãy thử lại sau một lát.',
   'dialog.session_lost_msg':
     'Ứng dụng đã chuyển sang chế độ ngủ hoặc mất kết nối, nên các thiết bị khác đã ngắt kết nối. Hãy khởi động lại để tạo phòng mới.',
+  'dialog.session_lost_guest_msg':
+    'Ứng dụng đã chuyển sang chế độ ngủ hoặc mất kết nối, nên các thiết bị khác đã ngắt kết nối. Hãy khởi động lại để vào lại phòng này.',
   'dialog.session_lost_btn': 'Khởi động lại',
 
   // ─── PRO Rooms ──────────────────────────────────────────────

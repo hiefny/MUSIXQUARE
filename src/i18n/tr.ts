@@ -770,6 +770,8 @@ const tr: Record<I18nKey, string> = {
     'Şifreyi çok fazla kez yanlış girdin. Biraz sonra tekrar dene.',
   'dialog.session_lost_msg':
     'Uygulama arka planda uyku moduna geçtiği veya bağlantısı koptuğu için diğer cihazlarla bağlantı kesildi. Yeniden başlatarak yeni bir oda aç.',
+  'dialog.session_lost_guest_msg':
+    'Uygulama arka planda uyku moduna geçtiği veya bağlantısı koptuğu için diğer cihazlarla bağlantı kesildi. Yeniden başlatarak bu odaya tekrar katıl.',
   'dialog.session_lost_btn': 'Yeniden Başlat',
 
   // ─── PRO Rooms ──────────────────────────────────────────────

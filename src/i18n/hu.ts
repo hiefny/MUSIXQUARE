@@ -791,6 +791,8 @@ const hu: Record<I18nKey, string> = {
     'Túl sokszor adtál meg hibás jelszót. Próbáld újra egy kicsit később.',
   'dialog.session_lost_msg':
     'Az alkalmazás alvó állapotba került vagy elvesztette a kapcsolatot, ezért a többi eszköz már levált. Új munkamenet indításához indítsd újra.',
+  'dialog.session_lost_guest_msg':
+    'Az alkalmazás alvó állapotba került vagy elvesztette a kapcsolatot, ezért a többi eszköz már levált. Indítsd újra, hogy ismét csatlakozz ehhez a szobához.',
   'dialog.session_lost_btn': 'Újraindítás',
 
   // ─── PRO Rooms ──────────────────────────────────────────────

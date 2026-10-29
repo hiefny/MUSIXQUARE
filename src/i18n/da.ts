@@ -785,6 +785,8 @@ const da: Record<I18nKey, string> = {
     'Du har indtastet en forkert adgangskode for mange gange. Prøv igen om lidt.',
   'dialog.session_lost_msg':
     'Appen gik i dvale eller mistede forbindelsen, så de andre enheder er allerede blevet afbrudt. Genstart for at begynde en ny session.',
+  'dialog.session_lost_guest_msg':
+    'Appen gik i dvale eller mistede forbindelsen, så de andre enheder er allerede blevet afbrudt. Genstart for at deltage i dette rum igen.',
   'dialog.session_lost_btn': 'Genstart',
 
   // ─── PRO Rooms ──────────────────────────────────────────────

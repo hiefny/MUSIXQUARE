@@ -795,6 +795,8 @@ const pl: Record<I18nKey, string> = {
     'Zbyt wiele razy wpisano nieprawidłowe hasło. Spróbuj ponownie za chwilę.',
   'dialog.session_lost_msg':
     'Aplikacja przeszła w stan uśpienia lub straciła połączenie, dlatego pozostałe urządzenia zostały już rozłączone. Uruchom aplikację ponownie, aby utworzyć nowy pokój.',
+  'dialog.session_lost_guest_msg':
+    'Aplikacja przeszła w stan uśpienia lub straciła połączenie, dlatego pozostałe urządzenia zostały już rozłączone. Uruchom aplikację ponownie, aby znowu dołączyć do tego pokoju.',
   'dialog.session_lost_btn': 'Restartuj',
 
   // ─── PRO Rooms ──────────────────────────────────────────────

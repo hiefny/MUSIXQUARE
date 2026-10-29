@@ -787,6 +787,8 @@ const sv: Record<I18nKey, string> = {
     'Du har angett fel lösenord för många gånger. Försök igen om en liten stund.',
   'dialog.session_lost_msg':
     'Appen försattes i viloläge eller tappade anslutningen, så de andra enheterna har redan kopplats bort. Starta om för att påbörja en ny session.',
+  'dialog.session_lost_guest_msg':
+    'Appen försattes i viloläge eller tappade anslutningen, så de andra enheterna har redan kopplats bort. Starta om för att ansluta till det här rummet igen.',
   'dialog.session_lost_btn': 'Starta om',
 
   // ─── PRO Rooms ──────────────────────────────────────────────

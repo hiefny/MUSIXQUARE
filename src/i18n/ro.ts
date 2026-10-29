@@ -798,6 +798,8 @@ const ro: Record<I18nKey, string> = {
     'Ai introdus parola greșită de prea multe ori. Reîncearcă puțin mai târziu.',
   'dialog.session_lost_msg':
     'Aplicația a intrat în repaus sau a pierdut conexiunea, iar celelalte dispozitive s-au deconectat deja. Repornește pentru a începe o sesiune nouă.',
+  'dialog.session_lost_guest_msg':
+    'Aplicația a intrat în repaus sau a pierdut conexiunea, iar celelalte dispozitive s-au deconectat deja. Repornește pentru a intra din nou în această cameră.',
   'dialog.session_lost_btn': 'Repornește',
 
   // ─── PRO Rooms ──────────────────────────────────────────────

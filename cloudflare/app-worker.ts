@@ -8531,10 +8531,10 @@ async function handleProRoomOwnershipTransferSaga({
   } catch {
     return json({ error: 'PRO_ROOM_ACCOUNT_ASSERTION_UNAVAILABLE' }, 503);
   }
-  // The commit's snapshot is this link's answer. The PRO room adds
-  // `passwordRequired` (false since the 2026-10-23 owner decision) and
-  // `playlistSlots` to it as to activation's, so the new owner's settings show
-  // the real state; the browser's opt-in headers stay at this facade.
+  // The commit's snapshot is this link's answer. Like every PRO snapshot, it
+  // carries `passwordRequired` (false since the 2026-10-23 owner decision) and
+  // `playlistSlots` without any opt-in header, so the new owner's settings
+  // show the real state.
   const committed = await callProRoomAdminObject(
     env,
     roomCode,

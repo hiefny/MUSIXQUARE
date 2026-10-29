@@ -1350,10 +1350,6 @@ export class ProRoomApiClient {
     }
 
     const headers = new Headers(options.headers);
-    // Opt in to additive entry policy fields; cached strict v1 clients retain their wire shape.
-    headers.set('X-MXQR-Pro-Entry-Policy', 'optional-v1');
-    // Same opt-in for the additive `playlistSlots` snapshot field.
-    headers.set('X-MXQR-Pro-Playlist-Slots', 'v1');
     // The page build: the PRO front door refuses a new entry below the App
     // build floor (forced update, train 9.0.14). A header, so no strict body
     // of an older client changes; a build without an epoch sends none (0).

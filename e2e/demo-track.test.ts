@@ -59,7 +59,8 @@ test.describe('Linelight demo mode', () => {
     await expect(page.locator('#demo-overlay')).toHaveCSS('opacity', '1');
     await expect(page.locator('.bottom-nav')).toHaveCSS('opacity', '0');
     await expect(page.locator('body')).toHaveClass(/viz-spectrum/);
-    await expect(page.locator('.demo-track-title')).toContainText('Linelight OST - Adventure');
+    // The header names the track alone; the track list keeps its album.
+    await expect(page.locator('.demo-track-title')).toHaveText('Adventure');
     await expect(page.locator('.demo-track-artist')).toContainText('Brett Taylor');
     await expect(page.locator('.demo-visual-stage .demo-track-header')).toBeVisible();
     await expect(page.locator('.demo-visual-stage')).toHaveCSS(
@@ -456,9 +457,7 @@ test.describe('Linelight demo mode', () => {
         timeout: 15_000,
       });
       await expect(pair.guestPage.locator('body')).toHaveClass(/mode-demo/);
-      await expect(pair.guestPage.locator('.demo-track-title')).toContainText(
-        'Linelight OST - Adventure',
-      );
+      await expect(pair.guestPage.locator('.demo-track-title')).toHaveText('Adventure');
       await expect
         .poll(() => readState(pair.guestPage, 'demo.active'), { timeout: 15_000 })
         .toBe(true);

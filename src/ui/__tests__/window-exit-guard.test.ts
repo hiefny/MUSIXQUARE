@@ -98,11 +98,12 @@ const WINDOW_EXITS: Readonly<Record<string, WindowExit>> = {
     notAWindow:
       'The setup screens are the page itself, not a window over it (dom.ts BASE_SCREEN_ID).',
   },
+  // Exit Tour on the last step. Steps 1 to 3 have no exit button of their
+  // own and leave through Back (owner decision 2026-10-29: the header exit
+  // 9.0.20 added took the track title's room); Back and Escape end the tour
+  // there, or ask to leave the room for a guest who cannot end it.
   'demo-overlay': {
-    markup: [
-      { exit: '#btn-demo-exit', placement: 'top start' },
-      { exit: '[data-demo-exit]', placement: { leftOf: '[data-demo-info]' } },
-    ],
+    markup: [{ exit: '[data-demo-exit]', placement: { leftOf: '[data-demo-info]' } }],
   },
   'media-source-overlay': {
     markup: [{ exit: '#btn-close-media-popup', placement: 'own row' }],

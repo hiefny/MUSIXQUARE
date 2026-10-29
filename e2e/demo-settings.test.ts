@@ -21,7 +21,6 @@ async function expectDemoHidden(page: Page): Promise<void> {
     '.demo-track-title',
     '.demo-track-artist',
     '.demo-controls-pill',
-    '#btn-demo-exit',
     '#btn-demo-settings',
     '#demo-inline-controls',
     '[data-demo-play]',
@@ -467,60 +466,63 @@ test('demo inline controls remain keyboard accessible with reduced motion', asyn
 });
 
 for (const direction of ['ltr', 'rtl'] as const) {
-  test(`demo shows its exit at the top start on every step and ends there (${direction})`, async ({
+  test(`demo header holds settings and the track name alone on every step (${direction})`, async ({
     page,
   }) => {
-    // Owner policy (2026-10-28): every leavable window shows a visible exit.
-    // The tour's sits before the settings opener at the header's start
-    // (mirrored in RTL), on every step. The open settings pill takes that
-    // place with its own back arrow, so the start always leads out of the
-    // top layer, and the inline controls keep their full width.
-    await page.setViewportSize({ width: 390, height: 844 });
+    // Owner decision (2026-10-29, item 18): the header exit 9.0.20 added at
+    // the top start goes. Steps 1 to 3 leave through Back, step 4 keeps Exit
+    // Tour, and the header names the track without its album on one line.
+    await page.setViewportSize({ width: 320, height: 640 });
     await enterDemo(page);
     if (direction === 'rtl') {
       await page.evaluate(() => document.documentElement.setAttribute('dir', 'rtl'));
     }
-    const exit = page.locator('#btn-demo-exit');
+    const header = page.locator('.demo-visual-stage .demo-track-header');
     const settings = page.locator('#btn-demo-settings');
+    const title = page.locator('.demo-track-title');
     const stage = page.locator('.demo-visual-stage');
+    await expect(page.locator('#btn-demo-exit')).toHaveCount(0);
     for (let step = 1; step <= 4; step += 1) {
-      await expect(exit).toBeVisible();
-      await expect(exit).toHaveAccessibleName('Exit Tour');
-      const exitBox = (await exit.boundingBox())!;
+      await expect(header.getByRole('button')).toHaveCount(1);
+      await expect(header.getByRole('button')).toHaveAttribute('id', 'btn-demo-settings');
+      await expect(title).toHaveText('Adventure');
       const settingsBox = (await settings.boundingBox())!;
       const stageBox = (await stage.boundingBox())!;
-      expect(Math.abs(exitBox.y - settingsBox.y), `step ${step}`).toBeLessThan(0.5);
-      expect(exitBox.width).toBeCloseTo(44, 0);
-      expect(exitBox.height).toBeCloseTo(44, 0);
       if (direction === 'ltr') {
-        expect(exitBox.x - stageBox.x, `step ${step}`).toBeCloseTo(16, 0);
-        expect(settingsBox.x - (exitBox.x + exitBox.width)).toBeCloseTo(12, 0);
+        expect(settingsBox.x - stageBox.x, `step ${step}`).toBeCloseTo(16, 0);
       } else {
         const stageRight = stageBox.x + stageBox.width;
-        expect(stageRight - (exitBox.x + exitBox.width), `step ${step}`).toBeCloseTo(16, 0);
-        expect(exitBox.x - (settingsBox.x + settingsBox.width)).toBeCloseTo(12, 0);
+        expect(stageRight - (settingsBox.x + settingsBox.width), `step ${step}`).toBeCloseTo(16, 0);
       }
+      const lines = await title.evaluate((element) => {
+        const range = document.createRange();
+        range.selectNodeContents(element);
+        return new Set([...range.getClientRects()].map((rect) => Math.round(rect.top))).size;
+      });
+      expect(lines, `step ${step} title lines`).toBe(1);
+      expect((await header.boundingBox())!.height, `step ${step} header`).toBeCloseTo(76, 0);
+      await expect(page.locator('[data-demo-exit]')).toBeVisible({ visible: step === 4 });
       if (step < 4) await page.locator('[data-demo-next]').click();
     }
 
-    const exitBox = (await exit.boundingBox())!;
+    // The open settings pill grows from the opener at the start, as it did
+    // before 9.0.20, and keeps the 74px volume slider.
+    const settingsBox = (await settings.boundingBox())!;
     await settings.click();
     await expectExpanded(page, true);
-    await expect(exit).toBeHidden();
     await expect(page.locator('#demo-volume-slider')).toHaveCSS('width', '74px');
     await expect
       .poll(async () => {
         const pill = (await page.locator('.demo-controls-pill').boundingBox())!;
         return direction === 'ltr'
-          ? Math.round(pill.x - exitBox.x)
-          : Math.round(exitBox.x + exitBox.width - (pill.x + pill.width));
+          ? Math.round(pill.x - settingsBox.x)
+          : Math.round(settingsBox.x + settingsBox.width - (pill.x + pill.width));
       })
       .toBe(0);
     await settings.click();
     await expectExpanded(page, false);
-    await expect(exit).toBeVisible();
 
-    await exit.click();
+    await page.locator('[data-demo-exit]').click();
     await expect.poll(() => readState(page, 'demo.active')).toBe(false);
     await expectDemoHidden(page);
   });

@@ -229,9 +229,12 @@ interface ProRoomSystemAudioStateBase {
   ownerParticipantId: string | null;
   claimExpiresAt: number | null;
   /**
-   * Fixed SFU media deadline. A live LAN-direct publication retains a numeric
-   * compatibility value for mixed-generation clients, but that value does not
-   * expire the direct route; owner presence and device-count authority do.
+   * Fixed SFU media deadline, a positive timestamp on every SFU live state. A
+   * live LAN-direct publication has none and reads null here: owner presence
+   * and device-count authority end the direct route. PRO snapshot
+   * schemaVersion 2 sends it null, and the parser reads the numeric
+   * compatibility value of earlier PRO Workers as null too, so a Worker that
+   * changes the wire mid-share changes no parsed state.
    */
   liveExpiresAt: number | null;
   publication: ProRoomSystemAudioPublication | null;
@@ -257,7 +260,8 @@ interface ProRoomSystemAudioLiveState extends ProRoomSystemAudioStateBase {
   status: 'live';
   ownerParticipantId: string;
   claimExpiresAt: null;
-  liveExpiresAt: number;
+  /** A number for an SFU publication, null for a LAN-direct one. */
+  liveExpiresAt: number | null;
   publication: ProRoomSystemAudioPublication;
 }
 

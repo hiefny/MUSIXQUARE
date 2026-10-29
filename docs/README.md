@@ -127,8 +127,9 @@ runbooks. Neither belongs in a general setup document.
   typecheck, lint, format, every guard, resource ownership 49 records / 446 files, room-authority
   79 / 22 / 13 / 0, bus-pairing 203, the smoke unit rows and the R1-5 Worker rows,
   `build:checked`, `check:worker-bundles`, candidate E2E 19, critical E2E 98, PRO Playwright 30
-  and the C5-0 lab 4), round 6 (F1 and its admission smoke; the output of the smokes right after
-  P2 is not in the evidence, while the release's own two Remote Share smokes passed) and round 7
+  and the C5-0 lab 4), round 6 (the two production Remote Share smokes right after P2 on main
+  `7241e89d`, both passing with the room upload assertion required and an exact whole-v1 round
+  trip, F1 and its admission smoke, and the public floor read just before dispatch) and round 7
   (the PR CI and a no-findings automated review on the final head `7630b1a9`, the exact-main CI on
   Node 24.22.2 with unit 702 files / 16,683 plus the known skip and Linux Chromium candidate 19 and
   critical 98, one Production Release with target `all` whose smokes all passed on the first try,

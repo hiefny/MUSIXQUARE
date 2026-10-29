@@ -377,11 +377,12 @@ F1 뒤 운영에 들어올 수 있는 빌드는 789(9.0.16) 이상이다. '789 ~
    모두 795). 실패하면 `lower 789`와 smoke 다시(0은 위와 같은 때만). F2가 성공하고 그 smoke가 통과하기 전에는 R2를 dispatch하지
    않는다.
 
-결과(QA 라운드 6, 7): 1은 기준 `096da175`(#523)가 보인다. 2의 P2 직후 smoke 출력은 이 보고서의 근거에 없고, 릴리스 안의
-두 형태가 통과했다. 3, 4, 7은 그대로 채웠다. 5는 머지(18:20 KST) 뒤 exact-main CI success를 보고 dispatch했고, 릴리스의 'Verify
-release commit is still current main' 단계가 18:30:15 KST에 main이 그대로 `71f5b96c`임을 확인했다. 6은 workflow `status` 실행이
-아니라 공개 상태 읽기로 했다(18:29:43 KST 생성, 저장·유효 789, App 보고 56초 전). 바닥 실행이 돌거나 기다리지 않았다는 근거는
-없다. 8은 배포 기록 PR이 했다(릴리스 기록 §1, §2, §4와 `release-history.md`의 9.0.22 행). 9(F2)는 아직이다.
+결과(QA 라운드 6, 7): 1은 기준 `096da175`(#523)가 보인다. 2는 P2 squash `7241e89d` 직후 운영 smoke 두 형태가 통과했다(08:26:45
+KST와 08:27:10 ~ 08:27:34 KST, 둘 다 `roomUploadAssertionMode` `required`), 릴리스 안의 두 형태도 통과했다. 3, 4, 7은 그대로
+채웠다. 5는 머지(18:20 KST) 뒤 exact-main CI success를 보고 dispatch했고, 릴리스의 'Verify release commit is still current main'
+단계가 18:30:15 KST에 main이 그대로 `71f5b96c`임을 확인했다. 6은 workflow `status` 실행이 아니라 공개 상태 읽기로 했다(배포 세션
+로그의 18:29:42 KST 줄, 18:29:43 KST 생성, 저장·유효 789, revision 2, live App 794, App 보고 56초 전). 바닥 실행이 돌거나 기다리지
+않았다는 근거는 없다. 8은 배포 기록 PR이 했다(릴리스 기록 §1, §2, §4와 `release-history.md`의 9.0.22 행). 9(F2)는 아직이다.
 
 ## 리뷰 지적과 처리
 
@@ -526,13 +527,16 @@ Node 24.22.2 / npm 12.0.2, vitest `--maxWorkers=6`, 시작 때 작업 트리 깨
 
 운영 GitHub Actions와 공개 상태의 기록이다(로그의 UTC를 KST로 바꿈). 실행 환경은 운영이고 바뀐 코드는 없다.
 
-- P2 직후 운영 remote-share smoke 두 형태: 이 보고서의 근거에는 그 실행 출력이 없다. PR #524 설명(스쿼시 메시지)은 P2(#519,
-  2026-10-29 08:26 KST 머지) 직후 두 형태가 통과했다고 적는다. 대신 이 릴리스 안의 remote-share smoke 둘이 통과했다(QA 라운드 7):
-  `npm run smoke:live:remote-share`(18:32:23 ~ 18:32:33 KST, 새 signaling 배포 전)와 `-- --require-assertion`(18:33:28 ~ 18:33:35
-  KST, peer-open 확인서 표지를 광고하지 않는 9.0.22 signaling `36579bdf` 위). 둘 다 `ok` true, `anonymousSessionRejected` true,
-  `assertionRequiredBySmoke` true, `assertionExplicitlyRequested`는 false와 true, `roomUploadAssertionMode` `required`이고,
-  `wholeObject`는 whole-v1 왕복(32 B, 바이트 일치, 정리 200 뒤 404)이다. P2의 smoke가 표지 없는 signaling 위에서 실제 확인서로
-  방을 증명함을 운영에서 봤다.
+- P2 직후 운영 remote-share smoke 두 형태: P2(#519)가 squash `7241e89d`(2026-10-29 08:25:59 KST)로 main에 들어간 직후 그
+  main 체크아웃에서 돌렸다. 그때 운영 signaling은 9.0.20 `d212819f`(peer-open 표지를 아직 광고함)다.
+  `npm run smoke:live:remote-share`는 08:26:45 KST, `-- --require-assertion`은 08:27:10 ~ 08:27:34 KST였다(출력 파일 시각
+  08:27:00, 08:27:24 KST). 두 출력 모두 `ok` true, `anonymousSessionRejected` true, `assertionRequiredBySmoke` true,
+  `roomUploadAssertionMode` `required`이고, `assertionExplicitlyRequested`는 기본 형태 false, `--require-assertion` 형태 true다.
+  `wholeObject`는 whole-v1 왕복(32 B, 직접 R2 PUT, 바이트 일치, 권한 없는 읽기와 Range 거절, 위조 정리 거절, 정리 200 뒤 404)이다.
+  방 코드는 적지 않는다. 이것으로 배포 조건 2가 채워졌다. 표지 없는 signaling 위의 운영 근거는 이 릴리스 안의 remote-share
+  smoke 둘이다(QA 라운드 7): `npm run smoke:live:remote-share`(18:32:23 ~ 18:32:33 KST, 새 signaling 배포 전)와
+  `-- --require-assertion`(18:33:28 ~ 18:33:35 KST, peer-open 확인서 표지를 광고하지 않는 9.0.22 signaling `36579bdf` 위). 둘 다
+  위와 같은 값이었고, P2의 smoke가 표지 없는 signaling 위에서 실제 확인서로 방을 증명함을 운영에서 봤다.
 - F1 앞 status: [status 40848023346](https://github.com/hiefny/MUSIXQUARE/actions/runs/40848023346)(dispatch 18:13:57, 실행
   18:14:01 ~ 18:14:27 KST, success)의 요약 줄은
   `App build floor: stored 787, effective 787, revision 1, updated 2026-10-26T07:15:03.890Z; live App 794, reported 794 at 2026-10-29T09:13:47.383Z; client read 787`
@@ -557,9 +561,10 @@ Node 24.22.2 / npm 12.0.2, vitest `--maxWorkers=6`, 시작 때 작업 트리 깨
   방 코드는 적지 않는다. 표준 오류 출력은 비어 있다. 실행 시각과 종료 코드는 이 보고서의 근거에 없고(18:17:37 KST의 `status`와
   18:20 KST 머지 사이), 다시 돌린 일은 없다.
 - `lower`: 하지 않았다(해당 없음).
-- dispatch 직전 다시 읽기: 공개 상태(18:29:43 KST 생성)가 저장·유효 789, revision 2, live App 794(18:28:47 KST 보고, 56초
-  전으로 300초 안), state `valid`였다. workflow `status` 실행이 아니라 공개 상태 읽기이고, 바닥 실행이 돌거나 기다리지 않았다는
-  근거는 없다.
+- dispatch 직전 다시 읽기: 배포 세션 로그(머지, exact-main CI, dispatch를 차례로 적음)의 18:29:42 KST 줄이 exact-main CI
+  success(18:29:41 줄) 바로 뒤에 읽은 공개 상태를 적는다(로그 시각은 그 PC 시계). 공개 상태(18:29:43 KST 생성)가 저장·유효 789,
+  revision 2, live App 794(18:28:47 KST 보고, 56초 전으로 300초 안), state `valid`였다. workflow `status` 실행이 아니라 공개 상태
+  읽기이고, 바닥 실행이 돌거나 기다리지 않았다는 근거는 없다.
 
 결론: F1이 789로 성공했고 smoke가 두 방의 방장·게스트 입장과 `refusedBelowAppBuildFloor` 789를 보였으므로 배포 조건 3과 4가
 채워졌다. 바닥 `set`은 Production Release가 아니므로 `release-history.md`에 따로 행을 두지 않았다(첫 최소 빌드와 W-verify의 선례,
@@ -630,8 +635,8 @@ Node 24.22.2 / npm 12.0.2, vitest `--maxWorkers=6`, 시작 때 작업 트리 깨
 
 ## 확인하지 않은 것
 
-- 운영: P2 직후 remote-share smoke 두 형태의 출력은 이 보고서의 근거에 없다(릴리스 안의 두 형태는 통과, QA 라운드 6). 운영
-  브라우저의 업데이트 대화상자, signaling 배포 뒤 Standard 방의 재연결, 운영에서 바뀐 동작은 보지 않았다(QA 라운드 7).
+- 운영: dispatch 직전에 바닥 실행이 돌거나 기다리지 않았는지는 보지 않았다(공개 상태만 읽음, QA 라운드 6). 운영 브라우저의
+  업데이트 대화상자, signaling 배포 뒤 Standard 방의 재연결, 운영에서 바뀐 동작은 보지 않았다(QA 라운드 7).
 - 신호 Durable Object 재시작 쓸기는 Cloudflare 문서상 동작이고 이 프로젝트에서 확인하지 않았다.
 - 실기기, iOS Safari, WebKit 레인 전체, Full E2E. 9.0.14, 9.0.15 끝과 9.0.22의 혼합 방은 바닥이 들이지 않아 돌리지 않았다(정책 수용 창의
   손실은 코드와 시험으로만 봄).

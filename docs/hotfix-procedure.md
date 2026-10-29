@@ -720,7 +720,15 @@ gh workflow run app-build-floor.yml --ref main -f action=lower -f min_app_build=
   `app` or `all`). The raise runs only after the commit marker, and only to this release's build
   when that build is the live App. If it fails, the release stays committed and is not rolled
   back; rerun `set` with the standalone workflow. Later raises need no separate owner approval
-  (owner decision 2026-10-25): the release that needs one sets the input.
+  (owner decision 2026-10-25): the release that needs one sets the input. That raise does not fit
+  a release that stops sending a field or marker that older builds the current floor admits still
+  require, or starts sending a shape they cannot read: it comes only after the release's App
+  deploy, App smokes and commit marker, and only to the release's own build, which is higher than
+  needed and shows the update dialog without Later to every build in between. Raise the floor for
+  such a release beforehand with a standalone `set` to the oldest build that copes, prove
+  Signaling admission at that floor with the smoke described for the first floor below, and
+  dispatch the release with `raise_app_build_floor` false (old-version removal train 3, 9.0.21,
+  sets 789 first).
 - A Production Release with target `pro-room` or `all` checks the floor before it changes
   anything: its step "Check the App build floor the PRO Worker requires" runs after the
   partial-release dependency compatibility check and before the recovery checkpoint, so a stop

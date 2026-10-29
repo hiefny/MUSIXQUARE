@@ -117,7 +117,10 @@ runbooks. Neither belongs in a general setup document.
   synthetic room `000001`, user-visible changes, records, QA rounds 1 to 3 (per increment; the full
   gate at the records commit `e90ab14d`; after the rebase, the three tests-first commits rerun on
   their new parents with the same rows failing and the three rollback rows rerun on the 9.0.22 PRO
-  Worker, then the full gate) with placeholders for the production preconditions and the release
+  Worker, then the full gate at `1c914f2e`: npm audit 0, unit 705 files / 16,716, Worker 69 / 3,316,
+  critical 90 / 3,515, release-tooling 14 / 433, typecheck, lint, format, every guard, `build:checked`
+  still 9.0.23 / v796 with no App bump, `check:worker-bundles`, Playwright PRO lane 30, critical
+  100 and candidate 19, target `pro-room` only) with placeholders for the production preconditions and the release
   (rounds 4 and 5), owner device check candidates and what was not verified.
 - [UI owner decisions train 9.0.23: the items 9.0.20 left open (2026-10-29)](design/ui-owner-923-2026-10-29.md):
   released on 2026-10-29 21:22 KST in Release 40872467902 (PR #526, squash `5a5afb0e`): the next app

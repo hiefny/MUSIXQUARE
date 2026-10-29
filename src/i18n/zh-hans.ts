@@ -110,10 +110,6 @@ const zhHans: Record<I18nKey, string> = {
   'nav.go_home': '返回首页',
 
   // Role
-  'role.center': '中置音箱',
-  'role.left': '左音箱',
-  'role.right': '右音箱',
-  'role.subwoofer': '低音炮',
   'role.center_placement': '请将设备放在中央',
   'role.left_placement': '请将设备放在左侧',
   'role.right_placement': '请将设备放在右侧',

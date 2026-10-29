@@ -184,10 +184,6 @@ const nl: Record<I18nKey, string> = {
   'transfer.host_busy': 'De host verwerkt een ander bestand\nProbeer het zo opnieuw',
 
   // Role
-  'role.center': 'Midden',
-  'role.left': 'Links',
-  'role.right': 'Rechts',
-  'role.subwoofer': 'Subwoofer',
   'role.center_placement': 'Plaats dit apparaat in het midden',
   'role.left_placement': 'Plaats dit apparaat links',
   'role.right_placement': 'Plaats dit apparaat rechts',

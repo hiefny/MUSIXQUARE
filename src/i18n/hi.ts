@@ -184,10 +184,6 @@ const hi: Record<I18nKey, string> = {
   'transfer.host_busy': 'होस्ट किसी दूसरी फ़ाइल पर काम कर रहा है\nथोड़ी देर में फिर कोशिश करें',
 
   // ─── Role ────────────────────────────────────────────────────────
-  'role.center': 'सेंटर स्पीकर',
-  'role.left': 'बायाँ स्पीकर',
-  'role.right': 'दायाँ स्पीकर',
-  'role.subwoofer': 'सबवूफ़र',
   'role.center_placement': 'डिवाइस को बीच में रखें',
   'role.left_placement': 'डिवाइस को बाईं ओर रखें',
   'role.right_placement': 'डिवाइस को दाईं ओर रखें',

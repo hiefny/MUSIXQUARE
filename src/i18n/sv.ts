@@ -185,10 +185,6 @@ const sv: Record<I18nKey, string> = {
   'transfer.host_busy': 'Värden bearbetar en annan fil\nFörsök igen snart',
 
   // ─── Role ────────────────────────────────────────────────────────
-  'role.center': 'Center',
-  'role.left': 'Vänster',
-  'role.right': 'Höger',
-  'role.subwoofer': 'Subwoofer',
   'role.center_placement': 'Placera enheten i mitten',
   'role.left_placement': 'Placera enheten till vänster',
   'role.right_placement': 'Placera enheten till höger',

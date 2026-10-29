@@ -113,10 +113,6 @@ const ja: Record<I18nKey, string> = {
   'nav.go_home': 'ホームへ移動',
 
   // Role
-  'role.center': '中央スピーカー',
-  'role.left': '左スピーカー',
-  'role.right': '右スピーカー',
-  'role.subwoofer': 'サブウーファー',
   'role.center_placement': 'デバイスを中央に配置してください',
   'role.left_placement': 'デバイスを左側に配置してください',
   'role.right_placement': 'デバイスを右側に配置してください',

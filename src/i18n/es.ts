@@ -113,10 +113,6 @@ const es: Record<I18nKey, string> = {
   'nav.go_home': 'Ir al inicio',
 
   // Role
-  'role.center': 'Central',
-  'role.left': 'Izquierdo',
-  'role.right': 'Derecho',
-  'role.subwoofer': 'Subwoofer',
   'role.center_placement': 'Coloca el dispositivo en el centro',
   'role.left_placement': 'Coloca el dispositivo a la izquierda',
   'role.right_placement': 'Coloca el dispositivo a la derecha',

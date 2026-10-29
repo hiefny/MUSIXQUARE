@@ -183,10 +183,6 @@ const bn: Record<I18nKey, string> = {
   'transfer.host_busy': 'হোস্ট অন্য একটি ফাইল প্রসেস করছে\nএকটু পর আবার চেষ্টা করুন',
 
   // ─── Role ────────────────────────────────────────────────────────
-  'role.center': 'সেন্টার স্পিকার',
-  'role.left': 'বাম স্পিকার',
-  'role.right': 'ডান স্পিকার',
-  'role.subwoofer': 'সাবউফার',
   'role.center_placement': 'ডিভাইসটি মাঝখানে রাখুন',
   'role.left_placement': 'ডিভাইসটি বাম পাশে রাখুন',
   'role.right_placement': 'ডিভাইসটি ডান পাশে রাখুন',

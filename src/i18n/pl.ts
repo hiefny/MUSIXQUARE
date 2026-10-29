@@ -183,10 +183,6 @@ const pl: Record<I18nKey, string> = {
   'transfer.host_busy': 'Host przetwarza inny plik\nSpróbuj ponownie za chwilę',
 
   // ─── Role ────────────────────────────────────────────────────────
-  'role.center': 'Środkowy',
-  'role.left': 'Głośnik lewy',
-  'role.right': 'Głośnik prawy',
-  'role.subwoofer': 'Subwoofer',
   'role.center_placement': 'Umieść urządzenie na środku',
   'role.left_placement': 'Umieść urządzenie po lewej stronie',
   'role.right_placement': 'Umieść urządzenie po prawej stronie',

@@ -181,10 +181,6 @@ const tr: Record<I18nKey, string> = {
   'transfer.host_busy': 'Oda sahibi başka bir dosyayı işliyor\nBiraz sonra tekrar dene',
 
   // ─── Role ────────────────────────────────────────────────────────
-  'role.center': 'Merkez',
-  'role.left': 'Sol Hoparlör',
-  'role.right': 'Sağ Hoparlör',
-  'role.subwoofer': 'Subwoofer',
   'role.center_placement': 'Cihazı merkeze yerleştir',
   'role.left_placement': 'Cihazı sola yerleştir',
   'role.right_placement': 'Cihazı sağa yerleştir',

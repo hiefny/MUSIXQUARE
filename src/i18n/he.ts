@@ -182,10 +182,6 @@ const he: Record<I18nKey, string> = {
   'transfer.host_busy': 'המארח מעבד קובץ אחר\nכדאי לנסות שוב בעוד רגע',
 
   // ─── Role ────────────────────────────────────────────────────────
-  'role.center': 'רמקול מרכזי',
-  'role.left': 'רמקול שמאלי',
-  'role.right': 'רמקול ימני',
-  'role.subwoofer': 'סאב-וופר',
   'role.center_placement': 'יש למקם את המכשיר במרכז',
   'role.left_placement': 'יש למקם את המכשיר בצד שמאל',
   'role.right_placement': 'יש למקם את המכשיר בצד ימין',

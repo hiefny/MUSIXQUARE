@@ -183,10 +183,6 @@ const mr: Record<I18nKey, string> = {
   'transfer.host_busy': 'होस्ट दुसऱ्या फाइलवर प्रक्रिया करत आहे\nथोड्या वेळाने पुन्हा प्रयत्न करा',
 
   // ─── Role ────────────────────────────────────────────────────────
-  'role.center': 'मध्य स्पीकर',
-  'role.left': 'डावा स्पीकर',
-  'role.right': 'उजवा स्पीकर',
-  'role.subwoofer': 'सबवूफर',
   'role.center_placement': 'डिव्हाइस मध्यभागी ठेवा',
   'role.left_placement': 'डिव्हाइस डाव्या बाजूला ठेवा',
   'role.right_placement': 'डिव्हाइस उजव्या बाजूला ठेवा',

@@ -112,10 +112,6 @@ const vi: Record<I18nKey, string> = {
   'nav.go_home': 'Về trang chủ',
 
   // Role
-  'role.center': 'Loa giữa',
-  'role.left': 'Loa trái',
-  'role.right': 'Loa phải',
-  'role.subwoofer': 'Loa siêu trầm',
   'role.center_placement': 'Đặt thiết bị ở giữa',
   'role.left_placement': 'Đặt thiết bị bên trái',
   'role.right_placement': 'Đặt thiết bị bên phải',

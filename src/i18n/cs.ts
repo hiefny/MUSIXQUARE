@@ -184,10 +184,6 @@ const cs: Record<I18nKey, string> = {
   'transfer.host_busy': 'Hostitel zpracovává jiný soubor\nZkuste to za chvíli',
 
   // ─── Role ────────────────────────────────────────────────────────
-  'role.center': 'Středový',
-  'role.left': 'Levý',
-  'role.right': 'Pravý',
-  'role.subwoofer': 'Subwoofer',
   'role.center_placement': 'Umístěte zařízení doprostřed',
   'role.left_placement': 'Umístěte zařízení vlevo',
   'role.right_placement': 'Umístěte zařízení vpravo',

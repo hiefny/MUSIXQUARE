@@ -184,10 +184,6 @@ const gu: Record<I18nKey, string> = {
   'transfer.host_busy': 'હોસ્ટ બીજી ફાઇલ પર પ્રક્રિયા કરી રહ્યા છે\nથોડી વારમાં ફરી પ્રયાસ કરો',
 
   // ─── Role ────────────────────────────────────────────────────────
-  'role.center': 'મધ્ય સ્પીકર',
-  'role.left': 'ડાબું સ્પીકર',
-  'role.right': 'જમણું સ્પીકર',
-  'role.subwoofer': 'સબવૂફર',
   'role.center_placement': 'ડિવાઇસને મધ્યમાં મૂકો',
   'role.left_placement': 'ડિવાઇસને ડાબી બાજુ મૂકો',
   'role.right_placement': 'ડિવાઇસને જમણી બાજુ મૂકો',

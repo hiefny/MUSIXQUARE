@@ -185,10 +185,6 @@ const el: Record<I18nKey, string> = {
   'transfer.host_busy': 'Ο οικοδεσπότης επεξεργάζεται άλλο αρχείο\nΔοκιμάστε ξανά σε λίγο',
 
   // ─── Role ────────────────────────────────────────────────────────
-  'role.center': 'Κεντρικό ηχείο',
-  'role.left': 'Αριστερό ηχείο',
-  'role.right': 'Δεξί ηχείο',
-  'role.subwoofer': 'Subwoofer',
   'role.center_placement': 'Τοποθετήστε τη συσκευή στο κέντρο',
   'role.left_placement': 'Τοποθετήστε τη συσκευή αριστερά',
   'role.right_placement': 'Τοποθετήστε τη συσκευή δεξιά',

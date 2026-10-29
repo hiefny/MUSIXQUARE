@@ -109,10 +109,6 @@ const zhHant: Record<I18nKey, string> = {
   'nav.go_home': '前往首頁',
 
   // Role
-  'role.center': '中置喇叭',
-  'role.left': '左喇叭',
-  'role.right': '右喇叭',
-  'role.subwoofer': '重低音喇叭',
   'role.center_placement': '請將裝置放在中央',
   'role.left_placement': '請將裝置放在左側',
   'role.right_placement': '請將裝置放在右側',

@@ -179,10 +179,6 @@ const th: Record<I18nKey, string> = {
   'transfer.host_busy': 'เจ้าของห้องกำลังประมวลผลไฟล์อื่น\nลองอีกครั้งในอีกสักครู่',
 
   // ─── Role ────────────────────────────────────────────────────────
-  'role.center': 'ลำโพงกลาง',
-  'role.left': 'ลำโพงซ้าย',
-  'role.right': 'ลำโพงขวา',
-  'role.subwoofer': 'ซับวูฟเฟอร์',
   'role.center_placement': 'วางอุปกรณ์ไว้ตรงกลาง',
   'role.left_placement': 'วางอุปกรณ์ไว้ด้านซ้าย',
   'role.right_placement': 'วางอุปกรณ์ไว้ด้านขวา',

@@ -186,10 +186,6 @@ const ms: Record<I18nKey, string> = {
   'transfer.host_busy': 'Hos sedang memproses fail lain\nCuba lagi sebentar nanti',
 
   // ─── Peranan ─────────────────────────────────────────────────────
-  'role.center': 'Tengah',
-  'role.left': 'Kiri',
-  'role.right': 'Kanan',
-  'role.subwoofer': 'Subwufer',
   'role.center_placement': 'Letakkan peranti di tengah',
   'role.left_placement': 'Letakkan peranti di sebelah kiri',
   'role.right_placement': 'Letakkan peranti di sebelah kanan',

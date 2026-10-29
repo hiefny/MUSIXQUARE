@@ -184,10 +184,6 @@ const da: Record<I18nKey, string> = {
   'transfer.host_busy': 'Værten behandler en anden fil\nPrøv igen om lidt',
 
   // ─── Role ────────────────────────────────────────────────────────
-  'role.center': 'Center',
-  'role.left': 'Venstre',
-  'role.right': 'Højre',
-  'role.subwoofer': 'Subwoofer',
   'role.center_placement': 'Placer enheden i midten',
   'role.left_placement': 'Placer enheden til venstre',
   'role.right_placement': 'Placer enheden til højre',

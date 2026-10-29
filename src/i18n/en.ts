@@ -184,10 +184,6 @@ const en: Record<I18nKey, string> = {
   'transfer.host_busy': 'Host is processing another file\nTry again soon',
 
   // ─── Role ────────────────────────────────────────────────────────
-  'role.center': 'Center Speaker',
-  'role.left': 'Left Speaker',
-  'role.right': 'Right Speaker',
-  'role.subwoofer': 'Subwoofer',
   'role.center_placement': 'Place the device in the center',
   'role.left_placement': 'Place the device on the left',
   'role.right_placement': 'Place the device on the right',

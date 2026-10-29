@@ -114,10 +114,6 @@ const de: Record<I18nKey, string> = {
   'nav.go_home': 'Zur Startseite',
 
   // Role
-  'role.center': 'Center',
-  'role.left': 'Links',
-  'role.right': 'Rechts',
-  'role.subwoofer': 'Subwoofer',
   'role.center_placement': 'Platziere das Gerät in der Mitte',
   'role.left_placement': 'Platziere das Gerät links',
   'role.right_placement': 'Platziere das Gerät rechts',

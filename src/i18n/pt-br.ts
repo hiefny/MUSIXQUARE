@@ -113,10 +113,6 @@ const ptBr: Record<I18nKey, string> = {
   'nav.go_home': 'Ir para o início',
 
   // Role
-  'role.center': 'Central',
-  'role.left': 'Esquerdo',
-  'role.right': 'Direito',
-  'role.subwoofer': 'Subwoofer',
   'role.center_placement': 'Coloque o dispositivo no centro',
   'role.left_placement': 'Coloque o dispositivo à esquerda',
   'role.right_placement': 'Coloque o dispositivo à direita',

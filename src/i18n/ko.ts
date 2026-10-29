@@ -181,10 +181,6 @@ const ko = {
   'transfer.host_busy': '방장이 다른 파일을 처리 중이에요\n잠시 후 다시 시도해주세요',
 
   // ─── Role ────────────────────────────────────────────────────────
-  'role.center': '중앙 스피커',
-  'role.left': '왼쪽 스피커',
-  'role.right': '오른쪽 스피커',
-  'role.subwoofer': '서브우퍼',
   'role.center_placement': '기기를 중앙에 놓아주세요',
   'role.left_placement': '기기를 왼쪽에 놓아주세요',
   'role.right_placement': '기기를 오른쪽에 놓아주세요',

@@ -181,10 +181,6 @@ const ar: Record<I18nKey, string> = {
   'transfer.host_busy': 'يعالج المضيف ملفًا آخر\nحاول مجددًا بعد قليل',
 
   // ─── Role ────────────────────────────────────────────────────────
-  'role.center': 'سماعة وسطى',
-  'role.left': 'سماعة يسرى',
-  'role.right': 'سماعة يمنى',
-  'role.subwoofer': 'مضخم الصوت',
   'role.center_placement': 'ضع الجهاز في الوسط',
   'role.left_placement': 'ضع الجهاز على اليسار',
   'role.right_placement': 'ضع الجهاز على اليمين',

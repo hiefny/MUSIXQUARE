@@ -186,10 +186,6 @@ const fil: Record<I18nKey, string> = {
   'transfer.host_busy': 'May ibang file na pinoproseso ang host\nSubukan muli maya-maya',
 
   // ─── Gampanin ────────────────────────────────────────────────────
-  'role.center': 'Gitna',
-  'role.left': 'Kaliwa',
-  'role.right': 'Kanang Speaker',
-  'role.subwoofer': 'Subwoofer',
   'role.center_placement': 'Ilagay ang device sa gitna',
   'role.left_placement': 'Ilagay ang device sa kaliwa',
   'role.right_placement': 'Ilagay ang device sa kanan',

@@ -185,10 +185,6 @@ const bg: Record<I18nKey, string> = {
   'transfer.host_busy': 'Хостът обработва друг файл\nОпитай отново след малко',
 
   // ─── Role ────────────────────────────────────────────────────────
-  'role.center': 'Централна',
-  'role.left': 'Лява тонколона',
-  'role.right': 'Дясна',
-  'role.subwoofer': 'Субуфер',
   'role.center_placement': 'Постави устройството в центъра',
   'role.left_placement': 'Постави устройството отляво',
   'role.right_placement': 'Постави устройството отдясно',

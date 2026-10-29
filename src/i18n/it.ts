@@ -184,10 +184,6 @@ const it: Record<I18nKey, string> = {
   'transfer.host_busy': 'L’host sta elaborando un altro file\nRiprova tra poco',
 
   // ─── Role ────────────────────────────────────────────────────────
-  'role.center': 'Centrale',
-  'role.left': 'Sinistro',
-  'role.right': 'Destro',
-  'role.subwoofer': 'Subwoofer',
   'role.center_placement': 'Posiziona il dispositivo al centro',
   'role.left_placement': 'Posiziona il dispositivo a sinistra',
   'role.right_placement': 'Posiziona il dispositivo a destra',

@@ -182,10 +182,6 @@ const ur: Record<I18nKey, string> = {
   'transfer.host_busy': 'میزبان دوسری فائل پر کام کر رہا ہے\nکچھ دیر بعد کوشش کریں',
 
   // ─── Role ────────────────────────────────────────────────────────
-  'role.center': 'مرکزی اسپیکر',
-  'role.left': 'بایاں اسپیکر',
-  'role.right': 'دایاں اسپیکر',
-  'role.subwoofer': 'سب ووفر',
   'role.center_placement': 'آلہ درمیان میں رکھیں',
   'role.left_placement': 'آلہ بائیں طرف رکھیں',
   'role.right_placement': 'آلہ دائیں طرف رکھیں',

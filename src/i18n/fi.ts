@@ -185,10 +185,6 @@ const fi: Record<I18nKey, string> = {
   'transfer.host_busy': 'Isäntä käsittelee toista tiedostoa\nYritä pian uudelleen',
 
   // ─── Role ────────────────────────────────────────────────────────
-  'role.center': 'Keskikaiutin',
-  'role.left': 'Vasen kaiutin',
-  'role.right': 'Oikea kaiutin',
-  'role.subwoofer': 'Bassokaiutin',
   'role.center_placement': 'Sijoita laite keskelle',
   'role.left_placement': 'Sijoita laite vasemmalle',
   'role.right_placement': 'Sijoita laite oikealle',

@@ -182,10 +182,6 @@ const fa: Record<I18nKey, string> = {
   'transfer.host_busy': 'میزبان در حال پردازش فایل دیگری است\nکمی بعد دوباره تلاش کنید',
 
   // ─── Role ────────────────────────────────────────────────────────
-  'role.center': 'بلندگوی مرکزی',
-  'role.left': 'بلندگوی چپ',
-  'role.right': 'بلندگوی راست',
-  'role.subwoofer': 'ساب‌ووفر',
   'role.center_placement': 'دستگاه را در مرکز بگذارید',
   'role.left_placement': 'دستگاه را سمت چپ بگذارید',
   'role.right_placement': 'دستگاه را سمت راست بگذارید',

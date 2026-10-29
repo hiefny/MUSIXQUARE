@@ -113,10 +113,6 @@ const id: Record<I18nKey, string> = {
   'nav.go_home': 'Ke Beranda',
 
   // Role
-  'role.center': 'Speaker tengah',
-  'role.left': 'Speaker kiri',
-  'role.right': 'Speaker kanan',
-  'role.subwoofer': 'Subwoofer',
   'role.center_placement': 'Letakkan perangkat di tengah',
   'role.left_placement': 'Letakkan perangkat di kiri',
   'role.right_placement': 'Letakkan perangkat di kanan',

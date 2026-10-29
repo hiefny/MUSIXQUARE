@@ -185,10 +185,6 @@ const ro: Record<I18nKey, string> = {
   'transfer.host_busy': 'Gazda procesează alt fișier\nÎncearcă din nou în curând',
 
   // ─── Rol ─────────────────────────────────────────────────────────
-  'role.center': 'Central',
-  'role.left': 'Difuzor stânga',
-  'role.right': 'Dreapta',
-  'role.subwoofer': 'Subwoofer',
   'role.center_placement': 'Așază dispozitivul în centru',
   'role.left_placement': 'Așază dispozitivul în stânga',
   'role.right_placement': 'Așază dispozitivul în dreapta',

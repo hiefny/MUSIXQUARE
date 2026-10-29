@@ -184,10 +184,6 @@ const hu: Record<I18nKey, string> = {
   'transfer.host_busy': 'A házigazda másik fájlt dolgoz fel\nPróbáld újra hamarosan',
 
   // ─── Role ────────────────────────────────────────────────────────
-  'role.center': 'Középső',
-  'role.left': 'Bal hangszóró',
-  'role.right': 'Jobb hangszóró',
-  'role.subwoofer': 'Mélynyomó',
   'role.center_placement': 'Helyezd az eszközt középre',
   'role.left_placement': 'Helyezd az eszközt balra',
   'role.right_placement': 'Helyezd az eszközt jobbra',

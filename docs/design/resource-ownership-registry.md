@@ -360,7 +360,10 @@ RO-53 owner-in-place
     and minimum lead (`LATE_YOUTUBE_COMMIT_THRESHOLD_MS` 1.5 s, `LATE_YOUTUBE_COMMIT_LEAD_MS`
     3 s). Each measures the device's own remaining time (`executeAtMs` against the server clock
     once the wait ends; measured iframe preparation for a rejoin), so none becomes wrong when the
-    Worker's lead or barrier changes. The guard lists them as report-only pairs.
+    Worker's lead or barrier changes. `node scripts/check-resource-ownership.mts --report` lists
+    the three that share a value with the home as report-only pairs: the two 700 ms budgets with
+    the COMMIT lead and the 3 s minimum lead with the barrier. The 1.5 s threshold shares no value
+    with the home and is not listed.
 
   The ordering test that the barriered 2.3 s fits inside the 3 s barrier waits for Phase 0d C2-1,
   which moves 2.3 s to `src/youtube/constants.ts`: until then it is a module constant of
@@ -1150,7 +1153,13 @@ RO-53 owner-in-place
     lane drops it, together with any added-tracks notice the event carries (RO-46);
   - one load normalizer, `normalizeLoadedSignalingOutbox`: both stored record shapes are frozen
     and anything else is dropped, including a playback record of another epoch. It runs after
-    `normalizeLoadedPlaybackAuthority`, which can advance a legacy room's epoch on load.
+    `normalizeLoadedPlaybackAuthority`, which can advance a legacy room's epoch on load. Since
+    Phase 5.5 old-version removal train 3 (9.0.22) the shapes take one optional key, the start
+    kind `timingMode` (`'zero-start'` or `'scheduled-control'`) of a PREPARE or COMMIT event: the
+    loader keeps it and the write path (`enqueuePlaybackBroadcast`, whose new records pass the
+    same check) queues it, so this Worker loads and delivers the records of a later Worker that
+    names the kind. This Worker writes none, and any other value fails the check like any other
+    malformed record.
 
   The lanes keep their contracts and execution modes:
   - presence (`pendingPresenceBroadcast`, `deliverPresenceBroadcast`, `settlePresenceBroadcast`,
@@ -1206,13 +1215,18 @@ RO-53 owner-in-place
   - Mixed versions: `pro-room-signaling-delivery.test.ts` "durable record shapes (rollback
     contract)", against the frozen records in
     `src/pro-room/__tests__/__helpers__/pro-room-outbox-records-51ab2be3.ts` (both directions,
-    and the 16-attempt cap on load).
+    and the 16-attempt cap on load). The optional start kind: `pro-room-signaling-delivery.test.ts`
+    "keeps a stored transition that names timingMode %s across a cold restart and commits it with
+    the %i ms lead" and "keeps and delivers in order a transition COMMIT and a PREPARE that name
+    timingMode across a cold restart", and `pro-room-worker.test.ts` "lets the outbox write path
+    queue a PREPARE and a transition COMMIT that name either timingMode".
 - **Status:** `owner-in-place`. Phase 0d named the constants once (C7-1). Phase 1 C7-3 merged the
   two request builders ([report](pro-room-signaling-transport-2026-10-23.md)); C7-4 gave the
   outbox one due time, one alarm drain, one epoch hook and one load normalizer, with no behaviour
   change ([report](pro-room-outbox-duration-owners-2026-10-23.md)). The trigger modes, due time,
   caps and epoch hook are pinned in `pro-room-signaling-delivery.test.ts`; the request against the
-  real signaling Worker in `pro-room-signaling-contract-workerd`. Durable record shapes are frozen.
+  real signaling Worker in `pro-room-signaling-contract-workerd`. Durable record shapes are frozen
+  apart from the optional `timingMode` key (Phase 5.5 train 3).
   Exceptions RO-31, RO-46.
 
 ### RO-08 PRO asset duration read

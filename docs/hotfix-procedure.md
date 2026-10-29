@@ -728,7 +728,11 @@ gh workflow run app-build-floor.yml --ref main -f action=lower -f min_app_build=
   such a release beforehand with a standalone `set` to the oldest build that copes, then run the
   Signaling admission smoke of the first floor below: both rooms must admit their host and guest,
   and `legacyCompatibility.refusedBelowAppBuildFloor` must equal the new floor (`appBuild.build`
-  is the live build and may be higher). Dispatch the release with `raise_app_build_floor` false
+  is the live build and may be higher). If that `set` or the smoke fails, the `set` bullet above
+  applies, not the first floor's `lower` to 0: after a transient failure dispatch the same `set`
+  again; otherwise `lower` to the last verified floor (the value the same-value `set` just before
+  proved) and run the smoke again, and lower to 0 only if a host is still refused or that `lower`
+  run fails. Dispatch the release with `raise_app_build_floor` false
   (old-version removal train 3, 9.0.22, sets 789 first).
 - A Production Release with target `pro-room` or `all` checks the floor before it changes
   anything: its step "Check the App build floor the PRO Worker requires" runs after the

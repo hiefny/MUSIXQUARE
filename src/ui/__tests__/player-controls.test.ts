@@ -1113,6 +1113,90 @@ describe('YouTube popup initial focus', () => {
   });
 });
 
+describe('media picker initial focus', () => {
+  beforeEach(() => {
+    vi.useFakeTimers();
+    __resetModalStackForTests();
+  });
+
+  afterEach(() => {
+    clearAllManagedTimers();
+    __resetModalStackForTests();
+    vi.useRealTimers();
+  });
+
+  function setup() {
+    document.body.innerHTML = `
+      <button id="btn-media-source">Media</button>
+      <div id="media-source-overlay" role="dialog" aria-modal="true" tabindex="-1">
+        <button id="btn-local-file">Local file</button>
+        <button id="btn-youtube-source">YouTube</button>
+        <button id="btn-close-media-popup">Close</button>
+      </div>
+    `;
+    setState('network.appRole', 'host');
+    setState('network.standardRoomCapabilities', ['media.add', 'asset.upload']);
+    initPlayerControls();
+    return {
+      opener: document.getElementById('btn-media-source') as HTMLButtonElement,
+      overlay: document.getElementById('media-source-overlay') as HTMLElement,
+      local: document.getElementById('btn-local-file') as HTMLButtonElement,
+      youtube: document.getElementById('btn-youtube-source') as HTMLButtonElement,
+    };
+  }
+
+  function pressTab(target: HTMLElement): void {
+    target.dispatchEvent(
+      new KeyboardEvent('keydown', { key: 'Tab', bubbles: true, cancelable: true }),
+    );
+  }
+
+  // A keyboard open inerts the focused source button, so the modal stack
+  // moves focus to the first action before the 0 ms media-source-focus timer
+  // runs. In WebKit a fast Tab could land in that gap, and the timer then
+  // took focus back to the first action (found with #518).
+  it('keeps a Tab that lands before the delayed first-action focus', () => {
+    const elements = setup();
+    elements.opener.focus();
+    elements.opener.click();
+    expect(document.activeElement).toBe(elements.local);
+
+    pressTab(elements.local);
+    expect(document.activeElement).toBe(elements.youtube);
+    vi.advanceTimersByTime(0);
+
+    expect(document.activeElement).toBe(elements.youtube);
+  });
+
+  it.each(['body', 'overlay'] as const)(
+    'still moves a keyboard open from the %s to the first action',
+    (target) => {
+      const elements = setup();
+      // A keyboard activation need not focus the source button first.
+      elements.opener.click();
+      if (target === 'overlay') elements.overlay.focus();
+      expect(document.activeElement).toBe(target === 'body' ? document.body : elements.overlay);
+
+      vi.advanceTimersByTime(0);
+
+      expect(document.activeElement).toBe(elements.local);
+    },
+  );
+
+  it('still moves a pointer open to the picker surface after the modal stack focused an action', () => {
+    const elements = setup();
+    // Chromium focuses a clicked button, so the modal stack moves focus off
+    // the inert source button onto the first action, as for a keyboard open.
+    elements.opener.focus();
+    elements.opener.dispatchEvent(new MouseEvent('click', { bubbles: true, detail: 1 }));
+    expect(document.activeElement).toBe(elements.local);
+
+    vi.advanceTimersByTime(0);
+
+    expect(document.activeElement).toBe(elements.overlay);
+  });
+});
+
 describe('PRO room media-source capabilities', () => {
   it('restores the ordinary host affordance when setup changes idle to host', () => {
     document.body.innerHTML = `

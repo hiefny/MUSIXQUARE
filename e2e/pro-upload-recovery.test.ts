@@ -94,7 +94,11 @@ async function uploadFixture(page: Page, completionError = 'PRO_ROOM_API_UNAVAIL
     const request = route.request();
     const pathname = new URL(request.url()).pathname;
     if (pathname.endsWith('/bootstrap')) {
-      await fulfillProJson(page, route, { roomCode: PRO_ROOM_CODE, status: 'pin_required' });
+      await fulfillProJson(page, route, {
+        roomCode: PRO_ROOM_CODE,
+        status: 'pin_required',
+        passwordRequired: true,
+      });
     } else if (pathname.endsWith('/owner-recovery') || pathname.endsWith('/snapshot')) {
       await fulfillProJson(page, route, { snapshot });
     } else if (pathname.endsWith('/signaling-tickets')) {

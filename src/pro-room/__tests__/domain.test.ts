@@ -239,7 +239,7 @@ function authorityMemberSnapshot(capabilities: ProRoomCapability[]): ProRoomSnap
   return value;
 }
 
-/** The active room with both optional fields: entry protection and the playlist summaries. */
+/** The active room with its entry protection and playlist summaries spelled out. */
 function protectedFieldsWithSlots(): ProSnapshotFields {
   return {
     ...activeFields(),
@@ -445,21 +445,19 @@ describe('PRO room snapshot validation', () => {
     }
   });
 
+  // Every PRO Worker since the one that first sent schemaVersion 2 sends only
+  // that wire, so the App refuses the schemaVersion 1 wire of any room, even
+  // with all four coordinator-era keys at their only allowed values.
   it.each([
     ['an active room', activeFields],
     ['an entry-protected room with playlist summaries', protectedFieldsWithSlots],
     ['an unactivated room', unactivatedFields],
-  ] as const)(
-    'reads the schemaVersion 1 wire of %s into the schemaVersion 2 memory shape',
-    (_room, fields) => {
-      const fromV1 = parseProRoomSnapshot(proSnapshotV1(fields()));
-      expect(fromV1).toEqual(proSnapshotV2(fields()));
-      // One revision has to compare equal whichever wire version carried it.
-      expect(JSON.stringify(fromV1)).toBe(
-        JSON.stringify(parseProRoomSnapshot(proSnapshotV2(fields()))),
-      );
-    },
-  );
+  ] as const)('rejects the schemaVersion 1 wire of %s', (_room, fields) => {
+    // The same room on the schemaVersion 2 wire parses, so the refusal comes
+    // from the wire version alone.
+    expect(parseProRoomSnapshot(proSnapshotV2(fields()))).toEqual(proSnapshotV2(fields()));
+    expect(parseProRoomSnapshot(proSnapshotV1(fields()))).toBeNull();
+  });
 
   it.each(COORDINATOR_ERA_KEYS)(
     'rejects a schemaVersion 2 snapshot that carries $key',
@@ -472,18 +470,10 @@ describe('PRO room snapshot validation', () => {
     },
   );
 
-  it.each(COORDINATOR_ERA_KEYS)('rejects a schemaVersion 1 snapshot without $key', ({ key }) => {
-    const wire = mutableWire(proSnapshotV1(activeFields()));
-    expect(parseProRoomSnapshot(wire)).not.toBeNull();
-    const [holder, name] = keyHolder(wire, key);
-    delete holder[name];
-    expect(parseProRoomSnapshot(wire)).toBeNull();
-  });
-
-  it('reads only snapshot schemaVersion 1 and 2, each with its own key set', () => {
+  it('reads only snapshot schemaVersion 2 with its own key set', () => {
     const wire = mutableWire(proSnapshotV2(activeFields()));
     expect(parseProRoomSnapshot(wire)).not.toBeNull();
-    for (const schemaVersion of [0, 3, '2', null]) {
+    for (const schemaVersion of [0, 1, 3, '2', null]) {
       wire.schemaVersion = schemaVersion;
       expect(parseProRoomSnapshot(wire)).toBeNull();
     }
@@ -493,14 +483,9 @@ describe('PRO room snapshot validation', () => {
     const v1KeysLabelledV2 = mutableWire(proSnapshotV1(activeFields()));
     v1KeysLabelledV2.schemaVersion = 2;
     expect(parseProRoomSnapshot(v1KeysLabelledV2)).toBeNull();
-
-    const v2KeysLabelledV1 = mutableWire(proSnapshotV2(activeFields()));
-    v2KeysLabelledV1.schemaVersion = 1;
-    expect(parseProRoomSnapshot(v2KeysLabelledV1)).toBeNull();
   });
 
-  it('parses optional entry protection while preserving legacy fail-closed absence', () => {
-    expect(parseProRoomSnapshot(activeSnapshot())?.passwordRequired).toBeUndefined();
+  it('requires the entry policy and keeps it as sent', () => {
     for (const passwordRequired of [true, false]) {
       expect(
         parseProRoomSnapshot({ ...activeSnapshot(), passwordRequired })?.passwordRequired,
@@ -508,6 +493,17 @@ describe('PRO room snapshot validation', () => {
     }
     for (const passwordRequired of [null, 0, 'false', {}]) {
       expect(parseProRoomSnapshot({ ...activeSnapshot(), passwordRequired })).toBeNull();
+    }
+    // An absent policy no longer reads as a protected room: the snapshot is refused.
+    const { passwordRequired: _omitted, ...withoutPolicy } = activeSnapshot();
+    expect(parseProRoomSnapshot(withoutPolicy)).toBeNull();
+  });
+
+  it('requires the playlist summaries on every snapshot', () => {
+    for (const fields of [activeFields(), unactivatedFields()]) {
+      const { playlistSlots: _omitted, ...withoutSummaries } = proSnapshotV2(fields);
+      expect(parseProRoomSnapshot(proSnapshotV2(fields))).not.toBeNull();
+      expect(parseProRoomSnapshot(withoutSummaries)).toBeNull();
     }
   });
 
@@ -536,16 +532,9 @@ describe('PRO room snapshot validation', () => {
   });
 
   it('rejects snapshots missing any launch authority projection field', () => {
-    // Snapshot schemaVersion 1 also carries the retired authority marker.
-    for (const [wire, field] of [
-      [proSnapshotV1(activeFields()), 'authorityVersion'],
-      [proSnapshotV1(activeFields()), 'administrators'],
-      [proSnapshotV2(activeFields()), 'administrators'],
-    ] as const) {
-      const incomplete = structuredClone(wire) as unknown as Record<string, unknown>;
-      delete incomplete[field];
-      expect(parseProRoomSnapshot(incomplete)).toBeNull();
-    }
+    const incomplete = structuredClone(activeSnapshot()) as unknown as Record<string, unknown>;
+    delete incomplete.administrators;
+    expect(parseProRoomSnapshot(incomplete)).toBeNull();
 
     const participantWithoutCapabilities = structuredClone(activeSnapshot()) as unknown as Record<
       string,
@@ -589,11 +578,8 @@ describe('PRO room snapshot validation', () => {
 
   // Old-version removal train 3 dropped the coordinator half of the sleeping
   // room check when the parser learned schemaVersion 2. The participant half
-  // stays on both wires: a sleeping room lists nobody in presence.
-  it.each([
-    ['schemaVersion 1', proSnapshotV1],
-    ['schemaVersion 2', proSnapshotV2],
-  ] as const)('rejects a %s sleeping room that still lists a participant', (_wire, toWire) => {
+  // stays: a sleeping room lists nobody in presence.
+  it('rejects a sleeping room that still lists a participant', () => {
     const sleepingFields = (): ProSnapshotFields => ({ ...activeFields(), runtime: 'sleeping' });
 
     // The same room without presence parses, so the refusal below comes from
@@ -601,24 +587,12 @@ describe('PRO room snapshot validation', () => {
     const empty = sleepingFields();
     empty.presence.participants = [];
     empty.administrators[0]!.onlineDeviceCount = 0;
-    expect(parseProRoomSnapshot(toWire(empty))).not.toBeNull();
+    expect(parseProRoomSnapshot(proSnapshotV2(empty))).not.toBeNull();
 
     const listed = sleepingFields();
     expect(listed.presence.participants).toHaveLength(1);
     expect(listed.administrators[0]!.onlineDeviceCount).toBe(1);
-    expect(parseProRoomSnapshot(toWire(listed))).toBeNull();
-  });
-
-  it('accepts coordinator-free schemaVersion 1 authority and rejects a stale elected-browser snapshot', () => {
-    const coordinatorFree = proSnapshotV1(activeFields());
-    expect(parseProRoomSnapshot(coordinatorFree)).not.toBeNull();
-
-    coordinatorFree.presence.coordinatorParticipantId = PARTICIPANT_ID;
-    expect(parseProRoomSnapshot(coordinatorFree)).toBeNull();
-
-    const absentCoordinator = proSnapshotV1(activeFields());
-    absentCoordinator.presence.coordinatorParticipantId = 'participant_99999';
-    expect(parseProRoomSnapshot(absentCoordinator)).toBeNull();
+    expect(parseProRoomSnapshot(proSnapshotV2(listed))).toBeNull();
   });
 
   it('rejects the retired browser-coordinator capability', () => {
@@ -632,19 +606,6 @@ describe('PRO room snapshot validation', () => {
     const participantOnly = activeSnapshot();
     participantOnly.presence.participants[0]!.capabilities = [...OWNER_CAPABILITIES, retired];
     expect(parseProRoomSnapshot(participantOnly)).toBeNull();
-  });
-
-  it('rejects a coordinator-eligible viewer in a schemaVersion 1 snapshot', () => {
-    const retired = 'coordinator.eligible' as unknown as ProRoomCapability;
-    const eligibleViewer = proSnapshotV1(activeFields());
-    eligibleViewer.viewer!.capabilities = [...OWNER_CAPABILITIES, retired];
-    eligibleViewer.viewer!.coordinatorEligible = true;
-    expect(parseProRoomSnapshot(eligibleViewer)).toBeNull();
-
-    const eligibleWithoutCapability = proSnapshotV1(activeFields());
-    expect(parseProRoomSnapshot(eligibleWithoutCapability)).not.toBeNull();
-    eligibleWithoutCapability.viewer!.coordinatorEligible = true;
-    expect(parseProRoomSnapshot(eligibleWithoutCapability)).toBeNull();
   });
 
   it('requires a suspended room to sleep and strips all effective capabilities', () => {
@@ -844,24 +805,30 @@ describe('monotonic PRO snapshot application', () => {
     });
   });
 
-  it('counts the schemaVersion 1 and 2 wires of one revision as one snapshot', () => {
-    // A PRO Worker that starts sending schemaVersion 2 must not turn the
-    // installed revision into a conflict, whichever wire arrives first.
-    const fromV1 = applyProRoomSnapshotMonotonically(null, proSnapshotV1(activeFields())).snapshot;
-    const fromV2 = applyProRoomSnapshotMonotonically(null, proSnapshotV2(activeFields())).snapshot;
-    expect(fromV1).not.toBeNull();
-    expect(fromV2).not.toBeNull();
-    expect(applyProRoomSnapshotMonotonically(fromV1, proSnapshotV2(activeFields()))).toEqual({
-      outcome: 'duplicate',
-      snapshot: fromV1,
+  it('keeps the installed snapshot when a schemaVersion 1 wire arrives', () => {
+    // No PRO Worker since the one that first sent schemaVersion 2 sends the
+    // v1 wire, so it is invalid whatever revision it carries, and a later v2
+    // revision still applies.
+    expect(applyProRoomSnapshotMonotonically(null, proSnapshotV1(activeFields()))).toEqual({
+      outcome: 'invalid',
+      snapshot: null,
     });
-    expect(applyProRoomSnapshotMonotonically(fromV2, proSnapshotV1(activeFields()))).toEqual({
-      outcome: 'duplicate',
-      snapshot: fromV2,
-    });
+    const installed = applyProRoomSnapshotMonotonically(
+      null,
+      proSnapshotV2(activeFields()),
+    ).snapshot;
+    expect(installed).not.toBeNull();
+    for (const revision of [12, 13]) {
+      expect(
+        applyProRoomSnapshotMonotonically(
+          installed,
+          proSnapshotV1({ ...activeFields(), revision }),
+        ),
+      ).toEqual({ outcome: 'invalid', snapshot: installed });
+    }
 
     const newer = { ...activeFields(), revision: 13 };
-    expect(applyProRoomSnapshotMonotonically(fromV1, proSnapshotV2(newer))).toEqual({
+    expect(applyProRoomSnapshotMonotonically(installed, proSnapshotV2(newer))).toEqual({
       outcome: 'applied',
       snapshot: proSnapshotV2(newer),
     });

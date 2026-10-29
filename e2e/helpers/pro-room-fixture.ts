@@ -55,10 +55,14 @@ export function ownerSnapshot(): Record<string, unknown> {
     'members.kick': true,
     'chat.notice': true,
   };
+  // PRO snapshot schemaVersion 2, the only wire the App reads: no
+  // coordinator-era keys, and the entry policy and playlist summaries on
+  // every snapshot.
   const snapshot: Record<string, unknown> = {
-    schemaVersion: 1,
+    schemaVersion: 2,
     roomCode: PRO_ROOM_CODE,
     status: 'active',
+    passwordRequired: true,
     runtime: 'awake',
     revision: 4,
     playlistRevision: 0,
@@ -79,7 +83,6 @@ export function ownerSnapshot(): Record<string, unknown> {
     presence: {
       coordinatorEpoch: 2,
       revision: 3,
-      coordinatorParticipantId: null,
       participants: [
         {
           participantId: PARTICIPANT_ID,
@@ -109,10 +112,7 @@ export function ownerSnapshot(): Record<string, unknown> {
       displayName: 'Recovered owner',
       role: 'owner',
       capabilities,
-      coordinatorEligible: false,
     },
-    memberIdentityVersion: 1,
-    authorityVersion: 1,
     administrators: [
       {
         memberId: MEMBER_ID,

@@ -20,7 +20,7 @@ import {
   type ProRoomPlaylistStateApiForTests as ProRoomPlaylistStateApi,
   type ProRoomLocalFileRetryState,
 } from '../playlist-state-manager.ts';
-import { proSnapshot } from './__helpers__/pro-snapshot.ts';
+import { proSnapshot, recountProPlaylist } from './__helpers__/pro-snapshot.ts';
 
 const ROOM_CODE = '000000';
 const A = '11111111-1111-4111-8111-111111111111';
@@ -63,8 +63,12 @@ function r2(
   };
 }
 
+/**
+ * A Worker reply: whichever playlist `overrides` brings, the active entry of
+ * the playlist summaries counts it.
+ */
 function activeSnapshot(overrides: Partial<ProRoomSnapshot> = {}): ProRoomSnapshot {
-  return proSnapshot({
+  const snapshot = proSnapshot({
     roomCode: ROOM_CODE,
     status: 'active',
     runtime: 'awake',
@@ -136,6 +140,7 @@ function activeSnapshot(overrides: Partial<ProRoomSnapshot> = {}): ProRoomSnapsh
     ],
     ...overrides,
   });
+  return recountProPlaylist(snapshot);
 }
 
 function asset(assetId: string): ProRoomR2Source {
@@ -2102,14 +2107,32 @@ describe('PRO room playlist slots', () => {
     expect(accepted.playlist.map((item) => item.queueItemId)).toEqual([C]);
   });
 
-  it('fails closed without playlist summaries or with invalid arguments', async () => {
-    const legacy = activeSnapshot({ playlist: [youtube(A)] });
-    const api = slotApi(legacy);
-    const { manager } = await managerFor(legacy, api);
-
-    await expect(manager.switchPlaylist(1)).rejects.toMatchObject({
+  it('fails closed without the playlist API or with invalid arguments', async () => {
+    // Every snapshot carries the playlist summaries, so the manager can only
+    // lack the API that switches and transfers.
+    const initial = slotted(0, [youtube(A)], [1, 0, 0]);
+    const {
+      switchPlaylist: _switch,
+      transferPlaylistTracks: _transfer,
+      ...withoutSlotApi
+    } = slotApi(initial);
+    const unsupported = new ProRoomPlaylistStateManager({
+      code: ROOM_CODE,
+      api: withoutSlotApi,
+      mediaTransfer: mediaTransfer(),
+      sink: vi.fn(),
+      ...factories(),
+    });
+    await unsupported.acceptSnapshot(initial);
+    await expect(unsupported.switchPlaylist(1)).rejects.toMatchObject({
       code: 'PRO_ROOM_PLAYLIST_SLOTS_UNAVAILABLE',
     });
+    await expect(unsupported.transferTracks([A], [1], 'copy')).rejects.toMatchObject({
+      code: 'PRO_ROOM_PLAYLIST_SLOTS_UNAVAILABLE',
+    });
+
+    const api = slotApi(initial);
+    const { manager } = await managerFor(initial, api);
     await expect(manager.switchPlaylist(3)).rejects.toMatchObject({
       code: 'PRO_ROOM_PLAYLIST_SLOT_INVALID',
     });

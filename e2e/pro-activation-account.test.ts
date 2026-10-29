@@ -92,7 +92,11 @@ async function openClaim(
       return;
     }
     if (url.pathname.endsWith(`/v1/rooms/${ROOM_CODE}/bootstrap`)) {
-      await json(route, { roomCode: ROOM_CODE, status: 'activation_required' });
+      await json(route, {
+        roomCode: ROOM_CODE,
+        status: 'activation_required',
+        passwordRequired: true,
+      });
       return;
     }
     if (url.pathname.endsWith(`/v1/rooms/${ROOM_CODE}/activation`)) {

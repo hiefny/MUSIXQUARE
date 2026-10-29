@@ -61,7 +61,11 @@ import {
   requestProRoomBackgroundReturnSync,
 } from '../runtime.ts';
 import { idleProSystemAudio, proHeartbeat } from './__helpers__/pro-heartbeat.ts';
-import { proAdministratorDirectory, proSnapshot } from './__helpers__/pro-snapshot.ts';
+import {
+  proAdministratorDirectory,
+  proSnapshot,
+  recountProPlaylist,
+} from './__helpers__/pro-snapshot.ts';
 
 const nativeCreateSessionForQa20 = ProRoomApiClient.prototype.createSession;
 const nativeHeartbeatForQa20 = ProRoomApiClient.prototype.heartbeat;
@@ -368,7 +372,7 @@ describe('coordinator-free PRO playback runtime', { concurrent: false }, () => {
   });
 
   function savedYouTubePlaylists(): ProRoomSnapshot {
-    return {
+    return recountProPlaylist({
       ...snapshot(),
       revision: 2,
       playlistRevision: 2,
@@ -394,7 +398,7 @@ describe('coordinator-free PRO playback runtime', { concurrent: false }, () => {
           },
         },
       ],
-    };
+    });
   }
 
   it('restores saved YouTube manifests atomically on a cache-empty PRO reentry', async () => {
@@ -1190,7 +1194,7 @@ describe('coordinator-free PRO playback runtime', { concurrent: false }, () => {
     await new Promise((resolve) => setTimeout(resolve, 0));
     heartbeat.mockClear();
     systemAudio.mockClear();
-    const hydrated: ProRoomSnapshot = {
+    const hydrated: ProRoomSnapshot = recountProPlaylist({
       ...snapshot(),
       revision: 2,
       playlistRevision: 2,
@@ -1202,7 +1206,7 @@ describe('coordinator-free PRO playback runtime', { concurrent: false }, () => {
           source: { kind: 'youtube', videoId: ADDED_VIDEO_ID },
         },
       ],
-    };
+    });
     heartbeat.mockResolvedValue(proHeartbeat(hydrated));
     prepareMedia.mockImplementationOnce(async (request): Promise<ProPlaybackPrepareResult> => {
       expect(
@@ -1253,7 +1257,7 @@ describe('coordinator-free PRO playback runtime', { concurrent: false }, () => {
     heartbeat.mockClear();
     systemAudio.mockClear();
 
-    const hydrated: ProRoomSnapshot = {
+    const hydrated: ProRoomSnapshot = recountProPlaylist({
       ...snapshot(),
       revision: 2,
       playlistRevision: 2,
@@ -1265,7 +1269,7 @@ describe('coordinator-free PRO playback runtime', { concurrent: false }, () => {
           source: { kind: 'youtube', videoId: ADDED_VIDEO_ID },
         },
       ],
-    };
+    });
     heartbeat
       .mockResolvedValueOnce(proHeartbeat(snapshot()))
       .mockResolvedValue(proHeartbeat(hydrated));
@@ -1315,7 +1319,7 @@ describe('coordinator-free PRO playback runtime', { concurrent: false }, () => {
     heartbeat.mockClear();
 
     let rejectOlderHeartbeat!: (error: unknown) => void;
-    const hydrated: ProRoomSnapshot = {
+    const hydrated: ProRoomSnapshot = recountProPlaylist({
       ...snapshot(),
       revision: 2,
       playlistRevision: 2,
@@ -1327,7 +1331,7 @@ describe('coordinator-free PRO playback runtime', { concurrent: false }, () => {
           source: { kind: 'youtube', videoId: ADDED_VIDEO_ID },
         },
       ],
-    };
+    });
     heartbeat
       .mockImplementationOnce(
         () =>
@@ -1428,7 +1432,7 @@ describe('coordinator-free PRO playback runtime', { concurrent: false }, () => {
 
   it('preserves a repeat edit when its queue-mode refresh overlaps another local reorder', async () => {
     await new Promise((resolve) => setTimeout(resolve, 0));
-    let canonical = {
+    let canonical = recountProPlaylist({
       ...snapshot(),
       revision: 2,
       playlistRevision: 2,
@@ -1440,7 +1444,7 @@ describe('coordinator-free PRO playback runtime', { concurrent: false }, () => {
           source: { kind: 'youtube' as const, videoId: ADDED_VIDEO_ID },
         },
       ],
-    };
+    });
     let mode = {
       schemaVersion: 1 as const,
       view: 'queue-mode' as const,
@@ -1466,12 +1470,12 @@ describe('coordinator-free PRO playback runtime', { concurrent: false }, () => {
       .spyOn(ProRoomApiClient.prototype, 'updateCompactSnapshot')
       .mockImplementation(async (input) => {
         const rows = new Map(canonical.playlist.map((item) => [item.queueItemId, item]));
-        canonical = {
+        canonical = recountProPlaylist({
           ...canonical,
           revision: canonical.revision + 1,
           playlistRevision: canonical.playlistRevision + 1,
           playlist: input.playlistOrder!.map((queueItemId) => rows.get(queueItemId)!),
-        };
+        });
         mode = { ...mode, playlistRevision: canonical.playlistRevision };
         return canonical;
       });
@@ -2575,19 +2579,21 @@ describe('coordinator-free PRO playback runtime', { concurrent: false }, () => {
         reason: 'superseded',
       }),
     );
-    resolveHeartbeat({
-      ...snapshot(),
-      revision: 2,
-      playlistRevision: 2,
-      playlist: [
-        ...snapshot().playlist,
-        {
-          queueItemId: ADDED_QUEUE_ITEM_ID,
-          name: 'BOT-added track',
-          source: { kind: 'youtube', videoId: ADDED_VIDEO_ID },
-        },
-      ],
-    });
+    resolveHeartbeat(
+      recountProPlaylist({
+        ...snapshot(),
+        revision: 2,
+        playlistRevision: 2,
+        playlist: [
+          ...snapshot().playlist,
+          {
+            queueItemId: ADDED_QUEUE_ITEM_ID,
+            name: 'BOT-added track',
+            source: { kind: 'youtube', videoId: ADDED_VIDEO_ID },
+          },
+        ],
+      }),
+    );
     await vi.waitFor(() =>
       expect(
         getState('playlist.items').some((item) => item.queueItemId === ADDED_QUEUE_ITEM_ID),

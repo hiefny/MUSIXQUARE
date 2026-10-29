@@ -310,7 +310,11 @@ test.describe('Critical browser release gate', () => {
         return;
       }
       if (pathname.endsWith(`/v1/rooms/${PRO_ROOM_CODE}/bootstrap`)) {
-        await fulfillProJson(page, route, { roomCode: PRO_ROOM_CODE, status: 'pin_required' });
+        await fulfillProJson(page, route, {
+          roomCode: PRO_ROOM_CODE,
+          status: 'pin_required',
+          passwordRequired: true,
+        });
         return;
       }
       if (pathname.endsWith(`/v1/rooms/${PRO_ROOM_CODE}/owner-recovery`)) {
@@ -485,7 +489,11 @@ test.describe('Critical browser release gate', () => {
       if (request.method() === 'OPTIONS') {
         await route.fulfill({ status: 204, headers: proCorsHeaders(page), body: '' });
       } else if (pathname.endsWith(`/v1/rooms/${PRO_ROOM_CODE}/bootstrap`)) {
-        await fulfillProJson(page, route, { roomCode: PRO_ROOM_CODE, status: 'pin_required' });
+        await fulfillProJson(page, route, {
+          roomCode: PRO_ROOM_CODE,
+          status: 'pin_required',
+          passwordRequired: true,
+        });
       } else if (pathname.endsWith(`/v1/rooms/${PRO_ROOM_CODE}/owner-recovery`)) {
         await fulfillProJson(page, route, { snapshot });
       } else if (pathname.endsWith(`/v1/rooms/${PRO_ROOM_CODE}/presence/heartbeat`)) {
@@ -613,7 +621,11 @@ test.describe('Critical browser release gate', () => {
         if (route.request().method() === 'OPTIONS') {
           await route.fulfill({ status: 204, headers: proCorsHeaders(page), body: '' });
         } else if (path.endsWith('/bootstrap')) {
-          await fulfillProJson(page, route, { roomCode: PRO_ROOM_CODE, status: 'pin_required' });
+          await fulfillProJson(page, route, {
+            roomCode: PRO_ROOM_CODE,
+            status: 'pin_required',
+            passwordRequired: true,
+          });
         } else if (path.endsWith('/owner-recovery')) {
           await fulfillProJson(page, route, { snapshot });
         } else if (path.endsWith('/presence/heartbeat')) {

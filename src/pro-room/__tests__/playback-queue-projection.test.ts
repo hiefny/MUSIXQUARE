@@ -27,7 +27,7 @@ import { installProClockSnapshotMocks } from './__helpers__/pro-clock-fixture.ts
 import { ServerProRoomNetworkBridge } from '../network-bridge.ts';
 import { acceptProRoomRealtimeFrameForTests, joinProRoom } from '../runtime.ts';
 import { proHeartbeat } from './__helpers__/pro-heartbeat.ts';
-import { proSnapshot } from './__helpers__/pro-snapshot.ts';
+import { proSnapshot, recountProPlaylist } from './__helpers__/pro-snapshot.ts';
 
 const ROOM = '000001';
 const PARTICIPANT = 'participant_00001';
@@ -193,14 +193,14 @@ describe('PRO queue projection during persistent media preparation', { concurren
     vi.spyOn(ProRoomApiClient.prototype, 'updateCompactSnapshot').mockImplementation(
       async (input) => {
         expect(input.currentQueueItemId).toBe(canonical.currentQueueItemId);
-        canonical = {
+        canonical = recountProPlaylist({
           ...canonical,
           revision: canonical.revision + 1,
           playlistRevision: canonical.playlistRevision + 1,
           playlist: input.playlistOrder!.map((queueItemId) =>
             canonical.playlist.find((item) => item.queueItemId === queueItemId)!,
           ),
-        };
+        });
         return canonical;
       },
     );

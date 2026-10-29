@@ -1,3 +1,5 @@
+import { PLAYLIST_SLOT_COUNT } from '../../../core/constants.ts';
+import type { PlaylistSlotSummary, PlaylistSlotsSummary } from '../../../types/index.ts';
 import type {
   ProRoomAdministrator,
   ProRoomPresenceSnapshot,
@@ -18,13 +20,16 @@ import type {
  * spells every other field and lets these helpers add the schema version and
  * the four keys, so no fixture writes them itself.
  *
+ * Every PRO Worker since release W sends the entry policy (`passwordRequired`)
+ * and the playlist summaries (`playlistSlots`) with every snapshot, on either
+ * wire. A fixture may leave them out: both builders then add a room that asks
+ * for the PIN and has one playlist, the fixture's own, in the first slot.
+ *
  * `proSnapshotV1` and `proSnapshotV2` build one wire version each, for rows
  * that pin a version. The default output is the v2 wire, which is also the
- * parsed (memory) shape that both wires parse to: the keys come out in the
- * parser's order, so the rows that compare a parsed snapshot with its fixture
- * pass for either wire. The default switched from the v1 wire in the code
- * commit of the App change that started accepting v2, not in its test-first
- * commit, where the parent's v1-only parser would have refused every fixture.
+ * parsed (memory) shape: the keys come out in the parser's order, so the rows
+ * that compare a parsed snapshot with its fixture pass. The App reads only
+ * the v2 wire; the v1 builder remains for the rows that pin its refusal.
  */
 
 /** A presence block: the memory shape, which has no coordinator-era key. */
@@ -33,14 +38,22 @@ export type ProPresenceFields = ProRoomPresenceSnapshot;
 /** A viewer: the memory shape, which has no coordinator-era key. */
 export type ProViewerFields = ProRoomViewerSnapshot;
 
-/** Every snapshot field a fixture chooses: all but the schema version. */
-export type ProSnapshotFields = Omit<ProRoomSnapshot, 'schemaVersion' | 'presence' | 'viewer'> & {
+/**
+ * Every snapshot field a fixture chooses: all but the schema version. The
+ * entry policy and the playlist summaries may be left out (see above).
+ */
+export type ProSnapshotFields = Omit<
+  ProRoomSnapshot,
+  'schemaVersion' | 'presence' | 'viewer' | 'passwordRequired' | 'playlistSlots'
+> & {
   presence: ProPresenceFields;
   viewer: ProViewerFields | null;
+  passwordRequired?: boolean;
+  playlistSlots?: PlaylistSlotsSummary;
 };
 
 /** Snapshot schemaVersion 1 on the wire: every field and the four coordinator-era keys. */
-export type ProSnapshotV1Wire = Omit<ProSnapshotFields, 'presence' | 'viewer'> & {
+export type ProSnapshotV1Wire = Omit<ProRoomSnapshot, 'schemaVersion' | 'presence' | 'viewer'> & {
   schemaVersion: 1;
   presence: ProPresenceFields & { coordinatorParticipantId: string | null };
   viewer: (ProViewerFields & { coordinatorEligible: boolean }) | null;
@@ -49,7 +62,48 @@ export type ProSnapshotV1Wire = Omit<ProSnapshotFields, 'presence' | 'viewer'> &
 };
 
 /** Snapshot schemaVersion 2 on the wire: every field and none of the four keys. */
-export type ProSnapshotV2Wire = ProSnapshotFields & { schemaVersion: 2 };
+export type ProSnapshotV2Wire = ProRoomSnapshot;
+
+/** One playlist's summary: its length, and its file sizes added up (null without files). */
+function playlistSummary(playlist: ProSnapshotFields['playlist']): PlaylistSlotSummary {
+  let bytes: number | null = null;
+  for (const item of playlist) {
+    if (item.source.kind === 'pro-r2') bytes = (bytes ?? 0) + item.source.byteLength;
+  }
+  return { count: playlist.length, bytes };
+}
+
+/** The playlist summaries of a room whose only playlist is `playlist`, in the first slot. */
+function onePlaylistSlots(playlist: ProSnapshotFields['playlist']): PlaylistSlotsSummary {
+  return {
+    activeSlot: 0,
+    slots: Array.from({ length: PLAYLIST_SLOT_COUNT }, (_, slot) =>
+      slot === 0 ? playlistSummary(playlist) : { count: 0, bytes: null },
+    ),
+  };
+}
+
+/**
+ * `snapshot` with the active entry of its playlist summaries recounted from
+ * its playlist, as a PRO Worker sends it; the other playlists stay. The App
+ * refuses a snapshot whose active playlist count differs from its playlist,
+ * so a fixture that changes the playlist of a snapshot it already built
+ * passes the result through here.
+ */
+export function recountProPlaylist<T extends Pick<ProSnapshotFields, 'playlist' | 'playlistSlots'>>(
+  snapshot: T,
+): T & { playlistSlots: PlaylistSlotsSummary } {
+  const { activeSlot, slots } = snapshot.playlistSlots ?? onePlaylistSlots([]);
+  return {
+    ...snapshot,
+    playlistSlots: {
+      activeSlot,
+      slots: slots.map((slot, index) =>
+        index === activeSlot ? playlistSummary(snapshot.playlist) : slot,
+      ),
+    },
+  };
+}
 
 function presenceV1(fields: ProPresenceFields): ProSnapshotV1Wire['presence'] {
   return {
@@ -85,13 +139,13 @@ function viewerV2(fields: ProViewerFields): ProViewerFields {
   };
 }
 
-/** A complete snapshot schemaVersion 1 on the wire. */
+/** A complete snapshot schemaVersion 1 on the wire, as the last PRO Worker that sent it did. */
 export function proSnapshotV1(fields: ProSnapshotFields): ProSnapshotV1Wire {
   return {
     schemaVersion: 1,
     roomCode: fields.roomCode,
     status: fields.status,
-    ...(fields.passwordRequired === undefined ? {} : { passwordRequired: fields.passwordRequired }),
+    passwordRequired: fields.passwordRequired ?? true,
     runtime: fields.runtime,
     revision: fields.revision,
     playlistRevision: fields.playlistRevision,
@@ -106,7 +160,7 @@ export function proSnapshotV1(fields: ProSnapshotFields): ProSnapshotV1Wire {
     memberIdentityVersion: 1,
     authorityVersion: 1,
     administrators: fields.administrators,
-    ...(fields.playlistSlots === undefined ? {} : { playlistSlots: fields.playlistSlots }),
+    playlistSlots: fields.playlistSlots ?? onePlaylistSlots(fields.playlist),
   };
 }
 
@@ -116,7 +170,7 @@ export function proSnapshotV2(fields: ProSnapshotFields): ProSnapshotV2Wire {
     schemaVersion: 2,
     roomCode: fields.roomCode,
     status: fields.status,
-    ...(fields.passwordRequired === undefined ? {} : { passwordRequired: fields.passwordRequired }),
+    passwordRequired: fields.passwordRequired ?? true,
     runtime: fields.runtime,
     revision: fields.revision,
     playlistRevision: fields.playlistRevision,
@@ -129,7 +183,7 @@ export function proSnapshotV2(fields: ProSnapshotFields): ProSnapshotV2Wire {
     quota: fields.quota,
     viewer: fields.viewer === null ? null : viewerV2(fields.viewer),
     administrators: fields.administrators,
-    ...(fields.playlistSlots === undefined ? {} : { playlistSlots: fields.playlistSlots }),
+    playlistSlots: fields.playlistSlots ?? onePlaylistSlots(fields.playlist),
   };
 }
 
@@ -148,7 +202,7 @@ export function proSnapshot(fields: ProSnapshotFields): ProRoomSnapshot {
   return proSnapshotV2(fields);
 }
 
-/** The administrator directory answer that goes with snapshot schemaVersion 1. */
+/** The administrator directory answer that went with snapshot schemaVersion 1. */
 export function proAdministratorDirectoryV1(administrators: ProRoomAdministrator[]): {
   authorityVersion: 1;
   administrators: ProRoomAdministrator[];

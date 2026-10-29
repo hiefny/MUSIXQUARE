@@ -34,7 +34,7 @@ const SLOTS: PlaylistSlotsSummary = {
   ],
 };
 
-function snapshot(playlistSlots: PlaylistSlotsSummary | undefined, canMutate = true) {
+function snapshot(playlistSlots: PlaylistSlotsSummary, canMutate = true): ProRoomSnapshot {
   const permissions: ProRoomPermissionSet = {
     'media.add': canMutate,
     'playback.control': true,
@@ -49,7 +49,7 @@ function snapshot(playlistSlots: PlaylistSlotsSummary | undefined, canMutate = t
     displayName: 'Controller',
     role: 'controller' as const,
   };
-  const value: ProRoomSnapshot = proSnapshot({
+  return proSnapshot({
     roomCode: ROOM,
     status: 'active',
     runtime: 'awake',
@@ -114,8 +114,8 @@ function snapshot(playlistSlots: PlaylistSlotsSummary | undefined, canMutate = t
       },
       { ...member, permissions, inheritedPermissions: [], onlineDeviceCount: 1 },
     ],
+    playlistSlots,
   });
-  return playlistSlots ? { ...value, playlistSlots } : value;
 }
 
 async function join(canonical: ProRoomSnapshot): Promise<void> {
@@ -226,8 +226,13 @@ describe('PRO room playlist summaries', () => {
     expect(getState('playlist.storageUsage')).toBeNull();
   });
 
-  it('keeps playlist edits unavailable when the Worker announces no playlists', async () => {
-    await join(snapshot(undefined));
+  it('refuses a Worker snapshot that announces no playlists', async () => {
+    // Every PRO Worker since release W announces them, so a snapshot without
+    // them is invalid rather than a room whose playlist switcher stays hidden.
+    const { playlistSlots: _omitted, ...withoutSummaries } = snapshot(SLOTS);
+    await expect(join(withoutSummaries as ProRoomSnapshot)).rejects.toThrow(
+      'PRO_ROOM_SNAPSHOT_INVALID',
+    );
 
     expect(getState('playlist.slots')).toBeNull();
     expect(handleProRoomPlaylistSwitch(1)).toBe(false);

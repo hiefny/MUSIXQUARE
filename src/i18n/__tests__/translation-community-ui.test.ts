@@ -1,6 +1,6 @@
 import { readFileSync } from 'node:fs';
 import { JSDOM } from 'jsdom';
-import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, onTestFinished, vi } from 'vitest';
 import { LANGUAGE_OPTIONS } from '../locales.ts';
 import { initCommunity } from '../../../.workshop/translate/community';
 import { CommunityApiError, type Suggestion } from '../../../.workshop/translate/community-client';
@@ -665,7 +665,12 @@ describe('translation page language and phrase address', () => {
     };
   }
 
-  async function openPage(url: string, browserLanguages: readonly string[]) {
+  /** Start the page script; the catalog is served by `catalog`. */
+  async function loadPage(
+    url: string,
+    browserLanguages: readonly string[],
+    catalog: (code: string) => unknown = catalogFor,
+  ) {
     dom.window.close();
     dom = new JSDOM(html, { url });
     Object.defineProperty(dom.window.navigator, 'languages', {
@@ -687,11 +692,20 @@ describe('translation page language and phrase address', () => {
       account: null,
       statsScope: null,
     });
-    api.catalog.mockImplementation(async (code: string) => catalogFor(code));
+    api.catalog.mockImplementation(async (code: string) => catalog(code));
     await import('../../../.workshop/translate/main');
-    await vi.waitFor(() =>
-      expect(dom.window.document.getElementById('editor')?.hidden).toBe(false),
-    );
+  }
+
+  const editorShown = () =>
+    vi.waitFor(() => expect(dom.window.document.getElementById('editor')?.hidden).toBe(false));
+
+  async function openPage(
+    url: string,
+    browserLanguages: readonly string[],
+    catalog?: (code: string) => unknown,
+  ) {
+    await loadPage(url, browserLanguages, catalog);
+    await editorShown();
   }
 
   const requestedLocales = () => api.catalog.mock.calls.map(([code]) => code as string);
@@ -749,6 +763,80 @@ describe('translation page language and phrase address', () => {
     );
     expect(selectedKey()).toBe(draft.key);
     expect(dom.window.document.querySelector('b')).toBeNull();
+  });
+
+  it('selects the address phrase when Retry follows a failed first catalog load', async () => {
+    const consoleError = vi.spyOn(console, 'error').mockImplementation(() => undefined);
+    onTestFinished(() => consoleError.mockRestore());
+    let calls = 0;
+    await loadPage(
+      'https://musixquare.com/translate?locale=ja&phrase=app%3Aplay',
+      ['ko'],
+      (code: string) => {
+        calls += 1;
+        if (calls === 1) throw new Error('Catalog request failed: 503');
+        return catalogFor(code);
+      },
+    );
+    await vi.waitFor(() => expect(button('retry').hidden).toBe(false));
+    expect(dom.window.document.getElementById('editor')?.hidden).toBe(true);
+
+    button('retry').click();
+    await editorShown();
+    expect(requestedLocales()).toEqual(['ja', 'ja']);
+    expect(selectedKey()).toBe('play');
+    expect(
+      dom.window.document.querySelector('[data-entry-id="app:play"]')?.getAttribute('aria-current'),
+    ).toBe('true');
+    expect(Object.fromEntries(new URLSearchParams(dom.window.location.search))).toEqual({
+      locale: 'ja',
+      phrase: 'app:play',
+    });
+  });
+
+  it('opens the list on the page that holds the address phrase', async () => {
+    const many = Array.from({ length: 45 }, (_, index) => ({
+      id: `app:phrase.${index}`,
+      surface: 'app' as const,
+      key: `phrase.${index}`,
+      sourceEn: `Phrase ${index}`,
+      sourceKo: `문구 ${index}`,
+    }));
+    const pagedCatalog = (code: string) => ({
+      ...catalogFor(code),
+      entries: [...many, entries[1]!].map((entry) => ({ ...entry, current: entry.sourceEn })),
+    });
+    const pageNumber = () => dom.window.document.getElementById('page-number')?.textContent;
+    const current = () =>
+      dom.window.document.querySelector('[aria-current="true"]')?.getAttribute('data-entry-id');
+
+    await openPage(
+      'https://musixquare.com/translate?locale=ko&phrase=app%3Aphrase.30',
+      ['en-US'],
+      pagedCatalog,
+    );
+    expect(selectedKey()).toBe('phrase.30');
+    expect(pageNumber()).toBe('2 / 3');
+    expect(current()).toBe('app:phrase.30');
+
+    // The last phrase of a page and the first of the next.
+    vi.unstubAllGlobals();
+    await openPage(
+      'https://musixquare.com/translate?locale=ko&phrase=app%3Aphrase.19',
+      ['en-US'],
+      pagedCatalog,
+    );
+    expect(pageNumber()).toBe('1 / 3');
+    expect(current()).toBe('app:phrase.19');
+    vi.unstubAllGlobals();
+    await openPage(
+      `https://musixquare.com/translate?locale=ko&phrase=${encodeURIComponent(draft.id)}`,
+      ['en-US'],
+      pagedCatalog,
+    );
+    expect(selectedKey()).toBe(draft.key);
+    expect(pageNumber()).toBe('3 / 3');
+    expect(current()).toBe(draft.id);
   });
 
   it('keeps the chosen language and phrase in the address and the sign-in return', async () => {

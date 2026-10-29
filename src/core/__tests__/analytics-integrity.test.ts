@@ -188,6 +188,8 @@ describe('Cloudflare Web Analytics loading boundary', () => {
     'https://musixquare.com/000001',
     'https://musixquare.com/000001/',
     'https://musixquare.com/about?claim_token=secret',
+    // A page opened from /translate after the visitor's choice wrote ?locale.
+    'https://musixquare.com/translate?locale=ko&phrase=app%3Aplay',
   ])(
     'fails closed when the document referrer can expose room or query state: %s',
     async (referrer) => {

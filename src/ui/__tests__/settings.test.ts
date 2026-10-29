@@ -825,26 +825,59 @@ describe('initSettings language controls', () => {
     expect(path?.getAttribute('stroke-linejoin')).toBe('miter');
   });
 
-  it('opens the translation page in the App language and follows language changes', async () => {
-    vi.spyOn(window.navigator, 'language', 'get').mockReturnValue('ja-JP');
-    vi.spyOn(window.navigator, 'languages', 'get').mockReturnValue(['ja-JP']);
-    setLanguageMode('ko');
+  const translateLink = () =>
+    document.querySelector<HTMLAnchorElement>(
+      '#language-dialog-overlay .language-translate-link a',
+    );
+
+  function initTranslateLink(browserLanguages: string[], mode: string): void {
+    vi.spyOn(window.navigator, 'language', 'get').mockReturnValue(browserLanguages[0]!);
+    vi.spyOn(window.navigator, 'languages', 'get').mockReturnValue(browserLanguages);
+    setLanguageMode(mode);
     installLanguageSettingsDom();
     document.querySelector('.language-dialog')?.insertAdjacentHTML('beforeend', translateLinkHtml);
     initSettings();
-    const link = () =>
-      document.querySelector<HTMLAnchorElement>(
-        '#language-dialog-overlay .language-translate-link a',
-      );
+  }
 
-    expect(link()?.getAttribute('href')).toBe('/translate?locale=ko');
+  it('opens the translation page in the App language and follows language changes', async () => {
+    initTranslateLink(['ja-JP'], 'ko');
+
+    expect(translateLink()?.getAttribute('href')).toBe('/translate?locale=ko');
     setLanguageMode('pt-br');
-    await vi.waitFor(() => expect(link()?.getAttribute('href')).toBe('/translate?locale=pt-br'));
+    await vi.waitFor(() =>
+      expect(translateLink()?.getAttribute('href')).toBe('/translate?locale=pt-br'),
+    );
+    // The page alone opens ja on this browser, so the link carries no query and the
+    // standalone analytics loader counts the visit.
     setLanguageMode('system');
-    await vi.waitFor(() => expect(link()?.getAttribute('href')).toBe('/translate?locale=ja'));
-    expect(link()?.target).toBe('_blank');
-    expect(link()?.rel).toBe('noopener noreferrer');
+    await vi.waitFor(() => expect(translateLink()?.getAttribute('href')).toBe('/translate'));
+    setLanguageMode('ko');
+    await vi.waitFor(() =>
+      expect(translateLink()?.getAttribute('href')).toBe('/translate?locale=ko'),
+    );
+    setLanguageMode('ja');
+    await vi.waitFor(() => expect(translateLink()?.getAttribute('href')).toBe('/translate'));
+    expect(translateLink()?.target).toBe('_blank');
+    expect(translateLink()?.rel).toBe('noopener noreferrer');
   });
+
+  it.each([
+    [['ko-KR', 'en-US'], 'ko', '/translate'],
+    [['ko-KR', 'en-US'], 'system', '/translate'],
+    [['ko-KR', 'en-US'], 'ja', '/translate?locale=ja'],
+    [['ko-KR', 'en-US'], 'en', '/translate?locale=en'],
+    [['sw-KE', 'de-AT'], 'de', '/translate'],
+    [['zh-TW'], 'zh-hant', '/translate'],
+    [['pt-PT'], 'pt-br', '/translate'],
+    [['sw-KE'], 'system', '/translate'],
+    [['sw-KE'], 'ko', '/translate?locale=ko'],
+  ])(
+    'on browser languages %j links App language %s to %s',
+    async (browserLanguages, mode, href) => {
+      initTranslateLink(browserLanguages, mode);
+      await vi.waitFor(() => expect(translateLink()?.getAttribute('href')).toBe(href));
+    },
+  );
 
   it('opens the language dialog with all supported languages and a custom scrollbar', async () => {
     setLanguageMode('ko');

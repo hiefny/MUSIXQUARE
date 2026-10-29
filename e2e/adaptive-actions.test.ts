@@ -137,6 +137,18 @@ const SYNC_PAIR_LABELS: Record<string, { reset: string; done: string; label: str
     ]),
   );
 
+// The PRO room registration dialog's [Cancel | Register] labels in every locale.
+const PRO_REGISTER_LABELS: Record<string, { cancel: string; register: string }> =
+  Object.fromEntries(
+    Object.entries(LOCALES).map(([code, dictionary]) => [
+      code,
+      {
+        cancel: (dictionary as Record<string, string>)['common.cancel']!,
+        register: (dictionary as Record<string, string>)['pro.activation_account_continue']!,
+      },
+    ]),
+  );
+
 // Owner decision (2026-10-28, option C): at 360px tall and below the manual
 // sync panel keeps 12px from the screen edges and trims its own spacing; at
 // 350px and below its Reset / Done pair takes the account dialog's 44px pills,
@@ -966,6 +978,104 @@ test.describe('content-based adaptive action groups', () => {
       }
     });
   }
+
+  // The PRO room registration dialog (pro-room/activation-account.ts) pairs
+  // [Cancel | Register], and a pair that no longer fits one row stacks by
+  // design (F5). Owner decision (2026-10-29, item 1a): the registration label
+  // is held to this layout, not to a label length. In the authored dialog,
+  // each locale's pair keeps every label on one line inside its pill and
+  // inside the dialog from 320 to 420px; which locales stack is recorded.
+  test('keeps the PRO room registration labels whole in every locale from 320 to 420px', async ({
+    page,
+  }, testInfo) => {
+    const stacked: Record<string, string[]> = {};
+    for (const viewportWidth of [320, 340, 360, 375, 390, 412, 420]) {
+      for (const direction of ['ltr', 'rtl'] as const) {
+        await installLayoutProbe(page, '<main id="pro-register-probes"></main>', {
+          viewportWidth,
+          direction,
+        });
+        const locales = (await localizedActionsWithFonts(page)).filter(
+          (locale) => locale.dir === direction,
+        );
+        const pairs = await page.evaluate(
+          async ({ locales, markup, labels }) => {
+            const authored = new DOMParser().parseFromString(markup, 'text/html');
+            const source = authored.getElementById('dialog-overlay')!;
+            const root = document.getElementById('pro-register-probes')!;
+            const results = [];
+            for (const locale of locales) {
+              // One dialog at a time: it keeps its id, which its rules read.
+              const overlay = document.importNode(source, true) as HTMLElement;
+              overlay.classList.add('show');
+              overlay.lang = locale.htmlLang;
+              overlay.style.setProperty('--font-sans', locale.fontFamily);
+              overlay.style.fontFamily = locale.fontFamily;
+              const cancel = overlay.querySelector<HTMLButtonElement>('#btn-dialog-secondary')!;
+              const register = overlay.querySelector<HTMLButtonElement>('#btn-dialog-ok')!;
+              cancel.hidden = false;
+              cancel.textContent = labels[locale.code]!.cancel;
+              register.textContent = labels[locale.code]!.register;
+              root.appendChild(overlay);
+              overlay.getBoundingClientRect();
+              await document.fonts.ready;
+              const panel = overlay.querySelector<HTMLElement>('.dialog')!.getBoundingClientRect();
+              const measure = (button: HTMLButtonElement) => {
+                const rect = button.getBoundingClientRect();
+                const text = document.createRange();
+                text.selectNodeContents(button);
+                const lines = new Set(
+                  [...text.getClientRects()].map((line) => Math.round(line.top + line.height / 2)),
+                ).size;
+                return {
+                  lines,
+                  top: rect.top,
+                  left: rect.left,
+                  right: rect.right,
+                  overflowX: button.scrollWidth - button.clientWidth,
+                  overflowY: button.scrollHeight - button.clientHeight,
+                };
+              };
+              results.push({
+                code: locale.code,
+                panel: { left: panel.left, right: panel.right },
+                cancel: measure(cancel),
+                register: measure(register),
+              });
+              overlay.remove();
+            }
+            return results;
+          },
+          { locales, markup: APP_MARKUP, labels: PRO_REGISTER_LABELS },
+        );
+        expect(pairs).toHaveLength(locales.length);
+        for (const pair of pairs) {
+          const where = `${pair.code} ${viewportWidth}px`;
+          for (const [name, button] of [
+            ['Cancel', pair.cancel],
+            ['Register', pair.register],
+          ] as const) {
+            expect(button.lines, `${where} ${name} wraps`).toBe(1);
+            expect(button.overflowX, `${where} ${name} clips its label`).toBeLessThanOrEqual(0);
+            expect(button.overflowY, `${where} ${name} clips its label`).toBeLessThanOrEqual(0);
+            expect(button.left, `${where} ${name} inside the dialog`).toBeGreaterThanOrEqual(
+              pair.panel.left - 0.5,
+            );
+            expect(button.right, `${where} ${name} inside the dialog`).toBeLessThanOrEqual(
+              pair.panel.right + 0.5,
+            );
+          }
+          if (Math.abs(pair.cancel.top - pair.register.top) >= 0.5) {
+            (stacked[viewportWidth] ??= []).push(pair.code);
+          }
+        }
+      }
+    }
+    await testInfo.attach('PRO room registration pairs that stack', {
+      body: JSON.stringify(stacked, null, 2),
+      contentType: 'application/json',
+    });
+  });
 
   test('keeps the whole manual sync panel on the first screen of short landscape phones', async ({
     page,

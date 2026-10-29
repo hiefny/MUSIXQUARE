@@ -38,6 +38,13 @@ return would pass the Worker's 1,024-byte `returnTo` bound. The App language
 dialog's Help translate link opens `/translate?locale=<App language>` and follows
 language changes.
 
+## Visit statistics
+
+Like the other standalone pages, the page loads the guarded
+`/analytics-bootstrap.js` before its own script. The loader counts only
+production, queryless, fragment-free arrivals, so `/translate` is counted and
+`/translate?locale=…` (the App language dialog link) or a sign-in return is not.
+
 ## Editing and storage
 
 - All 42 languages, including English and Korean, accept wording suggestions.

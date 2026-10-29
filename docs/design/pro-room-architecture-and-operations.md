@@ -1307,7 +1307,8 @@ the field. Restore the App Worker with the PRO Worker, or repair forward.
 The PRO Worker that first sends PRO snapshot schemaVersion 2 also writes the
 start kind `timingMode` into the pending transition and the playback outbox
 records it stores, and stores a live LAN-direct share's `liveExpiresAt` as
-null. The 9.0.22 PRO Worker reads all three, so it is that release's recovery
+null. The 9.0.22 PRO Worker (9.0.22 / v795, merge `71f5b96c`, PRO Worker
+version `6abc7131`) reads all three, so it is that release's recovery
 target and, once that Worker has been live, the floor for any manual PRO
 rollback: an earlier PRO Worker drops such a pending transition without a
 CANCEL (that start never happens and a loading indicator can stay until the
@@ -1338,4 +1339,8 @@ and session-secret rotation intentionally signs everyone out.
 
 If only the client is faulty, leave the PRO backend and reserved signaling
 codes deployed and roll back the app alone. This is safer than reopening the
-codes or deleting persistent media.
+codes or deleting persistent media. Once the PRO Worker that first sends PRO
+snapshot schemaVersion 2 has been live, this holds only for an App target of
+9.0.22 (build 795) or later; for an earlier target, first roll the PRO Worker
+back to the 9.0.22 PRO Worker and then follow the order in
+`docs/hotfix-procedure.md`.

@@ -22,9 +22,11 @@
  *   loader drops any other record (`hasExactKeys` in
  *   normalizeStoredPlaybackTransition and
  *   normalizeStoredPlaybackBroadcastRecord).
- * The suite first ran against the 9.0.22 PRO Worker with these records (the
- * tests commit that added them); that run is the evidence that the rollback
- * Worker accepts them.
+ * The rows that load them passed on the parent of the tests commit that added
+ * them, whose playback code matches 9.0.22's. The evidence that the rollback
+ * Worker accepts them is a separate run with cloudflare/pro-room-worker.ts
+ * swapped to the 9.0.22 PRO Worker: the three rollback rows (the in-order
+ * delivery row and both frozen v2 record cold-restart rows) pass there.
  */
 
 /** The barrier: a stored transition's deadline after its creation, and a PREPARE's after its send. */

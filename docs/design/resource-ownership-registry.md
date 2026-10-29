@@ -1222,8 +1222,10 @@ RO-53 owner-in-place
     and the 16-attempt cap on load). The start kind, against the frozen records of
     `src/pro-room/__tests__/__helpers__/pro-room-playback-records-v2.ts`: the Worker writes them
     byte for byte, and "keeps and delivers in order a transition COMMIT and a PREPARE that name
-    timingMode across a cold restart" also holds on the 9.0.22 PRO Worker, where it first ran.
-    The write path: `pro-room-worker.test.ts` "lets the outbox write path queue a PREPARE and a
+    timingMode across a cold restart" and "keeps %s transition stored as the frozen v2 record
+    across a cold restart and commits it" (a zero-start select and a wake) pass on the tests-first
+    parent and with `cloudflare/pro-room-worker.ts` swapped to the 9.0.22 PRO Worker (9.0.22 /
+    v795, `71f5b96c`), the rollback target. The write path: `pro-room-worker.test.ts` "lets the outbox write path queue a PREPARE and a
     transition COMMIT that name either timingMode", and the real signaling Worker in
     `pro-room-signaling-contract-workerd`.
 - **Status:** `owner-in-place`. Phase 0d named the constants once (C7-1). Phase 1 C7-3 merged the

@@ -95,28 +95,30 @@ runbooks. Neither belongs in a general setup document.
 
 - [Phase 5.5 R2: the PRO Worker sends PRO snapshot schemaVersion 2 (2026-10-29)](design/phase5-5-r2-v2-send-2026-10-29.md):
   draft, not merged or released; the second runtime release of Phase 5.5, PRO room Worker only
-  (target `pro-room` with 1 PRO room runtime path and none in the other five Workers; App 9.0.22 /
-  v795 stays, so no SemVer, service worker cache or update dialog change), on the 9.0.22 branch
-  head `7630b1a9` (PR #524, not merged yet). It may ship only after 9.0.22 is deployed and
-  recorded, the floor goes to 795 (F2, a same-value `set` 789 then `set` 795) with a Signaling
-  admission smoke that admits both rooms' host and guest with `refusedBelowAppBuildFloor` 795, and
-  while the live PRO Worker is the 9.0.22 one. Every snapshot answer becomes schemaVersion 2
-  without the four coordinator-era constants and carries `passwordRequired` and `playlistSlots`
-  itself, the administrator directory answer drops `authorityVersion`, every PREPARE and
-  transition COMMIT names its start kind `timingMode` with the 3 s barrier and the 700 ms lead for
-  both kinds, and a live LAN-direct share stores and answers a null `liveExpiresAt`. The release
-  workflow's App build requirement for PRO releases is set to 795. The report lists the owner
-  decisions and order, what the 795 floor covers and where it cannot filter, each increment with
-  its tests-first evidence, the frozen v2 record rows that also pass on the 9.0.22 PRO Worker (the
-  rollback target), the decision to keep the `coordinatorEpoch` name, the deviations from the
-  plan, the exact-count guards, mixed versions, rollback (the release record's §4 current boundary
-  line items 5 and 6: the PRO step first below build 795, never below the 9.0.22 PRO Worker, and
-  the repair exits), deploy conditions and order, user-visible changes, records, QA rounds 1 and 2
-  (per increment; the full gate at the records commit `e90ab14d`: unit 702 files / 16,687, Worker
-  69 / 3,315, critical 90 / 3,515, release-tooling 14 / 432, typecheck, lint, format, every guard,
-  `build:checked`, `check:worker-bundles`, and the three rollback rows rerun on the 9.0.22 PRO
-  Worker) with placeholders for the production preconditions and the release (rounds 3 and 4),
-  owner device check candidates and what was not verified.
+  (target `pro-room` with 1 PRO room runtime path and none in the other five Workers; the App stays
+  9.0.23 / v796, so no SemVer, service worker cache or update dialog change), on main `5a5afb0e`
+  (9.0.23), rebased from the 9.0.22 branch head `7630b1a9` after 9.0.22 / v795 merged unchanged as
+  `71f5b96c` (#524) and shipped. It may ship only after the floor goes to 795 (F2, a same-value
+  `set` 789 then `set` 795) with a Signaling admission smoke that admits both rooms' host and guest
+  with `refusedBelowAppBuildFloor` 795, and while the live PRO Worker is the 9.0.22 one
+  (`6abc7131`). Every snapshot answer becomes schemaVersion 2 without the four coordinator-era
+  constants and carries `passwordRequired` and `playlistSlots` itself, the administrator directory
+  answer drops `authorityVersion`, every PREPARE and transition COMMIT names its start kind
+  `timingMode` with the 3 s barrier and the 700 ms lead for both kinds, and a live LAN-direct share
+  stores and answers a null `liveExpiresAt`. The release workflow's App build requirement for PRO
+  releases is set to 795, the build of the shipped 9.0.22. The report lists the owner decisions and
+  order, what the 795 floor covers and where it cannot filter, each increment with its tests-first
+  evidence, the frozen v2 record rows that also pass on the 9.0.22 PRO Worker (the rollback
+  target), the decision to keep the `coordinatorEpoch` name, the deviations from the plan, the
+  train-end review findings and what was done with them, the exact-count guards, mixed versions,
+  rollback (the release record's §4 current boundary line items 4 to 6: no lower below 795 on its
+  own, the PRO step first below build 795, never below the 9.0.22 PRO Worker, and the repair exits
+  without automated recovery), deploy conditions and order, the blind post-deploy check in the
+  synthetic room `000001`, user-visible changes, records, QA rounds 1 to 3 (per increment; the full
+  gate at the records commit `e90ab14d`; after the rebase, the three tests-first commits rerun on
+  their new parents with the same rows failing and the three rollback rows rerun on the 9.0.22 PRO
+  Worker, then the full gate) with placeholders for the production preconditions and the release
+  (rounds 4 and 5), owner device check candidates and what was not verified.
 - [UI owner decisions train 9.0.23: the items 9.0.20 left open (2026-10-29)](design/ui-owner-923-2026-10-29.md):
   released on 2026-10-29 21:22 KST in Release 40872467902 (PR #526, squash `5a5afb0e`): the next app
   update after 9.0.22 (9.0.23 / v796, App build 796, bump `060dce82`, target `app` with 57 App runtime

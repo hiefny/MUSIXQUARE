@@ -95,7 +95,7 @@ runbooks. Neither belongs in a general setup document.
 
 - [UI owner decisions train 9.0.23: the items 9.0.20 left open (2026-10-29)](design/ui-owner-923-2026-10-29.md):
   in progress, not merged or released; the next app update after 9.0.22 (9.0.23 / v796, App build
-  796, bump `34361f3e`, expected target `app` with 57 App runtime paths and none in the other five
+  796, bump `060dce82`, expected target `app` with 57 App runtime paths and none in the other five
   Workers, with the update dialog; the build floor stays 789). It carries the owner's decisions of
   2026-10-29 on twelve owner items of the 9.0.20 report: the Japanese setup waiting pill says
   準備中...; a guest with a room code reads a lost-session body that says Restart joins this room again
@@ -121,7 +121,7 @@ runbooks. Neither belongs in a general setup document.
   title, Safari Japanese, a Japanese title at three lines at 320px), mixed versions and rollback,
   and QA rounds 1 to 3 (the implementation round and its review; the assembly round at the first
   bump `849df009`, which the assembly review's fix moved off the branch; the fix round at
-  `34361f3e`: Leave in the danger tint from 0 ms per frame in three entry paths, npm audit 0, unit
+  `060dce82`: Leave in the danger tint from 0 ms per frame in three entry paths, npm audit 0, unit
   705 files / 16,710, typecheck, lint, format, every guard, resource ownership 49 records / 447
   files, `check:workers`, critical coverage 90 / 3,515, `build:checked` with the release-identity and
   cache-version guards and the budgets, Chromium candidate E2E 19, critical E2E 100 and the demo,

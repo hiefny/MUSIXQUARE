@@ -93,6 +93,31 @@ runbooks. Neither belongs in a general setup document.
 
 ## Maintained evidence and completed records
 
+- [UI follow-up train 9.0.21: transient text at 600 and chips on one line (2026-10-29)](design/ui-followup-921-2026-10-29.md):
+  in progress, not merged or released; a draft for the next app update after 9.0.20. It carries
+  the owner's decisions of 2026-10-29: toast text back at label 600, the screensaver track title
+  at 600, and the rule that transient text (toasts, loading and waiting lines, the full-screen
+  session message, progress and result lines, mode notes) and red error lines read at label 600
+  while text that stays on the screen reads at body 400 (app, `/events`, design system; the
+  resting `/events` nickname hint goes from 650 to 400); and chips that fit on one line at the
+  selected 700: a HarfBuzz width guard test for 14 groups in 42 locales (two direct
+  devDependencies the lockfile already held), the settings and setup role chips on the demo's
+  short role words (four `role.*` keys removed), shorter copy in 38 locales (152 lines; English
+  '3. Effects'; a shortened Advanced chip says Manual, in Tamil the catalog's word), the demo role
+  switch icon hidden up to a 448px container, and 12 accepted labels under the 4px spare. Branch
+  `agent/ui-921` is 14 commits on main `7241e89d` (9.0.20 runtime), last runtime commit
+  `986f0c35`, rebased from `edd6ee94` with identical patches; no bump yet (9.0.21 / v794 planned;
+  expected target `app`, with 54 App runtime paths and none in the other five Workers). The report
+  lists the owner decisions, each increment with its commits before and after the rebase and its
+  tests-first evidence (replayed on the branch SHAs), the review findings, visible changes, what
+  did not change, open owner items (among them the help tab's role names, decided but not yet
+  implemented), mixed versions and rollback, the work left for assembly, and QA rounds 1 to 3:
+  per increment; the rebase and full gate at `986f0c35` (unit 699 files / 16,607 and 1 skip,
+  typecheck, lint, format, guards, critical coverage, `build:checked` without the cache-version
+  guard); and the Chromium and WebKit comparison with main (211 weight pairs, 17,052 chip
+  readings in 42 locales, 302 screenshot pairs with no unexplained difference). It also lists what
+  was not verified (WebKit without WebRTC or Web Audio, real devices and iOS Safari, Linux fonts,
+  E2E, native review) and the owner device check list.
 - [UI follow-up train 9.0.20: dialog exits, weight roles and the PRO receipt follow-ups (2026-10-29)](design/ui-followup-920-2026-10-29.md):
   one app update (9.0.20 / v793, bump `e1e638bf`, target `all`, with the update dialog; the build
   floor stays 787) on main `91aa77bb` (App 9.0.19, PRO room train A). It deletes the hidden

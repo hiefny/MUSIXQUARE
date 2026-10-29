@@ -103,6 +103,18 @@ runbooks. Neither belongs in a general setup document.
   within 2 s and the proofs within 1 s more, and the first failed route ends the attempt. The relay
   frame shape is unchanged, so no Worker changes; 9.0.25 and newer devices never build a route and
   use the SFU. Each route logs one info result line. Not device-checked yet.
+- [Chat sheet without its Close (X), owner decision (2026-10-30)](design/chat-sheet-close-removal-2026-10-30.md):
+  not merged or released, with no version bump (the release owner bumps the next App release). On
+  main `b8ae59e7` (9.0.25 / v798), the phone and tablet chat sheet loses the visible Close that
+  9.0.20 put at the start of its handle row (dialog exit item F12) and closes as before 9.0.20: an
+  outside tap, a tap or a swipe down on its drag handle, Enter or Space on the focused handle,
+  Escape and Back. App only (46 runtime paths; `chat.close` leaves the 42 locales). The note lists
+  the owner decision, the change and its guards (the chat sheet is now the one window whose exit is
+  its drag handle), the tests-first commit `d5c83195` (6 unit tests in 5 files and the new E2E fail
+  on its parent), the checks on `d4f11e1d`, the 390x844 light and dark screenshots before and after
+  (kept outside the repository for the owner; only the X's glyph differs), the owner step for
+  `chat.close` translation suggestions after the release, a gap in the sheet's keyboard Tab cycle
+  found on the way and left as it was, and what was not verified.
 - [Phase 5.5 R3: the App stops reading PRO snapshot schemaVersion 1, 9.0.25 (2026-10-30)](design/phase5-5-r3-v1-receive-stop-2026-10-30.md):
   released on 2026-10-30 07:18 KST in Release 40964572017 (PR #532, squash `b8ae59e7`): the third
   and last runtime release of Phase 5.5 (9.0.25 / v798, App build 798, bump `01f1a19b`; target `app`

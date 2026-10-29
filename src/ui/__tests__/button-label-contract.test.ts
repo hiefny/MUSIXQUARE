@@ -2757,12 +2757,17 @@ describe('action button label contract', () => {
           lines[selector] = rule.source?.start?.line ?? 0;
         }
         rule.walkDecls((declaration) => {
-          expect(declaration.important, `${selectors.join(', ')} ${declaration.prop}`).toBe(false);
+          expect(
+            declaration.important === true,
+            `${selectors.join(', ')} ${declaration.prop}`,
+          ).toBe(false);
         });
       });
     }
     expect(placed.sort()).toEqual(
-      ['.dialog-primary', danger, hover, press].map((selector) => `${selector} css/style.css base`),
+      ['.dialog-primary', danger, hover, press]
+        .map((selector) => `${selector} css/style.css base`)
+        .sort(),
     );
     // The press rule has the hover rule's specificity and comes after it, so a
     // hovered press shows the press tint, as account deletion's does.

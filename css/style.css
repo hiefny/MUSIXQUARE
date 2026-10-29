@@ -6676,6 +6676,28 @@ or pointers. Keep :focus-visible and :active outside the gate (src/ui/__tests__/
     transform: scale(0.97);
   }
 
+  /* A primary action that leaves the session (dialog.ts tone 'danger': the
+     leave confirmation and the host-unresponsive offer) takes account
+     deletion's colors (owner decision 2026-10-29). Only the colors change:
+     size, label role and the press scale stay the primary action's. */
+  .dialog-primary.dialog-danger {
+    background: var(--control-danger-dialog);
+    color: var(--danger-foreground);
+    transition:
+      background-color 0.18s ease,
+      transform 0.2s;
+  }
+
+  :where(html[data-hover-pointer]) .dialog-primary.dialog-danger:hover {
+    background: var(--control-danger-dialog-hover);
+  }
+
+  /* After the hover rule with the same specificity, so a hovered press
+     shows the press tint. */
+  .dialog-primary.dialog-danger:active {
+    background: var(--control-danger-dialog-press);
+  }
+
   /* Dark theme toast */
   [data-theme='dark'] .toast > span {
     background: var(--surface-1);

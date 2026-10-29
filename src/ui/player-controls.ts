@@ -33,7 +33,7 @@ import {
   beginBackSurfaceTransition,
   isVideoFillingScreen,
 } from './dom.ts';
-import { showDialog } from './dialog.ts';
+import { confirmLeaveSession } from './leave-session-confirmation.ts';
 import { isFilePipelineBusyForPlay, togglePlay } from '../player/transport.ts';
 import { toggleRepeat, toggleShuffle } from '../player/playlist.ts';
 import { getCurrentAudioBuffer } from '../player/_state.ts';
@@ -1078,16 +1078,7 @@ async function handleLogoReturnToMain(): Promise<void> {
     const hostConn = getState('network.hostConn');
     const appRole = getState('network.appRole');
     const hasSession = !!(hostConn || appRole === 'host');
-    if (hasSession) {
-      const res = await showDialog({
-        title: t('dialog.return_home_title'),
-        message: t('dialog.return_home_msg') + '\n' + t('dialog.return_home_detail'),
-        buttonText: t('common.ok'),
-        secondaryText: t('common.stay'),
-        defaultFocus: 'secondary',
-      });
-      if (res.action !== 'ok') return;
-    }
+    if (hasSession && !(await confirmLeaveSession('start-screen'))) return;
 
     // A hard same-origin replacement clears in-memory media without leaving an
     // invite/PRO auto-join route behind in browser history. The navigation

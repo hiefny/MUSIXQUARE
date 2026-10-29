@@ -133,6 +133,7 @@ import {
 import { initEmailCopyLinks } from './ui/copy-email.ts';
 import { initToast } from './ui/toast.ts';
 import { initDialog, showDialog } from './ui/dialog.ts';
+import { confirmLeaveSession } from './ui/leave-session-confirmation.ts';
 import { createLongBackgroundWarning } from './ui/long-background-warning.ts';
 import { initTabs } from './ui/tabs.ts';
 import { initI18n } from './i18n/index.ts';
@@ -953,19 +954,9 @@ function initBackButtonGuard(): void {
     navigateBack: () => history.back(),
     requestFrame: (callback) => window.requestAnimationFrame(callback),
     cancelFrame: (id) => window.cancelAnimationFrame(id),
-    requestLeaveConfirmation: async () => {
-      const result = await showDialog({
-        // Browser history may lead to the landing page, another site, or a
-        // blank tab, so the copy describes the action without naming a
-        // destination.
-        title: t('dialog.return_home_title'),
-        message: t('dialog.return_home_detail'),
-        buttonText: t('common.leave'),
-        secondaryText: t('common.stay'),
-        defaultFocus: 'secondary',
-      });
-      return result.action === 'ok';
-    },
+    // Browser history may lead to the landing page, another site, or a blank
+    // tab, so the copy describes the action without naming a destination.
+    requestLeaveConfirmation: () => confirmLeaveSession('history'),
     onLeaveConfirmed: () => {
       const reset = scheduleSessionReset(t('dialog.leaving_session'), () => {
         try {

@@ -33,6 +33,12 @@ interface DialogOptions {
    */
   closeOnBack?: boolean;
   defaultFocus?: 'primary' | 'secondary';
+  /**
+   * `danger` gives the primary action account deletion's danger look, for a
+   * primary that leaves the session (owner decision 2026-10-29). Only its
+   * colors change: position, label and the initial focus stay.
+   */
+  tone?: 'danger';
   /** Scrollable, selectable user-authored copy with independently directed text. */
   contentLayout?: 'reading';
   /** Runs synchronously inside the validated primary click/Enter gesture. */
@@ -584,6 +590,10 @@ function _openDialog(opts: DialogOptions | string, resolve: (result: DialogResul
   syncOverlayState('dialog-overlay');
 
   const cleanup: (() => void)[] = [];
+  if (o.tone === 'danger') {
+    okBtn.classList.add('dialog-danger');
+    cleanup.push(() => okBtn.classList.remove('dialog-danger'));
+  }
   const reading = o.contentLayout === 'reading' && !inputCfg && !choice;
   if (reading) {
     overlay.classList.add('dialog-reading');

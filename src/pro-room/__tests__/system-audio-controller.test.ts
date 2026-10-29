@@ -284,7 +284,7 @@ describe('ProRoomSystemAudioController', () => {
     } as const satisfies ProRoomSystemAudioPublication;
     api.acquireSystemAudioLease.mockResolvedValue({ systemAudio: preparing(), leaseId: LEASE_ID });
     api.commitSystemAudioPublication
-      .mockResolvedValueOnce({ ...live(), publication: directPublication })
+      .mockResolvedValueOnce({ ...live(), liveExpiresAt: null, publication: directPublication })
       .mockResolvedValueOnce(live());
 
     await controller.acquireProSystemAudioLease();
@@ -299,56 +299,48 @@ describe('ProRoomSystemAudioController', () => {
     expect(controller.getCurrentState()).toEqual(live());
   });
 
-  // A live LAN-direct has no media deadline: PRO snapshot schemaVersion 2
-  // sends liveExpiresAt null, earlier Workers a numeric compatibility value,
-  // and both read as null (PLE-01). A Worker that changes it mid-share, or a
-  // rollback that brings the number back, is the same state, not a conflict.
-  it.each([
-    { from: 1_900_007_200_000, to: null },
-    { from: null, to: 1_900_007_200_000 },
-  ])(
-    'reads a live LAN-direct whose liveExpiresAt changes from $from to $to as one state',
-    ({ from, to }) => {
-      const { controller, lost } = harness();
-      const read = directLiveWire(REMOTE_ID, 4, null);
+  // A live LAN-direct has no media deadline: every PRO Worker since PRO
+  // snapshot schemaVersion 2 sends liveExpiresAt null there, the only value
+  // this App reads. The numeric compatibility value of earlier PRO Workers is
+  // an invalid state, which leaves the state the controller had (PLE-04).
+  it('refuses a live LAN-direct state with a numeric liveExpiresAt and keeps the state it had', () => {
+    const { controller, lost } = harness();
+    const read = directLiveWire(REMOTE_ID, 4, null);
 
-      expect(
-        controller.acceptHeartbeatProSystemAudioState(directLiveWire(REMOTE_ID, 4, from)),
-      ).toEqual(read);
-      expect(
-        controller.acceptHeartbeatProSystemAudioState(directLiveWire(REMOTE_ID, 4, to)),
-      ).toEqual(read);
-      expect(controller.getCurrentState()).toEqual(read);
-      expect(controller.getViewState()).toMatchObject({ phase: 'live', liveExpiresAt: null });
-      expect(lost).toEqual([]);
-    },
-  );
+    expect(controller.acceptHeartbeatProSystemAudioState(read)).toEqual(read);
+    expect(() =>
+      controller.acceptHeartbeatProSystemAudioState(
+        directLiveWire(REMOTE_ID, 4, 1_900_007_200_000),
+      ),
+    ).toThrow('PRO_ROOM_SYSTEM_AUDIO_INVALID_STATE');
+    expect(controller.getCurrentState()).toEqual(read);
+    expect(controller.getViewState()).toMatchObject({ phase: 'live', liveExpiresAt: null });
+    expect(lost).toEqual([]);
+  });
 
-  it.each([
-    { from: 1_900_007_200_000, to: null },
-    { from: null, to: 1_900_007_200_000 },
-  ])(
-    'keeps the local LAN-direct lease when its liveExpiresAt changes from $from to $to',
-    async ({ from, to }) => {
-      const { api, controller, lost } = harness();
+  it.each(['commit', 'lease heartbeat'] as const)(
+    'refuses a %s answer whose live LAN-direct has a numeric liveExpiresAt and keeps the lease',
+    async (answer) => {
+      const { api, controller } = harness();
+      const read = directLiveWire(LOCAL_ID, 1, null) as ProRoomSystemAudioState;
+      const numeric = directLiveWire(LOCAL_ID, 1, 1_900_007_200_000) as ProRoomSystemAudioState;
       api.acquireSystemAudioLease.mockResolvedValue({
         systemAudio: preparing(),
         leaseId: LEASE_ID,
       });
-      api.commitSystemAudioPublication.mockResolvedValue(
-        directLiveWire(LOCAL_ID, 1, from) as ProRoomSystemAudioState,
-      );
-      api.heartbeatSystemAudioLease.mockResolvedValue(
-        directLiveWire(LOCAL_ID, 1, to) as ProRoomSystemAudioState,
-      );
-      const read = directLiveWire(LOCAL_ID, 1, null);
+      api.commitSystemAudioPublication.mockResolvedValue(answer === 'commit' ? numeric : read);
+      api.heartbeatSystemAudioLease.mockResolvedValue(numeric);
 
       await controller.acquireProSystemAudioLease();
-      await expect(
-        controller.commitProSystemAudioPublication(lanDirectPublication()),
-      ).resolves.toEqual(read);
-      await expect(controller.heartbeatProSystemAudioLease()).resolves.toEqual(read);
-      expect(lost).toEqual([]);
+      const committed = controller.commitProSystemAudioPublication(lanDirectPublication());
+      if (answer === 'commit') {
+        await expect(committed).rejects.toThrow('PRO_ROOM_SYSTEM_AUDIO_INVALID_STATE');
+      } else {
+        await expect(committed).resolves.toEqual(read);
+        await expect(controller.heartbeatProSystemAudioLease()).rejects.toThrow(
+          'PRO_ROOM_SYSTEM_AUDIO_INVALID_STATE',
+        );
+      }
       expect(controller.getCurrentLease()).toMatchObject({ generation: 1, hasCredential: true });
     },
   );
@@ -529,6 +521,7 @@ describe('ProRoomSystemAudioController', () => {
     const { api, controller } = harness();
     const directState: ProRoomSystemAudioState = {
       ...live(REMOTE_ID, 4),
+      liveExpiresAt: null,
       publication: {
         publicationId: 'publication_00001',
         transport: 'lan-direct',
@@ -582,6 +575,7 @@ describe('ProRoomSystemAudioController', () => {
     const { api, controller } = harness();
     const directState: ProRoomSystemAudioState = {
       ...live(REMOTE_ID, 4),
+      liveExpiresAt: null,
       publication: {
         publicationId: 'publication_00001',
         transport: 'lan-direct',

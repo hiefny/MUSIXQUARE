@@ -160,13 +160,14 @@ const directPublication = (): ProRoomSystemAudioPublication => ({
   protocolVersion: 2,
 });
 
+/** The PRO Worker answers an SFU live with its media deadline and a LAN-direct one with null. */
 function live(publication: ProRoomSystemAudioPublication): ProRoomSystemAudioState {
   return {
     generation: GENERATION,
     status: 'live',
     ownerParticipantId: REMOTE_ID,
     claimExpiresAt: null,
-    liveExpiresAt: LIVE_EXPIRES_AT,
+    liveExpiresAt: 'sessionId' in publication ? LIVE_EXPIRES_AT : null,
     publication,
   };
 }

@@ -83,34 +83,33 @@ describe('PRO system-audio wire contract', () => {
       protocolVersion: 2,
     };
     expect(parseProRoomSystemAudioPublication(direct)).toEqual(direct);
-    expect(
-      parseProRoomSystemAudioState({
-        ...liveState(),
-        publication: direct,
-      }),
-    ).toEqual({ ...liveState(), liveExpiresAt: null, publication: direct });
+    const directLive = { ...liveState(), liveExpiresAt: null, publication: direct };
+    expect(parseProRoomSystemAudioState(directLive)).toEqual(directLive);
     expect(
       parseProRoomSystemAudioPublication({ ...direct, sessionId: 'not-a-direct-field' }),
     ).toBeNull();
     expect(parseProRoomSystemAudioPublication({ ...direct, protocolVersion: 1 })).toBeNull();
   });
 
-  // A live LAN-direct publication has no media deadline. PRO snapshot
-  // schemaVersion 2 sends liveExpiresAt null there, and the numeric
-  // compatibility value of every earlier PRO Worker reads as null too, so a
-  // Worker that changes the value mid-share changes no parsed state (PLE-01).
-  it('reads a live LAN-direct with a null or numeric liveExpiresAt as null', () => {
+  // A live LAN-direct publication has no media deadline. Every PRO Worker
+  // since PRO snapshot schemaVersion 2 sends liveExpiresAt null there, the
+  // only value this App reads; the numeric compatibility value of earlier PRO
+  // Workers is refused like any other (PLE-04).
+  it('reads a live LAN-direct only with liveExpiresAt null', () => {
     const direct: ProRoomSystemAudioPublication = {
       publicationId: 'publication_direct_01',
       transport: 'lan-direct',
       protocolVersion: 2,
     };
     const read = { ...liveState(), liveExpiresAt: null, publication: direct };
-    for (const liveExpiresAt of [null, 1_900_000_000_000]) {
-      expect(
-        parseProRoomSystemAudioState({ ...liveState(), liveExpiresAt, publication: direct }),
-      ).toEqual(read);
-    }
+    expect(parseProRoomSystemAudioState(read)).toEqual(read);
+    expect(
+      parseProRoomSystemAudioState({
+        ...liveState(),
+        liveExpiresAt: 1_900_000_000_000,
+        publication: direct,
+      }),
+    ).toBeNull();
   });
 
   it('still needs a positive deadline on an SFU live and refuses any other liveExpiresAt', () => {

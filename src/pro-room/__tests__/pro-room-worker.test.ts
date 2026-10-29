@@ -31498,9 +31498,8 @@ describe('PRO browser parsers on the actual Worker answers', () => {
     expect(parseProRoomPlaybackCommitEvent(commit)).toEqual(commit);
   });
 
-  // The one deliberate difference from the wire: a live LAN-direct has no
-  // media deadline, so its liveExpiresAt reads as null whatever this Worker
-  // sends there, its numeric compatibility value or null (PLE-01).
+  // A live LAN-direct has no media deadline: this Worker answers its
+  // liveExpiresAt as null (PLE-03), the only value the App reads (PLE-04).
   it('reads the live LAN-direct the Worker answers and heartbeats with no media deadline', async () => {
     const { owner, member } = await openRoom();
     const grant = await owner.api.acquireSystemAudioLease(ROOM_CODE);
@@ -31515,8 +31514,8 @@ describe('PRO browser parsers on the actual Worker answers', () => {
       leaseId: grant.leaseId,
     };
     const expectRead = (parsed: unknown, wire: Record<string, any>) => {
-      expect(wire).toMatchObject({ status: 'live', publication: direct });
-      expect(parsed).toEqual({ ...wire, liveExpiresAt: null });
+      expect(wire).toMatchObject({ status: 'live', liveExpiresAt: null, publication: direct });
+      expect(parsed).toEqual(wire);
     };
 
     const committed = await owner.api.commitSystemAudioPublication({

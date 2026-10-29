@@ -482,14 +482,23 @@ describe('PRO room to signaling broadcast contract (real workerd)', () => {
     for (const type of ['pro-playback-prepare', 'pro-playback-commit']) {
       const entry = entries.find((candidate) => candidate.body.event.type === type)!;
       expect(entry.body.event.transitionId).toBe(transitionId);
+      // The start kind (PRO snapshot schemaVersion 2) passed the outbox write
+      // check: a select is a zero-start.
+      expect(entry.body.event.timingMode).toBe('zero-start');
       // Playback is accepted only with sent === eligible; the owner socket counts.
       expect(entry.response).toEqual({ broadcast: true, eligible: 1, sent: 1 });
     }
+    // Signaling relays the start kind to the socket unchanged.
     expect(
       test.frames
         .filter((frame) => frame.type === 'pro-server-event')
-        .map((frame) => frame.event.type),
-    ).toEqual(expect.arrayContaining(['pro-playback-prepare', 'pro-playback-commit']));
+        .map((frame) => [frame.event.type, frame.event.timingMode]),
+    ).toEqual(
+      expect.arrayContaining([
+        ['pro-playback-prepare', 'zero-start'],
+        ['pro-playback-commit', 'zero-start'],
+      ]),
+    );
   }, 60_000);
 
   it('lets only a presence snapshot advance the epoch fence and refuses a changed body key set', async () => {

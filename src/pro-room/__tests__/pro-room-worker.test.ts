@@ -422,11 +422,12 @@ describe('PRO room server-authoritative playback', () => {
     expect(selectedResponse.status).toBe(202);
     const selected = await responseJson(selectedResponse);
     const internal = context.worker as unknown as { room: Record<string, any> };
-    expect(
-      internal.room.pendingPlaybackTransition.deadlineAtMs -
-        internal.room.pendingPlaybackTransition.createdAtMs,
-    ).toBe(2_999);
-    expect(internal.room.pendingPlaybackTransition).not.toHaveProperty('timingMode');
+    // A select is a zero-start: the stored transition and the answer's PREPARE
+    // name the kind, and the transition keeps the barrier of every other one.
+    const pending = internal.room.pendingPlaybackTransition;
+    expect(pending.deadlineAtMs - pending.createdAtMs).toBe(3_000);
+    expect(pending.timingMode).toBe('zero-start');
+    expect(selected.transition.timingMode).toBe('zero-start');
     const readyResponse = await context.worker.fetch(
       jsonRequest(
         `/playback/transitions/${selected.transition.transitionId}/ready`,
@@ -447,8 +448,8 @@ describe('PRO room server-authoritative playback', () => {
     const internal = context.worker as unknown as { room: Record<string, any> };
     const pending = internal.room.pendingPlaybackTransition;
     expect(pending).not.toBeNull();
-    expect(pending.deadlineAtMs - pending.createdAtMs).toBe(2_999);
-    expect(pending).not.toHaveProperty('timingMode');
+    expect(pending.deadlineAtMs - pending.createdAtMs).toBe(3_000);
+    expect(pending.timingMode).toBe('zero-start');
     const response = await context.worker.fetch(
       jsonRequest(
         `/playback/transitions/${pending.transitionId}/ready`,
@@ -2082,12 +2083,13 @@ describe('PRO room server-authoritative playback', () => {
   });
 
   it('reads the start kind a stored transition names when it coalesces a duplicate ENDED', async () => {
-    // A PRO Worker that sends PRO snapshot schemaVersion 2 stores every
-    // transition with a 3000 ms deadline and names its kind in timingMode.
-    // This Worker reads that kind as it reads the 2999 ms deadline above: a
-    // duplicate ENDED joins a stored zero-start transition and replaces a
-    // stored scheduled-control one.
-    const duplicateEnded = async (timingMode: 'zero-start' | 'scheduled-control') => {
+    // This Worker stores every transition with a 3000 ms deadline and names
+    // its kind in timingMode. It still reads the encoding of PRO Workers
+    // before PRO snapshot schemaVersion 2 (no timingMode, a 2999 ms deadline
+    // for a zero-start) on a transition one of them stored. A duplicate ENDED
+    // joins a stored zero-start transition and replaces a stored
+    // scheduled-control one.
+    const duplicateEnded = async (timingMode: 'zero-start' | 'scheduled-control' | 'pre-v2') => {
       const context = await activatedRoom();
       const realtime = installRealtimeRecorder(context);
       expect(
@@ -2120,8 +2122,13 @@ describe('PRO room server-authoritative playback', () => {
       const first = await ended(1);
       const stored = realtime.internal.room.pendingPlaybackTransition;
       expect(stored.transitionId).toBe(first.transitionId);
-      stored.deadlineAtMs = stored.createdAtMs + 3_000;
-      stored.timingMode = timingMode;
+      if (timingMode === 'pre-v2') {
+        stored.deadlineAtMs = stored.createdAtMs + 2_999;
+        delete stored.timingMode;
+      } else {
+        stored.deadlineAtMs = stored.createdAtMs + 3_000;
+        stored.timingMode = timingMode;
+      }
       const second = await ended(2);
       return { first, second, stored, realtime };
     };
@@ -2149,6 +2156,14 @@ describe('PRO room server-authoritative playback', () => {
       serverTimeMs: expect.any(Number),
       reason: 'superseded',
     });
+
+    // A pre-v2 zero-start joins too, keeps its stored encoding, and the
+    // PREPARE of the answer names the kind its deadline encodes.
+    const preV2 = await duplicateEnded('pre-v2');
+    expect(preV2.second.transitionId).toBe(preV2.first.transitionId);
+    expect(preV2.second.deadlineAtMs).toBe(preV2.stored.createdAtMs + 2_999);
+    expect(preV2.second.timingMode).toBe('zero-start');
+    expect(preV2.realtime.internal.room.pendingPlaybackTransition).not.toHaveProperty('timingMode');
   });
 
   it('accepts ENDED only for the exact playing identity at a defensible end position', async () => {
@@ -2703,12 +2718,19 @@ describe('PRO room server-authoritative playback', () => {
   });
 
   it('gives every rendezvous command the start kind of one table', async () => {
-    // The reference for the explicit start kind of snapshot v2: today a
-    // zero-start transition is marked only by its 2999 ms deadline and its
-    // 699 ms COMMIT lead; every other one gets 3000 ms and 700 ms. Each row
-    // runs in a fresh room with the owner as the whole cohort.
-    const ZERO_START = { deadlineMs: 2_999, commitLeadMs: 699 };
-    const SCHEDULED_CONTROL = { deadlineMs: 3_000, commitLeadMs: 700 };
+    // Snapshot v2 names the start kind in timingMode on the stored transition,
+    // on its PREPARE and on its COMMIT; every transition keeps the 3000 ms
+    // barrier and the 700 ms COMMIT lead whatever its kind. Each row runs in
+    // a fresh room with the owner as the whole cohort.
+    const startKindOf = (timingMode: 'zero-start' | 'scheduled-control') => ({
+      stored: timingMode,
+      prepare: timingMode,
+      commit: timingMode,
+      deadlineMs: 3_000,
+      commitLeadMs: 700,
+    });
+    const ZERO_START = startKindOf('zero-start');
+    const SCHEDULED_CONTROL = startKindOf('scheduled-control');
     type Room = Awaited<ReturnType<typeof activatedRoom>>;
     type Realtime = ReturnType<typeof installRealtimeRecorder>;
     const startKind = async (
@@ -2719,6 +2741,7 @@ describe('PRO room server-authoritative playback', () => {
     ) => {
       const pending = realtime.internal.room.pendingPlaybackTransition;
       expect(pending.transitionId).toBe(transition.transitionId);
+      const stored = pending.timingMode;
       const deadlineMs = pending.deadlineAtMs - pending.createdAtMs;
       const ready = await context.worker.fetch(
         jsonRequest(
@@ -2730,12 +2753,19 @@ describe('PRO room server-authoritative playback', () => {
       );
       expect(ready.status).toBe(200);
       await expect(ready.json()).resolves.toMatchObject({ status: 'committed' });
-      const commit = realtime.messages.find(
-        (message) =>
-          message.event?.type === 'pro-playback-commit' &&
-          message.event.transitionId === transition.transitionId,
-      )?.event;
-      return { deadlineMs, commitLeadMs: commit.executeAtMs - commit.serverTimeMs };
+      const sent = (type: string) =>
+        realtime.messages.find(
+          (message) =>
+            message.event?.type === type && message.event.transitionId === transition.transitionId,
+        )?.event;
+      const commit = sent('pro-playback-commit');
+      return {
+        stored,
+        prepare: sent('pro-playback-prepare')?.timingMode,
+        commit: commit.timingMode,
+        deadlineMs,
+        commitLeadMs: commit.executeAtMs - commit.serverTimeMs,
+      };
     };
     const commandKind = async (
       prepare: (context: Room) => Promise<void>,
@@ -2879,7 +2909,9 @@ describe('PRO room server-authoritative playback', () => {
       ).status,
     ).toBe(200);
     const frozenPosition = realtime.internal.room.playback.positionSeconds as number;
-    expect(frozenPosition).toBeCloseTo(24.301, 5);
+    // 15 s plus the 9.3 s played since the select's COMMIT executed, 700 ms
+    // after the Worker sent it.
+    expect(frozenPosition).toBeCloseTo(24.3, 5);
 
     vi.setSystemTime(startedAtMs + 2 * 60 * 60 * 1_000);
     const returning = await addMember(context);
@@ -3497,12 +3529,12 @@ describe('PRO room server-authoritative playback', () => {
   });
 
   it('lets the outbox write path queue a PREPARE and a transition COMMIT that name either timingMode', async () => {
-    // Every new outbox record passes the loader's normalizer, so a Worker that
+    // Every new outbox record passes the loader's normalizer, and this Worker
     // names the start kind on each PREPARE and transition COMMIT (PRO snapshot
-    // schemaVersion 2) depends on this gate: a refused record makes
-    // enqueuePlaybackBroadcast return false and the broadcast is never sent.
-    // No route of this Worker writes the field, so the gate is called directly
-    // with the events this Worker sent.
+    // schemaVersion 2), so its playback broadcasts depend on this gate: a
+    // refused record makes enqueuePlaybackBroadcast return false and the
+    // broadcast is never sent. The gate is also called directly with each
+    // kind on the events this Worker sent.
     const context = await activatedRoom();
     const realtime = installRealtimeRecorder(context);
     const outbox = context.worker as unknown as {
@@ -3519,6 +3551,10 @@ describe('PRO room server-authoritative playback', () => {
     const prepare = sent('pro-playback-prepare');
     const commit = sent('pro-playback-commit');
     expect(commit.event.transitionId).toBe(prepare.event.transitionId);
+    expect([prepare.event.timingMode, commit.event.timingMode]).toEqual([
+      'zero-start',
+      'zero-start',
+    ]);
 
     for (const timingMode of ['zero-start', 'scheduled-control'] as const) {
       for (const message of [prepare, commit]) {
@@ -3898,7 +3934,7 @@ describe('PRO room server-authoritative playback', () => {
     );
     expect(selected.status).toBe(202);
     const expiredDeadlineAtMs = Date.now() - 1;
-    realtime.internal.room.pendingPlaybackTransition.createdAtMs = expiredDeadlineAtMs - 2_999;
+    realtime.internal.room.pendingPlaybackTransition.createdAtMs = expiredDeadlineAtMs - 3_000;
     realtime.internal.room.pendingPlaybackTransition.deadlineAtMs = expiredDeadlineAtMs;
     const snapshot = await context.worker.fetch(request('/snapshot', {}, context.ownerCookie));
     expect(snapshot.status).toBe(200);
@@ -3910,8 +3946,13 @@ describe('PRO room server-authoritative playback', () => {
       'pro-playback-prepare',
       'pro-playback-commit',
     ]);
+    // The deadline COMMIT names the kind of the transition it commits.
+    expect(playbackMessages.map((message) => message.event.timingMode)).toEqual([
+      'zero-start',
+      'zero-start',
+    ]);
     const commit = playbackMessages[1]?.event;
-    expect(commit.executeAtMs - commit.serverTimeMs).toBe(699);
+    expect(commit.executeAtMs - commit.serverTimeMs).toBe(700);
     expect(realtime.internal.room.pendingPlaybackTransition).toBeNull();
     expect(realtime.internal.room.pendingPlaybackBroadcasts).toEqual([]);
   });
@@ -31327,11 +31368,15 @@ describe('PRO browser parsers on the actual Worker answers', () => {
       idempotencyKey: 'browser-parser-contract-select',
     });
     expect(selected.status).toBe('preparing');
+    // Every PREPARE and transition COMMIT names its start kind (a select is a
+    // zero-start), and each parser keeps it.
+    expect(owner.lastAnswer().transition.timingMode).toBe('zero-start');
     expect(selected.transition).toEqual(owner.lastAnswer().transition);
     const transition = selected.transition!;
 
     // The pending PREPARE of a signaling ticket.
     const access = await member.api.createSignalingTicket(ROOM_CODE);
+    expect(member.lastAnswer().pendingPlaybackTransition.timingMode).toBe('zero-start');
     expect(access.pendingPlaybackTransition).toEqual(member.lastAnswer().pendingPlaybackTransition);
     expect(access.pendingPlaybackTransition?.transitionId).toBe(transition.transitionId);
 
@@ -31363,6 +31408,9 @@ describe('PRO browser parsers on the actual Worker answers', () => {
       ['pro-playback-commit', null],
     ]);
     const [prepare, commit, directCommit] = events;
+    // A direct COMMIT has no transition and names no kind.
+    expect([prepare!.timingMode, commit!.timingMode]).toEqual(['zero-start', 'zero-start']);
+    expect(directCommit).not.toHaveProperty('timingMode');
     expect(parseProRoomPlaybackPrepareEvent(prepare)).toEqual(prepare);
     expect(parseProRoomPlaybackCommitEvent(commit)).toEqual(commit);
     expect(parseProRoomPlaybackCommitEvent(directCommit)).toEqual(directCommit);

@@ -94,39 +94,54 @@ runbooks. Neither belongs in a general setup document.
 ## Maintained evidence and completed records
 
 - [UI owner decisions train 9.0.23: the items 9.0.20 left open (2026-10-29)](design/ui-owner-923-2026-10-29.md):
-  in progress, not merged or released; the next app update after 9.0.22 (9.0.23 / v796, App build
-  796, bump `060dce82`, expected target `app` with 57 App runtime paths and none in the other five
-  Workers, with the update dialog; the build floor stays 789). It carries the owner's decisions of
-  2026-10-29 on twelve owner items of the 9.0.20 report: the Japanese setup waiting pill says
-  準備中...; a guest with a room code reads a lost-session body that says Restart joins this room again
-  (one new key in 42 locales, the owner's Korean and English); one Leave Session confirmation,
-  [Stay | Leave] with Stay focused first and Leave in account deletion's danger tone, for the
-  connect tab, the logo and Back, from the dialog's first frame (the host-unresponsive Leave session
-  takes the same tone); Back works again after a PRO room's Refresh needed, including when a forced
-  update takes over the refusal; Japanese and Chinese dialog and setup titles keep
-  their words whole (Japanese phrases where the browser supports auto-phrase) and no title runs past
-  its box (a shorter Tamil host-unresponsive title); the demo's step 4 icons keep 20px with shorter
-  Tamil and Malayalam exits and the owner-approved Norwegian 'Sporinfo'; the demo header loses its
-  exit button and names the track alone on one line; and the manual sync panel is back on
+  released on 2026-10-29 21:22 KST in Release 40872467902 (PR #526, squash `5a5afb0e`): the next app
+  update after 9.0.22 (9.0.23 / v796, App build 796, bump `060dce82`, target `app` with 57 App runtime
+  paths and none in the other five Workers, with the update dialog; the build floor stays 789). Only
+  the App Worker changed (`dddfabe3`); the other five keep their 9.0.22 versions. It carries the
+  owner's decisions of 2026-10-29 on twelve owner items of the 9.0.20 report: the Japanese setup
+  waiting pill says 準備中...; a guest with a room code reads a lost-session body that says Restart
+  joins this room again (one new key in 42 locales, the owner's Korean and English); one Leave
+  Session confirmation, [Stay | Leave] with Stay focused first and Leave in account deletion's danger
+  tone, for the connect tab, the logo and Back, from the dialog's first frame (the host-unresponsive
+  Leave session takes the same tone); Back works again after a PRO room's Refresh needed, including
+  when a forced update takes over the refusal; Japanese and Chinese dialog and setup titles keep their
+  words whole (Japanese phrases where the browser supports auto-phrase) and no title runs past its
+  box (a shorter Tamil host-unresponsive title); the demo's step 4 icons keep 20px with shorter Tamil
+  and Malayalam exits and the owner-approved Norwegian 'Sporinfo' and Swedish 'Spårinfo' (added after
+  the first PR CI's Linux fonts put 'Spårinformation' 2.50px past its pill at 320px); the demo header
+  loses its exit button and names the track alone on one line; and the manual sync panel is back on
   [Reset | Done], with the exit-left rule narrowed to dialog [Cancel | Action] pairs. Two items
   change tests only (the PRO registration label measured in its paired layout in 42 locales, the
   740x361 sidebar measured from the last tab pill). Branch `agent/ui-owner-920` is on main
-  `71f5b96c` (9.0.22), rebased from `0bbd077e` with identical patches. The report lists the owner
-  decisions, each increment with its rebased commits and tests-first evidence (rerun at the rebased
-  SHAs), the SHA map, the review findings (the Norwegian label the owner approved, the stale
+  `10f52178` (the R1 record), rebased from `0bbd077e` with identical patches. The report lists the
+  owner decisions, each increment with its rebased commits and tests-first evidence (rerun at the
+  rebased SHAs), the SHA map, the review findings (the Norwegian label the owner approved, the stale
   `demo.exit` name registration removed, commit hygiene notes for the squash message, the partial
   Japanese and Chinese result; from the assembly review, Leave showing the blue primary for about
   190 ms before its danger tint when a main-app button had focus, fixed tests first in `e77eead6`,
-  and the forced-update case of item 10 added to the report), visible changes, open owner items (native checks, the stepped PIN
-  title, Safari Japanese, a Japanese title at three lines at 320px), mixed versions and rollback,
-  and QA rounds 1 to 3 (the implementation round and its review; the assembly round at the first
-  bump `849df009`, which the assembly review's fix moved off the branch; the fix round at
-  `060dce82`: Leave in the danger tint from 0 ms per frame in three entry paths, npm audit 0, unit
-  705 files / 16,710, typecheck, lint, format, every guard, resource ownership 49 records / 447
-  files, `check:workers`, critical coverage 90 / 3,515, `build:checked` with the release-identity and
-  cache-version guards and the budgets, Chromium candidate E2E 19, critical E2E 100 and the demo,
-  back-navigation, adaptive-actions and dialog-locale-layout files 91) with a placeholder for the
-  release round. The release record's §2 carries a pre-deploy item for 9.0.23.
+  and the forced-update case of item 10 added to the report), visible changes, open owner items
+  (native checks, the stepped PIN title, Safari Japanese, a Japanese title at three lines at 320px),
+  mixed versions and rollback, and QA rounds 1 to 4: the implementation round and its review; the
+  assembly round at the first bump `849df009`, which the assembly review's fix moved off the branch;
+  the fix round at `060dce82` (Leave in the danger tint from 0 ms per frame in three entry paths, npm
+  audit 0, unit 705 files / 16,710, typecheck, lint, format, every guard, resource ownership 49
+  records / 447 files, `check:workers`, critical coverage 90 / 3,515, `build:checked` with the
+  release-identity and cache-version guards and the budgets, Chromium candidate E2E 19, critical E2E
+  100 and the demo, back-navigation, adaptive-actions and dialog-locale-layout files 91); and round 4
+  (the first PR CI failing only in the Critical browser gate on the Swedish label, the
+  owner-approved fix tests first with the tail rebuilt so the bump stays the last runtime commit, the
+  PR CI on the final head `3c33888c`, an automated review with no findings on the earlier head
+  `7f00b9e2` and none posted for the final head within 20 minutes, so the merge went ahead without it
+  (the delta was the Swedish value, its test and docs, diffed by hand), the exact-main CI on Node
+  24.22.2 with unit 705 files / 16,710 plus the known skip and Linux Chromium candidate 19 and
+  critical 100, one Production Release with target `app` whose smokes all passed on the first try (a
+  duplicate dispatch for the same SHA was cancelled while pending and ran no job), the public service
+  worker at v796, the public floor at 789 with live App 796, and the Drift Audit at 32 pass / 0 fail /
+  5 manual-only). The release record's §2 now carries the 9.0.23 post-deploy items (scope and status,
+  post-deploy checks with the owner device check list, and open owner items with the owner step for
+  outdated approved translation suggestions, now six keys with the Swedish one) and §4 its rollback
+  boundary (a forward revert at 9.0.24 / v797 or later, or the checkpoint's 9.0.22 App `e8966418`
+  without `lower`); the record closed the 9.0.20 owner items this train implemented.
 - [Phase 5.5 R1: old-version removal train 3 and PRO snapshot v2 reading, 9.0.22 (2026-10-29)](design/phase5-5-r1-train3-v2-accept-2026-10-29.md):
   released on 2026-10-29 18:35 KST in Release 40850068382 (PR #524, squash `71f5b96c`): the first
   runtime release of Phase 5.5 (9.0.22 / v795, App build 795, bump `16d24d89`, target `all` with 27
@@ -173,7 +188,7 @@ runbooks. Neither belongs in a general setup document.
   membership choice (refused by the 789 floor anyway), owner device check candidates and what was
   not verified. The release record's §2 now carries the 9.0.22 post-deploy items (scope and
   status, the owner device checks, and the next steps F2 to build 795, R2 and R3) and §4 its entry
-  (a forward revert at 9.0.23 / v796 or later, or the checkpoint's 9.0.21 App `06e79397` and
+  (a forward revert at 9.0.24 / v797 or later now that 9.0.23 shipped, or the checkpoint's 9.0.21 App `06e79397` and
   9.0.20 Workers); with the F1 evidence the record closed the release A item's device check of a
   mixed room with a 9.0.14 device.
 - [UI follow-up train 9.0.21: transient text at 600 and chips on one line (2026-10-29)](design/ui-followup-921-2026-10-29.md):
@@ -203,7 +218,7 @@ runbooks. Neither belongs in a general setup document.
   with identical patches, and its assembly review moved the bump after the review fixes. The release
   record's §2 now carries the 9.0.21 post-deploy items (scope and status, post-deploy checks, open
   owner items and the owner step for outdated approved translation suggestions) and §4 its rollback
-  boundary (a forward revert at 9.0.23 / v796 or later now that 9.0.22 shipped, or the checkpoint's 9.0.20 App
+  boundary (a forward revert at 9.0.24 / v797 or later now that 9.0.22 and 9.0.23 shipped, or the checkpoint's 9.0.20 App
   `50d6557f`); the release closed the focus race item and the 9.0.20 owner decisions this train
   implemented. The report lists the owner decisions, each
   increment with its commits and tests-first evidence, the SHA map after assembly, the review
@@ -270,7 +285,9 @@ runbooks. Neither belongs in a general setup document.
   40773241908 on main `edd6ee94` (the 9.0.20 runtime) passed in Linux Chromium and Linux WebKit,
   which closed that open item. The rare media source focus race the same investigation found was
   fixed in 9.0.21 (released on 2026-10-29 15:23 KST), which closed that item and, with its chip
-  copy, owner item 4 and the selected-700 part of owner item 13.
+  copy, owner item 4 and the selected-700 part of owner item 13. 9.0.23 (released on 2026-10-29
+  21:22 KST) closed owner items 1a, 6, 7, 8, 9, 10, 11, 12 and 18, the Japanese and Chinese title
+  word breaks and title overflow in 13 and 19, and the demo finish pair in 17.
 - [PRO receipt follow-up train A (2026-10-28)](design/pro-receipt-followup-a-2026-10-28.md):
   the owner's decision of 2026-10-28 on item 3 of the receipt retention follow-ups, shipped as a
   PRO room Worker-only train (target `pro-room`; the App stays 9.0.19 / v792, so no update

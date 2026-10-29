@@ -17,7 +17,7 @@
          link href-less until then prevents a race that could pin install UI to
          the wrong language. -->
     <link id="app-manifest" rel="manifest" />
-    <script src="/bootstrap.js?cache=v793"></script>
+    <script src="/bootstrap.js?cache=v794"></script>
 
     <link rel="canonical" href="https://musixquare.com/" />
     <!-- mxqr-hreflang:start -->
@@ -776,7 +776,7 @@
             </svg>
             <span data-i18n="player.play_speakers">Use as Speaker</span>
           </div>
-          <div class="help-desc" data-i18n-html="player.play_speakers_html">Each participant selects a <strong>role (output channel)</strong>.<ul class="help-list"><li><strong>Center Speaker:</strong> Stereo (default) output</li><li><strong>Left Speaker:</strong> <bdi dir="ltr">L</bdi> channel output</li><li><strong>Right Speaker:</strong> <bdi dir="ltr">R</bdi> channel output</li><li><strong>Subwoofer:</strong> Low-frequency mix output</li></ul>You can change roles anytime in <strong>Settings</strong>.</div>
+          <div class="help-desc" data-i18n-html="player.play_speakers_html">Each participant selects a <strong>role (output channel)</strong>.<ul class="help-list"><li><strong>Center:</strong> Stereo (default) output</li><li><strong>Left:</strong> <bdi dir="ltr">L</bdi> channel output</li><li><strong>Right:</strong> <bdi dir="ltr">R</bdi> channel output</li><li><strong>Bass:</strong> Low-frequency mix output</li></ul>You can change roles anytime in <strong>Settings</strong>.</div>
         </div>
 
         <div class="help-block">
@@ -1236,12 +1236,12 @@
                 <button type="button" class="ch-opt" data-ch="-1" aria-pressed="false">
                   <svg viewBox="0 0 24 24" aria-hidden="true">
                     <path d="M15.41 7.41L14 6l-6 6 6 6 1.41-1.41L10.83 12z" /></svg
-                  ><span data-i18n="role.left">Left Speaker</span>
+                  ><span data-i18n="common.left">Left</span>
                 </button>
                 <button type="button" class="ch-opt" data-ch="1" aria-pressed="false">
                   <svg viewBox="0 0 24 24" aria-hidden="true">
                     <path d="M10 6L8.59 7.41 13.17 12l-4.58 4.59L10 18l6-6z" /></svg
-                  ><span data-i18n="role.right">Right Speaker</span>
+                  ><span data-i18n="common.right">Right</span>
                 </button>
                 <button type="button" class="ch-opt" data-ch="2" aria-pressed="false">
                   <svg viewBox="0 0 24 24" aria-hidden="true">
@@ -1249,14 +1249,14 @@
                       d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm0 18c-4.41 0-8-3.59-8-8s3.59-8 8-8 8 3.59 8 8-3.59 8-8 8z"
                     />
                     <circle cx="12" cy="12" r="3" /></svg
-                  ><span data-i18n="role.subwoofer">Subwoofer</span>
+                  ><span data-i18n="demo.role_bass_short">Bass</span>
                 </button>
                 <button type="button" class="ch-opt" data-ch="0" aria-pressed="false">
                   <svg viewBox="0 0 24 24" aria-hidden="true">
                     <path
                       d="M12 3v9.28c-.47-.17-.97-.28-1.5-.28C8.01 12 6 14.01 6 16.5S8.01 21 10.5 21c2.31 0 4.16-1.75 4.45-4H15V6h4V3h-7z"
                     /></svg
-                  ><span data-i18n="role.center">Center Speaker</span>
+                  ><span data-i18n="demo.role_center_short">Center</span>
                 </button>
               </div>
               <div class="reverb-sliders-area collapsed" id="woofer-cutoff-control">
@@ -1841,7 +1841,7 @@
                 </svg>
                 <span data-i18n="player.play_speakers">Use as Speaker</span>
               </div>
-              <div class="help-desc" data-i18n-html="player.play_speakers_html">Each participant selects a <strong>role (output channel)</strong>.<ul class="help-list"><li><strong>Center Speaker:</strong> Stereo (default) output</li><li><strong>Left Speaker:</strong> <bdi dir="ltr">L</bdi> channel output</li><li><strong>Right Speaker:</strong> <bdi dir="ltr">R</bdi> channel output</li><li><strong>Subwoofer:</strong> Low-frequency mix output</li></ul>You can change roles anytime in <strong>Settings</strong>.</div>
+              <div class="help-desc" data-i18n-html="player.play_speakers_html">Each participant selects a <strong>role (output channel)</strong>.<ul class="help-list"><li><strong>Center:</strong> Stereo (default) output</li><li><strong>Left:</strong> <bdi dir="ltr">L</bdi> channel output</li><li><strong>Right:</strong> <bdi dir="ltr">R</bdi> channel output</li><li><strong>Bass:</strong> Low-frequency mix output</li></ul>You can change roles anytime in <strong>Settings</strong>.</div>
             </div>
 
             <div class="help-block">
@@ -2951,13 +2951,13 @@
                 <svg viewBox="0 0 24 24" aria-hidden="true">
                   <path d="M15.41 7.41L14 6l-6 6 6 6 1.41-1.41L10.83 12z" />
                 </svg>
-                <span data-i18n="role.left">Left Speaker</span>
+                <span data-i18n="common.left">Left</span>
               </button>
               <button type="button" class="ch-opt" data-join-ch="1" aria-pressed="false">
                 <svg viewBox="0 0 24 24" aria-hidden="true">
                   <path d="M10 6L8.59 7.41 13.17 12l-4.58 4.59L10 18l6-6z" />
                 </svg>
-                <span data-i18n="role.right">Right Speaker</span>
+                <span data-i18n="common.right">Right</span>
               </button>
               <button type="button" class="ch-opt" data-join-ch="2" aria-pressed="false">
                 <svg viewBox="0 0 24 24" aria-hidden="true">
@@ -2966,7 +2966,7 @@
                   />
                   <circle cx="12" cy="12" r="3" />
                 </svg>
-                <span data-i18n="role.subwoofer">Subwoofer</span>
+                <span data-i18n="demo.role_bass_short">Bass</span>
               </button>
               <button type="button" class="ch-opt" data-join-ch="0" aria-pressed="false">
                 <svg viewBox="0 0 24 24" aria-hidden="true">
@@ -2974,7 +2974,7 @@
                     d="M12 3v9.28c-.47-.17-.97-.28-1.5-.28C8.01 12 6 14.01 6 16.5S8.01 21 10.5 21c2.31 0 4.16-1.75 4.45-4H15V6h4V3h-7z"
                   />
                 </svg>
-                <span data-i18n="role.center">Center Speaker</span>
+                <span data-i18n="demo.role_center_short">Center</span>
               </button>
             </div>
           </div>
@@ -3660,7 +3660,7 @@
               <span data-i18n="demo.step_role">2. Set role</span>
             </button>
             <button type="button" data-demo-step="3" aria-pressed="false">
-              <span data-i18n="demo.step_effects">3. Audio effects</span>
+              <span data-i18n="demo.step_effects">3. Effects</span>
             </button>
             <button
               type="button"

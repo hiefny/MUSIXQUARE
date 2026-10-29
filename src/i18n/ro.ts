@@ -185,10 +185,6 @@ const ro: Record<I18nKey, string> = {
   'transfer.host_busy': 'Gazda procesează alt fișier\nÎncearcă din nou în curând',
 
   // ─── Rol ─────────────────────────────────────────────────────────
-  'role.center': 'Central',
-  'role.left': 'Difuzor stânga',
-  'role.right': 'Dreapta',
-  'role.subwoofer': 'Subwoofer',
   'role.center_placement': 'Așază dispozitivul în centru',
   'role.left_placement': 'Așază dispozitivul în stânga',
   'role.right_placement': 'Așază dispozitivul în dreapta',
@@ -367,8 +363,8 @@ const ro: Record<I18nKey, string> = {
   'demo.role_center_short': 'Centru',
   'demo.step_nav_label': 'Pașii demonstrației',
   'demo.step_connect': '1. Conectare',
-  'demo.step_role': '2. Setează rolul',
-  'demo.step_effects': '3. Efecte audio',
+  'demo.step_role': '2. Alege rolul',
+  'demo.step_effects': '3. Efecte',
   'demo.step_finish': '4. Încheie turul',
   'demo.session_title': 'Camera ta: {{code}}',
   'demo.session_subtitle': 'Poți invita oricând un alt dispozitiv.',
@@ -919,7 +915,7 @@ const ro: Record<I18nKey, string> = {
   'setup.how_to_connect_html':
     'Introdu <strong>codul din 6 cifre</strong> primit de la gazdă pentru a te conecta.<ul class="help-list"><li><strong>Gazdă:</strong> „Creează o cameră” → verifică codul</li><li><strong>Participant:</strong> „Intră într-o cameră” → introdu codul</li><li>Se pot conecta până la <strong>100 de dispozitive, inclusiv gazda</strong>.</li></ul>',
   'player.play_speakers_html':
-    'Fiecare participant selectează un <strong>rol (canal de ieșire)</strong>.<ul class="help-list"><li><strong>Difuzor central:</strong> ieșire stereo (implicită)</li><li><strong>Difuzor stânga:</strong> ieșire pe canalul <bdi dir="ltr">L</bdi></li><li><strong>Difuzor dreapta:</strong> ieșire pe canalul <bdi dir="ltr">R</bdi></li><li><strong>Subwoofer:</strong> ieșire mixtă de joasă frecvență</li></ul>Poți schimba oricând rolurile din <strong>Setări</strong>.',
+    'Fiecare participant selectează un <strong>rol (canal de ieșire)</strong>.<ul class="help-list"><li><strong>Centru:</strong> ieșire stereo (implicită)</li><li><strong>Stânga:</strong> ieșire pe canalul <bdi dir="ltr">L</bdi></li><li><strong>Dreapta:</strong> ieșire pe canalul <bdi dir="ltr">R</bdi></li><li><strong>Bas:</strong> ieșire mixtă de joasă frecvență</li></ul>Poți schimba oricând rolurile din <strong>Setări</strong>.',
   'player.play_media_action_html':
     'Gazda are 3 opțiuni.<ul class="help-list"><li><strong>Încarcă un fișier local:</strong> alege muzică de pe dispozitiv. Acceptă sincronizare precisă</li><li><strong>YouTube împreună:</strong> acceptă videoclipuri și liste de redare. Fără separarea canalelor sau efecte audio</li><li><strong>Partajarea sunetului sistemului:</strong> disponibilă când gazda folosește pe computer un browser bazat pe Chromium</li></ul>',
   'help.need_help_html':

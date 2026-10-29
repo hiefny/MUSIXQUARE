@@ -45,7 +45,7 @@ const fi: Record<I18nKey, string> = {
   'common.done': 'Valmis',
   'common.sync': 'Synkronoi',
   'common.on': 'Käytössä',
-  'common.off': 'Pois käytöstä',
+  'common.off': 'Ei käytössä',
 
   'screensaver.back': 'Takaisin MUSIXQUAREen',
   'screensaver.turn_on': 'Käynnistä näytönsäästäjä',
@@ -185,10 +185,6 @@ const fi: Record<I18nKey, string> = {
   'transfer.host_busy': 'Isäntä käsittelee toista tiedostoa\nYritä pian uudelleen',
 
   // ─── Role ────────────────────────────────────────────────────────
-  'role.center': 'Keskikaiutin',
-  'role.left': 'Vasen kaiutin',
-  'role.right': 'Oikea kaiutin',
-  'role.subwoofer': 'Bassokaiutin',
   'role.center_placement': 'Sijoita laite keskelle',
   'role.left_placement': 'Sijoita laite vasemmalle',
   'role.right_placement': 'Sijoita laite oikealle',
@@ -240,8 +236,8 @@ const fi: Record<I18nKey, string> = {
   'settings.reverb_title': 'Kaiku',
   'settings.rvb_studio': 'Studio',
   'settings.rvb_arena': 'Areena',
-  'settings.rvb_advanced': 'Lisäasetukset',
-  'settings.rvb_off': 'Pois käytöstä',
+  'settings.rvb_advanced': 'Käsisäätö',
+  'settings.rvb_off': 'Ei käytössä',
   'settings.reverb_mix': 'Kaiun määrä',
   'settings.reverb_decay': 'Kaiun vaimeneminen',
   'settings.reverb_predelay': 'Kaiun esiviive',
@@ -253,8 +249,8 @@ const fi: Record<I18nKey, string> = {
   'settings.eq_band_aria': 'Taajuuskorjain {{freq}}',
   'settings.eq_bright': 'Kirkas',
   'settings.eq_warm': 'Lämmin',
-  'settings.eq_advanced': 'Lisäasetukset',
-  'settings.eq_off': 'Pois käytöstä',
+  'settings.eq_advanced': 'Käsisäätö',
+  'settings.eq_off': 'Ei käytössä',
   'settings.lowpass': 'Alipäästö',
   'settings.highpass': 'Ylipäästö',
   'settings.surround_title': 'Virtuaalinen tilaääni',
@@ -365,8 +361,8 @@ const fi: Record<I18nKey, string> = {
   'demo.step_nav_label': 'Esittelyn vaiheet',
   'demo.step_connect': '1. Yhdistä',
   'demo.step_role': '2. Aseta rooli',
-  'demo.step_effects': '3. Äänitehosteet',
-  'demo.step_finish': '4. Lopeta esittely',
+  'demo.step_effects': '3. Tehosteet',
+  'demo.step_finish': '4. Lopeta',
   'demo.session_title': 'Huoneesi: {{code}}',
   'demo.session_subtitle': 'Voit kutsua toisen laitteen milloin tahansa.',
   'demo.session_body_connected':
@@ -905,7 +901,7 @@ const fi: Record<I18nKey, string> = {
   'setup.how_to_connect_html':
     'Muodosta yhteys antamalla isännältä saamasi <strong>6-numeroinen koodi</strong>.<ul class="help-list"><li><strong>Isäntä:</strong> ”Luo huone” → tarkista koodi</li><li><strong>Osallistuja:</strong> ”Liity huoneeseen” → anna koodi</li><li>Yhteyden voi muodostaa enintään <strong>100 laitetta isäntä mukaan lukien</strong>.</li></ul>',
   'player.play_speakers_html':
-    'Jokainen osallistuja valitsee <strong>roolin (lähtökanavan)</strong>.<ul class="help-list"><li><strong>Keskikaiutin:</strong> Stereoääni (oletus)</li><li><strong>Vasen kaiutin:</strong> <bdi dir="ltr">L</bdi>-kanavan ääni</li><li><strong>Oikea kaiutin:</strong> <bdi dir="ltr">R</bdi>-kanavan ääni</li><li><strong>Bassokaiutin:</strong> Matalien taajuuksien miksaus</li></ul>Rooleja voi vaihtaa milloin tahansa <strong>Asetuksissa</strong>.',
+    'Jokainen osallistuja valitsee <strong>roolin (lähtökanavan)</strong>.<ul class="help-list"><li><strong>Keski:</strong> Stereoääni (oletus)</li><li><strong>Vasen:</strong> <bdi dir="ltr">L</bdi>-kanavan ääni</li><li><strong>Oikea:</strong> <bdi dir="ltr">R</bdi>-kanavan ääni</li><li><strong>Basso:</strong> Matalien taajuuksien miksaus</li></ul>Rooleja voi vaihtaa milloin tahansa <strong>Asetuksissa</strong>.',
   'player.play_media_action_html':
     'Isännällä on kolme vaihtoehtoa.<ul class="help-list"><li><strong>Lataa paikallinen tiedosto:</strong> Valitse musiikkia laitteeltasi. Tarkka synkronointi on tuettu</li><li><strong>YouTube yhdessä:</strong> Tukee videoita ja soittolistoja. Ei kanavajakoa tai äänitehosteita</li><li><strong>Järjestelmän äänen jakaminen:</strong> Käytettävissä, kun isäntä käyttää tietokoneella Chromium-pohjaista selainta</li></ul>',
   'help.need_help_html':

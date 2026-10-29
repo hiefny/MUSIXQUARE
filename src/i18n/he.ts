@@ -182,10 +182,6 @@ const he: Record<I18nKey, string> = {
   'transfer.host_busy': 'המארח מעבד קובץ אחר\nכדאי לנסות שוב בעוד רגע',
 
   // ─── Role ────────────────────────────────────────────────────────
-  'role.center': 'רמקול מרכזי',
-  'role.left': 'רמקול שמאלי',
-  'role.right': 'רמקול ימני',
-  'role.subwoofer': 'סאב-וופר',
   'role.center_placement': 'יש למקם את המכשיר במרכז',
   'role.left_placement': 'יש למקם את המכשיר בצד שמאל',
   'role.right_placement': 'יש למקם את המכשיר בצד ימין',
@@ -357,7 +353,7 @@ const he: Record<I18nKey, string> = {
   'demo.role_center_short': 'מרכז',
   'demo.step_nav_label': 'שלבי ההדגמה',
   'demo.step_connect': '1. חיבור',
-  'demo.step_role': '2. הגדרת תפקיד',
+  'demo.step_role': '2. תפקיד',
   'demo.step_effects': '3. אפקטי שמע',
   'demo.step_finish': '4. סיום ההדגמה',
   'demo.session_title': 'החדר שלך: {{code}}',
@@ -868,7 +864,7 @@ const he: Record<I18nKey, string> = {
   'setup.how_to_connect_html':
     'כדי להתחבר, יש להזין את <strong>הקוד בן 6 הספרות</strong> שמופיע אצל המארח.<ul class="help-list"><li><strong>מארח:</strong> „יצירת חדר” ← הצגת הקוד</li><li><strong>משתתף:</strong> „הצטרפות לחדר” ← הזנת הקוד</li><li>אפשר לחבר עד <strong>100 מכשירים, כולל המארח</strong>.</li></ul>',
   'player.play_speakers_html':
-    'כל משתתף בוחר <strong>תפקיד (ערוץ פלט)</strong>.<ul class="help-list"><li><strong>רמקול מרכזי:</strong> פלט סטריאו (ברירת מחדל)</li><li><strong>רמקול שמאלי:</strong> פלט ערוץ <bdi dir="ltr">L</bdi></li><li><strong>רמקול ימני:</strong> פלט ערוץ <bdi dir="ltr">R</bdi></li><li><strong>סאב-וופר:</strong> פלט מיקס של תדרים נמוכים</li></ul>אפשר לשנות תפקידים בכל זמן דרך <strong>הגדרות</strong>.',
+    'כל משתתף בוחר <strong>תפקיד (ערוץ פלט)</strong>.<ul class="help-list"><li><strong>מרכז:</strong> פלט סטריאו (ברירת מחדל)</li><li><strong>שמאל:</strong> פלט ערוץ <bdi dir="ltr">L</bdi></li><li><strong>ימין:</strong> פלט ערוץ <bdi dir="ltr">R</bdi></li><li><strong>בס:</strong> פלט מיקס של תדרים נמוכים</li></ul>אפשר לשנות תפקידים בכל זמן דרך <strong>הגדרות</strong>.',
   'player.play_media_action_html':
     'למארח יש 3 אפשרויות.<ul class="help-list"><li><strong>טעינת קובץ מקומי:</strong> בחירת מוזיקה מהמכשיר. כולל סנכרון מדויק</li><li><strong>YouTube יחד:</strong> תמיכה בסרטונים וברשימות השמעה. ללא פיצול ערוצים או אפקטי שמע</li><li><strong>שיתוף שמע המערכת:</strong> זמין כשהמארח משתמש במחשב עם דפדפן המבוסס על Chromium</li></ul>',
   'help.need_help_html':

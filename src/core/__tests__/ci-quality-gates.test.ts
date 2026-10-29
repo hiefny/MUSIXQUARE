@@ -126,7 +126,7 @@ describe('CI quality and supply-chain gates', () => {
   });
 
   it('loads both strict TypeScript ESLint configs through the pinned Node contract', () => {
-    expect(packageJson.engines.node).toBe('24.20.0');
+    expect(packageJson.engines.node).toBe('24.22.2');
     expect(readFileSync(resolve('.node-version'), 'utf8').trim()).toBe(packageJson.engines.node);
     expect(packageJson.packageManager).toBe('npm@12.0.2');
     expect(packageJson.devDependencies.eslint).toBe('^10.12.0');

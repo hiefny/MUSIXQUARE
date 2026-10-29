@@ -183,10 +183,6 @@ const ru: Record<I18nKey, string> = {
   'transfer.host_busy': 'Хост обрабатывает другой файл\nПовторите попытку чуть позже',
 
   // ─── Role ────────────────────────────────────────────────────────
-  'role.center': 'Центральный',
-  'role.left': 'Левый динамик',
-  'role.right': 'Правый динамик',
-  'role.subwoofer': 'Сабвуфер',
   'role.center_placement': 'Разместите устройство в центре',
   'role.left_placement': 'Разместите устройство слева',
   'role.right_placement': 'Разместите устройство справа',
@@ -205,8 +201,8 @@ const ru: Record<I18nKey, string> = {
   'settings.virtual_effects_desc':
     'Применяет синтезированные эффекты к звуку. Это может вызвать сильные искажения.',
   'settings.virtual_effect_bass': 'Бас',
-  'settings.virtual_effect_treble': 'Высокие частоты',
-  'settings.virtual_effect_surround': 'Объёмный звук',
+  'settings.virtual_effect_treble': 'Высокие',
+  'settings.virtual_effect_surround': 'Объёмный',
   'settings.language_desc': 'Выберите язык или используйте язык системы.',
   'settings.theme_desc': 'Выберите светлую или тёмную тему.',
   'player.visualizer_mode_hint': 'Выберите способ визуализации звука.',
@@ -240,8 +236,8 @@ const ru: Record<I18nKey, string> = {
   'settings.spatial_audio': 'Пространственный звук',
   'settings.reverb_title': 'Реверберация',
   'settings.rvb_studio': 'Студия',
-  'settings.rvb_arena': 'Концертный зал',
-  'settings.rvb_advanced': 'Расширенный',
+  'settings.rvb_arena': 'Арена',
+  'settings.rvb_advanced': 'Вручную',
   'settings.rvb_off': 'Выкл.',
   'settings.reverb_mix': 'Микс реверберации',
   'settings.reverb_decay': 'Время реверберации',
@@ -254,7 +250,7 @@ const ru: Record<I18nKey, string> = {
   'settings.eq_band_aria': 'Эквалайзер {{freq}}',
   'settings.eq_bright': 'Чёткость',
   'settings.eq_warm': 'Теплота',
-  'settings.eq_advanced': 'Расширенный',
+  'settings.eq_advanced': 'Вручную',
   'settings.eq_off': 'Выкл.',
   'settings.lowpass': 'Фильтр низких частот',
   'settings.highpass': 'Фильтр высоких частот',
@@ -275,7 +271,7 @@ const ru: Record<I18nKey, string> = {
   'settings.invite_share': 'Приглашения и общий доступ',
   'settings.subtab.general': 'Общие',
   'settings.subtab.audio': 'Аудио',
-  'settings.subtab.connect': 'Подключение',
+  'settings.subtab.connect': 'Связь',
   'settings.subtab.help': 'Помощь',
 
   // ─── Connect ───────────────────────────────────────────────────
@@ -365,10 +361,10 @@ const ru: Record<I18nKey, string> = {
   'demo.role_bass_short': 'Басы',
   'demo.role_center_short': 'Центр',
   'demo.step_nav_label': 'Шаги демонстрации',
-  'demo.step_connect': '1. Подключение',
-  'demo.step_role': '2. Выбор роли',
-  'demo.step_effects': '3. Аудиоэффекты',
-  'demo.step_finish': '4. Завершить тур',
+  'demo.step_connect': '1. Связь',
+  'demo.step_role': '2. Роль',
+  'demo.step_effects': '3. Эффекты',
+  'demo.step_finish': '4. Завершить',
   'demo.session_title': 'Ваша комната: {{code}}',
   'demo.session_subtitle': 'Вы можете пригласить другие устройства в любое время.',
   'demo.session_body_connected':
@@ -911,7 +907,7 @@ const ru: Record<I18nKey, string> = {
   'setup.how_to_connect_html':
     'Введите <strong>6-значный код</strong> хоста для подключения.<ul class="help-list"><li><strong>Хост:</strong> «Создать комнату» → посмотреть код</li><li><strong>Участник:</strong> «Войти в комнату» → ввести код</li><li>Можно подключить до <strong>100 устройств, включая хоста</strong>.</li></ul>',
   'player.play_speakers_html':
-    'Каждый участник выбирает <strong>роль (выходной канал)</strong>.<ul class="help-list"><li><strong>Центральный динамик:</strong> стереовыход (по умолчанию)</li><li><strong>Левый динамик:</strong> выход левого канала (<bdi dir="ltr">L</bdi>)</li><li><strong>Правый динамик:</strong> выход правого канала (<bdi dir="ltr">R</bdi>)</li><li><strong>Сабвуфер:</strong> микс низких частот</li></ul>Роли можно изменить в любое время в <strong>Настройках</strong>.',
+    'Каждый участник выбирает <strong>роль (выходной канал)</strong>.<ul class="help-list"><li><strong>Центр:</strong> стереовыход (по умолчанию)</li><li><strong>Левый:</strong> выход левого канала (<bdi dir="ltr">L</bdi>)</li><li><strong>Правый:</strong> выход правого канала (<bdi dir="ltr">R</bdi>)</li><li><strong>Басы:</strong> микс низких частот</li></ul>Роли можно изменить в любое время в <strong>Настройках</strong>.',
   'player.play_media_action_html':
     'У хоста есть 3 варианта воспроизведения.<ul class="help-list"><li><strong>Локальный файл:</strong> выберите музыку на своём устройстве. Поддерживается точная синхронизация</li><li><strong>Совместный просмотр YouTube:</strong> поддерживаются видео и плейлисты. Разделение каналов и звуковые эффекты недоступны</li><li><strong>Системный звук:</strong> доступен, когда хост использует на компьютере браузер на базе Chromium</li></ul>',
   'help.need_help_html':

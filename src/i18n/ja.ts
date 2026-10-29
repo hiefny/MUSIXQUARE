@@ -113,10 +113,6 @@ const ja: Record<I18nKey, string> = {
   'nav.go_home': 'ホームへ移動',
 
   // Role
-  'role.center': '中央スピーカー',
-  'role.left': '左スピーカー',
-  'role.right': '右スピーカー',
-  'role.subwoofer': 'サブウーファー',
   'role.center_placement': 'デバイスを中央に配置してください',
   'role.left_placement': 'デバイスを左側に配置してください',
   'role.right_placement': 'デバイスを右側に配置してください',
@@ -365,9 +361,9 @@ const ja: Record<I18nKey, string> = {
   'demo.role_bass_short': '低音',
   'demo.role_center_short': '中央',
   'demo.step_nav_label': 'デモ手順',
-  'demo.step_connect': '1. デバイスを接続',
+  'demo.step_connect': '1. デバイス接続',
   'demo.step_role': '2. 役割を設定',
-  'demo.step_effects': '3. オーディオ効果',
+  'demo.step_effects': '3. エフェクト',
   'demo.step_finish': '4. デモを終了',
   'demo.session_title': 'あなたのルーム：{{code}}',
   'demo.session_subtitle': 'いつでも別のデバイスを招待できます。',
@@ -944,7 +940,7 @@ const ja: Record<I18nKey, string> = {
   'setup.how_to_connect_html':
     'ホストの<strong>6桁コード</strong>を入力して接続します。<ul class="help-list"><li><strong>ホスト:</strong> 「ルームを作成」→ コードを確認</li><li><strong>参加者:</strong> 「ルームに参加」→ コードを入力</li><li>ホストを含む<strong>最大100台</strong>まで接続できます。</li></ul>',
   'player.play_speakers_html':
-    '各参加者が<strong>役割（出力チャンネル）</strong>を選択します。<ul class="help-list"><li><strong>中央スピーカー:</strong> ステレオ（標準）出力</li><li><strong>左スピーカー:</strong> <bdi dir="ltr">L</bdi>チャンネル出力</li><li><strong>右スピーカー:</strong> <bdi dir="ltr">R</bdi>チャンネル出力</li><li><strong>サブウーファー:</strong> 低域ミックス出力</li></ul>役割はいつでも<strong>設定</strong>で変更できます。',
+    '各参加者が<strong>役割（出力チャンネル）</strong>を選択します。<ul class="help-list"><li><strong>中央:</strong> ステレオ（標準）出力</li><li><strong>左:</strong> <bdi dir="ltr">L</bdi>チャンネル出力</li><li><strong>右:</strong> <bdi dir="ltr">R</bdi>チャンネル出力</li><li><strong>低音:</strong> 低域ミックス出力</li></ul>役割はいつでも<strong>設定</strong>で変更できます。',
   'player.play_media_action_html':
     'ホストには3つの選択肢があります。<ul class="help-list"><li><strong>ローカルファイルを読み込む:</strong> デバイス内の音楽を選択。高精度同期に対応</li><li><strong>YouTubeを一緒に見る:</strong> 動画とプレイリストに対応。チャンネル分離とオーディオ効果は無効</li><li><strong>システムオーディオ共有:</strong> ホストがパソコン上のChromium系ブラウザ（Chrome、Edgeなど）を使っている場合に利用可能</li></ul>',
   'help.need_help_html':

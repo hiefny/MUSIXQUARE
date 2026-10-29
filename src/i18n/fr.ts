@@ -114,10 +114,6 @@ const fr: Record<I18nKey, string> = {
   'nav.go_home': 'Aller à l’accueil',
 
   // Role
-  'role.center': 'Centre',
-  'role.left': 'Gauche',
-  'role.right': 'Droite',
-  'role.subwoofer': 'Caisson de basses',
   'role.center_placement': 'Placez l’appareil au centre',
   'role.left_placement': 'Placez l’appareil à gauche',
   'role.right_placement': 'Placez l’appareil à droite',
@@ -366,9 +362,9 @@ const fr: Record<I18nKey, string> = {
   'demo.role_center_short': 'Centre',
   'demo.step_nav_label': 'Étapes de la démo',
   'demo.step_connect': '1. Connexion',
-  'demo.step_role': '2. Définir le rôle',
-  'demo.step_effects': '3. Effets audio',
-  'demo.step_finish': '4. Quitter la démo',
+  'demo.step_role': '2. Rôle',
+  'demo.step_effects': '3. Effets',
+  'demo.step_finish': '4. Terminer',
   'demo.session_title': 'Votre salon : {{code}}',
   'demo.session_subtitle': 'Vous pouvez inviter un autre appareil à tout moment.',
   'demo.session_body_connected':
@@ -955,7 +951,7 @@ const fr: Record<I18nKey, string> = {
   'setup.how_to_connect_html':
     'Saisissez le <strong>code à 6 chiffres</strong> de l’hôte pour vous connecter.<ul class="help-list"><li><strong>Hôte :</strong> « Créer un salon » → vérifier le code</li><li><strong>Participant :</strong> « Rejoindre un salon » → saisir le code</li><li>Jusqu’à <strong>100 appareils, hôte compris</strong>, peuvent se connecter.</li></ul>',
   'player.play_speakers_html':
-    'Chaque participant sélectionne un <strong>rôle (canal de sortie)</strong>.<ul class="help-list"><li><strong>Centre :</strong> sortie stéréo (par défaut)</li><li><strong>Gauche :</strong> sortie du canal <bdi dir="ltr">G</bdi></li><li><strong>Droite :</strong> sortie du canal <bdi dir="ltr">D</bdi></li><li><strong>Caisson de basses :</strong> sortie mixée des basses fréquences</li></ul>Vous pouvez changer de rôle à tout moment dans les <strong>Réglages</strong>.',
+    'Chaque participant sélectionne un <strong>rôle (canal de sortie)</strong>.<ul class="help-list"><li><strong>Centre :</strong> sortie stéréo (par défaut)</li><li><strong>Gauche :</strong> sortie du canal <bdi dir="ltr">G</bdi></li><li><strong>Droite :</strong> sortie du canal <bdi dir="ltr">D</bdi></li><li><strong>Graves :</strong> sortie mixée des basses fréquences</li></ul>Vous pouvez changer de rôle à tout moment dans les <strong>Réglages</strong>.',
   'player.play_media_action_html':
     'L’hôte dispose de 3 options.<ul class="help-list"><li><strong>Charger un fichier local :</strong> choisissez de la musique sur votre appareil. Synchronisation précise prise en charge</li><li><strong>YouTube ensemble :</strong> vidéos et playlists prises en charge. Pas de séparation des canaux ni d’effets audio</li><li><strong>Partage de l’audio système :</strong> disponible lorsque l’hôte utilise un navigateur pour ordinateur basé sur Chromium</li></ul>',
   'help.need_help_html':

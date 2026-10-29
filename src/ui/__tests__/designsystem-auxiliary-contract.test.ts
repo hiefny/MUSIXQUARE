@@ -116,6 +116,12 @@ describe('auxiliary design-system development samples', () => {
     expect(appReadme).toContain('the button label roles: the CTA role (15px / 600)');
   });
 
+  it('sets the sample toast at the label weight like the app toast', () => {
+    // Owner decision (2026-10-29): toast text reads at the label weight 600.
+    const toast = appCss.match(/(?:^|\n)\.mq-toast\s*\{([^}]*)\}/u)?.[1] ?? '';
+    expect(toast).toContain('font-weight: var(--font-weight-label, 600);');
+  });
+
   it('uses the 64px playback action and 28px glyph', () => {
     expect(appCss).toMatch(/\.mq-fab\s*\{[^}]*width:\s*64px;[^}]*height:\s*64px;/u);
     expect(appCss).toMatch(/\.mq-fab svg\s*\{[^}]*width:\s*28px;[^}]*height:\s*28px;/u);

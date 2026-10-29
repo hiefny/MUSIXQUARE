@@ -186,10 +186,6 @@ const fil: Record<I18nKey, string> = {
   'transfer.host_busy': 'May ibang file na pinoproseso ang host\nSubukan muli maya-maya',
 
   // ─── Gampanin ────────────────────────────────────────────────────
-  'role.center': 'Gitna',
-  'role.left': 'Kaliwa',
-  'role.right': 'Kanang Speaker',
-  'role.subwoofer': 'Subwoofer',
   'role.center_placement': 'Ilagay ang device sa gitna',
   'role.left_placement': 'Ilagay ang device sa kaliwa',
   'role.right_placement': 'Ilagay ang device sa kanan',
@@ -277,7 +273,7 @@ const fil: Record<I18nKey, string> = {
   'connect.rename_reserved': 'Nakalaan ang palayaw na ito.',
   'connect.rename_profanity': 'May natukoy na hindi angkop na salita.',
   'settings.invite_share': 'Mag-imbita at Magbahagi',
-  'settings.subtab.general': 'Pangkalahatan',
+  'settings.subtab.general': 'General',
   'settings.subtab.audio': 'Audio',
   'settings.subtab.connect': 'Kumonekta',
   'settings.subtab.help': 'Tulong',
@@ -372,9 +368,9 @@ const fil: Record<I18nKey, string> = {
   'demo.role_center_short': 'Gitna',
   'demo.step_nav_label': 'Mga hakbang sa demo',
   'demo.step_connect': '1. Kumonekta',
-  'demo.step_role': '2. Itakda ang gampanin',
-  'demo.step_effects': '3. Mga audio effect',
-  'demo.step_finish': '4. Tapusin ang demo',
+  'demo.step_role': '2. Gampanin',
+  'demo.step_effects': '3. Mga effect',
+  'demo.step_finish': '4. Tapusin',
   'demo.session_title': 'Kuwarto mo: {{code}}',
   'demo.session_subtitle': 'Maaari kang mag-imbita ng isa pang device anumang oras.',
   'demo.session_body_connected':
@@ -923,7 +919,7 @@ const fil: Record<I18nKey, string> = {
   'setup.how_to_connect_html':
     'Ilagay ang <strong>6-digit na code</strong> mula sa host para kumonekta.<ul class="help-list"><li><strong>Host:</strong> “Gumawa ng Kuwarto” → tingnan ang code</li><li><strong>Kalahok:</strong> “Sumali sa Kuwarto” → ilagay ang code</li><li>Hanggang <strong>100 device, kasama ang host</strong>, ang maaaring kumonekta.</li></ul>',
   'player.play_speakers_html':
-    'Pumipili ang bawat kalahok ng <strong>gampanin (output channel)</strong>.<ul class="help-list"><li><strong>Gitnang Speaker:</strong> Stereo (default) na output</li><li><strong>Kaliwang Speaker:</strong> Output ng <bdi dir="ltr">L</bdi> channel</li><li><strong>Kanang Speaker:</strong> Output ng <bdi dir="ltr">R</bdi> channel</li><li><strong>Subwoofer:</strong> Output ng low-frequency mix</li></ul>Maaari mong palitan ang mga gampanin anumang oras sa <strong>Mga Setting</strong>.',
+    'Pumipili ang bawat kalahok ng <strong>gampanin (output channel)</strong>.<ul class="help-list"><li><strong>Gitna:</strong> Stereo (default) na output</li><li><strong>Kaliwa:</strong> Output ng <bdi dir="ltr">L</bdi> channel</li><li><strong>Kanan:</strong> Output ng <bdi dir="ltr">R</bdi> channel</li><li><strong>Bass:</strong> Output ng low-frequency mix</li></ul>Maaari mong palitan ang mga gampanin anumang oras sa <strong>Mga Setting</strong>.',
   'player.play_media_action_html':
     'May 3 opsyon ang host.<ul class="help-list"><li><strong>Mag-load ng lokal na file:</strong> Pumili ng musika mula sa device mo. Sinusuportahan ang tumpak na pag-sync</li><li><strong>Sabay-sabay na manood sa YouTube:</strong> Sinusuportahan ang mga video at playlist. Walang channel split o audio effect</li><li><strong>Pagbabahagi ng System Audio:</strong> Available kapag gumagamit ang host ng Chromium-based na browser sa computer</li></ul>',
   'help.need_help_html':

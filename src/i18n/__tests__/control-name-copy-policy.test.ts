@@ -756,11 +756,13 @@ describe('hint and accessible-name copy policy', () => {
   });
 
   it('keeps the 9.0.18 Korean of the visible labels the owner kept', () => {
-    // Owner decision (2026-10-28): these visible labels stay as 9.0.18 in
-    // every locale. They are screen text, not hint or name copy, so the noun
-    // form above does not reach them: the invite pill and the administrator
+    // Owner decision (2026-10-28): these visible labels keep their 9.0.18
+    // Korean. They are screen text, not hint or name copy, so the noun form
+    // above does not reach them: the invite pill and the administrator
     // permissions title are written by src/ui/connect.ts, and the demo step
     // chips show their own text (the final step's also names its button).
+    // On 2026-10-29 the step chips took shorter copy in 38 other locales
+    // (English '3. Effects', chip-label-width.test.ts); the Korean stays.
     const kept: Readonly<Record<string, string>> = {
       'connect.copy_invite_link': '초대 링크 복사하기',
       'connect.permissions_title': '{{name}}님의 권한',

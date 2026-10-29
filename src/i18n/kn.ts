@@ -186,10 +186,6 @@ const kn: Record<I18nKey, string> = {
     'ಹೋಸ್ಟ್ ಮತ್ತೊಂದು ಫೈಲ್ ಅನ್ನು ಪ್ರಕ್ರಿಯೆಗೊಳಿಸುತ್ತಿದ್ದಾರೆ\nಸ್ವಲ್ಪ ಸಮಯದ ನಂತರ ಮತ್ತೆ ಪ್ರಯತ್ನಿಸಿ',
 
   // ─── Role ────────────────────────────────────────────────────────
-  'role.center': 'ಮಧ್ಯದ ಸ್ಪೀಕರ್',
-  'role.left': 'ಎಡ ಸ್ಪೀಕರ್',
-  'role.right': 'ಬಲ ಸ್ಪೀಕರ್',
-  'role.subwoofer': 'ಸಬ್‌ವೂಫರ್',
   'role.center_placement': 'ಸಾಧನವನ್ನು ಮಧ್ಯದಲ್ಲಿ ಇರಿಸಿ',
   'role.left_placement': 'ಸಾಧನವನ್ನು ಎಡಭಾಗದಲ್ಲಿ ಇರಿಸಿ',
   'role.right_placement': 'ಸಾಧನವನ್ನು ಬಲಭಾಗದಲ್ಲಿ ಇರಿಸಿ',
@@ -368,8 +364,8 @@ const kn: Record<I18nKey, string> = {
   'demo.role_center_short': 'ಮಧ್ಯ',
   'demo.step_nav_label': 'ಡೆಮೊ ಹಂತಗಳು',
   'demo.step_connect': '1. ಸಂಪರ್ಕಿಸಿ',
-  'demo.step_role': '2. ಪಾತ್ರ ಹೊಂದಿಸಿ',
-  'demo.step_effects': '3. ಆಡಿಯೊ ಪರಿಣಾಮಗಳು',
+  'demo.step_role': '2. ಪಾತ್ರ ಆರಿಸಿ',
+  'demo.step_effects': '3. ಪರಿಣಾಮ',
   'demo.step_finish': '4. ಡೆಮೊ ಮುಗಿಸಿ',
   'demo.session_title': 'ಇದು {{code}} ಸಂಖ್ಯೆಯ ರೂಮ್.',
   'demo.session_subtitle': 'ಯಾವಾಗ ಬೇಕಾದರೂ ಮತ್ತೊಂದು ಸಾಧನವನ್ನು ಆಮಂತ್ರಿಸಬಹುದು.',
@@ -911,7 +907,7 @@ const kn: Record<I18nKey, string> = {
   'setup.how_to_connect_html':
     'ಸಂಪರ್ಕಿಸಲು ಹೋಸ್ಟ್‌ನ <strong>6-ಅಂಕಿಯ ಕೋಡ್</strong> ನಮೂದಿಸಿ.<ul class="help-list"><li><strong>ಹೋಸ್ಟ್:</strong> “ರೂಮ್ ರಚಿಸಿ” → ಕೋಡ್ ಪರಿಶೀಲಿಸಿ</li><li><strong>ಭಾಗವಹಿಸುವವರು:</strong> “ರೂಮ್‌ಗೆ ಸೇರಿ” → ಕೋಡ್ ನಮೂದಿಸಿ</li><li><strong>ಹೋಸ್ಟ್ ಸೇರಿ ಗರಿಷ್ಠ 100 ಸಾಧನಗಳು</strong> ಸಂಪರ್ಕಿಸಬಹುದು.</li></ul>',
   'player.play_speakers_html':
-    'ಪ್ರತಿ ಭಾಗವಹಿಸುವವರು ಒಂದು <strong>ಪಾತ್ರ (ಔಟ್‌ಪುಟ್ ಚಾನಲ್)</strong> ಆರಿಸುತ್ತಾರೆ.<ul class="help-list"><li><strong>ಮಧ್ಯದ ಸ್ಪೀಕರ್:</strong> ಸ್ಟೀರಿಯೊ (ಡೀಫಾಲ್ಟ್) ಔಟ್‌ಪುಟ್</li><li><strong>ಎಡ ಸ್ಪೀಕರ್:</strong> <bdi dir="ltr">L</bdi> ಚಾನಲ್ ಔಟ್‌ಪುಟ್</li><li><strong>ಬಲ ಸ್ಪೀಕರ್:</strong> <bdi dir="ltr">R</bdi> ಚಾನಲ್ ಔಟ್‌ಪುಟ್</li><li><strong>ಸಬ್‌ವೂಫರ್:</strong> ಕಡಿಮೆ ಆವರ್ತನದ ಮಿಶ್ರ ಔಟ್‌ಪುಟ್</li></ul><strong>ಸೆಟ್ಟಿಂಗ್‌ಗಳಲ್ಲಿ</strong> ಪಾತ್ರಗಳನ್ನು ಯಾವಾಗ ಬೇಕಾದರೂ ಬದಲಿಸಬಹುದು.',
+    'ಪ್ರತಿ ಭಾಗವಹಿಸುವವರು ಒಂದು <strong>ಪಾತ್ರ (ಔಟ್‌ಪುಟ್ ಚಾನಲ್)</strong> ಆರಿಸುತ್ತಾರೆ.<ul class="help-list"><li><strong>ಮಧ್ಯ:</strong> ಸ್ಟೀರಿಯೊ (ಡೀಫಾಲ್ಟ್) ಔಟ್‌ಪುಟ್</li><li><strong>ಎಡ:</strong> <bdi dir="ltr">L</bdi> ಚಾನಲ್ ಔಟ್‌ಪುಟ್</li><li><strong>ಬಲ:</strong> <bdi dir="ltr">R</bdi> ಚಾನಲ್ ಔಟ್‌ಪುಟ್</li><li><strong>ಬೇಸ್:</strong> ಕಡಿಮೆ ಆವರ್ತನದ ಮಿಶ್ರ ಔಟ್‌ಪುಟ್</li></ul><strong>ಸೆಟ್ಟಿಂಗ್‌ಗಳಲ್ಲಿ</strong> ಪಾತ್ರಗಳನ್ನು ಯಾವಾಗ ಬೇಕಾದರೂ ಬದಲಿಸಬಹುದು.',
   'player.play_media_action_html':
     'ಹೋಸ್ಟ್‌ಗೆ 3 ಆಯ್ಕೆಗಳಿವೆ.<ul class="help-list"><li><strong>ಸ್ಥಳೀಯ ಫೈಲ್ ಲೋಡ್ ಮಾಡಿ:</strong> ನಿಮ್ಮ ಸಾಧನದಿಂದ ಸಂಗೀತ ಆರಿಸಿ. ನಿಖರ ಸಿಂಕ್ ಬೆಂಬಲಿತವಾಗಿದೆ</li><li><strong>ಒಟ್ಟಿಗೆ YouTube:</strong> ವೀಡಿಯೊಗಳು ಮತ್ತು ಪ್ಲೇಲಿಸ್ಟ್‌ಗಳು ಬೆಂಬಲಿತವಾಗಿವೆ. ಚಾನಲ್ ವಿಭಜನೆ ಅಥವಾ ಆಡಿಯೊ ಪರಿಣಾಮಗಳಿಲ್ಲ</li><li><strong>ಸಿಸ್ಟಮ್ ಆಡಿಯೊ ಹಂಚಿಕೆ:</strong> ಹೋಸ್ಟ್ ಕಂಪ್ಯೂಟರ್‌ನಲ್ಲಿ Chromium-ಆಧಾರಿತ ಬ್ರೌಸರ್ ಬಳಸುವಾಗ ಲಭ್ಯವಿದೆ</li></ul>',
   'help.need_help_html':

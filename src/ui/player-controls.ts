@@ -578,6 +578,12 @@ function openMediaSourcePopup(focusFirstAction = true): void {
       setManagedTimer(
         'media-source-focus',
         () => {
+          // A keyboard open inerts the focused opener, so the modal stack has
+          // usually focused the first action already, and a fast Tab may have
+          // moved on before this runs. Leave a control inside the picker that
+          // holds focus. A pointer open still moves to the picker surface.
+          const active = document.activeElement;
+          if (focusFirstAction && active !== overlay && overlay.contains(active)) return;
           const focusTarget = focusFirstAction
             ? (getOverlayFocusableElements(overlay)[0] ?? overlay)
             : overlay;

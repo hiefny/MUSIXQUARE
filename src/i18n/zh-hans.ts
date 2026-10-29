@@ -110,10 +110,6 @@ const zhHans: Record<I18nKey, string> = {
   'nav.go_home': '返回首页',
 
   // Role
-  'role.center': '中置音箱',
-  'role.left': '左音箱',
-  'role.right': '右音箱',
-  'role.subwoofer': '低音炮',
   'role.center_placement': '请将设备放在中央',
   'role.left_placement': '请将设备放在左侧',
   'role.right_placement': '请将设备放在右侧',
@@ -863,7 +859,7 @@ const zhHans: Record<I18nKey, string> = {
   'setup.how_to_connect_html':
     '输入房主提供的<strong>6 位邀请码</strong>即可连接。<ul class="help-list"><li><strong>房主：</strong>“创建房间” → 查看邀请码</li><li><strong>参与者：</strong>“加入房间” → 输入邀请码</li><li>包括房主设备在内，最多可连接 <strong>100 台设备</strong>。</li></ul>',
   'player.play_speakers_html':
-    '每位参与者选择一个<strong>角色（输出声道）</strong>。<ul class="help-list"><li><strong>中置：</strong>立体声（默认）输出</li><li><strong>左：</strong><bdi dir="ltr">L</bdi> 声道输出</li><li><strong>右：</strong><bdi dir="ltr">R</bdi> 声道输出</li><li><strong>低音炮：</strong>低频混合输出</li></ul>你可以随时在<strong>设置</strong>中更改角色。',
+    '每位参与者选择一个<strong>角色（输出声道）</strong>。<ul class="help-list"><li><strong>中置：</strong>立体声（默认）输出</li><li><strong>左：</strong><bdi dir="ltr">L</bdi> 声道输出</li><li><strong>右：</strong><bdi dir="ltr">R</bdi> 声道输出</li><li><strong>低音：</strong>低频混合输出</li></ul>你可以随时在<strong>设置</strong>中更改角色。',
   'player.play_media_action_html':
     '房主有 3 个选项。<ul class="help-list"><li><strong>加载本地文件：</strong>从设备中选择音乐。支持精确同步</li><li><strong>一起看 YouTube：</strong>支持视频和播放列表。不支持声道分离和音频效果</li><li><strong>系统音频共享：</strong>房主使用电脑上的 Chromium 内核浏览器（Chrome、Edge 等）时可用</li></ul>',
   'help.need_help_html':

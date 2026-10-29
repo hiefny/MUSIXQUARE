@@ -115,10 +115,16 @@ or pointers. Keep :focus-visible and :active outside the gate (src/ui/__tests__/
          item and every other item (track and device rows, choice chips,
          section tabs, the bottom navigation, the language list).
        - Label: names on controls and markers (action button labels,
-         badges, small meta labels, form field labels).
-       - Body: sentences and auxiliary text (descriptions, hints, toasts,
-         chat messages, the line under a name, timestamps, counters, input
-         text). */
+         badges, small meta labels, form field labels). Transient text
+         too (owner rule 2026-10-29): text that appears because something
+         happened and goes away on its own, or when that moment or mode
+         ends (toasts, loading and waiting lines, the full-screen session
+         message, progress and result lines, mode notes over a blurred
+         panel), and red error lines.
+       - Body: text that is there whenever you open the screen and stays
+         if left alone (descriptions, dialog body text, hints, empty-list
+         hints, chat messages, the line under a name, timestamps,
+         counters, input text). */
     --font-weight-title: 700;
     --font-weight-selected: 700;
     --font-weight-unselected: 500;
@@ -1604,7 +1610,7 @@ or pointers. Keep :focus-visible and :active outside the gate (src/ui/__tests__/
     justify-content: center;
     color: var(--text-sub);
     font-size: 14px;
-    font-weight: var(--font-weight-body);
+    font-weight: var(--font-weight-label);
     text-align: center;
     padding: 0 32px;
     pointer-events: none;
@@ -1906,7 +1912,7 @@ or pointers. Keep :focus-visible and :active outside the gate (src/ui/__tests__/
 
   .youtube-sync-loading-overlay > span:not(.material-elastic-spinner) {
     font-size: 15px;
-    font-weight: var(--font-weight-body);
+    font-weight: var(--font-weight-label);
     line-height: 1.5;
     text-align: center;
   }
@@ -2910,6 +2916,12 @@ or pointers. Keep :focus-visible and :active outside the gate (src/ui/__tests__/
     font-style: italic;
     font-size: 11px;
     opacity: 0.6;
+  }
+
+  /* The waiting row of a playlist whose items still load; the deferred
+     load hint, a sentence that stays until the playlist plays, stays body. */
+  .sub-playlist[data-render-state='loading'] > .sub-track-item.loading {
+    font-weight: var(--font-weight-label);
   }
 
   /* Expand Toggle */
@@ -4589,6 +4601,7 @@ or pointers. Keep :focus-visible and :active outside the gate (src/ui/__tests__/
 
   .qr-placeholder {
     font-size: 13px;
+    font-weight: var(--font-weight-label);
     color: var(--text-sub);
     text-align: center;
     padding: 32px 0;
@@ -4982,7 +4995,7 @@ or pointers. Keep :focus-visible and :active outside the gate (src/ui/__tests__/
     padding: 14px 28px;
     border-radius: 100px;
     font-size: 14px;
-    font-weight: var(--font-weight-body);
+    font-weight: var(--font-weight-label);
     line-height: 1.45;
     max-width: min(calc(100vw - 48px), 560px);
     text-align: center;
@@ -5034,7 +5047,7 @@ or pointers. Keep :focus-visible and :active outside the gate (src/ui/__tests__/
     margin: 0;
     color: var(--text-main);
     font-size: 15px;
-    font-weight: var(--font-weight-body);
+    font-weight: var(--font-weight-label);
     line-height: 1.5;
     text-align: center;
   }
@@ -5409,6 +5422,11 @@ or pointers. Keep :focus-visible and :active outside the gate (src/ui/__tests__/
     line-height: 1.58;
     white-space: pre-wrap;
     word-break: keep-all;
+  }
+
+  /* The waiting line while the account loads (src/ui/account.ts). */
+  .account-dialog-message[data-account-waiting] {
+    font-weight: var(--font-weight-label);
   }
 
   .account-dialog-nickname {
@@ -5936,6 +5954,7 @@ or pointers. Keep :focus-visible and :active outside the gate (src/ui/__tests__/
 
   .dialog-hint.error {
     color: var(--danger-foreground);
+    font-weight: var(--font-weight-label);
   }
 
   .dialog-input.shake {
@@ -7455,7 +7474,7 @@ or pointers. Keep :focus-visible and :active outside the gate (src/ui/__tests__/
     margin: 12px 0 0;
     color: var(--danger-foreground);
     font-size: 13px;
-    font-weight: var(--font-weight-body);
+    font-weight: var(--font-weight-label);
     line-height: 1.45;
     text-align: center;
     white-space: pre-line;
@@ -9800,7 +9819,7 @@ or pointers. Keep :focus-visible and :active outside the gate (src/ui/__tests__/
     margin: 0;
     color: var(--text-muted);
     font-size: 12px;
-    font-weight: var(--font-weight-body);
+    font-weight: var(--font-weight-label);
   }
 
   .demo-role-diagram {
@@ -9872,7 +9891,13 @@ or pointers. Keep :focus-visible and :active outside the gate (src/ui/__tests__/
     fill: currentColor;
   }
 
-  @container demo-role-options (max-width: 340px) {
+  /* The icon gives way whenever a label beside it would have less than 4px
+     to spare (owner decision 2026-10-29). The widest label, Greek Αριστερό,
+     takes 60px at the phones' 13px and 57.7px at the two-column 12.5px; a
+     container over 448px leaves it 65px and 62px beside the 19px icon, its
+     gap and the 8px padding, and 440px would not (demo-role-icon.test.ts,
+     chip-label-width.test.ts). */
+  @container demo-role-options (max-width: 448px) {
     .demo-role-segmented button {
       gap: 0;
       padding-inline: 4px;
@@ -11291,6 +11316,20 @@ or pointers. Keep :focus-visible and :active outside the gate (src/ui/__tests__/
     text-align: start;
     margin: 4px 0 0 0;
     font-weight: var(--font-weight-body);
+  }
+
+  /* The progress, result and error lines come and go with a search or a
+     link lookup, so they take the label weight; the resting prompts stay
+     body. src/youtube/search.ts names each line's key in data-i18n. */
+  .yt-preview-meta:is(
+    [data-i18n='youtube.searching'],
+    [data-i18n='youtube.fetching_info'],
+    [data-i18n='youtube.search_no_results'],
+    [data-i18n='youtube.invalid_link'],
+    [data-i18n='youtube.search_failed'],
+    [data-i18n='youtube.fetch_failed']
+  ) {
+    font-weight: var(--font-weight-label);
   }
 
   /* Onboarding slider strip block (id=ob-slider-area) */

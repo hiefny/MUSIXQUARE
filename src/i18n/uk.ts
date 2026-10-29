@@ -184,10 +184,6 @@ const uk: Record<I18nKey, string> = {
   'transfer.host_busy': 'Хост обробляє інший файл\nСпробуйте трохи пізніше',
 
   // ─── Роль ────────────────────────────────────────────────────────
-  'role.center': 'Центральний',
-  'role.left': 'Лівий динамік',
-  'role.right': 'Правий динамік',
-  'role.subwoofer': 'Сабвуфер',
   'role.center_placement': 'Розмістіть пристрій по центру',
   'role.left_placement': 'Розмістіть пристрій ліворуч',
   'role.right_placement': 'Розмістіть пристрій праворуч',
@@ -205,8 +201,8 @@ const uk: Record<I18nKey, string> = {
   'settings.virtual_effects_desc':
     'Застосовувати до звуку синтезовані ефекти. Це може спричинити сильні спотворення.',
   'settings.virtual_effect_bass': 'Бас',
-  'settings.virtual_effect_treble': 'Високі частоти',
-  'settings.virtual_effect_surround': 'Об’ємний звук',
+  'settings.virtual_effect_treble': 'Високі',
+  'settings.virtual_effect_surround': 'Об’ємний',
   'settings.language_desc': 'Виберіть мову або використовуйте мову системи.',
   'settings.theme_desc': 'Виберіть світлу або темну тему.',
   'player.visualizer_mode_hint': 'Виберіть спосіб візуалізації звуку.',
@@ -240,7 +236,7 @@ const uk: Record<I18nKey, string> = {
   'settings.reverb_title': 'Реверберація',
   'settings.rvb_studio': 'Студія',
   'settings.rvb_arena': 'Арена',
-  'settings.rvb_advanced': 'Розширений',
+  'settings.rvb_advanced': 'Вручну',
   'settings.rvb_off': 'Вимкнено',
   'settings.reverb_mix': 'Мікс реверберації',
   'settings.reverb_decay': 'Згасання реверберації',
@@ -254,7 +250,7 @@ const uk: Record<I18nKey, string> = {
   'settings.eq_band_aria': 'Еквалайзер {{freq}}',
   'settings.eq_bright': 'Яскравий',
   'settings.eq_warm': 'Теплий',
-  'settings.eq_advanced': 'Розширений',
+  'settings.eq_advanced': 'Вручну',
   'settings.eq_off': 'Вимкнено',
   'settings.lowpass': 'Фільтр низьких частот',
   'settings.highpass': 'Фільтр високих частот',
@@ -275,7 +271,7 @@ const uk: Record<I18nKey, string> = {
   'settings.invite_share': 'Запросити й поділитися',
   'settings.subtab.general': 'Загальні',
   'settings.subtab.audio': 'Аудіо',
-  'settings.subtab.connect': 'Підключення',
+  'settings.subtab.connect': 'Зв’язок',
   'settings.subtab.help': 'Довідка',
 
   // ─── Підключення ─────────────────────────────────────────────────
@@ -364,10 +360,10 @@ const uk: Record<I18nKey, string> = {
   'demo.role_bass_short': 'Бас',
   'demo.role_center_short': 'Центр',
   'demo.step_nav_label': 'Кроки демонстрації',
-  'demo.step_connect': '1. Підключення',
+  'demo.step_connect': '1. Зв’язок',
   'demo.step_role': '2. Вибір ролі',
-  'demo.step_effects': '3. Звукові ефекти',
-  'demo.step_finish': '4. Завершити тур',
+  'demo.step_effects': '3. Ефекти',
+  'demo.step_finish': '4. Завершити',
   'demo.session_title': 'Ваша кімната: {{code}}',
   'demo.session_subtitle': 'Інший пристрій можна запросити будь-коли.',
   'demo.session_body_connected':
@@ -904,7 +900,7 @@ const uk: Record<I18nKey, string> = {
   'setup.how_to_connect_html':
     'Щоб підключитися, введіть <strong>6-значний код</strong> хоста.<ul class="help-list"><li><strong>Хост:</strong> «Створити кімнату» → переглянути код</li><li><strong>Учасник:</strong> «Приєднатися до кімнати» → ввести код</li><li>Можна підключити до <strong>100 пристроїв разом із хостом</strong>.</li></ul>',
   'player.play_speakers_html':
-    'Кожен учасник вибирає <strong>роль (вихідний канал)</strong>.<ul class="help-list"><li><strong>Центральний динамік:</strong> стереовихід (за замовчуванням)</li><li><strong>Лівий динамік:</strong> вихід каналу <bdi dir="ltr">L</bdi></li><li><strong>Правий динамік:</strong> вихід каналу <bdi dir="ltr">R</bdi></li><li><strong>Сабвуфер:</strong> вихід міксу низьких частот</li></ul>Роль можна будь-коли змінити в <strong>налаштуваннях</strong>.',
+    'Кожен учасник вибирає <strong>роль (вихідний канал)</strong>.<ul class="help-list"><li><strong>Центр:</strong> стереовихід (за замовчуванням)</li><li><strong>Лівий:</strong> вихід каналу <bdi dir="ltr">L</bdi></li><li><strong>Правий:</strong> вихід каналу <bdi dir="ltr">R</bdi></li><li><strong>Бас:</strong> вихід міксу низьких частот</li></ul>Роль можна будь-коли змінити в <strong>налаштуваннях</strong>.',
   'player.play_media_action_html':
     'Хост має 3 варіанти.<ul class="help-list"><li><strong>Завантажити локальний файл:</strong> вибрати музику на пристрої. Підтримується точна синхронізація</li><li><strong>YouTube разом:</strong> підтримуються відео й плейлісти. Без розділення каналів і звукових ефектів</li><li><strong>Трансляція системного аудіо:</strong> доступна, якщо хост використовує на комп’ютері браузер на основі Chromium</li></ul>',
   'help.need_help_html':

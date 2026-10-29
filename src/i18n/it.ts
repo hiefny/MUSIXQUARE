@@ -184,10 +184,6 @@ const it: Record<I18nKey, string> = {
   'transfer.host_busy': 'L’host sta elaborando un altro file\nRiprova tra poco',
 
   // ─── Role ────────────────────────────────────────────────────────
-  'role.center': 'Centrale',
-  'role.left': 'Sinistro',
-  'role.right': 'Destro',
-  'role.subwoofer': 'Subwoofer',
   'role.center_placement': 'Posiziona il dispositivo al centro',
   'role.left_placement': 'Posiziona il dispositivo a sinistra',
   'role.right_placement': 'Posiziona il dispositivo a destra',
@@ -368,9 +364,9 @@ const it: Record<I18nKey, string> = {
   'demo.role_center_short': 'Centro',
   'demo.step_nav_label': 'Fasi del tour',
   'demo.step_connect': '1. Connetti',
-  'demo.step_role': '2. Imposta il ruolo',
-  'demo.step_effects': '3. Effetti audio',
-  'demo.step_finish': '4. Termina il tour',
+  'demo.step_role': '2. Ruolo',
+  'demo.step_effects': '3. Effetti',
+  'demo.step_finish': '4. Termina',
   'demo.session_title': 'La tua stanza: {{code}}',
   'demo.session_subtitle': 'Puoi invitare altri dispositivi in qualsiasi momento',
   'demo.session_body_connected':
@@ -923,7 +919,7 @@ const it: Record<I18nKey, string> = {
   'setup.how_to_connect_html':
     'Inserisci il <strong>codice a 6 cifre</strong> fornito dall’host per connetterti.<ul class="help-list"><li><strong>Host:</strong> “Crea una stanza” → controlla il codice</li><li><strong>Partecipante:</strong> “Entra in una stanza” → inserisci il codice</li><li>Possono connettersi fino a <strong>100 dispositivi, incluso quello dell’host</strong>.</li></ul>',
   'player.play_speakers_html':
-    'Ogni partecipante sceglie un <strong>ruolo (canale di uscita)</strong>.<ul class="help-list"><li><strong>Altoparlante centrale:</strong> uscita stereo (predefinita)</li><li><strong>Altoparlante sinistro:</strong> uscita canale <bdi dir="ltr">L</bdi></li><li><strong>Altoparlante destro:</strong> uscita canale <bdi dir="ltr">R</bdi></li><li><strong>Subwoofer:</strong> uscita mix a bassa frequenza</li></ul>Puoi cambiare ruolo in qualsiasi momento dalle <strong>Impostazioni</strong>.',
+    'Ogni partecipante sceglie un <strong>ruolo (canale di uscita)</strong>.<ul class="help-list"><li><strong>Centro:</strong> uscita stereo (predefinita)</li><li><strong>Sinistra:</strong> uscita canale <bdi dir="ltr">L</bdi></li><li><strong>Destra:</strong> uscita canale <bdi dir="ltr">R</bdi></li><li><strong>Bassi:</strong> uscita mix a bassa frequenza</li></ul>Puoi cambiare ruolo in qualsiasi momento dalle <strong>Impostazioni</strong>.',
   'player.play_media_action_html':
     'L’host ha 3 opzioni per la riproduzione.<ul class="help-list"><li><strong>Carica file locale:</strong> scegli brani dal tuo dispositivo. Supporta la sincronizzazione di precisione</li><li><strong>YouTube insieme:</strong> supporta video e playlist. Non supporta la separazione dei canali né gli effetti audio</li><li><strong>Condivisione audio di sistema:</strong> disponibile quando l’host usa un computer con un browser basato su Chromium (Chrome, Edge, ecc.)</li></ul>',
   'help.need_help_html':

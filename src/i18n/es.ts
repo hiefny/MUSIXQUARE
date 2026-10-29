@@ -45,8 +45,8 @@ const es: Record<I18nKey, string> = {
   'common.decrease': 'Disminuir',
   'common.done': 'Listo',
   'common.sync': 'Sincronizar',
-  'common.on': 'Activado',
-  'common.off': 'Desactivado',
+  'common.on': 'Encendido',
+  'common.off': 'Apagado',
 
   'screensaver.back': 'Volver a MUSIXQUARE',
   'screensaver.turn_on': 'Activar salvapantallas',
@@ -113,10 +113,6 @@ const es: Record<I18nKey, string> = {
   'nav.go_home': 'Ir al inicio',
 
   // Role
-  'role.center': 'Central',
-  'role.left': 'Izquierdo',
-  'role.right': 'Derecho',
-  'role.subwoofer': 'Subwoofer',
   'role.center_placement': 'Coloca el dispositivo en el centro',
   'role.left_placement': 'Coloca el dispositivo a la izquierda',
   'role.right_placement': 'Coloca el dispositivo a la derecha',
@@ -171,7 +167,7 @@ const es: Record<I18nKey, string> = {
   'settings.rvb_studio': 'Estudio',
   'settings.rvb_arena': 'Estadio',
   'settings.rvb_advanced': 'Avanzado',
-  'settings.rvb_off': 'Desactivado',
+  'settings.rvb_off': 'Apagado',
   'settings.reverb_mix': 'Mezcla de reverberación',
   'settings.reverb_decay': 'Decaimiento de reverberación',
   'settings.reverb_predelay': 'Pre-retardo de reverberación',
@@ -184,7 +180,7 @@ const es: Record<I18nKey, string> = {
   'settings.eq_bright': 'Brillante',
   'settings.eq_warm': 'Cálido',
   'settings.eq_advanced': 'Avanzado',
-  'settings.eq_off': 'Desactivado',
+  'settings.eq_off': 'Apagado',
   'settings.lowpass': 'Paso bajo',
   'settings.highpass': 'Paso alto',
   'settings.surround_title': 'Sonido envolvente virtual',
@@ -364,14 +360,14 @@ const es: Record<I18nKey, string> = {
   'demo.reverb': 'Reverberación',
   'demo.bass_boost': 'Más graves',
   'demo.treble_boost': 'Agudos extra',
-  'demo.surround': 'Sonido envolvente',
+  'demo.surround': 'Envolvente',
   'demo.role_bass_short': 'Graves',
   'demo.role_center_short': 'Centro',
   'demo.step_nav_label': 'Pasos de la demo',
   'demo.step_connect': '1. Conectar',
-  'demo.step_role': '2. Configurar rol',
-  'demo.step_effects': '3. Efectos de audio',
-  'demo.step_finish': '4. Salir de la demo',
+  'demo.step_role': '2. Elegir rol',
+  'demo.step_effects': '3. Efectos',
+  'demo.step_finish': '4. Salir',
   'demo.session_title': 'Tu sala: {{code}}',
   'demo.session_subtitle': 'Puedes invitar otro dispositivo cuando quieras.',
   'demo.session_body_connected':
@@ -963,7 +959,7 @@ const es: Record<I18nKey, string> = {
   'setup.how_to_connect_html':
     'Introduce el <strong>código de 6 dígitos</strong> del anfitrión para conectarte.<ul class="help-list"><li><strong>Anfitrión:</strong> “Crear sala” → revisar código</li><li><strong>Participante:</strong> “Unirse a una sala” → introducir código</li><li>Se pueden conectar hasta <strong>100 dispositivos, incluido el anfitrión</strong>.</li></ul>',
   'player.play_speakers_html':
-    'Cada participante selecciona un <strong>rol (canal de salida)</strong>.<ul class="help-list"><li><strong>Centro:</strong> salida estéreo predeterminada</li><li><strong>Izquierda:</strong> salida del canal <bdi dir="ltr">L</bdi></li><li><strong>Derecha:</strong> salida del canal <bdi dir="ltr">R</bdi></li><li><strong>Subwoofer:</strong> salida de mezcla de bajas frecuencias</li></ul>Puedes cambiar roles cuando quieras en <strong>Ajustes</strong>.',
+    'Cada participante selecciona un <strong>rol (canal de salida)</strong>.<ul class="help-list"><li><strong>Centro:</strong> salida estéreo predeterminada</li><li><strong>Izquierda:</strong> salida del canal <bdi dir="ltr">L</bdi></li><li><strong>Derecha:</strong> salida del canal <bdi dir="ltr">R</bdi></li><li><strong>Graves:</strong> salida de mezcla de bajas frecuencias</li></ul>Puedes cambiar roles cuando quieras en <strong>Ajustes</strong>.',
   'player.play_media_action_html':
     'El anfitrión tiene 3 opciones.<ul class="help-list"><li><strong>Cargar archivo local:</strong> elige música del dispositivo. Admite sincronización precisa</li><li><strong>YouTube juntos:</strong> videos y listas de reproducción compatibles. Sin separación de canales ni efectos de audio</li><li><strong>Compartir audio del sistema:</strong> disponible cuando el anfitrión usa una computadora con un navegador basado en Chromium (Chrome, Edge, etc.)</li></ul>',
   'help.need_help_html':

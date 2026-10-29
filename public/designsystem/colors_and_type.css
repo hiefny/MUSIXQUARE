@@ -118,8 +118,13 @@
   /* Weight roles; text takes one of five weights and never goes above 700.
      Title: headings and display values. Selected / unselected: the one
      selected, current or playing item of a list or group, and every other
-     item. Label: names on controls and markers. Body: sentences and
-     auxiliary text. */
+     item. Label: names on controls and markers, and transient text, which
+     appears because something happened and goes away on its own or when
+     that moment or mode ends (toasts, loading and waiting lines, progress
+     and result lines, mode notes over a blurred panel), and red error
+     lines. Body: text that is there whenever you open the screen and stays
+     if left alone (descriptions, dialog body text, hints, empty-list
+     hints). */
   --font-weight-title: 700;
   --font-weight-selected: 700;
   --font-weight-unselected: 500;

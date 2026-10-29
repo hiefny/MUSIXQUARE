@@ -3607,7 +3607,7 @@ function loadGoogleSansStylesheet(): Promise<boolean> {
     stylesheet.rel = 'stylesheet';
     stylesheet.media = 'print';
     stylesheet.href =
-      'https://fonts.googleapis.com/css2?family=Google+Sans:wght@500;700&display=swap';
+      'https://fonts.googleapis.com/css2?family=Google+Sans:wght@500;600;700&display=swap';
     const finish = (loaded: boolean) => {
       stylesheet.removeEventListener('load', onLoad);
       stylesheet.removeEventListener('error', onError);

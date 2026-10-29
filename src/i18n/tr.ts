@@ -181,10 +181,6 @@ const tr: Record<I18nKey, string> = {
   'transfer.host_busy': 'Oda sahibi başka bir dosyayı işliyor\nBiraz sonra tekrar dene',
 
   // ─── Role ────────────────────────────────────────────────────────
-  'role.center': 'Merkez',
-  'role.left': 'Sol Hoparlör',
-  'role.right': 'Sağ Hoparlör',
-  'role.subwoofer': 'Subwoofer',
   'role.center_placement': 'Cihazı merkeze yerleştir',
   'role.left_placement': 'Cihazı sola yerleştir',
   'role.right_placement': 'Cihazı sağa yerleştir',
@@ -203,7 +199,7 @@ const tr: Record<I18nKey, string> = {
     'Sese sentezlenmiş efektler uygular. Bu, yoğun bozulmaya neden olabilir.',
   'settings.virtual_effect_bass': 'Bas',
   'settings.virtual_effect_treble': 'Tiz',
-  'settings.virtual_effect_surround': 'Çevresel ses',
+  'settings.virtual_effect_surround': 'Çevresel',
   'settings.language_desc': 'Bir dil seç veya sistem dilini kullan.',
   'settings.theme_desc': 'Aydınlık veya karanlık temayı seç.',
   'player.visualizer_mode_hint': 'Sesin nasıl görselleştirileceğini seç.',
@@ -235,7 +231,7 @@ const tr: Record<I18nKey, string> = {
   'settings.spatial_audio': 'Uzamsal Ses',
   'settings.reverb_title': 'Yankı',
   'settings.rvb_studio': 'Stüdyo',
-  'settings.rvb_arena': 'Konser Alanı',
+  'settings.rvb_arena': 'Arena',
   'settings.rvb_advanced': 'Gelişmiş',
   'settings.rvb_off': 'Kapalı',
   'settings.reverb_mix': 'Yankı karışımı',
@@ -359,10 +355,10 @@ const tr: Record<I18nKey, string> = {
   'demo.role_bass_short': 'Bas',
   'demo.role_center_short': 'Merkez',
   'demo.step_nav_label': 'Tur Aşamaları',
-  'demo.step_connect': '1. Cihazları bağla',
+  'demo.step_connect': '1. Bağlan',
   'demo.step_role': '2. Rolü belirle',
-  'demo.step_effects': '3. Ses Efektleri',
-  'demo.step_finish': '4. Turu Sonlandır',
+  'demo.step_effects': '3. Efektler',
+  'demo.step_finish': '4. Turu bitir',
   'demo.session_title': 'Odan: {{code}}',
   'demo.session_subtitle': 'İstediğin zaman yeni bir cihaz davet edebilirsin',
   'demo.session_body_connected': 'Şu anda {{count}} cihaz bağlı.\nHer cihaz için bir rol belirle.',
@@ -888,7 +884,7 @@ const tr: Record<I18nKey, string> = {
   'setup.how_to_connect_html':
     'Bağlanmak için oda sahibinden aldığın <strong>6 haneli kodu</strong> gir.<ul class="help-list"><li><strong>Oda sahibi:</strong> “Oda Oluştur” → Kodu Al</li><li><strong>Katılımcı:</strong> “Odaya Katıl” → Kodu Gir</li><li>Oda sahibi dâhil en fazla <strong>100 cihaz</strong> bağlanabilir.</li></ul>',
   'player.play_speakers_html':
-    'Her katılımcı bir <strong>rol (çıkış kanalı)</strong> seçer.<ul class="help-list"><li><strong>Merkez hoparlör:</strong> Stereo çıkış (varsayılan)</li><li><strong>Sol hoparlör:</strong> <bdi dir="ltr">L</bdi> kanalı çıkışı</li><li><strong>Sağ hoparlör:</strong> <bdi dir="ltr">R</bdi> kanalı çıkışı</li><li><strong>Subwoofer:</strong> Düşük frekans karışımı çıkışı</li></ul>Rolleri istediğin zaman <strong>Ayarlar</strong> bölümünden değiştirebilirsin.',
+    'Her katılımcı bir <strong>rol (çıkış kanalı)</strong> seçer.<ul class="help-list"><li><strong>Merkez:</strong> Stereo çıkış (varsayılan)</li><li><strong>Sol:</strong> <bdi dir="ltr">L</bdi> kanalı çıkışı</li><li><strong>Sağ:</strong> <bdi dir="ltr">R</bdi> kanalı çıkışı</li><li><strong>Bas:</strong> Düşük frekans karışımı çıkışı</li></ul>Rolleri istediğin zaman <strong>Ayarlar</strong> bölümünden değiştirebilirsin.',
   'player.play_media_action_html':
     'Oda sahibinin 3 oynatma seçeneği vardır.<ul class="help-list"><li><strong>Yerel dosya yükle:</strong> Cihazından müzik seç. Hassas senkronizasyon desteklenir</li><li><strong>YouTube\'u birlikte izle:</strong> Video ve çalma listesi desteği. Ses kanalı ayırma ve efektler kullanılamaz</li><li><strong>Sistem sesi paylaşımı:</strong> Oda sahibi bilgisayarda Chromium tabanlı bir tarayıcı kullandığında kullanılabilir</li></ul>',
   'help.need_help_html':

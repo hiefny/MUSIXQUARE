@@ -112,10 +112,6 @@ const vi: Record<I18nKey, string> = {
   'nav.go_home': 'Về trang chủ',
 
   // Role
-  'role.center': 'Loa giữa',
-  'role.left': 'Loa trái',
-  'role.right': 'Loa phải',
-  'role.subwoofer': 'Loa siêu trầm',
   'role.center_placement': 'Đặt thiết bị ở giữa',
   'role.left_placement': 'Đặt thiết bị bên trái',
   'role.right_placement': 'Đặt thiết bị bên phải',
@@ -134,7 +130,7 @@ const vi: Record<I18nKey, string> = {
     'Áp dụng hiệu ứng tổng hợp cho âm thanh. Âm thanh có thể bị méo nhiều.',
   'settings.virtual_effect_bass': 'Âm trầm',
   'settings.virtual_effect_treble': 'Âm cao',
-  'settings.virtual_effect_surround': 'Âm thanh vòm',
+  'settings.virtual_effect_surround': 'Âm vòm',
   'settings.language_desc': 'Chọn ngôn ngữ hoặc dùng ngôn ngữ hệ thống.',
   'settings.theme_desc': 'Chọn giao diện sáng hoặc tối.',
   'player.visualizer_mode_hint': 'Chọn cách hiển thị âm thanh.',
@@ -166,7 +162,7 @@ const vi: Record<I18nKey, string> = {
   'settings.spatial_audio': 'Âm thanh không gian',
   'settings.reverb_title': 'Độ vang',
   'settings.rvb_studio': 'Phòng thu',
-  'settings.rvb_arena': 'Sân vận động',
+  'settings.rvb_arena': 'Nhà thi đấu',
   'settings.rvb_advanced': 'Nâng cao',
   'settings.rvb_off': 'Tắt',
   'settings.reverb_mix': 'Tỷ lệ âm vang',
@@ -358,13 +354,13 @@ const vi: Record<I18nKey, string> = {
   'demo.bass_boost': 'Tăng âm trầm',
   'demo.treble_boost': 'Tăng âm cao',
   'demo.surround': 'Âm thanh vòm',
-  'demo.role_bass_short': 'Âm trầm',
+  'demo.role_bass_short': 'Trầm',
   'demo.role_center_short': 'Giữa',
   'demo.step_nav_label': 'Các bước demo',
   'demo.step_connect': '1. Kết nối',
   'demo.step_role': '2. Đặt vai trò',
-  'demo.step_effects': '3. Hiệu ứng âm thanh',
-  'demo.step_finish': '4. Thoát bản demo',
+  'demo.step_effects': '3. Hiệu ứng',
+  'demo.step_finish': '4. Thoát demo',
   'demo.session_title': 'Phòng của bạn: {{code}}',
   'demo.session_subtitle': 'Bạn có thể mời thiết bị khác bất cứ lúc nào.',
   'demo.session_body_connected':
@@ -926,7 +922,7 @@ const vi: Record<I18nKey, string> = {
   'setup.how_to_connect_html':
     'Nhập <strong>mã 6 chữ số</strong> từ chủ phòng để kết nối.<ul class="help-list"><li><strong>Chủ phòng:</strong> “Tạo phòng” → kiểm tra mã</li><li><strong>Người tham gia:</strong> “Tham gia phòng” → nhập mã</li><li>Có thể kết nối tối đa <strong>100 thiết bị, bao gồm cả thiết bị của chủ phòng</strong>.</li></ul>',
   'player.play_speakers_html':
-    'Mỗi người tham gia chọn một <strong>vai trò (kênh đầu ra)</strong>.<ul class="help-list"><li><strong>Giữa:</strong> Đầu ra stereo (mặc định)</li><li><strong>Trái:</strong> Đầu ra kênh <bdi dir="ltr">L</bdi></li><li><strong>Phải:</strong> Đầu ra kênh <bdi dir="ltr">R</bdi></li><li><strong>Loa siêu trầm:</strong> Đầu ra trộn tần số thấp</li></ul>Bạn có thể đổi vai trò bất cứ lúc nào trong <strong>Cài đặt</strong>.',
+    'Mỗi người tham gia chọn một <strong>vai trò (kênh đầu ra)</strong>.<ul class="help-list"><li><strong>Giữa:</strong> Đầu ra stereo (mặc định)</li><li><strong>Trái:</strong> Đầu ra kênh <bdi dir="ltr">L</bdi></li><li><strong>Phải:</strong> Đầu ra kênh <bdi dir="ltr">R</bdi></li><li><strong>Trầm:</strong> Đầu ra trộn tần số thấp</li></ul>Bạn có thể đổi vai trò bất cứ lúc nào trong <strong>Cài đặt</strong>.',
   'player.play_media_action_html':
     'Chủ phòng có 3 tùy chọn.<ul class="help-list"><li><strong>Mở tệp trên thiết bị:</strong> Chọn nhạc từ thiết bị của bạn. Hỗ trợ đồng bộ chính xác</li><li><strong>YouTube cùng nhau:</strong> Hỗ trợ video và danh sách phát. Không hỗ trợ tách kênh và hiệu ứng âm thanh</li><li><strong>Chia sẻ âm thanh hệ thống:</strong> Khả dụng khi chủ phòng dùng trình duyệt dựa trên Chromium trên máy tính (Chrome, Edge, v.v.)</li></ul>',
   'help.need_help_html':

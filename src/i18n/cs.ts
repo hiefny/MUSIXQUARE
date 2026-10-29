@@ -184,10 +184,6 @@ const cs: Record<I18nKey, string> = {
   'transfer.host_busy': 'Hostitel zpracovává jiný soubor\nZkuste to za chvíli',
 
   // ─── Role ────────────────────────────────────────────────────────
-  'role.center': 'Středový',
-  'role.left': 'Levý',
-  'role.right': 'Pravý',
-  'role.subwoofer': 'Subwoofer',
   'role.center_placement': 'Umístěte zařízení doprostřed',
   'role.left_placement': 'Umístěte zařízení vlevo',
   'role.right_placement': 'Umístěte zařízení vpravo',
@@ -365,9 +361,9 @@ const cs: Record<I18nKey, string> = {
   'demo.role_center_short': 'Střed',
   'demo.step_nav_label': 'Kroky ukázky',
   'demo.step_connect': '1. Připojení',
-  'demo.step_role': '2. Nastavení role',
-  'demo.step_effects': '3. Zvukové efekty',
-  'demo.step_finish': '4. Ukončení ukázky',
+  'demo.step_role': '2. Výběr role',
+  'demo.step_effects': '3. Efekty',
+  'demo.step_finish': '4. Ukončení',
   'demo.session_title': 'Vaše místnost: {{code}}',
   'demo.session_subtitle': 'Další zařízení můžete pozvat kdykoli.',
   'demo.session_body_connected':
@@ -906,7 +902,7 @@ const cs: Record<I18nKey, string> = {
   'setup.how_to_connect_html':
     'Připojte se zadáním <strong>šestimístného kódu</strong> od hostitele.<ul class="help-list"><li><strong>Hostitel:</strong> „Vytvořit místnost“ → zobrazit kód</li><li><strong>Účastník:</strong> „Připojit se k místnosti“ → zadat kód</li><li>Připojit se může až <strong>100 zařízení včetně hostitele</strong>.</li></ul>',
   'player.play_speakers_html':
-    'Každý účastník si vybere <strong>roli (výstupní kanál)</strong>.<ul class="help-list"><li><strong>Střed:</strong> stereofonní výstup (výchozí)</li><li><strong>Levý (Left):</strong> výstup kanálu <bdi dir="ltr">L</bdi></li><li><strong>Pravý (Right):</strong> výstup kanálu <bdi dir="ltr">R</bdi></li><li><strong>Subwoofer:</strong> smíšený výstup nízkých frekvencí</li></ul>Role můžete kdykoli změnit v <strong>Nastavení</strong>.',
+    'Každý účastník si vybere <strong>roli (výstupní kanál)</strong>.<ul class="help-list"><li><strong>Střed:</strong> stereofonní výstup (výchozí)</li><li><strong>Levý:</strong> výstup kanálu <bdi dir="ltr">L</bdi></li><li><strong>Pravý:</strong> výstup kanálu <bdi dir="ltr">R</bdi></li><li><strong>Basy:</strong> smíšený výstup nízkých frekvencí</li></ul>Role můžete kdykoli změnit v <strong>Nastavení</strong>.',
   'player.play_media_action_html':
     'Hostitel má 3 možnosti.<ul class="help-list"><li><strong>Načíst místní soubor:</strong> vyberte hudbu ze zařízení. Podporuje přesnou synchronizaci</li><li><strong>YouTube společně:</strong> podporuje videa a seznamy videí. Bez rozdělení kanálů a zvukových efektů</li><li><strong>Sdílení systémového zvuku:</strong> dostupné, když hostitel používá na počítači prohlížeč založený na platformě Chromium</li></ul>',
   'help.need_help_html':

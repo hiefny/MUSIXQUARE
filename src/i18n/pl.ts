@@ -183,10 +183,6 @@ const pl: Record<I18nKey, string> = {
   'transfer.host_busy': 'Host przetwarza inny plik\nSpróbuj ponownie za chwilę',
 
   // ─── Role ────────────────────────────────────────────────────────
-  'role.center': 'Środkowy',
-  'role.left': 'Głośnik lewy',
-  'role.right': 'Głośnik prawy',
-  'role.subwoofer': 'Subwoofer',
   'role.center_placement': 'Umieść urządzenie na środku',
   'role.left_placement': 'Umieść urządzenie po lewej stronie',
   'role.right_placement': 'Umieść urządzenie po prawej stronie',
@@ -204,7 +200,7 @@ const pl: Record<I18nKey, string> = {
   'settings.virtual_effects_desc':
     'Zastosuj syntetyczne efekty dźwiękowe. Może to powodować silne zniekształcenia.',
   'settings.virtual_effect_bass': 'Bas',
-  'settings.virtual_effect_treble': 'Wysokie tony',
+  'settings.virtual_effect_treble': 'Soprany',
   'settings.virtual_effect_surround': 'Surround',
   'settings.language_desc': 'Wybierz język lub używaj języka systemu.',
   'settings.theme_desc': 'Wybierz jasny lub ciemny motyw.',
@@ -241,7 +237,7 @@ const pl: Record<I18nKey, string> = {
   'settings.reverb_title': 'Pogłos',
   'settings.rvb_studio': 'Studio',
   'settings.rvb_arena': 'Arena',
-  'settings.rvb_advanced': 'Zaawansowane',
+  'settings.rvb_advanced': 'Ręcznie',
   'settings.rvb_off': 'Wył.',
   'settings.reverb_mix': 'Poziom pogłosu',
   'settings.reverb_decay': 'Czas pogłosu',
@@ -254,7 +250,7 @@ const pl: Record<I18nKey, string> = {
   'settings.eq_band_aria': 'Korektor {{freq}}',
   'settings.eq_bright': 'Klarowność',
   'settings.eq_warm': 'Ciepło',
-  'settings.eq_advanced': 'Zaawansowane',
+  'settings.eq_advanced': 'Ręcznie',
   'settings.eq_off': 'Wył.',
   'settings.lowpass': 'Filtr dolnoprzepustowy',
   'settings.highpass': 'Filtr górnoprzepustowy',
@@ -362,14 +358,14 @@ const pl: Record<I18nKey, string> = {
   'demo.reverb': 'Pogłos',
   'demo.bass_boost': 'Mocny bas',
   'demo.treble_boost': 'Mocne soprany',
-  'demo.surround': 'Dźwięk przestrzenny',
+  'demo.surround': 'Surround',
   'demo.role_bass_short': 'Basy',
-  'demo.role_center_short': 'Centralny',
+  'demo.role_center_short': 'Środek',
   'demo.step_nav_label': 'Etapy przewodnika',
   'demo.step_connect': '1. Połącz',
   'demo.step_role': '2. Ustaw rolę',
-  'demo.step_effects': '3. Efekty dźwiękowe',
-  'demo.step_finish': '4. Zakończ przewodnik',
+  'demo.step_effects': '3. Efekty',
+  'demo.step_finish': '4. Zakończ',
   'demo.session_title': 'Twój pokój: {{code}}',
   'demo.session_subtitle': 'Możesz w każdej chwili zaprosić inne urządzenie.',
   'demo.session_body_connected':
@@ -916,7 +912,7 @@ const pl: Record<I18nKey, string> = {
   'setup.how_to_connect_html':
     'Wprowadź <strong>6-cyfrowy kod</strong> od hosta, aby się połączyć.<ul class="help-list"><li><strong>Host:</strong> „Utwórz pokój” → sprawdź kod</li><li><strong>Uczestnik:</strong> „Dołącz do pokoju” → wpisz kod</li><li>Może się połączyć maksymalnie <strong>100 urządzeń, wliczając hosta</strong>.</li></ul>',
   'player.play_speakers_html':
-    'Każdy uczestnik wybiera <strong>rolę (kanał wyjściowy)</strong>.<ul class="help-list"><li><strong>Głośnik centralny:</strong> wyjście stereo (domyślne)</li><li><strong>Głośnik lewy:</strong> wyjście kanału <bdi dir="ltr">L</bdi></li><li><strong>Głośnik prawy:</strong> wyjście kanału <bdi dir="ltr">R</bdi></li><li><strong>Subwoofer:</strong> wyjście miksu niskich częstotliwości</li></ul>Role możesz zmienić w dowolnym momencie w <strong>Ustawieniach</strong>.',
+    'Każdy uczestnik wybiera <strong>rolę (kanał wyjściowy)</strong>.<ul class="help-list"><li><strong>Środek:</strong> wyjście stereo (domyślne)</li><li><strong>Lewy:</strong> wyjście kanału <bdi dir="ltr">L</bdi></li><li><strong>Prawy:</strong> wyjście kanału <bdi dir="ltr">R</bdi></li><li><strong>Basy:</strong> wyjście miksu niskich częstotliwości</li></ul>Role możesz zmienić w dowolnym momencie w <strong>Ustawieniach</strong>.',
   'player.play_media_action_html':
     'Host ma 3 opcje odtwarzania.<ul class="help-list"><li><strong>Załaduj plik lokalny:</strong> wybierz utwory ze swojego urządzenia. Obsługiwana jest precyzyjna synchronizacja</li><li><strong>Wspólne oglądanie YouTube:</strong> obsługiwane są filmy i playlisty. Brak rozdziału kanałów i efektów dźwiękowych</li><li><strong>Udostępnianie dźwięku systemowego:</strong> dostępne, gdy host korzysta na komputerze z przeglądarki opartej na Chromium</li></ul>',
   'help.need_help_html':

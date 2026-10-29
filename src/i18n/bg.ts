@@ -185,10 +185,6 @@ const bg: Record<I18nKey, string> = {
   'transfer.host_busy': 'Хостът обработва друг файл\nОпитай отново след малко',
 
   // ─── Role ────────────────────────────────────────────────────────
-  'role.center': 'Централна',
-  'role.left': 'Лява тонколона',
-  'role.right': 'Дясна',
-  'role.subwoofer': 'Субуфер',
   'role.center_placement': 'Постави устройството в центъра',
   'role.left_placement': 'Постави устройството отляво',
   'role.right_placement': 'Постави устройството отдясно',
@@ -206,7 +202,7 @@ const bg: Record<I18nKey, string> = {
   'settings.virtual_effects_desc':
     'Прилага синтезирани ефекти към звука. Възможно е силно изкривяване.',
   'settings.virtual_effect_bass': 'Бас',
-  'settings.virtual_effect_treble': 'Високи честоти',
+  'settings.virtual_effect_treble': 'Високи',
   'settings.virtual_effect_surround': 'Съраунд',
   'settings.language_desc': 'Избери език или използвай системния език.',
   'settings.theme_desc': 'Избери светла или тъмна тема.',
@@ -366,9 +362,9 @@ const bg: Record<I18nKey, string> = {
   'demo.role_center_short': 'Център',
   'demo.step_nav_label': 'Стъпки на демонстрацията',
   'demo.step_connect': '1. Свързване',
-  'demo.step_role': '2. Задаване на роля',
-  'demo.step_effects': '3. Звукови ефекти',
-  'demo.step_finish': '4. Край на демото',
+  'demo.step_role': '2. Роля',
+  'demo.step_effects': '3. Ефекти',
+  'demo.step_finish': '4. Край',
   'demo.session_title': 'Твоята стая: {{code}}',
   'demo.session_subtitle': 'Можеш да поканиш друго устройство по всяко време.',
   'demo.session_body_connected':
@@ -913,7 +909,7 @@ const bg: Record<I18nKey, string> = {
   'setup.how_to_connect_html':
     'За да се свържеш, въведи <strong>6-цифрения код</strong> от хоста.<ul class="help-list"><li><strong>Хост:</strong> „Създаване на стая“ → преглед на кода</li><li><strong>Участник:</strong> „Присъединяване към стая“ → въвеждане на кода</li><li>Могат да се свържат до <strong>100 устройства, включително хостът</strong>.</li></ul>',
   'player.play_speakers_html':
-    'Всеки участник избира <strong>роля (изходен канал)</strong>.<ul class="help-list"><li><strong>Централна тонколона:</strong> стерео изход (по подразбиране)</li><li><strong>Лява тонколона:</strong> изход на <bdi dir="ltr">L</bdi> канал</li><li><strong>Дясна тонколона:</strong> изход на <bdi dir="ltr">R</bdi> канал</li><li><strong>Субуфер:</strong> смесен нискочестотен изход</li></ul>Можеш да променяш ролите по всяко време в <strong>Настройки</strong>.',
+    'Всеки участник избира <strong>роля (изходен канал)</strong>.<ul class="help-list"><li><strong>Център:</strong> стерео изход (по подразбиране)</li><li><strong>Ляво:</strong> изход на <bdi dir="ltr">L</bdi> канал</li><li><strong>Дясно:</strong> изход на <bdi dir="ltr">R</bdi> канал</li><li><strong>Бас:</strong> смесен нискочестотен изход</li></ul>Можеш да променяш ролите по всяко време в <strong>Настройки</strong>.',
   'player.play_media_action_html':
     'Хостът има 3 възможности.<ul class="help-list"><li><strong>Зареждане на локален файл:</strong> избор на музика от устройството. Поддържа прецизен синхрон</li><li><strong>YouTube заедно:</strong> поддържа видеоклипове и плейлисти. Няма разделяне по канали или звукови ефекти</li><li><strong>Споделяне на системен звук:</strong> достъпно, когато хостът използва браузър, базиран на Chromium, на компютър</li></ul>',
   'help.need_help_html':

@@ -114,10 +114,6 @@ const de: Record<I18nKey, string> = {
   'nav.go_home': 'Zur Startseite',
 
   // Role
-  'role.center': 'Center',
-  'role.left': 'Links',
-  'role.right': 'Rechts',
-  'role.subwoofer': 'Subwoofer',
   'role.center_placement': 'Platziere das Gerät in der Mitte',
   'role.left_placement': 'Platziere das Gerät links',
   'role.right_placement': 'Platziere das Gerät rechts',
@@ -369,9 +365,9 @@ const de: Record<I18nKey, string> = {
   'demo.role_center_short': 'Mitte',
   'demo.step_nav_label': 'Demo-Schritte',
   'demo.step_connect': '1. Verbinden',
-  'demo.step_role': '2. Rolle festlegen',
-  'demo.step_effects': '3. Audioeffekte',
-  'demo.step_finish': '4. Tour beenden',
+  'demo.step_role': '2. Rolle',
+  'demo.step_effects': '3. Effekte',
+  'demo.step_finish': '4. Beenden',
   'demo.session_title': 'Dein Raum: {{code}}',
   'demo.session_subtitle': 'Du kannst jederzeit ein weiteres Gerät einladen.',
   'demo.session_body_connected':
@@ -961,7 +957,7 @@ const de: Record<I18nKey, string> = {
   'setup.how_to_connect_html':
     'Gib den <strong>6-stelligen Code</strong> des Hosts ein, um dich zu verbinden.<ul class="help-list"><li><strong>Host:</strong> „Raum erstellen“ → Code prüfen</li><li><strong>Teilnehmer:</strong> „Einem Raum beitreten“ → Code eingeben</li><li>Es können sich bis zu <strong>100 Geräte einschließlich des Hosts</strong> verbinden.</li></ul>',
   'player.play_speakers_html':
-    'Jeder Teilnehmer wählt eine <strong>Rolle (Ausgabekanal)</strong>.<ul class="help-list"><li><strong>Center:</strong> Stereoausgabe (Standard)</li><li><strong>Links:</strong> Ausgabe des <bdi dir="ltr">L</bdi>-Kanals</li><li><strong>Rechts:</strong> Ausgabe des <bdi dir="ltr">R</bdi>-Kanals</li><li><strong>Subwoofer:</strong> Ausgabe des Tiefton-Mixes</li></ul>Rollen können jederzeit in den <strong>Einstellungen</strong> geändert werden.',
+    'Jeder Teilnehmer wählt eine <strong>Rolle (Ausgabekanal)</strong>.<ul class="help-list"><li><strong>Mitte:</strong> Stereoausgabe (Standard)</li><li><strong>Links:</strong> Ausgabe des <bdi dir="ltr">L</bdi>-Kanals</li><li><strong>Rechts:</strong> Ausgabe des <bdi dir="ltr">R</bdi>-Kanals</li><li><strong>Bass:</strong> Ausgabe des Tiefton-Mixes</li></ul>Rollen können jederzeit in den <strong>Einstellungen</strong> geändert werden.',
   'player.play_media_action_html':
     'Der Host hat 3 Optionen.<ul class="help-list"><li><strong>Lokale Datei laden:</strong> Musik vom Gerät auswählen. Präzise Synchronisierung wird unterstützt</li><li><strong>YouTube gemeinsam ansehen:</strong> Videos und Playlists werden unterstützt. Keine Kanaltrennung oder Audioeffekte</li><li><strong>Systemaudio-Freigabe:</strong> verfügbar, wenn der Host einen Computer mit einem Chromium-basierten Browser verwendet (Chrome, Edge usw.)</li></ul>',
   'help.need_help_html':

@@ -1,4 +1,6 @@
 /** @vitest-environment jsdom */
+import { readFileSync } from 'node:fs';
+
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { bus } from '../../core/events.ts';
@@ -959,5 +961,22 @@ describe('screensaver lifecycle', () => {
     expect(overlay()).toBeNull();
     expect(document.activeElement).toBe(action);
     expect(mocks.showToast).toHaveBeenCalledExactlyOnceWith('en:toast.screensaver_youtube');
+  });
+});
+
+describe('screensaver track title weight', () => {
+  // Owner decision 2026-10-29: the track title reads at 600 like the app's
+  // label text, and the Google Sans request carries that weight so the
+  // browser does not fall back to 700.
+  const page = readFileSync('public/screensaver.html', 'utf8');
+  const renderer = readFileSync('browser/auxiliary-runtime/screensaver.ts', 'utf8');
+
+  it('sets the track title at 600 and keeps the subtitle at 500', () => {
+    expect(page).toMatch(/\.music-title \{\s*font: 600 /u);
+    expect(page).toMatch(/\.music-subtitle \{[^}]*font: 500 /u);
+  });
+
+  it('loads every Google Sans weight the page uses', () => {
+    expect(renderer).toContain('family=Google+Sans:wght@500;600;700&');
   });
 });

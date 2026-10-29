@@ -184,10 +184,6 @@ const hi: Record<I18nKey, string> = {
   'transfer.host_busy': 'होस्ट किसी दूसरी फ़ाइल पर काम कर रहा है\nथोड़ी देर में फिर कोशिश करें',
 
   // ─── Role ────────────────────────────────────────────────────────
-  'role.center': 'सेंटर स्पीकर',
-  'role.left': 'बायाँ स्पीकर',
-  'role.right': 'दायाँ स्पीकर',
-  'role.subwoofer': 'सबवूफ़र',
   'role.center_placement': 'डिवाइस को बीच में रखें',
   'role.left_placement': 'डिवाइस को बाईं ओर रखें',
   'role.right_placement': 'डिवाइस को दाईं ओर रखें',
@@ -362,8 +358,8 @@ const hi: Record<I18nKey, string> = {
   'demo.role_center_short': 'सेंटर',
   'demo.step_nav_label': 'डेमो के चरण',
   'demo.step_connect': '1. कनेक्ट करें',
-  'demo.step_role': '2. भूमिका सेट करें',
-  'demo.step_effects': '3. ऑडियो इफ़ेक्ट',
+  'demo.step_role': '2. भूमिका चुनें',
+  'demo.step_effects': '3. इफ़ेक्ट',
   'demo.step_finish': '4. डेमो बंद करें',
   'demo.session_title': 'यह रूम {{code}} है।',
   'demo.session_subtitle': 'आप किसी दूसरे डिवाइस को कभी भी आमंत्रित कर सकते हैं।',
@@ -898,7 +894,7 @@ const hi: Record<I18nKey, string> = {
   'setup.how_to_connect_html':
     'कनेक्ट करने के लिए होस्ट से मिला <strong>6 अंकों का कोड</strong> दर्ज करें।<ul class="help-list"><li><strong>होस्ट:</strong> “रूम बनाएँ” → कोड देखें</li><li><strong>प्रतिभागी:</strong> “रूम में शामिल हों” → कोड दर्ज करें</li><li>होस्ट समेत अधिकतम <strong>100 डिवाइस</strong> कनेक्ट हो सकते हैं।</li></ul>',
   'player.play_speakers_html':
-    'हर प्रतिभागी एक <strong>भूमिका (आउटपुट चैनल)</strong> चुनता है।<ul class="help-list"><li><strong>सेंटर स्पीकर:</strong> स्टीरियो (डिफ़ॉल्ट) आउटपुट</li><li><strong>बायाँ स्पीकर:</strong> <bdi dir="ltr">L</bdi> चैनल आउटपुट</li><li><strong>दायाँ स्पीकर:</strong> <bdi dir="ltr">R</bdi> चैनल आउटपुट</li><li><strong>सबवूफ़र:</strong> कम फ़्रीक्वेंसी वाले मिक्स का आउटपुट</li></ul>आप <strong>सेटिंग्स</strong> में भूमिका कभी भी बदल सकते हैं।',
+    'हर प्रतिभागी एक <strong>भूमिका (आउटपुट चैनल)</strong> चुनता है।<ul class="help-list"><li><strong>सेंटर:</strong> स्टीरियो (डिफ़ॉल्ट) आउटपुट</li><li><strong>बायाँ:</strong> <bdi dir="ltr">L</bdi> चैनल आउटपुट</li><li><strong>दायाँ:</strong> <bdi dir="ltr">R</bdi> चैनल आउटपुट</li><li><strong>बास:</strong> कम फ़्रीक्वेंसी वाले मिक्स का आउटपुट</li></ul>आप <strong>सेटिंग्स</strong> में भूमिका कभी भी बदल सकते हैं।',
   'player.play_media_action_html':
     'होस्ट के पास 3 विकल्प हैं।<ul class="help-list"><li><strong>लोकल फ़ाइल लोड करें:</strong> अपने डिवाइस से संगीत चुनें। सटीक सिंक समर्थित है</li><li><strong>साथ में YouTube:</strong> वीडियो और प्लेलिस्ट समर्थित हैं। चैनल अलग करना और ऑडियो इफ़ेक्ट उपलब्ध नहीं हैं</li><li><strong>सिस्टम ऑडियो शेयरिंग:</strong> होस्ट के कंप्यूटर पर Chromium आधारित ब्राउज़र इस्तेमाल करने पर उपलब्ध है</li></ul>',
   'help.need_help_html':

@@ -90,8 +90,8 @@ const ar: Record<I18nKey, string> = {
   'common.volume_percent': 'مستوى الصوت: {{val}}%',
   'common.muted': 'مكتوم',
   'common.original': 'أصلي',
-  'common.left': 'اليسار',
-  'common.right': 'اليمين',
+  'common.left': 'يسار',
+  'common.right': 'يمين',
   'common.woofer': 'مضخم الصوت',
   'common.revoke': 'سحب',
   'common.system': 'النظام',
@@ -181,10 +181,6 @@ const ar: Record<I18nKey, string> = {
   'transfer.host_busy': 'يعالج المضيف ملفًا آخر\nحاول مجددًا بعد قليل',
 
   // ─── Role ────────────────────────────────────────────────────────
-  'role.center': 'سماعة وسطى',
-  'role.left': 'سماعة يسرى',
-  'role.right': 'سماعة يمنى',
-  'role.subwoofer': 'مضخم الصوت',
   'role.center_placement': 'ضع الجهاز في الوسط',
   'role.left_placement': 'ضع الجهاز على اليسار',
   'role.right_placement': 'ضع الجهاز على اليمين',
@@ -201,8 +197,8 @@ const ar: Record<I18nKey, string> = {
   'settings.virtual_effects_title': 'المؤثرات الافتراضية',
   'settings.virtual_effects_desc': 'تطبيق مؤثرات مُولّدة على الصوت. قد يؤدي ذلك إلى تشوّه شديد.',
   'settings.virtual_effect_bass': 'الجهير',
-  'settings.virtual_effect_treble': 'الترددات العالية',
-  'settings.virtual_effect_surround': 'الصوت المحيطي',
+  'settings.virtual_effect_treble': 'الحدة',
+  'settings.virtual_effect_surround': 'المحيطي',
   'settings.language_desc': 'اختر لغة أو استخدم لغة نظامك.',
   'settings.theme_desc': 'اختر المظهر الفاتح أو الداكن.',
   'player.visualizer_mode_hint': 'اختر طريقة عرض الصوت بصريًا.',
@@ -356,7 +352,7 @@ const ar: Record<I18nKey, string> = {
   'demo.step_nav_label': 'خطوات العرض',
   'demo.step_connect': '1. الاتصال',
   'demo.step_role': '2. تعيين الدور',
-  'demo.step_effects': '3. المؤثرات الصوتية',
+  'demo.step_effects': '3. المؤثرات',
   'demo.step_finish': '4. إنهاء الجولة',
   'demo.session_title': 'غرفتك: {{code}}',
   'demo.session_subtitle': 'يمكنك دعوة جهاز آخر في أي وقت.',
@@ -876,7 +872,7 @@ const ar: Record<I18nKey, string> = {
   'setup.how_to_connect_html':
     'أدخل <strong>الرمز المؤلف من 6 أرقام</strong> الذي يظهر لدى المضيف للاتصال.<ul class="help-list"><li><strong>المضيف:</strong> «إنشاء غرفة» ← راجع الرمز</li><li><strong>المشارك:</strong> «الانضمام إلى غرفة» ← أدخل الرمز</li><li>يمكن اتصال ما يصل إلى <strong>100 جهاز، بما فيها جهاز المضيف</strong>.</li></ul>',
   'player.play_speakers_html':
-    'يختار كل مشارك <strong>دورًا (قناة إخراج)</strong>.<ul class="help-list"><li><strong>مكبر الصوت المركزي:</strong> خرج ستيريو (افتراضي)</li><li><strong>مكبر الصوت الأيسر:</strong> خرج قناة <bdi dir="ltr">L</bdi></li><li><strong>مكبر الصوت الأيمن:</strong> خرج قناة <bdi dir="ltr">R</bdi></li><li><strong>مضخم الصوت:</strong> خرج مزيج الترددات المنخفضة</li></ul>يمكنك تغيير الأدوار في أي وقت من <strong>الإعدادات</strong>.',
+    'يختار كل مشارك <strong>دورًا (قناة إخراج)</strong>.<ul class="help-list"><li><strong>وسط:</strong> خرج ستيريو (افتراضي)</li><li><strong>يسار:</strong> خرج قناة <bdi dir="ltr">L</bdi></li><li><strong>يمين:</strong> خرج قناة <bdi dir="ltr">R</bdi></li><li><strong>جهير:</strong> خرج مزيج الترددات المنخفضة</li></ul>يمكنك تغيير الأدوار في أي وقت من <strong>الإعدادات</strong>.',
   'player.play_media_action_html':
     'لدى المضيف 3 خيارات.<ul class="help-list"><li><strong>تحميل ملف محلي:</strong> اختر موسيقى من جهازك. يدعم المزامنة الدقيقة</li><li><strong>YouTube معًا:</strong> يدعم الفيديوهات وقوائم التشغيل. لا يدعم فصل القنوات أو المؤثرات الصوتية</li><li><strong>مشاركة صوت النظام:</strong> متاحة عندما يستخدم المضيف متصفحًا مبنيًا على Chromium على جهاز كمبيوتر</li></ul>',
   'help.need_help_html':

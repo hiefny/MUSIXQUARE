@@ -184,10 +184,6 @@ const gu: Record<I18nKey, string> = {
   'transfer.host_busy': 'હોસ્ટ બીજી ફાઇલ પર પ્રક્રિયા કરી રહ્યા છે\nથોડી વારમાં ફરી પ્રયાસ કરો',
 
   // ─── Role ────────────────────────────────────────────────────────
-  'role.center': 'મધ્ય સ્પીકર',
-  'role.left': 'ડાબું સ્પીકર',
-  'role.right': 'જમણું સ્પીકર',
-  'role.subwoofer': 'સબવૂફર',
   'role.center_placement': 'ડિવાઇસને મધ્યમાં મૂકો',
   'role.left_placement': 'ડિવાઇસને ડાબી બાજુ મૂકો',
   'role.right_placement': 'ડિવાઇસને જમણી બાજુ મૂકો',
@@ -361,8 +357,8 @@ const gu: Record<I18nKey, string> = {
   'demo.role_center_short': 'મધ્ય',
   'demo.step_nav_label': 'ડેમોના પગલાં',
   'demo.step_connect': '1. ડિવાઇસ જોડો',
-  'demo.step_role': '2. ભૂમિકા નક્કી કરો',
-  'demo.step_effects': '3. ઑડિયો ઇફેક્ટ',
+  'demo.step_role': '2. ભૂમિકા ગોઠવો',
+  'demo.step_effects': '3. ઇફેક્ટ',
   'demo.step_finish': '4. ડેમો બંધ કરો',
   'demo.session_title': 'આ {{code}} નંબરનો રૂમ છે.',
   'demo.session_subtitle': 'બીજા ડિવાઇસને ગમે ત્યારે આમંત્રિત કરી શકો છો.',
@@ -883,7 +879,7 @@ const gu: Record<I18nKey, string> = {
   'setup.how_to_connect_html':
     'જોડાવા માટે હોસ્ટનો <strong>6-અંકનો કોડ</strong> દાખલ કરો.<ul class="help-list"><li><strong>હોસ્ટ:</strong> “રૂમ બનાવો” → કોડ તપાસો</li><li><strong>સહભાગી:</strong> “રૂમમાં જોડાઓ” → કોડ દાખલ કરો</li><li><strong>હોસ્ટ સહિત વધુમાં વધુ 100 ડિવાઇસ</strong> જોડાઈ શકે છે.</li></ul>',
   'player.play_speakers_html':
-    'દરેક સહભાગી એક <strong>ભૂમિકા (આઉટપુટ ચૅનલ)</strong> પસંદ કરે છે.<ul class="help-list"><li><strong>મધ્ય સ્પીકર:</strong> સ્ટીરિયો (મૂળભૂત) આઉટપુટ</li><li><strong>ડાબું સ્પીકર:</strong> <bdi dir="ltr">L</bdi> ચૅનલ આઉટપુટ</li><li><strong>જમણું સ્પીકર:</strong> <bdi dir="ltr">R</bdi> ચૅનલ આઉટપુટ</li><li><strong>સબવૂફર:</strong> ઓછી આવર્તનનું મિશ્રિત આઉટપુટ</li></ul><strong>સેટિંગ્સ</strong>માં ભૂમિકા ગમે ત્યારે બદલી શકો છો.',
+    'દરેક સહભાગી એક <strong>ભૂમિકા (આઉટપુટ ચૅનલ)</strong> પસંદ કરે છે.<ul class="help-list"><li><strong>મધ્ય:</strong> સ્ટીરિયો (મૂળભૂત) આઉટપુટ</li><li><strong>ડાબું:</strong> <bdi dir="ltr">L</bdi> ચૅનલ આઉટપુટ</li><li><strong>જમણું:</strong> <bdi dir="ltr">R</bdi> ચૅનલ આઉટપુટ</li><li><strong>બેસ:</strong> ઓછી આવર્તનનું મિશ્રિત આઉટપુટ</li></ul><strong>સેટિંગ્સ</strong>માં ભૂમિકા ગમે ત્યારે બદલી શકો છો.',
   'player.play_media_action_html':
     'હોસ્ટ પાસે 3 વિકલ્પ છે.<ul class="help-list"><li><strong>સ્થાનિક ફાઇલ લોડ કરો:</strong> તમારા ડિવાઇસમાંથી સંગીત પસંદ કરો. ચોક્કસ સિંક સમર્થિત</li><li><strong>સાથે YouTube:</strong> વિડિયો અને પ્લેલિસ્ટ સમર્થિત. ચૅનલ વિભાજન કે ઑડિયો ઇફેક્ટ નથી</li><li><strong>સિસ્ટમ ઑડિયો શેરિંગ:</strong> હોસ્ટ કમ્પ્યુટર પર Chromium-આધારિત બ્રાઉઝર વાપરે ત્યારે ઉપલબ્ધ</li></ul>',
   'help.need_help_html':

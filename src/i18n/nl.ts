@@ -184,10 +184,6 @@ const nl: Record<I18nKey, string> = {
   'transfer.host_busy': 'De host verwerkt een ander bestand\nProbeer het zo opnieuw',
 
   // Role
-  'role.center': 'Midden',
-  'role.left': 'Links',
-  'role.right': 'Rechts',
-  'role.subwoofer': 'Subwoofer',
   'role.center_placement': 'Plaats dit apparaat in het midden',
   'role.left_placement': 'Plaats dit apparaat links',
   'role.right_placement': 'Plaats dit apparaat rechts',
@@ -206,7 +202,7 @@ const nl: Record<I18nKey, string> = {
     'Past gesynthetiseerde effecten toe op het geluid. Dit kan sterke vervorming veroorzaken.',
   'settings.virtual_effect_bass': 'Bas',
   'settings.virtual_effect_treble': 'Hoge tonen',
-  'settings.virtual_effect_surround': 'Surroundgeluid',
+  'settings.virtual_effect_surround': 'Surround',
   'settings.language_desc': 'Kies een taal of volg de systeemtaal.',
   'settings.theme_desc': 'Kies een licht of donker thema.',
   'player.visualizer_mode_hint': 'Kies hoe het geluid wordt gevisualiseerd.',
@@ -242,7 +238,7 @@ const nl: Record<I18nKey, string> = {
   'settings.reverb_title': 'Galm',
   'settings.rvb_studio': 'Studio',
   'settings.rvb_arena': 'Arena',
-  'settings.rvb_advanced': 'Geavanceerd',
+  'settings.rvb_advanced': 'Handmatig',
   'settings.rvb_off': 'Uit',
   'settings.reverb_mix': 'Galmmix',
   'settings.reverb_decay': 'Nagalmtijd',
@@ -255,7 +251,7 @@ const nl: Record<I18nKey, string> = {
   'settings.eq_band_aria': 'Equalizer {{freq}}',
   'settings.eq_bright': 'Helder',
   'settings.eq_warm': 'Warm',
-  'settings.eq_advanced': 'Geavanceerd',
+  'settings.eq_advanced': 'Handmatig',
   'settings.eq_off': 'Uit',
   'settings.lowpass': 'Laagdoorlaat',
   'settings.highpass': 'Hoogdoorlaat',
@@ -367,9 +363,9 @@ const nl: Record<I18nKey, string> = {
   'demo.role_center_short': 'Midden',
   'demo.step_nav_label': 'Demostappen',
   'demo.step_connect': '1. Verbinden',
-  'demo.step_role': '2. Rol instellen',
-  'demo.step_effects': '3. Audio-effecten',
-  'demo.step_finish': '4. Demo afsluiten',
+  'demo.step_role': '2. Rol kiezen',
+  'demo.step_effects': '3. Effecten',
+  'demo.step_finish': '4. Afsluiten',
   'demo.session_title': 'Je kamer: {{code}}',
   'demo.session_subtitle': 'Je kunt altijd nog een apparaat uitnodigen.',
   'demo.session_body_connected':
@@ -918,7 +914,7 @@ const nl: Record<I18nKey, string> = {
   'setup.how_to_connect_html':
     'Voer de <strong>6-cijferige code</strong> van de host in om verbinding te maken.<ul class="help-list"><li><strong>Host:</strong> “Kamer maken” → code bekijken</li><li><strong>Deelnemer:</strong> “Deelnemen aan een kamer” → code invoeren</li><li>Er kunnen maximaal <strong>100 apparaten, inclusief de host</strong>, verbinding maken.</li></ul>',
   'player.play_speakers_html':
-    'Elke deelnemer kiest een <strong>rol (uitvoerkanaal)</strong>.<ul class="help-list"><li><strong>Midden:</strong> stereo-uitvoer (standaard)</li><li><strong>Links:</strong> uitvoer van het <bdi dir="ltr">L</bdi>-kanaal</li><li><strong>Rechts:</strong> uitvoer van het <bdi dir="ltr">R</bdi>-kanaal</li><li><strong>Subwoofer:</strong> mix van lage frequenties</li></ul>Je kunt rollen altijd wijzigen in <strong>Instellingen</strong>.',
+    'Elke deelnemer kiest een <strong>rol (uitvoerkanaal)</strong>.<ul class="help-list"><li><strong>Midden:</strong> stereo-uitvoer (standaard)</li><li><strong>Links:</strong> uitvoer van het <bdi dir="ltr">L</bdi>-kanaal</li><li><strong>Rechts:</strong> uitvoer van het <bdi dir="ltr">R</bdi>-kanaal</li><li><strong>Bas:</strong> mix van lage frequenties</li></ul>Je kunt rollen altijd wijzigen in <strong>Instellingen</strong>.',
   'player.play_media_action_html':
     'De host heeft 3 opties.<ul class="help-list"><li><strong>Lokaal bestand laden:</strong> kies muziek op je apparaat. Nauwkeurige synchronisatie wordt ondersteund</li><li><strong>Samen YouTube kijken:</strong> video’s en afspeellijsten worden ondersteund. Geen kanaalsplitsing of audio-effecten</li><li><strong>Systeemaudio delen:</strong> beschikbaar wanneer de host een computer met een Chromium-browser gebruikt (Chrome, Edge enz.)</li></ul>',
   'help.need_help_html':

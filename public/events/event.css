@@ -243,6 +243,12 @@ a:focus-visible {
   word-break: keep-all;
 }
 
+/* The line under the title while the page checks the event comes and goes
+   with that check, so it reads at 600 like the app's label weight. */
+[data-step='loading'] .stage-copy > p {
+  font-weight: 600;
+}
+
 .stage-copy > p strong {
   color: inherit;
   font-weight: 700;
@@ -254,7 +260,7 @@ a:focus-visible {
 .field-message {
   color: var(--danger-filled);
   font-size: 12px;
-  font-weight: 650;
+  font-weight: 600;
   line-height: 1.5;
   word-break: keep-all;
 }
@@ -567,13 +573,18 @@ html[data-theme='light'] .google-button {
   font-weight: 650;
 }
 
+/* At rest the nickname line is a hint that stays, not a message, so it reads
+   at the body weight 400 like the app's dialog hint (.dialog-hint); its
+   error reads at 600 like the other error lines. */
 .nickname-message {
   color: var(--text-muted);
+  font-weight: 400;
   text-align: left;
 }
 
 .nickname-message.is-error {
   color: var(--danger-filled);
+  font-weight: 600;
 }
 
 .dialog-actions {
@@ -598,7 +609,7 @@ html[data-theme='light'] .google-button {
   background: var(--text-main);
   color: var(--bg);
   font-size: 13px;
-  font-weight: 650;
+  font-weight: 600;
   line-height: 1.35;
   text-align: center;
   white-space: pre-line;

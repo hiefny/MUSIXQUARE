@@ -113,10 +113,6 @@ const ptBr: Record<I18nKey, string> = {
   'nav.go_home': 'Ir para o início',
 
   // Role
-  'role.center': 'Central',
-  'role.left': 'Esquerdo',
-  'role.right': 'Direito',
-  'role.subwoofer': 'Subwoofer',
   'role.center_placement': 'Coloque o dispositivo no centro',
   'role.left_placement': 'Coloque o dispositivo à esquerda',
   'role.right_placement': 'Coloque o dispositivo à direita',
@@ -367,9 +363,9 @@ const ptBr: Record<I18nKey, string> = {
   'demo.role_center_short': 'Centro',
   'demo.step_nav_label': 'Etapas da demo',
   'demo.step_connect': '1. Conectar',
-  'demo.step_role': '2. Definir função',
-  'demo.step_effects': '3. Efeitos de áudio',
-  'demo.step_finish': '4. Encerrar tour',
+  'demo.step_role': '2. Função',
+  'demo.step_effects': '3. Efeitos',
+  'demo.step_finish': '4. Encerrar',
   'demo.session_title': 'Sua sala: {{code}}',
   'demo.session_subtitle': 'Você pode convidar outro dispositivo quando quiser.',
   'demo.session_body_connected':
@@ -959,7 +955,7 @@ const ptBr: Record<I18nKey, string> = {
   'setup.how_to_connect_html':
     'Digite o <strong>código de 6 dígitos</strong> do anfitrião para se conectar.<ul class="help-list"><li><strong>Anfitrião:</strong> “Criar sala” → conferir o código</li><li><strong>Participante:</strong> “Entrar em uma sala” → digitar o código</li><li>Até <strong>100 dispositivos, incluindo o anfitrião</strong>, podem se conectar.</li></ul>',
   'player.play_speakers_html':
-    'Cada participante seleciona uma <strong>função (canal de saída)</strong>.<ul class="help-list"><li><strong>Centro:</strong> saída estéreo padrão</li><li><strong>Esquerda:</strong> saída do canal <bdi dir="ltr">L</bdi></li><li><strong>Direita:</strong> saída do canal <bdi dir="ltr">R</bdi></li><li><strong>Subwoofer:</strong> saída da mixagem de graves</li></ul>Você pode mudar as funções quando quiser em <strong>Configurações</strong>.',
+    'Cada participante seleciona uma <strong>função (canal de saída)</strong>.<ul class="help-list"><li><strong>Centro:</strong> saída estéreo padrão</li><li><strong>Esquerda:</strong> saída do canal <bdi dir="ltr">L</bdi></li><li><strong>Direita:</strong> saída do canal <bdi dir="ltr">R</bdi></li><li><strong>Graves:</strong> saída da mixagem de graves</li></ul>Você pode mudar as funções quando quiser em <strong>Configurações</strong>.',
   'player.play_media_action_html':
     'O anfitrião tem 3 opções.<ul class="help-list"><li><strong>Carregar arquivo local:</strong> escolha músicas do dispositivo. Compatível com sincronização precisa</li><li><strong>YouTube juntos:</strong> compatível com vídeos e playlists. Sem divisão de canais nem efeitos de áudio</li><li><strong>Compartilhar áudio do sistema:</strong> disponível quando o anfitrião usa um computador com navegador baseado no Chromium (Chrome, Edge etc.)</li></ul>',
   'help.need_help_html':

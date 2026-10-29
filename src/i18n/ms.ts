@@ -186,10 +186,6 @@ const ms: Record<I18nKey, string> = {
   'transfer.host_busy': 'Hos sedang memproses fail lain\nCuba lagi sebentar nanti',
 
   // ─── Peranan ─────────────────────────────────────────────────────
-  'role.center': 'Tengah',
-  'role.left': 'Kiri',
-  'role.right': 'Kanan',
-  'role.subwoofer': 'Subwufer',
   'role.center_placement': 'Letakkan peranti di tengah',
   'role.left_placement': 'Letakkan peranti di sebelah kiri',
   'role.right_placement': 'Letakkan peranti di sebelah kanan',
@@ -370,9 +366,9 @@ const ms: Record<I18nKey, string> = {
   'demo.role_center_short': 'Tengah',
   'demo.step_nav_label': 'Langkah demo',
   'demo.step_connect': '1. Sambung',
-  'demo.step_role': '2. Tetapkan peranan',
-  'demo.step_effects': '3. Kesan audio',
-  'demo.step_finish': '4. Tamatkan demo',
+  'demo.step_role': '2. Peranan',
+  'demo.step_effects': '3. Kesan',
+  'demo.step_finish': '4. Selesai',
   'demo.session_title': 'Bilik anda: {{code}}',
   'demo.session_subtitle': 'Anda boleh menjemput peranti lain pada bila-bila masa.',
   'demo.session_body_connected':
@@ -919,7 +915,7 @@ const ms: Record<I18nKey, string> = {
   'setup.how_to_connect_html':
     'Masukkan <strong>kod 6 digit</strong> daripada hos untuk menyambung.<ul class="help-list"><li><strong>Hos:</strong> “Cipta Bilik” → semak kod</li><li><strong>Peserta:</strong> “Sertai Bilik” → masukkan kod</li><li>Sehingga <strong>100 peranti, termasuk hos</strong>, boleh disambungkan.</li></ul>',
   'player.play_speakers_html':
-    'Setiap peserta memilih <strong>peranan (saluran output)</strong>.<ul class="help-list"><li><strong>Tengah:</strong> Output stereo (lalai)</li><li><strong>Kiri:</strong> Output saluran <bdi dir="ltr">L</bdi></li><li><strong>Kanan:</strong> Output saluran <bdi dir="ltr">R</bdi></li><li><strong>Subwufer:</strong> Output campuran frekuensi rendah</li></ul>Anda boleh menukar peranan pada bila-bila masa dalam <strong>Tetapan</strong>.',
+    'Setiap peserta memilih <strong>peranan (saluran output)</strong>.<ul class="help-list"><li><strong>Tengah:</strong> Output stereo (lalai)</li><li><strong>Kiri:</strong> Output saluran <bdi dir="ltr">L</bdi></li><li><strong>Kanan:</strong> Output saluran <bdi dir="ltr">R</bdi></li><li><strong>Bass:</strong> Output campuran frekuensi rendah</li></ul>Anda boleh menukar peranan pada bila-bila masa dalam <strong>Tetapan</strong>.',
   'player.play_media_action_html':
     'Hos mempunyai 3 pilihan.<ul class="help-list"><li><strong>Muatkan fail setempat:</strong> Pilih muzik daripada peranti anda. Penyegerakan tepat disokong</li><li><strong>YouTube Bersama:</strong> Video dan senarai main disokong. Tiada pemisahan saluran atau kesan audio</li><li><strong>Perkongsian Audio Sistem:</strong> Tersedia apabila hos menggunakan pelayar berasaskan Chromium pada komputer</li></ul>',
   'help.need_help_html':

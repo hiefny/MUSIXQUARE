@@ -184,10 +184,6 @@ const hu: Record<I18nKey, string> = {
   'transfer.host_busy': 'A házigazda másik fájlt dolgoz fel\nPróbáld újra hamarosan',
 
   // ─── Role ────────────────────────────────────────────────────────
-  'role.center': 'Középső',
-  'role.left': 'Bal hangszóró',
-  'role.right': 'Jobb hangszóró',
-  'role.subwoofer': 'Mélynyomó',
   'role.center_placement': 'Helyezd az eszközt középre',
   'role.left_placement': 'Helyezd az eszközt balra',
   'role.right_placement': 'Helyezd az eszközt jobbra',
@@ -274,7 +270,7 @@ const hu: Record<I18nKey, string> = {
   'settings.invite_share': 'Meghívás és megosztás',
   'settings.subtab.general': 'Általános',
   'settings.subtab.audio': 'Hang',
-  'settings.subtab.connect': 'Kapcsolódás',
+  'settings.subtab.connect': 'Kapcsolat',
   'settings.subtab.help': 'Súgó',
 
   // ─── Connect ───────────────────────────────────────────────────
@@ -360,13 +356,13 @@ const hu: Record<I18nKey, string> = {
   'demo.bass_boost': 'Több mély',
   'demo.treble_boost': 'Több magas',
   'demo.surround': 'Térhangzás',
-  'demo.role_bass_short': 'Mélyhang',
+  'demo.role_bass_short': 'Mély',
   'demo.role_center_short': 'Közép',
   'demo.step_nav_label': 'A bemutató lépései',
-  'demo.step_connect': '1. Kapcsolódás',
-  'demo.step_role': '2. Szerep beállítása',
-  'demo.step_effects': '3. Hangeffektusok',
-  'demo.step_finish': '4. Bemutató bezárása',
+  'demo.step_connect': '1. Kapcsolat',
+  'demo.step_role': '2. Szerep',
+  'demo.step_effects': '3. Effektusok',
+  'demo.step_finish': '4. Befejezés',
   'demo.session_title': 'Szobád: {{code}}',
   'demo.session_subtitle': 'Bármikor meghívhatsz egy másik eszközt.',
   'demo.session_body_connected':
@@ -911,7 +907,7 @@ const hu: Record<I18nKey, string> = {
   'setup.how_to_connect_html':
     'A kapcsolódáshoz add meg a házigazdától kapott <strong>hatjegyű kódot</strong>.<ul class="help-list"><li><strong>Házigazda:</strong> „Szoba létrehozása” → kód megtekintése</li><li><strong>Résztvevő:</strong> „Csatlakozás szobához” → kód megadása</li><li>Legfeljebb <strong>100 eszköz csatlakozhat a házigazdával együtt</strong>.</li></ul>',
   'player.play_speakers_html':
-    'Minden résztvevő kiválaszt egy <strong>szerepet (kimeneti csatornát)</strong>.<ul class="help-list"><li><strong>Középső hangszóró:</strong> sztereó (alapértelmezett) kimenet</li><li><strong>Bal hangszóró:</strong> <bdi dir="ltr">L</bdi> csatorna kimenete</li><li><strong>Jobb hangszóró:</strong> <bdi dir="ltr">R</bdi> csatorna kimenete</li><li><strong>Mélynyomó:</strong> kevert mélyfrekvenciás kimenet</li></ul>A szerepek bármikor módosíthatók a <strong>Beállításokban</strong>.',
+    'Minden résztvevő kiválaszt egy <strong>szerepet (kimeneti csatornát)</strong>.<ul class="help-list"><li><strong>Közép:</strong> sztereó (alapértelmezett) kimenet</li><li><strong>Bal:</strong> <bdi dir="ltr">L</bdi> csatorna kimenete</li><li><strong>Jobb:</strong> <bdi dir="ltr">R</bdi> csatorna kimenete</li><li><strong>Mély:</strong> kevert mélyfrekvenciás kimenet</li></ul>A szerepek bármikor módosíthatók a <strong>Beállításokban</strong>.',
   'player.play_media_action_html':
     'A házigazdának 3 lehetősége van.<ul class="help-list"><li><strong>Helyi fájl betöltése:</strong> zene kiválasztása az eszközről. Támogatja a pontos szinkronizálást</li><li><strong>Közös YouTube-nézés:</strong> videók és lejátszási listák támogatása. Nincs csatornaszétválasztás vagy hangeffektus</li><li><strong>Rendszerhang megosztása:</strong> akkor érhető el, ha a házigazda Chromium-alapú böngészőt használ számítógépen</li></ul>',
   'help.need_help_html':

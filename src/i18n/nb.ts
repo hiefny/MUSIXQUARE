@@ -185,10 +185,6 @@ const nb: Record<I18nKey, string> = {
   'transfer.host_busy': 'Verten behandler en annen fil\nPrøv igjen snart',
 
   // ─── Role ────────────────────────────────────────────────────────
-  'role.center': 'Senter',
-  'role.left': 'Venstre',
-  'role.right': 'Høyre',
-  'role.subwoofer': 'Subwoofer',
   'role.center_placement': 'Plasser enheten i midten',
   'role.left_placement': 'Plasser enheten til venstre',
   'role.right_placement': 'Plasser enheten til høyre',
@@ -368,7 +364,7 @@ const nb: Record<I18nKey, string> = {
   'demo.step_connect': '1. Koble til',
   'demo.step_role': '2. Angi rolle',
   'demo.step_effects': '3. Lydeffekter',
-  'demo.step_finish': '4. Avslutt demoen',
+  'demo.step_finish': '4. Avslutt',
   'demo.session_title': 'Rommet ditt: {{code}}',
   'demo.session_subtitle': 'Du kan invitere en annen enhet når som helst.',
   'demo.session_body_connected':
@@ -902,7 +898,7 @@ const nb: Record<I18nKey, string> = {
   'setup.how_to_connect_html':
     'Skriv inn vertens <strong>6-sifrede kode</strong> for å koble til.<ul class="help-list"><li><strong>Vert:</strong> «Opprett et rom» → se koden</li><li><strong>Deltaker:</strong> «Bli med i et rom» → skriv inn koden</li><li>Opptil <strong>100 enheter inkludert verten</strong> kan koble til.</li></ul>',
   'player.play_speakers_html':
-    'Hver deltaker velger en <strong>rolle (utgangskanal)</strong>.<ul class="help-list"><li><strong>Senter:</strong> Stereo (standardutgang)</li><li><strong>Venstre:</strong> <bdi dir="ltr">L</bdi>-kanalutgang</li><li><strong>Høyre:</strong> <bdi dir="ltr">R</bdi>-kanalutgang</li><li><strong>Subwoofer:</strong> Miks av lave frekvenser</li></ul>Du kan når som helst endre roller under <strong>Innstillinger</strong>.',
+    'Hver deltaker velger en <strong>rolle (utgangskanal)</strong>.<ul class="help-list"><li><strong>Senter:</strong> Stereo (standardutgang)</li><li><strong>Venstre:</strong> <bdi dir="ltr">L</bdi>-kanalutgang</li><li><strong>Høyre:</strong> <bdi dir="ltr">R</bdi>-kanalutgang</li><li><strong>Bass:</strong> Miks av lave frekvenser</li></ul>Du kan når som helst endre roller under <strong>Innstillinger</strong>.',
   'player.play_media_action_html':
     'Verten har 3 alternativer.<ul class="help-list"><li><strong>Last inn lokal fil:</strong> Velg musikk på enheten. Presis synkronisering støttes</li><li><strong>YouTube sammen:</strong> Videoer og spillelister støttes. Kanalseparasjon og lydeffekter støttes ikke</li><li><strong>Deling av systemlyd:</strong> Tilgjengelig når verten bruker en Chromium-basert nettleser på en datamaskin</li></ul>',
   'help.need_help_html':

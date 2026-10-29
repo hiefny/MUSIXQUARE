@@ -850,7 +850,7 @@ svg.stroke-icon {
   background: var(--surface-1);
   color: var(--text-main);
   font-size: 14px;
-  font-weight: var(--font-weight-body, 400);
+  font-weight: var(--font-weight-label, 600);
 }
 
 @keyframes mq-toast-in {

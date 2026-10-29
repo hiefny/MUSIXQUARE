@@ -183,10 +183,6 @@ const bn: Record<I18nKey, string> = {
   'transfer.host_busy': 'হোস্ট অন্য একটি ফাইল প্রসেস করছে\nএকটু পর আবার চেষ্টা করুন',
 
   // ─── Role ────────────────────────────────────────────────────────
-  'role.center': 'সেন্টার স্পিকার',
-  'role.left': 'বাম স্পিকার',
-  'role.right': 'ডান স্পিকার',
-  'role.subwoofer': 'সাবউফার',
   'role.center_placement': 'ডিভাইসটি মাঝখানে রাখুন',
   'role.left_placement': 'ডিভাইসটি বাম পাশে রাখুন',
   'role.right_placement': 'ডিভাইসটি ডান পাশে রাখুন',
@@ -362,9 +358,9 @@ const bn: Record<I18nKey, string> = {
   'demo.role_center_short': 'সেন্টার',
   'demo.step_nav_label': 'ডেমোর ধাপ',
   'demo.step_connect': '1. সংযোগ করুন',
-  'demo.step_role': '2. ভূমিকা নির্ধারণ করুন',
-  'demo.step_effects': '3. অডিও ইফেক্ট',
-  'demo.step_finish': '4. ডেমো বন্ধ করুন',
+  'demo.step_role': '2. ভূমিকা বাছুন',
+  'demo.step_effects': '3. ইফেক্ট',
+  'demo.step_finish': '4. শেষ করুন',
   'demo.session_title': 'এটি {{code}} নম্বর রুম।',
   'demo.session_subtitle': 'যেকোনো সময় অন্য ডিভাইস আমন্ত্রণ জানাতে পারবেন।',
   'demo.session_body_connected':
@@ -897,7 +893,7 @@ const bn: Record<I18nKey, string> = {
   'setup.how_to_connect_html':
     'সংযোগ করতে হোস্টের দেওয়া <strong>6 সংখ্যার কোড</strong> লিখুন।<ul class="help-list"><li><strong>হোস্ট:</strong> “রুম তৈরি করুন” → কোড দেখুন</li><li><strong>অংশগ্রহণকারী:</strong> “রুমে যোগ দিন” → কোড লিখুন</li><li>হোস্টসহ সর্বোচ্চ <strong>100টি ডিভাইস</strong> সংযুক্ত হতে পারে।</li></ul>',
   'player.play_speakers_html':
-    'প্রতিটি অংশগ্রহণকারী একটি <strong>ভূমিকা (আউটপুট চ্যানেল)</strong> বেছে নেন।<ul class="help-list"><li><strong>সেন্টার স্পিকার:</strong> স্টেরিও (ডিফল্ট) আউটপুট</li><li><strong>বাম স্পিকার:</strong> <bdi dir="ltr">L</bdi> চ্যানেলের আউটপুট</li><li><strong>ডান স্পিকার:</strong> <bdi dir="ltr">R</bdi> চ্যানেলের আউটপুট</li><li><strong>সাবউফার:</strong> নিম্ন ফ্রিকোয়েন্সির মিক্স আউটপুট</li></ul><strong>সেটিংস</strong> থেকে যেকোনো সময় ভূমিকা পরিবর্তন করতে পারবেন।',
+    'প্রতিটি অংশগ্রহণকারী একটি <strong>ভূমিকা (আউটপুট চ্যানেল)</strong> বেছে নেন।<ul class="help-list"><li><strong>সেন্টার:</strong> স্টেরিও (ডিফল্ট) আউটপুট</li><li><strong>বাম:</strong> <bdi dir="ltr">L</bdi> চ্যানেলের আউটপুট</li><li><strong>ডান:</strong> <bdi dir="ltr">R</bdi> চ্যানেলের আউটপুট</li><li><strong>বেস:</strong> নিম্ন ফ্রিকোয়েন্সির মিক্স আউটপুট</li></ul><strong>সেটিংস</strong> থেকে যেকোনো সময় ভূমিকা পরিবর্তন করতে পারবেন।',
   'player.play_media_action_html':
     'হোস্টের কাছে 3টি বিকল্প আছে।<ul class="help-list"><li><strong>লোকাল ফাইল লোড:</strong> নিজের ডিভাইস থেকে গান বেছে নিন। নির্ভুল সিঙ্ক সমর্থিত</li><li><strong>একসঙ্গে YouTube:</strong> ভিডিও ও প্লেলিস্ট সমর্থিত। চ্যানেল আলাদা করা বা অডিও ইফেক্ট পাওয়া যাবে না</li><li><strong>সিস্টেম অডিও শেয়ারিং:</strong> হোস্ট কম্পিউটারে Chromium-ভিত্তিক ব্রাউজার ব্যবহার করলে পাওয়া যাবে</li></ul>',
   'help.need_help_html':

@@ -185,10 +185,6 @@ const te: Record<I18nKey, string> = {
   'transfer.host_busy': 'హోస్ట్ మరో ఫైల్‌ను ప్రాసెస్ చేస్తున్నారు\nకాసేపట్లో మళ్లీ ప్రయత్నించండి',
 
   // ─── Role ────────────────────────────────────────────────────────
-  'role.center': 'సెంటర్ స్పీకర్',
-  'role.left': 'ఎడమ స్పీకర్',
-  'role.right': 'కుడి స్పీకర్',
-  'role.subwoofer': 'సబ్‌వూఫర్',
   'role.center_placement': 'పరికరాన్ని మధ్యలో ఉంచండి',
   'role.left_placement': 'పరికరాన్ని ఎడమవైపు ఉంచండి',
   'role.right_placement': 'పరికరాన్ని కుడివైపు ఉంచండి',
@@ -362,9 +358,9 @@ const te: Record<I18nKey, string> = {
   'demo.role_center_short': 'సెంటర్',
   'demo.step_nav_label': 'డెమో దశలు',
   'demo.step_connect': '1. కనెక్ట్',
-  'demo.step_role': '2. పాత్రను సెట్ చేయి',
-  'demo.step_effects': '3. ఆడియో ఎఫెక్ట్‌లు',
-  'demo.step_finish': '4. డెమోను ముగించు',
+  'demo.step_role': '2. పాత్ర ఎంపిక',
+  'demo.step_effects': '3. ఎఫెక్ట్‌లు',
+  'demo.step_finish': '4. ముగించు',
   'demo.session_title': 'ఇది {{code}} గది.',
   'demo.session_subtitle': 'మరో పరికరాన్ని ఎప్పుడైనా ఆహ్వానించవచ్చు.',
   'demo.session_body_connected':
@@ -905,7 +901,7 @@ const te: Record<I18nKey, string> = {
   'setup.how_to_connect_html':
     'కనెక్ట్ కావడానికి హోస్ట్ ఇచ్చిన <strong>6 అంకెల కోడ్‌ను</strong> నమోదు చేయండి.<ul class="help-list"><li><strong>హోస్ట్:</strong> “గదిని సృష్టించు” → కోడ్ చూడండి</li><li><strong>పాల్గొనేవారు:</strong> “గదిలో చేరు” → కోడ్ నమోదు చేయండి</li><li>హోస్ట్‌తో కలిపి గరిష్ఠంగా <strong>100 పరికరాలు</strong> కనెక్ట్ కావచ్చు.</li></ul>',
   'player.play_speakers_html':
-    'ప్రతి ఒక్కరూ ఒక <strong>పాత్రను (అవుట్‌పుట్ ఛానెల్)</strong> ఎంచుకుంటారు.<ul class="help-list"><li><strong>సెంటర్ స్పీకర్:</strong> స్టీరియో (డిఫాల్ట్) అవుట్‌పుట్</li><li><strong>ఎడమ స్పీకర్:</strong> <bdi dir="ltr">L</bdi> ఛానెల్ అవుట్‌పుట్</li><li><strong>కుడి స్పీకర్:</strong> <bdi dir="ltr">R</bdi> ఛానెల్ అవుట్‌పుట్</li><li><strong>సబ్‌వూఫర్:</strong> తక్కువ ఫ్రీక్వెన్సీ మిక్స్ అవుట్‌పుట్</li></ul><strong>సెట్టింగ్‌లలో</strong> పాత్రలను ఎప్పుడైనా మార్చవచ్చు.',
+    'ప్రతి ఒక్కరూ ఒక <strong>పాత్రను (అవుట్‌పుట్ ఛానెల్)</strong> ఎంచుకుంటారు.<ul class="help-list"><li><strong>సెంటర్:</strong> స్టీరియో (డిఫాల్ట్) అవుట్‌పుట్</li><li><strong>ఎడమ:</strong> <bdi dir="ltr">L</bdi> ఛానెల్ అవుట్‌పుట్</li><li><strong>కుడి:</strong> <bdi dir="ltr">R</bdi> ఛానెల్ అవుట్‌పుట్</li><li><strong>బేస్:</strong> తక్కువ ఫ్రీక్వెన్సీ మిక్స్ అవుట్‌పుట్</li></ul><strong>సెట్టింగ్‌లలో</strong> పాత్రలను ఎప్పుడైనా మార్చవచ్చు.',
   'player.play_media_action_html':
     'హోస్ట్‌కు 3 ఎంపికలు ఉన్నాయి.<ul class="help-list"><li><strong>లోకల్ ఫైల్ లోడ్:</strong> మీ పరికరం నుండి సంగీతాన్ని ఎంచుకోండి. ఖచ్చితమైన సింక్‌కు మద్దతు ఉంది</li><li><strong>కలిసి YouTube:</strong> వీడియోలు, ప్లేలిస్ట్‌లకు మద్దతు ఉంది. ఛానెల్ విభజన లేదా ఆడియో ఎఫెక్ట్‌లు ఉండవు</li><li><strong>సిస్టమ్ ఆడియో షేరింగ్:</strong> హోస్ట్ కంప్యూటర్‌లో Chromium ఆధారిత బ్రౌజర్‌ను ఉపయోగించినప్పుడు అందుబాటులో ఉంటుంది</li></ul>',
   'help.need_help_html':

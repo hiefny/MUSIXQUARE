@@ -185,10 +185,6 @@ const el: Record<I18nKey, string> = {
   'transfer.host_busy': 'Ο οικοδεσπότης επεξεργάζεται άλλο αρχείο\nΔοκιμάστε ξανά σε λίγο',
 
   // ─── Role ────────────────────────────────────────────────────────
-  'role.center': 'Κεντρικό ηχείο',
-  'role.left': 'Αριστερό ηχείο',
-  'role.right': 'Δεξί ηχείο',
-  'role.subwoofer': 'Subwoofer',
   'role.center_placement': 'Τοποθετήστε τη συσκευή στο κέντρο',
   'role.left_placement': 'Τοποθετήστε τη συσκευή αριστερά',
   'role.right_placement': 'Τοποθετήστε τη συσκευή δεξιά',
@@ -368,9 +364,9 @@ const el: Record<I18nKey, string> = {
   'demo.role_center_short': 'Κέντρο',
   'demo.step_nav_label': 'Βήματα επίδειξης',
   'demo.step_connect': '1. Σύνδεση',
-  'demo.step_role': '2. Ορισμός ρόλου',
-  'demo.step_effects': '3. Ηχητικά εφέ',
-  'demo.step_finish': '4. Τέλος περιήγησης',
+  'demo.step_role': '2. Ρόλος',
+  'demo.step_effects': '3. Εφέ',
+  'demo.step_finish': '4. Τέλος',
   'demo.session_title': 'Το δωμάτιό σας: {{code}}',
   'demo.session_subtitle': 'Μπορείτε να προσκαλέσετε άλλη συσκευή οποιαδήποτε στιγμή.',
   'demo.session_body_connected':
@@ -927,7 +923,7 @@ const el: Record<I18nKey, string> = {
   'setup.how_to_connect_html':
     'Για σύνδεση, εισαγάγετε τον <strong>εξαψήφιο κωδικό</strong> του οικοδεσπότη.<ul class="help-list"><li><strong>Οικοδεσπότης:</strong> «Δημιουργία δωματίου» → προβολή κωδικού</li><li><strong>Μέλος:</strong> «Συμμετοχή σε δωμάτιο» → εισαγωγή κωδικού</li><li>Μπορούν να συνδεθούν έως <strong>100 συσκευές μαζί με τον οικοδεσπότη</strong>.</li></ul>',
   'player.play_speakers_html':
-    'Κάθε μέλος επιλέγει έναν <strong>ρόλο (κανάλι εξόδου)</strong>.<ul class="help-list"><li><strong>Κεντρικό ηχείο:</strong> στερεοφωνική έξοδος (προεπιλογή)</li><li><strong>Αριστερό ηχείο:</strong> έξοδος καναλιού <bdi dir="ltr">L</bdi></li><li><strong>Δεξί ηχείο:</strong> έξοδος καναλιού <bdi dir="ltr">R</bdi></li><li><strong>Subwoofer:</strong> μικτή έξοδος χαμηλών συχνοτήτων</li></ul>Μπορείτε να αλλάξετε ρόλους οποιαδήποτε στιγμή στις <strong>Ρυθμίσεις</strong>.',
+    'Κάθε μέλος επιλέγει έναν <strong>ρόλο (κανάλι εξόδου)</strong>.<ul class="help-list"><li><strong>Κέντρο:</strong> στερεοφωνική έξοδος (προεπιλογή)</li><li><strong>Αριστερό:</strong> έξοδος καναλιού <bdi dir="ltr">L</bdi></li><li><strong>Δεξί:</strong> έξοδος καναλιού <bdi dir="ltr">R</bdi></li><li><strong>Μπάσα:</strong> μικτή έξοδος χαμηλών συχνοτήτων</li></ul>Μπορείτε να αλλάξετε ρόλους οποιαδήποτε στιγμή στις <strong>Ρυθμίσεις</strong>.',
   'player.play_media_action_html':
     'Ο οικοδεσπότης έχει 3 επιλογές.<ul class="help-list"><li><strong>Φόρτωση τοπικού αρχείου:</strong> επιλέξτε μουσική από τη συσκευή. Υποστηρίζεται ακριβής συγχρονισμός</li><li><strong>YouTube μαζί:</strong> υποστηρίζονται βίντεο και λίστες αναπαραγωγής. Χωρίς διαχωρισμό καναλιών ή ηχητικά εφέ</li><li><strong>Κοινοποίηση ήχου συστήματος:</strong> διαθέσιμη όταν ο οικοδεσπότης χρησιμοποιεί φυλλομετρητή βασισμένο στο Chromium σε υπολογιστή</li></ul>',
   'help.need_help_html':

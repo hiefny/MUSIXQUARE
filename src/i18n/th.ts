@@ -179,10 +179,6 @@ const th: Record<I18nKey, string> = {
   'transfer.host_busy': 'เจ้าของห้องกำลังประมวลผลไฟล์อื่น\nลองอีกครั้งในอีกสักครู่',
 
   // ─── Role ────────────────────────────────────────────────────────
-  'role.center': 'ลำโพงกลาง',
-  'role.left': 'ลำโพงซ้าย',
-  'role.right': 'ลำโพงขวา',
-  'role.subwoofer': 'ซับวูฟเฟอร์',
   'role.center_placement': 'วางอุปกรณ์ไว้ตรงกลาง',
   'role.left_placement': 'วางอุปกรณ์ไว้ด้านซ้าย',
   'role.right_placement': 'วางอุปกรณ์ไว้ด้านขวา',
@@ -201,7 +197,7 @@ const th: Record<I18nKey, string> = {
     'ใช้เอฟเฟกต์สังเคราะห์กับเสียง ซึ่งอาจทำให้เสียงผิดเพี้ยนอย่างมาก',
   'settings.virtual_effect_bass': 'เบส',
   'settings.virtual_effect_treble': 'เสียงแหลม',
-  'settings.virtual_effect_surround': 'เสียงรอบทิศทาง',
+  'settings.virtual_effect_surround': 'รอบทิศทาง',
   'settings.language_desc': 'เลือกภาษาหรือใช้ภาษาของระบบได้',
   'settings.theme_desc': 'เลือกธีมสว่างหรือธีมมืดได้',
   'player.visualizer_mode_hint': 'เลือกรูปแบบการแสดงภาพเสียงได้',
@@ -232,7 +228,7 @@ const th: Record<I18nKey, string> = {
   'settings.spatial_audio': 'เสียงเชิงพื้นที่',
   'settings.reverb_title': 'เสียงก้อง',
   'settings.rvb_studio': 'สตูดิโอ',
-  'settings.rvb_arena': 'คอนเสิร์ตฮอลล์',
+  'settings.rvb_arena': 'อารีน่า',
   'settings.rvb_advanced': 'ขั้นสูง',
   'settings.rvb_off': 'ปิด',
   'settings.reverb_mix': 'สัดส่วนเสียงก้อง',
@@ -357,8 +353,8 @@ const th: Record<I18nKey, string> = {
   'demo.step_nav_label': 'ขั้นตอนการแนะนำ',
   'demo.step_connect': '1. เชื่อมต่อ',
   'demo.step_role': '2. ตั้งค่าบทบาท',
-  'demo.step_effects': '3. เอฟเฟกต์เสียง',
-  'demo.step_finish': '4. สิ้นสุดทัวร์แนะนำ',
+  'demo.step_effects': '3. เอฟเฟกต์',
+  'demo.step_finish': '4. สิ้นสุดทัวร์',
   'demo.session_title': 'ห้องของคุณ: {{code}}',
   'demo.session_subtitle': 'เชิญอุปกรณ์อื่นได้ทุกเมื่อ',
   'demo.session_body_connected':
@@ -874,7 +870,7 @@ const th: Record<I18nKey, string> = {
   'setup.how_to_connect_html':
     'ใส่ <strong>รหัส 6 หลัก</strong> จากเจ้าของห้องเพื่อเชื่อมต่อ<ul class="help-list"><li><strong>เจ้าของห้อง:</strong> “สร้างห้อง” → ดูรหัส</li><li><strong>ผู้เข้าร่วม:</strong> “เข้าร่วมห้อง” → ใส่รหัส</li><li>เชื่อมต่อได้สูงสุด <strong>100 เครื่อง รวมเจ้าของห้อง</strong></li></ul>',
   'player.play_speakers_html':
-    'ผู้เข้าร่วมแต่ละคนเลือก <strong>บทบาท (ช่องสัญญาณเอาต์พุต)</strong><ul class="help-list"><li><strong>กลาง:</strong> เอาต์พุตสเตอริโอ (ค่าเริ่มต้น)</li><li><strong>ซ้าย:</strong> เอาต์พุตช่อง <bdi dir="ltr">L</bdi></li><li><strong>ขวา:</strong> เอาต์พุตช่อง <bdi dir="ltr">R</bdi></li><li><strong>ซับวูฟเฟอร์:</strong> เอาต์พุตผสมย่านความถี่ต่ำ</li></ul>เปลี่ยนบทบาทได้ทุกเมื่อใน <strong>การตั้งค่า</strong>',
+    'ผู้เข้าร่วมแต่ละคนเลือก <strong>บทบาท (ช่องสัญญาณเอาต์พุต)</strong><ul class="help-list"><li><strong>กลาง:</strong> เอาต์พุตสเตอริโอ (ค่าเริ่มต้น)</li><li><strong>ซ้าย:</strong> เอาต์พุตช่อง <bdi dir="ltr">L</bdi></li><li><strong>ขวา:</strong> เอาต์พุตช่อง <bdi dir="ltr">R</bdi></li><li><strong>เบส:</strong> เอาต์พุตผสมย่านความถี่ต่ำ</li></ul>เปลี่ยนบทบาทได้ทุกเมื่อใน <strong>การตั้งค่า</strong>',
   'player.play_media_action_html':
     'เจ้าของห้องมี 3 ตัวเลือก<ul class="help-list"><li><strong>โหลดไฟล์ในเครื่อง:</strong> เลือกเพลงจากอุปกรณ์ รองรับการซิงก์ที่แม่นยำ</li><li><strong>ดู YouTube ด้วยกัน:</strong> รองรับวิดีโอและเพลย์ลิสต์ แต่ไม่รองรับการแยกช่องสัญญาณหรือเอฟเฟกต์เสียง</li><li><strong>แชร์เสียงระบบ:</strong> ใช้ได้เมื่อเจ้าของห้องใช้เบราว์เซอร์ที่ใช้ Chromium บนคอมพิวเตอร์ เช่น Chrome หรือ Edge</li></ul>',
   'help.need_help_html':

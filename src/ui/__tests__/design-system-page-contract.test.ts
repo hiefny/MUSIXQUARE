@@ -359,6 +359,8 @@ describe('public design-system page contract', () => {
     const role = (name: string): string => `var(--font-weight-${name})`;
     for (const [selector, weight] of [
       ['.app-loading-header-status', role('label')],
+      // The toast specimen matches the app toast (owner decision 2026-10-29).
+      ['.toast', role('label')],
       ['.playlist-name', role('unselected')],
       ['.playlist-item.active .playlist-name', role('selected')],
       ['.device-row-sample .d-name', role('unselected')],

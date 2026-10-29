@@ -145,11 +145,18 @@ is missing** — so a complete file must define every key.
   not an "audio channel" — the experience is "this device acts as the left
   speaker," not "separate an audio channel." Keep `setup.*` prompts on role
   wording, never "channel."
-- **Role labels carry "speaker":** `role.center` / `role.left` / `role.right` read
-  as **"[position] speaker"** in every language (Left Speaker, 왼쪽 스피커, Altavoz
-  izquierdo, 左音箱 / 左喇叭) — even if it wraps to two lines on the selection cards.
-  Use each region's everyday word for *speaker* (zh-Hans 音箱, zh-Hant 喇叭 — not a
-  forced match). `common.left` / `common.right` stay the bare direction word.
+- **Role chips use short role words:** the settings, setup and demo role chips
+  all show `common.left` / `common.right` (the bare direction word) and
+  `demo.role_bass_short` / `demo.role_center_short` (Bass / Center: one short
+  word for the subwoofer and center speaker roles), owner decision 2026-10-29.
+  Keep them short enough for the narrowest chip on one line;
+  `chip-label-width.test.ts` checks every locale. `common.left` /
+  `common.right` also name the roles in chat, so they stay plain direction words.
+  The help tab's role list (`player.play_speakers_html`) names the four roles
+  with the same chip words: only the name inside each `<strong>` follows them,
+  and the description, separators and markup stay as they are.
+  `help-role-names.test.ts` checks this, so a suggestion for that key that keeps
+  longer names such as "Left Speaker" fails the export PR.
 - **One word for "admin":** pick a single term for the admin/operator role and use
   it consistently across every key (`connect.administrator_role`,
   `connect.administrator_grant_aria`, `chat.cmd_d_op`,
@@ -185,7 +192,7 @@ the first machine pass).
 | Key(s) | English | Means | ✗ Wrong sense to avoid |
 |---|---|---|---|
 | `common.right` / `common.left` | Right / Left | bare **direction** word (audio balance, woofer L/R) | "correct / yes / OK"; past tense of *leave* |
-| `role.right` / `role.left` / `role.center` | Right / Left / Center | the device's role = **"[position] speaker"** (e.g. Left Speaker) | bare direction with no "speaker"; "channel" |
+| `demo.role_bass_short` / `demo.role_center_short` | Bass / Center | the device's **role**, one short word: the low-frequency (subwoofer) speaker / the center speaker | a bass guitar or the fish; a building ("shopping center") or downtown |
 | `common.on` | On | toggle state **enabled / powered on** | preposition "on / upon / atop" |
 | `common.off` | Off | toggle state **disabled** | "away / distant" |
 | `connect.administrator_grant_aria`, `chat.cmd_d_op` | Grant administrator permissions to {{name}} / Grant administrator | **verb: give** someone the admin role | noun "a grant / subsidy / funding" |
@@ -201,7 +208,7 @@ the first machine pass).
 | `settings.light` / `settings.dark` | Light / Dark | **bright / dark UI theme** | "lamp / illumination" / "evil / scary" |
 | `settings.eq_warm` / `settings.eq_bright` | Warm / Bright | **audio tonality** | temperature / intelligence |
 | `nav.home`, `nav.go_home` | Home | **home screen** | "house / residence" |
-| `common.woofer`, `role.subwoofer` | Woofer / Subwoofer | audio term — use the standard **loanword/transliteration** | literal "barker" |
+| `common.woofer` | Woofer | audio term — use the standard **loanword/transliteration** | literal "barker" |
 | `settings.host_ctrl` / `settings.self_ctrl` | GLOBAL / LOCAL | fixed compact badges: the effect is controlled **globally** vs on **this device** | translating or expanding the badges; "self-control" (restraint) |
 
 ---
@@ -275,9 +282,8 @@ Their current English sources — paste into the §5 prompt if re-doing them:
 'common.peer': 'Peer',
 'common.stay': 'Stay',
 'common.leave': 'Leave',
-'role.center': 'Center Speaker',
-'role.left': 'Left Speaker',
-'role.right': 'Right Speaker',
+'demo.role_bass_short': 'Bass',
+'demo.role_center_short': 'Center',
 'player.seek': 'Playback position',
 'chat.seek_to': 'Seek to {{time}}',
 'player.play_together': 'Play in Sync',
@@ -308,8 +314,8 @@ Their current English sources — paste into the §5 prompt if re-doing them:
       style-only normalization between `...` and `…` was applied.
 - [ ] Spot-check **every key in the §4 glossary** for the right sense.
 - [ ] `common.right` ≠ the same value as `common.ok` (the classic tell).
-- [ ] Direction labels match: `common.left`/`role.left` and
-      `common.right`/`role.right` are real left/right words.
+- [ ] Direction labels: `common.left` and `common.right` are real left/right
+      words.
 - [ ] Action buttons read as actions (imperative or noun, per your language), not
       infinitives. Toggle, mode and status names (`Mute`, `Repeat off`,
       `Repeat all`, `Syncing`) stay mode or state phrases.

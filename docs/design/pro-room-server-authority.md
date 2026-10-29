@@ -362,7 +362,9 @@ seek, and the wake transition. The stored transition keeps its kind, so a
 coalesced ENDED report, the PREPARE in a command answer or a signaling ticket,
 and the COMMIT always agree. A direct COMMIT names no kind and reads as
 `scheduled-control`, as does an unknown value. The App grants learned startup
-lead only to a zero-start COMMIT that matches a PREPARE it prepared; catch-up
+lead only to a zero-start transition it prepared: the COMMIT that matches the
+PREPARE, or a heartbeat snapshot or reconciliation that lands the prepared
+checkpoint before that COMMIT, starts with the kind the PREPARE named. Catch-up
 and participant-local paths stay `scheduled-control`, so the field describes
 the server's transition, not the path a client took. The PRO Worker names the
 kind since PRO snapshot schemaVersion 2. Earlier PRO Workers encoded zero-start

@@ -2220,6 +2220,10 @@ function createImplementation(
       target.youtubeSubIndex === playback.youtubeSubIndex
         ? transition
         : null;
+    // The start kind belongs to the transition, not to the route that
+    // brought its checkpoint: a snapshot that lands the prepared checkpoint
+    // before its COMMIT frame commits with the kind its PREPARE named.
+    const timingMode = preparedTransition?.event.timingMode;
     acceptPlaybackCommit(
       {
         type: 'pro-playback-commit',
@@ -2229,6 +2233,7 @@ function createImplementation(
         // becomes calibrated while local media preparation is still pending.
         executeAtMs: playback.state === 'playing' ? playback.updatedAtMs : 0,
         playback,
+        ...(timingMode === undefined ? {} : { timingMode }),
       },
       isRequestCurrent,
       clock,

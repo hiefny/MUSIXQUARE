@@ -60,15 +60,15 @@ gh run list --workflow e2e.yml --branch main --limit 3
       navigation-sinks `setup-guest.ts` 기준 3 → 2(내림), room-authority 지문 한 줄(같은 읽기의 자리 이동), 자원 소유권
       레지스트리 그대로. 브랜치 `agent/ui-owner-920`은 main `10f52178`(#525 R1 기록, 그 앞이 #524 R1 9.0.22 `71f5b96c`) 위이고, `0bbd077e` 위에서 만든 19커밋을
       충돌 없이 옮겼다(patch-id 같음). 조립 검토의 중간 하나(메인 앱 버튼에 포커스가 있으면 나가기가 처음 약 190ms 파란 주
-      버튼으로 보임)는 테스트 먼저 `42c18a35`와 수정 `d83a5920`(`dialog.ts`가 겹침을 보이기 전에 색조를 붙임)으로 고쳤다.
-      마지막 런타임 커밋은 bump `e53678c2`(9.0.23 / v796, 앱 빌드 796, 버전 거울 여섯 파일. 처음 올린 `849df009`를 수정 뒤로
+      버튼으로 보임)는 테스트 먼저 `55af5ebe`와 수정 `e77eead6`(`dialog.ts`가 겹침을 보이기 전에 색조를 붙임)으로 고쳤다.
+      마지막 런타임 커밋은 bump `34361f3e`(9.0.23 / v796, 앱 빌드 796, 버전 거울 여섯 파일. 처음 올린 `849df009`를 수정 뒤로
       다시 올림)이고 문서 커밋만 뒤따른다. 운영 `71f5b96c`(R1 target `all`)와 견준 런타임 경로 변경은 App 57, 나머지 다섯
       Worker 0이라 예상
       target `app`이다(로컬 판정, `changedAppRuntimeDependencies`는 빈 목록). 앱 SemVer와 SW 캐시가 바뀌어 업데이트 창이
       뜬다(바닥 789 위의 9.0.16 ~ 9.0.22 탭에는 '나중에'가 있는 보통 창). Developer API D1과 `raise_app_build_floor`는 둘 다
       false이고 이 열차는 바닥에 기대는 것을 더하지 않는다. D1 스키마, 비밀, 바인딩, Wrangler 설정, CORS, 계약 표지, 통신 모양,
       저장 데이터 모양, 의존성은 바뀌지 않는다. 로컬 QA(보고서 라운드 1 ~ 3): 증분마다 테스트 먼저(옮긴 SHA에서 다시 돌림),
-      처음 bump `849df009`의 전체 검사(라운드 2), 조립 검토 반영 뒤 bump `e53678c2`의 전체 검사(라운드 3: 나가기 바탕이 세
+      처음 bump `849df009`의 전체 검사(라운드 2), 조립 검토 반영 뒤 bump `34361f3e`의 전체 검사(라운드 3: 나가기 바탕이 세
       진입 경로 모두 0ms부터 위험 색조, npm audit 0, 단위 705 files / 16,710, typecheck, lint, format, 가드,
       resource-ownership 49 records / 447 files, `check:workers`, 핵심 커버리지 90 / 3,515, `build:checked`
       (`guard:release-identity` 9.0.23 / v796, `guard:sw-cache-version` v796, eager JS 456.6 KiB gzip), 후보 E2E 19,
@@ -79,7 +79,7 @@ gh run list --workflow e2e.yml --branch main --limit 3
       항목에서 이 열차가 닫은 오너 항목을 지운다.
       [변경·QA 보고서](design/ui-owner-923-2026-10-29.md),
       [QA 라운드 2](design/ui-owner-923-2026-10-29.md#2-조립과-전체-검사-849df009-2026-10-29-1839--1918-kst),
-      [QA 라운드 3](design/ui-owner-923-2026-10-29.md#3-조립-검토-반영과-전체-검사-다시-e53678c2-2026-10-29-1940--2016-kst).
+      [QA 라운드 3](design/ui-owner-923-2026-10-29.md#3-조립-검토-반영과-전체-검사-다시-34361f3e-2026-10-29-1940--2016-kst).
 - [ ] 되돌리기 경계: 기본은 더 높은 SemVer와 캐시 epoch의 코드 되돌리기(9.0.24 / v797 이상)다. App만 9.0.22로 되돌리면
       이 열차의 화면만 돌아가고 통신 모양은 같다. 9.0.22의 빌드 795는 저장 최소 빌드(789, F2 뒤 795) 이상이라 `lower`가 필요
       없고, 순서와 바닥은 §4 머리의 '아래 모든 항목보다 우선하는 현재 경계' 줄을 따른다. 새 계약 표지와 forward floor가 없어

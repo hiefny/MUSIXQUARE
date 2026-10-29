@@ -95,7 +95,7 @@ runbooks. Neither belongs in a general setup document.
 
 - [UI owner decisions train 9.0.23: the items 9.0.20 left open (2026-10-29)](design/ui-owner-923-2026-10-29.md):
   in progress, not merged or released; the next app update after 9.0.22 (9.0.23 / v796, App build
-  796, bump `e53678c2`, expected target `app` with 57 App runtime paths and none in the other five
+  796, bump `34361f3e`, expected target `app` with 57 App runtime paths and none in the other five
   Workers, with the update dialog; the build floor stays 789). It carries the owner's decisions of
   2026-10-29 on twelve owner items of the 9.0.20 report: the Japanese setup waiting pill says
   準備中...; a guest with a room code reads a lost-session body that says Restart joins this room again
@@ -116,12 +116,12 @@ runbooks. Neither belongs in a general setup document.
   SHAs), the SHA map, the review findings (the Norwegian label the owner approved, the stale
   `demo.exit` name registration removed, commit hygiene notes for the squash message, the partial
   Japanese and Chinese result; from the assembly review, Leave showing the blue primary for about
-  190 ms before its danger tint when a main-app button had focus, fixed tests first in `d83a5920`,
+  190 ms before its danger tint when a main-app button had focus, fixed tests first in `e77eead6`,
   and the forced-update case of item 10 added to the report), visible changes, open owner items (native checks, the stepped PIN
   title, Safari Japanese, a Japanese title at three lines at 320px), mixed versions and rollback,
   and QA rounds 1 to 3 (the implementation round and its review; the assembly round at the first
   bump `849df009`, which the assembly review's fix moved off the branch; the fix round at
-  `e53678c2`: Leave in the danger tint from 0 ms per frame in three entry paths, npm audit 0, unit
+  `34361f3e`: Leave in the danger tint from 0 ms per frame in three entry paths, npm audit 0, unit
   705 files / 16,710, typecheck, lint, format, every guard, resource ownership 49 records / 447
   files, `check:workers`, critical coverage 90 / 3,515, `build:checked` with the release-identity and
   cache-version guards and the budgets, Chromium candidate E2E 19, critical E2E 100 and the demo,

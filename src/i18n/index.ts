@@ -33,6 +33,7 @@ import {
   localizedAboutEntryPath,
   type LanguageCode,
 } from './locales.ts';
+import { matchLanguage, resolvePreferredLanguage } from './language-match.ts';
 export type { I18nKey };
 export { LANGUAGE_OPTIONS } from './locales.ts';
 export type { LanguageCode } from './locales.ts';
@@ -114,7 +115,7 @@ type TranslationParams = Record<string, string | number>;
  */
 export function getSupportedSystemLanguage(): LanguageCode | null {
   try {
-    return _matchLanguage(navigator.language || navigator.languages?.[0] || '');
+    return matchLanguage(navigator.language || navigator.languages?.[0] || '');
   } catch {
     return null;
   }
@@ -402,50 +403,12 @@ function _ensureObserver(): void {
 
 function _normalizeLanguageMode(value: string | null | undefined): LanguageMode {
   if (value === 'system') return 'system';
-  return _matchLanguage(value) ?? 'system';
-}
-
-function _matchLanguage(value: string | null | undefined): LanguageCode | null {
-  const normalized = String(value || '')
-    .trim()
-    .replace(/_/g, '-')
-    .toLowerCase();
-  if (!normalized) return null;
-
-  if (normalized === 'zh-hans' || normalized.startsWith('zh-hans-')) return 'zh-hans';
-  if (normalized === 'zh-hant' || normalized.startsWith('zh-hant-')) return 'zh-hant';
-  if (normalized.startsWith('zh')) {
-    if (
-      normalized.includes('tw') ||
-      normalized.includes('hk') ||
-      normalized.includes('mo') ||
-      normalized.includes('hant')
-    ) {
-      return 'zh-hant';
-    }
-    return 'zh-hans';
-  }
-
-  if (normalized === 'pt-br' || normalized.startsWith('pt-br-')) return 'pt-br';
-  if (normalized === 'pt' || normalized.startsWith('pt-')) return 'pt-br';
-  if (normalized === 'in' || normalized.startsWith('in-')) return 'id';
-  if (normalized === 'iw' || normalized.startsWith('iw-')) return 'he';
-  if (normalized === 'no' || normalized.startsWith('no-')) return 'nb';
-  if (normalized === 'tl' || normalized.startsWith('tl-')) return 'fil';
-
-  const primary = normalized.split('-')[0];
-  if (LANGUAGE_OPTIONS.some((lang) => lang.code === primary)) return primary as LanguageCode;
-  return null;
+  return matchLanguage(value) ?? 'system';
 }
 
 function _resolveSystem(): LanguageCode {
   try {
-    const langs = navigator.languages?.length ? navigator.languages : [navigator.language || ''];
-    for (const lang of langs) {
-      const matched = _matchLanguage(lang);
-      if (matched) return matched;
-    }
-    return 'en';
+    return resolvePreferredLanguage(navigator);
   } catch {
     return 'en';
   }

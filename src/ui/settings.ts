@@ -693,6 +693,11 @@ function refreshLanguageControls(): void {
     const active = option.dataset.lang === resolved;
     setPressedState(option, active);
   });
+
+  // Translators start on the language they see here; the page also reads it after sign-in.
+  document
+    .querySelector<HTMLAnchorElement>('#language-dialog-overlay .language-translate-link a')
+    ?.setAttribute('href', `/translate?locale=${encodeURIComponent(resolved)}`);
 }
 
 function renderLanguageOptions(): void {

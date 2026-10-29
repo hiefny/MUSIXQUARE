@@ -10,6 +10,7 @@
     ".workshop/landing/main.ts",
     ".workshop/sitemap/main.ts",
     ".workshop/translate/main.ts",
+    ".workshop/translate/address.ts",
     ".workshop/translate/catalog-client.ts",
     ".workshop/translate/community-client.ts",
     ".workshop/translate/community.ts",

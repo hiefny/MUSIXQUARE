@@ -22,6 +22,22 @@ The normal checked build produces `dist/translate.html`, its script and styles,
 serves the public route and normalizes slash/HTML aliases. Publish through the
 ordinary exact-commit App release workflow in `docs/hotfix-procedure.md`.
 
+## Language and address
+
+The page opens on `?locale=<code>` when it names a supported language. Otherwise
+it opens on the browser language, matched exactly as the App matches it
+(`src/i18n/language-match.ts`, shared by both), and on English when none is
+supported. `?phrase=<surface>:<key>` selects that phrase when the catalog holds
+it; otherwise the first phrase (`about:hero.h1`) is selected. Query values are only
+compared with known language codes and catalog ids; they are never rendered.
+
+When the visitor changes the language or the phrase, `history.replaceState`
+keeps `locale` and `phrase` in the address (other parameters stay). Both sign-in
+links return to the shown language and phrase. The phrase is dropped if the
+return would pass the Worker's 1,024-byte `returnTo` bound. The App language
+dialog's Help translate link opens `/translate?locale=<App language>` and follows
+language changes.
+
 ## Editing and storage
 
 - All 42 languages, including English and Korean, accept wording suggestions.
@@ -95,6 +111,7 @@ reused; no separate translation login or database is required.
 
 - `translate.html` / `translate.css`: document layout and editor controls.
 - `main.ts`: selection, references, editing, and local draft persistence.
+- `address.ts`: opening language and phrase, address query, and sign-in return.
 - `drafts.ts` / `storage-session.ts`: validation and storage boundaries.
 - `catalog-client.ts`: static manifest and locale reads.
 - `community.ts` / `community-client.ts`: public contributions and account UI.

@@ -66,7 +66,7 @@ gh run list --workflow e2e.yml --branch main --limit 3
       `7630b1a9` 위 기록 커밋의 전체 기본 검사), 라운드 3(main 위로 옮긴 뒤, 지금 `d3a9b66a` 위: 테스트 먼저 셋을 옮긴 부모에서
       Worker 설정으로 다시 돌려 R2-1 `5d1c89e9` 43 / 3,313, R2-2 `de196890` 29 / 3,315, R2-3 `4af2fefa` 2 / 3,315 실패, 모두 새
       행과 바뀐 행이고 코드 커밋 `edd75826`, `efa87022`, `e2f48fa8`는 실패 0. 고정 v2 기록의 되돌리기 행 셋은
-      `cloudflare/pro-room-worker.ts`만 9.0.22의 것으로 바꿔 3 / 3 통과. 옮긴 뒤의 기록 커밋 `1c914f2e`의 전체 기본 검사:
+      `cloudflare/pro-room-worker.ts`만 9.0.22의 것으로 바꿔 3 / 3 통과. 다시 옮긴 뒤의 기록 커밋 `57572709`의 전체 기본 검사:
       `security:audit`, 단위 705 files / 16,716, Worker 69 / 3,316, 핵심 커버리지 90 / 3,515, release-tooling 14 / 433, typecheck,
       `check:workers`, lint, format, 가드, `build:checked`(9.0.23 / v796 그대로, App bump 없음), `check:worker-bundles`,
       Playwright PRO 묶음 30, critical 100, candidate 19 모두 통과, 판정 target `pro-room`만). 열차 끝 리뷰 셋은 승인이고 낮음

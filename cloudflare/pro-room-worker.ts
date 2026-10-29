@@ -1143,7 +1143,8 @@ function exactInternalRoomGeneration(request: Request, payload: unknown) {
     : null;
 }
 
-const SCHEMA_VERSION = 1;
+// PRO snapshot schemaVersion (publicSnapshot), not the storage schema below.
+const SCHEMA_VERSION = 2;
 // Keep the bounded core and playlist rows in separate keys so a large queue
 // cannot crowd media completion metadata out of the Durable Object record.
 const STORAGE_V2_CORE_KEY = 'pro-room:v2:core';
@@ -2481,15 +2482,18 @@ function publicSnapshot(room: ProRoomState, session: RoomSession | null = null) 
         displayName: session.displayName,
         role: session.role,
         capabilities: room.status === 'active' ? sessionCapabilities(room, session) : [],
-        coordinatorEligible: false,
       }
     : null;
   // An awake snapshot may only advertise a viewer currently in presence.
   const safeViewer = room.runtime === 'awake' && !participant ? null : viewer;
+  // Snapshot schemaVersion 2, keys in the order of the App parser's memory
+  // shape. The entry policy and the playlist summaries come from the same room
+  // state as the playlist they describe.
   return {
     schemaVersion: SCHEMA_VERSION,
     roomCode: room.roomCode,
     status: room.status,
+    passwordRequired: room.passwordRequired,
     runtime: room.runtime,
     revision: room.revision,
     playlistRevision: room.playlistRevision,
@@ -2504,16 +2508,12 @@ function publicSnapshot(room: ProRoomState, session: RoomSession | null = null) 
     presence: {
       coordinatorEpoch: room.presence.coordinatorEpoch,
       revision: room.presence.revision,
-      // The strict 9.0.x snapshot parser requires the key. A PRO room has no
-      // browser coordinator, so it is always null.
-      coordinatorParticipantId: null,
       participants,
     },
     quota: { ...room.quota },
     viewer: safeViewer,
-    memberIdentityVersion: 1,
-    authorityVersion: 1,
     administrators: publicAdministrators(room),
+    playlistSlots: summarizePlaylistSlots(room.playlist, room.playlistSlots),
   };
 }
 
@@ -7667,14 +7667,11 @@ export class MusixquareProRoom {
       }
       if (request.method === 'POST' && url.pathname === '/internal/admin/owner-transfer/commit') {
         // The commit's snapshot becomes the transfer link's answer, with the
-        // same additive fields (`passwordRequired`, `playlistSlots`) as
-        // activation's.
+        // entry policy and playlist summaries every snapshot carries.
         return this.withMutation(() =>
-          this.withEntryPolicyResponse(request, () =>
-            this.withStateCapacityRollback(() => this.handleInternalOwnerTransferCommit(request), {
-              rollbackStorageFailure: true,
-            }),
-          ),
+          this.withStateCapacityRollback(() => this.handleInternalOwnerTransferCommit(request), {
+            rollbackStorageFailure: true,
+          }),
         );
       }
       if (
@@ -7815,7 +7812,7 @@ export class MusixquareProRoom {
       });
     }
     return this.withMutation(() =>
-      this.withEntryPolicyResponse(request, async () => {
+      this.withAdmissionDiagnostics(request, async () => {
         const accountDeletionResponse = await this.enforceOwnerAccountDeletionFence();
         if (accountDeletionResponse) return accountDeletionResponse;
         await this.prune(Date.now());
@@ -8092,32 +8089,6 @@ export class MusixquareProRoom {
       /* Keep the original response even if diagnostic parsing fails. */
     }
     return response;
-  }
-
-  /**
-   * Adds the room's entry policy (`passwordRequired`) and playlist summaries
-   * (`playlistSlots`) to every successful snapshot response. Both are
-   * optional snapshot fields of the 9.0.x parser, which every App at or above
-   * the 787 build floor uses. This runs inside the room mutation lock, so
-   * admission policy and snapshot are atomic. The browser's opt-in headers
-   * (`X-MXQR-Pro-Entry-Policy`, `X-MXQR-Pro-Playlist-Slots`) are no longer
-   * read; the CORS allow list keeps them because the App still sends them.
-   */
-  async withEntryPolicyResponse(request: Request, task: () => Promise<Response>) {
-    const response = await this.withAdmissionDiagnostics(request, task);
-    if (!response.ok || !response.headers.get('content-type')?.startsWith('application/json'))
-      return response;
-    const body: unknown = await response.clone().json();
-    if (!isRecord(body) || !isRecord(body.snapshot)) return response;
-    body.snapshot.passwordRequired = this.activeRoom.passwordRequired;
-    body.snapshot.playlistSlots = summarizePlaylistSlots(
-      this.activeRoom.playlist,
-      this.activeRoom.playlistSlots,
-    );
-    return new Response(JSON.stringify(body), {
-      status: response.status,
-      headers: response.headers,
-    });
   }
 
   handleBootstrap() {
@@ -11079,10 +11050,7 @@ export class MusixquareProRoom {
   }
 
   administratorResponse() {
-    return jsonResponse({
-      authorityVersion: 1,
-      administrators: publicAdministrators(this.activeRoom),
-    });
+    return jsonResponse({ administrators: publicAdministrators(this.activeRoom) });
   }
 
   async handleGetAdministrators(request: Request) {

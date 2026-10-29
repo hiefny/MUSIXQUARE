@@ -887,8 +887,9 @@ gh workflow run app-build-floor.yml --ref main -f action=lower -f min_app_build=
   reads only schemaVersion 2 and an empty value, so the check stops nothing and this bullet's
   default pull request would ship that App with a PRO Worker that sends schemaVersion 1).
 - Once 9.0.25 (build 798), the App that no longer reads PRO snapshot schemaVersion 1, is live
-  (an `app` release after the PRO Worker of the previous bullet; its deployment record adds the
-  merge SHA and Release ID here), never roll the PRO Worker back below the PRO Worker that first
+  (the `app` release of merge `b8ae59e7` (#532), Production Release 40964572017, which deployed
+  App version `b4e8fc56` on 2026-10-30 at 07:18 KST after the PRO Worker of the previous bullet;
+  it has been live since then), never roll the PRO Worker back below the PRO Worker that first
   sends schemaVersion 2 (version `ef882f7c`) by hand. This holds after an App rollback too: a
   9.0.25 tab stays open until it reloads. Under an earlier PRO Worker such a tab refuses every
   snapshot answer with `INVALID_RESPONSE`, refuses a live LAN-direct share's numeric

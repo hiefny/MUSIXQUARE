@@ -94,13 +94,15 @@ runbooks. Neither belongs in a general setup document.
 ## Maintained evidence and completed records
 
 - [Phase 5.5 R3: the App stops reading PRO snapshot schemaVersion 1, 9.0.25 (2026-10-30)](design/phase5-5-r3-v1-receive-stop-2026-10-30.md):
-  draft, not merged or released; the third runtime release of Phase 5.5 (9.0.25 / v798, App build
-  798, bump `01f1a19b`; target `app` with 18 App runtime paths and none in the other five Workers,
-  against main and against the live Worker SHAs, with the update dialog), on main `d630269a` (the
-  9.0.24 record). It was built on the head `91601774` of the change that makes the PRO Worker send
-  PRO snapshot schemaVersion 2 and moved onto main after that PRO Worker (`0e5a9b87`, live since
-  2026-10-30 00:30 KST) and 9.0.24 were deployed and recorded; it may ship only while the live PRO
-  Worker is that merge. The App refuses the schemaVersion 1 wire and requires `passwordRequired`
+  released on 2026-10-30 07:18 KST in Release 40964572017 (PR #532, squash `b8ae59e7`): the third
+  and last runtime release of Phase 5.5 (9.0.25 / v798, App build 798, bump `01f1a19b`; target `app`
+  with 18 App runtime paths and none in the other five Workers, against main and against the live
+  Worker SHAs, with the update dialog; the build floor stays 795). Only the App Worker changed
+  (`dd820d37` to `b4e8fc56`); the PRO room Worker keeps R2's `ef882f7c` and the other four their
+  9.0.22 versions. It was built on the head `91601774` of the change that makes the PRO Worker send
+  PRO snapshot schemaVersion 2 and moved onto main `d630269a` (the 9.0.24 record) after that PRO
+  Worker (`0e5a9b87`, live since 2026-10-30 00:30 KST) and 9.0.24 were deployed and recorded. The
+  App refuses the schemaVersion 1 wire and requires `passwordRequired`
   and `playlistSlots` on every snapshot, `{ administrators }` alone from the administrator directory
   answers and `passwordRequired` on every bootstrap; it reads the start kind only from `timingMode`
   (a heartbeat snapshot that lands a prepared checkpoint before its COMMIT now starts with the
@@ -108,7 +110,9 @@ runbooks. Neither belongs in a general setup document.
   `liveExpiresAt`, stops sending the PRO entry-policy and playlist-slots opt-in headers, reads
   SESSION_FULL and OPERATOR_TOAST by their key alone, and no longer reads the retired PRO developer
   signaling frames (bus-pairing 203 to 202). The release workflow's App build requirement for PRO
-  releases is empty again. The report lists the owner decisions and order, what each refusal relies
+  releases is empty again. With this release Phase 5.5 is complete; from this deploy until the
+  planned PRO cleanup (`pro-room`) ships, no runtime-dependency change merges, Dependabot included.
+  The report lists the owner decisions and order, what each refusal relies
   on, each increment with its tests-first evidence, the deviations from the plan (among them the
   narrowed PSK-11 cleanup, the checkpoint App after 9.0.23 and 9.0.24, and the move onto main with
   the release renumbered from 9.0.24 to 9.0.25), the exact-count guards, mixed versions, rollback
@@ -129,12 +133,39 @@ runbooks. Neither belongs in a general setup document.
   tests-only cross-contract row that parses the in-process Worker's bootstrap in all four states and
   its PIN session, presence entry and account detach answers (unit 16,749, Worker 3,323, cross-contract
   911), and records that key the repair on the change being on main, add the post-deploy floor read
-  and Drift Audit, and keep runtime-dependency merges out until the PRO cleanup ships), with
-  placeholders for the production rounds, the post-deploy check and the owner device check
-  candidates as a blind hand-out (procedure and observations, with the pass criteria kept apart),
-  the manual App rollback to the release's checkpoint App when the post-deploy check fails (the
-  `app` release's smokes are HTTP only and never parse a PRO answer with 9.0.25, so such a defect
-  passes the commit marker without automated recovery), and what was not verified.
+  and Drift Audit, and keep runtime-dependency merges out until the PRO cleanup ships), round 4
+  (the public floor read just before dispatch: stored and effective 795, live App 797, App report
+  33 s old) and round 5 (the PR CI and a no-findings automated review on the final head `30e66813`,
+  the exact-main CI on Node 24.22.2 with unit 706 files / 16,748 plus the known skip, Worker
+  69 / 3,323, critical coverage 90 / 3,521 and Linux Chromium candidate 19 and critical 100, one
+  Production Release with target `app` whose smokes all passed on the first try and parse no PRO
+  answer with 9.0.25, the public service worker at v798, the public floor at 795 with live App 798,
+  the Drift Audit at 32 pass / 0 fail / 5 manual-only, the release owner's check that 9.0.25 shows
+  the not-yet-activated dialog for the synthetic room 000000, and the post-deploy check in a PRO
+  room the owner owns on 2026-10-30 from 07:28 to 07:49 KST, run and judged by the release owner
+  (A and B were not run blind) against the criteria fixed beforehand in Microsoft Edge on a
+  Windows desktop with an iOS Safari phone listening: entry and two YouTube starts (both with the
+  PREPARE selected and zero-start) passed, a one-off `PRO_SIGNALING_START_FAILED` warning after
+  the update reload did not recur, all five shares took the SFU path so LAN-direct stays
+  unverified, the administrator grant and revoke was not run, and nothing was rolled back), the
+  post-deploy check and owner device check candidates written as a blind hand-out (procedure and
+  observations, with the pass criteria kept apart), the manual App rollback to the release's
+  checkpoint App when the post-deploy check fails, and what was not verified. The post-deploy
+  check also found why its shares did not use LAN-direct in the observed setup (an Edge sharer
+  and an iOS Safari listener on the owner's home Wi-Fi, five shares; R2's one share from Edge
+  also went to SFU): the probe answer came back in 0.75 s and ICE connected host to host, but the
+  media answer missed the attempt's 2 s total deadline (`DIRECT_NEGOTIATION_TIMEOUT_MS`, set on
+  2026-08-29), so the publisher took the SFU preflight; it is not a 9.0.25 regression, and
+  whether LAN-direct misses on the same Wi-Fi in general stays a hypothesis for the owner
+  decision, since a faster answering device could fit inside 2 s. The release record's §2 now
+  carries the R3 post-deploy items (scope and status, the post-deploy check with
+  its results, and the owner device check candidates, which have no results), a new owner decision
+  item on that 2 s deadline (no code change), and the Phase 5.5 completion item with the
+  runtime-dependency merge freeze; its §4 entry and current boundary lines (5) and (8) name the
+  merge SHA, the Release ID and checkpoint artifact 12938145012 (App 9.0.24 `dd820d37`), and the
+  hotfix procedure's 9.0.25 sentence names the merge SHA and the Release ID. The rollback boundary
+  is a forward revert at 9.0.26 / v799 or later, or the checkpoint's 9.0.24 App without `lower`
+  with the PRO Worker left in place.
 - [Translate page entry train 9.0.24: language default, visit statistics, sign-in result (2026-10-29)](design/translate-entry-2026-10-29.md):
   released on 2026-10-30 03:20 KST in Release 40929481142 (PR #530, squash `78ec56f5`): the next app
   update after 9.0.23 (9.0.24 / v797, App build 797, bump `4d74f552`, target `app` with 14 App runtime
@@ -179,9 +210,9 @@ runbooks. Neither belongs in a general setup document.
   Analytics counts the `/translate` arrivals over the next days). The release record's §2 now
   carries the 9.0.24 post-deploy items (scope and status, post-deploy checks with owner device
   check candidates, none with results yet, and the arrivals the loader does not count) and §4 its
-  rollback boundary (a forward revert at 9.0.25 / v798 or later, or the checkpoint's 9.0.23 App
-  `dddfabe3` without `lower`). Phase 5.5 R3, where the App stops receiving PRO snapshot
-  schemaVersion 1, is still to come as 9.0.25 / v798 (the next number if another App update ships first).
+  rollback boundary (a forward revert at 9.0.26 / v799 or later now that 9.0.25 shipped, or the
+  checkpoint's 9.0.23 App `dddfabe3` without `lower`). Phase 5.5 R3, where the App stops receiving
+  PRO snapshot schemaVersion 1, shipped next as 9.0.25 / v798 on 2026-10-30 07:18 KST (entry above).
 - [Phase 5.5 R2: the PRO Worker sends PRO snapshot schemaVersion 2 (2026-10-29)](design/phase5-5-r2-v2-send-2026-10-29.md):
   released on 2026-10-30 00:30 KST in Release 40901986997 (PR #528, squash `0e5a9b87`): the second
   runtime release of Phase 5.5, PRO room Worker only (target `pro-room` with 1 PRO room runtime path
@@ -280,7 +311,7 @@ runbooks. Neither belongs in a general setup document.
   5 manual-only). The release record's §2 now carries the 9.0.23 post-deploy items (scope and status,
   post-deploy checks with the owner device check list, and open owner items with the owner step for
   outdated approved translation suggestions, now six keys with the Swedish one) and §4 its rollback
-  boundary (a forward revert at 9.0.25 / v798 or later now that 9.0.24 shipped, or the checkpoint's 9.0.22 App `e8966418`
+  boundary (a forward revert at 9.0.26 / v799 or later now that 9.0.24 and 9.0.25 shipped, or the checkpoint's 9.0.22 App `e8966418`
   without `lower`); the record closed the 9.0.20 owner items this train implemented.
 - [Phase 5.5 R1: old-version removal train 3 and PRO snapshot v2 reading, 9.0.22 (2026-10-29)](design/phase5-5-r1-train3-v2-accept-2026-10-29.md):
   released on 2026-10-29 18:35 KST in Release 40850068382 (PR #524, squash `71f5b96c`): the first
@@ -291,7 +322,8 @@ runbooks. Neither belongs in a general setup document.
   then a Signaling admission smoke that admitted both rooms' host and guest at build 794 with
   `refusedBelowAppBuildFloor` 789). All six Workers run this SHA (App `e8966418`, PRO room
   `6abc7131`, signaling `36579bdf`); the floor went to 795 (F2, 2026-10-30) before the PRO Worker
-  started sending snapshot v2 (R2, released 2026-10-30 00:30 KST), and R3 follows. Train 3 stops sending
+  started sending snapshot v2 (R2, released 2026-10-30 00:30 KST), and R3 (9.0.25, released 2026-10-30
+  07:18 KST) completed Phase 5.5. Train 3 stops sending
   the SESSION_FULL `message` and OPERATOR_TOAST `text`, the guest SFU capability marker and its
   kind (declared message kinds 102 to 101), `iceRestartVersion` on the first Standard offer and
   every answer, the four Signaling peer-open markers (only `workerVersionId` stays) and the PRO
@@ -327,9 +359,9 @@ runbooks. Neither belongs in a general setup document.
   the note that a 9.0.14 host under the 9.0.22 Signaling Worker loses its liveness probe and PIN
   membership choice (refused by the 789 floor anyway), owner device check candidates and what was
   not verified. The release record's §2 now carries the 9.0.22 post-deploy items (scope and
-  status, the owner device checks, and the next steps: F2 to build 795 and R2, both done on
-  2026-10-30, then R3) and §4 its entry
-  (a forward revert at 9.0.25 / v798 or later now that 9.0.23 and 9.0.24 shipped, or the checkpoint's 9.0.21 App `06e79397` and
+  status, the owner device checks, and the Phase 5.5 steps: F2 to build 795, R2 and R3, all done
+  on 2026-10-30) and §4 its entry
+  (a forward revert at 9.0.26 / v799 or later now that 9.0.23, 9.0.24 and 9.0.25 shipped, or the checkpoint's 9.0.21 App `06e79397` and
   9.0.20 Workers); with the F1 evidence the record closed the release A item's device check of a
   mixed room with a 9.0.14 device.
 - [UI follow-up train 9.0.21: transient text at 600 and chips on one line (2026-10-29)](design/ui-followup-921-2026-10-29.md):
@@ -359,7 +391,7 @@ runbooks. Neither belongs in a general setup document.
   with identical patches, and its assembly review moved the bump after the review fixes. The release
   record's §2 now carries the 9.0.21 post-deploy items (scope and status, post-deploy checks, open
   owner items and the owner step for outdated approved translation suggestions) and §4 its rollback
-  boundary (a forward revert at 9.0.25 / v798 or later now that 9.0.22, 9.0.23 and 9.0.24 shipped, or the checkpoint's 9.0.20 App
+  boundary (a forward revert at 9.0.26 / v799 or later now that 9.0.22 to 9.0.25 shipped, or the checkpoint's 9.0.20 App
   `50d6557f`); the release closed the focus race item and the 9.0.20 owner decisions this train
   implemented. The report lists the owner decisions, each
   increment with its commits and tests-first evidence, the SHA map after assembly, the review

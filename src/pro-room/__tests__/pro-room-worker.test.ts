@@ -25341,12 +25341,10 @@ describe('PRO room system-audio ownership lease', () => {
     expect(directEnvelope).toMatchObject({
       systemAudio: { status: 'live', generation, publication: directPublication },
     });
-    // Keep the numeric wire/storage shape during the matched rollout. It is
-    // a compatibility value for direct and must not be interpreted as a
-    // metered-media expiry by the v2 authority.
-    expect(directEnvelope.systemAudio.liveExpiresAt).toBe(
-      startedAtMs + SYSTEM_AUDIO_SHARE_LIMIT_MS,
-    );
+    // A LAN-direct publication meters no Cloudflare media, so it has no
+    // deadline, on the wire or in storage (PRO snapshot schemaVersion 2).
+    expect(directEnvelope.systemAudio.liveExpiresAt).toBeNull();
+    expect(storedCanonicalRoom(context.state).systemAudio.liveExpiresAt).toBeNull();
     expect((await commit(directPublication)).status).toBe(200);
     expect(
       (
@@ -25367,12 +25365,15 @@ describe('PRO room system-audio ownership lease', () => {
       systemAudio: { status: 'live', generation, publication: directPublication },
     });
     const restartedInternal = restarted as unknown as {
-      room: { systemAudio: { liveExpiresAt: number; status: string } };
+      room: { systemAudio: { liveExpiresAt: number | null; status: string } };
       alarm(): Promise<void>;
     };
+    // A past numeric value, as a PRO Worker before snapshot v2 left it, ends
+    // nothing: the alarm keeps the share live and clears the value.
     restartedInternal.room.systemAudio.liveExpiresAt = Date.now() - 1;
     await restartedInternal.alarm();
     expect(restartedInternal.room.systemAudio.status).toBe('live');
+    expect(restartedInternal.room.systemAudio.liveExpiresAt).toBeNull();
     const commitAfterRestart = (nextPublication: unknown) =>
       restarted.fetch(
         jsonRequest(
@@ -25719,12 +25720,12 @@ describe('PRO room system-audio ownership lease', () => {
     expect(JSON.stringify(stored.systemAudio)).not.toContain('sessionOwnerToken');
   });
 
-  it('loads a live LAN-direct stored without a media deadline as the same share with the compatibility deadline', async () => {
-    // A PRO Worker that sends PRO snapshot schemaVersion 2 stores a live
-    // LAN-direct with liveExpiresAt null. This Worker is where that Worker's
-    // failed release (and a manual rollback) returns, and every App before
-    // that schema version refuses a live state without a positive deadline, so
-    // the share must stay the same live one and answer a number again.
+  it('answers a live LAN-direct without a media deadline and loads a stored numeric one as the same share without it', async () => {
+    // A LAN-direct publication meters no Cloudflare media, so the Worker
+    // stores it, and answers it everywhere, with liveExpiresAt null (PRO
+    // snapshot schemaVersion 2). PRO Workers before that stored a numeric
+    // compatibility value; a room one of them left behind loads as the same
+    // live share without it, and its first request stores that.
     vi.useFakeTimers();
     const startedAtMs = new Date('2026-10-29T00:00:00.000Z').getTime();
     vi.setSystemTime(startedAtMs);
@@ -25737,6 +25738,14 @@ describe('PRO room system-audio ownership lease', () => {
       transport: 'lan-direct',
       protocolVersion: 2,
     } as const;
+    const liveState = {
+      generation,
+      status: 'live',
+      ownerParticipantId: activationEnvelope.snapshot.viewer.participantId,
+      claimExpiresAt: null,
+      liveExpiresAt: null,
+      publication: directPublication,
+    };
     const committed = await worker.fetch(
       jsonRequest(
         '/system-audio/commit',
@@ -25746,78 +25755,73 @@ describe('PRO room system-audio ownership lease', () => {
       ),
     );
     expect(committed.status).toBe(200);
+    expect(await responseJson(committed)).toEqual({ systemAudio: liveState });
+    expect(storedCanonicalRoom(state).systemAudio).toMatchObject({
+      status: 'live',
+      liveExpiresAt: null,
+    });
     const restart = () =>
       new MusixquareProRoom(context.state as never, environment(context.bucket) as never);
-    const liveState = (liveExpiresAt: number) => ({
-      generation,
-      status: 'live',
-      ownerParticipantId: activationEnvelope.snapshot.viewer.participantId,
-      claimExpiresAt: null,
-      liveExpiresAt,
-      publication: directPublication,
-    });
-
-    // A numeric deadline loads unchanged.
+    const getState = async (room: MusixquareProRoom) =>
+      (await responseJson(await room.fetch(request('/system-audio', {}, ownerCookie)))).systemAudio;
+    // The full and compact presence heartbeats and the lease heartbeat.
+    const heartbeats = async (room: MusixquareProRoom) => {
+      const full = await responseJson(
+        await room.fetch(request('/presence/heartbeat', { method: 'POST' }, ownerCookie)),
+      );
+      const known = full.snapshot;
+      const compact = await responseJson(
+        await room.fetch(
+          jsonRequest(
+            '/presence/heartbeat',
+            'POST',
+            {
+              revision: known.revision,
+              playlistRevision: known.playlistRevision,
+              presenceRevision: known.presence.revision,
+              playbackRevision: known.playback.revision,
+              coordinatorEpoch: known.presence.coordinatorEpoch,
+            },
+            ownerCookie,
+          ),
+        ),
+      );
+      expect(compact.notModified).toBe(true);
+      const lease = await room.fetch(
+        jsonRequest(
+          '/system-audio/heartbeat',
+          'POST',
+          { generation, leaseId: acquired.leaseId },
+          ownerCookie,
+        ),
+      );
+      expect(lease.status).toBe(200);
+      return [full.systemAudio, compact.systemAudio, (await responseJson(lease)).systemAudio];
+    };
+    expect(await getState(worker)).toEqual(liveState);
+    expect(await heartbeats(worker)).toEqual([liveState, liveState, liveState]);
     vi.setSystemTime(startedAtMs + 5_000);
-    expect(
-      await responseJson(await restart().fetch(request('/system-audio', {}, ownerCookie))),
-    ).toEqual({ systemAudio: liveState(startedAtMs + SYSTEM_AUDIO_SHARE_LIMIT_MS) });
+    expect(await getState(restart())).toEqual(liveState);
 
+    // The numeric value a PRO Worker before snapshot v2 stored at its commit.
     const envelope = structuredClone(state.storage.data.get('pro-room:v2:core')) as {
       core: Record<string, any>;
     };
-    envelope.core.systemAudio.liveExpiresAt = null;
+    envelope.core.systemAudio.liveExpiresAt = startedAtMs + SYSTEM_AUDIO_SHARE_LIMIT_MS;
     state.storage.data.set('pro-room:v2:core', envelope);
     vi.setSystemTime(startedAtMs + 10_000);
-    const loadedAtMs = Date.now();
     const restarted = restart();
-    const compatibility = liveState(loadedAtMs + SYSTEM_AUDIO_SHARE_LIMIT_MS);
 
-    // The same live share, with the deadline a first commit at load would have
-    // stored, and the first prune stores it (the migration mark).
-    expect(
-      await responseJson(await restarted.fetch(request('/system-audio', {}, ownerCookie))),
-    ).toEqual({ systemAudio: compatibility });
+    // The same live share without it, and the first request's prune stores
+    // that (the migration mark).
+    expect(await getState(restarted)).toEqual(liveState);
     expect(storedCanonicalRoom(state).systemAudio).toMatchObject({
       generation,
       status: 'live',
-      liveExpiresAt: compatibility.liveExpiresAt,
+      liveExpiresAt: null,
       publication: directPublication,
     });
-    // Both heartbeats and the lease heartbeat answer the same number.
-    const full = await responseJson(
-      await restarted.fetch(request('/presence/heartbeat', { method: 'POST' }, ownerCookie)),
-    );
-    expect(full.systemAudio).toEqual(compatibility);
-    const known = full.snapshot;
-    const compact = await responseJson(
-      await restarted.fetch(
-        jsonRequest(
-          '/presence/heartbeat',
-          'POST',
-          {
-            revision: known.revision,
-            playlistRevision: known.playlistRevision,
-            presenceRevision: known.presence.revision,
-            playbackRevision: known.playback.revision,
-            coordinatorEpoch: known.presence.coordinatorEpoch,
-          },
-          ownerCookie,
-        ),
-      ),
-    );
-    expect(compact.notModified).toBe(true);
-    expect(compact.systemAudio).toEqual(compatibility);
-    const lease = await restarted.fetch(
-      jsonRequest(
-        '/system-audio/heartbeat',
-        'POST',
-        { generation, leaseId: acquired.leaseId },
-        ownerCookie,
-      ),
-    );
-    expect(lease.status).toBe(200);
-    expect((await responseJson(lease)).systemAudio).toEqual(compatibility);
+    expect(await heartbeats(restarted)).toEqual([liveState, liveState, liveState]);
   });
 
   it('keeps fencing a live SFU publication stored without its media deadline', async () => {

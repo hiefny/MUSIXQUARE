@@ -755,11 +755,7 @@ gh workflow run app-build-floor.yml --ref main -f action=lower -f min_app_build=
   later in the release checks it again. `MXQR_PRO_ROOM_REQUIRED_APP_BUILD` on that step names
   the App build that the PRO Worker on `main` requires of every client. The value lives in
   `.github/workflows/release.yml`, outside every runtime path list, so writing or clearing it never
-  changes a release target; while it is empty the step only logs that nothing is required. The
-  change that started sending PRO snapshot schemaVersion 2 wrote 795, and 9.0.25, the App that
-  stops reading schemaVersion 1, cleared it again: from then on a repair after an App rollback
-  below 795 ships schemaVersion 2 as is and raises the floor right after it (see the 9.0.25
-  bullet below), so the check would only stop that repair.
+  changes a release target; while it is empty the step only logs that nothing is required.
   Otherwise the release continues only when the public status shows both the stored and the
   effective floor at that build or above. The step reads an unreadable status again for 30
   seconds. It waits only while the stored floor reaches the value but the effective floor is 0
@@ -777,7 +773,11 @@ gh workflow run app-build-floor.yml --ref main -f action=lower -f min_app_build=
   `all-workers` (`scripts/emergency-deploy.mts`) does not run this check. While the value in
   `release.yml` is set, read the public App build floor status first
   (`curl -s https://musixquare.com/api/app-build-floor`) and go ahead only when both
-  `minAppBuild` and `effectiveMinAppBuild` reach the value.
+  `minAppBuild` and `effectiveMinAppBuild` reach the value. The change that started sending PRO
+  snapshot schemaVersion 2 wrote 795, and 9.0.25, the App that stops reading schemaVersion 1,
+  cleared it again: from then on a repair after an App rollback below 795 ships schemaVersion 2
+  as is and raises the floor right after it (see the 9.0.25 bullet below), so the check would
+  only stop that repair.
 - First floor (owner decision 2026-10-25): the App 9.0.14 release ships with the floor at 0 and
   `raise_app_build_floor` false. Once its smokes and public assets are verified, run `status`
   (the live App build is the released one and the App report is fresh), then `check` (the OIDC

@@ -2,7 +2,7 @@
 
 | Field | Value |
 | --- | --- |
-| Status | 초안(2026-10-30). 증분 R3-1 ~ R3-7과 이 열차의 기록(release-record §2·§3·§4, hotfix-procedure, PRO 운영 문서의 되돌리기 문단, 이 보고서)을 만들고 증분별 검사(QA 라운드 1)를 했다. 기록 커밋의 전체 기본 검사(QA 라운드 2)는 아래에 적는다. 미병합·미배포다. 브랜치 `agent/p55-r3`은 PRO 스냅샷 schemaVersion 2 보내기 브랜치의 끝 `91601774` 위의 커밋이다: 테스트 먼저 7, 코드 9, 서버 권한 ADR 문서 1, 기록 1. 마지막 App 런타임 커밋은 R3-6 `f72629c2`이고 R3-7 `d965af02`은 릴리스 workflow의 값 하나다. SemVer와 SW 캐시는 올리지 않았다(릴리스 담당이 main 위로 옮긴 뒤 9.0.25 / v798을 마지막 런타임 커밋으로 올림). main 위로 옮기기와 옮긴 부모에서 테스트 먼저 다시 돌리기, bump, 열차 끝 리뷰, PR, PR CI, 자동 코드 리뷰, exact-main CI, 배포는 아직이다(QA 라운드 3, 4는 자리만) |
+| Status | 초안(2026-10-30). 증분 R3-1 ~ R3-7과 이 열차의 기록(release-record §2·§3·§4, hotfix-procedure, PRO 운영 문서의 되돌리기 문단, 이 보고서)을 만들고 증분별 검사(QA 라운드 1)와 기록 커밋 `39b36a0a`의 전체 기본 검사(QA 라운드 2, bump가 없어 실패하는 `guard:sw-cache-version` 말고 모두 통과)를 했다. 미병합·미배포다. 브랜치 `agent/p55-r3`은 PRO 스냅샷 schemaVersion 2 보내기 브랜치의 끝 `91601774` 위의 커밋이다: 테스트 먼저 7, 코드 9, 서버 권한 ADR 문서 1, 기록 1, QA 라운드 2를 적은 문서 1. 마지막 App 런타임 커밋은 R3-6 `f72629c2`이고 R3-7 `d965af02`은 릴리스 workflow의 값 하나다. SemVer와 SW 캐시는 올리지 않았다(릴리스 담당이 main 위로 옮긴 뒤 9.0.25 / v798을 마지막 런타임 커밋으로 올림). main 위로 옮기기와 옮긴 부모에서 테스트 먼저 다시 돌리기, bump, 열차 끝 리뷰, PR, PR CI, 자동 코드 리뷰, exact-main CI, 배포는 아직이다(QA 라운드 3, 4는 자리만) |
 | Base | `91601774`(PRO 스냅샷 schemaVersion 2 보내기 브랜치 `agent/p55-r2`의 끝, 9.0.22 PR #524의 브랜치 끝 `7630b1a9` 위). 운영은 9.0.22 / v795(R1, #524 머지 `71f5b96c`, 2026-10-29 18:35 KST 배포, 바닥 789)와 그 뒤 9.0.23 / v796(App UI와 번역, #526 머지 `5a5afb0e`, 21:23 KST 배포)이다. schemaVersion 2를 보내는 PRO Worker는 아직 받아들이는 중이고 바닥 795 뒤에 나간다. 이 브랜치는 그 PRO Worker의 머지와 기록 뒤 main 위로 옮기고 이 문서의 SHA를 다시 적는다 |
 | Version | 9.0.25 / v798 예정(앱 빌드 798). 9.0.24 / v797이 운영에 있으므로 다음 패치와 epoch다. 업데이트 창이 뜬다(바닥 795 위의 9.0.22 ~ 9.0.24 탭에는 '나중에'가 있는 보통 창). 새 바닥은 없다 |
 | Scope | Phase 5.5 계획의 R3(증분 R3-1 ~ R3-7). App이 PRO 스냅샷 schemaVersion 1을 받지 않고 `passwordRequired`와 `playlistSlots`, 관리자 목록 답의 `{ administrators }`, bootstrap의 `passwordRequired`를 요구한다(PSK-01 ~ PSK-06의 A2, PSK-04, OV-A22, Q15). 시작 종류는 `timingMode`로만 읽고(ZS-05), 하트비트 스냅샷이 COMMIT보다 먼저 준비된 checkpoint를 내려놓으면 그 PREPARE의 종류로 시작한다(ZS-06, 의도한 동작 변화). live LAN-direct의 숫자 `liveExpiresAt`을 거절한다(PLE-04). PRO opt-in 머리글 둘을 보내지 않는다(HDR-1, PSK-07). 일반방 게스트는 SESSION_FULL과 OPERATOR_TOAST를 `i18nKey`로만 읽는다(STD-3, STD-4). 전송 계층이 은퇴한 PRO 개발자 신호 프레임을 읽지 않는다(PSK-11 클라이언트, 좁힘). Production Release의 PRO 최소 빌드 요구 값을 비운다(R3-7, Q21). Worker, D1, 비밀, 바인딩, Wrangler 설정, CORS, 계약 표지, 저장 모양은 바꾸지 않는다(`cloudflare/app-worker.ts`는 주석 하나) |
@@ -70,7 +70,7 @@ Worker'로 적었다. 이 릴리스의 머지 SHA와 Release ID는 배포 기록
 | R3-5 | STD-3, STD-4 | `4d975921` → `fc7b5996` | 5 / 70(3 files) | App |
 | R3-6 | PSK-11 클라이언트(좁힘) | `30d8cfbd` → `f72629c2` | 9 / 307(3 files) | App |
 | R3-7 | Q21 요구 값 비우기 | 없음 → `d965af02` | 해당 없음(값 하나, 건너뜀 행은 P2가 고정) | 없음(workflow) |
-| 기록 | §2·§3·§4, hotfix-procedure, PRO 운영 문서, 이 보고서 | 기록 커밋 | 해당 없음 | 없음 |
+| 기록 | §2·§3·§4, hotfix-procedure, PRO 운영 문서, 이 보고서 | `39b36a0a`(문서), QA 라운드 2를 적은 문서 커밋 | 해당 없음 | 없음 |
 
 ## 증분
 
@@ -336,7 +336,35 @@ schemaVersion 1과 2를 모두 읽고, 바닥 795 이상이라 `lower`가 필요
 
 ### 2. 전체 검사
 
-(기록 커밋에서 돌린 뒤 적는다.)
+기록 커밋 `39b36a0a`, 2026-10-30 02:33 ~ 02:50 KST. Windows 11 로컬, Node 24.22.2 / npm 12.0.2, vitest `--maxWorkers=4`. 계획의 기본
+검사 전체를 한 번 돌렸다. `build:checked`는 첫 실패에서 멈추는 사슬이라 그 단계들을 하나씩 돌렸고, bump가 없어 실패하는
+`guard:sw-cache-version` 하나 말고는 모든 단계가 종료 코드 0이다. 도는 동안 커밋 밖에 있던 것은 hotfix-procedure의 요구 값 문장 위치
+고침 하나(이 문서 커밋에 들어감, 어느 시험도 그 문장을 읽지 않음)뿐이다.
+
+- release target: `scripts/release-deployment-state.mts`의 `changedRuntimePaths`, `runtimePathsForWorker`,
+  `changedAppRuntimeDependencies`로 `91601774..39b36a0a`를 견줌: App 15(`cloudflare/app-worker.ts`, `src/` 14), PRO 방 0,
+  remote-share 0, signaling 0, Developer API facade 0, Developer API 0, App 런타임 의존성 차이 없음. 곧 `app`만이다.
+- typecheck 전체(`types:workers:check`, `typecheck:tests`, `typecheck:browser-classic`, `typecheck:node-scripts`,
+  `tsconfig.tooling.json`, `tsconfig.e2e.json` 포함), `check:workers`, lint, `format:check`.
+- 가드: dead-exports(399 files, 2,104 bindings, 완전히 죽은 것 0, 시험 전용 20, 자기 전용 76), import-graph(399 files, 2,075 edges,
+  순환 0), bus-pairing 202 / 202, lifecycle-writes, navigation-sinks, room-authority-boundaries(직접 읽기 79, 구독 22, 쓰기 13, PRO
+  읽기 0, 스냅샷 읽기 0), transport-health, standard-room-hot-path, chunk-pump, source-complexity(`src/pro-room/runtime.ts` 4,154 /
+  10,000, `.github/workflows/release.yml` 1,796 / 2,000), `node scripts/check-resource-ownership.mts`(49 records / 446 files).
+- 단위 전체 702 files / 16,653 통과와 skip 1(jq가 없는 로컬에서 건너뛰는 `release-deployment-state.test.ts`의 한 행), 488 s.
+- Worker 설정 커버리지 69 files / 3,320 통과. 전체 86.7 / 83.54 / 94.34 / 90.97, `cloudflare/app-worker.ts` 82.31 / 77.66 / 89.62 /
+  87.46, `cloudflare/pro-room-worker.ts` 87.94 / 84.36 / 96.36 / 91.99, `cloudflare/signaling-worker.ts` 85.42 / 83.27 / 95.85 / 89.22.
+- 핵심 커버리지 90 files / 3,521 통과(80.92 / 75.66 / 86.92 / 84.79), `src/network/transport/cloudflare-signaling.ts` 83.37 / 81.36 /
+  85.43 / 88.56(문턱 72 / 71 / 72 / 78). release-tooling 커버리지 14 files / 432 통과와 skip 1(같은 jq 행), 79.55 / 75.24 / 86.38 /
+  81.48.
+- `build:checked`의 단계: `guard:release-identity` 'MUSIXQUARE 9.0.22; service-worker cache epoch v795'(버전 거울이 서로 맞아 통과),
+  `guard:sw-cache-version` 'FAIL: committed PWA runtime changes are newer than v795 (16d24d89)'(bump가 없어서뿐, 릴리스 담당의 bump가
+  고침), brand capitalization 996 sources, 진입 842.2 KiB raw / 247.9 KiB gzip, eager JS 455.2 KiB gzip, eager total 2,010.7 KiB raw /
+  532.7 KiB gzip(9.0.22의 456.5와 2,017.1 / 534.1에서 줄어듦), SW 앱 셸 95 자산, 레거시 TV(Chromium 79) 정적 검사, prod-hooks,
+  prod-security, 글꼴과 나머지 inventory·hreflang·sitemap 가드.
+- 로컬 Playwright(Chromium, e2e 빌드, 02:53 ~ 02:59 KST): critical E2E(`test:e2e:critical`) 98 / 98, PRO 묶음(pro-activation-account,
+  pro-entry-app-update, pro-entry-password, pro-entry-retry, pro-upload-recovery, dialog-locale-layout) 39 / 39. R3-1이 바꾼 고정값과
+  bootstrap 모의, R3-4가 바꾼 route 모의의 머리글 확인을 이 커밋에서 다시 돈 것이다.
+- `check:worker-bundles`는 돌리지 않았다(App Worker는 주석 하나만 바뀜).
 
 ### 3. 운영 전제 (자리)
 
@@ -362,5 +390,5 @@ schemaVersion 1과 2를 모두 읽고, 바닥 795 이상이라 `lower`가 필요
   `guard:sw-cache-version`은 bump가 없어 실패).
 - 실제 schemaVersion 2 PRO Worker와 이 App의 브라우저 왕복. 로컬 e2e는 고정값과 모의 답이고, Worker 출력과 App 파서를 잇는 것은
   in-process 교차 계약 행이다.
-- 운영 단계와 배포, 실기기와 iOS Safari, WebKit 레인 전체, Full E2E.
+- 운영 단계와 배포, 실기기와 iOS Safari, WebKit 레인 전체, Full E2E(로컬에서는 critical E2E와 PRO 묶음만 Chromium으로 돌림).
 - 전송 계층 PRO 신호 모드(티켓 role 'coordinator' 포함)의 정리. 2026-07-20 뒤 운영 호출이 없고 R3-6은 개발자 프레임만 지웠다.

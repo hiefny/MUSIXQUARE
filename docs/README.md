@@ -113,7 +113,10 @@ runbooks. Neither belongs in a general setup document.
   versions, rollback (the release record's §4 current boundary line items 8 and 9: never below the
   first schemaVersion 2 PRO Worker by hand, the App to the checkpoint App first, and the merged
   order below build 795 with its repair), deploy conditions and order, user-visible changes,
-  records, QA round 1 (per increment) and round 2 (the full gate at the records commit), with
+  records, QA round 1 (per increment) and round 2 (the full gate at the records commit `39b36a0a`:
+  unit 702 files / 16,653, Worker 69 / 3,320, critical 90 / 3,521, release-tooling 14 / 432,
+  typecheck, lint, format, every guard but the service worker cache guard that waits for the bump,
+  the other `build:checked` steps, local critical E2E 98 and the PRO Playwright set 39), with
   placeholders for the production rounds, owner device check candidates and what was not verified.
 - [Translate page entry train 9.0.24: language default, visit statistics, sign-in result (2026-10-29)](design/translate-entry-2026-10-29.md):
   released on 2026-10-30 03:20 KST in Release 40929481142 (PR #530, squash `78ec56f5`): the next app

@@ -2274,15 +2274,20 @@ function normalizeStoredSystemAudio(value: unknown): SystemAudioState | null {
   }
   const publication = parseSystemAudioPublication(value.publication);
   // An SFU publication meters Cloudflare media and always has a deadline. A
-  // LAN-direct one has none to meter: a PRO Worker that sends PRO snapshot
-  // schemaVersion 2 stores null there (normalizeLoadedSystemAudio answers a
-  // number again).
+  // LAN-direct one has none to meter, so its liveExpiresAt is null. PRO
+  // Workers before PRO snapshot schemaVersion 2 stored a numeric
+  // compatibility value there; it loads as null (normalizeLoadedSystemAudio
+  // stores that). Keep this conversion in later PRO releases too: a room that
+  // no Worker has loaded since still stores the number, and an App that
+  // refuses a numeric LAN-direct deadline drops the whole heartbeat answer.
+  const storedDeadline =
+    isSafeInteger(value.liveExpiresAt) && value.liveExpiresAt > 0 ? value.liveExpiresAt : undefined;
   const liveExpiresAt =
-    isSafeInteger(value.liveExpiresAt) && value.liveExpiresAt > 0
-      ? value.liveExpiresAt
-      : value.liveExpiresAt === null && publication !== null && 'transport' in publication
+    publication !== null && 'transport' in publication
+      ? storedDeadline !== undefined || value.liveExpiresAt === null
         ? null
-        : undefined;
+        : undefined
+      : storedDeadline;
   if (
     value.status !== 'live' ||
     value.claimExpiresAt !== null ||
@@ -4871,19 +4876,15 @@ export class MusixquareProRoom {
     );
   }
 
-  normalizeLoadedSystemAudio(nowMs = Date.now()) {
+  normalizeLoadedSystemAudio() {
     if (!this.room) return;
-    const normalizedSystemAudio = normalizeStoredSystemAudio(this.activeRoom.systemAudio);
+    const stored = this.activeRoom.systemAudio;
+    const normalizedSystemAudio = normalizeStoredSystemAudio(stored);
     if (normalizedSystemAudio) {
-      if (normalizedSystemAudio.status === 'live' && normalizedSystemAudio.liveExpiresAt === null) {
-        // A PRO Worker that sends PRO snapshot schemaVersion 2 stores a live
-        // LAN-direct without a deadline. Every App before that schema version
-        // refuses a live state without a positive one (and with it the whole
-        // heartbeat answer), so the share stays live with the value its first
-        // commit here would store. Nothing reads it as a deadline: the
-        // reconcile and the alarm skip LAN-direct, and an SFU promotion
-        // installs a fresh budget. The mark makes the first prune store it.
-        normalizedSystemAudio.liveExpiresAt = nowMs + SYSTEM_AUDIO_LIVE_TTL_MS;
+      // A live LAN-direct that a PRO Worker before PRO snapshot schemaVersion
+      // 2 stored with a numeric compatibility deadline stays the same live
+      // share, now without one. The mark makes the first prune store that.
+      if (normalizedSystemAudio.liveExpiresAt !== stored.liveExpiresAt) {
         this.systemAudioMigrationPending = true;
       }
       this.activeRoom.systemAudio = normalizedSystemAudio;
@@ -7174,8 +7175,8 @@ export class MusixquareProRoom {
       this.activeRoom.systemAudio.publication &&
       !('transport' in this.activeRoom.systemAudio.publication)
     ) {
-      // A direct publication has no metered-media deadline. Do not wake the
-      // Durable Object for its compatibility-only liveExpiresAt value.
+      // Only an SFU publication has a metered-media deadline; a direct one has
+      // none (liveExpiresAt null), so it never wakes the Durable Object.
       candidates.push(this.activeRoom.systemAudio.liveExpiresAt);
     }
     for (const asset of Object.values(this.activeRoom.assets)) {
@@ -12370,11 +12371,10 @@ export class MusixquareProRoom {
       (state.status === 'preparing' &&
         (!isSafeInteger(state.claimExpiresAt) || state.claimExpiresAt <= nowMs)) ||
       (state.status === 'live' &&
-        // LAN-direct keeps the legacy numeric field for mixed-generation
-        // readers, but no Cloudflare media allocation exists to meter. Its
-        // authority is instead bounded by the exact owner presence and the
-        // four-device fence above. The first one-way SFU promotion replaces
-        // this compatibility timestamp with a fresh, authoritative deadline.
+        // LAN-direct has no Cloudflare media allocation to meter and so no
+        // deadline (liveExpiresAt null). Its authority is instead bounded by
+        // the exact owner presence and the four-device fence above. The first
+        // one-way SFU promotion installs a fresh, authoritative deadline.
         !(
           state.publication &&
           'transport' in state.publication &&
@@ -12517,7 +12517,10 @@ export class MusixquareProRoom {
     const nowMs = Date.now();
     this.activeRoom.systemAudio.status = 'live';
     this.activeRoom.systemAudio.claimExpiresAt = null;
-    this.activeRoom.systemAudio.liveExpiresAt = nowMs + SYSTEM_AUDIO_LIVE_TTL_MS;
+    // An SFU publication gets its fixed media budget. A LAN-direct one meters
+    // no Cloudflare media and has no deadline until an SFU promotion.
+    this.activeRoom.systemAudio.liveExpiresAt =
+      'transport' in publication ? null : nowMs + SYSTEM_AUDIO_LIVE_TTL_MS;
     this.activeRoom.systemAudio.publication = publication;
     auth.participant.lastSeenAtMs = nowMs;
     await this.persist();

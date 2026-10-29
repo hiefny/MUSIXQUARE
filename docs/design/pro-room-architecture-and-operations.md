@@ -469,11 +469,12 @@ browser and the Durable Object. Public room state contains only the exact owner,
 generation, and one fenced publication descriptor. A 45-second preparing claim
 bounds abandoned native-picker attempts. An SFU publication receives a fixed
 two-hour deadline when it first commits and heartbeat cannot extend it. A
-LAN-direct publication carries a legacy numeric `liveExpiresAt` value for
-mixed-generation compatibility, but has no fixed duration cap because
-Cloudflare carries no media packets. Its exact owner presence, four-device
-fence, and bounded client authority-heartbeat watchdog still end orphaned or
-revoked shares.
+LAN-direct publication has no deadline (`liveExpiresAt` is null) and no fixed
+duration cap, because Cloudflare carries no media packets. PRO Workers before
+PRO snapshot schemaVersion 2 stored a numeric compatibility value there; the
+PRO Worker reads it as null and stores that with the room's next request or
+alarm. Its exact owner presence, four-device fence, and bounded client
+authority-heartbeat watchdog still end orphaned or revoked shares.
 
 The preferred PRO media path uses the protocol-v2 LAN-direct descriptor under
 the `single-stereo-v3` matched-release contract. System audio is limited to four
@@ -530,9 +531,9 @@ peer fan-out entry point. As soon as canonical live
 state is SFU, `system-audio.signal` authority is denied in both directions, so
 stale direct offer/answer/candidate/close frames cannot continue under the
 shared ID. Promotion is therefore one-way for the publication lifetime.
-The promotion atomically replaces direct's compatibility timestamp with server
-time plus two hours. A lost-response retry observes the same SFU publication
-without extending that deadline.
+The promotion atomically installs the SFU deadline, server time plus two hours,
+on the publication that had none while direct. A lost-response retry observes
+the same SFU publication without extending that deadline.
 
 Host candidates have a deliberate privacy boundary. The authenticated signaling
 relay carries only a small bounded set of component-1 UDP host candidates, and

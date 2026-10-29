@@ -909,7 +909,7 @@ RO-53 owner-in-place
     direct call go to the SFU with `'all'`; no peer is `'unsupported'`), ignores the guests' SFU
     capability marker (no handler is registered; Phase 5.5 train 3, OV-F06, later stopped the
     guest sender and removed the kind, its validator and payload type, so the marker a 9.0.16 to
-    9.0.20 guest still sends meets no validator or handler) and sends a failed-direct
+    9.0.21 guest still sends meets no validator or handler) and sends a failed-direct
     remote peer READY
     `{ audience: 'remote', handoffFromDirect: true }` where it sent `'all'`. The Standard suite's
     "OV-B06 acceptance (route direct): ..." and its pair "OV-B06 acceptance (route unselected,
@@ -923,7 +923,7 @@ RO-53 owner-in-place
     `system-audio-sfu.test.ts` (the READY audience, the late LAN retry from the peer event alone)
     and `system-audio-start.test.ts` (the SFU module's late-LAN START sender went with the
     capability handler; five START senders remain). Since train 3, `system-audio-start.test.ts`
-    "drops the raw SFU capability marker 9.0.16 to 9.0.20 guests still send, ..." passes before
+    "drops the raw SFU capability marker 9.0.16 to 9.0.21 guests still send, ..." passes before
     and after: through the protocol router and the guest's exact live connection, the marker
     changes no frame, call, publication or route.
   - The START `surface` and SFU_READY `audience` requirement (5B-OV3, old-version; survey
@@ -1641,7 +1641,7 @@ RO-53 owner-in-place
     device-only. On the original route, since train 2 (survey OV-F04 stage 1, App build
     floor 787) every Standard connection takes its restartability binding from the initial negotiation
     whether or not the first offer or answer carries `iceRestartVersion` (ends from 8.6.39 to
-    9.0.20 send it; since train 3, stage 2 with App build floor 789, a Standard client sends it on
+    9.0.21 send it; since train 3, stage 2 with App build floor 789, a Standard client sends it on
     neither the first offer nor any answer, and the restart offer keeps requiring it):
     `cloudflare-signaling.test.ts` "restarts a guest whose first answer carried no
     iceRestartVersion", "answers an exact restart in place for a guest whose first offer

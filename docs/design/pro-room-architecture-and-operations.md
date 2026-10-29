@@ -759,7 +759,7 @@ calibration converges); it does not restart the room-wide transition.
 On a confirmed non-bfcache `pagehide`, the browser sends one small credentialed
 `text/plain` keepalive mutation that removes that exact participant incarnation
 from presence. Its body names only that incarnation and a receipt key: since
-9.0.21 the App sends no playback observation. The PRO Worker has taken the
+9.0.22 the App sends no playback observation. The PRO Worker has taken the
 observation (`baseRevision`, `currentQueueItemId`, `playback`) as optional since
 2026-10-26; when an older App still sends it, it is checked, and it never
 replaces the server's canonical anchor. The request deliberately keeps the
@@ -1279,14 +1279,14 @@ The PRO Worker of 2026-10-26 stopped serving the request shapes of Apps below
 the 787 build floor. Restoring the PRO Worker it replaced needs no new floor
 only while every App sends the entry-policy and playlist-slots opt-in headers
 and the presence close's `baseRevision`, `currentQueueItemId` and `playback`,
-as 9.0.14 to 9.0.20 do: that build answers them the same way, its load
+as 9.0.14 to 9.0.21 do: that build answers them the same way, its load
 normalization re-adds `developerControlVersion` to participants and developer
 commands, the stored `coordinatorParticipantId` is the null it always wrote,
 and playback receipts keep their `kind` marker, so it does not shorten them.
-From 9.0.21 the App sends the presence close without those three fields, and
-the replaced Worker refuses that body (400 `INVALID_REQUEST`). Once 9.0.21 or
+From 9.0.22 the App sends the presence close without those three fields, and
+the replaced Worker refuses that body (400 `INVALID_REQUEST`). Once 9.0.22 or
 a later App has been live, do not restore the PRO Worker below the 2026-10-26
-Worker by hand, even after an App rollback: a tab opened on 9.0.21 or later
+Worker by hand, even after an App rollback: a tab opened on 9.0.22 or later
 keeps sending the shorter close until it reloads. Under the replaced Worker a
 participant who closes such a tab stays listed until presence expires (45
 seconds), a reload or an applied update meets the "A previous connection

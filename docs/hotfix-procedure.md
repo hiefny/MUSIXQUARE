@@ -191,7 +191,7 @@ neither automatic nor manual recovery restores either Worker below the marker;
 repair forward with an `all` release. Any change to this marker requires
 target `all`. See [the transfer change](design/phase2-navigation-ui-shells-2026-10-23.md#호환성과-배포-순서).
 
-From 9.0.21 (old-version removal train 3) the App's PRO presence close
+From 9.0.22 (old-version removal train 3) the App's PRO presence close
 (`POST /presence/close`, sent on a confirmed `pagehide` and at the start of an
 explicit leave) carries only its receipt key and the captured participant and
 presence incarnation, without `baseRevision`, `currentQueueItemId` and
@@ -199,9 +199,9 @@ presence incarnation, without `baseRevision`, `currentQueueItemId` and
 2026-10-27 KST, version `319f6e8f`) and every later one take those fields as
 optional. An older PRO Worker, including the 9.0.14 (`dd9c9d4d`) version in
 that release's recovery checkpoint, refuses the shorter body with 400
-`INVALID_REQUEST`. Once 9.0.21 or a later App has been live, never restore the
+`INVALID_REQUEST`. Once 9.0.22 or a later App has been live, never restore the
 PRO Worker below that train 2 Worker by hand, even after rolling the App back:
-a tab opened on 9.0.21 or later keeps sending the shorter close until it
+a tab opened on 9.0.22 or later keeps sending the shorter close until it
 reloads. Under such a Worker a participant who closes such a tab stays listed
 until presence expires (45 seconds), a reload or an applied update shows the
 "A previous connection remains" handoff dialog instead of resuming silently,
@@ -729,7 +729,7 @@ gh workflow run app-build-floor.yml --ref main -f action=lower -f min_app_build=
   Signaling admission smoke of the first floor below: both rooms must admit their host and guest,
   and `legacyCompatibility.refusedBelowAppBuildFloor` must equal the new floor (`appBuild.build`
   is the live build and may be higher). Dispatch the release with `raise_app_build_floor` false
-  (old-version removal train 3, 9.0.21, sets 789 first).
+  (old-version removal train 3, 9.0.22, sets 789 first).
 - A Production Release with target `pro-room` or `all` checks the floor before it changes
   anything: its step "Check the App build floor the PRO Worker requires" runs after the
   partial-release dependency compatibility check and before the recovery checkpoint, so a stop
@@ -799,7 +799,7 @@ gh workflow run app-build-floor.yml --ref main -f action=lower -f min_app_build=
   9.0.14 tab opened in that window cannot create a Standard room or reconnect as host
   (`HOST_AUTH_FIRST_FRAME_INVALID`) until it applies the update dialog back to the restored App
   (v786). Guests are not affected: the older guest validator ignores the extra key.
-- Once a Signaling Worker that no longer advertises the peer-open markers is live (9.0.21,
+- Once a Signaling Worker that no longer advertises the peer-open markers is live (9.0.22,
   old-version removal train 3), an emergency recovery that takes the App below 9.0.15 rolls
   Signaling back first, in this order only: (1) Signaling to the version in that release's
   recovery checkpoint (9.0.14 or later, which still advertises them), (2) `lower` to the target

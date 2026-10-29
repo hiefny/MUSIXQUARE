@@ -24,7 +24,7 @@
  * no longer reads that marker (old-version survey OV-B05), so a late LAN peer
  * gets the host's late-peer START once and goes to the SFU at once (the row
  * "Standard SFU, late ninth LAN listener" below). Guests stop sending the
- * marker in Phase 5.5 train 3 (OV-F06); the one a 9.0.16 to 9.0.20 guest still
+ * marker in Phase 5.5 train 3 (OV-F06); the one a 9.0.16 to 9.0.21 guest still
  * sends reaches the host's protocol router over the exact live connection and
  * starts nothing (the row "drops the raw SFU capability marker ..." below).
  *
@@ -316,7 +316,7 @@ describe('every Standard START sender sends the shared normalized frame', () => 
     },
   );
 
-  it('drops the raw SFU capability marker 9.0.16 to 9.0.20 guests still send, with no warning, frame or route change', async () => {
+  it('drops the raw SFU capability marker 9.0.16 to 9.0.21 guests still send, with no warning, frame or route change', async () => {
     shareWithSurface('browser');
     // Nine LAN listeners: the share starts on the SFU with the 'all' audience.
     const listeners = Array.from({ length: 9 }, (_, index) => guest(index + 1, 'local'));

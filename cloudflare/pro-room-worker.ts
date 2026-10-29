@@ -16267,7 +16267,7 @@ export class MusixquareProRoom {
     const body = parsed.value;
     // `baseRevision`, `currentQueueItemId`, and `playback` are optional: the
     // close never reads the browser's playback. The App stops sending them
-    // with old-version removal train 3 (9.0.21), but a tab of an earlier App
+    // with old-version removal train 3 (9.0.22), but a tab of an earlier App
     // sends them until it reloads, so they stay accepted. When present they
     // are still checked below, and the replay fingerprint covers exactly the
     // fields sent.

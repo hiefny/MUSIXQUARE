@@ -67,7 +67,7 @@ floor. Consequences for a release:
   floor beforehand instead: a standalone `set` to the oldest build that copes,
   and `raise_app_build_floor` false, because the raise comes only after the
   commit marker and only to the release's own build (old-version removal
-  train 3, 9.0.21, sets 789 first).
+  train 3, 9.0.22, sets 789 first).
 - The floor is read at entry. It is not part of the wire contract, so it never
   becomes a frame or schema version. Rolling a Worker back leaves the stored
   value in place; after a PRO Worker rollback to a version without the floor

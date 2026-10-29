@@ -93,6 +93,16 @@ runbooks. Neither belongs in a general setup document.
 
 ## Maintained evidence and completed records
 
+- [PRO system-audio LAN-direct in one round trip (2026-10-30)](design/pro-lan-direct-one-round-trip-2026-10-30.md):
+  implemented and checked locally, not yet released (no version bump yet; target `app`). On a
+  desktop sharer with an iPhone listener on one Wi-Fi every PRO share went to the SFU because the
+  two-round-trip LAN-direct negotiation (probe, then media re-offer) missed its single 2 s deadline
+  (pinned by the tests-only commit `d0b71a89`). Owner decision 2026-10-30 (option C): one offer
+  carries the probe channel and an empty audio sender, the receiver proves its pair and reports it
+  on the probe channel, and the capture track attaches only after both proofs; the answer must come
+  within 2 s and the proofs within 1 s more, and the first failed route ends the attempt. The relay
+  frame shape is unchanged, so no Worker changes; 9.0.25 and newer devices never build a route and
+  use the SFU. Each route logs one info result line. Not device-checked yet.
 - [Phase 5.5 R3: the App stops reading PRO snapshot schemaVersion 1, 9.0.25 (2026-10-30)](design/phase5-5-r3-v1-receive-stop-2026-10-30.md):
   released on 2026-10-30 07:18 KST in Release 40964572017 (PR #532, squash `b8ae59e7`): the third
   and last runtime release of Phase 5.5 (9.0.25 / v798, App build 798, bump `01f1a19b`; target `app`

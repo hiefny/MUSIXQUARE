@@ -83,10 +83,12 @@ gh run list --workflow e2e.yml --branch main --limit 3
       변경을 머지하지 않았다. (4) 이 PR은 dispatch 직전에만 머지하고, 그때부터 이 릴리스의 기록 PR까지 다른 PR을
       머지하지 않으며 exact-main CI success를 본다. (5) dispatch 직전 `status`를 다시 읽어 저장·유효 795와 300초 안의 App
       보고를 확인한다. 그 뒤 Release target `app`, Developer API D1 false, `raise_app_build_floor` false. 'Check the App
-      build floor the PRO Worker requires' 단계는 `app`에서 돌지 않는다(요구 값도 비어 있음). (6) 배포 직후 합성 방
-      코드의 방에서 9.0.25 탭으로 스냅샷 적용, 하트비트 경고 없음, zero-start 시작 한 번을 본다(게이트 아님). dispatch
-      직전 읽기와 배포 직후 확인은 보고서 QA 라운드 3, 4에 싣는다(지금은 자리만).
+      build floor the PRO Worker requires' 단계는 `app`에서 돌지 않는다(요구 값도 비어 있음). (6) 배포 직후(게이트
+      아님) 보고서 '배포 직후 확인과 기기 확인'의 나눠 줄 절차 A ~ C와 선택 D를 합성 방(오너가 가진 PRO 방)에서
+      9.0.25 탭으로 하게 한다. 확인하는 사람에게는 절차와 관찰 목록만 건네고, 판정은 그 절의 판정 기준(건네지 않음)으로
+      한다. dispatch 직전 읽기와 배포 직후 확인은 보고서 QA 라운드 3, 4에 싣는다(지금은 자리만).
       [배포 조건과 순서](design/phase5-5-r3-v1-receive-stop-2026-10-30.md#배포-조건과-순서),
+      [배포 직후 확인과 기기 확인](design/phase5-5-r3-v1-receive-stop-2026-10-30.md#배포-직후-확인과-기기-확인-게이트-아님),
       [QA 라운드 3](design/phase5-5-r3-v1-receive-stop-2026-10-30.md#3-운영-전제-자리).
 - [ ] 되돌리기 경계(이 런타임 변경이 §4에 적음): §4 머리의 현재 경계 줄 (8), (9)와 §4의 이 릴리스 항목이 정본이다.
       기본은 더 높은 SemVer와 캐시 epoch의 코드 되돌리기(9.0.26 / v799 이상)다. 실패한 `app`의 자동 복구는 App만
@@ -102,9 +104,9 @@ gh run list --workflow e2e.yml --branch main --limit 3
       브라우저 왕복(로컬 e2e는 고정값과 모의 답이고, Worker와 App 파서를 잇는 것은 in-process 교차 계약 행), 실기기와 iOS
       Safari, WebKit 레인 전체, Full E2E. 전송 계층의 PRO 신호 모드(티켓 role 'coordinator' 포함)는 2026-07-20 뒤 운영
       호출이 없는데 R3-6은 개발자 프레임만 지웠다(보고서 R3-6). 오너 기기 확인 후보 둘(하트비트가 COMMIT을 앞지른
-      기기의 zero-start 시작, LAN-direct 공유 중인 방의 9.0.25 탭에 하트비트 경고 없음)은 게이트가 아니다.
+      기기의 시작 종류, LAN-direct 공유 동안 9.0.25 탭의 하트비트)은 게이트가 아니고 보고서의 블라인드 절차로 한다.
       [확인하지 않은 것](design/phase5-5-r3-v1-receive-stop-2026-10-30.md#확인하지-않은-것),
-      [오너 기기 확인 후보](design/phase5-5-r3-v1-receive-stop-2026-10-30.md#오너-기기-확인-후보-게이트-아님).
+      [배포 직후 확인과 기기 확인](design/phase5-5-r3-v1-receive-stop-2026-10-30.md#배포-직후-확인과-기기-확인-게이트-아님).
 
 ### 번역 페이지 입구 열차(9.0.24/v797) 배포 뒤 확인: 언어 기본값, 방문 통계, 로그인 취소 안내
 

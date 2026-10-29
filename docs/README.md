@@ -117,7 +117,9 @@ runbooks. Neither belongs in a general setup document.
   unit 702 files / 16,653, Worker 69 / 3,320, critical 90 / 3,521, release-tooling 14 / 432,
   typecheck, lint, format, every guard but the service worker cache guard that waits for the bump,
   the other `build:checked` steps, local critical E2E 98 and the PRO Playwright set 39), with
-  placeholders for the production rounds, owner device check candidates and what was not verified.
+  placeholders for the production rounds, the post-deploy check and the owner device check
+  candidates as a blind hand-out (procedure and observations, with the pass criteria kept apart),
+  and what was not verified.
 - [Translate page entry train 9.0.24: language default, visit statistics, sign-in result (2026-10-29)](design/translate-entry-2026-10-29.md):
   released on 2026-10-30 03:20 KST in Release 40929481142 (PR #530, squash `78ec56f5`): the next app
   update after 9.0.23 (9.0.24 / v797, App build 797, bump `4d74f552`, target `app` with 14 App runtime

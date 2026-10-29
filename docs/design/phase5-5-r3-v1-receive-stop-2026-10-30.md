@@ -2,7 +2,7 @@
 
 | Field | Value |
 | --- | --- |
-| Status | 초안(2026-10-30). 증분 R3-1 ~ R3-7과 이 열차의 기록(release-record §2·§3·§4, hotfix-procedure, PRO 운영 문서의 되돌리기 문단, 이 보고서)을 만들고 증분별 검사(QA 라운드 1)와 기록 커밋 `39b36a0a`의 전체 기본 검사(QA 라운드 2, bump가 없어 실패하는 `guard:sw-cache-version` 말고 모두 통과)를 했다. 미병합·미배포다. 브랜치 `agent/p55-r3`은 PRO 스냅샷 schemaVersion 2 보내기 브랜치의 끝 `91601774` 위의 커밋이다: 테스트 먼저 7, 코드 9, 서버 권한 ADR 문서 1, 기록 1, QA 라운드 2를 적은 문서 1. 마지막 App 런타임 커밋은 R3-6 `f72629c2`이고 R3-7 `d965af02`은 릴리스 workflow의 값 하나다. SemVer와 SW 캐시는 올리지 않았다(릴리스 담당이 main 위로 옮긴 뒤 9.0.25 / v798을 마지막 런타임 커밋으로 올림). main 위로 옮기기와 옮긴 부모에서 테스트 먼저 다시 돌리기, bump, 열차 끝 리뷰, PR, PR CI, 자동 코드 리뷰, exact-main CI, 배포는 아직이다(QA 라운드 3, 4는 자리만) |
+| Status | 초안(2026-10-30). 증분 R3-1 ~ R3-7과 이 열차의 기록(release-record §2·§3·§4, hotfix-procedure, PRO 운영 문서의 되돌리기 문단, 이 보고서)을 만들고 증분별 검사(QA 라운드 1)와 기록 커밋 `39b36a0a`의 전체 기본 검사(QA 라운드 2, bump가 없어 실패하는 `guard:sw-cache-version` 말고 모두 통과)를 했다. 미병합·미배포다. 브랜치 `agent/p55-r3`은 PRO 스냅샷 schemaVersion 2 보내기 브랜치의 끝 `91601774` 위의 커밋이다: 테스트 먼저 7, 코드 9, 서버 권한 ADR 문서 1, 기록 1, QA 라운드 2를 적은 문서 1, 그 뒤 리뷰를 반영한 문서. 마지막 App 런타임 커밋은 R3-6 `f72629c2`이고 R3-7 `d965af02`은 릴리스 workflow의 값 하나다. SemVer와 SW 캐시는 올리지 않았다(릴리스 담당이 main 위로 옮긴 뒤 9.0.25 / v798을 마지막 런타임 커밋으로 올림). main 위로 옮기기와 옮긴 부모에서 테스트 먼저 다시 돌리기, bump, 열차 끝 리뷰, PR, PR CI, 자동 코드 리뷰, exact-main CI, 배포는 아직이다(QA 라운드 3, 4는 자리만) |
 | Base | `91601774`(PRO 스냅샷 schemaVersion 2 보내기 브랜치 `agent/p55-r2`의 끝, 9.0.22 PR #524의 브랜치 끝 `7630b1a9` 위). 운영은 9.0.22 / v795(R1, #524 머지 `71f5b96c`, 2026-10-29 18:35 KST 배포, 바닥 789)와 그 뒤 9.0.23 / v796(App UI와 번역, #526 머지 `5a5afb0e`, 21:23 KST 배포)이다. schemaVersion 2를 보내는 PRO Worker는 아직 받아들이는 중이고 바닥 795 뒤에 나간다. 이 브랜치는 그 PRO Worker의 머지와 기록 뒤 main 위로 옮기고 이 문서의 SHA를 다시 적는다 |
 | Version | 9.0.25 / v798 예정(앱 빌드 798). 9.0.24 / v797이 운영에 있으므로 다음 패치와 epoch다. 업데이트 창이 뜬다(바닥 795 위의 9.0.22 ~ 9.0.24 탭에는 '나중에'가 있는 보통 창). 새 바닥은 없다 |
 | Scope | Phase 5.5 계획의 R3(증분 R3-1 ~ R3-7). App이 PRO 스냅샷 schemaVersion 1을 받지 않고 `passwordRequired`와 `playlistSlots`, 관리자 목록 답의 `{ administrators }`, bootstrap의 `passwordRequired`를 요구한다(PSK-01 ~ PSK-06의 A2, PSK-04, OV-A22, Q15). 시작 종류는 `timingMode`로만 읽고(ZS-05), 하트비트 스냅샷이 COMMIT보다 먼저 준비된 checkpoint를 내려놓으면 그 PREPARE의 종류로 시작한다(ZS-06, 의도한 동작 변화). live LAN-direct의 숫자 `liveExpiresAt`을 거절한다(PLE-04). PRO opt-in 머리글 둘을 보내지 않는다(HDR-1, PSK-07). 일반방 게스트는 SESSION_FULL과 OPERATOR_TOAST를 `i18nKey`로만 읽는다(STD-3, STD-4). 전송 계층이 은퇴한 PRO 개발자 신호 프레임을 읽지 않는다(PSK-11 클라이언트, 좁힘). Production Release의 PRO 최소 빌드 요구 값을 비운다(R3-7, Q21). Worker, D1, 비밀, 바인딩, Wrangler 설정, CORS, 계약 표지, 저장 모양은 바꾸지 않는다(`cloudflare/app-worker.ts`는 주석 하나) |
@@ -70,7 +70,7 @@ Worker'로 적었다. 이 릴리스의 머지 SHA와 Release ID는 배포 기록
 | R3-5 | STD-3, STD-4 | `4d975921` → `fc7b5996` | 5 / 70(3 files) | App |
 | R3-6 | PSK-11 클라이언트(좁힘) | `30d8cfbd` → `f72629c2` | 9 / 307(3 files) | App |
 | R3-7 | Q21 요구 값 비우기 | 없음 → `d965af02` | 해당 없음(값 하나, 건너뜀 행은 P2가 고정) | 없음(workflow) |
-| 기록 | §2·§3·§4, hotfix-procedure, PRO 운영 문서, 이 보고서 | `39b36a0a`(문서), QA 라운드 2를 적은 문서 커밋 | 해당 없음 | 없음 |
+| 기록 | §2·§3·§4, hotfix-procedure, PRO 운영 문서, 이 보고서 | `39b36a0a`(문서), QA 라운드 2를 적은 문서 커밋, 리뷰를 반영한 문서 커밋 | 해당 없음 | 없음 |
 
 ## 증분
 
@@ -294,8 +294,9 @@ schemaVersion 1과 2를 모두 읽고, 바닥 795 이상이라 `lower`가 필요
 4. 이 PR은 dispatch 직전에만 머지한다. 그때부터 이 릴리스의 기록 PR 머지까지 다른 PR을 머지하지 않는다. exact-main CI success.
 5. dispatch 직전 `status`를 다시 읽어 저장·유효 795와 300초 안의 App 보고(`generatedAt - reportedAt`)를 확인한다.
 6. Release: target `app`, Developer API D1 `false`, `raise_app_build_floor` `false`. PRO 최소 빌드 사전 검사는 `app`에서 돌지 않는다.
-7. 배포 직후(게이트 아님): 합성 방 코드의 방에서 9.0.25 탭으로 스냅샷 적용, `/debug`에 'Heartbeat state was not applied'나 'Lease
-   heartbeat failed' 경고 없음, zero-start 시작 한 번을 보고 QA 라운드 4에 적는다.
+7. 배포 직후(게이트 아님): 아래 '배포 직후 확인과 기기 확인'의 나눠 줄 절차 A, B, C(W = 3)와 선택 D를 합성 방(오너가 가진 PRO
+   방)에서 9.0.25 탭으로 하게 하고, 받은 관찰값을 그 절의 판정 기준과 견주어 QA 라운드 4에 적는다. 확인하는 사람에게는 판정 기준을
+   건네지 않는다.
 8. 기록 PR: §1과 `Last source review` 덮어쓰기(§1 '의존성·호환'의 opt-in 머리글과 SESSION_FULL·OPERATOR_TOAST 문장 포함),
    `release-history.md` 한 행, §2의 이 항목을 '배포 뒤 확인'으로, §4의 이 항목과 현재 경계 줄 (8)에 머지 SHA, Release ID, checkpoint
    ID, hotfix-procedure의 9.0.25 문장 옆에 머지 SHA와 Release ID.
@@ -372,17 +373,96 @@ schemaVersion 1과 2를 모두 읽고, 바닥 795 이상이라 `lower`가 필요
 
 ### 4. PR, 배포와 배포 직후 확인 (자리)
 
-- PR, PR CI, 자동 코드 리뷰, exact-main CI, Release run, checkpoint, 배포 직후 합성 방 확인. (아직)
+- PR, PR CI, 자동 코드 리뷰, exact-main CI, Release run, checkpoint. (아직)
+- 배포 직후 확인: 아래 '받을 관찰값'(방 코드와 식별자는 지우고 개수와 필요한 줄만)과 '판정 기준'에 따른 판정. (아직)
 
-## 오너 기기 확인 후보 (게이트 아님)
+## 배포 직후 확인과 기기 확인 (게이트 아님)
 
-기기 확인은 블라인드로 한다: 절차와 통과 기준은 여기에 먼저 적고, 확인을 맡는 사람이나 세션에는 기대값을 주지 않고 관찰값만 받아
-비교한다.
+배포 조건 7의 배포 직후 확인(A, B, C와 선택 D)과 오너가 나중에 하는 기기 확인 후보 둘(후보 1은 백그라운드에서 막 돌아온 폰을 넣은
+B, 후보 2는 10분 동안의 C)은 블라인드로 한다 ([5A 기기 절차](phase5-5a-receive-slot-2026-10-25.md#phase-5-기기-절차-오너가-나중에-쓸-것-p5-d2-a)와 같은 방식). 확인하는 사람에게는
+'나눠 줄 절차'와 '받을 관찰값'만 그대로 건네고 기대값은 주지 않는다. 판정하는 쪽이 받은 값을 '판정 기준'과 견주며, 판정 기준은
+건네지 않는다. 결과는 QA 라운드 4(배포 직후 확인)나 그 뒤에 더하는 QA 라운드(후보)에 적되, 방 코드와 식별자는 지우고 개수와 필요한
+줄만 옮긴다.
 
-1. PRO 방 첫 재생과 다음 트랙의 zero-start 시작: 9.0.25 기기 둘 이상, 그 가운데 하나는 백그라운드에서 막 돌아온 상태. 관찰값:
-   기기마다 `/debug`의 `[PRO YouTube] Zero-start playback released` 줄 유무와 시작 시각. 통과: 모든 기기에 그 줄이 있다.
-2. LAN-direct 공유 중인 PRO 방에서 9.0.25 탭의 하트비트: 관찰값: 공유 시작부터 10분 동안 `/debug`의 'Heartbeat state was not
-   applied'와 'Lease heartbeat failed' 경고 수. 통과: 0.
+### 나눠 줄 절차
+
+방 코드는 따로 건넨다. 아래 `<PRO 방 코드>`를 그 코드로 바꿔 쓴다.
+
+준비:
+
+- 방은 오너가 가진 PRO 방이다. 고객 방은 쓰지 않고 운영 방을 새로 만들지 않는다.
+- 모든 기기를 같은 Wi-Fi에 두고 VPN을 끈다. 주인 기기는 방 주인 계정으로 로그인한 데스크톱 Chrome이고, 청취자 기기는 로그아웃한 다른
+  기기(폰이나 다른 브라우저)다. 기기는 모두 합쳐 넷 이하다.
+- 기기마다 MUSIXQUARE 탭을 모두 닫고 새 탭에서 `https://musixquare.com/<PRO 방 코드>?mxqrLog=info`를 열어 방에 들어간다. PIN을 물으면
+  넣는다. 업데이트 창이 뜨면 그 사실을 적고 '적용하기'를 누른 뒤, 그 탭을 닫고 같은 주소로 다시 연다.
+- 디버그 글: 채팅에 `/debug sync`나 `/debug console`을 보내면 겹창이 뜨고 그 글이 클립보드에 한 번 복사된다. 메모에 기기 이름과 지금
+  시각을 적고 그 글을 붙여 넣은 뒤 겹창 가장자리를 눌러 닫는다. 끝날 때까지 탭을 새로 고치거나 닫지 않는다.
+- 메모는 확인을 맡긴 사람에게만 넘기고 공개된 곳에 올리지 않는다.
+
+A. 들어가기(배포 직후 확인)
+
+1. 기기마다 방에 들어간다.
+2. 기기마다 `/debug sync` 글을 붙여 넣는다.
+
+B. YouTube 시작 두 번(배포 직후 확인, 후보 1)
+
+1. 재생목록의 YouTube 항목이 둘보다 적으면 주인 기기에서 더해 둘 이상으로 한다.
+2. 주인 기기에서 재생 단추가 아니라 재생목록의 YouTube 항목을 눌러 재생을 시작하고 그 시각을 적는다.
+3. 30초 넘게 지나 주인 기기에서 '다음 트랙'을 누르고 그 시각을 적는다. 다음 항목도 YouTube 항목이어야 한다.
+4. 후보 1에서만: 2와 3 앞마다 청취자 폰 하나('돌아온 기기')를 홈 화면으로 1분 넘게 보냈다가 앱으로 돌아오게 하고, 돌아온 지 10초
+   안에 주인 기기에서 누른다. 돌아온 시각을 적는다.
+5. 3 뒤 15분 안에 기기마다 `/debug sync` 글을 붙여 넣는다.
+
+C. 같은 Wi-Fi 공유 동안의 하트비트(배포 직후 확인은 W = 3, 후보 2는 W = 10)
+
+1. B 뒤에 주인 기기에서 시스템 오디오 공유를 시작한다: '시스템 오디오 공유' → 소리가 나는 Chrome 탭 → '탭 오디오도 공유' 켬 → '공유'.
+   그 시각을 적는다.
+2. 청취자 기기마다 소리가 들리는지 보고, 끊기면 그 시각을 적는다. 어느 기기든 토스트가 뜨면 그 글과 시각을 적는다.
+3. 공유를 시작하고 1분 뒤와 W분 뒤(후보 2는 5분 뒤에도) 기기마다 `/debug console` 글을 붙여 넣는다.
+4. W분 뒤 주인 기기에서 공유를 멈춘다.
+
+D. 선택(배포 직후 확인)
+
+1. 주인 기기의 '연결'에서 청취자 기기 하나 옆의 왕관 단추(관리자 권한 부여)를 누르고, 그 기기에 관리자 표시가 생기는지 1분 동안 본다.
+   생겼으면 그 관리자를 해제하고(확인 창의 '관리자 해제') 표시가 없어지는지 1분 동안 본다. 사이에 뜬 토스트를 그대로 적고 주인
+   기기에서 `/debug console` 글을 붙여 넣는다.
+2. 아무 기기의 새 탭에서 `https://musixquare.com/000000`을 연다. 들어가기를 요구하면 누르고, 뜬 창의 제목과 글을 그대로 적은 뒤 더
+   진행하지 않고 탭을 닫는다.
+
+### 받을 관찰값
+
+1. 기기마다: 기기 종류와 브라우저, 업데이트 창이 떴는지, 방 화면(재생목록과 참가자 목록)이 떴는지, PIN을 물었는지, 들어가는 동안
+   보인 글·오류 코드·토스트(그대로), A 2의 `/debug sync` 글.
+2. B: 두 시작의 시각(후보 1은 돌아온 시각도)과 기기마다 B 5의 `/debug sync` 글.
+3. C: 공유를 시작하고 멈춘 시각, 모든 기기가 같은 Wi-Fi였는지, 청취자 기기마다 소리가 끊긴 시각(없으면 '없음'), 뜬 토스트와 그
+   시각, 기기마다 C 3의 `/debug console` 글.
+4. D(했으면): 관리자 표시가 생기고 없어졌는지, 뜬 토스트, 주인 기기의 `/debug console` 글, `000000`에서 뜬 창의 제목과 글.
+
+### 판정 기준 (나눠 주지 않음)
+
+- 유효: 기기의 `/debug sync` 셋째 줄이 `Client build: app=9.0.25 | cacheEpoch=v798`로 시작한다. 아니면 그 기기의 결과는 무효이고 새
+  탭에서 다시 한다.
+- 들어가기: 모든 기기에 방 화면이 뜨고, 들어가는 동안 오류 글이나 코드가 없다. PIN을 물었으면 pin_required bootstrap을 지난 것이다.
+  묻지 않는 방(open)에서는 이 릴리스가 바꾼 bootstrap 갈래(activation_required, pin_required, suspended) 가운데 D 2의
+  activation_required만 본다.
+- 시작: 시작마다, 그 시작의 `revision`에 `purpose` "prepare"이고 `outcome` "selected"인 `playback-clock` 행이 있는 기기는 같은
+  `revision`의 `youtube-release` 행 `timingMode`가 "zero-start"다. 그런 행이 없는 기기(그 PREPARE를 준비하지 못함)의 예약 제어는 늦은
+  입장과 같은 정해진 동작(ZS-09)이라 적기만 한다. 행은 그 시작이 COMMIT 프레임으로 왔는지 하트비트 스냅샷(ZS-06)으로 왔는지 말하지
+  않는다. 9.0.25는 두 길 모두 PREPARE의 종류로 시작하므로 이 기준은 ZS-06의 회귀를 잡지만, 돌아온 기기가 그 길을 탔는지는 확인하지
+  못한다. `[PRO YouTube] Zero-start playback released`는 `log.debug` 줄이라 운영 로그 수준(WARN)이나 `?mxqrLog=info`의
+  `/debug console`에 나오지 않으므로 쓰지 않는다.
+- 하트비트: 먼저 공유가 끝까지 LAN-direct였는지 본다. 모든 기기가 같은 Wi-Fi였고 어느 `/debug console`에도 `[ProSysAudioSFU]`,
+  'Promoted LAN-direct publication to SFU', 'LAN-direct to SFU promotion failed' 줄이 없어야 하며, 아니면 이 부분은 무효라 다시 한다.
+  그러면 공유 시작부터 W분 동안 기기마다 '[PRO] Presence heartbeat failed', 'Heartbeat state was not applied', 'Lease heartbeat
+  failed', 'LAN-direct authority heartbeat grace elapsed' 줄이 없고 청취자 소리가 끊기지 않았으면 통과다. 9.0.25가 하트비트 답을
+  거절하면(스냅샷이나 live LAN-direct의 숫자 `liveExpiresAt` 때문에 `INVALID_RESPONSE`) 답 전체가 버려지므로, 청취자에게는 '[PRO]
+  Presence heartbeat failed'가 하트비트(약 15초)마다 나오고 'Heartbeat state was not applied'는 나오지 않는다. 공유자에게는 'Lease
+  heartbeat failed'도 나오고, 약 60초 뒤 'LAN-direct authority heartbeat grace elapsed' 줄과 함께 공유가 멈춘다. 그 줄들이 하트비트마다
+  이어지거나 어느 줄이든 `INVALID_RESPONSE`를 말하면 하트비트가 거절된 것이다. 이어지지 않는 한두 줄만 있으면 한 번 다시 한다. 읽은 글의 첫 줄 시각이 공유 시작보다 늦으면 그 앞은 300줄 고리 밖이므로
+  그 기기의 개수는 그 시각부터의 개수로 적는다.
+- D: 관리자 표시가 생기고 없어졌으며, '네트워크 오류가 발생했어요' 토스트와 '[Connect] Could not grant administrator', '[Connect]
+  Could not revoke administrator' 줄이 없다(답을 거절해도 서버의 변경은 다음 하트비트 스냅샷으로 보일 수 있어 표시만으로는 판정하지
+  않는다). `000000`에서는 '아직 준비 중인 PRO 방이에요' 창이 뜬다.
 
 ## 확인하지 않은 것
 

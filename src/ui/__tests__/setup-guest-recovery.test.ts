@@ -501,7 +501,13 @@ describe('guest setup recovery', () => {
     },
   );
 
-  it('keeps a terminal PRO lazy failure on a dedicated Refresh action', async () => {
+  // Owner decision (2026-10-29, item 10): after Refresh needed, Back works
+  // again. The setup screen kept [Back | Refresh] with Back disabled but drawn
+  // as enabled, so a tap did nothing. It now draws the actions the other
+  // Refresh needed paths draw (setup.ts): Back leaves the way the route came.
+  it('keeps a terminal PRO lazy failure on Refresh with Back in place for a typed code', async () => {
+    const goBack = vi.fn();
+    setGuestGoBack(goBack);
     const input = document.getElementById('setup-join-code') as HTMLInputElement;
     input.value = '000001';
     mocks.isProRoomCode.mockReturnValue(true);
@@ -509,16 +515,58 @@ describe('guest setup recovery', () => {
 
     await handleSetupJoinWithRole(0);
 
-    expect(mocks.actions[0]).toMatchObject({ id: 'btn-setup-back', disabled: true });
     expect(mocks.actions[1]).toMatchObject({
       id: 'btn-setup-confirm',
       text: 'common.refresh',
     });
+    expect(mocks.actions[1]?.disabled).toBeFalsy();
     expect(mocks.busEmit).not.toHaveBeenCalledWith('setup:guest-join-success');
     expect(mocks.busEmit).not.toHaveBeenCalledWith('setup:guest-join-failure', expect.anything());
+    // The dialog already said it; the screen shows no error of its own.
+    expect(mocks.setupSetGuestJoinError).toHaveBeenLastCalledWith(null, false);
+    expect(input.disabled).toBe(false);
+    expect(input.value).toBe('000001');
+
+    const back = document.getElementById('btn-setup-back') as HTMLButtonElement;
+    expect(mocks.actions[0]).toMatchObject({ id: 'btn-setup-back', ariaLabel: 'dialog.go_back' });
+    expect(back.disabled).toBe(false);
+    back.click();
+    expect(goBack).toHaveBeenCalledOnce();
+    expect(mocks.scheduleSessionReset).not.toHaveBeenCalled();
 
     const refresh = mocks.actions[1]?.onClick as (() => void) | undefined;
     refresh?.();
+    expect(mocks.scheduleDocumentReload).toHaveBeenCalledWith('dialog.refreshing_session');
+  });
+
+  it('keeps a terminal PRO lazy failure on Refresh with Back leaving for home from an invite link', async () => {
+    const goBack = vi.fn();
+    setGuestGoBack(goBack);
+    mocks.pendingAutoCode = '000001';
+    mocks.isProRoomCode.mockReturnValue(true);
+    mocks.enterProRoomFromSetup.mockResolvedValue('reload-required');
+    startGuestFlow();
+
+    (document.getElementById('btn-setup-confirm') as HTMLButtonElement).click();
+    await vi.waitFor(() => expect(mocks.enterProRoomFromSetup).toHaveBeenCalledWith('000001'));
+    await vi.waitFor(() =>
+      expect(document.getElementById('btn-setup-confirm')?.textContent).toBe('common.refresh'),
+    );
+
+    expect(mocks.busEmit).not.toHaveBeenCalledWith('setup:guest-join-failure', expect.anything());
+    expect(mocks.setupSetGuestJoinError).toHaveBeenLastCalledWith(null, true);
+    const back = document.getElementById('btn-setup-back') as HTMLButtonElement;
+    expect(mocks.actions[0]).toMatchObject({ id: 'btn-setup-back', ariaLabel: 'dialog.go_back' });
+    expect(back.disabled).toBe(false);
+    back.click();
+    // An invite link's Back leaves the link page for the app home.
+    expect(mocks.scheduleSessionReset).toHaveBeenCalledExactlyOnceWith(
+      'dialog.leaving_session',
+      expect.any(Function),
+    );
+    expect(goBack).not.toHaveBeenCalled();
+
+    (document.getElementById('btn-setup-confirm') as HTMLButtonElement).click();
     expect(mocks.scheduleDocumentReload).toHaveBeenCalledWith('dialog.refreshing_session');
   });
 

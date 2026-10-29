@@ -38,6 +38,11 @@ return would pass the Worker's 1,024-byte `returnTo` bound. The App language
 dialog's Help translate link opens `/translate?locale=<App language>` and follows
 language changes.
 
+After Google sign-in the Worker returns with `accountAuth=success|cancelled|error`.
+The page removes the marker with `replaceState`, keeping `locale`, `phrase` and
+the fragment. A cancelled or failed sign-in shows "Sign-in was cancelled." or
+"Couldn’t sign in. Try again." in the submit status; success shows nothing new.
+
 ## Visit statistics
 
 Like the other standalone pages, the page loads the guarded

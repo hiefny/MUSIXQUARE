@@ -14,6 +14,7 @@ import { createDraftRevisionId } from './draft-revision';
 import {
   DEFAULT_PHRASE_ID,
   readTranslateAddress,
+  takeSignInResult,
   translateAddressSearch,
   translateSignInReturn,
 } from './address';
@@ -49,6 +50,14 @@ const draftKey = (locale: string, id: string) => `${locale}:${id}`;
 const drafts = new Map(initial.drafts.map((draft) => [draftKey(draft.locale, draft.id), draft]));
 const pageSize = 20;
 const address = readTranslateAddress(window.location.search, window.navigator);
+const signIn = takeSignInResult(window.location.search);
+// Shown once in the submit status after the first phrase is selected.
+let signInMessage =
+  signIn.result === 'cancelled'
+    ? 'Sign-in was cancelled.'
+    : signIn.result === 'error'
+      ? 'Couldn’t sign in. Try again.'
+      : '';
 let catalog: Catalog | null = null;
 let selectedId = DEFAULT_PHRASE_ID;
 let page = 0;
@@ -401,6 +410,10 @@ async function loadCatalog(locale: string, id = selectedId): Promise<void> {
       .find((entry) => !!entry);
     selectEntry(preferred?.id ?? available[0]?.id ?? next.entries[0]?.id ?? '');
     if (addressChosen) rememberSelection();
+    if (signInMessage) {
+      element('submit-status').textContent = signInMessage;
+      signInMessage = '';
+    }
   } catch (error) {
     if (active.signal.aborted) return;
     element('load-error').textContent = 'Couldn’t load translations.';
@@ -477,6 +490,8 @@ reviewButton.addEventListener('click', () => {
   proposal.focus();
 });
 setStorageWarning(initial.warning);
+// The sign-in marker is read once; locale, phrase and the fragment stay.
+writeAddress(signIn.search);
 updateSignInReturn(null);
 
 loadCatalog(requestedLocale, address.phrase ?? DEFAULT_PHRASE_ID).catch(reportActionFailure);

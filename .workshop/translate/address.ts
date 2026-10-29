@@ -28,6 +28,24 @@ export function readTranslateAddress(
   };
 }
 
+type SignInResult = 'success' | 'cancelled' | 'error';
+
+/** The Worker's `accountAuth` sign-in marker, and the query without it. */
+export function takeSignInResult(search: string): {
+  result: SignInResult | null;
+  search: string;
+} {
+  const params = new URLSearchParams(search);
+  if (!params.has('accountAuth')) return { result: null, search };
+  const value = params.get('accountAuth');
+  params.delete('accountAuth');
+  const rest = `${params}`;
+  return {
+    result: value === 'success' || value === 'cancelled' || value === 'error' ? value : null,
+    search: rest ? `?${rest}` : '',
+  };
+}
+
 /** The current query with this page's locale and phrase set; other parameters stay. */
 export function translateAddressSearch(search: string, locale: string, phrase: string): string {
   const params = new URLSearchParams(search);

@@ -725,10 +725,11 @@ gh workflow run app-build-floor.yml --ref main -f action=lower -f min_app_build=
   require, or starts sending a shape they cannot read: it comes only after the release's App
   deploy, App smokes and commit marker, and only to the release's own build, which is higher than
   needed and shows the update dialog without Later to every build in between. Raise the floor for
-  such a release beforehand with a standalone `set` to the oldest build that copes, prove
-  Signaling admission at that floor with the smoke described for the first floor below, and
-  dispatch the release with `raise_app_build_floor` false (old-version removal train 3, 9.0.21,
-  sets 789 first).
+  such a release beforehand with a standalone `set` to the oldest build that copes, then run the
+  Signaling admission smoke of the first floor below: both rooms must admit their host and guest,
+  and `legacyCompatibility.refusedBelowAppBuildFloor` must equal the new floor (`appBuild.build`
+  is the live build and may be higher). Dispatch the release with `raise_app_build_floor` false
+  (old-version removal train 3, 9.0.21, sets 789 first).
 - A Production Release with target `pro-room` or `all` checks the floor before it changes
   anything: its step "Check the App build floor the PRO Worker requires" runs after the
   partial-release dependency compatibility check and before the recovery checkpoint, so a stop

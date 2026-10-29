@@ -2,13 +2,13 @@
 
 | Field              | Value                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                  |
 | ------------------ | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Status             | 초안(2026-10-29). 구현과 증분별 검사(QA 라운드 1), 세 갈래 열차 끝 리뷰(모두 승인, 높음·중간 0), main 9.0.21 위로 옮기기, 리뷰 반영, 버전 올리기, 옮긴 부모에서 테스트 먼저 다시 돌리기와 전체 검사(QA 라운드 2 ~ 5)까지 끝났고 미병합·미배포다. 브랜치 `agent/p55-r1`은 main `3bfdffcb`(9.0.21, #522) 위의 커밋이다: 증분 21(테스트 먼저 10, 코드 10, LEAVE-1 하나), R1-11 문서 2, 9.0.22 이름 바로잡기 `513729f6`, 리뷰 반영 시험 `38c0dee2`와 문서 `b7d91b2c`, 버전 올리기 `336a5133`, 이 보고서와 릴리스 기록을 더한 `f9825aa4`, QA 라운드 5를 적은 문서 커밋. 마지막 런타임 커밋은 버전 올리기 `336a5133`이고 그 뒤는 문서뿐이다. 릴리스 기록 §2의 '9.0.22 배포 전' 항목이 이 브랜치에 있다. 배포 전 운영 단계(P2 직후 운영 remote-share smoke 두 형태, F1 바닥 789, F1 직후 신호 입장 smoke), PR, PR CI, 자동 코드 리뷰, exact-main CI, 배포는 아직이다(QA 라운드 6, 7은 자리만)                                                                                                                                                 |
-| Base               | main `3bfdffcb`(#522 squash, 9.0.21 / v794, target `app`, 이 문서를 쓸 때 배포 중). 그 앞의 main: P2 #519(`7241e89d`, 도구·문서만: remote-share smoke가 peer-open 표지 없이 실제 확인서로 방을 증명, PRO가 요구하는 앱 빌드의 릴리스 전 검사, 바닥 올리기 실패 문장), #520(시험만), #521(9.0.20 기록). 증분은 main `edd6ee94`(#518. 런타임은 9.0.20 `226219c5`, 그 위 P1 #517과 #518은 시험만) 위에서 만들었고(마지막 `c058a98a`), 2026-10-29 15:25 KST에 `3bfdffcb` 위로 옮겼다. 옮길 때 미디어 고르기 창 포커스 경쟁 한 쌍(`95051a6c` 테스트 먼저, `b612c051` 구현)은 뺐다(아래 '뺀 쌍'). 옮긴 증분 21커밋은 커밋마다 `git patch-id --stable`이 같다. R1-11 문서 두 커밋은 P2와 9.0.20 기록이 바꾼 앞뒤 줄 때문에 patch-id만 다르고 더한 줄은 같다(SHA 대응은 '옮긴 뒤 SHA' 표)                                                                                                                                                                                                                                                      |
-| Version            | 9.0.22 / v795, 앱 빌드 795. 마지막 런타임 커밋 `336a5133`이 모든 거울(`package.json`, `package-lock.json` 두 곳, App Worker의 `ADMIN_ASSET_VERSION`, 관리자 스크립트의 `ADMIN_SCRIPT_VERSION`, `SERVICE_WORKER_CACHE_VERSION`, `index.html`의 bootstrap 쿼리)을 올렸다. `guard:release-identity` 'MUSIXQUARE 9.0.22; service-worker cache epoch v795', `guard:sw-cache-version` 'PASS: v795 (336a5133) covers all committed PWA runtime changes'. 앱 SemVer와 SW 캐시가 바뀌므로 업데이트 창이 뜬다. F1 뒤 바닥 789 위의 9.0.16 ~ 9.0.21 탭(빌드 789 ~ 794)에는 '나중에'가 있는 보통 창이다. 795는 PRO 스냅샷 schemaVersion 2를 받는 첫 빌드이고 F2의 바닥이다                                                                                                                                                                                                                                                                                                                                                                         |
+| Status             | 초안(2026-10-29). 구현과 증분별 검사(QA 라운드 1), 세 갈래 열차 끝 리뷰(모두 승인, 높음·중간 0), main 9.0.21 위로 옮기기, 리뷰 반영, 버전 올리기, 옮긴 부모에서 테스트 먼저 다시 돌리기와 전체 검사(QA 라운드 2 ~ 5)까지 끝났고 미병합·미배포다. 브랜치 `agent/p55-r1`은 main `3bfdffcb`(9.0.21, #522) 위의 커밋이다: 증분 21(테스트 먼저 10, 코드 10, LEAVE-1 하나), R1-11 문서 2, 9.0.22 이름 바로잡기 `ca6e8b85`, 리뷰 반영 시험 `2e675b36`와 문서 `0ee7242f`, 버전 올리기 `16d24d89`, 이 보고서와 릴리스 기록을 더한 `9f2e0513`, QA 라운드 5를 적은 문서 커밋. 마지막 런타임 커밋은 버전 올리기 `16d24d89`이고 그 뒤는 문서뿐이다. 릴리스 기록 §2의 '9.0.22 배포 전' 항목이 이 브랜치에 있다. 배포 전 운영 단계(P2 직후 운영 remote-share smoke 두 형태, F1 바닥 789, F1 직후 신호 입장 smoke), PR, PR CI, 자동 코드 리뷰, exact-main CI, 배포는 아직이다(QA 라운드 6, 7은 자리만)                                                                                                                                                 |
+| Base               | main `096da175`(#523, 9.0.21 기록, 문서만). 처음에는 main `3bfdffcb`(#522 squash, 9.0.21 / v794, target `app`) 위로 옮겨 검사했고, 9.0.21 기록이 들어온 뒤 한 번 더 옮겼다. 두 기준의 차이는 문서 넷뿐이고 bump의 문서 밖 트리가 같아(`git diff`) 검사 결과는 그대로 쓴다. 이 문서의 열차 커밋 SHA는 두 번째로 옮긴 뒤 값이다. 그 앞의 main: P2 #519(`7241e89d`, 도구·문서만: remote-share smoke가 peer-open 표지 없이 실제 확인서로 방을 증명, PRO가 요구하는 앱 빌드의 릴리스 전 검사, 바닥 올리기 실패 문장), #520(시험만), #521(9.0.20 기록). 증분은 main `edd6ee94`(#518. 런타임은 9.0.20 `226219c5`, 그 위 P1 #517과 #518은 시험만) 위에서 만들었고(마지막 `c058a98a`), 2026-10-29 15:25 KST에 `3bfdffcb` 위로 옮겼다. 옮길 때 미디어 고르기 창 포커스 경쟁 한 쌍(`95051a6c` 테스트 먼저, `b612c051` 구현)은 뺐다(아래 '뺀 쌍'). 옮긴 증분 21커밋은 커밋마다 `git patch-id --stable`이 같다. R1-11 문서 두 커밋은 P2와 9.0.20 기록이 바꾼 앞뒤 줄 때문에 patch-id만 다르고 더한 줄은 같다(SHA 대응은 '옮긴 뒤 SHA' 표)           |
+| Version            | 9.0.22 / v795, 앱 빌드 795. 마지막 런타임 커밋 `16d24d89`이 모든 거울(`package.json`, `package-lock.json` 두 곳, App Worker의 `ADMIN_ASSET_VERSION`, 관리자 스크립트의 `ADMIN_SCRIPT_VERSION`, `SERVICE_WORKER_CACHE_VERSION`, `index.html`의 bootstrap 쿼리)을 올렸다. `guard:release-identity` 'MUSIXQUARE 9.0.22; service-worker cache epoch v795', `guard:sw-cache-version` 'PASS: v795 (16d24d89) covers all committed PWA runtime changes'. 앱 SemVer와 SW 캐시가 바뀌므로 업데이트 창이 뜬다. F1 뒤 바닥 789 위의 9.0.16 ~ 9.0.21 탭(빌드 789 ~ 794)에는 '나중에'가 있는 보통 창이다. 795는 PRO 스냅샷 schemaVersion 2를 받는 첫 빌드이고 F2의 바닥이다                                                                                                                                                                                                                                                                                                                                                                         |
 | Scope              | Phase 5.5 계획의 R1(증분 R1-1 ~ R1-11). 구버전 제거 열차 3(보내는 쪽): SESSION_FULL `message`와 OPERATOR_TOAST `text`(STD-1, STD-2), 게스트의 SFU 능력 표지와 그 메시지 종류(SAC-1, SAC-2, SAC-4), Standard 첫 offer와 모든 answer의 `iceRestartVersion`(SIG-4, SIG-3 src), signaling peer-open의 표지 넷(SIG-1, OV-F08), PRO presence/close의 재생 관찰 세 필드(PRES-1, PRES-2 문서)와 부르는 곳 없는 `leavePresence`(LEAVE-1). PRO 스냅샷 v2 받기: App이 스냅샷 schemaVersion 1과 2를 한 메모리 모양으로 읽음(A1, PSK-04 관리자 목록, PSK-12, PSK-17), PREPARE와 COMMIT의 시작 종류 `timingMode`(ZS-01), `liveExpiresAt` null인 live LAN-direct(PLE-01, M6), PRO Worker가 저장된 `timingMode`와 null LAN-direct 마감을 읽음(ZS-02, PLE-02), Worker와 App의 PRO 재생 전환 공유 시간 집(ZS-07). 문서: 바닥을 릴리스 전에 올리는 규칙(RM-03)과 release-record §4의 현재 경계 줄(M8). PRO Worker는 아직 v1과 숫자 마감만 쓴다. 저장 모양, D1, 비밀, 바인딩, Wrangler 설정, CORS, 계약 표지는 바꾸지 않는다                               |
 | Deploy target      | `all`. `scripts/release-deployment-state.mts`의 `changedRuntimePaths`와 Worker별 런타임 경로로 견준 로컬 git 판정(App은 9.0.21 `3bfdffcb`, 다른 다섯은 9.0.20 `226219c5` 대비. 9.0.21은 `app`이라 다섯 Worker는 9.0.20 버전 그대로이고, 다섯을 `3bfdffcb`와 견줘도 수가 같다): App 27(`src` 21, `cloudflare/app-worker.ts`, `cloudflare/pro-room-playback-timing.ts`, `cloudflare/standard-room-pin-membership.ts`, `browser/classic-runtime/admin.ts`, `index.html`, `scripts/service-worker-asset.ts`), PRO 방 2(`cloudflare/pro-room-worker.ts`, `cloudflare/pro-room-playback-timing.ts`), signaling 2(`cloudflare/signaling-worker.ts`, `cloudflare/standard-room-pin-membership.ts`), remote-share 0, Developer API facade 0, Developer API 0. `changedAppRuntimeDependencies`는 빈 목록이다. 9.0.21이 배포됐다는 전제의 판정이라 운영 조회를 대신하지 않는다. Developer API D1 `false`, `raise_app_build_floor` `false`. 이 릴리스는 바닥을 올리지 않는다: 배포 전 F1이 789로, 배포와 기록 뒤 R2 전에 F2가 795로 따로 `set`한다 |
 | Operations         | 이 열차는 아직 운영에 아무것도 하지 않았다. 배포 전 운영 단계와 dispatch 직전 다시 읽기는 '배포 조건과 순서'와 QA 라운드 6(자리)에 있다                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                |
-| Resource ownership | 새 복구·재시도·시간 제한·감시·생명주기 흐름이 없어 새 레코드는 없다. R1-10이 RO-03 시간 집에 공유 파일 `cloudflare/pro-room-playback-timing.ts`(전환 마감 3000 ms, COMMIT 앞섬 700 ms, 시작 종류 합집합)를 더하고 `scripts/check-resource-ownership.mts`의 시간 계약 하나를 더했다(RO-03, RO-31). RO-04(R1-2), RO-15(R1-3), RO-07(R1-9 뒤의 선택 키, 리뷰 반영 `b7d91b2c`)도 같은 변경에서 고쳤다. `node scripts/check-resource-ownership.mts`: 49 records / 446 files(새 공유 파일로 +1), 같은 값 쌍 24 → 27(보고만, 셋 모두 새 계약의 App 예산), 기준치 변화 없음                                                                                                                                                                                                                                                                                                                                                                                                                                                                    |
+| Resource ownership | 새 복구·재시도·시간 제한·감시·생명주기 흐름이 없어 새 레코드는 없다. R1-10이 RO-03 시간 집에 공유 파일 `cloudflare/pro-room-playback-timing.ts`(전환 마감 3000 ms, COMMIT 앞섬 700 ms, 시작 종류 합집합)를 더하고 `scripts/check-resource-ownership.mts`의 시간 계약 하나를 더했다(RO-03, RO-31). RO-04(R1-2), RO-15(R1-3), RO-07(R1-9 뒤의 선택 키, 리뷰 반영 `0ee7242f`)도 같은 변경에서 고쳤다. `node scripts/check-resource-ownership.mts`: 49 records / 446 files(새 공유 파일로 +1), 같은 값 쌍 24 → 27(보고만, 셋 모두 새 계약의 App 예산), 기준치 변화 없음                                                                                                                                                                                                                                                                                                                                                                                                                                                                    |
 
 이 문서는 Phase 5.5의 첫 런타임 릴리스 R1의 증분과 QA를 기록한다. 근거는 공개하지 않는 작업 노트(`docs/private/`)의
 Phase 5.5 계획(2026-10-28)과 그 영역 조사이고, STD, SAC, SIG, PRES, PSK, ZS, PLE, RM, OV 번호와 Q 번호는 그 노트의
@@ -71,21 +71,21 @@ v2 받기 쪽은 이 릴리스에 바닥이 필요 없다(받는 쪽만 넓힘, 
 
 | 증분    | 항목                           | 테스트 먼저 → 코드(옮긴 뒤)          | 부모 실패                     | 런타임 경로               |
 | ------- | ------------------------------ | ------------------------------------ | ----------------------------- | ------------------------- |
-| R1-1    | STD-1, STD-2                   | `be179131` → `43e8c7f5`              | 4 / 146                       | App                       |
-| R1-2    | SAC-1, SAC-2, SAC-4            | `04e43666` → `8c09d939`              | 3 / 79                        | App                       |
-| R1-3    | SIG-4, SIG-3(src)              | `ec435867` → `7992781c`              | 3 / 256                       | App                       |
-| R1-5    | SIG-1, OV-F08, SIG-3 공유 주석 | `068dc4e8` → `8d532844`              | 4 / 573                       | signaling, App(공유 주석) |
-| R1-4    | PRES-1, PRES-2(문서)           | `fac20e64` → `8f71de2d`              | 2 / 695                       | App                       |
-| LEAVE-1 | 부르는 곳 없는 `leavePresence` | 없음 → `d456f28c`                    | 해당 없음(죽은 코드)          | App                       |
-| R1-6    | A1, PSK-04, PSK-12, PSK-17     | `b95dd9c0` → `97c07685`              | 29 / 218                      | App                       |
-| R1-7    | ZS-01                          | `552f4e34` → `02637ffa`              | 10 / 286                      | App                       |
-| R1-8    | PLE-01, M6                     | `02a7ca93` → `3b859d3f`              | 16 / 835                      | App                       |
-| R1-9    | ZS-02, PLE-02                  | `860658fc` → `455319cd`              | 6 / 603                       | PRO                       |
-| R1-10   | ZS-07(Q6)                      | `aa40652a` → `e5cb955c`              | 새 묶음 불러오기 실패, 1 / 49 | PRO, App                  |
-| R1-11   | RM-03, §4 현재 경계 줄(M8)     | 문서 `64ce7cf7`, `9d767021`          | 없음                          | 문서                      |
-| 이름    | 열차 3을 9.0.22로              | `513729f6`(주석, 시험 제목, 문서)    | 없음                          | PRO(주석), 문서           |
-| 리뷰    | 잠든 방 행, 문서 다듬기        | `38c0dee2`(시험만), `b7d91b2c`(문서) | 아래 '잠든 방 행'             | 없음                      |
-| bump    | 9.0.22 / v795                  | `336a5133`                           | 없음                          | App                       |
+| R1-1    | STD-1, STD-2                   | `c33159d6` → `0be63929`              | 4 / 146                       | App                       |
+| R1-2    | SAC-1, SAC-2, SAC-4            | `14663644` → `80152fef`              | 3 / 79                        | App                       |
+| R1-3    | SIG-4, SIG-3(src)              | `69fb8aba` → `f7255608`              | 3 / 256                       | App                       |
+| R1-5    | SIG-1, OV-F08, SIG-3 공유 주석 | `f5289088` → `dcbd3109`              | 4 / 573                       | signaling, App(공유 주석) |
+| R1-4    | PRES-1, PRES-2(문서)           | `ba00ab64` → `6cc09612`              | 2 / 695                       | App                       |
+| LEAVE-1 | 부르는 곳 없는 `leavePresence` | 없음 → `590c1b7d`                    | 해당 없음(죽은 코드)          | App                       |
+| R1-6    | A1, PSK-04, PSK-12, PSK-17     | `83680cbe` → `cc8d024b`              | 29 / 218                      | App                       |
+| R1-7    | ZS-01                          | `890b7385` → `9b7f83bd`              | 10 / 286                      | App                       |
+| R1-8    | PLE-01, M6                     | `77d09bc1` → `145b8adc`              | 16 / 835                      | App                       |
+| R1-9    | ZS-02, PLE-02                  | `df829a32` → `210ed109`              | 6 / 603                       | PRO                       |
+| R1-10   | ZS-07(Q6)                      | `ba1ef98c` → `5c921fd2`              | 새 묶음 불러오기 실패, 1 / 49 | PRO, App                  |
+| R1-11   | RM-03, §4 현재 경계 줄(M8)     | 문서 `6c2623ea`, `99b4fd38`          | 없음                          | 문서                      |
+| 이름    | 열차 3을 9.0.22로              | `ca6e8b85`(주석, 시험 제목, 문서)    | 없음                          | PRO(주석), 문서           |
+| 리뷰    | 잠든 방 행, 문서 다듬기        | `2e675b36`(시험만), `0ee7242f`(문서) | 아래 '잠든 방 행'             | 없음                      |
+| bump    | 9.0.22 / v795                  | `16d24d89`                           | 없음                          | App                       |
 
 ## 증분
 
@@ -140,7 +140,7 @@ P2(#519, SIG-2)가 smoke를 표지 없이 실제 확인서 요청과 전체 객�
 릴리스 W 항목에 '9.0.22 이상 App이 한 번이라도 live가 된 뒤에는 PRO를 W 앞으로 손으로 되돌리지 않는다'를 적었다(아래
 '되돌리기').
 
-LEAVE-1(`d456f28c`, 테스트 먼저 없음): `ProRoomApiClient.leavePresence`(DELETE `/presence/current`)는 `f3f0e9b0`(2026-07-16) 뒤
+LEAVE-1(`590c1b7d`, 테스트 먼저 없음): `ProRoomApiClient.leavePresence`(DELETE `/presence/current`)는 `f3f0e9b0`(2026-07-16) 뒤
 제품 호출이 없다(src, browser, scripts, cloudflare, e2e의 `git log -S`). 메서드, 인터페이스 멤버, 그것만 쓰던 시험 사용처를 함께
 지웠다. PRO Worker의 그 경로는 Worker 시험이 쓰므로 남는다.
 
@@ -190,7 +190,7 @@ SFU live는 여전히 양의 마감이 필요하다. live 상태와 발행 정�
   '불러온 시각 + `SYSTEM_AUDIO_LIVE_TTL_MS`'(첫 commit과 같은 식)로 바꾸고 이주 표시를 세워 첫 prune이 저장한다. 그래서 공개 투영과
   모든 하트비트 답의 값은 795 앞 App이 요구하는 양의 정수다(Q3, R2 뒤 App을 795 아래로 내리는 비상 길의 전제).
 
-**부모 실행이 보여 준 되돌리기 바닥(PLE-02, 계획 §4 R2 행 (3)).** 테스트 먼저 `860658fc`를 부모 `3b859d3f`에서 돌렸다. 그 부모의
+**부모 실행이 보여 준 되돌리기 바닥(PLE-02, 계획 §4 R2 행 (3)).** 테스트 먼저 `df829a32`를 부모 `145b8adc`에서 돌렸다. 그 부모의
 `cloudflare/pro-room-worker.ts`는 9.0.20 `226219c5`(운영 PRO Worker)와 바이트가 같다. 6 / 603이 실패했고 실패 행이 곧 R1 앞 PRO
 Worker의 동작이다.
 
@@ -223,7 +223,7 @@ import하므로 App 번들이 같다. 699와 2999는 공유 파일에 넣지 않
 - hotfix-procedure App Build Floor와 release-versioning: 지금 바닥이 들이는 빌드가 아직 요구하는 것을 그만 보내거나 그 빌드가 읽지
   못하는 모양을 보내기 시작하는 릴리스는 `raise_app_build_floor` 대신 릴리스 전에 standalone `set`으로 바닥을 올리고, 첫 바닥의 신호
   입장 smoke로 두 방의 방장·게스트 입장과 `refusedBelowAppBuildFloor` = 새 바닥을 본다(`appBuild.build`는 live 빌드라 더 높을 수
-  있음). 그 `set`이나 smoke가 실패하면 첫 바닥의 0이 아니라 `set` 규칙을 따른다(리뷰 반영 `b7d91b2c`): 일시적이면 같은 `set` 다시,
+  있음). 그 `set`이나 smoke가 실패하면 첫 바닥의 0이 아니라 `set` 규칙을 따른다(리뷰 반영 `0ee7242f`): 일시적이면 같은 `set` 다시,
   아니면 직전에 검증한 바닥으로 `lower`하고 smoke를 다시, 0은 방장이 여전히 거절되거나 그 `lower`가 실패할 때만.
 - release-record §4 머리의 '아래 모든 항목보다 우선하는 현재 경계' 줄: (1) 저장 최소 빌드 아래로 App CLI 되돌리기 전에는 되돌릴 대상
   App 빌드로 `lower`를 먼저, (2) 9.0.22 Signaling 뒤 App을 9.0.15 아래로는 Signaling 먼저, (3) 9.0.22 이상 App이 live가 된 뒤 PRO를
@@ -232,44 +232,44 @@ import하므로 App 번들이 같다. 699와 2999는 공유 파일에 넣지 않
 
 ### 이름 바로잡기와 리뷰 반영
 
-- `513729f6`: 이 열차를 9.0.21로 적었던 22곳(hotfix-procedure 5, release-versioning 1, release-record 11, PRO 운영 문서 4, PRO
+- `ca6e8b85`: 이 열차를 9.0.21로 적었던 22곳(hotfix-procedure 5, release-versioning 1, release-record 11, PRO 운영 문서 4, PRO
   Worker의 presence/close 주석 하나)을 9.0.22로, 9.0.20을 '열차 앞 마지막 빌드'로 적은 곳을 9.0.21로 고쳤다. Worker 주석은 pro-room
   런타임 경로라 이 `all`에 함께 나간다.
-- `38c0dee2`(시험만): 아래 '잠든 방 행'.
-- `b7d91b2c`(문서만): §4 현재 경계 줄 (1)의 대상 빌드, §2 5B 호환의 OV-B05 문장(게스트는 9.0.21까지 표지를 보냈고 9.0.22부터
+- `2e675b36`(시험만): 아래 '잠든 방 행'.
+- `0ee7242f`(문서만): §4 현재 경계 줄 (1)의 대상 빌드, §2 5B 호환의 OV-B05 문장(게스트는 9.0.21까지 표지를 보냈고 9.0.22부터
   보내지 않음), RM-03의 이른 `set` 실패 규칙, RO-03의 보고만 쌍(700 ms 둘과 3 s 하나, 1.5 s 문턱은 시간 집과 값을 나누지 않음),
   RO-07의 선택 키 `timingMode`와 그것을 고정하는 세 행.
 
-### 잠든 방 행 (`38c0dee2`)
+### 잠든 방 행 (`2e675b36`)
 
 R1-6이 `parseProRoomSnapshot`의 잠든 방 조건에서 코디네이터 절을 지우면서 남은 참가자 절(`src/pro-room/snapshot.ts`
 `if (value.runtime === 'sleeping' && presence.participants.length !== 0) return null;`)을 지키는 행이 없었다. 그 줄을 지워도 PRO 클라이언트
 묶음이 모두 통과했다(리뷰가 확인). `domain.test.ts`에 와이어마다 한 행(schemaVersion 1과 2)을 더했다: 참가자 한 명과 맞는
 `onlineDeviceCount` 1인 잠든 방은 null이다. 각 행은 먼저 같은 방을 presence 없이(개수 0) 파싱해 통과시키므로 거절은 참가자 하나에서만
-온다. QA 라운드 2에서 `38c0dee2` 그대로 두 행이 통과하고, 그 한 줄을 지운 트리에서 두 행이 실패함을 다시 봤다. R1-6 부모(LEAVE-1
+온다. QA 라운드 2에서 `2e675b36` 그대로 두 행이 통과하고, 그 한 줄을 지운 트리에서 두 행이 실패함을 다시 봤다. R1-6 부모(LEAVE-1
 커밋)에서는 v1 꼴 행이 통과한다(커밋 메시지).
 
-### 버전 올리기 9.0.22 / v795 (`336a5133`)
+### 버전 올리기 9.0.22 / v795 (`16d24d89`)
 
 버전 거울 여섯 파일 일곱 줄. 올리기 전에 받은 origin/main은 `3bfdffcb`(9.0.21 / v794)다. 이 열차의 마지막 런타임 커밋이고, 그 뒤는
 이 보고서와 기록 커밋(문서만)뿐이다.
 
-## 옮긴 뒤 SHA (`edd6ee94` 위 → `3bfdffcb` 위)
+## 옮긴 뒤 SHA (`edd6ee94` 위 → `096da175` 위)
 
 | 처음       | 옮긴 뒤    | 처음       | 옮긴 뒤    | 처음       | 옮긴 뒤                    |
 | ---------- | ---------- | ---------- | ---------- | ---------- | -------------------------- |
-| `54e2cfa4` | `be179131` | `a34242cc` | `068dc4e8` | `a61ca007` | `02637ffa`                 |
-| `8e7547ad` | `43e8c7f5` | `18aeafcb` | `8d532844` | `1abaae77` | `02a7ca93`                 |
-| `c78c536b` | `04e43666` | `23956dc2` | `fac20e64` | `b995049f` | `3b859d3f`                 |
-| `a102ac06` | `8c09d939` | `3e3e7ad4` | `8f71de2d` | `61d4ee8a` | `860658fc`                 |
-| `1d6beede` | `ec435867` | `1bfc0a99` | `d456f28c` | `943484ba` | `455319cd`                 |
-| `d120498c` | `7992781c` | `ee7ea9ea` | `b95dd9c0` | `0cf9c278` | `aa40652a`                 |
-|            |            | `6ccdc2db` | `97c07685` | `fcee4ae5` | `e5cb955c`                 |
-|            |            | `cd4c2cd3` | `552f4e34` | `539d7ded` | `64ce7cf7`(앞뒤 줄만 다름) |
-|            |            |            |            | `c058a98a` | `9d767021`(앞뒤 줄만 다름) |
+| `54e2cfa4` | `c33159d6` | `a34242cc` | `f5289088` | `a61ca007` | `9b7f83bd`                 |
+| `8e7547ad` | `0be63929` | `18aeafcb` | `dcbd3109` | `1abaae77` | `77d09bc1`                 |
+| `c78c536b` | `14663644` | `23956dc2` | `ba00ab64` | `b995049f` | `145b8adc`                 |
+| `a102ac06` | `80152fef` | `3e3e7ad4` | `6cc09612` | `61d4ee8a` | `df829a32`                 |
+| `1d6beede` | `69fb8aba` | `1bfc0a99` | `590c1b7d` | `943484ba` | `210ed109`                 |
+| `d120498c` | `f7255608` | `ee7ea9ea` | `83680cbe` | `0cf9c278` | `ba1ef98c`                 |
+|            |            | `6ccdc2db` | `cc8d024b` | `fcee4ae5` | `5c921fd2`                 |
+|            |            | `cd4c2cd3` | `890b7385` | `539d7ded` | `6c2623ea`(앞뒤 줄만 다름) |
+|            |            |            |            | `c058a98a` | `99b4fd38`(앞뒤 줄만 다름) |
 
-옮기기에서 뺀 것: `95051a6c`, `b612c051`(아래). 옮긴 뒤 더한 것: `513729f6`, `38c0dee2`, `b7d91b2c`, `336a5133`, 이 보고서와 기록
-커밋(`f9825aa4`와 QA 라운드 5를 적은 커밋).
+옮기기에서 뺀 것: `95051a6c`, `b612c051`(아래). 옮긴 뒤 더한 것: `ca6e8b85`, `2e675b36`, `0ee7242f`, `16d24d89`, 이 보고서와 기록
+커밋(`9f2e0513`와 QA 라운드 5를 적은 커밋).
 
 ## 뺀 쌍: 미디어 고르기 창 포커스 경쟁
 
@@ -283,10 +283,10 @@ R1 증분을 만들 때 9.0.20 기록이 '다음 App 릴리스의 런타임 고�
 
 | 가드                       | 위치                                                                         | 전   | 뒤   | 바뀐 커밋                             |
 | -------------------------- | ---------------------------------------------------------------------------- | ---- | ---- | ------------------------------------- |
-| 선언된 메시지 종류         | `src/network/__tests__/protocol-validation-coverage.test.ts`                 | 102  | 101  | 테스트 먼저 `04e43666`(받아들인 예외) |
-| room-authority 파일별 기준 | `scripts/check-room-authority-boundaries.mts`(`system-audio-sfu.ts` appRole) | 10   | 9    | 코드 `8c09d939`                       |
-| room-authority 지문        | 같은 파일(`network:peer-connected` 리스너)                                   | 있음 | 삭제 | 코드 `8c09d939`                       |
-| room-authority 총합        | `src/core/__tests__/room-authority-boundaries.test.ts`(directReads)          | 80   | 79   | 코드 `8c09d939`                       |
+| 선언된 메시지 종류         | `src/network/__tests__/protocol-validation-coverage.test.ts`                 | 102  | 101  | 테스트 먼저 `14663644`(받아들인 예외) |
+| room-authority 파일별 기준 | `scripts/check-room-authority-boundaries.mts`(`system-audio-sfu.ts` appRole) | 10   | 9    | 코드 `80152fef`                       |
+| room-authority 지문        | 같은 파일(`network:peer-connected` 리스너)                                   | 있음 | 삭제 | 코드 `80152fef`                       |
+| room-authority 총합        | `src/core/__tests__/room-authority-boundaries.test.ts`(directReads)          | 80   | 79   | 코드 `80152fef`                       |
 
 **받아들인 예외:** 선언된 메시지 종류의 102 → 101은 코드 커밋이 아니라 R1-2의 테스트 먼저 커밋에서 바뀌었다. 계획 R1-2 행의 '먼저
 실패할 테스트' 칸이 그렇게 적고, 열차 2 릴리스 A의 A-4(103 → 102)와 같은 선례다. 그 행은 부모에서 '102를 받음'으로 실패하고 새
@@ -374,22 +374,22 @@ F1 뒤 운영에 들어올 수 있는 빌드는 789(9.0.16) 이상이다. '789 ~
 | 지적                                                                                  | 처리                                                                                                                                                                                                          |
 | ------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | R1-5가 표지를 지우는데 9.0.20 기준의 remote-share smoke는 표지를 요구함(세 갈래 모두) | P2(#519)가 든 main 위로 옮김. 옮긴 뒤 smoke 단위 시험과 R1-5 Worker 행 다시 돌림(QA 라운드 3). P2 직후 운영 smoke 두 형태는 배포 조건(QA 라운드 6)                                                            |
-| §4 현재 경계 줄 (1)의 '그 빌드'가 저장 바닥으로 읽힘                                  | `b7d91b2c`: '되돌릴 대상 App 빌드'                                                                                                                                                                            |
-| RM-03 문장이 이른 `set` 실패 때의 규칙을 말하지 않아 첫 바닥의 0으로 읽힐 수 있음     | `b7d91b2c`: `set` 규칙(직전 검증 값으로 `lower`, smoke 다시, 0은 그때만)                                                                                                                                      |
-| 잠든 방 참가자 절을 지키는 행이 없음                                                  | `38c0dee2`(시험만)                                                                                                                                                                                            |
+| §4 현재 경계 줄 (1)의 '그 빌드'가 저장 바닥으로 읽힘                                  | `0ee7242f`: '되돌릴 대상 App 빌드'                                                                                                                                                                            |
+| RM-03 문장이 이른 `set` 실패 때의 규칙을 말하지 않아 첫 바닥의 0으로 읽힐 수 있음     | `0ee7242f`: `set` 규칙(직전 검증 값으로 `lower`, smoke 다시, 0은 그때만)                                                                                                                                      |
+| 잠든 방 참가자 절을 지키는 행이 없음                                                  | `2e675b36`(시험만)                                                                                                                                                                                            |
 | 선언된 메시지 종류가 테스트 먼저 커밋에서 바뀜                                        | 계획 행대로 받아들인 예외로 이 보고서에 적음('정확한 개수 가드')                                                                                                                                              |
-| 9.0.21이 22곳에 적힘                                                                  | `513729f6`: 9.0.21 UI 후속 열차가 먼저 나가 9.0.22로 고침(Worker 주석 포함)                                                                                                                                   |
-| §2 5B 호환의 '열차 3까지' 문장, Phase 5.5 승인 대기 문장, §4의 열차 3 항목            | 5B 문장은 `b7d91b2c`. 승인 대기 문장은 이미 남지 않음(9.0.20 기록이 승인을 적음). §4는 현재 경계 줄이 덮고, 이 릴리스의 §4 항목은 배포 기록 PR이 Release와 checkpoint ID와 함께 더함. §1 `:42`는 배포 기록 PR |
-| RO-07의 '모양 동결' 문장                                                              | `b7d91b2c`: 선택 키 `timingMode`와 고정 행 셋                                                                                                                                                                 |
-| RO-03이 모든 비슷한 예산을 보고만 쌍으로 적음                                         | `b7d91b2c`: 실제 셋(700 ms 둘, 3 s 하나), 1.5 s는 값을 나누지 않음                                                                                                                                            |
+| 9.0.21이 22곳에 적힘                                                                  | `ca6e8b85`: 9.0.21 UI 후속 열차가 먼저 나가 9.0.22로 고침(Worker 주석 포함)                                                                                                                                   |
+| §2 5B 호환의 '열차 3까지' 문장, Phase 5.5 승인 대기 문장, §4의 열차 3 항목            | 5B 문장은 `0ee7242f`. 승인 대기 문장은 이미 남지 않음(9.0.20 기록이 승인을 적음). §4는 현재 경계 줄이 덮고, 이 릴리스의 §4 항목은 배포 기록 PR이 Release와 checkpoint ID와 함께 더함. §1 `:42`는 배포 기록 PR |
+| RO-07의 '모양 동결' 문장                                                              | `0ee7242f`: 선택 키 `timingMode`와 고정 행 셋                                                                                                                                                                 |
+| RO-03이 모든 비슷한 예산을 보고만 쌍으로 적음                                         | `0ee7242f`: 실제 셋(700 ms 둘, 3 s 하나), 1.5 s는 값을 나누지 않음                                                                                                                                            |
 | R1-9 부모 실행, 계획 밖 포커스 증분, R1-6이 가져온 R2-1·R3-1 항목을 기록해야 함       | 이 보고서의 R1-9 절, '뺀 쌍', R1-6의 범위 이동                                                                                                                                                                |
 | 런타임 경로 확인(App 24, PRO 2, signaling 2, 나머지 0, 계획 밖 경로는 포커스 증분뿐)  | 옮기고 포커스 쌍을 뺀 뒤 App 27(9.0.21 대비, bump 거울 넷 포함), PRO 2, signaling 2, 나머지 0                                                                                                                 |
 
 ## 스쿼시 메시지에 고칠 커밋 메시지 문장
 
-커밋 메시지는 고치지 않았다(amend 없음). 스쿼시 메시지에서 다음을 바로잡는다: `8f71de2d`(R1-4), `8d532844`(R1-5), `455319cd`(R1-9),
-`64ce7cf7`(R1-11)이 이 열차를 9.0.21로 적은 것은 9.0.22다. `04e43666`, `8c09d939`(R1-2), `7992781c`(R1-3), `8f71de2d`(R1-4)가 열차 앞
-마지막 빌드를 9.0.20으로 적은 것은 9.0.21이다. `9d767021`이 F1 때 live를 9.0.20 빌드 793으로 예상한 것은 9.0.21 빌드 794다.
+커밋 메시지는 고치지 않았다(amend 없음). 스쿼시 메시지에서 다음을 바로잡는다: `6cc09612`(R1-4), `dcbd3109`(R1-5), `210ed109`(R1-9),
+`6c2623ea`(R1-11)이 이 열차를 9.0.21로 적은 것은 9.0.22다. `14663644`, `80152fef`(R1-2), `f7255608`(R1-3), `6cc09612`(R1-4)가 열차 앞
+마지막 빌드를 9.0.20으로 적은 것은 9.0.21이다. `99b4fd38`이 F1 때 live를 9.0.20 빌드 793으로 예상한 것은 9.0.21 빌드 794다.
 
 ## 사용자가 알아챌 변화
 
@@ -401,17 +401,17 @@ F1 뒤 운영에 들어올 수 있는 빌드는 789(9.0.16) 이상이다. '789 ~
 
 ## 기록과 레지스트리
 
-- release-record §2: '9.0.22 배포 전' 항목(이 변경), 5B 호환의 OV-B05 문장(`b7d91b2c`). §4: 머리의 현재 경계 줄(`64ce7cf7`,
-  `513729f6`, `b7d91b2c`), 릴리스 W 항목의 PRO 단서(`8f71de2d`). §1은 배포 기록 PR이 덮어쓴다.
-- hotfix-procedure: presence/close 문단(R1-4), RM-03 문장(R1-11, `b7d91b2c`), Signaling 먼저 문장(R1-5). release-versioning: RM-03.
+- release-record §2: '9.0.22 배포 전' 항목(이 변경), 5B 호환의 OV-B05 문장(`0ee7242f`). §4: 머리의 현재 경계 줄(`6c2623ea`,
+  `ca6e8b85`, `0ee7242f`), 릴리스 W 항목의 PRO 단서(`6cc09612`). §1은 배포 기록 PR이 덮어쓴다.
+- hotfix-procedure: presence/close 문단(R1-4), RM-03 문장(R1-11, `0ee7242f`), Signaling 먼저 문장(R1-5). release-versioning: RM-03.
 - known-accepted #12(R1-5), `cloudflare/standard-room-pin-ops.md`(R1-5), `docs/design/signaling-liveness.md`(R1-3, R1-5),
-  `docs/design/pro-room-architecture-and-operations.md`(R1-4, `513729f6`).
-- 레지스트리: RO-03, RO-31(R1-10), RO-04(R1-2), RO-15(R1-3), RO-07(`b7d91b2c`). 새 레코드는 없다.
+  `docs/design/pro-room-architecture-and-operations.md`(R1-4, `ca6e8b85`).
+- 레지스트리: RO-03, RO-31(R1-10), RO-04(R1-2), RO-15(R1-3), RO-07(`0ee7242f`). 새 레코드는 없다.
 - `docs/README.md` 증거 목록에 이 보고서. `release-history.md`는 배포 때.
 
 ## 초기 JS와 Worker 번들
 
-bump 뒤 `build:checked`(`336a5133`): 진입 842.2 KiB raw / 247.9 KiB gzip, eager JS 456.5 KiB gzip, eager total 2,017.1 KiB raw /
+bump 뒤 `build:checked`(`16d24d89`): 진입 842.2 KiB raw / 247.9 KiB gzip, eager JS 456.5 KiB gzip, eager total 2,017.1 KiB raw /
 534.1 KiB gzip, SW 앱 셸 95 자산. 9.0.21 bump(`a538da11`)의 eager JS 456.6 KiB gzip, eager total 2,017.4 / 534.1 KiB와 거의 같다. Worker
 번들(`check:worker-bundles`, wrangler `deploy --dry-run`, 배포 없음): App 986.54 / gzip 201.52 KiB, PRO 방 832.49 / 163.22 KiB,
 signaling 392.40 / 81.53 KiB, remote-share 150.40 / 33.39 KiB, Developer API 135.35 / 30.43 KiB, Developer API facade 94.26 /
@@ -433,32 +433,32 @@ Playwright 묶음 30 / 30(R1-6 뒤에는 고정값이 v1 와이어라 v1 → 메
 멈췄다(bump 전이라 예상된 실패). R1-8의 첫 전체 실행에서 `sw-cache-version-guard.test.ts` 한 행이 git을 띄우다 15초 시간 제한에
 걸렸고 혼자와 다시 돌린 전체에서 통과했다(이 열차와 무관한 흔들림).
 
-### 2. 옮긴 부모에서 테스트 먼저 다시 (`3bfdffcb` 위, 2026-10-29 16:43 ~ 16:50 KST)
+### 2. 옮긴 부모에서 테스트 먼저 다시 (`3bfdffcb` 위, 2026-10-29 16:43 ~ 16:50 KST; SHA는 두 번째로 옮긴 뒤 값으로 적었고 트리는 문서 밖에서 같다)
 
 옮긴 SHA마다 임시 분리 워크트리를 테스트 먼저 커밋의 부모로 두고 그 커밋이 바꾼 파일만 얹어 그 시험 파일을 돌렸다(Node 24.22.2,
 vitest `--maxWorkers=4`). 결과는 '증분 한눈에' 표와 같고 실패 행 이름도 처음 실행과 같다.
 
 | 테스트 먼저 | 부모       | 돌린 시험 파일                                                                                       | 실패 / 전체                   |
 | ----------- | ---------- | ---------------------------------------------------------------------------------------------------- | ----------------------------- |
-| `be179131`  | `3bfdffcb` | `host`, `decode`                                                                                     | 4 / 146                       |
-| `04e43666`  | `43e8c7f5` | `protocol-validation-coverage`, `system-audio-sfu`, `system-audio-start`                             | 3 / 79                        |
-| `ec435867`  | `8c09d939` | `cloudflare-signaling`, `room-expiry-liveness`                                                       | 3 / 256                       |
-| `068dc4e8`  | `7992781c` | `cloudflare-signaling-worker`, `cloudflare-signaling`                                                | 4 / 573                       |
-| `fac20e64`  | `8d532844` | `api`, `pro-room-worker`, `runtime-presence-close`                                                   | 2 / 695                       |
-| `b95dd9c0`  | `d456f28c` | `pro-room-burst`, `api`, `domain`, `runtime-account-lease`                                           | 29 / 218                      |
-| `552f4e34`  | `97c07685` | `api`, `runtime-server-playback`                                                                     | 10 / 286                      |
-| `02a7ca93`  | `02637ffa` | `api`, `pro-room-worker`, `system-audio-contract`, `system-audio-controller`, `system-audio-service` | 16 / 835                      |
-| `860658fc`  | `3b859d3f` | `pro-room-signaling-delivery`, `pro-room-worker`                                                     | 6 / 603                       |
-| `aa40652a`  | `455319cd` | `resource-ownership-guard`, `pro-room-playback-timing`                                               | 새 묶음 불러오기 실패, 1 / 49 |
+| `c33159d6`  | `3bfdffcb` | `host`, `decode`                                                                                     | 4 / 146                       |
+| `14663644`  | `0be63929` | `protocol-validation-coverage`, `system-audio-sfu`, `system-audio-start`                             | 3 / 79                        |
+| `69fb8aba`  | `80152fef` | `cloudflare-signaling`, `room-expiry-liveness`                                                       | 3 / 256                       |
+| `f5289088`  | `f7255608` | `cloudflare-signaling-worker`, `cloudflare-signaling`                                                | 4 / 573                       |
+| `ba00ab64`  | `dcbd3109` | `api`, `pro-room-worker`, `runtime-presence-close`                                                   | 2 / 695                       |
+| `83680cbe`  | `590c1b7d` | `pro-room-burst`, `api`, `domain`, `runtime-account-lease`                                           | 29 / 218                      |
+| `890b7385`  | `cc8d024b` | `api`, `runtime-server-playback`                                                                     | 10 / 286                      |
+| `77d09bc1`  | `9b7f83bd` | `api`, `pro-room-worker`, `system-audio-contract`, `system-audio-controller`, `system-audio-service` | 16 / 835                      |
+| `df829a32`  | `145b8adc` | `pro-room-signaling-delivery`, `pro-room-worker`                                                     | 6 / 603                       |
+| `ba1ef98c`  | `210ed109` | `resource-ownership-guard`, `pro-room-playback-timing`                                               | 새 묶음 불러오기 실패, 1 / 49 |
 
 - 실패 행은 모두 새로 넣거나 바꾼 행이다. R1-2의 원시 표지 행, R1-5의 약한 비밀 응답 행, R1-8의 null SFU live 거절 행, R1-9의 SFU 울타리
   행처럼 양쪽 통과를 뜻한 짝 행은 부모에서도 통과했다. R1-6의 29행은 `domain` 10, `api` 11, `runtime-account-lease` 1, `pro-room-burst`
   7(명단 단언 줄이 파싱한 presence의 `coordinatorParticipantId: null`을 봄)이다.
-- 잠든 방 행: `38c0dee2` 그대로 `domain.test.ts` 46 / 46 통과, `snapshot.ts`의 잠든 방 참가자 절 한 줄만 지운 트리에서 44 / 46(새 두 행만
+- 잠든 방 행: `2e675b36` 그대로 `domain.test.ts` 46 / 46 통과, `snapshot.ts`의 잠든 방 참가자 절 한 줄만 지운 트리에서 44 / 46(새 두 행만
   실패).
 - 임시 워크트리는 끝난 뒤 지웠다.
 
-### 3. 옮긴 뒤 전체 검사 (`b7d91b2c`, 2026-10-29 15:38 ~ 16:11 KST, bump 전)
+### 3. 옮긴 뒤 전체 검사 (`0ee7242f`, 2026-10-29 15:38 ~ 16:11 KST, bump 전)
 
 Node 24.22.2 / npm 12.0.2(main의 고정값), vitest `--maxWorkers=6`. `npm audit` 0, 단위 702 files / 16,684(skip 0), Worker 커버리지
 69 files / 3,311(전체 86.69 / 83.54 / 94.31 / 90.96), typecheck 전체, `check:workers`, lint, `format:check`, 가드(dead-exports 0 /
@@ -471,15 +471,15 @@ files / 3,515(80.89 / 75.63 / 86.86 / 84.74), release-tooling 커버리지 14 fi
 `signaling-liveness`) 3 files / 579. 실패는 둘이고 둘 다 실제 실패가 아니다: `guard:sw-cache-version`(bump 전이라 예상됨),
 `check:worker-bundles`(어떤 빌드보다 먼저 돌아 `dist/`가 없었음, 'dist/ is required for the App Worker dry-run'. 라운드 4에서 통과).
 
-### 4. bump 뒤 검사 (`336a5133`, 9.0.22 / v795, 2026-10-29 16:11 ~ 16:21 KST)
+### 4. bump 뒤 검사 (`16d24d89`, 9.0.22 / v795, 2026-10-29 16:11 ~ 16:21 KST)
 
-`guard:release-identity` 9.0.22 / v795, `guard:sw-cache-version` PASS(v795 `336a5133`), `build:checked` 전체(앞의 '초기 JS와 Worker
+`guard:release-identity` 9.0.22 / v795, `guard:sw-cache-version` PASS(v795 `16d24d89`), `build:checked` 전체(앞의 '초기 JS와 Worker
 번들' 값, SW 앱 셸 95 자산, 레거시 TV 정적 검사, prod-hooks, prod-security, 글꼴), `check:worker-bundles` 여섯 Worker, 후보 E2E 19 / 19,
 단위 702 files / 16,684, Worker 69 files / 3,311, typecheck 전체, `format:check`. 모두 통과.
 
-### 5. 보고서와 기록 커밋 뒤 전체 검사 (`f9825aa4`, 2026-10-29 16:55 ~ 17:20 KST)
+### 5. 보고서와 기록 커밋 뒤 전체 검사 (`9f2e0513`, 2026-10-29 16:55 ~ 17:20 KST)
 
-`f9825aa4`는 이 보고서, 릴리스 기록 §2 항목, `docs/README.md` 항목을 처음 더한 커밋이고 런타임 트리는 bump `336a5133`과 같다.
+`9f2e0513`는 이 보고서, 릴리스 기록 §2 항목, `docs/README.md` 항목을 처음 더한 커밋이고 런타임 트리는 bump `16d24d89`과 같다.
 Node 24.22.2 / npm 12.0.2, vitest `--maxWorkers=6`, 시작 때 작업 트리 깨끗함. 모든 단계가 종료 코드 0이다.
 
 - `npm audit`(high 이상) 0.
@@ -492,7 +492,7 @@ Node 24.22.2 / npm 12.0.2, vitest `--maxWorkers=6`, 시작 때 작업 트리 깨
   18,405 / 20,000, `cloudflare/signaling-worker.ts` 8,403 / 10,000, `src/pro-room/runtime.ts` 4,157 / 10,000),
   `node scripts/check-resource-ownership.mts`(49 records / 446 files, 같은 값 쌍 27은 보고만).
 - smoke 단위 시험 6 files / 208, Worker 설정의 remote-share와 smoke 시험 3 files / 126, R1-5 Worker 행 3 files / 579.
-- `guard:release-identity` 'MUSIXQUARE 9.0.22; service-worker cache epoch v795', `guard:sw-cache-version` 'PASS: v795 (336a5133)
+- `guard:release-identity` 'MUSIXQUARE 9.0.22; service-worker cache epoch v795', `guard:sw-cache-version` 'PASS: v795 (16d24d89)
   covers all committed PWA runtime changes'.
 - `build:checked` 전체: 진입 842.2 KiB raw / 247.9 KiB gzip, eager JS 456.5 KiB gzip, eager total 2,017.1 KiB raw / 534.1 KiB gzip,
   SW 앱 셸 95 자산, 레거시 TV(Chromium 79) 정적 검사, prod-security.

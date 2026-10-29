@@ -887,7 +887,9 @@ Avoid `git reset --hard` plus force push on `main` unless there is no reasonable
 For an explicitly reviewed CLI rollback with no active forward floor, deploy the
 saved known-good version at 100%. When the App goes below the stored App build
 floor, run its `lower` first and wait for that run to succeed (see
-[App Build Floor](#app-build-floor)):
+[App Build Floor](#app-build-floor)). After 9.0.22, an App rollback below 9.0.15
+rolls Signaling back to its checkpoint version first, then runs the `lower`, then
+rolls the App back:
 
 ```bash
 # Only when the App goes below the stored App build floor (0 for an App older than 9.0.14):

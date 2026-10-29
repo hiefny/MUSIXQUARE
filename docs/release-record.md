@@ -56,9 +56,9 @@ gh run list --workflow e2e.yml --branch main --limit 3
       COMMIT의 선택 필드 `timingMode`를, `liveExpiresAt` null인 live LAN-direct를 읽고, PRO Worker가 저장된 `timingMode`와
       null LAN-direct 마감을 읽는다(쓰기는 아직 v1 모양과 숫자 마감만). Worker와 App의 PRO 재생 전환 공유 시간 집
       `cloudflare/pro-room-playback-timing.ts`(RO-03)를 더한다. 9.0.20 기록이 다음 App 릴리스로 남긴 미디어 고르기 창
-      포커스 경쟁 고침은 이 열차에서 뺐다(9.0.21이 실음). 브랜치 `agent/p55-r1`은 main `3bfdffcb`(9.0.21, #522) 위이고
+      포커스 경쟁 고침은 이 열차에서 뺐다(9.0.21이 실음). 브랜치 `agent/p55-r1`은 main `096da175`(9.0.21 기록 #523, 그 앞이 9.0.21 #522 `3bfdffcb`) 위이고
       증분 21커밋(테스트 먼저 10, 코드 10, LEAVE-1 하나)은 `edd6ee94` 위에서 만든 것과 patch-id가 같다. 마지막 런타임
-      커밋은 bump `336a5133`(9.0.22 / v795, 앱 빌드 795, 버전 거울 여섯 파일)이고 문서 커밋만 뒤따른다. 운영 9.0.21 App
+      커밋은 bump `16d24d89`(9.0.22 / v795, 앱 빌드 795, 버전 거울 여섯 파일)이고 문서 커밋만 뒤따른다. 운영 9.0.21 App
       `3bfdffcb`과 9.0.20 `226219c5`의 다른 다섯 Worker와 견준 런타임 경로 변경은 App 27, PRO 방 2, signaling 2, 나머지
       0이라 target `all`이다(로컬 판정, `changedAppRuntimeDependencies`는 빈 목록). 앱 SemVer와 SW 캐시가 바뀌어 업데이트
       창이 뜬다(바닥 789 위의 9.0.16 ~ 9.0.21 탭에는 '나중에'가 있는 보통 창). Developer API D1과
@@ -66,18 +66,18 @@ gh run list --workflow e2e.yml --branch main --limit 3
       의존성은 바뀌지 않는다. 자원 소유권 49 records / 446 files(새 공유 파일 +1), room-authority 직접 읽기 80 → 79·구독
       22·쓰기 13·PRO 읽기 0, bus-pairing 203 / 203. 선언된 메시지 종류 102 → 101은 R1-2의 테스트 먼저 커밋에서 바뀐 받아들인
       예외다(보고서 '정확한 개수 가드'). 로컬 QA(보고서 라운드 1 ~ 5): 증분마다 테스트 먼저(옮긴 부모에서도 같은 행만 실패),
-      옮긴 뒤 `b7d91b2c`의 전체 검사(단위 702 files / 16,684, Worker 69 / 3,311, 핵심 커버리지 90 / 3,515, typecheck, lint,
+      옮긴 뒤 `0ee7242f`의 전체 검사(단위 702 files / 16,684, Worker 69 / 3,311, 핵심 커버리지 90 / 3,515, typecheck, lint,
       format, 가드, 후보 E2E 19, critical E2E 98, PRO Playwright 30, C5-0 랩 4, smoke 단위 시험과 R1-5 Worker 행), bump 뒤
-      `336a5133`의 `build:checked`(`guard:release-identity` 9.0.22 / v795, `guard:sw-cache-version` v795, eager JS 456.5 KiB
-      gzip)와 `check:worker-bundles` 여섯 Worker, 이 항목을 더한 문서 커밋 `f9825aa4`(런타임은 bump와 같음)에서 같은 전체
+      `16d24d89`의 `build:checked`(`guard:release-identity` 9.0.22 / v795, `guard:sw-cache-version` v795, eager JS 456.5 KiB
+      gzip)와 `check:worker-bundles` 여섯 Worker, 이 항목을 더한 문서 커밋 `9f2e0513`(런타임은 bump와 같음)에서 같은 전체
       검사와 `build:checked`, `check:worker-bundles`, E2E 셋과 C5-0 랩을 다시 돌려 모두 통과(숫자 같음). PR, PR CI, 자동 코드
       리뷰, exact-main CI, 배포는 아직이고 로컬 결과는 exact-main-SHA 후보를 대신하지 않는다. 배포 뒤 기록 PR이 이 항목을
       '배포 뒤 확인'으로 바꾸고, §1 '의존성·호환'의 보내는 쪽 문장과 §4의 이 릴리스 항목(Release와 checkpoint ID)을
       더하며, 아래 릴리스 A 항목의 '9.0.14 기기와의 혼합 방' 기기 확인을 F1 근거로 고치거나 닫는다.
       [변경·QA 보고서](design/phase5-5-r1-train3-v2-accept-2026-10-29.md),
-      [QA 라운드 3](design/phase5-5-r1-train3-v2-accept-2026-10-29.md#3-옮긴-뒤-전체-검사-b7d91b2c-2026-10-29-1538--1611-kst-bump-전),
-      [QA 라운드 4](design/phase5-5-r1-train3-v2-accept-2026-10-29.md#4-bump-뒤-검사-336a5133-9022--v795-2026-10-29-1611--1621-kst),
-      [QA 라운드 5](design/phase5-5-r1-train3-v2-accept-2026-10-29.md#5-보고서와-기록-커밋-뒤-전체-검사-f9825aa4-2026-10-29-1655--1720-kst).
+      [QA 라운드 3](design/phase5-5-r1-train3-v2-accept-2026-10-29.md#3-옮긴-뒤-전체-검사-0ee7242f-2026-10-29-1538--1611-kst-bump-전),
+      [QA 라운드 4](design/phase5-5-r1-train3-v2-accept-2026-10-29.md#4-bump-뒤-검사-16d24d89-9022--v795-2026-10-29-1611--1621-kst),
+      [QA 라운드 5](design/phase5-5-r1-train3-v2-accept-2026-10-29.md#5-보고서와-기록-커밋-뒤-전체-검사-9f2e0513-2026-10-29-1655--1720-kst).
 - [ ] 배포 조건(모두 채운 뒤에만 이 PR을 머지하고 dispatch한다): (1) 9.0.21의 배포와 그 기록 PR이 main에 있다. (2) P2(#519)
       직후 운영 remote-share smoke 두 형태(`npm run smoke:live:remote-share`와 `-- --require-assertion`)가 통과했다. 이
       릴리스의 signaling은 peer-open 확인서 표지를 광고하지 않으므로 P2 앞 smoke로는 릴리스가 실패해 자동 복구된다. (3) F1:
@@ -119,7 +119,6 @@ gh run list --workflow e2e.yml --branch main --limit 3
       게이트가 아니다.
       [확인하지 않은 것](design/phase5-5-r1-train3-v2-accept-2026-10-29.md#확인하지-않은-것),
       [오너 기기 확인 후보](design/phase5-5-r1-train3-v2-accept-2026-10-29.md#오너-기기-확인-후보-게이트-아님).
-
 
 ### UI 후속 열차(9.0.21/v794) 배포 뒤 확인: 잠깐 뜨는 글자 600, 칩 한 줄, 미디어 고르기 창 포커스 경쟁
 

@@ -341,10 +341,11 @@ RO-53 owner-in-place
   `src/youtube/constants.ts` (Phase 0d, C2-1).
 
   The PRO playback transition those budgets serve has its own home since Phase 5.5,
-  `cloudflare/pro-room-playback-timing.ts`, which the PRO Worker and the App import: the barrier
-  `PRO_ROOM_PLAYBACK_TRANSITION_DEADLINE_MS` (3 s), the COMMIT lead
-  `PRO_ROOM_PLAYBACK_COMMIT_LEAD_MS` (700 ms) and the start-kind union `ProRoomPlaybackTimingMode`
-  (the App's `ProPlaybackTimingMode`). The file is on both the pro-room and the app runtime
+  `cloudflare/pro-room-playback-timing.ts`. The PRO Worker imports the barrier
+  `PRO_ROOM_PLAYBACK_TRANSITION_DEADLINE_MS` (3 s) and the COMMIT lead
+  `PRO_ROOM_PLAYBACK_COMMIT_LEAD_MS` (700 ms); the App imports only the start-kind union
+  `ProRoomPlaybackTimingMode` (its `ProPlaybackTimingMode`, a type-only import). The file is on
+  both the pro-room and the app runtime
   paths, so a release that changes it targets `all`. Kept out of it on purpose:
   - the zero-start encoding of PRO Workers before PRO snapshot schemaVersion 2, one below each
     value: a 2999 ms stored deadline and a 699 ms COMMIT lead. `cloudflare/pro-room-worker.ts`
@@ -368,6 +369,7 @@ RO-53 owner-in-place
   The ordering test that the barriered 2.3 s fits inside the 3 s barrier waits for Phase 0d C2-1,
   which moves 2.3 s to `src/youtube/constants.ts`: until then it is a module constant of
   `iframe.ts` and `authority-arm.ts`, and a test-only export is not allowed.
+
 - **Anchor tests:**
   - Timing home: `src/pro-room/__tests__/pro-room-playback-timing.test.ts` (the barrier and the
     lead and no other value, the zero-start encoding before schemaVersion 2 one below each, one

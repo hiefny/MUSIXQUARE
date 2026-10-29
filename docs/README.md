@@ -95,7 +95,7 @@ runbooks. Neither belongs in a general setup document.
 
 - [Phase 5.5 R1: old-version removal train 3 and PRO snapshot v2 reading, 9.0.22 (2026-10-29)](design/phase5-5-r1-train3-v2-accept-2026-10-29.md):
   in progress, not merged or released; the first runtime release of Phase 5.5 (9.0.22 / v795, App
-  build 795, bump `336a5133`, target `all` with 27 App, 2 PRO room and 2 signaling runtime paths
+  build 795, bump `16d24d89`, target `all` with 27 App, 2 PRO room and 2 signaling runtime paths
   and none in the other three Workers, with the update dialog), on main `3bfdffcb` (9.0.21). It
   may ship only after the 9.0.21 record, the two production Remote Share smokes right after P2
   (#519), the floor raise to 789 (F1, a same-value `set` 787 then `set` 789) and a Signaling
@@ -119,8 +119,8 @@ runbooks. Neither belongs in a general setup document.
   versions, rollback (the release record's §4 current boundary line), deploy conditions and order,
   the review findings and their handling, stale commit message statements for the squash message,
   visible changes, records and registry, bundle sizes, QA rounds 1 to 5 (per increment; the
-  tests-first commits rerun on their rebased parents; the gate after the move at `b7d91b2c`; the
-  checks after the bump at `336a5133`; the full gate at the report commit `f9825aa4`: npm audit 0,
+  tests-first commits rerun on their rebased parents; the gate after the move at `0ee7242f`; the
+  checks after the bump at `16d24d89`; the full gate at the report commit `9f2e0513`: npm audit 0,
   unit 702 files / 16,684, Worker 69 / 3,311, critical 90 / 3,515, release-tooling 14 / 433,
   typecheck, lint, format, every guard, resource ownership 49 records / 446 files, room-authority
   79 / 22 / 13 / 0, bus-pairing 203, the smoke unit rows and the R1-5 Worker rows,

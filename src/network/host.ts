@@ -507,10 +507,7 @@ export function handleHostIncomingConnection(conn: DataConnection): void {
       try {
         conn.send({
           type: MSG.SESSION_FULL,
-          // i18nKey translates at the receiver (guest locale); message stays
-          // as the back-compat fallback for older SW-cached bundles.
           i18nKey: 'network.session_full_detail',
-          message: t('network.session_full_detail'),
         });
       } catch {
         /* noop */
@@ -542,7 +539,6 @@ export function handleHostIncomingConnection(conn: DataConnection): void {
         conn.send({
           type: MSG.SESSION_FULL,
           i18nKey: 'network.session_full_detail',
-          message: t('network.session_full_detail'),
         });
       } catch {
         /* noop */
@@ -615,7 +611,6 @@ export function handleHostIncomingConnection(conn: DataConnection): void {
         conn.send({
           type: MSG.SESSION_FULL,
           i18nKey: 'network.session_full_detail',
-          message: t('network.session_full_detail'),
         });
       } catch {
         /* noop */

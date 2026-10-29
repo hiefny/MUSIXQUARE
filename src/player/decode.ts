@@ -646,7 +646,6 @@ function notifyOperatorsOfDeviceDecodeFailure(): void {
     if (peer.status !== 'connected' || !peer.isOp) continue;
     safeSend(peer.conn, {
       type: MSG.OPERATOR_TOAST,
-      text,
       i18nKey: 'toast.remote_decode_device_wait',
     });
   }

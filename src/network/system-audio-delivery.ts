@@ -63,10 +63,11 @@ function hasDirectCapacity(): boolean {
 
 /**
  * Freeze the route at share start. Every LAN participant can consume an
- * all-audience SFU publication (since 8.4.38 every guest advertises it at
- * connect; the host stopped reading that marker in Phase 5 5B-OV2, old-version
- * survey OV-B05), so 9+ LAN guests start entirely on the SFU and a smaller LAN
- * room takes direct slots in join order.
+ * all-audience SFU publication (every guest since 8.4.38 can; the host stopped
+ * reading the guests' capability marker in Phase 5 5B-OV2, old-version survey
+ * OV-B05, and guests stopped sending it in Phase 5.5 train 3, OV-F06), so 9+
+ * LAN guests start entirely on the SFU and a smaller LAN room takes direct
+ * slots in join order.
  */
 export function beginSystemAudioShareDelivery(
   peers: readonly ConnectedPeer[],

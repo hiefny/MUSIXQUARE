@@ -192,7 +192,8 @@ interface CoordinatorPublicationIdentity {
   roomCode: string;
   generation: number;
   ownerParticipantId: string;
-  liveExpiresAt: number;
+  /** The SFU media deadline; null for a LAN-direct publication. */
+  liveExpiresAt: number | null;
   publicationId: string;
   publication: ProRoomSystemAudioPublication;
 }
@@ -724,7 +725,9 @@ async function attachDirectCoordinatorTrack(
 function sfuDescriptor(
   state: Extract<ProRoomSystemAudioState, { status: 'live' }>,
 ): ProSystemAudioSfuPublicationDescriptor {
-  if (!isProRoomSystemAudioSfuPublication(state.publication)) {
+  // Only a numeric SFU live has a media deadline to describe; the parser
+  // refuses an SFU live without one, and a LAN-direct live has none.
+  if (!isProRoomSystemAudioSfuPublication(state.publication) || state.liveExpiresAt === null) {
     throw new Error('PRO_SYSTEM_AUDIO_SFU_PUBLICATION_REQUIRED');
   }
   return {
@@ -785,7 +788,11 @@ function scheduleFailedSfuPublisherRecheck(sessionId: string): void {
 function settleCanonicalSfuPublisher(
   state: Extract<ProRoomSystemAudioState, { status: 'live' }>,
 ): void {
-  if (!isProRoomSystemAudioSfuPublication(state.publication)) return;
+  // The publisher deadline comes only from a numeric SFU live, as in
+  // sfuDescriptor(): a null deadline would stop the publisher at once.
+  if (!isProRoomSystemAudioSfuPublication(state.publication) || state.liveExpiresAt === null) {
+    return;
+  }
   const sessionId = state.publication.sessionId;
   updateProSystemAudioSfuPublisherExpiry(state.liveExpiresAt);
   clearManagedTimer(PUBLISHER_RETRY_TIMER);
@@ -1216,10 +1223,10 @@ function promoteLocalDirectPublicationToSfu(reason: string): Promise<void> {
       const descriptor = await publishProSystemAudioSfu({
         track,
         generation: identity.generation,
-        // The direct state's numeric value is compatibility-only. Use a
-        // provisional future timer while creating the SFU session; the commit
-        // response below immediately replaces it with the server-owned
-        // promotion deadline through settleCanonicalSfuPublisher().
+        // A direct state has no media deadline. Use a provisional future
+        // timer while creating the SFU session; the commit response below
+        // immediately replaces it with the server-owned promotion deadline
+        // through settleCanonicalSfuPublisher().
         expiresAt: Date.now() + SYSTEM_AUDIO_SHARE_LIMIT_MS,
         roomId: identity.roomCode,
       });

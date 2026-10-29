@@ -165,6 +165,23 @@ function live(
   };
 }
 
+function lanDirectPublication(): ProRoomSystemAudioPublication {
+  return { publicationId: 'publication_00001', transport: 'lan-direct', protocolVersion: 2 };
+}
+
+/** A live LAN-direct state as a PRO Worker sends it, with the given liveExpiresAt. */
+function directLiveWire(
+  ownerParticipantId: string,
+  generation: number,
+  liveExpiresAt: number | null,
+): unknown {
+  return {
+    ...live(ownerParticipantId, generation),
+    liveExpiresAt,
+    publication: lanDirectPublication(),
+  };
+}
+
 function deferred<T>(): { promise: Promise<T>; resolve: (value: T) => void } {
   let resolve!: (value: T) => void;
   const promise = new Promise<T>((done) => {
@@ -273,12 +290,77 @@ describe('ProRoomSystemAudioController', () => {
     await controller.acquireProSystemAudioLease();
     await expect(controller.commitProSystemAudioPublication(directPublication)).resolves.toEqual({
       ...live(),
+      liveExpiresAt: null,
       publication: directPublication,
     });
     await expect(controller.commitProSystemAudioPublication(publication())).resolves.toEqual(
       live(),
     );
     expect(controller.getCurrentState()).toEqual(live());
+  });
+
+  // A live LAN-direct has no media deadline: PRO snapshot schemaVersion 2
+  // sends liveExpiresAt null, earlier Workers a numeric compatibility value,
+  // and both read as null (PLE-01). A Worker that changes it mid-share, or a
+  // rollback that brings the number back, is the same state, not a conflict.
+  it.each([
+    { from: 1_900_007_200_000, to: null },
+    { from: null, to: 1_900_007_200_000 },
+  ])(
+    'reads a live LAN-direct whose liveExpiresAt changes from $from to $to as one state',
+    ({ from, to }) => {
+      const { controller, lost } = harness();
+      const read = directLiveWire(REMOTE_ID, 4, null);
+
+      expect(
+        controller.acceptHeartbeatProSystemAudioState(directLiveWire(REMOTE_ID, 4, from)),
+      ).toEqual(read);
+      expect(
+        controller.acceptHeartbeatProSystemAudioState(directLiveWire(REMOTE_ID, 4, to)),
+      ).toEqual(read);
+      expect(controller.getCurrentState()).toEqual(read);
+      expect(controller.getViewState()).toMatchObject({ phase: 'live', liveExpiresAt: null });
+      expect(lost).toEqual([]);
+    },
+  );
+
+  it.each([
+    { from: 1_900_007_200_000, to: null },
+    { from: null, to: 1_900_007_200_000 },
+  ])(
+    'keeps the local LAN-direct lease when its liveExpiresAt changes from $from to $to',
+    async ({ from, to }) => {
+      const { api, controller, lost } = harness();
+      api.acquireSystemAudioLease.mockResolvedValue({
+        systemAudio: preparing(),
+        leaseId: LEASE_ID,
+      });
+      api.commitSystemAudioPublication.mockResolvedValue(
+        directLiveWire(LOCAL_ID, 1, from) as ProRoomSystemAudioState,
+      );
+      api.heartbeatSystemAudioLease.mockResolvedValue(
+        directLiveWire(LOCAL_ID, 1, to) as ProRoomSystemAudioState,
+      );
+      const read = directLiveWire(LOCAL_ID, 1, null);
+
+      await controller.acquireProSystemAudioLease();
+      await expect(
+        controller.commitProSystemAudioPublication(lanDirectPublication()),
+      ).resolves.toEqual(read);
+      await expect(controller.heartbeatProSystemAudioLease()).resolves.toEqual(read);
+      expect(lost).toEqual([]);
+      expect(controller.getCurrentLease()).toMatchObject({ generation: 1, hasCredential: true });
+    },
+  );
+
+  it('accepts the promotion of a LAN-direct live without a deadline to a numeric SFU live', async () => {
+    const { api, controller } = harness();
+    controller.acceptHeartbeatProSystemAudioState(directLiveWire(REMOTE_ID, 4, null));
+    api.getSystemAudioState.mockResolvedValue(live(REMOTE_ID, 4));
+
+    await expect(controller.refreshProSystemAudioState()).resolves.toEqual(live(REMOTE_ID, 4));
+    expect(controller.getCurrentState()).toEqual(live(REMOTE_ID, 4));
+    expect(controller.getViewState()).toMatchObject({ liveExpiresAt: 1_900_007_200_000 });
   });
 
   it('reconciles an already-committed release when only the response was lost', async () => {

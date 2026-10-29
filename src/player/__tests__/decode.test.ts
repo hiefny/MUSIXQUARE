@@ -337,9 +337,10 @@ describe('guest decode failure reports', () => {
       guest.conn!,
     );
 
+    // Only the key: every operator on the 789 build floor translates it in its
+    // own language (Phase 5.5 train 3 stopped sending the host-language text).
     expect(mocks.safeSend).toHaveBeenCalledWith(op.conn, {
       type: MSG.OPERATOR_TOAST,
-      text: 'A device failed to decode this track\nPlayback is continuing for everyone else',
       i18nKey: 'toast.remote_decode_device_wait',
     });
     expect(mocks.safeSend).not.toHaveBeenCalledWith(guest.conn, expect.anything());

@@ -183,7 +183,9 @@ function assertRoster(snapshot: ProRoomSnapshot, count: number): void {
         participant.memberDisplayNumber >= 1 && participant.memberDisplayNumber <= 100,
     ),
   ).toBe(true);
-  expect(snapshot.presence.coordinatorParticipantId).toBeNull();
+  // The parser drops the retired coordinator key of a schemaVersion 1 wire
+  // after checking that it is null.
+  expect(snapshot.presence).not.toHaveProperty('coordinatorParticipantId');
 }
 
 async function harness(passwordRequired = false) {

@@ -88,11 +88,66 @@ describe('PRO system-audio wire contract', () => {
         ...liveState(),
         publication: direct,
       }),
-    ).toEqual({ ...liveState(), publication: direct });
+    ).toEqual({ ...liveState(), liveExpiresAt: null, publication: direct });
     expect(
       parseProRoomSystemAudioPublication({ ...direct, sessionId: 'not-a-direct-field' }),
     ).toBeNull();
     expect(parseProRoomSystemAudioPublication({ ...direct, protocolVersion: 1 })).toBeNull();
+  });
+
+  // A live LAN-direct publication has no media deadline. PRO snapshot
+  // schemaVersion 2 sends liveExpiresAt null there, and the numeric
+  // compatibility value of every earlier PRO Worker reads as null too, so a
+  // Worker that changes the value mid-share changes no parsed state (PLE-01).
+  it('reads a live LAN-direct with a null or numeric liveExpiresAt as null', () => {
+    const direct: ProRoomSystemAudioPublication = {
+      publicationId: 'publication_direct_01',
+      transport: 'lan-direct',
+      protocolVersion: 2,
+    };
+    const read = { ...liveState(), liveExpiresAt: null, publication: direct };
+    for (const liveExpiresAt of [null, 1_900_000_000_000]) {
+      expect(
+        parseProRoomSystemAudioState({ ...liveState(), liveExpiresAt, publication: direct }),
+      ).toEqual(read);
+    }
+  });
+
+  it('still needs a positive deadline on an SFU live and refuses any other liveExpiresAt', () => {
+    const direct: ProRoomSystemAudioPublication = {
+      publicationId: 'publication_direct_01',
+      transport: 'lan-direct',
+      protocolVersion: 2,
+    };
+    for (const liveExpiresAt of [null, 0, -1, 1.5, '1900000000000']) {
+      expect(parseProRoomSystemAudioState({ ...liveState(), liveExpiresAt })).toBeNull();
+    }
+    for (const liveExpiresAt of [0, -1, 1.5, '1900000000000', false]) {
+      expect(
+        parseProRoomSystemAudioState({ ...liveState(), liveExpiresAt, publication: direct }),
+      ).toBeNull();
+    }
+    expect(
+      parseProRoomSystemAudioState({
+        generation: 7,
+        status: 'live',
+        ownerParticipantId: OWNER_ID,
+        claimExpiresAt: null,
+        publication: direct,
+      }),
+    ).toBeNull();
+    for (const state of ['idle', 'preparing'] as const) {
+      expect(
+        parseProRoomSystemAudioState({
+          generation: 1,
+          status: state,
+          ownerParticipantId: state === 'idle' ? null : OWNER_ID,
+          claimExpiresAt: state === 'idle' ? null : 1_800_000_045_000,
+          liveExpiresAt: 1_900_000_000_000,
+          publication: null,
+        }),
+      ).toBeNull();
+    }
   });
 
   it('rejects malformed lifecycle combinations and every private or unknown field', () => {

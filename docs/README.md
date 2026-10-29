@@ -93,6 +93,41 @@ runbooks. Neither belongs in a general setup document.
 
 ## Maintained evidence and completed records
 
+- [Phase 5.5 R1: old-version removal train 3 and PRO snapshot v2 reading, 9.0.22 (2026-10-29)](design/phase5-5-r1-train3-v2-accept-2026-10-29.md):
+  in progress, not merged or released; the first runtime release of Phase 5.5 (9.0.22 / v795, App
+  build 795, bump `16d24d89`, target `all` with 27 App, 2 PRO room and 2 signaling runtime paths
+  and none in the other three Workers, with the update dialog), on main `3bfdffcb` (9.0.21). It
+  may ship only after the 9.0.21 record, the two production Remote Share smokes right after P2
+  (#519), the floor raise to 789 (F1, a same-value `set` 787 then `set` 789) and a Signaling
+  admission smoke that admits both rooms' host and guest with `refusedBelowAppBuildFloor` 789; the
+  floor goes to 795 (F2) before the PRO Worker starts sending snapshot v2. Train 3 stops sending
+  the SESSION_FULL `message` and OPERATOR_TOAST `text`, the guest SFU capability marker and its
+  kind (declared message kinds 102 to 101), `iceRestartVersion` on the first Standard offer and
+  every answer, the four Signaling peer-open markers (only `workerVersionId` stays) and the PRO
+  presence close's three playback fields, and removes the client's unreachable `leavePresence`.
+  The snapshot v2 receiving side reads PRO snapshot schemaVersion 1 and 2 into one memory shape,
+  the optional start kind `timingMode` of a PREPARE and COMMIT and a live LAN-direct with a null
+  `liveExpiresAt`; the PRO Worker reads a stored `timingMode` and a null LAN-direct deadline while
+  it still writes only the old shapes, and one shared PRO playback transition timing home serves
+  the Worker and the App (RO-03). The media picker focus race pair built with the train was dropped
+  when the branch moved onto 9.0.21, which ships its own fix. The report lists the owner decisions
+  and order, what the 789 floor covers and where it cannot filter, each increment with its rebased
+  commits and tests-first evidence, the R1-9 parent run as rollback evidence (the pre-train PRO
+  Worker nulls a stored transition that names `timingMode`, drops the whole outbox and fences a
+  null LAN-direct share), the sleeping-room row added after review, the SHA map, the exact-count
+  guards (the declared message kinds moved in the tests-first commit, an accepted exception), mixed
+  versions, rollback (the release record's §4 current boundary line), deploy conditions and order,
+  the review findings and their handling, stale commit message statements for the squash message,
+  visible changes, records and registry, bundle sizes, QA rounds 1 to 5 (per increment; the
+  tests-first commits rerun on their rebased parents; the gate after the move at `0ee7242f`; the
+  checks after the bump at `16d24d89`; the full gate at the report commit `9f2e0513`: npm audit 0,
+  unit 702 files / 16,684, Worker 69 / 3,311, critical 90 / 3,515, release-tooling 14 / 433,
+  typecheck, lint, format, every guard, resource ownership 49 records / 446 files, room-authority
+  79 / 22 / 13 / 0, bus-pairing 203, the smoke unit rows and the R1-5 Worker rows,
+  `build:checked`, `check:worker-bundles`, candidate E2E 19, critical E2E 98, PRO Playwright 30
+  and the C5-0 lab 4) with placeholders for the
+  production preconditions and the release (rounds 6 and 7), owner device check candidates and
+  what was not verified. The release record's §2 carries a pre-deploy item for 9.0.22.
 - [UI follow-up train 9.0.21: transient text at 600 and chips on one line (2026-10-29)](design/ui-followup-921-2026-10-29.md):
   released on 2026-10-29 15:23 KST in Release 40828643393 (PR #522, squash `3bfdffcb`): the next
   app update after 9.0.20 (9.0.21 / v794, bump `a538da11`, target `app` with 58 App runtime paths

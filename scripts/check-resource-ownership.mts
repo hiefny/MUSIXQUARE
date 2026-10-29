@@ -428,6 +428,13 @@ const TIMING_CONTRACTS: readonly TimingContract[] = [
     records: ['RO-29'],
     files: ['src/pro-room/runtime.ts', 'src/network/signaling-health.ts', 'src/network/peer.ts'],
   },
+  {
+    // The PRO playback transition barrier and COMMIT lead (Phase 5.5): their
+    // shared home and the App controller that applies PREPARE and COMMIT. The
+    // PRO Worker imports both names, so a same-named copy there cannot compile.
+    records: ['RO-03'],
+    files: ['cloudflare/pro-room-playback-timing.ts', 'src/pro-room/playback-controller.ts'],
+  },
 ];
 
 /**

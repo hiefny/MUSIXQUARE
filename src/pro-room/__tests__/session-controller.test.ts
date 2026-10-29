@@ -198,7 +198,6 @@ function fixtures() {
     })),
     getSnapshot: vi.fn(async () => initial),
     heartbeat: vi.fn<ProRoomSessionApi['heartbeat']>(async () => proHeartbeat(initial)),
-    leavePresence: vi.fn(async () => initial),
     createSignalingTicket: vi.fn(async () => signaling()),
     closeSessionFenced: vi.fn<ProRoomSessionApi['closeSessionFenced']>(async () => undefined),
   } satisfies ProRoomSessionApi;
@@ -625,7 +624,7 @@ describe('PRO room session controller', () => {
 
     await expect(controller.resume(ROOM_CODE)).rejects.toThrow('SESSION_REQUIRED');
 
-    expect(api.leavePresence).not.toHaveBeenCalled();
+    expect(api.closeSessionFenced).not.toHaveBeenCalled();
     expect(observer.cleared).not.toHaveBeenCalled();
   });
 
@@ -1101,7 +1100,6 @@ describe('PRO room session controller', () => {
     api.closeSessionFenced.mockRejectedValue(new Error('offline'));
 
     await expect(controller.leave()).resolves.toBeUndefined();
-    expect(api.leavePresence).not.toHaveBeenCalled();
     expect(api.closeSessionFenced).toHaveBeenCalledWith(
       {
         code: ROOM_CODE,
@@ -1177,7 +1175,6 @@ describe('PRO room session controller', () => {
     await expect(leaving).resolves.toBeUndefined();
 
     expect(controller.snapshot?.roomCode).toBe(ROOM_CODE);
-    expect(api.leavePresence).not.toHaveBeenCalled();
     expect(api.closeSessionFenced).toHaveBeenCalledWith(
       {
         code: ROOM_CODE,
@@ -1197,7 +1194,6 @@ describe('PRO room session controller', () => {
 
     // The captured atomic request already released presence; explicit leave
     // still differs from pagehide by revoking the resumable server session.
-    expect(api.leavePresence).not.toHaveBeenCalled();
     expect(api.closeSessionFenced).toHaveBeenCalledWith(
       {
         code: ROOM_CODE,
@@ -1224,7 +1220,6 @@ describe('PRO room session controller', () => {
     await expect(leaving).resolves.toBeUndefined();
 
     expect(controller.snapshot?.roomCode).toBe(ROOM_CODE);
-    expect(api.leavePresence).not.toHaveBeenCalled();
     expect(api.closeSessionFenced).toHaveBeenCalledWith(
       expect.objectContaining({ code: ROOM_CODE }),
       undefined,
@@ -1248,7 +1243,6 @@ describe('PRO room session controller', () => {
     failCapturedClose(new Error('offline'));
     await expect(leaving).resolves.toBeUndefined();
 
-    expect(api.leavePresence).not.toHaveBeenCalled();
     expect(api.closeSessionFenced).toHaveBeenCalledWith(
       expect.objectContaining({ code: ROOM_CODE }),
       undefined,
@@ -1263,7 +1257,7 @@ describe('PRO room session controller', () => {
 
     await controller.terminate();
 
-    expect(api.leavePresence).not.toHaveBeenCalled();
+    expect(api.closeSessionFenced).not.toHaveBeenCalled();
     expect(transport.disconnect).toHaveBeenCalledOnce();
     expect(observer.cleared).toHaveBeenCalledOnce();
     expect(controller.snapshot).toBeNull();
@@ -1275,7 +1269,7 @@ describe('PRO room session controller', () => {
 
     await controller.closeForUnload();
 
-    expect(api.leavePresence).not.toHaveBeenCalled();
+    expect(api.closeSessionFenced).not.toHaveBeenCalled();
     expect(transport.disconnect).toHaveBeenCalledOnce();
     expect(observer.cleared).toHaveBeenCalledOnce();
     expect(controller.snapshot).toBeNull();
@@ -1308,7 +1302,6 @@ describe('PRO room session controller', () => {
 
     await expect(joining).rejects.toThrow('ABORTED');
     expect(authenticationAborted).toBe(true);
-    expect(api.leavePresence).not.toHaveBeenCalled();
     expect(api.closeSessionFenced).not.toHaveBeenCalled();
     expect(transport.connect).not.toHaveBeenCalled();
     expect(controller.snapshot).toBeNull();

@@ -1042,7 +1042,6 @@ const PROTOCOL_VALIDATORS: Partial<Record<MsgType, (data: Record<string, unknown
     ((d.track as Record<string, unknown>).trackName as string).length <= 160 &&
     ((d.track as Record<string, unknown>).mid === undefined ||
       typeof (d.track as Record<string, unknown>).mid === 'string'),
-  [MSG.SYSTEM_AUDIO_SFU_CAPABILITY]: (d) => d.version === 2 && d.localAudience === true,
 
   // Playlist snapshots are validated atomically, including unique IDs/current.
   [MSG.PLAYLIST_UPDATE]: (d) => parsePlaylistSnapshot(d) !== null,

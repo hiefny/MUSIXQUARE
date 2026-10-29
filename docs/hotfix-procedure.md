@@ -191,6 +191,28 @@ neither automatic nor manual recovery restores either Worker below the marker;
 repair forward with an `all` release. Any change to this marker requires
 target `all`. See [the transfer change](design/phase2-navigation-ui-shells-2026-10-23.md#호환성과-배포-순서).
 
+From 9.0.22 (old-version removal train 3) the App's PRO presence close
+(`POST /presence/close`, sent on a confirmed `pagehide` and at the start of an
+explicit leave) carries only its receipt key and the captured participant and
+presence incarnation, without `baseRevision`, `currentQueueItemId` and
+`playback`. The PRO Worker of old-version removal train 2 (`a3893f04`, deployed
+2026-10-27 KST, version `319f6e8f`) and every later one take those fields as
+optional. An older PRO Worker, including the 9.0.14 (`dd9c9d4d`) version in
+that release's recovery checkpoint, refuses the shorter body with 400
+`INVALID_REQUEST`. Once 9.0.22 or a later App has been live, never restore the
+PRO Worker below that train 2 Worker by hand, even after rolling the App back:
+a tab opened on 9.0.22 or later keeps sending the shorter close until it
+reloads. Under such a Worker a participant who closes such a tab stays listed
+until presence expires (45 seconds), a reload or an applied update shows the
+"A previous connection remains" handoff dialog instead of resuming silently,
+and a room whose last participant left that way freezes its playback and
+sleeps only once that presence expires. An explicit leave still ends through
+the fenced session close. Automated recovery stays above this line: it
+restores only the failing release's recovery checkpoint, and every PRO Worker
+captured in a checkpoint since train 2 is that Worker or a later one. No
+contract marker changes for this boundary; a marker would stop only the
+automated recovery of the release that changed it.
+
 The complete serial Playwright suite is intentionally not a production deploy
 gate. The `Full E2E` workflow runs it together with the targeted iPhone WebKit
 smoke every Tuesday at 03:17 KST and remains manually dispatchable when a change
@@ -698,7 +720,20 @@ gh workflow run app-build-floor.yml --ref main -f action=lower -f min_app_build=
   `app` or `all`). The raise runs only after the commit marker, and only to this release's build
   when that build is the live App. If it fails, the release stays committed and is not rolled
   back; rerun `set` with the standalone workflow. Later raises need no separate owner approval
-  (owner decision 2026-10-25): the release that needs one sets the input.
+  (owner decision 2026-10-25): the release that needs one sets the input. That raise does not fit
+  a release that stops sending a field or marker that older builds the current floor admits still
+  require, or starts sending a shape they cannot read: it comes only after the release's App
+  deploy, App smokes and commit marker, and only to the release's own build, which is higher than
+  needed and shows the update dialog without Later to every build in between. Raise the floor for
+  such a release beforehand with a standalone `set` to the oldest build that copes, then run the
+  Signaling admission smoke of the first floor below: both rooms must admit their host and guest,
+  and `legacyCompatibility.refusedBelowAppBuildFloor` must equal the new floor (`appBuild.build`
+  is the live build and may be higher). If that `set` or the smoke fails, the `set` bullet above
+  applies, not the first floor's `lower` to 0: after a transient failure dispatch the same `set`
+  again; otherwise `lower` to the last verified floor (the value the same-value `set` just before
+  proved) and run the smoke again, and lower to 0 only if a host is still refused or that `lower`
+  run fails. Dispatch the release with `raise_app_build_floor` false
+  (old-version removal train 3, 9.0.22, sets 789 first).
 - A Production Release with target `pro-room` or `all` checks the floor before it changes
   anything: its step "Check the App build floor the PRO Worker requires" runs after the
   partial-release dependency compatibility check and before the recovery checkpoint, so a stop
@@ -768,6 +803,17 @@ gh workflow run app-build-floor.yml --ref main -f action=lower -f min_app_build=
   9.0.14 tab opened in that window cannot create a Standard room or reconnect as host
   (`HOST_AUTH_FIRST_FRAME_INVALID`) until it applies the update dialog back to the restored App
   (v786). Guests are not affected: the older guest validator ignores the extra key.
+- Once a Signaling Worker that no longer advertises the peer-open markers is live (9.0.22,
+  old-version removal train 3), an emergency recovery that takes the App below 9.0.15 rolls
+  Signaling back first, in this order only: (1) Signaling to the version in that release's
+  recovery checkpoint (9.0.14 or later, which still advertises them), (2) `lower` to the target
+  build (787 for 9.0.14, 0 for an older App), (3) the App. Rolling Signaling back first loses
+  nothing: an App of 9.0.15 or later reads none of the markers, and every Signaling Worker of
+  9.0.14 or later accepts a first offer and answer without `iceRestartVersion`. Rolling the App
+  back first lets a 9.0.14 tab opened in between meet the newer Signaling Worker: its Remote
+  Share uploads fail with `REMOTE_SHARE_UPLOAD_ASSERTION_UNAVAILABLE`, and its host liveness
+  probe and PIN membership choice are off. The App-first rule above applies only when Signaling
+  itself goes below 9.0.14.
 - The service-control object that holds the floor (`MusixquareServiceControl`) lives in the PRO
   Worker script; every other Worker binds it with `script_name = "musixquare-pro-room"`. Rolling
   the PRO Worker back below 9.0.14 therefore turns the floor off for every Worker, Signaling
@@ -841,7 +887,9 @@ Avoid `git reset --hard` plus force push on `main` unless there is no reasonable
 For an explicitly reviewed CLI rollback with no active forward floor, deploy the
 saved known-good version at 100%. When the App goes below the stored App build
 floor, run its `lower` first and wait for that run to succeed (see
-[App Build Floor](#app-build-floor)):
+[App Build Floor](#app-build-floor)). After 9.0.22, an App rollback below 9.0.15
+rolls Signaling back to its checkpoint version first, then runs the `lower`, then
+rolls the App back:
 
 ```bash
 # Only when the App goes below the stored App build floor (0 for an App older than 9.0.14):

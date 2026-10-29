@@ -294,9 +294,8 @@ describe('Standard guest restart gate', () => {
   });
 
   it('restarts a guest whose host answered without the ICE restart marker', async () => {
-    // Every Standard host since 8.6.39 marks its answer, and the App build
-    // floor (787) admits none older, so the marker no longer gates the restart
-    // (old-version removal train 2, survey OV-F04 stage 1).
+    // The marker has not gated the restart since old-version removal train 2
+    // (survey OV-F04 stage 1), and a host from train 3 on (stage 2) sends none.
     const g = await guest(false);
     vi.useFakeTimers();
     const start = Date.now();

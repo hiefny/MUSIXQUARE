@@ -843,10 +843,6 @@ export interface ProtocolMap {
 
   // ── System Audio Sharing ──────────────────────────────────────
   'system-audio-start': { surface: SystemAudioSurface };
-  'system-audio-sfu-capability': {
-    version: 2;
-    localAudience: true;
-  };
   'system-audio-sfu-ready': {
     version: 2;
     /** `all` lets a LAN guest consume the publication instead of P2P. */

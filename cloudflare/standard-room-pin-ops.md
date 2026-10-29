@@ -166,9 +166,10 @@ the PIN storage-boundary guard pins that neither ever holds PIN material.
 
 ### Rollback
 
-- No marker or floor changes. Signaling is not rolled back below 9.0.14 while
-  an App of 9.0.14 or later is live: an older Worker refuses every `host-auth`
-  that carries `appBuild` ([hotfix procedure](../docs/hotfix-procedure.md#app-build-floor)).
+- No contract marker or floor change. Signaling is not rolled back below
+  9.0.14 while an App of 9.0.14 or later is live: an older Worker refuses every
+  `host-auth` that carries `appBuild`
+  ([hotfix procedure](../docs/hotfix-procedure.md#app-build-floor)).
   A signaling Worker older than 8.10.0 is therefore reachable only in an
   emergency recovery that also rolls the App back below 9.0.14 and lowers the
   App build floor. That Worker never reads either key and does not advertise
@@ -180,7 +181,12 @@ the PIN storage-boundary guard pins that neither ever holds PIN material.
   off while rolled back. Since old-version removal train 2 (2026-10-26) the App
   no longer reads the advertisement and always sends the choice; it cannot
   authenticate as host to a Worker below 9.0.14, so it never meets one whose
-  exact-key validator would drop that frame.
+  exact-key validator would drop that frame. Since train 3 the current Worker
+  does not advertise `standardRoomPinMembershipVersion` either. A 9.0.14 host
+  still reads the advertisement, so with that Worker it also sends the PIN
+  alone, with the same "그대로 두기" and "모두 재입장" behaviour while the
+  wrong-PIN limit stays on. The App build floor (789 since train 3) admits that
+  host only while the enforced floor is off or at most 787.
 - A record survives a rollback untouched. Because it is tied to the room epoch
   and the verifier digest, a stale record is ignored, with one exception: if an
   older Worker changes the PIN X→Y→X within one epoch, the X digest matches

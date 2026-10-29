@@ -29,7 +29,6 @@ interface ProRoomSessionApi {
     signal?: AbortSignal,
     knownSnapshot?: ProRoomSnapshot,
   ): Promise<ProRoomHeartbeat>;
-  leavePresence(code: string, signal?: AbortSignal): Promise<ProRoomSnapshot>;
   createSignalingTicket(code: string, signal?: AbortSignal): Promise<ProRoomSignalingAccess>;
   closeSessionFenced(input: CloseProRoomSessionFencedInput, signal?: AbortSignal): Promise<void>;
   clearPresenceIdentity?(code: string, expected?: ProRoomPresenceIdentity): void;
@@ -360,9 +359,10 @@ export class ProRoomSessionController {
 
     // Disconnect and revoke local authority before the first await. The
     // caller can therefore enter an ordinary room (or another PRO room)
-    // immediately even while the old room's checkpoint/presence requests are
-    // still in flight. Capture the disconnect promise now: invoking the
-    // shared transport later could tear down the replacement room instead.
+    // immediately even while the old room's presence and session close
+    // requests are still in flight. Capture the disconnect promise now:
+    // invoking the shared transport later could tear down the replacement
+    // room instead.
     let disconnectError: unknown;
     let disconnectResult: void | Promise<void>;
     try {
@@ -379,8 +379,8 @@ export class ProRoomSessionController {
     // Everything below is bound only to the captured room/incarnation and can
     // finish in the background without consulting or mutating the
     // controller's new session state. `capturedPresenceRelease`, when
-    // present, has already started an atomic final-checkpoint + presence-close
-    // request with the old room cookie before local invalidation.
+    // present, has already started an atomic presence-close request with the
+    // old room cookie before local invalidation.
     try {
       if (capturedPresenceIdentity) {
         try {

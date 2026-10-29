@@ -1,8 +1,9 @@
 /**
- * Bound how long explicit leave waits before falling back to the ordinary
- * presence endpoint. The original request is deliberately not aborted: a
- * browser keepalive fetch may still reach the Durable Object after the local
- * deadline and both close operations are idempotent.
+ * Bound how long explicit leave waits for the atomic presence close before
+ * falling back to the fenced session close. The original request is
+ * deliberately not aborted: a browser keepalive fetch may still reach the
+ * Durable Object after the local deadline and both close operations are
+ * idempotent.
  */
 export async function waitForProRoomPresenceClose(
   request: Promise<void>,

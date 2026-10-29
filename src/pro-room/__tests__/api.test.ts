@@ -1,5 +1,7 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import {
+  parseProRoomPlaybackCommitEvent,
+  parseProRoomPlaybackPrepareEvent,
   proRoomProductionEndpointForTests as PRO_ROOM_PRODUCTION_ENDPOINT,
   proRoomR2HostForTests as PRO_ROOM_R2_HOST,
   ProRoomApiClient,
@@ -17,7 +19,15 @@ import {
 } from '../contracts.ts';
 import { parseProRoomSnapshot } from '../snapshot.ts';
 import { idleProSystemAudio } from './__helpers__/pro-heartbeat.ts';
-import { proAdministratorDirectory, proSnapshot } from './__helpers__/pro-snapshot.ts';
+import {
+  proAdministratorDirectory,
+  proAdministratorDirectoryV1,
+  proAdministratorDirectoryV2,
+  proSnapshot,
+  proSnapshotV1,
+  proSnapshotV2,
+  type ProSnapshotFields,
+} from './__helpers__/pro-snapshot.ts';
 
 const ROOM_CODE = '000001';
 const PRO_ROOM_PRODUCTION_PATH = new URL(PRO_ROOM_PRODUCTION_ENDPOINT).pathname;
@@ -49,7 +59,11 @@ const DELEGATED_PERMISSIONS: ProRoomPermissionSet = {
 const DELEGATED_MEMBER_ID = 'member_0000000002';
 
 function administratorDirectory() {
-  return proAdministratorDirectory([
+  return proAdministratorDirectory(administratorRows());
+}
+
+function administratorRows() {
+  return [
     {
       memberId: 'member_0000000001',
       memberDisplayNumber: 0,
@@ -70,11 +84,15 @@ function administratorDirectory() {
       inheritedPermissions: [] as Array<keyof ProRoomPermissionSet>,
       onlineDeviceCount: 2,
     },
-  ]);
+  ];
 }
 
 function activeSnapshot(roomCode = ROOM_CODE): ProRoomSnapshot {
-  return proSnapshot({
+  return proSnapshot(activeFields(roomCode));
+}
+
+function activeFields(roomCode = ROOM_CODE): ProSnapshotFields {
+  return {
     roomCode,
     status: 'active',
     runtime: 'awake',
@@ -145,7 +163,52 @@ function activeSnapshot(roomCode = ROOM_CODE): ProRoomSnapshot {
         onlineDeviceCount: 1,
       },
     ],
-  });
+  };
+}
+
+/** The active room after the account detaches: the same device, now an anonymous member. */
+function detachedFields(): ProSnapshotFields {
+  const fields = activeFields();
+  const anonymous = {
+    memberId: 'member_anonymous000000001',
+    memberDisplayNumber: 2,
+    isAuthenticated: false,
+    displayName: 'Peer 2',
+    role: 'member' as const,
+    capabilities: [],
+  };
+  return {
+    ...fields,
+    revision: 5,
+    presence: {
+      ...fields.presence,
+      revision: 2,
+      participants: [{ ...fields.presence.participants[0]!, ...anonymous }],
+    },
+    viewer: { ...fields.viewer!, ...anonymous },
+    administrators: fields.administrators.map((administrator) => ({
+      ...administrator,
+      onlineDeviceCount: 0,
+    })),
+  };
+}
+
+/** The PREPARE of the active room's next playback revision, as the Worker sends it. */
+function playbackPrepareWire() {
+  const playback = activeFields().playback;
+  return {
+    type: 'pro-playback-prepare' as const,
+    transitionId: 'transition_1234567890123456789012',
+    serverTimeMs: 1_800_000_001_000,
+    deadlineAtMs: 1_800_000_004_000,
+    basePlaybackRevision: playback.revision,
+    target: {
+      ...playback,
+      revision: playback.revision + 1,
+      state: 'playing' as const,
+      updatedAtMs: 1_800_000_001_000,
+    },
+  };
 }
 
 function jsonResponse(value: unknown, init: ResponseInit = {}): Response {
@@ -1046,6 +1109,52 @@ describe('PRO room cookie session API', () => {
     });
   });
 
+  // A live LAN-direct has no media deadline: PRO snapshot schemaVersion 2
+  // sends liveExpiresAt null, earlier Workers a numeric compatibility value,
+  // and both read as null (PLE-01). One invalid systemAudio would void the
+  // whole heartbeat reply.
+  it.each([null, 1_800_000])(
+    'reads a live LAN-direct with liveExpiresAt %s as null in a full and a compact heartbeat',
+    async (liveExpiresAt) => {
+      const snapshot = activeSnapshot();
+      const fetchMock = vi.fn<typeof fetch>();
+      const client = new ProRoomApiClient({ fetch: fetchMock });
+      await establishPresence(client, fetchMock, snapshot);
+      const direct = {
+        generation: 4,
+        status: 'live',
+        ownerParticipantId: 'participant_00002',
+        claimExpiresAt: null,
+        publication: {
+          publicationId: 'publication_000000001',
+          transport: 'lan-direct',
+          protocolVersion: 2,
+        },
+      } as const;
+      fetchMock
+        .mockResolvedValueOnce(
+          jsonResponse({ snapshot, systemAudio: { ...direct, liveExpiresAt } }),
+        )
+        .mockResolvedValueOnce(
+          jsonResponse({
+            notModified: true,
+            revision: snapshot.revision,
+            playlistRevision: snapshot.playlistRevision,
+            presenceRevision: snapshot.presence.revision,
+            playbackRevision: snapshot.playback.revision,
+            coordinatorEpoch: snapshot.presence.coordinatorEpoch,
+            systemAudio: { ...direct, liveExpiresAt },
+          }),
+        );
+
+      const full = await client.heartbeat(ROOM_CODE);
+      expect(full.systemAudio).toEqual({ ...direct, liveExpiresAt: null });
+      const compact = await client.heartbeat(ROOM_CODE, undefined, snapshot);
+      expect(compact.snapshot).toBe(snapshot);
+      expect(compact.systemAudio).toEqual({ ...direct, liveExpiresAt: null });
+    },
+  );
+
   it('rejects a compact heartbeat reply that does not match the caller snapshot', async () => {
     const snapshot = activeSnapshot();
     const fetchMock = vi.fn<typeof fetch>();
@@ -1167,7 +1276,7 @@ describe('PRO room cookie session API', () => {
     );
   });
 
-  it('leaves presence explicitly and obtains a member ticket with the pending transition', async () => {
+  it('obtains a member ticket with the pending transition', async () => {
     const ticket = `v1.${'s'.repeat(32)}.${'T'.repeat(43)}`;
     const pendingPlaybackTransition = {
       type: 'pro-playback-prepare' as const,
@@ -1189,19 +1298,17 @@ describe('PRO room cookie session API', () => {
     const fetchMock = vi.fn<typeof fetch>();
     const client = new ProRoomApiClient({ fetch: fetchMock });
     await establishPresence(client, fetchMock);
-    fetchMock
-      .mockResolvedValueOnce(
-        jsonResponse({
-          ticket,
-          expiresAtMs: 1_900_000_000_000,
-          role: 'member',
-          coordinatorEpoch: 4,
-          presenceIncarnationId: activeSnapshot().viewer!.presenceIncarnationId,
-          ticketSequence: 7,
-          pendingPlaybackTransition,
-        }),
-      )
-      .mockResolvedValueOnce(jsonResponse({ snapshot: activeSnapshot() }));
+    fetchMock.mockResolvedValueOnce(
+      jsonResponse({
+        ticket,
+        expiresAtMs: 1_900_000_000_000,
+        role: 'member',
+        coordinatorEpoch: 4,
+        presenceIncarnationId: activeSnapshot().viewer!.presenceIncarnationId,
+        ticketSequence: 7,
+        pendingPlaybackTransition,
+      }),
+    );
 
     await expect(client.createSignalingTicket(ROOM_CODE)).resolves.toEqual({
       ticket,
@@ -1222,14 +1329,36 @@ describe('PRO room cookie session API', () => {
     expect(ticketHeaders.get('x-mxqr-pro-presence-incarnation')).toBe(
       activeSnapshot().viewer!.presenceIncarnationId,
     );
-    await expect(client.leavePresence(ROOM_CODE)).resolves.toEqual(activeSnapshot());
 
     expect(fetchMock.mock.calls.map((call) => new URL(String(call[0])).pathname)).toEqual([
       `${PRO_ROOM_PRODUCTION_PATH}/v1/rooms/000001/signaling-tickets`,
-      `${PRO_ROOM_PRODUCTION_PATH}/v1/rooms/000001/presence/current`,
     ]);
-    expect(fetchMock.mock.calls.map((call) => call[1]?.method)).toEqual(['POST', 'DELETE']);
+    expect(fetchMock.mock.calls.map((call) => call[1]?.method)).toEqual(['POST']);
   });
+
+  // PRO snapshot schemaVersion 2 names the start kind on every PREPARE (Q4).
+  // The parser builds a new object, so it must copy the field, or a later
+  // reader of this pending PREPARE would never see it.
+  it.each(['zero-start', 'scheduled-control'] as const)(
+    'keeps the %s timingMode of the pending PREPARE in a member ticket',
+    async (timingMode) => {
+      const access = {
+        ticket: `v1.${'s'.repeat(32)}.${'T'.repeat(43)}`,
+        expiresAtMs: 1_900_000_000_000,
+        role: 'member',
+        coordinatorEpoch: 1,
+        presenceIncarnationId: activeSnapshot().viewer!.presenceIncarnationId,
+        ticketSequence: 7,
+        pendingPlaybackTransition: { ...playbackPrepareWire(), timingMode },
+      };
+      const fetchMock = vi.fn<typeof fetch>();
+      const client = new ProRoomApiClient({ fetch: fetchMock });
+      await establishPresence(client, fetchMock);
+      fetchMock.mockResolvedValueOnce(jsonResponse(access));
+
+      await expect(client.createSignalingTicket(ROOM_CODE)).resolves.toEqual(access);
+    },
+  );
 
   it('rejects legacy coordinator tickets and tickets missing the pending-transition field', async () => {
     const ticket = `v1.${'s'.repeat(32)}.${'T'.repeat(43)}`;
@@ -1363,7 +1492,7 @@ describe('PRO room cookie session API', () => {
     ).rejects.toMatchObject({ code: 'INVALID_RESPONSE' });
   });
 
-  it('uses one small credentialed keepalive request for a confirmed unload close', async () => {
+  it('uses one small credentialed keepalive request without a playback observation for a presence close', async () => {
     const snapshot = activeSnapshot();
     const fetchMock = vi.fn<typeof fetch>().mockResolvedValue(jsonResponse({ ok: true }));
     const client = new ProRoomApiClient({ fetch: fetchMock });
@@ -1372,9 +1501,6 @@ describe('PRO room cookie session API', () => {
       code: ROOM_CODE,
       expectedParticipantId: snapshot.viewer!.participantId,
       expectedPresenceIncarnationId: snapshot.viewer!.presenceIncarnationId,
-      baseRevision: snapshot.revision,
-      currentQueueItemId: snapshot.currentQueueItemId,
-      playback: snapshot.playback,
       idempotencyKey: IDEMPOTENCY_KEY,
     });
 
@@ -1391,13 +1517,14 @@ describe('PRO room cookie session API', () => {
     expect(headers.get('idempotency-key')).toBeNull();
     expect(headers.get('x-mxqr-pro-participant-id')).toBeNull();
     expect(headers.get('x-mxqr-pro-presence-incarnation')).toBeNull();
+    // The body names only the exact presence incarnation and the receipt key.
+    // `baseRevision`, `currentQueueItemId` and `playback` are no longer sent:
+    // the PRO Worker never read them and has taken them as optional since
+    // old-version removal train 2.
     expect(JSON.parse(String(init.body))).toEqual({
       idempotencyKey: IDEMPOTENCY_KEY,
       expectedParticipantId: snapshot.viewer!.participantId,
       expectedPresenceIncarnationId: snapshot.viewer!.presenceIncarnationId,
-      baseRevision: snapshot.revision,
-      currentQueueItemId: snapshot.currentQueueItemId,
-      playback: snapshot.playback,
     });
     expect(new TextEncoder().encode(String(init.body)).byteLength).toBeLessThan(64 * 1024);
   });
@@ -1412,9 +1539,6 @@ describe('PRO room cookie session API', () => {
         code: ROOM_CODE,
         expectedParticipantId: 'not-valid',
         expectedPresenceIncarnationId: snapshot.viewer!.presenceIncarnationId,
-        baseRevision: snapshot.revision,
-        currentQueueItemId: snapshot.currentQueueItemId,
-        playback: snapshot.playback,
         idempotencyKey: IDEMPOTENCY_KEY,
       }),
     ).rejects.toMatchObject({ code: 'INVALID_PARTICIPANT_ID' });
@@ -1425,9 +1549,6 @@ describe('PRO room cookie session API', () => {
         code: ROOM_CODE,
         expectedParticipantId: snapshot.viewer!.participantId,
         expectedPresenceIncarnationId: 'stale',
-        baseRevision: snapshot.revision,
-        currentQueueItemId: snapshot.currentQueueItemId,
-        playback: snapshot.playback,
         idempotencyKey: IDEMPOTENCY_KEY,
       }),
     ).rejects.toMatchObject({ code: 'INVALID_PRESENCE_INCARNATION_ID' });
@@ -1615,6 +1736,59 @@ describe('PRO room cookie session API', () => {
         idempotencyKey: IDEMPOTENCY_KEY,
       }),
     ).toThrow('PRO_ROOM_API_INVALID_YOUTUBE_IDENTITY');
+  });
+
+  it.each(['zero-start', 'scheduled-control'] as const)(
+    'keeps the %s timingMode of the PREPARE in a playback command answer',
+    async (timingMode) => {
+      const snapshot = activeSnapshot();
+      const answer = {
+        schemaVersion: 1,
+        roomCode: ROOM_CODE,
+        status: 'preparing',
+        transition: { ...playbackPrepareWire(), timingMode },
+        playback: snapshot.playback,
+        serverTimeMs: 1_800_000_001_000,
+      };
+      const fetchMock = vi.fn<typeof fetch>();
+      const client = new ProRoomApiClient({ fetch: fetchMock });
+      await establishPresence(client, fetchMock, snapshot);
+      fetchMock.mockResolvedValueOnce(jsonResponse(answer));
+
+      await expect(
+        client.executePlaybackCommand({
+          code: ROOM_CODE,
+          command: { type: 'play', baseRevision: snapshot.playback.revision },
+          idempotencyKey: IDEMPOTENCY_KEY,
+        }),
+      ).resolves.toEqual(answer);
+    },
+  );
+
+  // A start kind this App does not know is read as scheduled-control, never
+  // as a reason to drop the event (Q4): the kind only grants learned lead.
+  it('reads any other timingMode on a PREPARE or COMMIT as scheduled-control', () => {
+    const prepare = playbackPrepareWire();
+    const commit = {
+      type: 'pro-playback-commit' as const,
+      transitionId: prepare.transitionId,
+      serverTimeMs: 1_800_000_001_000,
+      executeAtMs: 1_800_000_001_699,
+      playback: prepare.target,
+    };
+    for (const timingMode of ['learned-start', 'Zero-Start', '', 0, null, {}]) {
+      expect(parseProRoomPlaybackPrepareEvent({ ...prepare, timingMode })).toEqual({
+        ...prepare,
+        timingMode: 'scheduled-control',
+      });
+      expect(parseProRoomPlaybackCommitEvent({ ...commit, timingMode })).toEqual({
+        ...commit,
+        timingMode: 'scheduled-control',
+      });
+    }
+    // Without the field the events parse exactly as before.
+    expect(parseProRoomPlaybackPrepareEvent(prepare)).toStrictEqual(prepare);
+    expect(parseProRoomPlaybackCommitEvent(commit)).toStrictEqual(commit);
   });
 });
 
@@ -1808,6 +1982,98 @@ describe('PRO room administrator API', () => {
     await expect(client.getAdministrators(ROOM_CODE)).rejects.toMatchObject({
       code: 'INVALID_RESPONSE',
     });
+  });
+});
+
+describe('PRO snapshot schemaVersion 1 and 2 answers', () => {
+  // The App reads both wire versions into the schemaVersion 2 memory shape
+  // before any PRO Worker sends schemaVersion 2 (Phase 5.5).
+  const replies = [
+    {
+      reply: 'GET /snapshot',
+      fields: activeFields,
+      answer: (snapshot: unknown) => ({ snapshot }),
+      call: (client: ProRoomApiClient) => client.getSnapshot(ROOM_CODE),
+      result: (snapshot: unknown) => snapshot,
+    },
+    {
+      reply: 'session',
+      fields: activeFields,
+      answer: (snapshot: unknown) => ({ snapshot, session: { expiresAtMs: 1_900_000_000_000 } }),
+      call: (client: ProRoomApiClient) =>
+        client.createSession({ code: ROOM_CODE, pin: '12345678', requestId: IDEMPOTENCY_KEY }),
+      result: (snapshot: unknown) => snapshot,
+    },
+    {
+      reply: 'account detach',
+      fields: detachedFields,
+      answer: (snapshot: unknown) => ({ ok: true, detached: true, snapshot }),
+      call: (client: ProRoomApiClient) => client.detachCurrentAccount(ROOM_CODE),
+      result: (snapshot: unknown) => ({ ok: true, detached: true, snapshot }),
+    },
+    {
+      reply: 'full heartbeat',
+      fields: activeFields,
+      answer: (snapshot: unknown) => ({ snapshot, systemAudio: idleProSystemAudio(3) }),
+      call: (client: ProRoomApiClient) => client.heartbeat(ROOM_CODE),
+      result: (snapshot: unknown) => ({ snapshot, systemAudio: idleProSystemAudio(3) }),
+    },
+  ];
+  const wires = [
+    { version: 1, wire: proSnapshotV1 },
+    { version: 2, wire: proSnapshotV2 },
+  ];
+
+  it.each(replies.flatMap((reply) => wires.map((wire) => ({ ...reply, ...wire }))))(
+    'reads the schemaVersion $version snapshot of a $reply answer into the memory shape',
+    async ({ fields, wire, answer, call, result }) => {
+      const fetchMock = vi.fn<typeof fetch>();
+      const client = new ProRoomApiClient({ fetch: fetchMock });
+      await establishPresence(client, fetchMock);
+      fetchMock.mockResolvedValueOnce(jsonResponse(answer(wire(fields()))));
+
+      await expect(call(client)).resolves.toEqual(result(proSnapshotV2(fields())));
+    },
+  );
+
+  it.each(['get', 'update', 'revoke'] as const)(
+    'reads the %s administrator directory of either snapshot version into one shape',
+    async (operation) => {
+      const fetchMock = vi.fn<typeof fetch>();
+      const client = new ProRoomApiClient({ fetch: fetchMock });
+      await establishPresence(client, fetchMock);
+      for (const answer of [
+        proAdministratorDirectoryV1(administratorRows()),
+        proAdministratorDirectoryV2(administratorRows()),
+      ]) {
+        fetchMock.mockResolvedValueOnce(jsonResponse(answer));
+        const result =
+          operation === 'get'
+            ? client.getAdministrators(ROOM_CODE)
+            : operation === 'update'
+              ? client.updateAdministrator(ROOM_CODE, DELEGATED_MEMBER_ID, DELEGATED_PERMISSIONS)
+              : client.revokeAdministrator(ROOM_CODE, DELEGATED_MEMBER_ID);
+        await expect(result).resolves.toEqual(proAdministratorDirectoryV2(administratorRows()));
+      }
+    },
+  );
+
+  it('rejects an administrator directory with any other authority marker or key', async () => {
+    const fetchMock = vi.fn<typeof fetch>();
+    const client = new ProRoomApiClient({ fetch: fetchMock });
+    await establishPresence(client, fetchMock);
+    for (const answer of [
+      { authorityVersion: 2, administrators: administratorRows() },
+      { authorityVersion: '1', administrators: administratorRows() },
+      { authorityVersion: null, administrators: administratorRows() },
+      { administrators: administratorRows(), schemaVersion: 2 },
+      { authorityVersion: 1 },
+    ]) {
+      fetchMock.mockResolvedValueOnce(jsonResponse(answer));
+      await expect(client.getAdministrators(ROOM_CODE)).rejects.toMatchObject({
+        code: 'INVALID_RESPONSE',
+      });
+    }
   });
 });
 
@@ -2053,6 +2319,39 @@ describe('PRO room system-audio lease API', () => {
       leaseId,
     });
   });
+
+  // A live LAN-direct has no media deadline: PRO snapshot schemaVersion 2
+  // sends liveExpiresAt null, earlier Workers a numeric compatibility value,
+  // and both read as null (PLE-01).
+  it.each([null, 1_900_007_200_000])(
+    'reads a live LAN-direct with liveExpiresAt %s as null from the state resource and lease answers',
+    async (liveExpiresAt) => {
+      const direct = {
+        publicationId: 'publication_00001',
+        transport: 'lan-direct',
+        protocolVersion: 2,
+      } as const;
+      const wire = { ...live, liveExpiresAt, publication: direct };
+      const fetchMock = vi.fn<typeof fetch>();
+      const client = new ProRoomApiClient({ fetch: fetchMock });
+      await establishPresence(client, fetchMock);
+      fetchMock.mockImplementation(async () => jsonResponse({ systemAudio: wire }));
+      const read = { ...live, liveExpiresAt: null, publication: direct };
+
+      await expect(client.getSystemAudioState(ROOM_CODE)).resolves.toEqual(read);
+      await expect(
+        client.commitSystemAudioPublication({
+          code: ROOM_CODE,
+          generation: 1,
+          leaseId,
+          publication: direct,
+        }),
+      ).resolves.toEqual(read);
+      await expect(
+        client.heartbeatSystemAudioLease({ code: ROOM_CODE, generation: 1, leaseId }),
+      ).resolves.toEqual(read);
+    },
+  );
 
   it('rejects malformed credentials and any leaked private field before accepting state', async () => {
     const fetchMock = vi.fn<typeof fetch>();

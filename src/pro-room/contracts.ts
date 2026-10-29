@@ -1,6 +1,11 @@
 import type { DevicePlatform, PlaylistSlotsSummary, QueueItemId } from '../types/index.ts';
 
-export const PRO_ROOM_SNAPSHOT_SCHEMA_VERSION = 1 as const;
+/**
+ * PRO snapshot schemaVersion 2, the shape of every parsed snapshot. Until the
+ * App stops accepting snapshot schemaVersion 1, the parser also reads that
+ * wire into this shape (`snapshot.ts`).
+ */
+export const PRO_ROOM_SNAPSHOT_SCHEMA_VERSION = 2 as const;
 export const PRO_ROOM_QUOTA_BYTES = 1024 * 1024 * 1024;
 export const PRO_ROOM_MAX_ASSET_BYTES = 200 * 1024 * 1024;
 export const PRO_ROOM_MAX_PLAYLIST_ITEMS = 1000;
@@ -154,7 +159,6 @@ export interface ProRoomAdministrator {
 export interface ProRoomPresenceSnapshot {
   coordinatorEpoch: number;
   revision: number;
-  coordinatorParticipantId: string | null;
   participants: ProRoomPresenceParticipant[];
 }
 
@@ -175,7 +179,6 @@ export interface ProRoomViewerSnapshot {
   displayName: string;
   role: ProRoomRole;
   capabilities: ProRoomCapability[];
-  coordinatorEligible: boolean;
 }
 
 export type ProRoomSystemAudioStatus = 'idle' | 'preparing' | 'live';
@@ -226,9 +229,12 @@ interface ProRoomSystemAudioStateBase {
   ownerParticipantId: string | null;
   claimExpiresAt: number | null;
   /**
-   * Fixed SFU media deadline. A live LAN-direct publication retains a numeric
-   * compatibility value for mixed-generation clients, but that value does not
-   * expire the direct route; owner presence and device-count authority do.
+   * Fixed SFU media deadline, a positive timestamp on every SFU live state. A
+   * live LAN-direct publication has none and reads null here: owner presence
+   * and device-count authority end the direct route. PRO snapshot
+   * schemaVersion 2 sends it null, and the parser reads the numeric
+   * compatibility value of earlier PRO Workers as null too, so a Worker that
+   * changes the wire mid-share changes no parsed state.
    */
   liveExpiresAt: number | null;
   publication: ProRoomSystemAudioPublication | null;
@@ -254,20 +260,26 @@ interface ProRoomSystemAudioLiveState extends ProRoomSystemAudioStateBase {
   status: 'live';
   ownerParticipantId: string;
   claimExpiresAt: null;
-  liveExpiresAt: number;
+  /** A number for an SFU publication, null for a LAN-direct one. */
+  liveExpiresAt: number | null;
   publication: ProRoomSystemAudioPublication;
 }
 
 /**
  * Authoritative PRO live-share ownership returned by the dedicated
  * `/system-audio` resource and, since 9.0.0, by every presence heartbeat. It
- * stays outside snapshot v1, whose strict key set other replies still share.
+ * stays outside the snapshot, whose exact key sets other replies still share.
  */
 export type ProRoomSystemAudioState =
   ProRoomSystemAudioIdleState | ProRoomSystemAudioPreparingState | ProRoomSystemAudioLiveState;
 
-/** Authoritative, fully validated room state returned after activation/authentication. */
-interface ProRoomSnapshotV1 {
+/**
+ * Authoritative, fully validated room state returned after
+ * activation/authentication. A schemaVersion 1 reply parses to this same
+ * schemaVersion 2 shape without its four coordinator-era keys, so one revision
+ * compares equal across a Worker that changes the wire version.
+ */
+export interface ProRoomSnapshot {
   schemaVersion: typeof PRO_ROOM_SNAPSHOT_SCHEMA_VERSION;
   roomCode: string;
   status: ProRoomStatus;
@@ -284,8 +296,6 @@ interface ProRoomSnapshotV1 {
   presence: ProRoomPresenceSnapshot;
   quota: ProRoomQuotaSnapshot;
   viewer: ProRoomViewerSnapshot | null;
-  memberIdentityVersion: 1;
-  authorityVersion: 1;
   administrators: ProRoomAdministrator[];
   /**
    * Every playlist of the room; `playlist` above is the active one. Present
@@ -293,8 +303,6 @@ interface ProRoomSnapshotV1 {
    */
   playlistSlots?: PlaylistSlotsSummary;
 }
-
-export type ProRoomSnapshot = ProRoomSnapshotV1;
 
 /**
  * One presence heartbeat reply. A compact "not modified" reply resolves to

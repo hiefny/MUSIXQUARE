@@ -823,9 +823,9 @@ describe('bounded Standard-room ICE restart', () => {
   });
 
   it('restarts a guest whose first answer carried no iceRestartVersion', async () => {
-    // Every Standard end since 8.6.39 marks its first offer and answer, and the
-    // App build floor (787) admits none older, so the marker no longer gates
-    // the restart binding (old-version removal train 2, OV-F04 stage 1).
+    // The marker has not gated the restart binding since old-version removal
+    // train 2 (OV-F04 stage 1), and a host from train 3 on (stage 2) marks no
+    // answer. Only the restart offer still carries it.
     const { peer, conn, socket, pc } = await establishGuestWithSignalingState(false);
     const initial = sentOfType(socket, 'signal-offer')[0];
     pc.connectionState = 'failed';
@@ -845,9 +845,13 @@ describe('bounded Standard-room ICE restart', () => {
       'guest-unmarked',
       false,
     );
-    expect(sentOfType(socket, 'signal-answer')[0]).toMatchObject({
+    // Since old-version removal train 3 (OV-F04 stage 2) neither answer
+    // carries iceRestartVersion: no end reads it there.
+    expect(sentOfType(socket, 'signal-answer')[0]).toEqual({
+      type: 'signal-answer',
+      to: 'guest-unmarked',
+      sdp: { type: 'answer', sdp: 'fake-answer' },
       negotiationId: NEGOTIATION_ID,
-      iceRestartVersion: 1,
     });
     const onConnection = vi.fn();
     peer.on('connection', onConnection);
@@ -863,14 +867,43 @@ describe('bounded Standard-room ICE restart', () => {
       }),
     );
     await vi.waitFor(() => expect(sentOfType(socket, 'signal-answer')).toHaveLength(2));
-    expect(sentOfType(socket, 'signal-answer')[1]).toMatchObject({
+    expect(sentOfType(socket, 'signal-answer')[1]).toEqual({
+      type: 'signal-answer',
+      to: 'guest-unmarked',
+      sdp: { type: 'answer', sdp: 'fake-answer' },
       negotiationId: NEXT_NEGOTIATION_ID,
-      iceRestartVersion: 1,
     });
     expect(FakeRTCPeerConnection.instances).toHaveLength(1);
     expect(conn.peerConnection).toBe(pc);
     expect(conn.open).toBe(true);
     expect(onConnection).not.toHaveBeenCalled();
+    peer.destroy();
+  });
+
+  it('sends a Standard guest first data offer without iceRestartVersion', async () => {
+    // Old-version removal train 3 (OV-F04 stage 2): the host binds the first
+    // negotiation without reading a marker, so only the restart offer keeps it.
+    installFakeWebSocket();
+    installFakeRTCPeerConnection();
+    const peer = createGuestPeer();
+    peer.connect('123456', { metadata: { label: 'first-offer' } });
+    const socket = FakeWebSocket.instances[0];
+    socket.dispatch('open');
+    await flushAsync();
+    socket.dispatch(
+      'message',
+      JSON.stringify({ type: 'peer-open', peerId: 'mx-guest', roomId: '123456' }),
+    );
+    await flushAsync();
+    expect(sentOfType(socket, 'signal-offer')).toEqual([
+      {
+        type: 'signal-offer',
+        to: 'host',
+        sdp: { type: 'offer', sdp: 'fake-offer' },
+        negotiationId: expect.stringMatching(/^[A-Za-z0-9_-]{16,64}$/),
+        metadata: { label: 'first-offer' },
+      },
+    ]);
     peer.destroy();
   });
 
@@ -969,9 +1002,11 @@ describe('bounded Standard-room ICE restart', () => {
     expect(pc.remoteDescriptionHistory).toHaveLength(1);
     socket.dispatch('message', JSON.stringify({ ...restart, restartOf: NEGOTIATION_ID }));
     await vi.waitFor(() => expect(sentOfType(socket, 'signal-answer')).toHaveLength(2));
-    expect(sentOfType(socket, 'signal-answer')[1]).toMatchObject({
+    expect(sentOfType(socket, 'signal-answer')[1]).toEqual({
+      type: 'signal-answer',
+      to: 'guest-restart',
+      sdp: { type: 'answer', sdp: 'fake-answer' },
       negotiationId: NEXT_NEGOTIATION_ID,
-      iceRestartVersion: 1,
     });
     expect(FakeRTCPeerConnection.instances).toHaveLength(1);
     expect(conn.peerConnection).toBe(pc);
@@ -7877,9 +7912,18 @@ describe('Standard-room PIN membership commits', () => {
     client.dispatch('open');
     await flushAsync();
     room.acceptPendingHost(server, '123456', new URL(client.url).searchParams.get('peerId') || '');
-    await room.webSocketMessage(server, JSON.stringify(sentOfType(client, 'host-auth')[0]));
+    const hostAuth = sentOfType(client, 'host-auth')[0];
+    await room.webSocketMessage(server, JSON.stringify(hostAuth));
     const opened = workerSentOfType(server, 'peer-open')[0];
-    expect(opened).toMatchObject({ standardRoomPinMembershipVersion: 1 });
+    // Old-version removal train 3 (survey OV-F08): the Worker advertises no
+    // membership marker, and the App sends the kept set without one.
+    expect(opened).toEqual({
+      type: 'peer-open',
+      peerId: '123456',
+      roomId: '123456',
+      roomPasswordMutationId: hostAuth?.pinMutationId,
+      roomPasswordApplied: true,
+    });
     client.dispatch('message', JSON.stringify(opened));
     await flushAsync();
     await room.webSocketMessage(server, JSON.stringify(lastPinFrame(client)));

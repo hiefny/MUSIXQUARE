@@ -57,15 +57,11 @@ type SignalingMessage =
       roomId: string;
       workerVersionId?: string;
       memberIdentity?: StandardRoomMemberIdentity;
-      // The Worker still sends these feature markers (until survey OV-F08), but
-      // the client stopped reading them in old-version removal train 2. Every
-      // signaling Worker a 9.0.14 or newer App may meet answers the liveness
-      // ping and takes the PIN membership directive, and one without the upload
-      // assertion secret refuses each request with its own error.
-      signalingLivenessVersion?: 1;
-      remoteShareUploadAssertionVersion?: 1;
-      remoteShareUploadAssertionKeyringVersion?: 1;
-      standardRoomPinMembershipVersion?: 1;
+      // A Worker before old-version removal train 3 also sends feature markers
+      // here, unread since train 2: every signaling Worker a 9.0.14 or newer
+      // App may meet answers the liveness ping and takes the PIN membership
+      // directive, and one without the upload assertion secret refuses each
+      // request with its own error.
       roomPasswordMutationId?: string;
       roomPasswordApplied?: true;
     }
@@ -110,7 +106,6 @@ type SignalingMessage =
       from: string;
       sdp: RTCSessionDescriptionInit;
       negotiationId: string;
-      iceRestartVersion?: 1;
     }
   | {
       type: 'signal-candidate';
@@ -178,7 +173,6 @@ type OutgoingSignal =
       to: string;
       sdp: RTCSessionDescriptionInit;
       negotiationId: string;
-      iceRestartVersion?: 1;
     }
   | {
       type: 'signal-candidate';
@@ -3824,8 +3818,8 @@ export class CloudflareSignalingPeer extends TinyEmitter implements TransportPee
       } else if (!this.proSignalingAccess && sourceSocket) {
         clearStandardHttpPreference();
       }
-      // Every signaling Worker answers the fixed liveness ping, with or without
-      // the marker in its peer-open (version metadata gates only the marker).
+      // Every signaling Worker answers the fixed liveness ping, so the probe
+      // reads no peer-open marker.
       if (
         !this.proSignalingAccess &&
         sourceSocket &&
@@ -4277,8 +4271,9 @@ export class CloudflareSignalingPeer extends TinyEmitter implements TransportPee
       undefined,
       this.proSignalingAccess ? undefined : () => this.createIsolatedControlConnection(conn),
     );
-    // Every Standard end since 8.6.39 restarts ICE and marks its first offer;
-    // the App build floor (787) admits none older, so the mark is not read.
+    // Every Standard end since 8.6.39 restarts ICE and the App build floor
+    // admits none older, so the first offer binds without a mark (an end
+    // before old-version removal train 3 still sends one, unread).
     if (!this.proSignalingAccess) conn.iceRestartBinding = negotiationId;
     const pc = this.createPeerConnection(peerId);
     conn.peerConnection = pc;
@@ -4355,7 +4350,6 @@ export class CloudflareSignalingPeer extends TinyEmitter implements TransportPee
         to: peerId,
         sdp: pc.localDescription.toJSON(),
         negotiationId: negotiation.negotiationId,
-        ...(conn.iceRestartBinding ? { iceRestartVersion: 1 as const } : {}),
       });
     } catch (error) {
       const stillCurrent = this.isIceNegotiationCurrent(negotiation);
@@ -4414,7 +4408,6 @@ export class CloudflareSignalingPeer extends TinyEmitter implements TransportPee
       sdp: pc.localDescription.toJSON(),
       negotiationId: negotiation.negotiationId!,
       metadata,
-      ...(!this.proSignalingAccess ? { iceRestartVersion: 1 as const } : {}),
     });
   }
 
@@ -4441,7 +4434,8 @@ export class CloudflareSignalingPeer extends TinyEmitter implements TransportPee
       await pc.setRemoteDescription(sdp);
       if (!(await this.flushRemoteCandidates(negotiation))) return;
       negotiation.settled = true;
-      // As on the host: every Standard host answer since 8.6.39 is restartable.
+      // As on the host: every Standard host since 8.6.39 restarts, whether or not
+      // its answer carries the mark.
       if (!this.proSignalingAccess && conn && !conn.iceRestartBinding) {
         conn.iceRestartBinding = negotiationId;
       }
@@ -4624,7 +4618,6 @@ export class CloudflareSignalingPeer extends TinyEmitter implements TransportPee
             to: peerId,
             sdp: pc.localDescription.toJSON(),
             negotiationId,
-            iceRestartVersion: 1,
           });
           negotiation.settled = true;
           conn.finishIceRestart();

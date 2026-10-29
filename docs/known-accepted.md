@@ -256,7 +256,10 @@ What remains accepted:
   limit is off. Since old-version removal train 2 (2026-10-26) the App always
   sends the membership choice without reading the Worker's marker
   ([ops](../cloudflare/standard-room-pin-ops.md#rollback),
-  [report](design/old-version-removal-2a-app-2026-10-26.md)).
+  [report](design/old-version-removal-2a-app-2026-10-26.md)). Since train 3 the
+  current Worker does not advertise that marker, so a 9.0.14 host, which still
+  reads it, sends the PIN alone as above (with the wrong-PIN limit on); the
+  enforced App build floor admits that host only while it is off or at most 787.
 
 Reopen this item if Standard rooms become discoverable or listed, if kick
 evasion is observed in production, or before relying on a Standard-room PIN for

@@ -94,7 +94,7 @@ const READ_ALLOWLIST = new Map<string, ReadAllowance>([
   ],
   [
     'src/network/system-audio-sfu.ts',
-    { appRole: 10, isOperator: 0, reason: 'compatibility-consumer' },
+    { appRole: 9, isOperator: 0, reason: 'compatibility-consumer' },
   ],
   ['src/player/playlist.ts', { appRole: 1, isOperator: 0, reason: 'standard-fenced' }],
   ['src/rooms/authority.ts', { appRole: 4, isOperator: 1, reason: 'canonical-authority-adapter' }],
@@ -324,7 +324,6 @@ const CALLSITE_FINGERPRINTS = new Map<string, readonly string[]>([
   [
     'src/network/system-audio-sfu.ts',
     [
-      "read:appRole @ callback-call:bus.on(\"network:peer-connected\")#1 :: if (getState('network.appRole') !== 'guest')",
       "read:appRole @ callback-call:bus.on(\"network:peer-connection-replaced\")#1 :: if (getState('network.appRole') !== 'host')",
       "read:appRole @ callback-call:bus.on(\"network:peer-disconnected\")#1 :: if (getState('network.appRole') === 'guest' && !getState('network.hostConn'))",
       "read:appRole @ callback-call:bus.on(\"network:peer-disconnected\")#1 :: if (getState('network.appRole') === 'host')",

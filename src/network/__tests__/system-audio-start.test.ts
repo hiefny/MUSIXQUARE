@@ -23,7 +23,10 @@
  * LAN peer whose SFU capability marker arrived after the peer event): the host
  * no longer reads that marker (old-version survey OV-B05), so a late LAN peer
  * gets the host's late-peer START once and goes to the SFU at once (the row
- * "Standard SFU, late ninth LAN listener" below).
+ * "Standard SFU, late ninth LAN listener" below). Guests stop sending the
+ * marker in Phase 5.5 train 3 (OV-F06); the one a 9.0.16 to 9.0.21 guest still
+ * sends reaches the host's protocol router over the exact live connection and
+ * starts nothing (the row "drops the raw SFU capability marker ..." below).
  *
  * Replaced, as in system-audio-standard-publish-evidence.test.ts, all native
  * seams: RTCPeerConnection and the Cloudflare Realtime API
@@ -40,6 +43,8 @@ import { resetState, setState } from '../../core/state.ts';
 import { clearAllManagedTimers } from '../../core/timers.ts';
 import type { ConnectedPeer, DataConnection, MediaConnection } from '../../types/index.ts';
 import { setPeer } from '../peer-state.ts';
+import { handleData } from '../protocol.ts';
+import { getSystemAudioShareDeliverySnapshot } from '../system-audio-delivery.ts';
 import { registerSystemAudioHostListeners } from '../system-audio-host.ts';
 import { registerSystemAudioSfuListeners } from '../system-audio-sfu.ts';
 import { createSystemAudioStartFrame, readSystemAudioStartSurface } from '../system-audio-start.ts';
@@ -310,4 +315,49 @@ describe('every Standard START sender sends the shared normalized frame', () => 
       expect(lateFrames[1]).toMatchObject({ audience: 'all' });
     },
   );
+
+  it('drops the raw SFU capability marker 9.0.16 to 9.0.21 guests still send, with no warning, frame or route change', async () => {
+    shareWithSurface('browser');
+    // Nine LAN listeners: the share starts on the SFU with the 'all' audience.
+    const listeners = Array.from({ length: 9 }, (_, index) => guest(index + 1, 'local'));
+    setState('network.connectedPeers', listeners);
+    setState(
+      'network.activeHostConnByPeerId',
+      new Map(listeners.map((listener) => [listener.id, listener.conn as DataConnection])),
+    );
+    const calls = installTransport();
+    bus.emit('system-audio:streams-ready');
+    await advance(PUBLISH_SETTLE_MS);
+    const delivery = getSystemAudioShareDeliverySnapshot();
+    expect(delivery).toMatchObject({ active: true, mode: 'all-sfu' });
+    const realtimeRequests = publisherRealtime.requests.length;
+    const publications = PublisherPeerConnection.instances.length;
+    for (const conn of conns) conn.send.mockClear();
+    vi.mocked(log.debug).mockClear();
+    vi.mocked(log.warn).mockClear();
+
+    // A guest from 9.0.16 up to the build before Phase 5.5 train 3 still sends
+    // this once per host connection, over the exact live connection. A host
+    // from 9.0.16 has no handler for it; once the kind is gone it has no
+    // validator either.
+    const marker = { type: 'system-audio-sfu-capability', version: 2, localAudience: true };
+    await handleData(marker, listeners[0]!.conn as DataConnection);
+    await advance(0);
+
+    const debugLines = () => vi.mocked(log.debug).mock.calls.map(([line]) => String(line));
+    expect(debugLines().filter((line) => line.includes('stale guest connection'))).toEqual([]);
+    expect(log.warn).not.toHaveBeenCalled();
+    expect(conns.flatMap((conn) => conn.send.mock.calls)).toEqual([]);
+    expect(calls.size).toBe(0);
+    expect(publisherRealtime.requests).toHaveLength(realtimeRequests);
+    expect(PublisherPeerConnection.instances).toHaveLength(publications);
+    expect(getSystemAudioShareDeliverySnapshot()).toEqual(delivery);
+
+    // Control: the same frame on a replaced connection stops at the
+    // stale-connection gate, so the absence above means the marker passed it.
+    await handleData(marker, { ...conns[0]! } as unknown as DataConnection);
+    expect(debugLines()).toContain(
+      '[Protocol] Ignored frame from stale guest connection: system-audio-sfu-capability',
+    );
+  });
 });

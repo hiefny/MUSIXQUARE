@@ -980,7 +980,7 @@ describe('bounded large-room SFU failure policy', () => {
     expect(retryTimerCalls()).toHaveLength(0);
   });
 
-  it('spends the same bounded retry on a late LAN guest from its peer event alone, with no capability handler and no START of its own (5B-OV2)', async () => {
+  it('spends the same bounded retry on a late LAN guest from its peer event alone, with no START of its own (5B-OV2)', async () => {
     const mod = await import('../system-audio-sfu.ts');
     mod.registerSystemAudioSfuListeners();
     bus.emit('system-audio:stop');
@@ -1001,17 +1001,9 @@ describe('bounded large-room SFU failure policy', () => {
     await waitForNewSessionCalls(1);
     await rejectAllRealtimeCalls();
 
-    // The host ignores SYSTEM_AUDIO_SFU_CAPABILITY (old-version survey
-    // OV-B05): the frame still passes the protocol validator, which drops it
-    // with no handler, and current guests keep sending it until a later
-    // client floor (OV-F06).
-    const { registerHandler } = await import('../protocol.ts');
-    expect(
-      vi
-        .mocked(registerHandler)
-        .mock.calls.some((call) => call[0] === MSG.SYSTEM_AUDIO_SFU_CAPABILITY),
-    ).toBe(false);
-
+    // The late LAN guest's peer event alone triggers the retry: the host reads
+    // no capability marker (old-version survey OV-B05), and guests stopped
+    // sending one in Phase 5.5 train 3 (OV-F06).
     const localPeer = makeLocalPeer('late-local-evaluated');
     setState('network.connectedPeers', [...remotePeers, localPeer]);
     bus.emit('orchestrator:peer-evaluated', localPeer.id);
@@ -1947,22 +1939,22 @@ describe('LAN SFU audience negotiation', () => {
     expect(getSystemAudioShareDeliverySnapshot().sfuPeerIds).not.toContain('replaced-peer');
   });
 
-  it('advertises local-audience support when a guest data connection opens', async () => {
+  it('sends the host no SFU capability marker when a guest data connection opens', async () => {
+    // Phase 5.5 train 3 (old-version survey OV-F06): hosts from 9.0.16 treat
+    // every LAN guest as SFU-capable without reading the marker (5B-OV2), and
+    // the 789 client floor admits no host that still reads it.
     const mod = await import('../system-audio-sfu.ts');
     mod.registerSystemAudioSfuListeners();
     bus.emit('system-audio:stop');
     const hostConn = { open: true, send: vi.fn(), peer: 'host' } as unknown as DataConnection;
     setState('network.appRole', 'guest');
     setState('network.hostConn', hostConn);
+    const { safeSend } = await import('../peer-state.ts');
+    vi.mocked(safeSend).mockClear();
 
     bus.emit('network:peer-connected', hostConn);
 
-    const { safeSend } = await import('../peer-state.ts');
-    expect(safeSend).toHaveBeenCalledWith(hostConn, {
-      type: MSG.SYSTEM_AUDIO_SFU_CAPABILITY,
-      version: 2,
-      localAudience: true,
-    });
+    expect(safeSend).not.toHaveBeenCalled();
   });
 
   it('accepts only an explicit all-audience publication while classified local', async () => {

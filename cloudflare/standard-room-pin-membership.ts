@@ -6,11 +6,13 @@
 // import the Worker or signaling-protocol.ts (which delegates here), so it
 // stays a dependency leaf shared by the signaling and App Workers.
 //
-// Compatibility: an older Worker never reads either storage key and drops a
-// room-password-set frame that carries the membership fields (exact-key
-// validation), so the App sends them only on a socket whose host peer-open
-// advertised STANDARD_ROOM_PIN_MEMBERSHIP_VERSION. Room meta v2 and the guest
-// reconnect bindings keep their exact schemas; no contract marker changes.
+// Compatibility: a Worker older than 8.10.0 never reads either storage key and
+// drops a room-password-set frame that carries the membership fields (exact-key
+// validation). An App of 9.0.14 or newer never authenticates as host to a
+// Worker older than 9.0.14, and since 9.0.15 it sends the fields without
+// reading a peer-open marker, which the Worker no longer advertises since
+// old-version removal train 3. Room meta v2 and the guest reconnect bindings
+// keep their exact schemas; no contract marker changes.
 
 export const STANDARD_ROOM_PIN_MEMBERSHIP_VERSION = 1 as const;
 export const STANDARD_ROOM_PIN_MEMBERSHIP_KEY = 'standard-room-pin-membership-v1';

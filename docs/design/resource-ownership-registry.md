@@ -339,7 +339,41 @@ RO-53 owner-in-place
   `PRO_YOUTUBE_UNBARRIERED_PREPARE_TIMEOUT_MS` (10 s, equal to the Standard `prepareTimeoutMs`,
   imported by `playlist.ts`), both in `iframe.ts`; these are the effective values. Target:
   `src/youtube/constants.ts` (Phase 0d, C2-1).
+
+  The PRO playback transition those budgets serve has its own home since Phase 5.5,
+  `cloudflare/pro-room-playback-timing.ts`. The PRO Worker imports the barrier
+  `PRO_ROOM_PLAYBACK_TRANSITION_DEADLINE_MS` (3 s) and the COMMIT lead
+  `PRO_ROOM_PLAYBACK_COMMIT_LEAD_MS` (700 ms); the App imports only the start-kind union
+  `ProRoomPlaybackTimingMode` (its `ProPlaybackTimingMode`, a type-only import). The file is on
+  both the pro-room and the app runtime
+  paths, so a release that changes it targets `all`. Kept out of it on purpose:
+  - the zero-start encoding of PRO Workers before PRO snapshot schemaVersion 2, one below each
+    value: a 2999 ms stored deadline and a 699 ms COMMIT lead. `cloudflare/pro-room-worker.ts`
+    and `src/pro-room/playback-controller.ts` keep their own copies because they drop them in
+    different releases (the Worker stops writing the 699 ms lead, then the App stops reading it,
+    then the Worker stops reading the 2999 ms deadline). A shared export would be dead in
+    between, which `guard:dead-exports` refuses, and would turn those PRO-only and App-only
+    releases into `all`;
+  - the App's own budgets in `playback-controller.ts` that only share a value: the clock wait of
+    a COMMIT that arrives without a current server clock (`PLAYBACK_COMMIT_CLOCK_WAIT_MS`,
+    700 ms), the lead of a participant-local reconciliation
+    (`PLAYBACK_RECONCILIATION_RENDEZVOUS_LEAD_MS`, 700 ms) and the late YouTube rejoin threshold
+    and minimum lead (`LATE_YOUTUBE_COMMIT_THRESHOLD_MS` 1.5 s, `LATE_YOUTUBE_COMMIT_LEAD_MS`
+    3 s). Each measures the device's own remaining time (`executeAtMs` against the server clock
+    once the wait ends; measured iframe preparation for a rejoin), so none becomes wrong when the
+    Worker's lead or barrier changes. `node scripts/check-resource-ownership.mts --report` lists
+    the three that share a value with the home as report-only pairs: the two 700 ms budgets with
+    the COMMIT lead and the 3 s minimum lead with the barrier. The 1.5 s threshold shares no value
+    with the home and is not listed.
+
+  The ordering test that the barriered 2.3 s fits inside the 3 s barrier waits for Phase 0d C2-1,
+  which moves 2.3 s to `src/youtube/constants.ts`: until then it is a module constant of
+  `iframe.ts` and `authority-arm.ts`, and a test-only export is not allowed.
+
 - **Anchor tests:**
+  - Timing home: `src/pro-room/__tests__/pro-room-playback-timing.test.ts` (the barrier and the
+    lead and no other value, the zero-start encoding before schemaVersion 2 one below each, one
+    start-kind union in the Worker and the App).
   - Supersession: `src/youtube/__tests__/authority-arm.test.ts` "supersedes a prepared occurrence
     when the iframe instance is replaced".
   - User pause/stop: `authority-arm.test.ts` "cancels a long negative-offset wait before a pause or
@@ -877,9 +911,10 @@ RO-53 owner-in-place
     `'all'` fence (5B-OV2, old-version; survey OV-B05, OV-B06) changes only the sender of the
     slot's Standard inputs. A host on this build treats every LAN guest as SFU-capable (a LAN
     guest past the eight direct slots, a late LAN guest of an all-SFU share and a failed LAN
-    direct call go to the SFU with `'all'`; no peer is `'unsupported'`), ignores
-    `SYSTEM_AUDIO_SFU_CAPABILITY` (it passes the validator and is dropped because no handler is
-    registered; guests keep sending it until a later floor, OV-F06) and sends a failed-direct
+    direct call go to the SFU with `'all'`; no peer is `'unsupported'`), ignores the guests' SFU
+    capability marker (no handler is registered; Phase 5.5 train 3, OV-F06, later stopped the
+    guest sender and removed the kind, its validator and payload type, so the marker a 9.0.16 to
+    9.0.21 guest still sends meets no validator or handler) and sends a failed-direct
     remote peer READY
     `{ audience: 'remote', handoffFromDirect: true }` where it sent `'all'`. The Standard suite's
     "OV-B06 acceptance (route direct): ..." and its pair "OV-B06 acceptance (route unselected,
@@ -890,9 +925,12 @@ RO-53 owner-in-place
     subscribes and refuses a late direct call. The host-side rows that failed before it are in
     `system-audio-delivery.test.ts`, `system-audio-host.test.ts` (a ninth LAN guest starts on
     the SFU with no STOP; a failed LAN direct call gets STOP, START and the SFU handoff),
-    `system-audio-sfu.test.ts` (the READY audience, the late LAN retry from the peer event alone,
-    no capability handler) and `system-audio-start.test.ts` (the SFU module's late-LAN START
-    sender went with the capability handler; five START senders remain).
+    `system-audio-sfu.test.ts` (the READY audience, the late LAN retry from the peer event alone)
+    and `system-audio-start.test.ts` (the SFU module's late-LAN START sender went with the
+    capability handler; five START senders remain). Since train 3, `system-audio-start.test.ts`
+    "drops the raw SFU capability marker 9.0.16 to 9.0.21 guests still send, ..." passes before
+    and after: through the protocol router and the guest's exact live connection, the marker
+    changes no frame, call, publication or route.
   - The START `surface` and SFU_READY `audience` requirement (5B-OV3, old-version; survey
     OV-A08) changes only which frames reach the slot's Standard inputs: a START needs a bounded
     `surface` string (an unknown one still reads as DISPLAY) and a READY an `audience`, as every
@@ -1117,7 +1155,13 @@ RO-53 owner-in-place
     lane drops it, together with any added-tracks notice the event carries (RO-46);
   - one load normalizer, `normalizeLoadedSignalingOutbox`: both stored record shapes are frozen
     and anything else is dropped, including a playback record of another epoch. It runs after
-    `normalizeLoadedPlaybackAuthority`, which can advance a legacy room's epoch on load.
+    `normalizeLoadedPlaybackAuthority`, which can advance a legacy room's epoch on load. Since
+    Phase 5.5 old-version removal train 3 (9.0.22) the shapes take one optional key, the start
+    kind `timingMode` (`'zero-start'` or `'scheduled-control'`) of a PREPARE or COMMIT event: the
+    loader keeps it and the write path (`enqueuePlaybackBroadcast`, whose new records pass the
+    same check) queues it, so this Worker loads and delivers the records of a later Worker that
+    names the kind. This Worker writes none, and any other value fails the check like any other
+    malformed record.
 
   The lanes keep their contracts and execution modes:
   - presence (`pendingPresenceBroadcast`, `deliverPresenceBroadcast`, `settlePresenceBroadcast`,
@@ -1173,13 +1217,18 @@ RO-53 owner-in-place
   - Mixed versions: `pro-room-signaling-delivery.test.ts` "durable record shapes (rollback
     contract)", against the frozen records in
     `src/pro-room/__tests__/__helpers__/pro-room-outbox-records-51ab2be3.ts` (both directions,
-    and the 16-attempt cap on load).
+    and the 16-attempt cap on load). The optional start kind: `pro-room-signaling-delivery.test.ts`
+    "keeps a stored transition that names timingMode %s across a cold restart and commits it with
+    the %i ms lead" and "keeps and delivers in order a transition COMMIT and a PREPARE that name
+    timingMode across a cold restart", and `pro-room-worker.test.ts` "lets the outbox write path
+    queue a PREPARE and a transition COMMIT that name either timingMode".
 - **Status:** `owner-in-place`. Phase 0d named the constants once (C7-1). Phase 1 C7-3 merged the
   two request builders ([report](pro-room-signaling-transport-2026-10-23.md)); C7-4 gave the
   outbox one due time, one alarm drain, one epoch hook and one load normalizer, with no behaviour
   change ([report](pro-room-outbox-duration-owners-2026-10-23.md)). The trigger modes, due time,
   caps and epoch hook are pinned in `pro-room-signaling-delivery.test.ts`; the request against the
-  real signaling Worker in `pro-room-signaling-contract-workerd`. Durable record shapes are frozen.
+  real signaling Worker in `pro-room-signaling-contract-workerd`. Durable record shapes are frozen
+  apart from the optional `timingMode` key (Phase 5.5 train 3).
   Exceptions RO-31, RO-46.
 
 ### RO-08 PRO asset duration read
@@ -1607,14 +1656,16 @@ RO-53 owner-in-place
     through two real connections with the device lines. A Wi-Fi to LTE switch with both PCs is
     device-only. On the original route, since train 2 (survey OV-F04 stage 1, App build
     floor 787) every Standard connection takes its restartability binding from the initial negotiation
-    whether or not the first offer or answer carries `iceRestartVersion` (every end since 8.6.39
-    sends it, and still does until train 3; the restart offer keeps requiring it):
+    whether or not the first offer or answer carries `iceRestartVersion` (ends from 8.6.39 to
+    9.0.21 send it; since train 3, stage 2 with App build floor 789, a Standard client sends it on
+    neither the first offer nor any answer, and the restart offer keeps requiring it):
     `cloudflare-signaling.test.ts` "restarts a guest whose first answer carried no
-    iceRestartVersion" and "answers an exact restart in place for a guest whose first offer
-    carried no iceRestartVersion", and `room-expiry-liveness.test.ts` "restarts a guest whose
-    host answered without the ICE restart marker". The resume challenge carries only its ping id
-    (survey OV-A12): `link-liveness-characterization.test.ts` "sends one control-lane challenge
-    and closes exactly 3 s later without its pong".
+    iceRestartVersion", "answers an exact restart in place for a guest whose first offer
+    carried no iceRestartVersion" (both of its answers carry none) and "sends a Standard guest
+    first data offer without iceRestartVersion", and `room-expiry-liveness.test.ts` "restarts a
+    guest whose host answered without the ICE restart marker". The resume challenge carries only
+    its ping id (survey OV-A12): `link-liveness-characterization.test.ts` "sends one
+    control-lane challenge and closes exactly 3 s later without its pong".
   - Characterization before the owner moves (tests only, #478):
     `src/network/transport/__tests__/link-liveness-characterization.test.ts` (grace, restart gate,
     effect order, background-resume probe outcomes) and `room-expiry-liveness.test.ts` (the #471
@@ -2845,7 +2896,8 @@ entry needs the owner's acceptance and is not implied by this registry.
 - **Parent:** RO-07. Plan step C7-5 dropped.
 - **Exception:** a delivered presence snapshot does not make a backing-off playback head due at
   once.
-- **Evidence:** a PREPARE cannot wait out a long backoff: `PLAYBACK_TRANSITION_DEADLINE_MS` (3 s)
+- **Evidence:** a PREPARE cannot wait out a long backoff: the transition barrier
+  `PRO_ROOM_PLAYBACK_TRANSITION_DEADLINE_MS` (3 s, `cloudflare/pro-room-playback-timing.ts`, RO-03)
   commits the transition and the COMMIT replaces the head with a record due immediately. One
   ordering miss retries after 1 s; a lag near 60 s needs about six consecutive failures (a
   signaling outage). Clients also get canonical state from the 15 s heartbeat snapshot. The

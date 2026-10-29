@@ -96,6 +96,8 @@ export interface SignalingDelivery {
   readonly error?: string;
   readonly presenceRevision?: number;
   readonly transitionId?: string;
+  /** The start kind a PREPARE or COMMIT names (PRO snapshot schemaVersion 2). */
+  readonly timingMode?: string;
   /** The event carries a one-shot added-tracks notice (`pro-queue-addition`). */
   readonly addition?: true;
   readonly at: number;
@@ -176,6 +178,7 @@ class FencedSignaling {
           ? { presenceRevision: event.presenceRevision }
           : {}),
         ...(typeof event.transitionId === 'string' ? { transitionId: event.transitionId } : {}),
+        ...(typeof event.timingMode === 'string' ? { timingMode: event.timingMode } : {}),
         ...(event.addition ? { addition: true as const } : {}),
         at: Date.now(),
       });

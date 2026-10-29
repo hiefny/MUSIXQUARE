@@ -374,8 +374,8 @@ export interface ProtocolMap {
     slowmodeSeconds?: number;
     filterEnabled?: boolean;
   };
-  /** Guests translate i18nKey first; message is only the fallback copy. */
-  'session-full': { message?: string; i18nKey?: string };
+  /** Guests translate i18nKey, or show their own room-full copy without one. */
+  'session-full': { i18nKey?: string };
   'force-close-duplicate': NoPayload;
   'join-bootstrap-hello': { version: 1; bootstrapId: string };
   'join-bootstrap-applied': { version: 1; bootstrapId: string };
@@ -567,10 +567,8 @@ export interface ProtocolMap {
     }>;
   };
   'kick-device': { reason?: string };
-  /** Guests translate i18nKey first; text is its fallback. One of the two is required. */
-  'operator-toast': ({ text: string; i18nKey?: string } | { text?: string; i18nKey: string }) & {
-    i18nParams?: Record<string, string | number>;
-  };
+  /** Guests show only the translated i18nKey; a key they do not know shows nothing. */
+  'operator-toast': { i18nKey: string; i18nParams?: Record<string, string | number> };
   /** A hidden Standard host refuses a command that would start or move playback. */
   'host-command-rejected': { reason: 'host-hidden'; command: string };
   'operator-grant': { capabilities: RoomCapability[]; silent?: boolean };

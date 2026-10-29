@@ -1664,6 +1664,58 @@ describe('history Back on dialogs', () => {
   });
 });
 
+describe('danger tone on the primary action', () => {
+  // Owner decision (2026-10-29, items 9 and 12): a primary action that
+  // leaves the session takes the account deletion's danger look. Only its
+  // colors change; position, label and the initial focus stay.
+  const primary = () => document.getElementById('btn-dialog-ok') as HTMLButtonElement;
+  const secondary = () => document.getElementById('btn-dialog-secondary') as HTMLButtonElement;
+
+  // A failed assertion must not leave a dialog open or queued for the next test.
+  afterEach(async () => {
+    const { closeDialog } = await import('../dialog.ts');
+    for (let index = 0; index < 3; index += 1) {
+      closeDialog('superseded');
+      vi.advanceTimersByTime(10);
+    }
+  });
+
+  it('marks the primary action danger while the dialog is open, and only that dialog', async () => {
+    const { showDialog, closeDialog } = await import('../dialog.ts');
+    const leave = showDialog({
+      title: 'Leave Session',
+      buttonText: 'Leave',
+      secondaryText: 'Stay',
+      tone: 'danger',
+    });
+    const next = showDialog({ title: 'Next', buttonText: 'OK', secondaryText: 'Cancel' });
+    vi.advanceTimersByTime(10);
+
+    expect(primary().classList.contains('dialog-danger')).toBe(true);
+    expect(secondary().classList.contains('dialog-danger')).toBe(false);
+    // The exit keeps the first focus.
+    expect(document.activeElement).toBe(secondary());
+
+    closeDialog('ok');
+    await expect(leave).resolves.toMatchObject({ action: 'ok' });
+    expect(primary().classList.contains('dialog-danger')).toBe(false);
+    vi.advanceTimersByTime(10);
+    expect(document.getElementById('dialog-title')?.textContent).toBe('Next');
+    expect(primary().classList.contains('dialog-danger')).toBe(false);
+    closeDialog('secondary');
+    await expect(next).resolves.toMatchObject({ action: 'secondary' });
+  });
+
+  it('keeps the primary action blue without a tone', async () => {
+    const { showDialog, closeDialog } = await import('../dialog.ts');
+    const promise = showDialog({ title: 'Plain', buttonText: 'OK', secondaryText: 'Cancel' });
+    vi.advanceTimersByTime(10);
+    expect(primary().classList.contains('dialog-danger')).toBe(false);
+    closeDialog('secondary');
+    await promise;
+  });
+});
+
 describe('link action under the pair', () => {
   const overlay = () => document.getElementById('dialog-overlay')!;
   const secondary = () => document.getElementById('btn-dialog-secondary') as HTMLButtonElement;

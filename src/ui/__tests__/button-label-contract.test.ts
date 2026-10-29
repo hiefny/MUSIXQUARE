@@ -2729,6 +2729,47 @@ describe('action button label contract', () => {
     );
   });
 
+  it('gives a leave confirmation the account deletion danger look on its primary action', () => {
+    // Owner decision (2026-10-29, items 9 and 12): the primary action of a
+    // leave confirmation (showDialog's tone 'danger') takes account
+    // deletion's colors, the danger label on the dialog danger tint, darker on
+    // hover and on press. Only the colors change: size, label role and the
+    // press scale stay the primary action's, in its layer, without !important.
+    expect(appMarkup().getElementById('btn-dialog-ok')?.className).toBe('dialog-primary');
+    const danger = '.dialog-primary.dialog-danger';
+    const hover = `:where(html[data-hover-pointer]) ${danger}:hover`;
+    const press = `${danger}:active`;
+    expect(ruleValues(appCss, danger, 'color')).toEqual(['var(--danger-foreground)']);
+    expect(ruleValues(appCss, danger, 'background')).toEqual(['var(--control-danger-dialog)']);
+    expect(ruleValues(appCss, hover, 'background')).toEqual(['var(--control-danger-dialog-hover)']);
+    expect(ruleValues(appCss, press, 'background')).toEqual(['var(--control-danger-dialog-press)']);
+    const placed: string[] = [];
+    const lines: Record<string, number> = {};
+    for (const { path, root } of sheets) {
+      root.walkRules((rule) => {
+        const selectors = rule.selectors.map((entry) => entry.replace(/\s+/gu, ' ').trim());
+        const named = ['.dialog-primary', danger, hover, press].filter((selector) =>
+          selectors.includes(selector),
+        );
+        if (named.length === 0 || conditionOf(rule) !== null) return;
+        for (const selector of named) {
+          placed.push(`${selector} ${path} ${layerOf(rule)}`);
+          lines[selector] = rule.source?.start?.line ?? 0;
+        }
+        rule.walkDecls((declaration) => {
+          expect(declaration.important, `${selectors.join(', ')} ${declaration.prop}`).toBe(false);
+        });
+      });
+    }
+    expect(placed.sort()).toEqual(
+      ['.dialog-primary', danger, hover, press].map((selector) => `${selector} css/style.css base`),
+    );
+    // The press rule has the hover rule's specificity and comes after it, so a
+    // hovered press shows the press tint, as account deletion's does.
+    expect(lines[press]).toBeGreaterThan(lines[hover]!);
+    expect(lines[hover]).toBeGreaterThan(lines['.dialog-primary']!);
+  });
+
   it('gives destructive labels one danger foreground role', () => {
     // The color role pairs with --control-danger, the resting destructive
     // surface. It is a new role over an existing red, not a new color.

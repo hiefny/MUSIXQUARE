@@ -13,18 +13,19 @@ import type {
  * browser-coordinator era: `presence.coordinatorParticipantId` (null),
  * `viewer.coordinatorEligible` (false), `memberIdentityVersion` (1) and
  * `authorityVersion` (1). The administrator directory answer carries
- * `authorityVersion` (1) as well. A fixture spells every other field and lets
- * these helpers add the schema version and the four keys, so no fixture
- * writes them itself.
+ * `authorityVersion` (1) as well. Snapshot schemaVersion 2 carries none of
+ * them, and neither does the directory answer that goes with it. A fixture
+ * spells every other field and lets these helpers add the schema version and
+ * the four keys, so no fixture writes them itself.
  *
- * The output is today's v1 wire, which is also the parsed (memory) shape: the
- * keys come out in the parser's order. When the App starts accepting snapshot
- * v2, that change's code commit switches this default output to the v2 wire
- * (the memory shape both wires then parse to) and keeps the v1 wire in a
- * helper of its own, so the rows that compare a parsed snapshot with its
- * fixture keep passing. The switch belongs in the code commit, not in its
- * test-first commit, where the parent's v1-only parser would refuse every
- * fixture at once.
+ * `proSnapshotV1` and `proSnapshotV2` build one wire version each, for rows
+ * that pin a version. The default output is today's v1 wire, which is also
+ * the parsed (memory) shape: the keys come out in the parser's order. When the
+ * App starts accepting snapshot v2, that change's code commit switches this
+ * default output to the v2 wire (the memory shape both wires then parse to),
+ * so the rows that compare a parsed snapshot with its fixture keep passing.
+ * The switch belongs in the code commit, not in its test-first commit, where
+ * the parent's v1-only parser would refuse every fixture at once.
  */
 
 /** A presence block without its coordinator-era key. */
@@ -42,8 +43,19 @@ export type ProSnapshotFields = Omit<
   viewer: ProViewerFields | null;
 };
 
-/** The snapshot's presence block on the wire. */
-export function proPresence(fields: ProPresenceFields): ProRoomPresenceSnapshot {
+/** Snapshot schemaVersion 1 on the wire: every field and the four coordinator-era keys. */
+export type ProSnapshotV1Wire = Omit<ProSnapshotFields, 'presence' | 'viewer'> & {
+  schemaVersion: 1;
+  presence: ProPresenceFields & { coordinatorParticipantId: string | null };
+  viewer: (ProViewerFields & { coordinatorEligible: boolean }) | null;
+  memberIdentityVersion: 1;
+  authorityVersion: 1;
+};
+
+/** Snapshot schemaVersion 2 on the wire: every field and none of the four keys. */
+export type ProSnapshotV2Wire = ProSnapshotFields & { schemaVersion: 2 };
+
+function presenceV1(fields: ProPresenceFields): ProSnapshotV1Wire['presence'] {
   return {
     coordinatorEpoch: fields.coordinatorEpoch,
     revision: fields.revision,
@@ -52,8 +64,19 @@ export function proPresence(fields: ProPresenceFields): ProRoomPresenceSnapshot 
   };
 }
 
-/** The snapshot's viewer on the wire. */
-export function proViewer(fields: ProViewerFields): ProRoomViewerSnapshot {
+function presenceV2(fields: ProPresenceFields): ProPresenceFields {
+  return {
+    coordinatorEpoch: fields.coordinatorEpoch,
+    revision: fields.revision,
+    participants: fields.participants,
+  };
+}
+
+function viewerV1(fields: ProViewerFields): ProViewerFields & { coordinatorEligible: boolean } {
+  return { ...viewerV2(fields), coordinatorEligible: false };
+}
+
+function viewerV2(fields: ProViewerFields): ProViewerFields {
   return {
     memberId: fields.memberId,
     memberDisplayNumber: fields.memberDisplayNumber,
@@ -63,12 +86,11 @@ export function proViewer(fields: ProViewerFields): ProRoomViewerSnapshot {
     displayName: fields.displayName,
     role: fields.role,
     capabilities: fields.capabilities,
-    coordinatorEligible: false,
   };
 }
 
-/** A complete PRO room snapshot on the wire. */
-export function proSnapshot(fields: ProSnapshotFields): ProRoomSnapshot {
+/** A complete snapshot schemaVersion 1 on the wire. */
+export function proSnapshotV1(fields: ProSnapshotFields): ProSnapshotV1Wire {
   return {
     schemaVersion: 1,
     roomCode: fields.roomCode,
@@ -82,9 +104,9 @@ export function proSnapshot(fields: ProSnapshotFields): ProRoomSnapshot {
     playlist: fields.playlist,
     currentQueueItemId: fields.currentQueueItemId,
     playback: fields.playback,
-    presence: proPresence(fields.presence),
+    presence: presenceV1(fields.presence),
     quota: fields.quota,
-    viewer: fields.viewer === null ? null : proViewer(fields.viewer),
+    viewer: fields.viewer === null ? null : viewerV1(fields.viewer),
     memberIdentityVersion: 1,
     authorityVersion: 1,
     administrators: fields.administrators,
@@ -92,10 +114,63 @@ export function proSnapshot(fields: ProSnapshotFields): ProRoomSnapshot {
   };
 }
 
-/** The administrator directory answer of GET, PUT and DELETE `/administrators` on the wire. */
-export function proAdministratorDirectory(administrators: ProRoomAdministrator[]): {
+/** A complete snapshot schemaVersion 2 on the wire, with its keys in the parser's order. */
+export function proSnapshotV2(fields: ProSnapshotFields): ProSnapshotV2Wire {
+  return {
+    schemaVersion: 2,
+    roomCode: fields.roomCode,
+    status: fields.status,
+    ...(fields.passwordRequired === undefined ? {} : { passwordRequired: fields.passwordRequired }),
+    runtime: fields.runtime,
+    revision: fields.revision,
+    playlistRevision: fields.playlistRevision,
+    effectsRevision: fields.effectsRevision,
+    queueModeRevision: fields.queueModeRevision,
+    playlist: fields.playlist,
+    currentQueueItemId: fields.currentQueueItemId,
+    playback: fields.playback,
+    presence: presenceV2(fields.presence),
+    quota: fields.quota,
+    viewer: fields.viewer === null ? null : viewerV2(fields.viewer),
+    administrators: fields.administrators,
+    ...(fields.playlistSlots === undefined ? {} : { playlistSlots: fields.playlistSlots }),
+  };
+}
+
+/** The snapshot's presence block in the default output. */
+export function proPresence(fields: ProPresenceFields): ProRoomPresenceSnapshot {
+  return presenceV1(fields);
+}
+
+/** The snapshot's viewer in the default output. */
+export function proViewer(fields: ProViewerFields): ProRoomViewerSnapshot {
+  return viewerV1(fields);
+}
+
+/** A complete PRO room snapshot in the default output. */
+export function proSnapshot(fields: ProSnapshotFields): ProRoomSnapshot {
+  return proSnapshotV1(fields);
+}
+
+/** The administrator directory answer that goes with snapshot schemaVersion 1. */
+export function proAdministratorDirectoryV1(administrators: ProRoomAdministrator[]): {
   authorityVersion: 1;
   administrators: ProRoomAdministrator[];
 } {
   return { authorityVersion: 1, administrators };
+}
+
+/** The administrator directory answer that goes with snapshot schemaVersion 2. */
+export function proAdministratorDirectoryV2(administrators: ProRoomAdministrator[]): {
+  administrators: ProRoomAdministrator[];
+} {
+  return { administrators };
+}
+
+/** The administrator directory answer of GET, PUT and DELETE `/administrators` in the default output. */
+export function proAdministratorDirectory(administrators: ProRoomAdministrator[]): {
+  authorityVersion: 1;
+  administrators: ProRoomAdministrator[];
+} {
+  return proAdministratorDirectoryV1(administrators);
 }

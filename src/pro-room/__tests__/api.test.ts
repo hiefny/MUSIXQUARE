@@ -17,7 +17,15 @@ import {
 } from '../contracts.ts';
 import { parseProRoomSnapshot } from '../snapshot.ts';
 import { idleProSystemAudio } from './__helpers__/pro-heartbeat.ts';
-import { proAdministratorDirectory, proSnapshot } from './__helpers__/pro-snapshot.ts';
+import {
+  proAdministratorDirectory,
+  proAdministratorDirectoryV1,
+  proAdministratorDirectoryV2,
+  proSnapshot,
+  proSnapshotV1,
+  proSnapshotV2,
+  type ProSnapshotFields,
+} from './__helpers__/pro-snapshot.ts';
 
 const ROOM_CODE = '000001';
 const PRO_ROOM_PRODUCTION_PATH = new URL(PRO_ROOM_PRODUCTION_ENDPOINT).pathname;
@@ -49,7 +57,11 @@ const DELEGATED_PERMISSIONS: ProRoomPermissionSet = {
 const DELEGATED_MEMBER_ID = 'member_0000000002';
 
 function administratorDirectory() {
-  return proAdministratorDirectory([
+  return proAdministratorDirectory(administratorRows());
+}
+
+function administratorRows() {
+  return [
     {
       memberId: 'member_0000000001',
       memberDisplayNumber: 0,
@@ -70,11 +82,15 @@ function administratorDirectory() {
       inheritedPermissions: [] as Array<keyof ProRoomPermissionSet>,
       onlineDeviceCount: 2,
     },
-  ]);
+  ];
 }
 
 function activeSnapshot(roomCode = ROOM_CODE): ProRoomSnapshot {
-  return proSnapshot({
+  return proSnapshot(activeFields(roomCode));
+}
+
+function activeFields(roomCode = ROOM_CODE): ProSnapshotFields {
+  return {
     roomCode,
     status: 'active',
     runtime: 'awake',
@@ -145,7 +161,34 @@ function activeSnapshot(roomCode = ROOM_CODE): ProRoomSnapshot {
         onlineDeviceCount: 1,
       },
     ],
-  });
+  };
+}
+
+/** The active room after the account detaches: the same device, now an anonymous member. */
+function detachedFields(): ProSnapshotFields {
+  const fields = activeFields();
+  const anonymous = {
+    memberId: 'member_anonymous000000001',
+    memberDisplayNumber: 2,
+    isAuthenticated: false,
+    displayName: 'Peer 2',
+    role: 'member' as const,
+    capabilities: [],
+  };
+  return {
+    ...fields,
+    revision: 5,
+    presence: {
+      ...fields.presence,
+      revision: 2,
+      participants: [{ ...fields.presence.participants[0]!, ...anonymous }],
+    },
+    viewer: { ...fields.viewer!, ...anonymous },
+    administrators: fields.administrators.map((administrator) => ({
+      ...administrator,
+      onlineDeviceCount: 0,
+    })),
+  };
 }
 
 function jsonResponse(value: unknown, init: ResponseInit = {}): Response {
@@ -1796,6 +1839,98 @@ describe('PRO room administrator API', () => {
     await expect(client.getAdministrators(ROOM_CODE)).rejects.toMatchObject({
       code: 'INVALID_RESPONSE',
     });
+  });
+});
+
+describe('PRO snapshot schemaVersion 1 and 2 answers', () => {
+  // The App reads both wire versions into the schemaVersion 2 memory shape
+  // before any PRO Worker sends schemaVersion 2 (Phase 5.5).
+  const replies = [
+    {
+      reply: 'GET /snapshot',
+      fields: activeFields,
+      answer: (snapshot: unknown) => ({ snapshot }),
+      call: (client: ProRoomApiClient) => client.getSnapshot(ROOM_CODE),
+      result: (snapshot: unknown) => snapshot,
+    },
+    {
+      reply: 'session',
+      fields: activeFields,
+      answer: (snapshot: unknown) => ({ snapshot, session: { expiresAtMs: 1_900_000_000_000 } }),
+      call: (client: ProRoomApiClient) =>
+        client.createSession({ code: ROOM_CODE, pin: '12345678', requestId: IDEMPOTENCY_KEY }),
+      result: (snapshot: unknown) => snapshot,
+    },
+    {
+      reply: 'account detach',
+      fields: detachedFields,
+      answer: (snapshot: unknown) => ({ ok: true, detached: true, snapshot }),
+      call: (client: ProRoomApiClient) => client.detachCurrentAccount(ROOM_CODE),
+      result: (snapshot: unknown) => ({ ok: true, detached: true, snapshot }),
+    },
+    {
+      reply: 'full heartbeat',
+      fields: activeFields,
+      answer: (snapshot: unknown) => ({ snapshot, systemAudio: idleProSystemAudio(3) }),
+      call: (client: ProRoomApiClient) => client.heartbeat(ROOM_CODE),
+      result: (snapshot: unknown) => ({ snapshot, systemAudio: idleProSystemAudio(3) }),
+    },
+  ];
+  const wires = [
+    { version: 1, wire: proSnapshotV1 },
+    { version: 2, wire: proSnapshotV2 },
+  ];
+
+  it.each(replies.flatMap((reply) => wires.map((wire) => ({ ...reply, ...wire }))))(
+    'reads the schemaVersion $version snapshot of a $reply answer into the memory shape',
+    async ({ fields, wire, answer, call, result }) => {
+      const fetchMock = vi.fn<typeof fetch>();
+      const client = new ProRoomApiClient({ fetch: fetchMock });
+      await establishPresence(client, fetchMock);
+      fetchMock.mockResolvedValueOnce(jsonResponse(answer(wire(fields()))));
+
+      await expect(call(client)).resolves.toEqual(result(proSnapshotV2(fields())));
+    },
+  );
+
+  it.each(['get', 'update', 'revoke'] as const)(
+    'reads the %s administrator directory of either snapshot version into one shape',
+    async (operation) => {
+      const fetchMock = vi.fn<typeof fetch>();
+      const client = new ProRoomApiClient({ fetch: fetchMock });
+      await establishPresence(client, fetchMock);
+      for (const answer of [
+        proAdministratorDirectoryV1(administratorRows()),
+        proAdministratorDirectoryV2(administratorRows()),
+      ]) {
+        fetchMock.mockResolvedValueOnce(jsonResponse(answer));
+        const result =
+          operation === 'get'
+            ? client.getAdministrators(ROOM_CODE)
+            : operation === 'update'
+              ? client.updateAdministrator(ROOM_CODE, DELEGATED_MEMBER_ID, DELEGATED_PERMISSIONS)
+              : client.revokeAdministrator(ROOM_CODE, DELEGATED_MEMBER_ID);
+        await expect(result).resolves.toEqual(proAdministratorDirectoryV2(administratorRows()));
+      }
+    },
+  );
+
+  it('rejects an administrator directory with any other authority marker or key', async () => {
+    const fetchMock = vi.fn<typeof fetch>();
+    const client = new ProRoomApiClient({ fetch: fetchMock });
+    await establishPresence(client, fetchMock);
+    for (const answer of [
+      { authorityVersion: 2, administrators: administratorRows() },
+      { authorityVersion: '1', administrators: administratorRows() },
+      { authorityVersion: null, administrators: administratorRows() },
+      { administrators: administratorRows(), schemaVersion: 2 },
+      { authorityVersion: 1 },
+    ]) {
+      fetchMock.mockResolvedValueOnce(jsonResponse(answer));
+      await expect(client.getAdministrators(ROOM_CODE)).rejects.toMatchObject({
+        code: 'INVALID_RESPONSE',
+      });
+    }
   });
 });
 

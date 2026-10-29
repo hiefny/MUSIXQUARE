@@ -577,20 +577,25 @@ describe('PRO runtime account identity lease', { concurrent: false }, () => {
     });
     await vi.waitFor(() => expect(refresh).toHaveBeenCalledTimes(2));
 
+    // No PRO Worker since 2fa55871 (2026-08-19) carries the generation on the
+    // generic room invalidation, so the App ignores it there: that frame reads
+    // the room through one heartbeat and does not read system audio again.
+    const heartbeatsBeforeRoomInvalidation = heartbeat.mock.calls.length;
     acceptProRoomRealtimeFrameForTests({
       type: 'pro-server-event',
       version: 1,
       roomCode: ROOM_CODE,
       coordinatorEpoch: 1,
-      // Rolling compatibility: pre-fix PRO Workers carried the generation on
-      // the generic room invalidation rather than the dedicated event.
       event: { type: 'pro-room-invalidated', systemAudioGeneration: 1 },
     });
-    await vi.waitFor(() => expect(refresh).toHaveBeenCalledTimes(3));
+    await vi.waitFor(() =>
+      expect(heartbeat.mock.calls.length).toBeGreaterThan(heartbeatsBeforeRoomInvalidation),
+    );
+    expect(refresh).toHaveBeenCalledTimes(2);
 
     // An invalidation read schedules nothing after it.
     await vi.advanceTimersByTimeAsync(5 * 60_000);
-    expect(refresh).toHaveBeenCalledTimes(3);
+    expect(refresh).toHaveBeenCalledTimes(2);
   });
 
   it('queues a fresh authenticated read when invalidation races the initial system-audio read', async () => {

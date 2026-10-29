@@ -19,7 +19,12 @@ import {
 } from '../credentials.ts';
 import { applyProRoomSnapshotMonotonically } from '../revision.ts';
 import { parseProRoomPlaylistItem, parseProRoomSnapshot } from '../snapshot.ts';
-import { proSnapshot } from './__helpers__/pro-snapshot.ts';
+import {
+  proSnapshot,
+  proSnapshotV1,
+  proSnapshotV2,
+  type ProSnapshotFields,
+} from './__helpers__/pro-snapshot.ts';
 
 const Q1 = '11111111-1111-4111-8111-111111111111';
 const Q2 = '22222222-2222-4222-8222-222222222222';
@@ -44,7 +49,11 @@ const OWNER_PERMISSIONS = {
 } as const;
 
 function activeSnapshot(): ProRoomSnapshot {
-  return proSnapshot({
+  return proSnapshot(activeFields());
+}
+
+function activeFields(): ProSnapshotFields {
+  return {
     roomCode: '000001',
     status: 'active',
     runtime: 'awake',
@@ -132,11 +141,15 @@ function activeSnapshot(): ProRoomSnapshot {
         onlineDeviceCount: 1,
       },
     ],
-  });
+  };
 }
 
 function unactivatedSnapshot(): ProRoomSnapshot {
-  return proSnapshot({
+  return proSnapshot(unactivatedFields());
+}
+
+function unactivatedFields(): ProSnapshotFields {
+  return {
     roomCode: '000000',
     status: 'unactivated',
     runtime: 'sleeping',
@@ -180,7 +193,7 @@ function unactivatedSnapshot(): ProRoomSnapshot {
         onlineDeviceCount: 0,
       },
     ],
-  });
+  };
 }
 
 function authorityMemberSnapshot(capabilities: ProRoomCapability[]): ProRoomSnapshot {
@@ -224,6 +237,40 @@ function authorityMemberSnapshot(capabilities: ProRoomCapability[]): ProRoomSnap
     },
   ];
   return value;
+}
+
+/** The active room with both optional fields: entry protection and the playlist summaries. */
+function protectedFieldsWithSlots(): ProSnapshotFields {
+  return {
+    ...activeFields(),
+    passwordRequired: true,
+    playlistSlots: {
+      activeSlot: 0,
+      slots: [
+        { count: 2, bytes: 64 * 1024 * 1024 },
+        { count: 0, bytes: null },
+        { count: 0, bytes: null },
+      ],
+    },
+  };
+}
+
+/** The four coordinator-era keys of snapshot schemaVersion 1, each with the only value it allows. */
+const COORDINATOR_ERA_KEYS = [
+  { key: 'presence.coordinatorParticipantId', value: null },
+  { key: 'viewer.coordinatorEligible', value: false },
+  { key: 'memberIdentityVersion', value: 1 },
+  { key: 'authorityVersion', value: 1 },
+] as const;
+
+function mutableWire(wire: object): Record<string, any> {
+  return structuredClone(wire) as Record<string, any>;
+}
+
+/** The record that holds a dotted key path of a snapshot wire, and the key's own name. */
+function keyHolder(wire: Record<string, any>, path: string): [Record<string, unknown>, string] {
+  const [block, key] = path.split('.') as [string, string | undefined];
+  return key === undefined ? [wire, block] : [wire[block], key];
 }
 
 describe('PRO room roles and credentials', () => {
@@ -389,6 +436,69 @@ describe('PRO room snapshot validation', () => {
     expect(parsed?.playback).not.toBe(raw.playback);
   });
 
+  it('parses a schemaVersion 2 snapshot into the memory shape with its keys in the same order', () => {
+    for (const fields of [activeFields(), unactivatedFields()]) {
+      const wire = proSnapshotV2(fields);
+      const parsed = parseProRoomSnapshot(wire);
+      expect(parsed).toEqual(wire);
+      expect(JSON.stringify(parsed)).toBe(JSON.stringify(wire));
+    }
+  });
+
+  it.each([
+    ['an active room', activeFields],
+    ['an entry-protected room with playlist summaries', protectedFieldsWithSlots],
+    ['an unactivated room', unactivatedFields],
+  ] as const)(
+    'reads the schemaVersion 1 wire of %s into the schemaVersion 2 memory shape',
+    (_room, fields) => {
+      const fromV1 = parseProRoomSnapshot(proSnapshotV1(fields()));
+      expect(fromV1).toEqual(proSnapshotV2(fields()));
+      // One revision has to compare equal whichever wire version carried it.
+      expect(JSON.stringify(fromV1)).toBe(
+        JSON.stringify(parseProRoomSnapshot(proSnapshotV2(fields()))),
+      );
+    },
+  );
+
+  it.each(COORDINATOR_ERA_KEYS)(
+    'rejects a schemaVersion 2 snapshot that carries $key',
+    ({ key, value }) => {
+      const wire = mutableWire(proSnapshotV2(activeFields()));
+      expect(parseProRoomSnapshot(wire)).not.toBeNull();
+      const [holder, name] = keyHolder(wire, key);
+      holder[name] = value;
+      expect(parseProRoomSnapshot(wire)).toBeNull();
+    },
+  );
+
+  it.each(COORDINATOR_ERA_KEYS)('rejects a schemaVersion 1 snapshot without $key', ({ key }) => {
+    const wire = mutableWire(proSnapshotV1(activeFields()));
+    expect(parseProRoomSnapshot(wire)).not.toBeNull();
+    const [holder, name] = keyHolder(wire, key);
+    delete holder[name];
+    expect(parseProRoomSnapshot(wire)).toBeNull();
+  });
+
+  it('reads only snapshot schemaVersion 1 and 2, each with its own key set', () => {
+    const wire = mutableWire(proSnapshotV2(activeFields()));
+    expect(parseProRoomSnapshot(wire)).not.toBeNull();
+    for (const schemaVersion of [0, 3, '2', null]) {
+      wire.schemaVersion = schemaVersion;
+      expect(parseProRoomSnapshot(wire)).toBeNull();
+    }
+    delete wire.schemaVersion;
+    expect(parseProRoomSnapshot(wire)).toBeNull();
+
+    const v1KeysLabelledV2 = mutableWire(proSnapshotV1(activeFields()));
+    v1KeysLabelledV2.schemaVersion = 2;
+    expect(parseProRoomSnapshot(v1KeysLabelledV2)).toBeNull();
+
+    const v2KeysLabelledV1 = mutableWire(proSnapshotV2(activeFields()));
+    v2KeysLabelledV1.schemaVersion = 1;
+    expect(parseProRoomSnapshot(v2KeysLabelledV1)).toBeNull();
+  });
+
   it('parses optional entry protection while preserving legacy fail-closed absence', () => {
     expect(parseProRoomSnapshot(activeSnapshot())?.passwordRequired).toBeUndefined();
     for (const passwordRequired of [true, false]) {
@@ -426,8 +536,13 @@ describe('PRO room snapshot validation', () => {
   });
 
   it('rejects snapshots missing any launch authority projection field', () => {
-    for (const field of ['authorityVersion', 'administrators'] as const) {
-      const incomplete = structuredClone(activeSnapshot()) as unknown as Record<string, unknown>;
+    // Snapshot schemaVersion 1 also carries the retired authority marker.
+    for (const [wire, field] of [
+      [proSnapshotV1(activeFields()), 'authorityVersion'],
+      [proSnapshotV1(activeFields()), 'administrators'],
+      [proSnapshotV2(activeFields()), 'administrators'],
+    ] as const) {
+      const incomplete = structuredClone(wire) as unknown as Record<string, unknown>;
       delete incomplete[field];
       expect(parseProRoomSnapshot(incomplete)).toBeNull();
     }
@@ -472,23 +587,22 @@ describe('PRO room snapshot validation', () => {
     expect(parseProRoomSnapshot(sleeping)).not.toBeNull();
   });
 
-  it('accepts coordinator-free authority and rejects a stale elected-browser snapshot', () => {
-    const coordinatorFree = activeSnapshot();
+  it('accepts coordinator-free schemaVersion 1 authority and rejects a stale elected-browser snapshot', () => {
+    const coordinatorFree = proSnapshotV1(activeFields());
     expect(parseProRoomSnapshot(coordinatorFree)).not.toBeNull();
 
     coordinatorFree.presence.coordinatorParticipantId = PARTICIPANT_ID;
     expect(parseProRoomSnapshot(coordinatorFree)).toBeNull();
+
+    const absentCoordinator = proSnapshotV1(activeFields());
+    absentCoordinator.presence.coordinatorParticipantId = 'participant_99999';
+    expect(parseProRoomSnapshot(absentCoordinator)).toBeNull();
   });
 
-  it('rejects the retired browser-coordinator capability and eligibility', () => {
-    // PRO Workers stopped projecting these with server playback authority
+  it('rejects the retired browser-coordinator capability', () => {
+    // PRO Workers stopped projecting it with server playback authority
     // (7.0.0); the recovery floor keeps every older Worker out of production.
     const retired = 'coordinator.eligible' as unknown as ProRoomCapability;
-    const eligibleViewer = activeSnapshot();
-    eligibleViewer.viewer!.capabilities = [...OWNER_CAPABILITIES, retired];
-    eligibleViewer.viewer!.coordinatorEligible = true;
-    expect(parseProRoomSnapshot(eligibleViewer)).toBeNull();
-
     const advertisedOnly = activeSnapshot();
     advertisedOnly.viewer!.capabilities = [...OWNER_CAPABILITIES, retired];
     expect(parseProRoomSnapshot(advertisedOnly)).toBeNull();
@@ -496,8 +610,17 @@ describe('PRO room snapshot validation', () => {
     const participantOnly = activeSnapshot();
     participantOnly.presence.participants[0]!.capabilities = [...OWNER_CAPABILITIES, retired];
     expect(parseProRoomSnapshot(participantOnly)).toBeNull();
+  });
 
-    const eligibleWithoutCapability = activeSnapshot();
+  it('rejects a coordinator-eligible viewer in a schemaVersion 1 snapshot', () => {
+    const retired = 'coordinator.eligible' as unknown as ProRoomCapability;
+    const eligibleViewer = proSnapshotV1(activeFields());
+    eligibleViewer.viewer!.capabilities = [...OWNER_CAPABILITIES, retired];
+    eligibleViewer.viewer!.coordinatorEligible = true;
+    expect(parseProRoomSnapshot(eligibleViewer)).toBeNull();
+
+    const eligibleWithoutCapability = proSnapshotV1(activeFields());
+    expect(parseProRoomSnapshot(eligibleWithoutCapability)).not.toBeNull();
     eligibleWithoutCapability.viewer!.coordinatorEligible = true;
     expect(parseProRoomSnapshot(eligibleWithoutCapability)).toBeNull();
   });
@@ -524,10 +647,6 @@ describe('PRO room snapshot validation', () => {
     const staleAnchor = activeSnapshot();
     staleAnchor.playback.coordinatorEpoch += 1;
     expect(parseProRoomSnapshot(staleAnchor)).toBeNull();
-
-    const absentCoordinator = activeSnapshot();
-    absentCoordinator.presence.coordinatorParticipantId = 'participant_99999';
-    expect(parseProRoomSnapshot(absentCoordinator)).toBeNull();
 
     const overQuota = activeSnapshot();
     overQuota.quota.usedBytes = PRO_ROOM_QUOTA_BYTES;
@@ -700,6 +819,29 @@ describe('monotonic PRO snapshot application', () => {
     expect(applyProRoomSnapshotMonotonically(current, newer)).toEqual({
       outcome: 'applied',
       snapshot: newer,
+    });
+  });
+
+  it('counts the schemaVersion 1 and 2 wires of one revision as one snapshot', () => {
+    // A PRO Worker that starts sending schemaVersion 2 must not turn the
+    // installed revision into a conflict, whichever wire arrives first.
+    const fromV1 = applyProRoomSnapshotMonotonically(null, proSnapshotV1(activeFields())).snapshot;
+    const fromV2 = applyProRoomSnapshotMonotonically(null, proSnapshotV2(activeFields())).snapshot;
+    expect(fromV1).not.toBeNull();
+    expect(fromV2).not.toBeNull();
+    expect(applyProRoomSnapshotMonotonically(fromV1, proSnapshotV2(activeFields()))).toEqual({
+      outcome: 'duplicate',
+      snapshot: fromV1,
+    });
+    expect(applyProRoomSnapshotMonotonically(fromV2, proSnapshotV1(activeFields()))).toEqual({
+      outcome: 'duplicate',
+      snapshot: fromV2,
+    });
+
+    const newer = { ...activeFields(), revision: 13 };
+    expect(applyProRoomSnapshotMonotonically(fromV1, proSnapshotV2(newer))).toEqual({
+      outcome: 'applied',
+      snapshot: proSnapshotV2(newer),
     });
   });
 

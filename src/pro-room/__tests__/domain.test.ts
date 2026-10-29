@@ -587,6 +587,28 @@ describe('PRO room snapshot validation', () => {
     expect(parseProRoomSnapshot(sleeping)).not.toBeNull();
   });
 
+  // Old-version removal train 3 dropped the coordinator half of the sleeping
+  // room check when the parser learned schemaVersion 2. The participant half
+  // stays on both wires: a sleeping room lists nobody in presence.
+  it.each([
+    ['schemaVersion 1', proSnapshotV1],
+    ['schemaVersion 2', proSnapshotV2],
+  ] as const)('rejects a %s sleeping room that still lists a participant', (_wire, toWire) => {
+    const sleepingFields = (): ProSnapshotFields => ({ ...activeFields(), runtime: 'sleeping' });
+
+    // The same room without presence parses, so the refusal below comes from
+    // the listed participant alone.
+    const empty = sleepingFields();
+    empty.presence.participants = [];
+    empty.administrators[0]!.onlineDeviceCount = 0;
+    expect(parseProRoomSnapshot(toWire(empty))).not.toBeNull();
+
+    const listed = sleepingFields();
+    expect(listed.presence.participants).toHaveLength(1);
+    expect(listed.administrators[0]!.onlineDeviceCount).toBe(1);
+    expect(parseProRoomSnapshot(toWire(listed))).toBeNull();
+  });
+
   it('accepts coordinator-free schemaVersion 1 authority and rejects a stale elected-browser snapshot', () => {
     const coordinatorFree = proSnapshotV1(activeFields());
     expect(parseProRoomSnapshot(coordinatorFree)).not.toBeNull();

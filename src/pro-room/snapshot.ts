@@ -317,20 +317,19 @@ export function parseProRoomSystemAudioState(value: unknown): ProRoomSystemAudio
   if (value.status === 'live') {
     const publication = parseProRoomSystemAudioPublication(value.publication);
     if (value.claimExpiresAt !== null || !publication) return null;
+    // An SFU publication needs its positive media deadline. A LAN-direct one
+    // has none and takes only null (PRO snapshot schemaVersion 2): the numeric
+    // compatibility value of earlier PRO Workers is refused like any other.
     const deadline =
       isTimestampMs(value.liveExpiresAt) && value.liveExpiresAt !== 0 ? value.liveExpiresAt : null;
-    // An SFU publication needs its positive media deadline. A LAN-direct one
-    // has none: PRO snapshot schemaVersion 2 sends null, and the numeric
-    // compatibility value of earlier Workers reads as null too, so both wires
-    // give one state. Any other value is refused either way.
     const direct = isProRoomSystemAudioDirectPublication(publication);
-    if (deadline === null && (value.liveExpiresAt !== null || !direct)) return null;
+    if (direct ? value.liveExpiresAt !== null : deadline === null) return null;
     return {
       generation: value.generation,
       status: 'live',
       ownerParticipantId: value.ownerParticipantId,
       claimExpiresAt: null,
-      liveExpiresAt: direct ? null : deadline,
+      liveExpiresAt: deadline,
       publication,
     };
   }

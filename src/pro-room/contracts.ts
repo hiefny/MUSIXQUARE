@@ -229,11 +229,10 @@ interface ProRoomSystemAudioStateBase {
   claimExpiresAt: number | null;
   /**
    * Fixed SFU media deadline, a positive timestamp on every SFU live state. A
-   * live LAN-direct publication has none and reads null here: owner presence
-   * and device-count authority end the direct route. PRO snapshot
-   * schemaVersion 2 sends it null, and the parser reads the numeric
-   * compatibility value of earlier PRO Workers as null too, so a Worker that
-   * changes the wire mid-share changes no parsed state.
+   * live LAN-direct publication has none and is null here, as PRO snapshot
+   * schemaVersion 2 sends it: owner presence and device-count authority end
+   * the direct route. The parser refuses the numeric compatibility value of
+   * earlier PRO Workers.
    */
   liveExpiresAt: number | null;
   publication: ProRoomSystemAudioPublication | null;

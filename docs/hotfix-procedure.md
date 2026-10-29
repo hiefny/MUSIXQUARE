@@ -211,7 +211,10 @@ the fenced session close. Automated recovery stays above this line: it
 restores only the failing release's recovery checkpoint, and every PRO Worker
 captured in a checkpoint since train 2 is that Worker or a later one. No
 contract marker changes for this boundary; a marker would stop only the
-automated recovery of the release that changed it.
+automated recovery of the release that changed it. Once the PRO Worker that
+first sends PRO snapshot schemaVersion 2 has been live, the floor for a manual
+PRO rollback rises to the 9.0.22 PRO Worker (see
+[App Build Floor](#app-build-floor)).
 
 The complete serial Playwright suite is intentionally not a production deploy
 gate. The `Full E2E` workflow runs it together with the targeted iPhone WebKit
@@ -813,7 +816,40 @@ gh workflow run app-build-floor.yml --ref main -f action=lower -f min_app_build=
   back first lets a 9.0.14 tab opened in between meet the newer Signaling Worker: its Remote
   Share uploads fail with `REMOTE_SHARE_UPLOAD_ASSERTION_UNAVAILABLE`, and its host liveness
   probe and PIN membership choice are off. The App-first rule above applies only when Signaling
-  itself goes below 9.0.14.
+  itself goes below 9.0.14. Once the PRO Worker that first sends PRO snapshot schemaVersion 2
+  is live, the PRO step of the next bullet comes before step (1).
+- Once the PRO Worker that first sends PRO snapshot schemaVersion 2 is live (a `pro-room`
+  release after the floor reached 795; its deployment record adds the merge SHA and Release ID
+  here, and until then its Production Release run and the live PRO Worker's deployment message
+  `git:<sha>` tell whether it shipped), an App rollback below 9.0.22 (build 795), the first
+  build that reads that schema, runs only in this order: (1) the PRO Worker to the version in
+  that release's recovery checkpoint (the 9.0.22 PRO Worker), (2) when the App goes below 9.0.15,
+  step (1) of the Signaling bullet above, (3) `lower` to the target build, (4) the App. Rolling
+  the App back first breaks the PRO rooms of every page opened from then on: the enforced floor
+  is the lower of the stored floor and the live App's report, so such a page is admitted and
+  then refuses every schemaVersion 2 snapshot. The 9.0.22 PRO Worker sends schemaVersion 1
+  again, names no start kind and answers a live LAN-direct share with a numeric
+  `liveExpiresAt`, so an App below 795 also reads a share started under the newer Worker.
+  Never restore the PRO Worker below the 9.0.22 PRO Worker by hand: the newer Worker stores the
+  start kind `timingMode` in its pending transition and playback outbox records and a live
+  LAN-direct `liveExpiresAt` as null, and an earlier Worker drops such a pending transition
+  without a CANCEL (that start never happens and a loading indicator can stay until the next
+  playback command), drops the whole outbox and ends such a share at the next system-audio
+  generation. The automated recovery of that release returns to the 9.0.22 PRO Worker, which
+  loads all of them; but its PRO room smoke reads none of the new shapes, so a defect in them
+  passes the commit marker and needs step (1) by hand. Such a rollback has no Git provenance,
+  so the next repair release uses target `all` (see the provenance paragraph under
+  [Normal Hotfix](#normal-hotfix)). After steps (1) to (4) the stored floor is below the 795
+  that `MXQR_PRO_ROOM_REQUIRED_APP_BUILD` names, so that repair stops at its floor check. By
+  default its pull request reverts the change that started sending schemaVersion 2 and clears
+  the value in the same change (a low floor and schemaVersion 1 belong together); afterwards
+  raise the floor to 795 again (a same-value `set`, `set` 795, `status` and the Signaling
+  admission smoke) before schemaVersion 2 ships again. Otherwise the repair pull request lowers
+  the value to the stored floor of that moment; the repair then sends schemaVersion 2 again,
+  pages below 795 opened in between see `INVALID_RESPONSE` in PRO rooms, and right after the
+  repair the floor goes back to 795 and the value is written back. Never clear the value alone
+  while the PRO Worker sends schemaVersion 2: a low floor would then admit builds that cannot
+  read it.
 - The service-control object that holds the floor (`MusixquareServiceControl`) lives in the PRO
   Worker script; every other Worker binds it with `script_name = "musixquare-pro-room"`. Rolling
   the PRO Worker back below 9.0.14 therefore turns the floor off for every Worker, Signaling
@@ -889,7 +925,9 @@ saved known-good version at 100%. When the App goes below the stored App build
 floor, run its `lower` first and wait for that run to succeed (see
 [App Build Floor](#app-build-floor)). After 9.0.22, an App rollback below 9.0.15
 rolls Signaling back to its checkpoint version first, then runs the `lower`, then
-rolls the App back:
+rolls the App back. Once the PRO Worker that first sends PRO snapshot
+schemaVersion 2 is live, an App rollback below 9.0.22 (build 795) rolls the PRO
+Worker back to the 9.0.22 PRO Worker before all of these:
 
 ```bash
 # Only when the App goes below the stored App build floor (0 for an App older than 9.0.14):

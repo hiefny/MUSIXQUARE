@@ -46,6 +46,62 @@ gh run list --workflow e2e.yml --branch main --limit 3
 해결하면 근거(커밋, 실행 ID, 문서)를 PR 설명에 적고 이 목록에서 지운다. 근거
 없이 완료로 표시하지 않는다.
 
+### PRO 스냅샷 schemaVersion 2 보내기(Phase 5.5 R2, PRO 방 Worker만, App 9.0.22/v795 그대로) 배포 전: 9.0.22 기록과 바닥 795 뒤에만 낸다
+
+- [ ] 범위와 상태(오너 승인 2026-10-29 약 04:20 KST, 계획 질문 2026-10-28 모두 권장 기본, 미병합·미배포): PRO Worker가 모든
+      스냅샷 답을 PRO 스냅샷 schemaVersion 2로 보낸다. 코디네이터 시대 상수 키 넷(`presence.coordinatorParticipantId`,
+      `viewer.coordinatorEligible`, `memberIdentityVersion`, `authorityVersion`)이 없고 `passwordRequired`와 `playlistSlots`를
+      스냅샷 자신이 싣는다(덧붙이던 감싸개 삭제). 관리자 목록 답은 `{ administrators }`뿐이다. 모든 PREPARE와 transition
+      COMMIT이 시작 종류 `timingMode`를 싣고 두 종류 모두 전환 마감 3000 ms와 COMMIT 앞섬 700 ms를 쓴다(zero-start의 699 ms
+      앞섬 삭제, 그 앞 Worker가 저장한 2999 ms 전환은 계속 읽음). live LAN-direct의 `liveExpiresAt`은 저장과 모든 답에서
+      null이다. 브랜치 `agent/p55-r2`는 9.0.22 PR(#524, 미병합)의 브랜치 끝 `7630b1a9` 위이고, 증분은 테스트 먼저 3과 코드
+      3(R2-1 ~ R2-3), Worker 주석과 서버 권한 ADR(R2-4), 이 기록이다. `7630b1a9` 대비 런타임 경로 변경은 PRO 방 1
+      (`cloudflare/pro-room-worker.ts`)과 나머지 다섯 0이라 target `pro-room`이다(로컬 판정, `changedAppRuntimeDependencies`는
+      빈 목록). 앱 SemVer와 SW 캐시를 바꾸지 않아 업데이트 창이 없다. `.github/workflows/release.yml`의 PRO 최소 빌드 요구 값을
+      795로 적었다(런타임 경로 밖, §3). D1 스키마, 비밀, 바인딩, Wrangler 설정, CORS, 계약 표지, 의존성은 바뀌지 않는다. 저장
+      모양은 대기 transition과 outbox 기록의 선택 키 `timingMode`와 LAN-direct의 null만 바뀐다. 자원 소유권 새 레코드 없음
+      (RO-07, RO-03 문장만). 로컬 QA는 보고서 라운드 1(증분마다 테스트 먼저를 부모에서 돌려 새 행과 바뀐 행만 실패)과 라운드
+      2(기록 커밋의 전체 기본 검사)다. 9.0.22가 머지되면 이 브랜치를 main 위로 옮기고 테스트 먼저 셋을 옮긴 부모에서 다시
+      돌린다. 열차 끝 리뷰, PR, PR CI, 자동 코드 리뷰, exact-main CI, 배포는 아직이고 로컬 결과는 exact-main-SHA 후보를
+      대신하지 않는다. 배포 뒤 기록 PR이 이 항목을 '배포 뒤 확인'으로 바꾸고 §4의 이 릴리스 항목과 현재 경계 줄 (5),
+      hotfix-procedure의 계약 문장에 머지 SHA와 Release ID를 채운다.
+      [변경·QA 보고서](design/phase5-5-r2-v2-send-2026-10-29.md),
+      [증분 한눈에](design/phase5-5-r2-v2-send-2026-10-29.md#증분-한눈에),
+      [QA 라운드 2](design/phase5-5-r2-v2-send-2026-10-29.md#2-전체-검사).
+- [ ] 배포 조건(모두 채운 뒤에만 이 PR을 머지하고 dispatch한다): (1) 9.0.22의 배포와 그 기록 PR이 main에 있고 이 브랜치가 그
+      위로 옮겨졌다. (2) F2: App Build Floor `status`, 같은 값 `set min_app_build=789`, `set min_app_build=795`, `status`. 마지막
+      `set`의 conclusion success와 그 뒤 `status`의 저장·유효 795. 바닥 실행이 돌거나 기다리는 동안 dispatch하지 않는다(같은
+      동시성 그룹). (3) F2 직후 배포된 main에서 `MXQR_EXPECTED_SIGNALING_VERSION` 없이 돌린 신호 입장 smoke가 두 방의
+      방장·게스트를 들이고 `appBuild.build`와 `legacyCompatibility.refusedBelowAppBuildFloor`가 모두 795다. 실패 처리는
+      [운영](hotfix-procedure.md#app-build-floor)의 바닥 올리기 규칙이다: 일시적이면 다시, 방장이 거절되면 `lower 789`와 smoke
+      다시, 0은 방장이 여전히 거절되거나 그 `lower`가 실패할 때만, 값만 어긋나면 status를 다시 읽고 smoke 다시. 어느 실패든 이
+      PR을 머지하지 않는다. 이 릴리스는 신호 smoke와 Standard HTTPS smoke를 돌리지 않으므로 이 smoke가 App이 schemaVersion 1
+      받기를 그만두기 전의 유일한 신호 입장 증명이다. (4) dispatch 직전 live PRO Worker의 배포 메시지가 9.0.22 머지 SHA의
+      `git:<sha>`(또는 그 뒤 PRO 런타임 변경이 없는 자손)다. 부분 게이트는 고른 PRO를 보지 않고 checkpoint는 그때의 live PRO라,
+      그 아래면 실패 복구가 이 Worker의 기록을 버리는 Worker로 간다. (5) 9.0.22 배포부터 이 배포까지 런타임 의존성 변경을
+      머지하지 않았다. (6) 이 PR은 dispatch 직전에만 머지하고, 그때부터 이 릴리스의 기록 PR까지 다른 PR을 머지하지 않으며
+      exact-main CI success를 본다. (7) dispatch 직전 `status`를 다시 읽어 저장·유효 795와 300초 안의 App 보고를 확인한다. 그 뒤
+      Release target `pro-room`, Developer API D1 false. 'Check the App build floor the PRO Worker requires' 단계가 요구 값
+      795를 확인한다. (8) 배포 직후 합성 방에서 9.0.22 탭으로 스냅샷 적용, 하트비트 경고 없음, zero-start COMMIT 한 번을 본다
+      (게이트 아님). F2 실행과 smoke, dispatch 직전 읽기, 배포 직후 확인은 보고서 QA 라운드 3, 4에 싣는다(지금은 자리만).
+      [배포 조건과 순서](design/phase5-5-r2-v2-send-2026-10-29.md#배포-조건과-순서),
+      [QA 라운드 3](design/phase5-5-r2-v2-send-2026-10-29.md#3-운영-전제-자리).
+- [ ] 되돌리기 경계(이 런타임 변경이 §4에 적음): §4 머리의 현재 경계 줄 (5), (6)과 §4의 이 릴리스 항목이 정본이다. 실패한
+      `pro-room`의 자동 복구는 checkpoint인 9.0.22의 PRO Worker로 가고 안전하다: R2-2의 고정 v2 기록 행(대기 transition과
+      outbox의 PREPARE·transition COMMIT을 콜드 재시작으로 불러와 차례로 배달하고 커밋)이 9.0.22 PRO Worker 코드에서
+      통과했고, 그 Worker는 null LAN-direct를 같은 공유로 읽어 숫자로 답한다. PRO 방 smoke는 새 모양을 읽지 않아 그 결함은
+      커밋 표지까지 가므로 그때는 손으로 9.0.22 PRO Worker로 되돌리고 다음 수리는 `all`이다. 그 아래 PRO Worker로는 손으로
+      되돌리지 않는다(9.0.22 PRO의 R1-9 부모 실행이 보인 대로 그 Worker는 대기 전환을 CANCEL 없이 버리고 outbox를 통째로
+      버림). App을 795 아래로는 PRO, (9.0.15 아래면 Signaling), `lower`, App 순서로만.
+      [보고서의 되돌리기](design/phase5-5-r2-v2-send-2026-10-29.md#되돌리기),
+      [혼합 버전](design/phase5-5-r2-v2-send-2026-10-29.md#혼합-버전).
+- [ ] 확인하지 않은 것: 운영 단계(F2, F2 직후 신호 smoke, 배포와 배포 직후 합성 방 확인), 9.0.22 머지 뒤 옮긴 부모의 테스트
+      먼저 다시 돌리기, 로컬 Playwright(e2e PRO 고정값은 아직 schemaVersion 1이고 PRO Worker를 띄우지 않음), 실기기, iOS
+      Safari, WebKit 레인 전체, Full E2E, 바닥 795 전에 열려 전경에 남은 탭의 수(그 탭이 그 방의 시작을 3초 늦추는 비용은
+      2026-10-28 오너가 받아들임). 오너 기기 확인 후보 둘(배포를 건너는 LAN-direct 공유, PRO 방 zero-start 시작)은 게이트가
+      아니다. [확인하지 않은 것](design/phase5-5-r2-v2-send-2026-10-29.md#확인하지-않은-것),
+      [오너 기기 확인 후보](design/phase5-5-r2-v2-send-2026-10-29.md#오너-기기-확인-후보-게이트-아님).
+
 ### UI 오너 결정 열차(9.0.23/v796) 배포 뒤 확인: 9.0.20이 남긴 항목의 오너 결정
 
 - [ ] 범위와 상태(오너 결정 2026-10-29, PR #526): 9.0.20 보고서의 오너 항목 열둘. 7 ja 방 만들기 대기 알약
@@ -2609,9 +2665,11 @@ PRO 방장 공지의 중도 참여 복원은 별도 정책이며 이번 서비�
 - target `pro-room`·`all` 릴리스는 그 호환 검사 뒤, recovery checkpoint 전에 읽기만 하는 PRO
   최소 빌드 사전 검사(`scripts/app-build-floor.mts pro-room-guard`)를 돈다. 요구 값
   `MXQR_PRO_ROOM_REQUIRED_APP_BUILD`는 [release.yml](../.github/workflows/release.yml)의 그 단계에
-  있고(런타임 경로 밖), PRO 스냅샷 v2 보내기 릴리스(Phase 5.5 R2)가 적을 때까지 비어 있어 지금은
-  아무것도 막지 않는다. 비상 로컬 배포는 이 검사를 돌지 않는다. 멈춤과 출구는
-  [운영](hotfix-procedure.md#app-build-floor)이 정본이다.
+  있고(런타임 경로 밖), PRO 스냅샷 schemaVersion 2를 처음 보내는 PRO Worker의 변경이 그 스키마를
+  읽는 첫 빌드 795(9.0.22)로 적었다. 그래서 그 변경이 main에 있는 동안 `pro-room`·`all` 릴리스는
+  공개 status의 저장 바닥과 유효 바닥이 모두 795 이상일 때만 나아간다. 값은 App이 schemaVersion 1
+  받기를 그만두는 릴리스의 런타임 변경이 지운다. 비상 로컬 배포는 이 검사를 돌지 않는다. 멈춤과
+  출구는 [운영](hotfix-procedure.md#app-build-floor)이 정본이다.
 - Developer API D1 `false`는 데이터 계층을 건드리지 않는다는 뜻이 아니다. `all`은
   idempotent D1 baseline, R2 정책, room-code 재사용 fence를 적용하고 검증한다.
   `app`도 App 쪽 D1 baseline(번역 커뮤니티 등)은 적용·검증하지만, R2 정책과
@@ -2669,9 +2727,11 @@ PRO 방장 공지의 중도 참여 복원은 별도 정책이며 이번 서비�
   checkpoint(artifact 12886313200)의 signaling `d212819f`, 9.0.20 `226219c5`)으로, `lower`(9.0.14면 787, 그 아래면 0),
   App. App을 먼저 내리면 그 사이 연 9.0.14 탭은 원격 공유 업로드가 실패하고 방장 생존 감시와 PIN 참여자 선택이 꺼진다.
   아래 '9.0.14 최소 앱 빌드'의 'App 먼저'는 Signaling을 9.0.14 아래로 내릴 때의 규칙이다
-  ([hotfix-procedure](hotfix-procedure.md#app-build-floor)). (3) 9.0.22 이상 App이 한 번이라도 live가 된 뒤에는(9.0.22 App
+  ([hotfix-procedure](hotfix-procedure.md#app-build-floor)). 다만 (5)의 PRO Worker가 배포된 뒤에는 이 순서 앞에 (5)의
+  PRO 단계가 있다. (3) 9.0.22 이상 App이 한 번이라도 live가 된 뒤에는(9.0.22 App
   `e8966418`이 2026-10-29 18:34 KST부터 live) PRO Worker를 릴리스 W(`a3893f04`)의 PRO(`319f6e8f`)보다 앞 버전으로 손으로
-  되돌리지 않는다(presence/close 400, 아래 릴리스 W 항목). (4) 9.0.22 이상 App이 live가 된 뒤 바닥을 789 아래로 내리면 열차 3이
+  되돌리지 않는다(presence/close 400, 아래 릴리스 W 항목). (5)의 PRO Worker가 배포된 뒤에는 이 바닥이 (6)으로
+  오른다. (4) 9.0.22 이상 App이 live가 된 뒤 바닥을 789 아래로 내리면 열차 3이
   지운 보내기를 요구하는 끝이 다시 들어온다: 9.0.15 방장은 SFU 능력 표지를 보내지 않는 9.0.22 이상 게스트의 LAN 직접
   경로가 실패하면 SFU 대신 STOP을 보내고, 788 아래면 9.0.14 끝이 그에 더해 '방 가득 참' 대신 일반 끊김, 관리자 알림
   없음, 9.0.22 이상 끝과의 ICE 재시작 실패, 그리고 9.0.22의 Signaling 아래에서 방장의 원격 공유 업로드 실패와 생존
@@ -2679,7 +2739,58 @@ PRO 방장 공지의 중도 참여 복원은 별도 정책이며 이번 서비�
   Release 40872467902, PR #526 squash `5a5afb0e`, App `dddfabe3`)이고 다른 다섯 Worker는 9.0.22 `71f5b96c`의 버전이다.
   9.0.23은 (1) ~ (4)를 바꾸지 않았다: 그 checkpoint(artifact 12897175278)의 App 9.0.22 / v795(`e8966418`, 빌드 795)는 저장
   최소 빌드 789 위라 `lower` 없이 되돌리고(F2가 바닥을 795로 올린 뒤에도 같음), (3)과 (4)의 '9.0.22 이상 App'에는
-  9.0.23이 든다.
+  9.0.23이 든다. (5) PRO 스냅샷 schemaVersion 2를 처음
+  보내는 PRO Worker(9.0.22의 배포·기록과 바닥 795 뒤의 `pro-room` 릴리스. 머지 SHA와 Release ID는 그 배포 기록 PR이
+  여기와 아래 그 항목에 채우고, 그 전에는 그 Production Release run과 live PRO Worker의 배포 메시지 `git:<sha>`로 배포
+  여부를 가린다)가 배포된 뒤 App을 그 스키마를 읽는 첫 빌드 9.0.22(빌드 795) 아래로 내리는 일은 이 순서로만 한다:
+  PRO를 그 릴리스 checkpoint의 버전(9.0.22의 PRO Worker)으로, App이 9.0.15 아래로 가면 (2)의 Signaling 단계, 대상
+  빌드로 `lower`, App. App을 먼저 내리면 강제 바닥이 저장 바닥과 live App 보고 가운데 낮은 값이라, 그때부터 새로 연
+  페이지가 들어온 뒤 schemaVersion 2를 읽지 못해 PRO 방이 깨진다. 이 길 뒤의 `all` 수리는 PRO 최소 빌드 사전 검사(요구
+  값 795)에서 멈추므로 수리 PR의 출구는 아래 그 항목이 적는다. (6) 같은 PRO Worker가 배포된 뒤에는 PRO를 9.0.22의 PRO
+  Worker보다 앞 버전으로 손으로 되돌리지 않는다(Durable Object 되돌리기 바닥): 그 Worker는 대기 transition과 outbox
+  기록에 시작 종류 `timingMode`를, live LAN-direct의 `liveExpiresAt`에 null을 저장하고, 9.0.22 앞 Worker는 그 대기
+  transition을 CANCEL 없이 버리고(그 시작은 일어나지 않음) outbox를 통째로 버리며 그 공유를 다음 세대에서 끝낸다.
+- **PRO 스냅샷 schemaVersion 2를 처음 보내는 PRO Worker(배포 전, PRO 방 Worker만, App 9.0.22 / v795 그대로):** 9.0.22의
+  배포·기록과 바닥 795(같은 값 `set` 789, `set` 795, `status`, 신호 입장 smoke) 뒤에 PRO room만 `pro-room`으로 낸다.
+  머지 SHA, Release ID, checkpoint ID는 배포 기록 PR이 이 항목과 위 현재 경계 줄 (5)에 채운다. 바뀌는 것: 모든 스냅샷
+  답이 schemaVersion 2(`presence.coordinatorParticipantId`, `viewer.coordinatorEligible`, `memberIdentityVersion`,
+  `authorityVersion` 없음)이고 관리자 목록 답은 `{ administrators }`뿐이다. 모든 PREPARE와 transition COMMIT이 시작 종류
+  `timingMode`를 싣고 두 종류 모두 전환 마감 3000 ms와 COMMIT 앞섬 700 ms를 쓴다(zero-start의 699 ms 앞섬과 2999 ms
+  마감 인코딩은 쓰지 않고, 그 앞 Worker가 저장한 2999 ms 전환만 읽는다). live LAN-direct의 `liveExpiresAt`은 저장과
+  모든 답에서 null이고 그 앞 Worker가 저장한 숫자는 불러올 때 null로 바꿔 저장한다. App SemVer, SW 캐시, 계약 표지,
+  forward floor, D1, 비밀, 바인딩, Wrangler 설정, CORS는 바꾸지 않는다. 저장 모양에서 바뀌는 것은 대기 transition과
+  outbox 기록의 선택 키 `timingMode`와 LAN-direct의 null뿐이다. 9.0.22 앞 빌드(795 미만)는 이 셋을 모두 정확한 키로
+  거절하므로 바닥 795가 먼저다.
+  - 기본은 런타임 변경(`cloudflare/pro-room-worker.ts`)을 되돌려 `pro-room`으로 다시 내는 코드 되돌리기다. SemVer와 SW
+    캐시를 올리지 않는다. 되돌린 Worker는 9.0.22의 PRO Worker와 같은 코드라 이 Worker가 저장한 모양을 읽는다.
+  - 급할 때의 Cloudflare 되돌리기는 이 릴리스의 checkpoint(9.0.22의 PRO Worker)로 할 수 있다. App이 그대로라 `lower`가
+    필요 없다. 그 Worker는 이 Worker가 쓴 대기 transition과 outbox 기록을 종류와 함께 불러와 차례로 배달하고 커밋하며
+    (고정 v2 기록 행이 9.0.22의 PRO Worker 코드에서 통과), null LAN-direct를 같은 live 공유로 읽어 숫자 호환값으로 답하므로
+    795 앞 App으로 내려도 그 공유의 하트비트가 무효가 되지 않는다. 수동 CLI 되돌리기는 `versions deploy`로 그 버전을
+    100% 되돌리고(`--config cloudflare/wrangler.pro-room.toml`, message는 되돌린 이유), 뒤에 §1을 덮어쓰고 이력에 CLI
+    rollback 한 줄을 더한다. 그 버전은 `Rollback:` 메시지라 git 출처가 없으므로 다음 수리 릴리스는 `all`이다
+    ([운영](hotfix-procedure.md#normal-hotfix)). App 릴리스는 부분 게이트가 출처 없는 PRO에서 막는다.
+  - 실패한 `pro-room` 실행의 자동 복구: PRO 방 배포 뒤 단계(PRO 방 smoke, 소유권 확인)가 실패하면 'Restore
+    release-owned Workers after a failed release'가 checkpoint의 PRO room(9.0.22)을 되돌린다. 위와 같은 이유로 안전하다.
+    PRO 방 smoke는 bootstrap 카나리아 둘과 익명 스냅샷 401만 보므로 schemaVersion 2 스냅샷, `timingMode`, null
+    LAN-direct의 결함은 커밋 표지까지 가고 이 복구는 돌지 않는다. 그때는 위 Cloudflare 되돌리기를 손으로 한다. Cloudflare
+    R2 정책 평가나 Worker 호환 바닥 평가가 실패하면 대비 목록이 PRO를 건너뛰어 이 Worker가 실패 표시인 채 live로 남는다.
+    바닥이 795라 새로 들어오는 App은 모두 schemaVersion 2를 읽으므로 안전하고 앞으로 고친다.
+  - 위 현재 경계 줄 (5)로 App을 795 아래로 내린 뒤의 수리: 그 `all` 수리 릴리스는 PRO 최소 빌드 사전 검사(요구 값
+    795)에서 멈춘다. 기본은 수리 PR이 이 변경(schemaVersion 2 보내기)을 되돌리며 요구 값을 함께 지우고(낮은 바닥과
+    schemaVersion 1 보내기가 맞음), 그 뒤 바닥을 795로 다시 올려 이 변경을 다시 낸다. 대안은 수리 PR이 요구 값을 그때의
+    저장 바닥으로 낮추는 것이다. 그러면 수리 릴리스가 schemaVersion 2를 다시 보내 그 사이 연 795 앞 탭은 PRO 방에서
+    `INVALID_RESPONSE`를 보므로, 수리 직후 바닥을 795로 다시 올리고 값을 되돌린다. 요구 값만 지우고 schemaVersion 2를
+    남기는 수리는 하지 않는다. App 보고가 멈추거나 공개 status를 읽지 못해 이 검사가 멈추면
+    [운영](hotfix-procedure.md#app-build-floor)의 출구를 따른다.
+  - 바닥 795 전에 들어와 전경에 남은 795 앞 탭은 revision이 같은 동안 compact 하트비트로 돌다가 다음 전체 스냅샷부터
+    `INVALID_RESPONSE`를 받고, `timingMode`가 든 PREPARE를 버려 READY를 보내지 않는다. 그 탭이 presence와 READY 대상에
+    남으므로 그 탭이 닫히거나 새로 고칠 때까지 그 방의 모든 시작이 3초 마감까지 늦는다(상한 없음, 피해는 그 방의 9.0.22
+    이상 사용자, 오너 수용 2026-10-28). 그 탭이 진행 중 LAN-direct 공유자이면 60초 뒤 발행이 멈춘다.
+  - 9.0.22의 PRO Worker 아래로는 위 현재 경계 줄 (6)대로 되돌리지 않는다. App과 나머지 넷은 이 릴리스가 바꾸지 않았고,
+    그 되돌리기 기준은 9.0.22 항목(그 배포 기록 PR이 더함)이다.
+    [보고서의 되돌리기](design/phase5-5-r2-v2-send-2026-10-29.md#되돌리기),
+    [배포 조건과 순서](design/phase5-5-r2-v2-send-2026-10-29.md#배포-조건과-순서)
 - **UI 오너 결정 열차 9.0.23(2026-10-29 배포 뒤, 9.0.23 / v796, App만):** App을 `app`으로 배포했다(Release 40872467902,
   PR #526 squash `5a5afb0e`, App `dddfabe3`). 다른 다섯 Worker는 9.0.22 `71f5b96c`의 버전 그대로다(PRO room `6abc7131`,
   remote-share `1ea9191a`, signaling `36579bdf`, Developer API facade `7ca55caa`, Developer API `2c275ad3`). 계약 표지,

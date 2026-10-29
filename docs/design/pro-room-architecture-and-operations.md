@@ -1304,6 +1304,19 @@ both as optional, the room's entry password stays off as committed, and the
 new owner's settings may show it as on until a later snapshot revision carries
 the field. Restore the App Worker with the PRO Worker, or repair forward.
 
+The PRO Worker that first sends PRO snapshot schemaVersion 2 also writes the
+start kind `timingMode` into the pending transition and the playback outbox
+records it stores, and stores a live LAN-direct share's `liveExpiresAt` as
+null. The 9.0.22 PRO Worker reads all three, so it is that release's recovery
+target and, once that Worker has been live, the floor for any manual PRO
+rollback: an earlier PRO Worker drops such a pending transition without a
+CANCEL (that start never happens and a loading indicator can stay until the
+next playback command), drops the whole outbox when one record does not match,
+and ends such a share at the next system-audio generation. Builds below 795
+(9.0.22) refuse every schemaVersion 2 snapshot, so the App build floor reaches
+795 before that release ships; `docs/hotfix-procedure.md` carries the order for
+taking the App below that build afterwards.
+
 1. Stop the rollout and record the Worker versions and observed symptom. Do not
    delete the R2 bucket, Durable Object binding, class migration, or room data.
 2. Let the release workflow perform conflict-aware recovery. When every

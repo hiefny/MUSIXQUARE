@@ -403,24 +403,57 @@ describe('title tracking contract', () => {
     expect(appRules.filter((rule) => rule.selector === '.setup-join-input[readonly]')).toEqual([]);
   });
 
-  it('breaks the Korean setup and media titles only between words', () => {
+  it('breaks the setup, media and dialog titles only between words in Korean, Japanese and Chinese', () => {
     // With the flat Korean title tracking, the media source title takes a
     // second line at 390px, and Korean otherwise breaks between any two
     // syllables, inside 선택해주세요 (typography sweep, 2026-10-28). The
-    // paragraph under these titles already keeps its words whole. Only
-    // Korean: Japanese and Chinese have no spaces between words, so keep-all
-    // would hold a whole title on one line.
+    // paragraph under these titles already keeps its words whole.
+    //
+    // Owner decision (2026-10-29, items 13 and 19): Japanese and Chinese
+    // titles stop breaking inside a word too (再生するメディアを選|択,
+    // 応答があ|りません, 注|册, 帳|號). Japanese breaks between phrases where
+    // the browser can (word-break: auto-phrase, Chromium 119 and later) and
+    // keeps its words whole like Korean elsewhere; Chinese keeps its words
+    // whole and breaks at its spaces. Dialog titles take the Japanese and
+    // Chinese rules as well; the stepped dialog keeps its own. A title word
+    // longer than its line still breaks (overflow-wrap: anywhere) rather than
+    // leave its box, as the Tamil host-unresponsive title did at 320px.
     const title = findRule(appRules, '.setup-header-text h2');
+    const dialogTitle = findRule(appRules, '.dialog-title');
+    expect(values(title.rule, 'overflow-wrap')).toEqual(['anywhere']);
+    expect(values(dialogTitle.rule, 'overflow-wrap')).toEqual(['anywhere']);
     const korean = findRule(appRules, 'html:lang(ko) .setup-header-text h2');
-    expect(korean.path).toBe('css/style.css');
-    expect(korean.context).toBe(title.context);
+    const japanese = findRule(
+      appRules,
+      'html:lang(ja) .setup-header-text h2, html:lang(ja) .dialog-title',
+    );
+    const chinese = findRule(
+      appRules,
+      [
+        'html:lang(zh-Hans) .setup-header-text h2',
+        'html:lang(zh-Hant) .setup-header-text h2',
+        'html:lang(zh-Hans) .dialog-title',
+        'html:lang(zh-Hant) .dialog-title',
+      ].join(', '),
+    );
+    for (const rule of [korean, japanese, chinese]) {
+      expect(rule.path).toBe('css/style.css');
+      expect(rule.context, rule.selector).toBe(title.context);
+    }
     expect(values(korean.rule, 'word-break')).toEqual(['keep-all']);
+    // keep-all first: a browser without auto-phrase drops that declaration.
+    expect(values(japanese.rule, 'word-break')).toEqual(['keep-all', 'auto-phrase']);
+    expect(values(chinese.rule, 'word-break')).toEqual(['keep-all']);
     const breaking = appRules.filter(
       (rule) =>
         rule.selectors.some((selector) => selector.endsWith('.setup-header-text h2')) &&
         values(rule.rule, 'word-break').length > 0,
     );
-    expect(breaking.map(ruleKey)).toEqual(['css/style.css html:lang(ko) .setup-header-text h2']);
+    expect(breaking.map(ruleKey)).toEqual([korean, japanese, chinese].map(ruleKey));
+    // The reading dialog's own title rule is now the shared one.
+    expect(
+      appRules.filter((rule) => rule.selector === '#dialog-overlay.dialog-reading .dialog-title'),
+    ).toEqual([]);
   });
 });
 

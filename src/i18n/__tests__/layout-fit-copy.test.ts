@@ -20,4 +20,15 @@ describe('copy that fits its slot', () => {
     expect(ja['common.wait']).toBe('準備中...');
     expect(ja['player.not_ready_tip']).toContain('準備中');
   });
+
+  it('names the Tamil host-unresponsive title in words that fit a 320px dialog', () => {
+    // The host-unresponsive dialog title (keep-open-notice.ts) took three
+    // lines at 320px and its longest word ran 2.4px past the dialog.
+    // The new title reads "the host device is not answering" in two lines
+    // with every word whole; the dialog title's overflow-wrap is the net for
+    // anything longer.
+    const ta = APP_DICTIONARIES.ta;
+    expect(ta['dialog.host_unresponsive_title']).toBe('ஹோஸ்ட் சாதனம் பதில் தரவில்லை');
+    expect(ta['dialog.host_unresponsive_title']).not.toContain('சாதனத்திலிருந்து');
+  });
 });

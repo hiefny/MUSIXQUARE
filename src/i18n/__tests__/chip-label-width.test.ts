@@ -1,6 +1,7 @@
 import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { JSDOM } from 'jsdom';
+import { parse as parseCss, type AtRule, type Node, type Root } from 'postcss';
 import { beforeAll, describe, expect, it } from 'vitest';
 
 import { APP_DICTIONARIES } from '../catalogs.ts';
@@ -21,8 +22,13 @@ import { createLabelWidthHarness, type LabelWidthHarness } from './helpers/label
  *
  * The boxes are worked out from the CSS (font size, columns, gaps, padding,
  * border, icon) at the screen that gives each group its narrowest box, and
- * written here as fixed numbers. The demo role switch reads the one width
- * the CSS sets for it, the container width below which its icon hides.
+ * written here as fixed numbers. LABEL_BOX_SOURCES records every declaration
+ * a box is worked out from, as written, and the guard reads them back from
+ * the stylesheets with postcss: a CSS change that moves a box fails here
+ * until the box is worked out again, so the guard cannot go stale when the
+ * CSS gets tighter. The demo role switch reads the one width the CSS sets
+ * for it, the container width below which its icon hides, and
+ * demo-role-icon.test.ts pins the switch's own declarations.
  * Widths come from helpers/label-width-harness.ts, which matched Chromium
  * within 0.07px on all 42 locales; the 4px spare also absorbs iOS Safari's
  * subpixel differences, which the study could not measure.
@@ -204,30 +210,260 @@ function chipGroups(css: string): readonly ChipGroup[] {
   ];
 }
 
+type Stylesheet = 'css/style.css' | 'css/desktop.css';
+
+/** A rule's declarations that a label box is worked out from. */
+interface BoxSource {
+  readonly file: Stylesheet;
+  readonly selector: string;
+  /** The at-rule the rule sits in, cascade layers aside; null at the top. */
+  readonly condition: string | null;
+  /** The declarations, as written (whitespace collapsed). */
+  readonly values: Readonly<Record<string, string>>;
+}
+
+const PHONES = '@media (max-width: 420px)';
+const TWO_COLUMNS = '@media (min-width: 720px)';
+const SIDE_RAIL =
+  '@media (min-width: 720px) and (max-width: 1279px), (min-width: 1280px) and (max-height: 719px)';
+const DESKTOP = '@media (min-width: 1280px) and (min-height: 720px)';
+
+const source = (
+  file: Stylesheet,
+  selector: string,
+  condition: string | null,
+  values: Readonly<Record<string, string>>,
+): BoxSource => ({ file, selector, condition, values });
+
+const TOKEN_SOURCES = [
+  source('css/style.css', ':root', null, {
+    '--font-weight-selected': `${SELECTED_WEIGHT}`,
+    '--font-weight-unselected': `${STEP_DIGIT.weight}`,
+    '--button-label-chip-size': '14px',
+    '--button-label-tab-size': '13px',
+  }),
+];
+
+const CHIP_SOURCES = [
+  source('css/style.css', '.channel-grid', null, {
+    'grid-template-columns': '1fr 1fr',
+    gap: '12px',
+  }),
+  source('css/style.css', '.ch-opt', null, {
+    padding: '18px 12px',
+    border: '2px solid transparent',
+    'font-size': 'var(--button-label-chip-size)',
+  }),
+];
+
+/** The demo panel at 320×568 (264px) and 720×360 (291.6px). */
+const DEMO_PANEL_SOURCES = [
+  source('css/style.css', '.demo-mobile-shell', null, { '--demo-panel-max': '520px' }),
+  source('css/style.css', '.demo-mobile-shell', PHONES, {
+    'padding-inline-start': '10px',
+    'padding-inline-end': '10px',
+    '--demo-control-inset': '18px',
+  }),
+  source('css/style.css', '.demo-control-stage', null, {
+    padding: 'var(--demo-control-pad-top) var(--demo-control-inset) clamp(18px, 5vw, 28px)',
+  }),
+  source('css/style.css', '.demo-step-content', null, { 'max-width': 'var(--demo-panel-max)' }),
+  source('css/style.css', '.demo-mobile-shell', TWO_COLUMNS, {
+    '--demo-shell-pad-inline': 'clamp(18px, 3.6vmin, 40px)',
+    '--demo-control-pad-inline': 'clamp(28px, 4vw, 56px)',
+    '--demo-panel-max': 'clamp(340px, 40vw, 640px)',
+    '--demo-column-gap': 'clamp(18px, 3vw, 44px)',
+    'grid-template-columns': 'minmax(0, 1fr) minmax(0, 1fr)',
+    'column-gap': 'var(--demo-column-gap)',
+    padding:
+      'calc(var(--demo-shell-pad-block) + var(--safe-top)) calc(var(--demo-shell-pad-inline) + var(--safe-right)) calc(var(--demo-shell-pad-block) + var(--safe-bottom)) calc(var(--demo-shell-pad-inline) + var(--safe-left))',
+  }),
+  source('css/style.css', '.demo-control-stage', TWO_COLUMNS, {
+    margin:
+      'calc(0px - var(--demo-shell-pad-block) - var(--safe-top)) calc(0px - var(--demo-shell-pad-inline) - var(--safe-right)) calc(0px - var(--demo-shell-pad-block) - var(--safe-bottom)) 0',
+    padding:
+      'calc(var(--demo-shell-pad-block) + var(--safe-top) + var(--demo-control-pad-block)) calc(var(--demo-control-pad-inline) + var(--safe-right)) calc(var(--demo-shell-pad-block) + var(--safe-bottom) + var(--demo-control-pad-block)) var(--demo-control-pad-inline)',
+  }),
+];
+
+/**
+ * Every declaration the label boxes in chipGroups() are worked out from, by
+ * box family, as the comments there describe them. When one of these
+ * changes, work the family's boxes out again and record the new value here.
+ */
+const LABEL_BOX_SOURCES: Readonly<Record<string, readonly BoxSource[]>> = {
+  tokens: TOKEN_SOURCES,
+  'settings chips': [
+    source('css/style.css', '.section-group', null, { margin: '0 44px' }),
+    source('css/style.css', '#tab-settings .channel-grid', null, {
+      'padding-inline-start': '0',
+      'padding-inline-end': '0',
+    }),
+    ...CHIP_SOURCES,
+  ],
+  'setup role chips': [
+    source('css/style.css', '.setup-card', null, { padding: '32px 28px 24px' }),
+    source('css/style.css', '.onboarding-card > div:not(.ob-actions):not(.cscroll-track)', null, {
+      padding: '0 28px',
+    }),
+    // @layer components, after #setup-role-grid.channel-grid's padding in base.
+    source('css/style.css', '.setup-card-tight', null, { padding: '0' }),
+    ...CHIP_SOURCES,
+  ],
+  'demo effect cards': [
+    ...DEMO_PANEL_SOURCES,
+    source('css/style.css', '.demo-large-actions', null, {
+      'grid-template-columns': 'repeat(2, minmax(0, 1fr))',
+    }),
+    source('css/style.css', '.demo-effects-content .demo-large-actions', null, { gap: '8px' }),
+    source(
+      'css/style.css',
+      '.demo-effects-content .demo-large-actions .ch-opt.demo-choice',
+      PHONES,
+      {
+        padding: '16px 10px',
+        'font-size': 'var(--button-label-tab-size)',
+      },
+    ),
+    source(
+      'css/style.css',
+      '.demo-effects-content .demo-large-actions .ch-opt.demo-choice',
+      TWO_COLUMNS,
+      { padding: 'clamp(16px, 2vh, 20px) 12px' },
+    ),
+    // The cards' own padding replaces .ch-opt's; its border and size stay.
+    source('css/style.css', '.ch-opt', null, {
+      border: '2px solid transparent',
+      'font-size': 'var(--button-label-chip-size)',
+    }),
+  ],
+  'demo role switch': [
+    ...DEMO_PANEL_SOURCES,
+    // The phone rule; demo-role-icon.test.ts pins the switch's other values.
+    source('css/style.css', '.demo-role-segmented button', PHONES, {
+      padding: '0 5px',
+      'font-size': '12px',
+    }),
+  ],
+  'bottom navigation': [
+    source('css/style.css', '.bottom-nav', null, {
+      padding: '10px 16px calc(10px + var(--safe-bottom) + var(--safe-nav-bottom, 0px))',
+    }),
+    source('css/style.css', '.nav-item', null, { flex: '1', padding: '0' }),
+    source('css/style.css', '.nav-item span', null, { 'font-size': '10px' }),
+    source('css/style.css', '.bottom-nav', SIDE_RAIL, {
+      width: 'calc(200px + var(--safe-right))',
+      padding: '8px 12px 8px 20px',
+      'padding-inline-end': 'calc(20px + var(--safe-right))',
+    }),
+    source('css/style.css', '.bottom-nav button', SIDE_RAIL, { padding: '0 12px', gap: '10px' }),
+    source('css/style.css', '.bottom-nav button svg', SIDE_RAIL, { width: '18px' }),
+    source('css/style.css', '.bottom-nav button span', SIDE_RAIL, { 'font-size': '13px' }),
+  ],
+  'settings sub-tabs': [
+    source('css/desktop.css', 'body', DESKTOP, {
+      '--desktop-ui-scale': '1',
+      'grid-template-columns': 'minmax(0, 3fr) minmax(420px, 1fr) minmax(420px, 1fr)',
+    }),
+    source('css/desktop.css', '#tab-settings', DESKTOP, { padding: '0 4px' }),
+    source('css/desktop.css', '.settings-subtab-nav', DESKTOP, {
+      margin: '0 20px',
+      padding: '16px 20px 0',
+      gap: '4px',
+    }),
+    source('css/desktop.css', '.subtab-pill', DESKTOP, {
+      flex: '1',
+      padding: '10px 0',
+      'font-size': 'var(--button-label-tab-size)',
+    }),
+  ],
+  'demo step pill': [
+    source('css/style.css', '.demo-step-nav', null, {
+      '--demo-step-nav-inset': 'clamp(14px, 4.5vw, 24px)',
+      '--demo-step-gap': 'clamp(6px, 2vw, 8px)',
+      '--demo-step-dot-size': 'clamp(52px, 12.5vw, 56px)',
+      '--demo-step-pill-size':
+        'clamp(100px, calc(100vw - var(--demo-step-nav-inset) - var(--demo-step-nav-inset) - var(--demo-step-dot-size) - var(--demo-step-dot-size) - var(--demo-step-dot-size) - var(--demo-step-gap) - var(--demo-step-gap) - var(--demo-step-gap)), 184px)',
+    }),
+    source('css/style.css', '.demo-step-nav button', null, {
+      border: '1px solid transparent',
+      'font-size': '13px',
+    }),
+    source('css/style.css', '.demo-step-nav button:not(.demo-step-next)::before', null, {
+      content: 'attr(data-demo-step)',
+      'font-size': `${STEP_DIGIT.fontSize}px`,
+      'font-weight': 'var(--font-weight-unselected)',
+    }),
+    source('css/style.css', '.demo-step-nav button.active', null, {
+      'flex-basis': 'var(--demo-step-pill-size)',
+      padding: '0 clamp(8px, 2.6vw, 14px)',
+    }),
+    source('css/style.css', '.demo-step-nav button.active', TWO_COLUMNS, {
+      'font-size': 'clamp(13px, 1vw, 15px)',
+    }),
+    source('css/style.css', '.demo-step-nav button.active span', TWO_COLUMNS, {
+      'max-width': '128px',
+    }),
+  ],
+};
+
+/** Collapses whitespace, including inside parentheses, as the sources are written. */
+const normalizeValue = (value: string): string =>
+  value.replace(/\s+/gu, ' ').replace(/\(\s/gu, '(').replace(/\s\)/gu, ')').trim();
+
+/** The at-rule a rule sits in, cascade layers aside. */
+function conditionOf(node: Node): string | null {
+  for (let parent = node.parent; parent; parent = parent.parent) {
+    if (parent.type !== 'atrule') continue;
+    const atRule = parent as AtRule;
+    if (atRule.name !== 'layer') return `@${atRule.name} ${normalizeValue(atRule.params)}`;
+  }
+  return null;
+}
+
+/** The declarations of the rules that list `selector` under `condition`. */
+function declarationsOf(root: Root, selector: string, condition: string | null) {
+  const values: Record<string, string> = {};
+  root.walkRules((rule) => {
+    const selectors = rule.selectors.map((entry) => entry.replace(/\s+/gu, ' ').trim());
+    if (!selectors.includes(selector) || conditionOf(rule) !== condition) return;
+    rule.each((child) => {
+      if (child.type === 'decl') values[child.prop] = normalizeValue(child.value);
+    });
+  });
+  return values;
+}
+
 interface AcceptedLabel {
   readonly locale: string;
   readonly group: string;
   readonly key: string;
+  /** The box's screen, as chipGroups() names it. */
+  readonly screen: string;
   /** The accepted text, exactly. */
   readonly text: string;
-  /** Its width at weight 700 in the group's first (narrowest) box. */
+  /** Its width at weight 700 in that screen's box. */
   readonly width: number;
   readonly box: number;
   readonly why: string;
 }
 
 /**
- * Labels kept below the 4px spare, with no padding change, each listed with its
- * text and width: the ones the owner accepted (decisions 2026-10-29 (d) and
- * (e)), and the Tamil Manual chips of decision (c), whose catalog word கைமுறை
- * leaves 2.31px, like the near misses of (e). A changed text, or a width that
- * moves, is checked again.
+ * Labels kept below the 4px spare, with no padding change, each listed with
+ * its screen, text and width: the ones the owner accepted (decisions
+ * 2026-10-29 (d) and (e)), the Tamil Manual chips of decision (c), whose
+ * catalog word கைமுறை leaves 2.31px like the near misses of (e) and which the
+ * owner confirmed on 2026-10-29, and the two demo role near misses at
+ * 720×360. An entry covers only its own screen's box, so a label that is
+ * accepted at 320px still has to fit every other box. A changed text, or a
+ * width that moves, is checked again.
  */
 const ACCEPTED: readonly AcceptedLabel[] = [
   {
     locale: 'ta',
     group: 'grid-reverb',
     key: 'settings.rvb_studio',
+    screen: '320×568',
     text: 'ஸ்டூடியோ',
     width: 80.96,
     box: 82,
@@ -237,6 +473,7 @@ const ACCEPTED: readonly AcceptedLabel[] = [
     locale: 'ml',
     group: 'grid-reverb',
     key: 'settings.rvb_studio',
+    screen: '320×568',
     text: 'സ്റ്റുഡിയോ',
     width: 80.21,
     box: 82,
@@ -246,15 +483,17 @@ const ACCEPTED: readonly AcceptedLabel[] = [
     locale: 'ta',
     group: 'grid-reverb',
     key: 'settings.rvb_advanced',
+    screen: '320×568',
     text: 'கைமுறை',
     width: 79.69,
     box: 82,
-    why: "Manual (decision (c)) in the catalog's word, as in கைமுறை ஒத்திசைவு; one line",
+    why: "Manual (decision (c)) in the catalog's word, as in கைமுறை ஒத்திசைவு; owner-confirmed; one line",
   },
   {
     locale: 'ta',
     group: 'grid-eq',
     key: 'settings.eq_advanced',
+    screen: '320×568',
     text: 'கைமுறை',
     width: 79.69,
     box: 82,
@@ -264,6 +503,7 @@ const ACCEPTED: readonly AcceptedLabel[] = [
     locale: 'ko',
     group: 'demo-step-nav',
     key: 'demo.step_effects',
+    screen: '320×568',
     text: '3. 고급 음향 효과',
     width: 87.72,
     box: 88.61,
@@ -273,6 +513,7 @@ const ACCEPTED: readonly AcceptedLabel[] = [
     locale: 'id',
     group: 'nav-item',
     key: 'nav.settings_compact',
+    screen: '320×568',
     text: 'Pengaturan',
     width: 54.5,
     box: 57.6,
@@ -282,6 +523,7 @@ const ACCEPTED: readonly AcceptedLabel[] = [
     locale: 'id',
     group: 'nav-item',
     key: 'nav.connect_compact',
+    screen: '320×568',
     text: 'Hubungkan',
     width: 54.44,
     box: 57.6,
@@ -291,6 +533,7 @@ const ACCEPTED: readonly AcceptedLabel[] = [
     locale: 'uk',
     group: 'nav-item',
     key: 'nav.settings_compact',
+    screen: '320×568',
     text: 'Параметри',
     width: 54.89,
     box: 57.6,
@@ -300,6 +543,7 @@ const ACCEPTED: readonly AcceptedLabel[] = [
     locale: 'es',
     group: 'demo-role-segmented',
     key: 'common.left',
+    screen: '320×568',
     text: 'Izquierda',
     width: 52.53,
     box: 50,
@@ -309,6 +553,7 @@ const ACCEPTED: readonly AcceptedLabel[] = [
     locale: 'es',
     group: 'demo-role-segmented',
     key: 'common.right',
+    screen: '320×568',
     text: 'Derecha',
     width: 47.32,
     box: 50,
@@ -318,6 +563,7 @@ const ACCEPTED: readonly AcceptedLabel[] = [
     locale: 'pt-br',
     group: 'demo-role-segmented',
     key: 'common.left',
+    screen: '320×568',
     text: 'Esquerda',
     width: 53.38,
     box: 50,
@@ -327,10 +573,31 @@ const ACCEPTED: readonly AcceptedLabel[] = [
     locale: 'el',
     group: 'demo-role-segmented',
     key: 'common.left',
+    screen: '320×568',
     text: 'Αριστερό',
     width: 55.42,
     box: 50,
     why: 'shared with the chat role names; no shorter Greek word; accepted at 320px',
+  },
+  {
+    locale: 'el',
+    group: 'demo-role-segmented',
+    key: 'common.left',
+    screen: '720×360',
+    text: 'Αριστερό',
+    width: 57.73,
+    box: 58.9,
+    why: 'the word accepted at 320px; a near miss in the two-column layout; one line',
+  },
+  {
+    locale: 'pt-br',
+    group: 'demo-role-segmented',
+    key: 'common.left',
+    screen: '720×360',
+    text: 'Esquerda',
+    width: 55.6,
+    box: 58.9,
+    why: 'the word accepted at 320px; a near miss in the two-column layout; one line',
   },
 ];
 
@@ -349,11 +616,16 @@ const describeCheck = (check: Check): string =>
   `${check.locale} ${check.key} '${check.text}' ${check.width.toFixed(2)}px, box ${check.box.toFixed(2)}px ` +
   `(${check.screen}, ${check.group})`;
 
-const acceptedFor = (check: Pick<Check, 'locale' | 'group' | 'key'>) =>
-  ACCEPTED.find(
-    (entry) =>
-      entry.locale === check.locale && entry.group === check.group && entry.key === check.key,
-  );
+const sameLabelBox = (
+  entry: Pick<Check, 'locale' | 'group' | 'key' | 'screen'>,
+  check: Pick<Check, 'locale' | 'group' | 'key' | 'screen'>,
+): boolean =>
+  entry.locale === check.locale &&
+  entry.group === check.group &&
+  entry.key === check.key &&
+  entry.screen === check.screen;
+
+const acceptedFor = (check: Check) => ACCEPTED.find((entry) => sameLabelBox(entry, check));
 
 describe('chip label width guard', () => {
   const css = readFileSync(`${REPO_ROOT}css/style.css`, 'utf8');
@@ -406,6 +678,28 @@ describe('chip label width guard', () => {
     }
   }, 120_000);
 
+  it('works the label boxes out from the CSS values recorded for them', () => {
+    const roots = {
+      'css/style.css': parseCss(css),
+      'css/desktop.css': parseCss(readFileSync(`${REPO_ROOT}css/desktop.css`, 'utf8')),
+    } satisfies Record<Stylesheet, Root>;
+    const changed: string[] = [];
+    for (const [family, sources] of Object.entries(LABEL_BOX_SOURCES)) {
+      for (const { file, selector, condition, values } of sources) {
+        const actual = declarationsOf(roots[file], selector, condition);
+        for (const [property, expected] of Object.entries(values)) {
+          if (actual[property] === expected) continue;
+          changed.push(
+            `${family}: ${file} ${condition ? `${condition} ` : ''}${selector} { ${property}: ` +
+              `${actual[property] ?? '(none)'} }, the boxes were worked out from '${expected}'; ` +
+              'work them out again',
+          );
+        }
+      }
+    }
+    expect(changed).toEqual([]);
+  });
+
   it('reads the 14 groups and their labels from index.html', () => {
     const counts = Object.fromEntries(
       groups.map((group) => [group.name, markup.querySelectorAll(group.labels).length]),
@@ -447,14 +741,10 @@ describe('chip label width guard', () => {
   it('keeps each accepted label at its recorded text and width', () => {
     const problems: string[] = [];
     for (const entry of ACCEPTED) {
-      const label = `${entry.locale} ${entry.key} (${entry.group})`;
-      const own = checks.filter(
-        (check) =>
-          check.locale === entry.locale && check.group === entry.group && check.key === entry.key,
-      );
-      const first = own[0];
+      const label = `${entry.locale} ${entry.key} (${entry.screen}, ${entry.group})`;
+      const first = checks.find((check) => sameLabelBox(entry, check));
       if (!first) {
-        problems.push(`${label}: the group no longer shows this key`);
+        problems.push(`${label}: the group no longer shows this key on this screen`);
         continue;
       }
       if (first.text !== entry.text) {
@@ -470,7 +760,7 @@ describe('chip label width guard', () => {
             `recorded ${entry.width}px in ${entry.box}px`,
         );
       }
-      if (own.every((check) => check.width + SPARE <= check.box)) {
+      if (first.width + SPARE <= first.box) {
         problems.push(`${label}: fits with 4px to spare now, remove the exception`);
       }
     }

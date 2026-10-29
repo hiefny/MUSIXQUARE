@@ -3564,6 +3564,114 @@ describe('Cloudflare PRO signaling client contract', () => {
   });
 });
 
+// The browser coordinator's developer frames: no Worker has sent them since
+// the PRO room moved its authority to the server (the Signaling Worker answers
+// its retired internal developer paths with 409), and a PRO queue addition
+// arrives only inside a PRO server event. The transport reads none of them.
+describe('retired PRO developer signaling frames', () => {
+  const retiredFrames = [
+    {
+      type: 'developer-command',
+      version: 1,
+      roomCode: '000001',
+      coordinatorEpoch: 7,
+      commandId: 'cmd_1234567890123456789012',
+      expiresAtMs: 1_900_000_000_000,
+      expected: { queueItemId: null, playlistRevision: 4, playbackRevision: 9 },
+      command: { type: 'play' },
+    },
+    {
+      type: 'developer-invalidation',
+      version: 1,
+      roomCode: '000001',
+      coordinatorEpoch: 7,
+      revision: 12,
+      playlistRevision: 5,
+    },
+    {
+      type: 'pro-queue-addition',
+      version: 1,
+      roomCode: '000001',
+      coordinatorEpoch: 7,
+      playlistRevision: 5,
+      eventId: 'qa_000001_5_12',
+      actorName: 'Studio bot',
+      count: 12,
+    },
+  ];
+  const cases = retiredFrames.map((frame) => [frame.type, frame] as const);
+
+  it.each(cases)('ignores a %s frame on a Standard host socket', async (_type, frame) => {
+    installFakeWebSocket();
+    const peer = createHostPeer();
+    const errors = vi.fn();
+    peer.on('error', errors);
+    await Promise.resolve();
+    const socket = FakeWebSocket.instances[0]!;
+    socket.dispatch('open');
+    socket.dispatch(
+      'message',
+      JSON.stringify({ type: 'peer-open', peerId: '123456', roomId: '123456' }),
+    );
+    await flushAsync();
+
+    socket.dispatch('message', JSON.stringify(frame));
+    await flushAsync();
+
+    expect(errors).not.toHaveBeenCalled();
+    expect(socket.readyState).toBe(FakeWebSocket.OPEN);
+    peer.destroy();
+  });
+
+  it.each(cases)('ignores a %s frame on a Standard guest socket', async (_type, frame) => {
+    const { peer, conn, socket } = await establishGuest();
+    const errors = vi.fn();
+    conn.on('error', errors);
+
+    socket.dispatch('message', JSON.stringify(frame));
+    await flushAsync();
+
+    expect(errors).not.toHaveBeenCalled();
+    expect(socket.readyState).toBe(FakeWebSocket.OPEN);
+    peer.destroy();
+  });
+
+  it.each(cases)('ignores a %s frame on a PRO member socket', async (_type, frame) => {
+    installFakeWebSocket();
+    installFakeRTCPeerConnection();
+    const peer = new CloudflareSignalingPeer(null, {
+      provider: 'cloudflare',
+      signalingUrl: 'wss://signal.example.test/api/rooms',
+      config: { iceServers: [] },
+      proSignaling: {
+        roomCode: '000001',
+        ticket: clientProTicket('stable-pro-member'),
+        role: 'member',
+        coordinatorEpoch: 7,
+        presenceIncarnationId: 'presence-incarnation-0001',
+        ticketSequence: 1,
+      },
+    });
+    const conn = peer.connect('000001');
+    const errors = vi.fn();
+    conn.on('error', errors);
+    const socket = FakeWebSocket.instances[0]!;
+    socket.dispatch('open');
+    socket.dispatch(
+      'message',
+      JSON.stringify({ type: 'peer-open', peerId: 'stable-pro-member', roomId: '000001' }),
+    );
+    await flushAsync();
+
+    socket.dispatch('message', JSON.stringify(frame));
+    await flushAsync();
+
+    expect(errors).not.toHaveBeenCalled();
+    expect(socket.readyState).toBe(FakeWebSocket.OPEN);
+    peer.destroy();
+  });
+});
+
 describe('Cloudflare client/Worker signaling contract', () => {
   it('keeps guest-auth first and replays a superseding identity clear only after admission', async () => {
     installFakeWebSocket();

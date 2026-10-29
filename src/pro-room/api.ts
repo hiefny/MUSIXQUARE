@@ -168,7 +168,10 @@ export interface ProRoomPlaybackCommitEvent {
   serverTimeMs: number;
   executeAtMs: number;
   playback: ProRoomPlaybackCheckpoint;
-  /** As on the PREPARE. A direct COMMIT (transitionId null) is always a scheduled control. */
+  /**
+   * As on the PREPARE. A transition COMMIT that names no kind, like a direct
+   * COMMIT (transitionId null), is a scheduled control.
+   */
   timingMode?: ProPlaybackTimingMode;
 }
 

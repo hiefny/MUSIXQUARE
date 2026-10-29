@@ -20,10 +20,11 @@ import {
  *
  * Every PRO Worker before PRO snapshot schemaVersion 2 marks a zero-start
  * transition one millisecond below each value, a 2999 ms deadline and a 699 ms
- * COMMIT lead, and every App before it reads the 699. That encoding stays in
- * the files that write or read it (the Worker and
- * src/pro-room/playback-controller.ts), because each side drops it in another
- * release; the home holds only values that outlive it.
+ * COMMIT lead. The App no longer reads the 699 (it reads only the named start
+ * kind); the PRO Worker still reads the 2999 deadline of a transition an
+ * earlier Worker stored, until a later PRO release drops it. That deadline
+ * stays in the Worker, which reads it; the home holds only values that
+ * outlive it.
  *
  * The App's 2.3 s barriered YouTube prepare budget must fit inside the
  * barrier. That ordering test waits for Phase 0d C2-1, which moves the budget
@@ -31,9 +32,6 @@ import {
  * src/youtube/iframe.ts and src/youtube/authority-arm.ts, and a test-only
  * export is not allowed (scripts/check-dead-exports.mts).
  */
-
-/** The 699 ms COMMIT lead that marks a zero-start before schemaVersion 2. */
-const ZERO_START_COMMIT_LEAD_MS_V1 = 699;
 
 describe('PRO playback transition timing (RO-03)', () => {
   it('keeps the barrier and the lead the Worker and the App share, and nothing else', async () => {
@@ -46,14 +44,11 @@ describe('PRO playback transition timing (RO-03)', () => {
     ]);
   });
 
-  it('is what the zero-start encoding before schemaVersion 2 was built on', () => {
-    // The Worker derives that encoding from these values and reads it from
-    // stored records and old Apps: neither value may change while it lives.
+  it('is what the stored zero-start deadline before schemaVersion 2 was built on', () => {
+    // The Worker derives that deadline from the barrier and reads it from
+    // stored transitions: the barrier may not change while it lives.
     expect(TRANSITION_DEADLINE_MS_V1).toBe(PRO_ROOM_PLAYBACK_TRANSITION_DEADLINE_MS);
     expect(ZERO_START_DEADLINE_MS_V1).toBe(PRO_ROOM_PLAYBACK_TRANSITION_DEADLINE_MS - 1);
-    expect(ZERO_START_COMMIT_LEAD_MS_V1).toBe(PRO_ROOM_PLAYBACK_COMMIT_LEAD_MS - 1);
-    // Even the marked lead names an instant after the COMMIT is sent.
-    expect(ZERO_START_COMMIT_LEAD_MS_V1).toBeGreaterThan(0);
   });
 
   it('gives the Worker and the App one start-kind union', () => {

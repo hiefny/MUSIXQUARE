@@ -366,10 +366,11 @@ lead only to a zero-start COMMIT that matches a PREPARE it prepared; catch-up
 and participant-local paths stay `scheduled-control`, so the field describes
 the server's transition, not the path a client took. The PRO Worker names the
 kind since PRO snapshot schemaVersion 2. Earlier PRO Workers encoded zero-start
-as a 2999 ms deadline and a 699 ms COMMIT lead: the App reads that encoding on
-a transition COMMIT without the field until it stops reading snapshot
-schemaVersion 1, and the PRO Worker reads it on a transition an earlier Worker
-stored until a later PRO release drops it. Phase 6 of the structure improvement
+as a 2999 ms deadline and a 699 ms COMMIT lead. The App stopped reading that
+encoding when it stopped reading snapshot schemaVersion 1: a transition COMMIT
+without the field is `scheduled-control` at any lead. The PRO Worker reads the
+deadline on a transition an earlier Worker stored until a later PRO release
+drops it. Phase 6 of the structure improvement
 plan builds on this contract unchanged: the kind on every PREPARE and
 transition COMMIT, the classification, the time basis, the three-second
 barrier, the 700 ms lead, the event envelope, and the signaling event budget.

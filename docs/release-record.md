@@ -56,25 +56,36 @@ gh run list --workflow e2e.yml --branch main --limit 3
       변화, 아래 'PRO 시작 시계 현장 확인'). live LAN-direct의 숫자 `liveExpiresAt`을 거절한다. PRO 요청에 opt-in
       머리글 둘을 보내지 않고, 일반방 게스트는 SESSION_FULL과 OPERATOR_TOAST를 `i18nKey`로만 읽으며, 전송 계층은
       은퇴한 PRO 개발자 신호 프레임을 읽지 않는다. Production Release의 PRO 최소 빌드 요구 값을 다시 비웠다(§3). 브랜치
-      `agent/p55-r3`은 PRO 스냅샷 schemaVersion 2 보내기 브랜치의 끝 `91601774`(9.0.22 PR의 브랜치 끝 `7630b1a9` 위)
-      위이고, 증분은 테스트 먼저 7, 코드 9, 서버 권한 ADR 문서 1, 이 기록이다. 그 브랜치 끝 대비 런타임 경로 변경은
-      App만이라(`src/`와 `cloudflare/app-worker.ts`의 주석 하나) target `app`이다(로컬 판정, 보고서 QA 라운드 2). 이
-      브랜치는 SemVer와 SW 캐시를 올리지 않았다. main(9.0.24 / v797 배포) 위로 옮긴 뒤 릴리스 담당이 9.0.25 / v798을
-      마지막 런타임 커밋으로 올리고, 그러면 업데이트 창이 뜬다(바닥 795 위의 9.0.22 ~ 9.0.24 탭에는 '나중에'가 있는 보통
-      창). Developer API D1과 `raise_app_build_floor`는 둘 다 false다. D1 스키마, 비밀, 바인딩, Wrangler 설정, CORS, 계약
-      표지, 저장 데이터 모양, 의존성은 바뀌지 않는다. 자원 소유권 49 records(새 레코드 없음), room-authority 79·22·13·0,
-      bus-pairing 203 → 202(R3-6이 죽은 짝 하나를 한 커밋에서 지움), 선언된 메시지 종류 101 그대로. 로컬 QA는 보고서
-      라운드 1(증분마다 테스트 먼저를 부모에서 돌려 새 행과 바뀐 행만 실패)과 라운드 2(기록 커밋의 전체 기본 검사)다.
-      main 위로 옮기기와 옮긴 부모에서 테스트 먼저 다시 돌리기, bump, 열차 끝 리뷰, PR, PR CI, 자동 코드 리뷰,
-      exact-main CI, 배포는 아직이고 로컬 결과는 exact-main-SHA 후보를 대신하지 않는다. 배포 뒤 기록 PR이 이 항목을
+      `agent/p55-r3`은 PRO 스냅샷 schemaVersion 2 보내기 브랜치의 끝 `91601774` 위에서 만들어 2026-10-30에 main `d630269a`(9.0.24와
+      그 기록 #531) 위로 옮겼다. 증분은 테스트 먼저 7, 코드 9, 서버 권한 ADR 문서 1, 기록 문서 4, bump `01f1a19b`(9.0.25 / v798, 앱
+      빌드 798, 9.0.24의 `4d74f552`와 같은 거울 여섯 파일, 마지막 런타임 커밋), 옮긴 뒤 기록 문서 1이다. 옮기며 R3의 자기 번호
+      9.0.24 / v797을 9.0.25 / v798로 고쳤다(9.0.24는 번역 페이지 입구 열차). main `d630269a`와 운영 배포 SHA(App 9.0.24 `78ec56f5`,
+      PRO room `0e5a9b87`, 다른 넷 9.0.22 `71f5b96c`) 어느 쪽과 견줘도 런타임 경로 변경은 App 18(`src/` 14, `cloudflare/app-worker.ts`의
+      주석 하나와 버전, bump의 거울 셋), 나머지 다섯 Worker 0이고 App 런타임 의존성 차이가 없어 target `app`이다(로컬 판정, live
+      PRO의 런타임 경로가 HEAD와 같음). 앱 SemVer와 SW 캐시가 바뀌어 업데이트 창이 뜬다(바닥 795 위의 9.0.22 ~ 9.0.24 탭에는
+      '나중에'가 있는 보통 창). Developer API D1과 `raise_app_build_floor`는 둘 다 false다. D1 스키마, 비밀, 바인딩, Wrangler 설정,
+      CORS, 계약 표지, 저장 데이터 모양, 의존성은 바뀌지 않는다. 자원 소유권 49 records / 448 files(새 레코드 없음), room-authority
+      79·22·13·0, bus-pairing 203 → 202(R3-6이 죽은 짝 하나를 한 커밋에서 지움), dead-exports 0·20·76(기준치 그대로), 선언된 메시지
+      종류 101 그대로. 로컬 QA는 보고서 라운드 1(증분마다 테스트 먼저를 부모에서 돌려 새 행과 바뀐 행만 실패), 라운드 2(옮기기 전
+      기록 커밋의 전체 기본 검사), 라운드 3(옮긴 뒤 테스트 먼저 일곱이 새 부모에서 같은 행만 실패: R3-1 18 / 16,779, ZS-05 1 / 196,
+      ZS-06 2 / 19, R3-3 6 / 955, R3-4 4 / 147, R3-5 5 / 70, R3-6 9 / 307. R3-1의 critical E2E는 두 커밋 모두 100 / 100이고 main의
+      고정값과 bootstrap 모의로는 21 실패, R3-4의 주간 e2e는 테스트 먼저에서 10 / 10 실패와 코드에서 10 통과. 운영의 익명 bootstrap
+      두 답(합성 코드 000000 activation_required, 000001 pin_required)을 bump 트리의 `ProRoomApiClient`가 그대로 읽음. R2 Worker
+      출력을 이 파서로 읽는 in-process·workerd 행 910 통과. bump 트리의 전체 검사: npm audit 0, 단위 706 files / 16,748, Worker 69 /
+      3,322, 핵심 90 / 3,521, release-tooling 14 / 433, typecheck, `check:workers`, `check:worker-bundles`, lint, format, 모든 가드,
+      `build:checked`(`guard:release-identity` 9.0.25 / v798, `guard:sw-cache-version` PASS v798, eager JS 455.3 KiB gzip), Chromium
+      candidate 19, critical 100, PRO 레인 39)다. 열차 끝 리뷰, PR, PR CI, 자동 코드 리뷰, exact-main CI, 배포는 아직이고 로컬 결과는
+      exact-main-SHA 후보를 대신하지 않는다. 배포 뒤 기록 PR이 이 항목을
       '배포 뒤 확인'으로 바꾸고, §4의 이 릴리스 항목과 현재 경계 줄 (8)에 머지 SHA, Release ID, checkpoint ID를 채우며,
       §1을 덮어쓸 때 이 App이 틀리게 만드는 '의존성·호환'의 두 문장(8.11.33 opt-in 머리글을 'App은 계속 보내고'와 릴리스
       A의 'SESSION_FULL은 `message` 없이, OPERATOR_TOAST는 `text`와 `i18nKey` 가운데 하나만 있어도 받는다')을 고친다.
       [변경·QA 보고서](design/phase5-5-r3-v1-receive-stop-2026-10-30.md),
       [증분 한눈에](design/phase5-5-r3-v1-receive-stop-2026-10-30.md#증분-한눈에),
-      [QA 라운드 2](design/phase5-5-r3-v1-receive-stop-2026-10-30.md#2-전체-검사).
+      [QA 라운드 2](design/phase5-5-r3-v1-receive-stop-2026-10-30.md#2-전체-검사),
+      [QA 라운드 3](design/phase5-5-r3-v1-receive-stop-2026-10-30.md#3-main-위로-옮김과-bump-뒤-전체-검사).
 - [ ] 배포 조건(모두 채운 뒤에만 이 PR을 머지하고 dispatch한다): (1) PRO 스냅샷 schemaVersion 2를 처음 보내는 PRO
-      Worker의 배포와 그 기록 PR이 main에 있고, 이 브랜치가 그 main 위로 옮겨졌으며 bump가 마지막 런타임 커밋이다. 그
+      Worker의 배포와 그 기록 PR이 main에 있고, 이 브랜치가 그 main 위로 옮겨졌으며 bump가 마지막 런타임 커밋이다(채움: #528
+      `0e5a9b87`와 기록 #529가 main에 있고, 이 브랜치는 `d630269a` 위, bump `01f1a19b`. 머지 전에 main이 움직이면 다시 옮긴다). 그
       PRO Worker를 손으로 되돌린 적이 있으면 그 뒤의 `all` 수리 릴리스 뒤에만, 그 변경을 되돌리는 수리 PR(9.0.25 전
       비상 길의 기본 출구)을 탔으면 바닥 795와 그 PRO Worker를 다시 내고 기록한 뒤에만 낸다(그 전에는 PRO Worker
       교차 계약 행이 이 PR의 머지를 막는다). (2) dispatch 직전 live PRO Worker의 배포 메시지가 그 PRO Worker 머지 SHA의
@@ -89,10 +100,10 @@ gh run list --workflow e2e.yml --branch main --limit 3
       한다. 방이 뜨지 않거나 하트비트가 거절되면 그 절의 '실패하면'대로 App을 9.0.25 릴리스 checkpoint의 App으로 손으로
       되돌리고(저장 바닥이 795인 동안 `lower` 없음), PRO Worker는 그대로 두며, §1과 `Last source review`를 덮어쓰고
       이력에 한 행을 더한 뒤, 출처 규칙대로 다음 수리 릴리스를 `all`로 낸다. dispatch 직전 읽기와 배포 직후 확인은 보고서
-      QA 라운드 3, 4에 싣는다(지금은 자리만).
+      QA 라운드 4, 5에 싣는다(지금은 자리만).
       [배포 조건과 순서](design/phase5-5-r3-v1-receive-stop-2026-10-30.md#배포-조건과-순서),
       [배포 직후 확인과 기기 확인](design/phase5-5-r3-v1-receive-stop-2026-10-30.md#배포-직후-확인과-기기-확인-게이트-아님),
-      [QA 라운드 3](design/phase5-5-r3-v1-receive-stop-2026-10-30.md#3-운영-전제-자리).
+      [QA 라운드 4](design/phase5-5-r3-v1-receive-stop-2026-10-30.md#4-운영-전제-자리).
 - [ ] 되돌리기 경계(이 런타임 변경이 §4에 적음): §4 머리의 현재 경계 줄 (8), (9)와 §4의 이 릴리스 항목이 정본이다.
       기본은 더 높은 SemVer와 캐시 epoch의 코드 되돌리기(9.0.26 / v799 이상)다. 실패한 `app`의 자동 복구는 App만
       checkpoint(그 직전 live App, 두 스키마를 모두 읽음)로 되돌리고 안전하다. 다만 `app`의 배포 뒤 smoke는 HTTP뿐이라
@@ -104,10 +115,9 @@ gh run list --workflow e2e.yml --branch main --limit 3
       보내고 곧 바닥을 795로 다시 올린다.
       [보고서의 되돌리기](design/phase5-5-r3-v1-receive-stop-2026-10-30.md#되돌리기),
       [혼합 버전](design/phase5-5-r3-v1-receive-stop-2026-10-30.md#혼합-버전).
-- [ ] 확인하지 않은 것: main 위로 옮긴 뒤 테스트 먼저 다시 돌리기와 bump 뒤 `build:checked`(이 브랜치의
-      `guard:sw-cache-version`은 bump가 없어 실패), 운영 단계와 배포, 실제 schemaVersion 2 PRO Worker와 이 App의
-      브라우저 왕복(로컬 e2e는 고정값과 모의 답이고, Worker와 App 파서를 잇는 것은 in-process 교차 계약 행이며, 릴리스의
-      배포 뒤 smoke도 HTTP뿐이라 배포 직후 확인이 처음 본다), 실기기와 iOS
+- [ ] 확인하지 않은 것: 운영 단계와 배포, 실제 schemaVersion 2 PRO Worker와 이 App의 브라우저 왕복(운영에서 이 App의
+      파서로 읽은 것은 인증 없는 bootstrap 두 답뿐이고, 로컬 e2e는 고정값과 모의 답이며, Worker와 App 파서를 잇는 것은
+      in-process·workerd 교차 계약 행이고, 릴리스의 배포 뒤 smoke도 HTTP뿐이라 배포 직후 확인이 처음 본다), 실기기와 iOS
       Safari, WebKit 레인 전체, Full E2E. 전송 계층의 PRO 신호 모드(티켓 role 'coordinator' 포함)는 2026-07-20 뒤 운영
       호출이 없는데 R3-6은 개발자 프레임만 지웠다(보고서 R3-6). 오너 기기 확인 후보 둘(하트비트가 COMMIT을 앞지른
       기기의 시작 종류, LAN-direct 공유 동안 9.0.25 탭의 하트비트)은 게이트가 아니고 보고서의 블라인드 절차로 한다.

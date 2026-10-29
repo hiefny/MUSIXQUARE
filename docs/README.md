@@ -94,29 +94,37 @@ runbooks. Neither belongs in a general setup document.
 ## Maintained evidence and completed records
 
 - [Phase 5.5 R3: the App stops reading PRO snapshot schemaVersion 1, 9.0.25 (2026-10-30)](design/phase5-5-r3-v1-receive-stop-2026-10-30.md):
-  draft, not merged or released; the third runtime release of Phase 5.5 (9.0.25 / v798 planned, App
-  build 798, bumped by the release owner once the branch moves onto main; target `app` with 15 App
-  runtime paths and none in the other five Workers, with the update dialog), on the branch head
-  `91601774` of the change that makes the PRO Worker send PRO snapshot schemaVersion 2. It may ship
-  only after that PRO Worker is deployed and recorded, while the live PRO Worker is that merge. The
-  App refuses the schemaVersion 1 wire and requires `passwordRequired` and `playlistSlots` on every
-  snapshot, `{ administrators }` alone from the administrator directory answers and
-  `passwordRequired` on every bootstrap; it reads the start kind only from `timingMode` (a
-  heartbeat snapshot that lands a prepared checkpoint before its COMMIT now starts with the
+  draft, not merged or released; the third runtime release of Phase 5.5 (9.0.25 / v798, App build
+  798, bump `01f1a19b`; target `app` with 18 App runtime paths and none in the other five Workers,
+  against main and against the live Worker SHAs, with the update dialog), on main `d630269a` (the
+  9.0.24 record). It was built on the head `91601774` of the change that makes the PRO Worker send
+  PRO snapshot schemaVersion 2 and moved onto main after that PRO Worker (`0e5a9b87`, live since
+  2026-10-30 00:30 KST) and 9.0.24 were deployed and recorded; it may ship only while the live PRO
+  Worker is that merge. The App refuses the schemaVersion 1 wire and requires `passwordRequired`
+  and `playlistSlots` on every snapshot, `{ administrators }` alone from the administrator directory
+  answers and `passwordRequired` on every bootstrap; it reads the start kind only from `timingMode`
+  (a heartbeat snapshot that lands a prepared checkpoint before its COMMIT now starts with the
   PREPARE's kind, an intended behaviour change), refuses a live LAN-direct share with a numeric
   `liveExpiresAt`, stops sending the PRO entry-policy and playlist-slots opt-in headers, reads
   SESSION_FULL and OPERATOR_TOAST by their key alone, and no longer reads the retired PRO developer
   signaling frames (bus-pairing 203 to 202). The release workflow's App build requirement for PRO
   releases is empty again. The report lists the owner decisions and order, what each refusal relies
   on, each increment with its tests-first evidence, the deviations from the plan (among them the
-  narrowed PSK-11 cleanup and the checkpoint App after 9.0.24), the exact-count guards, mixed
-  versions, rollback (the release record's §4 current boundary line items 8 and 9: never below the
-  first schemaVersion 2 PRO Worker by hand, the App to the checkpoint App first, and the merged
-  order below build 795 with its repair), deploy conditions and order, user-visible changes,
-  records, QA round 1 (per increment) and round 2 (the full gate at the records commit `39b36a0a`:
-  unit 702 files / 16,653, Worker 69 / 3,320, critical 90 / 3,521, release-tooling 14 / 432,
-  typecheck, lint, format, every guard but the service worker cache guard that waits for the bump,
-  the other `build:checked` steps, local critical E2E 98 and the PRO Playwright set 39), with
+  narrowed PSK-11 cleanup, the checkpoint App after 9.0.23 and 9.0.24, and the move onto main with
+  the release renumbered from 9.0.24 to 9.0.25), the exact-count guards, mixed versions, rollback
+  (the release record's §4 current boundary line items 8 and 9: never below the first
+  schemaVersion 2 PRO Worker by hand, the App to the checkpoint App first, and the merged order
+  below build 795 with its repair), deploy conditions and order, user-visible changes, records, QA
+  round 1 (per increment), round 2 (the full gate at the first records commit) and round 3 (the
+  move onto main: the old to new SHA map, the seven tests-first commits failing the same rows on
+  their new parents, the R3-1 critical E2E at both of its commits (100 each, and 21
+  failures with main's fixture and bootstrap mocks), the R3-4 weekly password E2E (10 failing on its
+  parent, 10 passing), the two anonymous production bootstrap answers of the synthetic codes 000000 and
+  000001 read by this App's `ProRoomApiClient`, the cross-contract and workerd rows on the real R2
+  Worker (910), and the full gate at the bump: npm audit 0, unit 706 files / 16,748, Worker 69 / 3,322,
+  critical 90 / 3,521, release-tooling 14 / 433, typecheck, lint, format, every guard with no baseline
+  change, `check:worker-bundles`, `build:checked` with `guard:release-identity` 9.0.25 / v798 and
+  `guard:sw-cache-version` PASS v798, and Chromium candidate 19, critical 100 and the PRO lane 39), with
   placeholders for the production rounds, the post-deploy check and the owner device check
   candidates as a blind hand-out (procedure and observations, with the pass criteria kept apart),
   the manual App rollback to the release's checkpoint App when the post-deploy check fails (the

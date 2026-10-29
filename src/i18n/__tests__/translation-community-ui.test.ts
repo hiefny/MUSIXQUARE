@@ -803,4 +803,56 @@ describe('translation page language and phrase address', () => {
     expect(limit('.workshop/translate/address.ts')).toBe(limit('cloudflare/account-auth.ts'));
     expect(limit('cloudflare/account-auth.ts')).toBe('1024');
   });
+
+  const submitStatus = () => dom.window.document.getElementById('submit-status')?.textContent;
+  const afterSessionRead = () =>
+    vi.waitFor(() => expect(button('submit-suggestion').textContent).not.toBe('Checking sign-in…'));
+
+  it.each([
+    ['cancelled', 'Sign-in was cancelled.'],
+    ['error', 'Couldn’t sign in. Try again.'],
+    ['success', ''],
+  ])(
+    'shows the accountAuth=%s result in the submit status and keeps only locale and phrase',
+    async (outcome, message) => {
+      await openPage(
+        `https://musixquare.com/translate?locale=fr&accountAuth=${outcome}&phrase=app%3Aplay#suggestions`,
+        ['ko-KR'],
+      );
+      await afterSessionRead();
+      expect(Object.fromEntries(new URLSearchParams(dom.window.location.search))).toEqual({
+        locale: 'fr',
+        phrase: 'app:play',
+      });
+      expect(dom.window.location.pathname).toBe('/translate');
+      expect(dom.window.location.hash).toBe('#suggestions');
+      expect(requestedLocales()).toEqual(['fr']);
+      expect(selectedKey()).toBe('play');
+      expect(submitStatus()).toBe(message);
+      expect(
+        [...dom.window.document.querySelectorAll('[role="alert"]')].every(
+          (alert) => (alert as HTMLElement).hidden,
+        ),
+      ).toBe(true);
+    },
+  );
+
+  it('clears a sign-in result once the visitor edits, and ignores unknown results', async () => {
+    await openPage('https://musixquare.com/translate?accountAuth=cancelled', ['ja']);
+    await afterSessionRead();
+    expect(dom.window.location.search).toBe('');
+    expect(submitStatus()).toBe('Sign-in was cancelled.');
+    const proposal = dom.window.document.getElementById('proposal') as HTMLTextAreaElement;
+    proposal.value = 'x';
+    proposal.dispatchEvent(new dom.window.Event('input', { bubbles: true }));
+    expect(submitStatus()).toBe('');
+
+    await openPage('https://musixquare.com/translate?locale=ko&accountAuth=%3Cb%3Ebold%3C%2Fb%3E', [
+      'ja',
+    ]);
+    await afterSessionRead();
+    expect(dom.window.location.search).toBe('?locale=ko');
+    expect(submitStatus()).toBe('');
+    expect(dom.window.document.querySelector('b')).toBeNull();
+  });
 });

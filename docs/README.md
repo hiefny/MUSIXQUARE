@@ -121,7 +121,9 @@ runbooks. Neither belongs in a general setup document.
   Worker, and the repair exits without automated recovery), deploy conditions and order with their
   results, the blind post-deploy check (moved after the release to a PRO room the owner owns,
   because the release smoke's PIN room has no owner account and the other smoke room is not
-  activated; no room code in the report, and its result is still pending), user-visible changes,
+  activated; no room code in the report; the owner ran it on 2026-10-30 from 00:39 to 00:55 KST in
+  Microsoft Edge on a Windows desktop: the snapshot v2 apply passed, one new zero-start start
+  passed, LAN-direct was not exercised as the share used SFU; no rollback), user-visible changes,
   records, QA rounds 1 to 3 (per increment; the full gate at the records commit `e90ab14d`; after
   each rebase, the three tests-first commits rerun on their new parents with the same rows failing
   and the three rollback rows rerun on the 9.0.22 PRO Worker; after the second rebase onto

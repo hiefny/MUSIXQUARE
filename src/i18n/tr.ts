@@ -358,7 +358,7 @@ const tr: Record<I18nKey, string> = {
   'demo.step_connect': '1. Bağlan',
   'demo.step_role': '2. Rolü belirle',
   'demo.step_effects': '3. Efektler',
-  'demo.step_finish': '4. Turu Bitir',
+  'demo.step_finish': '4. Turu bitir',
   'demo.session_title': 'Odan: {{code}}',
   'demo.session_subtitle': 'İstediğin zaman yeni bir cihaz davet edebilirsin',
   'demo.session_body_connected': 'Şu anda {{count}} cihaz bağlı.\nHer cihaz için bir rol belirle.',

@@ -94,30 +94,37 @@ runbooks. Neither belongs in a general setup document.
 ## Maintained evidence and completed records
 
 - [UI follow-up train 9.0.21: transient text at 600 and chips on one line (2026-10-29)](design/ui-followup-921-2026-10-29.md):
-  in progress, not merged or released; a draft for the next app update after 9.0.20. It carries
-  the owner's decisions of 2026-10-29: toast text back at label 600, the screensaver track title
-  at 600, and the rule that transient text (toasts, loading and waiting lines, the full-screen
-  session message, progress and result lines, mode notes) and red error lines read at label 600
-  while text that stays on the screen reads at body 400 (app, `/events`, design system; the
-  resting `/events` nickname hint goes from 650 to 400); and chips that fit on one line at the
-  selected 700: a HarfBuzz width guard test for 14 groups in 42 locales (two direct
-  devDependencies the lockfile already held), the settings and setup role chips on the demo's
-  short role words (four `role.*` keys removed), shorter copy in 38 locales (152 lines; English
-  '3. Effects'; a shortened Advanced chip says Manual, in Tamil the catalog's word), the demo role
-  switch icon hidden up to a 448px container, and 12 accepted labels under the 4px spare. Branch
-  `agent/ui-921` is 14 commits on main `7241e89d` (9.0.20 runtime), last runtime commit
-  `986f0c35`, rebased from `edd6ee94` with identical patches; no bump yet (9.0.21 / v794 planned;
-  expected target `app`, with 54 App runtime paths and none in the other five Workers). The report
-  lists the owner decisions, each increment with its commits before and after the rebase and its
-  tests-first evidence (replayed on the branch SHAs), the review findings, visible changes, what
-  did not change, open owner items (among them the help tab's role names, decided but not yet
-  implemented), mixed versions and rollback, the work left for assembly, and QA rounds 1 to 3:
-  per increment; the rebase and full gate at `986f0c35` (unit 699 files / 16,607 and 1 skip,
-  typecheck, lint, format, guards, critical coverage, `build:checked` without the cache-version
-  guard); and the Chromium and WebKit comparison with main (211 weight pairs, 17,052 chip
-  readings in 42 locales, 302 screenshot pairs with no unexplained difference). It also lists what
-  was not verified (WebKit without WebRTC or Web Audio, real devices and iOS Safari, Linux fonts,
-  E2E, native review) and the owner device check list.
+  in progress, not merged or released; the assembled next app update after 9.0.20 (9.0.21 / v794,
+  bump `c7c50314`, expected target `app` with 57 App runtime paths and none in the other five
+  Workers, with the update dialog). It carries the owner's decisions of 2026-10-29: toast text
+  back at label 600, the screensaver track title at 600, and the rule that transient text (toasts,
+  loading and waiting lines, the full-screen session message, progress and result lines, mode
+  notes) and red error lines read at label 600 while text that stays on the screen reads at body
+  400 (app, `/events`, design system; the resting `/events` nickname hint goes from 650 to 400);
+  and chips that fit on one line at the selected 700: a HarfBuzz width guard test for 14 groups in
+  42 locales (two direct devDependencies the lockfile already held), the settings and setup role
+  chips on the demo's short role words (four `role.*` keys removed), shorter copy in 38 locales
+  (152 lines; English '3. Effects'; a shortened Advanced chip says Manual, in Tamil the catalog's
+  word, owner-confirmed), the demo role switch icon hidden up to a 448px container (phones 421 to
+  532px wide, two-column layouts 851 to 1120px), and 14 accepted labels under the 4px spare.
+  Assembly added the help tab's role names on the chip words in 42 locales, the review fixes to
+  the guard (it reads the CSS declarations each label box comes from, and accepted labels match by
+  screen, with the el and pt-br near misses at 720x360 listed), the Turkish step 4 in sentence case,
+  and the Node 24.22.2 and qs 6.16.1 security increment (Dependabot alert 33,
+  GHSA-6pq8-jhm2-2vcw). Branch `agent/ui-921` is on main `0bbd077e`, rebased twice with identical
+  patches. The report lists the owner decisions, each increment with its commits and tests-first
+  evidence, the SHA map after assembly, the review findings, visible changes, what did not change,
+  open owner items (among them seven native checks), mixed versions and rollback, the work left
+  for release preparation (among them the post-deploy cleanup of admin Translations suggestions
+  for the removed `role.*` keys), and QA rounds 1 to 4: per increment; the rebase and full gate at
+  `986f0c35`; the Chromium and WebKit comparison with main (211 weight pairs, 17,052 chip readings
+  in 42 locales, 302 screenshot pairs with no unexplained difference); and the assembly gate at
+  `c7c50314` on Node 24.22.2 (npm audit 0, unit 700 files / 16,611, typecheck, lint, format,
+  guards, `check:workers`, critical and release-tooling coverage, `build:checked` with the
+  cache-version and release-identity guards and the budgets, Chromium candidate E2E 19 and critical
+  E2E 98). It also lists what was not verified (WebKit without WebRTC or Web Audio, real devices
+  and iOS Safari, Linux fonts, related E2E and the WebKit lane, native review) and the owner device
+  check list.
 - [UI follow-up train 9.0.20: dialog exits, weight roles and the PRO receipt follow-ups (2026-10-29)](design/ui-followup-920-2026-10-29.md):
   one app update (9.0.20 / v793, bump `e1e638bf`, target `all`, with the update dialog; the build
   floor stays 787) on main `91aa77bb` (App 9.0.19, PRO room train A). It deletes the hidden

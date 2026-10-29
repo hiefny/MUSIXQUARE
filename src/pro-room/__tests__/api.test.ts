@@ -227,6 +227,13 @@ function requestParts(fetchMock: ReturnType<typeof vi.fn<typeof fetch>>): {
   return { url: new URL(String(call[0])), init: call[1] ?? {} };
 }
 
+/** No PRO request carries the entry-policy or playlist-slots opt-in header. */
+function expectNoOptInHeaders(init: RequestInit | undefined): void {
+  const headers = new Headers(init?.headers);
+  expect(headers.has('X-MXQR-Pro-Entry-Policy')).toBe(false);
+  expect(headers.has('X-MXQR-Pro-Playlist-Slots')).toBe(false);
+}
+
 function presignedUrl(): string {
   const url = new URL(`https://${PRO_ROOM_R2_HOST}/pro-media/private-object`);
   url.searchParams.set('X-Amz-Algorithm', 'AWS4-HMAC-SHA256');
@@ -678,7 +685,7 @@ describe('PRO room cookie session API', () => {
     expect(url.pathname).toBe(`${PRO_ROOM_PRODUCTION_PATH}/v1/rooms/000001/owner-transfer`);
     expect(url.search).toBe('');
     expect(init).toMatchObject({ method: 'POST', credentials: 'include' });
-    expect(new Headers(init.headers).get('X-MXQR-Pro-Entry-Policy')).toBe('optional-v1');
+    expectNoOptInHeaders(init);
     expect(JSON.parse(String(init.body))).toEqual({
       claimToken: CLAIM_TOKEN,
       requestId: IDEMPOTENCY_KEY,
@@ -756,7 +763,7 @@ describe('PRO room cookie session API', () => {
     expect(fetchMock).toHaveBeenCalledOnce();
   });
 
-  it('opts in to optional entry policy and joins a public room without fabricating a PIN', async () => {
+  it('joins a public room without fabricating a PIN or sending an opt-in header', async () => {
     const snapshot = { ...activeSnapshot(), passwordRequired: false };
     const fetchMock = vi
       .fn<typeof fetch>()
@@ -774,9 +781,8 @@ describe('PRO room cookie session API', () => {
     await expect(
       client.createSession({ code: ROOM_CODE, requestId: IDEMPOTENCY_KEY }),
     ).resolves.toEqual(snapshot);
-    for (const [, init] of fetchMock.mock.calls) {
-      expect(new Headers(init?.headers).get('x-mxqr-pro-entry-policy')).toBe('optional-v1');
-    }
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+    for (const [, init] of fetchMock.mock.calls) expectNoOptInHeaders(init);
     expect(JSON.parse(String(fetchMock.mock.calls[1]?.[1]?.body))).toEqual({
       requestId: IDEMPOTENCY_KEY,
     });
@@ -830,9 +836,7 @@ describe('PRO room cookie session API', () => {
       { pin: '87654321' },
       { pin: '11223344', existingParticipants: 'keep_present' },
     ]);
-    for (const [, init] of fetchMock.mock.calls) {
-      expect(new Headers(init?.headers).get('x-mxqr-pro-entry-policy')).toBe('optional-v1');
-    }
+    for (const [, init] of fetchMock.mock.calls) expectNoOptInHeaders(init);
 
     // A keep request never succeeds on the legacy acknowledgement or a wrong echo.
     for (const body of [
@@ -2883,7 +2887,7 @@ describe('PRO room playlists', () => {
     expect(parseProRoomSnapshot({ ...activeSnapshot(), playlistSlots })).toBeNull();
   });
 
-  it('opts every request in to playlist summaries', async () => {
+  it('reads playlist summaries without an opt-in header on any request', async () => {
     const fetchMock = vi
       .fn<typeof fetch>()
       .mockImplementation(async () =>
@@ -2894,9 +2898,7 @@ describe('PRO room playlists', () => {
     await expect(client.enterPresence(ROOM_CODE)).resolves.toMatchObject({ playlistSlots: SLOTS });
     await client.getSnapshot(ROOM_CODE);
     expect(fetchMock).toHaveBeenCalledTimes(2);
-    for (const [, init] of fetchMock.mock.calls) {
-      expect(new Headers(init?.headers).get('x-mxqr-pro-playlist-slots')).toBe('v1');
-    }
+    for (const [, init] of fetchMock.mock.calls) expectNoOptInHeaders(init);
   });
 
   it('sends a playlist switch with the room revision and caller idempotency', async () => {

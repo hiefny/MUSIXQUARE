@@ -100,7 +100,9 @@ async function openRoom(
         ...(owner ? { statsScope: 'a'.repeat(43) } : {}),
       });
     if (url.pathname.startsWith('/api/pro-room/')) {
-      expect(request.headers()['x-mxqr-pro-entry-policy']).toBe('optional-v1');
+      // The PRO Worker reads neither opt-in header, and the App sends neither.
+      expect(request.headers()['x-mxqr-pro-entry-policy']).toBeUndefined();
+      expect(request.headers()['x-mxqr-pro-playlist-slots']).toBeUndefined();
       if (url.pathname.endsWith('/bootstrap'))
         return reply({
           roomCode: PRO_ROOM_CODE,

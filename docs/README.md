@@ -138,8 +138,8 @@ runbooks. Neither belongs in a general setup document.
   room smoke passed on the first try, the public service worker still at v796, the public floor at
   795 with live App 796, and the Drift Audit at 32 pass / 0 fail / 5 manual-only), owner device
   check candidates and what was not verified. The release record's §2 now carries the R2
-  post-deploy items (scope and status, the post-deploy check and the owner device check
-  candidates, no results); its §4 entry and current boundary line (6) name the merge SHA, the
+  post-deploy items (scope and status, the post-deploy check with its blind result, and the owner
+  device check candidates, which have no results); its §4 entry and current boundary line (6) name the merge SHA, the
   Release ID, checkpoint artifact 12909218206 (the 9.0.22 PRO Worker `6abc7131`) and the new PRO
   Worker `ef882f7c`, and the hotfix procedure's contract sentence names the merge SHA, the Release
   ID and the new PRO Worker. With the floor at 795, the §4 lines that rolled the App back to a

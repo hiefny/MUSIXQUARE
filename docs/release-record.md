@@ -99,8 +99,8 @@ gh run list --workflow e2e.yml --branch main --limit 3
       `callToPlayingMs` 278.9로 한 번 찍히고 소리가 났다. 두 번째 시작은 근거가 없다. 오너는 바쁜 PC와 약한 Wi-Fi에서
       바꾼 뒤 약 3초 뒤 소리가 났다고 어림했고 그 약 3초를 받아들였다(zero-start 마감은 이 릴리스 전에도 2999 ms라 그
       지연은 이 릴리스가 바꾼 것이 아님). 기준 3(null LAN-direct)은 판정하지 않았다: 시스템 오디오 공유가 SFU 경로로
-      갔고(`[ProSysAudioSFU] Published generation 1`) 두 번째 기기가 2분 들었으며 공유하는 쪽 콘솔에 하트비트나 lease
-      경고가 없었으므로 'LAN-direct 미확인'으로 적는다. 실패가 없어 PRO를 되돌리지 않았다. Edge DevTools 도구 막대의 오류
+      갔으므로(`[ProSysAudioSFU] Published generation 1`) 'LAN-direct 미확인'으로 적는다(SFU 공유는 두 번째 기기에서
+      2분 들렸고 공유하는 쪽 콘솔에 하트비트나 lease 경고가 없었음). 실패가 없어 PRO를 되돌리지 않았다. Edge DevTools 도구 막대의 오류
       1은 그 줄을 찾지 못해 귀속하지 못했다(앱 안 콘솔에는 없음). 뒤에 결함이 보이면 §4의 이 릴리스 항목대로 PRO를 손으로
       9.0.22 PRO Worker(`6abc7131`)로 되돌리고 기록한다. PRO 방 smoke는 bootstrap 카나리아 둘과 익명 스냅샷 거절만 보므로
       null LAN-direct는 운영에서 아직 읽지 않았다. 실기기, iOS Safari, WebKit 레인 전체, Full E2E, 바닥 795 전에 열려

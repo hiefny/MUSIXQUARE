@@ -94,11 +94,13 @@ runbooks. Neither belongs in a general setup document.
 ## Maintained evidence and completed records
 
 - [Translate page entry train 9.0.24: language default, visit statistics, sign-in result (2026-10-29)](design/translate-entry-2026-10-29.md):
-  in progress, not merged or released; the next app update after 9.0.23 (9.0.24 / v797, App build
-  797, bump `4d74f552`, expected target `app` with 14 App runtime paths and none in the other five
-  Workers, with the update dialog; the build floor stays 795). The branch sits on main `a8d8f9c4`
-  (Phase 5.5 R2 `0e5a9b87` and its record #529; the R2 PRO Worker change is outside this train's
-  runtime paths). It carries the owner's decisions of 2026-10-29 for the public `/translate` page,
+  released on 2026-10-30 03:20 KST in Release 40929481142 (PR #530, squash `78ec56f5`): the next app
+  update after 9.0.23 (9.0.24 / v797, App build 797, bump `4d74f552`, target `app` with 14 App runtime
+  paths and none in the other five Workers, with the update dialog; the build floor stays 795). Only
+  the App Worker changed (`dddfabe3` to `dd820d37`); the PRO room Worker keeps R2's `ef882f7c` and the
+  other four their 9.0.22 versions. Branch `agent/translate-entry` was on main `a8d8f9c4` (Phase 5.5
+  R2 `0e5a9b87` and its record #529; the R2 PRO Worker change is outside this train's runtime paths).
+  It carries the owner's decisions of 2026-10-29 for the public `/translate` page,
   which had no suggestions in production, and the
   owner's follow-ups after two approving reviews: the page opens on a supported `?locale`,
   otherwise the browser language matched exactly as the App matches it (one shared
@@ -117,13 +119,27 @@ runbooks. Neither belongs in a general setup document.
   translation E2E 6, `build:checked` 9.0.24 / v797), the browser measurements of the App
   link, Retry and paging, the move onto `a8d8f9c4` (round 8: the four tests-first commits fail the
   same rows on their new parents, and at the bump 706 files / 16,782 unit tests, typecheck, lint,
-  format, `build:checked` with `guard:sw-cache-version` PASS v797, and target `app` only), the
-  arrivals the loader still does not count (an App language that differs from the browser,
+  format, `build:checked` with `guard:sw-cache-version` PASS v797, and target `app` only), round 9
+  (the PR CI and a no-findings automated review on the final head `29d6674e`, the exact-main CI on
+  Node 24.22.2 with unit 706 files / 16,781 plus the known skip, Worker 69 / 3,317 and Linux
+  Chromium candidate 19, including the translation E2E 6, and critical 100, one Production Release
+  with target `app` whose smokes all passed on the first try, the public service worker at v797,
+  the public floor at 795 with live App 797, the release owner's production check of `/translate`
+  in Chromium (a Korean browser opens Korean, a queryless visit loads the analytics loader and the
+  Cloudflare beacon script, the sign-in `returnTo` keeps the language and phrase, a cancelled
+  sign-in shows its line and leaves the address without `accountAuth`, and a URL with a query gets
+  no beacon), and the Drift Audit at 32 pass / 0 fail / 5 manual-only), the arrivals the loader
+  still does not count (an App language that differs from the browser,
   sign-in returns, pages opened from `/translate` after its address
   gained a query, and any later arrival on an address that already carries `?locale` or `?phrase`:
   a reload, bookmark or history restore after a choice, or a shared link), and what was not verified
   (a real production submission, the Google OAuth publishing status, and whether production Web
-  Analytics records the `/translate` arrivals after deploy).
+  Analytics counts the `/translate` arrivals over the next days). The release record's §2 now
+  carries the 9.0.24 post-deploy items (scope and status, post-deploy checks with owner device
+  check candidates, none with results yet, and the arrivals the loader does not count) and §4 its
+  rollback boundary (a forward revert at 9.0.25 / v798 or later, or the checkpoint's 9.0.23 App
+  `dddfabe3` without `lower`). Phase 5.5 R3, where the App stops receiving PRO snapshot
+  schemaVersion 1, is still to come as 9.0.25 / v798 (the next number if another App update ships first).
 - [Phase 5.5 R2: the PRO Worker sends PRO snapshot schemaVersion 2 (2026-10-29)](design/phase5-5-r2-v2-send-2026-10-29.md):
   released on 2026-10-30 00:30 KST in Release 40901986997 (PR #528, squash `0e5a9b87`): the second
   runtime release of Phase 5.5, PRO room Worker only (target `pro-room` with 1 PRO room runtime path
@@ -222,7 +238,7 @@ runbooks. Neither belongs in a general setup document.
   5 manual-only). The release record's §2 now carries the 9.0.23 post-deploy items (scope and status,
   post-deploy checks with the owner device check list, and open owner items with the owner step for
   outdated approved translation suggestions, now six keys with the Swedish one) and §4 its rollback
-  boundary (a forward revert at 9.0.24 / v797 or later, or the checkpoint's 9.0.22 App `e8966418`
+  boundary (a forward revert at 9.0.25 / v798 or later now that 9.0.24 shipped, or the checkpoint's 9.0.22 App `e8966418`
   without `lower`); the record closed the 9.0.20 owner items this train implemented.
 - [Phase 5.5 R1: old-version removal train 3 and PRO snapshot v2 reading, 9.0.22 (2026-10-29)](design/phase5-5-r1-train3-v2-accept-2026-10-29.md):
   released on 2026-10-29 18:35 KST in Release 40850068382 (PR #524, squash `71f5b96c`): the first
@@ -271,7 +287,7 @@ runbooks. Neither belongs in a general setup document.
   not verified. The release record's §2 now carries the 9.0.22 post-deploy items (scope and
   status, the owner device checks, and the next steps: F2 to build 795 and R2, both done on
   2026-10-30, then R3) and §4 its entry
-  (a forward revert at 9.0.24 / v797 or later now that 9.0.23 shipped, or the checkpoint's 9.0.21 App `06e79397` and
+  (a forward revert at 9.0.25 / v798 or later now that 9.0.23 and 9.0.24 shipped, or the checkpoint's 9.0.21 App `06e79397` and
   9.0.20 Workers); with the F1 evidence the record closed the release A item's device check of a
   mixed room with a 9.0.14 device.
 - [UI follow-up train 9.0.21: transient text at 600 and chips on one line (2026-10-29)](design/ui-followup-921-2026-10-29.md):
@@ -301,7 +317,7 @@ runbooks. Neither belongs in a general setup document.
   with identical patches, and its assembly review moved the bump after the review fixes. The release
   record's §2 now carries the 9.0.21 post-deploy items (scope and status, post-deploy checks, open
   owner items and the owner step for outdated approved translation suggestions) and §4 its rollback
-  boundary (a forward revert at 9.0.24 / v797 or later now that 9.0.22 and 9.0.23 shipped, or the checkpoint's 9.0.20 App
+  boundary (a forward revert at 9.0.25 / v798 or later now that 9.0.22, 9.0.23 and 9.0.24 shipped, or the checkpoint's 9.0.20 App
   `50d6557f`); the release closed the focus race item and the 9.0.20 owner decisions this train
   implemented. The report lists the owner decisions, each
   increment with its commits and tests-first evidence, the SHA map after assembly, the review

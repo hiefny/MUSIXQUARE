@@ -93,6 +93,40 @@ runbooks. Neither belongs in a general setup document.
 
 ## Maintained evidence and completed records
 
+- [UI owner decisions train 9.0.23: the items 9.0.20 left open (2026-10-29)](design/ui-owner-923-2026-10-29.md):
+  in progress, not merged or released; the next app update after 9.0.22 (9.0.23 / v796, App build
+  796, bump `e53678c2`, expected target `app` with 57 App runtime paths and none in the other five
+  Workers, with the update dialog; the build floor stays 789). It carries the owner's decisions of
+  2026-10-29 on twelve owner items of the 9.0.20 report: the Japanese setup waiting pill says
+  準備中...; a guest with a room code reads a lost-session body that says Restart joins this room again
+  (one new key in 42 locales, the owner's Korean and English); one Leave Session confirmation,
+  [Stay | Leave] with Stay focused first and Leave in account deletion's danger tone, for the
+  connect tab, the logo and Back, from the dialog's first frame (the host-unresponsive Leave session
+  takes the same tone); Back works again after a PRO room's Refresh needed, including when a forced
+  update takes over the refusal; Japanese and Chinese dialog and setup titles keep
+  their words whole (Japanese phrases where the browser supports auto-phrase) and no title runs past
+  its box (a shorter Tamil host-unresponsive title); the demo's step 4 icons keep 20px with shorter
+  Tamil and Malayalam exits and the owner-approved Norwegian 'Sporinfo'; the demo header loses its
+  exit button and names the track alone on one line; and the manual sync panel is back on
+  [Reset | Done], with the exit-left rule narrowed to dialog [Cancel | Action] pairs. Two items
+  change tests only (the PRO registration label measured in its paired layout in 42 locales, the
+  740x361 sidebar measured from the last tab pill). Branch `agent/ui-owner-920` is on main
+  `71f5b96c` (9.0.22), rebased from `0bbd077e` with identical patches. The report lists the owner
+  decisions, each increment with its rebased commits and tests-first evidence (rerun at the rebased
+  SHAs), the SHA map, the review findings (the Norwegian label the owner approved, the stale
+  `demo.exit` name registration removed, commit hygiene notes for the squash message, the partial
+  Japanese and Chinese result; from the assembly review, Leave showing the blue primary for about
+  190 ms before its danger tint when a main-app button had focus, fixed tests first in `d83a5920`,
+  and the forced-update case of item 10 added to the report), visible changes, open owner items (native checks, the stepped PIN
+  title, Safari Japanese, a Japanese title at three lines at 320px), mixed versions and rollback,
+  and QA rounds 1 to 3 (the implementation round and its review; the assembly round at the first
+  bump `849df009`, which the assembly review's fix moved off the branch; the fix round at
+  `e53678c2`: Leave in the danger tint from 0 ms per frame in three entry paths, npm audit 0, unit
+  705 files / 16,710, typecheck, lint, format, every guard, resource ownership 49 records / 447
+  files, `check:workers`, critical coverage 90 / 3,515, `build:checked` with the release-identity and
+  cache-version guards and the budgets, Chromium candidate E2E 19, critical E2E 100 and the demo,
+  back-navigation, adaptive-actions and dialog-locale-layout files 91) with a placeholder for the
+  release round. The release record's §2 carries a pre-deploy item for 9.0.23.
 - [Phase 5.5 R1: old-version removal train 3 and PRO snapshot v2 reading, 9.0.22 (2026-10-29)](design/phase5-5-r1-train3-v2-accept-2026-10-29.md):
   released on 2026-10-29 18:35 KST in Release 40850068382 (PR #524, squash `71f5b96c`): the first
   runtime release of Phase 5.5 (9.0.22 / v795, App build 795, bump `16d24d89`, target `all` with 27

@@ -96,7 +96,7 @@ runbooks. Neither belongs in a general setup document.
 - [PRO system audio: the SFU fallback prepared beside the LAN-direct attempt, media held (2026-10-31)](design/pro-system-audio-speculative-sfu-2026-10-31.md):
   the 9.0.28 increment (owner decision 2026-10-31, "two stages"), implemented and checked locally on
   the branch `agent/spec-sfu` over the 9.0.27 train (`3042b015`), not merged, released or bumped
-  (target `app`, nothing on screen changes). A share with LAN-direct targets starts its one SFU
+  (target `app`, nothing on screen changes). A share with LAN-direct targets starts its SFU
   publish in the same turn as the LAN-direct attempt with the sender holding no track; a proven
   LAN-direct stops it before the unchanged `lan-direct` commit, and a failed one attaches the track
   and commits the prepared descriptor at once. Owner-accepted cost: a LAN-direct share usually
@@ -106,13 +106,17 @@ runbooks. Neither belongs in a general setup document.
   a held fallback already lost when LAN-direct fails (a failed request such as a transient 502 or
   429, or a connection lost while held) leads to 9.0.27's one ordinary publish and its commit, so
   at most one SFU publish follows the LAN-direct failure as in 9.0.27, and the unchanged
-  new-session limit is accepted as a rare case to observe. No wire, server, timer, retry or
-  timing value; RO-20 extended in place. The held fallback's lines (Prepared, Released, Closed
+  new-session limit is accepted as a rare case to observe. No wire, server, timer, retry loop or
+  timing value; RO-20 extended in place. The held fallback's info lines (Prepared, Released, Closed
   unused, Cancelled, Closed released, failed) use the `[PRO SystemAudio]` prefix, so a LAN-direct
-  share still logs no `[ProSysAudioSFU]` line, and `[ProSysAudioSFU] Published generation N` comes
-  only after the room committed the fallback. Round 1: tests first `1b2be559`, runtime `17002160`;
-  review round 2: tests first `25e029ba` (25 rows fail on round 1), runtime `4bcc52fb`; round 3:
-  tests first `926a5a95` (16 rows fail on round 2), runtime `d4934909`. In a
+  share still logs no `[ProSysAudioSFU]` line at `?mxqrLog=info` (at debug level a failed
+  tracks-close can still log one), and for a released fallback `[ProSysAudioSFU] Published
+  generation N` comes only after the room committed it. Round 1: tests first `1b2be559`, runtime
+  `17002160`; review round 2: tests first `25e029ba` (25 rows fail on round 1), runtime `4bcc52fb`;
+  round 3: tests first `926a5a95` (16 rows fail on round 2), runtime `d4934909`; review round 4:
+  tests only `bd58bec1` (three existing checks pinned, the runtime unchanged), and the note names
+  the rollback trigger and target (9.0.27 / v800 behaviour) for the unverified late-RTP pushed
+  track. In a
   Chromium harness running the real service, SFU and LAN-direct modules against a fake Cloudflare
   whose answering connection receives the media (publish modelled at 0.6, 1.7 and 3 s), the first
   RTP packet of a share whose pair never refines arrives 1.68-1.81 s sooner at 1.7-3 s (0.60-0.64 s

@@ -2171,8 +2171,10 @@ RO-53 owner-in-place
   `startHeldSfuPublication` with `holdMedia` on the same singleton publisher, owner decision
   2026-10-31; a LAN-direct failure releases the hold, `releaseProSystemAudioSfuPublisherHold`
   attaching the track, commits that descriptor, and only after a live SFU commit of that session
-  reports it published, `reportProSystemAudioSfuPublisherCommitted`, so the `published` event and
-  the `[ProSysAudioSFU] Published generation N` line name only a committed publication; a proven
+  reports it published, `reportProSystemAudioSfuPublisherCommitted`, so for the held fallback the
+  `published` event and the `[ProSysAudioSFU] Published generation N` line name only a committed
+  publication (the ordinary publish after a lost fallback, like a promotion, still reports itself
+  just before its commit); a proven
   LAN-direct stops it unused before the `lan-direct` commit. Cost, owner-accepted: a LAN-direct
   share usually asks for one Realtime publisher session that never carries media and spends one
   admission of the Worker's per-capability new-session limit
@@ -2246,7 +2248,12 @@ RO-53 owner-in-place
     lease-lost reasons, after the share and (9.0.28) inside the LAN-direct window with the held
     SFU fallback started, three times: the LAN-direct attempt still pending, already failed with the
     held publish still pending, and already failed after the held publish was lost with the
-    ordinary publish pending.
+    ordinary publish pending. Its transport fake, like the real transport, reports the held
+    fallback lost after any publisher stop, so in the first window only the flight ownership check
+    right after the LAN-direct attempt keeps a stale flight from the ordinary publish (9.0.28 review
+    round 4); `system-audio-pro-publish-evidence.test.ts` pins the same window on the real
+    transport for the explicit stop, a new presence incarnation and the service reset (one
+    `new-session`, one closed connection, no commit).
   - Held SFU fallback (9.0.28): `system-audio-service.test.ts` "PRO system-audio held SFU
     fallback beside the LAN-direct attempt" (it starts beside the attempt, commits at the LAN-direct
     failure when prepared; when it failed or lost its connection in the window, one ordinary publish
@@ -2258,7 +2265,8 @@ RO-53 owner-in-place
     publisher before committing the 9.0.26 lan-direct shape and never releases it" and "releases
     exactly once when explicit stop aborts a pending publish";
     `src/network/__tests__/pro-system-audio-sfu.test.ts` "PRO system-audio SFU held fallback"
-    (including the release's post-attach supersession and descriptor checks, the commit report and
+    (including the release's post-attach supersession and descriptor checks, its catch's
+    supersession check when the attach rejects after a stop or a successor, the commit report and
     the hold-ready query); `src/pro-room/__tests__/system-audio-pro-publish-evidence.test.ts` (the
     held lines under `[PRO SystemAudio]`, the published line only after the commit, no
     `[ProSysAudioSFU]` line on a LAN-direct pass, one `new-session` per share, and after a lost

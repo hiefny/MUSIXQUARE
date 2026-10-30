@@ -44,6 +44,11 @@ function readString(report: unknown, key: string): string | undefined {
   return typeof value === 'string' ? value : undefined;
 }
 
+function readNumber(report: unknown, key: string): number | undefined {
+  const value = (report as Record<string, unknown> | undefined)?.[key];
+  return typeof value === 'number' && Number.isFinite(value) ? value : undefined;
+}
+
 /** A native or statistics candidate's port and protocol, and its address when exposed. */
 export function getIceEndpoint(candidate: unknown): IceEndpoint | null {
   const port = (candidate as Record<string, unknown> | undefined)?.port;
@@ -110,8 +115,8 @@ function pairHasSucceeded(pair: RTCStats, options: RefinedHostPairOptions): bool
   const state = readString(pair, 'state');
   if (state === 'succeeded') return true;
   if (!options.allowAnsweredInProgress || state !== 'in-progress') return false;
-  const responses = (pair as unknown as Record<string, unknown>).responsesReceived;
-  return typeof responses === 'number' && responses > 0;
+  const responses = readNumber(pair, 'responsesReceived');
+  return responses !== undefined && responses > 0;
 }
 
 /**

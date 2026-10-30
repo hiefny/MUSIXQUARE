@@ -194,7 +194,11 @@ export class PublisherPeerConnection {
 // latency), honour an aborted signal like fetch, and record every request.
 // A test can hold the next request of one action (`holdNext`): it is recorded
 // at once and answers only when the test lets it go, or rejects with the
-// signal's reason when it is aborted first, as an in-flight fetch does.
+// signal's reason when it is aborted first, as an in-flight fetch does. A test
+// can also make the next request of one action fail (`failNext`): it is
+// recorded and answers with that HTTP status and the Worker's `{ error }`
+// body, as a transient 502 or the new-session limit's 429 does, and asks
+// Realtime for no session.
 // Does not model capability minting, Turnstile, the subscriber side, the
 // second fallback endpoint or response size limits.
 
@@ -208,6 +212,7 @@ class PublisherRealtimeFake {
   readonly requests: RealtimeRequest[] = [];
   private sessionSeq = 0;
   private held: { action: string; gate: Promise<void>; open: () => void } | null = null;
+  private readonly failures: Array<{ action: string; status: number }> = [];
 
   readonly fetchWithCapability = (
     url: RequestInfo | URL,
@@ -223,9 +228,20 @@ class PublisherRealtimeFake {
     this.requests.push(request);
     const held = this.held?.action === request.action ? this.held : null;
     if (held) this.held = null;
+    const failureAt = this.failures.findIndex((failure) => failure.action === request.action);
+    const failure = failureAt >= 0 ? this.failures.splice(failureAt, 1)[0]! : null;
     return new Promise((resolve, reject) => {
       signal?.addEventListener('abort', () => reject(signal.reason), { once: true });
-      const answer = () => setTimeout(() => resolve(Response.json(this.respond(request))), 0);
+      const answer = () =>
+        setTimeout(
+          () =>
+            resolve(
+              failure
+                ? Response.json({ error: 'Request refused' }, { status: failure.status })
+                : Response.json(this.respond(request)),
+            ),
+          0,
+        );
       if (held) held.gate.then(answer, () => undefined);
       else answer();
     });
@@ -241,6 +257,11 @@ class PublisherRealtimeFake {
     return open;
   }
 
+  /** Fails the next not yet failed request of `action` with HTTP `status`. */
+  failNext(action: string, status: number): void {
+    this.failures.push({ action, status });
+  }
+
   count(action: string): number {
     return this.requests.filter((request) => request.action === action).length;
   }
@@ -249,6 +270,7 @@ class PublisherRealtimeFake {
     this.requests.length = 0;
     this.sessionSeq = 0;
     this.held = null;
+    this.failures.length = 0;
   }
 
   private respond(request: RealtimeRequest): Record<string, unknown> {

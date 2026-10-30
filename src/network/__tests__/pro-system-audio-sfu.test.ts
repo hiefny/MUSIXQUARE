@@ -844,6 +844,47 @@ describe('PRO system-audio SFU held fallback', () => {
     expect(successorSender.replaceTrack.mock.calls).toEqual([[null], [successorTrack]]);
   });
 
+  // 9.0.28 release owner decision (2026-10-31, under the owner's delegation):
+  // when LAN-direct fails, the service asks whether the held fallback it was
+  // handed is still there before it releases it; one that is not (its
+  // connection failed while held) leaves the share to 9.0.27's one ordinary
+  // publish. The query is the release's own entry check and touches nothing.
+  it('the hold-ready query names only the current prepared, unreleased held fallback, as the release checks it', async () => {
+    const isReady = proSfu.isProSystemAudioSfuPublisherHoldReady;
+    const first = await heldPublish(audioTrack('capture-a'));
+    const firstSender = newestSender();
+    expect(isReady(first)).toBe(true);
+    expect(isReady({ ...first, sessionId: 'another-session' })).toBe(false);
+    expect(isReady({ ...first, generation: 13 })).toBe(false);
+    // Asking changes nothing: the sender still holds no track.
+    expect(firstSender.replaceTrack.mock.calls).toEqual([[null]]);
+    await proSfu.releaseProSystemAudioSfuPublisherHold(first);
+    expect(isReady(first)).toBe(false);
+
+    // Its connection fails while held: no longer ready, and the release refuses it.
+    const second = await heldPublish(audioTrack('capture-b'));
+    expect(isReady(first)).toBe(false);
+    expect(isReady(second)).toBe(true);
+    peerConnections.at(-1)!.emitConnectionState('failed');
+    expect(isReady(second)).toBe(false);
+    await expect(proSfu.releaseProSystemAudioSfuPublisherHold(second)).rejects.toThrow(
+      'PRO_SFU_FALLBACK_UNAVAILABLE',
+    );
+
+    // Stopped while held, and an ordinary publish, which never held.
+    const third = await heldPublish(audioTrack('capture-c'));
+    expect(isReady(third)).toBe(true);
+    proSfu.stopProSystemAudioSfuPublisher();
+    expect(isReady(third)).toBe(false);
+    const ordinary = await proSfu.publishProSystemAudioSfu({
+      track: audioTrack('capture-d'),
+      roomId: ROOM,
+      generation: 12,
+      expiresAt: Date.now() + 60_000,
+    });
+    expect(isReady(ordinary)).toBe(false);
+  });
+
   it.each(['an explicit stop', 'a superseding held publish'] as const)(
     "%s during the release's track attach: the release rejects as superseded, logs no release and tunes nothing",
     async (teardown) => {

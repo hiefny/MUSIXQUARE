@@ -23,10 +23,11 @@
  *
  * Since 9.0.28 a share with LAN-direct targets starts its SFU publish beside
  * the LAN-direct attempt with the sender holding no track (the held
- * fallback). The second describe tears a share down inside that window, twice
- * (the LAN-direct attempt still pending, and already failed with the held
- * publish still pending), and pins the same lists as the first, plus that the
- * stale flight never releases the hold or commits.
+ * fallback). The second describe tears a share down inside that window, three
+ * times (the LAN-direct attempt still pending; already failed with the held
+ * publish still pending; and already failed after the held publish was lost,
+ * with 9.0.27's one ordinary publish pending), and pins the same lists as the
+ * first, plus that the stale flight never releases the hold or commits.
  *
  * Real: the service, its controller and bridge, the receive slot (its start,
  * trust boundary and end are spies), the bus and the managed timers. Replaced:
@@ -84,6 +85,7 @@ vi.mock('../../network/pro-system-audio-sfu.ts', () => ({
     mocks.sfuListener = listener;
   }),
   publishProSystemAudioSfu: mocks.publish,
+  isProSystemAudioSfuPublisherHoldReady: vi.fn(() => true),
   releaseProSystemAudioSfuPublisherHold: mocks.releaseHold,
   reportProSystemAudioSfuPublisherCommitted: mocks.reportCommitted,
   stopProSystemAudioSfuPublisher: mocks.stopPublisher,
@@ -323,7 +325,8 @@ beforeEach(() => {
   vi.clearAllMocks();
   for (const request of Object.values(api)) request.mockReset();
   mocks.roomContextKind = 'pro';
-  mocks.publish.mockResolvedValue({
+  // vi.clearAllMocks keeps queued one-time answers; every row starts from none.
+  mocks.publish.mockReset().mockResolvedValue({
     sessionId: 'realtime_session_01',
     track: { trackName: 'audio-stereo', mid: '0' },
   });
@@ -506,28 +509,40 @@ describe('PRO publication teardown entry points (RO-20, Phase 5 C4-12)', () => {
 // below tears the share down inside that window and must leave the same
 // timers, SFU publisher stops, LAN-direct resets and lease-lost reasons as its
 // post-share row above; the held publisher is the singleton those stops reach.
-// Two windows: the LAN-direct attempt still pending (the held publish already
-// prepared), and the LAN-direct attempt already failed with the held publish
-// still pending (the flight parked on it; with `no-lan-candidate` and a slow
-// publish this is the longer one). Either way the stale flight then neither
-// releases the hold nor commits.
+// Three windows: the LAN-direct attempt still pending (the held publish already
+// prepared); the LAN-direct attempt already failed with the held publish still
+// pending (the flight parked on it; with `no-lan-candidate` and a slow publish
+// this is the longer one); and the LAN-direct attempt already failed after the
+// held publish was lost, with 9.0.27's one ordinary publish pending (release
+// owner decision 2026-10-31). Each time the stale flight then neither releases
+// the hold nor commits.
 describe.each([
-  { window: 'LAN-direct attempt still pending', lanFailsFirst: false },
-  { window: 'LAN-direct already failed, held publish still pending', lanFailsFirst: true },
-])(
+  { window: 'LAN-direct attempt still pending', pending: 'lan' },
+  { window: 'LAN-direct already failed, held publish still pending', pending: 'held' },
+  {
+    window:
+      "LAN-direct already failed after the held publish was lost, 9.0.27's ordinary publish pending",
+    pending: 'ordinary',
+  },
+] as const)(
   'PRO publication teardown inside the LAN-direct window (RO-20, 9.0.28 held SFU fallback): $window',
-  ({ lanFailsFirst }) => {
+  ({ pending }) => {
     const HELD_DESCRIPTOR = {
       sessionId: 'realtime_session_01',
       track: { trackName: 'audio-stereo', mid: '0' },
+    };
+    const ORDINARY_DESCRIPTOR = {
+      sessionId: 'realtime_session_02',
+      track: { trackName: 'audio-stereo-2', mid: '0' },
     };
 
     /** Starts a share inside the window, with its held SFU publish started. */
     async function startShareInLanWindow() {
       const lan = deferred<null>();
       const held = deferred<typeof HELD_DESCRIPTOR>();
+      const ordinary = deferred<typeof ORDINARY_DESCRIPTOR>();
       mocks.attemptDirect.mockReturnValueOnce(lan.promise);
-      mocks.publish.mockReturnValueOnce(held.promise);
+      mocks.publish.mockReturnValueOnce(held.promise).mockReturnValueOnce(ordinary.promise);
       api.getSystemAudioState.mockResolvedValueOnce(idle());
       api.acquireSystemAudioLease.mockResolvedValueOnce({
         systemAudio: preparing(),
@@ -543,33 +558,43 @@ describe.each([
       await vi.advanceTimersByTimeAsync(0);
       expect(mocks.publish).toHaveBeenCalledTimes(1);
       expect(mocks.publish.mock.calls[0]?.[0]).toMatchObject({ holdMedia: true });
-      if (lanFailsFirst) lan.resolve(null);
-      else held.resolve(HELD_DESCRIPTOR);
+      if (pending === 'lan') held.resolve(HELD_DESCRIPTOR);
+      if (pending === 'ordinary') {
+        held.reject(new Error('HTTP 502'));
+        await vi.advanceTimersByTimeAsync(0);
+      }
+      if (pending !== 'lan') lan.resolve(null);
       await vi.advanceTimersByTimeAsync(0);
+      expect(mocks.publish).toHaveBeenCalledTimes(pending === 'ordinary' ? 2 : 1);
+      if (pending === 'ordinary') {
+        expect(mocks.publish.mock.calls[1]?.[0]).not.toHaveProperty('holdMedia');
+      }
       expect(mocks.releaseHold).not.toHaveBeenCalled();
       expect(api.commitSystemAudioPublication).not.toHaveBeenCalled();
-      return { lan, held, settled };
+      return { lan, held, ordinary, settled };
     }
 
     /**
-     * The window's other half settles after the teardown: the held publish the
-     * stop aborted rejects, or the LAN-direct attempt fails. The stale flight
-     * commits nothing and reports the supersession, not the transport's abort.
+     * The window's other half settles after the teardown: the held or ordinary
+     * publish the stop aborted rejects, or the LAN-direct attempt fails. The
+     * stale flight commits nothing and reports the supersession, not the
+     * transport's abort.
      */
     async function expectStaleFlightCommitsNothing(window: {
       lan: ReturnType<typeof deferred<null>>;
       held: ReturnType<typeof deferred<typeof HELD_DESCRIPTOR>>;
+      ordinary: ReturnType<typeof deferred<typeof ORDINARY_DESCRIPTOR>>;
       settled: Promise<unknown>;
     }): Promise<void> {
-      if (lanFailsFirst) {
-        window.held.reject(new DOMException('The operation was aborted.', 'AbortError'));
-      } else {
-        window.lan.resolve(null);
-      }
+      const aborted = new DOMException('The operation was aborted.', 'AbortError');
+      if (pending === 'held') window.held.reject(aborted);
+      else if (pending === 'ordinary') window.ordinary.reject(aborted);
+      else window.lan.resolve(null);
       expect(await window.settled).toMatchObject({ code: 'OPERATION_SUPERSEDED' });
       expect(mocks.releaseHold).not.toHaveBeenCalled();
       expect(mocks.reportCommitted).not.toHaveBeenCalled();
       expect(api.commitSystemAudioPublication).not.toHaveBeenCalled();
+      expect(mocks.publish).toHaveBeenCalledTimes(pending === 'ordinary' ? 2 : 1);
     }
 
     it('explicit stop: the same teardown as after the share, and the held fallback is never released', async () => {
@@ -652,7 +677,7 @@ describe.each([
       expect(leaseLossReasons).toEqual(['reset']);
     });
 
-    it('leaving the PRO room context: keeps the held publisher, then releases and commits it as the sequential publish would', async () => {
+    it('leaving the PRO room context: keeps the SFU publisher, then commits its publication as the sequential publish would', async () => {
       const window = await startShareInLanWindow();
       armPublicationTimers();
       observeTeardown();
@@ -666,15 +691,25 @@ describe.each([
       expect(leaseLossReasons).toEqual([]);
 
       // The window's other half settles: the reset LAN-direct transport fails
-      // the attempt, or the kept held publish is prepared.
-      if (lanFailsFirst) window.held.resolve(HELD_DESCRIPTOR);
+      // the attempt, or the kept held or ordinary publish is prepared.
+      if (pending === 'held') window.held.resolve(HELD_DESCRIPTOR);
+      else if (pending === 'ordinary') window.ordinary.resolve(ORDINARY_DESCRIPTOR);
       else window.lan.resolve(null);
       expect(await window.settled).toBe('published');
-      expect(mocks.releaseHold).toHaveBeenCalledTimes(1);
       expect(api.commitSystemAudioPublication).toHaveBeenCalledTimes(1);
-      expect(mocks.reportCommitted.mock.calls).toEqual([[HELD_DESCRIPTOR]]);
+      if (pending === 'ordinary') {
+        // 9.0.27's ordinary publish reported itself; there is no hold to release.
+        expect(mocks.releaseHold).not.toHaveBeenCalled();
+        expect(mocks.reportCommitted).not.toHaveBeenCalled();
+        expect(api.commitSystemAudioPublication.mock.calls[0]?.[0]).toMatchObject({
+          publication: { sessionId: 'realtime_session_02' },
+        });
+      } else {
+        expect(mocks.releaseHold).toHaveBeenCalledTimes(1);
+        expect(mocks.reportCommitted.mock.calls).toEqual([[HELD_DESCRIPTOR]]);
+      }
       expect(mocks.stopPublisher).not.toHaveBeenCalled();
-      expect(mocks.publish).toHaveBeenCalledTimes(1);
+      expect(mocks.publish).toHaveBeenCalledTimes(pending === 'ordinary' ? 2 : 1);
     });
   },
 );

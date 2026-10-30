@@ -268,6 +268,35 @@ async function shareWithLanSettlingAfterPrepared(outcome: 'fails' | 'proves'): P
 }
 
 /**
+ * The sharer starts a share whose LAN-direct attempt fails only after the held
+ * SFU fallback settled and `meanwhile` ran (it may lose the prepared fallback).
+ * Returns the share's error, or null when it went live.
+ */
+async function shareWithLanFailingAfter(meanwhile: () => void): Promise<unknown> {
+  api.getSystemAudioState.mockResolvedValue(idle(GENERATION - 1));
+  await refreshProSystemAudioState();
+  await acquireLocalProSystemAudioLease();
+  let fail!: () => void;
+  attemptDirect.mockImplementation(
+    () =>
+      new Promise((resolve) => {
+        fail = () => resolve(null);
+      }),
+  );
+  const published = publishLocalProSystemAudio(track).then(
+    () => null,
+    (error: unknown) => error,
+  );
+  await advance(PUBLISH_SETTLE_MS);
+  meanwhile();
+  await advance(PUBLISH_SETTLE_MS);
+  expect(committed()).toEqual([]);
+  fail();
+  await advance(PUBLISH_SETTLE_MS);
+  return published;
+}
+
+/**
  * The sharer starts a share whose LAN-direct attempt proves while the held
  * SFU fallback's `action` request is still in flight (the field's common
  * case: the proof, about 0.5-1.5 s, beats a 1.7-3 s publish).
@@ -433,6 +462,126 @@ describe('PRO sharer device evidence lines', () => {
       ],
     ]);
     expect(PublisherPeerConnection.instances[0]?.closed).toBe(true);
+  });
+
+  // Release owner decision 2026-10-31, under the owner's delegation: a held
+  // fallback already lost when LAN-direct fails leaves the share where 9.0.27
+  // was at that moment, so it makes 9.0.27's one ordinary publish, which
+  // reports itself just before its commit as it always did. The device
+  // reading: the held failed line, then `[ProSysAudioSFU] Published`, and no
+  // Released line.
+  const heldFailed = (cause: string) =>
+    new RegExp(
+      `^\\[PRO SystemAudio\\] SFU fallback for generation ${GENERATION} failed after \\d+ ms \\(${cause}\\)$`,
+      'u',
+    );
+  const lineIndex = (pattern: RegExp) =>
+    lines.findIndex(([, first]) => typeof first === 'string' && pattern.test(first));
+
+  it("first route SFU after the held fallback's session request failed in the LAN-direct window: its failed line, then 9.0.27's ordinary publish, published before its commit", async () => {
+    let commitAtLine = -1;
+    api.commitSystemAudioPublication.mockImplementation(async (request) => {
+      commitAtLine = lines.length;
+      return localLive(request.publication);
+    });
+    publisherRealtime.failNext('new-session', 502);
+
+    const error = await shareWithLanFailingAfter(() => {
+      // Lost before the LAN-direct decision, and nothing else asked for yet.
+      expect(matching(HELD)).toEqual([['info', expect.stringMatching(heldFailed('Error'))]]);
+      expect(publisherRealtime.requests.map((request) => request.action)).toEqual(['new-session']);
+    });
+
+    expect(error).toBeNull();
+    expect(publisherRealtime.requests.map((request) => request.action)).toEqual([
+      'new-session',
+      'new-session',
+      'tracks-new',
+    ]);
+    expect(committed()).toEqual([
+      {
+        publicationId: expect.any(String),
+        sessionId: 'publisher_session_1',
+        track: expect.any(Object),
+      },
+    ]);
+    expect(matching(HELD)).toEqual([['info', expect.stringMatching(heldFailed('Error'))]]);
+    expect(matching(SFU_PREFIX)).toEqual([['info', PUBLISHED]]);
+    expect(evidence()).toEqual([['info', PUBLISHED]]);
+    expect(lineIndex(HELD)).toBeLessThan(lineIndex(SFU_PREFIX));
+    expect(lineIndex(SFU_PREFIX)).toBeLessThan(commitAtLine);
+    // The ordinary sender carried the track from its offer; nothing was released.
+    const [held, ordinary] = PublisherPeerConnection.instances;
+    expect(held?.closed).toBe(true);
+    expect(held?.senders).toEqual([]);
+    expect(ordinary?.senders[0]?.track).toBe(track);
+    expect(ordinary?.senders[0]?.replaceTrack).not.toHaveBeenCalled();
+  });
+
+  it("first route SFU after the held fallback lost its connection in the LAN-direct window: its lines, then 9.0.27's ordinary publish, and no recovery", async () => {
+    let commitAtLine = -1;
+    api.commitSystemAudioPublication.mockImplementation(async (request) => {
+      commitAtLine = lines.length;
+      return localLive(request.publication);
+    });
+
+    const error = await shareWithLanFailingAfter(() => {
+      expect(matching(HELD)).toEqual([['info', expect.stringMatching(PREPARED)]]);
+      PublisherPeerConnection.instances[0]!.setConnectionState('failed');
+    });
+
+    expect(error).toBeNull();
+    expect(publisherRealtime.requests.map((request) => request.action)).toEqual([
+      'new-session',
+      'tracks-new',
+      'tracks-close',
+      'new-session',
+      'tracks-new',
+    ]);
+    expect(committed()).toEqual([
+      {
+        publicationId: expect.any(String),
+        sessionId: 'publisher_session_2',
+        track: expect.any(Object),
+      },
+    ]);
+    expect(matching(HELD)).toEqual([
+      ['info', expect.stringMatching(PREPARED)],
+      ['info', expect.stringMatching(heldFailed('connection-failed'))],
+    ]);
+    expect(matching(SFU_PREFIX)).toEqual([['info', PUBLISHED]]);
+    expect(lineIndex(heldFailed('connection-failed'))).toBeLessThan(lineIndex(SFU_PREFIX));
+    expect(lineIndex(SFU_PREFIX)).toBeLessThan(commitAtLine);
+    const [held, ordinary] = PublisherPeerConnection.instances;
+    expect(held?.closed).toBe(true);
+    // The held sender never carried the track; the ordinary one did from its offer.
+    expect(held?.senders[0]?.replaceTrack.mock.calls).toEqual([[null]]);
+    expect(ordinary?.senders[0]?.track).toBe(track);
+    await advance(60_000);
+    expect(publisherRealtime.count('new-session')).toBe(2);
+    expect(api.acquireSystemAudioLease).toHaveBeenCalledTimes(1);
+    expect(committed()).toHaveLength(1);
+  });
+
+  it("9.0.27's ordinary publish refused too: the share fails with no third attempt and no published line", async () => {
+    api.releaseSystemAudioLease.mockResolvedValue(idle(GENERATION));
+    publisherRealtime.failNext('new-session', 502);
+    publisherRealtime.failNext('new-session', 429);
+
+    const error = await shareWithLanFailingAfter(() => undefined);
+
+    expect(error).toBeInstanceOf(Error);
+    expect(committed()).toEqual([]);
+    expect(publisherRealtime.requests.map((request) => request.action)).toEqual([
+      'new-session',
+      'new-session',
+    ]);
+    expect(matching(HELD)).toEqual([['info', expect.stringMatching(heldFailed('Error'))]]);
+    expect(evidence()).toEqual([]);
+    expect(api.releaseSystemAudioLease).toHaveBeenCalledTimes(1);
+    await advance(60_000);
+    expect(publisherRealtime.count('new-session')).toBe(2);
+    expect(api.acquireSystemAudioLease).toHaveBeenCalledTimes(1);
   });
 
   it('LAN-direct proven after the fallback was prepared: no [ProSysAudioSFU] line, one held session opened and closed with no media', async () => {

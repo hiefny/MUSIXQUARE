@@ -24,7 +24,7 @@ import type { QueueItemId } from '../../../types/index.ts';
 import { makeFakeYtPlayer, type FakeYtPlayer } from './fake-yt-player.ts';
 
 /** The player API a real IFrame API player gains only when its iframe handshake completes. */
-export const IFRAME_API_METHODS = [
+const IFRAME_API_METHODS = [
   'playVideo',
   'pauseVideo',
   'stopVideo',

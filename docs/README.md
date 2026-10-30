@@ -161,8 +161,9 @@ runbooks. Neither belongs in a general setup document.
   into the App 9.0.27 / v800 train above and with it onto main `8f171535` (README conflicts only);
   released on 2026-10-31 04:31 KST in that train, bumped by `676a1670` (target `app`; owner
   decision 2026-10-30, nothing on screen changes); not yet seen in production, since the blind
-  post-deploy check waits for the morning. Its post-deploy reading table now names the `no-lan-candidate` gathering lines
-  the train added on the owner's answer of 2026-10-31. The note's own Status cell keeps its
+  post-deploy check waits for the morning. Its post-deploy reading table now names the
+  `no-lan-candidate` gathering lines the train added on the owner's answer of 2026-10-31. The
+  note's own Status cell keeps its
   pre-train text; the train report and the release record hold the release state. In the 9.0.26
   post-deploy check an iPhone Safari listener judged its own LAN pair non-local about 0.5 s into its
   proof, so every share fell back to the SFU. iOS Safari, the
@@ -255,8 +256,8 @@ runbooks. Neither belongs in a general setup document.
   lines. The release record's §2 carries both increments as post-deploy items, its §4 the 9.0.26
   entry and current boundary line (5) (checkpoint artifact 12953960262, App 9.0.25 `b4e8fc56`), and
   the hotfix procedure's 9.0.25 bullet names 9.0.26's merge SHA, Release ID and App version. The
-  rollback boundary is a forward revert at 9.0.28 / v801 or later now that 9.0.27 shipped, or the checkpoint's 9.0.25 App
-  without `lower` with the PRO Worker left in place.
+  rollback boundary is a forward revert at 9.0.28 / v801 or later now that 9.0.27 shipped, or the
+  checkpoint's 9.0.25 App without `lower` with the PRO Worker left in place.
 - [PRO system-audio LAN-direct in one round trip (2026-10-30)](design/pro-lan-direct-one-round-trip-2026-10-30.md):
   released on 2026-10-30 13:08 KST in the App 9.0.26 / v799 train above (target `app`). On a
   desktop sharer with an iPhone listener on one Wi-Fi every PRO share went to
@@ -361,8 +362,9 @@ runbooks. Neither belongs in a general setup document.
   runtime-dependency merge freeze; its §4 entry and current boundary lines (5) and (8) name the
   merge SHA, the Release ID and checkpoint artifact 12938145012 (App 9.0.24 `dd820d37`), and the
   hotfix procedure's 9.0.25 sentence names the merge SHA and the Release ID. The rollback boundary
-  is a forward revert at 9.0.28 / v801 or later now that 9.0.26 and 9.0.27 shipped, or the checkpoint's 9.0.24
-  App without `lower` with the PRO Worker left in place. The App 9.0.26 train (entry above) replaced
+  is a forward revert at 9.0.28 / v801 or later now that 9.0.26 and 9.0.27 shipped, or the
+  checkpoint's 9.0.24 App without `lower` with the PRO Worker left in place. The App 9.0.26 train
+  (entry above) replaced
   the two-round-trip LAN-direct negotiation with one round trip on 2026-10-30 13:08 KST.
 - [Translate page entry train 9.0.24: language default, visit statistics, sign-in result (2026-10-29)](design/translate-entry-2026-10-29.md):
   released on 2026-10-30 03:20 KST in Release 40929481142 (PR #530, squash `78ec56f5`): the next app

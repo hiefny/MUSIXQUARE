@@ -764,13 +764,55 @@ function ensureSubscriberCurrent(epoch: number, pc: RTCPeerConnection): void {
   }
 }
 
+/** Error names a subscription's failure line may carry: never a message, which can hold ids. */
+const SUBSCRIBE_FAILURE_NAMES: ReadonlySet<string> = new Set([
+  'TimeoutError',
+  'AbortError',
+  'InvalidStateError',
+  'InvalidAccessError',
+  'OperationError',
+  'NotSupportedError',
+  'SyntaxError',
+  'TypeError',
+  'ControlResponseTooLargeError',
+]);
+
+function subscribeFailureCause(error: unknown): string {
+  if (isCapabilityChallengeCancelled(error)) return 'capability-cancelled';
+  const name =
+    typeof error === 'object' && error !== null ? (error as { name?: unknown }).name : null;
+  return typeof name === 'string' && SUBSCRIBE_FAILURE_NAMES.has(name) ? name : 'Error';
+}
+
+/** The step a subscription is in, named in its failure line. */
+type SubscribeStage = 'config' | 'session' | 'tracks' | 'offer' | 'answer' | 'renegotiate';
+
+/**
+ * One subscription's stage times, counted from when the listener learned of
+ * the share. They are read at the steps the subscription already awaits: no
+ * timer of their own.
+ */
+interface SubscribeProgress {
+  noticeAt: number;
+  stage: SubscribeStage;
+  marks: string[];
+}
+
+function markSubscribe(progress: SubscribeProgress, name: string, next?: SubscribeStage): void {
+  progress.marks.push(`${name} ${Date.now() - progress.noticeAt}`);
+  if (next) progress.stage = next;
+}
+
 async function performSubscribe(
   descriptor: ProSystemAudioSfuPublicationDescriptor,
   epoch: number,
   signal: AbortSignal,
+  progress: SubscribeProgress,
 ): Promise<void> {
+  markSubscribe(progress, 'start');
   const rtcConfig = await loadSfuRtcConfig(signal);
   if (epoch !== subscriberEpoch) throw new ProSystemAudioSfuSupersededError();
+  markSubscribe(progress, 'config', 'session');
   const pc = new RTCPeerConnection(rtcConfig);
   subscriberPc = pc;
   let disconnected = false;
@@ -813,6 +855,7 @@ async function performSubscribe(
     if (track.kind !== 'audio' || subscriberPc !== pc) return;
     const key = track.id;
     if (emittedTracks.has(key)) return;
+    if (emittedTracks.size === 0) markSubscribe(progress, 'track');
     emittedTracks.add(key);
     applySystemAudioPlayoutDelay(receiver);
     emitEvent({
@@ -848,6 +891,7 @@ async function performSubscribe(
     if (!session.sessionId || !session.sessionOwnerToken) {
       throw new Error('Cloudflare Realtime did not return subscriber ownership credentials');
     }
+    markSubscribe(progress, 'session', 'tracks');
 
     const requested: RealtimeTrack[] = [
       {
@@ -876,16 +920,19 @@ async function performSubscribe(
     if (!offer || offer.type !== 'offer') {
       throw new Error('Cloudflare Realtime did not return a subscriber offer');
     }
+    markSubscribe(progress, 'tracks', 'offer');
     // Keep Cloudflare's offer authoritative and advertise stereo in the local
     // answer sent back below.
     await pc.setRemoteDescription(offer);
     ensureSubscriberCurrent(epoch, pc);
+    markSubscribe(progress, 'offer', 'answer');
     emitExistingTracks();
     const rawAnswer = sessionDescriptionFromInit(await pc.createAnswer());
     const answer = { ...rawAnswer, sdp: forceStereoSdp(rawAnswer.sdp) };
     ensureSubscriberCurrent(epoch, pc);
     await pc.setLocalDescription(answer);
     ensureSubscriberCurrent(epoch, pc);
+    markSubscribe(progress, 'answer', 'renegotiate');
     const renegotiate = await callRealtime('renegotiate', {
       sessionId: session.sessionId,
       sessionOwnerToken: session.sessionOwnerToken,
@@ -901,6 +948,11 @@ async function performSubscribe(
     scheduleSubscriberExpiry(descriptor);
     emitEvent({ type: 'subscriber-state', state: 'subscribed', descriptor });
     log.info(`[ProSysAudioSFU] Subscribed to generation ${descriptor.generation}`);
+    markSubscribe(progress, 'subscribed');
+    log.info(
+      `[ProSysAudioSFU] Subscription to generation ${descriptor.generation} ready ` +
+        `${Date.now() - progress.noticeAt} ms after the share notice (${progress.marks.join(', ')})`,
+    );
   } catch (error) {
     closeOwnedTracks(localOwned, 'Incomplete subscriber tracks-close failed');
     if (subscriberPc === pc) subscriberPc = null;
@@ -909,7 +961,15 @@ async function performSubscribe(
   }
 }
 
-export function subscribeProSystemAudioSfu(value: unknown): Promise<void> {
+/**
+ * `timing.noticeAt` is when this listener learned of the share (the service's
+ * reception start for the publication; its retries keep it). The subscription's
+ * stage line counts from there; without it, from this call.
+ */
+export function subscribeProSystemAudioSfu(
+  value: unknown,
+  timing: { noticeAt?: number } = {},
+): Promise<void> {
   const descriptor = requireDescriptor(value);
   if (descriptor.expiresAt <= Date.now()) {
     throw new TypeError('PRO system-audio SFU publication has expired');
@@ -937,9 +997,26 @@ export function subscribeProSystemAudioSfu(value: unknown): Promise<void> {
   subscriberKey = nextKey;
   subscriberDescriptor = descriptor;
   emitEvent({ type: 'subscriber-state', state: 'subscribing', descriptor });
-  const promise = performSubscribe(descriptor, epoch, abortController.signal)
+  const now = Date.now();
+  const progress: SubscribeProgress = {
+    noticeAt:
+      typeof timing.noticeAt === 'number' &&
+      Number.isFinite(timing.noticeAt) &&
+      timing.noticeAt <= now
+        ? timing.noticeAt
+        : now,
+    stage: 'config',
+    marks: [],
+  };
+  const promise = performSubscribe(descriptor, epoch, abortController.signal, progress)
     .catch((error) => {
+      // Only the attempt that reports `failed`: a stopped or superseded one is silent.
       if (epoch === subscriberEpoch && !(error instanceof ProSystemAudioSfuSupersededError)) {
+        log.info(
+          `[ProSysAudioSFU] Subscription to generation ${descriptor.generation} failed at ` +
+            `${progress.stage} ${Date.now() - progress.noticeAt} ms after the share notice ` +
+            `(${subscribeFailureCause(error)}; ${progress.marks.join(', ')})`,
+        );
         emitEvent({
           type: 'subscriber-state',
           state: 'failed',

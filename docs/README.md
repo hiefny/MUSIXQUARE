@@ -94,20 +94,18 @@ runbooks. Neither belongs in a general setup document.
 ## Maintained evidence and completed records
 
 - [App 9.0.26 train: PRO system-audio LAN-direct in one round trip and the chat sheet without its Close (2026-10-30)](design/app-9-0-26-train-2026-10-30.md):
-  assembled and checked locally, not merged or released; the version bump `b2ac0109` (9.0.26 /
-  v799, App build 799, update dialog) is the last runtime commit, and both version guards and
-  `build:checked` pass on it. Target `app`: 50 App runtime paths against the live Worker SHAs and
-  main (one LAN-direct file, the chat sheet's 46 and the bump's three mirrors) and none in the
-  other five Workers, with no runtime dependency change. The train branch is PR #534 (head
-  `b7986840` on main `f8a30068`) with the chat sheet's three commits moved on top (`3da11c72`,
-  `efd2dc44`, `e80e0fc0`; the test and code commits keep their patch-ids) and a tests-only review
-  follow-up `5b7abd30`. The report lists both increments with their tested SHAs, the review
-  findings and their handling, the QA rounds (each increment's local runs, PR #534's CI, whose
-  candidate failed only on the missing bump, and its automated code review with no findings, the
-  assembled tree's full checks, and the bump's guards and `build:checked`), mixed versions (a 9.0.25 or older device and a 9.0.26 one use
-  the SFU), the rollback to the 9.0.25 / v798 checkpoint App, the deploy conditions, a blind
-  post-deploy LAN-direct check on the owner's Edge sharer and iPhone Safari listener, and what was
-  not verified.
+  assembled and checked locally, not merged or released; the version bump `b2ac0109` (9.0.26 / v799,
+  App build 799, update dialog) is the last runtime commit, followed only by tests and docs. Target
+  `app`: 50 App runtime paths (one LAN-direct file, the chat sheet's 46 and the bump's three
+  mirrors), none in the other five Workers, no runtime dependency change. The branch is PR #534
+  (head `b7986840` on main `f8a30068`) with the chat sheet's three commits moved on top and the
+  tests-only follow-ups `5b7abd30` and `e085fad1` (LAN-direct rows for a probe channel announced
+  after the receiver's pair proof). The report lists both increments with their tested SHAs
+  (`d0b71a89` pins the old behaviour; the rows of `9b3ca4aa` and `de47d982` fail on their parents),
+  the review findings and their handling, the QA rounds (local runs, PR #534's CI, the assembled
+  tree's checks and the final check after the bump), mixed versions (a 9.0.25 or older device and a
+  9.0.26 one use the SFU), the rollback to the 9.0.25 / v798 checkpoint App, the deploy conditions,
+  a blind post-deploy LAN-direct check and what was not verified.
 - [PRO system-audio LAN-direct in one round trip (2026-10-30)](design/pro-lan-direct-one-round-trip-2026-10-30.md):
   implemented and checked locally, not yet released; it ships in the App 9.0.26 / v799 train above
   (target `app`). On a desktop sharer with an iPhone listener on one Wi-Fi every PRO share went to

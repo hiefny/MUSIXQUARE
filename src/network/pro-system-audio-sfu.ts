@@ -57,10 +57,11 @@ interface PublishProSystemAudioSfuOptions {
   roomId?: string;
   /**
    * Negotiate with the sender holding no track: the share's SFU fallback,
-   * prepared beside its LAN-direct attempt (9.0.28). It reports no
+   * prepared beside its LAN-direct attempt (9.0.28). While held it reports no
    * publication (no `published` event, no descriptor in its `failed` or
-   * `stopped` event) until releaseProSystemAudioSfuPublisherHold attaches the
-   * track after a LAN-direct failure.
+   * `stopped` event); releaseProSystemAudioSfuPublisherHold attaches the
+   * track after a LAN-direct failure, and it reports `published` only when
+   * reportProSystemAudioSfuPublisherCommitted says the room committed it.
    */
   holdMedia?: boolean;
 }
@@ -70,8 +71,9 @@ interface PublishProSystemAudioSfuOptions {
  * This only fetches capability/TURN configuration and allocates no Cloudflare
  * Realtime session. The publish that consumes it starts beside the LAN-direct
  * attempt with its sender held (holdMedia), so a share whose LAN-direct proves
- * opens and closes one publisher session that never carries media (owner
- * decision 2026-10-31).
+ * usually asks for one publisher session that never carries media and closes
+ * it, using one admission of the Worker's per-capability new-session limit
+ * (owner decision 2026-10-31).
  */
 export interface ProSystemAudioSfuPublisherPreflight {
   readonly kind: 'pro-system-audio-sfu-publisher-preflight';
@@ -168,17 +170,28 @@ let publisherPromise: Promise<ProSystemAudioSfuPublicationDescriptor> | null = n
 let publisherAbortController: AbortController | null = null;
 
 /**
- * The singleton publisher's hold while it is the share's held fallback: the
- * capture track its sender does not carry yet. Set by a holdMedia publish,
- * cleared by the release that attaches the track, by its failure, and by the
- * one teardown (stopPublisherInternal). Times are diagnostic only.
+ * The singleton publisher's record while it is the share's held fallback: the
+ * capture track its sender does not carry until the release, then, released,
+ * the publication not reported yet. Set by a holdMedia publish; cleared by the
+ * commit report, by its failure, and by the one teardown
+ * (stopPublisherInternal). Times and flags are diagnostic only, except
+ * `releasedAt`, which ends the hold.
  */
 interface PublisherHold {
   readonly track: MediaStreamTrack;
   readonly generation: number;
   readonly startedAt: number;
   sender: RTCRtpSender | null;
+  /** The Realtime new-session request went out (a session may exist upstream). */
+  sessionRequested: boolean;
   preparedAt: number | null;
+  /** Set by the release: the sender carries the track, the commit is not reported yet. */
+  releasedAt: number | null;
+}
+
+/** Still holding media: before its release, a held fallback names no publication. */
+function isHolding(hold: PublisherHold | null): hold is PublisherHold {
+  return hold !== null && hold.releasedAt === null;
 }
 
 let publisherHold: PublisherHold | null = null;
@@ -556,27 +569,44 @@ function scheduleSubscriberExpiry(descriptor: ProSystemAudioSfuPublicationDescri
   );
 }
 
+/**
+ * The held fallback's lines carry the service's prefix, never
+ * `[ProSysAudioSFU]`: committed device criteria read any `[ProSysAudioSFU]`
+ * line as "this share used the SFU", and a fallback only did once the room
+ * committed it (then `[ProSysAudioSFU] Published generation N`).
+ */
+const HELD_FALLBACK_LINE = '[PRO SystemAudio]';
+
 /** The held fallback's one failed line: by error name or connection state, never a message. */
 function logHeldFallbackFailure(hold: PublisherHold, cause: string): void {
   log.info(
-    `[ProSysAudioSFU] SFU fallback for generation ${hold.generation} failed after ` +
+    `${HELD_FALLBACK_LINE} SFU fallback for generation ${hold.generation} failed after ` +
       `${Date.now() - hold.startedAt} ms (${cause})`,
   );
 }
 
 /**
- * The held fallback's closed line when a teardown ends it unused (a proven
- * LAN-direct, a stop or a superseding publish). Both times count from the
- * held publish's start, which also opens its Realtime session.
+ * The held fallback's closed line when a teardown ends it (a proven
+ * LAN-direct, a stop or a superseding publish). Times count from the held
+ * publish's start. Before its new-session request it opened nothing; with
+ * that request out a session may exist upstream even when the client never
+ * read its answer (left to Realtime to reap); a released one carried media
+ * but its commit was never reported.
  */
 function logHeldFallbackClosed(hold: PublisherHold): void {
   const elapsed = Date.now() - hold.startedAt;
-  log.info(
-    `[ProSysAudioSFU] Closed unused SFU fallback for generation ${hold.generation} ` +
-      (hold.preparedAt === null
-        ? `(before it was prepared, ${elapsed} ms after the start)`
-        : `(open ${elapsed} ms)`),
-  );
+  const generation = hold.generation;
+  let line: string;
+  if (hold.releasedAt !== null) {
+    line = `Closed released SFU fallback for generation ${generation} without a reported commit (open ${elapsed} ms)`;
+  } else if (hold.preparedAt !== null) {
+    line = `Closed unused SFU fallback for generation ${generation} (open ${elapsed} ms)`;
+  } else if (hold.sessionRequested) {
+    line = `Closed unused SFU fallback for generation ${generation} (before it was prepared, ${elapsed} ms after the start)`;
+  } else {
+    line = `Cancelled SFU fallback for generation ${generation} before any Realtime session was requested (${elapsed} ms after the start)`;
+  }
+  log.info(`${HELD_FALLBACK_LINE} ${line}`);
 }
 
 function stopPublisherInternal(emitStopped: boolean): void {
@@ -598,8 +628,12 @@ function stopPublisherInternal(emitStopped: boolean): void {
   closeOwnedTracks(owned, 'Publisher tracks-close failed');
   if (hold) logHeldFallbackClosed(hold);
   if (emitStopped && hadState) {
-    // A held fallback was never a publication: its stop names none.
-    emitEvent({ type: 'publisher-state', state: 'stopped', descriptor: hold ? null : descriptor });
+    // A fallback still holding media was never a publication: its stop names none.
+    emitEvent({
+      type: 'publisher-state',
+      state: 'stopped',
+      descriptor: isHolding(hold) ? null : descriptor,
+    });
   }
 }
 
@@ -680,8 +714,10 @@ async function performPublish(
     emitEvent({
       type: 'publisher-state',
       state: 'failed',
-      // An uncommitted fallback must never name its session to the service.
-      descriptor: heldFallback ? null : descriptor,
+      // A fallback still holding media must never name its session to the
+      // service. A released one does, as a publish always did between its
+      // publish and its commit, so the commit's recheck recovers it.
+      descriptor: isHolding(heldFallback) ? null : descriptor,
       message: 'PRO system-audio SFU publisher connection failed',
     });
     stopPublisherInternal(false);
@@ -689,6 +725,7 @@ async function performPublish(
 
   let localOwned: OwnedRealtimeTracks | null = null;
   try {
+    if (hold) hold.sessionRequested = true;
     const session = await callRealtime('new-session', {
       correlationId: buildCorrelationId('pro-system-audio-publisher', input.roomId),
       signal,
@@ -776,7 +813,7 @@ async function performPublish(
     if (hold) {
       hold.preparedAt = Date.now();
       log.info(
-        `[ProSysAudioSFU] Prepared SFU fallback for generation ${descriptor.generation} ` +
+        `${HELD_FALLBACK_LINE} Prepared SFU fallback for generation ${descriptor.generation} ` +
           `in ${hold.preparedAt - hold.startedAt} ms`,
       );
       return descriptor;
@@ -814,7 +851,9 @@ export function publishProSystemAudioSfu(
         generation: input.generation,
         startedAt: Date.now(),
         sender: null,
+        sessionRequested: false,
         preparedAt: null,
+        releasedAt: null,
       }
     : null;
   publisherHold = hold;
@@ -850,11 +889,14 @@ export function publishProSystemAudioSfu(
 /**
  * Attaches the capture track to the prepared held fallback `descriptor` names,
  * after the share's LAN-direct attempt failed: its sender carries audio from
- * here, tuned once like any SFU sender, and the publication is reported
- * (`published`) just before the caller commits it. Refuses
- * (PRO_SFU_FALLBACK_UNAVAILABLE) a fallback that is not the current prepared
- * one (stopped, failed, superseded or still in flight) and an ended capture
- * track, so it never touches another publisher's sender.
+ * here, tuned once like any SFU sender. It reports no publication: the caller
+ * commits the descriptor, then reportProSystemAudioSfuPublisherCommitted.
+ * Refuses (PRO_SFU_FALLBACK_UNAVAILABLE) a fallback that is not the current
+ * prepared, unreleased one (stopped, failed, superseded, released or still in
+ * flight) without touching it, so it never touches another publisher's
+ * sender. A failure after that check (an ended capture track, a rejected
+ * attach) fails this fallback: its failed line, `failed` with no descriptor,
+ * and the one teardown. A teardown during the attach rejects as superseded.
  */
 export async function releaseProSystemAudioSfuPublisherHold(
   descriptor: ProSystemAudioSfuPublicationDescriptor,
@@ -862,8 +904,10 @@ export async function releaseProSystemAudioSfuPublisherHold(
   const hold = publisherHold;
   const pc = publisherPc;
   const current = publisherDescriptor;
+  const sender = hold?.sender;
   if (
-    !hold?.sender ||
+    !isHolding(hold) ||
+    !sender ||
     hold.preparedAt === null ||
     !pc ||
     !current ||
@@ -871,17 +915,59 @@ export async function releaseProSystemAudioSfuPublisherHold(
   ) {
     throw new Error('PRO_SFU_FALLBACK_UNAVAILABLE');
   }
-  validateAudioTrack(hold.track, 'track');
   const epoch = publisherEpoch;
-  await hold.sender.replaceTrack(hold.track);
-  if (epoch !== publisherEpoch || publisherHold !== hold || publisherPc !== pc) {
-    throw new ProSystemAudioSfuSupersededError();
+  const isCurrent = () => epoch === publisherEpoch && publisherHold === hold && publisherPc === pc;
+  try {
+    validateAudioTrack(hold.track, 'track');
+    await sender.replaceTrack(hold.track);
+  } catch (error) {
+    if (!isCurrent()) throw new ProSystemAudioSfuSupersededError();
+    logHeldFallbackFailure(
+      hold,
+      hold.track.readyState === 'ended' ? 'track-ended' : failureCause(error),
+    );
+    publisherHold = null;
+    emitEvent({
+      type: 'publisher-state',
+      state: 'failed',
+      descriptor: null,
+      message: publicErrorMessage(error),
+    });
+    stopPublisherInternal(false);
+    throw error;
+  }
+  if (!isCurrent()) throw new ProSystemAudioSfuSupersededError();
+  hold.releasedAt = Date.now();
+  tuneSystemAudioMusicSender(sender);
+  log.info(
+    `${HELD_FALLBACK_LINE} Released SFU fallback for generation ${hold.generation} ` +
+      `(held ${hold.releasedAt - hold.preparedAt} ms)`,
+  );
+}
+
+/**
+ * Reports the released held fallback `descriptor` names as published, once
+ * the room committed it (9.0.28): `[ProSysAudioSFU] Published generation N`
+ * and the `published` event name only a committed SFU publication. A no-op
+ * for any other publisher (still holding, stopped, failed, superseded, an
+ * ordinary publish that reported itself, or a repeated call).
+ */
+export function reportProSystemAudioSfuPublisherCommitted(
+  descriptor: ProSystemAudioSfuPublicationDescriptor,
+): void {
+  const hold = publisherHold;
+  const current = publisherDescriptor;
+  if (
+    !hold ||
+    hold.releasedAt === null ||
+    !current ||
+    descriptorKey(current) !== descriptorKey(descriptor)
+  ) {
+    return;
   }
   publisherHold = null;
-  tuneSystemAudioMusicSender(hold.sender);
-  const published = publisherDescriptor ?? current;
-  log.info(`[ProSysAudioSFU] Published generation ${published.generation}`);
-  emitEvent({ type: 'publisher-state', state: 'published', descriptor: published });
+  log.info(`[ProSysAudioSFU] Published generation ${current.generation}`);
+  emitEvent({ type: 'publisher-state', state: 'published', descriptor: current });
 }
 
 function ensureSubscriberCurrent(epoch: number, pc: RTCPeerConnection): void {

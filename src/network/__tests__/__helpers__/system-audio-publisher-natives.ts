@@ -226,7 +226,7 @@ class PublisherRealtimeFake {
     return new Promise((resolve, reject) => {
       signal?.addEventListener('abort', () => reject(signal.reason), { once: true });
       const answer = () => setTimeout(() => resolve(Response.json(this.respond(request))), 0);
-      if (held) void held.gate.then(answer);
+      if (held) held.gate.then(answer, () => undefined);
       else answer();
     });
   };

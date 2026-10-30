@@ -93,6 +93,21 @@ runbooks. Neither belongs in a general setup document.
 
 ## Maintained evidence and completed records
 
+- [PRO system audio: the SFU fallback prepared beside the LAN-direct attempt, media held (2026-10-31)](design/pro-system-audio-speculative-sfu-2026-10-31.md):
+  the 9.0.28 increment (owner decision 2026-10-31, "two stages"), implemented and checked locally on
+  the branch `agent/spec-sfu` over the 9.0.27 train (`3042b015`), not merged, released or bumped
+  (target `app`, nothing on screen changes). A share with LAN-direct targets starts its one SFU
+  publish in the same turn as the LAN-direct attempt with the sender holding no track; a proven
+  LAN-direct stops it before the unchanged `lan-direct` commit, and a failed one attaches the track
+  and commits the prepared descriptor at once. Owner-accepted cost: a LAN-direct share opens and
+  closes one Cloudflare Realtime publisher session that never carries media. No wire, server,
+  timer, retry or timing value; RO-20 extended in place. New sharer lines: Prepared, Closed unused
+  and failed SFU fallback; `Published generation N` keeps its text. Tests first `1b2be559` (29 rows
+  fail on the parent), runtime `17002160`. In a Chromium harness running the real service, SFU and
+  LAN-direct modules with a fake Cloudflare (publish modelled at 1.7 and 3 s), a share whose pair
+  never refines commits 1.70-1.81 s sooner and a `no-lan-candidate` share 0.12-0.14 s sooner; a
+  LAN-direct pass commits at the same time. Not verified on devices or against production
+  Cloudflare (a pushed track whose RTP starts seconds after negotiation, zero-media billing).
 - [App 9.0.27 train: the iPhone listener's LAN-direct pair judgement and diagnostic lines, and chat keyboard and screen reader focus (2026-10-30)](design/app-9-0-27-train-2026-10-30.md):
   released on 2026-10-31 04:31 KST in Release 41115623163 (PR #536, squash `23f29283`): the next
   App update after 9.0.26 (9.0.27 / v800, App build 800, update dialog; the version bump `676a1670`

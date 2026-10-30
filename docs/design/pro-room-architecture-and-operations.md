@@ -527,7 +527,10 @@ the original stereo track's RTP packets then remain browser-to-browser and Cloud
 **zero media packets** for that publication. Cloudflare is still the authority
 and signaling plane; its PRO Durable Object owns the
 lease/generation/publication state and its signaling Durable Object relays
-fenced SDP/ICE to exactly one authenticated target socket.
+fenced SDP/ICE to exactly one authenticated target socket. Since App 9.0.28
+such a share also opens and closes one Cloudflare Realtime publisher session
+that never carries media (the held SFU fallback below; owner decision
+2026-10-31).
 
 Direct delivery is an all-participants invariant, not a per-listener
 optimization. Each target is locally fenced by the pair
@@ -538,8 +541,18 @@ connection, so proof from the replaced tab cannot satisfy the new target. The
 signaling server independently fences the private presence incarnation and
 current target socket.
 
-If any initial target fails, the publisher starts the Cloudflare Realtime SFU
-with the already allocated `publicationId`. If a participant arrives after
+The publisher starts its one Cloudflare Realtime SFU publish at the same moment
+as the LAN-direct attempt, with the sender holding no track (the held fallback,
+App 9.0.28; `holdMedia` in `src/network/pro-system-audio-sfu.ts`). If any
+initial target fails, it attaches the original stereo track to that already
+negotiated publication and commits it with the already allocated
+`publicationId`, so the SFU path no longer waits for a whole publish after the
+LAN-direct decision. If every target passes, it closes the held publication
+before the `lan-direct` commit: its session id never reaches the Durable
+Object, the room state or any listener, and its sender never carried audio.
+The held publish has no timer, retry or timing value of its own; a failed one
+fails the share at the LAN-direct failure as a failed SFU publish did. A share
+without other devices prepares none. If a participant arrives after
 direct commit while the room remains within the four-device system-audio limit,
 the publisher must prove another mDNS-local route to that exact target
 incarnation. A timeout, an incompatible or late old client, a non-host

@@ -10,6 +10,10 @@ afterEach(() => {
   vi.restoreAllMocks();
   vi.unstubAllGlobals();
   vi.resetModules();
+  // Turnstile tests leave their container and script tags in the shared
+  // jsdom document; the next test starts from an empty one.
+  document.head.replaceChildren();
+  document.body.replaceChildren();
 });
 
 function hasLeadingZeroBits(bytes: Uint8Array, difficulty: number): boolean {

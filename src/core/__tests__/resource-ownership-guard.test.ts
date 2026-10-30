@@ -1090,4 +1090,243 @@ describe('resource-ownership guard', { timeout: 60_000 }, () => {
       );
     });
   });
+
+  describe('CHECK 11 YouTube iframe audio writes (RO-12)', () => {
+    it('rejects a new writer of the iframe audio, however it calls the player', () => {
+      const findings = findingsOf(
+        withSources((sources) => {
+          sources.set(
+            'src/ui/rogue-volume.ts',
+            "import { getYouTubePlayer } from '../youtube/_state.ts';\n" +
+              'export function duck(volume: number): void {\n' +
+              '  const player = getYouTubePlayer();\n' +
+              '  player?.setVolume(volume);\n' +
+              '  getYouTubePlayer()?.mute?.();\n' +
+              "  if (player) player['unMute']();\n" +
+              '  setTimeout(() => player?.unMute(), 0);\n' +
+              '}\n',
+          );
+        }),
+      );
+      expect(findings).toMatch(
+        /UNSANCTIONED iframe audio write \(RO-12\): src\/ui\/rogue-volume\.ts has 4/u,
+      );
+    });
+
+    it('ignores a local mute() function, method checks, type members and comments', () => {
+      const findings = findingsOf(
+        withSources((sources) => {
+          sources.set(
+            'src/ui/volume-mentions.ts',
+            'interface Muteable {\n' +
+              '  mute(): void;\n' +
+              '  setVolume(volume: number): void;\n' +
+              '}\n' +
+              'function mute(): void {}\n' +
+              'export function canMute(player: Muteable): boolean {\n' +
+              '  mute();\n' +
+              '  // player.mute() and player.unMute() in a comment do not count.\n' +
+              "  return typeof player.mute === 'function' && !!player.setVolume;\n" +
+              '}\n',
+          );
+        }),
+      );
+      expect(findings).toBe('');
+    });
+
+    it('fails a raised count in an allowlisted file and a count that fell below its baseline', () => {
+      const findings = findingsOf(
+        withSources((sources) => {
+          replaceIn(
+            sources,
+            'src/youtube/iframe.ts',
+            '    player.unMute?.();\n    player.playVideo();\n',
+            '    player.unMute?.();\n    player.setVolume?.(100);\n    player.playVideo();\n',
+          );
+          replaceIn(
+            sources,
+            'src/youtube/retained-player-controller.ts',
+            '      () => player.mute?.(),\n',
+            '',
+          );
+        }),
+      );
+      expect(findings).toMatch(
+        /RATCHET REGRESSION iframe audio write \(RO-12\): src\/youtube\/iframe\.ts has 4, baseline 3/u,
+      );
+      expect(findings).toMatch(
+        /STALE BASELINE iframe audio write \(RO-12\): src\/youtube\/retained-player-controller\.ts has 1, baseline 2 - lower the baseline to 1/u,
+      );
+    });
+  });
+
+  describe('CHECK 12 cross-file reads and clears of the YouTube start timers (RO-02)', () => {
+    it("rejects a new reader or clearer of another file's start timer", () => {
+      const findings = findingsOf(
+        withSources((sources) => {
+          sources.set(
+            'src/youtube/rogue-start-reader.ts',
+            "import { clearManagedTimer, getManagedTimer } from '../core/timers.ts';\n" +
+              "import { PRO_COORDINATOR_YOUTUBE_NUDGE_TIMER as NUDGE } from './local-offset.ts';\n" +
+              "const AUTO_SYNC = 'yt-auto-sync';\n" +
+              "const BUSY = ['yt-seek-play', 'yt-host-local-start'] as const;\n" +
+              'export function busy(): boolean {\n' +
+              '  return (\n' +
+              '    getManagedTimer(AUTO_SYNC) !== null ||\n' +
+              '    !!getManagedTimer(NUDGE) ||\n' +
+              "    ['yt-clock-action', 'yt-rendezvous-play'].some((name) => !!getManagedTimer(name)) ||\n" +
+              '    BUSY.some(getManagedTimer)\n' +
+              '  );\n' +
+              '}\n' +
+              'export function reset(): void {\n' +
+              "  clearManagedTimer('yt-zero-start-host-fallback');\n" +
+              "  ['yt-rendezvous-buffer', 'yt-rendezvous-follow-up'].forEach(clearManagedTimer);\n" +
+              '}\n',
+          );
+        }),
+      );
+      // A name list counts once per call, like the native-control list of seven.
+      expect(findings).toMatch(
+        /UNSANCTIONED cross-file start-timer read \(RO-02\): src\/youtube\/rogue-start-reader\.ts has 4/u,
+      );
+      expect(findings).toMatch(
+        /UNSANCTIONED cross-file start-timer clear \(RO-02\): src\/youtube\/rogue-start-reader\.ts has 2/u,
+      );
+    });
+
+    it("does not count a file's own timers, set by a literal, a const or a literal-union parameter", () => {
+      const findings = findingsOf(
+        withSources((sources) => {
+          sources.set(
+            'src/youtube/own-start-timers.ts',
+            "import { clearManagedTimer, getManagedTimer, setManagedTimer } from '../core/timers.ts';\n" +
+              "import { PRO_COORDINATOR_YOUTUBE_NUDGE_TIMER } from './local-offset.ts';\n" +
+              "const FOLLOW_UP = 'yt-rendezvous-follow-up';\n" +
+              "function arm(name: 'yt-clock-action' | 'yt-seek-play', run: () => void): void {\n" +
+              '  setManagedTimer(name, run, 10);\n' +
+              '}\n' +
+              'export function start(run: () => void): void {\n' +
+              "  setManagedTimer('yt-auto-sync', run, 10);\n" +
+              '  setManagedTimer(FOLLOW_UP, run, 10);\n' +
+              '  setManagedTimer(PRO_COORDINATOR_YOUTUBE_NUDGE_TIMER, run, 10);\n' +
+              "  arm('yt-clock-action', run);\n" +
+              '}\n' +
+              'export function busy(): boolean {\n' +
+              "  return ['yt-auto-sync', FOLLOW_UP, 'yt-seek-play', PRO_COORDINATOR_YOUTUBE_NUDGE_TIMER].some(\n" +
+              '    (name) => getManagedTimer(name) !== null,\n' +
+              '  );\n' +
+              '}\n' +
+              'export function stop(): void {\n' +
+              "  clearManagedTimer('yt-clock-action');\n" +
+              '  clearManagedTimer(FOLLOW_UP);\n' +
+              '  clearManagedTimer(PRO_COORDINATOR_YOUTUBE_NUDGE_TIMER);\n' +
+              '}\n',
+          );
+        }),
+      );
+      expect(findings).toBe('');
+    });
+
+    it('ignores other timers, names it cannot resolve and files outside src/youtube', () => {
+      const findings = findingsOf(
+        withSources((sources) => {
+          sources.set(
+            'src/youtube/other-timers.ts',
+            "import { clearManagedTimer, getManagedTimer } from '../core/timers.ts';\n" +
+              'export function reset(peerId: string, name: string): boolean {\n' +
+              "  clearManagedTimer('yt-guest-ended-fallback');\n" +
+              '  clearManagedTimer(`yt-auto-${peerId}`);\n' +
+              '  clearManagedTimer(name);\n' +
+              "  // getManagedTimer('yt-auto-sync') in a comment does not count.\n" +
+              "  return getManagedTimer('youtubeSyncLoop') !== null;\n" +
+              '}\n',
+          );
+          sources.set(
+            'src/player/start-timer-reader.ts',
+            "import { getManagedTimer } from '../core/timers.ts';\n" +
+              "export const busy = (): boolean => getManagedTimer('yt-auto-sync') !== null;\n",
+          );
+        }),
+      );
+      expect(findings).toBe('');
+    });
+
+    it("resolves the literal-union parameter that sets sync.ts's state-action timers", () => {
+      // Without it, sync.ts's own reads and clears of 'yt-clock-action' and
+      // 'yt-seek-play' would count as another file's.
+      const findings = findingsOf(
+        withSources((sources) =>
+          replaceIn(
+            sources,
+            'src/youtube/sync.ts',
+            "  name: 'yt-clock-action' | 'yt-seek-play',\n",
+            '  name: string,\n',
+          ),
+        ),
+      );
+      expect(findings).toMatch(
+        /RATCHET REGRESSION cross-file start-timer read \(RO-02\): src\/youtube\/sync\.ts has \d+, baseline 4/u,
+      );
+      expect(findings).toMatch(
+        /RATCHET REGRESSION cross-file start-timer clear \(RO-02\): src\/youtube\/sync\.ts has \d+, baseline 1/u,
+      );
+      expect(findings).toContain("START TIMER SET (RO-02): 'yt-clock-action' is not set");
+      expect(findings).toContain("START TIMER SET (RO-02): 'yt-seek-play' is not set");
+    });
+
+    it('fails a raised count, a count that fell below its baseline and a start timer no file sets', () => {
+      const findings = findingsOf(
+        withSources((sources) => {
+          // resetYouTubeSyncState, which this reset calls next, clears both already.
+          replaceIn(
+            sources,
+            'src/youtube/iframe.ts',
+            "  clearManagedTimer('yt-clock-action');\n  clearManagedTimer('yt-seek-play');\n",
+            '',
+          );
+          replaceIn(
+            sources,
+            'src/youtube/sync.ts',
+            "  if (!isManual && getManagedTimer('yt-auto-sync')) return;\n",
+            "  if (!isManual && getManagedTimer('yt-auto-sync')) return;\n" +
+              "  if (getManagedTimer('yt-host-local-start')) return;\n",
+          );
+          replaceIn(
+            sources,
+            'src/youtube/player.ts',
+            "        'yt-host-local-start',\n",
+            "        'yt-host-local-begin',\n",
+          );
+        }),
+      );
+      expect(findings).toMatch(
+        /STALE BASELINE cross-file start-timer clear \(RO-02\): src\/youtube\/iframe\.ts has 1, baseline 3 - lower the baseline to 1/u,
+      );
+      expect(findings).toMatch(
+        /RATCHET REGRESSION cross-file start-timer read \(RO-02\): src\/youtube\/sync\.ts has 5, baseline 4/u,
+      );
+      // player.ts no longer sets the local-start timer, so its own clear counts.
+      expect(findings).toMatch(
+        /RATCHET REGRESSION cross-file start-timer clear \(RO-02\): src\/youtube\/player\.ts has 7, baseline 6/u,
+      );
+      expect(findings).toContain("START TIMER SET (RO-02): 'yt-host-local-start' is not set");
+    });
+
+    it('lists each counted CHECK 11 and CHECK 12 site with its function under --report', () => {
+      const result = runGuard('--report');
+      expect(result.status, result.stderr).toBe(0);
+      expect(result.stdout).toMatch(
+        /iframe audio write: src\/youtube\/iframe\.ts:\d+ unMute\(\) in primeYouTubePlayer\n/u,
+      );
+      expect(result.stdout).toMatch(
+        /iframe audio write: src\/youtube\/player\.ts:\d+ setVolume\(\) in restoreFallbackAudio\n/u,
+      );
+      expect(result.stdout).toMatch(
+        /cross-file start-timer read: src\/youtube\/native-control-authority\.ts:\d+ getManagedTimer\('yt-pro-coordinator-local-nudge', 'yt-auto-sync', [^)]*\) in hasProtectedTransitionOwner\n/u,
+      );
+      expect(result.stdout).toMatch(
+        /cross-file start-timer clear: src\/youtube\/sync\.ts:\d+ clearManagedTimer\('yt-pro-coordinator-local-nudge'\) in resetYouTubeSyncState\n/u,
+      );
+    });
+  });
 });

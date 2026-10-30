@@ -46,6 +46,19 @@ type Locality =
   | 'refined-other-port'
   | 'refined-other-generation'
   | 'refined-global-ip'
+  // The refined pair read while libwebrtc's consent check is in flight: the
+  // selected connection reads 'in-progress' for one round trip, after a
+  // response ('answered') or before any ('unanswered').
+  | 'refined-in-progress'
+  | 'refined-in-progress-unanswered'
+  // The refined pair, while another connection from the same local socket to a
+  // prflx remote on the native snapshot's port is still listed.
+  | 'refined-prflx-listed'
+  // The refined pair, with a second transport selecting another pair.
+  | 'refined-ambiguous'
+  // The refined pair whose local statistics carry a private address only
+  // under the legacy 'ipAddress' key.
+  | 'refined-ipaddress'
   // The same refined graph as Chromium reports it (empty addresses).
   | 'refined-chromium';
 
@@ -123,6 +136,11 @@ const REFINED_LOCALITIES: ReadonlySet<Locality> = new Set<Locality>([
   'refined-other-port',
   'refined-other-generation',
   'refined-global-ip',
+  'refined-in-progress',
+  'refined-in-progress-unanswered',
+  'refined-prflx-listed',
+  'refined-ambiguous',
+  'refined-ipaddress',
   'refined-chromium',
 ]);
 
@@ -131,7 +149,9 @@ function refinedStats(locality: Locality): RTCStatsReport {
   const unrefined = locality === 'prflx-unrefined';
   const chromium = locality === 'refined-chromium';
   const remoteId = unrefined ? 'IRP' : 'IRH';
-  return new Map<string, unknown>([
+  const inProgress =
+    locality === 'refined-in-progress' || locality === 'refined-in-progress-unanswered';
+  const reports = new Map<string, unknown>([
     ['T01', { id: 'T01', type: 'transport', timestamp: 1, selectedCandidatePairId: 'CP1' }],
     [
       'CP1',
@@ -140,10 +160,11 @@ function refinedStats(locality: Locality): RTCStatsReport {
         type: 'candidate-pair',
         timestamp: 1,
         transportId: 'T01',
-        state: 'succeeded',
+        state: inProgress ? 'in-progress' : 'succeeded',
         nominated: true,
         localCandidateId: 'IL',
         remoteCandidateId: remoteId,
+        ...(inProgress ? { responsesReceived: locality === 'refined-in-progress' ? 4 : 0 } : {}),
       },
     ],
     [
@@ -159,6 +180,7 @@ function refinedStats(locality: Locality): RTCStatsReport {
         usernameFragment: LOCAL_UFRAG,
         ...(chromium ? { address: '' } : {}),
         ...(locality === 'refined-global-ip' ? { address: '', ip: '2001:db8:1::10' } : {}),
+        ...(locality === 'refined-ipaddress' ? { address: '', ipAddress: '192.168.1.10' } : {}),
       },
     ],
     [
@@ -175,7 +197,38 @@ function refinedStats(locality: Locality): RTCStatsReport {
         ...(chromium ? { address: '' } : {}),
       },
     ],
-  ]) as unknown as RTCStatsReport;
+  ]);
+  if (locality === 'refined-prflx-listed') {
+    reports.set('CP2', {
+      id: 'CP2',
+      type: 'candidate-pair',
+      timestamp: 1,
+      transportId: 'T01',
+      state: 'succeeded',
+      nominated: false,
+      localCandidateId: 'IL',
+      remoteCandidateId: 'IRP',
+    });
+    reports.set('IRP', {
+      id: 'IRP',
+      type: 'remote-candidate',
+      timestamp: 1,
+      candidateType: 'prflx',
+      foundation: PRFLX_FOUNDATION,
+      port: 5000,
+      protocol: 'udp',
+      usernameFragment: REMOTE_UFRAG,
+    });
+  }
+  if (locality === 'refined-ambiguous') {
+    reports.set('T02', {
+      id: 'T02',
+      type: 'transport',
+      timestamp: 1,
+      selectedCandidatePairId: 'CP9',
+    });
+  }
+  return reports as unknown as RTCStatsReport;
 }
 
 const PROBE_CHANNEL_LABEL = 'MUSIXQUARE-lan-probe';
@@ -217,7 +270,8 @@ class MockMediaStream {
 class MockRTCPeerConnection {
   readonly configuration: RTCConfiguration;
   locality: Locality;
-  readonly statsGate: Promise<void> | null;
+  /** Held reads wait on it; a test may replace it mid-route. */
+  statsGate: Promise<void> | null;
   readonly embeddedCandidateAddress: string | null;
   statsCallCount = 0;
   connectionState: RTCPeerConnectionState = 'new';
@@ -2409,7 +2463,7 @@ describe('PRO system-audio LAN-direct one round trip with a phone-paced receiver
       expect(callbacks.onLiveRouteFallback).not.toHaveBeenCalled();
       expect(infoLines()).toEqual([
         expect.stringMatching(
-          /^\[ProSysAudioDirect\] Publisher pair check to 0001 proven after \d+ ms by stats-host \(connected at \d+ ms; native none; stats host\/private-ipv4 to host\/mdns; candidates sent 1, refused 0, added 1\)$/,
+          /^\[ProSysAudioDirect\] Publisher pair check to 0001 proven after \d+ ms by stats-host \(connected at \d+ ms; native none; stats host\/private-ipv4 to host\/mdns; candidates sent 1, refused 0, received 1, added 1, first at -?\d+ ms\)$/,
         ),
         expect.stringMatching(
           /^\[ProSysAudioDirect\] LAN route to 0001 proven in \d+ ms \(answer 12\d\d, pair 13\d\d, receiver 13\d\d\)$/,
@@ -2469,7 +2523,7 @@ describe('PRO system-audio LAN-direct one round trip with a phone-paced receiver
     expect(peerConnections[0]!.sendingTrack()).toBeNull();
     expect(infoLines()).toEqual([
       expect.stringMatching(
-        /^\[ProSysAudioDirect\] Publisher pair check to 0001 deadline after 10\d\d ms by not-connected \(never connected; native none; stats none; candidates sent 1, refused 0, added 1\)$/,
+        /^\[ProSysAudioDirect\] Publisher pair check to 0001 deadline after 10\d\d ms by not-connected \(never connected; native none; stats none; candidates sent 1, refused 0, received 1, added 1, first at -?\d+ ms\)$/,
       ),
       expect.stringMatching(
         /^\[ProSysAudioDirect\] LAN route to 0001 not proven at pair after 17\d\d ms \(deadline; answer 7\d\d\)$/,
@@ -2496,7 +2550,7 @@ describe('PRO system-audio LAN-direct one round trip with a phone-paced receiver
     expect(peerConnections[0]?.close).toHaveBeenCalledTimes(1);
     expect(infoLines()).toEqual([
       expect.stringMatching(
-        /^\[ProSysAudioDirect\] Publisher pair check to 0001 proven after \d+ ms by stats-host \(connected at \d+ ms; native none; stats host\/private-ipv4 to host\/mdns; candidates sent 1, refused 0, added 1\)$/,
+        /^\[ProSysAudioDirect\] Publisher pair check to 0001 proven after \d+ ms by stats-host \(connected at \d+ ms; native none; stats host\/private-ipv4 to host\/mdns; candidates sent 1, refused 0, received 1, added 1, first at -?\d+ ms\)$/,
       ),
       expect.stringMatching(
         /^\[ProSysAudioDirect\] LAN route to 0001 not proven at receiver-proof after 22\d\d ms \(deadline; answer 12\d\d, pair 13\d\d\)$/,
@@ -2590,7 +2644,7 @@ describe('PRO system-audio LAN-direct one round trip with a phone-paced receiver
     expect(callbacks.onLiveRouteFallback).not.toHaveBeenCalled();
     expect(infoLines()).toEqual([
       expect.stringMatching(
-        /^\[ProSysAudioDirect\] Publisher pair check to 0001 non-local after \d+ ms by stats-type \(connected at \d+ ms; native none; stats host\/private-ipv4 to relay\/private-ipv4; candidates sent 1, refused 0, added 1\)$/,
+        /^\[ProSysAudioDirect\] Publisher pair check to 0001 non-local after \d+ ms by stats-type \(connected at \d+ ms; native none; stats host\/private-ipv4 to relay\/private-ipv4; candidates sent 1, refused 0, received 1, added 1, first at -?\d+ ms\)$/,
       ),
       expect.stringMatching(/not proven at pair after \d+ ms \(non-local; answer \d+\)$/),
       expect.stringMatching(/Publisher pair check to 0001 proven after \d+ ms by stats-host /),
@@ -2867,7 +2921,7 @@ describe('PRO system-audio LAN-direct host-to-prflx refinement (iOS Safari liste
       await vi.advanceTimersByTimeAsync(25);
       expect(directLines()).toEqual([
         expect.stringMatching(
-          /^\[ProSysAudioDirect\] Receiver pair check proven after 5\d\d ms by refined-host \(connected at 0 ms; native host\/mdns to prflx\/none; stats host\/none to host\/none; candidates sent 1, refused 0, added 1\)$/,
+          /^\[ProSysAudioDirect\] Receiver pair check proven after 5\d\d ms by refined-host \(connected at 0 ms; native host\/mdns to prflx\/none; stats host\/none to host\/none; candidates sent 1, refused 0, received 1, added 1, first at 0 ms\)$/,
         ),
         expect.stringMatching(/^\[ProSysAudioDirect\] Receiver LAN pair proven in 5\d\d ms$/),
       ]);
@@ -2875,14 +2929,39 @@ describe('PRO system-audio LAN-direct host-to-prflx refinement (iOS Safari liste
       expect(closeReasons()).toEqual([]);
     });
 
+    it('names when the first remote candidate was added, from the start of its proof', async () => {
+      const pc = await listenerWith('prflx-unrefined', 'prflx', { addCandidate: false });
+      await vi.advanceTimersByTimeAsync(300);
+      emitRelay(publisherId, publisherCandidate(NEGOTIATION_ID, safeCandidate('auto')));
+      await vi.advanceTimersByTimeAsync(200);
+      pc.locality = 'refined';
+      await vi.advanceTimersByTimeAsync(25);
+      expect(pairCheckLines()).toEqual([
+        expect.stringMatching(
+          /^\[ProSysAudioDirect\] Receiver pair check proven after 5\d\d ms by refined-host \(.*; candidates sent 1, refused 0, received 1, added 1, first at 3\d\d ms\)$/,
+        ),
+      ]);
+    });
+
     it('proves the refined pair as Chromium reports it, with empty statistics addresses', async () => {
       const pc = await listenerWith('refined-chromium', 'prflx');
       await vi.advanceTimersByTimeAsync(25);
       expect(directLines()).toEqual([
         expect.stringMatching(
-          /^\[ProSysAudioDirect\] Receiver pair check proven after \d+ ms by refined-host \(connected at 0 ms; native host\/mdns to prflx\/none; stats host\/none to host\/none; candidates sent 1, refused 0, added 1\)$/,
+          /^\[ProSysAudioDirect\] Receiver pair check proven after \d+ ms by refined-host \(connected at 0 ms; native host\/mdns to prflx\/none; stats host\/none to host\/none; candidates sent 1, refused 0, received 1, added 1, first at -?\d+ ms\)$/,
         ),
         expect.stringMatching(/^\[ProSysAudioDirect\] Receiver LAN pair proven in \d+ ms$/),
+      ]);
+      expect(pc.remoteChannel.send).toHaveBeenCalledWith(RECEIVER_PAIR_PROVEN);
+    });
+
+    it('proves a refined pair read while its consent check is in flight, once a check had a response', async () => {
+      const pc = await listenerWith('refined-in-progress', 'prflx');
+      await vi.advanceTimersByTimeAsync(25);
+      expect(pairCheckLines()).toEqual([
+        expect.stringMatching(
+          /^\[ProSysAudioDirect\] Receiver pair check proven after \d+ ms by refined-host /,
+        ),
       ]);
       expect(pc.remoteChannel.send).toHaveBeenCalledWith(RECEIVER_PAIR_PROVEN);
     });
@@ -2896,7 +2975,7 @@ describe('PRO system-audio LAN-direct host-to-prflx refinement (iOS Safari liste
       await vi.advanceTimersByTimeAsync(200);
       expect(directLines()).toEqual([
         expect.stringMatching(
-          /^\[ProSysAudioDirect\] Receiver pair check deadline after 20\d\d ms by prflx-unrefined \(connected at 0 ms; native host\/mdns to prflx\/none; stats host\/none to prflx\/none; candidates sent 1, refused 0, added 1\)$/,
+          /^\[ProSysAudioDirect\] Receiver pair check deadline after 20\d\d ms by prflx-unrefined \(connected at 0 ms; native host\/mdns to prflx\/none; stats host\/none to prflx\/none; candidates sent 1, refused 0, received 1, added 1, first at -?\d+ ms\)$/,
         ),
         expect.stringMatching(
           /^\[ProSysAudioDirect\] Receiver LAN pair not proven \(deadline after 20\d\d ms\)$/,
@@ -2917,7 +2996,7 @@ describe('PRO system-audio LAN-direct host-to-prflx refinement (iOS Safari liste
       await vi.advanceTimersByTimeAsync(25);
       expect(directLines()).toEqual([
         expect.stringMatching(
-          /^\[ProSysAudioDirect\] Receiver pair check proven after 5\d\d ms by stats-host \(connected at 0 ms; native none; stats host\/none to host\/none; candidates sent 1, refused 0, added 1\)$/,
+          /^\[ProSysAudioDirect\] Receiver pair check proven after 5\d\d ms by stats-host \(connected at 0 ms; native none; stats host\/none to host\/none; candidates sent 1, refused 0, received 1, added 1, first at -?\d+ ms\)$/,
         ),
         expect.stringMatching(/^\[ProSysAudioDirect\] Receiver LAN pair proven in 5\d\d ms$/),
       ]);
@@ -2938,11 +3017,40 @@ describe('PRO system-audio LAN-direct host-to-prflx refinement (iOS Safari liste
       await vi.advanceTimersByTimeAsync(25);
       expect(directLines()).toEqual([
         expect.stringMatching(
-          /^\[ProSysAudioDirect\] Receiver pair check closed after 8\d\d ms by prflx-unrefined \(connected at 0 ms; native host\/mdns to prflx\/none; stats host\/none to prflx\/none; candidates sent 1, refused 0, added 1\)$/,
+          /^\[ProSysAudioDirect\] Receiver pair check closed after 8\d\d ms by prflx-unrefined \(connected at 0 ms; native host\/mdns to prflx\/none; stats host\/none to prflx\/none; candidates sent 1, refused 0, received 1, added 1, first at -?\d+ ms\)$/,
         ),
       ]);
       // The publisher closed the route: nothing goes back.
       expect(closeReasons()).toEqual([]);
+    });
+
+    it('keeps the last reading taken while the route was current when the close lands during a statistics read', async () => {
+      const pc = await listenerWith('prflx-unrefined', 'prflx');
+      await vi.advanceTimersByTimeAsync(800);
+      // The next read is held in getStats while the publisher closes the route,
+      // which clears the ledger; that read would see the refined pair as
+      // refined-key-pending if it were kept.
+      const held = deferred<void>();
+      pc.statsGate = held.promise;
+      pc.locality = 'refined';
+      await vi.advanceTimersByTimeAsync(25);
+      emitRelay(publisherId, {
+        kind: 'close',
+        targetParticipantId: receiverA,
+        direction: 'publisher',
+        generation: 11,
+        publicationId,
+        negotiationId: NEGOTIATION_ID,
+        reason: 'fallback',
+      });
+      await vi.advanceTimersByTimeAsync(0);
+      held.resolve();
+      await vi.advanceTimersByTimeAsync(25);
+      expect(directLines()).toEqual([
+        expect.stringMatching(
+          /^\[ProSysAudioDirect\] Receiver pair check closed after 8\d\d ms by prflx-unrefined \(connected at 0 ms; native host\/mdns to prflx\/none; stats host\/none to prflx\/none; /,
+        ),
+      ]);
     });
 
     it('counts a gathered UDP candidate the LAN rule refused, and never signals it', async () => {
@@ -2955,7 +3063,7 @@ describe('PRO system-audio LAN-direct host-to-prflx refinement (iOS Safari liste
       await vi.advanceTimersByTimeAsync(25);
       expect(pairCheckLines()).toEqual([
         expect.stringMatching(
-          /^\[ProSysAudioDirect\] Receiver pair check proven after \d+ ms by refined-host \(.*; candidates sent 1, refused 1, added 1\)$/,
+          /^\[ProSysAudioDirect\] Receiver pair check proven after \d+ ms by refined-host \(.*; candidates sent 1, refused 1, received 1, added 1, first at -?\d+ ms\)$/,
         ),
       ]);
       expect(JSON.stringify(bridgeMocks.sent)).not.toContain('192.168.1.10');
@@ -2981,6 +3089,19 @@ describe('PRO system-audio LAN-direct host-to-prflx refinement (iOS Safari liste
         locality: 'refined-other-generation' as const,
         addCandidate: true,
         rule: 'prflx-unrefined',
+      },
+      {
+        name: 'an in-progress selected stats pair that never had a check response',
+        locality: 'refined-in-progress-unanswered' as const,
+        addCandidate: true,
+        rule: 'prflx-unrefined',
+      },
+      {
+        // The native snapshot may be that prflx connection, not the refined one.
+        name: 'a refined pair while a prflx connection on the native port is still listed',
+        locality: 'refined-prflx-listed' as const,
+        addCandidate: true,
+        rule: 'prflx-still-listed',
       },
     ])('never proves $name', async ({ locality, addCandidate, rule }) => {
       await listenerWith(locality, 'prflx', { addCandidate });
@@ -3054,6 +3175,13 @@ describe('PRO system-audio LAN-direct host-to-prflx refinement (iOS Safari liste
         native: 'srflx' as const,
         nativePair: null,
         line: 'by native-type (connected at 0 ms; native host/private-ipv4 to srflx/mdns; stats none;',
+      },
+      {
+        name: 'a host-to-prflx snapshot whose statistics select two pairs',
+        locality: 'refined-ambiguous' as const,
+        native: 'prflx' as const,
+        nativePair: null,
+        line: 'by stats-ambiguous (connected at 0 ms; native host/mdns to prflx/none; stats none;',
       },
       {
         name: 'a host-to-relay snapshot',
@@ -3153,7 +3281,7 @@ describe('PRO system-audio LAN-direct host-to-prflx refinement (iOS Safari liste
       expect(callbacks.onLiveRouteFallback).not.toHaveBeenCalled();
       expect(directLines()).toEqual([
         expect.stringMatching(
-          /^\[ProSysAudioDirect\] Publisher pair check to 0001 proven after \d+ ms by refined-host \(connected at 0 ms; native host\/mdns to prflx\/none; stats host\/none to host\/none; candidates sent 1, refused 0, added 1\)$/,
+          /^\[ProSysAudioDirect\] Publisher pair check to 0001 proven after \d+ ms by refined-host \(connected at 0 ms; native host\/mdns to prflx\/none; stats host\/none to host\/none; candidates sent 1, refused 0, received 1, added 1, first at -?\d+ ms\)$/,
         ),
         expect.stringMatching(/^\[ProSysAudioDirect\] LAN route to 0001 proven in \d+ ms /),
       ]);
@@ -3178,7 +3306,7 @@ describe('PRO system-audio LAN-direct host-to-prflx refinement (iOS Safari liste
       expect(peerConnections[0]!.sendingTrack()).toBeNull();
       expect(directLines()).toEqual([
         expect.stringMatching(
-          /^\[ProSysAudioDirect\] Publisher pair check to 0001 deadline after 10\d\d ms by prflx-unrefined \(connected at 0 ms; native host\/mdns to prflx\/none; stats host\/none to prflx\/none; candidates sent 1, refused 0, added 1\)$/,
+          /^\[ProSysAudioDirect\] Publisher pair check to 0001 deadline after 10\d\d ms by prflx-unrefined \(connected at 0 ms; native host\/mdns to prflx\/none; stats host\/none to prflx\/none; candidates sent 1, refused 0, received 1, added 1, first at -?\d+ ms\)$/,
         ),
         expect.stringMatching(
           /^\[ProSysAudioDirect\] LAN route to 0001 not proven at pair after \d+ ms \(deadline; answer \d+\)$/,
@@ -3223,7 +3351,51 @@ describe('PRO system-audio LAN-direct host-to-prflx refinement (iOS Safari liste
         expect.objectContaining({ role: 'publisher', reason: 'periodic-locality-check-failed' }),
       );
       expect(pairCheckLines()).toEqual([
-        '[ProSysAudioDirect] Publisher pair reproof to 0001 pending by prflx-unrefined (native host/mdns to prflx/none; stats host/none to prflx/none; candidates sent 1, refused 0, added 1)',
+        '[ProSysAudioDirect] Publisher pair reproof to 0001 pending by prflx-unrefined (native host/mdns to prflx/none; stats host/none to prflx/none; candidates sent 1, refused 0, received 1, added 1)',
+      ]);
+    });
+
+    // libwebrtc marks the selected connection in-progress for one round trip
+    // around each consent check (about every 2.5 s); a reproof that meets it
+    // must not promote a refined route to the SFU mid-share.
+    it('keeps a live refined route through activation and live reproofs that meet a consent check in flight', async () => {
+      vi.useFakeTimers();
+      const callbacks = configureCallbacks();
+      nextLocalities.push('refined');
+      nextAuthoritativePairModes.push('prflx');
+      const attempt = direct.attemptProSystemAudioDirectPublication({
+        track: audioTrack('capture-stereo'),
+        generation: 11,
+        publicationId,
+        targets: [target(receiverA)],
+      });
+      await vi.advanceTimersByTimeAsync(100);
+      await expect(attempt).resolves.not.toBeNull();
+      const pc = peerConnections[0]!;
+      pc.locality = 'refined-in-progress';
+      vi.mocked(log.info).mockClear();
+      await expect(
+        direct.activateProSystemAudioDirectPublication({
+          ownerParticipantId: publisherId,
+          generation: 11,
+          publicationId,
+        }),
+      ).resolves.toBe(true);
+
+      pc.emitConnected();
+      await vi.advanceTimersByTimeAsync(10_001);
+      expect(callbacks.onLiveRouteFallback).not.toHaveBeenCalled();
+      expect(pc.close).not.toHaveBeenCalled();
+      expect(pairCheckLines()).toEqual([]);
+
+      // A selected pair that never had a response is still no proof.
+      pc.locality = 'refined-in-progress-unanswered';
+      await vi.advanceTimersByTimeAsync(5_000);
+      expect(callbacks.onLiveRouteFallback).toHaveBeenCalledTimes(1);
+      expect(pairCheckLines()).toEqual([
+        expect.stringMatching(
+          /^\[ProSysAudioDirect\] Publisher pair reproof to 0001 pending by prflx-unrefined /,
+        ),
       ]);
     });
   });
@@ -3286,4 +3458,64 @@ describe('PRO system-audio LAN-direct host-to-prflx refinement (iOS Safari liste
       expect(line).not.toContain(':');
     }
   });
+
+  // The statistics view of a line names numeric addresses by kind only, under
+  // any of the keys browsers use ('address', 'ip', 'ipAddress'), whatever the
+  // outcome.
+  it.each([
+    {
+      locality: 'global-ipv6' as const,
+      native: null,
+      outcome: 'non-local',
+      view: 'stats host/public to host/public',
+      literals: ['2001:db8:1::10', '2001:db8:1::20'],
+    },
+    {
+      locality: 'non-local' as const,
+      native: null,
+      outcome: 'non-local',
+      view: 'stats host/private-ipv4 to relay/private-ipv4',
+      literals: ['192.168.1.10', '192.168.1.20'],
+    },
+    {
+      locality: 'empty-address-global-ip' as const,
+      native: null,
+      outcome: 'non-local',
+      view: 'stats host/public to host/mdns',
+      literals: ['2001:db8:1::10'],
+    },
+    {
+      locality: 'ledger-mismatch' as const,
+      native: null,
+      outcome: 'deadline',
+      view: 'stats host/private-ipv4 to host/mdns',
+      literals: ['192.168.1.10'],
+    },
+    {
+      locality: 'refined-global-ip' as const,
+      native: 'prflx' as const,
+      outcome: 'non-local',
+      view: 'stats host/public to host/none',
+      literals: ['2001:db8:1::10'],
+    },
+    {
+      locality: 'refined-ipaddress' as const,
+      native: 'prflx' as const,
+      outcome: 'proven',
+      view: 'stats host/private-ipv4 to host/none',
+      literals: ['192.168.1.10'],
+    },
+  ])(
+    'names $locality statistics addresses by kind only in a $outcome line',
+    async ({ locality, native, outcome, view, literals }) => {
+      await listenerWith(locality, native);
+      await vi.advanceTimersByTimeAsync(2_100);
+      const line = pairCheckLines()[0] ?? '';
+      expect(line.startsWith(`[ProSysAudioDirect] Receiver pair check ${outcome} `)).toBe(true);
+      expect(line).toContain(view);
+      for (const literal of [...literals, '5000', '.local']) expect(line).not.toContain(literal);
+      expect(line).not.toMatch(/\d{1,3}(?:\.\d{1,3}){3}/);
+      expect(line).not.toContain(':');
+    },
+  );
 });

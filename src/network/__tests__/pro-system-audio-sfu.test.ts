@@ -578,11 +578,79 @@ describe('PRO system-audio SFU subscription stage line', () => {
     }
   });
 
-  it('counts from the call itself without a share notice, or with one from the future', async () => {
+  it('counts from the call itself without a share notice, or with one from the future, and says so', async () => {
     await proSfu.subscribeProSystemAudioSfu(publication(3), { noticeAt: Date.now() + 60_000 });
+    proSfu.stopProSystemAudioSfuSubscriber();
+    await proSfu.subscribeProSystemAudioSfu(publication(3));
     expect(subscriptionLines()).toEqual([
-      expect.stringMatching(/^\[ProSysAudioSFU\] Subscription to generation 3 ready \d{1,2} ms /),
+      expect.stringMatching(
+        /^\[ProSysAudioSFU\] Subscription to generation 3 ready \d{1,2} ms after the subscribe call \(start \d{1,2}, /,
+      ),
+      expect.stringMatching(
+        /^\[ProSysAudioSFU\] Subscription to generation 3 ready \d{1,2} ms after the subscribe call \(start \d{1,2}, /,
+      ),
     ]);
+  });
+
+  it('logs the failed line when the connection fails while the attempt is still in progress', async () => {
+    let releaseRenegotiate!: () => void;
+    const renegotiateHeld = new Promise<void>((resolve) => {
+      releaseRenegotiate = resolve;
+    });
+    let renegotiateStarted = false;
+    const succeed = fetchMock.getMockImplementation()!;
+    fetchMock.mockImplementation(async (url, capability, init) => {
+      const request = JSON.parse(String(init?.body || '{}')) as RealtimeRequest;
+      if (request.action === 'renegotiate') {
+        renegotiateStarted = true;
+        await renegotiateHeld;
+      }
+      return succeed(url, capability, init);
+    });
+    const attempt = proSfu.subscribeProSystemAudioSfu(publication(7), {
+      noticeAt: Date.now() - 1_500,
+    });
+    await vi.waitFor(() => expect(renegotiateStarted).toBe(true));
+    peerConnections.at(-1)!.emitConnectionState('failed');
+    releaseRenegotiate();
+    await expect(attempt).rejects.toThrow();
+    expect(subscriptionLines()).toEqual([
+      expect.stringMatching(
+        /^\[ProSysAudioSFU\] Subscription to generation 7 failed at renegotiate 15\d\d ms after the share notice \(connection-failed; start 15\d\d, config 15\d\d, session 15\d\d, tracks 15\d\d, offer 15\d\d, track 15\d\d, answer 15\d\d\)$/,
+      ),
+    ]);
+  });
+
+  it('logs nothing more when a subscribed connection fails later', async () => {
+    await proSfu.subscribeProSystemAudioSfu(publication(8), { noticeAt: Date.now() - 1_500 });
+    peerConnections.at(-1)!.emitConnectionState('failed');
+    expect(subscriptionLines()).toEqual([
+      expect.stringMatching(/^\[ProSysAudioSFU\] Subscription to generation 8 ready /),
+    ]);
+  });
+
+  it('logs a short line for a subscription refused before it starts', async () => {
+    expect(() => proSfu.subscribeProSystemAudioSfu({ version: 2 })).toThrow(/Invalid/);
+    expect(() =>
+      proSfu.subscribeProSystemAudioSfu({ ...publication(9), expiresAt: Date.now() - 1 }),
+    ).toThrow(/expired/);
+    await proSfu.subscribeProSystemAudioSfu(publication(10));
+    expect(() => proSfu.subscribeProSystemAudioSfu(publication(9))).toThrow(/Stale/);
+    expect(() =>
+      proSfu.subscribeProSystemAudioSfu({ ...publication(10), sessionId: 'conflicting-session' }),
+    ).toThrow(/Conflicting/);
+    expect(subscriptionLines()).toEqual([
+      '[ProSysAudioSFU] Subscription failed before start (invalid)',
+      '[ProSysAudioSFU] Subscription to generation 9 failed before start (expired)',
+      expect.stringMatching(/^\[ProSysAudioSFU\] Subscription to generation 10 ready /),
+      '[ProSysAudioSFU] Subscription to generation 9 failed before start (stale-generation)',
+      '[ProSysAudioSFU] Subscription to generation 10 failed before start (conflicting-generation)',
+    ]);
+    for (const line of subscriptionLines()) {
+      for (const secret of ['published-session', 'conflicting-session', 'owned-session']) {
+        expect(line).not.toContain(secret);
+      }
+    }
   });
 
   it('logs one failed line naming its stage and the error name, never its message', async () => {

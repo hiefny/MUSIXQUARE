@@ -315,7 +315,7 @@ describe('PRO LAN-direct listener evidence lines', () => {
       [
         'info',
         expect.stringMatching(
-          /^\[ProSysAudioDirect\] Receiver pair check proven after \d+ ms by stats-host \(connected at 0 ms; native none; stats host\/private-ipv4 to host\/mdns; candidates sent 1, refused 0, added 1\)$/u,
+          /^\[ProSysAudioDirect\] Receiver pair check proven after \d+ ms by stats-host \(connected at 0 ms; native none; stats host\/private-ipv4 to host\/mdns; candidates sent 1, refused 0, received 1, added 1, first at -?\d+ ms\)$/u,
         ),
       ],
       [

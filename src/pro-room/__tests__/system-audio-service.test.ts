@@ -1964,6 +1964,25 @@ describe('PRO system-audio service orchestration', () => {
     });
   });
 
+  // Once a subscription of the publication succeeded, a later re-subscription
+  // (its connection failed minutes later) counts from its own call: the share
+  // notice would report the whole share so far as its time.
+  it('passes no share notice to a re-subscription after the publication was subscribed', async () => {
+    vi.useFakeTimers({ now: 1_900_000_000_000 });
+    const descriptor = sfuEventDescriptor();
+    api.getSystemAudioState.mockResolvedValueOnce(live());
+    await refreshProSystemAudioState();
+    await vi.advanceTimersByTimeAsync(0);
+    expect(mocks.subscribe).toHaveBeenCalledTimes(1);
+    expect(mocks.subscribe.mock.calls[0]?.[1]).toEqual({ noticeAt: 1_900_000_000_000 });
+
+    await vi.advanceTimersByTimeAsync(60_000);
+    mocks.sfuListener?.({ type: 'subscriber-state', state: 'failed', descriptor });
+    await vi.advanceTimersByTimeAsync(2_500);
+    expect(mocks.subscribe).toHaveBeenCalledTimes(2);
+    expect(mocks.subscribe.mock.calls[1]?.[1]).toEqual({});
+  });
+
   it('backs SFU re-subscribe attempts off to 30 seconds and restarts them on reconnect', async () => {
     const descriptor = sfuEventDescriptor();
     // Like the real SFU module: report `failed`, then reject the attempt.

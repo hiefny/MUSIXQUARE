@@ -250,6 +250,37 @@ describe('findRefinedHostPair', () => {
     mutate(f);
     expect(findRefinedHostPair(f.stats(), f.native)).toBeNull();
   });
+
+  // libwebrtc marks the selected connection in-progress for one round trip
+  // around each consent check. A caller that reads the same pair again and
+  // again (the PRO live reproof) may accept that state once a check on this
+  // connection has had a response; the Standard check keeps 'succeeded'.
+  describe('with answered in-progress pairs allowed', () => {
+    const options = { allowAnsweredInProgress: true } as const;
+
+    it('accepts an in-progress selected pair that has had a check response', () => {
+      const f = fixture();
+      Object.assign(f.reports.get('CP1')!, { state: 'in-progress', responsesReceived: 3 });
+      expect(findRefinedHostPair(f.stats(), f.native, options)?.pairId).toBe('CP1');
+      // Without the option, the shared default is unchanged.
+      expect(findRefinedHostPair(f.stats(), f.native)).toBeNull();
+    });
+
+    it.each<[string, Report]>([
+      ['no check response yet', { state: 'in-progress', responsesReceived: 0 }],
+      ['no response count', { state: 'in-progress' }],
+      ['a non-numeric response count', { state: 'in-progress', responsesReceived: '3' }],
+      ['a failed pair', { state: 'failed', responsesReceived: 3 }],
+      ['a waiting pair', { state: 'waiting', responsesReceived: 3 }],
+      ['a frozen pair', { state: 'frozen', responsesReceived: 3 }],
+    ])('still refuses %s', (_name, fields) => {
+      const f = fixture();
+      const pair = f.reports.get('CP1')!;
+      delete pair.state;
+      Object.assign(pair, fields);
+      expect(findRefinedHostPair(f.stats(), f.native, options)).toBeNull();
+    });
+  });
 });
 
 describe('ICE selected-pair helpers', () => {

@@ -12,6 +12,7 @@ import { bus } from '../core/events.ts';
 import { setManagedTimer } from '../core/timers.ts';
 import { PEER_NAME_PREFIX } from '../core/constants.ts';
 import { escapeHtml, escapeAttr } from './dom.ts';
+import { isAvailableFocusTarget } from './focus-target.ts';
 import { applyUserTextFontFallback } from './user-text-font.ts';
 import { t } from '../i18n/index.ts';
 import type { EventMap } from '../types/index.ts';
@@ -698,10 +699,20 @@ export function clearRoomPinnedNotice(): void {
 export function clearPinnedNotice(serviceId?: string): void {
   if (serviceId !== undefined && pinnedNotice?.serviceId !== serviceId) return;
   pinnedNotice = null;
+  // A reading dialog closed here returns focus to the open button first.
   cancelNoticeDialog();
   const banner = document.getElementById('chat-pinned-notice');
   if (banner) {
+    const heldFocus = banner.contains(document.activeElement);
     banner.hidden = true;
     banner.classList.remove('notice-attention-hint');
+    // A hidden button cannot keep focus: the browser would move it to the page,
+    // out of the Chat dialog (the Chat region on desktop). The drawer takes it
+    // instead, as when the phone sheet opens by pointer. It draws no focus ring
+    // and does not scroll, and Tab continues from it.
+    if (heldFocus) {
+      const drawer = document.getElementById('chat-drawer');
+      if (isAvailableFocusTarget(drawer)) drawer.focus({ preventScroll: true });
+    }
   }
 }

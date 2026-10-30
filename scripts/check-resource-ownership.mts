@@ -76,6 +76,26 @@
  *     src/network/system-audio-media.ts. The eager STUN entries outside those
  *     files (peer.ts, standard-room-prerequisites.ts) are out of scope: they
  *     cannot import the deferred home.
+ *   CHECK 11 YouTube iframe audio writes (RO-12, Phase 6 T1), per file in
+ *     src/: mute(), unMute() and setVolume() calls on a receiver, the iframe
+ *     API's methods (a bare mute() is a local function). The count is by
+ *     name, so a write through a helper counts once, inside the helper; each
+ *     reason names the helpers whose callers write without a count of their
+ *     own.
+ *   CHECK 12 Cross-file YouTube start-timer reads and clears (RO-02, Phase 6
+ *     T1), per file in src/youtube/: getManagedTimer() and
+ *     clearManagedTimer() calls on a start timer (START_TIMER_NAMES) that the
+ *     same file does not set with setManagedTimer(). A name list handed to
+ *     an array method (`names.some((name) => getManagedTimer(name))`,
+ *     `names.forEach(clearManagedTimer)`) counts once per call. Names resolve
+ *     from the syntax tree alone: a string literal, a const initialised with
+ *     one (in the file, matched by name, or imported by name), a parameter
+ *     annotated with a string literal or a union of them, and a callback's
+ *     first parameter when the callback goes to a method of a name list.
+ *     Names that do not resolve (a template with a substitution, an
+ *     unannotated parameter) count neither as set nor as used. Every start
+ *     timer must still be set somewhere in src/youtube/, so renaming or
+ *     removing one fails until the set changes with it.
  *
  * Baselines. Every count and list below is exact. A file above its baseline
  * (or a new file, function or pair) fails as a regression; a file below it
@@ -91,13 +111,15 @@
  * comments and unrelated strings never count. Lifecycle-operation callers
  * are counted only for the names above (page-lock claims, SKIP_WAITING sends,
  * AudioContext resume/suspend, armed reception starts, the Worker broadcast
- * endpoint, the duration reader in cloudflare/, the authority fence writers
- * and the system-audio receive slot writers). Deliberately not checked yet
- * (registry RO-44, RO-45 and "Resource-ownership guard"): callers of the other
- * records' lifecycle operations (YouTube player commands, claimPlaybackOwner
- * with a literal owner other than 'system-audio', scheduleSessionReset),
- * receivers resolved by type,
- * module-level lifecycle slots, timer-name manifests, shared phase unions,
+ * endpoint, the duration reader in cloudflare/, the authority fence writers,
+ * the system-audio receive slot writers and the YouTube iframe audio
+ * writers). Deliberately not checked yet (registry RO-44, RO-45 and
+ * "Resource-ownership guard"): callers of the other records' lifecycle
+ * operations (YouTube player commands other than the iframe audio writes,
+ * claimPlaybackOwner with a literal owner other than 'system-audio',
+ * scheduleSessionReset), receivers resolved by type, module-level lifecycle
+ * slots, timer names outside CHECK 12's start-timer set or outside
+ * src/youtube/ (and the nameless clearAllManagedTimers), shared phase unions,
  * duplicated helper names, "mirrors" copy markers, and registered timings
  * retyped as literals in requester files.
  *
@@ -684,12 +706,208 @@ const MEDIA_TUNING_BASELINE: Baseline = new Map<string, Allowance>([
   ],
 ]);
 
+// ── CHECK 11 baseline: YouTube iframe audio writes (RO-12) ───────────────
+// Measured on main 23f29283 (App 9.0.27) on 2026-10-31, Phase 6 T1: the same
+// 44 calls in the same five files as a text search for `mute(`, `unMute(` and
+// `setVolume(` found on 2026-10-30. Phase 6 moves the writes to one
+// iframe-audio owner and lowers these counts as it goes; the iOS prime unMute
+// and the retained player's hard-mute proof stay.
+
+const IFRAME_AUDIO_WRITE_METHODS = new Set(['mute', 'unMute', 'setVolume']);
+
+/**
+ * RO-12: mute(), unMute() and setVolume() calls on a receiver, per file in
+ * src/. The count is by name, so a write through a helper counts once, inside
+ * the helper: each reason names the helpers that hold its writes, whose
+ * callers write the iframe audio without a count of their own.
+ */
+const IFRAME_AUDIO_WRITE_BASELINE: Baseline = new Map<string, Allowance>([
+  [
+    'src/youtube/authority-arm.ts',
+    {
+      count: 10,
+      reason:
+        'the PRO arm: the hard mute in prepare and #waitForHardMute (4), the active restore ' +
+        '#restoreCapturedAudio (3) and the detached restore #attemptDetachedAudioRestore (3)',
+    },
+  ],
+  [
+    'src/youtube/iframe.ts',
+    {
+      count: 3,
+      reason:
+        'the iOS prime unMute in primeYouTubePlayer, which must stay inside the gesture call ' +
+        'stack; the mute before createYouTubePlayer destroys a pre-ready prime facade; the silent ' +
+        "prime cue's mute in onYouTubePlayerReady",
+    },
+  ],
+  [
+    'src/youtube/player.ts',
+    {
+      count: 17,
+      reason:
+        'the PRO direct commit applyProPlaybackYouTubeCommit (3); the mute before stopYouTubeMode ' +
+        'destroys the player (1); the helper restoreFallbackAudio (3), through which the host ' +
+        'legacy recovery and the guest local fallback restore audio, and their mutes before a ' +
+        'load or a wait (attemptRecovery 1, attemptFallback 2); the youtube:set-volume handler ' +
+        '(3) and the PRO pause gate handlers (pending 1, settled 3)',
+    },
+  ],
+  [
+    'src/youtube/retained-player-controller.ts',
+    {
+      count: 2,
+      reason:
+        'the parking hard-mute proof issueHardMute (reached through ' +
+        'ensureRetainedYouTubePlayerHardMuted in iframe.ts) and the mute before destroy',
+    },
+  ],
+  [
+    'src/youtube/zero-start.ts',
+    {
+      count: 12,
+      reason:
+        'the Standard zero-start controller: the release unMute and its retry in ' +
+        'handlePlayerStateChange (2), the hard mute in #beginLocalPrepare and #waitForHardMute ' +
+        '(4), the active restore #attemptRunAudioRestore (3) and the detached restore ' +
+        'attemptRestore (3)',
+    },
+  ],
+]);
+
+// ── CHECK 12 baselines: cross-file YouTube start-timer reads and clears ──
+// Measured on main 23f29283 (App 9.0.27) on 2026-10-31, Phase 6 T1: the same
+// 14 reads and 10 clears the 2026-10-30 Phase 6 plan counted by hand. Phase 6
+// replaces the reads of the legacy rendezvous and sync.ts timers with owner
+// queries; the PRO coordinator nudge reads stay, because the manual-offset
+// transaction (RO-13) is owner-in-place.
+
+const START_TIMER_SCOPE = 'src/youtube/';
+const TIMER_SET_CALL = 'setManagedTimer';
+const TIMER_USE_CALLS = new Map<string, 'read' | 'clear'>([
+  ['getManagedTimer', 'read'],
+  ['clearManagedTimer', 'clear'],
+]);
+
+/**
+ * RO-02: the YouTube start timers. A change that sets a new start timer adds
+ * it here and to the RO-02 record; one that renames or removes one updates
+ * both too (CHECK 12 fails while a name is set nowhere in src/youtube/).
+ */
+const START_TIMER_NAMES: ReadonlySet<string> = new Set([
+  // Set in src/youtube/player.ts: the legacy rendezvous, its local start and
+  // the three zero-start fallbacks.
+  'yt-auto-sync',
+  'yt-host-local-start',
+  'yt-zero-start-external-fallback',
+  'yt-zero-start-host-fallback',
+  'yt-zero-start-replacement-fallback',
+  // Set in src/youtube/sync.ts: the guest state actions and the rendezvous.
+  'yt-clock-action',
+  'yt-seek-play',
+  'yt-rendezvous-buffer',
+  'yt-rendezvous-play',
+  'yt-rendezvous-calibrate',
+  'yt-rendezvous-follow-up',
+  // PRO_COORDINATOR_YOUTUBE_NUDGE_TIMER, set by the manual-offset gate and
+  // runtime (RO-13).
+  'yt-pro-coordinator-local-nudge',
+]);
+
+/** RO-02: start-timer reads (getManagedTimer) from a file that does not set the timer. */
+const START_TIMER_READ_BASELINE: Baseline = new Map<string, Allowance>([
+  [
+    'src/youtube/iframe.ts',
+    {
+      count: 3,
+      reason:
+        "'yt-auto-sync' in onYouTubePlayerStateChange (the host's auxiliary YOUTUBE_STATE " +
+        "hold) and updateYouTubeUI (the host's sub-video advance check), owner queries in " +
+        'Phase 6; the PRO coordinator nudge in onYouTubePlayerStateChange (stays)',
+    },
+  ],
+  [
+    'src/youtube/local-offset.ts',
+    {
+      count: 2,
+      reason:
+        'the PRO coordinator nudge in readActiveNudgeAnchor and ' +
+        'rebaseProCoordinatorYouTubeNudgeAnchor (stays): this file names the timer, the ' +
+        'manual-offset gate and runtime set it',
+    },
+  ],
+  [
+    'src/youtube/native-control-authority.ts',
+    {
+      count: 1,
+      reason:
+        "hasProtectedTransitionOwner: one list of seven names (the nudge, 'yt-auto-sync', both " +
+        'state actions and the three rendezvous stages); owner queries in Phase 6',
+    },
+  ],
+  [
+    'src/youtube/player.ts',
+    {
+      count: 4,
+      reason:
+        'the PRO coordinator nudge (stays): the PRO lead sample (scheduleSample), ' +
+        "scheduleLateJoinRendezvousSync, the host's youtube:toggle-play handler and " +
+        'bootstrapYouTubePeer',
+    },
+  ],
+  [
+    'src/youtube/sync.ts',
+    {
+      count: 4,
+      reason:
+        'the PRO coordinator nudge in reconcileCanonicalManualOffsetEndpoint and twice in ' +
+        "broadcastYouTubeSync (stays); 'yt-auto-sync' in broadcastYouTubeSync (the " +
+        'non-manual heartbeat hold, an owner query in Phase 6)',
+    },
+  ],
+]);
+
+/** RO-02: start-timer clears (clearManagedTimer) from a file that does not set the timer. */
+const START_TIMER_CLEAR_BASELINE: Baseline = new Map<string, Allowance>([
+  [
+    'src/youtube/iframe.ts',
+    {
+      count: 3,
+      reason:
+        "resetResidentYouTubeSync clears 'yt-clock-action', 'yt-seek-play' and 'yt-auto-sync' " +
+        "without their owners' retire (resetYouTubeSyncState, which it calls next, already " +
+        'clears the first two)',
+    },
+  ],
+  [
+    'src/youtube/player.ts',
+    {
+      count: 6,
+      reason:
+        "'yt-clock-action' and 'yt-seek-play' in tryBeginYouTubeZeroStart, stopYouTubeMode and " +
+        "the zero-start onPrepareSelection, without sync.ts's cancelClockAction (its " +
+        'generation and loading indicator)',
+    },
+  ],
+  [
+    'src/youtube/sync.ts',
+    {
+      count: 1,
+      reason:
+        "the PRO coordinator nudge in resetYouTubeSyncState, right after the owner's reset " +
+        'port resetStandardHostManualOffsetTransaction',
+    },
+  ],
+]);
+
 /** Every record ID this guard's manifests name, for CHECK 1. */
 const GUARD_RECORD_IDS: readonly string[] = [
   'RO-01',
+  'RO-02',
   'RO-04',
   'RO-07',
   'RO-08',
+  'RO-12',
   'RO-22',
   'RO-23',
   'RO-24',
@@ -981,6 +1199,8 @@ interface FileFacts {
   readonly durationReadSites: string[];
   readonly armedReceptionStartSites: string[];
   readonly authorityFenceWriteSites: string[];
+  /** CHECK 11: `file:line method() in function`, one per write. */
+  readonly iframeAudioWriteSites: string[];
   readonly ownerHeaders: string[];
 }
 
@@ -1110,6 +1330,7 @@ function collectFacts(relPath: string, text: string): FileFacts {
     durationReadSites: [],
     armedReceptionStartSites: [],
     authorityFenceWriteSites: [],
+    iframeAudioWriteSites: [],
     ownerHeaders: [],
   };
 
@@ -1244,6 +1465,15 @@ function collectFacts(relPath: string, text: string): FileFacts {
       if (receiver === null || !NON_AUDIO_CONTEXT_RECEIVERS.has(receiver)) {
         facts.audioContextNativeCalls += 1;
       }
+    } else if (IFRAME_AUDIO_WRITE_METHODS.has(callee)) {
+      // The iframe API is always called on its player; a bare mute() is a
+      // local function.
+      const target = unwrap(node.expression);
+      if (ts.isPropertyAccessExpression(target) || ts.isElementAccessExpression(target)) {
+        facts.iframeAudioWriteSites.push(
+          `${relPath}:${lineOf(file, node)} ${callee}() in ${enclosingFunctionName(node)}`,
+        );
+      }
     }
   });
 
@@ -1361,6 +1591,289 @@ function collectDefaultLoaderWrites(sources: ReadonlyMap<string, string>): Map<s
     if (count > 0) measured.set(relPath, count);
   }
   return measured;
+}
+
+// ── CHECK 12: cross-file YouTube start-timer reads and clears ────────────
+
+/** Bounds a chain of consts, imports and name lists that refer to each other. */
+const MAX_TIMER_NAME_HOPS = 8;
+
+/** A timer call: `kind` from its callee; `list` when the function goes to a name list's method. */
+interface TimerCall {
+  readonly kind: 'set' | 'read' | 'clear';
+  readonly callee: string;
+  readonly node: ts.Node;
+  readonly argument: ts.Expression | undefined;
+  readonly list: ts.CallExpression | null;
+}
+
+/** What CHECK 12 reads from one file's syntax, cached by its text. */
+interface TimerFileSyntax {
+  readonly file: ts.SourceFile;
+  /** `const` initialisers by name, anywhere in the file (names match across the file). */
+  readonly consts: ReadonlyMap<string, readonly ts.Expression[]>;
+  /** Top-level `const` initialisers by name: what another file can import. */
+  readonly topLevelConsts: ReadonlyMap<string, readonly ts.Expression[]>;
+  /** Named value imports: the local name, the module specifier and the name there. */
+  readonly imports: ReadonlyMap<string, { readonly specifier: string; readonly name: string }>;
+  readonly timerCalls: readonly TimerCall[];
+}
+
+interface TimerNameScope extends TimerFileSyntax {
+  /** The production file a local import name comes from, or null. */
+  readonly importedFrom: (local: string) => { readonly from: string; readonly name: string } | null;
+  readonly scopeOf: (relPath: string) => TimerNameScope | null;
+}
+
+const TIMER_CALL_KINDS = new Map<string, TimerCall['kind']>([
+  [TIMER_SET_CALL, 'set'],
+  ...TIMER_USE_CALLS,
+]);
+
+const timerSyntaxCache = new Map<
+  string,
+  { readonly text: string; readonly syntax: TimerFileSyntax }
+>();
+
+function timerFileSyntax(relPath: string, text: string): TimerFileSyntax {
+  const cached = timerSyntaxCache.get(relPath);
+  if (cached?.text === text) return cached.syntax;
+  const file = parse(relPath, text);
+  const consts = new Map<string, ts.Expression[]>();
+  const topLevelConsts = new Map<string, ts.Expression[]>();
+  const timerCalls: TimerCall[] = [];
+  visit(file, (node) => {
+    if (ts.isVariableDeclaration(node) && ts.isIdentifier(node.name) && node.initializer) {
+      const list = node.parent;
+      if (!ts.isVariableDeclarationList(list) || !(list.flags & ts.NodeFlags.Const)) return;
+      const name = node.name.text;
+      const initializer = node.initializer;
+      consts.set(name, [...(consts.get(name) ?? []), initializer]);
+      if (ts.isVariableStatement(list.parent) && ts.isSourceFile(list.parent.parent)) {
+        topLevelConsts.set(name, [...(topLevelConsts.get(name) ?? []), initializer]);
+      }
+    } else if (ts.isCallExpression(node)) {
+      const callee = calleeName(node);
+      const kind = callee === null ? undefined : TIMER_CALL_KINDS.get(callee);
+      if (callee !== null && kind) {
+        timerCalls.push({ kind, callee, node, argument: node.arguments[0], list: null });
+      }
+    } else if (ts.isIdentifier(node) && isValueReference(node)) {
+      // A name list handed straight to the query or the clear: NAMES.some(getManagedTimer).
+      const kind = TIMER_USE_CALLS.get(node.text);
+      const call = node.parent;
+      if (kind && ts.isCallExpression(call) && call.arguments.includes(node)) {
+        timerCalls.push({ kind, callee: node.text, node, argument: undefined, list: call });
+      }
+    }
+  });
+  const imports = new Map<string, { readonly specifier: string; readonly name: string }>();
+  for (const statement of file.statements) {
+    if (!ts.isImportDeclaration(statement) || !ts.isStringLiteral(statement.moduleSpecifier)) {
+      continue;
+    }
+    const clause = statement.importClause;
+    const bindings = clause?.namedBindings;
+    if (!clause || clause.isTypeOnly || !bindings || !ts.isNamedImports(bindings)) continue;
+    for (const element of bindings.elements) {
+      if (element.isTypeOnly) continue;
+      imports.set(element.name.text, {
+        specifier: statement.moduleSpecifier.text,
+        name: (element.propertyName ?? element.name).text,
+      });
+    }
+  }
+  const syntax: TimerFileSyntax = { file, consts, topLevelConsts, imports, timerCalls };
+  timerSyntaxCache.set(relPath, { text, syntax });
+  return syntax;
+}
+
+/** The production file a relative module specifier names, or null. */
+function resolveModule(
+  relPath: string,
+  specifier: string,
+  sources: ReadonlyMap<string, string>,
+): string | null {
+  if (!specifier.startsWith('.')) return null;
+  const base = path.posix.normalize(path.posix.join(path.posix.dirname(relPath), specifier));
+  for (const candidate of [base, base.replace(/\.js$/u, '.ts'), `${base}.ts`, `${base}/index.ts`]) {
+    if (sources.has(candidate)) return candidate;
+  }
+  return null;
+}
+
+/** One TimerNameScope per production file of this input, built on first use. */
+function timerNameScopes(
+  sources: ReadonlyMap<string, string>,
+): (relPath: string) => TimerNameScope | null {
+  const scopes = new Map<string, TimerNameScope>();
+  const scopeOf = (relPath: string): TimerNameScope | null => {
+    const cached = scopes.get(relPath);
+    if (cached) return cached;
+    const text = sources.get(relPath);
+    if (text === undefined) return null;
+    const syntax = timerFileSyntax(relPath, text);
+    const importedFrom = (
+      local: string,
+    ): { readonly from: string; readonly name: string } | null => {
+      const imported = syntax.imports.get(local);
+      const from = imported ? resolveModule(relPath, imported.specifier, sources) : null;
+      return imported && from !== null ? { from, name: imported.name } : null;
+    };
+    const scope: TimerNameScope = { ...syntax, importedFrom, scopeOf };
+    scopes.set(relPath, scope);
+    return scope;
+  };
+  return scopeOf;
+}
+
+/** The parameter of the nearest enclosing function that declares this name. */
+function enclosingParameter(identifier: ts.Identifier): ts.ParameterDeclaration | null {
+  for (let current = identifier.parent; !ts.isSourceFile(current); current = current.parent) {
+    if (!ts.isFunctionLike(current)) continue;
+    const parameter = current.parameters.find(
+      (candidate) => ts.isIdentifier(candidate.name) && candidate.name.text === identifier.text,
+    );
+    if (parameter) return parameter;
+  }
+  return null;
+}
+
+/** The names a string literal type or a union of them allows; none for any other type. */
+function literalTypeNames(type: ts.TypeNode): readonly string[] {
+  const names: string[] = [];
+  for (const member of ts.isUnionTypeNode(type) ? type.types : [type]) {
+    if (!ts.isLiteralTypeNode(member) || !ts.isStringLiteral(member.literal)) return [];
+    names.push(member.literal.text);
+  }
+  return names;
+}
+
+/** Values of a const, in this file or imported by name, read with `read`. */
+function constValues(
+  name: string,
+  scope: TimerNameScope,
+  hops: number,
+  read: (expression: ts.Expression, scope: TimerNameScope, hops: number) => readonly string[],
+): readonly string[] {
+  const local = scope.consts.get(name);
+  if (local) return local.flatMap((initializer) => read(initializer, scope, hops + 1));
+  const imported = scope.importedFrom(name);
+  const target = imported ? scope.scopeOf(imported.from) : null;
+  if (!imported || !target) return [];
+  return (target.topLevelConsts.get(imported.name) ?? []).flatMap((initializer) =>
+    read(initializer, target, hops + 1),
+  );
+}
+
+/** The names in a name list: an array literal, or a const (or imported const) holding one. */
+function nameListNames(
+  expression: ts.Expression,
+  scope: TimerNameScope,
+  hops: number,
+): readonly string[] {
+  if (hops > MAX_TIMER_NAME_HOPS) return [];
+  const node = unwrap(expression);
+  if (ts.isArrayLiteralExpression(node)) {
+    return node.elements.flatMap((element) =>
+      ts.isSpreadElement(element)
+        ? nameListNames(element.expression, scope, hops + 1)
+        : timerNames(element, scope, hops + 1),
+    );
+  }
+  return ts.isIdentifier(node) ? constValues(node.text, scope, hops, nameListNames) : [];
+}
+
+/** The names of the list whose method `call` invokes: `[...].some(cb)`, `NAMES.forEach(cb)`. */
+function receiverNameList(
+  call: ts.CallExpression,
+  scope: TimerNameScope,
+  hops: number,
+): readonly string[] {
+  const callee = unwrap(call.expression);
+  if (!ts.isPropertyAccessExpression(callee) && !ts.isElementAccessExpression(callee)) return [];
+  return nameListNames(callee.expression, scope, hops + 1);
+}
+
+/**
+ * The timer names an expression can take, resolved from the syntax tree: a
+ * string literal; a const initialised with one; a parameter annotated with a
+ * string literal or a union of them; a callback's first parameter when the
+ * callback goes to a method of a name list. Nothing for anything else.
+ */
+function timerNames(
+  expression: ts.Expression | undefined,
+  scope: TimerNameScope,
+  hops = 0,
+): readonly string[] {
+  if (!expression || hops > MAX_TIMER_NAME_HOPS) return [];
+  const node = unwrap(expression);
+  if (ts.isStringLiteral(node) || ts.isNoSubstitutionTemplateLiteral(node)) return [node.text];
+  if (!ts.isIdentifier(node)) return [];
+  const parameter = enclosingParameter(node);
+  if (!parameter) return constValues(node.text, scope, hops, timerNames);
+  if (parameter.type) return literalTypeNames(parameter.type);
+  const callback = parameter.parent;
+  const call = callback.parent;
+  if (
+    (ts.isArrowFunction(callback) || ts.isFunctionExpression(callback)) &&
+    callback.parameters[0] === parameter &&
+    ts.isCallExpression(call) &&
+    call.arguments.includes(callback)
+  ) {
+    return receiverNameList(call, scope, hops);
+  }
+  return [];
+}
+
+interface StartTimerUses {
+  readonly reads: ReadonlyMap<string, number>;
+  readonly clears: ReadonlyMap<string, number>;
+  /** `kind: file:line call('name', ...) in function`, one per counted call. */
+  readonly sites: readonly string[];
+  /** Start timers that no file in src/youtube/ sets any more. */
+  readonly unset: readonly string[];
+}
+
+/**
+ * RO-02: per file in src/youtube/, getManagedTimer() and clearManagedTimer()
+ * calls that can take a start timer the same file does not set. A call counts
+ * once however many such names it can take (a name list is one call).
+ */
+function collectStartTimerUses(sources: ReadonlyMap<string, string>): StartTimerUses {
+  const scopeOf = timerNameScopes(sources);
+  const reads = new Map<string, number>();
+  const clears = new Map<string, number>();
+  const sites: string[] = [];
+  const setInScope = new Set<string>();
+  for (const [relPath, text] of sources) {
+    if (!relPath.startsWith(START_TIMER_SCOPE) || !text.includes('ManagedTimer')) continue;
+    const scope = scopeOf(relPath);
+    if (!scope) continue;
+    const namesOf = (call: TimerCall): readonly string[] =>
+      call.list ? receiverNameList(call.list, scope, 0) : timerNames(call.argument, scope);
+    const setHere = new Set<string>();
+    for (const call of scope.timerCalls) {
+      if (call.kind === 'set') for (const name of namesOf(call)) setHere.add(name);
+    }
+    for (const name of setHere) setInScope.add(name);
+    for (const call of scope.timerCalls) {
+      if (call.kind === 'set') continue;
+      const counted = [...new Set(namesOf(call))].filter(
+        (name) => START_TIMER_NAMES.has(name) && !setHere.has(name),
+      );
+      if (counted.length === 0) continue;
+      const measured = call.kind === 'read' ? reads : clears;
+      measured.set(relPath, (measured.get(relPath) ?? 0) + 1);
+      sites.push(
+        `cross-file start-timer ${call.kind}: ${relPath}:${lineOf(scope.file, call.node)} ` +
+          `${call.callee}(${counted.map((name) => `'${name}'`).join(', ')}) in ` +
+          enclosingFunctionName(call.node),
+      );
+    }
+  }
+  const unset = [...START_TIMER_NAMES].filter((name) => !setInScope.has(name));
+  return { reads, clears, sites, unset };
 }
 
 // ── Exact comparison ─────────────────────────────────────────────────────
@@ -1806,6 +2319,12 @@ export interface ResourceOwnershipReport {
   readonly defaultLoaderWrites: number;
   readonly receiveSlotWrites: Readonly<Record<string, number>>;
   readonly mediaTuningSites: number;
+  /** CHECK 11: every counted write, `file:line method() in function`. */
+  readonly iframeAudioWriteSites: readonly string[];
+  /** CHECK 12 totals over src/youtube/. */
+  readonly startTimerUses: { readonly reads: number; readonly clears: number };
+  /** CHECK 12: every counted call, `kind: file:line call('name', ...) in function`. */
+  readonly startTimerSites: readonly string[];
 }
 
 function perFile(
@@ -2055,6 +2574,49 @@ export function analyzeResourceOwnership(input: ResourceOwnershipInput): Resourc
     findings,
   );
 
+  const iframeAudioWrites = perFile(facts, (f) => f.iframeAudioWriteSites.length, appOnly);
+  compareExact(
+    {
+      label: 'iframe audio write',
+      record: 'RO-12',
+      hint:
+        "request audio through youtube:set-volume or the start machines' desired-audio " +
+        'updates; a new writer needs a reasoned entry and the RO-12 record update',
+      measured: iframeAudioWrites,
+      baseline: IFRAME_AUDIO_WRITE_BASELINE,
+    },
+    findings,
+  );
+
+  const startTimers = collectStartTimerUses(input.sources);
+  compareExact(
+    {
+      label: 'cross-file start-timer read',
+      record: 'RO-02',
+      hint: "ask the timer's owner (the file that sets it) through an owner query instead",
+      measured: startTimers.reads,
+      baseline: START_TIMER_READ_BASELINE,
+    },
+    findings,
+  );
+  compareExact(
+    {
+      label: 'cross-file start-timer clear',
+      record: 'RO-02',
+      hint: "retire the start through the timer's owner (the file that sets it) instead",
+      measured: startTimers.clears,
+      baseline: START_TIMER_CLEAR_BASELINE,
+    },
+    findings,
+  );
+  for (const name of startTimers.unset) {
+    findings.push(
+      `START TIMER SET (RO-02): '${name}' is not set by ${TIMER_SET_CALL}() in ` +
+        `${START_TIMER_SCOPE} any more - update START_TIMER_NAMES and the RO-02 record in the ` +
+        'same change',
+    );
+  }
+
   const sinks: Record<string, number> = {};
   for (const check of pageStateChecks) sinks[check.label] = total(check.measured);
   const receiveSlotWrites: Record<string, number> = {};
@@ -2087,6 +2649,11 @@ export function analyzeResourceOwnership(input: ResourceOwnershipInput): Resourc
     defaultLoaderWrites: total(defaultLoaderWrites),
     receiveSlotWrites,
     mediaTuningSites: total(mediaTuningSites),
+    iframeAudioWriteSites: [...facts.entries()]
+      .filter(([relPath]) => appOnly(relPath))
+      .flatMap(([, f]) => f.iframeAudioWriteSites),
+    startTimerUses: { reads: total(startTimers.reads), clears: total(startTimers.clears) },
+    startTimerSites: startTimers.sites,
   };
 }
 
@@ -2129,10 +2696,15 @@ function main(argv: readonly string[]): void {
       `  Developer API authority fence writes: ${report.authorityFenceWrites}.\n` +
       `  Header loader default holder writes: ${report.defaultLoaderWrites}.\n` +
       `  system-audio receive slot writes: ${summary(report.receiveSlotWrites)}.\n` +
-      `  system-audio media tuning sites: ${report.mediaTuningSites}, all in ${MEDIA_TUNING_HOME}.`,
+      `  system-audio media tuning sites: ${report.mediaTuningSites}, all in ${MEDIA_TUNING_HOME}.\n` +
+      `  YouTube iframe audio writes: ${report.iframeAudioWriteSites.length}; cross-file ` +
+      `start-timer reads ${report.startTimerUses.reads}, clears ${report.startTimerUses.clears} ` +
+      `(sites${argv.includes('--report') ? ' below' : ' with --report'}).`,
   );
   if (argv.includes('--report')) {
     for (const pair of timingPairs.reportOnly) console.log(`    report-only: ${pair}`);
+    for (const site of report.iframeAudioWriteSites) console.log(`    iframe audio write: ${site}`);
+    for (const site of report.startTimerSites) console.log(`    ${site}`);
   }
 }
 

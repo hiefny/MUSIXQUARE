@@ -52,8 +52,9 @@ load epoch, play lock and `pendingPlayTime` policy. Records link to them instead
   write, retry). The resource-ownership guard counts only some callers today: page-lock claims,
   `SKIP_WAITING` sends, AudioContext `resume()`/`suspend()`, armed
   `beginTrustedSystemAudioReception` starts, the Worker broadcast endpoint, the duration
-  reader in `cloudflare/`, the Developer API authority fence writers and the header loader's
-  default-holder writers. See [what it does not check yet](#resource-ownership-guard).
+  reader in `cloudflare/`, the Developer API authority fence writers, the header loader's
+  default-holder writers and the YouTube iframe's `mute()`, `unMute()` and `setVolume()`
+  writers. See [what it does not check yet](#resource-ownership-guard).
 - **Deadline owner:** the module allowed to time out an attempt on the resource.
 - **Timing-constant home:** the module and constant names that hold the resource's timing values.
 - **Anchor tests:** the tests that pin the four cancellation cases: supersession (a newer attempt
@@ -287,6 +288,23 @@ RO-53 owner-in-place
   `src/player/background-return-sync.ts`. `src/youtube/native-control-authority.ts` asks a
   hand-kept timer-name list (`hasProtectedTransitionOwner`); Phase 6 replaces timer-name queries
   with owner queries before any timer merge.
+  - **Start timers** (the guard's CHECK 12 set, `START_TIMER_NAMES`): `'yt-auto-sync'`,
+    `'yt-host-local-start'`, `'yt-zero-start-external-fallback'`, `'yt-zero-start-host-fallback'`
+    and `'yt-zero-start-replacement-fallback'`, set in `player.ts`; `'yt-clock-action'`,
+    `'yt-seek-play'`, `'yt-rendezvous-buffer'`, `'yt-rendezvous-play'`,
+    `'yt-rendezvous-calibrate'` and `'yt-rendezvous-follow-up'`, set in `sync.ts`; and the PRO
+    coordinator nudge `'yt-pro-coordinator-local-nudge'` (`PRO_COORDINATOR_YOUTUBE_NUDGE_TIMER`
+    in `local-offset.ts`), set by the RO-13 manual-offset gate and runtime. A change that sets a
+    new start timer adds it here and to the guard in the same change.
+  - **Reads and clears from other files** (CHECK 12, per file in `src/youtube/`): on 2026-10-31
+    (`main` `23f29283`, App 9.0.27) 14 reads and 10 clears. Eleven of the read sites include the
+    nudge, whose name reads stay (RO-13 is owner-in-place). Phase 6 replaces the
+    `'yt-auto-sync'` reads in `sync.ts` and `iframe.ts` and the other six names in
+    `hasProtectedTransitionOwner`'s list with owner queries. The clears are `iframe.ts`'s
+    `resetResidentYouTubeSync` (three), `player.ts`'s `'yt-clock-action'` and `'yt-seek-play'`
+    clears in three places (six) and `sync.ts`'s nudge clear right after the owner's reset port
+    (one). `leaveSession`'s nameless `clearAllManagedTimers` in `src/network/peer.ts` clears
+    them all and is not counted.
 - **Lifecycle operations:** `loadVideoById` or `cueVideoById`, `pauseVideo`, `seekTo`, `mute` and
   `unMute`, `playVideo`, release acknowledgement, ABORT.
 - **Deadline owner:** the controller (`prepareTimeoutMs` 10 s, `releaseAckTimeoutMs` 1.8 s); the
@@ -1536,7 +1554,15 @@ RO-53 owner-in-place
   (`pro-playback:ui-control-pending` and `-settled`), whose handlers in `player.ts` push desired
   audio into the start machines through `updateYouTubeZeroStartDesiredAudioState` and
   `updateProYouTubeAuthorityDesiredAudioState`; the start machines.
-- **Lifecycle operations:** `mute`, `unMute`, `setVolume`, verified restore.
+- **Lifecycle operations:** `mute`, `unMute`, `setVolume`, verified restore. The guard's CHECK 11
+  counts direct `mute()`, `unMute()` and `setVolume()` calls per file: on 2026-10-31 (`main`
+  `23f29283`, App 9.0.27) 44, in `zero-start.ts` (12), `authority-arm.ts` (10), `player.ts`
+  (17), `iframe.ts` (3) and `retained-player-controller.ts` (2). A write through a helper counts
+  only inside the helper, so the baseline reasons name the helpers: `restoreFallbackAudio` in
+  `player.ts`, through which the host legacy recovery and the guest local fallback restore audio,
+  and `ensureRetainedYouTubePlayerHardMuted` in `iframe.ts`, which reaches the retained-player
+  controller's `issueHardMute`. The iOS prime `unMute()` in `primeYouTubePlayer` stays where it
+  is: it has to run inside the user gesture's call stack.
 - **Deadline owner:** each writer's own retry (for example the zero-start release unmute retry).
 - **Timing-constant home:** the audio-restore 120 ms and 8 attempts repeated in `zero-start.ts`,
   `authority-arm.ts` and `player.ts`. Target: `src/youtube/constants.ts`.
@@ -1551,8 +1577,8 @@ RO-53 owner-in-place
   - Visibility: `src/youtube/__tests__/youtube-owner-visibility.test.ts` "RO-12: a
     youtube:set-volume write and a PRO pause-gate settlement write the same audio while %s"
     (no visibility branch today).
-- **Status:** `duplicated`. Phase 6 (single iframe-audio owner, one verified restore, a ratchet on
-  direct audio writes).
+- **Status:** `duplicated`. Phase 6 (single iframe-audio owner, one verified restore; the ratchet
+  on direct audio writes is CHECK 11, added before the first Phase 6 train).
 
 ### RO-13 YouTube manual-offset transaction
 
@@ -3699,17 +3725,41 @@ and unrelated strings never count, and every baseline is an exact count or list 
     literals naming `stun.cloudflare.com` stay in `src/network/system-audio-media.ts`. The eager
     STUN entries in `src/network/peer.ts` and `src/network/standard-room-prerequisites.ts` are
     out of scope, because importing the deferred home there would pull it into the first load.
+11. **YouTube iframe audio writes, per file** (RO-12, Phase 6 T1): in `src/`, `mute()`,
+    `unMute()` and `setVolume()` calls on a receiver, the iframe API's methods (a bare `mute()`
+    is a local function and does not count; an optional call such as `player.unMute?.()` does).
+    The match is by name, so a write through a helper counts once, inside the helper; each
+    allowlist reason names the helpers whose callers write without a count of their own (see
+    RO-12). Phase 6 lowers the counts as one iframe-audio owner takes the writes; the iOS prime
+    `unMute()`, which must stay inside the gesture call stack, and the retained player's
+    hard-mute proof stay. `--report` lists every counted call with its function.
+12. **Cross-file YouTube start-timer reads and clears, per file** (RO-02, Phase 6 T1): in
+    `src/youtube/`, `getManagedTimer()` and `clearManagedTimer()` calls on a start timer (the set
+    in RO-02) that the same file does not set with `setManagedTimer()`. A name list handed to an
+    array method (`names.some((name) => getManagedTimer(name) !== null)`,
+    `names.some(getManagedTimer)`) counts once per call. Names resolve from the syntax tree
+    alone: a string literal; a `const` initialised with one, in the file (matched by name, not by
+    scope) or imported by name from another production file; a parameter annotated with a string
+    literal or a union of them (`setStateActionTimer` in `sync.ts` sets both state-action timers
+    that way); and a callback's first parameter when the callback goes to a method of a name list.
+    A name that does not resolve, such as a template with a substitution or an unannotated
+    parameter, counts neither as set nor as used, and a renamed import of the timer functions is
+    not seen. Every start timer must still be set somewhere in `src/youtube/`, so a renamed or
+    removed one fails until the set changes with it. `--report` lists every counted call with
+    its names and function.
 
 The requesters of `scheduleSessionReset` and `scheduleDocumentReload`, and each page navigation
 sink by function, are checked by `scripts/check-navigation-sinks.mts` (RO-23, Phase 2 C6-14).
 
-Not checked yet: callers of the other records' lifecycle operations (YouTube player commands,
-`claimPlaybackOwner` with a literal owner other than `'system-audio'`), receivers resolved by
-type (RO-44), module-level lifecycle slots (RO-45), timer-name manifests, shared phase unions,
-duplicated helper names, "mirrors" copy-marker comments, registered timings retyped as literals
-in requester files, and header loader
-holder IDs read from a property, a call or another module (RO-47). Until then, review those by
-hand against each record.
+Not checked yet: callers of the other records' lifecycle operations (YouTube player commands
+other than the iframe audio writes of CHECK 11, `claimPlaybackOwner` with a literal owner other
+than `'system-audio'`), receivers resolved by type (RO-44), module-level lifecycle slots
+(RO-45), timer names outside CHECK 12's start-timer set or outside `src/youtube/` (for example
+`src/player/transport.ts` reading the playlist's `'ended-advance-next'` timer), timer names
+CHECK 12 cannot resolve, the nameless `clearAllManagedTimers` in `leaveSession`, shared phase
+unions, duplicated helper names, "mirrors" copy-marker comments, registered timings retyped as
+literals in requester files, and header loader holder IDs read from a property, a call or
+another module (RO-47). Until then, review those by hand against each record.
 
 ## How to change this registry
 

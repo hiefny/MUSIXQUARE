@@ -93,11 +93,38 @@ runbooks. Neither belongs in a general setup document.
 
 ## Maintained evidence and completed records
 
+- [App 9.0.27 train: the iPhone listener's LAN-direct pair judgement and diagnostic lines, and chat keyboard and screen reader focus (2026-10-30)](design/app-9-0-27-train-2026-10-30.md):
+  assembled and checked locally on main `d0248df2` (9.0.26 / v799 and its record), not merged or
+  released, no version bump yet (planned 9.0.27 / v800, App build 800, update dialog, target `app`).
+  The branch `agent/app-9-0-27-train` carries the focus increment's eight commits (`07acd639` to
+  `0fc353c1`), the LAN-direct increment's nine (`9192512d` to `c371dfbf`), the tests-only assembly
+  commit `924b8557` and its docs commit; both increments moved without conflicts. Nine App runtime
+  paths (five LAN-direct, four focus), none in the other five Workers, no runtime dependency change;
+  the build floor stays 795. The report lists the owner decisions (nothing on screen changes), both
+  increments with their tested SHAs before and after the move and their tests-first parent
+  failures, the review findings and their handling (the assembly commit pins focus that stays on the
+  message log itself), mixed versions (a 9.0.26 sharer and a 9.0.27 listener can go LAN-direct; a
+  9.0.26 listener still uses the SFU), the rollback to the checkpoint's 9.0.26 / v799 App
+  `b8dc4281`, the deploy conditions, what users notice (when the peer's mDNS name never resolves the
+  SFU fallback can come up to about 0.5 s later; when LAN-direct engages the SFU wait disappears),
+  the QA rounds, what was not verified and a blind post-deploy procedure for the owner's Edge sharer
+  and iPhone Safari listener (five shares with `?mxqrLog=info`; the judging criteria read the new
+  pair-check and SFU subscription lines and are not handed out).
+- [Chat keyboard and screen reader focus: the sheet's Tab cycle, a hiding pinned notice, removed messages (2026-10-30)](design/chat-keyboard-focus-2026-10-30.md):
+  in the App 9.0.27 / v800 train above, not merged or released (owner decision 2026-10-30: nothing
+  on screen changes, keyboard behaviour only). The phone and tablet chat sheet's Tab cycle skips the
+  hidden pinned notice's buttons, and when a pinned notice hides or a focused message is cleared or
+  pruned at the 200-row cap, focus moves to the chat drawer, which draws no ring, instead of
+  dropping to the page; focus on the message log itself stays. App only (four runtime files in
+  `src/ui`); screenshots before and after differ by 0 px. The note also corrects the 9.0.26 chat
+  sheet note: under the repository's jsdom 30.1.2 the Tab cycle's unit rows fail on their parent.
 - [PRO system-audio LAN-direct: the iPhone listener's pair judgement and diagnostic lines (2026-10-30)](design/pro-lan-direct-ios-listener-2026-10-30.md):
-  implemented and checked locally on main `cbbc56d9` (9.0.26 / v799), not merged or released, no
-  version bump yet (target `app`, the next App update; owner decision 2026-10-30, nothing on screen
-  changes). In the 9.0.26 post-deploy check an iPhone Safari listener judged its own LAN pair
-  non-local about 0.5 s into its proof, so every share fell back to the SFU. iOS Safari, the
+  implemented and checked locally on main `cbbc56d9` (9.0.26 / v799), then moved without conflicts
+  into the App 9.0.27 / v800 train above; not merged or released, no version bump yet (target
+  `app`; owner decision 2026-10-30, nothing on screen changes). The note's own Status cell keeps its
+  pre-train text; the train report and the release record hold the release state. In the 9.0.26
+  post-deploy check an iPhone Safari listener judged its own LAN pair non-local about 0.5 s into its
+  proof, so every share fell back to the SFU. iOS Safari, the
   ICE-controlled answerer, meets the sharer's check before resolving its mDNS name, so its native
   selected pair keeps a peer-reflexive remote while the statistics refine the same connection to the
   added host candidate; the PRO rule refused any non-host pair at once. Both ends now hold such a
@@ -217,8 +244,10 @@ runbooks. Neither belongs in a general setup document.
   on its parent), the checks on `d4f11e1d`, the 390x844 light and dark screenshots before and after
   (kept outside the repository for the owner; only the X's glyph differs), the owner step for
   `chat.close` translation suggestions after the release, a gap in the sheet's keyboard Tab cycle
-  found on the way and left as it was (now a follow-up item in the release record), and what was not
-  verified.
+  found on the way and left as it was (now a follow-up item in the release record, fixed in the App
+  9.0.27 train), and what was not verified. Its finding says jsdom focuses hidden buttons, so unit
+  tests cannot catch the gap; that is wrong under the repository's jsdom 30.1.2, and the chat
+  keyboard focus note corrects it without changing this note.
 - [Phase 5.5 R3: the App stops reading PRO snapshot schemaVersion 1, 9.0.25 (2026-10-30)](design/phase5-5-r3-v1-receive-stop-2026-10-30.md):
   released on 2026-10-30 07:18 KST in Release 40964572017 (PR #532, squash `b8ae59e7`): the third
   runtime release of Phase 5.5 and its last App one (9.0.25 / v798, App build 798, bump `01f1a19b`; target `app`

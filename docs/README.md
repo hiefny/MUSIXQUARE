@@ -101,13 +101,18 @@ runbooks. Neither belongs in a general setup document.
   LAN-direct stops it before the unchanged `lan-direct` commit, and a failed one attaches the track
   and commits the prepared descriptor at once. Owner-accepted cost: a LAN-direct share usually
   asks for one Cloudflare Realtime publisher session that never carries media, and spends one
-  admission of the Worker's per-capability new-session limit (three owner questions on that limit
-  and on the share's one SFU attempt are listed in the note). No wire, server, timer, retry or
+  admission of the Worker's per-capability new-session limit. The release owner settled the
+  review's three owner questions under the owner's delegation (round 3, reversible by the owner):
+  a held fallback already lost when LAN-direct fails (a failed request such as a transient 502 or
+  429, or a connection lost while held) leads to 9.0.27's one ordinary publish and its commit, so
+  at most one SFU publish follows the LAN-direct failure as in 9.0.27, and the unchanged
+  new-session limit is accepted as a rare case to observe. No wire, server, timer, retry or
   timing value; RO-20 extended in place. The held fallback's lines (Prepared, Released, Closed
   unused, Cancelled, Closed released, failed) use the `[PRO SystemAudio]` prefix, so a LAN-direct
   share still logs no `[ProSysAudioSFU]` line, and `[ProSysAudioSFU] Published generation N` comes
   only after the room committed the fallback. Round 1: tests first `1b2be559`, runtime `17002160`;
-  review round 2: tests first `25e029ba` (25 rows fail on round 1), runtime `4bcc52fb`. In a
+  review round 2: tests first `25e029ba` (25 rows fail on round 1), runtime `4bcc52fb`; round 3:
+  tests first `926a5a95` (16 rows fail on round 2), runtime `d4934909`. In a
   Chromium harness running the real service, SFU and LAN-direct modules against a fake Cloudflare
   whose answering connection receives the media (publish modelled at 0.6, 1.7 and 3 s), the first
   RTP packet of a share whose pair never refines arrives 1.68-1.81 s sooner at 1.7-3 s (0.60-0.64 s

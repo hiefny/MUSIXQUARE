@@ -546,7 +546,7 @@ connection, so proof from the replaced tab cannot satisfy the new target. The
 signaling server independently fences the private presence incarnation and
 current target socket.
 
-The publisher starts its one Cloudflare Realtime SFU publish at the same moment
+The publisher starts its Cloudflare Realtime SFU publish at the same moment
 as the LAN-direct attempt, with the sender holding no track (the held fallback,
 App 9.0.28; `holdMedia` in `src/network/pro-system-audio-sfu.ts`). If any
 initial target fails, it attaches the original stereo track to that already
@@ -557,13 +557,17 @@ before the `lan-direct` commit: its session id never reaches the Durable
 Object, the room state or any listener, and its sender never carried audio.
 The publisher reports the publication (its `Published generation` line) only
 after the room committed it. The held publish has no timer, retry or timing
-value of its own and is the share's one SFU attempt: a held publish whose
-request failed, or whose connection was lost, during the LAN-direct window
-fails the share at the LAN-direct failure. 9.0.27 started its publish only
-after that decision, so an early network blip did not touch it, and a
-connection lost between publish and commit was recovered after the commit;
-no second publish is started for these cases. A share without other devices
-prepares none. If a participant arrives after
+value of its own. If it is already lost when the LAN-direct attempt fails (a
+request failed, for example a transient Worker 502 or the new-session limit's
+429, or its connection failed while held), the publisher does what 9.0.27 did
+at that moment: one ordinary SFU publish, which reports itself before its
+commit as before, then the commit (release owner decision 2026-10-31 under the
+owner's delegation; the owner can reverse it). Such a share asks for a second
+Realtime session, and a refusal of that publish fails the share as 9.0.27's
+failed publish did. A held publish still in flight or held at that moment is
+the one SFU attempt after the LAN-direct failure, so, as in 9.0.27, at most one
+SFU publish follows that failure. A share without other devices prepares
+none. If a participant arrives after
 direct commit while the room remains within the four-device system-audio limit,
 the publisher must prove another mDNS-local route to that exact target
 incarnation. A timeout, an incompatible or late old client, a non-host

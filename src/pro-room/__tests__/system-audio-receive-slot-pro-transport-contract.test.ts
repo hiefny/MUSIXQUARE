@@ -89,6 +89,7 @@ import {
   sendLanCandidate,
   sendLanClose,
   sendLanOffer,
+  sendLanTrackAttached,
   type LanPublisherRoute,
 } from '../../network/__tests__/__helpers__/pro-system-audio-transport-natives.ts';
 import {
@@ -285,7 +286,8 @@ const LAN_PROOF_POLL_MS = 25;
 
 /**
  * The remote LAN-direct publisher offers its track in one round trip; the
- * receiver proves its pair on the next proof poll after the candidate.
+ * receiver proves its pair on the next proof poll after the candidate, and the
+ * publisher then says the track carries audio.
  */
 async function lanPublisherDelivers(
   route = lanRoute(),
@@ -296,6 +298,8 @@ async function lanPublisherDelivers(
   await advance(0);
   sendLanCandidate(route);
   await advance(LAN_PROOF_POLL_MS);
+  sendLanTrackAttached();
+  await advance(0);
 }
 
 const routes = [
@@ -736,8 +740,14 @@ describe('PRO LAN-direct reception through the real transport', () => {
     expect(slot().receiving).toBe(false);
     sendLanCandidate(lanRoute());
     await advance(LAN_PROOF_POLL_MS - 1);
-    expect(slot().receiving).toBe(false);
+    expect(lanConnections()[0].probeChannel.sent).toEqual([]);
     await advance(1);
+    // Proven: the receiver tells its publisher, but waits for the publisher's
+    // word that the track carries audio before it attaches.
+    expect(lanConnections()[0].probeChannel.sent).toEqual(['receiver-pair-proven']);
+    expect(slot().receiving).toBe(false);
+    sendLanTrackAttached();
+    await advance(0);
     expect(slot()).toMatchObject({
       receiving: true,
       activity: 'playing',

@@ -143,7 +143,8 @@ trip (since 2026-10-30; before, a data-channel-only probe and then a media re-of
 single offer carries the probe data channel and one audio m-section whose sender holds no
 track, the receiver answers, proves its own selected pair and says so on the probe channel,
 and the publisher attaches the original stereo audio track (`replaceTrack`, no renegotiation)
-only after its own proof and the receiver's. No audio leaves before both proofs. The answer
+only after its own proof and the receiver's, then says so on the same channel; the receiver
+hands its track to playback only after that word. No audio leaves before both proofs. The answer
 must arrive within 2 s of the offer and both proofs within 1 s of the answer. The offer and
 answer keep the relay's `phase: "media"` frame shape; a receiver ignores the retired probe
 offer, so an older and a newer client never build a route and use the SFU. Candidate-bearing

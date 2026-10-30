@@ -29,12 +29,13 @@ import { makeAudioTrack } from './system-audio-receive-harness.ts';
 // 192.168.1.10 to an mDNS remote whose foundation and port match LAN_CANDIDATE,
 // so the receiver proves its pair on the first proof poll (every 25 ms) after
 // that candidate arrives; the offer fires ontrack with the track its `a=msid:`
-// line names (none when the line is missing). Runtime states go to
-// onconnectionstatechange and oniceconnectionstatechange, as the receiver
-// registers them.
+// line names (none when the line is missing); setLocalDescription(answer) also
+// opens the publisher's probe channel (ondatachannel), whose sent messages are
+// kept and on which `sendLanTrackAttached` delivers the publisher's
+// track-attached word. Runtime states go to onconnectionstatechange and
+// oniceconnectionstatechange, as the receiver registers them.
 //
-// Neither mode models ICE, DTLS, media flow, track 'ended' events, the probe
-// data channel (so no receiver pair proof reaches a publisher) or the
+// Neither mode models ICE, DTLS, media flow, track 'ended' events or the
 // publisher side (addTrack, replaceTrack, sctp).
 
 type PeerConnectionMode = 'sfu' | 'lan';
@@ -42,6 +43,16 @@ type PeerConnectionMode = 'sfu' | 'lan';
 interface FakeReceiver {
   track: MediaStreamTrack;
   playoutDelayHint?: number;
+}
+
+interface FakeProbeChannel {
+  label: string;
+  readyState: 'open';
+  /** Messages this receiver sent its publisher, in order. */
+  sent: unknown[];
+  send: (data: unknown) => void;
+  onopen: (() => void) | null;
+  onmessage: ((event: { data: unknown }) => void) | null;
 }
 
 /** The publisher's one LAN host candidate: foundation 'auto', port 5000. */
@@ -62,6 +73,18 @@ export class ProTransportPeerConnection {
   onconnectionstatechange: (() => void) | null = null;
   oniceconnectionstatechange: (() => void) | null = null;
   ontrack: ((event: unknown) => void) | null = null;
+  ondatachannel: ((event: { channel: FakeProbeChannel }) => void) | null = null;
+  /** The publisher's probe channel as this receiver sees it (LAN mode, once answered). */
+  readonly probeChannel: FakeProbeChannel = {
+    label: 'MUSIXQUARE-lan-probe',
+    readyState: 'open',
+    sent: [],
+    send(data: unknown) {
+      this.sent.push(data);
+    },
+    onopen: null,
+    onmessage: null,
+  };
   closed = false;
   /** Every remote audio receiver this connection exposed, in order. */
   readonly receivers: FakeReceiver[] = [];
@@ -146,6 +169,7 @@ export class ProTransportPeerConnection {
       },
     });
     if (this.connectionState !== 'connected') this.setConnectionState('connected');
+    this.ondatachannel?.({ channel: this.probeChannel });
   }
 
   async addIceCandidate(candidate: RTCIceCandidateInit): Promise<void> {
@@ -303,6 +327,15 @@ export function sendLanOffer(
         `m=audio 9 UDP/TLS/RTP/SAVPF 111\r\na=rtpmap:111 opus/48000/2\r\n${msid}`,
     },
   });
+}
+
+/**
+ * The publisher's word, on the newest LAN connection's probe channel, that the
+ * track now carries audio (it sends it after both ends proved the pair).
+ */
+export function sendLanTrackAttached(): void {
+  const connection = ProTransportPeerConnection.of('lan').at(-1);
+  connection?.probeChannel.onmessage?.({ data: 'publisher-track-attached' });
 }
 
 export function sendLanCandidate(route: LanPublisherRoute): void {

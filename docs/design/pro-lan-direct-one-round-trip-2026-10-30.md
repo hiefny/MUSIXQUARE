@@ -35,18 +35,25 @@ Standard 방은 local로 붙었고(방장과 폰 양쪽 `/debug`), 그러니 망
 3. 응답을 시작부터 2초 안에 받아야 한다(`DIRECT_NEGOTIATION_TIMEOUT_MS`, 그대로).
 4. 응답 뒤 1초 안에(`DIRECT_PAIR_PROOF_TIMEOUT_MS`, 새 상수) 자기 쪽 선택 쌍 증명(규칙은 그대로)과 수신자의 증명 알림
    (탐색 채널의 `receiver-pair-proven` 메시지)을 모두 받아야 한다.
-5. 둘 다 되면 `replaceTrack(캡처 트랙)`으로 소리를 붙인다(재협상 없음). 그 전에는 소리가 나가지 않는다.
-6. 경로마다 결과 한 줄을 info로 남긴다: `[ProSysAudioDirect] LAN route to <id 끝 4자> proven in N ms (answer …, pair …,
+5. 둘 다 되면 `replaceTrack(캡처 트랙)`으로 소리를 붙이고(재협상 없음), 같은 채널로 `publisher-track-attached`를
+   보낸다. 그 전에는 소리가 나가지 않는다. 경로의 `provenLocal`은 이 부착까지 끝난 뒤에만 선다.
+6. 어떤 단계에서든 실패한 경로는 바로 닫고 목록에서 뺀다(시한 타이머보다 먼저 포기한 단계도). 늦은 참여의 재조정이 겹칠 때
+   실패한 경로가 남아 소리 없이 확정되는 일을 막는다.
+7. 응답은 한 번만 적용한다(적용 중에 같은 응답이 또 오면 무시).
+8. 경로마다 결과 한 줄을 info로 남긴다: `[ProSysAudioDirect] LAN route to <id 끝 4자> proven in N ms (answer …, pair …,
    receiver …)` 또는 `… not proven at <단계> after N ms (<원인>; …)`. 단계는 offer, answer, pair, receiver-proof, attach,
-   원인은 deadline, non-local, disconnected, closed, error 또는 경로를 닫은 이유(예: `receiver-fallback`, `candidate-rejected`)다.
-7. 첫 시도에서 한 경로가 실패하면 그 시도를 바로 끝낸다(다른 경로를 기다리지 않음). 섞인 방(LAN 폰 + 원격 청취자)이
+   원인은 deadline, non-local, disconnected, closed, error, attach-signal-failed 또는 경로를 닫은 이유(예:
+   `receiver-fallback`, `candidate-rejected`)다.
+9. 첫 시도에서 한 경로가 실패하면 그 시도를 바로 끝낸다(다른 경로를 기다리지 않음). 섞인 방(LAN 폰 + 원격 청취자)이
    느린 LAN 경로 때문에 늦게 SFU로 가지 않게 하려는 것이다.
 
 수신자
 
 1. 제안을 받으면 곧바로 원격 설명을 적용하고 응답을 보낸다(스테레오 SDP). 제안에는 오디오 칸이 정확히 하나여야 한다.
-2. 응답 뒤 자기 쪽 선택 쌍을 증명한다(창 2초, 그대로). 증명되면 탐색 채널로 알리고, 그때부터 트랙을 넘긴다(live일 때).
-   증명 실패는 `receiver-locality-unproven`으로 경로를 닫고 info 한 줄을 남긴다. live 전에 끝난 경로도 이유를 info로 남긴다.
+2. 응답 뒤 자기 쪽 선택 쌍을 증명한다(창 2초, 그대로). 증명되면 탐색 채널로 알린다. 트랙은 증명, 트랙 도착, 공유자의
+   `publisher-track-attached` 알림이 모두 있어야 넘긴다(live일 때). 증명 뒤 5초 안에 트랙이나 그 알림이 없으면 예전처럼
+   `receiver-track-timeout`으로 대체를 요청한다. 증명 실패는 `receiver-locality-unproven`으로 경로를 닫고 info 한 줄을 남긴다.
+   live 전에 끝난 경로도 이유를 info로 남긴다.
 3. 트랙은 브라우저가 붙인 id와 상관없이 그 경로의 오디오 트랙 하나를 받는다(전에는 신호의 `trackId`와 같아야 했다).
    Unified Plan 브라우저가 원격 트랙 id를 송신 트랙 id와 다르게 줄 수 있어서다. 한 경로에 오디오 칸이 하나뿐이므로 다른
    트랙을 잘못 받을 수 없다.
@@ -88,7 +95,27 @@ Node 24.20.0 / npm 12.0.2(저장소 고정 버전), Windows.
   - `src/pro-room/__tests__/system-audio-receive-slot-pro-transport-contract.test.ts` 41, `system-audio-pro-receive-evidence-logs
     .test.ts` 5 통과(제안 하나로 바꾸고, 수신자 증명 줄을 증거 줄로 고정).
   - `tsc -p tsconfig.json`, `tsc -p tsconfig.test.json`, ESLint, Prettier, `check-resource-ownership`, `check-dead-exports` 통과.
-  - 전체 단위 시험은 아래 결과 줄에 적는다.
+  - 전체 단위 시험(`vitest run --maxWorkers=6`, `9b3ca4aa` 위): 706 files / 16,756 tests 통과, 0 실패(377 s).
+
+### 2. 독립 코드 검토와 반영(2026-10-30)
+
+변경 의도만 주고 결론은 주지 않은 별도 검토(읽기 전용)가 `9b3ca4aa`에서 세 가지를 찾았다. 모두 반영했고, 반영 커밋의 새
+행은 `9b3ca4aa` 모듈에서 실패하고 반영 뒤 통과함을 확인했다.
+
+- P2: 수신자 알림 대기가 1초 시한 타이머보다 먼저 포기하면(공유자 탭이 가려져 타이머가 늦을 때 등) 경로가 닫히지 않고
+  `provenLocal`이 참인 채 남았다. 겹친 늦은 참여 재조정이 그 경로를 소리 없이 확정할 수 있었다. 반영: 실패한 경로는 항상
+  닫고 빼며, `provenLocal`은 부착 뒤에만 선다. 시험: 겹친 재조정에서 실패 경로가 닫히고 새 경로로 다시 협상해 소리가 붙음.
+- P3: 늦은 참여에서 수신자가 공유자의 부착 전에 트랙을 재생으로 넘겨, 공유자가 그 뒤 실패하고 닫기 신호를 잃으면 소리 없이
+  남을 수 있었다. 반영: 공유자의 `publisher-track-attached` 알림 뒤에만 넘기고, 5초 안에 오지 않으면 대체 요청. 시험: 알림이
+  없으면 5초에 `receiver-track-timeout`, 알림이 오면 곧바로 넘김, 다른 메시지는 무시.
+- P4(예전부터 있던 것): 응답 적용 중 같은 응답이 다시 오면 두 번째 적용이 실패해 멀쩡한 경로를 닫았다. 반영: 응답은 한 번만
+  적용. 시험: 1 ms 뒤 같은 응답이 다시 와도 LAN-direct로 붙고 응답 적용은 한 번.
+- 검토가 이상 없다고 본 것: 두 증명 전 소리 없음, 첫 실패 종료의 펜스, 수신자 증명 반복의 펜스, Chromium/Safari의
+  `ondatachannel`·`onopen` 순서, 활성화 재증명·live 대체·후보 한도·닫기 처리, 섞인 버전 두 방향.
+
+반영 뒤: 직접 경로 시험 65, PRO 수신 슬롯 전송 계약 41, 청취자 증거 줄 5 통과. `tsc`(앱, 시험), ESLint, Prettier,
+`check-resource-ownership`, `check-dead-exports` 통과. 전체 단위 시험 결과는 아래 줄.
+
 - 확인하지 않은 것: 실기기(Edge 공유 + iOS Safari 청취, 같은 Wi-Fi). 브라우저 시험(E2E)에는 LAN-direct 행이 없다. 특히
   실기기에서만 알 수 있는 것: iOS Safari의 데이터 채널 열림과 `send`, 빈 송신기에 트랙을 붙인 뒤의 소리, Safari가 주는 원격
   트랙 id, 오디오 칸이 든 첫 제안의 응답 시간.

@@ -66,6 +66,7 @@ let nextSenderParameters: Array<() => RTCRtpSendParameters>;
 
 const PROBE_CHANNEL_LABEL = 'MUSIXQUARE-lan-probe';
 const RECEIVER_PAIR_PROVEN = 'receiver-pair-proven';
+const PUBLISHER_TRACK_ATTACHED = 'publisher-track-attached';
 
 interface MockChannel {
   label: string;
@@ -258,7 +259,14 @@ class MockRTCPeerConnection {
 
   /** The remote receiver's pair proof arriving on the publisher's probe channel. */
   emitReceiverProof(data: unknown = RECEIVER_PAIR_PROVEN): void {
+    // A message arrives only on an open channel.
+    this.probeChannel.readyState = 'open';
     this.probeChannel.onmessage?.({ data });
+  }
+
+  /** The remote publisher's track-attached message, as a receiver's channel gets it. */
+  emitPublisherAttached(data: unknown = PUBLISHER_TRACK_ATTACHED): void {
+    this.remoteChannel.onmessage?.({ data });
   }
 
   async getStats(): Promise<RTCStatsReport> {
@@ -742,6 +750,8 @@ describe('PRO system-audio LAN-direct publisher probe', () => {
         ),
       ).toEqual([null, 'capture-stereo']);
       expect(pc.sendingTrack()?.id).toBe('capture-stereo');
+      // Then it tells the receiver, which hands its track over only now.
+      expect(pc.probeChannel.send).toHaveBeenCalledWith(PUBLISHER_TRACK_ATTACHED);
     }
     for (const targetParticipantId of [receiverA, receiverB]) {
       expect(
@@ -1345,6 +1355,14 @@ describe('PRO system-audio LAN-direct receiver fencing', () => {
         publicationId,
       }),
     ).resolves.toBe(true);
+    // Live and proven, but the track waits for the publisher's word that
+    // audio flows on it; any other message is not that word.
+    await Promise.resolve();
+    peerConnections[0]!.emitPublisherAttached('receiver-pair-proven');
+    peerConnections[0]!.emitPublisherAttached({ attached: true });
+    await Promise.resolve();
+    expect(callbacks.onReceiverTrackReady).not.toHaveBeenCalled();
+    peerConnections[0]!.emitPublisherAttached();
     await vi.waitFor(() => expect(callbacks.onReceiverTrackReady).toHaveBeenCalledTimes(1));
     const deliveredEvent = callbacks.onReceiverTrackReady.mock.calls[0]?.[0];
     expect(deliveredEvent?.isCurrent()).toBe(true);
@@ -2383,5 +2401,147 @@ describe('PRO system-audio LAN-direct one round trip with a phone-paced receiver
     expect(
       setRemoteDescription?.mock.calls.filter(([description]) => description.type === 'answer'),
     ).toHaveLength(1);
+  });
+
+  // A stage that gives up before its deadline timer (here a non-local pair)
+  // must not leave its route behind: an overlapping reconcile pass would find
+  // it and commit a route whose sender never got the track.
+  it('retires a late-join route that fails before its stage deadline, so an overlapping reconcile renegotiates it', async () => {
+    vi.useFakeTimers();
+    const callbacks = configureCallbacks();
+    await direct.attemptProSystemAudioDirectPublication({
+      track: audioTrack('capture-stereo'),
+      generation: 7,
+      publicationId,
+      targets: [],
+    });
+    await direct.activateProSystemAudioDirectPublication({
+      ownerParticipantId: publisherId,
+      generation: 7,
+      publicationId,
+    });
+    installPacedReceivers([
+      { id: receiverA, answerMs: PROBE_ANSWER_MS, connects: true },
+      { id: receiverA, answerMs: PROBE_ANSWER_MS, connects: true },
+    ]);
+    nextLocalities.push('non-local', 'host-host');
+
+    const first = direct.reconcileProSystemAudioDirectTargets([target(receiverA)]);
+    await vi.advanceTimersByTimeAsync(PROBE_ANSWER_MS + 10);
+    // A presence update lands while the first route proves its pair.
+    const overlapping = direct.reconcileProSystemAudioDirectTargets([target(receiverA)]);
+    await vi.advanceTimersByTimeAsync(3_000);
+
+    await expect(Promise.all([first, overlapping])).resolves.toEqual([true, true]);
+    expect(peerConnections).toHaveLength(2);
+    expect(peerConnections[0]?.close).toHaveBeenCalledTimes(1);
+    expect(peerConnections[0]!.sendingTrack()).toBeNull();
+    expect(peerConnections[1]!.sendingTrack()?.id).toBe('capture-stereo');
+    expect(callbacks.onLiveRouteFallback).not.toHaveBeenCalled();
+    expect(infoLines()).toEqual([
+      expect.stringMatching(/not proven at pair after \d+ ms \(non-local; answer \d+\)$/),
+      expect.stringMatching(/proven in \d+ ms \(answer \d+, pair \d+, receiver \d+\)$/),
+    ]);
+  });
+
+  it('ignores a duplicate answer that arrives while the first one is still applied', async () => {
+    vi.useFakeTimers();
+    configureCallbacks();
+    installPacedReceivers([{ id: receiverA, answerMs: PROBE_ANSWER_MS, connects: true }]);
+    const pacedSend = bridgeMocks.send.getMockImplementation()!;
+    bridgeMocks.send.mockImplementation((channel, payload) => {
+      const sent = pacedSend(channel, payload);
+      // The relay delivers the same answer twice, 1 ms apart.
+      if (payload.kind === 'offer') setTimeout(() => pacedSend(channel, payload), 1);
+      return sent;
+    });
+    // A real connection rejects a second answer once the first is applied.
+    const paced = setRemoteDescription!.getMockImplementation()!;
+    setRemoteDescription!.mockImplementation(async function (
+      this: MockRTCPeerConnection,
+      description: RTCSessionDescriptionInit,
+    ) {
+      if (description.type === 'answer' && this.remoteDescription?.type === 'answer') {
+        throw new DOMException('Called in wrong state: stable', 'InvalidStateError');
+      }
+      await new Promise((resolve) => setTimeout(resolve, 5));
+      return paced.call(this, description);
+    });
+    const attempt = direct.attemptProSystemAudioDirectPublication({
+      track: audioTrack('capture-stereo'),
+      generation: 7,
+      publicationId,
+      targets: [target(receiverA)],
+    });
+
+    await vi.advanceTimersByTimeAsync(PROBE_ANSWER_MS + 500);
+    await expect(attempt).resolves.toEqual(
+      expect.objectContaining({ transport: 'lan-direct', publicationId }),
+    );
+    expect(
+      setRemoteDescription!.mock.calls.filter(([description]) => description.type === 'answer'),
+    ).toHaveLength(1);
+  });
+});
+
+describe('PRO system-audio LAN-direct receiver hand-over waits for the attached track', () => {
+  it('falls back when a live, proven receiver never hears that the publisher attached its track', async () => {
+    vi.useFakeTimers();
+    localParticipantId = receiverA;
+    receiverTrackId = 'remote-stereo-track';
+    const callbacks = configureCallbacks();
+    const negotiationId = 'negotiation_000000000031';
+    // A late joiner: the publication is already live when the offer arrives.
+    await direct.activateProSystemAudioDirectPublication({
+      ownerParticipantId: publisherId,
+      generation: 11,
+      publicationId,
+    });
+    emitRelay(publisherId, publisherOffer(negotiationId));
+    await vi.advanceTimersByTimeAsync(0);
+    emitRelay(publisherId, publisherCandidate(negotiationId, safeCandidate('auto')));
+    await vi.advanceTimersByTimeAsync(25);
+    expect(peerConnections[0]?.remoteChannel.send).toHaveBeenCalledWith(RECEIVER_PAIR_PROVEN);
+    // The track arrived and the pair is proven, but no audio flows on it yet.
+    expect(callbacks.onReceiverTrackReady).not.toHaveBeenCalled();
+
+    await vi.advanceTimersByTimeAsync(4_999);
+    expect(callbacks.onLiveRouteFallback).not.toHaveBeenCalled();
+    await vi.advanceTimersByTimeAsync(1);
+    expect(callbacks.onReceiverTrackReady).not.toHaveBeenCalled();
+    expect(callbacks.onLiveRouteFallback).toHaveBeenCalledWith({
+      role: 'receiver',
+      reason: 'receiver-track-timeout',
+      participantId: publisherId,
+      generation: 11,
+      publicationId,
+    });
+    expect(peerConnections[0]?.close).toHaveBeenCalledTimes(1);
+  });
+
+  it('hands a live receiver its track as soon as the publisher says it is attached', async () => {
+    vi.useFakeTimers();
+    localParticipantId = receiverA;
+    receiverTrackId = 'remote-stereo-track';
+    const callbacks = configureCallbacks();
+    const negotiationId = 'negotiation_000000000032';
+    await direct.activateProSystemAudioDirectPublication({
+      ownerParticipantId: publisherId,
+      generation: 11,
+      publicationId,
+    });
+    emitRelay(publisherId, publisherOffer(negotiationId));
+    await vi.advanceTimersByTimeAsync(0);
+    emitRelay(publisherId, publisherCandidate(negotiationId, safeCandidate('auto')));
+    await vi.advanceTimersByTimeAsync(25);
+    peerConnections[0]!.emitPublisherAttached();
+    await vi.advanceTimersByTimeAsync(0);
+
+    expect(callbacks.onReceiverTrackReady).toHaveBeenCalledTimes(1);
+    expect(callbacks.onReceiverTrackReady).toHaveBeenCalledWith(
+      expect.objectContaining({ track: expect.objectContaining({ id: 'remote-stereo-track' }) }),
+    );
+    await vi.advanceTimersByTimeAsync(10_000);
+    expect(callbacks.onLiveRouteFallback).not.toHaveBeenCalled();
   });
 });

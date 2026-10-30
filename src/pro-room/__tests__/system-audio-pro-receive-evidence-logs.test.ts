@@ -50,6 +50,7 @@ import {
   proRelay,
   sendLanCandidate,
   sendLanOffer,
+  sendLanTrackAttached,
   type LanPublisherRoute,
 } from '../../network/__tests__/__helpers__/pro-system-audio-transport-natives.ts';
 import {
@@ -192,13 +193,16 @@ const lanRoute: LanPublisherRoute = {
 
 /**
  * The remote LAN-direct publisher offers its track in one round trip; the
- * receiver proves its pair on the next 25 ms proof poll after the candidate.
+ * receiver proves its pair on the next 25 ms proof poll after the candidate,
+ * and the publisher then says the track carries audio.
  */
 async function lanPublisherDelivers(): Promise<void> {
   sendLanOffer(lanRoute, 'direct-audio-1');
   await advance(0);
   sendLanCandidate(lanRoute);
   await advance(25);
+  sendLanTrackAttached();
+  await advance(0);
 }
 
 beforeAll(() => {

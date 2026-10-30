@@ -8,10 +8,11 @@
  * One signaling round trip per route: the publisher's single offer carries the
  * audio m-section (its sender holds no track yet) and the probe data channel.
  * Once its selected pair is a proven LAN pair the receiver says so on that
- * channel; once both ends have proven it the publisher attaches the track. No
- * audio leaves before both proofs, and the publisher reports the route only
- * after both. The offer and answer keep the relay's `phase: 'media'` shape;
- * a receiver ignores the retired probe offer.
+ * channel; once both ends have proven it the publisher attaches the track and
+ * says so on the same channel, and only then does the receiver hand the track
+ * to playback. No audio leaves before both proofs, and the publisher reports
+ * the route only after both. The offer and answer keep the relay's
+ * `phase: 'media'` shape; a receiver ignores the retired probe offer.
  */
 
 import { MAX_SYSTEM_AUDIO_DEVICES } from '../core/constants.ts';
@@ -26,7 +27,10 @@ import { sendProRoomRealtime } from '../pro-room/realtime-sender.ts';
 import { forceStereoSdp } from './opus-stereo-sdp.ts';
 import { tuneSystemAudioLanDirectSender } from './system-audio-media.ts';
 
-/** From the publisher's offer to its answer; also the receiver's proof window. */
+/**
+ * From the publisher's offer to its answer. Also the receiver's own proof
+ * window and the bound on one locality reproof's statistics read.
+ */
 const DIRECT_NEGOTIATION_TIMEOUT_MS = 2_000;
 /** From the answer to both ends' LAN pair proofs. */
 const DIRECT_PAIR_PROOF_TIMEOUT_MS = 1_000;
@@ -34,6 +38,8 @@ const DIRECT_PAIR_POLL_MS = 25;
 const DIRECT_CHANNEL_LABEL = 'MUSIXQUARE-lan-probe';
 /** Sent once by the receiver on the probe channel after its own LAN pair proof. */
 const RECEIVER_PAIR_PROVEN_MESSAGE = 'receiver-pair-proven';
+/** Sent once by the publisher on the probe channel after it attached the track. */
+const PUBLISHER_TRACK_ATTACHED_MESSAGE = 'publisher-track-attached';
 const SIGNAL_ID_RE = /^[A-Za-z0-9][A-Za-z0-9_-]{15,127}$/;
 const PARTICIPANT_ID_RE = /^[A-Za-z0-9_-]{1,96}$/;
 const ROUTE_TOKEN_RE = /^[A-Za-z0-9._:-]{1,192}$/;
@@ -225,7 +231,8 @@ interface PublisherRoute {
   /** Why the route ended before its negotiation finished, for the result line. */
   endReason: string | null;
   reproofFlight: Promise<boolean> | null;
-  answered: boolean;
+  /** 'applying' fences a duplicate answer while the first one is applied. */
+  answer: 'none' | 'applying' | 'applied';
   /** The receiver's own LAN pair proof arrived on the probe channel. */
   receiverProven: boolean;
   committed: boolean;
@@ -269,6 +276,8 @@ interface ReceiverRoute {
   closed: boolean;
   provenLocal: boolean;
   proofSent: boolean;
+  /** The publisher's track-attached message arrived: the track carries audio. */
+  publisherAttached: boolean;
 }
 
 interface PreOfferCandidateBucket {
@@ -1059,7 +1068,10 @@ function closeReceiverRoute(
   route.pc.oniceconnectionstatechange = null;
   route.pc.ontrack = null;
   route.pc.ondatachannel = null;
-  if (route.channel) route.channel.onopen = null;
+  if (route.channel) {
+    route.channel.onopen = null;
+    route.channel.onmessage = null;
+  }
   route.channel = null;
   route.pc.close();
   route.queuedLocalCandidates.length = 0;
@@ -1169,7 +1181,7 @@ function failReceiverRoute(route: ReceiverRoute, reason: string): void {
   if (route.closed) return;
   if (route.live) notifyReceiverFallback(route, reason);
   else {
-    // A live route's fallback reaches the service; this one ends silently.
+    // A live route's fallback reaches the service; nothing else reports this one.
     log.info(`[ProSysAudioDirect] Receiver route ended before live (${reason})`);
     if (receiverRoute === route) receiverRoute = null;
     closeReceiverRoute(route, 'fallback', true);
@@ -1302,7 +1314,7 @@ function createPublisherRoute(
     closed: false,
     endReason: null,
     reproofFlight: null,
-    answered: false,
+    answer: 'none',
     receiverProven: false,
     committed: false,
   };
@@ -1456,6 +1468,24 @@ async function reproveLivePublisherRoute(
   scheduleLivePublisherRouteReproof(session, route);
 }
 
+/** Ends a route whose negotiation failed, keeping a replacement route in place. */
+function retireNegotiatingRoute(session: PublisherSession, route: PublisherRoute): void {
+  route.failed = true;
+  if (session.routes.get(route.participantId) === route) session.routes.delete(route.participantId);
+  closePublisherRoute(route, 'fallback', route.offerSent);
+}
+
+function sendPublisherTrackAttached(route: PublisherRoute): boolean {
+  if (route.probeChannel.readyState !== 'open') return false;
+  try {
+    route.probeChannel.send(PUBLISHER_TRACK_ATTACHED_MESSAGE);
+    return true;
+  } catch (error) {
+    log.debug('[ProSysAudioDirect] Publisher track-attached send failed', error);
+    return false;
+  }
+}
+
 /**
  * One route's single round trip: the offer must be answered within
  * `answerTimeoutMs`, then both ends must prove the LAN pair within
@@ -1485,11 +1515,7 @@ async function negotiatePublisherRoute(
     // only this route so the existing caller can select its single SFU fallback.
     const retire = (): boolean => {
       cause = 'deadline';
-      negotiatingRoute.failed = true;
-      if (session.routes.get(participantId) === negotiatingRoute) {
-        session.routes.delete(participantId);
-      }
-      closePublisherRoute(negotiatingRoute, 'fallback', negotiatingRoute.offerSent);
+      retireNegotiatingRoute(session, negotiatingRoute);
       return false;
     };
     const sender = negotiatingRoute.pc.addTrack(session.track, new MediaStream([session.track]));
@@ -1506,7 +1532,7 @@ async function negotiatePublisherRoute(
           !(await waitForPublisherRoute(
             session,
             negotiatingRoute,
-            () => negotiatingRoute.answered,
+            () => negotiatingRoute.answer === 'applied',
             Math.max(1, answerExpiresAt - Date.now()),
           ))
         ) {
@@ -1534,7 +1560,6 @@ async function negotiatePublisherRoute(
             cause = pair === 'closed' ? endedCause() : pair;
             return false;
           }
-          negotiatingRoute.provenLocal = true;
           mark('pair');
           stage = 'receiver-proof';
           if (
@@ -1551,9 +1576,18 @@ async function negotiatePublisherRoute(
           mark('receiver');
           stage = 'attach';
           await sender.replaceTrack(session.track);
-          if (isCurrent()) return true;
-          cause = endedCause();
-          return false;
+          if (!isCurrent()) {
+            cause = endedCause();
+            return false;
+          }
+          // The receiver hands its track to playback only once audio flows.
+          if (!sendPublisherTrackAttached(negotiatingRoute)) {
+            cause = 'attach-signal-failed';
+            return false;
+          }
+          // Only a fully established route may ever be committed.
+          negotiatingRoute.provenLocal = true;
+          return true;
         })(),
         DIRECT_PAIR_PROOF_TIMEOUT_MS,
         retire,
@@ -1563,11 +1597,12 @@ async function negotiatePublisherRoute(
     cause =
       route && !publisherRouteIsCurrent(session, route) ? (route.endReason ?? 'closed') : 'error';
     log.debug('[ProSysAudioDirect] Publisher negotiation failed', error);
-    if (route) {
-      route.failed = true;
-      if (session.routes.get(participantId) === route) session.routes.delete(participantId);
-      closePublisherRoute(route, 'fallback', route.offerSent);
-    }
+    if (route) retireNegotiatingRoute(session, route);
+  }
+  // A stage that gives up before its deadline timer leaves the route open;
+  // retire it so a later reconcile pass cannot commit a route without audio.
+  if (!proven && route && publisherRouteIsCurrent(session, route)) {
+    retireNegotiatingRoute(session, route);
   }
   const elapsedMs = Date.now() - startedAt;
   const detail = marks.length > 0 ? marks.join(', ') : 'no answer';
@@ -1601,7 +1636,8 @@ function maybeDeliverReceiverTrack(route: ReceiverRoute): void {
   }
   // The receiver's own pair proof comes first; it delivers again once done.
   if (!route.answerSent || !route.provenLocal) return;
-  if (!track) {
+  // Then both the remote track and the publisher's word that audio flows on it.
+  if (!track || !route.publisherAttached) {
     setManagedTimer(
       receiverTrackReadyTimerName(route),
       () => {
@@ -1610,7 +1646,7 @@ function maybeDeliverReceiverTrack(route: ReceiverRoute): void {
           !route.closed &&
           route.live &&
           !route.trackDelivered &&
-          !route.track
+          (!route.track || !route.publisherAttached)
         ) {
           notifyReceiverFallback(route, 'receiver-track-timeout');
         }
@@ -1692,6 +1728,7 @@ function createReceiverRoute(signal: DirectOfferSignal, ownerParticipantId: stri
     closed: false,
     provenLocal: false,
     proofSent: false,
+    publisherAttached: false,
   };
   pc.onicecandidate = (event) => {
     if (!event.candidate || route.closed) return;
@@ -1722,6 +1759,11 @@ function createReceiverRoute(signal: DirectOfferSignal, ownerParticipantId: stri
     if (route.closed || route.channel || event.channel.label !== DIRECT_CHANNEL_LABEL) return;
     route.channel = event.channel;
     event.channel.onopen = () => sendReceiverPairProof(route);
+    event.channel.onmessage = (message) => {
+      if (route.closed || message.data !== PUBLISHER_TRACK_ATTACHED_MESSAGE) return;
+      route.publisherAttached = true;
+      maybeDeliverReceiverTrack(route);
+    };
     sendReceiverPairProof(route);
   };
   return route;
@@ -1843,10 +1885,11 @@ async function acceptAnswer(
     !samePublication(route, signal.generation, signal.publicationId) ||
     route.negotiationId !== signal.negotiationId ||
     !route.offerSent ||
-    route.answered
+    route.answer !== 'none'
   ) {
     return;
   }
+  route.answer = 'applying';
   try {
     await route.pc.setRemoteDescription({
       ...signal.description,
@@ -1856,7 +1899,7 @@ async function acceptAnswer(
     route.remoteDescriptionReady = true;
     await flushPublisherRemoteCandidates(route);
     if (!publisherRouteIsCurrent(session, route)) return;
-    route.answered = true;
+    route.answer = 'applied';
   } catch (error) {
     log.debug('[ProSysAudioDirect] Answer rejected', error);
     failPublisherRoute(route, 'answer-rejected');

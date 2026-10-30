@@ -154,12 +154,8 @@ describe('getCurrentAudioBuffer', () => {
 });
 
 // ─── getCurrentLoadEpoch / newLoadEpoch ──────────────────────────────
-
-describe('getCurrentLoadEpoch', () => {
-  it('returns 0 initially', () => {
-    expect(getCurrentLoadEpoch()).toBe(0);
-  });
-});
+// The initial value is pinned in load-epoch-initial.test.ts, where no other
+// test can allocate an epoch first.
 
 describe('newLoadEpoch', () => {
   it('increments and returns new value', () => {

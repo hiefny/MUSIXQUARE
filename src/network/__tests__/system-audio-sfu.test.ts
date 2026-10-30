@@ -310,7 +310,10 @@ async function installGuestAudioGraph(): Promise<void> {
 beforeEach(() => {
   resetState();
   bus.clear();
-  vi.clearAllMocks();
+  // Reset, not clear: a test's persistent mockImplementation (a parked
+  // initAudio, say) must not outlive it. Each factory's vi.fn(impl) default
+  // comes back, and the explicit defaults below are applied on top.
+  vi.resetAllMocks();
   receiveSlotMocks.awaitBoundary.mockResolvedValue(true);
   standardRoomPrerequisiteMocks.getTurnCredentials.mockReset();
   standardRoomPrerequisiteMocks.getTurnCredentials.mockResolvedValue(null);

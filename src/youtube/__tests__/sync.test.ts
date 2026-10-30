@@ -87,6 +87,10 @@ beforeEach(async () => {
   // clearAllMocks() keeps implementations: restore the factory's null player
   // so no row inherits the previous row's mockReturnValue.
   vi.mocked((await import('../_state.ts')).getYouTubePlayer).mockReset();
+  // Clear the sync runtime an earlier row left behind (its last host
+  // snapshot, for example) with the reset stopYouTubeMode runs. It runs
+  // after bus.clear(), so its events reach no earlier row's listener.
+  (await import('../sync.ts')).resetYouTubeSyncState();
   zeroStartFacade.active = false;
   setState('playlist.items', [
     {

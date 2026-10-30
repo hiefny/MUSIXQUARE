@@ -1206,6 +1206,9 @@ describe('PRO system-audio SFU subscription stage line', () => {
 
   beforeEach(() => {
     vi.mocked(log.info).mockClear();
+    // Hold the wall clock still so each stage reads exactly the notice's age,
+    // however long the machine takes; the file-level afterEach restores it.
+    vi.useFakeTimers({ toFake: ['Date'] });
   });
 
   it('logs one ready line after the subscribed line, counting each stage from the share notice', async () => {
@@ -1245,12 +1248,15 @@ describe('PRO system-audio SFU subscription stage line', () => {
     const renegotiateHeld = new Promise<void>((resolve) => {
       releaseRenegotiate = resolve;
     });
-    let renegotiateStarted = false;
+    let markRenegotiateStarted!: () => void;
+    const renegotiateStarted = new Promise<void>((resolve) => {
+      markRenegotiateStarted = resolve;
+    });
     const succeed = fetchMock.getMockImplementation()!;
     fetchMock.mockImplementation(async (url, capability, init) => {
       const request = JSON.parse(String(init?.body || '{}')) as RealtimeRequest;
       if (request.action === 'renegotiate') {
-        renegotiateStarted = true;
+        markRenegotiateStarted();
         await renegotiateHeld;
       }
       return succeed(url, capability, init);
@@ -1258,7 +1264,7 @@ describe('PRO system-audio SFU subscription stage line', () => {
     const attempt = proSfu.subscribeProSystemAudioSfu(publication(7), {
       noticeAt: Date.now() - 1_500,
     });
-    await vi.waitFor(() => expect(renegotiateStarted).toBe(true));
+    await renegotiateStarted;
     peerConnections.at(-1)!.emitConnectionState('failed');
     releaseRenegotiate();
     await expect(attempt).rejects.toThrow();

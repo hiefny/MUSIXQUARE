@@ -98,18 +98,22 @@ runbooks. Neither belongs in a general setup document.
   released, no version bump yet (planned 9.0.27 / v800, App build 800, update dialog, target `app`).
   The branch `agent/app-9-0-27-train` carries the focus increment's eight commits (`07acd639` to
   `0fc353c1`), the LAN-direct increment's nine (`9192512d` to `c371dfbf`), the tests-only assembly
-  commit `924b8557` and its docs commit; both increments moved without conflicts. Nine App runtime
+  commit `924b8557` and two docs commits; both increments moved without conflicts. Nine App runtime
   paths (five LAN-direct, four focus), none in the other five Workers, no runtime dependency change;
-  the build floor stays 795. The report lists the owner decisions (nothing on screen changes), both
-  increments with their tested SHAs before and after the move and their tests-first parent
-  failures, the review findings and their handling (the assembly commit pins focus that stays on the
-  message log itself), mixed versions (a 9.0.26 sharer and a 9.0.27 listener can go LAN-direct; a
-  9.0.26 listener still uses the SFU), the rollback to the checkpoint's 9.0.26 / v799 App
-  `b8dc4281`, the deploy conditions, what users notice (when the peer's mDNS name never resolves the
-  SFU fallback can come up to about 0.5 s later; when LAN-direct engages the SFU wait disappears),
-  the QA rounds, what was not verified and a blind post-deploy procedure for the owner's Edge sharer
-  and iPhone Safari listener (five shares with `?mxqrLog=info`; the judging criteria read the new
-  pair-check and SFU subscription lines and are not handed out).
+  the build floor stays 795. The report lists the owner decisions (nothing on screen changes) and
+  one open owner question, both increments with their tested SHAs before and after the move and
+  their tests-first parent failures, the review findings and their handling (the assembly commit
+  pins focus that stays on the message log itself; a second assembly review corrected the documented
+  SFU fallback delay, the judging criteria and the note's share 1 timing), mixed versions (a 9.0.26
+  sharer and a 9.0.27 listener can go LAN-direct; a 9.0.26 listener still uses the SFU), the
+  rollback to the checkpoint's 9.0.26 / v799 App `b8dc4281`, the deploy conditions, what users
+  notice (an unrefined host-to-prflx pair at either end, in any browser, now waits for the sharer's
+  pair-proof window of 1 s after the answer instead of being refused at once, so the SFU fallback
+  can come up to about 1 s later for every listener in that attempt; whether to accept that wait is
+  the open owner question, shown to the owner before the merge; when LAN-direct engages the SFU
+  wait disappears), the QA rounds, what was not verified and a blind post-deploy procedure for the
+  owner's Edge sharer and iPhone Safari listener (five shares with `?mxqrLog=info`; the judging
+  criteria read the new pair-check and SFU subscription lines and are not handed out).
 - [Chat keyboard and screen reader focus: the sheet's Tab cycle, a hiding pinned notice, removed messages (2026-10-30)](design/chat-keyboard-focus-2026-10-30.md):
   in the App 9.0.27 / v800 train above, not merged or released (owner decision 2026-10-30: nothing
   on screen changes, keyboard behaviour only). The phone and tablet chat sheet's Tab cycle skips the

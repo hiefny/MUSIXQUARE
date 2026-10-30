@@ -226,10 +226,13 @@ gh run list --workflow e2e.yml --branch main --limit 3
       `9192512d`)는 부모 `cbbc56d9`에서 52행이 실패하고, 세 관점 독립 검토(지적 17, 중간 3)의 반영은 시험 먼저 `10431823`(열차
       `24810343`, 부모에서 26행 실패) 뒤에 들어갔다. 이 수정은 조건부다: 고쳐지는 것은 iOS가 공유자의 이름을 풀고 연결이
       정제된 것이 공유자의 수신자 증명 시한(응답 + 1초, RO-20 `DIRECT_PAIR_PROOF_TIMEOUT_MS`) 안일 때뿐이고, 정제가 늦거나
-      오지 않으면 여전히 SFU로 가되 이제 그 경우는 청취자가 바로 거절하는 대신 공유자의 시한까지 기다려 SFU 대체가 최대 약
-      0.5초 늦어질 수 있다. 증명 창을 바꾸는 것은 RO-20 시한 주인의 오너 결정이라 이 열차는 바꾸지 않는다. 이 증분은 채팅의
-      키보드·화면 낭독기 포커스 증분(아래 '후속 작업과 유지 결정'의 채팅 시트 Tab 순환)과 함께 열차 브랜치
-      `agent/app-9-0-27-train`(main `d0248df2` 위)으로 간다. 운영 배포 SHA와 main `d0248df2` 어느 쪽과 견줘도 런타임 경로
+      오지 않으면 여전히 SFU로 간다. 그때는 정제되지 않은 host→prflx 쌍을 첫 연결 판독에서 거절하는 대신 공유자의 증명
+      창이 끝날 때까지 기다리므로 SFU 대체가 최대 약 1초 늦어질 수 있다(늦게 연결된 9.0.26 공유 1이라면 약 0.4초, 한 경로
+      최대 3초 안). iPhone만이 아니라 어느 끝, 어느 브라우저든 정제되지 않은 host→prflx 쌍이면 그렇고, 공유는 모든 경로를
+      기다리므로 그 시도의 모든 청취자가 늦는다. 이 지연을 받아들일지는 증분 노트가 남긴 열린 오너 질문이고(답 없음), 열차
+      보고서의 배포 조건 5가 머지 전에 오너에게 보인다. 증명 창을 바꾸는 것은 RO-20 시한 주인의 오너 결정이라 이 열차는
+      바꾸지 않는다. 이 증분은 채팅의 키보드·화면 낭독기 포커스 증분(아래 '후속 작업과 유지 결정'의 채팅 시트 Tab 순환)과
+      함께 열차 브랜치 `agent/app-9-0-27-train`(main `d0248df2` 위)으로 간다. 운영 배포 SHA와 main `d0248df2` 어느 쪽과 견줘도 런타임 경로
       변경은 App 9(LAN-direct 다섯, 포커스 넷), 나머지 다섯 Worker 0이고 App 런타임 의존성 차이가 없어 target `app`이다(버전
       올리기 전 판정). 앱 SemVer와 SW 캐시는 열차의 버전 올리기(9.0.27 / v800)가 마지막 런타임 커밋으로 올린다(그 전까지
       `guard:sw-cache-version`이 아홉 경로를 들어 실패한다). 업데이트 창이 뜨고 새 바닥은 없다. 신호와 PRO Worker, 서버
@@ -239,10 +242,10 @@ gh run list --workflow e2e.yml --branch main --limit 3
       릴리스 checkpoint의 App(9.0.26 `b8dc4281`)으로 `lower` 없이 PRO는 그대로다. 배포 조건, 확인하지 않은 것은 열차
       보고서에 있다. 닫는 근거: 배포 뒤 같은 구성(오너의 Edge 공유와 iPhone Safari 청취, 같은 Wi-Fi, `?mxqrLog=info`)의 공유
       다섯 번이 모두 열차 보고서 판정 기준의 통과(공유자의 `Publisher pair check … proven`과 `LAN route to … proven`, 그 공유
-      뒤 SFU 게시 없음, 청취자의 `Receiver pair check proven … by refined-host` 또는 `by native-host`와
+      뒤 SFU 게시 없음, 청취자의 `Receiver pair check proven … by refined-host`, `by native-host` 또는 `by stats-host`와
       `Receiver LAN pair proven`, 끊김 없는 소리)다. 판정은 그 보고서의 블라인드 절차로 하고 판정 기준은 확인하는 사람에게
-      건네지 않는다. 통과 줄이 모두 `native-host`이면 정제 경로는 기기에서 본 것이 아니다. SFU로 간 공유는 줄이 까닭을
-      가리며(보고서의 읽는 법), 정제가 시한보다 늦다는 줄이면 다음은 증명 창에 대한 RO-20 오너 결정이다. 그 전에는
+      건네지 않는다. 통과 줄이 모두 `native-host`나 `stats-host`이면 정제 경로는 기기에서 본 것이 아니다. SFU로 간 공유는
+      줄이 까닭을 가리며(보고서의 읽는 법), 정제가 시한보다 늦다는 줄이면 다음은 증명 창에 대한 RO-20 오너 결정이다. 그 전에는
       LAN-direct의 운영 확인(R2의 null `liveExpiresAt`, 9.0.25의 숫자 거절, R2 후보 PLE-03, 아래 9.0.25 후보 2)이 iPhone
       Safari 청취자 구성에서는 무효가 되기 쉽다. 로컬 결과는 exact-main-SHA 후보를 대신하지 않는다.
       이 열차 리뷰가 연 오너 질문(LAN-direct가 걸리지 않을 때 SFU 넘어가기가 늦어질 수 있음)의 답을 기다리는 동안 PRO

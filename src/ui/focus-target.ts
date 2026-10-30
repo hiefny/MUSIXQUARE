@@ -1,8 +1,10 @@
 /**
- * A focus target available now: connected, enabled, outside any hidden,
- * aria-hidden or inert subtree, and not display: none or visibility: hidden.
- * Focus traps filter their Tab candidates with it, so a control the page
- * keeps in a hidden container never stalls the cycle.
+ * A focus target available now, by these checks only: the element is
+ * connected; neither it nor an ancestor has the hidden, aria-hidden="true" or
+ * inert attribute; it is not :disabled or aria-disabled="true"; and its own
+ * computed display is not none and its computed visibility is not hidden or
+ * collapse. Ancestors' computed display is not read, so a control inside a
+ * container that only a CSS rule hides still passes.
  */
 export function isAvailableFocusTarget(element: HTMLElement | null): element is HTMLElement {
   if (

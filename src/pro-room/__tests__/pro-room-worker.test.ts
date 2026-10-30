@@ -2085,11 +2085,12 @@ describe('PRO room server-authoritative playback', () => {
 
   it('reads the start kind a stored transition names when it coalesces a duplicate ENDED', async () => {
     // This Worker stores every transition with a 3000 ms deadline and names
-    // its kind in timingMode. It still reads the encoding of PRO Workers
-    // before PRO snapshot schemaVersion 2 (no timingMode, a 2999 ms deadline
-    // for a zero-start) on a transition one of them stored. A duplicate ENDED
-    // joins a stored zero-start transition and replaces a stored
-    // scheduled-control one.
+    // its kind in timingMode. A duplicate ENDED joins a stored zero-start
+    // transition and replaces a stored scheduled-control one. It no longer
+    // reads the encoding of PRO Workers before PRO snapshot schemaVersion 2
+    // (no timingMode, a 2999 ms deadline for a zero-start): a stored
+    // transition that names no kind is a scheduled control, so a duplicate
+    // ENDED replaces it too.
     const duplicateEnded = async (timingMode: 'zero-start' | 'scheduled-control' | 'pre-v2') => {
       const context = await activatedRoom();
       const realtime = installRealtimeRecorder(context);
@@ -2158,13 +2159,24 @@ describe('PRO room server-authoritative playback', () => {
       reason: 'superseded',
     });
 
-    // A pre-v2 zero-start joins too, keeps its stored encoding, and the
-    // PREPARE of the answer names the kind its deadline encodes.
+    // A pre-v2 zero-start reads as a scheduled control and is replaced: the
+    // answer opens a new zero-start transition that names its kind, with the
+    // 3000 ms barrier, and the stored one is cancelled as superseded.
     const preV2 = await duplicateEnded('pre-v2');
-    expect(preV2.second.transitionId).toBe(preV2.first.transitionId);
-    expect(preV2.second.deadlineAtMs).toBe(preV2.stored.createdAtMs + 2_999);
+    expect(preV2.second.transitionId).not.toBe(preV2.first.transitionId);
     expect(preV2.second.timingMode).toBe('zero-start');
-    expect(preV2.realtime.internal.room.pendingPlaybackTransition).not.toHaveProperty('timingMode');
+    expect(preV2.realtime.internal.room.pendingPlaybackTransition).toMatchObject({
+      transitionId: preV2.second.transitionId,
+      timingMode: 'zero-start',
+    });
+    const preV2Pending = preV2.realtime.internal.room.pendingPlaybackTransition;
+    expect(preV2Pending.deadlineAtMs - preV2Pending.createdAtMs).toBe(3_000);
+    expect(preV2.realtime.messages.map((message) => message.event)).toContainEqual({
+      type: 'pro-playback-cancel',
+      transitionId: preV2.first.transitionId,
+      serverTimeMs: expect.any(Number),
+      reason: 'superseded',
+    });
   });
 
   it('accepts ENDED only for the exact playing identity at a defensible end position', async () => {

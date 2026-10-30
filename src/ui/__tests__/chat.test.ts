@@ -124,6 +124,9 @@ beforeEach(() => {
 });
 
 afterEach(() => {
+  // chat.ts loads once per file: reset its unread count and pinned notices
+  // while this test's listeners are still registered.
+  bus.emit('chat:clear-all');
   clearAllManagedTimers();
   vi.restoreAllMocks();
 });

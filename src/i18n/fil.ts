@@ -427,7 +427,6 @@ const fil: Record<I18nKey, string> = {
 
   // ─── Chat ────────────────────────────────────────────────────────
   'chat.title': 'Chat',
-  'chat.close': 'Isara ang chat',
   'chat.open': 'Buksan ang chat',
   'chat.placeholder': "Mensahe o '/' para sa mga command...",
   'chat.input_label': 'Mensahe sa chat',

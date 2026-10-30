@@ -409,7 +409,6 @@ const fa: Record<I18nKey, string> = {
 
   // ─── Chat ────────────────────────────────────────────────────────
   'chat.title': 'گفت‌وگو',
-  'chat.close': 'بستن گفت‌وگو',
   'chat.open': 'باز کردن گفت‌وگو',
   'chat.placeholder': 'پیام یا «/» برای فرمان‌ها...',
   'chat.input_label': 'پیام گفت‌وگو',

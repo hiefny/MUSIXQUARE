@@ -422,7 +422,6 @@ const pl: Record<I18nKey, string> = {
 
   // ─── Chat ────────────────────────────────────────────────────────
   'chat.title': 'Czat',
-  'chat.close': 'Zamknij czat',
   'chat.open': 'Otwórz czat',
   'chat.placeholder': 'Wiadomość lub /, aby wyświetlić polecenia…',
   'chat.input_label': 'Wiadomość na czacie',

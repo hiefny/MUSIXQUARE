@@ -420,7 +420,6 @@ const ru: Record<I18nKey, string> = {
 
   // ─── Chat ────────────────────────────────────────────────────────
   'chat.title': 'Чат',
-  'chat.close': 'Закрыть чат',
   'chat.open': 'Открыть чат',
   'chat.placeholder': 'Сообщение или / для команд...',
   'chat.input_label': 'Сообщение в чат',

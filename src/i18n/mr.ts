@@ -415,7 +415,6 @@ const mr: Record<I18nKey, string> = {
 
   // ─── Chat ────────────────────────────────────────────────────────
   'chat.title': 'चॅट',
-  'chat.close': 'चॅट बंद करा',
   'chat.open': 'चॅट उघडा',
   'chat.placeholder': "संदेश किंवा कमांडसाठी '/'...",
   'chat.input_label': 'चॅट संदेश',

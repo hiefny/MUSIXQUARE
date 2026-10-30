@@ -417,7 +417,6 @@ const te: Record<I18nKey, string> = {
 
   // ─── Chat ────────────────────────────────────────────────────────
   'chat.title': 'చాట్',
-  'chat.close': 'చాట్‌ను మూసివేయి',
   'chat.open': 'చాట్‌ను తెరువు',
   'chat.placeholder': "సందేశం లేదా కమాండ్‌ల కోసం '/'...",
   'chat.input_label': 'చాట్ సందేశం',

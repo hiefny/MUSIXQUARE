@@ -2103,8 +2103,14 @@ RO-53 owner-in-place
   `pro-system-audio:lease-lost` event back to capture.
 - **Lifecycle operations:** acquire, release, publish, recover, promote, heartbeat.
 - **Deadline owner:** the service (`LEASE_HEARTBEAT_MS` 15 s, `DIRECT_AUTHORITY_LOSS_GRACE_MS`,
-  release retry).
-- **Timing-constant home:** `system-audio-service.ts`.
+  release retry). Each LAN-direct route's negotiation is the transport's own single attempt
+  (`negotiatePublisherRoute` in `src/network/pro-system-audio-direct.ts`, one signaling round trip
+  since the one-offer protocol, 2026-10-30): the answer within `DIRECT_NEGOTIATION_TIMEOUT_MS`
+  (2 s) of the offer, then both ends' pair proofs within `DIRECT_PAIR_PROOF_TIMEOUT_MS` (1 s), so
+  one route takes at most 3 s and a route that never answers still fails at 2 s. The receiver's own
+  proof window is the same 2 s constant. The service awaits the attempt with no timer of its own.
+- **Timing-constant home:** `system-audio-service.ts`; the LAN-direct negotiation constants above
+  stay in `src/network/pro-system-audio-direct.ts`.
 - **Anchor tests:**
   - Supersession: `src/pro-room/__tests__/system-audio-service.test.ts` "does not let a stale
     publisher recovery close the new incarnation publisher".

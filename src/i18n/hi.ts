@@ -413,7 +413,6 @@ const hi: Record<I18nKey, string> = {
 
   // ─── Chat ────────────────────────────────────────────────────────
   'chat.title': 'चैट',
-  'chat.close': 'चैट बंद करें',
   'chat.open': 'चैट खोलें',
   'chat.placeholder': "संदेश लिखें या कमांड के लिए '/' लिखें...",
   'chat.input_label': 'चैट संदेश',

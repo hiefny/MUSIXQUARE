@@ -824,7 +824,6 @@ const ja: Record<I18nKey, string> = {
 
   // Chat
   'chat.title': 'チャット',
-  'chat.close': 'チャットを閉じる',
   'chat.open': 'チャットを開く',
   'chat.placeholder': 'メッセージ、または「/」でコマンドを入力...',
   'chat.input_label': 'チャットメッセージ',

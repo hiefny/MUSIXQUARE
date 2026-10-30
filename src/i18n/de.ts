@@ -843,7 +843,6 @@ const de: Record<I18nKey, string> = {
 
   // Chat
   'chat.title': 'Chat',
-  'chat.close': 'Chat schließen',
   'chat.open': 'Chat öffnen',
   'chat.placeholder': 'Nachricht oder / für Befehle...',
   'chat.input_label': 'Chatnachricht',

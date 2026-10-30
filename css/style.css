@@ -8497,49 +8497,10 @@ or pointers. Keep :focus-visible and :active outside the gate (src/ui/__tests__/
     color: var(--text-main);
   }
 
-  .chat-drawer-close {
-    background: none;
-    border: none;
-    width: 32px;
-    height: 32px;
-    border-radius: var(--radius-pill);
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    cursor: pointer;
-    color: var(--text-sub);
-    transition: background 0.2s;
-  }
-
-  .chat-drawer-close:active {
-    background: var(--surface-2);
-  }
-
-  .chat-drawer-close svg {
-    width: 20px;
-    height: 20px;
-    fill: currentColor;
-  }
-
-  /* Cascade after the base close-button rule so mobile keeps the drawer title hidden. */
+  /* The sheet's handle row shows the drag handle, not the drawer title. */
   @media (max-width: 1279px), (max-height: 719px) {
     .chat-drawer-title {
       display: none;
-    }
-
-    /* The sheet's visible Close at the top start (owner decision 2026-10-28),
-       beside its outside-tap close. It overlays the 36px handle row's start
-       without adding height, so the handle bar stays centred; its 20px icon
-       sits 16px in, like the sheet's content. */
-    .chat-drawer-close {
-      position: relative;
-      z-index: 1;
-      align-self: flex-start;
-      flex: none;
-      width: 36px;
-      height: 36px;
-      margin-inline-start: 8px;
-      margin-bottom: -36px;
     }
   }
 

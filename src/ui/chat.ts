@@ -344,8 +344,8 @@ function updateChatDrawerHandleAccessibility(drawer: HTMLElement): void {
     header.removeAttribute('aria-valuenow');
     header.setAttribute('aria-keyshortcuts', 'Enter Space Escape');
   }
-  // The sheet's visible Close (owner decision 2026-10-28) stays in the Tab
-  // cycle, before the handle.
+  // The sheet shows no Close (owner decision 2026-10-30), so the handle starts
+  // its Tab cycle; Enter or Space on it closes the sheet, as Escape does.
   header.tabIndex = 0;
 }
 
@@ -1470,9 +1470,6 @@ export function initChat(): void {
       { signal: uiSignal },
     );
   }
-
-  const closeBtn = getUiElement('btn-chat-close');
-  if (closeBtn) closeBtn.addEventListener('click', () => toggleChatDrawer(), { signal: uiSignal });
 
   const previewBtn = getUiElement('chat-preview-btn');
   if (previewBtn) {

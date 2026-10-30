@@ -418,7 +418,6 @@ const nb: Record<I18nKey, string> = {
 
   // ─── Chat ────────────────────────────────────────────────────────
   'chat.title': 'Chat',
-  'chat.close': 'Lukk chatten',
   'chat.open': 'Åpne chatten',
   'chat.placeholder': 'Melding eller «/» for kommandoer…',
   'chat.input_label': 'Chatmelding',

@@ -481,8 +481,13 @@ The preferred PRO media path uses the protocol-v2 LAN-direct descriptor under
 the `single-stereo-v3` matched-release contract. System audio is limited to four
 active devices total, so the publisher opens at most three
 `RTCPeerConnection({ iceServers: [], bundlePolicy: "max-bundle" })` routes and sends only targeted
-offer/answer/ICE frames over the authenticated PRO WebSocket. A route passes
-within five seconds only when browser statistics identify exactly one
+offer/answer/ICE frames over the authenticated PRO WebSocket. Each route takes
+one signaling round trip: one offer with the probe data channel and an audio
+section whose sender stays empty, an answer within two seconds, then both ends'
+proofs within one more second, the receiver's reported on the probe channel;
+the capture track attaches only after both, and the receiver plays it only
+after the publisher reports that on the same channel. A route passes only when browser
+statistics on each end identify exactly one
 unambiguous selected, succeeded `host`-to-`host` pair reached through a valid
 UUID-shaped remote `.local` mDNS candidate. Candidate-bearing SDP is rejected;
 the bounded trickle channel accepts only component-1 UDP host candidates with

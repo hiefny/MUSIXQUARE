@@ -2,7 +2,8 @@
  * @vitest-environment jsdom
  */
 
-import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi, type MockInstance } from 'vitest';
+import { log } from '../../core/log.ts';
 import * as direct from '../pro-system-audio-direct.ts';
 
 type DirectTransportCallbacks = Parameters<typeof direct.configureProSystemAudioDirectTransport>[0];
@@ -58,6 +59,40 @@ let failNextAddTrack: boolean;
 let nextStatsGates: Array<Promise<void>>;
 let nextEmbeddedCandidateAddresses: Array<string | null>;
 let nextAuthoritativePairModes: Array<AuthoritativePairMode | null>;
+/** The simulated remote receiver withholds its pair proof on the probe channel. */
+let receiverProofWithheld: boolean;
+/**
+ * A receiver's setLocalDescription(answer) leaves the publisher's probe channel
+ * unannounced until announceRemoteChannel, as a browser announces it only after
+ * DTLS, SCTP and the channel's open handshake.
+ */
+let receiverChannelHeld: boolean;
+/** getParameters of the next senders addTrack creates, in order. */
+let nextSenderParameters: Array<() => RTCRtpSendParameters>;
+
+const PROBE_CHANNEL_LABEL = 'MUSIXQUARE-lan-probe';
+const RECEIVER_PAIR_PROVEN = 'receiver-pair-proven';
+const PUBLISHER_TRACK_ATTACHED = 'publisher-track-attached';
+
+interface MockChannel {
+  label: string;
+  readyState: RTCDataChannelState;
+  close: ReturnType<typeof vi.fn>;
+  send: ReturnType<typeof vi.fn>;
+  onmessage: ((event: { data: unknown }) => void) | null;
+  onopen: (() => void) | null;
+}
+
+function mockChannel(readyState: RTCDataChannelState = 'open'): MockChannel {
+  return {
+    label: PROBE_CHANNEL_LABEL,
+    readyState,
+    close: vi.fn(),
+    send: vi.fn(),
+    onmessage: null,
+    onopen: null,
+  };
+}
 
 function deferred<T>(): Deferred<T> {
   let resolve!: (value: T) => void;
@@ -85,12 +120,16 @@ class MockRTCPeerConnection {
   onconnectionstatechange: (() => void) | null = null;
   oniceconnectionstatechange: (() => void) | null = null;
   ontrack: ((event: RTCTrackEvent) => void) | null = null;
+  ondatachannel: ((event: RTCDataChannelEvent) => void) | null = null;
   close = vi.fn(() => {
     this.connectionState = 'closed';
     this.iceConnectionState = 'closed';
   });
   addIceCandidate = vi.fn(async () => {});
-  readonly probeChannel = { close: vi.fn() };
+  /** The publisher's probe channel. */
+  readonly probeChannel = mockChannel('connecting');
+  /** The probe channel as a receiver's ondatachannel sees it. */
+  readonly remoteChannel = mockChannel();
   readonly senders: RTCRtpSender[] = [];
   readonly getSelectedCandidatePair = vi.fn<() => RTCIceCandidatePair | null>();
   readonly sctp: RTCSctpTransport | null;
@@ -142,12 +181,21 @@ class MockRTCPeerConnection {
     }
     const sender = {
       track,
-      getParameters: () => ({ encodings: [{}] }) as RTCRtpSendParameters,
+      getParameters:
+        nextSenderParameters.shift() ?? (() => ({ encodings: [{}] }) as RTCRtpSendParameters),
       setParameters: vi.fn(async () => {}),
+      replaceTrack: vi.fn(async (next: MediaStreamTrack | null) => {
+        (sender as { track: MediaStreamTrack | null }).track = next;
+      }),
     } as unknown as RTCRtpSender;
     this.senders.push(sender);
     return sender;
   });
+
+  /** The capture track this connection sends, or null while it carries no audio. */
+  sendingTrack(): MediaStreamTrack | null {
+    return this.senders[0]?.track ?? null;
+  }
 
   createDataChannel(): RTCDataChannel {
     return this.probeChannel as unknown as RTCDataChannel;
@@ -179,7 +227,32 @@ class MockRTCPeerConnection {
   async setLocalDescription(description: RTCLocalSessionDescriptionInit): Promise<void> {
     this.localDescription = description as RTCSessionDescription;
     this.emitLocalCandidate();
-    if (description.type === 'answer') this.emitConnected();
+    if (description.type === 'answer') {
+      this.emitConnected();
+      if (!receiverChannelHeld) {
+        this.ondatachannel?.({ channel: this.remoteChannel } as unknown as RTCDataChannelEvent);
+      }
+    }
+  }
+
+  /**
+   * Announces the held probe channel to this receiver in `readyState`. With
+   * `openEvent`, an 'open' channel's open event follows the announcement, the
+   * order the WebRTC specification gives a newly announced channel.
+   */
+  announceRemoteChannel(
+    readyState: 'open' | 'connecting',
+    options: { openEvent?: boolean } = {},
+  ): void {
+    this.remoteChannel.readyState = readyState;
+    this.ondatachannel?.({ channel: this.remoteChannel } as unknown as RTCDataChannelEvent);
+    if (readyState === 'open' && options.openEvent) this.remoteChannel.onopen?.();
+  }
+
+  /** The announced 'connecting' probe channel opens and fires its open event. */
+  openRemoteChannel(): void {
+    this.remoteChannel.readyState = 'open';
+    this.remoteChannel.onopen?.();
   }
 
   emitLocalCandidate(
@@ -206,7 +279,22 @@ class MockRTCPeerConnection {
     if (description.type === 'offer' && description.sdp?.includes('m=audio') && receiverTrackId) {
       this.ontrack?.({ track: audioTrack(receiverTrackId) } as unknown as RTCTrackEvent);
     }
-    if (description.type === 'answer') this.emitConnected();
+    if (description.type === 'answer') {
+      this.emitConnected();
+      if (!receiverProofWithheld) this.emitReceiverProof();
+    }
+  }
+
+  /** The remote receiver's pair proof arriving on the publisher's probe channel. */
+  emitReceiverProof(data: unknown = RECEIVER_PAIR_PROVEN): void {
+    // A message arrives only on an open channel.
+    this.probeChannel.readyState = 'open';
+    this.probeChannel.onmessage?.({ data });
+  }
+
+  /** The remote publisher's track-attached message, as a receiver's channel gets it. */
+  emitPublisherAttached(data: unknown = PUBLISHER_TRACK_ATTACHED): void {
+    this.remoteChannel.onmessage?.({ data });
   }
 
   async getStats(): Promise<RTCStatsReport> {
@@ -378,6 +466,41 @@ function safeCandidate(foundation: string): string {
   return `candidate:${foundation} 1 udp 1 123e4567-e89b-42d3-a456-${suffix}.local 5000 typ host`;
 }
 
+/** The publisher's one offer: the probe channel and one audio m-section. */
+const PUBLISHER_OFFER_SDP =
+  'v=0\r\nm=application 9 UDP/DTLS/SCTP webrtc-datachannel\r\n' +
+  'm=audio 9 UDP/TLS/RTP/SAVPF 111\r\na=rtpmap:111 opus/48000/2';
+
+function publisherOffer(
+  negotiationId: string,
+  overrides: Record<string, unknown> = {},
+): Record<string, unknown> {
+  return {
+    kind: 'offer',
+    targetParticipantId: receiverA,
+    direction: 'publisher',
+    phase: 'media',
+    generation: 11,
+    publicationId,
+    negotiationId,
+    description: { type: 'offer', sdp: PUBLISHER_OFFER_SDP },
+    trackId: 'remote-stereo-track',
+    ...overrides,
+  };
+}
+
+function publisherCandidate(negotiationId: string, candidate: string): Record<string, unknown> {
+  return {
+    kind: 'candidate',
+    targetParticipantId: receiverA,
+    direction: 'publisher',
+    generation: 11,
+    publicationId,
+    negotiationId,
+    candidate: { candidate },
+  };
+}
+
 function installAutomaticAnswers(options: { emitCandidate?: boolean } = {}): void {
   bridgeMocks.send.mockImplementation((channel, payload) => {
     bridgeMocks.sent.push({ channel, payload });
@@ -457,6 +580,9 @@ beforeEach(() => {
   nextStatsGates = [];
   nextEmbeddedCandidateAddresses = [];
   nextAuthoritativePairModes = [];
+  receiverProofWithheld = false;
+  receiverChannelHeld = false;
+  nextSenderParameters = [];
   bridgeMocks.sent.length = 0;
   bridgeMocks.send.mockReset();
   bridgeMocks.on.mockImplementation((listener) => {
@@ -509,7 +635,7 @@ describe('PRO system-audio LAN-direct publisher probe', () => {
       gate.resolve(undefined);
       await vi.advanceTimersByTimeAsync(100);
       expect(peerConnections[0]?.close).toHaveBeenCalledTimes(1);
-      expect(peerConnections[0]?.addTrack).not.toHaveBeenCalled();
+      expect(peerConnections[0]!.sendingTrack()).toBeNull();
       expect(peerConnections[1]?.close).not.toHaveBeenCalled();
       expect(
         bridgeMocks.sent.some((frame) => frame.payload.targetParticipantId === receiverA),
@@ -606,13 +732,13 @@ describe('PRO system-audio LAN-direct publisher probe', () => {
         expect(settled).toBe(true);
         expect(await attempt).toBe(phase === 'initial' ? null : false);
         expect(peerConnections[0]?.close).toHaveBeenCalledTimes(1);
-        expect(peerConnections[0]?.addTrack).not.toHaveBeenCalled();
+        expect(peerConnections[0]!.sendingTrack()).toBeNull();
         expect(callbacks.onLiveRouteFallback).toHaveBeenCalledTimes(phase === 'initial' ? 0 : 1);
       } finally {
         stats.resolve(undefined);
         await vi.advanceTimersByTimeAsync(30);
       }
-      expect(peerConnections[0]?.addTrack).not.toHaveBeenCalled();
+      expect(peerConnections[0]!.sendingTrack()).toBeNull();
     },
   );
 
@@ -645,13 +771,23 @@ describe('PRO system-audio LAN-direct publisher probe', () => {
           encodings: [expect.objectContaining({ maxBitrate: 256_000 })],
         }),
       );
+      // The offer goes out with no audio on the sender; the track attaches
+      // only after both ends proved the pair.
+      expect(
+        (pc.senders[0]?.replaceTrack as ReturnType<typeof vi.fn>).mock.calls.map(
+          ([track]) => (track as MediaStreamTrack | null)?.id ?? null,
+        ),
+      ).toEqual([null, 'capture-stereo']);
+      expect(pc.sendingTrack()?.id).toBe('capture-stereo');
+      // Then it tells the receiver, which hands its track over only now.
+      expect(pc.probeChannel.send).toHaveBeenCalledWith(PUBLISHER_TRACK_ATTACHED);
     }
     for (const targetParticipantId of [receiverA, receiverB]) {
       expect(
         bridgeMocks.sent
           .filter((entry) => entry.payload.targetParticipantId === targetParticipantId)
           .map((entry) => entry.payload.kind),
-      ).toEqual(['offer', 'candidate', 'offer']);
+      ).toEqual(['offer', 'candidate']);
       expect(
         bridgeMocks.sent
           .filter(
@@ -660,7 +796,7 @@ describe('PRO system-audio LAN-direct publisher probe', () => {
               entry.payload.kind === 'offer',
           )
           .map((entry) => entry.payload.phase),
-      ).toEqual(['probe', 'media']);
+      ).toEqual(['media']);
       const mediaOffer = bridgeMocks.sent.find(
         (entry) =>
           entry.payload.targetParticipantId === targetParticipantId &&
@@ -717,6 +853,9 @@ describe('PRO system-audio LAN-direct publisher probe', () => {
   it('keeps a proven LAN-direct route when its sender parameters cannot be read', async () => {
     const callbacks = configureCallbacks();
     nextLocalities.push('host-host');
+    nextSenderParameters.push(() => {
+      throw new TypeError('getParameters is not supported');
+    });
     const track = audioTrack('capture-stereo');
 
     const attempt = direct.attemptProSystemAudioDirectPublication({
@@ -726,19 +865,7 @@ describe('PRO system-audio LAN-direct publisher probe', () => {
       targets: [target(receiverA)],
       timeoutMs: 250,
     });
-    // The route's peer connection exists before its locality proof adds media.
     const pc = peerConnections[0]!;
-    pc.addTrack.mockImplementationOnce((added: MediaStreamTrack) => {
-      const sender = {
-        track: added,
-        getParameters: () => {
-          throw new TypeError('getParameters is not supported');
-        },
-        setParameters: vi.fn(async () => {}),
-      } as unknown as RTCRtpSender;
-      pc.senders.push(sender);
-      return sender;
-    });
 
     await expect(attempt).resolves.toEqual({
       publicationId,
@@ -771,6 +898,7 @@ describe('PRO system-audio LAN-direct publisher probe', () => {
     async ({ parameters, set }) => {
       const callbacks = configureCallbacks();
       nextLocalities.push('host-host');
+      nextSenderParameters.push(() => structuredClone(parameters) as RTCRtpSendParameters);
       const track = audioTrack('capture-stereo');
 
       const attempt = direct.attemptProSystemAudioDirectPublication({
@@ -781,15 +909,6 @@ describe('PRO system-audio LAN-direct publisher probe', () => {
         timeoutMs: 250,
       });
       const pc = peerConnections[0]!;
-      pc.addTrack.mockImplementationOnce((added: MediaStreamTrack) => {
-        const sender = {
-          track: added,
-          getParameters: () => structuredClone(parameters) as RTCRtpSendParameters,
-          setParameters: vi.fn(async () => {}),
-        } as unknown as RTCRtpSender;
-        pc.senders.push(sender);
-        return sender;
-      });
 
       await expect(attempt).resolves.toEqual({
         publicationId,
@@ -816,7 +935,7 @@ describe('PRO system-audio LAN-direct publisher probe', () => {
     });
 
     expect(descriptor).toBeNull();
-    expect(peerConnections[1]?.addTrack).not.toHaveBeenCalled();
+    expect(peerConnections[1]!.sendingTrack()).toBeNull();
     expect(peerConnections.every((pc) => pc.close.mock.calls.length === 1)).toBe(true);
     await expect(direct.reconcileProSystemAudioDirectTargets([target(receiverA)])).resolves.toBe(
       false,
@@ -875,7 +994,7 @@ describe('PRO system-audio LAN-direct publisher probe', () => {
       expect(descriptor).toBeNull();
       expect(peerConnections[0]?.getSelectedCandidatePair).toHaveBeenCalled();
       expect(peerConnections[0]?.statsCallCount).toBe(0);
-      expect(peerConnections[0]?.addTrack).not.toHaveBeenCalled();
+      expect(peerConnections[0]!.sendingTrack()).toBeNull();
     },
   );
 
@@ -925,25 +1044,28 @@ describe('PRO system-audio LAN-direct publisher probe', () => {
     'local-mdns-remote-private',
     'ambiguous',
     'multiple-selected',
-  ])('rejects %s selected host pairs before adding the media track', async (locality) => {
+  ])('rejects %s selected host pairs before attaching the capture track', async (locality) => {
+    vi.useFakeTimers();
     configureCallbacks();
     nextLocalities.push(locality);
 
-    const descriptor = await direct.attemptProSystemAudioDirectPublication({
+    const attempt = direct.attemptProSystemAudioDirectPublication({
       track: audioTrack('capture-stereo'),
       generation: 8,
       publicationId,
       targets: [target(receiverA)],
       timeoutMs: 80,
     });
+    await vi.advanceTimersByTimeAsync(1_100);
 
-    expect(descriptor).toBeNull();
-    expect(peerConnections[0]?.addTrack).not.toHaveBeenCalled();
+    await expect(attempt).resolves.toBeNull();
+    // The one offer carried an empty audio sender; no audio ever left.
+    expect(peerConnections[0]!.sendingTrack()).toBeNull();
     expect(
-      bridgeMocks.sent.some(
-        (entry) => entry.payload.kind === 'offer' && entry.payload.phase === 'media',
-      ),
-    ).toBe(false);
+      bridgeMocks.sent
+        .filter((entry) => entry.payload.kind === 'offer')
+        .map((e) => e.payload.phase),
+    ).toEqual(['media']);
   });
 
   it('allows a selected host pair with a private local address and UUID-v4 mDNS remote', async () => {
@@ -1012,7 +1134,7 @@ describe('PRO system-audio LAN-direct publisher probe', () => {
 
     expect(descriptor).toBeNull();
     expect(peerConnections[0]?.addIceCandidate).not.toHaveBeenCalled();
-    expect(peerConnections[0]?.addTrack).not.toHaveBeenCalled();
+    expect(peerConnections[0]!.sendingTrack()).toBeNull();
   });
 
   it('rejects a selected mDNS pair whose stats foundation does not match the added candidate', async () => {
@@ -1031,7 +1153,7 @@ describe('PRO system-audio LAN-direct publisher probe', () => {
     expect(peerConnections[0]?.addIceCandidate).toHaveBeenCalledWith({
       candidate: safeCandidate('auto'),
     });
-    expect(peerConnections[0]?.addTrack).not.toHaveBeenCalled();
+    expect(peerConnections[0]!.sendingTrack()).toBeNull();
   });
 
   it('strips a global host candidate embedded in local SDP while keeping the private route', async () => {
@@ -1136,19 +1258,8 @@ describe('PRO system-audio LAN-direct receiver fencing', () => {
     localParticipantId = receiverA;
     configureCallbacks();
 
-    const offer = (index: number) => ({
-      kind: 'offer',
-      targetParticipantId: receiverA,
-      direction: 'publisher',
-      phase: 'probe',
-      generation: 11,
-      publicationId,
-      negotiationId: `negotiation_${String(index).padStart(18, '0')}`,
-      description: {
-        type: 'offer',
-        sdp: 'v=0\r\nm=application 9 UDP/DTLS/SCTP webrtc-datachannel',
-      },
-    });
+    const offer = (index: number) =>
+      publisherOffer(`negotiation_${String(index).padStart(18, '0')}`);
 
     for (let index = 1; index <= 65; index += 1) emitRelay(publisherId, offer(index));
     expect(peerConnections).toHaveLength(64);
@@ -1167,78 +1278,64 @@ describe('PRO system-audio LAN-direct receiver fencing', () => {
         context.generation === 11 &&
         context.publicationId === publicationId,
     });
-    const validOffer = {
-      kind: 'offer',
-      targetParticipantId: receiverA,
-      direction: 'publisher',
-      phase: 'probe',
-      generation: 11,
-      publicationId,
-      negotiationId: 'negotiation_000000000001',
-      description: { type: 'offer', sdp: 'valid-owner-probe-offer' },
-    };
+    const validOffer = publisherOffer('negotiation_000000000001');
 
+    // The retired probe offer, a second audio m-section and the old trackIds
+    // shape build no route.
+    emitRelay(publisherId, {
+      ...validOffer,
+      phase: 'probe',
+      description: {
+        type: 'offer',
+        sdp: 'v=0\r\nm=application 9 UDP/DTLS/SCTP webrtc-datachannel',
+      },
+    });
+    emitRelay(publisherId, {
+      ...validOffer,
+      description: {
+        type: 'offer',
+        sdp: `${PUBLISHER_OFFER_SDP}\r\nm=audio 9 UDP/TLS/RTP/SAVPF 111`,
+      },
+    });
+    const { trackId: _trackId, ...withoutTrackId } = validOffer;
+    emitRelay(publisherId, {
+      ...withoutTrackId,
+      trackIds: { L: 'remote-left-track', R: 'remote-right-track' },
+    });
     emitRelay(attackerId, validOffer);
     expect(peerConnections).toHaveLength(0);
+
     emitRelay(publisherId, validOffer);
     await vi.waitFor(() =>
       expect(bridgeMocks.sent.some((entry) => entry.payload.kind === 'answer')).toBe(true),
     );
     expect(peerConnections).toHaveLength(1);
-    expect(callbacks.onReceiverTrackReady).not.toHaveBeenCalled();
-
-    emitRelay(publisherId, {
-      kind: 'candidate',
-      targetParticipantId: receiverA,
-      direction: 'publisher',
-      generation: 11,
-      publicationId,
-      negotiationId: validOffer.negotiationId,
-      candidate: { candidate: safeCandidate('auto') },
-    });
-    await vi.waitFor(() => expect(peerConnections[0]?.addIceCandidate).toHaveBeenCalledTimes(1));
-
-    emitRelay(publisherId, {
-      ...validOffer,
-      phase: 'media',
-      description: {
-        type: 'offer',
-        sdp: 'v=0\r\nm=audio 9 UDP/TLS/RTP/SAVPF 111\r\na=rtpmap:111 opus/48000/2',
-      },
-      trackIds: { L: 'remote-left-track', R: 'remote-right-track' },
-    });
-    await Promise.resolve();
     expect(
-      bridgeMocks.sent.filter(
-        (entry) => entry.payload.kind === 'answer' && entry.payload.phase === 'media',
-      ),
-    ).toHaveLength(0);
-
-    emitRelay(publisherId, {
-      ...validOffer,
-      phase: 'media',
-      description: {
-        type: 'offer',
-        sdp: 'v=0\r\nm=audio 9 UDP/TLS/RTP/SAVPF 111\r\na=rtpmap:111 opus/48000/2',
-      },
-      trackId: receiverTrackId,
-    });
-    await vi.waitFor(() =>
-      expect(
-        bridgeMocks.sent.filter(
-          (entry) => entry.payload.kind === 'answer' && entry.payload.phase === 'media',
-        ),
-      ).toHaveLength(1),
-    );
+      bridgeMocks.sent
+        .filter((entry) => entry.payload.kind === 'answer')
+        .map((entry) => entry.payload.phase),
+    ).toEqual(['media']);
     expect(peerConnections[0]?.remoteDescription?.sdp).toContain('stereo=1');
     expect(peerConnections[0]?.remoteDescription?.sdp).toContain('sprop-stereo=1');
-    const mediaAnswer = bridgeMocks.sent.find(
-      (entry) => entry.payload.kind === 'answer' && entry.payload.phase === 'media',
+    const answer = bridgeMocks.sent.find((entry) => entry.payload.kind === 'answer');
+    const answerSdp = (answer?.payload.description as RTCSessionDescriptionInit).sdp;
+    expect(answerSdp).toContain('stereo=1');
+    expect(answerSdp).toContain('sprop-stereo=1');
+    expect(answerSdp).toContain('maxaveragebitrate=256000');
+    // The track arrived with the offer but waits for the pair proof, and the
+    // proof waits for the publisher's candidate.
+    expect(peerConnections[0]?.remoteChannel.send).not.toHaveBeenCalled();
+    expect(callbacks.onReceiverTrackReady).not.toHaveBeenCalled();
+
+    emitRelay(
+      publisherId,
+      publisherCandidate(validOffer.negotiationId as string, safeCandidate('auto')),
     );
-    const mediaAnswerSdp = (mediaAnswer?.payload.description as RTCSessionDescriptionInit).sdp;
-    expect(mediaAnswerSdp).toContain('stereo=1');
-    expect(mediaAnswerSdp).toContain('sprop-stereo=1');
-    expect(mediaAnswerSdp).toContain('maxaveragebitrate=256000');
+    await vi.waitFor(() =>
+      expect(peerConnections[0]?.remoteChannel.send).toHaveBeenCalledWith(RECEIVER_PAIR_PROVEN),
+    );
+    expect(peerConnections[0]?.remoteChannel.send).toHaveBeenCalledTimes(1);
+    expect(callbacks.onReceiverTrackReady).not.toHaveBeenCalled();
 
     emitRelay(attackerId, {
       kind: 'candidate',
@@ -1287,6 +1384,14 @@ describe('PRO system-audio LAN-direct receiver fencing', () => {
         publicationId,
       }),
     ).resolves.toBe(true);
+    // Live and proven, but the track waits for the publisher's word that
+    // audio flows on it; any other message is not that word.
+    await Promise.resolve();
+    peerConnections[0]!.emitPublisherAttached('receiver-pair-proven');
+    peerConnections[0]!.emitPublisherAttached({ attached: true });
+    await Promise.resolve();
+    expect(callbacks.onReceiverTrackReady).not.toHaveBeenCalled();
+    peerConnections[0]!.emitPublisherAttached();
     await vi.waitFor(() => expect(callbacks.onReceiverTrackReady).toHaveBeenCalledTimes(1));
     const deliveredEvent = callbacks.onReceiverTrackReady.mock.calls[0]?.[0];
     expect(deliveredEvent?.isCurrent()).toBe(true);
@@ -1299,11 +1404,7 @@ describe('PRO system-audio LAN-direct receiver fencing', () => {
       }),
     );
 
-    const replacementOffer = {
-      ...validOffer,
-      negotiationId: 'negotiation_000000000002',
-      description: { type: 'offer', sdp: 'replacement-owner-probe-offer' },
-    };
+    const replacementOffer = publisherOffer('negotiation_000000000002');
     emitRelay(publisherId, replacementOffer);
     await vi.waitFor(() => expect(peerConnections).toHaveLength(2));
     expect(deliveredEvent?.isCurrent()).toBe(false);
@@ -1312,7 +1413,7 @@ describe('PRO system-audio LAN-direct receiver fencing', () => {
     expect(peerConnections).toHaveLength(2);
   });
 
-  it('buffers a bounded candidate that arrives before its probe offer and drains it afterward', async () => {
+  it('buffers a bounded candidate that arrives before its offer and drains it afterward', async () => {
     localParticipantId = receiverA;
     configureCallbacks();
     const negotiationId = 'negotiation_000000000010';
@@ -1327,19 +1428,7 @@ describe('PRO system-audio LAN-direct receiver fencing', () => {
       negotiationId,
       candidate: { candidate },
     });
-    emitRelay(publisherId, {
-      kind: 'offer',
-      targetParticipantId: receiverA,
-      direction: 'publisher',
-      phase: 'probe',
-      generation: 11,
-      publicationId,
-      negotiationId,
-      description: {
-        type: 'offer',
-        sdp: 'v=0\r\nm=application 9 UDP/DTLS/SCTP webrtc-datachannel',
-      },
-    });
+    emitRelay(publisherId, publisherOffer(negotiationId));
 
     await vi.waitFor(() => expect(peerConnections).toHaveLength(1));
     await vi.waitFor(() =>
@@ -1361,19 +1450,7 @@ describe('PRO system-audio LAN-direct receiver fencing', () => {
       candidate: { candidate: safeCandidate('discarded-before-reset') },
     });
     direct.resetProSystemAudioDirectTransport({ notifyPeers: false });
-    emitRelay(publisherId, {
-      kind: 'offer',
-      targetParticipantId: receiverA,
-      direction: 'publisher',
-      phase: 'probe',
-      generation: 11,
-      publicationId,
-      negotiationId,
-      description: {
-        type: 'offer',
-        sdp: 'v=0\r\nm=application 9 UDP/DTLS/SCTP webrtc-datachannel',
-      },
-    });
+    emitRelay(publisherId, publisherOffer(negotiationId));
 
     await vi.waitFor(() => expect(peerConnections).toHaveLength(1));
     expect(peerConnections[0]?.addIceCandidate).not.toHaveBeenCalled();
@@ -1394,19 +1471,7 @@ describe('PRO system-audio LAN-direct receiver fencing', () => {
         candidate: { candidate: safeCandidate(`early-${index}`) },
       });
     }
-    emitRelay(publisherId, {
-      kind: 'offer',
-      targetParticipantId: receiverA,
-      direction: 'publisher',
-      phase: 'probe',
-      generation: 11,
-      publicationId,
-      negotiationId,
-      description: {
-        type: 'offer',
-        sdp: 'v=0\r\nm=application 9 UDP/DTLS/SCTP webrtc-datachannel',
-      },
-    });
+    emitRelay(publisherId, publisherOffer(negotiationId));
     await vi.waitFor(() => expect(peerConnections[0]?.addIceCandidate).toHaveBeenCalledTimes(2));
 
     for (let index = 0; index < 1; index += 1) {
@@ -1428,30 +1493,31 @@ describe('PRO system-audio LAN-direct receiver fencing', () => {
     localParticipantId = receiverA;
     configureCallbacks();
     const negotiationId = 'negotiation_000000000012';
-    emitRelay(publisherId, {
-      kind: 'offer',
-      targetParticipantId: receiverA,
-      direction: 'publisher',
-      phase: 'probe',
-      generation: 11,
-      publicationId,
-      negotiationId,
-      description: {
-        type: 'offer',
-        sdp:
-          'v=0\r\n' +
-          'm=application 9 UDP/DTLS/SCTP webrtc-datachannel\r\n' +
-          'c=IN IP6 2001:db8::20\r\n' +
-          'a=remote-candidates:1 2001:db8::20 5000\r\n' +
-          'a=candidate:bad 1 udp 1 2001:db8::20 5000 typ host\r\n' +
-          'a=candidate:safe 1 udp 1 192.168.1.20 5000 typ host\r\n' +
-          'a=end-of-candidates\r\n',
-      },
-    });
-    await vi.waitFor(() => expect(peerConnections).toHaveLength(1));
-    expect(peerConnections[0]?.remoteDescription?.sdp).toBe(
-      'v=0\r\nm=application 9 UDP/DTLS/SCTP webrtc-datachannel\r\nc=IN IP6 ::\r\n',
+    emitRelay(
+      publisherId,
+      publisherOffer(negotiationId, {
+        description: {
+          type: 'offer',
+          sdp:
+            'v=0\r\n' +
+            'm=application 9 UDP/DTLS/SCTP webrtc-datachannel\r\n' +
+            'c=IN IP6 2001:db8::20\r\n' +
+            'a=remote-candidates:1 2001:db8::20 5000\r\n' +
+            'a=candidate:bad 1 udp 1 2001:db8::20 5000 typ host\r\n' +
+            'a=candidate:safe 1 udp 1 192.168.1.20 5000 typ host\r\n' +
+            'a=end-of-candidates\r\n' +
+            'm=audio 9 UDP/TLS/RTP/SAVPF 111\r\n',
+        },
+      }),
     );
+    await vi.waitFor(() => expect(peerConnections).toHaveLength(1));
+    const remoteSdp = peerConnections[0]?.remoteDescription?.sdp ?? '';
+    expect(remoteSdp).toContain(
+      'm=application 9 UDP/DTLS/SCTP webrtc-datachannel\r\nc=IN IP6 ::\r\n',
+    );
+    expect(remoteSdp).not.toMatch(/a=(?:candidate|remote-candidates|end-of-candidates)/);
+    expect(remoteSdp).not.toContain('2001:db8');
+    expect(remoteSdp).not.toContain('192.168.1.20');
     emitRelay(publisherId, {
       kind: 'candidate',
       targetParticipantId: receiverA,
@@ -1469,22 +1535,9 @@ describe('PRO system-audio LAN-direct receiver fencing', () => {
     localParticipantId = receiverA;
     configureCallbacks();
     const negotiationId = 'negotiation_000000000014';
-    emitRelay(publisherId, {
-      kind: 'offer',
-      targetParticipantId: receiverA,
-      direction: 'publisher',
-      phase: 'probe',
-      generation: 11,
-      publicationId,
-      negotiationId,
-      description: { type: 'offer', sdp: 'valid-owner-probe-offer' },
-    });
+    emitRelay(publisherId, publisherOffer(negotiationId));
     await vi.waitFor(() =>
-      expect(
-        bridgeMocks.sent.some(
-          (entry) => entry.payload.kind === 'answer' && entry.payload.phase === 'probe',
-        ),
-      ).toBe(true),
+      expect(bridgeMocks.sent.some((entry) => entry.payload.kind === 'answer')).toBe(true),
     );
 
     for (const candidate of [
@@ -1540,61 +1593,26 @@ describe('PRO system-audio LAN-direct receiver fencing', () => {
     });
   });
 
-  it('requests fallback when an activated media route never receives its mapped track', async () => {
+  it('requests fallback when an activated, proven route never receives its track', async () => {
+    vi.useFakeTimers();
     localParticipantId = receiverA;
     const callbacks = configureCallbacks();
     const negotiationId = 'negotiation_000000000013';
-    const probeOffer = {
-      kind: 'offer',
-      targetParticipantId: receiverA,
-      direction: 'publisher',
-      phase: 'probe',
-      generation: 11,
-      publicationId,
-      negotiationId,
-      description: { type: 'offer', sdp: 'valid-owner-probe-offer' },
-    };
-    emitRelay(publisherId, probeOffer);
-    await vi.waitFor(() =>
-      expect(
-        bridgeMocks.sent.some(
-          (entry) => entry.payload.kind === 'answer' && entry.payload.phase === 'probe',
-        ),
-      ).toBe(true),
-    );
+    // receiverTrackId stays null: the offer's audio m-section fires no track.
+    emitRelay(publisherId, publisherOffer(negotiationId));
+    await vi.advanceTimersByTimeAsync(0);
+    expect(bridgeMocks.sent.filter((entry) => entry.payload.kind === 'answer')).toHaveLength(1);
     await direct.activateProSystemAudioDirectPublication({
       ownerParticipantId: publisherId,
       generation: 11,
       publicationId,
     });
 
-    emitRelay(publisherId, {
-      kind: 'candidate',
-      targetParticipantId: receiverA,
-      direction: 'publisher',
-      generation: 11,
-      publicationId,
-      negotiationId,
-      candidate: { candidate: safeCandidate('auto') },
-    });
-    await vi.waitFor(() => expect(peerConnections[0]?.addIceCandidate).toHaveBeenCalledTimes(1));
-    vi.useFakeTimers();
-
-    emitRelay(publisherId, {
-      ...probeOffer,
-      phase: 'media',
-      description: {
-        type: 'offer',
-        sdp: 'v=0\r\nm=audio 9 UDP/TLS/RTP/SAVPF 111\r\na=rtpmap:111 opus/48000/2',
-      },
-      trackId: 'remote-stereo-track',
-    });
-    await vi.advanceTimersByTimeAsync(0);
-    expect(
-      bridgeMocks.sent.some(
-        (entry) => entry.payload.kind === 'answer' && entry.payload.phase === 'media',
-      ),
-    ).toBe(true);
+    // The track deadline starts only once the receiver proved the pair, on
+    // the proof poll after the publisher's candidate arrives.
+    emitRelay(publisherId, publisherCandidate(negotiationId, safeCandidate('auto')));
+    await vi.advanceTimersByTimeAsync(25);
+    expect(peerConnections[0]?.remoteChannel.send).toHaveBeenCalledWith(RECEIVER_PAIR_PROVEN);
     expect(callbacks.onLiveRouteFallback).not.toHaveBeenCalled();
 
     await vi.advanceTimersByTimeAsync(4_999);
@@ -1613,16 +1631,7 @@ describe('PRO system-audio LAN-direct receiver fencing', () => {
   it("reports only a publisher's 'stopped' close of the current receiver route, once and with no close back (5B-G6)", async () => {
     localParticipantId = receiverA;
     const callbacks = configureCallbacks();
-    const probeOffer = (negotiationId: string) => ({
-      kind: 'offer',
-      targetParticipantId: receiverA,
-      direction: 'publisher',
-      phase: 'probe',
-      generation: 11,
-      publicationId,
-      negotiationId,
-      description: { type: 'offer', sdp: 'valid-owner-probe-offer' },
-    });
+    const probeOffer = (negotiationId: string) => publisherOffer(negotiationId);
     const close = (negotiationId: string, reason: string) => ({
       kind: 'close',
       targetParticipantId: receiverA,
@@ -1824,7 +1833,7 @@ describe('PRO system-audio LAN-direct live lifecycle', () => {
     expect(callbacks.onLiveRouteFallback).not.toHaveBeenCalled();
     expect(
       bridgeMocks.sent
-        .filter((entry) => entry.payload.kind === 'offer' && entry.payload.phase === 'probe')
+        .filter((entry) => entry.payload.kind === 'offer' && entry.payload.phase === 'media')
         .map((entry) => entry.payload.targetParticipantId),
     ).toEqual([receiverB, receiverC]);
   });
@@ -1856,7 +1865,7 @@ describe('PRO system-audio LAN-direct live lifecycle', () => {
     expect(peerConnections[0]?.close).toHaveBeenCalledTimes(1);
     stats.resolve(undefined);
     await expect(Promise.all([staleReconcile, newestReconcile])).resolves.toEqual([true, true]);
-    expect(peerConnections[0]?.addTrack).not.toHaveBeenCalled();
+    expect(peerConnections[0]!.sendingTrack()).toBeNull();
     expect(callbacks.onLiveRouteFallback).not.toHaveBeenCalled();
   });
 
@@ -1977,7 +1986,7 @@ describe('PRO system-audio LAN-direct live lifecycle', () => {
       bridgeMocks.sent.filter(
         (entry) =>
           entry.payload.kind === 'offer' &&
-          entry.payload.phase === 'probe' &&
+          entry.payload.phase === 'media' &&
           entry.payload.targetParticipantId === receiverA,
       ),
     ).toHaveLength(2);
@@ -2070,7 +2079,7 @@ describe('PRO system-audio LAN-direct live lifecycle', () => {
     direct.resetProSystemAudioDirectTransport({ notifyPeers: false });
     statsGate.resolve(undefined);
     await expect(attempt).resolves.toBeNull();
-    expect(peerConnections[0]?.addTrack).not.toHaveBeenCalled();
+    expect(peerConnections[0]!.sendingTrack()).toBeNull();
   });
 
   it('drops outbound global trickle, keeps safe candidates, and clears reproof timers', async () => {
@@ -2125,4 +2134,547 @@ describe('PRO system-audio LAN-direct live lifecycle', () => {
       ),
     ).toBe(true);
   });
+});
+
+// Field case, 2026-10-30: a desktop Edge sharer and an iPhone Safari listener on
+// one home Wi-Fi. The phone answered the data-channel-only probe in 0.75 s and
+// the host-to-host pair connected 0.09 s later, but the retired two-round-trip
+// protocol's media answer missed the attempt's single 2 s budget, so every
+// share went to the SFU (pinned in d0b71a89). One round trip now carries the
+// audio m-section: a receiver paced like that phone answers it in 1.2 s, the
+// slower media pace, connects 0.09 s later and proves its pair 0.03 s after.
+describe('PRO system-audio LAN-direct one round trip with a phone-paced receiver', () => {
+  const PROBE_ANSWER_MS = 750;
+  const MEDIA_ANSWER_MS = 1_200;
+  const ICE_CONNECT_MS = 90;
+  const RECEIVER_PROOF_MS = 30;
+
+  interface PacedReceiver {
+    id: string;
+    answerMs: number;
+    connects: boolean;
+  }
+
+  let setRemoteDescription: MockInstance<MockRTCPeerConnection['setRemoteDescription']> | null =
+    null;
+
+  function installPacedReceivers(receivers: readonly PacedReceiver[]): void {
+    const byId = new Map(receivers.map((receiver) => [receiver.id, receiver]));
+    bridgeMocks.send.mockImplementation((channel, payload) => {
+      bridgeMocks.sent.push({ channel, payload });
+      const receiver = byId.get(String(payload.targetParticipantId));
+      if (payload.kind !== 'offer' || !receiver || !Number.isFinite(receiver.answerMs)) return true;
+      setTimeout(() => {
+        emitRelay(receiver.id, {
+          kind: 'answer',
+          targetParticipantId: localParticipantId,
+          direction: 'subscriber',
+          phase: 'media',
+          generation: payload.generation,
+          publicationId: payload.publicationId,
+          negotiationId: payload.negotiationId,
+          description: {
+            type: 'answer',
+            sdp: `v=0\r\nm=audio 9 UDP/TLS/RTP/SAVPF 111\r\na=rtpmap:111 opus/48000/2\r\no=${receiver.id}`,
+          },
+        });
+        emitRelay(receiver.id, {
+          kind: 'candidate',
+          targetParticipantId: localParticipantId,
+          direction: 'subscriber',
+          generation: payload.generation,
+          publicationId: payload.publicationId,
+          negotiationId: payload.negotiationId,
+          candidate: { candidate: safeCandidate('auto') },
+        });
+      }, receiver.answerMs);
+      return true;
+    });
+    setRemoteDescription = vi
+      .spyOn(MockRTCPeerConnection.prototype, 'setRemoteDescription')
+      .mockImplementation(async function (
+        this: MockRTCPeerConnection,
+        description: RTCSessionDescriptionInit,
+      ) {
+        this.remoteDescription = description as RTCSessionDescription;
+        const receiver = receivers[peerConnections.indexOf(this)];
+        if (description.type !== 'answer' || !receiver?.connects) return;
+        setTimeout(() => {
+          this.emitConnected();
+          if (!receiverProofWithheld) {
+            setTimeout(() => this.emitReceiverProof(), RECEIVER_PROOF_MS);
+          }
+        }, ICE_CONNECT_MS);
+      });
+  }
+
+  function offerPhases(participantId = receiverA): unknown[] {
+    return bridgeMocks.sent
+      .filter(
+        (entry) =>
+          entry.payload.kind === 'offer' && entry.payload.targetParticipantId === participantId,
+      )
+      .map((entry) => entry.payload.phase);
+  }
+
+  function infoLines(): string[] {
+    return vi.mocked(log.info).mock.calls.map(([line]) => String(line));
+  }
+
+  /** Starts an attempt and records when it settles, in fake-timer milliseconds. */
+  function track(attempt: Promise<unknown>): { settledAt: () => number | null } {
+    const startedAt = Date.now();
+    let settledAt: number | null = null;
+    void attempt.then(
+      () => {
+        settledAt = Date.now() - startedAt;
+      },
+      () => undefined,
+    );
+    return { settledAt: () => settledAt };
+  }
+
+  beforeEach(() => {
+    vi.mocked(log.info).mockClear();
+  });
+
+  afterEach(() => {
+    setRemoteDescription?.mockRestore();
+    setRemoteDescription = null;
+  });
+
+  it.each(['initial', 'late-join'] as const)(
+    'proves LAN-direct in one round trip during %s negotiation, attaching audio only after both proofs',
+    async (phase) => {
+      vi.useFakeTimers();
+      const callbacks = configureCallbacks();
+      if (phase === 'late-join') {
+        await direct.attemptProSystemAudioDirectPublication({
+          track: audioTrack('capture-stereo'),
+          generation: 7,
+          publicationId,
+          targets: [],
+        });
+        await expect(
+          direct.activateProSystemAudioDirectPublication({
+            ownerParticipantId: publisherId,
+            generation: 7,
+            publicationId,
+          }),
+        ).resolves.toBe(true);
+      }
+      installPacedReceivers([{ id: receiverA, answerMs: MEDIA_ANSWER_MS, connects: true }]);
+      const attempt =
+        phase === 'initial'
+          ? direct.attemptProSystemAudioDirectPublication({
+              track: audioTrack('capture-stereo'),
+              generation: 7,
+              publicationId,
+              targets: [target(receiverA)],
+            })
+          : direct.reconcileProSystemAudioDirectTargets([target(receiverA)]);
+      const timing = track(attempt);
+
+      // Before the receiver's proof the offer is out and the sender is empty.
+      await vi.advanceTimersByTimeAsync(MEDIA_ANSWER_MS + ICE_CONNECT_MS);
+      expect(offerPhases()).toEqual(['media']);
+      expect(peerConnections[0]!.sendingTrack()).toBeNull();
+      expect(timing.settledAt()).toBeNull();
+
+      await vi.advanceTimersByTimeAsync(RECEIVER_PROOF_MS + 25);
+      expect(timing.settledAt()).toBeLessThan(1_400);
+      if (phase === 'initial') {
+        await expect(attempt).resolves.toEqual({
+          publicationId,
+          transport: 'lan-direct',
+          protocolVersion: 2,
+        });
+      } else {
+        await expect(attempt).resolves.toBe(true);
+      }
+      expect(peerConnections[0]!.sendingTrack()?.id).toBe('capture-stereo');
+      expect(peerConnections[0]?.close).not.toHaveBeenCalled();
+      expect(callbacks.onLiveRouteFallback).not.toHaveBeenCalled();
+      expect(infoLines()).toEqual([
+        expect.stringMatching(
+          /^\[ProSysAudioDirect\] LAN route to 0001 proven in \d+ ms \(answer 12\d\d, pair 13\d\d, receiver 13\d\d\)$/,
+        ),
+      ]);
+    },
+  );
+
+  it('falls back at the 2 s answer deadline when the receiver never answers, as an older build does', async () => {
+    vi.useFakeTimers();
+    configureCallbacks();
+    installPacedReceivers([{ id: receiverA, answerMs: Number.POSITIVE_INFINITY, connects: true }]);
+    const attempt = direct.attemptProSystemAudioDirectPublication({
+      track: audioTrack('capture-stereo'),
+      generation: 7,
+      publicationId,
+      targets: [target(receiverA)],
+    });
+    const timing = track(attempt);
+
+    await vi.advanceTimersByTimeAsync(1_999);
+    expect(timing.settledAt()).toBeNull();
+    await vi.advanceTimersByTimeAsync(2);
+    await expect(attempt).resolves.toBeNull();
+    expect(peerConnections[0]!.sendingTrack()).toBeNull();
+    expect(bridgeMocks.sent.at(-1)?.payload).toEqual(
+      expect.objectContaining({
+        kind: 'close',
+        targetParticipantId: receiverA,
+        reason: 'fallback',
+      }),
+    );
+    expect(infoLines()).toEqual([
+      expect.stringMatching(
+        /^\[ProSysAudioDirect\] LAN route to 0001 not proven at answer after 20\d\d ms \(deadline; no answer\)$/,
+      ),
+    ]);
+  });
+
+  it('falls back one second after the answer when the pair never connects', async () => {
+    vi.useFakeTimers();
+    configureCallbacks();
+    installPacedReceivers([{ id: receiverA, answerMs: PROBE_ANSWER_MS, connects: false }]);
+    const attempt = direct.attemptProSystemAudioDirectPublication({
+      track: audioTrack('capture-stereo'),
+      generation: 7,
+      publicationId,
+      targets: [target(receiverA)],
+    });
+    const timing = track(attempt);
+
+    await vi.advanceTimersByTimeAsync(PROBE_ANSWER_MS + 999);
+    expect(timing.settledAt()).toBeNull();
+    await vi.advanceTimersByTimeAsync(50);
+    await expect(attempt).resolves.toBeNull();
+    expect(timing.settledAt()).toBeLessThan(PROBE_ANSWER_MS + 1_050);
+    expect(peerConnections[0]!.sendingTrack()).toBeNull();
+    expect(infoLines()).toEqual([
+      expect.stringMatching(
+        /^\[ProSysAudioDirect\] LAN route to 0001 not proven at pair after 17\d\d ms \(deadline; answer 7\d\d\)$/,
+      ),
+    ]);
+  });
+
+  it('attaches no audio and falls back when the receiver never confirms its own pair proof', async () => {
+    vi.useFakeTimers();
+    configureCallbacks();
+    receiverProofWithheld = true;
+    installPacedReceivers([{ id: receiverA, answerMs: MEDIA_ANSWER_MS, connects: true }]);
+    const attempt = direct.attemptProSystemAudioDirectPublication({
+      track: audioTrack('capture-stereo'),
+      generation: 7,
+      publicationId,
+      targets: [target(receiverA)],
+    });
+
+    await vi.advanceTimersByTimeAsync(MEDIA_ANSWER_MS + 1_050);
+    await expect(attempt).resolves.toBeNull();
+    // The publisher proved its own end, but one end is not enough.
+    expect(peerConnections[0]!.sendingTrack()).toBeNull();
+    expect(peerConnections[0]?.close).toHaveBeenCalledTimes(1);
+    expect(infoLines()).toEqual([
+      expect.stringMatching(
+        /^\[ProSysAudioDirect\] LAN route to 0001 not proven at receiver-proof after 22\d\d ms \(deadline; answer 12\d\d, pair 13\d\d\)$/,
+      ),
+    ]);
+  });
+
+  it('ignores a pair proof that is not the receiver message', async () => {
+    vi.useFakeTimers();
+    configureCallbacks();
+    receiverProofWithheld = true;
+    installPacedReceivers([{ id: receiverA, answerMs: PROBE_ANSWER_MS, connects: true }]);
+    const attempt = direct.attemptProSystemAudioDirectPublication({
+      track: audioTrack('capture-stereo'),
+      generation: 7,
+      publicationId,
+      targets: [target(receiverA)],
+    });
+    await vi.advanceTimersByTimeAsync(PROBE_ANSWER_MS + ICE_CONNECT_MS + 10);
+    peerConnections[0]!.emitReceiverProof('receiver-pair-proven ');
+    peerConnections[0]!.emitReceiverProof({ proven: true });
+
+    await vi.advanceTimersByTimeAsync(1_100);
+    await expect(attempt).resolves.toBeNull();
+    expect(peerConnections[0]!.sendingTrack()).toBeNull();
+  });
+
+  it('settles a mixed room at the first failed route instead of waiting for a slow LAN route', async () => {
+    vi.useFakeTimers();
+    const callbacks = configureCallbacks();
+    installPacedReceivers([
+      // A slow phone on the LAN, and a remote listener whose pair never connects.
+      { id: receiverA, answerMs: 1_800, connects: true },
+      { id: receiverB, answerMs: 300, connects: false },
+    ]);
+    const attempt = direct.attemptProSystemAudioDirectPublication({
+      track: audioTrack('capture-stereo'),
+      generation: 7,
+      publicationId,
+      targets: [target(receiverA), target(receiverB)],
+    });
+    const timing = track(attempt);
+
+    await vi.advanceTimersByTimeAsync(1_350);
+    await expect(attempt).resolves.toBeNull();
+    expect(timing.settledAt()).toBeLessThan(1_350);
+    expect(peerConnections.map((pc) => pc.sendingTrack())).toEqual([null, null]);
+    expect(peerConnections.map((pc) => pc.close.mock.calls.length)).toEqual([1, 1]);
+    expect(callbacks.onLiveRouteFallback).not.toHaveBeenCalled();
+    // The late answer of the slow route reaches no route.
+    await vi.advanceTimersByTimeAsync(1_000);
+    expect(
+      setRemoteDescription?.mock.calls.filter(([description]) => description.type === 'answer'),
+    ).toHaveLength(1);
+  });
+
+  // A stage that gives up before its deadline timer (here a non-local pair)
+  // must not leave its route behind: an overlapping reconcile pass would find
+  // it and commit a route whose sender never got the track.
+  it('retires a late-join route that fails before its stage deadline, so an overlapping reconcile renegotiates it', async () => {
+    vi.useFakeTimers();
+    const callbacks = configureCallbacks();
+    await direct.attemptProSystemAudioDirectPublication({
+      track: audioTrack('capture-stereo'),
+      generation: 7,
+      publicationId,
+      targets: [],
+    });
+    await direct.activateProSystemAudioDirectPublication({
+      ownerParticipantId: publisherId,
+      generation: 7,
+      publicationId,
+    });
+    installPacedReceivers([
+      { id: receiverA, answerMs: PROBE_ANSWER_MS, connects: true },
+      { id: receiverA, answerMs: PROBE_ANSWER_MS, connects: true },
+    ]);
+    nextLocalities.push('non-local', 'host-host');
+
+    const first = direct.reconcileProSystemAudioDirectTargets([target(receiverA)]);
+    await vi.advanceTimersByTimeAsync(PROBE_ANSWER_MS + 10);
+    // A presence update lands while the first route proves its pair.
+    const overlapping = direct.reconcileProSystemAudioDirectTargets([target(receiverA)]);
+    await vi.advanceTimersByTimeAsync(3_000);
+
+    await expect(Promise.all([first, overlapping])).resolves.toEqual([true, true]);
+    expect(peerConnections).toHaveLength(2);
+    expect(peerConnections[0]?.close).toHaveBeenCalledTimes(1);
+    expect(peerConnections[0]!.sendingTrack()).toBeNull();
+    expect(peerConnections[1]!.sendingTrack()?.id).toBe('capture-stereo');
+    expect(callbacks.onLiveRouteFallback).not.toHaveBeenCalled();
+    expect(infoLines()).toEqual([
+      expect.stringMatching(/not proven at pair after \d+ ms \(non-local; answer \d+\)$/),
+      expect.stringMatching(/proven in \d+ ms \(answer \d+, pair \d+, receiver \d+\)$/),
+    ]);
+  });
+
+  it('ignores a duplicate answer that arrives while the first one is still applied', async () => {
+    vi.useFakeTimers();
+    configureCallbacks();
+    installPacedReceivers([{ id: receiverA, answerMs: PROBE_ANSWER_MS, connects: true }]);
+    const pacedSend = bridgeMocks.send.getMockImplementation()!;
+    bridgeMocks.send.mockImplementation((channel, payload) => {
+      const sent = pacedSend(channel, payload);
+      // The relay delivers the same answer twice, 1 ms apart.
+      if (payload.kind === 'offer') setTimeout(() => pacedSend(channel, payload), 1);
+      return sent;
+    });
+    // A real connection rejects a second answer once the first is applied.
+    const paced = setRemoteDescription!.getMockImplementation()!;
+    setRemoteDescription!.mockImplementation(async function (
+      this: MockRTCPeerConnection,
+      description: RTCSessionDescriptionInit,
+    ) {
+      if (description.type === 'answer' && this.remoteDescription?.type === 'answer') {
+        throw new DOMException('Called in wrong state: stable', 'InvalidStateError');
+      }
+      await new Promise((resolve) => setTimeout(resolve, 5));
+      return paced.call(this, description);
+    });
+    const attempt = direct.attemptProSystemAudioDirectPublication({
+      track: audioTrack('capture-stereo'),
+      generation: 7,
+      publicationId,
+      targets: [target(receiverA)],
+    });
+
+    await vi.advanceTimersByTimeAsync(PROBE_ANSWER_MS + 500);
+    await expect(attempt).resolves.toEqual(
+      expect.objectContaining({ transport: 'lan-direct', publicationId }),
+    );
+    expect(
+      setRemoteDescription!.mock.calls.filter(([description]) => description.type === 'answer'),
+    ).toHaveLength(1);
+  });
+});
+
+describe('PRO system-audio LAN-direct receiver hand-over waits for the attached track', () => {
+  it('falls back when a live, proven receiver never hears that the publisher attached its track', async () => {
+    vi.useFakeTimers();
+    localParticipantId = receiverA;
+    receiverTrackId = 'remote-stereo-track';
+    const callbacks = configureCallbacks();
+    const negotiationId = 'negotiation_000000000031';
+    // A late joiner: the publication is already live when the offer arrives.
+    await direct.activateProSystemAudioDirectPublication({
+      ownerParticipantId: publisherId,
+      generation: 11,
+      publicationId,
+    });
+    emitRelay(publisherId, publisherOffer(negotiationId));
+    await vi.advanceTimersByTimeAsync(0);
+    emitRelay(publisherId, publisherCandidate(negotiationId, safeCandidate('auto')));
+    await vi.advanceTimersByTimeAsync(25);
+    expect(peerConnections[0]?.remoteChannel.send).toHaveBeenCalledWith(RECEIVER_PAIR_PROVEN);
+    // The track arrived and the pair is proven, but no audio flows on it yet.
+    expect(callbacks.onReceiverTrackReady).not.toHaveBeenCalled();
+
+    await vi.advanceTimersByTimeAsync(4_999);
+    expect(callbacks.onLiveRouteFallback).not.toHaveBeenCalled();
+    await vi.advanceTimersByTimeAsync(1);
+    expect(callbacks.onReceiverTrackReady).not.toHaveBeenCalled();
+    expect(callbacks.onLiveRouteFallback).toHaveBeenCalledWith({
+      role: 'receiver',
+      reason: 'receiver-track-timeout',
+      participantId: publisherId,
+      generation: 11,
+      publicationId,
+    });
+    expect(peerConnections[0]?.close).toHaveBeenCalledTimes(1);
+  });
+
+  it('hands a live receiver its track as soon as the publisher says it is attached', async () => {
+    vi.useFakeTimers();
+    localParticipantId = receiverA;
+    receiverTrackId = 'remote-stereo-track';
+    const callbacks = configureCallbacks();
+    const negotiationId = 'negotiation_000000000032';
+    await direct.activateProSystemAudioDirectPublication({
+      ownerParticipantId: publisherId,
+      generation: 11,
+      publicationId,
+    });
+    emitRelay(publisherId, publisherOffer(negotiationId));
+    await vi.advanceTimersByTimeAsync(0);
+    emitRelay(publisherId, publisherCandidate(negotiationId, safeCandidate('auto')));
+    await vi.advanceTimersByTimeAsync(25);
+    peerConnections[0]!.emitPublisherAttached();
+    await vi.advanceTimersByTimeAsync(0);
+
+    expect(callbacks.onReceiverTrackReady).toHaveBeenCalledTimes(1);
+    expect(callbacks.onReceiverTrackReady).toHaveBeenCalledWith(
+      expect.objectContaining({ track: expect.objectContaining({ id: 'remote-stereo-track' }) }),
+    );
+    await vi.advanceTimersByTimeAsync(10_000);
+    expect(callbacks.onLiveRouteFallback).not.toHaveBeenCalled();
+  });
+});
+
+// A browser announces the publisher's probe channel (ondatachannel) only after
+// DTLS, SCTP and the channel's open handshake, so after the receiver's own pair
+// proof. The proof then leaves from ondatachannel, for a channel announced
+// open, or from the channel's open event, for one announced connecting, and
+// only once.
+describe('PRO system-audio LAN-direct receiver proof on a probe channel announced after it', () => {
+  function receiverProofLines(): string[] {
+    return vi
+      .mocked(log.info)
+      .mock.calls.map(([line]) => String(line))
+      .filter((line) => line.startsWith('[ProSysAudioDirect] Receiver LAN pair'));
+  }
+
+  /** A late joiner whose probe channel is held answers the publisher's one offer. */
+  async function answeredLiveReceiver(negotiationId: string) {
+    vi.useFakeTimers();
+    vi.mocked(log.info).mockClear();
+    localParticipantId = receiverA;
+    receiverTrackId = 'remote-stereo-track';
+    receiverChannelHeld = true;
+    const callbacks = configureCallbacks();
+    await direct.activateProSystemAudioDirectPublication({
+      ownerParticipantId: publisherId,
+      generation: 11,
+      publicationId,
+    });
+    emitRelay(publisherId, publisherOffer(negotiationId));
+    await vi.advanceTimersByTimeAsync(0);
+    expect(bridgeMocks.sent.filter((entry) => entry.payload.kind === 'answer')).toHaveLength(1);
+    return { callbacks, pc: peerConnections[0]! };
+  }
+
+  /** The publisher's candidate arrives and the next proof poll proves the pair. */
+  async function provePair(negotiationId: string): Promise<void> {
+    emitRelay(publisherId, publisherCandidate(negotiationId, safeCandidate('auto')));
+    await vi.advanceTimersByTimeAsync(25);
+    expect(receiverProofLines()).toEqual([
+      expect.stringMatching(/^\[ProSysAudioDirect\] Receiver LAN pair proven in \d+ ms$/),
+    ]);
+  }
+
+  /** The track waits for the publisher's word, then goes to playback once. */
+  async function expectHandOverOnlyAfterAttach(
+    callbacks: ReturnType<typeof configureCallbacks>,
+    pc: MockRTCPeerConnection,
+  ): Promise<void> {
+    await vi.advanceTimersByTimeAsync(1_000);
+    expect(callbacks.onReceiverTrackReady).not.toHaveBeenCalled();
+    pc.emitPublisherAttached();
+    await vi.advanceTimersByTimeAsync(0);
+    expect(callbacks.onReceiverTrackReady).toHaveBeenCalledTimes(1);
+    expect(callbacks.onReceiverTrackReady).toHaveBeenCalledWith(
+      expect.objectContaining({ track: expect.objectContaining({ id: 'remote-stereo-track' }) }),
+    );
+    await vi.advanceTimersByTimeAsync(10_000);
+    expect(pc.remoteChannel.send).toHaveBeenCalledTimes(1);
+    expect(callbacks.onLiveRouteFallback).not.toHaveBeenCalled();
+    expect(pc.close).not.toHaveBeenCalled();
+  }
+
+  it.each([
+    { order: 'with no open event', openEvent: false, negotiationId: 'negotiation_000000000033' },
+    {
+      order: 'followed by its open event',
+      openEvent: true,
+      negotiationId: 'negotiation_000000000034',
+    },
+  ])(
+    'sends its pair proof once when the channel is announced open after the proof, $order',
+    async ({ openEvent, negotiationId }) => {
+      const { callbacks, pc } = await answeredLiveReceiver(negotiationId);
+      await provePair(negotiationId);
+      // Proven, but there is no channel to say it on yet.
+      expect(pc.remoteChannel.send).not.toHaveBeenCalled();
+
+      pc.announceRemoteChannel('open', { openEvent });
+      expect(pc.remoteChannel.send).toHaveBeenCalledTimes(1);
+      expect(pc.remoteChannel.send).toHaveBeenCalledWith(RECEIVER_PAIR_PROVEN);
+      await expectHandOverOnlyAfterAttach(callbacks, pc);
+    },
+  );
+
+  it.each([
+    { moment: 'before', negotiationId: 'negotiation_000000000035' },
+    { moment: 'after', negotiationId: 'negotiation_000000000036' },
+  ] as const)(
+    'sends its pair proof once when the channel is announced connecting $moment the proof and opens after it',
+    async ({ moment, negotiationId }) => {
+      const { callbacks, pc } = await answeredLiveReceiver(negotiationId);
+      if (moment === 'before') pc.announceRemoteChannel('connecting');
+      await provePair(negotiationId);
+      if (moment === 'after') pc.announceRemoteChannel('connecting');
+      // Proven, but the channel is still connecting: nothing can be sent on it.
+      await vi.advanceTimersByTimeAsync(100);
+      expect(pc.remoteChannel.send).not.toHaveBeenCalled();
+
+      pc.openRemoteChannel();
+      expect(pc.remoteChannel.send).toHaveBeenCalledTimes(1);
+      expect(pc.remoteChannel.send).toHaveBeenCalledWith(RECEIVER_PAIR_PROVEN);
+      await expectHandOverOnlyAfterAttach(callbacks, pc);
+    },
+  );
 });

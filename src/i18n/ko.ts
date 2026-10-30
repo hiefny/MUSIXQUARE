@@ -408,7 +408,6 @@ const ko = {
 
   // ─── Chat ────────────────────────────────────────────────────────
   'chat.title': '채팅',
-  'chat.close': '채팅 닫기',
   'chat.open': '채팅 열기',
   'chat.placeholder': '메시지 또는 / 명령어',
   'chat.input_label': '채팅 메시지',

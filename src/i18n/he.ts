@@ -406,7 +406,6 @@ const he: Record<I18nKey, string> = {
 
   // ─── Chat ────────────────────────────────────────────────────────
   'chat.title': 'צ׳אט',
-  'chat.close': 'סגירת הצ׳אט',
   'chat.open': 'פתיחת הצ׳אט',
   'chat.placeholder': 'הודעה, או "/" לפקודות...',
   'chat.input_label': 'הודעת צ׳אט',

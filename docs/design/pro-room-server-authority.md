@@ -138,9 +138,17 @@ stale, or unauthorized targets are dropped.
 
 A direct route is committed only after each target has exactly one unambiguous
 selected, succeeded `host`-to-`host` pair reached through a strict UUID-shaped
-remote `.local` mDNS candidate. The first negotiation is a data-channel-only locality probe;
-the publisher attaches the original stereo audio track and performs the media negotiation
-only after that proof succeeds. Candidate-bearing SDP is rejected. The bounded
+remote `.local` mDNS candidate, on both ends. Each route negotiates in one signaling round
+trip (since 2026-10-30; before, a data-channel-only probe and then a media re-offer): the
+single offer carries the probe data channel and one audio m-section whose sender holds no
+track, the receiver answers, proves its own selected pair and says so on the probe channel,
+and the publisher attaches the original stereo audio track (`replaceTrack`, no renegotiation)
+only after its own proof and the receiver's, then says so on the same channel; the receiver
+hands its track to playback only after that word. No audio leaves before both proofs. The answer
+must arrive within 2 s of the offer and both proofs within 1 s of the answer. The offer and
+answer keep the relay's `phase: "media"` frame shape; a receiver ignores the retired probe
+offer, so an older and a newer client never build a route and use the SFU. Candidate-bearing
+SDP is rejected. The bounded
 trickle path accepts only component-1 UDP host candidates with that remote mDNS
 shape; numeric remote candidates are never relayed or added, even when they
 appear to share an RFC1918 or IPv6 private subnet. Browsers without usable mDNS,

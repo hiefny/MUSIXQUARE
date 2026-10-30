@@ -416,7 +416,6 @@ const pa: Record<I18nKey, string> = {
 
   // ─── Chat ────────────────────────────────────────────────────────
   'chat.title': 'ਚੈਟ',
-  'chat.close': 'ਚੈਟ ਬੰਦ ਕਰੋ',
   'chat.open': 'ਚੈਟ ਖੋਲ੍ਹੋ',
   'chat.placeholder': "ਸੁਨੇਹਾ ਲਿਖੋ ਜਾਂ ਕਮਾਂਡਾਂ ਲਈ '/' ਵਰਤੋ...",
   'chat.input_label': 'ਚੈਟ ਸੁਨੇਹਾ',

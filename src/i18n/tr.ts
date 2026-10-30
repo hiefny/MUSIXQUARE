@@ -411,7 +411,6 @@ const tr: Record<I18nKey, string> = {
 
   // ─── Chat ────────────────────────────────────────────────────────
   'chat.title': 'Sohbet',
-  'chat.close': 'Sohbeti Kapat',
   'chat.open': 'Sohbeti Aç',
   'chat.placeholder': 'Mesaj veya komutlar için /...',
   'chat.input_label': 'Sohbet mesajı',

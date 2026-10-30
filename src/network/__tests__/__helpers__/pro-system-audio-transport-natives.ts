@@ -23,22 +23,39 @@ import { makeAudioTrack } from './system-audio-receive-harness.ts';
 // pushed with setConnectionState() to the 'connectionstatechange' listeners.
 //
 // LAN mode, calibrated against pro-system-audio-direct.ts acceptOffer and
-// acceptMediaOffer and the 'host-host' locality in pro-system-audio-direct
+// proveReceiverRoute and the 'host-host' locality in pro-system-audio-direct
 // .test.ts: setLocalDescription(answer) gathers one mDNS host candidate and
 // connects; getStats() reports one selected, succeeded host-to-host pair from
-// 192.168.1.10 to an mDNS remote whose foundation and port match LAN_CANDIDATE;
-// a media offer fires ontrack with the track its `a=msid:` line names (none
-// when the line is missing). Runtime states go to onconnectionstatechange and
+// 192.168.1.10 to an mDNS remote whose foundation and port match LAN_CANDIDATE,
+// so the receiver proves its pair on the first proof poll (every 25 ms) after
+// that candidate arrives; the offer fires ontrack with the track its `a=msid:`
+// line names (none when the line is missing); setLocalDescription(answer) also
+// announces the publisher's probe channel, already 'open' (ondatachannel),
+// whose sent messages are kept and on which `sendLanTrackAttached` delivers the
+// publisher's track-attached word. A browser announces that channel only after
+// DTLS, SCTP and the channel's open handshake, so after the receiver's own pair
+// proof: after `holdLanProbeChannel` the answer leaves it unannounced until
+// `announceLanProbeChannel`. Runtime states go to onconnectionstatechange and
 // oniceconnectionstatechange, as the receiver registers them.
 //
 // Neither mode models ICE, DTLS, media flow, track 'ended' events or the
-// publisher side (addTrack, data channels, sctp).
+// publisher side (addTrack, replaceTrack, sctp).
 
 type PeerConnectionMode = 'sfu' | 'lan';
 
 interface FakeReceiver {
   track: MediaStreamTrack;
   playoutDelayHint?: number;
+}
+
+interface FakeProbeChannel {
+  label: string;
+  readyState: 'open';
+  /** Messages this receiver sent its publisher, in order. */
+  sent: unknown[];
+  send: (data: unknown) => void;
+  onopen: (() => void) | null;
+  onmessage: ((event: { data: unknown }) => void) | null;
 }
 
 /** The publisher's one LAN host candidate: foundation 'auto', port 5000. */
@@ -49,6 +66,8 @@ const LAN_LOCAL_CANDIDATE =
 
 export class ProTransportPeerConnection {
   static readonly instances: ProTransportPeerConnection[] = [];
+  /** LAN mode: setLocalDescription(answer) leaves the probe channel unannounced. */
+  static holdProbeChannel = false;
   readonly mode: PeerConnectionMode;
   connectionState: RTCPeerConnectionState = 'new';
   iceConnectionState: RTCIceConnectionState = 'new';
@@ -59,6 +78,18 @@ export class ProTransportPeerConnection {
   onconnectionstatechange: (() => void) | null = null;
   oniceconnectionstatechange: (() => void) | null = null;
   ontrack: ((event: unknown) => void) | null = null;
+  ondatachannel: ((event: { channel: FakeProbeChannel }) => void) | null = null;
+  /** The publisher's probe channel as this receiver sees it (LAN mode, once answered). */
+  readonly probeChannel: FakeProbeChannel = {
+    label: 'MUSIXQUARE-lan-probe',
+    readyState: 'open',
+    sent: [],
+    send(data: unknown) {
+      this.sent.push(data);
+    },
+    onopen: null,
+    onmessage: null,
+  };
   closed = false;
   /** Every remote audio receiver this connection exposed, in order. */
   readonly receivers: FakeReceiver[] = [];
@@ -79,6 +110,7 @@ export class ProTransportPeerConnection {
 
   static reset(): void {
     ProTransportPeerConnection.instances.length = 0;
+    ProTransportPeerConnection.holdProbeChannel = false;
   }
 
   addEventListener(type: string, fn: () => void): void {
@@ -143,6 +175,14 @@ export class ProTransportPeerConnection {
       },
     });
     if (this.connectionState !== 'connected') this.setConnectionState('connected');
+    if (!ProTransportPeerConnection.holdProbeChannel) {
+      this.ondatachannel?.({ channel: this.probeChannel });
+    }
+  }
+
+  /** Announces the held probe channel, already 'open' (ondatachannel). */
+  announceProbeChannel(): void {
+    this.ondatachannel?.({ channel: this.probeChannel });
   }
 
   async addIceCandidate(candidate: RTCIceCandidateInit): Promise<void> {
@@ -258,8 +298,9 @@ export const proRelay = new ProRelayFake();
 
 // ─── LAN-direct publisher signals ───────────────────────────────────
 // The frames a remote LAN-direct publisher sends one listener, in the shapes
-// pro-system-audio-direct.ts parseSignal accepts: a data-channel probe offer,
-// one LAN host candidate, then the media offer naming its stereo track.
+// pro-system-audio-direct.ts parseSignal accepts: one offer carrying the probe
+// data channel and the audio m-section that names its stereo track, then one
+// LAN host candidate.
 
 export interface LanPublisherRoute {
   roomCode: string;
@@ -281,26 +322,8 @@ function lanSignal(route: LanPublisherRoute, kind: string): Record<string, unkno
   };
 }
 
-export function sendLanProbeOffer(route: LanPublisherRoute): void {
-  proRelay.deliver(route.roomCode, route.ownerParticipantId, {
-    ...lanSignal(route, 'offer'),
-    phase: 'probe',
-    description: {
-      type: 'offer',
-      sdp: 'v=0\r\nm=application 9 UDP/DTLS/SCTP webrtc-datachannel\r\n',
-    },
-  });
-}
-
-export function sendLanCandidate(route: LanPublisherRoute): void {
-  proRelay.deliver(route.roomCode, route.ownerParticipantId, {
-    ...lanSignal(route, 'candidate'),
-    candidate: { candidate: LAN_CANDIDATE },
-  });
-}
-
-/** The media offer; `withTrack: false` leaves out the msid, so no track arrives. */
-export function sendLanMediaOffer(
+/** The one offer; `withTrack: false` leaves out the msid, so no track arrives. */
+export function sendLanOffer(
   route: LanPublisherRoute,
   trackId: string,
   options: { withTrack?: boolean } = {},
@@ -312,8 +335,40 @@ export function sendLanMediaOffer(
     trackId,
     description: {
       type: 'offer',
-      sdp: `v=0\r\nm=audio 9 UDP/TLS/RTP/SAVPF 111\r\na=rtpmap:111 opus/48000/2\r\n${msid}`,
+      sdp:
+        'v=0\r\nm=application 9 UDP/DTLS/SCTP webrtc-datachannel\r\n' +
+        `m=audio 9 UDP/TLS/RTP/SAVPF 111\r\na=rtpmap:111 opus/48000/2\r\n${msid}`,
     },
+  });
+}
+
+/**
+ * The publisher's word, on the newest LAN connection's probe channel, that the
+ * track now carries audio (it sends it after both ends proved the pair).
+ */
+export function sendLanTrackAttached(): void {
+  const connection = ProTransportPeerConnection.of('lan').at(-1);
+  connection?.probeChannel.onmessage?.({ data: 'publisher-track-attached' });
+}
+
+/**
+ * From now until the next reset, a LAN connection's answer leaves the probe
+ * channel unannounced, as a browser announces it only after DTLS, SCTP and
+ * the channel's open handshake.
+ */
+export function holdLanProbeChannel(): void {
+  ProTransportPeerConnection.holdProbeChannel = true;
+}
+
+/** Announces the held probe channel, already 'open', on the newest LAN connection. */
+export function announceLanProbeChannel(): void {
+  ProTransportPeerConnection.of('lan').at(-1)?.announceProbeChannel();
+}
+
+export function sendLanCandidate(route: LanPublisherRoute): void {
+  proRelay.deliver(route.roomCode, route.ownerParticipantId, {
+    ...lanSignal(route, 'candidate'),
+    candidate: { candidate: LAN_CANDIDATE },
   });
 }
 

@@ -838,7 +838,6 @@ const ptBr: Record<I18nKey, string> = {
 
   // Chat
   'chat.title': 'Chat',
-  'chat.close': 'Fechar chat',
   'chat.open': 'Abrir chat',
   'chat.placeholder': 'Digite uma mensagem ou / para usar comandos...',
   'chat.input_label': 'Mensagem do chat',

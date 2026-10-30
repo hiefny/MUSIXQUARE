@@ -8,9 +8,10 @@
  * - PRO SFU: received stereo track (with its mid) and subscribed to generation
  *   (with the publication generation), both [ProSysAudioSFU] info lines.
  * - The decoder primer on both PRO routes: [ProSysAudio] primed (stereo) at
- *   info, primer blocked at warn. LAN-direct logs no line of its own, so the
- *   primed line is its only attach line, and a listener on LAN-direct must log
- *   no [ProSysAudioSFU] line (the criteria tell the routes apart by it).
+ *   info, primer blocked at warn. A listener on LAN-direct must log no
+ *   [ProSysAudioSFU] line (the criteria tell the routes apart by it). Since the
+ *   one-round-trip LAN-direct protocol it also logs its own pair proof,
+ *   `[ProSysAudioDirect] Receiver LAN pair proven in <ms> ms`, at info.
  * - A direct-to-SFU promotion seen from the listener: the SFU pair plus a
  *   second primed line for the new track.
  *
@@ -48,8 +49,8 @@ import {
   ProTransportPeerConnection,
   proRelay,
   sendLanCandidate,
-  sendLanMediaOffer,
-  sendLanProbeOffer,
+  sendLanOffer,
+  sendLanTrackAttached,
   type LanPublisherRoute,
 } from '../../network/__tests__/__helpers__/pro-system-audio-transport-natives.ts';
 import {
@@ -190,13 +191,17 @@ const lanRoute: LanPublisherRoute = {
   negotiationId: 'negotiation_000000000001',
 };
 
-/** The remote LAN-direct publisher negotiates its route and offers its track. */
+/**
+ * The remote LAN-direct publisher offers its track in one round trip; the
+ * receiver proves its pair on the next 25 ms proof poll after the candidate,
+ * and the publisher then says the track carries audio.
+ */
 async function lanPublisherDelivers(): Promise<void> {
-  sendLanProbeOffer(lanRoute);
+  sendLanOffer(lanRoute, 'direct-audio-1');
   await advance(0);
   sendLanCandidate(lanRoute);
-  await advance(0);
-  sendLanMediaOffer(lanRoute, 'direct-audio-1');
+  await advance(25);
+  sendLanTrackAttached();
   await advance(0);
 }
 
@@ -281,12 +286,18 @@ describe('PRO SFU listener evidence lines', () => {
 });
 
 describe('PRO LAN-direct listener evidence lines', () => {
-  it('logs only the primed line: no route line and no [ProSysAudioSFU] line at any level', async () => {
+  it('logs its pair proof and the primed line: no route line and no [ProSysAudioSFU] line at any level', async () => {
     await applyState(live(directPublication()));
     await lanPublisherDelivers();
     expect(webAudio.connectedTrackIds()).toEqual(['direct-audio-1']);
 
     expect(primerEvidence()).toEqual([['info', PRIMED]]);
+    expect(matching(/\[ProSysAudioDirect\]/u)).toEqual([
+      [
+        'info',
+        expect.stringMatching(/^\[ProSysAudioDirect\] Receiver LAN pair proven in \d+ ms$/u),
+      ],
+    ]);
     expect(routeEvidence()).toEqual([]);
     expect(matching(SFU_PREFIX)).toEqual([]);
   });

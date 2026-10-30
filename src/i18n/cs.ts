@@ -418,7 +418,6 @@ const cs: Record<I18nKey, string> = {
 
   // ─── Chat ────────────────────────────────────────────────────────
   'chat.title': 'Chat',
-  'chat.close': 'Zavřít chat',
   'chat.open': 'Otevřít chat',
   'chat.placeholder': "Zpráva nebo '/' pro příkazy...",
   'chat.input_label': 'Zpráva do chatu',

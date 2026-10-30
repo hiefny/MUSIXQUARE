@@ -155,7 +155,6 @@ const REGISTRY: Readonly<Record<string, Entry>> = {
 
   // Chat.
   'chat.bot_processing': { kinds: ['excluded'] },
-  'chat.close': { kinds: ['action'] },
   'chat.input_label': { kinds: ['value'] },
   'chat.open': { kinds: ['action'] },
   'chat.pinned_close': { kinds: ['action'] },

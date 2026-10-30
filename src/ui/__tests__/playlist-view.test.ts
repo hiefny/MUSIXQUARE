@@ -2,6 +2,7 @@
  * @vitest-environment jsdom
  */
 import { readFile } from 'node:fs/promises';
+import { parse as parseCss, type AtRule, type Node as CssNode, type Rule } from 'postcss';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { bus } from '../../core/events.ts';
 import { DESKTOP_LAYOUT_QUERY } from '../../core/layout-breakpoints.ts';
@@ -341,21 +342,36 @@ describe('PRO upload rows', () => {
     expect(entries[0]?.dataset.queueItemId).toBeUndefined();
     expect(entries[0]?.dataset.proUploadId).toBe(FILE_A);
     expect(entries[0]?.querySelector('.pro-upload-name')?.textContent).toBe('one.flac');
-    expect(entries[0]?.querySelector('.track-idx')).toBeNull();
-    expect(entries[1]?.querySelector('.track-idx')).toBeNull();
     expect(entries[0]?.classList).toContain('is-uploading');
     expect(entries[1]?.classList).toContain('is-waiting');
+    // Owner decision 2026-10-31 (option B): the number column holds a
+    // provisional number after the committed rows, and the ring takes the
+    // source icon's cell, so the title starts where every other title does.
+    expect(
+      Array.from(entries, (entry) => entry.querySelector('.track-leading')?.textContent),
+    ).toEqual(['1', '2']);
     for (const entry of entries) {
       const track = entry.querySelector<HTMLElement>('.pro-upload-track');
+      const leading = entry.querySelector<HTMLElement>('.track-leading');
       const spinner = entry.querySelector<HTMLElement>(
         '.material-elastic-spinner.pro-upload-spinner',
       );
       expect(track).not.toBeNull();
       expect(spinner).not.toBeNull();
+      // Like a viewer's rows: a static number cell, hidden from assistive
+      // technology, that no hover or hint turns into a reorder grip.
+      expect(leading?.tagName).toBe('DIV');
+      expect(leading?.className).toBe('track-leading track-leading-static');
+      expect(leading?.getAttribute('aria-hidden')).toBe('true');
+      expect(leading?.childElementCount).toBe(1);
+      expect(leading?.firstElementChild?.className).toBe('track-idx');
+      expect(entry.querySelector('.playlist-reorder-handle, .playlist-reorder-grip')).toBeNull();
       expect(spinner?.classList).toContain('playlist-row-spinner');
-      expect(spinner?.parentElement).toBe(entry.querySelector('.track-leading'));
-      expect(track?.firstElementChild).toBe(entry.querySelector('.pro-upload-name'));
-      expect(track?.childElementCount).toBe(1);
+      expect(spinner?.parentElement?.className).toBe('track-type-slot');
+      expect(track?.firstElementChild).toBe(spinner?.parentElement);
+      expect(track?.lastElementChild).toBe(entry.querySelector('.pro-upload-name'));
+      expect(track?.childElementCount).toBe(2);
+      expect(spinner?.parentElement?.childElementCount).toBe(1);
       expect(spinner?.getAttribute('aria-hidden')).toBe('true');
       expect(spinner?.querySelector('svg')?.getAttribute('viewBox')).toBe('0 0 44 44');
       expect(spinner?.querySelector('circle')?.getAttribute('cx')).toBe('22');
@@ -403,8 +419,9 @@ describe('PRO upload rows', () => {
     );
     expect(confirming).not.toBeNull();
     expect(
-      confirming?.querySelector('.material-elastic-spinner.pro-upload-spinner'),
+      confirming?.querySelector('.track-type-slot > .material-elastic-spinner.pro-upload-spinner'),
     ).not.toBeNull();
+    expect(confirming?.querySelector('.track-leading')?.textContent).toBe('1');
     const confirmingCancel = confirming?.querySelector<HTMLButtonElement>(
       '[data-pro-upload-action="cancel"]',
     );
@@ -485,6 +502,94 @@ describe('PRO upload rows', () => {
     } finally {
       performanceNow.mockRestore();
     }
+  });
+
+  it('numbers upload rows after the playlist and shows the file going up first', async () => {
+    const RETRIED = '00000000-0000-4000-8000-0000000000a1';
+    const LANDING = '00000000-0000-4000-8000-0000000000a2';
+    const LAST = '00000000-0000-4000-8000-0000000000a3';
+    const attempts = new Map<string, number>();
+    proRoomUploadQueue = new ProRoomUploadQueue({
+      createId: vi
+        .fn()
+        .mockReturnValueOnce(RETRIED)
+        .mockReturnValueOnce(LANDING)
+        .mockReturnValueOnce(LAST),
+      run: async (input, context) => {
+        const attempt = (attempts.get(input.id) ?? 0) + 1;
+        attempts.set(input.id, attempt);
+        // The first file fails once; its retry puts it back ahead of a later
+        // batch in the queue (the rare case where two numbers could swap).
+        if (input.id === RETRIED && attempt === 1) throw new Error('network');
+        await new Promise<void>((_resolve, reject) => {
+          context.signal.addEventListener('abort', () => reject(context.signal.reason), {
+            once: true,
+          });
+        });
+      },
+    });
+    setActiveProRoomUploadQueue(proRoomUploadQueue);
+    setState('playlist.items', sampleItems());
+    initPlaylistView();
+    await vi.dynamicImportSettled();
+
+    const uploadRows = () =>
+      Array.from(
+        document.querySelectorAll<HTMLElement>('#playlist-ui > .pro-upload-entry'),
+        (entry) => [
+          entry.querySelector('.pro-upload-name')?.textContent,
+          entry.querySelector('.track-leading')?.textContent,
+          entry.classList.contains('is-waiting') ? 'waiting' : 'going up',
+        ],
+      );
+
+    proRoomUploadQueue.enqueueFiles([new File(['a'], 'retried.flac')]);
+    await proRoomUploadQueue.whenIdle();
+    const failedBatch = proRoomUploadQueue.rows[0]!.batchId;
+    proRoomUploadQueue.enqueueFiles([
+      new File(['b'], 'landing.flac'),
+      new File(['c'], 'last.flac'),
+    ]);
+    await nextAnimationFrame();
+    expect(proRoomUploadQueue.retryFailedBatch(failedBatch)).toBe(true);
+    await nextAnimationFrame();
+
+    // The queue keeps the retried file first; the list leads with the file
+    // going up now and numbers on from the two committed rows.
+    expect(proRoomUploadQueue.rows.map((row) => [row.name, row.phase])).toEqual([
+      ['retried.flac', 'waiting'],
+      ['landing.flac', 'uploading'],
+      ['last.flac', 'waiting'],
+    ]);
+    expect(renderedQueueIds()).toEqual([FILE_A, YT_B]);
+    expect(
+      Array.from(document.querySelectorAll('#playlist-ui > .playlist-entry > .track-item'), (row) =>
+        row.querySelector('.track-leading')?.textContent?.trim(),
+      ),
+    ).toEqual(['1', '2', '3', '4', '5']);
+    expect(uploadRows()).toEqual([
+      ['landing.flac', '3', 'going up'],
+      ['retried.flac', '4', 'waiting'],
+      ['last.flac', '5', 'waiting'],
+    ]);
+
+    // The file lands as the 3 it showed, and no other number moves.
+    setState('playlist.items', [
+      ...sampleItems(),
+      { queueItemId: LANDING, type: 'file', name: 'landing.flac', videoId: null, playlistId: null },
+    ]);
+    await vi.waitFor(() =>
+      expect(uploadRows()).toEqual([
+        ['retried.flac', '4', 'going up'],
+        ['last.flac', '5', 'waiting'],
+      ]),
+    );
+    expect(renderedQueueIds()).toEqual([FILE_A, YT_B, LANDING]);
+    expect(
+      document
+        .querySelector(`[data-queue-item-id="${LANDING}"] .track-leading`)
+        ?.textContent?.trim(),
+    ).toBe('3');
   });
 
   it('hides failed uploads and restores the empty state for batch-level failure handling', async () => {
@@ -603,6 +708,297 @@ describe('PRO upload rows', () => {
   });
 });
 
+// jsdom's getComputedStyle skips rules inside @layer blocks, and the app
+// stylesheet keeps every rule in a layer. This resolves the few properties
+// below on the rendered markup instead: cascade layers, specificity and
+// source order over css/app.css's four sheets, then var() and custom property
+// inheritance. Rules under a media or support condition are reported instead
+// of resolved, so a viewport rule cannot change these values unnoticed.
+const APP_CSS_SHEETS = [
+  'css/style.css',
+  'css/desktop.css',
+  'css/rtl.css',
+  'css/playback-actions.css',
+] as const;
+const RESOLVED_ICON_PROPERTIES = [
+  'width',
+  'height',
+  '--material-elastic-size',
+  '--material-elastic-stroke',
+] as const;
+type CssSpecificity = [number, number, number];
+interface AppCssDeclaration {
+  selector: string;
+  value: string;
+  important: boolean;
+  layer: number;
+  specificity: CssSpecificity;
+  order: number;
+  condition: string | null;
+}
+
+function splitCssList(list: string): string[] {
+  const parts: string[] = [];
+  let depth = 0;
+  let start = 0;
+  for (let index = 0; index < list.length; index += 1) {
+    const character = list[index];
+    if (character === '(' || character === '[') depth += 1;
+    if (character === ')' || character === ']') depth -= 1;
+    if (character === ',' && depth === 0) {
+      parts.push(list.slice(start, index).trim());
+      start = index + 1;
+    }
+  }
+  parts.push(list.slice(start).trim());
+  return parts.filter(Boolean);
+}
+
+const compareCssSpecificity = (first: CssSpecificity, second: CssSpecificity): number =>
+  first[0] - second[0] || first[1] - second[1] || first[2] - second[2];
+
+/** Selectors Level 4 specificity of one complex selector without pseudo-elements. */
+function cssSpecificity(selector: string): CssSpecificity {
+  const result: CssSpecificity = [0, 0, 0];
+  const identEnd = (from: number): number => {
+    let index = from;
+    while (index < selector.length && /[\w\\-]/u.test(selector[index]!)) {
+      index += selector[index] === '\\' ? 2 : 1;
+    }
+    return index;
+  };
+  const closing = (from: number, open: string, close: string): number => {
+    let depth = 0;
+    for (let index = from; index < selector.length; index += 1) {
+      if (selector[index] === open) depth += 1;
+      else if (selector[index] === close && --depth === 0) return index;
+    }
+    throw new Error(`unbalanced selector: ${selector}`);
+  };
+  let index = 0;
+  while (index < selector.length) {
+    const character = selector[index]!;
+    if (character === '#' || character === '.') {
+      result[character === '#' ? 0 : 1] += 1;
+      index = identEnd(index + 1);
+    } else if (character === '[') {
+      result[1] += 1;
+      index = closing(index, '[', ']') + 1;
+    } else if (character === ':') {
+      const nameEnd = identEnd(index + 1);
+      const name = selector.slice(index + 1, nameEnd).toLowerCase();
+      let args = '';
+      index = nameEnd;
+      if (selector[index] === '(') {
+        const end = closing(index, '(', ')');
+        args = selector.slice(index + 1, end);
+        index = end + 1;
+      }
+      if (['is', 'not', 'has'].includes(name)) {
+        const strongest = splitCssList(args)
+          .map(cssSpecificity)
+          .reduce((best, next) => (compareCssSpecificity(next, best) > 0 ? next : best), [0, 0, 0]);
+        result[0] += strongest[0];
+        result[1] += strongest[1];
+        result[2] += strongest[2];
+      } else if (name !== 'where') {
+        result[1] += 1;
+      }
+    } else if (/[a-zA-Z_\\-]/u.test(character)) {
+      result[2] += 1;
+      index = identEnd(index);
+    } else {
+      index += 1;
+    }
+  }
+  return result;
+}
+
+/** The classes the rightmost compound of a selector requires (a fast pre-check). */
+function rightmostClasses(selector: string): string[] {
+  let depth = 0;
+  let bare = '';
+  for (let index = selector.length - 1; index >= 0; index -= 1) {
+    const character = selector[index]!;
+    if (character === ')' || character === ']') depth += 1;
+    if (depth === 0 && /[\s>+~]/u.test(character)) break;
+    if (depth === 0) bare = character + bare;
+    if (character === '(' || character === '[') depth -= 1;
+  }
+  return [...bare.matchAll(/\.([\w-]+)/gu)].map((match) => match[1]!);
+}
+
+async function appCssDeclarations(): Promise<Map<string, AppCssDeclaration[]>> {
+  const roots = await Promise.all(
+    APP_CSS_SHEETS.map(async (path) => parseCss(await readFile(path, 'utf8'))),
+  );
+  const layerOrder: string[] = [];
+  roots[0]!.walkAtRules('layer', (atRule) => {
+    if (!atRule.nodes && layerOrder.length === 0) {
+      layerOrder.push(...atRule.params.split(',').map((name) => name.trim()));
+    }
+  });
+  expect(layerOrder.length).toBeGreaterThan(0);
+  const byProperty = new Map<string, AppCssDeclaration[]>();
+  roots.forEach((root, sheetIndex) => {
+    root.walkDecls((declaration) => {
+      if (!(RESOLVED_ICON_PROPERTIES as readonly string[]).includes(declaration.prop)) return;
+      const rule = declaration.parent;
+      if (rule?.type !== 'rule') return;
+      const layers: string[] = [];
+      let condition: string | null = null;
+      for (let parent = rule.parent as CssNode | undefined; parent; parent = parent.parent) {
+        if (parent.type !== 'atrule') continue;
+        const atRule = parent as AtRule;
+        if (atRule.name === 'layer') layers.unshift(atRule.params);
+        else if (atRule.name !== 'keyframes') condition = `@${atRule.name} ${atRule.params}`;
+        else return;
+      }
+      const layerName = layers.join('.');
+      const layer = layerName === '' ? layerOrder.length : layerOrder.indexOf(layerName);
+      expect(layer, `layer ${layerName}`).toBeGreaterThanOrEqual(0);
+      for (const selector of (rule as Rule).selectors) {
+        if (selector.includes('::')) continue;
+        const list = byProperty.get(declaration.prop) ?? [];
+        list.push({
+          selector,
+          value: declaration.value,
+          important: Boolean(declaration.important),
+          layer,
+          specificity: cssSpecificity(selector),
+          order: sheetIndex * 10_000_000 + (declaration.source?.start?.offset ?? 0),
+          condition,
+        });
+        byProperty.set(declaration.prop, list);
+      }
+    });
+  });
+  return byProperty;
+}
+
+function resolveAppCss(
+  declarations: ReadonlyMap<string, readonly AppCssDeclaration[]>,
+  element: Element,
+  property: (typeof RESOLVED_ICON_PROPERTIES)[number],
+): string {
+  const matching = (declarations.get(property) ?? []).filter(
+    (declaration) =>
+      rightmostClasses(declaration.selector).every((name) => element.classList.contains(name)) &&
+      element.matches(declaration.selector),
+  );
+  expect(
+    matching
+      .filter((declaration) => declaration.condition)
+      .map((declaration) => `${declaration.condition} ${declaration.selector}`),
+    `${property} under a condition`,
+  ).toEqual([]);
+  const winner = matching.sort((first, second) => {
+    if (first.important !== second.important) return first.important ? 1 : -1;
+    if (first.layer !== second.layer) {
+      return first.important ? second.layer - first.layer : first.layer - second.layer;
+    }
+    return (
+      compareCssSpecificity(first.specificity, second.specificity) || first.order - second.order
+    );
+  })[matching.length - 1];
+  if (!winner) {
+    return property.startsWith('--') && element.parentElement
+      ? resolveAppCss(declarations, element.parentElement, property)
+      : '';
+  }
+  return winner.value.replace(/var\((--[\w-]+)\)/gu, (_match, name: string) =>
+    resolveAppCss(declarations, element, name as (typeof RESOLVED_ICON_PROPERTIES)[number]),
+  );
+}
+
+describe('playlist state icon and upload ring geometry', () => {
+  it('draws the current row icons beside the title larger and the upload ring in the icon cell', async () => {
+    proRoomUploadQueue = new ProRoomUploadQueue({
+      run: (_input, context) =>
+        new Promise<void>((_resolve, reject) => {
+          context.signal.addEventListener('abort', () => reject(context.signal.reason), {
+            once: true,
+          });
+        }),
+    });
+    setActiveProRoomUploadQueue(proRoomUploadQueue);
+    setState('playlist.items', sampleItems());
+    setState('youtube.subItemsMap', {
+      PL_TEST: { ids: ['video-a', 'video-b'], titles: ['First', 'Second'] },
+    });
+    setState('playlist.currentQueueItemId', YT_B);
+    setState('youtube.currentSubIndex', 1);
+    setState('playback.mode', 'youtube');
+    setState('playback.activity', 'playing');
+    initPlaylistView();
+    await vi.dynamicImportSettled();
+    proRoomUploadQueue.enqueueFiles([new File(['a'], 'one.flac'), new File(['b'], 'two.flac')]);
+    await nextAnimationFrame();
+
+    const declarations = await appCssDeclarations();
+    const resolve = (element: Element | null | undefined, property: string): string => {
+      expect(element).toBeTruthy();
+      return resolveAppCss(
+        declarations,
+        element!,
+        property as (typeof RESOLVED_ICON_PROPERTIES)[number],
+      );
+    };
+    const box = (element: Element | null | undefined) => [
+      resolve(element, 'width'),
+      resolve(element, 'height'),
+    ];
+    // The visible ring: the 36 viewBox unit circle plus one stroke, scaled
+    // from the 44 unit viewBox to the element size.
+    const ring = (element: Element | null | undefined) => {
+      const size = parseFloat(resolve(element, '--material-elastic-size'));
+      const stroke = parseFloat(resolve(element, '--material-elastic-stroke'));
+      const round = (value: number) => Math.round(value * 100) / 100;
+      return { outer: round(((36 + stroke) * size) / 44), line: round((stroke * size) / 44) };
+    };
+
+    // Owner decision 2026-10-31: beside the current row's title the pause
+    // bars draw in an 18px box, the play triangle in a 20px box, and the
+    // loading ring at 13px outside with a 2px line, the row text's selected
+    // weight (700). The cell stays one fixed 16px square.
+    const rowSlot = document.querySelector('.track-item.active .track-type-slot');
+    expect(rowSlot?.classList).toContain('playlist-current-leading');
+    expect(box(rowSlot)).toEqual(['16px', '16px']);
+    expect(box(rowSlot?.querySelector('.track-playing-indicator'))).toEqual(['20px', '20px']);
+    expect(box(rowSlot?.querySelector('.track-paused-indicator'))).toEqual(['18px', '18px']);
+    expect(ring(rowSlot?.querySelector('.track-playback-loading-indicator'))).toEqual({
+      outer: 13,
+      line: 2,
+    });
+
+    // The playing sub-row of an expanded YouTube playlist keeps its icons.
+    const subLeading = document.querySelector('.sub-track-item.active .sub-idx');
+    expect(subLeading?.classList).toContain('playlist-current-leading');
+    expect(box(subLeading?.querySelector('.track-playing-indicator'))).toEqual(['18px', '18px']);
+    expect(box(subLeading?.querySelector('.track-paused-indicator'))).toEqual(['16px', '16px']);
+    expect(ring(subLeading?.querySelector('.track-playback-loading-indicator'))).toEqual({
+      outer: 14.82,
+      line: 1.73,
+    });
+
+    // An upload row's ring sits in the same 16px cell at the current row
+    // ring's 13px outside, with the thin line it had before (row text 500).
+    const uploadSpinners = document.querySelectorAll('.pro-upload-entry .pro-upload-spinner');
+    expect(uploadSpinners).toHaveLength(2);
+    for (const spinner of uploadSpinners) {
+      expect(spinner.parentElement?.className).toBe('track-type-slot');
+      expect(box(spinner.parentElement)).toEqual(['16px', '16px']);
+      expect(ring(spinner)).toEqual({ outer: 13, line: 1.73 });
+    }
+
+    // The shared spinner component keeps its own size everywhere else.
+    const shared = document.createElement('span');
+    shared.className = 'material-elastic-spinner';
+    document.body.appendChild(shared);
+    expect(ring(shared)).toEqual({ outer: 22.23, line: 2.59 });
+  });
+});
+
 describe('playlist queue identity rendering and actions', () => {
   it('restores focus to the same queue action after a full rerender', () => {
     setState('playlist.items', sampleItems());
@@ -649,8 +1045,10 @@ describe('playlist queue identity rendering and actions', () => {
     expect(
       currentLeading.querySelector('.track-playing-indicator path')?.getAttribute('transform'),
     ).toBe('translate(-1.5 0)');
+    // Owner decision 2026-10-31: the pause bars beside the title are drawn
+    // wider (and their box larger, in css/style.css).
     expect(currentLeading.querySelector('.track-paused-indicator path')?.getAttribute('d')).toBe(
-      'M6 19h4V5H6v14zm8-14v14h4V5h-4z',
+      'M5.5 19h4.5V5H5.5v14zm8.5-14v14h4.5V5H14z',
     );
     expect(list.querySelectorAll('.playlist-current-leading')).toHaveLength(1);
 
@@ -776,7 +1174,9 @@ describe('playlist queue identity rendering and actions', () => {
     expect(stylesheet).toMatch(
       /\.track-playback-loading-indicator\s*\{[^}]*--material-elastic-size:\s*16px;/,
     );
-    expect(stylesheet).toMatch(/\.pro-upload-spinner\s*\{[^}]*--material-elastic-size:\s*16px;/);
+    // The playlist rings' sizes are pinned by the resolved cascade in
+    // 'playlist state icon and upload ring geometry' below.
+    expect(stylesheet).toMatch(/\.pro-upload-spinner\s*\{[^}]*--material-elastic-size:/);
     expect(parsed.querySelector('#main-header .material-elastic-spinner')).toBeNull();
     expect(
       parsed.querySelector('#header-loading-text .header-loading-text-content'),
@@ -835,6 +1235,11 @@ describe('playlist queue identity rendering and actions', () => {
     expect(active.hasAttribute('aria-label')).toBe(false);
     expect(leading.querySelector('.sub-idx-number')?.textContent).toBe('2');
     expect(leading.querySelector('.track-playing-indicator')).not.toBeNull();
+    // The sub-row keeps its pause bars; only the row's icons beside the title
+    // changed on 2026-10-31.
+    expect(leading.querySelector('.track-paused-indicator path')?.getAttribute('d')).toBe(
+      'M6 19h4V5H6v14zm8-14v14h4V5h-4z',
+    );
     expect(leading.classList).toContain('is-current-playing');
 
     bus.emit('ui:update-play-state', false);

@@ -292,3 +292,94 @@ test('PRO expired upload checkpoint asks for file selection instead of retrying 
   expect(calls.complete).toHaveLength(1);
   expect(calls.appends).toBe(0);
 });
+
+test('PRO upload rows number on from the playlist and keep their ring in the icon column', async ({
+  page,
+}, testInfo) => {
+  // Owner decision 2026-10-31 (option B): a provisional number in the number
+  // column and the ring in the source icon's cell, so every title starts on
+  // one line; the file going up now leads the upload rows.
+  await page.setViewportSize({ width: 390, height: 844 });
+  const { calls, releaseCompletion } = await uploadFixture(page);
+  try {
+    await page.locator('#file-input').setInputFiles(
+      ['first.wav', 'second.wav', 'third.wav'].map((name) => ({
+        name,
+        mimeType: 'audio/wav',
+        buffer: Buffer.from([1, 2, 3, 4]),
+      })),
+    );
+    await expect.poll(() => calls.complete.length).toBe(1);
+    const uploads = page.locator('#playlist-ui > .pro-upload-entry');
+    await expect(uploads).toHaveCount(3);
+    await expect(uploads.first()).toHaveClass(/\bis-confirming\b/);
+    // Hover the first upload row: no reorder grip takes its number's place.
+    await uploads.first().hover();
+    await page.waitForTimeout(300);
+    const rows = await page.locator('#playlist-ui').evaluate((list) => {
+      const round = (value: number) => Math.round(value * 100) / 100;
+      return Array.from(list.querySelectorAll<HTMLElement>(':scope > .playlist-entry'), (entry) => {
+        const row = entry.querySelector('.track-item')!.getBoundingClientRect();
+        const number = entry.querySelector<HTMLElement>('.track-idx');
+        const numberStyle = number ? getComputedStyle(number) : null;
+        const slot = entry.querySelector('.track-type-slot')?.getBoundingClientRect();
+        const title = entry.querySelector('.track-name-text')!.getBoundingClientRect();
+        const spinner = entry.querySelector<HTMLElement>('.track-type-slot > .pro-upload-spinner');
+        const spinnerStyle = spinner ? getComputedStyle(spinner) : null;
+        const size = parseFloat(spinnerStyle?.getPropertyValue('--material-elastic-size') ?? '');
+        const stroke = parseFloat(
+          spinnerStyle?.getPropertyValue('--material-elastic-stroke') ?? '',
+        );
+        return {
+          upload: entry.classList.contains('pro-upload-entry'),
+          title: entry.querySelector('.track-name-text')!.textContent,
+          number: number?.textContent ?? null,
+          numberShown: numberStyle?.opacity ?? null,
+          numberColor: numberStyle?.color ?? null,
+          numberWeight: numberStyle?.fontWeight ?? null,
+          leadingHidden: entry.querySelector('.track-leading')!.getAttribute('aria-hidden'),
+          grip: entry.querySelector('.playlist-reorder-grip') !== null,
+          slotCenter: slot ? round(slot.left + slot.width / 2 - row.left) : null,
+          titleStart: round(title.left - row.left),
+          ring: spinner
+            ? {
+                outer: round(((36 + stroke) * size) / 44),
+                line: round((stroke * size) / 44),
+                color: spinnerStyle!.color,
+              }
+            : null,
+          cancel: entry
+            .querySelector('[data-pro-upload-action="cancel"]')
+            ?.getAttribute('aria-label'),
+        };
+      });
+    });
+    expect(rows.map((row) => [row.upload, row.title, row.number])).toEqual([
+      [false, 'Existing track', '1'],
+      [true, 'first.wav', '2'],
+      [true, 'second.wav', '3'],
+      [true, 'third.wav', '4'],
+    ]);
+    const [committed, ...uploadRows] = rows;
+    for (const row of uploadRows) {
+      expect(row.numberShown).toBe('1');
+      expect(row.numberColor).toBe(committed!.numberColor);
+      expect(row.numberWeight).toBe('500');
+      expect(row.leadingHidden).toBe('true');
+      expect(row.grip).toBe(false);
+      expect(row.slotCenter).toBe(committed!.slotCenter);
+      expect(row.titleStart).toBe(committed!.titleStart);
+      expect(row.ring).toEqual({ outer: 13, line: 1.73, color: committed!.numberColor });
+      // The provisional number never enters a name.
+      expect(row.cancel).toContain(row.title);
+      expect(row.cancel).not.toMatch(/\d/u);
+    }
+    await page.screenshot({
+      path: testInfo.outputPath('upload-rows.png'),
+      animations: 'disabled',
+    });
+  } finally {
+    releaseCompletion();
+  }
+  await expect(page.locator('#dialog-overlay.show')).toBeVisible();
+});

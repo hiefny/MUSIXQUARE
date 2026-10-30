@@ -124,6 +124,21 @@ runbooks. Neither belongs in a general setup document.
   pass commits at the same time and its held connection receives no RTP. Not verified on devices
   or against production Cloudflare (a pushed track whose RTP starts seconds after negotiation,
   zero-media billing).
+- [Playlist current-row state icons and PRO upload row numbers, owner decision (2026-10-31)](design/playlist-state-icons-upload-rows-2026-10-31.md):
+  unmerged and unreleased, for the 9.0.28 train (no train report yet; the release owner bumps the
+  App). Built on main `8f171535` (QA round 1), then moved after review onto main `23f29283` (9.0.27
+  / v800) without the design system page change the owner had not seen; App only (2 runtime paths).
+  Beside the current row's title the pause bars draw wider in an 18px box, the play triangle in a
+  20px box and the loading ring at 13px with a 2px line (the selected row's weight); a PRO upload
+  row shows a provisional number (the rows shown plus 1, 2, ...), hidden from assistive technology
+  like every number, and its thin ring (1.73px) in the 16px icon cell, so every title starts on one
+  line; the file going up now leads the upload rows. The note gives the owner decisions, the
+  pictures the owner approved described in words, the tests-first commit `829f909b` and
+  implementation `61bf495e`, both QA rounds (round 2: full unit suite, typecheck, lint, format,
+  guards, build guards, 101 critical and 31 of 32 playlist and design system E2E with one hover row
+  that also fails on main), the review and its handling, the real e2e build pictures kept outside
+  the repository, and the open items (the expanded YouTube sub-row keeps its icons, pictured for an
+  owner decision; a provisional number during a playlist switch; no device check).
 - [App 9.0.27 train: the iPhone listener's LAN-direct pair judgement and diagnostic lines, and chat keyboard and screen reader focus (2026-10-30)](design/app-9-0-27-train-2026-10-30.md):
   released on 2026-10-31 04:31 KST in Release 41115623163 (PR #536, squash `23f29283`): the next
   App update after 9.0.26 (9.0.27 / v800, App build 800, update dialog; the version bump `676a1670`

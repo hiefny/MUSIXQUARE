@@ -176,7 +176,8 @@ generation <g>] failed before start (<invalid|expired|stale-generation|conflicti
   풀지 못하는 iPhone도, 한쪽이 상대의 mDNS 이름을 풀지 못하는 LAN도 그렇다. 공유는 모든 경로의 증명을 기다리므로
   기다리는 한 경로가 그 시도의 모든 청취자의 SFU 대체를 늦춘다. 이 지연이 SFU 구독(약 5초) 앞에 붙는 것을 받아들일지는
   오너 확인 거리다([화면 그대로]는 화면만 정했다). 열차 보고서가 이 질문을 열린 오너 질문으로 들고 머지 전에 오너에게
-  보인다.
+  보인다. 오너는 2026-10-31에 답했다: 9.0.27은 이 기다림을 그대로 두고 LAN 후보 없이 수집을 끝낸 경로만 바로
+  끝내며(`no-lan-candidate`), 9.0.28이 SFU 발행을 LAN-direct 시도와 나란히 미리 시작한다(열차 보고서 '오너 결정').
 - 섞인 버전: 신호 모양과 서버 계약이 같아 9.0.26과 이 빌드 사이에도 경로가 생긴다. 고쳐지는 쪽은 청취자의 판정이라
   9.0.26 공유자와 새 청취자도 LAN-direct가 될 수 있다(9.0.26 현장처럼 공유자가 자기 쌍을 증명할 때). 9.0.26
   청취자는 예전처럼 SFU다. 바닥을 올리지 않는다(SFU가 이미 안전한 끝이다).
@@ -252,14 +253,19 @@ iOS의 정제 시점에 달린 조건부라는 점(문서와 `first at` 진단�
 공유자 `LAN route to … proven`, 그리고 소리. 아니면 줄이 원인을 가린다. 청취자의 `added`는 공유자의 `sent`와, 청취자의
 `received`와 늘 맞춰 읽는다:
 
-| 청취자 줄                                                     | 공유자 줄                                     | 읽는 법                                               |
-| ------------------------------------------------------------- | --------------------------------------------- | ----------------------------------------------------- |
-| `proven … by refined-host (native host/mdns to prflx/none …)` | `LAN route … proven`                          | 고쳐짐(원인 확인)                                     |
-| `closed … by prflx-unrefined … added 1`                       | `not proven at receiver-proof … (deadline …)` | 정제가 공유자 시한보다 늦음(시한은 오너 결정)         |
-| `… by prflx-unrefined … received 0, added 0`                  | `… candidates sent 0, refused 1 이상 …`       | 공유자가 mDNS 후보를 안 보냄(카메라·마이크 권한 의심) |
-| `… by prflx-unrefined … received 1, added 0`                  | `… candidates sent 1 …`                       | 후보는 왔지만 더하기(addIceCandidate)가 안 끝남       |
-| `… by refined-key-pending … added 1`                          |                                               | 통계에 상대 foundation이 없음(iOS 버전 확인)          |
-| `… by prflx-still-listed …`                                   |                                               | 같은 소켓·포트의 prflx 연결이 남음(이중 연결 기기)    |
-| `non-local … by native-address (native host/public to …)`     | `LAN route … proven` 또는 `… proven`          | 청취자의 로컬이 전역 IPv6(남은 한계, 오너 결정 거리)  |
-| `non-local … by native-address (… to host/private-ipv4 …)`    |                                               | WebKit이 mDNS 상대를 숫자 주소로 보임(남은 한계)      |
-| `non-local … by native-type` 또는 다른 `native-address`       |                                               | 종류와 형이 다른 원인을 말함                          |
+| 청취자 줄                                                                                                                                    | 공유자 줄                                                                                                                                                  | 읽는 법                                                                                                            |
+| -------------------------------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------ |
+| `proven … by refined-host (native host/mdns to prflx/none …)`                                                                                | `LAN route … proven`                                                                                                                                       | 고쳐짐(원인 확인)                                                                                                  |
+| `closed … by prflx-unrefined … added 1`                                                                                                      | `not proven at receiver-proof … (deadline …)`                                                                                                              | 정제가 공유자 시한보다 늦음(시한은 오너 결정)                                                                      |
+| 줄 없음, 또는 `closed … received 0, added 0`                                                                                                 | `Publisher gathering to … ended with no LAN candidate (candidates sent 0, refused <n>, …)`과 `LAN route to … not proven at answer … (no-lan-candidate; …)` | 공유자가 mDNS 후보를 안 보냄. 수집이 끝난 때 바로 SFU로 감(refused 1 이상이면 공유 기기의 카메라·마이크 권한 의심) |
+| `Receiver gathering ended with no LAN candidate (candidates sent 0, refused <n>, …)`과 `Receiver route ended before live (no-lan-candidate)` | `LAN route to … not proven at <answer 또는 pair> … (receiver-fallback; …)`                                                                                 | 청취자가 mDNS 후보를 안 보냄. 응답 무렵 바로 SFU로 감(refused 1 이상이면 청취 기기의 권한 의심)                    |
+| `… by prflx-unrefined … received 1, added 0`                                                                                                 | `… candidates sent 1 …`                                                                                                                                    | 후보는 왔지만 더하기(addIceCandidate)가 안 끝남                                                                    |
+| `… by refined-key-pending … added 1`                                                                                                         |                                                                                                                                                            | 통계에 상대 foundation이 없음(iOS 버전 확인)                                                                       |
+| `… by prflx-still-listed …`                                                                                                                  |                                                                                                                                                            | 같은 소켓·포트의 prflx 연결이 남음(이중 연결 기기)                                                                 |
+| `non-local … by native-address (native host/public to …)`                                                                                    | `LAN route … proven` 또는 `… proven`                                                                                                                       | 청취자의 로컬이 전역 IPv6(남은 한계, 오너 결정 거리)                                                               |
+| `non-local … by native-address (… to host/private-ipv4 …)`                                                                                   |                                                                                                                                                            | WebKit이 mDNS 상대를 숫자 주소로 보임(남은 한계)                                                                   |
+| `non-local … by native-type` 또는 다른 `native-address`                                                                                      |                                                                                                                                                            | 종류와 형이 다른 원인을 말함                                                                                       |
+
+수집 끝 줄 둘(`… gathering … ended with no LAN candidate`)과 이유 `no-lan-candidate`는 2026-10-31 오너 답으로 App 9.0.27
+열차가 더했다: 한 끝이 LAN 후보를 하나도 보내지 않은 채 ICE 수집을 끝내면 상대가 그 쌍을 증명할 수 없으므로 그 경로를
+증명 창까지 기다리지 않고 그때 끝낸다([열차 보고서](app-9-0-27-train-2026-10-30.md)의 '5. 오너 답과 no-lan-candidate').

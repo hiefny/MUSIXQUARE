@@ -94,26 +94,32 @@ runbooks. Neither belongs in a general setup document.
 ## Maintained evidence and completed records
 
 - [App 9.0.27 train: the iPhone listener's LAN-direct pair judgement and diagnostic lines, and chat keyboard and screen reader focus (2026-10-30)](design/app-9-0-27-train-2026-10-30.md):
-  assembled and checked locally on main `d0248df2` (9.0.26 / v799 and its record), not merged or
-  released, no version bump yet (planned 9.0.27 / v800, App build 800, update dialog, target `app`).
-  The branch `agent/app-9-0-27-train` carries the focus increment's eight commits (`07acd639` to
-  `0fc353c1`), the LAN-direct increment's nine (`9192512d` to `c371dfbf`), the tests-only assembly
-  commit `924b8557` and two docs commits; both increments moved without conflicts. Nine App runtime
-  paths (five LAN-direct, four focus), none in the other five Workers, no runtime dependency change;
-  the build floor stays 795. The report lists the owner decisions (nothing on screen changes) and
-  one open owner question, both increments with their tested SHAs before and after the move and
-  their tests-first parent failures, the review findings and their handling (the assembly commit
-  pins focus that stays on the message log itself; a second assembly review corrected the documented
-  SFU fallback delay, the judging criteria and the note's share 1 timing), mixed versions (a 9.0.26
-  sharer and a 9.0.27 listener can go LAN-direct; a 9.0.26 listener still uses the SFU), the
-  rollback to the checkpoint's 9.0.26 / v799 App `b8dc4281`, the deploy conditions, what users
-  notice (an unrefined host-to-prflx pair at either end, in any browser, now waits for the sharer's
-  pair-proof window of 1 s after the answer instead of being refused at once, so the SFU fallback
-  can come up to about 1 s later for every listener in that attempt; whether to accept that wait is
-  the open owner question, shown to the owner before the merge; when LAN-direct engages the SFU
-  wait disappears), the QA rounds, what was not verified and a blind post-deploy procedure for the
+  rebuilt on 2026-10-31 on main `8f171535` (after Phase 5.5 R4 #537, its record #538 and the Phase 6
+  T0a tests #539) and checked locally, not merged or released, no version bump yet (planned 9.0.27 /
+  v800, App build 800, update dialog, target `app`). The branch `agent/app-9-0-27-rebuild` carries
+  the old train's 20 commits before its bump (the focus increment's eight, the LAN-direct
+  increment's nine, the tests-only assembly commit and two docs commits; three docs conflicts with
+  #537 and #538, both sides kept), then the owner answer's `no-lan-candidate` tests-first commit
+  `af9553b8` and fix `447890cf` and a docs commit; the old bump `e5b8440c` and its docs commit
+  `61e57fc2` were not moved. Nine App runtime paths (five LAN-direct, four focus), none in the other
+  five Workers, no runtime dependency change; the build floor stays 795. The report lists the owner
+  decisions (nothing on screen changes) and the owner's two answers of 2026-10-31 to the SFU
+  fallback question: keep the 1 s wait and add `no-lan-candidate` now (a route whose own end
+  finishes ICE gathering having sent no LAN candidate fails at that event, since the other end can
+  never prove it; in a Chromium harness running the real module the decision moves from about 1.81 s
+  to 0.14-0.16 s when the sharer has none and to about 0.81 s when the listener has none, with no
+  LAN success lost), add a speculative SFU publish with held media in 9.0.28, and allow that a
+  LAN-success share then briefly opens one Cloudflare publisher session with no media. It also lists
+  both increments with their tested SHAs before and after each move and their tests-first parent
+  failures, the review findings and their handling, mixed versions (a 9.0.26 sharer and a 9.0.27
+  listener can go LAN-direct; a 9.0.26 listener still uses the SFU), the rollback to the
+  checkpoint's 9.0.26 / v799 App `b8dc4281`, the deploy conditions, what users notice (an unrefined
+  host-to-prflx pair at either end, in any browser, now waits for the sharer's pair-proof window of
+  1 s after the answer instead of being refused at once, so the SFU fallback can come up to about
+  1 s later for every listener in that attempt; when LAN-direct engages the SFU wait disappears),
+  the 9.0.28 plan, the QA rounds, what was not verified and a blind post-deploy procedure for the
   owner's Edge sharer and iPhone Safari listener (five shares with `?mxqrLog=info`; the judging
-  criteria read the new pair-check and SFU subscription lines and are not handed out).
+  criteria read the new pair-check, gathering and SFU subscription lines and are not handed out).
 - [Chat keyboard and screen reader focus: the sheet's Tab cycle, a hiding pinned notice, removed messages (2026-10-30)](design/chat-keyboard-focus-2026-10-30.md):
   in the App 9.0.27 / v800 train above, not merged or released (owner decision 2026-10-30: nothing
   on screen changes, keyboard behaviour only). The phone and tablet chat sheet's Tab cycle skips the
@@ -124,8 +130,10 @@ runbooks. Neither belongs in a general setup document.
   sheet note: under the repository's jsdom 30.1.2 the Tab cycle's unit rows fail on their parent.
 - [PRO system-audio LAN-direct: the iPhone listener's pair judgement and diagnostic lines (2026-10-30)](design/pro-lan-direct-ios-listener-2026-10-30.md):
   implemented and checked locally on main `cbbc56d9` (9.0.26 / v799), then moved without conflicts
-  into the App 9.0.27 / v800 train above; not merged or released, no version bump yet (target
-  `app`; owner decision 2026-10-30, nothing on screen changes). The note's own Status cell keeps its
+  into the App 9.0.27 / v800 train above and with it onto main `8f171535` (README conflicts only);
+  not merged or released, no version bump yet (target `app`; owner decision 2026-10-30, nothing on
+  screen changes). Its post-deploy reading table now names the `no-lan-candidate` gathering lines
+  the train added on the owner's answer of 2026-10-31. The note's own Status cell keeps its
   pre-train text; the train report and the release record hold the release state. In the 9.0.26
   post-deploy check an iPhone Safari listener judged its own LAN pair non-local about 0.5 s into its
   proof, so every share fell back to the SFU. iOS Safari, the

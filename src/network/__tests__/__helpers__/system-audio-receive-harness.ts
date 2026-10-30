@@ -438,6 +438,7 @@ class ProSfuFake {
     cancelProSystemAudioSfuPublisherPreflight: vi.fn(),
     publishProSystemAudioSfu: vi.fn(),
     releaseProSystemAudioSfuPublisherHold: vi.fn(),
+    reportProSystemAudioSfuPublisherCommitted: vi.fn(),
     stopProSystemAudioSfuPublisher: vi.fn(),
     updateProSystemAudioSfuPublisherExpiry: vi.fn(),
     onProSystemAudioSfuEvent: (listener: (event: ProSfuEvent) => void) => {

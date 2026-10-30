@@ -400,23 +400,42 @@ describe('PRO system-audio SFU publisher', () => {
 // and a LAN-direct success stops it unused.
 describe('PRO system-audio SFU held fallback', () => {
   const ROOM = '000123';
-  const PREPARED = /^\[ProSysAudioSFU\] Prepared SFU fallback for generation 12 in \d+ ms$/;
+  // The held fallback's own lines carry the service's prefix, never
+  // `[ProSysAudioSFU]`: device criteria read any `[ProSysAudioSFU]` line as
+  // "this share used the SFU", and only a committed fallback did.
+  const PREPARED = /^\[PRO SystemAudio\] Prepared SFU fallback for generation 12 in \d+ ms$/;
+  const RELEASED = /^\[PRO SystemAudio\] Released SFU fallback for generation 12 \(held \d+ ms\)$/;
+  const CLOSED_OPEN =
+    /^\[PRO SystemAudio\] Closed unused SFU fallback for generation 12 \(open \d+ ms\)$/;
+  const CLOSED_BEFORE_PREPARED =
+    /^\[PRO SystemAudio\] Closed unused SFU fallback for generation 12 \(before it was prepared, \d+ ms after the start\)$/;
+  const CANCELLED =
+    /^\[PRO SystemAudio\] Cancelled SFU fallback for generation 12 before any Realtime session was requested \(\d+ ms after the start\)$/;
+  const CLOSED_RELEASED =
+    /^\[PRO SystemAudio\] Closed released SFU fallback for generation 12 without a reported commit \(open \d+ ms\)$/;
+  const failedLine = (cause: string) =>
+    new RegExp(
+      `^\\[PRO SystemAudio\\] SFU fallback for generation 12 failed after \\d+ ms \\(${cause}\\)$`,
+    );
+  const PUBLISHED = '[ProSysAudioSFU] Published generation 12';
   const MUSIC_CONSTRAINTS = {
     echoCancellation: false,
     noiseSuppression: false,
     autoGainControl: false,
   };
 
-  function sfuLines(): string[] {
+  function infoLines(prefix: string): string[] {
     return vi
       .mocked(log.info)
       .mock.calls.map(([line]) => String(line))
-      .filter((line) => line.startsWith('[ProSysAudioSFU]'));
+      .filter((line) => line.startsWith(prefix));
   }
+  const sfuLines = () => infoLines('[ProSysAudioSFU]');
+  const heldLines = () => infoLines('[PRO SystemAudio]');
 
   /** No line names a session, an owner token, a track name or the room. */
   function expectPrivateLines(): void {
-    for (const line of sfuLines()) {
+    for (const line of [...sfuLines(), ...heldLines()]) {
       for (const secret of [
         'owned-session',
         'private-owner-token',
@@ -441,6 +460,31 @@ describe('PRO system-audio SFU held fallback', () => {
       expiresAt: Date.now() + 60_000,
       holdMedia: true,
     });
+  }
+
+  function newestSender(): MockSender {
+    return peerConnections.at(-1)!.getTransceivers()[0]!.sender;
+  }
+
+  /** Holds the next Realtime request of `action` until the returned function lets it answer. */
+  function holdNextRealtime(action: string): { started: () => boolean; release: () => void } {
+    let release!: () => void;
+    const gate = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    let started = false;
+    const succeed = fetchMock.getMockImplementation()!;
+    fetchMock.mockImplementation(async (url, capability, init) => {
+      if (!String(url).includes('get-turn-config')) {
+        const request = JSON.parse(String(init?.body || '{}')) as RealtimeRequest;
+        if (request.action === action && !started) {
+          started = true;
+          await gate;
+        }
+      }
+      return succeed(url, capability, init);
+    });
+    return { started: () => started, release };
   }
 
   let events: proSfu.ProSystemAudioSfuEventForTests[];
@@ -471,14 +515,15 @@ describe('PRO system-audio SFU held fallback', () => {
     expect(sender.setParameters).not.toHaveBeenCalled();
     expect(track.applyConstraints).not.toHaveBeenCalled();
     expect(publisherEvents(events).map((event) => event.state)).toEqual(['publishing']);
-    expect(sfuLines()).toEqual([expect.stringMatching(PREPARED)]);
+    expect(heldLines()).toEqual([expect.stringMatching(PREPARED)]);
+    expect(sfuLines()).toEqual([]);
     expectPrivateLines();
   });
 
-  it('releasing the hold attaches the original track, tunes it once, then logs and reports the publication', async () => {
+  it('releasing the hold attaches the original track and tunes it once; the publication is reported only when its commit is', async () => {
     const track = audioTrack('capture-stereo');
     const descriptor = await heldPublish(track);
-    const sender = peerConnections[0].getTransceivers()[0]!.sender;
+    const sender = newestSender();
 
     await proSfu.releaseProSystemAudioSfuPublisherHold(descriptor);
 
@@ -490,15 +535,91 @@ describe('PRO system-audio SFU held fallback', () => {
     expect(sender.setParameters).toHaveBeenCalledWith(
       expect.objectContaining({ encodings: [expect.objectContaining({ maxBitrate: 256_000 })] }),
     );
-    expect(sfuLines()).toEqual([
-      expect.stringMatching(PREPARED),
-      '[ProSysAudioSFU] Published generation 12',
-    ]);
+    expect(heldLines()).toEqual([expect.stringMatching(PREPARED), expect.stringMatching(RELEASED)]);
+    // Released is not committed: no published line or event yet.
+    expect(sfuLines()).toEqual([]);
+    expect(publisherEvents(events).map((event) => event.state)).toEqual(['publishing']);
+
+    proSfu.reportProSystemAudioSfuPublisherCommitted(descriptor);
+    proSfu.reportProSystemAudioSfuPublisherCommitted(descriptor);
+
+    expect(sfuLines()).toEqual([PUBLISHED]);
     expect(publisherEvents(events).map((event) => event.state)).toEqual([
       'publishing',
       'published',
     ]);
     expect(publisherEvents(events).at(-1)?.descriptor).toBe(descriptor);
+    // From here it is an ordinary publication: its stop names it and logs no held line.
+    proSfu.stopProSystemAudioSfuPublisher();
+    expect(publisherEvents(events).at(-1)).toMatchObject({
+      state: 'stopped',
+      descriptor: { sessionId: 'owned-session-1' },
+    });
+    expect(heldLines()).toEqual([expect.stringMatching(PREPARED), expect.stringMatching(RELEASED)]);
+    expectPrivateLines();
+  });
+
+  it('a commit report is a no-op for any publisher but the current released fallback', async () => {
+    const ordinary = await proSfu.publishProSystemAudioSfu({
+      track: audioTrack('capture-a'),
+      roomId: ROOM,
+      generation: 12,
+      expiresAt: Date.now() + 60_000,
+    });
+    // An ordinary publish reported itself when it was published.
+    proSfu.reportProSystemAudioSfuPublisherCommitted(ordinary);
+    expect(sfuLines()).toEqual([PUBLISHED]);
+
+    const held = await heldPublish(audioTrack('capture-b'));
+    // Held, not released yet.
+    proSfu.reportProSystemAudioSfuPublisherCommitted(held);
+    await proSfu.releaseProSystemAudioSfuPublisherHold(held);
+    // Released, but under another publication's descriptor.
+    proSfu.reportProSystemAudioSfuPublisherCommitted(ordinary);
+    expect(sfuLines()).toEqual([PUBLISHED]);
+
+    // A released fallback stopped before its commit was reported names its
+    // publication, as a publish stopped before its commit always did.
+    proSfu.stopProSystemAudioSfuPublisher();
+    expect(publisherEvents(events).at(-1)).toMatchObject({
+      state: 'stopped',
+      descriptor: { sessionId: 'owned-session-2' },
+    });
+    proSfu.reportProSystemAudioSfuPublisherCommitted(held);
+
+    expect(sfuLines()).toEqual([PUBLISHED]);
+    expect(publisherEvents(events).filter((event) => event.state === 'published')).toHaveLength(1);
+    expect(heldLines()).toEqual([
+      expect.stringMatching(PREPARED),
+      expect.stringMatching(RELEASED),
+      expect.stringMatching(CLOSED_RELEASED),
+    ]);
+    expectPrivateLines();
+  });
+
+  it('a released fallback whose connection fails before its commit is reported names its session in failed, as a publish did before its commit', async () => {
+    const descriptor = await heldPublish(audioTrack('capture-stereo'));
+    await proSfu.releaseProSystemAudioSfuPublisherHold(descriptor);
+    const pc = peerConnections[0];
+    events.length = 0;
+
+    pc.emitConnectionState('failed');
+
+    expect(events).toEqual([
+      expect.objectContaining({
+        type: 'publisher-state',
+        state: 'failed',
+        descriptor: expect.objectContaining({ sessionId: 'owned-session-1' }),
+      }),
+    ]);
+    expect(pc.close).toHaveBeenCalledOnce();
+    proSfu.reportProSystemAudioSfuPublisherCommitted(descriptor);
+    expect(sfuLines()).toEqual([]);
+    expect(heldLines()).toEqual([
+      expect.stringMatching(PREPARED),
+      expect.stringMatching(RELEASED),
+      expect.stringMatching(failedLine('connection-failed')),
+    ]);
     expectPrivateLines();
   });
 
@@ -518,46 +639,81 @@ describe('PRO system-audio SFU held fallback', () => {
     });
     expect(pc.close).toHaveBeenCalledOnce();
     expect(publisherEvents(events).at(-1)).toMatchObject({ state: 'stopped', descriptor: null });
-    expect(sfuLines()).toEqual([
+    expect(heldLines()).toEqual([
       expect.stringMatching(PREPARED),
-      expect.stringMatching(
-        /^\[ProSysAudioSFU\] Closed unused SFU fallback for generation 12 \(open \d+ ms\)$/,
-      ),
+      expect.stringMatching(CLOSED_OPEN),
     ]);
+    expect(sfuLines()).toEqual([]);
     expect(sender.replaceTrack.mock.calls).toEqual([[null]]);
     expect(track.applyConstraints).not.toHaveBeenCalled();
     expectPrivateLines();
   });
 
-  it('stopping a held publish before it is prepared aborts it silently and logs it closed before prepared', async () => {
-    let releaseSession!: () => void;
-    const sessionHeld = new Promise<void>((resolve) => {
-      releaseSession = resolve;
+  it('stopping a held publish before its session request cancels it and says no session was requested', async () => {
+    let releaseTurn!: () => void;
+    const turnHeld = new Promise<void>((resolve) => {
+      releaseTurn = resolve;
     });
-    let sessionStarted = false;
+    let turnStarted = false;
     const succeed = fetchMock.getMockImplementation()!;
     fetchMock.mockImplementation(async (url, capability, init) => {
-      const request = JSON.parse(String(init?.body || '{}')) as RealtimeRequest;
-      if (request.action === 'new-session') {
-        sessionStarted = true;
-        await sessionHeld;
+      if (String(url).includes('get-turn-config')) {
+        turnStarted = true;
+        await turnHeld;
       }
       return succeed(url, capability, init);
     });
     const publishing = heldPublish(audioTrack('capture-stereo'));
-    await vi.waitFor(() => expect(sessionStarted).toBe(true));
+    await vi.waitFor(() => expect(turnStarted).toBe(true));
 
     proSfu.stopProSystemAudioSfuPublisher();
-    releaseSession();
+    releaseTurn();
+
+    await expect(publishing).rejects.toMatchObject({ name: 'AbortError' });
+    expect(realtimeRequests).toEqual([]);
+    expect(peerConnections).toEqual([]);
+    expect(publisherEvents(events).map((event) => event.state)).not.toContain('failed');
+    expect(heldLines()).toEqual([expect.stringMatching(CANCELLED)]);
+    expect(sfuLines()).toEqual([]);
+  });
+
+  it('stopping a held publish while its session request is in flight aborts it and logs it closed before prepared', async () => {
+    const session = holdNextRealtime('new-session');
+    const publishing = heldPublish(audioTrack('capture-stereo'));
+    await vi.waitFor(() => expect(session.started()).toBe(true));
+
+    proSfu.stopProSystemAudioSfuPublisher();
+    session.release();
 
     await expect(publishing).rejects.toMatchObject({ name: 'AbortError' });
     expect(publisherEvents(events).map((event) => event.state)).not.toContain('failed');
-    expect(realtimeRequests.some((request) => request.action === 'tracks-new')).toBe(false);
-    expect(sfuLines()).toEqual([
-      expect.stringMatching(
-        /^\[ProSysAudioSFU\] Closed unused SFU fallback for generation 12 \(before it was prepared, \d+ ms after the start\)$/,
-      ),
+    expect(realtimeRequests.map((request) => request.action)).toEqual(['new-session']);
+    expect(heldLines()).toEqual([expect.stringMatching(CLOSED_BEFORE_PREPARED)]);
+    expect(sfuLines()).toEqual([]);
+  });
+
+  it('stopping a held publish while its track request is in flight force-closes the requested mid', async () => {
+    const tracks = holdNextRealtime('tracks-new');
+    const publishing = heldPublish(audioTrack('capture-stereo'));
+    await vi.waitFor(() => expect(tracks.started()).toBe(true));
+
+    proSfu.stopProSystemAudioSfuPublisher();
+
+    await expect(publishing).rejects.toMatchObject({ name: 'AbortError' });
+    tracks.release();
+    // The client closes the mid it asked for at once; whether Realtime saw the
+    // aborted track request first is not the client's to know (9.0.28 note).
+    expect(realtimeRequests.filter((request) => request.action === 'new-session')).toHaveLength(1);
+    expect(realtimeRequests.filter((request) => request.action === 'tracks-close')).toEqual([
+      expect.objectContaining({
+        sessionId: 'owned-session-1',
+        payload: { tracks: [{ mid: '0' }], force: true },
+      }),
     ]);
+    expect(publisherEvents(events).map((event) => event.state)).not.toContain('failed');
+    expect(heldLines()).toEqual([expect.stringMatching(CLOSED_BEFORE_PREPARED)]);
+    expect(sfuLines()).toEqual([]);
+    expectPrivateLines();
   });
 
   it('a held publisher whose connection fails reports failed without a descriptor and cannot be released', async () => {
@@ -574,16 +730,15 @@ describe('PRO system-audio SFU held fallback', () => {
     ]);
     expect(pc.close).toHaveBeenCalledOnce();
     expect(realtimeRequests.at(-1)).toMatchObject({ action: 'tracks-close' });
-    expect(sfuLines()).toEqual([
+    expect(heldLines()).toEqual([
       expect.stringMatching(PREPARED),
-      expect.stringMatching(
-        /^\[ProSysAudioSFU\] SFU fallback for generation 12 failed after \d+ ms \(connection-failed\)$/,
-      ),
+      expect.stringMatching(failedLine('connection-failed')),
     ]);
     await expect(proSfu.releaseProSystemAudioSfuPublisherHold(descriptor)).rejects.toThrow(
       'PRO_SFU_FALLBACK_UNAVAILABLE',
     );
     expect(sender.replaceTrack.mock.calls).toEqual([[null]]);
+    expect(sfuLines()).toEqual([]);
     expectPrivateLines();
   });
 
@@ -613,26 +768,41 @@ describe('PRO system-audio SFU held fallback', () => {
       vi.mocked(isCapabilityChallengeCancelled).mockImplementation(() => false);
     }
 
-    expect(sfuLines()).toEqual([
-      expect.stringMatching(
-        /^\[ProSysAudioSFU\] SFU fallback for generation 12 failed after \d+ ms \(Error\)$/,
-      ),
-      expect.stringMatching(
-        /^\[ProSysAudioSFU\] SFU fallback for generation 12 failed after \d+ ms \(TimeoutError\)$/,
-      ),
-      expect.stringMatching(
-        /^\[ProSysAudioSFU\] SFU fallback for generation 12 failed after \d+ ms \(capability-cancelled\)$/,
-      ),
+    expect(heldLines()).toEqual([
+      expect.stringMatching(failedLine('Error')),
+      expect.stringMatching(failedLine('TimeoutError')),
+      expect.stringMatching(failedLine('capability-cancelled')),
     ]);
-    for (const line of sfuLines()) {
+    for (const line of heldLines()) {
       expect(line).not.toContain('SFU_STEREO_NOT_NEGOTIATED');
       expect(line).not.toContain('PRO_SFU_REALTIME_REQUEST_TIMEOUT');
       expect(line).not.toContain('challenge');
     }
+    expect(sfuLines()).toEqual([]);
     expectPrivateLines();
   });
 
-  it('release refuses a stopped or superseded publisher and an ended capture track, and never touches a successor', async () => {
+  it("a held publish refused by the Worker's new-session limit (429) fails with one failed line and holds no session", async () => {
+    // The limit is per capability token, which every PRO SFU publish,
+    // promotion and subscription of one browser shares (9.0.28 note).
+    fetchMock.mockImplementation(async (url, _capability, init) => {
+      if (String(url).includes('get-turn-config')) return response({}, false, 404);
+      realtimeRequests.push(JSON.parse(String(init?.body || '{}')) as RealtimeRequest);
+      return response({ error: 'Too many requests' }, false, 429);
+    });
+
+    await expect(heldPublish(audioTrack('capture-stereo'))).rejects.toThrow('Too many requests');
+
+    expect(new Set(realtimeRequests.map((request) => request.action))).toEqual(
+      new Set(['new-session']),
+    );
+    expect(publisherEvents(events).at(-1)).toMatchObject({ state: 'failed', descriptor: null });
+    expect(heldLines()).toEqual([expect.stringMatching(failedLine('Error'))]);
+    expect(heldLines()[0]).not.toContain('Too many');
+    expect(sfuLines()).toEqual([]);
+  });
+
+  it('release refuses a stopped or superseded publisher and never touches a successor', async () => {
     const first = await heldPublish(audioTrack('capture-a'));
     proSfu.stopProSystemAudioSfuPublisher();
     await expect(proSfu.releaseProSystemAudioSfuPublisherHold(first)).rejects.toThrow(
@@ -646,21 +816,121 @@ describe('PRO system-audio SFU held fallback', () => {
       generation: 13,
       expiresAt: Date.now() + 60_000,
     });
-    const successorSender = peerConnections.at(-1)!.getTransceivers()[0]!.sender;
+    const successorSender = newestSender();
     await expect(proSfu.releaseProSystemAudioSfuPublisherHold(second)).rejects.toThrow(
       'PRO_SFU_FALLBACK_UNAVAILABLE',
     );
     expect(successorSender.replaceTrack).not.toHaveBeenCalled();
     expect(successorSender.track).toMatchObject({ id: 'capture-c' });
+    expect(heldLines().some((line) => RELEASED.test(line))).toBe(false);
+  });
 
+  it("a stale descriptor never releases a successor's held fallback", async () => {
+    const stale = await heldPublish(audioTrack('capture-a'));
+    proSfu.stopProSystemAudioSfuPublisher();
+    const successorTrack = audioTrack('capture-b');
+    const successor = await heldPublish(successorTrack);
+    const successorSender = newestSender();
+
+    await expect(proSfu.releaseProSystemAudioSfuPublisherHold(stale)).rejects.toThrow(
+      'PRO_SFU_FALLBACK_UNAVAILABLE',
+    );
+
+    expect(successorSender.replaceTrack.mock.calls).toEqual([[null]]);
+    expect(successorTrack.applyConstraints).not.toHaveBeenCalled();
+    expect(heldLines().some((line) => RELEASED.test(line))).toBe(false);
+    // The successor's own release still works.
+    await proSfu.releaseProSystemAudioSfuPublisherHold(successor);
+    expect(successorSender.replaceTrack.mock.calls).toEqual([[null], [successorTrack]]);
+  });
+
+  it.each(['an explicit stop', 'a superseding held publish'] as const)(
+    "%s during the release's track attach: the release rejects as superseded, logs no release and tunes nothing",
+    async (teardown) => {
+      const track = audioTrack('capture-a');
+      const held = await heldPublish(track);
+      const sender = newestSender();
+      let attach!: () => void;
+      const attaching = new Promise<void>((resolve) => {
+        attach = resolve;
+      });
+      sender.replaceTrack.mockImplementationOnce(async (next) => {
+        await attaching;
+        sender.track = next;
+      });
+      const releasing = proSfu.releaseProSystemAudioSfuPublisherHold(held).then(
+        () => 'released',
+        (error: unknown) => error,
+      );
+      await vi.waitFor(() => expect(sender.replaceTrack).toHaveBeenCalledTimes(2));
+
+      const successorTrack = audioTrack('capture-b');
+      let successor: proSfu.ProSystemAudioSfuPublicationDescriptor | null = null;
+      if (teardown === 'an explicit stop') proSfu.stopProSystemAudioSfuPublisher();
+      else successor = await heldPublish(successorTrack, 13);
+      attach();
+
+      expect(await releasing).toMatchObject({ name: 'AbortError' });
+      expect(heldLines().some((line) => RELEASED.test(line))).toBe(false);
+      expect(track.applyConstraints).not.toHaveBeenCalled();
+      expect(sender.setParameters).not.toHaveBeenCalled();
+      expect(publisherEvents(events).map((event) => event.state)).not.toContain('published');
+      if (successor) {
+        // The successor's hold is untouched: it still releases, and reports on its commit.
+        const successorSender = newestSender();
+        await proSfu.releaseProSystemAudioSfuPublisherHold(successor);
+        proSfu.reportProSystemAudioSfuPublisherCommitted(successor);
+        expect(successorSender.replaceTrack.mock.calls).toEqual([[null], [successorTrack]]);
+        expect(sfuLines()).toEqual(['[ProSysAudioSFU] Published generation 13']);
+      } else {
+        expect(sfuLines()).toEqual([]);
+      }
+    },
+  );
+
+  it('a release whose capture track has ended fails the fallback with its own line, and the stop after it logs nothing more', async () => {
     const ending = audioTrack('capture-d');
-    const third = await heldPublish(ending);
-    const heldSender = peerConnections.at(-1)!.getTransceivers()[0]!.sender;
+    const held = await heldPublish(ending);
+    const pc = peerConnections[0];
+    const sender = newestSender();
     (ending as { readyState: MediaStreamTrackState }).readyState = 'ended';
-    await expect(proSfu.releaseProSystemAudioSfuPublisherHold(third)).rejects.toThrow(
+    events.length = 0;
+
+    await expect(proSfu.releaseProSystemAudioSfuPublisherHold(held)).rejects.toThrow(
       /already ended/,
     );
-    expect(heldSender.replaceTrack.mock.calls).toEqual([[null]]);
+
+    expect(sender.replaceTrack.mock.calls).toEqual([[null]]);
+    expect(events).toEqual([
+      expect.objectContaining({ type: 'publisher-state', state: 'failed', descriptor: null }),
+    ]);
+    expect(pc.close).toHaveBeenCalledOnce();
+    expect(realtimeRequests.at(-1)).toMatchObject({ action: 'tracks-close' });
+    // The service's failed-publish teardown stops the publisher again: no closed line.
+    proSfu.stopProSystemAudioSfuPublisher();
+    expect(heldLines()).toEqual([
+      expect.stringMatching(PREPARED),
+      expect.stringMatching(failedLine('track-ended')),
+    ]);
+    expect(sfuLines()).toEqual([]);
+  });
+
+  it('a release whose track attach rejects fails the fallback by error name', async () => {
+    const held = await heldPublish(audioTrack('capture-e'));
+    const sender = newestSender();
+    const refused = new DOMException('sender closed while attaching', 'InvalidStateError');
+    sender.replaceTrack.mockImplementationOnce(async () => {
+      throw refused;
+    });
+
+    await expect(proSfu.releaseProSystemAudioSfuPublisherHold(held)).rejects.toBe(refused);
+
+    expect(publisherEvents(events).at(-1)).toMatchObject({ state: 'failed', descriptor: null });
+    expect(heldLines()).toEqual([
+      expect.stringMatching(PREPARED),
+      expect.stringMatching(failedLine('InvalidStateError')),
+    ]);
+    expect(heldLines()[1]).not.toContain('sender closed');
   });
 });
 

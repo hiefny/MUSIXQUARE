@@ -192,18 +192,22 @@ export class PublisherPeerConnection {
 // tracks-new returns the stereo answer and one mid per requested track, and
 // tracks-close returns {}. Responses resolve on the next macrotask (no
 // latency), honour an aborted signal like fetch, and record every request.
+// A test can hold the next request of one action (`holdNext`): it is recorded
+// at once and answers only when the test lets it go, or rejects with the
+// signal's reason when it is aborted first, as an in-flight fetch does.
 // Does not model capability minting, Turnstile, the subscriber side, the
 // second fallback endpoint or response size limits.
 
 interface RealtimeRequest {
   action: string;
   sessionId?: string;
-  payload?: { tracks?: Array<Record<string, unknown>> };
+  payload?: { tracks?: Array<Record<string, unknown>>; force?: boolean };
 }
 
 class PublisherRealtimeFake {
   readonly requests: RealtimeRequest[] = [];
   private sessionSeq = 0;
+  private held: { action: string; gate: Promise<void>; open: () => void } | null = null;
 
   readonly fetchWithCapability = (
     url: RequestInfo | URL,
@@ -217,10 +221,25 @@ class PublisherRealtimeFake {
     }
     const request = JSON.parse(String(init?.body ?? '{}')) as RealtimeRequest;
     this.requests.push(request);
-    return new Promise((resolve) => {
-      setTimeout(() => resolve(Response.json(this.respond(request))), 0);
+    const held = this.held?.action === request.action ? this.held : null;
+    if (held) this.held = null;
+    return new Promise((resolve, reject) => {
+      signal?.addEventListener('abort', () => reject(signal.reason), { once: true });
+      const answer = () => setTimeout(() => resolve(Response.json(this.respond(request))), 0);
+      if (held) void held.gate.then(answer);
+      else answer();
     });
   };
+
+  /** Holds the next request of `action` until the returned function lets it answer. */
+  holdNext(action: string): () => void {
+    let open!: () => void;
+    const gate = new Promise<void>((resolve) => {
+      open = resolve;
+    });
+    this.held = { action, gate, open };
+    return open;
+  }
 
   count(action: string): number {
     return this.requests.filter((request) => request.action === action).length;
@@ -229,6 +248,7 @@ class PublisherRealtimeFake {
   reset(): void {
     this.requests.length = 0;
     this.sessionSeq = 0;
+    this.held = null;
   }
 
   private respond(request: RealtimeRequest): Record<string, unknown> {

@@ -80,6 +80,7 @@ const mocks = vi.hoisted(() => ({
     >(),
   publish: vi.fn(),
   releaseHold: vi.fn<(descriptor: unknown) => Promise<void>>(async () => undefined),
+  reportCommitted: vi.fn<(descriptor: unknown) => void>(),
   subscribe: vi.fn().mockResolvedValue(undefined),
   initAudio: vi.fn().mockResolvedValue(undefined),
   getAudioContext: vi.fn(),
@@ -113,6 +114,7 @@ vi.mock('../../network/pro-system-audio-sfu.ts', () => ({
   }),
   publishProSystemAudioSfu: mocks.publish,
   releaseProSystemAudioSfuPublisherHold: mocks.releaseHold,
+  reportProSystemAudioSfuPublisherCommitted: mocks.reportCommitted,
   stopProSystemAudioSfuPublisher: mocks.stopPublisher,
   stopProSystemAudioSfuSubscriber: mocks.stopSubscriber,
   updateProSystemAudioSfuPublisherExpiry: mocks.updatePublisherExpiry,
@@ -990,6 +992,7 @@ describe('PRO system-audio service orchestration', () => {
     });
     expect(unheldPublishes()).toEqual([]);
     expect(mocks.releaseHold).not.toHaveBeenCalled();
+    expect(mocks.reportCommitted).not.toHaveBeenCalled();
     expect(mocks.stopPublisher).toHaveBeenCalledTimes(1);
     expect(mocks.stopPublisher.mock.invocationCallOrder[0]).toBeLessThan(
       api.commitSystemAudioPublication.mock.invocationCallOrder[0]!,
@@ -1198,6 +1201,14 @@ describe('PRO system-audio service orchestration', () => {
       expect(mocks.releaseHold).toHaveBeenCalledWith(held);
       expect(mocks.releaseHold.mock.invocationCallOrder[0]).toBeLessThan(
         api.commitSystemAudioPublication.mock.invocationCallOrder[0]!,
+      );
+      // Published only once the room committed it, before the deadline settles.
+      expect(mocks.reportCommitted.mock.calls).toEqual([[held]]);
+      expect(api.commitSystemAudioPublication.mock.invocationCallOrder[0]).toBeLessThan(
+        mocks.reportCommitted.mock.invocationCallOrder[0]!,
+      );
+      expect(mocks.reportCommitted.mock.invocationCallOrder[0]).toBeLessThan(
+        mocks.updatePublisherExpiry.mock.invocationCallOrder[0]!,
       );
       expect(api.commitSystemAudioPublication).toHaveBeenCalledTimes(1);
       expect(api.commitSystemAudioPublication.mock.calls[0]?.[0].publication).toEqual({
@@ -2599,14 +2610,21 @@ describe('PRO system-audio service orchestration', () => {
     await refreshProSystemAudioState();
     await acquireLocalProSystemAudioLease();
     const publish = publishLocalProSystemAudio({} as MediaStreamTrack);
+    // The LAN-direct probe is unavailable (it throws), so the flight is parked
+    // on the still pending held SFU publish, as the sequential publish was.
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    expect(heldPublishes()).toHaveLength(1);
+    expect(mocks.releaseHold).not.toHaveBeenCalled();
     const release = releaseLocalProSystemAudioLease();
     expect(api.releaseSystemAudioLease).toHaveBeenCalledTimes(1);
     mocks.stopPublisher.mockClear();
 
     pendingDescriptor.reject(new Error('publisher aborted'));
-    // The stop came inside the LAN-direct window, so the flight meets its
-    // ownership check before it would await the held fallback.
+    // The flight's ownership check after the held publish settles turns the
+    // transport's abort into the supersession, with no second release.
     await expect(publish).rejects.toMatchObject({ code: 'OPERATION_SUPERSEDED' });
+    expect(mocks.releaseHold).not.toHaveBeenCalled();
+    expect(api.commitSystemAudioPublication).not.toHaveBeenCalled();
 
     expect(api.releaseSystemAudioLease).toHaveBeenCalledTimes(1);
     expect(mocks.stopPublisher).not.toHaveBeenCalled();
@@ -3439,5 +3457,109 @@ describe('PRO system-audio held SFU fallback beside the LAN-direct attempt', () 
       publication: { sessionId: 'realtime_session_02' },
     });
     expect(mocks.stopPublisher).not.toHaveBeenCalled();
+  });
+
+  it('a released fallback whose commit is refused is never reported published', async () => {
+    mocks.attemptDirect.mockResolvedValue(null);
+    await readyToShare();
+    const refused = new Error('SYSTEM_AUDIO_INVALID_TRANSITION');
+    api.commitSystemAudioPublication.mockRejectedValueOnce(refused);
+    api.releaseSystemAudioLease.mockResolvedValueOnce(idle(1));
+    await acquireLocalProSystemAudioLease();
+
+    await expect(
+      publishLocalProSystemAudio({ id: 'capture-stereo' } as MediaStreamTrack),
+    ).rejects.toBe(refused);
+
+    expect(mocks.releaseHold).toHaveBeenCalledTimes(1);
+    expect(api.commitSystemAudioPublication).toHaveBeenCalledTimes(1);
+    expect(mocks.reportCommitted).not.toHaveBeenCalled();
+    expect(mocks.stopPublisher).toHaveBeenCalled();
+    expect(api.releaseSystemAudioLease).toHaveBeenCalledTimes(1);
+  });
+
+  it.each(['proves', 'fails'] as const)(
+    'a held publish refused synchronously becomes data, its preflight cancelled, and the share follows LAN-direct when it %s',
+    async (outcome) => {
+      const lan = deferred<ProSystemAudioDirectPublicationDescriptor | null>();
+      mocks.attemptDirect.mockReturnValue(lan.promise);
+      const refused = new TypeError('track has already ended');
+      mocks.publish.mockImplementationOnce(() => {
+        throw refused;
+      });
+      api.releaseSystemAudioLease.mockResolvedValueOnce(idle(1));
+      await readyToShare();
+      const attempt = beginLocalProSystemAudioLeaseAttempt();
+      await attempt.result;
+      const preflight = mocks.beginPublisherPreflight.mock.results[0]?.value;
+      expect(preflight).toBeDefined();
+
+      const settled = publishLocalProSystemAudio({ id: 'capture-stereo' } as MediaStreamTrack).then(
+        (state) => state,
+        (error: unknown) => error,
+      );
+      await Promise.resolve();
+      expect(heldPublishes()).toHaveLength(1);
+      expect(mocks.cancelPublisherPreflight).toHaveBeenCalledWith(preflight);
+      lan.resolve(
+        outcome === 'proves' ? directDescriptor(mocks.attemptDirect.mock.calls[0]![0]) : null,
+      );
+      const result = await settled;
+
+      if (outcome === 'proves') {
+        expect(result).toMatchObject({
+          status: 'live',
+          publication: { transport: 'lan-direct', protocolVersion: 2 },
+        });
+        expect(api.releaseSystemAudioLease).not.toHaveBeenCalled();
+      } else {
+        // The refusal fails the share at the LAN-direct failure, as a failed SFU publish did.
+        expect(result).toBe(refused);
+        expect(api.commitSystemAudioPublication).not.toHaveBeenCalled();
+        expect(api.releaseSystemAudioLease).toHaveBeenCalledTimes(1);
+      }
+      expect(mocks.releaseHold).not.toHaveBeenCalled();
+      expect(mocks.reportCommitted).not.toHaveBeenCalled();
+      expect(unheldPublishes()).toEqual([]);
+    },
+  );
+
+  it('a held publisher whose connection fails in the LAN-direct window fails the share at the LAN-direct failure and starts no recovery', async () => {
+    // 9.0.27 committed a publish whose connection failed before its commit and
+    // recovered it afterwards; the held fallback is the share's one SFU
+    // attempt (owner decision 2026-10-31), so its loss ends the share.
+    vi.useFakeTimers();
+    const lan = deferred<ProSystemAudioDirectPublicationDescriptor | null>();
+    mocks.attemptDirect.mockReturnValue(lan.promise);
+    const unavailable = new Error('PRO_SFU_FALLBACK_UNAVAILABLE');
+    mocks.releaseHold.mockRejectedValueOnce(unavailable);
+    api.releaseSystemAudioLease.mockResolvedValueOnce(idle(1));
+    await readyToShare();
+    await acquireLocalProSystemAudioLease();
+    const settled = publishLocalProSystemAudio({ id: 'capture-stereo' } as MediaStreamTrack).then(
+      () => 'published',
+      (error: unknown) => error,
+    );
+    await vi.advanceTimersByTimeAsync(0);
+    expect(heldPublishes()).toHaveLength(1);
+
+    // The prepared fallback's connection fails: the transport names no session.
+    mocks.sfuListener?.({
+      type: 'publisher-state',
+      state: 'failed',
+      descriptor: null,
+      message: 'PRO system-audio SFU publisher connection failed',
+    });
+    expect(getManagedTimer('pro-system-audio-publisher-retry')).toBeNull();
+    lan.resolve(null);
+
+    expect(await settled).toBe(unavailable);
+    expect(mocks.releaseHold).toHaveBeenCalledTimes(1);
+    expect(api.commitSystemAudioPublication).not.toHaveBeenCalled();
+    expect(api.releaseSystemAudioLease).toHaveBeenCalledTimes(1);
+    await vi.advanceTimersByTimeAsync(10_000);
+    expect(mocks.publish).toHaveBeenCalledTimes(1);
+    expect(api.acquireSystemAudioLease).toHaveBeenCalledTimes(1);
+    expect(getManagedTimer('pro-system-audio-publisher-retry')).toBeNull();
   });
 });

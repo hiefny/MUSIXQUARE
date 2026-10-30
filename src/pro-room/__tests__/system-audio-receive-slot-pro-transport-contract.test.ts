@@ -9,8 +9,9 @@
  * the transports decide: when a subscriber exposes its track, the playout hint
  * per route, the subscriber's own live-budget expiry (the PRO two-hour budget,
  * at a plain share's end and in its re-publication case), real ICE state
- * handling, the LAN locality proof, the transport's 5 s track-ready deadline
- * next to the coordinator's 30 s one, route supersession by generation, the
+ * handling, the LAN locality proof (also when the probe channel is announced
+ * after it), the transport's 5 s track-ready deadline next to the
+ * coordinator's 30 s one, route supersession by generation, the
  * signals a listener sends its publisher, the route closures the slot hears
  * (a publisher's 'stopped' close and the subscriber's budget expiry, since
  * 5B-G6), S8b on both routes, LAN-direct begin re-entrancy, iOS initAudio
@@ -85,6 +86,8 @@ import {
 } from '../system-audio-service.ts';
 import {
   ProTransportPeerConnection,
+  announceLanProbeChannel,
+  holdLanProbeChannel,
   proRelay,
   sendLanCandidate,
   sendLanClose,
@@ -769,6 +772,38 @@ describe('PRO LAN-direct reception through the real transport', () => {
     expect(lanConnections()[0].closed).toBe(true);
     expect(proRelay.signals('close')).toEqual([]);
     expect(restorePlayback).toHaveBeenCalledTimes(1);
+  });
+
+  it("S6 with the browser's order: a probe channel announced only after the pair proof still carries the one proof, and the track attaches only after the publisher's word", async () => {
+    // A browser announces the publisher's channel after DTLS, SCTP and its
+    // open handshake, so after the receiver proved its pair.
+    holdLanProbeChannel();
+    await applyState(live(directPublication()));
+    sendLanOffer(lanRoute(), 'direct-audio-1');
+    await advance(0);
+    sendLanCandidate(lanRoute());
+    await advance(LAN_PROOF_POLL_MS);
+    // Proven (S6 sends the proof at this poll), but there is no channel yet.
+    expect(lanConnections()[0].probeChannel.sent).toEqual([]);
+    expect(slot()).toMatchObject({ receiving: false, activity: 'pending', placeholder: true });
+
+    announceLanProbeChannel();
+    expect(lanConnections()[0].probeChannel.sent).toEqual(['receiver-pair-proven']);
+    await advance(1_000);
+    expect(slot().receiving).toBe(false);
+    sendLanTrackAttached();
+    await advance(0);
+    expect(slot()).toMatchObject({
+      receiving: true,
+      activity: 'playing',
+      placeholder: true,
+      sources: ['direct-audio-1'],
+      primers: 1,
+    });
+    expect(lanConnections()[0].probeChannel.sent).toEqual(['receiver-pair-proven']);
+    expect(lanConnections()[0].closed).toBe(false);
+    expect(proRelay.signals('close')).toEqual([]);
+    expect(seen.toasts).toEqual([]);
   });
 
   it('a LAN ICE disconnect fails the route at once (no 2.5 s grace as on the SFU): a fallback close to the publisher, one notice, the source gone and the placeholder kept until the promotion attaches', async () => {

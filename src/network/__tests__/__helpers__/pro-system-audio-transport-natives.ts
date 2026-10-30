@@ -30,9 +30,12 @@ import { makeAudioTrack } from './system-audio-receive-harness.ts';
 // so the receiver proves its pair on the first proof poll (every 25 ms) after
 // that candidate arrives; the offer fires ontrack with the track its `a=msid:`
 // line names (none when the line is missing); setLocalDescription(answer) also
-// opens the publisher's probe channel (ondatachannel), whose sent messages are
-// kept and on which `sendLanTrackAttached` delivers the publisher's
-// track-attached word. Runtime states go to onconnectionstatechange and
+// announces the publisher's probe channel, already 'open' (ondatachannel),
+// whose sent messages are kept and on which `sendLanTrackAttached` delivers the
+// publisher's track-attached word. A browser announces that channel only after
+// DTLS, SCTP and the channel's open handshake, so after the receiver's own pair
+// proof: after `holdLanProbeChannel` the answer leaves it unannounced until
+// `announceLanProbeChannel`. Runtime states go to onconnectionstatechange and
 // oniceconnectionstatechange, as the receiver registers them.
 //
 // Neither mode models ICE, DTLS, media flow, track 'ended' events or the
@@ -63,6 +66,8 @@ const LAN_LOCAL_CANDIDATE =
 
 export class ProTransportPeerConnection {
   static readonly instances: ProTransportPeerConnection[] = [];
+  /** LAN mode: setLocalDescription(answer) leaves the probe channel unannounced. */
+  static holdProbeChannel = false;
   readonly mode: PeerConnectionMode;
   connectionState: RTCPeerConnectionState = 'new';
   iceConnectionState: RTCIceConnectionState = 'new';
@@ -105,6 +110,7 @@ export class ProTransportPeerConnection {
 
   static reset(): void {
     ProTransportPeerConnection.instances.length = 0;
+    ProTransportPeerConnection.holdProbeChannel = false;
   }
 
   addEventListener(type: string, fn: () => void): void {
@@ -169,6 +175,13 @@ export class ProTransportPeerConnection {
       },
     });
     if (this.connectionState !== 'connected') this.setConnectionState('connected');
+    if (!ProTransportPeerConnection.holdProbeChannel) {
+      this.ondatachannel?.({ channel: this.probeChannel });
+    }
+  }
+
+  /** Announces the held probe channel, already 'open' (ondatachannel). */
+  announceProbeChannel(): void {
     this.ondatachannel?.({ channel: this.probeChannel });
   }
 
@@ -336,6 +349,20 @@ export function sendLanOffer(
 export function sendLanTrackAttached(): void {
   const connection = ProTransportPeerConnection.of('lan').at(-1);
   connection?.probeChannel.onmessage?.({ data: 'publisher-track-attached' });
+}
+
+/**
+ * From now until the next reset, a LAN connection's answer leaves the probe
+ * channel unannounced, as a browser announces it only after DTLS, SCTP and
+ * the channel's open handshake.
+ */
+export function holdLanProbeChannel(): void {
+  ProTransportPeerConnection.holdProbeChannel = true;
+}
+
+/** Announces the held probe channel, already 'open', on the newest LAN connection. */
+export function announceLanProbeChannel(): void {
+  ProTransportPeerConnection.of('lan').at(-1)?.announceProbeChannel();
 }
 
 export function sendLanCandidate(route: LanPublisherRoute): void {

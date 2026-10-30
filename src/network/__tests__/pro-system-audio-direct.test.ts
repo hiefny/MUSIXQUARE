@@ -61,6 +61,12 @@ let nextEmbeddedCandidateAddresses: Array<string | null>;
 let nextAuthoritativePairModes: Array<AuthoritativePairMode | null>;
 /** The simulated remote receiver withholds its pair proof on the probe channel. */
 let receiverProofWithheld: boolean;
+/**
+ * A receiver's setLocalDescription(answer) leaves the publisher's probe channel
+ * unannounced until announceRemoteChannel, as a browser announces it only after
+ * DTLS, SCTP and the channel's open handshake.
+ */
+let receiverChannelHeld: boolean;
 /** getParameters of the next senders addTrack creates, in order. */
 let nextSenderParameters: Array<() => RTCRtpSendParameters>;
 
@@ -223,8 +229,30 @@ class MockRTCPeerConnection {
     this.emitLocalCandidate();
     if (description.type === 'answer') {
       this.emitConnected();
-      this.ondatachannel?.({ channel: this.remoteChannel } as unknown as RTCDataChannelEvent);
+      if (!receiverChannelHeld) {
+        this.ondatachannel?.({ channel: this.remoteChannel } as unknown as RTCDataChannelEvent);
+      }
     }
+  }
+
+  /**
+   * Announces the held probe channel to this receiver in `readyState`. With
+   * `openEvent`, an 'open' channel's open event follows the announcement, the
+   * order the WebRTC specification gives a newly announced channel.
+   */
+  announceRemoteChannel(
+    readyState: 'open' | 'connecting',
+    options: { openEvent?: boolean } = {},
+  ): void {
+    this.remoteChannel.readyState = readyState;
+    this.ondatachannel?.({ channel: this.remoteChannel } as unknown as RTCDataChannelEvent);
+    if (readyState === 'open' && options.openEvent) this.remoteChannel.onopen?.();
+  }
+
+  /** The announced 'connecting' probe channel opens and fires its open event. */
+  openRemoteChannel(): void {
+    this.remoteChannel.readyState = 'open';
+    this.remoteChannel.onopen?.();
   }
 
   emitLocalCandidate(
@@ -553,6 +581,7 @@ beforeEach(() => {
   nextEmbeddedCandidateAddresses = [];
   nextAuthoritativePairModes = [];
   receiverProofWithheld = false;
+  receiverChannelHeld = false;
   nextSenderParameters = [];
   bridgeMocks.sent.length = 0;
   bridgeMocks.send.mockReset();
@@ -2544,4 +2573,108 @@ describe('PRO system-audio LAN-direct receiver hand-over waits for the attached 
     await vi.advanceTimersByTimeAsync(10_000);
     expect(callbacks.onLiveRouteFallback).not.toHaveBeenCalled();
   });
+});
+
+// A browser announces the publisher's probe channel (ondatachannel) only after
+// DTLS, SCTP and the channel's open handshake, so after the receiver's own pair
+// proof. The proof then leaves from ondatachannel, for a channel announced
+// open, or from the channel's open event, for one announced connecting, and
+// only once.
+describe('PRO system-audio LAN-direct receiver proof on a probe channel announced after it', () => {
+  function receiverProofLines(): string[] {
+    return vi
+      .mocked(log.info)
+      .mock.calls.map(([line]) => String(line))
+      .filter((line) => line.startsWith('[ProSysAudioDirect] Receiver LAN pair'));
+  }
+
+  /** A late joiner whose probe channel is held answers the publisher's one offer. */
+  async function answeredLiveReceiver(negotiationId: string) {
+    vi.useFakeTimers();
+    vi.mocked(log.info).mockClear();
+    localParticipantId = receiverA;
+    receiverTrackId = 'remote-stereo-track';
+    receiverChannelHeld = true;
+    const callbacks = configureCallbacks();
+    await direct.activateProSystemAudioDirectPublication({
+      ownerParticipantId: publisherId,
+      generation: 11,
+      publicationId,
+    });
+    emitRelay(publisherId, publisherOffer(negotiationId));
+    await vi.advanceTimersByTimeAsync(0);
+    expect(bridgeMocks.sent.filter((entry) => entry.payload.kind === 'answer')).toHaveLength(1);
+    return { callbacks, pc: peerConnections[0]! };
+  }
+
+  /** The publisher's candidate arrives and the next proof poll proves the pair. */
+  async function provePair(negotiationId: string): Promise<void> {
+    emitRelay(publisherId, publisherCandidate(negotiationId, safeCandidate('auto')));
+    await vi.advanceTimersByTimeAsync(25);
+    expect(receiverProofLines()).toEqual([
+      expect.stringMatching(/^\[ProSysAudioDirect\] Receiver LAN pair proven in \d+ ms$/),
+    ]);
+  }
+
+  /** The track waits for the publisher's word, then goes to playback once. */
+  async function expectHandOverOnlyAfterAttach(
+    callbacks: ReturnType<typeof configureCallbacks>,
+    pc: MockRTCPeerConnection,
+  ): Promise<void> {
+    await vi.advanceTimersByTimeAsync(1_000);
+    expect(callbacks.onReceiverTrackReady).not.toHaveBeenCalled();
+    pc.emitPublisherAttached();
+    await vi.advanceTimersByTimeAsync(0);
+    expect(callbacks.onReceiverTrackReady).toHaveBeenCalledTimes(1);
+    expect(callbacks.onReceiverTrackReady).toHaveBeenCalledWith(
+      expect.objectContaining({ track: expect.objectContaining({ id: 'remote-stereo-track' }) }),
+    );
+    await vi.advanceTimersByTimeAsync(10_000);
+    expect(pc.remoteChannel.send).toHaveBeenCalledTimes(1);
+    expect(callbacks.onLiveRouteFallback).not.toHaveBeenCalled();
+    expect(pc.close).not.toHaveBeenCalled();
+  }
+
+  it.each([
+    { order: 'with no open event', openEvent: false, negotiationId: 'negotiation_000000000033' },
+    {
+      order: 'followed by its open event',
+      openEvent: true,
+      negotiationId: 'negotiation_000000000034',
+    },
+  ])(
+    'sends its pair proof once when the channel is announced open after the proof, $order',
+    async ({ openEvent, negotiationId }) => {
+      const { callbacks, pc } = await answeredLiveReceiver(negotiationId);
+      await provePair(negotiationId);
+      // Proven, but there is no channel to say it on yet.
+      expect(pc.remoteChannel.send).not.toHaveBeenCalled();
+
+      pc.announceRemoteChannel('open', { openEvent });
+      expect(pc.remoteChannel.send).toHaveBeenCalledTimes(1);
+      expect(pc.remoteChannel.send).toHaveBeenCalledWith(RECEIVER_PAIR_PROVEN);
+      await expectHandOverOnlyAfterAttach(callbacks, pc);
+    },
+  );
+
+  it.each([
+    { moment: 'before', negotiationId: 'negotiation_000000000035' },
+    { moment: 'after', negotiationId: 'negotiation_000000000036' },
+  ] as const)(
+    'sends its pair proof once when the channel is announced connecting $moment the proof and opens after it',
+    async ({ moment, negotiationId }) => {
+      const { callbacks, pc } = await answeredLiveReceiver(negotiationId);
+      if (moment === 'before') pc.announceRemoteChannel('connecting');
+      await provePair(negotiationId);
+      if (moment === 'after') pc.announceRemoteChannel('connecting');
+      // Proven, but the channel is still connecting: nothing can be sent on it.
+      await vi.advanceTimersByTimeAsync(100);
+      expect(pc.remoteChannel.send).not.toHaveBeenCalled();
+
+      pc.openRemoteChannel();
+      expect(pc.remoteChannel.send).toHaveBeenCalledTimes(1);
+      expect(pc.remoteChannel.send).toHaveBeenCalledWith(RECEIVER_PAIR_PROVEN);
+      await expectHandOverOnlyAfterAttach(callbacks, pc);
+    },
+  );
 });

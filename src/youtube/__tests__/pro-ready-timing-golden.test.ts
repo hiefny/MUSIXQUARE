@@ -201,21 +201,25 @@ async function measure(iframe: 'resident' | 'new', knob: Knob): Promise<ReadyRow
 /**
  * Today's PREPARE to READY instants, one explicit row per iframe and fault.
  * A 250 ms isMuted delay never verifies inside the arm's 120 ms restore
- * cycle (each retry's unMute restarts the fake's delay), so the arm fails
- * after eight attempts and READY reports failed: with no device trace, this
- * pins the fake's model, not a measured WebKit device.
+ * cycle, because each retry's unMute restarts the fake's delay
+ * (fake-yt-player.ts __unMuteDelayMs), so the arm fails after eight attempts
+ * and READY reports failed. The two rows marked "Fake-model row" pin that
+ * model, not a measured WebKit device: a neutral change that re-issued
+ * unMute less often could flip them without any device behaviour changing.
  */
 const READY_TABLE: ReadyRow[] = [
   { iframe: 'resident', knob: 'none', readyAtMs: 620, status: 'ready' },
   { iframe: 'resident', knob: 'unMute ignored x1', readyAtMs: 740, status: 'ready' },
   { iframe: 'resident', knob: 'unMute ignored x2', readyAtMs: 860, status: 'ready' },
   { iframe: 'resident', knob: 'isMuted +120 ms', readyAtMs: 620, status: 'ready' },
+  // Fake-model row: fails only because every retry restarts the 250 ms delay.
   { iframe: 'resident', knob: 'isMuted +250 ms', readyAtMs: 1_460, status: 'failed' },
   // The PREPARE builds the iframe; its handshake completes 400 ms later.
   { iframe: 'new', knob: 'none', readyAtMs: 1_061, status: 'ready' },
   { iframe: 'new', knob: 'unMute ignored x1', readyAtMs: 1_181, status: 'ready' },
   { iframe: 'new', knob: 'unMute ignored x2', readyAtMs: 1_301, status: 'ready' },
   { iframe: 'new', knob: 'isMuted +120 ms', readyAtMs: 1_061, status: 'ready' },
+  // Fake-model row: fails only because every retry restarts the 250 ms delay.
   { iframe: 'new', knob: 'isMuted +250 ms', readyAtMs: 1_901, status: 'failed' },
 ];
 

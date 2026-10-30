@@ -22,6 +22,10 @@
  * sync-integration.test.ts) and a getVolume read fault (NaN, throw). The
  * fault is set just before the loop's first attempt. Each op is written
  * relative to that instant. None of these values comes from a device trace.
+ * Rows marked "Fake-model row" never verify only because every unMute
+ * restarts the fake's isMuted delay (fake-yt-player.ts __unMuteDelayMs): they
+ * pin that model, and a neutral change that re-issued unMute less often could
+ * flip them without any device behaviour changing.
  *
  * Today's per-loop policies these rows pin: zero-start treats a NaN volume
  * read as restored (finiteOr), the arm and player.ts do not; a desired-audio
@@ -140,7 +144,8 @@ const EXPECTED: Record<string, string[]> = {
   'zero-start active restore | unMute ignored x2': attempts([0, 120, 240], RESTORE),
   // The delayed unmute lands as the first check runs.
   'zero-start active restore | isMuted +120 ms': [...attempts([0], RESTORE), ...ZS_RELEASE(822)],
-  // Each retry's unMute restarts the 250 ms delay: it never lands in time.
+  // Fake-model row: each retry's unMute restarts the 250 ms delay, so it
+  // never lands in time.
   'zero-start active restore | isMuted +250 ms': [
     ...attempts(EIGHT, RESTORE),
     ...ZS_RESTORE_TIMEOUT,
@@ -161,6 +166,7 @@ const EXPECTED: Record<string, string[]> = {
     ...attempts([0, 120, 240], RESTORE),
   ],
   'zero-start detached restore | isMuted +120 ms': ['+0 pauseVideo()', ...attempts([0], RESTORE)],
+  // Fake-model row (the restarted 250 ms delay).
   'zero-start detached restore | isMuted +250 ms': ['+0 pauseVideo()', ...attempts(EIGHT, RESTORE)],
   'zero-start detached restore | getVolume NaN': ['+0 pauseVideo()', ...attempts([0], RESTORE)],
   'zero-start detached restore | getVolume throws': [
@@ -172,6 +178,7 @@ const EXPECTED: Record<string, string[]> = {
   'host legacy cleanup | unMute ignored x1': attempts([0, 120], CLEANUP),
   'host legacy cleanup | unMute ignored x2': attempts([0, 120, 240], CLEANUP),
   'host legacy cleanup | isMuted +120 ms': attempts([0, 120], CLEANUP),
+  // Fake-model row (the restarted 250 ms delay).
   'host legacy cleanup | isMuted +250 ms': attempts(EIGHT, CLEANUP),
   // player.ts reads the raw volume: NaN never verifies.
   'host legacy cleanup | getVolume NaN': attempts(EIGHT, CLEANUP),
@@ -180,6 +187,7 @@ const EXPECTED: Record<string, string[]> = {
   'guest fallback cleanup | unMute ignored x1': attempts([0, 120], CLEANUP),
   'guest fallback cleanup | unMute ignored x2': attempts([0, 120, 240], CLEANUP),
   'guest fallback cleanup | isMuted +120 ms': attempts([0, 120], CLEANUP),
+  // Fake-model row (the restarted 250 ms delay).
   'guest fallback cleanup | isMuted +250 ms': attempts(EIGHT, CLEANUP),
   'guest fallback cleanup | getVolume NaN': attempts(EIGHT, CLEANUP),
   'guest fallback cleanup | getVolume throws': attempts(EIGHT, CLEANUP),
@@ -207,6 +215,9 @@ const EXPECTED: Record<string, string[]> = {
     '+100 playVideo()',
   ],
   // Polls until max(deadline, now + 1 s); the window ends before that.
+  // Fake-model rows: every 50 ms poll re-issues unMute and restarts the
+  // delay, so neither 120 ms nor 250 ms lands in the window and the release
+  // does not run.
   'guest pre-release restore | isMuted +120 ms': attempts(POLLS_TO_1200, RESTORE),
   'guest pre-release restore | isMuted +250 ms': attempts(POLLS_TO_1200, RESTORE),
   'guest pre-release restore | getVolume NaN': attempts(POLLS_TO_1200, RESTORE),
@@ -223,6 +234,7 @@ const EXPECTED: Record<string, string[]> = {
   'arm active | unMute ignored x1': attempts([0, 120], RESTORE),
   'arm active | unMute ignored x2': attempts([0, 120, 240], RESTORE),
   'arm active | isMuted +120 ms': attempts([0], RESTORE),
+  // Fake-model row (the restarted 250 ms delay).
   'arm active | isMuted +250 ms': [...attempts(EIGHT, RESTORE), ...ARM_RESTORE_TIMEOUT],
   // The arm reads the raw volume: NaN never verifies.
   'arm active | getVolume NaN': [...attempts(EIGHT, RESTORE), ...ARM_RESTORE_TIMEOUT],
@@ -232,6 +244,7 @@ const EXPECTED: Record<string, string[]> = {
   'arm detached | unMute ignored x2': ['+0 pauseVideo()', ...attempts([0, 120, 240], RESTORE)],
   // The detached restore checks at once, before the delayed unmute lands.
   'arm detached | isMuted +120 ms': ['+0 pauseVideo()', ...attempts([0, 120], RESTORE)],
+  // Fake-model row (the restarted 250 ms delay).
   'arm detached | isMuted +250 ms': ['+0 pauseVideo()', ...attempts(EIGHT, RESTORE)],
   'arm detached | getVolume NaN': ['+0 pauseVideo()', ...attempts(EIGHT, RESTORE)],
   'arm detached | getVolume throws': ['+0 pauseVideo()', ...attempts(EIGHT, RESTORE)],

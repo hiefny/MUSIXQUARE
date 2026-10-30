@@ -12,11 +12,12 @@
  * - Role badge display
  * - Mobile vs desktop layout
  */
-import { test, expect, type Page } from '@playwright/test';
-import { waitForBootstrapReady } from './helpers/bootstrap.ts';
+import { test, expect } from '@playwright/test';
 import {
   createHostGuestContexts,
   cleanupContexts,
+  getPageErrors,
+  trackPageErrors,
   useAnonymousAccountSession,
   type HostGuestPair,
 } from './helpers/context-factory.ts';
@@ -38,32 +39,6 @@ const MOBILE_VIEWPORT = { width: 390, height: 844 };
 
 async function useMobileHostViewport(): Promise<void> {
   await pair.hostPage.setViewportSize(MOBILE_VIEWPORT);
-}
-
-/**
- * Start a host session on one page. Playwright's Windows WebKit build has no
- * PeerJS WebRTC transport, so a WebKit run seeds the started host instead, as
- * app-touch-policy.test.ts does.
- */
-async function startHostSession(page: Page, browserName: string): Promise<void> {
-  await injectPeerServer(page);
-  if (browserName !== 'webkit') {
-    await setupHostAndStart(page);
-    return;
-  }
-  await page.goto('/');
-  await waitForBootstrapReady(page);
-  await page.evaluate(() => {
-    const runtime = window as typeof window & {
-      __MUSIXQUARE_SET_STATE__: (path: string, value: unknown) => void;
-      __MUSIXQUARE_BUS__: { emit(type: string, ...args: unknown[]): void };
-    };
-    runtime.__MUSIXQUARE_SET_STATE__('network.appRole', 'host');
-    runtime.__MUSIXQUARE_SET_STATE__('setup.sessionStarted', true);
-    document.getElementById('setup-overlay')?.classList.remove('active');
-    document.body.classList.remove('overlay-open');
-    runtime.__MUSIXQUARE_BUS__.emit('setup:app-entrance');
-  });
 }
 
 test.describe('Comprehensive UI', () => {
@@ -434,17 +409,16 @@ test.describe('Mobile UI', () => {
     }
   });
 
-  test('chat sheet Tab and Shift+Tab reach only the controls it shows', async ({
-    page,
-    browserName,
-  }) => {
+  test('chat sheet Tab and Shift+Tab reach only the controls it shows', async ({ page }) => {
     // The pinned notice stays in the sheet while hidden. A Tab cycle that still
     // counted its two buttons left Tab on the handle; they join the cycle only
     // while the notice shows.
+    trackPageErrors(page);
     await page.route('**/api/announcement/current', (route) =>
       route.fulfill({ json: { enabled: false } }),
     );
-    await startHostSession(page, browserName);
+    await injectPeerServer(page);
+    await setupHostAndStart(page);
     await openChatDrawer(page);
     await expect(page.locator('#chat-drawer')).toHaveAttribute('aria-modal', 'true');
     const notice = page.locator('#chat-pinned-notice');
@@ -511,5 +485,6 @@ test.describe('Mobile UI', () => {
     await page.keyboard.press('Enter');
     await expect(notice).toBeHidden();
     expect(await press('Tab', 3)).toEqual(['handle', 'message', 'chat-input']);
+    expect(getPageErrors(page).map((error) => error.message)).toEqual([]);
   });
 });

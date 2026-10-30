@@ -307,13 +307,19 @@ function currentPlaybackIndicatorState(
   return null;
 }
 
-function renderPlaybackIndicatorIcons(): string {
+// Beside the current row's title the pause bars are drawn wider than the
+// player's (owner decision 2026-10-31); css/style.css sizes their box. The
+// playing sub-row of an expanded YouTube playlist keeps the player's bars.
+const CURRENT_ROW_PAUSE_PATH = 'M5.5 19h4.5V5H5.5v14zm8.5-14v14h4.5V5H14z';
+const SUB_ROW_PAUSE_PATH = 'M6 19h4V5H6v14zm8-14v14h4V5h-4z';
+
+function renderPlaybackIndicatorIcons(pausePath: string): string {
   return `
     <svg class="track-playback-state-icon track-playing-indicator" viewBox="0 0 24 24" aria-hidden="true">
       <path d="M8 5v14l11-7z" transform="translate(-1.5 0)"/>
     </svg>
     <svg class="track-playback-state-icon track-paused-indicator" viewBox="0 0 24 24" aria-hidden="true">
-      <path d="M6 19h4V5H6v14zm8-14v14h4V5h-4z"/>
+      <path d="${pausePath}"/>
     </svg>
     <span class="track-playback-state-icon track-playback-loading-indicator material-elastic-spinner playlist-row-spinner" aria-hidden="true">
       <svg viewBox="0 0 44 44"><circle cx="22" cy="22" r="18" pathLength="100"></circle></svg>
@@ -367,7 +373,7 @@ function renderTrackIcon(item: PlaylistItem): string {
 // for the source icon beside the title.
 function renderTrackIconSlot(item: PlaylistItem, isCurrent: boolean): string {
   if (!isCurrent) return `<span class="track-type-slot">${renderTrackIcon(item)}</span>`;
-  return `<span class="track-type-slot playlist-current-leading">${renderTrackIcon(item)}${renderPlaybackIndicatorIcons()}</span>`;
+  return `<span class="track-type-slot playlist-current-leading">${renderTrackIcon(item)}${renderPlaybackIndicatorIcons(CURRENT_ROW_PAUSE_PATH)}</span>`;
 }
 
 function renderFileTrackIcon(): string {
@@ -400,7 +406,7 @@ function createSubTrackItem(
   const subIdx = document.createElement('span');
   subIdx.className = `sub-idx ${isActiveSub ? 'playlist-current-leading' : ''}`;
   subIdx.innerHTML = `<span class="sub-idx-number">${subIndex + 1}</span>${
-    isActiveSub ? renderPlaybackIndicatorIcons() : ''
+    isActiveSub ? renderPlaybackIndicatorIcons(SUB_ROW_PAUSE_PATH) : ''
   }`;
   const subName = document.createElement('span');
   subName.className = 'sub-name';
@@ -775,7 +781,34 @@ function createProRoomUploadSpinner(): HTMLSpanElement {
   return spinner;
 }
 
-function appendProRoomUploadRow(list: HTMLElement, upload: ProRoomUploadRow): void {
+/**
+ * The upload rows to show, in display order: the file going up now (its bytes
+ * uploading, or the upload being confirmed) first, then the files waiting their
+ * turn in queue order. A retried file waits ahead of a later batch in the
+ * queue, so queue order alone could put it above the file going up, and their
+ * provisional numbers would swap when that file lands.
+ */
+function proRoomUploadRowsInDisplayOrder(): ProRoomUploadRow[] {
+  const going: ProRoomUploadRow[] = [];
+  const waiting: ProRoomUploadRow[] = [];
+  for (const upload of getProRoomUploadRows()) {
+    if (upload.phase === 'waiting') waiting.push(upload);
+    else if (upload.phase === 'uploading' || upload.phase === 'confirming') going.push(upload);
+  }
+  return [...going, ...waiting];
+}
+
+/**
+ * One temporary upload row (owner decision 2026-10-31): its provisional number
+ * (the playlist position it is expected to take on this device) in a static
+ * number cell, hidden from assistive technology like every row number, and its
+ * ring in the source icon's cell, so its title starts where every title does.
+ */
+function appendProRoomUploadRow(
+  list: HTMLElement,
+  upload: ProRoomUploadRow,
+  provisionalNumber: number,
+): void {
   const entry = document.createElement('li');
   entry.className = `playlist-entry pro-upload-entry is-${upload.phase}`;
   entry.dataset.proUploadId = upload.id;
@@ -786,19 +819,26 @@ function appendProRoomUploadRow(list: HTMLElement, upload: ProRoomUploadRow): vo
   row.tabIndex = -1;
   row.setAttribute('aria-busy', 'true');
 
+  // Never a reorder handle: a hover or hint leaves the number in place.
   const leading = document.createElement('div');
   leading.className = 'track-leading track-leading-static';
   leading.setAttribute('aria-hidden', 'true');
-  leading.appendChild(createProRoomUploadSpinner());
+  const number = document.createElement('span');
+  number.className = 'track-idx';
+  number.textContent = String(provisionalNumber);
+  leading.appendChild(number);
 
   const track = document.createElement('span');
   track.className = 'track-name pro-upload-track';
+  const slot = document.createElement('span');
+  slot.className = 'track-type-slot';
+  slot.appendChild(createProRoomUploadSpinner());
   const name = document.createElement('span');
   name.className = 'track-name-text pro-upload-name';
   name.dir = 'auto';
   name.textContent = upload.name;
   applyUserTextFontFallback(name, upload.name);
-  track.appendChild(name);
+  track.append(slot, name);
 
   const cancel = createProRoomUploadCancel(upload);
 
@@ -831,10 +871,7 @@ export function updatePlaylistUI(): void {
   // that ambiguous failure and owns the row, so retire the matching temporary
   // task instead of rendering a stale failed duplicate.
   acknowledgeCommittedProRoomUploads(committedIds);
-  const uploads = getProRoomUploadRows().filter(
-    (upload) =>
-      upload.phase === 'waiting' || upload.phase === 'uploading' || upload.phase === 'confirming',
-  );
+  const uploads = proRoomUploadRowsInDisplayOrder();
 
   pruneExpansionOverrides(canonicalPlaylist);
   // Rows awaiting a remote removal are not part of the rendered list, so
@@ -919,7 +956,10 @@ export function updatePlaylistUI(): void {
     appendSubPlaylist(entry, item, isCurrent, currentYouTubeSubIndex);
     list.appendChild(entry);
   });
-  uploads.forEach((upload) => appendProRoomUploadRow(list, upload));
+  // Provisional numbers go on from the rows this list shows.
+  uploads.forEach((upload, index) =>
+    appendProRoomUploadRow(list, upload, playlist.length + index + 1),
+  );
   syncPlaylistPlaybackIndicator(list);
   if (playlistIsVisible()) {
     const restored = restorePlaylistFocus(list, focusSnapshot);

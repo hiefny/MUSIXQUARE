@@ -8,13 +8,26 @@
  *
  * Each line is reached through the named Standard scenario scripts
  * (standard-start-harness.ts) or the PRO controller, with core/log.ts mocked.
- * Not covered here, and left for the increment that moves them: the four
- * '[YouTube Prime]' warns (iframe.ts:1426 and :1535 run only on iOS, :2887
- * needs an IFrame API onError, which the scripted API does not deliver, and
- * player-controls.ts:866 'Submit flow failed' has no existing
- * player-controls.test.ts row that fails the submit flow), and the second
- * 'Local fallback failed:' site (player.ts:2764, which needs the managed
- * timer API itself to throw).
+ * The second 'Local fallback failed:' site (player.ts:2764) needs the managed
+ * timer API itself to throw, so core/timers.ts is a pass-through mock here
+ * that throws only for the one timer a row names.
+ *
+ * The four '[YouTube Prime]' warns run on paths the suites that already
+ * drive them set up (an iOS platform, the prime player, an IFrame API onError,
+ * the gesture submit), so their exact first arguments are asserted there
+ * (pinned 2026-10-31):
+ * - iframe.ts 'API load failed; tap-to-play fallback remains available':
+ *   stale-async-guards.test.ts "releases a failed API preparation at the
+ *   deadline without claiming readiness or retrying it".
+ * - iframe.ts 'gesture bounce failed; tap-to-play fallback remains
+ *   available': stale-async-guards.test.ts "re-arms a synchronous bounce
+ *   failure for a later direct gesture".
+ * - iframe.ts 'player error during prime; tap-to-play fallback remains':
+ *   stale-async-guards.test.ts "keeps an iframe-reported bounce error
+ *   retryable and silent".
+ * - ui/player-controls.ts 'Submit flow failed': player-controls.test.ts
+ *   "logs '[YouTube Prime] Submit flow failed' when the gesture submit throws
+ *   after the prime wait".
  */
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { bus } from '../../core/events.ts';
@@ -47,9 +60,21 @@ import {
   type StandardScenario,
 } from './__helpers__/standard-start-harness.ts';
 
+const timerFault = vi.hoisted(() => ({ failName: null as string | null }));
 vi.mock('../../core/log.ts', () => ({
   log: { debug: vi.fn(), info: vi.fn(), warn: vi.fn(), error: vi.fn() },
 }));
+// Real managed timers, except that scheduling the one timer a row names throws.
+vi.mock('../../core/timers.ts', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('../../core/timers.ts')>();
+  return {
+    ...actual,
+    setManagedTimer: (...args: Parameters<typeof actual.setManagedTimer>) => {
+      if (args[0] === timerFault.failName) throw new Error('synthetic managed-timer failure');
+      return actual.setManagedTimer(...args);
+    },
+  };
+});
 vi.mock('../../ui/toast.ts', () => ({
   showToast: vi.fn(),
   showLoader: vi.fn(),
@@ -112,6 +137,7 @@ const startFakeClock = createFakeClockStarter(Date.UTC(2026, 9, 30, 0, 0, 0));
 let rig: StandardRig | null = null;
 
 beforeEach(() => {
+  timerFault.failName = null;
   startFakeClock();
   clearAllManagedTimers();
   resetState();
@@ -344,6 +370,27 @@ describe('quoted YouTube start log lines (pinned 2026-10-30)', () => {
       ],
     });
     expect(lines('warn')).toContain('[YouTube ZeroStart] Local fallback failed:');
+  });
+
+  it("guest fallback that cannot schedule its first attempt: 'Local fallback failed:' (player.ts:2764, pinned 2026-10-31)", async () => {
+    const scenario = SCENARIOS.guestCohortExcluded(2_600);
+    await runScenario({
+      ...scenario,
+      steps: [
+        ...scenario.steps,
+        // The fallback starts at +2401; from +2300 its timer cannot be scheduled.
+        {
+          at: 2_300,
+          run: () => {
+            timerFault.failName = 'yt-zero-start-external-fallback';
+          },
+        },
+      ],
+    });
+    expect(lines('warn')).toEqual([
+      '[YouTube ZeroStart] Falling back locally: cohort-excluded',
+      '[YouTube ZeroStart] Local fallback failed:',
+    ]);
   });
 
   it("host legacy recovery that times out: '[YouTube ZeroStart] Legacy recovery timed out:'", async () => {

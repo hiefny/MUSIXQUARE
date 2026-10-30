@@ -9,16 +9,32 @@ const mocks = vi.hoisted(() => ({
   safeSend: vi.fn(() => true),
 }));
 
-vi.mock('../../pro-room/playback-authority-hooks.ts', () => ({
+vi.mock('../../pro-room/playback-authority-hooks.ts', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('../../pro-room/playback-authority-hooks.ts')>()),
   routeProPlaybackCommand: mocks.routeProPlaybackCommand,
 }));
-vi.mock('../../network/peer.ts', () => ({ safeSend: mocks.safeSend }));
+vi.mock('../../network/peer.ts', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('../../network/peer.ts')>()),
+  broadcast: vi.fn(),
+  safeSend: mocks.safeSend,
+  sendToHost: vi.fn(() => true),
+}));
+// The rows that arm a real synchronization owner read a calibrated clock.
+vi.mock('../../network/shared-clock.ts', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('../../network/shared-clock.ts')>()),
+  getHostNow: () => Date.now(),
+  getClockOffset: () => 0,
+  isClockCalibrated: () => true,
+}));
 
+import { MSG } from '../../core/constants.ts';
 import { bus } from '../../core/events.ts';
 import { resetState, setState } from '../../core/state.ts';
 import { clearAllManagedTimers, clearManagedTimer, setManagedTimer } from '../../core/timers.ts';
+import { initProtocol, resetInboundRateLimit } from '../../network/protocol.ts';
+import { markQueueAuthorityReady } from '../../network/queue-authority.ts';
 import { setPlaybackYouTubePaused, setPlaybackYouTubePlaying } from '../../player/ownership.ts';
-import type { PlaylistItem, QueueItemId } from '../../types/index.ts';
+import type { DataConnection, PlaylistItem, QueueItemId } from '../../types/index.ts';
 import {
   markYtPlayerReady,
   resetYouTubeModuleState,
@@ -27,8 +43,11 @@ import {
   setYtAutoplayIntent,
   type YouTubePlayerInstance,
 } from '../_state.ts';
+import { STAGE2_RENDEZVOUS_BROADCAST_MS } from '../constants.ts';
 import { PRO_COORDINATOR_YOUTUBE_NUDGE_TIMER } from '../local-offset.ts';
 import { initYouTubeNativeControlAuthority } from '../native-control-authority.ts';
+import { initYouTube, scheduleYtAutoSync, stopYouTubeMode } from '../player.ts';
+import { guestRendezvousSync, initYouTubeSync, resetYouTubeSyncState } from '../sync.ts';
 
 const QUEUE_ITEM_ID = '00000000-0000-4000-8000-000000000001' as QueueItemId;
 const VIDEO_ID = 'abcdefghijk';
@@ -116,9 +135,51 @@ beforeEach(() => {
 });
 
 afterEach(() => {
+  stopYouTubeMode({ silent: true });
+  resetYouTubeSyncState();
   clearAllManagedTimers();
   vi.useRealTimers();
 });
+
+/** The player.ts and sync.ts wiring the real synchronization owners run on. */
+function startSyncRuntime(): void {
+  initYouTube();
+  initYouTubeSync();
+  initProtocol();
+}
+
+/** Turn the installed endpoint into an operator guest of a Standard room. */
+function becomeOperatorGuest(): DataConnection {
+  const hostConn = {
+    peer: 'seek-feedback-host',
+    open: true,
+    send: vi.fn(),
+    close: vi.fn(),
+    on: vi.fn(),
+  } as unknown as DataConnection;
+  setState('network.appRole', 'guest');
+  setState('network.hostConn', hostConn);
+  setState('network.isOperator', true);
+  setState('network.standardRoomCapabilities', ['playback.control']);
+  markQueueAuthorityReady(hostConn);
+  resetInboundRateLimit(hostConn.peer);
+  return hostConn;
+}
+
+function hostFrame(hostConn: DataConnection, type: string, frame: Record<string, unknown>): void {
+  bus.emit(
+    'network:data',
+    {
+      type,
+      queueItemId: QUEUE_ITEM_ID,
+      videoId: VIDEO_ID,
+      subIndex: -1,
+      hostClock: Date.now(),
+      ...frame,
+    },
+    hostConn,
+  );
+}
 
 describe('seek callback ownership at the native-control boundary', () => {
   it.each(['standard', 'pro'] as const)(
@@ -147,9 +208,12 @@ describe('seek callback ownership at the native-control boundary', () => {
   it('does not promote a seek PLAYING callback while a host rendezvous owns playback', () => {
     const player = createPlayer();
     installCurrentYouTube(player, 'standard');
+    startSyncRuntime();
     const autoPlay = vi.fn();
     bus.on('youtube:auto-play', autoPlay);
-    setManagedTimer('yt-auto-sync', () => undefined, 2_000);
+    // The host's own seek arms the real rendezvous: its stage-2 wait
+    // (STAGE2_RENDEZVOUS_BROADCAST_MS) owns playback for the rows below.
+    scheduleYtAutoSync(45);
 
     player.pauseVideo();
     player.seekTo(45, true);
@@ -166,34 +230,111 @@ describe('seek callback ownership at the native-control boundary', () => {
     expect(autoPlay).not.toHaveBeenCalled();
   });
 
+  // The nudge keeps a raw timer: PRE-4 stays a timer-name read.
+  it.each([PRO_COORDINATOR_YOUTUBE_NUDGE_TIMER])(
+    'restores native PAUSE immediately after %s releases playback',
+    (owner) => {
+      const player = createPlayer();
+      installCurrentYouTube(player, 'standard');
+      const autoPlay = vi.fn();
+      bus.on('youtube:auto-play', autoPlay);
+      setManagedTimer(owner, () => undefined, 2_000);
+      player.seekTo(42.35, true);
+      player.deliverState(2);
+      player.deliverState(1);
+      expect(autoPlay).not.toHaveBeenCalled();
+
+      clearManagedTimer(owner);
+      player.deliverState(2);
+
+      expect(autoPlay).toHaveBeenCalledExactlyOnceWith({
+        targetTime: 42.35,
+        skipSeek: false,
+        zeroStart: false,
+        state: 2,
+      });
+    },
+  );
+
+  it.each(['yt-auto-sync'])(
+    'restores native PAUSE immediately after %s releases playback',
+    async () => {
+      const player = createPlayer();
+      installCurrentYouTube(player, 'standard');
+      startSyncRuntime();
+      const autoPlay = vi.fn();
+      bus.on('youtube:auto-play', autoPlay);
+      // A Standard host seek: its stage-2 wait is the real 'yt-auto-sync' owner.
+      scheduleYtAutoSync(42.35);
+      player.seekTo(42.35, true);
+      player.deliverState(2);
+      player.deliverState(1);
+      expect(autoPlay).not.toHaveBeenCalled();
+
+      // The owner releases when its stage-2 precision frame has been sent.
+      await vi.advanceTimersByTimeAsync(STAGE2_RENDEZVOUS_BROADCAST_MS);
+      player.deliverState(2);
+
+      expect(autoPlay).toHaveBeenCalledExactlyOnceWith({
+        targetTime: 42.35,
+        skipSeek: false,
+        zeroStart: false,
+        state: 2,
+      });
+    },
+  );
+
+  // These four owners run only on a Standard guest, so they arm through the
+  // guest's own flows and a released native PAUSE reaches the host as the
+  // operator guest's REQUEST_YOUTUBE_PAUSE (a host never holds them).
   it.each([
-    PRO_COORDINATOR_YOUTUBE_NUDGE_TIMER,
-    'yt-auto-sync',
     'yt-clock-action',
     'yt-seek-play',
     'yt-rendezvous-buffer',
     'yt-rendezvous-play',
     'yt-rendezvous-calibrate',
-  ])('restores native PAUSE immediately after %s releases playback', (owner) => {
+  ] as const)('restores native PAUSE immediately after %s releases playback', async (owner) => {
     const player = createPlayer();
     installCurrentYouTube(player, 'standard');
-    const autoPlay = vi.fn();
-    bus.on('youtube:auto-play', autoPlay);
-    setManagedTimer(owner, () => undefined, 2_000);
-    player.seekTo(42.35, true);
+    const hostConn = becomeOperatorGuest();
+    startSyncRuntime();
+    const pauseRequests = () =>
+      (mocks.safeSend.mock.calls as unknown as Array<[DataConnection, { type: string }]>).filter(
+        ([, frame]) => frame.type === MSG.REQUEST_YOUTUBE_PAUSE,
+      );
+    if (owner === 'yt-clock-action') {
+      hostFrame(hostConn, MSG.YOUTUBE_STATE, {
+        state: 1,
+        time: 42.35,
+        hostPlayAt: Date.now() + 1_000,
+      });
+    } else if (owner === 'yt-seek-play') {
+      hostFrame(hostConn, MSG.YOUTUBE_STATE, { state: 1, time: 42.35 });
+    } else {
+      hostFrame(hostConn, MSG.YOUTUBE_SYNC, { state: 1, time: 42.35 });
+      expect(guestRendezvousSync({ silent: true }).status).toBe('started');
+      if (owner !== 'yt-rendezvous-buffer') {
+        // The iframe reports the rendezvous pause and the buffer gate opens.
+        player.deliverState(2);
+        await vi.advanceTimersByTimeAsync(60);
+        if (owner === 'yt-rendezvous-calibrate') {
+          await vi.advanceTimersByTimeAsync(1_500);
+          player.deliverState(1);
+        }
+      }
+    }
     player.deliverState(2);
     player.deliverState(1);
-    expect(autoPlay).not.toHaveBeenCalled();
+    expect(pauseRequests()).toEqual([]);
 
-    clearManagedTimer(owner);
+    // Past the owner's release (a timed-out buffer gate owes one follow-up
+    // rendezvous 3.25 s later) and every 4 s origin record of its commands.
+    await vi.advanceTimersByTimeAsync(10_100);
     player.deliverState(2);
 
-    expect(autoPlay).toHaveBeenCalledExactlyOnceWith({
-      targetTime: 42.35,
-      skipSeek: false,
-      zeroStart: false,
-      state: 2,
-    });
+    expect(pauseRequests()).toEqual([
+      [hostConn, { type: MSG.REQUEST_YOUTUBE_PAUSE, queueItemId: QUEUE_ITEM_ID }],
+    ]);
   });
 
   it.each(['standard', 'pro'] as const)(

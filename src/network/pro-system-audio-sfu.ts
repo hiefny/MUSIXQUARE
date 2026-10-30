@@ -465,12 +465,6 @@ function parseProSystemAudioSfuPublicationDescriptor(
 export const parseProSystemAudioSfuPublicationDescriptorForTests =
   parseProSystemAudioSfuPublicationDescriptor;
 
-function requireDescriptor(value: unknown): ProSystemAudioSfuPublicationDescriptor {
-  const descriptor = parseProSystemAudioSfuPublicationDescriptor(value);
-  if (!descriptor) throw new TypeError('Invalid PRO system-audio SFU publication descriptor');
-  return descriptor;
-}
-
 function descriptorKey(descriptor: ProSystemAudioSfuPublicationDescriptor): string {
   return `${descriptor.generation}:${descriptor.sessionId}:${descriptor.track.trackName}`;
 }
@@ -764,13 +758,80 @@ function ensureSubscriberCurrent(epoch: number, pc: RTCPeerConnection): void {
   }
 }
 
+/** Error names a subscription's failure line may carry: never a message, which can hold ids. */
+const SUBSCRIBE_FAILURE_NAMES: ReadonlySet<string> = new Set([
+  'TimeoutError',
+  'AbortError',
+  'InvalidStateError',
+  'InvalidAccessError',
+  'OperationError',
+  'NotSupportedError',
+  'SyntaxError',
+  'TypeError',
+  'ControlResponseTooLargeError',
+]);
+
+function subscribeFailureCause(error: unknown): string {
+  if (isCapabilityChallengeCancelled(error)) return 'capability-cancelled';
+  const name =
+    typeof error === 'object' && error !== null ? (error as { name?: unknown }).name : null;
+  return typeof name === 'string' && SUBSCRIBE_FAILURE_NAMES.has(name) ? name : 'Error';
+}
+
+/** The step a subscription is in, named in its failure line. */
+type SubscribeStage = 'config' | 'session' | 'tracks' | 'offer' | 'answer' | 'renegotiate';
+
+/**
+ * One subscription's stage times, counted from when the listener learned of
+ * the share (`origin` 'share notice'), or from the subscribe call when no
+ * notice came with it. They are read at the steps the subscription already
+ * awaits: no timer of their own. `settled` once its ready or failed line is out.
+ */
+interface SubscribeProgress {
+  noticeAt: number;
+  origin: 'share notice' | 'subscribe call';
+  stage: SubscribeStage;
+  marks: string[];
+  settled: boolean;
+}
+
+function markSubscribe(progress: SubscribeProgress, name: string, next?: SubscribeStage): void {
+  progress.marks.push(`${name} ${Date.now() - progress.noticeAt}`);
+  if (next) progress.stage = next;
+}
+
+/** The one failed line of an attempt that has not settled yet. */
+function logSubscribeFailure(
+  descriptor: ProSystemAudioSfuPublicationDescriptor,
+  progress: SubscribeProgress,
+  cause: string,
+): void {
+  if (progress.settled) return;
+  progress.settled = true;
+  log.info(
+    `[ProSysAudioSFU] Subscription to generation ${descriptor.generation} failed at ` +
+      `${progress.stage} ${Date.now() - progress.noticeAt} ms after the ${progress.origin} ` +
+      `(${cause}; ${progress.marks.join(', ')})`,
+  );
+}
+
+/** A subscription refused before its attempt starts: one short line, no ids. */
+function refuseSubscribe(generation: number | null, reason: string, message: string): never {
+  const subject = generation === null ? 'Subscription' : `Subscription to generation ${generation}`;
+  log.info(`[ProSysAudioSFU] ${subject} failed before start (${reason})`);
+  throw new TypeError(message);
+}
+
 async function performSubscribe(
   descriptor: ProSystemAudioSfuPublicationDescriptor,
   epoch: number,
   signal: AbortSignal,
+  progress: SubscribeProgress,
 ): Promise<void> {
+  markSubscribe(progress, 'start');
   const rtcConfig = await loadSfuRtcConfig(signal);
   if (epoch !== subscriberEpoch) throw new ProSystemAudioSfuSupersededError();
+  markSubscribe(progress, 'config', 'session');
   const pc = new RTCPeerConnection(rtcConfig);
   subscriberPc = pc;
   let disconnected = false;
@@ -798,6 +859,9 @@ async function performSubscribe(
     }
     if (pc.connectionState !== 'failed') return;
     const active = subscriberDescriptor;
+    // While the attempt is still in progress its own rejection is silent
+    // (the stop below supersedes it), so its failed line is logged here.
+    logSubscribeFailure(descriptor, progress, 'connection-failed');
     emitEvent({
       type: 'subscriber-state',
       state: 'failed',
@@ -813,6 +877,7 @@ async function performSubscribe(
     if (track.kind !== 'audio' || subscriberPc !== pc) return;
     const key = track.id;
     if (emittedTracks.has(key)) return;
+    if (emittedTracks.size === 0) markSubscribe(progress, 'track');
     emittedTracks.add(key);
     applySystemAudioPlayoutDelay(receiver);
     emitEvent({
@@ -848,6 +913,7 @@ async function performSubscribe(
     if (!session.sessionId || !session.sessionOwnerToken) {
       throw new Error('Cloudflare Realtime did not return subscriber ownership credentials');
     }
+    markSubscribe(progress, 'session', 'tracks');
 
     const requested: RealtimeTrack[] = [
       {
@@ -876,16 +942,19 @@ async function performSubscribe(
     if (!offer || offer.type !== 'offer') {
       throw new Error('Cloudflare Realtime did not return a subscriber offer');
     }
+    markSubscribe(progress, 'tracks', 'offer');
     // Keep Cloudflare's offer authoritative and advertise stereo in the local
     // answer sent back below.
     await pc.setRemoteDescription(offer);
     ensureSubscriberCurrent(epoch, pc);
+    markSubscribe(progress, 'offer', 'answer');
     emitExistingTracks();
     const rawAnswer = sessionDescriptionFromInit(await pc.createAnswer());
     const answer = { ...rawAnswer, sdp: forceStereoSdp(rawAnswer.sdp) };
     ensureSubscriberCurrent(epoch, pc);
     await pc.setLocalDescription(answer);
     ensureSubscriberCurrent(epoch, pc);
+    markSubscribe(progress, 'answer', 'renegotiate');
     const renegotiate = await callRealtime('renegotiate', {
       sessionId: session.sessionId,
       sessionOwnerToken: session.sessionOwnerToken,
@@ -901,6 +970,13 @@ async function performSubscribe(
     scheduleSubscriberExpiry(descriptor);
     emitEvent({ type: 'subscriber-state', state: 'subscribed', descriptor });
     log.info(`[ProSysAudioSFU] Subscribed to generation ${descriptor.generation}`);
+    markSubscribe(progress, 'subscribed');
+    progress.settled = true;
+    log.info(
+      `[ProSysAudioSFU] Subscription to generation ${descriptor.generation} ready ` +
+        `${Date.now() - progress.noticeAt} ms after the ${progress.origin} ` +
+        `(${progress.marks.join(', ')})`,
+    );
   } catch (error) {
     closeOwnedTracks(localOwned, 'Incomplete subscriber tracks-close failed');
     if (subscriberPc === pc) subscriberPc = null;
@@ -909,19 +985,43 @@ async function performSubscribe(
   }
 }
 
-export function subscribeProSystemAudioSfu(value: unknown): Promise<void> {
-  const descriptor = requireDescriptor(value);
+/**
+ * `timing.noticeAt` is when this listener learned of the share (the service's
+ * reception start for the publication; its retries before the first
+ * subscription keep it). The subscription's stage line counts from there;
+ * without it, from this call, and the line says which.
+ */
+export function subscribeProSystemAudioSfu(
+  value: unknown,
+  timing: { noticeAt?: number } = {},
+): Promise<void> {
+  const descriptor = parseProSystemAudioSfuPublicationDescriptor(value);
+  if (!descriptor) {
+    refuseSubscribe(null, 'invalid', 'Invalid PRO system-audio SFU publication descriptor');
+  }
   if (descriptor.expiresAt <= Date.now()) {
-    throw new TypeError('PRO system-audio SFU publication has expired');
+    refuseSubscribe(
+      descriptor.generation,
+      'expired',
+      'PRO system-audio SFU publication has expired',
+    );
   }
   const nextKey = descriptorKey(descriptor);
   if (subscriberDescriptor) {
     if (descriptor.generation < subscriberDescriptor.generation) {
-      throw new TypeError('Stale PRO system-audio SFU publication generation');
+      refuseSubscribe(
+        descriptor.generation,
+        'stale-generation',
+        'Stale PRO system-audio SFU publication generation',
+      );
     }
     const currentKey = descriptorKey(subscriberDescriptor);
     if (descriptor.generation === subscriberDescriptor.generation && nextKey !== currentKey) {
-      throw new TypeError('Conflicting PRO system-audio SFU publication generation');
+      refuseSubscribe(
+        descriptor.generation,
+        'conflicting-generation',
+        'Conflicting PRO system-audio SFU publication generation',
+      );
     }
     if (nextKey === currentKey && subscriberPc) {
       scheduleSubscriberExpiry(descriptor);
@@ -937,9 +1037,23 @@ export function subscribeProSystemAudioSfu(value: unknown): Promise<void> {
   subscriberKey = nextKey;
   subscriberDescriptor = descriptor;
   emitEvent({ type: 'subscriber-state', state: 'subscribing', descriptor });
-  const promise = performSubscribe(descriptor, epoch, abortController.signal)
+  const now = Date.now();
+  const noticed =
+    typeof timing.noticeAt === 'number' &&
+    Number.isFinite(timing.noticeAt) &&
+    timing.noticeAt <= now;
+  const progress: SubscribeProgress = {
+    noticeAt: noticed ? (timing.noticeAt as number) : now,
+    origin: noticed ? 'share notice' : 'subscribe call',
+    stage: 'config',
+    marks: [],
+    settled: false,
+  };
+  const promise = performSubscribe(descriptor, epoch, abortController.signal, progress)
     .catch((error) => {
+      // Only the attempt that reports `failed`: a stopped or superseded one is silent.
       if (epoch === subscriberEpoch && !(error instanceof ProSystemAudioSfuSupersededError)) {
+        logSubscribeFailure(descriptor, progress, subscribeFailureCause(error));
         emitEvent({
           type: 'subscriber-state',
           state: 'failed',

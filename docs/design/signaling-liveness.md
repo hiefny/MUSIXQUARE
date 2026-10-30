@@ -160,13 +160,17 @@ grant local transfer privileges from an SSID or reuse the previous path's classi
 
 Standard classification also handles Chromium retaining a native host/prflx snapshot after
 the signaled remote host candidate refines the selected connection. It accepts that refinement
-only when one transport explicitly selects a succeeded host/host statistics pair, both endpoint
-ports and protocols match, and any visible addresses, local foundation, and ICE username
-fragments agree. Browser-redacted addresses are unavailable for comparison; missing ports or
-protocols are not accepted. The exact connection, ICE transport, and native pair's
+only when one transport explicitly selects a succeeded host/host statistics pair and both
+endpoint ports and protocols match; addresses, the local foundation and ICE username fragments
+are compared only where both sides expose them. The native prflx address is always redacted, so
+the remote side of the match rests on port, protocol and, when exposed, the username fragment;
+missing ports or protocols are not accepted. The exact connection, ICE transport, and native pair's
 endpoint/generation fields must remain unchanged while statistics are read. An unselected or
 merely nominated host pair cannot establish this proof. Other native remote candidate types
-retain conservative classification; the PRO direct-audio policy is separate.
+retain conservative classification. The refinement check lives in
+`src/network/ice-selected-pair.ts`; the PRO direct-audio rule uses the same check and adds its
+own mDNS candidate ledger and address rule, and waits (never refuses at once) while the pair is
+unrefined.
 
 These bounds improve recoverability; they do not guarantee uninterrupted playback across
 Wi-Fi/cellular handoff or an operating-system suspension. Terminal guest-disconnect UI stops

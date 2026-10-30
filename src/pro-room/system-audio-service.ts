@@ -146,6 +146,15 @@ let hiddenPlaybackRestoreRetry: (() => void) | null = null;
 let interruptedReceiverPlayback: { roomCode: string | null; generation: number } | null = null;
 
 let coordinatorSubscriptionKey: string | null = null;
+/**
+ * When this listener learned of the SFU publication it subscribes to: its
+ * reception start. Diagnostic only: the subscription's stage line counts from
+ * here, retries included, until a subscription of that publication succeeds;
+ * a later re-subscription counts from its own call. Set only beside the SFU
+ * branch's key, cleared with the key (a null value only moves a line's
+ * baseline to the call; no behaviour reads it).
+ */
+let coordinatorShareNoticeAt: number | null = null;
 let coordinatorSubscriptionFlight: { key: string; promise: Promise<void> } | null = null;
 /**
  * The publication whose reception a force-stop or a refused SFU track ended
@@ -570,6 +579,7 @@ function cleanupCoordinatorGraph(): void {
   clearManagedTimer(DIRECT_RECEIVE_DEADLINE_TIMER);
   detachSystemAudioRoute(COORDINATOR_ROUTE);
   coordinatorSubscriptionKey = null;
+  coordinatorShareNoticeAt = null;
   coordinatorSubscriptionFlight = null;
   coordinatorEndedKey = null;
   stopProSystemAudioSfuSubscriber();
@@ -994,6 +1004,7 @@ async function ensureCoordinatorSubscription(
   if (coordinatorSubscriptionKey !== key) {
     cleanupCoordinatorGraph();
     coordinatorSubscriptionKey = key;
+    coordinatorShareNoticeAt = Date.now();
     // This subscription and its backed-off retries own the receive deadline;
     // the slot's receive deadline would fire while a longer retry still waits.
     // The depth keeps a force-stop nested in this start from ending the
@@ -1012,7 +1023,10 @@ async function ensureCoordinatorSubscription(
   if (!flight || flight.key !== key) {
     let promise: Promise<void>;
     try {
-      promise = subscribeProSystemAudioSfu(sfuDescriptor(state));
+      promise = subscribeProSystemAudioSfu(
+        sfuDescriptor(state),
+        coordinatorShareNoticeAt === null ? {} : { noticeAt: coordinatorShareNoticeAt },
+      );
     } catch (error) {
       // A descriptor rejected before the attempt starts (for example one the
       // local clock already sees as expired) reports no `failed` event. Take
@@ -1029,6 +1043,8 @@ async function ensureCoordinatorSubscription(
     if (coordinatorSubscriptionFlight === flight) coordinatorSubscriptionFlight = null;
   }
   if (!coordinatorPublicationMatches(identity)) return;
+  // Subscribed: a later re-subscription counts from its own call.
+  if (coordinatorSubscriptionKey === key) coordinatorShareNoticeAt = null;
   subscriberFailureGeneration = null;
   subscriberRetryAttempt = 0;
 }

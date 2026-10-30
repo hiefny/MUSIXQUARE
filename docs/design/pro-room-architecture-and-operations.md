@@ -499,6 +499,27 @@ without usable mDNS host candidates therefore select SFU. Chromium may redact
 the selected candidate address from statistics; that case passes only when the
 selected remote foundation and port exactly match a strict mDNS candidate that
 `addIceCandidate()` already accepted for the same live route and negotiation.
+An end that meets the other end's connectivity check before it has resolved
+that end's mDNS name (iOS Safari, the ICE-controlled answerer) holds a native
+host-to-prflx snapshot even after the browser refined the same connection to
+the added host candidate. That snapshot is pending, never proof: it passes only
+when the one transport-selected statistics pair is that refined host-to-host
+connection (`src/network/ice-selected-pair.ts`, shared with the Standard room)
+and meets the same foundation-and-port ledger and address rule. The match is
+indirect: the snapshot and ICE transport must stay unchanged across the read,
+ports and protocol must match, and addresses, the ICE username fragment and the
+local foundation are compared only where both sides expose them; the redacted
+prflx address never is. The snapshot's visible addresses must already meet the
+host rule (a public prflx or local address is refused at once), and the pair
+pends while the statistics still list a prflx connection from the same local
+candidate on the snapshot's port. The selected pair must have succeeded; the
+PRO rule also accepts one marked in-progress after a check response (libwebrtc
+marks the selected connection so for one round trip around each consent check,
+which a live reproof can meet). An unrefined prflx never passes and ends at
+the existing proof windows. Each end logs one info pair-check line when its
+proof ends (outcome, rule, candidate types, address kinds, candidate counts
+and when the first remote candidate was added, never an address, port or full
+id).
 If every target passes,
 the canonical descriptor is
 `{ publicationId, transport: "lan-direct", protocolVersion: 2 }`:
@@ -521,7 +542,8 @@ If any initial target fails, the publisher starts the Cloudflare Realtime SFU
 with the already allocated `publicationId`. If a participant arrives after
 direct commit while the room remains within the four-device system-audio limit,
 the publisher must prove another mDNS-local route to that exact target
-incarnation. A timeout, an incompatible or late old client, a non-host or
+incarnation. A timeout, an incompatible or late old client, a non-host
+(other than a host-to-prflx pair the statistics refine as above) or
 non-UDP candidate pair, numeric/global/hidden/malformed or asymmetric address
 evidence, missing or ambiguous ICE statistics, a replaced target incarnation,
 or a live direct-route failure promotes the entire publication to SFU under

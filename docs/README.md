@@ -93,6 +93,72 @@ runbooks. Neither belongs in a general setup document.
 
 ## Maintained evidence and completed records
 
+- [App 9.0.27 train: the iPhone listener's LAN-direct pair judgement and diagnostic lines, and chat keyboard and screen reader focus (2026-10-30)](design/app-9-0-27-train-2026-10-30.md):
+  rebuilt on 2026-10-31 on main `8f171535` (after Phase 5.5 R4 #537, its record #538 and the Phase 6
+  T0a tests #539) and checked locally, not merged or released; the version bump `676a1670` (9.0.27 /
+  v800, App build 800, update dialog, target `app`) is the last runtime commit, and the full unit
+  suite, typecheck, lint, format, every guard and `build:checked` pass on it. The branch
+  `agent/app-9-0-27-rebuild` carries the old train's 20 commits before its bump (the focus
+  increment's eight, the LAN-direct increment's nine, the tests-only assembly commit and two docs
+  commits; three docs conflicts with #537 and #538, both sides kept), then the owner answer's
+  `no-lan-candidate` tests-first commit `af9553b8` and fix `447890cf`, a docs commit, the review's
+  tests-first commit `f97e9349` and defensive fix `4b648904`, the bump and a docs commit naming it
+  and the review; the old bump `e5b8440c` and its docs commit `61e57fc2` were not moved. Thirteen
+  App runtime paths against the live Worker SHAs and main (five LAN-direct, four focus and the
+  bump's four mirrors), none in the other five Workers, no runtime dependency change; the build
+  floor stays 795. The report lists the owner decisions (nothing on screen changes) and the owner's
+  two answers of 2026-10-31 to the SFU fallback question: keep the 1 s wait and add
+  `no-lan-candidate` now (a route whose own end finishes ICE gathering having sent no LAN candidate
+  fails at that event, since the other end can never prove it; in a Chromium harness running the
+  real module the decision moves from about 1.81 s to 0.14-0.16 s when the sharer has none and to
+  about 0.81 s when the listener has none, with no LAN success lost), add a speculative SFU publish
+  with held media in 9.0.28, and allow that a LAN-success share then briefly opens one Cloudflare
+  publisher session with no media. It also lists both increments with their tested SHAs before and
+  after each move and their tests-first parent failures, the review findings and their handling,
+  mixed versions (a 9.0.26 sharer and a 9.0.27 listener can go LAN-direct; a 9.0.26 listener still
+  uses the SFU), the rollback to the checkpoint's 9.0.26 / v799 App `b8dc4281`, the deploy
+  conditions, what users notice (an unrefined host-to-prflx pair at either end, in any browser, now
+  waits for the sharer's pair-proof window of 1 s after the answer instead of being refused at once,
+  so the SFU fallback can come up to about 1 s later for every listener in that attempt; when
+  LAN-direct engages the SFU wait disappears), the 9.0.28 plan, the QA rounds, what was not verified
+  and a blind post-deploy procedure for the owner's Edge sharer and iPhone Safari listener (five
+  shares with `?mxqrLog=info`; the judging criteria read the new pair-check, gathering and SFU
+  subscription lines and are not handed out).
+- [Chat keyboard and screen reader focus: the sheet's Tab cycle, a hiding pinned notice, removed messages (2026-10-30)](design/chat-keyboard-focus-2026-10-30.md):
+  in the App 9.0.27 / v800 train above, not merged or released (owner decision 2026-10-30: nothing
+  on screen changes, keyboard behaviour only). The phone and tablet chat sheet's Tab cycle skips the
+  hidden pinned notice's buttons, and when a pinned notice hides or a focused message is cleared or
+  pruned at the 200-row cap, focus moves to the chat drawer, which draws no ring, instead of
+  dropping to the page; focus on the message log itself stays. App only (four runtime files in
+  `src/ui`); screenshots before and after differ by 0 px. The note also corrects the 9.0.26 chat
+  sheet note: under the repository's jsdom 30.1.2 the Tab cycle's unit rows fail on their parent.
+- [PRO system-audio LAN-direct: the iPhone listener's pair judgement and diagnostic lines (2026-10-30)](design/pro-lan-direct-ios-listener-2026-10-30.md):
+  implemented and checked locally on main `cbbc56d9` (9.0.26 / v799), then moved without conflicts
+  into the App 9.0.27 / v800 train above and with it onto main `8f171535` (README conflicts only);
+  not merged or released, bumped by `676a1670` (target `app`; owner decision 2026-10-30, nothing on
+  screen changes). Its post-deploy reading table now names the `no-lan-candidate` gathering lines
+  the train added on the owner's answer of 2026-10-31. The note's own Status cell keeps its
+  pre-train text; the train report and the release record hold the release state. In the 9.0.26
+  post-deploy check an iPhone Safari listener judged its own LAN pair non-local about 0.5 s into its
+  proof, so every share fell back to the SFU. iOS Safari, the
+  ICE-controlled answerer, meets the sharer's check before resolving its mDNS name, so its native
+  selected pair keeps a peer-reflexive remote while the statistics refine the same connection to the
+  added host candidate; the PRO rule refused any non-host pair at once. Both ends now hold such a
+  host-to-prflx pair pending and prove it only through the one transport-selected statistics pair
+  refined to an added mDNS host candidate (the Standard room's check, moved unchanged into
+  `src/network/ice-selected-pair.ts`); an unrefined prflx never proves and every other non-host pair
+  is still refused at once. New info lines, without addresses, ports or full ids: one pair-check line
+  per end and proof (rule, candidate types, address kinds, candidates sent, refused and added), a
+  failed-reproof line, and the SFU listener's subscription stage times from the share notice. The
+  note lists the cause and what tells the remaining causes apart, the threats kept closed, the
+  tests-first commit `6eb40a04` (52 rows and the new helper file fail on its parent), the checks,
+  mixed versions and a proposed post-deploy reading table. Review round 2 (tests first `10431823`):
+  a refined pair survives a reproof that meets libwebrtc's consent check in flight (in-progress
+  after a response), pends while a prflx connection on the same socket and port is still listed,
+  and is refused when two pairs are selected; the closed line keeps the last current reading; the
+  lines add the received count, the first remote add time and the SFU attempt's connection failure
+  and refusals before start; the note now records the change as diagnostic plus a conditional fix
+  and lists the residual risks it does not fix. Not device-checked.
 - [Phase 5.5 R4: PRO cleanup, PRO room Worker only (2026-10-30)](design/phase5-5-r4-pro-cleanup-2026-10-30.md):
   released on 2026-10-30 19:56 KST in Release 41044220520 (PR #537, squash `683074bc`): the planned
   PRO cleanup before Phase 6 and the last release of Phase 5.5, PRO room Worker only (target
@@ -194,8 +260,10 @@ runbooks. Neither belongs in a general setup document.
   on its parent), the checks on `d4f11e1d`, the 390x844 light and dark screenshots before and after
   (kept outside the repository for the owner; only the X's glyph differs), the owner step for
   `chat.close` translation suggestions after the release, a gap in the sheet's keyboard Tab cycle
-  found on the way and left as it was (now a follow-up item in the release record), and what was not
-  verified.
+  found on the way and left as it was (now a follow-up item in the release record, fixed in the App
+  9.0.27 train), and what was not verified. Its finding says jsdom focuses hidden buttons, so unit
+  tests cannot catch the gap; that is wrong under the repository's jsdom 30.1.2, and the chat
+  keyboard focus note corrects it without changing this note.
 - [Phase 5.5 R3: the App stops reading PRO snapshot schemaVersion 1, 9.0.25 (2026-10-30)](design/phase5-5-r3-v1-receive-stop-2026-10-30.md):
   released on 2026-10-30 07:18 KST in Release 40964572017 (PR #532, squash `b8ae59e7`): the third
   runtime release of Phase 5.5 and its last App one (9.0.25 / v798, App build 798, bump `01f1a19b`; target `app`

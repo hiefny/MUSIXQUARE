@@ -12,6 +12,7 @@ import { bus } from '../core/events.ts';
 import { setManagedTimer } from '../core/timers.ts';
 import { PEER_NAME_PREFIX } from '../core/constants.ts';
 import { escapeHtml, escapeAttr } from './dom.ts';
+import { isAvailableFocusTarget } from './focus-target.ts';
 import { applyUserTextFontFallback } from './user-text-font.ts';
 import { t } from '../i18n/index.ts';
 import type { EventMap } from '../types/index.ts';
@@ -197,10 +198,31 @@ async function updateYouTubeChatTitle(elementId: string, url: string): Promise<v
 
 // ─── DOM Helpers ─────────────────────────────────────────────────
 
+/**
+ * Call when chat content that held focus has just hidden or left the page. It
+ * cannot keep focus, and the browser would move focus to the page, out of the
+ * Chat dialog (the Chat region on desktop). The drawer takes it instead, as
+ * when the phone sheet opens by pointer. It draws no focus ring and does not
+ * scroll, and Tab continues from it.
+ */
+export function keepFocusInChatDrawer(): void {
+  const drawer = document.getElementById('chat-drawer');
+  if (isAvailableFocusTarget(drawer)) drawer.focus({ preventScroll: true });
+}
+
 function pruneOldMessages(container: HTMLElement): void {
-  let overflow = container.querySelectorAll('.chat-row').length - MAX_CHAT_MESSAGES;
+  const overflow = container.querySelectorAll('.chat-row').length - MAX_CHAT_MESSAGES;
   if (overflow <= 0) return;
 
+  const focused = document.activeElement;
+  const heldFocus = focused !== null && container.contains(focused);
+  removeOldestChatRows(container, overflow);
+  // Focus moves only when a pruned row took it; a kept message keeps it.
+  if (heldFocus && !focused.isConnected) keepFocusInChatDrawer();
+}
+
+function removeOldestChatRows(container: HTMLElement, count: number): void {
+  let overflow = count;
   for (const group of container.querySelectorAll<HTMLElement>('.chat-group')) {
     for (const row of group.querySelectorAll<HTMLElement>(':scope > .chat-row')) {
       if (overflow <= 0) return;
@@ -698,10 +720,14 @@ export function clearRoomPinnedNotice(): void {
 export function clearPinnedNotice(serviceId?: string): void {
   if (serviceId !== undefined && pinnedNotice?.serviceId !== serviceId) return;
   pinnedNotice = null;
+  // A reading dialog closed here returns focus to the open button first.
   cancelNoticeDialog();
   const banner = document.getElementById('chat-pinned-notice');
   if (banner) {
+    const heldFocus = banner.contains(document.activeElement);
     banner.hidden = true;
     banner.classList.remove('notice-attention-hint');
+    // A hidden button cannot keep focus.
+    if (heldFocus) keepFocusInChatDrawer();
   }
 }

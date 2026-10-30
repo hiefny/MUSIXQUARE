@@ -2,7 +2,8 @@
  * @vitest-environment jsdom
  */
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { fetchWithCapability } from '../../core/capability.ts';
+import { fetchWithCapability, isCapabilityChallengeCancelled } from '../../core/capability.ts';
+import { log } from '../../core/log.ts';
 import * as proSfu from '../pro-system-audio-sfu.ts';
 
 vi.mock('../../core/log.ts', () => ({
@@ -539,4 +540,185 @@ describe('PRO system-audio SFU subscriber', () => {
     expect(peerConnections[0].close).not.toHaveBeenCalled();
     unsubscribe();
   });
+});
+
+// The listener's diagnostic for the 9.0.26 field case (about 5.4 s from the
+// share notice to the SFU track): one info line per subscription, with the
+// stage times read at the steps the subscription already awaits.
+describe('PRO system-audio SFU subscription stage line', () => {
+  const STAGES =
+    /^\[ProSysAudioSFU\] Subscription to generation 3 ready 15\d\d ms after the share notice \(start 15\d\d, config 15\d\d, session 15\d\d, tracks 15\d\d, offer 15\d\d, track 15\d\d, answer 15\d\d, subscribed 15\d\d\)$/;
+
+  function subscriptionLines(): string[] {
+    return vi
+      .mocked(log.info)
+      .mock.calls.map(([line]) => String(line))
+      .filter((line) => line.startsWith('[ProSysAudioSFU] Subscription'));
+  }
+
+  beforeEach(() => {
+    vi.mocked(log.info).mockClear();
+  });
+
+  it('logs one ready line after the subscribed line, counting each stage from the share notice', async () => {
+    await proSfu.subscribeProSystemAudioSfu(publication(3), { noticeAt: Date.now() - 1_500 });
+    const lines = vi.mocked(log.info).mock.calls.map(([line]) => String(line));
+    expect(lines.slice(-2)).toEqual([
+      '[ProSysAudioSFU] Subscribed to generation 3',
+      expect.stringMatching(STAGES),
+    ]);
+    expect(subscriptionLines()).toHaveLength(1);
+    for (const secret of [
+      'published-session',
+      'published-stereo',
+      'owned-session',
+      'owner-token',
+    ]) {
+      expect(subscriptionLines()[0]).not.toContain(secret);
+    }
+  });
+
+  it('counts from the call itself without a share notice, or with one from the future, and says so', async () => {
+    await proSfu.subscribeProSystemAudioSfu(publication(3), { noticeAt: Date.now() + 60_000 });
+    proSfu.stopProSystemAudioSfuSubscriber();
+    await proSfu.subscribeProSystemAudioSfu(publication(3));
+    expect(subscriptionLines()).toEqual([
+      expect.stringMatching(
+        /^\[ProSysAudioSFU\] Subscription to generation 3 ready \d{1,2} ms after the subscribe call \(start \d{1,2}, /,
+      ),
+      expect.stringMatching(
+        /^\[ProSysAudioSFU\] Subscription to generation 3 ready \d{1,2} ms after the subscribe call \(start \d{1,2}, /,
+      ),
+    ]);
+  });
+
+  it('logs the failed line when the connection fails while the attempt is still in progress', async () => {
+    let releaseRenegotiate!: () => void;
+    const renegotiateHeld = new Promise<void>((resolve) => {
+      releaseRenegotiate = resolve;
+    });
+    let renegotiateStarted = false;
+    const succeed = fetchMock.getMockImplementation()!;
+    fetchMock.mockImplementation(async (url, capability, init) => {
+      const request = JSON.parse(String(init?.body || '{}')) as RealtimeRequest;
+      if (request.action === 'renegotiate') {
+        renegotiateStarted = true;
+        await renegotiateHeld;
+      }
+      return succeed(url, capability, init);
+    });
+    const attempt = proSfu.subscribeProSystemAudioSfu(publication(7), {
+      noticeAt: Date.now() - 1_500,
+    });
+    await vi.waitFor(() => expect(renegotiateStarted).toBe(true));
+    peerConnections.at(-1)!.emitConnectionState('failed');
+    releaseRenegotiate();
+    await expect(attempt).rejects.toThrow();
+    expect(subscriptionLines()).toEqual([
+      expect.stringMatching(
+        /^\[ProSysAudioSFU\] Subscription to generation 7 failed at renegotiate 15\d\d ms after the share notice \(connection-failed; start 15\d\d, config 15\d\d, session 15\d\d, tracks 15\d\d, offer 15\d\d, track 15\d\d, answer 15\d\d\)$/,
+      ),
+    ]);
+  });
+
+  it('logs nothing more when a subscribed connection fails later', async () => {
+    await proSfu.subscribeProSystemAudioSfu(publication(8), { noticeAt: Date.now() - 1_500 });
+    peerConnections.at(-1)!.emitConnectionState('failed');
+    expect(subscriptionLines()).toEqual([
+      expect.stringMatching(/^\[ProSysAudioSFU\] Subscription to generation 8 ready /),
+    ]);
+  });
+
+  it('logs a short line for a subscription refused before it starts', async () => {
+    expect(() => proSfu.subscribeProSystemAudioSfu({ version: 2 })).toThrow(/Invalid/);
+    expect(() =>
+      proSfu.subscribeProSystemAudioSfu({ ...publication(9), expiresAt: Date.now() - 1 }),
+    ).toThrow(/expired/);
+    await proSfu.subscribeProSystemAudioSfu(publication(10));
+    expect(() => proSfu.subscribeProSystemAudioSfu(publication(9))).toThrow(/Stale/);
+    expect(() =>
+      proSfu.subscribeProSystemAudioSfu({ ...publication(10), sessionId: 'conflicting-session' }),
+    ).toThrow(/Conflicting/);
+    expect(subscriptionLines()).toEqual([
+      '[ProSysAudioSFU] Subscription failed before start (invalid)',
+      '[ProSysAudioSFU] Subscription to generation 9 failed before start (expired)',
+      expect.stringMatching(/^\[ProSysAudioSFU\] Subscription to generation 10 ready /),
+      '[ProSysAudioSFU] Subscription to generation 9 failed before start (stale-generation)',
+      '[ProSysAudioSFU] Subscription to generation 10 failed before start (conflicting-generation)',
+    ]);
+    for (const line of subscriptionLines()) {
+      for (const secret of ['published-session', 'conflicting-session', 'owned-session']) {
+        expect(line).not.toContain(secret);
+      }
+    }
+  });
+
+  it('logs one failed line naming its stage and the error name, never its message', async () => {
+    fetchMock.mockImplementation(async (url, _capability, init) => {
+      if (String(url).includes('get-turn-config')) return response({}, false, 404);
+      const request = JSON.parse(String(init?.body || '{}')) as RealtimeRequest;
+      realtimeRequests.push(request);
+      if (request.action === 'new-session') {
+        return response({ sessionId: 'owned-session-9', sessionOwnerToken: 'owner-token-9' });
+      }
+      return response({ errorCode: 'secret-code', errorDescription: 'owned-session-9 is gone' });
+    });
+    await expect(
+      proSfu.subscribeProSystemAudioSfu(publication(4), { noticeAt: Date.now() - 1_500 }),
+    ).rejects.toThrow();
+    expect(subscriptionLines()).toEqual([
+      expect.stringMatching(
+        /^\[ProSysAudioSFU\] Subscription to generation 4 failed at tracks 15\d\d ms after the share notice \(Error; start 15\d\d, config 15\d\d, session 15\d\d\)$/,
+      ),
+    ]);
+    for (const secret of ['owned-session', 'owner-token', 'secret-code', 'gone']) {
+      expect(subscriptionLines()[0]).not.toContain(secret);
+    }
+  });
+
+  it('names a timeout and a cancelled capability challenge by their closed names', async () => {
+    const timeout = new Error('PRO_SFU_REALTIME_REQUEST_TIMEOUT');
+    timeout.name = 'TimeoutError';
+    fetchMock.mockImplementation(async (url) => {
+      if (String(url).includes('get-turn-config')) return response({}, false, 404);
+      throw timeout;
+    });
+    await expect(proSfu.subscribeProSystemAudioSfu(publication(5))).rejects.toThrow();
+    const cancelled = new Error('capability challenge cancelled');
+    vi.mocked(isCapabilityChallengeCancelled).mockImplementation((error) => error === cancelled);
+    fetchMock.mockImplementation(async () => {
+      throw cancelled;
+    });
+    try {
+      await expect(proSfu.subscribeProSystemAudioSfu(publication(6))).rejects.toBe(cancelled);
+    } finally {
+      vi.mocked(isCapabilityChallengeCancelled).mockImplementation(() => false);
+    }
+    expect(subscriptionLines()).toEqual([
+      expect.stringMatching(
+        / generation 5 failed at session \d+ ms .* \(TimeoutError; start \d+, config \d+\)$/,
+      ),
+      expect.stringMatching(
+        / generation 6 failed at config \d+ ms .* \(capability-cancelled; start \d+\)$/,
+      ),
+    ]);
+  });
+
+  it.each(['superseded', 'stopped'] as const)(
+    'logs nothing for an attempt that is %s before it completes',
+    async (end) => {
+      const first = proSfu.subscribeProSystemAudioSfu(publication(5));
+      if (end === 'superseded') {
+        await proSfu.subscribeProSystemAudioSfu(publication(6));
+      } else {
+        proSfu.stopProSystemAudioSfuSubscriber();
+      }
+      await expect(first).rejects.toThrow();
+      expect(subscriptionLines()).toEqual(
+        end === 'superseded'
+          ? [expect.stringMatching(/^\[ProSysAudioSFU\] Subscription to generation 6 ready /)]
+          : [],
+      );
+    },
+  );
 });

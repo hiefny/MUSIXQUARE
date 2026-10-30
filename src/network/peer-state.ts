@@ -21,6 +21,7 @@ import type {
 } from '../types/index.ts';
 import { getDirectFilePeers, shouldConnectionUseDirect } from '../share/file-delivery-policy.ts';
 import { refuseHostCommand } from './host-presence.ts';
+import { findRefinedHostPair, getIceEndpoint, nativePairIdentity } from './ice-selected-pair.ts';
 
 // ─── Module-scoped state ────────────────────────────────────────────
 let peer: PeerInstance | null = null;
@@ -50,12 +51,6 @@ interface IceCandidatePairInfo {
 interface IceTransportSelectedPair extends IceCandidatePairInfo {
   nativePair: RTCIceCandidatePair;
   iceTransport: RTCIceTransport;
-}
-
-interface IceEndpoint {
-  port: number;
-  protocol: string;
-  address?: string;
 }
 
 function readStatsString(report: unknown, key: string): string | undefined {
@@ -141,114 +136,6 @@ function getIceTransportSelectedPair(pc: RTCPeerConnection): IceTransportSelecte
   }
 }
 
-function getIceEndpoint(candidate: unknown): IceEndpoint | null {
-  const port = (candidate as Record<string, unknown> | undefined)?.port;
-  const protocol = readStatsString(candidate, 'protocol');
-  if (
-    typeof port !== 'number' ||
-    !Number.isInteger(port) ||
-    port <= 0 ||
-    port > 65535 ||
-    (protocol !== 'udp' && protocol !== 'tcp')
-  )
-    return null;
-  const address = readStatsString(candidate, 'address');
-  return { port, protocol, ...(address ? { address } : {}) };
-}
-
-function visibleIceAddress(address: string | undefined): string | undefined {
-  // Browsers redact prflx addresses and may omit host addresses from stats.
-  if (
-    !address ||
-    ['redacted-ip.invalid', 'redacted-literal.invalid', '0.0.0.0', '::'].includes(address)
-  ) {
-    return undefined;
-  }
-  return address.toLowerCase();
-}
-
-function sameIceEndpoint(native: IceEndpoint, statsCandidate: unknown): boolean {
-  const stats = getIceEndpoint(statsCandidate);
-  if (!stats || native.port !== stats.port || native.protocol !== stats.protocol) return false;
-  const nativeAddress = visibleIceAddress(native.address);
-  const statsAddress = visibleIceAddress(stats.address);
-  return !nativeAddress || !statsAddress || nativeAddress === statsAddress;
-}
-
-function nativePairIdentity(pair: RTCIceCandidatePair): string {
-  return JSON.stringify(
-    [pair.local, pair.remote].map((candidate) => [
-      candidate.type,
-      candidate.address,
-      candidate.port,
-      candidate.protocol,
-      candidate.foundation,
-      candidate.usernameFragment,
-    ]),
-  );
-}
-
-/**
- * Chromium can retain the original prflx native snapshot after a signaled host
- * candidate refines that same connection. Only the uniquely transport-selected
- * succeeded host/host stats graph can supply the newer proof. Nominated or
- * merely succeeded pairs cannot override the native route.
- */
-function getRefinedHostPair(
-  stats: RTCStatsReport,
-  native: IceTransportSelectedPair,
-  localEndpoint: IceEndpoint,
-  remoteEndpoint: IceEndpoint,
-): IceCandidatePairInfo | null {
-  const selectedTransports = [...stats.values()].filter(
-    (report) => report.type === 'transport' && readStatsString(report, 'selectedCandidatePairId'),
-  );
-  if (selectedTransports.length !== 1) return null;
-  const transport = selectedTransports[0]!;
-  const pairId = readStatsString(transport, 'selectedCandidatePairId')!;
-  const pair = stats.get(pairId);
-  if (
-    pair?.type !== 'candidate-pair' ||
-    readStatsString(pair, 'state') !== 'succeeded' ||
-    readStatsString(pair, 'transportId') !== transport.id
-  )
-    return null;
-  const localId = readStatsString(pair, 'localCandidateId');
-  const remoteId = readStatsString(pair, 'remoteCandidateId');
-  const local = localId ? stats.get(localId) : undefined;
-  const remote = remoteId ? stats.get(remoteId) : undefined;
-  if (
-    local?.type !== 'local-candidate' ||
-    remote?.type !== 'remote-candidate' ||
-    readStatsString(local, 'candidateType') !== 'host' ||
-    readStatsString(remote, 'candidateType') !== 'host' ||
-    !sameIceEndpoint(localEndpoint, local) ||
-    !sameIceEndpoint(remoteEndpoint, remote)
-  )
-    return null;
-  // Where exposed, preserve the local candidate and ICE-generation identities.
-  for (const [nativeCandidate, statsCandidate] of [
-    [native.nativePair.local, local],
-    [native.nativePair.remote, remote],
-  ] as const) {
-    const statsUfrag = readStatsString(statsCandidate, 'usernameFragment');
-    if (
-      nativeCandidate.usernameFragment &&
-      statsUfrag &&
-      nativeCandidate.usernameFragment !== statsUfrag
-    )
-      return null;
-  }
-  const localFoundation = readStatsString(local, 'foundation');
-  if (
-    native.nativePair.local.foundation &&
-    localFoundation &&
-    native.nativePair.local.foundation !== localFoundation
-  )
-    return null;
-  return { id: pairId, localType: 'host', remoteType: 'host', selected: true, nominated: true };
-}
-
 function getActiveCandidatePair(pairs: IceCandidatePairInfo[]): IceCandidatePairInfo | null {
   return pairs.find((pair) => pair.selected) || pairs.find((pair) => pair.nominated) || null;
 }
@@ -288,9 +175,13 @@ export async function detectConnectionType(conn: DataConnection): Promise<'local
       let activePair = selectedPair || getActiveCandidatePair(succeededPairs);
 
       if (selectedPair?.localType === 'host' && selectedPair.remoteType === 'prflx') {
-        const localEndpoint = getIceEndpoint(selectedPair.nativePair.local);
-        const remoteEndpoint = getIceEndpoint(selectedPair.nativePair.remote);
-        if (localEndpoint && remoteEndpoint) {
+        // Chromium and WebKit can keep the original prflx native snapshot after
+        // a signaled host candidate refines that same connection
+        // (ice-selected-pair.ts); only the transport-selected stats graph proves it.
+        if (
+          getIceEndpoint(selectedPair.nativePair.local) &&
+          getIceEndpoint(selectedPair.nativePair.remote)
+        ) {
           const identity = nativePairIdentity(selectedPair.nativePair);
           const stats = await pc.getStats();
           const current = getIceTransportSelectedPair(pc);
@@ -301,8 +192,16 @@ export async function detectConnectionType(conn: DataConnection): Promise<'local
             nativePairIdentity(current.nativePair) !== identity
           )
             return 'remote';
-          activePair =
-            getRefinedHostPair(stats, selectedPair, localEndpoint, remoteEndpoint) || selectedPair;
+          const refined = findRefinedHostPair(stats, selectedPair.nativePair);
+          if (refined) {
+            activePair = {
+              id: refined.pairId,
+              localType: 'host',
+              remoteType: 'host',
+              selected: true,
+              nominated: true,
+            };
+          }
         }
       }
 

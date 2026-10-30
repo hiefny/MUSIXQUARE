@@ -41,6 +41,7 @@ import {
   showPinnedNotice,
   formatChatDisplayName,
   isContainerAtBottom,
+  keepFocusInChatDrawer,
 } from './chat-render.ts';
 import { seekTo } from '../player/transport.ts';
 import { showToast } from './toast.ts';
@@ -52,6 +53,7 @@ import {
   normalizeEmptyContentEditable,
   onWindowBack,
 } from './dom.ts';
+import { isAvailableFocusTarget } from './focus-target.ts';
 import { applyUserTextFontFallback } from './user-text-font.ts';
 import {
   canCollapseChatDrawerFullToHalf,
@@ -371,17 +373,13 @@ function syncChatDrawerModalAccessibility(
 }
 
 function getChatDrawerFocusableElements(drawer: HTMLElement): HTMLElement[] {
+  // The pinned notice stays in the sheet while hidden. Its buttons cannot take
+  // focus then, and keeping them in the cycle left Tab on the handle.
   return Array.from(
     drawer.querySelectorAll<HTMLElement>(
       'button, input, textarea, select, a[href], [contenteditable="true"], [tabindex]',
     ),
-  ).filter(
-    (element) =>
-      element.tabIndex >= 0 &&
-      !element.hasAttribute('disabled') &&
-      !element.hidden &&
-      element.getAttribute('aria-hidden') !== 'true',
-  );
+  ).filter((element) => element.tabIndex >= 0 && isAvailableFocusTarget(element));
 }
 
 function handleChatDrawerKeyboard(event: KeyboardEvent): void {
@@ -1933,8 +1931,13 @@ export function initChat(): void {
   _busScope.on('chat:clear-all', () => {
     const container = getUiElement('chat-messages');
     if (container) {
+      // A cleared message, or a control in one, may hold focus. The log itself
+      // (focused when its scroll-down button hides) is not removed and keeps it.
+      const focused = document.activeElement;
+      const heldFocus = focused !== container && container.contains(focused);
       container.replaceChildren();
       addSystemChatMessage(t('chat.cmd_clear'));
+      if (heldFocus) keepFocusInChatDrawer();
     }
     resetUnread();
     clearLatestPinnedNotice();

@@ -29,6 +29,7 @@ import {
   syncOverlayState,
   trackClosingCssTransition,
 } from './dom.ts';
+import { isAvailableFocusTarget } from './focus-target.ts';
 import { t } from '../i18n/index.ts';
 import { showToast } from './toast.ts';
 
@@ -137,19 +138,6 @@ function commitEditor(editor: HTMLElement): boolean {
   renderEditorValue(editor, bounded);
   if (changed) bus.emit('sync:set-manual-offset', bounded);
   return true;
-}
-
-function isAvailableFocusTarget(element: HTMLElement | null): element is HTMLElement {
-  if (
-    !element?.isConnected ||
-    element.matches(':disabled, [aria-disabled="true"]') ||
-    element.closest('[hidden], [aria-hidden="true"], [inert]')
-  )
-    return false;
-  const style = getComputedStyle(element);
-  return (
-    style.display !== 'none' && style.visibility !== 'hidden' && style.visibility !== 'collapse'
-  );
 }
 
 function close(cancelPending = true): void {

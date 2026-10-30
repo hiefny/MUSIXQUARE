@@ -26,6 +26,9 @@ export default defineConfig({
       // The PRO publication's teardown entry points (RO-20), pinned in Phase 5
       // C4-12 before the service names its three teardown operations.
       'src/pro-room/__tests__/system-audio-publication-teardown.test.ts',
+      // The PRO LAN-direct route and the shared selected-pair helper, enrolled
+      // in 9.0.27 when the route gained its pair-check and early-fallback rules.
+      'src/network/__tests__/{pro-system-audio-direct,ice-selected-pair}.test.ts',
       'src/audio/__tests__/{context-health,context-recovery,foreground-output-health,output-health,system-capture,system-capture-stop}.test.ts',
       'src/pro-room/__tests__/{api,heartbeat-single-flight,media-transfer,playlist-state-manager,session-controller}.test.ts',
       'src/pro-room/__tests__/{playback-duration-reporting,upload-duration}.test.ts',

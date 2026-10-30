@@ -200,6 +200,10 @@ function proMediaHooks(overrides: Partial<ProRoomMediaHooks> = {}): ProRoomMedia
 describe('YouTube Player', () => {
   describe('getYouTubePlayer()', () => {
     it('returns null initially', async () => {
+      // A fresh module holds no player. Rows that ran earlier in a shuffled
+      // order may have installed one, so start from the module's reset state.
+      const { resetYouTubeModuleState } = await import('../_state.ts');
+      resetYouTubeModuleState();
       const { getYouTubePlayer } = await import('../player.ts');
       expect(getYouTubePlayer()).toBeNull();
     });

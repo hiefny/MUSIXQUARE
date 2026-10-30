@@ -451,6 +451,11 @@ describe('PRO late YouTube cohort join (pinned 2026-10-30)', () => {
   // (d) Scenario: this device's preparation started late (for example its
   // PREPARE frame arrived late or waited for playlist hydration) and ends
   // after the Worker committed at the barrier, but before executeAt.
+  // This row pins only the commit. The start its title names holds where the
+  // fixed output lead is 0; on Android the same commit makes the arm seek
+  // 50 ms in and play at once, 200 ms early (pro-manual-zero-start.test.ts,
+  // '(d) on Android seeks the missing 50 ms and plays at once for a zero-start
+  // committed 200 ms before executeAt').
   it('(d) starts a device ready after the deadline COMMIT but before executeAt on time from 0:00', async () => {
     const fixture = createFixture();
     const transition = deferred<ProPlaybackPrepareResult>();

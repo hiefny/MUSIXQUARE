@@ -8,6 +8,12 @@
  * fails, for example) therefore stays tied to that module. The RO-03 anchor
  * tests (docs/design/resource-ownership-registry.md) name the same rows as
  * this copy's parity tests.
+ *
+ * Row titles and comments quote today's values (the 3 s lead, the 40 ms
+ * tolerance and its 41 ms edge, 1.8 s) while the bodies read them from here,
+ * so a change to a value renames those titles and updates those comments in
+ * the same change, together with every citation of a renamed title, here and
+ * in the RO-03 anchor tests.
  */
 
 /**

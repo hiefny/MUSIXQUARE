@@ -9,7 +9,11 @@
  * 3000 and 700 and are not tied to the home. The copy keeps the home's names,
  * and the RO-03 timing-home anchor test,
  * src/pro-room/__tests__/pro-room-playback-timing.test.ts, pins it to the home
- * name for name and value for value.
+ * name for name and value for value. Titles and comments in the suites that
+ * read it quote today's values and numbers derived from them (the commit plus
+ * 700 ms, a late join's 2.3 s room position, a commit 200 ms before
+ * executeAt), so a change to a value updates them in the same change,
+ * together with every citation of a renamed title.
  */
 
 /** The rendezvous barrier: how long after its PREPARE a transition commits anyway. */

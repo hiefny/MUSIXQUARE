@@ -622,6 +622,10 @@ describe('PRO late YouTube cohort join on the device (pinned 2026-10-30)', () =>
   });
 
   describe('on Android, where the App adds a fixed 250 ms output lead', () => {
+    // The titles and comments in this block quote today's floor (250 ms, and
+    // numbers derived from it such as 0.25 s and 32.55 s) while the bodies
+    // read ANDROID_YOUTUBE_PLAY_LATENCY_FLOOR_MS, so a change to the floor
+    // renames those titles and updates those comments with it.
     const outputLeadMs = ANDROID_YOUTUBE_PLAY_LATENCY_FLOOR_MS;
 
     beforeEach(() => {

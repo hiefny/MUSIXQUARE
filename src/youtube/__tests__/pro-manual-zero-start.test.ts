@@ -1451,6 +1451,10 @@ describe('PRO late cohort join (pinned 2026-10-30)', () => {
     // These rows switch the App's own platform detection (core/platform.ts
     // IS_ANDROID, read by player.ts and by the iframe arm on every call), so
     // the 250 ms comes from the real output-latency path, not from the test.
+    // The titles and comments in this block quote today's floor (250 ms, and
+    // numbers derived from it such as 0.25 s and the missing 50 ms) while the
+    // bodies read ANDROID_YOUTUBE_PLAY_LATENCY_FLOOR_MS, so a change to the
+    // floor renames those titles and updates those comments with it.
     const outputLeadMs = ANDROID_YOUTUBE_PLAY_LATENCY_FLOOR_MS;
 
     beforeEach(() => {

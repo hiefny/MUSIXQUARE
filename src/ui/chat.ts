@@ -52,6 +52,7 @@ import {
   normalizeEmptyContentEditable,
   onWindowBack,
 } from './dom.ts';
+import { isAvailableFocusTarget } from './focus-target.ts';
 import { applyUserTextFontFallback } from './user-text-font.ts';
 import {
   canCollapseChatDrawerFullToHalf,
@@ -371,17 +372,13 @@ function syncChatDrawerModalAccessibility(
 }
 
 function getChatDrawerFocusableElements(drawer: HTMLElement): HTMLElement[] {
+  // The pinned notice stays in the sheet while hidden. Its buttons cannot take
+  // focus then, and keeping them in the cycle left Tab on the handle.
   return Array.from(
     drawer.querySelectorAll<HTMLElement>(
       'button, input, textarea, select, a[href], [contenteditable="true"], [tabindex]',
     ),
-  ).filter(
-    (element) =>
-      element.tabIndex >= 0 &&
-      !element.hasAttribute('disabled') &&
-      !element.hidden &&
-      element.getAttribute('aria-hidden') !== 'true',
-  );
+  ).filter((element) => element.tabIndex >= 0 && isAvailableFocusTarget(element));
 }
 
 function handleChatDrawerKeyboard(event: KeyboardEvent): void {

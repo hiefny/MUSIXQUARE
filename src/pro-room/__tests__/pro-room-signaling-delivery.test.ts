@@ -800,7 +800,7 @@ describe('PRO signaling delivery lanes: durable record shapes (rollback contract
     expect(outbox(test)).toEqual([]);
   });
 
-  it('stores a zero-start transition as the frozen v2 record and still commits a pre-v2 one after a cold restart', async () => {
+  it('stores a zero-start transition as the frozen v2 record and still commits a pre-v2 one after a cold restart as a scheduled control', async () => {
     const { test } = await playingRoom();
     const transition = await test.select(SECOND);
     const stored = storedEnvelope(test);
@@ -821,9 +821,11 @@ describe('PRO signaling delivery lanes: durable record shapes (rollback contract
       ),
     );
 
-    // Old to new: a pre-v2 record survives a cold restart, and its 2999 ms
-    // deadline alone makes the COMMIT a zero-start one, which the COMMIT
-    // names, with the one 700 ms lead.
+    // Old to new: a pre-v2 zero-start record (no timingMode, a 2999 ms
+    // deadline) still survives a cold restart and still commits, with the one
+    // 700 ms lead. The Worker no longer reads the deadline as a start kind: a
+    // stored transition that names no kind is a scheduled control, which the
+    // COMMIT names. Only that one start goes without the learned startup lead.
     const literal = zeroStartTransitionV1({
       transitionId: transition.transitionId,
       coordinatorEpoch: 1,
@@ -836,11 +838,25 @@ describe('PRO signaling delivery lanes: durable record shapes (rollback contract
     test.storage.data.set('pro-room:v2:core', stored);
     test.signaling.deliveries.length = 0;
     test.restart();
+    // Before the deadline, the PREPARE a signaling ticket carries for the
+    // reloaded record names the same kind as its COMMIT below: the ticket,
+    // the command answer and the COMMIT read one kind from the stored record.
+    const ticket = await test.request('/signaling-tickets', { method: 'POST' }, test.ownerCookie);
+    expect(ticket.status, await ticket.clone().text()).toBe(200);
+    expect(((await ticket.json()) as Record<string, any>).pendingPlaybackTransition).toEqual({
+      type: 'pro-playback-prepare',
+      transitionId: transition.transitionId,
+      serverTimeMs: NOW,
+      deadlineAtMs: NOW + 2_999,
+      basePlaybackRevision: transition.basePlaybackRevision,
+      target: literal.target,
+      timingMode: 'scheduled-control',
+    });
     await test.alarmAt(NOW + 3_000);
     expect(trace(test.signaling.deliveries)).toEqual(['3000 playback-commit e1 200']);
     expect(test.signaling.deliveries[0]).toMatchObject({
       transitionId: transition.transitionId,
-      timingMode: 'zero-start',
+      timingMode: 'scheduled-control',
     });
     expect(test.storedCore().pendingPlaybackTransition).toBeNull();
     expect(test.storedCore().playback).toEqual({

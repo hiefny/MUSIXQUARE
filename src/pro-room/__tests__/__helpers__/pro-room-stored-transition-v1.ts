@@ -8,13 +8,16 @@
  *
  * These records have no `timingMode`: a zero-start transition is told from a
  * scheduled-control one only by its deadline, 2999 ms after creation instead
- * of 3000 ms (the encoding of 3454421b, 2026-07-20; the writer and the loader
- * normalizeStoredPlaybackTransition have kept it since). A wake transition is
- * scheduled-control and adds `resumeFromSleep: true`.
+ * of 3000 ms (the encoding of 3454421b, 2026-07-20, which the writer kept
+ * until PRO snapshot schemaVersion 2). A wake transition is scheduled-control
+ * and adds `resumeFromSleep: true`.
  *
  * Both directions of a rollback across the snapshot v2 steps rest on them:
  * - old to new: a Worker that also reads `timingMode` must still load these
- *   records and commit a 2999 ms one with the zero-start lead;
+ *   records and commit them with the 700 ms lead. The PRO Worker that first
+ *   named the kind read a 2999 ms one as a zero-start; later PRO Workers read
+ *   any record without `timingMode` as a scheduled control and still commit
+ *   it;
  * - new to old: until a Worker writes `timingMode`, what it stores must equal
  *   these records byte for byte, because the older loaders keep exactly this
  *   key set (`hasExactKeys` with the one optional key `resumeFromSleep`) and
@@ -25,10 +28,10 @@
  */
 
 /** The zero-start mark of a pre-v2 stored transition: its deadline offset. */
-export const ZERO_START_DEADLINE_MS_V1 = 2_999;
+const ZERO_START_DEADLINE_MS_V1 = 2_999;
 
 /** The deadline offset of every other pre-v2 stored transition. */
-export const TRANSITION_DEADLINE_MS_V1 = 3_000;
+const TRANSITION_DEADLINE_MS_V1 = 3_000;
 
 interface StoredTransitionFields {
   transitionId: string;

@@ -8,23 +8,18 @@ import {
 import type { MusixquareProRoom } from '../../../cloudflare/pro-room-worker.ts';
 import type { ProRoomPlaybackCommitEvent, ProRoomPlaybackPrepareEvent } from '../api.ts';
 import type { ProPlaybackTimingMode } from '../playback-authority-hooks.ts';
-import {
-  TRANSITION_DEADLINE_MS_V1,
-  ZERO_START_DEADLINE_MS_V1,
-} from './__helpers__/pro-room-stored-transition-v1.ts';
 
 /**
  * RO-03: the timing home of a PRO playback transition that the PRO Worker and
  * the App share (cloudflare/pro-room-playback-timing.ts): the rendezvous
  * barrier of a PREPARE, the lead of a COMMIT and the start-kind union.
  *
- * Every PRO Worker before PRO snapshot schemaVersion 2 marks a zero-start
+ * Every PRO Worker before PRO snapshot schemaVersion 2 marked a zero-start
  * transition one millisecond below each value, a 2999 ms deadline and a 699 ms
- * COMMIT lead. The App no longer reads the 699 (it reads only the named start
- * kind); the PRO Worker still reads the 2999 deadline of a transition an
- * earlier Worker stored, until a later PRO release drops it. That deadline
- * stays in the Worker, which reads it; the home holds only values that
- * outlive it.
+ * COMMIT lead. Neither side reads that encoding any more: the App reads only
+ * the start kind a COMMIT or PREPARE names, and the PRO Worker reads a stored
+ * transition that names no kind as a scheduled control. The encoding was never
+ * in the home, which holds only values that outlive it.
  *
  * The App's 2.3 s barriered YouTube prepare budget must fit inside the
  * barrier. That ordering test waits for Phase 0d C2-1, which moves the budget
@@ -42,13 +37,6 @@ describe('PRO playback transition timing (RO-03)', () => {
       'PRO_ROOM_PLAYBACK_COMMIT_LEAD_MS',
       'PRO_ROOM_PLAYBACK_TRANSITION_DEADLINE_MS',
     ]);
-  });
-
-  it('is what the stored zero-start deadline before schemaVersion 2 was built on', () => {
-    // The Worker derives that deadline from the barrier and reads it from
-    // stored transitions: the barrier may not change while it lives.
-    expect(TRANSITION_DEADLINE_MS_V1).toBe(PRO_ROOM_PLAYBACK_TRANSITION_DEADLINE_MS);
-    expect(ZERO_START_DEADLINE_MS_V1).toBe(PRO_ROOM_PLAYBACK_TRANSITION_DEADLINE_MS - 1);
   });
 
   it('gives the Worker and the App one start-kind union', () => {

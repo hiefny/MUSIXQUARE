@@ -93,6 +93,24 @@ runbooks. Neither belongs in a general setup document.
 
 ## Maintained evidence and completed records
 
+- [Phase 5.5 R4: PRO cleanup, PRO room Worker only (2026-10-30)](design/phase5-5-r4-pro-cleanup-2026-10-30.md):
+  draft, not merged or released; the planned PRO cleanup before Phase 6 (target `pro-room` with 1 PRO
+  room runtime path and none in the other five Workers; the App stays 9.0.26 / v799, so no SemVer,
+  service worker cache, update dialog or build floor change), on main `d0248df2` (the 9.0.26
+  record, #535), to ship before 9.0.27 (which waits for an owner answer) and while the live PRO Worker is the
+  one that first sends PRO snapshot schemaVersion 2 (`0e5a9b87`, `ef882f7c`). The PRO Worker stops
+  reading the 2999 ms zero-start deadline of a transition an earlier Worker stored without
+  `timingMode`: such a transition still loads and commits with the 700 ms lead as a scheduled
+  control. The PRO CORS allow list drops `x-mxqr-pro-entry-policy` and `x-mxqr-pro-playlist-slots`,
+  which the App has not sent since 9.0.25 (a 9.0.24 or older loopback development build that calls
+  the production PRO API fails its preflight). The report lists the owner decisions and the three
+  open owner questions R4-Q1 to R4-Q3 (its own numbers, built with the recommended defaults), the
+  tests-first parent failures, the storage lifetime that keeps the old record accepted (in
+  production only the COMMIT's start kind changes), mixed versions, rollback to that PRO Worker
+  with no new boundary, the deploy conditions and order, the blind post-deploy check (a YouTube
+  start; regression only), the two comments left for later releases (the shared timing home header
+  and a snapshot parser comment), the train review and what it changed, QA rounds and what was not
+  verified.
 - [App 9.0.26 train: PRO system-audio LAN-direct in one round trip and the chat sheet without its Close (2026-10-30)](design/app-9-0-26-train-2026-10-30.md):
   released on 2026-10-30 13:08 KST in Release 41001009672 (PR #534, squash `cbbc56d9`): the next
   App update after 9.0.25 (9.0.26 / v799, App build 799, update dialog; the version bump `b2ac0109`

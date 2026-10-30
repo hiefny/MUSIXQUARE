@@ -4,20 +4,28 @@
  * PRO start-kind rows at the YouTube endpoint (pinned 2026-10-30), tests
  * first for the increments that give the PRO arm its own start claim.
  *
- * ZS-06: a device that prepared a zero-start PREPARE and then receives the
- * heartbeat snapshot (restorePersistedPlayback) or a reconcile before the
- * COMMIT frame commits that checkpoint as zero-start: the endpoint takes the
- * prepared path (player.ts:1176-1179) and the arm releases with the learned
- * timeline lead (authority-arm.ts:410-413). The controller-level precedent is
- * playback-snapshot-share-ownership.test.ts "commits a %s that lands a
- * zero-start PREPARE checkpoint before its COMMIT as zero-start".
+ * ZS-06: a device that prepared a zero-start PREPARE gets its committed
+ * checkpoint from the heartbeat snapshot (restorePersistedPlayback) or a
+ * reconcile, and no COMMIT frame. That checkpoint is the one the Worker
+ * stores when it commits: the PREPARE's target, stamped to start one COMMIT
+ * lead after the commit (cloudflare/pro-room-worker.ts
+ * commitPendingPlaybackTransition). Landing before that start, it commits as
+ * zero-start: the endpoint takes the prepared path (player.ts:1176-1179) and
+ * the arm releases with the learned timeline lead (authority-arm.ts:410-413),
+ * as the controller-level precedent expects
+ * (playback-snapshot-share-ownership.test.ts "commits a %s that lands a
+ * zero-start PREPARE checkpoint before its COMMIT as zero-start"). Landing
+ * 650 ms after that start, it is caught up as a scheduled control.
  *
  * ZS-09: a COMMIT that names zero-start without a matching PREPARE goes
  * through the real controller, which lowers it to scheduled-control
- * (playback-controller.ts:1624), and reaches the direct path: the release
- * has timelineLeadMs 0 (player.ts:1452) and the sample is a scheduled
- * control that does not learn (:1476-1478). The release observation's
- * timingMode echoes the request (:1436) and is not asserted.
+ * (playback-controller.ts:1624): the release has timelineLeadMs 0 and the
+ * sample is a scheduled control that does not learn. A COMMIT of a
+ * transition this device never prepared is prepared on arrival
+ * (playback-controller.ts:1458-1476), so it takes the prepared path; a
+ * direct COMMIT (transitionId null) takes the direct path (player.ts:1452
+ * and :1476-1478). The release observation's timingMode echoes the request
+ * (player.ts:1436) and is not asserted.
  *
  * Each row first seeds one learned zero-start lead in the room session (an
  * iframe whose PLAYING lags its play call by 80 ms), so a learned lead can be
@@ -37,6 +45,10 @@ import {
   registerProPlaybackMediaEndpoint,
   resetProPlaybackAuthorityHooks,
 } from '../../pro-room/playback-authority-hooks.ts';
+import {
+  PRO_ROOM_PLAYBACK_COMMIT_LEAD_MS as COMMIT_LEAD_MS,
+  PRO_ROOM_PLAYBACK_TRANSITION_DEADLINE_MS as BARRIER_MS,
+} from '../../pro-room/__tests__/__helpers__/pro-room-playback-timing-copy.ts';
 import type { QueueItemId } from '../../types/index.ts';
 import { cancelYouTubeAuthorityPreparation } from '../iframe.ts';
 import { initYouTube, stopYouTubeMode } from '../player.ts';
@@ -206,50 +218,116 @@ function lastOf(kind: 'youtube-release' | 'youtube-sample', keys: readonly strin
   );
 }
 
+/**
+ * Prepare a zero-start PREPARE, then land its committed checkpoint through a
+ * heartbeat snapshot or a reconcile, with no COMMIT frame. The Worker commits
+ * once every cohort member has reported, here when the only member reports
+ * READY, and stores the PREPARE's target stamped to start one COMMIT lead
+ * later (cloudflare/pro-room-worker.ts commitPendingPlaybackTransition).
+ * landAt gives the landing instant from that commit instant; the row then
+ * watches 5 s, past both lead samples of the release.
+ */
+async function landCommittedCheckpoint(
+  participant: ProParticipant,
+  route: 'restore' | 'reconcile',
+  landAt: (committedAtMs: number) => number,
+): Promise<void> {
+  const readyAt: number[] = [];
+  participant.reportReady.mockImplementation(async () => {
+    readyAt.push(Date.now());
+    return 'waiting';
+  });
+  const prepare = PRO.prepareEvent(2, 0, 'zero-start');
+  const preparedAtMs = Date.now();
+  participant.controller.acceptPrepare(prepare);
+  while (readyAt.length === 0 && Date.now() - preparedAtMs < BARRIER_MS) {
+    await vi.advanceTimersByTimeAsync(10);
+  }
+  expect(readyAt).toHaveLength(1);
+  const committedAtMs = readyAt[0] ?? Number.NaN;
+  await vi.advanceTimersByTimeAsync(Math.max(0, landAt(committedAtMs) - Date.now()));
+  const landed = PRO.snapshot({ ...prepare.target, updatedAtMs: committedAtMs + COMMIT_LEAD_MS });
+  participant.setCanonicalSnapshot(landed);
+  const landing =
+    route === 'restore'
+      ? participant.controller.restorePersistedPlayback(landed)
+      : participant.controller.reconcile({
+          showLoading: false,
+          youtubeOnly: false,
+          rendezvous: false,
+        });
+  await vi.advanceTimersByTimeAsync(5_000);
+  await landing;
+}
+
 describe('PRO start kind at the YouTube endpoint (pinned 2026-10-30)', () => {
   it.each(['restore', 'reconcile'] as const)(
-    'ZS-06: commits a %s that lands a prepared zero-start checkpoint before its COMMIT on the prepared path with the learned lead',
+    'ZS-06: commits a %s that lands the committed zero-start checkpoint before its start, with no COMMIT frame, on the prepared path with the learned lead',
     async (route) => {
       const { fake, participant } = await setUpPro();
       const learned = await seedLearnedLead(fake, participant);
-      const prepare = PRO.prepareEvent(2, 0, 'zero-start');
-      participant.controller.acceptPrepare(prepare);
-      // Armed and READY at +620; the snapshot follows right after.
-      await vi.advanceTimersByTimeAsync(650);
-      // The heartbeat snapshot carries the PREPARE's reserved checkpoint first.
-      const landed = PRO.snapshot(prepare.target);
-      participant.setCanonicalSnapshot(landed);
-      const landing =
-        route === 'restore'
-          ? participant.controller.restorePersistedPlayback(landed)
-          : participant.controller.reconcile({
-              showLoading: false,
-              youtubeOnly: false,
-              rendezvous: false,
-            });
-      await vi.advanceTimersByTimeAsync(3_500);
-      await landing;
-      const releases = lastOf('youtube-release', ['path', 'timingMode', 'timelineLeadMs']);
-      const samples = lastOf('youtube-sample', [
-        'timingMode',
-        'learningEnabled',
-        'path',
-        'checkpointMs',
-      ]);
-      // Today, at the endpoint, the landed checkpoint commits as a scheduled
-      // control on the prepared path, without the learned 20 ms lead: the
-      // checkpoint is stamped at the PREPARE instant and the server clock
-      // has moved on when it lands (the controller-level pin cited above
-      // reads a frozen server clock). The samples listed are the seed's.
+      resetProStartObservations();
+      // 30 ms after the commit, so 670 ms before the start.
+      await landCommittedCheckpoint(participant, route, (committedAtMs) => committedAtMs + 30);
       expect(learned).toBeCloseTo(20, 6);
-      expect({ releases, samples }).toEqual({
+      expect({
+        releases: lastOf('youtube-release', ['path', 'timingMode', 'timelineLeadMs']),
+        samples: lastOf('youtube-sample', [
+          'timingMode',
+          'learningEnabled',
+          'path',
+          'checkpointMs',
+        ]),
+      }).toEqual({
         releases: [
-          { path: 'prepared', timingMode: 'zero-start', timelineLeadMs: 0 },
-          { path: 'prepared', timingMode: 'scheduled-control', timelineLeadMs: 0 },
+          { path: 'prepared', timingMode: 'zero-start', timelineLeadMs: expect.closeTo(20, 6) },
         ],
         samples: [
           { timingMode: 'zero-start', learningEnabled: true, path: 'prepared', checkpointMs: 800 },
           { timingMode: 'zero-start', learningEnabled: true, path: 'prepared', checkpointMs: 2000 },
+        ],
+      });
+    },
+  );
+
+  it.each(['restore', 'reconcile'] as const)(
+    'ZS-06: catches up a %s that lands the committed zero-start checkpoint 650 ms after its start, with no COMMIT frame, as a scheduled control without the learned lead',
+    async (route) => {
+      const { fake, participant } = await setUpPro();
+      const learned = await seedLearnedLead(fake, participant);
+      resetProStartObservations();
+      await landCommittedCheckpoint(
+        participant,
+        route,
+        (committedAtMs) => committedAtMs + COMMIT_LEAD_MS + 650,
+      );
+      // Past the 40 ms late-release tolerance the prepared release overruns
+      // (playback-controller.ts:1593-1598), and the catch-up never inherits
+      // the learned lead (:1355).
+      expect(learned).toBeCloseTo(20, 6);
+      expect({
+        releases: lastOf('youtube-release', ['path', 'timingMode', 'timelineLeadMs']),
+        samples: lastOf('youtube-sample', [
+          'timingMode',
+          'learningEnabled',
+          'path',
+          'checkpointMs',
+        ]),
+      }).toEqual({
+        releases: [{ path: 'prepared', timingMode: 'scheduled-control', timelineLeadMs: 0 }],
+        samples: [
+          {
+            timingMode: 'scheduled-control',
+            learningEnabled: false,
+            path: 'prepared',
+            checkpointMs: 800,
+          },
+          {
+            timingMode: 'scheduled-control',
+            learningEnabled: false,
+            path: 'prepared',
+            checkpointMs: 2000,
+          },
         ],
       });
     },
@@ -265,8 +343,8 @@ describe('PRO start kind at the YouTube endpoint (pinned 2026-10-30)', () => {
     await vi.advanceTimersByTimeAsync(3_000);
     const releases = lastOf('youtube-release', ['path', 'timelineLeadMs']);
     const samples = lastOf('youtube-sample', ['timingMode', 'learningEnabled', 'path']);
-    // An unknown transition's COMMIT is caught up through a prepare: the
-    // prepared path, as a scheduled control that does not learn.
+    // An unknown transition's COMMIT is prepared on arrival: the prepared
+    // path, as a scheduled control that does not learn.
     expect(learned).toBeCloseTo(20, 6);
     expect({ releases, samples }).toEqual({
       releases: [{ path: 'prepared', timelineLeadMs: 0 }],

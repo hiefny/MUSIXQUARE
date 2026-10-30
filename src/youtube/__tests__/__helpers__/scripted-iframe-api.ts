@@ -13,6 +13,13 @@
  * reaches every iframe the App creates, so a fault knob of fake-yt-player.ts
  * applies to an iframe the test never constructs itself.
  *
+ * The handshake also adds loadPlaylist and cuePlaylist, so a ready iframe has
+ * the whole stable-control surface that the native-control instrumentation
+ * requires (native-control-origin.ts STABLE_METHODS), as a real iframe has.
+ * The scripted API plays single videos only, so the two do nothing; they let
+ * a suite that starts the native-control authority classify iframe states
+ * the way production does.
+ *
  * pro-late-prepare-reload.test.ts still carries the first copy of this API;
  * it moves to this helper once that suite's pull request has merged.
  */
@@ -88,7 +95,12 @@ export function installScriptedIframeApi(init: ScriptedIframeInit = {}): Scripte
       __advanceClock: true,
       ...extra,
     });
-    const api = Object.fromEntries(IFRAME_API_METHODS.map((name) => [name, fake[name]]));
+    const api = {
+      ...Object.fromEntries(IFRAME_API_METHODS.map((name) => [name, fake[name]])),
+      // Plain functions, not vi.fn: the instrumentation skips test mocks.
+      loadPlaylist: () => undefined,
+      cuePlaylist: () => undefined,
+    };
     for (const name of IFRAME_API_METHODS) Reflect.deleteProperty(fake, name);
     fake.__onStateChange = options.events.onStateChange;
     iframes.push({

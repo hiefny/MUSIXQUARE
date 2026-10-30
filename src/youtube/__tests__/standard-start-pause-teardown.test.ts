@@ -12,6 +12,14 @@
  * mocked as in peer.test.ts). The remote participant is the real zero-start
  * controller on its own fake iframe (standard-start-harness.ts).
  *
+ * A pause reaches the App two ways, and the rows keep them apart: the page's
+ * Media Session handler (media-session.ts, which calls togglePlay), and the
+ * iframe's own PAUSE (a headset or lock-screen control that iOS routes to the
+ * iframe, or the iframe's own pause button), which the native-control
+ * authority classifies and promotes. Those rows start the authority with the
+ * Media Session stub before the iframe handshake, as the App does at boot, so
+ * the handshake instruments the iframe the way it instruments a real one.
+ *
  * A row marked "Looks like a defect" pins today's behaviour, not claimed right.
  */
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
@@ -73,6 +81,7 @@ const IDENTITY = {
 const SCENARIOS = standardScenarios(IDENTITY);
 const startFakeClock = createFakeClockStarter(Date.UTC(2026, 9, 30, 0, 0, 0));
 let rig: StandardRig | null = null;
+let restoreMediaSession: (() => void) | null = null;
 
 beforeEach(() => {
   startFakeClock();
@@ -89,6 +98,8 @@ beforeEach(() => {
 afterEach(() => {
   rig?.dispose();
   rig = null;
+  restoreMediaSession?.();
+  restoreMediaSession = null;
   cancelYouTubeAuthorityPreparation();
   stopYouTubeMode({ silent: true });
   clearAllManagedTimers();
@@ -136,7 +147,12 @@ function after(current: StandardRig, opIndex: number, frameIndex: number) {
   };
 }
 
-/** A Media Session stub whose action handlers the App registers (initMediaSession). */
+/**
+ * A Media Session stub whose action handlers the App registers. initMediaSession
+ * also starts the native-control authority; call this before startRig, as the
+ * App's boot does, so the iframe handshake instruments the iframe. afterEach
+ * restores navigator.mediaSession.
+ */
 function installMediaSession() {
   vi.stubGlobal(
     'MediaMetadata',
@@ -157,17 +173,52 @@ function installMediaSession() {
         actions.set(action, handler),
     },
   });
+  restoreMediaSession = () => {
+    if (descriptor) Object.defineProperty(navigator, 'mediaSession', descriptor);
+    else Reflect.deleteProperty(navigator, 'mediaSession');
+  };
   initMediaSession();
   return {
     trigger(action: MediaSessionAction) {
       expect(actions.has(action)).toBe(true);
       actions.get(action)?.({ action });
     },
-    restore() {
-      if (descriptor) Object.defineProperty(navigator, 'mediaSession', descriptor);
-      else Reflect.deleteProperty(navigator, 'mediaSession');
-    },
   };
+}
+
+/** '+<ms> <route>[ state <n> at <s> s]' for every frame sent from frameIndex on. */
+function framesAt(current: StandardRig, frameIndex: number): string[] {
+  return current.sent.slice(frameIndex).map((sent) => {
+    const [route] = frameRoutes([sent]);
+    const { state, time } = sent.frame;
+    const detail =
+      typeof state === 'number' && typeof time === 'number'
+        ? ` state ${state} at ${Math.round(time * 1_000) / 1_000} s`
+        : '';
+    return `+${sent.at} ${route}${detail}`;
+  });
+}
+
+/**
+ * youtube:auto-play intents from now on: the room action the native-control
+ * authority promotes an iframe PAUSE or PLAY to (native-control-authority.ts
+ * routeNativeAction).
+ */
+function recordRoomActions(current: StandardRig): string[] {
+  const actions: string[] = [];
+  bus.on('youtube:auto-play', (intent) => {
+    if (typeof intent !== 'object') {
+      actions.push(`+${current.now()} ${String(intent)}`);
+      return;
+    }
+    const target =
+      intent.targetTime === undefined ? '-' : `${Math.round(intent.targetTime * 1_000) / 1_000} s`;
+    actions.push(
+      `+${current.now()} state ${intent.state ?? '-'} at ${target}` +
+        `${intent.zeroStart ? ' zero-start' : ''}${intent.skipSeek ? ' skip-seek' : ''}`,
+    );
+  });
+  return actions;
 }
 
 /** The two speaker holds now: the legacy slot and the zero-start hold. */
@@ -203,68 +254,185 @@ describe('Standard host at a -5 s local offset in a zero-start run (pinned 2026-
   });
 
   it("restarts the room from 0.178 s on a Media Session pause during 'starting'", async () => {
-    const current = await heldReleaseHost();
     const session = installMediaSession();
-    try {
-      const opIndex = current.iframe().__log.length;
-      const frameIndex = current.sent.length;
-      session.trigger('pause');
-      await current.advanceTo(14_000);
-      // Looks like a defect: the pause reaches togglePlay, which sees a
-      // BUFFERING iframe and no legacy hold (the zero-start hold is not in
-      // that slot), so it starts the room again from 0.178 s instead.
-      expect(after(current, opIndex, frameIndex)).toEqual({
-        ops: [
-          '+6600 pauseVideo()',
-          '+6600 setVolume(100)',
-          '+6600 unMute()',
-          '+6600 seekTo(0.178,true)',
-          '+6600 playVideo()',
-        ],
-        routes: [
-          'peer:guest-1 youtube-zero-start-abort',
-          'broadcast:* youtube-state state 1',
-          'broadcast:* youtube-state state 1',
-          'broadcast:* youtube-sync state 1',
-          'broadcast:* youtube-sync state 1',
-        ],
-        flags: '- - - -',
-      });
-    } finally {
-      session.restore();
-    }
+    const current = await heldReleaseHost();
+    const opIndex = current.iframe().__log.length;
+    const frameIndex = current.sent.length;
+    session.trigger('pause');
+    await current.advanceTo(14_000);
+    // Looks like a defect: the pause reaches togglePlay, which sees a
+    // BUFFERING iframe and no legacy hold (the zero-start hold is not in
+    // that slot), so it starts the room again from 0.178 s instead.
+    expect(after(current, opIndex, frameIndex)).toEqual({
+      ops: [
+        '+6600 pauseVideo()',
+        '+6600 setVolume(100)',
+        '+6600 unMute()',
+        '+6600 seekTo(0.178,true)',
+        '+6600 playVideo()',
+      ],
+      routes: [
+        'peer:guest-1 youtube-zero-start-abort',
+        'broadcast:* youtube-state state 1',
+        'broadcast:* youtube-state state 1',
+        'broadcast:* youtube-sync state 1',
+        'broadcast:* youtube-sync state 1',
+      ],
+      flags: '- - - -',
+    });
   });
 });
 
 describe('Standard host at a -5 s local offset, Media Session pause during the zero-start speaker hold (pinned 2026-10-30)', () => {
   it("reads a Media Session pause during 'scheduled' as a new held start at the room position", async () => {
+    const session = installMediaSession();
     const current = await startRig('host', { localOffsetSeconds: -5 });
     await runStandardScenario(current, { ...SCENARIOS.hostAllReady, endAt: 3_000 });
-    const session = installMediaSession();
-    try {
-      const holdsBefore = holds();
-      const opIndex = current.iframe().__log.length;
-      const frameIndex = current.sent.length;
-      session.trigger('pause');
-      await current.advanceTo(6_000);
-      // Looks like a defect: togglePlay reads the room position (1.578 s)
-      // and starts a new legacy rendezvous there, held 3.4 s for the
-      // offset, instead of pausing.
-      expect({ holdsBefore, ...after(current, opIndex, frameIndex) }).toEqual({
-        holdsBefore: 'legacy false zero-start 1.578',
-        ops: [
-          '+3000 pauseVideo()',
-          '+3000 setVolume(100)',
-          '+3000 unMute()',
-          '+3000 pauseVideo()',
-          '+3000 seekTo(0,true)',
-        ],
-        routes: ['peer:guest-1 youtube-zero-start-abort', 'broadcast:* youtube-state state 1'],
-        flags: '- - - -',
-      });
-    } finally {
-      session.restore();
-    }
+    const holdsBefore = holds();
+    const opIndex = current.iframe().__log.length;
+    const frameIndex = current.sent.length;
+    session.trigger('pause');
+    await current.advanceTo(6_000);
+    // Looks like a defect: togglePlay reads the room position (1.578 s)
+    // and starts a new legacy rendezvous there, held 3.4 s for the
+    // offset, instead of pausing.
+    expect({ holdsBefore, ...after(current, opIndex, frameIndex) }).toEqual({
+      holdsBefore: 'legacy false zero-start 1.578',
+      ops: [
+        '+3000 pauseVideo()',
+        '+3000 setVolume(100)',
+        '+3000 unMute()',
+        '+3000 pauseVideo()',
+        '+3000 seekTo(0,true)',
+      ],
+      routes: ['peer:guest-1 youtube-zero-start-abort', 'broadcast:* youtube-state state 1'],
+      flags: '- - - -',
+    });
+  });
+});
+
+describe("Standard host, the iframe's own PAUSE while a zero-start start holds the iframe (pinned 2026-10-31)", () => {
+  // The iframe's own PAUSE is a PAUSED state change that no App command
+  // caused (fake __setState(2)). The native-control authority classifies it
+  // (native-control-origin.ts) and a Standard host promotes it to a room
+  // pause: youtube:auto-play with state 2 (native-control-authority.ts:466).
+
+  it("-5 s host: the iframe's own PAUSE during 'starting' is respected and pauses the room at 5.178 s", async () => {
+    installMediaSession();
+    const current = await startRig('host', { localOffsetSeconds: -5 });
+    // The release (+6422) buffers and never reports PLAYING; BUFFERING
+    // reaches the ordinary path, as the row above pins.
+    makeReleaseStall(current.iframe(), 2);
+    await runStandardScenario(current, { ...SCENARIOS.hostAllReady, endAt: 6_600 });
+    const roomActions = recordRoomActions(current);
+    const holdsBefore = holds();
+    const opIndex = current.iframe().__log.length;
+    const frameIndex = current.sent.length;
+    current.iframe().__setState(2);
+    await current.advanceTo(14_000);
+    expect({
+      holdsBefore,
+      roomActions,
+      ops: opTrace(current.iframe(), current.t0, opIndex),
+      frames: framesAt(current, frameIndex),
+      flags: predicateFlags(),
+    }).toEqual({
+      holdsBefore: 'legacy false zero-start 5.178',
+      roomActions: ['+6600 state 2 at 5.178 s'],
+      // The room pause cancels the run (its abort restores the audio), then
+      // holds the host's iframe at its own offset position (5.178 - 5 s).
+      ops: [
+        '+6600 pauseVideo()',
+        '+6600 setVolume(100)',
+        '+6600 unMute()',
+        '+6600 seekTo(0.178,true)',
+        '+6600 pauseVideo()',
+      ],
+      frames: [
+        '+6600 peer:guest-1 youtube-zero-start-abort',
+        '+6600 broadcast:* youtube-state state 2 at 5.178 s',
+        '+6600 broadcast:* youtube-state state 2 at 5.178 s',
+        '+9000 broadcast:* youtube-sync state 2 at 5.178 s',
+        '+12000 broadcast:* youtube-sync state 2 at 5.178 s',
+      ],
+      flags: '- - - -',
+    });
+  });
+
+  // A 0 s host: the release PLAYING at +1422 starts the run's 2.75 s
+  // calibration window, which ends at +4172. The warm-up's own pauseVideo
+  // (+360) left a 'paused' record that lives 4 s (to +4360,
+  // native-control-origin.ts EXPECTED_STATE_TTL_MS): zero-start consumed that
+  // PAUSED callback (iframe.ts:3117) before the native-control path
+  // (iframe.ts:3127), so nothing consumed the record.
+  const ZERO_OFFSET_ROWS: Record<number, unknown> = {
+    // Looks like a defect: inside the calibration window the authority reads
+    // the iframe's own PAUSE as the warm-up's pause and does not promote it,
+    // and the ordinary host YOUTUBE_STATE is held while the run owns sync
+    // (iframe.ts:3368). Only the host's iframe stops; the room plays on until
+    // the first heartbeat after the window (+6000) carries state 2.
+    2_422: {
+      flagsBefore: 'owned - protocol -',
+      roomActions: [],
+      ops: [],
+      frames: [
+        '+2672 peer:guest-1 youtube-zero-start-timeline',
+        '+2922 peer:guest-1 youtube-zero-start-timeline',
+        '+3172 peer:guest-1 youtube-zero-start-timeline',
+        '+3422 peer:guest-1 youtube-zero-start-timeline',
+        '+3672 peer:guest-1 youtube-zero-start-timeline',
+        '+3922 peer:guest-1 youtube-zero-start-timeline',
+        '+6000 broadcast:* youtube-sync state 2 at 1 s',
+        '+9000 broadcast:* youtube-sync state 2 at 1 s',
+      ],
+    },
+    // After the window, the record still reads the PAUSE as the warm-up's,
+    // but the ordinary host YOUTUBE_STATE now pauses the room at once.
+    4_300: {
+      flagsBefore: '- - - -',
+      roomActions: [],
+      ops: [],
+      frames: [
+        '+4300 broadcast:* youtube-state state 2 at 2.878 s',
+        '+6000 broadcast:* youtube-sync state 2 at 2.878 s',
+        '+9000 broadcast:* youtube-sync state 2 at 2.878 s',
+      ],
+    },
+    // After the record expires, the authority promotes the PAUSE to a room pause.
+    5_000: {
+      flagsBefore: '- - - -',
+      roomActions: ['+5000 state 2 at 3.578 s'],
+      ops: ['+5000 seekTo(3.578,true)', '+5000 pauseVideo()'],
+      frames: [
+        '+5000 broadcast:* youtube-state state 2 at 3.578 s',
+        '+5000 broadcast:* youtube-state state 2 at 3.578 s',
+        '+6000 broadcast:* youtube-sync state 2 at 3.578 s',
+        '+9000 broadcast:* youtube-sync state 2 at 3.578 s',
+      ],
+    },
+  };
+
+  it.each([
+    [2_422, 'inside the calibration window (1 s after the release)'],
+    [4_300, "after the window, while the warm-up pause's record lives"],
+    [5_000, 'after the window and the record'],
+  ] as const)("0 s host: the iframe's own PAUSE at +%i, %s", async (at, _when) => {
+    installMediaSession();
+    const current = await startRig('host');
+    await runStandardScenario(current, { ...SCENARIOS.hostAllReady, endAt: at });
+    const roomActions = recordRoomActions(current);
+    const flagsBefore = predicateFlags();
+    const opIndex = current.iframe().__log.length;
+    const frameIndex = current.sent.length;
+    current.iframe().__setState(2);
+    await current.advanceTo(10_000);
+    expect({
+      flagsBefore,
+      roomActions,
+      ops: opTrace(current.iframe(), current.t0, opIndex),
+      frames: framesAt(current, frameIndex),
+    }).toEqual(ZERO_OFFSET_ROWS[at]);
+    expect(predicateFlags()).toBe('- - - -');
   });
 });
 

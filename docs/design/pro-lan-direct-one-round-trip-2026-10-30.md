@@ -126,3 +126,9 @@ Node 24.20.0 / npm 12.0.2(저장소 고정 버전), Windows.
 같은 구성(Edge 공유, iOS Safari 청취, 같은 Wi-Fi)에서 공유 다섯 번, 두 기기 모두 `?mxqrLog=info`의 `/debug console`.
 통과: 공유자 콘솔에 `LAN route to … proven`이 있고 `[ProSysAudioSFU] Published`가 없으며, 폰 콘솔에 `Receiver LAN pair
 proven`이 있고 소리가 난다. 실패하면 공유자 줄의 단계와 원인, 폰 줄의 결과가 다음 수정의 근거다.
+
+## 후속
+
+9.0.26 배포 직후 확인에서 iPhone Safari 청취자가 자기 쌍을 non-local로 판정해 공유가 모두 SFU로 갔다. 청취자의 판정
+(host→prflx 쌍의 정제 확인)과 진단 줄은 다음 증분
+[PRO 시스템 오디오 LAN-direct: iPhone 청취자의 쌍 판정과 진단 줄](pro-lan-direct-ios-listener-2026-10-30.md)에 있다.

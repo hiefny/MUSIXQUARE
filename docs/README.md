@@ -93,6 +93,23 @@ runbooks. Neither belongs in a general setup document.
 
 ## Maintained evidence and completed records
 
+- [PRO system-audio LAN-direct: the iPhone listener's pair judgement and diagnostic lines (2026-10-30)](design/pro-lan-direct-ios-listener-2026-10-30.md):
+  implemented and checked locally on main `cbbc56d9` (9.0.26 / v799), not merged or released, no
+  version bump yet (target `app`, the next App update; owner decision 2026-10-30, nothing on screen
+  changes). In the 9.0.26 post-deploy check an iPhone Safari listener judged its own LAN pair
+  non-local about 0.5 s into its proof, so every share fell back to the SFU. iOS Safari, the
+  ICE-controlled answerer, meets the sharer's check before resolving its mDNS name, so its native
+  selected pair keeps a peer-reflexive remote while the statistics refine the same connection to the
+  added host candidate; the PRO rule refused any non-host pair at once. Both ends now hold such a
+  host-to-prflx pair pending and prove it only through the one transport-selected statistics pair
+  refined to an added mDNS host candidate (the Standard room's check, moved unchanged into
+  `src/network/ice-selected-pair.ts`); an unrefined prflx never proves and every other non-host pair
+  is still refused at once. New info lines, without addresses, ports or full ids: one pair-check line
+  per end and proof (rule, candidate types, address kinds, candidates sent, refused and added), a
+  failed-reproof line, and the SFU listener's subscription stage times from the share notice. The
+  note lists the cause and what tells the remaining causes apart, the threats kept closed, the
+  tests-first commit `6eb40a04` (52 rows and the new helper file fail on its parent), the checks,
+  mixed versions and a proposed post-deploy reading table. Not device-checked.
 - [Phase 5.5 R4: PRO cleanup, PRO room Worker only (2026-10-30)](design/phase5-5-r4-pro-cleanup-2026-10-30.md):
   released on 2026-10-30 19:56 KST in Release 41044220520 (PR #537, squash `683074bc`): the planned
   PRO cleanup before Phase 6 and the last release of Phase 5.5, PRO room Worker only (target

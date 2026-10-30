@@ -166,7 +166,10 @@ fragments agree. Browser-redacted addresses are unavailable for comparison; miss
 protocols are not accepted. The exact connection, ICE transport, and native pair's
 endpoint/generation fields must remain unchanged while statistics are read. An unselected or
 merely nominated host pair cannot establish this proof. Other native remote candidate types
-retain conservative classification; the PRO direct-audio policy is separate.
+retain conservative classification. The refinement check lives in
+`src/network/ice-selected-pair.ts`; the PRO direct-audio rule uses the same check and adds its
+own mDNS candidate ledger and address rule, and waits (never refuses at once) while the pair is
+unrefined.
 
 These bounds improve recoverability; they do not guarantee uninterrupted playback across
 Wi-Fi/cellular handoff or an operating-system suspension. Terminal guest-disconnect UI stops

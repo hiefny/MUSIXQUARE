@@ -138,7 +138,11 @@ stale, or unauthorized targets are dropped.
 
 A direct route is committed only after each target has exactly one unambiguous
 selected, succeeded `host`-to-`host` pair reached through a strict UUID-shaped
-remote `.local` mDNS candidate, on both ends. Each route negotiates in one signaling round
+remote `.local` mDNS candidate, on both ends. A native host-to-prflx snapshot (an
+end that met the other's check before resolving its mDNS name, as iOS Safari
+does) counts only once the one transport-selected statistics pair shows that same
+connection refined to such a host candidate; until then it is pending, and an
+unrefined prflx never proves. Each route negotiates in one signaling round
 trip (since 2026-10-30; before, a data-channel-only probe and then a media re-offer): the
 single offer carries the probe data channel and one audio m-section whose sender holds no
 track, the receiver answers, proves its own selected pair and says so on the probe channel,

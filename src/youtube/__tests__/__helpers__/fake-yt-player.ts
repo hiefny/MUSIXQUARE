@@ -73,7 +73,12 @@ export interface FakeYtPlayer {
   /**
    * Fault knob: an accepted unMute() turns isMuted() false only this many
    * milliseconds later. The pending unmute is fenced by the same generation
-   * as __hardMuteDelayMs, so a later mute() wins. Default 0 (immediate).
+   * as __hardMuteDelayMs, which every mute() and accepted unMute() advance:
+   * a later mute() wins, and a repeated unMute() restarts the delay from its
+   * own call. A restore loop that re-issues unMute() every 120 ms therefore
+   * never sees a 250 ms delay land. The restart is a choice of this fake's
+   * model, not a measured WebKit behaviour: a row whose outcome depends on it
+   * pins the model, and says so. Default 0 (immediate).
    */
   __unMuteDelayMs: number;
   /** Fault knob for getVolume(): null (default), 'nan' returns NaN, 'throw' throws. */

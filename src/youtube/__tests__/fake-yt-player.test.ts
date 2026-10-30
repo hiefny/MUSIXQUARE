@@ -177,6 +177,26 @@ describe('fake YouTube player zero-start support', () => {
     ]);
   });
 
+  it('restarts the unMute delay on every accepted unMute, so a retry inside the delay pushes it back (pinned 2026-10-31)', () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(1_000_000);
+    const retried = makeFakeYtPlayer({ __muted: true, __unMuteDelayMs: 250 });
+    retried.unMute();
+    vi.advanceTimersByTime(120);
+    // A restore loop's retry, one 120 ms verify cycle later.
+    retried.unMute();
+    // The first unmute (due at +250) was superseded by the retry.
+    vi.advanceTimersByTime(249);
+    expect(retried.isMuted()).toBe(true);
+    // The retry lands 250 ms after it was issued: +120 + 250 = +370.
+    vi.advanceTimersByTime(1);
+    expect(retried.isMuted()).toBe(false);
+    expect(retried.__log).toEqual([
+      { op: 'unMute', at: 1_000_000 },
+      { op: 'unMute', at: 1_000_120 },
+    ]);
+  });
+
   it('reads NaN or throws from getVolume when the volume read fault is set', () => {
     const nan = makeFakeYtPlayer({ __volume: 60, __volumeReadFault: 'nan' });
     expect(nan.getVolume()).toBeNaN();

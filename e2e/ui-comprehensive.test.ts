@@ -480,11 +480,111 @@ test.describe('Mobile UI', () => {
       'chat-input',
     ]);
 
-    // Enter on the notice's X dismisses it, and the cycle skips it again.
+    // Enter on the notice's X dismisses it. Focus moves to the sheet itself
+    // rather than the page, so a screen reader stays in the Chat dialog, and the
+    // cycle skips the notice again.
     expect(await press('Shift+Tab', 2)).toEqual(['message', 'btn-chat-notice-close']);
     await page.keyboard.press('Enter');
     await expect(notice).toBeHidden();
+    await expect(page.locator('#chat-drawer')).toBeFocused();
     expect(await press('Tab', 3)).toEqual(['handle', 'message', 'chat-input']);
+    expect(getPageErrors(page).map((error) => error.message)).toEqual([]);
+  });
+
+  test('chat sheet keeps focus when a pinned notice is withdrawn under it', async ({ page }) => {
+    // A notice withdrawn while its open button had focus hid that button under
+    // focus, and the browser then moved focus to the page itself.
+    trackPageErrors(page);
+    await page.route('**/api/announcement/current', (route) =>
+      route.fulfill({ json: { enabled: false } }),
+    );
+    await injectPeerServer(page);
+    await setupHostAndStart(page);
+    await openChatDrawer(page);
+    const drawer = page.locator('#chat-drawer');
+    await expect(drawer).toHaveAttribute('aria-modal', 'true');
+    const notice = page.locator('#chat-pinned-notice');
+    const open = page.locator('#btn-chat-notice-open');
+    const dialog = page.locator('#dialog-overlay');
+    const emit = (...args: unknown[]): Promise<void> =>
+      page.evaluate((busArgs) => {
+        const bus = (
+          window as unknown as { __MUSIXQUARE_BUS__: { emit: (...args: unknown[]) => void } }
+        ).__MUSIXQUARE_BUS__;
+        bus.emit(...busArgs);
+      }, args);
+    const showServiceNotice = (id: string): Promise<void> =>
+      emit('chat:notice-message', 'MUSIXQUARE', 'A service notice', Date.now(), {
+        source: 'service',
+        id,
+      });
+
+    // Escape from the reading dialog returns focus to the open button.
+    await showServiceNotice('withdrawn-under-focus');
+    await expect(notice).toBeVisible();
+    await open.focus();
+    await page.keyboard.press('Enter');
+    await expect(dialog).toHaveClass(/show/);
+    await page.keyboard.press('Escape');
+    await expect(dialog).not.toHaveClass(/show/);
+    await expect(open).toBeFocused();
+    // Withdrawn while its open button has focus.
+    await emit('chat:service-notice-withdrawn', 'withdrawn-under-focus');
+    await expect(notice).toBeHidden();
+    await expect(drawer).toBeFocused();
+
+    // Withdrawn while its reading dialog is open: the closing dialog returns
+    // focus to the open button, which the withdrawn notice then hides.
+    await showServiceNotice('withdrawn-while-reading');
+    await expect(notice).toBeVisible();
+    await open.focus();
+    await page.keyboard.press('Enter');
+    await expect(dialog).toHaveClass(/show/);
+    await emit('chat:service-notice-withdrawn', 'withdrawn-while-reading');
+    await expect(dialog).not.toHaveClass(/show/);
+    await expect(notice).toBeHidden();
+    await expect(drawer).toBeFocused();
+    await expect(drawer).toHaveClass(/\bopen\b/);
+    expect(getPageErrors(page).map((error) => error.message)).toEqual([]);
+  });
+});
+
+test.describe('Desktop chat panel', () => {
+  test.use({ viewport: { width: 1280, height: 800 } });
+
+  test('Enter on the pinned notice X leaves focus in the chat panel', async ({ page }) => {
+    // The desktop panel is a region, not a modal sheet, and the dismissed X
+    // left focus on the page there too.
+    trackPageErrors(page);
+    await page.route('**/api/announcement/current', (route) =>
+      route.fulfill({ json: { enabled: false } }),
+    );
+    await injectPeerServer(page);
+    await setupHostAndStart(page);
+    const drawer = page.locator('#chat-drawer');
+    await expect(drawer).toHaveAttribute('role', 'region');
+    await sendChat(page, 'Tab reaches this message');
+    await waitForChatMessage(page, 'Tab reaches this message');
+    await page.evaluate(() => {
+      const bus = (
+        window as unknown as { __MUSIXQUARE_BUS__: { emit: (...args: unknown[]) => void } }
+      ).__MUSIXQUARE_BUS__;
+      bus.emit('chat:notice-message', 'HOST', 'A pinned room notice', Date.now());
+    });
+    const notice = page.locator('#chat-pinned-notice');
+    await expect(notice).toBeVisible();
+    await page.locator('#btn-chat-notice-open').focus();
+    await page.keyboard.press('Tab');
+    await expect(page.locator('#btn-chat-notice-close')).toBeFocused();
+
+    await page.keyboard.press('Enter');
+    await expect(notice).toBeHidden();
+    await expect(drawer).toBeFocused();
+    // The next Tab continues inside the panel, at its message.
+    await page.keyboard.press('Tab');
+    await expect(
+      page.locator('#chat-messages .chat-bubble', { hasText: 'Tab reaches this message' }),
+    ).toBeFocused();
     expect(getPageErrors(page).map((error) => error.message)).toEqual([]);
   });
 });

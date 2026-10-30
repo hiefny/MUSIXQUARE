@@ -6,6 +6,12 @@
  * pinned notice's two buttons only while the notice shows. The hidden notice
  * stays in the sheet's markup, and neither a browser nor jsdom can focus its
  * buttons, so a cycle that still counted them left Tab on the handle.
+ *
+ * When the notice hides while one of its buttons has focus (Enter on its X, a
+ * withdrawal, a cleared room history, or a withdrawal while its reading dialog
+ * is open), focus moves to the sheet itself. A browser otherwise dropped focus
+ * to the page, so a screen reader left the Chat dialog; jsdom keeps focus on
+ * the hidden button instead, which these tests reject the same way.
  */
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { readFileSync } from 'node:fs';
@@ -108,5 +114,86 @@ describe('chat sheet Tab cycle', () => {
     document.getElementById('btn-chat-notice-close')!.click();
     expect(notice.hidden).toBe(true);
     expect(pressTab(3)).toEqual(['chat-input', 'btn-chat-send', 'handle']);
+  });
+});
+
+describe('chat sheet focus when the pinned notice hides', () => {
+  afterEach(() => {
+    vi.unstubAllGlobals();
+  });
+
+  const notice = () => document.getElementById('chat-pinned-notice')!;
+  const showRoomNotice = () => bus.emit('chat:notice-message', 'HOST', 'A pinned room notice', 123);
+  const showServiceNotice = (id: string) =>
+    bus.emit('chat:notice-message', 'MUSIXQUARE', 'A service notice', 123, {
+      source: 'service',
+      id,
+    });
+
+  it('moves focus from the dismissed notice X to the sheet, where Tab starts again', async () => {
+    const { addChatMessage } = await import('../chat-render.ts');
+    addChatMessage('Peer', 'A message the cycle reaches', false);
+    showRoomNotice();
+    expect(pressTab(2)).toEqual(['btn-chat-notice-open', 'btn-chat-notice-close']);
+
+    // Enter on the focused X clicks it.
+    document.getElementById('btn-chat-notice-close')!.click();
+    expect(notice().hidden).toBe(true);
+    expect(focusedControl()).toBe('chat-drawer');
+    expect(pressTab(3)).toEqual(['handle', 'message', 'chat-input']);
+  });
+
+  it.each([
+    {
+      path: 'withdrawn',
+      show: () => showServiceNotice('A'),
+      clear: () => bus.emit('chat:service-notice-withdrawn', 'A'),
+    },
+    {
+      path: 'cleared with the room history',
+      show: showRoomNotice,
+      clear: () => bus.emit('chat:clear-all'),
+    },
+  ])('moves focus from the open button of a notice $path to the sheet', ({ show, clear }) => {
+    show();
+    expect(pressTab(1)).toEqual(['btn-chat-notice-open']);
+
+    clear();
+    expect(notice().hidden).toBe(true);
+    expect(focusedControl()).toBe('chat-drawer');
+  });
+
+  it('moves focus to the sheet when a notice is withdrawn while its reading dialog is open', () => {
+    // The reading dialog's custom scrollbar needs a ResizeObserver, which jsdom lacks.
+    vi.stubGlobal(
+      'ResizeObserver',
+      class {
+        observe(): void {}
+        unobserve(): void {}
+        disconnect(): void {}
+      },
+    );
+    showServiceNotice('A');
+    expect(pressTab(1)).toEqual(['btn-chat-notice-open']);
+    document.getElementById('btn-chat-notice-open')!.click();
+    const overlay = document.getElementById('dialog-overlay')!;
+    expect(overlay.classList.contains('show')).toBe(true);
+
+    // Closing, the dialog returns focus to the open button, which the
+    // withdrawn notice then hides.
+    bus.emit('chat:service-notice-withdrawn', 'A');
+    expect(overlay.classList.contains('show')).toBe(false);
+    expect(notice().hidden).toBe(true);
+    expect(focusedControl()).toBe('chat-drawer');
+  });
+
+  it('leaves focus that is outside the notice where it is', () => {
+    showServiceNotice('A');
+    const input = document.getElementById('chat-input')!;
+    input.focus();
+
+    bus.emit('chat:service-notice-withdrawn', 'A');
+    expect(notice().hidden).toBe(true);
+    expect(document.activeElement).toBe(input);
   });
 });

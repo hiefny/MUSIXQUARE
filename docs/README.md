@@ -94,16 +94,17 @@ runbooks. Neither belongs in a general setup document.
 ## Maintained evidence and completed records
 
 - [App 9.0.26 train: PRO system-audio LAN-direct in one round trip and the chat sheet without its Close (2026-10-30)](design/app-9-0-26-train-2026-10-30.md):
-  assembled and checked locally, not merged or released; the version bump (9.0.26 / v799, App build
-  799, update dialog) is still to come as the last runtime commit. Target `app`: 47 App runtime
-  paths against the live Worker SHAs (one LAN-direct file and the chat sheet's 46) and none in the
+  assembled and checked locally, not merged or released; the version bump `b2ac0109` (9.0.26 /
+  v799, App build 799, update dialog) is the last runtime commit, and both version guards and
+  `build:checked` pass on it. Target `app`: 50 App runtime paths against the live Worker SHAs and
+  main (one LAN-direct file, the chat sheet's 46 and the bump's three mirrors) and none in the
   other five Workers, with no runtime dependency change. The train branch is PR #534 (head
   `b7986840` on main `f8a30068`) with the chat sheet's three commits moved on top (`3da11c72`,
   `efd2dc44`, `e80e0fc0`; the test and code commits keep their patch-ids) and a tests-only review
   follow-up `5b7abd30`. The report lists both increments with their tested SHAs, the review
   findings and their handling, the QA rounds (each increment's local runs, PR #534's CI, whose
-  candidate failed only on the missing bump, and its automated code review with no findings, and
-  the assembled tree's full checks), mixed versions (a 9.0.25 or older device and a 9.0.26 one use
+  candidate failed only on the missing bump, and its automated code review with no findings, the
+  assembled tree's full checks, and the bump's guards and `build:checked`), mixed versions (a 9.0.25 or older device and a 9.0.26 one use
   the SFU), the rollback to the 9.0.25 / v798 checkpoint App, the deploy conditions, a blind
   post-deploy LAN-direct check on the owner's Edge sharer and iPhone Safari listener, and what was
   not verified.

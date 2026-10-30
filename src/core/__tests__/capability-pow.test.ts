@@ -3,6 +3,11 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
 afterEach(() => {
+  // Spies on real globals (crypto.subtle.digest, Date.now) and fake timers
+  // outlive resetModules; a leaked digest spy makes the next PoW solve
+  // search forever.
+  vi.useRealTimers();
+  vi.restoreAllMocks();
   vi.unstubAllGlobals();
   vi.resetModules();
 });

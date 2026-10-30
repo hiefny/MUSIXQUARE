@@ -317,34 +317,9 @@ describe('YouTube Sync', () => {
       expect(Object.keys(handlerMap).length).toBeGreaterThanOrEqual(4);
     });
 
-    it('seeds a promoted PRO coordinator from its existing member offset', async () => {
-      const playerMod = await import('../_state.ts');
-      vi.mocked(playerMod.getYouTubePlayer).mockReturnValue(null);
-      setState('sync.youtubeLocalOffset', 0.25);
-      setState('room.context', {
-        kind: 'pro',
-        roomId: '000001',
-        role: 'member',
-        coordinatorId: 'participant-0',
-        epoch: 1,
-        snapshotRevision: 1,
-        capabilities: ['playback.control'],
-      });
-      const { initYouTubeSync } = await import('../sync.ts');
-      initYouTubeSync();
-
-      setState('room.context', {
-        kind: 'pro',
-        roomId: '000001',
-        role: 'coordinator',
-        coordinatorId: 'participant-1',
-        epoch: 2,
-        snapshotRevision: 2,
-        capabilities: ['playback.control'],
-      });
-
-      expect(getState('sync.youtubeCoordinatorAppliedOffset')).toBe(0.25);
-    });
+    // 'seeds a promoted PRO coordinator from its existing member offset' runs
+    // in sync-pro-promotion-offset.test.ts: it needs the module's first
+    // endpoint transition, which any earlier PRO row here would already spend.
 
     it('does not create a new offset boundary when an equal PRO endpoint role label changes', async () => {
       const playerMod = await import('../_state.ts');

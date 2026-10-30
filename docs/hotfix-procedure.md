@@ -889,10 +889,10 @@ gh workflow run app-build-floor.yml --ref main -f action=lower -f min_app_build=
 - Once 9.0.25 (build 798), the App that no longer reads PRO snapshot schemaVersion 1, is live
   (the `app` release of merge `b8ae59e7` (#532), Production Release 40964572017, which deployed
   App version `b4e8fc56` on 2026-10-30 at 07:18 KST after the PRO Worker of the previous bullet;
-  it has been live since then), never roll the PRO Worker back below the PRO Worker that first
-  sends schemaVersion 2 (version `ef882f7c`) by hand. This holds after an App rollback too: a
-  9.0.25 tab stays open until it reloads. Under an earlier PRO Worker such a tab refuses every
-  snapshot answer with `INVALID_RESPONSE`, refuses a live LAN-direct share's numeric
+  9.0.26 replaced it, see the end of this bullet), never roll the PRO Worker back below the PRO
+  Worker that first sends schemaVersion 2 (version `ef882f7c`) by hand. This holds after an App
+  rollback too: a 9.0.25 tab stays open until it reloads. Under an earlier PRO Worker such a tab
+  refuses every snapshot answer with `INVALID_RESPONSE`, refuses a live LAN-direct share's numeric
   `liveExpiresAt` and with it the room's whole heartbeat reply, and starts every COMMIT that
   names no start kind as a scheduled control (playback does not stop). If the PRO Worker must go
   back anyway, run only this order: (1) the App to the version in the 9.0.25 release's recovery
@@ -918,7 +918,13 @@ gh workflow run app-build-floor.yml --ref main -f action=lower -f min_app_build=
   `MXQR_PRO_ROOM_REQUIRED_APP_BUILD` is empty from 9.0.25 on, so the floor check does not stop
   that repair. The PRO Worker's load-time conversion of a stored numeric LAN-direct
   `liveExpiresAt` to null stays in every later PRO Worker: a room not loaded since keeps the
-  number, and a 9.0.25 tab would drop that room's heartbeat replies.
+  number, and a 9.0.25 tab would drop that room's heartbeat replies. 9.0.25 stayed live until
+  9.0.26 (build 799, the `app` release of merge `cbbc56d9` (#534), Production Release
+  41001009672, which deployed App version `b8dc4281` on 2026-10-30 at 13:08 KST) replaced it.
+  9.0.26 does not read schemaVersion 1 either, so what this bullet says of 9.0.25 and its tabs
+  holds for 9.0.26 and its tabs, and step (1) of both orders still goes to the 9.0.25 release's
+  checkpoint App (9.0.24, `dd820d37`), not to the 9.0.26 release's checkpoint App (9.0.25,
+  `b4e8fc56`, which reads only schemaVersion 2).
 - The service-control object that holds the floor (`MusixquareServiceControl`) lives in the PRO
   Worker script; every other Worker binds it with `script_name = "musixquare-pro-room"`. Rolling
   the PRO Worker back below 9.0.14 therefore turns the floor off for every Worker, Signaling

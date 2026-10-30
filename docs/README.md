@@ -115,9 +115,10 @@ runbooks. Neither belongs in a general setup document.
   to the 9.0.25 / v798 checkpoint App, the deploy conditions with their results (no floor read just
   before dispatch is recorded), the post-deploy check and what was not verified. The post-deploy
   check (not blind; three of the five shares, an Edge sharer and an iPhone Safari listener on one
-  Wi-Fi) saw the answer within 0.82 to 0.94 s and the sharer prove its pair, but the listener's own
-  pair proof judged the pair non-local in about 0.5 s, so every share fell back to the SFU with
-  sound and LAN-direct stays unverified for an iPhone listener. The leading hypothesis, not
+  Wi-Fi) saw the answer within 0.82 to 0.94 s and the sharer prove its pair, but every share stopped
+  at the listener's pair proof (`receiver-fallback` on the sharer) and fell back to the SFU with
+  sound; in share 1, the one share with listener lines, the listener judged its pair non-local after
+  541 ms. LAN-direct stays unverified for an iPhone Safari listener. The leading hypothesis, not
   measured, is that iOS Safari sees the Edge sharer's mDNS host candidate as peer-reflexive and the
   PRO receiver rule rejects any non-host pair, while the Standard room refines such a pair to its
   host candidate. The owner confirmed on an iPhone that the chat sheet shows no Close. Owner
@@ -138,22 +139,26 @@ runbooks. Neither belongs in a general setup document.
   route ends the attempt. The relay frame shape is unchanged, so no Worker changes; a 9.0.25 or
   older device and a newer one never build a route between them and use the SFU. Each route logs
   one info result line. In the post-deploy check the answer came within 0.82 to 0.94 s and the
-  sharer proved its pair, but an iPhone Safari listener judged its own pair non-local, so every share
-  fell back to the SFU; LAN-direct stays unverified for an iPhone listener (train report QA round 5).
+  sharer proved its pair, but every share stopped at the iPhone Safari listener's pair proof and
+  fell back to the SFU; in share 1, the one share with listener lines, the listener judged its pair
+  non-local. LAN-direct stays unverified for an iPhone Safari listener (train report QA round 5).
+  The note's own Status cell keeps its pre-release text; the train report and the release record
+  hold the release state.
 - [Chat sheet without its Close (X), owner decision (2026-10-30)](design/chat-sheet-close-removal-2026-10-30.md):
   released on 2026-10-30 13:08 KST in the App 9.0.26 / v799 train above, whose bump covers it; the
-  owner confirmed on an iPhone that the sheet shows no Close. In this change, built on main
-  `b8ae59e7` (9.0.25 / v798), the phone and tablet chat sheet loses the
-  visible Close that 9.0.20 put at the start of its handle row (dialog exit item F12) and closes as
-  before 9.0.20: an outside tap, a tap or a swipe down on its drag handle, Enter or Space on the
-  focused handle, Escape and Back. App only (46 runtime paths; `chat.close` leaves the 42
-  locales). The note lists the owner decision, the change and its guards (the chat sheet is now
-  the one window whose exit is its drag handle), the tests-first commit `d5c83195` (6 unit tests in
-  5 files and the new E2E fail on its parent), the checks on `d4f11e1d`, the 390x844 light and dark
-  screenshots before and after (kept outside the repository for the owner; only the X's glyph
-  differs), the owner step for `chat.close` translation suggestions after the release, a gap in the
-  sheet's keyboard Tab cycle found on the way and left as it was (now a follow-up item in the
-  release record), and what was not verified.
+  owner confirmed on an iPhone that the sheet shows no Close. The note's own Status cell keeps its
+  pre-merge text; the train report and the release record hold the release state. In this change,
+  built on main `b8ae59e7` (9.0.25 / v798), the phone and tablet chat sheet loses the visible Close
+  that 9.0.20 put at the start of its handle row (dialog exit item F12) and closes as before 9.0.20:
+  an outside tap, a tap or a swipe down on its drag handle, Enter or Space on the focused handle,
+  Escape and Back. App only (46 runtime paths; `chat.close` leaves the 42 locales). The note lists
+  the owner decision, the change and its guards (the chat sheet is now the one window whose exit is
+  its drag handle), the tests-first commit `d5c83195` (6 unit tests in 5 files and the new E2E fail
+  on its parent), the checks on `d4f11e1d`, the 390x844 light and dark screenshots before and after
+  (kept outside the repository for the owner; only the X's glyph differs), the owner step for
+  `chat.close` translation suggestions after the release, a gap in the sheet's keyboard Tab cycle
+  found on the way and left as it was (now a follow-up item in the release record), and what was not
+  verified.
 - [Phase 5.5 R3: the App stops reading PRO snapshot schemaVersion 1, 9.0.25 (2026-10-30)](design/phase5-5-r3-v1-receive-stop-2026-10-30.md):
   released on 2026-10-30 07:18 KST in Release 40964572017 (PR #532, squash `b8ae59e7`): the third
   and last runtime release of Phase 5.5 (9.0.25 / v798, App build 798, bump `01f1a19b`; target `app`

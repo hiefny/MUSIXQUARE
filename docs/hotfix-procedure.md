@@ -891,9 +891,8 @@ gh workflow run app-build-floor.yml --ref main -f action=lower -f min_app_build=
   App version `b4e8fc56` on 2026-10-30 at 07:18 KST after the PRO Worker of the previous bullet;
   9.0.26 replaced it, see the end of this bullet), never roll the PRO Worker back below the PRO
   Worker that first sends schemaVersion 2 (version `ef882f7c`) by hand. This holds after an App
-  rollback too: a
-  9.0.25 tab stays open until it reloads. Under an earlier PRO Worker such a tab refuses every
-  snapshot answer with `INVALID_RESPONSE`, refuses a live LAN-direct share's numeric
+  rollback too: a 9.0.25 tab stays open until it reloads. Under an earlier PRO Worker such a tab
+  refuses every snapshot answer with `INVALID_RESPONSE`, refuses a live LAN-direct share's numeric
   `liveExpiresAt` and with it the room's whole heartbeat reply, and starts every COMMIT that
   names no start kind as a scheduled control (playback does not stop). If the PRO Worker must go
   back anyway, run only this order: (1) the App to the version in the 9.0.25 release's recovery

@@ -57,6 +57,7 @@ afterEach(() => {
   clearAllManagedTimers();
   setCurrentAudioBuffer(null);
   vi.useRealTimers();
+  vi.restoreAllMocks();
 });
 
 describe('same-track zero replay resync', () => {

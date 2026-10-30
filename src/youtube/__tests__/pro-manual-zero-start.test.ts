@@ -187,6 +187,11 @@ afterEach(async () => {
   for (const controller of controllers.splice(0)) controller.stopLifecycle();
   registerProPlaybackMediaEndpoint(null);
   (await import('../iframe.ts')).cancelYouTubeAuthorityPreparation();
+  // End YouTube mode as a room teardown does. A release that ended less than
+  // 2 s before its test did leaves start-observation checkpoints pending in
+  // player.ts; without this, the next test's first commit cancels them and
+  // its 'cancelled-pending' counts depend on which test ran before it.
+  (await import('../player.ts')).stopYouTubeMode({ silent: true });
   resetStandardHostManualOffsetTransaction();
   clearAllManagedTimers();
   unregisterTimeline?.();

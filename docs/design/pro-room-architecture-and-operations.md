@@ -503,14 +503,23 @@ An end that meets the other end's connectivity check before it has resolved
 that end's mDNS name (iOS Safari, the ICE-controlled answerer) holds a native
 host-to-prflx snapshot even after the browser refined the same connection to
 the added host candidate. That snapshot is pending, never proof: it passes only
-when the one transport-selected, succeeded statistics pair is that refined
-host-to-host connection (unchanged snapshot and ICE transport across the read,
-same ports, protocol, visible addresses, ICE generation and local foundation;
-`src/network/ice-selected-pair.ts`, shared with the Standard room) and meets
-the same foundation-and-port ledger and address rule. An unrefined prflx never
-passes and ends at the existing proof windows. Each end logs one info
-pair-check line when its proof ends (outcome, rule, candidate types, address
-kinds and candidate counts, never an address, port or full id).
+when the one transport-selected statistics pair is that refined host-to-host
+connection (`src/network/ice-selected-pair.ts`, shared with the Standard room)
+and meets the same foundation-and-port ledger and address rule. The match is
+indirect: the snapshot and ICE transport must stay unchanged across the read,
+ports and protocol must match, and addresses, the ICE username fragment and the
+local foundation are compared only where both sides expose them; the redacted
+prflx address never is. The snapshot's visible addresses must already meet the
+host rule (a public prflx or local address is refused at once), and the pair
+pends while the statistics still list a prflx connection from the same local
+candidate on the snapshot's port. The selected pair must have succeeded; the
+PRO rule also accepts one marked in-progress after a check response (libwebrtc
+marks the selected connection so for one round trip around each consent check,
+which a live reproof can meet). An unrefined prflx never passes and ends at
+the existing proof windows. Each end logs one info pair-check line when its
+proof ends (outcome, rule, candidate types, address kinds, candidate counts
+and when the first remote candidate was added, never an address, port or full
+id).
 If every target passes,
 the canonical descriptor is
 `{ publicationId, transport: "lan-direct", protocolVersion: 2 }`:

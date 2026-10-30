@@ -109,7 +109,13 @@ runbooks. Neither belongs in a general setup document.
   failed-reproof line, and the SFU listener's subscription stage times from the share notice. The
   note lists the cause and what tells the remaining causes apart, the threats kept closed, the
   tests-first commit `6eb40a04` (52 rows and the new helper file fail on its parent), the checks,
-  mixed versions and a proposed post-deploy reading table. Not device-checked.
+  mixed versions and a proposed post-deploy reading table. Review round 2 (tests first `10431823`):
+  a refined pair survives a reproof that meets libwebrtc's consent check in flight (in-progress
+  after a response), pends while a prflx connection on the same socket and port is still listed,
+  and is refused when two pairs are selected; the closed line keeps the last current reading; the
+  lines add the received count, the first remote add time and the SFU attempt's connection failure
+  and refusals before start; the note now records the change as diagnostic plus a conditional fix
+  and lists the residual risks it does not fix. Not device-checked.
 - [Phase 5.5 R4: PRO cleanup, PRO room Worker only (2026-10-30)](design/phase5-5-r4-pro-cleanup-2026-10-30.md):
   released on 2026-10-30 19:56 KST in Release 41044220520 (PR #537, squash `683074bc`): the planned
   PRO cleanup before Phase 6 and the last release of Phase 5.5, PRO room Worker only (target

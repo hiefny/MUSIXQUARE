@@ -142,7 +142,19 @@ remote `.local` mDNS candidate, on both ends. A native host-to-prflx snapshot (a
 end that met the other's check before resolving its mDNS name, as iOS Safari
 does) counts only once the one transport-selected statistics pair shows that same
 connection refined to such a host candidate; until then it is pending, and an
-unrefined prflx never proves. Each route negotiates in one signaling round
+unrefined prflx never proves. That match is indirect: the native prflx address is
+redacted, so the remote side rests on port, protocol and, where both sides expose
+them, the ICE username fragment and local foundation. The visible-address check on
+the snapshot, the refusal while the statistics still list a prflx connection from
+the same local candidate on that port, and the mDNS ledger carry the proof.
+Accepted residual risk (inherited by the refined path): JavaScript never sees the
+address an mDNS name resolves to, so where statistics hide addresses the proof rests
+on the ledger's strict mDNS candidate alone. A hostile or misconfigured mDNS
+responder on the listener's LAN (unauthenticated mDNS), or a dual-homed peer whose
+responder answers with a global address, could make a ledger-matched host pair cross
+the internet. This needs a party on the LAN and is not remotely forceable; numeric
+local addresses that statistics expose must still be private or link-local, and the
+same-subnet-when-hidden rule is not extended to any other path. Each route negotiates in one signaling round
 trip (since 2026-10-30; before, a data-channel-only probe and then a media re-offer): the
 single offer carries the probe data channel and one audio m-section whose sender holds no
 track, the receiver answers, proves its own selected pair and says so on the probe channel,

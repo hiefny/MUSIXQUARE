@@ -2339,7 +2339,10 @@ async function acceptOffer(signal: DirectOfferSignal, ownerParticipantId: string
     route.answerSent = sendReceiverAnswer(route, description);
     if (!route.answerSent) throw new Error('DIRECT_ANSWER_SEND_FAILED');
     flushReceiverLocalCandidates(route);
-    if (route.gatheringEndedWithoutLanCandidate) {
+    // Defensive: libwebrtc gathers only once setLocalDescription completes, so
+    // no browser is known to end gathering before this answer. A LAN candidate
+    // that still followed that end has just gone out, so the route stays.
+    if (route.gatheringEndedWithoutLanCandidate && route.localCandidateCount === 0) {
       failReceiverRouteWithoutLanCandidate(route);
       return;
     }

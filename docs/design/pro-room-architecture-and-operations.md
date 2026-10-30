@@ -528,9 +528,14 @@ the original stereo track's RTP packets then remain browser-to-browser and Cloud
 and signaling plane; its PRO Durable Object owns the
 lease/generation/publication state and its signaling Durable Object relays
 fenced SDP/ICE to exactly one authenticated target socket. Since App 9.0.28
-such a share also opens and closes one Cloudflare Realtime publisher session
-that never carries media (the held SFU fallback below; owner decision
-2026-10-31).
+such a share also usually asks for one Cloudflare Realtime publisher session
+that never carries media and closes it (the held SFU fallback below; owner
+decision 2026-10-31). That request spends one admission of the Worker's
+per-capability new-session limit (four per 60 seconds), which the same
+browser's other SFU publishes, promotions and subscriber retries share. When
+the LAN-direct proof lands while the session or track request is still in
+flight, the client never holds what it asked for, and that session or pushed
+track is left to Realtime to reap.
 
 Direct delivery is an all-participants invariant, not a per-listener
 optimization. Each target is locally fenced by the pair
@@ -550,9 +555,15 @@ negotiated publication and commits it with the already allocated
 LAN-direct decision. If every target passes, it closes the held publication
 before the `lan-direct` commit: its session id never reaches the Durable
 Object, the room state or any listener, and its sender never carried audio.
-The held publish has no timer, retry or timing value of its own; a failed one
-fails the share at the LAN-direct failure as a failed SFU publish did. A share
-without other devices prepares none. If a participant arrives after
+The publisher reports the publication (its `Published generation` line) only
+after the room committed it. The held publish has no timer, retry or timing
+value of its own and is the share's one SFU attempt: a held publish whose
+request failed, or whose connection was lost, during the LAN-direct window
+fails the share at the LAN-direct failure. 9.0.27 started its publish only
+after that decision, so an early network blip did not touch it, and a
+connection lost between publish and commit was recovered after the commit;
+no second publish is started for these cases. A share without other devices
+prepares none. If a participant arrives after
 direct commit while the room remains within the four-device system-audio limit,
 the publisher must prove another mDNS-local route to that exact target
 incarnation. A timeout, an incompatible or late old client, a non-host

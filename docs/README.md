@@ -99,15 +99,22 @@ runbooks. Neither belongs in a general setup document.
   (target `app`, nothing on screen changes). A share with LAN-direct targets starts its one SFU
   publish in the same turn as the LAN-direct attempt with the sender holding no track; a proven
   LAN-direct stops it before the unchanged `lan-direct` commit, and a failed one attaches the track
-  and commits the prepared descriptor at once. Owner-accepted cost: a LAN-direct share opens and
-  closes one Cloudflare Realtime publisher session that never carries media. No wire, server,
-  timer, retry or timing value; RO-20 extended in place. New sharer lines: Prepared, Closed unused
-  and failed SFU fallback; `Published generation N` keeps its text. Tests first `1b2be559` (29 rows
-  fail on the parent), runtime `17002160`. In a Chromium harness running the real service, SFU and
-  LAN-direct modules with a fake Cloudflare (publish modelled at 1.7 and 3 s), a share whose pair
-  never refines commits 1.70-1.81 s sooner and a `no-lan-candidate` share 0.12-0.14 s sooner; a
-  LAN-direct pass commits at the same time. Not verified on devices or against production
-  Cloudflare (a pushed track whose RTP starts seconds after negotiation, zero-media billing).
+  and commits the prepared descriptor at once. Owner-accepted cost: a LAN-direct share usually
+  asks for one Cloudflare Realtime publisher session that never carries media, and spends one
+  admission of the Worker's per-capability new-session limit (three owner questions on that limit
+  and on the share's one SFU attempt are listed in the note). No wire, server, timer, retry or
+  timing value; RO-20 extended in place. The held fallback's lines (Prepared, Released, Closed
+  unused, Cancelled, Closed released, failed) use the `[PRO SystemAudio]` prefix, so a LAN-direct
+  share still logs no `[ProSysAudioSFU]` line, and `[ProSysAudioSFU] Published generation N` comes
+  only after the room committed the fallback. Round 1: tests first `1b2be559`, runtime `17002160`;
+  review round 2: tests first `25e029ba` (25 rows fail on round 1), runtime `4bcc52fb`. In a
+  Chromium harness running the real service, SFU and LAN-direct modules against a fake Cloudflare
+  whose answering connection receives the media (publish modelled at 0.6, 1.7 and 3 s), the first
+  RTP packet of a share whose pair never refines arrives 1.68-1.81 s sooner at 1.7-3 s (0.60-0.64 s
+  at 0.6 s, after a 1.2 s hold) and of a `no-lan-candidate` share 0.11-0.18 s sooner; a LAN-direct
+  pass commits at the same time and its held connection receives no RTP. Not verified on devices
+  or against production Cloudflare (a pushed track whose RTP starts seconds after negotiation,
+  zero-media billing).
 - [App 9.0.27 train: the iPhone listener's LAN-direct pair judgement and diagnostic lines, and chat keyboard and screen reader focus (2026-10-30)](design/app-9-0-27-train-2026-10-30.md):
   released on 2026-10-31 04:31 KST in Release 41115623163 (PR #536, squash `23f29283`): the next
   App update after 9.0.26 (9.0.27 / v800, App build 800, update dialog; the version bump `676a1670`

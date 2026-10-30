@@ -2170,10 +2170,24 @@ RO-53 owner-in-place
   starts its one SFU attempt beside the LAN-direct attempt with the sender holding no track,
   `startHeldSfuPublication` with `holdMedia` on the same singleton publisher, owner decision
   2026-10-31; a LAN-direct failure releases the hold, `releaseProSystemAudioSfuPublisherHold`
-  attaching the track, and commits that descriptor, and a proven LAN-direct stops it unused
-  before the `lan-direct` commit, so a LAN-direct share opens and closes one Realtime publisher
-  session that never carries media; a held publication reports `failed` and `stopped` without a
-  descriptor, so `failedSfuPublisherSessionId` never names an uncommitted session), publisher
+  attaching the track, commits that descriptor, and only after a live SFU commit of that session
+  reports it published, `reportProSystemAudioSfuPublisherCommitted`, so the `published` event and
+  the `[ProSysAudioSFU] Published generation N` line name only a committed publication; a proven
+  LAN-direct stops it unused before the `lan-direct` commit. Cost, owner-accepted: a LAN-direct
+  share usually asks for one Realtime publisher session that never carries media and spends one
+  admission of the Worker's per-capability new-session limit
+  (`REALTIME_NEW_SESSION_PER_CAPABILITY_LIMIT`, 4 per 60 s in `cloudflare/app-worker.ts`), which
+  this browser's other publishes, promotions and subscriber retries share; a session or pushed
+  track the client never held (the proof landed while `new-session` or `tracks-new` was in flight)
+  is left to Realtime to reap. While held, before its release, it reports `failed` and `stopped`
+  without a descriptor, so `failedSfuPublisherSessionId` never names a held session; once released
+  it reports like any publish between its publish and its commit, so the commit's recheck still
+  recovers a connection lost in that window. It is the share's one SFU attempt: a held publish
+  that failed, or whose connection failed, during the LAN-direct window fails the share at the
+  LAN-direct failure with no second publish (9.0.27 published after the LAN-direct decision and
+  could recover such a loss after its commit; recorded for the owner in the 9.0.28 note), and a
+  LAN-direct pass whose post-commit activation or reconcile fails starts a fresh promotion publish
+  after stopping the prepared fallback), publisher
   recovery
   (`recoverLocalPublisher`, `cancelPublisherRecovery`), direct-to-SFU promotion
   (`promoteLocalDirectPublicationToSfu`, `reconcileAmbiguousDirectPromotion`), the lease heartbeat
@@ -2191,8 +2205,9 @@ RO-53 owner-in-place
   hand-copied blocks (exception RO-40, deleted by C4-12) without changing what a site tears
   down or keeps. The held SFU fallback is that singleton publisher, so every entry point stops it
   through `retireLocalMedia` as before (leaving the PRO room context keeps it, as it keeps the
-  publisher); a stale flight neither releases nor stops a successor's (the flight ownership check,
-  and the release refuses any publication but the current prepared hold).
+  publisher, so the flight then releases and commits it as the sequential publish did); a stale
+  flight neither releases nor stops a successor's (the flight ownership check, and the release
+  refuses any publication but the current prepared, unreleased hold).
 - **Target single owner:** unchanged split.
 - **Allowed requesters:** the capture session through the bridge; the
   `pro-system-audio:lease-lost` event back to capture.
@@ -2224,15 +2239,20 @@ RO-53 owner-in-place
     SFU promotion after session reset"; `src/pro-room/__tests__/system-audio-publication-teardown.test.ts`
     pins each teardown entry point's remaining timers, SFU publisher stops, LAN-direct resets and
     lease-lost reasons, after the share and (9.0.28) inside the LAN-direct window with the held
-    SFU fallback started.
+    SFU fallback started, twice: the LAN-direct attempt still pending, and already failed with the
+    held publish still pending.
   - Held SFU fallback (9.0.28): `system-audio-service.test.ts` "PRO system-audio held SFU
     fallback beside the LAN-direct attempt" (it starts beside the attempt, commits at the LAN-direct
-    failure when prepared, fails the share when it failed, and a stop, a teardown during the
-    release or a stale flight commits nothing) and "a proven LAN-direct stops the held publisher
-    before committing the 9.0.26 lan-direct shape and never releases it";
-    `src/network/__tests__/pro-system-audio-sfu.test.ts` "PRO system-audio SFU held fallback";
-    `src/pro-room/__tests__/system-audio-pro-publish-evidence.test.ts` (the prepared, published and
-    closed-unused lines).
+    failure when prepared, fails the share when it failed or lost its connection in the window, a
+    synchronous refusal becomes data, a refused commit reports nothing, and a stop, a teardown
+    during the release or a stale flight commits nothing), "a proven LAN-direct stops the held
+    publisher before committing the 9.0.26 lan-direct shape and never releases it" and "releases
+    exactly once when explicit stop aborts a pending publish";
+    `src/network/__tests__/pro-system-audio-sfu.test.ts` "PRO system-audio SFU held fallback"
+    (including the release's post-attach supersession and descriptor checks, and the commit
+    report); `src/pro-room/__tests__/system-audio-pro-publish-evidence.test.ts` (the held lines under
+    `[PRO SystemAudio]`, the published line only after the commit, no `[ProSysAudioSFU]` line on a
+    LAN-direct pass, and one `new-session` per share).
   - Visibility: missing.
 - **Status:** `owner-in-place`. Exceptions RO-39, RO-42.
 

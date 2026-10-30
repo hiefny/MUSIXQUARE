@@ -1,14 +1,14 @@
 # PRO 시스템 오디오 SFU 대체를 LAN-direct 시도 옆에서 미리 깔기 (미디어 보류, 2026-10-31)
 
-| Field              | Value                                                                                                                                                                                                                                                                                                                                                                                                                                       |
-| ------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Status             | 구현과 로컬 QA 라운드 1 끝, 브랜치 `agent/spec-sfu`(로컬만). PR 전, 미병합·미배포. 버전 올리기(bump)는 없다: 9.0.28 / 다음 SW 캐시 epoch는 9.0.28 열차의 마지막 런타임 커밋이 따로 올린다                                                                                                                                                                                                                                                     |
-| Base               | `agent/app-9-0-27-rebuild`의 끝 `3042b015`(9.0.27 / v800 열차, 버전 올리기 `676a1670` 뒤 문서·시험 커밋). 곧 main에 들어갈 9.0.27 squash와 같은 트리라 이 브랜치는 나중에 충돌 없이 main 위로 옮길 수 있다                                                                                                                                                                                                                                  |
-| Commits            | 테스트 먼저 `1b2be559`(시험만, 부모에서 29행 실패), 런타임 `17002160`(두 파일), 이 문서와 RO-20·아키텍처 문서 커밋                                                                                                                                                                                                                                                                                                                         |
-| Scope              | PRO 시스템 오디오 공유자의 첫 발행 순서만. `src/network/pro-system-audio-sfu.ts`(보류 발행, 보류 풀기, 진단 줄)와 `src/pro-room/system-audio-service.ts`(`publishLocalProSystemAudio`의 호출 순서). 청취자 코드, LAN-direct 전송(`pro-system-audio-direct.ts`), 서버, 시그널링, 발행 서술자 모양은 그대로다. 화면 글자와 배치는 바뀌지 않는다([화면 그대로]; 바뀌는 것은 소리가 나오는 시각뿐)                                              |
-| Deploy target      | `app`(App 런타임 두 파일). Worker 배포, 계약 표지, App 빌드 바닥(RO-50), 호환 경계 변경 없음                                                                                                                                                                                                                                                                                                                                               |
-| Operations         | 운영 요청, 프로덕션 요청, GitHub 쓰기 없음(push, PR, 배포 없음). 시간은 실제 서비스·SFU·LAN-direct 모듈을 묶어 돌린 Chromium 하네스(로컬 루프백, Cloudflare는 가짜)의 측정이다                                                                                                                                                                                                                                                              |
-| Resource ownership | 새 레코드, 색인 행, 가드 기준값 없음. RO-20이 이 수명의 주인이고, 이 변경은 그 publish 동작을 같은 SFU 발행자 싱글턴 위에서 넓힌다(두 번째 기계 없음). RO-20의 Resource, Current owners/flows, Deadline owner, Anchor tests를 같은 변경에서 고쳤다. 새 타이머, 재시도, 시간 값은 없고 보류 발행은 기존 `SFU_CONTROL_REQUEST_TIMEOUT_MS`(집 `src/network/system-audio-media.ts`) 아래에서 돈다. `node scripts/check-resource-ownership.mts` 통과(개수 변화 없음) |
+| Field              | Value                                                                                                                                                                                                                                                                                                                                                                                                                                                                                    |
+| ------------------ | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Status             | 구현, 로컬 QA 라운드 1, 리뷰 라운드 2(고침과 로컬 QA) 끝. 브랜치 `agent/spec-sfu`(로컬만). PR 전, 미병합·미배포. 버전 올리기(bump)는 없다: 9.0.28 / 다음 SW 캐시 epoch는 9.0.28 열차의 마지막 런타임 커밋이 따로 올린다                                                                                                                                                                                                                                                                  |
+| Base               | `agent/app-9-0-27-rebuild`의 끝 `3042b015`(9.0.27 / v800 열차, 버전 올리기 `676a1670` 뒤 문서·시험 커밋). 곧 main에 들어갈 9.0.27 squash와 같은 트리라 이 브랜치는 나중에 충돌 없이 main 위로 옮길 수 있다                                                                                                                                                                                                                                                                               |
+| Commits            | 라운드 1: 테스트 먼저 `1b2be559`(시험만, 부모에서 29행 실패), 런타임 `17002160`(두 파일), 문서 `a5cfb519`. 라운드 2: 테스트 먼저 `25e029ba`(시험만, `a5cfb519`에서 25행 실패), 런타임 `4bcc52fb`(두 런타임 파일과 시험 도우미 한 줄), 이 문서와 RO-20·아키텍처 문서 커밋                                                                                                                                                                                                                 |
+| Scope              | PRO 시스템 오디오 공유자의 첫 발행 순서만. `src/network/pro-system-audio-sfu.ts`(보류 발행, 보류 풀기, 커밋 보고, 진단 줄)와 `src/pro-room/system-audio-service.ts`(`publishLocalProSystemAudio`의 호출 순서). 청취자 코드, LAN-direct 전송(`pro-system-audio-direct.ts`), 서버, 시그널링, 발행 서술자 모양은 그대로다. 화면 글자와 배치는 바뀌지 않는다([화면 그대로]; 바뀌는 것은 소리가 나오는 시각뿐)                                                                                |
+| Deploy target      | `app`(App 런타임 두 파일). Worker 배포, 계약 표지, App 빌드 바닥(RO-50), 호환 경계 변경 없음                                                                                                                                                                                                                                                                                                                                                                                             |
+| Operations         | 운영 요청, 프로덕션 요청, GitHub 쓰기 없음(push, PR, 배포 없음). 시간은 실제 서비스·SFU·LAN-direct 모듈을 묶어 돌린 Chromium 하네스(로컬 루프백, Cloudflare는 가짜)의 측정이다                                                                                                                                                                                                                                                                                                           |
+| Resource ownership | 새 레코드, 색인 행, 가드 기준값 없음. RO-20이 이 수명의 주인이고, 이 변경은 그 publish 동작을 같은 SFU 발행자 싱글턴 위에서 넓힌다(두 번째 기계 없음). RO-20의 Resource, Current owners/flows, Deadline owner, Anchor tests를 같은 변경에서 고쳤고 라운드 2에서 다시 고쳤다. 새 타이머, 재시도, 시간 값은 없고 보류 발행은 기존 `SFU_CONTROL_REQUEST_TIMEOUT_MS`(집 `src/network/system-audio-media.ts`) 아래에서 돈다. `node scripts/check-resource-ownership.mts` 통과(개수 변화 없음) |
 
 ## 오너 결정 (2026-10-31)
 
@@ -18,6 +18,9 @@ LAN-direct가 성공한 공유도 Cloudflare Realtime 발행 세션 하나를 �
 `pro-system-audio-sfu.ts`의 'LAN 성공은 SFU 세션 비용이 없다'는 약속(preflight 주석)과 서비스의 같은 주석, 아키텍처
 문서의 문장을 이 변경에서 바꿨다. 비교한 다른 안(SFU 먼저 틀고 직결로 바꾸기, 시간 상한 등)과 그 수치는
 [9.0.27 열차 보고서](app-9-0-27-train-2026-10-30.md)의 오너 질문 항목과 비공개 작업 노트에 있다.
+
+리뷰 라운드 2가 오너가 아직 명시적으로 답하지 않은 결과 세 가지를 찾았다. 코드는 '공유당 한 번, 새 재시도 없음'에 맞춰 두었고,
+아래 '오너에게 물을 것'에 적었다.
 
 ## 원인
 
@@ -34,15 +37,21 @@ LAN-direct가 성공한 공유도 Cloudflare Realtime 발행 세션 하나를 �
    `replaceTrack(null)`로 송신기 트랙을 비운다. LAN-direct 송신기가 증명 전까지 소리를 잡아 두는 방식(`pro-system-audio-direct.ts`)과
    같다. 협상 전의 `replaceTrack(null)`은 재협상이 필요 없고, 트랙 없는 송신기는 RTP를 보내지 않는다. 보류 중에는 송신기
    조정(`tuneSystemAudioMusicSender`)도 하지 않아 LAN-direct가 성공한 공유는 캡처 트랙에 손대지 않는다.
-2. 보류 발행이 준비되면 `published` 사건 없이 서술자만 돌려주고 info 한 줄을 남긴다. 실패·정지 사건에는 서술자를 싣지
-   않는다. 그래서 서비스의 `failedSfuPublisherSessionId`는 커밋되지 않은 세션을 이름으로 가질 수 없고, 보류 세션이 재확인
-   타이머나 `recoverLocalPublisher`를 부를 길이 구조적으로 없다.
-3. 새 내보내기 `releaseProSystemAudioSfuPublisherHold(descriptor)`: 지금의 **준비된** 보류 발행이고 서술자 키가 같을 때만
-   원래 캡처 트랙을 붙이고(`replaceTrack(track)`), 송신기를 한 번 조정(음악 제약 셋, 256 kbps 상한, 같은 집과 같은 함수)한
-   뒤 바뀌지 않은 `[ProSysAudioSFU] Published generation N` 줄과 `published` 사건을 낸다. 정지·실패·대체된 발행, 아직
-   준비 중인 발행, 끝난 캡처 트랙은 거절한다(`PRO_SFU_FALLBACK_UNAVAILABLE` 또는 트랙 검사의 TypeError). 다른 발행의
-   송신기는 건드리지 않는다. 보류 송신기가 트랙을 받는 곳은 여기 하나다.
-4. 정리는 그대로 한 곳(`stopPublisherInternal`)이다: 시대(epoch) 올리기, 진행 중 요청 중단, `pc.close()`, 요청한 트랙의
+2. 보류 발행이 준비되면 `published` 사건 없이 서술자만 돌려주고 info 한 줄을 남긴다. 보류 중(풀기 전)의 실패·정지 사건에는
+   서술자를 싣지 않는다. 그래서 서비스의 `failedSfuPublisherSessionId`는 보류 중인 세션을 이름으로 가질 수 없고, 보류
+   세션이 재확인 타이머나 `recoverLocalPublisher`를 부를 길이 구조적으로 없다.
+3. 내보내기 `releaseProSystemAudioSfuPublisherHold(descriptor)`: 지금의 **준비되고 아직 풀리지 않은** 보류 발행이고 서술자
+   키가 같을 때만 원래 캡처 트랙을 붙이고(`replaceTrack(track)`), 송신기를 한 번 조정(음악 제약 셋, 256 kbps 상한, 같은 집과
+   같은 함수)한 뒤 `Released` 줄을 남긴다. 발행을 알리지는 않는다(라운드 2). 정지·실패·대체된 발행, 이미 풀린 발행, 아직
+   준비 중인 발행은 손대지 않고 거절한다(`PRO_SFU_FALLBACK_UNAVAILABLE`). 그 검사를 지난 뒤의 실패(끝난 캡처 트랙,
+   `replaceTrack` 거부)는 이 보류를 실패로 끝낸다: 실패 줄, 서술자 없는 `failed`, 한 곳의 정리(라운드 2). 붙이는 도중에 정지나
+   후속 발행이 오면 대체됨(`AbortError`)으로 거절하고 줄도 조정도 남기지 않는다. 다른 발행의 송신기는 건드리지 않는다. 보류
+   송신기가 트랙을 받는 곳은 여기 하나다.
+4. 새 내보내기 `reportProSystemAudioSfuPublisherCommitted(descriptor)`(라운드 2): 풀린 보류 발행이 방에 커밋된 뒤에만
+   `[ProSysAudioSFU] Published generation N` 줄과 `published` 사건을 낸다. 다른 발행(아직 보류, 정지, 실패, 대체, 스스로 알린
+   보통 발행, 두 번째 호출)에는 아무것도 하지 않는다. 풀린 뒤 커밋 보고 전의 발행은 9.0.27의 '발행 뒤 커밋 전' 발행처럼
+   실패·정지 사건에 서술자를 싣는다. 그래서 그 창에서 연결이 끊기면 예전처럼 커밋의 재확인이 복구한다.
+5. 정리는 그대로 한 곳(`stopPublisherInternal`)이다: 시대(epoch) 올리기, 진행 중 요청 중단, `pc.close()`, 요청한 트랙의
    `tracks-close`(force).
 
 ### 서비스 (`src/pro-room/system-audio-service.ts`, `publishLocalProSystemAudio`)
@@ -52,38 +61,55 @@ LAN-direct가 성공한 공유도 Cloudflare Realtime 발행 세션 하나를 �
 1. LAN-direct 시도를 먼저 시작한다(동기 거절과 거부도 'LAN 없음'으로 바꾼다).
 2. 같은 차례에 공유당 한 번인 SFU 시도를 보류로 시작한다(`startHeldSfuPublication`, 임대 시도의 preflight를 쓴다). 그
    결과는 곧바로 데이터(`{ ok, descriptor | error }`)가 되어, LAN-direct가 성공해 아무도 기다리지 않아도 처리 안 된 거부가
-   생기지 않는다.
+   생기지 않는다. 동기 거절도 데이터가 되고 그 preflight는 취소된다.
 3. LAN-direct가 증명되면 보류 발행을 멈추고(`stopProSystemAudioSfuPublisher`) 9.0.26과 같은 lan-direct 커밋을 보낸다.
    멈춤이 커밋보다 먼저다.
 4. LAN-direct가 실패하면 보류 발행을 기다린 뒤(보통 이미 준비됨) 비행 소유권을 확인하고, 보류를 풀어 트랙을 붙인 다음 그
    서술자를 커밋한다. 커밋은 송신기가 트랙을 가진 뒤에 나간다(예전과 같다). 보류 발행이 실패했으면 공유가 실패한다(예전의
-   실패한 SFU 발행과 같은 결과, 같은 정리, 같은 알림).
-5. 그 뒤는 그대로다: 커밋, `settleCanonicalSfuPublisher`(임시 만료를 서버의 `liveExpiresAt`으로 바꿈), 활성화, 하트비트.
+   실패한 SFU 발행과 같은 결과, 같은 정리, 같은 알림). 두 번째 발행은 시작하지 않는다.
+5. 커밋이 그 세션의 live SFU 상태를 돌려주면 `reportProSystemAudioSfuPublisherCommitted`를 부른 뒤
+   `settleCanonicalSfuPublisher`(임시 만료를 서버의 `liveExpiresAt`으로 바꿈)를 부른다. 그 뒤(활성화, 하트비트)는 그대로다.
 
 ### 정리 경로 (새 정리 코드 없음)
 
 보류 발행은 SFU 발행자 싱글턴이므로 모든 정리 입구가 예전처럼 `retireLocalMedia`로 멈춘다: 명시적 정지, 임대 상실(다른
 주인, 다섯 번째 기기 포함), 새 presence 인스턴스, 서비스 초기화(방 나가기, pagehide), 실패한 발행, 끝난 발행자 복구.
-PRO 방 문맥을 떠날 때는 예전처럼 발행자를 남기고, 비행은 예전의 순차 발행과 같은 결과(조금 더 일찍)로 끝난다. 묵은
-비행은 소유권 확인에 걸려 후속 비행의 보류를 풀지도 멈추지도 않고, 풀기 자체도 지금의 준비된 보류가 아니면 거절한다.
-그냥 숨겨진 페이지는 아무것도 정리하지 않는다(예전처럼 공유는 배경에서 계속). 남는 것: `new-session` 응답 전에 중단되면
-이 클라이언트가 붙지 않는 트랙 없는 Realtime 세션 객체가 남는다(Realtime v1에는 세션 닫기가 없다; 지금도 중단된 발행이면
-똑같다).
+PRO 방 문맥을 떠날 때는 예전처럼 발행자를 남기고(`kept: 'sfu-publisher'`), 비행은 예전의 순차 발행과 같은 결과(조금 더
+일찍)로 보류를 풀고 커밋한다. 묵은 비행은 소유권 확인에 걸려 후속 비행의 보류를 풀지도 멈추지도 않고, 풀기 자체도 지금의
+준비되고 풀리지 않은 보류가 아니면 거절한다. 그냥 숨겨진 페이지는 아무것도 정리하지 않는다(예전처럼 공유는 배경에서 계속).
+
+클라이언트가 쥐지 못한 것은 Realtime이 치운다(라운드 2에서 문구를 고침). `new-session` 요청이 나간 뒤 응답 전에 중단되면
+트랙 없는 세션 객체가 생겼을 수 있다(Realtime v1에는 세션 닫기가 없다; 지금도 중단된 발행이면 똑같다). `tracks-new` 도중에
+중단되면 클라이언트는 요청한 mid를 곧바로 `tracks-close`(force)로 닫지만, 그 닫기가 중단된 `tracks-new`보다 먼저 Realtime에
+닿으면 push 트랙이 연결 없는 세션에 남을 수 있다. 어느 쪽도 미디어는 0이다.
 
 ### 진단 줄 (모두 `log.info`, 인자 하나, IP·방 코드·세션 id·트랙 이름·토큰·전체 참가자 id 없음)
 
-- `[ProSysAudioSFU] Prepared SFU fallback for generation N in T ms`: 보류 발행 준비 끝(T는 보류 발행 시작부터, 즉 나란히
-  잰 P).
-- `[ProSysAudioSFU] Published generation N`: 글자 그대로. 보류 경로에서는 풀기에서, 커밋 바로 앞에 나온다. 승격 경로는
-  예전처럼 발행에서 나온다. 기기 기준은 여전히 '이 공유는 SFU로 갔다'로 읽는다.
-- `[ProSysAudioSFU] Closed unused SFU fallback for generation N (open T ms)` 또는
-  `(before it was prepared, T ms after the start)`: LAN-direct 성공이나 창 안의 정리로 쓰이지 않고 닫힘.
-- `[ProSysAudioSFU] SFU fallback for generation N failed after T ms (<오류 이름|connection-failed|capability-cancelled>)`:
-  보류 발행 실패. 메시지는 싣지 않는다(Cloudflare 오류 글에 id가 있을 수 있음). 오류 이름 목록은 구독 실패 줄과 같은
-  허용 목록(`FAILURE_NAMES`)이다.
+라운드 2: 보류 대체의 줄은 `[ProSysAudioSFU]`가 아니라 서비스의 머리 `[PRO SystemAudio]`를 쓴다. 이미 커밋된 기기 기준
+여러 개가 `/debug console`의 `[ProSysAudioSFU]` 줄 하나만 있어도 '이 공유는 SFU를 썼다'로 읽고 LAN-direct 실행을 무효로
+치기 때문이다([R3 하트비트 확인](phase5-5-r3-v1-receive-stop-2026-10-30.md), [5B의 'direct(추정)'](phase5-5b-receive-slot-behaviour-2026-10-26.md),
+[5A 5P-2](phase5-5a-receive-slot-2026-10-25.md)). 9.0.28에서도 LAN-direct로 끝난 공유에는 `[ProSysAudioSFU]` 줄이 없고,
+그 기준과 그것에 기대는 열린 항목은 고칠 필요가 없다.
 
-새 줄은 증거 정규식 `/Published generation|Promoted LAN-direct publication/`에 걸리지 않아 9.0.27의 'direct (presumed)'
-판정은 뜻이 그대로다. 9.0.28 기기 기준은 'LAN 통과에서 Prepared/Closed unused 줄은 있어도 된다'를 더한다.
+- `[PRO SystemAudio] Prepared SFU fallback for generation N in T ms`: 보류 발행 준비 끝(T는 보류 발행 시작부터, 즉 나란히
+  잰 P).
+- `[PRO SystemAudio] Released SFU fallback for generation N (held T ms)`: LAN-direct 실패 뒤 트랙을 붙임(T는 준비부터 풀기까지,
+  미디어 없이 연결만 산 시간).
+- `[ProSysAudioSFU] Published generation N`: 글자 그대로. 보류 경로에서는 방이 커밋한 **뒤에만** 나온다(라운드 2). 승격
+  경로는 예전처럼 발행에서, 커밋 바로 앞에 나온다. 기기 기준은 여전히 '이 공유는 SFU로 갔다'로 읽는다.
+- `[PRO SystemAudio] Closed unused SFU fallback for generation N (open T ms)` 또는
+  `(before it was prepared, T ms after the start)`: LAN-direct 성공이나 창 안의 정리로 쓰이지 않고 닫힘. 뒤의 것은
+  `new-session` 요청이 이미 나간 경우다.
+- `[PRO SystemAudio] Cancelled SFU fallback for generation N before any Realtime session was requested (T ms after the start)`:
+  `new-session` 요청 전에 멈춤(라운드 2). 이 공유는 Realtime 세션을 하나도 묻지 않았다.
+- `[PRO SystemAudio] Closed released SFU fallback for generation N without a reported commit (open T ms)`: 풀린 뒤 커밋이
+  보고되기 전에 닫힘(커밋 거절, 창 안의 정지 등, 라운드 2). `Released` 다음 `Published`가 없으면 이 공유는 SFU로 가지 않았다.
+- `[PRO SystemAudio] SFU fallback for generation N failed after T ms (<오류 이름|connection-failed|capability-cancelled|track-ended>)`:
+  보류 발행 실패, 또는 풀기 실패(`track-ended`, 거부된 붙이기의 오류 이름). 메시지는 싣지 않는다(Cloudflare 오류 글에 id가
+  있을 수 있음). 오류 이름 목록은 구독 실패 줄과 같은 허용 목록(`FAILURE_NAMES`)이다.
+
+새 줄은 증거 정규식 `/Published generation|Promoted LAN-direct publication/`에도 `[ProSysAudioSFU]` 머리에도 걸리지 않는다.
+증거 행이 LAN-direct 통과에서 `[ProSysAudioSFU]` 줄 0개를 다시 고정한다.
 
 ## 서버가 보는 것과 비용
 
@@ -98,14 +124,25 @@ PRO 방 문맥을 떠날 때는 예전처럼 발행자를 남기고, 비행은 �
   `/api/cloudflare-realtime`의 `new-session`과 `tracks-new`는 LAN 실패 뒤가 아니라 LAN 시도와 함께 시작한다. LAN 성공이면
   트랙을 요청한 뒤일 때 `tracks-close`(force) 하나가 더 간다. 모두 기존 묶음 능력 토큰 아래라 새 Turnstile이나
   작업증명 UI는 없다.
-- LAN 성공 공유당 Cloudflare 비용: Realtime `new-session` 하나(LAN 증명이 응답을 중단해도 세션 객체는 생긴다), 증명이
-  `new-session` 응답 뒤에 오면 `tracks-new`와 `tracks-close` 하나씩, 원격 설명 적용 뒤에 오면 ICE/DTLS(와 preflight 서버의
-  TURN 할당). 어느 경우든 RTP는 0이다(송신기에 트랙이 한 번도 없었다). 세션은 LAN 시작부터 증명까지, 최대 LAN 창(응답 2초 +
-  증명 1초 = 3초) 동안 산다. 현장에서는 증명(약 0.5~1.5초)이 보통 P(1.7~3초)보다 앞서 발행 중간에 버려진다. Realtime과
-  TURN은 공개 요금표상 나가는 바이트로 매기므로 예상 요금은 거의 0이지만, 미디어 0 세션의 청구는 확인하지 않았다.
-- Worker 예산: LAN 성공 공유도 `new-session` 하나를 쓴다(`REALTIME_NEW_SESSION_PER_CAPABILITY_LIMIT` 능력 토큰당 60초 4회,
-  `ROOM_BURST_REALTIME_NEW_SESSION_LIMIT` IP당 60초 250회). `tracks-new`/`tracks-close`는 변경 한도(토큰당 12, 세션당 8,
-  60초) 안이다.
+- LAN 성공 공유당 Cloudflare 비용: 보통 Realtime `new-session` 하나(LAN 증명이 응답을 중단해도 세션 객체는 생길 수 있다;
+  증명이 `new-session` 요청 전이면 0), 증명이 `new-session` 응답 뒤에 오면 `tracks-new`와 `tracks-close` 하나씩, 원격 설명
+  적용 뒤에 오면 ICE/DTLS(와 preflight 서버의 TURN 할당). 어느 경우든 RTP는 0이다(송신기에 트랙이 한 번도 없었다). 세션은
+  LAN 시작부터 증명까지, 최대 LAN 창(응답 2초 + 증명 1초 = 3초) 동안 산다. 현장에서는 증명(약 0.5~1.5초)이 보통 P(1.7~3초)보다
+  앞서 발행 중간에 버려진다. Realtime과 TURN은 공개 요금표상 나가는 바이트로 매기므로 예상 요금은 거의 0이지만, 미디어 0 세션의
+  청구는 확인하지 않았다.
+- Worker 한도(라운드 2에서 넓혀 적음): LAN 성공 공유도 `new-session` 하나를 쓴다. 9.0.27에서는 0개였다. 한도는
+  `REALTIME_NEW_SESSION_PER_CAPABILITY_LIMIT`(능력 토큰당 60초 4회, `cloudflare/app-worker.ts`)와
+  `ROOM_BURST_REALTIME_NEW_SESSION_LIMIT`(IP당 60초 250회)다. 능력 토큰은 기기(브라우저)당 하나이고 그 기기의 모든 PRO SFU
+  발행, 승격, 청취자 구독과 그 재시도가 같이 쓴다. 그래서 같은 기기가 1분 안에 공유를 여러 번 되풀이하면 그 기기의 다음 SFU
+  발행이나, 그 기기가 청취자일 때의 구독 재시도가 9.0.27보다 일찍 429를 받을 수 있다. 예: 같은 Wi-Fi에서 1분 안에 LAN-direct
+  공유 넷을 한 뒤 Wi-Fi 밖 청취자에게 다섯 번째 공유를 하면, 보류 `new-session`이 429를 받고(`… failed after N ms (Error)`)
+  LAN-direct가 실패하는 순간 공유가 `pro_publish_failed`로 끝난다. 9.0.27이면 앞의 넷이 `new-session`을 쓰지 않아 통과했다.
+  `tracks-new`/`tracks-close`는 변경 한도(토큰당 12, 세션당 8, 60초) 안이다. 서버 변경은 없다(한도를 하나 올리는 것은 따로
+  하는 Worker 변경이고 오너 결정이다).
+- 두 세션이 드는 경우(라운드 2에서 적음): LAN-direct가 증명되면 준비된 보류 발행을 먼저 닫는다. 그 뒤 lan-direct 커밋 다음의
+  활성화가 실패하거나 대상 재조정이 실패하면(예: LAN 창 사이에 Wi-Fi 밖 기기가 들어옴) 승격이 새 SFU 발행을 연다. 그때는
+  `new-session`이 두 번 들고 청취자는 승격의 P를 그대로 기다린다. 9.0.27에서도 승격은 새 발행이었으므로 대기는 같고, 늘어난
+  것은 닫힌 보류 세션 하나와 한도 하나다. 보류 발행을 승격에 넘기는 최적화는 RO-20 승격 흐름을 바꾸는 일이라 하지 않았다.
 
 ## 섞인 버전
 
@@ -113,7 +150,9 @@ PRO 방 문맥을 떠날 때는 예전처럼 발행자를 남기고, 비행은 �
 구독한다(SFU일 때 더 일찍). 9.0.26·9.0.27 공유자와 9.0.28 청취자는 지금과 같다. 시험: 청취자 쪽 계약 묶음
 (`system-audio-receive-slot-pro-contract`, `-pro-transport-contract`)은 바뀌지 않고 통과한다.
 
-## 측정 (Chromium 하네스, 공유 시작에서 SFU 커밋까지)
+## 측정 (Chromium 하네스)
+
+### 라운드 1: 공유 시작에서 SFU 커밋까지
 
 방법. bound-wait 하네스(실제 LAN-direct 모듈을 두 페이지에서 돌림)를 넓혀, 공유자 페이지에 **실제** 서비스
 (`publishLocalProSystemAudio`), 실제 컨트롤러, 실제 PRO SFU 발행자와 LAN-direct 전송을 묶었다(이전 = 부모 `3042b015`,
@@ -127,29 +166,59 @@ Cloudflare는 `fetchWithCapability` 뒤의 가짜다: TURN은 바로 404(공개 
 받지 못해 쌍이 정제되지 않음: 증명 창 끝에 실패), numeric-pub(공유자가 카메라 권한을 가져 LAN 후보가 없음:
 `no-lan-candidate`로 일찍 실패).
 
-| 경우                    | P(ms) | LAN 결정(이전 / 이후) | 커밋 이전(ms) | 커밋 이후(ms) | 줄어든 시간(회별)  | 전송       |
-| ----------------------- | ----- | --------------------- | ------------- | ------------- | ------------------ | ---------- |
-| never (끝내 정제 안 됨) | 1700  | 1808-1815 / 1815-1823 | 3528-3530     | 1816-1825     | 1705-1712          | sfu        |
-| never                   | 3000  | 1814-1817 / 1804-1814 | 4832-4841     | 3027-3044     | 1788-1812          | sfu        |
-| numeric-pub             | 1700  | 143-164 / 142-170     | 1859-1874     | 1736-1743     | 116-138            | sfu        |
-| numeric-pub             | 3000  | 140-142 / 144-152     | 3161-3175     | 3031-3033     | 130-142            | sfu        |
-| lan                     | 1700  | 810-844 / 815-828     | 810-845       | 816-829       | -6~25 (잡음)       | lan-direct |
-| lan                     | 3000  | 810-816 / 816-840     | 810-817       | 817-841       | -24~-5 (잡음)      | lan-direct |
-| lan                     | 1000  | 813-816 / 814-815     | 813-816       | 815-817       | -4~1 (잡음)        | lan-direct |
+| 경우                    | P(ms) | LAN 결정(이전 / 이후) | 커밋 이전(ms) | 커밋 이후(ms) | 줄어든 시간(회별) | 전송       |
+| ----------------------- | ----- | --------------------- | ------------- | ------------- | ----------------- | ---------- |
+| never (끝내 정제 안 됨) | 1700  | 1808-1815 / 1815-1823 | 3528-3530     | 1816-1825     | 1705-1712         | sfu        |
+| never                   | 3000  | 1814-1817 / 1804-1814 | 4832-4841     | 3027-3044     | 1788-1812         | sfu        |
+| numeric-pub             | 1700  | 143-164 / 142-170     | 1859-1874     | 1736-1743     | 116-138           | sfu        |
+| numeric-pub             | 3000  | 140-142 / 144-152     | 3161-3175     | 3031-3033     | 130-142           | sfu        |
+| lan                     | 1700  | 810-844 / 815-828     | 810-845       | 816-829       | -6~25 (잡음)      | lan-direct |
+| lan                     | 3000  | 810-816 / 816-840     | 810-817       | 817-841       | -24~-5 (잡음)     | lan-direct |
+| lan                     | 1000  | 813-816 / 814-815     | 813-816       | 815-817       | -4~1 (잡음)       | lan-direct |
 
-- SFU로 끝나는 공유는 커밋이 F + P에서 max(F, P) + 몇 ms로 왔다. 줄어든 시간은 min(F, P)다: 끝내 정제 안 되는
-  경우 1.70~1.81초(판정 모형 1.5~1.9초 안), `no-lan-candidate` 경우 0.12~0.14초(그때는 F가 짧다). 보류 풀기(트랙 붙이기와
-  조정)는 LAN 결정 줄 뒤 1~9 ms다.
-- LAN 성공 커밋 시각은 이전과 같다(차이 -24~+25 ms, 반복 사이 잡음 폭 안). 보류 발행과 나란히 돌아도 LAN 증명이 늦어지지
-  않았다.
-- LAN 성공의 Cloudflare 요청(이후): P=1700·3000에서는 `new-session` 하나만(증명 약 0.82초가 P/2 응답보다 앞서 중단,
-  'Closed unused … before it was prepared'), P=1000에서는 `new-session`, `tracks-new`, `tracks-close` 하나씩(증명이 트랙
-  요청 중에 와서 요청한 mid를 force로 닫음). 어느 경우도 커밋이나 `Published` 줄은 없다.
-- 현장 환산: 9.0.27 현장 모양(F 약 1.9초)이면 SFU로 끝나는 공유가 첫 소리까지 약 1.5~1.9초 빨라진다. 청취자 구독(약
-  5.4~6.3초)은 그대로라 끝내 정제 안 되는 공유의 첫 소리는 약 9.7~10.8초(9.0.26보다 1.1~1.5초 빠름)로 본다. 하네스는
-  로컬 루프백이고 P는 모형이다.
+### 라운드 2: 첫 RTP 패킷까지, 그리고 LAN 창 안의 겹침
 
-하네스 스크립트와 결과 줄은 저장소 밖 작업 노트에 있다.
+라운드 1 하네스는 커밋 요청 시각만 쟀고, 가짜 SFU가 답을 만든 뒤 그 연결을 바로 닫아 미디어가 흐르는지는 보지 않았다(리뷰
+지적). 라운드 2 하네스(이후 = 런타임 `4bcc52fb`)는 답하는 RTCPeerConnection을 'SFU'로 살려 둔다: 답에 자신이 모은 host
+후보를 싣고, 공유자의 발행자가 그쪽으로 ICE와 DTLS를 맺으며, 하네스가 그 연결의 inbound-rtp `packetsReceived`를 10 ms마다
+읽어 공개된 트랙의 첫 RTP 패킷이 닿은 시각을 적는다. `tracks-close`가 그 연결을 닫는다. TURN은 그대로 404라 발행자는
+Cloudflare 공개 STUN 항목으로 후보를 모은다(이 PC가 온라인이면 실제 STUN 왕복; 확인하지 않았다). TURN 릴레이 할당은 없다.
+새로 넣은 실행: `new-session`을 200 ms에 답하고 나머지를 `tracks-new`에 둔 경우(보류 연결이 LAN 창 안에서 제안·STUN 수집과
+겹치게, P=600이면 ICE/DTLS까지 끝나게), 반복 5회. 나머지는 라운드 1과 같은 모형, 반복 3회. Chromium 153.
+
+| 경우        | P(ms) | new-session(ms) | 반복 | LAN 결정(이전 / 이후) | 커밋 이전 | 커밋 이후 | 첫 RTP 이전 | 첫 RTP 이후 | 첫 RTP 줄어듦 | 풀기→첫 RTP | 전송       |
+| ----------- | ----- | --------------- | ---- | --------------------- | --------- | --------- | ----------- | ----------- | ------------- | ----------- | ---------- |
+| never       | 1700  | 850             | 3    | 1821-1829 / 1829-1833 | 3535-3554 | 1831-1834 | 3577-3611   | 1860-1904   | 1682-1732     | 28-73       | sfu        |
+| never       | 3000  | 1500            | 3    | 1823-1826 / 1827-1845 | 4839-4852 | 3035-3041 | 4876-4889   | 3063-3125   | 1764-1813     | 28-84       | sfu        |
+| never       | 600   | 200             | 5    | 1813-1823 / 1812-1827 | 2435-2443 | 1813-1828 | 2466-2515   | 1850-1885   | 599-639       | 25-72       | sfu        |
+| numeric-pub | 1700  | 850             | 3    | 143-146 / 148-158     | 1860-1866 | 1725-1735 | 1889-1914   | 1772-1791   | 106-142       | 38-57       | sfu        |
+| numeric-pub | 3000  | 1500            | 3    | 145-174 / 143-176     | 3169-3197 | 3023-3034 | 3196-3238   | 3058-3071   | 131-180       | 24-49       | sfu        |
+| lan         | 1700  | 850             | 3    | 826-863 / 824-834     | 826-863   | 825-836   | -           | -           | -             | -           | lan-direct |
+| lan         | 3000  | 1500            | 3    | 821-839 / 830-862     | 821-839   | 832-864   | -           | -           | -             | -           | lan-direct |
+| lan         | 600   | 200             | 5    | 814-822 / 814-821     | 815-823   | 816-824   | -           | -           | -             | -           | lan-direct |
+| lan         | 1000  | 200             | 5    | 825-851 / 813-856     | 825-852   | 814-858   | -           | -           | -             | -           | lan-direct |
+| lan         | 1700  | 200             | 5    | 821-850 / 825-855     | 821-850   | 827-857   | -           | -           | -             | -           | lan-direct |
+
+(모든 시각은 `publishLocalProSystemAudio` 호출부터 ms. P=600 밖의 실행 동안에는 같은 PC에서 전체 vitest가 함께 돌았다.
+이전과 이후 변형은 번갈아 돌았다.)
+
+- 트랙 없이 협상한 송신기는 풀기(`replaceTrack(track)`) 뒤 RTP를 보낸다(Chromium): 풀기에서 가짜 SFU의 첫 RTP 패킷까지
+  24~84 ms이고, 이전 변형의 '커밋에서 첫 RTP까지'(약 30~80 ms)와 같은 폭이다. 미디어 없이 연결만 1.18~1.19초 산 경우(never,
+  P=600, 'Released … (held 1181-1188 ms)')에도 그렇다. 이것은 Chromium 송신 쪽 확인이다. Cloudflare가 몇 초 늦게 RTP가 시작된
+  push 트랙을 그대로 전달하는지는 여전히 확인하지 않았다(아래 '확인 안 된 것').
+- 그래서 '소리가 빨라진다'는 수치는 이제 커밋 시각만이 아니라 공유자 쪽 첫 RTP 시각으로도 선다: 끝내 정제 안 되는 공유
+  1.68~1.81초(P=1.7, 3초), `no-lan-candidate` 공유 0.11~0.18초. 청취자 쪽(Cloudflare에서 청취자까지, 구독)은 재지 않았다.
+- LAN 성공에서 보류 연결과의 겹침: P=600(200 ms 세션)에서는 보류 연결이 637~649 ms에 ICE와 DTLS를 마치고(LAN 증명보다
+  약 170 ms 앞), LAN 증명 뒤 닫힐 때까지 받은 RTP는 0이었다. P=1000·1700(200 ms 세션)에서는 증명이 `tracks-new` 도중에 와서
+  요청한 mid를 force로 닫았고, 그동안 발행자는 제안을 만들고 STUN 후보를 모으는 중이었다. 세 경우 모두 LAN 결정과 커밋 시각이
+  이전과 같은 폭이다(차이는 반복 사이 잡음 안).
+- 하네스 스크립트와 결과 줄은 저장소 밖 작업 노트에 있다.
+
+### 현장 환산
+
+9.0.27 현장 모양(F 약 1.9초)이면 SFU로 끝나는 공유가 첫 소리까지 약 1.5~1.9초 빨라진다. 청취자 구독(약 5.4~6.3초)은
+그대로라 끝내 정제 안 되는 공유의 첫 소리는 약 9.7~10.8초(9.0.26보다 1.1~1.5초 빠름)로 본다. 하네스는 로컬 루프백이고 P는
+모형이며, 줄어든 시간은 공유자 쪽 커밋과 첫 RTP로 잰 값이다.
 
 ## 사용자가 알아챌 것
 
@@ -157,85 +226,130 @@ Cloudflare는 `fetchWithCapability` 뒤의 가짜다: TURN은 바로 404(공개 
 - 소리: LAN-direct가 안 붙는 공유(같은 Wi-Fi에서 직결이 안 되는 기기, 원격 청취자, 게스트 Wi-Fi 등)에서 소리가 약
   1.5~1.9초 빨리 나온다. LAN-direct가 붙는 공유는 지금과 같다.
 - 보이지 않는 차이: LAN-direct가 성공한 공유도 Cloudflare에 소리 없는 발행 세션을 잠깐 열었다 닫는다(오너가 받아들임).
+- 드문 차이(아래 '오너에게 물을 것'): 공유 직후 몇 초 안의 네트워크 흔들림이나 1분 안의 잦은 재공유 뒤에는, SFU가 필요한
+  공유가 9.0.27이면 통과했을 자리에서 실패 알림으로 끝날 수 있다.
 
 ## 위험과 막는 법
 
 - **소리 두 번.** 보류 송신기는 LAN 실패 가지에서 소유권 확인 뒤 부르는 풀기에서만 트랙을 받는다. LAN 성공이면 lan-direct
   커밋 전에 멈추고 그 세션 id는 아무도 모른다. LAN 실패면 시도가 이미 직결 세션을 닫았다('fallback' 닫기). 고정:
   서비스 행(LAN 성공은 풀기 없음, 멈춤이 커밋보다 먼저), 증거 행(LAN 성공의 `replaceTrack` 기록이 `[null]`뿐).
-- **커밋 전 추측 발행 노출.** 서술자는 커밋 요청 전까지 기기 밖으로 나가지 않는다. 보류 경로는 `published`를 내지 않고
-  실패·정지 사건에 서술자가 없다. 새 줄에는 세션 id, 트랙 이름, 방 코드, 토큰이 없다. 고정: SFU 행.
+- **커밋 전 추측 발행 노출.** 서술자는 커밋 요청 전까지 기기 밖으로 나가지 않는다. 보류 경로는 커밋 보고 전까지
+  `published`를 내지 않고, 보류 중 실패·정지 사건에 서술자가 없다. 새 줄에는 세션 id, 트랙 이름, 방 코드, 토큰이 없다.
+  고정: SFU 행, 증거 행(`Published`가 커밋 요청 뒤).
 - **세션 누수.** 새 정리 코드 없이 모든 경로가 싱글턴 정지에 닿는다(진행 중 요청 중단, 요청한 트랙 닫기, 연결 닫기). 묵은
-  비행은 후속 비행을 건드리지 못한다. 남는 것은 위 '정리 경로'의 `new-session` 중단 경우다. 고정: 정리 행(창 안의 각 입구),
-  서비스 행(정지, 풀기 중 정리, 묵은 비행), SFU 행(준비 전 정지, 풀기 거절).
-- **묵은 `failedSfuPublisherSessionId`나 커밋 안 된 세션의 복구.** 보류 발행은 서술자 없이 실패·정지를 알린다. 고정: SFU
-  연결 실패 행, 서비스의 'LAN 증명 시 실패한 보류 무시' 행.
+  비행은 후속 비행을 건드리지 못한다. 클라이언트가 쥐지 못한 세션·트랙은 위 '정리 경로'처럼 Realtime이 치운다. 고정: 정리
+  행(창 안의 각 입구, LAN이 아직일 때와 LAN이 이미 실패하고 보류가 아직일 때 두 번), 서비스 행(정지, 풀기 중 정리, 묵은 비행,
+  보류 대기 중 정지), SFU 행(요청 전·`new-session` 중·`tracks-new` 중 정지, 풀기 거절, 붙이는 도중 정지·후속 발행, 묵은 서술자).
+- **묵은 `failedSfuPublisherSessionId`나 보류 세션의 복구.** 보류 중 발행은 서술자 없이 실패·정지를 알린다. 풀린 뒤에는
+  9.0.27의 발행~커밋 창처럼 서술자를 싣고, 커밋의 재확인이 그 창의 연결 끊김을 복구한다. 고정: SFU 연결 실패 행 둘(보류 중,
+  풀린 뒤), 서비스의 'LAN 증명 시 실패한 보류 무시' 행.
 - **처리 안 된 거부.** 보류 결과를 시작 때 데이터로 바꾸고, 동기 검사 실패도 데이터로 바꾼다(preflight 취소). Vitest가 처리
-  안 된 거부에서 실행을 실패시키므로 LAN 성공 행들이 회귀를 잡는다.
-- **LAN 창 안에서 잃은 보류 발행.** ICE 실패나 실패한 요청은 LAN 실패 때 공유를 실패로 끝낸다(지금은 발행에서 커밋까지의
-  더 짧은 창에서 ICE가 실패하면 죽은 세션을 커밋한 뒤 복구한다). '공유당 한 번, 새 재시도 없음'으로 받아들였다. 창은 최대
-  3초이고 실패는 이름으로 남으며, 캡처는 기존 `pro_publish_failed` 알림을 보인다.
-- **Worker 요청 한도.** LAN 성공 공유도 `new-session` 하나를 쓴다. 한 브라우저가 공유를 빠르게 되풀이하면서 승격·복구·구독까지
-  겹치면 보류 발행이 429를 받을 수 있다. LAN 성공에는 영향이 없고, LAN 실패면 오늘의 429 SFU 발행처럼 실패한다(줄:
-  `… failed after N ms (Error)`). 서버 변경은 없다.
-- **트랙 없이 협상한 뒤 최대 약 3초 늦게 RTP가 시작되는 push 트랙**(`replaceTrack(null)` 뒤 `replaceTrack(track)`)을
-  Cloudflare가 어떻게 다루는지는 지금 코드 어디서도 겪지 않았고, 운영·실기기 요청 없이는 확인할 수 없다. 배포 전 확인:
-  청취자를 Wi-Fi 밖에 두어 SFU로 가게 한 기기 QA 공유에서 공유자의 Prepared와 Published 줄, 청취자의 'Subscription to
-  generation … ready'와 들리는 소리. 실패하면 소리 두 번이 아니라 기존 청취자 재시도와 알림으로 드러난다.
-- **보류 SFU 연결과 LAN-direct 경로의 경합.** 판정 하네스 추정 2~10 ms. 이 하네스의 LAN 성공 커밋 시각 차이도 잡음 폭
-  안이었다. LAN 시도가 같은 차례에 먼저 시작하고 그 시한은 그대로다. QA는 'LAN route … proven in N ms'를 9.0.27과 견준다.
+  안 된 거부에서 실행을 실패시키므로 LAN 성공 행들이 회귀를 잡는다. 고정: 서비스의 동기 거절 행 둘.
+- **LAN 창 안에서 잃은 보류 발행.** 요청 실패나 ICE/DTLS 실패는 LAN 실패 때 공유를 실패로 끝낸다(9.0.27은 발행에서 커밋까지의
+  더 짧은 창에서 연결이 끊기면 죽은 세션을 커밋한 뒤 복구했고, 공유 직후 첫 0.1~3초의 일시 오류에는 아예 닿지 않았다). 창은
+  최대 약 3초이고 공유 직후(선택 창이 닫히고 LAN 시도가 시작되는 가장 바쁜 때)와 겹친다. 실패는 이름으로 남고, 캡처는 기존
+  `pro_publish_failed` 알림을 보인다. '공유당 한 번, 새 재시도 없음'으로 두었고 오너 확인을 기다린다. 고정: 서비스 행(창 안의
+  연결 실패 뒤 LAN 실패: 공유 실패, 복구 없음, 두 번째 발행 없음).
+- **Worker 요청 한도.** 위 '서버가 보는 것과 비용'의 예처럼 같은 기기의 잦은 재공유가 그 기기의 다음 SFU 발행이나 구독 재시도를
+  429로 막을 수 있다. 고정: SFU 행(보류 `new-session` 429: 실패 줄 하나, 세션 없음), 서비스 행(실패한 보류는 LAN 실패에 공유
+  실패), 증거 행(공유당 `new-session` 하나, 요청 전 증명이면 0).
+- **트랙 없이 협상한 뒤 늦게 RTP가 시작되는 push 트랙**(`replaceTrack(null)` 뒤 `replaceTrack(track)`). Chromium 송신 쪽은
+  위 라운드 2 측정으로 확인했다. Cloudflare가 이것을 어떻게 다루는지는 지금 코드 어디서도 겪지 않았고, 운영·실기기 요청 없이는
+  확인할 수 없다. 전달하지 않으면 발행자 연결은 'connected'라 복구가 돌지 않고, 청취자는 구독은 되지만 소리가 없거나 재시도와
+  알림을 되풀이한다(소리 두 번은 아니다). 배포 전 확인은 아래 '배포 뒤 확인' (2)와 (3)이고, 특히 보류가 가장 긴 경우를 일부러
+  만든다. 확인될 때까지 '확인 안 된 것'에 둔다. 풀기 때 연결 상태를 다시 보는 검사는 넣지 않았다: 'connected'인데 전달하지
+  않는 경우를 못 잡고, 'disconnected'에서 거절하면 9.0.27이 커밋하고 복구했을 공유를 실패시킨다.
+- **보류 SFU 연결과 LAN-direct 경로의 경합.** 판정 하네스 추정 2~10 ms. 라운드 1·2 하네스의 LAN 성공 커밋 시각 차이도 잡음
+  폭 안이었다(보류 연결이 ICE/DTLS를 마친 P=600 포함). LAN 시도가 같은 차례에 먼저 시작하고 그 시한은 그대로다. QA는
+  'LAN route … proven in N ms'를 9.0.27과 견준다. TURN 릴레이 할당과 겹친 경우는 재지 않았다.
 - **캡처 트랙 조정.** 보류 송신기는 풀 때만 조정하므로 LAN 성공 공유는 캡처 트랙과 LAN 송신기가 9.0.27과 같다. 비트레이트
   상한은 소리가 시작된 몇 ms 뒤에 걸린다(변형된 제안이 이미 `maxaveragebitrate`를 싣는다).
-- **기기 증거 읽기.** `Published generation`은 첫 SFU 경로에서 커밋 바로 앞의 풀기를 뜻하게 되고, LAN 통과에 새 줄 둘이
-  나온다. 글자는 그대로이고 새 줄은 증거 정규식에 안 걸린다.
+- **기기 증거 읽기.** `[ProSysAudioSFU] Published generation`은 SFU로 간 공유(첫 SFU 경로는 커밋 뒤, 승격은 예전처럼)에만
+  나오고, LAN-direct로 끝난 공유에는 `[ProSysAudioSFU]` 줄이 없다. 보류 대체의 줄은 모두 `[PRO SystemAudio]` 머리다.
+
+## 오너에게 물을 것 (리뷰 라운드 2)
+
+1. **Worker 한도.** LAN-direct 공유가 이제 기기의 `new-session` 한도(60초 4회)를 하나씩 쓴다. 그대로 받아들일지, 따로 하는
+   Worker 변경으로 한도를 하나 올릴지(업데이트 창 없음). 클라이언트 재시도는 새 기계라 넣지 않는다.
+2. **창 안의 연결 끊김.** 보류 발행의 연결이 LAN 창 안에서 끊기면 공유가 실패로 끝난다. 9.0.27은 같은 끊김을 커밋 뒤 복구했다.
+   받아들일지.
+3. **창 초반의 일시 오류.** 보류 발행이 LAN 창 초반의 일시 오류(예: Worker 502)로 실패하면 LAN 실패 때 공유가 끝난다. 9.0.27은
+   LAN 결정 뒤에 발행해 그 오류를 피했을 수 있다. 받아들일지, 아니면 'LAN 실패 때 보류가 이미 실패했으면 보통 발행 한 번'(타이머
+   없음, 그래도 공유당 두 번째 SFU 시도)을 원하는지.
 
 ## 시험 (테스트 먼저)
+
+### 라운드 1
 
 테스트 먼저 커밋 `1b2be559`(시험만)는 부모 `3042b015`에서 29행이 실패하고(새 행과 새 계약을 적은 고친 행), 나머지 141행은
 통과했다(같은 다섯 파일). 실패 이유는 모두 의도한 것이다: 보류 발행이 없음(`holdMedia` 무시, 시도 대기 중 발행 없음),
 `releaseProSystemAudioSfuPublisherHold` 없음, 새 줄 없음, `stopped`·`failed`가 서술자를 실음, 창 안의 정지가
 `OPERATION_SUPERSEDED` 대신 발행 오류로 끝남.
 
-- `src/network/__tests__/pro-system-audio-sfu.test.ts` 'PRO system-audio SFU held fallback' 7행: 보류 협상(제안 전
-  `replaceTrack(null)`, 조정 없음, `publishing`만), 풀기(원래 트랙, 조정 한 번, Published 한 번), 준비된 보류 정지(닫힌 줄,
-  `tracks-close` force), 준비 전 정지(중단, `tracks-new` 없음), 연결 실패(서술자 없는 `failed`, 풀기 거절), 이름만 남기는 실패
-  줄(Error, TimeoutError, capability-cancelled), 풀기 거절(정지, 대체, 끝난 트랙, 후속 송신기 안 건드림). 모든 새 줄에 세션,
-  토큰, 트랙 이름, 방 코드가 없다.
-- `src/pro-room/__tests__/system-audio-service.test.ts`: 'a proven LAN-direct stops the held publisher before committing the
-  9.0.26 lan-direct shape and never releases it', 'a failed LAN-direct (the probe returns null / rejects) releases the held
-  publication…', 묶음 'PRO system-audio held SFU fallback beside the LAN-direct attempt' 8행(임대 preflight로 시도 옆에서
-  시작, 준비된 보류면 LAN 실패 순간 커밋(2,000 ms, 이전은 3,600 ms), 실패한 보류는 LAN 실패에 공유 실패, LAN 증명이면
-  실패한 보류 무시(알림·복구 없음), 창 안의 정지(LAN 실패·증명 둘 다), 풀기 중 정리, 묵은 비행). 고친 행: 프레즌스 변경
-  행(보류 하나와 승격 하나), 묵은 활성화 행(보류만, 승격 없음), 승격 응답 유실 행·마감 행·유지 경로 두 행(승격 발행만
-  셈), 명시적 정지 행(`OPERATION_SUPERSEDED`). 대상 0 행은 그대로 통과한다(보류 없음).
-- `src/pro-room/__tests__/system-audio-publication-teardown.test.ts`: LAN 창 안의 다섯 입구(명시적 정지, 임대 상실, 새 presence
-  인스턴스, 서비스 초기화는 공유 뒤 행과 같은 목록이고 풀기·커밋 없음; PRO 방 문맥 떠나기는 발행자를 남기고 예전 순차 발행처럼
-  풀고 커밋).
-- `src/pro-room/__tests__/system-audio-pro-publish-evidence.test.ts`(실제 SFU 모듈과 네이티브 가짜): 첫 SFU 경로의
-  Prepared 다음 Published 한 번(세션 하나, `replaceTrack` `[null, track]`), 준비 뒤 LAN 증명(세션 하나 열고 닫음, 미디어 0,
-  캡처 제약 요청 0, Published 없음), 준비 전 LAN 증명(트랙 요청 0, 준비 전 닫힌 줄). 승격 행은 승격 자신의 세션을 기대하고
-  T2 조정 행은 그대로 통과한다(보류 송신기는 조정되지 않는다).
-- 도우미: 가짜 송신기 둘에 기록되는 `replaceTrack`, 다른 SFU 모듈 가짜(감시견, 수신 하네스)에 새 내보내기.
+### 라운드 2
+
+테스트 먼저 커밋 `25e029ba`(시험만)는 라운드 1 끝 `a5cfb519`에서 25행이 실패하고 167행이 통과했다(같은 다섯 파일과 도우미
+둘). 실패 이유는 모두 의도한 것이다: 보류 줄의 머리, `Released`·`Cancelled`·`Closed released` 줄 없음, 풀기에서 나오던
+`Published`, `reportProSystemAudioSfuPublisherCommitted` 없음, 풀기 실패에 실패 줄 없음. 이미 있던 검사를 고정하는 새 행은
+처음부터 통과했고, 아래 변이 시험으로 그 검사를 잡는지 확인했다.
+
+- `src/network/__tests__/pro-system-audio-sfu.test.ts` 'PRO system-audio SFU held fallback' 17행: 보류 협상, 풀기(조정 한 번,
+  `Released`, 발행 알림 없음) 뒤 커밋 보고(`Published` 한 번), 커밋 보고는 다른 발행에 아무것도 안 함, 풀린 뒤 연결 실패는
+  서술자를 실음, 준비된 보류 정지, 요청 전 정지(`Cancelled`, 요청·연결 0), `new-session` 중 정지, `tracks-new` 중 정지(요청한
+  mid force 닫기), 보류 중 연결 실패, 이름만 남기는 실패 줄, 429 실패, 풀기 거절(정지·대체), 묵은 서술자가 후속 보류를 못 풂,
+  붙이는 도중 정지·후속 발행(대체됨, 줄·조정 없음, 후속은 그대로 풀리고 보고됨), 끝난 트랙(`track-ended`), 거부된 붙이기(오류
+  이름).
+- `src/pro-room/__tests__/system-audio-service.test.ts`: 'a failed LAN-direct … releases the held publication' 두 행이 커밋 뒤
+  보고와 순서(풀기 → 커밋 → 보고 → 만료 정리)를 고정. 'a proven LAN-direct …' 행은 보고 없음. 새 행: 커밋 거절이면 보고 없음,
+  동기 거절은 데이터(LAN 증명·실패 둘), 창 안의 연결 실패 뒤 LAN 실패(공유 실패, 복구·두 번째 발행 없음). 'releases exactly once
+  when explicit stop aborts a pending publish'는 비행이 보류 발행을 기다리는 동안 정지하도록 고쳐 제목대로 시험한다.
+- `src/pro-room/__tests__/system-audio-publication-teardown.test.ts`: LAN 창 묶음을 'LAN-direct 아직'과 'LAN-direct 이미 실패,
+  보류 발행 아직' 두 창으로 돌린다(입구 다섯 × 2). 두 번째 창에서 정지 뒤 보류가 중단으로 거부되면 `OPERATION_SUPERSEDED`,
+  풀기·커밋·보고 없음, 같은 정지·재설정·임대 상실 목록.
+- `src/pro-room/__tests__/system-audio-pro-publish-evidence.test.ts`: 첫 SFU 경로(Prepared, Released, 커밋 뒤 Published,
+  세션 하나), 커밋 거절(Published 없음, `Closed released`), LAN 증명 네 경우(준비 뒤, 요청 전, `new-session` 중, `tracks-new`
+  중)마다 `new-session` 개수와 `[ProSysAudioSFU]` 줄 0개.
+- 도우미: 발행자 가짜 Cloudflare에 요청 하나를 붙잡는 `holdNext`(중단되면 fetch처럼 거부), 다른 SFU 모듈 가짜(감시견, 수신
+  하네스)에 새 내보내기.
+
+변이 시험(다섯 묶음을 매번 다시 돌림, 결과는 작업 노트): 풀기의 붙인 뒤 대체 검사 제거 → 2행 실패, 풀기의 서술자 키 검사 제거 →
+1행 실패, `startHeldSfuPublication`의 동기 거절 처리 제거 → 2행 실패, 보류 대기 뒤 비행 소유권 확인 제거 → 5행 실패, 풀기에서
+`Published`를 내게 되돌림 → 12행 실패, 보류 줄 머리를 `[ProSysAudioSFU]`로 되돌림 → 21행 실패.
 
 ## QA 라운드 1 (로컬, 2026-10-31)
 
-| 항목        | 값                                                                                                       |
-| ----------- | -------------------------------------------------------------------------------------------------------- |
-| 시험한 코드 | 런타임 `17002160`(문서 커밋은 코드를 바꾸지 않는다)                                                     |
-| 환경        | Windows 11, Node 24.22.2(`mxq-tools`), `npm ci`, Chromium 153(Playwright), 로컬만                        |
+| 항목        | 값                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                           |
+| ----------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| 시험한 코드 | 런타임 `17002160`(문서 커밋은 코드를 바꾸지 않는다)                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                          |
+| 환경        | Windows 11, Node 24.22.2(`mxq-tools`), `npm ci`, Chromium 153(Playwright), 로컬만                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                            |
 | 결과        | 통과(런타임 `17002160` 위 문서 커밋 트리에서; 그 뒤 이 결과 칸만 고쳤다). `npm run typecheck`, `npm run lint`, `npm run format:check`, `node scripts/check-resource-ownership.mts`(개수 변화 없음), `npm run build`와 `guard:*` 전부가 통과했고 `guard:sw-cache-version`만 예상대로 실패했다(버전 올리기 없음: 두 런타임 파일이 v800 `676a1670`보다 새로움). 전체 `vitest --maxWorkers=6`은 16,938행 중 16,931행 통과, 7행은 임시 git 저장소를 만드는 도구 시험 두 파일(`sw-cache-version-guard`, `release-deployment-state`)의 시간 초과였고 그 두 파일만 다시 돌리면 156/156 통과(이 변경과 무관; 첫 전체 실행에서도 같은 파일이 셋 시간 초과). `npm run test:e2e:critical` 100 통과, `e2e/system-audio-controls.test.ts` 5 통과(Chromium). 바뀐 다섯 시험 파일 170행 통과 |
-| 건너뜀·한계 | 실기기, WebKit 실기기, 운영 Cloudflare, 실제 P와 미디어 0 세션 청구는 시험하지 않았다(아래 '확인 안 된 것') |
+| 건너뜀·한계 | 실기기, WebKit 실기기, 운영 Cloudflare, 실제 P와 미디어 0 세션 청구는 시험하지 않았다(아래 '확인 안 된 것')                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                  |
+
+## QA 라운드 2 (로컬, 2026-10-31)
+
+| 항목        | 값                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                     |
+| ----------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| 시험한 코드 | 런타임 `4bcc52fb`(이 문서 커밋은 코드를 바꾸지 않는다)                                                                                                                                                                                                                                                                                                                                                                                                                                                                                 |
+| 환경        | 라운드 1과 같음                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                        |
+| 결과        | 통과. `npm run typecheck`, `npm run lint`, `npm run format:check`, `node scripts/check-resource-ownership.mts`(개수 변화 없음)가 통과했다. 전체 `vitest --maxWorkers=6`은 16,960행 중 16,955행 통과, 5행은 라운드 1과 같은 도구 시험 두 파일(`sw-cache-version-guard` 4, `release-deployment-state` 1)의 시간 초과였고(라운드 2 하네스와 함께 돌았다) 그 두 파일만 다시 돌리면 156/156 통과. 바뀐 다섯 시험 파일 192행, 청취자 계약 묶음 둘과 소유권 가드 시험을 더한 여덟 파일 326행 통과. 변이 시험 여섯 개가 모두 잡혔다(위 '시험') |
+| 건너뜀·한계 | 라운드 1과 같음. 라운드 2 하네스는 Chromium 송신 쪽 RTP만 보며, Cloudflare 전달, 청취자 쪽, TURN 릴레이 할당은 재지 않았다. `npm run build`, `guard:*`, e2e는 다시 돌리지 않았다(UI·빌드 입력 변경 없음)                                                                                                                                                                                                                                                                                                                               |
 
 ## 확인 안 된 것
 
 - 실기기(iOS Safari, Edge, Android)와 운영 Cloudflare Realtime. 특히 트랙 없이 협상한 push 트랙이 몇 초 뒤 RTP를 받기
-  시작할 때의 Cloudflare 동작, LAN 시도와 나란히 돈 실제 P.
-- 미디어 0 세션에 대한 Cloudflare 청구.
+  시작할 때의 Cloudflare 동작(Chromium 송신 쪽은 라운드 2에서 확인), LAN 시도와 나란히 돈 실제 P, TURN 릴레이 할당과의 겹침.
+- 미디어 0 세션에 대한 Cloudflare 청구, 클라이언트가 쥐지 못한 세션·push 트랙을 Realtime이 치우는 시간.
 - 하네스는 로컬 루프백과 가짜 Cloudflare다(P는 모형).
 
 ## 배포 뒤 확인 (제안)
 
 오너 기기로 `?mxqrLog=info` 공유 몇 번: (1) 같은 Wi-Fi에서 LAN-direct가 붙는 공유는 공유자에 'LAN route … proven' 다음
-'Closed unused SFU fallback …'이 있고 `Published generation` 줄은 없다. (2) 청취자를 Wi-Fi 밖에 둔 공유는 공유자에
-'Prepared SFU fallback … in T ms'와 'Published generation N'이, 청취자에 'Subscription to generation … ready'와 들리는
-소리가 있다. 판정 기준은 따로 건네지 않는다(블라인드 확인).
+`[PRO SystemAudio] Closed unused SFU fallback …`(또는 `Cancelled SFU fallback …`)이 있고 어느 기기에도 `[ProSysAudioSFU]` 줄이
+없다. (2) 청취자를 Wi-Fi 밖에 둔 공유는 공유자에 `Prepared SFU fallback … in T ms`, `Released SFU fallback … (held T ms)`,
+`[ProSysAudioSFU] Published generation N`이 이 순서로 있고, 청취자에 'Subscription to generation … ready'와 들리는 소리가 있다.
+`Released` 다음에 `Published`가 없으면 그 공유는 SFU로 가지 않았다(`Closed released …`나 실패 알림). (3) 보류가 가장 긴 경우:
+청취자를 같은 Wi-Fi에 두되 쌍이 정제되지 않게(예: 클라이언트 격리가 켜진 게스트 Wi-Fi) 해서, 공유자의 `Prepared`가 LAN 결정
+줄보다 1초 넘게 앞서고 `Released … (held T ms)`의 T가 1초를 넘는 공유를 만든다. 그 공유에서 청취자의 'ready' 줄과 들리는 소리를
+확인한다. (4) 1분 안에 공유를 다섯 번 되풀이하면 다섯 번째의 보류가 `… failed after N ms (Error)`로 끝날 수 있다(위 Worker 한도).
+판정 기준은 따로 건네지 않는다(블라인드 확인).

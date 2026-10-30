@@ -587,6 +587,74 @@ describe('C2-0 start-owner boundary: a volume change while an owner holds hard m
   );
 });
 
+describe('C2-0 start-owner boundary: a volume change in the legacy start machines (pinned 2026-10-31)', () => {
+  it('host legacy recovery: keeps its reload hard-muted through a change during the settle and restores 40 at release', async () => {
+    // The prepare failure hands the start to the legacy recovery at +430; its
+    // reload settles hard-muted from +431 and releases at +481.
+    const result = await project({
+      ...SCENARIOS.hostPrepareFailure,
+      steps: [
+        ...SCENARIOS.hostPrepareFailure.steps,
+        { at: 450, run: () => bus.emit('youtube:set-volume', 40) },
+      ],
+    });
+    expect(result.ops).toEqual([
+      '+100 mute()',
+      '+100 mute()',
+      '+130 mute()',
+      '+160 mute()',
+      '+190 mute()',
+      '+220 mute()',
+      '+250 mute()',
+      '+280 mute()',
+      '+310 mute()',
+      '+340 mute()',
+      '+370 mute()',
+      '+400 mute()',
+      '+430 pauseVideo()',
+      '+431 mute()',
+      '+431 loadVideoById(zeroStartA1,0)',
+      '+431 pauseVideo()',
+      '+431 seekTo(0,true)',
+      // The change writes the volume and leaves the hard mute in place.
+      '+450 setVolume(40)',
+      '+481 setVolume(40)',
+      '+481 unMute()',
+      '+481 playVideo()',
+    ]);
+  });
+
+  it('host legacy rendezvous at a -5 s offset: holds its speaker paused, not hard-muted, so a change during the hold writes the volume and unMute at once', async () => {
+    const result = await project({
+      name: 'host legacy rendezvous held 5 s',
+      role: 'host',
+      rig: { localOffsetSeconds: -5 },
+      steps: [
+        // A legacy start at 0:00 (no zero-start): pause, seek, play 5 s later.
+        {
+          at: 100,
+          run: () =>
+            bus.emit('youtube:auto-play', { targetTime: 0, state: 1, videoId: IDENTITY.videoId }),
+        },
+        { at: 1_000, run: () => bus.emit('youtube:set-volume', 40) },
+      ],
+      endAt: 9_000,
+    });
+    expect(result).toEqual({
+      ops: [
+        '+100 pauseVideo()',
+        '+100 seekTo(0,true)',
+        '+1000 setVolume(40)',
+        '+1000 unMute()',
+        '+5100 playVideo()',
+      ],
+      routes: ['broadcast:* youtube-state', 'broadcast:* youtube-sync', 'broadcast:* youtube-sync'],
+      loading: [],
+      marks: ['0 idle - - - -'],
+    });
+  });
+});
+
 describe('C2-0 start-owner boundary: Standard teardown (pinned 2026-10-30)', () => {
   it('parks a primed iframe when stopYouTubeMode runs mid-warm-up, with no detached unMute after', async () => {
     const scenario: StandardScenario = {

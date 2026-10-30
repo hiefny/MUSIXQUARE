@@ -424,7 +424,7 @@ describe('Standard guest fallback deadlines (pinned 2026-10-30)', () => {
   // 10 s prepare window: 7,700 ms from its fallback (+2401). Every other
   // fallback gets 3,000 ms (player.ts:2460-2466). Polls run every 50 ms.
   it.each([
-    ['7.7 s', 'released one poll before the deadline', 9_949],
+    ['7.7 s', 'settled one poll before the deadline and released one poll after it', 9_949],
     ['7.7 s', 'abandoned at the deadline', 10_060],
   ] as const)('%s deadline: a late load %s', async (_deadline, _outcome, readyAfterMs) => {
     const current = await startRig(SCENARIOS.guestCohortExcluded(readyAfterMs));

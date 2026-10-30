@@ -382,7 +382,10 @@ reading snapshot schemaVersion 1: a transition COMMIT without the field is
 `scheduled-control` at any lead. The PRO Worker stopped reading the deadline in
 the PRO-only release after that: a stored transition without the field, which
 only a Worker before schemaVersion 2 wrote, still loads and commits with the
-700 ms lead as `scheduled-control`, like an unknown value. Phase 6
+700 ms lead, and its PREPARE and COMMIT name `scheduled-control`, as the App
+reads a COMMIT without the field. A stored transition whose field names an unknown
+kind is refused on load (the Worker drops it without a CANCEL); reading an
+unknown value as `scheduled-control` is the App's rule for the wire. Phase 6
 of the structure improvement plan builds on this contract unchanged: the kind
 on every PREPARE and transition COMMIT, the classification, the time basis,
 the three-second barrier, the 700 ms lead, the event envelope, and the

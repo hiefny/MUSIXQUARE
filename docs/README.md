@@ -104,11 +104,13 @@ runbooks. Neither belongs in a general setup document.
   control. The PRO CORS allow list drops `x-mxqr-pro-entry-policy` and `x-mxqr-pro-playlist-slots`,
   which the App has not sent since 9.0.25 (a 9.0.24 or older loopback development build that calls
   the production PRO API fails its preflight). The report lists the owner decisions and the three
-  open owner questions (built with the recommended defaults), the tests-first parent failures, the
-  storage lifetime that keeps the old record accepted, mixed versions, rollback to that PRO Worker
-  with no new boundary, the deploy conditions and order, the blind post-deploy check, the two
-  comments left for later releases (the shared timing home header and a snapshot parser comment),
-  QA rounds and what was not verified.
+  open owner questions R4-Q1 to R4-Q3 (its own numbers, built with the recommended defaults), the
+  tests-first parent failures, the storage lifetime that keeps the old record accepted (in
+  production only the COMMIT's start kind changes), mixed versions, rollback to that PRO Worker
+  with no new boundary, the deploy conditions and order, the blind post-deploy check (a YouTube
+  start; regression only), the two comments left for later releases (the shared timing home header
+  and a snapshot parser comment), the train review and what it changed, QA rounds and what was not
+  verified.
 - [App 9.0.26 train: PRO system-audio LAN-direct in one round trip and the chat sheet without its Close (2026-10-30)](design/app-9-0-26-train-2026-10-30.md):
   released on 2026-10-30 13:08 KST in Release 41001009672 (PR #534, squash `cbbc56d9`): the next
   App update after 9.0.25 (9.0.26 / v799, App build 799, update dialog; the version bump `b2ac0109`

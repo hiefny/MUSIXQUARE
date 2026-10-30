@@ -12,6 +12,11 @@
  * is open), focus moves to the sheet itself. A browser otherwise dropped focus
  * to the page, so a screen reader left the Chat dialog; jsdom keeps focus on
  * the hidden button instead, which these tests reject the same way.
+ *
+ * A message removed while it, or a time link in it, has focus also moves focus
+ * to the sheet: a cleared room history, or the oldest rows that the 200-row cap
+ * prunes. Removal otherwise dropped focus to the page, in a browser and in jsdom
+ * alike.
  */
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { readFileSync } from 'node:fs';
@@ -38,6 +43,7 @@ function focusedControl(): string {
   const active = document.activeElement;
   if (active?.classList.contains('chat-drawer-header')) return 'handle';
   if (active?.classList.contains('chat-bubble')) return 'message';
+  if (active?.classList.contains('chat-timestamp')) return 'time link';
   return active?.id ?? '';
 }
 
@@ -194,6 +200,63 @@ describe('chat sheet focus when the pinned notice hides', () => {
 
     bus.emit('chat:service-notice-withdrawn', 'A');
     expect(notice().hidden).toBe(true);
+    expect(document.activeElement).toBe(input);
+  });
+});
+
+describe('chat sheet focus when the message that holds it is removed', () => {
+  const copyableMessages = () => document.querySelectorAll('#chat-messages [data-chat-copy-text]');
+
+  it.each([
+    { holder: 'a message', reach: ['message'] },
+    { holder: 'a time link in a message', reach: ['message', 'time link'] },
+  ])('moves focus from $holder cleared with the room history to the sheet', async ({ reach }) => {
+    const { addChatMessage } = await import('../chat-render.ts');
+    addChatMessage('Peer', 'Play it again from 1:23', false);
+    expect(pressTab(reach.length)).toEqual(reach);
+
+    bus.emit('chat:clear-all');
+    expect(copyableMessages()).toHaveLength(0);
+    expect(focusedControl()).toBe('chat-drawer');
+    // The cleared log keeps only its notice, which takes no focus.
+    expect(pressTab(3)).toEqual(['handle', 'chat-input', 'btn-chat-send']);
+  });
+
+  it('moves focus from a message pruned at the 200-row cap to the sheet', async () => {
+    const { addChatMessage, addSystemChatMessage } = await import('../chat-render.ts');
+    addChatMessage('Peer', 'The oldest message', false);
+    expect(pressTab(1)).toEqual(['message']);
+
+    // System notices take no focus, and the 200th prunes the oldest row.
+    for (let index = 1; index <= 200; index += 1) addSystemChatMessage(`Room notice ${index}`);
+    expect(document.querySelectorAll('#chat-messages .chat-row')).toHaveLength(200);
+    expect(copyableMessages()).toHaveLength(0);
+    expect(focusedControl()).toBe('chat-drawer');
+    expect(pressTab(3)).toEqual(['handle', 'chat-input', 'btn-chat-send']);
+  });
+
+  it('leaves focus on a message that the cap keeps', async () => {
+    const { addChatMessage, addSystemChatMessage } = await import('../chat-render.ts');
+    addChatMessage('Peer', 'The oldest message', false);
+    for (let index = 1; index <= 198; index += 1) addSystemChatMessage(`Room notice ${index}`);
+    addChatMessage('Peer', 'The newest message', false);
+    expect(pressTab(2)).toEqual(['message', 'message']);
+    const newest = document.activeElement as HTMLElement;
+    expect(newest.dataset.chatCopyText).toBe('The newest message');
+
+    addSystemChatMessage('Room notice 199');
+    expect(copyableMessages()).toHaveLength(1);
+    expect(document.activeElement).toBe(newest);
+  });
+
+  it('leaves focus that is outside the cleared messages where it is', async () => {
+    const { addChatMessage } = await import('../chat-render.ts');
+    addChatMessage('Peer', 'A message the room clears', false);
+    const input = document.getElementById('chat-input')!;
+    input.focus();
+
+    bus.emit('chat:clear-all');
+    expect(copyableMessages()).toHaveLength(0);
     expect(document.activeElement).toBe(input);
   });
 });

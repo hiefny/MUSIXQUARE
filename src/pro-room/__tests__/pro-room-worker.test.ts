@@ -14049,16 +14049,17 @@ describe('persistent PRO room bootstrap and activation', () => {
           origin: 'https://musixquare.com',
           'access-control-request-method': 'GET',
           'access-control-request-headers':
-            'x-mxqr-pro-participant-id,x-mxqr-pro-presence-incarnation,x-mxqr-pro-entry-policy',
+            'x-mxqr-pro-participant-id,x-mxqr-pro-presence-incarnation',
         },
       }),
       env as never,
     );
     expect(preflight.status).toBe(204);
-    // The App still sends the entry-policy and playlist opt-ins; nothing sends
-    // the retired effects-only version header.
+    // Only the headers the App sends: since 9.0.25 it sends neither the
+    // entry-policy nor the playlist opt-in, and nothing sends the retired
+    // effects-only version header.
     expect(preflight.headers.get('access-control-allow-headers')).toBe(
-      'content-type,idempotency-key,authorization,x-mxqr-pro-participant-id,x-mxqr-pro-presence-incarnation,x-mxqr-pro-presence-recovery,x-mxqr-pro-entry-policy,x-mxqr-pro-playlist-slots,x-mxqr-app-build',
+      'content-type,idempotency-key,authorization,x-mxqr-pro-participant-id,x-mxqr-pro-presence-incarnation,x-mxqr-pro-presence-recovery,x-mxqr-app-build',
     );
 
     for (const previewOrigin of ['http://localhost:4173', 'http://127.0.0.1:4173']) {

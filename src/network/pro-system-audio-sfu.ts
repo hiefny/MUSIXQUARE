@@ -887,6 +887,48 @@ export function publishProSystemAudioSfu(
 }
 
 /**
+ * The held fallback `descriptor` names while it is the current prepared,
+ * unreleased one, with what its release attaches through; null for any other
+ * (stopped, failed, its connection lost while held, superseded, released,
+ * still in flight, or an ordinary publish, which never held).
+ */
+function readyHeldFallback(descriptor: ProSystemAudioSfuPublicationDescriptor): {
+  hold: PublisherHold;
+  sender: RTCRtpSender;
+  pc: RTCPeerConnection;
+  preparedAt: number;
+} | null {
+  const hold = publisherHold;
+  const pc = publisherPc;
+  const current = publisherDescriptor;
+  const sender = hold?.sender;
+  if (
+    !isHolding(hold) ||
+    !sender ||
+    hold.preparedAt === null ||
+    !pc ||
+    !current ||
+    descriptorKey(current) !== descriptorKey(descriptor)
+  ) {
+    return null;
+  }
+  return { hold, sender, pc, preparedAt: hold.preparedAt };
+}
+
+/**
+ * Whether `descriptor` still names the current prepared, unreleased held
+ * fallback, the one releaseProSystemAudioSfuPublisherHold would attach: the
+ * release's own entry check, read without touching anything. False once its
+ * connection failed while held (9.0.28: the service then makes 9.0.27's one
+ * ordinary publish at the LAN-direct failure instead of releasing it).
+ */
+export function isProSystemAudioSfuPublisherHoldReady(
+  descriptor: ProSystemAudioSfuPublicationDescriptor,
+): boolean {
+  return readyHeldFallback(descriptor) !== null;
+}
+
+/**
  * Attaches the capture track to the prepared held fallback `descriptor` names,
  * after the share's LAN-direct attempt failed: its sender carries audio from
  * here, tuned once like any SFU sender. It reports no publication: the caller
@@ -901,20 +943,9 @@ export function publishProSystemAudioSfu(
 export async function releaseProSystemAudioSfuPublisherHold(
   descriptor: ProSystemAudioSfuPublicationDescriptor,
 ): Promise<void> {
-  const hold = publisherHold;
-  const pc = publisherPc;
-  const current = publisherDescriptor;
-  const sender = hold?.sender;
-  if (
-    !isHolding(hold) ||
-    !sender ||
-    hold.preparedAt === null ||
-    !pc ||
-    !current ||
-    descriptorKey(current) !== descriptorKey(descriptor)
-  ) {
-    throw new Error('PRO_SFU_FALLBACK_UNAVAILABLE');
-  }
+  const ready = readyHeldFallback(descriptor);
+  if (!ready) throw new Error('PRO_SFU_FALLBACK_UNAVAILABLE');
+  const { hold, sender, pc, preparedAt } = ready;
   const epoch = publisherEpoch;
   const isCurrent = () => epoch === publisherEpoch && publisherHold === hold && publisherPc === pc;
   try {
@@ -941,7 +972,7 @@ export async function releaseProSystemAudioSfuPublisherHold(
   tuneSystemAudioMusicSender(sender);
   log.info(
     `${HELD_FALLBACK_LINE} Released SFU fallback for generation ${hold.generation} ` +
-      `(held ${hold.releasedAt - hold.preparedAt} ms)`,
+      `(held ${hold.releasedAt - preparedAt} ms)`,
   );
 }
 

@@ -202,7 +202,7 @@ describe('Standard host at a -5 s local offset in a zero-start run (pinned 2026-
     });
   });
 
-  it("honours a Media Session pause during 'starting'", async () => {
+  it("restarts the room from 0.178 s on a Media Session pause during 'starting'", async () => {
     const current = await heldReleaseHost();
     const session = installMediaSession();
     try {
@@ -237,7 +237,7 @@ describe('Standard host at a -5 s local offset in a zero-start run (pinned 2026-
 });
 
 describe('Standard host at a -5 s local offset, Media Session pause during the zero-start speaker hold (pinned 2026-10-30)', () => {
-  it("reads a Media Session pause during 'scheduled' as a play from 0:00", async () => {
+  it("reads a Media Session pause during 'scheduled' as a new held start at the room position", async () => {
     const current = await startRig('host', { localOffsetSeconds: -5 });
     await runStandardScenario(current, { ...SCENARIOS.hostAllReady, endAt: 3_000 });
     const session = installMediaSession();

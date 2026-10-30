@@ -1,12 +1,11 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { bus } from '../../core/events.ts';
-import { resetState, setState, getState } from '../../core/state.ts';
+import { resetState } from '../../core/state.ts';
 import { clearAllManagedTimers } from '../../core/timers.ts';
 import type { YouTubePlayerInstance } from '../_state.ts';
 import {
   afterStandardHostManualOffsetTransaction,
   cancelStandardHostManualOffsetTransaction,
-  isStandardHostManualOffsetTransactionPending,
   prepareStandardHostManualOffsetRuntimeForTests,
   requestStandardHostManualOffsetTransaction,
   resetStandardHostManualOffsetTransaction,
@@ -31,25 +30,10 @@ afterEach(() => {
   clearAllManagedTimers();
 });
 
+// 'invalidates a cold deferred command synchronously before its chunk
+// resolves' runs in standard-host-manual-offset-gate-cold.test.ts: each row
+// here loads the runtime chunk, and the gate keeps it loaded.
 describe('Standard-host manual-offset eager gate', () => {
-  it('invalidates a cold deferred command synchronously before its chunk resolves', async () => {
-    const player = {} as YouTubePlayerInstance;
-    setState('sync.youtubeCoordinatorAppliedOffset', 0.25);
-
-    requestStandardHostManualOffsetTransaction(player, 0.5);
-
-    expect(isStandardHostManualOffsetTransactionPending()).toBe(true);
-    expect(getState('sync.youtubeLocalOffset')).toBe(0.5);
-    expect(runtime.begin).not.toHaveBeenCalled();
-
-    expect(cancelStandardHostManualOffsetTransaction()).toBe(true);
-    expect(isStandardHostManualOffsetTransactionPending()).toBe(false);
-    expect(getState('sync.youtubeLocalOffset')).toBe(0);
-
-    await prepareStandardHostManualOffsetRuntimeForTests();
-    expect(runtime.begin).not.toHaveBeenCalled();
-  });
-
   it('releases deferred one-shot work only after a verified commit', async () => {
     const player = {} as YouTubePlayerInstance;
     const listener = vi.fn();

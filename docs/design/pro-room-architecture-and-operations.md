@@ -1347,6 +1347,15 @@ schemaVersion 2 and raises the floor to 795 again right after it. Every later
 PRO Worker keeps the load-time conversion of a stored numeric LAN-direct
 `liveExpiresAt` to null: a room not loaded since still stores the number.
 
+The PRO-only release after 9.0.25 stops reading the 2999 ms zero-start deadline
+of a pending transition that a PRO Worker before schemaVersion 2 stored without
+`timingMode` (such a transition still loads and commits as a scheduled control
+with the 700 ms lead) and drops the two retired opt-in header names from its
+CORS allow list. It writes the same records as the PRO Worker that first sends
+schemaVersion 2, which reads them, still reads that deadline, and allows both
+names, so that Worker stays the recovery target and the floor for a manual PRO
+rollback. The release adds no new boundary.
+
 1. Stop the rollout and record the Worker versions and observed symptom. Do not
    delete the R2 bucket, Durable Object binding, class migration, or room data.
 2. Let the release workflow perform conflict-aware recovery. When every

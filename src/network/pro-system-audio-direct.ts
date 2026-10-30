@@ -291,6 +291,8 @@ interface ReceiverRoute {
   proofSent: boolean;
   /** The publisher's track-attached message arrived: the track carries audio. */
   publisherAttached: boolean;
+  /** ICE gathering ended with no LAN candidate before the answer went out. */
+  gatheringEndedWithoutLanCandidate: boolean;
 }
 
 interface PreOfferCandidateBucket {
@@ -1549,6 +1551,29 @@ function failReceiverRoute(route: ReceiverRoute, reason: string): void {
   }
 }
 
+/**
+ * An end whose ICE gathering ended without one LAN candidate has sent the
+ * other end nothing to add, so the other end can never prove the pair. The
+ * route ends at that event instead of at the pair-proof window; no timer.
+ */
+function failPublisherRouteWithoutLanCandidate(route: PublisherRoute): void {
+  if (route.closed) return;
+  log.info(
+    `[ProSysAudioDirect] Publisher gathering to ${route.participantId.slice(-4)} ` +
+      `ended with no LAN candidate (${routeCandidateCounts(route)})`,
+  );
+  failPublisherRoute(route, 'no-lan-candidate');
+}
+
+/** The receiver's side of failPublisherRouteWithoutLanCandidate, once its answer is out. */
+function failReceiverRouteWithoutLanCandidate(route: ReceiverRoute): void {
+  if (route.closed) return;
+  log.info(
+    `[ProSysAudioDirect] Receiver gathering ended with no LAN candidate (${routeCandidateCounts(route)})`,
+  );
+  failReceiverRoute(route, 'no-lan-candidate');
+}
+
 function handlePublisherConnectionState(route: PublisherRoute): void {
   if (route.closed) return;
   if (pcDisconnected(route.pc)) {
@@ -1695,7 +1720,12 @@ function createPublisherRoute(
     if (!route.closed && event.data === RECEIVER_PAIR_PROVEN_MESSAGE) route.receiverProven = true;
   };
   pc.onicecandidate = (event) => {
-    if (!event.candidate || route.closed) return;
+    if (route.closed) return;
+    if (!event.candidate) {
+      // Gathering ended: with no LAN candidate sent the receiver can never prove the pair.
+      if (route.localCandidateCount === 0) failPublisherRouteWithoutLanCandidate(route);
+      return;
+    }
     const candidate = sanitizeLanCandidateInit(candidateInit(event.candidate));
     const parsedCandidate = candidate?.candidate
       ? parseLanCandidateLine(candidate.candidate)
@@ -1890,8 +1920,9 @@ function sendPublisherTrackAttached(route: PublisherRoute): boolean {
  * One route's single round trip: the offer must be answered within
  * `answerTimeoutMs`, then both ends must prove the LAN pair within
  * DIRECT_PAIR_PROOF_TIMEOUT_MS. A route that never answers or never connects
- * therefore fails as fast as before, and one result line per route names the
- * stage it reached.
+ * therefore fails as fast as before, one whose end gathered no LAN candidate
+ * fails when that gathering ends ('no-lan-candidate'), and one result line per
+ * route names the stage it reached.
  */
 async function negotiatePublisherRoute(
   session: PublisherSession,
@@ -2149,9 +2180,19 @@ function createReceiverRoute(signal: DirectOfferSignal, ownerParticipantId: stri
     provenLocal: false,
     proofSent: false,
     publisherAttached: false,
+    gatheringEndedWithoutLanCandidate: false,
   };
   pc.onicecandidate = (event) => {
-    if (!event.candidate || route.closed) return;
+    if (route.closed) return;
+    if (!event.candidate) {
+      // Gathering ended: with no LAN candidate sent the publisher can never
+      // prove the pair. A close goes out only after the answer, so a route
+      // still answering fails right after it (acceptOffer).
+      if (route.localCandidateCount > 0) return;
+      if (route.answerSent) failReceiverRouteWithoutLanCandidate(route);
+      else route.gatheringEndedWithoutLanCandidate = true;
+      return;
+    }
     const candidate = sanitizeLanCandidateInit(candidateInit(event.candidate));
     const parsedCandidate = candidate?.candidate
       ? parseLanCandidateLine(candidate.candidate)
@@ -2298,6 +2339,10 @@ async function acceptOffer(signal: DirectOfferSignal, ownerParticipantId: string
     route.answerSent = sendReceiverAnswer(route, description);
     if (!route.answerSent) throw new Error('DIRECT_ANSWER_SEND_FAILED');
     flushReceiverLocalCandidates(route);
+    if (route.gatheringEndedWithoutLanCandidate) {
+      failReceiverRouteWithoutLanCandidate(route);
+      return;
+    }
     observeDirectTask(proveReceiverRoute(route), 'Receiver pair proof');
   } catch (error) {
     log.debug('[ProSysAudioDirect] Receiver negotiation failed', error);

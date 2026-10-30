@@ -76,6 +76,8 @@ beforeEach(() => {
   bus.clear();
   resetState();
   vi.clearAllMocks();
+  // Back to its null default: a test that needs a peer sets one up itself.
+  mocks.getPeer.mockReset();
   endSystemAudioShareDelivery();
   setState('network.appRole', 'host');
   mocks.isSystemAudioActive.mockReturnValue(true);
@@ -131,6 +133,8 @@ describe('bounded direct system-audio host delivery', () => {
   });
 
   it('releases the old frozen route when the same peerId gets a new exact connection', () => {
+    mocks.getPeer.mockReturnValue({ call: vi.fn(() => makeMediaConnection().mediaConn) });
+    mocks.getCapturedAudioStream.mockReturnValue({} as MediaStream);
     const peer = makeLocalPeer(1);
     setState('network.connectedPeers', [peer]);
     bus.emit('system-audio:streams-ready');

@@ -78,24 +78,37 @@
  *     cannot import the deferred home.
  *   CHECK 11 YouTube iframe audio writes (RO-12, Phase 6 T1), per file in
  *     src/: mute(), unMute() and setVolume() calls on a receiver, the iframe
- *     API's methods (a bare mute() is a local function). The count is by
- *     name, so a write through a helper counts once, inside the helper; each
- *     reason names the helpers whose callers write without a count of their
- *     own.
+ *     API's methods (a bare mute() is a local function), including a computed
+ *     key that is a string literal, a conditional of them or a const holding
+ *     one (once per call). The count is by name, so a write through a helper
+ *     counts once, inside the helper; each reason names the helpers whose
+ *     callers write without a count of their own. Not seen: other computed
+ *     keys, destructured methods, and methods called through .call() or
+ *     .bind().
  *   CHECK 12 Cross-file YouTube start-timer reads and clears (RO-02, Phase 6
  *     T1), per file in src/youtube/: getManagedTimer() and
- *     clearManagedTimer() calls on a start timer (START_TIMER_NAMES) that the
- *     same file does not set with setManagedTimer(). A name list handed to
- *     an array method (`names.some((name) => getManagedTimer(name))`,
+ *     clearManagedTimer() calls on a start timer (START_TIMER_SETTERS) that
+ *     the same file does not set with setManagedTimer(). A name list handed
+ *     to an array method (`names.some((name) => getManagedTimer(name))`,
  *     `names.forEach(clearManagedTimer)`) counts once per call. Names resolve
- *     from the syntax tree alone: a string literal, a const initialised with
- *     one (in the file, matched by name, or imported by name), a parameter
- *     annotated with a string literal or a union of them, and a callback's
- *     first parameter when the callback goes to a method of a name list.
- *     Names that do not resolve (a template with a substitution, an
- *     unannotated parameter) count neither as set nor as used. Every start
- *     timer must still be set somewhere in src/youtube/, so renaming or
- *     removing one fails until the set changes with it.
+ *     from the syntax tree alone: a string literal; both sides of a
+ *     conditional, `??` or `||`; a const initialised with one (every binding
+ *     of the name in the file, matched by name, not by scope), imported by
+ *     name, re-exported or read through a namespace import; a for-of const,
+ *     which takes its list's names; a callback's first parameter when the
+ *     callback goes to a method of a name list, and otherwise a parameter
+ *     annotated with a string literal or a union of them. Lists are array
+ *     literals (with spreads), Object.freeze(), Array.from(), new Set() and
+ *     the subset methods (filter, slice, concat, ...) of such lists, or
+ *     consts holding one. A template or `+` concatenation whose static text
+ *     cannot spell a start timer names none. Fail closed, with no allowance:
+ *     a getManagedTimer(), clearManagedTimer() or setManagedTimer() call in
+ *     src/youtube/ whose name does not resolve (UNRESOLVED TIMER NAME), any
+ *     other name for those functions (a renamed import or export, a
+ *     destructuring rename, or a value use other than a query or clear handed
+ *     to a name list's method: TIMER FUNCTION ALIAS), and a start timer set
+ *     by a src/youtube/ file other than its listed setters, or no longer set
+ *     by one of them (START TIMER SET).
  *
  * Baselines. Every count and list below is exact. A file above its baseline
  * (or a new file, function or pair) fails as a regression; a file below it
@@ -119,9 +132,10 @@
  * claimPlaybackOwner with a literal owner other than 'system-audio',
  * scheduleSessionReset), receivers resolved by type, module-level lifecycle
  * slots, timer names outside CHECK 12's start-timer set or outside
- * src/youtube/ (and the nameless clearAllManagedTimers), shared phase unions,
- * duplicated helper names, "mirrors" copy markers, and registered timings
- * retyped as literals in requester files.
+ * src/youtube/ (and the nameless clearAllManagedTimers), a helper outside
+ * src/youtube/ that takes a timer name for a src/youtube/ caller, shared
+ * phase unions, duplicated helper names, "mirrors" copy markers, and
+ * registered timings retyped as literals in requester files.
  *
  * Exit code: 0 if clean, 1 if findings remain.
  */
@@ -780,7 +794,11 @@ const IFRAME_AUDIO_WRITE_BASELINE: Baseline = new Map<string, Allowance>([
 // 14 reads and 10 clears the 2026-10-30 Phase 6 plan counted by hand. Phase 6
 // replaces the reads of the legacy rendezvous and sync.ts timers with owner
 // queries; the PRO coordinator nudge reads stay, because the manual-offset
-// transaction (RO-13) is owner-in-place.
+// transaction (RO-13) is owner-in-place. On that tree every timer call in
+// src/youtube/ resolves its name (the five templates name per-peer timers that
+// cannot spell a start timer), no file renames or passes on a timer function,
+// and each start timer is set only by its listed files, so the fail-closed
+// findings have no allowance.
 
 const START_TIMER_SCOPE = 'src/youtube/';
 const TIMER_SET_CALL = 'setManagedTimer';
@@ -789,30 +807,44 @@ const TIMER_USE_CALLS = new Map<string, 'read' | 'clear'>([
   ['clearManagedTimer', 'clear'],
 ]);
 
+const START_TIMER_PLAYER = 'src/youtube/player.ts';
+const START_TIMER_SYNC = 'src/youtube/sync.ts';
+
 /**
- * RO-02: the YouTube start timers. A change that sets a new start timer adds
- * it here and to the RO-02 record; one that renames or removes one updates
- * both too (CHECK 12 fails while a name is set nowhere in src/youtube/).
+ * RO-02: the YouTube start timers and the src/youtube/ files that set each
+ * one with setManagedTimer(). setManagedTimer() clears a running timer of the
+ * same name first, so another setter would be a second machine on the start.
+ * A change that sets a new start timer, renames or removes one, or moves its
+ * setter updates this map and the RO-02 record together: CHECK 12 fails while
+ * another src/youtube/ file sets a start timer or a listed file stops setting
+ * it.
  */
-const START_TIMER_NAMES: ReadonlySet<string> = new Set([
-  // Set in src/youtube/player.ts: the legacy rendezvous, its local start and
-  // the three zero-start fallbacks.
-  'yt-auto-sync',
-  'yt-host-local-start',
-  'yt-zero-start-external-fallback',
-  'yt-zero-start-host-fallback',
-  'yt-zero-start-replacement-fallback',
-  // Set in src/youtube/sync.ts: the guest state actions and the rendezvous.
-  'yt-clock-action',
-  'yt-seek-play',
-  'yt-rendezvous-buffer',
-  'yt-rendezvous-play',
-  'yt-rendezvous-calibrate',
-  'yt-rendezvous-follow-up',
-  // PRO_COORDINATOR_YOUTUBE_NUDGE_TIMER, set by the manual-offset gate and
-  // runtime (RO-13).
-  'yt-pro-coordinator-local-nudge',
+const START_TIMER_SETTERS: ReadonlyMap<string, readonly string[]> = new Map([
+  // The legacy rendezvous, its local start and the three zero-start fallbacks.
+  ['yt-auto-sync', [START_TIMER_PLAYER]],
+  ['yt-host-local-start', [START_TIMER_PLAYER]],
+  ['yt-zero-start-external-fallback', [START_TIMER_PLAYER]],
+  ['yt-zero-start-host-fallback', [START_TIMER_PLAYER]],
+  ['yt-zero-start-replacement-fallback', [START_TIMER_PLAYER]],
+  // The guest state actions and the rendezvous.
+  ['yt-clock-action', [START_TIMER_SYNC]],
+  ['yt-seek-play', [START_TIMER_SYNC]],
+  ['yt-rendezvous-buffer', [START_TIMER_SYNC]],
+  ['yt-rendezvous-play', [START_TIMER_SYNC]],
+  ['yt-rendezvous-calibrate', [START_TIMER_SYNC]],
+  ['yt-rendezvous-follow-up', [START_TIMER_SYNC]],
+  // PRO_COORDINATOR_YOUTUBE_NUDGE_TIMER (named in local-offset.ts), set by the
+  // manual-offset gate and runtime (RO-13).
+  [
+    'yt-pro-coordinator-local-nudge',
+    [
+      'src/youtube/standard-host-manual-offset-gate.ts',
+      'src/youtube/standard-host-manual-offset-runtime.ts',
+    ],
+  ],
 ]);
+
+const START_TIMER_NAMES: ReadonlySet<string> = new Set(START_TIMER_SETTERS.keys());
 
 /** RO-02: start-timer reads (getManagedTimer) from a file that does not set the timer. */
 const START_TIMER_READ_BASELINE: Baseline = new Map<string, Allowance>([
@@ -1306,6 +1338,59 @@ function mayClaimSystemAudio(node: ts.Identifier): boolean {
   return !owner || !ts.isStringLiteralLike(owner) || owner.text === SYSTEM_AUDIO_OWNER;
 }
 
+const constInitializerCache = new WeakMap<
+  ts.SourceFile,
+  ReadonlyMap<string, readonly ts.Expression[]>
+>();
+
+/** `const` initialisers by name, anywhere in a file (names match across the file). */
+function constInitializers(file: ts.SourceFile): ReadonlyMap<string, readonly ts.Expression[]> {
+  const cached = constInitializerCache.get(file);
+  if (cached) return cached;
+  const consts = new Map<string, ts.Expression[]>();
+  visit(file, (node) => {
+    if (!ts.isVariableDeclaration(node) || !ts.isIdentifier(node.name) || !node.initializer) return;
+    const list = node.parent;
+    if (!ts.isVariableDeclarationList(list) || (list.flags & ts.NodeFlags.Const) === 0) return;
+    consts.set(node.name.text, [...(consts.get(node.name.text) ?? []), node.initializer]);
+  });
+  constInitializerCache.set(file, consts);
+  return consts;
+}
+
+/** The keys an element-access key can name: a string literal, a conditional of them, a const holding one. */
+function staticKeys(expression: ts.Expression, file: ts.SourceFile, hops = 0): readonly string[] {
+  if (hops > 4) return [];
+  const node = unwrap(expression);
+  if (ts.isStringLiteralLike(node)) return [node.text];
+  if (ts.isConditionalExpression(node)) {
+    return [
+      ...staticKeys(node.whenTrue, file, hops + 1),
+      ...staticKeys(node.whenFalse, file, hops + 1),
+    ];
+  }
+  if (!ts.isIdentifier(node)) return [];
+  return (constInitializers(file).get(node.text) ?? []).flatMap((initializer) =>
+    staticKeys(initializer, file, hops + 1),
+  );
+}
+
+/**
+ * RO-12: the iframe audio methods a computed member call can name, such as
+ * `player[muted ? 'mute' : 'unMute']()` or `player[method]()` with a const
+ * `method`; none for any other call.
+ */
+function computedIframeAudioMethods(
+  call: ts.CallExpression,
+  file: ts.SourceFile,
+): readonly string[] {
+  const callee = unwrap(call.expression);
+  if (!ts.isElementAccessExpression(callee)) return [];
+  return [...new Set(staticKeys(callee.argumentExpression, file))]
+    .filter((key) => IFRAME_AUDIO_WRITE_METHODS.has(key))
+    .sort();
+}
+
 function collectFacts(relPath: string, text: string): FileFacts {
   const cached = factsCache.get(relPath);
   if (cached?.text === text) return cached.facts;
@@ -1442,7 +1527,17 @@ function collectFacts(relPath: string, text: string): FileFacts {
 
     if (!ts.isCallExpression(node)) return;
     const callee = calleeName(node);
-    if (callee === null) return;
+    if (callee === null) {
+      // player[muted ? 'mute' : 'unMute']() or player[method]() with a const
+      // method: one write, whichever method the key names.
+      const methods = computedIframeAudioMethods(node, file);
+      if (methods.length > 0) {
+        facts.iframeAudioWriteSites.push(
+          `${relPath}:${lineOf(file, node)} ${methods.join('()/')}() in ${enclosingFunctionName(node)}`,
+        );
+      }
+      return;
+    }
     if (ATTRIBUTE_WRITE_METHODS.has(callee)) {
       const attribute = firstStringArgument(node);
       if (attribute === 'inert') facts.inertWrites += 1;
@@ -1595,8 +1690,30 @@ function collectDefaultLoaderWrites(sources: ReadonlyMap<string, string>): Map<s
 
 // ── CHECK 12: cross-file YouTube start-timer reads and clears ────────────
 
-/** Bounds a chain of consts, imports and name lists that refer to each other. */
-const MAX_TIMER_NAME_HOPS = 8;
+/** Bounds a chain of consts, imports, re-exports and name lists that refer to each other. */
+const MAX_TIMER_NAME_HOPS = 16;
+
+/** The timer functions CHECK 12 follows by name: the setter, the query and the clear. */
+const TIMER_FUNCTIONS: ReadonlySet<string> = new Set([TIMER_SET_CALL, ...TIMER_USE_CALLS.keys()]);
+
+/** Methods whose result holds only names of the list they are called on (and concat's arguments). */
+const NAME_LIST_SUBSET_METHODS = new Set([
+  'concat',
+  'filter',
+  'reverse',
+  'slice',
+  'sort',
+  'toReversed',
+  'toSorted',
+  'values',
+]);
+
+/**
+ * The timer names an expression can take, or null when CHECK 12 cannot
+ * resolve every one of them. A template or `+` concatenation whose static
+ * text cannot spell a start timer resolves to no name: it never names one.
+ */
+type TimerNames = readonly string[] | null;
 
 /** A timer call: `kind` from its callee; `list` when the function goes to a name list's method. */
 interface TimerCall {
@@ -1607,21 +1724,41 @@ interface TimerCall {
   readonly list: ts.CallExpression | null;
 }
 
+/** Another name for a timer function, under which its calls would not show. */
+interface TimerFunctionAlias {
+  readonly node: ts.Node;
+  readonly what: string;
+}
+
 /** What CHECK 12 reads from one file's syntax, cached by its text. */
 interface TimerFileSyntax {
   readonly file: ts.SourceFile;
-  /** `const` initialisers by name, anywhere in the file (names match across the file). */
-  readonly consts: ReadonlyMap<string, readonly ts.Expression[]>;
+  /**
+   * Variable and destructured bindings by name, anywhere in the file. Names
+   * match across the file, not by scope, and a name resolves only when every
+   * binding of it does.
+   */
+  readonly bindings: ReadonlyMap<string, readonly (ts.VariableDeclaration | ts.BindingElement)[]>;
   /** Top-level `const` initialisers by name: what another file can import. */
   readonly topLevelConsts: ReadonlyMap<string, readonly ts.Expression[]>;
   /** Named value imports: the local name, the module specifier and the name there. */
   readonly imports: ReadonlyMap<string, { readonly specifier: string; readonly name: string }>;
+  /** Namespace imports (`import * as names from`): the local name and the module specifier. */
+  readonly namespaces: ReadonlyMap<string, string>;
+  /** Names in export lists: the module they come from (null for this file) and the name there. */
+  readonly reexports: ReadonlyMap<
+    string,
+    { readonly specifier: string | null; readonly name: string }
+  >;
+  /** `export * from` module specifiers. */
+  readonly starExports: readonly string[];
   readonly timerCalls: readonly TimerCall[];
+  readonly aliases: readonly TimerFunctionAlias[];
 }
 
 interface TimerNameScope extends TimerFileSyntax {
-  /** The production file a local import name comes from, or null. */
-  readonly importedFrom: (local: string) => { readonly from: string; readonly name: string } | null;
+  /** The production file one of this file's module specifiers names, or null. */
+  readonly moduleOf: (specifier: string) => string | null;
   readonly scopeOf: (relPath: string) => TimerNameScope | null;
 }
 
@@ -1635,55 +1772,170 @@ const timerSyntaxCache = new Map<
   { readonly text: string; readonly syntax: TimerFileSyntax }
 >();
 
+/** Whether a node sits in a type (`typeof getManagedTimer`, an annotation) rather than a value. */
+function inTypePosition(node: ts.Node): boolean {
+  for (let current = node.parent; !ts.isSourceFile(current); current = current.parent) {
+    if (ts.isTypeNode(current)) return true;
+  }
+  return false;
+}
+
+/** The outermost parentheses, `as`, `satisfies` or `!` around an expression. */
+function outermostWrapper(node: ts.Node): ts.Node {
+  let current = node;
+  while (
+    ts.isParenthesizedExpression(current.parent) ||
+    ts.isAsExpression(current.parent) ||
+    ts.isSatisfiesExpression(current.parent) ||
+    ts.isNonNullExpression(current.parent) ||
+    ts.isTypeAssertionExpression(current.parent)
+  ) {
+    current = current.parent;
+  }
+  return current;
+}
+
+/** Whether a call's callee is a member: `list.some(...)`, `list['forEach'](...)`. */
+function isMethodCall(call: ts.CallExpression): boolean {
+  const callee = unwrap(call.expression);
+  return ts.isPropertyAccessExpression(callee) || ts.isElementAccessExpression(callee);
+}
+
+/**
+ * The timer function a value reference names (`getManagedTimer`,
+ * `timers.getManagedTimer`, `timers['getManagedTimer']`); null for any other
+ * node, for a declaration, key or member name, for the original name in a
+ * rename (reported under its new name) and in a type.
+ */
+function timerFunctionReference(node: ts.Node): string | null {
+  let name: string | null = null;
+  if (ts.isIdentifier(node)) {
+    const parent = node.parent;
+    const declared = 'name' in parent && parent.name === node;
+    const renamed =
+      (ts.isBindingElement(parent) ||
+        ts.isImportSpecifier(parent) ||
+        ts.isExportSpecifier(parent)) &&
+      parent.propertyName === node;
+    // `{ getManagedTimer }` is both a key and the function it hands out.
+    if (!ts.isShorthandPropertyAssignment(parent) && (declared || renamed)) return null;
+    name = node.text;
+  } else if (ts.isPropertyAccessExpression(node) || ts.isElementAccessExpression(node)) {
+    name = memberName(node);
+  }
+  return name !== null && TIMER_FUNCTIONS.has(name) && !inTypePosition(node) ? name : null;
+}
+
 function timerFileSyntax(relPath: string, text: string): TimerFileSyntax {
   const cached = timerSyntaxCache.get(relPath);
   if (cached?.text === text) return cached.syntax;
   const file = parse(relPath, text);
-  const consts = new Map<string, ts.Expression[]>();
+  const bindings = new Map<string, (ts.VariableDeclaration | ts.BindingElement)[]>();
   const topLevelConsts = new Map<string, ts.Expression[]>();
   const timerCalls: TimerCall[] = [];
+  const aliases: TimerFunctionAlias[] = [];
   visit(file, (node) => {
-    if (ts.isVariableDeclaration(node) && ts.isIdentifier(node.name) && node.initializer) {
-      const list = node.parent;
-      if (!ts.isVariableDeclarationList(list) || !(list.flags & ts.NodeFlags.Const)) return;
+    if (
+      (ts.isVariableDeclaration(node) || ts.isBindingElement(node)) &&
+      ts.isIdentifier(node.name)
+    ) {
       const name = node.name.text;
-      const initializer = node.initializer;
-      consts.set(name, [...(consts.get(name) ?? []), initializer]);
-      if (ts.isVariableStatement(list.parent) && ts.isSourceFile(list.parent.parent)) {
-        topLevelConsts.set(name, [...(topLevelConsts.get(name) ?? []), initializer]);
+      bindings.set(name, [...(bindings.get(name) ?? []), node]);
+      const list = node.parent;
+      if (
+        ts.isVariableDeclaration(node) &&
+        node.initializer &&
+        ts.isVariableDeclarationList(list) &&
+        (list.flags & ts.NodeFlags.Const) !== 0 &&
+        ts.isVariableStatement(list.parent) &&
+        ts.isSourceFile(list.parent.parent)
+      ) {
+        topLevelConsts.set(name, [...(topLevelConsts.get(name) ?? []), node.initializer]);
       }
-    } else if (ts.isCallExpression(node)) {
+      if (ts.isBindingElement(node) && node.propertyName) {
+        const original = staticPropertyName(node.propertyName);
+        if (original !== null && TIMER_FUNCTIONS.has(original) && original !== name) {
+          aliases.push({ node, what: `${original} destructured as ${name}` });
+        }
+      }
+    }
+    if (ts.isCallExpression(node)) {
       const callee = calleeName(node);
       const kind = callee === null ? undefined : TIMER_CALL_KINDS.get(callee);
       if (callee !== null && kind) {
         timerCalls.push({ kind, callee, node, argument: node.arguments[0], list: null });
       }
-    } else if (ts.isIdentifier(node) && isValueReference(node)) {
-      // A name list handed straight to the query or the clear: NAMES.some(getManagedTimer).
-      const kind = TIMER_USE_CALLS.get(node.text);
-      const call = node.parent;
-      if (kind && ts.isCallExpression(call) && call.arguments.includes(node)) {
-        timerCalls.push({ kind, callee: node.text, node, argument: undefined, list: call });
-      }
+    }
+    const reference = timerFunctionReference(node);
+    if (reference === null) return;
+    const outer = outermostWrapper(node);
+    const use = outer.parent;
+    const kind = TIMER_USE_CALLS.get(reference);
+    if (ts.isCallExpression(use) && use.expression === outer) return; // A call, collected above.
+    if (
+      kind &&
+      ts.isCallExpression(use) &&
+      use.arguments.some((argument) => argument === outer) &&
+      isMethodCall(use)
+    ) {
+      // A query or clear handed straight to a name list: NAMES.some(getManagedTimer).
+      timerCalls.push({ kind, callee: reference, node, argument: undefined, list: use });
+    } else {
+      aliases.push({ node, what: `${reference} used as a value` });
     }
   });
   const imports = new Map<string, { readonly specifier: string; readonly name: string }>();
+  const namespaces = new Map<string, string>();
+  const reexports = new Map<string, { readonly specifier: string | null; readonly name: string }>();
+  const starExports: string[] = [];
   for (const statement of file.statements) {
-    if (!ts.isImportDeclaration(statement) || !ts.isStringLiteral(statement.moduleSpecifier)) {
-      continue;
-    }
-    const clause = statement.importClause;
-    const bindings = clause?.namedBindings;
-    if (!clause || clause.isTypeOnly || !bindings || !ts.isNamedImports(bindings)) continue;
-    for (const element of bindings.elements) {
-      if (element.isTypeOnly) continue;
-      imports.set(element.name.text, {
-        specifier: statement.moduleSpecifier.text,
-        name: (element.propertyName ?? element.name).text,
-      });
+    if (ts.isImportDeclaration(statement) && ts.isStringLiteral(statement.moduleSpecifier)) {
+      const specifier = statement.moduleSpecifier.text;
+      const clause = statement.importClause;
+      const named = clause?.namedBindings;
+      if (!clause || clause.isTypeOnly || !named) continue;
+      if (ts.isNamespaceImport(named)) {
+        namespaces.set(named.name.text, specifier);
+        continue;
+      }
+      for (const element of named.elements) {
+        if (element.isTypeOnly) continue;
+        const name = (element.propertyName ?? element.name).text;
+        imports.set(element.name.text, { specifier, name });
+        if (TIMER_FUNCTIONS.has(name) && name !== element.name.text) {
+          aliases.push({ node: element, what: `${name} imported as ${element.name.text}` });
+        }
+      }
+    } else if (ts.isExportDeclaration(statement) && !statement.isTypeOnly) {
+      const specifier =
+        statement.moduleSpecifier && ts.isStringLiteral(statement.moduleSpecifier)
+          ? statement.moduleSpecifier.text
+          : null;
+      const clause = statement.exportClause;
+      if (!clause && specifier !== null) starExports.push(specifier);
+      if (!clause || !ts.isNamedExports(clause)) continue;
+      for (const element of clause.elements) {
+        if (element.isTypeOnly) continue;
+        const name = (element.propertyName ?? element.name).text;
+        reexports.set(element.name.text, { specifier, name });
+        if (TIMER_FUNCTIONS.has(name) && name !== element.name.text) {
+          aliases.push({ node: element, what: `${name} exported as ${element.name.text}` });
+        }
+      }
     }
   }
-  const syntax: TimerFileSyntax = { file, consts, topLevelConsts, imports, timerCalls };
+  aliases.sort((left, right) => left.node.getStart(file) - right.node.getStart(file));
+  const syntax: TimerFileSyntax = {
+    file,
+    bindings,
+    topLevelConsts,
+    imports,
+    namespaces,
+    reexports,
+    starExports,
+    timerCalls,
+    aliases,
+  };
   timerSyntaxCache.set(relPath, { text, syntax });
   return syntax;
 }
@@ -1712,19 +1964,23 @@ function timerNameScopes(
     if (cached) return cached;
     const text = sources.get(relPath);
     if (text === undefined) return null;
-    const syntax = timerFileSyntax(relPath, text);
-    const importedFrom = (
-      local: string,
-    ): { readonly from: string; readonly name: string } | null => {
-      const imported = syntax.imports.get(local);
-      const from = imported ? resolveModule(relPath, imported.specifier, sources) : null;
-      return imported && from !== null ? { from, name: imported.name } : null;
-    };
-    const scope: TimerNameScope = { ...syntax, importedFrom, scopeOf };
+    const moduleOf = (specifier: string): string | null =>
+      resolveModule(relPath, specifier, sources);
+    const scope: TimerNameScope = { ...timerFileSyntax(relPath, text), moduleOf, scopeOf };
     scopes.set(relPath, scope);
     return scope;
   };
   return scopeOf;
+}
+
+/** Every name of every part, or null when any part does not resolve. */
+function unionOfNames(parts: readonly TimerNames[]): TimerNames {
+  const names: string[] = [];
+  for (const part of parts) {
+    if (part === null) return null;
+    names.push(...part);
+  }
+  return names;
 }
 
 /** The parameter of the nearest enclosing function that declares this name. */
@@ -1739,49 +1995,240 @@ function enclosingParameter(identifier: ts.Identifier): ts.ParameterDeclaration 
   return null;
 }
 
-/** The names a string literal type or a union of them allows; none for any other type. */
-function literalTypeNames(type: ts.TypeNode): readonly string[] {
+/** The names a string literal type or a union of them allows; null for any other type. */
+function literalTypeNames(type: ts.TypeNode): TimerNames {
   const names: string[] = [];
   for (const member of ts.isUnionTypeNode(type) ? type.types : [type]) {
-    if (!ts.isLiteralTypeNode(member) || !ts.isStringLiteral(member.literal)) return [];
+    if (!ts.isLiteralTypeNode(member) || !ts.isStringLiteral(member.literal)) return null;
     names.push(member.literal.text);
   }
   return names;
 }
 
-/** Values of a const, in this file or imported by name, read with `read`. */
-function constValues(
+/**
+ * Whether a template or `+` concatenation can spell a start timer: its static
+ * text, with any text in place of each substitution or other operand.
+ */
+function canSpellStartTimer(node: ts.Expression): boolean {
+  const parts: (string | null)[] = [];
+  const collect = (expression: ts.Expression): void => {
+    const value = unwrap(expression);
+    if (ts.isStringLiteral(value) || ts.isNoSubstitutionTemplateLiteral(value)) {
+      parts.push(value.text);
+    } else if (ts.isTemplateExpression(value)) {
+      parts.push(value.head.text);
+      for (const span of value.templateSpans) parts.push(null, span.literal.text);
+    } else if (
+      ts.isBinaryExpression(value) &&
+      value.operatorToken.kind === ts.SyntaxKind.PlusToken
+    ) {
+      collect(value.left);
+      collect(value.right);
+    } else {
+      parts.push(null);
+    }
+  };
+  collect(node);
+  const pattern = new RegExp(
+    `^${parts
+      .map((part) => (part === null ? '[\\s\\S]*' : part.replace(/[$()*+./?[\\\]^{|}]/gu, '\\$&')))
+      .join('')}$`,
+    'u',
+  );
+  return [...START_TIMER_NAMES].some((name) => pattern.test(name));
+}
+
+/** `names.X` or `names['X']` through a namespace import: the module and the name, or null. */
+function namespaceMember(
+  node: ts.Expression,
+  scope: TimerNameScope,
+): { readonly from: string; readonly name: string } | null {
+  if (!ts.isPropertyAccessExpression(node) && !ts.isElementAccessExpression(node)) return null;
+  const member = memberName(node);
+  const receiver = unwrap(node.expression);
+  const specifier = ts.isIdentifier(receiver) ? scope.namespaces.get(receiver.text) : undefined;
+  const from = specifier === undefined ? null : scope.moduleOf(specifier);
+  return member !== null && from !== null ? { from, name: member } : null;
+}
+
+/** What one binding holds: a const's value, or each element of the list a for-of const takes. */
+function bindingDeclarationValues(
+  declaration: ts.VariableDeclaration | ts.BindingElement,
+  scope: TimerNameScope,
+  hops: number,
+  list: boolean,
+): TimerNames {
+  if (!ts.isVariableDeclaration(declaration)) return null;
+  const declarations = declaration.parent;
+  if (
+    !ts.isVariableDeclarationList(declarations) ||
+    (declarations.flags & ts.NodeFlags.Const) === 0
+  ) {
+    return null;
+  }
+  if (ts.isForOfStatement(declarations.parent)) {
+    return list ? null : nameListNames(declarations.parent.expression, scope, hops + 1);
+  }
+  if (!declaration.initializer) return null;
+  return list
+    ? nameListNames(declaration.initializer, scope, hops + 1)
+    : timerNames(declaration.initializer, scope, hops + 1);
+}
+
+/** What a name holds: every binding of it in the file, or the export it is imported from. */
+function bindingValues(
   name: string,
   scope: TimerNameScope,
   hops: number,
-  read: (expression: ts.Expression, scope: TimerNameScope, hops: number) => readonly string[],
-): readonly string[] {
-  const local = scope.consts.get(name);
-  if (local) return local.flatMap((initializer) => read(initializer, scope, hops + 1));
-  const imported = scope.importedFrom(name);
-  const target = imported ? scope.scopeOf(imported.from) : null;
-  if (!imported || !target) return [];
-  return (target.topLevelConsts.get(imported.name) ?? []).flatMap((initializer) =>
-    read(initializer, target, hops + 1),
-  );
-}
-
-/** The names in a name list: an array literal, or a const (or imported const) holding one. */
-function nameListNames(
-  expression: ts.Expression,
-  scope: TimerNameScope,
-  hops: number,
-): readonly string[] {
-  if (hops > MAX_TIMER_NAME_HOPS) return [];
-  const node = unwrap(expression);
-  if (ts.isArrayLiteralExpression(node)) {
-    return node.elements.flatMap((element) =>
-      ts.isSpreadElement(element)
-        ? nameListNames(element.expression, scope, hops + 1)
-        : timerNames(element, scope, hops + 1),
+  list: boolean,
+): TimerNames {
+  const declarations = scope.bindings.get(name);
+  if (declarations) {
+    return unionOfNames(
+      declarations.map((declaration) => bindingDeclarationValues(declaration, scope, hops, list)),
     );
   }
-  return ts.isIdentifier(node) ? constValues(node.text, scope, hops, nameListNames) : [];
+  const imported = scope.imports.get(name);
+  const from = imported ? scope.moduleOf(imported.specifier) : null;
+  return imported && from !== null
+    ? exportValues(from, imported.name, scope, hops + 1, list)
+    : null;
+}
+
+/** What a module exports under a name: a top-level const, an export list entry or `export *`. */
+function exportValues(
+  relPath: string,
+  name: string,
+  scope: TimerNameScope,
+  hops: number,
+  list: boolean,
+): TimerNames {
+  const target = scope.scopeOf(relPath);
+  if (!target || hops > MAX_TIMER_NAME_HOPS) return null;
+  const consts = target.topLevelConsts.get(name);
+  if (consts) {
+    return unionOfNames(
+      consts.map((initializer) =>
+        list
+          ? nameListNames(initializer, target, hops + 1)
+          : timerNames(initializer, target, hops + 1),
+      ),
+    );
+  }
+  const source = target.reexports.get(name);
+  if (source) {
+    if (source.specifier === null) return bindingValues(source.name, target, hops + 1, list);
+    const from = target.moduleOf(source.specifier);
+    return from === null ? null : exportValues(from, source.name, target, hops + 1, list);
+  }
+  for (const specifier of target.starExports) {
+    const from = target.moduleOf(specifier);
+    const values = from === null ? null : exportValues(from, name, target, hops + 1, list);
+    if (values !== null) return values;
+  }
+  return null;
+}
+
+/**
+ * The names a parameter can take: a callback's first parameter, when the
+ * callback goes to a method of a name list, takes the list's names; otherwise
+ * a parameter annotated with a string literal or a union of them takes those.
+ */
+function parameterNames(
+  parameter: ts.ParameterDeclaration,
+  scope: TimerNameScope,
+  hops: number,
+): TimerNames {
+  const callback = parameter.parent;
+  const call = callback.parent;
+  if (
+    (ts.isArrowFunction(callback) || ts.isFunctionExpression(callback)) &&
+    callback.parameters[0] === parameter &&
+    ts.isCallExpression(call) &&
+    call.arguments.some((argument) => argument === callback)
+  ) {
+    const listed = receiverNameList(call, scope, hops);
+    if (listed !== null) return listed;
+  }
+  return parameter.type ? literalTypeNames(parameter.type) : null;
+}
+
+/**
+ * A name list built from another: `Object.freeze(list)`, `Array.from(list)`
+ * and `list.filter(...)`, `.slice(...)`, `.concat(...)` and the other subset
+ * methods.
+ */
+function derivedListNames(
+  call: ts.CallExpression,
+  scope: TimerNameScope,
+  hops: number,
+): TimerNames {
+  const callee = unwrap(call.expression);
+  if (!ts.isPropertyAccessExpression(callee) && !ts.isElementAccessExpression(callee)) return null;
+  const method = memberName(callee);
+  const receiver = unwrap(callee.expression);
+  if (
+    ts.isIdentifier(receiver) &&
+    ((receiver.text === 'Object' && method === 'freeze') ||
+      (receiver.text === 'Array' && method === 'from')) &&
+    call.arguments.length === 1
+  ) {
+    return nameListNames(call.arguments[0], scope, hops + 1);
+  }
+  if (method === null || !NAME_LIST_SUBSET_METHODS.has(method)) return null;
+  const own = nameListNames(callee.expression, scope, hops + 1);
+  if (method !== 'concat') return own;
+  return unionOfNames([
+    own,
+    ...call.arguments.map(
+      (argument) =>
+        nameListNames(argument, scope, hops + 1) ?? timerNames(argument, scope, hops + 1),
+    ),
+  ]);
+}
+
+/**
+ * The names in a name list: an array literal (with spreads), a conditional
+ * of lists, `new Set(list)`, a list derived from another, and a const (in
+ * the file, imported, re-exported or read through a namespace import) holding
+ * one; null for anything else.
+ */
+function nameListNames(
+  expression: ts.Expression | undefined,
+  scope: TimerNameScope,
+  hops: number,
+): TimerNames {
+  if (!expression || hops > MAX_TIMER_NAME_HOPS) return null;
+  const node = unwrap(expression);
+  if (ts.isArrayLiteralExpression(node)) {
+    return unionOfNames(
+      node.elements.map((element) =>
+        ts.isSpreadElement(element)
+          ? nameListNames(element.expression, scope, hops + 1)
+          : timerNames(element, scope, hops + 1),
+      ),
+    );
+  }
+  if (ts.isConditionalExpression(node)) {
+    return unionOfNames([
+      nameListNames(node.whenTrue, scope, hops + 1),
+      nameListNames(node.whenFalse, scope, hops + 1),
+    ]);
+  }
+  if (
+    ts.isNewExpression(node) &&
+    ts.isIdentifier(node.expression) &&
+    node.expression.text === 'Set'
+  ) {
+    const items = node.arguments?.[0];
+    return items ? nameListNames(items, scope, hops + 1) : [];
+  }
+  if (ts.isCallExpression(node)) return derivedListNames(node, scope, hops);
+  if (ts.isIdentifier(node)) {
+    return enclosingParameter(node) ? null : bindingValues(node.text, scope, hops, true);
+  }
+  const member = namespaceMember(node, scope);
+  return member ? exportValues(member.from, member.name, scope, hops + 1, true) : null;
 }
 
 /** The names of the list whose method `call` invokes: `[...].some(cb)`, `NAMES.forEach(cb)`. */
@@ -1789,41 +2236,66 @@ function receiverNameList(
   call: ts.CallExpression,
   scope: TimerNameScope,
   hops: number,
-): readonly string[] {
+): TimerNames {
   const callee = unwrap(call.expression);
-  if (!ts.isPropertyAccessExpression(callee) && !ts.isElementAccessExpression(callee)) return [];
+  if (!ts.isPropertyAccessExpression(callee) && !ts.isElementAccessExpression(callee)) return null;
   return nameListNames(callee.expression, scope, hops + 1);
 }
 
 /**
  * The timer names an expression can take, resolved from the syntax tree: a
- * string literal; a const initialised with one; a parameter annotated with a
- * string literal or a union of them; a callback's first parameter when the
- * callback goes to a method of a name list. Nothing for anything else.
+ * string literal; both sides of a conditional, `??` or `||`; a const (every
+ * binding of the name in the file, a for-of const taking its list's names)
+ * or a const imported by name, re-exported or read through a namespace
+ * import; a parameter (see parameterNames). A template or `+` concatenation
+ * whose static text cannot spell a start timer resolves to no name. Null for
+ * anything else.
  */
 function timerNames(
   expression: ts.Expression | undefined,
   scope: TimerNameScope,
   hops = 0,
-): readonly string[] {
-  if (!expression || hops > MAX_TIMER_NAME_HOPS) return [];
+): TimerNames {
+  if (!expression || hops > MAX_TIMER_NAME_HOPS) return null;
   const node = unwrap(expression);
   if (ts.isStringLiteral(node) || ts.isNoSubstitutionTemplateLiteral(node)) return [node.text];
-  if (!ts.isIdentifier(node)) return [];
-  const parameter = enclosingParameter(node);
-  if (!parameter) return constValues(node.text, scope, hops, timerNames);
-  if (parameter.type) return literalTypeNames(parameter.type);
-  const callback = parameter.parent;
-  const call = callback.parent;
+  // The empty side of `??` or `||`: no name.
   if (
-    (ts.isArrowFunction(callback) || ts.isFunctionExpression(callback)) &&
-    callback.parameters[0] === parameter &&
-    ts.isCallExpression(call) &&
-    call.arguments.includes(callback)
+    node.kind === ts.SyntaxKind.NullKeyword ||
+    (ts.isIdentifier(node) && node.text === 'undefined')
   ) {
-    return receiverNameList(call, scope, hops);
+    return [];
   }
-  return [];
+  if (
+    ts.isTemplateExpression(node) ||
+    (ts.isBinaryExpression(node) && node.operatorToken.kind === ts.SyntaxKind.PlusToken)
+  ) {
+    return canSpellStartTimer(node) ? null : [];
+  }
+  if (ts.isConditionalExpression(node)) {
+    return unionOfNames([
+      timerNames(node.whenTrue, scope, hops + 1),
+      timerNames(node.whenFalse, scope, hops + 1),
+    ]);
+  }
+  if (
+    ts.isBinaryExpression(node) &&
+    (node.operatorToken.kind === ts.SyntaxKind.QuestionQuestionToken ||
+      node.operatorToken.kind === ts.SyntaxKind.BarBarToken)
+  ) {
+    return unionOfNames([
+      timerNames(node.left, scope, hops + 1),
+      timerNames(node.right, scope, hops + 1),
+    ]);
+  }
+  if (ts.isIdentifier(node)) {
+    const parameter = enclosingParameter(node);
+    return parameter
+      ? parameterNames(parameter, scope, hops)
+      : bindingValues(node.text, scope, hops, false);
+  }
+  const member = namespaceMember(node, scope);
+  return member ? exportValues(member.from, member.name, scope, hops + 1, false) : null;
 }
 
 interface StartTimerUses {
@@ -1831,35 +2303,67 @@ interface StartTimerUses {
   readonly clears: ReadonlyMap<string, number>;
   /** `kind: file:line call('name', ...) in function`, one per counted call. */
   readonly sites: readonly string[];
-  /** Start timers that no file in src/youtube/ sets any more. */
-  readonly unset: readonly string[];
+  /**
+   * Findings with no allowance: names CHECK 12 cannot resolve, other names
+   * for the timer functions, and start timers set outside their setter files.
+   */
+  readonly findings: readonly string[];
 }
 
 /**
  * RO-02: per file in src/youtube/, getManagedTimer() and clearManagedTimer()
- * calls that can take a start timer the same file does not set. A call counts
- * once however many such names it can take (a name list is one call).
+ * calls that can take a start timer the same file does not set. A call
+ * counts once however many such names it can take (a name list is one call).
+ * Every timer call there must resolve its name, the timer functions keep
+ * their names, and each start timer is set by exactly its listed files.
  */
 function collectStartTimerUses(sources: ReadonlyMap<string, string>): StartTimerUses {
   const scopeOf = timerNameScopes(sources);
   const reads = new Map<string, number>();
   const clears = new Map<string, number>();
   const sites: string[] = [];
-  const setInScope = new Set<string>();
+  const findings: string[] = [];
+  const setters = new Map<string, Set<string>>();
   for (const [relPath, text] of sources) {
     if (!relPath.startsWith(START_TIMER_SCOPE) || !text.includes('ManagedTimer')) continue;
     const scope = scopeOf(relPath);
     if (!scope) continue;
-    const namesOf = (call: TimerCall): readonly string[] =>
-      call.list ? receiverNameList(call.list, scope, 0) : timerNames(call.argument, scope);
-    const setHere = new Set<string>();
-    for (const call of scope.timerCalls) {
-      if (call.kind === 'set') for (const name of namesOf(call)) setHere.add(name);
+    for (const alias of scope.aliases) {
+      findings.push(
+        `TIMER FUNCTION ALIAS (RO-02): ${relPath}:${lineOf(scope.file, alias.node)} ` +
+          `${alias.what} in ${enclosingFunctionName(alias.node)} - call getManagedTimer(), ` +
+          'clearManagedTimer() and setManagedTimer() by their own names (a query or a clear ' +
+          "may go straight to a name list's method), so CHECK 12 sees every call",
+      );
     }
-    for (const name of setHere) setInScope.add(name);
+    const resolved: { readonly call: TimerCall; readonly names: readonly string[] }[] = [];
     for (const call of scope.timerCalls) {
+      const names = call.list
+        ? receiverNameList(call.list, scope, 0)
+        : timerNames(call.argument, scope);
+      if (names !== null) {
+        resolved.push({ call, names });
+        continue;
+      }
+      findings.push(
+        `UNRESOLVED TIMER NAME (RO-02): ${relPath}:${lineOf(scope.file, call.node)} ` +
+          `${call.callee}() in ${enclosingFunctionName(call.node)} - CHECK 12 cannot tell ` +
+          'whether this is a start timer: name it with a string literal, a literal const or ' +
+          'a parameter annotated with a literal union',
+      );
+    }
+    const setHere = new Set<string>();
+    for (const { call, names } of resolved) {
+      if (call.kind !== 'set') continue;
+      for (const name of names) {
+        setHere.add(name);
+        if (!START_TIMER_NAMES.has(name)) continue;
+        setters.set(name, (setters.get(name) ?? new Set<string>()).add(relPath));
+      }
+    }
+    for (const { call, names } of resolved) {
       if (call.kind === 'set') continue;
-      const counted = [...new Set(namesOf(call))].filter(
+      const counted = [...new Set(names)].filter(
         (name) => START_TIMER_NAMES.has(name) && !setHere.has(name),
       );
       if (counted.length === 0) continue;
@@ -1872,8 +2376,24 @@ function collectStartTimerUses(sources: ReadonlyMap<string, string>): StartTimer
       );
     }
   }
-  const unset = [...START_TIMER_NAMES].filter((name) => !setInScope.has(name));
-  return { reads, clears, sites, unset };
+  for (const [name, listed] of START_TIMER_SETTERS) {
+    const actual = setters.get(name) ?? new Set<string>();
+    for (const relPath of [...actual].filter((file) => !listed.includes(file)).sort()) {
+      findings.push(
+        `START TIMER SET (RO-02): ${relPath} sets '${name}', which only ${listed.join(' and ')} ` +
+          'may set - setManagedTimer() clears a running timer of that name, so a second setter ' +
+          'is a second machine on the start: start it through its owner, or move the setter ' +
+          'and update START_TIMER_SETTERS and the RO-02 record in the same change',
+      );
+    }
+    for (const relPath of listed.filter((file) => !actual.has(file))) {
+      findings.push(
+        `START TIMER SET (RO-02): '${name}' is not set by ${relPath} any more - update ` +
+          'START_TIMER_SETTERS and the RO-02 record in the same change',
+      );
+    }
+  }
+  return { reads, clears, sites, findings };
 }
 
 // ── Exact comparison ─────────────────────────────────────────────────────
@@ -2609,13 +3129,7 @@ export function analyzeResourceOwnership(input: ResourceOwnershipInput): Resourc
     },
     findings,
   );
-  for (const name of startTimers.unset) {
-    findings.push(
-      `START TIMER SET (RO-02): '${name}' is not set by ${TIMER_SET_CALL}() in ` +
-        `${START_TIMER_SCOPE} any more - update START_TIMER_NAMES and the RO-02 record in the ` +
-        'same change',
-    );
-  }
+  findings.push(...startTimers.findings);
 
   const sinks: Record<string, number> = {};
   for (const check of pageStateChecks) sinks[check.label] = total(check.measured);

@@ -288,14 +288,19 @@ RO-53 owner-in-place
   `src/player/background-return-sync.ts`. `src/youtube/native-control-authority.ts` asks a
   hand-kept timer-name list (`hasProtectedTransitionOwner`); Phase 6 replaces timer-name queries
   with owner queries before any timer merge.
-  - **Start timers** (the guard's CHECK 12 set, `START_TIMER_NAMES`): `'yt-auto-sync'`,
-    `'yt-host-local-start'`, `'yt-zero-start-external-fallback'`, `'yt-zero-start-host-fallback'`
-    and `'yt-zero-start-replacement-fallback'`, set in `player.ts`; `'yt-clock-action'`,
-    `'yt-seek-play'`, `'yt-rendezvous-buffer'`, `'yt-rendezvous-play'`,
-    `'yt-rendezvous-calibrate'` and `'yt-rendezvous-follow-up'`, set in `sync.ts`; and the PRO
-    coordinator nudge `'yt-pro-coordinator-local-nudge'` (`PRO_COORDINATOR_YOUTUBE_NUDGE_TIMER`
-    in `local-offset.ts`), set by the RO-13 manual-offset gate and runtime. A change that sets a
-    new start timer adds it here and to the guard in the same change.
+  - **Start timers and their setter files** (the guard's CHECK 12 map, `START_TIMER_SETTERS`):
+    `'yt-auto-sync'`, `'yt-host-local-start'`, `'yt-zero-start-external-fallback'`,
+    `'yt-zero-start-host-fallback'` and `'yt-zero-start-replacement-fallback'`, set in
+    `player.ts`; `'yt-clock-action'`, `'yt-seek-play'`, `'yt-rendezvous-buffer'`,
+    `'yt-rendezvous-play'`, `'yt-rendezvous-calibrate'` and `'yt-rendezvous-follow-up'`, set in
+    `sync.ts`; and the PRO coordinator nudge `'yt-pro-coordinator-local-nudge'`
+    (`PRO_COORDINATOR_YOUTUBE_NUDGE_TIMER` in `local-offset.ts`), set by the RO-13 manual-offset
+    gate and runtime (`standard-host-manual-offset-gate.ts`,
+    `standard-host-manual-offset-runtime.ts`). CHECK 12 checks the setter files: another
+    `src/youtube/` file that sets a start timer fails, because `setManagedTimer()` clears a
+    running timer of that name first and so becomes a second machine on the start, and so does a
+    listed file that stops setting one. A change that sets a new start timer, renames or removes
+    one, or moves its setter updates this list and the guard in the same change.
   - **Reads and clears from other files** (CHECK 12, per file in `src/youtube/`): on 2026-10-31
     (`main` `23f29283`, App 9.0.27) 14 reads and 10 clears. Eleven of the read sites include the
     nudge, whose name reads stay (RO-13 is owner-in-place). Phase 6 replaces the
@@ -304,7 +309,9 @@ RO-53 owner-in-place
     `resetResidentYouTubeSync` (three), `player.ts`'s `'yt-clock-action'` and `'yt-seek-play'`
     clears in three places (six) and `sync.ts`'s nudge clear right after the owner's reset port
     (one). `leaveSession`'s nameless `clearAllManagedTimers` in `src/network/peer.ts` clears
-    them all and is not counted.
+    them all and is not counted. Every timer call in `src/youtube/` must resolve its name, and
+    the timer functions keep their names there (guard item 12), so a timer-name query cannot
+    leave the count by taking a `string` name or an alias.
 - **Lifecycle operations:** `loadVideoById` or `cueVideoById`, `pauseVideo`, `seekTo`, `mute` and
   `unMute`, `playVideo`, release acknowledgement, ABORT.
 - **Deadline owner:** the controller (`prepareTimeoutMs` 10 s, `releaseAckTimeoutMs` 1.8 s); the
@@ -1561,7 +1568,9 @@ RO-53 owner-in-place
   only inside the helper, so the baseline reasons name the helpers: `restoreFallbackAudio` in
   `player.ts`, through which the host legacy recovery and the guest local fallback restore audio,
   and `ensureRetainedYouTubePlayerHardMuted` in `iframe.ts`, which reaches the retained-player
-  controller's `issueHardMute`. The iOS prime `unMute()` in `primeYouTubePlayer` stays where it
+  controller's `issueHardMute`. Guard item 11 names the call forms CHECK 11 does not see
+  (destructured, `.call()` and `.bind()` methods, and computed keys other than literals and
+  `const`s). The iOS prime `unMute()` in `primeYouTubePlayer` stays where it
   is: it has to run inside the user gesture's call stack.
 - **Deadline owner:** each writer's own retry (for example the zero-start release unmute retry).
 - **Timing-constant home:** the audio-restore 120 ms and 8 attempts repeated in `zero-start.ts`,
@@ -3727,26 +3736,47 @@ and unrelated strings never count, and every baseline is an exact count or list 
     out of scope, because importing the deferred home there would pull it into the first load.
 11. **YouTube iframe audio writes, per file** (RO-12, Phase 6 T1): in `src/`, `mute()`,
     `unMute()` and `setVolume()` calls on a receiver, the iframe API's methods (a bare `mute()`
-    is a local function and does not count; an optional call such as `player.unMute?.()` does).
-    The match is by name, so a write through a helper counts once, inside the helper; each
-    allowlist reason names the helpers whose callers write without a count of their own (see
-    RO-12). Phase 6 lowers the counts as one iframe-audio owner takes the writes; the iOS prime
-    `unMute()`, which must stay inside the gesture call stack, and the retained player's
-    hard-mute proof stay. `--report` lists every counted call with its function.
+    is a local function and does not count; an optional call such as `player.unMute?.()` does,
+    and so does a computed key that is a string literal, a conditional of them or a `const`
+    holding one, such as `player[muted ? 'mute' : 'unMute']()`, once per call). The match is by
+    name, so a write through a helper counts once, inside the helper; each allowlist reason names
+    the helpers whose callers write without a count of their own (see RO-12). CHECK 11 does not
+    see other computed keys (one read from a parameter, for example), destructured methods
+    (`const { mute } = player`) or methods called through `.call()` or `.bind()`; none exists
+    in `src/` today. Phase 6 lowers the counts as one iframe-audio owner takes the writes; the
+    iOS prime `unMute()`, which must stay inside the gesture call stack, and the retained
+    player's hard-mute proof stay. `--report` lists every counted call with its function.
 12. **Cross-file YouTube start-timer reads and clears, per file** (RO-02, Phase 6 T1): in
-    `src/youtube/`, `getManagedTimer()` and `clearManagedTimer()` calls on a start timer (the set
-    in RO-02) that the same file does not set with `setManagedTimer()`. A name list handed to an
-    array method (`names.some((name) => getManagedTimer(name) !== null)`,
+    `src/youtube/`, `getManagedTimer()` and `clearManagedTimer()` calls on a start timer (the
+    list in RO-02) that the same file does not set with `setManagedTimer()`. A name list handed
+    to an array method (`names.some((name) => getManagedTimer(name) !== null)`,
     `names.some(getManagedTimer)`) counts once per call. Names resolve from the syntax tree
-    alone: a string literal; a `const` initialised with one, in the file (matched by name, not by
-    scope) or imported by name from another production file; a parameter annotated with a string
-    literal or a union of them (`setStateActionTimer` in `sync.ts` sets both state-action timers
-    that way); and a callback's first parameter when the callback goes to a method of a name list.
-    A name that does not resolve, such as a template with a substitution or an unannotated
-    parameter, counts neither as set nor as used, and a renamed import of the timer functions is
-    not seen. Every start timer must still be set somewhere in `src/youtube/`, so a renamed or
-    removed one fails until the set changes with it. `--report` lists every counted call with
-    its names and function.
+    alone:
+    - a string literal, and both sides of a conditional, `??` or `||`;
+    - a `const` initialised with one: in the file (matched by name, not by scope, and only when
+      every binding of that name in the file resolves), imported by name, re-exported (an
+      export list or `export *`) or read through a namespace import (`offsets.NAME`); a for-of
+      `const` takes the names of the list it loops over;
+    - a callback's first parameter when the callback goes to a method of a name list, and
+      otherwise a parameter annotated with a string literal or a union of them
+      (`setStateActionTimer` in `sync.ts` sets both state-action timers that way); a type alias
+      in the annotation does not resolve;
+    - name lists: array literals (with spreads), `Object.freeze()`, `Array.from()`,
+      `new Set()`, `filter()`, `slice()`, `concat()` and the other subset methods of a list, and
+      `const`s holding one.
+
+    A template or `+` concatenation whose static text cannot spell a start timer, such as the
+    per-peer `` `yt-snapshot-retry-${pid}` ``, names no start timer. Fails closed, with no
+    allowance: a `getManagedTimer()`, `clearManagedTimer()` or `setManagedTimer()` call in
+    `src/youtube/` whose name does not resolve (`UNRESOLVED TIMER NAME`, for example a
+    parameter typed `string`, a `let` or a template that can spell a start timer); another name
+    for those functions, that is a renamed import or export, a destructuring rename, or any
+    value use other than a query or clear handed to a name list's method
+    (`TIMER FUNCTION ALIAS`); and a start timer set by a `src/youtube/` file other than its
+    listed setters, or no longer set by one of them (`START TIMER SET`). On 2026-10-31 none of
+    these fires: all 210 timer calls in `src/youtube/` resolve (the five templates name per-peer
+    timers) and nothing renames or passes on the timer functions. `--report` lists every counted
+    call with its names and function.
 
 The requesters of `scheduleSessionReset` and `scheduleDocumentReload`, and each page navigation
 sink by function, are checked by `scripts/check-navigation-sinks.mts` (RO-23, Phase 2 C6-14).
@@ -3755,11 +3785,12 @@ Not checked yet: callers of the other records' lifecycle operations (YouTube pla
 other than the iframe audio writes of CHECK 11, `claimPlaybackOwner` with a literal owner other
 than `'system-audio'`), receivers resolved by type (RO-44), module-level lifecycle slots
 (RO-45), timer names outside CHECK 12's start-timer set or outside `src/youtube/` (for example
-`src/player/transport.ts` reading the playlist's `'ended-advance-next'` timer), timer names
-CHECK 12 cannot resolve, the nameless `clearAllManagedTimers` in `leaveSession`, shared phase
-unions, duplicated helper names, "mirrors" copy-marker comments, registered timings retyped as
-literals in requester files, and header loader holder IDs read from a property, a call or
-another module (RO-47). Until then, review those by hand against each record.
+`src/player/transport.ts` reading the playlist's `'ended-advance-next'` timer), a helper outside
+`src/youtube/` that takes a timer name and calls the timer functions for a `src/youtube/`
+caller, the nameless `clearAllManagedTimers` in `leaveSession`, shared phase unions, duplicated
+helper names, "mirrors" copy-marker comments, registered timings retyped as literals in
+requester files, and header loader holder IDs read from a property, a call or another module
+(RO-47). Until then, review those by hand against each record.
 
 ## How to change this registry
 

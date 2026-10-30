@@ -27,7 +27,11 @@
  * times (the LAN-direct attempt still pending; already failed with the held
  * publish still pending; and already failed after the held publish was lost,
  * with 9.0.27's one ordinary publish pending), and pins the same lists as the
- * first, plus that the stale flight never releases the hold or commits.
+ * first, plus that the stale flight never releases the hold or commits. As in
+ * the real transport, the held fallback reads as lost after any publisher
+ * stop, so in the first window only the flight's ownership check after the
+ * LAN-direct attempt keeps it from the ordinary publish (the real-transport
+ * rows are in system-audio-pro-publish-evidence.test.ts).
  *
  * Real: the service, its controller and bridge, the receive slot (its start,
  * trust boundary and end are spies), the bus and the managed timers. Replaced:
@@ -52,6 +56,7 @@ const mocks = vi.hoisted(() => ({
   stopSubscriber: vi.fn(),
   publish: vi.fn(),
   releaseHold: vi.fn<(descriptor: unknown) => Promise<void>>(async () => undefined),
+  holdReady: vi.fn<(descriptor: unknown) => boolean>(() => true),
   reportCommitted: vi.fn<(descriptor: unknown) => void>(),
   attemptDirect: vi.fn<() => Promise<unknown>>(),
   resetDirect:
@@ -85,7 +90,7 @@ vi.mock('../../network/pro-system-audio-sfu.ts', () => ({
     mocks.sfuListener = listener;
   }),
   publishProSystemAudioSfu: mocks.publish,
-  isProSystemAudioSfuPublisherHoldReady: vi.fn(() => true),
+  isProSystemAudioSfuPublisherHoldReady: mocks.holdReady,
   releaseProSystemAudioSfuPublisherHold: mocks.releaseHold,
   reportProSystemAudioSfuPublisherCommitted: mocks.reportCommitted,
   stopProSystemAudioSfuPublisher: mocks.stopPublisher,
@@ -331,6 +336,20 @@ beforeEach(() => {
     track: { trackName: 'audio-stereo', mid: '0' },
   });
   mocks.releaseHold.mockReset().mockResolvedValue(undefined);
+  // As the real transport: the newest held publish is ready only until the
+  // next publisher stop, which every teardown entry point but leaving the PRO
+  // room context makes. A stale flight therefore finds its held fallback lost,
+  // so only its ownership check after the LAN-direct attempt keeps it from
+  // 9.0.27's ordinary publish.
+  mocks.holdReady.mockReset().mockImplementation(() => {
+    const lastStop = Math.max(-1, ...mocks.stopPublisher.mock.invocationCallOrder);
+    const held = mocks.publish.mock.calls.map((call, index) =>
+      (call[0] as { holdMedia?: boolean } | undefined)?.holdMedia
+        ? mocks.publish.mock.invocationCallOrder[index]!
+        : -1,
+    );
+    return Math.max(-1, ...held) > lastStop;
+  });
   mocks.attemptDirect.mockReset().mockImplementation(() => {
     throw new Error('DIRECT_UNAVAILABLE');
   });
@@ -590,6 +609,10 @@ describe.each([
       if (pending === 'held') window.held.reject(aborted);
       else if (pending === 'ordinary') window.ordinary.reject(aborted);
       else window.lan.resolve(null);
+      await vi.advanceTimersByTimeAsync(0);
+      // Checked before the flight settles: a stale flight that went on to an
+      // ordinary publish would wait on it and never settle.
+      expect(mocks.publish).toHaveBeenCalledTimes(pending === 'ordinary' ? 2 : 1);
       expect(await window.settled).toMatchObject({ code: 'OPERATION_SUPERSEDED' });
       expect(mocks.releaseHold).not.toHaveBeenCalled();
       expect(mocks.reportCommitted).not.toHaveBeenCalled();

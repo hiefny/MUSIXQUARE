@@ -399,7 +399,7 @@ describe('PRO system-audio SFU publisher', () => {
 // publication until the service releases the hold after a LAN-direct failure,
 // and a LAN-direct success stops it unused.
 describe('PRO system-audio SFU held fallback', () => {
-  const ROOM = '000123';
+  const ROOM = '000001';
   // The held fallback's own lines carry the service's prefix, never
   // `[ProSysAudioSFU]`: device criteria read any `[ProSysAudioSFU]` line as
   // "this share used the SFU", and only a committed fallback did.
@@ -918,6 +918,66 @@ describe('PRO system-audio SFU held fallback', () => {
       expect(publisherEvents(events).map((event) => event.state)).not.toContain('published');
       if (successor) {
         // The successor's hold is untouched: it still releases, and reports on its commit.
+        const successorSender = newestSender();
+        await proSfu.releaseProSystemAudioSfuPublisherHold(successor);
+        proSfu.reportProSystemAudioSfuPublisherCommitted(successor);
+        expect(successorSender.replaceTrack.mock.calls).toEqual([[null], [successorTrack]]);
+        expect(sfuLines()).toEqual(['[ProSysAudioSFU] Published generation 13']);
+      } else {
+        expect(sfuLines()).toEqual([]);
+        // The stop ended a fallback still holding media: it names no session,
+        // and its closed line says unused, not released.
+        expect(publisherEvents(events).at(-1)).toMatchObject({
+          state: 'stopped',
+          descriptor: null,
+        });
+        expect(heldLines().at(-1)).toContain('Closed unused SFU fallback for generation 12 (open ');
+      }
+    },
+  );
+
+  // The same teardowns, with the attach then rejecting on the closed or
+  // replaced connection: the stale release's catch must not fail anything, or
+  // it would log a false failed line, clear and close a successor's hold and
+  // leave the successor's own release refused.
+  it.each(['an explicit stop', 'a superseding held publish'] as const)(
+    "%s during the release's track attach, which then rejects: the release rejects as superseded and fails nothing",
+    async (teardown) => {
+      const track = audioTrack('capture-a');
+      const held = await heldPublish(track);
+      const sender = newestSender();
+      let attach!: () => void;
+      const attaching = new Promise<void>((resolve) => {
+        attach = resolve;
+      });
+      sender.replaceTrack.mockImplementationOnce(async () => {
+        await attaching;
+        throw new DOMException('closed while attaching', 'InvalidStateError');
+      });
+      const releasing = proSfu.releaseProSystemAudioSfuPublisherHold(held).then(
+        () => 'released',
+        (error: unknown) => error,
+      );
+      await vi.waitFor(() => expect(sender.replaceTrack).toHaveBeenCalledTimes(2));
+
+      const successorTrack = audioTrack('capture-b');
+      let successor: proSfu.ProSystemAudioSfuPublicationDescriptor | null = null;
+      if (teardown === 'an explicit stop') proSfu.stopProSystemAudioSfuPublisher();
+      else successor = await heldPublish(successorTrack, 13);
+      const eventCount = publisherEvents(events).length;
+      const connectionCount = peerConnections.length;
+      attach();
+
+      expect(await releasing).toMatchObject({ name: 'AbortError' });
+      expect(heldLines().some((line) => /failed after/.test(line))).toBe(false);
+      expect(publisherEvents(events)).toHaveLength(eventCount);
+      expect(peerConnections).toHaveLength(connectionCount);
+      expect(track.applyConstraints).not.toHaveBeenCalled();
+      if (successor) {
+        // The successor's hold is untouched: still open and ready, it releases
+        // and reports on its commit.
+        expect(peerConnections.at(-1)!.close).not.toHaveBeenCalled();
+        expect(proSfu.isProSystemAudioSfuPublisherHoldReady(successor)).toBe(true);
         const successorSender = newestSender();
         await proSfu.releaseProSystemAudioSfuPublisherHold(successor);
         proSfu.reportProSystemAudioSfuPublisherCommitted(successor);

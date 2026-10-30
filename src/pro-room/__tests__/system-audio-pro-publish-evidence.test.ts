@@ -10,12 +10,16 @@
  * with their exact text, argument count and log level. Every SFU publication,
  * a first SFU publish and a promotion alike, logs `[ProSysAudioSFU] Published
  * generation N` once: a promotion when it is published, just before its
- * commit, and (since 9.0.28) a first SFU share only after the room committed
- * its released fallback. A promotion also logs `[PRO SystemAudio] Promoted
+ * commit, as does (since 9.0.28) the ordinary publish a share makes after its
+ * held fallback was lost, so either still leaves the line when that commit is
+ * refused; a first SFU share that releases its held fallback logs it only
+ * after the room committed it. A promotion also logs `[PRO SystemAudio] Promoted
  * LAN-direct publication to SFU (<reason>)`, with ", reconciled" when the
  * commit response was lost; a LAN-direct publication that stays direct logs
  * neither (the "direct (presumed)" verdict), and no `[ProSysAudioSFU]` line at
- * all, the rule several device criteria use. Since 9.0.28 a share with
+ * info level, the rule several device criteria use (at debug level, a failed
+ * force close of the held fallback's tracks can still log a
+ * `[ProSysAudioSFU] … tracks-close failed` debug line). Since 9.0.28 a share with
  * LAN-direct targets prepares its SFU fallback beside the LAN-direct attempt
  * with the sender holding no track, and logs its own lines under the
  * `[PRO SystemAudio]` prefix: Prepared, Released, Closed unused, Cancelled,
@@ -56,6 +60,7 @@ import {
   publishLocalProSystemAudio,
   refreshProSystemAudioState,
   registerProSystemAudioServiceListeners,
+  releaseLocalProSystemAudioLease,
   resetProSystemAudioService,
 } from '../system-audio-service.ts';
 import {
@@ -150,13 +155,13 @@ function matching(pattern: RegExp): Line[] {
 /** Every sharer line the device criteria read, at whatever level it was logged. */
 const evidence = () => matching(SHARER_LINE);
 
-function snapshot(): ProRoomSnapshot {
+function snapshot(presenceIncarnationId = 'presence_0000000001'): ProRoomSnapshot {
   return {
     roomCode: ROOM_CODE,
     status: 'active',
     viewer: {
       participantId: LOCAL_ID,
-      presenceIncarnationId: 'presence_0000000001',
+      presenceIncarnationId,
       capabilities: ['playback.control'],
     },
     presence: {
@@ -221,6 +226,10 @@ const PREPARED = new RegExp(
 );
 const RELEASED = new RegExp(
   `^\\[PRO SystemAudio\\] Released SFU fallback for generation ${GENERATION} \\(held \\d+ ms\\)$`,
+  'u',
+);
+const CLOSED_UNUSED = new RegExp(
+  `^\\[PRO SystemAudio\\] Closed unused SFU fallback for generation ${GENERATION} \\(open \\d+ ms\\)$`,
   'u',
 );
 const CLOSED_BEFORE_PREPARED = new RegExp(
@@ -583,6 +592,58 @@ describe('PRO sharer device evidence lines', () => {
     expect(publisherRealtime.count('new-session')).toBe(2);
     expect(api.acquireSystemAudioLease).toHaveBeenCalledTimes(1);
   });
+
+  // Every teardown entry point stops the singleton publisher, so the stale
+  // flight finds its prepared fallback lost when LAN-direct then fails. Its
+  // ownership check right after the LAN-direct attempt is what keeps it from
+  // 9.0.27's ordinary publish: a second, orphaned Realtime publisher sending
+  // the capture track.
+  it.each<{ teardown: string; run: () => Promise<unknown> | void }>([
+    { teardown: 'an explicit stop', run: () => releaseLocalProSystemAudioLease() },
+    {
+      teardown: 'a new presence incarnation',
+      run: () => bindProSystemAudioSession(snapshot('presence_0000000002')),
+    },
+    { teardown: 'a service reset', run: () => resetProSystemAudioService() },
+  ])(
+    '$teardown while LAN-direct is pending and the fallback is prepared: superseded, one Realtime session, closed, no second publish',
+    async ({ run }) => {
+      api.releaseSystemAudioLease.mockResolvedValue(idle(GENERATION));
+      api.getSystemAudioState.mockResolvedValue(idle(GENERATION - 1));
+      await refreshProSystemAudioState();
+      await acquireLocalProSystemAudioLease();
+      let failLan!: () => void;
+      attemptDirect.mockImplementation(
+        () =>
+          new Promise((resolve) => {
+            failLan = () => resolve(null);
+          }),
+      );
+      const settled = publishLocalProSystemAudio(track).then(
+        () => null,
+        (error: unknown) => error,
+      );
+      await advance(PUBLISH_SETTLE_MS);
+      expect(matching(PREPARED)).toHaveLength(1);
+
+      await run();
+      failLan();
+      await advance(PUBLISH_SETTLE_MS);
+
+      expect(await settled).toMatchObject({ code: 'OPERATION_SUPERSEDED' });
+      expect(publisherRealtime.count('new-session')).toBe(1);
+      expect(PublisherPeerConnection.instances.map((pc) => pc.closed)).toEqual([true]);
+      expect(PublisherPeerConnection.instances[0]?.senders[0]?.replaceTrack.mock.calls).toEqual([
+        [null],
+      ]);
+      expect(matching(HELD)).toEqual([
+        ['info', expect.stringMatching(PREPARED)],
+        ['info', expect.stringMatching(CLOSED_UNUSED)],
+      ]);
+      expect(matching(SFU_PREFIX)).toEqual([]);
+      expect(committed()).toEqual([]);
+    },
+  );
 
   it('LAN-direct proven after the fallback was prepared: no [ProSysAudioSFU] line, one held session opened and closed with no media', async () => {
     expect(await shareWithLanSettlingAfterPrepared('proves')).toBeNull();

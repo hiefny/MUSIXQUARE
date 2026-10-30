@@ -24,6 +24,7 @@ import {
   type ProServerEventEnvelope,
 } from '../pro-room/network-bridge.ts';
 import { sendProRoomRealtime } from '../pro-room/realtime-sender.ts';
+import { findRefinedHostPair, nativePairIdentity, visibleIceAddress } from './ice-selected-pair.ts';
 import { forceStereoSdp } from './opus-stereo-sdp.ts';
 import { tuneSystemAudioLanDirectSender } from './system-audio-media.ts';
 
@@ -222,6 +223,10 @@ interface PublisherRoute {
   remoteCandidateTuples: Set<string>;
   acceptedRemoteMdnsKeys: Set<string>;
   localCandidateCount: number;
+  /** UDP candidates this end gathered that the LAN rule refused, for the pair-check line. */
+  refusedLocalCandidateCount: number;
+  /** Remote mDNS ledger keys added; unlike the ledger it survives the route's close. */
+  addedRemoteCandidateCount: number;
   remoteCandidateCount: number;
   offerSent: boolean;
   remoteDescriptionReady: boolean;
@@ -267,6 +272,10 @@ interface ReceiverRoute {
   remoteCandidateTuples: Set<string>;
   acceptedRemoteMdnsKeys: Set<string>;
   localCandidateCount: number;
+  /** UDP candidates this end gathered that the LAN rule refused, for the pair-check line. */
+  refusedLocalCandidateCount: number;
+  /** Remote mDNS ledger keys added; unlike the ledger it survives the route's close. */
+  addedRemoteCandidateCount: number;
   remoteCandidateCount: number;
   answerSent: boolean;
   remoteDescriptionReady: boolean;
@@ -831,6 +840,12 @@ function candidateLineIsLanSafe(candidateLine: string): boolean {
   return parseLanCandidateLine(candidateLine) !== null;
 }
 
+/** A gathered UDP candidate line of any address or type, for the refused count only. */
+function isUdpCandidateLine(candidateLine: string | undefined): boolean {
+  const fields = (candidateLine ?? '').trim().replace(/^a=/i, '').split(/\s+/);
+  return /^candidate:/i.test(fields[0] ?? '') && fields[2]?.toLowerCase() === 'udp';
+}
+
 function sanitizeLanSdp(sdp: string): string {
   const separator = sdp.includes('\r\n') ? '\r\n' : '\n';
   const sourceLines = sdp.split(/\r?\n/);
@@ -865,6 +880,104 @@ function addressesProveSameLan(localAddress: string, remoteAddress: string): boo
 
 type SelectedPairLocality = 'same-subnet' | 'non-local' | 'pending';
 
+/**
+ * Which check decided one reading of the selected pair. A diagnostic name for
+ * the pair-check line only; the reading's locality is what callers act on.
+ */
+type PairRule =
+  | 'native-host'
+  | 'native-key-pending'
+  | 'native-type'
+  | 'native-address'
+  | 'refined-host'
+  | 'refined-key-pending'
+  | 'refined-address'
+  | 'prflx-unrefined'
+  | 'snapshot-changed'
+  | 'stats-host'
+  | 'stats-key-pending'
+  | 'stats-type'
+  | 'stats-address'
+  | 'stats-ambiguous'
+  | 'stats-missing'
+  | 'unavailable'
+  | 'read-deadline';
+
+type IceAddressKind =
+  'mdns' | 'private-ipv4' | 'private-ipv6' | 'link-local' | 'public' | 'other' | 'none';
+
+/** Candidate types and address kinds of one view of the pair: never an address or port. */
+interface PairView {
+  localType: string;
+  localKind: IceAddressKind;
+  remoteType: string;
+  remoteKind: IceAddressKind;
+}
+
+/** One reading of an end's selected pair: its locality, the deciding rule and both views. */
+interface PairReading {
+  locality: SelectedPairLocality;
+  rule: PairRule;
+  native: PairView | null;
+  stats: PairView | null;
+}
+
+const ICE_CANDIDATE_TYPES: ReadonlySet<string> = new Set(['host', 'srflx', 'prflx', 'relay']);
+
+function iceCandidateTypeName(type: string | null | undefined): string {
+  if (!type) return 'none';
+  return ICE_CANDIDATE_TYPES.has(type) ? type : 'other';
+}
+
+/** The kind of a candidate address, for diagnostics: the address itself is never logged. */
+function iceAddressKind(address: string | null | undefined): IceAddressKind {
+  const visible = visibleIceAddress(address);
+  if (!visible) return 'none';
+  if (isUuidLikeMdnsAddress(visible)) return 'mdns';
+  const ipv4 = parseIpv4(visible);
+  if (ipv4) {
+    if (isRfc1918Ipv4(ipv4)) return 'private-ipv4';
+    return ipv4[0] === 169 && ipv4[1] === 254 ? 'link-local' : 'public';
+  }
+  const ipv6 = parseIpv6(visible);
+  if (ipv6) {
+    if (isIpv6LinkLocal(ipv6)) return 'link-local';
+    return isIpv6UniqueLocal(ipv6) ? 'private-ipv6' : 'public';
+  }
+  return 'other';
+}
+
+function pairView(
+  localType: string | null | undefined,
+  localAddress: string | null | undefined,
+  remoteType: string | null | undefined,
+  remoteAddress: string | null | undefined,
+): PairView {
+  return {
+    localType: iceCandidateTypeName(localType),
+    localKind: iceAddressKind(localAddress),
+    remoteType: iceCandidateTypeName(remoteType),
+    remoteKind: iceAddressKind(remoteAddress),
+  };
+}
+
+/** The address part of the host rule, the same for the native, refined and statistics views. */
+function hostAddressesLocality(
+  localAddress: string | null | undefined,
+  remoteAddress: string | null | undefined,
+): 'same-subnet' | 'non-local' {
+  if (
+    localAddress &&
+    !isPrivateNumericAddress(localAddress) &&
+    !isUuidLikeMdnsAddress(localAddress)
+  ) {
+    return 'non-local';
+  }
+  if (remoteAddress && !isUuidLikeMdnsAddress(remoteAddress)) return 'non-local';
+  if (!remoteAddress || !localAddress) return 'same-subnet';
+  return addressesProveSameLan(localAddress, remoteAddress) ? 'same-subnet' : 'non-local';
+}
+
 function authoritativePairLocality(
   pair: RTCIceCandidatePair,
   acceptedRemoteMdnsKeys: ReadonlySet<string>,
@@ -898,36 +1011,173 @@ function authoritativePairLocality(
   ) {
     return 'pending';
   }
-
-  const localAddress = localCandidate.address;
-  const remoteAddress = remoteCandidate.address;
-  if (
-    localAddress &&
-    !isPrivateNumericAddress(localAddress) &&
-    !isUuidLikeMdnsAddress(localAddress)
-  ) {
-    return 'non-local';
-  }
-  if (remoteAddress && !isUuidLikeMdnsAddress(remoteAddress)) return 'non-local';
-  if (!remoteAddress || !localAddress) return 'same-subnet';
-  return addressesProveSameLan(localAddress, remoteAddress) ? 'same-subnet' : 'non-local';
+  return hostAddressesLocality(localCandidate.address, remoteCandidate.address);
 }
 
-async function selectedPairLocality(
+/** The host rule on statistics candidates: the remote must be an mDNS candidate added here. */
+function statsHostLocality(
+  localCandidate: unknown,
+  remoteCandidate: unknown,
+  acceptedRemoteMdnsKeys: ReadonlySet<string>,
+): SelectedPairLocality {
+  const remoteFoundation = statsString(remoteCandidate, 'foundation');
+  const remotePort = statsNumber(remoteCandidate, 'port');
+  const remoteProtocol = statsString(remoteCandidate, 'protocol');
+  if (
+    !remoteFoundation ||
+    remotePort === null ||
+    (remoteProtocol !== null && remoteProtocol.toLowerCase() !== 'udp') ||
+    !acceptedRemoteMdnsKeys.has(`${remoteFoundation}:${remotePort}`)
+  ) {
+    return 'pending';
+  }
+  return hostAddressesLocality(candidateAddress(localCandidate), candidateAddress(remoteCandidate));
+}
+
+function hostRule(locality: SelectedPairLocality, view: 'refined' | 'stats'): PairRule {
+  if (view === 'refined') {
+    return locality === 'same-subnet'
+      ? 'refined-host'
+      : locality === 'pending'
+        ? 'refined-key-pending'
+        : 'refined-address';
+  }
+  return locality === 'same-subnet'
+    ? 'stats-host'
+    : locality === 'pending'
+      ? 'stats-key-pending'
+      : 'stats-address';
+}
+
+function nativeRule(locality: SelectedPairLocality, pair: RTCIceCandidatePair): PairRule {
+  if (locality === 'same-subnet') return 'native-host';
+  if (locality === 'pending') return 'native-key-pending';
+  return pair.local.type !== 'host' || pair.remote.type !== 'host'
+    ? 'native-type'
+    : 'native-address';
+}
+
+/** The uniquely transport-selected statistics pair's view, for the pair-check line only. */
+function selectedStatsView(stats: RTCStatsReport): PairView | null {
+  const selectedPairIds = [...stats.values()]
+    .filter((report) => report.type === 'transport')
+    .map((report) => statsString(report, 'selectedCandidatePairId'))
+    .filter((id): id is string => Boolean(id));
+  if (selectedPairIds.length !== 1) return null;
+  const pair = stats.get(selectedPairIds[0]!);
+  if (pair?.type !== 'candidate-pair') return null;
+  const local = stats.get(statsString(pair, 'localCandidateId') ?? '');
+  const remote = stats.get(statsString(pair, 'remoteCandidateId') ?? '');
+  return pairView(
+    statsString(local, 'candidateType'),
+    candidateAddress(local),
+    statsString(remote, 'candidateType'),
+    candidateAddress(remote),
+  );
+}
+
+/**
+ * A native host-to-prflx snapshot. The browser may have refined that same
+ * connection to a signaled host candidate without a new selected-pair event
+ * (ice-selected-pair.ts): iOS Safari, the ICE-controlled answerer, meets the
+ * publisher's checks before it has resolved the publisher's mDNS name. Only
+ * that refined statistics pair, held to the full host rule, can prove it.
+ * Until then the reading is pending, never non-local, so the existing proof
+ * windows can see the refinement; an unrefined pair never proves.
+ */
+async function refinedPairReading(
+  pc: RTCPeerConnection,
+  iceTransport: RTCIceTransport,
+  pair: RTCIceCandidatePair,
+  acceptedRemoteMdnsKeys: ReadonlySet<string>,
+  native: PairView,
+): Promise<PairReading> {
+  // Any address the snapshot exposes must already meet the host rule: a
+  // private or mDNS local, and at most a private numeric prflx remote.
+  const localAddress = visibleIceAddress(pair.local.address);
+  const remoteAddress = visibleIceAddress(pair.remote.address);
+  if (
+    (localAddress &&
+      !isPrivateNumericAddress(localAddress) &&
+      !isUuidLikeMdnsAddress(localAddress)) ||
+    (remoteAddress && !isPrivateNumericAddress(remoteAddress))
+  ) {
+    return { locality: 'non-local', rule: 'native-address', native, stats: null };
+  }
+  const pending = (rule: PairRule, stats: PairView | null = null): PairReading => ({
+    locality: 'pending',
+    rule,
+    native,
+    stats,
+  });
+  const identity = nativePairIdentity(pair);
+  let stats: RTCStatsReport;
+  let current: RTCIceCandidatePair | null = null;
+  try {
+    stats = await pc.getStats();
+    const currentTransport = pc.sctp?.transport?.iceTransport;
+    if (currentTransport === iceTransport) current = currentTransport.getSelectedCandidatePair();
+  } catch (error) {
+    log.debug('[ProSysAudioDirect] Refined ICE pair unavailable', error);
+    return pending('unavailable');
+  }
+  // Never combine evidence from two objects: the snapshot must be unchanged.
+  if (!current?.local || !current.remote || nativePairIdentity(current) !== identity) {
+    return pending('snapshot-changed');
+  }
+  const refined = findRefinedHostPair(stats, pair);
+  if (!refined) return pending('prflx-unrefined', selectedStatsView(stats));
+  const view = pairView(
+    statsString(refined.local, 'candidateType'),
+    candidateAddress(refined.local),
+    statsString(refined.remote, 'candidateType'),
+    candidateAddress(refined.remote),
+  );
+  const locality = statsHostLocality(refined.local, refined.remote, acceptedRemoteMdnsKeys);
+  return { locality, rule: hostRule(locality, 'refined'), native, stats: view };
+}
+
+/**
+ * One reading of an end's selected pair. The publisher's negotiation, the
+ * receiver's proof, the activation reproof and the live reproofs all use it,
+ * so the two ends of a route apply one rule.
+ */
+async function readSelectedPair(
   pc: RTCPeerConnection,
   acceptedRemoteMdnsKeys: ReadonlySet<string>,
-): Promise<SelectedPairLocality> {
+): Promise<PairReading> {
+  let native: PairView | null = null;
+  let prflxSnapshot: { iceTransport: RTCIceTransport; pair: RTCIceCandidatePair } | null = null;
   try {
     const iceTransport = pc.sctp?.transport?.iceTransport;
     if (typeof iceTransport?.getSelectedCandidatePair === 'function') {
       const pair = iceTransport.getSelectedCandidatePair();
-      if (pair) {
-        const locality = authoritativePairLocality(pair, acceptedRemoteMdnsKeys);
-        if (locality) return locality;
+      if (pair?.local && pair.remote) {
+        native = pairView(
+          pair.local.type,
+          pair.local.address,
+          pair.remote.type,
+          pair.remote.address,
+        );
+        if (pair.local.type === 'host' && pair.remote.type === 'prflx') {
+          prflxSnapshot = { iceTransport, pair };
+        } else {
+          const locality = authoritativePairLocality(pair, acceptedRemoteMdnsKeys);
+          if (locality) return { locality, rule: nativeRule(locality, pair), native, stats: null };
+        }
       }
     }
   } catch (error) {
     log.debug('[ProSysAudioDirect] Selected ICE pair unavailable', error);
+  }
+  if (prflxSnapshot && native) {
+    return refinedPairReading(
+      pc,
+      prflxSnapshot.iceTransport,
+      prflxSnapshot.pair,
+      acceptedRemoteMdnsKeys,
+      native,
+    );
   }
 
   try {
@@ -939,7 +1189,9 @@ async function selectedPairLocality(
         if (selectedPairId) selectedPairIds.add(selectedPairId);
       }
     }
-    if (selectedPairIds.size > 1) return 'non-local';
+    if (selectedPairIds.size > 1) {
+      return { locality: 'non-local', rule: 'stats-ambiguous', native, stats: null };
+    }
     const selectedPairId = selectedPairIds.values().next().value as string | undefined;
     let pair: RTCStats | null = null;
     if (selectedPairId !== undefined) {
@@ -955,40 +1207,92 @@ async function selectedPairLocality(
       );
       if (nominated.length === 1) pair = nominated[0] ?? null;
     }
-    if (!pair || statsString(pair, 'state') !== 'succeeded') return 'pending';
+    if (!pair || statsString(pair, 'state') !== 'succeeded') {
+      return { locality: 'pending', rule: 'stats-missing', native, stats: null };
+    }
     const localCandidate = stats.get(statsString(pair, 'localCandidateId') ?? '');
     const remoteCandidate = stats.get(statsString(pair, 'remoteCandidateId') ?? '');
     const localType = statsString(localCandidate, 'candidateType');
     const remoteType = statsString(remoteCandidate, 'candidateType');
-    if (!localType || !remoteType) return 'pending';
-    if (localType !== 'host' || remoteType !== 'host') return 'non-local';
-    const remoteFoundation = statsString(remoteCandidate, 'foundation');
-    const remotePort = statsNumber(remoteCandidate, 'port');
-    const remoteProtocol = statsString(remoteCandidate, 'protocol');
-    if (
-      !remoteFoundation ||
-      remotePort === null ||
-      (remoteProtocol !== null && remoteProtocol.toLowerCase() !== 'udp') ||
-      !acceptedRemoteMdnsKeys.has(`${remoteFoundation}:${remotePort}`)
-    ) {
-      return 'pending';
+    const view = pairView(
+      localType,
+      candidateAddress(localCandidate),
+      remoteType,
+      candidateAddress(remoteCandidate),
+    );
+    if (!localType || !remoteType) {
+      return { locality: 'pending', rule: 'stats-missing', native, stats: view };
     }
-    const localAddress = candidateAddress(localCandidate);
-    const remoteAddress = candidateAddress(remoteCandidate);
-    if (
-      localAddress &&
-      !isPrivateNumericAddress(localAddress) &&
-      !isUuidLikeMdnsAddress(localAddress)
-    ) {
-      return 'non-local';
+    // A selected host-to-prflx statistics pair has not refined yet: wait, never prove.
+    if (localType === 'host' && remoteType === 'prflx') {
+      return { locality: 'pending', rule: 'prflx-unrefined', native, stats: view };
     }
-    if (remoteAddress && !isUuidLikeMdnsAddress(remoteAddress)) return 'non-local';
-    if (!remoteAddress || !localAddress) return 'same-subnet';
-    return addressesProveSameLan(localAddress, remoteAddress) ? 'same-subnet' : 'non-local';
+    if (localType !== 'host' || remoteType !== 'host') {
+      return { locality: 'non-local', rule: 'stats-type', native, stats: view };
+    }
+    const locality = statsHostLocality(localCandidate, remoteCandidate, acceptedRemoteMdnsKeys);
+    return { locality, rule: hostRule(locality, 'stats'), native, stats: view };
   } catch (error) {
     log.debug('[ProSysAudioDirect] ICE stats unavailable', error);
-    return 'pending';
+    return { locality: 'pending', rule: 'unavailable', native, stats: null };
   }
+}
+
+/** One end's pair proof, kept for its pair-check line. */
+interface PairProof {
+  startedAt: number;
+  connectedAt: number | null;
+  reading: PairReading | null;
+  result: PairWaitResult | null;
+  endedAt: number | null;
+}
+
+function startPairProof(): PairProof {
+  return { startedAt: Date.now(), connectedAt: null, reading: null, result: null, endedAt: null };
+}
+
+function describePairView(view: PairView | null): string {
+  return view
+    ? `${view.localType}/${view.localKind} to ${view.remoteType}/${view.remoteKind}`
+    : 'none';
+}
+
+/** Candidates this end signalled, gathered but refused by the LAN rule, and added remote. */
+function routeCandidateCounts(route: PublisherRoute | ReceiverRoute): string {
+  return (
+    `candidates sent ${route.localCandidateCount}, ` +
+    `refused ${route.refusedLocalCandidateCount}, added ${route.addedRemoteCandidateCount}`
+  );
+}
+
+function pairReadingDetail(reading: PairReading | null, counts: string): string {
+  return (
+    `native ${describePairView(reading?.native ?? null)}; ` +
+    `stats ${describePairView(reading?.stats ?? null)}; ${counts}`
+  );
+}
+
+/**
+ * One privacy-safe line when an end's pair proof ends: the deciding rule of
+ * its last reading, candidate types and address kinds, and candidate counts.
+ * Never an address, port, foundation, username fragment, room code or full id.
+ */
+function pairCheckLine(
+  subject: string,
+  outcome: PairWaitResult,
+  proof: PairProof,
+  counts: string,
+): string {
+  const endedAt = proof.endedAt ?? Date.now();
+  const connected =
+    proof.connectedAt === null
+      ? 'never connected'
+      : `connected at ${proof.connectedAt - proof.startedAt} ms`;
+  const rule = proof.reading?.rule ?? (proof.connectedAt === null ? 'not-connected' : 'no-reading');
+  return (
+    `[ProSysAudioDirect] ${subject} ${outcome} after ${endedAt - proof.startedAt} ms by ${rule} ` +
+    `(${connected}; ${pairReadingDetail(proof.reading, counts)})`
+  );
 }
 
 function publisherCloseSignal(route: PublisherRoute, reason: DirectCloseReason): DirectCloseSignal {
@@ -1260,6 +1564,13 @@ function flushReceiverLocalCandidates(route: ReceiverRoute): void {
   }
 }
 
+/** Records an added remote mDNS candidate's foundation:port key in this route's ledger. */
+function acceptRemoteMdnsKey(route: PublisherRoute | ReceiverRoute, ledgerKey: string): void {
+  if (route.acceptedRemoteMdnsKeys.has(ledgerKey)) return;
+  route.acceptedRemoteMdnsKeys.add(ledgerKey);
+  route.addedRemoteCandidateCount += 1;
+}
+
 async function flushPublisherRemoteCandidates(route: PublisherRoute): Promise<void> {
   if (!route.remoteDescriptionReady || route.closed) return;
   const candidates = route.queuedRemoteCandidates.splice(0);
@@ -1268,7 +1579,7 @@ async function flushPublisherRemoteCandidates(route: PublisherRoute): Promise<vo
     const parsed = candidate.candidate ? parseLanCandidateLine(candidate.candidate) : null;
     const session = publisherSession;
     if (parsed && session && publisherRouteIsCurrent(session, route)) {
-      route.acceptedRemoteMdnsKeys.add(parsed.ledgerKey);
+      acceptRemoteMdnsKey(route, parsed.ledgerKey);
     }
   }
 }
@@ -1280,7 +1591,7 @@ async function flushReceiverRemoteCandidates(route: ReceiverRoute): Promise<void
     await route.pc.addIceCandidate(candidate);
     const parsed = candidate.candidate ? parseLanCandidateLine(candidate.candidate) : null;
     if (parsed && receiverRoute === route && !route.closed) {
-      route.acceptedRemoteMdnsKeys.add(parsed.ledgerKey);
+      acceptRemoteMdnsKey(route, parsed.ledgerKey);
     }
   }
 }
@@ -1306,6 +1617,8 @@ function createPublisherRoute(
     remoteCandidateTuples: new Set(),
     acceptedRemoteMdnsKeys: new Set(),
     localCandidateCount: 0,
+    refusedLocalCandidateCount: 0,
+    addedRemoteCandidateCount: 0,
     remoteCandidateCount: 0,
     offerSent: false,
     remoteDescriptionReady: false,
@@ -1328,7 +1641,10 @@ function createPublisherRoute(
     const parsedCandidate = candidate?.candidate
       ? parseLanCandidateLine(candidate.candidate)
       : null;
-    if (!candidate || !parsedCandidate) return;
+    if (!candidate || !parsedCandidate) {
+      if (isUdpCandidateLine(event.candidate.candidate)) route.refusedLocalCandidateCount += 1;
+      return;
+    }
     if (route.localCandidateTuples.has(parsedCandidate.tuple)) return;
     route.localCandidateTuples.add(parsedCandidate.tuple);
     route.localCandidateCount += 1;
@@ -1349,26 +1665,37 @@ function createPublisherRoute(
   return route;
 }
 
-/** Polls one end's selected pair until it is a proven LAN pair or the wait ends. */
+/**
+ * Polls one end's selected pair until it is a proven LAN pair or the wait
+ * ends, recording the first connected moment and the last reading in `proof`.
+ */
 async function waitForProvenPair(
   pc: RTCPeerConnection,
   acceptedRemoteMdnsKeys: ReadonlySet<string>,
   isCurrent: () => boolean,
   timeoutMs: number,
+  proof: PairProof,
 ): Promise<PairWaitResult> {
+  const finish = (result: PairWaitResult): PairWaitResult => {
+    proof.result = result;
+    proof.endedAt = Date.now();
+    return result;
+  };
   const expiresAt = Date.now() + timeoutMs;
   while (Date.now() <= expiresAt) {
-    if (!isCurrent()) return 'closed';
-    if (pcDisconnected(pc)) return 'disconnected';
+    if (!isCurrent()) return finish('closed');
+    if (pcDisconnected(pc)) return finish('disconnected');
     if (pcConnected(pc)) {
-      const locality = await selectedPairLocality(pc, acceptedRemoteMdnsKeys);
-      if (!isCurrent()) return 'closed';
-      if (locality === 'same-subnet') return 'proven';
-      if (locality === 'non-local') return 'non-local';
+      proof.connectedAt ??= Date.now();
+      const reading = await readSelectedPair(pc, acceptedRemoteMdnsKeys);
+      proof.reading = reading;
+      if (!isCurrent()) return finish('closed');
+      if (reading.locality === 'same-subnet') return finish('proven');
+      if (reading.locality === 'non-local') return finish('non-local');
     }
     await delay(Math.min(DIRECT_PAIR_POLL_MS, Math.max(1, expiresAt - Date.now())));
   }
-  return isCurrent() ? 'deadline' : 'closed';
+  return finish(isCurrent() ? 'deadline' : 'closed');
 }
 
 async function waitForPublisherRoute(
@@ -1419,13 +1746,25 @@ async function provePublisherRouteCurrent(
   if (!publisherRouteIsCurrent(session, route) || pcDisconnected(route.pc)) return false;
   if (route.reproofFlight) return route.reproofFlight;
   const flight = (async () => {
-    const locality = await withinDirectDeadline(
-      selectedPairLocality(route.pc, route.acceptedRemoteMdnsKeys),
+    const reading = await withinDirectDeadline(
+      readSelectedPair(route.pc, route.acceptedRemoteMdnsKeys),
       DIRECT_NEGOTIATION_TIMEOUT_MS,
-      (): SelectedPairLocality => 'pending',
+      (): PairReading => ({
+        locality: 'pending',
+        rule: 'read-deadline',
+        native: null,
+        stats: null,
+      }),
     );
     if (!publisherRouteIsCurrent(session, route) || pcDisconnected(route.pc)) return false;
-    route.provenLocal = locality === 'same-subnet';
+    route.provenLocal = reading.locality === 'same-subnet';
+    if (!route.provenLocal) {
+      log.info(
+        `[ProSysAudioDirect] Publisher pair reproof to ${route.participantId.slice(-4)} ` +
+          `${reading.locality} by ${reading.rule} ` +
+          `(${pairReadingDetail(reading, routeCandidateCounts(route))})`,
+      );
+    }
     return route.provenLocal;
   })();
   route.reproofFlight = flight;
@@ -1505,6 +1844,7 @@ async function negotiatePublisherRoute(
   let stage: PublisherNegotiationStage = 'offer';
   let cause = 'deadline';
   let route: PublisherRoute | null = null;
+  let pairProof: PairProof | null = null;
   let proven = false;
   try {
     route = createPublisherRoute(session, participantId, routeToken);
@@ -1548,6 +1888,8 @@ async function negotiatePublisherRoute(
     if (answered) {
       stage = 'pair';
       const proofExpiresAt = Date.now() + DIRECT_PAIR_PROOF_TIMEOUT_MS;
+      const proof = startPairProof();
+      pairProof = proof;
       proven = await withinDirectDeadline(
         (async () => {
           const pair = await waitForProvenPair(
@@ -1555,6 +1897,7 @@ async function negotiatePublisherRoute(
             negotiatingRoute.acceptedRemoteMdnsKeys,
             isCurrent,
             DIRECT_PAIR_PROOF_TIMEOUT_MS,
+            proof,
           );
           if (pair !== 'proven') {
             cause = pair === 'closed' ? endedCause() : pair;
@@ -1603,6 +1946,19 @@ async function negotiatePublisherRoute(
   // retire it so a later reconcile pass cannot commit a route without audio.
   if (!proven && route && publisherRouteIsCurrent(session, route)) {
     retireNegotiatingRoute(session, route);
+  }
+  if (route && pairProof) {
+    // Before the result line. The stage deadline may have cut the proof short
+    // (and its retired route then reads as closed to the proof).
+    const result = pairProof.result;
+    log.info(
+      pairCheckLine(
+        `Publisher pair check to ${participantId.slice(-4)}`,
+        result && result !== 'closed' ? result : cause === 'deadline' ? 'deadline' : 'closed',
+        pairProof,
+        routeCandidateCounts(route),
+      ),
+    );
   }
   const elapsedMs = Date.now() - startedAt;
   const detail = marks.length > 0 ? marks.join(', ') : 'no answer';
@@ -1719,6 +2075,8 @@ function createReceiverRoute(signal: DirectOfferSignal, ownerParticipantId: stri
     remoteCandidateTuples: new Set(),
     acceptedRemoteMdnsKeys: new Set(),
     localCandidateCount: 0,
+    refusedLocalCandidateCount: 0,
+    addedRemoteCandidateCount: 0,
     remoteCandidateCount: 0,
     answerSent: false,
     remoteDescriptionReady: false,
@@ -1736,7 +2094,10 @@ function createReceiverRoute(signal: DirectOfferSignal, ownerParticipantId: stri
     const parsedCandidate = candidate?.candidate
       ? parseLanCandidateLine(candidate.candidate)
       : null;
-    if (!candidate || !parsedCandidate) return;
+    if (!candidate || !parsedCandidate) {
+      if (isUdpCandidateLine(event.candidate.candidate)) route.refusedLocalCandidateCount += 1;
+      return;
+    }
     if (route.localCandidateTuples.has(parsedCandidate.tuple)) return;
     route.localCandidateTuples.add(parsedCandidate.tuple);
     route.localCandidateCount += 1;
@@ -1771,15 +2132,19 @@ function createReceiverRoute(signal: DirectOfferSignal, ownerParticipantId: stri
 
 /** The receiver proves its own selected pair after answering, then tells the publisher. */
 async function proveReceiverRoute(route: ReceiverRoute): Promise<void> {
-  const startedAt = Date.now();
+  const proof = startPairProof();
   const result = await waitForProvenPair(
     route.pc,
     route.acceptedRemoteMdnsKeys,
     () => receiverRoute === route && !route.closed,
     DIRECT_NEGOTIATION_TIMEOUT_MS,
+    proof,
   );
+  // Every outcome, 'closed' too: the publisher's own deadline can end the
+  // route before this window does.
+  log.info(pairCheckLine('Receiver pair check', result, proof, routeCandidateCounts(route)));
   if (result === 'closed') return;
-  const elapsedMs = Date.now() - startedAt;
+  const elapsedMs = Date.now() - proof.startedAt;
   if (result !== 'proven') {
     log.info(`[ProSysAudioDirect] Receiver LAN pair not proven (${result} after ${elapsedMs} ms)`);
     failReceiverRoute(route, 'receiver-locality-unproven');
@@ -1940,7 +2305,7 @@ async function acceptCandidate(
           publisherSession?.routes.get(senderParticipantId) === route &&
           !route.closed
         ) {
-          route.acceptedRemoteMdnsKeys.add(parsed.ledgerKey);
+          acceptRemoteMdnsKey(route, parsed.ledgerKey);
         }
       } catch {
         failPublisherRoute(route, 'candidate-rejected');
@@ -1973,7 +2338,7 @@ async function acceptCandidate(
       await route.pc.addIceCandidate(candidate);
       const parsed = candidate.candidate ? parseLanCandidateLine(candidate.candidate) : null;
       if (parsed && receiverRoute === route && !route.closed) {
-        route.acceptedRemoteMdnsKeys.add(parsed.ledgerKey);
+        acceptRemoteMdnsKey(route, parsed.ledgerKey);
       }
     } catch {
       failReceiverRoute(route, 'candidate-rejected');

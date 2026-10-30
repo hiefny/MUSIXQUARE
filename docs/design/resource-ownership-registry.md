@@ -301,7 +301,8 @@ RO-53 owner-in-place
     external fallback on feedback but retires it for an explicit pause".
   - Teardown: `zero-start.test.ts` "transfers hard-mute ownership during teardown without a
     detached unmute".
-  - Visibility: missing.
+  - Visibility: `src/youtube/__tests__/youtube-owner-visibility.test.ts` "RO-02: a Standard
+    zero-start hidden mid-warm-up runs exactly as the visible one" (no visibility branch today).
 - **Status:** `duplicated`. Phase 0d (shared start timing), Phase 6 (start ledger, routed state
   events, shared arm steps, recovery as owner stages). The no-auto-retry Sync notice right after a
   zero-start stays ([known-accepted #14](../known-accepted.md)).
@@ -418,9 +419,12 @@ RO-53 owner-in-place
   - User pause/stop: `authority-arm.test.ts` "cancels a long negative-offset wait before a pause or
     room teardown can be undone".
   - Teardown: `authority-arm.test.ts` "revokes detached audio retries on an external teardown".
-  - Visibility: missing.
-  - Missing: a parity table running both controllers on the same scenarios; a direct room switch
-    without stop-mode is untraced (Phase 0c).
+  - Visibility: `src/youtube/__tests__/youtube-owner-visibility.test.ts` "RO-03: a PRO release
+    whose lead samples fall while hidden records them as hidden and learns nothing".
+  - Missing: a parity table running both controllers on the same scenarios. The room switches
+    are traced in `src/youtube/__tests__/youtube-room-switch-trace.test.ts` (T1-T5): there is no
+    direct Standard to PRO path (each switch passes leaveSession first), and clearing the PRO
+    session is the only room-context change without stop-mode (T4).
 - **Status:** `duplicated`. Phase 0d (shared constants), Phase 6 (shared arm steps, PRO arm through
   the owner's audio state with distinct tokens). Exception RO-34.
 
@@ -1542,7 +1546,9 @@ RO-53 owner-in-place
     preparation".
   - Teardown: `src/youtube/__tests__/stale-async-guards.test.ts` "revokes a pending PRO pause gate
     before a late settlement can unmute parking".
-  - Visibility: missing.
+  - Visibility: `src/youtube/__tests__/youtube-owner-visibility.test.ts` "RO-12: a
+    youtube:set-volume write and a PRO pause-gate settlement write the same audio while %s"
+    (no visibility branch today).
 - **Status:** `duplicated`. Phase 6 (single iframe-audio owner, one verified restore, a ratchet on
   direct audio writes).
 
@@ -1571,7 +1577,8 @@ RO-53 owner-in-place
     input paused and performs no scheduled resume".
   - Teardown: `standard-host-manual-offset-gate.test.ts` "discards deferred work on a hard media
     transition".
-  - Visibility: missing.
+  - Visibility: `src/youtube/__tests__/youtube-owner-visibility.test.ts` "RO-13: a Standard host
+    manual-offset transaction issues the same commands while %s" (no visibility branch today).
 - **Status:** `owner-in-place`. See
   [Standard host YouTube manual sync](standard-host-youtube-manual-sync.md).
 
@@ -1598,7 +1605,8 @@ RO-53 owner-in-place
     IDLE-before-stop-mode ordering".
   - Teardown: `retained-player-controller.test.ts` "destroys an offscreen owner when physical mute
     cannot be proven".
-  - Visibility: missing.
+  - Visibility: `src/youtube/__tests__/youtube-owner-visibility.test.ts` "RO-14: stopYouTubeMode
+    parks a primed iframe the same way while %s" (no visibility branch today).
 - **Status:** `owner-in-place`. Exception RO-34.
 
 ### RO-15 Standard logical data connection liveness

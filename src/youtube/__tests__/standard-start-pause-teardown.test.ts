@@ -253,7 +253,7 @@ describe('Standard host at a -5 s local offset in a zero-start run (pinned 2026-
     });
   });
 
-  it("restarts the room from 0.178 s on a Media Session pause during 'starting'", async () => {
+  it("ignores a Media Session pause during 'starting': the room plays on from 5.178 s and the host replays its iframe from its 0.178 s offset position", async () => {
     const session = installMediaSession();
     const current = await heldReleaseHost();
     const opIndex = current.iframe().__log.length;
@@ -262,8 +262,18 @@ describe('Standard host at a -5 s local offset in a zero-start run (pinned 2026-
     await current.advanceTo(14_000);
     // Looks like a defect: the pause reaches togglePlay, which sees a
     // BUFFERING iframe and no legacy hold (the zero-start hold is not in
-    // that slot), so it starts the room again from 0.178 s instead.
-    expect(after(current, opIndex, frameIndex)).toEqual({
+    // that slot), so it reads the press as a play at the room position. The
+    // room is neither paused nor rewound: every frame carries state 1 and
+    // the room position (5.178 s when sent, 7.178 s with Stage 2, 10.578 s
+    // at the next heartbeat). Only the host's own iframe starts again, from
+    // 0.178 s, the room position under its -5 s offset. This is the Media
+    // Session handler's path; the iframe's own PAUSE in the same window is
+    // respected (the iframe rows below).
+    expect({
+      ops: opTrace(current.iframe(), current.t0, opIndex),
+      frames: framesAt(current, frameIndex),
+      flags: predicateFlags(),
+    }).toEqual({
       ops: [
         '+6600 pauseVideo()',
         '+6600 setVolume(100)',
@@ -271,12 +281,12 @@ describe('Standard host at a -5 s local offset in a zero-start run (pinned 2026-
         '+6600 seekTo(0.178,true)',
         '+6600 playVideo()',
       ],
-      routes: [
-        'peer:guest-1 youtube-zero-start-abort',
-        'broadcast:* youtube-state state 1',
-        'broadcast:* youtube-state state 1',
-        'broadcast:* youtube-sync state 1',
-        'broadcast:* youtube-sync state 1',
+      frames: [
+        '+6600 peer:guest-1 youtube-zero-start-abort',
+        '+6600 broadcast:* youtube-state state 1 at 5.178 s',
+        '+6600 broadcast:* youtube-state state 1 at 5.178 s',
+        '+8600 broadcast:* youtube-sync state 1 at 7.178 s',
+        '+12000 broadcast:* youtube-sync state 1 at 10.578 s',
       ],
       flags: '- - - -',
     });
@@ -295,8 +305,13 @@ describe('Standard host at a -5 s local offset, Media Session pause during the z
     await current.advanceTo(6_000);
     // Looks like a defect: togglePlay reads the room position (1.578 s)
     // and starts a new legacy rendezvous there, held 3.4 s for the
-    // offset, instead of pausing.
-    expect({ holdsBefore, ...after(current, opIndex, frameIndex) }).toEqual({
+    // offset, instead of pausing: the room keeps playing (state 1).
+    expect({
+      holdsBefore,
+      ops: opTrace(current.iframe(), current.t0, opIndex),
+      frames: framesAt(current, frameIndex),
+      flags: predicateFlags(),
+    }).toEqual({
       holdsBefore: 'legacy false zero-start 1.578',
       ops: [
         '+3000 pauseVideo()',
@@ -305,7 +320,10 @@ describe('Standard host at a -5 s local offset, Media Session pause during the z
         '+3000 pauseVideo()',
         '+3000 seekTo(0,true)',
       ],
-      routes: ['peer:guest-1 youtube-zero-start-abort', 'broadcast:* youtube-state state 1'],
+      frames: [
+        '+3000 peer:guest-1 youtube-zero-start-abort',
+        '+3000 broadcast:* youtube-state state 1 at 1.578 s',
+      ],
       flags: '- - - -',
     });
   });

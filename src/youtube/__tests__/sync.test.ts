@@ -139,25 +139,9 @@ describe('YouTube Sync', () => {
       expect(broadcast).not.toHaveBeenCalled();
     });
 
-    it('broadcasts sync data when host with player', async () => {
-      const playerMod = await import('../_state.ts');
-      vi.mocked(playerMod.getYouTubePlayer).mockReturnValue({
-        getCurrentTime: () => 42.5,
-        getPlayerState: () => 1,
-      } as YouTubePlayerInstance);
-      setState('network.hostConn', null);
-
-      const { broadcastYouTubeSync } = await import('../sync.ts');
-      const { broadcast } = await import('../../network/peer.ts');
-
-      broadcastYouTubeSync();
-      expect(broadcast).toHaveBeenCalledWith(
-        expect.objectContaining({
-          time: 42.5,
-          state: 1,
-        }),
-      );
-    });
+    // 'broadcasts sync data when host with player' runs in
+    // sync-heartbeat-broadcast.test.ts: a manual broadcast in an earlier row
+    // here can hold its heartbeat back, and sync.ts keeps that time.
 
     it('never emits a legacy host heartbeat from a server-authoritative PRO endpoint', async () => {
       const playerMod = await import('../_state.ts');

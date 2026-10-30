@@ -838,6 +838,20 @@ describe('PRO signaling delivery lanes: durable record shapes (rollback contract
     test.storage.data.set('pro-room:v2:core', stored);
     test.signaling.deliveries.length = 0;
     test.restart();
+    // Before the deadline, the PREPARE a signaling ticket carries for the
+    // reloaded record names the same kind as its COMMIT below: the ticket,
+    // the command answer and the COMMIT read one kind from the stored record.
+    const ticket = await test.request('/signaling-tickets', { method: 'POST' }, test.ownerCookie);
+    expect(ticket.status, await ticket.clone().text()).toBe(200);
+    expect(((await ticket.json()) as Record<string, any>).pendingPlaybackTransition).toEqual({
+      type: 'pro-playback-prepare',
+      transitionId: transition.transitionId,
+      serverTimeMs: NOW,
+      deadlineAtMs: NOW + 2_999,
+      basePlaybackRevision: transition.basePlaybackRevision,
+      target: literal.target,
+      timingMode: 'scheduled-control',
+    });
     await test.alarmAt(NOW + 3_000);
     expect(trace(test.signaling.deliveries)).toEqual(['3000 playback-commit e1 200']);
     expect(test.signaling.deliveries[0]).toMatchObject({

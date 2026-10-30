@@ -380,14 +380,16 @@ RO-53 owner-in-place
     copy App suites read, which load no Worker code, equal to the home" is the parity test of
     `src/pro-room/__tests__/__helpers__/pro-room-playback-timing-copy.ts`, name for name and
     value for value. A suite that loads `cloudflare/` code belongs to the Worker coverage profile
-    (`src/core/__tests__/ci-quality-gates.test.ts`), so an App suite that models a PREPARE or a
-    COMMIT reads the barrier and the lead from the copy. Only the late YouTube join pins of
-    2026-10-30 do so today: `playback-late-cohort-join.test.ts`,
-    `pro-late-prepare-reload.test.ts` and the "PRO late cohort join (pinned 2026-10-30)" blocks
-    of `authority-arm.test.ts` and `pro-manual-zero-start.test.ts`. Older App suites and rows
-    that model a PREPARE or a COMMIT, the other rows of those last two among them, still retype
-    3000 and 700: they are not tied to the home and stay green when it changes. The same pins
-    read the App's own late-join values from
+    (`src/core/__tests__/ci-quality-gates.test.ts`), so every App suite whose PREPARE or COMMIT
+    uses the barrier or the lead reads them from the copy and derives the numbers that follow
+    from them instead of retyping them: a PREPARE's deadline, an `executeAtMs` or a schedule
+    delay, a wait to or past the deadline or the start, and the 699 ms zero-start lead of PRO
+    Workers before schemaVersion 2 as one below the lead. Suites using one of the App's own
+    budgets above (the 700 ms COMMIT clock wait, the 700 ms reconciliation lead, the 3 s late-join
+    lead) keep that literal: it is not the Worker's value. The late YouTube join pins of 2026-10-30
+    (`playback-late-cohort-join.test.ts`, `pro-late-prepare-reload.test.ts` and the "PRO late
+    cohort join (pinned 2026-10-30)" blocks of `authority-arm.test.ts` and
+    `pro-manual-zero-start.test.ts`) also read the App's own late-join values from
     `src/pro-room/__tests__/__helpers__/pro-late-youtube-join-timing.ts`, a copy of module
     constants their homes do not export (a test-only export is not allowed); a value leaves the
     copy once its home exports it. These rows run the real home and pin the copy to it:

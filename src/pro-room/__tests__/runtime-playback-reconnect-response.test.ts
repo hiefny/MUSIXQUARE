@@ -29,6 +29,8 @@ import {
 import { joinProRoom } from '../runtime.ts';
 import { proHeartbeat } from './__helpers__/pro-heartbeat.ts';
 import { proSnapshot } from './__helpers__/pro-snapshot.ts';
+// The Worker's barrier, from the copy pro-room-playback-timing.test.ts pins.
+import { PRO_ROOM_PLAYBACK_TRANSITION_DEADLINE_MS as BARRIER_MS } from './__helpers__/pro-room-playback-timing-copy.ts';
 
 type SocketEvent = { data?: unknown; reason: string };
 class FakeWebSocket {
@@ -384,7 +386,7 @@ describe('PRO pending command responses across real channel recovery', () => {
       type: 'pro-playback-prepare',
       transitionId: `transition_${letter.repeat(22)}`,
       serverTimeMs: now,
-      deadlineAtMs: now + 3_000,
+      deadlineAtMs: now + BARRIER_MS,
       basePlaybackRevision: canonical.playback.revision,
       target: {
         ...canonical.playback,

@@ -25,6 +25,8 @@ import {
   type ProPlaybackPrepareResult,
 } from '../playback-authority-hooks.ts';
 import { ProRoomPlaybackController } from '../playback-controller.ts';
+// The Worker's barrier, from the copy pro-room-playback-timing.test.ts pins.
+import { PRO_ROOM_PLAYBACK_TRANSITION_DEADLINE_MS as BARRIER_MS } from './__helpers__/pro-room-playback-timing-copy.ts';
 
 const ROOM = '000001';
 const NEXT_ROOM = '000002';
@@ -75,7 +77,7 @@ function prepareEvent(epoch = EPOCH): ProRoomPlaybackPrepareEvent {
     type: 'pro-playback-prepare',
     transitionId: TRANSITION,
     serverTimeMs: 10_000,
-    deadlineAtMs: 13_000,
+    deadlineAtMs: 10_000 + BARRIER_MS,
     basePlaybackRevision: 0,
     target: { ...checkpoint(epoch, 1, 'playing') },
   };

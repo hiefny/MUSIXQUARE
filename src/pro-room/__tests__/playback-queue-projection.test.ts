@@ -28,6 +28,8 @@ import { ServerProRoomNetworkBridge } from '../network-bridge.ts';
 import { acceptProRoomRealtimeFrameForTests, joinProRoom } from '../runtime.ts';
 import { proHeartbeat } from './__helpers__/pro-heartbeat.ts';
 import { proSnapshot, recountProPlaylist } from './__helpers__/pro-snapshot.ts';
+// The Worker's barrier, from the copy pro-room-playback-timing.test.ts pins.
+import { PRO_ROOM_PLAYBACK_TRANSITION_DEADLINE_MS as BARRIER_MS } from './__helpers__/pro-room-playback-timing-copy.ts';
 
 const ROOM = '000001';
 const PARTICIPANT = 'participant_00001';
@@ -296,7 +298,7 @@ describe('PRO queue projection during persistent media preparation', { concurren
       type: 'pro-playback-prepare',
       transitionId: TRANSITION,
       serverTimeMs: 10_000,
-      deadlineAtMs: 13_000,
+      deadlineAtMs: 10_000 + BARRIER_MS,
       basePlaybackRevision: 1,
       target: { ...canonical.playback, state: 'playing', revision: 2, queueItemId: B },
     });

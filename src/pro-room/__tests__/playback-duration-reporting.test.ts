@@ -20,6 +20,8 @@ import { ProRoomPlaybackController } from '../playback-controller.ts';
 import * as serverClock from '../network-bridge.ts';
 import { installProClockSnapshotMocks } from './__helpers__/pro-clock-fixture.ts';
 import { proSnapshot } from './__helpers__/pro-snapshot.ts';
+// The Worker's barrier, from the copy pro-room-playback-timing.test.ts pins.
+import { PRO_ROOM_PLAYBACK_TRANSITION_DEADLINE_MS as BARRIER_MS } from './__helpers__/pro-room-playback-timing-copy.ts';
 
 vi.mock('../network-bridge.ts', () => ({
   getProRoomServerNow: () => Date.now(),
@@ -136,7 +138,7 @@ function fixture() {
       type: 'pro-playback-prepare',
       transitionId: id,
       serverTimeMs: Date.now(),
-      deadlineAtMs: Date.now() + 3000,
+      deadlineAtMs: Date.now() + BARRIER_MS,
       basePlaybackRevision: revision - 1,
       target: checkpoint(revision),
     };
@@ -276,7 +278,8 @@ describe('controller-only decoded file duration backfill', () => {
     const event = h.event();
     h.controller.acceptPrepare(event);
     await flush();
-    await vi.advanceTimersByTimeAsync(4000);
+    // A second past the READY deadline.
+    await vi.advanceTimersByTimeAsync(BARRIER_MS + 1000);
     h.commitEvent(event);
     await flush();
     finish(ready(h.prepare.mock.calls[0]![0]));

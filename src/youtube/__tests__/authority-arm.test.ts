@@ -23,6 +23,14 @@ const identity = {
   subIndex: 0,
 };
 
+/**
+ * The zero-start COMMIT lead of PRO Workers before PRO snapshot schemaVersion
+ * 2, one below the Worker's COMMIT lead (PRO_ROOM_PLAYBACK_COMMIT_LEAD_MS, from
+ * the copy pro-room-playback-timing.test.ts pins). Several rows release at it;
+ * the arm takes any delay as given.
+ */
+const PRE_V2_ZERO_START_LEAD_MS = PRO_ROOM_PLAYBACK_COMMIT_LEAD_MS - 1;
+
 function makeHarness(options?: {
   platform?: YouTubeZeroStartPlatform;
   videoId?: string;
@@ -224,11 +232,11 @@ describe('YouTubeAuthorityArmController', () => {
     const playsBeforeCommit = count(player, 'playVideo');
     const committed = controller.commit({
       ...identity,
-      executeDelayMs: 700,
+      executeDelayMs: PRO_ROOM_PLAYBACK_COMMIT_LEAD_MS,
       timingMode: 'scheduled-control',
     });
 
-    await vi.advanceTimersByTimeAsync(699);
+    await vi.advanceTimersByTimeAsync(PRO_ROOM_PLAYBACK_COMMIT_LEAD_MS - 1);
     expect(count(player, 'playVideo')).toBe(playsBeforeCommit);
     await vi.advanceTimersByTimeAsync(1);
 
@@ -257,7 +265,7 @@ describe('YouTubeAuthorityArmController', () => {
     await expect(
       controller.commit({
         ...identity,
-        executeDelayMs: 700,
+        executeDelayMs: PRO_ROOM_PLAYBACK_COMMIT_LEAD_MS,
         timingMode: 'scheduled-control',
       }),
     ).resolves.toEqual({ status: 'superseded', reason: 'identity-mismatch' });
@@ -406,11 +414,11 @@ describe('YouTubeAuthorityArmController', () => {
     const playsBeforeCommit = count(player, 'playVideo');
     const committed = controller.commit({
       ...identity,
-      executeDelayMs: 700,
+      executeDelayMs: PRO_ROOM_PLAYBACK_COMMIT_LEAD_MS,
       timingMode: 'zero-start',
     });
 
-    await vi.advanceTimersByTimeAsync(699);
+    await vi.advanceTimersByTimeAsync(PRO_ROOM_PLAYBACK_COMMIT_LEAD_MS - 1);
     expect(count(player, 'playVideo')).toBe(playsBeforeCommit);
     await vi.advanceTimersByTimeAsync(1);
 
@@ -428,11 +436,11 @@ describe('YouTubeAuthorityArmController', () => {
     const playsBeforeCommit = count(player, 'playVideo');
     const committed = controller.commit({
       ...identity,
-      executeDelayMs: 700,
+      executeDelayMs: PRO_ROOM_PLAYBACK_COMMIT_LEAD_MS,
       timingMode: 'zero-start',
     });
 
-    await vi.advanceTimersByTimeAsync(449);
+    await vi.advanceTimersByTimeAsync(PRO_ROOM_PLAYBACK_COMMIT_LEAD_MS - 250 - 1);
     expect(count(player, 'playVideo')).toBe(playsBeforeCommit);
     await vi.advanceTimersByTimeAsync(1);
 
@@ -450,12 +458,12 @@ describe('YouTubeAuthorityArmController', () => {
     const playsBeforeCommit = count(player, 'playVideo');
     const committed = controller.commit({
       ...identity,
-      executeDelayMs: 700,
+      executeDelayMs: PRO_ROOM_PLAYBACK_COMMIT_LEAD_MS,
       timingMode: 'zero-start',
       timelineLeadMs: 40,
     });
 
-    await vi.advanceTimersByTimeAsync(409);
+    await vi.advanceTimersByTimeAsync(PRO_ROOM_PLAYBACK_COMMIT_LEAD_MS - 290 - 1);
     expect(count(player, 'playVideo')).toBe(playsBeforeCommit);
     await vi.advanceTimersByTimeAsync(1);
 
@@ -477,14 +485,14 @@ describe('YouTubeAuthorityArmController', () => {
       const playsBeforeCommit = count(player, 'playVideo');
       const committed = controller.commit({
         ...identity,
-        executeDelayMs: 700,
+        executeDelayMs: PRO_ROOM_PLAYBACK_COMMIT_LEAD_MS,
         targetSeconds: 10.25,
         timingMode: 'scheduled-control',
         timelineLeadMs: 300,
       });
 
       const platformLeadMs = platform === 'android' ? 250 : 0;
-      await vi.advanceTimersByTimeAsync(699 - platformLeadMs);
+      await vi.advanceTimersByTimeAsync(PRO_ROOM_PLAYBACK_COMMIT_LEAD_MS - 1 - platformLeadMs);
       expect(count(player, 'playVideo')).toBe(playsBeforeCommit);
       await vi.advanceTimersByTimeAsync(1);
 
@@ -716,11 +724,11 @@ describe('YouTubeAuthorityArmController', () => {
       const committed = controller.commit({
         ...identity,
         targetSeconds: 0,
-        executeDelayMs: 699,
+        executeDelayMs: PRE_V2_ZERO_START_LEAD_MS,
         localStartDelayMs,
         timingMode,
       });
-      const callDelayMs = 699 + localStartDelayMs - lead;
+      const callDelayMs = PRE_V2_ZERO_START_LEAD_MS + localStartDelayMs - lead;
       await vi.advanceTimersByTimeAsync(callDelayMs - 1);
       expect(controller.phase).toBe('scheduled');
       expect(count(player, 'playVideo')).toBe(playsBefore);
@@ -793,7 +801,7 @@ describe('YouTubeAuthorityArmController', () => {
     const playsBefore = count(player, 'playVideo');
     const committed = controller.commit({
       ...identity,
-      executeDelayMs: 699,
+      executeDelayMs: PRE_V2_ZERO_START_LEAD_MS,
       localStartDelayMs: 9_999,
       timingMode: 'zero-start',
     });
@@ -810,7 +818,7 @@ describe('YouTubeAuthorityArmController', () => {
     await prepareReady(controller, 'resident', 0);
     const first = controller.commit({
       ...identity,
-      executeDelayMs: 699,
+      executeDelayMs: PRE_V2_ZERO_START_LEAD_MS,
       localStartDelayMs: 9_999,
       timingMode: 'zero-start',
     });
@@ -822,10 +830,10 @@ describe('YouTubeAuthorityArmController', () => {
     await expect(preparing).resolves.toMatchObject({ status: 'ready' });
     const next = controller.commit({
       ...nextIdentity,
-      executeDelayMs: 699,
+      executeDelayMs: PRE_V2_ZERO_START_LEAD_MS,
       timingMode: 'zero-start',
     });
-    await vi.advanceTimersByTimeAsync(699);
+    await vi.advanceTimersByTimeAsync(PRE_V2_ZERO_START_LEAD_MS);
     await expect(next).resolves.toMatchObject({ status: 'applied', localStartDelayMs: 0 });
     const playsAfterNext = count(player, 'playVideo');
     await vi.advanceTimersByTimeAsync(12_000);
@@ -847,14 +855,14 @@ describe('YouTubeAuthorityArmController', () => {
       const baseLead = getYouTubeAuthorityPlatformLeadMsForTests(platform);
       const committed = controller.commit({
         ...identity,
-        executeDelayMs: 699,
+        executeDelayMs: PRE_V2_ZERO_START_LEAD_MS,
         localStartDelayMs: hold,
         timelineLeadMs: learned,
         timingMode: 'zero-start',
       });
       // Model a blocked event loop: the clock moves, but no timer can run.
       vi.setSystemTime(Date.now() + 1_500);
-      await vi.advanceTimersByTimeAsync(699 + hold - baseLead - learned);
+      await vi.advanceTimersByTimeAsync(PRE_V2_ZERO_START_LEAD_MS + hold - baseLead - learned);
       await expect(committed).resolves.toMatchObject({
         status: 'applied',
         platformLeadMs: baseLead,
@@ -876,11 +884,11 @@ describe('YouTubeAuthorityArmController', () => {
     await prepareReady(controller, 'resident', 2.5);
     const committed = controller.commit({
       ...identity,
-      executeDelayMs: 699,
+      executeDelayMs: PRE_V2_ZERO_START_LEAD_MS,
       timingMode: 'zero-start',
     });
     vi.setSystemTime(Date.now() + 1_500);
-    await vi.advanceTimersByTimeAsync(699);
+    await vi.advanceTimersByTimeAsync(PRE_V2_ZERO_START_LEAD_MS);
     await expect(committed).resolves.toMatchObject({
       status: 'applied',
       targetSeconds: 3,
@@ -902,11 +910,11 @@ describe('YouTubeAuthorityArmController', () => {
     const seeks = count(player, 'seekTo');
     const committed = controller.commit({
       ...identity,
-      executeDelayMs: 699,
+      executeDelayMs: PRE_V2_ZERO_START_LEAD_MS,
       timingMode: 'zero-start',
     });
     vi.setSystemTime(Date.now() + 25);
-    await vi.advanceTimersByTimeAsync(699);
+    await vi.advanceTimersByTimeAsync(PRE_V2_ZERO_START_LEAD_MS);
     await expect(committed).resolves.toMatchObject({
       status: 'applied',
       targetSeconds: 0,

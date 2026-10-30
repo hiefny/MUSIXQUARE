@@ -28,6 +28,11 @@ import {
   proSnapshotV2,
   type ProSnapshotFields,
 } from './__helpers__/pro-snapshot.ts';
+// The Worker's barrier and COMMIT lead, from the copy pro-room-playback-timing.test.ts pins.
+import {
+  PRO_ROOM_PLAYBACK_COMMIT_LEAD_MS as COMMIT_LEAD_MS,
+  PRO_ROOM_PLAYBACK_TRANSITION_DEADLINE_MS as BARRIER_MS,
+} from './__helpers__/pro-room-playback-timing-copy.ts';
 
 const ROOM_CODE = '000001';
 const PRO_ROOM_PRODUCTION_PATH = new URL(PRO_ROOM_PRODUCTION_ENDPOINT).pathname;
@@ -196,17 +201,18 @@ function detachedFields(): ProSnapshotFields {
 /** The PREPARE of the active room's next playback revision, as the Worker sends it. */
 function playbackPrepareWire() {
   const playback = activeFields().playback;
+  const serverTimeMs = 1_800_000_001_000;
   return {
     type: 'pro-playback-prepare' as const,
     transitionId: 'transition_1234567890123456789012',
-    serverTimeMs: 1_800_000_001_000,
-    deadlineAtMs: 1_800_000_004_000,
+    serverTimeMs,
+    deadlineAtMs: serverTimeMs + BARRIER_MS,
     basePlaybackRevision: playback.revision,
     target: {
       ...playback,
       revision: playback.revision + 1,
       state: 'playing' as const,
-      updatedAtMs: 1_800_000_001_000,
+      updatedAtMs: serverTimeMs,
     },
   };
 }
@@ -1328,7 +1334,7 @@ describe('PRO room cookie session API', () => {
       type: 'pro-playback-prepare' as const,
       transitionId: 'transition_1234567890123456789012',
       serverTimeMs: 1_000,
-      deadlineAtMs: 4_000,
+      deadlineAtMs: 1_000 + BARRIER_MS,
       basePlaybackRevision: 0,
       target: {
         coordinatorEpoch: 4,
@@ -1818,8 +1824,10 @@ describe('PRO room cookie session API', () => {
     const commit = {
       type: 'pro-playback-commit' as const,
       transitionId: prepare.transitionId,
-      serverTimeMs: 1_800_000_001_000,
-      executeAtMs: 1_800_000_001_699,
+      serverTimeMs: prepare.serverTimeMs,
+      // The zero-start lead of a PRO Worker before PRO snapshot schemaVersion
+      // 2, one below the COMMIT lead.
+      executeAtMs: prepare.serverTimeMs + COMMIT_LEAD_MS - 1,
       playback: prepare.target,
     };
     for (const timingMode of ['learned-start', 'Zero-Start', '', 0, null, {}]) {

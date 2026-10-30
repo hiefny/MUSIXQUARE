@@ -31,10 +31,10 @@ import type { ProPlaybackTimingMode } from '../playback-authority-hooks.ts';
  * that loads Worker code belongs to the Worker coverage profile
  * (src/core/__tests__/ci-quality-gates.test.ts). Their copy is
  * __helpers__/pro-room-playback-timing-copy.ts, which the last row pins here.
- * Only the late YouTube join pins of 2026-10-30 read it today
- * (playback-late-cohort-join, pro-late-prepare-reload, and the late-join
- * blocks of authority-arm and pro-manual-zero-start). Older App suites and
- * rows still retype 3000 and 700, so a change to the home does not fail them.
+ * Every App suite whose PREPARE or COMMIT uses the barrier or the lead reads
+ * it from that copy and derives the numbers that follow from it, so a change
+ * to the home fails here until the copy follows, and those suites then run
+ * against the new values.
  */
 
 describe('PRO playback transition timing (RO-03)', () => {

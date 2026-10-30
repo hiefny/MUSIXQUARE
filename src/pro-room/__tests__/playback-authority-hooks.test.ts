@@ -24,6 +24,8 @@ import {
   type ProPlaybackCommitRequest,
   type ProPlaybackMediaEndpoint,
 } from '../playback-authority-hooks.ts';
+// The Worker's COMMIT lead, from the copy pro-room-playback-timing.test.ts pins.
+import { PRO_ROOM_PLAYBACK_COMMIT_LEAD_MS as COMMIT_LEAD_MS } from './__helpers__/pro-room-playback-timing-copy.ts';
 
 const Q1 = '10000000-0000-4000-8000-000000000001' as QueueItemId;
 
@@ -780,6 +782,8 @@ describe('coordinator-free PRO playback authority seam', () => {
         positionSeconds: 18,
       }),
     ).resolves.toMatchObject({ status: 'ready' });
+    // A participant-local rendezvous models the App's own 700 ms
+    // reconciliation lead, not the Worker's COMMIT lead (as in the rows below).
     await expect(
       rendezvousCurrentProPlaybackAuthority({
         authority: localRendezvous,
@@ -881,7 +885,7 @@ describe('coordinator-free PRO playback authority seam', () => {
         queueItemId: Q1,
         state: 'playing',
         positionSeconds: 20,
-        scheduleDelayMs: 700,
+        scheduleDelayMs: COMMIT_LEAD_MS,
         timingMode: 'scheduled-control',
       }),
     ).resolves.toMatchObject({ status: 'applied' });

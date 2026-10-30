@@ -14,7 +14,10 @@ import {
   LATE_YOUTUBE_COMMIT_LEAD_MS as LATE_JOIN_LEAD_MS,
   LATE_YOUTUBE_RELEASE_TOLERANCE_MS,
 } from '../../pro-room/__tests__/__helpers__/pro-late-youtube-join-timing.ts';
-import { PRO_ROOM_PLAYBACK_COMMIT_LEAD_MS as COMMIT_LEAD_MS } from '../../pro-room/__tests__/__helpers__/pro-room-playback-timing-copy.ts';
+import {
+  PRO_ROOM_PLAYBACK_COMMIT_LEAD_MS as COMMIT_LEAD_MS,
+  PRO_ROOM_PLAYBACK_TRANSITION_DEADLINE_MS as BARRIER_MS,
+} from '../../pro-room/__tests__/__helpers__/pro-room-playback-timing-copy.ts';
 import type { QueueItemId } from '../../types/index.ts';
 import { ANDROID_YOUTUBE_PLAY_LATENCY_FLOOR_MS } from '../constants.ts';
 import type { YouTubePlayerInstance } from '../_state.ts';
@@ -33,6 +36,15 @@ import { ProRoomPlaybackController } from '../../pro-room/playback-controller.ts
 
 const QUEUE_ITEM_ID = '44444444-4444-4444-8444-444444444444' as QueueItemId;
 const SECOND_QUEUE_ITEM_ID = '55555555-5555-4555-8555-555555555555' as QueueItemId;
+
+/**
+ * The zero-start COMMIT lead of PRO Workers before PRO snapshot schemaVersion
+ * 2, one below the Worker's COMMIT lead (COMMIT_LEAD_MS, from the copy
+ * pro-room-playback-timing.test.ts pins). The endpoint's commit() defaults to
+ * it; the endpoint takes the start kind from timingMode, so the lead decides
+ * only when a release starts.
+ */
+const PRE_V2_ZERO_START_LEAD_MS = COMMIT_LEAD_MS - 1;
 
 const platformUnderTest = vi.hoisted(() => ({ android: false }));
 vi.mock('../../core/platform.ts', async (importOriginal) => ({
@@ -354,7 +366,7 @@ async function createProEndpoint(participantKind: 'owner' | 'member' = 'member')
   const commit = (
     authority: ReturnType<typeof createProPlaybackAuthorityToken>,
     positionSeconds = 0,
-    scheduleDelayMs = 699,
+    scheduleDelayMs = PRE_V2_ZERO_START_LEAD_MS,
     timingMode: 'zero-start' | 'scheduled-control' = 'zero-start',
   ) => {
     canonicalBase = positionSeconds;
@@ -461,8 +473,8 @@ describe('PRO manual offset across YouTube zero-start', () => {
       await vi.advanceTimersByTimeAsync(1_000);
       await preparing;
       const plays = vi.mocked(endpoint.player.playVideo).mock.calls.length;
-      const pending = endpoint.commit(authority, 10, 700, timingMode);
-      await vi.advanceTimersByTimeAsync(449);
+      const pending = endpoint.commit(authority, 10, COMMIT_LEAD_MS, timingMode);
+      await vi.advanceTimersByTimeAsync(COMMIT_LEAD_MS - 250 - 1);
       expect(endpoint.player.playVideo).toHaveBeenCalledTimes(plays);
       await vi.advanceTimersByTimeAsync(1);
       await expect(pending).resolves.toBe(true);
@@ -498,7 +510,7 @@ describe('PRO manual offset across YouTube zero-start', () => {
     },
   );
 
-  it.each([0, 700])(
+  it.each([0, COMMIT_LEAD_MS])(
     'compensates Android direct playback once with %i ms scheduling',
     async (delayMs) => {
       platformUnderTest.android = true;
@@ -589,8 +601,9 @@ describe('PRO manual offset across YouTube zero-start', () => {
       const { authority, preparing } = endpoint.prepareNext(10);
       await vi.advanceTimersByTimeAsync(1_000);
       await preparing;
-      const pending = endpoint.commit(authority, 10, 700);
-      await vi.advanceTimersByTimeAsync(2_700);
+      const pending = endpoint.commit(authority, 10, COMMIT_LEAD_MS);
+      // Through the release and its 2 s observation.
+      await vi.advanceTimersByTimeAsync(COMMIT_LEAD_MS + 2_000);
       await expect(pending).resolves.toBe(true);
     }
     const learning = getProStartObservations().filter((entry) => entry.kind === 'youtube-learning');
@@ -817,7 +830,7 @@ describe('PRO manual offset across YouTube zero-start', () => {
         type: 'pro-playback-prepare',
         transitionId: 'scheduled-close',
         serverTimeMs: Date.now(),
-        deadlineAtMs: Date.now() + 3_000,
+        deadlineAtMs: Date.now() + BARRIER_MS,
         basePlaybackRevision: 1,
         target: checkpoint,
       });
@@ -828,7 +841,7 @@ describe('PRO manual offset across YouTube zero-start', () => {
         type: 'pro-playback-commit',
         transitionId: 'scheduled-close',
         serverTimeMs: Date.now(),
-        executeAtMs: Date.now() + 700,
+        executeAtMs: Date.now() + COMMIT_LEAD_MS,
         playback: checkpoint,
       });
       await vi.advanceTimersByTimeAsync(100);
@@ -837,7 +850,7 @@ describe('PRO manual offset across YouTube zero-start', () => {
       controller.beginControlChannelRecovery();
       expect(bridge.connected).toBe(false);
       expect(bridge.captureClockSnapshot()).toBeNull();
-      await vi.advanceTimersByTimeAsync(600);
+      await vi.advanceTimersByTimeAsync(COMMIT_LEAD_MS - 100);
       // Exercise the actual arm and controller settlement, not just a mocked
       // endpoint accepting a schedule request before the socket disappears.
       expect(endpoint.player.playVideo).toHaveBeenCalledTimes(playsBefore + 1);
@@ -939,7 +952,7 @@ describe('PRO manual offset across YouTube zero-start', () => {
       const { authority, preparing } = endpoint.prepareNext();
       await vi.advanceTimersByTimeAsync(1_000);
       await preparing;
-      const delay = 699 + Math.max(0, -offset * 1000);
+      const delay = PRE_V2_ZERO_START_LEAD_MS + Math.max(0, -offset * 1000);
       const delayed = delayOneTimer(delay, 1_500);
       const release = endpoint.commit(authority);
       await vi.advanceTimersByTimeAsync(delay + 1_500);
@@ -1014,7 +1027,8 @@ describe('PRO manual offset across YouTube zero-start', () => {
         state: 'playing' as const,
         queueItemId: SECOND_QUEUE_ITEM_ID,
         positionSeconds: 0,
-        updatedAtMs: Date.now() + 1_700,
+        // The executeAt of the COMMIT sent after the second of preparation below.
+        updatedAtMs: Date.now() + 1_000 + COMMIT_LEAD_MS,
         youtubeVideoId: 'VIDEOBBBBBB',
         youtubeSubIndex: 0,
       };
@@ -1048,7 +1062,7 @@ describe('PRO manual offset across YouTube zero-start', () => {
         type: 'pro-playback-prepare',
         transitionId: 'next-B',
         serverTimeMs: Date.now(),
-        deadlineAtMs: Date.now() + 3_000,
+        deadlineAtMs: Date.now() + BARRIER_MS,
         basePlaybackRevision: 1,
         target: checkpoint,
         timingMode: 'zero-start',
@@ -1059,7 +1073,7 @@ describe('PRO manual offset across YouTube zero-start', () => {
         type: 'pro-playback-commit',
         transitionId: 'next-B',
         serverTimeMs: Date.now(),
-        executeAtMs: Date.now() + 700,
+        executeAtMs: Date.now() + COMMIT_LEAD_MS,
         playback: checkpoint,
         timingMode: 'zero-start',
       });
@@ -1090,7 +1104,7 @@ describe('PRO manual offset across YouTube zero-start', () => {
       await expect(preparing).resolves.toMatchObject({ ready: true });
       const playsBefore = vi.mocked(endpoint.player.playVideo).mock.calls.length;
       const committed = endpoint.commit(authority);
-      await vi.advanceTimersByTimeAsync(699);
+      await vi.advanceTimersByTimeAsync(PRE_V2_ZERO_START_LEAD_MS);
       expect(endpoint.player.playVideo).toHaveBeenCalledTimes(playsBefore);
       expect(getState('sync.youtubeCoordinatorAppliedOffset')).toBe(0);
       await vi.advanceTimersByTimeAsync(250);
@@ -1115,7 +1129,7 @@ describe('PRO manual offset across YouTube zero-start', () => {
       await expect(preparing).resolves.toMatchObject({ ready: true });
       const delayMs = Math.max(0, -offset * 1000);
       const committed = endpoint.commit(authority);
-      await vi.advanceTimersByTimeAsync(699 + delayMs);
+      await vi.advanceTimersByTimeAsync(PRE_V2_ZERO_START_LEAD_MS + delayMs);
       await expect(committed).resolves.toBe(true);
       expect(endpoint.currentTime()).toBeCloseTo(Math.max(0, offset), 3);
       expect(getState('sync.youtubeCoordinatorAppliedOffset')).toBeCloseTo(offset, 3);
@@ -1224,7 +1238,7 @@ describe('PRO manual offset across YouTube zero-start', () => {
     await vi.advanceTimersByTimeAsync(1_000);
     await preparing;
     const first = endpoint.commit(authority);
-    await vi.advanceTimersByTimeAsync(699);
+    await vi.advanceTimersByTimeAsync(PRE_V2_ZERO_START_LEAD_MS);
     await expect(first).resolves.toBe(true);
     await expect(endpoint.commitDirect(10)).resolves.toBe(true);
     await vi.advanceTimersByTimeAsync(3_000);
@@ -1250,8 +1264,8 @@ describe('PRO manual offset across YouTube zero-start', () => {
       schedule(callback, Number(ms) + 80, ...args),
     );
     const startedAtMs = performance.now();
-    const committed = endpoint.commitDirect(10, 'playing', 700);
-    await vi.advanceTimersByTimeAsync(780);
+    const committed = endpoint.commitDirect(10, 'playing', COMMIT_LEAD_MS);
+    await vi.advanceTimersByTimeAsync(COMMIT_LEAD_MS + 80);
     await expect(committed).resolves.toBe(true);
     expect(endpoint.currentTime()).toBeCloseTo(10.08, 6);
     vi.mocked(endpoint.player.getCurrentTime).mockImplementation(
@@ -1260,8 +1274,8 @@ describe('PRO manual offset across YouTube zero-start', () => {
     await vi.advanceTimersByTimeAsync(2_000);
     const observations = getProStartObservations();
     expect(observations.find((entry) => entry.kind === 'youtube-release')?.detail).toMatchObject({
-      canonicalExecuteAtMs: startedAtMs + 700,
-      playCallAtMs: startedAtMs + 780,
+      canonicalExecuteAtMs: startedAtMs + COMMIT_LEAD_MS,
+      playCallAtMs: startedAtMs + COMMIT_LEAD_MS + 80,
       playingAckAtMs: null,
       rawReleaseLatenessMs: 80,
       appliedReleaseLatenessMs: 80,

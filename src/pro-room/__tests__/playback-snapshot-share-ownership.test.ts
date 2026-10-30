@@ -7,6 +7,8 @@ import type { QueueItemId } from '../../types/index.ts';
 import type { ProRoomPlaybackCheckpoint, ProRoomSnapshot } from '../contracts.ts';
 import * as serverClock from '../network-bridge.ts';
 import { installProClockSnapshotMocks } from './__helpers__/pro-clock-fixture.ts';
+// The Worker's barrier, from the copy pro-room-playback-timing.test.ts pins.
+import { PRO_ROOM_PLAYBACK_TRANSITION_DEADLINE_MS as BARRIER_MS } from './__helpers__/pro-room-playback-timing-copy.ts';
 import {
   registerProPlaybackMediaEndpoint,
   resetProPlaybackAuthorityHooks,
@@ -309,7 +311,7 @@ describe('PRO snapshot restoration and system audio ownership', () => {
           type: 'pro-playback-prepare',
           transitionId,
           serverTimeMs: 10_000,
-          deadlineAtMs: 13_000,
+          deadlineAtMs: 10_000 + BARRIER_MS,
           basePlaybackRevision: 0,
           target,
         });
@@ -343,7 +345,7 @@ describe('PRO snapshot restoration and system audio ownership', () => {
       type: 'pro-playback-prepare',
       transitionId,
       serverTimeMs: 10_000,
-      deadlineAtMs: 13_000,
+      deadlineAtMs: 10_000 + BARRIER_MS,
       basePlaybackRevision: 0,
       target,
     });
@@ -378,7 +380,7 @@ describe('PRO snapshot restoration and system audio ownership', () => {
         type: 'pro-playback-prepare',
         transitionId: `transition_${'z'.repeat(22)}`,
         serverTimeMs: 10_000,
-        deadlineAtMs: 13_000,
+        deadlineAtMs: 10_000 + BARRIER_MS,
         basePlaybackRevision: 0,
         target,
         timingMode: 'zero-start',
@@ -430,7 +432,7 @@ describe('PRO snapshot restoration and system audio ownership', () => {
           type: 'pro-playback-prepare',
           transitionId: `transition_${'z'.repeat(22)}`,
           serverTimeMs: 10_000,
-          deadlineAtMs: 13_000,
+          deadlineAtMs: 10_000 + BARRIER_MS,
           basePlaybackRevision: 0,
           target,
           ...prepare,

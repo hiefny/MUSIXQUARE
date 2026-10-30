@@ -18,6 +18,11 @@ import {
   type ProPlaybackMediaEndpoint,
 } from '../../pro-room/playback-authority-hooks.ts';
 import { proSnapshot } from './__helpers__/pro-snapshot.ts';
+// The Worker's barrier and COMMIT lead, from the copy pro-room-playback-timing.test.ts pins.
+import {
+  PRO_ROOM_PLAYBACK_COMMIT_LEAD_MS as COMMIT_LEAD_MS,
+  PRO_ROOM_PLAYBACK_TRANSITION_DEADLINE_MS as BARRIER_MS,
+} from './__helpers__/pro-room-playback-timing-copy.ts';
 
 type SocketListener = (event: { data?: unknown; reason?: string }) => void;
 
@@ -316,7 +321,7 @@ function prepareControllerTransition(fixture: ReturnType<typeof createSnapshotPl
     type: 'pro-playback-prepare' as const,
     transitionId: `transition_${'q'.repeat(22)}`,
     serverTimeMs: Date.now(),
-    deadlineAtMs: Date.now() + 3_000,
+    deadlineAtMs: Date.now() + BARRIER_MS,
     basePlaybackRevision: 1,
     target,
   };
@@ -348,8 +353,8 @@ describe('PRO work-scoped clock selection', () => {
           type: 'pro-playback-commit',
           transitionId: prepared.transitionId,
           serverTimeMs: 1000,
-          executeAtMs: 1700,
-          playback: { ...prepared.target, updatedAtMs: 1700 },
+          executeAtMs: 1000 + COMMIT_LEAD_MS,
+          playback: { ...prepared.target, updatedAtMs: 1000 + COMMIT_LEAD_MS },
         });
         await vi.advanceTimersByTimeAsync(0);
         expect(fixture.commit).not.toHaveBeenCalled();
@@ -359,9 +364,10 @@ describe('PRO work-scoped clock selection', () => {
           answerClockRequest(socket, request, 1010);
           await vi.advanceTimersByTimeAsync(0);
           expect(fixture.commit).toHaveBeenCalledExactlyOnceWith(
-            expect.objectContaining({ scheduleDelayMs: 680, positionSeconds: 0 }),
+            expect.objectContaining({ scheduleDelayMs: COMMIT_LEAD_MS - 20, positionSeconds: 0 }),
           );
         } else {
+          // The App's own 700 ms COMMIT clock wait, not the Worker's lead.
           await vi.advanceTimersByTimeAsync(700);
           expect(fixture.commit).not.toHaveBeenCalled();
           expect(fixture.invalidate).toHaveBeenCalledTimes(1);
@@ -417,12 +423,12 @@ describe('PRO work-scoped clock selection', () => {
           type: 'pro-playback-commit',
           transitionId: prepared.transitionId,
           serverTimeMs: 31_200,
-          executeAtMs: 31_900,
-          playback: { ...prepared.target, updatedAtMs: 31_900 },
+          executeAtMs: 31_200 + COMMIT_LEAD_MS,
+          playback: { ...prepared.target, updatedAtMs: 31_200 + COMMIT_LEAD_MS },
         });
         await vi.advanceTimersByTimeAsync(0);
         expect(commit).toHaveBeenCalledExactlyOnceWith(
-          expect.objectContaining({ scheduleDelayMs: 700, positionSeconds: 0 }),
+          expect.objectContaining({ scheduleDelayMs: COMMIT_LEAD_MS, positionSeconds: 0 }),
         );
       } finally {
         controller.resetPlaylistRuntime();
@@ -442,7 +448,7 @@ describe('PRO work-scoped clock selection', () => {
           type: 'pro-playback-commit',
           transitionId,
           serverTimeMs: 10_000,
-          executeAtMs: 10_700,
+          executeAtMs: 10_000 + COMMIT_LEAD_MS,
           playback: { ...fixture.current.playback, positionSeconds: 0 },
         });
         await vi.advanceTimersByTimeAsync(0);
@@ -453,7 +459,8 @@ describe('PRO work-scoped clock selection', () => {
         await vi.advanceTimersByTimeAsync(0);
         expect(fixture.commit).toHaveBeenCalledExactlyOnceWith(
           expect.objectContaining({
-            scheduleDelayMs: 500,
+            // Received 180 ms after it was sent, clock answered 20 ms later.
+            scheduleDelayMs: COMMIT_LEAD_MS - 200,
             positionSeconds: 0,
             timingMode: 'scheduled-control',
           }),
@@ -466,7 +473,9 @@ describe('PRO work-scoped clock selection', () => {
   );
 
   it('uses the signed deadline to catch up after clock acquisition passes execution', async () => {
-    vi.setSystemTime(10_680);
+    // Received 20 ms before execution; the clock answers 60 ms later, 40 ms past it.
+    const executeAtMs = 10_000 + COMMIT_LEAD_MS;
+    vi.setSystemTime(executeAtMs - 20);
     const socket = await openBridge(proRoomServerBridge);
     const fixture = createSnapshotPlaybackController();
     try {
@@ -474,13 +483,13 @@ describe('PRO work-scoped clock selection', () => {
         type: 'pro-playback-commit',
         transitionId: null,
         serverTimeMs: 10_000,
-        executeAtMs: 10_700,
+        executeAtMs,
         playback: { ...fixture.current.playback, positionSeconds: 12 },
       });
       await vi.advanceTimersByTimeAsync(0);
       const request = clockRequests(socket).at(-1)!;
       await vi.advanceTimersByTimeAsync(60);
-      answerClockRequest(socket, request, 10_710);
+      answerClockRequest(socket, request, executeAtMs + 10);
       await vi.advanceTimersByTimeAsync(0);
       expect(fixture.commit).toHaveBeenCalledExactlyOnceWith(
         expect.objectContaining({ scheduleDelayMs: 0, positionSeconds: 12.04 }),
@@ -499,10 +508,11 @@ describe('PRO work-scoped clock selection', () => {
         type: 'pro-playback-commit' as const,
         transitionId: null,
         serverTimeMs: 1000,
-        executeAtMs: 1700,
+        executeAtMs: 1000 + COMMIT_LEAD_MS,
         playback: fixture.current.playback,
       };
       fixture.controller.acceptCommit(event);
+      // The App's own 700 ms COMMIT clock wait, not the Worker's lead.
       await vi.advanceTimersByTimeAsync(700);
       expect(fixture.commit).not.toHaveBeenCalled();
       expect(fixture.invalidate).toHaveBeenCalledTimes(1);
@@ -529,7 +539,7 @@ describe('PRO work-scoped clock selection', () => {
           type: 'pro-playback-commit',
           transitionId: null,
           serverTimeMs: 1000,
-          executeAtMs: 1700,
+          executeAtMs: 1000 + COMMIT_LEAD_MS,
           playback: fixture.current.playback,
         });
         await vi.advanceTimersByTimeAsync(0);
@@ -570,7 +580,7 @@ describe('PRO work-scoped clock selection', () => {
         type: 'pro-playback-commit',
         transitionId: null,
         serverTimeMs: 1000,
-        executeAtMs: 1700,
+        executeAtMs: 1000 + COMMIT_LEAD_MS,
         playback: fixture.current.playback,
       });
       await vi.advanceTimersByTimeAsync(0);
@@ -601,7 +611,7 @@ describe('PRO work-scoped clock selection', () => {
       const replacement = FakeWebSocket.instances.at(-1)!;
       replacement.dispatch('open');
       await opening;
-      const execution = Date.now() + 700;
+      const execution = Date.now() + COMMIT_LEAD_MS;
       fixture.controller.acceptCommit({
         type: 'pro-playback-commit',
         transitionId: prepared.transitionId,
@@ -616,7 +626,7 @@ describe('PRO work-scoped clock selection', () => {
       answerClockRequest(replacement, request, Date.now() - 10);
       await vi.advanceTimersByTimeAsync(0);
       expect(fixture.commit).toHaveBeenCalledExactlyOnceWith(
-        expect.objectContaining({ scheduleDelayMs: 680, positionSeconds: 0 }),
+        expect.objectContaining({ scheduleDelayMs: COMMIT_LEAD_MS - 20, positionSeconds: 0 }),
       );
     } finally {
       fixture.controller.resetPlaylistRuntime();

@@ -10,6 +10,12 @@
  * what it commits when its own YouTube preparation is late. They describe
  * current behaviour, including parts that look like defects: a change that
  * moves a pinned number has to say why.
+ *
+ * Timing: the Worker's barrier and COMMIT lead come from the copy that
+ * pro-room-playback-timing.test.ts pins to cloudflare/pro-room-playback-timing.ts
+ * (this suite must not load Worker code, see ci-quality-gates.test.ts); the
+ * App's own late-join values come from __helpers__/pro-late-youtube-join-timing.ts,
+ * which names the row that pins each of them.
  */
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { resetState, setState } from '../../core/state.ts';
@@ -30,6 +36,15 @@ import {
   type ProPlaybackPrepareResult,
 } from '../playback-authority-hooks.ts';
 import { ProRoomPlaybackController } from '../playback-controller.ts';
+import {
+  LATE_YOUTUBE_COMMIT_LEAD_MS as LATE_JOIN_LEAD_MS,
+  LATE_YOUTUBE_RELEASE_TOLERANCE_MS,
+  RELEASE_ACK_TIMEOUT_MS,
+} from './__helpers__/pro-late-youtube-join-timing.ts';
+import {
+  PRO_ROOM_PLAYBACK_COMMIT_LEAD_MS as COMMIT_LEAD_MS,
+  PRO_ROOM_PLAYBACK_TRANSITION_DEADLINE_MS as BARRIER_MS,
+} from './__helpers__/pro-room-playback-timing-copy.ts';
 import { proSnapshot } from './__helpers__/pro-snapshot.ts';
 
 const serverClock = vi.hoisted(() => ({ offsetMs: 0 }));
@@ -69,17 +84,12 @@ const ROOM_EPOCH = 4;
 const QUEUE_ITEM_ID = '50000000-0000-4000-8000-000000000001' as QueueItemId;
 const VIDEO_ID = 'dQw4w9WgXcQ';
 const TRANSITION_ID = `transition_${'l'.repeat(22)}`;
-// Worker timing from cloudflare/pro-room-playback-timing.ts, pinned by
-// pro-room-playback-timing.test.ts. Copied, not imported: a suite that loads
-// Worker code belongs to the Worker coverage profile (ci-quality-gates.test.ts).
-/** The READY barrier after a PREPARE (PRO_ROOM_PLAYBACK_TRANSITION_DEADLINE_MS). */
-const BARRIER_MS = 3_000;
-/** From a COMMIT to its executeAt (PRO_ROOM_PLAYBACK_COMMIT_LEAD_MS). */
-const COMMIT_LEAD_MS = 700;
-/** src/pro-room/playback-controller.ts LATE_YOUTUBE_COMMIT_LEAD_MS (not exported). */
-const LATE_JOIN_LEAD_MS = 3_000;
-/** src/youtube/authority-arm.ts TIMING.releaseAckTimeoutMs (not exported). */
-const RELEASE_ACK_TIMEOUT_MS = 1_800;
+/**
+ * The room position at a fresh start's late-join instant: that instant is one
+ * late-join lead after the COMMIT, which is one COMMIT lead before executeAt,
+ * where the room timeline starts at 0 (today 3.0 - 0.7 = 2.3 s).
+ */
+const LATE_JOIN_POSITION_SECONDS = (LATE_JOIN_LEAD_MS - COMMIT_LEAD_MS) / 1_000;
 
 function playing(revision: number, updatedAtMs: number): ProRoomPlaybackCheckpoint {
   return {
@@ -281,6 +291,10 @@ describe('PRO late YouTube cohort join (pinned 2026-10-30)', () => {
       .mockImplementationOnce(() => lateJoin.promise);
 
     fixture.controller.acceptPrepare(prepareEvent());
+    // The real YouTube endpoint gives up 2.32 s after the PREPARE, at its first
+    // 40 ms poll past the 2.3 s barriered budget (src/youtube/iframe.ts, as
+    // seen end to end in pro-late-prepare-reload.test.ts). This endpoint is
+    // scripted, so only the order matters: READY fails before the COMMIT.
     await vi.advanceTimersByTimeAsync(2_320);
     transition.resolve(failedFor(fixture.prepare.mock.calls[0]![0]));
     await vi.advanceTimersByTimeAsync(0);
@@ -300,7 +314,7 @@ describe('PRO late YouTube cohort join (pinned 2026-10-30)', () => {
     expect(lateRequest).toMatchObject({
       authority: { transitionId: 'snapshot_1', basePlaybackRevision: 0 },
       queueItemId: QUEUE_ITEM_ID,
-      positionSeconds: 2.3,
+      positionSeconds: LATE_JOIN_POSITION_SECONDS,
       state: 'playing',
       youtubeVideoId: VIDEO_ID,
     });
@@ -317,17 +331,18 @@ describe('PRO late YouTube cohort join (pinned 2026-10-30)', () => {
       authority: { transitionId: 'snapshot_1' },
       committedPlaybackRevision: 1,
       state: 'playing',
-      positionSeconds: 2.3,
-      scheduleDelayMs: 2_400,
+      positionSeconds: LATE_JOIN_POSITION_SECONDS,
+      scheduleDelayMs: LATE_JOIN_LEAD_MS - 600,
       // Not the transition's zero-start: no learned startup lead (see
       // src/youtube/__tests__/pro-manual-zero-start.test.ts for the endpoint).
       timingMode: 'scheduled-control',
     });
     // Release instant on the server clock: COMMIT receipt + 3 s, which is
     // executeAt + 2.3 s, where the room timeline is at the committed 2.3 s.
+    // This is the row that pins the shared LATE_YOUTUBE_COMMIT_LEAD_MS copy.
     const releaseServerAtMs = serverNow() + release.scheduleDelayMs;
     expect(releaseServerAtMs).toBe(committed.serverTimeMs + LATE_JOIN_LEAD_MS);
-    expect(releaseServerAtMs - committed.executeAtMs).toBe(2_300);
+    expect(releaseServerAtMs - committed.executeAtMs).toBe(LATE_JOIN_LEAD_MS - COMMIT_LEAD_MS);
   });
 
   // (c) Scenario: as above, but the re-armed preparation ends 300 ms before
@@ -348,7 +363,7 @@ describe('PRO late YouTube cohort join (pinned 2026-10-30)', () => {
     fixture.controller.acceptCommit(committed);
     await vi.advanceTimersByTimeAsync(0);
     const lateRequest = fixture.prepare.mock.calls[1]![0];
-    expect(lateRequest.positionSeconds).toBe(2.3);
+    expect(lateRequest.positionSeconds).toBe(LATE_JOIN_POSITION_SECONDS);
 
     await vi.advanceTimersByTimeAsync(LATE_JOIN_LEAD_MS - 300);
     lateJoin.resolve(readyFor(lateRequest));
@@ -357,7 +372,8 @@ describe('PRO late YouTube cohort join (pinned 2026-10-30)', () => {
     expect(fixture.commit).toHaveBeenCalledExactlyOnceWith(
       expect.objectContaining({
         authority: expect.objectContaining({ transitionId: 'snapshot_1' }),
-        positionSeconds: 2.0,
+        // The room position now, 300 ms before the plan: 2.0 s.
+        positionSeconds: (LATE_JOIN_LEAD_MS - 300 - COMMIT_LEAD_MS) / 1_000,
         scheduleDelayMs: 0,
         timingMode: 'scheduled-control',
       }),
@@ -411,18 +427,19 @@ describe('PRO late YouTube cohort join (pinned 2026-10-30)', () => {
     );
     expect(fixture.prepare).toHaveBeenCalledTimes(2);
     // 1.8 s after executeAt plus the 3 s rejoin lead: the room is at 4.8 s.
+    const rejoinAfterExecuteMs = RELEASE_ACK_TIMEOUT_MS + LATE_JOIN_LEAD_MS;
     expect(fixture.prepare.mock.calls[1]![0]).toMatchObject({
       authority: { transitionId: 'snapshot_1' },
-      positionSeconds: 4.8,
+      positionSeconds: rejoinAfterExecuteMs / 1_000,
     });
     expect(fixture.commit).toHaveBeenCalledTimes(2);
     expect(fixture.commit.mock.calls[1]![0]).toMatchObject({
       authority: { transitionId: 'snapshot_1' },
-      positionSeconds: 4.8,
+      positionSeconds: rejoinAfterExecuteMs / 1_000,
       scheduleDelayMs: LATE_JOIN_LEAD_MS,
       timingMode: 'scheduled-control',
     });
-    expect(serverNow() + LATE_JOIN_LEAD_MS - committed.executeAtMs).toBe(4_800);
+    expect(serverNow() + LATE_JOIN_LEAD_MS - committed.executeAtMs).toBe(rejoinAfterExecuteMs);
   });
 
   // (d) Scenario: this device's preparation started late (for example its
@@ -458,7 +475,7 @@ describe('PRO late YouTube cohort join (pinned 2026-10-30)', () => {
   // LATE_YOUTUBE_RELEASE_TOLERANCE_MS the prepared release still runs: the
   // commit names the room position, and the arm, which ignores a target
   // change of 40 ms or less, plays from 0:00 at once (that many ms late).
-  it.each([0, 39, 40])(
+  it.each([0, LATE_YOUTUBE_RELEASE_TOLERANCE_MS - 1, LATE_YOUTUBE_RELEASE_TOLERANCE_MS])(
     '(d) releases a device ready %i ms after executeAt from its transition without a catch-up',
     async (lateMs) => {
       const fixture = createFixture();
@@ -488,13 +505,14 @@ describe('PRO late YouTube cohort join (pinned 2026-10-30)', () => {
   // prepared release is dropped and the device re-arms for a mid-track join
   // more than 3 s later: a 1 ms difference costs the whole song start.
   it('(d) re-arms a device ready 41 ms after executeAt for a mid-track join 3 s later', async () => {
+    const lateMs = LATE_YOUTUBE_RELEASE_TOLERANCE_MS + 1;
     const fixture = createFixture();
     const transition = deferred<ProPlaybackPrepareResult>();
     fixture.prepare.mockImplementationOnce(() => transition.promise);
     fixture.controller.acceptPrepare(prepareEvent());
     await vi.advanceTimersByTimeAsync(BARRIER_MS);
     fixture.controller.acceptCommit(commitEvent());
-    await vi.advanceTimersByTimeAsync(COMMIT_LEAD_MS + 41);
+    await vi.advanceTimersByTimeAsync(COMMIT_LEAD_MS + lateMs);
     transition.resolve(readyFor(fixture.prepare.mock.calls[0]![0]));
     await vi.advanceTimersByTimeAsync(0);
 
@@ -502,14 +520,16 @@ describe('PRO late YouTube cohort join (pinned 2026-10-30)', () => {
       expect.objectContaining({ transitionId: TRANSITION_ID }),
     );
     expect(fixture.prepare).toHaveBeenCalledTimes(2);
+    // The rejoin instant is a late-join lead after now: the room is at 3.041 s.
+    const rejoinSeconds = (lateMs + LATE_JOIN_LEAD_MS) / 1_000;
     expect(fixture.prepare.mock.calls[1]![0]).toMatchObject({
       authority: { transitionId: 'snapshot_1' },
-      positionSeconds: 3.041,
+      positionSeconds: rejoinSeconds,
     });
     expect(fixture.commit).toHaveBeenCalledExactlyOnceWith(
       expect.objectContaining({
         authority: expect.objectContaining({ transitionId: 'snapshot_1' }),
-        positionSeconds: 3.041,
+        positionSeconds: rejoinSeconds,
         scheduleDelayMs: LATE_JOIN_LEAD_MS,
         timingMode: 'scheduled-control',
       }),

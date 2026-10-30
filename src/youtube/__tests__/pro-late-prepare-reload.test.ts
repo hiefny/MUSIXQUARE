@@ -8,6 +8,13 @@
  * server's READY barrier, the COMMIT sends it down the catch-up path; these
  * rows count what that path does to the iframe and the toasts. They describe
  * current behaviour, including parts that look like defects.
+ *
+ * Timing: the Worker's barrier and COMMIT lead come from the copy that
+ * pro-room-playback-timing.test.ts pins to cloudflare/pro-room-playback-timing.ts
+ * (this suite must not load Worker code, see ci-quality-gates.test.ts); the
+ * App's own late-join values come from
+ * pro-room/__tests__/__helpers__/pro-late-youtube-join-timing.ts, which names
+ * the row that pins each of them.
  */
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { bus } from '../../core/events.ts';
@@ -32,6 +39,14 @@ import {
   resetProPlaybackAuthorityHooks,
 } from '../../pro-room/playback-authority-hooks.ts';
 import { ProRoomPlaybackController } from '../../pro-room/playback-controller.ts';
+import {
+  LATE_YOUTUBE_COMMIT_LEAD_MS as LATE_JOIN_LEAD_MS,
+  RELEASE_ACK_TIMEOUT_MS,
+} from '../../pro-room/__tests__/__helpers__/pro-late-youtube-join-timing.ts';
+import {
+  PRO_ROOM_PLAYBACK_COMMIT_LEAD_MS as COMMIT_LEAD_MS,
+  PRO_ROOM_PLAYBACK_TRANSITION_DEADLINE_MS as BARRIER_MS,
+} from '../../pro-room/__tests__/__helpers__/pro-room-playback-timing-copy.ts';
 import { proSnapshot } from '../../pro-room/__tests__/__helpers__/pro-snapshot.ts';
 import type { QueueItemId } from '../../types/index.ts';
 import { showToast } from '../../ui/toast.ts';
@@ -86,17 +101,18 @@ const ROOM_EPOCH = 6;
 const QUEUE_ITEM_ID = '60000000-0000-4000-8000-000000000001' as QueueItemId;
 const VIDEO_ID = 'dQw4w9WgXcQ';
 const TRANSITION_ID = `transition_${'y'.repeat(22)}`;
-// Worker timing from cloudflare/pro-room-playback-timing.ts, pinned by
-// pro-room-playback-timing.test.ts. Copied, not imported: a suite that loads
-// Worker code belongs to the Worker coverage profile (ci-quality-gates.test.ts).
-/** The READY barrier after a PREPARE (PRO_ROOM_PLAYBACK_TRANSITION_DEADLINE_MS). */
-const BARRIER_MS = 3_000;
-/** From a COMMIT to its executeAt (PRO_ROOM_PLAYBACK_COMMIT_LEAD_MS). */
-const COMMIT_LEAD_MS = 700;
-/** src/pro-room/playback-controller.ts LATE_YOUTUBE_COMMIT_LEAD_MS (not exported). */
-const LATE_JOIN_LEAD_MS = 3_000;
-/** src/youtube/authority-arm.ts TIMING.releaseAckTimeoutMs (not exported). */
-const RELEASE_ACK_TIMEOUT_MS = 1_800;
+/**
+ * How far a late join's instant is past executeAt, and so how far the room
+ * timeline has run there: one late-join lead after the COMMIT, which is one
+ * COMMIT lead before executeAt (today 3.0 - 0.7 = 2.3 s).
+ */
+const LATE_JOIN_ROOM_ADVANCE_SECONDS = (LATE_JOIN_LEAD_MS - COMMIT_LEAD_MS) / 1_000;
+/**
+ * The PREPARE's wait for READY: past the App's 2.3 s barriered budget (READY
+ * fails at the iframe seam's first 40 ms poll after it, 2.32 s), before the
+ * Worker's 3 s barrier.
+ */
+const PAST_PREPARE_BUDGET_MS = 2_400;
 
 /** The player API a real IFrame API player gains only when its iframe handshake completes. */
 const IFRAME_API_METHODS = [
@@ -377,7 +393,7 @@ describe('PRO late YouTube cohort join on the device (pinned 2026-10-30)', () =>
     expect(Player).toHaveBeenCalledOnce();
     expect(isYtLoadInProgress()).toBe(true);
 
-    await vi.advanceTimersByTimeAsync(2_400);
+    await vi.advanceTimersByTimeAsync(PAST_PREPARE_BUDGET_MS);
     expect(reportReady).toHaveBeenCalledExactlyOnceWith(
       expect.objectContaining({ transitionId: TRANSITION_ID, status: 'failed' }),
     );
@@ -406,7 +422,7 @@ describe('PRO late YouTube cohort join on the device (pinned 2026-10-30)', () =>
     const joined = iframes[1]!.fake;
     expect(plays(joined).at(-1)).toBe(receivedAt + LATE_JOIN_LEAD_MS);
     expect(joined.__state).toBe(1);
-    expect(joined.getCurrentTime()).toBeCloseTo(2.3, 6);
+    expect(joined.getCurrentTime()).toBeCloseTo(LATE_JOIN_ROOM_ADVANCE_SECONDS, 6);
     expect(loads).toHaveBeenCalledTimes(2);
     expect(effectsToasts()).toBe(2);
   });
@@ -425,7 +441,7 @@ describe('PRO late YouTube cohort join on the device (pinned 2026-10-30)', () =>
     expect(effectsToasts()).toBe(1);
     expect(getYouTubePlayer()).toBeNull();
 
-    await vi.advanceTimersByTimeAsync(2_400);
+    await vi.advanceTimersByTimeAsync(PAST_PREPARE_BUDGET_MS);
     expect(reportReady).toHaveBeenCalledExactlyOnceWith(
       expect.objectContaining({ transitionId: TRANSITION_ID, status: 'failed' }),
     );
@@ -448,7 +464,7 @@ describe('PRO late YouTube cohort join on the device (pinned 2026-10-30)', () =>
     iframes[0]!.ready();
     await vi.advanceTimersByTimeAsync(LATE_JOIN_LEAD_MS - 500);
     expect(plays(iframes[0]!.fake).at(-1)).toBe(receivedAt + LATE_JOIN_LEAD_MS);
-    expect(iframes[0]!.fake.getCurrentTime()).toBeCloseTo(2.3, 6);
+    expect(iframes[0]!.fake.getCurrentTime()).toBeCloseTo(LATE_JOIN_ROOM_ADVANCE_SECONDS, 6);
     expect(loads).toHaveBeenCalledTimes(2);
     expect(effectsToasts()).toBe(2);
   });
@@ -469,7 +485,7 @@ describe('PRO late YouTube cohort join on the device (pinned 2026-10-30)', () =>
     };
 
     controller.acceptPrepare(prepareEvent(1, 30, 'scheduled-control'));
-    await vi.advanceTimersByTimeAsync(2_400);
+    await vi.advanceTimersByTimeAsync(PAST_PREPARE_BUDGET_MS);
     expect(reportReady).toHaveBeenCalledExactlyOnceWith(
       expect.objectContaining({ status: 'failed' }),
     );
@@ -481,7 +497,7 @@ describe('PRO late YouTube cohort join on the device (pinned 2026-10-30)', () =>
 
     expect(plays(resident).at(-1)).toBe(receivedAt + LATE_JOIN_LEAD_MS);
     expect(resident.__state).toBe(1);
-    expect(resident.getCurrentTime()).toBeCloseTo(32.3, 6);
+    expect(resident.getCurrentTime()).toBeCloseTo(30 + LATE_JOIN_ROOM_ADVANCE_SECONDS, 6);
     expect(loads).not.toHaveBeenCalled();
     expect(effectsToasts()).toBe(0);
     expect(Player).toHaveBeenCalledOnce();
@@ -509,7 +525,7 @@ describe('PRO late YouTube cohort join on the device (pinned 2026-10-30)', () =>
     };
 
     controller.acceptPrepare(prepareEvent(1, 30, 'scheduled-control'));
-    await vi.advanceTimersByTimeAsync(2_400);
+    await vi.advanceTimersByTimeAsync(PAST_PREPARE_BUDGET_MS);
     expect(reportReady).toHaveBeenCalledExactlyOnceWith(
       expect.objectContaining({ status: 'failed' }),
     );
@@ -526,7 +542,7 @@ describe('PRO late YouTube cohort join on the device (pinned 2026-10-30)', () =>
     const playedAt = plays(resident).at(-1)!;
     expect(playedAt - receivedAt).toBe(LATE_JOIN_LEAD_MS - 299);
     expect(resident.__state).toBe(1);
-    expect(resident.getCurrentTime()).toBeCloseTo(32.3, 6);
+    expect(resident.getCurrentTime()).toBeCloseTo(30 + LATE_JOIN_ROOM_ADVANCE_SECONDS, 6);
     const roomAtPlaySeconds = 30 + (playedAt - receivedAt - COMMIT_LEAD_MS) / 1_000;
     expect(resident.getCurrentTime() - roomAtPlaySeconds).toBeCloseTo(0.299, 6);
   });
@@ -577,7 +593,11 @@ describe('PRO late YouTube cohort join on the device (pinned 2026-10-30)', () =>
     await vi.advanceTimersByTimeAsync(LATE_JOIN_LEAD_MS);
     expect(plays(resident).at(-1)).toBe(releasedAt + RELEASE_ACK_TIMEOUT_MS + LATE_JOIN_LEAD_MS);
     expect(resident.__state).toBe(1);
-    expect(resident.getCurrentTime()).toBeCloseTo(34.8, 6);
+    // 34.8 s: the room has run 1.8 s past executeAt plus the 3 s rejoin lead.
+    expect(resident.getCurrentTime()).toBeCloseTo(
+      30 + (RELEASE_ACK_TIMEOUT_MS + LATE_JOIN_LEAD_MS) / 1_000,
+      6,
+    );
     expect(loads).not.toHaveBeenCalled();
     expect(effectsToasts()).toBe(0);
   });

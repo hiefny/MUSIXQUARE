@@ -376,7 +376,12 @@ RO-53 owner-in-place
 
 - **Anchor tests:**
   - Timing home: `src/pro-room/__tests__/pro-room-playback-timing.test.ts` (the barrier and the
-    lead and no other value, one start-kind union in the Worker and the App).
+    lead and no other value, one start-kind union in the Worker and the App). Its row "keeps the
+    copy App suites read, which load no Worker code, equal to the home" is the parity test of
+    `src/pro-room/__tests__/__helpers__/pro-room-playback-timing-copy.ts`, name for name and
+    value for value: App suites that model a PREPARE or a COMMIT read the barrier and the lead
+    there, because a suite that loads `cloudflare/` code belongs to the Worker coverage profile
+    (`src/core/__tests__/ci-quality-gates.test.ts`).
   - Supersession: `src/youtube/__tests__/authority-arm.test.ts` "supersedes a prepared occurrence
     when the iframe instance is replaced".
   - User pause/stop: `authority-arm.test.ts` "cancels a long negative-offset wait before a pause or

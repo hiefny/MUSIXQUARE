@@ -10,6 +10,8 @@ import {
 } from '../../diagnostics/pro-start-observations.ts';
 
 import { setPlaybackYouTubePlaying } from '../../player/ownership.ts';
+import { LATE_YOUTUBE_COMMIT_LEAD_MS as LATE_JOIN_LEAD_MS } from '../../pro-room/__tests__/__helpers__/pro-late-youtube-join-timing.ts';
+import { PRO_ROOM_PLAYBACK_COMMIT_LEAD_MS as COMMIT_LEAD_MS } from '../../pro-room/__tests__/__helpers__/pro-room-playback-timing-copy.ts';
 import type { QueueItemId } from '../../types/index.ts';
 import type { YouTubePlayerInstance } from '../_state.ts';
 import type { ProRoomSnapshot } from '../../pro-room/contracts.ts';
@@ -1357,6 +1359,12 @@ describe('PRO manual offset across YouTube zero-start', () => {
 });
 
 describe('PRO late cohort join (pinned 2026-10-30)', () => {
+  // Timing: the Worker's COMMIT lead comes from the copy that
+  // pro-room-playback-timing.test.ts pins to cloudflare/pro-room-playback-timing.ts;
+  // the App's late-join values come from
+  // pro-room/__tests__/__helpers__/pro-late-youtube-join-timing.ts, which names
+  // the row that pins each of them.
+
   // (c) Scenario: this device learned a 20 ms startup lead from an earlier
   // zero-start (its iframe ran 80 ms behind the server timeline), then misses
   // a song start and joins late. The controller sends that late join as a
@@ -1371,8 +1379,8 @@ describe('PRO late cohort join (pinned 2026-10-30)', () => {
     const first = endpoint.prepareNext(10);
     await vi.advanceTimersByTimeAsync(1_000);
     await first.preparing;
-    const firstRelease = endpoint.commit(first.authority, 10, 700, 'zero-start');
-    await vi.advanceTimersByTimeAsync(700);
+    const firstRelease = endpoint.commit(first.authority, 10, COMMIT_LEAD_MS, 'zero-start');
+    await vi.advanceTimersByTimeAsync(COMMIT_LEAD_MS);
     await expect(firstRelease).resolves.toBe(true);
     vi.mocked(endpoint.player.getCurrentTime).mockImplementation(
       () => endpoint.currentTime() - 0.08,
@@ -1388,8 +1396,13 @@ describe('PRO late cohort join (pinned 2026-10-30)', () => {
     await vi.advanceTimersByTimeAsync(1_000);
     await late.preparing;
     const playsBefore = vi.mocked(endpoint.player.playVideo).mock.calls.length;
-    const lateRelease = endpoint.commit(late.authority, 12.3, 3_000, 'scheduled-control');
-    await vi.advanceTimersByTimeAsync(2_999);
+    const lateRelease = endpoint.commit(
+      late.authority,
+      12.3,
+      LATE_JOIN_LEAD_MS,
+      'scheduled-control',
+    );
+    await vi.advanceTimersByTimeAsync(LATE_JOIN_LEAD_MS - 1);
     expect(endpoint.player.playVideo).toHaveBeenCalledTimes(playsBefore);
     await vi.advanceTimersByTimeAsync(1);
     await expect(lateRelease).resolves.toBe(true);
@@ -1419,8 +1432,8 @@ describe('PRO late cohort join (pinned 2026-10-30)', () => {
     const next = endpoint.prepareNext(0);
     await vi.advanceTimersByTimeAsync(1_000);
     await next.preparing;
-    const nextRelease = endpoint.commit(next.authority, 0, 700, 'zero-start');
-    await vi.advanceTimersByTimeAsync(700);
+    const nextRelease = endpoint.commit(next.authority, 0, COMMIT_LEAD_MS, 'zero-start');
+    await vi.advanceTimersByTimeAsync(COMMIT_LEAD_MS);
     await expect(nextRelease).resolves.toBe(true);
     const zeroStart = getProStartObservations().find(
       (entry) => entry.kind === 'youtube-release',

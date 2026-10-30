@@ -20,8 +20,9 @@
  * a suite that starts the native-control authority classify iframe states
  * the way production does.
  *
- * pro-late-prepare-reload.test.ts still carries the first copy of this API;
- * it moves to this helper once that suite's pull request has merged.
+ * pro-late-prepare-reload.test.ts keeps its own earlier copy of this API,
+ * without the two playlist methods. Moving that suite onto this helper is a
+ * separate tests-only change that leaves its rows unchanged.
  */
 import { vi } from 'vitest';
 import { bus } from '../../../core/events.ts';

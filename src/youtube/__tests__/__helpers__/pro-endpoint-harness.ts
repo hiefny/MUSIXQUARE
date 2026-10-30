@@ -13,8 +13,9 @@
  * pro-room-playback-timing.test.ts pins to cloudflare/pro-room-playback-timing.ts
  * (an App suite must not load Worker code, see ci-quality-gates.test.ts).
  *
- * pro-late-prepare-reload.test.ts still carries the first copy of this
- * fixture; it moves here once that suite's pull request has merged.
+ * pro-late-prepare-reload.test.ts keeps its own earlier copy of this
+ * fixture. Moving that suite onto this helper is a separate tests-only
+ * change that leaves its rows unchanged.
  */
 import { vi, type Mock } from 'vitest';
 import type {

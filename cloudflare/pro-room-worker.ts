@@ -1745,7 +1745,7 @@ function corsHeaders(origin: string): HeaderRecord {
     'access-control-allow-credentials': 'true',
     'access-control-allow-methods': 'GET,POST,PUT,DELETE,OPTIONS',
     'access-control-allow-headers':
-      'content-type,idempotency-key,authorization,x-mxqr-pro-participant-id,x-mxqr-pro-presence-incarnation,x-mxqr-pro-presence-recovery,x-mxqr-pro-entry-policy,x-mxqr-pro-playlist-slots,x-mxqr-app-build',
+      'content-type,idempotency-key,authorization,x-mxqr-pro-participant-id,x-mxqr-pro-presence-incarnation,x-mxqr-pro-presence-recovery,x-mxqr-app-build',
     'access-control-max-age': '86400',
     vary: 'origin',
   };

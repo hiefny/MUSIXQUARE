@@ -197,8 +197,10 @@ matched provider data/code checkpoint.
 - Public bootstrap returns `activation_required`, `pin_required`, `open`, or
   `suspended`, always with the room's `passwordRequired`. Since 2026-10-26 the
   PRO Worker no longer reads `X-MXQR-Pro-Entry-Policy: optional-v1`, and from
-  9.0.25 the App sends neither it nor `X-MXQR-Pro-Playlist-Slots: v1`; the
-  CORS allow list still names both.
+  9.0.25 the App sends neither it nor `X-MXQR-Pro-Playlist-Slots: v1`. The PRO
+  CORS allow list names neither since the PRO-only release after 9.0.25, so a
+  loopback page that still sends one fails its preflight; server-side tools
+  that send the entry-policy header get the same answer as before.
   Bootstrap never issues or returns an activation claim.
 - An owner activation claim is issued either from the Access-protected admin
   screen, from the generation-`0` emergency offline CLI, or as an account-bound

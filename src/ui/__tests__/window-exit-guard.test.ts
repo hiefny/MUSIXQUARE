@@ -83,18 +83,17 @@ const WINDOW_EXIT_LABELS: readonly string[] = [
 // How each window registered in dom.ts shows its exit. A markup entry is read
 // from index.html and a source entry from the module that builds the window
 // at runtime. `leftOf` is the action the exit sits left of in its pair;
-// `own row` is a row of its own (alone, or the full-width row under a pair);
-// `top start` is the window's first control, in its top start corner.
+// `own row` is a row of its own (alone, or the full-width row under a pair).
 // `finishesRightOf` names a panel whose exit is its main action: Done applies
 // and closes, so it sits on the right of the pair's other action, with the
 // reason. Exit on the left is for dialog [Cancel | Action] pairs (owner
 // decision 2026-10-29). A `handle` entry is a sheet whose exit is the drag
-// handle at its top instead of a button, with the reason.
+// handle at its top instead of a button, with the reason; only the phone chat
+// sheet has one.
 type Placement =
   | { readonly leftOf: string }
   | { readonly finishesRightOf: string; readonly reason: string }
-  | 'own row'
-  | 'top start';
+  | 'own row';
 type WindowExit =
   | { readonly notAWindow: string }
   | { readonly handle: string; readonly reason: string }
@@ -702,11 +701,7 @@ function markupExitProblems(
   const problems: string[] = [];
   const label = labelProblem(where, markupLabels(element));
   if (label) problems.push(label);
-  if (placement === 'top start') {
-    if (root.querySelector('button') !== element) {
-      problems.push(`${where} is not the window's first control`);
-    }
-  } else if (typeof placement === 'object' && 'finishesRightOf' in placement) {
+  if (typeof placement === 'object' && 'finishesRightOf' in placement) {
     if (!placement.reason) problems.push(`${where} names no reason to sit on the right`);
     if (!markupLabels(element).includes('common.done')) {
       problems.push(`${where} sits on the right but does not finish the window (Done)`);
@@ -975,6 +970,13 @@ describe('every leavable window shows a visible exit (owner policy 2026-10-28)',
       .filter(([, entry]) => 'notAWindow' in entry)
       .map(([id]) => id);
     expect(notWindows).toEqual([domConstant('BASE_SCREEN_ID')]);
+
+    // Only the phone chat sheet goes without an exit button (owner decision
+    // 2026-10-30); any other window that names a handle fails here.
+    const handleExits = Object.entries(WINDOW_EXITS)
+      .filter(([, entry]) => 'handle' in entry)
+      .map(([id]) => id);
+    expect(handleExits).toEqual(['chat-drawer']);
 
     const markup = new DOMParser().parseFromString(read('index.html'), 'text/html');
     const problems: string[] = [];

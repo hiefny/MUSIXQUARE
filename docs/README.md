@@ -97,7 +97,7 @@ runbooks. Neither belongs in a general setup document.
   draft, not merged or released; the planned PRO cleanup before Phase 6 (target `pro-room` with 1 PRO
   room runtime path and none in the other five Workers; the App stays 9.0.26 / v799, so no SemVer,
   service worker cache, update dialog or build floor change), on main `d0248df2` (the 9.0.26
-  record, #535), to ship after 9.0.27 is released and recorded and while the live PRO Worker is the
+  record, #535), to ship before 9.0.27 (which waits for an owner answer) and while the live PRO Worker is the
   one that first sends PRO snapshot schemaVersion 2 (`0e5a9b87`, `ef882f7c`). The PRO Worker stops
   reading the 2999 ms zero-start deadline of a transition an earlier Worker stored without
   `timingMode`: such a transition still loads and commits with the 700 ms lead as a scheduled

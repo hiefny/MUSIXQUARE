@@ -11,6 +11,12 @@
  * current behaviour, including parts that look like defects: a change that
  * moves a pinned number has to say why.
  *
+ * The controller takes no platform input, so these rows hold on every
+ * platform. What the device does with each commit differs on Android, where
+ * the YouTube endpoint adds a fixed 250 ms output lead: see the Android rows
+ * in src/youtube/__tests__/pro-manual-zero-start.test.ts and
+ * src/youtube/__tests__/pro-late-prepare-reload.test.ts.
+ *
  * Timing: the Worker's barrier and COMMIT lead come from the copy that
  * pro-room-playback-timing.test.ts pins to cloudflare/pro-room-playback-timing.ts
  * (this suite must not load Worker code, see ci-quality-gates.test.ts); the
@@ -475,6 +481,8 @@ describe('PRO late YouTube cohort join (pinned 2026-10-30)', () => {
   // LATE_YOUTUBE_RELEASE_TOLERANCE_MS the prepared release still runs: the
   // commit names the room position, and the arm, which ignores a target
   // change of 40 ms or less, plays from 0:00 at once (that many ms late).
+  // That holds where the fixed output lead is 0; on Android the arm seeks
+  // 250 ms ahead first (pro-manual-zero-start.test.ts, '(d) on Android').
   it.each([0, LATE_YOUTUBE_RELEASE_TOLERANCE_MS - 1, LATE_YOUTUBE_RELEASE_TOLERANCE_MS])(
     '(d) releases a device ready %i ms after executeAt from its transition without a catch-up',
     async (lateMs) => {

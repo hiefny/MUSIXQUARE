@@ -9,6 +9,11 @@
  * rows count what that path does to the iframe and the toasts. They describe
  * current behaviour, including parts that look like defects.
  *
+ * The platform is the App's own detection: core/platform.ts with IS_ANDROID
+ * switchable per row (as in pro-manual-zero-start.test.ts). player.ts and the
+ * iframe arm read it on every call, so the Android rows run the App's real
+ * 250 ms output-lead path.
+ *
  * Timing: the Worker's barrier and COMMIT lead come from the copy that
  * pro-room-playback-timing.test.ts pins to cloudflare/pro-room-playback-timing.ts
  * (this suite must not load Worker code, see ci-quality-gates.test.ts); the
@@ -20,6 +25,10 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { bus } from '../../core/events.ts';
 import { resetState, setState } from '../../core/state.ts';
 import { clearAllManagedTimers } from '../../core/timers.ts';
+import {
+  getProStartObservations,
+  resetProStartObservations,
+} from '../../diagnostics/pro-start-observations.ts';
 import { t } from '../../i18n/index.ts';
 import { setPlaybackYouTubePaused } from '../../player/ownership.ts';
 import { initPlayback } from '../../player/playback.ts';
@@ -50,11 +59,19 @@ import {
 import { proSnapshot } from '../../pro-room/__tests__/__helpers__/pro-snapshot.ts';
 import type { QueueItemId } from '../../types/index.ts';
 import { showToast } from '../../ui/toast.ts';
+import { ANDROID_YOUTUBE_PLAY_LATENCY_FLOOR_MS } from '../constants.ts';
 import { cancelYouTubeAuthorityPreparation } from '../iframe.ts';
 import { initYouTube } from '../player.ts';
 import { getYouTubePlayer, isYtLoadInProgress, resetYouTubeModuleState } from '../_state.ts';
 import { makeFakeYtPlayer, type FakeYtPlayer } from './__helpers__/fake-yt-player.ts';
 
+const platformUnderTest = vi.hoisted(() => ({ android: false }));
+vi.mock('../../core/platform.ts', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('../../core/platform.ts')>()),
+  get IS_ANDROID() {
+    return platformUnderTest.android;
+  },
+}));
 vi.mock('../../core/log.ts', () => ({
   log: { debug: vi.fn(), info: vi.fn(), warn: vi.fn(), error: vi.fn() },
 }));
@@ -318,6 +335,7 @@ function plays(fake: FakeYtPlayer): number[] {
 }
 
 beforeEach(() => {
+  platformUnderTest.android = false;
   vi.useFakeTimers();
   vi.setSystemTime(2_000_000);
   clearAllManagedTimers();
@@ -326,6 +344,7 @@ beforeEach(() => {
   vi.clearAllMocks();
   resetYouTubeModuleState();
   resetProPlaybackAuthorityHooks();
+  resetProStartObservations();
   vi.stubGlobal(
     'fetch',
     vi.fn(async () => Response.json({ title: 'Late video' })),
@@ -600,5 +619,130 @@ describe('PRO late YouTube cohort join on the device (pinned 2026-10-30)', () =>
     );
     expect(loads).not.toHaveBeenCalled();
     expect(effectsToasts()).toBe(0);
+  });
+
+  describe('on Android, where the App adds a fixed 250 ms output lead', () => {
+    const outputLeadMs = ANDROID_YOUTUBE_PLAY_LATENCY_FLOOR_MS;
+
+    beforeEach(() => {
+      platformUnderTest.android = true;
+    });
+
+    function lastRelease() {
+      return getProStartObservations()
+        .filter((entry) => entry.kind === 'youtube-release')
+        .at(-1)?.detail;
+    }
+
+    function seeksAt(fake: FakeYtPlayer, at: number): unknown[][] {
+      return fake.__log
+        .filter((call) => call.op === 'seekTo' && call.at === at)
+        .map((call) => call.args ?? []);
+    }
+
+    // (c) on Android: the late join of '(a) re-arms a resident iframe whose
+    // warm-up missed the budget without a reload or toast', whose catch-up
+    // warm-up succeeds. The catch-up drops only the learned lead and keeps the
+    // fixed output lead the App applies to every playing start on Android, so
+    // play is called 250 ms before the planned instant, from the room position
+    // at that instant, with no seek. The media then runs 0.25 s ahead of the
+    // room, the delay its sound is assumed to take to be heard. Where the
+    // fixed lead is 0 (that row, 'other'), the call lands on the instant.
+    it('(c) on Android calls play 250 ms before a late join instant from the room position there', async () => {
+      const { iframes } = installIframeApi();
+      const resident = await residentIframe(iframes, 30);
+      const { controller, reportReady } = createParticipant();
+      const play = resident.playVideo;
+      resident.playVideo = () => {
+        resident.__log.push({ op: 'playVideo', at: Date.now() });
+        resident.__setState(3);
+      };
+
+      controller.acceptPrepare(prepareEvent(1, 30, 'scheduled-control'));
+      await vi.advanceTimersByTimeAsync(PAST_PREPARE_BUDGET_MS);
+      expect(reportReady).toHaveBeenCalledExactlyOnceWith(
+        expect.objectContaining({ status: 'failed' }),
+      );
+      resident.playVideo = play;
+
+      const receivedAt = Date.now();
+      controller.acceptCommit(commitEvent(2, 30, 'scheduled-control'));
+      const roomAtInstantSeconds = 30 + LATE_JOIN_ROOM_ADVANCE_SECONDS;
+      await vi.advanceTimersByTimeAsync(LATE_JOIN_LEAD_MS - outputLeadMs);
+      const calledAt = receivedAt + LATE_JOIN_LEAD_MS - outputLeadMs;
+      expect(plays(resident).at(-1)).toBe(calledAt);
+      expect(resident.getCurrentTime()).toBeCloseTo(roomAtInstantSeconds, 6);
+      expect(seeksAt(resident, calledAt)).toEqual([]);
+      expect(lastRelease()).toMatchObject({
+        platform: 'android',
+        timingMode: 'scheduled-control',
+        platformLeadMs: outputLeadMs,
+        timelineLeadMs: 0,
+        scheduledLeadMs: outputLeadMs,
+        outputPositionAdvanceMs: 0,
+        releasedTargetSeconds: roomAtInstantSeconds,
+      });
+
+      // At the planned instant the media is 0.25 s ahead of the room.
+      await vi.advanceTimersByTimeAsync(outputLeadMs);
+      expect(resident.__state).toBe(1);
+      expect(resident.getCurrentTime()).toBeCloseTo(roomAtInstantSeconds + outputLeadMs / 1_000, 6);
+    });
+
+    // (c) on Android: the re-arm of '(c) starts a late join whose re-arm ends
+    // 300 ms before its plan 0.3 s ahead of the room'. The controller's
+    // fallback again commits the room position now (32.0 s) with no delay. The
+    // arm has no time left for the 250 ms output lead, so it supplies it as
+    // position: from the 32.3 s it settled at it seeks to 32.55 s and plays at
+    // once. Heard 250 ms after the call, that is still 0.3 s ahead of the
+    // room, as on 'other', but this release also seeks.
+    it('(c) on Android seeks a late join whose re-arm ends 300 ms before its plan 250 ms on and still starts 0.3 s ahead of the room', async () => {
+      const { iframes } = installIframeApi();
+      const resident = await residentIframe(iframes, 30);
+      const { controller, reportReady } = createParticipant();
+      const play = resident.playVideo;
+      let warmUps = 0;
+      resident.playVideo = () => {
+        resident.__log.push({ op: 'playVideo', at: Date.now() });
+        resident.__setState(3);
+        warmUps += 1;
+        if (warmUps < 2) return;
+        resident.playVideo = play;
+        setTimeout(() => resident.__setState(1), 2_080);
+      };
+
+      controller.acceptPrepare(prepareEvent(1, 30, 'scheduled-control'));
+      await vi.advanceTimersByTimeAsync(PAST_PREPARE_BUDGET_MS);
+      expect(reportReady).toHaveBeenCalledExactlyOnceWith(
+        expect.objectContaining({ status: 'failed' }),
+      );
+
+      const receivedAt = Date.now();
+      controller.acceptCommit(commitEvent(2, 30, 'scheduled-control'));
+      await vi.advanceTimersByTimeAsync(LATE_JOIN_LEAD_MS - 300);
+      expect(warmUps).toBe(2);
+      await vi.advanceTimersByTimeAsync(1);
+
+      const playedAt = plays(resident).at(-1)!;
+      expect(playedAt - receivedAt).toBe(LATE_JOIN_LEAD_MS - 299);
+      const settledSeconds = 30 + LATE_JOIN_ROOM_ADVANCE_SECONDS;
+      const seeks = seeksAt(resident, playedAt);
+      expect(seeks).toHaveLength(1);
+      expect(seeks[0]![0]).toBeCloseTo(settledSeconds + outputLeadMs / 1_000, 6);
+      expect(resident.__state).toBe(1);
+      expect(resident.getCurrentTime()).toBeCloseTo(settledSeconds + outputLeadMs / 1_000, 6);
+      expect(lastRelease()).toMatchObject({
+        platform: 'android',
+        timingMode: 'scheduled-control',
+        platformLeadMs: outputLeadMs,
+        scheduledLeadMs: 0,
+        outputPositionAdvanceMs: expect.closeTo(outputLeadMs, 6),
+      });
+      const roomAtPlaySeconds = 30 + (playedAt - receivedAt - COMMIT_LEAD_MS) / 1_000;
+      // Heard 250 ms after the call, the media's first sound meets a room
+      // that has run 0.25 s further.
+      const aheadSeconds = resident.getCurrentTime() - (roomAtPlaySeconds + outputLeadMs / 1_000);
+      expect(aheadSeconds).toBeCloseTo(0.299, 6);
+    });
   });
 });

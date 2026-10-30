@@ -921,6 +921,10 @@ describe('YouTubeAuthorityArmController', () => {
     // The COMMIT lead is the Worker's (the copy pro-room-playback-timing.test.ts
     // pins); the App's late-join values come from
     // pro-room/__tests__/__helpers__/pro-late-youtube-join-timing.ts.
+    //
+    // These rows run the arm on 'other' (the harness default), where the fixed
+    // output lead is 0. The device-level Android rows are in
+    // pro-manual-zero-start.test.ts and pro-late-prepare-reload.test.ts.
 
     // (b) Scenario: at the release the iframe buffers, and its PLAYING report
     // is still in flight 1.8 s later although media started after 1 s. The

@@ -10,9 +10,13 @@ import {
 } from '../../diagnostics/pro-start-observations.ts';
 
 import { setPlaybackYouTubePlaying } from '../../player/ownership.ts';
-import { LATE_YOUTUBE_COMMIT_LEAD_MS as LATE_JOIN_LEAD_MS } from '../../pro-room/__tests__/__helpers__/pro-late-youtube-join-timing.ts';
+import {
+  LATE_YOUTUBE_COMMIT_LEAD_MS as LATE_JOIN_LEAD_MS,
+  LATE_YOUTUBE_RELEASE_TOLERANCE_MS,
+} from '../../pro-room/__tests__/__helpers__/pro-late-youtube-join-timing.ts';
 import { PRO_ROOM_PLAYBACK_COMMIT_LEAD_MS as COMMIT_LEAD_MS } from '../../pro-room/__tests__/__helpers__/pro-room-playback-timing-copy.ts';
 import type { QueueItemId } from '../../types/index.ts';
+import { ANDROID_YOUTUBE_PLAY_LATENCY_FLOOR_MS } from '../constants.ts';
 import type { YouTubePlayerInstance } from '../_state.ts';
 import type { ProRoomSnapshot } from '../../pro-room/contracts.ts';
 import type { ProRoomSignalingAccess } from '../../pro-room/api.ts';
@@ -1373,7 +1377,8 @@ describe('PRO late cohort join (pinned 2026-10-30)', () => {
   // passes no learned lead for it, and the arm would zero one anyway, so the
   // play call lands exactly on the server instant, uncorrected for the
   // startup delay the zero-start devices compensate. Nor does the late join
-  // teach the learner anything.
+  // teach the learner anything. "Exactly on the instant" holds where the
+  // fixed output lead is 0 ('other' here, and iOS); see the Android row below.
   it('(c) applies no learned startup lead to a late-join scheduled control', async () => {
     const endpoint = await createProEndpoint();
     const first = endpoint.prepareNext(10);
@@ -1440,5 +1445,196 @@ describe('PRO late cohort join (pinned 2026-10-30)', () => {
     )?.detail;
     expect(zeroStart).toMatchObject({ timingMode: 'zero-start' });
     expect(zeroStart?.timelineLeadMs).toBeCloseTo(20, 6);
+  });
+
+  describe('on Android, where the App adds a fixed 250 ms output lead', () => {
+    // These rows switch the App's own platform detection (core/platform.ts
+    // IS_ANDROID, read by player.ts and by the iframe arm on every call), so
+    // the 250 ms comes from the real output-latency path, not from the test.
+    const outputLeadMs = ANDROID_YOUTUBE_PLAY_LATENCY_FLOOR_MS;
+
+    beforeEach(() => {
+      platformUnderTest.android = true;
+    });
+
+    function lastRelease() {
+      return getProStartObservations()
+        .filter((entry) => entry.kind === 'youtube-release')
+        .at(-1)?.detail;
+    }
+
+    // (c) on Android: the late join of the row above. The endpoint still
+    // passes no learned lead, but the arm keeps the fixed output lead the App
+    // applies to every playing start on Android, so play is called 250 ms
+    // before the server instant, at the planned target with no seek. The media
+    // then reaches the instant 0.25 s ahead of the room, the delay its sound is
+    // assumed to take to be heard. The same 80 ms-behind iframe teaches the
+    // learner 28 ms here (20 ms on 'other'), and that lead again applies only
+    // to the next zero-start, on top of the fixed one.
+    it('(c) on Android calls play for a late-join scheduled control 250 ms early, with no learned lead', async () => {
+      const endpoint = await createProEndpoint();
+      const first = endpoint.prepareNext(10);
+      await vi.advanceTimersByTimeAsync(1_000);
+      await first.preparing;
+      const firstRelease = endpoint.commit(first.authority, 10, COMMIT_LEAD_MS, 'zero-start');
+      await vi.advanceTimersByTimeAsync(COMMIT_LEAD_MS);
+      await expect(firstRelease).resolves.toBe(true);
+      vi.mocked(endpoint.player.getCurrentTime).mockImplementation(
+        () => endpoint.currentTime() - 0.08,
+      );
+      await vi.advanceTimersByTimeAsync(2_000);
+      const learned = getProStartObservations().find((entry) => entry.kind === 'youtube-learning');
+      expect(learned?.detail).toMatchObject({ timingMode: 'zero-start', learningEnabled: true });
+      expect(learned?.detail.nextTimelineLeadMs).toBeCloseTo(28, 6);
+      vi.mocked(endpoint.player.getCurrentTime).mockImplementation(endpoint.currentTime);
+
+      resetProStartObservations();
+      const late = endpoint.prepareNext(12.3);
+      await vi.advanceTimersByTimeAsync(1_000);
+      await late.preparing;
+      const playsBefore = vi.mocked(endpoint.player.playVideo).mock.calls.length;
+      const seeksBefore = vi.mocked(endpoint.player.seekTo).mock.calls.length;
+      const lateRelease = endpoint.commit(
+        late.authority,
+        12.3,
+        LATE_JOIN_LEAD_MS,
+        'scheduled-control',
+      );
+      await vi.advanceTimersByTimeAsync(LATE_JOIN_LEAD_MS - outputLeadMs - 1);
+      expect(endpoint.player.playVideo).toHaveBeenCalledTimes(playsBefore);
+      await vi.advanceTimersByTimeAsync(1);
+      await expect(lateRelease).resolves.toBe(true);
+      expect(endpoint.player.playVideo).toHaveBeenCalledTimes(playsBefore + 1);
+      expect(vi.mocked(endpoint.player.seekTo).mock.calls.slice(seeksBefore)).toEqual([]);
+      expect(lastRelease()).toMatchObject({
+        platform: 'android',
+        timingMode: 'scheduled-control',
+        platformLeadMs: outputLeadMs,
+        timelineLeadMs: 0,
+        releaseLeadMs: outputLeadMs,
+        scheduledLeadMs: outputLeadMs,
+        outputPositionAdvanceMs: 0,
+        requestedTargetSeconds: 12.3,
+        releasedTargetSeconds: 12.3,
+      });
+      await vi.advanceTimersByTimeAsync(outputLeadMs);
+      expect(endpoint.currentTime()).toBeCloseTo(12.3 + outputLeadMs / 1_000, 6);
+      await vi.advanceTimersByTimeAsync(2_000);
+      expect(
+        getProStartObservations().find((entry) => entry.kind === 'youtube-learning')?.detail,
+      ).toMatchObject({
+        timingMode: 'scheduled-control',
+        learningEnabled: false,
+        reason: 'scheduled-control-observation-only',
+      });
+
+      // For contrast: the next zero-start carries both leads.
+      resetProStartObservations();
+      const next = endpoint.prepareNext(0);
+      await vi.advanceTimersByTimeAsync(1_000);
+      await next.preparing;
+      const nextRelease = endpoint.commit(next.authority, 0, COMMIT_LEAD_MS, 'zero-start');
+      await vi.advanceTimersByTimeAsync(COMMIT_LEAD_MS);
+      await expect(nextRelease).resolves.toBe(true);
+      const zeroStart = lastRelease();
+      expect(zeroStart).toMatchObject({
+        timingMode: 'zero-start',
+        platformLeadMs: outputLeadMs,
+        outputPositionAdvanceMs: 0,
+      });
+      expect(zeroStart?.timelineLeadMs).toBeCloseTo(28, 6);
+      expect(zeroStart?.releaseLeadMs).toBeCloseTo(outputLeadMs + 28, 6);
+      expect(zeroStart?.scheduledLeadMs).toBeCloseTo(outputLeadMs + 28, 6);
+    });
+
+    // (d) on Android: the commit the controller sends a device ready 0 to
+    // 40 ms after executeAt (playback-late-cohort-join.test.ts '(d) releases a
+    // device ready %i ms after executeAt from its transition without a
+    // catch-up'): its prepared transition, zero-start, no delay, the room
+    // position. The arm ignores that lateness, as on 'other', but it still
+    // owes the 250 ms output lead and has no time left to schedule it, so it
+    // supplies it as position: it seeks from 0:00 to 0.25 s and plays at once.
+    // Heard 250 ms after the call, that is still lateMs behind the room, as on
+    // 'other'. But this release seeks, which the controller's 40 ms tolerance
+    // exists to avoid, the song's first 0.25 s is never played here, and with
+    // its lead not fully scheduled this zero-start teaches the learner nothing.
+    it.each([0, LATE_YOUTUBE_RELEASE_TOLERANCE_MS - 1, LATE_YOUTUBE_RELEASE_TOLERANCE_MS])(
+      '(d) on Android seeks 0.25 s into a zero-start committed %i ms after executeAt and plays at once',
+      async (lateMs) => {
+        const endpoint = await createProEndpoint();
+        const { authority, preparing } = endpoint.prepareNext(0);
+        await vi.advanceTimersByTimeAsync(1_000);
+        await preparing;
+        const playsBefore = vi.mocked(endpoint.player.playVideo).mock.calls.length;
+        const seeksBefore = vi.mocked(endpoint.player.seekTo).mock.calls.length;
+        const committedAt = performance.now();
+        const release = endpoint.commit(authority, lateMs / 1_000, 0, 'zero-start');
+        await vi.advanceTimersByTimeAsync(0);
+        expect(endpoint.player.playVideo).toHaveBeenCalledTimes(playsBefore + 1);
+        await expect(release).resolves.toBe(true);
+
+        const outputLeadSeconds = outputLeadMs / 1_000;
+        expect(vi.mocked(endpoint.player.seekTo).mock.calls.slice(seeksBefore)).toEqual([
+          [outputLeadSeconds, true],
+        ]);
+        expect(endpoint.currentTime()).toBeCloseTo(outputLeadSeconds, 6);
+        expect(lastRelease()).toMatchObject({
+          platform: 'android',
+          timingMode: 'zero-start',
+          playCallAtMs: committedAt,
+          platformLeadMs: outputLeadMs,
+          timelineLeadMs: 0,
+          scheduledLeadMs: 0,
+          outputPositionAdvanceMs: outputLeadMs,
+          requestedTargetSeconds: lateMs / 1_000,
+          releasedTargetSeconds: outputLeadSeconds,
+          catchUpSeconds: outputLeadSeconds,
+          positiveLeadWasFullyScheduled: false,
+        });
+      },
+    );
+
+    // (d) on Android: the commit for a device ready 500 ms after the deadline
+    // COMMIT, 200 ms before executeAt (playback-late-cohort-join.test.ts '(d)
+    // starts a device ready after the deadline COMMIT but before executeAt on
+    // time from 0:00'): zero-start, 0:00, 200 ms left. 200 ms cannot hold the
+    // 250 ms output lead, so the arm plays at once, 200 ms early, after
+    // seeking the missing 50 ms ahead. Heard 250 ms later, at executeAt plus
+    // 50 ms, its first sound (0.05 s) meets the room on time, but the song's
+    // first 0.05 s is never played here. On 'other' the same commit plays from
+    // 0:00 exactly at executeAt with no seek.
+    it('(d) on Android seeks the missing 50 ms and plays at once for a zero-start committed 200 ms before executeAt', async () => {
+      const remainingMs = COMMIT_LEAD_MS - 500;
+      const missingSeconds = (outputLeadMs - remainingMs) / 1_000;
+      const endpoint = await createProEndpoint();
+      const { authority, preparing } = endpoint.prepareNext(0);
+      await vi.advanceTimersByTimeAsync(1_000);
+      await preparing;
+      const playsBefore = vi.mocked(endpoint.player.playVideo).mock.calls.length;
+      const seeksBefore = vi.mocked(endpoint.player.seekTo).mock.calls.length;
+      const committedAt = performance.now();
+      const release = endpoint.commit(authority, 0, remainingMs, 'zero-start');
+      await vi.advanceTimersByTimeAsync(0);
+      expect(endpoint.player.playVideo).toHaveBeenCalledTimes(playsBefore + 1);
+      await expect(release).resolves.toBe(true);
+      const seeks = vi.mocked(endpoint.player.seekTo).mock.calls.slice(seeksBefore);
+      expect(seeks).toHaveLength(1);
+      expect(seeks[0]![0]).toBeCloseTo(missingSeconds, 6);
+      expect(lastRelease()).toMatchObject({
+        platform: 'android',
+        timingMode: 'zero-start',
+        playCallAtMs: committedAt,
+        platformLeadMs: outputLeadMs,
+        scheduledLeadMs: remainingMs,
+        outputPositionAdvanceMs: expect.closeTo(outputLeadMs - remainingMs, 6),
+        requestedTargetSeconds: 0,
+        releasedTargetSeconds: expect.closeTo(missingSeconds, 6),
+        positiveLeadWasFullyScheduled: false,
+      });
+
+      // At executeAt the media is 0.25 s ahead of the room's 0:00.
+      await vi.advanceTimersByTimeAsync(remainingMs);
+      expect(endpoint.currentTime()).toBeCloseTo(outputLeadMs / 1_000, 6);
+    });
   });
 });

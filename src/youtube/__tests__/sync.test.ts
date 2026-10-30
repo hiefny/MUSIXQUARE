@@ -84,6 +84,9 @@ beforeEach(async () => {
   clearAllManagedTimers();
   resetState();
   bus.clear();
+  // clearAllMocks() keeps implementations: restore the factory's null player
+  // so no row inherits the previous row's mockReturnValue.
+  vi.mocked((await import('../_state.ts')).getYouTubePlayer).mockReset();
   zeroStartFacade.active = false;
   setState('playlist.items', [
     {

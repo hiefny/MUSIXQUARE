@@ -252,7 +252,7 @@ afterEach(() => {
   document.body.innerHTML = '';
 });
 
-// ??? The seven owners, each armed through its own flow ?????????????
+// ─── The seven owners, each armed through its own flow ─────────────
 
 type OwnerName =
   | typeof PRO_COORDINATOR_YOUTUBE_NUDGE_TIMER
@@ -313,7 +313,7 @@ async function armOwner(owner: OwnerName, player: CallbackPlayer): Promise<numbe
   }
 }
 
-// ??? The three protected-owner sites ???????????????????????????????
+// ─── The three protected-owner sites ───────────────────────────────
 
 type Site = ':213 native PLAY kept' | ':260 position jump sent' | ':496 native PAUSE routed';
 const SITES: readonly Site[] = [
@@ -377,7 +377,7 @@ describe('H3 owner queries: seven owners x three sites (pinned 2026-10-30)', () 
   });
 });
 
-// ??? PRE-2: the other users of the same owners, on a Standard host ??
+// ─── PRE-2: the other users of the same owners, on a Standard host ──
 
 async function hostRig(localOffsetSeconds = 0): Promise<StandardRig> {
   document.body.innerHTML =

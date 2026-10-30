@@ -38,7 +38,8 @@ import {
   resetProStartObservations,
 } from '../../diagnostics/pro-start-observations.ts';
 import { broadcast, safeSend, sendToHost } from '../../network/peer.ts';
-import { initProtocol } from '../../network/protocol.ts';
+import { initProtocol, resetInboundRateLimit } from '../../network/protocol.ts';
+import { markQueueAuthorityReady } from '../../network/queue-authority.ts';
 import { initPlayback } from '../../player/playback.ts';
 import { initPlaylist } from '../../player/playlist.ts';
 import {
@@ -872,10 +873,8 @@ describe('C2-0 start-owner boundary: PRO participant (pinned 2026-10-30)', () =>
     expect(fake.isMuted()).toBe(false);
   });
 
-  it('cannot begin a Standard zero-start in a PRO room and ignores an incoming PREPARE', async () => {
-    const { fake, from } = await setUpPro();
-    const sender = syntheticConnection('pro-peer-1');
-    expect(canUseYouTubeZeroStart()).toBe(false);
+  /** A Standard zero-start PREPARE from sender, prepared now, deciding 2.3 s later. */
+  function deliverStandardPrepare(sender: ReturnType<typeof syntheticConnection>): void {
     const prepareAtHost = Date.now();
     bus.emit(
       'network:data',
@@ -888,16 +887,71 @@ describe('C2-0 start-owner boundary: PRO participant (pinned 2026-10-30)', () =>
         videoId: PRO.identity.videoId,
         subIndex: 0,
         prepareAtHost,
-        decisionAtHost: prepareAtHost + 1,
-        startDeadlineAtHost: prepareAtHost + 2,
+        decisionAtHost: prepareAtHost + 2_300,
+        startDeadlineAtHost: prepareAtHost + 3_100,
         hostPlatform: 'other',
       },
       sender,
     );
+  }
+
+  it('cannot begin a Standard zero-start in a PRO room, and drops a PREPARE whose sender is not its Standard host link', async () => {
+    const { fake, from } = await setUpPro();
+    const sender = syntheticConnection('pro-peer-1');
+    expect(canUseYouTubeZeroStart()).toBe(false);
+    deliverStandardPrepare(sender);
     await vi.advanceTimersByTimeAsync(3_000);
+    // A PRO member reads as a zero-start guest whose Standard host peer is
+    // null (no network.hostConn), so handlePrepare refuses this sender
+    // (zero-start.ts:561-562). On its own the row does not show that the
+    // room kind separates the two controllers; the next row adds the link.
     expect(fake.__log.slice(from)).toEqual([]);
     expect(vi.mocked(safeSend)).not.toHaveBeenCalled();
     expect(vi.mocked(sendToHost)).not.toHaveBeenCalled();
     expect(canUseYouTubeZeroStart()).toBe(false);
+  });
+
+  it('arms for a PREPARE from a Standard host link even in a PRO room: zero-start.ts has no room-kind gate (synthetic state, no known production path)', async () => {
+    const { fake, from, t0 } = await setUpPro();
+    // Expected today: no production path is known to a PRO member that also
+    // holds a Standard host link. Given one, with its queue authority ready,
+    // the Standard controller takes the PREPARE like a Standard guest. So
+    // what keeps a PRO room on the PRO arm is that it has no Standard host
+    // link, not a room-kind check in the zero-start controller.
+    const sender = syntheticConnection('pro-peer-1');
+    setState('network.appRole', 'guest');
+    setState('network.hostConn', sender);
+    markQueueAuthorityReady(sender);
+    resetInboundRateLimit(sender.peer);
+    deliverStandardPrepare(sender);
+    await vi.advanceTimersByTimeAsync(1_000);
+    expect({
+      ops: opTrace(fake, t0, from),
+      // The link also receives readiness re-advertisements (CAPABILITY),
+      // which the Standard wire golden pins; this row reads the rest.
+      sent: vi
+        .mocked(safeSend)
+        .mock.calls.map(([conn, frame]) => ({
+          to: (conn as { peer: string }).peer,
+          type: (frame as { type: string }).type,
+        }))
+        .filter(({ type }) => type !== MSG.YOUTUBE_ZERO_START_CAPABILITY)
+        .map(({ to, type }) => `${to} ${type}`),
+      canBegin: canUseYouTubeZeroStart(),
+    }).toEqual({
+      // The Standard guest's hard-muted warm-up and settle of the resident video.
+      ops: [
+        '+0 mute()',
+        '+0 setVolume(100)',
+        '+0 mute()',
+        '+0 playVideo()',
+        '+260 pauseVideo()',
+        '+340 seekTo(0,true)',
+        '+500 setVolume(100)',
+        '+500 unMute()',
+      ],
+      sent: ['pro-peer-1 youtube-zero-start-armed'],
+      canBegin: false,
+    });
   });
 });

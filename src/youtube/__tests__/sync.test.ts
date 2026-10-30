@@ -84,6 +84,13 @@ beforeEach(async () => {
   clearAllManagedTimers();
   resetState();
   bus.clear();
+  // clearAllMocks() keeps implementations: restore the factory's null player
+  // so no row inherits the previous row's mockReturnValue.
+  vi.mocked((await import('../_state.ts')).getYouTubePlayer).mockReset();
+  // Clear the sync runtime an earlier row left behind (its last host
+  // snapshot, for example) with the reset stopYouTubeMode runs. It runs
+  // after bus.clear(), so its events reach no earlier row's listener.
+  (await import('../sync.ts')).resetYouTubeSyncState();
   zeroStartFacade.active = false;
   setState('playlist.items', [
     {
@@ -132,25 +139,9 @@ describe('YouTube Sync', () => {
       expect(broadcast).not.toHaveBeenCalled();
     });
 
-    it('broadcasts sync data when host with player', async () => {
-      const playerMod = await import('../_state.ts');
-      vi.mocked(playerMod.getYouTubePlayer).mockReturnValue({
-        getCurrentTime: () => 42.5,
-        getPlayerState: () => 1,
-      } as YouTubePlayerInstance);
-      setState('network.hostConn', null);
-
-      const { broadcastYouTubeSync } = await import('../sync.ts');
-      const { broadcast } = await import('../../network/peer.ts');
-
-      broadcastYouTubeSync();
-      expect(broadcast).toHaveBeenCalledWith(
-        expect.objectContaining({
-          time: 42.5,
-          state: 1,
-        }),
-      );
-    });
+    // 'broadcasts sync data when host with player' runs in
+    // sync-heartbeat-broadcast.test.ts: a manual broadcast in an earlier row
+    // here can hold its heartbeat back, and sync.ts keeps that time.
 
     it('never emits a legacy host heartbeat from a server-authoritative PRO endpoint', async () => {
       const playerMod = await import('../_state.ts');
@@ -310,34 +301,9 @@ describe('YouTube Sync', () => {
       expect(Object.keys(handlerMap).length).toBeGreaterThanOrEqual(4);
     });
 
-    it('seeds a promoted PRO coordinator from its existing member offset', async () => {
-      const playerMod = await import('../_state.ts');
-      vi.mocked(playerMod.getYouTubePlayer).mockReturnValue(null);
-      setState('sync.youtubeLocalOffset', 0.25);
-      setState('room.context', {
-        kind: 'pro',
-        roomId: '000001',
-        role: 'member',
-        coordinatorId: 'participant-0',
-        epoch: 1,
-        snapshotRevision: 1,
-        capabilities: ['playback.control'],
-      });
-      const { initYouTubeSync } = await import('../sync.ts');
-      initYouTubeSync();
-
-      setState('room.context', {
-        kind: 'pro',
-        roomId: '000001',
-        role: 'coordinator',
-        coordinatorId: 'participant-1',
-        epoch: 2,
-        snapshotRevision: 2,
-        capabilities: ['playback.control'],
-      });
-
-      expect(getState('sync.youtubeCoordinatorAppliedOffset')).toBe(0.25);
-    });
+    // 'seeds a promoted PRO coordinator from its existing member offset' runs
+    // in sync-pro-promotion-offset.test.ts: it needs the module's first
+    // endpoint transition, which any earlier PRO row here would already spend.
 
     it('does not create a new offset boundary when an equal PRO endpoint role label changes', async () => {
       const playerMod = await import('../_state.ts');

@@ -5564,6 +5564,11 @@ describe('Cloudflare app worker admin dashboard', () => {
   );
 
   it('sanitizes untrusted RSS article HTML before inserting it into the blog shell', async () => {
+    // The waitUntil context queues a live RSS refresh; keep it off the network.
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(() => new Promise<Response>(() => {})),
+    );
     const env = {
       MUSIXQUARE_ADMIN_DB: createSoroVisibilityDatabase(),
       SORO_RSS_BACKUP: createKvStore(),

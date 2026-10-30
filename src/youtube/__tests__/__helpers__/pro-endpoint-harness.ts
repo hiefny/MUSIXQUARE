@@ -67,6 +67,7 @@ export interface ProEndpointFixture {
     basePlaybackRevision: number,
     positionSeconds: number,
     timingMode: ProTimingMode,
+    transitionId?: string,
   ): ProRoomPlaybackPrepareEvent;
   /** A transition COMMIT, or a direct COMMIT when transitionId is null. */
   commitEvent(
@@ -105,11 +106,12 @@ export function createProEndpointFixture(identity: ProEndpointIdentity): ProEndp
     basePlaybackRevision,
     positionSeconds,
     timingMode,
+    transitionId = identity.transitionId,
   ) => {
     const serverTimeMs = Date.now();
     return {
       type: 'pro-playback-prepare',
-      transitionId: identity.transitionId,
+      transitionId,
       serverTimeMs,
       deadlineAtMs: serverTimeMs + PRO_ROOM_PLAYBACK_TRANSITION_DEADLINE_MS,
       basePlaybackRevision,

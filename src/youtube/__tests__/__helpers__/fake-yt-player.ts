@@ -7,6 +7,15 @@
  *
  * State model mirrors a subset of the real YT IFrame API:
  *   -1 UNSTARTED | 0 ENDED | 1 PLAYING | 2 PAUSED | 3 BUFFERING | 5 CUED
+ *
+ * Fault knobs (all off by default, so a suite that sets none of them sees the
+ * player it always had): `__unMuteIgnoreCount`, `__unMuteDelayMs`,
+ * `__volumeReadFault` and `__seekStateSequence`. Each is a plain field read
+ * when the call happens, so a harness that copies the method references (the
+ * scripted IFrame API) still sees a knob set later. Their values model WebKit
+ * behaviour described in code comments (for example "WebKit can ignore the
+ * first unmute", youtube/player.ts) and the late-unMute mimic in
+ * sync-integration.test.ts; no device trace calibrates them.
  */
 
 export interface FakeYtPlayerCall {
@@ -54,6 +63,32 @@ export interface FakeYtPlayer {
   /** Opt-in hard-mute failure/delay for timeout and fallback tests. */
   __hardMuteFails: boolean;
   __hardMuteDelayMs: number;
+  /**
+   * Fault knob: the next N unMute() calls are logged but leave isMuted()
+   * true, as when WebKit ignores the first unmute after an iframe
+   * transition. Each ignored call counts the knob down by one and changes
+   * nothing else (a pending delayed mute still lands). Default 0.
+   */
+  __unMuteIgnoreCount: number;
+  /**
+   * Fault knob: an accepted unMute() turns isMuted() false only this many
+   * milliseconds later. The pending unmute is fenced by the same generation
+   * as __hardMuteDelayMs, which every mute() and accepted unMute() advance:
+   * a later mute() wins, and a repeated unMute() restarts the delay from its
+   * own call. A restore loop that re-issues unMute() every 120 ms therefore
+   * never sees a 250 ms delay land. The restart is a choice of this fake's
+   * model, not a measured WebKit behaviour: a row whose outcome depends on it
+   * pins the model, and says so. Default 0 (immediate).
+   */
+  __unMuteDelayMs: number;
+  /** Fault knob for getVolume(): null (default), 'nan' returns NaN, 'throw' throws. */
+  __volumeReadFault: null | 'nan' | 'throw';
+  /**
+   * Fault knob: the player states seekTo() delivers, in order and
+   * synchronously, through the same transition (and onStateChange) as
+   * pause and play. Default [] keeps seekTo silent.
+   */
+  __seekStateSequence: number[];
   __onStateChange?: (event: FakeYtStateChangeEvent) => void;
   // YT IFrame API surface used by sync.ts / player.ts
   playVideo: () => void;
@@ -121,6 +156,10 @@ export function makeFakeYtPlayer(init?: Partial<FakeYtPlayer>): FakeYtPlayer {
     __autoPlayOnLoad: init?.__autoPlayOnLoad ?? false,
     __hardMuteFails: init?.__hardMuteFails ?? false,
     __hardMuteDelayMs: init?.__hardMuteDelayMs ?? 0,
+    __unMuteIgnoreCount: init?.__unMuteIgnoreCount ?? 0,
+    __unMuteDelayMs: init?.__unMuteDelayMs ?? 0,
+    __volumeReadFault: init?.__volumeReadFault ?? null,
+    __seekStateSequence: init?.__seekStateSequence ?? [],
     __onStateChange: init?.__onStateChange,
 
     playVideo() {
@@ -145,6 +184,7 @@ export function makeFakeYtPlayer(init?: Partial<FakeYtPlayer>): FakeYtPlayer {
         playStartedFrom = t;
         playStartedAt = Date.now();
       }
+      for (const state of [...self.__seekStateSequence]) transition(self, state);
     },
     cueVideoById(id: string, startSeconds = 0) {
       self.__log.push({ op: 'cueVideoById', args: [id, startSeconds], at: Date.now() });
@@ -188,8 +228,18 @@ export function makeFakeYtPlayer(init?: Partial<FakeYtPlayer>): FakeYtPlayer {
     },
     unMute() {
       self.__log.push({ op: 'unMute', at: Date.now() });
-      ++muteGeneration;
-      self.__muted = false;
+      if (self.__unMuteIgnoreCount > 0) {
+        self.__unMuteIgnoreCount -= 1;
+        return;
+      }
+      const generation = ++muteGeneration;
+      if (self.__unMuteDelayMs <= 0) {
+        self.__muted = false;
+        return;
+      }
+      setTimeout(() => {
+        if (muteGeneration === generation) self.__muted = false;
+      }, self.__unMuteDelayMs);
     },
     destroy() {
       self.__log.push({ op: 'destroy', at: Date.now() });
@@ -204,7 +254,11 @@ export function makeFakeYtPlayer(init?: Partial<FakeYtPlayer>): FakeYtPlayer {
     getVideoData: () => ({ video_id: self.__videoId }),
     getPlaylistIndex: () => self.__playlistIdx,
     getPlaylist: () => self.__playlist,
-    getVolume: () => self.__volume,
+    getVolume: () => {
+      if (self.__volumeReadFault === 'nan') return Number.NaN;
+      if (self.__volumeReadFault === 'throw') throw new Error('Fake getVolume read fault');
+      return self.__volume;
+    },
     isMuted: () => self.__muted,
     getVideoLoadedFraction: () => self.__loadedFraction,
     __setState(state: number, emit = true) {

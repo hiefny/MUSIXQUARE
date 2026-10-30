@@ -32,12 +32,27 @@ interface RealtimeRequest {
 
 interface MockTransceiver {
   mid: string | null;
-  sender: {
-    track: MediaStreamTrack | null;
-    getParameters: () => RTCRtpSendParameters;
-    setParameters: ReturnType<typeof vi.fn>;
-  };
+  sender: MockSender;
   receiver: RTCRtpReceiver;
+}
+
+interface MockSender {
+  track: MediaStreamTrack | null;
+  getParameters: () => RTCRtpSendParameters;
+  setParameters: ReturnType<typeof vi.fn>;
+  replaceTrack: ReturnType<typeof vi.fn<(track: MediaStreamTrack | null) => Promise<void>>>;
+}
+
+function mockSender(track: MediaStreamTrack | null): MockSender {
+  const sender: MockSender = {
+    track,
+    getParameters: () => ({ encodings: [{}] }) as RTCRtpSendParameters,
+    setParameters: vi.fn(async () => {}),
+    replaceTrack: vi.fn(async (next: MediaStreamTrack | null) => {
+      sender.track = next;
+    }),
+  };
+  return sender;
 }
 
 const fetchMock = vi.mocked(fetchWithCapability);
@@ -87,11 +102,7 @@ class MockRTCPeerConnection {
   addTransceiver(track: MediaStreamTrack): MockTransceiver {
     const transceiver: MockTransceiver = {
       mid: String(this.sendTransceivers.length),
-      sender: {
-        track,
-        getParameters: () => ({ encodings: [{}] }) as RTCRtpSendParameters,
-        setParameters: vi.fn(async () => {}),
-      },
+      sender: mockSender(track),
       receiver: { track: null } as unknown as RTCRtpReceiver,
     };
     this.sendTransceivers.push(transceiver);
@@ -102,11 +113,7 @@ class MockRTCPeerConnection {
     if (this.sendTransceivers.length > 0) return this.sendTransceivers;
     return latestRemoteMids.map((mid, index) => ({
       mid,
-      sender: {
-        track: null,
-        getParameters: () => ({ encodings: [{}] }) as RTCRtpSendParameters,
-        setParameters: vi.fn(async () => {}),
-      },
+      sender: mockSender(null),
       receiver: {
         track: {
           id: `remote-audio-${index}`,
@@ -384,6 +391,276 @@ describe('PRO system-audio SFU publisher', () => {
 
     await vi.advanceTimersByTimeAsync(60_000);
     expect(peerConnections[0].close).toHaveBeenCalledOnce();
+  });
+});
+
+// 9.0.28 (owner decision 2026-10-31): the share's one SFU attempt starts beside
+// its LAN-direct attempt with the sender holding no track. It reports no
+// publication until the service releases the hold after a LAN-direct failure,
+// and a LAN-direct success stops it unused.
+describe('PRO system-audio SFU held fallback', () => {
+  const ROOM = '000123';
+  const PREPARED = /^\[ProSysAudioSFU\] Prepared SFU fallback for generation 12 in \d+ ms$/;
+  const MUSIC_CONSTRAINTS = {
+    echoCancellation: false,
+    noiseSuppression: false,
+    autoGainControl: false,
+  };
+
+  function sfuLines(): string[] {
+    return vi
+      .mocked(log.info)
+      .mock.calls.map(([line]) => String(line))
+      .filter((line) => line.startsWith('[ProSysAudioSFU]'));
+  }
+
+  /** No line names a session, an owner token, a track name or the room. */
+  function expectPrivateLines(): void {
+    for (const line of sfuLines()) {
+      for (const secret of [
+        'owned-session',
+        'private-owner-token',
+        'mxqr-pro-system-audio',
+        '-stereo-',
+        ROOM,
+      ]) {
+        expect(line).not.toContain(secret);
+      }
+    }
+  }
+
+  function publisherEvents(events: proSfu.ProSystemAudioSfuEventForTests[]) {
+    return events.filter((event) => event.type === 'publisher-state');
+  }
+
+  function heldPublish(track: MediaStreamTrack, generation = 12) {
+    return proSfu.publishProSystemAudioSfu({
+      track,
+      roomId: ROOM,
+      generation,
+      expiresAt: Date.now() + 60_000,
+      holdMedia: true,
+    });
+  }
+
+  let events: proSfu.ProSystemAudioSfuEventForTests[];
+  let unsubscribe: () => void;
+
+  beforeEach(() => {
+    vi.mocked(log.info).mockClear();
+    events = [];
+    unsubscribe = proSfu.onProSystemAudioSfuEvent((event) => events.push(event));
+  });
+
+  afterEach(() => {
+    unsubscribe();
+  });
+
+  it('a held publish negotiates with its sender holding no track and reports no publication yet', async () => {
+    const track = audioTrack('capture-stereo');
+    const descriptor = await heldPublish(track);
+
+    expect(descriptor).toMatchObject({ version: 2, sessionId: 'owned-session-1', generation: 12 });
+    const pc = peerConnections[0];
+    const sender = pc.getTransceivers()[0]!.sender;
+    expect(sender.replaceTrack.mock.calls).toEqual([[null]]);
+    expect(sender.replaceTrack.mock.invocationCallOrder[0]).toBeLessThan(
+      pc.createOffer.mock.invocationCallOrder[0]!,
+    );
+    expect(sender.track).toBeNull();
+    expect(sender.setParameters).not.toHaveBeenCalled();
+    expect(track.applyConstraints).not.toHaveBeenCalled();
+    expect(publisherEvents(events).map((event) => event.state)).toEqual(['publishing']);
+    expect(sfuLines()).toEqual([expect.stringMatching(PREPARED)]);
+    expectPrivateLines();
+  });
+
+  it('releasing the hold attaches the original track, tunes it once, then logs and reports the publication', async () => {
+    const track = audioTrack('capture-stereo');
+    const descriptor = await heldPublish(track);
+    const sender = peerConnections[0].getTransceivers()[0]!.sender;
+
+    await proSfu.releaseProSystemAudioSfuPublisherHold(descriptor);
+
+    expect(sender.replaceTrack.mock.calls).toEqual([[null], [track]]);
+    expect(sender.track).toBe(track);
+    expect(track.applyConstraints).toHaveBeenCalledOnce();
+    expect(track.applyConstraints).toHaveBeenCalledWith(MUSIC_CONSTRAINTS);
+    expect(sender.setParameters).toHaveBeenCalledOnce();
+    expect(sender.setParameters).toHaveBeenCalledWith(
+      expect.objectContaining({ encodings: [expect.objectContaining({ maxBitrate: 256_000 })] }),
+    );
+    expect(sfuLines()).toEqual([
+      expect.stringMatching(PREPARED),
+      '[ProSysAudioSFU] Published generation 12',
+    ]);
+    expect(publisherEvents(events).map((event) => event.state)).toEqual([
+      'publishing',
+      'published',
+    ]);
+    expect(publisherEvents(events).at(-1)?.descriptor).toBe(descriptor);
+    expectPrivateLines();
+  });
+
+  it('stopping a prepared held publisher closes its tracks and connection and logs it closed unused, never published', async () => {
+    const track = audioTrack('capture-stereo');
+    await heldPublish(track);
+    const pc = peerConnections[0];
+    const sender = pc.getTransceivers()[0]!.sender;
+
+    proSfu.stopProSystemAudioSfuPublisher();
+
+    expect(realtimeRequests.at(-1)).toMatchObject({
+      action: 'tracks-close',
+      sessionId: 'owned-session-1',
+      sessionOwnerToken: 'private-owner-token-1',
+      payload: { force: true },
+    });
+    expect(pc.close).toHaveBeenCalledOnce();
+    expect(publisherEvents(events).at(-1)).toMatchObject({ state: 'stopped', descriptor: null });
+    expect(sfuLines()).toEqual([
+      expect.stringMatching(PREPARED),
+      expect.stringMatching(
+        /^\[ProSysAudioSFU\] Closed unused SFU fallback for generation 12 \(open \d+ ms\)$/,
+      ),
+    ]);
+    expect(sender.replaceTrack.mock.calls).toEqual([[null]]);
+    expect(track.applyConstraints).not.toHaveBeenCalled();
+    expectPrivateLines();
+  });
+
+  it('stopping a held publish before it is prepared aborts it silently and logs it closed before prepared', async () => {
+    let releaseSession!: () => void;
+    const sessionHeld = new Promise<void>((resolve) => {
+      releaseSession = resolve;
+    });
+    let sessionStarted = false;
+    const succeed = fetchMock.getMockImplementation()!;
+    fetchMock.mockImplementation(async (url, capability, init) => {
+      const request = JSON.parse(String(init?.body || '{}')) as RealtimeRequest;
+      if (request.action === 'new-session') {
+        sessionStarted = true;
+        await sessionHeld;
+      }
+      return succeed(url, capability, init);
+    });
+    const publishing = heldPublish(audioTrack('capture-stereo'));
+    await vi.waitFor(() => expect(sessionStarted).toBe(true));
+
+    proSfu.stopProSystemAudioSfuPublisher();
+    releaseSession();
+
+    await expect(publishing).rejects.toMatchObject({ name: 'AbortError' });
+    expect(publisherEvents(events).map((event) => event.state)).not.toContain('failed');
+    expect(realtimeRequests.some((request) => request.action === 'tracks-new')).toBe(false);
+    expect(sfuLines()).toEqual([
+      expect.stringMatching(
+        /^\[ProSysAudioSFU\] Closed unused SFU fallback for generation 12 \(before it was prepared, \d+ ms after the start\)$/,
+      ),
+    ]);
+  });
+
+  it('a held publisher whose connection fails reports failed without a descriptor and cannot be released', async () => {
+    const track = audioTrack('capture-stereo');
+    const descriptor = await heldPublish(track);
+    const pc = peerConnections[0];
+    const sender = pc.getTransceivers()[0]!.sender;
+    events.length = 0;
+
+    pc.emitConnectionState('failed');
+
+    expect(events).toEqual([
+      expect.objectContaining({ type: 'publisher-state', state: 'failed', descriptor: null }),
+    ]);
+    expect(pc.close).toHaveBeenCalledOnce();
+    expect(realtimeRequests.at(-1)).toMatchObject({ action: 'tracks-close' });
+    expect(sfuLines()).toEqual([
+      expect.stringMatching(PREPARED),
+      expect.stringMatching(
+        /^\[ProSysAudioSFU\] SFU fallback for generation 12 failed after \d+ ms \(connection-failed\)$/,
+      ),
+    ]);
+    await expect(proSfu.releaseProSystemAudioSfuPublisherHold(descriptor)).rejects.toThrow(
+      'PRO_SFU_FALLBACK_UNAVAILABLE',
+    );
+    expect(sender.replaceTrack.mock.calls).toEqual([[null]]);
+    expectPrivateLines();
+  });
+
+  it('a held publish that fails logs one failed line by error name, never its message', async () => {
+    publisherAnswerSdp = OPUS_SDP;
+    await expect(heldPublish(audioTrack('capture-stereo'))).rejects.toThrow(
+      'SFU_STEREO_NOT_NEGOTIATED',
+    );
+
+    const timeout = new Error('PRO_SFU_REALTIME_REQUEST_TIMEOUT');
+    timeout.name = 'TimeoutError';
+    fetchMock.mockImplementation(async (url) => {
+      if (String(url).includes('get-turn-config')) return response({}, false, 404);
+      throw timeout;
+    });
+    await expect(heldPublish(audioTrack('capture-stereo'))).rejects.toBe(timeout);
+
+    const cancelled = new Error('capability challenge cancelled');
+    vi.mocked(isCapabilityChallengeCancelled).mockImplementation((error) => error === cancelled);
+    fetchMock.mockImplementation(async (url) => {
+      if (String(url).includes('get-turn-config')) return response({}, false, 404);
+      throw cancelled;
+    });
+    try {
+      await expect(heldPublish(audioTrack('capture-stereo'))).rejects.toBe(cancelled);
+    } finally {
+      vi.mocked(isCapabilityChallengeCancelled).mockImplementation(() => false);
+    }
+
+    expect(sfuLines()).toEqual([
+      expect.stringMatching(
+        /^\[ProSysAudioSFU\] SFU fallback for generation 12 failed after \d+ ms \(Error\)$/,
+      ),
+      expect.stringMatching(
+        /^\[ProSysAudioSFU\] SFU fallback for generation 12 failed after \d+ ms \(TimeoutError\)$/,
+      ),
+      expect.stringMatching(
+        /^\[ProSysAudioSFU\] SFU fallback for generation 12 failed after \d+ ms \(capability-cancelled\)$/,
+      ),
+    ]);
+    for (const line of sfuLines()) {
+      expect(line).not.toContain('SFU_STEREO_NOT_NEGOTIATED');
+      expect(line).not.toContain('PRO_SFU_REALTIME_REQUEST_TIMEOUT');
+      expect(line).not.toContain('challenge');
+    }
+    expectPrivateLines();
+  });
+
+  it('release refuses a stopped or superseded publisher and an ended capture track, and never touches a successor', async () => {
+    const first = await heldPublish(audioTrack('capture-a'));
+    proSfu.stopProSystemAudioSfuPublisher();
+    await expect(proSfu.releaseProSystemAudioSfuPublisherHold(first)).rejects.toThrow(
+      'PRO_SFU_FALLBACK_UNAVAILABLE',
+    );
+
+    const second = await heldPublish(audioTrack('capture-b'));
+    await proSfu.publishProSystemAudioSfu({
+      track: audioTrack('capture-c'),
+      roomId: ROOM,
+      generation: 13,
+      expiresAt: Date.now() + 60_000,
+    });
+    const successorSender = peerConnections.at(-1)!.getTransceivers()[0]!.sender;
+    await expect(proSfu.releaseProSystemAudioSfuPublisherHold(second)).rejects.toThrow(
+      'PRO_SFU_FALLBACK_UNAVAILABLE',
+    );
+    expect(successorSender.replaceTrack).not.toHaveBeenCalled();
+    expect(successorSender.track).toMatchObject({ id: 'capture-c' });
+
+    const ending = audioTrack('capture-d');
+    const third = await heldPublish(ending);
+    const heldSender = peerConnections.at(-1)!.getTransceivers()[0]!.sender;
+    (ending as { readyState: MediaStreamTrackState }).readyState = 'ended';
+    await expect(proSfu.releaseProSystemAudioSfuPublisherHold(third)).rejects.toThrow(
+      /already ended/,
+    );
+    expect(heldSender.replaceTrack.mock.calls).toEqual([[null]]);
   });
 });
 

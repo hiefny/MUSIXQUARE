@@ -58,10 +58,14 @@ export function makeCaptureTrack(id = 'capture-stereo-track'): CaptureTrack {
 // Models the sender parameters as Chromium returns them for a fresh audio
 // sender (one encoding, no bitrate set). getParameters returns a fresh copy on
 // every call, as browsers do, so only a setParameters call can change what the
-// sender carries. A test can make getParameters throw.
+// sender carries. A test can make getParameters throw. replaceTrack records
+// every track it is given, in order (`replaceTrack.mock.calls`), and the
+// sender then carries that track, or none for null, as browsers do before and
+// after negotiation without renegotiating.
 
 export class FakeSender {
   private parameters: RTCRtpSendParameters = { encodings: [{}] } as RTCRtpSendParameters;
+  track: MediaStreamTrack | null;
   readonly getParameters = vi.fn<() => RTCRtpSendParameters>(() =>
     structuredClone(this.parameters),
   );
@@ -70,7 +74,14 @@ export class FakeSender {
       this.parameters = structuredClone(parameters);
     },
   );
-  constructor(readonly track: MediaStreamTrack) {}
+  readonly replaceTrack = vi.fn<(track: MediaStreamTrack | null) => Promise<void>>(
+    async (track) => {
+      this.track = track;
+    },
+  );
+  constructor(track: MediaStreamTrack) {
+    this.track = track;
+  }
   /** What the sender carries after every setParameters call so far. */
   get applied(): RTCRtpSendParameters {
     return structuredClone(this.parameters);

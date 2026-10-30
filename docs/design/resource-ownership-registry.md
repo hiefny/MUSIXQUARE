@@ -376,7 +376,43 @@ RO-53 owner-in-place
 
 - **Anchor tests:**
   - Timing home: `src/pro-room/__tests__/pro-room-playback-timing.test.ts` (the barrier and the
-    lead and no other value, one start-kind union in the Worker and the App).
+    lead and no other value, one start-kind union in the Worker and the App). Its row "keeps the
+    copy App suites read, which load no Worker code, equal to the home" is the parity test of
+    `src/pro-room/__tests__/__helpers__/pro-room-playback-timing-copy.ts`, name for name and
+    value for value. A suite that loads `cloudflare/` code belongs to the Worker coverage profile
+    (`src/core/__tests__/ci-quality-gates.test.ts`), so every App suite whose PREPARE or COMMIT
+    uses the barrier or the lead reads them from the copy and derives the numbers that follow
+    from them instead of retyping them: a PREPARE's deadline, an `executeAtMs` or a schedule
+    delay, a wait to or past the deadline or the start, and the 699 ms zero-start lead of PRO
+    Workers before schemaVersion 2 as one below the lead. A suite that uses one of the App's own
+    budgets above (the 700 ms COMMIT clock wait, the 700 ms reconciliation lead, the 3 s late-join
+    lead) does not read the Worker copy for it, because it is not the Worker's value. The late
+    YouTube join pins of 2026-10-30 (`playback-late-cohort-join.test.ts`,
+    `pro-late-prepare-reload.test.ts` and the "PRO late cohort join (pinned 2026-10-30)" blocks of
+    `authority-arm.test.ts` and `pro-manual-zero-start.test.ts`) also read the App's own late-join
+    values from `src/pro-room/__tests__/__helpers__/pro-late-youtube-join-timing.ts`, a copy of
+    module constants their homes do not export (a test-only export is not allowed); a value leaves
+    the copy once its home exports it. These rows run the real home and pin the copy to it:
+    - `playback-controller.ts` `LATE_YOUTUBE_COMMIT_LEAD_MS`: `playback-late-cohort-join.test.ts`
+      "(c) joins a failed-READY device 3 s after COMMIT on the server clock, mid-track, as a
+      scheduled control".
+    - `playback-controller.ts` `LATE_YOUTUBE_RELEASE_TOLERANCE_MS`: the same file's "(d) releases
+      a device ready %i ms after executeAt from its transition without a catch-up" and "(d)
+      re-arms a device ready 41 ms after executeAt for a mid-track join 3 s later".
+    - The arm tolerance that it mirrors, `authority-arm.ts` `TIMING.catchUpToleranceMs`:
+      `authority-arm.test.ts` "(d) releases a commit $lateMs ms past its prepared 0:00 target
+      with $seeks seek".
+    - `authority-arm.ts` `TIMING.releaseAckTimeoutMs`: `authority-arm.test.ts` "(b) pauses an
+      unacknowledged release after exactly 1.8 s without re-muting it".
+  - Not tied yet (follow-up): older App suites still retype App budgets of this record, against
+    principle 4. The 3 s late-join lead, which the late-join copy holds: `network-bridge.test.ts`
+    (four schedule delays) and `playback-system-audio-join.test.ts` (two waits). The arm's 1.8 s
+    release timeout, also in that copy: `authority-arm.test.ts` "retries captured audio
+    restoration after a release acknowledgement timeout". The two 700 ms budgets, which have
+    neither an export nor a copy: `playback-clock-safety.test.ts` (two clock waits),
+    `playback-authority-hooks.test.ts` and `runtime-server-playback.test.ts` (rendezvous leads).
+    The 2.3 s prepare budget, which YouTube suites retype (`authority-arm.test.ts` among them),
+    gets its home in Phase 0d C2-1 (above).
   - Supersession: `src/youtube/__tests__/authority-arm.test.ts` "supersedes a prepared occurrence
     when the iframe instance is replaced".
   - User pause/stop: `authority-arm.test.ts` "cancels a long negative-offset wait before a pause or

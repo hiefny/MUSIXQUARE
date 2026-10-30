@@ -66,6 +66,11 @@ import {
   proSnapshot,
   recountProPlaylist,
 } from './__helpers__/pro-snapshot.ts';
+// The Worker's barrier and COMMIT lead, from the copy pro-room-playback-timing.test.ts pins.
+import {
+  PRO_ROOM_PLAYBACK_COMMIT_LEAD_MS as COMMIT_LEAD_MS,
+  PRO_ROOM_PLAYBACK_TRANSITION_DEADLINE_MS as BARRIER_MS,
+} from './__helpers__/pro-room-playback-timing-copy.ts';
 
 const nativeCreateSessionForQa20 = ProRoomApiClient.prototype.createSession;
 const nativeHeartbeatForQa20 = ProRoomApiClient.prototype.heartbeat;
@@ -187,7 +192,7 @@ function prepareEvent(transitionId: string, basePlaybackRevision = 0): ProRoomPl
     type: 'pro-playback-prepare',
     transitionId,
     serverTimeMs,
-    deadlineAtMs: serverTimeMs + 3_000,
+    deadlineAtMs: serverTimeMs + BARRIER_MS,
     basePlaybackRevision,
     target: playback(basePlaybackRevision + 1),
   };
@@ -1092,7 +1097,10 @@ describe('coordinator-free PRO playback runtime', { concurrent: false }, () => {
       expect(loadingStates).toEqual([true]);
 
       acceptProRoomRealtimeFrameForTests(
-        serverFrame({ ...commitEvent(TRANSITION_COMMIT, 1, 700), timingMode: 'zero-start' }),
+        serverFrame({
+          ...commitEvent(TRANSITION_COMMIT, 1, COMMIT_LEAD_MS),
+          timingMode: 'zero-start',
+        }),
       );
       await vi.waitFor(() => expect(commitMedia).toHaveBeenCalledOnce());
       expect(loadingStates).toEqual([true]);
@@ -3119,7 +3127,10 @@ describe('coordinator-free PRO playback runtime', { concurrent: false }, () => {
     );
     await vi.waitFor(() => expect(reportReady).toHaveBeenCalledOnce());
 
-    const committed = { ...commitEvent(TRANSITION_COMMIT, 1, 700), timingMode: 'zero-start' };
+    const committed = {
+      ...commitEvent(TRANSITION_COMMIT, 1, COMMIT_LEAD_MS),
+      timingMode: 'zero-start',
+    };
     acceptProRoomRealtimeFrameForTests(serverFrame(committed));
     await vi.waitFor(() => expect(commitMedia).toHaveBeenCalledOnce());
     expect(commitMedia).toHaveBeenCalledWith(
@@ -3156,9 +3167,9 @@ describe('coordinator-free PRO playback runtime', { concurrent: false }, () => {
 
   // The lead of a COMMIT says when it starts, never which kind of start. A
   // transition COMMIT that names no kind follows the running timeline at any
-  // lead, the 699 ms that marked a zero-start before PRO snapshot
-  // schemaVersion 2 included (ZS-05).
-  it.each([699, 700, 702])(
+  // lead, the 699 ms (one below the lead) that marked a zero-start before PRO
+  // snapshot schemaVersion 2 included (ZS-05).
+  it.each([COMMIT_LEAD_MS - 1, COMMIT_LEAD_MS, COMMIT_LEAD_MS + 2])(
     'starts a transition COMMIT that names no start kind at a %i ms lead as a scheduled control',
     async (wireLeadMs) => {
       acceptProRoomRealtimeFrameForTests(
@@ -3181,10 +3192,10 @@ describe('coordinator-free PRO playback runtime', { concurrent: false }, () => {
   // PRO snapshot schemaVersion 2 names the start kind on every PREPARE and
   // transition COMMIT (Q4). The named kind decides, whatever the lead.
   it.each([
-    { timingMode: 'zero-start', wireLeadMs: 700, prepareNamesKind: true },
-    { timingMode: 'scheduled-control', wireLeadMs: 699, prepareNamesKind: true },
+    { timingMode: 'zero-start', wireLeadMs: COMMIT_LEAD_MS, prepareNamesKind: true },
+    { timingMode: 'scheduled-control', wireLeadMs: COMMIT_LEAD_MS - 1, prepareNamesKind: true },
     // A transition prepared before the Worker named kinds, committed after.
-    { timingMode: 'zero-start', wireLeadMs: 700, prepareNamesKind: false },
+    { timingMode: 'zero-start', wireLeadMs: COMMIT_LEAD_MS, prepareNamesKind: false },
   ] as const)(
     'starts a COMMIT that names $timingMode at a $wireLeadMs ms lead as $timingMode (PREPARE names it: $prepareNamesKind)',
     async ({ timingMode, wireLeadMs, prepareNamesKind }) => {
@@ -3211,7 +3222,10 @@ describe('coordinator-free PRO playback runtime', { concurrent: false }, () => {
     await vi.waitFor(() => expect(reportReady).toHaveBeenCalledOnce());
 
     acceptProRoomRealtimeFrameForTests(
-      serverFrame({ ...commitEvent(TRANSITION_COMMIT, 1, 699), timingMode: 'learned-start' }),
+      serverFrame({
+        ...commitEvent(TRANSITION_COMMIT, 1, COMMIT_LEAD_MS - 1),
+        timingMode: 'learned-start',
+      }),
     );
     await vi.waitFor(() => expect(commitMedia).toHaveBeenCalledOnce());
     expect(commitMedia).toHaveBeenCalledWith(
@@ -3223,7 +3237,10 @@ describe('coordinator-free PRO playback runtime', { concurrent: false }, () => {
   // COMMIT took: without its PREPARE here, no learned lead (ZS-09).
   it('keeps a COMMIT that names zero-start without its PREPARE a scheduled control', async () => {
     acceptProRoomRealtimeFrameForTests(
-      serverFrame({ ...commitEvent(TRANSITION_COMMIT, 1, 700), timingMode: 'zero-start' }),
+      serverFrame({
+        ...commitEvent(TRANSITION_COMMIT, 1, COMMIT_LEAD_MS),
+        timingMode: 'zero-start',
+      }),
     );
     await vi.waitFor(() => expect(commitMedia).toHaveBeenCalledOnce());
     expect(commitMedia).toHaveBeenCalledWith(
@@ -3429,7 +3446,8 @@ describe('coordinator-free PRO playback runtime', { concurrent: false }, () => {
 
       expect(prepareMedia).toHaveBeenCalledTimes(2);
       expect(commitMedia).toHaveBeenCalledOnce();
-      // 35s at release preparation plus the 700ms rebased lead.
+      // 35s at release preparation plus the App's own 700ms rebased
+      // (reconciliation) lead, not the Worker's COMMIT lead.
       expect(commitMedia.mock.calls[0]![0]).toEqual(
         expect.objectContaining({
           scheduleDelayMs: 700,

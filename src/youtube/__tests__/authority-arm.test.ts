@@ -1,4 +1,10 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import {
+  LATE_YOUTUBE_COMMIT_LEAD_MS,
+  LATE_YOUTUBE_RELEASE_TOLERANCE_MS,
+  RELEASE_ACK_TIMEOUT_MS,
+} from '../../pro-room/__tests__/__helpers__/pro-late-youtube-join-timing.ts';
+import { PRO_ROOM_PLAYBACK_COMMIT_LEAD_MS } from '../../pro-room/__tests__/__helpers__/pro-room-playback-timing-copy.ts';
 import type { QueueItemId, YouTubeZeroStartPlatform } from '../../types/index.ts';
 import {
   YouTubeAuthorityArmController,
@@ -16,6 +22,14 @@ const identity = {
   videoId: VIDEO_ID,
   subIndex: 0,
 };
+
+/**
+ * The zero-start COMMIT lead of PRO Workers before PRO snapshot schemaVersion
+ * 2, one below the Worker's COMMIT lead (PRO_ROOM_PLAYBACK_COMMIT_LEAD_MS, from
+ * the copy pro-room-playback-timing.test.ts pins). Several rows release at it;
+ * the arm takes any delay as given.
+ */
+const PRE_V2_ZERO_START_LEAD_MS = PRO_ROOM_PLAYBACK_COMMIT_LEAD_MS - 1;
 
 function makeHarness(options?: {
   platform?: YouTubeZeroStartPlatform;
@@ -218,11 +232,11 @@ describe('YouTubeAuthorityArmController', () => {
     const playsBeforeCommit = count(player, 'playVideo');
     const committed = controller.commit({
       ...identity,
-      executeDelayMs: 700,
+      executeDelayMs: PRO_ROOM_PLAYBACK_COMMIT_LEAD_MS,
       timingMode: 'scheduled-control',
     });
 
-    await vi.advanceTimersByTimeAsync(699);
+    await vi.advanceTimersByTimeAsync(PRO_ROOM_PLAYBACK_COMMIT_LEAD_MS - 1);
     expect(count(player, 'playVideo')).toBe(playsBeforeCommit);
     await vi.advanceTimersByTimeAsync(1);
 
@@ -251,7 +265,7 @@ describe('YouTubeAuthorityArmController', () => {
     await expect(
       controller.commit({
         ...identity,
-        executeDelayMs: 700,
+        executeDelayMs: PRO_ROOM_PLAYBACK_COMMIT_LEAD_MS,
         timingMode: 'scheduled-control',
       }),
     ).resolves.toEqual({ status: 'superseded', reason: 'identity-mismatch' });
@@ -400,11 +414,11 @@ describe('YouTubeAuthorityArmController', () => {
     const playsBeforeCommit = count(player, 'playVideo');
     const committed = controller.commit({
       ...identity,
-      executeDelayMs: 700,
+      executeDelayMs: PRO_ROOM_PLAYBACK_COMMIT_LEAD_MS,
       timingMode: 'zero-start',
     });
 
-    await vi.advanceTimersByTimeAsync(699);
+    await vi.advanceTimersByTimeAsync(PRO_ROOM_PLAYBACK_COMMIT_LEAD_MS - 1);
     expect(count(player, 'playVideo')).toBe(playsBeforeCommit);
     await vi.advanceTimersByTimeAsync(1);
 
@@ -422,11 +436,11 @@ describe('YouTubeAuthorityArmController', () => {
     const playsBeforeCommit = count(player, 'playVideo');
     const committed = controller.commit({
       ...identity,
-      executeDelayMs: 700,
+      executeDelayMs: PRO_ROOM_PLAYBACK_COMMIT_LEAD_MS,
       timingMode: 'zero-start',
     });
 
-    await vi.advanceTimersByTimeAsync(449);
+    await vi.advanceTimersByTimeAsync(PRO_ROOM_PLAYBACK_COMMIT_LEAD_MS - 250 - 1);
     expect(count(player, 'playVideo')).toBe(playsBeforeCommit);
     await vi.advanceTimersByTimeAsync(1);
 
@@ -444,12 +458,12 @@ describe('YouTubeAuthorityArmController', () => {
     const playsBeforeCommit = count(player, 'playVideo');
     const committed = controller.commit({
       ...identity,
-      executeDelayMs: 700,
+      executeDelayMs: PRO_ROOM_PLAYBACK_COMMIT_LEAD_MS,
       timingMode: 'zero-start',
       timelineLeadMs: 40,
     });
 
-    await vi.advanceTimersByTimeAsync(409);
+    await vi.advanceTimersByTimeAsync(PRO_ROOM_PLAYBACK_COMMIT_LEAD_MS - 290 - 1);
     expect(count(player, 'playVideo')).toBe(playsBeforeCommit);
     await vi.advanceTimersByTimeAsync(1);
 
@@ -471,14 +485,14 @@ describe('YouTubeAuthorityArmController', () => {
       const playsBeforeCommit = count(player, 'playVideo');
       const committed = controller.commit({
         ...identity,
-        executeDelayMs: 700,
+        executeDelayMs: PRO_ROOM_PLAYBACK_COMMIT_LEAD_MS,
         targetSeconds: 10.25,
         timingMode: 'scheduled-control',
         timelineLeadMs: 300,
       });
 
       const platformLeadMs = platform === 'android' ? 250 : 0;
-      await vi.advanceTimersByTimeAsync(699 - platformLeadMs);
+      await vi.advanceTimersByTimeAsync(PRO_ROOM_PLAYBACK_COMMIT_LEAD_MS - 1 - platformLeadMs);
       expect(count(player, 'playVideo')).toBe(playsBeforeCommit);
       await vi.advanceTimersByTimeAsync(1);
 
@@ -710,11 +724,11 @@ describe('YouTubeAuthorityArmController', () => {
       const committed = controller.commit({
         ...identity,
         targetSeconds: 0,
-        executeDelayMs: 699,
+        executeDelayMs: PRE_V2_ZERO_START_LEAD_MS,
         localStartDelayMs,
         timingMode,
       });
-      const callDelayMs = 699 + localStartDelayMs - lead;
+      const callDelayMs = PRE_V2_ZERO_START_LEAD_MS + localStartDelayMs - lead;
       await vi.advanceTimersByTimeAsync(callDelayMs - 1);
       expect(controller.phase).toBe('scheduled');
       expect(count(player, 'playVideo')).toBe(playsBefore);
@@ -787,7 +801,7 @@ describe('YouTubeAuthorityArmController', () => {
     const playsBefore = count(player, 'playVideo');
     const committed = controller.commit({
       ...identity,
-      executeDelayMs: 699,
+      executeDelayMs: PRE_V2_ZERO_START_LEAD_MS,
       localStartDelayMs: 9_999,
       timingMode: 'zero-start',
     });
@@ -804,7 +818,7 @@ describe('YouTubeAuthorityArmController', () => {
     await prepareReady(controller, 'resident', 0);
     const first = controller.commit({
       ...identity,
-      executeDelayMs: 699,
+      executeDelayMs: PRE_V2_ZERO_START_LEAD_MS,
       localStartDelayMs: 9_999,
       timingMode: 'zero-start',
     });
@@ -816,10 +830,10 @@ describe('YouTubeAuthorityArmController', () => {
     await expect(preparing).resolves.toMatchObject({ status: 'ready' });
     const next = controller.commit({
       ...nextIdentity,
-      executeDelayMs: 699,
+      executeDelayMs: PRE_V2_ZERO_START_LEAD_MS,
       timingMode: 'zero-start',
     });
-    await vi.advanceTimersByTimeAsync(699);
+    await vi.advanceTimersByTimeAsync(PRE_V2_ZERO_START_LEAD_MS);
     await expect(next).resolves.toMatchObject({ status: 'applied', localStartDelayMs: 0 });
     const playsAfterNext = count(player, 'playVideo');
     await vi.advanceTimersByTimeAsync(12_000);
@@ -841,14 +855,14 @@ describe('YouTubeAuthorityArmController', () => {
       const baseLead = getYouTubeAuthorityPlatformLeadMsForTests(platform);
       const committed = controller.commit({
         ...identity,
-        executeDelayMs: 699,
+        executeDelayMs: PRE_V2_ZERO_START_LEAD_MS,
         localStartDelayMs: hold,
         timelineLeadMs: learned,
         timingMode: 'zero-start',
       });
       // Model a blocked event loop: the clock moves, but no timer can run.
       vi.setSystemTime(Date.now() + 1_500);
-      await vi.advanceTimersByTimeAsync(699 + hold - baseLead - learned);
+      await vi.advanceTimersByTimeAsync(PRE_V2_ZERO_START_LEAD_MS + hold - baseLead - learned);
       await expect(committed).resolves.toMatchObject({
         status: 'applied',
         platformLeadMs: baseLead,
@@ -870,11 +884,11 @@ describe('YouTubeAuthorityArmController', () => {
     await prepareReady(controller, 'resident', 2.5);
     const committed = controller.commit({
       ...identity,
-      executeDelayMs: 699,
+      executeDelayMs: PRE_V2_ZERO_START_LEAD_MS,
       timingMode: 'zero-start',
     });
     vi.setSystemTime(Date.now() + 1_500);
-    await vi.advanceTimersByTimeAsync(699);
+    await vi.advanceTimersByTimeAsync(PRE_V2_ZERO_START_LEAD_MS);
     await expect(committed).resolves.toMatchObject({
       status: 'applied',
       targetSeconds: 3,
@@ -896,11 +910,11 @@ describe('YouTubeAuthorityArmController', () => {
     const seeks = count(player, 'seekTo');
     const committed = controller.commit({
       ...identity,
-      executeDelayMs: 699,
+      executeDelayMs: PRE_V2_ZERO_START_LEAD_MS,
       timingMode: 'zero-start',
     });
     vi.setSystemTime(Date.now() + 25);
-    await vi.advanceTimersByTimeAsync(699);
+    await vi.advanceTimersByTimeAsync(PRE_V2_ZERO_START_LEAD_MS);
     await expect(committed).resolves.toMatchObject({
       status: 'applied',
       targetSeconds: 0,
@@ -909,5 +923,127 @@ describe('YouTubeAuthorityArmController', () => {
       rawReleaseLatenessMs: 25,
     });
     expect(count(player, 'seekTo')).toBe(seeks);
+  });
+
+  describe('PRO late cohort join (pinned 2026-10-30)', () => {
+    // The COMMIT lead is the Worker's (the copy pro-room-playback-timing.test.ts
+    // pins); the App's late-join values come from
+    // pro-room/__tests__/__helpers__/pro-late-youtube-join-timing.ts.
+    //
+    // These rows run the arm on 'other' (the harness default), where the fixed
+    // output lead is 0. The device-level Android rows are in
+    // pro-manual-zero-start.test.ts and pro-late-prepare-reload.test.ts.
+
+    // (b) Scenario: at the release the iframe buffers, and its PLAYING report
+    // is still in flight 1.8 s later although media started after 1 s. The
+    // arm pauses and fails the commit at exactly 1.8 s but never re-mutes, so
+    // whatever the iframe played inside that window was audible. This is the
+    // row that pins the shared RELEASE_ACK_TIMEOUT_MS copy to the real arm.
+    it('(b) pauses an unacknowledged release after exactly 1.8 s without re-muting it', async () => {
+      const { controller, player } = makeHarness();
+      await prepareReady(controller, 'resident', 0);
+      player.playVideo = () => {
+        player.__log.push({ op: 'playVideo', at: Date.now() });
+        player.__setState(3);
+      };
+      const committed = controller.commit({
+        ...identity,
+        executeDelayMs: PRO_ROOM_PLAYBACK_COMMIT_LEAD_MS,
+        timingMode: 'zero-start',
+      });
+      await vi.advanceTimersByTimeAsync(PRO_ROOM_PLAYBACK_COMMIT_LEAD_MS);
+      const releasedAt = Date.now();
+      expect(player.__log.at(-1)).toEqual({ op: 'playVideo', at: releasedAt });
+      expect(player.__muted).toBe(false);
+
+      await vi.advanceTimersByTimeAsync(1_000);
+      player.__setState(1, false);
+      await vi.advanceTimersByTimeAsync(RELEASE_ACK_TIMEOUT_MS - 1_000 - 1);
+      expect(controller.phase).toBe('starting');
+      expect(player.__state).toBe(1);
+      expect(player.__muted).toBe(false);
+
+      await vi.advanceTimersByTimeAsync(1);
+      await expect(committed).resolves.toEqual({ status: 'failed', reason: 'release-timeout' });
+      expect(player.__log.filter((call) => call.op === 'pauseVideo').at(-1)?.at).toBe(
+        releasedAt + RELEASE_ACK_TIMEOUT_MS,
+      );
+      expect(player.__state).toBe(2);
+      expect(player.__muted).toBe(false);
+      expect(player.__log.filter((call) => call.op === 'mute' && call.at > releasedAt)).toEqual([]);
+      expect(controller.phase).toBe('idle');
+      // The PLAYING report that finally arrives is no longer the arm's.
+      expect(controller.handlePlayerStateChange(1)).toBe(false);
+    });
+
+    // (d) Scenario: a device ready up to 40 ms after executeAt commits the
+    // room position then (here 0.040 s) to a release prepared at 0:00. The
+    // arm ignores a target change of 40 ms or less and plays from 0:00 at
+    // once, that many ms behind the room. The 41 ms row pins only the arm's
+    // side of that edge: a commit 41 ms past its target would seek first, but
+    // the controller never sends one, because a device ready 41 ms after
+    // executeAt re-arms instead (playback-late-cohort-join.test.ts '(d)
+    // re-arms a device ready 41 ms after executeAt for a mid-track join 3 s
+    // later' pins that 3.041 s join).
+    it.each([
+      { lateMs: LATE_YOUTUBE_RELEASE_TOLERANCE_MS, seeks: 0, startsAt: 0 },
+      {
+        lateMs: LATE_YOUTUBE_RELEASE_TOLERANCE_MS + 1,
+        seeks: 1,
+        startsAt: (LATE_YOUTUBE_RELEASE_TOLERANCE_MS + 1) / 1_000,
+      },
+    ])(
+      '(d) releases a commit $lateMs ms past its prepared 0:00 target with $seeks seek',
+      async ({ lateMs, seeks, startsAt }) => {
+        const { controller, player } = makeHarness();
+        await prepareReady(controller, 'resident', 0);
+        const seeksBefore = count(player, 'seekTo');
+        const committed = controller.commit({
+          ...identity,
+          executeDelayMs: 0,
+          targetSeconds: lateMs / 1_000,
+          timingMode: 'zero-start',
+        });
+        await vi.advanceTimersByTimeAsync(0);
+        await expect(committed).resolves.toMatchObject({
+          status: 'applied',
+          targetSeconds: startsAt,
+          catchUpSeconds: startsAt,
+        });
+        expect(count(player, 'seekTo')).toBe(seeksBefore + seeks);
+        expect(player.__currentTime).toBe(startsAt);
+      },
+    );
+
+    // (c) Scenario: a late join whose re-arm ended inside the last 400 ms of
+    // its plan commits the room position then (2.0 s) to a release settled at
+    // its planned 2.3 s (src/pro-room/__tests__/playback-late-cohort-join.test.ts).
+    // Looks like a defect: the arm never seeks backward, so the device plays
+    // from 2.3 s at once, 0.3 s ahead of the room.
+    it('(c) releases a commit target behind its prepared target from the prepared target', async () => {
+      // The controller row's values: settled at the late join's planned
+      // position (2.3 s), committed at the room position 300 ms before it.
+      const settledSeconds =
+        (LATE_YOUTUBE_COMMIT_LEAD_MS - PRO_ROOM_PLAYBACK_COMMIT_LEAD_MS) / 1_000;
+      const roomSeconds =
+        (LATE_YOUTUBE_COMMIT_LEAD_MS - 300 - PRO_ROOM_PLAYBACK_COMMIT_LEAD_MS) / 1_000;
+      const { controller, player } = makeHarness();
+      await prepareReady(controller, 'resident', settledSeconds);
+      const seeksBefore = count(player, 'seekTo');
+      const committed = controller.commit({
+        ...identity,
+        executeDelayMs: 0,
+        targetSeconds: roomSeconds,
+        timingMode: 'scheduled-control',
+      });
+      await vi.advanceTimersByTimeAsync(0);
+      await expect(committed).resolves.toMatchObject({
+        status: 'applied',
+        targetSeconds: settledSeconds,
+        catchUpSeconds: 0,
+      });
+      expect(count(player, 'seekTo')).toBe(seeksBefore);
+      expect(player.__currentTime).toBe(settledSeconds);
+    });
   });
 });

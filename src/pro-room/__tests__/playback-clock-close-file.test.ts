@@ -24,6 +24,8 @@ import {
   type ProPlaybackMediaEndpoint,
 } from '../../pro-room/playback-authority-hooks.ts';
 import { proSnapshot } from './__helpers__/pro-snapshot.ts';
+// The Worker's COMMIT lead, from the copy pro-room-playback-timing.test.ts pins.
+import { PRO_ROOM_PLAYBACK_COMMIT_LEAD_MS as COMMIT_LEAD_MS } from './__helpers__/pro-room-playback-timing-copy.ts';
 
 type SocketListener = (event: { data?: unknown; reason?: string }) => void;
 
@@ -403,7 +405,7 @@ async function beginFileCommit() {
   const request = clockRequests(socket).at(-1)!;
   await advance(20);
   answerClockRequest(socket, request, Date.now() - 10);
-  const executeAtMs = Date.now() + 700;
+  const executeAtMs = Date.now() + COMMIT_LEAD_MS;
   fixture.controller.acceptCommit({
     type: 'pro-playback-commit',
     transitionId: null,
@@ -417,6 +419,9 @@ async function beginFileCommit() {
   return { ...fixture, socket, executeAtMs };
 }
 
+/** The AudioContext time of the start: 100.02 s at the COMMIT, plus the lead. */
+const FILE_START_AT_SECONDS = 100.02 + COMMIT_LEAD_MS / 1_000;
+
 describe('PRO file COMMIT clock lease across socket close', () => {
   it.each([false, true])(
     'retains admitted file start across native initialization (unexpected close %s)',
@@ -424,7 +429,7 @@ describe('PRO file COMMIT clock lease across socket close', () => {
       const fixture = await beginFileCommit();
       try {
         const request = fixture.commit.mock.calls[0]![0];
-        expect(request.scheduleDelayMs).toBe(700);
+        expect(request.scheduleDelayMs).toBe(COMMIT_LEAD_MS);
         expect(request.isCurrent?.()).toBe(true);
         expect(audio.outputs).toHaveLength(0);
         await advance(50);
@@ -433,9 +438,9 @@ describe('PRO file COMMIT clock lease across socket close', () => {
         // whether to create and schedule the AudioBufferSourceNode.
         await advance(150);
         expect(audio.outputs).toHaveLength(1);
-        expect(audio.outputs[0]!.when).toBeCloseTo(100.72, 6);
+        expect(audio.outputs[0]!.when).toBeCloseTo(FILE_START_AT_SECONDS, 6);
         expect(getState('playback.activity')).toBe('playing');
-        await advance(500);
+        await advance(COMMIT_LEAD_MS - 200);
         expect(audio.outputs[0]!.stopsAt).toBe(Infinity);
       } finally {
         fixture.controller.resetPlaylistRuntime();
@@ -451,9 +456,9 @@ describe('PRO file COMMIT clock lease across socket close', () => {
       expect(audio.outputs).toHaveLength(1);
       await advance(50);
       fixture.socket.close();
-      await advance(650);
+      await advance(COMMIT_LEAD_MS - 50);
       expect(audio.outputs).toHaveLength(1);
-      expect(audio.outputs[0]!.when).toBeCloseTo(100.72, 6);
+      expect(audio.outputs[0]!.when).toBeCloseTo(FILE_START_AT_SECONDS, 6);
       expect(audio.outputs[0]!.stopsAt).toBe(Infinity);
       expect(getState('playback.activity')).toBe('playing');
     } finally {
@@ -479,7 +484,8 @@ describe('PRO file COMMIT clock lease across socket close', () => {
       const recovery = fixture.controller.beginControlChannelRecovery();
       expect(proRoomServerBridge.connected).toBe(false);
       expect(proRoomServerBridge.isClockSnapshotCurrent(lease!)).toBe(true);
-      await advance(700);
+      // Past the start while the socket is closed.
+      await advance(COMMIT_LEAD_MS);
       expect(audio.outputs[0]!.stopsAt).toBe(Infinity);
       expect(getState('playback.activity')).toBe('playing');
 
@@ -540,7 +546,7 @@ describe('PRO file COMMIT clock lease across socket close', () => {
           fixture.controller.resetPlaylistRuntime();
         }
         expect(request.isCurrent?.()).toBe(false);
-        await advance(650);
+        await advance(COMMIT_LEAD_MS - 50);
         expect(audio.outputs).toHaveLength(0);
       } finally {
         fixture.controller.resetPlaylistRuntime();

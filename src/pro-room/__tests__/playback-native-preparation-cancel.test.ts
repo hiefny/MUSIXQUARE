@@ -18,6 +18,8 @@ import type { ProRoomPlaybackCheckpoint, ProRoomSnapshot } from '../contracts.ts
 import { registerProRoomMediaHooks } from '../media-hooks.ts';
 import * as serverClock from '../network-bridge.ts';
 import { installProClockSnapshotMocks } from './__helpers__/pro-clock-fixture.ts';
+// The Worker's barrier, from the copy pro-room-playback-timing.test.ts pins.
+import { PRO_ROOM_PLAYBACK_TRANSITION_DEADLINE_MS as BARRIER_MS } from './__helpers__/pro-room-playback-timing-copy.ts';
 import {
   registerProPlaybackMediaEndpoint,
   resetProPlaybackAuthorityHooks,
@@ -396,13 +398,13 @@ describe('PRO canonical commits while native preparation is superseded', () => {
           type: 'pro-playback-prepare',
           transitionId: 'native_last',
           serverTimeMs: serverNow,
-          deadlineAtMs: serverNow + 3_000,
+          deadlineAtMs: serverNow + BARRIER_MS,
           basePlaybackRevision: 0,
           target: playback(A, 1),
         });
         await vi.waitFor(() => expect(decode).toHaveBeenCalledOnce());
       }
-      serverNow += 3_000;
+      serverNow += BARRIER_MS;
       canonical = playback(A, 1);
       controller.acceptCommit({
         type: 'pro-playback-commit',
@@ -512,7 +514,7 @@ describe('PRO canonical commits while native preparation is superseded', () => {
           type: 'pro-playback-prepare',
           transitionId,
           serverTimeMs: serverNow,
-          deadlineAtMs: serverNow + 3_000,
+          deadlineAtMs: serverNow + BARRIER_MS,
           basePlaybackRevision: revision - 1,
           target: playback(queueItemId, revision),
         });
@@ -535,7 +537,7 @@ describe('PRO canonical commits while native preparation is superseded', () => {
       expect(oldNativeReservation).toBeGreaterThan(0);
       // The server reaches its real rendezvous deadline while native A remains
       // in progress. That uncancellable work still owns its decode reservation.
-      serverNow += 3_000;
+      serverNow += BARRIER_MS;
       commit(A, 1, first);
       await new Promise<void>((resolve) => setTimeout(resolve, 0));
       const second = prepare(B, 2);

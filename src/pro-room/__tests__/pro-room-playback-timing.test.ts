@@ -26,6 +26,15 @@ import type { ProPlaybackTimingMode } from '../playback-authority-hooks.ts';
  * to src/youtube/constants.ts: today it is a module constant of
  * src/youtube/iframe.ts and src/youtube/authority-arm.ts, and a test-only
  * export is not allowed (scripts/check-dead-exports.mts).
+ *
+ * App suites that model a PREPARE or a COMMIT cannot import the home: a suite
+ * that loads Worker code belongs to the Worker coverage profile
+ * (src/core/__tests__/ci-quality-gates.test.ts). Their copy is
+ * __helpers__/pro-room-playback-timing-copy.ts, which the last row pins here.
+ * Every App suite whose PREPARE or COMMIT uses the barrier or the lead reads
+ * it from that copy and derives the numbers that follow from it, so a change
+ * to the home fails here until the copy follows, and those suites then run
+ * against the new values.
  */
 
 describe('PRO playback transition timing (RO-03)', () => {
@@ -53,5 +62,14 @@ describe('PRO playback transition timing (RO-03)', () => {
     >().toEqualTypeOf<ProRoomPlaybackTimingMode>();
     const kinds: readonly ProRoomPlaybackTimingMode[] = ['zero-start', 'scheduled-control'];
     expect(new Set(kinds).size).toBe(2);
+  });
+
+  it('keeps the copy App suites read, which load no Worker code, equal to the home', async () => {
+    // Name for name and value for value: a change to the home fails here
+    // until the copy follows, so no suite that reads the copy runs against a
+    // stale Worker.
+    const home = await import('../../../cloudflare/pro-room-playback-timing.ts');
+    const copy = await import('./__helpers__/pro-room-playback-timing-copy.ts');
+    expect({ ...copy }).toEqual({ ...home });
   });
 });

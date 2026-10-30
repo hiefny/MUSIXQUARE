@@ -16,6 +16,8 @@ import { ProRoomPlaybackController } from '../playback-controller.ts';
 import * as serverClock from '../network-bridge.ts';
 import { installProClockSnapshotMocks } from './__helpers__/pro-clock-fixture.ts';
 import { proSnapshot } from './__helpers__/pro-snapshot.ts';
+// The Worker's barrier, from the copy pro-room-playback-timing.test.ts pins.
+import { PRO_ROOM_PLAYBACK_TRANSITION_DEADLINE_MS as BARRIER_MS } from './__helpers__/pro-room-playback-timing-copy.ts';
 
 vi.mock('../network-bridge.ts', () => ({
   getProRoomServerNow: () => Date.now(),
@@ -125,7 +127,7 @@ function setupController(endpoint: ProPlaybackMediaEndpoint) {
         type: 'pro-playback-prepare',
         transitionId: TRANSITION,
         serverTimeMs: Date.now(),
-        deadlineAtMs: Date.now() + 3000,
+        deadlineAtMs: Date.now() + BARRIER_MS,
         basePlaybackRevision: checkpoint.revision - 1,
         target: checkpoint,
       });

@@ -15,6 +15,8 @@ import {
 } from '../session-controller.ts';
 import { idleProSystemAudio, proHeartbeat } from './__helpers__/pro-heartbeat.ts';
 import { proSnapshot } from './__helpers__/pro-snapshot.ts';
+// The Worker's barrier, from the copy pro-room-playback-timing.test.ts pins.
+import { PRO_ROOM_PLAYBACK_TRANSITION_DEADLINE_MS as BARRIER_MS } from './__helpers__/pro-room-playback-timing-copy.ts';
 
 const ROOM_CODE = '000001';
 const PARTICIPANT_ID = 'participant_00001';
@@ -659,7 +661,7 @@ describe('PRO room session controller', () => {
       type: 'pro-playback-prepare',
       transitionId: 'transition_1234567890123456789012',
       serverTimeMs: 1_000,
-      deadlineAtMs: 4_000,
+      deadlineAtMs: 1_000 + BARRIER_MS,
       basePlaybackRevision: 0,
       target: {
         coordinatorEpoch: 1,

@@ -21,6 +21,8 @@ import {
   registerProPlaybackCommandHandler,
   resetProPlaybackAuthorityHooks,
 } from '../../pro-room/playback-authority-hooks.ts';
+// The PRO Worker's COMMIT lead, from the copy pro-room-playback-timing.test.ts pins.
+import { PRO_ROOM_PLAYBACK_COMMIT_LEAD_MS as COMMIT_LEAD_MS } from '../../pro-room/__tests__/__helpers__/pro-room-playback-timing-copy.ts';
 
 const QUEUE_ITEM_ID = '44444444-4444-4444-8444-444444444444';
 const SECOND_QUEUE_ITEM_ID = '55555555-5555-4555-8555-555555555555';
@@ -200,6 +202,10 @@ function proMediaHooks(overrides: Partial<ProRoomMediaHooks> = {}): ProRoomMedia
 describe('YouTube Player', () => {
   describe('getYouTubePlayer()', () => {
     it('returns null initially', async () => {
+      // A fresh module holds no player. Rows that ran earlier in a shuffled
+      // order may have installed one, so start from the module's reset state.
+      const { resetYouTubeModuleState } = await import('../_state.ts');
+      resetYouTubeModuleState();
       const { getYouTubePlayer } = await import('../player.ts');
       expect(getYouTubePlayer()).toBeNull();
     });
@@ -1167,71 +1173,78 @@ describe('YouTube Player', () => {
       timingMode?: 'zero-start' | 'scheduled-control';
       ackDelayMs?: number;
     }> = [
-      { scenario: 'stable', playbackLatencyMs: 100, nextReleaseDelayMs: 675, roomEpoch: 7 },
+      // The next release waits the COMMIT lead, 25 ms less where a valid stable
+      // 100 ms residual taught a startup lead.
+      {
+        scenario: 'stable',
+        playbackLatencyMs: 100,
+        nextReleaseDelayMs: COMMIT_LEAD_MS - 25,
+        roomEpoch: 7,
+      },
       {
         scenario: 'collapsed callbacks',
         playbackLatencyMs: 100,
-        nextReleaseDelayMs: 700,
+        nextReleaseDelayMs: COMMIT_LEAD_MS,
         roomEpoch: 8,
       },
       {
         scenario: 'NaN media clock',
         playbackLatencyMs: 800,
-        nextReleaseDelayMs: 700,
+        nextReleaseDelayMs: COMMIT_LEAD_MS,
         roomEpoch: 9,
       },
       {
         scenario: 'infinite media clock',
         playbackLatencyMs: 800,
-        nextReleaseDelayMs: 700,
+        nextReleaseDelayMs: COMMIT_LEAD_MS,
         roomEpoch: 10,
       },
       {
         scenario: 'uncorrected callback jitter',
         playbackLatencyMs: 0,
-        nextReleaseDelayMs: 700,
+        nextReleaseDelayMs: COMMIT_LEAD_MS,
         roomEpoch: 11,
         callbackDelayMs: 30,
       },
       {
         scenario: 'uncorrected jitter plus real media latency',
         playbackLatencyMs: 100,
-        nextReleaseDelayMs: 675,
+        nextReleaseDelayMs: COMMIT_LEAD_MS - 25,
         roomEpoch: 12,
         callbackDelayMs: 30,
       },
       {
         scenario: 'caught-up callback delay',
         playbackLatencyMs: 0,
-        nextReleaseDelayMs: 700,
+        nextReleaseDelayMs: COMMIT_LEAD_MS,
         roomEpoch: 13,
         callbackDelayMs: 80,
       },
       {
         scenario: 'caught-up delay plus real media latency',
         playbackLatencyMs: 100,
-        nextReleaseDelayMs: 675,
+        nextReleaseDelayMs: COMMIT_LEAD_MS - 25,
         roomEpoch: 14,
         callbackDelayMs: 80,
       },
       {
         scenario: 'scheduled-control observation only',
         playbackLatencyMs: 100,
-        nextReleaseDelayMs: 700,
+        nextReleaseDelayMs: COMMIT_LEAD_MS,
         roomEpoch: 15,
         timingMode: 'scheduled-control',
       },
       {
         scenario: 'late PLAYING acknowledgement',
         playbackLatencyMs: 100,
-        nextReleaseDelayMs: 700,
+        nextReleaseDelayMs: COMMIT_LEAD_MS,
         roomEpoch: 16,
         ackDelayMs: 1_100,
       },
       {
         scenario: 'changed manual offset',
         playbackLatencyMs: 100,
-        nextReleaseDelayMs: 700,
+        nextReleaseDelayMs: COMMIT_LEAD_MS,
         roomEpoch: 17,
       },
     ];
@@ -1340,7 +1353,7 @@ describe('YouTube Player', () => {
             const schedule = globalThis.setTimeout;
             let delayed = false;
             vi.spyOn(globalThis, 'setTimeout').mockImplementation((callback, ms, ...args) => {
-              if (!delayed && ms === 700) {
+              if (!delayed && ms === COMMIT_LEAD_MS) {
                 delayed = true;
                 return schedule(callback, ms + callbackDelayMs, ...args);
               }
@@ -1369,7 +1382,7 @@ describe('YouTube Player', () => {
             queueItemId: QUEUE_ITEM_ID,
             state: 'playing',
             positionSeconds: 0,
-            scheduleDelayMs: 700,
+            scheduleDelayMs: COMMIT_LEAD_MS,
             timingMode: basePlaybackRevision === 1 ? timingMode : 'zero-start',
             youtubeSubIndex: 0,
             youtubeVideoId: 'video-1',
@@ -1379,21 +1392,21 @@ describe('YouTube Player', () => {
         };
 
         const first = await run(1);
-        await vi.advanceTimersByTimeAsync(700 + callbackDelayMs + ackDelayMs);
+        await vi.advanceTimersByTimeAsync(COMMIT_LEAD_MS + callbackDelayMs + ackDelayMs);
         await expect(first.applying).resolves.toBe(true);
-        expect(playCallsMs.at(-1)! - first.startedAtMs).toBe(700 + callbackDelayMs);
+        expect(playCallsMs.at(-1)! - first.startedAtMs).toBe(COMMIT_LEAD_MS + callbackDelayMs);
 
         vi.mocked(player.getCurrentTime).mockClear();
         if (scenario === 'collapsed callbacks') {
           // Model both due callbacks observing the same instant after a
           // foreground event-loop stall. Their intended labels stay 0.8s/2s.
-          const observedAtMs = first.startedAtMs + 700 + 2_000;
+          const observedAtMs = first.startedAtMs + COMMIT_LEAD_MS + 2_000;
           const clock = vi.spyOn(performance, 'now').mockReturnValue(observedAtMs);
           await vi.advanceTimersByTimeAsync(2_000);
           clock.mockRestore();
         } else {
           if (scenario === 'NaN media clock' || scenario === 'infinite media clock') {
-            const earlyAtMs = first.startedAtMs + 700 + 800;
+            const earlyAtMs = first.startedAtMs + COMMIT_LEAD_MS + 800;
             vi.mocked(player.getCurrentTime).mockImplementation(() =>
               performance.now() === earlyAtMs
                 ? scenario === 'NaN media clock'

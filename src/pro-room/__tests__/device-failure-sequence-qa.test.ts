@@ -30,6 +30,8 @@ import { resolveProRoomRemovalTransition } from '../playlist-transition.ts';
 import * as proRoomClock from '../network-bridge.ts';
 import { installProClockSnapshotMocks } from './__helpers__/pro-clock-fixture.ts';
 import { proSnapshot } from './__helpers__/pro-snapshot.ts';
+// The Worker's barrier, from the copy pro-room-playback-timing.test.ts pins.
+import { PRO_ROOM_PLAYBACK_TRANSITION_DEADLINE_MS as BARRIER_MS } from './__helpers__/pro-room-playback-timing-copy.ts';
 
 // Keep controller, authority fencing, playlist preparation and invalidation real.
 // The decode seam controls per-device outcomes without requiring a browser codec.
@@ -167,7 +169,7 @@ function harness(initial = checkpoint()) {
         type: 'pro-playback-prepare',
         transitionId: id,
         serverTimeMs: Date.now(),
-        deadlineAtMs: Date.now() + 3000,
+        deadlineAtMs: Date.now() + BARRIER_MS,
         basePlaybackRevision: value.revision - 1,
         target: value,
       });
@@ -762,7 +764,7 @@ describe('device failure across authority caches and permission transitions', ()
           type: 'pro-playback-prepare',
           transitionId: healthyTransition,
           serverTimeMs: Date.now(),
-          deadlineAtMs: Date.now() + 3000,
+          deadlineAtMs: Date.now() + BARRIER_MS,
           basePlaybackRevision: 10,
           target: healthy,
         },

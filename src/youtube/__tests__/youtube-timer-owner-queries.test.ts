@@ -704,7 +704,7 @@ describe('H3 owner queries: direct timer clears that skip their owner retire, ex
     expect(plays).toEqual([]);
   });
 
-  it('leaves the clock-action spinner owner set when a host zero-start attempt clears a clock action left from its guest role (player.ts:651-652)', async () => {
+  it('leaves the clock-action spinner owner set when a host zero-start attempt clears a clock action that a setState role flip kept from the guest role (player.ts:651-652, no known production path)', async () => {
     const { player, loading, plays } = guestWithClockAction();
     await vi.advanceTimersByTimeAsync(200);
     const guest = syntheticConnection('owner-guest-2');
@@ -721,9 +721,16 @@ describe('H3 owner queries: direct timer clears that skip their owner retire, ex
     player.deliverState(2);
     bus.emit('youtube:toggle-play');
     await vi.advanceTimersByTimeAsync(2_000);
-    // Looks like a defect: the direct clear drops the scheduled play without
-    // its 'clock-action' false, so the play button's loading spinner keeps
-    // that owner until the next unscoped reset (a pause or stop).
+    // Expected today (PRE-5), not a listed defect: no production path to this
+    // state is known. network.appRole becomes 'host' only in startHostFlow
+    // (setup-host.ts:73-74) with no session running, setup.ts refuses a role
+    // reset during a session, only the guest YOUTUBE_STATE handler arms
+    // 'yt-clock-action' (sync.ts:2561, :2593), and leaving a guest session
+    // clears every managed timer and runs stopYouTubeMode, which resets every
+    // spinner owner. The row flips the role with setState to pin what the
+    // direct clear does: it drops the scheduled play without its
+    // 'clock-action' false, so that owner stays until the next unscoped
+    // reset (a pause or stop).
     expect(loading).toEqual(['false clock-action', 'true clock-action']);
     expect(plays).toEqual([]);
   });

@@ -318,8 +318,10 @@ RO-53 owner-in-place
   `proAuthorityPreparationGeneration` fence). Their arm and settle values (hard-mute poll, warm
   play, pause-seek gap, settle poll and epsilon, release acknowledgement) and most phase names are
   identical; their prepare budgets are not (10 s Standard, 2.3 s barriered PRO). `zero-start.ts`'s
-  header still says it can serve a coordinator-free PRO endpoint although PRO uses the copy. Only
-  the room kind separates them; `stopYouTubeMode` cancels both.
+  header still says it can serve a coordinator-free PRO endpoint although PRO uses the copy.
+  `zero-start.ts` has no room-kind gate of its own: a PRO member drops a Standard PREPARE only
+  because it has no Standard host link (pinned in `youtube-start-owner-boundary.test.ts`).
+  `stopYouTubeMode` cancels both.
 - **Target single owner:** shared arm steps used by both protocol shells; `authority-arm.ts` stays
   the PRO protocol facade with its own tokens.
 - **Allowed requesters:** Standard: the zero-start wiring in `player.ts`. PRO: PREPARE through

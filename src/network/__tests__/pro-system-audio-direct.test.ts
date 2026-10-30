@@ -790,8 +790,23 @@ beforeEach(() => {
   vi.stubGlobal('MediaStream', MockMediaStream);
 });
 
-afterEach(() => {
+/**
+ * Either end's pair check reads its selected pair every 25 ms
+ * (DIRECT_PAIR_POLL_MS) and sees a closed route only at its next poll, where
+ * it ends and logs its pair-check line as 'closed'.
+ */
+const PAIR_CHECK_POLL_MS = 25;
+
+afterEach(async () => {
   direct.resetProSystemAudioDirectTransport({ notifyPeers: false });
+  // The reset closes every route at once, but a pair check still polling on
+  // real timers (a receiver row whose route never proved its pair) ends only
+  // at its next poll. Wait for that poll, so its 'closed' line stays in this
+  // row instead of joining the info lines a later row asserts. A fake-timer
+  // row's pending poll is dropped with its clock below and never logs.
+  if (!vi.isFakeTimers() && peerConnections.length > 0) {
+    await new Promise((resolve) => setTimeout(resolve, PAIR_CHECK_POLL_MS + 1));
+  }
   vi.useRealTimers();
   vi.unstubAllGlobals();
 });

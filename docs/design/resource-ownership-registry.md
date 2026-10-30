@@ -386,7 +386,22 @@ RO-53 owner-in-place
     `pro-late-prepare-reload.test.ts` and the "PRO late cohort join (pinned 2026-10-30)" blocks
     of `authority-arm.test.ts` and `pro-manual-zero-start.test.ts`. Older App suites and rows
     that model a PREPARE or a COMMIT, the other rows of those last two among them, still retype
-    3000 and 700: they are not tied to the home and stay green when it changes.
+    3000 and 700: they are not tied to the home and stay green when it changes. The same pins
+    read the App's own late-join values from
+    `src/pro-room/__tests__/__helpers__/pro-late-youtube-join-timing.ts`, a copy of module
+    constants their homes do not export (a test-only export is not allowed); a value leaves the
+    copy once its home exports it. These rows run the real home and pin the copy to it:
+    - `playback-controller.ts` `LATE_YOUTUBE_COMMIT_LEAD_MS`: `playback-late-cohort-join.test.ts`
+      "(c) joins a failed-READY device 3 s after COMMIT on the server clock, mid-track, as a
+      scheduled control".
+    - `playback-controller.ts` `LATE_YOUTUBE_RELEASE_TOLERANCE_MS`: the same file's "(d) releases
+      a device ready %i ms after executeAt from its transition without a catch-up" and "(d)
+      re-arms a device ready 41 ms after executeAt for a mid-track join 3 s later".
+    - The arm tolerance that it mirrors, `authority-arm.ts` `TIMING.catchUpToleranceMs`:
+      `authority-arm.test.ts` "(d) releases a commit $lateMs ms past its prepared 0:00 target
+      with $seeks seek".
+    - `authority-arm.ts` `TIMING.releaseAckTimeoutMs`: `authority-arm.test.ts` "(b) pauses an
+      unacknowledged release after exactly 1.8 s without re-muting it".
   - Supersession: `src/youtube/__tests__/authority-arm.test.ts` "supersedes a prepared occurrence
     when the iframe instance is replaced".
   - User pause/stop: `authority-arm.test.ts` "cancels a long negative-offset wait before a pause or

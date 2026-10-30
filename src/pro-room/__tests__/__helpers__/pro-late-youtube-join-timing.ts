@@ -5,7 +5,9 @@
  * use), so the suites keep this one copy instead of one each. The row named
  * with each value runs the real home and pins the copy to it; a suite that
  * only uses a value to script another module (when a scripted endpoint
- * fails, for example) therefore stays tied to that module.
+ * fails, for example) therefore stays tied to that module. The RO-03 anchor
+ * tests (docs/design/resource-ownership-registry.md) name the same rows as
+ * this copy's parity tests.
  */
 
 /**

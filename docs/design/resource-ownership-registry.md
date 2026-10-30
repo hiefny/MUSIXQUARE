@@ -379,9 +379,14 @@ RO-53 owner-in-place
     lead and no other value, one start-kind union in the Worker and the App). Its row "keeps the
     copy App suites read, which load no Worker code, equal to the home" is the parity test of
     `src/pro-room/__tests__/__helpers__/pro-room-playback-timing-copy.ts`, name for name and
-    value for value: App suites that model a PREPARE or a COMMIT read the barrier and the lead
-    there, because a suite that loads `cloudflare/` code belongs to the Worker coverage profile
-    (`src/core/__tests__/ci-quality-gates.test.ts`).
+    value for value. A suite that loads `cloudflare/` code belongs to the Worker coverage profile
+    (`src/core/__tests__/ci-quality-gates.test.ts`), so an App suite that models a PREPARE or a
+    COMMIT reads the barrier and the lead from the copy. Only the late YouTube join pins of
+    2026-10-30 do so today: `playback-late-cohort-join.test.ts`,
+    `pro-late-prepare-reload.test.ts` and the "PRO late cohort join (pinned 2026-10-30)" blocks
+    of `authority-arm.test.ts` and `pro-manual-zero-start.test.ts`. Older App suites and rows
+    that model a PREPARE or a COMMIT, the other rows of those last two among them, still retype
+    3000 and 700: they are not tied to the home and stay green when it changes.
   - Supersession: `src/youtube/__tests__/authority-arm.test.ts` "supersedes a prepared occurrence
     when the iframe instance is replaced".
   - User pause/stop: `authority-arm.test.ts` "cancels a long negative-offset wait before a pause or

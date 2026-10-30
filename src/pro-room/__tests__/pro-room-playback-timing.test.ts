@@ -29,8 +29,12 @@ import type { ProPlaybackTimingMode } from '../playback-authority-hooks.ts';
  *
  * App suites that model a PREPARE or a COMMIT cannot import the home: a suite
  * that loads Worker code belongs to the Worker coverage profile
- * (src/core/__tests__/ci-quality-gates.test.ts). They read the copy in
+ * (src/core/__tests__/ci-quality-gates.test.ts). Their copy is
  * __helpers__/pro-room-playback-timing-copy.ts, which the last row pins here.
+ * Only the late YouTube join pins of 2026-10-30 read it today
+ * (playback-late-cohort-join, pro-late-prepare-reload, and the late-join
+ * blocks of authority-arm and pro-manual-zero-start). Older App suites and
+ * rows still retype 3000 and 700, so a change to the home does not fail them.
  */
 
 describe('PRO playback transition timing (RO-03)', () => {
@@ -62,7 +66,8 @@ describe('PRO playback transition timing (RO-03)', () => {
 
   it('keeps the copy App suites read, which load no Worker code, equal to the home', async () => {
     // Name for name and value for value: a change to the home fails here
-    // until the copy follows, so no App suite runs against a stale Worker.
+    // until the copy follows, so no suite that reads the copy runs against a
+    // stale Worker.
     const home = await import('../../../cloudflare/pro-room-playback-timing.ts');
     const copy = await import('./__helpers__/pro-room-playback-timing-copy.ts');
     expect({ ...copy }).toEqual({ ...home });

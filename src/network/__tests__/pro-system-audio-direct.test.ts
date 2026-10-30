@@ -97,6 +97,13 @@ let receiverProofWithheld: boolean;
 let receiverChannelHeld: boolean;
 /** getParameters of the next senders addTrack creates, in order. */
 let nextSenderParameters: Array<() => RTCRtpSendParameters>;
+/**
+ * The local candidate lines the next connections gather at
+ * setLocalDescription, in order; null (the default) gathers the one mDNS host.
+ */
+let nextLocalCandidates: Array<readonly string[] | null>;
+/** Whether the next connections end ICE gathering (a null candidate) right after those lines. */
+let nextGatheringEnds: boolean[];
 
 // iOS Safari, the ICE-controlled answerer, meets the publisher's check before
 // it has resolved the publisher's mDNS name: its native pair keeps a prflx
@@ -295,10 +302,14 @@ class MockRTCPeerConnection {
   readonly senders: RTCRtpSender[] = [];
   readonly getSelectedCandidatePair = vi.fn<() => RTCIceCandidatePair | null>();
   readonly sctp: RTCSctpTransport | null;
+  readonly localCandidates: readonly string[] | null;
+  readonly gatheringEndsWithLocalDescription: boolean;
 
   constructor(configuration: RTCConfiguration) {
     this.configuration = configuration;
     this.locality = nextLocalities.shift() ?? 'host-host';
+    this.localCandidates = nextLocalCandidates.shift() ?? null;
+    this.gatheringEndsWithLocalDescription = nextGatheringEnds.shift() ?? false;
     this.statsGate = nextStatsGates.shift() ?? null;
     this.embeddedCandidateAddress = nextEmbeddedCandidateAddresses.shift() ?? null;
     const authoritativePairMode = nextAuthoritativePairModes.shift() ?? null;
@@ -390,7 +401,12 @@ class MockRTCPeerConnection {
 
   async setLocalDescription(description: RTCLocalSessionDescriptionInit): Promise<void> {
     this.localDescription = description as RTCSessionDescription;
-    this.emitLocalCandidate();
+    if (this.localCandidates) {
+      for (const line of this.localCandidates) this.emitLocalCandidate(line);
+    } else {
+      this.emitLocalCandidate();
+    }
+    if (this.gatheringEndsWithLocalDescription) this.emitGatheringComplete();
     if (description.type === 'answer') {
       this.emitConnected();
       if (!receiverChannelHeld) {
@@ -436,6 +452,11 @@ class MockRTCPeerConnection {
         }),
       } as RTCIceCandidate,
     } as RTCPeerConnectionIceEvent);
+  }
+
+  /** ICE gathering ends: the null candidate a browser fires once it has gathered every candidate. */
+  emitGatheringComplete(): void {
+    this.onicecandidate?.({ candidate: null } as RTCPeerConnectionIceEvent);
   }
 
   async setRemoteDescription(description: RTCSessionDescriptionInit): Promise<void> {
@@ -749,6 +770,8 @@ beforeEach(() => {
   receiverProofWithheld = false;
   receiverChannelHeld = false;
   nextSenderParameters = [];
+  nextLocalCandidates = [];
+  nextGatheringEnds = [];
   bridgeMocks.sent.length = 0;
   bridgeMocks.send.mockReset();
   bridgeMocks.on.mockImplementation((listener) => {
@@ -3518,4 +3541,285 @@ describe('PRO system-audio LAN-direct host-to-prflx refinement (iOS Safari liste
       expect(line).not.toContain(':');
     },
   );
+});
+
+// An end whose ICE gathering ends without one LAN (mDNS UDP host) candidate
+// has sent the other end nothing to add, so the other end can never prove the
+// pair. The route ends at that event, before the pair-proof window would.
+describe("PRO system-audio LAN-direct route whose own end gathered no LAN candidate ('no-lan-candidate')", () => {
+  const NEGOTIATION_ID = 'negotiation_000000000088';
+  // An origin with camera or microphone permission gathers raw addresses: the
+  // LAN rule refuses (and counts) a numeric UDP host candidate and ignores TCP.
+  const NUMERIC_UDP_HOST = 'candidate:2 1 udp 2122260223 192.168.1.10 54322 typ host';
+  const TCP_HOST = 'candidate:3 1 tcp 1518280447 192.168.1.10 9 typ host tcptype active';
+  const MDNS_HOST = 'candidate:1 1 udp 1 123e4567-e89b-42d3-a456-426614174010.local 5000 typ host';
+
+  function directLines(): string[] {
+    return vi
+      .mocked(log.info)
+      .mock.calls.map(([line]) => String(line))
+      .filter((line) => line.startsWith('[ProSysAudioDirect]'));
+  }
+
+  /** Each signal this end sent, as its kind (a close with its reason). */
+  function sentSignals(): string[] {
+    return bridgeMocks.sent.map(({ payload }) =>
+      payload.kind === 'close' ? `close/${String(payload.reason)}` : String(payload.kind),
+    );
+  }
+
+  function settled(attempt: Promise<unknown>): () => boolean {
+    let done = false;
+    void attempt.then(
+      () => {
+        done = true;
+      },
+      () => {
+        done = true;
+      },
+    );
+    return () => done;
+  }
+
+  function share(): ReturnType<typeof direct.attemptProSystemAudioDirectPublication> {
+    return direct.attemptProSystemAudioDirectPublication({
+      track: audioTrack('capture-stereo'),
+      generation: 7,
+      publicationId,
+      targets: [target(receiverA)],
+    });
+  }
+
+  /**
+   * A listener answers the publisher's offer, gathering these local candidate
+   * lines; its own pair waits unrefined, so only its gathering can end it early.
+   */
+  async function listenerGathering(
+    candidates: readonly string[],
+    options: { gatheringEndsBeforeAnswer?: boolean } = {},
+  ): Promise<MockRTCPeerConnection> {
+    vi.useFakeTimers();
+    localParticipantId = receiverA;
+    receiverTrackId = 'remote-stereo-track';
+    nextLocalities.push('prflx-unrefined');
+    nextAuthoritativePairModes.push('prflx');
+    nextLocalCandidates.push(candidates);
+    nextGatheringEnds.push(options.gatheringEndsBeforeAnswer === true);
+    configureCallbacks();
+    emitRelay(publisherId, publisherOffer(NEGOTIATION_ID));
+    emitRelay(publisherId, publisherCandidate(NEGOTIATION_ID, safeCandidate('auto')));
+    await vi.advanceTimersByTimeAsync(0);
+    return peerConnections[0]!;
+  }
+
+  beforeEach(() => {
+    vi.mocked(log.info).mockClear();
+  });
+
+  describe('the sharer', () => {
+    it.each([
+      { gathered: 'no candidate at all', candidates: [] as string[], refused: 0 },
+      {
+        gathered: 'only a numeric UDP host candidate and a TCP one',
+        candidates: [NUMERIC_UDP_HOST, TCP_HOST],
+        refused: 1,
+      },
+    ])(
+      'fails at once when its gathering ends with $gathered before any answer, and tells the listener',
+      async ({ candidates, refused }) => {
+        vi.useFakeTimers();
+        const callbacks = configureCallbacks();
+        // The listener has not answered yet.
+        bridgeMocks.send.mockImplementation((channel, payload) => {
+          bridgeMocks.sent.push({ channel, payload });
+          return true;
+        });
+        nextLocalCandidates.push(candidates);
+        const attempt = share();
+        const done = settled(attempt);
+        // Chromium ends gathering about 0.14 s after the offer, long before an answer.
+        await vi.advanceTimersByTimeAsync(140);
+        expect(sentSignals()).toEqual(['offer']);
+        expect(done()).toBe(false);
+
+        peerConnections[0]!.emitGatheringComplete();
+        expect(sentSignals()).toEqual(['offer', 'close/fallback']);
+        expect(bridgeMocks.sent[1]!.payload).toEqual(
+          expect.objectContaining({
+            kind: 'close',
+            targetParticipantId: receiverA,
+            negotiationId: bridgeMocks.sent[0]!.payload.negotiationId,
+            reason: 'fallback',
+          }),
+        );
+        await vi.advanceTimersByTimeAsync(25);
+        expect(done()).toBe(true);
+        await expect(attempt).resolves.toBeNull();
+        expect(sentSignals()).toEqual(['offer', 'close/fallback']);
+        expect(peerConnections[0]!.sendingTrack()).toBeNull();
+        expect(peerConnections[0]!.close).toHaveBeenCalled();
+        expect(callbacks.onLiveRouteFallback).not.toHaveBeenCalled();
+        expect(directLines()).toEqual([
+          `[ProSysAudioDirect] Publisher gathering to 0001 ended with no LAN candidate (candidates sent 0, refused ${refused}, received 0, added 0)`,
+          expect.stringMatching(
+            /^\[ProSysAudioDirect\] LAN route to 0001 not proven at answer after 1[4-6]\d ms \(no-lan-candidate; no answer\)$/,
+          ),
+        ]);
+        expect(JSON.stringify(bridgeMocks.sent)).not.toContain('192.168.1.10');
+      },
+    );
+
+    it('fails at once when its gathering ends with no LAN candidate after the answer, while its own pair still waits', async () => {
+      vi.useFakeTimers();
+      configureCallbacks();
+      nextLocalities.push('pending');
+      nextLocalCandidates.push([NUMERIC_UDP_HOST]);
+      const attempt = share();
+      const done = settled(attempt);
+      await vi.advanceTimersByTimeAsync(300);
+      expect(done()).toBe(false);
+      expect(sentSignals()).toEqual(['offer']);
+
+      peerConnections[0]!.emitGatheringComplete();
+      expect(sentSignals()).toEqual(['offer', 'close/fallback']);
+      await vi.advanceTimersByTimeAsync(25);
+      await expect(attempt).resolves.toBeNull();
+      expect(peerConnections[0]!.sendingTrack()).toBeNull();
+      expect(directLines()).toEqual([
+        '[ProSysAudioDirect] Publisher gathering to 0001 ended with no LAN candidate (candidates sent 0, refused 1, received 1, added 1)',
+        expect.stringMatching(
+          /^\[ProSysAudioDirect\] Publisher pair check to 0001 closed after 3\d\d ms by .*; candidates sent 0, refused 1, received 1, added 1, first at -?\d+ ms\)$/,
+        ),
+        expect.stringMatching(
+          /^\[ProSysAudioDirect\] LAN route to 0001 not proven at pair after 3\d\d ms \(no-lan-candidate; answer \d+\)$/,
+        ),
+      ]);
+    });
+
+    it.each([
+      { gathered: 'its mDNS host candidate', candidates: [MDNS_HOST], refused: 0 },
+      {
+        gathered: 'a numeric UDP host candidate and its mDNS host candidate',
+        candidates: [NUMERIC_UDP_HOST, MDNS_HOST],
+        refused: 1,
+      },
+    ])(
+      'proves the route as before when its gathering ends with $gathered',
+      async ({ candidates, refused }) => {
+        vi.useFakeTimers();
+        const callbacks = configureCallbacks();
+        nextLocalCandidates.push(candidates);
+        nextGatheringEnds.push(true);
+        const attempt = share();
+        await vi.advanceTimersByTimeAsync(100);
+        await expect(attempt).resolves.toEqual({
+          publicationId,
+          transport: 'lan-direct',
+          protocolVersion: 2,
+        });
+        expect(sentSignals()).toEqual(['offer', 'candidate']);
+        expect(peerConnections[0]!.sendingTrack()?.id).toBe('capture-stereo');
+        expect(peerConnections[0]!.close).not.toHaveBeenCalled();
+        expect(callbacks.onLiveRouteFallback).not.toHaveBeenCalled();
+        expect(directLines()).toEqual([
+          expect.stringMatching(
+            new RegExp(
+              `^\\[ProSysAudioDirect\\] Publisher pair check to 0001 proven after \\d+ ms by stats-host \\(.*; candidates sent 1, refused ${refused}, received 1, added 1, first at -?\\d+ ms\\)$`,
+            ),
+          ),
+          expect.stringMatching(/^\[ProSysAudioDirect\] LAN route to 0001 proven in \d+ ms /),
+        ]);
+      },
+    );
+  });
+
+  describe('the listener', () => {
+    it('falls back at once when its gathering ends after its answer with only refused candidates, and counts them', async () => {
+      const pc = await listenerGathering([NUMERIC_UDP_HOST, TCP_HOST]);
+      expect(sentSignals()).toEqual(['answer']);
+      await vi.advanceTimersByTimeAsync(100);
+      expect(sentSignals()).toEqual(['answer']);
+      expect(directLines()).toEqual([]);
+
+      pc.emitGatheringComplete();
+      expect(sentSignals()).toEqual(['answer', 'close/fallback']);
+      expect(bridgeMocks.sent[1]!.payload).toEqual(
+        expect.objectContaining({
+          kind: 'close',
+          targetParticipantId: publisherId,
+          negotiationId: NEGOTIATION_ID,
+          reason: 'fallback',
+        }),
+      );
+      await vi.advanceTimersByTimeAsync(25);
+      expect(directLines()).toEqual([
+        '[ProSysAudioDirect] Receiver gathering ended with no LAN candidate (candidates sent 0, refused 1, received 1, added 1)',
+        '[ProSysAudioDirect] Receiver route ended before live (no-lan-candidate)',
+        expect.stringMatching(
+          /^\[ProSysAudioDirect\] Receiver pair check closed after 1\d\d ms by prflx-unrefined \(connected at 0 ms; native host\/mdns to prflx\/none; stats host\/none to prflx\/none; candidates sent 0, refused 1, received 1, added 1, first at -?\d+ ms\)$/,
+        ),
+      ]);
+      expect(pc.remoteChannel.send).not.toHaveBeenCalled();
+      expect(pc.close).toHaveBeenCalled();
+      expect(JSON.stringify(bridgeMocks.sent)).not.toContain('192.168.1.10');
+      for (const line of directLines()) expect(line).not.toMatch(/\d{1,3}(?:\.\d{1,3}){3}/);
+    });
+
+    it('sends its answer and then falls back at once when its gathering ended with no LAN candidate before the answer', async () => {
+      const pc = await listenerGathering([NUMERIC_UDP_HOST], { gatheringEndsBeforeAnswer: true });
+      // A close goes out only after an answer; without one the sharer would
+      // wait for its 2 s answer deadline.
+      expect(sentSignals()).toEqual(['answer', 'close/fallback']);
+      expect(bridgeMocks.sent[1]!.payload).toEqual(
+        expect.objectContaining({
+          kind: 'close',
+          targetParticipantId: publisherId,
+          negotiationId: NEGOTIATION_ID,
+          reason: 'fallback',
+        }),
+      );
+      await vi.advanceTimersByTimeAsync(2_100);
+      expect(sentSignals()).toEqual(['answer', 'close/fallback']);
+      expect(directLines()).toEqual([
+        '[ProSysAudioDirect] Receiver gathering ended with no LAN candidate (candidates sent 0, refused 1, received 1, added 1)',
+        '[ProSysAudioDirect] Receiver route ended before live (no-lan-candidate)',
+      ]);
+      expect(pc.remoteChannel.send).not.toHaveBeenCalled();
+      expect(pc.close).toHaveBeenCalled();
+    });
+
+    it.each([
+      {
+        gathered: 'its mDNS host candidate, before its answer',
+        candidates: [MDNS_HOST],
+        beforeAnswer: true,
+        refused: 0,
+      },
+      {
+        gathered: 'a numeric UDP host candidate and its mDNS host candidate, after its answer',
+        candidates: [NUMERIC_UDP_HOST, MDNS_HOST],
+        beforeAnswer: false,
+        refused: 1,
+      },
+    ])(
+      'proves its pair as before when its gathering ends with $gathered',
+      async ({ candidates, beforeAnswer, refused }) => {
+        const pc = await listenerGathering(candidates, { gatheringEndsBeforeAnswer: beforeAnswer });
+        if (!beforeAnswer) pc.emitGatheringComplete();
+        expect(sentSignals()).toEqual(['answer', 'candidate']);
+        pc.locality = 'refined';
+        await vi.advanceTimersByTimeAsync(25);
+        expect(directLines()).toEqual([
+          expect.stringMatching(
+            new RegExp(
+              `^\\[ProSysAudioDirect\\] Receiver pair check proven after \\d+ ms by refined-host \\(.*; candidates sent 1, refused ${refused}, received 1, added 1, first at -?\\d+ ms\\)$`,
+            ),
+          ),
+          expect.stringMatching(/^\[ProSysAudioDirect\] Receiver LAN pair proven in \d+ ms$/),
+        ]);
+        expect(pc.remoteChannel.send).toHaveBeenCalledWith(RECEIVER_PAIR_PROVEN);
+        expect(sentSignals()).toEqual(['answer', 'candidate']);
+      },
+    );
+  });
 });

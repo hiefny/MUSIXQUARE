@@ -840,8 +840,12 @@ describe('YouTube zero-start protocol validation', () => {
     }
   });
 
-  it('dispatches a position of 31,536,000 s and drops just above it, for ARMED and TIMELINE (pinned 2026-10-30)', async () => {
+  it('dispatches positions of 0 and 31,536,000 s and drops just outside them, for ARMED and TIMELINE (pinned 2026-10-30)', async () => {
     await expectEdges('zero-start-edge-armed-position', MSG.YOUTUBE_ZERO_START_ARMED, [
+      [
+        { ...edgeArmed, positionSec: 0 },
+        { ...edgeArmed, positionSec: -0.001 },
+      ],
       [
         { ...edgeArmed, positionSec: 31_536_000 },
         { ...edgeArmed, positionSec: 31_536_000.001 },
@@ -849,17 +853,29 @@ describe('YouTube zero-start protocol validation', () => {
     ]);
     await expectEdges('zero-start-edge-timeline-position', MSG.YOUTUBE_ZERO_START_TIMELINE, [
       [
+        { ...edgeTimeline, positionSec: 0 },
+        { ...edgeTimeline, positionSec: -0.001 },
+      ],
+      [
         { ...edgeTimeline, positionSec: 31_536_000 },
         { ...edgeTimeline, positionSec: 31_536_000.001 },
       ],
     ]);
   });
 
-  it('dispatches ARMED preparedMs and warmLatencyMs of 60,000 ms and drops 60,001 ms (pinned 2026-10-30)', async () => {
+  it('dispatches ARMED preparedMs and warmLatencyMs of 0 and 60,000 ms and drops -0.001 and 60,001 ms (pinned 2026-10-30)', async () => {
     await expectEdges('zero-start-edge-prepared', MSG.YOUTUBE_ZERO_START_ARMED, [
+      [
+        { ...edgeArmed, preparedMs: 0 },
+        { ...edgeArmed, preparedMs: -0.001 },
+      ],
       [
         { ...edgeArmed, preparedMs: 60_000 },
         { ...edgeArmed, preparedMs: 60_001 },
+      ],
+      [
+        { ...edgeArmed, warmLatencyMs: 0 },
+        { ...edgeArmed, warmLatencyMs: -0.001 },
       ],
       [
         { ...edgeArmed, warmLatencyMs: 60_000 },
@@ -868,11 +884,11 @@ describe('YouTube zero-start protocol validation', () => {
     ]);
   });
 
-  it('dispatches ARMED volume 0 and 100 and loaded fraction 0 and 1, and drops just above (pinned 2026-10-30)', async () => {
+  it('dispatches ARMED volume 0 and 100 and loaded fraction 0 and 1, and drops just outside them (pinned 2026-10-30)', async () => {
     await expectEdges('zero-start-edge-audio', MSG.YOUTUBE_ZERO_START_ARMED, [
       [
         { ...edgeArmed, volume: 0 },
-        { ...edgeArmed, volume: 100.001 },
+        { ...edgeArmed, volume: -0.001 },
       ],
       [
         { ...edgeArmed, volume: 100 },
@@ -880,7 +896,7 @@ describe('YouTube zero-start protocol validation', () => {
       ],
       [
         { ...edgeArmed, loadedFraction: 0 },
-        { ...edgeArmed, loadedFraction: 1.001 },
+        { ...edgeArmed, loadedFraction: -0.001 },
       ],
       [
         { ...edgeArmed, loadedFraction: 1 },

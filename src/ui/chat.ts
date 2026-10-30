@@ -41,6 +41,7 @@ import {
   showPinnedNotice,
   formatChatDisplayName,
   isContainerAtBottom,
+  keepFocusInChatDrawer,
 } from './chat-render.ts';
 import { seekTo } from '../player/transport.ts';
 import { showToast } from './toast.ts';
@@ -1930,8 +1931,13 @@ export function initChat(): void {
   _busScope.on('chat:clear-all', () => {
     const container = getUiElement('chat-messages');
     if (container) {
+      // A cleared message, or a control in one, may hold focus. The log itself
+      // (focused when its scroll-down button hides) is not removed and keeps it.
+      const focused = document.activeElement;
+      const heldFocus = focused !== container && container.contains(focused);
       container.replaceChildren();
       addSystemChatMessage(t('chat.cmd_clear'));
+      if (heldFocus) keepFocusInChatDrawer();
     }
     resetUnread();
     clearLatestPinnedNotice();

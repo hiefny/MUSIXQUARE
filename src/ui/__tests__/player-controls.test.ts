@@ -4,6 +4,7 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import { readFileSync } from 'node:fs';
 import { bus } from '../../core/events.ts';
+import { log } from '../../core/log.ts';
 import { MSG, PLAYBACK_STATE } from '../../core/constants.ts';
 import { getState, resetState, setState } from '../../core/state.ts';
 import { clearAllManagedTimers, getManagedTimer } from '../../core/timers.ts';
@@ -1555,6 +1556,41 @@ describe('PRO room media-source capabilities', () => {
     await vi.waitFor(() => expect(submit).toHaveBeenCalledOnce());
     expect(playButton.disabled).toBe(false);
     expect(playButton.hasAttribute('aria-busy')).toBe(false);
+  });
+
+  it("logs '[YouTube Prime] Submit flow failed' when the gesture submit throws after the prime wait", async () => {
+    document.body.innerHTML = `
+      <div id="youtube-url-overlay" class="active"></div>
+      <div id="youtube-url-input" contenteditable="true">https://youtube.com/playlist?list=PL_READY</div>
+      <button id="youtube-play-btn"></button>
+    `;
+    const warn = vi.spyOn(log, 'warn').mockImplementation(() => undefined);
+    // On a phone the submit blurs the input after the load; make that throw.
+    platform.android = true;
+    const failure = new Error('synthetic blur failure');
+    const input = document.getElementById('youtube-url-input') as HTMLDivElement;
+    input.blur = () => {
+      throw failure;
+    };
+    const submit = vi.fn();
+    bus.on('youtube:load-from-input', submit);
+    youtubePrimer.prime.mockReturnValueOnce(true);
+
+    try {
+      initPlayerControls();
+      const playButton = document.getElementById('youtube-play-btn') as HTMLButtonElement;
+      playButton.click();
+      // One macrotask: the prime wait, the load and the failed blur settle first.
+      await new Promise((resolve) => setTimeout(resolve, 0));
+
+      expect(submit).toHaveBeenCalledOnce();
+      // The quoted line the device check reads (pinned 2026-10-31).
+      expect(warn.mock.calls).toEqual([['[YouTube Prime] Submit flow failed', failure]]);
+      // The finally step still releases the button.
+      expect(playButton.disabled).toBe(false);
+    } finally {
+      warn.mockRestore();
+    }
   });
 
   it.each(['standard-role', 'standard-capability', 'pro-capability'] as const)(

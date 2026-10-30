@@ -734,6 +734,176 @@ describe('YouTube zero-start protocol validation', () => {
 
     expect(handler).toHaveBeenCalledTimes(1);
   });
+
+  // Receiver bounds at their edges (pinned 2026-10-30): each pair is the last
+  // dispatched value and the first dropped one. Each group sends from its own
+  // synthetic peer, and a dispatched control frame follows every dropped
+  // one, so a drop by the 60-frame inbound bucket cannot pass for a drop by
+  // the validator.
+  async function expectEdges(
+    peerId: string,
+    type: MsgType,
+    pairs: ReadonlyArray<readonly [Record<string, unknown>, Record<string, unknown>]>,
+  ): Promise<void> {
+    const handler = vi.fn();
+    const conn = makeConnection(peerId);
+    registerHandler(type, handler);
+    for (const [dispatched, dropped] of pairs) {
+      handler.mockClear();
+      await handleData(dispatched, conn);
+      expect(handler, JSON.stringify(dispatched)).toHaveBeenCalledTimes(1);
+      await handleData(dropped, conn);
+      expect(handler, JSON.stringify(dropped)).toHaveBeenCalledTimes(1);
+      await handleData(dispatched, conn);
+      expect(handler, 'control after the dropped frame').toHaveBeenCalledTimes(2);
+    }
+  }
+
+  const edgePrepare = {
+    type: MSG.YOUTUBE_ZERO_START_PREPARE,
+    ...identity,
+    videoId: YOUTUBE_VIDEO_ID,
+    subIndex: 0,
+    prepareAtHost: 1_000,
+    decisionAtHost: 3_300,
+    startDeadlineAtHost: 4_000,
+    hostPlatform: 'other',
+  };
+  const edgeArmed = {
+    type: MSG.YOUTUBE_ZERO_START_ARMED,
+    ...identity,
+    videoId: YOUTUBE_VIDEO_ID,
+    preparedMs: 1_200,
+    warmLatencyMs: 300,
+    positionSec: 0,
+    playerState: 2,
+    audioUnlocked: true,
+    muted: false,
+    volume: 100,
+    loadedFraction: 0.1,
+    startLeadMs: 0,
+    audibleBaseLeadMs: 0,
+    timelineLeadMs: 0,
+    platform: 'other',
+  };
+  const edgeTimeline = {
+    type: MSG.YOUTUBE_ZERO_START_TIMELINE,
+    ...identity,
+    videoId: YOUTUBE_VIDEO_ID,
+    hostTime: 6_000,
+    positionSec: 2,
+    playerState: 1,
+  };
+
+  it('dispatches a PREPARE window of 10,000 ms and drops 10,001 ms (pinned 2026-10-30)', async () => {
+    await expectEdges('zero-start-edge-window', MSG.YOUTUBE_ZERO_START_PREPARE, [
+      [
+        { ...edgePrepare, startDeadlineAtHost: 11_000 },
+        { ...edgePrepare, startDeadlineAtHost: 11_001 },
+      ],
+    ]);
+  });
+
+  it.each(['startLeadMs', 'audibleBaseLeadMs', 'timelineLeadMs'] as const)(
+    'dispatches ARMED %s at +600 and -600 ms and drops +601 and -601 ms (pinned 2026-10-30)',
+    async (field) => {
+      await expectEdges(`zero-start-edge-${field}`, MSG.YOUTUBE_ZERO_START_ARMED, [
+        [
+          { ...edgeArmed, [field]: 600 },
+          { ...edgeArmed, [field]: 601 },
+        ],
+        [
+          { ...edgeArmed, [field]: -600 },
+          { ...edgeArmed, [field]: -601 },
+        ],
+      ]);
+    },
+  );
+
+  it('dispatches player states -1, 0, 3 and 5 for ARMED and TIMELINE, ARMED 1 and TIMELINE 2, and drops 4 (pinned 2026-10-30)', async () => {
+    for (const [peerId, type, base] of [
+      ['zero-start-edge-armed-state', MSG.YOUTUBE_ZERO_START_ARMED, edgeArmed],
+      ['zero-start-edge-timeline-state', MSG.YOUTUBE_ZERO_START_TIMELINE, edgeTimeline],
+    ] as const) {
+      const states = [-1, 0, 3, 5, type === MSG.YOUTUBE_ZERO_START_ARMED ? 1 : 2];
+      await expectEdges(
+        peerId,
+        type,
+        states.map(
+          (playerState) =>
+            [
+              { ...base, playerState },
+              { ...base, playerState: 4 },
+            ] as const,
+        ),
+      );
+    }
+  });
+
+  it('dispatches positions of 0 and 31,536,000 s and drops just outside them, for ARMED and TIMELINE (pinned 2026-10-30)', async () => {
+    await expectEdges('zero-start-edge-armed-position', MSG.YOUTUBE_ZERO_START_ARMED, [
+      [
+        { ...edgeArmed, positionSec: 0 },
+        { ...edgeArmed, positionSec: -0.001 },
+      ],
+      [
+        { ...edgeArmed, positionSec: 31_536_000 },
+        { ...edgeArmed, positionSec: 31_536_000.001 },
+      ],
+    ]);
+    await expectEdges('zero-start-edge-timeline-position', MSG.YOUTUBE_ZERO_START_TIMELINE, [
+      [
+        { ...edgeTimeline, positionSec: 0 },
+        { ...edgeTimeline, positionSec: -0.001 },
+      ],
+      [
+        { ...edgeTimeline, positionSec: 31_536_000 },
+        { ...edgeTimeline, positionSec: 31_536_000.001 },
+      ],
+    ]);
+  });
+
+  it('dispatches ARMED preparedMs and warmLatencyMs of 0 and 60,000 ms and drops -0.001 and 60,001 ms (pinned 2026-10-30)', async () => {
+    await expectEdges('zero-start-edge-prepared', MSG.YOUTUBE_ZERO_START_ARMED, [
+      [
+        { ...edgeArmed, preparedMs: 0 },
+        { ...edgeArmed, preparedMs: -0.001 },
+      ],
+      [
+        { ...edgeArmed, preparedMs: 60_000 },
+        { ...edgeArmed, preparedMs: 60_001 },
+      ],
+      [
+        { ...edgeArmed, warmLatencyMs: 0 },
+        { ...edgeArmed, warmLatencyMs: -0.001 },
+      ],
+      [
+        { ...edgeArmed, warmLatencyMs: 60_000 },
+        { ...edgeArmed, warmLatencyMs: 60_001 },
+      ],
+    ]);
+  });
+
+  it('dispatches ARMED volume 0 and 100 and loaded fraction 0 and 1, and drops just outside them (pinned 2026-10-30)', async () => {
+    await expectEdges('zero-start-edge-audio', MSG.YOUTUBE_ZERO_START_ARMED, [
+      [
+        { ...edgeArmed, volume: 0 },
+        { ...edgeArmed, volume: -0.001 },
+      ],
+      [
+        { ...edgeArmed, volume: 100 },
+        { ...edgeArmed, volume: 100.001 },
+      ],
+      [
+        { ...edgeArmed, loadedFraction: 0 },
+        { ...edgeArmed, loadedFraction: -0.001 },
+      ],
+      [
+        { ...edgeArmed, loadedFraction: 1 },
+        { ...edgeArmed, loadedFraction: 1.001 },
+      ],
+    ]);
+  });
 });
 
 describe('REQUEST_DATA_RECOVERY validation', () => {

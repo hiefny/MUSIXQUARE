@@ -22,6 +22,7 @@ import {
   UNAVAILABLE_STUCK_THRESHOLD_MS,
   YOUTUBE_PRIME_VIDEO_ID,
 } from '../constants.ts';
+import { log } from '../../core/log.ts';
 import { setManagedTimer } from '../../core/timers.ts';
 import { showToast } from '../../ui/toast.ts';
 import { broadcast } from '../../network/peer.ts';
@@ -4506,6 +4507,10 @@ describe('setup prime readiness observation', () => {
     const wait = waitForYouTubePrimeReady(undefined, 100).then(settled);
     script!.dispatchEvent(new Event('error'));
     expect(isYtPriming()).toBe(false);
+    // The quoted line the device check reads (pinned 2026-10-31).
+    expect(vi.mocked(log.warn).mock.calls).toEqual([
+      ['[YouTube Prime] API load failed; tap-to-play fallback remains available'],
+    ]);
 
     await vi.advanceTimersByTimeAsync(99);
     expect(settled).not.toHaveBeenCalled();
@@ -4679,6 +4684,13 @@ describe('persistent prime transition supersession', () => {
     expect(playVideo).toHaveBeenCalledOnce();
     expect(stateMod.isYtPrimeBouncePending()).toBe(false);
     expect(stateMod.isYtPrimeReady()).toBe(true);
+    // The quoted line the device check reads (pinned 2026-10-31).
+    expect(vi.mocked(log.warn).mock.calls).toEqual([
+      [
+        '[YouTube Prime] gesture bounce failed; tap-to-play fallback remains available',
+        new Error('transient iframe rejection'),
+      ],
+    ]);
 
     primeYouTubePlayer();
     expect(playVideo).toHaveBeenCalledTimes(2);
@@ -4702,6 +4714,10 @@ describe('persistent prime transition supersession', () => {
     expect(showToastMock).not.toHaveBeenCalled();
     expect(stateMod.isYtPrimeBouncePending()).toBe(false);
     expect(stateMod.isYtPrimeReady()).toBe(true);
+    // The quoted line the device check reads (pinned 2026-10-31).
+    expect(vi.mocked(log.warn).mock.calls).toEqual([
+      ['[YouTube Prime] player error during prime; tap-to-play fallback remains', 5],
+    ]);
 
     primeYouTubePlayer();
     expect(player.playVideo).toHaveBeenCalledTimes(2);

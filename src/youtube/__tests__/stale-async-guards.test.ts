@@ -304,6 +304,9 @@ beforeEach(async () => {
   zeroStartFacade.handlePlayerState.mockReturnValue(false);
   const stateMod = await import('../_state.ts');
   stateMod.resetYouTubeModuleState();
+  // resetYouTubeModuleState() leaves the local-pause flag to
+  // resetYouTubeSyncState(), which this file mocks out with sync.ts.
+  stateMod.setLocalYouTubePaused(false);
 
   const wrapper = document.createElement('div');
   wrapper.className = 'video-wrapper';

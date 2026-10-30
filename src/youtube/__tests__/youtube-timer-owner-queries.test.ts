@@ -35,7 +35,7 @@ import { initProtocol, resetInboundRateLimit } from '../../network/protocol.ts';
 import { markQueueAuthorityReady } from '../../network/queue-authority.ts';
 import { setPlaybackYouTubePaused, setPlaybackYouTubePlaying } from '../../player/ownership.ts';
 import type { DataConnection, PlaylistItem, QueueItemId } from '../../types/index.ts';
-import { STAGE2_RENDEZVOUS_BROADCAST_MS } from '../constants.ts';
+import { SEEK_PLAY_GAP_MS, STAGE2_RENDEZVOUS_BROADCAST_MS } from '../constants.ts';
 import {
   getYtAutoplayIntent,
   markYtPlayerReady,
@@ -315,6 +315,14 @@ async function armOwner(owner: OwnerName, player: CallbackPlayer): Promise<numbe
 
 // ─── The three protected-owner sites ───────────────────────────────
 
+/**
+ * The gap between the :260 site's two position samples. Both must fall inside
+ * the shortest owner window, 'yt-seek-play', which ends with its own delayed
+ * playVideo after SEEK_PLAY_GAP_MS; a sample after that command would differ
+ * by control revision and hide the jump whatever the owner check answers.
+ */
+const POSITION_SAMPLE_GAP_MS = SEEK_PLAY_GAP_MS / 3;
+
 type Site = ':213 native PLAY kept' | ':260 position jump sent' | ':496 native PAUSE routed';
 const SITES: readonly Site[] = [
   ':213 native PLAY kept',
@@ -338,7 +346,7 @@ async function decide(site: Site, player: CallbackPlayer): Promise<boolean> {
       document.getElementById('owner-iframe')!.focus();
       const before = vi.mocked(safeSend).mock.calls.length;
       observeYouTubeNativeControlPosition(player);
-      await vi.advanceTimersByTimeAsync(200);
+      await vi.advanceTimersByTimeAsync(POSITION_SAMPLE_GAP_MS);
       player.jump(10);
       observeYouTubeNativeControlPosition(player);
       vi.mocked(document.hasFocus).mockRestore();

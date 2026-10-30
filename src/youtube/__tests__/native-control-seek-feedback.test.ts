@@ -46,6 +46,7 @@ import {
 import { STAGE2_RENDEZVOUS_BROADCAST_MS } from '../constants.ts';
 import { PRO_COORDINATOR_YOUTUBE_NUDGE_TIMER } from '../local-offset.ts';
 import { initYouTubeNativeControlAuthority } from '../native-control-authority.ts';
+import { clearYouTubeStableControlExpectations } from '../native-control-origin.ts';
 import { initYouTube, scheduleYtAutoSync, stopYouTubeMode } from '../player.ts';
 import { guestRendezvousSync, initYouTubeSync, resetYouTubeSyncState } from '../sync.ts';
 
@@ -284,24 +285,32 @@ describe('seek callback ownership at the native-control boundary', () => {
     },
   );
 
-  // These four owners run only on a Standard guest, so they arm through the
+  // These five owners run only on a Standard guest, so they arm through the
   // guest's own flows and a released native PAUSE reaches the host as the
-  // operator guest's REQUEST_YOUTUBE_PAUSE (a host never holds them).
+  // operator guest's REQUEST_YOUTUBE_PAUSE (a host never holds them). The
+  // flows' own pauseVideo, seekTo and playVideo leave stable-control records
+  // that would read the callbacks below as programmatic whatever the owner
+  // check answers, so each row clears them before its callbacks, and no
+  // request of either kind may leave while the owner holds the iframe. The
+  // released PAUSE is delivered once the owner has released and the 4 s
+  // records of its commands have expired.
   it.each([
     'yt-clock-action',
     'yt-seek-play',
     'yt-rendezvous-buffer',
     'yt-rendezvous-play',
     'yt-rendezvous-calibrate',
-  ] as const)('restores native PAUSE immediately after %s releases playback', async (owner) => {
+  ] as const)('restores native PAUSE after %s has released playback', async (owner) => {
     const player = createPlayer();
     installCurrentYouTube(player, 'standard');
     const hostConn = becomeOperatorGuest();
     startSyncRuntime();
-    const pauseRequests = () =>
-      (mocks.safeSend.mock.calls as unknown as Array<[DataConnection, { type: string }]>).filter(
-        ([, frame]) => frame.type === MSG.REQUEST_YOUTUBE_PAUSE,
-      );
+    const sent = () =>
+      mocks.safeSend.mock.calls as unknown as Array<[DataConnection, { type: string }]>;
+    const requestTypes = () =>
+      sent()
+        .map(([, frame]) => frame.type)
+        .filter((type) => type.startsWith('request-'));
     if (owner === 'yt-clock-action') {
       hostFrame(hostConn, MSG.YOUTUBE_STATE, {
         state: 1,
@@ -323,16 +332,18 @@ describe('seek callback ownership at the native-control boundary', () => {
         }
       }
     }
+    // Only the owner check can hold these two callbacks now.
+    clearYouTubeStableControlExpectations(player);
     player.deliverState(2);
     player.deliverState(1);
-    expect(pauseRequests()).toEqual([]);
+    expect(requestTypes()).toEqual([]);
 
     // Past the owner's release (a timed-out buffer gate owes one follow-up
     // rendezvous 3.25 s later) and every 4 s origin record of its commands.
     await vi.advanceTimersByTimeAsync(10_100);
     player.deliverState(2);
 
-    expect(pauseRequests()).toEqual([
+    expect(sent().filter(([, frame]) => frame.type.startsWith('request-'))).toEqual([
       [hostConn, { type: MSG.REQUEST_YOUTUBE_PAUSE, queueItemId: QUEUE_ITEM_ID }],
     ]);
   });

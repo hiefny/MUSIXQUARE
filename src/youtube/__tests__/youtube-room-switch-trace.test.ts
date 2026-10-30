@@ -226,9 +226,9 @@ describe('Room-switch trace (pinned 2026-10-30)', () => {
     await rig.advanceTo(1_000);
     enterProRoom();
     const participant = PRO.createParticipant();
+    // The PREPARE reuses the parked iframe, whose handshake completed at t0,
+    // so no second handshake runs.
     participant.controller.acceptPrepare(PRO.prepareEvent(0, 0, 'zero-start'));
-    await rig.advanceTo(1_100);
-    rig.api.iframes.at(-1)?.ready();
     // Past every Standard fallback deadline (3 s, 7.7 s) and the prepare window.
     await rig.advanceTo(14_000);
     expect(flagsInWarmUp).toBe('owned inFlight protocol -');
@@ -400,7 +400,7 @@ describe('Room-switch trace: P, the PRO session cleared (pinned 2026-10-30)', ()
     expect(participant.reportReady).not.toHaveBeenCalled();
   });
 
-  it('T4 (b): P during the detached audio restore after a COMMIT', async () => {
+  it('T4 (b): P after a timed-out release lands on the catch-up re-arm that superseded the detached restore', async () => {
     const { fake, t0 } = await setUpProParticipant();
     const participant = PRO.createParticipant();
     participant.controller.acceptPrepare(PRO.prepareEvent(1, 0, 'zero-start'));
@@ -424,8 +424,9 @@ describe('Room-switch trace: P, the PRO session cleared (pinned 2026-10-30)', ()
     expect(pAt).toBe(3_600);
     // Today the detached restore after the 1.8 s release timeout (+3500)
     // makes one attempt and is superseded at once by the controller's
-    // catch-up re-arm (4.8 s, three seconds later). P cancels that arm with
-    // one restore attempt, and nothing writes after P.
+    // catch-up re-arm (+3501, to 4.8 s, three seconds later). The restore
+    // lives only that 1 ms, so P cannot land on it here: P at +3600 cancels
+    // the re-arm with one restore attempt, and nothing writes after P.
     expect(opTrace(fake, t0, commitFrom)).toEqual([
       '+1700 playVideo()',
       '+3500 pauseVideo()',

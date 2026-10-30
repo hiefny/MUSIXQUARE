@@ -1,7 +1,7 @@
 /**
  * @vitest-environment jsdom
  */
-import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { bus } from '../../core/events.ts';
 import { getState, setState } from '../../core/state.ts';
 import { setPlaybackTrackMeta } from '../../player/ownership.ts';
@@ -154,7 +154,7 @@ describe('PRO room runtime preload adoption', { concurrent: false }, () => {
   const restoreSpies: Array<{ mockRestore(): void }> = [];
   let download: ReturnType<typeof vi.spyOn>;
 
-  beforeAll(async () => {
+  beforeEach(async () => {
     const snapshot = roomSnapshot();
     restoreSpies.push(
       vi.spyOn(ProRoomApiClient.prototype, 'createSession').mockResolvedValue(snapshot),
@@ -188,7 +188,7 @@ describe('PRO room runtime preload adoption', { concurrent: false }, () => {
     await joinProRoom({ code: ROOM_CODE, pin: '12345678' });
   });
 
-  afterAll(async () => {
+  afterEach(async () => {
     setState('files.current', null);
     const closeSession = vi.mocked(ProRoomApiClient.prototype.closeSessionFenced);
     const closeCallsBeforeLeave = closeSession.mock.calls.length;
@@ -197,7 +197,7 @@ describe('PRO room runtime preload adoption', { concurrent: false }, () => {
     await vi.waitFor(() =>
       expect(closeSession.mock.calls.length).toBeGreaterThan(closeCallsBeforeLeave),
     );
-    for (const spy of restoreSpies.reverse()) spy.mockRestore();
+    for (const spy of restoreSpies.splice(0).reverse()) spy.mockRestore();
   });
 
   it('reuses a completed cache hit even when resolveFile runs before queue selection', async () => {

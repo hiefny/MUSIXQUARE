@@ -6,12 +6,17 @@
  * (`?mxqrLog=info`), so their exact text, argument count and log level must not
  * change while C4-5 and C4-7 move PRO reception onto the receive slot:
  * - PRO SFU: received stereo track (with its mid) and subscribed to generation
- *   (with the publication generation), both [ProSysAudioSFU] info lines.
+ *   (with the publication generation), both [ProSysAudioSFU] info lines. Since
+ *   the iOS listener diagnostics (2026-10-30) one more info line follows them,
+ *   `[ProSysAudioSFU] Subscription to generation <g> ready <ms> ms after the
+ *   share notice (<stage> <ms>, ...)`; ROUTE_LINE does not match it.
  * - The decoder primer on both PRO routes: [ProSysAudio] primed (stereo) at
  *   info, primer blocked at warn. A listener on LAN-direct must log no
  *   [ProSysAudioSFU] line (the criteria tell the routes apart by it). Since the
  *   one-round-trip LAN-direct protocol it also logs its own pair proof,
- *   `[ProSysAudioDirect] Receiver LAN pair proven in <ms> ms`, at info.
+ *   `[ProSysAudioDirect] Receiver LAN pair proven in <ms> ms`, at info, and
+ *   since the iOS listener diagnostics the pair-check line just before it
+ *   (`Receiver pair check proven after <ms> ms by <rule> (...)`).
  * - A direct-to-SFU promotion seen from the listener: the SFU pair plus a
  *   second primed line for the new track.
  *
@@ -112,6 +117,13 @@ const GENERATION = 3;
 
 const RECEIVED = '[ProSysAudioSFU] Received stereo track (mid=0)';
 const SUBSCRIBED = `[ProSysAudioSFU] Subscribed to generation ${GENERATION}`;
+// The subscription's stage times from the reception start (the share notice),
+// at the Realtime fake's 100 ms steps; the track arrives with the offer.
+const SUBSCRIPTION_READY =
+  `[ProSysAudioSFU] Subscription to generation ${GENERATION} ready ${PRO_SUBSCRIBED_AT_MS} ms ` +
+  'after the share notice (start 0, config 100, session 200, tracks 300, offer 300, track 300, ' +
+  'answer 300, subscribed 400)';
+const SUBSCRIPTION_LINE = /\[ProSysAudioSFU\] Subscription to generation/u;
 const PRIMED = '[ProSysAudio] WebRTC audio decoder primed (stereo)';
 const PRIMER_BLOCKED = '[ProSysAudio] WebRTC audio decoder primer blocked:';
 
@@ -262,12 +274,19 @@ describe('PRO SFU listener evidence lines', () => {
     expect(routeEvidence()).toEqual([['info', RECEIVED]]);
     expect(primerEvidence()).toEqual([['info', PRIMED]]);
 
+    expect(matching(SUBSCRIPTION_LINE)).toEqual([]);
+
     await advance(PRO_SUBSCRIBED_AT_MS - PRO_TRACK_AT_MS);
     expect(routeEvidence()).toEqual([
       ['info', RECEIVED],
       ['info', SUBSCRIBED],
     ]);
     expect(primerEvidence()).toEqual([['info', PRIMED]]);
+    expect(matching(SFU_PREFIX)).toEqual([
+      ['info', RECEIVED],
+      ['info', SUBSCRIBED],
+      ['info', SUBSCRIPTION_READY],
+    ]);
   });
 
   it('logs a blocked primer at warn with the play() error as its second argument; audio still attaches', async () => {
@@ -293,6 +312,12 @@ describe('PRO LAN-direct listener evidence lines', () => {
 
     expect(primerEvidence()).toEqual([['info', PRIMED]]);
     expect(matching(/\[ProSysAudioDirect\]/u)).toEqual([
+      [
+        'info',
+        expect.stringMatching(
+          /^\[ProSysAudioDirect\] Receiver pair check proven after \d+ ms by stats-host \(connected at 0 ms; native none; stats host\/private-ipv4 to host\/mdns; candidates sent 1, refused 0, added 1\)$/u,
+        ),
+      ],
       [
         'info',
         expect.stringMatching(/^\[ProSysAudioDirect\] Receiver LAN pair proven in \d+ ms$/u),

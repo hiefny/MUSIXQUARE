@@ -38,9 +38,23 @@ type Locality =
   | 'both-mdns'
   | 'local-mdns-remote-private'
   | 'ambiguous'
-  | 'multiple-selected';
+  | 'multiple-selected'
+  // WebKit-shaped graphs (host and prflx addresses cleared; foundation, port
+  // and ufrag kept) whose transport selects one succeeded pair.
+  | 'refined'
+  | 'prflx-unrefined'
+  | 'refined-other-port'
+  | 'refined-other-generation'
+  | 'refined-global-ip'
+  // The same refined graph as Chromium reports it (empty addresses).
+  | 'refined-chromium';
 
-type AuthoritativePairMode = 'lan' | 'relay' | 'srflx' | 'incomplete' | 'throw';
+/**
+ * The native selected-pair snapshot: 'prflx' is iOS Safari's host-to-prflx
+ * pair (see prflxNativePair), 'custom' returns customNativePair().
+ */
+type AuthoritativePairMode =
+  'lan' | 'relay' | 'srflx' | 'incomplete' | 'throw' | 'prflx' | 'custom';
 
 interface Deferred<T> {
   promise: Promise<T>;
@@ -59,6 +73,7 @@ let failNextAddTrack: boolean;
 let nextStatsGates: Array<Promise<void>>;
 let nextEmbeddedCandidateAddresses: Array<string | null>;
 let nextAuthoritativePairModes: Array<AuthoritativePairMode | null>;
+let customNativePair: () => RTCIceCandidatePair | null;
 /** The simulated remote receiver withholds its pair proof on the probe channel. */
 let receiverProofWithheld: boolean;
 /**
@@ -69,6 +84,99 @@ let receiverProofWithheld: boolean;
 let receiverChannelHeld: boolean;
 /** getParameters of the next senders addTrack creates, in order. */
 let nextSenderParameters: Array<() => RTCRtpSendParameters>;
+
+// iOS Safari, the ICE-controlled answerer, meets the publisher's check before
+// it has resolved the publisher's mDNS name: its native pair keeps a prflx
+// remote (address redacted) while the stats refine that connection to the
+// added host candidate. Distinct values let the privacy rows find any leak.
+const LISTENER_LOCAL_MDNS = '123e4567-e89b-42d3-a456-426614174010.local';
+const LISTENER_LOCAL_PORT = 54321;
+const LISTENER_LOCAL_FOUNDATION = '1394829115';
+const PRFLX_FOUNDATION = '2788118142';
+const LOCAL_UFRAG = 'ufragLocal9';
+const REMOTE_UFRAG = 'ufragRemote9';
+
+function prflxNativePair(): RTCIceCandidatePair {
+  return {
+    local: {
+      type: 'host',
+      address: LISTENER_LOCAL_MDNS,
+      port: LISTENER_LOCAL_PORT,
+      protocol: 'udp',
+      foundation: LISTENER_LOCAL_FOUNDATION,
+      usernameFragment: LOCAL_UFRAG,
+    } as RTCIceCandidate,
+    remote: {
+      type: 'prflx',
+      address: 'redacted-ip.invalid',
+      port: 5000,
+      protocol: 'udp',
+      foundation: PRFLX_FOUNDATION,
+      usernameFragment: REMOTE_UFRAG,
+    } as RTCIceCandidate,
+  };
+}
+
+const REFINED_LOCALITIES: ReadonlySet<Locality> = new Set<Locality>([
+  'refined',
+  'prflx-unrefined',
+  'refined-other-port',
+  'refined-other-generation',
+  'refined-global-ip',
+  'refined-chromium',
+]);
+
+/** The transport-selected stats graph of a refined (or not yet refined) connection. */
+function refinedStats(locality: Locality): RTCStatsReport {
+  const unrefined = locality === 'prflx-unrefined';
+  const chromium = locality === 'refined-chromium';
+  const remoteId = unrefined ? 'IRP' : 'IRH';
+  return new Map<string, unknown>([
+    ['T01', { id: 'T01', type: 'transport', timestamp: 1, selectedCandidatePairId: 'CP1' }],
+    [
+      'CP1',
+      {
+        id: 'CP1',
+        type: 'candidate-pair',
+        timestamp: 1,
+        transportId: 'T01',
+        state: 'succeeded',
+        nominated: true,
+        localCandidateId: 'IL',
+        remoteCandidateId: remoteId,
+      },
+    ],
+    [
+      'IL',
+      {
+        id: 'IL',
+        type: 'local-candidate',
+        timestamp: 1,
+        candidateType: 'host',
+        port: locality === 'refined-other-port' ? LISTENER_LOCAL_PORT + 1 : LISTENER_LOCAL_PORT,
+        protocol: 'udp',
+        foundation: LISTENER_LOCAL_FOUNDATION,
+        usernameFragment: LOCAL_UFRAG,
+        ...(chromium ? { address: '' } : {}),
+        ...(locality === 'refined-global-ip' ? { address: '', ip: '2001:db8:1::10' } : {}),
+      },
+    ],
+    [
+      remoteId,
+      {
+        id: remoteId,
+        type: 'remote-candidate',
+        timestamp: 1,
+        candidateType: unrefined ? 'prflx' : 'host',
+        foundation: unrefined ? PRFLX_FOUNDATION : 'auto',
+        port: 5000,
+        protocol: 'udp',
+        usernameFragment: locality === 'refined-other-generation' ? 'ufragRemote8' : REMOTE_UFRAG,
+        ...(chromium ? { address: '' } : {}),
+      },
+    ],
+  ]) as unknown as RTCStatsReport;
+}
 
 const PROBE_CHANNEL_LABEL = 'MUSIXQUARE-lan-probe';
 const RECEIVER_PAIR_PROVEN = 'receiver-pair-proven';
@@ -143,6 +251,8 @@ class MockRTCPeerConnection {
     this.getSelectedCandidatePair.mockImplementation(() => {
       if (authoritativePairMode === 'throw') throw new Error('mock selected pair failure');
       if (!authoritativePairMode) return null;
+      if (authoritativePairMode === 'prflx') return prflxNativePair();
+      if (authoritativePairMode === 'custom') return customNativePair();
       const remoteType =
         authoritativePairMode === 'relay' || authoritativePairMode === 'srflx'
           ? authoritativePairMode
@@ -301,6 +411,7 @@ class MockRTCPeerConnection {
     this.statsCallCount += 1;
     if (this.statsGate) await this.statsGate;
     if (this.locality === 'pending') return new Map() as unknown as RTCStatsReport;
+    if (REFINED_LOCALITIES.has(this.locality)) return refinedStats(this.locality);
     const remoteType = this.locality === 'host-host' ? 'host' : 'relay';
     const localAddress =
       this.locality === 'global-ipv6' ||
@@ -580,6 +691,7 @@ beforeEach(() => {
   nextStatsGates = [];
   nextEmbeddedCandidateAddresses = [];
   nextAuthoritativePairModes = [];
+  customNativePair = () => null;
   receiverProofWithheld = false;
   receiverChannelHeld = false;
   nextSenderParameters = [];
@@ -2297,6 +2409,9 @@ describe('PRO system-audio LAN-direct one round trip with a phone-paced receiver
       expect(callbacks.onLiveRouteFallback).not.toHaveBeenCalled();
       expect(infoLines()).toEqual([
         expect.stringMatching(
+          /^\[ProSysAudioDirect\] Publisher pair check to 0001 proven after \d+ ms by stats-host \(connected at \d+ ms; native none; stats host\/private-ipv4 to host\/mdns; candidates sent 1, refused 0, added 1\)$/,
+        ),
+        expect.stringMatching(
           /^\[ProSysAudioDirect\] LAN route to 0001 proven in \d+ ms \(answer 12\d\d, pair 13\d\d, receiver 13\d\d\)$/,
         ),
       ]);
@@ -2354,6 +2469,9 @@ describe('PRO system-audio LAN-direct one round trip with a phone-paced receiver
     expect(peerConnections[0]!.sendingTrack()).toBeNull();
     expect(infoLines()).toEqual([
       expect.stringMatching(
+        /^\[ProSysAudioDirect\] Publisher pair check to 0001 deadline after 10\d\d ms by not-connected \(never connected; native none; stats none; candidates sent 1, refused 0, added 1\)$/,
+      ),
+      expect.stringMatching(
         /^\[ProSysAudioDirect\] LAN route to 0001 not proven at pair after 17\d\d ms \(deadline; answer 7\d\d\)$/,
       ),
     ]);
@@ -2377,6 +2495,9 @@ describe('PRO system-audio LAN-direct one round trip with a phone-paced receiver
     expect(peerConnections[0]!.sendingTrack()).toBeNull();
     expect(peerConnections[0]?.close).toHaveBeenCalledTimes(1);
     expect(infoLines()).toEqual([
+      expect.stringMatching(
+        /^\[ProSysAudioDirect\] Publisher pair check to 0001 proven after \d+ ms by stats-host \(connected at \d+ ms; native none; stats host\/private-ipv4 to host\/mdns; candidates sent 1, refused 0, added 1\)$/,
+      ),
       expect.stringMatching(
         /^\[ProSysAudioDirect\] LAN route to 0001 not proven at receiver-proof after 22\d\d ms \(deadline; answer 12\d\d, pair 13\d\d\)$/,
       ),
@@ -2468,7 +2589,11 @@ describe('PRO system-audio LAN-direct one round trip with a phone-paced receiver
     expect(peerConnections[1]!.sendingTrack()?.id).toBe('capture-stereo');
     expect(callbacks.onLiveRouteFallback).not.toHaveBeenCalled();
     expect(infoLines()).toEqual([
+      expect.stringMatching(
+        /^\[ProSysAudioDirect\] Publisher pair check to 0001 non-local after \d+ ms by stats-type \(connected at \d+ ms; native none; stats host\/private-ipv4 to relay\/private-ipv4; candidates sent 1, refused 0, added 1\)$/,
+      ),
       expect.stringMatching(/not proven at pair after \d+ ms \(non-local; answer \d+\)$/),
+      expect.stringMatching(/Publisher pair check to 0001 proven after \d+ ms by stats-host /),
       expect.stringMatching(/proven in \d+ ms \(answer \d+, pair \d+, receiver \d+\)$/),
     ]);
   });
@@ -2677,4 +2802,488 @@ describe('PRO system-audio LAN-direct receiver proof on a probe channel announce
       await expectHandOverOnlyAfterAttach(callbacks, pc);
     },
   );
+});
+
+// 9.0.26 post-deploy: an iPhone Safari listener judged a real same-LAN pair
+// non-local about 0.5 s into its proof, so every share used the SFU. iOS
+// Safari answers, so it is ICE-controlled and meets the publisher's check
+// before it has resolved the publisher's mDNS name: libwebrtc makes that
+// remote prflx and later refines the same connection to the added host
+// candidate in place, while the native selected-pair snapshot keeps the prflx
+// remote. Both ends now hold a native host-to-prflx pair pending until the
+// transport-selected stats pair refines to an added mDNS host candidate
+// (ice-selected-pair.ts), and log one pair-check line when a proof ends.
+describe('PRO system-audio LAN-direct host-to-prflx refinement (iOS Safari listener)', () => {
+  const NEGOTIATION_ID = 'negotiation_000000000077';
+
+  function directLines(): string[] {
+    return vi
+      .mocked(log.info)
+      .mock.calls.map(([line]) => String(line))
+      .filter((line) => line.startsWith('[ProSysAudioDirect]'));
+  }
+
+  function pairCheckLines(): string[] {
+    return directLines().filter((line) => / pair (?:check|reproof) /.test(line));
+  }
+
+  function closeReasons(): unknown[] {
+    return bridgeMocks.sent
+      .filter((entry) => entry.payload.kind === 'close')
+      .map((entry) => entry.payload.reason);
+  }
+
+  /** A listener answers the publisher's offer; the publisher's mDNS candidate follows. */
+  async function listenerWith(
+    locality: Locality,
+    native: AuthoritativePairMode | null,
+    options: { addCandidate?: boolean } = {},
+  ): Promise<MockRTCPeerConnection> {
+    vi.useFakeTimers();
+    vi.mocked(log.info).mockClear();
+    localParticipantId = receiverA;
+    receiverTrackId = 'remote-stereo-track';
+    nextLocalities.push(locality);
+    nextAuthoritativePairModes.push(native);
+    configureCallbacks();
+    emitRelay(publisherId, publisherOffer(NEGOTIATION_ID));
+    if (options.addCandidate !== false) {
+      emitRelay(publisherId, publisherCandidate(NEGOTIATION_ID, safeCandidate('auto')));
+    }
+    await vi.advanceTimersByTimeAsync(0);
+    expect(bridgeMocks.sent.filter((entry) => entry.payload.kind === 'answer')).toHaveLength(1);
+    return peerConnections[0]!;
+  }
+
+  describe('the listener', () => {
+    it('waits on a native host-to-prflx pair and proves it once the selected stats pair refines to the added mDNS host', async () => {
+      const pc = await listenerWith('prflx-unrefined', 'prflx');
+      await vi.advanceTimersByTimeAsync(500);
+      expect(directLines()).toEqual([]);
+      expect(closeReasons()).toEqual([]);
+      expect(pc.remoteChannel.send).not.toHaveBeenCalled();
+
+      pc.locality = 'refined';
+      await vi.advanceTimersByTimeAsync(25);
+      expect(directLines()).toEqual([
+        expect.stringMatching(
+          /^\[ProSysAudioDirect\] Receiver pair check proven after 5\d\d ms by refined-host \(connected at 0 ms; native host\/mdns to prflx\/none; stats host\/none to host\/none; candidates sent 1, refused 0, added 1\)$/,
+        ),
+        expect.stringMatching(/^\[ProSysAudioDirect\] Receiver LAN pair proven in 5\d\d ms$/),
+      ]);
+      expect(pc.remoteChannel.send).toHaveBeenCalledWith(RECEIVER_PAIR_PROVEN);
+      expect(closeReasons()).toEqual([]);
+    });
+
+    it('proves the refined pair as Chromium reports it, with empty statistics addresses', async () => {
+      const pc = await listenerWith('refined-chromium', 'prflx');
+      await vi.advanceTimersByTimeAsync(25);
+      expect(directLines()).toEqual([
+        expect.stringMatching(
+          /^\[ProSysAudioDirect\] Receiver pair check proven after \d+ ms by refined-host \(connected at 0 ms; native host\/mdns to prflx\/none; stats host\/none to host\/none; candidates sent 1, refused 0, added 1\)$/,
+        ),
+        expect.stringMatching(/^\[ProSysAudioDirect\] Receiver LAN pair proven in \d+ ms$/),
+      ]);
+      expect(pc.remoteChannel.send).toHaveBeenCalledWith(RECEIVER_PAIR_PROVEN);
+    });
+
+    it('never proves an unrefined host-to-prflx pair: it fails at its 2 s window, not at once', async () => {
+      await listenerWith('prflx-unrefined', 'prflx');
+      await vi.advanceTimersByTimeAsync(1_900);
+      expect(closeReasons()).toEqual([]);
+      expect(directLines()).toEqual([]);
+
+      await vi.advanceTimersByTimeAsync(200);
+      expect(directLines()).toEqual([
+        expect.stringMatching(
+          /^\[ProSysAudioDirect\] Receiver pair check deadline after 20\d\d ms by prflx-unrefined \(connected at 0 ms; native host\/mdns to prflx\/none; stats host\/none to prflx\/none; candidates sent 1, refused 0, added 1\)$/,
+        ),
+        expect.stringMatching(
+          /^\[ProSysAudioDirect\] Receiver LAN pair not proven \(deadline after 20\d\d ms\)$/,
+        ),
+        '[ProSysAudioDirect] Receiver route ended before live (receiver-locality-unproven)',
+      ]);
+      expect(closeReasons()).toEqual(['fallback']);
+    });
+
+    it('also waits, never refusing at once, when only statistics show a selected host-to-prflx pair', async () => {
+      // Before WebKit's first route change its native snapshot is still null.
+      const pc = await listenerWith('prflx-unrefined', null);
+      await vi.advanceTimersByTimeAsync(500);
+      expect(directLines()).toEqual([]);
+      expect(closeReasons()).toEqual([]);
+
+      pc.locality = 'refined';
+      await vi.advanceTimersByTimeAsync(25);
+      expect(directLines()).toEqual([
+        expect.stringMatching(
+          /^\[ProSysAudioDirect\] Receiver pair check proven after 5\d\d ms by stats-host \(connected at 0 ms; native none; stats host\/none to host\/none; candidates sent 1, refused 0, added 1\)$/,
+        ),
+        expect.stringMatching(/^\[ProSysAudioDirect\] Receiver LAN pair proven in 5\d\d ms$/),
+      ]);
+    });
+
+    it('logs its pair check as closed, with the last rule, when the publisher ends the route first', async () => {
+      await listenerWith('prflx-unrefined', 'prflx');
+      await vi.advanceTimersByTimeAsync(800);
+      emitRelay(publisherId, {
+        kind: 'close',
+        targetParticipantId: receiverA,
+        direction: 'publisher',
+        generation: 11,
+        publicationId,
+        negotiationId: NEGOTIATION_ID,
+        reason: 'fallback',
+      });
+      await vi.advanceTimersByTimeAsync(25);
+      expect(directLines()).toEqual([
+        expect.stringMatching(
+          /^\[ProSysAudioDirect\] Receiver pair check closed after 8\d\d ms by prflx-unrefined \(connected at 0 ms; native host\/mdns to prflx\/none; stats host\/none to prflx\/none; candidates sent 1, refused 0, added 1\)$/,
+        ),
+      ]);
+      // The publisher closed the route: nothing goes back.
+      expect(closeReasons()).toEqual([]);
+    });
+
+    it('counts a gathered UDP candidate the LAN rule refused, and never signals it', async () => {
+      const pc = await listenerWith('prflx-unrefined', 'prflx');
+      // A numeric UDP host candidate (an origin with camera or microphone
+      // permission gathers raw addresses) and a TCP one, which is not counted.
+      pc.emitLocalCandidate('candidate:2 1 udp 2122260223 192.168.1.10 54322 typ host');
+      pc.emitLocalCandidate('candidate:3 1 tcp 1518280447 192.168.1.10 9 typ host tcptype active');
+      pc.locality = 'refined';
+      await vi.advanceTimersByTimeAsync(25);
+      expect(pairCheckLines()).toEqual([
+        expect.stringMatching(
+          /^\[ProSysAudioDirect\] Receiver pair check proven after \d+ ms by refined-host \(.*; candidates sent 1, refused 1, added 1\)$/,
+        ),
+      ]);
+      expect(JSON.stringify(bridgeMocks.sent)).not.toContain('192.168.1.10');
+    });
+
+    // Every threat case still fails closed. These stay pending, so the
+    // receiver's existing 2 s window ends them.
+    it.each([
+      {
+        name: 'a refined pair whose remote mDNS candidate was never added here',
+        locality: 'refined' as const,
+        addCandidate: false,
+        rule: 'refined-key-pending',
+      },
+      {
+        name: 'a stats pair on another local port (another connection)',
+        locality: 'refined-other-port' as const,
+        addCandidate: true,
+        rule: 'prflx-unrefined',
+      },
+      {
+        name: 'a stats pair of another ICE generation',
+        locality: 'refined-other-generation' as const,
+        addCandidate: true,
+        rule: 'prflx-unrefined',
+      },
+    ])('never proves $name', async ({ locality, addCandidate, rule }) => {
+      await listenerWith(locality, 'prflx', { addCandidate });
+      await vi.advanceTimersByTimeAsync(1_900);
+      expect(closeReasons()).toEqual([]);
+      await vi.advanceTimersByTimeAsync(200);
+      expect(directLines()[0]).toMatch(
+        new RegExp(
+          `^\\[ProSysAudioDirect\\] Receiver pair check deadline after \\d+ ms by ${rule} `,
+        ),
+      );
+      expect(directLines().some((line) => line.includes('Receiver LAN pair proven'))).toBe(false);
+      expect(peerConnections[0]!.remoteChannel.send).not.toHaveBeenCalled();
+      expect(closeReasons()).toEqual(['fallback']);
+    });
+
+    it('never proves a pair whose native snapshot changes during every statistics read', async () => {
+      let reads = 0;
+      customNativePair = () => {
+        const pair = prflxNativePair();
+        reads += 1;
+        return {
+          local: pair.local,
+          remote: {
+            ...pair.remote,
+            usernameFragment: `${REMOTE_UFRAG}-${reads}`,
+          } as RTCIceCandidate,
+        };
+      };
+      await listenerWith('refined', 'custom');
+      await vi.advanceTimersByTimeAsync(2_100);
+      expect(directLines()[0]).toMatch(
+        /^\[ProSysAudioDirect\] Receiver pair check deadline after \d+ ms by snapshot-changed \(connected at 0 ms; native host\/mdns to prflx\/none; stats none;/,
+      );
+      expect(closeReasons()).toEqual(['fallback']);
+    });
+
+    // These are refused at the first connected reading, as before.
+    it.each([
+      {
+        name: 'a refined pair whose statistics expose a public local address',
+        locality: 'refined-global-ip' as const,
+        native: 'prflx' as const,
+        nativePair: null,
+        line: 'by refined-address (connected at 0 ms; native host/mdns to prflx/none; stats host/public to host/none;',
+      },
+      {
+        name: 'a host-to-prflx snapshot whose local address is public',
+        locality: 'refined' as const,
+        native: 'custom' as const,
+        nativePair: { localAddress: '2001:db8:1::10' },
+        line: 'by native-address (connected at 0 ms; native host/public to prflx/none; stats none;',
+      },
+      {
+        name: 'a host-to-prflx snapshot whose prflx address is public',
+        locality: 'refined' as const,
+        native: 'custom' as const,
+        nativePair: { remoteAddress: '203.0.113.5' },
+        line: 'by native-address (connected at 0 ms; native host/mdns to prflx/public; stats none;',
+      },
+      {
+        name: 'a local prflx snapshot',
+        locality: 'refined' as const,
+        native: 'custom' as const,
+        nativePair: { localType: 'prflx', remoteType: 'host' },
+        line: 'by native-type (connected at 0 ms; native prflx/mdns to host/none; stats none;',
+      },
+      {
+        name: 'a host-to-srflx snapshot',
+        locality: 'host-host' as const,
+        native: 'srflx' as const,
+        nativePair: null,
+        line: 'by native-type (connected at 0 ms; native host/private-ipv4 to srflx/mdns; stats none;',
+      },
+      {
+        name: 'a host-to-relay snapshot',
+        locality: 'host-host' as const,
+        native: 'relay' as const,
+        nativePair: null,
+        line: 'by native-type (connected at 0 ms; native host/private-ipv4 to relay/mdns; stats none;',
+      },
+    ])('refuses $name at once', async ({ locality, native, nativePair, line }) => {
+      if (nativePair) {
+        customNativePair = () => {
+          const pair = prflxNativePair();
+          return {
+            local: {
+              ...pair.local,
+              ...('localType' in nativePair ? { type: nativePair.localType } : {}),
+              ...('localAddress' in nativePair ? { address: nativePair.localAddress } : {}),
+            } as RTCIceCandidate,
+            remote: {
+              ...pair.remote,
+              ...('remoteType' in nativePair ? { type: nativePair.remoteType } : {}),
+              ...('remoteAddress' in nativePair ? { address: nativePair.remoteAddress } : {}),
+            } as RTCIceCandidate,
+          };
+        };
+      }
+      await listenerWith(locality, native);
+      await vi.advanceTimersByTimeAsync(25);
+      expect(directLines()[0]).toMatch(
+        /^\[ProSysAudioDirect\] Receiver pair check non-local after \d+ ms by /,
+      );
+      expect(directLines()[0]).toContain(line);
+      expect(directLines()[1]).toMatch(
+        /^\[ProSysAudioDirect\] Receiver LAN pair not proven \(non-local after \d+ ms\)$/,
+      );
+      expect(closeReasons()).toEqual(['fallback']);
+    });
+
+    it.each([
+      [LISTENER_LOCAL_MDNS, 'mdns'],
+      ['10.0.0.5', 'private-ipv4'],
+      ['172.16.0.5', 'private-ipv4'],
+      ['192.168.1.10', 'private-ipv4'],
+      ['fd00::5', 'private-ipv6'],
+      ['fe80::1%en0', 'link-local'],
+      ['169.254.10.20', 'link-local'],
+      ['8.8.8.8', 'public'],
+      ['100.64.0.1', 'public'],
+      ['2001:db8::1', 'public'],
+      ['printer.local', 'other'],
+      ['example.com', 'other'],
+      ['', 'none'],
+      ['redacted-ip.invalid', 'none'],
+      ['0.0.0.0', 'none'],
+      ['::', 'none'],
+    ])('names the local address %j only by its kind, %s', async (address, kind) => {
+      customNativePair = () => ({
+        local: { type: 'host', address, port: 5000, protocol: 'udp' } as RTCIceCandidate,
+        remote: {
+          type: 'srflx',
+          address: '123e4567-e89b-42d3-a456-426614174000.local',
+          port: 5000,
+          protocol: 'udp',
+        } as RTCIceCandidate,
+      });
+      await listenerWith('host-host', 'custom');
+      await vi.advanceTimersByTimeAsync(25);
+      const line = pairCheckLines()[0] ?? '';
+      expect(line).toContain(
+        `by native-type (connected at 0 ms; native host/${kind} to srflx/mdns;`,
+      );
+      if (address) expect(line).not.toContain(address);
+      expect(line).not.toContain(':');
+    });
+  });
+
+  describe('the publisher', () => {
+    it('proves a native host-to-prflx pair refined to the receiver it added, then attaches the track', async () => {
+      vi.useFakeTimers();
+      vi.mocked(log.info).mockClear();
+      const callbacks = configureCallbacks();
+      nextLocalities.push('refined');
+      nextAuthoritativePairModes.push('prflx');
+      const attempt = direct.attemptProSystemAudioDirectPublication({
+        track: audioTrack('capture-stereo'),
+        generation: 11,
+        publicationId,
+        targets: [target(receiverA)],
+      });
+      await vi.advanceTimersByTimeAsync(100);
+      await expect(attempt).resolves.toEqual({
+        publicationId,
+        transport: 'lan-direct',
+        protocolVersion: 2,
+      });
+      expect(peerConnections[0]!.sendingTrack()?.id).toBe('capture-stereo');
+      expect(callbacks.onLiveRouteFallback).not.toHaveBeenCalled();
+      expect(directLines()).toEqual([
+        expect.stringMatching(
+          /^\[ProSysAudioDirect\] Publisher pair check to 0001 proven after \d+ ms by refined-host \(connected at 0 ms; native host\/mdns to prflx\/none; stats host\/none to host\/none; candidates sent 1, refused 0, added 1\)$/,
+        ),
+        expect.stringMatching(/^\[ProSysAudioDirect\] LAN route to 0001 proven in \d+ ms /),
+      ]);
+    });
+
+    it('attaches no audio and falls back at the pair deadline when its host-to-prflx pair never refines', async () => {
+      vi.useFakeTimers();
+      vi.mocked(log.info).mockClear();
+      configureCallbacks();
+      nextLocalities.push('prflx-unrefined');
+      nextAuthoritativePairModes.push('prflx');
+      const attempt = direct.attemptProSystemAudioDirectPublication({
+        track: audioTrack('capture-stereo'),
+        generation: 11,
+        publicationId,
+        targets: [target(receiverA)],
+      });
+      await vi.advanceTimersByTimeAsync(900);
+      expect(peerConnections[0]!.close).not.toHaveBeenCalled();
+      await vi.advanceTimersByTimeAsync(200);
+      await expect(attempt).resolves.toBeNull();
+      expect(peerConnections[0]!.sendingTrack()).toBeNull();
+      expect(directLines()).toEqual([
+        expect.stringMatching(
+          /^\[ProSysAudioDirect\] Publisher pair check to 0001 deadline after 10\d\d ms by prflx-unrefined \(connected at 0 ms; native host\/mdns to prflx\/none; stats host\/none to prflx\/none; candidates sent 1, refused 0, added 1\)$/,
+        ),
+        expect.stringMatching(
+          /^\[ProSysAudioDirect\] LAN route to 0001 not proven at pair after \d+ ms \(deadline; answer \d+\)$/,
+        ),
+      ]);
+    });
+
+    it('keeps a live route whose native pair stays host-to-prflx while its stats stay refined, and promotes it once they are not', async () => {
+      vi.useFakeTimers();
+      const callbacks = configureCallbacks();
+      nextLocalities.push('refined');
+      nextAuthoritativePairModes.push('prflx');
+      const attempt = direct.attemptProSystemAudioDirectPublication({
+        track: audioTrack('capture-stereo'),
+        generation: 11,
+        publicationId,
+        targets: [target(receiverA)],
+      });
+      await vi.advanceTimersByTimeAsync(100);
+      await expect(attempt).resolves.not.toBeNull();
+      await expect(
+        direct.activateProSystemAudioDirectPublication({
+          ownerParticipantId: publisherId,
+          generation: 11,
+          publicationId,
+        }),
+      ).resolves.toBe(true);
+      const pc = peerConnections[0]!;
+      vi.mocked(log.info).mockClear();
+
+      // A connection change and two periodic reproofs keep the refined route.
+      pc.emitConnected();
+      await vi.advanceTimersByTimeAsync(10_001);
+      expect(callbacks.onLiveRouteFallback).not.toHaveBeenCalled();
+      expect(pc.close).not.toHaveBeenCalled();
+      expect(pairCheckLines()).toEqual([]);
+
+      pc.locality = 'prflx-unrefined';
+      await vi.advanceTimersByTimeAsync(5_000);
+      expect(callbacks.onLiveRouteFallback).toHaveBeenCalledTimes(1);
+      expect(callbacks.onLiveRouteFallback).toHaveBeenCalledWith(
+        expect.objectContaining({ role: 'publisher', reason: 'periodic-locality-check-failed' }),
+      );
+      expect(pairCheckLines()).toEqual([
+        '[ProSysAudioDirect] Publisher pair reproof to 0001 pending by prflx-unrefined (native host/mdns to prflx/none; stats host/none to prflx/none; candidates sent 1, refused 0, added 1)',
+      ]);
+    });
+  });
+
+  it('keeps addresses, ports, foundations, fragments, room codes and full ids out of every pair line', async () => {
+    const receiver = await listenerWith('refined', 'prflx');
+    receiver.emitLocalCandidate('candidate:2 1 udp 2122260223 192.168.1.10 54322 typ host');
+    await vi.advanceTimersByTimeAsync(25);
+    const receiverLines = pairCheckLines();
+    expect(receiverLines).toHaveLength(1);
+
+    direct.resetProSystemAudioDirectTransport({ notifyPeers: false });
+    peerConnections.length = 0;
+    vi.mocked(log.info).mockClear();
+    localParticipantId = publisherId;
+    const callbacks = configureCallbacks();
+    nextLocalities.push('refined');
+    nextAuthoritativePairModes.push('prflx');
+    const attempt = direct.attemptProSystemAudioDirectPublication({
+      track: audioTrack('capture-stereo'),
+      generation: 11,
+      publicationId,
+      targets: [target(receiverA)],
+    });
+    await vi.advanceTimersByTimeAsync(100);
+    await expect(attempt).resolves.not.toBeNull();
+    await direct.activateProSystemAudioDirectPublication({
+      ownerParticipantId: publisherId,
+      generation: 11,
+      publicationId,
+    });
+    peerConnections[0]!.locality = 'prflx-unrefined';
+    await vi.advanceTimersByTimeAsync(5_001);
+    expect(callbacks.onLiveRouteFallback).toHaveBeenCalledTimes(1);
+    const lines = [...receiverLines, ...pairCheckLines()];
+    expect(lines).toHaveLength(3);
+    for (const line of lines) {
+      for (const secret of [
+        String(LISTENER_LOCAL_PORT),
+        '54322',
+        '5000',
+        '.local',
+        '.invalid',
+        'redacted',
+        LOCAL_UFRAG,
+        REMOTE_UFRAG,
+        LISTENER_LOCAL_FOUNDATION,
+        PRFLX_FOUNDATION,
+        'auto',
+        publisherId,
+        receiverA,
+        '000001',
+        publicationId,
+        NEGOTIATION_ID,
+      ]) {
+        expect(line).not.toContain(secret);
+      }
+      // No IPv4 literal, and no colon at all, so no IPv6 literal either.
+      expect(line).not.toMatch(/\d{1,3}(?:\.\d{1,3}){3}/);
+      expect(line).not.toContain(':');
+    }
+  });
 });

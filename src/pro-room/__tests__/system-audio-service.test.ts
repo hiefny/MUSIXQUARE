@@ -929,13 +929,16 @@ describe('PRO system-audio service orchestration', () => {
     await Promise.resolve();
 
     expect(mocks.broadcastSystemMessage).not.toHaveBeenCalled();
-    expect(mocks.subscribe).toHaveBeenCalledWith({
-      version: 2,
-      sessionId: 'realtime_session_01',
-      generation: 1,
-      expiresAt: 1_900_007_200_000,
-      track: { trackName: 'audio-stereo', mid: '0' },
-    });
+    expect(mocks.subscribe).toHaveBeenCalledWith(
+      {
+        version: 2,
+        sessionId: 'realtime_session_01',
+        generation: 1,
+        expiresAt: 1_900_007_200_000,
+        track: { trackName: 'audio-stereo', mid: '0' },
+      },
+      { noticeAt: expect.any(Number) },
+    );
     expect(mocks.broadcast).not.toHaveBeenCalled();
   });
 
@@ -1818,13 +1821,16 @@ describe('PRO system-audio service orchestration', () => {
     expect(graph.sources[0]?.disconnect).toHaveBeenCalledTimes(1);
     expect(mocks.cleanupReception).toHaveBeenCalledTimes(1);
     expect(graph.sources).toHaveLength(1);
-    expect(mocks.subscribe).toHaveBeenCalledWith({
-      version: 2,
-      sessionId: 'realtime_session_01',
-      generation: 1,
-      expiresAt: 1_900_007_200_000,
-      track: { trackName: 'audio-stereo', mid: '0' },
-    });
+    expect(mocks.subscribe).toHaveBeenCalledWith(
+      {
+        version: 2,
+        sessionId: 'realtime_session_01',
+        generation: 1,
+        expiresAt: 1_900_007_200_000,
+        track: { trackName: 'audio-stereo', mid: '0' },
+      },
+      { noticeAt: expect.any(Number) },
+    );
   });
 
   // A live LAN-direct has no media deadline (its liveExpiresAt is null). The
@@ -1852,6 +1858,7 @@ describe('PRO system-audio service orchestration', () => {
     await vi.waitFor(() => expect(mocks.subscribe).toHaveBeenCalledTimes(1));
     expect(mocks.subscribe).toHaveBeenCalledWith(
       expect.objectContaining({ sessionId: 'realtime_session_01', expiresAt: 1_900_007_200_000 }),
+      { noticeAt: expect.any(Number) },
     );
   });
 
@@ -1923,6 +1930,39 @@ describe('PRO system-audio service orchestration', () => {
       if (boundary === 'trusted-boundary') expect(mocks.initAudio).not.toHaveBeenCalled();
     },
   );
+
+  // The listener's SFU stage line counts from when it learned of the share:
+  // its reception start for the publication. Retries keep that moment, so
+  // their first stage shows the backoff; a new publication starts again.
+  it('passes the share notice to every SFU attempt of one publication and a new one for the next', async () => {
+    vi.useFakeTimers({ now: 1_900_000_000_000 });
+    const descriptor = sfuEventDescriptor();
+    mocks.subscribe.mockImplementation(async () => {
+      mocks.sfuListener?.({ type: 'subscriber-state', state: 'failed', descriptor });
+      throw new Error('REALTIME_SESSION_FAILED');
+    });
+    api.getSystemAudioState.mockResolvedValueOnce(live());
+    await refreshProSystemAudioState();
+    await vi.advanceTimersByTimeAsync(0);
+    await vi.advanceTimersByTimeAsync(2_500);
+    await vi.advanceTimersByTimeAsync(5_000);
+    expect(mocks.subscribe).toHaveBeenCalledTimes(3);
+    expect(mocks.subscribe.mock.calls.map((call) => call[1])).toEqual([
+      { noticeAt: 1_900_000_000_000 },
+      { noticeAt: 1_900_000_000_000 },
+      { noticeAt: 1_900_000_000_000 },
+    ]);
+
+    mocks.subscribe.mockReset().mockResolvedValue(undefined);
+    await vi.advanceTimersByTimeAsync(1_000);
+    api.getSystemAudioState.mockResolvedValueOnce(live(2));
+    await refreshProSystemAudioState();
+    await vi.advanceTimersByTimeAsync(0);
+    expect(mocks.subscribe).toHaveBeenCalledTimes(1);
+    expect(mocks.subscribe).toHaveBeenCalledWith(expect.objectContaining({ generation: 2 }), {
+      noticeAt: 1_900_000_008_500,
+    });
+  });
 
   it('backs SFU re-subscribe attempts off to 30 seconds and restarts them on reconnect', async () => {
     const descriptor = sfuEventDescriptor();

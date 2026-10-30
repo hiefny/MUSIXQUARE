@@ -835,8 +835,9 @@ gh workflow run app-build-floor.yml --ref main -f action=lower -f min_app_build=
   is live, the PRO step of the next bullet comes before step (1).
 - Once the PRO Worker that first sends PRO snapshot schemaVersion 2 is live (the `pro-room`
   release of merge `0e5a9b87` (#528), Production Release 40901986997, which deployed PRO Worker
-  version `ef882f7c` on 2026-10-30 at 00:30 KST after the floor reached 795; it has been live
-  since then), an App rollback below 9.0.22 (build 795), the first
+  version `ef882f7c` on 2026-10-30 at 00:30 KST after the floor reached 795; it stayed live
+  until the PRO-only cleanup release after 9.0.25 replaced it, see the end of this bullet), an
+  App rollback below 9.0.22 (build 795), the first
   build that reads that schema, runs only in this order: (1) the PRO Worker to the version in
   that release's recovery checkpoint (the 9.0.22 PRO Worker: 9.0.22 / v795, merge `71f5b96c`,
   PRO Worker version `6abc7131`), (2) when the App goes below 9.0.15,
@@ -886,6 +887,16 @@ gh workflow run app-build-floor.yml --ref main -f action=lower -f min_app_build=
   `app` run's automated recovery returns the App to its checkpoint, but `main` keeps an App that
   reads only schemaVersion 2 and an empty value, so the check stops nothing and this bullet's
   default pull request would ship that App with a PRO Worker that sends schemaVersion 1).
+  The first schemaVersion 2 PRO Worker stayed live until the PRO-only cleanup release after
+  9.0.25 (the `pro-room` release of merge `683074bc` (#537), Production Release 41044220520,
+  which deployed PRO Worker version `e7657f88` on 2026-10-30 at 19:56 KST) replaced it. The
+  PRO-only cleanup Worker (`e7657f88`) no longer reads the 2999 ms zero-start deadline of a
+  transition stored before schemaVersion 2 and its CORS allow list no longer names the two retired
+  opt-in headers, but it still sends schemaVersion 2 and writes the same records byte for byte. So
+  what this bullet and the next say while the first schemaVersion 2 PRO Worker is live holds while
+  the PRO-only cleanup Worker (`e7657f88`) is live, the first schemaVersion 2 PRO Worker
+  (`ef882f7c`) is the cleanup release's recovery checkpoint and stays the floor for a manual PRO
+  rollback, and the PRO steps of both orders still go to the 9.0.22 PRO Worker.
 - Once 9.0.25 (build 798), the App that no longer reads PRO snapshot schemaVersion 1, is live
   (the `app` release of merge `b8ae59e7` (#532), Production Release 40964572017, which deployed
   App version `b4e8fc56` on 2026-10-30 at 07:18 KST after the PRO Worker of the previous bullet;

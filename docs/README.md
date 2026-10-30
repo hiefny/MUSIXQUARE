@@ -94,23 +94,42 @@ runbooks. Neither belongs in a general setup document.
 ## Maintained evidence and completed records
 
 - [Phase 5.5 R4: PRO cleanup, PRO room Worker only (2026-10-30)](design/phase5-5-r4-pro-cleanup-2026-10-30.md):
-  draft, not merged or released; the planned PRO cleanup before Phase 6 (target `pro-room` with 1 PRO
-  room runtime path and none in the other five Workers; the App stays 9.0.26 / v799, so no SemVer,
-  service worker cache, update dialog or build floor change), on main `d0248df2` (the 9.0.26
-  record, #535), to ship before 9.0.27 (which waits for an owner answer) and while the live PRO Worker is the
-  one that first sends PRO snapshot schemaVersion 2 (`0e5a9b87`, `ef882f7c`). The PRO Worker stops
-  reading the 2999 ms zero-start deadline of a transition an earlier Worker stored without
-  `timingMode`: such a transition still loads and commits with the 700 ms lead as a scheduled
-  control. The PRO CORS allow list drops `x-mxqr-pro-entry-policy` and `x-mxqr-pro-playlist-slots`,
-  which the App has not sent since 9.0.25 (a 9.0.24 or older loopback development build that calls
-  the production PRO API fails its preflight). The report lists the owner decisions and the three
-  open owner questions R4-Q1 to R4-Q3 (its own numbers, built with the recommended defaults), the
+  released on 2026-10-30 19:56 KST in Release 41044220520 (PR #537, squash `683074bc`): the planned
+  PRO cleanup before Phase 6 and the last release of Phase 5.5, PRO room Worker only (target
+  `pro-room` with 1 PRO room runtime path and none in the other five Workers; the App stays 9.0.26 /
+  v799, so no SemVer, service worker cache, update dialog or build floor change). Only the PRO room
+  Worker changed (`ef882f7c` to `e7657f88`); the App keeps 9.0.26's `b8dc4281` and the other four
+  their 9.0.22 versions. It shipped before 9.0.27 (which waits for an owner answer), from main
+  `d0248df2` (the 9.0.26 record, #535) without a move, while the live PRO Worker was the one that
+  first sends PRO snapshot schemaVersion 2 (`0e5a9b87`, `ef882f7c`). The PRO Worker stops reading
+  the 2999 ms zero-start deadline of a transition an earlier Worker stored without `timingMode`:
+  such a transition still loads and commits with the 700 ms lead as a scheduled control. The PRO
+  CORS allow list drops `x-mxqr-pro-entry-policy` and `x-mxqr-pro-playlist-slots`, which the App
+  has not sent since 9.0.25 (a 9.0.24 or older loopback development build that calls the
+  production PRO API fails its preflight). The report lists the owner decisions and the three
+  owner questions R4-Q1 to R4-Q3 (its own numbers; built and shipped with the recommended (a)
+  before an answer came, since the owner was asleep and two of the (b) options conflict with the
+  stored-data rule and the decided Q20; to be confirmed with the owner in the morning), the
   tests-first parent failures, the storage lifetime that keeps the old record accepted (in
   production only the COMMIT's start kind changes), mixed versions, rollback to that PRO Worker
-  with no new boundary, the deploy conditions and order, the blind post-deploy check (a YouTube
-  start; regression only), the two comments left for later releases (the shared timing home header
-  and a snapshot parser comment), the train review and what it changed, QA rounds and what was not
-  verified.
+  with no new boundary, the deploy conditions and order with their results, the blind post-deploy
+  check (a YouTube start; regression only), the two comments left for later releases (the shared
+  timing home header and a snapshot parser comment), the train review and what it changed, QA
+  rounds 1 to 5 (per increment; the full gate at `c9f09514`; after the review; round 3 no move;
+  round 4 the public floor read just before dispatch, stored and effective 795 with an App report
+  about 3 s old, and the release's empty PRO build requirement; round 5 the PR CI and a
+  no-findings automated review on the final head `3553fd69`, the merge with the prepared squash
+  body, the exact-main CI with job conclusions only, one Production Release with target
+  `pro-room` whose PRO media CORS and PRO room smokes passed on the first try with the new
+  version, the public service worker still at v799, the public floor at 795 with live App 799, and
+  the Drift Audit at 32 pass / 0 fail / 5 manual-only) and what was not verified. The blind
+  post-deploy check did not run within 30 minutes of the release because the owner was asleep; it
+  is scheduled for the next morning as a late check and is not a gate. The release record's §2
+  now carries the R4 post-deploy items and the Phase 5.5 completion item, which lifts the
+  runtime-dependency merge freeze (Phase 5.5 end condition 5); its §4 entry and current boundary
+  line (5) name the merge SHA, the Release ID, checkpoint artifact 12971063046 (the R2 PRO Worker
+  `ef882f7c`) and the new PRO Worker `e7657f88`, and the hotfix procedure says the first
+  schemaVersion 2 PRO Worker stayed live until this release.
 - [App 9.0.26 train: PRO system-audio LAN-direct in one round trip and the chat sheet without its Close (2026-10-30)](design/app-9-0-26-train-2026-10-30.md):
   released on 2026-10-30 13:08 KST in Release 41001009672 (PR #534, squash `cbbc56d9`): the next
   App update after 9.0.25 (9.0.26 / v799, App build 799, update dialog; the version bump `b2ac0109`
@@ -179,7 +198,7 @@ runbooks. Neither belongs in a general setup document.
   verified.
 - [Phase 5.5 R3: the App stops reading PRO snapshot schemaVersion 1, 9.0.25 (2026-10-30)](design/phase5-5-r3-v1-receive-stop-2026-10-30.md):
   released on 2026-10-30 07:18 KST in Release 40964572017 (PR #532, squash `b8ae59e7`): the third
-  and last runtime release of Phase 5.5 (9.0.25 / v798, App build 798, bump `01f1a19b`; target `app`
+  runtime release of Phase 5.5 and its last App one (9.0.25 / v798, App build 798, bump `01f1a19b`; target `app`
   with 18 App runtime paths and none in the other five Workers, against main and against the live
   Worker SHAs, with the update dialog; the build floor stays 795). Only the App Worker changed
   (`dd820d37` to `b4e8fc56`); the PRO room Worker keeps R2's `ef882f7c` and the other four their

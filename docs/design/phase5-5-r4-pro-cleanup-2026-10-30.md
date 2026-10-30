@@ -1,14 +1,14 @@
 # Phase 5.5 R4: PRO 정리, 옛 2999 ms 전환 읽기와 CORS 머리글 이름 둘 삭제, PRO Worker만 (2026-10-30)
 
-| Field              | Value                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                 |
-| ------------------ | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Status             | 초안, 미병합·미배포. 증분 R4-1, R4-2와 이 열차의 기록(이 보고서, `docs/README.md`, release-record §2·§4, PRO 운영 문서의 되돌리기 문단)을 만들고 증분별 검사(QA 라운드 1)와 기록 전 코드 커밋의 전체 기본 검사(QA 라운드 2)를 했다. 그 뒤 열차 리뷰의 지적을 코드와 대조해 반영했다(아래 '열차 리뷰와 반영': 중간 1, 낮음 5, 정보 3. 시험만인 후속 커밋 하나, 문서, 커밋 메시지의 질문 이름). 오너 질문 셋(R4-Q1 ~ R4-Q3, 아래 '오너 결정과 순서')은 답을 기다리고, 이 브랜치는 셋 모두 권장 (가)로 만들었다. main 위로 옮김(9.0.27 배포·기록 뒤, QA 라운드 3), dispatch 직전 읽기(QA 라운드 4), PR, PR CI, 자동 코드 리뷰, 머지, exact-main CI, 배포, 배포 직후 확인(QA 라운드 5)은 아직이다. 로컬 결과는 exact-main-SHA 후보를 대신하지 않는다                      |
-| Base               | main `d0248df2`(App 9.0.26 열차의 기록 #535, 문서만). 그 아래 9.0.26(#534, squash `cbbc56d9`, 2026-10-30 13:08 KST 배포, App만), 9.0.25(#532, squash `b8ae59e7`, 07:18 KST, App만), PRO 스냅샷 schemaVersion 2를 처음 보내는 PRO Worker(#528, squash `0e5a9b87`, 00:30 KST, PRO room `ef882f7c`)가 있다. `cloudflare/pro-room-worker.ts`는 `0e5a9b87`과 `d0248df2`에서 같은 blob(`11c6390a`)이라 이 브랜치의 부모 PRO Worker는 운영 PRO Worker와 같은 코드다. 브랜치 `agent/p55-r4`, worktree `mxq-wt/p55-r4`                                                                                                                                                                                                                                                         |
-| Version            | 앱 SemVer와 SW 캐시를 바꾸지 않는다(main의 9.0.26 / v799. 9.0.27이 먼저 나가면 그 값 그대로). 업데이트 창이 없다. 바닥(저장·유효 795)을 바꾸지 않는다. Worker 전용 변경은 bump가 필요 없다(`docs/release-versioning.md`의 'A pure Worker-only change may leave both identifiers untouched', `docs/hotfix-procedure.md`의 SW 캐시 문단). 선례: PRO 스냅샷 schemaVersion 2를 처음 보내는 PRO Worker와 PRO 영수증 후속 열차 A                                                                                                                                                                                                                                                                                                                                            |
-| Scope              | Phase 5.5 계획의 R4(Q19 기본값, Phase 6 브리프 Q20 확인). R4-1: PRO Worker가 그 앞 PRO Worker가 저장한 대기 전환의 2999 ms 마감을 zero-start로 읽지 않는다(ZS-04 후속, M9). `timingMode` 없는 저장 전환은 그대로 불러와 예약 제어(scheduled-control)로 커밋한다(Q1 (가)). R4-2: PRO CORS 허용 목록이 `x-mxqr-pro-entry-policy`와 `x-mxqr-pro-playlist-slots`를 더 적지 않는다(PSK-07의 Worker 몫). App, 다른 다섯 Worker, 공유 시간 파일, D1, 비밀, 바인딩, Wrangler 설정(`ALLOWED_ORIGINS` 포함), 계약 표지, 쓰는 저장 모양, 의존성, PRO 최소 빌드 요구 값(빈 값)은 바꾸지 않는다                                                                                                                                                                                    |
-| Deploy target      | `pro-room`. `scripts/release-deployment-state.mts`의 `changedRuntimePaths`, `runtimePathsForWorker`, `changedAppRuntimeDependencies`, `releaseTargetWorkers`로 코드 커밋 `c9f09514`을 견준 로컬 git 판정(QA 라운드 2): main `d0248df2` 대비 PRO 방 1(`cloudflare/pro-room-worker.ts`), remote-share 0, signaling 0, Developer API facade 0, Developer API 0, App 0, App 런타임 의존성 차이 없음. release-record §4 현재 경계 줄 (5)가 적은 운영 배포 SHA(App 9.0.26 `cbbc56d9`, PRO room `0e5a9b87`, 나머지 넷 9.0.22 `71f5b96c`) 대비도 같다. 바뀐 시험 파일, e2e 모의, 문서는 어느 런타임 경로에도 없다. 운영을 조회하지 않은 판정이라 릴리스의 부분 릴리스 호환 검사를 대신하지 않는다. Developer API D1 `false`. `raise_app_build_floor` 입력은 `pro-room`에 없다 |
-| Operations         | 없음. 운영에 닿은 것은 없다(로컬 git과 로컬 시험만, `git fetch`는 이 브랜치를 만들 때 한 번)                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                          |
-| Resource ownership | 새 복구·재시도·시간 제한·감시·생명주기 흐름이 없어 새 레코드는 없다. R4-1이 RO-03의 zero-start 인코딩 문장(Worker도 2999 ms 읽기를 그만둠, 공유 시간 파일 머리 주석이 낡은 채 남음)과 그 시간 시험 설명을 고쳤다. `node scripts/check-resource-ownership.mts` 출력은 부모와 글자 그대로 같다(49 records, 448 production files)                                                                                                                                                                                                                                                                                                                                                                                                                                        |
+| Field              | Value                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                   |
+| ------------------ | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Status             | 배포됨(2026-10-30 19:56 KST, [Release 41044220520](https://github.com/hiefny/MUSIXQUARE/actions/runs/41044220520), target `pro-room`, attempt 1 성공). 증분 R4-1, R4-2와 이 열차의 기록(이 보고서, `docs/README.md`, release-record §2·§4, PRO 운영 문서의 되돌리기 문단)을 만들고 증분별 검사(QA 라운드 1)와 기록 전 코드 커밋의 전체 기본 검사(QA 라운드 2)를 했다. 그 뒤 열차 리뷰의 지적을 코드와 대조해 반영했다(아래 '열차 리뷰와 반영': 중간 1, 낮음 5, 정보 3. 시험만인 후속 커밋 하나, 문서, 커밋 메시지의 질문 이름). 9.0.27이 오너 답을 기다리게 되어 순서를 바꿔 이 릴리스를 먼저 냈으므로 main 위로 옮김은 없었고(QA 라운드 3), 이어 dispatch 직전 읽기(QA 라운드 4), PR, PR CI, 자동 코드 리뷰, 머지, exact-main CI, 배포, 공개 확인, Drift Audit(QA 라운드 5)이 끝났다. PR #537(head `3553fd69`)은 squash `683074bc`(2026-10-30 19:45 KST, 부모 `d0248df2`, 트리는 head와 같음, 스쿼시 본문은 미리 준비한 열차 요약)로 main에 들어갔고, PRO room만 `ef882f7c` → `e7657f88`로 바뀌었다. 브랜치 `agent/p55-r4`는 main `d0248df2` 위 8커밋이다: 테스트 먼저 2, 코드 2, 기록 1, 시험만인 후속 1, 문서 2. 마지막 런타임 커밋은 R4-2 `c9f09514`다. 릴리스 기록의 §1, §2의 이 릴리스 항목('배포 뒤 확인')과 Phase 5.5 완료 항목의 런타임 의존성 동결 해제, §4의 이 릴리스 항목과 현재 경계 줄 (5)의 머지 SHA·Release ID·checkpoint, hotfix-procedure의 schemaVersion 2 PRO Worker 문단, `release-history.md`의 행은 배포 기록 PR이 적었다. 오너 질문 셋(R4-Q1 ~ R4-Q3, 아래 '오너 결정과 순서')은 답이 오기 전에 셋 모두 권장 (가)로 냈고 아침에 오너와 확인한다. 배포 직후 확인(블라인드, 게이트 아님)은 오너가 자고 있어 30분 안에 하지 못했고 다음 날 아침 늦은 확인으로 한다(아래 '배포 직후 확인'). 이 릴리스로 Phase 5.5의 계획한 릴리스가 모두 나갔다. 로컬 결과는 exact-main-SHA 후보를 대신하지 않는다 |
+| Base               | main `d0248df2`(App 9.0.26 열차의 기록 #535, 문서만). 그 아래 9.0.26(#534, squash `cbbc56d9`, 2026-10-30 13:08 KST 배포, App만), 9.0.25(#532, squash `b8ae59e7`, 07:18 KST, App만), PRO 스냅샷 schemaVersion 2를 처음 보내는 PRO Worker(#528, squash `0e5a9b87`, 00:30 KST, PRO room `ef882f7c`)가 있다. `cloudflare/pro-room-worker.ts`는 `0e5a9b87`과 `d0248df2`에서 같은 blob(`11c6390a`)이라 이 브랜치의 부모 PRO Worker는 dispatch 때의 운영 PRO Worker와 같은 코드다. 브랜치 `agent/p55-r4`, worktree `mxq-wt/p55-r4`                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                             |
+| Version            | 앱 SemVer와 SW 캐시를 바꾸지 않는다(main의 9.0.26 / v799. 이 릴리스가 9.0.27보다 먼저 나가 배포 때 운영 App도 9.0.26 / v799). 업데이트 창이 없다. 바닥(저장·유효 795)을 바꾸지 않는다. Worker 전용 변경은 bump가 필요 없다(`docs/release-versioning.md`의 'A pure Worker-only change may leave both identifiers untouched', `docs/hotfix-procedure.md`의 SW 캐시 문단). 선례: PRO 스냅샷 schemaVersion 2를 처음 보내는 PRO Worker와 PRO 영수증 후속 열차 A                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                              |
+| Scope              | Phase 5.5 계획의 R4(Q19 기본값, Phase 6 브리프 Q20 확인). R4-1: PRO Worker가 그 앞 PRO Worker가 저장한 대기 전환의 2999 ms 마감을 zero-start로 읽지 않는다(ZS-04 후속, M9). `timingMode` 없는 저장 전환은 그대로 불러와 예약 제어(scheduled-control)로 커밋한다(Q1 (가)). R4-2: PRO CORS 허용 목록이 `x-mxqr-pro-entry-policy`와 `x-mxqr-pro-playlist-slots`를 더 적지 않는다(PSK-07의 Worker 몫). App, 다른 다섯 Worker, 공유 시간 파일, D1, 비밀, 바인딩, Wrangler 설정(`ALLOWED_ORIGINS` 포함), 계약 표지, 쓰는 저장 모양, 의존성, PRO 최소 빌드 요구 값(빈 값)은 바꾸지 않는다                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                      |
+| Deploy target      | `pro-room`. `scripts/release-deployment-state.mts`의 `changedRuntimePaths`, `runtimePathsForWorker`, `changedAppRuntimeDependencies`, `releaseTargetWorkers`로 코드 커밋 `c9f09514`을 견준 로컬 git 판정(QA 라운드 2): main `d0248df2` 대비 PRO 방 1(`cloudflare/pro-room-worker.ts`), remote-share 0, signaling 0, Developer API facade 0, Developer API 0, App 0, App 런타임 의존성 차이 없음. 그때 release-record §4 현재 경계 줄 (5)가 적은 운영 배포 SHA(App 9.0.26 `cbbc56d9`, PRO room `0e5a9b87`, 나머지 넷 9.0.22 `71f5b96c`) 대비도 같다. 바뀐 시험 파일, e2e 모의, 문서는 어느 런타임 경로에도 없다. 운영을 조회하지 않은 판정이라 릴리스의 부분 릴리스 호환 검사를 대신하지 않는다. Developer API D1 `false`. `raise_app_build_floor` 입력은 `pro-room`에 없다                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                              |
+| Operations         | Production Release [41044220520](https://github.com/hiefny/MUSIXQUARE/actions/runs/41044220520)(target `pro-room`, 2026-10-30 19:56 KST)이 Worker 가운데 PRO room만 `ef882f7c` → `e7657f88`로 바꿨다. 같은 릴리스가 PRO media R2 CORS 정책을 저장소 파일(`cloudflare/r2-cors.pro-media.json`, 이 릴리스에서 바뀌지 않음) 그대로 다시 적용했고(규칙 하나), generic PRO grant D1 계약 단계를 돌렸다(35 queries, 3 rows read, 0 rows written). 릴리스의 나머지 운영 단계(checkpoint, 호환 floor, 부분 릴리스 판정, smoke)는 읽기만 했다. 그 밖에 운영에 닿은 것은 공개 GET(최소 빌드 상태, `/service-worker.js`)과 읽기만 하는 Operations Drift Audit 41044491969뿐이다(QA 라운드 4, 5). QA 라운드 1 ~ 2-1은 운영에 닿지 않았다(로컬 git과 로컬 시험만, `git fetch`는 이 브랜치를 만들 때 한 번)                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                           |
+| Resource ownership | 새 복구·재시도·시간 제한·감시·생명주기 흐름이 없어 새 레코드는 없다. R4-1이 RO-03의 zero-start 인코딩 문장(Worker도 2999 ms 읽기를 그만둠, 공유 시간 파일 머리 주석이 낡은 채 남음)과 그 시간 시험 설명을 고쳤다. `node scripts/check-resource-ownership.mts` 출력은 부모와 글자 그대로 같다(49 records, 448 production files)                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                          |
 
 이 문서는 Phase 5.5 계획의 R4('PRO 정리', target `pro-room`)의 증분과 QA를 기록한다. 근거는 공개하지 않는 작업 노트(`docs/private/`)의
 Phase 5.5 계획(2026-10-28)과 그 영역 조사, Phase 6 브리프와 오너 답(2026-10-30)이고, ZS, PSK, HDR, PLE 번호와 Q 번호(Q4, Q10, Q19,
@@ -32,8 +32,10 @@ schemaVersion 2를 처음 보내는 PRO Worker, [보고서](phase5-5-r2-v2-send-
   CORS를 거치지 않고 Worker가 읽지 않아 결과가 같음).
 - Q4(2026-10-28): `timingMode`는 끝까지 선택 필드다. 저장 전환의 선택 키와 outbox PREPARE·COMMIT의 선택 키를 남긴다.
 - 배포 정책(2026-10-25): 자동 게이트가 통과하면 따로 묻지 않고 배포한다. 기기 근거는 게이트가 아니다.
-- **오너 질문(2026-10-30, 답 대기, 이 브랜치는 셋 모두 권장 (가)로 만듦).** 셋 다 화면은 그대로다. 번호는 이 보고서의 것이다(위
-  머리 문단).
+- **오너 질문(2026-10-30, 셋 모두 권장 (가)로 만들어 냄, 아침에 확인).** 셋 다 화면은 그대로다. 번호는 이 보고서의 것이다(위
+  머리 문단). 배포 때까지 답이 없었다: 오너는 그날 저녁 Phase 6 내부 항목에 '권장'으로 답한 뒤 잠들었고, 아래 (나) 가운데
+  R4-Q1은 저장 데이터 규칙과, R4-Q2는 정한 Q20과 맞서 (가)가 일관된 유일한 선택이었다(R4-Q3 (나)는 코드 변화 없음). 아침에
+  오너와 확인하고, 답이 (가)가 아니면 아래 '배포 조건과 순서' 2대로 한다.
   - R4-Q1 `timingMode` 없는 옛 저장 전환(PRO 스냅샷 schemaVersion 2를 처음 보내는 PRO Worker 앞의 Worker가 쓴 것)을 R4가 만나면:
     (가, 권장) 버리지 않고 예약 제어로 읽어 평소처럼 커밋한다. 그 한 번의 시작만 기기별 배운 시작 앞섬 없이 시작한다. (나) 정확한
     키로 바꿔 무효로 버린다. CANCEL 없이 null이 되어 그 시작이 일어나지 않고 로딩 표시가 다음 명령까지 남을 수 있다. **(나)는 지금
@@ -50,10 +52,10 @@ schemaVersion 2를 처음 보내는 PRO Worker, [보고서](phase5-5-r2-v2-send-
 
 ## 이 릴리스가 기대는 것
 
-| 이 릴리스가 그만두는 것                                                 | 그것을 쓰던 쪽                                                                    | 지금 운영                                                                                                                                                                                             |
-| ----------------------------------------------------------------------- | --------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| 저장 전환의 2999 ms 마감을 zero-start로 읽기                            | PRO 스냅샷 schemaVersion 2를 처음 보내는 PRO Worker 앞의 PRO Worker(그 저장 기록) | 그 PRO Worker(`0e5a9b87`, 2026-10-30 00:30 KST부터 live)는 여는 모든 전환에 `timingMode`를 저장한다. 그 앞 기록은 아래 '저장 기록의 수명'대로 남을 수 있어 버리지 않고 예약 제어로 읽는다(R4-Q1 (가)) |
-| CORS 허용 목록의 `x-mxqr-pro-entry-policy`, `x-mxqr-pro-playlist-slots` | 9.0.24 이하 App(9.0.25부터 보내지 않음)                                           | 운영 App은 9.0.26(바닥 795가 들이는 9.0.22 ~ 9.0.24 탭은 남을 수 있음). 운영 App 페이지는 같은 출처 facade를 불러 preflight가 없고 PRO Worker는 공개 경로가 없다. 영향은 아래 '개발 영향'뿐이다       |
+| 이 릴리스가 그만두는 것                                                 | 그것을 쓰던 쪽                                                                    | dispatch 때 운영                                                                                                                                                                                                                              |
+| ----------------------------------------------------------------------- | --------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| 저장 전환의 2999 ms 마감을 zero-start로 읽기                            | PRO 스냅샷 schemaVersion 2를 처음 보내는 PRO Worker 앞의 PRO Worker(그 저장 기록) | 그 PRO Worker(머지 `0e5a9b87`, PRO 버전 `ef882f7c`, 2026-10-30 00:30 KST부터 이 릴리스까지 live)는 여는 모든 전환에 `timingMode`를 저장한다. 그 앞 기록은 아래 '저장 기록의 수명'대로 남을 수 있어 버리지 않고 예약 제어로 읽는다(R4-Q1 (가)) |
+| CORS 허용 목록의 `x-mxqr-pro-entry-policy`, `x-mxqr-pro-playlist-slots` | 9.0.24 이하 App(9.0.25부터 보내지 않음)                                           | 운영 App은 9.0.26(바닥 795가 들이는 9.0.22 ~ 9.0.24 탭은 남을 수 있음). 운영 App 페이지는 같은 출처 facade를 불러 preflight가 없고 PRO Worker는 공개 경로가 없다. 영향은 아래 '개발 영향'뿐이다                                               |
 
 ### 저장 기록의 수명 (R4-Q1의 근거)
 
@@ -245,6 +247,20 @@ dead-exports(401 prod files, 완전히 죽은 것 0, 시험 전용 20, 자기 �
    '`ef882f7c` ... it has been live since then'을 이 릴리스까지 live였다는 문장으로, Phase 5.5 완료 항목의 런타임 의존성 동결
    해제(근거와 함께). 그 기록이 main에 들어가면 Phase 5.5 끝 조건 5가 채워지고 Phase 6 첫 단계(시험·검사만)를 시작한다.
 
+결과(QA 라운드 3 ~ 5): 1은 그대로였다. 2는 순서를 바꿔 이 릴리스를 먼저 냈고, 바탕 `d0248df2`가 머지 직전까지 main이라
+옮기지 않았다(squash `683074bc`의 부모가 `d0248df2`이고 트리는 PR head `3553fd69`와 같음, QA 라운드 3). 9.0.27(PR #536)은 열린
+채 오너 답을 기다리고 이 릴리스의 기록 위로 옮긴다. 오너 질문은 답이 오기 전에 셋 모두 권장 (가)로 냈다(위 '오너 결정과 순서').
+3은 dispatch 직전에 사람이 따로 읽은 근거가 없고, 릴리스의 checkpoint, PRO 방 배포 직전 'Verified unchanged production deployment
+for pro-room', 배포 단계가 바꾼 버전 `ef882f7c`(R2가 `git:0e5a9b87…`로 배포한 버전), 부분 릴리스 판정과 다시 확인의 compatible로
+덮였다. 4는 바닥 실행 없이 공개 상태 읽기(19:54:50 KST 생성, 저장·유효 795, App 보고 약 3초 전)로 채웠고, 릴리스의 PRO 최소
+빌드 사전 검사는 요구 값이 비어 'nothing to check'였다. 5는 머지(19:45:45 KST) 뒤 exact-main CI를 기다려 dispatch했고(19:54:52
+KST 생성), 그 사이와 이 기록까지 다른 머지는 없으며, R3 배포부터 머지된 #533 ~ #535와 #537은 런타임 의존성을 바꾸지 않았다(열린
+Dependabot 묶음 PR은 머지하지 않음). 6은 그대로 채웠다(PRO media R2 CORS와 PRO 방 smoke가 첫 시도에 통과). 7은 하지 않았다:
+오너가 자고 있어 30분 안에 할 수 없었고 다음 날 아침 늦은 확인으로 한다(아래 '배포 직후 확인'). 8은 이 릴리스의 배포 기록 PR이
+했다(release-record §1, `Last source review`, §2의 이 항목과 Phase 5.5 완료 항목의 동결 해제, §4의 이 항목과 현재 경계 줄 (5),
+hotfix-procedure의 schemaVersion 2 PRO Worker 문단, `release-history.md`의 행). 그래서 Phase 5.5 끝 조건 5는 그 기록이 main에
+들어갈 때 채워진다.
+
 ## 배포 직후 확인 (블라인드, 게이트 아님)
 
 PRO 방 smoke는 CORS preflight, 대기 전환의 종류, 하트비트를 운영에서 읽지 않으므로 R2와 같은 꼴로 한 번 사람이 읽는다. 확인하는
@@ -273,6 +289,11 @@ R2 보고서 오너 기기 확인 후보 PLE-03, LAN-direct 공유가 PRO 배포
 **실패하면:** 첫 기준이 어긋나거나, YouTube 시작에서 소리가 나지 않았거나 해제 줄이 없고, 일시적 네트워크 오류로 설명되지 않으면
 위 '손 되돌리기'대로 PRO를 R2 PRO Worker로 되돌리고 기록한다. '미확인'은 실패가 아니다. 손 되돌리기는 PRO의 git 출처를 없애 다음
 수리 릴리스를 자동 복구 없는 `all`로 만들므로, 기준을 미확인과 실패로 나눈 것이 이 비용을 근거 없이 치르지 않게 한다.
+
+**결과(배포 기록 때, 2026-10-30):** 하지 않았다. 오너가 자고 있어 절차 (1)의 '릴리스 실행 뒤 30분 안'(19:56 KST 배포)을 지킬 수
+없었다. 다음 날 아침(2026-10-31) 같은 절차와 기준으로 늦은 확인을 하고 그 결과를 여기와 QA 라운드 5, release-record §2에 나중에
+적는다. 늦은 확인은 배포 직후가 아니라 몇 시간 뒤의 v2 경로 회귀를 본다. 게이트가 아니다. 그때까지 이 릴리스의 운영 근거는 PRO
+media CORS와 PRO 방 smoke, 공개 상태, Drift Audit뿐이다(QA 라운드 5).
 
 ## 사용자가 알아챌 변화
 
@@ -327,7 +348,7 @@ target 판정만 다시 돌렸다(아래).
 - release target: `scripts/release-deployment-state.mts`의 `changedRuntimePaths`, `runtimePathsForWorker`,
   `changedAppRuntimeDependencies`, `releaseTargetWorkers`로 `d0248df2..c9f09514`을 견줌: PRO 방 1(`cloudflare/pro-room-worker.ts`),
   remote-share 0, signaling 0, Developer API facade 0, Developer API 0, App 0, App 런타임 의존성 차이 없음. release-record §4 현재
-  경계 줄 (5)의 운영 배포 SHA(App `cbbc56d9`, PRO room `0e5a9b87`, 나머지 넷 `71f5b96c`) 대비도 같다. `releaseTargetWorkers('pro-room')`는
+  경계 줄 (5)가 그때 적은 운영 배포 SHA(App `cbbc56d9`, PRO room `0e5a9b87`, 나머지 넷 `71f5b96c`) 대비도 같다. `releaseTargetWorkers('pro-room')`는
   PRO room 하나다. 운영을 조회하지 않았다.
 - 정적 확인(계획 §3.12 끝 조건 2): `src`, `cloudflare`, `scripts`의 `*.ts`, `*.mts`(`__tests__`와 `*.test.ts` 제외)에서
   `PLAYBACK_ZERO_START_TRANSITION_DEADLINE_MS` 0건이고 끝 조건 2의 다른 아홉 이름도 0건이다. `git grep -i 'x-mxqr-pro-entry-policy'
@@ -374,15 +395,92 @@ scripts/check-resource-ownership.mts`(49 records / 448 files, 부모와 출력�
 
 ### 3. main 위로 옮김 (해당 없음)
 
-순서를 바꿔 이 릴리스가 9.0.27보다 먼저 나가므로 옮기지 않는다. 바탕 `d0248df2`가 dispatch 직전 main이다(위 '배포 조건과 순서' 2).
+순서를 바꿔 이 릴리스가 9.0.27보다 먼저 나갔으므로 옮기지 않았다. 바탕 `d0248df2`가 머지 직전까지 main이었다: squash
+`683074bc`의 부모가 `d0248df2`이고 트리(`0524fbd0`)는 PR head `3553fd69`와 같다. 그래서 테스트 먼저 두 커밋을 다시 돌릴 새
+부모가 없었다. 바탕의 `cloudflare/pro-room-worker.ts`는 R2 머지 `0e5a9b87`과 같은 blob `11c6390a`다(배포 기록 PR에서
+`git rev-parse`로 다시 확인).
 
-### 4. 운영 전제: dispatch 직전 읽기 (자리)
+### 4. 운영 전제: dispatch 직전 읽기 (2026-10-30)
 
-아직이다. 위 '배포 조건과 순서' 3 ~ 5.
+운영 공개 상태와 배포 기록(머지, exact-main CI, 바닥 읽기, dispatch를 차례로 적은 릴리스 담당의 기록, 시각은 그 PC 시계)의
+기록이다. 시각은 KST다(로그의 UTC를 바꿈). 이 릴리스는 바닥 실행(`set`, `lower`)이 없었다.
 
-### 5. PR CI, 자동 코드 리뷰, exact-main CI, 배포, 공개 확인과 배포 직후 확인 (자리)
+- dispatch 직전 공개 상태(배포 조건 4): 배포 기록의 19:54:50 KST 줄이 exact-main CI success(19:54:49 KST 줄) 바로 뒤에 읽은 공개
+  상태를 적는다. 공개 상태(19:54:50 KST 생성, 서버 시계)는 `minAppBuild` 795, `effectiveMinAppBuild` 795, revision 3(updated
+  2026-10-29T15:12:41.759Z, F2의 `set`), `liveAppBuild` 799, `reportedLiveAppBuild` 799(19:54:47 KST 보고, 약 3초 전으로 300초
+  안), state `valid`였다. workflow `status` 실행이 아니라 공개 상태 읽기다. revision이 F2의 3 그대로라 F2 뒤 저장 바닥을 바꾼
+  실행은 없었다. PRO 최소 빌드 요구 값은 비어 있었다(릴리스의 'Check the App build floor the PRO Worker requires'가 19:55:54 KST에
+  `[app-build-floor] the PRO Worker requires no App build (MXQR_PRO_ROOM_REQUIRED_APP_BUILD is empty); nothing to check`).
+- dispatch 직전 live PRO Worker(배포 조건 3): 배포 메시지를 사람이 따로 읽은 근거는 없다. 릴리스의 checkpoint(19:55:54 ~
+  19:55:56 KST에 잡고 호환 floor와 함께 19:55:59 KST까지 artifact로 남김)가 dispatch 때의 PRO를 잡았고, PRO 방 배포 직전 'Verified unchanged production deployment for pro-room'(19:56:17
+  KST)이 운영이 그 checkpoint와 같음을 확인했으며, 배포 단계가 바꾼 버전이 `ef882f7c`다('pro-room production version
+  ef882f7c-… -> e7657f88-…', 19:56:24 KST). 그 버전은 R2가 `git:0e5a9b87…`로 배포한 PRO 버전이다(release-record의 R2 기록 값).
+  부분 릴리스 판정(19:55:47 ~ 19:55:54 KST)과 PRO 방 배포 직전 다시 확인(19:56:15 KST)은 compatible이다. `0e5a9b87..d0248df2`
+  사이 PRO 런타임 경로 변경은 없다(로컬 git, QA 라운드 2).
+- main과 다른 머지(배포 조건 2, 5): 머지(19:45:45 KST) 뒤 이 릴리스의 기록 PR까지 다른 머지는 없다(그 기록을 만들 때 원격
+  main이 `683074bc`). 릴리스의 'Verify release commit is still current main'(19:55:18 KST)이 통과했다.
+- 런타임 의존성(배포 조건 5): R3 배포(07:18 KST)부터 이 배포까지 머지된 것은 #533(문서), #534(9.0.26), #535(문서), #537(이
+  릴리스)이다. `git diff b8ae59e7 683074bc -- package.json package-lock.json`은 버전 줄 셋(`package.json` 하나,
+  `package-lock.json` 둘)뿐이다. 열린 Dependabot 묶음 PR은 머지하지 않았다.
 
-아직이다.
+결론: 배포 조건 1, 2, 4, 5가 채워졌다. 3은 사람이 dispatch 전에 읽지 않아 릴리스의 checkpoint, 'Verified unchanged', 부분
+릴리스 판정과 배포 단계가 적은 이전 버전 `ef882f7c`로만 덮였고, 4는 workflow `status` 실행 대신 공개 상태 읽기로 채웠다(위
+'배포 조건과 순서'의 결과).
+
+### 5. PR CI, 자동 코드 리뷰, 머지, exact-main CI, 배포와 공개 확인 (2026-10-30)
+
+검증 대상은 PR head `3553fd69`와 그 squash 머지 `683074bc`(부모 `d0248df2`, 트리는 `3553fd69`와 같음, 런타임은 R4-2 코드
+`c9f09514`까지와 같음)다. 환경은 GitHub Actions(Node 24.22.2)와 운영 Cloudflare다. 시각은 KST다(로그의 UTC를 바꿈).
+
+- PR #537: 19:36:43 KST에 열었고 head는 `3553fd69`다(배포 기록의 19:36:59 KST 줄부터 머지까지 같음). PR CI
+  [41042017293](https://github.com/hiefny/MUSIXQUARE/actions/runs/41042017293)는 `3553fd69`에서 11 jobs 모두 success였다(19:36:47 KST 생성, job 19:36:49 ~ 19:45:34 KST, 배포 기록이
+  19:45:41 KST에 success를 읽음). 이 보고서가 받은 근거는 job별 결론과 시각뿐이라 시험 수는 적지 않는다.
+- 자동 코드 리뷰: 요약 댓글(19:36:58 KST 생성, 19:37:52 KST에 마지막으로 바뀜)이 PR을 열 때('PR opened') `3553fd6` 코드 리뷰가
+  19:37:51 KST에 completed, `has_any_findings`와 `has_unresolved_findings` false라고 적는다. 보안 리뷰는 돌지 않았다. 최종 head의
+  결과이고, 배포 기록이 머지 직전(19:45:42 KST)에 그 상태를 다시 읽었다.
+- 머지: 19:45:45 KST에 squash `683074bc`(부모 `d0248df2`). 스쿼시 본문은 미리 준비한 열차 요약이고, 머지 커밋의 제목 아래
+  본문이 배포 기록의 그 사본과 글자 그대로 같다. `git diff 3553fd69 683074bc`는 비어 있다. 그 본문의 'Final gate at
+  `76e349a1`'(리뷰 반영 문서 커밋, 런타임은 `c9f09514`와 같음)은 QA 라운드 2-1 뒤 다시 돈 로컬 검사다: 단위 706 files / 16,766
+  모두 통과(317 s. 같은 트리의 앞 실행은 PC의 다른 작업 부하로 바뀐 파일과 무관한 release-tooling 두 행이 시간 초과였고, 그 두
+  파일만 다시 돌려 156 / 156 통과), Worker 커버리지 69 / 3,322, typecheck, lint, `format:check`, `check:workers`, 가드 기준치
+  그대로, `build:checked` 9.0.26 / v799 'PASS: v799 (cbbc56d9)', `check:worker-bundles`(PRO 830.76 / gzip 162.54 KiB),
+  Playwright `test:e2e:critical` 100 / 100.
+- exact-main CI [41043119810](https://github.com/hiefny/MUSIXQUARE/actions/runs/41043119810): push, attempt 1, 11 jobs success(19:45:48 KST 생성, job 19:45:50 ~ 19:54:16 KST, 배포 기록이
+  19:54:49 KST에 success를 읽음): Types and source guards, Lint and formatting, Unit tests (1/2)와 (2/2), Broad unit coverage,
+  Critical runtime coverage, Worker runtime coverage, Release tooling coverage, Production release candidate, Critical browser
+  gate(Linux Chromium, 19:46:58 ~ 19:54:16 KST), Static checks. 이 보고서가 받은 근거는 job별 결론과 시각뿐이라 시험 수, 커버리지,
+  가드 값은 적지 않는다. 후보는 [artifact 12970902813](https://github.com/hiefny/MUSIXQUARE/actions/runs/41043119810/artifacts/12970902813)(digest sha256
+  `2cb84852541ef1a7c6f36c6965cfd9ed68afb5162b0e740dc12d6834a9cc62c9`, 26,100,598 B)다.
+- Release [41044220520](https://github.com/hiefny/MUSIXQUARE/actions/runs/41044220520): target `pro-room`, Developer API D1 false, attempt 1, success. 19:54:52 KST 생성, 검증 job
+  19:54:55 ~ 19:55:03, deploy job 19:55:06 ~ 19:56:31 KST, 독립 recovery job(Preserve failed-release recovery boundary)
+  skipped. 'Verify release commit is still current main'(19:55:18 KST), 계약 cutover 검사 다섯, `.node-version`의 Node 24.22.2,
+  후보의 digest(19:55:31 KST)와 릴리스 파일 807개 확인(19:55:32 KST), 운영 보안 설정 가드('no unapproved bypass or retired
+  rollout flags'), 여섯 Worker 번들 dry-run(Wrangler 4.148.0, PRO 830.76 / gzip 162.54 KiB), 자격 증명과 비밀 목록 확인이
+  통과했다. 부분 릴리스 판정(19:55:47 ~ 19:55:54 KST)은 compatible이다. 'Check the App build floor the PRO Worker
+  requires'(19:55:54 KST)는 요구 값이 비어 'nothing to check'다. checkpoint [artifact
+  12971063046](https://github.com/hiefny/MUSIXQUARE/actions/runs/41044220520/artifacts/12971063046)(19:55:54 ~ 19:55:59 KST, 6 files)이 dispatch 때의 PRO room(R2의 `ef882f7c`)과 Worker
+  호환 floor를 담았다. PRO generation readiness의 읽기·막기·복원은 skip이다. PRO 방 대상의 D1 계약 단계는 generic PRO grant
+  하나가 success(35 queries, 3 rows read, 0 rows written)이고 나머지는 skip이다.
+- 배포와 smoke(모두 첫 시도, 재시도 없음): PRO media R2 CORS 정책 다시 적용(규칙 하나, 19:56:03 ~ 19:56:06)과 PRO media Range
+  CORS smoke('PRO media R2 Range CORS is active.', 19:56:06 ~ 19:56:07), PRO 방 배포 직전 다시 확인 compatible(19:56:15)과 운영이
+  checkpoint와 같음(19:56:17), PRO room `ef882f7c` → `e7657f88-8f73-4510-9c36-801973aca7fa`(19:56:18 ~ 19:56:24, 830.76 / gzip
+  162.54 KiB, startup 1 ms), PRO room smoke(19:56:24 ~ 19:56:26, 12번 가운데 첫 시도에 `e7657f88`, `000000` activation_required,
+  `000001` pin_required와 `passwordRequired` true, 익명 스냅샷 거절). target `pro-room`이라 다른 다섯 Worker의 기록·배포·smoke는
+  돌지 않았다. 시각은 모두 KST다. 이 smoke는 2999 경로, CORS preflight, v2 경로를 읽지 않는다(위 '되돌리기', '배포 직후 확인').
+- 마무리: 최종 소유권 19:56:27 KST verified, 커밋 표지 artifact 12971592019(19:56:28 KST). 바닥 올리기 단계와 실패 자동 복구
+  단계는 모두 skip이다. [배포 원본](https://github.com/hiefny/MUSIXQUARE/actions/runs/41044220520/artifacts/12971587134)(26 files). 릴리스 담당의 기록에 이 SHA의 Production Release는 이
+  실행 하나다(19:56:53 KST 종료 코드 0).
+- 공개 확인(릴리스 담당, 19:57 KST 무렵): 공개 최소 빌드 상태(19:57:23 KST 생성)는 저장·유효 795, revision 3, live 799, 보고
+  799(19:56:54 KST, 약 29초 전), state `valid`다. `/service-worker.js`는 `CACHE_VERSION = "v799"` 그대로다.
+- Operations Drift Audit [41044491969](https://github.com/hiefny/MUSIXQUARE/actions/runs/41044491969): workflow_dispatch, `683074bc`, 19:57:09 KST 생성, job 19:57:14 ~ 19:57:45 KST,
+  보고서 생성 19:57:34 KST, automated-checks-passed: 32 pass / 0 fail / 5 manual-only(artifact 12970829770). App build floor 행
+  'Stored floor 795 (enforced 795) is within the live App build 799 reported 47 s ago.', PRO room 비밀 이름 9개, 바인딩이
+  `cloudflare/wrangler.pro-room.toml`과 같음, PRO media CORS 행이 PASS다. MANUAL 다섯(zone route, Access와 MFA, WAF와 비용 알림,
+  두 번째 Git 배포 경로, main 리뷰 정책)은 앞 실행들과 같다.
+- 배포 직후 확인(게이트 아님): 하지 않았다. 오너가 자고 있어 다음 날 아침 늦은 확인으로 한다(위 '배포 직후 확인'의 결과).
+
+결론: 자동 게이트(PR CI, 자동 코드 리뷰, exact-main CI, 릴리스 smoke)가 모두 통과했고 실패 자동 복구와 손 되돌리기는 없었다.
+운영에서 R4의 두 변경은 지나지 않고, v2 경로 회귀는 아침의 늦은 확인이 처음 본다.
 
 ## 확인하지 않은 것
 
@@ -392,3 +490,8 @@ scripts/check-resource-ownership.mts`(49 records / 448 files, 부모와 출력�
   같다는 레인 근거뿐).
 - 실기기, iOS Safari, WebKit 레인 전체, Full E2E. 운영 smoke는 2999 경로와 CORS preflight를 읽지 않는다.
 - `security:audit`(npm 레지스트리 조회)는 돌리지 않았다. 의존성은 바뀌지 않았다.
+- 배포 직후 확인(블라인드): 오너가 자고 있어 하지 않았고 다음 날 아침 늦은 확인으로 한다(위 '배포 직후 확인'). 그래서
+  운영에서 v2 경로(스냅샷, 하트비트, 새 전환의 zero-start)가 이 PRO Worker 아래에서 그대로인지는 이 기록까지 사람이 보지 않았다.
+- 오너 질문 R4-Q1 ~ R4-Q3의 오너 답(권장 (가)로 냈고 아침에 확인).
+- exact-main CI와 PR CI의 시험 수, 커버리지, 가드 값(이 보고서가 받은 근거는 job별 결론과 시각뿐).
+- dispatch 직전 live PRO Worker의 배포 메시지(사람이 따로 읽지 않음, QA 라운드 4).

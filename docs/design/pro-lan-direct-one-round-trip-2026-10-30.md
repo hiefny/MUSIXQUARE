@@ -114,7 +114,8 @@ Node 24.20.0 / npm 12.0.2(저장소 고정 버전), Windows.
   `ondatachannel`·`onopen` 순서, 활성화 재증명·live 대체·후보 한도·닫기 처리, 섞인 버전 두 방향.
 
 반영 뒤: 직접 경로 시험 65, PRO 수신 슬롯 전송 계약 41, 청취자 증거 줄 5 통과. `tsc`(앱, 시험), ESLint, Prettier,
-`check-resource-ownership`, `check-dead-exports` 통과. 전체 단위 시험 결과는 아래 줄.
+`check-resource-ownership`, `check-dead-exports` 통과. 전체 단위 시험(`de47d982` 위): 706 files / 16,760 tests 통과,
+0 실패(320 s).
 
 - 확인하지 않은 것: 실기기(Edge 공유 + iOS Safari 청취, 같은 Wi-Fi). 브라우저 시험(E2E)에는 LAN-direct 행이 없다. 특히
   실기기에서만 알 수 있는 것: iOS Safari의 데이터 채널 열림과 `send`, 빈 송신기에 트랙을 붙인 뒤의 소리, Safari가 주는 원격

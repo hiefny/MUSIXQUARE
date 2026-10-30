@@ -93,28 +93,44 @@ runbooks. Neither belongs in a general setup document.
 
 ## Maintained evidence and completed records
 
+- [App 9.0.26 train: PRO system-audio LAN-direct in one round trip and the chat sheet without its Close (2026-10-30)](design/app-9-0-26-train-2026-10-30.md):
+  assembled and checked locally, not merged or released; the version bump (9.0.26 / v799, App build
+  799, update dialog) is still to come as the last runtime commit. Target `app`: 47 App runtime
+  paths against the live Worker SHAs (one LAN-direct file and the chat sheet's 46) and none in the
+  other five Workers, with no runtime dependency change. The train branch is PR #534 (head
+  `b7986840` on main `f8a30068`) with the chat sheet's three commits moved on top (`3da11c72`,
+  `efd2dc44`, `e80e0fc0`; the test and code commits keep their patch-ids) and a tests-only review
+  follow-up `5b7abd30`. The report lists both increments with their tested SHAs, the review
+  findings and their handling, the QA rounds (each increment's local runs, PR #534's CI, whose
+  candidate failed only on the missing bump, and its automated code review with no findings, and
+  the assembled tree's full checks), mixed versions (a 9.0.25 or older device and a 9.0.26 one use
+  the SFU), the rollback to the 9.0.25 / v798 checkpoint App, the deploy conditions, a blind
+  post-deploy LAN-direct check on the owner's Edge sharer and iPhone Safari listener, and what was
+  not verified.
 - [PRO system-audio LAN-direct in one round trip (2026-10-30)](design/pro-lan-direct-one-round-trip-2026-10-30.md):
-  implemented and checked locally, not yet released (no version bump yet; target `app`). On a
-  desktop sharer with an iPhone listener on one Wi-Fi every PRO share went to the SFU because the
-  two-round-trip LAN-direct negotiation (probe, then media re-offer) missed its single 2 s deadline
-  (pinned by the tests-only commit `d0b71a89`). Owner decision 2026-10-30 (option C): one offer
-  carries the probe channel and an empty audio sender, the receiver proves its pair and reports it
-  on the probe channel, and the capture track attaches only after both proofs; the answer must come
-  within 2 s and the proofs within 1 s more, and the first failed route ends the attempt. The relay
-  frame shape is unchanged, so no Worker changes; 9.0.25 and newer devices never build a route and
-  use the SFU. Each route logs one info result line. Not device-checked yet.
+  implemented and checked locally, not yet released; it ships in the App 9.0.26 / v799 train above
+  (target `app`). On a desktop sharer with an iPhone listener on one Wi-Fi every PRO share went to
+  the SFU because the two-round-trip LAN-direct negotiation (probe, then media re-offer) missed its
+  single 2 s deadline (pinned by the tests-only commit `d0b71a89`). Owner decision 2026-10-30
+  (option C): one offer carries the probe channel and an empty audio sender, the receiver proves
+  its pair and reports it on the probe channel, and the capture track attaches only after both
+  proofs; the answer must come within 2 s and the proofs within 1 s more, and the first failed
+  route ends the attempt. The relay frame shape is unchanged, so no Worker changes; a 9.0.25 or
+  older device and a newer one never build a route between them and use the SFU. Each route logs
+  one info result line. Not device-checked yet.
 - [Chat sheet without its Close (X), owner decision (2026-10-30)](design/chat-sheet-close-removal-2026-10-30.md):
-  not merged or released, with no version bump (the release owner bumps the next App release). On
-  main `b8ae59e7` (9.0.25 / v798), the phone and tablet chat sheet loses the visible Close that
-  9.0.20 put at the start of its handle row (dialog exit item F12) and closes as before 9.0.20: an
-  outside tap, a tap or a swipe down on its drag handle, Enter or Space on the focused handle,
-  Escape and Back. App only (46 runtime paths; `chat.close` leaves the 42 locales). The note lists
-  the owner decision, the change and its guards (the chat sheet is now the one window whose exit is
-  its drag handle), the tests-first commit `d5c83195` (6 unit tests in 5 files and the new E2E fail
-  on its parent), the checks on `d4f11e1d`, the 390x844 light and dark screenshots before and after
-  (kept outside the repository for the owner; only the X's glyph differs), the owner step for
-  `chat.close` translation suggestions after the release, a gap in the sheet's keyboard Tab cycle
-  found on the way and left as it was, and what was not verified.
+  not merged or released; it ships in the App 9.0.26 / v799 train above, whose bump covers it. In
+  this change, built on main `b8ae59e7` (9.0.25 / v798), the phone and tablet chat sheet loses the
+  visible Close that 9.0.20 put at the start of its handle row (dialog exit item F12) and closes as
+  before 9.0.20: an outside tap, a tap or a swipe down on its drag handle, Enter or Space on the
+  focused handle, Escape and Back. App only (46 runtime paths; `chat.close` leaves the 42
+  locales). The note lists the owner decision, the change and its guards (the chat sheet is now
+  the one window whose exit is its drag handle), the tests-first commit `d5c83195` (6 unit tests in
+  5 files and the new E2E fail on its parent), the checks on `d4f11e1d`, the 390x844 light and dark
+  screenshots before and after (kept outside the repository for the owner; only the X's glyph
+  differs), the owner step for `chat.close` translation suggestions after the release, a gap in the
+  sheet's keyboard Tab cycle found on the way and left as it was (now a follow-up item in the
+  release record), and what was not verified.
 - [Phase 5.5 R3: the App stops reading PRO snapshot schemaVersion 1, 9.0.25 (2026-10-30)](design/phase5-5-r3-v1-receive-stop-2026-10-30.md):
   released on 2026-10-30 07:18 KST in Release 40964572017 (PR #532, squash `b8ae59e7`): the third
   and last runtime release of Phase 5.5 (9.0.25 / v798, App build 798, bump `01f1a19b`; target `app`

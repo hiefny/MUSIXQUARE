@@ -816,7 +816,7 @@ interface PlaybackTransition {
   /**
    * The start kind. This Worker stores it on every transition it opens; one
    * that a PRO Worker before PRO snapshot schemaVersion 2 stored has none and
-   * keeps that Worker's deadline encoding (playbackTransitionTimingMode).
+   * reads as scheduled-control (playbackTransitionTimingMode).
    */
   timingMode?: ProRoomPlaybackTimingMode;
   developerCommandId: string | null;
@@ -1386,14 +1386,6 @@ const PLAYBACK_MAX_POSITION_SECONDS = 7 * 24 * 60 * 60;
 // (pro-room-playback-timing.ts). This Worker names the start kind in
 // `timingMode` on every transition it stores and on its PREPARE and COMMIT,
 // with that barrier and lead for either kind (PRO snapshot schemaVersion 2).
-//
-// PRO Workers before it marked a zero-start transition with a stored deadline
-// one millisecond short of the barrier (and a COMMIT lead one millisecond
-// short). Such a transition can still be pending when this Worker loads the
-// room, so it keeps reading that deadline (playbackTransitionTimingMode) until
-// a later PRO release drops it. The value stays in this file because the
-// Worker and the App drop that encoding in different releases.
-const PLAYBACK_ZERO_START_TRANSITION_DEADLINE_MS = PRO_ROOM_PLAYBACK_TRANSITION_DEADLINE_MS - 1;
 // A browser ENDED event is an observation, not a control command.  When the
 // media reports a finite duration, require both the browser cursor and the
 // server-projected room cursor to be genuinely near that end.  Unknown/live
@@ -3759,16 +3751,14 @@ function isPlaybackTimingMode(value: unknown): value is ProRoomPlaybackTimingMod
 
 /**
  * The start kind of a stored transition: the kind it names (this Worker
- * stores it on every transition), else the encoding of every PRO Worker
- * before PRO snapshot schemaVersion 2, a zero-start deadline one millisecond
- * short. A wake is scheduled-control.
+ * stores it on every transition), else scheduled-control. Only a PRO Worker
+ * before PRO snapshot schemaVersion 2 stored a transition without a kind, and
+ * marked a zero-start one by a deadline one millisecond short of the barrier.
+ * This Worker no longer reads that deadline: such a transition still loads and
+ * commits, as a scheduled control.
  */
 function playbackTransitionTimingMode(pending: PlaybackTransition): ProRoomPlaybackTimingMode {
-  if (pending.timingMode !== undefined) return pending.timingMode;
-  return pending.resumeFromSleep !== true &&
-    pending.deadlineAtMs - pending.createdAtMs === PLAYBACK_ZERO_START_TRANSITION_DEADLINE_MS
-    ? 'zero-start'
-    : 'scheduled-control';
+  return pending.timingMode ?? 'scheduled-control';
 }
 
 function normalizeStoredPlaybackTransition(

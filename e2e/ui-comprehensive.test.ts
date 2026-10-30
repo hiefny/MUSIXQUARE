@@ -12,19 +12,22 @@
  * - Role badge display
  * - Mobile vs desktop layout
  */
-import { test, expect } from '@playwright/test';
+import { test, expect, type Page } from '@playwright/test';
+import { waitForBootstrapReady } from './helpers/bootstrap.ts';
 import {
   createHostGuestContexts,
   cleanupContexts,
   useAnonymousAccountSession,
   type HostGuestPair,
 } from './helpers/context-factory.ts';
-import { connectHostAndGuest } from './helpers/setup-flow.ts';
+import { injectPeerServer } from './helpers/peer-server.ts';
+import { connectHostAndGuest, setupHostAndStart } from './helpers/setup-flow.ts';
 import {
   isVisible,
   navigateToTab,
   openChatDrawer,
   readState,
+  sendChat,
   waitForChatMessage,
   waitForClass,
 } from './helpers/wait.ts';
@@ -35,6 +38,32 @@ const MOBILE_VIEWPORT = { width: 390, height: 844 };
 
 async function useMobileHostViewport(): Promise<void> {
   await pair.hostPage.setViewportSize(MOBILE_VIEWPORT);
+}
+
+/**
+ * Start a host session on one page. Playwright's Windows WebKit build has no
+ * PeerJS WebRTC transport, so a WebKit run seeds the started host instead, as
+ * app-touch-policy.test.ts does.
+ */
+async function startHostSession(page: Page, browserName: string): Promise<void> {
+  await injectPeerServer(page);
+  if (browserName !== 'webkit') {
+    await setupHostAndStart(page);
+    return;
+  }
+  await page.goto('/');
+  await waitForBootstrapReady(page);
+  await page.evaluate(() => {
+    const runtime = window as typeof window & {
+      __MUSIXQUARE_SET_STATE__: (path: string, value: unknown) => void;
+      __MUSIXQUARE_BUS__: { emit(type: string, ...args: unknown[]): void };
+    };
+    runtime.__MUSIXQUARE_SET_STATE__('network.appRole', 'host');
+    runtime.__MUSIXQUARE_SET_STATE__('setup.sessionStarted', true);
+    document.getElementById('setup-overlay')?.classList.remove('active');
+    document.body.classList.remove('overlay-open');
+    runtime.__MUSIXQUARE_BUS__.emit('setup:app-entrance');
+  });
 }
 
 test.describe('Comprehensive UI', () => {
@@ -403,5 +432,84 @@ test.describe('Mobile UI', () => {
     } finally {
       await cleanupContexts(pair);
     }
+  });
+
+  test('chat sheet Tab and Shift+Tab reach only the controls it shows', async ({
+    page,
+    browserName,
+  }) => {
+    // The pinned notice stays in the sheet while hidden. A Tab cycle that still
+    // counted its two buttons left Tab on the handle; they join the cycle only
+    // while the notice shows.
+    await page.route('**/api/announcement/current', (route) =>
+      route.fulfill({ json: { enabled: false } }),
+    );
+    await startHostSession(page, browserName);
+    await openChatDrawer(page);
+    await expect(page.locator('#chat-drawer')).toHaveAttribute('aria-modal', 'true');
+    const notice = page.locator('#chat-pinned-notice');
+    await expect(notice).toBeHidden();
+    await sendChat(page, 'Tab reaches this message');
+    await waitForChatMessage(page, 'Tab reaches this message');
+    await expect(page.locator('#chat-input')).toBeFocused();
+    // The input's clear button leaves with the sent text on a later frame.
+    await expect(page.locator('#chat-drawer .clearable-editor-button')).toHaveCount(0);
+
+    const press = async (key: 'Tab' | 'Shift+Tab', count: number): Promise<string[]> => {
+      const reached: string[] = [];
+      for (let step = 0; step < count; step += 1) {
+        await page.keyboard.press(key);
+        reached.push(
+          await page.evaluate(() => {
+            const active = document.activeElement;
+            if (active?.classList.contains('chat-drawer-header')) return 'handle';
+            if (active?.classList.contains('chat-bubble')) return 'message';
+            return active?.id ?? '';
+          }),
+        );
+      }
+      return reached;
+    };
+
+    // With the notice hidden, the cycle is the handle, the message, the input
+    // and Send.
+    expect(await press('Tab', 4)).toEqual(['btn-chat-send', 'handle', 'message', 'chat-input']);
+    expect(await press('Shift+Tab', 4)).toEqual([
+      'message',
+      'handle',
+      'btn-chat-send',
+      'chat-input',
+    ]);
+
+    await page.evaluate(() => {
+      const bus = (
+        window as unknown as { __MUSIXQUARE_BUS__: { emit: (...args: unknown[]) => void } }
+      ).__MUSIXQUARE_BUS__;
+      bus.emit('chat:notice-message', 'HOST', 'Tab reaches this notice', Date.now());
+    });
+    await expect(notice).toBeVisible();
+    // The shown notice's open and dismiss buttons follow the handle.
+    expect(await press('Tab', 6)).toEqual([
+      'btn-chat-send',
+      'handle',
+      'btn-chat-notice-open',
+      'btn-chat-notice-close',
+      'message',
+      'chat-input',
+    ]);
+    expect(await press('Shift+Tab', 6)).toEqual([
+      'message',
+      'btn-chat-notice-close',
+      'btn-chat-notice-open',
+      'handle',
+      'btn-chat-send',
+      'chat-input',
+    ]);
+
+    // Enter on the notice's X dismisses it, and the cycle skips it again.
+    expect(await press('Shift+Tab', 2)).toEqual(['message', 'btn-chat-notice-close']);
+    await page.keyboard.press('Enter');
+    await expect(notice).toBeHidden();
+    expect(await press('Tab', 3)).toEqual(['handle', 'message', 'chat-input']);
   });
 });

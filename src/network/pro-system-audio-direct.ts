@@ -227,6 +227,8 @@ interface PublisherRoute {
   refusedLocalCandidateCount: number;
   /** Remote mDNS ledger keys added; unlike the ledger it survives the route's close. */
   addedRemoteCandidateCount: number;
+  /** When the first remote mDNS ledger key was added, for the pair-check line. */
+  firstRemoteCandidateAddedAt: number | null;
   remoteCandidateCount: number;
   offerSent: boolean;
   remoteDescriptionReady: boolean;
@@ -276,6 +278,8 @@ interface ReceiverRoute {
   refusedLocalCandidateCount: number;
   /** Remote mDNS ledger keys added; unlike the ledger it survives the route's close. */
   addedRemoteCandidateCount: number;
+  /** When the first remote mDNS ledger key was added, for the pair-check line. */
+  firstRemoteCandidateAddedAt: number | null;
   remoteCandidateCount: number;
   answerSent: boolean;
   remoteDescriptionReady: boolean;
@@ -893,6 +897,7 @@ type PairRule =
   | 'refined-key-pending'
   | 'refined-address'
   | 'prflx-unrefined'
+  | 'prflx-still-listed'
   | 'snapshot-changed'
   | 'stats-host'
   | 'stats-key-pending'
@@ -1057,12 +1062,47 @@ function nativeRule(locality: SelectedPairLocality, pair: RTCIceCandidatePair): 
     : 'native-address';
 }
 
+/** The candidate-pair id each statistics transport selects, one entry per transport. */
+function transportSelectedPairIds(stats: RTCStatsReport): string[] {
+  const ids: string[] = [];
+  for (const report of stats.values()) {
+    if (report.type !== 'transport') continue;
+    const selectedPairId = statsString(report, 'selectedCandidatePairId');
+    if (selectedPairId) ids.push(selectedPairId);
+  }
+  return ids;
+}
+
+/**
+ * Whether the statistics still list a connection from this local candidate to
+ * a prflx remote on the native snapshot's remote port (or one without a port).
+ * An in-place refinement replaces the connection's prflx remote, so the stats
+ * no longer list it; while one is listed, the native snapshot may be that
+ * connection rather than the refined one, whose address cannot be compared.
+ */
+function prflxStillListed(
+  stats: RTCStatsReport,
+  localCandidateId: string,
+  nativeRemotePort: number | null,
+): boolean {
+  for (const report of stats.values()) {
+    if (
+      report.type !== 'candidate-pair' ||
+      statsString(report, 'localCandidateId') !== localCandidateId
+    ) {
+      continue;
+    }
+    const remote = stats.get(statsString(report, 'remoteCandidateId') ?? '');
+    if (statsString(remote, 'candidateType') !== 'prflx') continue;
+    const port = statsNumber(remote, 'port');
+    if (port === null || port === nativeRemotePort) return true;
+  }
+  return false;
+}
+
 /** The uniquely transport-selected statistics pair's view, for the pair-check line only. */
 function selectedStatsView(stats: RTCStatsReport): PairView | null {
-  const selectedPairIds = [...stats.values()]
-    .filter((report) => report.type === 'transport')
-    .map((report) => statsString(report, 'selectedCandidatePairId'))
-    .filter((id): id is string => Boolean(id));
+  const selectedPairIds = transportSelectedPairIds(stats);
   if (selectedPairIds.length !== 1) return null;
   const pair = stats.get(selectedPairIds[0]!);
   if (pair?.type !== 'candidate-pair') return null;
@@ -1093,7 +1133,8 @@ async function refinedPairReading(
   native: PairView,
 ): Promise<PairReading> {
   // Any address the snapshot exposes must already meet the host rule: a
-  // private or mDNS local, and at most a private numeric prflx remote.
+  // private or mDNS local, and at most a private numeric prflx remote. This
+  // check carries weight: the refined match never compares the remote address.
   const localAddress = visibleIceAddress(pair.local.address);
   const remoteAddress = visibleIceAddress(pair.remote.address);
   if (
@@ -1125,7 +1166,12 @@ async function refinedPairReading(
   if (!current?.local || !current.remote || nativePairIdentity(current) !== identity) {
     return pending('snapshot-changed');
   }
-  const refined = findRefinedHostPair(stats, pair);
+  // As on the statistics-only path: two selected pairs are no evidence.
+  if (new Set(transportSelectedPairIds(stats)).size > 1) {
+    return { locality: 'non-local', rule: 'stats-ambiguous', native, stats: null };
+  }
+  // A live reproof can meet the selected connection's consent check in flight.
+  const refined = findRefinedHostPair(stats, pair, { allowAnsweredInProgress: true });
   if (!refined) return pending('prflx-unrefined', selectedStatsView(stats));
   const view = pairView(
     statsString(refined.local, 'candidateType'),
@@ -1133,6 +1179,10 @@ async function refinedPairReading(
     statsString(refined.remote, 'candidateType'),
     candidateAddress(refined.remote),
   );
+  const nativeRemotePort = typeof pair.remote.port === 'number' ? pair.remote.port : null;
+  if (prflxStillListed(stats, refined.local.id, nativeRemotePort)) {
+    return pending('prflx-still-listed', view);
+  }
   const locality = statsHostLocality(refined.local, refined.remote, acceptedRemoteMdnsKeys);
   return { locality, rule: hostRule(locality, 'refined'), native, stats: view };
 }
@@ -1182,13 +1232,7 @@ async function readSelectedPair(
 
   try {
     const stats = await pc.getStats();
-    const selectedPairIds = new Set<string>();
-    for (const report of stats.values()) {
-      if (report.type === 'transport') {
-        const selectedPairId = statsString(report, 'selectedCandidatePairId');
-        if (selectedPairId) selectedPairIds.add(selectedPairId);
-      }
-    }
+    const selectedPairIds = new Set(transportSelectedPairIds(stats));
     if (selectedPairIds.size > 1) {
       return { locality: 'non-local', rule: 'stats-ambiguous', native, stats: null };
     }
@@ -1257,11 +1301,24 @@ function describePairView(view: PairView | null): string {
     : 'none';
 }
 
-/** Candidates this end signalled, gathered but refused by the LAN rule, and added remote. */
-function routeCandidateCounts(route: PublisherRoute | ReceiverRoute): string {
+/**
+ * Candidates this end signalled, gathered but refused by the LAN rule,
+ * received from the other end, and added remote. With `proofStartedAt`, also
+ * when the first remote candidate was added, from the start of that proof
+ * (negative when before it): a refinement can follow only that add.
+ */
+function routeCandidateCounts(
+  route: PublisherRoute | ReceiverRoute,
+  proofStartedAt?: number,
+): string {
+  const firstAdded =
+    proofStartedAt !== undefined && route.firstRemoteCandidateAddedAt !== null
+      ? `, first at ${route.firstRemoteCandidateAddedAt - proofStartedAt} ms`
+      : '';
   return (
     `candidates sent ${route.localCandidateCount}, ` +
-    `refused ${route.refusedLocalCandidateCount}, added ${route.addedRemoteCandidateCount}`
+    `refused ${route.refusedLocalCandidateCount}, received ${route.remoteCandidateCount}, ` +
+    `added ${route.addedRemoteCandidateCount}${firstAdded}`
   );
 }
 
@@ -1569,6 +1626,7 @@ function acceptRemoteMdnsKey(route: PublisherRoute | ReceiverRoute, ledgerKey: s
   if (route.acceptedRemoteMdnsKeys.has(ledgerKey)) return;
   route.acceptedRemoteMdnsKeys.add(ledgerKey);
   route.addedRemoteCandidateCount += 1;
+  route.firstRemoteCandidateAddedAt ??= Date.now();
 }
 
 async function flushPublisherRemoteCandidates(route: PublisherRoute): Promise<void> {
@@ -1619,6 +1677,7 @@ function createPublisherRoute(
     localCandidateCount: 0,
     refusedLocalCandidateCount: 0,
     addedRemoteCandidateCount: 0,
+    firstRemoteCandidateAddedAt: null,
     remoteCandidateCount: 0,
     offerSent: false,
     remoteDescriptionReady: false,
@@ -1688,8 +1747,10 @@ async function waitForProvenPair(
     if (pcConnected(pc)) {
       proof.connectedAt ??= Date.now();
       const reading = await readSelectedPair(pc, acceptedRemoteMdnsKeys);
-      proof.reading = reading;
+      // A read that ends after the route closed saw a closed transport and a
+      // cleared ledger: the line keeps the last reading taken while current.
       if (!isCurrent()) return finish('closed');
+      proof.reading = reading;
       if (reading.locality === 'same-subnet') return finish('proven');
       if (reading.locality === 'non-local') return finish('non-local');
     }
@@ -1956,7 +2017,7 @@ async function negotiatePublisherRoute(
         `Publisher pair check to ${participantId.slice(-4)}`,
         result && result !== 'closed' ? result : cause === 'deadline' ? 'deadline' : 'closed',
         pairProof,
-        routeCandidateCounts(route),
+        routeCandidateCounts(route, pairProof.startedAt),
       ),
     );
   }
@@ -2077,6 +2138,7 @@ function createReceiverRoute(signal: DirectOfferSignal, ownerParticipantId: stri
     localCandidateCount: 0,
     refusedLocalCandidateCount: 0,
     addedRemoteCandidateCount: 0,
+    firstRemoteCandidateAddedAt: null,
     remoteCandidateCount: 0,
     answerSent: false,
     remoteDescriptionReady: false,
@@ -2142,7 +2204,14 @@ async function proveReceiverRoute(route: ReceiverRoute): Promise<void> {
   );
   // Every outcome, 'closed' too: the publisher's own deadline can end the
   // route before this window does.
-  log.info(pairCheckLine('Receiver pair check', result, proof, routeCandidateCounts(route)));
+  log.info(
+    pairCheckLine(
+      'Receiver pair check',
+      result,
+      proof,
+      routeCandidateCounts(route, proof.startedAt),
+    ),
+  );
   if (result === 'closed') return;
   const elapsedMs = Date.now() - proof.startedAt;
   if (result !== 'proven') {

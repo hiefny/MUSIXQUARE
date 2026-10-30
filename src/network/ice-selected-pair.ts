@@ -16,10 +16,14 @@
  * candidate.
  *
  * Only the uniquely transport-selected, succeeded host-to-host statistics pair
- * whose endpoints and generation fields match the native snapshot can stand in
- * for it. Nominated or merely succeeded pairs never can. Callers add their own
- * policy: the PRO rule still requires its mDNS candidate ledger and address
- * checks on the returned candidates.
+ * whose endpoints match the native snapshot can stand in for it. Nominated or
+ * merely succeeded pairs never can. The match is indirect: the native prflx
+ * address is redacted, so the remote side rests on port and protocol, and the
+ * username fragments and local foundation count only where both sides expose
+ * them. Callers add their own policy: the PRO rule also refuses a visible
+ * public address in the snapshot, any prflx connection still listed on the
+ * same local candidate and port, and requires its mDNS candidate ledger and
+ * address checks on the returned candidates.
  */
 
 interface IceEndpoint {
@@ -90,16 +94,39 @@ export function nativePairIdentity(pair: RTCIceCandidatePair): string {
   );
 }
 
+interface RefinedHostPairOptions {
+  /**
+   * Also accept a selected pair in 'in-progress' that has had a check
+   * response. libwebrtc marks the selected connection in-progress for one
+   * round trip around each consent check (about every 2.5 s) and back to
+   * succeeded on the response; a pair with a response has succeeded before.
+   * For a caller that reads the same pair again and again (the PRO live
+   * reproof). Off by default: the Standard check keeps 'succeeded'.
+   */
+  allowAnsweredInProgress?: boolean;
+}
+
+function pairHasSucceeded(pair: RTCStats, options: RefinedHostPairOptions): boolean {
+  const state = readString(pair, 'state');
+  if (state === 'succeeded') return true;
+  if (!options.allowAnsweredInProgress || state !== 'in-progress') return false;
+  const responses = (pair as unknown as Record<string, unknown>).responsesReceived;
+  return typeof responses === 'number' && responses > 0;
+}
+
 /**
  * The uniquely transport-selected, succeeded host-to-host statistics pair that
  * refines this native snapshot, or null. Its endpoints must match the native
- * pair's (port, protocol and any address both sides expose), and where exposed
- * the ICE username fragments and the local foundation must agree. A native
- * candidate without a port or protocol never matches.
+ * pair's port and protocol, and an address only where both sides expose one:
+ * the native prflx address is always redacted, so the remote side rests on
+ * port and protocol. The ICE username fragments and the local foundation are
+ * compared only where both sides expose them. A native candidate without a
+ * port or protocol never matches.
  */
 export function findRefinedHostPair(
   stats: RTCStatsReport,
   native: RTCIceCandidatePair,
+  options: RefinedHostPairOptions = {},
 ): RefinedHostPair | null {
   const localEndpoint = getIceEndpoint(native.local);
   const remoteEndpoint = getIceEndpoint(native.remote);
@@ -113,7 +140,7 @@ export function findRefinedHostPair(
   const pair = stats.get(pairId);
   if (
     pair?.type !== 'candidate-pair' ||
-    readString(pair, 'state') !== 'succeeded' ||
+    !pairHasSucceeded(pair, options) ||
     readString(pair, 'transportId') !== transport.id
   )
     return null;

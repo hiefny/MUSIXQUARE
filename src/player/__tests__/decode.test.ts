@@ -292,6 +292,12 @@ function stageMainTransfer(item: PlaylistItem, file: Blob, sessionId: number): v
   setState('transfer.meta', fileMeta(item, file, sessionId));
 }
 
+// clearAllMocks keeps queued once-implementations, so an unused parked decode
+// would reach whichever test runs next; reset it before every describe's setup.
+beforeEach(() => {
+  mocks.decodeAudioData.mockReset().mockResolvedValue({ duration: 120 });
+});
+
 afterEach(() => {
   clearAllManagedTimers();
   vi.useRealTimers();

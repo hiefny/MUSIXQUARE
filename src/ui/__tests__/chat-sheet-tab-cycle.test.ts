@@ -16,7 +16,8 @@
  * A message removed while it, or a time link in it, has focus also moves focus
  * to the sheet: a cleared room history, or the oldest rows that the 200-row cap
  * prunes. Removal otherwise dropped focus to the page, in a browser and in jsdom
- * alike.
+ * alike. Focus on the message log itself stays there: the log is not removed,
+ * and it draws the focus ring that the sheet does not.
  */
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { readFileSync } from 'node:fs';
@@ -247,6 +248,27 @@ describe('chat sheet focus when the message that holds it is removed', () => {
     addSystemChatMessage('Room notice 199');
     expect(copyableMessages()).toHaveLength(1);
     expect(document.activeElement).toBe(newest);
+  });
+
+  it.each([
+    { path: 'cleared with the room history', remove: () => bus.emit('chat:clear-all') },
+    {
+      path: 'pruned at the 200-row cap',
+      remove: (addNotice: (text: string) => void) => {
+        for (let index = 1; index <= 200; index += 1) addNotice(`Room notice ${index}`);
+      },
+    },
+  ])('leaves focus on the message log itself when its messages are $path', async ({ remove }) => {
+    const { addChatMessage, addSystemChatMessage } = await import('../chat-render.ts');
+    addChatMessage('Peer', 'A message the log loses', false);
+    // The log takes focus itself when its scroll-down button hides.
+    const log = document.getElementById('chat-messages')!;
+    log.focus();
+    expect(document.activeElement).toBe(log);
+
+    remove(addSystemChatMessage);
+    expect(copyableMessages()).toHaveLength(0);
+    expect(document.activeElement).toBe(log);
   });
 
   it('leaves focus that is outside the cleared messages where it is', async () => {

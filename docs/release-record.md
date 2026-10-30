@@ -262,7 +262,7 @@ gh run list --workflow e2e.yml --branch main --limit 3
       [오너 기기 확인 목록](design/app-9-0-26-train-2026-10-30.md#오너-기기-확인-목록),
       [노트의 확인하지 않은 것](design/chat-sheet-close-removal-2026-10-30.md#확인하지-않은-것).
 
-### PRO 스냅샷 schemaVersion 1 받기 중단과 받는 쪽 정리(Phase 5.5 R3, 9.0.25/v798) 배포 뒤 확인: Phase 5.5의 마지막 런타임 릴리스
+### PRO 스냅샷 schemaVersion 1 받기 중단과 받는 쪽 정리(Phase 5.5 R3, 9.0.25/v798) 배포 뒤 확인: Phase 5.5의 마지막 App 런타임 릴리스
 
 - [ ] 범위와 상태(오너 승인 2026-10-29 약 04:20 KST, 계획 질문 2026-10-28 모두 권장 기본, PR #532): App이 PRO 스냅샷
       schemaVersion 1을 받지 않는다. 모든 스냅샷 답에 `passwordRequired`와 `playlistSlots`를 요구하고, 관리자 목록 답은
@@ -655,7 +655,10 @@ gh run list --workflow e2e.yml --branch main --limit 3
       (`git diff b8ae59e7 683074bc -- package.json package-lock.json`은 버전 줄 셋뿐). 이 기록이 main에 들어가면 Phase 5.5 끝 조건 5가 채워지고,
       Phase 6 첫 단계(시험·검사만)를 따로 '시작' 없이 시작한다(Phase 6 브리프 Q0). 그 뒤 런타임 의존성 변경(열린 Dependabot
       묶음 PR 포함)의 머지는 이 동결에 묶이지 않는다. 다만 머지하면 App 릴리스가 그 변경을 배포할 때까지 App을 고르지 않는
-      부분 릴리스(`pro-room` 등)는 같은 부분 게이트에 막힌다.
+      부분 릴리스(`pro-room` 등)는 같은 부분 게이트에 막힌다. 그래서 위 R4의 늦은 배포 직후 확인이 기록되기 전에 런타임
+      의존성 변경을 머지하면, R4 결함의 기본 되돌리기(런타임 변경을 되돌려 `pro-room`으로 다시 내기)도 막혀 그 의존성
+      변경을 App과 함께 싣는 `all` 수리 릴리스나 손 되돌리기(PRO를 checkpoint의 `ef882f7c`로, 다음 수리 릴리스는 `all`)만
+      남는다.
       [배포 조건과 순서](design/phase5-5-r1-train3-v2-accept-2026-10-29.md#배포-조건과-순서),
       [R1-9 부모 실행](design/phase5-5-r1-train3-v2-accept-2026-10-29.md#r1-9-pro-worker가-저장된-시작-종류와-null-lan-direct-마감을-읽음-zs-02-ple-02),
       [R2 보고서 QA 라운드 4](design/phase5-5-r2-v2-send-2026-10-29.md#4-운영-전제-f2와-신호-입장-smoke-2026-10-30),

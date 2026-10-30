@@ -889,13 +889,14 @@ gh workflow run app-build-floor.yml --ref main -f action=lower -f min_app_build=
   default pull request would ship that App with a PRO Worker that sends schemaVersion 1).
   The first schemaVersion 2 PRO Worker stayed live until the PRO-only cleanup release after
   9.0.25 (the `pro-room` release of merge `683074bc` (#537), Production Release 41044220520,
-  which deployed PRO Worker version `e7657f88` on 2026-10-30 at 19:56 KST) replaced it. That
-  newer Worker no longer reads the 2999 ms zero-start deadline of a transition stored before
-  schemaVersion 2 and its CORS allow list no longer names the two retired opt-in headers, but it
-  still sends schemaVersion 2 and writes the same records byte for byte. So what this bullet and
-  the next say while the first schemaVersion 2 PRO Worker is live holds while the newer one is
-  live, the first one (`ef882f7c`) is the newer release's recovery checkpoint and stays the floor
-  for a manual PRO rollback, and the PRO steps of both orders still go to the 9.0.22 PRO Worker.
+  which deployed PRO Worker version `e7657f88` on 2026-10-30 at 19:56 KST) replaced it. The
+  PRO-only cleanup Worker (`e7657f88`) no longer reads the 2999 ms zero-start deadline of a
+  transition stored before schemaVersion 2 and its CORS allow list no longer names the two retired
+  opt-in headers, but it still sends schemaVersion 2 and writes the same records byte for byte. So
+  what this bullet and the next say while the first schemaVersion 2 PRO Worker is live holds while
+  the PRO-only cleanup Worker (`e7657f88`) is live, the first schemaVersion 2 PRO Worker
+  (`ef882f7c`) is the cleanup release's recovery checkpoint and stays the floor for a manual PRO
+  rollback, and the PRO steps of both orders still go to the 9.0.22 PRO Worker.
 - Once 9.0.25 (build 798), the App that no longer reads PRO snapshot schemaVersion 1, is live
   (the `app` release of merge `b8ae59e7` (#532), Production Release 40964572017, which deployed
   App version `b4e8fc56` on 2026-10-30 at 07:18 KST after the PRO Worker of the previous bullet;

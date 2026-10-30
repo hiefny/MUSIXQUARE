@@ -198,7 +198,7 @@ runbooks. Neither belongs in a general setup document.
   verified.
 - [Phase 5.5 R3: the App stops reading PRO snapshot schemaVersion 1, 9.0.25 (2026-10-30)](design/phase5-5-r3-v1-receive-stop-2026-10-30.md):
   released on 2026-10-30 07:18 KST in Release 40964572017 (PR #532, squash `b8ae59e7`): the third
-  and last runtime release of Phase 5.5 (9.0.25 / v798, App build 798, bump `01f1a19b`; target `app`
+  runtime release of Phase 5.5 and its last App one (9.0.25 / v798, App build 798, bump `01f1a19b`; target `app`
   with 18 App runtime paths and none in the other five Workers, against main and against the live
   Worker SHAs, with the update dialog; the build floor stays 795). Only the App Worker changed
   (`dd820d37` to `b4e8fc56`); the PRO room Worker keeps R2's `ef882f7c` and the other four their

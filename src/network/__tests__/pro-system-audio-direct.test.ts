@@ -2140,7 +2140,7 @@ describe('PRO system-audio LAN-direct live lifecycle', () => {
 // one home Wi-Fi. The phone answered the data-channel-only probe in 0.75 s and
 // the host-to-host pair connected 0.09 s later, but the retired two-round-trip
 // protocol's media answer missed the attempt's single 2 s budget, so every
-// share went to the SFU (pinned in 35978d3ff). One round trip now carries the
+// share went to the SFU (pinned in d0b71a89). One round trip now carries the
 // audio m-section: a receiver paced like that phone answers it in 1.2 s, the
 // slower media pace, connects 0.09 s later and proves its pair 0.03 s after.
 describe('PRO system-audio LAN-direct one round trip with a phone-paced receiver', () => {

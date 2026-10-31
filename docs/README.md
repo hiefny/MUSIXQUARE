@@ -112,13 +112,19 @@ runbooks. Neither belongs in a general setup document.
   line-box values into the font files waits on the iPhone check. The owner left at about 23:20 KST
   for about 40 hours with releases and tests delegated, so none of the checks after the release has
   run yet. The release record's §2 now carries the switch as post-deploy items at its top (scope
-  and status, the checks after the release with the iPhone line-height check first, and the later
+  and status, the checks after the release with the iPhone line-height check first, the open rule
+  for manual App rollbacks to a lower epoch, and the later
   train that moves the public pages to Inter and Noto and removes the two Pretendard copies), its §4
   the 9.0.29 entry and current boundary line (5) (checkpoint artifact 13045399758, App 9.0.28
   `89ad188d`), and the hotfix procedure's 9.0.25 bullet names 9.0.29's merge SHA, Release ID and
   App version. The rollback boundary is a forward revert at 9.0.30 / v803 or later; the report
   allows a CLI rollback of the App Worker only in the first minutes, before clients take the new
-  service worker. The app draws with
+  service worker, and forbids restoring a lower epoch, while the hotfix procedure allows an
+  explicitly reviewed CLI rollback to a saved version. A manual rollback after those minutes to a
+  checkpoint App below v802 (9.0.28 `89ad188d`, or the 9.0.28 and 9.0.27 entries' urgent targets
+  `e3457d38` and `b8dc4281`) is therefore an open item for the owner or release owner; until they
+  decide, the record follows the hotfix procedure: a code revert at 9.0.30 / v803 or later when
+  not urgent, and only an explicitly reviewed CLI rollback when urgent. The app draws with
   self-hosted Inter 4 (Latin, Cyrillic, Greek) and Noto (Noto Sans KR v40 shards re-encoded without the Korean
   `locl`, Noto Sans JP, SC, TC, Thai, Arabic, Hebrew and Indic), so the Korean and English UIs draw
   the same content with the same faces, widths and pixels. One startup Han order from the
@@ -215,7 +221,9 @@ runbooks. Neither belongs in a general setup document.
   the hotfix procedure's 9.0.25 bullet names 9.0.28's merge SHA, Release ID and App version. The
   rollback boundary is a forward revert at 9.0.30 / v803 or later now that 9.0.29 shipped, or the
   checkpoint's 9.0.27 App without `lower` with the PRO Worker left in place, which now also
-  removes the 9.0.29 font switch.
+  removes the 9.0.29 font switch and restores a lower service-worker epoch, so until the owner or
+  release owner decides the open rule in the 9.0.29 entry above, only as an explicitly reviewed CLI
+  rollback under the hotfix procedure.
   Increment notes: [held SFU fallback](design/pro-system-audio-speculative-sfu-2026-10-31.md),
   [playlist icons and upload rows](design/playlist-state-icons-upload-rows-2026-10-31.md).
 - [PRO system audio: the SFU fallback prepared beside the LAN-direct attempt, media held (2026-10-31)](design/pro-system-audio-speculative-sfu-2026-10-31.md):
@@ -324,7 +332,9 @@ runbooks. Neither belongs in a general setup document.
   current boundary line (5) (checkpoint artifact 13005387697, App 9.0.26 `b8dc4281`), and the
   hotfix procedure's 9.0.25 bullet names 9.0.27's merge SHA, Release ID and App version. The
   rollback boundary is a forward revert at 9.0.30 / v803 or later now that 9.0.28 and 9.0.29
-  shipped, or the checkpoint's 9.0.26 App without `lower` with the PRO Worker left in place.
+  shipped, or the checkpoint's 9.0.26 App without `lower` with the PRO Worker left in place, which
+  now also removes 9.0.28 and the 9.0.29 font switch and restores a lower service-worker epoch
+  (the same open rule as in the 9.0.28 entry).
 - [Chat keyboard and screen reader focus: the sheet's Tab cycle, a hiding pinned notice, removed messages (2026-10-30)](design/chat-keyboard-focus-2026-10-30.md):
   released on 2026-10-31 04:31 KST in the App 9.0.27 / v800 train above (owner decision 2026-10-30:
   nothing on screen changes, keyboard behaviour only); the release record's chat sheet Tab cycle item

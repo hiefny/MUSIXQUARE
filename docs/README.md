@@ -95,13 +95,22 @@ runbooks. Neither belongs in a general setup document.
 
 - [App 9.0.28 train: the PRO SFU fallback prepared beside the LAN-direct attempt with media held, and the playlist current-row icons and PRO upload row numbers (2026-10-31)](design/app-9-0-28-train-2026-10-31.md):
   assembled, not merged or released: the next App update after 9.0.27 (9.0.28 / v801, App build
-  801, update dialog; the version bump is the last runtime commit, followed only by docs commits).
-  Branch `agent/app-9-0-28-train` on main `682e0fcd` (after the 9.0.27 record #540 and the Phase 6
-  T0a tests #541 and #542) carries the two increments' 14 commits in order (one `docs/README.md`
-  conflict, both sides kept; three commit messages corrected; the tests-first commits fail the same
-  rows on their new parents). Target `app`: 4 App runtime paths before the bump against the live
-  Worker SHAs and main, none in the other five Workers, no runtime dependency change; the build
-  floor stays 795. The report lists the owner decisions of 2026-10-31 ("two stages", the media-less
+  801, update dialog; the version bump `f3a9fcbc` is the last runtime commit, followed only by a docs
+  commit).
+  Branch `agent/app-9-0-28-train` on main `599465dd` (after the 9.0.27 record #540, the Phase 6
+  T0a tests #541 and #542, the T1 ownership guard #543 and the `src/youtube` test-order fix #544;
+  first assembled on `682e0fcd`, then moved onto `599465dd` with every patch unchanged) carries the
+  two increments' 14 commits in order (one `docs/README.md` conflict, both sides kept; three commit
+  messages corrected; the tests-first commits fail the same rows on their new parents). Target
+  `app`: 4 App runtime paths before the bump against the live Worker SHAs and main (8 with the
+  bump's four mirrors), none in the other five Workers, no runtime dependency change; the build
+  floor stays 795. After the bump the local gate passed on `682e0fcd` and again after the move onto
+  `599465dd`: release identity 9.0.28 / v801 and `guard:sw-cache-version` PASS v801, every guard
+  and the resource-ownership check with #543, `build:checked`, unit 724 files / 17,210 tests
+  (721 / 17,194 before the move), critical coverage 92 files / 3,734, Worker coverage 69 files /
+  3,323, 19 candidate, 101 critical, 5 system audio and 35 playlist E2E rows (the 'convertible in tablet
+  posture' hover row, run alone, fails on this build and on a main `682e0fcd` build alike). The
+  report lists the owner decisions of 2026-10-31 ("two stages", the media-less
   publisher session, the approved playlist mockups with option B, the overnight delegation) and
   the release owner's round 3 choice (9.0.27's one ordinary publish when the held fallback is
   already lost), both increments' QA rounds with their tested SHAs and limits, the moved-SHA table,

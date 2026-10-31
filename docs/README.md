@@ -297,8 +297,8 @@ runbooks. Neither belongs in a general setup document.
   9.0.28), the owner device checks of the playlist and the R4 late check have not run, and the
   four owner questions have no answer yet. The App 9.0.29 / v802 font switch (2026-10-31 23:39 KST)
   and the App 9.0.30 / v803 Phase 6 6A (2026-11-01 05:17 KST, entries above) shipped before those
-  checks, so they now run on 9.0.30, as neither changes the system audio code or the playlist
-  drawing, reading the build line as `app=9.0.30 | cacheEpoch=v803`; the 9.0.29 and 9.0.30 records
+  checks, so they now run on 9.0.30, as neither changes the system audio code, reading the build
+  line as `app=9.0.30 | cacheEpoch=v803`; the 9.0.29 and 9.0.30 records
   have no result for them either. The Full E2E run 41229806902 on main `e51dd292` (the 9.0.29
   runtime) passed before 6A merged and closed the chat Tab cycle item. The
   release record's §2 carries the train as post-deploy items (scope and status, the held SFU fallback

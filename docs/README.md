@@ -110,8 +110,15 @@ runbooks. Neither belongs in a general setup document.
   replaces the rule that Phase 6 trains ship only while the owner is awake. On top come the record
   edits the bump carries (the order and Q6 sentences, the 9.0.22 item's C2-1 clause, the Android
   mixed-version sentence, the registry's release-batching sentence for Phase 6), the comment-only
-  R4-Q3 fix in `src/pro-room/snapshot.ts` that Phase 5.5 R4 left for the next App update, and the
-  bump to 9.0.30 / v803 as the last runtime commit.
+  R4-Q3 fix in `src/pro-room/snapshot.ts` that Phase 5.5 R4 left for the next App update (`5b7f7e84`,
+  production build byte-identical), and the bump `8d148fff` to 9.0.30 / v803 as the last runtime
+  commit, followed by this record commit (32 commits on `e51dd292`). QA round 8 ran the full local
+  gate on the bump: types, lint, format, `build:checked` with `guard:sw-cache-version` passing for
+  v803, all 37 guards, the production candidate 19 / 19, critical coverage 94 files / 3,763 and Worker
+  coverage 69 / 3,325, the unit suite 735 files / 17,540 (two git-fixture rows that time out under
+  load pass with their files run alone), critical E2E 101 / 101 and the eight YouTube specs 41 / 41;
+  the release target is `app` (18 App runtime paths, none in the other five Workers) and the first
+  load is 144 B of eager JavaScript gzip and 141 B of eager total below 9.0.29.
   6A-1 replaces the cross-file reads of the start timers' names with owner queries
   (`isYouTubeAutoSyncPending` through the player runtime bridge, and a query `sync.ts` registers
   with the native-control authority; the PRO coordinator nudge is still read by name). 6A-2 drops

@@ -60,8 +60,8 @@ gh run list --workflow e2e.yml --branch main --limit 3
       기록 main `e51dd292`(#548, #549 뒤) 위에 있다: 6A 24커밋(테스트 먼저 7, 코드 7, 가드만 2, 시험만 4, 주석·레지스트리만 1,
       기록 3. 처음 main `599465dd` 위에서 만들어 2026-10-31 20:30 KST에 `9e68a7a3` 위로 옮김)과 옮김을 적은 기록 커밋 둘, 모두
       스물여섯을 2026-11-01 01:00 KST에 패치 그대로 다시 옮겼고(머리 `3be18bdb`, 보고서 QA 라운드 7), 그 위에 순서·Q6·남은 기록의
-      문서 커밋, R4-Q3 주석 커밋(`src/pro-room/snapshot.ts`, 주석뿐, 아래 R4 절), 버전 올리기(마지막 런타임 커밋)와 그 뒤 기록
-      커밋을 더한다. main `e51dd292`와 운영 배포 SHA(App 9.0.29 `c4667abc`, PRO room `683074bc`, 다른 넷 9.0.22 `71f5b96c`) 어느
+      문서 커밋, R4-Q3 주석 커밋 `5b7f7e84`(`src/pro-room/snapshot.ts`, 주석뿐, 운영 빌드 바이트 같음, 아래 R4 절), 버전 올리기
+      `8d148fff`(마지막 런타임 커밋)와 그 뒤 기록 커밋을 더했다(main `e51dd292` 위 32커밋). main `e51dd292`와 운영 배포 SHA(App 9.0.29 `c4667abc`, PRO room `683074bc`, 다른 넷 9.0.22 `71f5b96c`) 어느
       쪽과 견줘도 6A의 런타임 경로 변경은 App 13(`src/youtube/`의 열, `src/player/playlist.ts`, `src/pro-room/`의
       `playback-controller.ts`와 `playback-authority-hooks.ts`)이고, R4-Q3 주석과 버전 거울도 App 경로뿐이다. 나머지 다섯 Worker
       0이고 App 런타임 의존성 차이가 없어 target `app`이다(로컬 판정, 릴리스의 부분 릴리스 검사를 대신하지 않음). D1, 비밀, 바인딩, Wrangler 설정, CORS, 계약 표지, 저장 데이터 모양, 의존성은 바뀌지
@@ -74,13 +74,18 @@ gh run list --workflow e2e.yml --branch main --limit 3
       크기)와 라운드 7(9.0.29 기록 위로 다시 옮긴 뒤: 같은 일곱 쌍이 새 부모에서 라운드 6과 같은 이름의 행만 실패하고 코드 커밋은
       모두 통과, `src/youtube` 1,907과 `src/pro-room` 2,915가 파일 순서와 shuffle seed 7·4242에서 모두 통과, T0a 골든 36 files /
       1,539, typecheck, 자원 소유권, 버전 가드, 계약 동결 diff 비어 있음, 첫 로딩은 9.0.29 대비 eager JS gzip −154 B, eager 전체
-      −152 B)다. 단위 전체, lint, `build:checked` 사슬, 커버리지, Playwright는 버전 올리기 뒤의 전체 검사(QA 라운드 8)가 다시 돌린다.
+      −152 B)와 라운드 8(버전 올리기 `8d148fff` 뒤 로컬 전체 검사: typecheck, lint, `format:check`, `build:checked`와 그 안의
+      `guard:sw-cache-version` 'PASS: v803 (8d148fff)'·`guard:release-identity` 9.0.30 / v803, 모든 `guard:*` 37개와 자원 소유권,
+      후보 E2E 19 / 19, 핵심 커버리지 94 files / 3,763과 Worker 커버리지 69 / 3,325, 단위 전체 735 files / 17,540(부하 아래 git 작업 행
+      시간 초과 둘은 그 파일을 따로 돌려 통과), critical E2E 101 / 101, YouTube 여덟 spec 41 / 41, 배포 대상 App 18·나머지 Worker 0, 첫
+      로딩은 9.0.29 대비 eager JS gzip −144 B·eager 전체 −141 B로 어느 값도 늘지 않음)다.
       PR, PR CI, 자동 코드 리뷰, exact-main CI, 배포는 아직이고 로컬 결과는 exact-main-SHA 후보를 대신하지 않는다. 배포 뒤 기록 PR이
       이 항목을 '배포 뒤 확인'으로 바꾼다.
       [변경·QA 보고서](design/phase6-6a-start-constants-owner-queries-2026-10-31.md),
       [증분 한눈에](design/phase6-6a-start-constants-owner-queries-2026-10-31.md#증분-한눈에),
       [QA 라운드 6](design/phase6-6a-start-constants-owner-queries-2026-10-31.md#6-main-9e68a7a3-위로-옮김과-재확인),
-      [QA 라운드 7](design/phase6-6a-start-constants-owner-queries-2026-10-31.md#7-app-9029-기록-e51dd292-위로-다시-옮김과-재확인).
+      [QA 라운드 7](design/phase6-6a-start-constants-owner-queries-2026-10-31.md#7-app-9029-기록-e51dd292-위로-다시-옮김과-재확인),
+      [QA 라운드 8](design/phase6-6a-start-constants-owner-queries-2026-10-31.md#8-버전-올리기와-로컬-전체-검사-8d148fff-2026-11-01-0133--0214-kst).
 - [ ] 기댄 오너 답(2026-10-30, 모두 권장, 그리고 2026-10-31 저녁의 순서 답, 게이트 아님): Q0(PRO 정리 R4가 나간 뒤 따로 '시작' 없이 Phase 6을 시험·가드만인
       T0a·T1부터 시작, 6A는 그 다음), Q1(Phase 6을 App 업데이트 넷 6A ~ 6D로, 6A가 첫째), Q3(소리를 되돌리는 박자는 공용 코드로
       옮기되 각자 그대로: `'settle-then-verify'`, `'verify-then-settle'`, 두 복구의 해제 앞 50 ms 폴), Q4(미뤄 둔 App 쪽 Phase 0d
@@ -104,15 +109,16 @@ gh run list --workflow e2e.yml --branch main --limit 3
       내기로 정했고(2026-10-31 저녁, 보고서 오너 질문 3), 그것이 9.0.29 / v802로 나갔다(§2 9.0.29 절). 6A는 그 배포 기록 위로 옮겨
       테스트 먼저 커밋을 새 부모에서 다시 돌리고 첫 로딩 크기를 다시 쟀다(보고서 QA 라운드 7). 한 번에 한 열차다. (3) main 런타임이
       배포본과 같다(지금 main `e51dd292`는 운영 App 9.0.29 `c4667abc` 위에 문서만). main이 움직이면 다시 옮기고 재확인한다. 이
-      배포까지 런타임 의존성 변경(Dependabot 포함)을 머지하지 않는다. (4) 버전 올리기 커밋이 마지막 런타임 커밋이다: 9.0.30과 SW
+      배포까지 런타임 의존성 변경(Dependabot 포함)을 머지하지 않는다. (4) 버전 올리기 커밋 `8d148fff`가 마지막 런타임 커밋이다: 9.0.30과 SW
       epoch v803을 9.0.29의 버전 올리기와 같은 거울 여섯 파일의 일곱 줄(`package.json`, `package-lock.json`의 두 줄,
       `ADMIN_SCRIPT_VERSION`, `ADMIN_ASSET_VERSION`, SW 캐시 epoch, `index.html`의 `/bootstrap.js?cache=` 쿼리)에 올리고, 그 뒤
       `guard:sw-cache-version` PASS, `guard:release-identity` 새 버전, `build:checked`, 단위 전체, 핵심·Worker 커버리지, critical
-      E2E와 후보 E2E가 통과하며, 계약 동결 diff는 `cloudflare/app-worker.ts`의 버전 한 줄만 보인다. 버전 올리기 앞에서 남은 기록을
+      E2E, 후보 E2E와 YouTube 여덟 spec이 통과하며, 계약 동결 diff는 `cloudflare/app-worker.ts`의 버전 한 줄만 보인다(보고서 QA
+      라운드 8에서 모두 채움). 버전 올리기 앞에서 남은 기록을
       고친다: 9.0.22 항목의 '2.3 s 준비 예산과 공유 시간 집의 순서 시험(Phase 0d C2-1)은 보지 않았다' 구절(순서 시험이 6A-3에 생김),
       'Android YouTube 출력 정렬·혼합 버전' 항목의 혼합 버전 문장(Q21: 바닥 795를 근거로 닫고 출력 정렬 실측은 남김), 레지스트리 배포
       묶음 문단의 Phase 6 App 업데이트 넷(Q1), R4 절의 R4-Q3 문장. 버전 올리기 뒤 기록 커밋이 이 항목에 버전 올리기 SHA와 전체 검사
-      (QA 라운드 8)를 적는다. (5) PR CI, 자동 코드 리뷰, dispatch 직전 머지, exact-main CI success, 그 뒤 Release target `app`,
+      (QA 라운드 8)를 적었다. (5) PR CI, 자동 코드 리뷰, dispatch 직전 머지, exact-main CI success, 그 뒤 Release target `app`,
       Developer API D1 false, `raise_app_build_floor` false. (6) 배포 직후 공개 최소 빌드 상태(저장·유효 795, live App 803)와
       Operations Drift Audit을 보고, 아래 배포 직후 확인을 건넨다. 머지 뒤 main SHA에서 Full E2E를 한 번 돌려 보고서 QA 라운드에 적되
       exact-main 후보로 쓰지 않는다. 배포 기록 PR은 §1과 `Last source review`를 덮어쓰고 `release-history.md`에 한 행을 더하며, §4에
@@ -147,8 +153,8 @@ gh run list --workflow e2e.yml --branch main --limit 3
       브라우저의 업데이트 창도 배포 뒤에 본다.
       [배포 뒤 확인](design/phase6-6a-start-constants-owner-queries-2026-10-31.md#배포-뒤-확인-블라인드-게이트-아님).
 - [ ] 열린 항목과 확인하지 않은 것(보고서, 게이트 아님): 실기기, iOS Safari와 WebKit 레인(`setup-youtube-activation.test.ts`
-      포함), 블루투스, Full E2E, PR CI, exact-main CI, 버전 올리기 뒤의 `guard:sw-cache-version`과 `build:checked` 사슬 전체, 옮긴
-      뒤 다시 돌리지 않은 단위 전체·lint·커버리지·Playwright(QA 라운드 6). 계획의 공용 상태 이름 (가)의 크기는 낱개 이름 집 위에서
+      포함), 블루투스, Full E2E, PR CI, exact-main CI, 그리고 로컬의 `check:workers`(Worker 런타임 변화 없음)와 WebKit E2E 레인.
+      버전 올리기 뒤의 `guard:sw-cache-version`, `build:checked` 사슬, 단위 전체, lint, 커버리지, Playwright는 QA 라운드 8이 돌렸다. 계획의 공용 상태 이름 (가)의 크기는 낱개 이름 집 위에서
       재지 않았다. CHECK 5가 여전히 잡지 않는 사본(이름이 다른 사본, 값 넷 이하를 나누는 객체, 집이 계약에 없는 파일의 사본. 예:
       `src/pro-room/playback-controller.ts`에 다시 적은 40 ms 따라잡기 허용치, 바탕부터 있던 틈)은 리뷰로 본다. 이 열차가 새로 연
       결함 질문(Q18)은 없다. 배포 순서는 오너가 정했고(글꼴 먼저, 보고서 오너 질문 3) 배포 때는 오너의 부재 중 위임을 따르므로(위
@@ -612,7 +618,7 @@ gh run list --workflow e2e.yml --branch main --limit 3
       시간 파일 `cloudflare/pro-room-playback-timing.ts`의 낡은 머리 주석은 다음 `all` 릴리스 때, R4-Q3
       `src/pro-room/snapshot.ts`의 'Opt-in summary' 주석은 9.0.27 또는 다음 App 업데이트에(9.0.27, 9.0.28, 9.0.29는 이 주석을
       바꾸지 않고 나갔으므로 다음 App 업데이트인 Phase 6 6A. 6A(9.0.30 / v803)가 그 주석을 '모든 스냅샷이 opt-in 머리글 없이 싣는
-      요약'으로 고쳤다: 주석뿐이라 운영 빌드가 바이트로 같고, 위 6A 절의 배포 기록 PR이 이 문장을 닫는다). 배포 때까지 답이 없었다. 오너는 그날 저녁 Phase 6 내부 항목에 '권장'으로 답한 뒤
+      요약'으로 고쳤다(`5b7f7e84`): 주석뿐이라 운영 빌드가 바이트로 같고, 위 6A 절의 배포 기록 PR이 이 문장을 닫는다). 배포 때까지 답이 없었다. 오너는 그날 저녁 Phase 6 내부 항목에 '권장'으로 답한 뒤
       잠들었고, (나) 가운데 R4-Q1(정확한 키로 바꿔 무효로 버림)은 저장
       데이터 규칙(그 모양을 그만 읽으려면 남은 기록 0 증명이 먼저인데 운영 Durable Object를 읽을 수 없어 지금 할 수 없음)과,
       R4-Q2(이 릴리스를 `all`로)는 정한 Q20과 맞서 (가)가 일관된 유일한 선택이었다(R4-Q3 (나)는 주석을 그대로 두는 것이라 코드

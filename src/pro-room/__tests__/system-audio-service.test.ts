@@ -520,16 +520,21 @@ beforeAll(() => {
 
 beforeEach(() => {
   vi.clearAllMocks();
+  // clearAllMocks keeps queued once-values and implementations; reset every
+  // mock a test queues on, so leftovers never reach the next test in any order.
+  for (const fn of Object.values(api)) fn.mockReset();
   mocks.restorePlayback.mockReset().mockResolvedValue(true);
   mocks.roomContextKind = 'pro';
   mocks.playbackMode = 'none';
   receivePlaceholder.current = false;
-  mocks.hasReception.mockReturnValue(false);
-  mocks.awaitTrustedReceptionBoundary.mockResolvedValue(true);
-  mocks.initAudio.mockResolvedValue(undefined);
+  mocks.hasReception.mockReset().mockReturnValue(false);
+  mocks.awaitTrustedReceptionBoundary.mockReset().mockResolvedValue(true);
+  mocks.initAudio.mockReset().mockResolvedValue(undefined);
+  mocks.subscribe.mockReset().mockResolvedValue(undefined);
+  mocks.broadcastSystemMessage.mockReset();
   mocks.getAudioContext.mockReset();
   mocks.getWidener.mockReset();
-  mocks.publish.mockResolvedValue({
+  mocks.publish.mockReset().mockResolvedValue({
     sessionId: 'realtime_session_01',
     track: { trackName: 'audio-stereo', mid: '0' },
   });

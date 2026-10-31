@@ -2236,7 +2236,11 @@ RO-53 owner-in-place
   after a LAN-direct failure; the ordinary publish after a held fallback already lost (9.0.28
   release owner decision) is 9.0.27's, under the same deadlines, and is not retried.
 - **Timing-constant home:** `system-audio-service.ts`; the LAN-direct negotiation constants above
-  stay in `src/network/pro-system-audio-direct.ts`.
+  stay in `src/network/pro-system-audio-direct.ts`. Its private pair-proof poll
+  `DIRECT_PAIR_POLL_MS` (25 ms) has one test copy,
+  `src/network/__tests__/__helpers__/direct-pair-poll.ts`, which the LAN-direct and PRO
+  receive-slot transport suites read; `src/network/__tests__/direct-pair-poll-parity.test.ts`
+  pins it to the source value.
 - **Anchor tests:**
   - Supersession: `src/pro-room/__tests__/system-audio-service.test.ts` "does not let a stale
     publisher recovery close the new incarnation publisher".

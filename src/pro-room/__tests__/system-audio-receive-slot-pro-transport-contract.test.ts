@@ -105,6 +105,7 @@ import {
   webAudio,
   type ReceiveObservations,
 } from '../../network/__tests__/__helpers__/system-audio-receive-harness.ts';
+import { DIRECT_PAIR_POLL_MS_COPY } from '../../network/__tests__/__helpers__/direct-pair-poll.ts';
 
 vi.mock('../../i18n/index.ts', () => ({ t: (key: string) => key }));
 vi.mock('../../audio/context.ts', async () => {
@@ -284,8 +285,8 @@ function lanRoute(overrides: Partial<LanPublisherRoute> = {}): LanPublisherRoute
   };
 }
 
-/** The receiver's pair proof poll, pro-system-audio-direct.ts DIRECT_PAIR_POLL_MS. */
-const LAN_PROOF_POLL_MS = 25;
+/** The receiver's pair proof poll (the pinned test copy of DIRECT_PAIR_POLL_MS). */
+const LAN_PROOF_POLL_MS = DIRECT_PAIR_POLL_MS_COPY;
 
 /**
  * The remote LAN-direct publisher offers its track in one round trip; the

@@ -34,7 +34,7 @@ export default defineConfig({
       'src/pro-room/__tests__/{playback-duration-reporting,upload-duration}.test.ts',
       'src/pro-room/__tests__/device-failure-sequence-qa.test.ts',
       'src/pro-room/__tests__/runtime-*.test.ts',
-      'src/player/__tests__/{busy-guard,concurrency-invariants,local-output-rejoin,playback,playback-extended,playback-queue-identity,playback-replay-resync,playback-remote-wait,playlist,transport-position}.test.ts',
+      'src/player/__tests__/{busy-guard,concurrency-invariants,load-epoch-initial,local-output-rejoin,playback,playback-extended,playback-queue-identity,playback-replay-resync,playback-remote-wait,playlist,transport-position}.test.ts',
       'src/storage/__tests__/preload.test.ts',
       'src/network/transport/__tests__/{cloudflare-signaling,cloudflare-signaling-worker}.test.ts',
       // The link-liveness owner (RO-15): enrolled in Phase 4 C5-6, the resume probe since C5-7,

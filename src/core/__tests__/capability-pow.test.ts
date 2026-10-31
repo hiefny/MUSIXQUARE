@@ -3,8 +3,17 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
 afterEach(() => {
+  // Spies on real globals (crypto.subtle.digest, Date.now) and fake timers
+  // outlive resetModules; a leaked digest spy makes the next PoW solve
+  // search forever.
+  vi.useRealTimers();
+  vi.restoreAllMocks();
   vi.unstubAllGlobals();
   vi.resetModules();
+  // Turnstile tests leave their container and script tags in the shared
+  // jsdom document; the next test starts from an empty one.
+  document.head.replaceChildren();
+  document.body.replaceChildren();
 });
 
 function hasLeadingZeroBits(bytes: Uint8Array, difficulty: number): boolean {

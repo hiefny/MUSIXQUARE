@@ -37,11 +37,12 @@ const playerTransportMocks = vi.hoisted(() => ({
 const screensaverMocks = vi.hoisted(() => ({ open: vi.fn() }));
 vi.mock('../screensaver.ts', () => ({ openScreensaver: screensaverMocks.open }));
 
-window.matchMedia =
-  window.matchMedia ||
-  vi
-    .fn()
-    .mockReturnValue({ matches: false, addEventListener: vi.fn(), removeEventListener: vi.fn() });
+const defaultMediaQueryList = {
+  matches: false,
+  addEventListener: vi.fn(),
+  removeEventListener: vi.fn(),
+} as unknown as MediaQueryList;
+window.matchMedia = window.matchMedia || vi.fn().mockReturnValue(defaultMediaQueryList);
 
 vi.mock('../../core/log.ts', () => ({
   log: { debug: vi.fn(), info: vi.fn(), warn: vi.fn(), error: vi.fn() },
@@ -111,6 +112,9 @@ beforeEach(() => {
   resetState();
   bus.clear();
   vi.clearAllMocks();
+  // spyOn(window, 'matchMedia') returns this same vi.fn, so restoreAllMocks
+  // cannot undo a test's override; put the shared default back explicitly.
+  vi.mocked(window.matchMedia).mockReturnValue(defaultMediaQueryList);
   screensaverMocks.open.mockImplementation((entry: ScreensaverEntry) => entry.release());
   requestActiveProRoomBotCommand.mockReset();
   proRealtimeMocks.send.mockReset();
@@ -120,6 +124,9 @@ beforeEach(() => {
 });
 
 afterEach(() => {
+  // chat.ts loads once per file: reset its unread count and pinned notices
+  // while this test's listeners are still registered.
+  bus.emit('chat:clear-all');
   clearAllManagedTimers();
   vi.restoreAllMocks();
 });

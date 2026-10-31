@@ -103,7 +103,10 @@ beforeEach(async () => {
   document.body.appendChild(wrapper);
 });
 
-afterEach(() => {
+afterEach(async () => {
+  // A lazy import a test starts but never awaits must settle here, not inside
+  // the next test's own import wait.
+  await vi.dynamicImportSettled();
   vi.useRealTimers();
   vi.unstubAllGlobals();
   vi.restoreAllMocks();

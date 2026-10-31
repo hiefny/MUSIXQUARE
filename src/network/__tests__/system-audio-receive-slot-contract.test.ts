@@ -39,7 +39,7 @@ import { getState, resetState, setState } from '../../core/state.ts';
 import { clearAllManagedTimers } from '../../core/timers.ts';
 import { claimPlaybackOwner, createFileTrackMeta } from '../../player/ownership.ts';
 import type { DataConnection } from '../../types/index.ts';
-import { handleData } from '../protocol.ts';
+import { handleData, resetInboundRateLimit } from '../protocol.ts';
 import { markQueueAuthorityReady } from '../queue-authority.ts';
 import { getGuestSystemAudioShareRoute } from '../system-audio-delivery.ts';
 import {
@@ -163,6 +163,8 @@ beforeEach(() => {
   installNativeGlobals();
   resetNativeFakes();
   resetState();
+  // Every row drives handleData from the same peer, so start each one with a full inbound budget.
+  resetInboundRateLimit(HOST_PEER);
   hostConn = { open: true, peer: HOST_PEER, send: vi.fn() } as unknown as DataConnection;
   setState('network.appRole', 'guest');
   setState('network.hostConn', hostConn);

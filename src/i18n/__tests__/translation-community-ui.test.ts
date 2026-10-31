@@ -313,6 +313,9 @@ describe('translation editor submission integration', () => {
   }
 
   async function reloadEditor() {
+    // As on a real reload, pagehide flushes a pending draft save before the
+    // next page reads storage, and its timer cannot fire into a later page.
+    dom.window.dispatchEvent(new dom.window.PageTransitionEvent('pagehide'));
     const saved = dom.window.localStorage.getItem(DRAFT_STORAGE_KEY);
     dom.window.close();
     dom = new JSDOM(html, { url: 'https://musixquare.com/translate' });
@@ -671,6 +674,9 @@ describe('translation page language and phrase address', () => {
     browserLanguages: readonly string[],
     catalog: (code: string) => unknown = catalogFor,
   ) {
+    // Flush the outgoing page's pending draft save, so its timer cannot write
+    // later into another test's page or after the environment is torn down.
+    dom.window.dispatchEvent(new dom.window.PageTransitionEvent('pagehide'));
     dom.window.close();
     dom = new JSDOM(html, { url });
     Object.defineProperty(dom.window.navigator, 'languages', {

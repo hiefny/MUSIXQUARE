@@ -5578,6 +5578,20 @@ or pointers. Keep :focus-visible and :active outside the gate (src/ui/__tests__/
     padding-inline: 18px;
   }
 
+  /* Linux Chromium at device scale 1 hints the app fonts, as for the media
+     source options (see #media-source-overlay .file-select-btn): FreeType
+     snaps each Inter and Noto advance to a whole pixel. In the PR #548 CI
+     the Filipino (fil-PH) Sign out and Delete account took three rows with
+     Close at 720x800, 844x390, 1024x768, 1279x800 and 1280x719, in both
+     themes, where the 9.0.18 typography took two. geometricPrecision turns
+     hinting off on Linux, so the pair takes the unhinted advances Windows
+     draws, where both typographies take the same rows. Close and the
+     signed-out actions keep the default. */
+  #btn-account-logout,
+  #btn-account-delete {
+    text-rendering: geometricPrecision;
+  }
+
   .account-dialog-account-close {
     width: 100%;
   }

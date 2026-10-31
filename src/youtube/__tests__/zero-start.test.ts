@@ -398,6 +398,59 @@ describe('YouTubeZeroStartController', () => {
     expect(player.getVolume()).toBe(71);
   });
 
+  // An iframe that takes every seekTo but never reaches the target: the
+  // settle loop polls every 80 ms, and every sixth unsettled poll pauses and,
+  // one pause-seek gap later, seeks again.
+  it('pauses and seeks again on every sixth unsettled settle poll', () => {
+    const player = makeFakeYtPlayer({ __autoPlayOnLoad: true, __advanceClock: true });
+    player.seekTo = (seconds, allowSeekAhead) => {
+      player.__log.push({ op: 'seekTo', args: [seconds, allowSeekAhead], at: Date.now() });
+    };
+    let controller!: YouTubeZeroStartController;
+    controller = new YouTubeZeroStartController({
+      getRole: () => 'guest',
+      getLocalPeerId: () => GUEST_ID,
+      getHostPeerId: () => HOST_ID,
+      getLiveGuestPeerIds: () => [],
+      getPlayer: () => player as YouTubeZeroStartPlayer,
+      isPlayerReady: () => true,
+      isAudioUnlocked: () => true,
+      isClockCalibrated: () => true,
+      getHostNow: () => Date.now(),
+      getClockOffsetMs: () => 0,
+      getLocalPlatform: () => 'other',
+      sendToPeer: () => false,
+      sendToHost: () => true,
+    });
+    player.__onStateChange = ({ data }) => controller.handlePlayerStateChange(data);
+    const prepareAtHost = Date.now();
+    expect(
+      controller.handlePrepare(HOST_ID, {
+        type: 'youtube-zero-start-prepare',
+        version: 1,
+        runId: 'unsettled-run',
+        sequence: 1,
+        queueItemId: QUEUE_ITEM_ID,
+        videoId: VIDEO_ID,
+        subIndex: null,
+        prepareAtHost,
+        decisionAtHost: prepareAtHost + 2_300,
+        startDeadlineAtHost: prepareAtHost + 3_000,
+        hostPlatform: 'other',
+      }),
+    ).toBe(true);
+
+    vi.advanceTimersByTime(2_500);
+
+    const at = (op: string): number[] =>
+      player.__log.filter((call) => call.op === op).map((call) => call.at - prepareAtHost);
+    // The warm-up pause at +260, then polls from +420: the 6th, 12th, 18th
+    // and 24th pause and seek 80 ms later.
+    expect(at('pauseVideo')).toEqual([260, 820, 1300, 1780, 2260]);
+    expect(at('seekTo')).toEqual([340, 900, 1380, 1860, 2340]);
+    expect(controller.getSnapshot().phase).toBe('settling');
+  });
+
   it('does not adopt transient player hard mute when desired audio state is unmuted', () => {
     const harness = makeHarness({
       guestVolume: 65,
@@ -1397,6 +1450,46 @@ describe('YouTubeZeroStartController', () => {
     expect(harness.hostPlayer.isMuted()).toBe(true);
   });
 
+  // The active restore reads the run's captured audio as each attempt runs,
+  // so a volume change between two attempts is what the next attempt writes
+  // and checks. WebKit ignores the first unMute here, so a second attempt runs.
+  it('writes a volume changed during the active audio restore on its next attempt', () => {
+    let restoreAt: number | null = null;
+    const timeline: string[] = [];
+    const harness = makeHarness({
+      guestMuted: false,
+      onGuestPhaseChange: (snapshot) => {
+        if (snapshot.phase === 'restoring-audio' && restoreAt === null) {
+          restoreAt = Date.now();
+          harness.guestPlayer.__unMuteIgnoreCount = 1;
+          harness.guestPlayer.__log.length = 0;
+          setTimeout(() => harness.guest.updateDesiredAudioState({ volume: 55 }), 60);
+        }
+        if (restoreAt !== null) timeline.push(`+${Date.now() - restoreAt} ${snapshot.phase}`);
+      },
+    });
+    harness.guest.advertiseCapability();
+    harness.host.beginHostTransition({
+      queueItemId: QUEUE_ITEM_ID,
+      videoId: VIDEO_ID,
+      subIndex: null,
+    });
+    vi.advanceTimersByTime(2_000);
+
+    const origin = restoreAt ?? Number.NaN;
+    expect(
+      harness.guestPlayer.__log
+        .filter(({ at }) => at - origin <= 240)
+        .map(({ op, args, at }) => `+${at - origin} ${op}(${(args ?? []).join(',')})`),
+    ).toEqual(['+0 setVolume(0)', '+0 unMute()', '+120 setVolume(55)', '+120 unMute()']);
+    expect(timeline.slice(0, 2)).toEqual(['+0 restoring-audio', '+240 armed']);
+    expect(
+      harness.guestOutbound.filter((message) => message.type === 'youtube-zero-start-armed'),
+    ).toEqual([expect.objectContaining({ muted: false, volume: 55 })]);
+    expect(harness.guestPlayer.isMuted()).toBe(false);
+    expect(harness.guestPlayer.getVolume()).toBe(55);
+  });
+
   it('pauses a hard-muted warm-up before restoring audio on cancellation', () => {
     const harness = makeHarness({ hostVolume: 64 });
     expect(harness.guest.advertiseCapability()).toBe(true);
@@ -2334,6 +2427,50 @@ describe('YouTubeZeroStartController', () => {
     ).toEqual([]);
     expect(harness.guest.getSnapshot().phase).toBe('error');
   });
+
+  // The two rows above change the iframe before the restore's first write.
+  // These change it in the wait between that write and its check: the check
+  // reads only the prepared iframe, so the run fails there instead of
+  // reporting ARMED for an iframe that cannot start.
+  it.each(['is replaced', 'changes video'] as const)(
+    'does not report ARMED when the prepared iframe %s between a restore write and its check',
+    (change) => {
+      let replacement: FakeYtPlayer | null = null;
+      let restoreAt: number | null = null;
+      const timeline: string[] = [];
+      const harness = makeHarness({
+        getGuestPlayer: (preparedPlayer) => replacement ?? preparedPlayer,
+        onGuestPhaseChange: (snapshot) => {
+          if (snapshot.phase === 'restoring-audio' && restoreAt === null) {
+            restoreAt = Date.now();
+            setTimeout(() => {
+              harness.guestPlayer.__log.length = 0;
+              if (change === 'is replaced') {
+                replacement = makeFakeYtPlayer({ __state: 2, __videoId: VIDEO_ID, __volume: 61 });
+              } else {
+                harness.guestPlayer.__videoId = 'OTHER_VIDEO';
+              }
+            }, 60);
+          }
+          if (restoreAt !== null) timeline.push(`+${Date.now() - restoreAt} ${snapshot.phase}`);
+        },
+      });
+      harness.guest.advertiseCapability();
+      harness.host.beginHostTransition({
+        queueItemId: QUEUE_ITEM_ID,
+        videoId: VIDEO_ID,
+        subIndex: null,
+      });
+      vi.advanceTimersByTime(1_000);
+
+      expect(timeline).toEqual(['+0 restoring-audio', '+120 error']);
+      expect(
+        harness.guestOutbound.filter((message) => message.type === 'youtube-zero-start-armed'),
+      ).toEqual([]);
+      expect(harness.guestPlayer.__log).toEqual([]);
+      expect((replacement as FakeYtPlayer | null)?.__log ?? []).toEqual([]);
+    },
+  );
 
   it('does not accept a replacement iframe PLAYING callback as the prepared release acknowledgement', () => {
     const fallback = vi.fn();

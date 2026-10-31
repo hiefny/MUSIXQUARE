@@ -19,9 +19,10 @@
  * scripts of standard-start-harness.ts, and the PRO controller for the arm)
  * and runs with no fault, an ignored unMute (N = 1, 2), a delayed isMuted
  * (120 ms, one verify cycle; 250 ms, the late-unMute mimic of
- * sync-integration.test.ts) and a getVolume read fault (NaN, throw). The
- * fault is set just before the loop's first attempt. Each op is written
- * relative to that instant. None of these values comes from a device trace.
+ * sync-integration.test.ts), a getVolume read fault (NaN, throw) and an unMute
+ * that takes effect and then throws (N = 1, added 2026-10-31). The fault is
+ * set just before the loop's first attempt. Each op is written relative to
+ * that instant. None of these values comes from a device trace.
  * Rows marked "Fake-model row" never verify only because every unMute
  * restarts the fake's isMuted delay (fake-yt-player.ts __unMuteDelayMs): they
  * pin that model, and a neutral change that re-issued unMute less often could
@@ -30,7 +31,10 @@
  * Today's per-loop policies these rows pin: zero-start treats a NaN volume
  * read as restored (finiteOr), the arm and player.ts do not; a desired-audio
  * change cancels zero-start's detached restore and retargets the arm's; the
- * two cleanups reissue pause and seek on every attempt.
+ * two cleanups reissue pause and seek on every attempt. A write that throws:
+ * zero-start and the arm catch it in their own write and still check that
+ * attempt, the two cleanups skip that attempt's check and write again 120 ms
+ * later, and the pre-release restore polls again 50 ms later.
  */
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { bus } from '../../core/events.ts';
@@ -156,6 +160,9 @@ const EXPECTED: Record<string, string[]> = {
     ...attempts(EIGHT, RESTORE),
     ...ZS_RESTORE_TIMEOUT,
   ],
+  // zero-start keeps the command error for its failure detail and still
+  // checks the attempt: the unmute took effect, so it is restored.
+  'zero-start active restore | unMute throws x1': [...attempts([0], RESTORE), ...ZS_RELEASE(822)],
   'zero-start detached restore | none': ['+0 pauseVideo()', ...attempts([0], RESTORE)],
   'zero-start detached restore | unMute ignored x1': [
     '+0 pauseVideo()',
@@ -173,6 +180,7 @@ const EXPECTED: Record<string, string[]> = {
     '+0 pauseVideo()',
     ...attempts(EIGHT, RESTORE),
   ],
+  'zero-start detached restore | unMute throws x1': ['+0 pauseVideo()', ...attempts([0], RESTORE)],
   // The cleanups reissue pause and seek on every attempt.
   'host legacy cleanup | none': attempts([0], CLEANUP),
   'host legacy cleanup | unMute ignored x1': attempts([0, 120], CLEANUP),
@@ -183,6 +191,9 @@ const EXPECTED: Record<string, string[]> = {
   // player.ts reads the raw volume: NaN never verifies.
   'host legacy cleanup | getVolume NaN': attempts(EIGHT, CLEANUP),
   'host legacy cleanup | getVolume throws': attempts(EIGHT, CLEANUP),
+  // A throwing cleanup write skips that attempt's check: the next attempt
+  // writes again and verifies.
+  'host legacy cleanup | unMute throws x1': attempts([0, 120], CLEANUP),
   'guest fallback cleanup | none': attempts([0], CLEANUP),
   'guest fallback cleanup | unMute ignored x1': attempts([0, 120], CLEANUP),
   'guest fallback cleanup | unMute ignored x2': attempts([0, 120, 240], CLEANUP),
@@ -191,6 +202,7 @@ const EXPECTED: Record<string, string[]> = {
   'guest fallback cleanup | isMuted +250 ms': attempts(EIGHT, CLEANUP),
   'guest fallback cleanup | getVolume NaN': attempts(EIGHT, CLEANUP),
   'guest fallback cleanup | getVolume throws': attempts(EIGHT, CLEANUP),
+  'guest fallback cleanup | unMute throws x1': attempts([0, 120], CLEANUP),
   // Command, immediate check, then 50 ms polls; the release seeks the
   // elapsed room time and plays once audio verifies.
   'guest pre-release restore | none': [
@@ -222,6 +234,14 @@ const EXPECTED: Record<string, string[]> = {
   'guest pre-release restore | isMuted +250 ms': attempts(POLLS_TO_1200, RESTORE),
   'guest pre-release restore | getVolume NaN': attempts(POLLS_TO_1200, RESTORE),
   'guest pre-release restore | getVolume throws': attempts(POLLS_TO_1200, RESTORE),
+  // The throw leaves the poll before its check; the next poll writes again.
+  'guest pre-release restore | unMute throws x1': [
+    ...attempts([0, 50], RESTORE),
+    '+50 pauseVideo()',
+    '+50 seekTo(0.05,true)',
+    ...attempts([50], RESTORE),
+    '+50 playVideo()',
+  ],
   // A desired-audio change cancels zero-start's detached restore; player.ts
   // writes the new volume itself and no retry follows.
   'zs detached desired change': [
@@ -239,6 +259,8 @@ const EXPECTED: Record<string, string[]> = {
   // The arm reads the raw volume: NaN never verifies.
   'arm active | getVolume NaN': [...attempts(EIGHT, RESTORE), ...ARM_RESTORE_TIMEOUT],
   'arm active | getVolume throws': [...attempts(EIGHT, RESTORE), ...ARM_RESTORE_TIMEOUT],
+  // The arm swallows the command error and still checks the attempt.
+  'arm active | unMute throws x1': attempts([0], RESTORE),
   'arm detached | none': ['+0 pauseVideo()', ...attempts([0], RESTORE)],
   'arm detached | unMute ignored x1': ['+0 pauseVideo()', ...attempts([0, 120], RESTORE)],
   'arm detached | unMute ignored x2': ['+0 pauseVideo()', ...attempts([0, 120, 240], RESTORE)],
@@ -248,6 +270,7 @@ const EXPECTED: Record<string, string[]> = {
   'arm detached | isMuted +250 ms': ['+0 pauseVideo()', ...attempts(EIGHT, RESTORE)],
   'arm detached | getVolume NaN': ['+0 pauseVideo()', ...attempts(EIGHT, RESTORE)],
   'arm detached | getVolume throws': ['+0 pauseVideo()', ...attempts(EIGHT, RESTORE)],
+  'arm detached | unMute throws x1': ['+0 pauseVideo()', ...attempts([0], RESTORE)],
   // A desired-audio change retargets the arm's detached restore.
   'arm detached desired change': [
     '+0 pauseVideo()',
@@ -326,7 +349,8 @@ type Fault =
   | 'isMuted +120 ms'
   | 'isMuted +250 ms'
   | 'getVolume NaN'
-  | 'getVolume throws';
+  | 'getVolume throws'
+  | 'unMute throws x1';
 const FAULTS: readonly Fault[] = [
   'none',
   'unMute ignored x1',
@@ -335,6 +359,7 @@ const FAULTS: readonly Fault[] = [
   'isMuted +250 ms',
   'getVolume NaN',
   'getVolume throws',
+  'unMute throws x1',
 ];
 
 function applyFault(fake: FakeYtPlayer, fault: Fault): void {
@@ -343,6 +368,7 @@ function applyFault(fake: FakeYtPlayer, fault: Fault): void {
   fake.__unMuteDelayMs = fault === 'isMuted +120 ms' ? 120 : fault === 'isMuted +250 ms' ? 250 : 0;
   fake.__volumeReadFault =
     fault === 'getVolume NaN' ? 'nan' : fault === 'getVolume throws' ? 'throw' : null;
+  fake.__unMuteThrowCount = fault === 'unMute throws x1' ? 1 : 0;
 }
 
 /** The audio-path ops from index on, relative to origin: '+<ms> <op>(<args>)'. */

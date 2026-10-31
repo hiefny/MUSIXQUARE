@@ -10,6 +10,8 @@
  *   the CJK families instead of falling to a device font.
  * - Hangul is only in Noto Sans KR and kana only in Noto Sans JP.
  * - Invisible and space marks Inter's subsets lack belong to no CJK family.
+ * - A CJK face declares only what its file draws, so no character makes the
+ *   browser download a shard that cannot draw it.
  */
 import { readFile } from 'node:fs/promises';
 import { dirname, join, resolve } from 'node:path';
@@ -169,6 +171,34 @@ describe('generated app font sheets', () => {
     expect(declared['font-noto-kr'].some((codePoint) => inRanges(codePoint, HANGUL))).toBe(true);
     expect(declared['font-noto-jp'].some((codePoint) => inRanges(codePoint, KANA))).toBe(true);
   });
+
+  it('declare in each CJK face only the code points its file draws', async () => {
+    // Google's CJK ranges claim characters some shards do not draw: emoji,
+    // regional indicators, and a few Thai, Arabic, Hebrew and Devanagari
+    // letters. With the four CJK families in every UI's stack, the browser
+    // would download such a shard for nothing and then move on to the next
+    // family: 👍 in the Korean or English UI would fetch a 70 KB Traditional
+    // Chinese shard, ❤ a Simplified and a Traditional one.
+    const claimed: Record<string, { count: number; first: string[] }> = {};
+    for (const id of CJK_SHEET_IDS) {
+      const entry = { count: 0, first: [] as string[] };
+      for (const rule of await readRules(id)) {
+        const file = resolve(dirname(join(ROOT, sheetPath(id))), rule.url);
+        const drawn = fontCodePoints(await openFontFile(file));
+        for (const codePoint of parseUnicodeRange(rule.unicodeRange ?? '')) {
+          if (drawn.has(codePoint)) continue;
+          entry.count += 1;
+          if (entry.first.length < 5) {
+            entry.first.push(`${rule.file} U+${codePoint.toString(16).toUpperCase()}`);
+          }
+        }
+      }
+      claimed[id] = entry;
+    }
+    expect(claimed).toEqual(
+      Object.fromEntries(CJK_SHEET_IDS.map((id) => [id, { count: 0, first: [] }])),
+    );
+  }, 60_000);
 
   it('cover every Hangul syllable in Noto Sans KR by cmap and range', async () => {
     const drawn = await drawnCodePoints('font-noto-kr');

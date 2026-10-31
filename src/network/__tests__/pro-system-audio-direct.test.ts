@@ -5,6 +5,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi, type MockInstance } from 'vitest';
 import { log } from '../../core/log.ts';
 import * as direct from '../pro-system-audio-direct.ts';
+import { DIRECT_PAIR_POLL_MS_COPY } from './__helpers__/direct-pair-poll.ts';
 
 type DirectTransportCallbacks = Parameters<typeof direct.configureProSystemAudioDirectTransport>[0];
 
@@ -790,13 +791,6 @@ beforeEach(() => {
   vi.stubGlobal('MediaStream', MockMediaStream);
 });
 
-/**
- * Either end's pair check reads its selected pair every 25 ms
- * (DIRECT_PAIR_POLL_MS) and sees a closed route only at its next poll, where
- * it ends and logs its pair-check line as 'closed'.
- */
-const PAIR_CHECK_POLL_MS = 25;
-
 afterEach(async () => {
   direct.resetProSystemAudioDirectTransport({ notifyPeers: false });
   // The reset closes every route at once, but a pair check still polling on
@@ -805,7 +799,7 @@ afterEach(async () => {
   // row instead of joining the info lines a later row asserts. A fake-timer
   // row's pending poll is dropped with its clock below and never logs.
   if (!vi.isFakeTimers() && peerConnections.length > 0) {
-    await new Promise((resolve) => setTimeout(resolve, PAIR_CHECK_POLL_MS + 1));
+    await new Promise((resolve) => setTimeout(resolve, DIRECT_PAIR_POLL_MS_COPY + 1));
   }
   vi.useRealTimers();
   vi.unstubAllGlobals();

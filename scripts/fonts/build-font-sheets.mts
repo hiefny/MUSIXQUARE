@@ -3,8 +3,8 @@
  * Generate the app's font sheets in css/fonts/app/ (see APP_FONT_SHEETS in
  * src/i18n/app-font-contract.ts).
  *
- *   npm run generate:font-sheets              write the sheets
- *   npm run generate:font-sheets -- --check   fail when a committed sheet differs
+ *   npm run generate:font-sheets              write the sheets and the prefetch table
+ *   npm run generate:font-sheets -- --check   fail when a committed output differs
  *
  * Inputs: fonts/font-sources.json (Inter and Noto Sans KR files with Google's
  * ranges), Google's sheets css/fonts/noto-{jp,sc,tc,thai}.css (read, never
@@ -29,13 +29,23 @@
  * - Noto Sans Thai keeps only its Thai face, unchanged.
  * - Inter and the CJK faces carry the size-adjust and metric overrides of
  *   src/i18n/font-metrics.ts; the script faces carry none.
+ *
+ * It also writes src/i18n/font-prefetch-samples.ts, the idle prefetch table
+ * of src/i18n/locale-fonts.ts: for the Korean, Japanese and Chinese UIs, the
+ * most frequent shards of their own family (Google numbers shards by
+ * frequency, the highest first) that fit within the face and byte caps of
+ * src/i18n/font-loading-policy.ts, each with one letter only it declares.
  */
-import { mkdir, readFile, readdir, writeFile } from 'node:fs/promises';
+import { mkdir, readFile, readdir, stat, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 import process from 'node:process';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 
 import { APP_FONT_SHEETS } from '../../src/i18n/app-font-contract.ts';
+import {
+  FONT_PREFETCH_MAX_BYTES,
+  FONT_PREFETCH_MAX_FACES,
+} from '../../src/i18n/font-loading-policy.ts';
 import { CJK_FACE_METRICS, INTER_FACE_METRICS } from '../../src/i18n/font-metrics.ts';
 import {
   fontCodePoints,
@@ -53,11 +63,24 @@ export interface GeneratedFontSheet {
   readonly css: string;
 }
 
+export interface GeneratedFontFile {
+  readonly path: string;
+  readonly text: string;
+}
+
 type Range = readonly [number, number];
 type FaceMetrics = typeof INTER_FACE_METRICS;
 
 const GENERATOR = 'scripts/fonts/build-font-sheets.mts';
 const OUTPUT_DIRECTORY = 'css/fonts/app';
+const PREFETCH_TABLE = 'src/i18n/font-prefetch-samples.ts';
+/** The UI languages with a prefetch list, and the family that draws their own words. */
+const PREFETCH_LANGUAGES = [
+  ['ko', 'font-noto-kr'],
+  ['ja', 'font-noto-jp'],
+  ['zh-hans', 'font-noto-sc'],
+  ['zh-hant', 'font-noto-tc'],
+] as const;
 const HANGUL: readonly Range[] = [
   [0x1100, 0x11ff],
   [0x3130, 0x318f],
@@ -337,10 +360,117 @@ export async function buildFontSheets(repoRoot: string): Promise<GeneratedFontSh
   });
 }
 
-/** Paths in css/fonts/app/ that differ from the generator output, are missing, or are not generated. */
+function shardNumber(file: string): number {
+  const shard = /\.(\d+)\.woff2$/u.exec(file)?.[1];
+  if (shard === undefined) throw new Error(`${file} is not a numbered shard`);
+  return Number(shard);
+}
+
+/** The first letter (BMP first) that a face declares and no other face of its family does. */
+function sampleLetter(
+  own: ReadonlySet<number>,
+  others: readonly ReadonlySet<number>[],
+  where: string,
+): string {
+  const letters = [...own]
+    .sort((left, right) => left - right)
+    .filter(
+      (codePoint) =>
+        /\p{L}/u.test(String.fromCodePoint(codePoint)) &&
+        !others.some((other) => other.has(codePoint)),
+    );
+  const sample = letters.find((codePoint) => codePoint <= 0xffff) ?? letters[0];
+  if (sample === undefined) throw new Error(`${where} declares no letter of its own`);
+  return String.fromCodePoint(sample);
+}
+
+/**
+ * src/i18n/font-prefetch-samples.ts for the given generated sheets (the
+ * generator output when omitted), formatted as the repository formats it.
+ */
+export async function buildFontPrefetchSamples(
+  repoRoot: string,
+  sheets?: readonly GeneratedFontSheet[],
+): Promise<GeneratedFontFile> {
+  const generated = sheets ?? (await buildFontSheets(repoRoot));
+  const lists: string[] = [];
+  for (const [code, id] of PREFETCH_LANGUAGES) {
+    const sheet = appSheet(id);
+    const css = generated.find(({ path: sheetPath }) => sheetPath === sheet.path)?.css;
+    if (css === undefined) throw new Error(`${GENERATOR} did not generate ${sheet.path}`);
+    const faces = parseFontFaceRules(css)
+      .map((rule) => ({
+        shard: shardNumber(rule.file),
+        file: repoPathOf(sheet.path, rule.url),
+        codePoints: parseUnicodeRange(rule.unicodeRange ?? ''),
+      }))
+      .sort((left, right) => right.shard - left.shard);
+    const shards: string[] = [];
+    let total = 0;
+    for (const face of faces) {
+      const bytes = (await stat(path.join(repoRoot, face.file))).size;
+      if (shards.length + 1 > FONT_PREFETCH_MAX_FACES || total + bytes > FONT_PREFETCH_MAX_BYTES) {
+        break;
+      }
+      total += bytes;
+      const sample = sampleLetter(
+        face.codePoints,
+        faces.filter((other) => other !== face).map((other) => other.codePoints),
+        `${sheet.family} #${face.shard}`,
+      );
+      shards.push(`{ shard: ${face.shard}, sample: '${sample}', bytes: ${bytes} }`);
+    }
+    lists.push(`'${code}': { family: '${sheet.family}', shards: [${shards.join(', ')}] }`);
+  }
+  const raw = `/**
+ * The idle prefetch table: phase C of src/i18n/locale-fonts.ts.
+ *
+ * Generated by ${GENERATOR} from the app font
+ * sheets. Do not edit by hand.
+ *
+ * For each UI language that draws its own words with a CJK family, the most
+ * frequent shards of that family (Google numbers shards by frequency, the
+ * highest first) that fit within FONT_PREFETCH_MAX_FACES and
+ * FONT_PREFETCH_MAX_BYTES (src/i18n/font-loading-policy.ts). Each shard has
+ * one letter only it declares in its family, which loads it, and its file size.
+ */
+
+import type { LanguageCode } from './locales.ts';
+
+interface FontPrefetchShard {
+  /** The shard's number in its family's sheet. */
+  readonly shard: number;
+  /** One letter only this shard declares. */
+  readonly sample: string;
+  /** The shard's WOFF2 size. */
+  readonly bytes: number;
+}
+
+interface FontPrefetchList {
+  readonly family: string;
+  readonly shards: readonly FontPrefetchShard[];
+}
+
+export const FONT_PREFETCH_BY_LANGUAGE: Readonly<Partial<Record<LanguageCode, FontPrefetchList>>> = {
+  ${lists.join(',\n  ')},
+};
+`;
+  const prettier = await import('prettier');
+  const filepath = path.join(repoRoot, PREFETCH_TABLE);
+  const options = (await prettier.resolveConfig(filepath)) ?? {};
+  return { path: PREFETCH_TABLE, text: await prettier.format(raw, { ...options, filepath }) };
+}
+
+/**
+ * Paths in css/fonts/app/ that differ from the generator output, are missing,
+ * or are not generated, and the prefetch table when it differs.
+ */
 export async function findStaleFontSheets(repoRoot: string): Promise<string[]> {
   const built = await buildFontSheets(repoRoot);
   const stale: string[] = [];
+  const table = await buildFontPrefetchSamples(repoRoot, built);
+  const committedTable = await readFile(path.join(repoRoot, table.path), 'utf8').catch(() => null);
+  if (committedTable !== table.text) stale.push(table.path);
   for (const { path: sheetPath, css } of built) {
     let committed: string | null = null;
     try {
@@ -376,11 +506,15 @@ async function main(): Promise<void> {
     return;
   }
   await mkdir(path.join(repoRoot, OUTPUT_DIRECTORY), { recursive: true });
-  for (const { path: sheetPath, css } of await buildFontSheets(repoRoot)) {
+  const sheets = await buildFontSheets(repoRoot);
+  for (const { path: sheetPath, css } of sheets) {
     await writeFile(path.join(repoRoot, sheetPath), css, 'utf8');
     const faces = (css.match(/@font-face/gu) ?? []).length;
     console.log(`${sheetPath}: ${faces} faces, ${Buffer.byteLength(css)} B`);
   }
+  const table = await buildFontPrefetchSamples(repoRoot, sheets);
+  await writeFile(path.join(repoRoot, table.path), table.text, 'utf8');
+  console.log(`${table.path}: written`);
 }
 
 const invokedPath = process.argv[1] ? pathToFileURL(path.resolve(process.argv[1])).href : '';

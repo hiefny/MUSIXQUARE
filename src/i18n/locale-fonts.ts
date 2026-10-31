@@ -13,6 +13,13 @@
  *   English UIs therefore declare the same sheets at the same moment.
  * - Phase B, after window load and the first idle slice: every other sheet.
  *   It ignores data saver because it is correctness, not prefetch.
+ * - Phase C, a quiet period after phase B: the Korean, Japanese and Chinese
+ *   UIs load their own family's most frequent shards (font-prefetch-samples.ts)
+ *   in idle slices, a few faces per batch, within a face and byte budget per
+ *   page load, so new text in those characters draws without a swap. It is
+ *   skipped on data saver, 2G or offline, pauses while the page is hidden, and
+ *   follows a language change. It only asks FontFaceSet.load(); the service
+ *   worker stays the only writer of CacheStorage.
  *
  * A failed sheet is retried on 'online' or on a later visible idle slice, a
  * bounded number of times (font-loading-policy.ts holds the values). Explicit
@@ -32,10 +39,16 @@ import {
   type AppFontSheetId,
 } from './app-font-contract.ts';
 import {
+  FONT_PREFETCH_BATCH_FACES,
+  FONT_PREFETCH_IDLE_FALLBACK_MS,
+  FONT_PREFETCH_MAX_BYTES,
+  FONT_PREFETCH_MAX_FACES,
+  FONT_PREFETCH_QUIET_MS,
   FONT_SHEETS_IDLE_TIMEOUT_MS,
   FONT_SHEET_RETRY_DELAY_MS,
   FONT_SHEET_RETRY_LIMIT,
 } from './font-loading-policy.ts';
+import { FONT_PREFETCH_BY_LANGUAGE } from './font-prefetch-samples.ts';
 import { resolveHanOrder, type HanOrder } from './startup-han-order.ts';
 import type { LanguageCode } from './locales.ts';
 import { createRetryableStylesheet } from './retryable-stylesheet.ts';
@@ -290,8 +303,171 @@ function runPhaseB(): void {
     () => {
       phaseB = 'done';
       resolveSettled();
+      enterPhaseC();
     },
   );
+}
+
+// ─── Phase C ────────────────────────────────────────────────────────
+
+type PrefetchList = NonNullable<(typeof FONT_PREFETCH_BY_LANGUAGE)[LanguageCode]>;
+type PrefetchShard = PrefetchList['shards'][number];
+type PhaseC = 'waiting' | 'quiet' | 'running' | 'done';
+
+interface NetworkInformationLike {
+  readonly saveData?: boolean;
+  readonly effectiveType?: string;
+}
+
+let phaseC: PhaseC = 'waiting';
+let cancelPhaseC: Cancel | null = null;
+let prefetchPausedForVisibility = false;
+let prefetchBatchInFlight = false;
+/** The UI language whose list phase C follows: the last phase A request. */
+let prefetchLanguage: LanguageCode | null = null;
+let prefetchedFaces = 0;
+let prefetchedBytes = 0;
+const prefetchedShards = new Set<string>();
+
+function canPrefetch(): boolean {
+  if (typeof document === 'undefined' || typeof document.fonts?.load !== 'function') return false;
+  const connection = (navigator as Navigator & { connection?: NetworkInformationLike }).connection;
+  return (
+    connection?.saveData !== true &&
+    connection?.effectiveType !== 'slow-2g' &&
+    connection?.effectiveType !== '2g' &&
+    navigator.onLine !== false
+  );
+}
+
+function isFaceLoaded(family: string, sample: string): boolean {
+  try {
+    return document.fonts.check(`400 16px "${family}"`, sample);
+  } catch {
+    return false;
+  }
+}
+
+/** The next shards of the current list, in frequency order, that fit the page budget. */
+function nextPrefetchBatch(): { family: string; shards: PrefetchShard[] } | null {
+  const list = prefetchLanguage ? FONT_PREFETCH_BY_LANGUAGE[prefetchLanguage] : undefined;
+  if (!list) return null;
+  const shards: PrefetchShard[] = [];
+  let faces = prefetchedFaces;
+  let bytes = prefetchedBytes;
+  for (const shard of list.shards) {
+    if (shards.length === FONT_PREFETCH_BATCH_FACES) break;
+    const key = `${list.family}#${shard.shard}`;
+    if (prefetchedShards.has(key)) continue;
+    if (isFaceLoaded(list.family, shard.sample)) {
+      prefetchedShards.add(key);
+      continue;
+    }
+    if (faces + 1 > FONT_PREFETCH_MAX_FACES || bytes + shard.bytes > FONT_PREFETCH_MAX_BYTES) break;
+    faces += 1;
+    bytes += shard.bytes;
+    shards.push(shard);
+  }
+  return shards.length > 0 ? { family: list.family, shards } : null;
+}
+
+/** An idle slice without a timeout; a timer chain where requestIdleCallback is missing. */
+function afterPrefetchIdle(callback: () => void): Cancel {
+  if (typeof window.requestIdleCallback === 'function') {
+    const handle = window.requestIdleCallback(() => callback());
+    return () => window.cancelIdleCallback(handle);
+  }
+  return afterDelay(callback, FONT_PREFETCH_IDLE_FALLBACK_MS);
+}
+
+function enterPhaseC(): void {
+  if (phaseC !== 'waiting' || !canPrefetch()) return;
+  phaseC = 'quiet';
+  armPrefetchQuiet();
+}
+
+function armPrefetchQuiet(): void {
+  if (phaseC !== 'quiet' || cancelPhaseC) return;
+  cancelPhaseC = afterDelay(() => {
+    cancelPhaseC = null;
+    if (!canPrefetch()) {
+      phaseC = 'done';
+      return;
+    }
+    phaseC = 'running';
+    schedulePrefetchBatch();
+  }, FONT_PREFETCH_QUIET_MS);
+}
+
+function schedulePrefetchBatch(): void {
+  if (phaseC !== 'running' || cancelPhaseC || prefetchBatchInFlight) return;
+  if (!isPageVisible()) {
+    prefetchPausedForVisibility = true;
+    return;
+  }
+  if (!nextPrefetchBatch()) return;
+  cancelPhaseC = afterPrefetchIdle(runPrefetchBatch);
+}
+
+function runPrefetchBatch(): void {
+  cancelPhaseC = null;
+  if (phaseC !== 'running') return;
+  if (!isPageVisible()) {
+    prefetchPausedForVisibility = true;
+    return;
+  }
+  if (!canPrefetch()) {
+    phaseC = 'done';
+    return;
+  }
+  const batch = nextPrefetchBatch();
+  if (!batch) return;
+  for (const shard of batch.shards) {
+    prefetchedShards.add(`${batch.family}#${shard.shard}`);
+    prefetchedFaces += 1;
+    prefetchedBytes += shard.bytes;
+  }
+  prefetchBatchInFlight = true;
+  // A FontFace load cannot be aborted, so a batch in flight always finishes.
+  document.fonts
+    .load(`400 16px "${batch.family}"`, batch.shards.map(({ sample }) => sample).join(''))
+    .then(
+      () => undefined,
+      (error: unknown) => {
+        log.warn(`[i18n] Font prefetch of ${batch.family} failed`, error);
+      },
+    )
+    .then(() => {
+      prefetchBatchInFlight = false;
+      schedulePrefetchBatch();
+    })
+    .catch((error: unknown) => {
+      log.warn('[i18n] Font prefetch bookkeeping failed', error);
+    });
+}
+
+function suspendPrefetch(): void {
+  cancelPhaseC?.();
+  cancelPhaseC = null;
+}
+
+function resumePrefetch(): void {
+  if (phaseC === 'quiet') armPrefetchQuiet();
+  else schedulePrefetchBatch();
+}
+
+function onPrefetchVisibility(): void {
+  if (!isPageVisible()) {
+    if (phaseC === 'running' && cancelPhaseC) {
+      cancelPhaseC();
+      cancelPhaseC = null;
+      prefetchPausedForVisibility = true;
+    }
+    return;
+  }
+  if (!prefetchPausedForVisibility) return;
+  prefetchPausedForVisibility = false;
+  schedulePrefetchBatch();
 }
 
 // ─── Lifecycle ──────────────────────────────────────────────────────
@@ -301,6 +477,7 @@ let started = false;
 function suspend(): void {
   cancelPhaseB?.();
   cancelPhaseB = null;
+  suspendPrefetch();
   if (cancelRetry) {
     cancelRetry();
     cancelRetry = null;
@@ -310,6 +487,7 @@ function suspend(): void {
 
 function resume(): void {
   armPhaseB();
+  resumePrefetch();
   if (retryWaitsForVisibility && isPageVisible()) {
     retryWaitsForVisibility = false;
     armRetryNow();
@@ -336,6 +514,7 @@ function start(): HanOrder {
     if (retryableSheets().length > 0) retryFailedSheets();
   });
   document.addEventListener('visibilitychange', () => {
+    onPrefetchVisibility();
     if (!isPageVisible() || !retryWaitsForVisibility) return;
     retryWaitsForVisibility = false;
     armRetryNow();
@@ -352,6 +531,10 @@ function start(): HanOrder {
  */
 function loadLanguageFonts(code: LanguageCode): Promise<void> {
   const hanOrder = start();
+  // Phase C follows the new language: its list replaces the old one, within
+  // the same page budget.
+  prefetchLanguage = code;
+  schedulePrefetchBatch();
   return Promise.all(phaseASheets(code, hanOrder).map((id) => loadSheet(id))).then(() => undefined);
 }
 

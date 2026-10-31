@@ -98,7 +98,7 @@ runbooks. Neither belongs in a general setup document.
   (App runtime equal to 9.0.28 / v801 `aa7baad5`), not merged or released; it ships as App
   9.0.29 / v802 with target `app` (App runtime paths only, no other Worker, no runtime dependency
   change) and the update dialog; the version bump `9b93c5b3` is its last runtime commit, followed
-  only by a docs commit. The owner saw the
+  only by docs commits. The owner saw the
   final pictures and on the evening of 2026-10-31 chose to release it now as the next App update,
   ahead of Phase 6 6A, and moved the iOS 17 and 18 Safari line-height check from a release gate to
   the first check after the release because no iPhone was at hand. The release owner applied the

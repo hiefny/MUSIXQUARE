@@ -340,12 +340,36 @@ function canPrefetch(): boolean {
   );
 }
 
+/** Whether a unicode-range value ('U+AC00, U+AC02-AC03, U+4??') holds a code point. */
+function rangeHolds(unicodeRange: string, codePoint: number): boolean {
+  for (const part of unicodeRange.split(',')) {
+    const match = /^\s*U\+([0-9A-F?]{1,6})(?:-([0-9A-F]{1,6}))?\s*$/iu.exec(part);
+    if (!match?.[1]) continue;
+    const start = Number.parseInt(match[1].replace(/\?/gu, '0'), 16);
+    const end = Number.parseInt(match[2] ?? match[1].replace(/\?/gu, 'F'), 16);
+    if (codePoint >= start && codePoint <= end) return true;
+  }
+  return false;
+}
+
+/**
+ * Whether the face of `family` that declares a shard's sample letter has
+ * loaded, read from the face itself. FontFaceSet.check() cannot answer this:
+ * in Chromium 153 it returned true for a shard whose face had not loaded
+ * (measured by e2e/font-identity.test.ts), so every shard looked loaded.
+ */
 function isFaceLoaded(family: string, sample: string): boolean {
+  const codePoint = sample.codePointAt(0);
+  if (codePoint === undefined) return false;
   try {
-    return document.fonts.check(`400 16px "${family}"`, sample);
+    for (const face of document.fonts) {
+      if (face.family.replace(/^(['"])(.*)\1$/su, '$2') !== family) continue;
+      if (rangeHolds(face.unicodeRange, codePoint)) return face.status === 'loaded';
+    }
   } catch {
     return false;
   }
+  return false;
 }
 
 /** The next shards of the current list, in frequency order, that fit the page budget. */

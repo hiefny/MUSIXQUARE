@@ -128,6 +128,11 @@ function localCssAssetPath(
     : target;
 }
 
+/** A built asset's name without its content hash: 'font-noto-kr-AbC123.css' -> 'font-noto-kr'. */
+function builtAssetStem(file: string): string {
+  return path.basename(file).replace(/-[A-Za-z0-9_-]{8}\.[a-z0-9]+$/u, '');
+}
+
 async function collectFiles(directory: string): Promise<string[]> {
   const files: string[] = [];
   for (const entry of await readdir(directory, { withFileTypes: true })) {
@@ -464,11 +469,17 @@ if (distMode) {
   // Inspect content rather than hashes: output filenames are intentionally
   // unstable, while an @font-face family uniquely identifies each shard.
   const lazyShardFiles: string[] = [];
+  // The static pages' processed sheets keep their source names; the app's
+  // generated sheets ('font-*') share some of their font files.
   lazyFontShards.forEach(({ label, family, source }) => {
     const assetStems = lazyFontAssetStemsBySource.get(source) ?? [];
+    const sourceStem = source.slice(0, -'.css'.length);
     const matchingFiles = builtCssEntries
       .filter(
-        ({ css }) => hasFontFace(css, family) && assetStems.some((stem) => css.includes(stem)),
+        ({ file, css }) =>
+          builtAssetStem(file) === sourceStem &&
+          hasFontFace(css, family) &&
+          assetStems.some((stem) => css.includes(stem)),
       )
       .map(({ file }) => file);
     check(
@@ -482,6 +493,19 @@ if (distMode) {
     new Set(lazyShardFiles).size === lazyFontShards.length,
     `locale fonts must remain ${lazyFontShards.length} independent lazy CSS shards`,
   );
+
+  // Each generated app sheet is its own lazy CSS asset.
+  const appSheetFiles: string[] = [];
+  for (const { id, family } of APP_FONT_SHEETS.filter((sheet) => sheet.id.startsWith('font-'))) {
+    const matchingFiles = builtCssEntries
+      .filter(({ file, css }) => builtAssetStem(file) === id && hasFontFace(css, family))
+      .map(({ file }) => file);
+    check(
+      matchingFiles.length === 1,
+      `the app font sheet ${id} should be exactly one built CSS asset (found ${matchingFiles.length})`,
+    );
+    appSheetFiles.push(...matchingFiles);
+  }
 
   const distFileSet = new Set(distFiles.map((file) => path.resolve(file)));
   const aboutLocaleFontTags = [...distAboutHtml.matchAll(/<link\b[^>]*>/giu)]
@@ -555,7 +579,7 @@ if (distMode) {
     'Pretendard font CSS was absorbed into an initial app CSS/JS asset',
   );
 
-  for (const shardFile of lazyShardFiles) {
+  for (const shardFile of [...lazyShardFiles, ...appSheetFiles]) {
     check(
       !initialAssetSet.has(path.resolve(shardFile)),
       `${path.basename(shardFile)} is linked by the initial document instead of loading lazily`,

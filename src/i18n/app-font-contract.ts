@@ -1,3 +1,6 @@
+import type { HanOrder } from './startup-han-order.ts';
+import type { LanguageCode } from './locales.ts';
+
 /**
  * The app's font stylesheets, one lazy CSS chunk each.
  *
@@ -29,3 +32,42 @@ export const APP_FONT_SHEETS = [
   { id: 'noto-malayalam', path: 'css/fonts/noto-malayalam.css', family: 'Noto Sans Malayalam' },
   { id: 'noto-gurmukhi', path: 'css/fonts/noto-gurmukhi.css', family: 'Noto Sans Gurmukhi' },
 ] as const;
+
+export type AppFontSheetId = (typeof APP_FONT_SHEETS)[number]['id'];
+
+/**
+ * The sheet that draws a UI language's own script where Inter does not. Every
+ * other language (Latin, Cyrillic and Greek alike) is drawn by Inter alone.
+ * Phase A loads it with Inter, and the language picker warms the language's
+ * native name in it.
+ */
+export const SCRIPT_FONT_SHEET_BY_LANGUAGE: Readonly<
+  Partial<Record<LanguageCode, AppFontSheetId>>
+> = {
+  ko: 'font-noto-kr',
+  ja: 'font-noto-jp',
+  'zh-hans': 'font-noto-sc',
+  'zh-hant': 'font-noto-tc',
+  th: 'font-noto-thai',
+  ar: 'noto-arabic',
+  fa: 'noto-arabic',
+  ur: 'noto-arabic',
+  he: 'noto-hebrew',
+  hi: 'noto-devanagari',
+  mr: 'noto-devanagari',
+  bn: 'noto-bengali',
+  ta: 'noto-tamil',
+  te: 'noto-telugu',
+  gu: 'noto-gujarati',
+  kn: 'noto-kannada',
+  ml: 'noto-malayalam',
+  pa: 'noto-gurmukhi',
+};
+
+/** The family that draws Han first under each Han order, which phase A loads too. */
+export const HAN_ORDER_FONT_SHEET: Readonly<Record<HanOrder, AppFontSheetId>> = {
+  ko: 'font-noto-kr',
+  ja: 'font-noto-jp',
+  'zh-hans': 'font-noto-sc',
+  'zh-hant': 'font-noto-tc',
+};

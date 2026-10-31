@@ -19,7 +19,6 @@ import {
 } from './plural-contract.ts';
 
 import type { I18nKey } from './ko.ts';
-import { hasLocaleFont } from './locale-font-contract.ts';
 import { loadLocaleRecovery, type LocaleModule } from './locale-recovery.ts';
 import {
   currentAppPathLanguage,
@@ -494,17 +493,17 @@ async function _applyLanguage(resolved: LanguageCode): Promise<void> {
     /* ignore */
   }
 
-  if (hasLocaleFont(resolved)) {
-    // Font warming is optional. A half-open CSS/runtime request must not hold
-    // the dictionary, translated DOM, or the rest of app bootstrap hostage.
-    // The loader retains its own shared work and retry-on-failure ownership;
-    // late completion only registers fonts and cannot select an older locale.
-    void import('./locale-fonts.ts')
-      .then(({ default: localeFonts }) => localeFonts.loadLocaleFont(resolved))
-      .catch((error) => {
-        log.warn(`[i18n] Failed to load font runtime for "${resolved}"`, error);
-      });
-  }
+  // Phase A of the app's font loading, for every language: Inter, the UI's
+  // own script and the first family of its Han order (locale-fonts.ts owns
+  // the sheets, their retries and phase B). Fonts are optional here: a
+  // half-open CSS or runtime request must not hold the dictionary, the
+  // translated DOM or the rest of app bootstrap hostage, and a late
+  // completion only declares fonts, so it cannot select an older locale.
+  void import('./locale-fonts.ts')
+    .then(({ default: localeFonts }) => localeFonts.loadLanguageFonts(resolved))
+    .catch((error) => {
+      log.warn(`[i18n] Failed to load font runtime for "${resolved}"`, error);
+    });
 
   if (_dicts[resolved]) {
     _translateLoadedLanguage(resolved);

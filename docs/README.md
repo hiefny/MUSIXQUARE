@@ -93,6 +93,35 @@ runbooks. Neither belongs in a general setup document.
 
 ## Maintained evidence and completed records
 
+- [Phase 6 train 6A: one YouTube start timing home, owner queries for the start timers and one verified iframe audio restore (2026-10-31)](design/phase6-6a-start-constants-owner-queries-2026-10-31.md):
+  prepared, not released. The runtime increments of the first Phase 6 App update (owner answers of
+  2026-10-30, all recommended: four App updates, each audio restore keeps its own rhythm, the
+  deferred app part of Phase 0d rides in this train, a test that reproduces a defect pins today's
+  behaviour) on branch `agent/p6-6a`, 17 commits on main `599465dd` (the Phase 6 T1 guards and the
+  YouTube test-order fix after the 9.0.27 release); the version bump, the release record's entry for
+  the train, the registry's release-batching sentence and the release are left to the release owner.
+  6A-1 replaces the cross-file reads of the start timers' names with owner queries
+  (`isYouTubeAutoSyncPending` through the player runtime bridge, and a query `sync.ts` registers
+  with the native-control authority; the PRO coordinator nudge is still read by name). 6A-2 drops
+  one direct timer clear that `resetYouTubeSyncState` repeats and a clear of a timer nothing sets.
+  6A-3 moves the shared start timing into `src/youtube/constants.ts` (C2-1), with a parity suite
+  that drives the real zero-start sender to each edge the frozen receiver takes. 6A-4 runs the six
+  YouTube audio restore loops through one verified restore in the new `src/youtube/iframe-audio.ts`
+  (RO-12), keeping both cadences and every fence, check, outcome, timer key and log line. Every T0a
+  golden and pinned row passes unchanged, and the wire is unchanged. Each tests-first commit was
+  rerun on its parent's runtime (only the changed rows fail), and the review's tests-only rows
+  also pass on the pre-6A runtime. Guard baselines fall in the commits that move the counted code:
+  CHECK 11 44 to 32, CHECK 12 reads 14 to 11 and clears 10 to 9 (CHECK 12 now counts each start
+  timer a call covers), CHECK 5 copies 2 to 1. Target `app` (13 App runtime paths, none in the other
+  five Workers, no runtime dependency change); `guard:sw-cache-version` fails only for the missing
+  bump. The eager JavaScript grows by 237 B gzip, mostly from 6A-3's object-shaped homes, which is
+  over the Phase 6 cap of +200 B, so the report asks the owner (a scalar-export shape measured 152 B
+  below the base) and also asks to defer the plan's shared player-state names, which this branch
+  leaves out. It lists the QA rounds (unit suite 727 files, 17,218 passed and one environment skip;
+  `src/youtube` clean under four shuffle seeds, while two untouched `src/pro-room` files fail the
+  same rows on the base; critical and Worker coverage, every guard, and local Playwright: critical
+  100 / 100 and the eight YouTube specs 41 / 41), mixed versions, the rollback (alone only until
+  6B merges, then a forward revert) and a blind post-deploy check.
 - [App font switch to Inter and Noto, owner decisions (2026-10-31)](design/app-font-inter-noto-2026-10-31.md):
   released on 2026-10-31 23:39 KST in Release 41210993444 (PR #548, squash `c4667abc`) as App
   9.0.29 / v802 (App build 802, target `app`: App runtime paths only, no other Worker, no runtime

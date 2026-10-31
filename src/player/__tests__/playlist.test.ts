@@ -678,14 +678,17 @@ describe('coordinator-free PRO playback routing', () => {
     };
     setYouTubePlayer(player as never);
     markYtPlayerReady(player as never);
-    const load = vi.fn();
-    bus.on('youtube:load', load);
-    vi.spyOn(youtubeIframe, 'prepareYouTubeAuthorityOccurrence').mockResolvedValue({
-      ready: true,
-      durationSeconds: 120,
-      videoId: 'NEXT_VIDEO_01',
-      subIndex: 0,
+    const order: string[] = [];
+    const load = vi.fn((videoId: string | null) => {
+      order.push(`load:${videoId}`);
     });
+    bus.on('youtube:load', load);
+    const prepareOccurrence = vi
+      .spyOn(youtubeIframe, 'prepareYouTubeAuthorityOccurrence')
+      .mockImplementation(async (request) => {
+        order.push(`prepare:${request.videoId}`);
+        return { ready: true, durationSeconds: 120, videoId: 'NEXT_VIDEO_01', subIndex: 0 };
+      });
     initPlaylist();
     const authority = createProPlaybackAuthorityToken({
       roomId: '000001',
@@ -706,6 +709,17 @@ describe('coordinator-free PRO playback routing', () => {
 
     expect(load).toHaveBeenCalledOnce();
     expect(load).toHaveBeenCalledWith('NEXT_VIDEO_01', null, next.queueItemId, false, 0);
+    // The load comes first, then the iframe preparation of that same video.
+    expect(order).toEqual(['load:NEXT_VIDEO_01', 'prepare:NEXT_VIDEO_01']);
+    // No server READY budget, so the preparation is unbarriered.
+    expect(prepareOccurrence).toHaveBeenCalledWith({
+      authorityKey: expect.any(String),
+      queueItemId: next.queueItemId,
+      videoId: 'NEXT_VIDEO_01',
+      subIndex: 0,
+      positionSeconds: 0,
+      timeoutMs: PRO_YOUTUBE_UNBARRIERED_PREPARE_TIMEOUT_MS,
+    });
   });
 
   it('does not let an older YouTube PREPARE resume after a newer authority wins the prime wait', async () => {
@@ -717,15 +731,18 @@ describe('coordinator-free PRO playback routing', () => {
     const firstPrime = new Promise<boolean>((resolve) => {
       releaseFirstPrime = resolve;
     });
-    vi.spyOn(youtubeIframe, 'waitForPendingYouTubePrimeBounce')
+    const primeWait = vi
+      .spyOn(youtubeIframe, 'waitForPendingYouTubePrimeBounce')
       .mockReturnValueOnce(firstPrime)
       .mockResolvedValueOnce(true);
-    vi.spyOn(youtubeIframe, 'prepareYouTubeAuthorityOccurrence').mockResolvedValue({
-      ready: true,
-      durationSeconds: 120,
-      videoId: 'SECOND_VIDEO_01',
-      subIndex: 0,
-    });
+    const prepareOccurrence = vi
+      .spyOn(youtubeIframe, 'prepareYouTubeAuthorityOccurrence')
+      .mockResolvedValue({
+        ready: true,
+        durationSeconds: 120,
+        videoId: 'SECOND_VIDEO_01',
+        subIndex: 0,
+      });
     const load = vi.fn();
     bus.on('youtube:load', load);
     initPlaylist();
@@ -769,6 +786,13 @@ describe('coordinator-free PRO playback routing', () => {
     expect(load).toHaveBeenCalledTimes(1);
     expect(load).toHaveBeenCalledWith('SECOND_VIDEO_01', null, second.queueItemId, false, 0);
     expect(getState('playlist.currentQueueItemId')).toBe(second.queueItemId);
+    // Both preparations waited for the prime; only the newer one reached the
+    // iframe preparation, and the stale one never did.
+    expect(primeWait).toHaveBeenCalledTimes(2);
+    expect(prepareOccurrence).toHaveBeenCalledOnce();
+    expect(prepareOccurrence).toHaveBeenCalledWith(
+      expect.objectContaining({ queueItemId: second.queueItemId, videoId: 'SECOND_VIDEO_01' }),
+    );
   });
 
   it('does not let a cancelled YouTube PREPARE touch the iframe when its prime wait resolves', async () => {
@@ -811,6 +835,32 @@ describe('coordinator-free PRO playback routing', () => {
     expect(load).not.toHaveBeenCalled();
     expect(prepareOccurrence).not.toHaveBeenCalled();
     expect(getState('playlist.currentQueueItemId')).toBeNull();
+
+    // Positive control: a fresh authority for the same item, past the same
+    // (now resolved) prime wait, does reach the iframe preparation spy.
+    prepareOccurrence.mockResolvedValueOnce({
+      ready: true,
+      durationSeconds: 120,
+      videoId: 'CANCELLED_VIDEO_01',
+      subIndex: 0,
+    });
+    await expect(
+      prepareProPlaybackAuthority({
+        authority: createProPlaybackAuthorityToken({
+          roomId: '000001',
+          roomEpoch: 1,
+          basePlaybackRevision: 13,
+          transitionId: 'fresh-after-cancel',
+        }),
+        queueItemId: item.queueItemId,
+        positionSeconds: 0,
+        youtubeVideoId: 'CANCELLED_VIDEO_01',
+      }),
+    ).resolves.toMatchObject({ status: 'ready', queueItemId: item.queueItemId });
+    expect(prepareOccurrence).toHaveBeenCalledOnce();
+    expect(prepareOccurrence).toHaveBeenCalledWith(
+      expect.objectContaining({ queueItemId: item.queueItemId, videoId: 'CANCELLED_VIDEO_01' }),
+    );
   });
 });
 

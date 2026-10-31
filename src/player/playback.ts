@@ -102,6 +102,7 @@ import { getYouTubePlayer } from '../youtube/_state.ts';
 import { loadPlaylistModule } from './playlist-loader.ts';
 import { isActiveStandardRoomCoordinator } from '../rooms/authority.ts';
 import { captureGuestFilePlayTiming, resolveFilePlayTiming } from './file-play-timing.ts';
+import { getFileDisplayName } from './track-display.ts';
 
 const SAME_TRACK_REPLAY_RESYNC_DELAY_MS = 1000;
 // The shared ICE classifier polls for up to 10 seconds. Keep PLAY neutral for
@@ -1001,7 +1002,7 @@ export function initPlayback(): void {
       cleanupStoredFile(queueItemId, filename, false, sessionId);
       setState('transfer.receivedCount', 0);
       setPlaybackTransferState(TRANSFER_STATE.IDLE);
-      showLoader(true, t('transfer.waiting_recovery', { name: filename }));
+      showLoader(true, t('transfer.waiting_recovery', { name: getFileDisplayName(filename) }));
       const selectedQueueItemId = getCurrentQueueItemId();
       const selectedItem = getQueueItemById(selectedQueueItemId);
       if (selectedQueueItemId && selectedItem) {

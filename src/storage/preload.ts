@@ -88,6 +88,7 @@ import {
   waitForTransferCapacity,
 } from './transfer-backpressure.ts';
 import { armPreloadAdmissionWatchdog } from './preload-watchdog.ts';
+import { getFileDisplayName } from '../player/track-display.ts';
 
 /**
  * One-switch rollback for the persistent-room R2 prefetch policy. Keep this
@@ -1862,7 +1863,7 @@ function handlePreloadStart(data: Record<string, unknown>, conn?: DataConnection
   if (canShowBackgroundPreload()) {
     showLoader(
       true,
-      t('toast.preparing_next', { name: data.name as string }),
+      t('toast.preparing_next', { name: getFileDisplayName(data.name as string) }),
       PRELOAD_RECEIVE_LOADER_ID,
     );
   }

@@ -59,7 +59,7 @@ import { isYouTubeZeroStartSyncOwned } from '../youtube/zero-start-ownership.ts'
 import { initSeekBar } from './seekbar.ts';
 import { installRangeDragGuard, syncRangeProgress } from './range-drag.ts';
 import { initTabTitleMarquee, setTabTitlePlaying, setTabTitleTrack } from './tab-title-marquee.ts';
-import { getTrackDisplayTitle } from '../player/track-display.ts';
+import { getFileDisplayName, getTrackDisplayTitle } from '../player/track-display.ts';
 import { createFileStartLoadingController } from './file-start-loading.ts';
 import { bindSharingActionControls } from './sharing-action-motion-port.ts';
 import type {
@@ -1811,13 +1811,21 @@ export function initPlayerControls(): void {
   // Storage error handler (prevent silent error swallowing)
   _busScope.on('storage:error', (error, filename) => {
     log.error(`[Storage] Error for ${filename}:`, error);
-    showToast(t('toast.file_save_error', { name: filename || t('common.unknown') }));
+    showToast(
+      t('toast.file_save_error', {
+        name: filename ? getFileDisplayName(filename) : t('common.unknown'),
+      }),
+    );
   });
 
   _busScope.on('storage:read-error', (data) => {
     const d = data as Record<string, unknown>;
     log.error('[Storage] Read error:', d?.filename, d?.error);
-    showToast(t('toast.file_read_error', { name: String(d?.filename || t('common.unknown')) }));
+    showToast(
+      t('toast.file_read_error', {
+        name: d?.filename ? getFileDisplayName(String(d.filename)) : t('common.unknown'),
+      }),
+    );
   });
 
   _busScope.on('storage:session-mismatch', (data) => {

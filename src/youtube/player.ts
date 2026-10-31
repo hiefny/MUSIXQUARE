@@ -2042,15 +2042,14 @@ export function initYouTube(): void {
       };
       setZeroStartExternalFallbackOwnership(true);
       // Every attempt reissues the pause and the seek with the audio.
-      restoreYouTubeAudioVerified({
-        cadence: 'verify-then-settle',
-        canWrite: () => generation === zeroStartHostFallbackGeneration,
-        write: () => cleanupExactPlayer(ownedPlayer),
-        verify: () => isYouTubeAudioRestored(ownedPlayer, desiredAudio),
-        onRestored: endCleanup,
-        onExhausted: endCleanup,
-        schedule: scheduleHostFallback,
-      });
+      restoreYouTubeAudioVerified(
+        'verify-then-settle',
+        () => generation === zeroStartHostFallbackGeneration,
+        () => cleanupExactPlayer(ownedPlayer),
+        () => isYouTubeAudioRestored(ownedPlayer, desiredAudio),
+        endCleanup,
+        scheduleHostFallback,
+      );
     };
 
     const attemptRecovery = (): void => {
@@ -2507,16 +2506,15 @@ export function initYouTube(): void {
           clearManagedTimer('yt-zero-start-external-fallback');
         };
         setZeroStartExternalFallbackOwnership(true);
-        restoreYouTubeAudioVerified({
-          cadence: 'verify-then-settle',
-          canWrite: () => cleanupGeneration === zeroStartExternalFallbackGeneration,
-          write: () => cleanupExactPlayer(ownedPlayer),
-          verify: () => isYouTubeAudioRestored(ownedPlayer, desiredAudio),
-          onRestored: endCleanup,
-          onExhausted: endCleanup,
-          schedule: (callback, delayMs) =>
+        restoreYouTubeAudioVerified(
+          'verify-then-settle',
+          () => cleanupGeneration === zeroStartExternalFallbackGeneration,
+          () => cleanupExactPlayer(ownedPlayer),
+          () => isYouTubeAudioRestored(ownedPlayer, desiredAudio),
+          endCleanup,
+          (callback, delayMs) =>
             setManagedTimer('yt-zero-start-external-fallback', callback, delayMs),
-        });
+        );
       };
 
       const attemptFallback = (): void => {

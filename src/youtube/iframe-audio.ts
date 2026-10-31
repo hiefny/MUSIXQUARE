@@ -57,59 +57,64 @@ export function isYouTubeAudioRestored(
   return player.isMuted() === target.muted && Math.abs(player.getVolume() - target.volume) <= 1;
 }
 
-interface YouTubeAudioRestore {
-  /**
-   * 'settle-then-verify': write, wait one poll, then verify (zero-start's
-   * active and detached restores, the PRO arm's active restore).
-   * 'verify-then-settle': write and verify at once, then wait one poll
-   * before the next attempt (the PRO arm's detached restore and player.ts's
-   * two cleanups).
-   */
-  readonly cadence: 'settle-then-verify' | 'verify-then-settle';
-  /** The caller's fence before every write; false ends the loop with no callback. */
-  readonly canWrite: () => boolean;
-  /** One attempt's commands. A throw skips that attempt's verify: not restored. */
-  readonly write: () => void;
-  /** 'settle-then-verify' only: the fence after the wait, before the verify (canWrite if omitted). */
-  readonly canVerify?: () => boolean;
-  /** The caller's confirmation predicate; a throw counts as not restored. */
-  readonly verify: () => boolean;
-  /** The audio verified after this many attempts. */
-  readonly onRestored: (attempts: number) => void;
-  /** The last attempt did not verify. */
-  readonly onExhausted: () => void;
-  /** The caller's own timer, asked only for the wait between attempts. */
-  readonly schedule: (callback: () => void, delayMs: number) => void;
-}
-
-/** Runs one bounded restore; the first attempt writes synchronously. */
-export function restoreYouTubeAudioVerified(restore: YouTubeAudioRestore): void {
-  const verifyFirst = restore.cadence === 'verify-then-settle';
+/**
+ * Runs one bounded restore; the first attempt writes synchronously. The
+ * steps are positional parameters: a call site stays a short list of the
+ * caller's own closures in the eagerly loaded entry chunk.
+ *
+ * @param cadence 'settle-then-verify': write, wait one poll, then verify
+ *   (zero-start's active and detached restores, the PRO arm's active
+ *   restore). 'verify-then-settle': write and verify at once, then wait one
+ *   poll before the next attempt (the PRO arm's detached restore and
+ *   player.ts's two cleanups).
+ * @param canWrite The caller's fence before every write; false ends the loop
+ *   with no callback.
+ * @param write One attempt's commands. A throw skips that attempt's verify:
+ *   not restored.
+ * @param verify The caller's confirmation predicate; a throw counts as not
+ *   restored.
+ * @param onDone Called once: restored after this many attempts, or not
+ *   restored after the last one.
+ * @param schedule The caller's own timer, asked only for the wait between
+ *   attempts.
+ * @param canVerify 'settle-then-verify' only: the fence after the wait,
+ *   before the verify.
+ */
+export function restoreYouTubeAudioVerified(
+  cadence: 'settle-then-verify' | 'verify-then-settle',
+  canWrite: () => boolean,
+  write: () => void,
+  verify: () => boolean,
+  onDone: (restored: boolean, attempts: number) => void,
+  schedule: (callback: () => void, delayMs: number) => void,
+  canVerify = canWrite,
+): void {
+  const verifyFirst = cadence === 'verify-then-settle';
   const attempt = (attempts: number): void => {
-    if (!restore.canWrite()) return;
+    if (!canWrite()) return;
     let wrote = true;
     try {
-      restore.write();
+      write();
     } catch {
       wrote = false;
     }
     const check = (): void => {
       let restored = false;
       try {
-        restored = wrote && restore.verify();
+        restored = wrote && verify();
       } catch {
         // A failed read is not a verified restore.
       }
-      if (restored) restore.onRestored(attempts + 1);
-      else if (attempts + 1 >= YOUTUBE_ARM_TIMING.audioRestoreMaxAttempts) restore.onExhausted();
-      else if (verifyFirst) {
-        restore.schedule(() => attempt(attempts + 1), YOUTUBE_ARM_TIMING.audioRestorePollMs);
+      if (restored || attempts + 1 >= YOUTUBE_ARM_TIMING.audioRestoreMaxAttempts) {
+        onDone(restored, attempts + 1);
+      } else if (verifyFirst) {
+        schedule(() => attempt(attempts + 1), YOUTUBE_ARM_TIMING.audioRestorePollMs);
       } else attempt(attempts + 1);
     };
     if (verifyFirst) check();
     else {
-      restore.schedule(() => {
-        if ((restore.canVerify ?? restore.canWrite)()) check();
+      schedule(() => {
+        if (canVerify()) check();
       }, YOUTUBE_ARM_TIMING.audioRestorePollMs);
     }
   };

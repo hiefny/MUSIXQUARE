@@ -652,24 +652,24 @@ export class YouTubeAuthorityArmController {
     this.#emitPhase(run);
     const isRestoring = (): boolean => this.#isCurrent(run) && run.phase === 'restoring-audio';
     const capturedAudio = () => ({ muted: run.originalMuted, volume: run.originalVolume });
-    restoreYouTubeAudioVerified({
-      cadence: 'settle-then-verify',
-      canWrite: () => isRestoring() && this.#ensurePlayerCurrent(run),
-      write: () => {
+    restoreYouTubeAudioVerified(
+      'settle-then-verify',
+      () => isRestoring() && this.#ensurePlayerCurrent(run),
+      () => {
         try {
           writeYouTubeAudio(run.player, capturedAudio());
         } catch {
           // Cancellation/failure cleanup cannot throw through an authority fence.
         }
       },
-      // The check reads this run's player; #markPrepared and the next write
-      // check that the iframe is still current.
-      canVerify: isRestoring,
-      verify: () => isYouTubeAudioRestored(run.player, capturedAudio()),
-      onRestored: () => this.#markPrepared(run),
-      onExhausted: () => this.#failPrepare(run, 'audio-restore-timeout'),
-      schedule: (callback, delayMs) => this.#later(run, callback, delayMs),
-    });
+      () => isYouTubeAudioRestored(run.player, capturedAudio()),
+      (restored) =>
+        restored ? this.#markPrepared(run) : this.#failPrepare(run, 'audio-restore-timeout'),
+      (callback, delayMs) => this.#later(run, callback, delayMs),
+      // The fence before the check, which reads this run's player;
+      // #markPrepared and the next write check that the iframe is current.
+      isRestoring,
+    );
   }
 
   #markPrepared(run: ActiveRun): void {
@@ -834,9 +834,9 @@ export class YouTubeAuthorityArmController {
     };
     this.#detachedRestore = restore;
     const finish = (): void => this.#finishDetachedAudioRestore(restore);
-    restoreYouTubeAudioVerified({
-      cadence: 'verify-then-settle',
-      canWrite: () => {
+    restoreYouTubeAudioVerified(
+      'verify-then-settle',
+      () => {
         if (
           this.#detachedRestore !== restore ||
           restore.generation !== this.#detachedRestoreGeneration
@@ -853,24 +853,23 @@ export class YouTubeAuthorityArmController {
         finish();
         return false;
       },
-      write: () => {
+      () => {
         try {
           writeYouTubeAudio(restore.player, restore);
         } catch {
           // The bounded verification below decides whether another attempt is useful.
         }
       },
-      verify: () => isYouTubeAudioRestored(restore.player, restore),
-      onRestored: finish,
-      onExhausted: finish,
-      schedule: (callback, delayMs) => {
+      () => isYouTubeAudioRestored(restore.player, restore),
+      finish,
+      (callback, delayMs) => {
         const timer = this.#scheduler.set(() => {
           this.#detachedRestoreTimers.delete(timer);
           callback();
         }, delayMs);
         this.#detachedRestoreTimers.add(timer);
       },
-    });
+    );
   }
 
   #finishDetachedAudioRestore(restore: DetachedAudioRestore): void {

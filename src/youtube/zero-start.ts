@@ -1462,15 +1462,17 @@ class YouTubeZeroStartController {
     };
     // isRestoring, which runs before every write and check, set the player.
     const steps = runAudioRestoreSteps(run, () => player as YouTubeZeroStartPlayer);
-    restoreYouTubeAudioVerified({
-      cadence: 'settle-then-verify',
-      canWrite: isRestoring,
-      write: steps.write,
-      verify: steps.verify,
-      onRestored: () => this.#markArmed(run),
-      onExhausted: () => this.#failLocalPrepare(run, 'audio-restore-timeout', steps.detail()),
-      schedule: (callback, delayMs) => this.#later(callback, delayMs),
-    });
+    restoreYouTubeAudioVerified(
+      'settle-then-verify',
+      isRestoring,
+      steps.write,
+      steps.verify,
+      (restored) =>
+        restored
+          ? this.#markArmed(run)
+          : this.#failLocalPrepare(run, 'audio-restore-timeout', steps.detail()),
+      (callback, delayMs) => this.#later(callback, delayMs),
+    );
   }
 
   #markArmed(run: LocalRun): void {
@@ -1996,22 +1998,22 @@ class YouTubeZeroStartController {
     const isCurrent = (): boolean =>
       generation === this.#detachedAudioRestoreGeneration && this.#getCleanupPlayer(run) === player;
     const steps = runAudioRestoreSteps(run, () => player);
-    restoreYouTubeAudioVerified({
-      cadence: 'settle-then-verify',
-      canWrite: isCurrent,
-      write: steps.write,
-      verify: steps.verify,
-      onRestored: (attempts) =>
-        this.#debug('audio-restore-complete', { runId: run.runId, attempts }),
-      onExhausted: () =>
-        this.#deps.onError?.('audio-restore-timeout', { runId: run.runId, ...steps.detail() }),
-      schedule: (callback, delayMs) => {
+    restoreYouTubeAudioVerified(
+      'settle-then-verify',
+      isCurrent,
+      steps.write,
+      steps.verify,
+      (restored, attempts) =>
+        restored
+          ? this.#debug('audio-restore-complete', { runId: run.runId, attempts })
+          : this.#deps.onError?.('audio-restore-timeout', { runId: run.runId, ...steps.detail() }),
+      (callback, delayMs) => {
         this.#detachedAudioRestoreTimer = this.#scheduler.set(() => {
           this.#detachedAudioRestoreTimer = null;
           callback();
         }, delayMs);
       },
-    });
+    );
   }
 
   #cancelDetachedAudioRestore(): void {

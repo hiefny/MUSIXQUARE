@@ -105,33 +105,32 @@ function runLoop(cadence: Cadence, script: LoopScript = {}) {
           at('canVerify');
           return verifyFences < (script.verifyFenceClosesAt ?? Number.POSITIVE_INFINITY);
         };
-  restoreYouTubeAudioVerified({
+  restoreYouTubeAudioVerified(
     cadence,
-    canWrite: () => {
+    () => {
       writeFences += 1;
       at('canWrite');
       return writeFences < (script.writeFenceClosesAt ?? Number.POSITIVE_INFINITY);
     },
-    write: () => {
+    () => {
       writes += 1;
       at(`write ${writes}`);
       if (script.throwingWrites?.includes(writes)) throw new Error('synthetic write failure');
     },
-    ...(verifyFence ? { canVerify: verifyFence } : {}),
-    verify: () => {
+    () => {
       verifies += 1;
       at(`verify ${verifies}`);
       if (script.throwingVerifies?.includes(verifies)) throw new Error('synthetic read failure');
       return writes >= restoredAfter;
     },
-    onRestored: (attempts) => at(`restored after ${attempts}`),
-    onExhausted: () => at('exhausted'),
-    schedule: (callback, delayMs) => {
+    (restored, attempts) => at(restored ? `restored after ${attempts}` : 'exhausted'),
+    (callback, delayMs) => {
       delays.push(delayMs);
       at(`schedule ${delayMs}`);
       setTimeout(callback, delayMs);
     },
-  });
+    verifyFence,
+  );
   return { log, delays };
 }
 
@@ -405,15 +404,15 @@ describe('restoreYouTubeAudioVerified: independent loops', () => {
       player: AudioPlayer,
       target: { muted: boolean; volume: number },
     ) =>
-      restoreYouTubeAudioVerified({
+      restoreYouTubeAudioVerified(
         cadence,
-        canWrite: () => true,
-        write: () => writeYouTubeAudio(player, target),
-        verify: () => isYouTubeAudioRestored(player, target),
-        onRestored: (attempts) => outcomes.push(`+${Date.now() - t0} ${name} ${attempts}`),
-        onExhausted: () => outcomes.push(`+${Date.now() - t0} ${name} exhausted`),
-        schedule: (callback, delayMs) => setTimeout(callback, delayMs),
-      });
+        () => true,
+        () => writeYouTubeAudio(player, target),
+        () => isYouTubeAudioRestored(player, target),
+        (restored, attempts) =>
+          outcomes.push(`+${Date.now() - t0} ${name} ${restored ? attempts : 'exhausted'}`),
+        (callback, delayMs) => setTimeout(callback, delayMs),
+      );
 
     loop('first', 'settle-then-verify', first, { muted: false, volume: 60 });
     vi.advanceTimersByTime(60);

@@ -533,11 +533,13 @@ function shardFace(
   if (known) return known;
   const codePoint = shard.sample.codePointAt(0);
   if (codePoint === undefined) return null;
-  let found: FontFace | null = null;
+  let found: FontFace | null;
   try {
     const placed = faces[shard.face];
-    if (placed && rangeHolds(placed.unicodeRange, codePoint)) found = placed;
-    else found = faces.find((face) => rangeHolds(face.unicodeRange, codePoint)) ?? null;
+    found =
+      placed && rangeHolds(placed.unicodeRange, codePoint)
+        ? placed
+        : (faces.find((face) => rangeHolds(face.unicodeRange, codePoint)) ?? null);
   } catch {
     return null;
   }

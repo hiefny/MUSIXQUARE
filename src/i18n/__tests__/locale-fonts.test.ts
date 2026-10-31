@@ -619,9 +619,12 @@ describe('sheet retries', () => {
     await runIdle();
     const tcRequests = () => sheets.requests.filter((id) => id === 'font-noto-tc').length;
     let phaseBSettled = false;
-    void window.__MUSIXQUARE_FONTS_SETTLED__?.then(() => {
-      phaseBSettled = true;
-    });
+    window.__MUSIXQUARE_FONTS_SETTLED__?.then(
+      () => {
+        phaseBSettled = true;
+      },
+      () => undefined,
+    );
 
     await vi.advanceTimersByTimeAsync(FONT_SHEET_ATTEMPT_TIMEOUT_MS - 1);
     expect(sheets.abandoned).toEqual([]);
@@ -648,7 +651,7 @@ describe('sheet retries', () => {
     const runtime = await freshRuntime();
     const deadlines: number[] = [];
     for (let attempt = 0; attempt < 6; attempt += 1) {
-      void runtime.loadLanguageFonts('ko');
+      runtime.loadLanguageFonts('ko').catch(() => undefined);
       await settle();
       const abandonedBefore = sheets.abandoned.length;
       let waited = 0;
@@ -671,15 +674,15 @@ describe('sheet retries', () => {
     useFakeTimers();
     sheets.behaviour.set('font-noto-kr', () => new Promise<void>(() => undefined));
     const runtime = await freshRuntime();
-    void runtime.loadLanguageFonts('ko');
-    void runtime.loadLanguageFonts('en');
+    runtime.loadLanguageFonts('ko').catch(() => undefined);
+    runtime.loadLanguageFonts('en').catch(() => undefined);
     await settle();
     const krRequests = () => sheets.requests.filter((id) => id === 'font-noto-kr').length;
     expect(krRequests()).toBe(1);
 
     await vi.advanceTimersByTimeAsync(FONT_SHEET_ATTEMPT_TIMEOUT_MS);
     sheets.behaviour.delete('font-noto-kr');
-    void runtime.loadLanguageFonts('ko');
+    runtime.loadLanguageFonts('ko').catch(() => undefined);
     await settle();
 
     expect(krRequests()).toBe(2);

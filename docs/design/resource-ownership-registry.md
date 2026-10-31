@@ -332,9 +332,11 @@ RO-53 owner-in-place
   `unMute`, `playVideo`, release acknowledgement, ABORT.
 - **Deadline owner:** the controller (the prepare budget, 10 s, and the release acknowledgement,
   1.8 s); the guest fallback and host recovery time themselves in `player.ts`: the 8 × 120 ms audio
-  restore and the 1.8 s release acknowledgement come from the timing home, and the 7.7 s that a
-  cohort-excluded guest adopts is the prepare budget minus the guest decision. The 0.35 s settle,
-  the 3 s bridge and the 50 ms polls stay literals of that one file until the recovery moves.
+  restore of their cleanups is `restoreYouTubeAudioVerified`'s bound (`iframe-audio.ts`, RO-12),
+  timed on their own managed timers; the 1.8 s release acknowledgement comes from the timing home,
+  and the 7.7 s that a cohort-excluded guest adopts is the prepare budget minus the guest
+  decision. The 0.35 s settle, the 3 s bridge and the 50 ms polls stay literals of that one file
+  until the recovery moves.
 - **Timing-constant home:** `src/youtube/constants.ts` since Phase 6 6A-3 (C2-1):
   `STANDARD_ZERO_START_BARRIER` (the guest wait, guest decision, start lead, prepare budget and
   late-fallback lead), `YOUTUBE_ARM_TIMING` (RO-03), `YOUTUBE_RELEASE_CATCH_UP_TOLERANCE_SEC` (the
@@ -397,9 +399,10 @@ RO-53 owner-in-place
   values `YOUTUBE_ARM_TIMING` (also the RO-12 audio-restore cadence) and the PRO prepare budgets
   `PRO_YOUTUBE_BARRIERED_PREPARE_TIMEOUT_MS` (2.3 s) and `PRO_YOUTUBE_UNBARRIERED_PREPARE_TIMEOUT_MS`
   (10 s, the same value as the Standard prepare budget). `zero-start.ts`, `authority-arm.ts`,
-  `iframe.ts` and `playlist.ts` import them, and `playback-controller.ts` imports the arm's
-  catch-up tolerance for a late COMMIT instead of keeping its own 40 ms copy. The barriered 2.3 s
-  and the Standard guest decision of the same value stay two values, linked by comment only.
+  `player.ts`, `iframe-audio.ts`, `iframe.ts` and `playlist.ts` import them, and
+  `playback-controller.ts` imports the arm's catch-up tolerance for a late COMMIT instead of
+  keeping its own 40 ms copy. The barriered 2.3 s and the Standard guest decision of the same
+  value stay two values, linked by comment only.
 
   The PRO playback transition those budgets serve has its own home since Phase 5.5,
   `cloudflare/pro-room-playback-timing.ts`. The PRO Worker imports the barrier
@@ -1620,9 +1623,11 @@ RO-53 owner-in-place
   `zero-start.ts` (6), `authority-arm.ts` (4), `player.ts` (14), `iframe-audio.ts` (3),
   `iframe.ts` (3) and `retained-player-controller.ts` (2). A write through a helper counts
   only inside the helper, so the baseline reasons name the helpers: `writeYouTubeAudio` in
-  `iframe-audio.ts`, through which the verified restores and the recoveries' restores before a
-  release write, and `ensureRetainedYouTubePlayerHardMuted` in `iframe.ts`, which reaches the
-  retained-player controller's `issueHardMute`. Guard item 11 names the call forms CHECK 11 does
+  `iframe-audio.ts`, through which the six verified restores, the recoveries' restores before a
+  release, the guest fallback's release write and both recoveries' unverified cleanups of a
+  replaced or cancelled iframe (`cleanupExactPlayer` in `player.ts`) write, and
+  `ensureRetainedYouTubePlayerHardMuted` in `iframe.ts`, which reaches the retained-player
+  controller's `issueHardMute`. Guard item 11 names the call forms CHECK 11 does
   not see (destructured, `.call()` and `.bind()` methods, and computed keys other than literals
   and `const`s). The iOS prime `unMute()` in `primeYouTubePlayer` stays where it
   is: it has to run inside the user gesture's call stack.
@@ -3904,9 +3909,9 @@ and unrelated strings never count, and every baseline is an exact count or list 
     value use other than a query or clear handed to a name list's method
     (`TIMER FUNCTION ALIAS`); and a start timer set by a `src/youtube/` file other than its
     listed setters, or no longer set by one of them (`START TIMER SET`). On 2026-10-31 none of
-    these fires: all 210 timer calls in `src/youtube/` resolve (209 after Phase 6 6A-1 and 207
-    after 6A-2; the five templates name per-peer timers) and nothing renames or passes on the
-    timer functions.
+    these fires: all 210 timer calls in `src/youtube/` resolve (209 after Phase 6 6A-1, 207
+    after 6A-2 and 205 after 6A-4; the five templates name per-peer timers) and nothing renames
+    or passes on the timer functions.
     `--report` lists every counted call with its names and function.
 
 The requesters of `scheduleSessionReset` and `scheduleDocumentReload`, and each page navigation

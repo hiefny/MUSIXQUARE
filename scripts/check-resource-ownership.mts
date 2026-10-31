@@ -727,8 +727,10 @@ const MEDIA_TUNING_BASELINE: Baseline = new Map<string, Allowance>([
 // `setVolume(` found on 2026-10-30. Phase 6 moves the writes to one
 // iframe-audio owner and lowers these counts as it goes; the iOS prime unMute
 // and the retained player's hard-mute proof stay. Phase 6 6A-4 moved the six
-// verified restores and the recoveries' restores before a release onto the
-// shared writer in src/youtube/iframe-audio.ts (32 calls).
+// verified restores, the recoveries' restores before a release, the guest
+// fallback's release write and both recoveries' unverified cleanups of a
+// replaced or cancelled iframe onto the shared writer in
+// src/youtube/iframe-audio.ts (32 calls).
 
 const IFRAME_AUDIO_WRITE_METHODS = new Set(['mute', 'unMute', 'setVolume']);
 
@@ -756,7 +758,9 @@ const IFRAME_AUDIO_WRITE_BASELINE: Baseline = new Map<string, Allowance>([
         'the shared restore writer writeYouTubeAudio (3), through which the six verified ' +
         "restores write: zero-start's and the PRO arm's active and detached restores, and the " +
         'player.ts cleanups of the host legacy recovery and the guest local fallback; the ' +
-        "recoveries' restores before a release write through it too",
+        "recoveries' restores before a release, the guest fallback's release write and both " +
+        "recoveries' unverified cleanups of a replaced or cancelled iframe (cleanupExactPlayer " +
+        'in player.ts) write through it too',
     },
   ],
   [
@@ -777,8 +781,9 @@ const IFRAME_AUDIO_WRITE_BASELINE: Baseline = new Map<string, Allowance>([
         'the PRO direct commit applyProPlaybackYouTubeCommit (3); the mute before stopYouTubeMode ' +
         'destroys the player (1); the mutes of the host legacy recovery and the guest local ' +
         'fallback before a load or a wait (attemptRecovery 1, attemptFallback 2), whose audio ' +
-        'restores write through writeYouTubeAudio in src/youtube/iframe-audio.ts; the ' +
-        'youtube:set-volume handler (3) and the PRO pause gate handlers (pending 1, settled 3)',
+        'restores, release write and cleanups write through writeYouTubeAudio in ' +
+        'src/youtube/iframe-audio.ts; the youtube:set-volume handler (3) and the PRO pause gate ' +
+        'handlers (pending 1, settled 3)',
     },
   ],
   [

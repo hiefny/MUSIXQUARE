@@ -1172,7 +1172,10 @@ function isHostBroadcast(conn: DataConnection | undefined): boolean {
 // per-occurrence budget keep the cure rarer than the drift.
 
 // Timer-level cross-check of the ownership records consulted below: an
-// automatic realign must never land on a scheduled or in-flight action.
+// automatic realign must never land on a scheduled or in-flight action. The
+// native-control owner query (NATIVE_CONTROL_PROTECTED_TIMERS, end of file)
+// is this list without the follow-up realign, which must not hold a native
+// PLAY or PAUSE for its whole wait.
 const SMALL_DRIFT_BUSY_TIMERS = [
   'yt-clock-action',
   'yt-seek-play',
@@ -2805,9 +2808,9 @@ export function initYouTubeSync(): void {
 
 // The guest timers the native-control authority counts as protected
 // transitions: both state actions and the three rendezvous stages, not the
-// follow-up realign. That authority cannot import this module, which imports
-// it, so this module answers for its own timers through the owner query it
-// registers there.
+// follow-up realign (SMALL_DRIFT_BUSY_TIMERS is this list plus the follow-up).
+// That authority cannot import this module, which imports it, so this module
+// answers for its own timers through the owner query it registers there.
 const NATIVE_CONTROL_PROTECTED_TIMERS = [
   'yt-clock-action',
   'yt-seek-play',

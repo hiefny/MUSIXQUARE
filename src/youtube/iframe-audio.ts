@@ -21,7 +21,9 @@
  *
  * The restores of the host legacy recovery and the guest local fallback
  * before their release (player.ts) write and check through the same two
- * helpers but keep their own 50 ms polls.
+ * helpers but keep their own 50 ms polls. The guest fallback's release write
+ * and both recoveries' unverified cleanups of a replaced or cancelled iframe
+ * (cleanupExactPlayer) write through writeYouTubeAudio too, without a check.
  */
 import { YOUTUBE_ARM_TIMING } from './constants.ts';
 

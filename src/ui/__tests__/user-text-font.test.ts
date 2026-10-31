@@ -1,40 +1,30 @@
 /**
  * @vitest-environment jsdom
  */
-import { beforeEach, describe, expect, it, vi } from 'vitest';
-import type { LocaleFontCode } from '../../i18n/locale-fonts.ts';
-
-const { preloadLocaleFontGlyphs } = vi.hoisted(() => ({
-  preloadLocaleFontGlyphs: vi.fn<(code: LocaleFontCode, text: string) => Promise<boolean>>(() =>
-    Promise.resolve(true),
-  ),
-}));
-vi.mock('../../i18n/locale-fonts.ts', () => ({
-  default: { preloadLocaleFontGlyphs },
-}));
+import { readFileSync } from 'node:fs';
+import { describe, expect, it } from 'vitest';
 
 import { applyUserTextFontFallback, detectUserTextFontCodesForTests } from '../user-text-font.ts';
 
-beforeEach(() => {
-  preloadLocaleFontGlyphs.mockClear();
-});
+// The three order classes css/style.css styles (font-stack-identity.test.ts
+// pins those rules).
+const USER_TEXT_FONT_ORDER_CLASSES = [
+  'user-text-font-ja',
+  'user-text-font-zh-hans',
+  'user-text-font-zh-hant',
+] as const;
 
-describe('script-aware user text font fallback', () => {
+/**
+ * Every app font family is declared in every UI, so user text needs no sheet
+ * of its own. What detection still decides is the Han order: text that is
+ * confidently Japanese, Simplified or Traditional Chinese draws its Han from
+ * that language's family first. Everything else, undetected Han included,
+ * follows the UI's order.
+ */
+describe('user text Han order detection', () => {
   it.each([
     ['かなカナ', ['ja']],
-    ['Привет', ['ru']],
-    ['Γεια σου', ['el']],
-    ['مرحبا', ['ar']],
-    ['שלום', ['he']],
-    ['नमस्ते', ['hi']],
-    ['স্বাগতম', ['bn']],
-    ['வணக்கம்', ['ta']],
-    ['నమస్కారం', ['te']],
-    ['નમસ્તે', ['gu']],
-    ['ನಮಸ್ಕಾರ', ['kn']],
-    ['നമസ്കാരം', ['ml']],
-    ['ਸਤ ਸ੍ਰੀ ਅਕਾਲ', ['pa']],
-    ['สวัสดี', ['th']],
+    ['ｶﾀｶﾅ', ['ja']],
     ['ㄅㄆㄇ', ['zh-hant']],
     ['这本书', ['zh-hans']],
     ['這本書', ['zh-hant']],
@@ -42,21 +32,96 @@ describe('script-aware user text font fallback', () => {
     ['山东省金寨岭锅包肉', ['zh-hans']],
     ['岭', []],
     ['练习 練習', ['zh-hans', 'zh-hant']],
-  ])('detects confident script evidence in %s', (text, expected) => {
+    ['かな 这本书', ['ja', 'zh-hans']],
+  ])('detects %s as %j', (text, expected) => {
     expect(detectUserTextFontCodesForTests(text)).toEqual(expected);
   });
 
-  it('does not guess a CJK shard for Han-only ambiguous text', () => {
+  it('does not guess a language for Han-only ambiguous text', () => {
     expect(detectUserTextFontCodesForTests('東京中文')).toEqual([]);
     expect(detectUserTextFontCodesForTests('練習')).toEqual([]);
   });
 
-  it('does not load a shard for Latin or Hangul user text', () => {
+  it.each([
+    ['Latin and Hangul', 'MUSIXQUARE 가나다'],
+    ['Cyrillic', 'Привет'],
+    ['Greek', 'Γεια σου'],
+    ['Arabic', 'مرحبا'],
+    ['Hebrew', 'שלום'],
+    ['Devanagari', 'नमस्ते'],
+    ['Bengali', 'স্বাগতম'],
+    ['Tamil', 'வணக்கம்'],
+    ['Telugu', 'నమస్కారం'],
+    ['Gujarati', 'નમસ્તે'],
+    ['Kannada', 'ನಮಸ್ಕಾರ'],
+    ['Malayalam', 'നമസ്കാരം'],
+    ['Gurmukhi', 'ਸਤ ਸ੍ਰੀ ਅਕਾਲ'],
+    ['Thai', 'สวัสดี'],
+  ])('leaves %s to the shared stack', (_script, text) => {
     const element = document.createElement('span');
 
-    expect(applyUserTextFontFallback(element, 'MUSIXQUARE 가나다')).toEqual([]);
-    expect(element.hasAttribute('dir')).toBe(false);
-    expect(preloadLocaleFontGlyphs).not.toHaveBeenCalled();
+    expect(detectUserTextFontCodesForTests(text)).toEqual([]);
+    expect(applyUserTextFontFallback(element, text)).toEqual([]);
+    expect(element.className).toBe('');
+    expect(element.hasAttribute('data-user-text-fonts')).toBe(false);
+  });
+});
+
+describe('user text Han order class', () => {
+  function orderClasses(element: HTMLElement): string[] {
+    return USER_TEXT_FONT_ORDER_CLASSES.filter((name) => element.classList.contains(name));
+  }
+
+  it.each([
+    ['かな', 'user-text-font-ja', 'ja'],
+    ['这本书', 'user-text-font-zh-hans', 'zh-hans'],
+    ['這本書', 'user-text-font-zh-hant', 'zh-hant'],
+    // Precedence: Japanese, then Simplified, then Traditional Chinese.
+    ['这本书 かな', 'user-text-font-ja', 'zh-hans ja'],
+    ['這本書 かな', 'user-text-font-ja', 'zh-hant ja'],
+    ['练习 練習', 'user-text-font-zh-hans', 'zh-hans zh-hant'],
+    ['ㄅ 这', 'user-text-font-zh-hans', 'zh-hant zh-hans'],
+  ])('gives %s exactly one order class', (text, orderClass, detected) => {
+    const element = document.createElement('span');
+
+    applyUserTextFontFallback(element, text);
+
+    expect(element.classList.contains('user-text-font')).toBe(true);
+    expect(orderClasses(element)).toEqual([orderClass]);
+    expect(element.classList).toHaveLength(2);
+    expect(element.dataset.userTextFonts).toBe(detected);
+  });
+
+  it('returns the detected list', () => {
+    const element = document.createElement('span');
+    // Characters in order, then the variant pairs.
+    expect(applyUserTextFontFallback(element, '练习 練習 かな')).toEqual([
+      'zh-hans',
+      'ja',
+      'zh-hant',
+    ]);
+  });
+
+  it('reads the element text when no text is passed', () => {
+    const element = document.createElement('span');
+    element.textContent = 'かな';
+
+    applyUserTextFontFallback(element);
+
+    expect(orderClasses(element)).toEqual(['user-text-font-ja']);
+  });
+
+  it('clears stale classes when a reused element no longer needs an order', () => {
+    const element = document.createElement('span');
+    element.classList.add('chat-text');
+    applyUserTextFontFallback(element, 'かな');
+    applyUserTextFontFallback(element, '这本书');
+    expect(orderClasses(element)).toEqual(['user-text-font-zh-hans']);
+
+    applyUserTextFontFallback(element, 'hello');
+
+    expect(element.className).toBe('chat-text');
+    expect(element.dataset.userTextFonts).toBeUndefined();
   });
 
   it('does not mutate the direction owned by the rendering boundary', () => {
@@ -66,93 +131,22 @@ describe('script-aware user text font fallback', () => {
     automatic.dir = 'auto';
     physical.dir = 'ltr';
 
-    applyUserTextFontFallback(inherited, 'مرحبا');
-    applyUserTextFontFallback(automatic, 'مرحبا');
-    applyUserTextFontFallback(physical, 'مرحبا');
+    applyUserTextFontFallback(inherited, 'かな');
+    applyUserTextFontFallback(automatic, 'かな');
+    applyUserTextFontFallback(physical, 'かな');
 
     expect(inherited.hasAttribute('dir')).toBe(false);
     expect(automatic.dir).toBe('auto');
     expect(physical.dir).toBe('ltr');
   });
+});
 
-  it('loads and composes every confidently detected shard in mixed text', async () => {
-    const element = document.createElement('span');
-    const text =
-      'かな Привет Γεια مرحبا שלום नमस्ते স্বাগতম வணக்கம் నమస్కారం નમસ્તે ನಮಸ್ಕಾರ നമസ്കാരം ਸਤ ਸ੍ਰੀ ਅਕਾਲ สวัสดี ㄅ';
-    const codes = applyUserTextFontFallback(element, text);
+describe('user text font boundary', () => {
+  it('neither imports the font loader nor loads a stylesheet', () => {
+    const source = readFileSync('src/ui/user-text-font.ts', 'utf8');
 
-    expect(codes).toEqual([
-      'ja',
-      'ru',
-      'el',
-      'ar',
-      'he',
-      'hi',
-      'bn',
-      'ta',
-      'te',
-      'gu',
-      'kn',
-      'ml',
-      'pa',
-      'th',
-      'zh-hant',
-    ]);
-    expect(element.dataset.userTextFonts).toBe('ja ru el ar he hi bn ta te gu kn ml pa th zh-hant');
-    expect(element.classList).toContain('user-text-font');
-    expect(element.classList).toContain('user-text-font-ja');
-    expect(element.classList).toContain('user-text-font-ru');
-    expect(element.classList).toContain('user-text-font-el');
-    expect(element.classList).toContain('user-text-font-ar');
-    expect(element.classList).toContain('user-text-font-he');
-    expect(element.classList).toContain('user-text-font-hi');
-    expect(element.classList).toContain('user-text-font-bn');
-    expect(element.classList).toContain('user-text-font-ta');
-    expect(element.classList).toContain('user-text-font-te');
-    expect(element.classList).toContain('user-text-font-gu');
-    expect(element.classList).toContain('user-text-font-kn');
-    expect(element.classList).toContain('user-text-font-ml');
-    expect(element.classList).toContain('user-text-font-pa');
-    expect(element.classList).toContain('user-text-font-th');
-    expect(element.classList).toContain('user-text-font-zh-hant');
-    await vi.waitFor(() =>
-      expect(preloadLocaleFontGlyphs.mock.calls).toEqual([
-        ['ja', text],
-        ['ru', text],
-        ['el', text],
-        ['ar', text],
-        ['he', text],
-        ['hi', text],
-        ['bn', text],
-        ['ta', text],
-        ['te', text],
-        ['gu', text],
-        ['kn', text],
-        ['ml', text],
-        ['pa', text],
-        ['th', text],
-        ['zh-hant', text],
-      ]),
-    );
-  });
-
-  it('warms the exact Simplified Chinese glyphs used by an external label', async () => {
-    const element = document.createElement('span');
-    const text = '山东省金寨岭锅包肉';
-
-    expect(applyUserTextFontFallback(element, text)).toEqual(['zh-hans']);
-    expect(element.dataset.userTextFonts).toBe('zh-hans');
-    expect(element.classList).toContain('user-text-font-zh-hans');
-    await vi.waitFor(() => expect(preloadLocaleFontGlyphs).toHaveBeenCalledWith('zh-hans', text));
-  });
-
-  it('clears stale classes when a reused element no longer needs a shard', () => {
-    const element = document.createElement('span');
-    applyUserTextFontFallback(element, 'Привет');
-    applyUserTextFontFallback(element, 'hello');
-
-    expect(element.classList.contains('user-text-font')).toBe(false);
-    expect(element.classList.contains('user-text-font-ru')).toBe(false);
-    expect(element.dataset.userTextFonts).toBeUndefined();
+    expect(source).not.toMatch(/\bimport\b[^;]*['"][^'"]*locale-fonts(?:\.ts)?['"]/u);
+    expect(source).not.toMatch(/\bimport\s*\(/u);
+    expect(source).not.toMatch(/locale-font-contract/u);
   });
 });

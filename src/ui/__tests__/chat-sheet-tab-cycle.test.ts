@@ -36,9 +36,6 @@ vi.mock('../player-controls.ts', () => ({
 }));
 vi.mock('../../player/transport.ts', () => ({ seekTo: vi.fn() }));
 vi.mock('../../youtube/oembed.ts', () => ({ fetchOEmbedTitle: vi.fn(async () => 'Mock Title') }));
-vi.mock('../../i18n/locale-fonts.ts', () => ({
-  default: { preloadLocaleFontGlyphs: vi.fn(async () => true) },
-}));
 
 function focusedControl(): string {
   const active = document.activeElement;

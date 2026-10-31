@@ -1450,16 +1450,16 @@ describe('PRO room media-source capabilities', () => {
     expect(overlay.classList.contains('active')).toBe(true);
   });
 
-  it('updates script-aware fonts while typing a YouTube search query', () => {
+  it('updates the Han order while typing a YouTube search query', () => {
     document.body.innerHTML = `<div id="youtube-url-input" contenteditable="true"></div>`;
     const input = document.getElementById('youtube-url-input') as HTMLDivElement;
 
     initPlayerControls();
-    input.textContent = 'เพลงไทย';
+    input.textContent = 'かなの曲';
     input.dispatchEvent(new InputEvent('input', { bubbles: true, inputType: 'insertText' }));
 
     expect(input.classList).toContain('user-text-font');
-    expect(input.classList).toContain('user-text-font-th');
+    expect(input.classList).toContain('user-text-font-ja');
   });
 
   it('uses the inline magnifier for queries while preserving direct URL submission on Enter', () => {

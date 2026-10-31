@@ -1435,18 +1435,18 @@ describe('connect i18n refresh', () => {
 });
 
 describe('member-level connection and administrator UI', () => {
-  it('applies script-aware fonts to mobile and desktop member/admin names', () => {
+  it('gives mobile and desktop member/admin names their Han order', () => {
     setState('network.appRole', 'host');
     setState(
       'network.standardRoomAdministrators',
       new Map([
         [
-          'member-thai',
+          'member-zh',
           {
-            memberId: 'member-thai',
+            memberId: 'member-zh',
             memberDisplayNumber: 2,
             isAuthenticated: true,
-            displayName: 'สวัสดี',
+            displayName: '這本書',
             permissions: {
               'media.add': true,
               'playback.control': true,
@@ -1469,37 +1469,37 @@ describe('member-level connection and administrator UI', () => {
         isOp: true,
       },
       {
-        id: 'peer-ru',
-        label: 'Привет',
+        id: 'peer-zh',
+        label: '这本书',
         joinOrder: 1,
         status: 'connected',
         isHost: false,
         isOp: false,
       },
       {
-        id: 'admin-thai',
-        label: 'สวัสดี',
+        id: 'admin-zh',
+        label: '這本書',
         joinOrder: 2,
         status: 'connected',
         isHost: false,
         isOp: true,
-        memberId: 'member-thai',
+        memberId: 'member-zh',
         memberDisplayNumber: 2,
         isAuthenticated: true,
       },
     ]);
 
     for (const listId of ['connect-device-list', 'desktop-device-list']) {
-      const russianName = Array.from(
+      const simplifiedName = Array.from(
         document.querySelectorAll<HTMLElement>(`#${listId} .d-name-label`),
-      ).find((element) => element.textContent === 'Привет');
-      expect(russianName?.classList, listId).toContain('user-text-font-ru');
+      ).find((element) => element.textContent === '这本书');
+      expect(simplifiedName?.classList, listId).toContain('user-text-font-zh-hans');
     }
     for (const listId of ['connect-administrator-list', 'desktop-administrator-list']) {
-      const thaiName = Array.from(
+      const traditionalName = Array.from(
         document.querySelectorAll<HTMLElement>(`#${listId} .d-name-label`),
-      ).find((element) => element.textContent === 'สวัสดี');
-      expect(thaiName?.classList, listId).toContain('user-text-font-th');
+      ).find((element) => element.textContent === '這本書');
+      expect(traditionalName?.classList, listId).toContain('user-text-font-zh-hant');
     }
   });
 

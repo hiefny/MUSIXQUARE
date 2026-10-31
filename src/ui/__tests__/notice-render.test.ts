@@ -5,9 +5,6 @@ vi.mock('../../core/log.ts', () => ({
   log: { debug: vi.fn(), info: vi.fn(), warn: vi.fn(), error: vi.fn() },
 }));
 vi.mock('../../i18n/index.ts', () => ({ t: vi.fn((key: string) => key) }));
-vi.mock('../../i18n/locale-fonts.ts', () => ({
-  default: { preloadLocaleFontGlyphs: vi.fn(async () => true) },
-}));
 vi.mock('../toast.ts', () => ({ showToast: vi.fn() }));
 vi.mock('../../youtube/oembed.ts', () => ({ fetchOEmbedTitle: vi.fn(async () => null) }));
 

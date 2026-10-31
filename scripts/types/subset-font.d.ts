@@ -5,6 +5,8 @@ declare module 'subset-font' {
     readonly keepAllGlyphs?: boolean;
     /** OpenType layout feature tags to keep; every feature when omitted. */
     readonly keepFeatures?: readonly string[];
+    /** Name table IDs to keep beside the ones the subsetter keeps by default (1-6). */
+    readonly preserveNameIds?: readonly number[];
   }
 
   type SubsetFont = (

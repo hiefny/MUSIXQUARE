@@ -32,9 +32,13 @@ switch in a later train.
   Without it the Korean and English UIs shape every character alike. The
   copies keep the cmap, every outline and every other layout feature; only
   the Korean forms that `locl` produced, and lookups that touched nothing
-  else, are gone. Their bytes therefore differ from Google's while the names
-  stay. The SIL OFL 1.1 allows this: the font's Reserved Font Name is
-  "Source", not "Noto".
+  else, are gone. Shard #118 also loses its GDEF table, which held only an
+  item variation store that the removed lookups alone used. Their bytes
+  therefore differ from Google's while the names stay, and each copy keeps
+  Google's copyright (name ID 0, with the Reserved Font Name) and license URL
+  (name ID 14), since the files are served under `/assets/` with no license
+  file beside them. The SIL OFL 1.1 allows this: the font's Reserved Font Name
+  is "Source", not "Noto".
 - The four unnumbered Noto Sans KR shards (Latin, Cyrillic, Vietnamese) are
   not shipped: Inter draws those ranges.
 
@@ -137,7 +141,10 @@ About links through `vite.config.ts`.
   downloaded (`source`) and the committed (`shipped`) bytes, plus the versions
   of the tools that made the Noto Sans KR copies (subset-font 2.9.0 on
   harfbuzzjs 1.6.3, fontverter 2.0.0, wawoff2 2.0.1, all GSUB and GPOS
-  features except `locl`, every glyph kept).
+  features except `locl`, every glyph kept, name IDs 13 and 14 kept). The
+  builder checks each copy's cmap, outlines and metrics at wght 400 and 700,
+  its shaping with and without Korean at the default instance and at wght 400
+  and 700, and its copyright and license names, before it writes the copy.
 - `npm run generate:font-sheets` writes `css/fonts/app/` and
   `src/i18n/font-prefetch-samples.ts` (`-- --check` compares).
 - `npm run generate:noto-kr -- --check` verifies the shipped Noto Sans KR

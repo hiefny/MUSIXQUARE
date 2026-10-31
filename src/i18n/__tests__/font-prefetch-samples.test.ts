@@ -49,7 +49,7 @@ describe('font prefetch samples', () => {
   });
 
   it.each([
-    ['ko', 'Noto Sans KR', 119, 100, 392_712],
+    ['ko', 'Noto Sans KR', 119, 100, 393_344],
     ['ja', 'Noto Sans JP', 119, 100, 394_936],
     ['zh-hans', 'Noto Sans SC', 119, 114, 342_912],
     ['zh-hant', 'Noto Sans TC', 119, 114, 391_444],

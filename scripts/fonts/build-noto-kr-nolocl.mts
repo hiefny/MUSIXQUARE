@@ -20,12 +20,17 @@
  * - every mapped character keeps the source's advance, extents and outline
  *   at wght 400 and 700;
  * - every mapped character shapes in the copy with the Korean and the
- *   English language exactly as the source shapes it with locl turned off:
+ *   English language exactly as the source shapes it with locl turned off,
+ *   at the default instance and at wght 400 and 700 (the weights the app
+ *   draws; the default instance is Thin, where variation deltas are zero):
  *   alone in Hangul and Latin runs, horizontally and vertically, with the
  *   optional halt, palt, vrt2, vhal and vpal features, and next to two other
  *   characters of the shard (four shards also registered locl for Latin text
  *   in every language; it no longer applies there either);
- * - no locl lookup is left, and no feature is added.
+ * - no locl lookup is left, and no feature is added;
+ * - the copyright (name ID 0) and the license description and URL (name IDs
+ *   13 and 14) equal the source's: the copies are modified OFL fonts served
+ *   with no license file beside them.
  * The copy must then equal the recorded shipped digest. --record writes new
  * shipped digests (a first build, or a deliberate toolchain change) together
  * with the tool versions.
@@ -55,6 +60,8 @@ import {
 const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..', '..');
 const TOOL_PACKAGES = ['subset-font', 'harfbuzzjs', 'fontverter', 'wawoff2'] as const;
 const WEIGHTS = [400, 700] as const;
+/** The copyright, license description and license URL name records the copy keeps. */
+const PRESERVED_NAME_IDS = [0, 13, 14] as const;
 const SHAPING_SCRIPTS = ['Hang', 'Latn'] as const;
 const SHAPING_DIRECTIONS = [hb.Direction.LTR, hb.Direction.TTB] as const;
 
@@ -190,20 +197,32 @@ async function compareCopy(
     }
   }
 
-  const before = new FontView(sourceFace);
-  const after = new FontView(copyFace);
   const withoutLocl = new hb.Feature('locl', 0);
-  for (const { text, script, direction, features } of shapingCases(codePoints)) {
-    const expected = before.shape(text, script, direction, 'en', [withoutLocl, ...features]);
-    for (const language of ['en', 'ko']) {
-      if (after.shape(text, script, direction, language, features) !== expected) {
-        const layout = direction === hb.Direction.TTB ? 'vertical' : 'horizontal';
-        const requested = features.map((feature) => feature.tag).join(', ') || 'default features';
-        const codes = [...text].map((character) => character.codePointAt(0)?.toString(16));
-        throw new Error(
-          `${file}: U+${codes.join(' U+')} shapes differently in a ${layout} ${script} run with ${language} (${requested})`,
-        );
+  const cases = shapingCases(codePoints);
+  // The default instance and the weights the app draws: GPOS variation deltas
+  // are zero at the default (Thin), so only wght 400 and 700 exercise them.
+  for (const weight of [undefined, ...WEIGHTS]) {
+    const before = new FontView(sourceFace, weight);
+    const after = new FontView(copyFace, weight);
+    const instance = weight === undefined ? 'the default instance' : `wght ${weight}`;
+    for (const { text, script, direction, features } of cases) {
+      const expected = before.shape(text, script, direction, 'en', [withoutLocl, ...features]);
+      for (const language of ['en', 'ko']) {
+        if (after.shape(text, script, direction, language, features) !== expected) {
+          const layout = direction === hb.Direction.TTB ? 'vertical' : 'horizontal';
+          const requested = features.map((feature) => feature.tag).join(', ') || 'default features';
+          const codes = [...text].map((character) => character.codePointAt(0)?.toString(16));
+          throw new Error(
+            `${file}: U+${codes.join(' U+')} shapes differently in a ${layout} ${script} run with ${language} (${requested}, ${instance})`,
+          );
+        }
       }
+    }
+  }
+
+  for (const nameId of PRESERVED_NAME_IDS) {
+    if (nameRecords(sourceFace, nameId) !== nameRecords(copyFace, nameId)) {
+      throw new Error(`${file}: name ID ${nameId} differs from the source`);
     }
   }
 
@@ -217,6 +236,17 @@ async function compareCopy(
   return [...sourceFeatures].filter((feature) => feature !== 'locl' && !copyFeatures.has(feature));
 }
 
+/** A face's records of one name ID, by language. */
+function nameRecords(face: hb.Face, nameId: number): string {
+  return JSON.stringify(
+    face
+      .listNames()
+      .filter((entry) => entry.nameId === nameId)
+      .map(({ language }) => [language, face.getName(nameId, language)])
+      .sort(([left = ''], [right = '']) => left.localeCompare(right)),
+  );
+}
+
 async function buildCopy(source: Uint8Array): Promise<Buffer> {
   const features = [...fontLayoutFeatures(await openFontBytes(source))].filter(
     (feature) => feature !== 'locl',
@@ -224,6 +254,7 @@ async function buildCopy(source: Uint8Array): Promise<Buffer> {
   return subsetFont(source, null, {
     keepAllGlyphs: true,
     keepFeatures: features,
+    preserveNameIds: [...PRESERVED_NAME_IDS],
     targetFormat: 'woff2',
   });
 }

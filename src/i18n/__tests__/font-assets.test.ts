@@ -75,7 +75,7 @@ describe('self-hosted Inter and Noto Sans KR files', () => {
       expect(face.shipped?.sha256, face.file).not.toBe(face.source.sha256);
     }
     expect(sum(notoSansKr.faces.map(({ source }) => source.bytes))).toBe(3_454_616);
-    expect(sum(notoSansKr.faces.map(({ shipped }) => shipped?.bytes ?? 0))).toBe(3_422_384);
+    expect(sum(notoSansKr.faces.map(({ shipped }) => shipped?.bytes ?? 0))).toBe(3_425_472);
   });
 
   it('ships every recorded file byte for byte', async () => {

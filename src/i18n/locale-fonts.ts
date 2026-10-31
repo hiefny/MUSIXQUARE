@@ -31,7 +31,9 @@
  * when it comes back from the back-forward cache, each of which grants a full
  * set of timer retries again (font-loading-policy.ts holds the values).
  * Explicit requests (a language change, the language picker) try a failed
- * sheet again at once. pagehide stops every pending timer and idle callback,
+ * sheet again at once. A face whose WOFF2 download failed stays in 'error', so
+ * the same events (and a rejected phase C batch) declare its sheet again, a
+ * bounded number of times. pagehide stops every pending timer and idle callback,
  * and a page restored from the back-forward cache resumes what was left.
  *
  * The first request also applies the startup Han order (startup-han-order.ts)
@@ -134,6 +136,15 @@ const SHEET_LOADERS: Readonly<Record<AppFontSheetId, RetryableStylesheet>> = {
 const SHEET_FAMILY = new Map<AppFontSheetId, string>(
   APP_FONT_SHEETS.map(({ id, family }) => [id, family]),
 );
+
+const FAMILY_SHEET = new Map<string, AppFontSheetId>(
+  APP_FONT_SHEETS.map(({ id, family }) => [family, id]),
+);
+
+/** A FontFace family as the app's sheets name it (browsers may report it quoted). */
+function faceFamily(face: FontFace): string {
+  return face.family.replace(/^(['"])(.*)\1$/su, '$2');
+}
 
 const APP_SHEET_IDS: readonly AppFontSheetId[] = APP_FONT_SHEETS.map(({ id }) => id);
 
@@ -322,12 +333,48 @@ function onOnline(): void {
   retryWaitsForOnline = false;
   renewRetries();
   if (retryableSheets().length > 0) retryFailedSheets(false);
+  recoverFailedFaces();
 }
 
 function onVisible(): void {
   renewRetries();
   retryWaitsForVisibility = false;
   armRetryNow();
+  recoverFailedFaces();
+}
+
+// ─── Failed faces ───────────────────────────────────────────────────
+
+const redeclarations = new Map<AppFontSheetId, number>();
+
+/**
+ * A WOFF2 download that fails leaves its CSS-connected face in 'error' for
+ * the life of the document, and the browser never fetches it again. Declare
+ * each loaded sheet with such a face again, once per call and at most
+ * FONT_SHEET_RETRY_LIMIT times per sheet per page; the browser then fetches
+ * the fresh faces on demand (from the service worker or HTTP cache, or the
+ * network). Runs on 'online', a visible page, a page restored from the
+ * back-forward cache and after a rejected phase C batch.
+ */
+function recoverFailedFaces(): void {
+  if (typeof document === 'undefined' || !document.fonts) return;
+  const affected = new Set<AppFontSheetId>();
+  try {
+    for (const face of document.fonts) {
+      if (face.status !== 'error') continue;
+      const id = FAMILY_SHEET.get(faceFamily(face));
+      if (id) affected.add(id);
+    }
+  } catch {
+    return;
+  }
+  for (const id of affected) {
+    const count = redeclarations.get(id) ?? 0;
+    if (!sheetState(id).loaded || count >= FONT_SHEET_RETRY_LIMIT) continue;
+    if (!SHEET_LOADERS[id].redeclare()) continue;
+    redeclarations.set(id, count + 1);
+    log.info(`[i18n] Declared the font sheet "${id}" again after a face failed to load`);
+  }
 }
 
 // ─── Han order ──────────────────────────────────────────────────────
@@ -457,7 +504,7 @@ function isFaceLoaded(family: string, sample: string): boolean {
   if (codePoint === undefined) return false;
   try {
     for (const face of document.fonts) {
-      if (face.family.replace(/^(['"])(.*)\1$/su, '$2') !== family) continue;
+      if (faceFamily(face) !== family) continue;
       if (rangeHolds(face.unicodeRange, codePoint)) return face.status === 'loaded';
     }
   } catch {
@@ -553,6 +600,7 @@ function runPrefetchBatch(): void {
       () => undefined,
       (error: unknown) => {
         log.warn(`[i18n] Font prefetch of ${batch.family} failed`, error);
+        recoverFailedFaces();
       },
     )
     .then(() => {

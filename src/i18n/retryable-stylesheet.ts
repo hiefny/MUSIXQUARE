@@ -1,4 +1,4 @@
-/** A stylesheet loader whose attempts can be retried and abandoned. */
+/** A stylesheet loader whose attempts can be retried, abandoned and declared again. */
 export interface RetryableStylesheet {
   /** Declare the sheet; resolves once it is, rejects when this attempt fails. */
   (): Promise<unknown>;
@@ -7,6 +7,15 @@ export interface RetryableStylesheet {
    * next call retries with a fresh native link to the same emitted URL.
    */
   abandon(): void;
+  /**
+   * Declare a loaded sheet again: append a clone of the link that declares it
+   * and remove the old link once the clone has loaded. The browser then has
+   * fresh CSS-connected faces, which it fetches on demand, in place of faces
+   * whose download failed (a failed face stays in 'error' for the life of the
+   * document). Returns false when the sheet is not loaded, no link declares it
+   * (a development build injects style elements) or a clone is still loading.
+   */
+  redeclare(): boolean;
 }
 
 /** Retry an emitted CSS asset without Vite's failed-preload success cache. */
@@ -19,6 +28,9 @@ export function createRetryableStylesheet(
   let inFlight: Promise<unknown> | null = null;
   let rejectInFlight: ((error: Error) => void) | null = null;
   let loaded = false;
+  /** The native link that declares the loaded sheet, when this loader appended it. */
+  let declaredLink: HTMLLinkElement | null = null;
+  let redeclaring = false;
 
   const findEmittedLink = (): HTMLLinkElement | null => {
     for (const link of document.querySelectorAll<HTMLLinkElement>('link[rel="stylesheet"]')) {
@@ -68,6 +80,7 @@ export function createRetryableStylesheet(
     const attempt = Promise.race([retryLink ? retry(retryLink) : importStylesheet(), abandoned])
       .then(() => {
         loaded = true;
+        declaredLink = attemptLink;
       })
       .catch((error: unknown) => {
         captureEmittedLink();
@@ -97,5 +110,32 @@ export function createRetryableStylesheet(
     reject(new Error(`Stylesheet request abandoned: ${sourceName}`));
   };
 
-  return Object.assign(load, { abandon });
+  const redeclare = (): boolean => {
+    if (!loaded || redeclaring || typeof document === 'undefined') return false;
+    const current = declaredLink?.isConnected ? declaredLink : findEmittedLink();
+    if (!current) return false;
+    const fresh = current.cloneNode(false) as HTMLLinkElement;
+    redeclaring = true;
+    fresh.addEventListener(
+      'load',
+      () => {
+        redeclaring = false;
+        current.remove();
+        declaredLink = fresh;
+      },
+      { once: true },
+    );
+    fresh.addEventListener(
+      'error',
+      () => {
+        redeclaring = false;
+        fresh.remove();
+      },
+      { once: true },
+    );
+    current.after(fresh);
+    return true;
+  };
+
+  return Object.assign(load, { abandon, redeclare });
 }

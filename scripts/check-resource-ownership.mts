@@ -725,8 +725,8 @@ const MEDIA_TUNING_BASELINE: Baseline = new Map<string, Allowance>([
 // `setVolume(` found on 2026-10-30. Phase 6 moves the writes to one
 // iframe-audio owner and lowers these counts as it goes; the iOS prime unMute
 // and the retained player's hard-mute proof stay. Phase 6 6A-4 moved the six
-// verified restores and the guest fallback's restore before its release onto
-// the shared writer in src/youtube/iframe-audio.ts (32 calls).
+// verified restores and the recoveries' restores before a release onto the
+// shared writer in src/youtube/iframe-audio.ts (32 calls).
 
 const IFRAME_AUDIO_WRITE_METHODS = new Set(['mute', 'unMute', 'setVolume']);
 

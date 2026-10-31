@@ -19,8 +19,9 @@
  * the cancel that clears them stay with the caller. This module keeps no
  * state, sets no timer and logs nothing.
  *
- * The guest fallback's restore before its release (player.ts) writes and
- * checks through the same two helpers but keeps its own 50 ms poll.
+ * The restores of the host legacy recovery and the guest local fallback
+ * before their release (player.ts) write and check through the same two
+ * helpers but keep their own 50 ms polls.
  */
 import { YOUTUBE_ARM_TIMING } from './constants.ts';
 

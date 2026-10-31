@@ -1605,8 +1605,8 @@ RO-53 owner-in-place
   reissue the pause and the seek with every attempt. Each caller passes its fences, its check
   (zero-start alone counts a NaN volume read as restored), what follows a restore or the last
   attempt, and its own timer, so the cleanups' `'yt-zero-start-host-fallback'` and
-  `'yt-zero-start-external-fallback'` timers and their clears stay in `player.ts`. The guest
-  fallback's restore before its release keeps its own 50 ms poll and writes and checks through the
+  `'yt-zero-start-external-fallback'` timers and their clears stay in `player.ts`. The two
+  recoveries' restores before a release keep their own 50 ms polls and write and check through the
   module's `writeYouTubeAudio` and `isYouTubeAudioRestored`.
   `src/youtube/__tests__/iframe-audio.test.ts` pins the restore and
   `youtube-audio-restore-cadence.test.ts` each caller's rhythm. The guard's CHECK 11 counts

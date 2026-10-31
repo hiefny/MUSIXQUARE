@@ -9,11 +9,13 @@
  * language, and the phases only decide how early each sheet is declared:
  *
  * - Phase A, when a language applies (i18n/index.ts): Inter, the UI's own
- *   script sheet and the first family of the UI's Han order. The Korean and
- *   English UIs therefore declare the same sheets at the same moment.
+ *   script sheet, Noto Sans KR for every UI that is not Japanese or Chinese,
+ *   and the first family of the UI's Han order. The Korean and English UIs
+ *   therefore declare the same sheets at the same moment under every Han
+ *   order.
  * - Phase B, after window load and the first idle slice: every other sheet.
  *   It ignores data saver because it is correctness, not prefetch.
- * - Phase C, a quiet period after phase B: the Korean, Japanese and Chinese
+ * - Phase C, a quiet period after phase B starts: the Korean, Japanese and Chinese
  *   UIs load their own family's most frequent shards (font-prefetch-samples.ts)
  *   in idle slices, a few faces per batch, within a face and byte budget per
  *   page load, so new text in those characters draws without a swap. It is
@@ -21,11 +23,16 @@
  *   follows a language change. It only asks FontFaceSet.load(); the service
  *   worker stays the only writer of CacheStorage.
  *
- * A failed sheet is retried on 'online' or on a later visible idle slice, a
- * bounded number of times (font-loading-policy.ts holds the values). Explicit
- * requests (a language change, the language picker) try a failed sheet again
- * at once. pagehide stops every pending timer and idle callback, and a page
- * restored from the back-forward cache resumes what was left.
+ * A sheet attempt that does not settle within its deadline
+ * (FONT_SHEET_ATTEMPT_TIMEOUT_MS, doubled for each later attempt of the sheet)
+ * is abandoned and counts as a failure. A failed sheet is retried by a timer in a
+ * later visible idle slice a bounded number of times, never while the browser
+ * is offline, and again at once on 'online', when the page becomes visible and
+ * when it comes back from the back-forward cache, each of which grants a full
+ * set of timer retries again (font-loading-policy.ts holds the values).
+ * Explicit requests (a language change, the language picker) try a failed
+ * sheet again at once. pagehide stops every pending timer and idle callback,
+ * and a page restored from the back-forward cache resumes what was left.
  *
  * The first request also applies the startup Han order (startup-han-order.ts)
  * as html[data-mxqr-han-order], once per page.
@@ -45,19 +52,19 @@ import {
   FONT_PREFETCH_MAX_FACES,
   FONT_PREFETCH_QUIET_MS,
   FONT_SHEETS_IDLE_TIMEOUT_MS,
+  FONT_SHEET_ATTEMPT_TIMEOUT_MAX_MS,
+  FONT_SHEET_ATTEMPT_TIMEOUT_MS,
   FONT_SHEET_RETRY_DELAY_MS,
   FONT_SHEET_RETRY_LIMIT,
 } from './font-loading-policy.ts';
 import { FONT_PREFETCH_BY_LANGUAGE } from './font-prefetch-samples.ts';
 import { resolveHanOrder, type HanOrder } from './startup-han-order.ts';
 import type { LanguageCode } from './locales.ts';
-import { createRetryableStylesheet } from './retryable-stylesheet.ts';
-
-type SheetLoader = () => Promise<unknown>;
+import { createRetryableStylesheet, type RetryableStylesheet } from './retryable-stylesheet.ts';
 
 // One literal dynamic import per sheet, so the build emits each as its own
 // lazy CSS chunk. locale-fonts.test.ts pins these paths to the contract.
-const SHEET_LOADERS: Readonly<Record<AppFontSheetId, SheetLoader>> = {
+const SHEET_LOADERS: Readonly<Record<AppFontSheetId, RetryableStylesheet>> = {
   'font-inter': createRetryableStylesheet(
     'font-inter',
     () => import('../../css/fonts/app/font-inter.css'),
@@ -128,6 +135,8 @@ const SHEET_FAMILY = new Map<AppFontSheetId, string>(
   APP_FONT_SHEETS.map(({ id, family }) => [id, family]),
 );
 
+const APP_SHEET_IDS: readonly AppFontSheetId[] = APP_FONT_SHEETS.map(({ id }) => id);
+
 const HAN_UI_LANGUAGES: ReadonlySet<string> = new Set<HanOrder>(['ja', 'zh-hans', 'zh-hant']);
 
 type Cancel = () => void;
@@ -158,12 +167,14 @@ interface SheetState {
   failed: boolean;
   inFlight: Promise<boolean> | null;
   automaticRetries: number;
+  /** Attempts started, which double each attempt's deadline. */
+  attempts: number;
 }
 
 const sheetStates = new Map<AppFontSheetId, SheetState>(
   APP_FONT_SHEETS.map(({ id }) => [
     id,
-    { loaded: false, failed: false, inFlight: null, automaticRetries: 0 },
+    { loaded: false, failed: false, inFlight: null, automaticRetries: 0, attempts: 0 },
   ]),
 );
 
@@ -174,29 +185,44 @@ function sheetState(id: AppFontSheetId): SheetState {
 }
 
 /**
- * Resolve true once the sheet's rules are declared, false after a failure.
- * Concurrent callers share one attempt; a loaded sheet is never fetched again.
+ * Resolve true once the sheet's rules are declared, false after a failure or
+ * when the attempt is abandoned at its deadline. Concurrent callers share one
+ * attempt; a loaded sheet is never fetched again.
  */
 function loadSheet(id: AppFontSheetId): Promise<boolean> {
   const state = sheetState(id);
   if (state.loaded) return Promise.resolve(true);
   if (state.inFlight) return state.inFlight;
 
-  const attempt = SHEET_LOADERS[id]()
-    .then(
-      () => true,
-      (error: unknown) => {
-        log.warn(`[i18n] Failed to load the font sheet "${id}"`, error);
-        return false;
-      },
-    )
-    .then((declared) => {
-      state.inFlight = null;
-      state.loaded = declared;
-      state.failed = !declared;
-      if (!declared) armRetry();
-      return declared;
-    });
+  const loader = SHEET_LOADERS[id];
+  const deadlineMs = Math.min(
+    FONT_SHEET_ATTEMPT_TIMEOUT_MS * 2 ** state.attempts,
+    FONT_SHEET_ATTEMPT_TIMEOUT_MAX_MS,
+  );
+  state.attempts += 1;
+  let cancelDeadline: Cancel = () => undefined;
+  const deadline = new Promise<boolean>((resolve) => {
+    cancelDeadline = afterDelay(() => {
+      log.warn(`[i18n] The font sheet "${id}" did not load in time; abandoning the request`);
+      loader.abandon();
+      resolve(false);
+    }, deadlineMs);
+  });
+  const request = loader().then(
+    () => true,
+    (error: unknown) => {
+      log.warn(`[i18n] Failed to load the font sheet "${id}"`, error);
+      return false;
+    },
+  );
+  const attempt = Promise.race([request, deadline]).then((declared) => {
+    cancelDeadline();
+    state.inFlight = null;
+    state.loaded = declared;
+    state.failed = !declared;
+    if (!declared) armRetry();
+    return declared;
+  });
   state.inFlight = attempt;
   return attempt;
 }
@@ -214,36 +240,94 @@ function declareSheets(ids: readonly AppFontSheetId[], onSettled?: () => void): 
 
 let cancelRetry: Cancel | null = null;
 let retryWaitsForVisibility = false;
+let retryWaitsForOnline = false;
 
+function isOffline(): boolean {
+  return typeof navigator !== 'undefined' && navigator.onLine === false;
+}
+
+/** Failed sheets that may be retried now: not in flight and with timer retries left. */
 function retryableSheets(): AppFontSheetId[] {
-  return APP_FONT_SHEETS.map(({ id }) => id).filter((id) => {
+  return APP_SHEET_IDS.filter((id) => {
     const state = sheetState(id);
     return state.failed && !state.inFlight && state.automaticRetries < FONT_SHEET_RETRY_LIMIT;
   });
 }
 
+/** Arm the next timer retry: after the delay, in a visible idle slice, only while online. */
 function armRetry(): void {
-  if (cancelRetry || retryWaitsForVisibility || retryableSheets().length === 0) return;
+  if (cancelRetry || retryWaitsForVisibility || retryWaitsForOnline) return;
+  if (retryableSheets().length === 0) return;
   cancelRetry = afterDelay(() => {
     cancelRetry = null;
+    if (isOffline()) {
+      retryWaitsForOnline = true;
+      return;
+    }
     if (!isPageVisible()) {
       retryWaitsForVisibility = true;
       return;
     }
     cancelRetry = afterIdle(() => {
       cancelRetry = null;
-      retryFailedSheets();
+      if (isOffline()) {
+        retryWaitsForOnline = true;
+        return;
+      }
+      retryFailedSheets(true);
     }, FONT_SHEETS_IDLE_TIMEOUT_MS);
   }, FONT_SHEET_RETRY_DELAY_MS);
 }
 
-function retryFailedSheets(): void {
+/**
+ * Retry every retryable failed sheet now. Only timer retries count against
+ * FONT_SHEET_RETRY_LIMIT; the fresh chances below do not.
+ */
+function retryFailedSheets(counted: boolean): void {
   cancelRetry?.();
   cancelRetry = null;
   retryWaitsForVisibility = false;
+  retryWaitsForOnline = false;
   const retrying = retryableSheets();
-  for (const id of retrying) sheetState(id).automaticRetries += 1;
+  if (counted) for (const id of retrying) sheetState(id).automaticRetries += 1;
   declareSheets(retrying);
+}
+
+/**
+ * A fresh chance for every failed sheet: 'online', a page becoming visible and
+ * a page restored from the back-forward cache grant a full set of timer
+ * retries again, so a long outage cannot leave the page in device fonts.
+ */
+function renewRetries(): void {
+  for (const id of APP_SHEET_IDS) {
+    const state = sheetState(id);
+    if (state.failed) state.automaticRetries = 0;
+  }
+}
+
+/** Retry failed sheets in the next idle slice, unless a retry is already armed. */
+function armRetryNow(): void {
+  if (cancelRetry || retryableSheets().length === 0) return;
+  cancelRetry = afterIdle(() => {
+    cancelRetry = null;
+    if (isOffline()) {
+      retryWaitsForOnline = true;
+      return;
+    }
+    retryFailedSheets(false);
+  }, FONT_SHEETS_IDLE_TIMEOUT_MS);
+}
+
+function onOnline(): void {
+  retryWaitsForOnline = false;
+  renewRetries();
+  if (retryableSheets().length > 0) retryFailedSheets(false);
+}
+
+function onVisible(): void {
+  renewRetries();
+  retryWaitsForVisibility = false;
+  armRetryNow();
 }
 
 // ─── Han order ──────────────────────────────────────────────────────
@@ -260,10 +344,21 @@ function applyStartupHanOrder(): HanOrder {
   return startupHanOrder;
 }
 
+/**
+ * Inter, the UI's own script sheet, then Noto Sans KR for every UI that is not
+ * Japanese or Chinese, and the first family of the UI's Han order. Noto Sans
+ * KR is there whatever the Han order, so the Korean and English UIs declare
+ * the same sheets: a Hangul name shown before phase B draws alike in both.
+ */
 function phaseASheets(code: LanguageCode, hanOrder: HanOrder): AppFontSheetId[] {
-  const uiHanOrder = HAN_UI_LANGUAGES.has(code) ? (code as HanOrder) : hanOrder;
+  const hanUi = HAN_UI_LANGUAGES.has(code);
+  const uiHanOrder = hanUi ? (code as HanOrder) : hanOrder;
   const sheets: AppFontSheetId[] = ['font-inter'];
-  for (const id of [SCRIPT_FONT_SHEET_BY_LANGUAGE[code], HAN_ORDER_FONT_SHEET[uiHanOrder]]) {
+  for (const id of [
+    SCRIPT_FONT_SHEET_BY_LANGUAGE[code],
+    hanUi ? undefined : HAN_ORDER_FONT_SHEET.ko,
+    HAN_ORDER_FONT_SHEET[uiHanOrder],
+  ]) {
     if (id && !sheets.includes(id)) sheets.push(id);
   }
   return sheets;
@@ -298,14 +393,13 @@ function runPhaseB(): void {
   cancelPhaseB = null;
   if (phaseB !== 'waiting') return;
   phaseB = 'running';
-  declareSheets(
-    APP_FONT_SHEETS.map(({ id }) => id),
-    () => {
-      phaseB = 'done';
-      resolveSettled();
-      enterPhaseC();
-    },
-  );
+  // Phase C waits on its own family's sheet, not on all of phase B, so one
+  // stalled sheet cannot hold the prefetch back.
+  enterPhaseC();
+  declareSheets(APP_SHEET_IDS, () => {
+    phaseB = 'done';
+    resolveSettled();
+  });
 }
 
 // ─── Phase C ────────────────────────────────────────────────────────
@@ -512,18 +606,7 @@ function suspend(): void {
 function resume(): void {
   armPhaseB();
   resumePrefetch();
-  if (retryWaitsForVisibility && isPageVisible()) {
-    retryWaitsForVisibility = false;
-    armRetryNow();
-  }
-}
-
-function armRetryNow(): void {
-  if (cancelRetry || retryableSheets().length === 0) return;
-  cancelRetry = afterIdle(() => {
-    cancelRetry = null;
-    retryFailedSheets();
-  }, FONT_SHEETS_IDLE_TIMEOUT_MS);
+  if (isPageVisible()) onVisible();
 }
 
 function start(): HanOrder {
@@ -534,14 +617,10 @@ function start(): HanOrder {
   window.addEventListener('pageshow', (event) => {
     if (event.persisted) resume();
   });
-  window.addEventListener('online', () => {
-    if (retryableSheets().length > 0) retryFailedSheets();
-  });
+  window.addEventListener('online', onOnline);
   document.addEventListener('visibilitychange', () => {
     onPrefetchVisibility();
-    if (!isPageVisible() || !retryWaitsForVisibility) return;
-    retryWaitsForVisibility = false;
-    armRetryNow();
+    if (isPageVisible()) onVisible();
   });
   armPhaseB();
   return hanOrder;

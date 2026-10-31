@@ -1319,7 +1319,7 @@ describe('resource-ownership guard', { timeout: 60_000 }, () => {
         });
         for (const input of [annotated, looped, frozen]) {
           expect(findingsOf(input)).toBe('');
-          expect(analyzeResourceOwnership(input).startTimerUses).toEqual({ reads: 11, clears: 10 });
+          expect(analyzeResourceOwnership(input).startTimerUses).toEqual({ reads: 11, clears: 9 });
         }
       });
 
@@ -1423,7 +1423,7 @@ describe('resource-ownership guard', { timeout: 60_000 }, () => {
       // The clear of 'yt-auto-sync' now looks like iframe.ts's own. iframe.ts
       // reads only the PRO coordinator nudge by name, so its read count stays.
       expect(findings).toContain(
-        'STALE BASELINE cross-file start-timer clear (RO-02): src/youtube/iframe.ts has 2, baseline 3',
+        'STALE BASELINE cross-file start-timer clear (RO-02): src/youtube/iframe.ts has 1, baseline 2',
       );
       expect(findings).not.toContain('cross-file start-timer read (RO-02): src/youtube/iframe.ts');
     });
@@ -1573,12 +1573,12 @@ describe('resource-ownership guard', { timeout: 60_000 }, () => {
     it('fails a raised count, a count that fell below its baseline and a start timer no file sets', () => {
       const findings = findingsOf(
         withSources((sources) => {
-          // resetYouTubeSyncState, which this reset calls next, clears both already.
+          // resetYouTubeSyncState, which this reset calls next, clears it already.
           replaceIn(
             sources,
             'src/youtube/iframe.ts',
-            "  clearManagedTimer('yt-clock-action');\n  clearManagedTimer('yt-seek-play');\n",
-            '',
+            "  clearManagedTimer('yt-seek-play');\n  clearManagedTimer('yt-auto-sync');\n",
+            "  clearManagedTimer('yt-auto-sync');\n",
           );
           replaceIn(
             sources,
@@ -1596,7 +1596,7 @@ describe('resource-ownership guard', { timeout: 60_000 }, () => {
         }),
       );
       expect(findings).toMatch(
-        /STALE BASELINE cross-file start-timer clear \(RO-02\): src\/youtube\/iframe\.ts has 1, baseline 3 - lower the baseline to 1/u,
+        /STALE BASELINE cross-file start-timer clear \(RO-02\): src\/youtube\/iframe\.ts has 1, baseline 2 - lower the baseline to 1/u,
       );
       expect(findings).toMatch(
         /RATCHET REGRESSION cross-file start-timer read \(RO-02\): src\/youtube\/sync\.ts has 4, baseline 3/u,

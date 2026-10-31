@@ -29,7 +29,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { MSG } from '../../core/constants.ts';
 import { bus } from '../../core/events.ts';
 import { getState, resetState, setState } from '../../core/state.ts';
-import { clearAllManagedTimers, setManagedTimer } from '../../core/timers.ts';
+import { clearAllManagedTimers, getManagedTimer, setManagedTimer } from '../../core/timers.ts';
 import { broadcast, safeSend, sendToHost } from '../../network/peer.ts';
 import { initProtocol, resetInboundRateLimit } from '../../network/protocol.ts';
 import { markQueueAuthorityReady } from '../../network/queue-authority.ts';
@@ -693,6 +693,32 @@ describe('H3 owner queries: direct timer clears that skip their owner retire, ex
     hostFrame(MSG.YOUTUBE_STATE, { state: 1, time: 42.35, hostPlayAt: Date.now() + 1_000 });
     return { player, loading, plays };
   }
+
+  // resetResidentYouTubeSync's direct clears of these two timers repeat what
+  // resetYouTubeSyncState, which it calls next, does through their owner.
+  it("adoptResidentYouTubeOccurrence retires a pending guest clock action through its owner (one 'false clock-action', no play) and clears 'yt-seek-play'", async () => {
+    const { loading, plays } = guestWithClockAction();
+    await vi.advanceTimersByTimeAsync(200);
+    expect(getManagedTimer('yt-clock-action')).not.toBeNull();
+    adoptResidentYouTubeOccurrence(VIDEO_ID);
+    expect(getManagedTimer('yt-clock-action')).toBeNull();
+    await vi.advanceTimersByTimeAsync(2_000);
+    expect(loading).toEqual([
+      'false clock-action',
+      'true clock-action',
+      'false clock-action',
+      'false -',
+    ]);
+    expect(plays).toEqual([]);
+
+    // An immediate host PLAY: pause and seek now, play after the seek gap.
+    hostFrame(MSG.YOUTUBE_STATE, { state: 1, time: 42.35 });
+    expect(getManagedTimer('yt-seek-play')).not.toBeNull();
+    adoptResidentYouTubeOccurrence(VIDEO_ID);
+    expect(getManagedTimer('yt-seek-play')).toBeNull();
+    await vi.advanceTimersByTimeAsync(2_000);
+    expect(plays).toEqual([]);
+  });
 
   it('lets stopYouTubeMode clear a pending clock action and its spinner (player.ts:1619-1620)', async () => {
     const { loading, plays } = guestWithClockAction();

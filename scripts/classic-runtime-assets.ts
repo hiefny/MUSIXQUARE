@@ -80,11 +80,6 @@ export const CLASSIC_RUNTIME_ASSETS = [
     outputPath: 'policy-accordion.js',
   },
   {
-    sourcePath: 'browser/classic-runtime/primary-font-loader.ts',
-    outputPath: 'primary-font-loader.js',
-    target: 'es2018',
-  },
-  {
     sourcePath: 'browser/classic-runtime/static-language.ts',
     outputPath: 'static-language.js',
   },

@@ -38,7 +38,6 @@ if (process.argv.includes('--dist')) {
 
   const expected = await compileServiceWorkerAsset(repoRoot, {
     buildEntryAssets: readInjectedManifest(built, 'BUILD_ENTRY_ASSETS'),
-    optionalPrimaryFontAssets: readInjectedManifest(built, 'OPTIONAL_PRIMARY_FONT_ASSETS'),
   });
   if (built !== expected.code) {
     throw new Error(`Built /${SERVICE_WORKER_OUTPUT_PATH} is not byte-exact compiler output.`);

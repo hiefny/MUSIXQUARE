@@ -187,7 +187,6 @@ async function assertLegacyJavaScript(mainPath: string): Promise<void> {
   javaScriptFiles.push(
     path.join(distDirectory, 'bootstrap.js'),
     path.join(distDirectory, 'fouc-cleanup.js'),
-    path.join(distDirectory, 'primary-font-loader.js'),
     path.join(distDirectory, 'wordmark-anim.js'),
     path.join(distDirectory, 'account-complete.js'),
     path.join(distDirectory, 'service-worker.js'),

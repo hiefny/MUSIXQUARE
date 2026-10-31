@@ -730,12 +730,6 @@ const guardInitialAppBundleGraph = (): Plugin => ({
   },
 });
 
-const OPTIONAL_PRIMARY_FONT_ASSETS = [
-  './primary-font-loader.js',
-  './primary-font.css',
-  './designsystem/fonts/PretendardVariable.woff2',
-] as const;
-
 function serviceWorkerAssetPath(fileName: string): string {
   return `./${fileName.replace(/^\/+/, '')}`;
 }
@@ -819,27 +813,9 @@ export function collectStaticAppEntryAssets(bundle: Record<string, unknown>): st
   return [...assets].sort();
 }
 
-/**
- * Return the stable lazy Pretendard runtime closure. These publicDir assets are
- * deliberately absent from the page's initial script/stylesheet graph.
- */
-export function collectOptionalPrimaryFontAssets(_bundle: Record<string, unknown>): string[] {
-  return [...OPTIONAL_PRIMARY_FONT_ASSETS];
-}
-
-export function injectBuildEntryAssets(
-  serviceWorker: string,
-  assets: readonly string[],
-  optionalPrimaryFontAssets: readonly string[],
-): string {
+export function injectBuildEntryAssets(serviceWorker: string, assets: readonly string[]): string {
   if (assets.length === 0) throw new Error('Canonical app entry manifest is empty.');
-  if (optionalPrimaryFontAssets.length !== OPTIONAL_PRIMARY_FONT_ASSETS.length) {
-    throw new Error('Optional primary-font manifest is incomplete.');
-  }
-  return injectServiceWorkerSource(serviceWorker, {
-    buildEntryAssets: assets,
-    optionalPrimaryFontAssets,
-  });
+  return injectServiceWorkerSource(serviceWorker, { buildEntryAssets: assets });
 }
 
 export const serviceWorkerAsset = (): Plugin => {
@@ -888,14 +864,7 @@ export const serviceWorkerAsset = (): Plugin => {
       if (!productionBuild) return;
       const assets = collectStaticAppEntryAssets(bundle);
       if (assets.length === 0) this.error('Could not collect the MUSIXQUARE app entry manifest.');
-      const optionalPrimaryFontAssets = collectOptionalPrimaryFontAssets(bundle);
-      if (optionalPrimaryFontAssets.length !== OPTIONAL_PRIMARY_FONT_ASSETS.length) {
-        this.error('Could not collect the MUSIXQUARE optional primary-font manifest.');
-      }
-      const compiled = await compileServiceWorkerAsset(repoRoot, {
-        buildEntryAssets: assets,
-        optionalPrimaryFontAssets,
-      });
+      const compiled = await compileServiceWorkerAsset(repoRoot, { buildEntryAssets: assets });
       assertServiceWorkerJavaScript(compiled.code);
       // Emit once its manifest is complete; Rolldown requires asset source at
       // emission time and does not support the old source-less placeholder.

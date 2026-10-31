@@ -6,8 +6,12 @@
  * self-hosted face for every character, the same widths and the same pixels.
  * The fixture is chat in many scripts (Korean, Japanese, Chinese, Han without
  * a language marker, Russian and Greek, Thai, Arabic, the marks Inter lacks
- * ※ ― ‥ ‰ ‼ ⁉, arrows and symbols, a long wrapping line, emoji) and a file
- * track whose name arrived decomposed (NFD), in the player and the playlist.
+ * ※ ― ‥ ‰ ‼ ⁉, arrows and symbols, parenthesized and circled Hangul, a long
+ * wrapping line, emoji) and a file track whose name arrived decomposed (NFD),
+ * in the player and the playlist. One line holds symbols no self-hosted face
+ * draws, which a device font draws by page language; it stays out of the
+ * identity comparison until the owner decides on a symbol face, and the test
+ * checks that they still draw with a device face, so a fix shows here.
  * It holds for a browser that lists Korean first and for one that lists
  * Japanese first, which changes the startup Han order of both UIs alike.
  *
@@ -42,6 +46,23 @@ import {
 
 type UiLanguage = 'ko' | 'en';
 
+/**
+ * Symbols no self-hosted face draws. The browser's fallback picks a device
+ * font by page language, so the Korean and English UIs draw them differently
+ * (the review measured ☺ in Segoe UI Symbol and Arial on Windows); see the
+ * report's owner questions. Remove this line from the exclusion once a face
+ * draws them.
+ */
+const OPEN_SYMBOL_SPLIT = '☺ ℹ ∼ ◈ ‣';
+const OPEN_SYMBOLS = [...OPEN_SYMBOL_SPLIT].filter((character) => character.trim());
+
+/**
+ * Graphemes whose probe may report no face: none while each probe is its own
+ * inline-block, so shaping never joins two probes. Listed so an exemption is
+ * explicit and recorded.
+ */
+const CALT_LIGATURE_TAILS: ReadonlySet<string> = new Set(['>', 'x']);
+
 const CHAT = [
   '안녕하세요 오늘 Night Drive 틀어요',
   'こんにちは、今日は良い天気ですね',
@@ -52,6 +73,9 @@ const CHAT = [
   'مرحبا بالجميع',
   '※ 공지 ― 아‥ 100‰ 정말‼ 왜⁉',
   'Intro -> Outro 3x4 1:30 → ≈ ♪ ★',
+  // Hangul outside the Hangul blocks: Noto Sans KR, never a JP-first face.
+  '㈜카카오 ㉠ ㅋ 한',
+  OPEN_SYMBOL_SPLIT,
   // Long enough to wrap. Not the group's last row, which carries the
   // localized time beside its bubble.
   'Night Drive 밤의 드라이브 夜のドライブ 夜间驾驶 Ночная поездка ※ Live 2026 ‼ one long title that wraps',
@@ -226,7 +250,9 @@ async function readDrawn(page: Page): Promise<Drawn> {
       probe.style.cssText +=
         ';position:absolute;left:0;top:0;visibility:hidden;white-space:pre;pointer-events:none;';
       for (const { segment } of segmenter.segment(element.textContent ?? '')) {
+        // Its own inline-block, so no shaping (Inter's calt joins '->') crosses probes.
         const span = document.createElement('span');
+        span.style.display = 'inline-block';
         span.textContent = segment;
         probe.append(span);
         list.push({ key, grapheme: segment });
@@ -307,12 +333,22 @@ const SCRIPT_FAMILY: readonly [RegExp, RegExp][] = [
   [/\p{Script=Arabic}/u, /^Noto Sans Arabic/u],
 ];
 
-/** Faces that break the switch's rules: a device face for a covered character, or the wrong family for a script. */
-function ruleBreaks(drawn: Drawn): string[] {
+/**
+ * Faces that break the switch's rules: no face reported, a device face for a
+ * covered character, or the wrong family for a script. A grapheme with no face
+ * is a break unless it is a listed ligature tail, and each exemption is
+ * recorded in `exempted`.
+ */
+function ruleBreaks(drawn: Drawn, exempted: string[] = []): string[] {
   const breaks: string[] = [];
   for (const [key, list] of Object.entries(drawn.glyphs)) {
     for (const { grapheme, faces } of list) {
       if (!grapheme.trim()) continue;
+      if (faces.length === 0) {
+        if (CALT_LIGATURE_TAILS.has(grapheme)) exempted.push(`${key} '${grapheme}'`);
+        else breaks.push(`${key} '${grapheme}': no face reported`);
+        continue;
+      }
       const names = faces.map(({ familyName, isCustomFont }) =>
         isCustomFont ? familyName : `${familyName} (device)`,
       );
@@ -454,22 +490,57 @@ test.describe('app font identity', () => {
 
       expect([korean.lang, english.lang]).toEqual(['ko', 'en']);
       expect([korean.hanOrder, english.hanOrder]).toEqual([hanOrder, hanOrder]);
-      expect(ruleBreaks(korean.drawn), 'Korean UI').toEqual([]);
-      expect(ruleBreaks(english.drawn), 'English UI').toEqual([]);
+      const exempted = { ko: [] as string[], en: [] as string[] };
+      expect(ruleBreaks(korean.drawn, exempted.ko), 'Korean UI').toEqual([]);
+      expect(ruleBreaks(english.drawn, exempted.en), 'English UI').toEqual([]);
+
+      // The open symbol line: still drawn by a device face in both UIs.
+      const symbolKey = `chat ${CHAT.indexOf(OPEN_SYMBOL_SPLIT) + 1}`;
+      const deviceDrawn = (drawn: Drawn) =>
+        (drawn.glyphs[symbolKey] ?? [])
+          .filter(
+            ({ grapheme, faces }) => grapheme.trim() && !faces.every((face) => face.isCustomFont),
+          )
+          .map(({ grapheme }) => grapheme);
+      expect(deviceDrawn(korean.drawn), 'Korean UI symbols').toEqual(OPEN_SYMBOLS);
+      expect(deviceDrawn(english.drawn), 'English UI symbols').toEqual(OPEN_SYMBOLS);
+      const withoutSymbols = <T>(record: Record<string, T>): Record<string, T> =>
+        Object.fromEntries(Object.entries(record).filter(([key]) => key !== symbolKey));
 
       // The record of what drew each character, for the report and a failed run.
       writeFileSync(
         testInfo.outputPath('drawn.json'),
         JSON.stringify(
-          { hanOrder, faces: faceList(korean.drawn), widths: korean.drawn.widths },
+          {
+            hanOrder,
+            faces: faceList(korean.drawn),
+            widths: korean.drawn.widths,
+            exempted,
+            openSymbols: {
+              ko: faceList(korean.drawn)[symbolKey],
+              en: faceList(english.drawn)[symbolKey],
+              widths: { ko: korean.drawn.widths[symbolKey], en: english.drawn.widths[symbolKey] },
+            },
+          },
           null,
           1,
         ),
       );
-      expect(faceList(english.drawn)).toEqual(faceList(korean.drawn));
-      expect(english.drawn.widths).toEqual(korean.drawn.widths);
+      for (const [ui, drawn] of [
+        ['ko', korean.drawn],
+        ['en', english.drawn],
+      ] as const) {
+        const pixels = drawn.pixels[symbolKey];
+        if (pixels) {
+          await testInfo.attach(`open symbols ${ui}`, { body: pixels, contentType: 'image/png' });
+        }
+      }
+      expect(withoutSymbols(faceList(english.drawn))).toEqual(
+        withoutSymbols(faceList(korean.drawn)),
+      );
+      expect(withoutSymbols(english.drawn.widths)).toEqual(withoutSymbols(korean.drawn.widths));
       const differing: string[] = [];
-      for (const [key, pixels] of Object.entries(korean.drawn.pixels)) {
+      for (const [key, pixels] of Object.entries(withoutSymbols(korean.drawn.pixels))) {
         const other = english.drawn.pixels[key];
         if (other && pixels.equals(other)) continue;
         differing.push(key);

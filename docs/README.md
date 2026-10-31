@@ -111,14 +111,15 @@ runbooks. Neither belongs in a general setup document.
   retries), and the Pretendard runtime, the bootstrap font scheduler and the service worker's font
   group are gone, so no resource-ownership record is needed; About and the sitemap page keep their
   original sheets, and Pretendard stays deployed for the public pages. The report lists the
-  owner's ten decisions, the departures from the design (separate app sheets, CJK faces cut by
+  owner's decisions and the release owner's ten implementation defaults, which the owner can
+  reverse, the departures from the design (separate app sheets, CJK faces cut by
   their own cmap, the prefetch reading face status because Chromium's `FontFaceSet.check()`
   answered true for unloaded shards), every visible change for the owner's pictures, the
   measurements (eager total 531.0 KiB gzip against 9.0.28's 533.1, eager fonts 0; English start screen
   72,920 B in one file, Korean 249,360 B in 12 files plus 9 prefetched shards), the tests-first
   commit pairs with their SHAs before and after the rebase, seven local QA rounds (the last one
   rechecking every tests-first commit on its new parent), the risks, the device checks still needed
-  (the release gate on iOS 17 and 18 Safari line boxes, iOS 16, Android, the webOS TV) and eleven
+  (the release gate on iOS 17 and 18 Safari line boxes, iOS 16, Android, the webOS TV) and twelve
   owner questions, among them a self-hosted symbol face for the characters no face draws, which
   still draw in a different device font in the Korean and English UIs (☺ ℹ ∼ ≒ ◈). The font
   guard checks self-hosted faces and coverage in every text stack (KS X 1001 and the swept

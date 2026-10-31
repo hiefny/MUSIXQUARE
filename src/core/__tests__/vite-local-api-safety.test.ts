@@ -4,7 +4,6 @@ import { describe, expect, it, vi } from 'vitest';
 
 import {
   PRODUCTION_API_PROXY_PATHS,
-  collectOptionalPrimaryFontAssets,
   collectStaticAppEntryAssets,
   createViteConfig,
   injectBuildEntryAssets,
@@ -414,7 +413,9 @@ describe('service-worker build entry manifest', () => {
     const minified = (await compileClassicRuntimeAsset(resolve('.'), asset)).code;
 
     expect(minified.length).toBeLessThan(source.length);
-    expect(minified).toContain('/primary-font-loader.js');
+    // The bootstrap no longer schedules a font runtime.
+    expect(minified).not.toContain('/primary-font-loader.js');
+    expect(minified).not.toContain('mxqr-primary-font');
     expect(minified).not.toContain('Synchronous setup that must run before first paint');
   });
 
@@ -599,11 +600,6 @@ describe('service-worker build entry manifest', () => {
     expect(() => collectStaticAppEntryAssets(withoutRecorder)).toThrow(
       'Could not locate reviewed deferred app-shell root /src/diagnostics/sync-flight-recorder.ts.',
     );
-    expect(collectOptionalPrimaryFontAssets(bundle)).toEqual([
-      './primary-font-loader.js',
-      './primary-font.css',
-      './designsystem/fonts/PretendardVariable.woff2',
-    ]);
   });
 
   it('discovers Vite 8 static templates and string-coerced Worker URL bases', () => {
@@ -644,35 +640,18 @@ describe('service-worker build entry manifest', () => {
     const source = `
       const CACHE_VERSION = '__MUSIXQUARE_CACHE_VERSION__';
       const BUILD_ENTRY_ASSETS = [/* __MUSIXQUARE_BUILD_ENTRY_ASSETS__ */];
-      const OPTIONAL_PRIMARY_FONT_ASSETS = [/* __MUSIXQUARE_OPTIONAL_PRIMARY_FONT_ASSETS__ */];
     `;
-    const optional = [
-      './primary-font-loader.js',
-      './primary-font.css',
-      './designsystem/fonts/PretendardVariable.woff2',
-    ];
-    const injected = injectBuildEntryAssets(
-      source,
-      ['./assets/app.js', './assets/app.css'],
-      optional,
-    );
+    const injected = injectBuildEntryAssets(source, ['./assets/app.js', './assets/app.css']);
 
     expect(injected).toContain('"./assets/app.js"');
     expect(injected).toContain('"./assets/app.css"');
-    expect(injected).toContain('"./primary-font-loader.js"');
-    expect(injected).toContain('"./primary-font.css"');
-    expect(injected).toContain('"./designsystem/fonts/PretendardVariable.woff2"');
     expect(injected).toContain(`const CACHE_VERSION = '${SERVICE_WORKER_CACHE_VERSION}';`);
     expect(injected).not.toContain('__MUSIXQUARE_CACHE_VERSION__');
     expect(injected).not.toContain('__MUSIXQUARE_BUILD_ENTRY_ASSETS__');
-    expect(injected).not.toContain('__MUSIXQUARE_OPTIONAL_PRIMARY_FONT_ASSETS__');
-    expect(() => injectBuildEntryAssets(source, [], optional)).toThrow('manifest is empty');
-    expect(() => injectBuildEntryAssets(source, ['./app.js'], [])).toThrow(
-      'font manifest is incomplete',
+    expect(() => injectBuildEntryAssets(source, [])).toThrow('manifest is empty');
+    expect(() => injectBuildEntryAssets('const BUILD_ENTRY_ASSETS = [];', ['./app.js'])).toThrow(
+      'Expected one',
     );
-    expect(() =>
-      injectBuildEntryAssets('const BUILD_ENTRY_ASSETS = [];', ['./app.js'], optional),
-    ).toThrow('Expected one');
   });
 
   it('finds module and classic startup scripts while excluding inert or non-cacheable sources', () => {

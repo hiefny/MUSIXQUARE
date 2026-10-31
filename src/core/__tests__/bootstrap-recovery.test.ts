@@ -94,8 +94,8 @@ function bootstrapHarness(options: { readyState?: string; visibility?: string } 
         return script;
       },
     },
-    querySelector(selector: string) {
-      return selector === 'script[data-mxqr-primary-font-runtime]' ? activeScript : null;
+    querySelector() {
+      return null;
     },
     querySelectorAll() {
       return [];
@@ -198,7 +198,7 @@ function bootstrapHarness(options: { readyState?: string; visibility?: string } 
   };
 }
 
-describe('early degraded-launch and font recovery bootstrap', () => {
+describe('early degraded-launch bootstrap', () => {
   it('covers both worker-response orderings with an attribute and a page event', () => {
     const lateResponse = bootstrapHarness();
     let eventSource = '';
@@ -226,49 +226,20 @@ describe('early degraded-launch and font recovery bootstrap', () => {
     expect(earlyResponse.attributes.get('data-mxqr-navigation-source')).toBe('cache-fallback');
   });
 
-  it('removes a timed-out runtime script and retries immediately on online', () => {
-    const harness = bootstrapHarness();
-    harness.runTimer(0);
-    expect(harness.appendedScripts).toHaveLength(1);
-    const firstScript = harness.appendedScripts[0];
-    expect(firstScript.src).toBe('/primary-font-loader.js');
+  it('inserts no font runtime script and schedules no font work', () => {
+    expect(BOOTSTRAP_SOURCE).not.toContain('primary-font');
+    expect(BOOTSTRAP_SOURCE).not.toContain('requestIdleCallback');
 
-    harness.runTimer(8_000);
-    expect(firstScript.removed).toBe(true);
-    expect([...harness.timers.values()].map(({ delay }) => delay)).toContain(1_000);
-
-    harness.dispatchWindow('online');
-    expect(harness.appendedScripts).toHaveLength(2);
-    expect([...harness.timers.values()].map(({ delay }) => delay)).not.toContain(1_000);
-
-    harness.dispatchWindow('online');
-    expect(harness.appendedScripts).toHaveLength(2);
-  });
-
-  it('pauses background retry and resumes once on visible', () => {
-    const harness = bootstrapHarness();
-    harness.runTimer(0);
-    harness.setVisibility('hidden');
-    harness.runTimer(8_000);
-
-    expect(harness.appendedScripts).toHaveLength(1);
-    expect([...harness.timers.values()].map(({ delay }) => delay)).not.toContain(1_000);
-
-    harness.setVisibility('visible');
-    harness.dispatchDocument('visibilitychange');
-    harness.dispatchDocument('visibilitychange');
-    expect(harness.appendedScripts).toHaveLength(2);
-  });
-
-  it('keeps lifecycle retries behind the initial load and idle boundary', () => {
     const harness = bootstrapHarness({ readyState: 'loading' });
-    expect([...harness.timers.values()]).toHaveLength(0);
-
+    harness.dispatchWindow('load');
     harness.dispatchWindow('pageshow');
     harness.dispatchWindow('online');
-    expect([...harness.timers.values()]).toHaveLength(0);
+    harness.setVisibility('hidden');
+    harness.dispatchDocument('visibilitychange');
+    harness.setVisibility('visible');
+    harness.dispatchDocument('visibilitychange');
 
-    harness.dispatchWindow('load');
-    expect([...harness.timers.values()].filter(({ delay }) => delay === 0)).toHaveLength(1);
+    expect(harness.appendedScripts).toHaveLength(0);
+    expect([...harness.timers.values()]).toHaveLength(0);
   });
 });

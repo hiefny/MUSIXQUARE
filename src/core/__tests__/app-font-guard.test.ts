@@ -1,185 +1,146 @@
-import { readFileSync } from 'node:fs';
-import path from 'node:path';
-import ts from 'typescript';
 import { describe, expect, it } from 'vitest';
+
 import {
-  CLASSIC_RUNTIME_ASSETS,
-  compileClassicRuntimeAsset,
-} from '../../../scripts/classic-runtime-assets.ts';
+  builtAssetStem,
+  declaresFontFace,
+  faceDescriptorMismatches,
+  fontPreloadHrefs,
+  initialAssetUrls,
+  localDistAssetPath,
+  woff2Urls,
+} from '../../../scripts/lib/app-font-guard.mts';
+import { CJK_FACE_METRICS, INTER_FACE_METRICS } from '../../i18n/font-metrics.ts';
 
-// Exercise the guard's private HTML predicate without executing its full
-// repository/build-artifact CLI or duplicating that predicate in this fixture.
-const source = readFileSync('scripts/check-app-font.mts', 'utf8');
-const parsed = ts.createSourceFile('check-app-font.mts', source, ts.ScriptTarget.Latest, true);
-const declaration = parsed.statements.find(
-  (node) => ts.isFunctionDeclaration(node) && node.name?.text === 'hasFontPreload',
-);
-if (!declaration) throw new Error('Missing font preload guard');
-const compiled = ts.transpileModule(declaration.getText(parsed), {
-  compilerOptions: { target: ts.ScriptTarget.ES2022 },
-}).outputText;
-const fontUrl = '/designsystem/fonts/PretendardVariable.woff2';
-const hasFontPreload = Function('fontUrl', `${compiled}; return hasFontPreload;`)(fontUrl) as (
-  html: string,
-) => boolean;
+// The pure parts of scripts/check-app-font.mts, which reads the repository and
+// the build output and reports what these helpers find.
 
-describe('canonical full font preload guard', () => {
-  it.each(['"', "'"])('detects an eager font preload with %s attributes', (quote) => {
-    const html = `<link rel=${quote}preload${quote} href=${quote}${fontUrl}${quote} as=${quote}font${quote} type=${quote}font/woff2${quote} crossorigin>`;
-    expect(hasFontPreload(html)).toBe(true);
+describe('app font guard: preloads', () => {
+  it.each(['"', "'"])('finds a font preload of any file with %s attributes', (quote) => {
+    for (const href of [
+      '/designsystem/fonts/PretendardVariable.woff2',
+      '/assets/inter-latin-AbC12_-9.woff2',
+    ]) {
+      const html = `<link rel=${quote}preload${quote} href=${quote}${href}${quote} as=${quote}font${quote} type=${quote}font/woff2${quote} crossorigin>`;
+      expect(fontPreloadHrefs(html)).toEqual([href]);
+    }
   });
 
-  it('does not confuse a different href or a stylesheet link with the full-font preload', () => {
+  it('ignores stylesheets, other preloads and a missing href', () => {
     expect(
-      hasFontPreload(
-        '<link rel="preload" href="/icon.svg" as="font" type="font/woff2" crossorigin>',
+      fontPreloadHrefs(
+        [
+          '<link rel="stylesheet" href="/assets/font-inter-AbC12_-9.css">',
+          '<link rel="preload" href="/assets/app.js" as="script">',
+          '<link rel="preload" as="font">',
+          '<link rel="modulepreload" href="/assets/app.js">',
+        ].join(''),
       ),
-    ).toBe(false);
-    expect(
-      hasFontPreload(
-        `<link rel="stylesheet" href="${fontUrl}" as="font" type="font/woff2" crossorigin>`,
-      ),
-    ).toBe(false);
+    ).toEqual([]);
   });
 });
 
-// Execute the actual guard's three bootstrap reads and checks. Keeping their
-// binding-to-input relationship catches accidentally checking minified output
-// as authored source, or comparing a deployed artifact with the wrong input.
-function findNode(predicate: (node: ts.Node) => boolean): ts.Node {
-  let found: ts.Node | undefined;
-  function visit(node: ts.Node): void {
-    if (predicate(node)) found = node;
-    else ts.forEachChild(node, visit);
-  }
-  visit(parsed);
-  if (!found) throw new Error('Missing font guard contract node');
-  return found;
-}
-
-function readBinding(name: string): string {
-  const declaration = findNode(
-    (node) =>
-      ts.isVariableDeclaration(node) &&
-      ts.isArrayBindingPattern(node.name) &&
-      node.name.elements.some((element) => element.getText(parsed) === name),
-  ) as ts.VariableDeclaration;
-  if (!ts.isArrayBindingPattern(declaration.name)) throw new Error('Missing read bindings');
-  const index = declaration.name.elements.findIndex((element) => element.getText(parsed) === name);
-  const initializer = declaration.initializer;
-  if (
-    !initializer ||
-    !ts.isAwaitExpression(initializer) ||
-    !ts.isCallExpression(initializer.expression) ||
-    initializer.expression.expression.getText(parsed) !== 'Promise.all'
-  ) {
-    throw new Error('Unexpected font guard read contract');
-  }
-  const inputs = initializer.expression.arguments[0];
-  if (!inputs || !ts.isArrayLiteralExpression(inputs) || !inputs.elements[index]) {
-    throw new Error('Missing font guard read input');
-  }
-  return `const ${name} = await ${inputs.elements[index].getText(parsed)};`;
-}
-
-const schedulerMessages = [
-  'bootstrap font scheduler lacks bounded retryable loading for the lazy font runtime',
-  'bootstrap font scheduler must wait for load/idle and recover on connectivity or visibility',
-  'built early bootstrap runtime differs from the classic-runtime compiler output',
-] as const;
-const schedulerStatements = [
-  ...['bootstrapAuthoredSource', 'bootstrapSource', 'distBootstrapRuntime'].map(readBinding),
-  ...schedulerMessages.map((message) =>
-    findNode(
-      (node) =>
-        ts.isExpressionStatement(node) &&
-        ts.isCallExpression(node.expression) &&
-        node.expression.expression.getText(parsed) === 'check' &&
-        node.expression.arguments[1]?.getText(parsed) === `'${message}'`,
-    ).getText(parsed),
-  ),
-].join('\n');
-const runSchedulerChecks = Function(
-  'readFile',
-  'compileClassicRuntimeAsset',
-  'bootstrapRuntimeAsset',
-  'repoRoot',
-  'distDirectory',
-  'path',
-  `return (async () => {
-    const failures = [];
-    const check = (condition, message) => { if (!condition) failures.push(message); };
-    ${schedulerStatements}
-    return failures;
-  })();`,
-) as (
-  readFile: (filename: string) => Promise<string>,
-  compile: typeof compileClassicRuntimeAsset,
-  asset: (typeof CLASSIC_RUNTIME_ASSETS)[number],
-  root: string,
-  dist: string,
-  paths: typeof path,
-) => Promise<string[]>;
-
-const bootstrapEntry = CLASSIC_RUNTIME_ASSETS.find((asset) => asset.outputPath === 'bootstrap.js');
-if (!bootstrapEntry) throw new Error('Missing bootstrap manifest entry');
-const bootstrapAsset = bootstrapEntry;
-const repoRoot = path.resolve('.');
-const authoredBootstrap = readFileSync(bootstrapAsset.sourcePath, 'utf8');
-const compiledBootstrap = (await compileClassicRuntimeAsset(repoRoot, bootstrapAsset)).code;
-
-async function schedulerFailures(authored = authoredBootstrap, built = compiledBootstrap) {
-  return runSchedulerChecks(
-    async (filename) => {
-      if (filename === path.join(repoRoot, bootstrapAsset.sourcePath)) return authored;
-      if (filename === path.join(repoRoot, 'dist', 'bootstrap.js')) return built;
-      throw new Error(`Unexpected font guard input: ${filename}`);
-    },
-    compileClassicRuntimeAsset,
-    bootstrapAsset,
-    repoRoot,
-    path.join(repoRoot, 'dist'),
-    path,
-  );
-}
-
-describe('bootstrap font scheduler source and compiled artifact guard', () => {
-  it('accepts actual authored contracts with identifier-minified compiled output', async () => {
-    expect(compiledBootstrap).not.toContain('RUNTIME_TIMEOUT_MS');
-    expect(await schedulerFailures()).toEqual([]);
+describe('app font guard: the initial graph', () => {
+  it('lists every script and link of the document in order', () => {
+    const html = `<!doctype html><head>
+      <script src="/bootstrap.js"></script>
+      <link rel="stylesheet" href="/assets/main-AbC12_-9.css">
+      <script type="module" crossorigin src="/assets/main-AbC12_-9.js"></script>
+      <link rel="icon" href="/favicon.svg">
+    </head>`;
+    expect(initialAssetUrls(html)).toEqual([
+      '/bootstrap.js',
+      '/assets/main-AbC12_-9.css',
+      '/assets/main-AbC12_-9.js',
+      '/favicon.svg',
+    ]);
   });
 
-  it.each([
-    ['runtime deadline', 'RUNTIME_TIMEOUT_MS', 'removedDeadline', schedulerMessages[0]],
-    ['retry timer', 'retryTimer', 'removedTimer', schedulerMessages[0]],
-    ['retry cap', 'Math.min(30000,', 'Math.min(60000,', schedulerMessages[0]],
-    ['load gate', "addEventListener('load'", "addEventListener('unused'", schedulerMessages[1]],
-    ['idle gate', 'requestIdleCallback', 'removedIdleCallback', schedulerMessages[1]],
-    [
-      'connectivity retry',
-      "addEventListener('online'",
-      "addEventListener('unused'",
-      schedulerMessages[1],
-    ],
-    [
-      'visibility retry',
-      "document.addEventListener('visibilitychange'",
-      "document.addEventListener('unused'",
-      schedulerMessages[1],
-    ],
-  ])(
-    'rejects a missing %s source contract while the compiled artifact is valid',
-    async (_label, token, replacement, message) => {
-      expect(authoredBootstrap).toContain(token);
-      expect(await schedulerFailures(authoredBootstrap.replaceAll(token, replacement))).toEqual([
-        message,
-      ]);
-    },
-  );
+  it('maps only root-relative URLs into the build output', () => {
+    expect(localDistAssetPath('/dist', '/assets/a.css')?.replace(/\\/gu, '/')).toBe(
+      '/dist/assets/a.css',
+    );
+    expect(localDistAssetPath('/dist', '/assets/a.css?v=1#x')?.replace(/\\/gu, '/')).toBe(
+      '/dist/assets/a.css',
+    );
+    expect(localDistAssetPath('/dist', 'https://example.test/a.css')).toBeNull();
+    expect(localDistAssetPath('/dist', '//example.test/a.css')).toBeNull();
+    expect(localDistAssetPath('/dist', '/../secret.txt')).toBeNull();
+    expect(localDistAssetPath('/dist', 'assets/a.css')).toBeNull();
+  });
 
-  it('rejects changed deployed bytes even when the authored source remains valid', async () => {
-    expect(await schedulerFailures(authoredBootstrap, `${compiledBootstrap}\n;`)).toEqual([
-      schedulerMessages[2],
-    ]);
+  it('finds @font-face rules in source and minified CSS', () => {
+    expect(declaresFontFace("@font-face { font-family: 'Inter'; src: url(a.woff2); }")).toBe(true);
+    expect(
+      declaresFontFace('@font-face{font-family:Noto Sans KR;src:url(/a.woff2)}', 'Noto Sans KR'),
+    ).toBe(true);
+    expect(
+      declaresFontFace('@font-face{font-family:Inter;src:url(/a.woff2)}', 'Noto Sans KR'),
+    ).toBe(false);
+    expect(declaresFontFace('.title{font-family:var(--font-sans)}')).toBe(false);
+  });
+
+  it('lists the WOFF2 files a sheet points at', () => {
+    expect(
+      woff2Urls(
+        '@font-face{src:url(/assets/a-AbC12_-9.woff2)format("woff2")}@font-face{src:url("../b.woff2") format("woff2")}',
+      ),
+    ).toEqual(['/assets/a-AbC12_-9.woff2', '../b.woff2']);
+  });
+});
+
+describe('app font guard: built sheets', () => {
+  it.each([
+    ['assets/font-noto-kr-BhuhURak.css', 'font-noto-kr'],
+    ['C:\\dist\\assets\\font-inter-B0CU3y3_.css', 'font-inter'],
+    ['assets/noto-jp-Dv3hj6dY.css', 'noto-jp'],
+    ['assets/inter-latin-a-b_C1D2.woff2', 'inter-latin'],
+    [
+      'assets/PbykFmXiEBPT4ITbgNA5Cgm20xz64px_1hVWr0wuPNGmlQNMEfD4.119-DzYXLDOB.woff2',
+      'PbykFmXiEBPT4ITbgNA5Cgm20xz64px_1hVWr0wuPNGmlQNMEfD4.119',
+    ],
+    ['index.html', 'index.html'],
+  ])('names %s by its source stem %s', (file, stem) => {
+    expect(builtAssetStem(file)).toBe(stem);
+  });
+
+  const expected = new Map([
+    ['Inter', INTER_FACE_METRICS],
+    ['Noto Sans KR', CJK_FACE_METRICS],
+    ['Noto Sans Arabic', null],
+  ]);
+  const interFace = `@font-face{font-family:Inter;font-weight:100 900;size-adjust:${INTER_FACE_METRICS.sizeAdjust}%;ascent-override:${INTER_FACE_METRICS.ascentOverride}%;descent-override:${INTER_FACE_METRICS.descentOverride}%;line-gap-override:${INTER_FACE_METRICS.lineGapOverride}%;src:url(/assets/inter-latin-AbC12_-9.woff2)format("woff2")}`;
+
+  it('accepts faces whose metric descriptors equal the metrics home', () => {
+    expect(faceDescriptorMismatches(interFace, expected)).toEqual([]);
+    expect(
+      faceDescriptorMismatches(
+        '@font-face{font-family:Noto Sans Arabic;src:url(/assets/a.woff2)format("woff2")}',
+        expected,
+      ),
+    ).toEqual([]);
+  });
+
+  it('reports a changed, missing or unexpected descriptor and an unknown family', () => {
+    expect(
+      faceDescriptorMismatches(
+        interFace.replace('size-adjust:97.2%', 'size-adjust:100%'),
+        expected,
+      ),
+    ).toEqual(['Inter inter-latin-AbC12_-9.woff2: size-adjust is 100%, not 97.2%']);
+    expect(
+      faceDescriptorMismatches(interFace.replace(/ascent-override:[^;]+;/u, ''), expected),
+    ).toEqual(['Inter inter-latin-AbC12_-9.woff2: ascent-override is missing, not 97.96%']);
+    expect(
+      faceDescriptorMismatches(
+        '@font-face{font-family:Noto Sans Arabic;size-adjust:94%;src:url(/assets/a.woff2)format("woff2")}',
+        expected,
+      ),
+    ).toEqual(['Noto Sans Arabic a.woff2: size-adjust is 94%, not unset']);
+    expect(
+      faceDescriptorMismatches(
+        '@font-face{font-family:Pretendard;src:url(/assets/p.woff2)format("woff2")}',
+        expected,
+      ),
+    ).toEqual(['Pretendard p.woff2: not an app font family']);
   });
 });

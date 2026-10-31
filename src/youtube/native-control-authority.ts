@@ -19,6 +19,7 @@ import { isPlaybackActivityValue } from '../player/ownership.ts';
 import { routeProPlaybackCommand } from '../pro-room/playback-authority-hooks.ts';
 import { getRoomContext, hasRoomCapability } from '../rooms/authority.ts';
 import type { QueueItemId } from '../types/index.ts';
+import { YOUTUBE_FRESH_START_MAX_SEC } from './constants.ts';
 import {
   getYouTubePlayer,
   getCurrentSessionId,
@@ -474,7 +475,7 @@ function routeNativeAction(
   bus.emit('youtube:auto-play', {
     targetTime: positionSeconds,
     skipSeek: false,
-    zeroStart: action === 'play' && positionSeconds <= 0.12,
+    zeroStart: action === 'play' && positionSeconds <= YOUTUBE_FRESH_START_MAX_SEC,
     state: action === 'play' ? 1 : 2,
   });
   log.info(`[YouTube Native Control] Promoted host ${action} to room rendezvous`);

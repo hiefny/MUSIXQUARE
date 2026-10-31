@@ -1,12 +1,18 @@
 /**
- * YouTube zero-start rendezvous.
+ * YouTube zero-start rendezvous of a Standard room.
  *
- * This module owns only the bounded prepare/arm/commit/release state machine.
- * Network routing, authority, playlist projection, and the shared clock are
- * injected so the same controller can serve a standard-room host or a
- * coordinator-free PRO endpoint without importing either topology.
+ * This module owns only the bounded prepare/arm/commit/release state machine
+ * of a Standard-room host and its guests. Network routing, authority,
+ * playlist projection, and the shared clock are injected, so it imports
+ * neither topology. A PRO room arms its iframe through the PRO copy
+ * (authority-arm.ts); the start timing both use lives in constants.ts.
  */
 import { MANUAL_SYNC_OFFSET_LIMIT_MS, MSG } from '../core/constants.ts';
+import {
+  STANDARD_ZERO_START_BARRIER,
+  YOUTUBE_ARM_TIMING,
+  YOUTUBE_RELEASE_CATCH_UP_TOLERANCE_SEC,
+} from './constants.ts';
 import { getYouTubeAudibleOutputDelayMs } from './output-latency.ts';
 import type {
   ProtocolMsg,
@@ -15,21 +21,8 @@ import type {
   YouTubeZeroStartPlatform,
 } from '../types/index.ts';
 
+/** The timeline samples and lead calibration only a Standard room runs. */
 const YOUTUBE_ZERO_START_TIMING = Object.freeze({
-  guestTotalWaitMs: 3_000,
-  startLeadMs: 700,
-  guestDecisionMs: 2_300,
-  warmupPlayMs: 260,
-  pauseSeekGapMs: 80,
-  settlePollMs: 80,
-  zeroEpsilonSec: 0.12,
-  audibleStateSettleMs: 120,
-  audioRestoreMaxAttempts: 8,
-  hardMutePollMs: 30,
-  hardMuteMaxAttempts: 12,
-  prepareTimeoutMs: 10_000,
-  releaseAckTimeoutMs: 1_800,
-  lateFallbackLeadMs: 800,
   timelinePollMs: 250,
   timelineStopAfterMs: 2_500,
   timelineCalibrationMinGapMs: 1_000,
@@ -493,8 +486,8 @@ class YouTubeZeroStartController {
       videoId: input.videoId,
       subIndex: input.subIndex,
       prepareAtHost: now,
-      decisionAtHost: now + YOUTUBE_ZERO_START_TIMING.guestDecisionMs,
-      startDeadlineAtHost: now + YOUTUBE_ZERO_START_TIMING.guestTotalWaitMs,
+      decisionAtHost: now + STANDARD_ZERO_START_BARRIER.guestDecisionMs,
+      startDeadlineAtHost: now + STANDARD_ZERO_START_BARRIER.guestTotalWaitMs,
       hostPlatform: this.#deps.getLocalPlatform(),
     };
 
@@ -549,7 +542,7 @@ class YouTubeZeroStartController {
       // explicit legacy handoff.
       this.#localRun.hostFallbackEligible = true;
     }
-    this.#later(() => this.#maybeCommit(), YOUTUBE_ZERO_START_TIMING.guestDecisionMs);
+    this.#later(() => this.#maybeCommit(), STANDARD_ZERO_START_BARRIER.guestDecisionMs);
     this.#debug('prepare-host', {
       runId: prepare.runId,
       expectedGuestIds: [...expectedGuestIds],
@@ -1158,7 +1151,7 @@ class YouTubeZeroStartController {
       }
       return;
     }
-    if (this.#now() - run.startedPrepareAtLocal >= YOUTUBE_ZERO_START_TIMING.guestTotalWaitMs) {
+    if (this.#now() - run.startedPrepareAtLocal >= STANDARD_ZERO_START_BARRIER.guestTotalWaitMs) {
       this.#failLocalPrepare(run, 'player-unavailable');
       return;
     }
@@ -1272,7 +1265,7 @@ class YouTubeZeroStartController {
       return;
     }
 
-    if (attempt + 1 >= YOUTUBE_ZERO_START_TIMING.hardMuteMaxAttempts) {
+    if (attempt + 1 >= YOUTUBE_ARM_TIMING.hardMuteMaxAttempts) {
       this.#failLocalPrepare(run, 'hard-mute-timeout');
       return;
     }
@@ -1281,10 +1274,7 @@ class YouTubeZeroStartController {
     } catch {
       // The bounded poll either observes the command or fails safely.
     }
-    this.#later(
-      () => this.#waitForHardMute(run, attempt + 1),
-      YOUTUBE_ZERO_START_TIMING.hardMutePollMs,
-    );
+    this.#later(() => this.#waitForHardMute(run, attempt + 1), YOUTUBE_ARM_TIMING.hardMutePollMs);
   }
 
   #armWarmWatchdog(run: LocalRun): void {
@@ -1300,7 +1290,7 @@ class YouTubeZeroStartController {
           mediaAction: run.mediaAction,
         });
       },
-      run.startedPrepareAtLocal + YOUTUBE_ZERO_START_TIMING.prepareTimeoutMs - this.#now(),
+      run.startedPrepareAtLocal + STANDARD_ZERO_START_BARRIER.prepareBudgetMs - this.#now(),
     );
   }
 
@@ -1341,12 +1331,12 @@ class YouTubeZeroStartController {
           } catch {
             // Settling poll will observe target mismatch and retry or time out safely.
           }
-          this.#later(() => this.#pollSettledAtTarget(run), YOUTUBE_ZERO_START_TIMING.settlePollMs);
-        }, YOUTUBE_ZERO_START_TIMING.pauseSeekGapMs);
+          this.#later(() => this.#pollSettledAtTarget(run), YOUTUBE_ARM_TIMING.settlePollMs);
+        }, YOUTUBE_ARM_TIMING.pauseSeekGapMs);
       } catch (error) {
         this.#failLocalPrepare(run, 'warm-pause-failed', error);
       }
-    }, YOUTUBE_ZERO_START_TIMING.warmupPlayMs);
+    }, YOUTUBE_ARM_TIMING.warmPlayMs);
   }
 
   #pollSettledAtTarget(run: LocalRun): void {
@@ -1375,13 +1365,13 @@ class YouTubeZeroStartController {
       if (
         this.#currentVideoId(player) === run.videoId &&
         isStopped &&
-        Math.abs(position - target) <= YOUTUBE_ZERO_START_TIMING.zeroEpsilonSec
+        Math.abs(position - target) <= YOUTUBE_ARM_TIMING.settleEpsilonSec
       ) {
         run.stableChecks += 1;
       } else {
         run.stableChecks = 0;
         if (state === YOUTUBE_ZERO_START_PLAYER_STATE.playing) player.pauseVideo();
-        if (run.settleAttempts % 6 === 0) {
+        if (run.settleAttempts % YOUTUBE_ARM_TIMING.settleReseekEvery === 0) {
           player.pauseVideo();
           this.#later(() => {
             if (!this.#isCurrentRun(run)) return;
@@ -1391,22 +1381,22 @@ class YouTubeZeroStartController {
               return;
             }
             player.seekTo(this.#resolveLocalTarget(0, run), true);
-          }, YOUTUBE_ZERO_START_TIMING.pauseSeekGapMs);
+          }, YOUTUBE_ARM_TIMING.pauseSeekGapMs);
         }
       }
     } catch {
       run.stableChecks = 0;
     }
 
-    if (run.stableChecks >= 2) {
+    if (run.stableChecks >= YOUTUBE_ARM_TIMING.settleStableSamples) {
       this.#restoreAudioState(run);
       return;
     }
-    if (this.#now() - run.startedPrepareAtLocal > YOUTUBE_ZERO_START_TIMING.prepareTimeoutMs) {
+    if (this.#now() - run.startedPrepareAtLocal > STANDARD_ZERO_START_BARRIER.prepareBudgetMs) {
       this.#failLocalPrepare(run, 'prepare-timeout', { state, position, target });
       return;
     }
-    this.#later(() => this.#pollSettledAtTarget(run), YOUTUBE_ZERO_START_TIMING.settlePollMs);
+    this.#later(() => this.#pollSettledAtTarget(run), YOUTUBE_ARM_TIMING.settlePollMs);
   }
 
   #restoreAudioState(run: LocalRun): void {
@@ -1451,7 +1441,7 @@ class YouTubeZeroStartController {
         this.#markArmed(run);
         return;
       }
-      if (attempt + 1 >= YOUTUBE_ZERO_START_TIMING.audioRestoreMaxAttempts) {
+      if (attempt + 1 >= YOUTUBE_ARM_TIMING.audioRestoreMaxAttempts) {
         this.#failLocalPrepare(run, 'audio-restore-timeout', {
           expectedMuted: run.originalMuted,
           actualMuted,
@@ -1463,7 +1453,7 @@ class YouTubeZeroStartController {
         return;
       }
       this.#attemptRunAudioRestore(run, attempt + 1);
-    }, YOUTUBE_ZERO_START_TIMING.audibleStateSettleMs);
+    }, YOUTUBE_ARM_TIMING.audioRestorePollMs);
   }
 
   #markArmed(run: LocalRun): void {
@@ -1492,7 +1482,7 @@ class YouTubeZeroStartController {
           if (!this.#isCurrentRun(run) || run.phase !== 'armed' || run.commit) return;
           this.#failLocalPrepare(run, 'commit-wait-timeout');
         },
-        run.startedPrepareAtLocal + YOUTUBE_ZERO_START_TIMING.guestTotalWaitMs - this.#now(),
+        run.startedPrepareAtLocal + STANDARD_ZERO_START_BARRIER.guestTotalWaitMs - this.#now(),
       );
     }
 
@@ -1512,7 +1502,7 @@ class YouTubeZeroStartController {
         this.#requestExternalFallback(run, run.commit, 'clock-uncalibrated');
         return;
       }
-      if (this.#now() - run.startedPrepareAtLocal < YOUTUBE_ZERO_START_TIMING.guestTotalWaitMs) {
+      if (this.#now() - run.startedPrepareAtLocal < STANDARD_ZERO_START_BARRIER.guestTotalWaitMs) {
         this.#later(() => this.#reportGuestArmedWhenClockReady(run), 50);
       }
       return;
@@ -1575,8 +1565,8 @@ class YouTubeZeroStartController {
         ? 'host-delayed'
         : 'guest-timeout';
     const startAtHost = allReady
-      ? now + YOUTUBE_ZERO_START_TIMING.startLeadMs
-      : Math.max(barrier.startDeadlineAtHost, now + YOUTUBE_ZERO_START_TIMING.startLeadMs);
+      ? now + STANDARD_ZERO_START_BARRIER.startLeadMs
+      : Math.max(barrier.startDeadlineAtHost, now + STANDARD_ZERO_START_BARRIER.startLeadMs);
     const cohort = [this.#deps.getLocalPeerId()];
     for (const peerId of barrier.expectedGuestIds) {
       if (barrier.armedGuestIds.has(peerId)) cohort.push(peerId);
@@ -1655,14 +1645,18 @@ class YouTubeZeroStartController {
         const releaseLatenessSec = Math.max(0, this.#now() - callAt) / 1000;
         // Preparation keeps the achievable zero-boundary delta. Commit the
         // intentional negative delta only when its delayed play is released.
-        if (run.localStartDelayMs > 0 || releaseLatenessSec > 0.04) {
+        if (
+          run.localStartDelayMs > 0 ||
+          releaseLatenessSec > YOUTUBE_RELEASE_CATCH_UP_TOLERANCE_SEC
+        ) {
           const target = this.#resolveLocalTarget(
             canonicalPositionSec + run.localStartDelayMs / 1000 + releaseLatenessSec,
             run,
           );
           // A COMMIT or timer arriving after its deadline must join the live
           // room position, rather than starting an old zero target late.
-          if (releaseLatenessSec > 0.04) player.seekTo(target, true);
+          if (releaseLatenessSec > YOUTUBE_RELEASE_CATCH_UP_TOLERANCE_SEC)
+            player.seekTo(target, true);
         }
         run.playCallAt = this.#now();
         run.phase = 'starting';
@@ -1672,7 +1666,7 @@ class YouTubeZeroStartController {
         this.#later(() => {
           if (!this.#isCurrentRun(run) || run.phase !== 'starting') return;
           this.#failLocalPrepare(run, 'release-ack-timeout');
-        }, YOUTUBE_ZERO_START_TIMING.releaseAckTimeoutMs);
+        }, YOUTUBE_ARM_TIMING.releaseAckTimeoutMs);
       } catch (error) {
         this.#failLocalPrepare(run, 'play-command-failed', error);
       }
@@ -1690,7 +1684,7 @@ class YouTubeZeroStartController {
     const nowAtHost = this.#deps.getHostNow();
     const fallbackCommit: YouTubeZeroStartCommitMessage = {
       ...commit,
-      startAtHost: nowAtHost + YOUTUBE_ZERO_START_TIMING.lateFallbackLeadMs,
+      startAtHost: nowAtHost + STANDARD_ZERO_START_BARRIER.lateFallbackLeadMs,
       cohort: [this.#deps.getLocalPeerId()],
       reason: 'guest-timeout',
     };
@@ -1711,7 +1705,7 @@ class YouTubeZeroStartController {
             player.pauseVideo();
           }
         }, 100);
-      }, YOUTUBE_ZERO_START_TIMING.pauseSeekGapMs);
+      }, YOUTUBE_ARM_TIMING.pauseSeekGapMs);
       run.armed = true;
       this.#scheduleCommittedStart(run, fallbackCommit, canonicalTarget);
     } catch (error) {
@@ -1956,7 +1950,7 @@ class YouTubeZeroStartController {
     // Before settlement, metadata can still describe the outgoing load. Once
     // the target was verified twice, a different live video proves this exact
     // iframe has moved on and even detached cleanup must leave it untouched.
-    if (run.stableChecks >= 2) {
+    if (run.stableChecks >= YOUTUBE_ARM_TIMING.settleStableSamples) {
       const videoId = this.#currentVideoId(owner);
       if (videoId && videoId !== run.videoId) return null;
     }
@@ -2024,7 +2018,7 @@ class YouTubeZeroStartController {
           this.#debug('audio-restore-complete', { runId: run.runId, attempts: attempt + 1 });
           return;
         }
-        if (attempt + 1 >= YOUTUBE_ZERO_START_TIMING.audioRestoreMaxAttempts) {
+        if (attempt + 1 >= YOUTUBE_ARM_TIMING.audioRestoreMaxAttempts) {
           this.#deps.onError?.('audio-restore-timeout', {
             runId: run.runId,
             expectedMuted: run.originalMuted,
@@ -2037,7 +2031,7 @@ class YouTubeZeroStartController {
           return;
         }
         attemptRestore(attempt + 1);
-      }, YOUTUBE_ZERO_START_TIMING.audibleStateSettleMs);
+      }, YOUTUBE_ARM_TIMING.audioRestorePollMs);
     };
 
     attemptRestore(0);

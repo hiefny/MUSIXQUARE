@@ -1,9 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import {
-  LATE_YOUTUBE_COMMIT_LEAD_MS,
-  LATE_YOUTUBE_RELEASE_TOLERANCE_MS,
-  RELEASE_ACK_TIMEOUT_MS,
-} from '../../pro-room/__tests__/__helpers__/pro-late-youtube-join-timing.ts';
+import { LATE_YOUTUBE_COMMIT_LEAD_MS } from '../../pro-room/__tests__/__helpers__/pro-late-youtube-join-timing.ts';
 import { PRO_ROOM_PLAYBACK_COMMIT_LEAD_MS } from '../../pro-room/__tests__/__helpers__/pro-room-playback-timing-copy.ts';
 import type { QueueItemId, YouTubeZeroStartPlatform } from '../../types/index.ts';
 import {
@@ -11,7 +7,14 @@ import {
   getYouTubeAuthorityPlatformLeadMsForTests,
   type YouTubeAuthorityArmPlayer,
 } from '../authority-arm.ts';
+import { YOUTUBE_ARM_TIMING } from '../constants.ts';
 import { makeFakeYtPlayer, ops, type FakeYtPlayer } from './__helpers__/fake-yt-player.ts';
+
+// The arm's release timing, read from its home.
+const {
+  releaseCatchUpToleranceMs: LATE_YOUTUBE_RELEASE_TOLERANCE_MS,
+  releaseAckTimeoutMs: RELEASE_ACK_TIMEOUT_MS,
+} = YOUTUBE_ARM_TIMING;
 
 const QUEUE_ITEM_ID = '11111111-1111-4111-8111-111111111111' as QueueItemId;
 const VIDEO_ID = 'M7lc1UVf-VE';
@@ -927,8 +930,9 @@ describe('YouTubeAuthorityArmController', () => {
 
   describe('PRO late cohort join (pinned 2026-10-30)', () => {
     // The COMMIT lead is the Worker's (the copy pro-room-playback-timing.test.ts
-    // pins); the App's late-join values come from
-    // pro-room/__tests__/__helpers__/pro-late-youtube-join-timing.ts.
+    // pins); the App's late-join lead comes from
+    // pro-room/__tests__/__helpers__/pro-late-youtube-join-timing.ts and the
+    // arm's release timing from its home, src/youtube/constants.ts.
     //
     // These rows run the arm on 'other' (the harness default), where the fixed
     // output lead is 0. The device-level Android rows are in
@@ -938,7 +942,7 @@ describe('YouTubeAuthorityArmController', () => {
     // is still in flight 1.8 s later although media started after 1 s. The
     // arm pauses and fails the commit at exactly 1.8 s but never re-mutes, so
     // whatever the iframe played inside that window was audible. This is the
-    // row that pins the shared RELEASE_ACK_TIMEOUT_MS copy to the real arm.
+    // row that pins the arm's release acknowledgement through the real arm.
     it('(b) pauses an unacknowledged release after exactly 1.8 s without re-muting it', async () => {
       const { controller, player } = makeHarness();
       await prepareReady(controller, 'resident', 0);

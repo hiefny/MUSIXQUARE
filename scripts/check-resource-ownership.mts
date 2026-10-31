@@ -372,6 +372,8 @@ const TIMING_CONTRACTS: readonly TimingContract[] = [
   {
     records: ['RO-02', 'RO-03', 'RO-12'],
     files: [
+      // The start timing home since Phase 6 6A-3 (C2-1).
+      'src/youtube/constants.ts',
       'src/youtube/zero-start.ts',
       'src/youtube/authority-arm.ts',
       'src/youtube/player.ts',
@@ -482,11 +484,6 @@ const TIMING_CONTRACTS: readonly TimingContract[] = [
  * on 2026-10-22, mostly coincidences); run with --report to list them.
  */
 const TIMING_PAIR_BASELINE = new Map<string, PairAllowance>([
-  [
-    'RO-02/RO-03/RO-12 TIMING@src/youtube/authority-arm.ts = ' +
-      'YOUTUBE_ZERO_START_TIMING@src/youtube/zero-start.ts (10 shared values)',
-    { kind: 'copy', reason: 'arm timing copied for PRO; Phase 0d C2-1 shares it' },
-  ],
   [
     // Phase 3 R2: the lazy hard reset measures the logo claim's quiet reading
     // so the eager bundle does not carry it; the update machine stays the home.

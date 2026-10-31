@@ -17,9 +17,10 @@
  * Timing: the Worker's barrier and COMMIT lead come from the copy that
  * pro-room-playback-timing.test.ts pins to cloudflare/pro-room-playback-timing.ts
  * (this suite must not load Worker code, see ci-quality-gates.test.ts); the
- * App's own late-join values come from
+ * App's own late-join lead comes from
  * pro-room/__tests__/__helpers__/pro-late-youtube-join-timing.ts, which names
- * the row that pins each of them.
+ * the row that pins it, and the arm's release acknowledgement from its home,
+ * src/youtube/constants.ts.
  */
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { bus } from '../../core/events.ts';
@@ -48,10 +49,7 @@ import {
   resetProPlaybackAuthorityHooks,
 } from '../../pro-room/playback-authority-hooks.ts';
 import { ProRoomPlaybackController } from '../../pro-room/playback-controller.ts';
-import {
-  LATE_YOUTUBE_COMMIT_LEAD_MS as LATE_JOIN_LEAD_MS,
-  RELEASE_ACK_TIMEOUT_MS,
-} from '../../pro-room/__tests__/__helpers__/pro-late-youtube-join-timing.ts';
+import { LATE_YOUTUBE_COMMIT_LEAD_MS as LATE_JOIN_LEAD_MS } from '../../pro-room/__tests__/__helpers__/pro-late-youtube-join-timing.ts';
 import {
   PRO_ROOM_PLAYBACK_COMMIT_LEAD_MS as COMMIT_LEAD_MS,
   PRO_ROOM_PLAYBACK_TRANSITION_DEADLINE_MS as BARRIER_MS,
@@ -59,7 +57,7 @@ import {
 import { proSnapshot } from '../../pro-room/__tests__/__helpers__/pro-snapshot.ts';
 import type { QueueItemId } from '../../types/index.ts';
 import { showToast } from '../../ui/toast.ts';
-import { ANDROID_YOUTUBE_PLAY_LATENCY_FLOOR_MS } from '../constants.ts';
+import { ANDROID_YOUTUBE_PLAY_LATENCY_FLOOR_MS, YOUTUBE_ARM_TIMING } from '../constants.ts';
 import { cancelYouTubeAuthorityPreparation } from '../iframe.ts';
 import { initYouTube } from '../player.ts';
 import { getYouTubePlayer, isYtLoadInProgress, resetYouTubeModuleState } from '../_state.ts';
@@ -124,6 +122,8 @@ const TRANSITION_ID = `transition_${'y'.repeat(22)}`;
  * COMMIT lead before executeAt (today 3.0 - 0.7 = 2.3 s).
  */
 const LATE_JOIN_ROOM_ADVANCE_SECONDS = (LATE_JOIN_LEAD_MS - COMMIT_LEAD_MS) / 1_000;
+/** The arm's release acknowledgement, read from its home. */
+const RELEASE_ACK_TIMEOUT_MS = YOUTUBE_ARM_TIMING.releaseAckTimeoutMs;
 /**
  * The PREPARE's wait for READY: past the App's 2.3 s barriered budget (READY
  * fails at the iframe seam's first 40 ms poll after it, 2.32 s), before the

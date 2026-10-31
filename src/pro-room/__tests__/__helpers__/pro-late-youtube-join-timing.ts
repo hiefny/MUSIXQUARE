@@ -9,11 +9,15 @@
  * tests (docs/design/resource-ownership-registry.md) name the same rows as
  * this copy's parity tests.
  *
- * Row titles and comments quote today's values (the 3 s lead, the 40 ms
- * tolerance and its 41 ms edge, 1.8 s) while the bodies read them from here,
- * so a change to a value renames those titles and updates those comments in
- * the same change, together with every citation of a renamed title, here and
- * in the RO-03 anchor tests.
+ * A value leaves this copy once its home exports it. Since Phase 6 6A-3 the
+ * arm's release catch-up tolerance (40 ms) and release acknowledgement
+ * (1.8 s) are YOUTUBE_ARM_TIMING in src/youtube/constants.ts, which the
+ * suites import instead.
+ *
+ * Row titles and comments quote today's values (the 3 s lead) while the
+ * bodies read them from here, so a change to a value renames those titles
+ * and updates those comments in the same change, together with every
+ * citation of a renamed title, here and in the RO-03 anchor tests.
  */
 
 /**
@@ -24,23 +28,3 @@
  * after COMMIT on the server clock, mid-track, as a scheduled control'.
  */
 export const LATE_YOUTUBE_COMMIT_LEAD_MS = 3_000;
-
-/**
- * LATE_YOUTUBE_RELEASE_TOLERANCE_MS in src/pro-room/playback-controller.ts,
- * which mirrors TIMING.catchUpToleranceMs in src/youtube/authority-arm.ts.
- * Pinned for the controller by playback-late-cohort-join.test.ts '(d)
- * releases a device ready %i ms after executeAt from its transition without a
- * catch-up' and '(d) re-arms a device ready 41 ms after executeAt for a
- * mid-track join 3 s later', and for the arm by authority-arm.test.ts '(d)
- * releases a commit $lateMs ms past its prepared 0:00 target with $seeks
- * seek'.
- */
-export const LATE_YOUTUBE_RELEASE_TOLERANCE_MS = 40;
-
-/**
- * TIMING.releaseAckTimeoutMs in src/youtube/authority-arm.ts: how long a
- * release waits for PLAYING before it pauses and fails. Pinned by
- * authority-arm.test.ts '(b) pauses an unacknowledged release after exactly
- * 1.8 s without re-muting it'.
- */
-export const RELEASE_ACK_TIMEOUT_MS = 1_800;

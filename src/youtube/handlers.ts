@@ -13,6 +13,7 @@ import { clearManagedTimer } from '../core/timers.ts';
 import { safeSend } from '../network/peer.ts';
 import { verifyOperator } from '../network/protocol.ts';
 import { getYouTubePlayer, setLocalYouTubePaused, setYouTubeSubIndex } from './_state.ts';
+import { YOUTUBE_FRESH_START_MAX_SEC } from './constants.ts';
 import { adoptResidentYouTubeOccurrence, loadYouTubeVideo } from './iframe.ts';
 import { toCanonicalYouTubeTime } from './local-offset.ts';
 import { isStandardHostManualOffsetTransactionPending } from './standard-host-manual-offset-gate.ts';
@@ -227,7 +228,7 @@ export function handleRequestYouTubePlay(
     );
     const videoId = player.getVideoData?.()?.video_id || '';
     if (
-      currentTime <= 0.12 &&
+      currentTime <= YOUTUBE_FRESH_START_MAX_SEC &&
       tryBeginYouTubeZeroStart(videoId, getState('youtube.currentSubIndex') ?? null)
     ) {
       return;
@@ -276,7 +277,7 @@ export function handleRequestYouTubeToggle(
       );
       const videoId = player.getVideoData?.()?.video_id || '';
       if (
-        currentTime <= 0.12 &&
+        currentTime <= YOUTUBE_FRESH_START_MAX_SEC &&
         tryBeginYouTubeZeroStart(videoId, getState('youtube.currentSubIndex') ?? null)
       ) {
         return;

@@ -157,6 +157,81 @@ export const STANDARD_AUTO_REALIGN_MIN_POSITION_SEC = 1;
 /** ...and leaves at least this much media after the projected position. */
 export const STANDARD_AUTO_REALIGN_MIN_REMAINING_SEC = 5;
 
+// ─── Start Timing (zero-start, PRO arm, recovery) ────────────────────
+// Shared by the Standard zero-start controller (zero-start.ts), the PRO arm
+// (authority-arm.ts), the PRO prepare seam (iframe.ts) and the Standard
+// recovery paths (player.ts); a value one file uses stays in that file. The
+// wire is frozen, so src/network/protocol.ts keeps its own receiver bounds;
+// start-timing-parity.test.ts ties them to these senders.
+
+/**
+ * The arm both start controllers run on the iframe: wait for the hard mute,
+ * warm play, pause and seek, settle at the target, restore the audio, then
+ * release. The Standard recovery cleanups repeat the audio-restore cadence
+ * and the release acknowledgement; the PRO playback controller reuses the
+ * catch-up tolerance for a late COMMIT.
+ */
+export const YOUTUBE_ARM_TIMING = Object.freeze({
+  hardMutePollMs: 30,
+  hardMuteMaxAttempts: 12,
+  warmPlayMs: 260,
+  pauseSeekGapMs: 80,
+  settlePollMs: 80,
+  /** Settled: paused within this many seconds of the target... */
+  settleEpsilonSec: 0.12,
+  /** ...on this many polls in a row. */
+  settleStableSamples: 2,
+  /** An unsettled poll pauses and seeks again on every this-many-th poll. */
+  settleReseekEvery: 6,
+  audioRestorePollMs: 120,
+  audioRestoreMaxAttempts: 8,
+  releaseAckTimeoutMs: 1_800,
+  /** A release at most this late still starts at its prepared target, without a catch-up seek. */
+  releaseCatchUpToleranceMs: 40,
+} as const);
+
+/** That tolerance for a lateness measured in seconds: exactly the double 0.04. */
+export const YOUTUBE_RELEASE_CATCH_UP_TOLERANCE_SEC =
+  YOUTUBE_ARM_TIMING.releaseCatchUpToleranceMs / 1_000;
+
+/**
+ * The Standard zero-start barrier. A PREPARE gives guests guestTotalWaitMs
+ * until its start deadline; the host decides guestDecisionMs after PREPARE
+ * and starts the room at least startLeadMs after its COMMIT. Each endpoint's
+ * local preparation is bounded by prepareBudgetMs, of which a cohort-excluded
+ * guest whose load is already issued adopts what is left after the decision
+ * (prepareBudgetMs - guestDecisionMs). An armed guest left out of the cohort
+ * starts on its own lateFallbackLeadMs after it learns of the COMMIT.
+ */
+export const STANDARD_ZERO_START_BARRIER = Object.freeze({
+  guestTotalWaitMs: 3_000,
+  guestDecisionMs: 2_300,
+  startLeadMs: 700,
+  prepareBudgetMs: 10_000,
+  lateFallbackLeadMs: 800,
+} as const);
+
+/**
+ * A server PREPARE must still report READY inside its three-second barrier.
+ * The same 2.3 s as the Standard guestDecisionMs, but a separate value: the
+ * two are linked by this comment only.
+ */
+export const PRO_YOUTUBE_BARRIERED_PREPARE_TIMEOUT_MS = 2_300;
+
+/**
+ * Restores, catch-ups, and participant-local rejoins have no server barrier.
+ * Their wait can include the first IFrame API/player load, which routinely
+ * exceeds the barriered budget on a phone; let that load finish instead.
+ */
+export const PRO_YOUTUBE_UNBARRIERED_PREPARE_TIMEOUT_MS = 10_000;
+
+/**
+ * A PLAY at or before this position is a fresh start that may take the
+ * zero-start barrier. The same number as the settle epsilon, a different
+ * meaning.
+ */
+export const YOUTUBE_FRESH_START_MAX_SEC = 0.12;
+
 // ─── Latency EMA Calibration ─────────────────────────────────────────
 // Self-calibration of the guest's playVideo → audible-start latency using
 // drift measurements from successful rendezvous.

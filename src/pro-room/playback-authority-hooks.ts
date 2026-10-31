@@ -326,8 +326,11 @@ export interface ProPlaybackPrepareRequest {
   state?: Exclude<ProPlaybackCanonicalState, 'idle'>;
   /**
    * Receipt-relative preparation budget already projected from the server
-   * clock by the PRO runtime. Endpoints consume it only with a local monotonic
-   * timer, so client wall-clock skew cannot extend or collapse the deadline.
+   * clock by the PRO runtime; only a server PREPARE carries it. No endpoint
+   * times itself by the value: the YouTube endpoint reads only whether it is
+   * present, and then prepares within the barriered 2.3 s
+   * (PRO_YOUTUBE_BARRIERED_PREPARE_TIMEOUT_MS) counted from its own prepare
+   * call, and the file endpoint does not read it.
    */
   prepareBudgetMs?: number;
   youtubeSubIndex?: number | null;

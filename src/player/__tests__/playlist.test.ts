@@ -17,6 +17,7 @@ import {
   stopYouTubeMode,
 } from '../../youtube/player.ts';
 import * as youtubeIframe from '../../youtube/iframe.ts';
+import { PRO_YOUTUBE_UNBARRIERED_PREPARE_TIMEOUT_MS } from '../../youtube/constants.ts';
 import { markYtPlayerReady, setYouTubePlayer } from '../../youtube/_state.ts';
 import { setPlaybackTrackMeta, setPlaybackYouTubePlaying } from '../ownership.ts';
 import {
@@ -660,7 +661,7 @@ describe('coordinator-free PRO playback routing', () => {
     // No server READY barrier exists, so a first IFrame API load may finish.
     expect(youtubeIframe.prepareYouTubeAuthorityOccurrence).toHaveBeenCalledWith(
       expect.objectContaining({
-        timeoutMs: youtubeIframe.PRO_YOUTUBE_UNBARRIERED_PREPARE_TIMEOUT_MS,
+        timeoutMs: PRO_YOUTUBE_UNBARRIERED_PREPARE_TIMEOUT_MS,
       }),
     );
   });

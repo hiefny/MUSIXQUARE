@@ -326,11 +326,25 @@ RO-53 owner-in-place
     or an alias.
 - **Lifecycle operations:** `loadVideoById` or `cueVideoById`, `pauseVideo`, `seekTo`, `mute` and
   `unMute`, `playVideo`, release acknowledgement, ABORT.
-- **Deadline owner:** the controller (`prepareTimeoutMs` 10 s, `releaseAckTimeoutMs` 1.8 s); the
-  guest fallback and host recovery time themselves with literals in `player.ts` (8 × 120 ms audio
-  restore, 1.8 s release acknowledgement, 0.35 s settle, 50 ms polls).
-- **Timing-constant home:** `YOUTUBE_ZERO_START_TIMING` (`zero-start.ts`), repeated as literals in
-  `player.ts`. Target: `src/youtube/constants.ts` (Phase 0d, C2-1).
+- **Deadline owner:** the controller (the prepare budget, 10 s, and the release acknowledgement,
+  1.8 s); the guest fallback and host recovery time themselves in `player.ts`: the 8 × 120 ms audio
+  restore and the 1.8 s release acknowledgement come from the timing home, and the 7.7 s that a
+  cohort-excluded guest adopts is the prepare budget minus the guest decision. The 0.35 s settle,
+  the 3 s bridge and the 50 ms polls stay literals of that one file until the recovery moves.
+- **Timing-constant home:** `src/youtube/constants.ts` since Phase 6 6A-3 (C2-1):
+  `STANDARD_ZERO_START_BARRIER` (the guest wait, guest decision, start lead, prepare budget and
+  late-fallback lead), `YOUTUBE_ARM_TIMING` (RO-03), `YOUTUBE_RELEASE_CATCH_UP_TOLERANCE_SEC` (the
+  arm's 40 ms catch-up tolerance in seconds, read by `zero-start.ts` and `player.ts`) and the
+  fresh-start threshold `YOUTUBE_FRESH_START_MAX_SEC` (`handlers.ts`, `player.ts`,
+  `native-control-authority.ts`), named apart from the settle epsilon of the same value. The
+  timeline and lead calibration values stay in `zero-start.ts` (`YOUTUBE_ZERO_START_TIMING`), their
+  one user. The wire is frozen, so the receiver keeps its own copies of the sender's bounds in
+  `src/network/protocol.ts`: the PREPARE window (10 s, the prepare budget), the ±600 ms ARMED
+  leads, and the position, `preparedMs` and `warmLatencyMs`, volume, loaded-fraction and cohort
+  bounds. Their parity tests are `src/youtube/__tests__/start-timing-parity.test.ts`, which drives
+  the real controller to each sender edge and checks that the receiver takes it and drops one
+  step past it, and the receiver's own edges in `src/network/__tests__/protocol.test.ts` "YouTube
+  zero-start protocol validation".
 - **Anchor tests:**
   - Supersession: `src/youtube/__tests__/zero-start.test.ts` "unmutes on release when Sequence 2
     supersedes Sequence 1 while warming under hard mute".
@@ -340,9 +354,10 @@ RO-53 owner-in-place
     detached unmute".
   - Visibility: `src/youtube/__tests__/youtube-owner-visibility.test.ts` "RO-02: a Standard
     zero-start hidden mid-warm-up runs exactly as the visible one" (no visibility branch today).
-- **Status:** `duplicated`. Phase 0d (shared start timing), Phase 6 (start ledger, routed state
-  events, shared arm steps, recovery as owner stages). The no-auto-retry Sync notice right after a
-  zero-start stays ([known-accepted #14](../known-accepted.md)).
+- **Status:** `duplicated`. Phase 6 (start ledger, routed state events, shared arm steps, recovery
+  as owner stages); its first train took over the app part of Phase 0d, the shared start timing
+  (C2-1, 6A-3). The no-auto-retry Sync notice right after a zero-start stays
+  ([known-accepted #14](../known-accepted.md)).
 
 ### RO-03 YouTube arm protocol, Standard and PRO copies
 
@@ -352,11 +367,11 @@ RO-53 owner-in-place
   copy `YouTubeAuthorityArmController` (`src/youtube/authority-arm.ts`, phase union
   `YouTubeAuthorityArmPhase`, instance `proAuthorityArm` in `src/youtube/iframe.ts`, driven by the
   `iframe.ts` prepare seam `prepareYouTubeAuthorityOccurrence` with its
-  `proAuthorityPreparationGeneration` fence). Their arm and settle values (hard-mute poll, warm
-  play, pause-seek gap, settle poll and epsilon, release acknowledgement) and most phase names are
-  identical; their prepare budgets are not (10 s Standard, 2.3 s barriered PRO). `zero-start.ts`'s
-  header still says it can serve a coordinator-free PRO endpoint although PRO uses the copy.
-  `zero-start.ts` has no room-kind gate of its own: a PRO member drops a Standard PREPARE only
+  `proAuthorityPreparationGeneration` fence). Both read one set of arm and settle values since
+  Phase 6 6A-3 (hard-mute poll, warm play, pause-seek gap, settle poll, epsilon and rhythm, audio
+  restore, release acknowledgement and catch-up tolerance), and most phase names are identical;
+  their prepare budgets differ (10 s Standard, 2.3 s barriered PRO). `zero-start.ts` has no
+  room-kind gate of its own: a PRO member drops a Standard PREPARE only
   because it has no Standard host link (pinned in `youtube-start-owner-boundary.test.ts`).
   `stopYouTubeMode` cancels both.
 - **Target single owner:** shared arm steps used by both protocol shells; `authority-arm.ts` stays
@@ -368,17 +383,19 @@ RO-53 owner-in-place
 - **Lifecycle operations:** as RO-02, plus detached audio restore and the re-seek on every sixth
   settle poll.
 - **Deadline owner:** each controller. The PRO prepare deadline is set by the `iframe.ts` prepare
-  seam, which passes its remaining budget to `proAuthorityArm.prepare`; `authority-arm.ts`
-  `TIMING.prepareTimeoutMs` is only the fallback when no budget is passed. A server PREPARE gets
-  the barriered 2.3 s, which leaves room inside the server's 3 s transition barrier; restores,
-  catch-ups and participant-local rejoins get the unbarriered 10 s.
-- **Timing-constant home:** arm and settle values: `YOUTUBE_ZERO_START_TIMING` and
-  `authority-arm.ts` `TIMING` (copies). PRO prepare budgets:
-  `PRO_YOUTUBE_BARRIERED_PREPARE_TIMEOUT_MS` (2.3 s, repeated as `authority-arm.ts`
-  `TIMING.prepareTimeoutMs`) and the exported
-  `PRO_YOUTUBE_UNBARRIERED_PREPARE_TIMEOUT_MS` (10 s, equal to the Standard `prepareTimeoutMs`,
-  imported by `playlist.ts`), both in `iframe.ts`; these are the effective values. Target:
-  `src/youtube/constants.ts` (Phase 0d, C2-1).
+  seam, which passes its remaining budget to `proAuthorityArm.prepare`; `authority-arm.ts` falls
+  back to the barriered budget only when no budget is passed. A server PREPARE gets the barriered
+  2.3 s, which leaves room inside the server's 3 s transition barrier; restores, catch-ups and
+  participant-local rejoins get the unbarriered 10 s. The seam counts that budget from its own
+  prepare call: the YouTube endpoint reads only whether the PREPARE carried a budget
+  (`prepareBudgetMs`), not its value.
+- **Timing-constant home:** `src/youtube/constants.ts` since Phase 6 6A-3 (C2-1): the arm and settle
+  values `YOUTUBE_ARM_TIMING` (also the RO-12 audio-restore cadence) and the PRO prepare budgets
+  `PRO_YOUTUBE_BARRIERED_PREPARE_TIMEOUT_MS` (2.3 s) and `PRO_YOUTUBE_UNBARRIERED_PREPARE_TIMEOUT_MS`
+  (10 s, the same value as the Standard prepare budget). `zero-start.ts`, `authority-arm.ts`,
+  `iframe.ts` and `playlist.ts` import them, and `playback-controller.ts` imports the arm's
+  catch-up tolerance for a late COMMIT instead of keeping its own 40 ms copy. The barriered 2.3 s
+  and the Standard guest decision of the same value stay two values, linked by comment only.
 
   The PRO playback transition those budgets serve has its own home since Phase 5.5,
   `cloudflare/pro-room-playback-timing.ts`. The PRO Worker imports the barrier
@@ -410,9 +427,12 @@ RO-53 owner-in-place
     the COMMIT lead and the 3 s minimum lead with the barrier. The 1.5 s threshold shares no value
     with the home and is not listed.
 
-  The ordering test that the barriered 2.3 s fits inside the 3 s barrier waits for Phase 0d C2-1,
-  which moves 2.3 s to `src/youtube/constants.ts`: until then it is a module constant of
-  `iframe.ts` and `authority-arm.ts`, and a test-only export is not allowed.
+  The ordering test of the barriered 2.3 s against the 3 s barrier is in
+  `src/pro-room/__tests__/pro-room-playback-timing.test.ts` since Phase 6 6A-3: "keeps the App's
+  2.3 s barriered YouTube prepare budget inside the 3 s barrier" and "leaves 700 ms between that
+  budget and the barrier: the room for a READY, not the COMMIT lead". The 700 ms is the room for
+  fresh clock samples and the READY upload before the deadline; the COMMIT lead only has the same
+  value.
 
 - **Anchor tests:**
   - Timing home: `src/pro-room/__tests__/pro-room-playback-timing.test.ts` (the barrier and the
@@ -430,29 +450,30 @@ RO-53 owner-in-place
     YouTube join pins of 2026-10-30 (`playback-late-cohort-join.test.ts`,
     `pro-late-prepare-reload.test.ts` and the "PRO late cohort join (pinned 2026-10-30)" blocks of
     `authority-arm.test.ts` and `pro-manual-zero-start.test.ts`) also read the App's own late-join
-    values from `src/pro-room/__tests__/__helpers__/pro-late-youtube-join-timing.ts`, a copy of
-    module constants their homes do not export (a test-only export is not allowed); a value leaves
-    the copy once its home exports it. These rows run the real home and pin the copy to it:
-    - `playback-controller.ts` `LATE_YOUTUBE_COMMIT_LEAD_MS`: `playback-late-cohort-join.test.ts`
-      "(c) joins a failed-READY device 3 s after COMMIT on the server clock, mid-track, as a
-      scheduled control".
-    - `playback-controller.ts` `LATE_YOUTUBE_RELEASE_TOLERANCE_MS`: the same file's "(d) releases
-      a device ready %i ms after executeAt from its transition without a catch-up" and "(d)
-      re-arms a device ready 41 ms after executeAt for a mid-track join 3 s later".
-    - The arm tolerance that it mirrors, `authority-arm.ts` `TIMING.catchUpToleranceMs`:
-      `authority-arm.test.ts` "(d) releases a commit $lateMs ms past its prepared 0:00 target
-      with $seeks seek".
-    - `authority-arm.ts` `TIMING.releaseAckTimeoutMs`: `authority-arm.test.ts` "(b) pauses an
-      unacknowledged release after exactly 1.8 s without re-muting it".
+    lead from `src/pro-room/__tests__/__helpers__/pro-late-youtube-join-timing.ts`, a copy of a
+    module constant its home does not export (a test-only export is not allowed). A value leaves
+    the copy once its home exports it: the arm's 40 ms catch-up tolerance and 1.8 s release
+    acknowledgement left it in Phase 6 6A-3, and those suites read `YOUTUBE_ARM_TIMING` instead.
+    These rows run the real homes:
+    - `playback-controller.ts` `LATE_YOUTUBE_COMMIT_LEAD_MS`, the copy's one value:
+      `playback-late-cohort-join.test.ts` "(c) joins a failed-READY device 3 s after COMMIT on
+      the server clock, mid-track, as a scheduled control".
+    - The arm's catch-up tolerance as the controller's late-release tolerance: the same file's
+      "(d) releases a device ready %i ms after executeAt from its transition without a catch-up"
+      and "(d) re-arms a device ready 41 ms after executeAt for a mid-track join 3 s later".
+    - The same tolerance in the arm: `authority-arm.test.ts` "(d) releases a commit $lateMs ms
+      past its prepared 0:00 target with $seeks seek".
+    - The arm's release acknowledgement: `authority-arm.test.ts` "(b) pauses an unacknowledged
+      release after exactly 1.8 s without re-muting it".
   - Not tied yet (follow-up): older App suites still retype App budgets of this record, against
     principle 4. The 3 s late-join lead, which the late-join copy holds: `network-bridge.test.ts`
     (four schedule delays) and `playback-system-audio-join.test.ts` (two waits). The arm's 1.8 s
-    release timeout, also in that copy: `authority-arm.test.ts` "retries captured audio
+    release timeout, which has its home now: `authority-arm.test.ts` "retries captured audio
     restoration after a release acknowledgement timeout". The two 700 ms budgets, which have
     neither an export nor a copy: `playback-clock-safety.test.ts` (two clock waits),
     `playback-authority-hooks.test.ts` and `runtime-server-playback.test.ts` (rendezvous leads).
-    The 2.3 s prepare budget, which YouTube suites retype (`authority-arm.test.ts` among them),
-    gets its home in Phase 0d C2-1 (above).
+    The 2.3 s prepare budget, which has its home since Phase 6 6A-3 but which YouTube suites still
+    retype (`authority-arm.test.ts` among them), as they retype the Standard barrier values.
   - Supersession: `src/youtube/__tests__/authority-arm.test.ts` "supersedes a prepared occurrence
     when the iframe instance is replaced".
   - User pause/stop: `authority-arm.test.ts` "cancels a long negative-offset wait before a pause or
@@ -464,8 +485,9 @@ RO-53 owner-in-place
     are traced in `src/youtube/__tests__/youtube-room-switch-trace.test.ts` (T1-T5): there is no
     direct Standard to PRO path (each switch passes leaveSession first), and clearing the PRO
     session is the only room-context change without stop-mode (T4).
-- **Status:** `duplicated`. Phase 0d (shared constants), Phase 6 (shared arm steps, PRO arm through
-  the owner's audio state with distinct tokens). Exception RO-34.
+- **Status:** `duplicated`. Phase 6 (shared arm steps, PRO arm through the owner's audio state with
+  distinct tokens); its first train took over the app part of Phase 0d, the shared constants
+  (C2-1, 6A-3). Exception RO-34.
 
 ### RO-04 System-audio receive slot
 
@@ -1585,8 +1607,10 @@ RO-53 owner-in-place
   `const`s). The iOS prime `unMute()` in `primeYouTubePlayer` stays where it
   is: it has to run inside the user gesture's call stack.
 - **Deadline owner:** each writer's own retry (for example the zero-start release unmute retry).
-- **Timing-constant home:** the audio-restore 120 ms and 8 attempts repeated in `zero-start.ts`,
-  `authority-arm.ts` and `player.ts`. Target: `src/youtube/constants.ts`.
+- **Timing-constant home:** the audio-restore 120 ms and 8 attempts are
+  `YOUTUBE_ARM_TIMING.audioRestorePollMs` and `audioRestoreMaxAttempts` in
+  `src/youtube/constants.ts` since Phase 6 6A-3 (C2-1); `zero-start.ts`, `authority-arm.ts` and the
+  two `player.ts` recovery cleanups import them.
 - **Anchor tests:**
   - Supersession: `zero-start.test.ts` "does not restore audio or report ARMED for an iframe
     replaced during audio settlement".

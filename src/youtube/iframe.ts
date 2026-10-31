@@ -146,6 +146,8 @@ import {
   FIRST_TRACK_FISHER_MAX_POLLS,
   VIDEO_DATA_POLL_EVERY_NTH_TICK,
   DURATION_CACHE_EPSILON,
+  PRO_YOUTUBE_BARRIERED_PREPARE_TIMEOUT_MS,
+  PRO_YOUTUBE_UNBARRIERED_PREPARE_TIMEOUT_MS,
 } from './constants.ts';
 
 import type { QueueItemId } from '../types/index.ts';
@@ -2011,14 +2013,6 @@ type YouTubeAuthorityPreparationResult =
     };
 
 let proAuthorityPreparationGeneration = 0;
-/** A server PREPARE must still report READY inside its three-second barrier. */
-const PRO_YOUTUBE_BARRIERED_PREPARE_TIMEOUT_MS = 2_300;
-/**
- * Restores, catch-ups, and participant-local rejoins have no server barrier.
- * Their wait can include the first IFrame API/player load, which routinely
- * exceeds the barriered budget on a phone; let that load finish instead.
- */
-export const PRO_YOUTUBE_UNBARRIERED_PREPARE_TIMEOUT_MS = 10_000;
 /**
  * The exact iOS iframe whose TAP TO PLAY gesture was spent on PRO playback.
  * That tap unlocks scripted audible starts even when WebKit never reported the

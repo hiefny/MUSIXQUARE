@@ -74,6 +74,10 @@ import {
   BROADCAST_SYNC_MIN_INTERVAL_MS,
   IMMEDIATE_ACTION_COOLDOWN_MS,
   YOUTUBE_PRIME_VIDEO_ID,
+  STANDARD_ZERO_START_BARRIER,
+  YOUTUBE_ARM_TIMING,
+  YOUTUBE_FRESH_START_MAX_SEC,
+  YOUTUBE_RELEASE_CATCH_UP_TOLERANCE_SEC,
 } from './constants.ts';
 import {
   configureYouTubePlayerRuntimeHooks,
@@ -761,14 +765,18 @@ export function scheduleYtAutoSync(targetTime: number, overrides?: YouTubeAutoSy
           const elapsedSeconds = Math.max(0, performance.now() - localStartAtMs) / 1000;
           const releaseTarget = Math.max(0, elapsedSeconds - localStartDelayMs / 1000);
           const automaticOffset = getStandardHostYouTubeAutomaticOffset();
-          if (releaseTarget > 0.04) player.seekTo(releaseTarget, true);
+          if (releaseTarget > YOUTUBE_RELEASE_CATCH_UP_TOLERANCE_SEC)
+            player.seekTo(releaseTarget, true);
           if (!isCurrent()) return;
           setState(
             'sync.youtubeCoordinatorAppliedOffset',
-            (releaseTarget > 0.04 ? releaseTarget : 0) - canonicalTargetTime - elapsedSeconds,
+            (releaseTarget > YOUTUBE_RELEASE_CATCH_UP_TOLERANCE_SEC ? releaseTarget : 0) -
+              canonicalTargetTime -
+              elapsedSeconds,
           );
           recordStandardHostYouTubeAutomaticOffset(
-            automaticOffset - (releaseTarget > 0.04 ? 0 : releaseTarget),
+            automaticOffset -
+              (releaseTarget > YOUTUBE_RELEASE_CATCH_UP_TOLERANCE_SEC ? 0 : releaseTarget),
           );
           setStandardHostYouTubeLocalStartTimelineReader(null);
           player.playVideo?.();
@@ -2046,19 +2054,19 @@ export function initYouTube(): void {
         try {
           cleanupExactPlayer(ownedPlayer);
           const restored = isFallbackAudioRestored(ownedPlayer, desiredAudio);
-          if (restored || cleanupAttempts >= 8) {
+          if (restored || cleanupAttempts >= YOUTUBE_ARM_TIMING.audioRestoreMaxAttempts) {
             setZeroStartExternalFallbackOwnership(false);
             clearManagedTimer('yt-zero-start-host-fallback');
             return;
           }
         } catch {
-          if (cleanupAttempts >= 8) {
+          if (cleanupAttempts >= YOUTUBE_ARM_TIMING.audioRestoreMaxAttempts) {
             setZeroStartExternalFallbackOwnership(false);
             clearManagedTimer('yt-zero-start-host-fallback');
             return;
           }
         }
-        scheduleHostFallback(verifyCleanup, 120);
+        scheduleHostFallback(verifyCleanup, YOUTUBE_ARM_TIMING.audioRestorePollMs);
       };
       setZeroStartExternalFallbackOwnership(true);
       verifyCleanup();
@@ -2462,7 +2470,12 @@ export function initYouTube(): void {
       const canAdoptRemainingPrepareWindow =
         event.reason === 'cohort-excluded' &&
         (event.targetLoadIssued === true || event.mediaAction === 'resident-reposition');
-      const deadline = Date.now() + (canAdoptRemainingPrepareWindow ? 7_700 : 3_000);
+      const deadline =
+        Date.now() +
+        (canAdoptRemainingPrepareWindow
+          ? STANDARD_ZERO_START_BARRIER.prepareBudgetMs -
+            STANDARD_ZERO_START_BARRIER.guestDecisionMs
+          : 3_000);
       const uncalibratedHoldMs = Math.max(
         0,
         resolveZeroStartDelay(event.targetPositionSec ?? 0) - audibleLeadMs,
@@ -2514,19 +2527,23 @@ export function initYouTube(): void {
           try {
             cleanupExactPlayer(ownedPlayer);
             const restored = isFallbackAudioRestored(ownedPlayer, desiredAudio);
-            if (restored || cleanupAttempts >= 8) {
+            if (restored || cleanupAttempts >= YOUTUBE_ARM_TIMING.audioRestoreMaxAttempts) {
               setZeroStartExternalFallbackOwnership(false);
               clearManagedTimer('yt-zero-start-external-fallback');
               return;
             }
           } catch {
-            if (cleanupAttempts >= 8) {
+            if (cleanupAttempts >= YOUTUBE_ARM_TIMING.audioRestoreMaxAttempts) {
               setZeroStartExternalFallbackOwnership(false);
               clearManagedTimer('yt-zero-start-external-fallback');
               return;
             }
           }
-          setManagedTimer('yt-zero-start-external-fallback', verifyCleanup, 120);
+          setManagedTimer(
+            'yt-zero-start-external-fallback',
+            verifyCleanup,
+            YOUTUBE_ARM_TIMING.audioRestorePollMs,
+          );
         };
         setZeroStartExternalFallbackOwnership(true);
         verifyCleanup();
@@ -2742,7 +2759,7 @@ export function initYouTube(): void {
             return;
           }
           releasePlayIssued = true;
-          releaseAckDeadline = Date.now() + 1_800;
+          releaseAckDeadline = Date.now() + YOUTUBE_ARM_TIMING.releaseAckTimeoutMs;
           setManagedTimer('yt-zero-start-external-fallback', attemptFallback, 0);
         } catch (error) {
           if (Date.now() < Math.max(deadline, releaseAudioDeadline)) {
@@ -3432,7 +3449,7 @@ export function initYouTube(): void {
         // rendezvous path.
         const videoId = player.getVideoData?.()?.video_id || '';
         if (
-          currentTime <= 0.12 &&
+          currentTime <= YOUTUBE_FRESH_START_MAX_SEC &&
           tryBeginYouTubeZeroStart(videoId, getState('youtube.currentSubIndex') ?? null)
         ) {
           return;
@@ -3490,7 +3507,7 @@ export function initYouTube(): void {
       options.zeroStart === true &&
       (options.state ?? 1) === 1 &&
       zeroStartTarget >= 0 &&
-      zeroStartTarget <= 0.12 &&
+      zeroStartTarget <= YOUTUBE_FRESH_START_MAX_SEC &&
       tryBeginYouTubeZeroStart(
         zeroStartVideoId,
         options.subIndex ?? getState('youtube.currentSubIndex') ?? null,

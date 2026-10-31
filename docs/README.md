@@ -95,12 +95,17 @@ runbooks. Neither belongs in a general setup document.
 
 - [App font switch to Inter and Noto, owner decisions (2026-10-31)](design/app-font-inter-noto-2026-10-31.md):
   implemented and checked locally on the branch `agent/font-switch`, rebased onto main `9e68a7a3`
-  (App runtime equal to 9.0.28 / v801 `aa7baad5`), not merged, released or bumped; target `app`
-  (App runtime paths only, no other Worker, no runtime dependency change) with the update dialog
-  once the release owner adds the next App patch and service-worker epoch. The owner has seen the
-  final pictures and has not decided the release or its order against Phase 6 6A, so the version
-  stays unnamed; the release record's §2 pre-release item holds the gates (the owner's release
-  decision, the iOS 17 and 18 Safari line-height check, the owner questions). The app draws with
+  (App runtime equal to 9.0.28 / v801 `aa7baad5`), not merged or released; it ships as App
+  9.0.29 / v802 with target `app` (App runtime paths only, no other Worker, no runtime dependency
+  change) and the update dialog, the version bump being its last runtime commit. The owner saw the
+  final pictures and on the evening of 2026-10-31 chose to release it now as the next App update,
+  ahead of Phase 6 6A, and moved the iOS 17 and 18 Safari line-height check from a release gate to
+  the first check after the release because no iPhone was at hand. The release owner applied the
+  recommended answers to the other owner questions, which the owner can reverse: the rare symbols
+  that still draw differently in the Korean and English UIs are accepted for now with no symbol
+  face download, the design-system page's wider English samples are accepted, and baking the
+  line-box values into the font files waits on the iPhone check. The release record's §2
+  pre-release item holds the remaining procedure and the checks after the release. The app draws with
   self-hosted Inter 4 (Latin, Cyrillic, Greek) and Noto (Noto Sans KR v40 shards re-encoded without the Korean
   `locl`, Noto Sans JP, SC, TC, Thai, Arabic, Hebrew and Indic), so the Korean and English UIs draw
   the same content with the same faces, widths and pixels. One startup Han order from the
@@ -118,10 +123,11 @@ runbooks. Neither belongs in a general setup document.
   measurements (eager total 531.0 KiB gzip against 9.0.28's 533.1, eager fonts 0; English start screen
   72,920 B in one file, Korean 249,360 B in 12 files plus 9 prefetched shards), the tests-first
   commit pairs with their SHAs before and after the rebase, seven local QA rounds (the last one
-  rechecking every tests-first commit on its new parent), the risks, the device checks still needed
-  (the release gate on iOS 17 and 18 Safari line boxes, iOS 16, Android, the webOS TV) and twelve
-  owner questions, among them a self-hosted symbol face for the characters no face draws, which
-  still draw in a different device font in the Korean and English UIs (☺ ℹ ∼ ≒ ◈). The font
+  rechecking every tests-first commit on its new parent), the risks, the device checks after the
+  release (first the iOS 17 and 18 Safari line boxes, then iOS 16, Android, the webOS TV) and twelve
+  owner questions with the owner's answer and the recommended answers applied, among them a
+  self-hosted symbol face for the characters no face draws, which still draw in a different device
+  font in the Korean and English UIs (☺ ℹ ∼ ≒ ◈) and are accepted for now. The font
   guard checks self-hosted faces and coverage in every text stack (KS X 1001 and the swept
   symbol blocks included, 1,270 recorded gaps), no rule that applies in only one of the Korean
   and English UIs, `calt` on and no face in the app stylesheets; the initial transfer budget

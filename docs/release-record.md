@@ -3412,8 +3412,9 @@ PRO 방장 공지의 중도 참여 복원은 별도 정책이며 이번 서비�
       Pretendard에서 자체 호스팅 Inter(라틴, 키릴, 그리스, 베트남어)와 Noto(한글은 새 Noto Sans KR, 나머지는 이미 있는 Noto Sans
       JP·SC·TC·Thai와 단일 문자 글꼴)로 바꿔, 한국어 화면과 영어 화면이 같은 내용(트랙 제목, 채팅, 이름)을 같은 글꼴, 같은 폭, 같은
       픽셀로 그린다([화면 바뀜], 보고서 §3). 브랜치 `agent/font-switch`는 origin/main `9e68a7a3`(#547 시험만, 그 아래 #546 기록, 앱
-      런타임은 운영 9.0.28 `aa7baad5`와 같음) 위 커밋 53개이고 테스트 먼저 짝이 20개다. 마지막 런타임 커밋은 버전
-      올리기 `9b93c5b3`이고, 그 뒤에는 문서 커밋 둘(그 SHA와 최종 관문 QA 라운드 8, 검토 지적 고치기)만 있다. 범위: 앱만이다(`index.html`과 언어별 사본, 앱 CSS와 런타임, 서비스 워커, 가드, 시험, 문서). 다른
+      런타임은 운영 9.0.28 `aa7baad5`와 같음) 위 커밋 56개이고 테스트 먼저 짝이 21개다. 마지막 런타임 커밋은 버전
+      올리기 `3fc54970`(QA 라운드 8에서 시험한 `9b93c5b3`과 같은 내용)이고, 그 뒤에는 문서 커밋 셋(그 SHA와 최종 관문 QA
+      라운드 8, 검토 지적 고치기, PR CI 실패와 고침 QA 라운드 9)만 있다. 범위: 앱만이다(`index.html`과 언어별 사본, 앱 CSS와 런타임, 서비스 워커, 가드, 시험, 문서). 다른
       HTML 입구(소개와 그 형제 페이지, 블로그, 히스토리, 디자인 시스템, 이벤트, 관리자, `account-complete.html`)와 공유 미리보기
       그림(OG)은 이 열차에서 Pretendard를 그대로 쓰고 Pretendard 파일은 배포된 채 남는다. 제목 자간 토큰 삭제만 디자인 시스템 거울과
       공개 편집 CSS까지 가서 디자인 시스템 페이지의 영어 견본(글자 크기 견본, 대화상자 견본 제목, EQ 값)이 2.7 ~ 4.4% 넓어지고,
@@ -3437,13 +3438,13 @@ PRO 방장 공지의 중도 참여 복원은 별도 정책이며 이번 서비�
       견본이 2.7 ~ 4.4% 넓어지는 것도 받아들인다(질문 12). 질문 1 ~ 6과 9 ~
       11은 구현대로다. 질문 8(크기 값을 글꼴 파일에 구워 넣기)은 배포 뒤 iPhone 확인의 결과에 달린다. 버전: 9.0.29 / v802(App 빌드
       802). 운영이 9.0.28 / v801(`aa7baad5`, Release 41160043955)이므로 다음 패치와 다음 epoch이고, 9.0.28 bump `f3a9fcbc`와 같은
-      여섯 파일 일곱 줄을 마지막 런타임 커밋 `9b93c5b3`으로 올렸다. Release 입력: target `app`(App SemVer와 SW 캐시 epoch가 바뀌어 업데이트 창이
+      여섯 파일 일곱 줄을 마지막 런타임 커밋 `3fc54970`으로 올렸다. Release 입력: target `app`(App SemVer와 SW 캐시 epoch가 바뀌어 업데이트 창이
       뜬다), `raise_app_build_floor` false(최소 앱 빌드 795 그대로), Developer API D1 false. 배포 대상: 운영 배포 SHA(App
       `aa7baad5`, PRO room `683074bc`, 나머지 넷 `71f5b96c`)와 main `9e68a7a3` 어느 쪽에 견줘도 버전 올리기 전 런타임 경로 변경은
       App 173, 나머지 다섯 Worker 0이고 App 런타임 의존성 차이가 없다(로컬 git 판정, 보고서 QA 라운드 7). 버전 올리기 머리
-      `9b93c5b3`에서는 App 176(버전 거울 `browser/classic-runtime/admin.ts`, `cloudflare/app-worker.ts`, `index.html`이 더해짐),
-      나머지 다섯 0이고, target `app`의 호환 판정(`verifyPartialReleaseCompatibility`, 운영 조회 대신 위 배포 SHA)이 compatible이다
-      (로컬 git만, 보고서 QA 라운드 8). 신호, PRO, 서버 계약, D1,
+      `3fc54970`에서는 App 176(버전 거울 `browser/classic-runtime/admin.ts`, `cloudflare/app-worker.ts`, `index.html`이 더해짐,
+      라운드 8의 `9b93c5b3`과 같은 목록), 나머지 다섯 0이고, target `app`의 호환 판정(`verifyPartialReleaseCompatibility`, 운영
+      조회 대신 위 배포 SHA)이 compatible이다(로컬 git만, 보고서 QA 라운드 8, 9). 신호, PRO, 서버 계약, D1,
       비밀, 바인딩, Wrangler 설정, 저장 데이터와 키, 프레임 모양, 바닥은 그대로다(파일 이름은 보여 줄 때만 NFC이고 저장·전송되는
       이름은 그대로). 자원 소유권: 글꼴 시트와 면 불러오기의 주인은 `src/i18n/locale-fonts.ts` 하나이고, Pretendard 런타임,
       부트스트랩 글꼴 스케줄러, `public/primary-font.css`, 서비스 워커의 선택 글꼴 묶음을 같은 변경에서 지워 새 레코드가 없다(기준치
@@ -3455,9 +3456,13 @@ PRO 방장 공지의 중도 참여 복원은 별도 정책이며 이번 서비�
       `fonts/font-sources.json`, 다시 만들기와 검사는 `fonts/README.md`, 알림은 저장소 `README.md`의 제3자 목록에 있다. 배포 기록이
       §1 의존성·호환 칸에 이 자산을 적는다. 저장소는 글꼴 파일로 약 3.76 MB 커진다. 이제 채운 배포 전 관문: (1) 오너의 릴리스
       결정(2026-10-31 저녁, 6A보다 먼저), (2) 보고서 §9 오너 질문의 답(권장 답 적용, 8은 배포 뒤 iPhone 확인에 달림). iPhone Safari 줄
-      높이는 오너 답으로 관문에서 빠져 배포 뒤 첫 확인이 됐다. 버전 올리기와 그 머리의 로컬 최종 관문은 했다(QA 라운드 8). 남은
-      것은 보통 절차다: PR CI와 자동 코드 리뷰, 머지, exact-main CI, 릴리스(보고서 §10). 근거: 로컬 QA 라운드 1 ~ 8(Windows 11,
-      Chromium 153만). 최종 관문 라운드 8(버전 올리기 머리 `9b93c5b3`)은 `build:checked` 25단계와 가드 37개가 모두
+      높이는 오너 답으로 관문에서 빠져 배포 뒤 첫 확인이 됐다. 버전 올리기와 그 머리의 로컬 최종 관문은 했다(QA 라운드 8). PR
+      #548의 첫 CI(run 41203742094, 머리 `3b9765fc`)는 Critical browser gate의 `adaptive-actions` 좁은 칸 탐침 다섯 크기(720x800,
+      844x390, 1024x768, 1279x800, 1280x719)에서 fil-PH 로그아웃·계정 삭제 쌍이 9.0.18 글자 양식보다 한 줄 많아(3 / 2, 두 테마)
+      실패했다. 원인은 Linux Chromium의 글꼴 힌팅이라 두 버튼에 `text-rendering: geometricPrecision`을 주어 고쳤고(PR #510의 미디어
+      고르기 선택지와 같은 방법, 보고서 §5 18번), 버전 올리기를 그 위로 다시 얹어 로컬 관문을 다시 돌렸다(QA 라운드 9). 남은 것은
+      보통 절차다: 다시 쌓은 줄의 push와 PR CI(Linux 확인), 자동 코드 리뷰, 머지, exact-main CI, 릴리스(보고서 §10). 근거: 로컬
+      QA 라운드 1 ~ 9(Windows 11, Chromium 153만)와 PR CI 첫 실행. 최종 관문 라운드 8(버전 올리기 머리 `9b93c5b3`)은 `build:checked` 25단계와 가드 37개가 모두
       통과했고(`guard:sw-cache-version` v802 (9b93c5b3), `guard:release-identity` 9.0.29 / v802, 첫 전송은 eager total 531.0 KiB
       gzip와 eager fonts 0으로 그대로), 자원 소유권(기록 49, 파일 456, 기준치 그대로), 운영 빌드 `test:e2e:candidate` 19 / 19,
       critical E2E와 `font-identity` 104 / 104, 커버리지 critical 93 files / 3,736과 workers 69 / 3,323, tooling 14 / 433(부하 시간
@@ -3466,8 +3471,8 @@ PRO 방장 공지의 중도 참여 복원은 별도 정책이며 이번 서비�
       가운데 `guard:sw-cache-version` 하나만 실패했고(버전 올리기 없음), 단위 730 files / 17,459, critical E2E와 `font-identity`
       104 / 104, 재생목록·채팅 E2E 63 / 63, 커버리지 세 레인이 통과했다. 라운드 7(다시 쌓기)은 44커밋이 패치 그대로이고 문서 둘은
       `docs/README.md` 문맥만 다르며, 테스트 먼저 20짝이 새 부모에서 실패하고 짝 구현에서 통과하고, 단위 732 files / 17,460(부하
-      시간 초과 1행은 그 파일만 다시 돌려 통과), typecheck, lint가 통과했다. Linux CI, WebKit, 실제 기기는 아직이고, 로컬과 브랜치
-      결과는 exact-main-SHA 후보를 대신하지 않는다. 배포 뒤 확인(보고서 §8): (1) 첫 확인, iPhone Safari 줄 높이(오너 답으로 관문에서
+      시간 초과 1행은 그 파일만 다시 돌려 통과), typecheck, lint가 통과했다. 라운드 9(PR CI 실패 고침, 머리 `46ed06e9`, 런타임은 버전 올리기 `3fc54970`)는 18번 짝이 부모에서 1 failed / 19 passed로 실패하고 구현에서 20 / 20 통과하며, `build:checked` 25단계와 가드 37개(`guard:sw-cache-version` v802 (3fc54970), `guard:release-identity` 9.0.29 / v802, eager total 531.0 KiB gzip, eager fonts 0), 자원 소유권(기준치 그대로), 운영 빌드 `test:e2e:candidate` 19 / 19, `adaptive-actions` 44 / 44, critical E2E 101 / 101, `font-identity` 3 / 3, 커버리지 세 레인, 단위 732 files / 17,461(부하 시간 초과 git 고정물 1행은 그 두 파일만 다시 돌려 157 / 157 통과)이 통과했다. 모두 로컬 Windows라 Linux 확인은 아니다. 고친 줄의 PR CI(Linux), WebKit, 실제
+      기기는 아직이고, 로컬과 브랜치 결과는 exact-main-SHA 후보를 대신하지 않는다. 배포 뒤 확인(보고서 §8): (1) 첫 확인, iPhone Safari 줄 높이(오너 답으로 관문에서
       옮김, iOS 17과 18, 가장 새 버전만이 아님, 운영 9.0.29에서): 15px와 13px의 한글, 라틴, 섞인 줄의 높이와 기준선, 제목. 줄 상자
       덮어쓰기를 따르면 15px 줄 18px, 13px 줄 15px이고, 무시하면(15px 한글 줄 약 20.4px) 크기 값을 글꼴 파일에 구워 넣는 길(오너
       질문 8, 설계 6.1)을 오너와 정해 다음 App 패치로 테스트 먼저 고친다. 그 확인까지 아이폰의 한글·가나·한자 줄이 그만큼 높아질

@@ -12,6 +12,8 @@ import {
   FONT_PREFETCH_MAX_FACES,
   FONT_PREFETCH_QUIET_MS,
   FONT_SHEETS_IDLE_TIMEOUT_MS,
+  FONT_SHEET_ATTEMPT_TIMEOUT_MAX_MS,
+  FONT_SHEET_ATTEMPT_TIMEOUT_MS,
   FONT_SHEET_RETRY_DELAY_MS,
   FONT_SHEET_RETRY_LIMIT,
 } from '../font-loading-policy.ts';
@@ -31,15 +33,24 @@ const sheets = vi.hoisted(() => ({
   requests: [] as string[],
   /** Per-sheet behaviour; a sheet without one loads at once. */
   behaviour: new Map<string, () => Promise<unknown>>(),
+  /** Sheets whose attempt in flight the module gave up, in order. */
+  abandoned: [] as string[],
 }));
 
 vi.mock('../retryable-stylesheet.ts', () => ({
   createRetryableStylesheet: (sourceName: string) => {
     sheets.registered.push(sourceName);
-    return () => {
-      sheets.requests.push(sourceName);
-      return sheets.behaviour.get(sourceName)?.() ?? Promise.resolve();
-    };
+    return Object.assign(
+      () => {
+        sheets.requests.push(sourceName);
+        return sheets.behaviour.get(sourceName)?.() ?? Promise.resolve();
+      },
+      {
+        abandon: () => {
+          sheets.abandoned.push(sourceName);
+        },
+      },
+    );
   },
 }));
 
@@ -152,6 +163,7 @@ function useFakeTimers(): void {
 
 beforeEach(() => {
   sheets.requests.length = 0;
+  sheets.abandoned.length = 0;
   sheets.behaviour.clear();
   readyState = 'complete';
   visibilityState = 'visible';
@@ -216,8 +228,9 @@ describe('phase A', () => {
     ['ru', ['ru-RU'], ['font-inter', 'font-noto-kr']],
     ['el', ['el-GR'], ['font-inter', 'font-noto-kr']],
     ['ko', ['ja-JP', 'ko-KR'], ['font-inter', 'font-noto-kr', 'font-noto-jp']],
-    ['en', ['ja-JP', 'ko-KR'], ['font-inter', 'font-noto-jp']],
-    ['en', ['zh-TW'], ['font-inter', 'font-noto-tc']],
+    ['en', ['ja-JP', 'ko-KR'], ['font-inter', 'font-noto-kr', 'font-noto-jp']],
+    ['en', ['zh-TW'], ['font-inter', 'font-noto-kr', 'font-noto-tc']],
+    ['fr', ['ja-JP'], ['font-inter', 'font-noto-kr', 'font-noto-jp']],
     ['ja', ['en-US'], ['font-inter', 'font-noto-jp']],
     ['ja', ['zh-CN'], ['font-inter', 'font-noto-jp']],
     ['zh-hans', ['en-US'], ['font-inter', 'font-noto-sc']],
@@ -238,21 +251,19 @@ describe('phase A', () => {
     expect(sheets.requests).toEqual(expected);
   });
 
-  it('loads the same sheets in the same order for the Korean and English UIs', async () => {
-    for (const languages of [['ko-KR'], ['en-US'], ['ja-JP'], ['zh-CN', 'ko-KR']]) {
+  it('loads the same sheets in the same order for the Korean and English UIs under every Han order', async () => {
+    // Until phase B, a Hangul nickname or room member name must not draw in a
+    // device font in one UI and in Noto Sans KR in the other, whatever the
+    // browser's first CJK language.
+    for (const languages of [['ko-KR'], ['en-US'], ['ja-JP'], ['zh-CN', 'ko-KR'], ['zh-HK']]) {
       setLanguages(languages);
       sheets.requests.length = 0;
       await (await freshRuntime()).loadLanguageFonts('ko');
       const korean = [...sheets.requests];
       sheets.requests.length = 0;
       await (await freshRuntime()).loadLanguageFonts('en');
-      // A Korean UI also needs Korean for its own words when the browser
-      // prefers another Han order; with Korean first they are identical.
-      if (languages[0] === 'ko-KR' || languages[0] === 'en-US') {
-        expect(sheets.requests, languages.join()).toEqual(korean);
-      } else {
-        expect(korean.filter((id) => id !== 'font-noto-kr')).toEqual(sheets.requests);
-      }
+      expect(sheets.requests, languages.join()).toEqual(korean);
+      expect(korean, languages.join()).toContain('font-noto-kr');
     }
   });
 
@@ -508,6 +519,165 @@ describe('sheet retries', () => {
     expect(sheets.requests.filter((id) => id === 'font-noto-jp')).toHaveLength(2);
   });
 
+  /** Phase A and B with font-noto-sc always failing, then every timer retry used up. */
+  async function exhaustScRetries(): Promise<() => number> {
+    useFakeTimers();
+    sheets.behaviour.set('font-noto-sc', failing(Number.POSITIVE_INFINITY));
+    const runtime = await freshRuntime();
+    await runtime.loadLanguageFonts('en');
+    await runIdle();
+    for (let retry = 1; retry <= FONT_SHEET_RETRY_LIMIT; retry += 1) {
+      await vi.advanceTimersByTimeAsync(FONT_SHEET_RETRY_DELAY_MS);
+      await runIdle();
+    }
+    const scRequests = () => sheets.requests.filter((id) => id === 'font-noto-sc').length;
+    expect(scRequests()).toBe(1 + FONT_SHEET_RETRY_LIMIT);
+    await vi.advanceTimersByTimeAsync(FONT_SHEET_RETRY_DELAY_MS * 4);
+    expect(pendingIdle()).toHaveLength(0);
+    return scRequests;
+  }
+
+  it.each([
+    ['the browser comes back online', () => window.dispatchEvent(new Event('online'))],
+    [
+      'the page becomes visible',
+      () => {
+        setVisibility('hidden');
+        setVisibility('visible');
+      },
+    ],
+    [
+      'the page comes back from the back-forward cache',
+      () => {
+        window.dispatchEvent(new Event('pagehide'));
+        window.dispatchEvent(new PageTransitionEvent('pageshow', { persisted: true }));
+      },
+    ],
+  ])('retries a sheet whose timer retries are used up when %s', async (_when, trigger) => {
+    const scRequests = await exhaustScRetries();
+
+    trigger();
+    await settle();
+    await runIdle();
+
+    expect(scRequests()).toBe(2 + FONT_SHEET_RETRY_LIMIT);
+  });
+
+  it('starts a full set of timer retries again after such a fresh chance', async () => {
+    const scRequests = await exhaustScRetries();
+
+    window.dispatchEvent(new Event('online'));
+    await settle();
+    for (let retry = 1; retry <= FONT_SHEET_RETRY_LIMIT; retry += 1) {
+      await vi.advanceTimersByTimeAsync(FONT_SHEET_RETRY_DELAY_MS);
+      await runIdle();
+    }
+
+    expect(scRequests()).toBe(2 + 2 * FONT_SHEET_RETRY_LIMIT);
+  });
+
+  it('makes no timer retry while the browser is offline and keeps the retry for online', async () => {
+    useFakeTimers();
+    sheets.behaviour.set('font-noto-sc', failing(Number.POSITIVE_INFINITY));
+    const runtime = await freshRuntime();
+    await runtime.loadLanguageFonts('en');
+    await runIdle();
+    const scRequests = () => sheets.requests.filter((id) => id === 'font-noto-sc').length;
+    Object.defineProperty(navigator, 'onLine', { configurable: true, value: false });
+
+    await vi.advanceTimersByTimeAsync(FONT_SHEET_RETRY_DELAY_MS * (FONT_SHEET_RETRY_LIMIT + 2));
+    await runIdle();
+    expect(scRequests()).toBe(1);
+
+    Object.defineProperty(navigator, 'onLine', { configurable: true, value: true });
+    window.dispatchEvent(new Event('online'));
+    await settle();
+    expect(scRequests()).toBe(2);
+    // The offline time used none of the timer retries.
+    for (let retry = 1; retry <= FONT_SHEET_RETRY_LIMIT; retry += 1) {
+      await vi.advanceTimersByTimeAsync(FONT_SHEET_RETRY_DELAY_MS);
+      await runIdle();
+    }
+    expect(scRequests()).toBe(2 + FONT_SHEET_RETRY_LIMIT);
+  });
+
+  it('gives up an attempt that never settles at the deadline and retries the sheet later', async () => {
+    useFakeTimers();
+    let hang = true;
+    sheets.behaviour.set('font-noto-tc', () =>
+      hang ? new Promise<void>(() => undefined) : Promise.resolve(),
+    );
+    const runtime = await freshRuntime();
+    await runtime.loadLanguageFonts('en');
+    await runIdle();
+    const tcRequests = () => sheets.requests.filter((id) => id === 'font-noto-tc').length;
+    let phaseBSettled = false;
+    void window.__MUSIXQUARE_FONTS_SETTLED__?.then(() => {
+      phaseBSettled = true;
+    });
+
+    await vi.advanceTimersByTimeAsync(FONT_SHEET_ATTEMPT_TIMEOUT_MS - 1);
+    expect(sheets.abandoned).toEqual([]);
+    expect(phaseBSettled).toBe(false);
+    await vi.advanceTimersByTimeAsync(1);
+    expect(sheets.abandoned).toEqual(['font-noto-tc']);
+    // One stalled sheet no longer holds phase B open.
+    expect(phaseBSettled).toBe(true);
+
+    hang = false;
+    await vi.advanceTimersByTimeAsync(FONT_SHEET_RETRY_DELAY_MS);
+    await runIdle();
+    expect(tcRequests()).toBe(2);
+    // A declared sheet is never requested again.
+    await runtime.loadLanguageFonts('zh-hant');
+    expect(tcRequests()).toBe(2);
+  });
+
+  it('doubles the deadline of each later attempt of a sheet, up to a cap', async () => {
+    // A slow but working connection (slow-2g) needs longer than the first
+    // deadline for the larger sheets; a fixed deadline would never let it finish.
+    useFakeTimers();
+    sheets.behaviour.set('font-noto-kr', () => new Promise<void>(() => undefined));
+    const runtime = await freshRuntime();
+    const deadlines: number[] = [];
+    for (let attempt = 0; attempt < 6; attempt += 1) {
+      void runtime.loadLanguageFonts('ko');
+      await settle();
+      const abandonedBefore = sheets.abandoned.length;
+      let waited = 0;
+      while (sheets.abandoned.length === abandonedBefore && waited < 600_000) {
+        await vi.advanceTimersByTimeAsync(1_000);
+        waited += 1_000;
+      }
+      deadlines.push(waited);
+    }
+
+    const first = FONT_SHEET_ATTEMPT_TIMEOUT_MS;
+    const cap = FONT_SHEET_ATTEMPT_TIMEOUT_MAX_MS;
+    expect(cap).toBeGreaterThan(first);
+    expect(deadlines).toEqual(
+      Array.from({ length: 6 }, (_, attempt) => Math.min(first * 2 ** attempt, cap)),
+    );
+  });
+
+  it('shares one stalled attempt until its deadline, then lets an explicit request try again', async () => {
+    useFakeTimers();
+    sheets.behaviour.set('font-noto-kr', () => new Promise<void>(() => undefined));
+    const runtime = await freshRuntime();
+    void runtime.loadLanguageFonts('ko');
+    void runtime.loadLanguageFonts('en');
+    await settle();
+    const krRequests = () => sheets.requests.filter((id) => id === 'font-noto-kr').length;
+    expect(krRequests()).toBe(1);
+
+    await vi.advanceTimersByTimeAsync(FONT_SHEET_ATTEMPT_TIMEOUT_MS);
+    sheets.behaviour.delete('font-noto-kr');
+    void runtime.loadLanguageFonts('ko');
+    await settle();
+
+    expect(krRequests()).toBe(2);
+  });
+
   it('clears a pending retry at pagehide and resumes it from the back-forward cache', async () => {
     useFakeTimers();
     sheets.behaviour.set('noto-arabic', failing(1));
@@ -729,6 +899,17 @@ describe("phase C: idle prefetch of the UI language's frequent shards", () => {
     await vi.advanceTimersByTimeAsync(FONT_PREFETCH_IDLE_FALLBACK_MS * 4);
 
     expect(fonts.load).not.toHaveBeenCalled();
+  });
+
+  it('enters its quiet period once its own sheet is declared, even while another sheet stalls', async () => {
+    const fonts = installFontSet({ settleAtOnce: true });
+    sheets.behaviour.set('font-noto-tc', () => new Promise<void>(() => undefined));
+    await throughPhaseB('ko');
+
+    await vi.advanceTimersByTimeAsync(FONT_PREFETCH_QUIET_MS);
+    await runIdle();
+
+    expect(fonts.load.mock.calls[0]?.[0]).toBe('400 16px "Noto Sans KR"');
   });
 
   it('prefetches nothing for a UI without a list', async () => {

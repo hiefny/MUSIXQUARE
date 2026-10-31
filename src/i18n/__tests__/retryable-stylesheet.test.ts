@@ -75,6 +75,62 @@ describe('native locale stylesheet retry', () => {
     expect(original).toHaveBeenCalledOnce();
   });
 
+  it('abandons a stalled first attempt: removes its link, rejects, and retries natively', async () => {
+    const original = vi.fn(() => {
+      const link = document.createElement('link');
+      link.rel = 'stylesheet';
+      link.href = '/assets/noto-arabic-12345678.css';
+      document.head.appendChild(link);
+      return new Promise<never>(() => undefined);
+    });
+    const load = createRetryableStylesheet('noto-arabic', original);
+    const first = load();
+    const failure = expect(first).rejects.toThrow('abandoned');
+
+    load.abandon();
+    await failure;
+    expect(document.querySelector('link')).toBeNull();
+
+    const retry = load();
+    expect(retry).not.toBe(first);
+    const link = document.querySelector<HTMLLinkElement>('link')!;
+    expect(link.getAttribute('href')).toBe('/assets/noto-arabic-12345678.css');
+    link.dispatchEvent(new Event('load'));
+    await retry;
+    await load();
+    expect(original).toHaveBeenCalledOnce();
+    expect(document.querySelectorAll('link')).toHaveLength(1);
+  });
+
+  it('abandons a stalled native retry without leaving its link behind', async () => {
+    const original = vi.fn(failedViteImport);
+    const load = createRetryableStylesheet('noto-arabic', original);
+    await expect(load()).rejects.toThrow();
+    const stalled = load();
+    const failure = expect(stalled).rejects.toThrow('abandoned');
+    expect(document.querySelectorAll('link')).toHaveLength(1);
+
+    load.abandon();
+    await failure;
+    expect(document.querySelector('link')).toBeNull();
+
+    const next = load();
+    expect(document.querySelectorAll('link')).toHaveLength(1);
+    document.querySelector('link')!.dispatchEvent(new Event('load'));
+    await next;
+    expect(original).toHaveBeenCalledOnce();
+  });
+
+  it('ignores abandon() when nothing is in flight', async () => {
+    const original = vi.fn().mockResolvedValue({});
+    const load = createRetryableStylesheet('noto-arabic', original);
+    load.abandon();
+    await load();
+    load.abandon();
+    await load();
+    expect(original).toHaveBeenCalledOnce();
+  });
+
   it('does not remove or reuse an unrelated stylesheet after an import failure', async () => {
     const other = document.createElement('link');
     other.rel = 'stylesheet';

@@ -49,6 +49,21 @@ const REASON_KEYS = [...new Set(REASONS.map(([, , , reason]) => `pro.upload.${re
 // sentences with a space and has no final mark.
 const SENTENCE_END_RE = /[.。．।۔!?！？]$/u;
 
+describe('PRO upload failure file names', () => {
+  it('names a decomposed (NFD) file composed (NFC), as its upload row does', () => {
+    for (const name of ['밤의 드라이브.mp3', 'Fête.mp3']) {
+      const decomposed = name.normalize('NFD');
+      expect(decomposed).not.toBe(name);
+      const [line] = describeProRoomUploadFailures(
+        [{ name: decomposed, size: 4, code: null, retryable: true }],
+        (key, params) =>
+          key === 'pro.upload.failed_file' ? `${params?.name}|${params?.reason}` : key,
+      );
+      expect((line ?? '').split('|')[0]).toBe(name);
+    }
+  });
+});
+
 describe('PRO upload failure reasons', () => {
   it.each(REASONS)(
     'explains %s (size %s) with its own dialog sentence',

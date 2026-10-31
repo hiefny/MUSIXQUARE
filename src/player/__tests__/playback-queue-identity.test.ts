@@ -313,6 +313,24 @@ describe('storage completion identity', () => {
     expect(mocks.readStoredFile).toHaveBeenCalledWith(QID_B, 'b.mp3', false, 7);
   });
 
+  it('names a decomposed (NFD) file composed (NFC) while it recovers a lost queue identity', async () => {
+    const toast = await import('../../ui/toast.ts');
+    const show = vi.spyOn(toast, 'showLoader');
+    const name = '밤의 드라이브.mp3';
+    const decomposed = name.normalize('NFD');
+    arrangeTransfer();
+    setState('transfer.meta', { ...getState('transfer.meta'), name: decomposed });
+    setState('playlist.currentQueueItemId', QID_A);
+
+    bus.emit('storage:file-ready', decomposed, 7, false, QID_B);
+
+    await vi.waitFor(() => {
+      expect(show).toHaveBeenCalledWith(true, `Recovery pending: ${name}`);
+    });
+    expect(mocks.cleanupStoredFile).toHaveBeenCalledWith(QID_B, decomposed, false, 7);
+    show.mockRestore();
+  });
+
   it('drops a file-ready completion for a superseded session', async () => {
     arrangeTransfer();
 

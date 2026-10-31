@@ -1081,6 +1081,24 @@ describe('host decode failure cleanup', () => {
     });
   });
 
+  it('names a decomposed (NFD) file composed (NFC) in its preparing loader', async () => {
+    for (const [index, name] of ['밤의 드라이브.mp3', 'Fête.mp3'].entries()) {
+      const file = new File([new Uint8Array([1, 2, 3])], name.normalize('NFD'), {
+        type: 'audio/mpeg',
+      });
+      expect(file.name).not.toBe(name);
+      const item = makeFileTrack(file);
+      setState('playlist.items', [item]);
+      setCurrentIndex(0);
+      mocks.showLoader.mockClear();
+
+      const { loadAndBroadcastFile } = await import('../decode.ts');
+      await loadAndBroadcastFile(file, item.queueItemId, index + 1);
+
+      expect(mocks.showLoader.mock.calls[0]).toEqual([true, `Preparing: ${name}`]);
+    }
+  });
+
   it('contains a rejected lazy playlist load during failed-track auto-advance', async () => {
     vi.useFakeTimers();
     const error = new Error('playlist chunk unavailable');

@@ -451,6 +451,42 @@ describe('preload MIME preservation', () => {
     resetStoredFileAdmissionsForTests();
   });
 
+  it('names a decomposed (NFD) file composed (NFC) in its loader and stores the name as sent', async () => {
+    vi.useFakeTimers();
+    initPreload();
+    const toast = await import('../../ui/toast.ts');
+    const show = vi.spyOn(toast, 'showLoader');
+    const hostConn = { open: true, peer: 'host-nfd', send: vi.fn() } as unknown as DataConnection;
+    const name = '밤의 드라이브.mp3';
+    const decomposed = name.normalize('NFD');
+    setState('network.hostConn', hostConn);
+    setState('network.connectionType', 'local');
+    setState('network.sessionCode', '123456');
+    setState('playlist.items', [makeFileTrack(decomposed, Q0)]);
+
+    await handleData(
+      {
+        type: MSG.PRELOAD_START,
+        sessionId: 61,
+        queueItemId: Q0,
+        name: decomposed,
+        mime: 'audio/mpeg',
+        total: 1,
+        size: 3,
+      },
+      hostConn,
+    );
+
+    expect(show).toHaveBeenCalledWith(true, `Preparing next track... (${name})`, 'preload-receive');
+    expect(storageMocks.postCommand).toHaveBeenCalledWith(
+      expect.objectContaining({ command: 'STORAGE_START', filename: decomposed }),
+    );
+
+    setState('network.sessionCode', '');
+    const { resetStoredFileAdmissionsForTests } = await import('../storage.ts');
+    resetStoredFileAdmissionsForTests();
+  });
+
   it('keeps awaited-preload recovery armed while progress resets only the loader watchdog', async () => {
     vi.useFakeTimers();
     initPreload();

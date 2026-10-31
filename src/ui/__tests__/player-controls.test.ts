@@ -577,6 +577,17 @@ describe('initPlayerControls storage errors', () => {
       await vi.waitFor(() => expect(getResolvedLanguage()).toBe('en'));
     }
   });
+
+  it('names a decomposed (NFD) file composed (NFC) in both toasts', () => {
+    initPlayerControls();
+    const name = '밤의 드라이브.mp3';
+
+    bus.emit('storage:error', 'save failed', name.normalize('NFD'));
+    bus.emit('storage:read-error', { error: 'read failed', filename: 'Fête.mp3'.normalize('NFD') });
+
+    expect(showToast).toHaveBeenNthCalledWith(1, t('toast.file_save_error', { name }));
+    expect(showToast).toHaveBeenNthCalledWith(2, t('toast.file_read_error', { name: 'Fête.mp3' }));
+  });
 });
 
 // The logo request runs on the real navigation owner (C6-8): its prepare step

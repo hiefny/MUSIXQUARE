@@ -1,3 +1,4 @@
+import { readFileSync } from 'node:fs';
 import { describe, expect, it } from 'vitest';
 
 import {
@@ -9,10 +10,12 @@ import {
   fontFaceSheets,
   fontPreloadHrefs,
   initialAssetUrls,
+  ksX1001CodePoints,
   languageSplitTests,
   localDistAssetPath,
   parseCodePointList,
   stackCoverageGaps,
+  textSymbolCodePoints,
   woff2Urls,
 } from '../../../scripts/lib/app-font-guard.mts';
 import { CJK_FACE_METRICS, INTER_FACE_METRICS } from '../../i18n/font-metrics.ts';
@@ -361,5 +364,46 @@ describe('app font guard: app stylesheets declare no face', () => {
         { path: 'css/desktop.css', css: '@media (min-width: 1px) { .b { color: blue } }' },
       ]),
     ).toEqual(['css/style.css']);
+  });
+});
+
+describe('app font guard: the characters coverage requires beyond Pretendard', () => {
+  it('reads the KS X 1001 repertoire from the EUC-KR decoder', () => {
+    const repertoire = new Set(ksX1001CodePoints());
+    // The Korean national character set: every precomposed syllable it has,
+    // its Hanja, and symbols such as ∼ ≒ ◈ that Malgun Gothic draws in a
+    // Korean page and Cambria Math in an English one.
+    expect(
+      [...repertoire].filter((codePoint) => codePoint >= 0xac00 && codePoint <= 0xd7a3),
+    ).toHaveLength(2_350);
+    for (const character of ['∼', '≒', '◈', '※', '‰', '一', '丁', 'ア', 'Я']) {
+      expect(repertoire.has(character.codePointAt(0) ?? 0), character).toBe(true);
+    }
+    for (const character of ['A', '☺', '\u0000']) {
+      expect(repertoire.has(character.codePointAt(0) ?? 0), character).toBe(false);
+    }
+  });
+
+  it('takes the visible text-presentation symbols of the blocks the review swept', () => {
+    const symbols = new Set(textSymbolCodePoints());
+    for (const character of ['☺', '☻', 'ℹ', '‣', '☼', '⌂', 'ℋ', 'ℍ', 'ℝ', '→', '★', '〈']) {
+      expect(symbols.has(character.codePointAt(0) ?? 0), character).toBe(true);
+    }
+    // Emoji presentation, invisible format characters, spaces and unassigned
+    // code points are not text symbols.
+    for (const codePoint of [0x26bd, 0x2705, 0x200b, 0x2060, 0x2003, 0x3000, 0x2065]) {
+      expect(symbols.has(codePoint), codePoint.toString(16)).toBe(false);
+    }
+  });
+
+  it('records the characters the review measured drawing differently in the Korean and English UIs', () => {
+    const recorded = new Set(
+      parseCodePointList(readFileSync('scripts/fonts/uncovered-code-points.txt', 'utf8'))
+        .codePoints,
+    );
+    const measured = ['☺', '☻', 'ℹ', '∼', '≒', '◈', '‣', '☼', '⌂', 'ℋ', 'ℍ', 'ℝ'];
+    expect(measured.filter((character) => !recorded.has(character.codePointAt(0) ?? 0))).toEqual(
+      [],
+    );
   });
 });

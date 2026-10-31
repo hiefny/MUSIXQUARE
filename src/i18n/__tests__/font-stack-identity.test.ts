@@ -29,6 +29,12 @@ import {
   type DocumentState,
   type FaceResolver,
 } from '../../../scripts/fonts/font-stacks.mts';
+import {
+  disablesContextualAlternates,
+  fontFaceSheets,
+  KOREAN_ENGLISH_COPY_RULES,
+  languageSplitTests,
+} from '../../../scripts/lib/app-font-guard.mts';
 import { APP_FONT_SHEETS } from '../app-font-contract.ts';
 import { LANGUAGE_OPTIONS, languageDirection, type LanguageCode } from '../locales.ts';
 
@@ -175,6 +181,45 @@ describe('app font stacks', () => {
       expect(css, retired).not.toContain(retired);
     }
     expect(css).not.toMatch(/['"]Noto Sans['"]/u);
+  });
+});
+
+describe('the Korean and English UIs apply the same rules', () => {
+  const KO = option('ko').htmlLang;
+  const EN = option('en').htmlLang;
+
+  it('applies no app rule in only one of them, whatever it sets, but the recorded UI copy rules', () => {
+    const split = new Map<string, string[]>();
+    for (const { sheet, selectors } of stacks.rules) {
+      for (const selector of selectors) {
+        const tests = languageSplitTests(selector, KO, EN);
+        if (tests.length > 0) split.set(selector, [sheet, ...tests]);
+      }
+    }
+    expect([...split.keys()].sort()).toEqual(Object.keys(KOREAN_ENGLISH_COPY_RULES).sort());
+  });
+
+  it("keeps Inter's contextual alternates on in every app rule", () => {
+    const off: string[] = [];
+    for (const { sheet, selector, rule } of stacks.rules) {
+      rule.walkDecls((declaration) => {
+        if (disablesContextualAlternates(declaration.prop, declaration.value)) {
+          off.push(`${sheet} ${selector} { ${declaration.prop}: ${declaration.value} }`);
+        }
+      });
+    }
+    expect(off).toEqual([]);
+  });
+
+  it('declares no face in the app stylesheets; faces live in the generated sheets only', () => {
+    expect(
+      fontFaceSheets(
+        ['css/app.css', ...stacks.sheets].map((path) => ({
+          path,
+          css: readFileSync(resolve(path), 'utf8'),
+        })),
+      ),
+    ).toEqual([]);
   });
 });
 

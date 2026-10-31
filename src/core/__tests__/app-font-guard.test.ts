@@ -3,10 +3,13 @@ import { describe, expect, it } from 'vitest';
 import {
   builtAssetStem,
   declaresFontFace,
+  disablesContextualAlternates,
   faceDescriptorMismatches,
   faceSourceProblems,
+  fontFaceSheets,
   fontPreloadHrefs,
   initialAssetUrls,
+  languageSplitTests,
   localDistAssetPath,
   parseCodePointList,
   stackCoverageGaps,
@@ -290,5 +293,73 @@ describe('app font guard: the recorded coverage gaps', () => {
       unlisted: new Map([['.user-text-font-ja (en)', [0x203b, 0xac00]]]),
       stale: [0x2049, 0x1f850],
     });
+  });
+});
+
+describe('app font guard: the Korean and English UIs apply the same rules', () => {
+  // A rule whose selector tests the language answers differently in the
+  // Korean and English UIs for every element that does not carry its own
+  // lang, whatever property it sets. Each of these passed the guard before.
+  it.each([
+    ['(a) a Korean-UI font stack for chat', 'html:lang(ko) .chat-text', [':lang(ko)']],
+    ['(b) an element-level Korean test', '.chat-text:lang(ko)', [':lang(ko)']],
+    ['(c) a negated test', ':root:not(:lang(ko)) .track-name-text', [':lang(ko)']],
+    ['(d) Korean-UI feature settings', 'html:lang(ko) body', [':lang(ko)']],
+    ['(e) Korean-UI line breaking', 'html:lang(ko) .chat-text', [':lang(ko)']],
+    ['an English range list', 'html:lang(fr, en) .title', [':lang(en)']],
+    ['a quoted range', "html:lang('ko') .title", [':lang(ko)']],
+    ['an exact lang attribute', 'html[lang="ko"] .title', ['[lang="ko"]']],
+    ['a dash-match lang attribute', 'html[lang|=en] .title', ['[lang|=en]']],
+    ['a prefix lang attribute', "[lang^='k' i] .title", ["[lang^='k' i]"]],
+  ])('reports %s', (_label, selector, tests) => {
+    expect(languageSplitTests(selector, 'ko', 'en')).toEqual(tests);
+  });
+
+  it.each([
+    'html:lang(ja) .dialog-title',
+    'html:lang(zh-Hans) .setup-header-text h2',
+    '.language-option-native:lang(zh-Hant)',
+    '.settings-option-description:lang(zh-hans)',
+    ":root:lang(he)[dir='rtl']",
+    "html[data-mxqr-han-order='ja']",
+    'html:not(:lang(ja)) .title',
+    'html[lang] .title',
+    '.chat-text',
+  ])('accepts %s, which answers alike in both UIs', (selector) => {
+    expect(languageSplitTests(selector, 'ko', 'en')).toEqual([]);
+  });
+
+  it.each([
+    ['font-variant-ligatures', 'no-contextual', true],
+    ['font-variant-ligatures', 'common-ligatures no-contextual', true],
+    ['font-variant-ligatures', 'none', true],
+    ['font-variant', 'no-contextual', true],
+    ['font-variant', 'none', true],
+    ['font-feature-settings', "'calt' 0", true],
+    ['font-feature-settings', '"liga" 1, "calt" off', true],
+    ['FONT-FEATURE-SETTINGS', "'CALT' 0", true],
+    ['font-variant-ligatures', 'common-ligatures', false],
+    ['font-variant-ligatures', 'normal', false],
+    ['font-variant-numeric', 'tabular-nums', false],
+    ['font-feature-settings', "'calt'", false],
+    ['font-feature-settings', "'calt' 1", false],
+    ['font-feature-settings', "'liga' 0", false],
+  ] as const)('reads %s: %s as turning calt off: %s', (property, value, off) => {
+    expect(disablesContextualAlternates(property, value)).toBe(off);
+  });
+});
+
+describe('app font guard: app stylesheets declare no face', () => {
+  it('names each app stylesheet that declares @font-face, a device face included', () => {
+    expect(
+      fontFaceSheets([
+        { path: 'css/app.css', css: "@import './style.css';" },
+        {
+          path: 'css/style.css',
+          css: ".a { color: red }\n@font-face { font-family: 'Inter'; src: local('Inter') }",
+        },
+        { path: 'css/desktop.css', css: '@media (min-width: 1px) { .b { color: blue } }' },
+      ]),
+    ).toEqual(['css/style.css']);
   });
 });

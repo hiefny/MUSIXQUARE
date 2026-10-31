@@ -1654,7 +1654,7 @@ describe('resource-ownership guard', { timeout: 60_000 }, () => {
         /iframe audio write: src\/youtube\/iframe\.ts:\d+ unMute\(\) in primeYouTubePlayer\n/u,
       );
       expect(result.stdout).toMatch(
-        /iframe audio write: src\/youtube\/player\.ts:\d+ setVolume\(\) in restoreFallbackAudio\n/u,
+        /iframe audio write: src\/youtube\/iframe-audio\.ts:\d+ setVolume\(\) in writeYouTubeAudio\n/u,
       );
       expect(result.stdout).toMatch(
         /cross-file start-timer read: src\/youtube\/native-control-authority\.ts:\d+ getManagedTimer\('yt-pro-coordinator-local-nudge'\) in hasProtectedTransitionOwner\n/u,

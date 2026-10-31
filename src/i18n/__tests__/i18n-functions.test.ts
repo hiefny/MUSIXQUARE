@@ -1229,6 +1229,54 @@ describe('i18n functions', () => {
       ]);
     });
 
+    // The font runtime is a lazy chunk. A failed import (a changed chunk name
+    // after an update, offline or a half-open radio) would otherwise leave the
+    // page in device fonts for the rest of the session: its own 'online' and
+    // retry listeners live in the module that failed to load.
+    it.each(['online', 'visible'] as const)(
+      'imports the font runtime again on %s after its chunk failed, without reloading the dictionary',
+      async (trigger) => {
+        localStorage.setItem('musixquare-lang', 'ko');
+        let failImport = true;
+        const loadLanguageFonts = vi.fn((_code: string) => Promise.resolve());
+        vi.doMock('../locale-fonts.ts', () => {
+          if (failImport) throw new Error('simulated font runtime chunk failure');
+          return { default: { loadLanguageFonts } };
+        });
+        const { initI18n } = await import('../index.ts');
+        const { bus } = await import('../../core/events.ts');
+        const changed = vi.fn();
+        const off = bus.on('i18n:changed', changed);
+        Object.defineProperty(document, 'visibilityState', {
+          configurable: true,
+          get: () => 'visible',
+        });
+        try {
+          await initI18n();
+          await vi.waitFor(() => expect(changed).toHaveBeenCalledWith('ko'));
+          await new Promise((resolve) => setTimeout(resolve, 0));
+          changed.mockClear();
+          expect(loadLanguageFonts).not.toHaveBeenCalled();
+
+          failImport = false;
+          if (trigger === 'online') window.dispatchEvent(new Event('online'));
+          else document.dispatchEvent(new Event('visibilitychange'));
+
+          await vi.waitFor(() => expect(loadLanguageFonts).toHaveBeenCalledExactlyOnceWith('ko'));
+          expect(changed).not.toHaveBeenCalled();
+
+          // Once loaded, later events leave the runtime to its own retries.
+          window.dispatchEvent(new Event('online'));
+          document.dispatchEvent(new Event('visibilitychange'));
+          await new Promise((resolve) => setTimeout(resolve, 0));
+          expect(loadLanguageFonts).toHaveBeenCalledOnce();
+        } finally {
+          off();
+          Reflect.deleteProperty(document, 'visibilityState');
+        }
+      },
+    );
+
     it.each(['startup', 'selection'] as const)(
       'still translates the DOM and publishes the locale after a font runtime chunk failure at %s',
       async (boundary) => {

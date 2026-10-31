@@ -560,6 +560,34 @@ describe('service-worker build entry manifest', () => {
           'C:/repo/src/youtube/standard-host-manual-offset-runtime.ts': {},
         },
       },
+      // The app font owner installs with the app shell so a failed import
+      // can be retried offline; the sheets it imports on demand do not.
+      'assets/locale-fonts.js': {
+        type: 'chunk',
+        fileName: 'assets/locale-fonts.js',
+        isEntry: false,
+        imports: ['assets/vendor.js'],
+        dynamicImports: ['assets/font-inter.js'],
+        modules: { 'C:/repo/src/i18n/locale-fonts.ts': {} },
+      },
+      'assets/font-inter.js': {
+        type: 'chunk',
+        fileName: 'assets/font-inter.js',
+        isEntry: false,
+        imports: [],
+        modules: { 'C:/repo/css/fonts/app/font-inter.css': {} },
+        viteMetadata: { importedCss: new Set(['assets/font-inter.css']) },
+      },
+      'assets/font-inter.css': {
+        type: 'asset',
+        fileName: 'assets/font-inter.css',
+        source: "@font-face{font-family:Inter;src:url(/assets/inter-latin.woff2)format('woff2')}",
+      },
+      'assets/inter-latin.woff2': {
+        type: 'asset',
+        fileName: 'assets/inter-latin.woff2',
+        source: 'wOF2',
+      },
       'assets/sync.worker.js': {
         type: 'asset',
         fileName: 'assets/sync.worker.js',
@@ -579,6 +607,7 @@ describe('service-worker build entry manifest', () => {
       './assets/connect.js',
       './assets/demo-mode.js',
       './assets/diagnostic-helper.js',
+      './assets/locale-fonts.js',
       './assets/localized-app-head.js',
       './assets/manual-sync-overlay.js',
       './assets/media-session.js',
@@ -596,6 +625,13 @@ describe('service-worker build entry manifest', () => {
       './assets/vendor.js',
       './assets/visualizer-spectrum.js',
     ]);
+    expect(
+      collectStaticAppEntryAssets(bundle).filter((asset) => /font-inter|.woff2$/u.test(asset)),
+    ).toEqual([]);
+    const { 'assets/locale-fonts.js': _fonts, ...withoutFontOwner } = bundle;
+    expect(() => collectStaticAppEntryAssets(withoutFontOwner)).toThrow(
+      'Could not locate reviewed deferred app-shell root /src/i18n/locale-fonts.ts.',
+    );
     const { 'assets/sync-flight-recorder.js': _recorder, ...withoutRecorder } = bundle;
     expect(() => collectStaticAppEntryAssets(withoutRecorder)).toThrow(
       'Could not locate reviewed deferred app-shell root /src/diagnostics/sync-flight-recorder.ts.',

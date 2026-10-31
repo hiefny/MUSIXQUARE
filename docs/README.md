@@ -94,11 +94,14 @@ runbooks. Neither belongs in a general setup document.
 ## Maintained evidence and completed records
 
 - [App font switch to Inter and Noto, owner decisions (2026-10-31)](design/app-font-inter-noto-2026-10-31.md):
-  implemented and checked locally on the branch `agent/font-switch` over main `aa7baad5` (9.0.28 /
-  v801), not merged, released or bumped; target `app` (App runtime paths only, no other Worker, no
-  runtime dependency change) with the update dialog once the release owner adds the next 9.0.x and
-  service-worker epoch, after the owner has seen the final pictures. The app draws with self-hosted
-  Inter 4 (Latin, Cyrillic, Greek) and Noto (Noto Sans KR v40 shards re-encoded without the Korean
+  implemented and checked locally on the branch `agent/font-switch`, rebased onto main `9e68a7a3`
+  (App runtime equal to 9.0.28 / v801 `aa7baad5`), not merged, released or bumped; target `app`
+  (App runtime paths only, no other Worker, no runtime dependency change) with the update dialog
+  once the release owner adds the next App patch and service-worker epoch. The owner has seen the
+  final pictures and has not decided the release or its order against Phase 6 6A, so the version
+  stays unnamed; the release record's §2 pre-release item holds the gates (the owner's release
+  decision, the iOS 17 and 18 Safari line-height check, the owner questions). The app draws with
+  self-hosted Inter 4 (Latin, Cyrillic, Greek) and Noto (Noto Sans KR v40 shards re-encoded without the Korean
   `locl`, Noto Sans JP, SC, TC, Thai, Arabic, Hebrew and Indic), so the Korean and English UIs draw
   the same content with the same faces, widths and pixels. One startup Han order from the
   browser's languages for every UI except Japanese and Chinese; detected Japanese and Chinese text
@@ -113,7 +116,8 @@ runbooks. Neither belongs in a general setup document.
   answered true for unloaded shards), every visible change for the owner's pictures, the
   measurements (eager total 531.0 KiB gzip against 9.0.28's 533.1, eager fonts 0; English start screen
   72,920 B in one file, Korean 249,360 B in 12 files plus 9 prefetched shards), the tests-first
-  commit pairs, five local QA rounds with their SHAs, the risks, the device checks still needed
+  commit pairs with their SHAs before and after the rebase, seven local QA rounds (the last one
+  rechecking every tests-first commit on its new parent), the risks, the device checks still needed
   (the release gate on iOS 17 and 18 Safari line boxes, iOS 16, Android, the webOS TV) and eleven
   owner questions, among them a self-hosted symbol face for the characters no face draws, which
   still draw in a different device font in the Korean and English UIs (☺ ℹ ∼ ≒ ◈). The font

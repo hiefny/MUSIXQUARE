@@ -1135,7 +1135,11 @@ gh run list --workflow e2e.yml --branch main --limit 3
       업데이트 창(9.0.16 ~ 9.0.21 탭의 '나중에' 있는 창과 9.0.14·9.0.15 탭의 강제 창), signaling 배포 뒤 Standard 방의
       재연결과 신호 Durable Object 재시작 쓸기(Cloudflare 문서상 동작), 9.0.14·9.0.15 끝과의 혼합 방(바닥이 들이지
       않음), v2를 실제로 보내는 PRO Worker(R2가 2026-10-30에 배포, 그 배포 뒤 확인은 위 R2 항목, e2e PRO 고정값은
-      9.0.25부터 v2 와이어), 2.3 s 준비 예산과 공유 시간 집의 순서 시험(Phase 0d C2-1)은 보지 않았다. 9.0.22의 브라우저 근거는
+      9.0.25부터 v2 와이어)는 보지 않았다. 그때 보지 않은 2.3 s 준비 예산과 공유 시간 집의 순서 시험(Phase 0d C2-1)은 Phase 6
+      6A(9.0.30 / v803, 위 6A 절)의 6A-3이 더했다: `src/pro-room/__tests__/pro-room-playback-timing.test.ts`의 App 2.3 s 준비
+      예산이 3 s 장벽 안이라는 행과 그 사이 700 ms 행, 그리고 App 쪽 시간 집 `src/youtube/constants.ts`의 값과 받는 쪽 경계를 묶는
+      `src/youtube/__tests__/start-timing-parity.test.ts`([보고서](design/phase6-6a-start-constants-owner-queries-2026-10-31.md#6a-3-c2-1-시간-집-pre-10-pa-04--pa-06-rt-02)).
+      9.0.22의 브라우저 근거는
       exact-main CI의 Critical browser gate(Linux Chromium 후보 19, critical 98)와 로컬 후보 19, critical 98, PRO
       Playwright 30, C5-0 랩 4(보고서 라운드 3과 5)다.
       [오너 기기 확인 후보](design/phase5-5-r1-train3-v2-accept-2026-10-29.md#오너-기기-확인-후보-게이트-아님),
@@ -3565,16 +3569,19 @@ PRO 방장 공지의 중도 참여 복원은 별도 정책이며 이번 서비�
       [수정·검증·한계](design/pro-start-clock-safety-2026-10-12.md),
       [14개 후보 판정·재현·한계](design/pro-start-sync-candidate-validation-2026-10-12.md),
       [배포 근거](design/sync-maintenance-release-preparation-2026-10-12.md)
-- [ ] Android YouTube 출력 정렬·혼합 버전 현장 확인(8.10.2/v661 배포 뒤):
+- [ ] Android YouTube 출력 정렬 현장 확인(8.10.2/v661 배포 뒤):
       오너가 Android 태블릿 2대·Galaxy 5대·Xiaomi에서 확인한 음성 250ms 지연을
       기준으로 PRO·일반방 각 기기에 자신의 +250ms와 수동값을 합성하는 수정은
       `72a6e780`, Release `38267400052`로 배포됐다. 일반방 방장은 실제 적용한
       로컬 보정을 제외한 공통 시각을 송신한다. 실제 수정본의 음향 정렬은 실측 대상이다.
-      UA와 UA-CH 모두 Linux로 숨기는 기기는 추측하지 않는다. capability v2는
-      그대로여서 Android 방장에서 구·신 코드가 섞이면 zero-start가 ±250ms 어긋날
-      수 있다. 오너가 승인한 기존 점검 모드로 배포했고 강제 버전 차단·호환
-      마이그레이션은 추가하지 않았다. 기존 탭 잔존과 점검 해제 뒤 재입장을 수용했다.
-      점검이 사용자 0명이나 동일 코드 실행을 보장하지 않는다.
+      UA와 UA-CH 모두 Linux로 숨기는 기기는 추측하지 않는다. 혼합 버전 문장(capability
+      v2가 그대로여서 Android 방장에서 8.10.2 앞뒤 코드가 섞이면 zero-start가 ±250ms
+      어긋날 수 있음, 오너가 승인한 기존 점검 모드로 배포해 강제 버전 차단·호환
+      마이그레이션 없이 기존 탭 잔존과 점검 해제 뒤 재입장을 수용함)은 Phase 6
+      6A(9.0.30 / v803, 계획 Q21, 위 6A 절)가 닫았다: 그 구·신은 8.10.2(v661) 앞뒤이고,
+      최소 앱 빌드가 2026-10-26부터 787, 2026-10-30부터 795(§1 '최소 앱 빌드')라 v661
+      앞 빌드는 새로 입장하지 못하며, 이 전환기 한계(옛 known-accepted #13)는
+      2026-10-26에 은퇴했다. 이 항목에 남은 것은 출력 정렬 실측이다.
       [구현·검증·호환 한계](design/android-youtube-output-baseline-2026-10-12.md),
       [점검·배포 근거](design/sync-maintenance-release-preparation-2026-10-12.md),
       [수용했던 전환기 한계(2026-10-26 은퇴, 옛 #13)](known-accepted.md#retired-risks)

@@ -9,7 +9,6 @@ import { createRetryableStylesheet } from './retryable-stylesheet.ts';
 import { LOCALE_FONT_CODES, type LocaleFontCode } from './locale-font-contract.ts';
 
 export { hasLocaleFont } from './locale-font-contract.ts';
-export type { LocaleFontCode } from './locale-font-contract.ts';
 
 type FontCssLoader = () => Promise<unknown>;
 

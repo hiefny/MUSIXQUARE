@@ -28,7 +28,7 @@ const WEIGHT_PATTERNS = [
   /font-weight\s*=\s*["']?(\d{3})\b/gu,
   /fontWeight\s*[:=]\s*["'`]?(\d{3})\b/gu,
   /\bfont\s*:\s*(\d{3})\s/gu,
-  // Canvas and FontFaceSet font strings such as '700 15px "Pretendard"'.
+  // Canvas and FontFaceSet font strings such as '700 15px "Inter"'.
   /["'`](\d{3})\s+\d+(?:\.\d+)?(?:px|rem|em)\b/gu,
   /["']wght["']\s*,?\s*(\d{3})\b/gu,
 ];

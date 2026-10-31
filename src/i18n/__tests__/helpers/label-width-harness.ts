@@ -1,14 +1,15 @@
 /**
  * Browser-free label width harness for the chip label guard
- * (chip-label-width.test.ts).
+ * (chip-label-width.test.ts) and the demo role icon threshold
+ * (demo-role-icon.test.ts).
  *
  * It shapes one line of text with HarfBuzz the way Chromium lays it out:
- * - The font stack comes from css/style.css: the html:lang() rule that sets
- *   --font-sans for the document language, with var(--font-primary) as
- *   Pretendard. System fonts in a stack are skipped.
- * - The faces come from the @font-face rules the app loads for that language:
- *   css/pretendard.css plus the locale's css/fonts/noto-*.css, mapped in
- *   src/i18n/locale-fonts.ts (FONT_ASSET_BY_LOCALE).
+ * - The font stack is the body's --font-sans for the document language,
+ *   direction and Han order, resolved from the app sheets by
+ *   scripts/fonts/font-stacks.mts with every var() expanded. System fonts in
+ *   a stack are skipped.
+ * - The faces are every @font-face of the app's sheets
+ *   (src/i18n/app-font-contract.ts): the app declares all of them in every UI.
  * - Every grapheme cluster takes the first face in stack order whose
  *   unicode-range and cmap cover it (per-glyph fallback). A cluster no web face
  *   covers would fall back to a system font, which this harness cannot
@@ -16,47 +17,60 @@
  * - Runs are split by face, by script (common characters take their
  *   neighbours' script) and by a simplified UAX #9 bidi level in right-to-left
  *   documents, then shaped with the explicit script, direction and document
- *   language, kerning on, and the wght variation of the CSS weight clamped to
- *   the face's declared range.
+ *   language, kerning on, the wght variation of the CSS weight clamped to the
+ *   face's declared range, and, where the face has an opsz axis
+ *   (font-optical-sizing: auto), opsz at the used size times the face's
+ *   size-adjust, clamped to the axis, which is what Chromium feeds it.
+ * - Advances scale by the face's size-adjust.
  *
- * The chip copy study (2026-10-29) checked it against Chromium on all 42
- * locales: 14,112 widths at 10 to 14px and weights 500 and 700 agree within
- * 0.07px, and WebKit text widths within 0.03px.
+ * The chip copy study (2026-10-29) checked the Pretendard-era harness against
+ * Chromium on all 42 locales: 14,112 widths at 10 to 14px and weights 500 and
+ * 700 agreed within 0.07px, and WebKit text widths within 0.03px.
  */
 import { readFileSync } from 'node:fs';
-import { createRequire } from 'node:module';
 import { dirname, join, resolve } from 'node:path';
 
 import * as hb from 'harfbuzzjs';
 
-type DecompressWoff2 = (data: Uint8Array) => Promise<Uint8Array>;
-
-const decompressWoff2 = createRequire(import.meta.url)('wawoff2/decompress.js') as DecompressWoff2;
+import { decodeFontBytes, parseFontFaceRules } from '../../../../scripts/fonts/font-files.mts';
+import { readFontStacks } from '../../../../scripts/fonts/font-stacks.mts';
+import { APP_FONT_SHEETS } from '../../app-font-contract.ts';
 
 interface FontFaceRule {
   readonly family: string;
   readonly file: string;
   readonly weightMin: number;
   readonly weightMax: number;
+  /** size-adjust as a ratio, 1 when the face sets none. */
+  readonly sizeAdjust: number;
   readonly ranges: readonly (readonly [number, number])[];
+}
+
+interface Axis {
+  readonly min: number;
+  readonly max: number;
 }
 
 interface LoadedFace {
   readonly face: hb.Face;
   readonly cmap: ReadonlySet<number>;
   readonly upem: number;
-  readonly wght: { readonly min: number; readonly max: number } | null;
-  readonly fonts: Map<number, hb.Font>;
+  readonly wght: Axis | null;
+  readonly opsz: Axis | null;
+  readonly fonts: Map<string, hb.Font>;
 }
 
+/** html[data-mxqr-han-order]: the Han order other UIs take from the browser's languages. */
+export type HanOrder = 'ja' | 'zh-hans' | 'zh-hant';
+
 export interface MeasureOptions {
-  /** Catalog code, which picks the locale's font stylesheet. */
-  readonly locale: string;
   /** The document language, which picks the font stack and shaping language. */
   readonly htmlLang: string;
   readonly fontSize: number;
   readonly weight: number;
   readonly letterSpacing?: number;
+  /** The startup Han order; absent means Korean first. */
+  readonly hanOrder?: HanOrder;
 }
 
 export interface Measurement {
@@ -119,8 +133,6 @@ const JAPANESE_SCRIPTS: ReadonlySet<string> = new Set(['Han', 'Hiragana', 'Katak
 /** src/i18n/locales.ts RTL_LANGUAGE_CODES. */
 const RTL_LANGUAGES: ReadonlySet<string> = new Set(['ar', 'fa', 'he', 'ur']);
 
-const stripCssComments = (css: string): string => css.replace(/\/\*[\s\S]*?\*\//gu, '');
-
 function parseRanges(value: string): (readonly [number, number])[] {
   return value
     .split(',')
@@ -138,30 +150,20 @@ function parseRanges(value: string): (readonly [number, number])[] {
     });
 }
 
-function parseFontFaces(repoRoot: string, cssPath: string): FontFaceRule[] {
-  const css = stripCssComments(readFileSync(cssPath, 'utf8'));
-  const faces: FontFaceRule[] = [];
-  for (const match of css.matchAll(/@font-face\s*\{([^}]*)\}/gu)) {
-    const body = match[1] ?? '';
-    const property = (name: string): string | undefined =>
-      new RegExp(`(?:^|;|\\s)${name}\\s*:\\s*([^;]+)`, 'u').exec(body)?.[1]?.trim();
-    const family = (property('font-family') ?? '').replace(/['"]/gu, '');
-    const url = /url\(\s*['"]?([^'")]+)['"]?\s*\)/u.exec(property('src') ?? '')?.[1];
-    if (!family || !url) throw new Error(`${cssPath}: @font-face without a family or url`);
-    const file = url.startsWith('/')
-      ? resolve(repoRoot, 'public', url.slice(1))
-      : resolve(dirname(cssPath), url);
-    const weights = (property('font-weight') ?? '400').split(/\s+/u).map(Number);
-    const unicodeRange = property('unicode-range');
-    faces.push({
-      family,
-      file,
+function parseFontFaces(repoRoot: string, sheetPath: string): FontFaceRule[] {
+  const cssPath = join(repoRoot, sheetPath);
+  return parseFontFaceRules(readFileSync(cssPath, 'utf8')).map((rule) => {
+    const weights = (rule.declarations.get('font-weight') ?? '400').split(/\s+/u).map(Number);
+    const sizeAdjust = rule.declarations.get('size-adjust');
+    return {
+      family: rule.family,
+      file: resolve(dirname(cssPath), rule.url),
       weightMin: weights[0] ?? 400,
       weightMax: weights[1] ?? weights[0] ?? 400,
-      ranges: unicodeRange ? parseRanges(unicodeRange) : [[0, 0x10ffff]],
-    });
-  }
-  return faces;
+      sizeAdjust: sizeAdjust ? Number.parseFloat(sizeAdjust) / 100 : 1,
+      ranges: rule.unicodeRange ? parseRanges(rule.unicodeRange) : [[0, 0x10ffff]],
+    };
+  });
 }
 
 const inRanges = (ranges: FontFaceRule['ranges'], codePoint: number): boolean =>
@@ -172,6 +174,8 @@ const isIgnorable = (codePoint: number): boolean =>
   (codePoint >= 0x2060 && codePoint <= 0x206f) ||
   (codePoint >= 0xfe00 && codePoint <= 0xfe0f) ||
   codePoint === 0xfeff;
+
+const clamp = (value: number, axis: Axis): number => Math.min(axis.max, Math.max(axis.min, value));
 
 function scriptOf(cluster: string): string {
   for (const [script, pattern] of SCRIPT_PATTERNS) if (pattern.test(cluster)) return script;
@@ -215,103 +219,54 @@ function bidiLevels(classes: readonly BidiClass[], rtlDocument: boolean): number
   });
 }
 
-/** Locale code to its font stylesheet, read from src/i18n/locale-fonts.ts. */
-function localeFontStylesheets(repoRoot: string): Map<string, string> {
-  const source = readFileSync(join(repoRoot, 'src/i18n/locale-fonts.ts'), 'utf8');
-  const assetCss = new Map<string, string>();
-  for (const match of source.matchAll(
-    /(\w+):\s*\{\s*load:\s*createRetryableStylesheet\(\s*'[^']+',\s*\(\)\s*=>\s*import\('([^']+)'\)/gu,
-  )) {
-    assetCss.set(match[1] ?? '', resolve(join(repoRoot, 'src/i18n'), match[2] ?? ''));
-  }
-  const byLocale = new Map<string, string>();
-  const table = source.slice(source.indexOf('FONT_ASSET_BY_LOCALE'));
-  for (const match of table.matchAll(/'?([a-z]{2,3}(?:-[a-z]+)?)'?:\s*FONT_ASSETS\.(\w+)/gu)) {
-    const css = assetCss.get(match[2] ?? '');
-    if (!css) throw new Error(`locale-fonts.ts: no stylesheet for FONT_ASSETS.${match[2]}`);
-    byLocale.set(match[1] ?? '', css);
-  }
-  if (byLocale.size === 0) throw new Error('locale-fonts.ts: FONT_ASSET_BY_LOCALE not found');
-  return byLocale;
-}
-
-/** The font stack for a document language, read from css/style.css. */
-function fontStacks(repoRoot: string): (htmlLang: string) => readonly string[] {
-  const css = stripCssComments(readFileSync(join(repoRoot, 'css/style.css'), 'utf8'));
-  const rootBlock = css.slice(css.indexOf('--font-primary:'));
-  const fontPrimary = /--font-primary:\s*([^;]+);/u.exec(rootBlock)?.[1]?.trim() ?? '';
-  const variables = new Map<string, string>();
-  for (const match of rootBlock.matchAll(/(--font-sans(?:-[\w-]+)?):\s*([^;]+);/gu)) {
-    const name = match[1] ?? '';
-    if (!variables.has(name)) variables.set(name, (match[2] ?? '').replace(/\s+/gu, ' ').trim());
-  }
-  const expand = (value: string): string[] =>
-    value
-      .replace(/var\(--font-primary\)/gu, fontPrimary)
-      .replace(/var\((--font-sans[\w-]*)\)/gu, (_, name: string) =>
-        expand(variables.get(name) ?? '').join(', '),
-      )
-      .split(',')
-      .map((family) => family.trim().replace(/^['"]|['"]$/gu, ''))
-      .filter(Boolean);
-  const rules: { readonly langs: readonly string[]; readonly stack: readonly string[] }[] = [];
-  for (const match of css.matchAll(
-    /((?:html:lang\([^)]+\)\s*,?\s*)+)\{\s*--font-sans:\s*var\((--font-sans[\w-]*)\);\s*\}/gu,
-  )) {
-    const langs = [...(match[1] ?? '').matchAll(/html:lang\(([^)]+)\)/gu)].map((lang) =>
-      (lang[1] ?? '').trim().toLowerCase(),
-    );
-    rules.push({ langs, stack: expand(`var(${match[2]})`) });
-  }
-  const defaultStack = expand(variables.get('--font-sans') ?? '');
-  if (!fontPrimary || defaultStack.length === 0 || rules.length === 0) {
-    throw new Error('css/style.css: font stacks not found');
-  }
-  return (htmlLang) => {
-    const lang = htmlLang.toLowerCase();
-    let stack: readonly string[] = defaultStack;
-    for (const rule of rules) {
-      if (rule.langs.some((range) => lang === range || lang.startsWith(`${range}-`))) {
-        stack = rule.stack;
-      }
-    }
-    return stack;
-  };
-}
-
 export function createLabelWidthHarness({
   repoRoot,
 }: {
   readonly repoRoot: string;
 }): LabelWidthHarness {
-  const stylesheetByLocale = localeFontStylesheets(repoRoot);
-  const pretendardFaces = parseFontFaces(repoRoot, join(repoRoot, 'css/pretendard.css'));
-  const stackFor = fontStacks(repoRoot);
+  const faces = APP_FONT_SHEETS.flatMap(({ path }) => parseFontFaces(repoRoot, path));
+  const fontStacks = readFontStacks(repoRoot);
+  const orderedByStack = new Map<string, readonly FontFaceRule[]>();
   const loaded = new Map<string, Promise<LoadedFace>>();
-  const facesByLocale = new Map<string, readonly FontFaceRule[]>();
   const segmenter = new Intl.Segmenter('und', { granularity: 'grapheme' });
 
-  /**
-   * A face's font file as SFNT bytes. The faces one guard run needs
-   * decompress in well under a second, so nothing is cached on disk.
-   */
-  async function readSfnt(file: string): Promise<Uint8Array> {
-    const raw = readFileSync(file);
-    return file.endsWith('.woff2') ? decompressWoff2(raw) : raw;
+  /** The faces in stack order for a document language, direction and Han order. */
+  function orderedFaces(htmlLang: string, hanOrder: HanOrder | undefined): readonly FontFaceRule[] {
+    const key = `${htmlLang}|${hanOrder ?? ''}`;
+    let ordered = orderedByStack.get(key);
+    if (!ordered) {
+      const stack = fontStacks.fontSans({
+        htmlLang,
+        dir: RTL_LANGUAGES.has(htmlLang.split('-')[0]!.toLowerCase()) ? 'rtl' : 'ltr',
+        attributes: hanOrder ? { 'data-mxqr-han-order': hanOrder } : {},
+      });
+      ordered = [...new Set(stack)].flatMap((family) =>
+        faces.filter((face) => face.family === family),
+      );
+      orderedByStack.set(key, ordered);
+    }
+    return ordered;
   }
 
   function loadFace(rule: FontFaceRule): Promise<LoadedFace> {
     let pending = loaded.get(rule.file);
     if (!pending) {
-      pending = readSfnt(rule.file).then((sfnt) => {
+      // decodeFontBytes runs one WOFF2 decode at a time; the decoder is not
+      // reentrant.
+      pending = decodeFontBytes(readFileSync(rule.file)).then((sfnt) => {
         const face = new hb.Face(new hb.Blob(sfnt), 0);
-        const wght = face.getAxisInfos()['wght'];
+        const axes = face.getAxisInfos();
+        const axis = (tag: string): Axis | null => {
+          const info = axes[tag];
+          return info ? { min: info.min, max: info.max } : null;
+        };
         return {
           face,
           cmap: new Set(face.collectUnicodes()),
           upem: face.upem,
-          wght: wght ? { min: wght.min, max: wght.max } : null,
-          fonts: new Map<number, hb.Font>(),
+          wght: axis('wght'),
+          opsz: axis('opsz'),
+          fonts: new Map<string, hb.Font>(),
         };
       });
       loaded.set(rule.file, pending);
@@ -319,28 +274,20 @@ export function createLabelWidthHarness({
     return pending;
   }
 
-  function fontAt(entry: LoadedFace, rule: FontFaceRule, weight: number): hb.Font {
-    const clamped = Math.min(rule.weightMax, Math.max(rule.weightMin, weight));
-    let font = entry.fonts.get(clamped);
+  function fontAt(entry: LoadedFace, rule: FontFaceRule, weight: number, size: number): hb.Font {
+    const clampedWeight = Math.min(rule.weightMax, Math.max(rule.weightMin, weight));
+    const opsz = entry.opsz ? clamp(size * rule.sizeAdjust, entry.opsz) : null;
+    const key = `${clampedWeight}|${opsz ?? ''}`;
+    let font = entry.fonts.get(key);
     if (!font) {
       font = new hb.Font(entry.face);
-      if (entry.wght) {
-        const value = Math.min(entry.wght.max, Math.max(entry.wght.min, clamped));
-        font.setVariations([new hb.Variation('wght', value)]);
-      }
-      entry.fonts.set(clamped, font);
+      const variations: hb.Variation[] = [];
+      if (entry.wght) variations.push(new hb.Variation('wght', clamp(clampedWeight, entry.wght)));
+      if (opsz !== null) variations.push(new hb.Variation('opsz', opsz));
+      if (variations.length > 0) font.setVariations(variations);
+      entry.fonts.set(key, font);
     }
     return font;
-  }
-
-  function facesFor(locale: string): readonly FontFaceRule[] {
-    let faces = facesByLocale.get(locale);
-    if (!faces) {
-      const stylesheet = stylesheetByLocale.get(locale);
-      faces = [...pretendardFaces, ...(stylesheet ? parseFontFaces(repoRoot, stylesheet) : [])];
-      facesByLocale.set(locale, faces);
-    }
-    return faces;
   }
 
   /**
@@ -367,12 +314,8 @@ export function createLabelWidthHarness({
   }
 
   async function measure(text: string, options: MeasureOptions): Promise<Measurement> {
-    const { locale, htmlLang, fontSize, weight, letterSpacing = 0 } = options;
-    const faces = facesFor(locale);
-    const ordered: FontFaceRule[] = [];
-    for (const family of stackFor(htmlLang)) {
-      for (const face of faces) if (face.family === family) ordered.push(face);
-    }
+    const { htmlLang, fontSize, weight, letterSpacing = 0, hanOrder } = options;
+    const ordered = orderedFaces(htmlLang, hanOrder);
 
     const clusters = [...segmenter.segment(text)].map((segment) => segment.segment);
     const uncovered: string[] = [];
@@ -437,11 +380,11 @@ export function createLabelWidthHarness({
       buffer.setScript(SCRIPT_TAGS[run.scriptKey] ?? 'Zyyy');
       buffer.setDirection(run.level % 2 ? hb.Direction.RTL : hb.Direction.LTR);
       buffer.setLanguage(htmlLang);
-      hb.shape(fontAt(entry, run.face, weight), buffer);
+      hb.shape(fontAt(entry, run.face, weight, fontSize), buffer);
       const advance = buffer
         .getGlyphPositions()
         .reduce((sum, position) => sum + position.xAdvance, 0);
-      width += (advance * fontSize) / entry.upem;
+      width += (advance * fontSize * run.face.sizeAdjust) / entry.upem;
     }
     width += letterSpacing * clusters.length;
     return { width, uncovered };

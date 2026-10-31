@@ -2196,8 +2196,9 @@ describe('action button label contract', () => {
   });
 
   it('turns font hinting off for the media source options and nothing else', () => {
-    // Linux Chromium at device scale 1 hints Pretendard: FreeType snaps each
-    // advance to a whole pixel, so the compact 14px lowercase took the 15px
+    // Linux Chromium at device scale 1 hinted the app font (Pretendard at the
+    // time; Inter and Noto carry hinting too): FreeType snaps each advance to
+    // a whole pixel, so the compact 14px lowercase took the 15px
     // advance and the BETA badge grew 2.5px, and the media source labels
     // wrapped more than 9.0.18 in the PR #510 CI (Critical browser gate,
     // adaptive-actions at 340, 360, 375 and 421px). text-rendering:

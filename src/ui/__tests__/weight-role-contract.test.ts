@@ -5,6 +5,7 @@ import { readdirSync, readFileSync } from 'node:fs';
 import { join, resolve } from 'node:path';
 import { parse as parseCss, type AtRule, type Declaration, type Node } from 'postcss';
 import { describe, expect, it } from 'vitest';
+import { APP_FONT_SHEETS } from '../../i18n/app-font-contract.ts';
 import { APP_DICTIONARIES } from '../../i18n/catalogs.ts';
 
 // Owner decision (2026-10-28, final): the app's text takes one of five weight
@@ -49,24 +50,26 @@ const roleOf = (value: string): WeightRole | null =>
 // The two tokens the five replace; nothing in the app reads them any more.
 const RETIRED_TOKENS = ['--font-weight-display', '--button-label-weight'];
 
-// The app stylesheet: css/app.css imports the first four, and index.html
-// loads the font face sheet beside it.
+// The app stylesheet: css/app.css imports the first four, and the app's
+// font sheets (src/i18n/app-font-contract.ts) load beside them at runtime.
 const SHEET_PATHS = [
   'css/style.css',
   'css/desktop.css',
   'css/rtl.css',
   'css/playback-actions.css',
-  'css/pretendard.css',
-] as const;
+  ...APP_FONT_SHEETS.map(({ path }) => path),
+];
 const read = (path: string): string => readFileSync(resolve(path), 'utf8');
 const sheets = SHEET_PATHS.map((path) => ({ path, root: parseCss(read(path)) }));
 const appCss = sheets[0]!.root;
 
 // Weight declarations that are not a text role, with the reason.
-const NON_TEXT_WEIGHTS: Readonly<Record<string, string>> = {
-  'css/pretendard.css @font-face { font-weight: 45 920 }':
-    "The Pretendard variable face's weight range, not a text weight.",
-};
+const NON_TEXT_WEIGHTS: Readonly<Record<string, string>> = Object.fromEntries(
+  APP_FONT_SHEETS.map(({ path, family }) => [
+    `${path} @font-face { font-weight: 100 900 }`,
+    `The ${family} variable faces' weight range, not a text weight.`,
+  ]),
+);
 // Text drawn to another party's brand specification, with the reason.
 const BRAND_WEIGHTS: Readonly<Record<string, string>> = {
   'css/style.css .account-google-button { font-weight: 500 }':

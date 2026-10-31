@@ -101,25 +101,35 @@ describe('demo role switch icon threshold', () => {
 
   beforeAll(async () => {
     const harness = createLabelWidthHarness({ repoRoot: process.cwd() });
+    // Inter's optical size follows the font size, so widths do not scale
+    // linearly: measure at every size the checks below use.
+    const { width: from } = iconThreshold(root);
+    const sizes = [13, twoColumnsAt(from).fontSize, twoColumnsAt(from - 8).fontSize];
     for (const option of LANGUAGE_OPTIONS) {
       for (const key of keys) {
         const text = dictionaries[option.code]?.[key] ?? '';
-        const at13 = await harness.measure(text, {
-          locale: option.code,
-          htmlLang: option.htmlLang,
-          fontSize: 13,
-          weight: SELECTED_WEIGHT,
-        });
-        // Shaped advances scale with the font size.
+        const widths = new Map<number, number>();
+        for (const fontSize of sizes) {
+          const { width } = await harness.measure(text, {
+            htmlLang: option.htmlLang,
+            fontSize,
+            weight: SELECTED_WEIGHT,
+          });
+          widths.set(fontSize, width);
+        }
         labels.push({
           locale: option.code,
           key,
           text,
-          width: (fontSize) => (at13.width * fontSize) / 13,
+          width: (fontSize) => {
+            const width = widths.get(fontSize);
+            if (width === undefined) throw new Error(`${text} was not measured at ${fontSize}px`);
+            return width;
+          },
         });
       }
     }
-  }, 60_000);
+  }, 120_000);
 
   it('builds the switch from the values the threshold is worked out from', () => {
     expect(keys).toEqual([

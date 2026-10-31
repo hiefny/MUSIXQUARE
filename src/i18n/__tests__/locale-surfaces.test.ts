@@ -7,7 +7,9 @@ import {
   CLASSIC_RUNTIME_ASSETS,
   compileClassicRuntimeAsset,
 } from '../../../scripts/classic-runtime-assets.ts';
+import { readFontStacks } from '../../../scripts/fonts/font-stacks.mts';
 import { LANGUAGE_OPTIONS } from '../index.ts';
+import { languageDirection } from '../locales.ts';
 
 async function classicRuntime(outputPath: string): Promise<string> {
   const asset = CLASSIC_RUNTIME_ASSETS.find((candidate) => candidate.outputPath === outputPath);
@@ -211,11 +213,22 @@ describe('locale surface parity', () => {
     }
   });
 
-  it('keeps every app html language on the matching first-paint font stack', async () => {
-    const css = await readFile('css/style.css', 'utf8');
-
+  it('keeps every app html language on a first-paint font stack with the app fonts', () => {
+    // The stack each html lang and dir resolves to before any script runs;
+    // font-stack-identity.test.ts pins the stacks themselves.
+    const stacks = readFontStacks(process.cwd());
     for (const { code, htmlLang } of LANGUAGE_OPTIONS) {
-      expect(css, code).toContain(`html:lang(${htmlLang})`);
+      const stack = stacks.fontSans({ htmlLang, dir: languageDirection(code) });
+      expect(stack, code).toEqual(
+        expect.arrayContaining([
+          'Inter',
+          'Noto Sans KR',
+          'Noto Sans JP',
+          'Noto Sans SC',
+          'Noto Sans TC',
+        ]),
+      );
+      expect(stack.at(-1), code).toBe('sans-serif');
     }
   });
 

@@ -3412,8 +3412,8 @@ PRO 방장 공지의 중도 참여 복원은 별도 정책이며 이번 서비�
       Pretendard에서 자체 호스팅 Inter(라틴, 키릴, 그리스, 베트남어)와 Noto(한글은 새 Noto Sans KR, 나머지는 이미 있는 Noto Sans
       JP·SC·TC·Thai와 단일 문자 글꼴)로 바꿔, 한국어 화면과 영어 화면이 같은 내용(트랙 제목, 채팅, 이름)을 같은 글꼴, 같은 폭, 같은
       픽셀로 그린다([화면 바뀜], 보고서 §3). 브랜치 `agent/font-switch`는 origin/main `9e68a7a3`(#547 시험만, 그 아래 #546 기록, 앱
-      런타임은 운영 9.0.28 `aa7baad5`와 같음) 위 커밋 50개(오너 답을 적은 문서 커밋까지)이고 테스트 먼저 짝이 20개다. 버전 올리기가
-      그 뒤 마지막 런타임 커밋이다. 범위: 앱만이다(`index.html`과 언어별 사본, 앱 CSS와 런타임, 서비스 워커, 가드, 시험, 문서). 다른
+      런타임은 운영 9.0.28 `aa7baad5`와 같음) 위 커밋 52개이고 테스트 먼저 짝이 20개다. 마지막 런타임 커밋은 버전
+      올리기 `9b93c5b3`이고, 그 뒤에는 그 SHA와 최종 관문(QA 라운드 8)을 적은 문서 커밋만 있다. 범위: 앱만이다(`index.html`과 언어별 사본, 앱 CSS와 런타임, 서비스 워커, 가드, 시험, 문서). 다른
       HTML 입구(소개와 그 형제 페이지, 블로그, 히스토리, 디자인 시스템, 이벤트, 관리자, `account-complete.html`)와 공유 미리보기
       그림(OG)은 이 열차에서 Pretendard를 그대로 쓰고 Pretendard 파일은 배포된 채 남는다. 제목 자간 토큰 삭제만 디자인 시스템 거울과
       공개 편집 CSS까지 가서 디자인 시스템 페이지의 영어 견본(글자 크기 견본, 대화상자 견본 제목, EQ 값)이 2.7 ~ 4.4% 넓어지고,
@@ -3436,25 +3436,32 @@ PRO 방장 공지의 중도 참여 복원은 별도 정책이며 이번 서비�
       내려받지 않는다(질문 7). 디자인 시스템 페이지의 영어 견본이 2.7 ~ 4.4% 넓어지는 것도 받아들인다(질문 12). 질문 1 ~ 6과 9 ~
       11은 구현대로다. 질문 8(크기 값을 글꼴 파일에 구워 넣기)은 배포 뒤 iPhone 확인의 결과에 달린다. 버전: 9.0.29 / v802(App 빌드
       802). 운영이 9.0.28 / v801(`aa7baad5`, Release 41160043955)이므로 다음 패치와 다음 epoch이고, 9.0.28 bump `f3a9fcbc`와 같은
-      여섯 파일 일곱 줄을 마지막 런타임 커밋으로 올린다. Release 입력: target `app`(App SemVer와 SW 캐시 epoch가 바뀌어 업데이트 창이
+      여섯 파일 일곱 줄을 마지막 런타임 커밋 `9b93c5b3`으로 올렸다. Release 입력: target `app`(App SemVer와 SW 캐시 epoch가 바뀌어 업데이트 창이
       뜬다), `raise_app_build_floor` false(최소 앱 빌드 795 그대로), Developer API D1 false. 배포 대상: 운영 배포 SHA(App
       `aa7baad5`, PRO room `683074bc`, 나머지 넷 `71f5b96c`)와 main `9e68a7a3` 어느 쪽에 견줘도 버전 올리기 전 런타임 경로 변경은
-      App 173, 나머지 다섯 Worker 0이고 App 런타임 의존성 차이가 없다(로컬 git 판정, 보고서 QA 라운드 7). 신호, PRO, 서버 계약, D1,
+      App 173, 나머지 다섯 Worker 0이고 App 런타임 의존성 차이가 없다(로컬 git 판정, 보고서 QA 라운드 7). 버전 올리기 머리
+      `9b93c5b3`에서는 App 176(버전 거울 `browser/classic-runtime/admin.ts`, `cloudflare/app-worker.ts`, `index.html`이 더해짐),
+      나머지 다섯 0이고, target `app`의 호환 판정(`verifyPartialReleaseCompatibility`, 운영 조회 대신 위 배포 SHA)이 compatible이다
+      (로컬 git만, 보고서 QA 라운드 8). 신호, PRO, 서버 계약, D1,
       비밀, 바인딩, Wrangler 설정, 저장 데이터와 키, 프레임 모양, 바닥은 그대로다(파일 이름은 보여 줄 때만 NFC이고 저장·전송되는
       이름은 그대로). 자원 소유권: 글꼴 시트와 면 불러오기의 주인은 `src/i18n/locale-fonts.ts` 하나이고, Pretendard 런타임,
       부트스트랩 글꼴 스케줄러, `public/primary-font.css`, 서비스 워커의 선택 글꼴 묶음을 같은 변경에서 지워 새 레코드가 없다(기준치
       그대로). 섞인 버전: 업데이트하지 않은 옛 세대 탭은 `/primary-font-loader.js`를 요청해 404를 받는다(구버전 무시 정책). 새 제3자
-      글꼴 자산(npm 의존성 변화 없음, `package.json`은 생성 스크립트 두 줄과 버전 줄, `package-lock.json`은 버전 줄 둘만): Inter 4.001(Google Fonts v20) 부분 파일 7개
-      340,256 B(받은 바이트 그대로), SIL OFL 1.1(`fonts/INTER_LICENSE.txt`). Noto Sans KR 2.004(Google Fonts v40) 번호 조각 120개
+      글꼴 자산(npm 의존성 변화 없음, `package.json`은 생성 스크립트 두 줄과 버전 줄, `package-lock.json`은 버전 줄 둘만):
+      Inter 4.001(Google Fonts v20) 부분 파일 7개 340,256 B(받은 바이트 그대로), SIL OFL 1.1(`fonts/INTER_LICENSE.txt`). Noto Sans KR 2.004(Google Fonts v40) 번호 조각 120개
       3,425,472 B(한국어 `locl`을 뺀 다시 쓴 사본이라 Google 파일 이름에 바이트가 다르고, Google의 저작권(name ID 0, Reserved Font
       Name 'Source')과 라이선스 URL(name ID 14)을 지님), SIL OFL 1.1(`fonts/NOTO_CJK_LICENSE.txt`). 출처 URL과 원본·배포 해시는
       `fonts/font-sources.json`, 다시 만들기와 검사는 `fonts/README.md`, 알림은 저장소 `README.md`의 제3자 목록에 있다. 배포 기록이
       §1 의존성·호환 칸에 이 자산을 적는다. 저장소는 글꼴 파일로 약 3.76 MB 커진다. 이제 채운 배포 전 관문: (1) 오너의 릴리스
       결정(2026-10-31 저녁, 6A보다 먼저), (2) 보고서 §9 오너 질문의 답(권장 답 적용, 8은 배포 뒤 iPhone 확인에 달림). iPhone Safari 줄
-      높이는 오너 답으로 관문에서 빠져 배포 뒤 첫 확인이 됐다. 남은 것은 보통 절차다: 버전 올리기와 그 머리의 로컬 최종 관문
-      (`build:checked` 전체, 가드 전부, 커버리지 세 레인, 단위 전체, 운영 빌드 `test:e2e:candidate`(마지막 통과는 라운드 4), critical
-      E2E와 `font-identity`), PR CI와 자동 코드 리뷰, 머지, exact-main CI, 릴리스(보고서 §10). 근거: 로컬 QA 라운드 1 ~ 7(Windows
-      11, Chromium 153만). 최종 관문 라운드 6(다시 쌓기 전, 코드는 지금 `e26279d3`과 같음)은 `build:checked` 25단계와 가드 37개
+      높이는 오너 답으로 관문에서 빠져 배포 뒤 첫 확인이 됐다. 버전 올리기와 그 머리의 로컬 최종 관문은 했다(QA 라운드 8). 남은
+      것은 보통 절차다: PR CI와 자동 코드 리뷰, 머지, exact-main CI, 릴리스(보고서 §10). 근거: 로컬 QA 라운드 1 ~ 8(Windows 11,
+      Chromium 153만). 최종 관문 라운드 8(버전 올리기 머리 `9b93c5b3`)은 `build:checked` 25단계와 가드 37개가 모두
+      통과했고(`guard:sw-cache-version` v802 (9b93c5b3), `guard:release-identity` 9.0.29 / v802, 첫 전송은 eager total 531.0 KiB
+      gzip와 eager fonts 0으로 그대로), 자원 소유권(기록 49, 파일 456, 기준치 그대로), 운영 빌드 `test:e2e:candidate` 19 / 19,
+      critical E2E와 `font-identity` 104 / 104, 커버리지 critical 93 files / 3,736과 workers 69 / 3,323, tooling 14 / 433(부하 시간
+      초과 1행은 그 레인만 다시 돌려 통과), 단위 732 files / 17,460(부하 시간 초과 git 고정물 2행은 그 두 파일만 다시 돌려
+      157 / 157 통과)이 통과했다. 최종 관문 라운드 6(다시 쌓기 전, 코드는 지금 `e26279d3`과 같음)은 `build:checked` 25단계와 가드 37개
       가운데 `guard:sw-cache-version` 하나만 실패했고(버전 올리기 없음), 단위 730 files / 17,459, critical E2E와 `font-identity`
       104 / 104, 재생목록·채팅 E2E 63 / 63, 커버리지 세 레인이 통과했다. 라운드 7(다시 쌓기)은 44커밋이 패치 그대로이고 문서 둘은
       `docs/README.md` 문맥만 다르며, 테스트 먼저 20짝이 새 부모에서 실패하고 짝 구현에서 통과하고, 단위 732 files / 17,460(부하

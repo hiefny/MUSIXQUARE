@@ -97,7 +97,8 @@ runbooks. Neither belongs in a general setup document.
   implemented and checked locally on the branch `agent/font-switch`, rebased onto main `9e68a7a3`
   (App runtime equal to 9.0.28 / v801 `aa7baad5`), not merged or released; it ships as App
   9.0.29 / v802 with target `app` (App runtime paths only, no other Worker, no runtime dependency
-  change) and the update dialog, the version bump being its last runtime commit. The owner saw the
+  change) and the update dialog; the version bump `9b93c5b3` is its last runtime commit, followed
+  only by a docs commit. The owner saw the
   final pictures and on the evening of 2026-10-31 chose to release it now as the next App update,
   ahead of Phase 6 6A, and moved the iOS 17 and 18 Safari line-height check from a release gate to
   the first check after the release because no iPhone was at hand. The release owner applied the
@@ -122,8 +123,11 @@ runbooks. Neither belongs in a general setup document.
   answered true for unloaded shards), every visible change for the owner's pictures, the
   measurements (eager total 531.0 KiB gzip against 9.0.28's 533.1, eager fonts 0; English start screen
   72,920 B in one file, Korean 249,360 B in 12 files plus 9 prefetched shards), the tests-first
-  commit pairs with their SHAs before and after the rebase, seven local QA rounds (the last one
-  rechecking every tests-first commit on its new parent), the risks, the device checks after the
+  commit pairs with their SHAs before and after the rebase, eight local QA rounds (round 7
+  rechecking every tests-first commit on its new parent, round 8 the final gate on the bump:
+  `build:checked` and all 37 guards passing, the production candidate 19 / 19, critical E2E with
+  the font identity E2E 104 / 104, the unit suite with only its known git-fixture load timeouts
+  rerun alone), the risks, the device checks after the
   release (first the iOS 17 and 18 Safari line boxes, then iOS 16, Android, the webOS TV) and twelve
   owner questions with the owner's answer and the recommended answers applied, among them a
   self-hosted symbol face for the characters no face draws, which still draw in a different device

@@ -249,3 +249,105 @@ export function faceDescriptorMismatches(
   }
   return mismatches;
 }
+
+// ── The Korean and English UIs apply the same rules ────────────────
+
+/**
+ * App rules that test the document language to style the UI's own translated
+ * copy, never user content, so they may apply in only one of the Korean and
+ * English UIs. Each needs a reason; scripts/check-app-font.mts fails on any
+ * other rule that tells the two UIs apart, and on a recorded rule that is gone.
+ */
+export const KOREAN_ENGLISH_COPY_RULES: Readonly<Record<string, string>> = {
+  'html:lang(ko) .setup-header-text h2':
+    "the start screen's translated heading: only the Korean UI shows Korean words there, kept whole like the paragraph below it",
+};
+
+/** A :lang() range matches its tag and every tag that extends it; '*' matches every tag. */
+function langRangeMatches(tag: string, range: string): boolean {
+  const lower = tag.toLowerCase();
+  const wanted = range.toLowerCase();
+  return wanted === '*' || lower === wanted || lower.startsWith(`${wanted}-`);
+}
+
+/** An attribute selector test on a lang value (HTML matches lang case-insensitively). */
+function langAttributeMatches(
+  operator: string | undefined,
+  actual: string,
+  value: string,
+): boolean {
+  const have = actual.toLowerCase();
+  const want = value.toLowerCase();
+  switch (operator) {
+    case undefined:
+      return true;
+    case '=':
+      return have === want;
+    case '~=':
+      return have.split(/\s+/u).includes(want);
+    case '|=':
+      return have === want || have.startsWith(`${want}-`);
+    case '^=':
+      return want !== '' && have.startsWith(want);
+    case '$=':
+      return want !== '' && have.endsWith(want);
+    case '*=':
+      return want !== '' && have.includes(want);
+    default:
+      return false;
+  }
+}
+
+/**
+ * The language tests of a selector (each :lang() range and each [lang]
+ * attribute selector, wherever it sits, :not() and :is() included) that
+ * answer differently for two document languages. A rule with such a test may
+ * apply in only one of the two UIs, whatever it sets: an element without its
+ * own lang inherits the document's.
+ */
+export function languageSplitTests(selector: string, left: string, right: string): string[] {
+  const tests: string[] = [];
+  for (const match of selector.matchAll(/:lang\(\s*([^)]*)\)/giu)) {
+    for (const raw of (match[1] ?? '').split(',')) {
+      const range = raw.trim().replace(/^(['"])(.*)\1$/su, '$2');
+      if (!range) continue;
+      if (langRangeMatches(left, range) !== langRangeMatches(right, range)) {
+        tests.push(`:lang(${range})`);
+      }
+    }
+  }
+  for (const match of selector.matchAll(
+    /\[\s*lang\s*(?:([~|^$*]?=)\s*(?:"([^"]*)"|'([^']*)'|([^\s\]]+))\s*(?:[iIsS]\s*)?)?\]/gu,
+  )) {
+    const operator = match[1];
+    const value = match[2] ?? match[3] ?? match[4] ?? '';
+    if (
+      langAttributeMatches(operator, left, value) !== langAttributeMatches(operator, right, value)
+    ) {
+      tests.push(match[0]);
+    }
+  }
+  return tests;
+}
+
+/**
+ * Whether a declaration turns contextual alternates (calt) off. Owner
+ * decision 4 (2026-10-31) keeps Inter's calt on, so '->' keeps its arrow and
+ * the raised time colon stays as Pretendard drew it.
+ */
+export function disablesContextualAlternates(property: string, value: string): boolean {
+  const name = property.trim().toLowerCase();
+  const text = value.trim().toLowerCase();
+  if (name === 'font-variant-ligatures' || name === 'font-variant') {
+    return text === 'none' || /(?:^|\s)no-contextual(?:\s|$)/u.test(text);
+  }
+  if (name === 'font-feature-settings') {
+    return text.split(',').some((setting) => /^\s*(['"])calt\1\s+(?:0|off)\s*$/u.test(setting));
+  }
+  return false;
+}
+
+/** The app stylesheets that declare @font-face; the app's faces live only in the generated sheets. */
+export function fontFaceSheets(sheets: readonly { path: string; css: string }[]): string[] {
+  return sheets.filter(({ css }) => declaresFontFace(css)).map(({ path: sheetPath }) => sheetPath);
+}

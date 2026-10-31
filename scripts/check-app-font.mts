@@ -18,6 +18,10 @@
  *   and each declaration that reads one) is the same in the Korean and
  *   English UIs under every Han order, and names every app family, Inter
  *   ahead of the CJK families;
+ * - no app rule applies in only one of the Korean and English UIs, whatever
+ *   it sets, but the recorded KOREAN_ENGLISH_COPY_RULES for translated copy;
+ *   no rule turns Inter's contextual alternates off; css/app.css and its
+ *   imports declare no @font-face;
  * - one source per script: Latin, Cyrillic and Greek that Inter draws come
  *   only from Inter, Hangul only from Noto Sans KR, kana only from Noto Sans
  *   JP, in every stack of every UI;
@@ -49,10 +53,14 @@ import { readFaceResolver, readFontStacks, type FaceResolver } from './fonts/fon
 import {
   builtAssetStem,
   declaresFontFace,
+  disablesContextualAlternates,
   faceDescriptorMismatches,
   faceSourceProblems,
+  fontFaceSheets,
   fontPreloadHrefs,
   initialAssetUrls,
+  KOREAN_ENGLISH_COPY_RULES,
+  languageSplitTests,
   localDistAssetPath,
   parseCodePointList,
   stackCoverageGaps,
@@ -224,6 +232,50 @@ for (const selector of Object.keys(LITERAL_FONT_FAMILY_RULES)) {
   check(
     literalSelectors.has(selector),
     `${selector} no longer sets its own font family; drop it from LITERAL_FONT_FAMILY_RULES`,
+  );
+}
+
+// The Korean and English UIs draw the same content the same way, so no app
+// rule may apply in only one of them, whatever it sets (a lang test that
+// answers differently for ko and en), except the recorded rules for the UI's
+// own translated copy. Inter's contextual alternates stay on (decision 4), and
+// faces live only in the generated sheets, never in css/app.css or its imports.
+const koreanLang = LANGUAGE_OPTIONS.find(({ code }) => code === 'ko')?.htmlLang ?? 'ko';
+const englishLang = LANGUAGE_OPTIONS.find(({ code }) => code === 'en')?.htmlLang ?? 'en';
+const splitSelectors = new Set<string>();
+for (const { sheet, selector, selectors, rule } of fontStacks.rules) {
+  for (const single of selectors) {
+    const tests = languageSplitTests(single, koreanLang, englishLang);
+    if (tests.length === 0) continue;
+    splitSelectors.add(single);
+    check(
+      single in KOREAN_ENGLISH_COPY_RULES,
+      `${sheet} ${single} applies in only one of the Korean and English UIs (${tests.join(', ')})`,
+    );
+  }
+  for (const node of rule.nodes) {
+    if (node.type !== 'decl') continue;
+    check(
+      !disablesContextualAlternates(node.prop, node.value),
+      `${sheet} ${selector} turns Inter's contextual alternates off (${node.prop}: ${node.value})`,
+    );
+  }
+}
+for (const selector of Object.keys(KOREAN_ENGLISH_COPY_RULES)) {
+  check(
+    splitSelectors.has(selector),
+    `${selector} no longer tells the Korean and English UIs apart; drop it from KOREAN_ENGLISH_COPY_RULES`,
+  );
+}
+const appStylesheets = await Promise.all(
+  ['css/app.css', ...fontStacks.sheets].map(async (sheetPath) => ({
+    path: sheetPath,
+    css: await readFile(path.join(repoRoot, sheetPath), 'utf8'),
+  })),
+);
+for (const sheetPath of fontFaceSheets(appStylesheets)) {
+  failures.push(
+    `${sheetPath} declares @font-face; the app's faces live only in the generated font sheets (APP_FONT_SHEETS)`,
   );
 }
 

@@ -6,8 +6,10 @@
  * fake timers can store a fake performance.now() well ahead of this row's real
  * clock, so in sync.test.ts this row's heartbeat was sometimes dropped. No row
  * in this file makes a manual broadcast. The mocks and hooks are
- * sync.test.ts's; no row here registers a PRO timeline, so afterEach has none
- * to unregister.
+ * sync.test.ts's, except zero-start.ts: no row here forces a zero-start owner,
+ * so the real module stays, and with no controller its facades answer false
+ * on the heartbeat's owner gate. No row here registers a PRO timeline, so
+ * afterEach has none to unregister.
  */
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { resetState, setState } from '../../core/state.ts';
@@ -20,7 +22,6 @@ import {
 } from '../standard-host-manual-offset-gate.ts';
 
 const QUEUE_ITEM_ID = '11111111-1111-4111-8111-111111111111';
-const zeroStartFacade = vi.hoisted(() => ({ active: false }));
 
 vi.mock('../../core/log.ts', () => ({
   log: { debug: vi.fn(), info: vi.fn(), warn: vi.fn(), error: vi.fn() },
@@ -54,11 +55,6 @@ vi.mock('../_state.ts', async (importOriginal) => {
   return { ...actual, getYouTubePlayer: vi.fn(() => null) };
 });
 
-vi.mock('../zero-start.ts', () => ({
-  isYouTubeZeroStartInFlight: vi.fn(() => false),
-  isYouTubeZeroStartProtocolActive: vi.fn(() => zeroStartFacade.active),
-}));
-
 beforeEach(async () => {
   await prepareStandardHostManualOffsetRuntimeForTests();
   resetStandardHostManualOffsetTransaction();
@@ -73,7 +69,6 @@ beforeEach(async () => {
   // snapshot, for example) with the reset stopYouTubeMode runs. It runs
   // after bus.clear(), so its events reach no earlier row's listener.
   (await import('../sync.ts')).resetYouTubeSyncState();
-  zeroStartFacade.active = false;
   setState('playlist.items', [
     {
       queueItemId: QUEUE_ITEM_ID,

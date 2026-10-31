@@ -1535,11 +1535,15 @@ describe('YouTube Sync', () => {
       const { initYouTubeSync } = await import('../sync.ts');
       initYouTubeSync();
       zeroStartFacade.active = true;
+      const { isYouTubeZeroStartProtocolActive } = await import('../zero-start.ts');
+      vi.mocked(isYouTubeZeroStartProtocolActive).mockClear();
 
       bus.emit('youtube:set-coordinator-manual-offset', 0.125);
 
       expect(player.seekTo).not.toHaveBeenCalled();
       expect(getState('sync.youtubeLocalOffset')).toBe(0);
+      // The edit's owner gate reaches the zero-start protocol export.
+      expect(isYouTubeZeroStartProtocolActive).toHaveBeenCalled();
     });
 
     it('coalesces rapid local PRO edits against the server anchor while seekTo is stale', async () => {

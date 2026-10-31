@@ -726,7 +726,10 @@ describe('YouTube Sync — Regression Integration', () => {
         const conn = installLiveZeroStartGuest();
         const { initYouTube } = await importPlayer();
         const { broadcast, safeSend } = await import('../../network/peer.ts');
-        const { getYouTubeZeroStartSnapshot } = await import('../zero-start.ts');
+        const { getYouTubeZeroStartSnapshot, isYouTubeZeroStartProtocolActive } =
+          await import('../zero-start.ts');
+        const actualZeroStart =
+          await vi.importActual<typeof import('../zero-start.ts')>('../zero-start.ts');
 
         initYouTube();
         advertiseZeroStartCapability(conn);
@@ -735,12 +738,16 @@ describe('YouTube Sync — Regression Integration', () => {
 
         // The real controller owns this run, while the facade models the
         // player.ts mid-sync predicate imported through this test's partial
-        // module mock.
+        // module mock. The forced value agrees with the real controller.
+        expect(actualZeroStart.isYouTubeZeroStartProtocolActive()).toBe(true);
         zeroStartFacade.active = true;
         vi.mocked(broadcast).mockClear();
+        vi.mocked(isYouTubeZeroStartProtocolActive).mockClear();
         if (action === 'seek') bus.emit('youtube:seek-to', value);
         else bus.emit('youtube:skip-time', value);
 
+        // The host seek's mid-sync gate reaches the stubbed export.
+        expect(isYouTubeZeroStartProtocolActive).toHaveBeenCalled();
         expect(getYouTubeZeroStartSnapshot()?.phase).toBe('idle');
         expect(safeSend).toHaveBeenCalledWith(
           conn,
@@ -804,7 +811,10 @@ describe('YouTube Sync — Regression Integration', () => {
       const conn = installLiveZeroStartGuest();
       const { initYouTube } = await importPlayer();
       const { broadcast, safeSend } = await import('../../network/peer.ts');
-      const { getYouTubeZeroStartSnapshot } = await import('../zero-start.ts');
+      const { getYouTubeZeroStartSnapshot, isYouTubeZeroStartProtocolActive } =
+        await import('../zero-start.ts');
+      const actualZeroStart =
+        await vi.importActual<typeof import('../zero-start.ts')>('../zero-start.ts');
       initYouTube();
       advertiseZeroStartCapability(conn);
       emitZeroStartAutoPlay();
@@ -817,6 +827,8 @@ describe('YouTube Sync — Regression Integration', () => {
           [newcomer.peer, newcomer],
         ]),
       );
+      // The forced protocol answer agrees with the real controller's run.
+      expect(actualZeroStart.isYouTubeZeroStartProtocolActive()).toBe(true);
       zeroStartFacade.active = true;
       vi.mocked(broadcast).mockClear();
       vi.mocked(safeSend).mockClear();
@@ -825,7 +837,10 @@ describe('YouTube Sync — Regression Integration', () => {
 
       expect(getYouTubeZeroStartSnapshot()).toEqual(before);
       expect(getManagedTimer('yt-zero-start-replacement-fallback')).toBeNull();
+      vi.mocked(isYouTubeZeroStartProtocolActive).mockClear();
       bus.emit('network:peer-connected', newcomer);
+      // The late-join bootstrap's owner gate reaches the stubbed export.
+      expect(isYouTubeZeroStartProtocolActive).toHaveBeenCalled();
       vi.advanceTimersByTime(1_500);
       expect(getManagedTimer('yt-zero-start-replacement-fallback')).toBeNull();
       expect(broadcast).not.toHaveBeenCalled();
@@ -1364,6 +1379,7 @@ describe('YouTube Sync — Regression Integration', () => {
       });
       const { initYouTube } = await importPlayer();
       const { safeSend } = await import('../../network/peer.ts');
+      const { isYouTubeZeroStartProtocolActive } = await import('../zero-start.ts');
       const safeSendMock = vi.mocked(safeSend);
       const lateConn = dataConnection('late-zero-start-guest');
       setState('network.activeHostConnByPeerId', new Map([[lateConn.peer, lateConn]]));
@@ -1375,9 +1391,12 @@ describe('YouTube Sync — Regression Integration', () => {
       player.__state = 1;
       safeSendMock.mockClear();
       zeroStartFacade.active = true;
+      vi.mocked(isYouTubeZeroStartProtocolActive).mockClear();
 
       bus.emit('network:peer-connected', lateConn);
 
+      // The late-join bootstrap's owner gate reaches the stubbed export.
+      expect(isYouTubeZeroStartProtocolActive).toHaveBeenCalled();
       expect(
         safeSendMock.mock.calls.some(
           ([target, message]) =>
@@ -1977,14 +1996,18 @@ describe('YouTube Sync — Regression Integration', () => {
       installPlayer({ __state: 1, __currentTime: 12, __duration: 120 });
       const { broadcastYouTubeSync } = await importSync();
       const { broadcast } = await import('../../network/peer.ts');
+      const { isYouTubeZeroStartProtocolActive } = await import('../zero-start.ts');
       const broadcastMock = vi.mocked(broadcast);
       broadcastMock.mockClear();
       zeroStartFacade.inFlight = true;
       zeroStartFacade.active = true;
+      vi.mocked(isYouTubeZeroStartProtocolActive).mockClear();
 
       broadcastYouTubeSync(false);
       broadcastYouTubeSync(true, 1);
       expect(broadcastMock).not.toHaveBeenCalled();
+      // The broadcaster's owner gate reaches the stubbed export.
+      expect(isYouTubeZeroStartProtocolActive).toHaveBeenCalled();
 
       zeroStartFacade.inFlight = false;
       zeroStartFacade.active = false;
@@ -1998,13 +2021,17 @@ describe('YouTube Sync — Regression Integration', () => {
     it('rejects a guest manual rendezvous without mutating the player while zero-start is active', async () => {
       const player = installPlayer({ __state: 1, __currentTime: 12, __duration: 120 });
       const { guestRendezvousSync } = await importSync();
+      const { isYouTubeZeroStartProtocolActive } = await import('../zero-start.ts');
       setState('network.hostConn', mockHostConn as never);
       zeroStartFacade.active = true;
+      vi.mocked(isYouTubeZeroStartProtocolActive).mockClear();
 
       const result = guestRendezvousSync({ silent: true });
 
       expect(result.status).toBe('not-ready');
       expect(mutationOps(player)).toEqual([]);
+      // The rendezvous owner gate reaches the stubbed export.
+      expect(isYouTubeZeroStartProtocolActive).toHaveBeenCalled();
     });
   });
 

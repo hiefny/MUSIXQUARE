@@ -1,5 +1,5 @@
 /** @vitest-environment jsdom */
-import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi, type Mock } from 'vitest';
 import { bus } from '../../core/events.ts';
 import { MSG } from '../../core/constants.ts';
 import { resetState, setState } from '../../core/state.ts';
@@ -71,6 +71,9 @@ vi.mock('../iframe-runtime-bridge.ts', () => ({
 let player: FakeYtPlayer;
 let host: DataConnection;
 let fallbackOwnsPlayer = false;
+/** The stand-in owner hooks; each test gets fresh ones. */
+let cancelPendingHook: Mock<() => void>;
+let fallbackPendingHook: Mock<() => boolean>;
 
 function snapshot(time: number, state = 1): Record<string, unknown> {
   return {
@@ -147,16 +150,18 @@ beforeEach(() => {
   vi.useFakeTimers();
   vi.setSystemTime(EPOCH);
   fallbackOwnsPlayer = false;
+  cancelPendingHook = vi.fn(() => {
+    cancelYouTubeZeroStart('superseded', false);
+    fallbackOwnsPlayer = false;
+  });
+  fallbackPendingHook = vi.fn(() => fallbackOwnsPlayer);
   configureYouTubePlayerRuntimeHooks({
-    cancelPendingAutoSync: () => {
-      cancelYouTubeZeroStart('superseded', false);
-      fallbackOwnsPlayer = false;
-    },
+    cancelPendingAutoSync: cancelPendingHook,
     consumePendingAutoSyncOnReady: () => null,
     setPendingAutoSyncOnReady: () => undefined,
     isYouTubeAutoSyncPending: () => false,
     isYouTubeZeroStartExternalFallbackActive: () => fallbackOwnsPlayer,
-    isYouTubeZeroStartExternalFallbackPending: () => fallbackOwnsPlayer,
+    isYouTubeZeroStartExternalFallbackPending: fallbackPendingHook,
     isProPlaybackPauseGatePending: () => false,
   });
   host = { peer: 'host-one', open: true, send: vi.fn(), close: vi.fn(), on: vi.fn() };
@@ -345,11 +350,14 @@ describe('heartbeat ownership during a participant-local YouTube start', () => {
     player.mute();
     player.__log.length = 0;
     setYtAutoplayIntent(true);
+    fallbackPendingHook.mockClear();
     heartbeat(4, state);
     expect(player.__log).toHaveLength(0);
     expect(player.getPlayerState()).toBe(2);
     expect(player.isMuted()).toBe(true);
     expect(getYtAutoplayIntent()).toBe(true);
+    // The heartbeat's owner gate reaches the fallback hook.
+    expect(fallbackPendingHook).toHaveBeenCalled();
 
     fallbackOwnsPlayer = false;
     heartbeat(20, 1);
@@ -359,7 +367,9 @@ describe('heartbeat ownership during a participant-local YouTube start', () => {
 
   it('uses snapshots received under fallback ownership after that owner retires', () => {
     fallbackOwnsPlayer = true;
+    fallbackPendingHook.mockClear();
     heartbeat(20);
+    expect(fallbackPendingHook).toHaveBeenCalled();
     fallbackOwnsPlayer = false;
     expect(guestRendezvousSync({ silent: true }).status).toBe('started');
     expect(player.__log.find((call) => call.op === 'seekTo')?.args?.[0]).toBe(21.5);
@@ -381,9 +391,12 @@ describe('heartbeat ownership during a participant-local YouTube start', () => {
       setState('sync.youtubeLocalOffset', -9.999);
       if (owner === 'fallback') fallbackOwnsPlayer = true;
       vi.advanceTimersByTime(4500);
+      cancelPendingHook.mockClear();
       handlers[MSG.YOUTUBE_STATE]({ ...snapshot(100), hostPlayAt: 0 }, host);
       expect(controller?.getSnapshot().phase ?? 'idle').toBe('idle');
       expect(fallbackOwnsPlayer).toBe(false);
+      // The explicit command retires the pending start through the cancel hook.
+      expect(cancelPendingHook).toHaveBeenCalled();
       vi.advanceTimersByTime(500);
       expect(player.getPlayerState()).toBe(1);
       handlers[MSG.YOUTUBE_SYNC]({ ...snapshot(100.5), isManual: true }, host);
@@ -406,7 +419,10 @@ describe('heartbeat ownership during a participant-local YouTube start', () => {
       expect(fallbackOwnsPlayer).toBe(true);
       expect(player.__log).toHaveLength(0);
     }
+    cancelPendingHook.mockClear();
     handlers[MSG.YOUTUBE_STATE](snapshot(4, 2), host);
+    // The pause retires the fallback through the cancel hook.
+    expect(cancelPendingHook).toHaveBeenCalled();
     expect(fallbackOwnsPlayer).toBe(false);
     expect(player.getPlayerState()).toBe(2);
     expect(player.getCurrentTime()).toBe(4);

@@ -36,6 +36,8 @@
     "generate:sitemap": "node scripts/generate-sitemap.mts",
     "translation:apply": "node scripts/apply-translation-suggestions.mts",
     "generate:og-fonts": "node scripts/subset-og-fonts.mts",
+    "generate:noto-kr": "node scripts/fonts/build-noto-kr-nolocl.mts",
+    "generate:font-sheets": "node scripts/fonts/build-font-sheets.mts",
     "generate:og-assets": "node scripts/generate-static-og.mts",
     "guard:profanity-patterns": "node scripts/generate-profanity-patterns.mts --check",
     "guard:index-hreflang": "node scripts/sync-index-hreflang.mts --check",

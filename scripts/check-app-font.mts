@@ -1,10 +1,16 @@
 #!/usr/bin/env node
-/** Guard the complete Pretendard app font, fallback stacks, and built artifact. */
+/**
+ * Guard the complete Pretendard app font, fallback stacks, and built artifact,
+ * plus the self-hosted Inter and Noto Sans KR files against their record and
+ * the generated app font sheets against their generator.
+ */
 
 import { readFile, readdir } from 'node:fs/promises';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { CLASSIC_RUNTIME_ASSETS, compileClassicRuntimeAsset } from './classic-runtime-assets.ts';
+import { findStaleFontSheets } from './fonts/build-font-sheets.mts';
+import { verifyShippedFontFiles } from './fonts/font-files.mts';
 import {
   OPTIONAL_PRIMARY_FONT_ASSETS_MARKER,
   SERVICE_WORKER_SOURCE_PATH,
@@ -315,6 +321,15 @@ check(
   'package scripts still expose app font subsetting',
 );
 
+// The Inter and Noto Sans KR files match fonts/font-sources.json (Noto Sans KR
+// without locl), and css/fonts/app/ is exactly the generator output.
+failures.push(...(await verifyShippedFontFiles(repoRoot)));
+for (const sheet of await findStaleFontSheets(repoRoot)) {
+  failures.push(
+    `${sheet} is not the output of scripts/fonts/build-font-sheets.mts; run npm run generate:font-sheets`,
+  );
+}
+
 if (distMode) {
   const distDirectory = path.join(repoRoot, 'dist');
   const distFontPath = path.join(
@@ -561,13 +576,11 @@ if (distMode) {
 }
 
 if (failures.length > 0) {
-  console.error(
-    `Pretendard asset guard failed:\n${failures.map((line) => `  - ${line}`).join('\n')}`,
-  );
+  console.error(`App font guard failed:\n${failures.map((line) => `  - ${line}`).join('\n')}`);
   process.exitCode = 1;
 } else {
   const sizeKib = (sourceFont.byteLength / 1024).toFixed(1);
   console.log(
-    `Pretendard full-font guard passed (${sizeKib} KiB${distMode ? ', built artifact and lazy Noto shards checked' : ''}).`,
+    `App font guard passed (Pretendard ${sizeKib} KiB, Inter and Noto Sans KR files, app font sheets${distMode ? ', built artifact and lazy Noto shards' : ''}).`,
   );
 }

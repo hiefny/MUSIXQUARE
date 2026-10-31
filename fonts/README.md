@@ -62,10 +62,50 @@ ordinary app navigation loads only the active locale's CSS shard.
 `fonts/PretendardVariable.woff2` is the canonical source copy. The deployed copy
 at `public/designsystem/fonts/PretendardVariable.woff2` must be byte-identical.
 
+## Inter and Noto Sans KR
+
+These files are staged for the app's switch from Pretendard to Inter and Noto;
+the app does not load them yet.
+
+- `fonts/inter/` holds Inter 4.001 (Google Fonts v20): the seven variable
+  subsets (`opsz` 14-32, `wght` 100-900) exactly as Google serves them.
+- `fonts/noto/noto-sans-kr/` holds Noto Sans KR 2.004 (Google Fonts v40): the
+  120 numbered shards under Google's file names, re-encoded without the Korean
+  `locl` lookup. Google's shards register `locl` for Korean in every script, so
+  with `lang="ko"` a few marks (for example `‼` next to Hangul) take a Korean
+  form that no other UI shows. Without it, the Korean and English UIs shape
+  every character alike. The copies keep the cmap, every outline and every
+  other layout feature; only the Korean forms that `locl` produced, and
+  lookups that touched nothing else, are gone.
+  Their bytes therefore differ from Google's while the names stay. The SIL OFL
+  1.1 allows this: the font's Reserved Font Name is "Source", not "Noto".
+- `fonts/font-sources.json` is the provenance record. For each file it keeps
+  the Google URL, Google's `unicode-range`, and the sha256 and size of both the
+  downloaded (`source`) and the committed (`shipped`) bytes, plus the versions
+  of the tools that made the Noto Sans KR copies.
+- `css/fonts/app/` holds the app's sheets. They are generated from that record
+  and from Google's sheets in `css/fonts/`, which stay unchanged for the
+  static pages. The range edits give every script exactly one family: Inter
+  draws what its cmap covers inside its ranges, Hangul only comes from Noto
+  Sans KR, kana only from Noto Sans JP, and invisible marks from no CJK family.
+  The size and line-box descriptors come from `src/i18n/font-metrics.ts`.
+
+Regenerate instead of editing:
+
+- `npm run generate:font-sheets` writes `css/fonts/app/`
+  (`npm run generate:font-sheets -- --check` compares).
+- `npm run generate:noto-kr -- --check` verifies the shipped Noto Sans KR files.
+- To refresh from Google, download the CSS and the files into a new empty
+  folder and run `node scripts/fonts/record-font-sources.mts` (its header lists
+  the arguments), then `npm run generate:noto-kr -- --source <folder> --record`
+  and `npm run generate:font-sheets`. Without `--record`, the Noto Sans KR
+  build must reproduce the recorded shipped bytes exactly.
+
 ## Verification
 
 - `npm run guard:font-assets` verifies source and deployed font copies, CSS
-  stacks, and preload links.
+  stacks, preload links, the Inter and Noto Sans KR files against
+  `fonts/font-sources.json`, and `css/fonts/app/` against its generator.
 - `npm run guard:font-build` performs the same checks against a production
   build artifact.
 

@@ -31,11 +31,15 @@ export { LEGACY_APP_BROWSER_TARGET };
  * the static-page language runtime. Inlining one as a data: URL would change
  * the reference base and make every relative font URL inside it unusable.
  * Keep the WOFF2 shards external too so unicode-range remains genuinely lazy
- * instead of folding uncommon glyph shards into the stylesheet transfer.
+ * instead of folding uncommon glyph shards into the stylesheet transfer. The
+ * app's generated sheets (css/fonts/app/) and the Inter subsets follow the
+ * same rule.
  */
 export function localeFontAssetInlineLimit(filePath: string): boolean | undefined {
   const normalized = filePath.replaceAll('\\', '/');
-  return /(?:^|\/)(?:css\/fonts\/[^/]+\.css|fonts\/noto\/.+\.woff2)$/u.test(normalized)
+  return /(?:^|\/)(?:css\/fonts\/(?:app\/)?[^/]+\.css|fonts\/(?:noto|inter)\/.+\.woff2)$/u.test(
+    normalized,
+  )
     ? false
     : undefined;
 }

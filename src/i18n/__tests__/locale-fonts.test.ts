@@ -35,6 +35,8 @@ const sheets = vi.hoisted(() => ({
   behaviour: new Map<string, () => Promise<unknown>>(),
   /** Sheets whose attempt in flight the module gave up, in order. */
   abandoned: [] as string[],
+  /** Sheets the module declared again with a fresh link, in order. */
+  redeclared: [] as string[],
 }));
 
 vi.mock('../retryable-stylesheet.ts', () => ({
@@ -48,6 +50,10 @@ vi.mock('../retryable-stylesheet.ts', () => ({
       {
         abandon: () => {
           sheets.abandoned.push(sourceName);
+        },
+        redeclare: () => {
+          sheets.redeclared.push(sourceName);
+          return true;
         },
       },
     );
@@ -164,6 +170,7 @@ function useFakeTimers(): void {
 beforeEach(() => {
   sheets.requests.length = 0;
   sheets.abandoned.length = 0;
+  sheets.redeclared.length = 0;
   sheets.behaviour.clear();
   readyState = 'complete';
   visibilityState = 'visible';
@@ -1037,6 +1044,126 @@ describe("phase C: idle prefetch of the UI language's frequent shards", () => {
     for (let slice = 0; slice < KO.shards.length; slice += 1) await runIdle();
 
     for (const method of Object.values(cacheStorage)) expect(method).not.toHaveBeenCalled();
+  });
+});
+
+describe('failed face recovery', () => {
+  // A WOFF2 download that fails leaves its CSS-connected face in 'error' for
+  // the life of the document; the browser never fetches it again. Declaring
+  // the sheet again gives the browser fresh faces to fetch on demand.
+  interface FaceStub {
+    readonly family: string;
+    readonly unicodeRange: string;
+    status: FontFaceLoadStatus;
+  }
+
+  function installFaces(
+    faces: FaceStub[],
+    load: (font: string, text?: string) => Promise<FontFace[]> = () => Promise.resolve([]),
+  ): void {
+    Object.defineProperty(document, 'fonts', {
+      configurable: true,
+      value: {
+        load: vi.fn(load),
+        check: vi.fn(() => false),
+        [Symbol.iterator]: () => faces[Symbol.iterator](),
+      },
+    });
+  }
+
+  const FAILED_INTER: FaceStub = { family: 'Inter', unicodeRange: 'U+0000-00FF', status: 'error' };
+
+  async function declaredEverywhere(code: LanguageCode = 'en'): Promise<Runtime> {
+    useFakeTimers();
+    const runtime = await freshRuntime();
+    await runtime.loadLanguageFonts(code);
+    await runIdle();
+    return runtime;
+  }
+
+  it.each([
+    ['the browser comes back online', () => window.dispatchEvent(new Event('online'))],
+    [
+      'the page becomes visible',
+      () => {
+        setVisibility('hidden');
+        setVisibility('visible');
+      },
+    ],
+    [
+      'the page comes back from the back-forward cache',
+      () => {
+        window.dispatchEvent(new Event('pagehide'));
+        window.dispatchEvent(new PageTransitionEvent('pageshow', { persisted: true }));
+      },
+    ],
+  ])(
+    'declares a sheet again once when one of its faces failed, when %s',
+    async (_when, trigger) => {
+      installFaces([
+        { family: '"Noto Sans KR"', unicodeRange: 'U+AC00', status: 'loaded' },
+        { ...FAILED_INTER },
+        { family: 'Inter', unicodeRange: 'U+0100-024F', status: 'error' },
+      ]);
+      await declaredEverywhere();
+
+      trigger();
+      await settle();
+
+      expect(sheets.redeclared).toEqual(['font-inter']);
+    },
+  );
+
+  it('declares nothing again while every face has loaded or is not needed yet', async () => {
+    installFaces([
+      { family: 'Inter', unicodeRange: 'U+0000-00FF', status: 'loaded' },
+      { family: 'Noto Sans KR', unicodeRange: 'U+AC00', status: 'unloaded' },
+      { family: 'Noto Sans JP', unicodeRange: 'U+3041', status: 'loading' },
+    ]);
+    await declaredEverywhere();
+
+    window.dispatchEvent(new Event('online'));
+    setVisibility('visible');
+    await settle();
+
+    expect(sheets.redeclared).toEqual([]);
+  });
+
+  it('declares a sheet again at most FONT_SHEET_RETRY_LIMIT times per page', async () => {
+    installFaces([{ ...FAILED_INTER }]);
+    await declaredEverywhere();
+
+    for (let event = 0; event < FONT_SHEET_RETRY_LIMIT + 2; event += 1) {
+      window.dispatchEvent(new Event('online'));
+      await settle();
+    }
+
+    expect(sheets.redeclared).toEqual(Array(FONT_SHEET_RETRY_LIMIT).fill('font-inter'));
+  });
+
+  it('leaves a sheet that is not declared to the sheet retries', async () => {
+    installFaces([{ ...FAILED_INTER }]);
+    sheets.behaviour.set('font-inter', failing(Number.POSITIVE_INFINITY));
+    await declaredEverywhere();
+
+    window.dispatchEvent(new Event('online'));
+    await settle();
+
+    expect(sheets.redeclared).toEqual([]);
+  });
+
+  it('declares its family again after a rejected phase C batch', async () => {
+    installFaces([{ family: 'Noto Sans KR', unicodeRange: 'U+AC00-D7A3', status: 'error' }], () =>
+      Promise.reject(new Error('NetworkError')),
+    );
+    await declaredEverywhere('ko');
+    expect(sheets.redeclared).toEqual([]);
+
+    await vi.advanceTimersByTimeAsync(FONT_PREFETCH_QUIET_MS);
+    await runIdle();
+    await settle();
+
+    expect(sheets.redeclared).toEqual(['font-noto-kr']);
   });
 });
 

@@ -1,4 +1,10 @@
-export const LOCALE_FONT_CODES = [
+/**
+ * The languages whose static pages load a script sheet of their own: About's
+ * disabled locale font links and the sitemap page (static-page-fonts.ts). The
+ * app declares every font family in every UI and does not use this list
+ * (app-font-contract.ts holds the app's sheets).
+ */
+const LOCALE_FONT_CODES = [
   'ar',
   'bn',
   'bg',

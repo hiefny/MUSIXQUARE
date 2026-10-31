@@ -577,6 +577,17 @@ describe('initPlayerControls storage errors', () => {
       await vi.waitFor(() => expect(getResolvedLanguage()).toBe('en'));
     }
   });
+
+  it('names a decomposed (NFD) file composed (NFC) in both toasts', () => {
+    initPlayerControls();
+    const name = '밤의 드라이브.mp3';
+
+    bus.emit('storage:error', 'save failed', name.normalize('NFD'));
+    bus.emit('storage:read-error', { error: 'read failed', filename: 'Fête.mp3'.normalize('NFD') });
+
+    expect(showToast).toHaveBeenNthCalledWith(1, t('toast.file_save_error', { name }));
+    expect(showToast).toHaveBeenNthCalledWith(2, t('toast.file_read_error', { name: 'Fête.mp3' }));
+  });
 });
 
 // The logo request runs on the real navigation owner (C6-8): its prepare step
@@ -1450,16 +1461,16 @@ describe('PRO room media-source capabilities', () => {
     expect(overlay.classList.contains('active')).toBe(true);
   });
 
-  it('updates script-aware fonts while typing a YouTube search query', () => {
+  it('updates the Han order while typing a YouTube search query', () => {
     document.body.innerHTML = `<div id="youtube-url-input" contenteditable="true"></div>`;
     const input = document.getElementById('youtube-url-input') as HTMLDivElement;
 
     initPlayerControls();
-    input.textContent = 'เพลงไทย';
+    input.textContent = 'かなの曲';
     input.dispatchEvent(new InputEvent('input', { bubbles: true, inputType: 'insertText' }));
 
     expect(input.classList).toContain('user-text-font');
-    expect(input.classList).toContain('user-text-font-th');
+    expect(input.classList).toContain('user-text-font-ja');
   });
 
   it('uses the inline magnifier for queries while preserving direct URL submission on Enter', () => {

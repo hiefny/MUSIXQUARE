@@ -44,7 +44,6 @@ import { getUiElement, onWindowBack, syncOverlayState } from './dom.ts';
 import { getRoomContext, hasRoomCapability } from '../rooms/authority.ts';
 import { isUiSoundsEnabled, playUiTouchSound, setUiSoundsEnabled } from '../audio/ui-sounds.ts';
 import { createSelectionCheckSvg } from './selection-mark.ts';
-import { hasLocaleFont } from '../i18n/locale-font-contract.ts';
 import { languageDirection } from '../i18n/locales.ts';
 import { isSettingsSyncEnabled, setEQPreset, setSettingsSyncEnabled } from '../audio/effects.ts';
 import { setPressedState, syncExclusivePressedState } from '../core/aria-state.ts';
@@ -797,17 +796,15 @@ let _languagePickerPreparationRequest = 0;
 function prepareLanguagePickerFonts(): void {
   if (_languagePickerFontsReady) return;
 
-  const fontLanguages = LANGUAGE_OPTIONS.flatMap((language) =>
-    hasLocaleFont(language.code) ? [{ code: language.code, nativeName: language.nativeName }] : [],
-  );
   const generation = _languagePickerPreparationGeneration;
   const request = ++_languagePickerPreparationRequest;
 
   import('../i18n/locale-fonts.ts')
     .then(({ default: localeFonts }) =>
+      // Each native name in the face that draws its script.
       Promise.all(
-        fontLanguages.map(({ code, nativeName }) =>
-          localeFonts.preloadLocaleFontGlyphs(code, nativeName),
+        LANGUAGE_OPTIONS.map(({ code, nativeName }) =>
+          localeFonts.preloadNativeNameGlyphs(code, nativeName),
         ),
       ),
     )

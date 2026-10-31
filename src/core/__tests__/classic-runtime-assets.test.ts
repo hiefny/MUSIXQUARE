@@ -148,11 +148,6 @@ describe('strict TypeScript classic browser runtimes', () => {
         outputPath: 'policy-accordion.js',
       },
       {
-        sourcePath: 'browser/classic-runtime/primary-font-loader.ts',
-        outputPath: 'primary-font-loader.js',
-        target: 'es2018',
-      },
-      {
         sourcePath: 'browser/classic-runtime/static-language.ts',
         outputPath: 'static-language.js',
       },
@@ -227,7 +222,6 @@ describe('strict TypeScript classic browser runtimes', () => {
       'landing-bootstrap.js': 'applyInitialLandingPreferences',
       'landing-i18n.js': '__landingT',
       'policy-accordion.js': 'details.policy-accordion',
-      'primary-font-loader.js': '__mxqrPrimaryFontRuntime',
       'static-language.js': 'MXQRStaticLang',
       'wordmark-anim.js': '[data-wt]',
     };

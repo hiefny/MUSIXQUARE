@@ -7,6 +7,23 @@
 
 ## Context
 
+### 2026-10-31: the app font switch and eager font bytes
+
+The app now draws with self-hosted Inter and Noto. Its 16 font sheets load
+lazily from `src/i18n/locale-fonts.ts` after the language applies and after
+window load, never from the initial HTML, CSS or JavaScript graph, and no font
+is preloaded; the Pretendard runtime and the bootstrap font scheduler are gone.
+The measurement now also counts the font files an eager stylesheet declares in
+`@font-face` (and adds them to the totals), and a remote, inline or missing one
+fails closed, so the strict zero-byte eager font budget also holds if a font
+sheet ever moves into the initial graph. Today's build has no such sheet, so no
+number changes and every limit and the 5% reserve stay as they are. The font
+owner chunk itself (`src/i18n/locale-fonts.ts`, about 14 KB) is a reviewed
+deferred app-shell root, so the service worker installs it with the app shell
+and a first launch offline after an update can still retry its fonts; its
+sheets are dynamic imports and stay out of the install manifest. See the
+[font switch report](app-font-inter-noto-2026-10-31.md).
+
 ### 2026-10-22: conditional spectrum rendering
 
 The active spectrum renderer (`src/ui/visualizer-spectrum.ts`) is loaded when

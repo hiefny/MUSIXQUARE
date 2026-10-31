@@ -1667,6 +1667,7 @@ describe('release deployment rollback state', () => {
       'scripts/locale-seo-metadata.mts',
       'scripts/service-worker-app-shell-guard-lib.mts',
       'fonts/noto/noto-sans-devanagari/devanagari.woff2',
+      'fonts/inter/inter-latin.woff2',
     ];
     git(['init', '--quiet']);
     git(['config', 'user.email', 'release-test@musixquare.invalid']);

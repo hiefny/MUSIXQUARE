@@ -2,64 +2,23 @@ import { readdirSync, readFileSync } from 'node:fs';
 import { join, resolve } from 'node:path';
 import { parse as parseCss, type AtRule, type Declaration, type Root, type Rule } from 'postcss';
 import { describe, expect, it } from 'vitest';
-import { LANGUAGE_OPTIONS, type LanguageCode } from '../../i18n/locales.ts';
 
-// Owner decision (2026-10-28): titles and display values track by script.
-// Every rule on the title weight (weight-role-contract.test.ts) reads
-// --title-letter-spacing, which is -0.02em for Latin, Cyrillic and Greek UI
-// languages and 0 for Korean, Japanese, Chinese, Thai, the Indic scripts,
-// Arabic, Urdu, Persian and Hebrew, chosen with :lang() on the document
-// language. Every other negative letter-spacing in the app is 0; deliberate
-// positive tracking stays (invite code and PIN digits, the code entry fields
-// and small labels). The body kerns its text (font-kerning: normal), and the
-// font shorthand only ever resets a control to inherit, so the kerning
-// reaches every control that resets its font.
-const TOKEN = '--title-letter-spacing';
-const TOKEN_READ = `var(${TOKEN})`;
+// Owner decision (2026-10-31, the app font switch): titles and display values
+// keep the font's own spacing in every language. The per-script title
+// tracking of 2026-10-28 (--title-letter-spacing: -0.02em in Latin, Cyrillic
+// and Greek UI languages, 0 elsewhere) is gone from the app, the design-system
+// mirror and the UI kit, so no rule on the title weight
+// (weight-role-contract.test.ts) sets a letter-spacing except the codes and
+// PIN digits, which keep their own wider tracking. Every negative
+// letter-spacing in the app is 0; deliberate positive tracking stays (invite
+// code and PIN digits, the code entry fields and small labels). The body kerns
+// its text (font-kerning: normal), and the font shorthand only ever resets a
+// control to inherit, so the kerning reaches every control that resets its
+// font.
+const RETIRED_TOKEN = '--title-letter-spacing';
 const TITLE_WEIGHT_READ = 'var(--font-weight-title)';
 const LABEL_TRACKING_READ = 'var(--button-label-letter-spacing)';
-const TIGHT = '-0.02em';
 const FLAT = '0';
-
-// Every app language, by the script of its UI text.
-const SCRIPTS: Readonly<Record<string, { tracking: string; locales: readonly LanguageCode[] }>> = {
-  Latin: {
-    tracking: TIGHT,
-    locales: [
-      'en',
-      'es',
-      'pt-br',
-      'fr',
-      'de',
-      'nl',
-      'it',
-      'pl',
-      'tr',
-      'id',
-      'vi',
-      'ms',
-      'fil',
-      'ro',
-      'cs',
-      'sv',
-      'da',
-      'nb',
-      'fi',
-      'hu',
-    ],
-  },
-  Cyrillic: { tracking: TIGHT, locales: ['ru', 'uk', 'bg'] },
-  Greek: { tracking: TIGHT, locales: ['el'] },
-  Korean: { tracking: FLAT, locales: ['ko'] },
-  Japanese: { tracking: FLAT, locales: ['ja'] },
-  Chinese: { tracking: FLAT, locales: ['zh-hans', 'zh-hant'] },
-  Thai: { tracking: FLAT, locales: ['th'] },
-  Indic: { tracking: FLAT, locales: ['hi', 'bn', 'ta', 'te', 'mr', 'gu', 'kn', 'ml', 'pa'] },
-  Arabic: { tracking: FLAT, locales: ['ar'] },
-  Urdu: { tracking: FLAT, locales: ['ur'] },
-  Persian: { tracking: FLAT, locales: ['fa'] },
-  Hebrew: { tracking: FLAT, locales: ['he'] },
-};
 
 // Display values on the title weight that keep their own tracking: codes and
 // digits are read one by one, so they never tighten. `null` sets none.
@@ -133,8 +92,7 @@ const POSITIVE_TRACKING: Readonly<Record<string, { value: string; reason: string
   },
 };
 
-// Tracking values any rule may set besides the title token and the listed
-// positive tracking.
+// Tracking values any rule may set besides the listed positive tracking.
 const NEUTRAL_TRACKING = new Set(['0', 'normal', 'inherit', LABEL_TRACKING_READ]);
 
 const APP_SHEETS = [
@@ -142,8 +100,19 @@ const APP_SHEETS = [
   'css/desktop.css',
   'css/rtl.css',
   'css/playback-actions.css',
-  'css/pretendard.css',
 ] as const;
+
+// The design-system mirror and the UI kit, which followed the app's title
+// tracking and drop it with the app.
+const MIRROR_FILES = [
+  'public/designsystem/colors_and_type.css',
+  'public/designsystem/index.html',
+  'public/designsystem/README.md',
+  'public/editorial-design.css',
+  'browser/ui-kit/static/app/app.css',
+  'browser/ui-kit/static/app/README.md',
+] as const;
+const PREVIEW_DIRECTORY = 'public/designsystem/preview';
 
 const read = (path: string): string => readFileSync(resolve(path), 'utf8');
 const normalize = (value: string): string => value.replace(/\s+/gu, ' ').trim();
@@ -213,30 +182,6 @@ function findRule(rules: readonly StyleRule[], selector: string): StyleRule {
 
 const isNegative = (value: string): boolean => /^-\d|^-\.\d/u.test(value);
 
-/** Every place a sheet defines the title tracking token. */
-function tokenDefinitions(sheets: readonly Sheet[]): Array<{ rule: StyleRule; value: string }> {
-  return styleRules(sheets).flatMap((rule) =>
-    values(rule.rule, TOKEN).map((value) => ({ rule, value })),
-  );
-}
-
-const LANG_SELECTOR = /^(?:html|:root):lang\(([a-z]{2,3}(?:-[a-z0-9]+)*)\)$/iu;
-
-/** The language ranges of the rule that flattens the token, from its selectors. */
-function flatRanges(definition: { rule: StyleRule }): string[] {
-  return definition.rule.selectors.map((selector) => {
-    const range = LANG_SELECTOR.exec(selector)?.[1];
-    expect(range, `${selector} is not one html:lang() selector`).toBeTruthy();
-    return range!.toLowerCase();
-  });
-}
-
-/** :lang() matching: a range matches its tag and every tag that extends it. */
-const langMatches = (tag: string, range: string): boolean => {
-  const lower = tag.toLowerCase();
-  return lower === range || lower.startsWith(`${range}-`);
-};
-
 function sourceFiles(directory: string): string[] {
   const files: string[] = [];
   for (const entry of readdirSync(directory, { withFileTypes: true })) {
@@ -248,44 +193,38 @@ function sourceFiles(directory: string): string[] {
   return files;
 }
 
+const previewPaths = readdirSync(resolve(PREVIEW_DIRECTORY))
+  .filter((name) => name.endsWith('.html'))
+  .map((name) => `${PREVIEW_DIRECTORY}/${name}`);
+
 const appRules = styleRules(appSheets);
 const titleRules = appRules.filter((rule) =>
   values(rule.rule, 'font-weight').includes(TITLE_WEIGHT_READ),
 );
 
 describe('title tracking contract', () => {
-  it('defines the title tracking once on the root and flattens it by script', () => {
-    const definitions = tokenDefinitions(appSheets);
-    expect(definitions.map(({ rule, value }) => `${rule.path} ${rule.context} | ${value}`)).toEqual(
-      [`css/style.css @layer base | ${TIGHT}`, `css/style.css @layer base | ${FLAT}`],
-    );
-    const [tight, flat] = definitions;
-    expect(tight!.rule.selector).toBe(':root');
-    const ranges = flatRanges(flat!);
-
-    // Every app language belongs to one script, and the document language
-    // picks the script's tracking.
-    const classified = Object.values(SCRIPTS).flatMap(({ locales }) => locales);
-    expect([...classified].sort()).toEqual(LANGUAGE_OPTIONS.map(({ code }) => code).sort());
-    const wrong: string[] = [];
-    for (const [script, { tracking, locales }] of Object.entries(SCRIPTS)) {
-      for (const code of locales) {
-        const { htmlLang } = LANGUAGE_OPTIONS.find((option) => option.code === code)!;
-        const resolved = ranges.some((range) => langMatches(htmlLang, range)) ? FLAT : TIGHT;
-        if (resolved !== tracking) wrong.push(`${script} ${code} (${htmlLang}): ${resolved}`);
-      }
-    }
-    expect(wrong).toEqual([]);
-    // No stale range.
-    for (const range of ranges) {
-      expect(
-        LANGUAGE_OPTIONS.some(({ htmlLang }) => langMatches(htmlLang, range)),
-        range,
-      ).toBe(true);
-    }
+  it('has no title tracking token in the app, the design-system mirror or the UI kit', () => {
+    const files = [
+      ...APP_SHEETS,
+      'index.html',
+      ...MIRROR_FILES,
+      ...previewPaths,
+      ...sourceFiles('src'),
+      ...sourceFiles('browser'),
+    ];
+    expect(files.filter((path) => read(path).includes(RETIRED_TOKEN))).toEqual([]);
+    // No document-language rule retracks text either.
+    const langTracking = styleRules([
+      ...appSheets,
+      sheet('public/designsystem/colors_and_type.css'),
+    ])
+      .filter((rule) => rule.selectors.some((selector) => /:lang\(/u.test(selector)))
+      .filter((rule) => values(rule.rule, 'letter-spacing').length > 0)
+      .map(ruleKey);
+    expect(langTracking).toEqual([]);
   });
 
-  it('gives every title and display value rule the title tracking', () => {
+  it('gives every title and display value rule the normal tracking', () => {
     const failures: string[] = [];
     const used = new Set<string>();
     for (const rule of titleRules) {
@@ -299,7 +238,7 @@ describe('title tracking contract', () => {
         }
         continue;
       }
-      if (tracking.join() !== TOKEN_READ) failures.push(`${ruleKey(rule)}: ${tracking.join(' ')}`);
+      if (tracking.length > 0) failures.push(`${ruleKey(rule)}: ${tracking.join(' ')}`);
     }
     expect(failures).toEqual([]);
     expect(Object.keys(OWN_TRACKING_TITLES).filter((selector) => !used.has(selector))).toEqual([]);
@@ -307,19 +246,18 @@ describe('title tracking contract', () => {
       expect(reason.length).toBeGreaterThan(15);
     }
 
-    // The owner's named titles, mobile and desktop, read the token.
-    const readers = titleRules.filter((rule) =>
-      values(rule.rule, 'letter-spacing').includes(TOKEN_READ),
-    );
+    // The owner's named titles, mobile and desktop, are title rules.
     for (const named of NAMED_TITLES) {
       const [path, ...selector] = named.split(' ');
       expect(
-        readers.some((rule) => rule.path === path && rule.selectors.includes(selector.join(' '))),
+        titleRules.some(
+          (rule) => rule.path === path && rule.selectors.includes(selector.join(' ')),
+        ),
         named,
       ).toBe(true);
     }
 
-    // Only title rules read the token, and no other rule retracks a title.
+    // No other rule retracks a title.
     const titleSelectors = new Set(
       titleRules
         .filter((rule) => !(rule.selector in OWN_TRACKING_TITLES))
@@ -329,7 +267,6 @@ describe('title tracking contract', () => {
     for (const rule of appRules) {
       const tracking = values(rule.rule, 'letter-spacing');
       if (tracking.length === 0 || titleRules.includes(rule)) continue;
-      if (tracking.includes(TOKEN_READ)) strays.push(`${ruleKey(rule)} reads the title tracking`);
       const shared = rule.selectors.filter((selector) => titleSelectors.has(selector));
       if (shared.length > 0) strays.push(`${ruleKey(rule)} retracks ${shared.join(', ')}`);
     }
@@ -342,7 +279,6 @@ describe('title tracking contract', () => {
     for (const rule of appRules) {
       for (const value of values(rule.rule, 'letter-spacing')) {
         const key = ruleKey(rule);
-        if (value === TOKEN_READ && titleRules.includes(rule)) continue;
         if (NEUTRAL_TRACKING.has(value)) continue;
         const positive = POSITIVE_TRACKING[key];
         if (positive && positive.value === value && !isNegative(value)) {
@@ -358,18 +294,15 @@ describe('title tracking contract', () => {
       expect(reason.length).toBeGreaterThan(10);
     }
 
-    // No custom property carries a negative tracking for a rule to read.
+    // No custom property carries a tracking for a rule to read, except the
+    // button label roles' normal tracking.
     const tokens: string[] = [];
     for (const { path, root } of appSheets) {
       root.walkDecls(/^--.*(?:letter-spacing|tracking)/u, (declaration) => {
         tokens.push(`${path} ${declaration.prop}: ${normalize(declaration.value)}`);
       });
     }
-    expect(tokens).toEqual([
-      `css/style.css ${TOKEN}: ${TIGHT}`,
-      `css/style.css --button-label-letter-spacing: normal`,
-      `css/style.css ${TOKEN}: ${FLAT}`,
-    ]);
+    expect(tokens).toEqual([`css/style.css --button-label-letter-spacing: normal`]);
 
     // Markup and TypeScript set no tracking of their own.
     expect(read('index.html')).not.toMatch(/letter-spacing/u);
@@ -463,30 +396,19 @@ describe('design-system title tracking mirror', () => {
   const editorial = sheet('public/editorial-design.css');
   const editorialRules = styleRules([editorial]);
   const kitRules = styleRules([sheet('browser/ui-kit/static/app/app.css')]);
-  const previewDirectory = 'public/designsystem/preview';
-  const previews = readdirSync(resolve(previewDirectory))
-    .filter((name) => name.endsWith('.html'))
-    .map((name) => pageStyles(`${previewDirectory}/${name}`));
-  const previewRules = styleRules(previews);
+  const previewRules = styleRules(previewPaths.map(pageStyles));
 
-  it('mirrors the token, its script overrides and the body kerning in the token sheet', () => {
-    const app = tokenDefinitions(appSheets);
-    const mirror = tokenDefinitions([tokenSheet]);
-    expect(mirror.map(({ rule, value }) => `${rule.selector} | ${value}`)).toEqual([
-      `:root | ${TIGHT}`,
-      `${mirror[1]?.rule.selector} | ${FLAT}`,
-    ]);
-    expect(flatRanges(mirror[1]!).sort()).toEqual(flatRanges(app[1]!).sort());
+  it('kerns the body in the token sheet', () => {
     expect(values(findRule(tokenRules, 'body').rule, 'font-kerning')).toEqual(['normal']);
   });
 
-  it('keeps the title samples on the title tracking and the app samples off negative tracking', () => {
+  it('keeps the title samples on the normal tracking and the app samples off negative tracking', () => {
     // The token sheet's type helpers read the role tokens; codes keep their
     // positive tracking.
     for (const selector of ['.tab-title, .type-display', '.type-h2', '.track-title, .type-title']) {
       const rule = findRule(tokenRules, selector).rule;
       expect(values(rule, 'font-weight'), selector).toEqual([TITLE_WEIGHT_READ]);
-      expect(values(rule, 'letter-spacing'), selector).toEqual([TOKEN_READ]);
+      expect(values(rule, 'letter-spacing'), selector).toEqual([]);
     }
     expect(
       tokenRules.flatMap((rule) =>
@@ -506,9 +428,9 @@ describe('design-system title tracking mirror', () => {
       '.range-slider-header strong',
       '.range-eq-value',
     ]) {
-      expect(values(findRule(editorialRules, selector).rule, 'letter-spacing'), selector).toEqual([
-        TOKEN_READ,
-      ]);
+      const rule = findRule(editorialRules, selector).rule;
+      expect(values(rule, 'font-weight'), selector).toEqual([TITLE_WEIGHT_READ]);
+      expect(values(rule, 'letter-spacing'), selector).toEqual([]);
     }
     // Negative tracking stays only on the design page's own editorial
     // headings and specimens, which are not app samples.
@@ -540,7 +462,7 @@ describe('design-system title tracking mirror', () => {
         selector,
       ).rule;
       expect(values(rule, 'font-weight'), `${path} ${selector}`).toEqual([TITLE_WEIGHT_READ]);
-      expect(values(rule, 'letter-spacing'), `${path} ${selector}`).toEqual([TOKEN_READ]);
+      expect(values(rule, 'letter-spacing'), `${path} ${selector}`).toEqual([]);
     }
     expect(
       previewRules
@@ -548,19 +470,18 @@ describe('design-system title tracking mirror', () => {
         .map(ruleKey),
     ).toEqual(['public/designsystem/preview/type-weights.html .sp']);
 
-    // The UI kit's titles read the token with the production value as a
-    // fallback, and its invite code keeps its positive tracking.
-    const kitFallback = `var(${TOKEN}, ${TIGHT})`;
+    // The UI kit's titles keep the normal tracking, and its invite code keeps
+    // its positive tracking.
     const kitTitles = kitRules.filter((rule) =>
       values(rule.rule, 'font-weight').some((value) => value.startsWith('var(--font-weight-title')),
     );
     expect(
       kitTitles.map((rule) => `${rule.selector} | ${values(rule.rule, 'letter-spacing').join()}`),
     ).toEqual([
-      `.mq-title | ${kitFallback}`,
-      `.mq-card-hdr h3 | ${kitFallback}`,
-      `.mq-track .title | ${kitFallback}`,
-      `.mq-setting-header h3 | ${kitFallback}`,
+      '.mq-title | ',
+      '.mq-card-hdr h3 | ',
+      '.mq-track .title | ',
+      '.mq-setting-header h3 | ',
       '.mq-invite .code | 0.12em',
     ]);
     expect(kitRules.filter((rule) => values(rule.rule, 'letter-spacing').some(isNegative))).toEqual(

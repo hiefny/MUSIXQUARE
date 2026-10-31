@@ -3408,6 +3408,91 @@ PRO 방장 공지의 중도 참여 복원은 별도 정책이며 이번 서비�
       [재생목록 노트](design/playlist-state-icons-upload-rows-2026-10-31.md),
       [9.0.28 열차 보고서](design/app-9-0-28-train-2026-10-31.md),
       [열린 오너 질문](design/app-9-0-28-train-2026-10-31.md#열린-오너-질문)
+- [ ] 앱 글꼴 Inter·Noto 전환(오너 결정 2026-10-31, 오너 답으로 9.0.29 / v802로 낼 차례, 배포 전: 미병합·미배포): 앱 글꼴을
+      Pretendard에서 자체 호스팅 Inter(라틴, 키릴, 그리스, 베트남어)와 Noto(한글은 새 Noto Sans KR, 나머지는 이미 있는 Noto Sans
+      JP·SC·TC·Thai와 단일 문자 글꼴)로 바꿔, 한국어 화면과 영어 화면이 같은 내용(트랙 제목, 채팅, 이름)을 같은 글꼴, 같은 폭, 같은
+      픽셀로 그린다([화면 바뀜], 보고서 §3). 브랜치 `agent/font-switch`는 origin/main `9e68a7a3`(#547 시험만, 그 아래 #546 기록, 앱
+      런타임은 운영 9.0.28 `aa7baad5`와 같음) 위 커밋 56개이고 테스트 먼저 짝이 21개다. 마지막 런타임 커밋은 버전
+      올리기 `3fc54970`(QA 라운드 8에서 시험한 `9b93c5b3`과 같은 내용)이고, 그 뒤에는 문서 커밋 셋(그 SHA와 최종 관문 QA
+      라운드 8, 검토 지적 고치기, PR CI 실패와 고침 QA 라운드 9)만 있다. 범위: 앱만이다(`index.html`과 언어별 사본, 앱 CSS와 런타임, 서비스 워커, 가드, 시험, 문서). 다른
+      HTML 입구(소개와 그 형제 페이지, 블로그, 히스토리, 디자인 시스템, 이벤트, 관리자, `account-complete.html`)와 공유 미리보기
+      그림(OG)은 이 열차에서 Pretendard를 그대로 쓰고 Pretendard 파일은 배포된 채 남는다. 제목 자간 토큰 삭제만 디자인 시스템 거울과
+      공개 편집 CSS까지 가서 디자인 시스템 페이지의 영어 견본(글자 크기 견본, 대화상자 견본 제목, EQ 값)이 2.7 ~ 4.4% 넓어지고,
+      블로그·글·히스토리 페이지의 제목은 토큰을 읽지 않아 그대로다(보고서 §3 8, 사진은 QA 라운드 6). 공개 페이지를 Inter·Noto로
+      바꾸고 Pretendard 두 사본(`fonts/PretendardVariable.woff2`와 배포되는 `public/designsystem/fonts/` 사본)을 지우는 일은 뒤
+      열차의 몫이다(이 항목 밖, 시기 미정). 오너 결정(2026-10-31): 방향(한국어와 영어 화면이 같은 내용을 같은 글꼴로 그림), Noto Sans
+      KR 내려받기, 브랜치 구현을 승인했고 릴리스와 그 업데이트 창은 최종 사진(지금과 바꾼 뒤, 한국어와 영어 화면, 확대, 저장소 밖)
+      뒤로 미뤘다. 오너 답(2026-10-31 저녁, 최종 사진을 본 뒤): 이 전환을 다음 App 업데이트로 지금 낸다. 그래서 이 열차가 Phase 6
+      6A보다 먼저 9.0.29 / v802로 나가고 6A는 그 뒤다. 오너 손에 아이폰이 없어 iPhone Safari 줄 높이 확인은 배포 전 관문에서 배포 뒤
+      첫 확인으로 옮겼다. 릴리스 담당 기본값(설계를 구현하며 정함, 오너가 되돌릴 수 있음, 보고서 §1): (a) 내용 문자 판별은
+      남긴다(안 A2: `src/ui/user-text-font.ts`와 호출 43곳 그대로, 일본어·간체·번체로 판별된 글에만 그 한자 순서), (b) Noto Sans KR
+      조각은 한국어 `locl` 없이 싣는다(커밋된 생성기 `scripts/fonts/build-noto-kr-nolocl.mts`, 원본 해시 기록), (c) CJK
+      `size-adjust` 94%와 줄 상자 덮어쓰기(값은 `src/i18n/font-metrics.ts` 한 곳, 생성 CSS와 같음 시험), (d) Inter 문맥 대체
+      글자(`calt`)는 켠다(재생 시간 자리 표시 `-:--`가 `0:00` 폭이 되는 것은 받아들임), (e) 한자 순서는 일본어·간체·번체 화면만 제
+      글꼴이 먼저이고, 나머지 화면은 시작할 때 `navigator.languages`에서 처음 나오는 ko, ja, zh-Hans/zh-CN, zh-Hant/zh-TW/zh-HK의
+      순서, 없으면 한국어 순서다. 나머지 기본값(CJK에서 빼는 Inter 몫은 Inter의 cmap으로, 제목 자간 토큰 삭제, 한가할 때 미리 받기와
+      글꼴 주인 하나, 파일 이름은 보여 줄 때 NFC)도 보고서 §1에 있다. 오너 질문의 답(보고서 §9.1): 열둘 가운데 8을 뺀 열하나에
+      릴리스 담당이 권장 답을 적용했고 오너가 되돌릴 수 있다. 권장 답은 지금 구현을 그대로 두는 답이라 코드가 바뀌지 않는다. 한국어와
+      영어 화면에서 다른 기기 글꼴로 그려지는 드문 기호(`☺ ℹ ∼ ≒ ◈` 등, 기록된 빈칸 1,270자 가운데 Windows Chromium에서 두
+      화면이 다르게 그린 102자)는 지금은 받아들이고 기호 글꼴을 더 내려받지 않는다(질문 7). 디자인 시스템 페이지의 영어
+      견본이 2.7 ~ 4.4% 넓어지는 것도 받아들인다(질문 12). 질문 1 ~ 6과 9 ~
+      11은 구현대로다. 질문 8(크기 값을 글꼴 파일에 구워 넣기)은 배포 뒤 iPhone 확인의 결과에 달린다. 버전: 9.0.29 / v802(App 빌드
+      802). 운영이 9.0.28 / v801(`aa7baad5`, Release 41160043955)이므로 다음 패치와 다음 epoch이고, 9.0.28 bump `f3a9fcbc`와 같은
+      여섯 파일 일곱 줄을 마지막 런타임 커밋 `3fc54970`으로 올렸다. Release 입력: target `app`(App SemVer와 SW 캐시 epoch가 바뀌어 업데이트 창이
+      뜬다), `raise_app_build_floor` false(최소 앱 빌드 795 그대로), Developer API D1 false. 배포 대상: 운영 배포 SHA(App
+      `aa7baad5`, PRO room `683074bc`, 나머지 넷 `71f5b96c`)와 main `9e68a7a3` 어느 쪽에 견줘도 버전 올리기 전 런타임 경로 변경은
+      App 173, 나머지 다섯 Worker 0이고 App 런타임 의존성 차이가 없다(로컬 git 판정, 보고서 QA 라운드 7). 버전 올리기 머리
+      `3fc54970`에서는 App 176(버전 거울 `browser/classic-runtime/admin.ts`, `cloudflare/app-worker.ts`, `index.html`이 더해짐,
+      라운드 8의 `9b93c5b3`과 같은 목록), 나머지 다섯 0이고, target `app`의 호환 판정(`verifyPartialReleaseCompatibility`, 운영
+      조회 대신 위 배포 SHA)이 compatible이다(로컬 git만, 보고서 QA 라운드 8, 9). 신호, PRO, 서버 계약, D1,
+      비밀, 바인딩, Wrangler 설정, 저장 데이터와 키, 프레임 모양, 바닥은 그대로다(파일 이름은 보여 줄 때만 NFC이고 저장·전송되는
+      이름은 그대로). 자원 소유권: 글꼴 시트와 면 불러오기의 주인은 `src/i18n/locale-fonts.ts` 하나이고, Pretendard 런타임,
+      부트스트랩 글꼴 스케줄러, `public/primary-font.css`, 서비스 워커의 선택 글꼴 묶음을 같은 변경에서 지워 새 레코드가 없다(기준치
+      그대로). 섞인 버전: 업데이트하지 않은 옛 세대 탭은 `/primary-font-loader.js`를 요청해 404를 받는다(구버전 무시 정책). 새 제3자
+      글꼴 자산(npm 의존성 변화 없음, `package.json`은 생성 스크립트 두 줄과 버전 줄, `package-lock.json`은 버전 줄 둘만):
+      Inter 4.001(Google Fonts v20) 부분 파일 7개 340,256 B(받은 바이트 그대로), SIL OFL 1.1(`fonts/INTER_LICENSE.txt`). Noto Sans KR 2.004(Google Fonts v40) 번호 조각 120개
+      3,425,472 B(한국어 `locl`을 뺀 다시 쓴 사본이라 Google 파일 이름에 바이트가 다르고, Google의 저작권(name ID 0, Reserved Font
+      Name 'Source')과 라이선스 URL(name ID 14)을 지님), SIL OFL 1.1(`fonts/NOTO_CJK_LICENSE.txt`). 출처 URL과 원본·배포 해시는
+      `fonts/font-sources.json`, 다시 만들기와 검사는 `fonts/README.md`, 알림은 저장소 `README.md`의 제3자 목록에 있다. 배포 기록이
+      §1 의존성·호환 칸에 이 자산을 적는다. 저장소는 글꼴 파일로 약 3.76 MB 커진다. 이제 채운 배포 전 관문: (1) 오너의 릴리스
+      결정(2026-10-31 저녁, 6A보다 먼저), (2) 보고서 §9 오너 질문의 답(권장 답 적용, 8은 배포 뒤 iPhone 확인에 달림). iPhone Safari 줄
+      높이는 오너 답으로 관문에서 빠져 배포 뒤 첫 확인이 됐다. 버전 올리기와 그 머리의 로컬 최종 관문은 했다(QA 라운드 8). PR
+      #548의 첫 CI(run 41203742094, 머리 `3b9765fc`)는 Critical browser gate의 `adaptive-actions` 좁은 칸 탐침 다섯 크기(720x800,
+      844x390, 1024x768, 1279x800, 1280x719)에서 fil-PH 로그아웃·계정 삭제 쌍이 9.0.18 글자 양식보다 한 줄 많아(3 / 2, 두 테마)
+      실패했다. 원인은 Linux Chromium의 글꼴 힌팅이라 두 버튼에 `text-rendering: geometricPrecision`을 주어 고쳤고(PR #510의 미디어
+      고르기 선택지와 같은 방법, 보고서 §5 18번), 버전 올리기를 그 위로 다시 얹어 로컬 관문을 다시 돌렸다(QA 라운드 9). 남은 것은
+      보통 절차다: 다시 쌓은 줄의 push와 PR CI(Linux 확인), 자동 코드 리뷰, 머지, exact-main CI, 릴리스(보고서 §10). 근거: 로컬
+      QA 라운드 1 ~ 9(Windows 11, Chromium 153만)와 PR CI 첫 실행. 최종 관문 라운드 8(버전 올리기 머리 `9b93c5b3`)은 `build:checked` 25단계와 가드 37개가 모두
+      통과했고(`guard:sw-cache-version` v802 (9b93c5b3), `guard:release-identity` 9.0.29 / v802, 첫 전송은 eager total 531.0 KiB
+      gzip와 eager fonts 0으로 그대로), 자원 소유권(기록 49, 파일 456, 기준치 그대로), 운영 빌드 `test:e2e:candidate` 19 / 19,
+      critical E2E와 `font-identity` 104 / 104, 커버리지 critical 93 files / 3,736과 workers 69 / 3,323, tooling 14 / 433(부하 시간
+      초과 1행은 그 레인만 다시 돌려 통과), 단위 732 files / 17,460(부하 시간 초과 git 고정물 2행은 그 두 파일만 다시 돌려
+      157 / 157 통과)이 통과했다. 최종 관문 라운드 6(다시 쌓기 전, 코드는 지금 `e26279d3`과 같음)은 `build:checked` 25단계와 가드 37개
+      가운데 `guard:sw-cache-version` 하나만 실패했고(버전 올리기 없음), 단위 730 files / 17,459, critical E2E와 `font-identity`
+      104 / 104, 재생목록·채팅 E2E 63 / 63, 커버리지 세 레인이 통과했다. 라운드 7(다시 쌓기)은 44커밋이 패치 그대로이고 문서 둘은
+      `docs/README.md` 문맥만 다르며, 테스트 먼저 20짝이 새 부모에서 실패하고 짝 구현에서 통과하고, 단위 732 files / 17,460(부하
+      시간 초과 1행은 그 파일만 다시 돌려 통과), typecheck, lint가 통과했다. 라운드 9(PR CI 실패 고침, 머리 `46ed06e9`, 런타임은 버전 올리기 `3fc54970`)는 18번 짝이 부모에서 1 failed / 19 passed로 실패하고 구현에서 20 / 20 통과하며, `build:checked` 25단계와 가드 37개(`guard:sw-cache-version` v802 (3fc54970), `guard:release-identity` 9.0.29 / v802, eager total 531.0 KiB gzip, eager fonts 0), 자원 소유권(기준치 그대로), 운영 빌드 `test:e2e:candidate` 19 / 19, `adaptive-actions` 44 / 44, critical E2E 101 / 101, `font-identity` 3 / 3, 커버리지 세 레인, 단위 732 files / 17,461(부하 시간 초과 git 고정물 1행은 그 두 파일만 다시 돌려 157 / 157 통과)이 통과했다. 모두 로컬 Windows라 Linux 확인은 아니다. 고친 줄의 PR CI(Linux), WebKit, 실제
+      기기는 아직이고, 로컬과 브랜치 결과는 exact-main-SHA 후보를 대신하지 않는다. 배포 뒤 확인(보고서 §8): (1) 첫 확인, iPhone Safari 줄 높이(오너 답으로 관문에서
+      옮김, iOS 17과 18, 가장 새 버전만이 아님, 운영 9.0.29에서): 15px와 13px의 한글, 라틴, 섞인 줄의 높이와 기준선, 제목. 줄 상자
+      덮어쓰기를 따르면 15px 줄 18px, 13px 줄 15px이고, 무시하면(15px 한글 줄 약 20.4px) 크기 값을 글꼴 파일에 구워 넣는 길(오너
+      질문 8, 설계 6.1)을 오너와 정해 다음 App 패치로 테스트 먼저 고친다. 그 확인까지 아이폰의 한글·가나·한자 줄이 그만큼 높아질
+      수 있다. (2) 게이트 아닌 기기 확인(보고서 §8 2 ~ 6): iOS 16의 `size-adjust` 지원과 글자 크기·줄 높이, Android Chrome과
+      Samsung Internet의 첫 방문 바뀜·단계 C·저사양 휴대폰의 시트 파싱 시간, webOS TV(Chromium 79는 `size-adjust`와 덮어쓰기를 몰라
+      글자가 3 ~ 5% 크고 CJK 줄이 1.448em, 필요하면 레거시 TV 빌드에만 고침)의 글자 크기·줄 높이·파싱 시간, Windows ClearType
+      켬·끔의 11 ~ 15px, 첫 방문과 재방문의 네트워크 흐름(한국어, 영어, 일본어, 간체)과 지금과 나란한 첫 방문 글꼴 바뀜 녹화.
+      되돌리기: 보통 길은 앞으로 되돌리기(되돌리는 커밋, 새 패치, 더 높은 epoch)다. Pretendard 파일이 배포된 채이고 데이터, 바닥,
+      Durable Object, D1 상태가 바뀌지 않는다. App Worker CLI 되돌리기는 클라이언트가 새 SW를 받기 전 처음 몇 분에만 쓴다(낮은 epoch
+      복원 금지). 닫는 근거: 운영 App이 이 전환을 담은 SHA라는 배포 기록, 배포 뒤 iPhone 확인의 결과(덮어쓰기를 무시하면 질문 8의
+      답과 그 고침의 배포), 위 배포 뒤 기기 확인.
+      [보고서](design/app-font-inter-noto-2026-10-31.md),
+      [오너 결정과 기본값](design/app-font-inter-noto-2026-10-31.md#1-오너-결정-2026-10-31),
+      [바뀌어 보이는 것](design/app-font-inter-noto-2026-10-31.md#3-바뀌어-보이는-것-화면-바뀜),
+      [QA 라운드](design/app-font-inter-noto-2026-10-31.md#6-qa-라운드),
+      [기기 확인](design/app-font-inter-noto-2026-10-31.md#8-아직-필요한-기기-확인),
+      [오너 질문](design/app-font-inter-noto-2026-10-31.md#9-오너-질문),
+      [오너 답](design/app-font-inter-noto-2026-10-31.md#91-오너-답과-적용한-권장-답-2026-10-31-저녁),
+      [릴리스 담당이 할 일](design/app-font-inter-noto-2026-10-31.md#10-릴리스-담당이-할-일),
+      [글꼴 README](../fonts/README.md)
 
 ## 3. 릴리스·QA 기준
 

@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { getTrackDisplayTitle } from '../track-display.ts';
+import { getFileDisplayName, getTrackDisplayTitle } from '../track-display.ts';
 
 describe('track display title', () => {
   it('prefers genuine file title metadata', () => {
@@ -38,5 +38,33 @@ describe('track display title', () => {
   it('preserves dotted filenames when the suffix is not a supported audio extension', () => {
     expect(getTrackDisplayTitle({ type: 'file', name: 'Version.2' })).toBe('Version.2');
     expect(getTrackDisplayTitle({ type: 'file', name: 'session.project' })).toBe('session.project');
+  });
+
+  // macOS hands file names over decomposed (NFD): a Hangul syllable arrives
+  // as conjoining jamo, which no self-hosted face draws. File-derived titles
+  // are composed (NFC) for display only.
+  const NFD_GAK = '각';
+  const NFC_GAK = '각';
+
+  it('composes a decomposed file name for display without touching the stored name', () => {
+    const name = `${NFD_GAK}.mp3`;
+    expect(getTrackDisplayTitle({ type: 'file', name })).toBe(NFC_GAK);
+    expect(name).toBe(`${NFD_GAK}.mp3`);
+    expect(name.normalize('NFC')).not.toBe(name);
+  });
+
+  it('composes a decomposed title on a file track', () => {
+    expect(
+      getTrackDisplayTitle({ type: 'file', name: 'track.mp3', title: `${NFD_GAK} title` }),
+    ).toBe(`${NFC_GAK} title`);
+  });
+
+  it('leaves YouTube titles as the service sent them', () => {
+    expect(getTrackDisplayTitle({ type: 'youtube', name: 'Video', title: NFD_GAK })).toBe(NFD_GAK);
+  });
+
+  it('composes a raw file name, extension kept, for rows that show the whole name', () => {
+    expect(getFileDisplayName(`${NFD_GAK}.flac`)).toBe(`${NFC_GAK}.flac`);
+    expect(getFileDisplayName('one.flac')).toBe('one.flac');
   });
 });

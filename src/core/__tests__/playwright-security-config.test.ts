@@ -76,9 +76,8 @@ describe('Playwright browser security profile', () => {
     expect(candidateSmoke).not.toContain('setExtraHTTPHeaders');
     expect(candidateSmoke).toContain('WEBKIT_NAVIGATION_TIMEOUT_DIAGNOSTICS');
     expect(candidateSmoke).toContain('/api/auth/session due to access control checks.');
-    expect(candidateSmoke).toContain(
-      '/designsystem/fonts/PretendardVariable.woff2 due to access control checks.',
-    );
+    // The app loads no Pretendard any more, so no WebKit allowance for it.
+    expect(candidateSmoke).not.toContain('PretendardVariable.woff2');
     expect(candidateSmoke).toContain(
       '/api/app-build-floor/effective due to access control checks.',
     );

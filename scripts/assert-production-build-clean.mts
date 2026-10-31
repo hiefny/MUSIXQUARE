@@ -11,6 +11,7 @@ const forbiddenMarkers = [
   '__MUSIXQUARE_SET_STATE__',
   '__MUSIXQUARE_BUS__',
   '__MUSIXQUARE_GET_PLAYBACK_PROJECTION__',
+  '__MUSIXQUARE_FONTS_SETTLED__',
 ];
 
 interface ForbiddenMarkerHit {

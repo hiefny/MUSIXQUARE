@@ -37,7 +37,7 @@ import { applyUserTextFontFallback } from './user-text-font.ts';
 import { setControlHint, setControlUnavailable } from './control-hint.ts';
 import { renderPlaylistSlotName } from './playlist-slot-names.ts';
 import { SELECTION_TOGGLE_PATHS } from './selection-mark.ts';
-import { getTrackDisplayTitle } from '../player/track-display.ts';
+import { getFileDisplayName, getTrackDisplayTitle } from '../player/track-display.ts';
 import {
   acknowledgeCommittedProRoomUploads,
   cancelProRoomUpload,
@@ -836,8 +836,9 @@ function appendProRoomUploadRow(
   const name = document.createElement('span');
   name.className = 'track-name-text pro-upload-name';
   name.dir = 'auto';
-  name.textContent = upload.name;
-  applyUserTextFontFallback(name, upload.name);
+  const displayName = getFileDisplayName(upload.name);
+  name.textContent = displayName;
+  applyUserTextFontFallback(name, displayName);
   track.append(slot, name);
 
   const cancel = createProRoomUploadCancel(upload);

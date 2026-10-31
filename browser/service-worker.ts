@@ -31,7 +31,6 @@ const serviceWorker: ServiceWorkerGlobalScope = self;
 const CACHE_VERSION = '__MUSIXQUARE_CACHE_VERSION__';
 const STATIC_CACHE = `musixquare-static-${CACHE_VERSION}`;
 const RUNTIME_CACHE = `musixquare-runtime-${CACHE_VERSION}`;
-const OPTIONAL_CACHE = `musixquare-optional-${CACHE_VERSION}`;
 const BOOTSTRAP_CACHE_KEY = `./bootstrap.js?cache=${CACHE_VERSION}`;
 // iOS can resume a standalone app with a half-open radio path where fetch()
 // neither succeeds nor rejects for a long time. A navigation must reach the
@@ -43,10 +42,6 @@ const NAVIGATION_NETWORK_TIMEOUT_MS = 3_000;
 const STATIC_REVALIDATION_TIMEOUT_MS = 5_000;
 const NAVIGATION_STATE_CLIENT_LOOKUP_TIMEOUT_MS = 2_000;
 const NAVIGATION_STATE_PATH_PREFIX = '/.mxqr-navigation-fallback/';
-// The optional full font is useful after an interrupted reopen, but it must
-// never keep a new worker in `installing` indefinitely on a half-open radio.
-const OPTIONAL_ASSET_GROUP_TIMEOUT_MS = 6_000;
-const OPTIONAL_CACHE_READY_KEY = `./.mxqr-optional-ready?cache=${CACHE_VERSION}`;
 const CACHE_STATUS_REQUEST = 'MXQR_CACHE_STATUS_REQUEST';
 const CACHE_CLIENT_STATUS = 'MXQR_CACHE_CLIENT_STATUS';
 const CACHE_STATUS_PROBE = 'MXQR_CACHE_STATUS_PROBE';
@@ -93,12 +88,6 @@ const SENSITIVE_NAVIGATION_QUERY_PARAMETER =
 // Keeping this manifest deterministic makes a first successful install usable
 // offline, rather than depending on each hashed asset having been requested.
 const BUILD_ENTRY_ASSETS: readonly string[] = [/* __MUSIXQUARE_BUILD_ENTRY_ASSETS__ */];
-
-// Vite injects the lazy Pretendard CSS closure here. The canonical 2 MiB font
-// is included in the same optional group, never in core APP_SHELL/addAll.
-const OPTIONAL_PRIMARY_FONT_ASSETS: readonly string[] = [
-  /* __MUSIXQUARE_OPTIONAL_PRIMARY_FONT_ASSETS__ */
-];
 
 const APP_SHELL = [
   './index.html',
@@ -170,84 +159,12 @@ serviceWorker.addEventListener('install', (event) => {
       // no-store below before entering CacheStorage.
       await cache.addAll(APP_SHELL);
 
-      // Font CSS + body are staged behind a readiness marker in their own
-      // cache. Failure or timeout is non-fatal and leaves partial entries
-      // invisible; the page-level font loader will retry after recovery.
-      await stageOptionalPrimaryFontAssets();
+      // No font is staged here. The app's font sheets and files are hashed
+      // assets that its font owner (src/i18n/locale-fonts.ts) requests
+      // lazily; they take the cache-first hashed-asset path below.
     })(),
   );
 });
-
-async function stageOptionalPrimaryFontAssets(): Promise<void> {
-  if (OPTIONAL_PRIMARY_FONT_ASSETS.length === 0) return;
-
-  let expired = false;
-  const controller = typeof AbortController === 'function' ? new AbortController() : null;
-  let timeoutId: number | undefined;
-  const timeout = new Promise<never>((_resolve, reject) => {
-    timeoutId = setTimeout(() => {
-      expired = true;
-      try {
-        controller?.abort();
-      } catch (_) {
-        /* already settled */
-      }
-      reject(new Error('OPTIONAL_ASSET_GROUP_TIMEOUT'));
-    }, OPTIONAL_ASSET_GROUP_TIMEOUT_MS);
-  });
-
-  const staging = (async () => {
-    const optionalCache = await caches.open(OPTIONAL_CACHE);
-    // A prior abandoned install may have left bodies behind. Removing the
-    // marker first keeps every incomplete generation invisible.
-    await optionalCache.delete(OPTIONAL_CACHE_READY_KEY);
-    // Stream one response into CacheStorage at a time. The previous parallel
-    // arrayBuffer staging held the full 2 MiB font plus the loader/CSS bodies
-    // in JS memory during every install, amplifying WebKit CPU and memory use.
-    // Partial entries stay invisible until the final readiness marker exists.
-    for (const asset of OPTIONAL_PRIMARY_FONT_ASSETS) {
-      const request = new Request(new URL(asset, serviceWorker.location.href));
-      const response = controller
-        ? await fetch(request, { signal: controller.signal })
-        : await fetch(request);
-      if (
-        !response ||
-        response.status === 206 ||
-        !response.ok ||
-        !responseAllowsCacheStorage(response)
-      ) {
-        if (response && !responseAllowsCacheStorage(response)) {
-          // An installing worker does not control the origin yet. Clean only
-          // its incomplete staging generation; mutating an older controller's
-          // ready optional group would break live/offline tabs if install fails.
-          await optionalCache.delete(request, { ignoreVary: true });
-        }
-        throw new Error(`OPTIONAL_ASSET_FETCH_FAILED:${request.url}`);
-      }
-      await optionalCache.put(request, response);
-      if (expired) return;
-    }
-    await optionalCache.put(
-      OPTIONAL_CACHE_READY_KEY,
-      new Response(CACHE_VERSION, {
-        headers: { 'Content-Type': 'text/plain; charset=utf-8' },
-      }),
-    );
-  })();
-
-  try {
-    await Promise.race([staging, timeout]);
-  } catch (_) {
-    // Optional prefetch failure must not block the functional app generation.
-  } finally {
-    clearTimeout(timeoutId);
-    try {
-      controller?.abort();
-    } catch (_) {
-      /* already settled */
-    }
-  }
-}
 
 /** Honor an origin's explicit prohibition before writing into CacheStorage. */
 function responseAllowsCacheStorage(response: Response): boolean {
@@ -347,6 +264,8 @@ async function getWindowClients(): Promise<readonly Client[]> {
   return serviceWorker.clients.matchAll({ type: 'window', includeUncontrolled: true });
 }
 
+// 'optional' names the font group that older generations staged. It stays an
+// owned family so retirement deletes those caches like any other.
 function cacheVersionFromName(cacheName: string): string | null {
   return /^musixquare-(?:static|runtime|optional)-(v[1-9]\d*)$/.exec(cacheName)?.[1] || null; // brand-capitalization: allow-technical
 }
@@ -366,7 +285,7 @@ async function deleteRetiredCaches(
         if (identity && (currentEpoch === null || identity.epoch > currentEpoch)) return false;
         return (
           key.startsWith('musixquare-') && // brand-capitalization: allow-technical
-          ![STATIC_CACHE, RUNTIME_CACHE, OPTIONAL_CACHE].includes(key) &&
+          ![STATIC_CACHE, RUNTIME_CACHE].includes(key) &&
           (!keyVersion || !preservedVersions.has(keyVersion))
         );
       })
@@ -755,54 +674,7 @@ function isImmutableHashedAsset(request: Request): boolean {
   return /-[A-Za-z0-9_-]{8}\.[A-Za-z0-9]+$/.test(url.pathname);
 }
 
-function isOptionalPrimaryFontAsset(request: Request): boolean {
-  const requestUrl = new URL(request.url);
-  return OPTIONAL_PRIMARY_FONT_ASSETS.some((asset) => {
-    try {
-      return new URL(asset, serviceWorker.location.href).href === requestUrl.href;
-    } catch (_) {
-      return false;
-    }
-  });
-}
-
-async function matchActiveOptionalAsset(request: Request): Promise<Response | null> {
-  if (!isOptionalPrimaryFontAsset(request)) return null;
-  try {
-    const ready = await caches.match(OPTIONAL_CACHE_READY_KEY, { cacheName: OPTIONAL_CACHE });
-    if (!ready) return null;
-    return (await caches.match(request, { cacheName: OPTIONAL_CACHE })) || null;
-  } catch (_) {
-    return null;
-  }
-}
-
 async function matchRetiredAsset(request: Request): Promise<Response | null> {
-  // Optional loader/CSS/font files form one atomic group. Never mix one of
-  // them from retired static/runtime caches or a markerless optional cache:
-  // the safer fallback is the system font until a complete generation exists.
-  if (isOptionalPrimaryFontAsset(request)) {
-    try {
-      const keys = await caches.keys();
-      for (const key of keys) {
-        if (key === OPTIONAL_CACHE) continue;
-        const retiredMatch = /^musixquare-optional-v(\d+)$/.exec(key); // brand-capitalization: allow-technical
-        const currentMatch = /^v(\d+)$/.exec(CACHE_VERSION);
-        if (!retiredMatch || !currentMatch || Number(retiredMatch[1]) >= Number(currentMatch[1])) {
-          continue;
-        }
-        const retiredVersion = `v${retiredMatch[1]}`;
-        const readyKey = `./.mxqr-optional-ready?cache=${retiredVersion}`;
-        const ready = await caches.match(readyKey, { cacheName: key });
-        if (!ready) continue;
-        const cached = await caches.match(request, { cacheName: key });
-        if (cached) return cached;
-      }
-      return null;
-    } catch (_) {
-      return null;
-    }
-  }
   try {
     const currentMatch = /^v(\d+)$/.exec(CACHE_VERSION);
     if (!currentMatch) return null;
@@ -1004,15 +876,8 @@ async function deleteCachedResponseEverywhere(
   if (currentEpoch === null) return;
 
   const installOwned = isInstallOwnedAppShellRequest(request);
-  const optionalAsset = isOptionalPrimaryFontAsset(request);
-  const families = new Set<'static' | 'runtime' | 'optional'>(
-    installOwned
-      ? ['runtime']
-      : primaryFamily === 'optional' || optionalAsset
-        ? ['static', 'runtime', 'optional']
-        : ['static', 'runtime'],
-  );
-  const currentCacheNames = [STATIC_CACHE, RUNTIME_CACHE, OPTIONAL_CACHE];
+  const families = new Set<OwnedCacheFamily>(installOwned ? ['runtime'] : ['static', 'runtime']);
+  const currentCacheNames = [STATIC_CACHE, RUNTIME_CACHE];
   const cacheNames = new Set(
     [...currentCacheNames, ...knownCacheNames].filter((cacheName) => {
       const identity = ownedCacheIdentity(cacheName);
@@ -1026,10 +891,6 @@ async function deleteCachedResponseEverywhere(
         // A revocation applies to every stored Vary variant of this URL, not
         // only the request headers that happened to receive the no-store reply.
         await cache.delete(request, { ignoreVary: true });
-        if (primaryFamily === 'optional' || optionalAsset) {
-          const readyKey = optionalCacheReadyKey(cacheName);
-          if (readyKey) await cache.delete(readyKey);
-        }
       } catch (_) {
         // Try every generation even if one retired cache is unavailable.
       }
@@ -1056,11 +917,6 @@ function ownedCacheIdentity(cacheName: string): { family: OwnedCacheFamily; epoc
 
 function ownedCacheFamily(cacheName: string): OwnedCacheFamily | null {
   return ownedCacheIdentity(cacheName)?.family ?? null;
-}
-
-function optionalCacheReadyKey(cacheName: string): string | null {
-  const match = /^musixquare-optional-(v\d+)$/u.exec(cacheName); // brand-capitalization: allow-technical
-  return match ? `./.mxqr-optional-ready?cache=${match[1]}` : null;
 }
 
 function isInstallOwnedAppShellRequest(request: Request): boolean {
@@ -1197,7 +1053,6 @@ async function matchActiveStaticAsset(request: Request): Promise<Response | null
     return (
       (await caches.match(request, { cacheName: STATIC_CACHE })) ||
       (await caches.match(request, { cacheName: RUNTIME_CACHE })) ||
-      (await matchActiveOptionalAsset(request)) ||
       null
     );
   } catch (_) {
@@ -1265,33 +1120,6 @@ serviceWorker.addEventListener('fetch', (event) => {
             ? markCachedNavigationResponse(fallback)
             : new Response('Offline', { status: 503, statusText: 'Service Unavailable' });
         }
-      })(),
-    );
-    return;
-  }
-
-  // The optional Pretendard group is already validated by its readiness
-  // marker. Serve it cache-first without launching a duplicate 2 MiB font
-  // revalidation; a failed/partial install falls through to network and the
-  // successful retry is promoted into the active static cache.
-  if (isOptionalPrimaryFontAsset(request)) {
-    const cachedResponse = matchActiveStaticAsset(request);
-    const networkResponse = cachedResponse.then((cached) => {
-      if (cached) return null;
-      return fetch(request).catch(() => null);
-    });
-    const cacheUpdate = scheduleNetworkCacheUpdate(STATIC_CACHE, request, networkResponse);
-    event.waitUntil(cacheUpdate);
-    event.respondWith(
-      (async () => {
-        const cached = await cachedResponse;
-        if (cached) return cached;
-        const fresh = await networkResponse;
-        return (
-          fresh ||
-          (await matchRetiredAsset(request)) ||
-          new Response('Offline', { status: 503, statusText: 'Offline' })
-        );
       })(),
     );
     return;

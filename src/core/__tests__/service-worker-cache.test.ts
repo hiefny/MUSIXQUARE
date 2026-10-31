@@ -15,20 +15,8 @@ const BOOTSTRAP_ASSET = CLASSIC_RUNTIME_ASSETS.find(
 );
 if (!BOOTSTRAP_ASSET) throw new Error('Classic bootstrap runtime is missing from the manifest.');
 const BOOTSTRAP_SOURCE = (await compileClassicRuntimeAsset(process.cwd(), BOOTSTRAP_ASSET)).code;
-const TEST_OPTIONAL_FONT_RUNTIME = './primary-font-loader.js';
-const TEST_OPTIONAL_FONT_CSS = './primary-font.css';
-const TEST_OPTIONAL_FONT_BODY = './designsystem/fonts/PretendardVariable.woff2';
-const [SERVICE_WORKER_SOURCE, EXECUTABLE_SERVICE_WORKER_SOURCE] = await Promise.all([
-  compileServiceWorkerAsset(process.cwd()).then(({ code }) => code),
-  compileServiceWorkerAsset(process.cwd(), {
-    buildEntryAssets: [],
-    optionalPrimaryFontAssets: [
-      TEST_OPTIONAL_FONT_RUNTIME,
-      TEST_OPTIONAL_FONT_CSS,
-      TEST_OPTIONAL_FONT_BODY,
-    ],
-  }).then(({ code }) => code),
-]);
+const SERVICE_WORKER_SOURCE = (await compileServiceWorkerAsset(process.cwd())).code;
+const EXECUTABLE_SERVICE_WORKER_SOURCE = SERVICE_WORKER_SOURCE;
 const ACTIVE_CACHE_VERSION = SERVICE_WORKER_CACHE_VERSION;
 const STATIC_REVALIDATION_TIMEOUT_MS = 5_000;
 const NAVIGATION_NETWORK_TIMEOUT_MS = Number(
@@ -41,14 +29,6 @@ const NAVIGATION_STATE_CLIENT_LOOKUP_TIMEOUT_MS = Number(
     .exec(SERVICE_WORKER_SOURCE)?.[1]
     ?.replaceAll('_', ''),
 );
-const OPTIONAL_ASSET_GROUP_TIMEOUT_MS = Number(
-  /^\s*const OPTIONAL_ASSET_GROUP_TIMEOUT_MS = ([\de_+.]+);$/mu
-    .exec(SERVICE_WORKER_SOURCE)?.[1]
-    ?.replaceAll('_', ''),
-);
-if (!Number.isFinite(OPTIONAL_ASSET_GROUP_TIMEOUT_MS)) {
-  throw new Error('Unable to resolve the service worker optional-asset timeout');
-}
 if (!Number.isFinite(NAVIGATION_NETWORK_TIMEOUT_MS)) {
   throw new Error('Unable to resolve the service worker navigation timeout');
 }
@@ -117,8 +97,26 @@ describe('service worker cache policy', () => {
     expect(APP_SHELL_SOURCE).toContain('./account-complete.css');
   });
 
-  it('does not spend the first service-worker install on the optional 2 MiB app font', () => {
+  it('precaches no font sheet or font file at install', () => {
     expect(APP_SHELL_SOURCE).not.toContain('PretendardVariable.woff2');
+    expect(APP_SHELL_SOURCE).not.toMatch(/woff2|font-(?:inter|noto)|noto-/u);
+  });
+
+  it('keeps no font group of its own: fonts take the ordinary asset paths', () => {
+    for (const retired of [
+      'OPTIONAL_PRIMARY_FONT_ASSETS',
+      'OPTIONAL_CACHE',
+      'OPTIONAL_ASSET_GROUP_TIMEOUT_MS',
+      '.mxqr-optional-ready',
+      'stageOptionalPrimaryFontAssets',
+      'primary-font',
+      'Pretendard',
+    ]) {
+      expect(SERVICE_WORKER_SOURCE, retired).not.toContain(retired);
+    }
+    // Old musixquare-optional-vN caches stay owned names, so the normal
+    // retirement deletes them.
+    expect(SERVICE_WORKER_SOURCE).toContain('(?:static|runtime|optional)');
   });
 
   it('does not download the screensaver document or renderer during installation', () => {
@@ -259,33 +257,15 @@ describe('service worker cache policy', () => {
     await Promise.all(work);
   }
 
-  it('installs the core shell fail-closed and marks the complete optional font group ready', async () => {
-    fetchMock.mockImplementation(async (request: Request) => {
-      if (request.url.endsWith('.css')) {
-        return new Response('@font-face{font-family:Pretendard}', {
-          status: 200,
-          headers: { 'Content-Type': 'text/css' },
-        });
-      }
-      return new Response(Uint8Array.from([119, 79, 70, 50]), {
-        status: 200,
-        headers: { 'Content-Type': 'font/woff2' },
-      });
-    });
+  it('installs only the core shell, with no font group staged', async () => {
+    fetchMock.mockResolvedValue(new Response('unexpected', { status: 200 }));
 
     await dispatchExtendable(installListener);
 
     expect(cacheAddAll).toHaveBeenCalledOnce();
-    expect(fetchMock).toHaveBeenCalledTimes(3);
-    expect(cacheOpen).toHaveBeenCalledWith(`musixquare-optional-${ACTIVE_CACHE_VERSION}`);
-    expect(cachePut).toHaveBeenCalledTimes(4);
-    const cachedUrls = cachePut.mock.calls.slice(0, 3).map(([request]) => (request as Request).url);
-    expect(cachedUrls).toEqual([
-      'https://musixquare.com/primary-font-loader.js',
-      'https://musixquare.com/primary-font.css',
-      'https://musixquare.com/designsystem/fonts/PretendardVariable.woff2',
-    ]);
-    expect(String(cachePut.mock.calls[3]?.[0])).toContain('.mxqr-optional-ready');
+    expect(fetchMock).not.toHaveBeenCalled();
+    expect(cachePut).not.toHaveBeenCalled();
+    expect(cacheOpen.mock.calls).toEqual([[`musixquare-static-${ACTIVE_CACHE_VERSION}`]]);
   });
 
   it('does not activate a partial core shell', async () => {
@@ -295,95 +275,6 @@ describe('service worker cache policy', () => {
 
     expect(fetchMock).not.toHaveBeenCalled();
     expect(cachePut).not.toHaveBeenCalled();
-  });
-
-  it('abandons an incomplete optional font group without publishing its ready marker', async () => {
-    fetchMock.mockImplementation(async (request: Request) =>
-      request.url.endsWith('.css')
-        ? new Response('font css', { status: 200 })
-        : new Response('font unavailable', { status: 503 }),
-    );
-
-    await dispatchExtendable(installListener);
-
-    expect(cacheAddAll).toHaveBeenCalledOnce();
-    expect(fetchMock).toHaveBeenCalledOnce();
-    expect(cachePut).not.toHaveBeenCalled();
-  });
-
-  it('does not stage no-store optional assets or purge another worker generation', async () => {
-    const retiredOptionalCache = `musixquare-optional-${RETIRED_CACHE_VERSION}`;
-    const futureOptionalCache = `musixquare-optional-v${Number(ACTIVE_CACHE_VERSION.slice(1)) + 1}`;
-    cacheKeys.mockResolvedValue([retiredOptionalCache, futureOptionalCache]);
-    fetchMock.mockResolvedValue(
-      new Response('private optional asset', {
-        status: 200,
-        headers: { 'Cache-Control': 'public, no-store' },
-      }),
-    );
-
-    await dispatchExtendable(installListener);
-
-    expect(cacheAddAll).toHaveBeenCalledOnce();
-    expect(fetchMock).toHaveBeenCalledOnce();
-    expect(cachePut).not.toHaveBeenCalled();
-    expect(cacheKeys).not.toHaveBeenCalled();
-    expect(cacheOpen).not.toHaveBeenCalledWith(retiredOptionalCache);
-    expect(cacheOpen).not.toHaveBeenCalledWith(futureOptionalCache);
-    expect(cacheEntryDelete).toHaveBeenCalledTimes(2);
-    expect(cacheEntryDelete.mock.calls[1]?.[0]).toEqual(
-      expect.objectContaining({
-        url: 'https://musixquare.com/primary-font-loader.js',
-      }),
-    );
-    expect(cacheEntryDelete.mock.calls[1]?.[1]).toEqual({ ignoreVary: true });
-  });
-
-  it('streams optional font assets into CacheStorage sequentially', async () => {
-    let finishFirstWrite: (() => void) | undefined;
-    const firstWrite = new Promise<void>((resolve) => {
-      finishFirstWrite = resolve;
-    });
-    cachePut.mockReturnValueOnce(firstWrite);
-    fetchMock.mockResolvedValue(new Response('optional asset', { status: 200 }));
-
-    const install = dispatchExtendable(installListener);
-    await vi.waitFor(() => expect(cachePut).toHaveBeenCalledOnce());
-
-    expect(fetchMock).toHaveBeenCalledOnce();
-    finishFirstWrite?.();
-    await install;
-
-    expect(fetchMock).toHaveBeenCalledTimes(3);
-    expect(cachePut).toHaveBeenCalledTimes(4);
-  });
-
-  it('bounds a stalled optional font prefetch without failing the core install', async () => {
-    vi.useFakeTimers();
-    fetchMock.mockImplementation(
-      (_request: Request, init?: RequestInit) =>
-        new Promise<Response>((_resolve, reject) => {
-          init?.signal?.addEventListener(
-            'abort',
-            () => reject(new DOMException('optional prefetch timed out', 'AbortError')),
-            { once: true },
-          );
-        }),
-    );
-
-    try {
-      const install = dispatchExtendable(installListener);
-      await vi.advanceTimersByTimeAsync(OPTIONAL_ASSET_GROUP_TIMEOUT_MS - 1);
-      expect(cachePut).not.toHaveBeenCalled();
-
-      await vi.advanceTimersByTimeAsync(1);
-      await install;
-
-      expect(cacheAddAll).toHaveBeenCalledOnce();
-      expect(cachePut).not.toHaveBeenCalled();
-    } finally {
-      vi.useRealTimers();
-    }
   });
 
   it('returns but never caches a failed navigation response', async () => {
@@ -628,7 +519,7 @@ describe('service worker cache policy', () => {
   it.each([
     'https://musixquare.com/bootstrap.js',
     'https://musixquare.com/assets/main-ABC12345.js',
-    'https://musixquare.com/primary-font-loader.js',
+    'https://musixquare.com/designsystem/fonts/PretendardVariable.woff2',
   ])('uses the online response when active CacheStorage reads fail for %s', async (url) => {
     const denied = new DOMException('CacheStorage access denied', 'SecurityError');
     cacheMatch.mockRejectedValue(denied);
@@ -640,19 +531,19 @@ describe('service worker cache policy', () => {
 
     expect(response.status).toBe(200);
     expect(await response.text()).toBe('online asset');
-    if (url.endsWith('/bootstrap.js')) {
+    if (url.includes('/assets/')) {
+      expect(fetchMock).toHaveBeenCalledExactlyOnceWith(request);
+    } else {
       expect(fetchMock).toHaveBeenCalledExactlyOnceWith(request, {
         signal: expect.any(AbortSignal),
       });
-    } else {
-      expect(fetchMock).toHaveBeenCalledExactlyOnceWith(request);
     }
   });
 
   it.each([
     'https://musixquare.com/bootstrap.js',
     'https://musixquare.com/assets/main-ABC12345.js',
-    'https://musixquare.com/primary-font-loader.js',
+    'https://musixquare.com/designsystem/fonts/PretendardVariable.woff2',
   ])('returns the offline response when CacheStorage and the network fail for %s', async (url) => {
     const denied = new DOMException('CacheStorage access denied', 'SecurityError');
     cacheMatch.mockRejectedValue(denied);
@@ -665,12 +556,12 @@ describe('service worker cache policy', () => {
 
     expect(response.status).toBe(503);
     expect(await response.text()).toBe('Offline');
-    if (url.endsWith('/bootstrap.js')) {
+    if (url.includes('/assets/')) {
+      expect(fetchMock).toHaveBeenCalledExactlyOnceWith(request);
+    } else {
       expect(fetchMock).toHaveBeenCalledExactlyOnceWith(request, {
         signal: expect.any(AbortSignal),
       });
-    } else {
-      expect(fetchMock).toHaveBeenCalledExactlyOnceWith(request);
     }
   });
 
@@ -1230,208 +1121,87 @@ describe('service worker cache policy', () => {
     });
   });
 
-  it('serves a ready optional full font without launching a duplicate revalidation', async () => {
-    cacheMatch.mockImplementation(
-      async (request: RequestInfo, options?: { cacheName?: string }) => {
-        const requestUrl = typeof request === 'string' ? request : request.url;
-        if (
-          options?.cacheName === `musixquare-optional-${ACTIVE_CACHE_VERSION}` &&
-          requestUrl.includes('.mxqr-optional-ready')
-        ) {
-          return new Response(ACTIVE_CACHE_VERSION, { status: 200 });
-        }
-        if (
-          options?.cacheName === `musixquare-optional-${ACTIVE_CACHE_VERSION}` &&
-          requestUrl.endsWith('PretendardVariable.woff2')
-        ) {
-          return new Response('cached full font', { status: 200 });
-        }
-        return undefined;
-      },
-    );
+  it.each([
+    'https://musixquare.com/assets/font-noto-kr-AbC12_-9.css',
+    'https://musixquare.com/assets/PbykFmXiEBPT4ITbgNA5Cgm20xz64px_1hVWr0wuPNGmlQNMEfD4.119-AbC12_-9.woff2',
+    'https://musixquare.com/assets/inter-latin-AbC12_-9.woff2',
+  ])('serves the app font asset %s cache-first through the hashed-asset path', async (url) => {
+    const request = new Request(url);
+    cacheMatch.mockImplementation(async (candidate: RequestInfo, options) => {
+      const candidateUrl = typeof candidate === 'string' ? candidate : candidate.url;
+      return options?.cacheName === `musixquare-static-${ACTIVE_CACHE_VERSION}` &&
+        candidateUrl === url
+        ? new Response('cached font asset', { status: 200 })
+        : undefined;
+    });
 
-    const response = await dispatch(
-      new Request('https://musixquare.com/designsystem/fonts/PretendardVariable.woff2'),
-    );
-
-    expect(await response.text()).toBe('cached full font');
+    const cached = await dispatch(request);
+    expect(await cached.text()).toBe('cached font asset');
     expect(fetchMock).not.toHaveBeenCalled();
     expect(cachePut).not.toHaveBeenCalled();
-  });
 
-  it('does not expose a partially staged optional font cache', async () => {
-    cacheMatch.mockImplementation(
-      async (request: RequestInfo, options?: { cacheName?: string }) => {
-        const requestUrl = typeof request === 'string' ? request : request.url;
-        if (
-          options?.cacheName === `musixquare-optional-${ACTIVE_CACHE_VERSION}` &&
-          requestUrl.endsWith('PretendardVariable.woff2')
-        ) {
-          return new Response('partial staged font', { status: 200 });
-        }
-        return undefined;
-      },
-    );
-    fetchMock.mockResolvedValue(new Response('recovered network font', { status: 200 }));
-
-    const response = await dispatch(
-      new Request('https://musixquare.com/designsystem/fonts/PretendardVariable.woff2'),
-    );
-
-    expect(await response.text()).toBe('recovered network font');
+    cacheMatch.mockResolvedValue(undefined);
+    fetchMock.mockResolvedValue(new Response('network font asset', { status: 200 }));
+    const fresh = await dispatch(new Request(url));
+    expect(await fresh.text()).toBe('network font asset');
     expect(fetchMock).toHaveBeenCalledOnce();
+    expect(fetchMock.mock.calls[0]?.[1]).toBeUndefined();
+    expect(cacheOpen).toHaveBeenCalledWith(`musixquare-static-${ACTIVE_CACHE_VERSION}`);
     expect(cachePut).toHaveBeenCalledOnce();
   });
 
-  it('purges a complete retired optional group after a no-store network response', async () => {
-    const request = new Request(
-      'https://musixquare.com/designsystem/fonts/PretendardVariable.woff2',
-    );
-    const retiredOptionalCache = `musixquare-optional-${RETIRED_CACHE_VERSION}`;
-    const futureOptionalCache = `musixquare-optional-v${Number(ACTIVE_CACHE_VERSION.slice(1)) + 1}`;
-    const retiredReadyKey = `./.mxqr-optional-ready?cache=${RETIRED_CACHE_VERSION}`;
-    let retiredMarkerExists = true;
-    let retiredFontExists = true;
-    let retiredCssExists = true;
-    cacheKeys.mockResolvedValue([retiredOptionalCache, futureOptionalCache]);
-    cacheEntryDelete.mockImplementation((candidate: RequestInfo) => {
-      const url = typeof candidate === 'string' ? candidate : candidate.url;
-      if (url.endsWith('PretendardVariable.woff2')) retiredFontExists = false;
-      if (url.includes(retiredReadyKey)) retiredMarkerExists = false;
-      return true;
+  it("takes the ordinary stable-asset path for a public page's Pretendard request", async () => {
+    const url = 'https://musixquare.com/designsystem/fonts/PretendardVariable.woff2';
+    fetchMock.mockResolvedValue(new Response('public page font', { status: 200 }));
+
+    const online = await dispatch(new Request(url));
+
+    expect(await online.text()).toBe('public page font');
+    expect(fetchMock).toHaveBeenCalledExactlyOnceWith(expect.any(Request), {
+      signal: expect.any(AbortSignal),
     });
-    cacheMatch.mockImplementation(
-      async (candidate: RequestInfo, options?: { cacheName?: string }) => {
-        if (options?.cacheName !== retiredOptionalCache) return undefined;
-        const url = typeof candidate === 'string' ? candidate : candidate.url;
-        if (url.includes(retiredReadyKey) && retiredMarkerExists) {
-          return new Response(RETIRED_CACHE_VERSION, { status: 200 });
-        }
-        if (url.endsWith('PretendardVariable.woff2') && retiredFontExists) {
-          return new Response('retired optional font', { status: 200 });
-        }
-        if (url.endsWith('primary-font.css') && retiredCssExists) {
-          return new Response('retired optional css', { status: 200 });
-        }
-        return undefined;
-      },
-    );
-    fetchMock.mockResolvedValueOnce(
-      new Response('font revoked', {
-        status: 200,
-        headers: { 'Cache-Control': 'no-store' },
-      }),
-    );
-
-    const online = await dispatch(request);
-    expect(await online.text()).toBe('font revoked');
-    expect(cacheOpen).toHaveBeenCalledWith(retiredOptionalCache);
-    expect(cacheOpen).not.toHaveBeenCalledWith(futureOptionalCache);
-    expect(cacheEntryDelete).toHaveBeenCalledWith(request, { ignoreVary: true });
-    expect(cacheEntryDelete).toHaveBeenCalledWith(retiredReadyKey);
-
-    fetchMock.mockRejectedValueOnce(new Error('offline'));
-    const offline = await dispatch(new Request('https://musixquare.com/primary-font.css'));
-    expect(offline.status).toBe(503);
-    expect(retiredCssExists).toBe(true);
+    expect(cacheOpen).toHaveBeenCalledWith(`musixquare-static-${ACTIVE_CACHE_VERSION}`);
+    expect(cachePut).toHaveBeenCalledOnce();
   });
 
-  it('rejects markerless retired optional and static font fragments while offline', async () => {
-    cacheKeys.mockResolvedValue([
-      `musixquare-static-${RETIRED_CACHE_VERSION}`,
-      `musixquare-runtime-${RETIRED_CACHE_VERSION}`,
-      `musixquare-optional-${RETIRED_CACHE_VERSION}`,
-    ]);
-    cacheMatch.mockImplementation(
-      async (request: RequestInfo, options?: { cacheName?: string }) => {
-        const requestUrl = typeof request === 'string' ? request : request.url;
-        if (
-          options?.cacheName?.endsWith(RETIRED_CACHE_VERSION) &&
-          requestUrl.endsWith('PretendardVariable.woff2')
-        ) {
-          return new Response('partial retired font', { status: 200 });
-        }
-        return undefined;
-      },
+  it('never serves a font from a legacy optional cache', async () => {
+    const legacyOptionalCache = `musixquare-optional-${RETIRED_CACHE_VERSION}`;
+    cacheKeys.mockResolvedValue([legacyOptionalCache]);
+    cacheMatch.mockImplementation(async (_candidate, options) =>
+      options?.cacheName === legacyOptionalCache
+        ? new Response('legacy optional font', { status: 200 })
+        : undefined,
     );
     fetchMock.mockRejectedValue(new Error('offline'));
 
     const response = await dispatch(
       new Request('https://musixquare.com/designsystem/fonts/PretendardVariable.woff2'),
     );
-
-    expect(response.status).toBe(503);
-    expect(await response.text()).toBe('Offline');
-    expect(cacheMatch).not.toHaveBeenCalledWith(expect.any(Request), {
-      cacheName: `musixquare-static-${RETIRED_CACHE_VERSION}`,
-    });
-    expect(cacheMatch).not.toHaveBeenCalledWith(expect.any(Request), {
-      cacheName: `musixquare-runtime-${RETIRED_CACHE_VERSION}`,
-    });
-    expect(cacheMatch).not.toHaveBeenCalledWith(expect.any(Request), {
-      cacheName: `musixquare-optional-${RETIRED_CACHE_VERSION}`,
-    });
-  });
-
-  it('accepts a complete retired optional font group while offline', async () => {
-    const retiredOptionalCache = `musixquare-optional-${RETIRED_CACHE_VERSION}`;
-    cacheKeys.mockResolvedValue([retiredOptionalCache]);
-    cacheMatch.mockImplementation(
-      async (request: RequestInfo, options?: { cacheName?: string }) => {
-        const requestUrl = typeof request === 'string' ? request : request.url;
-        if (
-          options?.cacheName === retiredOptionalCache &&
-          requestUrl.includes(`.mxqr-optional-ready?cache=${RETIRED_CACHE_VERSION}`)
-        ) {
-          return new Response(RETIRED_CACHE_VERSION, { status: 200 });
-        }
-        if (
-          options?.cacheName === retiredOptionalCache &&
-          requestUrl.endsWith('PretendardVariable.woff2')
-        ) {
-          return new Response('complete retired font', { status: 200 });
-        }
-        return undefined;
-      },
-    );
-    fetchMock.mockRejectedValue(new Error('offline'));
-
-    const response = await dispatch(
-      new Request('https://musixquare.com/designsystem/fonts/PretendardVariable.woff2'),
-    );
-
-    expect(await response.text()).toBe('complete retired font');
-    expect(cacheMatch).toHaveBeenCalledWith(
-      `./.mxqr-optional-ready?cache=${RETIRED_CACHE_VERSION}`,
-      { cacheName: retiredOptionalCache },
-    );
-    expect(cacheMatch).toHaveBeenCalledWith(expect.any(Request), {
-      cacheName: retiredOptionalCache,
-    });
-  });
-
-  it('does not treat a ready future optional generation as retired', async () => {
-    const activeEpoch = Number(ACTIVE_CACHE_VERSION.replace(/^v/u, ''));
-    const futureVersion = `v${activeEpoch + 1}`;
-    const futureOptionalCache = `musixquare-optional-${futureVersion}`;
-    cacheKeys.mockResolvedValue([futureOptionalCache]);
-    cacheMatch.mockImplementation(
-      async (request: RequestInfo, options?: { cacheName?: string }) => {
-        const requestUrl = typeof request === 'string' ? request : request.url;
-        if (options?.cacheName === futureOptionalCache && requestUrl.includes('primary-font')) {
-          return new Response('future optional fragment', { status: 200 });
-        }
-        return undefined;
-      },
-    );
-    fetchMock.mockRejectedValue(new Error('offline'));
-
-    const response = await dispatch(new Request('https://musixquare.com/primary-font-loader.js'));
 
     expect(response.status).toBe(503);
     expect(cacheMatch).not.toHaveBeenCalledWith(expect.anything(), {
-      cacheName: futureOptionalCache,
+      cacheName: legacyOptionalCache,
     });
+  });
+
+  it("retires a legacy musixquare-optional-vN cache on activate, the current epoch's name included", async () => {
+    const futureVersion = `v${Number(ACTIVE_CACHE_VERSION.slice(1)) + 1}`;
+    cacheKeys.mockResolvedValue([
+      `musixquare-optional-${RETIRED_CACHE_VERSION}`,
+      `musixquare-optional-${ACTIVE_CACHE_VERSION}`,
+      `musixquare-static-${ACTIVE_CACHE_VERSION}`,
+      `musixquare-runtime-${ACTIVE_CACHE_VERSION}`,
+      `musixquare-optional-${futureVersion}`,
+    ]);
+
+    await dispatchExtendable(activateListener);
+
+    expect(cacheDelete.mock.calls.map(([name]) => name).sort()).toEqual(
+      [
+        `musixquare-optional-${ACTIVE_CACHE_VERSION}`,
+        `musixquare-optional-${RETIRED_CACHE_VERSION}`,
+      ].sort(),
+    );
   });
 
   it('serves an offline byte range from the canonical precached audio primer', async () => {

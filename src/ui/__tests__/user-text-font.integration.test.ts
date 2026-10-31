@@ -2,70 +2,58 @@
  * @vitest-environment jsdom
  */
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import {
-  __resetLocaleFontLoadingForTests,
-  __setLocaleFontLoaderForTests,
-  isLocaleFontLoadedForTests,
-  loadLocaleFontForTests as loadLocaleFont,
-} from '../../i18n/locale-fonts.ts';
+
+const fontRuntimeFactory = vi.hoisted(() => vi.fn(() => ({ default: {} })));
+vi.mock('../../i18n/locale-fonts.ts', fontRuntimeFactory);
+
 import { applyUserTextFontFallback } from '../user-text-font.ts';
 
-afterEach(async () => {
-  await vi.dynamicImportSettled();
-  __resetLocaleFontLoadingForTests();
+afterEach(() => {
   document.documentElement.lang = '';
+  document.documentElement.removeAttribute('data-mxqr-han-order');
+  document.head.replaceChildren();
 });
 
-describe('user-text and UI-locale font loading integration', () => {
-  it('deduplicates a locale load and a simultaneous user-text load', async () => {
-    let resolveLoad!: () => void;
-    const pending = new Promise<void>((resolve) => {
-      resolveLoad = resolve;
-    });
-    const loader = vi.fn(() => pending);
-    __setLocaleFontLoaderForTests('ja', loader);
+const SAMPLES = [
+  'MUSIXQUARE 가나다',
+  'かなの曲',
+  '这本书',
+  '這本書',
+  '東京中文',
+  'Привет',
+  'สวัสดี',
+  'مرحبا',
+  '练习 練習',
+] as const;
 
-    const localeLoad = loadLocaleFont('ja');
+function render(lang: string): string[] {
+  document.documentElement.lang = lang;
+  return SAMPLES.map((text) => {
     const element = document.createElement('span');
-    applyUserTextFontFallback(element, 'かな');
+    applyUserTextFontFallback(element, text);
+    return `${element.className}|${element.dataset.userTextFonts ?? ''}`;
+  });
+}
 
-    try {
-      // The user-text path imports the shared runtime before requesting glyphs.
-      // Keep the locale request pending until that second producer has entered.
-      await vi.dynamicImportSettled();
-      expect(loader).toHaveBeenCalledTimes(1);
-    } finally {
-      resolveLoad();
-      await localeLoad;
-    }
+describe('user text font boundary in the app document', () => {
+  it('marks the same text the same way in the Korean, English and Japanese UIs', () => {
+    const korean = render('ko');
+    expect(render('en')).toEqual(korean);
+    expect(render('ja')).toEqual(korean);
+    expect(render('zh-Hant')).toEqual(korean);
   });
 
-  it.each(['ko', 'en'])(
-    'detects user scripts independently of the %s UI locale',
-    async (locale) => {
-      const loader = vi.fn(async () => undefined);
-      __setLocaleFontLoaderForTests('ru', loader);
-      document.documentElement.lang = locale;
-      const element = document.createElement('span');
+  it('ignores the startup Han order, which only the stylesheet reads', () => {
+    const korean = render('ko');
+    document.documentElement.setAttribute('data-mxqr-han-order', 'ja');
+    expect(render('ko')).toEqual(korean);
+  });
 
-      applyUserTextFontFallback(element, 'Привет');
-
-      expect(document.documentElement.lang).toBe(locale);
-      expect(element.classList).toContain('user-text-font-ru');
-      await vi.dynamicImportSettled();
-      expect(loader).toHaveBeenCalledTimes(1);
-    },
-  );
-
-  it('marks text synchronously and remains non-blocking when a font chunk fails', async () => {
-    const loader = vi.fn(async () => Promise.reject(new Error('offline')));
-    __setLocaleFontLoaderForTests('th', loader);
-    const element = document.createElement('span');
-
-    expect(() => applyUserTextFontFallback(element, 'สวัสดี')).not.toThrow();
-    expect(element.classList).toContain('user-text-font-th');
+  it('loads no font runtime and adds no stylesheet', async () => {
+    render('ko');
     await vi.dynamicImportSettled();
-    expect(loader).toHaveBeenCalledTimes(1);
-    expect(isLocaleFontLoadedForTests('th')).toBe(false);
+
+    expect(fontRuntimeFactory).not.toHaveBeenCalled();
+    expect(document.head.querySelector('link, style')).toBeNull();
   });
 });

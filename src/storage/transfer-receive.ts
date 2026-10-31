@@ -73,6 +73,7 @@ import {
 import { announceSystemMessageLocally } from '../chat/protocol.ts';
 import { recordMainReceiveProgress } from './preload-watchdog.ts';
 import { captureGuestFilePause, restoreGuestFilePause } from '../player/guest-file-pause.ts';
+import { getFileDisplayName } from '../player/track-display.ts';
 
 // ─── Receive-side Module State ───────────────────────────────────────
 
@@ -1094,7 +1095,10 @@ export async function handleFilePrepare(
         queueItemId,
         name: data.name as string,
       });
-      showLoader(true, t('transfer.preload_pending', { name: data.name as string }));
+      showLoader(
+        true,
+        t('transfer.preload_pending', { name: getFileDisplayName(data.name as string) }),
+      );
 
       setPendingRecoveryTarget({
         queueItemId,
@@ -1202,7 +1206,10 @@ export async function handleFilePrepare(
       // RAM prefix. START still performs its own full metadata/owner checks.
       setPlaybackTransferState(TRANSFER_STATE.RECEIVING);
     }
-    showLoader(true, t('transfer.waiting_recovery', { name: data.name as string }));
+    showLoader(
+      true,
+      t('transfer.waiting_recovery', { name: getFileDisplayName(data.name as string) }),
+    );
   } else {
     // Lifecycle: fresh download — no preload match, no
     // resume. Transition to DOWNLOADING with fresh source.
@@ -1245,7 +1252,10 @@ export async function handleFilePrepare(
       bus.emit('youtube:stop-mode');
     }
 
-    showLoader(true, t('transfer.preparing_name', { name: data.name as string }));
+    showLoader(
+      true,
+      t('transfer.preparing_name', { name: getFileDisplayName(data.name as string) }),
+    );
   }
   restorePendingFileIntent(pendingFileIntent, data, 'file-prepare reset');
 

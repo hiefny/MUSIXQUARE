@@ -1,6 +1,7 @@
 import { expect, test, type Page } from '@playwright/test';
-import { readFileSync, readdirSync } from 'node:fs';
+import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
+import { APP_FONT_SHEETS } from '../src/i18n/app-font-contract.ts';
 import { APP_DICTIONARIES as LOCALES } from '../src/i18n/catalogs.ts';
 import { LANGUAGE_OPTIONS, languageDirection } from '../src/i18n/locales.ts';
 import { isDesktopLayoutSize } from '../src/core/layout-breakpoints.ts';
@@ -11,12 +12,8 @@ const ROOM_STYLES = readFileSync(resolve('css/playback-actions.css'), 'utf8');
 const RTL_STYLES = readFileSync(resolve('css/rtl.css'), 'utf8');
 const APP_MARKUP = readFileSync(resolve('index.html'), 'utf8');
 const FONT_ORIGIN = 'https://layout-fonts.test';
-const FONT_STYLESHEETS = [
-  'css/pretendard.css',
-  ...readdirSync(resolve('css/fonts'))
-    .filter((file) => file.endsWith('.css'))
-    .map((file) => `css/fonts/${file}`),
-];
+// The app declares every one of its font sheets in every UI language.
+const FONT_STYLESHEETS = APP_FONT_SHEETS.map(({ path }) => path);
 
 const AUDITED_ACTION_KEYS = [
   'common.ok',
@@ -209,13 +206,9 @@ async function installLayoutProbe(
   const viewportWidth = options.viewportWidth ?? 320;
   await page.setViewportSize({ width: viewportWidth, height: options.viewportHeight ?? 800 });
   // Serve the same font CSS and bytes as the app without a preview server.
-  // Unicode ranges keep the browser from downloading unused Noto shards.
+  // Unicode ranges keep the browser from downloading unused shards.
   await page.route(`${FONT_ORIGIN}/**`, async (route) => {
-    const pathname = new URL(route.request().url()).pathname;
-    const file =
-      pathname === '/designsystem/fonts/PretendardVariable.woff2'
-        ? 'public/designsystem/fonts/PretendardVariable.woff2'
-        : pathname.slice(1);
+    const file = new URL(route.request().url()).pathname.slice(1);
     await route.fulfill({
       path: resolve(file),
       contentType: file.endsWith('.css') ? 'text/css' : 'font/woff2',
@@ -295,7 +288,11 @@ async function installLayoutProbe(
 
 async function waitForLayoutFonts(page: Page): Promise<void> {
   const fontState = await page.evaluate(async () => {
-    const primaryFaces = await document.fonts.load('700 15px "Pretendard"', 'MUSIXQUARE');
+    // Inter for Latin and Noto Sans KR for Hangul, as every UI draws them.
+    const primaryFaces = [
+      ...(await document.fonts.load('700 15px "Inter"', 'MUSIXQUARE')),
+      ...(await document.fonts.load('700 15px "Noto Sans KR"', '한국어')),
+    ];
     // Flush styles after inserting locale probes before awaiting new glyph requests.
     document.body.getBoundingClientRect();
     await document.fonts.ready;

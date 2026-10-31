@@ -77,6 +77,27 @@ async function readPlaybackSnapshot(page: Page): Promise<PlaybackSnapshot> {
   });
 }
 
+/**
+ * Wait until the app's font owner has declared every font sheet (phase B in
+ * src/i18n/locale-fonts.ts) and the browser has loaded the faces the page
+ * shows, so layout specs measure with the final faces. The hook exists only
+ * in dev and e2e builds.
+ */
+export async function waitForAppFonts(page: Page, timeout = 15_000): Promise<void> {
+  await page.waitForFunction(
+    () =>
+      (window as unknown as Record<string, unknown>).__MUSIXQUARE_FONTS_SETTLED__ instanceof
+      Promise,
+    undefined,
+    { timeout },
+  );
+  await page.evaluate(async () => {
+    await (window as unknown as { __MUSIXQUARE_FONTS_SETTLED__: Promise<void> })
+      .__MUSIXQUARE_FONTS_SETTLED__;
+    await document.fonts.ready;
+  });
+}
+
 export async function readPlaybackProjection(page: Page): Promise<PlaybackProjection> {
   const hookProjection = await page.evaluate(() => {
     const hook = (window as unknown as Record<string, unknown>)

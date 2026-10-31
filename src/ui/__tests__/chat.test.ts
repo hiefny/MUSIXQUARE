@@ -28,9 +28,6 @@ const botProtocolMocks = vi.hoisted(() => ({
   publishBotChatResult: vi.fn(() => true),
   rememberPinnedNotice: vi.fn(),
 }));
-const userTextFontMocks = vi.hoisted(() => ({
-  preloadLocaleFontGlyphs: vi.fn(async () => true),
-}));
 const playerTransportMocks = vi.hoisted(() => ({
   seekTo: vi.fn(),
 }));
@@ -50,10 +47,6 @@ vi.mock('../../core/log.ts', () => ({
 
 vi.mock('../../i18n/index.ts', () => ({
   t: vi.fn((key: string) => key),
-}));
-
-vi.mock('../../i18n/locale-fonts.ts', () => ({
-  default: { preloadLocaleFontGlyphs: userTextFontMocks.preloadLocaleFontGlyphs },
 }));
 
 vi.mock('../../network/peer.ts', () => ({
@@ -813,16 +806,16 @@ describe('Chat Module', () => {
         const { addChatMessage, addSystemChatMessage, addWhisperMessage } =
           await import('../chat-render.ts');
 
-        addChatMessage('Пользователь', 'かな', false);
-        addChatMessage('Пользователь', 'ข้อความ', false);
-        addSystemChatMessage('системное сообщение');
+        addChatMessage('小明们', 'かな', false);
+        addChatMessage('小明们', 'ㄅㄆㄇ', false);
+        addSystemChatMessage('系统说明');
         addWhisperMessage('Peer 3', '這麼好', false);
 
         const regularGroup = document.querySelector<HTMLElement>('.chat-group:not(.system)');
         expectFontClasses(
           regularGroup?.querySelector('.chat-sender'),
           'user-text-font',
-          'user-text-font-ru',
+          'user-text-font-zh-hans',
         );
 
         const regularTexts = regularGroup?.querySelectorAll<HTMLElement>('.chat-text');
@@ -831,11 +824,11 @@ describe('Chat Module', () => {
           true,
         );
         expectFontClasses(regularTexts?.[0], 'user-text-font', 'user-text-font-ja');
-        expectFontClasses(regularTexts?.[1], 'user-text-font', 'user-text-font-th');
+        expectFontClasses(regularTexts?.[1], 'user-text-font', 'user-text-font-zh-hant');
         expectFontClasses(
           document.querySelector('.chat-group.system .chat-text'),
           'user-text-font',
-          'user-text-font-ru',
+          'user-text-font-zh-hans',
         );
         expectFontClasses(
           document.querySelector('.chat-group.whisper .chat-text'),
@@ -2120,19 +2113,21 @@ describe('Chat Module', () => {
       const { initChat } = await import('../chat.ts');
       initChat();
 
-      bus.emit('chat:message-rendered', 'Пользователь', 'かな', false);
+      bus.emit('chat:message-rendered', '小明们', 'かな', false);
 
       const preview = document.querySelector<HTMLElement>('.chat-preview-text');
-      expect(preview?.textContent).toBe('\u2068Пользователь\u2069: \u2068かな\u2069');
-      expectFontClasses(preview, 'user-text-font', 'user-text-font-ru', 'user-text-font-ja');
-      expect(preview?.dataset.userTextFonts).toBe('ru ja');
+      expect(preview?.textContent).toBe('\u2068小明们\u2069: \u2068かな\u2069');
+      // Japanese wins the Han order over Simplified Chinese.
+      expectFontClasses(preview, 'user-text-font', 'user-text-font-ja');
+      expect(preview?.classList.contains('user-text-font-zh-hans')).toBe(false);
+      expect(preview?.dataset.userTextFonts).toBe('zh-hans ja');
 
       bus.emit('chat:message-rendered', 'Peer', 'plain text', false);
       expect(preview?.classList.contains('user-text-font')).toBe(false);
       expect(preview?.dataset.userTextFonts).toBeUndefined();
     });
 
-    it('updates the script-aware font while composing in the chat input', async () => {
+    it('updates the Han order while composing in the chat input', async () => {
       renderChatShell();
       const input = document.getElementById('chat-input') as HTMLDivElement;
       input.contentEditable = 'true';
@@ -2142,12 +2137,9 @@ describe('Chat Module', () => {
       input.textContent = '练习 練習';
       input.dispatchEvent(new InputEvent('input', { bubbles: true, inputType: 'insertText' }));
 
-      expectFontClasses(
-        input,
-        'user-text-font',
-        'user-text-font-zh-hans',
-        'user-text-font-zh-hant',
-      );
+      expectFontClasses(input, 'user-text-font', 'user-text-font-zh-hans');
+      expect(input.classList.contains('user-text-font-zh-hant')).toBe(false);
+      expect(input.dataset.userTextFonts).toBe('zh-hans zh-hant');
 
       input.textContent = 'MUSIXQUARE';
       input.dispatchEvent(new InputEvent('input', { bubbles: true, inputType: 'insertText' }));
@@ -2419,12 +2411,12 @@ describe('Chat Module', () => {
       renderNoticeShell();
 
       const { addNoticeChatMessage } = await import('../chat-render.ts');
-      addNoticeChatMessage('ผู้ดูแล', 'かな');
+      addNoticeChatMessage('這麼好', 'かな');
 
       expectFontClasses(
         document.getElementById('chat-pinned-notice-label'),
         'user-text-font',
-        'user-text-font-th',
+        'user-text-font-zh-hant',
       );
       expectFontClasses(
         document.getElementById('chat-pinned-notice-text'),

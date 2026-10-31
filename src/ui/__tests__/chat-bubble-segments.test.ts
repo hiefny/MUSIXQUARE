@@ -19,10 +19,6 @@ vi.mock('../../i18n/index.ts', () => ({
   },
 }));
 
-vi.mock('../../i18n/locale-fonts.ts', () => ({
-  default: { preloadLocaleFontGlyphs: vi.fn(async () => true) },
-}));
-
 vi.mock('../../youtube/oembed.ts', () => ({
   fetchOEmbedTitle: vi.fn(async () => 'Resolved YouTube title'),
 }));
@@ -161,19 +157,23 @@ describe('ordered chat text and YouTube bubbles', () => {
       expect(row.classList.contains('chat-enter')).toBe(true);
   });
 
-  it('keeps source text copyable after titles resolve and applies each text script fallback', async () => {
+  it('keeps source text copyable after titles resolve and gives each text its Han order', async () => {
     vi.mocked(fetchOEmbedTitle).mockResolvedValue('かな title');
-    addChatMessage('Peer', `Привет ${VIDEO_URL} สวัสดี 0:15`, false);
+    addChatMessage('Peer', `这本书 ${VIDEO_URL} 這本書 0:15`, false);
 
-    expect(document.querySelectorAll('.chat-text')[0].classList).toContain('user-text-font-ru');
-    expect(document.querySelectorAll('.chat-text')[2].classList).toContain('user-text-font-th');
+    expect(document.querySelectorAll('.chat-text')[0].classList).toContain(
+      'user-text-font-zh-hans',
+    );
+    expect(document.querySelectorAll('.chat-text')[2].classList).toContain(
+      'user-text-font-zh-hant',
+    );
     expect(
       document.querySelector('.chat-timestamp')?.closest('.chat-bubble')?.classList,
     ).not.toContain('has-youtube');
     await vi.advanceTimersByTimeAsync(100);
 
     expect(fetchOEmbedTitle).toHaveBeenCalledExactlyOnceWith(VIDEO_URL);
-    expect(sources()).toEqual(['Привет', VIDEO_URL, 'สวัสดี 0:15']);
+    expect(sources()).toEqual(['这本书', VIDEO_URL, '這本書 0:15']);
     expect(document.querySelector('.chat-yt-title')?.textContent).toBe('かな title');
     expect(document.querySelector('.chat-yt-title')?.classList).toContain('user-text-font-ja');
   });

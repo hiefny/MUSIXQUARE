@@ -574,9 +574,7 @@ test('renders while the font stylesheet is delayed, then refits the clock after 
   // A local fixture makes late font metrics deterministic without relying on Google.
   await page.route('https://fonts.gstatic.com/screensaver-delayed.woff2', (route) =>
     route.fulfill({
-      path: fileURLToPath(
-        new URL('../public/designsystem/fonts/PretendardVariable.woff2', import.meta.url),
-      ),
+      path: fileURLToPath(new URL('../fonts/inter/inter-latin.woff2', import.meta.url)),
       contentType: 'font/woff2',
       headers: { 'access-control-allow-origin': '*' },
     }),

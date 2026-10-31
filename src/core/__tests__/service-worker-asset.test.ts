@@ -6,7 +6,6 @@ import { describe, expect, it } from 'vitest';
 
 import {
   BUILD_ENTRY_ASSETS_MARKER,
-  OPTIONAL_PRIMARY_FONT_ASSETS_MARKER,
   SERVICE_WORKER_CACHE_VERSION,
   SERVICE_WORKER_CACHE_VERSION_SENTINEL,
   SERVICE_WORKER_OUTPUT_PATH,
@@ -71,7 +70,6 @@ function sourceFixture(): string {
   return [
     `const CACHE_VERSION = '${SERVICE_WORKER_CACHE_VERSION_SENTINEL}';`,
     `const BUILD_ENTRY_ASSETS = [${BUILD_ENTRY_ASSETS_MARKER}];`,
-    `const OPTIONAL_PRIMARY_FONT_ASSETS = [${OPTIONAL_PRIMARY_FONT_ASSETS_MARKER}];`,
   ].join('\n');
 }
 
@@ -106,7 +104,6 @@ describe('strict TypeScript service-worker asset', () => {
   it('compiles one executable classic worker with injected manifests and no sourcemap', async () => {
     const compiled = await compileServiceWorkerAsset(REPO_ROOT, {
       buildEntryAssets: ['./assets/app.js', './assets/app.css'],
-      optionalPrimaryFontAssets: ['./primary-font.css'],
     });
 
     expect(compiled.sourcePath).toBe(SERVICE_WORKER_SOURCE_PATH);
@@ -117,7 +114,9 @@ describe('strict TypeScript service-worker asset', () => {
     );
     expect(compiled.code).toContain('"./assets/app.js"');
     expect(compiled.code).toContain('"./assets/app.css"');
-    expect(compiled.code).toContain('"./primary-font.css"');
+    // The worker stages no font group: there is no second manifest.
+    expect(compiled).not.toHaveProperty('optionalPrimaryFontAssets');
+    expect(compiled.code).not.toContain('OPTIONAL_PRIMARY_FONT_ASSETS');
     expect(compiled.code).not.toContain(SERVICE_WORKER_CACHE_VERSION_SENTINEL);
     expect(compiled.code).not.toContain('sourceMappingURL');
     expect(compiled.code).not.toMatch(/^\s*(?:import|export)\b/mu);

@@ -1346,7 +1346,7 @@ describe('YouTube search result rendering sink', () => {
             {
               videoId: 'DDDDDDDDDDD',
               title: '练习中文',
-              channelTitle: 'Музыка',
+              channelTitle: '這本書',
               thumbnailUrl: '',
               url: 'https://www.youtube.com/watch?v=DDDDDDDDDDD',
             },
@@ -1360,7 +1360,9 @@ describe('YouTube search result rendering sink', () => {
     expect(document.querySelector('.yt-search-title')?.classList).toContain(
       'user-text-font-zh-hans',
     );
-    expect(document.querySelector('.yt-search-channel')?.classList).toContain('user-text-font-ru');
+    expect(document.querySelector('.yt-search-channel')?.classList).toContain(
+      'user-text-font-zh-hant',
+    );
   });
 });
 

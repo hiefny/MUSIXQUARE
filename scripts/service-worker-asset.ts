@@ -4,15 +4,12 @@ import { transformWithEsbuild } from 'vite';
 
 export const SERVICE_WORKER_SOURCE_PATH = 'browser/service-worker.ts';
 export const SERVICE_WORKER_OUTPUT_PATH = 'service-worker.js';
-export const SERVICE_WORKER_CACHE_VERSION = 'v801';
+export const SERVICE_WORKER_CACHE_VERSION = 'v802';
 export const SERVICE_WORKER_CACHE_VERSION_SENTINEL = '__MUSIXQUARE_CACHE_VERSION__';
 export const BUILD_ENTRY_ASSETS_MARKER = '/* __MUSIXQUARE_BUILD_ENTRY_ASSETS__ */';
-export const OPTIONAL_PRIMARY_FONT_ASSETS_MARKER =
-  '/* __MUSIXQUARE_OPTIONAL_PRIMARY_FONT_ASSETS__ */';
 
 export interface ServiceWorkerAssetManifest {
   readonly buildEntryAssets: readonly string[];
-  readonly optionalPrimaryFontAssets: readonly string[];
 }
 
 export interface CompiledServiceWorkerAsset extends ServiceWorkerAssetManifest {
@@ -83,7 +80,6 @@ export async function assertServiceWorkerSourceCompleteness(repoRoot: string): P
   const source = await readFile(sourcePath, 'utf8');
   assertSingleMarker(source, SERVICE_WORKER_CACHE_VERSION_SENTINEL, 'cache-version sentinel');
   assertSingleMarker(source, BUILD_ENTRY_ASSETS_MARKER, 'build manifest marker');
-  assertSingleMarker(source, OPTIONAL_PRIMARY_FONT_ASSETS_MARKER, 'optional font manifest marker');
 }
 
 export function injectServiceWorkerSource(
@@ -92,20 +88,14 @@ export function injectServiceWorkerSource(
 ): string {
   assertSingleMarker(source, SERVICE_WORKER_CACHE_VERSION_SENTINEL, 'cache-version sentinel');
   assertSingleMarker(source, BUILD_ENTRY_ASSETS_MARKER, 'build manifest marker');
-  assertSingleMarker(source, OPTIONAL_PRIMARY_FONT_ASSETS_MARKER, 'optional font manifest marker');
   assertAssetManifest(manifest.buildEntryAssets, 'build manifest');
-  assertAssetManifest(manifest.optionalPrimaryFontAssets, 'optional font manifest');
 
   const buildManifest = manifest.buildEntryAssets
     .map((asset) => JSON.stringify(asset))
     .join(',\n  ');
-  const optionalManifest = manifest.optionalPrimaryFontAssets
-    .map((asset) => JSON.stringify(asset))
-    .join(',\n  ');
   return source
     .replace(SERVICE_WORKER_CACHE_VERSION_SENTINEL, SERVICE_WORKER_CACHE_VERSION)
-    .replace(BUILD_ENTRY_ASSETS_MARKER, buildManifest)
-    .replace(OPTIONAL_PRIMARY_FONT_ASSETS_MARKER, optionalManifest);
+    .replace(BUILD_ENTRY_ASSETS_MARKER, buildManifest);
 }
 
 export function assertServiceWorkerJavaScript(code: string): void {
@@ -115,11 +105,7 @@ export function assertServiceWorkerJavaScript(code: string): void {
   if (/^\s*(?:import|export)\b/mu.test(code)) {
     throw new Error('Service-worker output contains module syntax.');
   }
-  for (const marker of [
-    SERVICE_WORKER_CACHE_VERSION_SENTINEL,
-    BUILD_ENTRY_ASSETS_MARKER,
-    OPTIONAL_PRIMARY_FONT_ASSETS_MARKER,
-  ]) {
+  for (const marker of [SERVICE_WORKER_CACHE_VERSION_SENTINEL, BUILD_ENTRY_ASSETS_MARKER]) {
     if (code.includes(marker)) throw new Error(`Service-worker output retains sentinel: ${marker}`);
   }
   const cacheVersionMatches = [
@@ -136,10 +122,7 @@ export function assertServiceWorkerJavaScript(code: string): void {
 
 export async function compileServiceWorkerAsset(
   repoRoot: string,
-  manifest: ServiceWorkerAssetManifest = {
-    buildEntryAssets: [],
-    optionalPrimaryFontAssets: [],
-  },
+  manifest: ServiceWorkerAssetManifest = { buildEntryAssets: [] },
 ): Promise<CompiledServiceWorkerAsset> {
   await assertServiceWorkerSourceCompleteness(repoRoot);
   const source = await readFile(path.resolve(repoRoot, SERVICE_WORKER_SOURCE_PATH), 'utf8');
@@ -159,7 +142,6 @@ export async function compileServiceWorkerAsset(
     outputPath: SERVICE_WORKER_OUTPUT_PATH,
     cacheVersion: SERVICE_WORKER_CACHE_VERSION,
     buildEntryAssets: manifest.buildEntryAssets,
-    optionalPrimaryFontAssets: manifest.optionalPrimaryFontAssets,
     code: transformed.code,
   };
 }

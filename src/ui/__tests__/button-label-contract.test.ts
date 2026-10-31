@@ -2196,8 +2196,9 @@ describe('action button label contract', () => {
   });
 
   it('turns font hinting off for the media source options and nothing else', () => {
-    // Linux Chromium at device scale 1 hints Pretendard: FreeType snaps each
-    // advance to a whole pixel, so the compact 14px lowercase took the 15px
+    // Linux Chromium at device scale 1 hinted the app font (Pretendard at the
+    // time; Inter and Noto carry hinting too): FreeType snaps each advance to
+    // a whole pixel, so the compact 14px lowercase took the 15px
     // advance and the BETA badge grew 2.5px, and the media source labels
     // wrapped more than 9.0.18 in the PR #510 CI (Critical browser gate,
     // adaptive-actions at 340, 360, 375 and 421px). text-rendering:
@@ -2256,6 +2257,67 @@ describe('action button label contract', () => {
     expect(found).toEqual([
       `css/style.css base null ${OPTION_SELECTOR} text-rendering: geometricPrecision`,
     ]);
+  });
+
+  it('turns font hinting off for Sign out and Delete account and nothing else in the account dialog', () => {
+    // Linux Chromium at device scale 1 hints Inter and Noto as it hinted
+    // Pretendard for the media source options above: FreeType snaps each
+    // advance to a whole pixel. In the PR #548 CI (Critical browser gate,
+    // adaptive-actions at 720x800, 844x390, 1024x768, 1279x800 and
+    // 1280x719) the Filipino (fil-PH) Sign out and Delete account took three
+    // rows with Close in both themes where the 9.0.18 typography took two.
+    // Local Windows runs passed: unhinted, both typographies take three rows
+    // there. text-rendering: geometricPrecision on the two buttons turns
+    // hinting off on Linux, so they take the unhinted advances Windows draws.
+    // Close, the signed-out actions and every other account dialog control
+    // keep the default rendering.
+    const PAIR = ['#btn-account-logout', '#btn-account-delete'];
+    const markup = appMarkup();
+    const actions = markup.getElementById('account-dialog-actions')!;
+    expect([...actions.children].map((element) => `#${element.id}`)).toEqual([
+      ...PAIR,
+      '#btn-account-center-close',
+    ]);
+    const controls = [...markup.querySelectorAll('#account-dialog button, #account-dialog a')];
+    expect(controls.length).toBeGreaterThan(PAIR.length + 1);
+    // Every text-rendering declaration that can reach a control of the
+    // account dialog or what is inside it, by name or by matching the
+    // markup, with page and user states set aside as above.
+    const named =
+      /#btn-account-|account-dialog|account-google-button|account-legal|btn-label-compact|dialog-(?:primary|secondary|danger)(?![\w-])/u;
+    const reaches = (selector: string): boolean => {
+      if (named.test(selector)) return true;
+      const plain = selector
+        .replace(/\[[^\]]*\]/gu, '')
+        .replace(/:(?:lang|dir)\([^)]*\)/gu, '')
+        .replace(/:(?:hover|active|focus-visible|focus-within|focus|disabled)(?![\w-])/gu, '');
+      try {
+        return controls.some(
+          (control) => control.matches(plain) || control.querySelector(plain) !== null,
+        );
+      } catch {
+        return true;
+      }
+    };
+    const found: string[] = [];
+    for (const { path, root } of sheets) {
+      root.walkDecls('text-rendering', (declaration) => {
+        const rule = declaration.parent as unknown as Rule;
+        if (rule.type !== 'rule') return;
+        for (const selector of rule.selectors) {
+          if (!reaches(selector)) continue;
+          found.push(
+            `${path} ${layerOf(rule)} ${conditionOf(rule)} ` +
+              `${selector.replace(/\s+/gu, ' ').trim()} ${declaration.toString()}`,
+          );
+        }
+      });
+    }
+    expect(found).toEqual(
+      PAIR.map(
+        (selector) => `css/style.css base null ${selector} text-rendering: geometricPrecision`,
+      ),
+    );
   });
 
   it('computes cascade order, specificity and media conditions like the browser', () => {

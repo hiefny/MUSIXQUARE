@@ -1,29 +1,22 @@
 /**
- * Script-aware font fallback for text supplied by people or external systems.
+ * Han order for text supplied by people or external systems.
  *
- * UI language cannot identify a nickname/message's script, and Han alone
- * cannot distinguish Japanese, Simplified Chinese, and Traditional Chinese.
- * We therefore load only confidently detected shards. Ambiguous Han keeps the
- * existing conservative system/CJK fallback without making a locale guess.
+ * Every app font family is declared in every UI, so user text never needs a
+ * sheet of its own: Latin, Cyrillic and Greek always draw from Inter, Hangul
+ * from Noto Sans KR, kana from Noto Sans JP, and the other scripts from their
+ * own Noto face. What the UI language cannot know is which Han forms a
+ * nickname or message wants. When the text itself says it is Japanese,
+ * Simplified Chinese or Traditional Chinese, the element gets one order class
+ * and css/style.css draws its Han from that language's family first. Han alone
+ * cannot tell the three apart, so undetected Han follows the UI's order.
+ *
+ * Detection reads only the text, so the same text is marked the same way in
+ * every UI.
  */
 
-import { log } from '../core/log.ts';
-import type { LocaleFontCode } from '../i18n/locale-font-contract.ts';
+type UserTextFontCode = 'ja' | 'zh-hans' | 'zh-hant';
 
 const HIRAGANA_OR_KATAKANA_RE = /[\p{Script=Hiragana}\p{Script=Katakana}]/u;
-const CYRILLIC_RE = /\p{Script=Cyrillic}/u;
-const GREEK_RE = /\p{Script=Greek}/u;
-const ARABIC_RE = /\p{Script=Arabic}/u;
-const HEBREW_RE = /\p{Script=Hebrew}/u;
-const DEVANAGARI_RE = /\p{Script=Devanagari}/u;
-const BENGALI_RE = /\p{Script=Bengali}/u;
-const TAMIL_RE = /\p{Script=Tamil}/u;
-const TELUGU_RE = /\p{Script=Telugu}/u;
-const GUJARATI_RE = /\p{Script=Gujarati}/u;
-const KANNADA_RE = /\p{Script=Kannada}/u;
-const MALAYALAM_RE = /\p{Script=Malayalam}/u;
-const GURMUKHI_RE = /\p{Script=Gurmukhi}/u;
-const THAI_RE = /\p{Script=Thai}/u;
 const BOPOMOFO_RE = /\p{Script=Bopomofo}/u;
 
 // Deliberately conservative, asymmetric markers. Common/ambiguous Han is not
@@ -34,62 +27,30 @@ const TRADITIONAL_HAN_MARKER_RE = /[這們說腦樂聽邊發實應關體裡麼�
 
 // A traditional form such as `練` or `習` is also ordinary Japanese kanji,
 // so it is not strong evidence by itself. When both sides of a known variant
-// pair occur in one user string, however, loading both Chinese shards is the
-// least surprising result and correctly handles mixed-script names/messages.
+// pair occur in one user string, however, the text is Chinese in both forms.
 const SIMPLIFIED_TRADITIONAL_VARIANT_PAIRS = [
   ['练', '練'],
   ['习', '習'],
 ] as const;
 
-const USER_TEXT_FONT_CLASS_BY_CODE: Record<LocaleFontCode, string> = {
-  ar: 'user-text-font-ar',
-  bn: 'user-text-font-bn',
-  bg: 'user-text-font-ru',
-  el: 'user-text-font-el',
-  fa: 'user-text-font-ar',
-  he: 'user-text-font-he',
-  hi: 'user-text-font-hi',
-  ja: 'user-text-font-ja',
-  gu: 'user-text-font-gu',
-  kn: 'user-text-font-kn',
-  ml: 'user-text-font-ml',
-  mr: 'user-text-font-hi',
-  pa: 'user-text-font-pa',
-  ru: 'user-text-font-ru',
-  ta: 'user-text-font-ta',
-  te: 'user-text-font-te',
-  th: 'user-text-font-th',
-  uk: 'user-text-font-ru',
-  ur: 'user-text-font-ar',
-  'zh-hans': 'user-text-font-zh-hans',
-  'zh-hant': 'user-text-font-zh-hant',
-};
-const USER_TEXT_FONT_CLASSES = Object.values(USER_TEXT_FONT_CLASS_BY_CODE);
+/**
+ * The order classes in precedence order: when text is detected as more than
+ * one language, the first one present wins.
+ */
+const USER_TEXT_FONT_ORDER: readonly UserTextFontCode[] = ['ja', 'zh-hans', 'zh-hant'];
 
-function detectUserTextFontCodes(text: string): LocaleFontCode[] {
-  const detected: LocaleFontCode[] = [];
-  const seen = new Set<LocaleFontCode>();
-  const add = (code: LocaleFontCode) => {
-    if (seen.has(code)) return;
-    seen.add(code);
-    detected.push(code);
+const USER_TEXT_FONT_ORDER_CLASSES: readonly string[] = USER_TEXT_FONT_ORDER.map(
+  (code) => `user-text-font-${code}`,
+);
+
+function detectUserTextFontCodes(text: string): UserTextFontCode[] {
+  const detected: UserTextFontCode[] = [];
+  const add = (code: UserTextFontCode) => {
+    if (!detected.includes(code)) detected.push(code);
   };
 
   for (const character of text) {
     if (HIRAGANA_OR_KATAKANA_RE.test(character)) add('ja');
-    else if (CYRILLIC_RE.test(character)) add('ru');
-    else if (GREEK_RE.test(character)) add('el');
-    else if (ARABIC_RE.test(character)) add('ar');
-    else if (HEBREW_RE.test(character)) add('he');
-    else if (DEVANAGARI_RE.test(character)) add('hi');
-    else if (BENGALI_RE.test(character)) add('bn');
-    else if (TAMIL_RE.test(character)) add('ta');
-    else if (TELUGU_RE.test(character)) add('te');
-    else if (GUJARATI_RE.test(character)) add('gu');
-    else if (KANNADA_RE.test(character)) add('kn');
-    else if (MALAYALAM_RE.test(character)) add('ml');
-    else if (GURMUKHI_RE.test(character)) add('pa');
-    else if (THAI_RE.test(character)) add('th');
     else if (BOPOMOFO_RE.test(character)) add('zh-hant');
     else if (SIMPLIFIED_HAN_MARKER_RE.test(character)) add('zh-hans');
     else if (TRADITIONAL_HAN_MARKER_RE.test(character)) add('zh-hant');
@@ -106,36 +67,23 @@ function detectUserTextFontCodes(text: string): LocaleFontCode[] {
 export const detectUserTextFontCodesForTests = detectUserTextFontCodes;
 
 /**
- * Mark one explicit rendering boundary and start any required lazy loads.
- * Callers invoke this after assigning text; no document-wide observer scans
- * unrelated DOM or turns ordinary mutations into font-loading work.
+ * Mark one explicit rendering boundary with its Han order. Callers invoke this
+ * after assigning text; no document-wide observer scans unrelated DOM.
  */
 export function applyUserTextFontFallback(
   element: HTMLElement,
   text = element.textContent || '',
-): readonly LocaleFontCode[] {
+): readonly UserTextFontCode[] {
   const codes = detectUserTextFontCodes(text);
-  element.classList.remove('user-text-font', ...USER_TEXT_FONT_CLASSES);
+  element.classList.remove('user-text-font', ...USER_TEXT_FONT_ORDER_CLASSES);
 
-  if (codes.length === 0) {
+  const order = USER_TEXT_FONT_ORDER.find((code) => codes.includes(code));
+  if (!order) {
     delete element.dataset.userTextFonts;
     return codes;
   }
 
-  element.classList.add('user-text-font');
-  for (const code of codes) {
-    element.classList.add(USER_TEXT_FONT_CLASS_BY_CODE[code]);
-  }
-  // Font infrastructure itself stays outside the initial graph. Register each
-  // detected face and warm only the unicode-range shards used at this render
-  // boundary once the shared lazy module arrives.
-  import('../i18n/locale-fonts.ts')
-    .then(({ default: localeFonts }) =>
-      Promise.all(codes.map((code) => localeFonts.preloadLocaleFontGlyphs(code, text))),
-    )
-    .catch((error) => {
-      log.warn('[UI] User-text font preload escaped its loader boundary', error);
-    });
+  element.classList.add('user-text-font', `user-text-font-${order}`);
   element.dataset.userTextFonts = codes.join(' ');
   return codes;
 }

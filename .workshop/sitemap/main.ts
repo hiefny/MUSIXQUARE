@@ -66,7 +66,7 @@ update();
 function loadNameFont(item: HTMLElement): void {
   const code = item.dataset.locale;
   if (!code || !hasLocaleFont(code)) return;
-  import('../../src/i18n/locale-fonts.ts')
+  import('../../src/i18n/static-page-fonts.ts')
     .then(({ default: fonts }) => fonts.loadLocaleFont(code))
     .catch((error: unknown) => console.warn('[Sitemap] Could not load language font:', error));
 }

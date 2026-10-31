@@ -5,6 +5,7 @@ import ko from '../src/i18n/ko.ts';
 import { LANGUAGE_OPTIONS } from '../src/i18n/locales.ts';
 import { injectPeerServer } from './helpers/peer-server.ts';
 import { setupHostAndStart } from './helpers/setup-flow.ts';
+import { waitForAppFonts } from './helpers/wait.ts';
 
 // These synthetic account/API routes must reach Playwright. A controlling
 // service worker can bypass route interception; SW behavior has separate tests.
@@ -58,7 +59,7 @@ for (const height of [280, 220]) {
     await expect(segments).toHaveCount(2);
     await segments.first().press('Enter');
     await expect(page.locator('#dialog-input-hint')).not.toBeEmpty();
-    await page.evaluate(() => document.fonts.ready);
+    await waitForAppFonts(page);
     await page.setViewportSize({ width: 320, height });
     await page.waitForFunction(() =>
       document
@@ -140,7 +141,7 @@ for (const language of ['el', 'ml', 'ru', 'ta', 'ko', 'en'] as const) {
     await expect(page.locator('#signaling-recovery-message')).toHaveText(
       APP_DICTIONARIES[language]['connect.signaling_expired_detail'],
     );
-    await page.evaluate(() => document.fonts.ready);
+    await waitForAppFonts(page);
 
     for (const viewport of [
       { width: 390, height: 844 },

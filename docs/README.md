@@ -93,6 +93,57 @@ runbooks. Neither belongs in a general setup document.
 
 ## Maintained evidence and completed records
 
+- [App font switch to Inter and Noto, owner decisions (2026-10-31)](design/app-font-inter-noto-2026-10-31.md):
+  implemented and checked locally on the branch `agent/font-switch`, rebased onto main `9e68a7a3`
+  (App runtime equal to 9.0.28 / v801 `aa7baad5`), not merged or released; it ships as App
+  9.0.29 / v802 with target `app` (App runtime paths only, no other Worker, no runtime dependency
+  change) and the update dialog; the version bump `3fc54970` (the content of round 8's `9b93c5b3`)
+  is its last runtime commit, followed only by docs commits. The owner saw the
+  final pictures and on the evening of 2026-10-31 chose to release it now as the next App update,
+  ahead of Phase 6 6A, and moved the iOS 17 and 18 Safari line-height check from a release gate to
+  the first check after the release because no iPhone was at hand. The release owner applied the
+  recommended answers to the other owner questions, which the owner can reverse: the rare symbols
+  that still draw differently in the Korean and English UIs are accepted for now with no symbol
+  face download, the design-system page's wider English samples are accepted, and baking the
+  line-box values into the font files waits on the iPhone check. The release record's §2
+  pre-release item holds the remaining procedure and the checks after the release. The app draws with
+  self-hosted Inter 4 (Latin, Cyrillic, Greek) and Noto (Noto Sans KR v40 shards re-encoded without the Korean
+  `locl`, Noto Sans JP, SC, TC, Thai, Arabic, Hebrew and Indic), so the Korean and English UIs draw
+  the same content with the same faces, widths and pixels. One startup Han order from the
+  browser's languages for every UI except Japanese and Chinese; detected Japanese and Chinese text
+  keeps its own order; CJK `size-adjust` 94% and the line-box overrides from one metrics home with
+  a parity test; Inter's contextual alternates on; no title tracking token; file titles shown NFC.
+  `src/i18n/locale-fonts.ts` is the only font owner (phases A, B and the idle prefetch C, bounded
+  retries), and the Pretendard runtime, the bootstrap font scheduler and the service worker's font
+  group are gone, so no resource-ownership record is needed; About and the sitemap page keep their
+  original sheets, and Pretendard stays deployed for the public pages. The report lists the
+  owner's decisions and the release owner's ten implementation defaults, which the owner can
+  reverse, the departures from the design (separate app sheets, CJK faces cut by
+  their own cmap, the prefetch reading face status because Chromium's `FontFaceSet.check()`
+  answered true for unloaded shards), every visible change for the owner's pictures, the
+  measurements (eager total 531.0 KiB gzip against 9.0.28's 533.1, eager fonts 0; English start screen
+  72,920 B in one file, Korean 249,360 B in 12 files plus 9 prefetched shards), the tests-first
+  commit pairs with their SHAs before and after the rebase, nine QA rounds (round 7
+  rechecking every tests-first commit on its new parent, round 8 the final gate on the bump:
+  `build:checked` and all 37 guards passing, the production candidate 19 / 19, critical E2E with
+  the font identity E2E 104 / 104, the unit suite with only its known git-fixture load timeouts
+  rerun alone; round 9 the first PR #548 CI, which failed `adaptive-actions` on Linux, where
+  font hinting left the Filipino Sign out and Delete account pair one row more than with its
+  9.0.18 typography, fixed tests first by `text-rendering: geometricPrecision` on those two buttons as
+  PR #510 did for the media source options, with the bump re-laid on top and the local gate
+  rerun), the risks, the device checks after the
+  release (first the iOS 17 and 18 Safari line boxes, then iOS 16, Android, the webOS TV) and twelve
+  owner questions with the owner's answer and the recommended answers applied, among them a
+  self-hosted symbol face for the characters no face draws, which still draw in a different device
+  font in the Korean and English UIs (☺ ℹ ∼ ≒ ◈) and are accepted for now. The font
+  guard checks self-hosted faces and coverage in every text stack (KS X 1001 and the swept
+  symbol blocks included, 1,270 recorded gaps), no rule that applies in only one of the Korean
+  and English UIs, `calt` on and no face in the app stylesheets; the initial transfer budget
+  counts fonts that eager stylesheets declare, and `e2e/font-identity.test.ts` (local) compares
+  the two UIs pixel for pixel. A code review round (QA round 5) gave the font owner an attempt
+  deadline, renewed retries, failed-face recovery and an app-shell install of its own chunk, made
+  phase C idle-only and sheet-aware, cut Hangul and kana by script, and kept the Noto Sans KR
+  copyright and license names.
 - [App 9.0.28 train: the PRO SFU fallback prepared beside the LAN-direct attempt with media held, and the playlist current-row icons and PRO upload row numbers (2026-10-31)](design/app-9-0-28-train-2026-10-31.md):
   released on 2026-10-31 11:29 KST in Release 41160043955 (PR #545, squash `aa7baad5`): the next
   App update after 9.0.27 (9.0.28 / v801, App build 801, update dialog; the version bump `f3a9fcbc`

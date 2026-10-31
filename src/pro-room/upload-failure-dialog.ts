@@ -1,4 +1,5 @@
 import type { I18nKey } from '../i18n/index.ts';
+import { getFileDisplayName } from '../player/track-display.ts';
 import { PRO_ROOM_MAX_ASSET_BYTES } from './contracts.ts';
 import type { ProRoomUploadQueue } from './upload-queue.ts';
 
@@ -55,14 +56,17 @@ function failureReasonKey(failure: ProRoomUploadFailureDescription): I18nKey {
   }
 }
 
-/** One dialog line per failed file: its name and the reason it failed. */
+/**
+ * One dialog line per failed file: its name and the reason it failed. The name
+ * is composed (NFC) like the file's upload row.
+ */
 export function describeProRoomUploadFailures(
   failures: readonly ProRoomUploadFailureDescription[],
   translate: Translate,
 ): string[] {
   return failures.map((failure) =>
     translate('pro.upload.failed_file', {
-      name: failure.name,
+      name: getFileDisplayName(failure.name),
       reason: translate(failureReasonKey(failure)),
     }),
   );

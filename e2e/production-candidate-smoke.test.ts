@@ -36,10 +36,6 @@ const WEBKIT_NAVIGATION_TIMEOUT_DIAGNOSTICS = new Set([
     'Fetch API cannot load http',
     `/${E2E_APP_HOST}/api/app-build-floor/effective due to access control checks.`,
   ]),
-  JSON.stringify([
-    'Fetch API cannot load http',
-    `/${E2E_APP_HOST}/designsystem/fonts/PretendardVariable.woff2 due to access control checks.`,
-  ]),
 ]);
 
 function pageErrorSignature(error: Error): string {
@@ -254,9 +250,7 @@ test.describe('Exact production candidate', () => {
         const pathname = new URL(failedRequest.url()).pathname;
         if (
           pathname === '/api/auth/session' ||
-          (pathname === '/api/app-build-floor/effective' &&
-            !answeredFloorReads.has(failedRequest)) ||
-          pathname === '/designsystem/fonts/PretendardVariable.woff2'
+          (pathname === '/api/app-build-floor/effective' && !answeredFloorReads.has(failedRequest))
         ) {
           relevantRequestFailures.push(failedRequest.url());
         }

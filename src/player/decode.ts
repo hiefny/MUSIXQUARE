@@ -6,6 +6,7 @@
  */
 
 import { log } from '../core/log.ts';
+import { getFileDisplayName } from './track-display.ts';
 import { t } from '../i18n/index.ts';
 import { bus } from '../core/events.ts';
 import { batchSetState, getState, setState } from '../core/state.ts';
@@ -337,7 +338,7 @@ export async function loadAndBroadcastFile(
 
   if (!Number.isSafeInteger(sessionId) || sessionId <= 0 || !isCurrentOwner()) return false;
 
-  showLoader(true, t('toast.preparing', { name: file.name }));
+  showLoader(true, t('toast.preparing', { name: getFileDisplayName(file.name) }));
   stopAllMedia({ silent: true });
   if (!isCurrentOwner()) return false;
 

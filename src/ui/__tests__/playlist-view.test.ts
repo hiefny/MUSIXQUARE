@@ -316,6 +316,28 @@ describe('playlist title marquee markup', () => {
 });
 
 describe('PRO upload rows', () => {
+  it('shows a decomposed upload file name composed, as file track titles are', async () => {
+    const decomposed = '각.flac';
+    proRoomUploadQueue = new ProRoomUploadQueue({
+      createId: vi.fn().mockReturnValueOnce(FILE_A),
+      run: async (_input, context) => {
+        await new Promise<void>((_resolve, reject) => {
+          context.signal.addEventListener('abort', () => reject(context.signal.reason), {
+            once: true,
+          });
+        });
+      },
+    });
+    setActiveProRoomUploadQueue(proRoomUploadQueue);
+    initPlaylistView();
+    await vi.dynamicImportSettled();
+
+    proRoomUploadQueue.enqueueFiles([new File(['a'], decomposed)]);
+    await nextAnimationFrame();
+
+    expect(document.querySelector('.pro-upload-name')?.textContent).toBe('각.flac');
+  });
+
   it('renders active uploads as compact file rows with icon-only cancel controls', async () => {
     const progressReporter: { current?: (fraction: number) => void } = {};
     proRoomUploadQueue = new ProRoomUploadQueue({

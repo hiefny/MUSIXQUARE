@@ -29,7 +29,7 @@ Use production files as the authority for implementation details:
 | ----------------------------------------- | ------------------------------------------------------------------------------------------------------------- |
 | App layout and components                 | `index.html`, `css/style.css`, `css/desktop.css`                                                              |
 | Color, spacing, radius, and motion tokens | `css/style.css`                                                                                               |
-| Fonts and locale fallbacks                | `css/pretendard.css`, `css/fonts/`, `fonts/README.md`                                                         |
+| Fonts and locale fallbacks                | `css/fonts/app/`, `css/fonts/`, `fonts/README.md`; `css/pretendard.css` for the public pages                  |
 | In-room app copy                          | `src/i18n/`                                                                                                   |
 | About, policy, and Developer page copy    | `.workshop/`; About locales in `browser/classic-runtime/landing-i18n.ts`                                      |
 | Other static public page copy             | The corresponding source under `public/events/`, `public/blog/`, `public/history/`, or `public/designsystem/` |
@@ -95,11 +95,14 @@ and other longer labels instead of sizing from English alone.
 
 ## Typography
 
-Pretendard Variable is the primary face for Latin and Korean. The complete font
-is self-hosted so arbitrary Korean chat text does not fall back glyph by glyph
-to a platform font. Japanese, Simplified Chinese, Traditional Chinese, Thai,
-and Cyrillic use locale-specific self-hosted Noto fallback shards where
-Pretendard lacks coverage.
+The app draws Latin, Cyrillic and Greek with Inter 4 and everything else with
+Noto: Hangul with Noto Sans KR, kana with Noto Sans JP, Han in the UI's Han
+order (Noto Sans KR first unless the UI or the browser is Japanese or Chinese),
+and Thai, Arabic, Hebrew and the Indic scripts with their own Noto. Every face
+is self-hosted and every family is declared in every UI, so the Korean and
+English UIs draw the same content identically (owner decision 2026-10-31,
+`fonts/README.md`). The public Blog, History and Design System pages and the
+share images still use Pretendard Variable until they switch.
 
 - Use the existing variable-weight range instead of separate font files.
 - Keep every text weight at 700 or below, including titles, codes and badges.
@@ -133,14 +136,11 @@ Pretendard lacks coverage.
   messages, the small line under a name, timestamps, counters, input text
   and placeholders.
   Each rule reads its role's token itself.
-- Titles and display values track by script (owner decision 2026-10-28).
-  Every rule on the title weight reads `--title-letter-spacing`: -0.02em in
-  Latin, Cyrillic and Greek UI languages and 0 in Korean, Japanese,
-  Chinese, Thai, the Indic scripts, Arabic, Urdu, Persian and Hebrew,
-  chosen with `html:lang()` on the document language. Codes and PIN digits
-  keep their own wider tracking, and no other text uses a negative letter
-  spacing; small uppercase labels may track wider. The body kerns its text
-  with `font-kerning: normal`.
+- Titles and display values keep the font's own spacing in every language
+  (owner decision 2026-10-31; the per-script title tracking of 2026-10-28 is
+  gone). Codes and PIN digits keep their own wider tracking, and no text
+  uses a negative letter spacing; small uppercase labels may track wider.
+  The body kerns its text with `font-kerning: normal`.
 - Use tabular numerals for clocks, invite codes, counters, and latency.
 - Keep compact labels legible; do not rely on extreme tracking or uppercase
   for hierarchy.

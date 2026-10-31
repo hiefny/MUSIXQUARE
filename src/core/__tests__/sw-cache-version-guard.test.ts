@@ -242,6 +242,7 @@ describe('service-worker CACHE_VERSION guard', () => {
     ['scripts/browser-target.ts', "export const LEGACY_APP_BROWSER_TARGET = 'chrome80';\n"],
     ['scripts/locale-recovery-assets.ts', 'export const recovery = "changed";\n'],
     ['fonts/noto/noto-sans-devanagari/devanagari.woff2', 'updated locale font bytes'],
+    ['fonts/inter/inter-latin.woff2', 'updated app font bytes'],
     ['tsconfig.ui-kit.json', '{"compilerOptions":{"strict":true}}\n'],
   ])('tracks the browser build input %s as a PWA runtime change', (filePath, source) => {
     const repository = createRepository();

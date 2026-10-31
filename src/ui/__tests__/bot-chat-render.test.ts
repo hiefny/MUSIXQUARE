@@ -5,16 +5,8 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { bus } from '../../core/events.ts';
 import { upsertBotChatMessage } from '../chat-render.ts';
 
-const userTextFontMocks = vi.hoisted(() => ({
-  preloadLocaleFontGlyphs: vi.fn(async () => true),
-}));
-
 vi.mock('../../i18n/index.ts', () => ({
   t: vi.fn((key: string) => key),
-}));
-
-vi.mock('../../i18n/locale-fonts.ts', () => ({
-  default: { preloadLocaleFontGlyphs: userTextFontMocks.preloadLocaleFontGlyphs },
 }));
 
 vi.mock('../../youtube/oembed.ts', () => ({

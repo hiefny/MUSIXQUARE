@@ -328,7 +328,12 @@ export async function initI18n(): Promise<void> {
     window.addEventListener('online', () => {
       if (!_dicts[_resolved] && _localeLoaders[_resolved]) {
         setLanguageMode(_mode);
+        return;
       }
+      _retryFontRuntime();
+    });
+    document.addEventListener('visibilitychange', () => {
+      if (document.visibilityState === 'visible') _retryFontRuntime();
     });
   } catch {
     /* ignore */
@@ -484,6 +489,38 @@ function _translateLoadedLanguage(resolved: LanguageCode): void {
   bus.emit('i18n:changed', resolved);
 }
 
+/** Whether the last import of the font runtime failed, so 'online' or a visible page retries it. */
+let _fontRuntimeFailed = false;
+
+/**
+ * Phase A of the app's font loading, for every language: Inter, the UI's own
+ * script and the first family of its Han order (locale-fonts.ts owns the
+ * sheets, their retries and phase B). Fonts are optional here: a half-open CSS
+ * or runtime request must not hold the dictionary, the translated DOM or the
+ * rest of app bootstrap hostage, and a late completion only declares fonts, so
+ * it cannot select an older locale.
+ *
+ * The runtime is a lazy chunk the service worker installs with the app shell.
+ * When its import fails anyway (a first visit offline, a half-open radio),
+ * its own 'online' and retry listeners never registered, so this module
+ * imports it again on 'online' and when the page becomes visible.
+ */
+function _loadFontRuntime(resolved: LanguageCode): void {
+  void import('./locale-fonts.ts')
+    .then(({ default: localeFonts }) => {
+      _fontRuntimeFailed = false;
+      return localeFonts.loadLanguageFonts(resolved);
+    })
+    .catch((error) => {
+      _fontRuntimeFailed = true;
+      log.warn(`[i18n] Failed to load font runtime for "${resolved}"`, error);
+    });
+}
+
+function _retryFontRuntime(): void {
+  if (_fontRuntimeFailed) _loadFontRuntime(_resolved);
+}
+
 async function _applyLanguage(resolved: LanguageCode): Promise<void> {
   _resolved = resolved;
   try {
@@ -493,17 +530,7 @@ async function _applyLanguage(resolved: LanguageCode): Promise<void> {
     /* ignore */
   }
 
-  // Phase A of the app's font loading, for every language: Inter, the UI's
-  // own script and the first family of its Han order (locale-fonts.ts owns
-  // the sheets, their retries and phase B). Fonts are optional here: a
-  // half-open CSS or runtime request must not hold the dictionary, the
-  // translated DOM or the rest of app bootstrap hostage, and a late
-  // completion only declares fonts, so it cannot select an older locale.
-  void import('./locale-fonts.ts')
-    .then(({ default: localeFonts }) => localeFonts.loadLanguageFonts(resolved))
-    .catch((error) => {
-      log.warn(`[i18n] Failed to load font runtime for "${resolved}"`, error);
-    });
+  _loadFontRuntime(resolved);
 
   if (_dicts[resolved]) {
     _translateLoadedLanguage(resolved);

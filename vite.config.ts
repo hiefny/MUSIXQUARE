@@ -636,6 +636,10 @@ const REVIEWED_DEFERRED_APP_SHELL_ROOTS = [
   '/src/core/sw-hard-reset.ts',
   '/src/demo/mode.ts',
   '/src/diagnostics/sync-flight-recorder.ts',
+  // The app font owner: installed with the app shell so that a failed import
+  // can be retried offline. Its font sheets are dynamic imports and stay out
+  // of the install manifest (scripts/check-app-font.mts --dist).
+  '/src/i18n/locale-fonts.ts',
   '/src/i18n/localized-app-head.ts',
   '/src/network/room-session-feature-runtime.ts',
   '/src/player/media-session.ts',
@@ -666,7 +670,6 @@ const DEFERRED_ENTRY_MODULES = [
   '/src/network/opus-stereo-sdp.ts',
   '/src/pro-room/api.ts',
   '/src/pro-room/upload-queue.ts',
-  '/src/i18n/locale-fonts.ts',
 ] as const;
 
 // QR encoding, PeerJS, Connect, and room-only listeners are needed only after

@@ -33,7 +33,8 @@
  * document or its localized copies, each of the 16 app sheets its own lazy
  * CSS asset with the expected descriptors and root-relative WOFF2 files, the built
  * Inter and Noto Sans KR bytes equal to the sources, no font sheet or file in
- * the service worker's install manifests, About's locale links bound to the
+ * the service worker's install manifests (which do install the font owner
+ * chunk itself), About's locale links bound to the
  * processed original sheets, and Pretendard deployed once for the public
  * pages.
  */
@@ -603,6 +604,14 @@ if (distMode) {
       fonts.length === 0,
       `built service worker ${manifest} installs fonts: ${fonts.join(', ')}`,
     );
+    // The font owner itself installs with the app shell, so a failed import
+    // can be retried offline (vite.config.ts REVIEWED_DEFERRED_APP_SHELL_ROOTS).
+    if (manifest === 'BUILD_ENTRY_ASSETS') {
+      check(
+        entries.some((entry) => builtAssetStem(entry) === 'locale-fonts' && entry.endsWith('.js')),
+        `built service worker ${manifest} does not install the font owner chunk (locale-fonts)`,
+      );
+    }
   }
   check(
     !/primary-font|OPTIONAL_PRIMARY_FONT_ASSETS|mxqr-optional-ready/u.test(distServiceWorker),

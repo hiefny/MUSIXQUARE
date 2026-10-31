@@ -94,7 +94,11 @@ runbooks. Neither belongs in a general setup document.
 ## Maintained evidence and completed records
 
 - [Phase 6 train 6A: one YouTube start timing home, owner queries for the start timers and one verified iframe audio restore (2026-10-31)](design/phase6-6a-start-constants-owner-queries-2026-10-31.md):
-  prepared, not released: App 9.0.30 / v803, target `app`, one update dialog. The first Phase 6 App
+  released on 2026-11-01 05:17 KST in Release 41237978646 (PR #550, squash `3c098e9d`) as App
+  9.0.30 / v803 (App build 803, target `app`, one update dialog; the bump `8d148fff` is the last
+  runtime commit, followed only by two record commits). Only the App Worker changed (`f9c684cb` to
+  `50e0527d`); the PRO room Worker keeps R4's `e7657f88`, the other four their 9.0.22 versions, and
+  the build floor stays 795. The first Phase 6 App
   update (owner answers of 2026-10-30, all recommended: four App updates, each audio restore keeps
   its own rhythm, the deferred app part of Phase 0d rides in this train, a test that reproduces a
   defect pins today's behaviour) on branch `agent/p6-6a`, 21 commits plus three record commits (24
@@ -151,7 +155,26 @@ runbooks. Neither belongs in a general setup document.
   2 fail on the parent guard; after the move, every tests-first pair fails the same rows by name on
   its new parent, `src/youtube` and `src/pro-room` pass in file order and under the four seeds, and
   the T0a goldens pass), mixed versions, the rollback (alone only until 6B merges, then a forward
-  revert) and a blind post-deploy check.
+  revert) and a blind post-deploy check. QA round 9 records the release: before the PR opened, the
+  9.0.29 runtime's Full E2E (41229806902 on main `e51dd292`) passed, which also closed the release
+  record's chat Tab cycle item; the PR CI on head `a530f45e` passed all 11 jobs on its first run,
+  the automated review that opening the PR started ended with no findings, the merge used the
+  prepared squash body (parent `e51dd292`, tree equal to the head), the exact-main CI passed
+  (critical coverage 94 files / 3,763 tests with `iframe-audio.ts` fully covered, critical E2E
+  101 / 101 on Linux), the public floor read just before dispatch showed stored and effective 795
+  with an App report about 46 s old, one Production Release passed every smoke on the first try
+  (checkpoint artifact 13055689762 with the 9.0.29 App `f9c684cb`), the public service worker read
+  v803 and the floor 795 with live App 803, and the Drift Audit reported 32 pass / 0 fail / 5
+  manual-only. The owner was away, so the blind post-deploy device check has not run, the
+  pre-Phase-6 device baseline (Q6) was not measured (its procedure waits in the owner's private
+  question queue), and 6A's own post-merge Full E2E has not run yet; it must pass before 6B merges.
+  The release record's §2 carries the train as post-deploy items (scope and status, the owner
+  answers and the delegation, Q6, rollback, the post-deploy check, the next Phase 6 steps T0b and
+  then 6B, open items), its §4 the 9.0.30 entry and current boundary line (5), and the hotfix
+  procedure's 9.0.25 bullet names 9.0.30's merge SHA, Release ID and App version. The rollback
+  boundary is a forward revert at 9.0.31 / v804 or later; a manual rollback to the checkpoint's
+  9.0.29 App restores a lower epoch, so until the open lower-epoch rule is decided it is only an
+  explicitly reviewed CLI rollback, and 6A can be reverted alone only until 6B merges.
 - [App font switch to Inter and Noto, owner decisions (2026-10-31)](design/app-font-inter-noto-2026-10-31.md):
   released on 2026-10-31 23:39 KST in Release 41210993444 (PR #548, squash `c4667abc`) as App
   9.0.29 / v802 (App build 802, target `app`: App runtime paths only, no other Worker, no runtime
@@ -170,20 +193,23 @@ runbooks. Neither belongs in a general setup document.
   face download, the design-system page's wider English samples are accepted, and baking the
   line-box values into the font files waits on the iPhone check. The owner left at about 23:20 KST
   for about 40 hours with releases and tests delegated, so none of the checks after the release has
-  run yet. The release record's §2 now carries the switch as post-deploy items at its top (scope
+  run yet; Phase 6 6A then shipped as 9.0.30 / v803 (entry above, 2026-11-01 05:17 KST), which changes
+  neither the fonts nor the CSS, so they now run on 9.0.30. The release record's §2 now carries the switch as post-deploy items at its top (scope
   and status, the checks after the release with the iPhone line-height check first, the open rule
   for manual App rollbacks to a lower epoch, and the later
   train that moves the public pages to Inter and Noto and removes the two Pretendard copies), its §4
   the 9.0.29 entry and current boundary line (5) (checkpoint artifact 13045399758, App 9.0.28
   `89ad188d`), and the hotfix procedure's 9.0.25 bullet names 9.0.29's merge SHA, Release ID and
-  App version. The rollback boundary is a forward revert at 9.0.30 / v803 or later; the report
+  App version. The rollback boundary is a forward revert at 9.0.31 / v804 or later now that 9.0.30
+  shipped; the report
   allows a CLI rollback of the App Worker only in the first minutes, before clients take the new
   service worker, and forbids restoring a lower epoch, while the hotfix procedure allows an
   explicitly reviewed CLI rollback to a saved version. A manual rollback after those minutes to a
   checkpoint App below v802 (9.0.28 `89ad188d`, or the 9.0.28 and 9.0.27 entries' urgent targets
   `e3457d38` and `b8dc4281`) is therefore an open item for the owner or release owner; until they
-  decide, the record follows the hotfix procedure: a code revert at 9.0.30 / v803 or later when
-  not urgent, and only an explicitly reviewed CLI rollback when urgent. The app draws with
+  decide, the record follows the hotfix procedure: a code revert at 9.0.31 / v804 or later when
+  not urgent, and only an explicitly reviewed CLI rollback when urgent. Since 9.0.30 shipped, its
+  checkpoint App (9.0.29 `f9c684cb` at v802) is a lower-epoch target under the same rule. The app draws with
   self-hosted Inter 4 (Latin, Cyrillic, Greek) and Noto (Noto Sans KR v40 shards re-encoded without the Korean
   `locl`, Noto Sans JP, SC, TC, Thai, Arabic, Hebrew and Indic), so the Korean and English UIs draw
   the same content with the same faces, widths and pixels. One startup Han order from the
@@ -269,18 +295,19 @@ runbooks. Neither belongs in a general setup document.
   saw pictures of the built playlist beside the approved mockups before the merge; the owner was
   away after the release, so the blind post-deploy checks (the 9.0.27 five-share check first, on
   9.0.28), the owner device checks of the playlist and the R4 late check have not run, and the
-  four owner questions have no answer yet. The App 9.0.29 / v802 font switch (entry above) shipped
-  before those checks (2026-10-31 23:39 KST), so they now run on 9.0.29, which does not change
-  the system audio code, reading the build line as `app=9.0.29 | cacheEpoch=v802`; the 9.0.29 record
-  has no result for them either. The full E2E run that closes the chat Tab cycle item
-  needs no owner device (the next weekly run or a manual dispatch) and has not run either. The
+  four owner questions have no answer yet. The App 9.0.29 / v802 font switch (2026-10-31 23:39 KST)
+  and the App 9.0.30 / v803 Phase 6 6A (2026-11-01 05:17 KST, entries above) shipped before those
+  checks, so they now run on 9.0.30, as neither changes the system audio code, reading the build
+  line as `app=9.0.30 | cacheEpoch=v803`; the 9.0.29 and 9.0.30 records
+  have no result for them either. The Full E2E run 41229806902 on main `e51dd292` (the 9.0.29
+  runtime) passed before 6A merged and closed the chat Tab cycle item. The
   release record's §2 carries the train as post-deploy items (scope and status, the held SFU fallback
   moved from the 9.0.27 section, the post-deploy check and the open owner questions, with the
   playlist follow-up updated in place), its §4 the 9.0.28 entry and current boundary line (5), and
   the hotfix procedure's 9.0.25 bullet names 9.0.28's merge SHA, Release ID and App version. The
-  rollback boundary is a forward revert at 9.0.30 / v803 or later now that 9.0.29 shipped, or the
-  checkpoint's 9.0.27 App without `lower` with the PRO Worker left in place, which now also
-  removes the 9.0.29 font switch and restores a lower service-worker epoch, so until the owner or
+  rollback boundary is a forward revert at 9.0.31 / v804 or later now that 9.0.29 and 9.0.30
+  shipped, or the checkpoint's 9.0.27 App without `lower` with the PRO Worker left in place, which
+  now also removes the 9.0.29 font switch and 6A and restores a lower service-worker epoch, so until the owner or
   release owner decides the open rule in the 9.0.29 entry above, only as an explicitly reviewed CLI
   rollback under the hotfix procedure.
   Increment notes: [held SFU fallback](design/pro-system-audio-speculative-sfu-2026-10-31.md),
@@ -382,22 +409,26 @@ runbooks. Neither belongs in a general setup document.
   report about 20 s old), one Production Release whose smokes all passed on the first try, the
   public service worker at v800, the public floor at 795 with live App 800, and the Drift Audit at
   32 pass / 0 fail / 5 manual-only. The owner delegated the release before going to sleep, so the
-  blind post-deploy check and the full E2E run that closes the chat Tab cycle item have not run yet;
-  they were for the morning, and 9.0.28 and then 9.0.29 shipped first (2026-10-31 11:29 and 23:39
-  KST, entries above), so the blind check now runs on 9.0.29 reading only its build line; neither
-  had run by the 9.0.28 record, and the 9.0.29 record has no result for them either. The release record's §2 carries the train as post-deploy items (scope and status, the
+  blind post-deploy check has not run yet; it was for the morning, and 9.0.28, 9.0.29 and 9.0.30
+  shipped first (2026-10-31 11:29 and 23:39 KST, 2026-11-01 05:17 KST, entries above), so the blind
+  check now runs on 9.0.30 reading only its build line, and none of those records has a result for
+  it. The full E2E run that closes the chat Tab cycle item, 41229806902 on main `e51dd292` (the
+  9.0.29 runtime, which carries this fix), passed on 2026-11-01 before 6A merged, so the release
+  record closed that item. The release record's §2 carries the train as post-deploy items (scope and status, the
   LAN-direct pair judgement and `no-lan-candidate`, the post-deploy check, the 9.0.28 plan, now a
-  pointer to the 9.0.28 section, and the chat Tab cycle follow-up), its §4 the 9.0.27 entry and
+  pointer to the 9.0.28 section, and the chat Tab cycle follow-up, now closed), its §4 the 9.0.27 entry and
   current boundary line (5) (checkpoint artifact 13005387697, App 9.0.26 `b8dc4281`), and the
   hotfix procedure's 9.0.25 bullet names 9.0.27's merge SHA, Release ID and App version. The
-  rollback boundary is a forward revert at 9.0.30 / v803 or later now that 9.0.28 and 9.0.29
+  rollback boundary is a forward revert at 9.0.31 / v804 or later now that 9.0.28 to 9.0.30
   shipped, or the checkpoint's 9.0.26 App without `lower` with the PRO Worker left in place, which
-  now also removes 9.0.28 and the 9.0.29 font switch and restores a lower service-worker epoch
+  now also removes 9.0.28, the 9.0.29 font switch and 9.0.30 and restores a lower service-worker epoch
   (the same open rule as in the 9.0.28 entry).
 - [Chat keyboard and screen reader focus: the sheet's Tab cycle, a hiding pinned notice, removed messages (2026-10-30)](design/chat-keyboard-focus-2026-10-30.md):
   released on 2026-10-31 04:31 KST in the App 9.0.27 / v800 train above (owner decision 2026-10-30:
   nothing on screen changes, keyboard behaviour only); the release record's chat sheet Tab cycle item
-  closes only with a full E2E run on main that includes these rows, which has not run yet. The
+  closed with the Full E2E run 41229806902 on main `e51dd292` (2026-11-01, the 9.0.29 runtime), whose
+  28 `ui-comprehensive` rows, these five among them, passed on Linux Chromium; real devices, screen
+  readers and WebKit were not covered. The
   note's own Status cell keeps its pre-release text; the train report and the release record hold
   the release state. The phone and tablet chat sheet's Tab cycle skips the
   hidden pinned notice's buttons, and when a pinned notice hides or a focused message is cleared or
@@ -410,7 +441,7 @@ runbooks. Neither belongs in a general setup document.
   into the App 9.0.27 / v800 train above and with it onto main `8f171535` (README conflicts only);
   released on 2026-10-31 04:31 KST in that train, bumped by `676a1670` (target `app`; owner
   decision 2026-10-30, nothing on screen changes); not yet seen in production, since the blind
-  post-deploy check has not run (it now runs on 9.0.29; 9.0.28 and 9.0.29 shipped first). Its post-deploy reading table now names the
+  post-deploy check has not run (it now runs on 9.0.30; 9.0.28 to 9.0.30 shipped first). Its post-deploy reading table now names the
   `no-lan-candidate` gathering lines the train added on the owner's answer of 2026-10-31. The
   note's own Status cell keeps its
   pre-train text; the train report and the release record hold the release state. In the 9.0.26
@@ -505,7 +536,7 @@ runbooks. Neither belongs in a general setup document.
   lines. The release record's §2 carries both increments as post-deploy items, its §4 the 9.0.26
   entry and current boundary line (5) (checkpoint artifact 12953960262, App 9.0.25 `b4e8fc56`), and
   the hotfix procedure's 9.0.25 bullet names 9.0.26's merge SHA, Release ID and App version. The
-  rollback boundary is a forward revert at 9.0.30 / v803 or later now that 9.0.27 to 9.0.29 shipped, or the
+  rollback boundary is a forward revert at 9.0.31 / v804 or later now that 9.0.27 to 9.0.30 shipped, or the
   checkpoint's 9.0.25 App without `lower` with the PRO Worker left in place.
 - [PRO system-audio LAN-direct in one round trip (2026-10-30)](design/pro-lan-direct-one-round-trip-2026-10-30.md):
   released on 2026-10-30 13:08 KST in the App 9.0.26 / v799 train above (target `app`). On a
@@ -536,8 +567,8 @@ runbooks. Neither belongs in a general setup document.
   on its parent), the checks on `d4f11e1d`, the 390x844 light and dark screenshots before and after
   (kept outside the repository for the owner; only the X's glyph differs), the owner step for
   `chat.close` translation suggestions after the release, a gap in the sheet's keyboard Tab cycle
-  found on the way and left as it was (now a follow-up item in the release record, fixed in the App
-  9.0.27 train), and what was not verified. Its finding says jsdom focuses hidden buttons, so unit
+  found on the way and left as it was (a follow-up item in the release record, fixed in the App
+  9.0.27 train and closed with the Full E2E run of 2026-11-01), and what was not verified. Its finding says jsdom focuses hidden buttons, so unit
   tests cannot catch the gap; that is wrong under the repository's jsdom 30.1.2, and the chat
   keyboard focus note corrects it without changing this note.
 - [Phase 5.5 R3: the App stops reading PRO snapshot schemaVersion 1, 9.0.25 (2026-10-30)](design/phase5-5-r3-v1-receive-stop-2026-10-30.md):
@@ -611,7 +642,7 @@ runbooks. Neither belongs in a general setup document.
   runtime-dependency merge freeze; its §4 entry and current boundary lines (5) and (8) name the
   merge SHA, the Release ID and checkpoint artifact 12938145012 (App 9.0.24 `dd820d37`), and the
   hotfix procedure's 9.0.25 sentence names the merge SHA and the Release ID. The rollback boundary
-  is a forward revert at 9.0.30 / v803 or later now that 9.0.26 to 9.0.29 shipped, or the
+  is a forward revert at 9.0.31 / v804 or later now that 9.0.26 to 9.0.30 shipped, or the
   checkpoint's 9.0.24 App without `lower` with the PRO Worker left in place. The App 9.0.26 train
   (entry above) replaced
   the two-round-trip LAN-direct negotiation with one round trip on 2026-10-30 13:08 KST.
@@ -659,7 +690,7 @@ runbooks. Neither belongs in a general setup document.
   Analytics counts the `/translate` arrivals over the next days). The release record's §2 now
   carries the 9.0.24 post-deploy items (scope and status, post-deploy checks with owner device
   check candidates, none with results yet, and the arrivals the loader does not count) and §4 its
-  rollback boundary (a forward revert at 9.0.30 / v803 or later now that 9.0.25 to 9.0.29 shipped,
+  rollback boundary (a forward revert at 9.0.31 / v804 or later now that 9.0.25 to 9.0.30 shipped,
   or the checkpoint's 9.0.23 App `dddfabe3` without `lower`). Phase 5.5 R3, where the App stops receiving
   PRO snapshot schemaVersion 1, shipped next as 9.0.25 / v798 on 2026-10-30 07:18 KST (entry above).
 - [Phase 5.5 R2: the PRO Worker sends PRO snapshot schemaVersion 2 (2026-10-29)](design/phase5-5-r2-v2-send-2026-10-29.md):
@@ -760,7 +791,7 @@ runbooks. Neither belongs in a general setup document.
   5 manual-only). The release record's §2 now carries the 9.0.23 post-deploy items (scope and status,
   post-deploy checks with the owner device check list, and open owner items with the owner step for
   outdated approved translation suggestions, now six keys with the Swedish one) and §4 its rollback
-  boundary (a forward revert at 9.0.30 / v803 or later now that 9.0.24 to 9.0.29 shipped, or the checkpoint's 9.0.22 App `e8966418`
+  boundary (a forward revert at 9.0.31 / v804 or later now that 9.0.24 to 9.0.30 shipped, or the checkpoint's 9.0.22 App `e8966418`
   without `lower`); the record closed the 9.0.20 owner items this train implemented.
 - [Phase 5.5 R1: old-version removal train 3 and PRO snapshot v2 reading, 9.0.22 (2026-10-29)](design/phase5-5-r1-train3-v2-accept-2026-10-29.md):
   released on 2026-10-29 18:35 KST in Release 40850068382 (PR #524, squash `71f5b96c`): the first
@@ -810,7 +841,7 @@ runbooks. Neither belongs in a general setup document.
   not verified. The release record's §2 now carries the 9.0.22 post-deploy items (scope and
   status, the owner device checks, and the Phase 5.5 steps: F2 to build 795, R2 and R3, all done
   on 2026-10-30) and §4 its entry
-  (a forward revert at 9.0.30 / v803 or later now that 9.0.23 to 9.0.29 shipped, or the checkpoint's 9.0.21 App `06e79397` and
+  (a forward revert at 9.0.31 / v804 or later now that 9.0.23 to 9.0.30 shipped, or the checkpoint's 9.0.21 App `06e79397` and
   9.0.20 Workers); with the F1 evidence the record closed the release A item's device check of a
   mixed room with a 9.0.14 device.
 - [UI follow-up train 9.0.21: transient text at 600 and chips on one line (2026-10-29)](design/ui-followup-921-2026-10-29.md):
@@ -840,7 +871,7 @@ runbooks. Neither belongs in a general setup document.
   with identical patches, and its assembly review moved the bump after the review fixes. The release
   record's §2 now carries the 9.0.21 post-deploy items (scope and status, post-deploy checks, open
   owner items and the owner step for outdated approved translation suggestions) and §4 its rollback
-  boundary (a forward revert at 9.0.30 / v803 or later now that 9.0.22 to 9.0.29 shipped, or the checkpoint's 9.0.20 App
+  boundary (a forward revert at 9.0.31 / v804 or later now that 9.0.22 to 9.0.30 shipped, or the checkpoint's 9.0.20 App
   `50d6557f`); the release closed the focus race item and the 9.0.20 owner decisions this train
   implemented. The report lists the owner decisions, each
   increment with its commits and tests-first evidence, the SHA map after assembly, the review

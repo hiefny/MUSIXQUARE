@@ -46,6 +46,98 @@ gh run list --workflow e2e.yml --branch main --limit 3
 해결하면 근거(커밋, 실행 ID, 문서)를 PR 설명에 적고 이 목록에서 지운다. 근거
 없이 완료로 표시하지 않는다.
 
+### Phase 6 6A(YouTube 시작 시간 집, 시작 타이머 소유자 질의, 검증 복원 하나, 다음 App 패치) 배포 전: 오너가 깨어 있을 때, 앱 글꼴 업데이트와의 순서를 오너가 정한 뒤에만 낸다
+
+- [ ] 범위와 상태(오너 답 2026-10-30, 미병합·미배포, 버전 올리기 전): Phase 6의 첫 App 업데이트(6A)다. 다음 App 패치(번호는
+      아래 배포 조건 (2)의 순서로 정함)로 target `app`, 업데이트 창 한 번(Q1의 넷 가운데 첫째, 창 모양은 지금 그대로), 바닥 795
+      그대로다. 중립이다: [화면 그대로], 소리, 와이어(`src/network/protocol.ts`, `src/types/index.ts`, `src/core/constants.ts`,
+      `cloudflare/`), 타이머 이름, 로그 줄이 바뀌지 않는다. 실은 것: 6A-1(H3) 다른 모듈이 시작 타이머를 이름으로 읽지 않고 그
+      주인에게 묻는다(`isYouTubeAutoSyncPending`과 `sync.ts`가 native-control 권한에 등록하는 질의, PRO 넛지는 이름으로 계속 읽음).
+      6A-2 `resetYouTubeSyncState`가 되풀이하는 `'yt-clock-action'` 직접 지우기와 아무도 걸지 않는 `'yt-mix-snapshot'` 지우기를
+      지운다. 6A-3(C2-1) YouTube 시작 시간 값을 `src/youtube/constants.ts`의 값마다 이름 붙인 export로 모은다(숫자 그대로, 보내는
+      쪽 끝값을 받는 쪽에 넣는 parity 시험). 6A-4(C2-3) 여섯 오디오 복원 루프가 새 `src/youtube/iframe-audio.ts`(RO-12)의 검증
+      복원 하나를 쓰되 박자, 울타리, 확인, 결과, 타이머 키를 그대로 지킨다. 브랜치 `agent/p6-6a`는 main `9e68a7a3`(App 9.0.28 #545,
+      그 기록 #546, 시험만 #547 뒤) 위 24커밋(테스트 먼저 7, 코드 7, 가드만 2, 시험만 4, 주석·레지스트리만 1, 기록 3. 처음 main
+      `599465dd` 위에서 만들어 2026-10-31 20:30 KST에 패치 그대로 옮김, 머리 `77c34a25`)과 옮김을 적은 기록 커밋 둘이다. main
+      `9e68a7a3`와 운영 배포 SHA(App 9.0.28 `aa7baad5`, PRO room `683074bc`, 다른 넷 9.0.22 `71f5b96c`) 어느 쪽과 견줘도 런타임
+      경로 변경은 App 13(`src/youtube/`의 열, `src/player/playlist.ts`, `src/pro-room/`의 `playback-controller.ts`와
+      `playback-authority-hooks.ts`), 나머지 다섯 Worker 0이고 App 런타임 의존성 차이가 없어 target `app`이다(로컬 판정, 릴리스의
+      부분 릴리스 검사를 대신하지 않음). D1, 비밀, 바인딩, Wrangler 설정, CORS, 계약 표지, 저장 데이터 모양, 의존성은 바뀌지
+      않는다. 자원 소유권 49 records / 451 files(새 레코드 없음, RO-02·RO-03·RO-12의 주인 이동), CHECK 11 44 → 32, CHECK 12 읽기
+      14 → 11과 지우기 10 → 9, CHECK 5 복사 2 → 1. 로컬 QA는 보고서 라운드 1 ~ 5(옮기기 전: 테스트 먼저는 부모에서 바꾼 행만 실패,
+      단위 전체 727 files / 17,222 통과와 jq 없는 PC의 건너뜀 1, 핵심·Worker 커버리지, `guard:sw-cache-version`을 뺀 모든 가드와
+      `build:checked` 단계, 로컬 Playwright critical 100 / 100과 YouTube 여덟 spec 41 / 41)와 라운드 6(옮긴 뒤: 테스트 먼저 일곱 쌍이
+      새 부모에서 처음 부모와 같은 이름의 행만 실패하고 코드 커밋은 모두 통과, `src/youtube` 1,907과 `src/pro-room` 2,914가 파일
+      순서와 shuffle 네 seed에서 모두 통과, T0a 골든 36 files / 1,538, typecheck, 자원 소유권, 계약 동결 diff 비어 있음, 첫 로딩
+      크기)다. 옮긴 뒤 단위 전체, lint, `build:checked` 사슬, 커버리지, Playwright는 다시 돌리지 않았다. 버전 올리기, PR, PR CI,
+      자동 코드 리뷰, exact-main CI, 배포는 아직이고 로컬 결과는 exact-main-SHA 후보를 대신하지 않는다. 배포 뒤 기록 PR이 이 항목을
+      '배포 뒤 확인'으로 바꾼다.
+      [변경·QA 보고서](design/phase6-6a-start-constants-owner-queries-2026-10-31.md),
+      [증분 한눈에](design/phase6-6a-start-constants-owner-queries-2026-10-31.md#증분-한눈에),
+      [QA 라운드 6](design/phase6-6a-start-constants-owner-queries-2026-10-31.md#6-main-9e68a7a3-위로-옮김과-재확인).
+- [ ] 기댄 오너 답(2026-10-30, 모두 권장, 게이트 아님): Q0(PRO 정리 R4가 나간 뒤 따로 '시작' 없이 Phase 6을 시험·가드만인
+      T0a·T1부터 시작, 6A는 그 다음), Q1(Phase 6을 App 업데이트 넷 6A ~ 6D로, 6A가 첫째), Q3(소리를 되돌리는 박자는 공용 코드로
+      옮기되 각자 그대로: `'settle-then-verify'`, `'verify-then-settle'`, 두 복구의 해제 앞 50 ms 폴), Q4(미뤄 둔 App 쪽 Phase 0d
+      상수 정리 C2-1을 첫 업데이트에), Q18(시험이 결함을 재현하면 오늘 동작으로 고정하고 결함마다 따로 묻기. 이 열차의 새 행은 모두
+      오늘 동작을 고정했고 결함으로 적은 행은 없다), Q29(증분 +300 B나 Phase 순증 +200 B를 넘으면 멈추고 잰 숫자로 묻기, 확인만
+      묶음에서 추천대로). 6A-3의 객체 모양 집이 eager JS를 바탕보다 gzip 237 B 늘려 상한을 넘자 보고서 오너 질문 1의 권장안 (가)대로
+      크기 후속(값마다 이름 붙인 export, 값과 읽는 곳 그대로, 그 가드 보강 포함)을 실었고, 처음 받는 코드는 이제 바탕보다 작다:
+      처음 바탕 `599465dd`에서 증분 차의 합 −149 B(eager 전체 −152 B), 옮긴 바탕 `9e68a7a3`과 머리를 다시 빌드해 견주면 eager JS와
+      eager 전체 모두 gzip −114 B(진입 청크 raw −1,788 B, `guard:initial-transfer-budget` 통과). 그래서 Q29의 멈춤 조건은 해당하지
+      않는다. 계획의 공용 플레이어 상태 이름(6A-3 (가))은 보고서 오너 질문 2의 권장안대로 싣지 않고 뒤 열차에서 크기와 함께 다시
+      본다.
+      [오너 결정](design/phase6-6a-start-constants-owner-queries-2026-10-31.md#오너-결정-2026-10-30-모두-권장),
+      [번들 크기](design/phase6-6a-start-constants-owner-queries-2026-10-31.md#번들-크기),
+      [오너에게](design/phase6-6a-start-constants-owner-queries-2026-10-31.md#오너에게).
+- [ ] 배포 조건(모두 채운 뒤에만 머지하고 dispatch한다): (1) 오너가 깨어 있다. Phase 6 업데이트 열차는 오너가 깨어 있을 때만
+      낸다(오너 결정 2026-10-31). 자동 게이트가 모두 통과해도 오너가 자리에 없으면 내지 않는다. (2) 오너가 앱 글꼴 업데이트(따로
+      준비 중인 App 열차, [화면 바뀜], 업데이트 창)와의 순서를 정했다. 이 기록까지 정하지 않았다(보고서 오너 질문 3). 둘은 한 번에
+      한 열차로 내고, 나중에 내는 쪽을 먼저 나간 쪽의 배포 기록 위로 옮겨 테스트 먼저 커밋을 새 부모에서 다시 돌리고 첫 로딩
+      크기를 다시 잰다. (3) main 런타임이 배포본과 같다(지금 main `9e68a7a3`는 운영 App 9.0.28 `aa7baad5` 위에 문서와 시험만).
+      main이 움직이면 다시 옮기고 재확인한다. 이 배포까지 런타임 의존성 변경(Dependabot 포함)을 머지하지 않는다. (4) 버전 올리기
+      커밋이 마지막 런타임 커밋이다: 다음 App 패치와 SW epoch를 거울 여섯 파일의 일곱 줄(`package.json`, `package-lock.json`의 두
+      줄, `ADMIN_SCRIPT_VERSION`, `ADMIN_ASSET_VERSION`, SW 캐시 epoch, `index.html`의 `/bootstrap.js?cache=` 쿼리)에 올리고, 그 뒤
+      `guard:sw-cache-version` PASS, `guard:release-identity` 새 버전, `build:checked`, 단위 전체, 핵심·Worker 커버리지, critical
+      E2E와 YouTube 여덟 spec이 통과하며, 계약 동결 diff는 `cloudflare/app-worker.ts`의 버전 한 줄만 보인다. 같은 변경에서 남은
+      기록을 고친다: 이 항목의 버전 번호와 머리 SHA, 9.0.22 항목의 '2.3 s 준비 예산과 공유 시간 집의 순서 시험(Phase 0d C2-1)은
+      보지 않았다' 구절(순서 시험이 6A-3에 생김), 'Android YouTube 출력 정렬·혼합 버전' 항목의 혼합 버전 문장(Q21: 바닥 795를
+      근거로 닫고 출력 정렬 실측은 남김), 레지스트리 배포 묶음 문단의 Phase 6 App 업데이트 넷(Q1). (5) PR CI, 자동 코드 리뷰,
+      dispatch 직전 머지, exact-main CI success, 그 뒤 Release target `app`, Developer API D1 false, `raise_app_build_floor` false.
+      (6) 배포 직후 공개 최소 빌드 상태(저장·유효 795, 새 live App 빌드)와 Operations Drift Audit을 보고, 아래 배포 직후 확인을
+      건넨다. 머지 뒤 main SHA에서 Full E2E를 한 번 돌려 보고서 QA 라운드에 적되 exact-main 후보로 쓰지 않는다. 배포 기록 PR은 §1과
+      `Last source review`를 덮어쓰고 `release-history.md`에 한 행을 더한다.
+      [배포 조건과 순서](design/phase6-6a-start-constants-owner-queries-2026-10-31.md#배포-조건과-순서-릴리스-담당).
+- [ ] 되돌리기(보고서 '되돌리기', 계획대로): 새 경계는 없다(계약 표지, D1, 저장 모양, 바닥을 바꾸지 않아 forward floor가 생기지
+      않음). 기본은 더 높은 SemVer·epoch의 앞으로 고치기다. 실패한 `app`의 자동 복구와 손 되돌리기는 그 릴리스 checkpoint의 App,
+      곧 dispatch 때의 운영 App으로 간다(지금은 9.0.28 / v801, 빌드 801, App 버전 `89ad188d`. 앱 글꼴 업데이트가 먼저 나가면 그
+      App). 795 이상이라 `lower`가 필요 없고 PRO는 그대로이며, 와이어가 같아 되돌린 App과 6A가 섞인 방도 같은 프레임을 같은 시각에
+      보낸다. 손 되돌리기도 배포라 기록 PR과 이력 한 행을 내고, 출처 없는 버전의 다음 수리 릴리스는
+      [운영](hotfix-procedure.md#normal-hotfix)대로 정한다. 6A만 혼자 되돌릴 수 있는 것은 6B가 머지되기 전까지다: 6B 장부가 6A-1의
+      소유자 질의와 6A-3의 상수를, 6C-2가 6A-4의 `iframe-audio.ts`를, 6D-1이 6A-3의 1,800 ms와 120 ms × 8을 쓴다(계획). 그 뒤에는
+      6A부터 가장 최근 열차까지 새 `agent/` 갈래에서 거꾸로 되돌리고 다음 SemVer·epoch, 전체 게이트, App 릴리스, 기록으로 앞으로
+      되돌리며, 그 업데이트 창은 Q1의 넷 밖이다. 6A 커밋들이 가드 기준치와 레지스트리를 같은 커밋에서 옮겼으므로 되돌리면 함께
+      돌아오고, 이름마다 세는 CHECK 12(`3e80f168`)만 남기고 6A-1을 되돌리면 읽기 기준치와 RO-02 기록을 함께 올린다.
+      [되돌리기](design/phase6-6a-start-constants-owner-queries-2026-10-31.md#되돌리기),
+      [혼합 버전](design/phase6-6a-start-constants-owner-queries-2026-10-31.md#혼합-버전).
+- [ ] 배포 직후 확인(블라인드, 게이트 아님, 계획의 6A 기기 후보, 배포 뒤): 보고서 '배포 뒤 확인'의 절차만 확인하는 사람에게
+      건네고(모든 기기 주소 끝 `?mxqrLog=debug`, 단계마다 `/debug console`의 `[YouTube`와 `[PRO` 줄, 앱 정보의 버전 번호) 판정 기준은
+      건네지 않으며, 받은 관찰값을 보고서 기준과 견줘 QA 라운드에 적는다. 후보: (A) 일반방 zero-start 예열 중 일시정지와 볼륨
+      0(데스크톱 Chrome 방장, iPhone Safari와 Android Chrome 게스트, iPhone Safari 방장 한 번, Mac Safari 한 번, Android 블루투스
+      이어폰 한 번, 약 35분), (B) PRO 준비 중 Android 이어폰 버튼 일시정지(`/debug sync`의 `youtube-release` 기록, 약 10분), (C) 시작
+      직후의 헤드셋·잠금 화면(H3: 방장 seek 직후 2초 안과 게스트가 수동 오프셋 시작을 기다리는 동안, iPhone 방장 한 번, 약 25분).
+      기준선(Q6, 6A 배포 전 운영에서 같은 절차)은 아직 없다. 기기가 없는 단계는 '기기 없음'이고 실패가 아니다. 실패하면: 일시적
+      네트워크로 설명되지 않는 어긋남이면 위 되돌리기대로 앞으로 고치기나 checkpoint App으로의 손 되돌리기를 정한다. 운영
+      브라우저의 업데이트 창도 배포 뒤에 본다.
+      [배포 뒤 확인](design/phase6-6a-start-constants-owner-queries-2026-10-31.md#배포-뒤-확인-블라인드-게이트-아님).
+- [ ] 열린 항목과 확인하지 않은 것(보고서, 게이트 아님): 실기기, iOS Safari와 WebKit 레인(`setup-youtube-activation.test.ts`
+      포함), 블루투스, Full E2E, PR CI, exact-main CI, 버전 올리기 뒤의 `guard:sw-cache-version`과 `build:checked` 사슬 전체, 옮긴
+      뒤 다시 돌리지 않은 단위 전체·lint·커버리지·Playwright(QA 라운드 6). 계획의 공용 상태 이름 (가)의 크기는 낱개 이름 집 위에서
+      재지 않았다. CHECK 5가 여전히 잡지 않는 사본(이름이 다른 사본, 값 넷 이하를 나누는 객체, 집이 계약에 없는 파일의 사본. 예:
+      `src/pro-room/playback-controller.ts`에 다시 적은 40 ms 따라잡기 허용치, 바탕부터 있던 틈)은 리뷰로 본다. 이 열차가 새로 연
+      결함 질문(Q18)은 없다. 오너가 정할 것은 배포 때와 앱 글꼴 업데이트와의 순서다(위 배포 조건 (1), (2), 보고서 오너 질문 3).
+      영역 조사의 기기 시간(A 35분, B 10분, C 25분)은 추정이다.
+      [확인하지 않은 것](design/phase6-6a-start-constants-owner-queries-2026-10-31.md#확인하지-않은-것).
+
 ### App 9.0.29 앱 글꼴 Inter·Noto 전환(9.0.29/v802) 배포 뒤 확인: iPhone Safari 줄 높이가 처음, 오너가 돌아온 뒤에
 
 - [ ] 범위와 상태(오너 결정 2026-10-31, 오너 답 2026-10-31 저녁, PR #548, 배포 뒤): 앱 글꼴 전환이 App 9.0.29 / v802(target

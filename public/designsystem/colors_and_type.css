@@ -130,11 +130,8 @@
   --font-weight-unselected: 500;
   --font-weight-label: 600;
   --font-weight-body: 400;
-  /* Title tracking by script: titles and display values read it, -0.02em in
-     Latin, Cyrillic and Greek UI languages and 0 in the scripts the
-     html:lang() rule below lists. Codes and PIN digits keep their own wider
-     tracking, and no other text tightens. */
-  --title-letter-spacing: -0.02em;
+  /* Titles keep the font's own spacing in every language. Codes and PIN
+     digits keep their own wider tracking, and no text tightens. */
   /* Button label roles; labels in one role differ only by color. CTA (every
      action button) 15px, chip (choice chips) 14px, tab (section tabs and
      segments) 13px. Action buttons take the label weight in every size
@@ -161,28 +158,6 @@
 
   /* Letter spacing of codes and small uppercase labels */
   --ls-wide: 0.1em; /* invite-code */
-}
-
-/* Titles keep their natural spacing in Korean, Japanese, Chinese, Thai, the
-   Indic scripts, Arabic, Urdu, Persian and Hebrew. */
-html:lang(ko),
-html:lang(ja),
-html:lang(zh),
-html:lang(th),
-html:lang(hi),
-html:lang(bn),
-html:lang(ta),
-html:lang(te),
-html:lang(mr),
-html:lang(gu),
-html:lang(kn),
-html:lang(ml),
-html:lang(pa),
-html:lang(ar),
-html:lang(ur),
-html:lang(fa),
-html:lang(he) {
-  --title-letter-spacing: 0;
 }
 
 html[data-theme='light'] {
@@ -389,14 +364,12 @@ body {
   font-size: var(--fs-28);
   font-weight: var(--font-weight-title);
   color: var(--text-main);
-  letter-spacing: var(--title-letter-spacing);
 }
 
 .type-h2 {
   font-size: var(--fs-24);
   font-weight: var(--font-weight-title);
   color: var(--text-main);
-  letter-spacing: var(--title-letter-spacing);
 }
 
 .track-title,
@@ -404,7 +377,6 @@ body {
   font-size: var(--fs-20);
   font-weight: var(--font-weight-title);
   color: var(--text-main);
-  letter-spacing: var(--title-letter-spacing);
 }
 
 .type-body {

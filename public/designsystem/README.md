@@ -133,14 +133,11 @@ Pretendard lacks coverage.
   messages, the small line under a name, timestamps, counters, input text
   and placeholders.
   Each rule reads its role's token itself.
-- Titles and display values track by script (owner decision 2026-10-28).
-  Every rule on the title weight reads `--title-letter-spacing`: -0.02em in
-  Latin, Cyrillic and Greek UI languages and 0 in Korean, Japanese,
-  Chinese, Thai, the Indic scripts, Arabic, Urdu, Persian and Hebrew,
-  chosen with `html:lang()` on the document language. Codes and PIN digits
-  keep their own wider tracking, and no other text uses a negative letter
-  spacing; small uppercase labels may track wider. The body kerns its text
-  with `font-kerning: normal`.
+- Titles and display values keep the font's own spacing in every language
+  (owner decision 2026-10-31; the per-script title tracking of 2026-10-28 is
+  gone). Codes and PIN digits keep their own wider tracking, and no text
+  uses a negative letter spacing; small uppercase labels may track wider.
+  The body kerns its text with `font-kerning: normal`.
 - Use tabular numerals for clocks, invite codes, counters, and latency.
 - Keep compact labels legible; do not rely on extreme tracking or uppercase
   for hierarchy.

@@ -278,17 +278,14 @@
 .spec .s28 {
   font-size: 28px;
   font-weight: var(--font-weight-title);
-  letter-spacing: var(--title-letter-spacing);
 }
 .spec .s24 {
   font-size: 24px;
   font-weight: var(--font-weight-title);
-  letter-spacing: var(--title-letter-spacing);
 }
 .spec .s20 {
   font-size: 20px;
   font-weight: var(--font-weight-title);
-  letter-spacing: var(--title-letter-spacing);
 }
 .spec .s16 {
   font-size: 16px;
@@ -1300,7 +1297,6 @@
   font-size: 12px;
   font-weight: var(--font-weight-title);
   font-variant-numeric: tabular-nums;
-  letter-spacing: var(--title-letter-spacing);
 }
 
 @property --range-progress {
@@ -1602,7 +1598,6 @@
 
 .range-eq-value {
   font-weight: var(--font-weight-title);
-  letter-spacing: var(--title-letter-spacing);
   color: var(--primary);
 }
 
@@ -2626,7 +2621,6 @@
 .dialog-title {
   font-size: 20px;
   font-weight: var(--font-weight-title);
-  letter-spacing: var(--title-letter-spacing);
 }
 
 .dialog-message {

@@ -112,8 +112,8 @@ describe('generated app font sheets', () => {
       'font-inter': 7,
       'font-noto-kr': 120,
       'font-noto-jp': 120,
-      'font-noto-sc': 96,
-      'font-noto-tc': 100,
+      'font-noto-sc': 95,
+      'font-noto-tc': 98,
       'font-noto-thai': 1,
     });
     for (const id of CJK_SHEET_IDS) {

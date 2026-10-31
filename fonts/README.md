@@ -88,6 +88,8 @@ the app does not load them yet.
   static pages. The range edits give every script exactly one family: Inter
   draws what its cmap covers inside its ranges, Hangul only comes from Noto
   Sans KR, kana only from Noto Sans JP, and invisible marks from no CJK family.
+  Each CJK face also declares only the characters its own file draws, so an
+  emoji never makes the browser download a CJK shard that cannot draw it.
   The size and line-box descriptors come from `src/i18n/font-metrics.ts`.
 
 Regenerate instead of editing:

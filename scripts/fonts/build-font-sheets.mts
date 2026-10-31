@@ -14,13 +14,18 @@
  * The range edits give every script exactly one family, so no browser can
  * draw one script from two families:
  * - Inter keeps Google's subsets and ranges unchanged.
- * - The four CJK families keep their numbered shards only. Each face loses
- *   every code point Inter draws, which is Inter's cmap inside Inter's own
- *   ranges (cutting by Inter's declared ranges would drop marks Inter lacks,
- *   such as U+203B and U+203C, to a device font chosen by html lang). Hangul
- *   stays only in Noto Sans KR and kana only in Noto Sans JP. The invisible
- *   and space marks U+200B-200F, U+202F, U+2060-2064 and U+FEFF leave all
- *   four, so the device font draws them. A face left with nothing is dropped.
+ * - The four CJK families keep their numbered shards only. Each face keeps
+ *   only the code points its own file draws: Google's ranges also claim
+ *   characters some shards lack (emoji, a few Thai, Arabic, Hebrew and
+ *   Devanagari letters), and with every CJK family in every UI's stack the
+ *   browser would download such a shard for nothing before moving on. Each
+ *   face also loses every code point Inter draws, which is Inter's cmap
+ *   inside Inter's own ranges (cutting by Inter's declared ranges would drop
+ *   marks Inter lacks, such as U+203B and U+203C, to a device font chosen by
+ *   html lang). Hangul stays only in Noto Sans KR and kana only in Noto Sans
+ *   JP. The invisible and space marks U+200B-200F, U+202F, U+2060-2064 and
+ *   U+FEFF leave all four, so the device font draws them. A face left with
+ *   nothing is dropped.
  * - Noto Sans Thai keeps only its Thai face, unchanged.
  * - Inter and the CJK faces carry the size-adjust and metric overrides of
  *   src/i18n/font-metrics.ts; the script faces carry none.
@@ -251,6 +256,7 @@ async function cjkSheet(
     license = headerValue(google.css, 'License', recipe.googleSheet);
   }
   const dropped = [
+    "every code point the face's own file lacks",
     'every code point Inter draws (its cmap inside its own ranges)',
     ...(recipe.dropHangul ? ['Hangul'] : []),
     ...(recipe.dropKana ? ['kana'] : []),
@@ -258,8 +264,10 @@ async function cjkSheet(
   ];
   const faces: string[] = [];
   for (const face of sourceFaces) {
+    const drawn = fontCodePoints(await openFontFile(path.join(repoRoot, face.file)));
     const kept = [...face.codePoints].filter(
       (codePoint) =>
+        drawn.has(codePoint) &&
         !interDrawn.has(codePoint) &&
         !(recipe.dropHangul && inRanges(codePoint, HANGUL)) &&
         !(recipe.dropKana && inRanges(codePoint, KANA)) &&

@@ -88,6 +88,6 @@ describe('app font metric descriptors', () => {
         ] += 1;
       }
     }
-    expect(facesByMetrics).toEqual({ inter: 7, cjk: 436, none: 11 });
+    expect(facesByMetrics).toEqual({ inter: 7, cjk: 433, none: 11 });
   });
 });

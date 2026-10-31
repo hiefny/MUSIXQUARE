@@ -1,6 +1,7 @@
 import { expect, test, type Page, type Route } from '@playwright/test';
 import { mkdir } from 'node:fs/promises';
 import { resolve } from 'node:path';
+import { waitForAppFonts } from './helpers/wait.ts';
 
 test.use({ serviceWorkers: 'block' });
 
@@ -157,7 +158,7 @@ async function assertAccountActions(
   );
   if (signedIn) await expect(page.locator('#btn-dialog-link')).toHaveText(COPY[locale].link);
   else await expect(page.locator('#btn-dialog-link')).toBeHidden();
-  await page.evaluate(() => document.fonts.ready);
+  await waitForAppFonts(page);
   const metrics = await dialog.evaluate((overlay) => {
     const box = (element: Element) => {
       const rect = element.getBoundingClientRect();

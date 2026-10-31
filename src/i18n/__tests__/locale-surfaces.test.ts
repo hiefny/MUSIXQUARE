@@ -8,6 +8,7 @@ import {
   compileClassicRuntimeAsset,
 } from '../../../scripts/classic-runtime-assets.ts';
 import { readFontStacks } from '../../../scripts/fonts/font-stacks.mts';
+import { APP_FONT_SHEETS, SCRIPT_FONT_SHEET_BY_LANGUAGE } from '../app-font-contract.ts';
 import { LANGUAGE_OPTIONS } from '../index.ts';
 import { languageDirection } from '../locales.ts';
 
@@ -232,36 +233,41 @@ describe('locale surface parity', () => {
     }
   });
 
-  it('keeps script-specific font shards paired and retryable through the locale font loader', async () => {
-    const source = await readFile('src/i18n/locale-fonts.ts', 'utf8');
-    const mappedCodes = objectKeys(
-      variableInitializer(source, 'src/i18n/locale-fonts.ts', 'FONT_ASSET_BY_LOCALE'),
-      'FONT_ASSET_BY_LOCALE',
-    ).sort();
-
-    expect(mappedCodes).toEqual([
+  it('gives each UI language whose script Inter lacks its own app font sheet', async () => {
+    expect(Object.keys(SCRIPT_FONT_SHEET_BY_LANGUAGE).sort()).toEqual([
       'ar',
-      'bg',
       'bn',
-      'el',
       'fa',
       'gu',
       'he',
       'hi',
       'ja',
       'kn',
+      'ko',
       'ml',
       'mr',
       'pa',
-      'ru',
       'ta',
       'te',
       'th',
-      'uk',
       'ur',
       'zh-hans',
       'zh-hant',
     ]);
-    expect(source.match(/import\('\.\.\/\.\.\/css\/fonts\//gu)).toHaveLength(16);
+    const sheetIds = new Set<string>(APP_FONT_SHEETS.map(({ id }) => id));
+    for (const [code, sheet] of Object.entries(SCRIPT_FONT_SHEET_BY_LANGUAGE)) {
+      expect(sheetIds.has(sheet), code).toBe(true);
+    }
+    // Inter draws the Latin, Cyrillic and Greek UIs alone.
+    for (const code of ['en', 'ru', 'uk', 'bg', 'el', 'vi'] as const) {
+      expect(SCRIPT_FONT_SHEET_BY_LANGUAGE[code], code).toBeUndefined();
+    }
+
+    // The app loads each of its sheets through one retryable loader.
+    const source = await readFile('src/i18n/locale-fonts.ts', 'utf8');
+    expect(source.match(/createRetryableStylesheet\(/gu)).toHaveLength(APP_FONT_SHEETS.length);
+    expect(source.match(/import\('\.\.\/\.\.\/css\/fonts\//gu)).toHaveLength(
+      APP_FONT_SHEETS.length,
+    );
   });
 });

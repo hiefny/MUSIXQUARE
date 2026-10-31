@@ -1,7 +1,7 @@
 import { expect, test, type Locator, type Page } from '@playwright/test';
 import { injectPeerServer } from './helpers/peer-server.ts';
 import { setupHostAndStart } from './helpers/setup-flow.ts';
-import { readState } from './helpers/wait.ts';
+import { readState, waitForAppFonts } from './helpers/wait.ts';
 
 const FIRST_URL = 'https://youtu.be/dQw4w9WgXc';
 const SECOND_URL = 'https://youtu.be/aqz-KE-bpKQ';
@@ -79,7 +79,7 @@ async function prepareChat(page: Page, theme: string): Promise<void> {
   await page.locator('#chat-preview-btn').click();
   await expect(page.locator('#chat-drawer')).toHaveClass(/open/);
   await expect(page.locator('#dialog-overlay.show')).toHaveCount(0);
-  await page.evaluate(() => document.fonts.ready);
+  await waitForAppFonts(page);
 }
 
 async function clearChat(page: Page): Promise<void> {

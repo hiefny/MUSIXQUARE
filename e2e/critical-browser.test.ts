@@ -3,7 +3,7 @@ import { E2E_APP_ORIGIN } from './config.ts';
 import { readInkBox, snapToDevicePixels } from './helpers/ink.ts';
 import { injectPeerServer } from './helpers/peer-server.ts';
 import { setupGuest, setupHostAndStart } from './helpers/setup-flow.ts';
-import { openChatDrawer, sendChat, waitForState } from './helpers/wait.ts';
+import { openChatDrawer, sendChat, waitForAppFonts, waitForState } from './helpers/wait.ts';
 
 import {
   PRO_ROOM_CODE,
@@ -126,6 +126,8 @@ test.describe('Critical browser release gate', () => {
     );
     await setupHostAndStart(page);
     await openChatDrawer(page);
+    // Measure the ink with the app's own faces, not a device fallback.
+    await waitForAppFonts(page);
     const banner = page.locator('#chat-pinned-notice');
     const label = page.locator('#chat-pinned-notice-label');
     const time = page.locator('#chat-pinned-notice-time');

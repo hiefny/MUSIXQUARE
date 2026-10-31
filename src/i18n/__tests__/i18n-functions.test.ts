@@ -1165,12 +1165,12 @@ describe('i18n functions', () => {
         const pendingFont = new Promise<void>((resolve) => {
           release = resolve;
         });
-        const loadLocaleFont = vi.fn(() =>
+        const loadLanguageFonts = vi.fn(() =>
           boundary === 'stylesheet' ? pendingFont : Promise.resolve(),
         );
         vi.doMock('../locale-fonts.ts', async () => {
           if (boundary === 'runtime') await pendingFont;
-          return { default: { loadLocaleFont } };
+          return { default: { loadLanguageFonts } };
         });
         const { initI18n, setLanguageMode } = await import('../index.ts');
         const { default: ja } = await vi.importActual<typeof import('../ja.ts')>('../ja.ts');
@@ -1195,7 +1195,7 @@ describe('i18n functions', () => {
           setLanguageMode('ko');
           release();
           await vi.waitFor(() => {
-            expect(loadLocaleFont).toHaveBeenCalled();
+            expect(loadLanguageFonts).toHaveBeenCalled();
             expect(document.querySelector('button')?.textContent).toBe(ko['setup.host_button']);
             expect(document.documentElement.lang).toBe('ko');
           });
@@ -1205,6 +1205,29 @@ describe('i18n functions', () => {
         }
       },
     );
+
+    it('runs font phase A for every language, the Korean and English UIs included', async () => {
+      localStorage.setItem('musixquare-lang', 'en');
+      const loadLanguageFonts = vi.fn((_code: string) => Promise.resolve());
+      vi.doMock('../locale-fonts.ts', () => ({ default: { loadLanguageFonts } }));
+      const { initI18n, setLanguageMode } = await import('../index.ts');
+
+      await initI18n();
+      await vi.waitFor(() => expect(loadLanguageFonts).toHaveBeenLastCalledWith('en'));
+      for (const code of ['ko', 'fr', 'ru', 'ja', 'ar'] as const) {
+        setLanguageMode(code);
+        await vi.waitFor(() => expect(loadLanguageFonts).toHaveBeenLastCalledWith(code));
+      }
+
+      expect(loadLanguageFonts.mock.calls.map(([code]) => code)).toEqual([
+        'en',
+        'ko',
+        'fr',
+        'ru',
+        'ja',
+        'ar',
+      ]);
+    });
 
     it.each(['startup', 'selection'] as const)(
       'still translates the DOM and publishes the locale after a font runtime chunk failure at %s',

@@ -8,7 +8,6 @@ import { bus } from '../../core/events.ts';
 import { getState, resetState, setState } from '../../core/state.ts';
 import { showToast } from '../toast.ts';
 import { LANGUAGE_OPTIONS, setLanguageMode, t } from '../../i18n/index.ts';
-import { hasLocaleFont } from '../../i18n/locale-fonts.ts';
 import { markStandardRoomAuthorityConfirmed } from '../../rooms/authority.ts';
 import { roomCapabilityFeedbackTip } from '../../rooms/permission-feedback.ts';
 import type { DataConnection, RoomContext } from '../../types/index.ts';
@@ -27,7 +26,7 @@ import { MSG } from '../../core/constants.ts';
 import { handleData } from '../../network/protocol.ts';
 import { installRangeDragGuard } from '../range-drag.ts';
 
-const preloadLocaleFontGlyphsMock = vi.hoisted(() =>
+const preloadNativeNameGlyphsMock = vi.hoisted(() =>
   vi.fn<(code: string, text: string) => Promise<boolean>>(() => Promise.resolve(true)),
 );
 
@@ -37,7 +36,7 @@ vi.mock('../../i18n/locale-fonts.ts', async (importOriginal) => {
     ...actual,
     default: {
       ...actual.default,
-      preloadLocaleFontGlyphs: preloadLocaleFontGlyphsMock,
+      preloadNativeNameGlyphs: preloadNativeNameGlyphsMock,
     },
   };
 });
@@ -258,7 +257,7 @@ beforeEach(() => {
   bus.clear();
   resetSettingsSyncAuthorityForTests();
   vi.mocked(showToast).mockClear();
-  preloadLocaleFontGlyphsMock.mockReset().mockResolvedValue(true);
+  preloadNativeNameGlyphsMock.mockReset().mockResolvedValue(true);
   // Polyfill matchMedia for jsdom
   Object.defineProperty(window, 'matchMedia', {
     writable: true,
@@ -776,7 +775,7 @@ describe('initSettings language controls', () => {
     installLanguageSettingsDom();
     initSettings();
 
-    expect(preloadLocaleFontGlyphsMock).not.toHaveBeenCalled();
+    expect(preloadNativeNameGlyphsMock).not.toHaveBeenCalled();
   });
 
   it('moves a supported system language to the top of the language list', () => {
@@ -905,9 +904,7 @@ describe('initSettings language controls', () => {
         ?.getAttribute('aria-pressed'),
     ).toBe('true');
     await vi.waitFor(() =>
-      expect(preloadLocaleFontGlyphsMock).toHaveBeenCalledTimes(
-        LANGUAGE_OPTIONS.filter(({ code }) => hasLocaleFont(code)).length,
-      ),
+      expect(preloadNativeNameGlyphsMock).toHaveBeenCalledTimes(LANGUAGE_OPTIONS.length),
     );
   });
 
@@ -939,7 +936,7 @@ describe('initSettings language controls', () => {
     expect(active.classList).not.toContain('language-option-initial-pointer-focus');
   });
 
-  it('preloads only self-hosted native-name fonts on pointer intent before opening', async () => {
+  it('warms every native name in its own face on pointer intent before opening', async () => {
     installLanguageSettingsDom();
     initSettings();
     const trigger = document.getElementById('btn-language-select')!;
@@ -949,10 +946,11 @@ describe('initSettings language controls', () => {
     expect(document.getElementById('language-dialog-overlay')?.classList.contains('show')).toBe(
       false,
     );
-    const selfHostedFontOptions = LANGUAGE_OPTIONS.filter(({ code }) => hasLocaleFont(code));
+    // Every language, Latin, Cyrillic and Greek names included: the font
+    // owner maps each to the face that draws its script.
     await vi.waitFor(() =>
-      expect(preloadLocaleFontGlyphsMock.mock.calls).toEqual(
-        selfHostedFontOptions.map(({ code, nativeName }) => [code, nativeName]),
+      expect(preloadNativeNameGlyphsMock.mock.calls).toEqual(
+        LANGUAGE_OPTIONS.map(({ code, nativeName }) => [code, nativeName]),
       ),
     );
 
@@ -961,7 +959,7 @@ describe('initSettings language controls', () => {
     trigger.click();
     await vi.dynamicImportSettled();
 
-    expect(preloadLocaleFontGlyphsMock).toHaveBeenCalledTimes(selfHostedFontOptions.length);
+    expect(preloadNativeNameGlyphsMock).toHaveBeenCalledTimes(LANGUAGE_OPTIONS.length);
     expect(document.getElementById('language-dialog-overlay')?.classList.contains('show')).toBe(
       true,
     );
@@ -974,9 +972,7 @@ describe('initSettings language controls', () => {
     document.getElementById('btn-language-select')?.focus();
 
     await vi.waitFor(() =>
-      expect(preloadLocaleFontGlyphsMock).toHaveBeenCalledTimes(
-        LANGUAGE_OPTIONS.filter(({ code }) => hasLocaleFont(code)).length,
-      ),
+      expect(preloadNativeNameGlyphsMock).toHaveBeenCalledTimes(LANGUAGE_OPTIONS.length),
     );
     expect(document.getElementById('language-dialog-overlay')?.classList.contains('show')).toBe(
       false,
@@ -984,28 +980,28 @@ describe('initSettings language controls', () => {
   });
 
   it('retries a false preload result on the next language-picker intent', async () => {
-    preloadLocaleFontGlyphsMock.mockResolvedValue(false);
+    preloadNativeNameGlyphsMock.mockResolvedValue(false);
     installLanguageSettingsDom();
     initSettings();
     const trigger = document.getElementById('btn-language-select')!;
 
     trigger.dispatchEvent(new Event('pointerdown'));
     await new Promise<void>((resolve) => setTimeout(resolve, 0));
-    const selfHostedFontCount = LANGUAGE_OPTIONS.filter(({ code }) => hasLocaleFont(code)).length;
-    expect(preloadLocaleFontGlyphsMock).toHaveBeenCalledTimes(selfHostedFontCount);
+    const languageCount = LANGUAGE_OPTIONS.length;
+    expect(preloadNativeNameGlyphsMock).toHaveBeenCalledTimes(languageCount);
 
-    preloadLocaleFontGlyphsMock.mockResolvedValue(true);
+    preloadNativeNameGlyphsMock.mockResolvedValue(true);
     trigger.focus();
     await new Promise<void>((resolve) => setTimeout(resolve, 0));
-    expect(preloadLocaleFontGlyphsMock).toHaveBeenCalledTimes(selfHostedFontCount * 2);
+    expect(preloadNativeNameGlyphsMock).toHaveBeenCalledTimes(languageCount * 2);
 
     trigger.click();
     await vi.dynamicImportSettled();
-    expect(preloadLocaleFontGlyphsMock).toHaveBeenCalledTimes(selfHostedFontCount * 2);
+    expect(preloadNativeNameGlyphsMock).toHaveBeenCalledTimes(languageCount * 2);
   });
 
   it('keeps the dialog responsive when a glyph preload fails', async () => {
-    preloadLocaleFontGlyphsMock.mockRejectedValue(new Error('offline'));
+    preloadNativeNameGlyphsMock.mockRejectedValue(new Error('offline'));
     installLanguageSettingsDom();
     initSettings();
 
@@ -1015,9 +1011,7 @@ describe('initSettings language controls', () => {
       true,
     );
     await vi.waitFor(() => {
-      expect(preloadLocaleFontGlyphsMock).toHaveBeenCalledTimes(
-        LANGUAGE_OPTIONS.filter(({ code }) => hasLocaleFont(code)).length,
-      );
+      expect(preloadNativeNameGlyphsMock).toHaveBeenCalledTimes(LANGUAGE_OPTIONS.length);
     });
   });
 

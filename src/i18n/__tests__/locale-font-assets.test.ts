@@ -2,7 +2,7 @@ import { readFile } from 'node:fs/promises';
 import { dirname, resolve } from 'node:path';
 import { describe, expect, it } from 'vitest';
 
-import { hasLocaleFont } from '../locale-fonts.ts';
+import { hasLocaleFont } from '../locale-font-contract.ts';
 import { LANGUAGE_OPTIONS } from '../locales.ts';
 import { bindStaticLocaleFontAssets, localeFontAssetInlineLimit } from '../../../vite.config.ts';
 

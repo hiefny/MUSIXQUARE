@@ -386,6 +386,40 @@ describe('H3 owner queries: seven owners x three sites (pinned 2026-10-30)', () 
   });
 });
 
+/**
+ * The follow-up realign that a buffer-gate fallback owes is not one of the
+ * protected owners: the query sync.ts registers answers from its two state
+ * actions and three rendezvous stages only, while the automatic realign's
+ * busy list in sync.ts also counts the follow-up. A native PLAY or PAUSE in
+ * the follow-up wait (3.25 s) is decided at once (pinned 2026-10-31).
+ */
+describe('H3 owner queries: the rendezvous follow-up wait is not a protected owner (pinned 2026-10-31)', () => {
+  it.each([':213 native PLAY kept', ':496 native PAUSE routed'] as const)(
+    '%s decides at once while only the follow-up realign is pending',
+    async (site) => {
+      const player = createPlayer();
+      installOperatorGuest(player);
+      hostFrame(MSG.YOUTUBE_SYNC, { state: 1, time: 42.35 });
+      expect(guestRendezvousSync({ silent: true }).status).toBe('started');
+      // The iframe never reports the rendezvous pause, so the buffer gate
+      // times out and joins the live position with a plain seek and play,
+      // which owes one follow-up realign.
+      await vi.advanceTimersByTimeAsync(1_600);
+      expect(getManagedTimer('yt-rendezvous-follow-up')).not.toBeNull();
+      for (const name of [
+        'yt-clock-action',
+        'yt-seek-play',
+        'yt-rendezvous-buffer',
+        'yt-rendezvous-play',
+        'yt-rendezvous-calibrate',
+      ]) {
+        expect(getManagedTimer(name), name).toBeNull();
+      }
+      expect(await decide(site, player)).toBe(true);
+    },
+  );
+});
+
 // ─── PRE-2: the other users of the same owners, on a Standard host ──
 
 async function hostRig(localOffsetSeconds = 0): Promise<StandardRig> {

@@ -311,13 +311,19 @@ RO-53 owner-in-place
     (`main` `23f29283`, App 9.0.27) 14 reads and 10 clears. Phase 6 6A-1 replaced the
     `'yt-auto-sync'` reads in `sync.ts` and `iframe.ts` and the six names other than the nudge in
     `hasProtectedTransitionOwner`'s list with the owner queries above. That leaves 11 reads, all
-    of the nudge, whose name reads stay (RO-13 is owner-in-place). The clears are `iframe.ts`'s
-    `resetResidentYouTubeSync` (three), `player.ts`'s `'yt-clock-action'` and `'yt-seek-play'`
-    clears in three places (six) and `sync.ts`'s nudge clear right after the owner's reset port
-    (one). `leaveSession`'s nameless `clearAllManagedTimers` in `src/network/peer.ts` clears
-    them all and is not counted. Every timer call in `src/youtube/` must resolve its name, and
-    the timer functions keep their names there (guard item 12), so a timer-name query cannot
-    leave the count by taking a `string` name or an alias.
+    of the nudge, whose name reads stay (RO-13 is owner-in-place). Phase 6 6A-2 dropped the
+    `'yt-clock-action'` clear in `iframe.ts`'s `resetResidentYouTubeSync`, which
+    `resetYouTubeSyncState` repeats through the owner's `cancelClockAction`. That leaves 9
+    clears: `resetResidentYouTubeSync`'s `'yt-seek-play'` clear, which `resetYouTubeSyncState`
+    also repeats (the YouTube-to-YouTube reuse regression test in
+    `src/youtube/__tests__/stale-async-guards.test.ts` mocks `sync.ts` and pins this clear), and
+    its `'yt-auto-sync'` clear without `player.ts`'s retire (two); `player.ts`'s
+    `'yt-clock-action'` and `'yt-seek-play'` clears in three places (six); and `sync.ts`'s nudge
+    clear right after the owner's reset port (one). `leaveSession`'s nameless
+    `clearAllManagedTimers` in `src/network/peer.ts` clears them all and is not counted. Every
+    timer call in `src/youtube/` must resolve its name, and the timer functions keep their names
+    there (guard item 12), so a timer-name query cannot leave the count by taking a `string` name
+    or an alias.
 - **Lifecycle operations:** `loadVideoById` or `cueVideoById`, `pauseVideo`, `seekTo`, `mute` and
   `unMute`, `playVideo`, release acknowledgement, ABORT.
 - **Deadline owner:** the controller (`prepareTimeoutMs` 10 s, `releaseAckTimeoutMs` 1.8 s); the
@@ -3846,8 +3852,9 @@ and unrelated strings never count, and every baseline is an exact count or list 
     value use other than a query or clear handed to a name list's method
     (`TIMER FUNCTION ALIAS`); and a start timer set by a `src/youtube/` file other than its
     listed setters, or no longer set by one of them (`START TIMER SET`). On 2026-10-31 none of
-    these fires: all 210 timer calls in `src/youtube/` resolve (209 after Phase 6 6A-1; the five
-    templates name per-peer timers) and nothing renames or passes on the timer functions.
+    these fires: all 210 timer calls in `src/youtube/` resolve (209 after Phase 6 6A-1 and 207
+    after 6A-2; the five templates name per-peer timers) and nothing renames or passes on the
+    timer functions.
     `--report` lists every counted call with its names and function.
 
 The requesters of `scheduleSessionReset` and `scheduleDocumentReload`, and each page navigation

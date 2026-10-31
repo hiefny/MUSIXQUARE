@@ -1652,7 +1652,8 @@ function resetResidentYouTubeSync(player: YouTubePlayerInstance): void {
   } finally {
     resettingResidentPlayer = null;
   }
-  clearManagedTimer('yt-clock-action');
+  // resetYouTubeSyncState, called next, retires a pending clock action through
+  // its owner (cancelClockAction) and clears 'yt-seek-play' again.
   clearManagedTimer('yt-seek-play');
   clearManagedTimer('yt-auto-sync');
   resetYouTubeSyncState();

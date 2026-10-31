@@ -797,11 +797,12 @@ const IFRAME_AUDIO_WRITE_BASELINE: Baseline = new Map<string, Allowance>([
 // player runtime bridge's isYouTubeAutoSyncPending, which player.ts answers,
 // and the query sync.ts registers with the native-control authority. The PRO
 // coordinator nudge reads stay, because the manual-offset transaction (RO-13)
-// is owner-in-place. On both trees every timer call in src/youtube/ resolves
-// its name (the five templates name per-peer timers that cannot spell a start
-// timer), no file renames or passes on a timer function, and each start timer
-// is set only by its listed files, so the fail-closed findings have no
-// allowance.
+// is owner-in-place. Phase 6 6A-2 dropped iframe.ts's 'yt-clock-action' clear,
+// which resetYouTubeSyncState repeats through its owner (9 clears). On every
+// tree since T1 each timer call in src/youtube/ resolves its name (the five
+// templates name per-peer timers that cannot spell a start timer), no file
+// renames or passes on a timer function, and each start timer is set only by
+// its listed files, so the fail-closed findings have no allowance.
 
 const START_TIMER_SCOPE = 'src/youtube/';
 const TIMER_SET_CALL = 'setManagedTimer';
@@ -908,11 +909,13 @@ const START_TIMER_CLEAR_BASELINE: Baseline = new Map<string, Allowance>([
   [
     'src/youtube/iframe.ts',
     {
-      count: 3,
+      count: 2,
       reason:
-        "resetResidentYouTubeSync clears 'yt-clock-action', 'yt-seek-play' and 'yt-auto-sync' " +
-        "without their owners' retire (resetYouTubeSyncState, which it calls next, already " +
-        'clears the first two)',
+        "resetResidentYouTubeSync clears 'yt-seek-play', which resetYouTubeSyncState, called " +
+        'next, clears again (the YouTube-to-YouTube reuse regression test, which mocks sync.ts, ' +
+        "pins this clear), and 'yt-auto-sync' without player.ts's retire (stays); its " +
+        "'yt-clock-action' clear went in Phase 6 6A-2, as resetYouTubeSyncState retires that " +
+        'timer through its owner, cancelClockAction',
     },
   ],
   [

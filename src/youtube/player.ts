@@ -1622,7 +1622,6 @@ export function stopYouTubeMode(opts?: { silent?: boolean }): void {
 
   clearManagedTimer('yt-load-timeout');
   clearYouTubeCallbackSelection();
-  clearManagedTimer('yt-mix-snapshot');
   clearManagedTimer('yt-refresh-display');
   clearManagedTimer('yt-prime-bounce-timeout');
   setYtPriming(false);

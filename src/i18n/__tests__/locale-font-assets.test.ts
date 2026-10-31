@@ -32,6 +32,19 @@ describe('self-hosted locale font assets', () => {
     expect(localeFontAssetInlineLimit('/workspace/public/editorial-base.css')).toBeUndefined();
     expect(localeFontAssetInlineLimit('/workspace/fonts/noto/arabic.woff2')).toBe(false);
     expect(localeFontAssetInlineLimit('/workspace/fonts/PretendardVariable.woff2')).toBeUndefined();
+    // The app's generated sheets and the Inter subsets stay external and lazy too.
+    expect(localeFontAssetInlineLimit('/workspace/css/fonts/app/font-noto-kr.css')).toBe(false);
+    expect(localeFontAssetInlineLimit('C:\\workspace\\css\\fonts\\app\\font-inter.css')).toBe(
+      false,
+    );
+    expect(localeFontAssetInlineLimit('/workspace/fonts/inter/inter-latin.woff2')).toBe(false);
+    expect(localeFontAssetInlineLimit('C:\\workspace\\fonts\\inter\\inter-greek.woff2')).toBe(
+      false,
+    );
+    expect(localeFontAssetInlineLimit('/workspace/fonts/noto/noto-sans-kr/PbykFm.119.woff2')).toBe(
+      false,
+    );
+    expect(localeFontAssetInlineLimit('/workspace/css/fonts/app/notes.txt')).toBeUndefined();
     expect(bindStaticLocaleFontAssets().name).toBe('bind-static-locale-font-assets');
 
     const viteConfig = await readFile('vite.config.ts', 'utf8');

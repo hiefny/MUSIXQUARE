@@ -59,6 +59,13 @@ const MARKS_INTER_LACKS = [
 const inRanges = (codePoint: number, ranges: readonly Range[]): boolean =>
   ranges.some(([start, end]) => codePoint >= start && codePoint <= end);
 
+const isHangul = (codePoint: number): boolean =>
+  inRanges(codePoint, HANGUL) || /\p{Script=Hangul}/u.test(String.fromCodePoint(codePoint));
+
+const isKana = (codePoint: number): boolean =>
+  inRanges(codePoint, KANA) ||
+  /[\p{Script=Hiragana}\p{Script=Katakana}]/u.test(String.fromCodePoint(codePoint));
+
 function sheetPath(id: string): string {
   const sheet = APP_FONT_SHEETS.find((entry) => entry.id === id);
   if (!sheet) throw new Error(`Unknown app font sheet ${id}`);
@@ -148,12 +155,14 @@ describe('generated app font sheets', () => {
     expect(MARKS_INTER_LACKS.filter((codePoint) => interDrawn.has(codePoint))).toEqual([]);
   }, 60_000);
 
-  it('give Hangul to Noto Sans KR and kana to Noto Sans JP only, and invisible marks to none', async () => {
+  it('give Hangul to Noto Sans KR and kana to Noto Sans JP only, by script, and invisible marks to none', async () => {
     const declared = Object.fromEntries(
       await Promise.all(
         CJK_SHEET_IDS.map(async (id) => [id, [...(await declaredCodePoints(id))]] as const),
       ),
     ) as Record<(typeof CJK_SHEET_IDS)[number], number[]>;
+    const korean = new Set(declared['font-noto-kr']);
+    const japanese = new Set(declared['font-noto-jp']);
     const hex = (codePoints: readonly number[]): string[] =>
       codePoints.map((codePoint) => codePoint.toString(16));
 
@@ -161,15 +170,39 @@ describe('generated app font sheets', () => {
       const codePoints = declared[id];
       expect(codePoints.length, id).toBeGreaterThan(0);
       expect(hex(codePoints.filter((codePoint) => inRanges(codePoint, INVISIBLE))), id).toEqual([]);
+      // Hangul and kana by block or by script property: ㈜ and ㉠ are Hangul
+      // outside the Hangul blocks, ㋖ and ㌔ kana outside the kana blocks. A
+      // character the owning family lacks (halfwidth jamo) stays where it is.
       if (id !== 'font-noto-kr') {
-        expect(hex(codePoints.filter((codePoint) => inRanges(codePoint, HANGUL))), id).toEqual([]);
+        expect(
+          hex(codePoints.filter((codePoint) => isHangul(codePoint) && korean.has(codePoint))),
+          id,
+        ).toEqual([]);
       }
       if (id !== 'font-noto-jp') {
-        expect(hex(codePoints.filter((codePoint) => inRanges(codePoint, KANA))), id).toEqual([]);
+        expect(
+          hex(codePoints.filter((codePoint) => isKana(codePoint) && japanese.has(codePoint))),
+          id,
+        ).toEqual([]);
       }
     }
     expect(declared['font-noto-kr'].some((codePoint) => inRanges(codePoint, HANGUL))).toBe(true);
     expect(declared['font-noto-jp'].some((codePoint) => inRanges(codePoint, KANA))).toBe(true);
+    // The characters the review measured mixing families.
+    for (const character of ['㈜', '㉠', '㉨']) {
+      const codePoint = character.codePointAt(0) ?? 0;
+      expect(korean.has(codePoint), character).toBe(true);
+      for (const id of ['font-noto-jp', 'font-noto-sc', 'font-noto-tc'] as const) {
+        expect(declared[id].includes(codePoint), `${id} ${character}`).toBe(false);
+      }
+    }
+    for (const character of ['㋖', '㋡', '㌔', '㌢']) {
+      const codePoint = character.codePointAt(0) ?? 0;
+      expect(japanese.has(codePoint), character).toBe(true);
+      for (const id of ['font-noto-kr', 'font-noto-sc', 'font-noto-tc'] as const) {
+        expect(declared[id].includes(codePoint), `${id} ${character}`).toBe(false);
+      }
+    }
   });
 
   it('declare in each CJK face only the code points its file draws', async () => {

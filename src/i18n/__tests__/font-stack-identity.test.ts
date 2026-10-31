@@ -223,6 +223,14 @@ describe('the Korean and English UIs apply the same rules', () => {
   });
 });
 
+/** Every code point of the Basic and Supplementary Multilingual Planes a script pattern matches. */
+function scriptCodePoints(pattern: RegExp): number[] {
+  return codePointsIn([[0x0000, 0x1ffff]]).filter(
+    (codePoint) =>
+      (codePoint < 0xd800 || codePoint > 0xdfff) && pattern.test(String.fromCodePoint(codePoint)),
+  );
+}
+
 describe('one family per script', () => {
   let faces: FaceResolver;
 
@@ -279,6 +287,24 @@ describe('one family per script', () => {
           [0x31f0, 0x31ff],
           [0xff66, 0xff9d],
         ]),
+    },
+    {
+      // Parenthesized and circled Hangul (㈜, ㉠) sit outside the Hangul blocks.
+      script: 'every Hangul-script character Noto Sans KR draws',
+      family: KR,
+      codePoints: (): number[] =>
+        scriptCodePoints(/\p{Script=Hangul}/u).filter(
+          (codePoint) => faces.faceFor([KR], codePoint) !== null,
+        ),
+    },
+    {
+      // Circled katakana and square words (㋖, ㌔) sit outside the kana blocks.
+      script: 'every kana-script character Noto Sans JP draws',
+      family: JP,
+      codePoints: (): number[] =>
+        scriptCodePoints(/[\p{Script=Hiragana}\p{Script=Katakana}]/u).filter(
+          (codePoint) => faces.faceFor([JP], codePoint) !== null,
+        ),
     },
     {
       script: 'Thai',

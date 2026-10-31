@@ -63,6 +63,7 @@ T0a(#539, #541, #542)와 가드만인 T1(#543)이고, `AGENTS.md`대로 보고�
 | 크기 후속: 낱개 이름 집           | 6A-3(C2-1), Q29                   | `12367317` → `08135e4f`                         | 4 / 83(2 files)                            | 234 / 234(6 files) | 수 그대로(CHECK 5 1 / 1 / 45) |
 | 크기 후속 리뷰: CHECK 5 스칼라 집 | 6A-3(C2-1), 가드 항목 5           | `fcb21ae6` → `0f28e66d`                         | 2 / 72                                     | 72 / 72            | 수 그대로(CHECK 5 1 / 1 / 45) |
 | 기록                              | 이 보고서, `docs/README.md`       | 기록 커밋 셋                                    | 해당 없음                                  | 해당 없음          | 없음                          |
+| R4-Q3 주석(9.0.29 기록 위)        | Phase 5.5 R4 오너 질문 R4-Q3      | 아래 'R4-Q3 주석'                               | 해당 없음                                  | 빌드 바이트 동일   | 없음                          |
 
 ## 증분
 
@@ -279,6 +280,20 @@ T0a(#539, #541, #542)와 가드만인 T1(#543)이고, `AGENTS.md`대로 보고�
   `YOUTUBE_FRESH_START_MAX_SEC`)을 거절, 집의 횟수와 값만 같은 다른 이름의 시간(`RESEEK_GAP_MS` 6, `YOUTUBE_ARM_SETTLE_RESEEK_EVERY`와
   같은 값)은 같은 값 목록을 늘리지 않음(부모에서도 통과). 부모(`a9b670fa` 가드)에서 72행 가운데 2 실패(앞의 두 행), 70 통과.
   `0f28e66d`에서 72 / 72.
+
+### R4-Q3 주석: PRO 재생목록 슬롯 요약의 낡은 'Opt-in summary' (Phase 5.5 R4가 넘긴 것)
+
+Phase 5.5 R4(PRO 방 Worker만)는 오너 질문 R4-Q3에서 `src/pro-room/snapshot.ts`의 `parsePlaylistSlots` 문서 주석 'Opt-in summary'를
+고치는 일을 다음 App 업데이트로 넘겼다(권장 (가), App 파일이라 `pro-room` 부분 릴리스가 거절함). 9.0.27, 9.0.28, 9.0.29는 그 주석 없이
+나갔고, 9.0.29 배포 기록이 이 일을 6A로 옮겼다(release-record R4 절). 그 요약은 9.0.25부터 App이 `X-MXQR-Pro-Playlist-Slots` 머리글을
+보내지 않고, PRO Worker가 모든 스냅샷에 `playlistSlots`를 싣고(`cloudflare/pro-room-worker.ts`의 스냅샷 만들기), App은 그것이 없는
+스냅샷을 받지 않으므로 더는 opt-in이 아니다. 주석을 '모든 스냅샷이 opt-in 머리글 없이 싣는 요약'으로 고쳤다(두 줄이 세 줄).
+
+- 이 열차에 싣는 근거: 주석만 바뀐다. 그 커밋 앞뒤로 운영 빌드(`npm run build`)의 `dist/` 940 파일이 sha256으로 모두 같았고(QA
+  라운드 7의 머리 `3be18bdb`와 주석을 고친 트리), 그 파일은 App 경로뿐이라(`runtimePathsForWorker`, PRO room 0) target `app`이
+  그대로다. 버전 올리기 앞이라 `guard:sw-cache-version`의 규칙(버전 올리기가 마지막 런타임 커밋)과 맞는다. 단위 시험은 이 주석을
+  읽지 않는다. prettier와 eslint가 그 파일에서 통과했다. 버전 올리기 뒤 전체 검사(QA 라운드 8)가 이 커밋을 포함해 다시 본다.
+- 테스트 먼저 커밋은 없다(동작 없는 주석).
 
 ## 계획과 달라진 것
 

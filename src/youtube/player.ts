@@ -80,6 +80,11 @@ import {
   YOUTUBE_RELEASE_CATCH_UP_TOLERANCE_SEC,
 } from './constants.ts';
 import {
+  isYouTubeAudioRestored,
+  restoreYouTubeAudioVerified,
+  writeYouTubeAudio,
+} from './iframe-audio.ts';
+import {
   configureYouTubePlayerRuntimeHooks,
   type PendingAutoSyncOptions,
 } from './player-runtime-bridge.ts';
@@ -1895,22 +1900,6 @@ function seekYouTubeFromApp(player: YouTubePlayerInstance, seconds: number): voi
   }
 }
 
-function restoreFallbackAudio(
-  player: YouTubeZeroStartPlayer,
-  intent: YouTubeFallbackAudioIntent,
-): void {
-  player.setVolume(intent.volume);
-  if (intent.muted) player.mute();
-  else player.unMute();
-}
-
-function isFallbackAudioRestored(
-  player: YouTubeZeroStartPlayer,
-  intent: YouTubeFallbackAudioIntent,
-): boolean {
-  return player.isMuted() === intent.muted && Math.abs(player.getVolume() - intent.volume) <= 1;
-}
-
 export function initYouTube(): void {
   // Retire the preceding integration before replacing its closure-owned
   // timers/cleanup; its pending release must not survive reinitialization.
@@ -2029,7 +2018,7 @@ export function initYouTube(): void {
       setYtAutoplayIntent(false);
       player.pauseVideo();
       player.seekTo(0, true);
-      restoreFallbackAudio(player, desiredAudio);
+      writeYouTubeAudio(player, desiredAudio);
     };
 
     const finishUnavailable = (): void => {
@@ -2047,29 +2036,21 @@ export function initYouTube(): void {
         setZeroStartExternalFallbackOwnership(false);
         return;
       }
-      let cleanupAttempts = 0;
-      const verifyCleanup = (): void => {
-        if (generation !== zeroStartHostFallbackGeneration) return;
-        cleanupAttempts += 1;
-        try {
-          cleanupExactPlayer(ownedPlayer);
-          const restored = isFallbackAudioRestored(ownedPlayer, desiredAudio);
-          if (restored || cleanupAttempts >= YOUTUBE_ARM_TIMING.audioRestoreMaxAttempts) {
-            setZeroStartExternalFallbackOwnership(false);
-            clearManagedTimer('yt-zero-start-host-fallback');
-            return;
-          }
-        } catch {
-          if (cleanupAttempts >= YOUTUBE_ARM_TIMING.audioRestoreMaxAttempts) {
-            setZeroStartExternalFallbackOwnership(false);
-            clearManagedTimer('yt-zero-start-host-fallback');
-            return;
-          }
-        }
-        scheduleHostFallback(verifyCleanup, YOUTUBE_ARM_TIMING.audioRestorePollMs);
+      const endCleanup = (): void => {
+        setZeroStartExternalFallbackOwnership(false);
+        clearManagedTimer('yt-zero-start-host-fallback');
       };
       setZeroStartExternalFallbackOwnership(true);
-      verifyCleanup();
+      // Every attempt reissues the pause and the seek with the audio.
+      restoreYouTubeAudioVerified({
+        cadence: 'verify-then-settle',
+        canWrite: () => generation === zeroStartHostFallbackGeneration,
+        write: () => cleanupExactPlayer(ownedPlayer),
+        verify: () => isYouTubeAudioRestored(ownedPlayer, desiredAudio),
+        onRestored: endCleanup,
+        onExhausted: endCleanup,
+        schedule: scheduleHostFallback,
+      });
     };
 
     const attemptRecovery = (): void => {
@@ -2155,8 +2136,8 @@ export function initYouTube(): void {
           return;
         }
 
-        restoreFallbackAudio(player, desiredAudio);
-        const audioRestored = isFallbackAudioRestored(player, desiredAudio);
+        writeYouTubeAudio(player, desiredAudio);
+        const audioRestored = isYouTubeAudioRestored(player, desiredAudio);
         if (!audioRestored) {
           scheduleHostFallback(attemptRecovery, 50);
           return;
@@ -2499,7 +2480,7 @@ export function initYouTube(): void {
         setYtAutoplayIntent(false);
         player.pauseVideo();
         player.seekTo(resolveZeroStartLocalTarget(0, context), true);
-        restoreFallbackAudio(player, desiredAudio);
+        writeYouTubeAudio(player, desiredAudio);
       };
 
       const abandonFallback = (verifyAudioRestore = false): void => {
@@ -2520,33 +2501,22 @@ export function initYouTube(): void {
         // A timed-out fallback must not leave WebKit's transient hard mute as
         // the new user intent. Retry and verify the exact owned iframe only;
         // a later run increments the generation and fences this cleanup.
-        let cleanupAttempts = 0;
-        const verifyCleanup = (): void => {
-          if (cleanupGeneration !== zeroStartExternalFallbackGeneration) return;
-          cleanupAttempts += 1;
-          try {
-            cleanupExactPlayer(ownedPlayer);
-            const restored = isFallbackAudioRestored(ownedPlayer, desiredAudio);
-            if (restored || cleanupAttempts >= YOUTUBE_ARM_TIMING.audioRestoreMaxAttempts) {
-              setZeroStartExternalFallbackOwnership(false);
-              clearManagedTimer('yt-zero-start-external-fallback');
-              return;
-            }
-          } catch {
-            if (cleanupAttempts >= YOUTUBE_ARM_TIMING.audioRestoreMaxAttempts) {
-              setZeroStartExternalFallbackOwnership(false);
-              clearManagedTimer('yt-zero-start-external-fallback');
-              return;
-            }
-          }
-          setManagedTimer(
-            'yt-zero-start-external-fallback',
-            verifyCleanup,
-            YOUTUBE_ARM_TIMING.audioRestorePollMs,
-          );
+        // Every attempt reissues the pause and the seek with the audio.
+        const endCleanup = (): void => {
+          setZeroStartExternalFallbackOwnership(false);
+          clearManagedTimer('yt-zero-start-external-fallback');
         };
         setZeroStartExternalFallbackOwnership(true);
-        verifyCleanup();
+        restoreYouTubeAudioVerified({
+          cadence: 'verify-then-settle',
+          canWrite: () => cleanupGeneration === zeroStartExternalFallbackGeneration,
+          write: () => cleanupExactPlayer(ownedPlayer),
+          verify: () => isYouTubeAudioRestored(ownedPlayer, desiredAudio),
+          onRestored: endCleanup,
+          onExhausted: endCleanup,
+          schedule: (callback, delayMs) =>
+            setManagedTimer('yt-zero-start-external-fallback', callback, delayMs),
+        });
       };
 
       const attemptFallback = (): void => {
@@ -2725,8 +2695,8 @@ export function initYouTube(): void {
           // An intentional negative hold may outlive the preparation budget.
           // The iframe still needs its own bounded asynchronous audio restore.
           if (!releaseAudioDeadline) releaseAudioDeadline = Math.max(deadline, Date.now() + 1000);
-          restoreFallbackAudio(player, desiredAudio);
-          const audioRestored = isFallbackAudioRestored(player, desiredAudio);
+          writeYouTubeAudio(player, desiredAudio);
+          const audioRestored = isYouTubeAudioRestored(player, desiredAudio);
           if (!audioRestored) {
             if (Date.now() < releaseAudioDeadline) {
               setManagedTimer('yt-zero-start-external-fallback', attemptFallback, 50);
@@ -2746,7 +2716,7 @@ export function initYouTube(): void {
           const localTarget = resolveZeroStartLocalTarget(canonicalTarget, context);
           player.pauseVideo();
           player.seekTo(localTarget, true);
-          restoreFallbackAudio(player, desiredAudio);
+          writeYouTubeAudio(player, desiredAudio);
           setYtAutoplayIntent(true);
           setZeroStartExternalFallbackOwnership(false);
           try {

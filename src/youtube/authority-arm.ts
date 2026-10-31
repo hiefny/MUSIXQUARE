@@ -1,6 +1,11 @@
 import type { QueueItemId, YouTubeZeroStartPlatform } from '../types/index.ts';
 import { MANUAL_SYNC_OFFSET_LIMIT_MS } from '../core/constants.ts';
 import { PRO_YOUTUBE_BARRIERED_PREPARE_TIMEOUT_MS, YOUTUBE_ARM_TIMING } from './constants.ts';
+import {
+  isYouTubeAudioRestored,
+  restoreYouTubeAudioVerified,
+  writeYouTubeAudio,
+} from './iframe-audio.ts';
 import { getYouTubeAudibleOutputDelayMs } from './output-latency.ts';
 
 const PLAYER_STATE = Object.freeze({
@@ -186,7 +191,6 @@ type DetachedAudioRestore = {
   player: YouTubeAuthorityArmPlayer;
   muted: boolean;
   volume: number;
-  attempt: number;
 };
 
 const defaultScheduler: YouTubeAuthorityArmScheduler = {
@@ -646,37 +650,26 @@ export class YouTubeAuthorityArmController {
     if (!this.#isCurrent(run)) return;
     run.phase = 'restoring-audio';
     this.#emitPhase(run);
-    this.#attemptAudioRestore(run, 0);
-  }
-
-  #attemptAudioRestore(run: ActiveRun, attempt: number): void {
-    if (!this.#isCurrent(run) || run.phase !== 'restoring-audio') return;
-    if (!this.#ensurePlayerCurrent(run)) return;
-    this.#restoreCapturedAudio(run);
-    this.#later(
-      run,
-      () => {
-        if (!this.#isCurrent(run) || run.phase !== 'restoring-audio') return;
-        let restored: boolean;
+    const isRestoring = (): boolean => this.#isCurrent(run) && run.phase === 'restoring-audio';
+    const capturedAudio = () => ({ muted: run.originalMuted, volume: run.originalVolume });
+    restoreYouTubeAudioVerified({
+      cadence: 'settle-then-verify',
+      canWrite: () => isRestoring() && this.#ensurePlayerCurrent(run),
+      write: () => {
         try {
-          restored =
-            run.player.isMuted() === run.originalMuted &&
-            Math.abs(run.player.getVolume() - run.originalVolume) <= 1;
+          writeYouTubeAudio(run.player, capturedAudio());
         } catch {
-          restored = false;
+          // Cancellation/failure cleanup cannot throw through an authority fence.
         }
-        if (restored) {
-          this.#markPrepared(run);
-          return;
-        }
-        if (attempt + 1 >= YOUTUBE_ARM_TIMING.audioRestoreMaxAttempts) {
-          this.#failPrepare(run, 'audio-restore-timeout');
-          return;
-        }
-        this.#attemptAudioRestore(run, attempt + 1);
       },
-      YOUTUBE_ARM_TIMING.audioRestorePollMs,
-    );
+      // The check reads this run's player; #markPrepared and the next write
+      // check that the iframe is still current.
+      canVerify: isRestoring,
+      verify: () => isYouTubeAudioRestored(run.player, capturedAudio()),
+      onRestored: () => this.#markPrepared(run),
+      onExhausted: () => this.#failPrepare(run, 'audio-restore-timeout'),
+      schedule: (callback, delayMs) => this.#later(run, callback, delayMs),
+    });
   }
 
   #markPrepared(run: ActiveRun): void {
@@ -825,16 +818,6 @@ export class YouTubeAuthorityArmController {
     this.#deps.onPhaseChange?.('idle');
   }
 
-  #restoreCapturedAudio(run: ActiveRun): void {
-    try {
-      run.player.setVolume(run.originalVolume);
-      if (run.originalMuted) run.player.mute();
-      else run.player.unMute();
-    } catch {
-      // Cancellation/failure cleanup cannot throw through an authority fence.
-    }
-  }
-
   /**
    * Failure and supersede can happen exactly while WebKit is applying a hard
    * mute. A single unMute/setVolume pair is not reliable on that boundary.
@@ -848,57 +831,46 @@ export class YouTubeAuthorityArmController {
       player: run.player,
       muted: run.originalMuted,
       volume: run.originalVolume,
-      attempt: 0,
     };
     this.#detachedRestore = restore;
-    this.#attemptDetachedAudioRestore(restore);
-  }
-
-  #attemptDetachedAudioRestore(restore: DetachedAudioRestore): void {
-    if (
-      this.#detachedRestore !== restore ||
-      restore.generation !== this.#detachedRestoreGeneration
-    ) {
-      return;
-    }
-    let currentPlayer: YouTubeAuthorityArmPlayer | null;
-    try {
-      currentPlayer = this.#deps.getPlayer();
-    } catch {
-      currentPlayer = null;
-    }
-    if (currentPlayer !== restore.player) {
-      this.#finishDetachedAudioRestore(restore);
-      return;
-    }
-
-    try {
-      restore.player.setVolume(restore.volume);
-      if (restore.muted) restore.player.mute();
-      else restore.player.unMute();
-    } catch {
-      // The bounded verification below decides whether another attempt is useful.
-    }
-    restore.attempt += 1;
-
-    let restored: boolean;
-    try {
-      restored =
-        restore.player.isMuted() === restore.muted &&
-        Math.abs(restore.player.getVolume() - restore.volume) <= 1;
-    } catch {
-      restored = false;
-    }
-    if (restored || restore.attempt >= YOUTUBE_ARM_TIMING.audioRestoreMaxAttempts) {
-      this.#finishDetachedAudioRestore(restore);
-      return;
-    }
-
-    const timer = this.#scheduler.set(() => {
-      this.#detachedRestoreTimers.delete(timer);
-      this.#attemptDetachedAudioRestore(restore);
-    }, YOUTUBE_ARM_TIMING.audioRestorePollMs);
-    this.#detachedRestoreTimers.add(timer);
+    const finish = (): void => this.#finishDetachedAudioRestore(restore);
+    restoreYouTubeAudioVerified({
+      cadence: 'verify-then-settle',
+      canWrite: () => {
+        if (
+          this.#detachedRestore !== restore ||
+          restore.generation !== this.#detachedRestoreGeneration
+        ) {
+          return false;
+        }
+        let currentPlayer: YouTubeAuthorityArmPlayer | null;
+        try {
+          currentPlayer = this.#deps.getPlayer();
+        } catch {
+          currentPlayer = null;
+        }
+        if (currentPlayer === restore.player) return true;
+        finish();
+        return false;
+      },
+      write: () => {
+        try {
+          writeYouTubeAudio(restore.player, restore);
+        } catch {
+          // The bounded verification below decides whether another attempt is useful.
+        }
+      },
+      verify: () => isYouTubeAudioRestored(restore.player, restore),
+      onRestored: finish,
+      onExhausted: finish,
+      schedule: (callback, delayMs) => {
+        const timer = this.#scheduler.set(() => {
+          this.#detachedRestoreTimers.delete(timer);
+          callback();
+        }, delayMs);
+        this.#detachedRestoreTimers.add(timer);
+      },
+    });
   }
 
   #finishDetachedAudioRestore(restore: DetachedAudioRestore): void {

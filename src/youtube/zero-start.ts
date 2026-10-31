@@ -13,6 +13,7 @@ import {
   YOUTUBE_ARM_TIMING,
   YOUTUBE_RELEASE_CATCH_UP_TOLERANCE_SEC,
 } from './constants.ts';
+import { restoreYouTubeAudioVerified, writeYouTubeAudio } from './iframe-audio.ts';
 import { getYouTubeAudibleOutputDelayMs } from './output-latency.ts';
 import type {
   ProtocolMsg,
@@ -335,6 +336,54 @@ function clamp(value: number, min: number, max: number): number {
 
 function finiteOr(value: number, fallback: number): number {
   return Number.isFinite(value) ? value : fallback;
+}
+
+/**
+ * zero-start's write and check in one audio restore loop over one exact
+ * iframe: the run's captured audio, read as each attempt runs, and a NaN
+ * volume read counted as the captured volume (finiteOr). detail() reports
+ * the last attempt's command error, reads and read error.
+ */
+function runAudioRestoreSteps(run: LocalRun, getPlayer: () => YouTubeZeroStartPlayer) {
+  let commandError: unknown;
+  let actualMuted: boolean | null = null;
+  let actualVolume: number | null = null;
+  let verificationError: unknown;
+  return {
+    write: (): void => {
+      commandError = undefined;
+      try {
+        writeYouTubeAudio(getPlayer(), { muted: run.originalMuted, volume: run.originalVolume });
+      } catch (error) {
+        commandError = error;
+      }
+    },
+    verify: (): boolean => {
+      actualMuted = null;
+      actualVolume = null;
+      verificationError = undefined;
+      try {
+        const player = getPlayer();
+        actualMuted = player.isMuted();
+        actualVolume = finiteOr(player.getVolume(), run.originalVolume);
+      } catch (error) {
+        verificationError = error;
+      }
+      return (
+        actualMuted === run.originalMuted &&
+        actualVolume !== null &&
+        Math.abs(actualVolume - run.originalVolume) <= 1
+      );
+    },
+    detail: () => ({
+      expectedMuted: run.originalMuted,
+      actualMuted,
+      expectedVolume: run.originalVolume,
+      actualVolume,
+      commandError,
+      verificationError,
+    }),
+  };
 }
 
 function getYouTubeZeroStartTimelineBiasMs(platform: YouTubeZeroStartPlatform): number {
@@ -1403,57 +1452,25 @@ class YouTubeZeroStartController {
     if (!this.#isCurrentRun(run)) return;
     run.phase = 'restoring-audio';
     this.#emitState();
-    this.#attemptRunAudioRestore(run, 0);
-  }
-
-  #attemptRunAudioRestore(run: LocalRun, attempt: number): void {
-    if (!this.#isCurrentRun(run) || run.phase !== 'restoring-audio') return;
-    const player = this.#getPreparedPlayer(run);
-    if (!player) return;
-
-    let commandError: unknown;
-    try {
-      player.setVolume(run.originalVolume);
-      if (run.originalMuted) player.mute();
-      else player.unMute();
-    } catch (error) {
-      commandError = error;
-    }
-
-    this.#later(() => {
-      if (!this.#isCurrentRun(run) || run.phase !== 'restoring-audio') return;
-      const currentPlayer = this.#getPreparedPlayer(run);
-      if (!currentPlayer) return;
-      let actualMuted: boolean | null = null;
-      let actualVolume: number | null = null;
-      let verificationError: unknown;
-      try {
-        actualMuted = currentPlayer.isMuted();
-        actualVolume = finiteOr(currentPlayer.getVolume(), run.originalVolume);
-      } catch (error) {
-        verificationError = error;
-      }
-      const restored =
-        actualMuted === run.originalMuted &&
-        actualVolume !== null &&
-        Math.abs(actualVolume - run.originalVolume) <= 1;
-      if (restored) {
-        this.#markArmed(run);
-        return;
-      }
-      if (attempt + 1 >= YOUTUBE_ARM_TIMING.audioRestoreMaxAttempts) {
-        this.#failLocalPrepare(run, 'audio-restore-timeout', {
-          expectedMuted: run.originalMuted,
-          actualMuted,
-          expectedVolume: run.originalVolume,
-          actualVolume,
-          commandError,
-          verificationError,
-        });
-        return;
-      }
-      this.#attemptRunAudioRestore(run, attempt + 1);
-    }, YOUTUBE_ARM_TIMING.audioRestorePollMs);
+    // Only the prepared iframe, while this run still restores its audio, is
+    // written or read; #getPreparedPlayer fails the run on any other one.
+    let player: YouTubeZeroStartPlayer | null = null;
+    const isRestoring = (): boolean => {
+      if (!this.#isCurrentRun(run) || run.phase !== 'restoring-audio') return false;
+      player = this.#getPreparedPlayer(run);
+      return player !== null;
+    };
+    // isRestoring, which runs before every write and check, set the player.
+    const steps = runAudioRestoreSteps(run, () => player as YouTubeZeroStartPlayer);
+    restoreYouTubeAudioVerified({
+      cadence: 'settle-then-verify',
+      canWrite: isRestoring,
+      write: steps.write,
+      verify: steps.verify,
+      onRestored: () => this.#markArmed(run),
+      onExhausted: () => this.#failLocalPrepare(run, 'audio-restore-timeout', steps.detail()),
+      schedule: (callback, delayMs) => this.#later(callback, delayMs),
+    });
   }
 
   #markArmed(run: LocalRun): void {
@@ -1976,65 +1993,25 @@ class YouTubeZeroStartController {
     if (!player) return;
     this.#cancelDetachedAudioRestore();
     const generation = this.#detachedAudioRestoreGeneration;
-
-    const attemptRestore = (attempt: number): void => {
-      if (
-        generation !== this.#detachedAudioRestoreGeneration ||
-        this.#getCleanupPlayer(run) !== player
-      ) {
-        return;
-      }
-      let commandError: unknown;
-      try {
-        player.setVolume(run.originalVolume);
-        if (run.originalMuted) player.mute();
-        else player.unMute();
-      } catch (error) {
-        commandError = error;
-      }
-
-      this.#detachedAudioRestoreTimer = this.#scheduler.set(() => {
-        this.#detachedAudioRestoreTimer = null;
-        if (
-          generation !== this.#detachedAudioRestoreGeneration ||
-          this.#getCleanupPlayer(run) !== player
-        ) {
-          return;
-        }
-        let actualMuted: boolean | null = null;
-        let actualVolume: number | null = null;
-        let verificationError: unknown;
-        try {
-          actualMuted = player.isMuted();
-          actualVolume = finiteOr(player.getVolume(), run.originalVolume);
-        } catch (error) {
-          verificationError = error;
-        }
-        const restored =
-          actualMuted === run.originalMuted &&
-          actualVolume !== null &&
-          Math.abs(actualVolume - run.originalVolume) <= 1;
-        if (restored) {
-          this.#debug('audio-restore-complete', { runId: run.runId, attempts: attempt + 1 });
-          return;
-        }
-        if (attempt + 1 >= YOUTUBE_ARM_TIMING.audioRestoreMaxAttempts) {
-          this.#deps.onError?.('audio-restore-timeout', {
-            runId: run.runId,
-            expectedMuted: run.originalMuted,
-            actualMuted,
-            expectedVolume: run.originalVolume,
-            actualVolume,
-            commandError,
-            verificationError,
-          });
-          return;
-        }
-        attemptRestore(attempt + 1);
-      }, YOUTUBE_ARM_TIMING.audioRestorePollMs);
-    };
-
-    attemptRestore(0);
+    const isCurrent = (): boolean =>
+      generation === this.#detachedAudioRestoreGeneration && this.#getCleanupPlayer(run) === player;
+    const steps = runAudioRestoreSteps(run, () => player);
+    restoreYouTubeAudioVerified({
+      cadence: 'settle-then-verify',
+      canWrite: isCurrent,
+      write: steps.write,
+      verify: steps.verify,
+      onRestored: (attempts) =>
+        this.#debug('audio-restore-complete', { runId: run.runId, attempts }),
+      onExhausted: () =>
+        this.#deps.onError?.('audio-restore-timeout', { runId: run.runId, ...steps.detail() }),
+      schedule: (callback, delayMs) => {
+        this.#detachedAudioRestoreTimer = this.#scheduler.set(() => {
+          this.#detachedAudioRestoreTimer = null;
+          callback();
+        }, delayMs);
+      },
+    });
   }
 
   #cancelDetachedAudioRestore(): void {

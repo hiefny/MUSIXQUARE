@@ -374,6 +374,8 @@ const TIMING_CONTRACTS: readonly TimingContract[] = [
     files: [
       // The start timing home since Phase 6 6A-3 (C2-1).
       'src/youtube/constants.ts',
+      // The verified audio restore since Phase 6 6A-4 (C2-3).
+      'src/youtube/iframe-audio.ts',
       'src/youtube/zero-start.ts',
       'src/youtube/authority-arm.ts',
       'src/youtube/player.ts',
@@ -722,7 +724,9 @@ const MEDIA_TUNING_BASELINE: Baseline = new Map<string, Allowance>([
 // 44 calls in the same five files as a text search for `mute(`, `unMute(` and
 // `setVolume(` found on 2026-10-30. Phase 6 moves the writes to one
 // iframe-audio owner and lowers these counts as it goes; the iOS prime unMute
-// and the retained player's hard-mute proof stay.
+// and the retained player's hard-mute proof stay. Phase 6 6A-4 moved the six
+// verified restores and the guest fallback's restore before its release onto
+// the shared writer in src/youtube/iframe-audio.ts (32 calls).
 
 const IFRAME_AUDIO_WRITE_METHODS = new Set(['mute', 'unMute', 'setVolume']);
 
@@ -736,10 +740,21 @@ const IFRAME_AUDIO_WRITE_BASELINE: Baseline = new Map<string, Allowance>([
   [
     'src/youtube/authority-arm.ts',
     {
-      count: 10,
+      count: 4,
       reason:
-        'the PRO arm: the hard mute in prepare and #waitForHardMute (4), the active restore ' +
-        '#restoreCapturedAudio (3) and the detached restore #attemptDetachedAudioRestore (3)',
+        'the PRO arm: the hard mute in prepare and #waitForHardMute (4); its active and ' +
+        'detached restores write through writeYouTubeAudio in src/youtube/iframe-audio.ts',
+    },
+  ],
+  [
+    'src/youtube/iframe-audio.ts',
+    {
+      count: 3,
+      reason:
+        'the shared restore writer writeYouTubeAudio (3), through which the six verified ' +
+        "restores write: zero-start's and the PRO arm's active and detached restores, and the " +
+        'player.ts cleanups of the host legacy recovery and the guest local fallback; the ' +
+        "recoveries' restores before a release write through it too",
     },
   ],
   [
@@ -755,13 +770,13 @@ const IFRAME_AUDIO_WRITE_BASELINE: Baseline = new Map<string, Allowance>([
   [
     'src/youtube/player.ts',
     {
-      count: 17,
+      count: 14,
       reason:
         'the PRO direct commit applyProPlaybackYouTubeCommit (3); the mute before stopYouTubeMode ' +
-        'destroys the player (1); the helper restoreFallbackAudio (3), through which the host ' +
-        'legacy recovery and the guest local fallback restore audio, and their mutes before a ' +
-        'load or a wait (attemptRecovery 1, attemptFallback 2); the youtube:set-volume handler ' +
-        '(3) and the PRO pause gate handlers (pending 1, settled 3)',
+        'destroys the player (1); the mutes of the host legacy recovery and the guest local ' +
+        'fallback before a load or a wait (attemptRecovery 1, attemptFallback 2), whose audio ' +
+        'restores write through writeYouTubeAudio in src/youtube/iframe-audio.ts; the ' +
+        'youtube:set-volume handler (3) and the PRO pause gate handlers (pending 1, settled 3)',
     },
   ],
   [
@@ -776,12 +791,12 @@ const IFRAME_AUDIO_WRITE_BASELINE: Baseline = new Map<string, Allowance>([
   [
     'src/youtube/zero-start.ts',
     {
-      count: 12,
+      count: 6,
       reason:
         'the Standard zero-start controller: the release unMute and its retry in ' +
         'handlePlayerStateChange (2), the hard mute in #beginLocalPrepare and #waitForHardMute ' +
-        '(4), the active restore #attemptRunAudioRestore (3) and the detached restore ' +
-        'attemptRestore (3)',
+        '(4); its active and detached restores write through writeYouTubeAudio in ' +
+        'src/youtube/iframe-audio.ts',
     },
   ],
 ]);

@@ -43,6 +43,9 @@ export default defineConfig({
       'src/network/transport/__tests__/{link-liveness,link-liveness-characterization,link-liveness-side-outage,side-route-outage-integration}.test.ts',
       'src/network/__tests__/transport-health.test.ts',
       'src/youtube/__tests__/{search,search-style}.test.ts',
+      // The verified YouTube iframe audio restore (RO-12), enrolled with its
+      // module in Phase 6 6A-4.
+      'src/youtube/__tests__/iframe-audio.test.ts',
       'src/account/__tests__/{api,session,login-return}.test.ts',
       'src/ui/__tests__/announcement.test.ts',
       'src/share/__tests__/r2-client.test.ts',
@@ -87,6 +90,7 @@ export default defineConfig({
         'src/network/transport/link-liveness.ts',
         'src/network/transport-health.ts',
         'src/youtube/oembed.ts',
+        'src/youtube/iframe-audio.ts',
         'src/account/api.ts',
         'src/account/session.ts',
         'src/ui/announcement.ts',
@@ -316,6 +320,14 @@ export default defineConfig({
           branches: 59,
           functions: 92,
           lines: 80,
+        },
+        // The verified iframe audio restore (Phase 6 6A-4) is fully covered
+        // by iframe-audio.test.ts on 2026-10-31.
+        'src/youtube/iframe-audio.ts': {
+          statements: 99,
+          branches: 99,
+          functions: 99,
+          lines: 99,
         },
         // The page navigation owner and the service-worker update path,
         // enrolled on 2026-10-24 (Phase 3, C6-9) at about one point below two

@@ -104,6 +104,33 @@ describe('self-hosted Inter and Noto Sans KR files', () => {
     expect([...features]).toEqual(expect.arrayContaining(['kern', 'palt', 'vert']));
   }, 60_000);
 
+  it("keeps Google's copyright and license URL in every Noto Sans KR shard", async () => {
+    // These are modified OFL fonts deployed under /assets/ with no license
+    // file beside them, so the pointer inside each file must survive.
+    const { notoSansKr } = await readFontSources(ROOT);
+    const names = new Map<string, number>();
+    for (const face of notoSansKr.faces) {
+      const font = await openFontFile(join(ROOT, notoSansKr.directory, face.file));
+      for (const [id, expected] of [
+        [0, "(c) 2014-2021 Adobe (http://www.adobe.com/), with Reserved Font Name 'Source'."],
+        [14, 'http://scripts.sil.org/OFL'],
+      ] as const) {
+        const value = font.getName(id, 'en');
+        names.set(`${id} ${value}`, (names.get(`${id} ${value}`) ?? 0) + 1);
+        expect(value, `${face.file} name ID ${id}`).toBe(expected);
+      }
+    }
+    expect([...names.values()]).toEqual([120, 120]);
+  }, 60_000);
+
+  it('carries the Noto CJK license with its copyright and Reserved Font Name next to the files', async () => {
+    const license = await readFile(join(ROOT, 'fonts/NOTO_CJK_LICENSE.txt'), 'utf8');
+    expect(license.split('\n')[0]).toBe(
+      "Copyright 2014-2021 Adobe (http://www.adobe.com/), with Reserved Font Name 'Source'.",
+    );
+    expect(license).toContain('SIL OPEN FONT LICENSE Version 1.1');
+  });
+
   it('ships Inter 4 as one variable opsz and wght face per subset, with its contextual alternates', async () => {
     const { inter } = await readFontSources(ROOT);
     for (const face of inter.faces) {

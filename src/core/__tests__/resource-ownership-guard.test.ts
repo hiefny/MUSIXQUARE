@@ -1244,12 +1244,12 @@ describe('resource-ownership guard', { timeout: 60_000 }, () => {
           );
         }),
       );
-      // A name list counts once per call.
+      // A call counts once per start-timer name it covers: a name list counts each of its names.
       expect(findings).toMatch(
-        /UNSANCTIONED cross-file start-timer read \(RO-02\): src\/youtube\/rogue-start-reader\.ts has 4/u,
+        /UNSANCTIONED cross-file start-timer read \(RO-02\): src\/youtube\/rogue-start-reader\.ts has 6 /u,
       );
       expect(findings).toMatch(
-        /UNSANCTIONED cross-file start-timer clear \(RO-02\): src\/youtube\/rogue-start-reader\.ts has 2/u,
+        /UNSANCTIONED cross-file start-timer clear \(RO-02\): src\/youtube\/rogue-start-reader\.ts has 3 /u,
       );
     });
 
@@ -1296,13 +1296,15 @@ describe('resource-ownership guard', { timeout: 60_000 }, () => {
           );
         }),
       );
-      // Seven reads (one per call) and two clears, and nothing the guard cannot resolve.
+      // Seven reads naming eleven start timers (both sides of each conditional
+      // and of '??', every name of each list) and two clears naming four, and
+      // nothing the guard cannot resolve.
       expect(findings.split('\n')).toEqual([
         expect.stringMatching(
-          /^UNSANCTIONED cross-file start-timer read \(RO-02\): src\/youtube\/start-name-forms\.ts has 7 - /u,
+          /^UNSANCTIONED cross-file start-timer read \(RO-02\): src\/youtube\/start-name-forms\.ts has 11 - /u,
         ),
         expect.stringMatching(
-          /^UNSANCTIONED cross-file start-timer clear \(RO-02\): src\/youtube\/start-name-forms\.ts has 2 - /u,
+          /^UNSANCTIONED cross-file start-timer clear \(RO-02\): src\/youtube\/start-name-forms\.ts has 4 - /u,
         ),
       ]);
     });
@@ -1322,7 +1324,10 @@ describe('resource-ownership guard', { timeout: 60_000 }, () => {
         "      'yt-rendezvous-play',\n" +
         "      'yt-rendezvous-calibrate',\n";
 
-      it('still counts once when it becomes a name list with an annotated callback, a loop or a frozen const', () => {
+      // Folding the six names 6A-1 moved to owner queries back into the read
+      // raises the count by six in every form: a call counts once per
+      // start-timer name it covers.
+      it('counts each name when it becomes a name list with an annotated callback, a loop or a frozen const', () => {
         const annotated = withSources((sources) =>
           replaceIn(
             sources,
@@ -1355,8 +1360,12 @@ describe('resource-ownership guard', { timeout: 60_000 }, () => {
           );
         });
         for (const input of [annotated, looped, frozen]) {
-          expect(findingsOf(input)).toBe('');
-          expect(analyzeResourceOwnership(input).startTimerUses).toEqual({ reads: 11, clears: 9 });
+          expect(findingsOf(input)).toBe(
+            'RATCHET REGRESSION cross-file start-timer read (RO-02): ' +
+              "src/youtube/native-control-authority.ts has 7, baseline 1 - ask the timer's owner " +
+              '(the file that sets it) through an owner query instead',
+          );
+          expect(analyzeResourceOwnership(input).startTimerUses).toEqual({ reads: 17, clears: 9 });
         }
       });
 
@@ -1385,6 +1394,24 @@ describe('resource-ownership guard', { timeout: 60_000 }, () => {
           'STALE BASELINE cross-file start-timer read (RO-02): src/youtube/native-control-authority.ts has 0',
         );
       });
+    });
+
+    it("counts a start timer folded into iframe.ts's nudge read as a second read", () => {
+      const findings = findingsOf(
+        withSources((sources) =>
+          replaceIn(
+            sources,
+            'src/youtube/iframe.ts',
+            '!!getManagedTimer(PRO_COORDINATOR_YOUTUBE_NUDGE_TIMER);',
+            "[PRO_COORDINATOR_YOUTUBE_NUDGE_TIMER, 'yt-auto-sync'].some(\n" +
+              '    (name) => getManagedTimer(name) !== null,\n' +
+              '  );',
+          ),
+        ),
+      );
+      expect(findings).toMatch(
+        /^RATCHET REGRESSION cross-file start-timer read \(RO-02\): src\/youtube\/iframe\.ts has 2, baseline 1 - /u,
+      );
     });
 
     it("does not count a file's own timers as cross-file, and rejects that file as their second setter", () => {

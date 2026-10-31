@@ -68,43 +68,49 @@ or pointers. Keep :focus-visible and :active outside the gate (src/ui/__tests__/
     --radius-m: 20px;
     --radius-s: 14px;
     --radius-pill: 999px;
-    --font-primary: 'Pretendard';
+    /* App fonts (owner decisions 2026-10-31). Inter draws Latin, digits,
+       Cyrillic and Greek, Noto Sans KR Hangul and Noto Sans JP kana; Han,
+       CJK punctuation and the symbols Inter lacks come from the four CJK
+       families in an order. The Japanese and Chinese UIs put their own
+       family first; every other UI reads --font-cjk-default, which the Han
+       order chosen once at startup from the browser's languages swaps
+       (html[data-mxqr-han-order] below; Korean first when it is absent).
+       So the Korean and English UIs read one stack and draw the same text
+       the same way. The Indic, Arabic and Hebrew UIs put their own script
+       face first. Every family is declared in every UI (css/fonts/app/ and
+       the script sheets, src/i18n/app-font-contract.ts); the system fonts
+       only draw what no declared face has.
+       src/i18n/__tests__/font-stack-identity.test.ts holds the stacks. */
+    --font-primary: 'Inter';
+    --font-cjk-ko: 'Noto Sans KR', 'Noto Sans JP', 'Noto Sans SC', 'Noto Sans TC';
+    --font-cjk-ja: 'Noto Sans JP', 'Noto Sans KR', 'Noto Sans SC', 'Noto Sans TC';
+    --font-cjk-sc: 'Noto Sans SC', 'Noto Sans TC', 'Noto Sans JP', 'Noto Sans KR';
+    --font-cjk-tc: 'Noto Sans TC', 'Noto Sans SC', 'Noto Sans JP', 'Noto Sans KR';
+    --font-cjk-default: var(--font-cjk-ko);
+    --font-scripts:
+      'Noto Sans Thai', 'Noto Sans Arabic', 'Noto Sans Hebrew', 'Noto Sans Devanagari',
+      'Noto Sans Bengali', 'Noto Sans Tamil', 'Noto Sans Telugu', 'Noto Sans Gujarati',
+      'Noto Sans Kannada', 'Noto Sans Malayalam', 'Noto Sans Gurmukhi';
+    --font-system: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
     --font-sans-ui:
-      var(--font-primary), -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
-    --font-sans-ko:
-      var(--font-primary), -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto,
-      'Apple SD Gothic Neo', 'Noto Sans KR', sans-serif;
+      var(--font-primary), var(--font-cjk-default), var(--font-scripts), var(--font-system);
     --font-sans-ja:
-      var(--font-primary), 'Noto Sans JP', 'Hiragino Sans', 'Yu Gothic', 'Meiryo', sans-serif;
+      var(--font-primary), var(--font-cjk-ja), var(--font-scripts), var(--font-system);
     --font-sans-cjk-sc:
-      var(--font-primary), 'Noto Sans SC', 'Microsoft YaHei', 'PingFang SC', sans-serif;
+      var(--font-primary), var(--font-cjk-sc), var(--font-scripts), var(--font-system);
     --font-sans-cjk-tc:
-      var(--font-primary), 'Noto Sans TC', 'Microsoft JhengHei', 'PingFang TC', sans-serif;
-    --font-sans-th: var(--font-primary), 'Noto Sans Thai', 'Leelawadee UI', 'Tahoma', sans-serif;
-    --font-sans-cyrillic:
-      var(--font-primary), 'Noto Sans', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto,
-      sans-serif;
-    --font-sans-devanagari:
-      'Noto Sans Devanagari', var(--font-primary), 'Nirmala UI', Mangal, sans-serif;
-    --font-sans-bengali:
-      'Noto Sans Bengali', var(--font-primary), 'Nirmala UI', 'Vrinda', sans-serif;
-    --font-sans-tamil: 'Noto Sans Tamil', var(--font-primary), 'Nirmala UI', 'Latha', sans-serif;
-    --font-sans-telugu:
-      'Noto Sans Telugu', var(--font-primary), 'Nirmala UI', 'Gautami', sans-serif;
-    --font-sans-gujarati:
-      'Noto Sans Gujarati', var(--font-primary), 'Nirmala UI', Shruti, sans-serif;
-    --font-sans-kannada: 'Noto Sans Kannada', var(--font-primary), 'Nirmala UI', Tunga, sans-serif;
-    --font-sans-malayalam:
-      'Noto Sans Malayalam', var(--font-primary), 'Nirmala UI', Kartika, sans-serif;
-    --font-sans-gurmukhi:
-      'Noto Sans Gurmukhi', var(--font-primary), 'Nirmala UI', Raavi, sans-serif;
-    --font-sans-arabic:
-      'Noto Sans Arabic', var(--font-primary), 'Segoe UI', Tahoma, Arial, sans-serif;
-    --font-sans-hebrew: 'Noto Sans Hebrew', var(--font-primary), 'Segoe UI', Arial, sans-serif;
-    --font-sans-greek:
-      'Noto Sans', var(--font-primary), -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto,
-      sans-serif;
-    --font-sans: var(--font-sans-ko);
+      var(--font-primary), var(--font-cjk-tc), var(--font-scripts), var(--font-system);
+    --font-sans-devanagari: 'Noto Sans Devanagari', var(--font-sans-ui);
+    --font-sans-bengali: 'Noto Sans Bengali', var(--font-sans-ui);
+    --font-sans-tamil: 'Noto Sans Tamil', var(--font-sans-ui);
+    --font-sans-telugu: 'Noto Sans Telugu', var(--font-sans-ui);
+    --font-sans-gujarati: 'Noto Sans Gujarati', var(--font-sans-ui);
+    --font-sans-kannada: 'Noto Sans Kannada', var(--font-sans-ui);
+    --font-sans-malayalam: 'Noto Sans Malayalam', var(--font-sans-ui);
+    --font-sans-gurmukhi: 'Noto Sans Gurmukhi', var(--font-sans-ui);
+    --font-sans-arabic: 'Noto Sans Arabic', var(--font-sans-ui);
+    --font-sans-hebrew: 'Noto Sans Hebrew', var(--font-sans-ui);
+    --font-sans: var(--font-sans-ui);
     /* Weight roles (owner decision 2026-10-28). Text takes one of five
        weights and nothing else, and never goes above 700. Each rule reads
        its role's token itself; weight-role-contract.test.ts holds the list.
@@ -183,8 +189,19 @@ or pointers. Keep :focus-visible and :active outside the gate (src/ui/__tests__/
     }
   }
 
-  :root[data-mxqr-font-recovery='true'] {
-    --font-primary: 'MUSIXQUARE Pretendard Recovery';
+  /* The Han order of every UI but Japanese and Chinese, chosen once at
+     startup from the browser's languages (src/i18n/locale-fonts.ts); Korean
+     first when the attribute is absent. */
+  :root[data-mxqr-han-order='ja'] {
+    --font-cjk-default: var(--font-cjk-ja);
+  }
+
+  :root[data-mxqr-han-order='zh-hans'] {
+    --font-cjk-default: var(--font-cjk-sc);
+  }
+
+  :root[data-mxqr-han-order='zh-hant'] {
+    --font-cjk-default: var(--font-cjk-tc);
   }
 
   /* The compact narrow slots (owner decision 2026-10-28): where the CTA role
@@ -530,33 +547,9 @@ or pointers. Keep :focus-visible and :active outside the gate (src/ui/__tests__/
     transition: background-color 0.4s cubic-bezier(0.2, 0.8, 0.2, 1);
   }
 
-  html:lang(en),
-  html:lang(es),
-  html:lang(pt-BR),
-  html:lang(fr),
-  html:lang(de),
-  html:lang(nl),
-  html:lang(it),
-  html:lang(pl),
-  html:lang(tr),
-  html:lang(id),
-  html:lang(vi),
-  html:lang(ms-MY),
-  html:lang(fil-PH),
-  html:lang(ro-RO),
-  html:lang(cs-CZ),
-  html:lang(sv-SE),
-  html:lang(da-DK),
-  html:lang(nb-NO),
-  html:lang(fi-FI),
-  html:lang(hu-HU) {
-    --font-sans: var(--font-sans-ui);
-  }
-
-  html:lang(ko) {
-    --font-sans: var(--font-sans-ko);
-  }
-
+  /* Every UI not listed here, Korean and English included, reads the
+     default --font-sans-ui (font-stack-identity.test.ts). css/rtl.css sets
+     the Arabic and Hebrew stacks for the right-to-left documents too. */
   html:lang(ja) {
     --font-sans: var(--font-sans-ja);
   }
@@ -567,16 +560,6 @@ or pointers. Keep :focus-visible and :active outside the gate (src/ui/__tests__/
 
   html:lang(zh-Hant) {
     --font-sans: var(--font-sans-cjk-tc);
-  }
-
-  html:lang(th) {
-    --font-sans: var(--font-sans-th);
-  }
-
-  html:lang(ru),
-  html:lang(uk-UA),
-  html:lang(bg-BG) {
-    --font-sans: var(--font-sans-cyrillic);
   }
 
   html:lang(hi-IN),
@@ -620,10 +603,6 @@ or pointers. Keep :focus-visible and :active outside the gate (src/ui/__tests__/
 
   html:lang(he-IL) {
     --font-sans: var(--font-sans-hebrew);
-  }
-
-  html:lang(el-GR) {
-    --font-sans: var(--font-sans-greek);
   }
 
   @keyframes fadeIn {
@@ -6451,79 +6430,64 @@ or pointers. Keep :focus-visible and :active outside the gate (src/ui/__tests__/
     font-weight: var(--font-weight-selected);
   }
 
+  /* Each native name takes the stack of its own language, so it draws the
+     same in every UI: the Japanese and Chinese names their own Han order,
+     the Indic, Arabic and Hebrew names their script face first. Every other
+     name, Thai, Cyrillic and Greek included, draws with the UI's stack,
+     whose faces cover its script in one family. */
   .language-option-native:lang(ja) {
-    font-family:
-      'Noto Sans JP', var(--font-primary), 'Hiragino Sans', 'Yu Gothic', 'Meiryo', sans-serif;
+    font-family: var(--font-sans-ja);
   }
 
   .language-option-native:lang(zh-Hans) {
-    font-family: 'Noto Sans SC', var(--font-primary), 'Microsoft YaHei', 'PingFang SC', sans-serif;
+    font-family: var(--font-sans-cjk-sc);
   }
 
   .language-option-native:lang(zh-Hant) {
-    font-family:
-      'Noto Sans TC', var(--font-primary), 'Microsoft JhengHei', 'PingFang TC', sans-serif;
-  }
-
-  .language-option-native:lang(th) {
-    font-family: 'Noto Sans Thai', var(--font-primary), 'Leelawadee UI', 'Tahoma', sans-serif;
-  }
-
-  .language-option-native:lang(ru),
-  .language-option-native:lang(uk),
-  .language-option-native:lang(bg),
-  .language-option-native:lang(el) {
-    font-family:
-      'Noto Sans',
-      var(--font-primary),
-      -apple-system,
-      BlinkMacSystemFont,
-      'Segoe UI',
-      'Roboto',
-      sans-serif;
+    font-family: var(--font-sans-cjk-tc);
   }
 
   .language-option-native:lang(hi),
   .language-option-native:lang(mr) {
-    font-family: 'Noto Sans Devanagari', var(--font-primary), 'Nirmala UI', Mangal, sans-serif;
+    font-family: var(--font-sans-devanagari);
   }
 
   .language-option-native:lang(bn) {
-    font-family: 'Noto Sans Bengali', var(--font-primary), 'Nirmala UI', Vrinda, sans-serif;
+    font-family: var(--font-sans-bengali);
   }
 
   .language-option-native:lang(ta) {
-    font-family: 'Noto Sans Tamil', var(--font-primary), 'Nirmala UI', Latha, sans-serif;
+    font-family: var(--font-sans-tamil);
   }
 
   .language-option-native:lang(te) {
-    font-family: 'Noto Sans Telugu', var(--font-primary), 'Nirmala UI', Gautami, sans-serif;
+    font-family: var(--font-sans-telugu);
   }
 
   .language-option-native:lang(gu) {
-    font-family: 'Noto Sans Gujarati', var(--font-primary), 'Nirmala UI', Shruti, sans-serif;
+    font-family: var(--font-sans-gujarati);
   }
 
   .language-option-native:lang(kn) {
-    font-family: 'Noto Sans Kannada', var(--font-primary), 'Nirmala UI', Tunga, sans-serif;
+    font-family: var(--font-sans-kannada);
   }
 
   .language-option-native:lang(ml) {
-    font-family: 'Noto Sans Malayalam', var(--font-primary), 'Nirmala UI', Kartika, sans-serif;
+    font-family: var(--font-sans-malayalam);
   }
 
   .language-option-native:lang(pa) {
-    font-family: 'Noto Sans Gurmukhi', var(--font-primary), 'Nirmala UI', Raavi, sans-serif;
+    font-family: var(--font-sans-gurmukhi);
   }
 
   .language-option-native:lang(ar),
   .language-option-native:lang(fa),
   .language-option-native:lang(ur) {
-    font-family: 'Noto Sans Arabic', var(--font-primary), 'Segoe UI', Tahoma, Arial, sans-serif;
+    font-family: var(--font-sans-arabic);
   }
 
   .language-option-native:lang(he) {
-    font-family: 'Noto Sans Hebrew', var(--font-primary), 'Segoe UI', Arial, sans-serif;
+    font-family: var(--font-sans-hebrew);
   }
 
   .language-option-english {
@@ -8558,7 +8522,7 @@ or pointers. Keep :focus-visible and :active outside the gate (src/ui/__tests__/
     outline-offset: -4px;
   }
 
-  /* Pretendard's 11px line in every locale: a label in a taller fallback
+  /* The app font's 11px line in every locale: a label in a taller fallback
      font centres in it instead of pushing the time below the X. */
   .chat-pinned-notice-header {
     display: flex;
@@ -10483,13 +10447,14 @@ or pointers. Keep :focus-visible and :active outside the gate (src/ui/__tests__/
     line-break: strict;
   }
 
-  /* Linux Chromium at device scale 1 hints Pretendard: FreeType snaps each
-     advance to a whole pixel, so the compact 14px lowercase takes the 15px
-     advance and the BETA badge grows 2.5px, and these labels wrapped more
-     than 9.0.18 there (PR #510 CI). geometricPrecision turns hinting off on
-     Linux, so the advances match the unhinted ones Windows draws, where the
-     line breaks do not change. The whole option takes it, so the badge is
-     unhinted too. The play tab Sync and Media keep the default. */
+  /* Linux Chromium at device scale 1 hints the app's web fonts: FreeType
+     snaps each advance to a whole pixel, so the compact 14px lowercase
+     takes the 15px advance and the BETA badge grows 2.5px, and these labels
+     wrapped more than 9.0.18 there (PR #510 CI). geometricPrecision turns
+     hinting off on Linux, so the advances match the unhinted ones Windows
+     draws, where the line breaks do not change. The whole option takes it,
+     so the badge is unhinted too. The play tab Sync and Media keep the
+     default. */
   #media-source-overlay .file-select-btn {
     text-rendering: geometricPrecision;
   }
@@ -10836,98 +10801,23 @@ or pointers. Keep :focus-visible and :active outside the gate (src/ui/__tests__/
 @layer components {
   /* end @layer base */
 
-  /* Script-aware fallback for user/external text. Kept outside @layer base so
-   these explicit rendering-boundary classes can override component stacks
-   without !important. The primary app font remains first for Latin/Korean UI text;
-   only confidently detected, lazily loaded script shards are inserted. */
-  .user-text-font.user-text-font {
-    font-family:
-      var(--font-primary),
-      var(--user-text-font-ar, '__MXQR_USER_TEXT_AR__'),
-      var(--user-text-font-he, '__MXQR_USER_TEXT_HE__'),
-      var(--user-text-font-hi, '__MXQR_USER_TEXT_HI__'),
-      var(--user-text-font-bn, '__MXQR_USER_TEXT_BN__'),
-      var(--user-text-font-ta, '__MXQR_USER_TEXT_TA__'),
-      var(--user-text-font-te, '__MXQR_USER_TEXT_TE__'),
-      var(--user-text-font-gu, '__MXQR_USER_TEXT_GU__'),
-      var(--user-text-font-kn, '__MXQR_USER_TEXT_KN__'),
-      var(--user-text-font-ml, '__MXQR_USER_TEXT_ML__'),
-      var(--user-text-font-pa, '__MXQR_USER_TEXT_PA__'),
-      var(--user-text-font-el, '__MXQR_USER_TEXT_EL__'),
-      var(--user-text-font-ru, '__MXQR_USER_TEXT_RU__'),
-      var(--user-text-font-th, '__MXQR_USER_TEXT_TH__'),
-      var(--user-text-font-ja, '__MXQR_USER_TEXT_JA__'),
-      var(--user-text-font-zh-hans, '__MXQR_USER_TEXT_ZH_HANS__'),
-      var(--user-text-font-zh-hant, '__MXQR_USER_TEXT_ZH_HANT__'),
-      -apple-system,
-      BlinkMacSystemFont,
-      'Segoe UI',
-      Roboto,
-      sans-serif;
+  /* Text people or external services supply, detected as Japanese, Simplified
+     or Traditional Chinese by its own characters (src/ui/user-text-font.ts),
+     takes that language's Han order in every UI; undetected Han follows the
+     UI's order. In @layer components so these explicit rendering-boundary
+     classes override component stacks without !important. With equal
+     specificity the later rule wins, so Japanese comes last and wins over
+     Simplified, then Traditional Chinese, if an element carries several. */
+  .user-text-font.user-text-font-zh-hant {
+    font-family: var(--font-sans-cjk-tc);
   }
 
-  .user-text-font-ar {
-    --user-text-font-ar: 'Noto Sans Arabic';
+  .user-text-font.user-text-font-zh-hans {
+    font-family: var(--font-sans-cjk-sc);
   }
 
-  .user-text-font-he {
-    --user-text-font-he: 'Noto Sans Hebrew';
-  }
-
-  .user-text-font-hi {
-    --user-text-font-hi: 'Noto Sans Devanagari';
-  }
-
-  .user-text-font-bn {
-    --user-text-font-bn: 'Noto Sans Bengali';
-  }
-
-  .user-text-font-ta {
-    --user-text-font-ta: 'Noto Sans Tamil';
-  }
-
-  .user-text-font-te {
-    --user-text-font-te: 'Noto Sans Telugu';
-  }
-
-  .user-text-font-gu {
-    --user-text-font-gu: 'Noto Sans Gujarati';
-  }
-
-  .user-text-font-kn {
-    --user-text-font-kn: 'Noto Sans Kannada';
-  }
-
-  .user-text-font-ml {
-    --user-text-font-ml: 'Noto Sans Malayalam';
-  }
-
-  .user-text-font-pa {
-    --user-text-font-pa: 'Noto Sans Gurmukhi';
-  }
-
-  .user-text-font-el {
-    --user-text-font-el: 'Noto Sans';
-  }
-
-  .user-text-font-ru {
-    --user-text-font-ru: 'Noto Sans';
-  }
-
-  .user-text-font-th {
-    --user-text-font-th: 'Noto Sans Thai';
-  }
-
-  .user-text-font-ja {
-    --user-text-font-ja: 'Noto Sans JP';
-  }
-
-  .user-text-font-zh-hans {
-    --user-text-font-zh-hans: 'Noto Sans SC';
-  }
-
-  .user-text-font-zh-hant {
-    --user-text-font-zh-hant: 'Noto Sans TC';
+  .user-text-font.user-text-font-ja {
+    font-family: var(--font-sans-ja);
   }
 
   /* ─── FOUC guard ──────────────────────────────────────────────

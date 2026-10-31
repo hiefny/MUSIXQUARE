@@ -1,8 +1,9 @@
 #!/usr/bin/env node
 /**
- * Guard the complete Pretendard app font, fallback stacks, and built artifact,
- * plus the self-hosted Inter and Noto Sans KR files against their record and
- * the generated app font sheets against their generator.
+ * Guard the app font stacks (Inter and Noto, the Korean and English UIs on one
+ * stack), the self-hosted Inter and Noto Sans KR files against their record,
+ * the generated app font sheets against their generator, and, until the
+ * Pretendard runtime goes, its lazy loading and built artifact.
  */
 
 import { readFile, readdir } from 'node:fs/promises';
@@ -11,6 +12,9 @@ import { fileURLToPath } from 'node:url';
 import { CLASSIC_RUNTIME_ASSETS, compileClassicRuntimeAsset } from './classic-runtime-assets.ts';
 import { findStaleFontSheets } from './fonts/build-font-sheets.mts';
 import { verifyShippedFontFiles } from './fonts/font-files.mts';
+import { readFontStacks } from './fonts/font-stacks.mts';
+import { APP_FONT_SHEETS } from '../src/i18n/app-font-contract.ts';
+import { LANGUAGE_OPTIONS, languageDirection } from '../src/i18n/locales.ts';
 import {
   OPTIONAL_PRIMARY_FONT_ASSETS_MARKER,
   SERVICE_WORKER_SOURCE_PATH,
@@ -153,7 +157,6 @@ const [
   fontCss,
   primaryFontCss,
   primaryFontRuntime,
-  styleCss,
   bootstrapAuthoredSource,
   bootstrapSource,
   appHtml,
@@ -170,7 +173,6 @@ const [
   readFile(path.join(repoRoot, 'css', 'pretendard.css'), 'utf8'),
   readFile(path.join(repoRoot, 'public', 'primary-font.css'), 'utf8'),
   compileClassicRuntimeAsset(repoRoot, primaryFontRuntimeAsset).then(({ code }) => code),
-  readFile(path.join(repoRoot, 'css', 'style.css'), 'utf8'),
   readFile(path.join(repoRoot, bootstrapRuntimeAsset.sourcePath), 'utf8'),
   compileClassicRuntimeAsset(repoRoot, bootstrapRuntimeAsset).then(({ code }) => code),
   readFile(path.join(repoRoot, 'index.html'), 'utf8'),
@@ -219,7 +221,6 @@ check(
   !/Pretendard(?:UiCore|Korean)|Pretendard UI Core/u.test(fontCss),
   'font CSS names a retired subset',
 );
-check(!/Pretendard UI Core/u.test(styleCss), 'style font stacks still name the retired UI subset');
 check(
   !collectStylesheetUrls(appHtml).some((url) =>
     /(?:^|\/)(?:pretendard|primary-font)\.css(?:[?#]|$)/iu.test(url),
@@ -252,45 +253,53 @@ check(
     /RETRY_DELAYS_MS/u.test(primaryFontRuntime),
   'lazy font runtime lacks bounded separate-family recovery after a CSS failure',
 );
+// The app font stacks (src/i18n/__tests__/font-stack-identity.test.ts holds the
+// per-language orders): Pretendard and its recovery rule are out of the app
+// sheets, the Korean and English UIs read one stack under every Han order, and
+// every UI's stack names every self-hosted family, Inter ahead of the CJK
+// families, and nothing else but the system fonts.
+const fontStacks = readFontStacks(repoRoot);
+const appStyleText = (
+  await Promise.all(fontStacks.sheets.map((sheet) => readFile(path.join(repoRoot, sheet), 'utf8')))
+).join('\n');
+check(!/pretendard/iu.test(appStyleText), 'the app stylesheets still name Pretendard');
 check(
-  /--font-primary\s*:\s*'Pretendard'/u.test(styleCss) &&
-    /data-mxqr-font-recovery=['"]true['"][^{]*\{[^}]*--font-primary\s*:\s*'MUSIXQUARE Pretendard Recovery'/u.test(
-      styleCss,
-    ),
-  'app font variables do not switch inherited UI text to the recovery family',
+  !appStyleText.includes('data-mxqr-font-recovery'),
+  'the app stylesheets still switch to the Pretendard recovery family',
 );
-check(
-  (styleCss.match(/['"]Pretendard['"]/gu) || []).length === 1 &&
-    /\.user-text-font\.user-text-font\s*\{[^}]*var\(--font-primary\)/su.test(styleCss) &&
-    /\.language-option-native:lang\(ja\)\s*\{[^}]*var\(--font-primary\)/su.test(styleCss),
-  'an explicit UI text boundary can bypass the root recovery-family switch',
-);
-
-for (const fallback of [
-  'Noto Sans Arabic',
-  'Noto Sans Bengali',
-  'Noto Sans Devanagari',
-  'Noto Sans Gujarati',
-  'Noto Sans Gurmukhi',
-  'Noto Sans Hebrew',
-  'Noto Sans JP',
-  'Noto Sans Kannada',
-  'Noto Sans Malayalam',
-  'Noto Sans SC',
-  'Noto Sans Tamil',
-  'Noto Sans TC',
-  'Noto Sans Telugu',
-  'Noto Sans Thai',
-  'Noto Sans',
-]) {
-  const escaped = fallback.replace(/[.*+?^${}()|[\]\\]/gu, '\\$&');
+const appFontFamilies: readonly string[] = APP_FONT_SHEETS.map(({ family }) => family);
+const systemFontFamilies = new Set([
+  '-apple-system',
+  'BlinkMacSystemFont',
+  'Segoe UI',
+  'Roboto',
+  'sans-serif',
+]);
+const cjkFontFamilies = ['Noto Sans KR', 'Noto Sans JP', 'Noto Sans SC', 'Noto Sans TC'];
+for (const hanOrder of [null, 'ja', 'zh-hans', 'zh-hant'] as const) {
+  const attributes: Record<string, string> =
+    hanOrder === null ? {} : { 'data-mxqr-han-order': hanOrder };
+  const orderLabel = `Han order ${hanOrder ?? 'ko'}`;
   check(
-    new RegExp(
-      `(?:var\\(--font-primary\\)[^;]*'${escaped}'|'${escaped}'[^;]*var\\(--font-primary\\))`,
-      'u',
-    ).test(styleCss),
-    `${fallback} is not paired with Pretendard in a locale fallback stack`,
+    JSON.stringify(fontStacks.fontSans({ htmlLang: 'ko', attributes })) ===
+      JSON.stringify(fontStacks.fontSans({ htmlLang: 'en', attributes })),
+    `the Korean and English UIs read different font stacks (${orderLabel})`,
   );
+  for (const { code, htmlLang } of LANGUAGE_OPTIONS) {
+    const stack = fontStacks.fontSans({ htmlLang, dir: languageDirection(code), attributes });
+    const where = `the ${code} UI font stack (${orderLabel})`;
+    const strays = stack.filter(
+      (family) => !appFontFamilies.includes(family) && !systemFontFamilies.has(family),
+    );
+    check(strays.length === 0, `${where} names ${strays.join(', ')}`);
+    const missing = appFontFamilies.filter((family) => !stack.includes(family));
+    check(missing.length === 0, `${where} omits ${missing.join(', ')}`);
+    const inter = stack.indexOf('Inter');
+    check(
+      inter >= 0 && cjkFontFamilies.every((family) => stack.indexOf(family) > inter),
+      `${where} puts a CJK family before Inter`,
+    );
+  }
 }
 
 for (const [label, html] of [

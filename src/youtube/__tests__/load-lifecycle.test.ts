@@ -229,6 +229,7 @@ import {
 import { initPlayback } from '../../player/playback.ts';
 import { stopAllMedia } from '../../player/transport.ts';
 import * as ytState from '../_state.ts';
+import { isYouTubeZeroStartInFlight } from '../zero-start.ts';
 
 function choose(id: string, videoId: string): void {
   const items = getState('playlist.items');
@@ -563,9 +564,15 @@ describe('QA3 R17 actual registered lifecycle probes', () => {
     zeroStartFacade.active = true;
     vi.mocked(player.getVideoData).mockReturnValue({ video_id: 'vidB000000B' });
     vi.mocked(player.getPlayerState).mockReturnValue(5);
+    zeroStartFacade.handlePlayerState.mockClear();
     handle.fireStateChange(5);
+    // The iframe dispatch hands the target CUED to the zero-start owner.
+    expect(zeroStartFacade.handlePlayerState).toHaveBeenCalledWith(5);
     expect(getManagedTimer('yt-reused-feedback-timeout')).toBeNull();
+    vi.mocked(isYouTubeZeroStartInFlight).mockClear();
     vi.advanceTimersByTime(SCRIPT_LOAD_TIMEOUT_MS + 1);
+    // The UI loop runs through the hold and reads the in-flight export.
+    expect(isYouTubeZeroStartInFlight).toHaveBeenCalled();
     expect(ytState.getYouTubePlayer()).toBe(player);
     expect(getState('playback.mode')).toBe('youtube');
     expect(player.destroy).not.toHaveBeenCalled();

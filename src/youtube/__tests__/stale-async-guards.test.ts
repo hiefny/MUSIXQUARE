@@ -302,6 +302,11 @@ beforeEach(async () => {
   zeroStartFacade.active = false;
   zeroStartFacade.handlePlayerState.mockReset();
   zeroStartFacade.handlePlayerState.mockReturnValue(false);
+  // mockReset() restores each factory reader of the facade flags above after
+  // a row routed it to a real controller.
+  const zeroStartModule = await import('../zero-start.ts');
+  vi.mocked(zeroStartModule.isYouTubeZeroStartInFlight).mockReset();
+  vi.mocked(zeroStartModule.isYouTubeZeroStartProtocolActive).mockReset();
   const stateMod = await import('../_state.ts');
   stateMod.resetYouTubeModuleState();
   // resetYouTubeModuleState() leaves the local-pause flag to
@@ -4183,8 +4188,11 @@ describe('retained iOS player teardown', () => {
       getClockOffsetMs: () => 0,
     });
     init.mockRestore();
-    zeroStartFacade.inFlight = true;
-    zeroStartFacade.active = true;
+    // The three zero-start facades answer from the real controller `zero`.
+    vi.mocked(zeroModule.isYouTubeZeroStartInFlight).mockImplementation(() => zero.isInFlight());
+    vi.mocked(zeroModule.isYouTubeZeroStartProtocolActive).mockImplementation(() =>
+      zero.isProtocolActive(),
+    );
     zeroStartFacade.handlePlayerState.mockImplementation((nextState) =>
       zero.handlePlayerStateChange(nextState),
     );
@@ -5196,12 +5204,14 @@ describe('zero-start iframe projection barrier', () => {
   it('projects the real release PLAYING once without emitting a second legacy release', async () => {
     const player = createMockYtPlayer();
     const handle = await startPlainYouTubeVideo(player);
+    const { isYouTubeZeroStartProtocolActive } = await import('../zero-start.ts');
     const playStateUpdates = vi.fn();
     bus.on('ui:update-play-state', playStateUpdates);
     broadcastMock.mockClear();
     zeroStartFacade.inFlight = false;
     zeroStartFacade.active = true;
     zeroStartFacade.handlePlayerState.mockReturnValue(false);
+    vi.mocked(isYouTubeZeroStartProtocolActive).mockClear();
 
     handle.fireStateChange(1);
 
@@ -5211,6 +5221,29 @@ describe('zero-start iframe projection barrier', () => {
     expect(
       broadcastMock.mock.calls.filter(([message]) => message.type === MSG.YOUTUBE_STATE),
     ).toHaveLength(0);
+    // The auxiliary state broadcast reads the protocol export, which holds it.
+    expect(isYouTubeZeroStartProtocolActive).toHaveBeenCalled();
+  });
+
+  it('broadcasts the same release PLAYING once when no zero-start protocol holds it', async () => {
+    // Control for the row above: the 300 ms state dedupe does not hold this frame.
+    const player = createMockYtPlayer();
+    const handle = await startPlainYouTubeVideo(player);
+    const playStateUpdates = vi.fn();
+    bus.on('ui:update-play-state', playStateUpdates);
+    broadcastMock.mockClear();
+    zeroStartFacade.inFlight = false;
+    zeroStartFacade.active = false;
+    zeroStartFacade.handlePlayerState.mockReturnValue(false);
+
+    handle.fireStateChange(1);
+
+    expect(getState('playback.activity')).toBe('playing');
+    expect(playStateUpdates).toHaveBeenCalledTimes(1);
+    expect(playStateUpdates).toHaveBeenCalledWith(true);
+    expect(
+      broadcastMock.mock.calls.filter(([message]) => message.type === MSG.YOUTUBE_STATE),
+    ).toHaveLength(1);
   });
 
   it('does not broadcast iframe state as legacy host authority in a PRO room', async () => {
@@ -5454,11 +5487,15 @@ describe('zero-start iframe projection barrier', () => {
     setManagedTimerMock.mockClear();
     zeroStartFacade.inFlight = true;
     zeroStartFacade.active = true;
+    const { isYouTubeZeroStartInFlight } = await import('../zero-start.ts');
+    vi.mocked(isYouTubeZeroStartInFlight).mockClear();
 
     uiTick!();
 
     expect(timeUpdates).not.toHaveBeenCalled();
     expect(autoAdvance).not.toHaveBeenCalled();
     expect(setManagedTimerMock.mock.calls.some(([name]) => name === 'youtubeSyncLoop')).toBe(false);
+    // The UI loop's gate reads the in-flight export.
+    expect(isYouTubeZeroStartInFlight).toHaveBeenCalled();
   });
 });

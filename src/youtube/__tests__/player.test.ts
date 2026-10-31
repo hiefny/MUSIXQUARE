@@ -237,10 +237,50 @@ describe('YouTube Player', () => {
 
       playerRuntime.setPendingAutoSyncOnReady(true, { targetTime: 34 });
       expect(bridge.consumePendingAutoSyncOnReadyFromIframe()).toMatchObject({ targetTime: 34 });
-      expect(bridge.isYouTubeZeroStartExternalFallbackActiveFromIframe()).toBe(
-        playerRuntime.isYouTubeZeroStartExternalFallbackActive(),
+      // player.ts re-exports the bridge's own reader: comparing their answers
+      // could never fail, so pin that they are one function.
+      expect(playerRuntime.isYouTubeZeroStartExternalFallbackActive).toBe(
+        bridge.isYouTubeZeroStartExternalFallbackActiveFromIframe,
       );
       playerRuntime.setPendingAutoSyncOnReady(false);
+    });
+
+    it('answers the PRO pause gate and the pending-start cancel through the bridge', async () => {
+      const bridge = await import('../player-runtime-bridge.ts');
+      const playerRuntime = await import('../player.ts');
+      playerRuntime.initYouTube();
+      const settle = (token: number) =>
+        bus.emit('pro-playback:ui-control-settled', {
+          token,
+          kind: 'pause',
+          queueItemId: QUEUE_ITEM_ID,
+          status: 'applied',
+          positionSeconds: 3,
+        });
+      try {
+        bus.emit('pro-playback:ui-control-pending', {
+          token: 71,
+          kind: 'pause',
+          queueItemId: QUEUE_ITEM_ID,
+          targetSeconds: 3,
+          wasPlaying: true,
+        });
+        expect(bridge.isProPlaybackPauseGatePendingFromIframe()).toBe(true);
+        // Another token's settlement leaves the gate closed.
+        settle(70);
+        expect(bridge.isProPlaybackPauseGatePendingFromIframe()).toBe(true);
+        settle(71);
+        expect(bridge.isProPlaybackPauseGatePendingFromIframe()).toBe(false);
+      } finally {
+        // The gate token outlives resetState()/bus.clear().
+        settle(71);
+      }
+
+      const loading: Array<[boolean, string | undefined]> = [];
+      bus.on('youtube:sync-loading', (busy, owner) => loading.push([busy, owner]));
+      // The cancel hook is player.ts's cancelYtAutoSync: its unscoped reset.
+      bridge.cancelPendingYouTubeStartFromSync();
+      expect(loading).toEqual([[false, undefined]]);
     });
 
     it('leaves protocol listener ownership in initYouTube', async () => {
@@ -2363,6 +2403,9 @@ describe('YouTube Player', () => {
       const { safeSend } = await import('../../network/peer.ts');
       const { processSyncPong, registerPing, resetClockState } =
         await import('../../network/shared-clock.ts');
+      const { isYouTubeZeroStartExternalFallbackPendingFromSync } =
+        await import('../player-runtime-bridge.ts');
+      const { isYouTubeZeroStartSyncOwned } = await import('../zero-start-ownership.ts');
 
       const hostPeerId = 'host-external-fallback';
       const guestPeerId = 'guest-external-fallback';
@@ -2450,6 +2493,9 @@ describe('YouTube Player', () => {
       const firstFallback = callbacksBeforeFirstAttempt.at(-1);
       expect(firstFallback).toBeTypeOf('function');
       expect(isYouTubeZeroStartExternalFallbackActive()).toBe(true);
+      // The real fallback is also what the sync readers' owner queries see.
+      expect(isYouTubeZeroStartExternalFallbackPendingFromSync()).toBe(true);
+      expect(isYouTubeZeroStartSyncOwned()).toBe(true);
 
       const unmuteCountBeforeVolume = player.__log.filter(({ op }) => op === 'unMute').length;
       const mutedBeforeVolume = player.isMuted();
@@ -2473,6 +2519,8 @@ describe('YouTube Player', () => {
       stopYouTubeMode();
 
       expect(isYouTubeZeroStartExternalFallbackActive()).toBe(false);
+      expect(isYouTubeZeroStartExternalFallbackPendingFromSync()).toBe(false);
+      expect(isYouTubeZeroStartSyncOwned()).toBe(false);
       expect(player.__log.filter(({ op }) => op === 'unMute')).toHaveLength(unmuteCountBeforeStop);
 
       // Managed timers are mocked in this suite, so invoke the callback that

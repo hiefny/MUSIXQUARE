@@ -37,6 +37,8 @@ import {
 } from '../../player/ownership.ts';
 import { grantStandardRoomAdministrator } from '../standard-room-authority.ts';
 import { setDemoHostStartAt } from '../../demo/host-start-anchor.ts';
+import { isYouTubeZeroStartExternalFallbackPendingFromSync } from '../../youtube/player-runtime-bridge.ts';
+import { isYouTubeZeroStartProtocolActive } from '../../youtube/zero-start.ts';
 
 const QUEUE_ITEM_ID = '00000000-0000-4000-8000-000000000001';
 
@@ -82,7 +84,7 @@ vi.mock('../../player/transport.ts', async (importOriginal) => {
 
 vi.mock('../../youtube/player-runtime-bridge.ts', async (importOriginal) => ({
   ...(await importOriginal<typeof import('../../youtube/player-runtime-bridge.ts')>()),
-  isYouTubeZeroStartExternalFallbackPendingFromSync: () => zeroStartFacade.fallback,
+  isYouTubeZeroStartExternalFallbackPendingFromSync: vi.fn(() => zeroStartFacade.fallback),
 }));
 
 vi.mock('../../youtube/zero-start.ts', () => ({
@@ -317,6 +319,26 @@ describe('manual sync nudge routing', () => {
     expect(applySpy).toHaveBeenCalledTimes(1);
   });
 
+  it('consults both zero-start owner queries before applying a YouTube nudge', () => {
+    vi.useFakeTimers();
+    initSync();
+    const applySpy = vi.fn();
+    bus.on('youtube:apply-manual-sync', applySpy);
+    setPlaybackYouTubePlaying();
+    setState('network.hostConn', { open: true } as DataConnection);
+    vi.mocked(isYouTubeZeroStartProtocolActive).mockClear();
+    vi.mocked(isYouTubeZeroStartExternalFallbackPendingFromSync).mockClear();
+
+    bus.emit('sync:nudge', 10);
+
+    expect(getState('sync.youtubeLocalOffset')).toBeCloseTo(0.01, 4);
+    // With no owner, the gate reads both halves of isYouTubeZeroStartSyncOwned.
+    expect(isYouTubeZeroStartProtocolActive).toHaveBeenCalled();
+    expect(isYouTubeZeroStartExternalFallbackPendingFromSync).toHaveBeenCalled();
+    vi.advanceTimersByTime(1_000);
+    expect(applySpy).toHaveBeenCalledTimes(1);
+  });
+
   it.each(['active', 'fallback'] as const)(
     'rejects YouTube edits while the %s zero-start owner is pending',
     (owner) => {
@@ -327,6 +349,8 @@ describe('manual sync nudge routing', () => {
       setState('network.hostConn', { open: true } as DataConnection);
       setState('sync.youtubeLocalOffset', 0.25);
       zeroStartFacade[owner] = true;
+      vi.mocked(isYouTubeZeroStartProtocolActive).mockClear();
+      vi.mocked(isYouTubeZeroStartExternalFallbackPendingFromSync).mockClear();
 
       bus.emit('sync:nudge', 10);
       bus.emit('sync:set-manual-offset', -1234);
@@ -334,6 +358,12 @@ describe('manual sync nudge routing', () => {
 
       expect(getState('sync.youtubeLocalOffset')).toBe(0.25);
       expect(applySpy).not.toHaveBeenCalled();
+      // The gate reaches the forced owner's export. isYouTubeZeroStartSyncOwned
+      // reads the protocol half first, so the fallback row reads both.
+      expect(isYouTubeZeroStartProtocolActive).toHaveBeenCalled();
+      if (owner === 'fallback') {
+        expect(isYouTubeZeroStartExternalFallbackPendingFromSync).toHaveBeenCalled();
+      }
     },
   );
 

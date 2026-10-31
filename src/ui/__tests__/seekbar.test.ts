@@ -14,6 +14,10 @@ import { STANDARD_ROOM_OWNER_PRODUCT_CAPABILITIES } from '../../network/standard
 import { t } from '../../i18n/index.ts';
 import { markStandardRoomAuthorityConfirmed, setRoomContext } from '../../rooms/authority.ts';
 import type { DataConnection } from '../../types/index.ts';
+import {
+  isYouTubeZeroStartInFlight,
+  isYouTubeZeroStartProtocolActive,
+} from '../../youtube/zero-start.ts';
 
 const QUEUE_ITEM_ID = '10000000-0000-4000-8000-000000000001';
 
@@ -362,22 +366,31 @@ describe('initSeekBar playback mode gates', () => {
     setState('playback.activity', 'playing');
     zeroStartFacade.active = true;
     zeroStartFacade.inFlight = true;
+    const inFlight = vi.mocked(isYouTubeZeroStartInFlight);
+    const protocolActive = vi.mocked(isYouTubeZeroStartProtocolActive);
+    inFlight.mockClear();
+    protocolActive.mockClear();
     initSeekBar();
 
     const slider = document.getElementById('seek-slider') as HTMLInputElement;
     expect(slider.getAttribute('aria-disabled')).toBe('true');
+    expect(inFlight).toHaveBeenCalled();
 
     // handlePlayerStateChange(PLAYING) closes iframe ownership immediately,
     // while the protocol identity remains active for its 2.75s calibration.
     zeroStartFacade.inFlight = false;
+    inFlight.mockClear();
     bus.emit('youtube:sync-loading', false, 'zero-start');
 
     expect(zeroStartFacade.active).toBe(true);
     expect(slider.getAttribute('aria-disabled')).toBe('false');
+    expect(inFlight).toHaveBeenCalled();
 
     slider.value = '42';
     slider.dispatchEvent(new Event('change'));
     expect(seekTo).toHaveBeenCalledWith(42);
+    // The seek gate reads only the in-flight query, never the protocol one.
+    expect(protocolActive).not.toHaveBeenCalled();
   });
 
   it('blocks a seek draft while a replacement file is still preparing', () => {

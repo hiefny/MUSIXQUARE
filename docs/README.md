@@ -97,7 +97,7 @@ runbooks. Neither belongs in a general setup document.
   prepared, not released. The runtime increments of the first Phase 6 App update (owner answers of
   2026-10-30, all recommended: four App updates, each audio restore keeps its own rhythm, the
   deferred app part of Phase 0d rides in this train, a test that reproduces a defect pins today's
-  behaviour) on branch `agent/p6-6a`, 17 commits on main `599465dd` (the Phase 6 T1 guards and the
+  behaviour) on branch `agent/p6-6a`, 19 commits on main `599465dd` (the Phase 6 T1 guards and the
   YouTube test-order fix after the 9.0.27 release); the version bump, the release record's entry for
   the train, the registry's release-batching sentence and the release are left to the release owner.
   6A-1 replaces the cross-file reads of the start timers' names with owner queries
@@ -114,13 +114,16 @@ runbooks. Neither belongs in a general setup document.
   CHECK 11 44 to 32, CHECK 12 reads 14 to 11 and clears 10 to 9 (CHECK 12 now counts each start
   timer a call covers), CHECK 5 copies 2 to 1. Target `app` (13 App runtime paths, none in the other
   five Workers, no runtime dependency change); `guard:sw-cache-version` fails only for the missing
-  bump. The eager JavaScript grows by 237 B gzip, mostly from 6A-3's object-shaped homes, which is
-  over the Phase 6 cap of +200 B, so the report asks the owner (a scalar-export shape measured 152 B
-  below the base) and also asks to defer the plan's shared player-state names, which this branch
-  leaves out. It lists the QA rounds (unit suite 727 files, 17,218 passed and one environment skip;
-  `src/youtube` clean under four shuffle seeds, while two untouched `src/pro-room` files fail the
-  same rows on the base; critical and Worker coverage, every guard, and local Playwright: critical
-  100 / 100 and the eight YouTube specs 41 / 41), mixed versions, the rollback (alone only until
+  bump. 6A-3's object-shaped homes took the eager JavaScript 237 B gzip over the base, past the
+  Phase 6 cap of +200 B, so a size follow-up (the report's recommended answer to its owner question)
+  makes each start timing its own named export, with the same values and readers: the eager
+  JavaScript is now 149 B gzip below the base (eager total 152 B). The plan's shared player-state
+  names stay out of this branch, as recommended, for a later train. It lists the QA rounds (unit
+  suite 727 files, 17,218 passed and one environment skip; `src/youtube` clean under four shuffle
+  seeds, while two untouched `src/pro-room` files fail the same rows on the base; critical and
+  Worker coverage, every guard, and local Playwright: critical 100 / 100 and the eight YouTube
+  specs 41 / 41; for the follow-up, `src/youtube` 1,907 / 1,907 in file order and under the same
+  four seeds, the guards, types, lint and format), mixed versions, the rollback (alone only until
   6B merges, then a forward revert) and a blind post-deploy check.
 - [App font switch to Inter and Noto, owner decisions (2026-10-31)](design/app-font-inter-noto-2026-10-31.md):
   released on 2026-10-31 23:39 KST in Release 41210993444 (PR #548, squash `c4667abc`) as App

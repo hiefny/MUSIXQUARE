@@ -1,14 +1,14 @@
 # Phase 6 6A: YouTube 시작 시간 집, 시작 타이머 소유자 질의, 검증 복원 하나 (2026-10-31)
 
-| Field              | Value                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                        |
-| ------------------ | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Status             | 준비됨, 배포 전(App 런타임 증분만). 계획의 6A-1 ~ 6A-4와 열차 리뷰 반영이 브랜치 `agent/p6-6a`에 있다: main `599465dd` 위 17커밋(테스트 먼저 5, 코드 6, 가드만 1, 시험만 4, 주석·레지스트리만 1)과 이 기록 커밋. 버전 올리기(SemVer, SW 캐시 epoch, `index.html`의 bootstrap 캐시 쿼리), release-record §2의 이 열차 항목, 레지스트리의 배포 묶음 문단, PR, 배포와 배포 기록은 이 브랜치에 없고 릴리스 담당이 조립할 때 더한다(아래 '배포 조건과 순서'). QA 라운드 1(테스트 먼저 커밋을 부모 런타임에서 다시 돌림)과 2(마지막 커밋 `b80485f3`의 전체 검사)를 2026-10-31 16:03 ~ 17:19 KST에 했다. 오너 질문 둘이 열려 있다(아래 '오너에게': 처음 받는 코드가 Phase 6 상한 +200 B를 넘음, 계획의 상태 이름 정리를 싣지 않음). 로컬 결과는 exact-main-SHA 후보를 대신하지 않는다                                                                                                                                                               |
-| Base               | main `599465dd`(Phase 6 T1 #543와 YouTube 시험 순서 #544 뒤). 운영 App 9.0.27 / v800(`23f29283`, 2026-10-31 04:31 KST 배포) 뒤 main에 들어온 것은 문서(#540), 시험만(#541, #542, #544), 가드만(#543)이라 바탕의 App 런타임 경로는 운영과 같다. 같은 툴체인으로 만든 바탕 빌드의 진입 청크도 9.0.27 운영 smoke가 읽은 것과 이름·크기가 같다(`main-BYFZlrrn.js`, 862,203 B). worktree `mxq-wt/p6-6a`                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                           |
-| Version            | 이 브랜치는 SemVer와 SW 캐시를 바꾸지 않는다(`guard:release-identity` 'MUSIXQUARE 9.0.27; service-worker cache epoch v800'). App 런타임 경로 13개가 바뀌므로 내보내려면 다음 패치와 SW epoch를 함께 올려야 하고, `guard:sw-cache-version`이 바로 그 이유 하나로 실패한다(QA 라운드 2). 올리면 업데이트 창이 한 번 뜬다(Q1의 넷 가운데 첫째, 창 모양은 지금 그대로). 바닥(저장·유효 795)은 바꾸지 않는다. 9.0.27 기록이 다음 App 업데이트 9.0.28에 SFU 추측 발행을 적었으므로 6A의 번호는 두 열차의 순서에 따라 릴리스 담당이 정한다                                                                                                                                                                                                                                                                                                                                                                                                          |
-| Scope              | 계획 §4.5의 6A-1 ~ 6A-4, 모두 중립. 6A-1(H3, PRE-1, PRE-2, PA-15): 다른 모듈이 시작 타이머를 이름으로 읽지 않고 그 주인에게 묻는다. 6A-2(PRE-5): `resetYouTubeSyncState`가 되풀이하는 직접 지우기 하나와 아무도 걸지 않는 `'yt-mix-snapshot'` 지우기를 지운다. 6A-3(C2-1, PRE-10, PA-04 ~ PA-06, RT-02): YouTube 시작 시간 값을 `src/youtube/constants.ts` 한 집으로 모은다. 6A-4(C2-3, SS-01, PA-13): 여섯 오디오 복원 루프가 새 `src/youtube/iframe-audio.ts`의 검증 복원 하나를 쓴다. 와이어, 서버, 저장 모양, 계약 표지, 의존성, 타이머 이름, 로그 줄, 화면, 소리는 바꾸지 않는다([화면 그대로]). 계획의 6A-3 (가) 상태 열거와 6A-5(버전 올리기·문서)는 이 브랜치에 없다(아래 '계획과 달라진 것')                                                                                                                                                                                                                                        |
-| Deploy target      | `app`(예상). `scripts/release-deployment-state.mts`의 `changedRuntimePaths`, `runtimePathsForWorker`, `changedAppRuntimeDependencies`, `releaseTargetWorkers`로 `599465dd..b80485f3`을 견준 로컬 git 판정: App 13(`src/player/playlist.ts`, `src/pro-room/playback-authority-hooks.ts`, `src/pro-room/playback-controller.ts`, `src/youtube/`의 `authority-arm.ts`, `constants.ts`, `handlers.ts`, `iframe-audio.ts`, `iframe.ts`, `native-control-authority.ts`, `player-runtime-bridge.ts`, `player.ts`, `sync.ts`, `zero-start.ts`), PRO room 0, remote-share 0, signaling 0, Developer API facade 0, Developer API 0, App 런타임 의존성 차이 없음. 운영 App `23f29283` 대비도 같은 App 13이고, 운영 PRO room `683074bc`와 나머지 넷 `71f5b96c` 대비 그 Worker들의 런타임 경로 차이는 0이다. 운영을 조회하지 않은 판정이라 릴리스의 부분 릴리스 검사를 대신하지 않는다. `raise_app_build_floor` false, Developer API D1 false(계획 RT-01) |
-| Operations         | 운영에 닿지 않았다. 로컬 git, 로컬 시험·빌드·Playwright만 했다                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                               |
-| Resource ownership | 새 레코드 없음(새 흐름이 아니라 기존 자원 RO-02, RO-03, RO-12의 주인 이동). 센 코드를 옮긴 커밋이 같은 커밋에서 레지스트리 RO-02(H3 소유자 질의, 시간 집, 받는 쪽 parity 시험), RO-03(시간 집), RO-12(검증 복원, 새 파일 머리 `Resource owner: RO-12`)와 가드 항목 11·12, 기준치를 고쳤다: CHECK 11 44 → 32, CHECK 12 읽기 14 → 11과 지우기 10 → 9, CHECK 5 복사 2 → 1(아래 '정확한 개수 가드'). `node scripts/check-resource-ownership.mts`: 49 records, 450 → 451 production files                                                                                                                                                                                                                                                                                                                                                                                                                                                         |
+| Field              | Value                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                         |
+| ------------------ | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Status             | 준비됨, 배포 전(App 런타임 증분만). 계획의 6A-1 ~ 6A-4, 열차 리뷰 반영, 크기 후속이 브랜치 `agent/p6-6a`에 있다: main `599465dd` 위 19커밋(테스트 먼저 6, 코드 7, 가드만 1, 시험만 4, 주석·레지스트리만 1)과 기록 커밋 둘(`a883f9b9`와 이 보고서를 고친 커밋). 버전 올리기(SemVer, SW 캐시 epoch, `index.html`의 bootstrap 캐시 쿼리), release-record §2의 이 열차 항목, 레지스트리의 배포 묶음 문단, PR, 배포와 배포 기록은 이 브랜치에 없고 릴리스 담당이 조립할 때 더한다(아래 '배포 조건과 순서'). QA 라운드 1(테스트 먼저 커밋을 부모 런타임에서 다시 돌림)과 2(`b80485f3`의 전체 검사)를 2026-10-31 16:03 ~ 17:19 KST에, 크기 후속의 라운드 3(`08135e4f`)을 17:53 ~ 18:25 KST에 했다. 처음 받는 코드는 이제 바탕보다 gzip 149 B 작아(eager 전체 −152 B) Phase 6 상한 안이다(아래 '번들 크기'). 오너 질문 둘은 권장안 (가)를 따랐다: 1(크기)은 크기 후속으로 정할 것이 남지 않았고, 2(계획의 상태 이름 정리)는 이 브랜치에 싣지 않았다(아래 '오너에게'). 로컬 결과는 exact-main-SHA 후보를 대신하지 않는다                                                                               |
+| Base               | main `599465dd`(Phase 6 T1 #543와 YouTube 시험 순서 #544 뒤). 운영 App 9.0.27 / v800(`23f29283`, 2026-10-31 04:31 KST 배포) 뒤 main에 들어온 것은 문서(#540), 시험만(#541, #542, #544), 가드만(#543)이라 바탕의 App 런타임 경로는 운영과 같다. 같은 툴체인으로 만든 바탕 빌드의 진입 청크도 9.0.27 운영 smoke가 읽은 것과 이름·크기가 같다(`main-BYFZlrrn.js`, 862,203 B)                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                     |
+| Version            | 이 브랜치는 SemVer와 SW 캐시를 바꾸지 않는다(`guard:release-identity` 'MUSIXQUARE 9.0.27; service-worker cache epoch v800'). App 런타임 경로 13개가 바뀌므로 내보내려면 다음 패치와 SW epoch를 함께 올려야 하고, `guard:sw-cache-version`이 바로 그 이유 하나로 실패한다(QA 라운드 2). 올리면 업데이트 창이 한 번 뜬다(Q1의 넷 가운데 첫째, 창 모양은 지금 그대로). 바닥(저장·유효 795)은 바꾸지 않는다. 9.0.27 기록이 다음 App 업데이트 9.0.28에 SFU 추측 발행을 적었으므로 6A의 번호는 두 열차의 순서에 따라 릴리스 담당이 정한다                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                           |
+| Scope              | 계획 §4.5의 6A-1 ~ 6A-4, 모두 중립. 6A-1(H3, PRE-1, PRE-2, PA-15): 다른 모듈이 시작 타이머를 이름으로 읽지 않고 그 주인에게 묻는다. 6A-2(PRE-5): `resetYouTubeSyncState`가 되풀이하는 직접 지우기 하나와 아무도 걸지 않는 `'yt-mix-snapshot'` 지우기를 지운다. 6A-3(C2-1, PRE-10, PA-04 ~ PA-06, RT-02): YouTube 시작 시간 값을 `src/youtube/constants.ts` 한 집으로 모은다. 6A-4(C2-3, SS-01, PA-13): 여섯 오디오 복원 루프가 새 `src/youtube/iframe-audio.ts`의 검증 복원 하나를 쓴다. 와이어, 서버, 저장 모양, 계약 표지, 의존성, 타이머 이름, 로그 줄, 화면, 소리는 바꾸지 않는다([화면 그대로]). 계획의 6A-3 (가) 상태 열거와 6A-5(버전 올리기·문서)는 이 브랜치에 없다(아래 '계획과 달라진 것')                                                                                                                                                                                                                                                                                                                                                                                         |
+| Deploy target      | `app`(예상). `scripts/release-deployment-state.mts`의 `changedRuntimePaths`, `runtimePathsForWorker`, `changedAppRuntimeDependencies`, `releaseTargetWorkers`로 `599465dd..b80485f3`을 견준 로컬 git 판정: App 13(`src/player/playlist.ts`, `src/pro-room/playback-authority-hooks.ts`, `src/pro-room/playback-controller.ts`, `src/youtube/`의 `authority-arm.ts`, `constants.ts`, `handlers.ts`, `iframe-audio.ts`, `iframe.ts`, `native-control-authority.ts`, `player-runtime-bridge.ts`, `player.ts`, `sync.ts`, `zero-start.ts`), PRO room 0, remote-share 0, signaling 0, Developer API facade 0, Developer API 0, App 런타임 의존성 차이 없음. 운영 App `23f29283` 대비도 같은 App 13이고, 운영 PRO room `683074bc`와 나머지 넷 `71f5b96c` 대비 그 Worker들의 런타임 경로 차이는 0이다. 크기 후속 뒤 `599465dd..08135e4f`도 같은 함수로 같은 App 13, 나머지 Worker 0, 의존성 차이 없음이다(후속이 바꾼 런타임 경로 6개가 모두 그 13 안). 운영을 조회하지 않은 판정이라 릴리스의 부분 릴리스 검사를 대신하지 않는다. `raise_app_build_floor` false, Developer API D1 false(계획 RT-01) |
+| Operations         | 운영에 닿지 않았다. 로컬 git, 로컬 시험·빌드·Playwright만 했다                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                |
+| Resource ownership | 새 레코드 없음(새 흐름이 아니라 기존 자원 RO-02, RO-03, RO-12의 주인 이동). 센 코드를 옮긴 커밋이 같은 커밋에서 레지스트리 RO-02(H3 소유자 질의, 시간 집, 받는 쪽 parity 시험), RO-03(시간 집), RO-12(검증 복원, 새 파일 머리 `Resource owner: RO-12`)와 가드 항목 11·12, 기준치를 고쳤다: CHECK 11 44 → 32, CHECK 12 읽기 14 → 11과 지우기 10 → 9, CHECK 5 복사 2 → 1(아래 '정확한 개수 가드'). 크기 후속은 기준치와 보고만 하는 같은 값 쌍(45)을 바꾸지 않고, RO-02, RO-03, RO-12의 시간 집 문장이 낱개 이름을 적는다. `node scripts/check-resource-ownership.mts`: 49 records, 450 → 451 production files                                                                                                                                                                                                                                                                                                                                                                                                                                                                                  |
 
 이 문서는 Phase 6 계획의 첫 App 열차 6A의 증분과 QA를 기록한다. 근거는 공개하지 않는 작업 노트(`docs/private/`)의
 Phase 6 계획(2026-10-30)과 그 영역 조사, 오너 답(2026-10-30)이고, PRE, PA, RT, SS, C2 번호와 Q 번호는 그 노트의 번호다.
@@ -35,19 +35,20 @@ T0a(#539, #541, #542)와 가드만인 T1(#543)이고, `AGENTS.md`대로 보고�
 ## 증분 한눈에
 
 '부모에서'는 테스트 먼저 커밋을 그 트리 그대로(런타임은 부모의 것) 다시 돌린 결과(실패 / 그 실행의 행)이고, '코드 커밋에서'는 같은
-파일과 코드 커밋이 고친 시험 파일을 코드 커밋에서 돌린 결과다. 둘 다 이 검사가 임시 worktree에서 다시 돌렸다(QA 라운드 1). 실패한
-행은 모두 바꾼 행이고, 양쪽 통과를 뜻한 행은 부모에서도 통과했다.
+파일과 코드 커밋이 고친 시험 파일을 코드 커밋에서 돌린 결과다. 둘 다 이 검사가 임시 worktree에서 다시 돌렸다(QA 라운드 1). 크기
+후속 행은 QA 라운드 3이 이 갈래의 worktree에서 돌렸다. 실패한 행은 모두 바꾼 행이고, 양쪽 통과를 뜻한 행은 부모에서도 통과했다.
 
-| 증분                         | 항목                              | 테스트 먼저 → 코드                              | 부모에서                                   | 코드 커밋에서      | 가드                   |
-| ---------------------------- | --------------------------------- | ----------------------------------------------- | ------------------------------------------ | ------------------ | ---------------------- |
-| 6A-1 H3 소유자 질의          | PRE-1, PRE-2, PA-15               | `09a1bb8c` → `faffa69b`                         | 15 / 121(3 files)                          | 211 / 211(5 files) | CHECK 12 읽기 14 → 11  |
-| 6A-2 겹친 직접 지우기        | PRE-5                             | `8cc9decc` → `d34b4478`                         | 3 / 112(2 files)                           | 293 / 293(3 files) | CHECK 12 지우기 10 → 9 |
-| 6A-3 C2-1 시간 집            | PRE-10, PA-04 ~ PA-06, RT-02      | `d9bee96c` → `4c5ca5e9`                         | 8 / 82(3 files)                            | 438 / 438(9 files) | CHECK 5 복사 2 → 1     |
-| 6A-4 C2-3 검증 복원          | SS-01, PA-13                      | `e1a1a4d3` → `5e3edd0c`, `0ec9e8e0`, `0cd720fc` | 1 / 67, 새 시험 파일은 불러오기 실패(27행) | 534 / 534(8 files) | CHECK 11 44 → 32       |
-| 리뷰: CHECK 12를 이름마다 셈 | RO-02, 가드 항목 12               | `cd35aed8` → `4a1a7e89`                         | 4 / 68                                     | 68 / 68            | 수 그대로(11, 9)       |
-| 리뷰: 오늘 동작 고정         | 시험만 넷                         | `a35e07b9`, `95b03762`, `21f1836a`, `b80485f3`  | 새 행 모두 통과(6A 앞 런타임에서도)        | 해당 없음          | 없음                   |
-| 리뷰: 주석·레지스트리        | RO-02, RO-03, RO-12, 가드 항목 12 | `5a3d356b`                                      | 해당 없음                                  | 빌드 바이트 동일   | 없음                   |
-| 기록                         | 이 보고서, `docs/README.md`       | 기록 커밋                                       | 해당 없음                                  | 해당 없음          | 없음                   |
+| 증분                         | 항목                              | 테스트 먼저 → 코드                              | 부모에서                                   | 코드 커밋에서      | 가드                          |
+| ---------------------------- | --------------------------------- | ----------------------------------------------- | ------------------------------------------ | ------------------ | ----------------------------- |
+| 6A-1 H3 소유자 질의          | PRE-1, PRE-2, PA-15               | `09a1bb8c` → `faffa69b`                         | 15 / 121(3 files)                          | 211 / 211(5 files) | CHECK 12 읽기 14 → 11         |
+| 6A-2 겹친 직접 지우기        | PRE-5                             | `8cc9decc` → `d34b4478`                         | 3 / 112(2 files)                           | 293 / 293(3 files) | CHECK 12 지우기 10 → 9        |
+| 6A-3 C2-1 시간 집            | PRE-10, PA-04 ~ PA-06, RT-02      | `d9bee96c` → `4c5ca5e9`                         | 8 / 82(3 files)                            | 438 / 438(9 files) | CHECK 5 복사 2 → 1            |
+| 6A-4 C2-3 검증 복원          | SS-01, PA-13                      | `e1a1a4d3` → `5e3edd0c`, `0ec9e8e0`, `0cd720fc` | 1 / 67, 새 시험 파일은 불러오기 실패(27행) | 534 / 534(8 files) | CHECK 11 44 → 32              |
+| 리뷰: CHECK 12를 이름마다 셈 | RO-02, 가드 항목 12               | `cd35aed8` → `4a1a7e89`                         | 4 / 68                                     | 68 / 68            | 수 그대로(11, 9)              |
+| 리뷰: 오늘 동작 고정         | 시험만 넷                         | `a35e07b9`, `95b03762`, `21f1836a`, `b80485f3`  | 새 행 모두 통과(6A 앞 런타임에서도)        | 해당 없음          | 없음                          |
+| 리뷰: 주석·레지스트리        | RO-02, RO-03, RO-12, 가드 항목 12 | `5a3d356b`                                      | 해당 없음                                  | 빌드 바이트 동일   | 없음                          |
+| 크기 후속: 낱개 이름 집      | 6A-3(C2-1), Q29                   | `12367317` → `08135e4f`                         | 4 / 83(2 files)                            | 234 / 234(6 files) | 수 그대로(CHECK 5 1 / 1 / 45) |
+| 기록                         | 이 보고서, `docs/README.md`       | 기록 커밋 둘                                    | 해당 없음                                  | 해당 없음          | 없음                          |
 
 ## 증분
 
@@ -98,7 +99,8 @@ T0a(#539, #541, #542)와 가드만인 T1(#543)이고, `AGENTS.md`대로 보고�
 ### 6A-3 C2-1 시간 집 (PRE-10, PA-04 ~ PA-06, RT-02)
 
 `src/youtube/constants.ts`에 새 export 여섯을 두고 Standard zero-start 컨트롤러, PRO arm, PRO 준비 이음새(`iframe.ts`), Standard
-복구(`player.ts`), PRO 재생 컨트롤러가 각자의 사본 대신 그것을 읽는다. 숫자는 모두 그대로다.
+복구(`player.ts`), PRO 재생 컨트롤러가 각자의 사본 대신 그것을 읽는다. 숫자는 모두 그대로다. 아래의 두 묶음(`YOUTUBE_ARM_TIMING`,
+`STANDARD_ZERO_START_BARRIER`)은 크기 후속(`08135e4f`)부터 값마다 이름 붙인 export다(아래 '크기 후속').
 
 - `YOUTUBE_ARM_TIMING`: hard-mute 폴 30 ms × 12, warm play 260 ms, pause·seek 간격 80 ms, 정착 폴 80 ms, 정착 허용치 0.12 s, 정착
   박자(연속 2표본, 여섯째 폴마다 다시 seek, 계획 (라)), 오디오 복원 120 ms × 8, 출시 확인 1.8 s, 따라잡기 허용치 40 ms.
@@ -138,7 +140,8 @@ T0a(#539, #541, #542)와 가드만인 T1(#543)이고, `AGENTS.md`대로 보고�
 - `writeYouTubeAudio`: `setVolume` 뒤 `mute` 또는 `unMute`. `isYouTubeAudioRestored`: 같은 음소거 상태, 이어 볼륨 차이 1 이하.
   NaN 볼륨은 맞지 않는다.
 - `restoreYouTubeAudioVerified(cadence, canWrite, write, verify, onDone, schedule, canVerify = canWrite)`: 최대
-  `YOUTUBE_ARM_TIMING.audioRestoreMaxAttempts`번, `audioRestorePollMs` 간격, 첫 시도는 동기. 두 박자는 따로 남는다(Q3):
+  `YOUTUBE_ARM_AUDIO_RESTORE_MAX_ATTEMPTS`번, `YOUTUBE_ARM_AUDIO_RESTORE_POLL_MS` 간격(크기 후속 전에는
+  `YOUTUBE_ARM_TIMING`의 두 속성), 첫 시도는 동기. 두 박자는 따로 남는다(Q3):
   `'settle-then-verify'`(쓰기, 기다림, 확인)와 `'verify-then-settle'`(쓰기와 확인, 그 뒤 기다림). 호출자의 울타리가 모든 쓰기 앞과
   settle-then-verify의 확인 앞에서 돈다. 던지는 쓰기는 그 시도의 확인을 건너뛰고, 던지는 확인은 복원 안 됨이다. 모든 기다림은
   호출자의 schedule로 간다. 그래서 타이머 키·슬롯과 그것을 지우는 곳이 호출자에 남는다.
@@ -204,15 +207,48 @@ T0a(#539, #541, #542)와 가드만인 T1(#543)이고, `AGENTS.md`대로 보고�
   `fake-yt-player.test.ts` 12 / 12, owner-queries 48 / 49, owner-ports 2 / 10. 실패 아홉은 모두 6A-1의 소유자 질의를 요구하는 6A-1
   테스트 먼저 행이다. 그래서 이 행들은 6A가 바꾸지 않은 오늘 동작을 고정한다.
 
+### 크기 후속: 시작 시간 집을 낱개 이름으로 (6A-3, Q29)
+
+'오너에게' 1의 권장안 (가)다. 6A-3의 두 묶음 집을 값마다 이름 붙인 export로 바꿨다. minifier는 객체의 속성 이름을 남기므로, 묶음은
+읽는 곳마다 긴 속성 이름을 처음 받는 코드에 실었다. 값, 읽는 곳, 시각, 와이어, 로그 줄, 화면, 소리는 그대로다. 계획의 공용 상태
+이름(`YOUTUBE_PLAYER_STATE`)은 '오너에게' 2의 (가)대로 싣지 않았다.
+
+- `constants.ts`: `YOUTUBE_ARM_TIMING`이 `YOUTUBE_ARM_HARD_MUTE_POLL_MS`(30), `YOUTUBE_ARM_HARD_MUTE_MAX_ATTEMPTS`(12),
+  `YOUTUBE_ARM_WARM_PLAY_MS`(260), `YOUTUBE_ARM_PAUSE_SEEK_GAP_MS`(80), `YOUTUBE_ARM_SETTLE_POLL_MS`(80),
+  `YOUTUBE_ARM_SETTLE_EPSILON_SEC`(0.12), `YOUTUBE_ARM_SETTLE_STABLE_SAMPLES`(2), `YOUTUBE_ARM_SETTLE_RESEEK_EVERY`(6),
+  `YOUTUBE_ARM_AUDIO_RESTORE_POLL_MS`(120), `YOUTUBE_ARM_AUDIO_RESTORE_MAX_ATTEMPTS`(8), `YOUTUBE_ARM_RELEASE_ACK_TIMEOUT_MS`(1,800),
+  `YOUTUBE_RELEASE_CATCH_UP_TOLERANCE_MS`(40)가 되고, 기존 `YOUTUBE_RELEASE_CATCH_UP_TOLERANCE_SEC`는 그 40 / 1,000이다.
+  `STANDARD_ZERO_START_BARRIER`는 `STANDARD_ZERO_START_GUEST_TOTAL_WAIT_MS`(3,000), `STANDARD_ZERO_START_GUEST_DECISION_MS`(2,300),
+  `STANDARD_ZERO_START_COMMIT_LEAD_MS`(700, COMMIT 뒤 시작 앞섬), `STANDARD_ZERO_START_PREPARE_BUDGET_MS`(10,000),
+  `STANDARD_ZERO_START_LATE_FALLBACK_LEAD_MS`(800)가 된다. 가드와 레지스트리가 읽는 나머지 이름(CHECK 5 계약 파일 목록,
+  `PRO_YOUTUBE_BARRIERED_PREPARE_TIMEOUT_MS`, `PRO_YOUTUBE_UNBARRIERED_PREPARE_TIMEOUT_MS`, `YOUTUBE_FRESH_START_MAX_SEC`,
+  `YOUTUBE_RELEASE_CATCH_UP_TOLERANCE_SEC`)은 그대로다.
+- 읽는 다섯 파일(`zero-start.ts`, `authority-arm.ts`, `player.ts`, `iframe-audio.ts`, `playback-controller.ts`)이 그 이름을 읽는다.
+  7.7 s는 여전히 준비 예산 − 게스트 결정이다. 타이머 호출과 iframe 오디오 쓰기 줄은 바뀌지 않았다.
+- 시험: 늦은 합류 네 묶음(`authority-arm.test.ts`, `playback-late-cohort-join.test.ts`, `pro-late-prepare-reload.test.ts`,
+  `pro-manual-zero-start.test.ts`)은 같은 지역 이름으로 낱개 export를 읽는다(단언 그대로). parity 묶음은 객체를 읽던 세 행을 지우고
+  테스트 먼저 커밋의 낱개 이름 세 행(행 이름은 지운 셋과 같고 describe 이름만 다름)을 남기며, PREPARE 끝값 행이 낱개 이름을 읽는다. 가드 시험은 다시 적은 객체를
+  집 객체와 짝짓던 행을 지운다(집이 더 객체가 아님). T0a 골든과 고정 행은 바뀌지 않았다.
+- 레지스트리 RO-02, RO-03, RO-12의 시간 집 문장, RO-03 'Anchor tests'의 한 줄, 늦은 합류 도우미 주석이 낱개 이름을 적는다.
+- 가드: CHECK 5는 복사 1, 의심 1, 보고만 하는 같은 값 쌍 45 그대로다(새 이름 가운데 다른 계약 파일의 시간 스칼라와 값이 같은 것이
+  없음). CHECK 11(32)과 CHECK 12(읽기 11, 지우기 9)도 그대로다. 한계: CHECK 5는 시간 객체를 객체끼리만 견주므로 스칼라 집 옆에 다시
+  적은 객체 하나는 이제 잡지 못한다(두 시작 파일이 같은 객체를 다시 적으면 잡음). 같은 이름 사본은 시간 이름(`_MS` 등)만 보므로
+  `*_MAX_ATTEMPTS`, `*_SEC`, `*_SAMPLES`, `*_EVERY` 사본도 보지 않는다.
+- 시험(테스트 먼저 `12367317`): parity에 낱개 이름 세 행(값, 7.7 s, 0.04 double), 가드에 집 옆의 같은 이름 arm 사본을 거절하는 행과
+  두 시작 파일이 같은 arm 객체를 다시 적으면 거절하는 행(부모에서도 통과). 부모(`a883f9b9` 런타임)에서 4 / 83 실패(parity 3은 이름이
+  없어 undefined, 가드 1은 짝지을 스칼라 집이 없음), 나머지 79행 통과. `08135e4f`에서 그 두 파일과 코드 커밋이 고친 시험 네 파일
+  234 / 234 통과.
+- 크기(아래 '번들 크기'): 부모 대비 eager JS gzip −386 B, 바탕 대비 −149 B.
+
 ## 계획과 달라진 것
 
 1. **줄 번호:** 계획 인용은 옛 SHA 기준이라 모든 위치를 기호로 다시 찾았다.
 2. **6A-3 (가) 상태 열거를 싣지 않음:** `YOUTUBE_PLAYER_STATE`가 없다. `zero-start.ts`의 `YOUTUBE_ZERO_START_PLAYER_STATE`와
    `authority-arm.ts`의 `PLAYER_STATE`가 비공개로 남고, `player.ts`의 플레이어 상태 읽기도 숫자 그대로다. 커밋에 이유가 적혀 있지 않다.
    이 브랜치를 만드는 동안 6A-3 코드 커밋(`4c5ca5e9`) 위에 (가)를 얹은 커밋하지 않은 빌드는 eager JS gzip 466,786 B로 그 커밋보다
-   +50 B였다. 이 검사는 그 측정을 다시 하지 않았다(그 실험 패치는 6A-4 뒤의 `authority-arm.ts`와 충돌). 6A-3만으로 Phase 순증 상한을
-   넘으므로(아래 '번들 크기') (가)는 그 위에 더 얹힌다. 동작과 와이어는 어느 쪽이든 같다(값 −1, 0, 1, 2, 3, 5). 계획의 Q4 대안 가운데
-   '상태 열거를 각 파일 비공개 열거로 남김'과 같은 상태다. 오너에게 묻는다(아래 '오너에게' 2).
+   +50 B였다. 이 검사는 그 측정을 다시 하지 않았다(그 실험 패치는 6A-4 뒤의 `authority-arm.ts`와 충돌). 그 값은 객체 집 위에서 잰
+   것이고, 낱개 이름 집(크기 후속) 위에서는 재지 않았다. 동작과 와이어는 어느 쪽이든 같다(값 −1, 0, 1, 2, 3, 5). 계획의 Q4 대안 가운데
+   '상태 열거를 각 파일 비공개 열거로 남김'과 같은 상태다. 이 브랜치는 '오너에게' 2의 권장안 (가)대로 싣지 않는다.
 3. **6A-5(버전 올리기와 문서)가 없음:** 이 브랜치의 범위가 런타임 증분이라서다. 릴리스 담당이 더한다(아래 '배포 조건과 순서',
    '기록과 레지스트리').
 4. **6A-2의 `'yt-seek-play'` 줄:** 계획은 `resetResidentYouTubeSync`의 겹친 두 줄을 지우게 했다. `'yt-seek-play'` 줄은 남겼다:
@@ -224,20 +260,22 @@ T0a(#539, #541, #542)와 가드만인 T1(#543)이고, `AGENTS.md`대로 보고�
    7), 지우기 10이다(QA 라운드 2에서 이 가드를 바탕 트리에 돌려 확인: `native-control-authority.ts` 7, `iframe.ts` 3, `sync.ts` 4). 주석과
    레지스트리의 호출 수(14와 10, 뒤 11과 9)는 그 설명과 함께 남겼다.
 7. **핵심 커버리지 문턱:** 계획은 `iframe-audio.ts`와 그 시험을 넣으라고만 적었다. 파일 문턱을 99로 두었다.
+8. **6A-3 집 모양:** `4c5ca5e9`의 객체 두 개(`YOUTUBE_ARM_TIMING`, `STANDARD_ZERO_START_BARRIER`)를 크기 때문에 값마다 이름 붙인
+   export로 바꿨다(위 '크기 후속', '오너에게' 1의 권장안 (가)). 값과 읽는 곳은 그대로다.
 
 ## 정확한 개수 가드
 
-| 가드                                           | 바탕 `599465dd`                                                                                                 | `b80485f3`                                                                                                                         |
-| ---------------------------------------------- | --------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------- |
-| CHECK 11 iframe 오디오 쓰기(RO-12)             | 44: `zero-start.ts` 12, `authority-arm.ts` 10, `player.ts` 17, `iframe.ts` 3, `retained-player-controller.ts` 2 | 32: `zero-start.ts` 6, `authority-arm.ts` 4, `player.ts` 14, `iframe-audio.ts` 3, `iframe.ts` 3, `retained-player-controller.ts` 2 |
-| CHECK 12 남의 시작 타이머 읽기(RO-02, 호출 수) | 14                                                                                                              | 11, 모두 PRO 넛지(`iframe.ts` 1, `local-offset.ts` 2, `native-control-authority.ts` 1, `player.ts` 4, `sync.ts` 3)                 |
-| 같은 읽기, 이름마다(`4a1a7e89`부터의 셈)       | 20(`native-control-authority.ts` 7)                                                                             | 11                                                                                                                                 |
-| CHECK 12 남의 시작 타이머 지우기               | 10: `iframe.ts` 3, `player.ts` 6, `sync.ts` 1                                                                   | 9: `iframe.ts` 2, `player.ts` 6, `sync.ts` 1                                                                                       |
-| CHECK 5 복사 / 의심 / 같은 값 쌍(보고만)       | 2 / 1 / 27                                                                                                      | 1 / 1 / 45                                                                                                                         |
-| resource-ownership                             | 49 records, 450 production files                                                                                | 49 records, 451 production files                                                                                                   |
-| `src/youtube/` 타이머 호출(가드 항목 12)       | 210                                                                                                             | 205                                                                                                                                |
-| dead-exports                                   | 403 prod files, 2,114 bindings, 완전히 죽은 것 0, 시험 전용 20, 자기 전용 76                                    | 404, 2,124, 0, 20, 76                                                                                                              |
-| import-graph                                   | 403 files, 2,087 edges, 순환 0                                                                                  | 404 files, 2,098 edges, 순환 0                                                                                                     |
+| 가드                                           | 바탕 `599465dd`                                                                                                 | `b80485f3`                                                                                                                         | 크기 후속 `08135e4f`                        |
+| ---------------------------------------------- | --------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------- |
+| CHECK 11 iframe 오디오 쓰기(RO-12)             | 44: `zero-start.ts` 12, `authority-arm.ts` 10, `player.ts` 17, `iframe.ts` 3, `retained-player-controller.ts` 2 | 32: `zero-start.ts` 6, `authority-arm.ts` 4, `player.ts` 14, `iframe-audio.ts` 3, `iframe.ts` 3, `retained-player-controller.ts` 2 | 32, 파일마다 같음                           |
+| CHECK 12 남의 시작 타이머 읽기(RO-02, 호출 수) | 14                                                                                                              | 11, 모두 PRO 넛지(`iframe.ts` 1, `local-offset.ts` 2, `native-control-authority.ts` 1, `player.ts` 4, `sync.ts` 3)                 | 11, 같음                                    |
+| 같은 읽기, 이름마다(`4a1a7e89`부터의 셈)       | 20(`native-control-authority.ts` 7)                                                                             | 11                                                                                                                                 | 11                                          |
+| CHECK 12 남의 시작 타이머 지우기               | 10: `iframe.ts` 3, `player.ts` 6, `sync.ts` 1                                                                   | 9: `iframe.ts` 2, `player.ts` 6, `sync.ts` 1                                                                                       | 9, 같음                                     |
+| CHECK 5 복사 / 의심 / 같은 값 쌍(보고만)       | 2 / 1 / 27                                                                                                      | 1 / 1 / 45                                                                                                                         | 1 / 1 / 45, 쌍 목록도 같음                  |
+| resource-ownership                             | 49 records, 450 production files                                                                                | 49 records, 451 production files                                                                                                   | 49 records, 451 production files            |
+| `src/youtube/` 타이머 호출(가드 항목 12)       | 210                                                                                                             | 205                                                                                                                                | 205(타이머 호출 줄 바뀜 없음)               |
+| dead-exports                                   | 403 prod files, 2,114 bindings, 완전히 죽은 것 0, 시험 전용 20, 자기 전용 76                                    | 404, 2,124, 0, 20, 76                                                                                                              | 404, 2,139(객체 둘 대신 이름 17), 0, 20, 76 |
+| import-graph                                   | 403 files, 2,087 edges, 순환 0                                                                                  | 404 files, 2,098 edges, 순환 0                                                                                                     | 404 files, 2,098 edges, 순환 0              |
 
 room-authority(직접 읽기 79, 구독 22, 쓰기 13, PRO 읽기 0, 스냅샷 읽기 0, 404 files), bus-pairing 202 / 202, source-complexity(YouTube
 파일은 목록에 없음)는 바뀐 기준치가 없다. 내린 기준치는 모두 센 코드를 옮긴 커밋에서 레지스트리 기록과 함께 내렸고, 올린 기준치는 없다.
@@ -245,7 +283,9 @@ room-authority(직접 읽기 79, 구독 22, 쓰기 13, PRO 읽기 0, 스냅샷 �
 ## 번들 크기
 
 같은 툴체인(Node 24.22.2, vite 8.3.3)으로 커밋마다 `npm run build`를 하고 `scripts/check-initial-transfer-budget.mts`의 측정을 바이트로
-읽었다(QA 라운드 2). 시험만, 가드만 커밋은 빌드가 바로 앞 코드 커밋과 같다.
+읽었다(QA 라운드 2). 시험만, 가드만, 문서만 커밋은 빌드가 바로 앞 코드 커밋과 같다. 크기 후속에서는 바탕, `a883f9b9`, `08135e4f`를
+다시 빌드해 같은 측정(`measureInitialTransfer`)으로 쟀다(QA 라운드 3). 바탕과 `a883f9b9`는 진입 청크 이름과 모든 값이 라운드 2와
+같았다.
 
 | 커밋                    | 진입 청크          | 진입 raw / gzip   | eager JS gzip (부모 대비) | eager total raw / gzip (부모 대비) |
 | ----------------------- | ------------------ | ----------------- | ------------------------- | ---------------------------------- |
@@ -255,24 +295,26 @@ room-authority(직접 읽기 79, 구독 22, 쓰기 13, PRO 읽기 0, 스냅샷 �
 | 6A-3 `4c5ca5e9`         | `main-BSUmIIIe.js` | 862,106 / 253,742 | 466,736 (+237)            | 2,059,416 / 545,979 (+238)         |
 | 6A-4 `5e3edd0c`         | `main-D3DxfJRk.js` | 861,653 / 253,879 | 466,882 (+146)            | 2,058,963 / 546,125 (+146)         |
 | 6A-4 `0ec9e8e0`         | `main-DneD15-T.js` | 861,118 / 253,718 | 466,718 (−164)            | 2,058,428 / 545,959 (−166)         |
-| `0cd720fc` ~ `b80485f3` | `main-DneD15-T.js` | 861,118 / 253,718 | 466,718 (0)               | 2,058,428 / 545,959 (0)            |
+| `0cd720fc` ~ `12367317` | `main-DneD15-T.js` | 861,118 / 253,718 | 466,718 (0)               | 2,058,428 / 545,959 (0)            |
+| 크기 후속 `08135e4f`    | `main-C-K1wcbh.js` | 860,403 / 253,552 | 466,332 (−386)            | 2,057,356 / 545,573 (−386)         |
 
-- 증분별(부모 대비 eager JS gzip): 6A-1 +40, 6A-2 −22, 6A-3 +237, 6A-4 −18(두 코드 커밋 합). 모두 증분 상한 +300 B 안이다.
-- **Phase 순증은 +237 B로 상한 +200 B를 넘는다**(증분 차의 합 = 마지막 − 바탕, 사이에 낀 Phase 6 밖 열차 없음). eager total gzip은
-  +234 B, 진입 청크는 raw −1,085 B, gzip −60 B다. KiB로는 eager JS 455.5 → 455.8 KiB, eager total 532.9 → 533.2 KiB gzip이고
-  `guard:initial-transfer-budget`의 유지 상한 안이다. 계획 §4.2-6과 Q29는 이때 멈추고 잰 숫자로 오너가 정하게 한다(아래 '오너에게' 1).
-- 주된 원인은 6A-3의 객체 모양 집이다. 크기 실험(커밋하지 않음, 임시 worktree): 마지막 트리에서 `YOUTUBE_ARM_TIMING`과
-  `STANDARD_ZERO_START_BARRIER`를 같은 값의 스칼라 export로 바꾸고 읽는 다섯 파일을 그 이름으로 바꾸면 eager JS gzip 466,329 B(바탕 대비
-  −152 B, 마지막 트리 대비 −389 B), eager total gzip 545,573 B(바탕 대비 −152 B), 진입 raw 860,403 B였다. 객체의 속성 이름은 minifier가
-  남긴다. 이 실험은 크기만 쟀고 시험은 돌리지 않았다.
+- 증분별(부모 대비 eager JS gzip): 6A-1 +40, 6A-2 −22, 6A-3 +237, 6A-4 −18(두 코드 커밋 합), 크기 후속 −386. 모두 증분 상한
+  +300 B 안이다.
+- **Phase 순증은 이제 −149 B로 상한 +200 B 안이다**(증분 차의 합 = 마지막 − 바탕, 사이에 낀 Phase 6 밖 열차 없음). 크기 후속 전에는
+  +237 B로 상한을 넘었다. eager total gzip은 −152 B(후속 전 +234 B), 진입 청크는 raw −1,800 B, gzip −226 B다. KiB로는 eager JS
+  455.5 → 455.4 KiB, eager total 532.9 → 532.8 KiB gzip이고 `guard:initial-transfer-budget`을 통과한다. 처음 받는 양이 늘지 않으므로
+  계획 §4.2-6과 Q29의 멈춤 조건은 더 해당하지 않는다(아래 '오너에게' 1).
+- 후속 전 순증의 주된 원인은 6A-3의 객체 모양 집이었다(객체의 속성 이름은 minifier가 남긴다). 같은 바꿈을 크기만 잰 실험(커밋하지
+  않음, 시험 없음)은 eager JS gzip 466,329 B, eager total gzip 545,573 B, 진입 raw 860,403 B였다. 커밋한 `08135e4f`는 eager JS가 3 B
+  크고(466,332 B) 나머지 둘은 같다.
 
 ## 혼합 버전
 
-| 조합                                                           | 결과                                                                                                                                                                                                                                                                                                                                                                                                                                                                        |
-| -------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| 바닥 795 이상 옛 App 방장과 6A 게스트, 6A 방장과 옛 App 게스트 | 같은 프레임을 같은 시각에 보낸다. 와이어(`src/network/protocol.ts`, `src/types/index.ts`, `src/core/constants.ts`, `cloudflare/`)가 바탕과 바이트로 같고(`git diff --stat 599465dd..b80485f3` 비어 있음), H3는 진리표 그대로라 하트비트와 보조 `YOUTUBE_STATE` 시점이 같으며, C2-3은 두 박자를 지켜 ARMED 시점이 같고, C2-1은 숫자 그대로다. 근거는 기기 혼합 행이 아니라 T0a의 Standard 와이어·시각 골든과 H3 진리표가 바이트 그대로 통과한 것이다(Phase 5의 P5-D9 C 선례) |
-| PRO 방의 옛·새 기기                                            | PREPARE와 COMMIT은 서버를 거치고 서버는 바뀌지 않는다. arm 활성 복원(2.3 s 준비 예산 안)과 분리 복원이 검증 복원을 쓰지만 T0a PRO READY 시각 골든이 그대로라 READY 시각, 곧 시작 시각이 같다. 박자를 합치는 것은 Q3의 대안이고 동작 변경이라 하지 않았다                                                                                                                                                                                                                    |
-| 바닥 795 아래의 열린 세션                                      | 바닥은 열린 세션을 닫지 않는다. 6A는 프레임을 얼려 그 위험을 더하거나 줄이지 않는다                                                                                                                                                                                                                                                                                                                                                                                         |
+| 조합                                                           | 결과                                                                                                                                                                                                                                                                                                                                                                                                                                                                                               |
+| -------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| 바닥 795 이상 옛 App 방장과 6A 게스트, 6A 방장과 옛 App 게스트 | 같은 프레임을 같은 시각에 보낸다. 와이어(`src/network/protocol.ts`, `src/types/index.ts`, `src/core/constants.ts`, `cloudflare/`)가 바탕과 바이트로 같고(`git diff --stat 599465dd..b80485f3`와 `599465dd..08135e4f` 비어 있음), H3는 진리표 그대로라 하트비트와 보조 `YOUTUBE_STATE` 시점이 같으며, C2-3은 두 박자를 지켜 ARMED 시점이 같고, C2-1은 숫자 그대로다. 근거는 기기 혼합 행이 아니라 T0a의 Standard 와이어·시각 골든과 H3 진리표가 바이트 그대로 통과한 것이다(Phase 5의 P5-D9 C 선례) |
+| PRO 방의 옛·새 기기                                            | PREPARE와 COMMIT은 서버를 거치고 서버는 바뀌지 않는다. arm 활성 복원(2.3 s 준비 예산 안)과 분리 복원이 검증 복원을 쓰지만 T0a PRO READY 시각 골든이 그대로라 READY 시각, 곧 시작 시각이 같다. 박자를 합치는 것은 Q3의 대안이고 동작 변경이라 하지 않았다                                                                                                                                                                                                                                           |
+| 바닥 795 아래의 열린 세션                                      | 바닥은 열린 세션을 닫지 않는다. 6A는 프레임을 얼려 그 위험을 더하거나 줄이지 않는다                                                                                                                                                                                                                                                                                                                                                                                                                |
 
 결과가 다르더라도 '방이 zero-start 대신 레거시로 시작' 같은 품질 저하이고 재생이 멈추지는 않는다고 본다(계획 §5, 추론).
 
@@ -295,8 +337,9 @@ room-authority(직접 읽기 79, 구독 22, 쓰기 13, PRO 읽기 0, 스냅샷 �
 
 ## 배포 조건과 순서 (릴리스 담당)
 
-1. 오너 답: 아래 '오너에게' 1(첫 로딩 바이트)과 2(상태 이름 정리). 답이 '줄인 뒤 낸다'면 그 증분을 테스트 먼저부터 이 갈래에 더하고
-   커밋마다 크기를 다시 잰다.
+1. 오너에게: 1(첫 로딩 바이트)은 권장안 (가)를 이 갈래에 실었다(크기 후속, 처음 받는 양이 바탕보다 줄어 Q29의 멈춤 조건이 없음).
+   2(상태 이름 정리)는 (가)대로 싣지 않았다. 오너가 2의 (나)를 고르면 그 증분을 테스트 먼저부터 이 갈래에 더하고 커밋마다 크기를
+   다시 잰다.
 2. 한 번에 한 열차: main 런타임이 배포본과 같을 때만 낸다. 9.0.27 기록이 적은 9.0.28(SFU 추측 발행)과의 순서를 정하고, 먼저 나간 열차의
    기록 위로 이 갈래를 옮기면 테스트 먼저 커밋을 옮긴 부모에서 다시 돌린다. 이 배포까지 런타임 의존성 변경을 머지하지 않는다.
 3. 버전 올리기 커밋(마지막 런타임 커밋): `package.json:3`, `package-lock.json:3`과 `:9`, `browser/classic-runtime/admin.ts`의
@@ -352,12 +395,13 @@ legacy rendezvous`는 실패로 보지 않고 적는다(예열 중 취소가 레
 
 ## 사용자가 알아챌 변화
 
-없다. 버전 올리기와 함께 업데이트 창이 한 번 뜬다(창 모양은 지금 그대로). 처음 받는 코드가 gzip 기준 237 B 늘어난다(지금 처음 받는
-양 약 533 KiB의 0.04 %, 아래 '오너에게' 1).
+없다. 버전 올리기와 함께 업데이트 창이 한 번 뜬다(창 모양은 지금 그대로). 처음 받는 코드는 gzip 기준 JS 149 B, 전체 152 B 줄어든다
+(지금 처음 받는 양 약 533 KiB의 0.03 %, 아래 '번들 크기').
 
 ## 기록과 레지스트리
 
 - 이 브랜치: 레지스트리 RO-02, RO-03, RO-12와 가드 항목 11·12(센 코드를 옮긴 커밋에서), 이 보고서와 `docs/README.md` 증거 목록.
+  크기 후속(`08135e4f`)이 RO-02, RO-03, RO-12의 시간 집 문장을 같은 커밋에서 낱개 이름으로 고쳤다.
 - 릴리스 담당이 더할 것: 위 '배포 조건과 순서' 3, 4, 7. 레지스트리 머리의 `Last source review`(2026-10-22)는 기록을 코드와 다시 맞추는
   PR이 고친다.
 - Phase 5.5 날짜 보고서(`phase5-5-r1-train3-v2-accept-2026-10-29.md`의 C2-1 기다림 문장 셋, `phase5-5-r2-v2-send-2026-10-29.md`의 하나)는
@@ -365,26 +409,27 @@ legacy rendezvous`는 실패로 보지 않고 적는다(예열 중 취소가 레
 
 ## 오너에게
 
-1. **[화면 그대로] 첫 업데이트의 처음 받는 코드 크기(Q29).** 화면과 소리는 어느 답이든 같아요. 다른 것은 앱을 처음 열 때 받는 양뿐이에요.
-   이번 업데이트는 그 양을 압축 기준 237바이트(지금 받는 양의 약 0.04 %) 늘려요. Phase 6 전체에 잡아 둔 상한 200바이트를 첫 업데이트에서
-   넘었어요. 어떻게 할까요?
-   - (가, 권장) 줄인 뒤 낸다: 새로 모은 시간 값을 묶음 대신 낱개 이름으로 바꿔요(값과 동작은 그대로). 크기만 잰 실험에서는 처음 받는
-     양이 바탕보다 오히려 152바이트 줄었어요. 시험 먼저 커밋과 코드 커밋이 하나씩 더 들고, 업데이트가 그만큼 늦어져요.
-   - (나) 이대로 내고, 다음 업데이트(6B)에서 같은 방법으로 되찾는다: Phase 6이 끝날 때 상한 안에 들면 돼요.
-   - (다) 이대로 받아들이고 Phase 6 상한을 237바이트로 올린다.
-   - 기다리는 동안: 이 열차를 배포하지 않는다. 나머지 준비(버전 올리기 앞까지)는 그대로 둔다.
+두 질문 모두 권장안 (가)를 따랐다. 1은 크기 후속(`12367317`, `08135e4f`)으로 처리해 정할 것이 남지 않았고, 2는 이 브랜치에 싣지
+않았다.
+
+1. **[화면 그대로] 첫 업데이트의 처음 받는 코드 크기(Q29): 권장안 (가)로 줄였어요.** 화면과 소리는 그대로예요. 새로 모은 시간 값을
+   묶음 대신 낱개 이름으로 바꿨어요(값과 동작은 그대로). 그래서 이번 업데이트는 앱을 처음 열 때 받는 양을 늘리지 않고 압축 기준
+   149바이트(전체로는 152바이트) 줄여요. 바꾸기 전에는 237바이트 늘어 Phase 6 상한 200바이트를 넘었어요. 이제 상한 안이라 멈출 이유가
+   없어졌고, 따로 정하실 것은 없어요. 묶음 모양으로 되돌리기를 원하시면(이전의 (나) 다음 업데이트에서 되찾기, (다) 상한 올리기) 크기
+   후속의 두 커밋을 되돌리면 돼요.
 2. **[화면 그대로] 플레이어 상태 이름 정리를 뒤로 미루기.** 계획에 있던 'YouTube 플레이어 상태 숫자(−1, 0, 1, 2, 3, 5)에 공용 이름 붙이기'를
-   이번 업데이트에 넣지 않았어요. 코드 안 이름만 바뀌는 일이라 화면·소리는 어느 쪽이든 같아요. 만드는 중에 잰 값으로는 넣으면 처음
-   받는 양이 약 50바이트 더 늘어요(1번과 겹침). 뒤 업데이트로 넘겨도 될까요?
-   - (가, 권장) 뒤 열차로 넘긴다(시작 준비 단계를 함께 쓰게 만드는 6C에서 크기와 함께 다시 본다).
-   - (나) 이번 업데이트에 넣는다(1번의 크기 결정과 함께).
+   이번 업데이트에 넣지 않았어요. 코드 안 이름만 바뀌는 일이라 화면·소리는 어느 쪽이든 같아요. 권장안 (가)대로 뒤 열차로 넘겨 두었어요.
+   - (가, 권장, 지금 상태) 뒤 열차로 넘긴다(시작 준비 단계를 함께 쓰게 만드는 6C에서 크기와 함께 다시 본다).
+   - (나) 이번 업데이트에 넣는다: 만드는 중에 묶음 모양 위에서 잰 값으로는 처음 받는 양이 약 50바이트 더 늘었어요. 낱개 이름 위에서는
+     재지 않았어요. 고르시면 시험 먼저 커밋부터 더하고 크기를 다시 재요.
 
 ## QA 라운드
 
 ### 1. 증분별: 테스트 먼저 다시 돌림
 
-2026-10-31 16:44 ~ 16:49 KST, Windows 11 로컬, Node 24.22.2 / npm 12.0.2, vitest 5.0.3, `--maxWorkers=4`. `rec-main11`(=`599465dd`)에서
-만든 임시 worktree(`npm ci`)에서 커밋마다 detached로 바꿔 돌렸고, 끝난 뒤 그 worktree는 깨끗했다. 결과는 위 '증분 한눈에'와 각 절이다.
+2026-10-31 16:44 ~ 16:49 KST, Windows 11 로컬, Node 24.22.2 / npm 12.0.2, vitest 5.0.3, `--maxWorkers=4`. `599465dd`에서 만든 임시
+worktree(`npm ci`)에서 커밋마다 detached로 바꿔 돌렸고, 끝난 뒤 그 worktree는 깨끗했다. 결과는 위 '증분 한눈에'와 각 절이다. 크기
+후속의 테스트 먼저 커밋은 아래 라운드 3이다.
 
 - `09a1bb8c` 15 / 121 실패(가드 6, owner-ports 8, owner-queries 1) → `faffa69b` 211 / 211.
 - `8cc9decc` 3 / 112 실패(가드 3) → `d34b4478` 293 / 293.
@@ -427,12 +472,39 @@ legacy rendezvous`는 실패로 보지 않고 적는다(예열 중 취소가 레
 - 계약 동결(계획 §4.2 Phase 6 검사 1): `git diff --stat 599465dd..b80485f3 -- cloudflare/ src/network/protocol.ts src/core/constants.ts
 src/types/index.ts package.json package-lock.json index.html scripts/service-worker-asset.ts browser/`가 비어 있다.
 
+### 3. 크기 후속 (`12367317`, `08135e4f`)
+
+2026-10-31 17:53 ~ 18:25 KST, 같은 환경(Node 24.22.2 / npm 12.0.2, vitest 5.0.3, vite 8.3.3, `--maxWorkers=4`), 이 갈래의 worktree에서.
+시작할 때 이 PC에 다른 node 작업이 없었고, 끝난 뒤 트리는 깨끗했다.
+
+- 테스트 먼저: 커밋 직전 트리(= `12367317`, 런타임은 `a883f9b9`)에서 두 파일 4 / 83 실패(parity 3, 가드 1), 79 통과. 실패는 모두 새
+  이름을 읽는 행이다.
+- `08135e4f`, 단위:
+  - `src/youtube` 파일 순서: 66 files, 1,907 통과, 실패 0. `--sequence.shuffle`의 seed 7, 31, 4242, 20261030에서도 네 번 모두 66 files,
+    1,907 통과, 실패 0.
+  - `playback-late-cohort-join.test.ts` 8 / 8, `protocol.test.ts` 81 / 81, `resource-ownership-guard.test.ts` 69 / 69. `src/youtube` 밖의
+    나머지 T0a 시험 파일(`src/pro-room` 15, `player-controls.test.ts`)과 `playlist.test.ts` 17 files, 878 통과. 코드 커밋이 고친 시험
+    여섯 파일 234 / 234.
+- `npm run typecheck`(전체 사슬), `npm run lint`, `npm run format:check`: 커밋한 것과 같은 트리에서 모두 종료 코드 0.
+- 가드: `node scripts/check-resource-ownership.mts`와 `--report`는 위 '정확한 개수 가드'(CHECK 5 1 / 1 / 45와 쌍 목록, CHECK 11 32,
+  CHECK 12 11과 9가 `a883f9b9`와 같음). `guard:dead-exports` 404 / 2,139 / 0 / 20 / 76, `guard:import-graph` 404 files, 2,098 edges,
+  순환 0, `guard:initial-transfer-budget` 통과.
+- 크기: 바탕 `599465dd`(이 worktree를 잠시 detached로 바꿔 빌드한 뒤 갈래로 되돌림), `a883f9b9`, `08135e4f`를 `npm run build`로 만들어
+  `measureInitialTransfer`로 쟀다(위 '번들 크기'). `08135e4f`는 두 번 빌드해 진입 청크 이름과 모든 측정값이 같았다.
+- 배포 대상과 계약 동결: 위 'Deploy target'의 함수로 `599465dd..08135e4f`는 App 13, 나머지 Worker 0, 의존성 차이 없음. 라운드 2의 계약
+  동결 diff를 `599465dd..08135e4f`로 돌려도 비어 있다.
+- 돌리지 않은 것: 단위 전체, `src/pro-room` shuffle, 커버리지, `build:checked` 사슬, Playwright(아래 '확인하지 않은 것').
+
 ## 확인하지 않은 것
 
 - 실기기, iOS Safari, WebKit 레인(`setup-youtube-activation.test.ts` 포함), 블루투스, Full E2E. 기기 확인은 배포 뒤 블라인드로 하며
   게이트가 아니다. 기준선(Q6)은 아직 없다.
 - PR CI, 자동 코드 리뷰, exact-main CI, 버전 올리기 뒤의 `guard:sw-cache-version`과 `build:checked` 사슬 전체.
-- 상태 열거 (가)의 크기를 마지막 트리에서 다시 재지 않았다(위 '계획과 달라진 것' 2). 스칼라 집 실험은 크기만 쟀다.
+- 상태 열거 (가)의 크기를 낱개 이름 집 위에서 재지 않았다(위 '계획과 달라진 것' 2).
+- 크기 후속(`08135e4f`)에서는 단위 전체, `src/pro-room` shuffle, 커버리지(`iframe-audio.ts` 문턱 포함), `build:checked` 사슬과
+  Playwright를 다시 돌리지 않았다(QA 라운드 3의 범위). 런타임 변경은 `constants.ts`와 읽는 다섯 파일의 이름뿐이다.
+- CHECK 5의 한계(위 '크기 후속'): 스칼라 집 옆에 다시 적은 시간 객체 하나와, 시간 이름이 아닌(`*_MAX_ATTEMPTS`, `*_SEC`, `*_SAMPLES`,
+  `*_EVERY`) 같은 이름 사본은 가드가 잡지 않는다. 리뷰로 본다.
 - `src/pro-room`의 shuffle 순서 의존(`system-audio-service.test.ts`, `runtime-preload.test.ts`)은 바탕에도 있는 기존 문제라 고치지 않았다.
   파일 순서 실행과 CI는 영향이 없다. 뒤 시험만 PR 후보다.
 - 영역 조사의 대략적 기기 시간(A 35분, B 10분, C 25분)은 추정이다.

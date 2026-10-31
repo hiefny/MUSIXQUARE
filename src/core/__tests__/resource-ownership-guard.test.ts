@@ -686,6 +686,53 @@ describe('resource-ownership guard', { timeout: 60_000 }, () => {
       );
     });
 
+    it('rejects a same-named copy of a start count or seconds value beside its home, whatever its suffix (RO-02/RO-03/RO-12)', () => {
+      const copies = [
+        ['YOUTUBE_ARM_HARD_MUTE_MAX_ATTEMPTS', '12'],
+        ['YOUTUBE_ARM_SETTLE_EPSILON_SEC', '0.12'],
+        ['YOUTUBE_ARM_SETTLE_STABLE_SAMPLES', '2'],
+        ['YOUTUBE_ARM_SETTLE_RESEEK_EVERY', '6'],
+        ['YOUTUBE_ARM_AUDIO_RESTORE_MAX_ATTEMPTS', '8'],
+        ['YOUTUBE_RELEASE_CATCH_UP_TOLERANCE_SEC', '0.04'],
+        ['YOUTUBE_FRESH_START_MAX_SEC', '0.12'],
+      ] as const;
+      const findings = findingsOf(
+        withSources((sources) => {
+          const file = 'src/youtube/player.ts';
+          sources.set(
+            file,
+            `${sources.get(file) ?? ''}\n` +
+              copies.map(([name, value]) => `const ${name} = ${value};\nvoid ${name};\n`).join(''),
+          );
+        }),
+      );
+      for (const [name, value] of copies) {
+        expect(findings).toContain(
+          'COPIED TIMING CONSTANT (principle 4): RO-02/RO-03/RO-12 ' +
+            `${name}@src/youtube/constants.ts = ${name}@src/youtube/player.ts (${value})`,
+        );
+      }
+    });
+
+    it('rejects a re-typed copy of the arm timing beside its home src/youtube/constants.ts (RO-02/RO-03/RO-12)', () => {
+      const findings = findingsOf(
+        withSources((sources) => {
+          const file = 'src/youtube/player.ts';
+          sources.set(
+            file,
+            `${sources.get(file) ?? ''}\nconst RETYPED_ARM_TIMING = Object.freeze({\n` +
+              '  hardMutePollMs: 30,\n  hardMuteMaxAttempts: 12,\n  warmPlayMs: 260,\n' +
+              '  pauseSeekGapMs: 80,\n  settlePollMs: 80,\n});\nvoid RETYPED_ARM_TIMING;\n',
+          );
+        }),
+      );
+      expect(findings).toContain(
+        'COPIED TIMING CONSTANT (principle 4): RO-02/RO-03/RO-12 ' +
+          '<scalars>@src/youtube/constants.ts = ' +
+          'RETYPED_ARM_TIMING@src/youtube/player.ts (5 shared values)',
+      );
+    });
+
     it('rejects a re-typed arm timing object that two start files share, as the arm copies did before 6A-3 (RO-02/RO-03/RO-12)', () => {
       const retyped =
         '\nconst RETYPED_ARM_TIMING = Object.freeze({\n' +
@@ -702,6 +749,21 @@ describe('resource-ownership guard', { timeout: 60_000 }, () => {
         'COPIED TIMING CONSTANT (principle 4): RO-02/RO-03/RO-12 ' +
           'RETYPED_ARM_TIMING@src/youtube/authority-arm.ts = ' +
           'RETYPED_ARM_TIMING@src/youtube/zero-start.ts (5 shared values)',
+      );
+    });
+
+    it('keeps a differently named timing that shares a value with a start count out of the same-value pairs (RO-02/RO-03/RO-12)', () => {
+      const input = withSources((sources) => {
+        const file = 'src/youtube/player.ts';
+        sources.set(
+          file,
+          `${sources.get(file) ?? ''}\nconst RESEEK_GAP_MS = 6;\nvoid RESEEK_GAP_MS;\n`,
+        );
+      });
+      const report = analyzeResourceOwnership(input);
+      expect(report.findings).toEqual([]);
+      expect(report.timingPairs.reportOnly).toEqual(
+        analyzeResourceOwnership(realInput()).timingPairs.reportOnly,
       );
     });
 

@@ -1207,7 +1207,7 @@ describe('resource-ownership guard', { timeout: 60_000 }, () => {
           );
         }),
       );
-      // A name list counts once per call, like the native-control list of seven.
+      // A name list counts once per call.
       expect(findings).toMatch(
         /UNSANCTIONED cross-file start-timer read \(RO-02\): src\/youtube\/rogue-start-reader\.ts has 4/u,
       );
@@ -1270,8 +1270,12 @@ describe('resource-ownership guard', { timeout: 60_000 }, () => {
       ]);
     });
 
-    describe('the native-control list of seven names', () => {
+    // Since Phase 6 6A-1 hasProtectedTransitionOwner asks the owners of
+    // 'yt-auto-sync' and of sync.ts's timers through owner queries and reads
+    // only the PRO coordinator nudge by name.
+    describe('the native-control nudge read', () => {
       const native = 'src/youtube/native-control-authority.ts';
+      const read = '    getManagedTimer(PRO_COORDINATOR_YOUTUBE_NUDGE_TIMER) !== null ||\n';
       const names =
         '      PRO_COORDINATOR_YOUTUBE_NUDGE_TIMER,\n' +
         "      'yt-auto-sync',\n" +
@@ -1280,19 +1284,18 @@ describe('resource-ownership guard', { timeout: 60_000 }, () => {
         "      'yt-rendezvous-buffer',\n" +
         "      'yt-rendezvous-play',\n" +
         "      'yt-rendezvous-calibrate',\n";
-      const list = `    [\n${names}    ].some((name) => getManagedTimer(name) !== null)`;
 
-      it('still counts once when its callback is annotated or it becomes a loop or a frozen const', () => {
+      it('still counts once when it becomes a name list with an annotated callback, a loop or a frozen const', () => {
         const annotated = withSources((sources) =>
           replaceIn(
             sources,
             native,
-            list,
-            `    [\n${names}    ].some((name: string) => getManagedTimer(name) !== null)`,
+            read,
+            `    [\n${names}    ].some((name: string) => getManagedTimer(name) !== null) ||\n`,
           ),
         );
         const looped = withSources((sources) => {
-          replaceIn(sources, native, list, '    anyProtectedTimer()');
+          replaceIn(sources, native, read, '    anyProtectedTimer() ||\n');
           sources.set(
             native,
             `${sources.get(native) ?? ''}\nconst PROTECTED_TIMERS = [\n${names}] as const;\n` +
@@ -1306,8 +1309,8 @@ describe('resource-ownership guard', { timeout: 60_000 }, () => {
           replaceIn(
             sources,
             native,
-            list,
-            '    PROTECTED_TIMERS.some((name) => getManagedTimer(name) !== null)',
+            read,
+            '    PROTECTED_TIMERS.some((name) => getManagedTimer(name) !== null) ||\n',
           );
           sources.set(
             native,
@@ -1316,18 +1319,18 @@ describe('resource-ownership guard', { timeout: 60_000 }, () => {
         });
         for (const input of [annotated, looped, frozen]) {
           expect(findingsOf(input)).toBe('');
-          expect(analyzeResourceOwnership(input).startTimerUses).toEqual({ reads: 14, clears: 10 });
+          expect(analyzeResourceOwnership(input).startTimerUses).toEqual({ reads: 11, clears: 10 });
         }
       });
 
-      it('rejects a timer query that takes any name, which would hide the list', () => {
+      it('rejects a timer query that takes any name, which would hide the read', () => {
         const findings = findingsOf(
           withSources((sources) => {
             replaceIn(
               sources,
               native,
-              list,
-              `    [\n${names}    ].some((name) => isYouTubeTimerPending(name))`,
+              read,
+              '    isYouTubeTimerPending(PRO_COORDINATOR_YOUTUBE_NUDGE_TIMER) ||\n',
             );
             sources.set(
               'src/youtube/sync.ts',
@@ -1417,10 +1420,12 @@ describe('resource-ownership guard', { timeout: 60_000 }, () => {
         "START TIMER SET (RO-02): src/youtube/iframe.ts sets 'yt-auto-sync', which only " +
           'src/youtube/player.ts may set - ',
       );
-      // The reads and the clear of 'yt-auto-sync' now look like iframe.ts's own.
+      // The clear of 'yt-auto-sync' now looks like iframe.ts's own. iframe.ts
+      // reads only the PRO coordinator nudge by name, so its read count stays.
       expect(findings).toContain(
-        'STALE BASELINE cross-file start-timer read (RO-02): src/youtube/iframe.ts has 1, baseline 3',
+        'STALE BASELINE cross-file start-timer clear (RO-02): src/youtube/iframe.ts has 2, baseline 3',
       );
+      expect(findings).not.toContain('cross-file start-timer read (RO-02): src/youtube/iframe.ts');
     });
 
     it('ignores other timers, names that cannot spell a start timer and files outside src/youtube', () => {
@@ -1549,7 +1554,7 @@ describe('resource-ownership guard', { timeout: 60_000 }, () => {
         ),
       );
       expect(findings).toMatch(
-        /RATCHET REGRESSION cross-file start-timer read \(RO-02\): src\/youtube\/sync\.ts has \d+, baseline 4/u,
+        /RATCHET REGRESSION cross-file start-timer read \(RO-02\): src\/youtube\/sync\.ts has \d+, baseline 3/u,
       );
       expect(findings).toMatch(
         /RATCHET REGRESSION cross-file start-timer clear \(RO-02\): src\/youtube\/sync\.ts has \d+, baseline 1/u,
@@ -1578,8 +1583,8 @@ describe('resource-ownership guard', { timeout: 60_000 }, () => {
           replaceIn(
             sources,
             'src/youtube/sync.ts',
-            "  if (!isManual && getManagedTimer('yt-auto-sync')) return;\n",
-            "  if (!isManual && getManagedTimer('yt-auto-sync')) return;\n" +
+            '  if (!isManual && getManagedTimer(PRO_COORDINATOR_YOUTUBE_NUDGE_TIMER)) return;\n',
+            '  if (!isManual && getManagedTimer(PRO_COORDINATOR_YOUTUBE_NUDGE_TIMER)) return;\n' +
               "  if (getManagedTimer('yt-host-local-start')) return;\n",
           );
           replaceIn(
@@ -1594,7 +1599,7 @@ describe('resource-ownership guard', { timeout: 60_000 }, () => {
         /STALE BASELINE cross-file start-timer clear \(RO-02\): src\/youtube\/iframe\.ts has 1, baseline 3 - lower the baseline to 1/u,
       );
       expect(findings).toMatch(
-        /RATCHET REGRESSION cross-file start-timer read \(RO-02\): src\/youtube\/sync\.ts has 5, baseline 4/u,
+        /RATCHET REGRESSION cross-file start-timer read \(RO-02\): src\/youtube\/sync\.ts has 4, baseline 3/u,
       );
       // player.ts no longer sets the local-start timer, so its own clear counts.
       expect(findings).toMatch(
@@ -1615,7 +1620,7 @@ describe('resource-ownership guard', { timeout: 60_000 }, () => {
         /iframe audio write: src\/youtube\/player\.ts:\d+ setVolume\(\) in restoreFallbackAudio\n/u,
       );
       expect(result.stdout).toMatch(
-        /cross-file start-timer read: src\/youtube\/native-control-authority\.ts:\d+ getManagedTimer\('yt-pro-coordinator-local-nudge', 'yt-auto-sync', [^)]*\) in hasProtectedTransitionOwner\n/u,
+        /cross-file start-timer read: src\/youtube\/native-control-authority\.ts:\d+ getManagedTimer\('yt-pro-coordinator-local-nudge'\) in hasProtectedTransitionOwner\n/u,
       );
       expect(result.stdout).toMatch(
         /cross-file start-timer clear: src\/youtube\/sync\.ts:\d+ clearManagedTimer\('yt-pro-coordinator-local-nudge'\) in resetYouTubeSyncState\n/u,

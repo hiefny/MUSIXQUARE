@@ -58,6 +58,7 @@ import {
 import { clearYouTubeStableControlExpectations } from '../native-control-origin.ts';
 import { adoptResidentYouTubeOccurrence } from '../iframe.ts';
 import { initYouTube, scheduleYtAutoSync, stopYouTubeMode } from '../player.ts';
+import { isYouTubeAutoSyncPending } from '../player-runtime-bridge.ts';
 import {
   prepareStandardHostManualOffsetRuntimeForTests,
   resetStandardHostManualOffsetTransaction,
@@ -495,6 +496,36 @@ describe("H3 owner queries: what a Standard host's stage-2 'yt-auto-sync' wait s
     const after = current.sent.length;
     bus.emit('youtube:seek-to', 40);
     expect(sentSince(current, after)).toEqual(['5000 youtube-state state 2']);
+  });
+
+  // Since 6A-1 the first three holds above and the native-control authority
+  // ask this owner query instead of reading the timer's name; player.ts
+  // answers it from its own 'yt-auto-sync' timer.
+  it("the bridge answers player.ts's stage-2 'yt-auto-sync' owner query: pending during the wait, not after", async () => {
+    const current = await hostRig();
+    const answers: string[] = [];
+    const sample = () => answers.push(`${current.now()} ${isYouTubeAutoSyncPending()}`);
+    await current.advanceTo(100);
+    sample();
+    scheduleYtAutoSync(10);
+    sample();
+    await current.advanceTo(2_090);
+    sample();
+    await current.advanceTo(2_100);
+    sample();
+    // A newer wait, then the pause that retires it at once.
+    scheduleYtAutoSync(20);
+    sample();
+    scheduleYtAutoSync(20, { state: 2 });
+    sample();
+    expect(answers).toEqual([
+      '100 false',
+      '100 true',
+      '2090 true',
+      '2100 false',
+      '2100 true',
+      '2100 false',
+    ]);
   });
 });
 

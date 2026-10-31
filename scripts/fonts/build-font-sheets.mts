@@ -399,8 +399,9 @@ export async function buildFontPrefetchSamples(
     const css = generated.find(({ path: sheetPath }) => sheetPath === sheet.path)?.css;
     if (css === undefined) throw new Error(`${GENERATOR} did not generate ${sheet.path}`);
     const faces = parseFontFaceRules(css)
-      .map((rule) => ({
+      .map((rule, place) => ({
         shard: shardNumber(rule.file),
+        place,
         file: repoPathOf(sheet.path, rule.url),
         codePoints: parseUnicodeRange(rule.unicodeRange ?? ''),
       }))
@@ -418,7 +419,9 @@ export async function buildFontPrefetchSamples(
         faces.filter((other) => other !== face).map((other) => other.codePoints),
         `${sheet.family} #${face.shard}`,
       );
-      shards.push(`{ shard: ${face.shard}, sample: '${sample}', bytes: ${bytes} }`);
+      shards.push(
+        `{ shard: ${face.shard}, face: ${face.place}, sample: '${sample}', bytes: ${bytes} }`,
+      );
     }
     lists.push(`'${code}': { family: '${sheet.family}', shards: [${shards.join(', ')}] }`);
   }
@@ -432,7 +435,8 @@ export async function buildFontPrefetchSamples(
  * frequent shards of that family (Google numbers shards by frequency, the
  * highest first) that fit within FONT_PREFETCH_MAX_FACES and
  * FONT_PREFETCH_MAX_BYTES (src/i18n/font-loading-policy.ts). Each shard has
- * one letter only it declares in its family, which loads it, and its file size.
+ * its face's place in the sheet, one letter only it declares in its family,
+ * which loads it, and its file size.
  */
 
 import type { LanguageCode } from './locales.ts';
@@ -440,6 +444,11 @@ import type { LanguageCode } from './locales.ts';
 interface FontPrefetchShard {
   /** The shard's number in its family's sheet. */
   readonly shard: number;
+  /**
+   * The place of the shard's face among its family's faces in the sheet,
+   * which phase C reads first instead of scanning every face's unicode-range.
+   */
+  readonly face: number;
   /** One letter only this shard declares. */
   readonly sample: string;
   /** The shard's WOFF2 size. */

@@ -15,13 +15,16 @@
  *   order.
  * - Phase B, after window load and the first idle slice: every other sheet.
  *   It ignores data saver because it is correctness, not prefetch.
- * - Phase C, a quiet period after phase B starts: the Korean, Japanese and Chinese
- *   UIs load their own family's most frequent shards (font-prefetch-samples.ts)
- *   in idle slices, a few faces per batch, within a face and byte budget per
- *   page load, so new text in those characters draws without a swap. It is
- *   skipped on data saver, 2G or offline, pauses while the page is hidden, and
- *   follows a language change. It only asks FontFaceSet.load(); the service
- *   worker stays the only writer of CacheStorage.
+ * - Phase C, a quiet period after phase B starts: the Korean, Japanese and
+ *   Chinese UIs load their own family's most frequent shards
+ *   (font-prefetch-samples.ts) in idle slices, a few faces per batch, within a
+ *   face and byte budget per page load, so new text in those characters draws
+ *   without a swap. A batch runs only once the family's sheet is declared and
+ *   counts against the budget only when it drew a face. It reads faces only
+ *   inside idle slices, and finds a shard's face by its place in the sheet. It
+ *   is skipped on data saver, 2G or offline, pauses while the page is hidden,
+ *   and follows a language change. It only asks FontFaceSet.load(); the
+ *   service worker stays the only writer of CacheStorage.
  *
  * A sheet attempt that does not settle within its deadline
  * (FONT_SHEET_ATTEMPT_TIMEOUT_MS, doubled for each later attempt of the sheet)
@@ -231,7 +234,8 @@ function loadSheet(id: AppFontSheetId): Promise<boolean> {
     state.inFlight = null;
     state.loaded = declared;
     state.failed = !declared;
-    if (!declared) armRetry();
+    if (declared) onSheetDeclared(id);
+    else armRetry();
     return declared;
   });
   state.inFlight = attempt;
@@ -373,6 +377,7 @@ function recoverFailedFaces(): void {
     if (!sheetState(id).loaded || count >= FONT_SHEET_RETRY_LIMIT) continue;
     if (!SHEET_LOADERS[id].redeclare()) continue;
     redeclarations.set(id, count + 1);
+    shardFaces.clear();
     log.info(`[i18n] Declared the font sheet "${id}" again after a face failed to load`);
   }
 }
@@ -464,6 +469,8 @@ let phaseC: PhaseC = 'waiting';
 let cancelPhaseC: Cancel | null = null;
 let prefetchPausedForVisibility = false;
 let prefetchBatchInFlight = false;
+/** A batch drew no face; phase C waits until its sheet is declared or a language applies. */
+let prefetchStalled = false;
 /** The UI language whose list phase C follows: the last phase A request. */
 let prefetchLanguage: LanguageCode | null = null;
 let prefetchedFaces = 0;
@@ -493,43 +500,96 @@ function rangeHolds(unicodeRange: string, codePoint: number): boolean {
   return false;
 }
 
-/**
- * Whether the face of `family` that declares a shard's sample letter has
- * loaded, read from the face itself. FontFaceSet.check() cannot answer this:
- * in Chromium 153 it returned true for a shard whose face had not loaded
- * (measured by e2e/font-identity.test.ts), so every shard looked loaded.
- */
-function isFaceLoaded(family: string, sample: string): boolean {
-  const codePoint = sample.codePointAt(0);
-  if (codePoint === undefined) return false;
+/** The faces of a family in document order (reading each face's family only). */
+function familyFaces(family: string): FontFace[] {
+  const faces: FontFace[] = [];
   try {
     for (const face of document.fonts) {
-      if (faceFamily(face) !== family) continue;
-      if (rangeHolds(face.unicodeRange, codePoint)) return face.status === 'loaded';
+      if (faceFamily(face) === family) faces.push(face);
     }
   } catch {
-    return false;
+    return [];
   }
-  return false;
+  return faces;
 }
 
-/** The next shards of the current list, in frequency order, that fit the page budget. */
+/** The face that declares each shard, found once per page (cleared when a sheet is declared again). */
+const shardFaces = new Map<string, FontFace>();
+
+/**
+ * The face of a shard: the face at the shard's recorded place among its
+ * family's faces, confirmed with that one unicode-range, and remembered. The
+ * KR sheet's 120 ranges hold about 6,200 parts, so parsing every preceding
+ * range for each sample was a long task on a slow phone. A scan is the
+ * fallback when the faces moved (a sheet declared again, say).
+ */
+function shardFace(
+  family: string,
+  shard: PrefetchShard,
+  faces: readonly FontFace[],
+): FontFace | null {
+  const key = `${family}#${shard.shard}`;
+  const known = shardFaces.get(key);
+  if (known) return known;
+  const codePoint = shard.sample.codePointAt(0);
+  if (codePoint === undefined) return null;
+  let found: FontFace | null = null;
+  try {
+    const placed = faces[shard.face];
+    if (placed && rangeHolds(placed.unicodeRange, codePoint)) found = placed;
+    else found = faces.find((face) => rangeHolds(face.unicodeRange, codePoint)) ?? null;
+  } catch {
+    return null;
+  }
+  if (found) shardFaces.set(key, found);
+  return found;
+}
+
+/** The current UI language's prefetch list, if it has one. */
+function currentPrefetchList(): PrefetchList | undefined {
+  return prefetchLanguage ? FONT_PREFETCH_BY_LANGUAGE[prefetchLanguage] : undefined;
+}
+
+/** Whether the list's family sheet is declared, so its faces exist to load. */
+function prefetchSheetDeclared(list: PrefetchList): boolean {
+  const id = FAMILY_SHEET.get(list.family);
+  return id !== undefined && sheetState(id).loaded;
+}
+
+/** A cheap check, without reading any face: a shard of the list is left and the face budget is not spent. */
+function hasPrefetchLeft(list: PrefetchList): boolean {
+  return (
+    prefetchedFaces < FONT_PREFETCH_MAX_FACES &&
+    list.shards.some((shard) => !prefetchedShards.has(`${list.family}#${shard.shard}`))
+  );
+}
+
+/**
+ * The next shards of the current list, in frequency order, that fit the page
+ * budget. Whether a shard has loaded is read from its face itself:
+ * FontFaceSet.check() returned true in Chromium 153 for a shard whose face had
+ * not loaded (measured by e2e/font-identity.test.ts), so every shard looked
+ * loaded. Runs only inside an idle slice.
+ */
 function nextPrefetchBatch(): { family: string; shards: PrefetchShard[] } | null {
-  const list = prefetchLanguage ? FONT_PREFETCH_BY_LANGUAGE[prefetchLanguage] : undefined;
+  const list = currentPrefetchList();
   if (!list) return null;
+  const faces = familyFaces(list.family);
   const shards: PrefetchShard[] = [];
-  let faces = prefetchedFaces;
+  let faceCount = prefetchedFaces;
   let bytes = prefetchedBytes;
   for (const shard of list.shards) {
     if (shards.length === FONT_PREFETCH_BATCH_FACES) break;
     const key = `${list.family}#${shard.shard}`;
     if (prefetchedShards.has(key)) continue;
-    if (isFaceLoaded(list.family, shard.sample)) {
+    if (shardFace(list.family, shard, faces)?.status === 'loaded') {
       prefetchedShards.add(key);
       continue;
     }
-    if (faces + 1 > FONT_PREFETCH_MAX_FACES || bytes + shard.bytes > FONT_PREFETCH_MAX_BYTES) break;
-    faces += 1;
+    if (faceCount + 1 > FONT_PREFETCH_MAX_FACES || bytes + shard.bytes > FONT_PREFETCH_MAX_BYTES) {
+      break;
+    }
+    faceCount += 1;
     bytes += shard.bytes;
     shards.push(shard);
   }
@@ -564,13 +624,19 @@ function armPrefetchQuiet(): void {
   }, FONT_PREFETCH_QUIET_MS);
 }
 
+/**
+ * Arm the next batch's idle slice. This may run in any task (the quiet
+ * period's timer, a batch's completion, a language change), so it reads no
+ * face; the idle slice picks the batch.
+ */
 function schedulePrefetchBatch(): void {
-  if (phaseC !== 'running' || cancelPhaseC || prefetchBatchInFlight) return;
+  if (phaseC !== 'running' || cancelPhaseC || prefetchBatchInFlight || prefetchStalled) return;
   if (!isPageVisible()) {
     prefetchPausedForVisibility = true;
     return;
   }
-  if (!nextPrefetchBatch()) return;
+  const list = currentPrefetchList();
+  if (!list || !prefetchSheetDeclared(list) || !hasPrefetchLeft(list)) return;
   cancelPhaseC = afterPrefetchIdle(runPrefetchBatch);
 }
 
@@ -585,19 +651,31 @@ function runPrefetchBatch(): void {
     phaseC = 'done';
     return;
   }
+  const list = currentPrefetchList();
+  if (!list || !prefetchSheetDeclared(list)) return;
   const batch = nextPrefetchBatch();
   if (!batch) return;
-  for (const shard of batch.shards) {
-    prefetchedShards.add(`${batch.family}#${shard.shard}`);
-    prefetchedFaces += 1;
-    prefetchedBytes += shard.bytes;
-  }
+  const keys = batch.shards.map(({ shard }) => `${batch.family}#${shard}`);
+  const batchBytes = batch.shards.reduce((sum, { bytes }) => sum + bytes, 0);
+  // Reserve the batch while it loads; a result with no face releases it.
+  for (const key of keys) prefetchedShards.add(key);
+  prefetchedFaces += keys.length;
+  prefetchedBytes += batchBytes;
   prefetchBatchInFlight = true;
   // A FontFace load cannot be aborted, so a batch in flight always finishes.
   document.fonts
     .load(`400 16px "${batch.family}"`, batch.shards.map(({ sample }) => sample).join(''))
     .then(
-      () => undefined,
+      (faces) => {
+        if (faces.length > 0) return;
+        // No face matched: the family's faces are missing. Release the
+        // reservation and wait until the sheet is declared or asked for again.
+        for (const key of keys) prefetchedShards.delete(key);
+        prefetchedFaces -= keys.length;
+        prefetchedBytes -= batchBytes;
+        prefetchStalled = true;
+        log.warn(`[i18n] Font prefetch of ${batch.family} drew no face; waiting for its sheet`);
+      },
       (error: unknown) => {
         log.warn(`[i18n] Font prefetch of ${batch.family} failed`, error);
         recoverFailedFaces();
@@ -610,6 +688,14 @@ function runPrefetchBatch(): void {
     .catch((error: unknown) => {
       log.warn('[i18n] Font prefetch bookkeeping failed', error);
     });
+}
+
+/** A sheet was declared: phase C may have been waiting for it. */
+function onSheetDeclared(id: AppFontSheetId): void {
+  const list = currentPrefetchList();
+  if (!list || FAMILY_SHEET.get(list.family) !== id) return;
+  prefetchStalled = false;
+  schedulePrefetchBatch();
 }
 
 function suspendPrefetch(): void {
@@ -685,6 +771,7 @@ function loadLanguageFonts(code: LanguageCode): Promise<void> {
   // Phase C follows the new language: its list replaces the old one, within
   // the same page budget.
   prefetchLanguage = code;
+  prefetchStalled = false;
   schedulePrefetchBatch();
   return Promise.all(phaseASheets(code, hanOrder).map((id) => loadSheet(id))).then(() => undefined);
 }

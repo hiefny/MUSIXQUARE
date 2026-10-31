@@ -23,8 +23,9 @@
  *   no rule turns Inter's contextual alternates off; css/app.css and its
  *   imports declare no @font-face;
  * - one source per script: Latin, Cyrillic and Greek that Inter draws come
- *   only from Inter, Hangul only from Noto Sans KR, kana only from Noto Sans
- *   JP, in every stack of every UI;
+ *   only from Inter, Hangul Noto Sans KR draws only from KR, kana Noto Sans JP
+ *   draws only from JP (by block or by Unicode Script), in every stack of
+ *   every UI;
  * - coverage: every non-PUA character Pretendard drew, and every character
  *   of the catalogs and index.html, resolves by cmap to a self-hosted face in
  *   every stack, except the recorded list in
@@ -349,16 +350,30 @@ async function checkScriptsAndCoverage(resolver: FaceResolver): Promise<number> 
         interCodePoints.add(codePoint);
     }
   }
+  // Hangul and kana by block or by Unicode Script, as the sheet generator
+  // cuts them: ㈜ and ㉠ are Hangul, ㋖ and ㌔ kana, outside the blocks.
   const isHangul = (codePoint: number) =>
     (codePoint >= 0x1100 && codePoint <= 0x11ff) ||
     (codePoint >= 0x3130 && codePoint <= 0x318f) ||
     (codePoint >= 0xa960 && codePoint <= 0xa97f) ||
     (codePoint >= 0xac00 && codePoint <= 0xd7a3) ||
-    (codePoint >= 0xd7b0 && codePoint <= 0xd7ff);
+    (codePoint >= 0xd7b0 && codePoint <= 0xd7ff) ||
+    /\p{Script=Hangul}/u.test(String.fromCodePoint(codePoint));
   const isKana = (codePoint: number) =>
     (codePoint >= 0x3040 && codePoint <= 0x30ff) ||
     (codePoint >= 0x31f0 && codePoint <= 0x31ff) ||
-    (codePoint >= 0xff66 && codePoint <= 0xff9f);
+    (codePoint >= 0xff66 && codePoint <= 0xff9f) ||
+    /[\p{Script=Hiragana}\p{Script=Katakana}]/u.test(String.fromCodePoint(codePoint));
+  // Every non-surrogate code point of the first two planes; a script's owner
+  // check holds the characters that owner draws (one it lacks, such as the
+  // halfwidth jamo only JP draws, stays where it is drawn).
+  const planeCodePoints = Array.from({ length: 0x20000 }, (_, index) => index).filter(
+    (codePoint) => codePoint < 0xd800 || codePoint > 0xdfff,
+  );
+  const ownedBy = (family: string, test: (codePoint: number) => boolean): number[] =>
+    planeCodePoints.filter(
+      (codePoint) => test(codePoint) && resolver.faceFor([family], codePoint) !== null,
+    );
   // The Latin, Cyrillic and Greek letters and the digits Inter draws (its cmap
   // inside its own unicode-ranges). Script-first stacks (Arabic, Hebrew, Indic)
   // may take shared marks such as dashes, joiners or the rupee sign from their
@@ -372,16 +387,8 @@ async function checkScriptsAndCoverage(resolver: FaceResolver): Promise<number> 
   const hangulSyllables = Array.from({ length: 11_172 }, (_, index) => 0xac00 + index);
   const ownerChecks: [string, number[], string][] = [
     ['Latin, Cyrillic and Greek letters and digits', interLetters, 'Inter'],
-    [
-      'Hangul',
-      Array.from({ length: 0xd800 - 0x1100 }, (_, index) => 0x1100 + index).filter(isHangul),
-      'Noto Sans KR',
-    ],
-    [
-      'kana',
-      Array.from({ length: 0x3100 - 0x3041 }, (_, index) => 0x3041 + index).filter(isKana),
-      'Noto Sans JP',
-    ],
+    ['Hangul', ownedBy('Noto Sans KR', isHangul), 'Noto Sans KR'],
+    ['kana', ownedBy('Noto Sans JP', isKana), 'Noto Sans JP'],
   ];
   for (const [where, stack] of textStacks) {
     for (const [label, codePoints, owner] of ownerChecks) {

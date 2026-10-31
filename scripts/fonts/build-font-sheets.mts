@@ -22,8 +22,12 @@
  *   face also loses every code point Inter draws, which is Inter's cmap
  *   inside Inter's own ranges (cutting by Inter's declared ranges would drop
  *   marks Inter lacks, such as U+203B and U+203C, to a device font chosen by
- *   html lang). Hangul stays only in Noto Sans KR and kana only in Noto Sans
- *   JP. The invisible and space marks U+200B-200F, U+202F, U+2060-2064 and
+ *   html lang). Hangul that Noto Sans KR draws stays only in KR and kana
+ *   that Noto Sans JP draws only in JP, each found by block or by Unicode
+ *   Script (parenthesized and circled Hangul such as ㈜ and ㉠, circled and
+ *   square katakana such as ㋖ and ㌔ sit outside the blocks); a character the
+ *   owner lacks, such as the halfwidth jamo, stays in the family that draws
+ *   it. The invisible and space marks U+200B-200F, U+202F, U+2060-2064 and
  *   U+FEFF leave all four, so the device font draws them. A face left with
  *   nothing is dropped.
  * - Noto Sans Thai keeps only its Thai face, unchanged.
@@ -248,12 +252,33 @@ function assertGoogleCjkRule(rule: FontFaceRule, family: string, sheetPath: stri
   }
 }
 
-async function cjkSheet(
+/** Hangul by block or by Script=Hangul: ㈜ and ㉠ sit outside the Hangul blocks. */
+const isHangul = (codePoint: number): boolean =>
+  inRanges(codePoint, HANGUL) || /\p{Script=Hangul}/u.test(String.fromCodePoint(codePoint));
+
+/** Kana by block or by Script=Hiragana/Katakana: ㋖ and ㌔ sit outside the kana blocks. */
+const isKana = (codePoint: number): boolean =>
+  inRanges(codePoint, KANA) ||
+  /[\p{Script=Hiragana}\p{Script=Katakana}]/u.test(String.fromCodePoint(codePoint));
+
+/** A CJK family's faces before the cut by script: each face with the code points it keeps. */
+interface CjkFaces {
+  readonly recipe: CjkFamily;
+  readonly origin: readonly string[];
+  readonly license: string;
+  readonly faces: readonly { readonly file: string; readonly kept: readonly number[] }[];
+}
+
+/**
+ * A CJK family's faces with Google's ranges minus every code point the face's
+ * own file lacks, every code point Inter draws and the invisible marks.
+ */
+async function cjkFaces(
   repoRoot: string,
   sources: FontSources,
   recipe: CjkFamily,
   interDrawn: ReadonlySet<number>,
-): Promise<string> {
+): Promise<CjkFaces> {
   const sheet = appSheet(recipe.id);
   let sourceFaces: SourceFace[];
   let origin: string[];
@@ -278,23 +303,45 @@ async function cjkSheet(
     ];
     license = headerValue(google.css, 'License', recipe.googleSheet);
   }
-  const dropped = [
-    "every code point the face's own file lacks",
-    'every code point Inter draws (its cmap inside its own ranges)',
-    ...(recipe.dropHangul ? ['Hangul'] : []),
-    ...(recipe.dropKana ? ['kana'] : []),
-    `the invisible marks ${INVISIBLE_TEXT}`,
-  ];
-  const faces: string[] = [];
+  const faces: { file: string; kept: number[] }[] = [];
   for (const face of sourceFaces) {
     const drawn = fontCodePoints(await openFontFile(path.join(repoRoot, face.file)));
     const kept = [...face.codePoints].filter(
       (codePoint) =>
-        drawn.has(codePoint) &&
-        !interDrawn.has(codePoint) &&
-        !(recipe.dropHangul && inRanges(codePoint, HANGUL)) &&
-        !(recipe.dropKana && inRanges(codePoint, KANA)) &&
-        !inRanges(codePoint, INVISIBLE),
+        drawn.has(codePoint) && !interDrawn.has(codePoint) && !inRanges(codePoint, INVISIBLE),
+    );
+    faces.push({ file: face.file, kept });
+  }
+  return { recipe, origin, license, faces };
+}
+
+/**
+ * A CJK family's sheet: its faces minus the Hangul that Noto Sans KR draws
+ * (for every family but KR) and the kana that Noto Sans JP draws (for every
+ * family but JP), each by block or by script property. A character the owning
+ * family lacks, such as the halfwidth jamo only JP draws, stays where it is
+ * drawn. A face left with nothing is dropped.
+ */
+function cjkSheet(
+  family: CjkFaces,
+  koreanHangul: ReadonlySet<number>,
+  japaneseKana: ReadonlySet<number>,
+): string {
+  const { recipe, origin, license } = family;
+  const sheet = appSheet(recipe.id);
+  const dropped = [
+    "every code point the face's own file lacks",
+    'every code point Inter draws (its cmap inside its own ranges)',
+    ...(recipe.dropHangul ? ['the Hangul Noto Sans KR draws (by block or script)'] : []),
+    ...(recipe.dropKana ? ['the kana Noto Sans JP draws (by block or script)'] : []),
+    `the invisible marks ${INVISIBLE_TEXT}`,
+  ];
+  const faces: string[] = [];
+  for (const face of family.faces) {
+    const kept = face.kept.filter(
+      (codePoint) =>
+        !(recipe.dropHangul && koreanHangul.has(codePoint)) &&
+        !(recipe.dropKana && japaneseKana.has(codePoint)),
     );
     if (kept.length === 0) continue;
     faces.push(
@@ -311,6 +358,15 @@ async function cjkSheet(
     ],
     faces,
   );
+}
+
+/** The code points of a family's faces that a script test holds. */
+function familyCodePoints(family: CjkFaces, test: (codePoint: number) => boolean): Set<number> {
+  const codePoints = new Set<number>();
+  for (const face of family.faces) {
+    for (const codePoint of face.kept) if (test(codePoint)) codePoints.add(codePoint);
+  }
+  return codePoints;
 }
 
 async function thaiSheet(repoRoot: string): Promise<string> {
@@ -347,8 +403,19 @@ export async function buildFontSheets(repoRoot: string): Promise<GeneratedFontSh
   const sources = await readFontSources(repoRoot);
   const inter = await interSheet(repoRoot, sources);
   const built = new Map<string, string>([['font-inter', inter.css]]);
+  const families: CjkFaces[] = [];
   for (const recipe of CJK_FAMILIES) {
-    built.set(recipe.id, await cjkSheet(repoRoot, sources, recipe, inter.drawn));
+    families.push(await cjkFaces(repoRoot, sources, recipe, inter.drawn));
+  }
+  const owner = (id: string): CjkFaces => {
+    const family = families.find(({ recipe }) => recipe.id === id);
+    if (!family) throw new Error(`${GENERATOR} has no recipe for ${id}`);
+    return family;
+  };
+  const koreanHangul = familyCodePoints(owner('font-noto-kr'), isHangul);
+  const japaneseKana = familyCodePoints(owner('font-noto-jp'), isKana);
+  for (const family of families) {
+    built.set(family.recipe.id, cjkSheet(family, koreanHangul, japaneseKana));
   }
   built.set('font-noto-thai', await thaiSheet(repoRoot));
   return APP_FONT_SHEETS.filter(({ path: sheetPath }) =>

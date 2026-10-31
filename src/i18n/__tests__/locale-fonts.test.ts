@@ -527,15 +527,25 @@ describe('sheet retries', () => {
 });
 
 describe("phase C: idle prefetch of the UI language's frequent shards", () => {
+  /** A face of the document's font set as phase C reads it. */
+  interface FaceStub {
+    readonly family: string;
+    readonly unicodeRange: string;
+    status: FontFaceLoadStatus;
+  }
+
   interface FontSetStub {
     readonly load: ReturnType<typeof vi.fn<(font: string, text?: string) => Promise<FontFace[]>>>;
     readonly check: ReturnType<typeof vi.fn<(font: string, text?: string) => boolean>>;
+    /** The faces the set iterates, like the CSS-connected faces of the app sheets. */
+    readonly faces: FaceStub[];
     /** Finish the oldest unfinished load. */
     finish(): void;
   }
 
   function installFontSet(options: { settleAtOnce?: boolean } = {}): FontSetStub {
     const unfinished: (() => void)[] = [];
+    const faces: FaceStub[] = [];
     const load = vi.fn<(font: string, text?: string) => Promise<FontFace[]>>(
       () =>
         new Promise<FontFace[]>((resolve) => {
@@ -544,10 +554,14 @@ describe("phase C: idle prefetch of the UI language's frequent shards", () => {
         }),
     );
     const check = vi.fn<(font: string, text?: string) => boolean>(() => false);
-    Object.defineProperty(document, 'fonts', { configurable: true, value: { load, check } });
+    Object.defineProperty(document, 'fonts', {
+      configurable: true,
+      value: { load, check, [Symbol.iterator]: () => faces[Symbol.iterator]() },
+    });
     return {
       load,
       check,
+      faces,
       finish() {
         unfinished.shift()?.();
       },
@@ -607,9 +621,27 @@ describe("phase C: idle prefetch of the UI language's frequent shards", () => {
     expect(fonts.load).toHaveBeenCalledTimes(batches.length);
   });
 
-  it('skips faces the page already loaded', async () => {
+  it('skips faces the page already loaded, read from the faces themselves', async () => {
     const fonts = installFontSet({ settleAtOnce: true });
-    fonts.check.mockImplementation((_font, text) => text === KO.shards[0]?.sample);
+    // Chromium answers check() with true for a face that has not loaded (the
+    // local font identity E2E measured it), so it cannot tell what is loaded.
+    fonts.check.mockReturnValue(true);
+    const codePoint = (shard: { sample: string }) =>
+      (shard.sample.codePointAt(0) ?? 0).toString(16).toUpperCase();
+    // Each shard's face declares its sample among other letters; the first has loaded.
+    for (const [index, shard] of KO.shards.entries()) {
+      fonts.faces.push({
+        family: '"Noto Sans KR"',
+        unicodeRange: `U+0041-005A, U+${codePoint(shard)}, U+E000-E00${index % 10}`,
+        status: index === 0 ? 'loaded' : 'unloaded',
+      });
+    }
+    // Another family declaring the same letters never counts.
+    fonts.faces.unshift({
+      family: 'Noto Sans JP',
+      unicodeRange: KO.shards.map((shard) => `U+${codePoint(shard)}`).join(', '),
+      status: 'loaded',
+    });
     await throughPhaseB('ko');
     await vi.advanceTimersByTimeAsync(FONT_PREFETCH_QUIET_MS);
 
@@ -617,6 +649,19 @@ describe("phase C: idle prefetch of the UI language's frequent shards", () => {
 
     expect(fonts.load.mock.calls[0]?.[1]).toBe(
       samplesOf(KO.shards.slice(1, 1 + FONT_PREFETCH_BATCH_FACES)),
+    );
+  });
+
+  it('prefetches a shard whose face the page has not declared yet', async () => {
+    const fonts = installFontSet({ settleAtOnce: true });
+    fonts.check.mockReturnValue(true);
+    await throughPhaseB('ko');
+    await vi.advanceTimersByTimeAsync(FONT_PREFETCH_QUIET_MS);
+
+    await runIdle();
+
+    expect(fonts.load.mock.calls[0]?.[1]).toBe(
+      samplesOf(KO.shards.slice(0, FONT_PREFETCH_BATCH_FACES)),
     );
   });
 

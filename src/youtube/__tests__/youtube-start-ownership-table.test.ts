@@ -28,7 +28,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { MSG } from '../../core/constants.ts';
 import { bus } from '../../core/events.ts';
-import { resetState } from '../../core/state.ts';
+import { resetState, setState } from '../../core/state.ts';
 import { clearAllManagedTimers } from '../../core/timers.ts';
 import { broadcast, safeSend, sendToHost } from '../../network/peer.ts';
 import type { QueueItemId } from '../../types/index.ts';
@@ -46,6 +46,7 @@ import {
   createFakeClockStarter,
   setUpStandardRig,
   standardScenarios,
+  syntheticConnection,
   type StandardRig,
   type StandardRigOptions,
   type StandardScenario,
@@ -77,6 +78,7 @@ vi.mock('../../network/shared-clock.ts', async (importOriginal) => ({
 const STANDARD_ROOM_CODE = '100001';
 const HOST_PEER_ID = 'host-1';
 const GUEST_PEER_ID = 'guest-1';
+const NEWCOMER_PEER_ID = 'guest-2';
 const IDENTITY = {
   queueItemId: '71000000-0000-4000-8000-000000000001' as QueueItemId,
   videoId: 'ownTableA01',
@@ -251,8 +253,37 @@ async function runRow(row: TableRow) {
   }
   await started.advanceTo(row.endAt);
   started.dispose();
-  return { samples: started.samples, aux: started.aux, beat: started.beat };
+  return {
+    samples: started.samples,
+    aux: started.aux,
+    beat: started.beat,
+    /** Periodic host heartbeats, '<ms> state <state> at <canonical time>'. */
+    heartbeats: current.sent
+      .filter(({ type, frame }) => type === MSG.YOUTUBE_SYNC && frame.isManual === false)
+      .map(({ at, frame }) => `${at} state ${String(frame.state)} at ${String(frame.time)}`),
+    /** Frames to the late joiner, '<ms> <type>'. */
+    newcomer: current.sent
+      .filter(({ to }) => to === NEWCOMER_PEER_ID)
+      .map(({ at, type }) => `${at} ${type}`),
+  };
 }
+
+/** A newcomer outside the frozen cohort connects at +500 ms. */
+const NEWCOMER_CONNECTS: TableStep = {
+  at: 500,
+  label: 'connect',
+  run: (current) => {
+    const newcomer = syntheticConnection(NEWCOMER_PEER_ID);
+    setState(
+      'network.activeHostConnByPeerId',
+      new Map([
+        [current.remotePeerId, current.conn],
+        [NEWCOMER_PEER_ID, newcomer],
+      ]),
+    );
+    bus.emit('network:peer-connected', newcomer);
+  },
+};
 
 // ─── Expected lines (today's values) ───────────────────────────────
 
@@ -550,18 +581,129 @@ const G13_SAMPLES = [
   ...GUEST_LEGACY_STAGE_2_SAMPLES,
 ];
 
+// Wire effects on an App host (sampler 'aux' and 'beat' lines).
+
+/**
+ * The run consumes its warm-up states; the protocol query holds the release
+ * PLAYING's auxiliary state. The +3000 heartbeat lands in the calibration window.
+ */
+const HOST_ALL_READY_AUX = [
+  '100 notify:1 warming held',
+  '360 notify:2 warming held',
+  '1422 notify:1 starting held',
+];
+const HOST_ALL_READY_BEAT = [
+  '3000 beat playing held',
+  '6000 beat idle sent',
+  '9000 beat idle sent',
+];
+const H2_AUX = [
+  '100 notify:1 warming held',
+  '360 notify:2 warming held',
+  // The settle seek's synchronous BUFFERING and PAUSED, consumed by the run.
+  '440 notify:3 settling held',
+  '440 notify:2 settling held',
+  '1422 notify:1 starting held',
+];
+const H3_AUX = [
+  '430 notify:2 muting held',
+  // The recovery owns its reload's pause.
+  '431 notify:2 idle held',
+  // The recovery release's own PLAYING leaves before Stage 1 (as in H9).
+  '481 notify:1 idle sent',
+];
+/** The Stage 2 wait holds +3000. */
+const H3_BEAT = ['3000 beat idle held', '6000 beat idle sent', '9000 beat idle sent'];
+const H4_AUX = [
+  '100 notify:1 warming held',
+  '360 notify:2 warming held',
+  '1560 notify:2 restoring-audio held',
+  // The legacy recovery owns its pauses, then the timed-out restore attempts'.
+  '1561 notify:2 idle held',
+  '4561 notify:2 idle held',
+  '4681 notify:2 idle held',
+  '4801 notify:2 idle held',
+  '4921 notify:2 idle held',
+  '5041 notify:2 idle held',
+  '5161 notify:2 idle held',
+  '5281 notify:2 idle held',
+  '5401 notify:2 idle held',
+];
+const H5_AUX = [
+  '100 notify:1 warming held',
+  '360 notify:2 warming held',
+  // The cancel's own pause arrives while the run is still set.
+  '400 notify:2 settling held',
+  '1901 notify:2 idle held',
+  // The replacement recovery's release PLAYING leaves before Stage 1 (as in H9).
+  '1951 notify:1 idle sent',
+];
+/** Stage 2 at +5951 holds +6000 through the 500 ms manual-broadcast dedupe, another owner. */
+const H5_BEAT = ['3000 beat idle held', '6000 beat idle held', '9000 beat idle sent'];
+/** The legacy playVideo's own PLAYING leaves before Stage 1 (as in H9). */
+const H6_AUX = ['100 notify:1 idle sent'];
+const ALL_BEATS_SENT = ['3000 beat idle sent', '6000 beat idle sent', '9000 beat idle sent'];
+const H7_AUX = [
+  // The hold returns before the auxiliary broadcast; then the Stage 2 wait holds it.
+  '100 notify:2 idle held',
+  '5100 notify:1 idle held',
+];
+const H7_BEAT = ['3000 beat idle held', '6000 beat idle held', '9000 beat idle sent'];
+const H8_AUX = [
+  '100 notify:1 warming held',
+  '360 notify:2 warming held',
+  '6422 notify:1 starting held',
+];
+const H8_BEAT = ['3000 beat scheduled held', '6000 beat scheduled held', '9000 beat playing held'];
+const H9_AUX = [
+  '100 notify:1 warming held',
+  // The cancel's own pause, consumed by the run.
+  '200 notify:2 warming held',
+  // Looks like a defect: the legacy playVideo's own PLAYING (player.ts
+  // scheduleYtAutoSync) broadcasts an auxiliary youtube-state before Stage 1,
+  // because 'yt-auto-sync', which holds those, is armed only after Stage 1.
+  // H3, H5 and H6 show the same.
+  '200 notify:1 idle sent',
+];
+// Looks like a defect, a different one: the pause path broadcasts its formal
+// PAUSED first; the iframe's own PAUSED follows and is not deduped, because
+// markYtStateBroadcast() stamps only the time while the 300 ms dedupe also
+// compares the last auxiliary state. Every Standard host pause sends this pair,
+// inside a start or not, unless that last auxiliary state was a PAUSED too.
+const H10_AUX = [
+  '100 notify:1 warming held',
+  '200 notify:2 warming held',
+  '200 notify:2 idle sent',
+];
+/** Teardown leaves YouTube mode first, and stops the heartbeat. */
+const H11_AUX = [
+  '100 notify:1 warming held',
+  '150 notify:2 warming held',
+  '150 notify:2 idle held',
+  '150 notify:0 idle held',
+];
+
 describe('start-ownership table: Standard host (pinned 2026-11-01)', () => {
   it('H1 all-ready zero-start', async () => {
-    expect((await runRow(HOST_ALL_READY)).samples).toEqual(HOST_ALL_READY_SAMPLES);
+    const result = await runRow(HOST_ALL_READY);
+    expect(result.samples).toEqual(HOST_ALL_READY_SAMPLES);
+    expect(result.aux).toEqual(HOST_ALL_READY_AUX);
+    expect(result.beat).toEqual(HOST_ALL_READY_BEAT);
   });
 
   it('H2 all-ready zero-start with a synchronous BUFFERING then PAUSED inside every seek', async () => {
     const row = { ...HOST_ALL_READY, rig: { iframeInit: { __seekStateSequence: [3, 2] } } };
-    expect((await runRow(row)).samples).toEqual(HOST_ALL_READY_SAMPLES);
+    const result = await runRow(row);
+    expect(result.samples).toEqual(HOST_ALL_READY_SAMPLES);
+    expect(result.aux).toEqual(H2_AUX);
+    expect(result.beat).toEqual(HOST_ALL_READY_BEAT);
   });
 
   it('H3 prepare failure, then the host legacy recovery', async () => {
-    expect((await runRow(HOST_PREPARE_FAILURE)).samples).toEqual(H3_SAMPLES);
+    const result = await runRow(HOST_PREPARE_FAILURE);
+    expect(result.samples).toEqual(H3_SAMPLES);
+    expect(result.aux).toEqual(H3_AUX);
+    expect(result.beat).toEqual(H3_BEAT);
   });
 
   it('H4 audio restore timeout, then a legacy recovery that times out', async () => {
@@ -570,21 +712,35 @@ describe('start-ownership table: Standard host (pinned 2026-11-01)', () => {
       rig: { iframeInit: { __unMuteIgnoreCount: 1_000 } },
       endAt: 6_000,
     };
-    expect((await runRow(row)).samples).toEqual(H4_SAMPLES);
+    const result = await runRow(row);
+    expect(result.samples).toEqual(H4_SAMPLES);
+    expect(result.aux).toEqual(H4_AUX);
+    expect(result.beat).toEqual(['3000 beat idle held', '6000 beat idle sent']);
+    // Looks like a defect: with the host shown playing, its first heartbeat
+    // after the timeout reports the room paused at 0:00.
+    expect(result.heartbeats).toEqual(['6000 state 2 at 0']);
   });
 
   it('H5 peer connection replaced mid-warm-up, then the replacement recovery', async () => {
-    const row = fromScenario(SCENARIOS.hostPeerReplaced, ['play', 'replace']);
-    expect((await runRow(row)).samples).toEqual(H5_SAMPLES);
+    const result = await runRow(fromScenario(SCENARIOS.hostPeerReplaced, ['play', 'replace']));
+    expect(result.samples).toEqual(H5_SAMPLES);
+    expect(result.aux).toEqual(H5_AUX);
+    expect(result.beat).toEqual(H5_BEAT);
   });
 
   it('H6 legacy two-stage rendezvous', async () => {
-    expect((await runRow(HOST_LEGACY)).samples).toEqual(H6_SAMPLES);
+    const result = await runRow(HOST_LEGACY);
+    expect(result.samples).toEqual(H6_SAMPLES);
+    expect(result.aux).toEqual(H6_AUX);
+    expect(result.beat).toEqual(ALL_BEATS_SENT);
   });
 
   it('H7 legacy rendezvous at a -5 s offset', async () => {
     const row = { ...HOST_LEGACY, rig: { remoteGuestAdvertises: false, localOffsetSeconds: -5 } };
-    expect((await runRow(row)).samples).toEqual(H7_SAMPLES);
+    const result = await runRow(row);
+    expect(result.samples).toEqual(H7_SAMPLES);
+    expect(result.aux).toEqual(H7_AUX);
+    expect(result.beat).toEqual(H7_BEAT);
   });
 
   it('H8 zero-start at a -5 s offset', async () => {
@@ -594,7 +750,10 @@ describe('start-ownership table: Standard host (pinned 2026-11-01)', () => {
       steps: [HOST_PLAYS],
       endAt: 11_000,
     };
-    expect((await runRow(row)).samples).toEqual(H8_SAMPLES);
+    const result = await runRow(row);
+    expect(result.samples).toEqual(H8_SAMPLES);
+    expect(result.aux).toEqual(H8_AUX);
+    expect(result.beat).toEqual(H8_BEAT);
   });
 
   it('H9 host seek mid-warm-up', async () => {
@@ -603,7 +762,10 @@ describe('start-ownership table: Standard host (pinned 2026-11-01)', () => {
       label: 'seek',
       run: () => bus.emit('youtube:seek-to', 42),
     });
-    expect((await runRow(row)).samples).toEqual(H9_SAMPLES);
+    const result = await runRow(row);
+    expect(result.samples).toEqual(H9_SAMPLES);
+    expect(result.aux).toEqual(H9_AUX);
+    expect(result.beat).toEqual(ALL_BEATS_SENT);
   });
 
   it('H10 host pause mid-warm-up', async () => {
@@ -612,7 +774,10 @@ describe('start-ownership table: Standard host (pinned 2026-11-01)', () => {
       label: 'pause',
       run: () => bus.emit('youtube:toggle-play'),
     });
-    expect((await runRow(row)).samples).toEqual(H10_SAMPLES);
+    const result = await runRow(row);
+    expect(result.samples).toEqual(H10_SAMPLES);
+    expect(result.aux).toEqual(H10_AUX);
+    expect(result.beat).toEqual(ALL_BEATS_SENT);
   });
 
   it('H11 stopYouTubeMode mid-warm-up', async () => {
@@ -620,7 +785,96 @@ describe('start-ownership table: Standard host (pinned 2026-11-01)', () => {
       ...withStep(HOST_ALL_READY, { at: 150, label: 'stop', run: () => stopYouTubeMode() }),
       endAt: 3_000,
     };
-    expect((await runRow(row)).samples).toEqual(H11_SAMPLES);
+    const result = await runRow(row);
+    expect(result.samples).toEqual(H11_SAMPLES);
+    expect(result.aux).toEqual(H11_AUX);
+    expect(result.beat).toEqual(['3000 beat idle held']);
+  });
+});
+
+describe('start-ownership table: Standard late joiner (pinned 2026-11-01)', () => {
+  it('H12 defers a newcomer outside the frozen cohort until the zero-start owner clears', async () => {
+    const result = await runRow(withStep(HOST_ALL_READY, NEWCOMER_CONNECTS));
+    // The newcomer changes no column and no wire effect of H1.
+    expect(result.samples).toEqual(HOST_ALL_READY_SAMPLES);
+    expect(result.aux).toEqual(HOST_ALL_READY_AUX);
+    expect(result.beat).toEqual(HOST_ALL_READY_BEAT);
+    // Re-checked every 100 ms: the first check after the owner clears (+4172).
+    expect(result.newcomer).toEqual([
+      '4200 youtube-play',
+      '4200 youtube-state',
+      '6200 youtube-sync',
+    ]);
+  });
+
+  it('H12 bootstraps the same newcomer at once during the legacy rendezvous', async () => {
+    const result = await runRow(withStep(HOST_LEGACY, NEWCOMER_CONNECTS));
+    expect(result.samples).toEqual(H6_SAMPLES);
+    expect(result.aux).toEqual(H6_AUX);
+    expect(result.beat).toEqual(ALL_BEATS_SENT);
+    expect(result.newcomer).toEqual(['500 youtube-play', '500 youtube-state', '2500 youtube-sync']);
+  });
+});
+
+describe('start-ownership table: Standard heartbeat landing (pinned 2026-11-01)', () => {
+  /** Play at `at` instead of +100; the run ends at the +3000 heartbeat. */
+  const playAt = (row: TableRow, at: number): TableRow => ({
+    ...row,
+    steps: [{ ...HOST_PLAYS, at }],
+    endAt: 3_000,
+  });
+
+  // Each play instant puts +3000 inside one phase of the H1 run (offsets from
+  // the play: warming +0, settling +260, restoring-audio +500, scheduled
+  // +622, playing +1322 to +4072), the host recovery (H3: +330 to +381) or
+  // the legacy Stage 2 wait (H6: 2 s).
+  it.each([
+    [
+      'warming',
+      playAt(HOST_ALL_READY, 2_850),
+      '3000 beat warming held',
+      '2850 ready@timer warming owned inFlight protocol guestPending auxHeld beatHeld unMuteHeld playing',
+    ],
+    [
+      'settling',
+      playAt(HOST_ALL_READY, 2_600),
+      '3000 beat settling held',
+      '2860 ready@timer settling owned inFlight protocol guestPending auxHeld beatHeld unMuteHeld playing',
+    ],
+    [
+      'restoring-audio',
+      playAt(HOST_ALL_READY, 2_440),
+      '3000 beat restoring-audio held',
+      '2940 ready@timer restoring-audio owned inFlight protocol guestPending auxHeld beatHeld playing',
+    ],
+    [
+      'scheduled',
+      playAt(HOST_ALL_READY, 2_000),
+      '3000 beat scheduled held',
+      '2622 ready@timer scheduled owned inFlight protocol guestPending auxHeld beatHeld playing',
+    ],
+    [
+      'playing',
+      playAt(HOST_ALL_READY, 100),
+      '3000 beat playing held',
+      '1422 ready@notify:1 playing owned protocol guestPending auxHeld beatHeld playing',
+    ],
+    [
+      'the host legacy recovery',
+      playAt(HOST_PREPARE_FAILURE, 2_650),
+      '3000 beat idle held',
+      '2980 ready@timer idle owned fallback fallbackPending guestPending beatHeld unMuteHeld playing',
+    ],
+    [
+      'the legacy Stage 2 wait',
+      playAt(HOST_LEGACY, 2_000),
+      '3000 beat idle held',
+      '2000 step:play idle autoSync auxHeld beatHeld playing',
+    ],
+  ] as const)('holds the +3000 heartbeat in %s', async (_window, row, beat, lastSample) => {
+    const result = await runRow(row);
+    expect(result.beat).toEqual([beat]);
+    expect(result.samples.at(-1)).toBe(lastSample);
   });
 });
 

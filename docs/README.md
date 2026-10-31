@@ -134,9 +134,10 @@ runbooks. Neither belongs in a general setup document.
   owner delegated releases before going to sleep and confirmed the delegation in the morning, and
   saw pictures of the built playlist beside the approved mockups before the merge; the owner was
   away after the release, so the blind post-deploy checks (the 9.0.27 five-share check first, on
-  9.0.28), the owner device checks of the playlist, the full E2E run for the chat Tab cycle item
-  and the R4 late check have not run, and the four owner questions have no answer yet. The release
-  record's §2 carries the train as post-deploy items (scope and status, the held SFU fallback
+  9.0.28), the owner device checks of the playlist and the R4 late check have not run, and the
+  four owner questions have no answer yet. The full E2E run that closes the chat Tab cycle item
+  needs no owner device (the next weekly run or a manual dispatch) and has not run either. The
+  release record's §2 carries the train as post-deploy items (scope and status, the held SFU fallback
   moved from the 9.0.27 section, the post-deploy check and the open owner questions, with the
   playlist follow-up updated in place), its §4 the 9.0.28 entry and current boundary line (5), and
   the hotfix procedure's 9.0.25 bullet names 9.0.28's merge SHA, Release ID and App version. The

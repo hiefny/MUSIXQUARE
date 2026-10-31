@@ -219,6 +219,6 @@ forks.
 - **PeerJS**: MIT License (see [THIRD-PARTY-NOTICES.md](./THIRD-PARTY-NOTICES.md))
 - **qrcode & content-shield**: MIT License (see [THIRD-PARTY-NOTICES.md](./THIRD-PARTY-NOTICES.md))
 - **Google Material Icons**: Apache License 2.0 (see [distributed license](./public/licenses/material-icons-apache-2.0.txt))
-- **Pretendard Font**: SIL Open Font License 1.1 (see [PRETENDARD_LICENSE.txt](./fonts/PRETENDARD_LICENSE.txt))
-- **Inter Font**: SIL Open Font License 1.1 (see [INTER_LICENSE.txt](./fonts/INTER_LICENSE.txt))
-- **Noto Sans Fonts**: SIL Open Font License 1.1 (see the [Latin/Cyrillic license](./fonts/NOTO_SANS_LICENSE.txt), [CJK license](./fonts/NOTO_CJK_LICENSE.txt), and [Thai license](./fonts/NOTO_THAI_LICENSE.txt))
+- **Inter Font** (the app's Latin, Cyrillic and Greek face): SIL Open Font License 1.1 (see [INTER_LICENSE.txt](./fonts/INTER_LICENSE.txt))
+- **Noto Sans Fonts**: SIL Open Font License 1.1 (see the [Latin/Cyrillic license](./fonts/NOTO_SANS_LICENSE.txt), [CJK license](./fonts/NOTO_CJK_LICENSE.txt), and [Thai license](./fonts/NOTO_THAI_LICENSE.txt)). The Noto Sans KR files are Google Fonts' shards re-encoded without the Korean `locl` lookup; [fonts/README.md](./fonts/README.md) records their sources and hashes
+- **Pretendard Font** (the public pages and share images, not the app): SIL Open Font License 1.1 (see [PRETENDARD_LICENSE.txt](./fonts/PRETENDARD_LICENSE.txt))

@@ -93,6 +93,31 @@ runbooks. Neither belongs in a general setup document.
 
 ## Maintained evidence and completed records
 
+- [App font switch to Inter and Noto, owner decisions (2026-10-31)](design/app-font-inter-noto-2026-10-31.md):
+  implemented and checked locally on the branch `agent/font-switch` over main `aa7baad5` (9.0.28 /
+  v801), not merged, released or bumped; target `app` (App runtime paths only, no other Worker, no
+  runtime dependency change) with the update dialog once the release owner adds the next 9.0.x and
+  service-worker epoch, after the owner has seen the final pictures. The app draws with self-hosted
+  Inter 4 (Latin, Cyrillic, Greek) and Noto (Noto Sans KR v40 shards re-encoded without the Korean
+  `locl`, Noto Sans JP, SC, TC, Thai, Arabic, Hebrew and Indic), so the Korean and English UIs draw
+  the same content with the same faces, widths and pixels. One startup Han order from the
+  browser's languages for every UI except Japanese and Chinese; detected Japanese and Chinese text
+  keeps its own order; CJK `size-adjust` 94% and the line-box overrides from one metrics home with
+  a parity test; Inter's contextual alternates on; no title tracking token; file titles shown NFC.
+  `src/i18n/locale-fonts.ts` is the only font owner (phases A, B and the idle prefetch C, bounded
+  retries), and the Pretendard runtime, the bootstrap font scheduler and the service worker's font
+  group are gone, so no resource-ownership record is needed; About and the sitemap page keep their
+  original sheets, and Pretendard stays deployed for the public pages. The report lists the
+  owner's ten decisions, the departures from the design (separate app sheets, CJK faces cut by
+  their own cmap, the prefetch reading face status because Chromium's `FontFaceSet.check()`
+  answered true for unloaded shards), every visible change for the owner's pictures, the
+  measurements (eager total 530.9 KiB gzip against 9.0.28's 533.1, eager fonts 0; English start screen
+  72,920 B in one file, Korean 249,040 B in 12 files plus 9 prefetched shards), the tests-first
+  commit pairs, four local QA rounds with their SHAs, the risks, the device checks still needed
+  (iPhone Safari line height, iOS 16 and 17, Android, the webOS TV) and six owner questions.
+  The font guard now checks self-hosted faces and coverage in every text stack, the initial
+  transfer budget counts fonts that eager stylesheets declare, and `e2e/font-identity.test.ts`
+  (local) compares the two UIs pixel for pixel.
 - [App 9.0.28 train: the PRO SFU fallback prepared beside the LAN-direct attempt with media held, and the playlist current-row icons and PRO upload row numbers (2026-10-31)](design/app-9-0-28-train-2026-10-31.md):
   released on 2026-10-31 11:29 KST in Release 41160043955 (PR #545, squash `aa7baad5`): the next
   App update after 9.0.27 (9.0.28 / v801, App build 801, update dialog; the version bump `f3a9fcbc`

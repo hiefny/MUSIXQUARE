@@ -1198,13 +1198,13 @@ P0/P1/P2는 **QA 실행 순서**다. 발견된 결함의 심각도나 배포 승
 
 ### QA107. RTL·혼합 문자·폰트·긴 번역 레이아웃 — P1
 
-**판정:** Arabic·Hebrew·Latin 혼합 이름, 숫자·시간·Unicode·emoji·긴 문구에서 bidi 격리와 제어 방향을 보존한다. 폰트 차단·late load 상황에서도 읽고 조작할 수 있다.
+**판정:** Arabic·Hebrew·Latin 혼합 이름, 숫자·시간·Unicode·emoji·긴 문구에서 bidi 격리와 제어 방향을 보존한다. 폰트 차단·late load 상황에서도 읽고 조작할 수 있다. 같은 내용(트랙 제목, 채팅, 이름)은 한국어 화면과 영어 화면에서 같은 자체 호스팅 글꼴, 같은 폭, 같은 픽셀로 그린다(오너 결정 2026-10-31, [앱 글꼴 Inter·Noto 전환](design/app-font-inter-noto-2026-10-31.md)).
 
 **방법:** 자동 / 브라우저 / 실기
 
-**대표 구현:** [src/i18n/locale-fonts.ts](../src/i18n/locale-fonts.ts), [src/ui/user-text-font.ts](../src/ui/user-text-font.ts)
+**대표 구현:** [src/i18n/locale-fonts.ts](../src/i18n/locale-fonts.ts), [src/i18n/app-font-contract.ts](../src/i18n/app-font-contract.ts), [src/i18n/startup-han-order.ts](../src/i18n/startup-han-order.ts), [src/ui/user-text-font.ts](../src/ui/user-text-font.ts), [css/fonts/app/](../css/fonts/app/), [fonts/README.md](../fonts/README.md)
 
-**기존 검사 진입점:** [e2e/rtl-player-layout.test.ts](../e2e/rtl-player-layout.test.ts), [e2e/rtl-settings-layout.test.ts](../e2e/rtl-settings-layout.test.ts)
+**기존 검사 진입점:** [e2e/rtl-player-layout.test.ts](../e2e/rtl-player-layout.test.ts), [e2e/rtl-settings-layout.test.ts](../e2e/rtl-settings-layout.test.ts), [e2e/font-identity.test.ts](../e2e/font-identity.test.ts), [src/i18n/__tests__/font-stack-identity.test.ts](../src/i18n/__tests__/font-stack-identity.test.ts), [src/i18n/__tests__/locale-fonts.test.ts](../src/i18n/__tests__/locale-fonts.test.ts), [scripts/check-app-font.mts](../scripts/check-app-font.mts)
 
 ## 25. 번역 기여·검토·내보내기
 

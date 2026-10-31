@@ -13,6 +13,7 @@ export interface PendingAutoSyncOptions {
 interface YouTubePlayerRuntimeHooks {
   cancelPendingAutoSync(): void;
   consumePendingAutoSyncOnReady(): PendingAutoSyncOptions | null;
+  isYouTubeAutoSyncPending(): boolean;
   isYouTubeZeroStartExternalFallbackActive(): boolean;
   isYouTubeZeroStartExternalFallbackPending(): boolean;
   isProPlaybackPauseGatePending(): boolean;
@@ -22,6 +23,7 @@ interface YouTubePlayerRuntimeHooks {
 const unavailableHooks: YouTubePlayerRuntimeHooks = {
   cancelPendingAutoSync: () => undefined,
   consumePendingAutoSyncOnReady: () => null,
+  isYouTubeAutoSyncPending: () => false,
   isYouTubeZeroStartExternalFallbackActive: () => false,
   isYouTubeZeroStartExternalFallbackPending: () => false,
   isProPlaybackPauseGatePending: () => false,
@@ -54,6 +56,15 @@ export function isYouTubeZeroStartExternalFallbackActiveFromIframe(): boolean {
 /** Includes the release acknowledgement after ordinary iframe events resume. */
 export function isYouTubeZeroStartExternalFallbackPendingFromSync(): boolean {
   return runtimeHooks.isYouTubeZeroStartExternalFallbackPending();
+}
+
+/**
+ * The legacy rendezvous owns its stage-2 wait ('yt-auto-sync', set by
+ * player.ts's scheduleYtAutoSync). Other modules ask its owner rather than
+ * reading the timer by name.
+ */
+export function isYouTubeAutoSyncPending(): boolean {
+  return runtimeHooks.isYouTubeAutoSyncPending();
 }
 
 /** A participant-local PRO pause keeps iframe audio closed until it settles. */

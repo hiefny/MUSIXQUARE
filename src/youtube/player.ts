@@ -4774,6 +4774,7 @@ export function initYouTube(): void {
 configureYouTubePlayerRuntimeHooks({
   cancelPendingAutoSync: cancelYtAutoSync,
   consumePendingAutoSyncOnReady: consumePendingAutoSyncOnReadyOwned,
+  isYouTubeAutoSyncPending: () => getManagedTimer('yt-auto-sync') !== null,
   isYouTubeZeroStartExternalFallbackActive: isYouTubeZeroStartExternalFallbackActiveOwned,
   isYouTubeZeroStartExternalFallbackPending: isYouTubeZeroStartExternalFallbackPendingOwned,
   isProPlaybackPauseGatePending: () => _proPlaybackPauseGateToken !== null,

@@ -107,6 +107,7 @@ import {
 import {
   consumePendingAutoSyncOnReadyFromIframe,
   isProPlaybackPauseGatePendingFromIframe,
+  isYouTubeAutoSyncPending,
   isYouTubeZeroStartExternalFallbackActiveFromIframe,
   setPendingAutoSyncOnReadyFromIframe,
 } from './player-runtime-bridge.ts';
@@ -3369,7 +3370,7 @@ function onYouTubePlayerStateChange(event: { data: number; target: YouTubePlayer
   // scheduleYtAutoSync already broadcasts the authoritative state+hostPlayAt
   // at the start of its sequence, so suppressing these in-flight auxiliary
   // broadcasts is safe.
-  const syncInFlight = isYouTubeZeroStartProtocolActive() || !!getManagedTimer('yt-auto-sync');
+  const syncInFlight = isYouTubeZeroStartProtocolActive() || isYouTubeAutoSyncPending();
   const coordinatorNudgeInFlight = !!getManagedTimer(PRO_COORDINATOR_YOUTUBE_NUDGE_TIMER);
   // State-aware cooldown: only suppress if same state was broadcast within 300ms.
   // Deduplicate by state as well as time. A time-only cooldown would swallow a
@@ -3757,7 +3758,7 @@ function updateYouTubeUI(): void {
       // WITHOUT firing an ENDED event, so our ENDED → playlist:next-track
       // path never runs and guests diverge until drift correction catches up.
       // Detect the transition here and start the track-transition rendezvous.
-      if (!hostConn && prevIdx !== -1 && playlistIdx >= 0 && !getManagedTimer('yt-auto-sync')) {
+      if (!hostConn && prevIdx !== -1 && playlistIdx >= 0 && !isYouTubeAutoSyncPending()) {
         setYouTubeSubIndex(playlistIdx);
         log.debug(
           `[YouTube] Sub-video auto-advance detected: ${prevIdx} → ${playlistIdx} (state=${state}), applying 1-sec sync`,

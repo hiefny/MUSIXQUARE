@@ -792,13 +792,16 @@ const IFRAME_AUDIO_WRITE_BASELINE: Baseline = new Map<string, Allowance>([
 // ── CHECK 12 baselines: cross-file YouTube start-timer reads and clears ──
 // Measured on main 23f29283 (App 9.0.27) on 2026-10-31, Phase 6 T1: the same
 // 14 reads and 10 clears the 2026-10-30 Phase 6 plan counted by hand. Phase 6
-// replaces the reads of the legacy rendezvous and sync.ts timers with owner
-// queries; the PRO coordinator nudge reads stay, because the manual-offset
-// transaction (RO-13) is owner-in-place. On that tree every timer call in
-// src/youtube/ resolves its name (the five templates name per-peer timers that
-// cannot spell a start timer), no file renames or passes on a timer function,
-// and each start timer is set only by its listed files, so the fail-closed
-// findings have no allowance.
+// 6A-1 replaced the reads of the legacy rendezvous and sync.ts timers with
+// owner queries, which each owner answers from its own timers (11 reads): the
+// player runtime bridge's isYouTubeAutoSyncPending, which player.ts answers,
+// and the query sync.ts registers with the native-control authority. The PRO
+// coordinator nudge reads stay, because the manual-offset transaction (RO-13)
+// is owner-in-place. On both trees every timer call in src/youtube/ resolves
+// its name (the five templates name per-peer timers that cannot spell a start
+// timer), no file renames or passes on a timer function, and each start timer
+// is set only by its listed files, so the fail-closed findings have no
+// allowance.
 
 const START_TIMER_SCOPE = 'src/youtube/';
 const TIMER_SET_CALL = 'setManagedTimer';
@@ -851,11 +854,11 @@ const START_TIMER_READ_BASELINE: Baseline = new Map<string, Allowance>([
   [
     'src/youtube/iframe.ts',
     {
-      count: 3,
+      count: 1,
       reason:
-        "'yt-auto-sync' in onYouTubePlayerStateChange (the host's auxiliary YOUTUBE_STATE " +
-        "hold) and updateYouTubeUI (the host's sub-video advance check), owner queries in " +
-        'Phase 6; the PRO coordinator nudge in onYouTubePlayerStateChange (stays)',
+        'the PRO coordinator nudge in onYouTubePlayerStateChange (stays); the auxiliary ' +
+        "YOUTUBE_STATE hold and the sub-video advance check ask the 'yt-auto-sync' owner " +
+        'query since Phase 6 6A-1',
     },
   ],
   [
@@ -873,8 +876,9 @@ const START_TIMER_READ_BASELINE: Baseline = new Map<string, Allowance>([
     {
       count: 1,
       reason:
-        "hasProtectedTransitionOwner: one list of seven names (the nudge, 'yt-auto-sync', both " +
-        'state actions and the three rendezvous stages); owner queries in Phase 6',
+        'the PRO coordinator nudge in hasProtectedTransitionOwner (stays, RO-13 is ' +
+        "owner-in-place); 'yt-auto-sync' and sync.ts's state actions and rendezvous stages " +
+        'answer through owner queries since Phase 6 6A-1',
     },
   ],
   [
@@ -890,11 +894,11 @@ const START_TIMER_READ_BASELINE: Baseline = new Map<string, Allowance>([
   [
     'src/youtube/sync.ts',
     {
-      count: 4,
+      count: 3,
       reason:
         'the PRO coordinator nudge in reconcileCanonicalManualOffsetEndpoint and twice in ' +
-        "broadcastYouTubeSync (stays); 'yt-auto-sync' in broadcastYouTubeSync (the " +
-        'non-manual heartbeat hold, an owner query in Phase 6)',
+        'broadcastYouTubeSync (stays); the non-manual heartbeat hold asks the ' +
+        "'yt-auto-sync' owner query since Phase 6 6A-1",
     },
   ],
 ]);

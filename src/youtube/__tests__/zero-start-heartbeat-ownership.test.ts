@@ -154,6 +154,7 @@ beforeEach(() => {
     },
     consumePendingAutoSyncOnReady: () => null,
     setPendingAutoSyncOnReady: () => undefined,
+    isYouTubeAutoSyncPending: () => false,
     isYouTubeZeroStartExternalFallbackActive: () => fallbackOwnsPlayer,
     isYouTubeZeroStartExternalFallbackPending: () => fallbackOwnsPlayer,
     isProPlaybackPauseGatePending: () => false,

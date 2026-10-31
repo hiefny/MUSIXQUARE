@@ -285,9 +285,15 @@ RO-53 owner-in-place
 - **Allowed requesters:** the load entry (`tryBeginYouTubeZeroStart`); readers through
   `isYouTubeZeroStartSyncOwned`: `src/youtube/sync.ts`, `src/network/sync.ts`,
   `src/ui/manual-sync-overlay-runtime.ts`, `src/ui/player-controls.ts`,
-  `src/player/background-return-sync.ts`. `src/youtube/native-control-authority.ts` asks a
-  hand-kept timer-name list (`hasProtectedTransitionOwner`); Phase 6 replaces timer-name queries
-  with owner queries before any timer merge.
+  `src/player/background-return-sync.ts`. Since Phase 6 6A-1 other modules ask the start-timer
+  owners rather than read the timers by name: `sync.ts`'s heartbeat hold, `iframe.ts`'s auxiliary
+  `YOUTUBE_STATE` hold and sub-video advance check, and `src/youtube/native-control-authority.ts`
+  (`hasProtectedTransitionOwner`) ask `isYouTubeAutoSyncPending`
+  (`src/youtube/player-runtime-bridge.ts`), which `player.ts` answers from its own
+  `'yt-auto-sync'` timer; `hasProtectedTransitionOwner` also asks the query `sync.ts` registers
+  (`registerYouTubeNativeControlSyncOwnerQuery`), which `sync.ts` answers from its own
+  state-action and rendezvous-stage timers. Each owner reads its own timers today, so a later
+  timer merge changes only the owner's answer.
   - **Start timers and their setter files** (the guard's CHECK 12 map, `START_TIMER_SETTERS`):
     `'yt-auto-sync'`, `'yt-host-local-start'`, `'yt-zero-start-external-fallback'`,
     `'yt-zero-start-host-fallback'` and `'yt-zero-start-replacement-fallback'`, set in
@@ -302,10 +308,10 @@ RO-53 owner-in-place
     listed file that stops setting one. A change that sets a new start timer, renames or removes
     one, or moves its setter updates this list and the guard in the same change.
   - **Reads and clears from other files** (CHECK 12, per file in `src/youtube/`): on 2026-10-31
-    (`main` `23f29283`, App 9.0.27) 14 reads and 10 clears. Eleven of the read sites include the
-    nudge, whose name reads stay (RO-13 is owner-in-place). Phase 6 replaces the
-    `'yt-auto-sync'` reads in `sync.ts` and `iframe.ts` and the other six names in
-    `hasProtectedTransitionOwner`'s list with owner queries. The clears are `iframe.ts`'s
+    (`main` `23f29283`, App 9.0.27) 14 reads and 10 clears. Phase 6 6A-1 replaced the
+    `'yt-auto-sync'` reads in `sync.ts` and `iframe.ts` and the six names other than the nudge in
+    `hasProtectedTransitionOwner`'s list with the owner queries above. That leaves 11 reads, all
+    of the nudge, whose name reads stay (RO-13 is owner-in-place). The clears are `iframe.ts`'s
     `resetResidentYouTubeSync` (three), `player.ts`'s `'yt-clock-action'` and `'yt-seek-play'`
     clears in three places (six) and `sync.ts`'s nudge clear right after the owner's reset port
     (one). `leaveSession`'s nameless `clearAllManagedTimers` in `src/network/peer.ts` clears
@@ -3840,9 +3846,9 @@ and unrelated strings never count, and every baseline is an exact count or list 
     value use other than a query or clear handed to a name list's method
     (`TIMER FUNCTION ALIAS`); and a start timer set by a `src/youtube/` file other than its
     listed setters, or no longer set by one of them (`START TIMER SET`). On 2026-10-31 none of
-    these fires: all 210 timer calls in `src/youtube/` resolve (the five templates name per-peer
-    timers) and nothing renames or passes on the timer functions. `--report` lists every counted
-    call with its names and function.
+    these fires: all 210 timer calls in `src/youtube/` resolve (209 after Phase 6 6A-1; the five
+    templates name per-peer timers) and nothing renames or passes on the timer functions.
+    `--report` lists every counted call with its names and function.
 
 The requesters of `scheduleSessionReset` and `scheduleDocumentReload`, and each page navigation
 sink by function, are checked by `scripts/check-navigation-sinks.mts` (RO-23, Phase 2 C6-14).

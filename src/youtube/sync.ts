@@ -1,4 +1,7 @@
-import { setYouTubeNativeControlHostAdActive } from './native-control-authority.ts';
+import {
+  registerYouTubeNativeControlSyncOwnerQuery,
+  setYouTubeNativeControlHostAdActive,
+} from './native-control-authority.ts';
 /**
  * MUSIXQUARE — YouTube Sync
  *
@@ -106,6 +109,7 @@ import { isYouTubeZeroStartInFlight } from './zero-start.ts';
 import { isYouTubeZeroStartSyncOwned } from './zero-start-ownership.ts';
 import {
   cancelPendingYouTubeStartFromSync,
+  isYouTubeAutoSyncPending,
   isYouTubeZeroStartExternalFallbackPendingFromSync as isYouTubeZeroStartExternalFallbackPending,
 } from './player-runtime-bridge.ts';
 import {
@@ -406,7 +410,7 @@ export function broadcastYouTubeSync(isManual = false, stateOverride?: number): 
   // the slot has already been cleared, so the bypass is mostly insurance
   // for non-Stage-2 manual call sites (e.g. native auto-advance) that
   // happen to run while a prior yt-auto-sync window is still pending.
-  if (!isManual && getManagedTimer('yt-auto-sync')) return;
+  if (!isManual && isYouTubeAutoSyncPending()) return;
 
   try {
     const currentTime = player.getCurrentTime();
@@ -2798,3 +2802,20 @@ export function initYouTubeSync(): void {
 
   log.info('[YouTube Sync] Initialized');
 }
+
+// The guest timers the native-control authority counts as protected
+// transitions: both state actions and the three rendezvous stages, not the
+// follow-up realign. That authority cannot import this module, which imports
+// it, so this module answers for its own timers through the owner query it
+// registers there.
+const NATIVE_CONTROL_PROTECTED_TIMERS = [
+  'yt-clock-action',
+  'yt-seek-play',
+  'yt-rendezvous-buffer',
+  'yt-rendezvous-play',
+  'yt-rendezvous-calibrate',
+] as const;
+
+registerYouTubeNativeControlSyncOwnerQuery(() =>
+  NATIVE_CONTROL_PROTECTED_TIMERS.some((name) => getManagedTimer(name) !== null),
+);

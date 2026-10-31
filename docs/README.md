@@ -97,10 +97,12 @@ runbooks. Neither belongs in a general setup document.
   prepared, not released. The runtime increments of the first Phase 6 App update (owner answers of
   2026-10-30, all recommended: four App updates, each audio restore keeps its own rhythm, the
   deferred app part of Phase 0d rides in this train, a test that reproduces a defect pins today's
-  behaviour) on branch `agent/p6-6a`, 21 commits plus three record commits (24 in all) on main
-  `599465dd` (the Phase 6 T1 guards and the YouTube test-order fix after the 9.0.27 release); the
-  version bump, the release record's entry for the train, the registry's release-batching sentence
-  and the release are left to the release owner.
+  behaviour) on branch `agent/p6-6a`, 21 commits plus three record commits (24 in all), built on
+  main `599465dd` and moved with every patch unchanged onto main `9e68a7a3` (after the 9.0.28
+  release, its record and the remaining test-order fix), then two record commits for the move and
+  the release record's pre-deploy entry. The version bump (the next App patch), the remaining
+  record edits, the registry's release-batching sentence and the release are left to the release
+  owner; the owner chooses when (only while awake) and the order against the app font update.
   6A-1 replaces the cross-file reads of the start timers' names with owner queries
   (`isYouTubeAutoSyncPending` through the player runtime bridge, and a query `sync.ts` registers
   with the native-control authority; the PRO coordinator nudge is still read by name). 6A-2 drops
@@ -118,7 +120,8 @@ runbooks. Neither belongs in a general setup document.
   bump. 6A-3's object-shaped homes took the eager JavaScript 237 B gzip over the base, past the
   Phase 6 cap of +200 B, so a size follow-up (the report's recommended answer to its owner question)
   makes each start timing its own named export, with the same values and readers: the eager
-  JavaScript is now 149 B gzip below the base (eager total 152 B). The plan's shared player-state
+  JavaScript is now 149 B gzip below the base (eager total 152 B; 114 B for both against
+  `9e68a7a3` after the move). The plan's shared player-state
   names stay out of this branch, as recommended, for a later train. After the follow-up's review,
   CHECK 5 again catches a re-typed timing object beside the scalar home and checks each of its
   values by name whatever the suffix (guard only, no baseline change). It lists the QA rounds (unit
@@ -127,8 +130,10 @@ runbooks. Neither belongs in a general setup document.
   Worker coverage, every guard, and local Playwright: critical 100 / 100 and the eight YouTube
   specs 41 / 41; for the follow-up, `src/youtube` 1,907 / 1,907 in file order and under the same
   four seeds, the guards, types, lint and format; for its review, the guard suite 72 / 72, of which
-  2 fail on the parent guard), mixed versions, the rollback (alone only until 6B merges, then a
-  forward revert) and a blind post-deploy check.
+  2 fail on the parent guard; after the move, every tests-first pair fails the same rows by name on
+  its new parent, `src/youtube` and `src/pro-room` pass in file order and under the four seeds, and
+  the T0a goldens pass), mixed versions, the rollback (alone only until 6B merges, then a forward
+  revert) and a blind post-deploy check.
 - [App font switch to Inter and Noto, owner decisions (2026-10-31)](design/app-font-inter-noto-2026-10-31.md):
   released on 2026-10-31 23:39 KST in Release 41210993444 (PR #548, squash `c4667abc`) as App
   9.0.29 / v802 (App build 802, target `app`: App runtime paths only, no other Worker, no runtime

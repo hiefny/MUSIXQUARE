@@ -6,10 +6,16 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { APP_FONT_SHEETS } from '../app-font-contract.ts';
 import {
+  FONT_PREFETCH_BATCH_FACES,
+  FONT_PREFETCH_IDLE_FALLBACK_MS,
+  FONT_PREFETCH_MAX_BYTES,
+  FONT_PREFETCH_MAX_FACES,
+  FONT_PREFETCH_QUIET_MS,
   FONT_SHEETS_IDLE_TIMEOUT_MS,
   FONT_SHEET_RETRY_DELAY_MS,
   FONT_SHEET_RETRY_LIMIT,
 } from '../font-loading-policy.ts';
+import { FONT_PREFETCH_BY_LANGUAGE } from '../font-prefetch-samples.ts';
 import type { LanguageCode } from '../locales.ts';
 
 /**
@@ -162,6 +168,8 @@ beforeEach(() => {
 });
 
 afterEach(() => {
+  // Every module instance stops its timers and idle callbacks first.
+  window.dispatchEvent(new Event('pagehide'));
   for (const [target, type, listener] of listeners.splice(0)) {
     target.removeEventListener(type, listener);
   }
@@ -174,7 +182,10 @@ afterEach(() => {
   Reflect.deleteProperty(navigator, 'languages');
   Reflect.deleteProperty(navigator, 'language');
   Reflect.deleteProperty(navigator, 'connection');
+  Reflect.deleteProperty(navigator, 'onLine');
   Reflect.deleteProperty(window, '__MUSIXQUARE_FONTS_SETTLED__');
+  Reflect.deleteProperty(globalThis, 'caches');
+  vi.doUnmock('../font-prefetch-samples.ts');
   document.documentElement.removeAttribute('data-mxqr-han-order');
 });
 
@@ -512,6 +523,294 @@ describe('sheet retries', () => {
     await runIdle();
 
     expect(sheets.requests.filter((id) => id === 'noto-arabic')).toHaveLength(2);
+  });
+});
+
+describe("phase C: idle prefetch of the UI language's frequent shards", () => {
+  interface FontSetStub {
+    readonly load: ReturnType<typeof vi.fn<(font: string, text?: string) => Promise<FontFace[]>>>;
+    readonly check: ReturnType<typeof vi.fn<(font: string, text?: string) => boolean>>;
+    /** Finish the oldest unfinished load. */
+    finish(): void;
+  }
+
+  function installFontSet(options: { settleAtOnce?: boolean } = {}): FontSetStub {
+    const unfinished: (() => void)[] = [];
+    const load = vi.fn<(font: string, text?: string) => Promise<FontFace[]>>(
+      () =>
+        new Promise<FontFace[]>((resolve) => {
+          if (options.settleAtOnce) resolve([{} as FontFace]);
+          else unfinished.push(() => resolve([{} as FontFace]));
+        }),
+    );
+    const check = vi.fn<(font: string, text?: string) => boolean>(() => false);
+    Object.defineProperty(document, 'fonts', { configurable: true, value: { load, check } });
+    return {
+      load,
+      check,
+      finish() {
+        unfinished.shift()?.();
+      },
+    };
+  }
+
+  const KO = FONT_PREFETCH_BY_LANGUAGE.ko!;
+  const JA = FONT_PREFETCH_BY_LANGUAGE.ja!;
+  const samplesOf = (shards: readonly { sample: string }[]) =>
+    shards.map(({ sample }) => sample).join('');
+
+  /** Phase A and B for a UI language, leaving phase C in its quiet period. */
+  async function throughPhaseB(code: LanguageCode) {
+    useFakeTimers();
+    const runtime = await freshRuntime();
+    await runtime.loadLanguageFonts(code);
+    await runIdle();
+    return runtime;
+  }
+
+  it('starts after the quiet period and loads one batch per idle slice, waiting for each', async () => {
+    const fonts = installFontSet();
+    await throughPhaseB('ko');
+
+    await vi.advanceTimersByTimeAsync(FONT_PREFETCH_QUIET_MS - 1);
+    expect(pendingIdle()).toHaveLength(0);
+    await vi.advanceTimersByTimeAsync(1);
+    expect(pendingIdle()).toHaveLength(1);
+    // An idle slice without a timeout: the prefetch never forces its way in.
+    expect(pendingIdle()[0]?.options).toBeUndefined();
+
+    const batches: string[] = [];
+    for (let start = 0; start < KO.shards.length; start += FONT_PREFETCH_BATCH_FACES) {
+      await runIdle();
+      expect(fonts.load).toHaveBeenCalledTimes(batches.length + 1);
+      const [font, text] = fonts.load.mock.calls.at(-1) ?? [];
+      expect(font).toBe('400 16px "Noto Sans KR"');
+      batches.push(text ?? '');
+      expect(pendingIdle()).toHaveLength(0);
+      fonts.finish();
+      await settle();
+    }
+
+    expect(batches).toEqual(
+      Array.from({ length: Math.ceil(KO.shards.length / FONT_PREFETCH_BATCH_FACES) }, (_, index) =>
+        samplesOf(
+          KO.shards.slice(
+            index * FONT_PREFETCH_BATCH_FACES,
+            (index + 1) * FONT_PREFETCH_BATCH_FACES,
+          ),
+        ),
+      ),
+    );
+    expect(pendingIdle()).toHaveLength(0);
+    await vi.advanceTimersByTimeAsync(FONT_PREFETCH_QUIET_MS * 3);
+    expect(pendingIdle()).toHaveLength(0);
+    expect(fonts.load).toHaveBeenCalledTimes(batches.length);
+  });
+
+  it('skips faces the page already loaded', async () => {
+    const fonts = installFontSet({ settleAtOnce: true });
+    fonts.check.mockImplementation((_font, text) => text === KO.shards[0]?.sample);
+    await throughPhaseB('ko');
+    await vi.advanceTimersByTimeAsync(FONT_PREFETCH_QUIET_MS);
+
+    await runIdle();
+
+    expect(fonts.load.mock.calls[0]?.[1]).toBe(
+      samplesOf(KO.shards.slice(1, 1 + FONT_PREFETCH_BATCH_FACES)),
+    );
+  });
+
+  it.each([
+    ['face', 30, 1_000, FONT_PREFETCH_MAX_FACES],
+    ['byte', 30, 60_000, Math.floor(FONT_PREFETCH_MAX_BYTES / 60_000)],
+  ])('stops at the %s cap', async (_cap, count, bytes, expected) => {
+    vi.doMock('../font-prefetch-samples.ts', () => ({
+      FONT_PREFETCH_BY_LANGUAGE: {
+        ko: {
+          family: 'Noto Sans KR',
+          shards: Array.from({ length: count }, (_, index) => ({
+            shard: 119 - index,
+            sample: String.fromCodePoint(0xac00 + index),
+            bytes,
+          })),
+        },
+      },
+    }));
+    const fonts = installFontSet({ settleAtOnce: true });
+    await throughPhaseB('ko');
+    await vi.advanceTimersByTimeAsync(FONT_PREFETCH_QUIET_MS);
+
+    for (let slice = 0; slice < count; slice += 1) await runIdle();
+
+    const requested = fonts.load.mock.calls.flatMap(([, text]) => [...(text ?? '')]);
+    expect(requested).toHaveLength(expected);
+  });
+
+  it.each([
+    [
+      'data saver',
+      () =>
+        Object.defineProperty(navigator, 'connection', {
+          configurable: true,
+          value: { saveData: true },
+        }),
+    ],
+    [
+      'slow-2g',
+      () =>
+        Object.defineProperty(navigator, 'connection', {
+          configurable: true,
+          value: { effectiveType: 'slow-2g' },
+        }),
+    ],
+    [
+      '2g',
+      () =>
+        Object.defineProperty(navigator, 'connection', {
+          configurable: true,
+          value: { effectiveType: '2g' },
+        }),
+    ],
+    [
+      'offline',
+      () => Object.defineProperty(navigator, 'onLine', { configurable: true, value: false }),
+    ],
+  ])('skips the whole pass with %s', async (_condition, apply) => {
+    apply();
+    const fonts = installFontSet({ settleAtOnce: true });
+    await throughPhaseB('ko');
+    await vi.advanceTimersByTimeAsync(FONT_PREFETCH_QUIET_MS);
+    await runIdle();
+    await vi.advanceTimersByTimeAsync(FONT_PREFETCH_IDLE_FALLBACK_MS * 4);
+
+    expect(fonts.load).not.toHaveBeenCalled();
+  });
+
+  it('prefetches nothing for a UI without a list', async () => {
+    const fonts = installFontSet({ settleAtOnce: true });
+    await throughPhaseB('en');
+    await vi.advanceTimersByTimeAsync(FONT_PREFETCH_QUIET_MS * 2);
+
+    expect(pendingIdle()).toHaveLength(0);
+    expect(fonts.load).not.toHaveBeenCalled();
+  });
+
+  it('uses a timer chain where requestIdleCallback is missing', async () => {
+    removeIdleCallbacks();
+    const fonts = installFontSet({ settleAtOnce: true });
+    useFakeTimers();
+    const runtime = await freshRuntime();
+    await runtime.loadLanguageFonts('ko');
+    await vi.advanceTimersByTimeAsync(0);
+    await settle();
+    await vi.advanceTimersByTimeAsync(FONT_PREFETCH_QUIET_MS);
+    expect(fonts.load).not.toHaveBeenCalled();
+
+    await vi.advanceTimersByTimeAsync(FONT_PREFETCH_IDLE_FALLBACK_MS - 1);
+    expect(fonts.load).not.toHaveBeenCalled();
+    await vi.advanceTimersByTimeAsync(1);
+    expect(fonts.load).toHaveBeenCalledOnce();
+    await vi.advanceTimersByTimeAsync(FONT_PREFETCH_IDLE_FALLBACK_MS);
+    expect(fonts.load).toHaveBeenCalledTimes(2);
+  });
+
+  it('pauses while hidden and resumes with a fresh idle slice when visible', async () => {
+    const fonts = installFontSet();
+    await throughPhaseB('ko');
+    await vi.advanceTimersByTimeAsync(FONT_PREFETCH_QUIET_MS);
+    expect(pendingIdle()).toHaveLength(1);
+
+    setVisibility('hidden');
+    expect(pendingIdle()).toHaveLength(0);
+    setVisibility('visible');
+    expect(pendingIdle()).toHaveLength(1);
+
+    await runIdle();
+    setVisibility('hidden');
+    fonts.finish();
+    await settle();
+    expect(pendingIdle()).toHaveLength(0);
+    setVisibility('visible');
+    expect(pendingIdle()).toHaveLength(1);
+  });
+
+  it('starts a new list when the language changes, within the same page budget', async () => {
+    const fonts = installFontSet();
+    const runtime = await throughPhaseB('ko');
+    await vi.advanceTimersByTimeAsync(FONT_PREFETCH_QUIET_MS);
+    await runIdle();
+    expect(fonts.load.mock.calls[0]?.[0]).toBe('400 16px "Noto Sans KR"');
+
+    await runtime.loadLanguageFonts('ja');
+    fonts.finish();
+    await settle();
+    await runIdle();
+
+    expect(fonts.load.mock.calls[1]).toEqual([
+      '400 16px "Noto Sans JP"',
+      samplesOf(JA.shards.slice(0, FONT_PREFETCH_BATCH_FACES)),
+    ]);
+    // The page budget counts every prefetched face across languages.
+    for (let slice = 0; slice < 20; slice += 1) {
+      fonts.finish();
+      await settle();
+      await runIdle();
+    }
+    const requested = fonts.load.mock.calls.flatMap(([, text]) => [...(text ?? '')]);
+    expect(requested.length).toBeLessThanOrEqual(FONT_PREFETCH_MAX_FACES);
+  });
+
+  it('stops at pagehide and resumes from the back-forward cache', async () => {
+    const fonts = installFontSet({ settleAtOnce: true });
+    await throughPhaseB('ko');
+
+    window.dispatchEvent(new Event('pagehide'));
+    await vi.advanceTimersByTimeAsync(FONT_PREFETCH_QUIET_MS * 2);
+    expect(pendingIdle()).toHaveLength(0);
+
+    window.dispatchEvent(new PageTransitionEvent('pageshow', { persisted: true }));
+    await vi.advanceTimersByTimeAsync(FONT_PREFETCH_QUIET_MS);
+    expect(pendingIdle()).toHaveLength(1);
+    await runIdle();
+    expect(fonts.load).toHaveBeenCalledOnce();
+
+    window.dispatchEvent(new Event('pagehide'));
+    expect(pendingIdle()).toHaveLength(0);
+    window.dispatchEvent(new PageTransitionEvent('pageshow', { persisted: true }));
+    expect(pendingIdle()).toHaveLength(1);
+  });
+
+  it('runs one pass per page load', async () => {
+    const fonts = installFontSet({ settleAtOnce: true });
+    const runtime = await throughPhaseB('ko');
+    await vi.advanceTimersByTimeAsync(FONT_PREFETCH_QUIET_MS);
+    for (let slice = 0; slice < KO.shards.length; slice += 1) await runIdle();
+    const calls = fonts.load.mock.calls.length;
+    expect(calls).toBe(Math.ceil(KO.shards.length / FONT_PREFETCH_BATCH_FACES));
+
+    await runtime.loadLanguageFonts('ko');
+    window.dispatchEvent(new PageTransitionEvent('pageshow', { persisted: true }));
+    await vi.advanceTimersByTimeAsync(FONT_PREFETCH_QUIET_MS * 2);
+    await runIdle();
+
+    expect(fonts.load).toHaveBeenCalledTimes(calls);
+  });
+
+  it('never touches CacheStorage', async () => {
+    const cacheStorage = {
+      open: vi.fn(),
+      match: vi.fn(),
+      has: vi.fn(),
+      keys: vi.fn(),
+      delete: vi.fn(),
+    };
+    Object.defineProperty(globalThis, 'caches', { configurable: true, value: cacheStorage });
+    installFontSet({ settleAtOnce: true });
+    await throughPhaseB('ko');
+    await vi.advanceTimersByTimeAsync(FONT_PREFETCH_QUIET_MS);
+    for (let slice = 0; slice < KO.shards.length; slice += 1) await runIdle();
+
+    for (const method of Object.values(cacheStorage)) expect(method).not.toHaveBeenCalled();
   });
 });
 

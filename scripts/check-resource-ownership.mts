@@ -39,8 +39,13 @@
  *   CHECK 5 Copied timing constants (principle 4). Inside each contract the
  *     registry names, top-level *_MS, *_S, *_DELAY(S) and *_TIMEOUT constants
  *     that share a name across files, identical numeric tuples, and timing
- *     objects that share five or more values are an exact, triaged list.
- *     Constants that only share a value are report-only (--report lists them).
+ *     objects that share five or more values are an exact, triaged list. A
+ *     contract's scalar home, one named export per value
+ *     (src/youtube/constants.ts for RO-02/RO-03/RO-12 since Phase 6 6A), adds
+ *     every numeric scalar there to the same-name check whatever its suffix,
+ *     and its scalars pair with a timing object in another contract file as
+ *     one object, `<scalars>`. Constants that only share a value are
+ *     report-only (--report lists them).
  *   CHECK 6 AudioContext native resume()/suspend() call sites (RO-01, RO-44),
  *     counted syntactically per file.
  *   CHECK 7 Developer API authority fence writers (RO-25). Writes to
@@ -367,12 +372,20 @@ interface TimingContract {
   /** Registry records whose timing-constant homes list these files. */
   readonly records: readonly string[];
   readonly files: readonly string[];
+  /**
+   * The contract file that holds one named export per value rather than an
+   * object. Every numeric scalar there takes part in the same-name check
+   * whatever its suffix, and its scalars pair with a timing object in another
+   * contract file as one object, as a home object would.
+   */
+  readonly scalarHome?: string;
 }
 
 const TIMING_CONTRACTS: readonly TimingContract[] = [
   { records: ['RO-01'], files: ['src/audio/context.ts', 'src/audio/context-recovery.ts'] },
   {
     records: ['RO-02', 'RO-03', 'RO-12'],
+    scalarHome: 'src/youtube/constants.ts',
     files: [
       // The start timing home since Phase 6 6A-3 (C2-1).
       'src/youtube/constants.ts',
@@ -483,9 +496,10 @@ const TIMING_CONTRACTS: readonly TimingContract[] = [
  * Exact list of copied timing constants inside a contract, keyed by the
  * fingerprint the guard prints: same-named scalars, identical numeric tuples
  * of three or more, and timing objects sharing five or more values (0 and 1
- * ignored). Scalars that only share a value are report-only: round values
- * such as 1 s, 15 s and 30 s recur across unrelated contracts (28 such pairs
- * on 2026-10-22, mostly coincidences); run with --report to list them.
+ * ignored; a scalar home's scalars pair as `<scalars>@<home>`). Scalars that
+ * only share a value are report-only: round values such as 1 s, 15 s and 30 s
+ * recur across unrelated contracts (28 such pairs on 2026-10-22, mostly
+ * coincidences); run with --report to list them.
  */
 const TIMING_PAIR_BASELINE = new Map<string, PairAllowance>([
   [
@@ -2737,11 +2751,15 @@ function checkDeadlineOwnership(
 
 const TIMING_NAME_RE = /_(?:MS|S|DELAY|DELAYS|TIMEOUT)$/u;
 const OBJECT_COPY_MIN_SHARED_VALUES = 5;
+/** The name a contract's scalar home pairs under with a timing object. */
+const SCALAR_HOME_NAME = '<scalars>';
 
 interface ContractConstant {
   readonly file: string;
   readonly name: string;
   readonly value: ConstantValue;
+  /** A scalar without a timing name that shares its name with a scalar home value. */
+  readonly sameNameOnly?: boolean;
 }
 
 function sharedObjectValues(
@@ -2787,22 +2805,52 @@ function pairDetail(left: ContractConstant, right: ContractConstant): string | n
   return leftValue === rightValue ? leftValue : null;
 }
 
+/**
+ * A contract's candidates: timing-named scalars, tuples and timing objects in
+ * each file; with a scalar home, also every numeric scalar that shares a name
+ * with a home scalar (same-name pairs only), and the home's scalars as one
+ * object.
+ */
+function contractConstants(
+  contract: TimingContract,
+  sources: ReadonlyMap<string, string>,
+): ContractConstant[] {
+  const parsed = contract.files.flatMap((file) => {
+    const text = sources.get(file);
+    return text === undefined ? [] : [{ file, constants: topLevelConstants(parse(file, text)) }];
+  });
+  const homeScalars = new Map<string, number>();
+  for (const { file, constants } of parsed) {
+    if (file !== contract.scalarHome) continue;
+    for (const { name, value } of constants) {
+      if (typeof value === 'number') homeScalars.set(name, value);
+    }
+  }
+  const candidates: ContractConstant[] = [];
+  for (const { file, constants } of parsed) {
+    for (const constant of constants) {
+      if (isTimingCandidate(constant)) candidates.push({ file, ...constant });
+      else if (typeof constant.value === 'number' && homeScalars.has(constant.name)) {
+        candidates.push({ file, ...constant, sameNameOnly: true });
+      }
+    }
+  }
+  if (contract.scalarHome !== undefined && homeScalars.size > 0) {
+    candidates.push({ file: contract.scalarHome, name: SCALAR_HOME_NAME, value: homeScalars });
+  }
+  return candidates;
+}
+
 function collectTimingPairs(sources: ReadonlyMap<string, string>): TimingPairs {
   const enforced = new Set<string>();
   const reportOnly = new Set<string>();
   for (const contract of TIMING_CONTRACTS) {
-    const constants: ContractConstant[] = [];
-    for (const relPath of contract.files) {
-      const text = sources.get(relPath);
-      if (text === undefined) continue;
-      for (const constant of topLevelConstants(parse(relPath, text))) {
-        if (isTimingCandidate(constant)) constants.push({ file: relPath, ...constant });
-      }
-    }
+    const constants = contractConstants(contract, sources);
     const label = contract.records.join('/');
     for (const [index, left] of constants.entries()) {
       for (const right of constants.slice(index + 1)) {
         if (left.file === right.file) continue;
+        if ((left.sameNameOnly || right.sameNameOnly) && left.name !== right.name) continue;
         const detail = pairDetail(left, right);
         if (detail === null) continue;
         const [first, second] = [left, right].sort((a, b) =>

@@ -3844,8 +3844,12 @@ and unrelated strings never count, and every baseline is an exact count or list 
    `{ deadline: 'route' }`) are an exact list per function.
 5. **Copied timing constants** inside the files a record names as its timing home (principle 4):
    same-named constants, identical numeric tuples and shared timing objects form a triaged list.
-   Constants that share only a value are report-only, because round values such as 1 s, 15 s and
-   30 s recur across different contracts; `--report` lists them.
+   A home that holds one named export per value (`src/youtube/constants.ts` for RO-02, RO-03 and
+   RO-12 since Phase 6 6A) takes part in the same-name check with every numeric constant,
+   whatever its suffix, and its values count together as one timing object, so a re-typed object
+   elsewhere in the contract that shares five or more of them is a copy too. Constants that share
+   only a value are report-only, because round values such as 1 s, 15 s and 30 s recur across
+   different contracts; `--report` lists them.
 6. **AudioContext native calls, per file:** `resume()` and `suspend()` (RO-01, RO-44).
 7. **Developer API authority fence writers, per function** (RO-25): a string or template literal
    that inserts into, replaces into, updates or deletes from

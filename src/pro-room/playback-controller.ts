@@ -8,6 +8,7 @@ import { getState } from '../core/state.ts';
 import { clearManagedTimer, setManagedTimer } from '../core/timers.ts';
 import { recordProStartObservation } from '../diagnostics/pro-start-observations.ts';
 import type { QueueItemId } from '../types/index.ts';
+import { YOUTUBE_RELEASE_CATCH_UP_TOLERANCE_MS } from '../youtube/constants.ts';
 import {
   ProRoomApiError,
   type ProRoomApiClient,
@@ -74,8 +75,6 @@ const LOCAL_YOUTUBE_REJOIN_MIN_RELEASE_MS = 400;
 // cannot prepare in time and joins at a later participant-local instant.
 const LATE_YOUTUBE_COMMIT_THRESHOLD_MS = 1_500;
 const LATE_YOUTUBE_COMMIT_LEAD_MS = 3_000;
-// Mirrors the arm's catch-up tolerance: smaller lateness releases without a seek.
-const LATE_YOUTUBE_RELEASE_TOLERANCE_MS = 40;
 const MEDIA_DURATION_REPORT_TIMEOUT_MS = 6_000;
 const MEDIA_DURATION_REPORT_RETRY_MS = 30_000;
 const MEDIA_DURATION_REPORT_CACHE_SIZE = 128;
@@ -1589,13 +1588,14 @@ function createImplementation(
     // A prepared YouTube iframe released after its instant would seek during
     // release and start late by its seek latency. Re-arm through the catch-up
     // path at a fresh participant-local instant instead. Lateness within the
-    // arm's no-seek tolerance still releases normally.
+    // arm's no-seek tolerance (its catch-up tolerance, imported) still
+    // releases normally.
     const youtubeReleaseOverran =
       preparation !== null &&
       playback.state === 'playing' &&
       playback.youtubeVideoId !== null &&
       plannedTiming === null &&
-      (latePlan !== null || timing.signedDelayMs < -LATE_YOUTUBE_RELEASE_TOLERANCE_MS);
+      (latePlan !== null || timing.signedDelayMs < -YOUTUBE_RELEASE_CATCH_UP_TOLERANCE_MS);
     recordProStartObservation('playback-clock', {
       purpose: 'commit',
       revision: playback.revision,

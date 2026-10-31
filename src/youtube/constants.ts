@@ -157,6 +157,85 @@ export const STANDARD_AUTO_REALIGN_MIN_POSITION_SEC = 1;
 /** ...and leaves at least this much media after the projected position. */
 export const STANDARD_AUTO_REALIGN_MIN_REMAINING_SEC = 5;
 
+// ─── Start Timing (zero-start, PRO arm, recovery) ────────────────────
+// Shared by the Standard zero-start controller (zero-start.ts), the PRO arm
+// (authority-arm.ts), the PRO prepare seam (iframe.ts) and the Standard
+// recovery paths (player.ts); a value one file uses stays in that file. The
+// wire is frozen, so src/network/protocol.ts keeps its own receiver bounds;
+// start-timing-parity.test.ts ties them to these senders. Each value is its
+// own export, not a property of a shared object: the minifier keeps property
+// names, which would cost the eager bundle.
+
+// The arm both start controllers run on the iframe: wait for the hard mute,
+// warm play, pause and seek, settle at the target, restore the audio, then
+// release. The Standard recovery cleanups repeat the audio-restore cadence
+// and the release acknowledgement; the PRO playback controller reuses the
+// catch-up tolerance for a late COMMIT.
+
+/** The arm polls for its hard mute this often... */
+export const YOUTUBE_ARM_HARD_MUTE_POLL_MS = 30;
+/** ...at most this many times. */
+export const YOUTUBE_ARM_HARD_MUTE_MAX_ATTEMPTS = 12;
+/** The warm play runs this long before the arm pauses and seeks. */
+export const YOUTUBE_ARM_WARM_PLAY_MS = 260;
+/** The seek follows the pause after this gap. */
+export const YOUTUBE_ARM_PAUSE_SEEK_GAP_MS = 80;
+/** The arm polls for a settled iframe this often. */
+export const YOUTUBE_ARM_SETTLE_POLL_MS = 80;
+/** Settled: paused within this many seconds of the target... */
+export const YOUTUBE_ARM_SETTLE_EPSILON_SEC = 0.12;
+/** ...on this many polls in a row. */
+export const YOUTUBE_ARM_SETTLE_STABLE_SAMPLES = 2;
+/** An unsettled poll pauses and seeks again on every this-many-th poll. */
+export const YOUTUBE_ARM_SETTLE_RESEEK_EVERY = 6;
+/** The audio restore tries this far apart... */
+export const YOUTUBE_ARM_AUDIO_RESTORE_POLL_MS = 120;
+/** ...at most this many times. */
+export const YOUTUBE_ARM_AUDIO_RESTORE_MAX_ATTEMPTS = 8;
+/** A release that the iframe has not acknowledged after this long fails. */
+export const YOUTUBE_ARM_RELEASE_ACK_TIMEOUT_MS = 1_800;
+/** A release at most this late still starts at its prepared target, without a catch-up seek. */
+export const YOUTUBE_RELEASE_CATCH_UP_TOLERANCE_MS = 40;
+
+/** That tolerance for a lateness measured in seconds: exactly the double 0.04. */
+export const YOUTUBE_RELEASE_CATCH_UP_TOLERANCE_SEC = YOUTUBE_RELEASE_CATCH_UP_TOLERANCE_MS / 1_000;
+
+// The Standard zero-start barrier. A cohort-excluded guest whose load is
+// already issued adopts what is left of the prepare budget after the guest
+// decision (the budget minus the decision).
+
+/** A PREPARE gives guests this long until its start deadline. */
+export const STANDARD_ZERO_START_GUEST_TOTAL_WAIT_MS = 3_000;
+/** The host decides this long after its PREPARE. */
+export const STANDARD_ZERO_START_GUEST_DECISION_MS = 2_300;
+/** The host starts the room at least this long after its COMMIT. */
+export const STANDARD_ZERO_START_COMMIT_LEAD_MS = 700;
+/** Each endpoint's local preparation is bounded by this budget. */
+export const STANDARD_ZERO_START_PREPARE_BUDGET_MS = 10_000;
+/** An armed guest left out of the cohort starts alone this long after it learns of the COMMIT. */
+export const STANDARD_ZERO_START_LATE_FALLBACK_LEAD_MS = 800;
+
+/**
+ * A server PREPARE must still report READY inside its three-second barrier.
+ * The same 2.3 s as STANDARD_ZERO_START_GUEST_DECISION_MS, but a separate
+ * value: the two are linked by this comment only.
+ */
+export const PRO_YOUTUBE_BARRIERED_PREPARE_TIMEOUT_MS = 2_300;
+
+/**
+ * Restores, catch-ups, and participant-local rejoins have no server barrier.
+ * Their wait can include the first IFrame API/player load, which routinely
+ * exceeds the barriered budget on a phone; let that load finish instead.
+ */
+export const PRO_YOUTUBE_UNBARRIERED_PREPARE_TIMEOUT_MS = 10_000;
+
+/**
+ * A PLAY at or before this position is a fresh start that may take the
+ * zero-start barrier. The same number as the settle epsilon, a different
+ * meaning.
+ */
+export const YOUTUBE_FRESH_START_MAX_SEC = 0.12;
+
 // ─── Latency EMA Calibration ─────────────────────────────────────────
 // Self-calibration of the guest's playVideo → audible-start latency using
 // drift measurements from successful rendezvous.

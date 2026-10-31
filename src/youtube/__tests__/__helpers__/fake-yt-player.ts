@@ -10,12 +10,14 @@
  *
  * Fault knobs (all off by default, so a suite that sets none of them sees the
  * player it always had): `__unMuteIgnoreCount`, `__unMuteDelayMs`,
- * `__volumeReadFault` and `__seekStateSequence`. Each is a plain field read
- * when the call happens, so a harness that copies the method references (the
- * scripted IFrame API) still sees a knob set later. Their values model WebKit
- * behaviour described in code comments (for example "WebKit can ignore the
- * first unmute", youtube/player.ts) and the late-unMute mimic in
- * sync-integration.test.ts; no device trace calibrates them.
+ * `__unMuteThrowCount`, `__volumeReadFault` and `__seekStateSequence`. Each is
+ * a plain field read when the call happens, so a harness that copies the
+ * method references (the scripted IFrame API) still sees a knob set later.
+ * Their values model WebKit behaviour described in code comments (for example
+ * "WebKit can ignore the first unmute", youtube/player.ts) and the late-unMute
+ * mimic in sync-integration.test.ts; no device trace calibrates them. The
+ * throwing unMute models no device either: it pins how each caller handles a
+ * command that throws.
  */
 
 export interface FakeYtPlayerCall {
@@ -81,6 +83,13 @@ export interface FakeYtPlayer {
    * pins the model, and says so. Default 0 (immediate).
    */
   __unMuteDelayMs: number;
+  /**
+   * Fault knob: the next N accepted unMute() calls take effect (as
+   * __unMuteDelayMs says) and then throw, as a command that reaches the
+   * iframe but reports an error. Each one counts the knob down by one; an
+   * ignored unMute() neither throws nor counts. Default 0.
+   */
+  __unMuteThrowCount: number;
   /** Fault knob for getVolume(): null (default), 'nan' returns NaN, 'throw' throws. */
   __volumeReadFault: null | 'nan' | 'throw';
   /**
@@ -158,6 +167,7 @@ export function makeFakeYtPlayer(init?: Partial<FakeYtPlayer>): FakeYtPlayer {
     __hardMuteDelayMs: init?.__hardMuteDelayMs ?? 0,
     __unMuteIgnoreCount: init?.__unMuteIgnoreCount ?? 0,
     __unMuteDelayMs: init?.__unMuteDelayMs ?? 0,
+    __unMuteThrowCount: init?.__unMuteThrowCount ?? 0,
     __volumeReadFault: init?.__volumeReadFault ?? null,
     __seekStateSequence: init?.__seekStateSequence ?? [],
     __onStateChange: init?.__onStateChange,
@@ -235,11 +245,15 @@ export function makeFakeYtPlayer(init?: Partial<FakeYtPlayer>): FakeYtPlayer {
       const generation = ++muteGeneration;
       if (self.__unMuteDelayMs <= 0) {
         self.__muted = false;
-        return;
+      } else {
+        setTimeout(() => {
+          if (muteGeneration === generation) self.__muted = false;
+        }, self.__unMuteDelayMs);
       }
-      setTimeout(() => {
-        if (muteGeneration === generation) self.__muted = false;
-      }, self.__unMuteDelayMs);
+      if (self.__unMuteThrowCount > 0) {
+        self.__unMuteThrowCount -= 1;
+        throw new Error('Fake unMute command fault');
+      }
     },
     destroy() {
       self.__log.push({ op: 'destroy', at: Date.now() });

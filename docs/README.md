@@ -93,6 +93,65 @@ runbooks. Neither belongs in a general setup document.
 
 ## Maintained evidence and completed records
 
+- [Phase 6 train 6A: one YouTube start timing home, owner queries for the start timers and one verified iframe audio restore (2026-10-31)](design/phase6-6a-start-constants-owner-queries-2026-10-31.md):
+  prepared, not released: App 9.0.30 / v803, target `app`, one update dialog. The first Phase 6 App
+  update (owner answers of 2026-10-30, all recommended: four App updates, each audio restore keeps
+  its own rhythm, the deferred app part of Phase 0d rides in this train, a test that reproduces a
+  defect pins today's behaviour) on branch `agent/p6-6a`, 21 commits plus three record commits (24
+  in all), built on main `599465dd` and moved with every patch unchanged onto main `9e68a7a3`
+  (after the 9.0.28 release, its record and the remaining test-order fix), then two record commits
+  for the move and the release record's pre-deploy entry. The owner chose to ship the app font
+  switch first (evening of 2026-10-31), so it went out as 9.0.29 / v802, and the 26 commits moved
+  again, every patch unchanged, onto that release's record `e51dd292` (report QA round 7: every
+  tests-first pair fails the same rows by name on its new parent, `src/youtube` and
+  `src/pro-room` pass in file order and under seeds 7 and 4242, the T0a goldens pass, and the
+  first load is 154 B of eager JavaScript gzip and 152 B of eager total below 9.0.29). The owner
+  left at about 23:20 KST for about 40 hours with releases and tests delegated, which for that time
+  replaces the rule that Phase 6 trains ship only while the owner is awake. On top come the record
+  edits the bump carries (the order and Q6 sentences, the 9.0.22 item's C2-1 clause, the Android
+  mixed-version sentence, the registry's release-batching sentence for Phase 6), the comment-only
+  R4-Q3 fix in `src/pro-room/snapshot.ts` that Phase 5.5 R4 left for the next App update (`5b7f7e84`,
+  production build byte-identical), and the bump `8d148fff` to 9.0.30 / v803 as the last runtime
+  commit, followed by two record commits (33 commits on `e51dd292`). QA round 8 ran the full local
+  gate on the bump: types, lint, format, `build:checked` with `guard:sw-cache-version` passing for
+  v803, all 37 guards, the production candidate 19 / 19, critical coverage 94 files / 3,763 and Worker
+  coverage 69 / 3,325, the unit suite 735 files / 17,540 (two git-fixture rows that time out under
+  load pass with their files run alone), critical E2E 101 / 101 and the eight YouTube specs 41 / 41,
+  then `check:workers` and the Worker bundle dry-runs on the same runtime tree; the release target
+  is `app` (18 App runtime paths, none in the other five Workers) and the first load is 144 B of
+  eager JavaScript gzip and 141 B of eager total below 9.0.29.
+  6A-1 replaces the cross-file reads of the start timers' names with owner queries
+  (`isYouTubeAutoSyncPending` through the player runtime bridge, and a query `sync.ts` registers
+  with the native-control authority; the PRO coordinator nudge is still read by name). 6A-2 drops
+  one direct timer clear that `resetYouTubeSyncState` repeats and a clear of a timer nothing sets.
+  6A-3 moves the shared start timing into `src/youtube/constants.ts` (C2-1), with a parity suite
+  that drives the real zero-start sender to each edge the frozen receiver takes. 6A-4 runs the six
+  YouTube audio restore loops through one verified restore in the new `src/youtube/iframe-audio.ts`
+  (RO-12), keeping both cadences and every fence, check, outcome, timer key and log line. Every T0a
+  golden and pinned row passes unchanged, and the wire is unchanged. Each tests-first commit was
+  rerun on its parent's runtime (only the changed rows fail), and the review's tests-only rows
+  also pass on the pre-6A runtime. Guard baselines fall in the commits that move the counted code:
+  CHECK 11 44 to 32, CHECK 12 reads 14 to 11 and clears 10 to 9 (CHECK 12 now counts each start
+  timer a call covers), CHECK 5 copies 2 to 1. Before the bump, target `app` (13 App runtime
+  paths, none in the other five Workers, no runtime dependency change) and
+  `guard:sw-cache-version` failed only for the missing bump. 6A-3's object-shaped homes took the
+  eager JavaScript 237 B gzip over the base, past the
+  Phase 6 cap of +200 B, so a size follow-up (the report's recommended answer to its owner question)
+  makes each start timing its own named export, with the same values and readers: the eager
+  JavaScript is now 149 B gzip below the base (eager total 152 B; 114 B for both against
+  `9e68a7a3` after the move). The plan's shared player-state
+  names stay out of this branch, as recommended, for a later train. After the follow-up's review,
+  CHECK 5 again catches a re-typed timing object beside the scalar home and checks each of its
+  values by name whatever the suffix (guard only, no baseline change). It lists the QA rounds (unit
+  suite 727 files, 17,218 passed and one environment skip; `src/youtube` clean under four shuffle
+  seeds, while two untouched `src/pro-room` files fail the same rows on the base; critical and
+  Worker coverage, every guard, and local Playwright: critical 100 / 100 and the eight YouTube
+  specs 41 / 41; for the follow-up, `src/youtube` 1,907 / 1,907 in file order and under the same
+  four seeds, the guards, types, lint and format; for its review, the guard suite 72 / 72, of which
+  2 fail on the parent guard; after the move, every tests-first pair fails the same rows by name on
+  its new parent, `src/youtube` and `src/pro-room` pass in file order and under the four seeds, and
+  the T0a goldens pass), mixed versions, the rollback (alone only until 6B merges, then a forward
+  revert) and a blind post-deploy check.
 - [App font switch to Inter and Noto, owner decisions (2026-10-31)](design/app-font-inter-noto-2026-10-31.md):
   released on 2026-10-31 23:39 KST in Release 41210993444 (PR #548, squash `c4667abc`) as App
   9.0.29 / v802 (App build 802, target `app`: App runtime paths only, no other Worker, no runtime

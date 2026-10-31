@@ -1,26 +1,29 @@
 import type { QueueItemId, YouTubeZeroStartPlatform } from '../types/index.ts';
 import { MANUAL_SYNC_OFFSET_LIMIT_MS } from '../core/constants.ts';
+import {
+  PRO_YOUTUBE_BARRIERED_PREPARE_TIMEOUT_MS,
+  YOUTUBE_ARM_HARD_MUTE_MAX_ATTEMPTS,
+  YOUTUBE_ARM_HARD_MUTE_POLL_MS,
+  YOUTUBE_ARM_PAUSE_SEEK_GAP_MS,
+  YOUTUBE_ARM_RELEASE_ACK_TIMEOUT_MS,
+  YOUTUBE_ARM_SETTLE_EPSILON_SEC,
+  YOUTUBE_ARM_SETTLE_POLL_MS,
+  YOUTUBE_ARM_SETTLE_RESEEK_EVERY,
+  YOUTUBE_ARM_SETTLE_STABLE_SAMPLES,
+  YOUTUBE_ARM_WARM_PLAY_MS,
+  YOUTUBE_RELEASE_CATCH_UP_TOLERANCE_MS,
+} from './constants.ts';
+import {
+  isYouTubeAudioRestored,
+  restoreYouTubeAudioVerified,
+  writeYouTubeAudio,
+} from './iframe-audio.ts';
 import { getYouTubeAudibleOutputDelayMs } from './output-latency.ts';
 
 const PLAYER_STATE = Object.freeze({
   playing: 1,
   paused: 2,
   cued: 5,
-} as const);
-
-const TIMING = Object.freeze({
-  hardMutePollMs: 30,
-  hardMuteMaxAttempts: 12,
-  warmPlayMs: 260,
-  pauseSeekGapMs: 80,
-  settlePollMs: 80,
-  settleEpsilonSeconds: 0.12,
-  restorePollMs: 120,
-  restoreMaxAttempts: 8,
-  // Leave the server's 3s transition barrier enough time to receive READY.
-  prepareTimeoutMs: 2_300,
-  releaseAckTimeoutMs: 1_800,
-  catchUpToleranceMs: 40,
 } as const);
 
 export interface YouTubeAuthorityArmPlayer {
@@ -200,7 +203,6 @@ type DetachedAudioRestore = {
   player: YouTubeAuthorityArmPlayer;
   muted: boolean;
   volume: number;
-  attempt: number;
 };
 
 const defaultScheduler: YouTubeAuthorityArmScheduler = {
@@ -335,7 +337,7 @@ export class YouTubeAuthorityArmController {
     return new Promise<YouTubeAuthorityArmPrepareResult>((resolve) => {
       const now = this.#now();
       const timeoutMs = clamp(
-        finiteOr(request.timeoutMs ?? TIMING.prepareTimeoutMs, 0),
+        finiteOr(request.timeoutMs ?? PRO_YOUTUBE_BARRIERED_PREPARE_TIMEOUT_MS, 0),
         500,
         20_000,
       );
@@ -422,7 +424,7 @@ export class YouTubeAuthorityArmController {
     );
     const targetDeltaSeconds = committedTargetSeconds - run.targetSeconds;
     run.catchUpSeconds =
-      targetDeltaSeconds * 1_000 > TIMING.catchUpToleranceMs ? targetDeltaSeconds : 0;
+      targetDeltaSeconds * 1_000 > YOUTUBE_RELEASE_CATCH_UP_TOLERANCE_MS ? targetDeltaSeconds : 0;
     run.phase = 'scheduled';
     this.#emitPhase(run);
 
@@ -534,7 +536,7 @@ export class YouTubeAuthorityArmController {
       // Retry within the bounded mute window.
     }
     if (!muted) {
-      if (attempt + 1 >= TIMING.hardMuteMaxAttempts) {
+      if (attempt + 1 >= YOUTUBE_ARM_HARD_MUTE_MAX_ATTEMPTS) {
         this.#failPrepare(run, 'hard-mute-timeout');
         return;
       }
@@ -543,7 +545,11 @@ export class YouTubeAuthorityArmController {
       } catch {
         // The final bounded poll owns failure reporting.
       }
-      this.#later(run, () => this.#waitForHardMute(run, attempt + 1), TIMING.hardMutePollMs);
+      this.#later(
+        run,
+        () => this.#waitForHardMute(run, attempt + 1),
+        YOUTUBE_ARM_HARD_MUTE_POLL_MS,
+      );
       return;
     }
 
@@ -586,7 +592,7 @@ export class YouTubeAuthorityArmController {
     if (!this.#ensurePlayerCurrent(run)) return;
     run.warmObserved = true;
     run.warmLatencyMs = Math.max(0, this.#now() - run.warmCallAtMs);
-    this.#later(run, () => this.#beginSettling(run), TIMING.warmPlayMs);
+    this.#later(run, () => this.#beginSettling(run), YOUTUBE_ARM_WARM_PLAY_MS);
   }
 
   #beginSettling(run: ActiveRun): void {
@@ -606,9 +612,9 @@ export class YouTubeAuthorityArmController {
             this.#failPrepare(run, 'player-command-failed');
             return;
           }
-          this.#later(run, () => this.#pollSettled(run), TIMING.settlePollMs);
+          this.#later(run, () => this.#pollSettled(run), YOUTUBE_ARM_SETTLE_POLL_MS);
         },
-        TIMING.pauseSeekGapMs,
+        YOUTUBE_ARM_PAUSE_SEEK_GAP_MS,
       );
     } catch {
       this.#failPrepare(run, 'player-command-failed');
@@ -625,11 +631,11 @@ export class YouTubeAuthorityArmController {
       const settled =
         this.#currentVideoId(run.player) === run.identity.videoId &&
         stopped &&
-        Math.abs(run.player.getCurrentTime() - run.targetSeconds) <= TIMING.settleEpsilonSeconds;
+        Math.abs(run.player.getCurrentTime() - run.targetSeconds) <= YOUTUBE_ARM_SETTLE_EPSILON_SEC;
       run.stableChecks = settled ? run.stableChecks + 1 : 0;
       if (!settled) {
         if (state === PLAYER_STATE.playing) run.player.pauseVideo();
-        if (run.settleAttempts % 6 === 0) {
+        if (run.settleAttempts % YOUTUBE_ARM_SETTLE_RESEEK_EVERY === 0) {
           run.player.pauseVideo();
           run.player.seekTo(run.targetSeconds, true);
         }
@@ -638,7 +644,7 @@ export class YouTubeAuthorityArmController {
       run.stableChecks = 0;
     }
 
-    if (run.stableChecks >= 2) {
+    if (run.stableChecks >= YOUTUBE_ARM_SETTLE_STABLE_SAMPLES) {
       this.#beginAudioRestore(run);
       return;
     }
@@ -646,43 +652,32 @@ export class YouTubeAuthorityArmController {
       this.#failPrepare(run, 'settle-timeout');
       return;
     }
-    this.#later(run, () => this.#pollSettled(run), TIMING.settlePollMs);
+    this.#later(run, () => this.#pollSettled(run), YOUTUBE_ARM_SETTLE_POLL_MS);
   }
 
   #beginAudioRestore(run: ActiveRun): void {
     if (!this.#isCurrent(run)) return;
     run.phase = 'restoring-audio';
     this.#emitPhase(run);
-    this.#attemptAudioRestore(run, 0);
-  }
-
-  #attemptAudioRestore(run: ActiveRun, attempt: number): void {
-    if (!this.#isCurrent(run) || run.phase !== 'restoring-audio') return;
-    if (!this.#ensurePlayerCurrent(run)) return;
-    this.#restoreCapturedAudio(run);
-    this.#later(
-      run,
+    const isRestoring = (): boolean => this.#isCurrent(run) && run.phase === 'restoring-audio';
+    const capturedAudio = () => ({ muted: run.originalMuted, volume: run.originalVolume });
+    restoreYouTubeAudioVerified(
+      'settle-then-verify',
+      () => isRestoring() && this.#ensurePlayerCurrent(run),
       () => {
-        if (!this.#isCurrent(run) || run.phase !== 'restoring-audio') return;
-        let restored: boolean;
         try {
-          restored =
-            run.player.isMuted() === run.originalMuted &&
-            Math.abs(run.player.getVolume() - run.originalVolume) <= 1;
+          writeYouTubeAudio(run.player, capturedAudio());
         } catch {
-          restored = false;
+          // Cancellation/failure cleanup cannot throw through an authority fence.
         }
-        if (restored) {
-          this.#markPrepared(run);
-          return;
-        }
-        if (attempt + 1 >= TIMING.restoreMaxAttempts) {
-          this.#failPrepare(run, 'audio-restore-timeout');
-          return;
-        }
-        this.#attemptAudioRestore(run, attempt + 1);
       },
-      TIMING.restorePollMs,
+      () => isYouTubeAudioRestored(run.player, capturedAudio()),
+      (restored) =>
+        restored ? this.#markPrepared(run) : this.#failPrepare(run, 'audio-restore-timeout'),
+      (callback, delayMs) => this.#later(run, callback, delayMs),
+      // The fence before the check, which reads this run's player;
+      // #markPrepared and the next write check that the iframe is current.
+      isRestoring,
     );
   }
 
@@ -714,7 +709,7 @@ export class YouTubeAuthorityArmController {
       const callbackLatenessMs = Math.max(0, this.#now() - run.releaseAtMs);
       run.rawReleaseLatenessMs = callbackLatenessMs;
       run.releaseLatenessMs =
-        callbackLatenessMs > TIMING.catchUpToleranceMs ? callbackLatenessMs : 0;
+        callbackLatenessMs > YOUTUBE_RELEASE_CATCH_UP_TOLERANCE_MS ? callbackLatenessMs : 0;
       const callbackCatchUpSeconds = run.releaseLatenessMs / 1000;
       const uncompensatedTarget = run.targetSeconds + run.catchUpSeconds + callbackCatchUpSeconds;
       run.releaseTargetSeconds = uncompensatedTarget + run.outputPositionAdvanceMs / 1000;
@@ -730,7 +725,7 @@ export class YouTubeAuthorityArmController {
       // A tiny unscheduled output lead must not add a disruptive iframe seek.
       // Test the bounded amount, since the end guard can reduce a larger lead.
       // The epsilon only absorbs floating-point subtraction at the 40ms edge.
-      if (run.outputPositionAdvanceMs <= TIMING.catchUpToleranceMs + 1e-6) {
+      if (run.outputPositionAdvanceMs <= YOUTUBE_RELEASE_CATCH_UP_TOLERANCE_MS + 1e-6) {
         run.ignoredOutputPositionAdvanceMs = run.outputPositionAdvanceMs;
         run.outputPositionAdvanceMs = 0;
         run.releaseTargetSeconds = Math.min(run.releaseTargetSeconds, uncompensatedTarget);
@@ -754,7 +749,7 @@ export class YouTubeAuthorityArmController {
         this.#later(
           run,
           () => this.#finishCommitFailure(run, 'release-timeout', 'failed'),
-          TIMING.releaseAckTimeoutMs,
+          YOUTUBE_ARM_RELEASE_ACK_TIMEOUT_MS,
         );
       }
     } catch {
@@ -832,16 +827,6 @@ export class YouTubeAuthorityArmController {
     this.#deps.onPhaseChange?.('idle');
   }
 
-  #restoreCapturedAudio(run: ActiveRun): void {
-    try {
-      run.player.setVolume(run.originalVolume);
-      if (run.originalMuted) run.player.mute();
-      else run.player.unMute();
-    } catch {
-      // Cancellation/failure cleanup cannot throw through an authority fence.
-    }
-  }
-
   /**
    * Failure and supersede can happen exactly while WebKit is applying a hard
    * mute. A single unMute/setVolume pair is not reliable on that boundary.
@@ -855,57 +840,45 @@ export class YouTubeAuthorityArmController {
       player: run.player,
       muted: run.originalMuted,
       volume: run.originalVolume,
-      attempt: 0,
     };
     this.#detachedRestore = restore;
-    this.#attemptDetachedAudioRestore(restore);
-  }
-
-  #attemptDetachedAudioRestore(restore: DetachedAudioRestore): void {
-    if (
-      this.#detachedRestore !== restore ||
-      restore.generation !== this.#detachedRestoreGeneration
-    ) {
-      return;
-    }
-    let currentPlayer: YouTubeAuthorityArmPlayer | null;
-    try {
-      currentPlayer = this.#deps.getPlayer();
-    } catch {
-      currentPlayer = null;
-    }
-    if (currentPlayer !== restore.player) {
-      this.#finishDetachedAudioRestore(restore);
-      return;
-    }
-
-    try {
-      restore.player.setVolume(restore.volume);
-      if (restore.muted) restore.player.mute();
-      else restore.player.unMute();
-    } catch {
-      // The bounded verification below decides whether another attempt is useful.
-    }
-    restore.attempt += 1;
-
-    let restored: boolean;
-    try {
-      restored =
-        restore.player.isMuted() === restore.muted &&
-        Math.abs(restore.player.getVolume() - restore.volume) <= 1;
-    } catch {
-      restored = false;
-    }
-    if (restored || restore.attempt >= TIMING.restoreMaxAttempts) {
-      this.#finishDetachedAudioRestore(restore);
-      return;
-    }
-
-    const timer = this.#scheduler.set(() => {
-      this.#detachedRestoreTimers.delete(timer);
-      this.#attemptDetachedAudioRestore(restore);
-    }, TIMING.restorePollMs);
-    this.#detachedRestoreTimers.add(timer);
+    const finish = (): void => this.#finishDetachedAudioRestore(restore);
+    restoreYouTubeAudioVerified(
+      'verify-then-settle',
+      () => {
+        if (
+          this.#detachedRestore !== restore ||
+          restore.generation !== this.#detachedRestoreGeneration
+        ) {
+          return false;
+        }
+        let currentPlayer: YouTubeAuthorityArmPlayer | null;
+        try {
+          currentPlayer = this.#deps.getPlayer();
+        } catch {
+          currentPlayer = null;
+        }
+        if (currentPlayer === restore.player) return true;
+        finish();
+        return false;
+      },
+      () => {
+        try {
+          writeYouTubeAudio(restore.player, restore);
+        } catch {
+          // The bounded verification below decides whether another attempt is useful.
+        }
+      },
+      () => isYouTubeAudioRestored(restore.player, restore),
+      finish,
+      (callback, delayMs) => {
+        const timer = this.#scheduler.set(() => {
+          this.#detachedRestoreTimers.delete(timer);
+          callback();
+        }, delayMs);
+        this.#detachedRestoreTimers.add(timer);
+      },
+    );
   }
 
   #finishDetachedAudioRestore(restore: DetachedAudioRestore): void {

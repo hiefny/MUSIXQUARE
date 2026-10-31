@@ -1006,8 +1006,11 @@ describe('YT→YT reuse timer cleanup (F-2407)', () => {
     expect(player.loadVideoById).toHaveBeenCalledWith('vidB000000B');
 
     // The reuse branch must cancel the pending seek-play timer — parity with
-    // stopYouTubeMode and the adjacent yt-clock-action clear — so a delayed
-    // playVideo scheduled for the outgoing video cannot fire against vidB.
+    // stopYouTubeMode — so a delayed playVideo scheduled for the outgoing
+    // video cannot fire against vidB. The pending clock action is retired by
+    // resetYouTubeSyncState (cancelClockAction), which this suite mocks; the
+    // adoptResidentYouTubeOccurrence row in youtube-timer-owner-queries.test.ts
+    // pins that with the real sync.ts.
     expect(clearMock).toHaveBeenCalledWith('yt-seek-play');
   });
 });

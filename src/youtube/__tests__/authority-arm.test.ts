@@ -1,9 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import {
-  LATE_YOUTUBE_COMMIT_LEAD_MS,
-  LATE_YOUTUBE_RELEASE_TOLERANCE_MS,
-  RELEASE_ACK_TIMEOUT_MS,
-} from '../../pro-room/__tests__/__helpers__/pro-late-youtube-join-timing.ts';
+import { LATE_YOUTUBE_COMMIT_LEAD_MS } from '../../pro-room/__tests__/__helpers__/pro-late-youtube-join-timing.ts';
 import { PRO_ROOM_PLAYBACK_COMMIT_LEAD_MS } from '../../pro-room/__tests__/__helpers__/pro-room-playback-timing-copy.ts';
 import type { QueueItemId, YouTubeZeroStartPlatform } from '../../types/index.ts';
 import {
@@ -11,7 +7,15 @@ import {
   getYouTubeAuthorityPlatformLeadMsForTests,
   type YouTubeAuthorityArmPlayer,
 } from '../authority-arm.ts';
+import {
+  YOUTUBE_ARM_RELEASE_ACK_TIMEOUT_MS,
+  YOUTUBE_RELEASE_CATCH_UP_TOLERANCE_MS,
+} from '../constants.ts';
 import { makeFakeYtPlayer, ops, type FakeYtPlayer } from './__helpers__/fake-yt-player.ts';
+
+// The arm's release timing, read from its home.
+const LATE_YOUTUBE_RELEASE_TOLERANCE_MS = YOUTUBE_RELEASE_CATCH_UP_TOLERANCE_MS;
+const RELEASE_ACK_TIMEOUT_MS = YOUTUBE_ARM_RELEASE_ACK_TIMEOUT_MS;
 
 const QUEUE_ITEM_ID = '11111111-1111-4111-8111-111111111111' as QueueItemId;
 const VIDEO_ID = 'M7lc1UVf-VE';
@@ -37,6 +41,7 @@ function makeHarness(options?: {
   autoPlayOnLoad?: boolean;
   muted?: boolean;
   volume?: number;
+  onPhaseChange?: (phase: string) => void;
 }) {
   const player = makeFakeYtPlayer({
     __videoId: options?.videoId ?? VIDEO_ID,
@@ -51,7 +56,10 @@ function makeHarness(options?: {
     getPlayer: () => currentPlayer,
     getPlatform: () => options?.platform ?? 'other',
     nowMs: () => Date.now(),
-    onPhaseChange: (phase) => phases.push(phase),
+    onPhaseChange: (phase) => {
+      phases.push(phase);
+      options?.onPhaseChange?.(phase);
+    },
   });
   player.__onStateChange = ({ data }) => {
     controller.handlePlayerStateChange(data);
@@ -225,6 +233,110 @@ describe('YouTubeAuthorityArmController', () => {
     expect(player.__volume).toBe(73);
   });
 
+  // The active restore reads the desired audio as each attempt runs, so a
+  // volume change between two attempts is what the next attempt writes and
+  // checks. WebKit ignores the first unMute here, so a second attempt runs.
+  it('writes a volume changed during the active audio restore on its next attempt', async () => {
+    let restoreAt: number | null = null;
+    const timeline: string[] = [];
+    const harness = makeHarness({
+      onPhaseChange: (phase) => {
+        if (phase === 'restoring-audio' && restoreAt === null) {
+          restoreAt = Date.now();
+          harness.player.__unMuteIgnoreCount = 1;
+          harness.player.__log.length = 0;
+          setTimeout(() => harness.controller.updateDesiredAudioState({ volume: 55 }), 60);
+        }
+        if (restoreAt !== null) timeline.push(`+${Date.now() - restoreAt} ${phase}`);
+      },
+    });
+    const { controller, player } = harness;
+    const pending = controller.prepare({ ...identity, strategy: 'resident', targetSeconds: 4 });
+    await vi.runAllTimersAsync();
+
+    await expect(pending).resolves.toMatchObject({ status: 'ready' });
+    const origin = restoreAt ?? Number.NaN;
+    expect(
+      player.__log.map(({ op, args, at }) => `+${at - origin} ${op}(${(args ?? []).join(',')})`),
+    ).toEqual(['+0 setVolume(37)', '+0 unMute()', '+120 setVolume(55)', '+120 unMute()']);
+    expect(timeline).toEqual(['+0 restoring-audio', '+240 prepared']);
+    expect(player.__muted).toBe(false);
+    expect(player.__volume).toBe(55);
+  });
+
+  // The check after the last attempt's wait reads this run's own player and
+  // fences only on the run, not on the iframe (the next write would cancel
+  // the run for a new iframe; after the last attempt there is none). An
+  // iframe change inside that wait therefore ends the prepare as a failed
+  // restore, and neither iframe is written again.
+  it('fails the prepare when the iframe changes during the last audio restore wait', async () => {
+    let restoreAt: number | null = null;
+    const replacement = makeFakeYtPlayer({
+      __videoId: VIDEO_ID,
+      __state: 2,
+      __muted: false,
+      __volume: 37,
+    });
+    const harness = makeHarness({
+      onPhaseChange: (phase) => {
+        if (phase !== 'restoring-audio' || restoreAt !== null) return;
+        restoreAt = Date.now();
+        // Every unMute is ignored: eight attempts, the last written at +840.
+        harness.player.__unMuteIgnoreCount = 8;
+        setTimeout(() => {
+          // The replaced iframe's state events no longer reach the arm.
+          harness.player.__onStateChange = undefined;
+          harness.player.__log.length = 0;
+          harness.setPlayer(replacement as YouTubeAuthorityArmPlayer);
+        }, 900);
+      },
+    });
+    const pending = harness.controller.prepare({
+      ...identity,
+      strategy: 'resident',
+      targetSeconds: 4,
+    });
+    await vi.runAllTimersAsync();
+
+    await expect(pending).resolves.toEqual({ status: 'failed', reason: 'audio-restore-timeout' });
+    const origin = restoreAt ?? Number.NaN;
+    expect(harness.player.__log.map(({ op, at }) => `+${at - origin} ${op}`)).toEqual([
+      '+960 pauseVideo',
+    ]);
+    expect(replacement.__log).toEqual([]);
+    expect(harness.controller.phase).toBe('idle');
+  });
+
+  // An iframe that takes every seekTo but never reaches the target: the
+  // settle loop polls every 80 ms from +420, and every sixth unsettled poll
+  // pauses and seeks again, until the 2.3 s prepare budget ends.
+  it('pauses and seeks again on every sixth unsettled settle poll until the prepare budget', async () => {
+    const { controller, player } = makeHarness();
+    player.__currentTime = 140;
+    player.seekTo = (seconds, allowSeekAhead) => {
+      player.__log.push({ op: 'seekTo', args: [seconds, allowSeekAhead], at: Date.now() });
+    };
+    const startedAt = Date.now();
+    let settledAt: number | null = null;
+    const pending = controller
+      .prepare({ ...identity, strategy: 'resident', targetSeconds: 4 })
+      .then((result) => {
+        settledAt = Date.now();
+        return result;
+      });
+
+    await vi.advanceTimersByTimeAsync(2_500);
+
+    await expect(pending).resolves.toEqual({ status: 'failed', reason: 'settle-timeout' });
+    expect((settledAt ?? Number.NaN) - startedAt).toBe(2_300);
+    const at = (op: string): number[] =>
+      player.__log.filter((call) => call.op === op).map((call) => call.at - startedAt);
+    // The warm-up pause and seek at +0 and the settle pause at +260 and seek
+    // at +340; then the 6th, 12th, 18th and 24th polls; then the failure pause.
+    expect(at('pauseVideo')).toEqual([0, 260, 820, 1300, 1780, 2260, 2300]);
+    expect(at('seekTo')).toEqual([0, 340, 820, 1300, 1780, 2260]);
+  });
+
   it('commits an on-time prepared occurrence without a second seek', async () => {
     const { controller, player } = makeHarness();
     await prepareReady(controller, 'resident', 22);
@@ -373,6 +485,48 @@ describe('YouTubeAuthorityArmController', () => {
     await vi.runAllTimersAsync();
     expect(unmuteAttempts).toBe(1);
   });
+
+  // A detached restore whose iframe is no longer current ends at its next
+  // attempt and keeps no target: nothing is left for cancelAll() to revoke,
+  // and when the same iframe comes back, the next prepare captures that
+  // iframe's own audio instead of the abandoned restore's target.
+  it.each(['cancelAll', 'next prepare'] as const)(
+    'drops a detached restore whose iframe changed before its retry (%s)',
+    async (check) => {
+      const { controller, player, setPlayer } = makeHarness({ muted: false, volume: 41 });
+      player.playVideo = () => {
+        player.__log.push({ op: 'playVideo', at: Date.now() });
+        // The iframe accepts the command but never exposes PLAYING.
+      };
+      const failed = controller.prepare({ ...identity, strategy: 'resident', targetSeconds: 4 });
+      await vi.advanceTimersByTimeAsync(2_295);
+      // The detached restore's first unMute (+2300) is ignored, so it would retry at +2420.
+      player.__unMuteIgnoreCount = 1;
+      await vi.advanceTimersByTimeAsync(5);
+      await expect(failed).resolves.toEqual({ status: 'failed', reason: 'warm-timeout' });
+      const other = makeFakeYtPlayer({ __videoId: VIDEO_ID, __muted: false, __volume: 90 });
+      setPlayer(other as YouTubeAuthorityArmPlayer);
+      await vi.advanceTimersByTimeAsync(120);
+      expect(other.__log).toEqual([]);
+
+      if (check === 'cancelAll') {
+        expect(controller.cancelAll()).toBe(false);
+        return;
+      }
+      setPlayer(player as YouTubeAuthorityArmPlayer);
+      player.__muted = false;
+      player.__volume = 23;
+      player.__log.length = 0;
+      const next = controller.prepare({ ...identity, strategy: 'resident', targetSeconds: 4 });
+      await vi.advanceTimersByTimeAsync(0);
+      expect(player.__log.find((call) => call.op === 'setVolume')?.args).toEqual([23]);
+      await vi.advanceTimersByTimeAsync(2_300);
+      await expect(next).resolves.toEqual({ status: 'failed', reason: 'warm-timeout' });
+      await vi.runAllTimersAsync();
+      expect(player.__muted).toBe(false);
+      expect(player.__volume).toBe(23);
+    },
+  );
 
   it('retries captured audio restoration after a release acknowledgement timeout', async () => {
     const { controller, player } = makeHarness({ muted: false, volume: 53 });
@@ -927,8 +1081,9 @@ describe('YouTubeAuthorityArmController', () => {
 
   describe('PRO late cohort join (pinned 2026-10-30)', () => {
     // The COMMIT lead is the Worker's (the copy pro-room-playback-timing.test.ts
-    // pins); the App's late-join values come from
-    // pro-room/__tests__/__helpers__/pro-late-youtube-join-timing.ts.
+    // pins); the App's late-join lead comes from
+    // pro-room/__tests__/__helpers__/pro-late-youtube-join-timing.ts and the
+    // arm's release timing from its home, src/youtube/constants.ts.
     //
     // These rows run the arm on 'other' (the harness default), where the fixed
     // output lead is 0. The device-level Android rows are in
@@ -938,7 +1093,7 @@ describe('YouTubeAuthorityArmController', () => {
     // is still in flight 1.8 s later although media started after 1 s. The
     // arm pauses and fails the commit at exactly 1.8 s but never re-mutes, so
     // whatever the iframe played inside that window was audible. This is the
-    // row that pins the shared RELEASE_ACK_TIMEOUT_MS copy to the real arm.
+    // row that pins the arm's release acknowledgement through the real arm.
     it('(b) pauses an unacknowledged release after exactly 1.8 s without re-muting it', async () => {
       const { controller, player } = makeHarness();
       await prepareReady(controller, 'resident', 0);

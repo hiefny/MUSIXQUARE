@@ -730,8 +730,9 @@ function sameCapabilities(left: readonly ProRoomCapability[], right: readonly Pr
 }
 
 /**
- * Opt-in summary of every room playlist. Exactly one entry per slot; `bytes`
- * is the sum of file sizes, or null when the playlist has no file items.
+ * Summary of every room playlist, which every snapshot carries without an
+ * opt-in header. Exactly one entry per slot; `bytes` is the sum of file sizes,
+ * or null when the playlist has no file items.
  */
 function parsePlaylistSlots(value: unknown): PlaylistSlotsSummary | null {
   if (!isRecord(value) || !hasExactKeys(value, ['activeSlot', 'slots'])) return null;

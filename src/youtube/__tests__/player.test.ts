@@ -990,6 +990,39 @@ describe('YouTube Player', () => {
       expect(isStandardHostYouTubeLocalStartPending()).toBe(false);
     });
 
+    // The negative-start release seeks to catch up only a callback more than
+    // 40 ms late (the arm's catch-up tolerance, compared in seconds). Within
+    // it the host plays from its held position, and the lateness goes into
+    // the applied offset and the recorded automatic offset instead.
+    it.each([
+      { lateMs: 40, seeks: 0, applied: -9.789, automatic: 0.21 },
+      { lateMs: 41, seeks: 1, applied: -9.749, automatic: 0.25 },
+    ])(
+      'releases a negative start whose timer runs $lateMs ms past its due time with $seeks seek',
+      async ({ lateMs, seeks, applied, automatic }) => {
+        playbackPlatform.android = true;
+        const player = await installHost(-9.999);
+        const { scheduleYtAutoSync } = await import('../player.ts');
+        const { setManagedTimer } = await import('../../core/timers.ts');
+        const { getStandardHostYouTubeAutomaticOffset } = await import('../local-offset.ts');
+        scheduleYtAutoSync(0);
+        const release = vi
+          .mocked(setManagedTimer)
+          .mock.calls.find(([name]) => name === 'yt-host-local-start')!;
+        expect(release[2]).toBeCloseTo(9749, 6);
+        const seeksBefore = player.__log.filter((call) => call.op === 'seekTo').length;
+        vi.advanceTimersByTime(9749 + lateMs);
+        (release[1] as () => void)();
+
+        const releaseSeeks = player.__log.filter((call) => call.op === 'seekTo').slice(seeksBefore);
+        expect(releaseSeeks).toHaveLength(seeks);
+        if (seeks) expect(releaseSeeks[0].args?.[0]).toBeCloseTo(lateMs / 1000, 8);
+        expect(player.getPlayerState()).toBe(1);
+        expect(getState('sync.youtubeCoordinatorAppliedOffset')).toBeCloseTo(applied, 8);
+        expect(getStandardHostYouTubeAutomaticOffset()).toBeCloseTo(automatic, 8);
+      },
+    );
+
     it.each(['pause', 'seek'] as const)(
       'makes an obsolete negative release inert after %s',
       async (action) => {

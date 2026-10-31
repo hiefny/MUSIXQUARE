@@ -6,6 +6,7 @@ import {
   type ProRoomPlaybackTimingMode,
 } from '../../../cloudflare/pro-room-playback-timing.ts';
 import type { MusixquareProRoom } from '../../../cloudflare/pro-room-worker.ts';
+import { PRO_YOUTUBE_BARRIERED_PREPARE_TIMEOUT_MS } from '../../youtube/constants.ts';
 import type { ProRoomPlaybackCommitEvent, ProRoomPlaybackPrepareEvent } from '../api.ts';
 import type { ProPlaybackTimingMode } from '../playback-authority-hooks.ts';
 
@@ -21,11 +22,11 @@ import type { ProPlaybackTimingMode } from '../playback-authority-hooks.ts';
  * transition that names no kind as a scheduled control. The encoding was never
  * in the home, which holds only values that outlive it.
  *
- * The App's 2.3 s barriered YouTube prepare budget must fit inside the
- * barrier. That ordering test waits for Phase 0d C2-1, which moves the budget
- * to src/youtube/constants.ts: today it is a module constant of
- * src/youtube/iframe.ts and src/youtube/authority-arm.ts, and a test-only
- * export is not allowed (scripts/check-dead-exports.mts).
+ * The App's 2.3 s barriered YouTube prepare budget, whose home is
+ * src/youtube/constants.ts since Phase 6 6A-3 (C2-1), must fit inside the
+ * barrier: the last two rows pin that order and the room it leaves for READY.
+ * The budget stays an App value, out of this shared home, so a change to it
+ * keeps an App-only release.
  *
  * App suites that model a PREPARE or a COMMIT cannot import the home: a suite
  * that loads Worker code belongs to the Worker coverage profile
@@ -71,5 +72,19 @@ describe('PRO playback transition timing (RO-03)', () => {
     const home = await import('../../../cloudflare/pro-room-playback-timing.ts');
     const copy = await import('./__helpers__/pro-room-playback-timing-copy.ts');
     expect({ ...copy }).toEqual({ ...home });
+  });
+
+  it("keeps the App's 2.3 s barriered YouTube prepare budget inside the 3 s barrier", () => {
+    expect(PRO_YOUTUBE_BARRIERED_PREPARE_TIMEOUT_MS).toBeLessThan(
+      PRO_ROOM_PLAYBACK_TRANSITION_DEADLINE_MS,
+    );
+  });
+
+  it('leaves 700 ms between that budget and the barrier: the room for a READY, not the COMMIT lead', () => {
+    // Fresh clock samples and the READY upload fit here before the deadline.
+    // The COMMIT lead has the same value by chance and is not this room.
+    const readyRoomMs =
+      PRO_ROOM_PLAYBACK_TRANSITION_DEADLINE_MS - PRO_YOUTUBE_BARRIERED_PREPARE_TIMEOUT_MS;
+    expect(readyRoomMs).toBe(700);
   });
 });

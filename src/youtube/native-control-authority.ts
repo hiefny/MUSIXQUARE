@@ -19,6 +19,7 @@ import { isPlaybackActivityValue } from '../player/ownership.ts';
 import { routeProPlaybackCommand } from '../pro-room/playback-authority-hooks.ts';
 import { getRoomContext, hasRoomCapability } from '../rooms/authority.ts';
 import type { QueueItemId } from '../types/index.ts';
+import { YOUTUBE_FRESH_START_MAX_SEC } from './constants.ts';
 import {
   getYouTubePlayer,
   getCurrentSessionId,
@@ -53,6 +54,7 @@ import {
   type NativeYouTubeMediaAction,
 } from './native-control-policy.ts';
 import { getLocalYouTubeAudibleOutputDelayMs } from './play-latency.ts';
+import { isYouTubeAutoSyncPending } from './player-runtime-bridge.ts';
 
 const RECENT_NATIVE_ACTION_MS = 2_500;
 const LOCAL_REJOIN_FALLBACK_MS = 250;
@@ -135,11 +137,24 @@ function handlePlayerReady(): void {
   expectYouTubeStableActivity(player, getYtAutoplayIntent() ? 'playing' : 'paused');
 }
 
+let isSyncTransitionOwnerPending: () => boolean = () => false;
+
+/**
+ * sync.ts answers whether one of its guest state actions or rendezvous stages
+ * holds the iframe. It imports this module, so it registers that owner query
+ * here instead of being imported; until it does, no such owner is pending.
+ */
+export function registerYouTubeNativeControlSyncOwnerQuery(query: () => boolean): void {
+  isSyncTransitionOwnerPending = query;
+}
+
 function hasProtectedTransitionOwner(): boolean {
   // A seek can emit stable callbacks without another playVideo/pauseVideo
   // command. While synchronization owns that seek, unmatched callbacks are
   // operation output, not fresh OS/headset input. Use the active owner rather
   // than synthetic seek expectations that could swallow a later real PAUSE.
+  // The legacy rendezvous and sync.ts answer for their own timers; the PRO
+  // coordinator nudge (RO-13, owner-in-place) is still read by name.
   return (
     isYtLoadInProgress() ||
     isYtIndexing() ||
@@ -147,15 +162,9 @@ function hasProtectedTransitionOwner(): boolean {
     isYtPrimeBouncePending() ||
     isStandardHostYouTubeLocalStartPending() ||
     isStandardHostManualOffsetTransactionPending() ||
-    [
-      PRO_COORDINATOR_YOUTUBE_NUDGE_TIMER,
-      'yt-auto-sync',
-      'yt-clock-action',
-      'yt-seek-play',
-      'yt-rendezvous-buffer',
-      'yt-rendezvous-play',
-      'yt-rendezvous-calibrate',
-    ].some((name) => getManagedTimer(name) !== null)
+    getManagedTimer(PRO_COORDINATOR_YOUTUBE_NUDGE_TIMER) !== null ||
+    isYouTubeAutoSyncPending() ||
+    isSyncTransitionOwnerPending()
   );
 }
 
@@ -466,7 +475,7 @@ function routeNativeAction(
   bus.emit('youtube:auto-play', {
     targetTime: positionSeconds,
     skipSeek: false,
-    zeroStart: action === 'play' && positionSeconds <= 0.12,
+    zeroStart: action === 'play' && positionSeconds <= YOUTUBE_FRESH_START_MAX_SEC,
     state: action === 'play' ? 1 : 2,
   });
   log.info(`[YouTube Native Control] Promoted host ${action} to room rendezvous`);

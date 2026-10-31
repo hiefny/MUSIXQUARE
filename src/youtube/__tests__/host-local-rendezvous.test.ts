@@ -237,6 +237,7 @@ afterEach(() => {
   configureYouTubePlayerRuntimeHooks({
     cancelPendingAutoSync: () => undefined,
     consumePendingAutoSyncOnReady: () => null,
+    isYouTubeAutoSyncPending: () => false,
     isYouTubeZeroStartExternalFallbackActive: () => false,
     isYouTubeZeroStartExternalFallbackPending: () => false,
     isProPlaybackPauseGatePending: () => false,
@@ -280,6 +281,8 @@ describe.each([0, 250])('Standard-host local scheduled rendezvous (output %ims)'
       configureYouTubePlayerRuntimeHooks({
         cancelPendingAutoSync: cancel,
         consumePendingAutoSyncOnReady: () => null,
+        // The stand-in owner answers from the raw timer it armed above.
+        isYouTubeAutoSyncPending: () => getManagedTimer('yt-auto-sync') !== null,
         isYouTubeZeroStartExternalFallbackActive: () => false,
         isYouTubeZeroStartExternalFallbackPending: () => false,
         isProPlaybackPauseGatePending: () => false,

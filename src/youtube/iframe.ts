@@ -107,6 +107,7 @@ import {
 import {
   consumePendingAutoSyncOnReadyFromIframe,
   isProPlaybackPauseGatePendingFromIframe,
+  isYouTubeAutoSyncPending,
   isYouTubeZeroStartExternalFallbackActiveFromIframe,
   setPendingAutoSyncOnReadyFromIframe,
 } from './player-runtime-bridge.ts';
@@ -145,6 +146,8 @@ import {
   FIRST_TRACK_FISHER_MAX_POLLS,
   VIDEO_DATA_POLL_EVERY_NTH_TICK,
   DURATION_CACHE_EPSILON,
+  PRO_YOUTUBE_BARRIERED_PREPARE_TIMEOUT_MS,
+  PRO_YOUTUBE_UNBARRIERED_PREPARE_TIMEOUT_MS,
 } from './constants.ts';
 
 import type { QueueItemId } from '../types/index.ts';
@@ -1651,7 +1654,8 @@ function resetResidentYouTubeSync(player: YouTubePlayerInstance): void {
   } finally {
     resettingResidentPlayer = null;
   }
-  clearManagedTimer('yt-clock-action');
+  // resetYouTubeSyncState, called next, retires a pending clock action through
+  // its owner (cancelClockAction) and clears 'yt-seek-play' again.
   clearManagedTimer('yt-seek-play');
   clearManagedTimer('yt-auto-sync');
   resetYouTubeSyncState();
@@ -2009,14 +2013,6 @@ type YouTubeAuthorityPreparationResult =
     };
 
 let proAuthorityPreparationGeneration = 0;
-/** A server PREPARE must still report READY inside its three-second barrier. */
-const PRO_YOUTUBE_BARRIERED_PREPARE_TIMEOUT_MS = 2_300;
-/**
- * Restores, catch-ups, and participant-local rejoins have no server barrier.
- * Their wait can include the first IFrame API/player load, which routinely
- * exceeds the barriered budget on a phone; let that load finish instead.
- */
-export const PRO_YOUTUBE_UNBARRIERED_PREPARE_TIMEOUT_MS = 10_000;
 /**
  * The exact iOS iframe whose TAP TO PLAY gesture was spent on PRO playback.
  * That tap unlocks scripted audible starts even when WebKit never reported the
@@ -3369,7 +3365,7 @@ function onYouTubePlayerStateChange(event: { data: number; target: YouTubePlayer
   // scheduleYtAutoSync already broadcasts the authoritative state+hostPlayAt
   // at the start of its sequence, so suppressing these in-flight auxiliary
   // broadcasts is safe.
-  const syncInFlight = isYouTubeZeroStartProtocolActive() || !!getManagedTimer('yt-auto-sync');
+  const syncInFlight = isYouTubeZeroStartProtocolActive() || isYouTubeAutoSyncPending();
   const coordinatorNudgeInFlight = !!getManagedTimer(PRO_COORDINATOR_YOUTUBE_NUDGE_TIMER);
   // State-aware cooldown: only suppress if same state was broadcast within 300ms.
   // Deduplicate by state as well as time. A time-only cooldown would swallow a
@@ -3757,7 +3753,7 @@ function updateYouTubeUI(): void {
       // WITHOUT firing an ENDED event, so our ENDED → playlist:next-track
       // path never runs and guests diverge until drift correction catches up.
       // Detect the transition here and start the track-transition rendezvous.
-      if (!hostConn && prevIdx !== -1 && playlistIdx >= 0 && !getManagedTimer('yt-auto-sync')) {
+      if (!hostConn && prevIdx !== -1 && playlistIdx >= 0 && !isYouTubeAutoSyncPending()) {
         setYouTubeSubIndex(playlistIdx);
         log.debug(
           `[YouTube] Sub-video auto-advance detected: ${prevIdx} → ${playlistIdx} (state=${state}), applying 1-sec sync`,

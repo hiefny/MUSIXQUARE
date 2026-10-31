@@ -20,8 +20,10 @@
  * Timing: the Worker's barrier and COMMIT lead come from the copy that
  * pro-room-playback-timing.test.ts pins to cloudflare/pro-room-playback-timing.ts
  * (this suite must not load Worker code, see ci-quality-gates.test.ts); the
- * App's own late-join values come from __helpers__/pro-late-youtube-join-timing.ts,
- * which names the row that pins each of them.
+ * App's own late-join lead comes from __helpers__/pro-late-youtube-join-timing.ts,
+ * which names the row that pins it, and the arm's release timing (the
+ * controller's late-release tolerance among it) from its home,
+ * src/youtube/constants.ts.
  */
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { resetState, setState } from '../../core/state.ts';
@@ -43,10 +45,10 @@ import {
 } from '../playback-authority-hooks.ts';
 import { ProRoomPlaybackController } from '../playback-controller.ts';
 import {
-  LATE_YOUTUBE_COMMIT_LEAD_MS as LATE_JOIN_LEAD_MS,
-  LATE_YOUTUBE_RELEASE_TOLERANCE_MS,
-  RELEASE_ACK_TIMEOUT_MS,
-} from './__helpers__/pro-late-youtube-join-timing.ts';
+  YOUTUBE_ARM_RELEASE_ACK_TIMEOUT_MS,
+  YOUTUBE_RELEASE_CATCH_UP_TOLERANCE_MS,
+} from '../../youtube/constants.ts';
+import { LATE_YOUTUBE_COMMIT_LEAD_MS as LATE_JOIN_LEAD_MS } from './__helpers__/pro-late-youtube-join-timing.ts';
 import {
   PRO_ROOM_PLAYBACK_COMMIT_LEAD_MS as COMMIT_LEAD_MS,
   PRO_ROOM_PLAYBACK_TRANSITION_DEADLINE_MS as BARRIER_MS,
@@ -96,6 +98,9 @@ const TRANSITION_ID = `transition_${'l'.repeat(22)}`;
  * where the room timeline starts at 0 (today 3.0 - 0.7 = 2.3 s).
  */
 const LATE_JOIN_POSITION_SECONDS = (LATE_JOIN_LEAD_MS - COMMIT_LEAD_MS) / 1_000;
+// The arm's release timing, read from its home.
+const LATE_YOUTUBE_RELEASE_TOLERANCE_MS = YOUTUBE_RELEASE_CATCH_UP_TOLERANCE_MS;
+const RELEASE_ACK_TIMEOUT_MS = YOUTUBE_ARM_RELEASE_ACK_TIMEOUT_MS;
 
 function playing(revision: number, updatedAtMs: number): ProRoomPlaybackCheckpoint {
   return {

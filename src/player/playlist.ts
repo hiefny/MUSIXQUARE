@@ -71,11 +71,11 @@ import {
 import {
   cancelYouTubeAuthorityPreparation,
   handoffSameVideoOccurrenceRestart,
-  PRO_YOUTUBE_UNBARRIERED_PREPARE_TIMEOUT_MS,
   prepareYouTubeAuthorityOccurrence,
   prepareSameVideoOccurrenceRestart,
   waitForPendingYouTubePrimeBounce,
 } from '../youtube/iframe.ts';
+import { PRO_YOUTUBE_UNBARRIERED_PREPARE_TIMEOUT_MS } from '../youtube/constants.ts';
 import { isYtLoadInProgress, isYtPlayerReady } from '../youtube/_state.ts';
 import { isGuestBlocked } from '../network/guards.ts';
 import { showRoomCapabilityRequired } from '../rooms/permission-feedback.ts';

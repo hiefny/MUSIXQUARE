@@ -10,16 +10,16 @@ import {
 } from '../../diagnostics/pro-start-observations.ts';
 
 import { setPlaybackYouTubePlaying } from '../../player/ownership.ts';
-import {
-  LATE_YOUTUBE_COMMIT_LEAD_MS as LATE_JOIN_LEAD_MS,
-  LATE_YOUTUBE_RELEASE_TOLERANCE_MS,
-} from '../../pro-room/__tests__/__helpers__/pro-late-youtube-join-timing.ts';
+import { LATE_YOUTUBE_COMMIT_LEAD_MS as LATE_JOIN_LEAD_MS } from '../../pro-room/__tests__/__helpers__/pro-late-youtube-join-timing.ts';
 import {
   PRO_ROOM_PLAYBACK_COMMIT_LEAD_MS as COMMIT_LEAD_MS,
   PRO_ROOM_PLAYBACK_TRANSITION_DEADLINE_MS as BARRIER_MS,
 } from '../../pro-room/__tests__/__helpers__/pro-room-playback-timing-copy.ts';
 import type { QueueItemId } from '../../types/index.ts';
-import { ANDROID_YOUTUBE_PLAY_LATENCY_FLOOR_MS } from '../constants.ts';
+import {
+  ANDROID_YOUTUBE_PLAY_LATENCY_FLOOR_MS,
+  YOUTUBE_RELEASE_CATCH_UP_TOLERANCE_MS,
+} from '../constants.ts';
 import type { YouTubePlayerInstance } from '../_state.ts';
 import type { ProRoomSnapshot } from '../../pro-room/contracts.ts';
 import type { ProRoomSignalingAccess } from '../../pro-room/api.ts';
@@ -45,6 +45,9 @@ const SECOND_QUEUE_ITEM_ID = '55555555-5555-4555-8555-555555555555' as QueueItem
  * only when a release starts.
  */
 const PRE_V2_ZERO_START_LEAD_MS = COMMIT_LEAD_MS - 1;
+
+// The arm's release catch-up tolerance, read from its home.
+const LATE_YOUTUBE_RELEASE_TOLERANCE_MS = YOUTUBE_RELEASE_CATCH_UP_TOLERANCE_MS;
 
 const platformUnderTest = vi.hoisted(() => ({ android: false }));
 vi.mock('../../core/platform.ts', async (importOriginal) => ({
@@ -1379,9 +1382,10 @@ describe('PRO manual offset across YouTube zero-start', () => {
 describe('PRO late cohort join (pinned 2026-10-30)', () => {
   // Timing: the Worker's COMMIT lead comes from the copy that
   // pro-room-playback-timing.test.ts pins to cloudflare/pro-room-playback-timing.ts;
-  // the App's late-join values come from
+  // the App's late-join lead comes from
   // pro-room/__tests__/__helpers__/pro-late-youtube-join-timing.ts, which names
-  // the row that pins each of them.
+  // the row that pins it, and the arm's release tolerance from its home,
+  // src/youtube/constants.ts.
 
   // (c) Scenario: this device learned a 20 ms startup lead from an earlier
   // zero-start (its iframe ran 80 ms behind the server timeline), then misses

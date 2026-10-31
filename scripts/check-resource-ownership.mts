@@ -39,8 +39,13 @@
  *   CHECK 5 Copied timing constants (principle 4). Inside each contract the
  *     registry names, top-level *_MS, *_S, *_DELAY(S) and *_TIMEOUT constants
  *     that share a name across files, identical numeric tuples, and timing
- *     objects that share five or more values are an exact, triaged list.
- *     Constants that only share a value are report-only (--report lists them).
+ *     objects that share five or more values are an exact, triaged list. A
+ *     contract's scalar home, one named export per value
+ *     (src/youtube/constants.ts for RO-02/RO-03/RO-12 since Phase 6 6A), adds
+ *     every numeric scalar there to the same-name check whatever its suffix,
+ *     and its scalars pair with a timing object in another contract file as
+ *     one object, `<scalars>`. Constants that only share a value are
+ *     report-only (--report lists them).
  *   CHECK 6 AudioContext native resume()/suspend() call sites (RO-01, RO-44),
  *     counted syntactically per file.
  *   CHECK 7 Developer API authority fence writers (RO-25). Writes to
@@ -88,10 +93,12 @@
  *   CHECK 12 Cross-file YouTube start-timer reads and clears (RO-02, Phase 6
  *     T1), per file in src/youtube/: getManagedTimer() and
  *     clearManagedTimer() calls on a start timer (START_TIMER_SETTERS) that
- *     the same file does not set with setManagedTimer(). A name list handed
- *     to an array method (`names.some((name) => getManagedTimer(name))`,
- *     `names.forEach(clearManagedTimer)`) counts once per call. Names resolve
- *     from the syntax tree alone: a string literal; both sides of a
+ *     the same file does not set with setManagedTimer(). A call counts once
+ *     per start timer it can take (since Phase 6 6A; once per call before),
+ *     so a name list handed to an array method
+ *     (`names.some((name) => getManagedTimer(name))`,
+ *     `names.forEach(clearManagedTimer)`) counts each of its names. Names
+ *     resolve from the syntax tree alone: a string literal; both sides of a
  *     conditional, `??` or `||`; a const initialised with one (every binding
  *     of the name in the file, matched by name, not by scope), imported by
  *     name, re-exported or read through a namespace import; a for-of const,
@@ -365,13 +372,25 @@ interface TimingContract {
   /** Registry records whose timing-constant homes list these files. */
   readonly records: readonly string[];
   readonly files: readonly string[];
+  /**
+   * The contract file that holds one named export per value rather than an
+   * object. Every numeric scalar there takes part in the same-name check
+   * whatever its suffix, and its scalars pair with a timing object in another
+   * contract file as one object, as a home object would.
+   */
+  readonly scalarHome?: string;
 }
 
 const TIMING_CONTRACTS: readonly TimingContract[] = [
   { records: ['RO-01'], files: ['src/audio/context.ts', 'src/audio/context-recovery.ts'] },
   {
     records: ['RO-02', 'RO-03', 'RO-12'],
+    scalarHome: 'src/youtube/constants.ts',
     files: [
+      // The start timing home since Phase 6 6A-3 (C2-1).
+      'src/youtube/constants.ts',
+      // The verified audio restore since Phase 6 6A-4 (C2-3).
+      'src/youtube/iframe-audio.ts',
       'src/youtube/zero-start.ts',
       'src/youtube/authority-arm.ts',
       'src/youtube/player.ts',
@@ -477,16 +496,12 @@ const TIMING_CONTRACTS: readonly TimingContract[] = [
  * Exact list of copied timing constants inside a contract, keyed by the
  * fingerprint the guard prints: same-named scalars, identical numeric tuples
  * of three or more, and timing objects sharing five or more values (0 and 1
- * ignored). Scalars that only share a value are report-only: round values
- * such as 1 s, 15 s and 30 s recur across unrelated contracts (28 such pairs
- * on 2026-10-22, mostly coincidences); run with --report to list them.
+ * ignored; a scalar home's scalars pair as `<scalars>@<home>`). Scalars that
+ * only share a value are report-only: round values such as 1 s, 15 s and 30 s
+ * recur across unrelated contracts (28 such pairs on 2026-10-22, mostly
+ * coincidences); run with --report to list them.
  */
 const TIMING_PAIR_BASELINE = new Map<string, PairAllowance>([
-  [
-    'RO-02/RO-03/RO-12 TIMING@src/youtube/authority-arm.ts = ' +
-      'YOUTUBE_ZERO_START_TIMING@src/youtube/zero-start.ts (10 shared values)',
-    { kind: 'copy', reason: 'arm timing copied for PRO; Phase 0d C2-1 shares it' },
-  ],
   [
     // Phase 3 R2: the lazy hard reset measures the logo claim's quiet reading
     // so the eager bundle does not carry it; the update machine stays the home.
@@ -725,7 +740,11 @@ const MEDIA_TUNING_BASELINE: Baseline = new Map<string, Allowance>([
 // 44 calls in the same five files as a text search for `mute(`, `unMute(` and
 // `setVolume(` found on 2026-10-30. Phase 6 moves the writes to one
 // iframe-audio owner and lowers these counts as it goes; the iOS prime unMute
-// and the retained player's hard-mute proof stay.
+// and the retained player's hard-mute proof stay. Phase 6 6A-4 moved the six
+// verified restores, the recoveries' restores before a release, the guest
+// fallback's release write and both recoveries' unverified cleanups of a
+// replaced or cancelled iframe onto the shared writer in
+// src/youtube/iframe-audio.ts (32 calls).
 
 const IFRAME_AUDIO_WRITE_METHODS = new Set(['mute', 'unMute', 'setVolume']);
 
@@ -739,10 +758,23 @@ const IFRAME_AUDIO_WRITE_BASELINE: Baseline = new Map<string, Allowance>([
   [
     'src/youtube/authority-arm.ts',
     {
-      count: 10,
+      count: 4,
       reason:
-        'the PRO arm: the hard mute in prepare and #waitForHardMute (4), the active restore ' +
-        '#restoreCapturedAudio (3) and the detached restore #attemptDetachedAudioRestore (3)',
+        'the PRO arm: the hard mute in prepare and #waitForHardMute (4); its active and ' +
+        'detached restores write through writeYouTubeAudio in src/youtube/iframe-audio.ts',
+    },
+  ],
+  [
+    'src/youtube/iframe-audio.ts',
+    {
+      count: 3,
+      reason:
+        'the shared restore writer writeYouTubeAudio (3), through which the six verified ' +
+        "restores write: zero-start's and the PRO arm's active and detached restores, and the " +
+        'player.ts cleanups of the host legacy recovery and the guest local fallback; the ' +
+        "recoveries' restores before a release, the guest fallback's release write and both " +
+        "recoveries' unverified cleanups of a replaced or cancelled iframe (cleanupExactPlayer " +
+        'in player.ts) write through it too',
     },
   ],
   [
@@ -758,13 +790,14 @@ const IFRAME_AUDIO_WRITE_BASELINE: Baseline = new Map<string, Allowance>([
   [
     'src/youtube/player.ts',
     {
-      count: 17,
+      count: 14,
       reason:
         'the PRO direct commit applyProPlaybackYouTubeCommit (3); the mute before stopYouTubeMode ' +
-        'destroys the player (1); the helper restoreFallbackAudio (3), through which the host ' +
-        'legacy recovery and the guest local fallback restore audio, and their mutes before a ' +
-        'load or a wait (attemptRecovery 1, attemptFallback 2); the youtube:set-volume handler ' +
-        '(3) and the PRO pause gate handlers (pending 1, settled 3)',
+        'destroys the player (1); the mutes of the host legacy recovery and the guest local ' +
+        'fallback before a load or a wait (attemptRecovery 1, attemptFallback 2), whose audio ' +
+        'restores, release write and cleanups write through writeYouTubeAudio in ' +
+        'src/youtube/iframe-audio.ts; the youtube:set-volume handler (3) and the PRO pause gate ' +
+        'handlers (pending 1, settled 3)',
     },
   ],
   [
@@ -779,12 +812,12 @@ const IFRAME_AUDIO_WRITE_BASELINE: Baseline = new Map<string, Allowance>([
   [
     'src/youtube/zero-start.ts',
     {
-      count: 12,
+      count: 6,
       reason:
         'the Standard zero-start controller: the release unMute and its retry in ' +
         'handlePlayerStateChange (2), the hard mute in #beginLocalPrepare and #waitForHardMute ' +
-        '(4), the active restore #attemptRunAudioRestore (3) and the detached restore ' +
-        'attemptRestore (3)',
+        '(4); its active and detached restores write through writeYouTubeAudio in ' +
+        'src/youtube/iframe-audio.ts',
     },
   ],
 ]);
@@ -792,13 +825,21 @@ const IFRAME_AUDIO_WRITE_BASELINE: Baseline = new Map<string, Allowance>([
 // ── CHECK 12 baselines: cross-file YouTube start-timer reads and clears ──
 // Measured on main 23f29283 (App 9.0.27) on 2026-10-31, Phase 6 T1: the same
 // 14 reads and 10 clears the 2026-10-30 Phase 6 plan counted by hand. Phase 6
-// replaces the reads of the legacy rendezvous and sync.ts timers with owner
-// queries; the PRO coordinator nudge reads stay, because the manual-offset
-// transaction (RO-13) is owner-in-place. On that tree every timer call in
-// src/youtube/ resolves its name (the five templates name per-peer timers that
-// cannot spell a start timer), no file renames or passes on a timer function,
-// and each start timer is set only by its listed files, so the fail-closed
-// findings have no allowance.
+// 6A-1 replaced the reads of the legacy rendezvous and sync.ts timers with
+// owner queries, which each owner answers from its own timers (11 reads): the
+// player runtime bridge's isYouTubeAutoSyncPending, which player.ts answers,
+// and the query sync.ts registers with the native-control authority. The PRO
+// coordinator nudge reads stay, because the manual-offset transaction (RO-13)
+// is owner-in-place. Phase 6 6A-2 dropped iframe.ts's 'yt-clock-action' clear,
+// which resetYouTubeSyncState repeats through its owner (9 clears). Those
+// counts are per call. Since Phase 6 6A a call counts once per start timer it
+// covers; every counted call names one, so the baselines stay 11 and 9 (per
+// name, T1's tree had 20 reads and 10 clears: the seven-name list in
+// hasProtectedTransitionOwner counted 7). On every tree since T1 each timer
+// call in src/youtube/ resolves its name (the five templates name per-peer
+// timers that cannot spell a start timer), no file renames or passes on a
+// timer function, and each start timer is set only by its listed files, so
+// the fail-closed findings have no allowance.
 
 const START_TIMER_SCOPE = 'src/youtube/';
 const TIMER_SET_CALL = 'setManagedTimer';
@@ -851,11 +892,11 @@ const START_TIMER_READ_BASELINE: Baseline = new Map<string, Allowance>([
   [
     'src/youtube/iframe.ts',
     {
-      count: 3,
+      count: 1,
       reason:
-        "'yt-auto-sync' in onYouTubePlayerStateChange (the host's auxiliary YOUTUBE_STATE " +
-        "hold) and updateYouTubeUI (the host's sub-video advance check), owner queries in " +
-        'Phase 6; the PRO coordinator nudge in onYouTubePlayerStateChange (stays)',
+        'the PRO coordinator nudge in onYouTubePlayerStateChange (stays); the auxiliary ' +
+        "YOUTUBE_STATE hold and the sub-video advance check ask the 'yt-auto-sync' owner " +
+        'query since Phase 6 6A-1',
     },
   ],
   [
@@ -873,8 +914,9 @@ const START_TIMER_READ_BASELINE: Baseline = new Map<string, Allowance>([
     {
       count: 1,
       reason:
-        "hasProtectedTransitionOwner: one list of seven names (the nudge, 'yt-auto-sync', both " +
-        'state actions and the three rendezvous stages); owner queries in Phase 6',
+        'the PRO coordinator nudge in hasProtectedTransitionOwner (stays, RO-13 is ' +
+        "owner-in-place); 'yt-auto-sync' and sync.ts's state actions and rendezvous stages " +
+        'answer through owner queries since Phase 6 6A-1',
     },
   ],
   [
@@ -890,11 +932,11 @@ const START_TIMER_READ_BASELINE: Baseline = new Map<string, Allowance>([
   [
     'src/youtube/sync.ts',
     {
-      count: 4,
+      count: 3,
       reason:
         'the PRO coordinator nudge in reconcileCanonicalManualOffsetEndpoint and twice in ' +
-        "broadcastYouTubeSync (stays); 'yt-auto-sync' in broadcastYouTubeSync (the " +
-        'non-manual heartbeat hold, an owner query in Phase 6)',
+        'broadcastYouTubeSync (stays); the non-manual heartbeat hold asks the ' +
+        "'yt-auto-sync' owner query since Phase 6 6A-1",
     },
   ],
 ]);
@@ -904,11 +946,13 @@ const START_TIMER_CLEAR_BASELINE: Baseline = new Map<string, Allowance>([
   [
     'src/youtube/iframe.ts',
     {
-      count: 3,
+      count: 2,
       reason:
-        "resetResidentYouTubeSync clears 'yt-clock-action', 'yt-seek-play' and 'yt-auto-sync' " +
-        "without their owners' retire (resetYouTubeSyncState, which it calls next, already " +
-        'clears the first two)',
+        "resetResidentYouTubeSync clears 'yt-seek-play', which resetYouTubeSyncState, called " +
+        'next, clears again (the YouTube-to-YouTube reuse regression test, which mocks sync.ts, ' +
+        "pins this clear), and 'yt-auto-sync' without player.ts's retire (stays); its " +
+        "'yt-clock-action' clear went in Phase 6 6A-2, as resetYouTubeSyncState retires that " +
+        'timer through its owner, cancelClockAction',
     },
   ],
   [
@@ -2313,9 +2357,10 @@ interface StartTimerUses {
 /**
  * RO-02: per file in src/youtube/, getManagedTimer() and clearManagedTimer()
  * calls that can take a start timer the same file does not set. A call
- * counts once however many such names it can take (a name list is one call).
- * Every timer call there must resolve its name, the timer functions keep
- * their names, and each start timer is set by exactly its listed files.
+ * counts once per such name it can take, so a name added to a list counts
+ * as a new call would. Every timer call there must resolve its name, the
+ * timer functions keep their names, and each start timer is set by exactly
+ * its listed files.
  */
 function collectStartTimerUses(sources: ReadonlyMap<string, string>): StartTimerUses {
   const scopeOf = timerNameScopes(sources);
@@ -2368,7 +2413,7 @@ function collectStartTimerUses(sources: ReadonlyMap<string, string>): StartTimer
       );
       if (counted.length === 0) continue;
       const measured = call.kind === 'read' ? reads : clears;
-      measured.set(relPath, (measured.get(relPath) ?? 0) + 1);
+      measured.set(relPath, (measured.get(relPath) ?? 0) + counted.length);
       sites.push(
         `cross-file start-timer ${call.kind}: ${relPath}:${lineOf(scope.file, call.node)} ` +
           `${call.callee}(${counted.map((name) => `'${name}'`).join(', ')}) in ` +
@@ -2706,11 +2751,15 @@ function checkDeadlineOwnership(
 
 const TIMING_NAME_RE = /_(?:MS|S|DELAY|DELAYS|TIMEOUT)$/u;
 const OBJECT_COPY_MIN_SHARED_VALUES = 5;
+/** The name a contract's scalar home pairs under with a timing object. */
+const SCALAR_HOME_NAME = '<scalars>';
 
 interface ContractConstant {
   readonly file: string;
   readonly name: string;
   readonly value: ConstantValue;
+  /** A scalar without a timing name that shares its name with a scalar home value. */
+  readonly sameNameOnly?: boolean;
 }
 
 function sharedObjectValues(
@@ -2756,22 +2805,52 @@ function pairDetail(left: ContractConstant, right: ContractConstant): string | n
   return leftValue === rightValue ? leftValue : null;
 }
 
+/**
+ * A contract's candidates: timing-named scalars, tuples and timing objects in
+ * each file; with a scalar home, also every numeric scalar that shares a name
+ * with a home scalar (same-name pairs only), and the home's scalars as one
+ * object.
+ */
+function contractConstants(
+  contract: TimingContract,
+  sources: ReadonlyMap<string, string>,
+): ContractConstant[] {
+  const parsed = contract.files.flatMap((file) => {
+    const text = sources.get(file);
+    return text === undefined ? [] : [{ file, constants: topLevelConstants(parse(file, text)) }];
+  });
+  const homeScalars = new Map<string, number>();
+  for (const { file, constants } of parsed) {
+    if (file !== contract.scalarHome) continue;
+    for (const { name, value } of constants) {
+      if (typeof value === 'number') homeScalars.set(name, value);
+    }
+  }
+  const candidates: ContractConstant[] = [];
+  for (const { file, constants } of parsed) {
+    for (const constant of constants) {
+      if (isTimingCandidate(constant)) candidates.push({ file, ...constant });
+      else if (typeof constant.value === 'number' && homeScalars.has(constant.name)) {
+        candidates.push({ file, ...constant, sameNameOnly: true });
+      }
+    }
+  }
+  if (contract.scalarHome !== undefined && homeScalars.size > 0) {
+    candidates.push({ file: contract.scalarHome, name: SCALAR_HOME_NAME, value: homeScalars });
+  }
+  return candidates;
+}
+
 function collectTimingPairs(sources: ReadonlyMap<string, string>): TimingPairs {
   const enforced = new Set<string>();
   const reportOnly = new Set<string>();
   for (const contract of TIMING_CONTRACTS) {
-    const constants: ContractConstant[] = [];
-    for (const relPath of contract.files) {
-      const text = sources.get(relPath);
-      if (text === undefined) continue;
-      for (const constant of topLevelConstants(parse(relPath, text))) {
-        if (isTimingCandidate(constant)) constants.push({ file: relPath, ...constant });
-      }
-    }
+    const constants = contractConstants(contract, sources);
     const label = contract.records.join('/');
     for (const [index, left] of constants.entries()) {
       for (const right of constants.slice(index + 1)) {
         if (left.file === right.file) continue;
+        if ((left.sameNameOnly || right.sameNameOnly) && left.name !== right.name) continue;
         const detail = pairDetail(left, right);
         if (detail === null) continue;
         const [first, second] = [left, right].sort((a, b) =>

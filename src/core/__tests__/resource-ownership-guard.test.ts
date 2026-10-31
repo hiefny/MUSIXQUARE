@@ -650,6 +650,123 @@ describe('resource-ownership guard', { timeout: 60_000 }, () => {
       );
     });
 
+    it('rejects a same-named copy of a YouTube start timing beside its home src/youtube/constants.ts (RO-02/RO-03/RO-12)', () => {
+      const findings = findingsOf(
+        withSources((sources) => {
+          const file = 'src/youtube/player.ts';
+          sources.set(
+            file,
+            `${sources.get(file) ?? ''}\nconst PRO_YOUTUBE_BARRIERED_PREPARE_TIMEOUT_MS = 2_300;\n` +
+              'void PRO_YOUTUBE_BARRIERED_PREPARE_TIMEOUT_MS;\n',
+          );
+        }),
+      );
+      expect(findings).toContain(
+        'COPIED TIMING CONSTANT (principle 4): RO-02/RO-03/RO-12 ' +
+          'PRO_YOUTUBE_BARRIERED_PREPARE_TIMEOUT_MS@src/youtube/constants.ts = ' +
+          'PRO_YOUTUBE_BARRIERED_PREPARE_TIMEOUT_MS@src/youtube/player.ts (2300)',
+      );
+    });
+
+    it('rejects a same-named copy of an arm timing beside its home src/youtube/constants.ts (RO-02/RO-03/RO-12)', () => {
+      const findings = findingsOf(
+        withSources((sources) => {
+          const file = 'src/youtube/iframe.ts';
+          sources.set(
+            file,
+            `${sources.get(file) ?? ''}\nconst YOUTUBE_ARM_RELEASE_ACK_TIMEOUT_MS = 1_800;\n` +
+              'void YOUTUBE_ARM_RELEASE_ACK_TIMEOUT_MS;\n',
+          );
+        }),
+      );
+      expect(findings).toContain(
+        'COPIED TIMING CONSTANT (principle 4): RO-02/RO-03/RO-12 ' +
+          'YOUTUBE_ARM_RELEASE_ACK_TIMEOUT_MS@src/youtube/constants.ts = ' +
+          'YOUTUBE_ARM_RELEASE_ACK_TIMEOUT_MS@src/youtube/iframe.ts (1800)',
+      );
+    });
+
+    it('rejects a same-named copy of a start count or seconds value beside its home, whatever its suffix (RO-02/RO-03/RO-12)', () => {
+      const copies = [
+        ['YOUTUBE_ARM_HARD_MUTE_MAX_ATTEMPTS', '12'],
+        ['YOUTUBE_ARM_SETTLE_EPSILON_SEC', '0.12'],
+        ['YOUTUBE_ARM_SETTLE_STABLE_SAMPLES', '2'],
+        ['YOUTUBE_ARM_SETTLE_RESEEK_EVERY', '6'],
+        ['YOUTUBE_ARM_AUDIO_RESTORE_MAX_ATTEMPTS', '8'],
+        ['YOUTUBE_RELEASE_CATCH_UP_TOLERANCE_SEC', '0.04'],
+        ['YOUTUBE_FRESH_START_MAX_SEC', '0.12'],
+      ] as const;
+      const findings = findingsOf(
+        withSources((sources) => {
+          const file = 'src/youtube/player.ts';
+          sources.set(
+            file,
+            `${sources.get(file) ?? ''}\n` +
+              copies.map(([name, value]) => `const ${name} = ${value};\nvoid ${name};\n`).join(''),
+          );
+        }),
+      );
+      for (const [name, value] of copies) {
+        expect(findings).toContain(
+          'COPIED TIMING CONSTANT (principle 4): RO-02/RO-03/RO-12 ' +
+            `${name}@src/youtube/constants.ts = ${name}@src/youtube/player.ts (${value})`,
+        );
+      }
+    });
+
+    it('rejects a re-typed copy of the arm timing beside its home src/youtube/constants.ts (RO-02/RO-03/RO-12)', () => {
+      const findings = findingsOf(
+        withSources((sources) => {
+          const file = 'src/youtube/player.ts';
+          sources.set(
+            file,
+            `${sources.get(file) ?? ''}\nconst RETYPED_ARM_TIMING = Object.freeze({\n` +
+              '  hardMutePollMs: 30,\n  hardMuteMaxAttempts: 12,\n  warmPlayMs: 260,\n' +
+              '  pauseSeekGapMs: 80,\n  settlePollMs: 80,\n});\nvoid RETYPED_ARM_TIMING;\n',
+          );
+        }),
+      );
+      expect(findings).toContain(
+        'COPIED TIMING CONSTANT (principle 4): RO-02/RO-03/RO-12 ' +
+          '<scalars>@src/youtube/constants.ts = ' +
+          'RETYPED_ARM_TIMING@src/youtube/player.ts (5 shared values)',
+      );
+    });
+
+    it('rejects a re-typed arm timing object that two start files share, as the arm copies did before 6A-3 (RO-02/RO-03/RO-12)', () => {
+      const retyped =
+        '\nconst RETYPED_ARM_TIMING = Object.freeze({\n' +
+        '  hardMutePollMs: 30,\n  hardMuteMaxAttempts: 12,\n  warmPlayMs: 260,\n' +
+        '  pauseSeekGapMs: 80,\n  settlePollMs: 80,\n});\nvoid RETYPED_ARM_TIMING;\n';
+      const findings = findingsOf(
+        withSources((sources) => {
+          for (const file of ['src/youtube/zero-start.ts', 'src/youtube/authority-arm.ts']) {
+            sources.set(file, `${sources.get(file) ?? ''}${retyped}`);
+          }
+        }),
+      );
+      expect(findings).toContain(
+        'COPIED TIMING CONSTANT (principle 4): RO-02/RO-03/RO-12 ' +
+          'RETYPED_ARM_TIMING@src/youtube/authority-arm.ts = ' +
+          'RETYPED_ARM_TIMING@src/youtube/zero-start.ts (5 shared values)',
+      );
+    });
+
+    it('keeps a differently named timing that shares a value with a start count out of the same-value pairs (RO-02/RO-03/RO-12)', () => {
+      const input = withSources((sources) => {
+        const file = 'src/youtube/player.ts';
+        sources.set(
+          file,
+          `${sources.get(file) ?? ''}\nconst RESEEK_GAP_MS = 6;\nvoid RESEEK_GAP_MS;\n`,
+        );
+      });
+      const report = analyzeResourceOwnership(input);
+      expect(report.findings).toEqual([]);
+      expect(report.timingPairs.reportOnly).toEqual(
+        analyzeResourceOwnership(realInput()).timingPairs.reportOnly,
+      );
+    });
+
     it('keeps differently named constants that only share a value report-only', () => {
       const input = withSources((sources) => {
         const file = 'src/player/background-return-sync.ts';
@@ -1207,12 +1324,12 @@ describe('resource-ownership guard', { timeout: 60_000 }, () => {
           );
         }),
       );
-      // A name list counts once per call, like the native-control list of seven.
+      // A call counts once per start-timer name it covers: a name list counts each of its names.
       expect(findings).toMatch(
-        /UNSANCTIONED cross-file start-timer read \(RO-02\): src\/youtube\/rogue-start-reader\.ts has 4/u,
+        /UNSANCTIONED cross-file start-timer read \(RO-02\): src\/youtube\/rogue-start-reader\.ts has 6 /u,
       );
       expect(findings).toMatch(
-        /UNSANCTIONED cross-file start-timer clear \(RO-02\): src\/youtube\/rogue-start-reader\.ts has 2/u,
+        /UNSANCTIONED cross-file start-timer clear \(RO-02\): src\/youtube\/rogue-start-reader\.ts has 3 /u,
       );
     });
 
@@ -1259,19 +1376,25 @@ describe('resource-ownership guard', { timeout: 60_000 }, () => {
           );
         }),
       );
-      // Seven reads (one per call) and two clears, and nothing the guard cannot resolve.
+      // Seven reads naming eleven start timers (both sides of each conditional
+      // and of '??', every name of each list) and two clears naming four, and
+      // nothing the guard cannot resolve.
       expect(findings.split('\n')).toEqual([
         expect.stringMatching(
-          /^UNSANCTIONED cross-file start-timer read \(RO-02\): src\/youtube\/start-name-forms\.ts has 7 - /u,
+          /^UNSANCTIONED cross-file start-timer read \(RO-02\): src\/youtube\/start-name-forms\.ts has 11 - /u,
         ),
         expect.stringMatching(
-          /^UNSANCTIONED cross-file start-timer clear \(RO-02\): src\/youtube\/start-name-forms\.ts has 2 - /u,
+          /^UNSANCTIONED cross-file start-timer clear \(RO-02\): src\/youtube\/start-name-forms\.ts has 4 - /u,
         ),
       ]);
     });
 
-    describe('the native-control list of seven names', () => {
+    // Since Phase 6 6A-1 hasProtectedTransitionOwner asks the owners of
+    // 'yt-auto-sync' and of sync.ts's timers through owner queries and reads
+    // only the PRO coordinator nudge by name.
+    describe('the native-control nudge read', () => {
       const native = 'src/youtube/native-control-authority.ts';
+      const read = '    getManagedTimer(PRO_COORDINATOR_YOUTUBE_NUDGE_TIMER) !== null ||\n';
       const names =
         '      PRO_COORDINATOR_YOUTUBE_NUDGE_TIMER,\n' +
         "      'yt-auto-sync',\n" +
@@ -1280,19 +1403,21 @@ describe('resource-ownership guard', { timeout: 60_000 }, () => {
         "      'yt-rendezvous-buffer',\n" +
         "      'yt-rendezvous-play',\n" +
         "      'yt-rendezvous-calibrate',\n";
-      const list = `    [\n${names}    ].some((name) => getManagedTimer(name) !== null)`;
 
-      it('still counts once when its callback is annotated or it becomes a loop or a frozen const', () => {
+      // Folding the six names 6A-1 moved to owner queries back into the read
+      // raises the count by six in every form: a call counts once per
+      // start-timer name it covers.
+      it('counts each name when it becomes a name list with an annotated callback, a loop or a frozen const', () => {
         const annotated = withSources((sources) =>
           replaceIn(
             sources,
             native,
-            list,
-            `    [\n${names}    ].some((name: string) => getManagedTimer(name) !== null)`,
+            read,
+            `    [\n${names}    ].some((name: string) => getManagedTimer(name) !== null) ||\n`,
           ),
         );
         const looped = withSources((sources) => {
-          replaceIn(sources, native, list, '    anyProtectedTimer()');
+          replaceIn(sources, native, read, '    anyProtectedTimer() ||\n');
           sources.set(
             native,
             `${sources.get(native) ?? ''}\nconst PROTECTED_TIMERS = [\n${names}] as const;\n` +
@@ -1306,8 +1431,8 @@ describe('resource-ownership guard', { timeout: 60_000 }, () => {
           replaceIn(
             sources,
             native,
-            list,
-            '    PROTECTED_TIMERS.some((name) => getManagedTimer(name) !== null)',
+            read,
+            '    PROTECTED_TIMERS.some((name) => getManagedTimer(name) !== null) ||\n',
           );
           sources.set(
             native,
@@ -1315,19 +1440,23 @@ describe('resource-ownership guard', { timeout: 60_000 }, () => {
           );
         });
         for (const input of [annotated, looped, frozen]) {
-          expect(findingsOf(input)).toBe('');
-          expect(analyzeResourceOwnership(input).startTimerUses).toEqual({ reads: 14, clears: 10 });
+          expect(findingsOf(input)).toBe(
+            'RATCHET REGRESSION cross-file start-timer read (RO-02): ' +
+              "src/youtube/native-control-authority.ts has 7, baseline 1 - ask the timer's owner " +
+              '(the file that sets it) through an owner query instead',
+          );
+          expect(analyzeResourceOwnership(input).startTimerUses).toEqual({ reads: 17, clears: 9 });
         }
       });
 
-      it('rejects a timer query that takes any name, which would hide the list', () => {
+      it('rejects a timer query that takes any name, which would hide the read', () => {
         const findings = findingsOf(
           withSources((sources) => {
             replaceIn(
               sources,
               native,
-              list,
-              `    [\n${names}    ].some((name) => isYouTubeTimerPending(name))`,
+              read,
+              '    isYouTubeTimerPending(PRO_COORDINATOR_YOUTUBE_NUDGE_TIMER) ||\n',
             );
             sources.set(
               'src/youtube/sync.ts',
@@ -1345,6 +1474,24 @@ describe('resource-ownership guard', { timeout: 60_000 }, () => {
           'STALE BASELINE cross-file start-timer read (RO-02): src/youtube/native-control-authority.ts has 0',
         );
       });
+    });
+
+    it("counts a start timer folded into iframe.ts's nudge read as a second read", () => {
+      const findings = findingsOf(
+        withSources((sources) =>
+          replaceIn(
+            sources,
+            'src/youtube/iframe.ts',
+            '!!getManagedTimer(PRO_COORDINATOR_YOUTUBE_NUDGE_TIMER);',
+            "[PRO_COORDINATOR_YOUTUBE_NUDGE_TIMER, 'yt-auto-sync'].some(\n" +
+              '    (name) => getManagedTimer(name) !== null,\n' +
+              '  );',
+          ),
+        ),
+      );
+      expect(findings).toMatch(
+        /^RATCHET REGRESSION cross-file start-timer read \(RO-02\): src\/youtube\/iframe\.ts has 2, baseline 1 - /u,
+      );
     });
 
     it("does not count a file's own timers as cross-file, and rejects that file as their second setter", () => {
@@ -1417,10 +1564,12 @@ describe('resource-ownership guard', { timeout: 60_000 }, () => {
         "START TIMER SET (RO-02): src/youtube/iframe.ts sets 'yt-auto-sync', which only " +
           'src/youtube/player.ts may set - ',
       );
-      // The reads and the clear of 'yt-auto-sync' now look like iframe.ts's own.
+      // The clear of 'yt-auto-sync' now looks like iframe.ts's own. iframe.ts
+      // reads only the PRO coordinator nudge by name, so its read count stays.
       expect(findings).toContain(
-        'STALE BASELINE cross-file start-timer read (RO-02): src/youtube/iframe.ts has 1, baseline 3',
+        'STALE BASELINE cross-file start-timer clear (RO-02): src/youtube/iframe.ts has 1, baseline 2',
       );
+      expect(findings).not.toContain('cross-file start-timer read (RO-02): src/youtube/iframe.ts');
     });
 
     it('ignores other timers, names that cannot spell a start timer and files outside src/youtube', () => {
@@ -1549,7 +1698,7 @@ describe('resource-ownership guard', { timeout: 60_000 }, () => {
         ),
       );
       expect(findings).toMatch(
-        /RATCHET REGRESSION cross-file start-timer read \(RO-02\): src\/youtube\/sync\.ts has \d+, baseline 4/u,
+        /RATCHET REGRESSION cross-file start-timer read \(RO-02\): src\/youtube\/sync\.ts has \d+, baseline 3/u,
       );
       expect(findings).toMatch(
         /RATCHET REGRESSION cross-file start-timer clear \(RO-02\): src\/youtube\/sync\.ts has \d+, baseline 1/u,
@@ -1568,18 +1717,18 @@ describe('resource-ownership guard', { timeout: 60_000 }, () => {
     it('fails a raised count, a count that fell below its baseline and a start timer no file sets', () => {
       const findings = findingsOf(
         withSources((sources) => {
-          // resetYouTubeSyncState, which this reset calls next, clears both already.
+          // resetYouTubeSyncState, which this reset calls next, clears it already.
           replaceIn(
             sources,
             'src/youtube/iframe.ts',
-            "  clearManagedTimer('yt-clock-action');\n  clearManagedTimer('yt-seek-play');\n",
-            '',
+            "  clearManagedTimer('yt-seek-play');\n  clearManagedTimer('yt-auto-sync');\n",
+            "  clearManagedTimer('yt-auto-sync');\n",
           );
           replaceIn(
             sources,
             'src/youtube/sync.ts',
-            "  if (!isManual && getManagedTimer('yt-auto-sync')) return;\n",
-            "  if (!isManual && getManagedTimer('yt-auto-sync')) return;\n" +
+            '  if (!isManual && getManagedTimer(PRO_COORDINATOR_YOUTUBE_NUDGE_TIMER)) return;\n',
+            '  if (!isManual && getManagedTimer(PRO_COORDINATOR_YOUTUBE_NUDGE_TIMER)) return;\n' +
               "  if (getManagedTimer('yt-host-local-start')) return;\n",
           );
           replaceIn(
@@ -1591,10 +1740,10 @@ describe('resource-ownership guard', { timeout: 60_000 }, () => {
         }),
       );
       expect(findings).toMatch(
-        /STALE BASELINE cross-file start-timer clear \(RO-02\): src\/youtube\/iframe\.ts has 1, baseline 3 - lower the baseline to 1/u,
+        /STALE BASELINE cross-file start-timer clear \(RO-02\): src\/youtube\/iframe\.ts has 1, baseline 2 - lower the baseline to 1/u,
       );
       expect(findings).toMatch(
-        /RATCHET REGRESSION cross-file start-timer read \(RO-02\): src\/youtube\/sync\.ts has 5, baseline 4/u,
+        /RATCHET REGRESSION cross-file start-timer read \(RO-02\): src\/youtube\/sync\.ts has 4, baseline 3/u,
       );
       // player.ts no longer sets the local-start timer, so its own clear counts.
       expect(findings).toMatch(
@@ -1612,10 +1761,10 @@ describe('resource-ownership guard', { timeout: 60_000 }, () => {
         /iframe audio write: src\/youtube\/iframe\.ts:\d+ unMute\(\) in primeYouTubePlayer\n/u,
       );
       expect(result.stdout).toMatch(
-        /iframe audio write: src\/youtube\/player\.ts:\d+ setVolume\(\) in restoreFallbackAudio\n/u,
+        /iframe audio write: src\/youtube\/iframe-audio\.ts:\d+ setVolume\(\) in writeYouTubeAudio\n/u,
       );
       expect(result.stdout).toMatch(
-        /cross-file start-timer read: src\/youtube\/native-control-authority\.ts:\d+ getManagedTimer\('yt-pro-coordinator-local-nudge', 'yt-auto-sync', [^)]*\) in hasProtectedTransitionOwner\n/u,
+        /cross-file start-timer read: src\/youtube\/native-control-authority\.ts:\d+ getManagedTimer\('yt-pro-coordinator-local-nudge'\) in hasProtectedTransitionOwner\n/u,
       );
       expect(result.stdout).toMatch(
         /cross-file start-timer clear: src\/youtube\/sync\.ts:\d+ clearManagedTimer\('yt-pro-coordinator-local-nudge'\) in resetYouTubeSyncState\n/u,

@@ -208,6 +208,35 @@ describe('fake YouTube player zero-start support', () => {
     expect(getVolume()).toBe(60);
   });
 
+  it('applies an unMute and then throws, as many times as the throw knob counts', () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(1_000_000);
+    const throwing = makeFakeYtPlayer({ __muted: true, __unMuteThrowCount: 1 });
+    expect(() => throwing.unMute()).toThrow('Fake unMute command fault');
+    expect(throwing.isMuted()).toBe(false);
+    expect(throwing.__unMuteThrowCount).toBe(0);
+    throwing.mute();
+    expect(() => throwing.unMute()).not.toThrow();
+    expect(throwing.isMuted()).toBe(false);
+    expect(throwing.__log).toEqual([
+      { op: 'unMute', at: 1_000_000 },
+      { op: 'mute', at: 1_000_000 },
+      { op: 'unMute', at: 1_000_000 },
+    ]);
+
+    // An ignored unMute neither throws nor counts the throw knob down.
+    const ignored = makeFakeYtPlayer({
+      __muted: true,
+      __unMuteIgnoreCount: 1,
+      __unMuteThrowCount: 1,
+    });
+    expect(() => ignored.unMute()).not.toThrow();
+    expect(ignored.isMuted()).toBe(true);
+    expect(ignored.__unMuteThrowCount).toBe(1);
+    expect(() => ignored.unMute()).toThrow('Fake unMute command fault');
+    expect(ignored.isMuted()).toBe(false);
+  });
+
   it('delivers exactly the listed seek states, in order, through onStateChange', () => {
     vi.useFakeTimers();
     vi.setSystemTime(1_000_000);

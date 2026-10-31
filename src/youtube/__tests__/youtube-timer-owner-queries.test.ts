@@ -29,7 +29,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { MSG } from '../../core/constants.ts';
 import { bus } from '../../core/events.ts';
 import { getState, resetState, setState } from '../../core/state.ts';
-import { clearAllManagedTimers, setManagedTimer } from '../../core/timers.ts';
+import { clearAllManagedTimers, getManagedTimer, setManagedTimer } from '../../core/timers.ts';
 import { broadcast, safeSend, sendToHost } from '../../network/peer.ts';
 import { initProtocol, resetInboundRateLimit } from '../../network/protocol.ts';
 import { markQueueAuthorityReady } from '../../network/queue-authority.ts';
@@ -58,6 +58,7 @@ import {
 import { clearYouTubeStableControlExpectations } from '../native-control-origin.ts';
 import { adoptResidentYouTubeOccurrence } from '../iframe.ts';
 import { initYouTube, scheduleYtAutoSync, stopYouTubeMode } from '../player.ts';
+import { isYouTubeAutoSyncPending } from '../player-runtime-bridge.ts';
 import {
   prepareStandardHostManualOffsetRuntimeForTests,
   resetStandardHostManualOffsetTransaction,
@@ -385,6 +386,40 @@ describe('H3 owner queries: seven owners x three sites (pinned 2026-10-30)', () 
   });
 });
 
+/**
+ * The follow-up realign that a buffer-gate fallback owes is not one of the
+ * protected owners: the query sync.ts registers answers from its two state
+ * actions and three rendezvous stages only, while the automatic realign's
+ * busy list in sync.ts also counts the follow-up. A native PLAY or PAUSE in
+ * the follow-up wait (3.25 s) is decided at once (pinned 2026-10-31).
+ */
+describe('H3 owner queries: the rendezvous follow-up wait is not a protected owner (pinned 2026-10-31)', () => {
+  it.each([':213 native PLAY kept', ':496 native PAUSE routed'] as const)(
+    '%s decides at once while only the follow-up realign is pending',
+    async (site) => {
+      const player = createPlayer();
+      installOperatorGuest(player);
+      hostFrame(MSG.YOUTUBE_SYNC, { state: 1, time: 42.35 });
+      expect(guestRendezvousSync({ silent: true }).status).toBe('started');
+      // The iframe never reports the rendezvous pause, so the buffer gate
+      // times out and joins the live position with a plain seek and play,
+      // which owes one follow-up realign.
+      await vi.advanceTimersByTimeAsync(1_600);
+      expect(getManagedTimer('yt-rendezvous-follow-up')).not.toBeNull();
+      for (const name of [
+        'yt-clock-action',
+        'yt-seek-play',
+        'yt-rendezvous-buffer',
+        'yt-rendezvous-play',
+        'yt-rendezvous-calibrate',
+      ]) {
+        expect(getManagedTimer(name), name).toBeNull();
+      }
+      expect(await decide(site, player)).toBe(true);
+    },
+  );
+});
+
 // ─── PRE-2: the other users of the same owners, on a Standard host ──
 
 async function hostRig(localOffsetSeconds = 0): Promise<StandardRig> {
@@ -495,6 +530,36 @@ describe("H3 owner queries: what a Standard host's stage-2 'yt-auto-sync' wait s
     const after = current.sent.length;
     bus.emit('youtube:seek-to', 40);
     expect(sentSince(current, after)).toEqual(['5000 youtube-state state 2']);
+  });
+
+  // Since 6A-1 the first three holds above and the native-control authority
+  // ask this owner query instead of reading the timer's name; player.ts
+  // answers it from its own 'yt-auto-sync' timer.
+  it("the bridge answers player.ts's stage-2 'yt-auto-sync' owner query: pending during the wait, not after", async () => {
+    const current = await hostRig();
+    const answers: string[] = [];
+    const sample = () => answers.push(`${current.now()} ${isYouTubeAutoSyncPending()}`);
+    await current.advanceTo(100);
+    sample();
+    scheduleYtAutoSync(10);
+    sample();
+    await current.advanceTo(2_090);
+    sample();
+    await current.advanceTo(2_100);
+    sample();
+    // A newer wait, then the pause that retires it at once.
+    scheduleYtAutoSync(20);
+    sample();
+    scheduleYtAutoSync(20, { state: 2 });
+    sample();
+    expect(answers).toEqual([
+      '100 false',
+      '100 true',
+      '2090 true',
+      '2100 false',
+      '2100 true',
+      '2100 false',
+    ]);
   });
 });
 
@@ -662,6 +727,32 @@ describe('H3 owner queries: direct timer clears that skip their owner retire, ex
     hostFrame(MSG.YOUTUBE_STATE, { state: 1, time: 42.35, hostPlayAt: Date.now() + 1_000 });
     return { player, loading, plays };
   }
+
+  // resetResidentYouTubeSync's direct clears of these two timers repeat what
+  // resetYouTubeSyncState, which it calls next, does through their owner.
+  it("adoptResidentYouTubeOccurrence retires a pending guest clock action through its owner (one 'false clock-action', no play) and clears 'yt-seek-play'", async () => {
+    const { loading, plays } = guestWithClockAction();
+    await vi.advanceTimersByTimeAsync(200);
+    expect(getManagedTimer('yt-clock-action')).not.toBeNull();
+    adoptResidentYouTubeOccurrence(VIDEO_ID);
+    expect(getManagedTimer('yt-clock-action')).toBeNull();
+    await vi.advanceTimersByTimeAsync(2_000);
+    expect(loading).toEqual([
+      'false clock-action',
+      'true clock-action',
+      'false clock-action',
+      'false -',
+    ]);
+    expect(plays).toEqual([]);
+
+    // An immediate host PLAY: pause and seek now, play after the seek gap.
+    hostFrame(MSG.YOUTUBE_STATE, { state: 1, time: 42.35 });
+    expect(getManagedTimer('yt-seek-play')).not.toBeNull();
+    adoptResidentYouTubeOccurrence(VIDEO_ID);
+    expect(getManagedTimer('yt-seek-play')).toBeNull();
+    await vi.advanceTimersByTimeAsync(2_000);
+    expect(plays).toEqual([]);
+  });
 
   it('lets stopYouTubeMode clear a pending clock action and its spinner (player.ts:1619-1620)', async () => {
     const { loading, plays } = guestWithClockAction();

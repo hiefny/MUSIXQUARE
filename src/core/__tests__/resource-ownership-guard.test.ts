@@ -687,6 +687,43 @@ describe('resource-ownership guard', { timeout: 60_000 }, () => {
       );
     });
 
+    it('rejects a same-named copy of an arm timing beside its home src/youtube/constants.ts (RO-02/RO-03/RO-12)', () => {
+      const findings = findingsOf(
+        withSources((sources) => {
+          const file = 'src/youtube/iframe.ts';
+          sources.set(
+            file,
+            `${sources.get(file) ?? ''}\nconst YOUTUBE_ARM_RELEASE_ACK_TIMEOUT_MS = 1_800;\n` +
+              'void YOUTUBE_ARM_RELEASE_ACK_TIMEOUT_MS;\n',
+          );
+        }),
+      );
+      expect(findings).toContain(
+        'COPIED TIMING CONSTANT (principle 4): RO-02/RO-03/RO-12 ' +
+          'YOUTUBE_ARM_RELEASE_ACK_TIMEOUT_MS@src/youtube/constants.ts = ' +
+          'YOUTUBE_ARM_RELEASE_ACK_TIMEOUT_MS@src/youtube/iframe.ts (1800)',
+      );
+    });
+
+    it('rejects a re-typed arm timing object that two start files share, as the arm copies did before 6A-3 (RO-02/RO-03/RO-12)', () => {
+      const retyped =
+        '\nconst RETYPED_ARM_TIMING = Object.freeze({\n' +
+        '  hardMutePollMs: 30,\n  hardMuteMaxAttempts: 12,\n  warmPlayMs: 260,\n' +
+        '  pauseSeekGapMs: 80,\n  settlePollMs: 80,\n});\nvoid RETYPED_ARM_TIMING;\n';
+      const findings = findingsOf(
+        withSources((sources) => {
+          for (const file of ['src/youtube/zero-start.ts', 'src/youtube/authority-arm.ts']) {
+            sources.set(file, `${sources.get(file) ?? ''}${retyped}`);
+          }
+        }),
+      );
+      expect(findings).toContain(
+        'COPIED TIMING CONSTANT (principle 4): RO-02/RO-03/RO-12 ' +
+          'RETYPED_ARM_TIMING@src/youtube/authority-arm.ts = ' +
+          'RETYPED_ARM_TIMING@src/youtube/zero-start.ts (5 shared values)',
+      );
+    });
+
     it('keeps differently named constants that only share a value report-only', () => {
       const input = withSources((sources) => {
         const file = 'src/player/background-return-sync.ts';

@@ -17,7 +17,11 @@ The measurement now also counts the font files an eager stylesheet declares in
 `@font-face` (and adds them to the totals), and a remote, inline or missing one
 fails closed, so the strict zero-byte eager font budget also holds if a font
 sheet ever moves into the initial graph. Today's build has no such sheet, so no
-number changes and every limit and the 5% reserve stay as they are. See the
+number changes and every limit and the 5% reserve stay as they are. The font
+owner chunk itself (`src/i18n/locale-fonts.ts`, about 14 KB) is a reviewed
+deferred app-shell root, so the service worker installs it with the app shell
+and a first launch offline after an update can still retry its fonts; its
+sheets are dynamic imports and stay out of the install manifest. See the
 [font switch report](app-font-inter-noto-2026-10-31.md).
 
 ### 2026-10-22: conditional spectrum rendering

@@ -61,9 +61,17 @@ every script has exactly one family:
   points are cut from the four CJK families by Inter's cmap, never by its
   declared ranges, so the marks Inter lacks stay in the CJK families instead
   of falling to a device font.
-- Hangul is removed from JP, SC and TC, and kana from KR, SC and TC.
-- Invisible marks Inter's subsets lack (U+200B-200F, U+202F, U+2060-2064,
-  U+FEFF) belong to no CJK family; the device font draws them.
+- The Hangul Noto Sans KR draws is removed from JP, SC and TC, and the kana
+  Noto Sans JP draws from KR, SC and TC, each found by block or by Unicode
+  Script (parenthesized and circled Hangul such as ㈜ and ㉠, circled and
+  square katakana such as ㋖ and ㌔ sit outside the blocks). A character the
+  owner lacks, such as the halfwidth jamo only JP draws, stays where it is
+  drawn.
+- Invisible marks (U+200B-200F, U+202F, U+2060-2064, U+FEFF) belong to no CJK
+  family. In the shared stack Inter draws U+200B and U+FEFF, Noto Sans Thai
+  U+200C and U+200D (a script-first UI's own face draws them there), Noto Sans
+  Arabic U+200E and Noto Sans Hebrew U+200F; the device font draws U+202F and
+  U+2060-2064.
 - Each CJK face declares only the characters its own file draws, so an emoji
   or a stray mark never makes the browser download a shard that cannot draw
   it. Faces left empty are dropped.
@@ -113,21 +121,34 @@ never waits for a font (the initial transfer budget holds eager font bytes at
 0). Declaring a sheet downloads nothing; the browser fetches a shard when
 text needs one of its characters.
 
-- Phase A, when a language applies: Inter, the UI's own script sheet and the
-  first family of its Han order. The Korean and English UIs declare the same
-  sheets at the same moment.
+- Phase A, when a language applies: Inter, the UI's own script sheet, Noto
+  Sans KR for every UI that is not Japanese or Chinese, and the first family
+  of its Han order. The Korean and English UIs declare the same sheets at the
+  same moment under every Han order.
 - Phase B, after window load and the first idle slice: every other sheet, so
   every family is declared in every UI. It ignores data saver.
-- Phase C, 10 s after phase B: the Korean, Japanese and Chinese UIs load
-  their own family's most frequent shards (`src/i18n/font-prefetch-samples.ts`,
-  generated) in idle batches of three, at most 20 faces and 400,000 B per page
-  load, skipping shards already loaded. It is skipped on data saver, 2G or
-  offline and pauses while the page is hidden.
-- A sheet that fails is retried on `online` or on a later visible idle slice,
-  a bounded number of times.
+- Phase C, 10 s after phase B starts: the Korean, Japanese and Chinese UIs
+  load their own family's most frequent shards
+  (`src/i18n/font-prefetch-samples.ts`, generated) in idle batches of three,
+  at most 20 faces and 400,000 B per page load, skipping shards already
+  loaded. A batch runs only once the family's sheet is declared, and counts
+  against the budget only when it drew a face. Faces are read only inside idle
+  slices, each shard's face found by its recorded place in the sheet. It is
+  skipped on data saver, 2G or offline and pauses while the page is hidden.
+- A sheet attempt that neither loads nor fails within 8 s (doubled for each
+  later attempt of the sheet, up to 64 s) is abandoned. A failed sheet is
+  retried by a timer three times, 10 s apart in a visible idle slice and never
+  while offline, and at once on `online`, when the page becomes visible and
+  when it returns from the back-forward cache, each of which grants the three
+  timer retries again. A face whose download failed stays in `error` for the
+  life of the document, so the same events (and a failed prefetch batch)
+  declare its sheet again, at most three times per sheet per page.
 
 The service worker does not precache fonts; the hashed sheets and shards go
-through its ordinary cache-first asset path, and the old
+through its ordinary cache-first asset path. It does install the font owner
+chunk itself with the app shell, and `src/i18n/index.ts` imports the owner
+again on `online` and when the page becomes visible if its import failed, so
+a first launch offline after an update recovers its fonts. The old
 `musixquare-optional-vN` caches that held Pretendard are retired on update.
 
 The static pages keep their own loader (`src/i18n/static-page-fonts.ts`, used
@@ -161,30 +182,41 @@ About links through `vite.config.ts`.
   Sans KR files against `fonts/font-sources.json`, the generated sheets
   against their generator, every face self-hosted with the descriptors of its
   family, every text stack (the Korean and English ones identical under every
-  Han order), one family per script, and coverage: every non-PUA character
-  Pretendard drew and every character of the catalogs and `index.html` has a
-  self-hosted face in every stack, except the recorded
+  Han order), no app rule that applies in only one of the Korean and English
+  UIs whatever it sets (but the recorded rules for translated UI copy), no
+  rule that turns Inter's contextual alternates off, no `@font-face` in
+  `css/app.css` or its imports, one family per script (by block and by
+  Unicode Script), and coverage: every non-PUA character Pretendard drew,
+  every character of the catalogs and `index.html`, the KS X 1001 repertoire
+  and the text symbols of the punctuation, letterlike, arrow, math, technical,
+  geometric, symbol, dingbat and CJK punctuation blocks has a self-hosted face
+  in every stack, except the recorded
   `scripts/fonts/uncovered-code-points.txt`, which must name exactly the gaps.
   It also checks that nothing in the app names or preloads Pretendard.
 - `npm run guard:font-build` adds the build: no font in the initial graph of
   the app document or its localized copies, each app sheet its own lazy CSS
   asset with root-relative WOFF2 files, the built Inter and Noto Sans KR bytes
-  equal to the sources, no font in the service worker's install manifests,
-  About bound to the original sheets, and Pretendard deployed once.
+  equal to the sources, no font in the service worker's install manifests
+  (which do install the font owner chunk), About bound to the original sheets,
+  and Pretendard deployed once.
 - Unit tests: `src/i18n/__tests__/font-*.test.ts`, `locale-fonts.test.ts`,
   `static-page-fonts.test.ts` and `src/core/__tests__/app-font-guard.test.ts`.
 - `e2e/font-identity.test.ts` (local, on the e2e build) draws the same chat
   and track titles in a fresh Korean and a fresh English UI and compares the
   faces of every character, the widths and the pixels, and checks what each
-  UI fetches.
+  UI fetches. Its line of symbols no self-hosted face draws (☺ ℹ ∼ ◈ ‣) is
+  recorded for both UIs and kept out of the comparison until a face draws
+  them.
 
 ## Licensing and fallback behavior
 
 - A missing font does not prevent the app shell from loading, but affected
   text falls back to a system font until the font arrives. A character no
   self-hosted face draws (the recorded gaps: some IPA letters, combining
-  marks, sub- and superscripts and rare symbols) always uses a system font,
-  which the browser may pick by the page language.
+  marks, sub- and superscripts, and letterlike, math, technical, symbol and
+  dingbat characters such as ☺ ℹ ∼ ≒ ◈) always uses a system font, which the
+  browser picks by the page language, so it can differ between the Korean and
+  English UIs.
 - Inter is licensed under the **SIL Open Font License 1.1** (see
   `INTER_LICENSE.txt`).
 - Noto fonts are licensed under the **SIL Open Font License 1.1** (see the

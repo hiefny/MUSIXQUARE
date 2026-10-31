@@ -111,13 +111,20 @@ runbooks. Neither belongs in a general setup document.
   owner's ten decisions, the departures from the design (separate app sheets, CJK faces cut by
   their own cmap, the prefetch reading face status because Chromium's `FontFaceSet.check()`
   answered true for unloaded shards), every visible change for the owner's pictures, the
-  measurements (eager total 530.9 KiB gzip against 9.0.28's 533.1, eager fonts 0; English start screen
-  72,920 B in one file, Korean 249,040 B in 12 files plus 9 prefetched shards), the tests-first
-  commit pairs, four local QA rounds with their SHAs, the risks, the device checks still needed
-  (iPhone Safari line height, iOS 16 and 17, Android, the webOS TV) and six owner questions.
-  The font guard now checks self-hosted faces and coverage in every text stack, the initial
-  transfer budget counts fonts that eager stylesheets declare, and `e2e/font-identity.test.ts`
-  (local) compares the two UIs pixel for pixel.
+  measurements (eager total 531.0 KiB gzip against 9.0.28's 533.1, eager fonts 0; English start screen
+  72,920 B in one file, Korean 249,360 B in 12 files plus 9 prefetched shards), the tests-first
+  commit pairs, five local QA rounds with their SHAs, the risks, the device checks still needed
+  (the release gate on iOS 17 and 18 Safari line boxes, iOS 16, Android, the webOS TV) and eleven
+  owner questions, among them a self-hosted symbol face for the characters no face draws, which
+  still draw in a different device font in the Korean and English UIs (☺ ℹ ∼ ≒ ◈). The font
+  guard checks self-hosted faces and coverage in every text stack (KS X 1001 and the swept
+  symbol blocks included, 1,270 recorded gaps), no rule that applies in only one of the Korean
+  and English UIs, `calt` on and no face in the app stylesheets; the initial transfer budget
+  counts fonts that eager stylesheets declare, and `e2e/font-identity.test.ts` (local) compares
+  the two UIs pixel for pixel. A code review round (QA round 5) gave the font owner an attempt
+  deadline, renewed retries, failed-face recovery and an app-shell install of its own chunk, made
+  phase C idle-only and sheet-aware, cut Hangul and kana by script, and kept the Noto Sans KR
+  copyright and license names.
 - [App 9.0.28 train: the PRO SFU fallback prepared beside the LAN-direct attempt with media held, and the playlist current-row icons and PRO upload row numbers (2026-10-31)](design/app-9-0-28-train-2026-10-31.md):
   released on 2026-10-31 11:29 KST in Release 41160043955 (PR #545, squash `aa7baad5`): the next
   App update after 9.0.27 (9.0.28 / v801, App build 801, update dialog; the version bump `f3a9fcbc`

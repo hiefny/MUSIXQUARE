@@ -6,8 +6,10 @@
  * modulepreload, preload, default-eager images (including responsive picture
  * candidates), video posters, and eager media references emitted into that
  * document. Media is eager when preload is in the HTML automatic state (empty
- * or `auto`) or autoplay overrides the preload hint. Runtime imports, locale
- * shards, diagnostics, and CSS-discovered fonts are excluded.
+ * or `auto`) or autoplay overrides the preload hint. The font files an eager
+ * stylesheet declares in @font-face count too, so the zero font budget also
+ * holds if a font sheet ever moves into the initial graph. Runtime imports,
+ * lazy font sheets, locale shards and diagnostics are excluded.
  * Raw bytes protect low-end parse/compile cost; deterministic level-9 gzip
  * bytes approximate a conservative HTTP transfer encoding in CI.
  */
@@ -43,6 +45,7 @@ const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..'
 const EAGER_LINK_RELATIONS = new Set(['modulepreload', 'preload', 'stylesheet']);
 const FONT_EXTENSION = /\.(?:woff2?|ttf|otf)$/iu;
 const JAVASCRIPT_EXTENSION = /\.(?:m?js)$/iu;
+const CSS_EXTENSION = /\.css$/iu;
 const INITIAL_TRANSFER_METRICS = [
   'entryScriptRawBytes',
   'entryScriptGzipBytes',
@@ -163,6 +166,19 @@ function localAssetPath(distDirectory: string, assetUrl: string): string | null 
   return target;
 }
 
+/** The url() of every @font-face src in a stylesheet, as written. */
+function declaredFontUrls(css: string): string[] {
+  const urls: string[] = [];
+  for (const face of css.matchAll(/@font-face\s*\{([^}]*)\}/giu)) {
+    // A url() may hold a ';' (a data: URL), so the value runs to the first ';' outside one.
+    const src = /(?:^|[;{\s])src\s*:\s*((?:[^;()]|\([^)]*\))+)/iu.exec(face[1] ?? '')?.[1] ?? '';
+    for (const url of src.matchAll(/url\(\s*(['"]?)([^'")]*)\1\s*\)/giu)) {
+      if (url[2]) urls.push(url[2]);
+    }
+  }
+  return urls;
+}
+
 function gzipBytes(contents: Uint8Array): number {
   return gzipSync(contents, { level: 9 }).byteLength;
 }
@@ -182,7 +198,8 @@ export async function measureInitialTransfer(
     },
   ];
 
-  for (const url of urls) {
+  const measured = new Set<string>();
+  const measure = async (url: string): Promise<Buffer> => {
     const file = localAssetPath(distDirectory, url);
     if (!file) throw new Error(`Eager asset does not resolve to a file: ${url}`);
     let contents;
@@ -191,7 +208,29 @@ export async function measureInitialTransfer(
     } catch (error) {
       throw new Error(`Eager asset is missing from dist/: ${url}`, { cause: error });
     }
+    measured.add(url);
     entries.push({ url, file, rawBytes: contents.byteLength, gzipBytes: gzipBytes(contents) });
+    return contents;
+  };
+  const stylesheets: { url: string; css: string }[] = [];
+  for (const url of urls) {
+    const contents = await measure(url);
+    if (CSS_EXTENSION.test(url.split(/[?#]/u, 1)[0] ?? '')) {
+      stylesheets.push({ url, css: contents.toString('utf8') });
+    }
+  }
+  // The fonts each eager stylesheet declares, resolved against that sheet.
+  for (const { url: sheetUrl, css } of stylesheets) {
+    for (const fontUrl of declaredFontUrls(css)) {
+      if (/^[a-z][a-z\d+.-]*:/iu.test(fontUrl) || fontUrl.startsWith('//')) {
+        throw new Error(
+          `Cross-origin/data eager asset cannot be budgeted: ${fontUrl} in ${sheetUrl}`,
+        );
+      }
+      const resolved = new URL(fontUrl, new URL(sheetUrl, 'https://musixquare.invalid/'));
+      const url = `${resolved.pathname}${resolved.search}`;
+      if (!measured.has(url)) await measure(url);
+    }
   }
 
   const entry = entries.find(({ url }) => url === entryScriptUrl);

@@ -1,396 +1,451 @@
-# Characters the app may show that no self-hosted face draws in the Korean and
-# English font stack. They fall to a device font, which the browser may pick by
-# the page language. scripts/check-app-font.mts holds this list to the exact gap
-# over every non-PUA character Pretendard drew and every character of the
-# catalogs and index.html: a new gap or a gap that gained a face fails it.
+# Characters the app may show that no self-hosted face draws, in any of its
+# font stacks. They fall to a device font, which the browser may pick by the
+# page language, so they can look different between UI languages.
+#
+# scripts/check-app-font.mts holds this list to the exact gap, in every text
+# stack of every UI, over every non-PUA character Pretendard drew and every
+# character of the catalogs and index.html: a new gap, or a listed character
+# that gained a face or is no longer required, fails it. One U+XXXX per line
+# in code point order; text after # is a comment (the character itself, or a
+# dotted circle with a combining mark).
 #
 # Most are IPA letters, combining marks, sub- and superscripts and rare
-# punctuation and symbols outside the downloaded Inter subsets and Noto CJK.
-# U+202F (narrow no-break space, used in the French catalog) and U+2060 (word
-# joiner) are invisible and left to the device font on purpose.
+# punctuation and symbols outside the downloaded Inter subsets and the Noto
+# CJK shards. U+202F (narrow no-break space, used in the French catalog) and
+# U+2060 (word joiner) are invisible and left to the device font on purpose:
+# the generator removes them from the CJK families.
 # 384 code points.
 
-U+0255
-U+027C
-U+027D
-U+0285
-U+0291
-U+02A5
-U+02CD
-U+02D8
-U+02DB
-U+0302
-U+0305
-U+0306
-U+030A
-U+030B
-U+030D
-U+030E
-U+030F
-U+0310
-U+0311
-U+0312
-U+0313
-U+0314
-U+0315
-U+0316
-U+0317
-U+0318
-U+0319
-U+031A
-U+031B
-U+031C
-U+031D
-U+031E
-U+0321
-U+0322
-U+0324
-U+0325
-U+0326
-U+0327
-U+0328
-U+0329
-U+032A
-U+032B
-U+032C
-U+032D
-U+032E
-U+032F
-U+0330
-U+0332
-U+0333
-U+0334
-U+0335
-U+0336
-U+0337
-U+0338
-U+0339
-U+033A
-U+033B
-U+033C
-U+033D
-U+033E
-U+033F
-U+0340
-U+0341
-U+0342
-U+0343
-U+0344
-U+0345
-U+0346
-U+0347
-U+0348
-U+0349
-U+034A
-U+034B
-U+034C
-U+034D
-U+034E
-U+034F
-U+0350
-U+0351
-U+0352
-U+0353
-U+0354
-U+0355
-U+0356
-U+0357
-U+0358
-U+0359
-U+035A
-U+035B
-U+035C
-U+035D
-U+035E
-U+035F
-U+0360
-U+0361
-U+0362
-U+0363
-U+0364
-U+0365
-U+0366
-U+0367
-U+0368
-U+0369
-U+036A
-U+036B
-U+036C
-U+036D
-U+036E
-U+036F
-U+0370
-U+0371
-U+0372
-U+0373
-U+0377
-U+03D8
-U+03D9
-U+03DA
-U+03DB
-U+03DE
-U+03DF
-U+03E0
-U+03E1
-U+03F7
-U+03F8
-U+03FB
-U+047A
-U+047B
-U+047C
-U+047D
-U+047E
-U+047F
-U+1DC0
-U+1DC1
-U+1DC2
-U+1DC3
-U+1DC4
-U+1DC5
-U+1DC6
-U+1DC7
-U+1DC8
-U+1DC9
-U+1DCA
-U+1DCB
-U+1DCC
-U+1DCD
-U+1DCE
-U+1DCF
-U+1DD0
-U+1DD1
-U+1DD2
-U+1DD3
-U+1DD4
-U+1DD5
-U+1DD6
-U+1DD7
-U+1DD8
-U+1DD9
-U+1DDA
-U+1DDB
-U+1DDC
-U+1DDD
-U+1DDE
-U+1DDF
-U+1DE0
-U+1DE1
-U+1DE2
-U+1DE3
-U+1DE4
-U+1DE5
-U+1DE6
-U+1DE7
-U+1DE8
-U+1DE9
-U+1DEA
-U+1DEB
-U+1DEC
-U+1DED
-U+1DEE
-U+1DEF
-U+1DF0
-U+1DF1
-U+1DF2
-U+1DF3
-U+1DF4
-U+1DF5
-U+1DFC
-U+1DFD
-U+1DFE
-U+1DFF
-U+1E9C
-U+2000
-U+2001
-U+2004
-U+2005
-U+2006
-U+2007
-U+2008
-U+200A
-U+2017
-U+201B
-U+201F
-U+2023
-U+2024
-U+202F
-U+2031
-U+2034
-U+2036
-U+2037
-U+2038
-U+203D
-U+203E
-U+203F
-U+2040
-U+2041
-U+2043
-U+2045
-U+2046
-U+204A
-U+204B
-U+204C
-U+204D
-U+204E
-U+2050
-U+2052
-U+2053
-U+2054
-U+2055
-U+2056
-U+2057
-U+2058
-U+2059
-U+205A
-U+205B
-U+205C
-U+205D
-U+205E
-U+205F
-U+2060
-U+2070
-U+2071
-U+2075
-U+2076
-U+2077
-U+2078
-U+2079
-U+207A
-U+207B
-U+207C
-U+207D
-U+207E
-U+207F
-U+2080
-U+2081
-U+2082
-U+2083
-U+2084
-U+2085
-U+2086
-U+2087
-U+2088
-U+2089
-U+208A
-U+208B
-U+208C
-U+208D
-U+208E
-U+2090
-U+2091
-U+2092
-U+2093
-U+2094
-U+2095
-U+2096
-U+2097
-U+2098
-U+2099
-U+209A
-U+209B
-U+209C
-U+20B0
-U+20B6
-U+20B7
-U+20BB
-U+20DB
-U+20DC
-U+20E8
-U+2101
-U+2106
-U+2117
-U+211E
-U+211F
-U+2120
-U+2123
-U+212A
-U+2132
-U+214D
-U+214F
-U+2153
-U+215A
-U+215B
-U+215C
-U+215D
-U+215E
-U+215F
-U+216A
-U+216B
-U+216C
-U+216D
-U+216E
-U+216F
-U+217A
-U+217B
-U+217C
-U+217D
-U+217E
-U+217F
-U+2180
-U+2181
-U+2182
-U+2183
-U+2184
-U+2185
-U+2186
-U+2187
-U+2188
-U+21A9
-U+21AA
-U+21B0
-U+21B1
-U+21B3
-U+21B4
-U+21B5
-U+21BA
-U+21BB
-U+21DE
-U+21DF
-U+21E4
-U+21E5
-U+21EA
-U+2303
-U+2325
-U+2326
-U+2327
-U+232B
-U+2380
-U+2387
-U+238B
-U+23CF
-U+25BA
-U+25BB
-U+25C4
-U+25C5
-U+263C
-U+2717
-U+27EF
-U+27F5
-U+27F6
-U+27F7
-U+27F8
-U+27F9
-U+27FA
-U+2985
-U+2986
-U+2B12
-U+2B13
-U+2B1C
-U+2E18
-U+A92E
-U+FE20
-U+FE21
-U+FE22
-U+FE23
-U+FE24
-U+FE25
-U+FE26
-U+FE27
-U+FE28
-U+FE29
-U+FE2A
-U+FE2B
-U+FE2C
-U+FE2D
-U+1F850
-U+1F852
+# IPA letters and spacing modifiers (U+0250-02FF): 9
+U+0255  # ɕ
+U+027C  # ɼ
+U+027D  # ɽ
+U+0285  # ʅ
+U+0291  # ʑ
+U+02A5  # ʥ
+U+02CD  # ˍ
+U+02D8  # ˘
+U+02DB  # ˛
+
+# Combining diacritical marks (U+0300-036F): 100
+U+0302  # ◌̂
+U+0305  # ◌̅
+U+0306  # ◌̆
+U+030A  # ◌̊
+U+030B  # ◌̋
+U+030D  # ◌̍
+U+030E  # ◌̎
+U+030F  # ◌̏
+U+0310  # ◌̐
+U+0311  # ◌̑
+U+0312  # ◌̒
+U+0313  # ◌̓
+U+0314  # ◌̔
+U+0315  # ◌̕
+U+0316  # ◌̖
+U+0317  # ◌̗
+U+0318  # ◌̘
+U+0319  # ◌̙
+U+031A  # ◌̚
+U+031B  # ◌̛
+U+031C  # ◌̜
+U+031D  # ◌̝
+U+031E  # ◌̞
+U+0321  # ◌̡
+U+0322  # ◌̢
+U+0324  # ◌̤
+U+0325  # ◌̥
+U+0326  # ◌̦
+U+0327  # ◌̧
+U+0328  # ◌̨
+U+0329  # ◌̩
+U+032A  # ◌̪
+U+032B  # ◌̫
+U+032C  # ◌̬
+U+032D  # ◌̭
+U+032E  # ◌̮
+U+032F  # ◌̯
+U+0330  # ◌̰
+U+0332  # ◌̲
+U+0333  # ◌̳
+U+0334  # ◌̴
+U+0335  # ◌̵
+U+0336  # ◌̶
+U+0337  # ◌̷
+U+0338  # ◌̸
+U+0339  # ◌̹
+U+033A  # ◌̺
+U+033B  # ◌̻
+U+033C  # ◌̼
+U+033D  # ◌̽
+U+033E  # ◌̾
+U+033F  # ◌̿
+U+0340  # ◌̀
+U+0341  # ◌́
+U+0342  # ◌͂
+U+0343  # ◌̓
+U+0344  # ◌̈́
+U+0345  # ◌ͅ
+U+0346  # ◌͆
+U+0347  # ◌͇
+U+0348  # ◌͈
+U+0349  # ◌͉
+U+034A  # ◌͊
+U+034B  # ◌͋
+U+034C  # ◌͌
+U+034D  # ◌͍
+U+034E  # ◌͎
+U+034F  # ◌͏
+U+0350  # ◌͐
+U+0351  # ◌͑
+U+0352  # ◌͒
+U+0353  # ◌͓
+U+0354  # ◌͔
+U+0355  # ◌͕
+U+0356  # ◌͖
+U+0357  # ◌͗
+U+0358  # ◌͘
+U+0359  # ◌͙
+U+035A  # ◌͚
+U+035B  # ◌͛
+U+035C  # ◌͜
+U+035D  # ◌͝
+U+035E  # ◌͞
+U+035F  # ◌͟
+U+0360  # ◌͠
+U+0361  # ◌͡
+U+0362  # ◌͢
+U+0363  # ◌ͣ
+U+0364  # ◌ͤ
+U+0365  # ◌ͥ
+U+0366  # ◌ͦ
+U+0367  # ◌ͧ
+U+0368  # ◌ͨ
+U+0369  # ◌ͩ
+U+036A  # ◌ͪ
+U+036B  # ◌ͫ
+U+036C  # ◌ͬ
+U+036D  # ◌ͭ
+U+036E  # ◌ͮ
+U+036F  # ◌ͯ
+
+# Greek and Coptic letters outside Inter (U+0370-03FF): 16
+U+0370  # Ͱ
+U+0371  # ͱ
+U+0372  # Ͳ
+U+0373  # ͳ
+U+0377  # ͷ
+U+03D8  # Ϙ
+U+03D9  # ϙ
+U+03DA  # Ϛ
+U+03DB  # ϛ
+U+03DE  # Ϟ
+U+03DF  # ϟ
+U+03E0  # Ϡ
+U+03E1  # ϡ
+U+03F7  # Ϸ
+U+03F8  # ϸ
+U+03FB  # ϻ
+
+# Cyrillic letters outside Inter (U+0400-04FF): 6
+U+047A  # Ѻ
+U+047B  # ѻ
+U+047C  # Ѽ
+U+047D  # ѽ
+U+047E  # Ѿ
+U+047F  # ѿ
+
+# Combining diacritical marks supplement (U+1DC0-1DFF): 58
+U+1DC0  # ◌᷀
+U+1DC1  # ◌᷁
+U+1DC2  # ◌᷂
+U+1DC3  # ◌᷃
+U+1DC4  # ◌᷄
+U+1DC5  # ◌᷅
+U+1DC6  # ◌᷆
+U+1DC7  # ◌᷇
+U+1DC8  # ◌᷈
+U+1DC9  # ◌᷉
+U+1DCA  # ◌᷊
+U+1DCB  # ◌᷋
+U+1DCC  # ◌᷌
+U+1DCD  # ◌᷍
+U+1DCE  # ◌᷎
+U+1DCF  # ◌᷏
+U+1DD0  # ◌᷐
+U+1DD1  # ◌᷑
+U+1DD2  # ◌᷒
+U+1DD3  # ◌ᷓ
+U+1DD4  # ◌ᷔ
+U+1DD5  # ◌ᷕ
+U+1DD6  # ◌ᷖ
+U+1DD7  # ◌ᷗ
+U+1DD8  # ◌ᷘ
+U+1DD9  # ◌ᷙ
+U+1DDA  # ◌ᷚ
+U+1DDB  # ◌ᷛ
+U+1DDC  # ◌ᷜ
+U+1DDD  # ◌ᷝ
+U+1DDE  # ◌ᷞ
+U+1DDF  # ◌ᷟ
+U+1DE0  # ◌ᷠ
+U+1DE1  # ◌ᷡ
+U+1DE2  # ◌ᷢ
+U+1DE3  # ◌ᷣ
+U+1DE4  # ◌ᷤ
+U+1DE5  # ◌ᷥ
+U+1DE6  # ◌ᷦ
+U+1DE7  # ◌ᷧ
+U+1DE8  # ◌ᷨ
+U+1DE9  # ◌ᷩ
+U+1DEA  # ◌ᷪ
+U+1DEB  # ◌ᷫ
+U+1DEC  # ◌ᷬ
+U+1DED  # ◌ᷭ
+U+1DEE  # ◌ᷮ
+U+1DEF  # ◌ᷯ
+U+1DF0  # ◌ᷰ
+U+1DF1  # ◌ᷱ
+U+1DF2  # ◌ᷲ
+U+1DF3  # ◌ᷳ
+U+1DF4  # ◌ᷴ
+U+1DF5  # ◌᷵
+U+1DFC  # ◌᷼
+U+1DFD  # ◌᷽
+U+1DFE  # ◌᷾
+U+1DFF  # ◌᷿
+
+# Latin extended additional (U+1E00-1EFF): 1
+U+1E9C  # ẜ
+
+# General punctuation: rare marks and spaces (U+2000-206F): 48
+U+2000  # space
+U+2001  # space
+U+2004  # space
+U+2005  # space
+U+2006  # space
+U+2007  # space
+U+2008  # space
+U+200A  # space
+U+2017  # ‗
+U+201B  # ‛
+U+201F  # ‟
+U+2023  # ‣
+U+2024  # ․
+U+202F  # narrow no-break space, used in the French catalog; invisible, left to the device font
+U+2031  # ‱
+U+2034  # ‴
+U+2036  # ‶
+U+2037  # ‷
+U+2038  # ‸
+U+203D  # ‽
+U+203E  # ‾
+U+203F  # ‿
+U+2040  # ⁀
+U+2041  # ⁁
+U+2043  # ⁃
+U+2045  # ⁅
+U+2046  # ⁆
+U+204A  # ⁊
+U+204B  # ⁋
+U+204C  # ⁌
+U+204D  # ⁍
+U+204E  # ⁎
+U+2050  # ⁐
+U+2052  # ⁒
+U+2053  # ⁓
+U+2054  # ⁔
+U+2055  # ⁕
+U+2056  # ⁖
+U+2057  # ⁗
+U+2058  # ⁘
+U+2059  # ⁙
+U+205A  # ⁚
+U+205B  # ⁛
+U+205C  # ⁜
+U+205D  # ⁝
+U+205E  # ⁞
+U+205F  # medium mathematical space
+U+2060  # word joiner; invisible, left to the device font
+
+# Superscripts and subscripts (U+2070-209F): 41
+U+2070  # ⁰
+U+2071  # ⁱ
+U+2075  # ⁵
+U+2076  # ⁶
+U+2077  # ⁷
+U+2078  # ⁸
+U+2079  # ⁹
+U+207A  # ⁺
+U+207B  # ⁻
+U+207C  # ⁼
+U+207D  # ⁽
+U+207E  # ⁾
+U+207F  # ⁿ
+U+2080  # ₀
+U+2081  # ₁
+U+2082  # ₂
+U+2083  # ₃
+U+2084  # ₄
+U+2085  # ₅
+U+2086  # ₆
+U+2087  # ₇
+U+2088  # ₈
+U+2089  # ₉
+U+208A  # ₊
+U+208B  # ₋
+U+208C  # ₌
+U+208D  # ₍
+U+208E  # ₎
+U+2090  # ₐ
+U+2091  # ₑ
+U+2092  # ₒ
+U+2093  # ₓ
+U+2094  # ₔ
+U+2095  # ₕ
+U+2096  # ₖ
+U+2097  # ₗ
+U+2098  # ₘ
+U+2099  # ₙ
+U+209A  # ₚ
+U+209B  # ₛ
+U+209C  # ₜ
+
+# Currency symbols (U+20A0-20CF): 4
+U+20B0  # ₰
+U+20B6  # ₶
+U+20B7  # ₷
+U+20BB  # ₻
+
+# Combining marks for symbols (U+20D0-20FF): 3
+U+20DB  # ◌⃛
+U+20DC  # ◌⃜
+U+20E8  # ◌⃨
+
+# Letterlike symbols (U+2100-214F): 11
+U+2101  # ℁
+U+2106  # ℆
+U+2117  # ℗
+U+211E  # ℞
+U+211F  # ℟
+U+2120  # ℠
+U+2123  # ℣
+U+212A  # K
+U+2132  # Ⅎ
+U+214D  # ⅍
+U+214F  # ⅏
+
+# Number forms (U+2150-218F): 28
+U+2153  # ⅓
+U+215A  # ⅚
+U+215B  # ⅛
+U+215C  # ⅜
+U+215D  # ⅝
+U+215E  # ⅞
+U+215F  # ⅟
+U+216A  # Ⅺ
+U+216B  # Ⅻ
+U+216C  # Ⅼ
+U+216D  # Ⅽ
+U+216E  # Ⅾ
+U+216F  # Ⅿ
+U+217A  # ⅺ
+U+217B  # ⅻ
+U+217C  # ⅼ
+U+217D  # ⅽ
+U+217E  # ⅾ
+U+217F  # ⅿ
+U+2180  # ↀ
+U+2181  # ↁ
+U+2182  # ↂ
+U+2183  # Ↄ
+U+2184  # ↄ
+U+2185  # ↅ
+U+2186  # ↆ
+U+2187  # ↇ
+U+2188  # ↈ
+
+# Arrows (U+2190-21FF): 14
+U+21A9  # ↩
+U+21AA  # ↪
+U+21B0  # ↰
+U+21B1  # ↱
+U+21B3  # ↳
+U+21B4  # ↴
+U+21B5  # ↵
+U+21BA  # ↺
+U+21BB  # ↻
+U+21DE  # ⇞
+U+21DF  # ⇟
+U+21E4  # ⇤
+U+21E5  # ⇥
+U+21EA  # ⇪
+
+# Miscellaneous technical (U+2300-23FF): 9
+U+2303  # ⌃
+U+2325  # ⌥
+U+2326  # ⌦
+U+2327  # ⌧
+U+232B  # ⌫
+U+2380  # ⎀
+U+2387  # ⎇
+U+238B  # ⎋
+U+23CF  # ⏏
+
+# Geometric shapes (U+25A0-25FF): 4
+U+25BA  # ►
+U+25BB  # ▻
+U+25C4  # ◄
+U+25C5  # ◅
+
+# Miscellaneous symbols (U+2600-26FF): 1
+U+263C  # ☼
+
+# Dingbats (U+2700-27BF): 1
+U+2717  # ✗
+
+# Miscellaneous mathematical symbols (U+27C0-27EF): 1
+U+27EF  # ⟯
+
+# Supplemental arrows (U+27F0-27FF): 6
+U+27F5  # ⟵
+U+27F6  # ⟶
+U+27F7  # ⟷
+U+27F8  # ⟸
+U+27F9  # ⟹
+U+27FA  # ⟺
+
+# Miscellaneous mathematical symbols (U+2980-29FF): 2
+U+2985  # ⦅
+U+2986  # ⦆
+
+# Miscellaneous symbols and arrows (U+2B00-2BFF): 3
+U+2B12  # ⬒
+U+2B13  # ⬓
+U+2B1C  # ⬜
+
+# Supplemental punctuation (U+2E00-2E7F): 1
+U+2E18  # ⸘
+
+# Kayah Li punctuation (U+A900-A92F): 1
+U+A92E  # ꤮
+
+# Combining half marks (U+FE20-FE2F): 14
+U+FE20  # ◌︠
+U+FE21  # ◌︡
+U+FE22  # ◌︢
+U+FE23  # ◌︣
+U+FE24  # ◌︤
+U+FE25  # ◌︥
+U+FE26  # ◌︦
+U+FE27  # ◌︧
+U+FE28  # ◌︨
+U+FE29  # ◌︩
+U+FE2A  # ◌︪
+U+FE2B  # ◌︫
+U+FE2C  # ◌︬
+U+FE2D  # ◌︭
+
+# Supplemental arrows (U+1F800-1F8FF): 2
+U+1F850 # 🡐
+U+1F852 # 🡒

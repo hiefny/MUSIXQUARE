@@ -93,6 +93,135 @@ export function builtAssetStem(file: string): string {
   return name.replace(/-[A-Za-z0-9_-]{8}\.[A-Za-z0-9]+$/u, '');
 }
 
+/** How a face addresses its file: relative to the source sheet, or root-relative in the build. */
+export type FaceUrlForm = 'relative' | 'root';
+
+/**
+ * Faces that are not self-hosted the one way the app serves fonts: a single
+ * url() of a WOFF2 file with format('woff2'), relative to the sheet in the
+ * source and root-relative in the build. A device face (local()), a remote,
+ * protocol-relative or data: URL, a second source and a sheet that imports
+ * another sheet are reported.
+ */
+export function faceSourceProblems(css: string, urlForm: FaceUrlForm): string[] {
+  const problems: string[] = [];
+  if (/@import\b/iu.test(css)) problems.push('the sheet imports another sheet with @import');
+  for (const match of css.matchAll(/@font-face\s*\{([^}]*)\}/giu)) {
+    const body = match[1] ?? '';
+    const family = (/font-family\s*:\s*([^;]+)/iu.exec(body)?.[1] ?? '?')
+      .trim()
+      .replace(/^(['"])(.*)\1$/su, '$2');
+    // A url() may hold a ';' (a data: URL), so the value runs to the first ';' outside one.
+    const src = /(?:^|[;{\s])src\s*:\s*((?:[^;()]|\([^)]*\))+)/iu.exec(body)?.[1] ?? '';
+    const urls = [...src.matchAll(/url\(\s*(['"]?)([^'")]*)\1\s*\)/giu)].map((url) => url[2] ?? '');
+    const [url] = urls;
+    const where = `${family} ${url ?? '(no url)'}`;
+    if (/\blocal\(/iu.test(src)) problems.push(`${where}: names a device face with local()`);
+    if (urls.length !== 1) {
+      problems.push(`${where}: has ${urls.length} url() sources, not one`);
+      continue;
+    }
+    if (url === undefined) continue;
+    if (/^[a-z][a-z\d+.-]*:/iu.test(url) || url.startsWith('//')) {
+      problems.push(`${where}: is not a self-hosted file`);
+      continue;
+    }
+    if (urlForm === 'relative' && url.startsWith('/')) {
+      problems.push(
+        `${where}: is root-relative; a source sheet points at its files relative to itself`,
+      );
+    }
+    if (urlForm === 'root' && !url.startsWith('/')) {
+      problems.push(`${where}: is not root-relative in the build`);
+    }
+    if (!/\.woff2(?:[?#]|$)/iu.test(url)) problems.push(`${where}: is not a WOFF2 file`);
+    if (!/format\(\s*(['"]?)woff2\1\s*\)/iu.test(src)) {
+      problems.push(`${where}: does not declare format('woff2')`);
+    }
+  }
+  return problems;
+}
+
+/** A list of code points, one U+XXXX per line, as scripts/fonts/uncovered-code-points.txt keeps them. */
+export interface CodePointList {
+  readonly codePoints: readonly number[];
+  readonly problems: readonly string[];
+}
+
+const hexCodePoint = (codePoint: number): string =>
+  `U+${codePoint.toString(16).toUpperCase().padStart(4, '0')}`;
+
+/**
+ * Reads a code point list: one U+XXXX (four to six upper-case hex digits) per
+ * line, in code point order, with '#' comments and blank lines. A malformed,
+ * repeated or unordered line is a problem, never skipped silently.
+ */
+export function parseCodePointList(text: string): CodePointList {
+  const codePoints: number[] = [];
+  const problems: string[] = [];
+  const seen = new Set<number>();
+  let previous = -1;
+  for (const [index, raw] of text.split(/\r?\n/u).entries()) {
+    const line = raw.replace(/#.*$/u, '').trim();
+    if (!line) continue;
+    const where = `line ${index + 1}`;
+    const match = /^U\+([0-9A-F]{4,6})$/u.exec(line);
+    if (!match?.[1]) {
+      problems.push(`${where}: "${line}" is not a U+XXXX code point`);
+      continue;
+    }
+    const codePoint = Number.parseInt(match[1], 16);
+    if (seen.has(codePoint)) {
+      problems.push(`${where}: ${hexCodePoint(codePoint)} is listed twice`);
+      continue;
+    }
+    if (codePoint < previous) {
+      problems.push(
+        `${where}: ${hexCodePoint(codePoint)} comes after ${hexCodePoint(previous)}; keep the list in code point order`,
+      );
+    }
+    seen.add(codePoint);
+    previous = Math.max(previous, codePoint);
+    codePoints.push(codePoint);
+  }
+  return { codePoints, problems };
+}
+
+/** What a coverage check over the app's stacks finds against the recorded gaps. */
+export interface StackCoverage {
+  /** Per stack, the required characters it draws with no face and the list does not name. */
+  readonly unlisted: ReadonlyMap<string, readonly number[]>;
+  /** Listed characters that every stack now draws, or that nothing requires any more. */
+  readonly stale: readonly number[];
+}
+
+/**
+ * Checks every stack against the required characters: each one must draw
+ * every required character with a self-hosted face, except the listed gaps,
+ * and the list must name only characters some stack still misses.
+ */
+export function stackCoverageGaps(
+  stacks: ReadonlyMap<string, readonly string[]>,
+  required: Iterable<number>,
+  hasFace: (families: readonly string[], codePoint: number) => boolean,
+  listed: ReadonlySet<number>,
+): StackCoverage {
+  const requiredCodePoints = [...new Set(required)].sort((left, right) => left - right);
+  const unlisted = new Map<string, number[]>();
+  const gaps = new Set<number>();
+  for (const [label, families] of stacks) {
+    const missing: number[] = [];
+    for (const codePoint of requiredCodePoints) {
+      if (hasFace(families, codePoint)) continue;
+      gaps.add(codePoint);
+      if (!listed.has(codePoint)) missing.push(codePoint);
+    }
+    if (missing.length > 0) unlisted.set(label, missing);
+  }
+  const stale = [...listed].filter((codePoint) => !gaps.has(codePoint)).sort((a, b) => a - b);
+  return { unlisted, stale };
+}
+
 /**
  * Faces whose metric descriptors differ from the expected values: the four
  * descriptors for a family with metrics, none for a family mapped to null.

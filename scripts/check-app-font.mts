@@ -6,24 +6,32 @@
  * The app draws text with Inter and Noto only, from one font stack shared by
  * the Korean and English UIs, and its font owner src/i18n/locale-fonts.ts is
  * the only code that loads the font sheets. Source checks:
- * - the shipped Inter and Noto Sans KR files match fonts/font-sources.json,
- *   and css/fonts/app/ is exactly the output of its generator;
+ * - the shipped Inter and Noto Sans KR files match fonts/font-sources.json
+ *   (Noto Sans KR without its Korean locl lookup), and css/fonts/app/ is
+ *   exactly the output of its generator;
+ * - every face is self-hosted: one sheet-relative url() of a committed WOFF2
+ *   file under fonts/, never local(), a remote URL or a second source;
  * - every Inter and CJK face carries the metric descriptors of
  *   src/i18n/font-metrics.ts, and the script faces carry none;
- * - the stacks: the Korean and English UIs read one stack under every Han
- *   order, every UI names every app family, Inter ahead of the CJK families;
+ * - the stacks: text takes its family from the app's stacks (a literal list
+ *   only in the recorded LITERAL_FONT_FAMILY_RULES); every stack (the body's
+ *   and each declaration that reads one) is the same in the Korean and
+ *   English UIs under every Han order, and names every app family, Inter
+ *   ahead of the CJK families;
  * - one source per script: Latin, Cyrillic and Greek that Inter draws come
  *   only from Inter, Hangul only from Noto Sans KR, kana only from Noto Sans
- *   JP, in every UI;
+ *   JP, in every stack of every UI;
  * - coverage: every non-PUA character Pretendard drew, and every character
- *   of the catalogs and index.html, resolves to a self-hosted face in the
- *   Korean and English stack, except the recorded list in
- *   scripts/fonts/uncovered-code-points.txt;
+ *   of the catalogs and index.html, resolves by cmap to a self-hosted face in
+ *   every stack, except the recorded list in
+ *   scripts/fonts/uncovered-code-points.txt, which must name exactly the gaps;
  * - no Pretendard in the app, no Pretendard runtime, no service worker font
  *   group, and no font preload in any HTML.
+ * The initial transfer budget (scripts/check-initial-transfer-budget.mts)
+ * holds the eager font bytes at 0, fonts of eager stylesheets included.
  * --dist adds the built output: no font in the initial graph of the app
  * document or its localized copies, each of the 16 app sheets its own lazy
- * CSS asset with the expected descriptors and resolvable files, the built
+ * CSS asset with the expected descriptors and root-relative WOFF2 files, the built
  * Inter and Noto Sans KR bytes equal to the sources, no font sheet or file in
  * the service worker's install manifests, About's locale links bound to the
  * processed original sheets, and Pretendard deployed once for the public
@@ -36,14 +44,17 @@ import { fileURLToPath } from 'node:url';
 import { CLASSIC_RUNTIME_ASSETS, compileClassicRuntimeAsset } from './classic-runtime-assets.ts';
 import { findStaleFontSheets } from './fonts/build-font-sheets.mts';
 import { fontCodePoints, openFontFile, verifyShippedFontFiles } from './fonts/font-files.mts';
-import { readFaceResolver, readFontStacks } from './fonts/font-stacks.mts';
+import { readFaceResolver, readFontStacks, type FaceResolver } from './fonts/font-stacks.mts';
 import {
   builtAssetStem,
   declaresFontFace,
   faceDescriptorMismatches,
+  faceSourceProblems,
   fontPreloadHrefs,
   initialAssetUrls,
   localDistAssetPath,
+  parseCodePointList,
+  stackCoverageGaps,
   woff2Urls,
   type FaceMetricValues,
 } from './lib/app-font-guard.mts';
@@ -132,10 +143,29 @@ for (const sheet of await findStaleFontSheets(repoRoot)) {
     `${sheet} is not the output of scripts/fonts/build-font-sheets.mts; run npm run generate:font-sheets`,
   );
 }
+// Every face is self-hosted: one sheet-relative url() of a committed WOFF2
+// file under fonts/, with format('woff2'), and the descriptors of its family.
+const fontsDirectory = `${path.join(repoRoot, 'fonts')}${path.sep}`;
 for (const sheet of APP_FONT_SHEETS) {
   const css = await readFile(path.join(repoRoot, sheet.path), 'utf8');
   for (const mismatch of faceDescriptorMismatches(css, FACE_METRICS)) {
     failures.push(`${sheet.path}: ${mismatch}`);
+  }
+  for (const problem of faceSourceProblems(css, 'relative')) {
+    failures.push(`${sheet.path}: ${problem}`);
+  }
+  for (const url of woff2Urls(css)) {
+    if (/^[a-z][a-z\d+.-]*:/iu.test(url) || url.startsWith('/')) continue;
+    const file = path.resolve(repoRoot, path.dirname(sheet.path), url);
+    check(
+      file.startsWith(fontsDirectory),
+      `${sheet.path}: ${url} points outside the committed fonts/ directory`,
+    );
+    const exists = await readFile(file).then(
+      (bytes) => bytes.subarray(0, 4).toString('latin1') === 'wOF2',
+      () => false,
+    );
+    check(exists, `${sheet.path}: ${url} is not a committed WOFF2 file`);
   }
 }
 
@@ -151,91 +181,156 @@ check(
   !appStyleText.includes('data-mxqr-font-recovery'),
   'the app stylesheets still switch to a recovery font family',
 );
-const HAN_ORDERS = [null, 'ja', 'zh-hans', 'zh-hant'] as const;
-for (const hanOrder of HAN_ORDERS) {
-  const attributes: Record<string, string> =
-    hanOrder === null ? {} : { 'data-mxqr-han-order': hanOrder };
-  const orderLabel = `Han order ${hanOrder ?? 'ko'}`;
-  check(
-    JSON.stringify(fontStacks.fontSans({ htmlLang: 'ko', attributes })) ===
-      JSON.stringify(fontStacks.fontSans({ htmlLang: 'en', attributes })),
-    `the Korean and English UIs read different font stacks (${orderLabel})`,
-  );
-  for (const { code, htmlLang } of LANGUAGE_OPTIONS) {
-    const stack = fontStacks.fontSans({ htmlLang, dir: languageDirection(code), attributes });
-    const where = `the ${code} UI font stack (${orderLabel})`;
-    const strays = stack.filter(
-      (family) => !APP_FAMILIES.includes(family) && !SYSTEM_FAMILIES.has(family),
-    );
-    check(strays.length === 0, `${where} names ${strays.join(', ')}`);
-    const missing = APP_FAMILIES.filter((family) => !stack.includes(family));
-    check(missing.length === 0, `${where} omits ${missing.join(', ')}`);
-    const inter = stack.indexOf('Inter');
+
+// Text takes its family from the app's stacks (--font-sans and the stacks
+// it is built from) or inherits it. A literal family list is allowed only
+// where text is not the app's own or user content, as recorded here.
+const LITERAL_FONT_FAMILY_RULES: Readonly<Record<string, string>> = {
+  '.account-google-button': "Google's sign-in button follows Google's branding rules",
+  '.noscript-fallback': 'shown when scripts are off, before any font sheet can load',
+  '.debug-memory-content': 'diagnostic overlay, device monospace',
+  '.debug-memory-graph-label': 'diagnostic overlay, device monospace',
+  '.debug-memory-hint': 'diagnostic overlay',
+  '.onboarding-diagnostics-status': 'diagnostic overlay, device monospace',
+  '.onboarding-diagnostics-action': 'diagnostic overlay, device monospace',
+};
+const stackDeclarations: { selector: string; value: string }[] = [];
+const literalSelectors = new Set<string>();
+for (const { sheet, selector, rule } of fontStacks.rules) {
+  for (const node of rule.nodes) {
+    if (node.type !== 'decl') continue;
+    const value = node.value.replace(/\s+/gu, ' ').trim();
+    if (node.prop === 'font') {
+      check(
+        value === 'inherit',
+        `${sheet} ${selector} sets a font family through 'font: ${value}'`,
+      );
+      continue;
+    }
+    if (node.prop !== 'font-family' || value === 'inherit') continue;
+    if (/var\(--font-sans/u.test(value)) {
+      stackDeclarations.push({ selector, value });
+      continue;
+    }
+    literalSelectors.add(selector);
     check(
-      inter >= 0 && CJK_FAMILIES.every((family) => stack.indexOf(family) > inter),
-      `${where} puts a CJK family before Inter`,
+      selector in LITERAL_FONT_FAMILY_RULES,
+      `${sheet} ${selector} sets its own font family (${value}) instead of an app stack`,
     );
+  }
+}
+for (const selector of Object.keys(LITERAL_FONT_FAMILY_RULES)) {
+  check(
+    literalSelectors.has(selector),
+    `${selector} no longer sets its own font family; drop it from LITERAL_FONT_FAMILY_RULES`,
+  );
+}
+
+// Every text stack in every document state: the body's --font-sans and each
+// declaration that reads a stack (detected Japanese and Chinese text, the
+// language picker's native names), in every UI language under every Han order.
+const HAN_ORDERS = [null, 'ja', 'zh-hans', 'zh-hant'] as const;
+const hanAttributes = (hanOrder: (typeof HAN_ORDERS)[number]): Record<string, string> =>
+  hanOrder === null ? {} : { 'data-mxqr-han-order': hanOrder };
+const textStacks = new Map<string, readonly string[]>();
+const stackKeys = new Set<string>();
+for (const hanOrder of HAN_ORDERS) {
+  const attributes = hanAttributes(hanOrder);
+  const orderLabel = `Han order ${hanOrder ?? 'ko'}`;
+  const stackIn = (htmlLang: string, value: string | null, dir: 'ltr' | 'rtl' = 'ltr'): string[] =>
+    value === null
+      ? fontStacks.fontSans({ htmlLang, dir, attributes })
+      : fontStacks.families({ htmlLang, dir, attributes }, value);
+  for (const { selector, value } of [
+    { selector: '--font-sans', value: null },
+    ...stackDeclarations,
+  ]) {
+    check(
+      JSON.stringify(stackIn('ko', value)) === JSON.stringify(stackIn('en', value)),
+      `the Korean and English UIs read different font stacks for ${selector} (${orderLabel})`,
+    );
+    for (const { code, htmlLang } of LANGUAGE_OPTIONS) {
+      const stack = stackIn(htmlLang, value, languageDirection(code));
+      const key = stack.join('|');
+      if (stackKeys.has(key)) continue;
+      stackKeys.add(key);
+      const where = `${selector} in the ${code} UI (${orderLabel})`;
+      textStacks.set(where, stack);
+      const strays = stack.filter(
+        (family) => !APP_FAMILIES.includes(family) && !SYSTEM_FAMILIES.has(family),
+      );
+      check(strays.length === 0, `${where} names ${strays.join(', ')}`);
+      const missing = APP_FAMILIES.filter((family) => !stack.includes(family));
+      check(missing.length === 0, `${where} omits ${missing.join(', ')}`);
+      const inter = stack.indexOf('Inter');
+      check(
+        inter >= 0 && CJK_FAMILIES.every((family) => stack.indexOf(family) > inter),
+        `${where} puts a CJK family before Inter`,
+      );
+    }
   }
 }
 
 // ── Source: one source per script, and coverage ────────────────────
 
-const resolver = await readFaceResolver(repoRoot, APP_FONT_SHEETS);
-const interCodePoints = new Set<number>();
-for (const sheet of APP_FONT_SHEETS.filter(({ family }) => family === 'Inter')) {
-  const css = await readFile(path.join(repoRoot, sheet.path), 'utf8');
-  for (const url of woff2Urls(css)) {
-    const file = path.join(repoRoot, path.dirname(sheet.path), url);
-    for (const codePoint of fontCodePoints(await openFontFile(file)))
-      interCodePoints.add(codePoint);
+// The faces are read from their files; a sheet that points at no readable
+// file is reported above, and these checks then wait for it to be fixed.
+const resolver = await readFaceResolver(repoRoot, APP_FONT_SHEETS).catch((error: unknown) => {
+  failures.push(
+    `the app font faces cannot be read, so the script and coverage checks did not run: ${error instanceof Error ? error.message : String(error)}`,
+  );
+  return null;
+});
+const recordedGapCount = resolver ? await checkScriptsAndCoverage(resolver) : 0;
+
+/** One source per script and coverage in every text stack; returns the recorded gap count. */
+async function checkScriptsAndCoverage(resolver: FaceResolver): Promise<number> {
+  const hasFace = (families: readonly string[], codePoint: number): boolean =>
+    resolver.faceFor(families, codePoint) !== null;
+  const interCodePoints = new Set<number>();
+  for (const sheet of APP_FONT_SHEETS.filter(({ family }) => family === 'Inter')) {
+    const css = await readFile(path.join(repoRoot, sheet.path), 'utf8');
+    for (const url of woff2Urls(css)) {
+      const file = path.join(repoRoot, path.dirname(sheet.path), url);
+      for (const codePoint of fontCodePoints(await openFontFile(file)))
+        interCodePoints.add(codePoint);
+    }
   }
-}
-const isHangul = (codePoint: number) =>
-  (codePoint >= 0x1100 && codePoint <= 0x11ff) ||
-  (codePoint >= 0x3130 && codePoint <= 0x318f) ||
-  (codePoint >= 0xa960 && codePoint <= 0xa97f) ||
-  (codePoint >= 0xac00 && codePoint <= 0xd7a3) ||
-  (codePoint >= 0xd7b0 && codePoint <= 0xd7ff);
-const isKana = (codePoint: number) =>
-  (codePoint >= 0x3040 && codePoint <= 0x30ff) ||
-  (codePoint >= 0x31f0 && codePoint <= 0x31ff) ||
-  (codePoint >= 0xff66 && codePoint <= 0xff9f);
-// The Latin, Cyrillic and Greek letters and the digits Inter draws (its cmap
-// inside its own unicode-ranges). Script-first stacks (Arabic, Hebrew, Indic)
-// may take shared marks such as dashes, joiners or the rupee sign from their
-// script face, as designed, so the check holds letters and digits only.
-const interLetters = [...interCodePoints].filter(
-  (codePoint) =>
-    /[\p{Script=Latin}\p{Script=Cyrillic}\p{Script=Greek}\p{Nd}]/u.test(
-      String.fromCodePoint(codePoint),
-    ) && resolver.faceFor(['Inter'], codePoint) !== null,
-);
-const hangulSyllables = Array.from({ length: 11_172 }, (_, index) => 0xac00 + index);
-const ownerChecks: [string, number[], string][] = [
-  ['Latin, Cyrillic and Greek letters and digits', interLetters, 'Inter'],
-  [
-    'Hangul',
-    Array.from({ length: 0xd800 - 0x1100 }, (_, index) => 0x1100 + index).filter(isHangul),
-    'Noto Sans KR',
-  ],
-  [
-    'kana',
-    Array.from({ length: 0x3100 - 0x3041 }, (_, index) => 0x3041 + index).filter(isKana),
-    'Noto Sans JP',
-  ],
-];
-const representativeUis = ['ko', 'en', 'ja', 'zh-hans', 'zh-hant', 'th', 'ar', 'hi'] as const;
-for (const code of representativeUis) {
-  const option = LANGUAGE_OPTIONS.find((language) => language.code === code);
-  if (!option) continue;
-  for (const hanOrder of HAN_ORDERS) {
-    const attributes: Record<string, string> =
-      hanOrder === null ? {} : { 'data-mxqr-han-order': hanOrder };
-    const stack = fontStacks.fontSans({
-      htmlLang: option.htmlLang,
-      dir: languageDirection(code),
-      attributes,
-    });
+  const isHangul = (codePoint: number) =>
+    (codePoint >= 0x1100 && codePoint <= 0x11ff) ||
+    (codePoint >= 0x3130 && codePoint <= 0x318f) ||
+    (codePoint >= 0xa960 && codePoint <= 0xa97f) ||
+    (codePoint >= 0xac00 && codePoint <= 0xd7a3) ||
+    (codePoint >= 0xd7b0 && codePoint <= 0xd7ff);
+  const isKana = (codePoint: number) =>
+    (codePoint >= 0x3040 && codePoint <= 0x30ff) ||
+    (codePoint >= 0x31f0 && codePoint <= 0x31ff) ||
+    (codePoint >= 0xff66 && codePoint <= 0xff9f);
+  // The Latin, Cyrillic and Greek letters and the digits Inter draws (its cmap
+  // inside its own unicode-ranges). Script-first stacks (Arabic, Hebrew, Indic)
+  // may take shared marks such as dashes, joiners or the rupee sign from their
+  // script face, as designed, so the check holds letters and digits only.
+  const interLetters = [...interCodePoints].filter(
+    (codePoint) =>
+      /[\p{Script=Latin}\p{Script=Cyrillic}\p{Script=Greek}\p{Nd}]/u.test(
+        String.fromCodePoint(codePoint),
+      ) && resolver.faceFor(['Inter'], codePoint) !== null,
+  );
+  const hangulSyllables = Array.from({ length: 11_172 }, (_, index) => 0xac00 + index);
+  const ownerChecks: [string, number[], string][] = [
+    ['Latin, Cyrillic and Greek letters and digits', interLetters, 'Inter'],
+    [
+      'Hangul',
+      Array.from({ length: 0xd800 - 0x1100 }, (_, index) => 0x1100 + index).filter(isHangul),
+      'Noto Sans KR',
+    ],
+    [
+      'kana',
+      Array.from({ length: 0x3100 - 0x3041 }, (_, index) => 0x3041 + index).filter(isKana),
+      'Noto Sans JP',
+    ],
+  ];
+  for (const [where, stack] of textStacks) {
     for (const [label, codePoints, owner] of ownerChecks) {
       const strays = codePoints.filter((codePoint) => {
         const face = resolver.faceFor(stack, codePoint);
@@ -243,61 +338,66 @@ for (const code of representativeUis) {
       });
       check(
         strays.length === 0,
-        `${label} in the ${code} UI (Han order ${hanOrder ?? 'ko'}) come from a family other than ${owner}: ${strays
+        `${label} in ${where} come from a family other than ${owner}: ${strays
           .slice(0, 8)
           .map(hex)
           .join(', ')}`,
       );
     }
-    const missingHangul = hangulSyllables.filter(
-      (codePoint) => !resolver.faceFor(stack, codePoint),
-    );
+    const missingHangul = hangulSyllables.filter((codePoint) => !hasFace(stack, codePoint));
     check(
       missingHangul.length === 0,
-      `${code} UI: ${missingHangul.length} Hangul syllables have no face`,
+      `${where}: ${missingHangul.length} Hangul syllables have no face`,
     );
   }
-}
 
-const isPrivateUse = (codePoint: number) =>
-  (codePoint >= 0xe000 && codePoint <= 0xf8ff) || codePoint >= 0xf0000;
-const isControlOrSpace = (codePoint: number) =>
-  codePoint <= 0x20 || (codePoint >= 0x7f && codePoint <= 0x9f);
-const required = new Set<number>();
-for (const codePoint of fontCodePoints(await openFontFile(PRETENDARD_SOURCE))) {
-  if (!isPrivateUse(codePoint) && !isControlOrSpace(codePoint)) required.add(codePoint);
-}
-for (const source of [...LANGUAGE_OPTIONS.map(({ code }) => `src/i18n/${code}.ts`), 'index.html']) {
-  for (const character of await readFile(path.join(repoRoot, source), 'utf8')) {
-    const codePoint = character.codePointAt(0) ?? 0;
-    if (!isControlOrSpace(codePoint)) required.add(codePoint);
+  // Coverage: every non-PUA character Pretendard drew (what the app could show
+  // before the switch) and every character of the catalogs and index.html has
+  // a self-hosted face in every text stack, except the recorded gaps.
+  const isPrivateUse = (codePoint: number) =>
+    (codePoint >= 0xe000 && codePoint <= 0xf8ff) || codePoint >= 0xf0000;
+  const isControlOrSpace = (codePoint: number) =>
+    codePoint <= 0x20 || (codePoint >= 0x7f && codePoint <= 0x9f);
+  const required = new Set<number>();
+  for (const codePoint of fontCodePoints(await openFontFile(PRETENDARD_SOURCE))) {
+    if (!isPrivateUse(codePoint) && !isControlOrSpace(codePoint)) required.add(codePoint);
   }
+  for (const source of [
+    ...LANGUAGE_OPTIONS.map(({ code }) => `src/i18n/${code}.ts`),
+    'index.html',
+  ]) {
+    for (const character of await readFile(path.join(repoRoot, source), 'utf8')) {
+      const codePoint = character.codePointAt(0) ?? 0;
+      if (!isControlOrSpace(codePoint)) required.add(codePoint);
+    }
+  }
+  const recordedList = parseCodePointList(
+    await readFile(path.join(repoRoot, UNCOVERED_LIST), 'utf8'),
+  );
+  for (const problem of recordedList.problems) failures.push(`${UNCOVERED_LIST} ${problem}`);
+  const recordedUncovered: ReadonlySet<number> = new Set(recordedList.codePoints);
+  const coverage = stackCoverageGaps(textStacks, required, hasFace, recordedUncovered);
+  for (const [where, missing] of [...coverage.unlisted].slice(0, 8)) {
+    failures.push(
+      `${missing.length} characters the app may show have no self-hosted face in ${where} and are not in ${UNCOVERED_LIST}: ${missing
+        .slice(0, 12)
+        .map(hex)
+        .join(', ')}`,
+    );
+  }
+  check(
+    coverage.unlisted.size <= 8,
+    `${coverage.unlisted.size - 8} more stacks miss characters that ${UNCOVERED_LIST} does not list`,
+  );
+  check(
+    coverage.stale.length === 0,
+    `${UNCOVERED_LIST} lists ${coverage.stale.length} characters that every stack now draws or that nothing requires: ${coverage.stale
+      .slice(0, 12)
+      .map(hex)
+      .join(', ')}`,
+  );
+  return recordedUncovered.size;
 }
-const koreanStack = fontStacks.fontSans({ htmlLang: 'ko' });
-const uncovered = [...required].filter((codePoint) => !resolver.faceFor(koreanStack, codePoint));
-const recordedUncovered = new Set(
-  (await readFile(path.join(repoRoot, UNCOVERED_LIST), 'utf8'))
-    .split('\n')
-    .map((line) => line.trim())
-    .filter((line) => /^U\+[0-9A-F]{4,6}$/u.test(line))
-    .map((line) => Number.parseInt(line.slice(2), 16)),
-);
-const newGaps = uncovered.filter((codePoint) => !recordedUncovered.has(codePoint));
-check(
-  newGaps.length === 0,
-  `${newGaps.length} characters the app may show have no self-hosted face in the Korean and English stack: ${newGaps
-    .slice(0, 12)
-    .map(hex)
-    .join(', ')}`,
-);
-const staleGaps = [...recordedUncovered].filter((codePoint) => !uncovered.includes(codePoint));
-check(
-  staleGaps.length === 0,
-  `${UNCOVERED_LIST} lists ${staleGaps.length} characters that now have a face: ${staleGaps
-    .slice(0, 12)
-    .map(hex)
-    .join(', ')}`,
-);
 
 // ── Source: no Pretendard and no second font machine in the app ────
 
@@ -411,6 +511,9 @@ if (distMode) {
     appSheetFiles.set(id, match.file);
     for (const mismatch of faceDescriptorMismatches(match.css, FACE_METRICS)) {
       failures.push(`built ${relative(match.file)}: ${mismatch}`);
+    }
+    for (const problem of faceSourceProblems(match.css, 'root')) {
+      failures.push(`built ${relative(match.file)}: ${problem}`);
     }
     for (const url of woff2Urls(match.css)) {
       const fontFile = localDistAssetPath(distDirectory, url);
@@ -585,6 +688,6 @@ if (failures.length > 0) {
   process.exitCode = 1;
 } else {
   console.log(
-    `App font guard passed (Inter and Noto files and sheets, stacks, one source per script, coverage with ${uncovered.length} recorded gaps${distMode ? ', built sheets, initial graph and install manifests' : ''}).`,
+    `App font guard passed (Inter and Noto files and self-hosted sheets, ${textStacks.size} distinct text stacks, one source per script, coverage with ${recordedGapCount} recorded gaps${distMode ? ', built sheets, initial graph and install manifests' : ''}).`,
   );
 }

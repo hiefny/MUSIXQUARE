@@ -94,15 +94,24 @@ runbooks. Neither belongs in a general setup document.
 ## Maintained evidence and completed records
 
 - [Phase 6 train 6A: one YouTube start timing home, owner queries for the start timers and one verified iframe audio restore (2026-10-31)](design/phase6-6a-start-constants-owner-queries-2026-10-31.md):
-  prepared, not released. The runtime increments of the first Phase 6 App update (owner answers of
-  2026-10-30, all recommended: four App updates, each audio restore keeps its own rhythm, the
-  deferred app part of Phase 0d rides in this train, a test that reproduces a defect pins today's
-  behaviour) on branch `agent/p6-6a`, 21 commits plus three record commits (24 in all), built on
-  main `599465dd` and moved with every patch unchanged onto main `9e68a7a3` (after the 9.0.28
-  release, its record and the remaining test-order fix), then two record commits for the move and
-  the release record's pre-deploy entry. The version bump (the next App patch), the remaining
-  record edits, the registry's release-batching sentence and the release are left to the release
-  owner; the owner chooses when (only while awake) and the order against the app font update.
+  prepared, not released: App 9.0.30 / v803, target `app`, one update dialog. The first Phase 6 App
+  update (owner answers of 2026-10-30, all recommended: four App updates, each audio restore keeps
+  its own rhythm, the deferred app part of Phase 0d rides in this train, a test that reproduces a
+  defect pins today's behaviour) on branch `agent/p6-6a`, 21 commits plus three record commits (24
+  in all), built on main `599465dd` and moved with every patch unchanged onto main `9e68a7a3`
+  (after the 9.0.28 release, its record and the remaining test-order fix), then two record commits
+  for the move and the release record's pre-deploy entry. The owner chose to ship the app font
+  switch first (evening of 2026-10-31), so it went out as 9.0.29 / v802, and the 26 commits moved
+  again, every patch unchanged, onto that release's record `e51dd292` (report QA round 7: every
+  tests-first pair fails the same rows by name on its new parent, `src/youtube` and
+  `src/pro-room` pass in file order and under seeds 7 and 4242, the T0a goldens pass, and the
+  first load is 154 B of eager JavaScript gzip and 152 B of eager total below 9.0.29). The owner
+  left at about 23:20 KST for about 40 hours with releases and tests delegated, which for that time
+  replaces the rule that Phase 6 trains ship only while the owner is awake. On top come the record
+  edits the bump carries (the order and Q6 sentences, the 9.0.22 item's C2-1 clause, the Android
+  mixed-version sentence, the registry's release-batching sentence for Phase 6), the comment-only
+  R4-Q3 fix in `src/pro-room/snapshot.ts` that Phase 5.5 R4 left for the next App update, and the
+  bump to 9.0.30 / v803 as the last runtime commit.
   6A-1 replaces the cross-file reads of the start timers' names with owner queries
   (`isYouTubeAutoSyncPending` through the player runtime bridge, and a query `sync.ts` registers
   with the native-control authority; the PRO coordinator nudge is still read by name). 6A-2 drops

@@ -88,10 +88,12 @@
  *   CHECK 12 Cross-file YouTube start-timer reads and clears (RO-02, Phase 6
  *     T1), per file in src/youtube/: getManagedTimer() and
  *     clearManagedTimer() calls on a start timer (START_TIMER_SETTERS) that
- *     the same file does not set with setManagedTimer(). A name list handed
- *     to an array method (`names.some((name) => getManagedTimer(name))`,
- *     `names.forEach(clearManagedTimer)`) counts once per call. Names resolve
- *     from the syntax tree alone: a string literal; both sides of a
+ *     the same file does not set with setManagedTimer(). A call counts once
+ *     per start timer it can take (since Phase 6 6A; once per call before),
+ *     so a name list handed to an array method
+ *     (`names.some((name) => getManagedTimer(name))`,
+ *     `names.forEach(clearManagedTimer)`) counts each of its names. Names
+ *     resolve from the syntax tree alone: a string literal; both sides of a
  *     conditional, `??` or `||`; a const initialised with one (every binding
  *     of the name in the file, matched by name, not by scope), imported by
  *     name, re-exported or read through a namespace import; a for-of const,
@@ -810,11 +812,15 @@ const IFRAME_AUDIO_WRITE_BASELINE: Baseline = new Map<string, Allowance>([
 // and the query sync.ts registers with the native-control authority. The PRO
 // coordinator nudge reads stay, because the manual-offset transaction (RO-13)
 // is owner-in-place. Phase 6 6A-2 dropped iframe.ts's 'yt-clock-action' clear,
-// which resetYouTubeSyncState repeats through its owner (9 clears). On every
-// tree since T1 each timer call in src/youtube/ resolves its name (the five
-// templates name per-peer timers that cannot spell a start timer), no file
-// renames or passes on a timer function, and each start timer is set only by
-// its listed files, so the fail-closed findings have no allowance.
+// which resetYouTubeSyncState repeats through its owner (9 clears). Those
+// counts are per call. Since Phase 6 6A a call counts once per start timer it
+// covers; every counted call names one, so the baselines stay 11 and 9 (per
+// name, T1's tree had 20 reads and 10 clears: the seven-name list in
+// hasProtectedTransitionOwner counted 7). On every tree since T1 each timer
+// call in src/youtube/ resolves its name (the five templates name per-peer
+// timers that cannot spell a start timer), no file renames or passes on a
+// timer function, and each start timer is set only by its listed files, so
+// the fail-closed findings have no allowance.
 
 const START_TIMER_SCOPE = 'src/youtube/';
 const TIMER_SET_CALL = 'setManagedTimer';
@@ -2332,9 +2338,10 @@ interface StartTimerUses {
 /**
  * RO-02: per file in src/youtube/, getManagedTimer() and clearManagedTimer()
  * calls that can take a start timer the same file does not set. A call
- * counts once however many such names it can take (a name list is one call).
- * Every timer call there must resolve its name, the timer functions keep
- * their names, and each start timer is set by exactly its listed files.
+ * counts once per such name it can take, so a name added to a list counts
+ * as a new call would. Every timer call there must resolve its name, the
+ * timer functions keep their names, and each start timer is set by exactly
+ * its listed files.
  */
 function collectStartTimerUses(sources: ReadonlyMap<string, string>): StartTimerUses {
   const scopeOf = timerNameScopes(sources);
@@ -2387,7 +2394,7 @@ function collectStartTimerUses(sources: ReadonlyMap<string, string>): StartTimer
       );
       if (counted.length === 0) continue;
       const measured = call.kind === 'read' ? reads : clears;
-      measured.set(relPath, (measured.get(relPath) ?? 0) + 1);
+      measured.set(relPath, (measured.get(relPath) ?? 0) + counted.length);
       sites.push(
         `cross-file start-timer ${call.kind}: ${relPath}:${lineOf(scope.file, call.node)} ` +
           `${call.callee}(${counted.map((name) => `'${name}'`).join(', ')}) in ` +

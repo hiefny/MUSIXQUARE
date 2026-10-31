@@ -308,7 +308,9 @@ RO-53 owner-in-place
     listed file that stops setting one. A change that sets a new start timer, renames or removes
     one, or moves its setter updates this list and the guard in the same change.
   - **Reads and clears from other files** (CHECK 12, per file in `src/youtube/`): on 2026-10-31
-    (`main` `23f29283`, App 9.0.27) 14 reads and 10 clears. Phase 6 6A-1 replaced the
+    (`main` `23f29283`, App 9.0.27) 14 reads and 10 clears, counted once per call; counted once
+    per start-timer name, as since Phase 6 6A, that tree had 20 reads (the seven-name list in
+    `hasProtectedTransitionOwner` counts 7). Phase 6 6A-1 replaced the
     `'yt-auto-sync'` reads in `sync.ts` and `iframe.ts` and the six names other than the nudge in
     `hasProtectedTransitionOwner`'s list with the owner queries above. That leaves 11 reads, all
     of the nudge, whose name reads stay (RO-13 is owner-in-place). Phase 6 6A-2 dropped the
@@ -321,9 +323,11 @@ RO-53 owner-in-place
     `'yt-clock-action'` and `'yt-seek-play'` clears in three places (six); and `sync.ts`'s nudge
     clear right after the owner's reset port (one). `leaveSession`'s nameless
     `clearAllManagedTimers` in `src/network/peer.ts` clears them all and is not counted. Every
-    timer call in `src/youtube/` must resolve its name, and the timer functions keep their names
-    there (guard item 12), so a timer-name query cannot leave the count by taking a `string` name
-    or an alias.
+    timer call in `src/youtube/` must resolve its name, the timer functions keep their names
+    there, and a call counts once per start timer it can take (guard item 12), so a timer-name
+    query cannot leave the count by taking a `string` name or an alias, and a start timer added
+    to a list of names raises it. Each counted call names one start timer today, so the counts
+    are the same per call and per name.
 - **Lifecycle operations:** `loadVideoById` or `cueVideoById`, `pauseVideo`, `seekTo`, `mute` and
   `unMute`, `playVideo`, release acknowledgement, ABORT.
 - **Deadline owner:** the controller (the prepare budget, 10 s, and the release acknowledgement,
@@ -3873,9 +3877,10 @@ and unrelated strings never count, and every baseline is an exact count or list 
     every counted call with its function.
 12. **Cross-file YouTube start-timer reads and clears, per file** (RO-02, Phase 6 T1): in
     `src/youtube/`, `getManagedTimer()` and `clearManagedTimer()` calls on a start timer (the
-    list in RO-02) that the same file does not set with `setManagedTimer()`. A name list handed
+    list in RO-02) that the same file does not set with `setManagedTimer()`. A call counts once
+    per start timer it can take (since Phase 6 6A; once per call before), so a name list handed
     to an array method (`names.some((name) => getManagedTimer(name) !== null)`,
-    `names.some(getManagedTimer)`) counts once per call. Names resolve from the syntax tree
+    `names.some(getManagedTimer)`) counts each of its names. Names resolve from the syntax tree
     alone:
     - a string literal, and both sides of a conditional, `??` or `||`;
     - a `const` initialised with one: in the file (matched by name, not by scope, and only when

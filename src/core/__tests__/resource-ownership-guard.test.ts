@@ -668,25 +668,6 @@ describe('resource-ownership guard', { timeout: 60_000 }, () => {
       );
     });
 
-    it('rejects a re-typed copy of the arm timing beside its home src/youtube/constants.ts (RO-02/RO-03/RO-12)', () => {
-      const findings = findingsOf(
-        withSources((sources) => {
-          const file = 'src/youtube/player.ts';
-          sources.set(
-            file,
-            `${sources.get(file) ?? ''}\nconst RETYPED_ARM_TIMING = Object.freeze({\n` +
-              '  hardMutePollMs: 30,\n  hardMuteMaxAttempts: 12,\n  warmPlayMs: 260,\n' +
-              '  pauseSeekGapMs: 80,\n  settlePollMs: 80,\n});\nvoid RETYPED_ARM_TIMING;\n',
-          );
-        }),
-      );
-      expect(findings).toContain(
-        'COPIED TIMING CONSTANT (principle 4): RO-02/RO-03/RO-12 ' +
-          'RETYPED_ARM_TIMING@src/youtube/player.ts = ' +
-          'YOUTUBE_ARM_TIMING@src/youtube/constants.ts (5 shared values)',
-      );
-    });
-
     it('rejects a same-named copy of an arm timing beside its home src/youtube/constants.ts (RO-02/RO-03/RO-12)', () => {
       const findings = findingsOf(
         withSources((sources) => {

@@ -9,8 +9,20 @@
  */
 import { MANUAL_SYNC_OFFSET_LIMIT_MS, MSG } from '../core/constants.ts';
 import {
-  STANDARD_ZERO_START_BARRIER,
-  YOUTUBE_ARM_TIMING,
+  STANDARD_ZERO_START_COMMIT_LEAD_MS,
+  STANDARD_ZERO_START_GUEST_DECISION_MS,
+  STANDARD_ZERO_START_GUEST_TOTAL_WAIT_MS,
+  STANDARD_ZERO_START_LATE_FALLBACK_LEAD_MS,
+  STANDARD_ZERO_START_PREPARE_BUDGET_MS,
+  YOUTUBE_ARM_HARD_MUTE_MAX_ATTEMPTS,
+  YOUTUBE_ARM_HARD_MUTE_POLL_MS,
+  YOUTUBE_ARM_PAUSE_SEEK_GAP_MS,
+  YOUTUBE_ARM_RELEASE_ACK_TIMEOUT_MS,
+  YOUTUBE_ARM_SETTLE_EPSILON_SEC,
+  YOUTUBE_ARM_SETTLE_POLL_MS,
+  YOUTUBE_ARM_SETTLE_RESEEK_EVERY,
+  YOUTUBE_ARM_SETTLE_STABLE_SAMPLES,
+  YOUTUBE_ARM_WARM_PLAY_MS,
   YOUTUBE_RELEASE_CATCH_UP_TOLERANCE_SEC,
 } from './constants.ts';
 import { restoreYouTubeAudioVerified, writeYouTubeAudio } from './iframe-audio.ts';
@@ -535,8 +547,8 @@ class YouTubeZeroStartController {
       videoId: input.videoId,
       subIndex: input.subIndex,
       prepareAtHost: now,
-      decisionAtHost: now + STANDARD_ZERO_START_BARRIER.guestDecisionMs,
-      startDeadlineAtHost: now + STANDARD_ZERO_START_BARRIER.guestTotalWaitMs,
+      decisionAtHost: now + STANDARD_ZERO_START_GUEST_DECISION_MS,
+      startDeadlineAtHost: now + STANDARD_ZERO_START_GUEST_TOTAL_WAIT_MS,
       hostPlatform: this.#deps.getLocalPlatform(),
     };
 
@@ -591,7 +603,7 @@ class YouTubeZeroStartController {
       // explicit legacy handoff.
       this.#localRun.hostFallbackEligible = true;
     }
-    this.#later(() => this.#maybeCommit(), STANDARD_ZERO_START_BARRIER.guestDecisionMs);
+    this.#later(() => this.#maybeCommit(), STANDARD_ZERO_START_GUEST_DECISION_MS);
     this.#debug('prepare-host', {
       runId: prepare.runId,
       expectedGuestIds: [...expectedGuestIds],
@@ -1200,7 +1212,7 @@ class YouTubeZeroStartController {
       }
       return;
     }
-    if (this.#now() - run.startedPrepareAtLocal >= STANDARD_ZERO_START_BARRIER.guestTotalWaitMs) {
+    if (this.#now() - run.startedPrepareAtLocal >= STANDARD_ZERO_START_GUEST_TOTAL_WAIT_MS) {
       this.#failLocalPrepare(run, 'player-unavailable');
       return;
     }
@@ -1314,7 +1326,7 @@ class YouTubeZeroStartController {
       return;
     }
 
-    if (attempt + 1 >= YOUTUBE_ARM_TIMING.hardMuteMaxAttempts) {
+    if (attempt + 1 >= YOUTUBE_ARM_HARD_MUTE_MAX_ATTEMPTS) {
       this.#failLocalPrepare(run, 'hard-mute-timeout');
       return;
     }
@@ -1323,7 +1335,7 @@ class YouTubeZeroStartController {
     } catch {
       // The bounded poll either observes the command or fails safely.
     }
-    this.#later(() => this.#waitForHardMute(run, attempt + 1), YOUTUBE_ARM_TIMING.hardMutePollMs);
+    this.#later(() => this.#waitForHardMute(run, attempt + 1), YOUTUBE_ARM_HARD_MUTE_POLL_MS);
   }
 
   #armWarmWatchdog(run: LocalRun): void {
@@ -1339,7 +1351,7 @@ class YouTubeZeroStartController {
           mediaAction: run.mediaAction,
         });
       },
-      run.startedPrepareAtLocal + STANDARD_ZERO_START_BARRIER.prepareBudgetMs - this.#now(),
+      run.startedPrepareAtLocal + STANDARD_ZERO_START_PREPARE_BUDGET_MS - this.#now(),
     );
   }
 
@@ -1380,12 +1392,12 @@ class YouTubeZeroStartController {
           } catch {
             // Settling poll will observe target mismatch and retry or time out safely.
           }
-          this.#later(() => this.#pollSettledAtTarget(run), YOUTUBE_ARM_TIMING.settlePollMs);
-        }, YOUTUBE_ARM_TIMING.pauseSeekGapMs);
+          this.#later(() => this.#pollSettledAtTarget(run), YOUTUBE_ARM_SETTLE_POLL_MS);
+        }, YOUTUBE_ARM_PAUSE_SEEK_GAP_MS);
       } catch (error) {
         this.#failLocalPrepare(run, 'warm-pause-failed', error);
       }
-    }, YOUTUBE_ARM_TIMING.warmPlayMs);
+    }, YOUTUBE_ARM_WARM_PLAY_MS);
   }
 
   #pollSettledAtTarget(run: LocalRun): void {
@@ -1414,13 +1426,13 @@ class YouTubeZeroStartController {
       if (
         this.#currentVideoId(player) === run.videoId &&
         isStopped &&
-        Math.abs(position - target) <= YOUTUBE_ARM_TIMING.settleEpsilonSec
+        Math.abs(position - target) <= YOUTUBE_ARM_SETTLE_EPSILON_SEC
       ) {
         run.stableChecks += 1;
       } else {
         run.stableChecks = 0;
         if (state === YOUTUBE_ZERO_START_PLAYER_STATE.playing) player.pauseVideo();
-        if (run.settleAttempts % YOUTUBE_ARM_TIMING.settleReseekEvery === 0) {
+        if (run.settleAttempts % YOUTUBE_ARM_SETTLE_RESEEK_EVERY === 0) {
           player.pauseVideo();
           this.#later(() => {
             if (!this.#isCurrentRun(run)) return;
@@ -1430,22 +1442,22 @@ class YouTubeZeroStartController {
               return;
             }
             player.seekTo(this.#resolveLocalTarget(0, run), true);
-          }, YOUTUBE_ARM_TIMING.pauseSeekGapMs);
+          }, YOUTUBE_ARM_PAUSE_SEEK_GAP_MS);
         }
       }
     } catch {
       run.stableChecks = 0;
     }
 
-    if (run.stableChecks >= YOUTUBE_ARM_TIMING.settleStableSamples) {
+    if (run.stableChecks >= YOUTUBE_ARM_SETTLE_STABLE_SAMPLES) {
       this.#restoreAudioState(run);
       return;
     }
-    if (this.#now() - run.startedPrepareAtLocal > STANDARD_ZERO_START_BARRIER.prepareBudgetMs) {
+    if (this.#now() - run.startedPrepareAtLocal > STANDARD_ZERO_START_PREPARE_BUDGET_MS) {
       this.#failLocalPrepare(run, 'prepare-timeout', { state, position, target });
       return;
     }
-    this.#later(() => this.#pollSettledAtTarget(run), YOUTUBE_ARM_TIMING.settlePollMs);
+    this.#later(() => this.#pollSettledAtTarget(run), YOUTUBE_ARM_SETTLE_POLL_MS);
   }
 
   #restoreAudioState(run: LocalRun): void {
@@ -1501,7 +1513,7 @@ class YouTubeZeroStartController {
           if (!this.#isCurrentRun(run) || run.phase !== 'armed' || run.commit) return;
           this.#failLocalPrepare(run, 'commit-wait-timeout');
         },
-        run.startedPrepareAtLocal + STANDARD_ZERO_START_BARRIER.guestTotalWaitMs - this.#now(),
+        run.startedPrepareAtLocal + STANDARD_ZERO_START_GUEST_TOTAL_WAIT_MS - this.#now(),
       );
     }
 
@@ -1521,7 +1533,7 @@ class YouTubeZeroStartController {
         this.#requestExternalFallback(run, run.commit, 'clock-uncalibrated');
         return;
       }
-      if (this.#now() - run.startedPrepareAtLocal < STANDARD_ZERO_START_BARRIER.guestTotalWaitMs) {
+      if (this.#now() - run.startedPrepareAtLocal < STANDARD_ZERO_START_GUEST_TOTAL_WAIT_MS) {
         this.#later(() => this.#reportGuestArmedWhenClockReady(run), 50);
       }
       return;
@@ -1584,8 +1596,8 @@ class YouTubeZeroStartController {
         ? 'host-delayed'
         : 'guest-timeout';
     const startAtHost = allReady
-      ? now + STANDARD_ZERO_START_BARRIER.startLeadMs
-      : Math.max(barrier.startDeadlineAtHost, now + STANDARD_ZERO_START_BARRIER.startLeadMs);
+      ? now + STANDARD_ZERO_START_COMMIT_LEAD_MS
+      : Math.max(barrier.startDeadlineAtHost, now + STANDARD_ZERO_START_COMMIT_LEAD_MS);
     const cohort = [this.#deps.getLocalPeerId()];
     for (const peerId of barrier.expectedGuestIds) {
       if (barrier.armedGuestIds.has(peerId)) cohort.push(peerId);
@@ -1685,7 +1697,7 @@ class YouTubeZeroStartController {
         this.#later(() => {
           if (!this.#isCurrentRun(run) || run.phase !== 'starting') return;
           this.#failLocalPrepare(run, 'release-ack-timeout');
-        }, YOUTUBE_ARM_TIMING.releaseAckTimeoutMs);
+        }, YOUTUBE_ARM_RELEASE_ACK_TIMEOUT_MS);
       } catch (error) {
         this.#failLocalPrepare(run, 'play-command-failed', error);
       }
@@ -1703,7 +1715,7 @@ class YouTubeZeroStartController {
     const nowAtHost = this.#deps.getHostNow();
     const fallbackCommit: YouTubeZeroStartCommitMessage = {
       ...commit,
-      startAtHost: nowAtHost + STANDARD_ZERO_START_BARRIER.lateFallbackLeadMs,
+      startAtHost: nowAtHost + STANDARD_ZERO_START_LATE_FALLBACK_LEAD_MS,
       cohort: [this.#deps.getLocalPeerId()],
       reason: 'guest-timeout',
     };
@@ -1724,7 +1736,7 @@ class YouTubeZeroStartController {
             player.pauseVideo();
           }
         }, 100);
-      }, YOUTUBE_ARM_TIMING.pauseSeekGapMs);
+      }, YOUTUBE_ARM_PAUSE_SEEK_GAP_MS);
       run.armed = true;
       this.#scheduleCommittedStart(run, fallbackCommit, canonicalTarget);
     } catch (error) {
@@ -1969,7 +1981,7 @@ class YouTubeZeroStartController {
     // Before settlement, metadata can still describe the outgoing load. Once
     // the target was verified twice, a different live video proves this exact
     // iframe has moved on and even detached cleanup must leave it untouched.
-    if (run.stableChecks >= YOUTUBE_ARM_TIMING.settleStableSamples) {
+    if (run.stableChecks >= YOUTUBE_ARM_SETTLE_STABLE_SAMPLES) {
       const videoId = this.#currentVideoId(owner);
       if (videoId && videoId !== run.videoId) return null;
     }

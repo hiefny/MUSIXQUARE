@@ -16,7 +16,10 @@ import {
   PRO_ROOM_PLAYBACK_TRANSITION_DEADLINE_MS as BARRIER_MS,
 } from '../../pro-room/__tests__/__helpers__/pro-room-playback-timing-copy.ts';
 import type { QueueItemId } from '../../types/index.ts';
-import { ANDROID_YOUTUBE_PLAY_LATENCY_FLOOR_MS, YOUTUBE_ARM_TIMING } from '../constants.ts';
+import {
+  ANDROID_YOUTUBE_PLAY_LATENCY_FLOOR_MS,
+  YOUTUBE_RELEASE_CATCH_UP_TOLERANCE_MS,
+} from '../constants.ts';
 import type { YouTubePlayerInstance } from '../_state.ts';
 import type { ProRoomSnapshot } from '../../pro-room/contracts.ts';
 import type { ProRoomSignalingAccess } from '../../pro-room/api.ts';
@@ -44,7 +47,7 @@ const SECOND_QUEUE_ITEM_ID = '55555555-5555-4555-8555-555555555555' as QueueItem
 const PRE_V2_ZERO_START_LEAD_MS = COMMIT_LEAD_MS - 1;
 
 // The arm's release catch-up tolerance, read from its home.
-const LATE_YOUTUBE_RELEASE_TOLERANCE_MS = YOUTUBE_ARM_TIMING.releaseCatchUpToleranceMs;
+const LATE_YOUTUBE_RELEASE_TOLERANCE_MS = YOUTUBE_RELEASE_CATCH_UP_TOLERANCE_MS;
 
 const platformUnderTest = vi.hoisted(() => ({ android: false }));
 vi.mock('../../core/platform.ts', async (importOriginal) => ({

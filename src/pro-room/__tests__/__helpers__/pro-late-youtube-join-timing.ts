@@ -11,7 +11,8 @@
  *
  * A value leaves this copy once its home exports it. Since Phase 6 6A-3 the
  * arm's release catch-up tolerance (40 ms) and release acknowledgement
- * (1.8 s) are YOUTUBE_ARM_TIMING in src/youtube/constants.ts, which the
+ * (1.8 s) are YOUTUBE_RELEASE_CATCH_UP_TOLERANCE_MS and
+ * YOUTUBE_ARM_RELEASE_ACK_TIMEOUT_MS in src/youtube/constants.ts, which the
  * suites import instead.
  *
  * Row titles and comments quote today's values (the 3 s lead) while the

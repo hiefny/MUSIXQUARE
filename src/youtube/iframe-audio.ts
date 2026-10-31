@@ -8,9 +8,9 @@
  * restores (authority-arm.ts) and the verified cleanups of the host legacy
  * recovery and the guest local fallback (player.ts). Each attempt writes the
  * audio and checks that the iframe reports it, every
- * YOUTUBE_ARM_TIMING.audioRestorePollMs, at most audioRestoreMaxAttempts
- * times: WebKit can ignore the first unMute right after an iframe transition
- * or a hard mute.
+ * YOUTUBE_ARM_AUDIO_RESTORE_POLL_MS, at most
+ * YOUTUBE_ARM_AUDIO_RESTORE_MAX_ATTEMPTS times: WebKit can ignore the first
+ * unMute right after an iframe transition or a hard mute.
  *
  * Each caller keeps its own rhythm (the two cadences stay apart), its fences,
  * its confirmation predicate (zero-start alone counts a NaN volume read as
@@ -25,7 +25,10 @@
  * and both recoveries' unverified cleanups of a replaced or cancelled iframe
  * (cleanupExactPlayer) write through writeYouTubeAudio too, without a check.
  */
-import { YOUTUBE_ARM_TIMING } from './constants.ts';
+import {
+  YOUTUBE_ARM_AUDIO_RESTORE_MAX_ATTEMPTS,
+  YOUTUBE_ARM_AUDIO_RESTORE_POLL_MS,
+} from './constants.ts';
 
 /** The iframe player methods a restore writes and reads. */
 interface YouTubeAudioPlayer {
@@ -108,17 +111,17 @@ export function restoreYouTubeAudioVerified(
       } catch {
         // A failed read is not a verified restore.
       }
-      if (restored || attempts + 1 >= YOUTUBE_ARM_TIMING.audioRestoreMaxAttempts) {
+      if (restored || attempts + 1 >= YOUTUBE_ARM_AUDIO_RESTORE_MAX_ATTEMPTS) {
         onDone(restored, attempts + 1);
       } else if (verifyFirst) {
-        schedule(() => attempt(attempts + 1), YOUTUBE_ARM_TIMING.audioRestorePollMs);
+        schedule(() => attempt(attempts + 1), YOUTUBE_ARM_AUDIO_RESTORE_POLL_MS);
       } else attempt(attempts + 1);
     };
     if (verifyFirst) check();
     else {
       schedule(() => {
         if (canVerify()) check();
-      }, YOUTUBE_ARM_TIMING.audioRestorePollMs);
+      }, YOUTUBE_ARM_AUDIO_RESTORE_POLL_MS);
     }
   };
   attempt(0);

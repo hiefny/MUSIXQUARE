@@ -1,6 +1,18 @@
 import type { QueueItemId, YouTubeZeroStartPlatform } from '../types/index.ts';
 import { MANUAL_SYNC_OFFSET_LIMIT_MS } from '../core/constants.ts';
-import { PRO_YOUTUBE_BARRIERED_PREPARE_TIMEOUT_MS, YOUTUBE_ARM_TIMING } from './constants.ts';
+import {
+  PRO_YOUTUBE_BARRIERED_PREPARE_TIMEOUT_MS,
+  YOUTUBE_ARM_HARD_MUTE_MAX_ATTEMPTS,
+  YOUTUBE_ARM_HARD_MUTE_POLL_MS,
+  YOUTUBE_ARM_PAUSE_SEEK_GAP_MS,
+  YOUTUBE_ARM_RELEASE_ACK_TIMEOUT_MS,
+  YOUTUBE_ARM_SETTLE_EPSILON_SEC,
+  YOUTUBE_ARM_SETTLE_POLL_MS,
+  YOUTUBE_ARM_SETTLE_RESEEK_EVERY,
+  YOUTUBE_ARM_SETTLE_STABLE_SAMPLES,
+  YOUTUBE_ARM_WARM_PLAY_MS,
+  YOUTUBE_RELEASE_CATCH_UP_TOLERANCE_MS,
+} from './constants.ts';
 import {
   isYouTubeAudioRestored,
   restoreYouTubeAudioVerified,
@@ -412,9 +424,7 @@ export class YouTubeAuthorityArmController {
     );
     const targetDeltaSeconds = committedTargetSeconds - run.targetSeconds;
     run.catchUpSeconds =
-      targetDeltaSeconds * 1_000 > YOUTUBE_ARM_TIMING.releaseCatchUpToleranceMs
-        ? targetDeltaSeconds
-        : 0;
+      targetDeltaSeconds * 1_000 > YOUTUBE_RELEASE_CATCH_UP_TOLERANCE_MS ? targetDeltaSeconds : 0;
     run.phase = 'scheduled';
     this.#emitPhase(run);
 
@@ -526,7 +536,7 @@ export class YouTubeAuthorityArmController {
       // Retry within the bounded mute window.
     }
     if (!muted) {
-      if (attempt + 1 >= YOUTUBE_ARM_TIMING.hardMuteMaxAttempts) {
+      if (attempt + 1 >= YOUTUBE_ARM_HARD_MUTE_MAX_ATTEMPTS) {
         this.#failPrepare(run, 'hard-mute-timeout');
         return;
       }
@@ -538,7 +548,7 @@ export class YouTubeAuthorityArmController {
       this.#later(
         run,
         () => this.#waitForHardMute(run, attempt + 1),
-        YOUTUBE_ARM_TIMING.hardMutePollMs,
+        YOUTUBE_ARM_HARD_MUTE_POLL_MS,
       );
       return;
     }
@@ -582,7 +592,7 @@ export class YouTubeAuthorityArmController {
     if (!this.#ensurePlayerCurrent(run)) return;
     run.warmObserved = true;
     run.warmLatencyMs = Math.max(0, this.#now() - run.warmCallAtMs);
-    this.#later(run, () => this.#beginSettling(run), YOUTUBE_ARM_TIMING.warmPlayMs);
+    this.#later(run, () => this.#beginSettling(run), YOUTUBE_ARM_WARM_PLAY_MS);
   }
 
   #beginSettling(run: ActiveRun): void {
@@ -602,9 +612,9 @@ export class YouTubeAuthorityArmController {
             this.#failPrepare(run, 'player-command-failed');
             return;
           }
-          this.#later(run, () => this.#pollSettled(run), YOUTUBE_ARM_TIMING.settlePollMs);
+          this.#later(run, () => this.#pollSettled(run), YOUTUBE_ARM_SETTLE_POLL_MS);
         },
-        YOUTUBE_ARM_TIMING.pauseSeekGapMs,
+        YOUTUBE_ARM_PAUSE_SEEK_GAP_MS,
       );
     } catch {
       this.#failPrepare(run, 'player-command-failed');
@@ -621,12 +631,11 @@ export class YouTubeAuthorityArmController {
       const settled =
         this.#currentVideoId(run.player) === run.identity.videoId &&
         stopped &&
-        Math.abs(run.player.getCurrentTime() - run.targetSeconds) <=
-          YOUTUBE_ARM_TIMING.settleEpsilonSec;
+        Math.abs(run.player.getCurrentTime() - run.targetSeconds) <= YOUTUBE_ARM_SETTLE_EPSILON_SEC;
       run.stableChecks = settled ? run.stableChecks + 1 : 0;
       if (!settled) {
         if (state === PLAYER_STATE.playing) run.player.pauseVideo();
-        if (run.settleAttempts % YOUTUBE_ARM_TIMING.settleReseekEvery === 0) {
+        if (run.settleAttempts % YOUTUBE_ARM_SETTLE_RESEEK_EVERY === 0) {
           run.player.pauseVideo();
           run.player.seekTo(run.targetSeconds, true);
         }
@@ -635,7 +644,7 @@ export class YouTubeAuthorityArmController {
       run.stableChecks = 0;
     }
 
-    if (run.stableChecks >= YOUTUBE_ARM_TIMING.settleStableSamples) {
+    if (run.stableChecks >= YOUTUBE_ARM_SETTLE_STABLE_SAMPLES) {
       this.#beginAudioRestore(run);
       return;
     }
@@ -643,7 +652,7 @@ export class YouTubeAuthorityArmController {
       this.#failPrepare(run, 'settle-timeout');
       return;
     }
-    this.#later(run, () => this.#pollSettled(run), YOUTUBE_ARM_TIMING.settlePollMs);
+    this.#later(run, () => this.#pollSettled(run), YOUTUBE_ARM_SETTLE_POLL_MS);
   }
 
   #beginAudioRestore(run: ActiveRun): void {
@@ -700,7 +709,7 @@ export class YouTubeAuthorityArmController {
       const callbackLatenessMs = Math.max(0, this.#now() - run.releaseAtMs);
       run.rawReleaseLatenessMs = callbackLatenessMs;
       run.releaseLatenessMs =
-        callbackLatenessMs > YOUTUBE_ARM_TIMING.releaseCatchUpToleranceMs ? callbackLatenessMs : 0;
+        callbackLatenessMs > YOUTUBE_RELEASE_CATCH_UP_TOLERANCE_MS ? callbackLatenessMs : 0;
       const callbackCatchUpSeconds = run.releaseLatenessMs / 1000;
       const uncompensatedTarget = run.targetSeconds + run.catchUpSeconds + callbackCatchUpSeconds;
       run.releaseTargetSeconds = uncompensatedTarget + run.outputPositionAdvanceMs / 1000;
@@ -716,7 +725,7 @@ export class YouTubeAuthorityArmController {
       // A tiny unscheduled output lead must not add a disruptive iframe seek.
       // Test the bounded amount, since the end guard can reduce a larger lead.
       // The epsilon only absorbs floating-point subtraction at the 40ms edge.
-      if (run.outputPositionAdvanceMs <= YOUTUBE_ARM_TIMING.releaseCatchUpToleranceMs + 1e-6) {
+      if (run.outputPositionAdvanceMs <= YOUTUBE_RELEASE_CATCH_UP_TOLERANCE_MS + 1e-6) {
         run.ignoredOutputPositionAdvanceMs = run.outputPositionAdvanceMs;
         run.outputPositionAdvanceMs = 0;
         run.releaseTargetSeconds = Math.min(run.releaseTargetSeconds, uncompensatedTarget);
@@ -740,7 +749,7 @@ export class YouTubeAuthorityArmController {
         this.#later(
           run,
           () => this.#finishCommitFailure(run, 'release-timeout', 'failed'),
-          YOUTUBE_ARM_TIMING.releaseAckTimeoutMs,
+          YOUTUBE_ARM_RELEASE_ACK_TIMEOUT_MS,
         );
       }
     } catch {

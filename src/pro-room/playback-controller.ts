@@ -8,7 +8,7 @@ import { getState } from '../core/state.ts';
 import { clearManagedTimer, setManagedTimer } from '../core/timers.ts';
 import { recordProStartObservation } from '../diagnostics/pro-start-observations.ts';
 import type { QueueItemId } from '../types/index.ts';
-import { YOUTUBE_ARM_TIMING } from '../youtube/constants.ts';
+import { YOUTUBE_RELEASE_CATCH_UP_TOLERANCE_MS } from '../youtube/constants.ts';
 import {
   ProRoomApiError,
   type ProRoomApiClient,
@@ -1595,7 +1595,7 @@ function createImplementation(
       playback.state === 'playing' &&
       playback.youtubeVideoId !== null &&
       plannedTiming === null &&
-      (latePlan !== null || timing.signedDelayMs < -YOUTUBE_ARM_TIMING.releaseCatchUpToleranceMs);
+      (latePlan !== null || timing.signedDelayMs < -YOUTUBE_RELEASE_CATCH_UP_TOLERANCE_MS);
     recordProStartObservation('playback-clock', {
       purpose: 'commit',
       revision: playback.revision,

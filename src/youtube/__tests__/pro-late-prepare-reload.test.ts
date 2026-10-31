@@ -57,7 +57,10 @@ import {
 import { proSnapshot } from '../../pro-room/__tests__/__helpers__/pro-snapshot.ts';
 import type { QueueItemId } from '../../types/index.ts';
 import { showToast } from '../../ui/toast.ts';
-import { ANDROID_YOUTUBE_PLAY_LATENCY_FLOOR_MS, YOUTUBE_ARM_TIMING } from '../constants.ts';
+import {
+  ANDROID_YOUTUBE_PLAY_LATENCY_FLOOR_MS,
+  YOUTUBE_ARM_RELEASE_ACK_TIMEOUT_MS,
+} from '../constants.ts';
 import { cancelYouTubeAuthorityPreparation } from '../iframe.ts';
 import { initYouTube } from '../player.ts';
 import { getYouTubePlayer, isYtLoadInProgress, resetYouTubeModuleState } from '../_state.ts';
@@ -123,7 +126,7 @@ const TRANSITION_ID = `transition_${'y'.repeat(22)}`;
  */
 const LATE_JOIN_ROOM_ADVANCE_SECONDS = (LATE_JOIN_LEAD_MS - COMMIT_LEAD_MS) / 1_000;
 /** The arm's release acknowledgement, read from its home. */
-const RELEASE_ACK_TIMEOUT_MS = YOUTUBE_ARM_TIMING.releaseAckTimeoutMs;
+const RELEASE_ACK_TIMEOUT_MS = YOUTUBE_ARM_RELEASE_ACK_TIMEOUT_MS;
 /**
  * The PREPARE's wait for READY: past the App's 2.3 s barriered budget (READY
  * fails at the iframe seam's first 40 ms poll after it, 2.32 s), before the

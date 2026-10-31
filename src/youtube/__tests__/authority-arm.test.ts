@@ -7,14 +7,15 @@ import {
   getYouTubeAuthorityPlatformLeadMsForTests,
   type YouTubeAuthorityArmPlayer,
 } from '../authority-arm.ts';
-import { YOUTUBE_ARM_TIMING } from '../constants.ts';
+import {
+  YOUTUBE_ARM_RELEASE_ACK_TIMEOUT_MS,
+  YOUTUBE_RELEASE_CATCH_UP_TOLERANCE_MS,
+} from '../constants.ts';
 import { makeFakeYtPlayer, ops, type FakeYtPlayer } from './__helpers__/fake-yt-player.ts';
 
 // The arm's release timing, read from its home.
-const {
-  releaseCatchUpToleranceMs: LATE_YOUTUBE_RELEASE_TOLERANCE_MS,
-  releaseAckTimeoutMs: RELEASE_ACK_TIMEOUT_MS,
-} = YOUTUBE_ARM_TIMING;
+const LATE_YOUTUBE_RELEASE_TOLERANCE_MS = YOUTUBE_RELEASE_CATCH_UP_TOLERANCE_MS;
+const RELEASE_ACK_TIMEOUT_MS = YOUTUBE_ARM_RELEASE_ACK_TIMEOUT_MS;
 
 const QUEUE_ITEM_ID = '11111111-1111-4111-8111-111111111111' as QueueItemId;
 const VIDEO_ID = 'M7lc1UVf-VE';

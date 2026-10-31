@@ -74,8 +74,9 @@ import {
   BROADCAST_SYNC_MIN_INTERVAL_MS,
   IMMEDIATE_ACTION_COOLDOWN_MS,
   YOUTUBE_PRIME_VIDEO_ID,
-  STANDARD_ZERO_START_BARRIER,
-  YOUTUBE_ARM_TIMING,
+  STANDARD_ZERO_START_GUEST_DECISION_MS,
+  STANDARD_ZERO_START_PREPARE_BUDGET_MS,
+  YOUTUBE_ARM_RELEASE_ACK_TIMEOUT_MS,
   YOUTUBE_FRESH_START_MAX_SEC,
   YOUTUBE_RELEASE_CATCH_UP_TOLERANCE_SEC,
 } from './constants.ts';
@@ -2453,8 +2454,7 @@ export function initYouTube(): void {
       const deadline =
         Date.now() +
         (canAdoptRemainingPrepareWindow
-          ? STANDARD_ZERO_START_BARRIER.prepareBudgetMs -
-            STANDARD_ZERO_START_BARRIER.guestDecisionMs
+          ? STANDARD_ZERO_START_PREPARE_BUDGET_MS - STANDARD_ZERO_START_GUEST_DECISION_MS
           : 3_000);
       const uncalibratedHoldMs = Math.max(
         0,
@@ -2727,7 +2727,7 @@ export function initYouTube(): void {
             return;
           }
           releasePlayIssued = true;
-          releaseAckDeadline = Date.now() + YOUTUBE_ARM_TIMING.releaseAckTimeoutMs;
+          releaseAckDeadline = Date.now() + YOUTUBE_ARM_RELEASE_ACK_TIMEOUT_MS;
           setManagedTimer('yt-zero-start-external-fallback', attemptFallback, 0);
         } catch (error) {
           if (Date.now() < Math.max(deadline, releaseAudioDeadline)) {

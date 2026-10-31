@@ -337,12 +337,17 @@ RO-53 owner-in-place
   and the 7.7 s that a cohort-excluded guest adopts is the prepare budget minus the guest
   decision. The 0.35 s settle, the 3 s bridge and the 50 ms polls stay literals of that one file
   until the recovery moves.
-- **Timing-constant home:** `src/youtube/constants.ts` since Phase 6 6A-3 (C2-1):
-  `STANDARD_ZERO_START_BARRIER` (the guest wait, guest decision, start lead, prepare budget and
-  late-fallback lead), `YOUTUBE_ARM_TIMING` (RO-03), `YOUTUBE_RELEASE_CATCH_UP_TOLERANCE_SEC` (the
-  arm's 40 ms catch-up tolerance in seconds, read by `zero-start.ts` and `player.ts`) and the
-  fresh-start threshold `YOUTUBE_FRESH_START_MAX_SEC` (`handlers.ts`, `player.ts`,
-  `native-control-authority.ts`), named apart from the settle epsilon of the same value. The
+- **Timing-constant home:** `src/youtube/constants.ts` since Phase 6 6A-3 (C2-1), one named
+  export per value (not an object, whose property names would stay in the eager bundle): the
+  Standard barrier `STANDARD_ZERO_START_GUEST_TOTAL_WAIT_MS`,
+  `STANDARD_ZERO_START_GUEST_DECISION_MS`, `STANDARD_ZERO_START_COMMIT_LEAD_MS`,
+  `STANDARD_ZERO_START_PREPARE_BUDGET_MS` and `STANDARD_ZERO_START_LATE_FALLBACK_LEAD_MS` (the
+  guest wait, guest decision, start lead after the COMMIT, prepare budget and late-fallback
+  lead), the arm values (`YOUTUBE_ARM_*` and `YOUTUBE_RELEASE_CATCH_UP_TOLERANCE_MS`, RO-03),
+  `YOUTUBE_RELEASE_CATCH_UP_TOLERANCE_SEC` (the arm's 40 ms catch-up tolerance in seconds, read
+  by `zero-start.ts` and `player.ts`) and the fresh-start threshold `YOUTUBE_FRESH_START_MAX_SEC`
+  (`handlers.ts`, `player.ts`, `native-control-authority.ts`), named apart from the settle
+  epsilon of the same value. The
   timeline and lead calibration values stay in `zero-start.ts` (`YOUTUBE_ZERO_START_TIMING`), their
   one user. The wire is frozen, so the receiver keeps its own copies of the sender's bounds in
   `src/network/protocol.ts`: the PREPARE window (10 s, the prepare budget), the ±600 ms ARMED
@@ -396,9 +401,16 @@ RO-53 owner-in-place
   prepare call: the YouTube endpoint reads only whether the PREPARE carried a budget
   (`prepareBudgetMs`), not its value.
 - **Timing-constant home:** `src/youtube/constants.ts` since Phase 6 6A-3 (C2-1): the arm and settle
-  values `YOUTUBE_ARM_TIMING` (also the RO-12 audio-restore cadence) and the PRO prepare budgets
-  `PRO_YOUTUBE_BARRIERED_PREPARE_TIMEOUT_MS` (2.3 s) and `PRO_YOUTUBE_UNBARRIERED_PREPARE_TIMEOUT_MS`
-  (10 s, the same value as the Standard prepare budget). `zero-start.ts`, `authority-arm.ts`,
+  values, one named export each: `YOUTUBE_ARM_HARD_MUTE_POLL_MS`,
+  `YOUTUBE_ARM_HARD_MUTE_MAX_ATTEMPTS`, `YOUTUBE_ARM_WARM_PLAY_MS`,
+  `YOUTUBE_ARM_PAUSE_SEEK_GAP_MS`, `YOUTUBE_ARM_SETTLE_POLL_MS`,
+  `YOUTUBE_ARM_SETTLE_EPSILON_SEC`, `YOUTUBE_ARM_SETTLE_STABLE_SAMPLES`,
+  `YOUTUBE_ARM_SETTLE_RESEEK_EVERY`, `YOUTUBE_ARM_AUDIO_RESTORE_POLL_MS` and
+  `YOUTUBE_ARM_AUDIO_RESTORE_MAX_ATTEMPTS` (also the RO-12 audio-restore cadence),
+  `YOUTUBE_ARM_RELEASE_ACK_TIMEOUT_MS` and `YOUTUBE_RELEASE_CATCH_UP_TOLERANCE_MS`; and the PRO
+  prepare budgets `PRO_YOUTUBE_BARRIERED_PREPARE_TIMEOUT_MS` (2.3 s) and
+  `PRO_YOUTUBE_UNBARRIERED_PREPARE_TIMEOUT_MS` (10 s, the same value as the Standard prepare
+  budget). `zero-start.ts`, `authority-arm.ts`,
   `player.ts`, `iframe-audio.ts`, `iframe.ts` and `playlist.ts` import them, and
   `playback-controller.ts` imports the arm's catch-up tolerance for a late COMMIT instead of
   keeping its own 40 ms copy. The barriered 2.3 s and the Standard guest decision of the same
@@ -460,7 +472,8 @@ RO-53 owner-in-place
     lead from `src/pro-room/__tests__/__helpers__/pro-late-youtube-join-timing.ts`, a copy of a
     module constant its home does not export (a test-only export is not allowed). A value leaves
     the copy once its home exports it: the arm's 40 ms catch-up tolerance and 1.8 s release
-    acknowledgement left it in Phase 6 6A-3, and those suites read `YOUTUBE_ARM_TIMING` instead.
+    acknowledgement left it in Phase 6 6A-3, and those suites read
+    `YOUTUBE_RELEASE_CATCH_UP_TOLERANCE_MS` and `YOUTUBE_ARM_RELEASE_ACK_TIMEOUT_MS` instead.
     These rows run the real homes:
     - `playback-controller.ts` `LATE_YOUTUBE_COMMIT_LEAD_MS`, the copy's one value:
       `playback-late-cohort-join.test.ts` "(c) joins a failed-READY device 3 s after COMMIT on
@@ -1636,7 +1649,7 @@ RO-53 owner-in-place
   `restoreYouTubeAudioVerified` keeps, timed by each caller's own scheduler: zero-start's and the
   PRO arm's run timers and detached-restore slots, and the two `player.ts` managed timers.
 - **Timing-constant home:** the audio-restore 120 ms and 8 attempts are
-  `YOUTUBE_ARM_TIMING.audioRestorePollMs` and `audioRestoreMaxAttempts` in
+  `YOUTUBE_ARM_AUDIO_RESTORE_POLL_MS` and `YOUTUBE_ARM_AUDIO_RESTORE_MAX_ATTEMPTS` in
   `src/youtube/constants.ts` since Phase 6 6A-3 (C2-1); since 6A-4 only `iframe-audio.ts` reads
   them.
 - **Anchor tests:**

@@ -6,7 +6,8 @@
  * Before 6A-3 the Standard zero-start controller (zero-start.ts), the PRO arm
  * (authority-arm.ts), the PRO prepare seam (iframe.ts) and the Standard
  * recovery paths (player.ts) each typed these numbers. The first block pins
- * every home to the value its copies held, so the move changes no number.
+ * every home, one named export per value, to the value its copies held, so
+ * the move changes no number.
  *
  * The wire is frozen, so protocol.ts keeps its own bounds for the zero-start
  * frames. The second block ties each bound to the sender: it drives the real
@@ -29,7 +30,6 @@ import {
   ANDROID_YOUTUBE_PLAY_LATENCY_FLOOR_MS,
   PRO_YOUTUBE_BARRIERED_PREPARE_TIMEOUT_MS,
   PRO_YOUTUBE_UNBARRIERED_PREPARE_TIMEOUT_MS,
-  STANDARD_ZERO_START_BARRIER,
   STANDARD_ZERO_START_COMMIT_LEAD_MS,
   STANDARD_ZERO_START_GUEST_DECISION_MS,
   STANDARD_ZERO_START_GUEST_TOTAL_WAIT_MS,
@@ -45,7 +45,6 @@ import {
   YOUTUBE_ARM_SETTLE_POLL_MS,
   YOUTUBE_ARM_SETTLE_RESEEK_EVERY,
   YOUTUBE_ARM_SETTLE_STABLE_SAMPLES,
-  YOUTUBE_ARM_TIMING,
   YOUTUBE_ARM_WARM_PLAY_MS,
   YOUTUBE_FRESH_START_MAX_SEC,
   YOUTUBE_RELEASE_CATCH_UP_TOLERANCE_MS,
@@ -209,53 +208,6 @@ afterEach(() => {
   vi.useRealTimers();
 });
 
-describe('YouTube start timing homes (C2-1)', () => {
-  it('pins every shared start timing to the value its copies held before they moved', () => {
-    expect({ ...YOUTUBE_ARM_TIMING }).toStrictEqual({
-      hardMutePollMs: 30,
-      hardMuteMaxAttempts: 12,
-      warmPlayMs: 260,
-      pauseSeekGapMs: 80,
-      settlePollMs: 80,
-      settleEpsilonSec: 0.12,
-      settleStableSamples: 2,
-      settleReseekEvery: 6,
-      audioRestorePollMs: 120,
-      audioRestoreMaxAttempts: 8,
-      releaseAckTimeoutMs: 1_800,
-      releaseCatchUpToleranceMs: 40,
-    });
-    expect(Object.isFrozen(YOUTUBE_ARM_TIMING)).toBe(true);
-    expect({ ...STANDARD_ZERO_START_BARRIER }).toStrictEqual({
-      guestTotalWaitMs: 3_000,
-      guestDecisionMs: 2_300,
-      startLeadMs: 700,
-      prepareBudgetMs: 10_000,
-      lateFallbackLeadMs: 800,
-    });
-    expect(Object.isFrozen(STANDARD_ZERO_START_BARRIER)).toBe(true);
-    // The PRO barriered budget and the Standard guest decision are both 2.3 s
-    // but stay separate homes, linked by comment only.
-    expect(PRO_YOUTUBE_BARRIERED_PREPARE_TIMEOUT_MS).toBe(2_300);
-    expect(PRO_YOUTUBE_UNBARRIERED_PREPARE_TIMEOUT_MS).toBe(10_000);
-    // A separate name from the settle epsilon, which has the same value.
-    expect(YOUTUBE_FRESH_START_MAX_SEC).toBe(0.12);
-  });
-
-  it('derives the 7.7 s a cohort-excluded guest adopts as the Standard prepare budget minus the guest decision', () => {
-    expect(
-      STANDARD_ZERO_START_BARRIER.prepareBudgetMs - STANDARD_ZERO_START_BARRIER.guestDecisionMs,
-    ).toBe(7_700);
-  });
-
-  it('keeps the release catch-up tolerance in seconds at exactly the double 0.04 the literals held', () => {
-    expect(YOUTUBE_RELEASE_CATCH_UP_TOLERANCE_SEC).toBe(
-      YOUTUBE_ARM_TIMING.releaseCatchUpToleranceMs / 1_000,
-    );
-    expect(YOUTUBE_RELEASE_CATCH_UP_TOLERANCE_SEC).toBe(0.04);
-  });
-});
-
 describe('YouTube start timing homes, one named export each (C2-1)', () => {
   it('pins every shared start timing to the value its copies held before they moved', () => {
     expect({
@@ -328,14 +280,14 @@ describe('zero-start sender edges inside the receiver bounds (protocol.ts, wire 
     expect(await received('parity-prepare', [prepare])).toEqual([prepare]);
 
     expect(prepare.decisionAtHost - prepare.prepareAtHost).toBe(
-      STANDARD_ZERO_START_BARRIER.guestDecisionMs,
+      STANDARD_ZERO_START_GUEST_DECISION_MS,
     );
     expect(prepare.startDeadlineAtHost - prepare.prepareAtHost).toBe(
-      STANDARD_ZERO_START_BARRIER.guestTotalWaitMs,
+      STANDARD_ZERO_START_GUEST_TOTAL_WAIT_MS,
     );
     const atBudget = {
       ...prepare,
-      startDeadlineAtHost: prepare.prepareAtHost + STANDARD_ZERO_START_BARRIER.prepareBudgetMs,
+      startDeadlineAtHost: prepare.prepareAtHost + STANDARD_ZERO_START_PREPARE_BUDGET_MS,
     };
     await expectEdge('parity-prepare-budget', atBudget, {
       ...atBudget,

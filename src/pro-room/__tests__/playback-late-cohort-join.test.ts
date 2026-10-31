@@ -44,7 +44,10 @@ import {
   type ProPlaybackPrepareResult,
 } from '../playback-authority-hooks.ts';
 import { ProRoomPlaybackController } from '../playback-controller.ts';
-import { YOUTUBE_ARM_TIMING } from '../../youtube/constants.ts';
+import {
+  YOUTUBE_ARM_RELEASE_ACK_TIMEOUT_MS,
+  YOUTUBE_RELEASE_CATCH_UP_TOLERANCE_MS,
+} from '../../youtube/constants.ts';
 import { LATE_YOUTUBE_COMMIT_LEAD_MS as LATE_JOIN_LEAD_MS } from './__helpers__/pro-late-youtube-join-timing.ts';
 import {
   PRO_ROOM_PLAYBACK_COMMIT_LEAD_MS as COMMIT_LEAD_MS,
@@ -96,10 +99,8 @@ const TRANSITION_ID = `transition_${'l'.repeat(22)}`;
  */
 const LATE_JOIN_POSITION_SECONDS = (LATE_JOIN_LEAD_MS - COMMIT_LEAD_MS) / 1_000;
 // The arm's release timing, read from its home.
-const {
-  releaseCatchUpToleranceMs: LATE_YOUTUBE_RELEASE_TOLERANCE_MS,
-  releaseAckTimeoutMs: RELEASE_ACK_TIMEOUT_MS,
-} = YOUTUBE_ARM_TIMING;
+const LATE_YOUTUBE_RELEASE_TOLERANCE_MS = YOUTUBE_RELEASE_CATCH_UP_TOLERANCE_MS;
+const RELEASE_ACK_TIMEOUT_MS = YOUTUBE_ARM_RELEASE_ACK_TIMEOUT_MS;
 
 function playing(revision: number, updatedAtMs: number): ProRoomPlaybackCheckpoint {
   return {

@@ -26,10 +26,14 @@
  *   only from Inter, Hangul Noto Sans KR draws only from KR, kana Noto Sans JP
  *   draws only from JP (by block or by Unicode Script), in every stack of
  *   every UI;
- * - coverage: every non-PUA character Pretendard drew, and every character
- *   of the catalogs and index.html, resolves by cmap to a self-hosted face in
- *   every stack, except the recorded list in
- *   scripts/fonts/uncovered-code-points.txt, which must name exactly the gaps;
+ * - coverage: every non-PUA character Pretendard drew, every character of
+ *   the catalogs and index.html, the KS X 1001 repertoire and the visible
+ *   text-presentation symbols of the punctuation, letterlike, arrow, math,
+ *   technical, geometric, symbol, dingbat and CJK punctuation blocks resolves
+ *   by cmap to a self-hosted face in every stack, except the recorded list in
+ *   scripts/fonts/uncovered-code-points.txt, which must name exactly the gaps
+ *   (a device font picked by page language draws those, so a new gap is a
+ *   new difference between the Korean and English UIs);
  * - no Pretendard in the app, no Pretendard runtime, no service worker font
  *   group, and no font preload in any HTML.
  * The initial transfer budget (scripts/check-initial-transfer-budget.mts)
@@ -61,10 +65,12 @@ import {
   fontPreloadHrefs,
   initialAssetUrls,
   KOREAN_ENGLISH_COPY_RULES,
+  ksX1001CodePoints,
   languageSplitTests,
   localDistAssetPath,
   parseCodePointList,
   stackCoverageGaps,
+  textSymbolCodePoints,
   woff2Urls,
   type FaceMetricValues,
 } from './lib/app-font-guard.mts';
@@ -412,8 +418,10 @@ async function checkScriptsAndCoverage(resolver: FaceResolver): Promise<number> 
   }
 
   // Coverage: every non-PUA character Pretendard drew (what the app could show
-  // before the switch) and every character of the catalogs and index.html has
-  // a self-hosted face in every text stack, except the recorded gaps.
+  // before the switch), every character of the catalogs and index.html, the
+  // KS X 1001 repertoire (Korean text and input methods) and the text symbols
+  // of the blocks the review swept has a self-hosted face in every text stack,
+  // except the recorded gaps.
   const isPrivateUse = (codePoint: number) =>
     (codePoint >= 0xe000 && codePoint <= 0xf8ff) || codePoint >= 0xf0000;
   const isControlOrSpace = (codePoint: number) =>
@@ -430,6 +438,9 @@ async function checkScriptsAndCoverage(resolver: FaceResolver): Promise<number> 
       const codePoint = character.codePointAt(0) ?? 0;
       if (!isControlOrSpace(codePoint)) required.add(codePoint);
     }
+  }
+  for (const codePoint of [...ksX1001CodePoints(), ...textSymbolCodePoints()]) {
+    if (!isPrivateUse(codePoint) && !isControlOrSpace(codePoint)) required.add(codePoint);
   }
   const recordedList = parseCodePointList(
     await readFile(path.join(repoRoot, UNCOVERED_LIST), 'utf8'),

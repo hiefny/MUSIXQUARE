@@ -351,3 +351,68 @@ export function disablesContextualAlternates(property: string, value: string): b
 export function fontFaceSheets(sheets: readonly { path: string; css: string }[]): string[] {
   return sheets.filter(({ css }) => declaresFontFace(css)).map(({ path: sheetPath }) => sheetPath);
 }
+
+// ── What coverage requires beyond Pretendard ───────────────────────
+
+/**
+ * The KS X 1001 repertoire, the Korean national character set: every
+ * two-byte EUC-KR code in rows and cells 0xA1-0xFE, as the Encoding Standard
+ * decoder maps it. Korean text and Korean input methods use these symbols
+ * (∼ ≒ ◈ among them), and a device font picked by page language draws any the
+ * app's faces lack differently in the Korean and English UIs.
+ */
+export function ksX1001CodePoints(): number[] {
+  const decoder = new TextDecoder('euc-kr', { fatal: true });
+  const codePoints = new Set<number>();
+  for (let lead = 0xa1; lead <= 0xfe; lead += 1) {
+    for (let trail = 0xa1; trail <= 0xfe; trail += 1) {
+      let text: string;
+      try {
+        text = decoder.decode(new Uint8Array([lead, trail]));
+      } catch {
+        continue;
+      }
+      const codePoint = text.codePointAt(0);
+      if (codePoint !== undefined && [...text].length === 1 && codePoint !== 0xfffd) {
+        codePoints.add(codePoint);
+      }
+    }
+  }
+  return [...codePoints].sort((left, right) => left - right);
+}
+
+/**
+ * The blocks the font review swept for characters the Korean and English UIs
+ * drew with different device fonts: general punctuation, letterlike symbols,
+ * arrows, mathematical operators, miscellaneous technical, geometric shapes,
+ * miscellaneous symbols, dingbats and CJK symbols and punctuation.
+ */
+const SWEPT_SYMBOL_BLOCKS: readonly (readonly [number, number])[] = [
+  [0x2000, 0x206f],
+  [0x2100, 0x214f],
+  [0x2190, 0x21ff],
+  [0x2200, 0x22ff],
+  [0x2300, 0x23ff],
+  [0x25a0, 0x25ff],
+  [0x2600, 0x26ff],
+  [0x2700, 0x27bf],
+  [0x3000, 0x303f],
+];
+
+/**
+ * The visible characters of the swept blocks that draw as text by default:
+ * no emoji presentation, no format or control character, no space and no
+ * unassigned code point. An emoji draws in the device's emoji font in every
+ * UI alike; these may not.
+ */
+export function textSymbolCodePoints(): number[] {
+  const codePoints: number[] = [];
+  for (const [start, end] of SWEPT_SYMBOL_BLOCKS) {
+    for (let codePoint = start; codePoint <= end; codePoint += 1) {
+      const character = String.fromCodePoint(codePoint);
+      if (/[\p{C}\p{Z}\p{Emoji_Presentation}]/u.test(character)) continue;
+      codePoints.push(codePoint);
+    }
+  }
+  return codePoints;
+}

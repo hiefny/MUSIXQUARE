@@ -1029,6 +1029,94 @@ describe("phase C: idle prefetch of the UI language's frequent shards", () => {
     expect(fonts.load).toHaveBeenCalledTimes(calls);
   });
 
+  /**
+   * The Noto Sans KR faces in their sheet's order, after a few faces of
+   * another family, with every unicode-range read counted.
+   */
+  function installCountingFontSet() {
+    let reads = 0;
+    const counted = (family: string, range: string) => {
+      const face = { family, status: 'unloaded' as FontFaceLoadStatus };
+      Object.defineProperty(face, 'unicodeRange', {
+        get: () => {
+          reads += 1;
+          return range;
+        },
+      });
+      return face;
+    };
+    const css = readFileSync('css/fonts/app/font-noto-kr.css', 'utf8');
+    const ranges = [...css.matchAll(/unicode-range:\s*([^;]+);/gu)].map((match) =>
+      (match[1] ?? '').trim(),
+    );
+    expect(ranges.length).toBeGreaterThan(KO.shards.length);
+    const faces = [
+      ...Array.from({ length: 7 }, () => counted('Inter', 'U+0000-00FF')),
+      ...ranges.map((range) => counted('"Noto Sans KR"', range)),
+    ];
+    const load = vi.fn((_font: string, _text?: string) => Promise.resolve([{} as FontFace]));
+    Object.defineProperty(document, 'fonts', {
+      configurable: true,
+      value: { load, check: vi.fn(() => false), [Symbol.iterator]: () => faces[Symbol.iterator]() },
+    });
+    return { load, reads: () => reads };
+  }
+
+  it('reads at most one unicode-range per shard over a whole pass, and none outside an idle slice', async () => {
+    const fonts = installCountingFontSet();
+    await throughPhaseB('ko');
+
+    await vi.advanceTimersByTimeAsync(FONT_PREFETCH_QUIET_MS);
+    // The quiet period ends in a plain timer task, which only arms an idle slice.
+    expect(pendingIdle()).toHaveLength(1);
+    expect(fonts.reads()).toBe(0);
+
+    for (let slice = 0; slice < KO.shards.length; slice += 1) await runIdle();
+
+    expect(fonts.load).toHaveBeenCalledTimes(
+      Math.ceil(KO.shards.length / FONT_PREFETCH_BATCH_FACES),
+    );
+    expect(fonts.reads()).toBeLessThanOrEqual(KO.shards.length);
+  });
+
+  it("waits for its family's sheet and prefetches once a retry declares it", async () => {
+    const fonts = installFontSet({ settleAtOnce: true });
+    sheets.behaviour.set('font-noto-kr', failing(2));
+    await throughPhaseB('ko');
+    const krRequests = () => sheets.requests.filter((id) => id === 'font-noto-kr').length;
+    expect(krRequests()).toBe(2);
+
+    await vi.advanceTimersByTimeAsync(Math.max(FONT_PREFETCH_QUIET_MS, FONT_SHEET_RETRY_DELAY_MS));
+    await runIdle();
+    expect(krRequests()).toBe(3);
+    expect(fonts.load).not.toHaveBeenCalled();
+
+    await runIdle();
+    expect(fonts.load.mock.calls[0]).toEqual([
+      '400 16px "Noto Sans KR"',
+      samplesOf(KO.shards.slice(0, FONT_PREFETCH_BATCH_FACES)),
+    ]);
+  });
+
+  it('releases the budget of a batch that drew no face and waits until asked again', async () => {
+    const fonts = installFontSet({ settleAtOnce: true });
+    fonts.load.mockResolvedValueOnce([]);
+    const runtime = await throughPhaseB('ko');
+    await vi.advanceTimersByTimeAsync(FONT_PREFETCH_QUIET_MS);
+
+    await runIdle();
+    await settle();
+    expect(fonts.load).toHaveBeenCalledOnce();
+    expect(pendingIdle()).toHaveLength(0);
+
+    await runtime.loadLanguageFonts('ko');
+    for (let slice = 0; slice < KO.shards.length; slice += 1) await runIdle();
+
+    expect(fonts.load.mock.calls[1]?.[1]).toBe(fonts.load.mock.calls[0]?.[1]);
+    const requested = fonts.load.mock.calls.slice(1).flatMap(([, text]) => [...(text ?? '')]);
+    expect(requested).toEqual([...samplesOf(KO.shards)]);
+  });
+
   it('never touches CacheStorage', async () => {
     const cacheStorage = {
       open: vi.fn(),

@@ -93,6 +93,18 @@ describe('font prefetch samples', () => {
     }
   });
 
+  it("records each shard's place among its family's faces in the sheet", async () => {
+    // The runtime reads that face first instead of scanning every face's
+    // unicode-range (phase C of src/i18n/locale-fonts.ts).
+    for (const [code, list] of Object.entries(FONT_PREFETCH_BY_LANGUAGE)) {
+      if (!list) continue;
+      const faces = await sheetFaces(list.family);
+      for (const shard of list.shards) {
+        expect(faces[shard.face]?.shard, `${code} #${shard.shard}`).toBe(shard.shard);
+      }
+    }
+  });
+
   it('records each shard file size and a sample that only that shard declares and draws', async () => {
     for (const [code, list] of Object.entries(FONT_PREFETCH_BY_LANGUAGE)) {
       if (!list) continue;

@@ -128,6 +128,62 @@ describe('initial transfer budget', () => {
     expect(measurement.eagerFontBytes).toBe(0);
   });
 
+  it('counts the font files an eager stylesheet declares as eager font bytes', async () => {
+    const directory = fixture();
+    writeFileSync(
+      join(directory, 'assets', 'main.css'),
+      [
+        "@font-face{font-family:Inter;src:url(./inter-latin.woff2)format('woff2')}",
+        "@font-face{font-family:'Noto Sans KR';src:url(\"/assets/kr.119.woff2\") format('woff2')}",
+        '@font-face{font-family:Inter;src:url(inter-latin.woff2)format("woff2")}',
+        'body{background:url(./bg.png)}',
+      ].join(''),
+    );
+    writeFileSync(join(directory, 'assets', 'inter-latin.woff2'), Buffer.alloc(7));
+    writeFileSync(join(directory, 'assets', 'kr.119.woff2'), Buffer.alloc(5));
+    writeFileSync(join(directory, 'assets', 'bg.png'), Buffer.alloc(3));
+
+    const measurement = await measureInitialTransfer(directory);
+
+    expect(measurement.entries.map(({ url }) => url)).toEqual([
+      '/index.html',
+      '/bootstrap.js?cache=v1',
+      '/assets/main.css',
+      '/assets/runtime.js',
+      '/assets/main.js',
+      '/dummy_audio.mp3',
+      '/assets/inter-latin.woff2',
+      '/assets/kr.119.woff2',
+    ]);
+    expect(measurement.eagerFontBytes).toBe(12);
+    expect(() => assertInitialTransferBudget(measurement)).toThrow(
+      'eagerFontBytes: 12 B > 0 B maintenance ceiling',
+    );
+  });
+
+  it('fails closed when an eager stylesheet declares a remote, inline or missing font', async () => {
+    const remoteDirectory = fixture();
+    writeFileSync(
+      join(remoteDirectory, 'assets', 'main.css'),
+      "@font-face{font-family:Inter;src:url(https://fonts.gstatic.com/s/inter/v20/a.woff2)format('woff2')}",
+    );
+    await expect(measureInitialTransfer(remoteDirectory)).rejects.toThrow('Cross-origin');
+
+    const inlineDirectory = fixture();
+    writeFileSync(
+      join(inlineDirectory, 'assets', 'main.css'),
+      "@font-face{font-family:Inter;src:url(data:font/woff2;base64,d09GMg)format('woff2')}",
+    );
+    await expect(measureInitialTransfer(inlineDirectory)).rejects.toThrow('data');
+
+    const missingDirectory = fixture();
+    writeFileSync(
+      join(missingDirectory, 'assets', 'main.css'),
+      "@font-face{font-family:Inter;src:url(./gone.woff2)format('woff2')}",
+    );
+    await expect(measureInitialTransfer(missingDirectory)).rejects.toThrow('missing from dist');
+  });
+
   it('rejects every metric independently and keeps the checked build wired', () => {
     const passing = Object.fromEntries(
       Object.entries(INITIAL_TRANSFER_BUDGET).map(([metric, limit]) => [

@@ -4,9 +4,12 @@ import {
   builtAssetStem,
   declaresFontFace,
   faceDescriptorMismatches,
+  faceSourceProblems,
   fontPreloadHrefs,
   initialAssetUrls,
   localDistAssetPath,
+  parseCodePointList,
+  stackCoverageGaps,
   woff2Urls,
 } from '../../../scripts/lib/app-font-guard.mts';
 import { CJK_FACE_METRICS, INTER_FACE_METRICS } from '../../i18n/font-metrics.ts';
@@ -142,5 +145,150 @@ describe('app font guard: built sheets', () => {
         expected,
       ),
     ).toEqual(['Pretendard p.woff2: not an app font family']);
+  });
+});
+
+describe('app font guard: self-hosted faces', () => {
+  const face = (src: string, family = "'Inter'") =>
+    `@font-face {\n  font-family: ${family};\n  font-weight: 100 900;\n  src: ${src};\n  unicode-range: U+0000-00FF;\n}\n`;
+
+  it('accepts one WOFF2 file per face, relative in the source and root-relative in the build', () => {
+    expect(
+      faceSourceProblems(
+        face("url(../../../fonts/inter/inter-latin.woff2) format('woff2')"),
+        'relative',
+      ),
+    ).toEqual([]);
+    expect(
+      faceSourceProblems(
+        '@font-face{font-family:Inter;src:url(/assets/inter-latin-AbC12_-9.woff2)format("woff2")}',
+        'root',
+      ),
+    ).toEqual([]);
+  });
+
+  it('reports a device face, a remote or data URL, a second source and a missing WOFF2 format', () => {
+    expect(
+      faceSourceProblems(
+        face("local('Inter'), url(../../../fonts/inter/inter-latin.woff2) format('woff2')"),
+        'relative',
+      ),
+    ).toEqual(['Inter ../../../fonts/inter/inter-latin.woff2: names a device face with local()']);
+    expect(
+      faceSourceProblems(
+        face("url(https://fonts.gstatic.com/s/inter/v20/a.woff2) format('woff2')"),
+        'relative',
+      ),
+    ).toEqual(['Inter https://fonts.gstatic.com/s/inter/v20/a.woff2: is not a self-hosted file']);
+    expect(
+      faceSourceProblems(face("url(//fonts.gstatic.com/a.woff2) format('woff2')"), 'relative'),
+    ).toEqual(['Inter //fonts.gstatic.com/a.woff2: is not a self-hosted file']);
+    expect(
+      faceSourceProblems(face("url(data:font/woff2;base64,d09GMg) format('woff2')"), 'relative'),
+    ).toEqual(['Inter data:font/woff2;base64,d09GMg: is not a self-hosted file']);
+    expect(
+      faceSourceProblems(
+        face("url(../a.woff2) format('woff2'), url(../a.woff) format('woff')"),
+        'relative',
+      ),
+    ).toEqual(['Inter ../a.woff2: has 2 url() sources, not one']);
+    expect(faceSourceProblems(face('url(../a.ttf)'), 'relative')).toEqual([
+      'Inter ../a.ttf: is not a WOFF2 file',
+      "Inter ../a.ttf: does not declare format('woff2')",
+    ]);
+    expect(faceSourceProblems(face("local('Inter')"), 'relative')).toEqual([
+      'Inter (no url): names a device face with local()',
+      'Inter (no url): has 0 url() sources, not one',
+    ]);
+  });
+
+  it('holds the source to sheet-relative files and the build to root-relative ones', () => {
+    expect(faceSourceProblems(face("url(/fonts/a.woff2) format('woff2')"), 'relative')).toEqual([
+      'Inter /fonts/a.woff2: is root-relative; a source sheet points at its files relative to itself',
+    ]);
+    expect(
+      faceSourceProblems(
+        '@font-face{font-family:Inter;src:url(./inter-latin-AbC12_-9.woff2)format("woff2")}',
+        'root',
+      ),
+    ).toEqual(['Inter ./inter-latin-AbC12_-9.woff2: is not root-relative in the build']);
+  });
+
+  it('reports a sheet that imports another sheet', () => {
+    expect(
+      faceSourceProblems(
+        `@import url('https://fonts.googleapis.com/css2?family=Inter');\n${face("url(../a.woff2) format('woff2')")}`,
+        'relative',
+      ),
+    ).toEqual(['the sheet imports another sheet with @import']);
+  });
+});
+
+describe('app font guard: the recorded coverage gaps', () => {
+  it('reads U+ lines in ascending order and skips comments and blank lines', () => {
+    expect(
+      parseCodePointList(
+        [
+          '# Gaps',
+          '',
+          '# IPA',
+          'U+0255  # ɕ',
+          'U+027C',
+          '',
+          '# Arrows',
+          'U+21A9 # ↩',
+          'U+1F850',
+        ].join('\n'),
+      ),
+    ).toEqual({ codePoints: [0x0255, 0x027c, 0x21a9, 0x1f850], problems: [] });
+  });
+
+  it('reports malformed, repeated and unordered lines', () => {
+    expect(
+      parseCodePointList(['U+0255', 'u+027c', '0x21A9', 'U+0255', 'U+0100', 'U+12'].join('\n'))
+        .problems,
+    ).toEqual([
+      'line 2: "u+027c" is not a U+XXXX code point',
+      'line 3: "0x21A9" is not a U+XXXX code point',
+      'line 4: U+0255 is listed twice',
+      'line 5: U+0100 comes after U+0255; keep the list in code point order',
+      'line 6: "U+12" is not a U+XXXX code point',
+    ]);
+  });
+
+  const faces: Readonly<Record<string, readonly number[]>> = {
+    Inter: [0x41, 0x42],
+    'Noto Sans KR': [0xac00, 0x203b],
+    'Noto Sans JP': [0x3042, 0x2049],
+  };
+  const hasFace = (families: readonly string[], codePoint: number): boolean =>
+    families.some((family) => faces[family]?.includes(codePoint) ?? false);
+
+  it('passes when every stack draws every required character but the listed ones', () => {
+    const stacks = new Map([
+      ['--font-sans (ko)', ['Inter', 'Noto Sans KR', 'Noto Sans JP', 'sans-serif']],
+      ['--font-sans (ja)', ['Inter', 'Noto Sans JP', 'Noto Sans KR', 'sans-serif']],
+    ]);
+    expect(
+      stackCoverageGaps(stacks, [0x41, 0xac00, 0x203b, 0x2049, 0x0255], hasFace, new Set([0x0255])),
+    ).toEqual({ unlisted: new Map(), stale: [] });
+  });
+
+  it('names each stack that misses a required character, and listed characters every stack now draws', () => {
+    const stacks = new Map([
+      ['--font-sans (ko)', ['Inter', 'Noto Sans KR', 'Noto Sans JP', 'sans-serif']],
+      ['.user-text-font-ja (en)', ['Inter', 'Noto Sans JP', 'sans-serif']],
+    ]);
+    expect(
+      stackCoverageGaps(
+        stacks,
+        [0x41, 0xac00, 0x203b, 0x2049, 0x0255],
+        hasFace,
+        new Set([0x0255, 0x2049, 0x1f850]),
+      ),
+    ).toEqual({
+      unlisted: new Map([['.user-text-font-ja (en)', [0x203b, 0xac00]]]),
+      stale: [0x2049, 0x1f850],
+    });
   });
 });

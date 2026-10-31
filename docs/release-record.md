@@ -61,7 +61,7 @@ gh run list --workflow e2e.yml --branch main --limit 3
       기록 3. 처음 main `599465dd` 위에서 만들어 2026-10-31 20:30 KST에 `9e68a7a3` 위로 옮김)과 옮김을 적은 기록 커밋 둘, 모두
       스물여섯을 2026-11-01 01:00 KST에 패치 그대로 다시 옮겼고(머리 `3be18bdb`, 보고서 QA 라운드 7), 그 위에 순서·Q6·남은 기록의
       문서 커밋, R4-Q3 주석 커밋 `5b7f7e84`(`src/pro-room/snapshot.ts`, 주석뿐, 운영 빌드 바이트 같음, 아래 R4 절), 버전 올리기
-      `8d148fff`(마지막 런타임 커밋)와 그 뒤 기록 커밋을 더했다(main `e51dd292` 위 32커밋). main `e51dd292`와 운영 배포 SHA(App 9.0.29 `c4667abc`, PRO room `683074bc`, 다른 넷 9.0.22 `71f5b96c`) 어느
+      `8d148fff`(마지막 런타임 커밋)와 그 뒤 기록 커밋 둘을 더했다(main `e51dd292` 위 33커밋). main `e51dd292`와 운영 배포 SHA(App 9.0.29 `c4667abc`, PRO room `683074bc`, 다른 넷 9.0.22 `71f5b96c`) 어느
       쪽과 견줘도 6A의 런타임 경로 변경은 App 13(`src/youtube/`의 열, `src/player/playlist.ts`, `src/pro-room/`의
       `playback-controller.ts`와 `playback-authority-hooks.ts`)이고, R4-Q3 주석과 버전 거울도 App 경로뿐이다. 나머지 다섯 Worker
       0이고 App 런타임 의존성 차이가 없어 target `app`이다(로컬 판정, 릴리스의 부분 릴리스 검사를 대신하지 않음). D1, 비밀, 바인딩, Wrangler 설정, CORS, 계약 표지, 저장 데이터 모양, 의존성은 바뀌지
@@ -77,7 +77,7 @@ gh run list --workflow e2e.yml --branch main --limit 3
       −152 B)와 라운드 8(버전 올리기 `8d148fff` 뒤 로컬 전체 검사: typecheck, lint, `format:check`, `build:checked`와 그 안의
       `guard:sw-cache-version` 'PASS: v803 (8d148fff)'·`guard:release-identity` 9.0.30 / v803, 모든 `guard:*` 37개와 자원 소유권,
       후보 E2E 19 / 19, 핵심 커버리지 94 files / 3,763과 Worker 커버리지 69 / 3,325, 단위 전체 735 files / 17,540(부하 아래 git 작업 행
-      시간 초과 둘은 그 파일을 따로 돌려 통과), critical E2E 101 / 101, YouTube 여덟 spec 41 / 41, 배포 대상 App 18·나머지 Worker 0, 첫
+      시간 초과 둘은 그 파일을 따로 돌려 통과), critical E2E 101 / 101, YouTube 여덟 spec 41 / 41, 그 뒤 같은 런타임 트리의 `check:workers`와 Worker 묶음 dry-run, 배포 대상 App 18·나머지 Worker 0, 첫
       로딩은 9.0.29 대비 eager JS gzip −144 B·eager 전체 −141 B로 어느 값도 늘지 않음)다.
       PR, PR CI, 자동 코드 리뷰, exact-main CI, 배포는 아직이고 로컬 결과는 exact-main-SHA 후보를 대신하지 않는다. 배포 뒤 기록 PR이
       이 항목을 '배포 뒤 확인'으로 바꾼다.
@@ -95,7 +95,7 @@ gh run list --workflow e2e.yml --branch main --limit 3
       크기 후속(값마다 이름 붙인 export, 값과 읽는 곳 그대로, 그 가드 보강 포함)을 실었고, 처음 받는 코드는 이제 바탕보다 작다:
       처음 바탕 `599465dd`에서 증분 차의 합 −149 B(eager 전체 −152 B), 옮긴 바탕 `9e68a7a3`과 머리를 다시 빌드해 견주면 eager JS와
       eager 전체 모두 gzip −114 B(진입 청크 raw −1,788 B, `guard:initial-transfer-budget` 통과), 9.0.29 기록 위로 다시 옮긴 뒤
-      바탕(운영 9.0.29와 같은 런타임)과 견주면 eager JS −154 B, eager 전체 −152 B(진입 raw −1,800 B). 그래서 Q29의 멈춤 조건은
+      바탕(운영 9.0.29와 같은 런타임)과 견주면 eager JS −154 B, eager 전체 −152 B(진입 raw −1,800 B), 버전 올리기 `8d148fff` 뒤에는 eager JS −144 B, eager 전체 −141 B. 그래서 Q29의 멈춤 조건은
       해당하지 않는다. 계획의 공용 플레이어 상태 이름(6A-3 (가))은 보고서 오너 질문 2의 권장안대로 싣지 않고 뒤 열차에서 크기와
       함께 다시 본다. 순서(보고서 오너 질문 3, 2026-10-31 저녁): 앱 글꼴 업데이트를 먼저 내고 6A는 그 뒤 9.0.30 / v803으로 낸다.
       위임(2026-10-31 23:20 KST 무렵): 오너가 약 40시간 자리를 비우며 릴리스와 시험을 맡겼고(오너의 허락이 꼭 필요한 일만 묻고
@@ -121,7 +121,9 @@ gh run list --workflow e2e.yml --branch main --limit 3
       (QA 라운드 8)를 적었다. (5) PR CI, 자동 코드 리뷰, dispatch 직전 머지, exact-main CI success, 그 뒤 Release target `app`,
       Developer API D1 false, `raise_app_build_floor` false. (6) 배포 직후 공개 최소 빌드 상태(저장·유효 795, live App 803)와
       Operations Drift Audit을 보고, 아래 배포 직후 확인을 건넨다. 머지 뒤 main SHA에서 Full E2E를 한 번 돌려 보고서 QA 라운드에 적되
-      exact-main 후보로 쓰지 않는다. 배포 기록 PR은 §1과 `Last source review`를 덮어쓰고 `release-history.md`에 한 행을 더하며, §4에
+      exact-main 후보로 쓰지 않는다. 9.0.29 런타임(`c4667abc`)에도 Full E2E 결과가 없어(§1 Full E2E, 마지막 성공은 9.0.20
+      런타임의 40773241908) 그 실행이 실패하면 6A의 회귀와 9.0.21 ~ 9.0.29의 회귀를 바로 가르지 못하므로, 실패한 spec을 main
+      `e51dd292`(9.0.29 런타임)에서도 돌려 가른다. 배포 기록 PR은 §1과 `Last source review`를 덮어쓰고 `release-history.md`에 한 행을 더하며, §4에
       이 릴리스 항목과 현재 경계 줄을 적고, 다른 항목의 다음 되돌리기 번호를 9.0.31 / v804로 옮기고(9.0.29 기록의 선례), R4 절의
       R4-Q3 문장을 닫는다.
       [배포 조건과 순서](design/phase6-6a-start-constants-owner-queries-2026-10-31.md#배포-조건과-순서-릴리스-담당).
@@ -136,7 +138,7 @@ gh run list --workflow e2e.yml --branch main --limit 3
       소유자 질의와 6A-3의 상수를, 6C-2가 6A-4의 `iframe-audio.ts`를, 6D-1이 6A-3의 1,800 ms와 120 ms × 8을 쓴다(계획). 그 뒤에는
       6A부터 가장 최근 열차까지 새 `agent/` 갈래에서 거꾸로 되돌리고 다음 SemVer·epoch, 전체 게이트, App 릴리스, 기록으로 앞으로
       되돌리며, 그 업데이트 창은 Q1의 넷 밖이다. 6A 커밋들이 가드 기준치와 레지스트리를 같은 커밋에서 옮겼으므로 되돌리면 함께
-      돌아오고, 이름마다 세는 CHECK 12(`3e80f168`)만 남기고 6A-1을 되돌리면 읽기 기준치와 RO-02 기록을 함께 올린다.
+      돌아오고, 이름마다 세는 CHECK 12(`2358f5f7`)만 남기고 6A-1을 되돌리면 읽기 기준치와 RO-02 기록을 함께 올린다.
       [되돌리기](design/phase6-6a-start-constants-owner-queries-2026-10-31.md#되돌리기),
       [혼합 버전](design/phase6-6a-start-constants-owner-queries-2026-10-31.md#혼합-버전).
 - [ ] 배포 직후 확인(블라인드, 게이트 아님, 계획의 6A 기기 후보, 배포 뒤): 보고서 '배포 뒤 확인'의 절차만 확인하는 사람에게
@@ -147,17 +149,19 @@ gh run list --workflow e2e.yml --branch main --limit 3
       직후의 헤드셋·잠금 화면(H3: 방장 seek 직후 2초 안과 게스트가 수동 오프셋 시작을 기다리는 동안, iPhone 방장 한 번, 약 25분).
       Phase 6 앞의 기기 기준선(Q6)은 재지 않았다: 오너 답(2026-10-30)은 시간이 될 때 9.0.27 뒤의 운영에서 재고 첫 업데이트 전에
       절차를 받는 것이었고, 그 절차(계획 §7, 약 3시간, 없는 기기의 단계는 건너뜀, 확인하는 사람에게 기대값을 주지 않음)는 이
-      릴리스 전에 오너에게 드리는 비공개 질문 목록으로 건넸다. 게이트가 아니며, 오너가 자리에 없어(약 40시간 위임) 6A는 기준선
+      릴리스 전에 오너에게 드리는 비공개 질문 목록에 넣어 두었다(오너가 돌아오면 드림). 게이트가 아니며, 오너가 자리에 없어(약 40시간 위임) 6A는 기준선
       없이 나가므로 이 확인은 기준선과 견주지 못한다. 기기가 없는 단계는 '기기 없음'이고 실패가 아니다. 실패하면: 일시적
       네트워크로 설명되지 않는 어긋남이면 위 되돌리기대로 앞으로 고치기나 명시적으로 검토한 CLI 되돌리기를 정한다. 운영
       브라우저의 업데이트 창도 배포 뒤에 본다.
       [배포 뒤 확인](design/phase6-6a-start-constants-owner-queries-2026-10-31.md#배포-뒤-확인-블라인드-게이트-아님).
 - [ ] 열린 항목과 확인하지 않은 것(보고서, 게이트 아님): 실기기, iOS Safari와 WebKit 레인(`setup-youtube-activation.test.ts`
-      포함), 블루투스, Full E2E, PR CI, exact-main CI, 그리고 로컬의 `check:workers`(Worker 런타임 변화 없음)와 WebKit E2E 레인.
-      버전 올리기 뒤의 `guard:sw-cache-version`, `build:checked` 사슬, 단위 전체, lint, 커버리지, Playwright는 QA 라운드 8이 돌렸다. 계획의 공용 상태 이름 (가)의 크기는 낱개 이름 집 위에서
-      재지 않았다. CHECK 5가 여전히 잡지 않는 사본(이름이 다른 사본, 값 넷 이하를 나누는 객체, 집이 계약에 없는 파일의 사본. 예:
-      `src/pro-room/playback-controller.ts`에 다시 적은 40 ms 따라잡기 허용치, 바탕부터 있던 틈)은 리뷰로 본다. 이 열차가 새로 연
-      결함 질문(Q18)은 없다. 배포 순서는 오너가 정했고(글꼴 먼저, 보고서 오너 질문 3) 배포 때는 오너의 부재 중 위임을 따르므로(위
+      포함), 블루투스, Full E2E, PR CI, exact-main CI, 그리고 로컬의 WebKit E2E 레인.
+      버전 올리기 뒤의 `guard:sw-cache-version`, `build:checked` 사슬, 단위 전체, lint, 커버리지, Playwright, 그리고 같은 런타임
+      트리의 `check:workers`와 Worker 묶음 dry-run(App Worker는 버전 문자열 한 줄뿐)은 QA 라운드 8이 돌렸다. 계획의 공용 상태
+      이름 (가)의 크기는 낱개 이름 집 위에서 재지 않았다. CHECK 5가 여전히 잡지 않는 사본(이름이 다른 사본, 값 넷 이하를 나누는
+      객체, 집이 계약에 없는 파일의 사본. 예: 6A-3이 import로 바꾸기 전 `src/pro-room/playback-controller.ts`에 있던 40 ms 따라잡기
+      허용치 사본처럼, 바탕부터 있던 틈)은 리뷰로 본다. 이 열차가 새로 연 결함 질문(Q18)은 없다. 배포 순서는 오너가
+      정했고(글꼴 먼저, 보고서 오너 질문 3) 배포 때는 오너의 부재 중 위임을 따르므로(위
       배포 조건 (1), (2)), 이 열차에서 오너가 정할 것은 남지 않았다.
       영역 조사의 기기 시간(A 35분, B 10분, C 25분)은 추정이다.
       [확인하지 않은 것](design/phase6-6a-start-constants-owner-queries-2026-10-31.md#확인하지-않은-것).
@@ -628,7 +632,8 @@ gh run list --workflow e2e.yml --branch main --limit 3
       '기록과 레지스트리'에 적었다. R4-Q3은 6A가 고쳐 배포되면 R4-Q2 하나가 남는다.
       [오너 결정과 순서](design/phase5-5-r4-pro-cleanup-2026-10-30.md#오너-결정과-순서),
       [9.0.28 열차 보고서](design/app-9-0-28-train-2026-10-31.md),
-      [9.0.29 보고서](design/app-font-inter-noto-2026-10-31.md).
+      [9.0.29 보고서](design/app-font-inter-noto-2026-10-31.md),
+      [Phase 6 6A 보고서(R4-Q3)](design/phase6-6a-start-constants-owner-queries-2026-10-31.md#r4-q3-주석-pro-재생목록-슬롯-요약의-낡은-opt-in-summary-phase-55-r4가-넘긴-것).
 - [ ] 되돌리기 경계(§4에 적음): 새 경계는 없다. 기본은 런타임 변경을 되돌려 `pro-room`으로 다시 내는 코드 되돌리기다. 실패
       자동 복구와 급할 때의 손 되돌리기 대상은 이 릴리스 checkpoint(artifact 12971063046)의 R2 PRO Worker(`0e5a9b87`, PRO
       버전 `ef882f7c`)이고 `lower`가 필요 없다. 이 Worker가 쓰는 기록은 그 Worker와 바이트로 같고(고정 v2 기록 행이 양쪽에서
@@ -3591,7 +3596,8 @@ PRO 방장 공지의 중도 참여 복원은 별도 정책이며 이번 서비�
       2026-10-26에 은퇴했다. 이 항목에 남은 것은 출력 정렬 실측이다.
       [구현·검증·호환 한계](design/android-youtube-output-baseline-2026-10-12.md),
       [점검·배포 근거](design/sync-maintenance-release-preparation-2026-10-12.md),
-      [수용했던 전환기 한계(2026-10-26 은퇴, 옛 #13)](known-accepted.md#retired-risks)
+      [수용했던 전환기 한계(2026-10-26 은퇴, 옛 #13)](known-accepted.md#retired-risks),
+      [Phase 6 6A 보고서(Q21)](design/phase6-6a-start-constants-owner-queries-2026-10-31.md#오너-결정-2026-10-30-모두-권장)
 - [ ] iPhone Safari/PWA 실기 재입장: 8.9.4의 이전 연결 안내와 "여기서 계속",
       같은 코드로 입장 실패 후 재시도를 확인한다. 종료 알림이 누락되면 마지막 생존
       확인 뒤 45초 동안 presence가 남을 수 있고 명시적 이어하기 정책은 유지한다.

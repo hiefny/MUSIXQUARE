@@ -112,13 +112,14 @@ runbooks. Neither belongs in a general setup document.
   mixed-version sentence, the registry's release-batching sentence for Phase 6), the comment-only
   R4-Q3 fix in `src/pro-room/snapshot.ts` that Phase 5.5 R4 left for the next App update (`5b7f7e84`,
   production build byte-identical), and the bump `8d148fff` to 9.0.30 / v803 as the last runtime
-  commit, followed by this record commit (32 commits on `e51dd292`). QA round 8 ran the full local
+  commit, followed by two record commits (33 commits on `e51dd292`). QA round 8 ran the full local
   gate on the bump: types, lint, format, `build:checked` with `guard:sw-cache-version` passing for
   v803, all 37 guards, the production candidate 19 / 19, critical coverage 94 files / 3,763 and Worker
   coverage 69 / 3,325, the unit suite 735 files / 17,540 (two git-fixture rows that time out under
-  load pass with their files run alone), critical E2E 101 / 101 and the eight YouTube specs 41 / 41;
-  the release target is `app` (18 App runtime paths, none in the other five Workers) and the first
-  load is 144 B of eager JavaScript gzip and 141 B of eager total below 9.0.29.
+  load pass with their files run alone), critical E2E 101 / 101 and the eight YouTube specs 41 / 41,
+  then `check:workers` and the Worker bundle dry-runs on the same runtime tree; the release target
+  is `app` (18 App runtime paths, none in the other five Workers) and the first load is 144 B of
+  eager JavaScript gzip and 141 B of eager total below 9.0.29.
   6A-1 replaces the cross-file reads of the start timers' names with owner queries
   (`isYouTubeAutoSyncPending` through the player runtime bridge, and a query `sync.ts` registers
   with the native-control authority; the PRO coordinator nudge is still read by name). 6A-2 drops
@@ -131,9 +132,10 @@ runbooks. Neither belongs in a general setup document.
   rerun on its parent's runtime (only the changed rows fail), and the review's tests-only rows
   also pass on the pre-6A runtime. Guard baselines fall in the commits that move the counted code:
   CHECK 11 44 to 32, CHECK 12 reads 14 to 11 and clears 10 to 9 (CHECK 12 now counts each start
-  timer a call covers), CHECK 5 copies 2 to 1. Target `app` (13 App runtime paths, none in the other
-  five Workers, no runtime dependency change); `guard:sw-cache-version` fails only for the missing
-  bump. 6A-3's object-shaped homes took the eager JavaScript 237 B gzip over the base, past the
+  timer a call covers), CHECK 5 copies 2 to 1. Before the bump, target `app` (13 App runtime
+  paths, none in the other five Workers, no runtime dependency change) and
+  `guard:sw-cache-version` failed only for the missing bump. 6A-3's object-shaped homes took the
+  eager JavaScript 237 B gzip over the base, past the
   Phase 6 cap of +200 B, so a size follow-up (the report's recommended answer to its owner question)
   makes each start timing its own named export, with the same values and readers: the eager
   JavaScript is now 149 B gzip below the base (eager total 152 B; 114 B for both against

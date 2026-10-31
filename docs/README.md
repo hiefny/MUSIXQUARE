@@ -93,6 +93,83 @@ runbooks. Neither belongs in a general setup document.
 
 ## Maintained evidence and completed records
 
+- [App 9.0.28 train: the PRO SFU fallback prepared beside the LAN-direct attempt with media held, and the playlist current-row icons and PRO upload row numbers (2026-10-31)](design/app-9-0-28-train-2026-10-31.md):
+  assembled, not merged or released: the next App update after 9.0.27 (9.0.28 / v801, App build
+  801, update dialog; the version bump `f3a9fcbc` is the last runtime commit, followed only by a docs
+  commit).
+  Branch `agent/app-9-0-28-train` on main `599465dd` (after the 9.0.27 record #540, the Phase 6
+  T0a tests #541 and #542, the T1 ownership guard #543 and the `src/youtube` test-order fix #544;
+  first assembled on `682e0fcd`, then moved onto `599465dd` with every patch unchanged) carries the
+  two increments' 14 commits in order (one `docs/README.md` conflict, both sides kept; three commit
+  messages corrected; the tests-first commits fail the same rows on their new parents). Target
+  `app`: 4 App runtime paths before the bump against the live Worker SHAs and main (8 with the
+  bump's four mirrors), none in the other five Workers, no runtime dependency change; the build
+  floor stays 795. After the bump the local gate passed on `682e0fcd` and again after the move onto
+  `599465dd`: release identity 9.0.28 / v801 and `guard:sw-cache-version` PASS v801, every guard
+  and the resource-ownership check with #543, `build:checked`, unit 724 files / 17,210 tests
+  (721 / 17,194 before the move), critical coverage 92 files / 3,734, Worker coverage 69 files /
+  3,323, 19 candidate, 101 critical, 5 system audio and 35 playlist E2E rows (the 'convertible in tablet
+  posture' hover row, run alone, fails on this build and on a main `682e0fcd` build alike). The
+  report lists the owner decisions of 2026-10-31 ("two stages", the media-less
+  publisher session, the approved playlist mockups with option B, the overnight delegation) and
+  the release owner's round 3 choice (9.0.27's one ordinary publish when the held fallback is
+  already lost), both increments' QA rounds with their tested SHAs and limits, the moved-SHA table,
+  mixed versions (the 9.0.27 blind check can run on 9.0.28 reading only its build line), rollback
+  (checkpoint App 9.0.27 `e3457d38`, build 800 at or above floor 795, and the held fallback's
+  rollback trigger), deploy conditions and order (Developer API D1 and `raise_app_build_floor`
+  false), the blind post-deploy procedure and its withheld criteria, and four open owner questions
+  (the expanded YouTube sub-row's older icon sizes, the provisional upload number during an
+  administrator's playlist switch, the Worker new-session limit, the release-attach window).
+  Increment notes: [held SFU fallback](design/pro-system-audio-speculative-sfu-2026-10-31.md),
+  [playlist icons and upload rows](design/playlist-state-icons-upload-rows-2026-10-31.md).
+- [PRO system audio: the SFU fallback prepared beside the LAN-direct attempt, media held (2026-10-31)](design/pro-system-audio-speculative-sfu-2026-10-31.md):
+  the 9.0.28 increment (owner decision 2026-10-31, "two stages"), implemented and checked locally on
+  the branch `agent/spec-sfu` over the 9.0.27 train (`3042b015`) and moved into the App 9.0.28
+  train (report above), not merged, released or bumped
+  (target `app`, nothing on screen changes). A share with LAN-direct targets starts its SFU
+  publish in the same turn as the LAN-direct attempt with the sender holding no track; a proven
+  LAN-direct stops it before the unchanged `lan-direct` commit, and a failed one attaches the track
+  and commits the prepared descriptor at once. Owner-accepted cost: a LAN-direct share usually
+  asks for one Cloudflare Realtime publisher session that never carries media, and spends one
+  admission of the Worker's per-capability new-session limit. The release owner settled the
+  review's three owner questions under the owner's delegation (round 3, reversible by the owner):
+  a held fallback already lost when LAN-direct fails (a failed request such as a transient 502 or
+  429, or a connection lost while held) leads to 9.0.27's one ordinary publish and its commit, so
+  at most one SFU publish follows the LAN-direct failure as in 9.0.27, and the unchanged
+  new-session limit is accepted as a rare case to observe. No wire, server, timer, retry loop or
+  timing value; RO-20 extended in place. The held fallback's info lines (Prepared, Released, Closed
+  unused, Cancelled, Closed released, failed) use the `[PRO SystemAudio]` prefix, so a LAN-direct
+  share still logs no `[ProSysAudioSFU]` line at `?mxqrLog=info` (at debug level a failed
+  tracks-close can still log one), and for a released fallback
+  `[ProSysAudioSFU] Published generation N` comes only after the room committed it. Round 1:
+  tests first `1b2be559`, runtime
+  `17002160`; review round 2: tests first `25e029ba` (25 rows fail on round 1), runtime `4bcc52fb`;
+  round 3: tests first `926a5a95` (16 rows fail on round 2), runtime `d4934909`; review round 4:
+  tests only `bd58bec1` (three existing checks pinned, the runtime unchanged), and the note names
+  the rollback trigger and target (9.0.27 / v800 behaviour) for the unverified late-RTP pushed
+  track. In a
+  Chromium harness running the real service, SFU and LAN-direct modules against a fake Cloudflare
+  whose answering connection receives the media (publish modelled at 0.6, 1.7 and 3 s), the first
+  RTP packet of a share whose pair never refines arrives 1.68-1.81 s sooner at 1.7-3 s (0.60-0.64 s
+  at 0.6 s, after a 1.2 s hold) and of a `no-lan-candidate` share 0.11-0.18 s sooner; a LAN-direct
+  pass commits at the same time and its held connection receives no RTP. Not verified on devices
+  or against production Cloudflare (a pushed track whose RTP starts seconds after negotiation,
+  zero-media billing).
+- [Playlist current-row state icons and PRO upload row numbers, owner decision (2026-10-31)](design/playlist-state-icons-upload-rows-2026-10-31.md):
+  unmerged and unreleased, moved into the App 9.0.28 train (report above; the train's bump raises
+  the App). Built on main `8f171535` (QA round 1), then moved after review onto main `23f29283` (9.0.27
+  / v800) without the design system page change the owner had not seen; App only (2 runtime paths).
+  Beside the current row's title the pause bars draw wider in an 18px box, the play triangle in a
+  20px box and the loading ring at 13px with a 2px line (the selected row's weight); a PRO upload
+  row shows a provisional number (the rows shown plus 1, 2, ...), hidden from assistive technology
+  like every number, and its thin ring (1.73px) in the 16px icon cell, so every title starts on one
+  line; the file going up now leads the upload rows. The note gives the owner decisions, the
+  pictures the owner approved described in words, the tests-first commit `829f909b` and
+  implementation `61bf495e`, both QA rounds (round 2: full unit suite, typecheck, lint, format,
+  guards, build guards, 101 critical and 31 of 32 playlist and design system E2E with one hover row
+  that also fails on main), the review and its handling, the real e2e build pictures kept outside
+  the repository, and the open items (the expanded YouTube sub-row keeps its icons, pictured for an
+  owner decision; a provisional number during a playlist switch; no device check).
 - [App 9.0.27 train: the iPhone listener's LAN-direct pair judgement and diagnostic lines, and chat keyboard and screen reader focus (2026-10-30)](design/app-9-0-27-train-2026-10-30.md):
   released on 2026-10-31 04:31 KST in Release 41115623163 (PR #536, squash `23f29283`): the next
   App update after 9.0.26 (9.0.27 / v800, App build 800, update dialog; the version bump `676a1670`

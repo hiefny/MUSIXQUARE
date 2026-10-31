@@ -58,10 +58,14 @@ export function makeCaptureTrack(id = 'capture-stereo-track'): CaptureTrack {
 // Models the sender parameters as Chromium returns them for a fresh audio
 // sender (one encoding, no bitrate set). getParameters returns a fresh copy on
 // every call, as browsers do, so only a setParameters call can change what the
-// sender carries. A test can make getParameters throw.
+// sender carries. A test can make getParameters throw. replaceTrack records
+// every track it is given, in order (`replaceTrack.mock.calls`), and the
+// sender then carries that track, or none for null, as browsers do before and
+// after negotiation without renegotiating.
 
 export class FakeSender {
   private parameters: RTCRtpSendParameters = { encodings: [{}] } as RTCRtpSendParameters;
+  track: MediaStreamTrack | null;
   readonly getParameters = vi.fn<() => RTCRtpSendParameters>(() =>
     structuredClone(this.parameters),
   );
@@ -70,7 +74,14 @@ export class FakeSender {
       this.parameters = structuredClone(parameters);
     },
   );
-  constructor(readonly track: MediaStreamTrack) {}
+  readonly replaceTrack = vi.fn<(track: MediaStreamTrack | null) => Promise<void>>(
+    async (track) => {
+      this.track = track;
+    },
+  );
+  constructor(track: MediaStreamTrack) {
+    this.track = track;
+  }
   /** What the sender carries after every setParameters call so far. */
   get applied(): RTCRtpSendParameters {
     return structuredClone(this.parameters);
@@ -181,18 +192,27 @@ export class PublisherPeerConnection {
 // tracks-new returns the stereo answer and one mid per requested track, and
 // tracks-close returns {}. Responses resolve on the next macrotask (no
 // latency), honour an aborted signal like fetch, and record every request.
+// A test can hold the next request of one action (`holdNext`): it is recorded
+// at once and answers only when the test lets it go, or rejects with the
+// signal's reason when it is aborted first, as an in-flight fetch does. A test
+// can also make the next request of one action fail (`failNext`): it is
+// recorded and answers with that HTTP status and the Worker's `{ error }`
+// body, as a transient 502 or the new-session limit's 429 does, and asks
+// Realtime for no session.
 // Does not model capability minting, Turnstile, the subscriber side, the
 // second fallback endpoint or response size limits.
 
 interface RealtimeRequest {
   action: string;
   sessionId?: string;
-  payload?: { tracks?: Array<Record<string, unknown>> };
+  payload?: { tracks?: Array<Record<string, unknown>>; force?: boolean };
 }
 
 class PublisherRealtimeFake {
   readonly requests: RealtimeRequest[] = [];
   private sessionSeq = 0;
+  private held: { action: string; gate: Promise<void>; open: () => void } | null = null;
+  private readonly failures: Array<{ action: string; status: number }> = [];
 
   readonly fetchWithCapability = (
     url: RequestInfo | URL,
@@ -206,10 +226,41 @@ class PublisherRealtimeFake {
     }
     const request = JSON.parse(String(init?.body ?? '{}')) as RealtimeRequest;
     this.requests.push(request);
-    return new Promise((resolve) => {
-      setTimeout(() => resolve(Response.json(this.respond(request))), 0);
+    const held = this.held?.action === request.action ? this.held : null;
+    if (held) this.held = null;
+    const failureAt = this.failures.findIndex((failure) => failure.action === request.action);
+    const failure = failureAt >= 0 ? this.failures.splice(failureAt, 1)[0]! : null;
+    return new Promise((resolve, reject) => {
+      signal?.addEventListener('abort', () => reject(signal.reason), { once: true });
+      const answer = () =>
+        setTimeout(
+          () =>
+            resolve(
+              failure
+                ? Response.json({ error: 'Request refused' }, { status: failure.status })
+                : Response.json(this.respond(request)),
+            ),
+          0,
+        );
+      if (held) held.gate.then(answer, () => undefined);
+      else answer();
     });
   };
+
+  /** Holds the next request of `action` until the returned function lets it answer. */
+  holdNext(action: string): () => void {
+    let open!: () => void;
+    const gate = new Promise<void>((resolve) => {
+      open = resolve;
+    });
+    this.held = { action, gate, open };
+    return open;
+  }
+
+  /** Fails the next not yet failed request of `action` with HTTP `status`. */
+  failNext(action: string, status: number): void {
+    this.failures.push({ action, status });
+  }
 
   count(action: string): number {
     return this.requests.filter((request) => request.action === action).length;
@@ -218,6 +269,8 @@ class PublisherRealtimeFake {
   reset(): void {
     this.requests.length = 0;
     this.sessionSeq = 0;
+    this.held = null;
+    this.failures.length = 0;
   }
 
   private respond(request: RealtimeRequest): Record<string, unknown> {

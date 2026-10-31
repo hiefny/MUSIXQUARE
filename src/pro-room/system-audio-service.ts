@@ -9,8 +9,11 @@ import { t } from '../i18n/index.ts';
 import {
   beginProSystemAudioSfuPublisherPreflight,
   cancelProSystemAudioSfuPublisherPreflight,
+  isProSystemAudioSfuPublisherHoldReady,
   onProSystemAudioSfuEvent,
   publishProSystemAudioSfu,
+  releaseProSystemAudioSfuPublisherHold,
+  reportProSystemAudioSfuPublisherCommitted,
   stopProSystemAudioSfuPublisher,
   stopProSystemAudioSfuSubscriber,
   subscribeProSystemAudioSfu,
@@ -487,7 +490,12 @@ function cancelPublisherRecovery(abort = true): void {
 // (bindProSystemAudioSession), the service reset (resetProSystemAudioService),
 // a terminated publisher recovery (terminateOwnedPublisherRecovery), a failed
 // publish (publishLocalProSystemAudio) and leaving the PRO room context. What a
-// partial teardown leaves to a full one is named at its call.
+// partial teardown leaves to a full one is named at its call. The held SFU
+// fallback a share prepares beside its LAN-direct attempt (9.0.28) is the
+// singleton SFU publisher, so each of them stops it too, except leaving the
+// PRO room context, which keeps the SFU publisher (kept: 'sfu-publisher'), so
+// the flight releases and commits the fallback as the sequential publish did.
+// A proven LAN-direct stops it unused before the lan-direct commit.
 
 /** Clears the four timers a local publication arms. */
 function clearLocalPublicationTimers(): void {
@@ -1749,7 +1757,10 @@ function beginLocalProSystemAudioLeaseAttempt(signal?: AbortSignal): ProSystemAu
     controller: activeController,
     // The native display picker opens after this lease attempt begins. Warm
     // only capability/TURN configuration underneath that user-controlled
-    // interval; no Cloudflare Realtime session is allocated on a LAN success.
+    // interval. The share's held SFU fallback consumes it beside the LAN-direct
+    // attempt, so a LAN success usually asks for one Realtime publisher
+    // session that never carries media, using one admission of the Worker's
+    // per-capability new-session limit (owner decision 2026-10-31).
     publisherPreflight: activeController ? beginProSystemAudioSfuPublisherPreflight() : null,
     identity:
       existingLease?.hasCredential && isServiceSessionCurrent(epoch)
@@ -1865,6 +1876,67 @@ function scheduleLeaseHeartbeat(delayMs = LEASE_HEARTBEAT_MS): void {
   );
 }
 
+type HeldSfuPublication =
+  { ok: true; descriptor: ProSystemAudioSfuPublicationDescriptor } | { ok: false; error: unknown };
+
+interface HeldSfuFallback {
+  /** The held publish's outcome as data: it never rejects. */
+  readonly outcome: Promise<HeldSfuPublication>;
+  /**
+   * Whether it is already lost: its publish failed (a request, or a
+   * synchronous refusal), or, prepared, the transport no longer holds it (its
+   * connection failed while held). False while it is still in flight, and
+   * while it is prepared and held.
+   */
+  isLost(): boolean;
+}
+
+/**
+ * Starts the share's held SFU fallback with its sender holding no track
+ * (RO-20). Its outcome becomes data at once: when LAN-direct proves, nobody
+ * awaits it, and a synchronous refusal cancels the preflight it would have
+ * consumed. It runs under the transport's own request deadlines and has no
+ * timer, retry or timing value of its own.
+ */
+function startHeldSfuPublication(
+  track: MediaStreamTrack,
+  lease: { generation: number; roomCode: string },
+  preflight: ProSystemAudioSfuPublisherPreflight | null,
+): HeldSfuFallback {
+  let settled: HeldSfuPublication | null = null;
+  const settle = (result: HeldSfuPublication): HeldSfuPublication => (settled = result);
+  let outcome: Promise<HeldSfuPublication>;
+  try {
+    const publishing = publishProSystemAudioSfu(
+      {
+        track,
+        generation: lease.generation,
+        // Provisional, as for a promotion: the commit response replaces it
+        // with the server-owned deadline (settleCanonicalSfuPublisher).
+        expiresAt: Date.now() + SYSTEM_AUDIO_SHARE_LIMIT_MS,
+        roomId: lease.roomCode,
+        holdMedia: true,
+      },
+      preflight ?? undefined,
+    );
+    outcome = Promise.resolve(publishing).then(
+      (descriptor) => settle({ ok: true, descriptor }),
+      (error: unknown) => settle({ ok: false, error }),
+    );
+  } catch (error) {
+    cancelProSystemAudioSfuPublisherPreflight(preflight);
+    outcome = Promise.resolve(settle({ ok: false, error }));
+  }
+  return {
+    outcome,
+    isLost: () => {
+      const result: HeldSfuPublication | null = settled;
+      if (!result) return false;
+      return !result.ok || !isProSystemAudioSfuPublisherHoldReady(result.descriptor);
+    },
+  };
+}
+
 export async function publishLocalProSystemAudio(
   track: MediaStreamTrack,
 ): Promise<ProRoomSystemAudioState> {
@@ -1919,41 +1991,90 @@ export async function publishLocalProSystemAudio(
       cancelLeaseAttemptPublisherPreflight(leaseAttemptOwner);
     }
     activeLocalDirectPublicationKey = null;
-    let publication: ProRoomSystemAudioPublication | null = null;
-    try {
-      publication = await attemptProSystemAudioDirectPublication({
+    // Local discovery is an optimization. Any unsupported or isolated LAN
+    // topology (a refusal, thrown or rejected, included) falls back to the
+    // established SFU publication path.
+    const directAttempt = (async () =>
+      attemptProSystemAudioDirectPublication({
         track,
         generation: lease.generation,
         publicationId,
         targets: directTargets,
-      });
-    } catch (error) {
-      // Local discovery is an optimization. Any unsupported or isolated LAN
-      // topology must fall back to the established SFU publication path.
+      }))().catch((error: unknown) => {
       log.debug('[PRO SystemAudio] LAN-direct probe unavailable; using SFU', error);
-    }
+      return null;
+    });
+    // In the same turn, the share's SFU attempt starts beside it with its
+    // sender holding no track (9.0.28), so a LAN-direct failure no longer
+    // waits for a whole SFU publish. A share without targets has no fallback
+    // to prepare: its direct publication reaches nobody else.
+    const heldSfu =
+      directTargets.length > 0 ? startHeldSfuPublication(track, lease, sfuPreflight) : null;
+    if (heldSfu) sfuPreflight = null;
+    let publication: ProRoomSystemAudioPublication | null = await directAttempt;
     if (!ownsLocalPublishFlight(flight) || !isLocalLeaseCurrent(flight.identity)) {
       cancelProSystemAudioSfuPublisherPreflight(sfuPreflight);
       throw new ProRoomSystemAudioControllerError('OPERATION_SUPERSEDED');
     }
+    let releasedFallback: ProSystemAudioSfuPublicationDescriptor | null = null;
     if (!publication) {
-      const fallbackPreflight = sfuPreflight;
-      sfuPreflight = null;
-      const descriptor = await publishProSystemAudioSfu(
-        {
-          track,
-          generation: lease.generation,
-          expiresAt: Date.now() + SYSTEM_AUDIO_SHARE_LIMIT_MS,
-          roomId: lease.roomCode,
-        },
-        fallbackPreflight ?? undefined,
-      );
+      let descriptor: ProSystemAudioSfuPublicationDescriptor;
+      // At the LAN-direct failure, a held fallback still in flight or still
+      // held is this share's one post-LAN SFU attempt. One already lost (its
+      // request failed, or its connection failed while held) leaves the share
+      // where 9.0.27 was at this moment, so it makes 9.0.27's one ordinary
+      // publish below (release owner decision 2026-10-31 under the owner's
+      // delegation: 9.0.28 is not less reliable than 9.0.27). No timer or
+      // retry: at most one SFU attempt follows the LAN-direct failure.
+      if (heldSfu && !heldSfu.isLost()) {
+        const held = await heldSfu.outcome;
+        if (!ownsLocalPublishFlight(flight) || !isLocalLeaseCurrent(flight.identity)) {
+          throw new ProRoomSystemAudioControllerError('OPERATION_SUPERSEDED');
+        }
+        // A fallback that fails after the LAN-direct failure fails the share
+        // as 9.0.27's failed publish did; no further publish is started.
+        if (!held.ok) throw held.error;
+        // The track is attached here, before the commit, as today's commit
+        // followed a publish whose sender already carried it. The transport
+        // reports the publication only after the commit (below).
+        await releaseProSystemAudioSfuPublisherHold(held.descriptor);
+        descriptor = held.descriptor;
+        releasedFallback = held.descriptor;
+      } else {
+        // 9.0.27's publish: a share without a held fallback, or one whose held
+        // fallback was already lost (it consumed the lease preflight, so this
+        // publish reads the TURN configuration itself). It reports itself
+        // published before the commit, as it always did.
+        const fallbackPreflight = sfuPreflight;
+        sfuPreflight = null;
+        try {
+          descriptor = await publishProSystemAudioSfu(
+            {
+              track,
+              generation: lease.generation,
+              expiresAt: Date.now() + SYSTEM_AUDIO_SHARE_LIMIT_MS,
+              roomId: lease.roomCode,
+            },
+            fallbackPreflight ?? undefined,
+          );
+        } catch (error) {
+          // A teardown or successor that aborted it ends this flight as
+          // superseded, as after the held publish.
+          if (!ownsLocalPublishFlight(flight) || !isLocalLeaseCurrent(flight.identity)) {
+            throw new ProRoomSystemAudioControllerError('OPERATION_SUPERSEDED');
+          }
+          throw error;
+        }
+      }
       publication = {
         publicationId,
         sessionId: descriptor.sessionId,
         track: { ...descriptor.track },
       };
     } else {
+      // The unused fallback closes before the lan-direct commit, so its
+      // session never reaches the room. Its sender never carried the track.
+      if (heldSfu) stopProSystemAudioSfuPublisher();
       cancelProSystemAudioSfuPublisherPreflight(sfuPreflight);
       sfuPreflight = null;
     }
@@ -1965,6 +2086,10 @@ export async function publishLocalProSystemAudio(
       throw new ProRoomSystemAudioControllerError('OPERATION_SUPERSEDED');
     }
     if (state.status === 'live' && isProRoomSystemAudioSfuPublication(state.publication)) {
+      // Only a committed fallback is reported published (its line and event).
+      if (releasedFallback && state.publication.sessionId === releasedFallback.sessionId) {
+        reportProSystemAudioSfuPublisherCommitted(releasedFallback);
+      }
       settleCanonicalSfuPublisher(state);
     } else if (state.status === 'live') {
       const activationTargets = currentDirectTargets();

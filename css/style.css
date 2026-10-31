@@ -2533,6 +2533,27 @@ or pointers. Keep :focus-visible and :active outside the gate (src/ui/__tests__/
     height: var(--material-elastic-size);
   }
 
+  /* Beside the current row's title (owner decision 2026-10-31) the pause bars
+     draw in an 18px box and the play triangle in a 20px box, and the loading
+     ring is 13px outside with a 2px line: a ring's line follows its row text's
+     weight, and the current row's text is selected (700). Visible ring:
+     (36 + 6.545) * 13.444 / 44 = 13.0, line 6.545 * 13.444 / 44 = 2.0. The
+     playing sub-row of an expanded YouTube playlist keeps the sizes above. */
+  .track-type-slot.playlist-current-leading .track-playing-indicator {
+    width: 20px;
+    height: 20px;
+  }
+
+  .track-type-slot.playlist-current-leading .track-paused-indicator {
+    width: 18px;
+    height: 18px;
+  }
+
+  .track-type-slot.playlist-current-leading .track-playback-loading-indicator {
+    --material-elastic-size: 13.444px;
+    --material-elastic-stroke: 6.545;
+  }
+
   .track-playback-loading-indicator > svg {
     display: none;
   }
@@ -2805,9 +2826,14 @@ or pointers. Keep :focus-visible and :active outside the gate (src/ui/__tests__/
     color: var(--playlist-indicator-color, currentColor);
   }
 
+  /* An upload row's ring stands in the source icon's 16px cell (owner decision
+     2026-10-31) at the current row ring's 13px outside, with the thin line of
+     its unselected (500) row text, the line it had at 16px with a 4.75
+     stroke: (36 + 5.516) * 13.778 / 44 = 13.0, line 5.516 * 13.778 / 44 =
+     1.73. */
   .pro-upload-spinner {
-    --material-elastic-size: 16px;
-    --material-elastic-stroke: 4.75;
+    --material-elastic-size: 13.778px;
+    --material-elastic-stroke: 5.516;
   }
 
   .pro-upload-cancel:disabled {
@@ -2817,9 +2843,9 @@ or pointers. Keep :focus-visible and :active outside the gate (src/ui/__tests__/
   }
 
   /* One fixed 16px cell, so every icon it holds centres on the same point. An
-     auto track would grow to its largest icon (the 18px playing bars) and push
-     the current row's icons 1px down and to the inline end; a fixed track lets
-     the larger icon overflow evenly instead. */
+     auto track would grow to its largest icon (the current row's 20px play
+     box) and push the current row's icons down and to the inline end; a fixed
+     track lets the larger icons overflow evenly instead. */
   .track-type-slot {
     display: grid;
     grid-template: 16px / 16px;

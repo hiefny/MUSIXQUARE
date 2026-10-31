@@ -527,7 +527,15 @@ the original stereo track's RTP packets then remain browser-to-browser and Cloud
 **zero media packets** for that publication. Cloudflare is still the authority
 and signaling plane; its PRO Durable Object owns the
 lease/generation/publication state and its signaling Durable Object relays
-fenced SDP/ICE to exactly one authenticated target socket.
+fenced SDP/ICE to exactly one authenticated target socket. Since App 9.0.28
+such a share also usually asks for one Cloudflare Realtime publisher session
+that never carries media and closes it (the held SFU fallback below; owner
+decision 2026-10-31). That request spends one admission of the Worker's
+per-capability new-session limit (four per 60 seconds), which the same
+browser's other SFU publishes, promotions and subscriber retries share. When
+the LAN-direct proof lands while the session or track request is still in
+flight, the client never holds what it asked for, and that session or pushed
+track is left to Realtime to reap.
 
 Direct delivery is an all-participants invariant, not a per-listener
 optimization. Each target is locally fenced by the pair
@@ -538,8 +546,28 @@ connection, so proof from the replaced tab cannot satisfy the new target. The
 signaling server independently fences the private presence incarnation and
 current target socket.
 
-If any initial target fails, the publisher starts the Cloudflare Realtime SFU
-with the already allocated `publicationId`. If a participant arrives after
+The publisher starts its Cloudflare Realtime SFU publish at the same moment
+as the LAN-direct attempt, with the sender holding no track (the held fallback,
+App 9.0.28; `holdMedia` in `src/network/pro-system-audio-sfu.ts`). If any
+initial target fails, it attaches the original stereo track to that already
+negotiated publication and commits it with the already allocated
+`publicationId`, so the SFU path no longer waits for a whole publish after the
+LAN-direct decision. If every target passes, it closes the held publication
+before the `lan-direct` commit: its session id never reaches the Durable
+Object, the room state or any listener, and its sender never carried audio.
+The publisher reports the publication (its `Published generation` line) only
+after the room committed it. The held publish has no timer, retry or timing
+value of its own. If it is already lost when the LAN-direct attempt fails (a
+request failed, for example a transient Worker 502 or the new-session limit's
+429, or its connection failed while held), the publisher does what 9.0.27 did
+at that moment: one ordinary SFU publish, which reports itself before its
+commit as before, then the commit (release owner decision 2026-10-31 under the
+owner's delegation; the owner can reverse it). Such a share asks for a second
+Realtime session, and a refusal of that publish fails the share as 9.0.27's
+failed publish did. A held publish still in flight or held at that moment is
+the one SFU attempt after the LAN-direct failure, so, as in 9.0.27, at most one
+SFU publish follows that failure. A share without other devices prepares
+none. If a participant arrives after
 direct commit while the room remains within the four-device system-audio limit,
 the publisher must prove another mDNS-local route to that exact target
 incarnation. A timeout, an incompatible or late old client, a non-host

@@ -44,6 +44,9 @@ vi.mock('../../network/pro-system-audio-sfu.ts', () => ({
     mocks.sfuListener = listener;
   }),
   publishProSystemAudioSfu: vi.fn(),
+  isProSystemAudioSfuPublisherHoldReady: vi.fn(),
+  releaseProSystemAudioSfuPublisherHold: vi.fn(),
+  reportProSystemAudioSfuPublisherCommitted: vi.fn(),
   stopProSystemAudioSfuPublisher: vi.fn(),
   stopProSystemAudioSfuSubscriber: vi.fn(),
   updateProSystemAudioSfuPublisherExpiry: vi.fn(),

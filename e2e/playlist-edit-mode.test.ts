@@ -697,11 +697,38 @@ test.describe('Playlist delete slide-out', () => {
                 ]
               : null;
           };
+          const size = (selector: string) => {
+            const icon = slot.querySelector(selector);
+            if (!icon) return null;
+            const iconStyle = getComputedStyle(icon);
+            return [iconStyle.width, iconStyle.height];
+          };
+          const loading = slot.querySelector('.track-playback-loading-indicator');
+          const loadingStyle = loading ? getComputedStyle(loading) : null;
+          const ringSize = parseFloat(
+            loadingStyle?.getPropertyValue('--material-elastic-size') ?? '',
+          );
+          const ringStroke = parseFloat(
+            loadingStyle?.getPropertyValue('--material-elastic-stroke') ?? '',
+          );
+          const round = (value: number) => Math.round(value * 100) / 100;
           return {
             current: slot.classList.contains('playlist-current-leading'),
             tracks: `${style.gridTemplateRows}/${style.gridTemplateColumns}`,
             type: center('.type-icon'),
             playing: center('.track-playing-indicator'),
+            sizes: {
+              playing: size('.track-playing-indicator'),
+              paused: size('.track-paused-indicator'),
+            },
+            pausePath:
+              slot.querySelector('.track-paused-indicator path')?.getAttribute('d') ?? null,
+            ring: loading
+              ? {
+                  outer: round(((36 + ringStroke) * ringSize) / 44),
+                  line: round((ringStroke * ringSize) / 44),
+                }
+              : null,
           };
         },
       ),
@@ -713,6 +740,12 @@ test.describe('Playlist delete slide-out', () => {
     }
     // The larger playing bars centre on the same point, overflowing evenly.
     expect(cells[0]!.playing).toEqual([8, 8]);
+    // Owner decision 2026-10-31: the current row's pause bars draw wider in an
+    // 18px box, the play triangle in a 20px box, and the loading ring at 13px
+    // outside with a 2px line (the selected row's text weight).
+    expect(cells[0]!.sizes).toEqual({ playing: ['20px', '20px'], paused: ['18px', '18px'] });
+    expect(cells[0]!.pausePath).toBe('M5.5 19h4.5V5H5.5v14zm8.5-14v14h4.5V5H14z');
+    expect(cells[0]!.ring).toEqual({ outer: 13, line: 2 });
   });
 
   test('blocks bridge and split as whole pills, then hand back to the rows', async ({ page }) => {

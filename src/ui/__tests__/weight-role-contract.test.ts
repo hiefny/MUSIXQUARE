@@ -226,7 +226,7 @@ const SELECTION_GROUPS: readonly SelectionGroup[] = [
           </div>
         </li>
         <li class="playlist-entry" data-sample="upload">
-          <div class="track-item pro-upload-row"><span class="track-name pro-upload-track"><span class="track-name-text pro-upload-name">Uploading track</span></span></div>
+          <div class="track-item pro-upload-row"><div class="track-leading track-leading-static" aria-hidden="true"><span class="track-idx">3</span></div><span class="track-name pro-upload-track"><span class="track-type-slot"></span><span class="track-name-text pro-upload-name">Uploading track</span></span></div>
         </li>`,
       );
       return samples(list, [
@@ -234,6 +234,8 @@ const SELECTION_GROUPS: readonly SelectionGroup[] = [
         ['[data-sample="current"] .track-name', 'selected'],
         ['[data-sample="other"] .track-idx', 'unselected'],
         ['[data-sample="other"] .track-name', 'unselected'],
+        // An upload row's provisional number reads like every other number.
+        ['[data-sample="upload"] .track-idx', 'unselected'],
         ['[data-sample="upload"] .track-name', 'unselected'],
       ]);
     },

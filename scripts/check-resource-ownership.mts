@@ -435,6 +435,8 @@ const TIMING_CONTRACTS: readonly TimingContract[] = [
       'src/youtube/constants.ts',
       // The verified audio restore since Phase 6 6A-4 (C2-3).
       'src/youtube/iframe-audio.ts',
+      // The shared arm steps since Phase 6 6C-4 (C2-8a).
+      'src/youtube/arm-steps.ts',
       'src/youtube/zero-start.ts',
       'src/youtube/authority-arm.ts',
       'src/youtube/player.ts',
@@ -791,7 +793,10 @@ const MEDIA_TUNING_BASELINE: Baseline = new Map<string, Allowance>([
 // src/youtube/iframe-audio.ts (32 calls). Phase 6 6C-2 made that module the
 // write owner of the App's own audio: the youtube:set-volume handler, the PRO
 // pause gate's two handlers and the PRO direct commit in player.ts write
-// through its applyYouTubeAudio and enforceYouTubePauseGate (26 calls).
+// through its applyYouTubeAudio and enforceYouTubePauseGate (26 calls). Phase 6
+// 6C-4 moved the hard-mute wait of the zero-start run and the PRO arm into the
+// shared arm steps in src/youtube/arm-steps.ts, and their warm pairs onto
+// writeYouTubeAudio (20 calls).
 
 const IFRAME_AUDIO_WRITE_METHODS = new Set(['mute', 'unMute', 'setVolume']);
 
@@ -803,12 +808,14 @@ const IFRAME_AUDIO_WRITE_METHODS = new Set(['mute', 'unMute', 'setVolume']);
  */
 const IFRAME_AUDIO_WRITE_BASELINE: Baseline = new Map<string, Allowance>([
   [
-    'src/youtube/authority-arm.ts',
+    'src/youtube/arm-steps.ts',
     {
-      count: 4,
+      count: 2,
       reason:
-        'the PRO arm: the hard mute in prepare and #waitForHardMute (4); its active and ' +
-        'detached restores write through writeYouTubeAudio in src/youtube/iframe-audio.ts',
+        'the shared hard-mute wait waitForYouTubeHardMute: the first mute and the mute of each ' +
+        'unconfirmed poll (2), through which the zero-start run (#beginLocalPrepare in ' +
+        'src/youtube/zero-start.ts) and the PRO arm (prepare in src/youtube/authority-arm.ts) ' +
+        'hard-mute the iframe',
     },
   ],
   [
@@ -823,7 +830,9 @@ const IFRAME_AUDIO_WRITE_BASELINE: Baseline = new Map<string, Allowance>([
         "recoveries' unverified cleanups of a replaced or cancelled iframe (cleanupExactPlayer " +
         "in player.ts) write through it too; the App's own writer applyYouTubeAudio (3), " +
         "through which player.ts's youtube:set-volume handler, PRO pause gate settlement and " +
-        "PRO direct commit write; the PRO pause gate's bare mute enforceYouTubePauseGate (1)",
+        "PRO direct commit write; the PRO pause gate's bare mute enforceYouTubePauseGate (1); " +
+        "the warm pairs of the zero-start run's and the PRO arm's #warm write through " +
+        'writeYouTubeAudio too',
     },
   ],
   [
@@ -861,12 +870,12 @@ const IFRAME_AUDIO_WRITE_BASELINE: Baseline = new Map<string, Allowance>([
   [
     'src/youtube/zero-start.ts',
     {
-      count: 6,
+      count: 2,
       reason:
         'the Standard zero-start controller: the release unMute and its retry in ' +
-        'handlePlayerStateChange (2), the hard mute in #beginLocalPrepare and #waitForHardMute ' +
-        '(4); its active and detached restores write through writeYouTubeAudio in ' +
-        'src/youtube/iframe-audio.ts',
+        'handlePlayerStateChange (2); its hard mute goes through waitForYouTubeHardMute in ' +
+        'src/youtube/arm-steps.ts, and its warm pair, active and detached restores write ' +
+        'through writeYouTubeAudio in src/youtube/iframe-audio.ts',
     },
   ],
 ]);

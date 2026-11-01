@@ -59,6 +59,10 @@ export default defineConfig({
       // with the ledger in Phase 6 6B-1: the ledger's suite, the controller's
       // own suites and the Standard start-ownership truth table.
       'src/youtube/__tests__/{start-ownership,zero-start,zero-start-fallback-ownership,zero-start-heartbeat-ownership,youtube-start-ownership-table}.test.ts',
+      // The shared arm steps (RO-03) and the PRO arm, enrolled in Phase 6
+      // 6C-4: the steps' suite, the arm's own suite and the golden that runs
+      // the arm and the zero-start run on one scripted iframe.
+      'src/youtube/__tests__/{arm-steps,arm-steps-golden,authority-arm}.test.ts',
       'src/account/__tests__/{api,session,login-return}.test.ts',
       'src/ui/__tests__/announcement.test.ts',
       'src/share/__tests__/r2-client.test.ts',
@@ -107,6 +111,8 @@ export default defineConfig({
         'src/youtube/iframe-audio.ts',
         'src/youtube/start-ownership.ts',
         'src/youtube/zero-start.ts',
+        'src/youtube/arm-steps.ts',
+        'src/youtube/authority-arm.ts',
         'src/account/api.ts',
         'src/account/session.ts',
         'src/ui/announcement.ts',
@@ -371,6 +377,22 @@ export default defineConfig({
           branches: 83,
           functions: 96,
           lines: 88,
+        },
+        // The shared arm steps (Phase 6 6C-4) are fully covered by
+        // arm-steps.test.ts and arm-steps-golden.test.ts on 2026-11-02.
+        'src/youtube/arm-steps.ts': {
+          statements: 99,
+          branches: 99,
+          functions: 99,
+          lines: 99,
+        },
+        // The PRO arm, enrolled with the shared steps on 2026-11-02 about one
+        // point below two identical Node 24 runs: 87.71, 81.92, 98.52, 92.3.
+        'src/youtube/authority-arm.ts': {
+          statements: 86,
+          branches: 80,
+          functions: 97,
+          lines: 91,
         },
         // The page navigation owner and the service-worker update path,
         // enrolled on 2026-10-24 (Phase 3, C6-9) at about one point below two

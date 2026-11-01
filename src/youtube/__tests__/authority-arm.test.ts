@@ -76,7 +76,7 @@ function makeHarness(options?: {
 
 async function prepareReady(
   controller: YouTubeAuthorityArmController,
-  strategy: 'resident' | 'load',
+  strategy: 'resident',
   targetSeconds = 12,
 ) {
   const resultPromise = controller.prepare({ ...identity, strategy, targetSeconds });
@@ -141,50 +141,6 @@ describe('YouTubeAuthorityArmController', () => {
     await vi.runAllTimersAsync();
     await expect(pending).resolves.toMatchObject({ status: 'ready' });
     expect(player.__currentTime).toBe(42);
-  });
-
-  it('loads a non-resident target exactly once before marking it ready', async () => {
-    const { controller, player } = makeHarness({ videoId: 'outgoing-video' });
-
-    const result = await prepareReady(controller, 'load', 7);
-
-    expect(result.status).toBe('ready');
-    expect(count(player, 'loadVideoById')).toBe(1);
-    expect(player.__log.find((call) => call.op === 'loadVideoById')?.args).toEqual([VIDEO_ID, 7]);
-    expect(player.__videoId).toBe(VIDEO_ID);
-    expect(player.__currentTime).toBe(7);
-  });
-
-  it('reports READY only after hard mute, real warm PLAYING, settle, and audio restore', async () => {
-    const { controller, player, phases } = makeHarness({ videoId: 'outgoing-video' });
-    let settled = false;
-    const pending = controller
-      .prepare({ ...identity, strategy: 'load', targetSeconds: 3 })
-      .then((result) => {
-        settled = true;
-        return result;
-      });
-
-    await vi.advanceTimersByTimeAsync(259);
-    expect(settled).toBe(false);
-    expect(player.__muted).toBe(true);
-
-    await vi.runAllTimersAsync();
-    await expect(pending).resolves.toMatchObject({ status: 'ready' });
-
-    const order = ops(player);
-    const muteIndex = order.indexOf('mute');
-    const loadIndex = order.indexOf('loadVideoById');
-    const finalPauseIndex = order.lastIndexOf('pauseVideo');
-    const seekIndex = order.lastIndexOf('seekTo');
-    const unmuteIndex = order.lastIndexOf('unMute');
-    expect(muteIndex).toBeLessThan(loadIndex);
-    expect(loadIndex).toBeLessThan(finalPauseIndex);
-    expect(finalPauseIndex).toBeLessThan(seekIndex);
-    expect(seekIndex).toBeLessThan(unmuteIndex);
-    expect(phases).toEqual(
-      expect.arrayContaining(['muting', 'warming', 'settling', 'restoring-audio', 'prepared']),
-    );
   });
 
   it('restores app-level audio intent instead of preserving a transient iframe hard mute', async () => {

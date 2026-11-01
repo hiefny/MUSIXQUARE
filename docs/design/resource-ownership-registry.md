@@ -454,6 +454,26 @@ RO-53 owner-in-place
   room-kind gate of its own: a PRO member drops a Standard PREPARE only
   because it has no Standard host link (pinned in `youtube-start-owner-boundary.test.ts`).
   `stopYouTubeMode` cancels both.
+
+  Since Phase 6 6C-4 (C2-8a) both run the shared arm steps in `src/youtube/arm-steps.ts`
+  (`Resource owner: RO-03`): the hard-mute wait `waitForYouTubeHardMute` (one mute, then polls on
+  the controller's own timer, each after the controller's fence, a mute again on every
+  unconfirmed poll and at most twelve polls, the confirming poll running the controller's warm)
+  and the warm PLAYING's acceptance `acceptYouTubeWarmPlaying` (the settle 260 ms later, and the
+  warm latency, never below 0). Their player types build on its `YouTubeArmPlayer`
+  (`YouTubeAuthorityArmPlayer` is that type, `YouTubeZeroStartPlayer` adds two methods); the two
+  player adapters (`getZeroStartPlayer` in `player.ts`, `getYouTubeAuthorityArmPlayer` in
+  `iframe.ts`) and the platform checks stay apart. Each controller stays the shell of its own
+  protocol: its clock (`Date.now()` for zero-start, `performance.now()` for the PRO arm), its
+  scheduler with its fences and cancel, its failure reasons, its warm (the warm pair through
+  `writeYouTubeAudio`, then zero-start plays a resident iframe where it is or loads the target,
+  and the PRO arm pauses, seeks to its target and plays), which PLAYING it accepts (zero-start
+  refuses one reported before its own warm command and bounds the warm with its 10 s watchdog;
+  the PRO arm accepts any PLAYING of its video while it warms), and the settle poll, the audio
+  restore and the release (only zero-start unmutes at the release). The same step removed the
+  PRO arm's unused load warm: it arms only an iframe that already holds the occurrence's video,
+  the only kind `iframe.ts` asks for.
+
 - **Target single owner:** shared arm steps used by both protocol shells; `authority-arm.ts` stays
   the PRO protocol facade with its own tokens.
 - **Allowed requesters:** Standard: the zero-start wiring in `player.ts`. PRO: PREPARE through
@@ -479,7 +499,8 @@ RO-53 owner-in-place
   `YOUTUBE_ARM_RELEASE_ACK_TIMEOUT_MS` and `YOUTUBE_RELEASE_CATCH_UP_TOLERANCE_MS`; and the PRO
   prepare budgets `PRO_YOUTUBE_BARRIERED_PREPARE_TIMEOUT_MS` (2.3 s) and
   `PRO_YOUTUBE_UNBARRIERED_PREPARE_TIMEOUT_MS` (10 s, the same value as the Standard prepare
-  budget). `zero-start.ts`, `authority-arm.ts`,
+  budget). `zero-start.ts`, `authority-arm.ts`, `arm-steps.ts` (since 6C-4 the only reader of
+  the hard-mute poll, its attempts and the warm play),
   `player.ts`, `iframe-audio.ts`, `iframe.ts` and `playlist.ts` import them, and
   `playback-controller.ts` imports the arm's catch-up tolerance for a late COMMIT instead of
   keeping its own 40 ms copy. The barriered 2.3 s and the Standard guest decision of the same
@@ -570,13 +591,21 @@ RO-53 owner-in-place
   - Teardown: `authority-arm.test.ts` "revokes detached audio retries on an external teardown".
   - Visibility: `src/youtube/__tests__/youtube-owner-visibility.test.ts` "RO-03: a PRO release
     whose lead samples fall while hidden records them as hidden and learns nothing".
-  - Missing: a parity table running both controllers on the same scenarios. The room switches
-    are traced in `src/youtube/__tests__/youtube-room-switch-trace.test.ts` (T1-T5): there is no
-    direct Standard to PRO path (each switch passes leaveSession first), and clearing the PRO
-    session is the only room-context change without stop-mode (T4).
+  - Parity (since Phase 6 6C-4): `src/youtube/__tests__/arm-steps-golden.test.ts` runs both
+    controllers on the same scripted iframe and pins each one's commands, reported states,
+    phases, debug lines, errors and outcome on one timeline (resident, cold and ended iframes,
+    hard-mute and command faults, a video change while muting, a warm that never plays, a
+    PLAYING before the warm command, no iframe or a replaced one while muting, and an iframe
+    replaced while warming), and
+    `src/youtube/__tests__/arm-steps.test.ts` pins the shared steps on their own. The room
+    switches are traced in `src/youtube/__tests__/youtube-room-switch-trace.test.ts` (T1-T5):
+    there is no direct Standard to PRO path (each switch passes leaveSession first), and clearing
+    the PRO session is the only room-context change without stop-mode (T4).
 - **Status:** `duplicated`. Phase 6 (shared arm steps, PRO arm through the owner's audio state with
   distinct tokens); its first train took over the app part of Phase 0d, the shared constants
-  (C2-1, 6A-3). Exception RO-34.
+  (C2-1, 6A-3). The hard-mute wait and the warm PLAYING's acceptance are shared since 6C-4
+  (C2-8a); the settle poll, the audio restore and the release are still each controller's.
+  Exception RO-34.
 
 ### RO-04 System-audio receive slot
 
@@ -1686,9 +1715,11 @@ RO-53 owner-in-place
   `isYouTubeStartHardMuteOwned` answers) holds only the unmute, because that owner restores the
   latest desired audio itself. `player.ts` registers the last two as closures
   (`registerYouTubeAudioHolds`) as it loads; until then neither holds. The RO-02 and RO-03 machines
-  keep their own hard mutes, releases and restores (active and detached, which since Phase 6 6A-4
+  keep their own releases and restores (active and detached, which since Phase 6 6A-4
   (C2-3) run through the one verified restore in the same module, each with its own fences,
-  check, outcome and timer), and `player.ts` still pushes the desired audio into them. The
+  check, outcome and timer); since 6C-4 (C2-8a) their hard mute is the shared hard-mute wait in
+  `src/youtube/arm-steps.ts` (RO-03) and their warm pair writes through `writeYouTubeAudio`.
+  `player.ts` still pushes the desired audio into them. The
   retained-player hard-mute proof (`src/youtube/retained-player-controller.ts`) and the
   gesture-bound prime unmute in `iframe.ts` keep their own writes, and `src/audio/engine.ts` keeps
   its own pause-gate token for the WebAudio output (Phase 7).
@@ -1729,13 +1760,16 @@ RO-53 owner-in-place
   `player.ts` (17), `iframe.ts` (3) and `retained-player-controller.ts` (2); since 6A-4 32, in
   `zero-start.ts` (6), `authority-arm.ts` (4), `player.ts` (14), `iframe-audio.ts` (3),
   `iframe.ts` (3) and `retained-player-controller.ts` (2); since 6C-2 26, with `player.ts` (4)
-  and `iframe-audio.ts` (7). A write through a helper counts only inside the helper, so the
+  and `iframe-audio.ts` (7); since 6C-4 20, with `arm-steps.ts` (2), `zero-start.ts` (2) and no
+  write left in `authority-arm.ts`. A write through a helper counts only inside the helper, so the
   baseline reasons name the helpers: `writeYouTubeAudio` in `iframe-audio.ts`, through which the
   six verified restores, the recoveries' restores before a release, the guest fallback's release
-  write and both recoveries' unverified cleanups of a replaced or cancelled iframe
-  (`cleanupExactPlayer` in `player.ts`) write; `applyYouTubeAudio` and `enforceYouTubePauseGate`
-  in the same module, through which the volume write, the gate's two handlers and the direct
-  commit write; and `ensureRetainedYouTubePlayerHardMuted` in `iframe.ts`, which reaches the
+  write, both recoveries' unverified cleanups of a replaced or cancelled iframe
+  (`cleanupExactPlayer` in `player.ts`) and both arms' warm pairs write; `applyYouTubeAudio` and
+  `enforceYouTubePauseGate` in the same module, through which the volume write, the gate's two
+  handlers and the direct commit write; `waitForYouTubeHardMute` in `arm-steps.ts`, through which
+  the zero-start run and the PRO arm hard-mute the iframe; and
+  `ensureRetainedYouTubePlayerHardMuted` in `iframe.ts`, which reaches the
   retained-player controller's `issueHardMute`. Guard item 11 names the call forms CHECK 11 does
   not see (destructured, `.call()` and `.bind()` methods, and computed keys other than literals
   and `const`s). The iOS prime `unMute()` in `primeYouTubePlayer` stays where it
@@ -1766,9 +1800,10 @@ RO-53 owner-in-place
 - **Status:** `duplicated`. Phase 6 (single iframe-audio owner, one verified restore; the ratchet
   on direct audio writes is CHECK 11, added before the first Phase 6 train). The one verified
   restore exists since 6A-4, and the App's own writes, the pause gate's iframe token and the holds
-  (plan step C2-2) since 6C-2. The start machines still keep their own hard-mute writes and take
-  the desired audio by push until a later Phase 6 train has them read it from `iframe-audio.ts`,
-  and the two mute rules stay until the owner's chosen single rule lands.
+  (plan step C2-2) since 6C-2. The start machines' hard mute is one shared wait since 6C-4
+  (`arm-steps.ts`, RO-03); they still take the desired audio by push until a later Phase 6 train
+  has them read it from `iframe-audio.ts`, and the two mute rules stay until the owner's chosen
+  single rule lands.
 
 ### RO-13 YouTube manual-offset transaction
 
@@ -3954,9 +3989,11 @@ and unrelated strings never count, and every baseline is an exact count or list 
    A home that holds one named export per value (`src/youtube/constants.ts` for RO-02, RO-03 and
    RO-12 since Phase 6 6A) takes part in the same-name check with every numeric constant,
    whatever its suffix, and its values count together as one timing object, so a re-typed object
-   elsewhere in the contract that shares five or more of them is a copy too. Constants that share
-   only a value are report-only, because round values such as 1 s, 15 s and 30 s recur across
-   different contracts; `--report` lists them.
+   elsewhere in the contract that shares five or more of them is a copy too. That YouTube start
+   contract covers `constants.ts`, `iframe-audio.ts`, `arm-steps.ts` (since Phase 6 6C-4, with no
+   timing of its own), `zero-start.ts`, `authority-arm.ts`, `player.ts` and `iframe.ts` in
+   `src/youtube/`. Constants that share only a value are report-only, because round values such as
+   1 s, 15 s and 30 s recur across different contracts; `--report` lists them.
 6. **AudioContext native calls, per file:** `resume()` and `suspend()` (RO-01, RO-44).
 7. **Developer API authority fence writers, per function** (RO-25): a string or template literal
    that inserts into, replaces into, updates or deletes from
@@ -4002,10 +4039,12 @@ and unrelated strings never count, and every baseline is an exact count or list 
     in `src/` today. Phase 6 lowers the counts as one iframe-audio owner takes the writes; the
     iOS prime `unMute()`, which must stay inside the gesture call stack, and the retained
     player's hard-mute proof stay. Since Phase 6 6A-4 the verified restores write through
-    `writeYouTubeAudio` in `src/youtube/iframe-audio.ts` (32 calls, from 44), and since 6C-2 the
+    `writeYouTubeAudio` in `src/youtube/iframe-audio.ts` (32 calls, from 44), since 6C-2 the
     App's own writes (the volume write, the PRO pause gate and the PRO direct commit) through its
-    `applyYouTubeAudio` and `enforceYouTubePauseGate` (26 calls). `--report` lists every counted
-    call with its function.
+    `applyYouTubeAudio` and `enforceYouTubePauseGate` (26 calls), and since 6C-4 the hard mute of
+    the zero-start run and the PRO arm through `waitForYouTubeHardMute` in
+    `src/youtube/arm-steps.ts` and their warm pairs through `writeYouTubeAudio` (20 calls).
+    `--report` lists every counted call with its function.
 12. **Cross-file YouTube start-timer reads and clears, per file** (RO-02, Phase 6 T1): in
     `src/youtube/`, `getManagedTimer()` and `clearManagedTimer()` calls on a start timer (the
     list in RO-02) that the same file does not set with `setManagedTimer()`. A call counts once

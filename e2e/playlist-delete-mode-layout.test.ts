@@ -2,7 +2,7 @@ import { expect, test, type Page } from '@playwright/test';
 import { uploadFixtures } from './helpers/file-upload.ts';
 import { injectPeerServer } from './helpers/peer-server.ts';
 import { setupHostAndStart } from './helpers/setup-flow.ts';
-import { dropFontMetricOverrides, titleBaseline } from './helpers/tab-header.ts';
+import { serveTallerFontLines, titleBaseline } from './helpers/tab-header.ts';
 import { navigateToTab, waitForAppFonts, waitForPlaylistCount } from './helpers/wait.ts';
 
 async function playlistGeometry(
@@ -56,21 +56,22 @@ for (const [label, viewport] of [
   });
 }
 
-// A title line taller than the 36px row grows the header: Arabic, and CJK
-// drawn without the font metric overrides (as iOS Safari draws them). The
-// mode keeps that row and the title's baseline, with several playlists (the
-// switch button) and with one (the plain title).
-for (const [language, overrides] of [
-  ['ar', 'shipped'],
-  ['ko', 'without overrides'],
+// A title line taller than the 36px row grows the header: Arabic and Thai,
+// and CJK drawn with taller font lines (as iOS Safari draws them). The mode
+// keeps that row and the title's baseline, with several playlists (the
+// switch button) and with one (the plain title), and the count title draws
+// the title's whole line, so no mark above or below it is cut.
+for (const [language, fonts] of [
+  ['ar', 'shipped fonts'],
+  ['th', 'shipped fonts'],
+  ['ko', 'taller font lines'],
 ] as const) {
-  test.describe(`a taller title line (${language}, ${overrides})`, () => {
+  test.describe(`a taller title line (${language}, ${fonts})`, () => {
     test.use({ serviceWorkers: 'block', viewport: { width: 402, height: 874 } });
 
     test('entering delete mode keeps the title and the playlist in place', async ({ page }) => {
       test.setTimeout(90_000);
-      const dropped =
-        overrides === 'without overrides' ? await dropFontMetricOverrides(page) : null;
+      const faces = fonts === 'taller font lines' ? await serveTallerFontLines(page) : null;
       await page.addInitScript((locale) => {
         localStorage.setItem('musixquare-lang', locale);
       }, language);
@@ -81,7 +82,7 @@ for (const [language, overrides] of [
       await waitForPlaylistCount(page, 2);
       await navigateToTab(page, 'playlist');
       await page.waitForTimeout(1500);
-      if (dropped) expect(dropped()).toBeGreaterThan(0);
+      if (faces) expect(faces()).toBeGreaterThan(0);
 
       const selectionTitle = page.locator('.playlist-selection-title:not(.playlist-header-fade *)');
       const slots = await page.evaluate(() =>
@@ -106,6 +107,7 @@ for (const [language, overrides] of [
         }, slotState);
         await expect(page.locator(title)).toBeVisible();
         const titleBefore = await titleBaseline(page.locator(title));
+        const lineBefore = (await page.locator(title).boundingBox())!.height;
         const before = await playlistGeometry(page);
         // The row is taller than 36px, or this case proves nothing.
         expect(before.header, variant).toBeGreaterThan(80.5);
@@ -113,12 +115,14 @@ for (const [language, overrides] of [
         await page.locator('.btn-playlist-select').first().click();
         await expect(selectionTitle).toBeVisible();
         const titleDuring = await titleBaseline(selectionTitle);
+        const lineDuring = (await selectionTitle.boundingBox())!.height;
         const during = await playlistGeometry(page);
         await page.locator('[data-selection-action="cancel"]').click();
         await expect(selectionTitle).toBeHidden();
         const after = await playlistGeometry(page);
 
         expect(Math.abs(titleDuring - titleBefore), variant).toBeLessThan(0.5);
+        expect(Math.abs(lineDuring - lineBefore), `${variant}: count title line`).toBeLessThan(0.5);
         for (const state of [during, after]) {
           expect(Math.abs(state.header - before.header), variant).toBeLessThan(0.5);
           expect(Math.abs(state.list - before.list), variant).toBeLessThan(0.5);

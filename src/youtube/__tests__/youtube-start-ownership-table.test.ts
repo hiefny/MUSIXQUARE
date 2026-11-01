@@ -46,6 +46,7 @@ import { stopYouTubeMode } from '../player.ts';
 import { resetYouTubeModuleState } from '../_state.ts';
 import { resetYouTubeSyncState } from '../sync.ts';
 import {
+  applyVolumeAndReadUnMute,
   probeStartOwnership,
   START_OWNERSHIP_COLUMNS,
   type StartOwnershipProbe,
@@ -1168,6 +1169,54 @@ describe('start-ownership table: Standard host, notifications one task later (pi
     expect(result.aux).toEqual(H10C_AUX);
     expect(result.beat).toEqual(H10C_BEAT);
     expect(result.states).toEqual(H10C_STATES);
+  });
+});
+
+describe('start-ownership table: Standard unMute guard (pinned 2026-11-01)', () => {
+  /**
+   * The row plus the App's own volume change at `at`, the run ending 10 ms
+   * later; returns the change's line (applyVolumeAndReadUnMute).
+   */
+  async function volumeAt(row: TableRow, at: number): Promise<string[]> {
+    const lines: string[] = [];
+    await runRow({
+      ...withStep(row, {
+        at,
+        label: 'volume',
+        run: (current) => {
+          lines.push(applyVolumeAndReadUnMute(current.iframe(), current.now()));
+        },
+      }),
+      endAt: at + 10,
+    });
+    return lines;
+  }
+
+  // player.ts holds a volume unMute while a zero-start hard-mute phase, the
+  // external fallback or the PRO arm owns the iframe's mute. The unMuteHeld
+  // column retypes that guard; these rows read the guard itself, by whether
+  // the iframe received unMute(). The PRO arm's row is in the PRO table (U8).
+  it.each([
+    ['U1 zero-start muting', HOST_ALL_READY, 100, '100 muting column:held iframe:none'],
+    ['U2 zero-start warming', HOST_ALL_READY, 200, '200 warming column:held iframe:none'],
+    ['U3 zero-start settling', HOST_ALL_READY, 400, '400 settling column:held iframe:none'],
+    [
+      // Not a hard-mute phase: the restore loop verifies the change.
+      'U4 zero-start restoring-audio',
+      HOST_ALL_READY,
+      650,
+      '650 restoring-audio column:free iframe:unMute',
+    ],
+    ['U5 the host legacy recovery', HOST_PREPARE_FAILURE, 450, '450 idle column:held iframe:none'],
+    ['U6 the guest fallback', GUEST_EXCLUDED, 2_500, '2500 error column:held iframe:none'],
+    [
+      'U7 after the start, no owner (control)',
+      HOST_ALL_READY,
+      5_000,
+      '5000 idle column:free iframe:unMute',
+    ],
+  ] as const)('%s', async (_row, row, at, line) => {
+    expect(await volumeAt(row, at)).toEqual([line]);
   });
 });
 

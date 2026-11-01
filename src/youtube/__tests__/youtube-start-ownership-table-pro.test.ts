@@ -41,6 +41,7 @@ import type { FakeYtPlayer } from './__helpers__/fake-yt-player.ts';
 import { createProEndpointFixture } from './__helpers__/pro-endpoint-harness.ts';
 import { installScriptedIframeApi, loadResidentIframe } from './__helpers__/scripted-iframe-api.ts';
 import {
+  applyVolumeAndReadUnMute,
   probeStartOwnership,
   type StartOwnershipProbe,
 } from './__helpers__/start-ownership-sampler.ts';
@@ -187,7 +188,13 @@ async function setUpPro(
   const t0 = Date.now();
   const started = probeStartOwnership({ api, now: () => Date.now() - t0, isHost: false });
   probe = started;
-  return { probe: started, participant: PRO.createParticipant() };
+  return {
+    probe: started,
+    participant: PRO.createParticipant(),
+    /** The resident iframe. */
+    iframe: () => api.iframes.at(-1)!.fake,
+    now: () => Date.now() - t0,
+  };
 }
 
 type ProSetup = Awaited<ReturnType<typeof setUpPro>>;
@@ -447,6 +454,27 @@ describe('start-ownership table: PRO participant (pinned 2026-11-01)', () => {
   it('P8 every unMute ignored', async () => {
     const setup = await setUpPro({ iframeInit: { __unMuteIgnoreCount: 1_000 } });
     expect(await prepareAndCommit(setup)).toEqual(P8_SAMPLES);
+  });
+});
+
+describe('start-ownership table: PRO unMute guard (pinned 2026-11-01)', () => {
+  // The App's own volume change during a PRO PREPARE, and whether the iframe
+  // received unMute(): player.ts's guard by its effect (the Standard table's
+  // U1 to U7 explain the line).
+  it.each([
+    ['U8 the PRO arm owns the hard mute', 50, '50 idle column:held iframe:none'],
+    ['U9 the arm has restored the audio (control)', 600, '600 idle column:free iframe:unMute'],
+  ] as const)('%s', async (_row, at, line) => {
+    const setup = await setUpPro();
+    await setup.probe.step('prepare', () =>
+      setup.participant.controller.acceptPrepare(PRO.prepareEvent(1, 0, 'zero-start')),
+    );
+    await setup.probe.advanceTo(at);
+    const lines: string[] = [];
+    await setup.probe.step('volume', () => {
+      lines.push(applyVolumeAndReadUnMute(setup.iframe(), setup.now()));
+    });
+    expect(lines).toEqual([line]);
   });
 });
 

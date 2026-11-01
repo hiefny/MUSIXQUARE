@@ -19,7 +19,10 @@
  *   dedupe or the nudge, which are other owners);
  * - unMuteHeld: a zero-start hard-mute phase (muting, warming, settling, read
  *   through the public snapshot) || fallback || proMute, the guard player.ts
- *   applies before a volume or PRO pause-gate unMute.
+ *   applies before a volume or PRO pause-gate unMute. This column is the
+ *   sampler's own view: player.ts's phase list is private, so the column
+ *   retypes it and a change to the real guard leaves the column alone.
+ *   applyVolumeAndReadUnMute pins the real guard by its effect instead.
  *
  * A probe records a sample line '<ms since t0> <label> <phase> <true column
  * tokens, in column order> <playback.activity>' at these points:
@@ -161,6 +164,26 @@ export function sampleStartOwnership(): StartOwnershipSample {
 
 function formatSample({ phase, tokens, activity }: StartOwnershipSample): string {
   return [phase, ...tokens, activity].join(' ');
+}
+
+/**
+ * Apply the App's own volume change now (youtube:set-volume, to
+ * `volumePercent`) and report '<ms> <phase> column:<held|free>
+ * iframe:<unMute|none>': whether the unMuteHeld column holds an unMute at
+ * this instant, and whether `fake` received unMute() inside the change. The
+ * second half is player.ts's real guard, read by its effect.
+ */
+export function applyVolumeAndReadUnMute(
+  fake: FakeYtPlayer,
+  nowMs: number,
+  volumePercent = 50,
+): string {
+  const { phase, tokens } = sampleStartOwnership();
+  const from = fake.__log.length;
+  bus.emit('youtube:set-volume', volumePercent);
+  const unMuted = fake.__log.slice(from).some(({ op }) => op === 'unMute');
+  const column = tokens.includes('unMuteHeld') ? 'held' : 'free';
+  return `${nowMs} ${phase} column:${column} iframe:${unMuted ? 'unMute' : 'none'}`;
 }
 
 export interface StartOwnershipProbeOptions {

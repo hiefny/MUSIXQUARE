@@ -2,7 +2,8 @@ import { expect, test, type Page } from '@playwright/test';
 import { uploadFixtures } from './helpers/file-upload.ts';
 import { injectPeerServer } from './helpers/peer-server.ts';
 import { setupHostAndStart } from './helpers/setup-flow.ts';
-import { navigateToTab, waitForPlaylistCount } from './helpers/wait.ts';
+import { dropFontMetricOverrides, titleBaseline } from './helpers/tab-header.ts';
+import { navigateToTab, waitForAppFonts, waitForPlaylistCount } from './helpers/wait.ts';
 
 async function playlistGeometry(
   page: Page,
@@ -52,5 +53,77 @@ for (const [label, viewport] of [
       expect(Math.abs(state.list - before.list)).toBeLessThan(0.5);
       expect(state.scroll).toBe(before.scroll);
     }
+  });
+}
+
+// A title line taller than the 36px row grows the header: Arabic, and CJK
+// drawn without the font metric overrides (as iOS Safari draws them). The
+// mode keeps that row and the title's baseline, with several playlists (the
+// switch button) and with one (the plain title).
+for (const [language, overrides] of [
+  ['ar', 'shipped'],
+  ['ko', 'without overrides'],
+] as const) {
+  test.describe(`a taller title line (${language}, ${overrides})`, () => {
+    test.use({ serviceWorkers: 'block', viewport: { width: 402, height: 874 } });
+
+    test('entering delete mode keeps the title and the playlist in place', async ({ page }) => {
+      test.setTimeout(90_000);
+      const dropped =
+        overrides === 'without overrides' ? await dropFontMetricOverrides(page) : null;
+      await page.addInitScript((locale) => {
+        localStorage.setItem('musixquare-lang', locale);
+      }, language);
+      await injectPeerServer(page);
+      await setupHostAndStart(page);
+      await waitForAppFonts(page);
+      await uploadFixtures(page, ['test01', 'test02']);
+      await waitForPlaylistCount(page, 2);
+      await navigateToTab(page, 'playlist');
+      await page.waitForTimeout(1500);
+      if (dropped) expect(dropped()).toBeGreaterThan(0);
+
+      const selectionTitle = page.locator('.playlist-selection-title:not(.playlist-header-fade *)');
+      const slots = await page.evaluate(() =>
+        (
+          window as unknown as { __MUSIXQUARE_GET_STATE__: (path: string) => unknown }
+        ).__MUSIXQUARE_GET_STATE__('playlist.slots'),
+      );
+      for (const [variant, slotState, title] of [
+        ['several playlists', slots, '#playlist-switch-label .playlist-slot-name-base'],
+        [
+          'one playlist',
+          null,
+          '#tab-playlist > .tab-header > .tab-title[data-i18n="nav.playlist"]',
+        ],
+      ] as const) {
+        await page.evaluate((value) => {
+          (
+            window as unknown as {
+              __MUSIXQUARE_SET_STATE__: (path: string, value: unknown) => void;
+            }
+          ).__MUSIXQUARE_SET_STATE__('playlist.slots', value);
+        }, slotState);
+        await expect(page.locator(title)).toBeVisible();
+        const titleBefore = await titleBaseline(page.locator(title));
+        const before = await playlistGeometry(page);
+        // The row is taller than 36px, or this case proves nothing.
+        expect(before.header, variant).toBeGreaterThan(80.5);
+
+        await page.locator('.btn-playlist-select').first().click();
+        await expect(selectionTitle).toBeVisible();
+        const titleDuring = await titleBaseline(selectionTitle);
+        const during = await playlistGeometry(page);
+        await page.locator('[data-selection-action="cancel"]').click();
+        await expect(selectionTitle).toBeHidden();
+        const after = await playlistGeometry(page);
+
+        expect(Math.abs(titleDuring - titleBefore), variant).toBeLessThan(0.5);
+        for (const state of [during, after]) {
+          expect(Math.abs(state.header - before.header), variant).toBeLessThan(0.5);
+          expect(Math.abs(state.list - before.list), variant).toBeLessThan(0.5);
+        }
+      }
+    });
   });
 }

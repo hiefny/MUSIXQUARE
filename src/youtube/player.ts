@@ -439,11 +439,7 @@ import {
   type YouTubeZeroStartTargetContext,
   type YouTubeZeroStartWireMessage,
 } from './zero-start.ts';
-import {
-  isYouTubeStartHardMuteOwned,
-  isYouTubeStartSyncOwned,
-  registerYouTubeStartClaim,
-} from './start-ownership.ts';
+import { isYouTubeStartSyncOwned, registerYouTubeStartClaim } from './start-ownership.ts';
 import { recordProStartObservation } from '../diagnostics/pro-start-observations.ts';
 import {
   PRO_YOUTUBE_LEAD_SAMPLE_EARLY_MS,
@@ -4746,12 +4742,11 @@ registerYouTubeStartClaim('standard-recovery', [
 registerYouTubeStartClaim('legacy-rendezvous', [isYouTubeAutoSyncPendingOwned]);
 registerYouTubeStartClaim('pro-arm', [() => proYouTubeAuthorityOwnsHardMute()]);
 
-// The holds the iframe audio owner asks before an app write: parking, which
-// the retained player controller answers and enforces with its verified hard
-// mute (RO-14, through iframe.ts), and a start owner's hard mute, which the
-// start ledger answers. Behind closures, like the claims above.
+// The parking hold the iframe audio owner asks at an app write, which the
+// retained player controller answers and enforces with its verified hard
+// mute (RO-14, through iframe.ts). Behind closures, like the claims above. A
+// start owner's hard mute the owner asks the start ledger itself.
 registerYouTubeAudioHolds(
   (player) => isRetainedYouTubePlayerParked(player),
   (player) => ensureRetainedYouTubePlayerHardMuted(player),
-  () => isYouTubeStartHardMuteOwned(),
 );

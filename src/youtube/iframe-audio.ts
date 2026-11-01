@@ -18,13 +18,20 @@
  *   (enforceYouTubePauseGate), and every App write mutes instead of
  *   unmuting while it holds;
  * - parking (the retained player controller's, RO-14): the controller's
- *   verified hard mute and nothing else, never unMute;
- * - a start owner's hard mute (the zero-start run, the guest recovery or the
- *   PRO arm, which the start ledger answers): only the unMute is held, since
- *   the owner restores the latest desired audio itself.
- * This module cannot import their owners, so player.ts registers the last two
- * as closures (registerYouTubeAudioHolds), asked at each write; before that,
- * neither holds.
+ *   verified hard mute in place of the write's mute or unMute, never unMute
+ *   (a youtube:set-volume write has already set the volume; the gate's
+ *   settlement asks parking before it writes; the PRO direct commit does not
+ *   ask);
+ * - a start owner's hard mute (the zero-start run, a recovery (the guest
+ *   local recovery, or a host's legacy recovery) or the PRO arm), which this
+ *   module asks the start ledger's isYouTubeStartHardMuteOwned for at the
+ *   write: only the unMute is held, since the owner restores the latest
+ *   desired audio itself.
+ * This module cannot import parking's owner (iframe.ts imports this module),
+ * so player.ts registers parking once, as two closures
+ * (registerYouTubeAudioHolds), asked at each write; before that, parking
+ * holds nothing. The start ledger is a leaf: until player.ts registers the
+ * start claims it answers false.
  *
  * The verified restore is the one bounded restore loop of the start
  * machines: zero-start's active and detached restores (zero-start.ts), the
@@ -40,7 +47,8 @@
  * restored), what follows a restore or the last attempt, and its timer: every
  * wait goes through the caller's own schedule, so its timer key or slot and
  * the cancel that clears them stay with the caller. This module sets no timer
- * and logs nothing; its state is the gate's token and the registered holds.
+ * and logs nothing; its state is the gate's token and the registered parking
+ * hold.
  *
  * The restores of the host legacy recovery and the guest local fallback
  * before their release (player.ts) write and check through the same two
@@ -54,6 +62,7 @@ import {
   YOUTUBE_ARM_AUDIO_RESTORE_MAX_ATTEMPTS,
   YOUTUBE_ARM_AUDIO_RESTORE_POLL_MS,
 } from './constants.ts';
+import { isYouTubeStartHardMuteOwned } from './start-ownership.ts';
 
 /** The iframe player methods a restore writes and reads. */
 interface YouTubeAudioPlayer {
@@ -72,11 +81,10 @@ interface YouTubeAudioTarget {
 
 /** The token of the participant-local PRO pause that holds the gate, or null. */
 let pauseGateToken: number | null = null;
-/** Until player.ts registers the holds, none holds, so parking is never enforced. */
+/** Until player.ts registers parking, it holds nothing and is never enforced. */
 const notHeld = (): boolean => false;
 let isParked: (player: YouTubePlayerInstance) => boolean = notHeld;
 let enforceParking: (player: YouTubePlayerInstance) => void = notHeld;
-let isStartHardMuteHeld: () => boolean = notHeld;
 
 /**
  * The App's desired iframe audio, read from audio.masterVolume now: the
@@ -133,19 +141,17 @@ export function enforceYouTubePauseGate(player: YouTubePlayerInstance | null): v
 }
 
 /**
- * player.ts registers the holds this module cannot import, once, as it
+ * player.ts registers parking, which this module cannot import, once, as it
  * loads: whether the retained player controller has parked this exact iframe,
- * its verified hard mute, and whether a start owner holds the hard mute.
- * Each is asked at the write that needs it; registering asks nothing.
+ * and its verified hard mute. Each is asked at the write that needs it;
+ * registering asks nothing.
  */
 export function registerYouTubeAudioHolds(
   parked: (player: YouTubePlayerInstance) => boolean,
   enforceParked: (player: YouTubePlayerInstance) => void,
-  startHardMuteHeld: () => boolean,
 ): void {
   isParked = parked;
   enforceParking = enforceParked;
-  isStartHardMuteHeld = startHardMuteHeld;
 }
 
 /** Whether the iframe is parked; if so, its verified hard mute ends the write. */
@@ -161,7 +167,7 @@ function holdParked(player: YouTubePlayerInstance): boolean {
  *   0, a youtube:set-volume write: only an iframe with setVolume; setVolume,
  *   then a parked iframe gets its verified hard mute and nothing else, then
  *   mute (muted, or the gate holds) or unMute unless a start owner holds the
- *   hard mute.
+ *   hard mute (the start ledger's isYouTubeStartHardMuteOwned).
  *   1, the pause gate's settlement: a parked iframe gets its verified hard
  *   mute and no setVolume; otherwise setVolume, then mute or unMute as for 0.
  *   2, the PRO direct commit: setVolume, then mute (muted, or the gate holds)
@@ -177,7 +183,7 @@ export function applyYouTubeAudio(
   player.setVolume?.(audio.volume);
   if (write === 0 && holdParked(player)) return;
   if (audio.muted || pauseGateToken !== null) player.mute?.();
-  else if (write === 2 || !isStartHardMuteHeld()) player.unMute?.();
+  else if (write === 2 || !isYouTubeStartHardMuteOwned()) player.unMute?.();
 }
 
 /** setVolume, then mute or unMute: the write of every restore attempt. */

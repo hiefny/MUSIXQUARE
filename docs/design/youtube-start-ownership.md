@@ -57,7 +57,7 @@ reads nothing:
 | Derived query                  | `standard-run` | `standard-recovery` | `legacy-rendezvous` | `pro-arm` | `pro-direct` | Readers                                                                                                                                                                                                                                                                                                                                                                                                                             |
 | ------------------------------ | -------------- | ------------------- | ------------------- | --------- | ------------ | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `isYouTubeStartSyncOwned`      | protocolActive | pending             | never               | never     | never        | `src/youtube/sync.ts`: the host heartbeat hold, the guest state actions, transition and rendezvous checks, the manual-offset apply and edit, the Sync `not-ready` answer and an explicit command's cancel; `src/network/sync.ts`, `src/ui/player-controls.ts`, `src/ui/manual-sync-overlay-runtime.ts` (twice), `src/player/background-return-sync.ts`; `player.ts`: the seek's mid-sync check and the late-join bootstrap deferral |
-| `isYouTubeStartHardMuteOwned`  | hardMuted      | active              | never               | hardMuted | never        | the iframe audio owner's start hold (`src/youtube/iframe-audio.ts`, registered by `player.ts` since 6C-2): the unMute guard of a `youtube:set-volume` write and of the PRO pause-gate settlement                                                                                                                                                                                                                                    |
+| `isYouTubeStartHardMuteOwned`  | hardMuted      | active              | never               | hardMuted | never        | the iframe audio owner's start hold (`src/youtube/iframe-audio.ts` since 6C-2, asked there at the write): the unMute guard of a `youtube:set-volume` write and of the PRO pause-gate settlement                                                                                                                                                                                                                                     |
 | `isYouTubeStartTimelineHeld`   | inFlight       | pending             | never               | never     | never        | `sync.ts`: the small-drift sample, the guest heartbeat and the auxiliary state that holds this speaker's iframe timeline                                                                                                                                                                                                                                                                                                            |
 | `isYouTubeStartArmBusy`        | inFlight       | never               | never               | never     | never        | `src/ui/seekbar.ts` (the seek gate) and `iframe.ts`'s UI loop                                                                                                                                                                                                                                                                                                                                                                       |
 | `isYouTubeStartRecoveryActive` | never          | active              | never               | never     | never        | `iframe.ts`'s state router (the recovery owns the iframe's events)                                                                                                                                                                                                                                                                                                                                                                  |
@@ -72,8 +72,10 @@ hold asked the run's protocol and then the legacy rendezvous's Stage-2 query. Th
 queries read one claim each, as the facade and the bridge hook they replace did.
 
 Since 6B-2 (plan step C2-7) every reader asks one of these queries, 24 reader sites in eight
-production modules, beside other owners where it needs them, and no statement outside the ledger
-asks two start claims, with two exceptions that read a claim's own query:
+production modules (since 6C-2 the two unMute guards are one, which the iframe audio owner
+`src/youtube/iframe-audio.ts` asks at the write: 23 sites in nine modules), beside other owners
+where it needs them, and no statement outside the ledger asks two start claims, with two
+exceptions that read a claim's own query:
 
 - the legacy rendezvous's Stage-2 wait, which `sync.ts`'s heartbeat hold, `iframe.ts`'s
   sub-video advance check and `native-control-authority.ts` (`hasProtectedTransitionOwner`) ask
@@ -250,11 +252,11 @@ App's own output, and the state the host reports to older builds during that hol
 
 `docs/design/source-complexity-ratchet.md` asks a new production module for a reason. The ledger
 has two: it is a contract shared by multiple production consumers (the start-ownership readers,
-24 sites in eight modules since 6B-2), and it removes a circular dependency through a narrow,
-explicit port. The owners compose in `player.ts`, which imports `iframe.ts` and `sync.ts`, and
-`guard:import-graph` rejects every cycle, so those two readers cannot import `player.ts`. The
-ledger is a leaf with no import that every reader can import and `player.ts` registers into. It
-keeps no state and has no lifecycle of its own.
+24 sites in eight modules since 6B-2, 23 in nine since 6C-2), and it removes a circular
+dependency through a narrow, explicit port. The owners compose in `player.ts`, which imports
+`iframe.ts` and `sync.ts`, and `guard:import-graph` rejects every cycle, so those two readers
+cannot import `player.ts`. The ledger is a leaf with no import that every reader can import and
+`player.ts` registers into. It keeps no state and has no lifecycle of its own.
 
 ## Verification
 

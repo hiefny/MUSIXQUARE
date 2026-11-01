@@ -315,7 +315,7 @@ RO-53 owner-in-place
   state router; `isYouTubeStartRoomStateHeld` in `iframe.ts`'s auxiliary `YOUTUBE_STATE` hold;
   and `isYouTubeStartHardMuteOwned` in the unMute guard of a `youtube:set-volume` write and of the
   PRO pause-gate settlement, which since Phase 6 6C-2 is the iframe audio owner's start hold
-  (`src/youtube/iframe-audio.ts`, RO-12), registered by `player.ts` behind a closure. Since
+  (`src/youtube/iframe-audio.ts`, RO-12), asked there at the write. Since
   Phase 6 6A-1 other modules ask the start-timer owners rather than read the timers by name:
   `sync.ts`'s heartbeat hold, `iframe.ts`'s sub-video advance check and
   `src/youtube/native-control-authority.ts` (`hasProtectedTransitionOwner`) ask
@@ -1728,13 +1728,16 @@ RO-53 owner-in-place
   `isYouTubePauseGateHeld`, which the PRO prepare in `iframe.ts` asks; the runtime bridge no
   longer carries the gate). Each hold kind is enforced in its own way: the gate mutes at once,
   whatever else holds, and turns every App write's unmute into a mute; parking (RO-14) gets the
-  retained player controller's verified hard mute and nothing else; a start owner's hard mute
-  (the zero-start run, the guest recovery or the PRO arm, as the start ledger's
-  `isYouTubeStartHardMuteOwned` answers) holds only the unmute, because that owner restores the
-  latest desired audio itself. `player.ts` registers the last two as closures
-  (`registerYouTubeAudioHolds`) as it loads; until then neither holds. The RO-02 and RO-03 machines
-  keep their own releases and restores (active and detached, which since Phase 6 6A-4
-  (C2-3) run through the one verified restore in the same module, each with its own fences,
+  retained player controller's verified hard mute in place of the mute or unmute (after the
+  volume write's `setVolume`; the direct commit does not ask it); a start owner's hard mute (the
+  zero-start run, a recovery (the guest local recovery, or a host's legacy recovery) or the PRO
+  arm), which the module asks the start ledger's `isYouTubeStartHardMuteOwned` for at the write,
+  holds only the unmute, because that owner restores the latest desired audio itself. `player.ts`
+  registers parking once, as two closures (`registerYouTubeAudioHolds`), as it loads; until then
+  parking holds nothing, and the ledger answers false until `player.ts` registers the start
+  claims. The RO-02 and RO-03 machines keep their own releases and restores (active and
+  detached, which since Phase 6 6A-4 (C2-3) run through the one verified restore in the same
+  module, each with its own fences,
   check, outcome and timer); since 6C-4 (C2-8a) their hard mute is the shared hard-mute wait in
   `src/youtube/arm-steps.ts` (RO-03) and their warm pair writes through `writeYouTubeAudio`.
   `player.ts` still pushes the desired audio into them. The
@@ -1759,7 +1762,7 @@ RO-53 owner-in-place
   `-settled`), whose handlers in `player.ts` push desired audio into the start machines through
   `updateYouTubeZeroStartDesiredAudioState` and `updateProYouTubeAuthorityDesiredAudioState` and
   write through the owner; the PRO direct commit; the start machines; `player.ts`, which
-  registers the parking and start-owner holds once.
+  registers the parking hold once.
 - **Lifecycle operations:** `mute`, `unMute`, `setVolume`, verified restore. Since Phase 6 6A-4
   (C2-3) the verified restore is `restoreYouTubeAudioVerified` in `src/youtube/iframe-audio.ts`,
   with the two cadences kept apart (owner answer, 2026-10-30): write, wait, then verify for

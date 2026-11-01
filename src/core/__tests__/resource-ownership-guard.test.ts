@@ -2185,8 +2185,8 @@ describe('resource-ownership guard', { timeout: 60_000 }, () => {
             replaceIn(
               sources,
               player,
-              '  registerYouTubeStartClaim,\n',
-              '  isYouTubeStartTimelineHeld,\n  registerYouTubeStartClaim,\n',
+              ' registerYouTubeStartClaim } from',
+              ' isYouTubeStartTimelineHeld, registerYouTubeStartClaim } from',
             );
             replaceIn(sources, player, midSyncOwned, '      isYouTubeStartTimelineHeld() ||\n');
           }),

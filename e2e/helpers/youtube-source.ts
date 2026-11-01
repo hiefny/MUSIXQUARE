@@ -1,6 +1,11 @@
 import { expect, type Page } from '@playwright/test';
 import { installFakeYt } from './fake-yt.ts';
-import { navigateToTab, readState, waitForPlaybackProjection } from './wait.ts';
+import {
+  navigateToTab,
+  readState,
+  waitForPlaybackProjection,
+  waitForViewTransitionEnd,
+} from './wait.ts';
 import type { PlaylistItem } from '../../src/types/index.ts';
 
 /** Install before navigation: source-entry scenarios never depend on a live iframe. */
@@ -48,6 +53,9 @@ export async function submitYouTubeSource(page: Page, url: string): Promise<void
     await navigateToTab(page, 'playlist');
     await page.locator(`.track-item[data-queue-item-id="${added.queueItemId}"]`).click();
   }
+  // Submitting closes the source popup, and picking the row returns to the
+  // player tab: both cross-fade. Return once input reaches the page again.
+  await waitForViewTransitionEnd(page);
 }
 
 export async function waitForYouTubePlayback(page: Page, videoId: string): Promise<void> {

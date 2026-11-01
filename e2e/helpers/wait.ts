@@ -369,7 +369,65 @@ export async function readState(page: Page, statePath: string): Promise<unknown>
 // ─── Additional Helpers ─────────────────────────────────────────
 
 /**
+ * Wait until no view transition is running.
+ *
+ * The app swaps tabs and its media popups inside document.startViewTransition
+ * (src/ui/dom.ts animateTransition). The new state is in the DOM from the
+ * update callback on, about 300 ms before the cross-fade ends, and until it
+ * ends Chromium and WebKit hit-test every pointer event to <html>. A
+ * Playwright `click()` retries until the element receives the press, but a raw
+ * `page.mouse`, `page.touchscreen` or CDP input press has no such check: it is
+ * lost, and the gesture under test silently never starts.
+ *
+ * `document.activeViewTransition` names the running transition (Chromium and
+ * WebKit in Playwright 1.63 both have it). Where an engine lacks it, the
+ * transition's `::view-transition` animations stand in, read after two frames
+ * so a transition whose update callback just ran has created them. The tab
+ * transition's own `tab-header-transition` mark on <html> must be gone too.
+ */
+export async function waitForViewTransitionEnd(page: Page, timeout = 10_000): Promise<void> {
+  const hasActiveViewTransition = await page.evaluate(() => {
+    const active = (document as { activeViewTransition?: unknown }).activeViewTransition;
+    return active !== undefined;
+  });
+  if (!hasActiveViewTransition) {
+    await page.evaluate(
+      () =>
+        new Promise<void>((resolve) => {
+          requestAnimationFrame(() => requestAnimationFrame(() => resolve()));
+        }),
+    );
+  }
+  try {
+    await page.waitForFunction(
+      () => {
+        if (document.documentElement.classList.contains('tab-header-transition')) return false;
+        const active = (document as { activeViewTransition?: unknown }).activeViewTransition;
+        if (active !== undefined) return active === null;
+        return !document
+          .getAnimations()
+          .some((animation) =>
+            (animation.effect as KeyframeEffect | null)?.pseudoElement?.startsWith(
+              '::view-transition',
+            ),
+          );
+      },
+      undefined,
+      { timeout },
+    );
+  } catch (error) {
+    throw new Error(
+      `A view transition was still running after ${timeout} ms: until it ends, every raw ` +
+        'press lands on <html>.',
+      { cause: error },
+    );
+  }
+}
+
+/**
  * Navigate to a tab and wait for the corresponding panel to become active.
+ * Returns once the tab's cross-fade has ended, so a raw press that follows
+ * reaches the panel (see waitForViewTransitionEnd).
  */
 export async function navigateToTab(page: Page, tabName: string, timeout = 10_000): Promise<void> {
   await page.waitForFunction(
@@ -397,6 +455,9 @@ export async function navigateToTab(page: Page, tabName: string, timeout = 10_00
     tabName,
     { timeout },
   );
+  // `.active` arrives inside the transition's update callback, before the
+  // cross-fade ends; a raw press in that window lands on <html>.
+  await waitForViewTransitionEnd(page, timeout);
 }
 
 /**

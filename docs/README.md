@@ -110,7 +110,10 @@ runbooks. Neither belongs in a general setup document.
   page keep using) unchanged. The new `npm run generate:app-faces` bakes, checks and records them
   in `fonts/app-faces.json`; `generate:font-sheets` runs it first, and the font guard checks the
   copies against their record. The sheets keep their four descriptors (option K), so Chromium and
-  Firefox draw as before. Tests first: `4fe74d15` fails on its parent for the stated reasons (the
+  Firefox draw as before; those are within half a unit of the baked box, not equal to it, so a line
+  next to a pixel rounding boundary (a CJK line at 14.5 px, and the setup overlay's and desktop
+  demo's `clamp()` sizes at some window widths and heights) still differs by 1 px between Safari
+  and Chromium. Tests first: `4fe74d15` fails on its parent for the stated reasons (the
   tables, the paths, the record and, in Chromium with the overrides removed, CJK lines of 18, 20
   and 39 px instead of 15, 18 and 34 and the Playlist title 1.5 px above the others) and passes at
   `11db07e6`; `75e0801a` adds a pixel-identity spec. QA round 1 (Windows Chromium 153): with the
@@ -121,9 +124,20 @@ runbooks. Neither belongs in a general setup document.
   and the repository by about 17.7 MB, while the first load keeps its raw bytes (gzip within 5 B)
   and loads no font. All 37 guards pass but `guard:sw-cache-version` (the missing bump), with the
   unit suite, critical E2E 101 / 101 and the font specs. The release target is
-  `app` (448 App runtime paths, none in the other five Workers). The report lists the owner
-  questions (option K or the exact-ratio option E, the repository and build sizes), the risks and
-  the device check after release.
+  `app` (448 App runtime paths, none in the other five Workers). QA round 2, a review of
+  `0beb67e1` and its fixes, found that Playwright WebKit 26.6 applies the overrides without
+  rounding the ascent and descent, so the report's byte-identical WebKit captures were wrong and a
+  Safari that adopts the overrides would leave the baked box (baselines between pixels); it also
+  listed the fluid sizes that cross a rounding boundary, the 127 Inter and Noto Sans KR inputs the
+  build no longer emits (tabs still on 9.0.29 or 9.0.30 after the release cannot fetch shards they
+  lack, under the owner's ignore-old-versions policy), the JP, SC and TC files About and the app
+  no longer share, and a generator default mode that rewrote the copies after a wawoff2 update.
+  Tests first, `7b41d111` fails on `dbc7ae78` and `ae5e2c52` makes that run write nothing and stop;
+  `a2baaeef` corrects the comments that called the box and the descriptors equal. The report lists
+  the owner questions (option K, the exact-ratio option E, or option D, which drops the three
+  overrides so every engine reads the box from the files and is now recommended; the repository
+  and build sizes with the lost sharing; the open tabs at release), the risks and the device check
+  after release.
 - [Phase 6 train 6A: one YouTube start timing home, owner queries for the start timers and one verified iframe audio restore (2026-10-31)](design/phase6-6a-start-constants-owner-queries-2026-10-31.md):
   released on 2026-11-01 05:17 KST in Release 41237978646 (PR #550, squash `3c098e9d`) as App
   9.0.30 / v803 (App build 803, target `app`, one update dialog; the bump `8d148fff` is the last

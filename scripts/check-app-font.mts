@@ -11,8 +11,10 @@
  *   the app faces in fonts/app/ match fonts/app-faces.json, each a copy of
  *   its input with the line box of src/i18n/font-metrics.ts in hhea and the
  *   OS/2 typo metrics (USE_TYPO_METRICS set), the input's win metrics, valid
- *   checksums and no other change; and css/fonts/app/ is exactly the output
- *   of its generator;
+ *   checksums and no other change; the Hangul faces in fonts/app/hangul/
+ *   match fonts/hangul-faces.json, each a subset of Pretendard with its own
+ *   name, its source's line box and Hangul only; and css/fonts/app/ is
+ *   exactly the output of its generator;
  * - every face is self-hosted: one sheet-relative url() of a committed WOFF2
  *   file under fonts/, never local(), a remote URL or a second source;
  * - every Inter and CJK face carries the metric descriptors of
@@ -62,6 +64,7 @@ import {
   fontCodePoints,
   openFontFile,
   verifyAppFaces,
+  verifyHangulFaces,
   verifyShippedFontFiles,
 } from './fonts/font-files.mts';
 import { readFaceResolver, readFontStacks, type FaceResolver } from './fonts/font-stacks.mts';
@@ -165,6 +168,7 @@ const STATIC_PAGE_SHEETS = [
 
 failures.push(...(await verifyShippedFontFiles(repoRoot)));
 failures.push(...(await verifyAppFaces(repoRoot)));
+failures.push(...(await verifyHangulFaces(repoRoot)));
 for (const sheet of await findStaleFontSheets(repoRoot)) {
   failures.push(
     `${sheet} is not the output of scripts/fonts/build-font-sheets.mts; run npm run generate:font-sheets`,

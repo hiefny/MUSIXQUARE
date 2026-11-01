@@ -375,8 +375,14 @@ describe('the line box baked into the app faces', () => {
         recorded,
       );
     }
-    // Nothing under fonts/app/ that the record does not list.
-    expect((await listFiles(OUTPUT_ROOT)).filter((path) => !outputs.has(path))).toEqual([]);
+    // Nothing under fonts/app/ that the record does not list, but the Hangul
+    // faces in fonts/app/hangul/, which keep their source's own line box and
+    // fonts/hangul-faces.json records (hangul-faces.test.ts).
+    expect(
+      (await listFiles(OUTPUT_ROOT)).filter(
+        (path) => !outputs.has(path) && !path.startsWith(`${OUTPUT_ROOT}/hangul/`),
+      ),
+    ).toEqual([]);
   });
 
   it('records each family with the metrics of font-metrics.ts and the win metrics it keeps', () => {

@@ -94,6 +94,28 @@ runbooks. Neither belongs in a general setup document.
 
 ## Maintained evidence and completed records
 
+- [Phase 6 train 6B: one YouTube start ledger and its readers (2026-11-01)](design/phase6-6b-start-ledger-readers-2026-11-01.md):
+  prepared, not released. The second Phase 6 App update on branch `agent/p6-6b`, nine commits on
+  `9e72b7ce` (main `9c078f5c`, the 9.0.30 release record, plus the seven tests-only T0b commits still
+  under acceptance as two pull requests); the version bump, the release-record entry and the release
+  are the release owner's. 6B-1 adds the start ledger `src/youtube/start-ownership.ts`, which answers
+  its readers from the live queries `player.ts` registers for each start owner and keeps no answer,
+  subscription or event; 6B-2 moves all 24 start-ownership reader sites in eight modules onto it and
+  deletes `isYouTubeZeroStartSyncOwned` (`zero-start-ownership.ts`) and the runtime bridge's two
+  recovery hooks; a guard follow-up makes CHECK 12 count start claims per statement (one entry, the
+  seek's mid-sync check), the run's snapshot reads (8) and facade uses (2), keep the ledger pure and
+  fail start timers named outside `src/youtube/`; a tests-only commit pins five readers in a Standard
+  guest's calibration window. Neutral: the T0a goldens and the T0b truth tables pass byte for byte,
+  and the wire, the readiness emitters and the 9.0.8 host speaker reference are unchanged. The report
+  lists the owner answers used, each increment's tests-first evidence and mutation checks, the guard
+  counts, the first load (53 B of eager JavaScript gzip below 9.0.30; Phase 6 total −202 B), mixed
+  versions, the D4 re-measure (RO-05 and RO-48 unchanged), the blind device candidates and rollback
+  (alone until 6C merges). Its local final check on `07a9f224`: unit suite 739 files / 17,651 (1
+  skipped), types, lint and format, every guard except `guard:sw-cache-version` (the pending bump),
+  critical coverage 99 files / 4,022 and Worker coverage 69 / 3,325, critical E2E 101 / 101 and the
+  ten local YouTube specs 53 / 53; under
+  `--sequence.shuffle` seed 7 two rows of `stale-async-guards.test.ts` fail, an order dependency 6B-2
+  introduced (production unaffected) that a tests-only commit must fix before merge.
 - [App font line box baked into the font files, and every tab title on one baseline (2026-11-01)](design/app-font-baked-metrics-2026-11-01.md):
   released on 2026-11-01 23:17 KST in Release 41315218029 (PR #555, squash `ba28943e`) as App
   9.0.31 / v804 (App build 804, target `app`, one update dialog; the bump `566f458d` is the last

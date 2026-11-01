@@ -2,18 +2,18 @@
 
 | Field              | Value |
 | ------------------ | ----- |
-| Status             | 준비됨, 배포 전. 브랜치 `agent/p6-6b`(바탕 `dda3ee18` 위 커밋 열넷: 계획 6B-1과 6B-2의 테스트 먼저·코드 커밋 넷, CHECK 12 후속 두 번의 테스트 먼저·가드 커밋 넷, 시험만 둘(독자 창 고정, 시험 순서 의존 고침), 주석·레지스트리와 설계 문서 메모 둘, 이 보고서의 기록 커밋 둘). 처음 납품의 '머지 전에 할 일' 1(`--sequence.shuffle` 순서 의존)과 2(T0b가 main에 든 뒤 옮기기)는 끝났다(`418b411d`, 바탕 `dda3ee18`). T0b 결함 넷째(H10)의 고침은 오너 답이 없어 싣지 않았고 6B는 그 고침 없이 나간다(아래 '오너에게' 1). 버전 올리기(계획 6B-3), release-record §2의 이 열차 항목, PR, 머지, 배포는 릴리스 담당이 한다. 로컬과 브랜치 결과는 exact-main-SHA 후보를 대신하지 않는다 |
-| Base               | `dda3ee18` = main: App 9.0.30 / v803의 배포 기록 #551(`9c078f5c`) 위에 T0b 시험만 PR 둘(#552, #553)과 시험만 E2E·단위 고침(#554). 운영 App 9.0.30(`3c098e9d`) 뒤 바탕까지 바뀐 것은 문서, 단위 시험, E2E 시험과 그 도우미뿐이라(`git diff 3c098e9d dda3ee18`에 런타임 경로 없음) 바탕의 App 런타임은 운영과 같고, 같은 툴체인으로 만든 바탕 빌드의 진입 청크도 9.0.30 운영 smoke가 읽은 것과 이름·크기가 같다(`main-zzIxMfb3.js`, 860,802 B, QA 라운드 4). 처음 납품은 T0b가 main에 들기 전의 `9e72b7ce`(main `9c078f5c` 위 T0b 시험만 커밋 일곱) 위 커밋 아홉이었고, 이 갈래를 `dda3ee18` 위로 옮겼다. 옮긴 뒤 운영 코드는 납품과 바이트로 같다(`git diff 691d8fb6 418b411d -- src`에서 시험 밖 차이 없음) |
+| Status             | 준비됨, 배포 전. 브랜치 `agent/p6-6b`(바탕 `dda3ee18` 위 커밋 열다섯: 계획 6B-1과 6B-2의 테스트 먼저·코드 커밋 넷, CHECK 12 후속 두 번의 테스트 먼저·가드 커밋 넷, 시험만 둘(독자 창 고정, 시험 순서 의존 고침), 주석·레지스트리와 설계 문서 메모 둘, 이 보고서의 기록 커밋 셋). 처음 납품의 '머지 전에 할 일' 1(`--sequence.shuffle` 순서 의존)과 2(T0b가 main에 든 뒤 옮기기)는 끝났다(`418b411d`, 바탕 `dda3ee18`). `e5851cd0`(운영 코드는 `418b411d`와 같고, 그 뒤는 이 기록 커밋뿐)의 마지막 로컬 검사는 버전 올리기를 기다리는 `guard:sw-cache-version` 말고 모두 통과했다(QA 라운드 5). T0b 결함 넷째(방장이 일시정지할 때 일시정지 신호가 참가자에게 두 번 가는 경우, H10 행)의 고침은 오너 답이 없어 싣지 않았고 6B는 그 고침 없이 나간다(아래 '오너에게' 1). 버전 올리기(계획 6B-3), release-record §2의 이 열차 항목, PR, 머지, 배포는 릴리스 담당이 한다. 로컬과 브랜치 결과는 exact-main-SHA 후보를 대신하지 않는다 |
+| Base               | `dda3ee18` = main: App 9.0.30 / v803의 배포 기록 #551(`9c078f5c`) 위에 T0b 시험만 PR 둘(#552, #553)과 시험만 E2E·단위 고침(#554). 운영 App 9.0.30(`3c098e9d`) 뒤 바탕까지 바뀐 것은 문서, 단위 시험, E2E 시험과 그 도우미뿐이라(`git diff 3c098e9d dda3ee18`에 런타임 경로 없음) 바탕의 App 런타임은 운영과 같고, 같은 툴체인으로 만든 바탕 빌드의 진입 청크도 9.0.30 운영 smoke가 읽은 것과 이름·크기가 같다(`main-zzIxMfb3.js`, 860,802 B, QA 라운드 4). 처음 납품은 T0b가 main에 들기 전의 `9e72b7ce`(main `9c078f5c` 위 T0b 시험만 커밋 일곱) 위 커밋 아홉이었고, 이 갈래를 `dda3ee18` 위로 옮겼다. 옮긴 뒤 운영 코드는 납품과 바이트로 같다(`git diff 691d8fb6 418b411d -- src`에서 시험 밖 차이 없음). 바탕 `dda3ee18`에서 6A의 머지 뒤 Full E2E [41278378387](https://github.com/hiefny/MUSIXQUARE/actions/runs/41278378387)이 통과했다(`e2e` 794 passed, QA 라운드 5). 6B의 코드를 담지 않으므로 6B의 근거가 아니라 6B 앞 런타임의 기준이다 |
 | Version            | 없음. 9.0.30 / v803 그대로다(`guard:release-identity` 'MUSIXQUARE 9.0.30; service-worker cache epoch v803'). App 런타임 경로가 바뀌므로 다음 App 패치와 SW epoch를 함께 올려야 하고(예상 9.0.31 / v804), 그 전에는 `guard:sw-cache-version`이 그 이유 하나로 실패한다: '[sw-cache-version] FAIL: committed PWA runtime changes are newer than v803 (3c098e9d).'와 아래 'Deploy target'의 App 11 파일, 'Bump CACHE_VERSION in scripts/service-worker-asset.ts after these changes, then commit the bump.'(QA 라운드 4). 올리면 업데이트 창이 한 번 뜬다(Q1의 넷 가운데 둘째, 창 모양은 지금 그대로). 바닥(저장·유효 795)은 바꾸지 않는다 |
 | Scope              | 계획 §4.7의 6B-1(C2-5, SS-04)과 6B-2(C2-7, SS-05), 모두 중립. 6B-1: 새 시작 장부 `src/youtube/start-ownership.ts`가 시작 주인들이 등록한 살아 있는 질의를 물을 때마다 읽어 독자에게 답한다. 6B-2: 모든 시작 소유 독자(여덟 모듈의 24곳)가 장부에 묻고, 합성 `isYouTubeZeroStartSyncOwned`(`src/youtube/zero-start-ownership.ts`)와 런타임 다리의 복구 훅 둘이 사라진다. 그 위에 계획에 없던 CHECK 12 후속 둘(가드만), 독자 창 고정과 시험 순서 의존 고침(시험만), 주석·레지스트리와 설계 문서 메모를 더했다. 와이어, 서버, 저장 모양, 계약 표지, 의존성, 타이머 이름, 로그 줄, 준비 이벤트, 화면, 소리는 바꾸지 않는다([화면 그대로]) |
 | Deploy target      | `app`. `scripts/release-deployment-state.mts`의 `changedRuntimePaths`, `runtimePathsForWorker`, `changedAppRuntimeDependencies`, `releaseTargetWorkers`로 `9e72b7ce..07a9f224`를 견준 로컬 git 판정(처음 납품): App 11(`src/network/sync.ts`, `src/player/background-return-sync.ts`, `src/ui/manual-sync-overlay-runtime.ts`, `src/ui/player-controls.ts`, `src/ui/seekbar.ts`, `src/youtube/`의 `iframe.ts`, `player-runtime-bridge.ts`, `player.ts`, 새 `start-ownership.ts`, `sync.ts`, 지운 `zero-start-ownership.ts`), PRO room 0, remote-share 0, signaling 0, Developer API facade 0, Developer API 0, App 런타임 의존성 차이 없음. 옮긴 뒤 `dda3ee18..48bc3819`의 시험·문서·`scripts/` 밖 차이는 같은 11 파일과 `vitest.critical.config.ts`뿐이고 `guard:sw-cache-version`도 같은 11 파일을 적는다(QA 라운드 4). 운영 App 9.0.30 `3c098e9d` 대비도 같은 App 11이고, 운영 PRO room `683074bc`와 나머지 넷 `71f5b96c` 대비 그 Worker들의 런타임 경로 차이는 0이다. 운영을 조회하지 않은 판정이라 릴리스의 부분 릴리스 검사를 대신하지 않는다. `raise_app_build_floor` false, Developer API D1 false(계획 RT-01). 계약 동결: `git diff --stat dda3ee18..48bc3819 -- cloudflare/ src/network/protocol.ts src/core/constants.ts src/types/index.ts package.json package-lock.json index.html scripts/service-worker-asset.ts browser/`가 비어 있다 |
-| Operations         | 운영에 닿지 않았다(로컬 git, 로컬 시험·빌드·Playwright만). GitHub 쓰기, push, 배포, 운영 요청은 없다 |
+| Operations         | 운영에 닿지 않았다(로컬 git, 로컬 시험·빌드·Playwright만). GitHub 쓰기, push, 배포, 운영 요청은 없다. GitHub는 바탕의 Full E2E 실행 하나의 정보와 job 로그를 읽기만 했다(QA 라운드 5) |
 | Resource ownership | 새 레코드 없음. 장부는 기존 자원 RO-02의 주인들을 독자에게 엮는 곳이고, 답·깃발·단계·스냅샷을 저장하지 않고 구독도 이벤트도 없이 살아 있는 질의만 읽으므로 같은 자원의 둘째 기계가 아니다(`AGENTS.md` Resource ownership, 계획 RT-11). 센 코드나 규칙을 옮긴 커밋이 같은 커밋에서 레지스트리 RO-02, 가드 항목 12, 기준치를 고쳤다: CHECK 12에 시작 주인 파사드 쓰기 2(`player.ts`, 정확), 실행 스냅샷 읽기 8(`player.ts`, 정확), 장부 합성 1(`player.ts :: seekYouTubeFromApp`, 정확, 묻는 claim 둘로 고정)과 실패 닫힘 규칙들(파생 질의가 결정하는 종류마다 `player.ts`의 등록 요구 포함)을 더했다. CHECK 11 32, CHECK 12 읽기 11과 지우기 9, CHECK 5 1 / 1 / 45는 그대로다. `node scripts/check-resource-ownership.mts`: 49 records, 457 production files(바탕과 같음, 파일 하나 더하고 하나 지움) |
 
 이 문서는 Phase 6 계획의 둘째 App 열차 6B의 증분과 QA를 기록한다. 근거는 공개하지 않는 작업 노트(`docs/private/`)의 Phase 6
 계획(2026-10-30)과 그 영역 조사, 오너 답(2026-10-30)이고, SS, RT, C2 번호와 Q 번호는 그 노트의 번호다. 계획의 줄 번호는
-`78ec56f5` 기준이라 6A와 T0b가 옮긴 위치를 모두 기호로 다시 찾았고, 이 문서의 줄 번호는 브랜치 끝 `48bc3819`의 것이다(운영 코드는
-`418b411d`와 처음 납품의 `07a9f224`와 같아 줄도 같다). 앞선 Phase 6 단계는 시험만인 T0a(#539, #541, #542), 가드만인 T1(#543), 첫 App
+`78ec56f5` 기준이라 6A와 T0b가 옮긴 위치를 모두 기호로 다시 찾았고, 이 문서의 줄 번호는 `48bc3819`의 것이다(운영 코드는
+`418b411d`, 처음 납품의 `07a9f224`, 브랜치 끝과 같아 줄도 같다). 앞선 Phase 6 단계는 시험만인 T0a(#539, #541, #542), 가드만인 T1(#543), 첫 App
 열차 6A(#550, 9.0.30 / v803, [보고서](phase6-6a-start-constants-owner-queries-2026-10-31.md))와 시험만인 T0b(#552, #553)다. 이 보고서에서
 '중립'은 T0a의 골든과 고정 행, T0b 참값표의 모든 칸이 바이트 그대로 통과하고, 와이어가 바뀌지 않고, 같은 프레임이 같은 시각에 나가며,
 준비 이벤트가 출처마다 같은 순간에 나간다(모두에 마이크로태스크 합치기를 씌우지 않음)는 뜻이다. 6B가 독자를 옮긴 곳에서는 도달 단언이
@@ -23,9 +23,14 @@
 
 - **Q1 넷:** Phase 6을 App 업데이트 넷(6A ~ 6D)으로 낸다. 6B는 둘째이고, 업데이트 창은 버전 올리기와 함께 한 번 뜬다.
 - **Q18 결함마다 묻기:** 시험이 결함을 재현하면 오늘 동작으로 고정하고 결함마다 따로 묻는다. 6B의 새 행(장부 행, 가드 행, 독자 창
-  행)은 모두 오늘 동작이나 새 규칙을 고정한 것이고 결함으로 적은 행은 없다. T0b가 찾아 2026-11-01에 따로 여쭌 결함 넷 가운데 넷째
-  (방장 일시정지 신호가 두 번 가는 경우, 참값표 H10, H10a, H10c 행)는 권장대로면 6B의 마지막 증분에 실을 고침이었는데, 이 기록까지
-  답이 없어 싣지 않았고 6B는 그 고침 없이 나간다(아래 '오너에게' 1). 나머지 셋은 6D 몫이다.
+  행)은 모두 오늘 동작이나 새 규칙을 고정한 것이고 결함으로 적은 행은 없다. T0b가 찾아 2026-11-01에 따로 여쭌 결함은 넷이다(가짜
+  YouTube 화면이 실제처럼 알림을 한 박자 늦게, 상태가 바뀔 때만 보내도록 해서 다시 돌려 고친 목록): 첫째 방장 기기에서 YouTube 시작이
+  끝내 실패하면 아무 안내 없이 멈춰 있음(참값표 H4, H4a 행), 둘째 다음 트랙 준비가 실패한 참가자는 다음 트랙이 시작할 때까지 ▶ 모양으로
+  멈춰 보임(G8pa, G8, G8p, G8a 행), 셋째 PRO 방에서는 트랙이 시작되는 동안에도 동기화 버튼과 수동 싱크 창이 열려 있음(PRO 참값표 P1, P4
+  행), 넷째 방장이 일시정지할 때 일시정지 신호가 참가자에게 두 번 가는 경우가 있음(H10, H10a, H10c 행). 넷째는 권장대로면 6B의 마지막
+  증분에 실을 고침이었는데, 이 기록까지 답이 없어 싣지 않았고 6B는 그 고침 없이 나간다(아래 '오너에게' 1). 첫째와 둘째는 권장대로면
+  6D의 마지막 단계이고, 셋째의 권장은 기록만(6D에서 시작 중 동기화를 누르는 시험부터)이다. 고친 목록은 앞 목록의 셋째(예전 방식으로
+  시작할 때 '재생' 신호가 한 번 더 감, H9, H3, H5, H6 행)를 가짜 화면의 순서로 생긴 것이라 거두었다.
 - **Q26 새 모듈:** `start-ownership.ts`의 근거는 `docs/design/source-complexity-ratchet.md`의 둘이다: 여러 운영 소비자의 공유 계약(독자
   24곳, 여덟 모듈)과 순환을 끊는 좁은 포트(주인들이 엮이는 `player.ts`는 `iframe.ts`와 `sync.ts`를 가져오므로 두 독자가 `player.ts`를
   가져오면 순환이 되고 `guard:import-graph`가 막는다. 장부는 아무것도 가져오지 않는 잎이다).
@@ -57,7 +62,8 @@
 | 시험 순서 의존 고침          | 시험만(T0b 파일 둘)     | `418b411d`              | `6aee97c3`에서 seed 1 ~ 16 가운데 일곱이 실패(425행 가운데 2 ~ 12) | seed 1 ~ 32 모두 425 / 425 | 없음                                                      |
 | CHECK 12 둘째 후속           | RO-02, 가드 항목 12     | `2920a863` → `0d9d55c8` | 3 / 94                                                   | 94 / 94              | 수 그대로, 허용 합성의 claim 고정, 결정한 종류의 등록 요구           |
 | 설계 문서 메모               | 문서만                  | `48bc3819`              | 해당 없음                                                | 해당 없음            | 없음                                                                 |
-| 기록 갱신                    | 이 보고서, `docs/README.md` | 이 기록 커밋        | 해당 없음                                                | 해당 없음            | 없음                                                                 |
+| 기록 갱신                    | 이 보고서, `docs/README.md` | `e5851cd0`          | 해당 없음                                                | 해당 없음            | 없음                                                                 |
+| 마지막 검사 기록             | 이 보고서               | 이 기록 커밋            | 해당 없음                                                | 해당 없음            | 없음                                                                 |
 
 ## 증분
 
@@ -288,7 +294,8 @@ T0a(#539, #541, #542)와 T0b(#552, #553)가 더하거나 고친 시험·도우�
 
 ## 정확한 개수 가드
 
-바탕 값은 `dda3ee18`의 운영 코드와 가드가 처음 납품의 바탕 `9e72b7ce`와 같아 그때 잰 값이다. 브랜치 끝 값은 QA 라운드 4에서 쟀다.
+바탕 값은 `dda3ee18`의 운영 코드와 가드가 처음 납품의 바탕 `9e72b7ce`와 같아 그때 잰 값이다. 브랜치 끝 값은 QA 라운드 4에서 쟀고,
+라운드 5의 `e5851cd0`에서 모두 같았다(`--report` 119줄이 라운드 4와 줄마다 같음).
 
 | 가드                                                    | 바탕 `dda3ee18`                                         | 브랜치 끝 `48bc3819`                                                     |
 | ------------------------------------------------------- | ------------------------------------------------------- | ------------------------------------------------------------------------ |
@@ -313,7 +320,8 @@ T0a(#539, #541, #542)와 T0b(#552, #553)가 더하거나 고친 시험·도우�
 
 같은 툴체인(Node 24.22.2, vite 8.3.3)으로 커밋마다 `npm run build`를 하고 `scripts/check-initial-transfer-budget.mts`의
 `measureInitialTransfer`로 바이트를 읽었다(QA 라운드 4, 임시 worktree). 브랜치 끝은 `build:checked`의 운영 빌드로 쟀다. 처음 납품의 옮기기 전
-커밋(`9e72b7ce`, `5300f565`, `4d3ba199`, `07a9f224`)에서 잰 값(QA 라운드 2)과 모두 같다.
+커밋(`9e72b7ce`, `5300f565`, `4d3ba199`, `07a9f224`)에서 잰 값(QA 라운드 2)과 모두 같다. 라운드 5에서 `origin/main` `dda3ee18`의 트리를 따로
+빌드하고 `e5851cd0`의 `build:checked` 빌드와 견준 값도 아래 바탕과 끝 줄과 바이트까지 같다.
 
 | 커밋                             | 진입 청크          | 진입 raw / gzip   | eager JS gzip (부모 대비) | eager total raw / gzip (부모 대비) |
 | -------------------------------- | ------------------ | ----------------- | ------------------------- | ---------------------------------- |
@@ -394,7 +402,8 @@ T0a(#539, #541, #542)와 T0b(#552, #553)가 더하거나 고친 시험·도우�
 1. **끝남: 시험 순서 의존 고침.** `418b411d`(위 '시험 순서 의존 고침'). 두 묶음 seed 1 ~ 32 425 / 425, 세 디렉터리 seed 여섯 6,515 / 6,515.
 2. **끝남: main 위로 옮기기.** T0b 시험만 PR 둘(#552, #553)과 #554가 들어간 main `dda3ee18` 위로 옮겼고, 옮긴 테스트 먼저 커밋을 새 부모에서
    다시 돌려 같은 이름의 행만 실패함을 봤다(위 '증분 한눈에', QA 라운드 4).
-3. **싣지 않음: T0b 결함 넷째(H10).** 오너 답이 없어 6B는 이 고침 없이 나간다. 머지·배포의 조건이 아니다(아래 '오너에게' 1).
+3. **싣지 않음: T0b 결함 넷째(방장이 일시정지할 때 일시정지 신호가 참가자에게 두 번 가는 경우가 있음, H10, H10a, H10c 행).** 오너 답이
+   없어 6B는 이 고침 없이 나간다. 머지·배포의 조건이 아니다(아래 '오너에게' 1).
 
 ## 배포 조건과 순서 (릴리스 담당)
 
@@ -410,7 +419,8 @@ T0a(#539, #541, #542)와 T0b(#552, #553)가 더하거나 고친 시험·도우�
 4. PR CI, 자동 코드 리뷰, dispatch 직전 머지, exact-main CI success 뒤 Release target `app`, Developer API D1 false,
    `raise_app_build_floor` false. 기록 PR을 열차 PR 머지와 deploy job 시작 사이에 머지하지 않는다.
 5. 배포 직후(게이트 아님): 공개 최소 빌드 상태와 Operations Drift Audit, 아래 '배포 뒤 확인'. 머지 뒤 main SHA에서 Full E2E를 한 번 돌려
-   보고서의 QA 라운드에 적되 exact-main 후보로 쓰지 않는다(계획 §4.2-5).
+   보고서의 QA 라운드에 적되 exact-main 후보로 쓰지 않는다(계획 §4.2-5). 실패하면 그 spec을 바탕 `dda3ee18`(6A의 머지 뒤 Full E2E
+   41278378387이 통과한 SHA, QA 라운드 5)에서 다시 돌려 6B의 회귀와 일시적 실패를 가른다.
 6. 배포 기록 PR: release-record §1과 `Last source review` 덮어쓰기, `docs/release-history.md` 한 행, §2의 이 항목을 '배포 뒤 확인'으로.
 
 ## 배포 뒤 확인 (블라인드, 게이트 아님)
@@ -424,15 +434,15 @@ T0a(#539, #541, #542)와 T0b(#552, #553)가 더하거나 고친 시험·도우�
 복사한다.
 
 - **A. 시작 직후 동기화(약 10분):** (1) 데스크톱 Chrome을 방장으로 일반방을 만들고 Android Chrome을 게스트로 넣는다. 재생목록에 YouTube
-  두 곡을 넣고 볼륨은 둘 다 50. (2) 방장이 첫 곡을 누른다. 게스트에서 소리가 난 직후(1 ~ 2초 안) 게스트가 동기화 버튼을 한 번 누르고, 뜬
-  안내 문구를 그대로 적는다. 버튼이 흐린 모양이었는지도 적는다. (3) 5초 뒤 다시 한 번 누르고 무슨 일이 있었는지(소리 끊김, 위치 이동,
-  안내) 적는다. (4) 다음 곡으로 (2) ~ (3)을 한 번 더 한다.
+  트랙 둘을 넣고 볼륨은 둘 다 50. (2) 방장이 첫 트랙을 누른다. 게스트에서 소리가 난 직후(1 ~ 2초 안) 게스트가 동기화 버튼을 한 번 누르고,
+  뜬 안내 문구를 그대로 적는다. 버튼이 흐린 모양이었는지도 적는다. (3) 5초 뒤 다시 한 번 누르고 무슨 일이 있었는지(소리 끊김, 위치 이동,
+  안내) 적는다. (4) 다음 트랙으로 (2) ~ (3)을 한 번 더 한다.
 - **B. 시작 소유 줄(약 10분):** A의 각 시작에서 방장의 `[YouTube ZeroStart] prepare-host`, `armed-guest`, `Playback released` 줄과 게스트의
   `waiting-ready`, `timeline-0.8s`, `timeline-2.0s` 줄(값 `timelineDriftMs`, `estimatedAudibleErrorMs` 포함)을 복사한다. 시작이 들리는
   순간에 두 기기의 소리가 맞았는지(맞음, 조금 어긋남, 많이 어긋남) 적는다.
-- **C. 시작 직후 seek와 볼륨(약 5분):** 방장이 곡을 시작하고 소리가 난 직후 1초 안에 재생 위치 막대를 곡 중간으로 옮긴다. 게스트가 따라오는지,
-  끊김이 있었는지 적는다. 이어 방장이 다음 곡을 누르고 소리가 나기 전에 게스트가 볼륨을 0으로 내렸다가 2초 뒤 50으로 올린다. 예열 소리가
-  샜는지, 소리가 돌아왔는지 적는다.
+- **C. 시작 직후 seek와 볼륨(약 5분):** 방장이 트랙을 시작하고 소리가 난 직후 1초 안에 재생 위치 막대를 트랙 중간으로 옮긴다. 게스트가
+  따라오는지, 끊김이 있었는지 적는다. 이어 방장이 다음 트랙을 누르고 소리가 나기 전에 게스트가 볼륨을 0으로 내렸다가 2초 뒤 50으로 올린다.
+  예열 소리가 샜는지, 소리가 돌아왔는지 적는다.
 
 **통과 기준(주지 않음):**
 
@@ -442,7 +452,7 @@ T0a(#539, #541, #542)와 T0b(#552, #553)가 더하거나 고친 시험·도우�
   풀린 것이다. 어느 기기에도 `[YouTube ZeroStart] audio-restore-timeout` 경고가 없다. `Falling back to legacy rendezvous`는 실패로 보지 않고
   적는다(느린 망에서 레거시가 이어받은 경우). 소리는 귀로 맞는다.
 - C: 방장의 seek는 게스트에 전해져 게스트가 몇 초 안에 새 위치로 따라온다(오늘 동작). seek가 무시되거나 방이 멈추면 실패다. 볼륨을 바꾸는
-  동안과 곡이 시작되기 전에 예열 소리가 새지 않고, 곡이 시작되면 마지막 설정(50)으로 들린다(hard-mute 주인이 있는 동안의 unMute 가드가 장부
+  동안과 트랙이 시작되기 전에 예열 소리가 새지 않고, 트랙이 시작되면 마지막 설정(50)으로 들린다(hard-mute 주인이 있는 동안의 unMute 가드가 장부
   질의로 옮겼으므로 보는 단계).
 
 **실패하면:** 일시적 네트워크로 설명되지 않는 어긋남이면 위 '되돌리기'대로 앞으로 고치기나, 급할 때만 명시적으로 검토한 CLI 되돌리기로
@@ -465,10 +475,11 @@ checkpoint App(9.0.30)을 정한다. '기기 없음'과 '미확인'은 실패가
 
 ## 오너에게
 
-1. **[화면 바뀜: 고치기로 하실 때만, 참가자 YouTube 화면이 같은 자리로 다시 맞추는 횟수가 두 번에서 한 번으로] 방장 일시정지 신호가 두 번
-   가는 경우를 고칠까요?** 2026-11-01에 따로 여쭌 결함 넷 가운데 넷째예요. 일반방 방장이 YouTube 곡을 불러온 뒤의 첫 일시정지나 버퍼링 뒤의
-   일시정지에서, 참가자 기기가 이미 멈춘 화면을 같은 자리로 한 번 더 맞춰요. 멈추는 때와 자리는 같아요. 답을 아직 못 받아 6B는 이 고침
-   없이 나가요(화면·소리를 바꾸지 않는 정리만 담음).
+1. **[화면 바뀜: 고치면 참가자 YouTube 화면이 같은 자리로 다시 맞추는 횟수가 2번에서 1번으로] 방장이 일시정지할 때 일시정지 신호가
+   참가자에게 두 번 가는 경우가 있어요. 고칠까요?** 2026-11-01에 따로 여쭌 결함 넷 가운데 넷째예요. 일반방 방장이 YouTube 트랙을 불러온 뒤
+   첫 일시정지와, 재생 중 방장 YouTube 화면이 잠깐 끊겼다가(버퍼링) 이어진 뒤의 일시정지에서 참가자 기기가 이미 멈춘 화면을 같은 자리로
+   한 번 더 맞춰요. 멈추는 때와 자리는 같고, 다시 재생한 뒤 하는 일시정지는 한 번만 가요. 답을 아직 못 받아 6B는 이 고침 없이 나가요
+   (화면·소리를 바꾸지 않는 정리만 담음).
    - (가, 권장) 고친다: 다음 App 업데이트(6C나 6D)에 실으면 업데이트 창은 늘지 않아요. 만들기 전에 짧은 화면 녹화나 전후 시각 표를 먼저
      보여 드려요.
    - (나) 지금은 기록만 한다: 오늘 동작 그대로 시험에 고정돼 있어요.
@@ -570,12 +581,54 @@ Playwright가 함께 돌았다. 앞뒤로 작업 트리는 깨끗했다.
 - **독자 변이 둘(임시 worktree, 끝에 되돌림):** 위 '독자 창 고정'의 `sync.ts:712`와 `manual-sync-overlay-runtime.ts:363` 결과.
 - **배포 대상과 계약 동결:** 위 'Deploy target'.
 
+### 5. 마지막 검사 (`e5851cd0`, 그 뒤는 이 기록 커밋뿐)
+
+2026-11-01 21:15 ~ 22:02 KST, 이 갈래의 worktree에서. 운영 코드는 `418b411d`와 라운드 4의 `48bc3819`와 같고, `e5851cd0`은 이 보고서,
+`docs/README.md`, 설계 문서만 바꾼다. 원격 main은 그대로 `dda3ee18`이다. 같은 PC에서 다른 worktree의 Playwright가 함께 돌았다. 검사를
+시작할 때 작업 트리는 깨끗했고, E2E가 도는 동안부터는 이 기록 커밋의 보고서 고침만 있었다.
+
+- **단위 전체(파일 순서):** 739 files, 17,704 / 17,704 통과, 0 건너뜀(8.7분). 라운드 4의 git fixture 시간 초과는 이번에 없었다. 그 안에서
+  장부 34 / 34, 독자 창 5 / 5, 가드 94 / 94, T0b 참값표 62 / 62와 19 / 19, T0a 골든 16 / 16과 10 / 10, 순서를 고친 두 묶음
+  (`stale-async-guards` 182 / 182, `sync-integration` 243 / 243, 9.0.8 방장 스피커 행 포함)이 통과했다.
+- **shuffle(`src/youtube`, `src/player`, `src/pro-room`, seed마다 한 번):** 239 files, 6,515행. seed 7, 31, 4242, 20261030 모두 6,515 / 6,515.
+- **`npm run typecheck`**(93 s), **`npm run lint`**(134 s), **`npm run format:check`**(46 s): 모두 종료 코드 0.
+- **`build:checked`의 25 단계를 하나씩:** `guard:sw-cache-version` 하나만 실패했다(위 'Version'의 글 그대로, App 11 파일). 나머지 24 단계는
+  통과했다: release identity 'MUSIXQUARE 9.0.30; service-worker cache epoch v803', service worker(v803), room authority(79 / 22 / 13 / 0 / 0,
+  410 files), brand capitalization 1,035, `npm run build`, legacy TV(Chromium 79, `main-jdcp8EDh.js`), initial transfer budget(entry 840.9 KiB
+  raw / 247.7 KiB gzip, eager JS 454.5 KiB gzip, eager total 2,000.6 KiB raw / 530.9 KiB gzip), 글꼴(44 stacks), SW 앱 셸 96 assets 등.
+  그 밖 `guard:*` 13개도 통과했다: bus-pairing 202 / 202, transport-health(12 files), import-graph(410 files, 2,101 edges, 순환 0),
+  dead-exports(410 / 2,161 / 0 / 20 / 76), D1 migrations(19) 등. `package.json`의 `guard:*` 37개 가운데 실패는 위 하나다.
+- **`node scripts/check-resource-ownership.mts`와 `--report`:** 49 records, 457 production files, CHECK 11 32, CHECK 12 읽기 11·지우기 9,
+  파사드 쓰기 2, 스냅샷 읽기 8, 장부 합성 1, CHECK 5 1 / 1 / 45. `--report` 119줄은 라운드 4와 줄마다 같다.
+- **크기(`origin/main` 대비):** `dda3ee18`의 트리(`git archive`)를 같은 툴체인으로 따로 빌드한 값과 `e5851cd0`의 `build:checked` 빌드를
+  `measureInitialTransfer`로 견줬다. 바탕 `main-zzIxMfb3.js` 860,802 / 253,728, eager JS gzip 465,458, eager total 2,048,366 / 543,651. 끝
+  `main-jdcp8EDh.js` 861,056 / 253,678, 465,405, 2,048,620 / 543,597. 차는 eager JS gzip −53 B, eager total gzip −54 B, 진입 raw +254 B, 진입
+  gzip −50 B로 위 '번들 크기'와 같다.
+- **`npm run test:coverage:critical`:** 99 files / 4,051 통과, 전체 84.1 / 79.46 / 89.98 / 87.8, 파일별 문턱 오류 없음(85 s). 장부는 lcov로
+  함수 20 / 20, 줄 18 / 18, 분기 3 / 3, `zero-start.ts`는 85.79 / 84.18 / 98.4 / 89.41(문턱 84 / 83 / 96 / 88).
+- **`npm run build:e2e` 뒤 로컬 Playwright(Chromium, 포트 4697 / 9697, trace 끔):** `test:e2e:critical`의 여덟 파일 101 / 101(5.3분), YouTube
+  spec 열 개(`e2e/youtube*.test.ts`) 53 / 53(12.4분). 계획 §4.2-3의 여덟(`youtube-sync` 6, `youtube-manual-zero-start` 10,
+  `youtube-output-delay` 3, `youtube-end-transition` 6, `youtube-native-operator` 2, `youtube-manual-repeat` 1, `youtube-pending-seek` 4,
+  `youtube` 9)은 41 / 41, 나머지 둘(`youtube-landscape-full-bleed` 4, `youtube-search-interactions` 8)은 12 / 12다. 실패, 다시 시도, 불안정
+  표시는 없다.
+- **중립 다시 보기:** T0b 20 파일 가운데 8개(두 참값표, `fake-yt-player.ts`, `playlist.test.ts`, `load-lifecycle.test.ts`,
+  `native-control-iframe-integration.test.ts`, `sync-heartbeat-broadcast.test.ts`, `sync-pro-promotion-offset.test.ts`)와 T0a 골든 둘
+  (`standard-start-wire-golden.test.ts`, `pro-ready-timing-golden.test.ts`)은 바탕과 바이트로 같다. 바뀐 T0b 12개와 T0a 도우미
+  `standard-start-harness.ts`의 차이를 줄마다 다시 읽었다: mock·대역 등록·도달 단언을 같은 claim의 장부 질의로 옮긴 이음새, 열 지도와 술어,
+  지운 다시 내보내기의 단언, 두 묶음의 공유 `beforeEach` 불러오기, 주석뿐이고 기대 배열과 강제 값은 그대로다(위 'T0b 파일').
+- **바탕의 Full E2E(6A의 머지 뒤):** [41278378387](https://github.com/hiefny/MUSIXQUARE/actions/runs/41278378387)(`workflow_dispatch`, main
+  `dda3ee18`, 14:49:06 KST 생성, attempt 1) success: `e2e`(Ubuntu 러너, Playwright Chromium, 14:49:10 ~ 15:57:03 KST) 794 passed,
+  `webkit-mobile`(14:49:09 ~ 14:54:55 KST) 94 passed·5 skipped와 운영 빌드 SW 시험 1 passed, 운영 large-room R2 smoke(14:49:09 ~ 14:50:32
+  KST) 1 passed이고 실패와 불안정 표시는 없다. 실행 정보와 job 로그를 읽기만 했다. 6B의 코드를 담지 않으므로 6B 앞 런타임의 기준이다(위
+  '배포 조건과 순서' 5).
+
 ## 하지 않은 것과 확인하지 않은 것
 
-- **버전 올리기, release-record 항목, PR, 머지, 배포:** 릴리스 담당의 몫이라 하지 않았다(위 '배포 조건과 순서'). GitHub에 닿지 않았다.
+- **버전 올리기, release-record 항목, PR, 머지, 배포:** 릴리스 담당의 몫이라 하지 않았다(위 '배포 조건과 순서'). GitHub에 쓰지
+  않았다(라운드 5는 바탕의 Full E2E 실행 정보를 읽기만 함).
 - **T0b 결함 넷째의 고침:** 오너 답 전이라 싣지 않았다(위 '오너에게' 1). 화면에 닿는 고침([화면 바뀜])은 묻지 않고 싣지 않는다.
-- **옮긴 커밋의 변이 확인:** 이 라운드에서 다시 하지 않았다. 옮기기 전 `07a9f224`(QA 라운드 1)와 옮긴 뒤 `418b411d`의 독립 검토(QA 라운드 3)
-  결과를 적었다.
+- **옮긴 커밋의 변이 확인:** QA 라운드 4와 5에서 다시 하지 않았다(라운드 4의 독자 변이 둘 말고). 옮기기 전 `07a9f224`(QA 라운드 1)와
+  옮긴 뒤 `418b411d`의 독립 검토(QA 라운드 3) 결과를 적었다.
 - 실기기, iOS Safari, WebKit 레인(`setup-youtube-activation.test.ts` 포함, 계획 §4.2-4는 `iframe.ts`의 prime·활성화 경로를 건드린 6C·6D에만
   요구), 블루투스, 6B 런타임의 Full E2E와 CI. 기기 확인은 배포 뒤 블라인드로 하며 게이트가 아니다. Phase 6 앞의 기기 기준선(Q6)은 재지
   않았다.
@@ -591,5 +644,10 @@ Playwright가 함께 돌았다. 앞뒤로 작업 트리는 깨끗했다.
 - 참값표 fallbackPending 열은 실행이 in flight인 동안의 pending을 보지 못한다(위 'T0b 파일'에서 받아들인 좁힘).
 - T0a 시험 `youtube-start-owner-boundary.test.ts`의 머리 주석(21 ~ 23줄)이 지운 합성과 다리 훅 이름을 아직 적는다. 표본은 시작 하네스를
   거쳐 장부를 읽으므로 동작과 행은 맞다. 주석만이라 다음 시험만 커밋에서 고친다.
-- 참값표가 오늘 동작으로 고정한 틈(H4, H9·H3·H5·H6, H10, G8, P4)은 장부가 답을 바꾸지 않아 그대로다(설계 문서 'Not covered yet', T0b 결함 질문).
+- 참값표가 오늘 동작으로 고정한 결함 넷(고친 목록의 첫째 H4·H4a, 둘째 G8pa·G8·G8p·G8a, 셋째 P1·P4, 넷째 H10·H10a·H10c, 위 'Q18')은
+  장부가 답을 바꾸지 않아 그대로다.
+- 설계 문서 'Not covered yet'의 틈 목록은 고친 결함 목록보다 앞의 것이다. 고친 목록이 거둔 H9·H3·H5·H6 줄(참값표가 'Fake ordering, not a
+  production defect'로 적은 가짜 화면의 순서)이 남아 있고, G8 줄은 가짜 화면의 COMMIT 다시 멈춤 창을 적는다(실제처럼 보내면 준비가 실패한
+  순간부터, G8a·G8pa). 문서만이라 다음 문서 커밋에서 고친다. `docs/README.md`의 이 보고서 항목도 커밋 열넷과 `48bc3819`의 마지막
+  검사를 적은 채라 같은 커밋에서 열다섯과 라운드 5로 고친다.
 - 영역 조사의 대략적 기기 시간(약 25분)은 추정이다.

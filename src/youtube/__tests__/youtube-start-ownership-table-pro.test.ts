@@ -446,6 +446,49 @@ describe('start-ownership table: PRO participant (pinned 2026-11-01)', () => {
     expect(await prepareAndCommit(setup)).toEqual(P1_SAMPLES);
   });
 
+  // The arm consumes its settle seek's states: a PAUSED that reached the
+  // ordinary projection would turn it 'paused' before READY (+620).
+  it('P6p the same while the participant shows the room playing', async () => {
+    const setup = await setUpPro({ iframeInit: { __seekStateSequence: [3, 2] } });
+    await showRoomPlaying(setup);
+    expect(await prepareAndCommit(setup)).toEqual(P1P_SAMPLES);
+  });
+
+  // A stray PLAYING then PAUSED from the iframe while the arm is 'prepared'
+  // (+800) or 'scheduled' (+1200): the arm consumes both, so the lines are
+  // P1's and the App sends the iframe no command in reply (an unconsumed
+  // PLAYING would be paused back by the autoplay guard, or projected).
+  it.each([
+    ['P9', 'prepared', 800],
+    ['P10', 'scheduled', 1_200],
+  ] as const)('%s iframe states while the arm is %s', async (_row, _phase, at) => {
+    const setup = await setUpPro();
+    const replies: string[] = [];
+    const stray = async () => {
+      await setup.probe.advanceTo(at);
+      await setup.probe.step('stray', () => {
+        const fake = setup.iframe();
+        const from = fake.__log.length;
+        fake.__setState(1);
+        fake.__setState(2);
+        replies.push(...fake.__log.slice(from).map(({ op }) => op));
+      });
+    };
+    const { probe: started, participant } = setup;
+    await started.step('prepare', () =>
+      participant.controller.acceptPrepare(PRO.prepareEvent(1, 0, 'zero-start')),
+    );
+    if (at < 1_000) await stray();
+    await started.advanceTo(1_000);
+    await started.step('commit', () =>
+      participant.controller.acceptCommit(PRO.commitEvent(2, 0, 'zero-start')),
+    );
+    if (at > 1_000) await stray();
+    await started.advanceTo(4_000);
+    expect(started.samples).toEqual(P1_SAMPLES);
+    expect(replies).toEqual([]);
+  });
+
   it('P7 a hard mute that never confirms', async () => {
     const setup = await setUpPro({ iframeInit: { __hardMuteFails: true } });
     expect(await prepareAndCommit(setup)).toEqual(P7_SAMPLES);

@@ -352,12 +352,12 @@ describe('heartbeat ownership during a participant-local YouTube start', () => {
     setYtAutoplayIntent(true);
     fallbackPendingHook.mockClear();
     heartbeat(4, state);
+    // The heartbeat's owner gate reaches the fallback hook.
+    expect(fallbackPendingHook).toHaveBeenCalled();
     expect(player.__log).toHaveLength(0);
     expect(player.getPlayerState()).toBe(2);
     expect(player.isMuted()).toBe(true);
     expect(getYtAutoplayIntent()).toBe(true);
-    // The heartbeat's owner gate reaches the fallback hook.
-    expect(fallbackPendingHook).toHaveBeenCalled();
 
     fallbackOwnsPlayer = false;
     heartbeat(20, 1);
@@ -393,10 +393,10 @@ describe('heartbeat ownership during a participant-local YouTube start', () => {
       vi.advanceTimersByTime(4500);
       cancelPendingHook.mockClear();
       handlers[MSG.YOUTUBE_STATE]({ ...snapshot(100), hostPlayAt: 0 }, host);
-      expect(controller?.getSnapshot().phase ?? 'idle').toBe('idle');
-      expect(fallbackOwnsPlayer).toBe(false);
       // The explicit command retires the pending start through the cancel hook.
       expect(cancelPendingHook).toHaveBeenCalled();
+      expect(controller?.getSnapshot().phase ?? 'idle').toBe('idle');
+      expect(fallbackOwnsPlayer).toBe(false);
       vi.advanceTimersByTime(500);
       expect(player.getPlayerState()).toBe(1);
       handlers[MSG.YOUTUBE_SYNC]({ ...snapshot(100.5), isManual: true }, host);

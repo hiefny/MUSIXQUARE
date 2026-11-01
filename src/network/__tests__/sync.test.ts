@@ -331,10 +331,10 @@ describe('manual sync nudge routing', () => {
 
     bus.emit('sync:nudge', 10);
 
-    expect(getState('sync.youtubeLocalOffset')).toBeCloseTo(0.01, 4);
     // With no owner, the gate reads both halves of isYouTubeZeroStartSyncOwned.
     expect(isYouTubeZeroStartProtocolActive).toHaveBeenCalled();
     expect(isYouTubeZeroStartExternalFallbackPendingFromSync).toHaveBeenCalled();
+    expect(getState('sync.youtubeLocalOffset')).toBeCloseTo(0.01, 4);
     vi.advanceTimersByTime(1_000);
     expect(applySpy).toHaveBeenCalledTimes(1);
   });
@@ -356,14 +356,14 @@ describe('manual sync nudge routing', () => {
       bus.emit('sync:set-manual-offset', -1234);
       bus.emit('sync:auto-sync');
 
-      expect(getState('sync.youtubeLocalOffset')).toBe(0.25);
-      expect(applySpy).not.toHaveBeenCalled();
       // The gate reaches the forced owner's export. isYouTubeZeroStartSyncOwned
       // reads the protocol half first, so the fallback row reads both.
       expect(isYouTubeZeroStartProtocolActive).toHaveBeenCalled();
       if (owner === 'fallback') {
         expect(isYouTubeZeroStartExternalFallbackPendingFromSync).toHaveBeenCalled();
       }
+      expect(getState('sync.youtubeLocalOffset')).toBe(0.25);
+      expect(applySpy).not.toHaveBeenCalled();
     },
   );
 

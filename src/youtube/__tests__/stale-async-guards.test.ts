@@ -5215,14 +5215,14 @@ describe('zero-start iframe projection barrier', () => {
 
     handle.fireStateChange(1);
 
+    // The auxiliary state broadcast reads the protocol export, which holds it.
+    expect(isYouTubeZeroStartProtocolActive).toHaveBeenCalled();
     expect(getState('playback.activity')).toBe('playing');
     expect(playStateUpdates).toHaveBeenCalledTimes(1);
     expect(playStateUpdates).toHaveBeenCalledWith(true);
     expect(
       broadcastMock.mock.calls.filter(([message]) => message.type === MSG.YOUTUBE_STATE),
     ).toHaveLength(0);
-    // The auxiliary state broadcast reads the protocol export, which holds it.
-    expect(isYouTubeZeroStartProtocolActive).toHaveBeenCalled();
   });
 
   it('broadcasts the same release PLAYING once when no zero-start protocol holds it', async () => {
@@ -5492,10 +5492,10 @@ describe('zero-start iframe projection barrier', () => {
 
     uiTick!();
 
+    // The UI loop's gate reads the in-flight export.
+    expect(isYouTubeZeroStartInFlight).toHaveBeenCalled();
     expect(timeUpdates).not.toHaveBeenCalled();
     expect(autoAdvance).not.toHaveBeenCalled();
     expect(setManagedTimerMock.mock.calls.some(([name]) => name === 'youtubeSyncLoop')).toBe(false);
-    // The UI loop's gate reads the in-flight export.
-    expect(isYouTubeZeroStartInFlight).toHaveBeenCalled();
   });
 });

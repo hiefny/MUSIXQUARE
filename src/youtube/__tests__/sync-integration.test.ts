@@ -2005,9 +2005,9 @@ describe('YouTube Sync — Regression Integration', () => {
 
       broadcastYouTubeSync(false);
       broadcastYouTubeSync(true, 1);
-      expect(broadcastMock).not.toHaveBeenCalled();
       // The broadcaster's owner gate reaches the stubbed export.
       expect(isYouTubeZeroStartProtocolActive).toHaveBeenCalled();
+      expect(broadcastMock).not.toHaveBeenCalled();
 
       zeroStartFacade.inFlight = false;
       zeroStartFacade.active = false;
@@ -2028,10 +2028,10 @@ describe('YouTube Sync — Regression Integration', () => {
 
       const result = guestRendezvousSync({ silent: true });
 
-      expect(result.status).toBe('not-ready');
-      expect(mutationOps(player)).toEqual([]);
       // The rendezvous owner gate reaches the stubbed export.
       expect(isYouTubeZeroStartProtocolActive).toHaveBeenCalled();
+      expect(result.status).toBe('not-ready');
+      expect(mutationOps(player)).toEqual([]);
     });
   });
 

@@ -633,19 +633,21 @@ describe('background-return Sync ownership and coalescing', () => {
     mocks.zeroStartOwned.mockReturnValue(true);
     mocks.zeroStartOwned.mockClear();
 
-    expect(runBackgroundReturnSync({ peerRecovery: null, fileOutputOwned: false })).toBe('none');
-    expect(mocks.broadcast).not.toHaveBeenCalled();
+    const outcome = runBackgroundReturnSync({ peerRecovery: null, fileOutputOwned: false });
+
     expect(mocks.zeroStartOwned).toHaveBeenCalled();
+    expect(outcome).toBe('none');
+    expect(mocks.broadcast).not.toHaveBeenCalled();
   });
 
   it('consults the zero-start owner before a Standard YouTube host broadcast', () => {
     arrange('standard', 'youtube', 'host', 'playing');
     mocks.zeroStartOwned.mockClear();
 
-    expect(runBackgroundReturnSync({ peerRecovery: null, fileOutputOwned: false })).toBe(
-      'host-youtube-broadcast',
-    );
+    const outcome = runBackgroundReturnSync({ peerRecovery: null, fileOutputOwned: false });
+
     expect(mocks.zeroStartOwned).toHaveBeenCalled();
+    expect(outcome).toBe('host-youtube-broadcast');
     expect(mocks.broadcast).toHaveBeenCalledWith(true);
   });
 

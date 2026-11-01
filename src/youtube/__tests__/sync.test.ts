@@ -1540,10 +1540,10 @@ describe('YouTube Sync', () => {
 
       bus.emit('youtube:set-coordinator-manual-offset', 0.125);
 
-      expect(player.seekTo).not.toHaveBeenCalled();
-      expect(getState('sync.youtubeLocalOffset')).toBe(0);
       // The edit's owner gate reaches the zero-start protocol export.
       expect(isYouTubeZeroStartProtocolActive).toHaveBeenCalled();
+      expect(player.seekTo).not.toHaveBeenCalled();
+      expect(getState('sync.youtubeLocalOffset')).toBe(0);
     });
 
     it('coalesces rapid local PRO edits against the server anchor while seekTo is stale', async () => {

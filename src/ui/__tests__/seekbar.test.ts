@@ -371,26 +371,26 @@ describe('initSeekBar playback mode gates', () => {
     inFlight.mockClear();
     protocolActive.mockClear();
     initSeekBar();
+    expect(inFlight).toHaveBeenCalled();
 
     const slider = document.getElementById('seek-slider') as HTMLInputElement;
     expect(slider.getAttribute('aria-disabled')).toBe('true');
-    expect(inFlight).toHaveBeenCalled();
 
     // handlePlayerStateChange(PLAYING) closes iframe ownership immediately,
     // while the protocol identity remains active for its 2.75s calibration.
     zeroStartFacade.inFlight = false;
     inFlight.mockClear();
     bus.emit('youtube:sync-loading', false, 'zero-start');
+    expect(inFlight).toHaveBeenCalled();
 
     expect(zeroStartFacade.active).toBe(true);
     expect(slider.getAttribute('aria-disabled')).toBe('false');
-    expect(inFlight).toHaveBeenCalled();
 
     slider.value = '42';
     slider.dispatchEvent(new Event('change'));
-    expect(seekTo).toHaveBeenCalledWith(42);
     // The seek gate reads only the in-flight query, never the protocol one.
     expect(protocolActive).not.toHaveBeenCalled();
+    expect(seekTo).toHaveBeenCalledWith(42);
   });
 
   it('blocks a seek draft while a replacement file is still preparing', () => {

@@ -184,15 +184,29 @@ interface BuildResult {
   readonly problems: readonly string[];
 }
 
+/** The input files of the faces to bake, by app sheet id, as appFaceInputs gives them. */
+type AppFaceInputs = readonly {
+  readonly sheet: string;
+  readonly files: readonly string[];
+}[];
+
 /**
  * Bake the app faces. 'write' bakes what is new or changed and writes the
  * copies and the record; 'record' bakes and writes every face; 'check' bakes
  * every face in memory and reports what differs from the committed files.
+ * The faces are the ones the app sheets keep (appFaceInputs) unless the
+ * caller passes its own list.
  */
-export async function buildAppFaces(repoRoot: string, mode: Mode): Promise<BuildResult> {
+export async function buildAppFaces(
+  repoRoot: string,
+  mode: Mode,
+  faceInputs?: AppFaceInputs,
+): Promise<BuildResult> {
   const previous = await readRecord(repoRoot);
   const tool = await toolVersion(repoRoot);
-  const inputs = new Map((await appFaceInputs(repoRoot)).map(({ sheet, files }) => [sheet, files]));
+  const inputs = new Map(
+    (faceInputs ?? (await appFaceInputs(repoRoot))).map(({ sheet, files }) => [sheet, files]),
+  );
   const families: AppFaceFamily[] = [];
   const changed: string[] = [];
   const problems: string[] = [];

@@ -100,10 +100,13 @@ runbooks. Neither belongs in a general setup document.
   fifteen commits on main `dda3ee18` (after the tests-only T0b pull requests #552 and #553 and
   #554, on the 9.0.30 release record), then moved with every patch unchanged onto main
   `ba28943e`, the merge of App 9.0.31 / v804, which the owner chose to ship first and which went
-  out at 23:17 KST on 2026-11-01. On top come the design doc's gap list aligned with the owner's
+  out at 23:17 KST on 2026-11-01. On top came the design doc's gap list aligned with the owner's
   rewritten T0b defect list, the record of the move, the release record's pre-deploy item, the
-  bump `8823a591` to 9.0.32 / v805 as the last runtime commit (the same seven lines in the same six
-  files as the 9.0.31 bump) and a record commit, twenty commits on `ba28943e`. 6B-1 adds the start ledger
+  bump to 9.0.32 / v805 as the last runtime commit (the same seven lines in the same six files as
+  the 9.0.31 bump) and a record commit. Those twenty commits were moved again, every patch
+  unchanged, onto main `5a705c40`, 9.0.31's release record (#556, documentation only), where the
+  bump is `582ab9d9` (before the move `8823a591`, the same tree outside `docs/`), and a record of
+  that move follows: twenty-one commits on `5a705c40`. 6B-1 adds the start ledger
   `src/youtube/start-ownership.ts`, which answers its readers from the live queries `player.ts`
   registers for each start owner and keeps no answer, subscription or event; 6B-2 moves all 24
   start-ownership reader sites in eight modules onto it and deletes `isYouTubeZeroStartSyncOwned`
@@ -139,9 +142,14 @@ runbooks. Neither belongs in a general setup document.
   first load stays within 6B's measured delta (eager JavaScript −35 B and eager total −33 B gzip
   against `ba28943e`) and the target is `app` (15 App runtime paths with the version mirrors, none
   in the other five Workers, partial-release compatibility compatible against the deployed SHAs).
-  The release record's §2 item for 6B
-  holds the merge conditions: the move onto 9.0.31's deploy record, and 9.0.31's post-merge Full E2E
-  41315565486 on `ba28943e` passing first.
+  Round 8 moved the train onto `5a705c40` (the one conflict was the release record in the commit
+  that adds 6B's pre-deploy item; both sides kept) and reran on the moved head types, lint and
+  format, `build:checked`, every guard (`guard:sw-cache-version` passing for v805 at `582ab9d9`),
+  the ownership guard (49 / 457) and the 56 6B, T0a and T0b test files (2,554 / 2,554); the first
+  load is byte for byte round 7's. 9.0.31's post-merge Full E2E 41315565486
+  on `ba28943e` passed (finished at 00:29 KST on 2026-11-02), so the two merge conditions the release
+  record's §2 item for 6B set (that run, and the move onto 9.0.31's release record) are met; PR CI,
+  the automated review, exact-main CI and the release remain.
 - [App font line box baked into the font files, and every tab title on one baseline (2026-11-01)](design/app-font-baked-metrics-2026-11-01.md):
   released on 2026-11-01 23:17 KST in Release 41315218029 (PR #555, squash `ba28943e`) as App
   9.0.31 / v804 (App build 804, target `app`, one update dialog; the bump `566f458d` is the last

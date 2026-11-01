@@ -99,21 +99,65 @@ async function rowLook(page: Page, index: number) {
     }));
 }
 
-/** A touch tap in the gap between two playlist rows, which takes no action. */
+/** What a neutral tap must leave alone: the current row, the open tab, the picks. */
+async function tapOutcome(page: Page) {
+  return {
+    current: await currentQueueItemId(page),
+    tabs: await page
+      .locator('.tab-content.active')
+      .evaluateAll((panels) => panels.map((panel) => panel.id)),
+    picked: await pressedStates(page),
+  };
+}
+
+/**
+ * A touch tap that takes no action, on the middle of the app header.
+ *
+ * A touch covers an area, and Chromium moves a tap onto a control near it
+ * (touch adjustment). The gap between two playlist rows is 8px: on Windows a
+ * tap there lands on the next row and plays it, and the switch to the player
+ * tab that follows cross-fades under the parked mouse. So the spot keeps 24px
+ * clear of every control, the touch must land on it, and nothing may change.
+ */
 async function tapNeutral(page: Page): Promise<void> {
-  const point = await page.locator('#playlist-ui').evaluate((list) => {
-    const entries = list.querySelectorAll(':scope > .playlist-entry');
-    const above = entries[2]!.getBoundingClientRect();
-    const below = entries[3]!.getBoundingClientRect();
-    const x = above.left + above.width / 2;
-    const y = (above.bottom + below.top) / 2;
-    const target = document.elementFromPoint(x, y);
-    if (!target || target.closest('button, a, input, [role="button"], .track-item')) {
-      throw new Error(`No inert spot between rows: ${target?.outerHTML.slice(0, 80)}`);
+  const before = await tapOutcome(page);
+  const point = await page.locator('#main-header').evaluate((header) => {
+    const rect = header.getBoundingClientRect();
+    const x = rect.left + rect.width / 2;
+    const y = rect.top + rect.height / 2;
+    for (const dx of [-24, 0, 24]) {
+      for (const dy of [-12, 0, 12]) {
+        const target = document.elementFromPoint(x + dx, y + dy);
+        if (
+          !target ||
+          !header.contains(target) ||
+          target.closest('button, a, input, [role="button"], [tabindex]')
+        ) {
+          throw new Error(`No inert spot in the header: ${target?.outerHTML.slice(0, 80)}`);
+        }
+      }
     }
+    const landing = window as unknown as { __neutralTapLanding?: string };
+    landing.__neutralTapLanding = 'none';
+    document.addEventListener(
+      'pointerdown',
+      (event) => {
+        landing.__neutralTapLanding =
+          event.pointerType === 'touch' && header.contains(event.target as Node)
+            ? 'header'
+            : `${event.pointerType} on ${(event.target as Element).outerHTML.slice(0, 80)}`;
+      },
+      { capture: true, once: true },
+    );
     return { x, y };
   });
   await page.touchscreen.tap(point.x, point.y);
+  expect(
+    await page.evaluate(
+      () => (window as unknown as { __neutralTapLanding?: string }).__neutralTapLanding,
+    ),
+  ).toBe('header');
+  expect(await tapOutcome(page)).toEqual(before);
 }
 
 /** Adds an expanded and a folded YouTube playlist row after the five tracks. */

@@ -1196,7 +1196,7 @@ describe('start-ownership table: Standard late joiner (pinned 2026-11-01)', () =
     ]);
   });
 
-  it('H12 bootstraps the same newcomer at once during the legacy rendezvous', async () => {
+  it('H12b bootstraps the same newcomer at once during the legacy rendezvous', async () => {
     const result = await runRow(withStep(HOST_LEGACY, NEWCOMER_CONNECTS));
     expect(result.samples).toEqual(H6_SAMPLES);
     expect(result.aux).toEqual(H6_AUX);
@@ -1367,7 +1367,7 @@ describe('start-ownership table: Standard heartbeat landing (pinned 2026-11-01)'
       '3000 beat idle held',
       '2000 step:play idle autoSync auxHeld beatHeld playing',
     ],
-  ] as const)('holds the +3000 heartbeat in %s', async (_window, row, beat, lastSample) => {
+  ] as const)('H13 holds the +3000 heartbeat in %s', async (_window, row, beat, lastSample) => {
     const result = await runRow(row);
     expect(result.beat).toEqual([beat]);
     expect(result.samples.at(-1)).toBe(lastSample);
@@ -1497,8 +1497,8 @@ describe('start-ownership table: Standard guest, notifications one task later (p
 
 describe('start-ownership table: Standard coverage (pinned 2026-11-01)', () => {
   /**
-   * Each Standard row's lines, by row (H2 and H12 assert H1's and H6's; H3a,
-   * H6a and H10a assert H3's, H6's and H10's).
+   * Each Standard row's lines, by row (H2 and H12 assert H1's, H12b H6's, and
+   * H3a, H6a and H10a H3's, H6's and H10's; H13 asserts last lines only).
    */
   const STANDARD_ROWS: ReadonlyArray<readonly [row: string, samples: readonly string[]]> = [
     ['H1', HOST_ALL_READY_SAMPLES],

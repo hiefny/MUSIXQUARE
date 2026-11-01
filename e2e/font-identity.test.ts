@@ -95,7 +95,10 @@ const UNCOVERED: ReadonlySet<number> = new Set(
     .map((line) => Number.parseInt(line.slice(2), 16)),
 );
 
-/** The family of each committed font file, by file stem. */
+/**
+ * The family of each committed font file, by file stem. The app serves the
+ * baked copies in fonts/app/, which keep their input's file name.
+ */
 const FAMILY_BY_STEM: ReadonlyMap<string, string> = (() => {
   const families = new Map<string, string>();
   const add = (directory: string, family: string) => {
@@ -103,11 +106,11 @@ const FAMILY_BY_STEM: ReadonlyMap<string, string> = (() => {
       if (file.endsWith('.woff2')) families.set(file.slice(0, -'.woff2'.length), family);
     }
   };
-  add('fonts/inter', 'Inter');
-  add('fonts/noto/noto-sans-kr', 'Noto Sans KR');
-  add('fonts/noto/noto-sans-jp', 'Noto Sans JP');
-  add('fonts/noto/noto-sans-sc', 'Noto Sans SC');
-  add('fonts/noto/noto-sans-tc', 'Noto Sans TC');
+  add('fonts/app/inter', 'Inter');
+  add('fonts/app/noto-sans-kr', 'Noto Sans KR');
+  add('fonts/app/noto-sans-jp', 'Noto Sans JP');
+  add('fonts/app/noto-sans-sc', 'Noto Sans SC');
+  add('fonts/app/noto-sans-tc', 'Noto Sans TC');
   add('fonts/noto/noto-sans-thai', 'Noto Sans Thai');
   return families;
 })();

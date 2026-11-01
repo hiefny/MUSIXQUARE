@@ -44,6 +44,17 @@ describe('self-hosted locale font assets', () => {
     expect(localeFontAssetInlineLimit('/workspace/fonts/noto/noto-sans-kr/PbykFm.119.woff2')).toBe(
       false,
     );
+    // The baked app faces too: three of them are under Vite's 4 KiB inline limit.
+    expect(localeFontAssetInlineLimit('/workspace/fonts/app/inter/inter-latin.woff2')).toBe(false);
+    expect(
+      localeFontAssetInlineLimit(
+        'C:\\workspace\\fonts\\app\\noto-sans-tc\\-nF7OG829Oofr2wohFbTp9iFOkMQAewlpbGXhhyYs0QF3kPVyLylzU95vTq1Ltj5xQez1g.97.woff2',
+      ),
+    ).toBe(false);
+    expect(localeFontAssetInlineLimit('/workspace/fonts/app/noto-sans-sc/shard.4.woff2')).toBe(
+      false,
+    );
+    expect(localeFontAssetInlineLimit('/workspace/fonts/app-faces.json')).toBeUndefined();
     expect(localeFontAssetInlineLimit('/workspace/css/fonts/app/notes.txt')).toBeUndefined();
     expect(bindStaticLocaleFontAssets().name).toBe('bind-static-locale-font-assets');
 

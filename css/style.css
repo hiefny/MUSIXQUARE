@@ -1477,14 +1477,19 @@ or pointers. Keep :focus-visible and :active outside the gate (src/ui/__tests__/
   }
 
   /* With several playlists the title is one large button, like the first-run
-     "Hello" language button: the active playlist's name and a chevron, its
-     text kept on the plain title's line by negative margins. */
+     "Hello" language button: the active playlist's name and a chevron. Its
+     -4px margins cancel 4px of padding, so the header row sees the title's
+     line, or 36px (44px less 8px) when the line is shorter, and the button
+     still reaches 4px above and below it: a touch target of at least 44px.
+     A line taller than 36px (a taller script, or fonts without the metric
+     overrides) so grows the row as a plain title does in Connect, Settings
+     and Help, and every tab title keeps one baseline. */
   .playlist-switch-button {
     width: auto;
     min-width: 0;
     max-width: 100%;
     min-height: 44px;
-    padding: 0 10px 0 12px;
+    padding: 4px 10px 4px 12px;
     margin: -4px auto -4px -12px;
     display: inline-flex;
     align-items: center;
@@ -1529,9 +1534,12 @@ or pointers. Keep :focus-visible and :active outside the gate (src/ui/__tests__/
     stroke-linejoin: round;
   }
 
-  /* A long name is cut before its number: "Playl… 2". */
+  /* A long name is cut before its number: "Playl… 2". The number sits on the
+     name's baseline, so a name drawn with a taller line than its digits (a
+     taller script, or fonts without the metric overrides) does not lift it. */
   .playlist-slot-name {
     display: inline-flex;
+    align-items: baseline;
     min-width: 0;
     max-width: 100%;
   }
@@ -1614,13 +1622,13 @@ or pointers. Keep :focus-visible and :active outside the gate (src/ui/__tests__/
     color: var(--accent);
   }
 
-  /* Lock invite wrapper to 36px — matches .tab-action-btn's -4px effective
-       height so every tab-header has identical flex cross-axis sizing and
-       the .tab-title lands at the same Y across tabs regardless of the
-       font's line-height-normal metric. */
+  /* Lock the invite wrapper to 36px, the height .tab-action-btn's -4px
+       margins leave of its 44px box, so every tab header's row is 36px
+       unless its title's line is taller. The wrapper sets no line height:
+       .invite-meta-cluster's `font: inherit`, in the later components layer,
+       hands it the header's, so its two lines keep line-height: normal. */
   .settings-invite-wrapper {
     height: 36px;
-    line-height: 1.2;
     justify-content: center;
   }
 
@@ -3328,10 +3336,36 @@ or pointers. Keep :focus-visible and :active outside the gate (src/ui/__tests__/
   /* Deletion mode: the playlist title becomes the selected count and one
      text-only action toggles select all. The tab's icon actions step aside
      until the mode ends. */
-  .tab-header.is-removal-selecting > .tab-title:not(.playlist-selection-title),
-  .tab-header.is-removal-selecting > .playlist-switch-button,
   .tab-header.is-removal-selecting .playlist-title-area > .tab-action-btn {
     display: none;
+  }
+
+  /* The playlist title (or its switch button) steps aside as well but keeps
+     holding the row: invisible and with no width, it is still 36px tall, or
+     its line when that is taller, with its text centred as outside the mode.
+     The count title sits on its baseline, so for a title on one line entering
+     the mode moves neither the title nor the list, whatever the script or the
+     fonts' line height. A plain title wrapped onto two lines is held to one
+     here, so its header still shortens in the mode. */
+  .tab-header.is-removal-selecting > .tab-title:not(.playlist-selection-title):not([hidden]),
+  .tab-header.is-removal-selecting > .playlist-switch-button {
+    width: 0;
+    min-width: 0;
+    margin-left: 0;
+    margin-right: 0;
+    padding-left: 0;
+    padding-right: 0;
+    overflow: hidden;
+    white-space: nowrap;
+    visibility: hidden;
+  }
+
+  /* The plain title's 36px came from the icon actions beside it; with them
+     gone it takes its own, its text still centred. */
+  .tab-header.is-removal-selecting > .tab-title:not(.playlist-selection-title):not([hidden]) {
+    display: flex;
+    align-items: center;
+    min-height: 36px;
   }
 
   /* The count title and the small toggle share one text baseline, so the
@@ -3341,10 +3375,9 @@ or pointers. Keep :focus-visible and :active outside the gate (src/ui/__tests__/
     align-items: baseline;
   }
 
+  /* The count title draws a plain title's line; the hidden title above sets
+     the row's height and baseline. */
   .playlist-selection-title {
-    /* The 36px row the hidden icon actions normally set, with the text centred
-       in it as before, so the header keeps its height in both modes. */
-    line-height: 36px;
     flex: 1 1 auto;
     min-width: 0;
     overflow: hidden;
@@ -3363,8 +3396,8 @@ or pointers. Keep :focus-visible and :active outside the gate (src/ui/__tests__/
     -webkit-appearance: none;
     flex: 0 0 auto;
     /* A 44px touch box whose margin box is only 16px tall, so sitting on the
-       title's baseline never makes the header row taller than its normal
-       36px and entering the mode never moves the title or the list. */
+       title's baseline never makes the header row taller than outside the
+       mode and entering the mode never moves the title or the list. */
     height: 44px;
     margin: -14px 0 -14px 16px;
     padding: 0 4px;

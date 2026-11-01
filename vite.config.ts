@@ -32,12 +32,13 @@ export { LEGACY_APP_BROWSER_TARGET };
  * the reference base and make every relative font URL inside it unusable.
  * Keep the WOFF2 shards external too so unicode-range remains genuinely lazy
  * instead of folding uncommon glyph shards into the stylesheet transfer. The
- * app's generated sheets (css/fonts/app/) and the Inter subsets follow the
+ * app's generated sheets (css/fonts/app/), the Inter subsets and the baked app
+ * faces (fonts/app/, three of them under the 4 KiB inline limit) follow the
  * same rule.
  */
 export function localeFontAssetInlineLimit(filePath: string): boolean | undefined {
   const normalized = filePath.replaceAll('\\', '/');
-  return /(?:^|\/)(?:css\/fonts\/(?:app\/)?[^/]+\.css|fonts\/(?:noto|inter)\/.+\.woff2)$/u.test(
+  return /(?:^|\/)(?:css\/fonts\/(?:app\/)?[^/]+\.css|fonts\/(?:noto|inter|app)\/.+\.woff2)$/u.test(
     normalized,
   )
     ? false

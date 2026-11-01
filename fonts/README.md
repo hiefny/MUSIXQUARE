@@ -14,19 +14,24 @@ switch in a later train.
 
 ## Faces
 
-| Family                                  | Files                                  | Draws                                                                                   |
-| --------------------------------------- | -------------------------------------- | --------------------------------------------------------------------------------------- |
-| Inter 4.001 (Google Fonts v20)          | `fonts/inter/`, 7 subsets              | Latin, digits, Cyrillic, Greek and the marks in its own cmap                            |
-| Noto Sans KR 2.004 (Google Fonts v40)   | `fonts/noto/noto-sans-kr/`, 120 shards | Hangul (only this family), Hanja, CJK punctuation and symbols Inter lacks (※ ― ‥ ‰ ‼ →) |
-| Noto Sans JP, SC, TC (Google Fonts)     | `fonts/noto/noto-sans-{jp,sc,tc}/`     | kana (only JP), Han and CJK marks in the Han order of the UI                            |
-| Noto Sans Thai, Arabic, Hebrew, 8 Indic | `fonts/noto/noto-sans-*/`              | their own script                                                                        |
+| Family                                  | Files the app serves (inputs)                                                                 | Draws                                                                                   |
+| --------------------------------------- | --------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------- |
+| Inter 4.001 (Google Fonts v20)          | `fonts/app/inter/`, 7 subsets (`fonts/inter/`)                                                | Latin, digits, Cyrillic, Greek and the marks in its own cmap                            |
+| Noto Sans KR 2.004 (Google Fonts v40)   | `fonts/app/noto-sans-kr/`, 120 shards (`fonts/noto/noto-sans-kr/`)                            | Hangul (only this family), Hanja, CJK punctuation and symbols Inter lacks (※ ― ‥ ‰ ‼ →) |
+| Noto Sans JP, SC, TC (Google Fonts)     | `fonts/app/noto-sans-{jp,sc,tc}/`, 120, 95 and 98 shards (`fonts/noto/noto-sans-{jp,sc,tc}/`) | kana (only JP), Han and CJK marks in the Han order of the UI                            |
+| Noto Sans Thai, Arabic, Hebrew, 8 Indic | `fonts/noto/noto-sans-*/`                                                                     | their own script                                                                        |
 
-- Inter ships the seven variable subsets (`opsz` 14-32, `wght` 100-900)
+The Inter and CJK files the app serves are copies with the app's line box
+baked in (see [Baked line box](#baked-line-box)). The folders in parentheses
+hold their inputs; `fonts/noto/noto-sans-{jp,sc,tc}/` are Google's shards,
+which About, its sibling pages and the sitemap page keep using unchanged.
+
+- Inter's input is the seven variable subsets (`opsz` 14-32, `wght` 100-900)
   exactly as Google serves them. Its Latin subset keeps the contextual
   alternates (`calt`), so `->` draws as an arrow, `3x4` as `3×4` and a colon
   between digits sits raised, as Pretendard drew them.
-- Noto Sans KR ships Google's 120 numbered shards under Google's file names,
-  re-encoded without the Korean `locl` lookup. Google's shards register
+- Noto Sans KR's input is Google's 120 numbered shards under Google's file
+  names, re-encoded without the Korean `locl` lookup. Google's shards register
   `locl` for Korean in every script, so with `lang="ko"` a few marks (for
   example `‼` next to Hangul) take a Korean form that no other UI shows.
   Without it the Korean and English UIs shape every character alike. The
@@ -38,7 +43,8 @@ switch in a later train.
   Google's copyright (name ID 0, with the Reserved Font Name) and license URL
   (name ID 14), since the files are served under `/assets/` with no license
   file beside them. The SIL OFL 1.1 allows this: the font's Reserved Font Name
-  is "Source", not "Noto".
+  is "Source", not "Noto". The baked copies of every Inter and CJK face keep
+  the name table unchanged as well.
 - The four unnumbered Noto Sans KR shards (Latin, Cyrillic, Vietnamese) are
   not shipped: Inter draws those ranges.
 
@@ -80,12 +86,72 @@ every script has exactly one family:
   face to that one home): CJK `size-adjust` 94% with `ascent-override`
   101.29%, `descent-override` 25.66% and `line-gap-override` 0%; Inter 97.2%,
   97.96%, 24.82% and 0%. The overrides are Pretendard's ascent and descent
-  divided by the size, so line boxes stay where Pretendard put them.
+  divided by the size, so line boxes stay where Pretendard put them. Each
+  face points at its baked copy in `fonts/app/`, which holds the same box in
+  its own tables.
 
 Generated sheets carry a `font-` prefix so their emitted names never collide
 with the static pages' `noto-*.css` sheets, which the build and the
 retryable stylesheet loader match by name. Keep that prefix for any new app
 sheet.
+
+## Baked line box
+
+Safari applies `size-adjust` but not `ascent-override`, `descent-override` or
+`line-gap-override`, so a `line-height: normal` line there takes its box from
+each file's own vertical metrics. With Google's files a 15 px Hangul line was
+about 20 px high instead of 18 px, and with several playlists the Playlist
+title sat higher than the other tab titles. The owner chose on 2026-11-01 to
+bake the box into the files rather than patch `line-height` in CSS
+([report](../docs/design/app-font-baked-metrics-2026-11-01.md)):
+
+- `scripts/fonts/build-app-faces.mts` (`npm run generate:app-faces`) copies
+  every Inter and CJK face the app sheets keep into `fonts/app/<family>/`,
+  under its input's file name, with the box of `src/i18n/font-metrics.ts` in
+  `hhea` and the OS/2 typo metrics and `USE_TYPO_METRICS` set: 2006 / 508 / 0
+  of 2048 units for Inter, 1013 / 257 / 0 of 1000 for the CJK families. Those
+  are the nearest units to the descriptors, which a browser scales by
+  `size-adjust` just as it scales the file's own metrics.
+- Nothing else changes: outlines, advances, cmap, layout tables, `BASE`,
+  `vhea` and `vmtx` stay, and so do the win metrics (Inter 2269 / 660, CJK
+  1160 / 288), so a renderer that clips glyphs to them (GDI) clips nothing
+  new. With `USE_TYPO_METRICS` set, no current browser takes line spacing from
+  them.
+- The sheets keep the four descriptors, so Chromium draws exactly what it drew
+  with the input files (measured on Windows). Firefox applies the same
+  descriptors, so no change is expected there, but it was not measured: the
+  bake changes the face metrics Firefox reads (`hhea`, typo and, for CJK,
+  `USE_TYPO_METRICS`), and whether the overrides mask every value it derives
+  from them has not been checked. Whether the three overrides stay is an
+  owner question in the report.
+- Whole units cannot equal two-decimal percentages: the baked box is within
+  0.0004 em of the descriptors, not equal to them. A line drawn from the files
+  (Safari) can therefore be 1 px taller or shorter than one drawn from the
+  descriptors (Chromium, Firefox) at sizes next to a pixel rounding boundary:
+  a CJK line at 14.5 px, and the fluid `clamp()` sizes of the setup overlay
+  and the desktop demo at some window widths and heights (the report lists
+  them). A WebKit that applies the overrides, as Playwright's does, applies
+  them without rounding the ascent and descent, so its baselines then fall
+  between pixels.
+- Safari 15 and 16 (the oldest Safari the app's CSS targets) ignore
+  `size-adjust` too and draw the baked units unscaled. Because the bake
+  divides by `size-adjust`, CJK and Latin move in opposite directions there
+  against the shipped box of (1950 + 494) / 2048 = 1.193 em. CJK lines come
+  nearer but not equal: 1.448 em before, 1.27 em now (13, 15 and 28 px lines
+  at 16, 19 and 35 px, against 15, 18 and 34). Latin lines get taller: Google's
+  Inter box was 1984 / 494 (1.210 em) and the baked one is 2006 / 508
+  (1.228 em), so with the ascent and descent rounded separately a Latin-only
+  line is 1 px taller at 28 and 2 px taller at 6 of the 81 half-pixel sizes
+  from 8 to 48 px, none shorter (for example 17 px 20 to 21, 20 px 24 to 25,
+  24 px 29 to 30, 34.5 px 41 to 43), and unchanged at 13, 15, 16 and 28 px.
+  The files stay as they are, since Safari 17 and later need the bake.
+- `fonts/app-faces.json` records each copy: the digests of its input and of
+  itself, the box, the win metrics it keeps and the wawoff2 version. Without
+  `--record`, a face baked again from its recorded input and box must give its
+  recorded bytes, also after a wawoff2 update (an update that gives the same
+  bytes only replaces the recorded version); otherwise the run writes nothing
+  and stops. `--record` accepts new bytes after review, and `--check` bakes
+  every face again in memory (about 100 s).
 
 ## Stacks
 
@@ -166,8 +232,13 @@ About links through `vite.config.ts`.
   builder checks each copy's cmap, outlines and metrics at wght 400 and 700,
   its shaping with and without Korean at the default instance and at wght 400
   and 700, and its copyright and license names, before it writes the copy.
-- `npm run generate:font-sheets` writes `css/fonts/app/` and
-  `src/i18n/font-prefetch-samples.ts` (`-- --check` compares).
+- `fonts/app-faces.json` is the record of the baked app faces (see
+  [Baked line box](#baked-line-box)), written by `npm run generate:app-faces`.
+- `npm run generate:font-sheets` first bakes the app faces that are new or
+  changed, then writes `css/fonts/app/` and `src/i18n/font-prefetch-samples.ts`
+  (`-- --check` compares the sheets and checks the baked faces against their
+  record without baking them again; `npm run generate:app-faces -- --check`
+  bakes them again).
 - `npm run generate:noto-kr -- --check` verifies the shipped Noto Sans KR
   files against the record and that no `locl` lookup is left.
 - To refresh from Google, download the CSS and the files into a new empty
@@ -178,8 +249,11 @@ About links through `vite.config.ts`.
 
 ## Verification
 
-- `npm run guard:font-assets` checks the source: the shipped Inter and Noto
-  Sans KR files against `fonts/font-sources.json`, the generated sheets
+- `npm run guard:font-assets` checks the source: the Inter and Noto Sans KR
+  inputs against `fonts/font-sources.json`, the baked app faces against
+  `fonts/app-faces.json` (the box in `hhea` and the OS/2 typo metrics with
+  `USE_TYPO_METRICS`, the input's win metrics, valid checksums and no other
+  change from the input), the generated sheets
   against their generator, every face self-hosted with the descriptors of its
   family, every text stack (the Korean and English ones identical under every
   Han order), no app rule that applies in only one of the Korean and English
@@ -195,12 +269,25 @@ About links through `vite.config.ts`.
   It also checks that nothing in the app names or preloads Pretendard.
 - `npm run guard:font-build` adds the build: no font in the initial graph of
   the app document or its localized copies, each app sheet its own lazy CSS
-  asset with root-relative WOFF2 files, the built Inter and Noto Sans KR bytes
-  equal to the sources, no font in the service worker's install manifests
+  asset with root-relative WOFF2 files, the built Inter and CJK faces equal
+  to their baked copies, no font in the service worker's install manifests
   (which do install the font owner chunk), About bound to the original sheets,
   and Pretendard deployed once.
-- Unit tests: `src/i18n/__tests__/font-*.test.ts`, `locale-fonts.test.ts`,
-  `static-page-fonts.test.ts` and `src/core/__tests__/app-font-guard.test.ts`.
+- Unit tests: `src/i18n/__tests__/font-*.test.ts` (`font-baked-metrics`
+  reads the tables of every app face itself), `app-face-metrics.test.ts`,
+  `locale-fonts.test.ts`, `static-page-fonts.test.ts` and
+  `src/core/__tests__/app-font-guard.test.ts`.
+- `e2e/font-line-boxes.test.ts` (local, on the e2e build) serves the Inter
+  and CJK sheets without the three overrides, as Safari reads them, and
+  requires the line boxes of Latin, Hangul, mixed, kana and Han lines at 13,
+  15 and 28 px and the four tab titles to stay where the shipped sheets put
+  them. It opens the Korean UI only; the report's measurements and its
+  42-language sweep cover the other UIs.
+- `e2e/font-baked-pixels.test.ts` (local, on the e2e build) answers every
+  request for a baked face with its input file in a second context and
+  requires the start screen, the four tab screens and the chat in the Korean
+  and English UIs, and desktop Home and Playlist, to be the same PNG as with
+  the baked faces.
 - `e2e/font-identity.test.ts` (local, on the e2e build) draws the same chat
   and track titles in a fresh Korean and a fresh English UI and compares the
   faces of every character, the widths and the pixels, and checks what each

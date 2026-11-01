@@ -6,10 +6,17 @@
  * each face's own vertical metrics: on the owner's iPhone a 15 px Hangul line
  * was about 20 px high instead of 18 px, and the Playlist title sat higher
  * than the other tab titles. The app faces carry the line box of
- * src/i18n/font-metrics.ts in their tables, so dropping the overrides must
- * change nothing. Chromium models that browser here: context B serves the
- * app's Inter and CJK sheets without the three overrides (size-adjust stays)
- * and must measure what context A measures with the shipped sheets:
+ * src/i18n/font-metrics.ts in their tables, so dropping the overrides changes
+ * nothing at the sizes probed here. (The descriptors are two-decimal
+ * percentages within half a unit of the baked box, not equal to it, so a line
+ * next to a pixel rounding boundary, such as a CJK line at 14.5 px, still
+ * differs by 1 px; docs/design/app-font-baked-metrics-2026-11-01.md §3 lists
+ * the sizes.) Chromium models that browser here. On Windows it reads each
+ * face's OS/2 typo metrics (USE_TYPO_METRICS is set), where Safari's CoreText
+ * reads hhea; src/i18n/__tests__/font-baked-metrics.test.ts and the font guard
+ * check that the two are equal in every face. Context B serves the app's
+ * Inter and CJK sheets without the three overrides (size-adjust stays) and
+ * must measure what context A measures with the shipped sheets:
  * - the height and baseline of Latin, Hangul, mixed, kana and Han lines at 13,
  *   15 and 28 px in weights 400 and 700, drawn by Inter, Noto Sans KR and Noto
  *   Sans JP;

@@ -24,14 +24,17 @@
  *   today's line boxes (18 px rows at 15 px, for example) for Latin, Hangul,
  *   kana and Han alike.
  * - Safari applies size-adjust but not the overrides, so it scales the file's
- *   own metrics instead. The files therefore carry the same box in font units
+ *   own metrics instead. The files therefore carry the box in font units
  *   (hhea and the OS/2 typo metrics, with USE_TYPO_METRICS set): Pretendard's
  *   metric divided by size-adjust, rounded to the nearest unit, which is also
  *   the nearest unit to each override. A unit is 1/2048 em for Inter and
- *   1/1000 em for the CJK families, so the baked box differs from the
- *   descriptors by less than half a unit (at most 0.0004 em); a line box,
- *   rounded to whole pixels, can differ by 1 px only near a rounding boundary
- *   (14.5 px is the one size of the app's CSS where a CJK line does).
+ *   1/1000 em for the CJK families, so the baked box is not the descriptors
+ *   but within half a unit of them (at most 0.0004 em). A line box rounded to
+ *   whole pixels from the one can be 1 px taller or shorter than from the
+ *   other at sizes next to a rounding boundary: a CJK line at 14.5 px, and the
+ *   fluid clamp() sizes of the setup overlay and the desktop demo at some
+ *   window widths and heights (docs/design/app-font-baked-metrics-2026-11-01.md
+ *   §3 lists them).
  */
 
 interface FontFaceMetrics {

@@ -117,19 +117,27 @@ bake the box into the files rather than patch `line-height` in CSS
   1160 / 288), so a renderer that clips glyphs to them (GDI) clips nothing
   new. With `USE_TYPO_METRICS` set, no current browser takes line spacing from
   them.
-- The sheets keep the four descriptors, which equal the baked box, so
-  Chromium and Firefox draw exactly what they drew with the input files.
-- Whole units cannot equal two-decimal percentages: the baked box is at most
-  0.0004 em from the descriptors, so in Safari a line can be 1 px taller or
-  shorter only next to a pixel rounding boundary (among the app's own sizes, a
-  CJK line at 14.5 px, which only desktop windows 1,450 px or wider use).
+- The sheets keep the four descriptors, so Chromium and Firefox draw exactly
+  what they drew with the input files. Whether the three overrides stay is an
+  owner question in the report.
+- Whole units cannot equal two-decimal percentages: the baked box is within
+  0.0004 em of the descriptors, not equal to them. A line drawn from the files
+  (Safari) can therefore be 1 px taller or shorter than one drawn from the
+  descriptors (Chromium, Firefox) at sizes next to a pixel rounding boundary:
+  a CJK line at 14.5 px, and the fluid `clamp()` sizes of the setup overlay
+  and the desktop demo at some window widths and heights (the report lists
+  them). A WebKit that applies the overrides, as Playwright's does, applies
+  them without rounding the ascent and descent, so its baselines then fall
+  between pixels.
 - Safari before 17 ignores `size-adjust` too and draws the baked units
   unscaled: nearer the shipped boxes than before, not equal.
 - `fonts/app-faces.json` records each copy: the digests of its input and of
   itself, the box, the win metrics it keeps and the wawoff2 version. Without
-  `--record`, a face baked again from the same input, box and tool must give
-  its recorded bytes; `--check` bakes every face again in memory (about
-  100 s).
+  `--record`, a face baked again from its recorded input and box must give its
+  recorded bytes, also after a wawoff2 update (an update that gives the same
+  bytes only replaces the recorded version); otherwise the run writes nothing
+  and stops. `--record` accepts new bytes after review, and `--check` bakes
+  every face again in memory (about 100 s).
 
 ## Stacks
 
@@ -257,8 +265,9 @@ About links through `vite.config.ts`.
   `src/core/__tests__/app-font-guard.test.ts`.
 - `e2e/font-line-boxes.test.ts` (local, on the e2e build) serves the Inter
   and CJK sheets without the three overrides, as Safari reads them, and
-  requires the line boxes of Latin, Hangul, mixed, kana and Han lines and the
-  four tab titles to stay where the shipped sheets put them.
+  requires the line boxes of Latin, Hangul, mixed, kana and Han lines at 13,
+  15 and 28 px and the four tab titles to stay where the shipped sheets put
+  them.
 - `e2e/font-baked-pixels.test.ts` (local, on the e2e build) answers every
   request for a baked face with its input file in a second context and
   requires the start screen, the four tab screens and the chat in the Korean

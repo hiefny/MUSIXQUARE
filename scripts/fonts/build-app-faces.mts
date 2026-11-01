@@ -14,9 +14,11 @@
  * overrides of the app sheets, so it would take the line box from each file's
  * own metrics. Each copy therefore carries the box of src/i18n/font-metrics.ts
  * in hhea and the OS/2 typo metrics, with USE_TYPO_METRICS set
- * (scripts/fonts/app-face-metrics.mts), and every browser draws the same line
- * boxes. The sheets keep the descriptors, which equal the baked box, for the
- * browsers that apply them.
+ * (scripts/fonts/app-face-metrics.mts). The sheets keep the descriptors for
+ * the browsers that apply them. Those are two-decimal percentages within half
+ * a unit of the baked box, not equal to it, so the two give the same line
+ * boxes except at sizes next to a pixel rounding boundary, where a line can
+ * differ by 1 px (see src/i18n/font-metrics.ts).
  *
  * Inputs: the faces the app sheets keep, as scripts/fonts/build-font-sheets.mts
  * computes them from the input cmaps: Inter from fonts/inter/ (Google's

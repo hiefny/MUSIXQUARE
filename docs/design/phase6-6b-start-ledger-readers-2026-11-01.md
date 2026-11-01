@@ -2,19 +2,21 @@
 
 | Field              | Value |
 | ------------------ | ----- |
-| Status             | 준비됨, 배포 전. 브랜치 `agent/p6-6b`(바탕 `dda3ee18` 위 커밋 열다섯: 계획 6B-1과 6B-2의 테스트 먼저·코드 커밋 넷, CHECK 12 후속 두 번의 테스트 먼저·가드 커밋 넷, 시험만 둘(독자 창 고정, 시험 순서 의존 고침), 주석·레지스트리와 설계 문서 메모 둘, 이 보고서의 기록 커밋 셋). 처음 납품의 '머지 전에 할 일' 1(`--sequence.shuffle` 순서 의존)과 2(T0b가 main에 든 뒤 옮기기)는 끝났다(`418b411d`, 바탕 `dda3ee18`). `e5851cd0`(운영 코드는 `418b411d`와 같고, 그 뒤는 이 기록 커밋뿐)의 마지막 로컬 검사는 버전 올리기를 기다리는 `guard:sw-cache-version` 말고 모두 통과했다(QA 라운드 5). T0b 결함 넷째(방장이 일시정지할 때 일시정지 신호가 참가자에게 두 번 가는 경우, H10 행)의 고침은 오너 답이 없어 싣지 않았고 6B는 그 고침 없이 나간다(아래 '오너에게' 1). 버전 올리기(계획 6B-3), release-record §2의 이 열차 항목, PR, 머지, 배포는 릴리스 담당이 한다. 로컬과 브랜치 결과는 exact-main-SHA 후보를 대신하지 않는다 |
-| Base               | `dda3ee18` = main: App 9.0.30 / v803의 배포 기록 #551(`9c078f5c`) 위에 T0b 시험만 PR 둘(#552, #553)과 시험만 E2E·단위 고침(#554). 운영 App 9.0.30(`3c098e9d`) 뒤 바탕까지 바뀐 것은 문서, 단위 시험, E2E 시험과 그 도우미뿐이라(`git diff 3c098e9d dda3ee18`에 런타임 경로 없음) 바탕의 App 런타임은 운영과 같고, 같은 툴체인으로 만든 바탕 빌드의 진입 청크도 9.0.30 운영 smoke가 읽은 것과 이름·크기가 같다(`main-zzIxMfb3.js`, 860,802 B, QA 라운드 4). 처음 납품은 T0b가 main에 들기 전의 `9e72b7ce`(main `9c078f5c` 위 T0b 시험만 커밋 일곱) 위 커밋 아홉이었고, 이 갈래를 `dda3ee18` 위로 옮겼다. 옮긴 뒤 운영 코드는 납품과 바이트로 같다(`git diff 691d8fb6 418b411d -- src`에서 시험 밖 차이 없음). 바탕 `dda3ee18`에서 6A의 머지 뒤 Full E2E [41278378387](https://github.com/hiefny/MUSIXQUARE/actions/runs/41278378387)이 통과했다(`e2e` 794 passed, QA 라운드 5). 6B의 코드를 담지 않으므로 6B의 근거가 아니라 6B 앞 런타임의 기준이다 |
-| Version            | 없음. 9.0.30 / v803 그대로다(`guard:release-identity` 'MUSIXQUARE 9.0.30; service-worker cache epoch v803'). App 런타임 경로가 바뀌므로 다음 App 패치와 SW epoch를 함께 올려야 하고(예상 9.0.31 / v804), 그 전에는 `guard:sw-cache-version`이 그 이유 하나로 실패한다: '[sw-cache-version] FAIL: committed PWA runtime changes are newer than v803 (3c098e9d).'와 아래 'Deploy target'의 App 11 파일, 'Bump CACHE_VERSION in scripts/service-worker-asset.ts after these changes, then commit the bump.'(QA 라운드 4). 올리면 업데이트 창이 한 번 뜬다(Q1의 넷 가운데 둘째, 창 모양은 지금 그대로). 바닥(저장·유효 795)은 바꾸지 않는다 |
+| Status             | 준비됨, 배포 전. 브랜치 `agent/p6-6b`는 App 9.0.31 / v804의 머지 main `ba28943e`(#555, 2026-11-01 23:17 KST 배포) 위에 있다: 바탕 `dda3ee18` 위에서 만든 커밋 열다섯(계획 6B-1과 6B-2의 테스트 먼저·코드 커밋 넷, CHECK 12 후속 두 번의 테스트 먼저·가드 커밋 넷, 시험만 둘(독자 창 고정, 시험 순서 의존 고침), 주석·레지스트리와 설계 문서 메모 둘, 이 보고서의 기록 커밋 셋)을 패치 그대로 옮겼고(QA 라운드 6), 그 위에 설계 문서의 틈 목록 맞춤과 이 기록 커밋이 있다. 옮긴 테스트 먼저 커밋은 새 부모에서 라운드 4와 같은 이름의 행만 실패하고 코드 커밋은 모두 통과했으며, 옮긴 머리에서 `src/youtube`, `src/player`, `src/pro-room`이 파일 순서와 seed 3, 7, 4242에서, T0a·T0b 시험 51 파일이 모두 통과했다(QA 라운드 6). 처음 납품의 '머지 전에 할 일' 1(`--sequence.shuffle` 순서 의존)과 2(T0b가 main에 든 뒤 옮기기)는 끝났다. T0b 결함 넷째(방장이 일시정지할 때 일시정지 신호가 참가자에게 두 번 가는 경우, H10 행)의 고침은 오너 답이 없어 싣지 않았고 6B는 그 고침 없이 나간다(아래 '오너에게' 1). 버전 올리기(계획 6B-3, 9.0.32 / v805), release-record §2의 이 열차 항목, PR, 머지, 배포는 릴리스 담당이 한다. 로컬과 브랜치 결과는 exact-main-SHA 후보를 대신하지 않는다 |
+| Base               | `ba28943e` = main: App 9.0.31 / v804(#555, 앱 글꼴 줄 상자 굽기와 탭 제목 한 기준선)의 squash 머지이고, 그 SHA가 [Release 41315218029](https://github.com/hiefny/MUSIXQUARE/actions/runs/41315218029)(target `app`, attempt 1 성공)로 2026-11-01 23:17 KST에 운영 App이 됐다. 그래서 바탕의 App 런타임은 운영과 같다. 9.0.31의 배포 기록 PR은 이 기록 때 아직 main에 없다(다른 갈래로 따로 오고, 이 열차는 머지 전에 그 위로 다시 옮긴다, 문서만, 아래 '배포 조건과 순서'). 9.0.31이 바꾼 App 런타임(글꼴 사본 440, 앱 글꼴 시트 다섯, `css/style.css`, `src/i18n/font-metrics.ts`, `src/i18n/font-prefetch-samples.ts`, `vite.config.ts`, 버전 거울 넷)은 6B가 바꾼 11 파일과 겹치지 않고, 옮기며 겹친 것은 `docs/README.md`뿐이다. 그 앞 바탕은 `dda3ee18`(App 9.0.30 / v803의 배포 기록 #551 위에 T0b 시험만 PR 둘(#552, #553)과 시험만 E2E·단위 고침(#554), App 런타임은 운영 9.0.30 `3c098e9d`와 같음, 바탕 빌드의 진입 청크 `main-zzIxMfb3.js` 860,802 B, QA 라운드 4·5)이었고, 처음 납품은 T0b가 main에 들기 전의 `9e72b7ce`(main `9c078f5c` 위 T0b 시험만 커밋 일곱) 위 커밋 아홉이었다. 운영 코드는 처음 납품과 바이트로 같다(`git diff 691d8fb6 418b411d -- src`에서 시험 밖 차이 없음, 9.0.31 위로 옮긴 뒤에도 파일마다 더하고 뺀 줄이 같음). 6A의 머지 뒤 Full E2E [41278378387](https://github.com/hiefny/MUSIXQUARE/actions/runs/41278378387)이 `dda3ee18`에서 통과했고(`e2e` 794 passed, QA 라운드 5), 9.0.31의 머지 뒤 Full E2E [41315565486](https://github.com/hiefny/MUSIXQUARE/actions/runs/41315565486)은 `ba28943e`에서 이 기록 때 돌고 있다(QA 라운드 6). 둘 다 6B의 코드를 담지 않으므로 6B의 근거가 아니라 6B 앞 런타임의 기준이다 |
+| Version            | 없음. 9.0.31 / v804 그대로다(`guard:release-identity` 'MUSIXQUARE 9.0.31; service-worker cache epoch v804'). App 런타임 경로가 바뀌므로 다음 App 패치와 SW epoch를 함께 올려야 하고(9.0.32 / v805. 9.0.31이 먼저 나가 처음 예상 9.0.31 / v804에서 하나 밀림), 그 전에는 `guard:sw-cache-version`이 그 이유 하나로 실패한다: '[sw-cache-version] FAIL: committed PWA runtime changes are newer than v804 (ba28943e).'와 아래 'Deploy target'의 App 11 파일, 'Bump CACHE_VERSION in scripts/service-worker-asset.ts after these changes, then commit the bump.'(QA 라운드 6. 옮기기 전에는 같은 글의 'newer than v803 (3c098e9d).', 라운드 4·5). 올리면 업데이트 창이 한 번 뜬다(Q1의 넷 가운데 둘째, 창 모양은 지금 그대로). 바닥(저장·유효 795)은 바꾸지 않는다 |
 | Scope              | 계획 §4.7의 6B-1(C2-5, SS-04)과 6B-2(C2-7, SS-05), 모두 중립. 6B-1: 새 시작 장부 `src/youtube/start-ownership.ts`가 시작 주인들이 등록한 살아 있는 질의를 물을 때마다 읽어 독자에게 답한다. 6B-2: 모든 시작 소유 독자(여덟 모듈의 24곳)가 장부에 묻고, 합성 `isYouTubeZeroStartSyncOwned`(`src/youtube/zero-start-ownership.ts`)와 런타임 다리의 복구 훅 둘이 사라진다. 그 위에 계획에 없던 CHECK 12 후속 둘(가드만), 독자 창 고정과 시험 순서 의존 고침(시험만), 주석·레지스트리와 설계 문서 메모를 더했다. 와이어, 서버, 저장 모양, 계약 표지, 의존성, 타이머 이름, 로그 줄, 준비 이벤트, 화면, 소리는 바꾸지 않는다([화면 그대로]) |
-| Deploy target      | `app`. `scripts/release-deployment-state.mts`의 `changedRuntimePaths`, `runtimePathsForWorker`, `changedAppRuntimeDependencies`, `releaseTargetWorkers`로 `9e72b7ce..07a9f224`를 견준 로컬 git 판정(처음 납품): App 11(`src/network/sync.ts`, `src/player/background-return-sync.ts`, `src/ui/manual-sync-overlay-runtime.ts`, `src/ui/player-controls.ts`, `src/ui/seekbar.ts`, `src/youtube/`의 `iframe.ts`, `player-runtime-bridge.ts`, `player.ts`, 새 `start-ownership.ts`, `sync.ts`, 지운 `zero-start-ownership.ts`), PRO room 0, remote-share 0, signaling 0, Developer API facade 0, Developer API 0, App 런타임 의존성 차이 없음. 옮긴 뒤 `dda3ee18..48bc3819`의 시험·문서·`scripts/` 밖 차이는 같은 11 파일과 `vitest.critical.config.ts`뿐이고 `guard:sw-cache-version`도 같은 11 파일을 적는다(QA 라운드 4). 운영 App 9.0.30 `3c098e9d` 대비도 같은 App 11이고, 운영 PRO room `683074bc`와 나머지 넷 `71f5b96c` 대비 그 Worker들의 런타임 경로 차이는 0이다. 운영을 조회하지 않은 판정이라 릴리스의 부분 릴리스 검사를 대신하지 않는다. `raise_app_build_floor` false, Developer API D1 false(계획 RT-01). 계약 동결: `git diff --stat dda3ee18..48bc3819 -- cloudflare/ src/network/protocol.ts src/core/constants.ts src/types/index.ts package.json package-lock.json index.html scripts/service-worker-asset.ts browser/`가 비어 있다 |
-| Operations         | 운영에 닿지 않았다(로컬 git, 로컬 시험·빌드·Playwright만). GitHub 쓰기, push, 배포, 운영 요청은 없다. GitHub는 바탕의 Full E2E 실행 하나의 정보와 job 로그를 읽기만 했다(QA 라운드 5) |
+| Deploy target      | `app`. `scripts/release-deployment-state.mts`의 `changedRuntimePaths`, `runtimePathsForWorker`, `changedAppRuntimeDependencies`, `releaseTargetWorkers`로 `9e72b7ce..07a9f224`를 견준 로컬 git 판정(처음 납품): App 11(`src/network/sync.ts`, `src/player/background-return-sync.ts`, `src/ui/manual-sync-overlay-runtime.ts`, `src/ui/player-controls.ts`, `src/ui/seekbar.ts`, `src/youtube/`의 `iframe.ts`, `player-runtime-bridge.ts`, `player.ts`, 새 `start-ownership.ts`, `sync.ts`, 지운 `zero-start-ownership.ts`), PRO room 0, remote-share 0, signaling 0, Developer API facade 0, Developer API 0, App 런타임 의존성 차이 없음. 옮긴 뒤 `dda3ee18..48bc3819`의 시험·문서·`scripts/` 밖 차이는 같은 11 파일과 `vitest.critical.config.ts`뿐이고 `guard:sw-cache-version`도 같은 11 파일을 적는다(QA 라운드 4). 운영 App 9.0.30 `3c098e9d` 대비도 같은 App 11이고, 운영 PRO room `683074bc`와 나머지 넷 `71f5b96c` 대비 그 Worker들의 런타임 경로 차이는 0이다. 운영을 조회하지 않은 판정이라 릴리스의 부분 릴리스 검사를 대신하지 않는다. `raise_app_build_floor` false, Developer API D1 false(계획 RT-01). 계약 동결: `git diff --stat dda3ee18..48bc3819 -- cloudflare/ src/network/protocol.ts src/core/constants.ts src/types/index.ts package.json package-lock.json index.html scripts/service-worker-asset.ts browser/`가 비어 있다. 9.0.31 위로 옮긴 뒤 같은 함수로 운영 App 9.0.31 `ba28943e`(= 바탕), PRO room `683074bc`, 나머지 넷 `71f5b96c`와 견준 머리 `aa6fd50e`도 App 11(같은 파일), 나머지 Worker 0, App 런타임 의존성 차이 없음이고, 그 배포 SHA를 넣은(운영 조회 대신) target `app`의 부분 릴리스 호환 판정이 compatible이며, 같은 계약 동결 diff `ba28943e..aa6fd50e`도 비어 있다(QA 라운드 6) |
+| Operations         | 운영에 닿지 않았다(로컬 git, 로컬 시험·빌드·Playwright만). GitHub 쓰기, push, 배포, 운영 요청은 없다. GitHub는 바탕 `dda3ee18`의 Full E2E 실행 하나의 정보와 job 로그(QA 라운드 5), 9.0.31의 Release 실행과 그 머지 뒤 Full E2E 실행의 상태(QA 라운드 6)를 읽기만 했다 |
 | Resource ownership | 새 레코드 없음. 장부는 기존 자원 RO-02의 주인들을 독자에게 엮는 곳이고, 답·깃발·단계·스냅샷을 저장하지 않고 구독도 이벤트도 없이 살아 있는 질의만 읽으므로 같은 자원의 둘째 기계가 아니다(`AGENTS.md` Resource ownership, 계획 RT-11). 센 코드나 규칙을 옮긴 커밋이 같은 커밋에서 레지스트리 RO-02, 가드 항목 12, 기준치를 고쳤다: CHECK 12에 시작 주인 파사드 쓰기 2(`player.ts`, 정확), 실행 스냅샷 읽기 8(`player.ts`, 정확), 장부 합성 1(`player.ts :: seekYouTubeFromApp`, 정확, 묻는 claim 둘로 고정)과 실패 닫힘 규칙들(파생 질의가 결정하는 종류마다 `player.ts`의 등록 요구 포함)을 더했다. CHECK 11 32, CHECK 12 읽기 11과 지우기 9, CHECK 5 1 / 1 / 45는 그대로다. `node scripts/check-resource-ownership.mts`: 49 records, 457 production files(바탕과 같음, 파일 하나 더하고 하나 지움) |
 
 이 문서는 Phase 6 계획의 둘째 App 열차 6B의 증분과 QA를 기록한다. 근거는 공개하지 않는 작업 노트(`docs/private/`)의 Phase 6
 계획(2026-10-30)과 그 영역 조사, 오너 답(2026-10-30)이고, SS, RT, C2 번호와 Q 번호는 그 노트의 번호다. 계획의 줄 번호는
 `78ec56f5` 기준이라 6A와 T0b가 옮긴 위치를 모두 기호로 다시 찾았고, 이 문서의 줄 번호는 `48bc3819`의 것이다(운영 코드는
 `418b411d`, 처음 납품의 `07a9f224`, 브랜치 끝과 같아 줄도 같다). 앞선 Phase 6 단계는 시험만인 T0a(#539, #541, #542), 가드만인 T1(#543), 첫 App
-열차 6A(#550, 9.0.30 / v803, [보고서](phase6-6a-start-constants-owner-queries-2026-10-31.md))와 시험만인 T0b(#552, #553)다. 이 보고서에서
+열차 6A(#550, 9.0.30 / v803, [보고서](phase6-6a-start-constants-owner-queries-2026-10-31.md))와 시험만인 T0b(#552, #553)다. 그 뒤
+Phase 6 밖의 App 열차 하나(앱 글꼴 줄 상자 굽기와 탭 제목, #555, 9.0.31 / v804,
+[보고서](app-font-baked-metrics-2026-11-01.md))가 오너 결정대로 6B보다 먼저 나갔다. 이 보고서에서
 '중립'은 T0a의 골든과 고정 행, T0b 참값표의 모든 칸이 바이트 그대로 통과하고, 와이어가 바뀌지 않고, 같은 프레임이 같은 시각에 나가며,
 준비 이벤트가 출처마다 같은 순간에 나간다(모두에 마이크로태스크 합치기를 씌우지 않음)는 뜻이다. 6B가 독자를 옮긴 곳에서는 도달 단언이
 같은 커밋에서 장부 질의로 옮겨 갈 수 있지만 약해지지 않는다.
@@ -49,7 +51,9 @@
 '부모에서'는 테스트 먼저 커밋을 그 트리 그대로(런타임은 부모의 것) 다시 돌린 결과(실패 / 그 실행의 행)이고, '코드 커밋에서'는 같은
 파일들을 코드 커밋에서 돌린 결과다. 모두 옮긴 커밋에서 이 검사가 임시 worktree로 다시 돌렸다(QA 라운드 4). 실패한 행은 모두 그 테스트
 먼저 커밋이 더하거나 바꾼 행이고, 함께 돌린 중립 고정 38 파일(T0b 시험 18 파일 모두, T0a 골든과 고정, D4 셋 등, 2,157행)은 양쪽에서
-모두 통과했다. 처음 납품에서 잰 같은 표(옮기기 전 커밋)는 QA 라운드 1에 있다.
+모두 통과했다. 처음 납품에서 잰 같은 표(옮기기 전 커밋)는 QA 라운드 1에 있다. 이 표와 아래 절의 SHA는 바탕 `dda3ee18` 위의
+것이다. App 9.0.31의 머지 `ba28943e` 위로 옮긴 뒤의 SHA(지금 갈래의 SHA)와, 옮긴 부모에서 다시 돌려 같은 이름의 행만 실패하고 코드
+커밋에서 모두 통과한 결과는 QA 라운드 6의 대응표와 그 아래에 있다.
 
 | 증분                         | 항목                    | 테스트 먼저 → 코드      | 부모에서                                                 | 코드 커밋에서        | 가드                                                                 |
 | ---------------------------- | ----------------------- | ----------------------- | -------------------------------------------------------- | -------------------- | -------------------------------------------------------------------- |
@@ -348,6 +352,24 @@ T0a(#539, #541, #542)와 T0b(#552, #553)가 더하거나 고친 시험·도우�
   않는다(아래 '오너에게' 2).
 - 6B-1의 +129 B는 장부 모듈과 등록, 6B-2의 −182 B는 지운 합성 모듈, 다리 훅 둘, 다시 내보내기와 독자 import의 줄어듦으로 본다[추론].
 
+**App 9.0.31 위로 옮긴 뒤(QA 라운드 6, 지금의 근거):** 바탕 `ba28943e`(운영 App 9.0.31 그 자체)와 옮긴 6B-1, 6B-2를 같은 툴체인으로
+임시 worktree에서 커밋마다 빌드하고, 옮긴 머리 `aa6fd50e`는 이 갈래의 worktree에서 빌드해 같은 함수로 쟀다. 9.0.31이 진입 청크의
+`src/i18n/font-prefetch-samples.ts`를 바꿔 진입 청크 이름과 gzip 바이트가 옮기기 전과 다르고, 6B의 raw 차는 같다.
+
+| 커밋                                | 진입 청크          | 진입 raw / gzip   | eager JS gzip (부모 대비) | eager total raw / gzip (부모 대비) |
+| ----------------------------------- | ------------------ | ----------------- | ------------------------- | ---------------------------------- |
+| 바탕 `ba28943e`(운영 9.0.31 그 자체) | `main-CYs4aHwd.js` | 860,802 / 253,723 | 465,438                   | 2,048,669 / 543,683                |
+| 6B-1 `6b6807f3`                     | `main-CYJ-Q_7J.js` | 861,172 / 253,867 | 465,588 (+150)            | 2,049,039 / 543,833 (+150)         |
+| 6B-2 `af9ca6b9`                     | `main-B_2lIPze.js` | 861,056 / 253,683 | 465,404 (−184)            | 2,048,923 / 543,652 (−181)         |
+| 옮긴 머리 `aa6fd50e`                | `main-B_2lIPze.js` | 861,056 / 253,683 | 465,404 (0)               | 2,048,923 / 543,652 (0)            |
+
+- 증분별(부모 대비 eager JS gzip): 6B-1 +150, 6B-2 −184. 둘 다 증분 상한 +300 B 안이다.
+- **6B 순증(9.0.31 대비):** eager JS gzip −34 B, eager total gzip −31 B, 진입 raw +254 B, 진입 gzip −40 B. 버전 올리기 머리는 이 값을 넘어
+  늘지 않아야 한다(아래 '배포 조건과 순서'). KiB로는 eager JS 454.5 KiB, eager total 530.9 KiB gzip이다(entry 840.9 KiB raw / 247.7 KiB
+  gzip, eager total 2,000.9 KiB raw).
+- **Phase 6 누계(같은 방법, 9.0.31은 Phase 6 밖이라 뺌):** 6A −149 B + 6B −34 B = **−183 B**로 Phase 상한 +200 B 안이다. 처음 받는 양이
+  운영 9.0.31보다 줄어 Q29의 멈춤 조건에 해당하지 않는다(아래 '오너에게' 2). 위 `dda3ee18` 위의 −53 B와 −202 B는 옮기기 전의 값이다.
+
 ## 혼합 버전
 
 계획 §4.7의 (a) ~ (c)와 §5의 6B 행이다. 근거는 기기 혼합 행이 아니라 T0a의 프레임·시각 골든과 T0b 참값표가 바이트 그대로 통과한
@@ -469,8 +491,8 @@ checkpoint App(9.0.30)을 정한다. '기기 없음'과 '미확인'은 실패가
 
 ## 사용자가 알아챌 변화
 
-없다. 버전 올리기와 함께 업데이트 창이 한 번 뜬다(Q1의 넷 가운데 둘째, 창 모양은 지금 그대로). 처음 받는 코드는 gzip 기준 JS 53 B, 전체 54 B
-줄어든다(운영 9.0.30과 런타임이 같은 바탕 대비, 버전 올리기 앞, 위 '번들 크기').
+없다. 버전 올리기와 함께 업데이트 창이 한 번 뜬다(Q1의 넷 가운데 둘째, 창 모양은 지금 그대로). 처음 받는 코드는 gzip 기준 JS 34 B, 전체 31 B
+줄어든다(운영 9.0.31 그 자체인 바탕 대비, 버전 올리기 앞, 위 '번들 크기'. 옮기기 전 9.0.30 바탕 대비로는 53 B, 54 B).
 
 ## 기록과 레지스트리
 
@@ -492,8 +514,8 @@ checkpoint App(9.0.30)을 정한다. '기기 없음'과 '미확인'은 실패가
    - (가, 권장) 고친다: 다음 App 업데이트(6C나 6D)에 실으면 업데이트 창은 늘지 않아요. 만들기 전에 짧은 화면 녹화나 전후 시각 표를 먼저
      보여 드려요.
    - (나) 지금은 기록만 한다: 오늘 동작 그대로 시험에 고정돼 있어요.
-2. **[화면 그대로] 첫 로딩 크기: 정하실 것은 없어요.** 6B는 앱을 처음 열 때 받는 양을 압축 기준 53바이트 줄여요. Phase 6 전체로는 6A와
-   합쳐 202바이트 줄었고, 상한(늘어남 200바이트)과 멀어요.
+2. **[화면 그대로] 첫 로딩 크기: 정하실 것은 없어요.** 6B는 앱을 처음 열 때 받는 양을 압축 기준 34바이트 줄여요(지금 운영 중인 9.0.31
+   대비). Phase 6 전체로는 6A와 합쳐 183바이트 줄었고, 상한(늘어남 200바이트)과 멀어요.
 3. **[화면 그대로] 6B를 언제 낼지: 권장은 '자동 관문을 모두 통과하면 9.0.31로 낸다'예요.** 먼저 준비한 시험만 변경 둘은 main에 들어갔고,
    순서에 따라 실패하던 자동 시험 하나는 시험만 고쳤어요. 화면과 소리는 그대로이고 업데이트 창만 한 번 떠요(Phase 6 넷 가운데 둘째). 자리를
    비우신 동안 맡기신 대로 릴리스 담당이 정해요. 6B에 문제가 있어 되돌리면 9.0.30(6A)의 앱으로 돌아가요.
@@ -631,13 +653,78 @@ Playwright가 함께 돌았다. 앞뒤로 작업 트리는 깨끗했다.
   KST) 1 passed이고 실패와 불안정 표시는 없다. 실행 정보와 job 로그를 읽기만 했다. 6B의 코드를 담지 않으므로 6B 앞 런타임의 기준이다(위
   '배포 조건과 순서' 5).
 
+### 6. App 9.0.31 머지 `ba28943e` 위로 옮김과 재확인
+
+2026-11-01 23:20 ~ 23:41 KST, Windows 11 로컬, Node 24.22.2 / npm 12.0.2, vitest 5.0.3, `--maxWorkers=6`(JSON 보고). 옮김, 옮긴 머리의
+단위 검사, 가드, 머리 빌드는 이 갈래의 worktree에서, 테스트 먼저 다시 돌리기, seed, 바탕과 증분 빌드는 `ba28943e`에서 따로 만든 detached
+worktree(이 갈래 worktree의 `node_modules`를 연결, 런타임 의존성은 바탕과 같음)에서 커밋마다 detached로 바꿔 했다. 두 worktree의 일이
+함께 돌았고, 끝난 뒤 두 트리는 깨끗했다.
+
+- **옮김:** App 9.0.31 / v804(#555, 앱 글꼴 줄 상자 굽기와 탭 제목 한 기준선)가 2026-11-01 23:03 KST에 squash `ba28943e`로 main에
+  들어가 23:17 KST에 [Release 41315218029](https://github.com/hiefny/MUSIXQUARE/actions/runs/41315218029)(target `app`, attempt 1 성공)로
+  나갔다. `git fetch origin` 뒤 열다섯 커밋을 `git rebase`로 `dda3ee18`에서 `ba28943e`로 옮겼다(지난 main 커밋은 그 하나). 충돌은 기록 커밋
+  둘의 `docs/README.md`에서만 났다(`6aee97c3`, `e5851cd0`의 6B 항목과 main의 9.0.31 항목, 둘 다 증거 목록 맨 위에 더함). 양쪽을 남겨 6B
+  항목을 맨 위에, 9.0.31 항목을 그 바로 아래에 두었다(`e5851cd0`에서는 6B 항목만 그 커밋의 새 글로). 나머지는 저절로 합쳐졌다. 옮기며 새
+  커밋을 더하지 않았고 버전, SW 캐시, 기록 글을 바꾸지 않았다.
+- **그대로 옮겼음:** 열다섯 모두 커밋 메시지가 바이트로 같다. 열셋은 `git range-diff`에서 패치가 같고(`=`), 기록 커밋 둘(`docs/README.md`
+  충돌)은 더하고 뺀 줄이 같고 문맥만 움직였다. `git diff ba28943e..aa6fd50e`의 36 파일은 파일마다 더하고 뺀 줄이 `git diff dda3ee18..89e0b682`와
+  같다.
+- **대응표**(옮긴 뒤 ← 옮기기 전, 오래된 것부터. 옮기기 전 SHA는 위 표와 절의 SHA다):
+
+  | 옮긴 뒤    | 옮기기 전  | 커밋                                                       |
+  | ---------- | ---------- | ---------------------------------------------------------- |
+  | `2802cd9b` | `bd0dd536` | 6B-1 테스트 먼저                                           |
+  | `6b6807f3` | `5c43edd2` | 6B-1 시작 장부                                             |
+  | `fe0b0256` | `371a520c` | 6B-2 테스트 먼저                                           |
+  | `af9ca6b9` | `ca883e29` | 6B-2 독자 옮김                                             |
+  | `5a745ef5` | `9a56095d` | CHECK 12 후속, 테스트 먼저                                 |
+  | `1a64dc81` | `421cc056` | 시험만: 독자 창 고정                                       |
+  | `ed07d6ec` | `027b5036` | CHECK 12 후속, 가드만                                      |
+  | `9aa62681` | `c5f7ed17` | 주석·레지스트리                                            |
+  | `e7378e28` | `6aee97c3` | 기록: 이 보고서(`docs/README.md` 충돌, 양쪽 남김)          |
+  | `7223046c` | `418b411d` | 시험만: 시험 순서 의존 고침                                |
+  | `bf10724d` | `2920a863` | CHECK 12 둘째 후속, 테스트 먼저                            |
+  | `0664386e` | `0d9d55c8` | CHECK 12 둘째 후속, 가드만                                 |
+  | `2815ca67` | `48bc3819` | 설계 문서 메모                                             |
+  | `e577ec6e` | `e5851cd0` | 기록: 옮김과 마지막 검사(`docs/README.md` 충돌, 양쪽 남김) |
+  | `aa6fd50e` | `89e0b682` | 기록: 라운드 5와 고친 T0b 결함 목록                        |
+
+- **테스트 먼저(라운드 4와 같은 방법과 파일 묶음):** 다섯 쌍 모두 새 부모의 실패 행이 라운드 4의 실패 행과 이름까지 같고(정렬해 견줌,
+  둘째 후속은 라운드 4의 JSON이 없어 그 커밋이 더한 행 셋과 견줌), 코드 커밋은 모두 통과했다. 6B-1 `2802cd9b` 17 / 2,174(40 files,
+  `start-ownership.test.ts` 17행 모두와 등가 시험의 불러오기 실패 'Failed to resolve import "../start-ownership.ts"') → `6b6807f3` 2,184 /
+  2,184. 6B-2 `fe0b0256` 27 / 2,273(장부 17, 가드 10) → `af9ca6b9` 2,273 / 2,273. CHECK 12 후속 `5a745ef5` 12 / 91 → `ed07d6ec` 91 / 91.
+  독자 창 `1a64dc81` 5 / 5, 6B 앞 바탕 `ba28943e`(파일만 넣어 돌린 뒤 지움)에서도 5 / 5. CHECK 12 둘째 후속 `bf10724d` 3 / 94(새 행 셋,
+  규칙이 없음) → `0664386e` 94 / 94. 중립 고정 38 파일 2,157행은 6B-1·6B-2의 부모와 코드 커밋 넷에서 모두 통과했다.
+- **시험 순서 고침:** 고치기 전 `e7378e28`에서 두 묶음(`stale-async-guards.test.ts`, `sync-integration.test.ts`, 425행)을 seed 1 ~ 16으로
+  돌리면 seed 3(12 실패: `sync-integration` 10, `stale-async-guards` 2), 6(10, `sync-integration`), 7, 8, 10, 11, 12(각 2,
+  `stale-async-guards`)가 실패하고 나머지 아홉은 425 / 425로 라운드 4와 같다. `7223046c`에서는 seed 1 ~ 32 모두 425 / 425다.
+- **옮긴 머리 `aa6fd50e`(그 뒤 설계 문서 맞춤 `729bdc16`은 문서만):**
+  - `src/youtube`, `src/player`, `src/pro-room` 파일 순서 239 files, 6,515 / 6,515. `--sequence.shuffle` seed 3, 7, 4242에서도 모두 6,515 /
+    6,515다(9.0.31은 이 셋에 시험을 더하지 않아 라운드 4·5와 같은 수).
+  - T0a·T0b 시험 51 files(T0a #539, #541, #542와 T0b #552, #553이 더하거나 고친 시험 파일) 2,402 / 2,402. 그 안에서 Standard 참값표 62 / 62,
+    PRO 참값표 19 / 19, Standard 와이어 골든 16 / 16, PRO READY 시각 골든 10 / 10. 두 참값표, `fake-yt-player.ts`, 두 골든은 main `ba28943e`와
+    바이트로 같다.
+  - `node scripts/check-resource-ownership.mts`: 49 records, 457 production files, CHECK 11 32, CHECK 12 읽기 11·지우기 9, 파사드 쓰기 2,
+    스냅샷 읽기 8, 장부 합성 1. `--report` 119줄은 라운드 4와 줄마다 같다.
+  - `guard:release-identity` 'MUSIXQUARE 9.0.31; service-worker cache epoch v804'. `guard:sw-cache-version`은 버전 올리기를 기다리는 이유
+    하나로 실패한다(위 'Version'의 글, 'newer than v804 (ba28943e)'와 App 11 파일).
+  - 배포 대상: 위 'Deploy target'의 함수로 운영 배포 SHA(App `ba28943e`, PRO room `683074bc`, 나머지 넷 `71f5b96c`)와 견주면 App 11, 나머지
+    다섯 Worker 0, App 런타임 의존성 `[]`이고, 그 SHA를 넣은 `verifyPartialReleaseCompatibility('app', …)`가 compatible(다섯 Worker 모두
+    compatible, 바뀐 경로 0)이다. 계약 동결 diff `ba28943e..aa6fd50e`는 비어 있다.
+  - 크기: 위 '번들 크기'의 9.0.31 위 표.
+- **GitHub 읽기만:** 9.0.31의 Release 41315218029(23:14 KST dispatch, 'Deploy validated candidate' 23:17:47 KST success, 실패 복구 job
+  skipped, 배포 메시지 `git:ba28943e…`)와 9.0.31의 머지 뒤 Full E2E
+  [41315565486](https://github.com/hiefny/MUSIXQUARE/actions/runs/41315565486)(`workflow_dispatch`, main `ba28943e`, 23:18:49 KST 생성, 이 기록
+  때 in_progress). 이 Full E2E는 6B의 머지 조건이다(위 '배포 조건과 순서').
+
 ## 하지 않은 것과 확인하지 않은 것
 
 - **버전 올리기, release-record 항목, PR, 머지, 배포:** 릴리스 담당의 몫이라 하지 않았다(위 '배포 조건과 순서'). GitHub에 쓰지
-  않았다(라운드 5는 바탕의 Full E2E 실행 정보를 읽기만 함).
+  않았다(라운드 5는 바탕의 Full E2E 실행 정보를, 라운드 6은 9.0.31의 Release와 Full E2E 실행 상태를 읽기만 함).
 - **T0b 결함 넷째의 고침:** 오너 답 전이라 싣지 않았다(위 '오너에게' 1). 화면에 닿는 고침([화면 바뀜])은 묻지 않고 싣지 않는다.
-- **옮긴 커밋의 변이 확인:** QA 라운드 4와 5에서 다시 하지 않았다(라운드 4의 독자 변이 둘 말고). 옮기기 전 `07a9f224`(QA 라운드 1)와
-  옮긴 뒤 `418b411d`의 독립 검토(QA 라운드 3) 결과를 적었다.
+- **옮긴 커밋의 변이 확인:** QA 라운드 4, 5, 6에서 다시 하지 않았다(라운드 4의 독자 변이 둘 말고). 옮기기 전 `07a9f224`(QA 라운드 1)와
+  `dda3ee18` 위로 옮긴 뒤 `418b411d`의 독립 검토(QA 라운드 3) 결과를 적었다. 9.0.31 위로 옮긴 커밋은 운영 코드의 더하고 뺀 줄이 파일마다
+  같아(QA 라운드 6) 그 결과가 그대로 선다고 본다.
 - 실기기, iOS Safari, WebKit 레인(`setup-youtube-activation.test.ts` 포함, 계획 §4.2-4는 `iframe.ts`의 prime·활성화 경로를 건드린 6C·6D에만
   요구), 블루투스, 6B 런타임의 Full E2E와 CI. 기기 확인은 배포 뒤 블라인드로 하며 게이트가 아니다. Phase 6 앞의 기기 기준선(Q6)은 재지
   않았다.

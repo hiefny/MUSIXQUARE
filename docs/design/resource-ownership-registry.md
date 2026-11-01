@@ -284,8 +284,8 @@ RO-53 owner-in-place
   Standard host's held room time through one merged pending-start read (the legacy local start,
   then the run's scheduled start), which nothing else reads, while the pending-start predicate
   `isStandardHostYouTubeLocalStartPending` and its six readers (the router, the native-control
-  protected owners, the seek's mid-sync check, both host heartbeat states and the manual-offset
-  runtime) stay the legacy hold's alone.
+  protected owners, the seek's mid-sync check, the host's play/pause toggle, `sync.ts`'s host
+  heartbeat state and the manual-offset runtime) stay the legacy hold's alone.
   Since Phase 6 6B-1 (C2-5) the start ledger `src/youtube/start-ownership.ts`
   (`Resource owner: RO-02`, [design](youtube-start-ownership.md)) composes them for readers:
   `player.ts` registers each owner's live queries as a claim (`registerYouTubeStartClaim`: the
@@ -449,7 +449,9 @@ RO-53 owner-in-place
   `iframe.ts` prepare seam `prepareYouTubeAuthorityOccurrence` with its
   `proAuthorityPreparationGeneration` fence). Both read one set of arm and settle values since
   Phase 6 6A-3 (hard-mute poll, warm play, pause-seek gap, settle poll, epsilon and rhythm, audio
-  restore, release acknowledgement and catch-up tolerance), and most phase names are identical;
+  restore, release acknowledgement and catch-up tolerance; since 6C-4 and 6C-5 through
+  `arm-steps.ts`, the only reader of the hard-mute, warm and settle values), and most phase names
+  are identical;
   their prepare budgets differ (10 s Standard, 2.3 s barriered PRO). `zero-start.ts` has no
   room-kind gate of its own: a PRO member drops a Standard PREPARE only
   because it has no Standard host link (pinned in `youtube-start-owner-boundary.test.ts`).
@@ -457,8 +459,9 @@ RO-53 owner-in-place
 
   Since Phase 6 6C-4 (C2-8a) both run the shared arm steps in `src/youtube/arm-steps.ts`
   (`Resource owner: RO-03`): the hard-mute wait `waitForYouTubeHardMute` (one mute, then polls on
-  the controller's own timer, each after the controller's fence, a mute again on every
-  unconfirmed poll and at most twelve polls, the confirming poll running the controller's warm)
+  the controller's own timer, each after the controller's fence, a mute again on each
+  unconfirmed poll but the last, which ends the wait with the controller's timeout, and at most
+  twelve polls, the confirming poll running the controller's warm)
   and the warm PLAYING's acceptance `acceptYouTubeWarmPlaying` (the settle 260 ms later, and the
   warm latency, never below 0). Since 6C-5 (C2-8b) they also run its settle
   `settleYouTubeAtTarget` after their pause of the warm iframe: a seek to the target 80 ms later,
@@ -1721,13 +1724,15 @@ RO-53 owner-in-place
   its `applyYouTubeAudio`, each in the order it had before: the volume write calls `setVolume`,
   then asks parking, then mutes or unmutes; the settlement asks parking first and gives a parked
   iframe no `setVolume`; the direct commit asks neither parking nor a start owner. The gate's
-  opening mutes at once through `enforceYouTubePauseGate`. The desired audio is not stored: a
-  writer reads it when it writes, from the master volume (`readYouTubeAppAudio`) and from the
-  gate's token, which the module holds (`holdYouTubePauseGate`, `releaseYouTubePauseGate` for the
-  matching settlement only, `clearYouTubePauseGate` in `stopYouTubeMode`, and
-  `isYouTubePauseGateHeld`, which the PRO prepare in `iframe.ts` asks; the runtime bridge no
-  longer carries the gate). Each hold kind is enforced in its own way: the gate mutes at once,
-  whatever else holds, and turns every App write's unmute into a mute; parking (RO-14) gets the
+  opening mutes at once through `enforceYouTubePauseGate`. The desired audio is not stored: the
+  `youtube:set-volume` write applies the 'rounded' rule to the rounded percent `engine.ts` sends;
+  the gate's settlement, the direct commit and `player.ts`'s two recovery intents read the master
+  volume through `readYouTubeAppAudio`; and the App's writes read the gate's token, which the
+  module holds (`holdYouTubePauseGate`, `releaseYouTubePauseGate` for the matching settlement
+  only, `clearYouTubePauseGate` in `stopYouTubeMode`, and `isYouTubePauseGateHeld`, which the PRO
+  prepare in `iframe.ts` asks; the runtime bridge no longer carries the gate). Each hold kind is
+  enforced in its own way: the gate mutes at once, whatever else holds, and turns every App
+  write's unmute into a mute; parking (RO-14) gets the
   retained player controller's verified hard mute in place of the mute or unmute (after the
   volume write's `setVolume`; the direct commit does not ask it); a start owner's hard mute (the
   zero-start run, a recovery (the guest local recovery, or a host's legacy recovery) or the PRO
@@ -1750,7 +1755,8 @@ RO-53 owner-in-place
   0 < master volume < 0.005: the 'rounded' rule mutes when the volume rounds to 0 % (the volume
   write, the gate's settlement, the direct commit and the two recovery intents in `player.ts`);
   the 'non-positive' rule mutes only at 0 (the Standard zero-start run's desired audio, which its
-  restores, its release unmute, its cancel restore and the guest local recovery's intent take, and
+  restores, its release unmute, its cancel restore and both recoveries' intents take when the run
+  captured it: the guest local recovery and a host's legacy recovery after its own run fails; and
   the PRO prepare). At 0.004 the first mutes and the second unmutes at volume 0. The owner chose
   the 'rounded' rule for every site on 2026-10-30, as a later change of its own.
 - **Target single owner:** one iframe-audio module (`src/youtube/iframe-audio.ts`, which holds the
@@ -1869,10 +1875,12 @@ RO-53 owner-in-place
 - **Target single owner:** unchanged: `iframe.ts` owns the instance and delegates parking to the
   retained-player controller through its ports. Phase 6 only registers a parking audio hold: since
   6C-2 `player.ts` registers it with the iframe audio owner (`registerYouTubeAudioHolds` in
-  `src/youtube/iframe-audio.ts`, RO-12), which asks `isRetainedYouTubePlayerParked` before an App
-  write and then has the controller's verified hard mute (`ensureRetainedYouTubePlayerHardMuted`)
-  applied instead of the write's mute or unmute. The controller's own writes, phases and deadlines
-  are unchanged.
+  `src/youtube/iframe-audio.ts`, RO-12), which asks `isRetainedYouTubePlayerParked` in a
+  `youtube:set-volume` write after its `setVolume`, and before the PRO pause gate's settlement
+  writes anything, and then has the controller's verified hard mute
+  (`ensureRetainedYouTubePlayerHardMuted`) applied instead of that write's mute or unmute (the
+  settlement also skips its `setVolume`); the gate's opening and the PRO direct commit do not ask
+  it. The controller's own writes, phases and deadlines are unchanged.
 - **Allowed requesters:** `stopYouTubeMode` (park or destroy request); the guest heartbeat
   hand-off (`prepareSyncHandoff`).
 - **Lifecycle operations:** create, precreate, prime bounce, park, destroy.

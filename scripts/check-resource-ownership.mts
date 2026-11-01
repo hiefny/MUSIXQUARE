@@ -820,9 +820,9 @@ const IFRAME_AUDIO_WRITE_BASELINE: Baseline = new Map<string, Allowance>([
       count: 2,
       reason:
         'the shared hard-mute wait waitForYouTubeHardMute: the first mute and the mute of each ' +
-        'unconfirmed poll (2), through which the zero-start run (#beginLocalPrepare in ' +
-        'src/youtube/zero-start.ts) and the PRO arm (prepare in src/youtube/authority-arm.ts) ' +
-        'hard-mute the iframe',
+        'unconfirmed poll before the last (2), through which the zero-start run ' +
+        '(#beginLocalPrepare in src/youtube/zero-start.ts) and the PRO arm (prepare in ' +
+        'src/youtube/authority-arm.ts) hard-mute the iframe',
     },
   ],
   [

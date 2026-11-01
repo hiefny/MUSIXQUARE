@@ -131,11 +131,12 @@ the legacy rendezvous's local start (any answer, clamped, so one that is not fin
 else the run's scheduled start (`getYouTubeZeroStartPendingCanonicalPosition`) when finite, each
 reader once. The pending-start predicate `isStandardHostYouTubeLocalStartPending` stays the
 legacy hold's alone, by design. Its six readers are the router's legacy decision,
-`native-control-authority.ts`'s protected-owner check, `player.ts`'s seek mid-sync check and
-host heartbeat state, `sync.ts`'s heartbeat state and the manual-offset runtime. Merged with the
-run's hold, it would consume BUFFERING and PAUSED in the run's `starting` phase, the
-native-control authority would read a real headset Pause during the run's speaker hold as the
-App's own output, and the state the host reports to older builds during that hold could change.
+`native-control-authority.ts`'s protected-owner check, `player.ts`'s seek mid-sync check and the
+host's play/pause toggle (`youtube:toggle-play`), `sync.ts`'s heartbeat state and the
+manual-offset runtime. Merged with the run's hold, it would consume BUFFERING and PAUSED in the
+run's `starting` phase, the native-control authority would read a real headset Pause during the
+run's speaker hold as the App's own output, and the state the host reports to older builds
+during that hold could change.
 
 ## Rules
 

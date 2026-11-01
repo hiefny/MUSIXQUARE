@@ -5,12 +5,16 @@
  *
  * Resource owner: RO-12
  *
- * The App's desired audio is never stored. A writer reads it when it writes:
- * the master volume (readYouTubeAppAudio, under one of two mute rules) and
- * the PRO pause gate's token, which this module holds. Three App writes go
- * through applyYouTubeAudio, each in the order it has always had: a
- * youtube:set-volume write, the pause gate's settlement and the PRO direct
- * commit. The start machines' own hard mutes and releases stay with them.
+ * The App's desired audio is never stored. The youtube:set-volume write
+ * applies the 'rounded' mute rule to the rounded percent engine.ts sends;
+ * the pause gate's settlement, the PRO direct commit, player.ts's two
+ * recovery intents, the Standard zero-start run's desired audio and the PRO
+ * prepare read the master volume here (readYouTubeAppAudio, under one of two
+ * mute rules); the App's writes also read the PRO pause gate's token, which
+ * this module holds. Three App writes go through applyYouTubeAudio, each in
+ * the order it has always had: a youtube:set-volume write, the pause gate's
+ * settlement and the PRO direct commit. The start machines' hard mute is the
+ * shared wait in arm-steps.ts; their releases stay with them.
  *
  * Holds keep a write closed, each in its own way:
  * - the PRO pause gate (a participant-local pause until its settlement):
@@ -52,9 +56,10 @@
  *
  * The restores of the host legacy recovery and the guest local fallback
  * before their release (player.ts) write and check through the same two
- * helpers but keep their own 50 ms polls. The guest fallback's release write
- * and both recoveries' unverified cleanups of a replaced or cancelled iframe
- * (cleanupExactPlayer) write through writeYouTubeAudio too, without a check.
+ * helpers but keep their own 50 ms polls. The guest fallback's release write,
+ * both recoveries' unverified cleanups of a replaced or cancelled iframe
+ * (cleanupExactPlayer) and both arms' warm pairs (the #warm of zero-start.ts
+ * and authority-arm.ts) write through writeYouTubeAudio too, without a check.
  */
 import { getState } from '../core/state.ts';
 import type { YouTubePlayerInstance } from './_state.ts';
@@ -91,11 +96,13 @@ let enforceParking: (player: YouTubePlayerInstance) => void = notHeld;
  * master volume as a whole percent (0 to 100), muted by one of two rules that
  * differ only for 0 < masterVolume < 0.005:
  * - 'rounded' (the default): muted when that percent is 0, as the volume
- *   engine.ts sends with youtube:set-volume. The youtube:set-volume write,
- *   the pause gate's settlement, the PRO direct commit and player.ts's two
- *   recovery intents use it;
+ *   engine.ts sends with youtube:set-volume. The youtube:set-volume write
+ *   applies this rule to engine.ts's rounded percent itself; the pause gate's
+ *   settlement, the PRO direct commit and player.ts's two recovery intents
+ *   read it here;
  * - 'non-positive' (nonPositive): muted only when the master volume is 0 or
- *   below. The Standard zero-start run's desired audio and the PRO prepare
+ *   below. The Standard zero-start run's desired audio (which both
+ *   recoveries' intents take when the run captured it) and the PRO prepare
  *   use it.
  * At 0.004 the first mutes and the second unmutes at volume 0. The owner
  * chose the 'rounded' rule for every site (2026-10-30), a later step of its

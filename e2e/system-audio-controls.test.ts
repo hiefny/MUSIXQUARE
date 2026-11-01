@@ -16,6 +16,7 @@ import {
   waitForFilePlaybackReady,
   waitForPlaylistCount,
   waitForState,
+  waitUntilPressReaches,
 } from './helpers/wait.ts';
 import {
   installSyntheticSystemAudio,
@@ -261,6 +262,9 @@ test('sharing surfaces do not acquire hover merely by expanding under a stationa
 
   // Click the newly expanded half. On split this same physical point becomes
   // Sync; it must not flash a hover surface until the pointer actually moves.
+  // Starting the share closed the source popup in a cross-fade, and the raw
+  // click must not land in it.
+  await waitUntilPressReaches(media, leftPoint);
   await page.mouse.click(leftPoint.x, leftPoint.y);
   await expect(row).toHaveAttribute('data-sharing', 'false');
   await expect(row).not.toHaveAttribute('data-morphing', 'true');

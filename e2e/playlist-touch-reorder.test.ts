@@ -3,7 +3,12 @@ import { uploadFixtures } from './helpers/file-upload.ts';
 import { injectPeerServer } from './helpers/peer-server.ts';
 import { readQueueSnapshot, waitForCurrentQueueItemId } from './helpers/queue-state.ts';
 import { setupHostAndStart } from './helpers/setup-flow.ts';
-import { navigateToTab, waitForFilePlaybackReady, waitForPlaylistCount } from './helpers/wait.ts';
+import {
+  navigateToTab,
+  waitForFilePlaybackReady,
+  waitForPlaylistCount,
+  waitUntilPressReaches,
+} from './helpers/wait.ts';
 
 interface TouchPoint {
   x: number;
@@ -124,6 +129,9 @@ test.describe('Playlist touch reorder', () => {
     expect(controlGeometry[0]).toEqual({ width: 44, height: 44, radius: '999px' });
 
     const removePoint = await centerOf(firstRemoveButton);
+    // Raw CDP touches have no actionability check: right after a tab switch,
+    // prove the contact reaches its control and not the cross-fade's <html>.
+    await waitUntilPressReaches(firstRemoveButton, removePoint);
     await touchStart(cdp, removePoint);
     try {
       await page.waitForTimeout(800);
@@ -182,6 +190,7 @@ test.describe('Playlist touch reorder', () => {
     await page.waitForTimeout(200);
     const longPressPoint = await visibleCenterOf(longPressTarget);
     const heldSelect = page.locator('.btn-playlist-select').nth(1);
+    await waitUntilPressReaches(longPressTarget, longPressPoint);
     await touchStart(cdp, longPressPoint);
     try {
       await page.waitForTimeout(600);

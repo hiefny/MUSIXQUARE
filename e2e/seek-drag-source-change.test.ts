@@ -11,6 +11,7 @@ import {
   waitForFilePlaybackReady,
   waitForPlaybackProjection,
   waitForState,
+  waitUntilPressReaches,
 } from './helpers/wait.ts';
 
 test('an administrator seek drag cannot seek the successor selected by the host', async ({
@@ -38,7 +39,10 @@ test('an administrator seek drag cannot seek the successor selected by the host'
     await expect(range).toHaveAttribute('aria-disabled', 'false');
     const rail = await range.boundingBox();
     if (!rail) throw new Error('The seek rail must be visible');
-    await guest.mouse.move(rail.x + rail.width * 0.5, rail.y + rail.height / 2);
+    const grip = { x: rail.x + rail.width * 0.5, y: rail.y + rail.height / 2 };
+    await guest.mouse.move(grip.x, grip.y);
+    // The raw press follows a tab switch: prove it reaches the rail.
+    await waitUntilPressReaches(range, grip);
     await guest.mouse.down();
     await expect(range).toHaveClass(/is-dragging/);
 

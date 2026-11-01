@@ -8,6 +8,7 @@ import {
   navigateToTab,
   waitForFilePlaybackReady,
   waitForPlaylistCount,
+  waitUntilPressReaches,
 } from './helpers/wait.ts';
 
 interface Point {
@@ -94,7 +95,14 @@ test.describe('Playlist desktop reorder', () => {
     );
     const handleBox = await currentHandle.boundingBox();
     if (!handleBox) throw new Error('Current handle has no geometry');
-    await page.mouse.move(handleBox.x + handleBox.width / 2, handleBox.y + handleBox.height / 2);
+    const handlePoint = {
+      x: handleBox.x + handleBox.width / 2,
+      y: handleBox.y + handleBox.height / 2,
+    };
+    await page.mouse.move(handlePoint.x, handlePoint.y);
+    // Each raw press below first proves it would reach its row: a press made
+    // while a tab or popup cross-fades lands on <html> and starts nothing.
+    await waitUntilPressReaches(currentHandle, handlePoint);
     await page.mouse.down();
     await expect(ghost).toBeVisible();
     const ghostLeading = await ghost.evaluate((element) => ({
@@ -112,6 +120,7 @@ test.describe('Playlist desktop reorder', () => {
     await resetScroll(page, scroller);
     const edgeHandle = await lastVisibleCenter(page, '.playlist-reorder-handle', paneBottom);
     await page.mouse.move(edgeHandle.x, edgeHandle.y);
+    await waitUntilPressReaches(page.locator('.playlist-reorder-handle'), edgeHandle);
     await page.mouse.down();
     await expect(ghost).toBeVisible();
     expect(new Set(await sampleScrollTop(page, scroller, 600))).toEqual(new Set([0]));
@@ -146,6 +155,9 @@ test.describe('Playlist desktop reorder', () => {
     const start = { x: titleBox.x + titleBox.width / 2, y: titleBox.y + titleBox.height / 2 };
     const firstSelect = page.locator('#playlist-ui .btn-playlist-select').nth(0);
     await page.mouse.move(start.x, start.y);
+    // Step 3 returned to the player tab; the press must not land in the
+    // playlist tab's cross-fade back.
+    await waitUntilPressReaches(title, start);
     await page.mouse.down();
     await page.waitForTimeout(LONG_PRESS_MS + 300);
     await expect(firstSelect).toHaveAttribute('aria-pressed', 'true');
@@ -159,6 +171,7 @@ test.describe('Playlist desktop reorder', () => {
     // 5. In edit mode the same hold moves the held row, and the release does
     // not also play it.
     await page.mouse.move(start.x, start.y);
+    await waitUntilPressReaches(title, start);
     await page.mouse.down();
     await page.waitForTimeout(LONG_PRESS_MS - 250);
     await expect(ghost).toHaveCount(0);

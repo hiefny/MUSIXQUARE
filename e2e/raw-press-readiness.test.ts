@@ -1,5 +1,5 @@
 import { expect, test, type Page } from '@playwright/test';
-import { navigateToTab, waitForViewTransitionEnd } from './helpers/wait.ts';
+import { navigateToTab, waitForViewTransitionEnd, waitUntilPressReaches } from './helpers/wait.ts';
 
 // The app switches tabs inside document.startViewTransition (src/ui/tabs.ts,
 // src/ui/dom.ts animateTransition): the new panel gets `.active` in the update
@@ -116,4 +116,52 @@ test('the wait names a view transition that does not end in time', async ({ page
   expect(await pressTarget(page)).toBe(0);
   await page.evaluate(() => document.activeViewTransition?.skipTransition());
   await waitForViewTransitionEnd(page);
+});
+
+test('waitUntilPressReaches waits out a covering layer and names one that stays', async ({
+  page,
+}) => {
+  await page.setContent(`<!doctype html>
+<html>
+  <body>
+    <button id="target" type="button" style="position:absolute;left:100px;top:120px;width:200px;height:80px">
+      <span id="label">Target</span>
+    </button>
+    <div id="cover" class="toast show" style="position:absolute;inset:0"></div>
+    <script>
+      window.__targetPresses = 0;
+      document.getElementById('target').addEventListener('pointerdown', () => {
+        window.__targetPresses += 1;
+      });
+    </script>
+  </body>
+</html>`);
+  const target = page.locator('#target');
+  const point = { x: 200, y: 160 };
+  await expect(waitUntilPressReaches(target, point, 300)).rejects.toThrow(
+    'A press at (200, 160) would land on div#cover.toast.show, not on',
+  );
+
+  // A child of the target counts as the target, and a layer that leaves in
+  // time is waited out.
+  await page.evaluate(() => {
+    document.getElementById('label')!.style.cssText = 'display:block;width:200px;height:80px';
+    setTimeout(() => document.getElementById('cover')!.remove(), 200);
+  });
+  await waitUntilPressReaches(target, point);
+  expect(await pressTarget(page)).toBe(1);
+
+  // While a view transition runs, the press would land on <html>. (WebKit
+  // still hit-tests the page until the transition's pseudo-elements exist.)
+  await page.evaluate(async () => {
+    const style = document.createElement('style');
+    style.textContent = '::view-transition-group(root) { animation-duration: 60s; }';
+    document.head.append(style);
+    await document.startViewTransition(() => {}).ready;
+  });
+  await expect(waitUntilPressReaches(target, point, 300)).rejects.toThrow(
+    'would land on html, not on',
+  );
+  await page.evaluate(() => document.activeViewTransition?.skipTransition());
+  await waitUntilPressReaches(target, point);
 });

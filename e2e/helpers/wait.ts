@@ -2,7 +2,7 @@
  * Wait utilities for E2E tests.
  * Uses DOM-based signals and page.evaluate for state checks.
  */
-import type { Page } from '@playwright/test';
+import { expect, type Locator, type Page } from '@playwright/test';
 
 /** E2E-only playback labels derived from the current playback state.
  *  Used by chaos/recovery tests that want to assert "app is in some
@@ -419,6 +419,53 @@ export async function waitForViewTransitionEnd(page: Page, timeout = 10_000): Pr
     throw new Error(
       `A view transition was still running after ${timeout} ms: until it ends, every raw ` +
         'press lands on <html>.',
+      { cause: error },
+    );
+  }
+}
+
+/**
+ * Wait until a raw press at `point` would reach `target` (any element it
+ * matches, or a child of one). A raw press has no actionability check: one
+ * made while a view transition runs, or while a toast, loader or dialog covers
+ * the point, lands on that instead, and the gesture under test silently never
+ * starts. This turns that into a failure that names what is in the way.
+ */
+export async function waitUntilPressReaches(
+  target: Locator,
+  point: { x: number; y: number },
+  timeout = 5_000,
+): Promise<void> {
+  let landsOn = 'nothing';
+  try {
+    await expect
+      .poll(
+        async () => {
+          const probe = await target.evaluateAll(
+            (elements, { x, y }) => {
+              const hit = document.elementFromPoint(x, y);
+              const name = hit
+                ? hit.tagName.toLowerCase() +
+                  (hit.id ? `#${hit.id}` : '') +
+                  Array.from(hit.classList, (token) => `.${token}`).join('')
+                : 'nothing';
+              return {
+                reaches: hit !== null && elements.some((element) => element.contains(hit)),
+                name,
+              };
+            },
+            { x: point.x, y: point.y },
+          );
+          landsOn = probe.name;
+          return probe.reaches;
+        },
+        { timeout, intervals: [25] },
+      )
+      .toBe(true);
+  } catch (error) {
+    throw new Error(
+      `A press at (${Math.round(point.x)}, ${Math.round(point.y)}) would land on ${landsOn}, ` +
+        `not on ${target.toString()}, after ${timeout} ms.`,
       { cause: error },
     );
   }

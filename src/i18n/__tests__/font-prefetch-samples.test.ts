@@ -48,11 +48,12 @@ describe('font prefetch samples', () => {
     expect(await readFile(join(ROOT, generated.path), 'utf8')).toBe(generated.text);
   });
 
+  // The sizes are those of the faces with the line box baked in (fonts/app/).
   it.each([
-    ['ko', 'Noto Sans KR', 119, 100, 393_344],
-    ['ja', 'Noto Sans JP', 119, 100, 394_936],
-    ['zh-hans', 'Noto Sans SC', 119, 114, 342_912],
-    ['zh-hant', 'Noto Sans TC', 119, 114, 391_444],
+    ['ko', 'Noto Sans KR', 119, 100, 393_260],
+    ['ja', 'Noto Sans JP', 119, 100, 395_004],
+    ['zh-hans', 'Noto Sans SC', 119, 114, 342_884],
+    ['zh-hant', 'Noto Sans TC', 119, 114, 391_448],
   ] as const)(
     'gives the %s UI the %s shards #%i to #%i (%i B)',
     async (code, family, first, last, bytes) => {

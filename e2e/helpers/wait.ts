@@ -2,7 +2,7 @@
  * Wait utilities for E2E tests.
  * Uses DOM-based signals and page.evaluate for state checks.
  */
-import { expect, type Locator, type Page } from '@playwright/test';
+import { errors, expect, type Locator, type Page } from '@playwright/test';
 
 /** E2E-only playback labels derived from the current playback state.
  *  Used by chaos/recovery tests that want to assert "app is in some
@@ -369,21 +369,75 @@ export async function readState(page: Page, statePath: string): Promise<unknown>
 // ─── Additional Helpers ─────────────────────────────────────────
 
 /**
+ * Longest the fallback in waitForViewTransitionEnd waits for its two frames.
+ * They come from the page's requestAnimationFrame, which a paused `page.clock`
+ * stops; this Node-side bound keeps the wait from hanging there.
+ */
+const VIEW_TRANSITION_FALLBACK_FRAMES_MS = 250;
+
+/** What a view transition of the app holds while it runs. */
+interface ViewTransitionHold {
+  /** `document.activeViewTransition` is set; null where the engine lacks it. */
+  active: boolean | null;
+  /** Running `::view-transition` animations: the signal where `active` is null. */
+  animations: number;
+  /** <html> still has the tab transition's `tab-header-transition` class. */
+  marked: boolean;
+}
+
+/** Page function that reads the hold. waitUntilPressReaches inlines a copy. */
+function readViewTransitionHold(): ViewTransitionHold {
+  const active = (document as { activeViewTransition?: unknown }).activeViewTransition;
+  return {
+    active: active === undefined ? null : active !== null,
+    animations: document
+      .getAnimations()
+      .filter((animation) =>
+        (animation.effect as KeyframeEffect | null)?.pseudoElement?.startsWith('::view-transition'),
+      ).length,
+    marked: document.documentElement.classList.contains('tab-header-transition'),
+  };
+}
+
+/** True while a view transition runs, so pointer input is hit-tested to <html>. */
+function transitionRuns(hold: ViewTransitionHold): boolean {
+  return hold.active ?? hold.animations > 0;
+}
+
+/** Names each part of `hold` that still held, for the failure messages. */
+function describeViewTransitionHold(hold: ViewTransitionHold): string {
+  const held: string[] = [];
+  if (hold.active === true) held.push('document.activeViewTransition was still set');
+  if (hold.active === null && hold.animations > 0) {
+    held.push(`${hold.animations} ::view-transition animations were still running`);
+  }
+  if (hold.marked) held.push('<html> still had the tab-header-transition class');
+  return held.length > 0 ? held.join(' and ') : 'nothing held any more when it was read again';
+}
+
+/**
  * Wait until no view transition is running.
  *
  * The app swaps tabs and its media popups inside document.startViewTransition
  * (src/ui/dom.ts animateTransition). The new state is in the DOM from the
- * update callback on, about 300 ms before the cross-fade ends, and until it
- * ends Chromium and WebKit hit-test every pointer event to <html>. A
- * Playwright `click()` retries until the element receives the press, but a raw
+ * update callback on, about 300 ms before the cross-fade ends. While the
+ * transition runs, pointer input is hit-tested to <html>. Chromium 153 does
+ * that from the startViewTransition() call until the transition finishes.
+ * WebKit 26.6 still hit-tests the old page through the update callback and
+ * switches to <html> only once the update is done (by `.ready`). A Playwright
+ * `click()` retries until the element receives the press, but a raw
  * `page.mouse`, `page.touchscreen` or CDP input press has no such check: it is
  * lost, and the gesture under test silently never starts.
  *
  * `document.activeViewTransition` names the running transition (Chromium and
  * WebKit in Playwright 1.63 both have it). Where an engine lacks it, the
  * transition's `::view-transition` animations stand in, read after two frames
- * so a transition whose update callback just ran has created them. The tab
+ * (or VIEW_TRANSITION_FALLBACK_FRAMES_MS, whichever comes first) so a
+ * transition whose update callback just ran has created them. The tab
  * transition's own `tab-header-transition` mark on <html> must be gone too.
+ *
+ * A timeout fails with a message that names what still held. Any other error,
+ * such as a closed page, passes through unchanged.
  */
 export async function waitForViewTransitionEnd(page: Page, timeout = 10_000): Promise<void> {
   const hasActiveViewTransition = await page.evaluate(() => {
@@ -391,12 +445,22 @@ export async function waitForViewTransitionEnd(page: Page, timeout = 10_000): Pr
     return active !== undefined;
   });
   if (!hasActiveViewTransition) {
-    await page.evaluate(
-      () =>
+    let bound: ReturnType<typeof setTimeout> | undefined;
+    try {
+      await Promise.race([
+        page.evaluate(
+          () =>
+            new Promise<void>((resolve) => {
+              requestAnimationFrame(() => requestAnimationFrame(() => resolve()));
+            }),
+        ),
         new Promise<void>((resolve) => {
-          requestAnimationFrame(() => requestAnimationFrame(() => resolve()));
+          bound = setTimeout(resolve, VIEW_TRANSITION_FALLBACK_FRAMES_MS);
         }),
-    );
+      ]);
+    } finally {
+      clearTimeout(bound);
+    }
   }
   try {
     await page.waitForFunction(
@@ -416,9 +480,18 @@ export async function waitForViewTransitionEnd(page: Page, timeout = 10_000): Pr
       { timeout },
     );
   } catch (error) {
+    if (!(error instanceof errors.TimeoutError)) throw error;
+    const hold = await page.evaluate(readViewTransitionHold).catch(() => null);
+    let consequence = '';
+    if (hold !== null && transitionRuns(hold)) {
+      consequence = ' Until it ends, every raw press lands on <html>.';
+    } else if (hold?.marked) {
+      consequence = ' No view transition was running: the tab transition left its mark behind.';
+    }
     throw new Error(
-      `A view transition was still running after ${timeout} ms: until it ends, every raw ` +
-        'press lands on <html>.',
+      `The view transition wait timed out after ${timeout} ms: ` +
+        (hold === null ? 'the page could not be read again' : describeViewTransitionHold(hold)) +
+        `.${consequence}`,
       { cause: error },
     );
   }
@@ -426,47 +499,74 @@ export async function waitForViewTransitionEnd(page: Page, timeout = 10_000): Pr
 
 /**
  * Wait until a raw press at `point` would reach `target` (any element it
- * matches, or a child of one). A raw press has no actionability check: one
- * made while a view transition runs, or while a toast, loader or dialog covers
- * the point, lands on that instead, and the gesture under test silently never
- * starts. This turns that into a failure that names what is in the way.
+ * matches, or a child of one), and fail at once when another element is there.
+ *
+ * A raw press has no actionability check, so one that lands elsewhere is lost
+ * and the gesture under test silently never starts. The helper waits only
+ * while a view transition runs (document.activeViewTransition is set, or where
+ * an engine lacks it, a `::view-transition` animation or the tab mark is
+ * there). The hit then is <html> in Chromium, or still the old page in WebKit
+ * before the update is done (see waitForViewTransitionEnd), and neither says
+ * where the press will land. Once no transition runs, the point must hit the
+ * target. A toast, loader, dialog or any other layer over it fails at once
+ * with its name, so a cover that would soon leave is reported, not waited out.
  */
 export async function waitUntilPressReaches(
   target: Locator,
   point: { x: number; y: number },
   timeout = 5_000,
 ): Promise<void> {
-  let landsOn = 'nothing';
+  const press = `A press at (${Math.round(point.x)}, ${Math.round(point.y)})`;
+  let probe: (ViewTransitionHold & { reaches: boolean; landsOn: string }) | undefined;
   try {
     await expect
       .poll(
         async () => {
-          const probe = await target.evaluateAll(
+          probe = await target.evaluateAll(
             (elements, { x, y }) => {
+              // readViewTransitionHold, inlined: a page function cannot call it.
+              const active = (document as { activeViewTransition?: unknown }).activeViewTransition;
               const hit = document.elementFromPoint(x, y);
-              const name = hit
-                ? hit.tagName.toLowerCase() +
-                  (hit.id ? `#${hit.id}` : '') +
-                  Array.from(hit.classList, (token) => `.${token}`).join('')
-                : 'nothing';
               return {
+                active: active === undefined ? null : active !== null,
+                animations: document
+                  .getAnimations()
+                  .filter((animation) =>
+                    (animation.effect as KeyframeEffect | null)?.pseudoElement?.startsWith(
+                      '::view-transition',
+                    ),
+                  ).length,
+                marked: document.documentElement.classList.contains('tab-header-transition'),
                 reaches: hit !== null && elements.some((element) => element.contains(hit)),
-                name,
+                landsOn: hit
+                  ? hit.tagName.toLowerCase() +
+                    (hit.id ? `#${hit.id}` : '') +
+                    Array.from(hit.classList, (token) => `.${token}`).join('')
+                  : 'nothing',
               };
             },
             { x: point.x, y: point.y },
           );
-          landsOn = probe.name;
-          return probe.reaches;
+          // Where the engine lacks activeViewTransition, the tab mark also
+          // stands for a transition whose animations do not exist yet.
+          return probe.active ?? (probe.animations > 0 || probe.marked);
         },
         { timeout, intervals: [25] },
       )
-      .toBe(true);
+      .toBe(false);
   } catch (error) {
     throw new Error(
-      `A press at (${Math.round(point.x)}, ${Math.round(point.y)}) would land on ${landsOn}, ` +
-        `not on ${target.toString()}, after ${timeout} ms.`,
+      `${press} would land on ${probe?.landsOn ?? 'nothing'}, not on ${target.toString()}: ` +
+        `a view transition was still running after ${timeout} ms (` +
+        (probe ? describeViewTransitionHold(probe) : 'the page could not be read') +
+        ').',
       { cause: error },
+    );
+  }
+  if (!probe!.reaches) {
+    throw new Error(
+      `${press} would land on ${probe!.landsOn}, not on ${target.toString()}, ` +
+        'with no view transition running: it covers the target.',
     );
   }
 }

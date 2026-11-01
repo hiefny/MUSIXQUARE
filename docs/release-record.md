@@ -65,15 +65,17 @@ gh run list --workflow e2e.yml --branch main --limit 3
       픽셀 크기 81개 가운데 34개에서 1 ~ 2px 커진다(보고서 §3). 브랜치 `agent/font-header`는 main `dda3ee18`(#554, 9.0.30 기록
       #551 위 시험만) 위에 있다: 굽기 증분(테스트 먼저 `f71704a0` → `2f6fc0b9`, 픽셀 시험 `e784fe94`, 생성기 리팩터 `26b2b162`,
       테스트 먼저 `64f05cca` → `8981c628`), 탭 머리 증분(테스트 먼저 `55ab4246` → `93db426e`, 테스트 먼저 `0fae23f3` →
-      `ddec0b09`), 시험 주석 `66c09b73`, 문서 커밋, 버전 올리기(마지막 런타임 커밋)와 그 뒤 기록 커밋. 굽기 커밋은 `9e72b7ce` 위에서
+      `ddec0b09`), 시험 주석 `66c09b73`, 문서 커밋, 버전 올리기 `566f458d`(마지막 런타임 커밋)와 그 뒤 기록 커밋. 굽기 커밋은 `9e72b7ce` 위에서
       만들어 옮겼고(커밋마다 diff 같음), 탭 머리 커밋은 처음부터 `dda3ee18` 위였다(보고서 §5의 SHA 대응). 버전: 9.0.31 / v804(App
       빌드 804). 운영이 9.0.30 / v803(`3c098e9d`, App 버전 `50e0527d`)이므로 다음 패치와 다음 epoch이고, 9.0.30의 버전 올리기
       `8d148fff`와 같은 거울 여섯 파일 일곱 줄을 마지막 런타임 커밋으로 올린다. 6B는 이 열차 뒤 9.0.32 / v805다(6A 절의 다음 단계
       항목). Release 입력: target `app`(App SemVer와 SW 캐시 epoch가 바뀌어 업데이트 창이 뜬다), `raise_app_build_floor`
       false(최소 앱 빌드 795 그대로), Developer API D1 false. 배포 대상: 운영 배포 SHA(App `3c098e9d`, PRO room `683074bc`, 나머지
       넷 `71f5b96c`)에서 코드 머리 `66c09b73`까지 App 449(`fonts/app` 440, 시트 5, `css/style.css`, `font-metrics.ts`,
-      `font-prefetch-samples.ts`, `vite.config.ts`), 나머지 다섯 Worker 0, App 런타임 의존성 차이 없음(로컬 git 판정, 릴리스의
-      부분 릴리스 검사를 대신하지 않음). 신호, PRO, 서버 계약, D1, 비밀, 바인딩, Wrangler 설정, CORS, 계약 표지, 저장 데이터와
+      `font-prefetch-samples.ts`, `vite.config.ts`), 버전 올리기 머리 `566f458d`까지는 버전 거울 넷(`browser/classic-runtime/admin.ts`,
+      `cloudflare/app-worker.ts`, `index.html`, `scripts/service-worker-asset.ts`)을 더해 App 453, 나머지 다섯 Worker 0, App 런타임
+      의존성 차이 없음이고 target `app`의 호환 판정(운영 조회 대신 위 배포 SHA)이 compatible이다(로컬 git 판정, 릴리스의 부분 릴리스
+      검사를 대신하지 않음). 신호, PRO, 서버 계약, D1, 비밀, 바인딩, Wrangler 설정, CORS, 계약 표지, 저장 데이터와
       키, 프레임 모양, 바닥은 그대로다. 자원 소유권: 복구, 재시도, 시한, 수명 흐름이 없어 새 레코드가 없고 기준치 그대로다(기록 49,
       파일 457). 제3자 자산: 새 내려받기와 npm 의존성 변화가 없다. 새 파일은 이미 있는 Inter 4.001과 Noto Sans KR·JP·SC·TC(모두
       SIL OFL 1.1)의 수정 사본이고(`head` checkSumAdjustment, `hhea` 줄 값, OS/2 typo 값과 fsSelection 한 비트만 다름, name 표와
@@ -105,7 +107,13 @@ gh run list --workflow e2e.yml --branch main --limit 3
       `/bootstrap.js?cache=` 쿼리)에 올리고, 그 머리에서 typecheck, lint, `format:check`, `build:checked`와 그 안의
       `guard:sw-cache-version` PASS v804와 `guard:release-identity` 9.0.31 / v804, 모든 `guard:*`, 자원 소유권, 핵심·Worker
       커버리지, 단위 전체, critical E2E, 글꼴·탭 머리 E2E, 운영 빌드의 후보 E2E가 통과하고, 첫 로딩(진입, eager JS, eager 전체
-      gzip)이 origin/main보다 CSS 바이트를 넘어 늘지 않으며, 배포 대상이 App뿐이다(보고서 QA 라운드 5). (5) PR CI, 자동 코드
+      gzip)이 origin/main보다 CSS 바이트를 넘어 늘지 않으며, 배포 대상이 App뿐이다. 보고서 QA 라운드 5가 버전 올리기
+      `566f458d`에서 모두 채웠다: typecheck, lint(경고 0), `format:check`, `build:checked` 25단계(`guard:sw-cache-version`
+      'PASS: v804 (566f458d)', `guard:release-identity` 9.0.31 / v804), `guard:*` 37개와 자원 소유권(기록 49, 파일 457), 운영
+      빌드 `test:e2e:candidate` 19 / 19, 핵심 커버리지 94 files / 3,763과 Worker 커버리지 69 / 3,325, 단위 739 files / 17,666(부하
+      아래 git 작업 행 시간 초과 하나는 그 파일을 따로 돌려 통과), critical E2E 101 / 101, 글꼴·탭 머리·재생목록 명세 51 / 51. 첫
+      로딩은 origin/main `dda3ee18` 대비 진입 raw 같음과 gzip −5 B, eager JS gzip −20 B, eager 전체 +303 B raw와 +32 B gzip이고
+      eager CSS가 +303 B raw와 +56 B gzip 늘어 그 안이다. 배포 대상은 App 453, 나머지 다섯 0이다. (5) PR CI, 자동 코드
       리뷰, dispatch 직전 머지, exact-main CI success, 그 뒤 Release target `app`, Developer API D1 false,
       `raise_app_build_floor` false. (6) 배포 직후 공개 최소 빌드 상태(저장·유효 795, live App 804)와 Operations Drift Audit을
       보고 아래 배포 직후 확인을 건넨다. 머지 뒤 main SHA에서 Full E2E를 한 번 돌려 보고서 QA 라운드에 적되 exact-main 후보로

@@ -128,8 +128,15 @@ runbooks. Neither belongs in a general setup document.
   removed as Safari reads the sheets, and the 28 other languages are pixel-identical to main in
   Chromium on the four tab headers, the start screen, the Playlist tab and the chat.
   `e2e/font-line-boxes.test.ts` opens the Korean UI only; the other UIs rest on the report's
-  measurements and the sweep. The release target is `app` (App runtime paths only, none in the
-  other five Workers). The release owner kept option K and queued option D (drop the overrides,
+  measurements and the sweep. Round 5 ran the full local gate on the bump
+  `566f458d`: typecheck, lint, format, `build:checked` with `guard:sw-cache-version` passing for v804
+  and `guard:release-identity` 9.0.31 / v804, all 37 guards and the ownership guard, the production
+  candidate 19 / 19, critical coverage 94 files / 3,763 and Worker coverage 69 / 3,325, the unit suite
+  739 files / 17,666 (one git-fixture row that timed out under load passes with its file run alone),
+  critical E2E 101 / 101 and the font, tab header and playlist specs 51 / 51. Against origin/main the
+  first load grows only within its CSS (eager total +303 B raw and +32 B gzip, the CSS +303 B and
+  +56 B; entry and eager JavaScript do not grow), and the release target is `app` (453 App runtime
+  paths with the version mirrors, none in the other five Workers, no App runtime dependency change). The release owner kept option K and queued option D (drop the overrides,
   which moves boundary-size lines by 1 px in Chromium) for the owner with pictures, accepted the
   repository growth (about 17.7 MB) and the JP, SC and TC files About and the app no longer share
   until the public-page font train, and leaves tabs open at release to the ignore-old-versions

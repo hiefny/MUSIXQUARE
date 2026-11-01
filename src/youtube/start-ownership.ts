@@ -27,8 +27,13 @@
  * A kind that no derived query reads yet registers nothing. Each derived
  * query decides every kind, with one of its queries or never (0): adding a
  * kind without its claim type, or without a decision in every derived query,
- * does not compile. Every start-ownership reader asks a derived query; a
- * reader outside this module asks one of them per condition.
+ * does not compile. Every start-ownership reader asks a derived query, except
+ * the legacy rendezvous's Stage-2 wait: sync.ts's heartbeat hold, iframe.ts's
+ * sub-video advance check and native-control-authority.ts ask it through
+ * player-runtime-bridge.ts's isYouTubeAutoSyncPending, the live query the
+ * 'legacy-rendezvous' claim registers, so a change to that claim moves them
+ * too. Outside this module a statement asks at most one start claim (the
+ * resource-ownership guard's CHECK 12 counts the exceptions).
  */
 
 /** A start owner's answer, read when a derived query is asked. */

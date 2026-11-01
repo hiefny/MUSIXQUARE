@@ -15,13 +15,13 @@
 One start ledger composes the YouTube start owners for their readers. Each owner keeps its own
 state, timers and lifecycle; the ledger keeps none:
 
-| Module                                 | Sole responsibility                                                                                                                                                                                                                                 |
-| -------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `src/youtube/start-ownership.ts`       | the start ledger: the claim kinds, each kind's registered live queries, and the derived queries every reader asks                                                                                                                                   |
-| `src/youtube/zero-start.ts`            | the zero-start run owner (`YouTubeZeroStartController`) and its facades (`isYouTubeZeroStartInFlight`, `isYouTubeZeroStartProtocolActive`, `getYouTubeZeroStartSnapshot`, `getYouTubeZeroStartPendingCanonicalPosition`)                            |
-| `src/youtube/player.ts`                | the start owners' composition point, which registers every claim; the owner of the guest local recovery, the host legacy recovery and the replacement fallback that runs it, the legacy two-stage rendezvous and the PRO direct COMMIT's local wait |
-| `src/youtube/iframe.ts`                | the PRO authority arm's instance (`YouTubeAuthorityArmController` from `src/youtube/authority-arm.ts`) and the iframe state dispatch to the start owners                                                                                            |
-| `src/youtube/player-runtime-bridge.ts` | the player's hooks for modules that cannot import `player.ts`: the pending auto-sync intent, the legacy rendezvous's Stage-2 query `isYouTubeAutoSyncPending` and the PRO pause gate                                                                |
+| Module                                 | Sole responsibility                                                                                                                                                                                                                                     |
+| -------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `src/youtube/start-ownership.ts`       | the start ledger: the claim kinds, each kind's registered live queries, and the derived queries every reader asks                                                                                                                                       |
+| `src/youtube/zero-start.ts`            | the zero-start run owner (`YouTubeZeroStartController`), its ownership facades (`isYouTubeZeroStartInFlight`, `isYouTubeZeroStartProtocolActive`) and its snapshot reads (`getYouTubeZeroStartSnapshot`, `getYouTubeZeroStartPendingCanonicalPosition`) |
+| `src/youtube/player.ts`                | the start owners' composition point, which registers every claim; the owner of the guest local recovery, the host legacy recovery and the replacement fallback that runs it, the legacy two-stage rendezvous and the PRO direct COMMIT's local wait     |
+| `src/youtube/iframe.ts`                | the PRO authority arm's instance (`YouTubeAuthorityArmController` from `src/youtube/authority-arm.ts`) and the iframe state dispatch to the start owners                                                                                                |
+| `src/youtube/player-runtime-bridge.ts` | the player's hooks for modules that cannot import `player.ts`: the pending auto-sync intent, the legacy rendezvous's Stage-2 query `isYouTubeAutoSyncPending` and the PRO pause gate                                                                    |
 
 The ledger answers from live queries only. A derived query calls the queries the owners
 registered at the moment it is asked, so the answer is the owners' own state at that instant, and
@@ -65,12 +65,28 @@ hold asked the run's protocol and then the legacy rendezvous's Stage-2 query. Th
 queries read one claim each, as the facade and the bridge hook they replace did.
 
 Since 6B-2 (plan step C2-7) every reader asks one of these queries, 24 reader sites in eight
-production modules, and each condition asks at most one of them, beside other owners where it
-needs them (the seek's mid-sync check also asks the host's local start, end hold, `'yt-auto-sync'`
-timer and manual-offset transaction). The composite `isYouTubeZeroStartSyncOwned` and the runtime
-bridge's two recovery hooks are gone. Only the run claim's registration in `player.ts` reads the
-run's facades outside `zero-start.ts`. No query asks the run's protocol or the recovery's pending
-claim alone, because no reader needs one.
+production modules, beside other owners where it needs them, and no statement outside the ledger
+asks two start claims, with two exceptions that read a claim's own query:
+
+- the legacy rendezvous's Stage-2 wait, which `sync.ts`'s heartbeat hold, `iframe.ts`'s
+  sub-video advance check and `native-control-authority.ts` (`hasProtectedTransitionOwner`) ask
+  through `player-runtime-bridge.ts`'s `isYouTubeAutoSyncPending`. `player.ts` answers it with the
+  live query the `legacy-rendezvous` claim registers (`isYouTubeAutoSyncPendingOwned`), so a
+  change to that claim moves these three readers too;
+- the seek's mid-sync check in `player.ts` (`seekYouTubeFromApp`), which asks
+  `isYouTubeStartSyncOwned` and the legacy claim's own `'yt-auto-sync'` timer in one statement,
+  beside the host's local start, end hold and manual-offset transaction. It is the one statement
+  outside the ledger that the resource-ownership guard allows to ask two start claims.
+
+The composite `isYouTubeZeroStartSyncOwned` and the runtime bridge's two recovery hooks are gone.
+Outside `zero-start.ts` only the run claim's registration in `player.ts` reads the run's
+ownership facades (`isYouTubeZeroStartInFlight`, `isYouTubeZeroStartProtocolActive`). `player.ts`
+also reads the run's snapshot, eight reads: `getYouTubeZeroStartSnapshot()` for the run's
+hard-mute phase (its claim's third query), the 9.0.8 host speaker reference in
+`onPlaybackStarted` and its log line, the guest recovery's audible lead and run check, and the
+peer replacement fallback (twice), and `getYouTubeZeroStartPendingCanonicalPosition`, handed to
+`local-offset.ts` as the scheduled-start timeline reader. No query asks the run's protocol or the
+recovery's pending claim alone, because no reader needs one.
 
 ## Rules
 
@@ -95,11 +111,25 @@ claim alone, because no reader needs one.
   `YouTubeStartClaims` and a decision (a read or `0`) in every derived query; the module does not
   compile until all three exist. Its registration lands with the first production reader that
   reads it.
-- **Readers ask the ledger, one query per condition.** A reader that needs another combination of
-  claims gets a new derived query in the ledger rather than composing two at its call site, and
-  no module but `zero-start.ts` and the run claim's registration reads the run's facades. The
-  resource-ownership guard (CHECK 12) enforces both, keeps the ledger free of runtime imports,
-  timers and kept answers, and lets only `player.ts` register claims, each kind once.
+- **Readers ask the ledger, one start claim per statement.** A reader that needs another
+  combination of claims gets a new derived query in the ledger rather than composing two at its
+  call site. The resource-ownership guard (CHECK 12) counts, per function, the statements outside
+  the ledger that ask two or more start claims (ledger queries, a claim's own public query such
+  as `isYouTubeAutoSyncPending` or `proYouTubeAuthorityOwnsHardMute`, a query `player.ts`
+  registers, or the `'yt-auto-sync'` timer), and only the seek's mid-sync check has an entry. It
+  does not see claims combined across statements, through a variable or a local helper: `sync.ts`'s
+  small-drift sample asks the timeline hold beside `isCurrentStateAction` and
+  `isGuestYouTubeTransitionPending`, which each ask `isYouTubeStartSyncOwned`.
+- **The run's facades and snapshot stay with their owners.** No module but `zero-start.ts` and
+  the run claim's registration in `player.ts` reads the run's ownership facades, and no module but
+  `player.ts` reads the run's snapshot; CHECK 12 keeps both as exact per-file counts (2 and 8),
+  so a reader that rebuilt an ownership answer from the snapshot elsewhere fails it.
+- **The guard keeps the ledger pure.** CHECK 12 keeps the ledger free of runtime imports, timer
+  and scheduling names, module-level state other than its claim kinds (a `const` list of string
+  literals) and its claims (an empty `Map`), writes outside function-local bindings, changes to
+  its claims outside `registerYouTubeStartClaim` and claim registrations of its own. It lets only
+  `player.ts` register claims, each kind once and in a top-level statement, and it fails a start
+  timer named outside `src/youtube/`.
 - **The wire does not change.** No frame, field, value, timing or validator changes
   (`src/network/protocol.ts`), so builds at or above the floor exchange the same frames at the same
   instants.
@@ -122,6 +152,17 @@ claim alone, because no reader needs one.
   - after a guest's failed prepare, the projection shows paused from the COMMIT until the recovery
     releases (row G8);
   - no public owner covers the PRO direct COMMIT's 2 s local wait (row P4).
+- Two readers have no row that tells their query from a near-equivalent one. The calibration
+  window rows (`start-ownership-reader-windows.test.ts`: a Standard guest's run is protocol-active
+  but no longer in flight) pin the guest heartbeat and auxiliary-state holds, the state-action and
+  manual-offset apply checks and the manual-sync panel. The delayed rendezvous steps' check
+  (`matchesRendezvousOccurrence` in `sync.ts`) has no such row: in that window its follow-up asks
+  `isYouTubeStartSyncOwned` again through `guestRendezvousSync`, which also refuses to begin a
+  rendezvous, and no row carries a rendezvous begun before a run into the window. The small-drift
+  sample's timeline hold cannot be told apart either, because the same condition asks
+  `isGuestYouTubeTransitionPending`, which asks `isYouTubeStartSyncOwned`. The recovery's
+  release-acknowledgement window (pending, not active), where the `isYouTubeStartSyncOwned`
+  readers also differ from `isYouTubeStartArmBusy`, has no reader rows of its own.
 
 ## Product invariants
 
@@ -162,8 +203,17 @@ keeps no state and has no lifecycle of its own.
   unMuteHeld column: it keeps its own copy of the hard-mute phase list (only its recovery operand
   reads the ledger), so the volume rows still compare it with the real guard's effect. Only its
   column map changed, never an expected array.
+- `start-ownership-reader-windows.test.ts` pins five readers in a Standard guest's calibration
+  window (see [Not covered yet](#not-covered-yet)); swapping any of them to the other query fails
+  its row, and the rows pass on the tree before 6B as well.
+- Suites that never load `player.ts` (for example `src/player/__tests__/local-output-realign-cross-flow.test.ts`,
+  the Phase 4 D4 harness) register no claim, so every derived query answers false there, as the
+  zero-start facades did before 6B; their rows show the chains' behaviour, not the gates'
+  composition, which `start-ownership.test.ts`, the truth tables and the reach rows in
+  `src/ui/__tests__/player-controls.test.ts` and `src/network/__tests__/sync.test.ts` pin.
 - `guard:import-graph` (the ledger imports nothing), `guard:dead-exports` (no test-only export),
   `node scripts/check-resource-ownership.mts` (the ledger's header claims RO-02, once; since 6B-2
-  CHECK 12's facade count and ledger rules, with their seeded violations in
-  `src/core/__tests__/resource-ownership-guard.test.ts`) and the critical coverage profile
-  (`vitest.critical.config.ts` enrols the ledger and `zero-start.ts`).
+  CHECK 12's facade and snapshot-read counts, its per-statement start-claim count and its ledger
+  rules, with their seeded violations in `src/core/__tests__/resource-ownership-guard.test.ts`)
+  and the critical coverage profile (`vitest.critical.config.ts` enrols the ledger and
+  `zero-start.ts`).

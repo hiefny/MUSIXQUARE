@@ -4199,8 +4199,13 @@ describe('initPlayerControls sync button', () => {
     setState('playback.mode', 'youtube');
     setState('playback.activity', 'playing');
     zeroStartFacade.fallback = true;
-    initPlayerControls();
     const fallbackPending = vi.mocked(isYouTubeZeroStartExternalFallbackPendingFromSync);
+    vi.mocked(isYouTubeZeroStartProtocolActive).mockClear();
+    fallbackPending.mockClear();
+    initPlayerControls();
+    // The first Sync button paint reaches both halves of the owner query.
+    expect(isYouTubeZeroStartProtocolActive).toHaveBeenCalled();
+    expect(fallbackPending).toHaveBeenCalled();
     const button = document.getElementById('btn-sync') as HTMLButtonElement;
     expect(button.getAttribute('aria-disabled')).toBe('true');
     fallbackPending.mockClear();
@@ -4373,11 +4378,19 @@ describe('initPlayerControls sync button', () => {
     zeroStartFacade.active = true;
     zeroStartFacade.inFlight = true;
 
+    vi.mocked(isYouTubeZeroStartProtocolActive).mockClear();
     initPlayerControls();
+    // The first Sync button paint reads the protocol export.
+    expect(isYouTubeZeroStartProtocolActive).toHaveBeenCalled();
     const button = document.getElementById('btn-sync') as HTMLButtonElement;
     const playButton = document.getElementById('play-btn') as HTMLButtonElement;
     const seekSlider = document.getElementById('seek-slider') as HTMLInputElement;
+    vi.mocked(isYouTubeZeroStartInFlight).mockClear();
+    vi.mocked(isYouTubeZeroStartProtocolActive).mockClear();
     bus.emit('youtube:sync-loading', true, 'zero-start');
+    // The slider reads the in-flight export; the Sync button the protocol one.
+    expect(isYouTubeZeroStartInFlight).toHaveBeenCalled();
+    expect(isYouTubeZeroStartProtocolActive).toHaveBeenCalled();
 
     expect(button.getAttribute('aria-disabled')).toBe('true');
     expect(playButton.classList.contains('is-loading')).toBe(true);

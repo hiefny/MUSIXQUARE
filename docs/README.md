@@ -93,6 +93,37 @@ runbooks. Neither belongs in a general setup document.
 
 ## Maintained evidence and completed records
 
+- [App font line box baked into the font files (2026-11-01)](design/app-font-baked-metrics-2026-11-01.md):
+  not merged or released; local branch `agent/font-baked-metrics` on `9e72b7ce` (main `9c078f5c`,
+  the 9.0.30 record, plus seven tests-only commits), with no version bump, so
+  `guard:sw-cache-version` fails only for the missing bump until the App update that carries it.
+  Safari applies `size-adjust` but not the three metric overrides that keep the 9.0.29 font
+  switch's line boxes, so on the owner's iPhone a 15 px Hangul line was about 20 px high instead
+  of 18 px and, with several playlists, the Playlist title sat higher than the other tab titles.
+  The owner chose on 2026-11-01 to bake the line box into the font files rather than patch
+  `line-height` in CSS (the 9.0.29 report's question 8). Every Inter and CJK face the app sheets
+  keep (Inter 7, Noto Sans KR 120, JP 120, SC 95, TC 98) is now served from a copy in `fonts/app/`
+  with the box of `src/i18n/font-metrics.ts` in `hhea` and the OS/2 typo metrics and
+  `USE_TYPO_METRICS` set (Inter 2006 / 508 / 0 of 2048 units, CJK 1013 / 257 / 0 of 1000, the
+  nearest units to the overrides), the win metrics and every other byte kept, and the inputs
+  (`fonts/inter`, `fonts/noto/noto-sans-kr`, and the JP, SC and TC shards About and the sitemap
+  page keep using) unchanged. The new `npm run generate:app-faces` bakes, checks and records them
+  in `fonts/app-faces.json`; `generate:font-sheets` runs it first, and the font guard checks the
+  copies against their record. The sheets keep their four descriptors (option K), so Chromium and
+  Firefox draw as before. Tests first: `4fe74d15` fails on its parent for the stated reasons (the
+  tables, the paths, the record and, in Chromium with the overrides removed, CJK lines of 18, 20
+  and 39 px instead of 15, 18 and 34 and the Playlist title 1.5 px above the others) and passes at
+  `11db07e6`; `75e0801a` adds a pixel-identity spec. QA round 1 (Windows Chromium 153): with the
+  overrides removed, as Safari reads the sheets, the line boxes and the four tab titles now equal
+  the shipped ones in the Korean, English, Japanese and Simplified Chinese UIs; the shipped
+  Chromium rendering of 24 screens is byte-identical before and after; the font files grow by
+  1,036 B, the build by 313 WOFF2 files (13.75 MB, the JP, SC and TC copies beside the originals)
+  and the repository by about 17.7 MB, while the first load keeps its raw bytes (gzip within 5 B)
+  and loads no font. All 37 guards pass but `guard:sw-cache-version` (the missing bump), with the
+  unit suite, critical E2E 101 / 101 and the font specs. The release target is
+  `app` (448 App runtime paths, none in the other five Workers). The report lists the owner
+  questions (option K or the exact-ratio option E, the repository and build sizes), the risks and
+  the device check after release.
 - [Phase 6 train 6A: one YouTube start timing home, owner queries for the start timers and one verified iframe audio restore (2026-10-31)](design/phase6-6a-start-constants-owner-queries-2026-10-31.md):
   released on 2026-11-01 05:17 KST in Release 41237978646 (PR #550, squash `3c098e9d`) as App
   9.0.30 / v803 (App build 803, target `app`, one update dialog; the bump `8d148fff` is the last

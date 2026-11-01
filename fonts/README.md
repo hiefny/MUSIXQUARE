@@ -102,7 +102,8 @@ Safari applies `size-adjust` but not `ascent-override`, `descent-override` or
 each file's own vertical metrics. With Google's files a 15 px Hangul line was
 about 20 px high instead of 18 px, and with several playlists the Playlist
 title sat higher than the other tab titles. The owner chose on 2026-11-01 to
-bake the box into the files rather than patch `line-height` in CSS:
+bake the box into the files rather than patch `line-height` in CSS
+([report](../docs/design/app-font-baked-metrics-2026-11-01.md)):
 
 - `scripts/fonts/build-app-faces.mts` (`npm run generate:app-faces`) copies
   every Inter and CJK face the app sheets keep into `fonts/app/<family>/`,

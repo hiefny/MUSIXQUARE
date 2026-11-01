@@ -489,6 +489,12 @@ describe('automatic precision rendezvous for small stable drift', () => {
     expect(mutationOps(player)).toEqual([]);
   });
 
+  // Four sync.ts readers can satisfy this row, and any one of them alone holds
+  // the realign: isCurrentStateAction (the drift sampler's first check and the
+  // heartbeat's check after it, which answers first today), the sampler's
+  // isGuestYouTubeTransitionPending, guestRendezvousSync's admission gate, and
+  // the admitted attempt's step guard (matchesRendezvousOccurrence). A move
+  // that leaves any one of them on this export keeps the row green.
   it('consults the zero-start protocol export while it owns the iframe', () => {
     const player = installGuest();
     harness.zeroStartActive = true;

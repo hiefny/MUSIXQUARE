@@ -369,7 +369,15 @@ describe('heartbeat ownership during a participant-local YouTube start', () => {
     fallbackOwnsPlayer = true;
     fallbackPendingHook.mockClear();
     heartbeat(20);
+    // Four sync.ts readers can satisfy this call assertion, in the order the
+    // heartbeat reaches them: its own in-flight/fallback gate, which returns
+    // first today; isCurrentStateAction through isYouTubeZeroStartSyncOwned;
+    // the small-drift sampler's direct fallback read; and the sampler's
+    // isGuestYouTubeTransitionPending. The heartbeat gate itself is pinned by
+    // the 'respects external fallback ownership' rows (states 2 and 0). This
+    // row pins the hold and that the snapshot recorded before it survives.
     expect(fallbackPendingHook).toHaveBeenCalled();
+    expect(player.__log).toHaveLength(0);
     fallbackOwnsPlayer = false;
     expect(guestRendezvousSync({ silent: true }).status).toBe('started');
     expect(player.__log.find((call) => call.op === 'seekTo')?.args?.[0]).toBe(21.5);

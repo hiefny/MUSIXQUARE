@@ -338,10 +338,10 @@ const H3_SAMPLES = [
   '430 ready@timer error playing',
   '430 ready@timer idle playing',
   // The host legacy recovery owns the iframe until its release at +481.
-  '430 ready@timer idle owned fallback fallbackPending guestPending beatHeld unMuteHeld playing',
+  '430 ready@timer-micro idle owned fallback fallbackPending guestPending beatHeld unMuteHeld playing',
   '481 ready@timer idle playing',
   // Stage 1 at +481; Stage 2 waits 4 s.
-  '481 ready@timer idle autoSync auxHeld beatHeld playing',
+  '481 ready@timer-micro idle autoSync auxHeld beatHeld playing',
   '4490 rest idle playing',
 ];
 const H4_SAMPLES = [
@@ -351,13 +351,13 @@ const H4_SAMPLES = [
   '1560 loading:idle:zero-start@timer error playing',
   '1560 ready@timer error playing',
   '1560 ready@timer idle playing',
-  '1560 ready@timer idle owned fallback fallbackPending guestPending beatHeld unMuteHeld playing',
+  '1560 ready@timer-micro idle owned fallback fallbackPending guestPending beatHeld unMuteHeld playing',
   // The legacy recovery times out at +4561 and keeps its fence through eight
   // verified restore attempts.
   '4561 loading:idle:zero-start@timer idle owned fallback fallbackPending guestPending beatHeld unMuteHeld playing',
   // Looks like a defect: the fence ends with the iframe paused at 0:00, and no
   // event projects that pause, so playback.activity stays 'playing'.
-  '5401 ready@timer idle playing',
+  '5401 ready@timer-micro idle playing',
 ];
 const H5_SAMPLES = [
   ...HOST_ALL_READY_SAMPLES.slice(0, 6),
@@ -365,9 +365,9 @@ const H5_SAMPLES = [
   '400 loading:idle:zero-start@step:replace idle playing',
   '400 ready@step:replace idle playing',
   // 1.5 s with no owner, then the replacement recovery until its release.
-  '1900 ready@timer idle owned fallback fallbackPending guestPending beatHeld unMuteHeld playing',
+  '1900 ready@timer-micro idle owned fallback fallbackPending guestPending beatHeld unMuteHeld playing',
   '1951 ready@timer idle playing',
-  '1951 ready@timer idle autoSync auxHeld beatHeld playing',
+  '1951 ready@timer-micro idle autoSync auxHeld beatHeld playing',
   '5960 rest idle playing',
 ];
 const H6_SAMPLES = [
@@ -438,20 +438,20 @@ const guestExcludedSamples = (releaseAt: number) => [
   ...GUEST_WARM_UP_SAMPLES,
   '2401 loading:idle:zero-start@timer error playing',
   '2401 ready@timer error playing',
-  '2401 ready@timer error owned fallback fallbackPending guestPending beatHeld unMuteHeld playing',
+  '2401 ready@timer-micro error owned fallback fallbackPending guestPending beatHeld unMuteHeld playing',
   // The fallback leaves the iframe before its release playVideo; its pending
   // claim lasts until the acknowledgement.
   `${releaseAt} notify:1:before error owned fallbackPending guestPending beatHeld playing`,
-  `${releaseAt + 1} ready@timer error playing`,
+  `${releaseAt + 1} ready@timer-micro error playing`,
 ];
 const G4_SAMPLES = [
   ...GUEST_ARMED_SAMPLES,
   // Armed without a clock, it never reports ARMED; the COMMIT excludes it.
   '2401 loading:idle:zero-start@timer error playing',
   '2401 ready@timer error playing',
-  '2401 ready@timer error owned fallback fallbackPending guestPending beatHeld unMuteHeld playing',
+  '2401 ready@timer-micro error owned fallback fallbackPending guestPending beatHeld unMuteHeld playing',
   '2452 notify:1:before error owned fallbackPending guestPending beatHeld playing',
-  '2453 ready@timer error playing',
+  '2453 ready@timer-micro error playing',
 ];
 const G5_SAMPLES = [
   ...GUEST_ARMED_SAMPLES,
@@ -463,10 +463,10 @@ const G5_SAMPLES = [
   '3222 notify:2:after starting owned inFlight protocol guestPending auxHeld beatHeld paused',
   '3222 loading:idle:zero-start@timer error paused',
   '3222 ready@timer error paused',
-  '3222 ready@timer error owned fallback fallbackPending guestPending beatHeld unMuteHeld paused',
+  '3222 ready@timer-micro error owned fallback fallbackPending guestPending beatHeld unMuteHeld paused',
   '3273 notify:1:before error owned fallbackPending guestPending beatHeld paused',
   '3273 notify:1:after error owned fallbackPending guestPending beatHeld playing',
-  '3274 ready@timer error playing',
+  '3274 ready@timer-micro error playing',
 ];
 const G6_SAMPLES = [
   ...GUEST_ARMED_SAMPLES,
@@ -492,7 +492,7 @@ const G7_SAMPLES = [
   '100 ready@timer waiting-ready owned inFlight protocol guestPending auxHeld beatHeld idle',
   '2401 loading:idle:zero-start@timer error idle',
   '2401 ready@timer error idle',
-  '2401 ready@timer error owned fallback fallbackPending guestPending beatHeld unMuteHeld idle',
+  '2401 ready@timer-micro error owned fallback fallbackPending guestPending beatHeld unMuteHeld idle',
 ];
 const G8_SAMPLES = [
   ...GUEST_PREPARE_SAMPLES,
@@ -504,10 +504,10 @@ const G8_SAMPLES = [
   // ordinary projection shows 'paused' until the fallback release at +3100.
   '2401 notify:2:after error paused',
   '2401 ready@timer error paused',
-  '2401 ready@timer error owned fallback fallbackPending guestPending beatHeld unMuteHeld paused',
+  '2401 ready@timer-micro error owned fallback fallbackPending guestPending beatHeld unMuteHeld paused',
   '3100 notify:1:before error owned fallbackPending guestPending beatHeld paused',
   '3100 notify:1:after error owned fallbackPending guestPending beatHeld playing',
-  '3101 ready@timer error playing',
+  '3101 ready@timer-micro error playing',
 ];
 const G9_SAMPLES = [
   ...GUEST_WARM_UP_SAMPLES,
@@ -519,7 +519,7 @@ const G10_SAMPLES = [
   ...GUEST_WARM_UP_SAMPLES,
   '2401 loading:idle:zero-start@timer error playing',
   '2401 ready@timer error playing',
-  '2401 ready@timer error owned fallback fallbackPending guestPending beatHeld unMuteHeld playing',
+  '2401 ready@timer-micro error owned fallback fallbackPending guestPending beatHeld unMuteHeld playing',
   // The host's pause retires the recovery inside the step before it pauses.
   '2500 notify:2:before error playing',
   '2500 notify:2:after error paused',
@@ -863,7 +863,7 @@ describe('start-ownership table: Standard heartbeat landing (pinned 2026-11-01)'
       'the host legacy recovery',
       playAt(HOST_PREPARE_FAILURE, 2_650),
       '3000 beat idle held',
-      '2980 ready@timer idle owned fallback fallbackPending guestPending beatHeld unMuteHeld playing',
+      '2980 ready@timer-micro idle owned fallback fallbackPending guestPending beatHeld unMuteHeld playing',
     ],
     [
       'the legacy Stage 2 wait',

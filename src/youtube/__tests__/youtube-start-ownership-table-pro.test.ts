@@ -339,8 +339,8 @@ const P7_SAMPLES = [
   // The hard mute never confirms: the arm gives up after its bounded polls and
   // drops its run before its own pauseVideo, as in P2.
   '330 notify:2:before idle paused',
-  '1000 ready@timer idle paused',
-  '1000 loading:idle:-@timer idle paused',
+  '1000 ready@micro idle paused',
+  '1000 loading:idle:-@micro idle paused',
   '1010 rest idle proMute unMuteHeld paused',
   '1330 notify:2:before idle paused',
 ];
@@ -350,8 +350,8 @@ const P8_SAMPLES = [
   // The audio restore starts at +500, as in P1, but every unMute is ignored:
   // the COMMIT at +1000 waits until the restore times out at +1460.
   '500 rest idle paused',
-  '1460 ready@timer idle paused',
-  '1460 loading:idle:-@timer idle paused',
+  '1460 ready@timer-micro idle paused',
+  '1460 loading:idle:-@timer-micro idle paused',
   '1460 rest idle proMute unMuteHeld paused',
   '1970 rest idle paused',
 ];

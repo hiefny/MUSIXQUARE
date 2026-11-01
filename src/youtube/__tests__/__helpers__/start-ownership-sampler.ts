@@ -32,9 +32,11 @@
  * - 'ready@<ctx>' inside every youtube:zero-start-readiness-changed emission
  *   and 'loading:<busy|idle>:<owner|->@<ctx>' inside every
  *   youtube:sync-loading emission, where <ctx> is the innermost open step or
- *   notification, or else 'timer' while fake time advances and 'micro'
- *   otherwise (a microtask that runs with no timer advance, such as the
- *   flush after a step).
+ *   notification, or else 'timer' inside a fake timer's callback,
+ *   'timer-micro' in a microtask that callback scheduled (run before the next
+ *   timer), and 'micro' in any other microtask (the flush after a step, or a
+ *   step's chain that outlasts it). A source whose emission moves from its
+ *   timer callback into a microtask therefore changes its line.
  * Rest, step, micro and notify lines are kept only when '<phase> <tokens>
  * <activity>' differs from the last kept line of any kind; ready and loading
  * lines are always kept, so each source's emission instant stays pinned.
@@ -47,7 +49,6 @@
  *   HEARTBEAT_INTERVAL_MS after t0), 'sent' when a youtube-sync frame with
  *   isManual false left at that instant.
  */
-import { vi } from 'vitest';
 import { MSG } from '../../../core/constants.ts';
 import { bus } from '../../../core/events.ts';
 import { getState } from '../../../core/state.ts';
@@ -71,6 +72,44 @@ import { isYouTubeZeroStartSyncOwned } from '../../zero-start-ownership.ts';
 import type { FakeYtPlayer } from './fake-yt-player.ts';
 import type { ScriptedIframeApi } from './scripted-iframe-api.ts';
 import type { SentFrame } from './standard-start-harness.ts';
+
+/** The parts of the fake clock (@sinonjs/fake-timers) that runTimersFor steps with. */
+interface FakeTimerClock {
+  readonly now: number;
+  /** Runs the first pending timer alone, at its own instant; no microtask runs. */
+  next(): number;
+  /**
+   * Set while a tick runs. A zero-delay timer scheduled then is due 1 ms
+   * later, not at once, and vi.advanceTimersByTimeAsync() keeps it set
+   * between timers, so the microtasks a timer schedules see it set.
+   */
+  duringTick: boolean;
+}
+
+/** The clock vi.useFakeTimers() installed; fake-timers hangs it on the faked setTimeout. */
+function installedFakeClock(): FakeTimerClock {
+  const clock = (globalThis.setTimeout as unknown as { clock?: FakeTimerClock }).clock;
+  if (typeof clock?.next !== 'function') {
+    throw new Error('start-ownership sampler: install vi.useFakeTimers() before advancing');
+  }
+  return clock;
+}
+
+/**
+ * The host's own setImmediate, read when this module loads (before a test
+ * installs fake timers), which the fake clock also uses between timers.
+ */
+const nativeSetImmediate = globalThis.setImmediate;
+
+/** One native task: every microtask queued before it has run when it resolves. */
+function nativeTask(): Promise<void> {
+  if ('clock' in nativeSetImmediate) {
+    throw new Error('start-ownership sampler: loaded while fake timers were installed');
+  }
+  return new Promise((resolve) => {
+    nativeSetImmediate(() => resolve());
+  });
+}
 
 /** The zero-start phases in which player.ts's own hard-mute guard holds an unMute. */
 const ZERO_START_HARD_MUTE_PHASES: ReadonlySet<string> = new Set(['muting', 'warming', 'settling']);
@@ -163,6 +202,55 @@ export function probeStartOwnership(options: StartOwnershipProbeOptions): StartO
   let lastState: string | null = null;
 
   const context = () => contexts.at(-1) ?? ambient;
+
+  /**
+   * Advance fake time by `ms`, one timer callback at a time: each callback
+   * runs alone with ambient 'timer', then one native task drains the
+   * microtasks it scheduled with ambient 'timer-micro', before the next
+   * callback. This is the order vi.advanceTimersByTimeAsync() runs them in
+   * (a native task after each timer), with the two kinds of work told apart.
+   * Microtasks still pending when the advance starts (a step's chain longer
+   * than its five flushes) run first, with ambient 'micro'. The drain keeps
+   * the clock's duringTick flag set as that tick does, so a zero-delay timer
+   * a timer's microtask schedules (the rig's one-task link, for one) is due
+   * 1 ms later, as before.
+   */
+  async function runTimersFor(ms: number): Promise<void> {
+    const clock = installedFakeClock();
+    const target = clock.now + ms;
+    await nativeTask();
+    // A sentinel at the target bounds clock.next(). A timer that a callback
+    // schedules for the target instant itself sorts after the sentinel, so
+    // another pass runs until a sentinel fires with nothing before it.
+    for (let pass = 0; ; pass += 1) {
+      let reached = false;
+      let ranOther = false;
+      setTimeout(() => {
+        reached = true;
+      }, target - clock.now);
+      for (;;) {
+        ambient = 'timer';
+        try {
+          clock.next();
+        } finally {
+          ambient = 'timer-micro';
+        }
+        // The sentinel queues nothing, so it takes no native task: the count
+        // stays one per timer, as in the fake clock's own tick, and work that
+        // waits on native tasks keeps its pace in fake time.
+        if (reached) break;
+        ranOther = true;
+        clock.duringTick = true;
+        try {
+          await nativeTask();
+        } finally {
+          clock.duringTick = false;
+        }
+      }
+      ambient = 'micro';
+      if (pass > 0 && !ranOther) return;
+    }
+  }
   const keep = (label: string, always = false) => {
     wrapNewIframes();
     const state = formatSample(sampleStartOwnership());
@@ -228,12 +316,7 @@ export function probeStartOwnership(options: StartOwnershipProbeOptions): StartO
     },
     async advanceTo(relativeMs) {
       while (options.now() < relativeMs) {
-        ambient = 'timer';
-        try {
-          await vi.advanceTimersByTimeAsync(Math.min(10, relativeMs - options.now()));
-        } finally {
-          ambient = 'micro';
-        }
+        await runTimersFor(Math.min(10, relativeMs - options.now()));
         keep('rest');
         const at = options.now();
         if (options.isHost && at > 0 && at % HEARTBEAT_INTERVAL_MS === 0) {

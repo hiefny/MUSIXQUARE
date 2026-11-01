@@ -2206,7 +2206,8 @@ describe('YouTube Sync — Regression Integration', () => {
 
         // The feedback hold right after the snapshot reads the in-flight export.
         // Past it, a different video id loads at once, before any other owner
-        // gate on this path.
+        // gate on this path. The hold's other half, the pending fallback, is
+        // pinned in zero-start-heartbeat-ownership.test.ts.
         expect(isYouTubeZeroStartInFlight).toHaveBeenCalled();
         expect(mutationOps(player)).toEqual([]);
       },

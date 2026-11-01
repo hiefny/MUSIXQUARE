@@ -31,6 +31,8 @@ import { makeFakeYtPlayer, type FakeYtPlayer } from './__helpers__/fake-yt-playe
 
 const QUEUE_ID = '11111111-1111-4111-8111-111111111111';
 const VIDEO_ID = 'M7lc1UVf-VE';
+/** A synthetic id for a video other than the current one. */
+const OTHER_VIDEO_ID = 'otherVideo1';
 const EPOCH = 1_700_000_000_000;
 const handlers: Record<string, (data: Record<string, unknown>, conn: DataConnection) => void> = {};
 vi.mock('../../network/protocol.ts', () => ({
@@ -435,4 +437,31 @@ describe('heartbeat ownership during a participant-local YouTube start', () => {
     expect(player.getPlayerState()).toBe(2);
     expect(player.getCurrentTime()).toBe(4);
   });
+
+  // Host feedback that names another video, with the protocol idle. The
+  // feedback hold right after the snapshot reads two owners, the in-flight run
+  // or the pending fallback; sync-integration.test.ts pins the in-flight half,
+  // and these rows pin the fallback half. On this path that hold is the
+  // fallback hook's only reader, and past it the other video loads at once.
+  it.each([1, 3])(
+    'holds host feedback state %s that names another video while the fallback owns the iframe',
+    (state) => {
+      fallbackOwnsPlayer = true;
+      fallbackPendingHook.mockClear();
+      handlers[MSG.YOUTUBE_STATE]({ ...snapshot(4, state), videoId: OTHER_VIDEO_ID }, host);
+      expect(fallbackPendingHook).toHaveBeenCalled();
+      expect(player.__log).toHaveLength(0);
+      expect(fallbackOwnsPlayer).toBe(true);
+    },
+  );
+
+  it.each([1, 3])(
+    'loads the video named by host feedback state %s with no fallback owner (control)',
+    (state) => {
+      fallbackPendingHook.mockClear();
+      handlers[MSG.YOUTUBE_STATE]({ ...snapshot(4, state), videoId: OTHER_VIDEO_ID }, host);
+      expect(fallbackPendingHook).toHaveBeenCalled();
+      expect(player.__log.map(({ op }) => op)).toEqual(['loadVideoById']);
+    },
+  );
 });

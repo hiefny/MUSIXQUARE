@@ -24,6 +24,14 @@
  *
  * A row marked "Looks like a defect" pins today's behaviour, not claimed
  * right.
+ *
+ * The fake iframe notifies the App synchronously, inside the command that
+ * caused the state; a real iframe delivers onStateChange over postMessage, a
+ * task or more later. The rows run on the synchronous default, and those
+ * arrays are the pins a later start ledger is held to. An 'a' row runs the
+ * same script with every App notification one task later (withAsyncNotify),
+ * so a line that only the synchronous ordering produces is marked "Fake
+ * ordering" and its 'a' row shows what real delivery does.
  */
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { MSG } from '../../core/constants.ts';
@@ -257,6 +265,10 @@ async function runRow(row: TableRow) {
     samples: started.samples,
     aux: started.aux,
     beat: started.beat,
+    /** Broadcast youtube-state frames, '<ms> state <state> at <canonical time>'. */
+    states: current.sent
+      .filter(({ via, type }) => via === 'broadcast' && type === MSG.YOUTUBE_STATE)
+      .map(({ at, frame }) => `${at} state ${String(frame.state)} at ${String(frame.time)}`),
     /** Periodic host heartbeats, '<ms> state <state> at <canonical time>'. */
     heartbeats: current.sent
       .filter(({ type, frame }) => type === MSG.YOUTUBE_SYNC && frame.isManual === false)
@@ -284,6 +296,101 @@ const NEWCOMER_CONNECTS: TableStep = {
     bus.emit('network:peer-connected', newcomer);
   },
 };
+
+/** The host presses play or pause (the App's toggle-play path). */
+const hostToggles = (at: number, label: string): TableStep => ({
+  at,
+  label,
+  run: () => bus.emit('youtube:toggle-play'),
+});
+/** H4: the iframe ignores every unMute, so the audio restore times out. */
+const HOST_RESTORE_TIMEOUT: TableRow = {
+  ...HOST_ALL_READY,
+  rig: { iframeInit: { __unMuteIgnoreCount: 1_000 } },
+  endAt: 6_000,
+};
+const HOST_PEER_REPLACED = fromScenario(SCENARIOS.hostPeerReplaced, ['play', 'replace']);
+/** H9: the host seeks to 0:42 at +200, mid-warm-up. */
+const HOST_SEEKS = withStep(HOST_ALL_READY, {
+  at: 200,
+  label: 'seek',
+  run: () => bus.emit('youtube:seek-to', 42),
+});
+/** H10: the host presses pause at +200, mid-warm-up. */
+const HOST_PAUSES = withStep(HOST_ALL_READY, hostToggles(200, 'pause'));
+/**
+ * After a zero-start (play at +100) the host pauses at +3000, resumes at
+ * +4000, pauses at +7000, resumes at +7500, its iframe stalls (BUFFERING then
+ * PLAYING) at +10000, and the host pauses at +11000.
+ */
+const HOST_PAUSE_CYCLE: TableRow = {
+  role: 'host',
+  steps: [
+    HOST_PLAYS,
+    hostToggles(3_000, 'pause'),
+    hostToggles(4_000, 'resume'),
+    hostToggles(7_000, 'pause2'),
+    hostToggles(7_500, 'resume2'),
+    {
+      at: 10_000,
+      label: 'stall',
+      run: (current) => {
+        const fake = current.iframe();
+        fake.__setState(3);
+        fake.__setState(1);
+      },
+    },
+    hostToggles(11_000, 'pause3'),
+  ],
+  endAt: 11_500,
+};
+const GUEST_PREPARE_FAILURE: TableRow = {
+  ...GUEST_ALL_READY,
+  rig: { iframeInit: { __hardMuteFails: true } },
+};
+/**
+ * G8 on a guest that is playing the current track (the remote host's legacy
+ * start: Stage 1 at +100, Stage 2 at +2100) when the remote host starts the
+ * next track at +5000, this iframe's hard mute failing from +4900.
+ */
+const GUEST_PREPARE_FAILURE_WHILE_PLAYING: TableRow = {
+  role: 'guest',
+  steps: [
+    legacyStage1(0),
+    LEGACY_STAGE_2,
+    {
+      at: 4_900,
+      label: 'mutefault',
+      run: (current) => {
+        current.iframe().__hardMuteFails = true;
+      },
+    },
+    {
+      at: 5_000,
+      label: 'next',
+      run: (current) => {
+        const next = { queueItemId: IDENTITY.nextQueueItemId, videoId: IDENTITY.nextVideoId };
+        if (!current.remote.beginHostTransition({ ...next, subIndex: null })) {
+          throw new Error('the remote host could not begin the next track');
+        }
+      },
+    },
+  ],
+  endAt: 9_000,
+};
+
+/**
+ * The same row with every App iframe state notification delivered one task
+ * later (fake-yt-player.ts __stateNotifyDelayMs 0), as the real IFrame API
+ * delivers onStateChange over postMessage. The rows above run on the fake's
+ * default, a notification inside the command that caused it; a line that
+ * differs between a row and its 'a' variant depends on that ordering.
+ */
+function withAsyncNotify(row: TableRow): TableRow {
+  const init = row.rig?.iframeInit;
+  if (typeof init === 'function') throw new Error('withAsyncNotify takes an object iframeInit');
+  return { ...row, rig: { ...row.rig, iframeInit: { ...init, __stateNotifyDelayMs: 0 } } };
+}
 
 // ─── Expected lines (today's values) ───────────────────────────────
 
@@ -355,8 +462,10 @@ const H4_SAMPLES = [
   // The legacy recovery times out at +4561 and keeps its fence through eight
   // verified restore attempts.
   '4561 loading:idle:zero-start@timer idle owned fallback fallbackPending guestPending beatHeld unMuteHeld playing',
-  // Looks like a defect: the fence ends with the iframe paused at 0:00, and no
-  // event projects that pause, so playback.activity stays 'playing'.
+  // Fake ordering: the fence ends with the iframe paused at 0:00, and its
+  // last PAUSED arrived inside the fence, so playback.activity stays
+  // 'playing'. Delivered one task later (H4a) that PAUSED lands after the
+  // fence and the projection turns 'paused' at +5402.
   '5401 ready@timer-micro idle playing',
 ];
 const H5_SAMPLES = [
@@ -458,8 +567,10 @@ const G5_SAMPLES = [
   '723 ready@timer scheduled owned inFlight protocol guestPending auxHeld beatHeld playing',
   // 'starting' holds at rest while the release buffers without PLAYING.
   '1422 ready@timer starting owned inFlight protocol guestPending auxHeld beatHeld playing',
-  // The release-ack timeout's own pause reaches the ordinary projection
-  // ('starting' passes non-PLAYING states through) for 51 ms.
+  // Fake ordering: the release-ack timeout's own pause reaches the ordinary
+  // projection ('starting' passes non-PLAYING states through) for 51 ms.
+  // Delivered one task later (G5a) it projects in the same instant as the
+  // fallback's PLAYING.
   '3222 notify:2:after starting owned inFlight protocol guestPending auxHeld beatHeld paused',
   '3222 loading:idle:zero-start@timer error paused',
   '3222 ready@timer error paused',
@@ -499,9 +610,13 @@ const G8_SAMPLES = [
   // The hard mute never confirms: 'error' holds with no owner until the COMMIT.
   '431 loading:idle:zero-start@timer error playing',
   '431 ready@timer error playing',
-  // Looks like a defect: at the COMMIT the controller pauses the iframe before
-  // the fallback claims it, and an 'error' run consumes no event, so the
-  // ordinary projection shows 'paused' until the fallback release at +3100.
+  // Fake ordering: the warm-up's own pause at +431 arrives inside the
+  // controller's command and is not projected; at the COMMIT the controller
+  // pauses the iframe before the fallback claims it, and an 'error' run
+  // consumes no event, so the projection shows 'paused' from +2401 until the
+  // fallback release at +3100. Delivered one task later (G8a) the warm-up's
+  // pause arrives in 'error' and the window runs from +432 instead. G8p and
+  // G8pa start over a playing track.
   '2401 notify:2:after error paused',
   '2401 ready@timer error paused',
   '2401 ready@timer-micro error owned fallback fallbackPending guestPending beatHeld unMuteHeld paused',
@@ -580,6 +695,79 @@ const G13_SAMPLES = [
   '1100 loading:idle:clock-action@timer idle playing',
   ...GUEST_LEGACY_STAGE_2_SAMPLES,
 ];
+const G5A_SAMPLES = [
+  ...GUEST_ARMED_SAMPLES,
+  '723 ready@timer scheduled owned inFlight protocol guestPending auxHeld beatHeld playing',
+  '1422 ready@timer starting owned inFlight protocol guestPending auxHeld beatHeld playing',
+  '3222 loading:idle:zero-start@timer error playing',
+  '3222 ready@timer error playing',
+  '3222 ready@timer-micro error owned fallback fallbackPending guestPending beatHeld unMuteHeld playing',
+  // The timeout's pause and the fallback's PLAYING project in one instant.
+  '3274 notify:2:before error owned fallbackPending guestPending beatHeld playing',
+  '3274 notify:2:after error owned fallbackPending guestPending beatHeld paused',
+  '3274 notify:1:after error owned fallbackPending guestPending beatHeld playing',
+  '3274 ready@timer-micro error playing',
+];
+const G8A_SAMPLES = [
+  ...GUEST_PREPARE_SAMPLES,
+  '431 loading:idle:zero-start@timer error playing',
+  '431 ready@timer error playing',
+  // The warm-up error's own pause arrives in 'error', which consumes nothing:
+  // 'paused' from +432 to the release; the COMMIT's pause at +2401 arrives
+  // inside the fallback's fence.
+  '432 notify:2:after error paused',
+  '2401 ready@timer error paused',
+  '2401 ready@timer-micro error owned fallback fallbackPending guestPending beatHeld unMuteHeld paused',
+  '3100 rest error owned fallbackPending guestPending beatHeld paused',
+  '3101 notify:1:after error owned fallbackPending guestPending beatHeld playing',
+  '3101 ready@timer-micro error playing',
+];
+/** The next track's PREPARE at +5000 over the playing current track, as G8 at +100. */
+const G8_NEXT_PREPARE_SAMPLES = [
+  '5000 ready@timer idle playing',
+  '5000 loading:idle:clock-action@timer idle playing',
+  '5000 loading:busy:zero-start@timer muting owned inFlight protocol guestPending auxHeld beatHeld unMuteHeld playing',
+  '5000 ready@timer muting owned inFlight protocol guestPending auxHeld beatHeld unMuteHeld playing',
+  '5331 loading:idle:zero-start@timer error playing',
+  '5331 ready@timer error playing',
+];
+const G8P_SAMPLES = [
+  ...G12_SAMPLES,
+  ...G8_NEXT_PREPARE_SAMPLES,
+  // As in G8: 'paused' from the COMMIT (+7301) to the release (+8000).
+  '7301 notify:2:after error paused',
+  '7301 ready@timer error paused',
+  '7301 ready@timer-micro error owned fallback fallbackPending guestPending beatHeld unMuteHeld paused',
+  '8000 notify:1:before error owned fallbackPending guestPending beatHeld paused',
+  '8000 notify:1:after error owned fallbackPending guestPending beatHeld playing',
+  '8001 ready@timer-micro error playing',
+];
+const G8PA_SAMPLES = [
+  // The legacy start of the current track, each state one task later.
+  '0 rest idle playing',
+  '100 loading:idle:clock-action@step:stage1 idle playing',
+  '100 step:stage1 idle guestPending playing',
+  '100 notify:2:after idle guestPending paused',
+  '250 rest idle paused',
+  '251 notify:1:after idle playing',
+  '2100 loading:idle:clock-action@step:stage2 idle guestPending playing',
+  '2100 loading:busy:rendezvous@step:stage2 idle guestPending playing',
+  '2100 notify:2:after idle guestPending paused',
+  '3600 loading:idle:rendezvous@timer idle guestPending paused',
+  '3601 notify:1:after idle guestPending playing',
+  '4400 loading:idle:rendezvous@timer idle playing',
+  ...G8_NEXT_PREPARE_SAMPLES,
+  // Looks like a defect: the warm-up error pauses the playing track at +5331
+  // and its PAUSED is projected at +5332. No loading owner is busy after
+  // +5331, and the projection stays 'paused' until the new track's release at
+  // +8001 (2.67 s); the fallback claims the iframe only at the COMMIT (+7301).
+  '5332 notify:2:after error paused',
+  '7301 ready@timer error paused',
+  '7301 ready@timer-micro error owned fallback fallbackPending guestPending beatHeld unMuteHeld paused',
+  '8000 rest error owned fallbackPending guestPending beatHeld paused',
+  '8001 notify:1:after error owned fallbackPending guestPending beatHeld playing',
+  '8001 ready@timer-micro error playing',
+];
 
 // Wire effects on an App host (sampler 'aux' and 'beat' lines).
 
@@ -609,7 +797,8 @@ const H3_AUX = [
   '430 notify:2 muting held',
   // The recovery owns its reload's pause.
   '431 notify:2 idle held',
-  // The recovery release's own PLAYING leaves before Stage 1 (as in H9).
+  // Fake ordering, as in H9: the recovery release's own PLAYING leaves before
+  // Stage 1; delivered one task later (H3a) it is held.
   '481 notify:1 idle sent',
 ];
 /** The Stage 2 wait holds +3000. */
@@ -635,12 +824,16 @@ const H5_AUX = [
   // The cancel's own pause arrives while the run is still set.
   '400 notify:2 settling held',
   '1901 notify:2 idle held',
-  // The replacement recovery's release PLAYING leaves before Stage 1 (as in H9).
+  // Fake ordering, as in H9: the replacement recovery's release PLAYING leaves
+  // before Stage 1; delivered one task later (H5a) it is held.
   '1951 notify:1 idle sent',
 ];
 /** Stage 2 at +5951 holds +6000 through the 500 ms manual-broadcast dedupe, another owner. */
 const H5_BEAT = ['3000 beat idle held', '6000 beat idle held', '9000 beat idle sent'];
-/** The legacy playVideo's own PLAYING leaves before Stage 1 (as in H9). */
+/**
+ * Fake ordering, as in H9: the legacy playVideo's own PLAYING leaves before
+ * Stage 1; delivered one task later (H6a) it is held.
+ */
 const H6_AUX = ['100 notify:1 idle sent'];
 const ALL_BEATS_SENT = ['3000 beat idle sent', '6000 beat idle sent', '9000 beat idle sent'];
 const H7_AUX = [
@@ -659,17 +852,22 @@ const H9_AUX = [
   '100 notify:1 warming held',
   // The cancel's own pause, consumed by the run.
   '200 notify:2 warming held',
-  // Looks like a defect: the legacy playVideo's own PLAYING (player.ts
-  // scheduleYtAutoSync) broadcasts an auxiliary youtube-state before Stage 1,
-  // because 'yt-auto-sync', which holds those, is armed only after Stage 1.
-  // H3, H5 and H6 show the same.
+  // Fake ordering, not a production defect: player.ts scheduleYtAutoSync
+  // calls playVideo, broadcasts Stage 1 and arms 'yt-auto-sync' (which holds
+  // auxiliary states) in one synchronous pass, and only a notification inside
+  // playVideo gets in before the timer. H3, H5 and H6 show the same; their 'a'
+  // rows, and H9a, hold that PLAYING and send Stage 1 alone.
   '200 notify:1 idle sent',
 ];
 // Looks like a defect, a different one: the pause path broadcasts its formal
 // PAUSED first; the iframe's own PAUSED follows and is not deduped, because
 // markYtStateBroadcast() stamps only the time while the 300 ms dedupe also
-// compares the last auxiliary state. Every Standard host pause sends this pair,
-// inside a start or not, unless that last auxiliary state was a PAUSED too.
+// compares the last auxiliary state (reset to none by every load). Real
+// delivery keeps this pair (H10a). How often it happens is H10c's: the first
+// pause after a load, and a pause after another auxiliary state left (a
+// stall's BUFFERING and PLAYING); a pause after a resume sends one PAUSED.
+// Under synchronous notifications every legacy resume's own PLAYING also
+// leaves (H9's fake ordering), so there every pause sends the pair.
 const H10_AUX = [
   '100 notify:1 warming held',
   '200 notify:2 warming held',
@@ -681,6 +879,118 @@ const H11_AUX = [
   '150 notify:2 warming held',
   '150 notify:2 idle held',
   '150 notify:0 idle held',
+];
+
+// Rows with every App iframe notification one task later ('a' rows).
+
+/** H3, H6 and H9 send Stage 1 alone: the auxiliary PLAYING is held. */
+const H3A_AUX = ['431 notify:2 idle held', '432 notify:2 idle held', '482 notify:1 idle held'];
+const H4A_SAMPLES = [
+  ...H4_SAMPLES,
+  // The recovery's last PAUSED lands after its fence and is projected.
+  '5402 notify:2:after idle paused',
+];
+const H4A_AUX = [
+  '101 notify:1 warming held',
+  '361 notify:2 settling held',
+  '1561 notify:2 idle held',
+  '1562 notify:2 idle held',
+  '4562 notify:2 idle held',
+  '4682 notify:2 idle held',
+  '4802 notify:2 idle held',
+  '4922 notify:2 idle held',
+  '5042 notify:2 idle held',
+  '5162 notify:2 idle held',
+  '5282 notify:2 idle held',
+  // That PAUSED also leaves as an auxiliary state, the room's truth: the host
+  // never sent a COMMIT, so no guest started.
+  '5402 notify:2 idle sent',
+];
+const H5A_SAMPLES = [
+  ...HOST_ALL_READY_SAMPLES.slice(0, 6),
+  '400 loading:idle:zero-start@step:replace idle playing',
+  '400 ready@step:replace idle playing',
+  // The cancel's own PAUSED arrives after the run is gone: projected, and
+  // sent as an auxiliary state at 0:00.26 after this guest's ABORT. Nothing
+  // plays until the replacement recovery's release.
+  '400 notify:2:after idle paused',
+  '1900 ready@timer-micro idle owned fallback fallbackPending guestPending beatHeld unMuteHeld paused',
+  '1951 ready@timer idle paused',
+  '1951 ready@timer-micro idle autoSync auxHeld beatHeld paused',
+  '1952 notify:1:after idle autoSync auxHeld beatHeld playing',
+  '5960 rest idle playing',
+];
+const H5A_AUX = [
+  '101 notify:1 warming held',
+  '361 notify:2 settling held',
+  '400 notify:2 idle sent',
+  '1902 notify:2 idle held',
+  '1952 notify:1 idle held',
+];
+const H9A_SAMPLES = [
+  ...HOST_WARM_UP_SAMPLES,
+  '200 loading:idle:zero-start@step:seek idle playing',
+  '200 ready@step:seek idle playing',
+  '200 step:seek idle autoSync auxHeld beatHeld playing',
+  // The cancel's pause and the legacy play arrive after Stage 1 is armed.
+  '200 notify:2:after idle autoSync auxHeld beatHeld paused',
+  '200 notify:1:after idle autoSync auxHeld beatHeld playing',
+  '2200 rest idle playing',
+];
+const H9A_AUX = ['101 notify:1 warming held', '200 notify:2 idle held', '200 notify:1 idle held'];
+/** The formal PAUSED and the iframe's own PAUSED, at 0:00.1. */
+const H10_STATES = ['200 state 2 at 0.1', '200 state 2 at 0.1'];
+const H10A_AUX = ['101 notify:1 warming held', '200 notify:2 idle sent', '200 notify:2 idle held'];
+const H10C_SAMPLES = [
+  ...HOST_ALL_READY_SAMPLES.slice(0, 12),
+  '1423 loading:idle:zero-start@notify:1 playing owned protocol guestPending auxHeld beatHeld playing',
+  '1423 ready@notify:1 playing owned protocol guestPending auxHeld beatHeld playing',
+  '3000 ready@step:pause idle playing',
+  '3000 loading:idle:-@step:pause idle playing',
+  '3000 notify:2:after idle paused',
+  '4000 ready@step:resume idle paused',
+  '4000 step:resume idle autoSync auxHeld beatHeld paused',
+  '4000 notify:1:after idle autoSync auxHeld beatHeld playing',
+  '6000 rest idle playing',
+  '7000 ready@step:pause2 idle playing',
+  '7000 loading:idle:-@step:pause2 idle playing',
+  '7000 notify:2:after idle paused',
+  '7500 ready@step:resume2 idle paused',
+  '7500 step:resume2 idle autoSync auxHeld beatHeld paused',
+  '7500 notify:1:after idle autoSync auxHeld beatHeld playing',
+  '9500 rest idle playing',
+  '11000 ready@step:pause3 idle playing',
+  '11000 loading:idle:-@step:pause3 idle playing',
+  '11000 notify:2:after idle paused',
+];
+const H10C_AUX = [
+  '101 notify:1 warming held',
+  '361 notify:2 settling held',
+  '1423 notify:1 starting held',
+  '3000 notify:2 idle sent',
+  // Each resume is a legacy rendezvous, whose Stage 2 wait holds its PLAYING.
+  '4000 notify:1 idle held',
+  '7000 notify:2 idle held',
+  '7500 notify:1 idle held',
+  '10000 notify:3 idle sent',
+  '10000 notify:1 idle sent',
+  '11000 notify:2 idle sent',
+];
+/** Stage 2 at +6000 and the Stage 2 wait at +9000 hold those heartbeats. */
+const H10C_BEAT = ['3000 beat playing held', '6000 beat idle held', '9000 beat idle held'];
+const H10C_STATES = [
+  // The first pause after the load: the pair.
+  '3000 state 2 at 1.578',
+  '3000 state 2 at 1.578',
+  '4000 state 1 at 1.578',
+  // A pause after a resume: one PAUSED.
+  '7000 state 2 at 4.578',
+  '7500 state 1 at 4.578',
+  '10000 state 3 at 7.078',
+  '10000 state 1 at 7.078',
+  // A pause after the stall's auxiliary states: the pair again.
+  '11000 state 2 at 8.078',
+  '11000 state 2 at 8.078',
 ];
 
 describe('start-ownership table: Standard host (pinned 2026-11-01)', () => {
@@ -707,22 +1017,17 @@ describe('start-ownership table: Standard host (pinned 2026-11-01)', () => {
   });
 
   it('H4 audio restore timeout, then a legacy recovery that times out', async () => {
-    const row = {
-      ...HOST_ALL_READY,
-      rig: { iframeInit: { __unMuteIgnoreCount: 1_000 } },
-      endAt: 6_000,
-    };
-    const result = await runRow(row);
+    const result = await runRow(HOST_RESTORE_TIMEOUT);
     expect(result.samples).toEqual(H4_SAMPLES);
     expect(result.aux).toEqual(H4_AUX);
     expect(result.beat).toEqual(['3000 beat idle held', '6000 beat idle sent']);
-    // Looks like a defect: with the host shown playing, its first heartbeat
-    // after the timeout reports the room paused at 0:00.
+    // The first heartbeat after the timeout reports the room paused at 0:00,
+    // where the iframe is: the host sent PREPARE and ABORT, never a COMMIT.
     expect(result.heartbeats).toEqual(['6000 state 2 at 0']);
   });
 
   it('H5 peer connection replaced mid-warm-up, then the replacement recovery', async () => {
-    const result = await runRow(fromScenario(SCENARIOS.hostPeerReplaced, ['play', 'replace']));
+    const result = await runRow(HOST_PEER_REPLACED);
     expect(result.samples).toEqual(H5_SAMPLES);
     expect(result.aux).toEqual(H5_AUX);
     expect(result.beat).toEqual(H5_BEAT);
@@ -757,27 +1062,18 @@ describe('start-ownership table: Standard host (pinned 2026-11-01)', () => {
   });
 
   it('H9 host seek mid-warm-up', async () => {
-    const row = withStep(HOST_ALL_READY, {
-      at: 200,
-      label: 'seek',
-      run: () => bus.emit('youtube:seek-to', 42),
-    });
-    const result = await runRow(row);
+    const result = await runRow(HOST_SEEKS);
     expect(result.samples).toEqual(H9_SAMPLES);
     expect(result.aux).toEqual(H9_AUX);
     expect(result.beat).toEqual(ALL_BEATS_SENT);
   });
 
   it('H10 host pause mid-warm-up', async () => {
-    const row = withStep(HOST_ALL_READY, {
-      at: 200,
-      label: 'pause',
-      run: () => bus.emit('youtube:toggle-play'),
-    });
-    const result = await runRow(row);
+    const result = await runRow(HOST_PAUSES);
     expect(result.samples).toEqual(H10_SAMPLES);
     expect(result.aux).toEqual(H10_AUX);
     expect(result.beat).toEqual(ALL_BEATS_SENT);
+    expect(result.states).toEqual(H10_STATES);
   });
 
   it('H11 stopYouTubeMode mid-warm-up', async () => {
@@ -813,6 +1109,65 @@ describe('start-ownership table: Standard late joiner (pinned 2026-11-01)', () =
     expect(result.aux).toEqual(H6_AUX);
     expect(result.beat).toEqual(ALL_BEATS_SENT);
     expect(result.newcomer).toEqual(['500 youtube-play', '500 youtube-state', '2500 youtube-sync']);
+  });
+});
+
+describe('start-ownership table: Standard host, notifications one task later (pinned 2026-11-01)', () => {
+  it('H3a prepare failure, then the host legacy recovery', async () => {
+    const result = await runRow(withAsyncNotify(HOST_PREPARE_FAILURE));
+    expect(result.samples).toEqual(H3_SAMPLES);
+    expect(result.aux).toEqual(H3A_AUX);
+    expect(result.beat).toEqual(H3_BEAT);
+    expect(result.states).toEqual(['481 state 1 at 0']);
+  });
+
+  it('H4a audio restore timeout, then a legacy recovery that times out', async () => {
+    const result = await runRow(withAsyncNotify(HOST_RESTORE_TIMEOUT));
+    expect(result.samples).toEqual(H4A_SAMPLES);
+    expect(result.aux).toEqual(H4A_AUX);
+    expect(result.beat).toEqual(['3000 beat idle held', '6000 beat idle sent']);
+    expect(result.states).toEqual(['5402 state 2 at 0']);
+    expect(result.heartbeats).toEqual(['6000 state 2 at 0']);
+  });
+
+  it('H5a peer connection replaced mid-warm-up, then the replacement recovery', async () => {
+    const result = await runRow(withAsyncNotify(HOST_PEER_REPLACED));
+    expect(result.samples).toEqual(H5A_SAMPLES);
+    expect(result.aux).toEqual(H5A_AUX);
+    expect(result.beat).toEqual(H5_BEAT);
+    expect(result.states).toEqual(['400 state 2 at 0.26', '1951 state 1 at 0']);
+  });
+
+  it('H6a legacy two-stage rendezvous', async () => {
+    const result = await runRow(withAsyncNotify(HOST_LEGACY));
+    expect(result.samples).toEqual(H6_SAMPLES);
+    expect(result.aux).toEqual(['100 notify:1 idle held']);
+    expect(result.beat).toEqual(ALL_BEATS_SENT);
+    expect(result.states).toEqual(['100 state 1 at 0']);
+  });
+
+  it('H9a host seek mid-warm-up', async () => {
+    const result = await runRow(withAsyncNotify(HOST_SEEKS));
+    expect(result.samples).toEqual(H9A_SAMPLES);
+    expect(result.aux).toEqual(H9A_AUX);
+    expect(result.beat).toEqual(ALL_BEATS_SENT);
+    expect(result.states).toEqual(['200 state 1 at 42']);
+  });
+
+  it('H10a host pause mid-warm-up', async () => {
+    const result = await runRow(withAsyncNotify(HOST_PAUSES));
+    expect(result.samples).toEqual(H10_SAMPLES);
+    expect(result.aux).toEqual(H10A_AUX);
+    expect(result.beat).toEqual(ALL_BEATS_SENT);
+    expect(result.states).toEqual(H10_STATES);
+  });
+
+  it('H10c pauses after a zero-start: after the load, after a resume, after a stall', async () => {
+    const result = await runRow(withAsyncNotify(HOST_PAUSE_CYCLE));
+    expect(result.samples).toEqual(H10C_SAMPLES);
+    expect(result.aux).toEqual(H10C_AUX);
+    expect(result.beat).toEqual(H10C_BEAT);
+    expect(result.states).toEqual(H10C_STATES);
   });
 });
 
@@ -924,8 +1279,11 @@ describe('start-ownership table: Standard guest (pinned 2026-11-01)', () => {
   });
 
   it('G8 prepare failure, then the fallback at the COMMIT', async () => {
-    const row = { ...GUEST_ALL_READY, rig: { iframeInit: { __hardMuteFails: true } } };
-    expect((await runRow(row)).samples).toEqual(G8_SAMPLES);
+    expect((await runRow(GUEST_PREPARE_FAILURE)).samples).toEqual(G8_SAMPLES);
+  });
+
+  it('G8p the same over a playing track, the remote host starting the next one', async () => {
+    expect((await runRow(GUEST_PREPARE_FAILURE_WHILE_PLAYING)).samples).toEqual(G8P_SAMPLES);
   });
 
   it('G9 the remote host aborts mid-warm-up', async () => {
@@ -972,8 +1330,27 @@ describe('start-ownership table: Standard guest (pinned 2026-11-01)', () => {
   });
 });
 
+describe('start-ownership table: Standard guest, notifications one task later (pinned 2026-11-01)', () => {
+  it('G5a release-ack timeout', async () => {
+    const row = withAsyncNotify(fromScenario(SCENARIOS.guestReleaseAckTimeout, ['begin']));
+    expect((await runRow(row)).samples).toEqual(G5A_SAMPLES);
+  });
+
+  it('G8a prepare failure, then the fallback at the COMMIT', async () => {
+    expect((await runRow(withAsyncNotify(GUEST_PREPARE_FAILURE))).samples).toEqual(G8A_SAMPLES);
+  });
+
+  it('G8pa the same over a playing track, the remote host starting the next one', async () => {
+    const row = withAsyncNotify(GUEST_PREPARE_FAILURE_WHILE_PLAYING);
+    expect((await runRow(row)).samples).toEqual(G8PA_SAMPLES);
+  });
+});
+
 describe('start-ownership table: Standard coverage (pinned 2026-11-01)', () => {
-  /** Each Standard row's lines, by row (H2 and H12 assert H1's and H6's). */
+  /**
+   * Each Standard row's lines, by row (H2 and H12 assert H1's and H6's; H3a,
+   * H6a and H10a assert H3's, H6's and H10's).
+   */
   const STANDARD_ROWS: ReadonlyArray<readonly [row: string, samples: readonly string[]]> = [
     ['H1', HOST_ALL_READY_SAMPLES],
     ['H3', H3_SAMPLES],
@@ -985,6 +1362,10 @@ describe('start-ownership table: Standard coverage (pinned 2026-11-01)', () => {
     ['H9', H9_SAMPLES],
     ['H10', H10_SAMPLES],
     ['H11', H11_SAMPLES],
+    ['H4a', H4A_SAMPLES],
+    ['H5a', H5A_SAMPLES],
+    ['H9a', H9A_SAMPLES],
+    ['H10c', H10C_SAMPLES],
     ['G1', G1_SAMPLES],
     ['G2', guestExcludedSamples(3_100)],
     ['G3', guestExcludedSamples(4_152)],
@@ -993,11 +1374,15 @@ describe('start-ownership table: Standard coverage (pinned 2026-11-01)', () => {
     ['G6', G6_SAMPLES],
     ['G7', G7_SAMPLES],
     ['G8', G8_SAMPLES],
+    ['G8p', G8P_SAMPLES],
     ['G9', G9_SAMPLES],
     ['G10', G10_SAMPLES],
     ['G11', G11_SAMPLES],
     ['G12', G12_SAMPLES],
     ['G13', G13_SAMPLES],
+    ['G5a', G5A_SAMPLES],
+    ['G8a', G8A_SAMPLES],
+    ['G8pa', G8PA_SAMPLES],
   ];
   /** '<ms> <label> <phase> <tokens…> <activity>' */
   const parse = (line: string) => {
@@ -1069,6 +1454,7 @@ describe('start-ownership table: Standard coverage (pinned 2026-11-01)', () => {
         .map(parse)
         .some(({ tokens }) => tokens.includes('guestPending') && !tokens.includes('owned')),
     ).map(([row]) => row);
-    expect(rows).toEqual(['G12', 'G13']);
+    // G8p and G8pa open with the same legacy start of the current track.
+    expect(rows).toEqual(['G8p', 'G12', 'G13', 'G8pa']);
   });
 });

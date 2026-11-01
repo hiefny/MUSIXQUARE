@@ -18,6 +18,11 @@
  * mimic in sync-integration.test.ts; no device trace calibrates them. The
  * throwing unMute models no device either: it pins how each caller handles a
  * command that throws.
+ *
+ * State notifications reach `__onStateChange` synchronously, inside the
+ * command that caused them, unless `__stateNotifyDelayMs` is set (opt-in,
+ * default null): then each one arrives in a later task, as the real IFrame
+ * API delivers onStateChange over postMessage.
  */
 
 export interface FakeYtPlayerCall {
@@ -98,6 +103,19 @@ export interface FakeYtPlayer {
    * pause and play. Default [] keeps seekTo silent.
    */
   __seekStateSequence: number[];
+  /**
+   * Opt-in delivery delay for state notifications. null (default) calls
+   * __onStateChange synchronously inside the command, as every existing suite
+   * expects. A number delivers each notification in its own fake-timer task
+   * that many milliseconds later (0: one task later; fake-timers makes a
+   * zero delay 1 ms when the command itself runs inside a timer or its
+   * microtasks). Each event carries the state of its own transition, and the
+   * handler is read from __onStateChange when the event arrives.
+   * getPlayerState() still answers the new state at once; the real API
+   * answers from a cache that the same messages update, which this fake does
+   * not model.
+   */
+  __stateNotifyDelayMs: number | null;
   __onStateChange?: (event: FakeYtStateChangeEvent) => void;
   // YT IFrame API surface used by sync.ts / player.ts
   playVideo: () => void;
@@ -147,7 +165,13 @@ export function makeFakeYtPlayer(init?: Partial<FakeYtPlayer>): FakeYtPlayer {
     } else {
       playStartedAt = null;
     }
-    if (emit) self.__onStateChange?.({ data: state, target: self });
+    if (!emit) return;
+    const event: FakeYtStateChangeEvent = { data: state, target: self };
+    if (self.__stateNotifyDelayMs === null) {
+      self.__onStateChange?.(event);
+      return;
+    }
+    setTimeout(() => self.__onStateChange?.(event), self.__stateNotifyDelayMs);
   }
 
   const self: FakeYtPlayer = {
@@ -170,6 +194,7 @@ export function makeFakeYtPlayer(init?: Partial<FakeYtPlayer>): FakeYtPlayer {
     __unMuteThrowCount: init?.__unMuteThrowCount ?? 0,
     __volumeReadFault: init?.__volumeReadFault ?? null,
     __seekStateSequence: init?.__seekStateSequence ?? [],
+    __stateNotifyDelayMs: init?.__stateNotifyDelayMs ?? null,
     __onStateChange: init?.__onStateChange,
 
     playVideo() {

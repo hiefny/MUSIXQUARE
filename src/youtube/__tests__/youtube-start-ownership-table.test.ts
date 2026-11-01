@@ -381,6 +381,74 @@ const GUEST_PREPARE_FAILURE_WHILE_PLAYING: TableRow = {
 };
 
 /**
+ * The remote host presses Sync at `at` during the legacy start (Stage 1 from
+ * 0:00 at +100): a manual YOUTUBE_SYNC with its position then.
+ */
+function hostSyncPress(at: number): TableStep {
+  return {
+    at,
+    label: 'sync',
+    run: (current) =>
+      current.deliver({
+        type: MSG.YOUTUBE_SYNC,
+        queueItemId: IDENTITY.queueItemId,
+        videoId: IDENTITY.videoId,
+        subIndex: -1,
+        state: 1,
+        time: (at - 100) / 1_000,
+        hostClock: Date.now(),
+        isManual: true,
+      }),
+  };
+}
+/**
+ * G14: the remote host presses Sync at +4500, 100 ms after the guest's
+ * Stage 2 rendezvous ended, inside its 3 s cooldown: the guest keeps the
+ * request as a pending manual rendezvous and runs it when the cooldown ends.
+ */
+const GUEST_SYNC_PRESS_IN_COOLDOWN: TableRow = {
+  role: 'guest',
+  steps: [legacyStage1(0), LEGACY_STAGE_2, hostSyncPress(4_500)],
+  endAt: 9_000,
+};
+/**
+ * G15: after G1's zero-start (release at +1422 from 0:00) this guest commits
+ * a +0.25 s manual offset at +5000. Zero-start left it no host snapshot, so
+ * the apply waits for the remote host's next heartbeat, at +6000.
+ */
+const GUEST_OFFSET_APPLY_AWAITING_HEARTBEAT: TableRow = {
+  ...GUEST_ALL_READY,
+  steps: [
+    ...GUEST_ALL_READY.steps,
+    {
+      at: 5_000,
+      label: 'offset',
+      run: () => {
+        // network/sync.ts stores the accepted device offset before this event.
+        setState('sync.youtubeLocalOffset', 0.25);
+        bus.emit('youtube:apply-manual-sync');
+      },
+    },
+    {
+      at: 6_000,
+      label: 'heartbeat',
+      run: (current) =>
+        current.deliver({
+          type: MSG.YOUTUBE_SYNC,
+          queueItemId: IDENTITY.queueItemId,
+          videoId: IDENTITY.videoId,
+          subIndex: -1,
+          state: 1,
+          time: (6_000 - 1_422) / 1_000,
+          hostClock: Date.now(),
+          isManual: false,
+        }),
+    },
+  ],
+  endAt: 12_000,
+};
+
+/**
  * The same row with every App iframe state notification delivered one task
  * later (fake-yt-player.ts __stateNotifyDelayMs 0), as the real IFrame API
  * delivers onStateChange over postMessage. The rows above run on the fake's
@@ -695,6 +763,30 @@ const G13_SAMPLES = [
   '1100 notify:1:after idle playing',
   '1100 loading:idle:clock-action@timer idle playing',
   ...GUEST_LEGACY_STAGE_2_SAMPLES,
+];
+const G14_SAMPLES = [
+  ...G12_SAMPLES,
+  // The pending manual rendezvous alone keeps a guest transition pending
+  // until the cooldown ends at +5110, then the rendezvous runs.
+  '4500 step:sync idle guestPending playing',
+  '5110 loading:idle:clock-action@timer idle guestPending playing',
+  '5110 loading:busy:rendezvous@timer idle guestPending playing',
+  '5110 notify:2:after idle guestPending paused',
+  '6610 notify:1:after idle guestPending playing',
+  '6610 loading:idle:rendezvous@timer idle guestPending playing',
+  '7410 loading:idle:rendezvous@timer idle playing',
+];
+const G15_SAMPLES = [
+  ...G1_SAMPLES,
+  // The pending offset apply alone keeps a guest transition pending until the
+  // first retry after the heartbeat (+6250) starts its rendezvous.
+  '5000 step:offset idle guestPending playing',
+  '6250 loading:idle:clock-action@timer idle guestPending playing',
+  '6250 loading:busy:rendezvous@timer idle guestPending playing',
+  '6250 notify:2:after idle guestPending paused',
+  '7750 notify:1:after idle guestPending playing',
+  '7750 loading:idle:rendezvous@timer idle guestPending playing',
+  '8550 loading:idle:rendezvous@timer idle playing',
 ];
 const G5A_SAMPLES = [
   ...GUEST_ARMED_SAMPLES,
@@ -1377,6 +1469,14 @@ describe('start-ownership table: Standard guest (pinned 2026-11-01)', () => {
   it('G13 legacy two-stage start whose Stage 1 carries a hostPlayAt deadline', async () => {
     expect((await runRow(legacyGuestRow(YT_AUTO_SYNC_MS))).samples).toEqual(G13_SAMPLES);
   });
+
+  it('G14 a host Sync press inside the rendezvous cooldown waits as a pending manual rendezvous', async () => {
+    expect((await runRow(GUEST_SYNC_PRESS_IN_COOLDOWN)).samples).toEqual(G14_SAMPLES);
+  });
+
+  it('G15 a manual offset apply waits for the first heartbeat after a zero-start', async () => {
+    expect((await runRow(GUEST_OFFSET_APPLY_AWAITING_HEARTBEAT)).samples).toEqual(G15_SAMPLES);
+  });
 });
 
 describe('start-ownership table: Standard guest, notifications one task later (pinned 2026-11-01)', () => {
@@ -1429,6 +1529,8 @@ describe('start-ownership table: Standard coverage (pinned 2026-11-01)', () => {
     ['G11', G11_SAMPLES],
     ['G12', G12_SAMPLES],
     ['G13', G13_SAMPLES],
+    ['G14', G14_SAMPLES],
+    ['G15', G15_SAMPLES],
     ['G5a', G5A_SAMPLES],
     ['G8a', G8A_SAMPLES],
     ['G8pa', G8PA_SAMPLES],
@@ -1497,13 +1599,20 @@ describe('start-ownership table: Standard coverage (pinned 2026-11-01)', () => {
     expect(off).toEqual(ALL_TOKENS);
   });
 
-  it('shows a guest transition pending without the zero-start owner only in the legacy guest rows', () => {
+  // guestPending is isGuestYouTubeTransitionPending(): a precision rendezvous,
+  // the zero-start owner, a pending manual rendezvous, a pending manual offset
+  // apply, a delayed clock action or a seek-play. Rows with it on and the
+  // owner off: the rendezvous and the seek-play in G12 (G8p and G8pa open with
+  // the same legacy start), the clock action in G13, the pending manual
+  // rendezvous in G14 and the pending offset apply in G15. The column cannot
+  // show which condition holds it; each of those rows fails when its
+  // condition is dropped from the query.
+  it('shows a guest transition pending without the zero-start owner only in the legacy and manual guest rows', () => {
     const rows = STANDARD_ROWS.filter(([, samples]) =>
       samples
         .map(parse)
         .some(({ tokens }) => tokens.includes('guestPending') && !tokens.includes('owned')),
     ).map(([row]) => row);
-    // G8p and G8pa open with the same legacy start of the current track.
-    expect(rows).toEqual(['G8p', 'G12', 'G13', 'G8pa']);
+    expect(rows).toEqual(['G8p', 'G12', 'G13', 'G14', 'G15', 'G8pa']);
   });
 });

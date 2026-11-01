@@ -62,7 +62,8 @@ gh run list --workflow e2e.yml --branch main --limit 3
       `agent/p6-6b`는 App 9.0.31의 머지 main `ba28943e`(#555) 위에 있다: 바탕 `dda3ee18`(9.0.30 기록 #551 위 T0b 시험만 #552, #553과 시험만
       #554) 위에서 만든 열다섯 커밋(테스트 먼저 넷, 코드 둘, 가드만 둘, 시험만 둘, 주석·레지스트리와 문서 다섯)을 2026-11-01 23:22 KST에 패치 그대로
       옮겼고(보고서 QA 라운드 6, 충돌은 기록 커밋 둘의 `docs/README.md`뿐, 양쪽 남김), 그 위에 설계 문서의 틈 목록 맞춤, 옮김의 기록, 이
-      항목을 더한 기록 커밋, 버전 올리기(마지막 런타임 커밋)와 그 뒤 기록 커밋이 있다. 9.0.31의 배포 기록 PR은 다른 갈래로 따로 오고, 이
+      항목을 더한 기록 커밋, 버전 올리기 `8823a591`(마지막 런타임 커밋)과 그 뒤 기록 커밋이 있다(`ba28943e` 위 커밋 스물). 9.0.31의 배포
+      기록 PR은 다른 갈래로 따로 오고, 이
       열차는 머지 전에 그 기록 위로 다시 옮긴다(문서만, 아래 배포 조건 (2)). 운영 배포 SHA(App 9.0.31 `ba28943e`, PRO room `683074bc`, 다른
       넷 `71f5b96c`)와 견준 6B의 런타임 경로 변경은 App 11(`src/network/sync.ts`, `src/player/background-return-sync.ts`,
       `src/ui/manual-sync-overlay-runtime.ts`, `src/ui/player-controls.ts`, `src/ui/seekbar.ts`, `src/youtube/`의 `iframe.ts`,
@@ -77,12 +78,14 @@ gh run list --workflow e2e.yml --branch main --limit 3
       `guard:sw-cache-version`을 뺀 모든 가드, critical E2E 101 / 101과 YouTube spec 열 개 53 / 53)와 라운드 6(9.0.31 위로 옮긴 뒤:
       테스트 먼저 다섯 쌍이 새 부모에서 라운드 4와 같은 이름의 행만 실패하고 코드 커밋은 모두 통과, 시험 순서 고침의 seed가 라운드 4와 같음,
       `src/youtube`, `src/player`, `src/pro-room` 239 files / 6,515가 파일 순서와 seed 3, 7, 4242에서 통과, T0a·T0b 시험 51 files / 2,402,
-      자원 소유권 그대로, 배포 대상 App 11, 첫 로딩은 9.0.31 대비 eager JS gzip −34 B와 eager 전체 gzip −31 B)다. 버전 올리기 머리의 전체
-      검사는 버전 올리기 뒤 기록 커밋이 이 항목에 적는다. PR, PR CI, 자동 코드 리뷰, exact-main CI, 배포는 아직이고 로컬 결과는
-      exact-main-SHA 후보를 대신하지 않는다. 배포 뒤 기록 PR이 이 절을 '배포 뒤 확인'으로 바꾼다.
+      자원 소유권 그대로, 배포 대상 App 11, 첫 로딩은 9.0.31 대비 eager JS gzip −34 B와 eager 전체 gzip −31 B)와 라운드 7(버전 올리기
+      `8823a591`의 로컬 전체 검사, 아래 배포 조건 (4))이다. 버전 올리기 뒤 기록 커밋이 이 항목에 버전 올리기 SHA와 전체 검사를 적었다. PR, PR
+      CI, 자동 코드 리뷰, exact-main CI, 배포는 아직이고 로컬 결과는 exact-main-SHA 후보를 대신하지 않는다. 배포 뒤 기록 PR이 이 절을 '배포
+      뒤 확인'으로 바꾼다.
       [변경·QA 보고서](design/phase6-6b-start-ledger-readers-2026-11-01.md),
       [증분 한눈에](design/phase6-6b-start-ledger-readers-2026-11-01.md#증분-한눈에),
       [QA 라운드 6](design/phase6-6b-start-ledger-readers-2026-11-01.md#6-app-9031-머지-ba28943e-위로-옮김과-재확인),
+      [QA 라운드 7](design/phase6-6b-start-ledger-readers-2026-11-01.md#7-버전-올리기와-로컬-전체-검사-8823a591-2026-11-01-2348--2026-11-02-0022-kst),
       [설계 문서](design/youtube-start-ownership.md).
 - [ ] 기댄 오너 답과 위임(2026-10-30, 모두 권장, 2026-11-01 오후의 순서 결정, 2026-10-31 밤의 위임, 게이트 아님): Q1(Phase 6을 App
       업데이트 넷 6A ~ 6D로, 6B가 둘째), Q18(시험이 결함을 재현하면 오늘 동작으로 고정하고 결함마다 따로 묻기. 6B의 새 행은 모두 오늘
@@ -92,8 +95,8 @@ gh run list --workflow e2e.yml --branch main --limit 3
       줄여 해당하지 않고, Phase 6 누계는 6A −149 B와 6B −34 B로 −183 B). 순서(오너 결정 2026-11-01 오후, 아래 9.0.31 절): 앱 글꼴 줄 상자
       굽기와 탭 제목 열차가 9.0.31 / v804로 먼저 나갔고 6B는 그 배포 위의 9.0.32 / v805다. 위임(2026-10-31 23:20 KST 무렵부터 약 40시간,
       2026-11-02 오후 무렵까지): 오너가 릴리스와 시험을 맡겼고(오너의 허락이 꼭 필요한 일만 묻고 나머지는 진행), 그 동안은 이 위임이
-      'Phase 6 업데이트 열차는 오너가 깨어 있을 때만 낸다'는 규칙(2026-10-31)을 대신한다. 6B는 그 위임 아래 아래 배포 조건이 모두 채워지면
-      낸다. Q6 기기 기준선은 재지 않았다(아래 6A 절의 Q6 항목).
+      'Phase 6 업데이트 열차는 오너가 깨어 있을 때만 낸다'는 규칙(2026-10-31)을 대신한다. 6B는 그 위임에 따라 아래 배포 조건이 모두
+      채워지면 낸다. Q6 기기 기준선은 재지 않았다(아래 6A 절의 Q6 항목).
       [오너 결정](design/phase6-6b-start-ledger-readers-2026-11-01.md#오너-결정-2026-10-30-모두-권장),
       [오너에게](design/phase6-6b-start-ledger-readers-2026-11-01.md#오너에게).
 - [ ] T0b 결함 목록(Q18, 2026-11-01에 오너에게 따로 여쭘, 이 기록까지 답 없음, 게이트 아님): T0b(#552, #553)의 참값표가 오늘 동작으로
@@ -123,7 +126,13 @@ gh run list --workflow e2e.yml --branch main --limit 3
       PASS v805와 `guard:release-identity` 9.0.32 / v805, 모든 `guard:*`, 자원 소유권, 핵심·Worker 커버리지, 단위 전체, critical E2E, 로컬
       YouTube spec, 운영 빌드의 후보 E2E가 통과하고, 첫 로딩(진입, eager JS, eager 전체 gzip)이 origin/main보다 6B의 잰 차(eager JS −34 B,
       eager 전체 −31 B, 진입 gzip −40 B)를 넘어 늘지 않으며, 배포 대상이 App뿐이고, 계약 동결 diff가 `cloudflare/app-worker.ts`의 버전 한
-      줄뿐이다. (5) PR CI, 자동 코드 리뷰, dispatch 직전 머지, exact-main CI success, 그 뒤 Release target `app`, Developer API D1 false,
+      줄뿐이다. 보고서 QA 라운드 7이 버전 올리기 `8823a591`(같은 거울 여섯 파일 일곱 줄)에서 모두 채웠다: typecheck, lint(경고 0),
+      `format:check`, `build:checked` 25단계(`guard:sw-cache-version` 'PASS: v805 (8823a591)', `guard:release-identity` 9.0.32 / v805),
+      `guard:*` 37개와 자원 소유권(기록 49, 파일 457, CHECK 12 수 그대로), 핵심 커버리지 99 files / 4,051과 Worker 커버리지 69 / 3,325, 단위
+      741 files / 17,727(부하 아래 git 작업 행 시간 초과 둘은 그 두 파일을 따로 돌려 158 / 158 통과), `build:e2e` 뒤 critical E2E 101 / 101과
+      YouTube spec 열 개 53 / 53, `build:checked` 산출물의 후보 E2E 19 / 19. 첫 로딩은 origin/main `ba28943e` 대비 진입 raw +254 B와 gzip
+      −40 B, eager JS gzip −35 B, eager 전체 gzip −33 B다. 배포 대상은 App 15(6B의 11과 버전 거울 넷), 나머지 다섯 0이고, 계약 동결 diff는
+      일곱 버전 줄뿐이다(`cloudflare/`는 `ADMIN_ASSET_VERSION` 한 줄). (5) PR CI, 자동 코드 리뷰, dispatch 직전 머지, exact-main CI success, 그 뒤 Release target `app`, Developer API D1 false,
       `raise_app_build_floor` false. 기록 PR을 열차 PR 머지와 deploy job 시작 사이에 머지하지 않는다. (6) 배포 직후 공개 최소 빌드 상태(저장·유효
       795, live App 805)와 Operations Drift Audit을 보고 아래 배포 직후 확인을 건넨다. 머지 뒤 main SHA에서 Full E2E를 한 번 돌려 보고서 QA
       라운드에 적되 exact-main 후보로 쓰지 않고, 다음 열차(6C)는 그것이 통과한 뒤에만 머지한다. 그것이 실패하면 그 spec을 `ba28943e`(위 (3)이

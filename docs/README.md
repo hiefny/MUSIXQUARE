@@ -101,8 +101,9 @@ runbooks. Neither belongs in a general setup document.
   #554, on the 9.0.30 release record), then moved with every patch unchanged onto main
   `ba28943e`, the merge of App 9.0.31 / v804, which the owner chose to ship first and which went
   out at 23:17 KST on 2026-11-01. On top come the design doc's gap list aligned with the owner's
-  rewritten T0b defect list, the record of the move, the release record's pre-deploy item, and the
-  bump to 9.0.32 / v805 as the last runtime commit. 6B-1 adds the start ledger
+  rewritten T0b defect list, the record of the move, the release record's pre-deploy item, the
+  bump `8823a591` to 9.0.32 / v805 as the last runtime commit (the same seven lines in the same six
+  files as the 9.0.31 bump) and a record commit, twenty commits on `ba28943e`. 6B-1 adds the start ledger
   `src/youtube/start-ownership.ts`, which answers its readers from the live queries `player.ts`
   registers for each start owner and keeps no answer, subscription or event; 6B-2 moves all 24
   start-ownership reader sites in eight modules onto it and deletes `isYouTubeZeroStartSyncOwned`
@@ -129,7 +130,16 @@ runbooks. Neither belongs in a general setup document.
   `src/player` and `src/pro-room` (239 files / 6,515) pass in file order and under seeds 3, 7 and
   4242, the 51 T0a and T0b files pass, the target is `app` (11 App runtime paths against production
   9.0.31, none in the other five Workers) and the first load is 34 B of eager JavaScript gzip and
-  31 B of eager total below 9.0.31 (Phase 6 total −183 B). The release record's §2 item for 6B
+  31 B of eager total below 9.0.31 (Phase 6 total −183 B). Round 7 ran the full local gate on the
+  bump `8823a591`: types, lint and format, `build:checked` with `guard:sw-cache-version` passing for
+  v805 and `guard:release-identity` 9.0.32 / v805, all 37 guards and the ownership guard, critical
+  coverage 99 files / 4,051 and Worker coverage 69 / 3,325, the unit suite 741 files / 17,727 (two
+  git-fixture rows that timed out under load pass with their files run alone, 158 / 158), critical
+  E2E 101 / 101, the ten local YouTube specs 53 / 53 and the production candidate 19 / 19; the
+  first load stays within 6B's measured delta (eager JavaScript −35 B and eager total −33 B gzip
+  against `ba28943e`) and the target is `app` (15 App runtime paths with the version mirrors, none
+  in the other five Workers, partial-release compatibility compatible against the deployed SHAs).
+  The release record's §2 item for 6B
   holds the merge conditions: the move onto 9.0.31's deploy record, and 9.0.31's post-merge Full E2E
   41315565486 on `ba28943e` passing first.
 - [App font line box baked into the font files, and every tab title on one baseline (2026-11-01)](design/app-font-baked-metrics-2026-11-01.md):

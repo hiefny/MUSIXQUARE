@@ -159,11 +159,14 @@ recovery's pending claim alone, because no reader needs one.
 - Two readers have no row that tells their query from a near-equivalent one. The calibration
   window rows (`start-ownership-reader-windows.test.ts`: a Standard guest's run is protocol-active
   but no longer in flight) pin the guest heartbeat and auxiliary-state holds, the state-action and
-  manual-offset apply checks and the manual-sync panel. The delayed rendezvous steps' check
-  (`matchesRendezvousOccurrence` in `sync.ts`) has no such row: in that window its follow-up asks
-  `isYouTubeStartSyncOwned` again through `guestRendezvousSync`, which also refuses to begin a
-  rendezvous, and no row carries a rendezvous begun before a run into the window. The small-drift
-  sample's timeline hold cannot be told apart either, because the same condition asks
+  manual-offset apply checks and the manual-sync panel's availability. The delayed rendezvous
+  steps' check (`matchesRendezvousOccurrence` in `sync.ts`) has no calibration-window row (in that
+  window its follow-up asks `isYouTubeStartSyncOwned` again through `guestRendezvousSync`, which
+  also refuses to begin a rendezvous), but the guest backstop gate rows in
+  `sync-integration.test.ts` fail when it asks `isYouTubeStartTimelineHeld` instead. The
+  manual-sync panel's Sync press (`manual-sync-overlay-runtime.ts`, the `sync_not_ready` answer)
+  passes every row when it asks `isYouTubeStartArmBusy` instead. The small-drift sample's timeline
+  hold cannot be told apart either, because the same condition asks
   `isGuestYouTubeTransitionPending`, which asks `isYouTubeStartSyncOwned`. The recovery's
   release-acknowledgement window (pending, not active), where the `isYouTubeStartSyncOwned`
   readers also differ from `isYouTubeStartArmBusy`, has no reader rows of its own. In the same

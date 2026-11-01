@@ -6,12 +6,13 @@
  * playlist projection, and the shared clock are injected, so it imports
  * neither topology. A PRO room arms its iframe through the PRO arm
  * (authority-arm.ts). Both run the shared arm steps (arm-steps.ts: the
- * hard-mute wait and the warm PLAYING's acceptance), and the start timing
- * lives in constants.ts.
+ * hard-mute wait, the warm PLAYING's acceptance and the settle), and the
+ * start timing lives in constants.ts.
  */
 import { MANUAL_SYNC_OFFSET_LIMIT_MS, MSG } from '../core/constants.ts';
 import {
   acceptYouTubeWarmPlaying,
+  settleYouTubeAtTarget,
   waitForYouTubeHardMute,
   type YouTubeArmPlayer,
 } from './arm-steps.ts';
@@ -23,10 +24,6 @@ import {
   STANDARD_ZERO_START_PREPARE_BUDGET_MS,
   YOUTUBE_ARM_PAUSE_SEEK_GAP_MS,
   YOUTUBE_ARM_RELEASE_ACK_TIMEOUT_MS,
-  YOUTUBE_ARM_SETTLE_EPSILON_SEC,
-  YOUTUBE_ARM_SETTLE_POLL_MS,
-  YOUTUBE_ARM_SETTLE_RESEEK_EVERY,
-  YOUTUBE_ARM_SETTLE_STABLE_SAMPLES,
   YOUTUBE_RELEASE_CATCH_UP_TOLERANCE_SEC,
 } from './constants.ts';
 import { restoreYouTubeAudioVerified, writeYouTubeAudio } from './iframe-audio.ts';
@@ -268,8 +265,8 @@ type LocalRun = {
   hostPlatform: YouTubeZeroStartPlatform;
   startedPrepareAtLocal: number;
   phase: Exclude<YouTubeZeroStartPhase, 'idle'>;
-  stableChecks: number;
-  settleAttempts: number;
+  /** True once the settle (arm-steps.ts) found the run's video stopped at its target. */
+  targetVerified: boolean;
   armed: boolean;
   armedReported: boolean;
   warmCallAt: number;
@@ -1079,8 +1076,7 @@ class YouTubeZeroStartController {
       hostPlatform: message.hostPlatform,
       startedPrepareAtLocal,
       phase: 'muting',
-      stableChecks: 0,
-      settleAttempts: 0,
+      targetVerified: false,
       armed: false,
       armedReported: false,
       warmCallAt: 0,
@@ -1172,8 +1168,7 @@ class YouTubeZeroStartController {
       hostPlatform: message.hostPlatform,
       startedPrepareAtLocal: this.#now(),
       phase: 'error',
-      stableChecks: 0,
-      settleAttempts: 0,
+      targetVerified: false,
       armed: false,
       armedReported: false,
       warmCallAt: 0,
@@ -1361,20 +1356,7 @@ class YouTubeZeroStartController {
           player.pauseVideo();
           run.phase = 'settling';
           this.#emitState();
-          this.#later(() => {
-            if (!this.#isCurrentRun(run) || run.phase !== 'settling') return;
-            if (this.#deps.getPlayer() !== player) {
-              run.ownsPlayerState = false;
-              this.#failLocalPrepare(run, 'player-replaced');
-              return;
-            }
-            try {
-              player.seekTo(this.#resolveLocalTarget(0, run), true);
-            } catch {
-              // Settling poll will observe target mismatch and retry or time out safely.
-            }
-            this.#later(() => this.#pollSettledAtTarget(run), YOUTUBE_ARM_SETTLE_POLL_MS);
-          }, YOUTUBE_ARM_PAUSE_SEEK_GAP_MS);
+          this.#settle(run, player);
         } catch (error) {
           this.#failLocalPrepare(run, 'warm-pause-failed', error);
         }
@@ -1383,64 +1365,47 @@ class YouTubeZeroStartController {
     );
   }
 
-  #pollSettledAtTarget(run: LocalRun): void {
-    if (!this.#isCurrentRun(run) || run.phase !== 'settling') return;
-    const player = this.#deps.getPlayer();
-    if (!player) {
-      this.#failLocalPrepare(run, 'player-unavailable');
-      return;
-    }
-    if (player !== run.targetLoadPlayer) {
-      run.ownsPlayerState = false;
-      this.#failLocalPrepare(run, 'player-replaced');
-      return;
-    }
-
-    run.settleAttempts += 1;
-    let state: number = YOUTUBE_ZERO_START_PLAYER_STATE.unstarted;
-    let position = Number.POSITIVE_INFINITY;
-    const target = this.#resolveLocalTarget(0, run);
-    try {
-      state = player.getPlayerState();
-      position = player.getCurrentTime();
-      const isStopped =
-        state === YOUTUBE_ZERO_START_PLAYER_STATE.paused ||
-        state === YOUTUBE_ZERO_START_PLAYER_STATE.cued;
-      if (
-        this.#currentVideoId(player) === run.videoId &&
-        isStopped &&
-        Math.abs(position - target) <= YOUTUBE_ARM_SETTLE_EPSILON_SEC
-      ) {
-        run.stableChecks += 1;
-      } else {
-        run.stableChecks = 0;
-        if (state === YOUTUBE_ZERO_START_PLAYER_STATE.playing) player.pauseVideo();
-        if (run.settleAttempts % YOUTUBE_ARM_SETTLE_RESEEK_EVERY === 0) {
-          player.pauseVideo();
-          this.#later(() => {
-            if (!this.#isCurrentRun(run)) return;
-            if (this.#deps.getPlayer() !== player) {
-              run.ownsPlayerState = false;
-              this.#failLocalPrepare(run, 'player-replaced');
-              return;
-            }
-            player.seekTo(this.#resolveLocalTarget(0, run), true);
-          }, YOUTUBE_ARM_PAUSE_SEEK_GAP_MS);
+  /**
+   * The run's settle (arm-steps.ts) of its paused warm iframe. zero-start
+   * re-resolves its target for every seek and poll, reads the position
+   * before the video (its timeout reports both), seeks again one pause-seek
+   * gap after the pause, polls on when a seek throws, and gives up on the
+   * first poll after its prepare budget. Its fence fails the run with
+   * player-replaced on another iframe, or on none before a seek, and with
+   * player-unavailable on none before a poll.
+   */
+  #settle(run: LocalRun, player: YouTubeZeroStartPlayer): void {
+    settleYouTubeAtTarget(
+      (seek) => {
+        if (!this.#isCurrentRun(run) || run.phase !== 'settling') return null;
+        const current = this.#deps.getPlayer();
+        if (current === player) return player;
+        if (current || seek) {
+          run.ownsPlayerState = false;
+          this.#failLocalPrepare(run, 'player-replaced');
+        } else {
+          this.#failLocalPrepare(run, 'player-unavailable');
         }
-      }
-    } catch {
-      run.stableChecks = 0;
-    }
-
-    if (run.stableChecks >= YOUTUBE_ARM_SETTLE_STABLE_SAMPLES) {
-      this.#restoreAudioState(run);
-      return;
-    }
-    if (this.#now() - run.startedPrepareAtLocal > STANDARD_ZERO_START_PREPARE_BUDGET_MS) {
-      this.#failLocalPrepare(run, 'prepare-timeout', { state, position, target });
-      return;
-    }
-    this.#later(() => this.#pollSettledAtTarget(run), YOUTUBE_ARM_SETTLE_POLL_MS);
+        return null;
+      },
+      () => this.#resolveLocalTarget(0, run),
+      (current) => this.#currentVideoId(current) === run.videoId,
+      // The position first, the re-seek after the gap, no failure on a seek.
+      true,
+      true,
+      null,
+      () => {
+        run.targetVerified = true;
+        this.#restoreAudioState(run);
+      },
+      (state, position, target) => {
+        const expired =
+          this.#now() - run.startedPrepareAtLocal > STANDARD_ZERO_START_PREPARE_BUDGET_MS;
+        if (expired) this.#failLocalPrepare(run, 'prepare-timeout', { state, position, target });
+        return expired;
+      },
+      (callback, delayMs) => this.#later(callback, delayMs),
+    );
   }
 
   #restoreAudioState(run: LocalRun): void {
@@ -1962,9 +1927,10 @@ class YouTubeZeroStartController {
     const owner = run.targetLoadPlayer ?? run.audioStatePlayer;
     if (!owner || this.#deps.getPlayer() !== owner) return null;
     // Before settlement, metadata can still describe the outgoing load. Once
-    // the target was verified twice, a different live video proves this exact
-    // iframe has moved on and even detached cleanup must leave it untouched.
-    if (run.stableChecks >= YOUTUBE_ARM_SETTLE_STABLE_SAMPLES) {
+    // the settle verified the target, a different live video proves this
+    // exact iframe has moved on and even detached cleanup must leave it
+    // untouched.
+    if (run.targetVerified) {
       const videoId = this.#currentVideoId(owner);
       if (videoId && videoId !== run.videoId) return null;
     }

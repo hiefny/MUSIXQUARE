@@ -460,7 +460,12 @@ RO-53 owner-in-place
   the controller's own timer, each after the controller's fence, a mute again on every
   unconfirmed poll and at most twelve polls, the confirming poll running the controller's warm)
   and the warm PLAYING's acceptance `acceptYouTubeWarmPlaying` (the settle 260 ms later, and the
-  warm latency, never below 0). Their player types build on its `YouTubeArmPlayer`
+  warm latency, never below 0). Since 6C-5 (C2-8b) they also run its settle
+  `settleYouTubeAtTarget` after their pause of the warm iframe: a seek to the target 80 ms later,
+  then a poll every 80 ms, each after the controller's fence, until two polls in a row find the
+  controller's video paused or cued within 0.12 s of the target. A poll that does not pauses a
+  playing iframe, and on every sixth poll (settled ones count) it pauses and seeks again. Their
+  player types build on its `YouTubeArmPlayer`
   (`YouTubeAuthorityArmPlayer` is that type, `YouTubeZeroStartPlayer` adds two methods); the two
   player adapters (`getZeroStartPlayer` in `player.ts`, `getYouTubeAuthorityArmPlayer` in
   `iframe.ts`) and the platform checks stay apart. Each controller stays the shell of its own
@@ -469,10 +474,18 @@ RO-53 owner-in-place
   `writeYouTubeAudio`, then zero-start plays a resident iframe where it is or loads the target,
   and the PRO arm pauses, seeks to its target and plays), which PLAYING it accepts (zero-start
   refuses one reported before its own warm command and bounds the warm with its 10 s watchdog;
-  the PRO arm accepts any PLAYING of its video while it warms), and the settle poll, the audio
-  restore and the release (only zero-start unmutes at the release). The same step removed the
-  PRO arm's unused load warm: it arms only an iframe that already holds the occurrence's video,
-  the only kind `iframe.ts` asks for.
+  the PRO arm accepts any PLAYING of its video while it warms), the policy of its settle, the
+  audio restore and the release (only zero-start unmutes at the release). The settle's policy:
+  zero-start re-resolves its target for every seek and poll, reads the position before the
+  video (its prepare-timeout reports the last poll's state, position and target), seeks again
+  one pause-seek gap after the pause behind its fence (a throw there leaves the timer), polls on
+  when a seek throws, fails before each seek and poll on another iframe (`player-replaced`, and
+  `player-unavailable` for none before a poll) and gives up on the first poll more than 10 s
+  after its PREPARE; the PRO arm keeps one target, reads the position only for a paused or
+  cued iframe of its video, seeks again at once, fails when its first seek throws, is
+  superseded for another iframe before each poll but not before its first seek, and gives up
+  at its prepare deadline. The same 6C-4 step removed the PRO arm's unused load warm: it arms
+  only an iframe that already holds the occurrence's video, the only kind `iframe.ts` asks for.
 
 - **Target single owner:** shared arm steps used by both protocol shells; `authority-arm.ts` stays
   the PRO protocol facade with its own tokens.
@@ -500,7 +513,9 @@ RO-53 owner-in-place
   prepare budgets `PRO_YOUTUBE_BARRIERED_PREPARE_TIMEOUT_MS` (2.3 s) and
   `PRO_YOUTUBE_UNBARRIERED_PREPARE_TIMEOUT_MS` (10 s, the same value as the Standard prepare
   budget). `zero-start.ts`, `authority-arm.ts`, `arm-steps.ts` (since 6C-4 the only reader of
-  the hard-mute poll, its attempts and the warm play),
+  the hard-mute poll, its attempts and the warm play; since 6C-5 also of the settle poll, its
+  epsilon, stable samples and re-seek rhythm, and a reader of the pause-seek gap, which
+  zero-start's late fallback still reads too),
   `player.ts`, `iframe-audio.ts`, `iframe.ts` and `playlist.ts` import them, and
   `playback-controller.ts` imports the arm's catch-up tolerance for a late COMMIT instead of
   keeping its own 40 ms copy. The barriered 2.3 s and the Standard guest decision of the same
@@ -593,10 +608,13 @@ RO-53 owner-in-place
     whose lead samples fall while hidden records them as hidden and learns nothing".
   - Parity (since Phase 6 6C-4): `src/youtube/__tests__/arm-steps-golden.test.ts` runs both
     controllers on the same scripted iframe and pins each one's commands, reported states,
-    phases, debug lines, errors and outcome on one timeline (resident, cold and ended iframes,
-    hard-mute and command faults, a video change while muting, a warm that never plays, a
-    PLAYING before the warm command, no iframe or a replaced one while muting, and an iframe
-    replaced while warming), and
+    phases, debug lines, errors, throws that leave a timer and outcome on one timeline
+    (resident, cold and ended iframes, hard-mute and command faults, a video change while
+    muting, a warm that never plays, a PLAYING before the warm command, no iframe or a replaced
+    one while muting, and an iframe replaced while warming; since 6C-5 the settle: seeks that
+    land late or never, a video change and a PLAYING while settling, no iframe or a replaced one
+    at each of the settle's waits, a pause, seeks and position reads that throw, and a
+    zero-start poll exactly 10 s after its PREPARE), and
     `src/youtube/__tests__/arm-steps.test.ts` pins the shared steps on their own. The room
     switches are traced in `src/youtube/__tests__/youtube-room-switch-trace.test.ts` (T1-T5):
     there is no direct Standard to PRO path (each switch passes leaveSession first), and clearing
@@ -604,8 +622,8 @@ RO-53 owner-in-place
 - **Status:** `duplicated`. Phase 6 (shared arm steps, PRO arm through the owner's audio state with
   distinct tokens); its first train took over the app part of Phase 0d, the shared constants
   (C2-1, 6A-3). The hard-mute wait and the warm PLAYING's acceptance are shared since 6C-4
-  (C2-8a); the settle poll, the audio restore and the release are still each controller's.
-  Exception RO-34.
+  (C2-8a), and the settle since 6C-5 (C2-8b), each with the controller's own policy; the audio
+  restore and the release are still each controller's. Exception RO-34.
 
 ### RO-04 System-audio receive slot
 

@@ -4034,8 +4034,9 @@ not resolve, a helper outside `src/youtube/` that takes a timer name and calls t
 functions for a `src/youtube/` caller, the nameless `clearAllManagedTimers` in `leaveSession`,
 start claims combined across statements (through a variable, or a local helper that asks a
 ledger or claim query, as `sync.ts`'s small-drift sample asks the timeline hold beside
-`isCurrentStateAction` and `isGuestYouTubeTransitionPending`), what each counted snapshot read
-in `player.ts` derives, shared phase unions, duplicated helper names, "mirrors" copy-marker
+`isCurrentStateAction` and `isGuestYouTubeTransitionPending`) or through a claim query called on
+its owner's instance (the PRO arm's `ownsHardMute()` inside `iframe.ts`), what each counted
+snapshot read in `player.ts` derives, shared phase unions, duplicated helper names, "mirrors" copy-marker
 comments, registered timings retyped as literals in requester files, and header loader holder
 IDs read from a property, a call or another module (RO-47). Until then, review those by hand
 against each record.

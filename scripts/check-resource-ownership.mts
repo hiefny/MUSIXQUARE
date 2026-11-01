@@ -176,9 +176,10 @@
  * clearAllManagedTimers), timer names outside src/youtube/ that do not
  * resolve, a helper outside src/youtube/ that takes a timer name for a
  * src/youtube/ caller, start claims combined across statements (through a
- * variable or a local helper that asks a ledger or claim query), shared
- * phase unions, duplicated helper names, "mirrors" copy markers, and
- * registered timings retyped as literals in requester files.
+ * variable or a local helper that asks a ledger or claim query) or through a
+ * claim query called on its owner's instance (the PRO arm's ownsHardMute() in
+ * iframe.ts), shared phase unions, duplicated helper names, "mirrors" copy
+ * markers, and registered timings retyped as literals in requester files.
  *
  * Exit code: 0 if clean, 1 if findings remain.
  */

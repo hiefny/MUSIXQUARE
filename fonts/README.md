@@ -258,6 +258,11 @@ About links through `vite.config.ts`.
   and CJK sheets without the three overrides, as Safari reads them, and
   requires the line boxes of Latin, Hangul, mixed, kana and Han lines and the
   four tab titles to stay where the shipped sheets put them.
+- `e2e/font-baked-pixels.test.ts` (local, on the e2e build) answers every
+  request for a baked face with its input file in a second context and
+  requires the start screen, the four tab screens and the chat in the Korean
+  and English UIs, and desktop Home and Playlist, to be the same PNG as with
+  the baked faces.
 - `e2e/font-identity.test.ts` (local, on the e2e build) draws the same chat
   and track titles in a fresh Korean and a fresh English UI and compares the
   faces of every character, the widths and the pixels, and checks what each

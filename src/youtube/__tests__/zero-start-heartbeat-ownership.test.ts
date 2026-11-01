@@ -354,7 +354,13 @@ describe('heartbeat ownership during a participant-local YouTube start', () => {
     setYtAutoplayIntent(true);
     fallbackPendingHook.mockClear();
     heartbeat(4, state);
-    // The heartbeat's owner gate reaches the fallback hook.
+    // The heartbeat's in-flight/fallback gate reads the fallback hook, but so
+    // can isCurrentStateAction (through isYouTubeZeroStartSyncOwned), the
+    // small-drift sampler's direct fallback read and its
+    // isGuestYouTubeTransitionPending, so this call assertion does not pin
+    // the gate alone. Only states 2 and 0 pin the gate itself: with it
+    // removed, state 0 fails at this call assertion and state 2 at the
+    // autoplay intent, while states 1 and 3 stay green.
     expect(fallbackPendingHook).toHaveBeenCalled();
     expect(player.__log).toHaveLength(0);
     expect(player.getPlayerState()).toBe(2);

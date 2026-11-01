@@ -106,7 +106,8 @@ runbooks. Neither belongs in a general setup document.
   the 9.0.31 bump) and a record commit. Those twenty commits were moved again, every patch
   unchanged, onto main `5a705c40`, 9.0.31's release record (#556, documentation only), where the
   bump is `582ab9d9` (before the move `8823a591`, the same tree outside `docs/`), and a record of
-  that move follows: twenty-one commits on `5a705c40`. 6B-1 adds the start ledger
+  that move and a documentation commit with review fixes follow: twenty-two commits on
+  `5a705c40`. 6B-1 adds the start ledger
   `src/youtube/start-ownership.ts`, which answers its readers from the live queries `player.ts`
   registers for each start owner and keeps no answer, subscription or event; 6B-2 moves all 24
   start-ownership reader sites in eight modules onto it and deletes `isYouTubeZeroStartSyncOwned`

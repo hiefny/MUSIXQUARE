@@ -166,6 +166,7 @@ recovery's pending claim alone, because no reader needs one.
 
   The legacy rendezvous's own PLAYING that leaves before Stage 1 arms its hold (rows H9, H3, H5
   and H6) is marked "Fake ordering": only the synchronous fake sends it, so it is not a gap.
+
 - Two readers have no row that tells their query from a near-equivalent one. The calibration
   window rows (`start-ownership-reader-windows.test.ts`: a Standard guest's run is protocol-active
   but no longer in flight) pin the guest heartbeat and auxiliary-state holds, the state-action and

@@ -59,13 +59,13 @@ gh run list --workflow e2e.yml --branch main --limit 3
       `isYouTubeZeroStartSyncOwned`(`src/youtube/zero-start-ownership.ts`)와 런타임 다리의 복구 훅 둘이 사라진다. 그 위에 CHECK 12 후속
       둘(가드만: 문장마다 세는 장부 합성 1과 그 claim, 실행 스냅샷 읽기 8, 파사드 쓰기 2, 장부 순수성, 결정한 claim 종류의 등록 요구,
       `src/youtube/` 밖의 시작 타이머), 시험만 둘(독자 창 고정, 시험 순서 의존 고침), 주석·레지스트리와 설계 문서 고침이 있다. 브랜치
-      `agent/p6-6b`는 9.0.31의 배포 기록 main `5a705c40`(#556, 문서만, App 9.0.31의 머지 `ba28943e`(#555) 바로 위) 위 커밋 스물하나다: 바탕
+      `agent/p6-6b`는 9.0.31의 배포 기록 main `5a705c40`(#556, 문서만, App 9.0.31의 머지 `ba28943e`(#555) 바로 위) 위 커밋 스물둘이다: 바탕
       `dda3ee18`(9.0.30 기록 #551 위 T0b 시험만 #552, #553과 시험만 #554) 위에서 만든 열다섯 커밋(테스트 먼저 넷, 코드 둘, 가드만 둘, 시험만
       둘, 주석·레지스트리와 문서 다섯)을 2026-11-01 23:22 KST에 `ba28943e` 위로 패치 그대로 옮겼고(보고서 QA 라운드 6, 충돌은 기록 커밋 둘의
       `docs/README.md`뿐, 양쪽 남김), 그 위에 설계 문서의 틈 목록 맞춤, 옮김의 기록, 이 항목을 더한 기록 커밋, 버전 올리기(마지막 런타임
       커밋)와 그 뒤 기록 커밋을 더했다. 9.0.31의 배포 기록이 main에 들어온 뒤 2026-11-02에 이 스물을 `5a705c40` 위로 다시 패치 그대로
       옮기고(보고서 QA 라운드 8, 문서만 다름: 충돌은 이 항목을 더한 기록 커밋의 이 문서뿐, 9.0.31 기록의 §1, §4, 9.0.31 절과 이 항목을 모두
-      남김, 버전 올리기는 `8823a591`에서 `582ab9d9`가 됐고 `docs/` 밖 트리가 같음) 그 옮김의 기록 커밋을 더했다. 운영 배포 SHA(App 9.0.31 `ba28943e`, PRO room `683074bc`, 다른
+      남김, 버전 올리기는 `8823a591`에서 `582ab9d9`가 됐고 `docs/` 밖 트리가 같음) 그 옮김의 기록 커밋과 검토 지적을 고친 문서 커밋을 더했다. 운영 배포 SHA(App 9.0.31 `ba28943e`, PRO room `683074bc`, 다른
       넷 `71f5b96c`)와 견준 6B의 런타임 경로 변경은 App 11(`src/network/sync.ts`, `src/player/background-return-sync.ts`,
       `src/ui/manual-sync-overlay-runtime.ts`, `src/ui/player-controls.ts`, `src/ui/seekbar.ts`, `src/youtube/`의 `iframe.ts`,
       `player-runtime-bridge.ts`, `player.ts`, 새 `start-ownership.ts`, `sync.ts`, 지운 `zero-start-ownership.ts`)이고, 버전 올리기의 거울
@@ -143,13 +143,15 @@ gh run list --workflow e2e.yml --branch main --limit 3
       795, live App 805)와 Operations Drift Audit을 보고 아래 배포 직후 확인을 건넨다. 머지 뒤 main SHA에서 Full E2E를 한 번 돌려 보고서 QA
       라운드에 적되 exact-main 후보로 쓰지 않고, 다음 열차(6C)는 그것이 통과한 뒤에만 머지한다. 그것이 실패하면 그 spec을 `ba28943e`(위 (3)으로
       통과한 9.0.31 런타임의 기준)에서 다시 돌려 6B의 회귀와 일시적 실패를 가른다. 배포 기록 PR은 §1과 `Last source review`를 덮어쓰고
-      `release-history.md`에 한 행을 더하며, §4에 이 릴리스 항목을 적고, 다른 항목의 다음 되돌리기 번호를 9.0.33 / v806으로 옮기고, 보고서의
-      상태와 이 절을 배포 뒤로 바꾼다.
+      `release-history.md`에 한 행을 더하며, §4에 이 릴리스 항목을 적고, 다른 항목의 다음 되돌리기 번호를 9.0.33 / v806으로 옮기고, §2 맨 위
+      9.0.31 절을 가리키는 15곳(§1 8곳은 덮어쓰기로 사라짐, §2 4, §4 2, 9.0.31 보고서 머리 1)을 '§2 9.0.31 절'로 고치고,
+      `docs/hotfix-procedure.md`의 9.0.25 항목 끝에 9.0.32(빌드 805, 이 릴리스의 merge·Release·App 버전)가 9.0.31을 이었다는 문장을 더하며,
+      보고서의 상태와 이 절을 배포 뒤로 바꾼다.
       [배포 조건과 순서](design/phase6-6b-start-ledger-readers-2026-11-01.md#배포-조건과-순서-릴리스-담당).
 - [ ] 되돌리기(보고서 '되돌리기', 계획 §4.7, §6): 새 경계는 없다(계약 표지, D1, 저장 모양, 바닥을 바꾸지 않아 forward floor가 생기지
       않음). 기본은 더 높은 SemVer·epoch(9.0.33 / v806 이상)의 앞으로 고치기다. 실패한 `app`의 자동 복구는 릴리스 안에서 그 릴리스
-      checkpoint의 App, 곧 dispatch 때의 운영 App 9.0.31 / v804(빌드 804, 배포 SHA `ba28943e`, Release 41315218029)로 간다. 795 이상이라
-      `lower`가 필요 없고 PRO는 그대로이며, 와이어가 같아 되돌린 App과 6B가 섞인 방도 같은 프레임을 같은 시각에 보낸다. 배포 뒤 checkpoint
+      checkpoint의 App, 곧 dispatch 때의 운영 App 9.0.31 / v804(빌드 804, App 버전 `dff554a2`, 배포 SHA `ba28943e`, Release 41315218029)로
+      간다. 795 이상이라 `lower`가 필요 없고 PRO는 그대로이며, 와이어가 같아 되돌린 App과 6B가 섞인 방도 같은 프레임을 같은 시각에 보낸다. 배포 뒤 checkpoint
       App(v804)으로 가는 손 되돌리기는 v805를 받은 클라이언트에 낮은 epoch를 돌려주므로 아래 9.0.29 절의 열린 항목('낮은 epoch로 가는 App 손
       되돌리기의 규칙', 결정 전)을 따른다: 결정이 날 때까지 급하지 않으면 6B만 빼는 9.0.33 / v806 이상의 코드 되돌리기가 기본이고, 급할 때만
       명시적으로 검토한 CLI 되돌리기로 간다. 손 되돌리기도 배포라 기록 PR과 이력 한 행을 낸다. 6B만 혼자 되돌릴 수 있는 것은 6C가 머지되기
@@ -162,9 +164,9 @@ gh run list --workflow e2e.yml --branch main --limit 3
 - [ ] 배포 직후 확인(블라인드, 게이트 아님, 계획 §4.7의 6B 기기 후보, QA053·QA054, 오너가 돌아온 뒤): 보고서 '배포 뒤 확인'의 절차만
       확인하는 사람에게 건네고(두 기기 모두 앱 정보의 버전 번호, 주소 끝 `?mxqrLog=debug`, 단계마다 `/debug console`의 `[YouTube` 줄과 시각)
       판정 기준은 건네지 않으며, 받은 관찰값을 보고서 기준과 견줘 QA 라운드에 적는다. 후보(약 25분): 데스크톱 Chrome 방장과 Android Chrome
-      게스트의 일반방에서 (A) zero-start 직후 동기화(첫 누름의 '방장의 재생 정보가 없어요' 안내와 다시 누르면 진행은 known-accepted #14
-      그대로), (B) 방장의 `[YouTube ZeroStart] prepare-host`, `armed-guest`, `Playback released`와 게스트의 `waiting-ready`, `timeline-0.8s`,
-      `timeline-2.0s` 줄, (C) 시작 직후 seek와 볼륨(hard-mute 주인이 있는 동안의 unMute 가드가 장부 질의로 옮겼으므로). 옛·새 빌드를 섞어
+      게스트의 일반방에서 (A) zero-start 직후 동기화(첫 누름은 보정 창 안이면 흐린 버튼과 '아직 준비 중이에요', 그 직후면 '방장의 재생
+      정보가 없어요' 안내이고 다시 누르면 진행, known-accepted #14 그대로), (B) 방장의 `[YouTube ZeroStart] prepare-host`, `armed-guest`,
+      `Playback released`와 게스트의 `waiting-ready`, `timeline-0.8s`, `timeline-2.0s` 줄, (C) 시작 직후 seek와 볼륨(hard-mute 주인이 있는 동안의 unMute 가드가 장부 질의로 옮겼으므로). 옛·새 빌드를 섞어
       시작하는 기기 행은 두지 않는다(혼합 버전 근거는 T0a 프레임·시각 골든). Q6 기준선이 없어 판정 기준과만 견준다. 기기가 없는 단계는 '기기
       없음'이고 실패가 아니다. 운영 브라우저의 업데이트 창도 배포 뒤에 본다. 실패하면: 일시적 네트워크로 설명되지 않는 어긋남이면 위
       되돌리기대로 앞으로 고치기(9.0.33 / v806 이상)나, 급할 때만 명시적으로 검토한 CLI 되돌리기로 checkpoint App(9.0.31)을 정한다. 닫는 근거:

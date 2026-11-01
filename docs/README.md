@@ -137,7 +137,14 @@ runbooks. Neither belongs in a general setup document.
   the owner questions (option K, the exact-ratio option E, or option D, which drops the three
   overrides so every engine reads the box from the files and is now recommended; the repository
   and build sizes with the lost sharing; the open tabs at release), the risks and the device check
-  after release.
+  after release. QA round 3, the final local check at `ff6da891` (Windows Chromium 153), reran the
+  font guard with a full re-bake check, the override-stripped line-box and tab-title rows, the
+  pixel-identity spec and the 24-screen comparison (the same results, every capture byte-identical
+  to round 1's), typecheck, lint, format, all 37 guards (all pass but `guard:sw-cache-version`, the
+  missing bump) with the other `build:checked` steps, critical E2E 101 / 101 and the full unit
+  suite (739 files, 17,616 tests passed, one environment skip). A real iPhone has not been checked;
+  the owner checks on iOS 17 or 18 after the release. The 9.0.29 report's device check now links
+  this report.
 - [Phase 6 train 6A: one YouTube start timing home, owner queries for the start timers and one verified iframe audio restore (2026-10-31)](design/phase6-6a-start-constants-owner-queries-2026-10-31.md):
   released on 2026-11-01 05:17 KST in Release 41237978646 (PR #550, squash `3c098e9d`) as App
   9.0.30 / v803 (App build 803, target `app`, one update dialog; the bump `8d148fff` is the last

@@ -2592,5 +2592,137 @@ describe('resource-ownership guard', { timeout: 60_000 }, () => {
         );
       });
     });
+
+    describe("the iframe audio owner's parking hold registration (RO-12)", () => {
+      const player = 'src/youtube/player.ts';
+      const owner = 'src/youtube/iframe-audio.ts';
+      const parkingHold =
+        'registerYouTubeAudioHolds(\n' +
+        '  (player) => isRetainedYouTubePlayerParked(player),\n' +
+        '  (player) => ensureRetainedYouTubePlayerHardMuted(player),\n' +
+        ');\n';
+      const fix =
+        "src/youtube/player.ts registers the iframe audio owner's parking hold once, in a " +
+        'top-level statement; another registration replaces the hold every App write asks, a ' +
+        'second machine on it';
+      const registration = (file: string, what: string, inFunction: string): RegExp =>
+        new RegExp(
+          `^AUDIO HOLD REGISTRATION \\(RO-12\\): ${file.replace(/[./]/gu, '\\$&')}:\\d+ ` +
+            `${what} in ${inFunction} - ${fix.replace(/[.]/gu, '\\$&')}$`,
+          'u',
+        );
+      const missing =
+        'AUDIO HOLD REGISTRATION (RO-12): src/youtube/player.ts registers no iframe audio holds - ' +
+        "src/youtube/player.ts registers the iframe audio owner's parking hold once, in a " +
+        'top-level statement; until it does, parking holds nothing and an App write can unmute a ' +
+        'parked iframe';
+
+      it('passes on the real tree, where player.ts registers parking once at module evaluation', () => {
+        expect(realInput().sources.get(player)).toContain(`\n${parkingHold}`);
+        expect(findingsOf(realInput())).toBe('');
+      });
+
+      it('lets only player.ts register it, once, in a top-level statement', () => {
+        const findings = findingsOf(
+          withSources((sources) => {
+            // Another module re-registering inside an exported function, under another name.
+            sources.set(
+              'src/youtube/iframe.ts',
+              `${sources.get('src/youtube/iframe.ts') ?? ''}\n` +
+                "import { registerYouTubeAudioHolds as rogueHolds } from './iframe-audio.ts';\n" +
+                'export function rogueUnpark(): void {\n' +
+                '  rogueHolds(() => false, () => undefined);\n' +
+                '}\n',
+            );
+            // The owner resetting its own slot.
+            sources.set(
+              owner,
+              `${sources.get(owner) ?? ''}\n` +
+                'export function rogueReset(): void {\n' +
+                '  registerYouTubeAudioHolds(notHeld, notHeld);\n' +
+                '}\n',
+            );
+            replaceIn(
+              sources,
+              player,
+              parkingHold,
+              parkingHold +
+                'registerYouTubeAudioHolds(() => false, () => undefined);\n' +
+                'export function rogueRepark(): void {\n' +
+                '  registerYouTubeAudioHolds(() => true, () => undefined);\n' +
+                '}\n',
+            );
+          }),
+        );
+        const lines = findings.split('\n');
+        expect(lines).toHaveLength(4);
+        for (const [file, what, inFunction] of [
+          ['src/youtube/iframe.ts', 'registers the iframe audio holds', 'rogueUnpark'],
+          [owner, 'registers the iframe audio holds', 'rogueReset'],
+          [player, 'registers the iframe audio holds again', '<module>'],
+          [player, 'registers the iframe audio holds outside a top-level statement', 'rogueRepark'],
+        ] as const) {
+          expect(
+            lines.filter((line) => registration(file, what, inFunction).test(line)),
+          ).toHaveLength(1);
+        }
+      });
+
+      it('fails the registration handed on: re-exported, as a value, through the namespace or loaded dynamically', () => {
+        const findings = findingsOf(
+          withSources((sources) => {
+            sources.set(
+              'src/youtube/rogue-audio-port.ts',
+              "import { registerYouTubeAudioHolds } from './iframe-audio.ts';\n" +
+                "import * as iframeAudio from './iframe-audio.ts';\n" +
+                "export { registerYouTubeAudioHolds as registerHolds } from './iframe-audio.ts';\n" +
+                'export const registrars = [registerYouTubeAudioHolds];\n' +
+                'export const owner = iframeAudio;\n' +
+                'export function rogueNamespace(): void {\n' +
+                '  iframeAudio.registerYouTubeAudioHolds(() => false, () => undefined);\n' +
+                '}\n' +
+                "export const later = () => import('./iframe-audio.ts');\n",
+            );
+          }),
+        );
+        const handedOn = (line: number, what: string, inFunction: string): string =>
+          `AUDIO HOLD REGISTRATION (RO-12): src/youtube/rogue-audio-port.ts:${line} ${what} in ` +
+          `${inFunction} - ${fix}`;
+        expect(findings.split('\n')).toEqual([
+          handedOn(3, 're-exports registerYouTubeAudioHolds as registerHolds', '<module>'),
+          handedOn(4, 'uses registerYouTubeAudioHolds as a value', '<module>'),
+          handedOn(5, 'uses the iframe audio namespace iframeAudio as a value', '<module>'),
+          handedOn(7, 'registers the iframe audio holds', 'rogueNamespace'),
+          handedOn(9, 'imports src/youtube/iframe-audio.ts dynamically', 'later'),
+        ]);
+      });
+
+      it('requires the registration in player.ts: without it parking holds nothing', () => {
+        expect(
+          findingsOf(withSources((sources) => replaceIn(sources, player, parkingHold, ''))),
+        ).toBe(missing);
+        // Registered inside a function, parking still holds nothing at module evaluation.
+        const moved = findingsOf(
+          withSources((sources) =>
+            replaceIn(
+              sources,
+              player,
+              parkingHold,
+              `export function rogueHolds(): void {\n  ${parkingHold}}\n`,
+            ),
+          ),
+        );
+        expect(moved.split('\n')).toEqual([
+          expect.stringMatching(
+            registration(
+              player,
+              'registers the iframe audio holds outside a top-level statement',
+              'rogueHolds',
+            ),
+          ),
+          missing,
+        ]);
+      });
+    });
   });
 });

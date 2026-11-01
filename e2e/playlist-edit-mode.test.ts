@@ -3,7 +3,7 @@ import { uploadFixtures } from './helpers/file-upload.ts';
 import { injectPeerServer } from './helpers/peer-server.ts';
 import { readQueueSnapshot } from './helpers/queue-state.ts';
 import { setupHostAndStart } from './helpers/setup-flow.ts';
-import { navigateToTab, waitForPlaylistCount } from './helpers/wait.ts';
+import { navigateToTab, waitForPlaylistCount, waitForViewTransitionEnd } from './helpers/wait.ts';
 
 interface Point {
   x: number;
@@ -23,6 +23,11 @@ async function openFiveTrackPlaylist(page: Page, phone: boolean): Promise<void> 
   await setupHostAndStart(page);
   await uploadFixtures(page, FIXTURES);
   await waitForPlaylistCount(page, FIXTURES.length);
+  // Every upload closes the media source popup in a view transition (even a
+  // closed popup), and the autoplay switch to the player tab joins it. The
+  // list renders inside it, so the count arrives before the cross-fade ends,
+  // and until then a raw press below would land on <html>.
+  await waitForViewTransitionEnd(page);
   if (phone) await navigateToTab(page, 'playlist');
   // Let the list's entrance motion settle before measuring.
   await page.waitForTimeout(800);
@@ -110,14 +115,29 @@ async function tapOutcome(page: Page) {
   };
 }
 
+interface NeutralTapLanding {
+  down: string;
+  click: string;
+}
+
+async function neutralTapLanding(page: Page): Promise<NeutralTapLanding | undefined> {
+  return page.evaluate(
+    () => (window as unknown as { __neutralTap?: NeutralTapLanding }).__neutralTap,
+  );
+}
+
 /**
  * A touch tap that takes no action, on the middle of the app header.
  *
  * A touch covers an area, and Chromium moves a tap onto a control near it
  * (touch adjustment). The gap between two playlist rows is 8px: on Windows a
  * tap there lands on the next row and plays it, and the switch to the player
- * tab that follows cross-fades under the parked mouse. So the spot keeps 24px
- * clear of every control, the touch must land on it, and nothing may change.
+ * tab that follows cross-fades under the parked mouse. So the tap goes to the
+ * header's middle, where none of nine sample points (the middle and 24px left
+ * and right, each also 12px up and down) is in a control. The touch
+ * pointerdown and the click the tap makes must both land in the header. Two
+ * frames after that click, and once any view transition it started has ended,
+ * the current row, the open tab and the picks must be what they were.
  */
 async function tapNeutral(page: Page): Promise<void> {
   const before = await tapOutcome(page);
@@ -137,26 +157,43 @@ async function tapNeutral(page: Page): Promise<void> {
         }
       }
     }
-    const landing = window as unknown as { __neutralTapLanding?: string };
-    landing.__neutralTapLanding = 'none';
+    const landing: NeutralTapLanding = { down: 'none', click: 'none' };
+    (window as unknown as { __neutralTap?: NeutralTapLanding }).__neutralTap = landing;
+    const where = (event: Event) =>
+      header.contains(event.target as Node)
+        ? 'header'
+        : (event.target as Element).outerHTML.slice(0, 80);
     document.addEventListener(
       'pointerdown',
       (event) => {
-        landing.__neutralTapLanding =
-          event.pointerType === 'touch' && header.contains(event.target as Node)
-            ? 'header'
-            : `${event.pointerType} on ${(event.target as Element).outerHTML.slice(0, 80)}`;
+        landing.down =
+          event.pointerType === 'touch' ? where(event) : `${event.pointerType} on ${where(event)}`;
+      },
+      { capture: true, once: true },
+    );
+    document.addEventListener(
+      'click',
+      (event) => {
+        landing.click = where(event);
       },
       { capture: true, once: true },
     );
     return { x, y };
   });
   await page.touchscreen.tap(point.x, point.y);
-  expect(
-    await page.evaluate(
-      () => (window as unknown as { __neutralTapLanding?: string }).__neutralTapLanding,
-    ),
-  ).toBe('header');
+  await expect
+    .poll(async () => (await neutralTapLanding(page))?.click, { timeout: 2_000 })
+    .not.toBe('none');
+  expect(await neutralTapLanding(page)).toEqual({ down: 'header', click: 'header' });
+  // Let what the click would start apply before comparing: a tab switch puts
+  // `.active` on its panel inside a view transition's update callback.
+  await page.evaluate(
+    () =>
+      new Promise<void>((resolve) => {
+        requestAnimationFrame(() => requestAnimationFrame(() => resolve()));
+      }),
+  );
+  await waitForViewTransitionEnd(page);
   expect(await tapOutcome(page)).toEqual(before);
 }
 

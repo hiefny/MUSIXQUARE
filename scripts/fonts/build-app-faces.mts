@@ -35,9 +35,12 @@
  * The copy keeps the input's file name in fonts/app/<family>/, and
  * fonts/app-faces.json records the digests of the input and the copy and the
  * wawoff2 version. The default mode keeps a face whose record entry, input
- * digest, line box and tool version still match; one it bakes again with the
- * same input, box and tool version must give its recorded bytes. --record
- * accepts new bytes after a deliberate toolchain change.
+ * digest, line box and wawoff2 version still match. A face it bakes again
+ * with its recorded input and box must give its recorded bytes, under the
+ * recorded wawoff2 version or a new one (a new version that does only
+ * replaces the recorded version); otherwise the run writes nothing and stops,
+ * so a wawoff2 update cannot change the copies, and with them every font URL,
+ * unnoticed. --record accepts the new bytes after review.
  */
 import { mkdir, readFile, readdir, rm, writeFile } from 'node:fs/promises';
 import path from 'node:path';
@@ -204,6 +207,7 @@ export async function buildAppFaces(
 ): Promise<BuildResult> {
   const previous = await readRecord(repoRoot);
   const tool = await toolVersion(repoRoot);
+  const recordedTool = previous?.tools[TOOL];
   const inputs = new Map(
     (faceInputs ?? (await appFaceInputs(repoRoot))).map(({ sheet, files }) => [sheet, files]),
   );
@@ -211,6 +215,12 @@ export async function buildAppFaces(
   const changed: string[] = [];
   const problems: string[] = [];
   const mismatches: string[] = [];
+  // Copies to write, held until every face has passed, so a refused run writes nothing.
+  const writes: {
+    readonly folder: string;
+    readonly outputPath: string;
+    readonly bytes: Uint8Array;
+  }[] = [];
   let baked = 0;
 
   for (const spec of APP_FACE_FAMILIES) {
@@ -237,15 +247,11 @@ export async function buildAppFaces(
       const inputDigest = digestOf(input);
       const committed = await readOptional(path.join(repoRoot, outputPath));
       const committedDigest = committed ? digestOf(committed) : null;
-      // The recorded face, when its input, box and tool are the ones of this run.
+      // The recorded face, when its input and box are the ones of this run,
+      // whichever wawoff2 version recorded it.
       const found = before?.faces.find((face) => face.file === file);
-      const unchanged =
-        found !== undefined &&
-        sameBox &&
-        previous?.tools[TOOL] === tool &&
-        sameDigest(inputDigest, found.input)
-          ? found
-          : null;
+      const recorded =
+        found !== undefined && sameBox && sameDigest(inputDigest, found.input) ? found : null;
       const faceWin = readLineMetrics(await decodeFontBytes(input));
       if (win === null) win = [faceWin.winAscent, faceWin.winDescent];
       else if (win[0] !== faceWin.winAscent || win[1] !== faceWin.winDescent) {
@@ -254,11 +260,12 @@ export async function buildAppFaces(
 
       if (
         mode === 'write' &&
-        unchanged &&
+        recorded &&
+        recordedTool === tool &&
         committedDigest !== null &&
-        sameDigest(committedDigest, unchanged.output)
+        sameDigest(committedDigest, recorded.output)
       ) {
-        faces.push(unchanged);
+        faces.push(recorded);
         continue;
       }
       const copy = await bakeFace(input, spec.box);
@@ -274,17 +281,15 @@ export async function buildAppFaces(
           problems.push(`${APP_FACES_PATH} records another output for ${outputPath}`);
         }
       } else {
-        // The same input, box and tool must give the recorded bytes, unless
-        // --record accepts a deliberate toolchain change.
-        if (mode === 'write' && unchanged && !sameDigest(outputDigest, unchanged.output)) {
+        // The same input and box must give the recorded bytes, under the
+        // recorded wawoff2 version or a new one, unless --record accepts them.
+        if (mode === 'write' && recorded && !sameDigest(outputDigest, recorded.output)) {
           mismatches.push(outputPath);
-          faces.push(unchanged);
+          faces.push(recorded);
           continue;
         }
         if (!committedDigest || !sameDigest(outputDigest, committedDigest)) {
-          await mkdir(path.join(repoRoot, spec.output), { recursive: true });
-          await writeFile(path.join(repoRoot, outputPath), copy.woff2);
-          changed.push(outputPath);
+          writes.push({ folder: spec.output, outputPath, bytes: copy.woff2 });
         }
       }
       faces.push({ file, input: inputDigest, output: outputDigest });
@@ -300,10 +305,19 @@ export async function buildAppFaces(
     });
   }
   if (mismatches.length) {
+    const cause =
+      recordedTool === tool
+        ? `with ${TOOL} ${tool}, which recorded them, so the baking itself changed`
+        : `with ${TOOL} ${tool}; ${recordedTool === undefined ? 'no version' : recordedTool} recorded them`;
     throw new Error(
-      `Baking again gave other bytes than recorded for ${mismatches.join(', ')}. ` +
-        'The toolchain changed; check the copies and rerun with --record to accept them.',
+      `Baking again gave other bytes than recorded for ${mismatches.join(', ')} (${cause}). ` +
+        'Nothing was written. If the change is intended, rerun with --record to accept the new bytes.',
     );
+  }
+  for (const { folder, outputPath, bytes } of writes) {
+    await mkdir(path.join(repoRoot, folder), { recursive: true });
+    await writeFile(path.join(repoRoot, outputPath), bytes);
+    changed.push(outputPath);
   }
 
   const record: AppFaces = { note: NOTE, tools: { [TOOL]: tool }, families };

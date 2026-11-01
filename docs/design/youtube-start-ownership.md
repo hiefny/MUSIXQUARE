@@ -146,16 +146,26 @@ recovery's pending claim alone, because no reader needs one.
   dispatched to every owner in `iframe.ts`'s fixed order, and the host's pending-start query
   (`isStandardHostYouTubeLocalStartPending`, `src/youtube/local-offset.ts`) still sees only the
   legacy hold (C2-6).
-- Gaps the start-ownership truth tables pin as today's behaviour stay as they are; the ledger
-  changes no answer, so it neither opens nor closes them:
+- Gaps the start-ownership truth tables pin as today's behaviour (rows marked "Looks like a
+  defect") stay as they are; the ledger changes no answer, so it neither opens nor closes them.
+  These are the four the owner was asked about on 2026-11-01, as rewritten after the rows were
+  rerun with the fake iframe notifying one task later and only on a change, as a real iframe does
+  (the 'a' rows):
   - after the host legacy recovery times out, its fence ends with the iframe paused at 0:00 while
-    the projection shows playing, and the next heartbeat reports the room paused at 0:00 (row H4);
-  - the legacy rendezvous's own PLAYING broadcasts an auxiliary `YOUTUBE_STATE` before Stage 1
-    arms its hold (rows H9, H3, H5 and H6);
-  - a host pause broadcasts its formal PAUSED and then the iframe's own PAUSED (row H10);
-  - after a guest's failed prepare, the projection shows paused from the COMMIT until the recovery
-    releases (row G8);
-  - no public owner covers the PRO direct COMMIT's 2 s local wait (row P4).
+    `playback.activity` stays 'playing': the play button, the playlist icon and the tab title show
+    the iframe paused, what follows the activity (the OS media controls among them) shows it
+    playing, and no notice is shown (rows H4, H4a);
+  - when a guest's next-track prepare fails over a playing track, the warm-up error pauses that
+    track at once and the projection stays paused, with no loading owner busy, until the new
+    track's release about 2.7 s later (rows G8pa, G8, G8p and G8a);
+  - in a PRO room no public owner covers the direct COMMIT's 2 s local wait, and the Sync button
+    and the manual-sync panel stay open while a track starts (rows P1 and P4);
+  - a host pause broadcasts its formal PAUSED and then the iframe's own PAUSED, on the first pause
+    after a load and on a pause after a stall; a pause after a resume sends one (rows H10, H10a
+    and H10c).
+
+  The legacy rendezvous's own PLAYING that leaves before Stage 1 arms its hold (rows H9, H3, H5
+  and H6) is marked "Fake ordering": only the synchronous fake sends it, so it is not a gap.
 - Two readers have no row that tells their query from a near-equivalent one. The calibration
   window rows (`start-ownership-reader-windows.test.ts`: a Standard guest's run is protocol-active
   but no longer in flight) pin the guest heartbeat and auxiliary-state holds, the state-action and

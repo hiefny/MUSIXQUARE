@@ -1534,9 +1534,12 @@ or pointers. Keep :focus-visible and :active outside the gate (src/ui/__tests__/
     stroke-linejoin: round;
   }
 
-  /* A long name is cut before its number: "Playl… 2". */
+  /* A long name is cut before its number: "Playl… 2". The number sits on the
+     name's baseline, so a name drawn with a taller line than its digits (a
+     taller script, or fonts without the metric overrides) does not lift it. */
   .playlist-slot-name {
     display: inline-flex;
+    align-items: baseline;
     min-width: 0;
     max-width: 100%;
   }
@@ -3340,8 +3343,10 @@ or pointers. Keep :focus-visible and :active outside the gate (src/ui/__tests__/
   /* The playlist title (or its switch button) steps aside as well but keeps
      holding the row: invisible and with no width, it is still 36px tall, or
      its line when that is taller, with its text centred as outside the mode.
-     The count title sits on its baseline, so entering the mode moves neither
-     the title nor the list, whatever the script or the fonts' line height. */
+     The count title sits on its baseline, so for a title on one line entering
+     the mode moves neither the title nor the list, whatever the script or the
+     fonts' line height. A plain title wrapped onto two lines is held to one
+     here, so its header still shortens in the mode. */
   .tab-header.is-removal-selecting > .tab-title:not(.playlist-selection-title):not([hidden]),
   .tab-header.is-removal-selecting > .playlist-switch-button {
     width: 0;

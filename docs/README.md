@@ -94,6 +94,36 @@ runbooks. Neither belongs in a general setup document.
 
 ## Maintained evidence and completed records
 
+- [Phase 6 train 6C: one YouTube state router, one iframe audio owner and shared arm steps (2026-11-02)](design/phase6-6c-router-iframe-audio-arm-steps-2026-11-02.md):
+  prepared, not released. The third Phase 6 App update on branch `agent/p6-6c`, fifteen commits on
+  `89e0b682` (the 6B train's tip, not yet on main: 6B ships first, and this branch moves onto main
+  after it); the version bump, the release-record entry and the release are the release owner's.
+  6C-1 turns `iframe.ts`'s fixed-order dispatch of iframe states to the start owners into a router
+  with one decision per start claim kind (a kind without one does not compile) and merges the
+  Standard host's held room time into one read, the pending-start predicate staying the legacy
+  hold's; 6C-2 makes `src/youtube/iframe-audio.ts` the owner of the App's iframe audio writes, the
+  PRO pause gate's iframe token and the holds (the gate mutes at once, parking gets the verified
+  hard mute, a start owner holds only the unMute), reading the desired audio when it writes under
+  today's two named mute rules; 6C-4 and 6C-5 move both arm machines' hard-mute wait, warm
+  acceptance and settle into the new `src/youtube/arm-steps.ts`, each machine keeping its own
+  policy, and remove the PRO arm's unused load warm. The independent review added a host legacy
+  recovery cell to the two-rule row and a stronger Phase 7 contract (a) row, made the owner ask the
+  start ledger itself, and added a CHECK 12 rule that keeps the parking hold's registration to one
+  top-level statement of `player.ts`. Neutral: the T0a goldens, both T0b truth tables and the 6B
+  rows pass byte for byte; one T0b row of `player.test.ts` and the truth-table sampler's pause-gate
+  column ask the owner's gate query only because the runtime bridge's gate hook was deleted, their
+  expected values unchanged. The owner's one-rule
+  change below 0.5 % master volume (6C-3) is prepared as a before/after table and waits for the
+  owner; no T0b defect fix rides. The report lists the owner answers used, each increment's
+  tests-first evidence rerun at the final check, the guard counts (CHECK 11 32 → 20), the first
+  load (+34 B eager JavaScript gzip against 6B; Phase 6 total −168 B), mixed versions, rollback
+  (alone until 6D merges), the blind device candidates, the open item for the YouTube first-note
+  alignment, the Phase 7 contracts and one new log-only defect. Its local final check on
+  `6915ee9e`: unit suite 744 files / 17,882 (1 skipped), four `--sequence.shuffle` seeds over
+  `src/youtube`, `src/player` and `src/pro-room` (6,690 rows each) and seeds 1 to 16 over the 14
+  touched test files, types, lint and format, every guard except `guard:sw-cache-version` (the
+  pending bump), critical coverage 103 files / 4,268, critical E2E 101 / 101, the ten local YouTube
+  specs 53 / 53 and the WebKit YouTube activation spec 4 / 4.
 - [App Hangul drawn by Pretendard again, as MUSIXQUARE Hangul (2026-11-02)](design/app-hangul-pretendard-2026-11-02.md):
   released on 2026-11-02 13:12 KST in Release 41386906358 (PR #560, squash `4faf38d9`) as App
   9.0.33 / v806 (App build 806, target `app`, one update dialog, visible change; the bump

@@ -2,7 +2,8 @@
  * The iframe audio owner's own pieces (src/youtube/iframe-audio.ts, RO-12),
  * pinned with Phase 6 6C-2, which moves the App's audio writes and holds into
  * it: the app audio read from the master volume under its two mute rules, the
- * PRO pause gate's token and its bare mute, the holds player.ts registers,
+ * PRO pause gate's token and its bare mute, the parking hold player.ts
+ * registers, the start owners' hard mute it asks the real start ledger for,
  * and the three app writes with their orders and optional calls.
  * youtube-iframe-audio-order.test.ts pins the same writes through the App's
  * real wiring; iframe-audio.test.ts pins the verified restore.
@@ -29,6 +30,7 @@ import {
   registerYouTubeAudioHolds,
   releaseYouTubePauseGate,
 } from '../iframe-audio.ts';
+import { registerYouTubeStartClaim } from '../start-ownership.ts';
 
 type AudioMethod = 'setVolume' | 'mute' | 'unMute';
 
@@ -48,7 +50,11 @@ function recordingPlayer(
   return player as unknown as YouTubePlayerInstance;
 }
 
-/** Registers holds that log each ask into `calls` and answer as given. */
+/**
+ * Registers the parking hold and a PRO arm start claim, each logging its ask
+ * into `calls` and answering as given. The start hold is the real start
+ * ledger's isYouTubeStartHardMuteOwned, which asks that claim here.
+ */
 function registerHolds(calls: string[], held: { parked?: boolean; start?: boolean } = {}): void {
   registerYouTubeAudioHolds(
     () => {
@@ -58,11 +64,13 @@ function registerHolds(calls: string[], held: { parked?: boolean; start?: boolea
     () => {
       calls.push('parking proof');
     },
+  );
+  registerYouTubeStartClaim('pro-arm', [
     () => {
       calls.push('start hold?');
       return held.start ?? false;
     },
-  );
+  ]);
 }
 
 /** The calls one write makes on a recording player under the given holds. */
@@ -263,8 +271,8 @@ describe('applyYouTubeAudio, write 2: the PRO direct commit (pinned 2026-11-02)'
   });
 });
 
-describe('the holds player.ts registers (pinned 2026-11-02)', () => {
-  it('reads every hold as not held until they are registered', async () => {
+describe('the parking hold player.ts registers and the start ledger it asks (pinned 2026-11-02)', () => {
+  it('holds nothing before player.ts registers parking and while the start ledger has no claim', async () => {
     vi.resetModules();
     const fresh = await import('../iframe-audio.ts');
     const calls: string[] = [];
@@ -273,7 +281,7 @@ describe('the holds player.ts registers (pinned 2026-11-02)', () => {
     expect(calls).toEqual(['setVolume(40)', 'unMute()', 'setVolume(40)', 'unMute()']);
   });
 
-  it('asks nothing when registered, then the last registration at each write, with the written iframe', () => {
+  it('asks nothing when registered, then the last parking registration at each write, with the written iframe', () => {
     const asked: unknown[] = [];
     const calls: string[] = [];
     registerHolds(calls, { parked: true });
@@ -285,10 +293,6 @@ describe('the holds player.ts registers (pinned 2026-11-02)', () => {
       () => {
         calls.push('parking proof');
       },
-      () => {
-        calls.push('start hold?');
-        return false;
-      },
     );
     expect(calls).toEqual([]);
     const player = recordingPlayer(calls);
@@ -298,5 +302,37 @@ describe('the holds player.ts registers (pinned 2026-11-02)', () => {
       parkedAsked: 1,
       samePlayer: true,
     });
+  });
+
+  it("holds the unMute whenever the start ledger's hard-mute query holds, whichever start owner claims it", () => {
+    const calls: string[] = [];
+    registerHolds(calls);
+    // An active recovery: the ledger asks it before the PRO arm, which then reads nothing.
+    registerYouTubeStartClaim('standard-recovery', [
+      () => {
+        calls.push('recovery active?');
+        return true;
+      },
+      () => false,
+    ]);
+    try {
+      applyYouTubeAudio(recordingPlayer(calls), LOUD, 0);
+      applyYouTubeAudio(recordingPlayer(calls), LOUD, 1);
+      applyYouTubeAudio(recordingPlayer(calls), LOUD, 2);
+    } finally {
+      // The ledger keeps its claims between rows: leave this kind holding nothing.
+      registerYouTubeStartClaim('standard-recovery', [() => false, () => false]);
+    }
+    expect(calls).toEqual([
+      'setVolume(40)',
+      'parked?',
+      'recovery active?',
+      'parked?',
+      'setVolume(40)',
+      'recovery active?',
+      // The PRO direct commit asks no start owner.
+      'setVolume(40)',
+      'unMute()',
+    ]);
   });
 });

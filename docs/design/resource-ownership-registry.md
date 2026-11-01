@@ -275,15 +275,28 @@ RO-53 owner-in-place
   (`src/youtube/zero-start.ts`, phase union `YouTubeZeroStartPhase`); the guest local fallback
   (the `onFallbackRequired` closure in `src/youtube/player.ts`); the host legacy recovery
   (`recoverZeroStartWithLegacyRendezvous`, `player.ts`); the legacy rendezvous `scheduleYtAutoSync`
-  (`player.ts`). They retire each other directly, `iframe.ts` dispatches player states to them in a
-  fixed order, and `isYouTubeZeroStartSyncOwned` (`src/youtube/zero-start-ownership.ts`) answers
-  for "both zero-start owners". The PRO direct commit (`applyProPlaybackYouTubeCommit`) and the
-  replacement fallback also start this player; PRO arming is RO-03.
-- **Target single owner:** one start ledger over the zero-start owner (planned
-  `src/youtube/start-ownership.ts`); the host legacy recovery and the replacement fallback become
-  owner stages; the guest recovery stays its own owner class holding its claim (RO-33).
-- **Allowed requesters:** the load entry (`tryBeginYouTubeZeroStart`); readers through
-  `isYouTubeZeroStartSyncOwned`: `src/youtube/sync.ts`, `src/network/sync.ts`,
+  (`player.ts`). They retire each other directly, and `iframe.ts` dispatches player states to them
+  in a fixed order. Since Phase 6 6B-1 (C2-5) the start ledger `src/youtube/start-ownership.ts`
+  (`Resource owner: RO-02`, [design](youtube-start-ownership.md)) composes them for readers:
+  `player.ts` registers each owner's live queries as a claim (`registerYouTubeStartClaim`: the
+  run's in-flight, protocol and hard-mute queries; the recovery's active and pending flags, which
+  the guest fallback and the host legacy recovery share; the PRO arm's
+  `proYouTubeAuthorityOwnsHardMute`), and the derived queries `isYouTubeStartSyncOwned` and
+  `isYouTubeStartHardMuteOwned` call them when asked. The ledger keeps no answer, subscribes to
+  nothing and emits nothing, so it is not a second machine on this resource; the PRO arm's
+  `onPhaseChange` stays unwired in `iframe.ts`. Until the other readers move to ledger queries
+  (C2-7), `isYouTubeZeroStartSyncOwned` (`src/youtube/zero-start-ownership.ts`) still answers for
+  "both zero-start owners" outside `player.ts`. The PRO direct commit
+  (`applyProPlaybackYouTubeCommit`) and the replacement fallback also start this player; PRO arming
+  is RO-03.
+- **Target single owner:** one start ledger over the zero-start owner
+  (`src/youtube/start-ownership.ts`, in place since 6B-1, over live queries only); the host legacy
+  recovery and the replacement fallback become owner stages; the guest recovery stays its own owner
+  class holding its claim (RO-33).
+- **Allowed requesters:** the load entry (`tryBeginYouTubeZeroStart`); `player.ts`'s seek mid-sync
+  check and late-join bootstrap deferral through `isYouTubeStartSyncOwned`, and its unMute guards
+  (`youtube:set-volume`, the PRO pause-gate settlement) through `isYouTubeStartHardMuteOwned`;
+  readers through `isYouTubeZeroStartSyncOwned`: `src/youtube/sync.ts`, `src/network/sync.ts`,
   `src/ui/manual-sync-overlay-runtime.ts`, `src/ui/player-controls.ts`,
   `src/player/background-return-sync.ts`. Since Phase 6 6A-1 other modules ask the start-timer
   owners rather than read the timers by name: `sync.ts`'s heartbeat hold, `iframe.ts`'s auxiliary
@@ -365,6 +378,11 @@ RO-53 owner-in-place
     detached unmute".
   - Visibility: `src/youtube/__tests__/youtube-owner-visibility.test.ts` "RO-02: a Standard
     zero-start hidden mid-warm-up runs exactly as the visible one" (no visibility branch today).
+  - Ledger: `src/youtube/__tests__/start-ownership.test.ts` (each claim position's decision, the
+    read order and short-circuit, reads at the call) and the start-ownership truth tables
+    `src/youtube/__tests__/youtube-start-ownership-table.test.ts` (Standard) and
+    `youtube-start-ownership-table-pro.test.ts` (PRO participant): every reachable state against
+    each query and composite, with their wire effects.
 - **Status:** `duplicated`. Phase 6 (start ledger, routed state events, shared arm steps, recovery
   as owner stages); its first train took over the app part of Phase 0d, the shared start timing
   (C2-1, 6A-3). The no-auto-retry Sync notice right after a zero-start stays

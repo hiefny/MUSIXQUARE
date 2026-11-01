@@ -1,11 +1,15 @@
-import { beforeEach, describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { resetState, setState } from '../../core/state.ts';
 import {
+  beginStandardHostYouTubeEndHold,
+  clearStandardHostYouTubeEndHold,
   isCanonicalYouTubeManualOffsetEndpoint,
+  isStandardHostYouTubeLocalStartPending,
   resolveProCoordinatorYouTubeTarget,
   resolveYouTubePlaybackStartTarget,
   resolveYouTubeAudiblePlaybackTarget,
   recordStandardHostYouTubeAutomaticOffset,
+  setStandardHostYouTubeLocalStartTimelineReader,
   setYouTubeScheduledStartTimelineReader,
   shouldNeutralizeStandardHostYouTubeOffsetAtEnd,
   toCanonicalYouTubeTime,
@@ -161,5 +165,78 @@ describe('PRO coordinator YouTube local offset', () => {
       requestedOffset: 3,
       effectiveOffset: 1,
     });
+  });
+});
+
+describe("the Standard host's pending start time (pinned 2026-11-01)", () => {
+  // Two start owners hold this speaker while the room plays on: the legacy
+  // rendezvous's local start (player.ts installs its reader) and the
+  // zero-start run's scheduled start (getYouTubeZeroStartPendingCanonicalPosition).
+  // The room time reads them after the end hold, the legacy one first; the
+  // pending-start predicate reads only the legacy one.
+  const reads: string[] = [];
+
+  function installReaders(legacy: number | null, scheduled: number | null): void {
+    setStandardHostYouTubeLocalStartTimelineReader(() => {
+      reads.push('legacy');
+      return legacy;
+    });
+    setYouTubeScheduledStartTimelineReader(() => {
+      reads.push('zero-start');
+      return scheduled;
+    });
+  }
+
+  beforeEach(() => {
+    resetState();
+    setActiveStandardHost();
+    setState('sync.youtubeCoordinatorAppliedOffset', 0);
+    reads.splice(0);
+  });
+
+  afterEach(() => {
+    clearStandardHostYouTubeEndHold();
+    setStandardHostYouTubeLocalStartTimelineReader(null);
+    setYouTubeScheduledStartTimelineReader(() => null);
+  });
+
+  it.each([
+    // legacy, zero-start, room time of local 42 s in a 120 s video, readers asked, pending
+    [1.5, 0.25, 1.5, ['legacy'], true],
+    [null, 0.25, 0.25, ['legacy', 'zero-start'], false],
+    [null, 200, 120, ['legacy', 'zero-start'], false],
+    [null, null, 42, ['legacy', 'zero-start'], false],
+    // A non-finite zero-start answer is no answer: the local time converts.
+    [null, Number.NaN, 42, ['legacy', 'zero-start'], false],
+    [null, Number.POSITIVE_INFINITY, 42, ['legacy', 'zero-start'], false],
+    // Any legacy answer holds, clamped into the video; a non-finite one reads 0.
+    [200, 0.25, 120, ['legacy'], true],
+    [-1, 0.25, 0, ['legacy'], true],
+    [Number.NaN, 0.25, 0, ['legacy'], true],
+    [Number.POSITIVE_INFINITY, 0.25, 0, ['legacy'], true],
+  ] as const)(
+    'legacy %s, zero-start %s: room time %s',
+    (legacy, scheduled, roomTime, asked, pending) => {
+      installReaders(legacy, scheduled);
+      expect(toCanonicalYouTubeTime(42, 120)).toBe(roomTime);
+      expect(reads.splice(0)).toEqual(asked);
+      expect(isStandardHostYouTubeLocalStartPending()).toBe(pending);
+      expect(reads).toEqual(['legacy']);
+    },
+  );
+
+  it('reads neither owner while the end hold holds the room time', () => {
+    installReaders(1.5, 0.25);
+    beginStandardHostYouTubeEndHold(100, 120, () => true);
+    expect(toCanonicalYouTubeTime(42, 120)).toBeCloseTo(100, 1);
+    expect(reads).toEqual([]);
+  });
+
+  it('reads neither owner on a Standard guest, whose room time is its local time', () => {
+    setState('network.appRole', 'guest');
+    installReaders(1.5, 0.25);
+    expect(toCanonicalYouTubeTime(42, 120)).toBe(42);
+    expect(isStandardHostYouTubeLocalStartPending()).toBe(false);
+    expect(reads).toEqual([]);
   });
 });

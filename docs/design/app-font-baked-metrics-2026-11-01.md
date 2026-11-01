@@ -666,7 +666,7 @@ TZ=Etc/UTC`, 추적 없음, 재시도 없음, 작업마다 다른 E2E 포트.
     signaling(빌드 804, 방장·게스트 입장, offer·answer 중계, `bridgeOpenMs` 방장 1,084 ms·게스트 803 ms)이 모두 첫 시도에 통과했고
     503·502 재시도는 없었다. 최종 소유권 23:17:40 KST verified, 커밋 표지 artifact 13086882414, 배포 원본 artifact 13086927274(32
     files). 바닥 올리기 단계와 실패 복구 단계는 skip이다. 릴리스 담당의 배포 기록이 23:18:17 KST에 종료 코드 0을 적었다.
-  - 공개 확인(인증 없는 GET): `/service-worker.js`의 `CACHE_VERSION = "v804"`(릴리스 담당 23:18 KST 무렵, 이 기록 23:25 KST 무렵).
+  - 공개 확인(인증 없는 GET): `/service-worker.js`의 `CACHE_VERSION = "v804"`(릴리스 담당이 배포 뒤, 이 기록 23:25 KST 무렵).
     공개 최소 빌드 상태(23:18:33 KST 생성): 저장·유효 795, revision 3, `liveAppBuild` 804, `reportedLiveAppBuild` 804(23:17:48 KST
     보고, 약 45초 전), state `valid`. 구운 면: 운영의 앱 KR 시트 `/assets/font-noto-kr-CgOIbf6R.css`가 200이고 면 120개가 기술자
     넷(`size-adjust` 94%, `ascent-override` 101.29%, `descent-override` 25.66%, `line-gap-override` 0%)을 그대로 지닌다(안 K). 그 첫

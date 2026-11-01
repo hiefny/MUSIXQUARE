@@ -9,11 +9,6 @@ import type { YouTubePlayerInstance } from '../_state.ts';
 
 const QUEUE_ITEM_ID = '88888888-8888-4888-8888-888888888888';
 
-const zeroStartFacade = vi.hoisted(() => ({
-  handlePlayerState: vi.fn<(state: number) => boolean>(() => false),
-  inFlight: false,
-  active: false,
-}));
 const outputDelay = vi.hoisted(() => ({ ms: 0 }));
 vi.mock('../play-latency.ts', async (original) => ({
   ...(await original<typeof import('../play-latency.ts')>()),
@@ -99,12 +94,9 @@ vi.mock('../standard-host-manual-offset-gate.ts', () => ({
   resetStandardHostManualOffsetTransaction: vi.fn(),
 }));
 
-vi.mock('../zero-start.ts', async (importOriginal) => ({
-  ...(await importOriginal<typeof import('../zero-start.ts')>()),
-  handleYouTubeZeroStartPlayerState: zeroStartFacade.handlePlayerState,
-  isYouTubeZeroStartInFlight: vi.fn(() => zeroStartFacade.inFlight),
-  isYouTubeZeroStartProtocolActive: vi.fn(() => zeroStartFacade.active),
-}));
+// zero-start.ts stays real: initYouTube builds the real controller, which no
+// row starts, so the iframe dispatch reaches its idle answers (not handled,
+// not in flight, no protocol run).
 
 vi.mock('../../ui/toast.ts', () => ({
   showToast: vi.fn(),
@@ -176,9 +168,6 @@ beforeEach(() => {
   bus.clear();
   vi.clearAllMocks();
   ytState.resetYouTubeModuleState();
-  zeroStartFacade.inFlight = false;
-  zeroStartFacade.active = false;
-  zeroStartFacade.handlePlayerState.mockReturnValue(false);
   outputDelay.ms = 0;
   document.body.innerHTML =
     '<div class="video-wrapper"><div id="youtube-player-container"><div id="youtube-player"></div></div></div>';

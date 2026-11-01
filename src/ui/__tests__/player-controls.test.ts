@@ -23,7 +23,12 @@ import { STANDARD_ROOM_OWNER_PRODUCT_CAPABILITIES } from '../../network/standard
 import { markStandardRoomAuthorityConfirmed, setRoomContext } from '../../rooms/authority.ts';
 import { roomCapabilityFeedbackTip } from '../../rooms/permission-feedback.ts';
 import type { DataConnection } from '../../types/index.ts';
+import { isYouTubeZeroStartExternalFallbackPendingFromSync } from '../../youtube/player-runtime-bridge.ts';
 import { broadcastYouTubeSync, guestRendezvousSync } from '../../youtube/sync.ts';
+import {
+  isYouTubeZeroStartInFlight,
+  isYouTubeZeroStartProtocolActive,
+} from '../../youtube/zero-start.ts';
 import {
   clearYouTubeInputState,
   fetchYouTubePreview,
@@ -96,7 +101,7 @@ vi.mock('../../core/platform.ts', async (importOriginal) => ({
 
 vi.mock('../../youtube/player-runtime-bridge.ts', async (importOriginal) => ({
   ...(await importOriginal<typeof import('../../youtube/player-runtime-bridge.ts')>()),
-  isYouTubeZeroStartExternalFallbackPendingFromSync: () => zeroStartFacade.fallback,
+  isYouTubeZeroStartExternalFallbackPendingFromSync: vi.fn(() => zeroStartFacade.fallback),
 }));
 
 vi.mock('../../youtube/zero-start.ts', () => ({
@@ -4178,8 +4183,11 @@ describe('initPlayerControls sync button', () => {
     zeroStartFacade.inFlight = true;
 
     initPlayerControls();
+    vi.mocked(isYouTubeZeroStartProtocolActive).mockClear();
     document.getElementById('btn-sync')?.click();
 
+    // The Sync gate reaches the zero-start protocol export.
+    expect(isYouTubeZeroStartProtocolActive).toHaveBeenCalled();
     expect(guestRendezvousSync).not.toHaveBeenCalled();
     expect(document.getElementById('manual-sync-overlay')?.classList.contains('show')).toBe(false);
     expect(showToast).toHaveBeenCalledWith('Not ready yet\nTry again in a moment');
@@ -4191,15 +4199,27 @@ describe('initPlayerControls sync button', () => {
     setState('playback.mode', 'youtube');
     setState('playback.activity', 'playing');
     zeroStartFacade.fallback = true;
+    const fallbackPending = vi.mocked(isYouTubeZeroStartExternalFallbackPendingFromSync);
+    vi.mocked(isYouTubeZeroStartProtocolActive).mockClear();
+    fallbackPending.mockClear();
     initPlayerControls();
+    // The first Sync button paint reaches both halves of the owner query.
+    expect(isYouTubeZeroStartProtocolActive).toHaveBeenCalled();
+    expect(fallbackPending).toHaveBeenCalled();
     const button = document.getElementById('btn-sync') as HTMLButtonElement;
     expect(button.getAttribute('aria-disabled')).toBe('true');
+    fallbackPending.mockClear();
     button.click();
     await settleManualSyncOverlayOpen();
+    // The click's gate reaches the external-fallback export.
+    expect(fallbackPending).toHaveBeenCalled();
     expect(guestRendezvousSync).not.toHaveBeenCalled();
 
     zeroStartFacade.fallback = false;
+    fallbackPending.mockClear();
     bus.emit('youtube:zero-start-readiness-changed');
+    // The readiness repaint reads it again.
+    expect(fallbackPending).toHaveBeenCalled();
     expect(button.getAttribute('aria-disabled')).toBe('false');
     button.click();
     await settleManualSyncOverlayOpen();
@@ -4219,19 +4239,82 @@ describe('initPlayerControls sync button', () => {
       vi.mocked(guestRendezvousSync).mock.calls[0]?.[0]?.onComplete?.();
       const overlay = document.getElementById('manual-sync-overlay')!;
       expect(overlay.classList.contains('show')).toBe(true);
+      const ownerQuery = vi.mocked(
+        owner === 'active'
+          ? isYouTubeZeroStartProtocolActive
+          : isYouTubeZeroStartExternalFallbackPendingFromSync,
+      );
 
       zeroStartFacade[owner] = true;
+      ownerQuery.mockClear();
       bus.emit('youtube:zero-start-readiness-changed');
+      expect(ownerQuery).toHaveBeenCalled();
       expect(overlay.classList.contains('show')).toBe(true);
       expect(document.getElementById('btn-sync')?.getAttribute('aria-disabled')).toBe('true');
 
       zeroStartFacade[owner] = false;
+      ownerQuery.mockClear();
       bus.emit('youtube:zero-start-readiness-changed');
+      expect(ownerQuery).toHaveBeenCalled();
       expect(overlay.classList.contains('show')).toBe(true);
       expect(document.getElementById('btn-sync')?.getAttribute('aria-disabled')).toBe('false');
       expect(guestRendezvousSync).toHaveBeenCalledOnce();
     },
   );
+
+  /** A participant's YouTube editor, opened after its Sync rendezvous completed. */
+  async function openGuestYouTubeEditor(): Promise<HTMLElement> {
+    renderSyncControls();
+    setState('network.hostConn', makeConnection('host-1'));
+    setState('playback.mode', 'youtube');
+    setState('playback.activity', 'playing');
+    initPlayerControls();
+    document.getElementById('btn-sync')?.click();
+    await settleManualSyncOverlayOpen();
+    vi.mocked(guestRendezvousSync).mock.calls[0]?.[0]?.onComplete?.();
+    const overlay = document.getElementById('manual-sync-overlay')!;
+    expect(overlay.classList.contains('show')).toBe(true);
+    return overlay;
+  }
+
+  // The readiness repaint above leaves an open editor alone. A playback change
+  // also re-runs the loaded overlay runtime's availability check
+  // (canUseManualSyncPanelRuntime), and only that check closes the editor. Two
+  // readers satisfy the call assertions below: that check and the Sync button
+  // repaint (getMainSyncUnavailableReason). The editor expects pin the first.
+  it.each(['active', 'fallback'] as const)(
+    'closes an open YouTube editor when a playback change finds the %s zero-start owner',
+    async (owner) => {
+      const overlay = await openGuestYouTubeEditor();
+      const ownerQuery = vi.mocked(
+        owner === 'active'
+          ? isYouTubeZeroStartProtocolActive
+          : isYouTubeZeroStartExternalFallbackPendingFromSync,
+      );
+      zeroStartFacade[owner] = true;
+      ownerQuery.mockClear();
+
+      setState('playback.activity', 'pending');
+
+      expect(ownerQuery).toHaveBeenCalled();
+      expect(overlay.classList.contains('show')).toBe(false);
+      expect(overlay.getAttribute('aria-hidden')).toBe('true');
+    },
+  );
+
+  it('keeps an open YouTube editor through a playback change with no zero-start owner', async () => {
+    const overlay = await openGuestYouTubeEditor();
+    vi.mocked(isYouTubeZeroStartProtocolActive).mockClear();
+    vi.mocked(isYouTubeZeroStartExternalFallbackPendingFromSync).mockClear();
+
+    setState('playback.activity', 'pending');
+
+    // With no owner, the check reads both halves of isYouTubeZeroStartSyncOwned.
+    expect(isYouTubeZeroStartProtocolActive).toHaveBeenCalled();
+    expect(isYouTubeZeroStartExternalFallbackPendingFromSync).toHaveBeenCalled();
+    expect(overlay.classList.contains('show')).toBe(true);
+    expect(overlay.getAttribute('aria-hidden')).toBe('false');
+  });
 
   it('preserves the standard-host canonical rendezvous before opening local controls', async () => {
     renderSyncControls();
@@ -4275,8 +4358,10 @@ describe('initPlayerControls sync button', () => {
     zeroStartFacade.inFlight = true;
 
     initPlayerControls();
+    vi.mocked(isYouTubeZeroStartProtocolActive).mockClear();
     document.getElementById('btn-sync')?.click();
 
+    expect(isYouTubeZeroStartProtocolActive).toHaveBeenCalled();
     expect(broadcastYouTubeSync).not.toHaveBeenCalled();
     expect(showToast).toHaveBeenCalledWith('Not ready yet\nTry again in a moment');
   });
@@ -4293,11 +4378,19 @@ describe('initPlayerControls sync button', () => {
     zeroStartFacade.active = true;
     zeroStartFacade.inFlight = true;
 
+    vi.mocked(isYouTubeZeroStartProtocolActive).mockClear();
     initPlayerControls();
+    // The first Sync button paint reads the protocol export.
+    expect(isYouTubeZeroStartProtocolActive).toHaveBeenCalled();
     const button = document.getElementById('btn-sync') as HTMLButtonElement;
     const playButton = document.getElementById('play-btn') as HTMLButtonElement;
     const seekSlider = document.getElementById('seek-slider') as HTMLInputElement;
+    vi.mocked(isYouTubeZeroStartInFlight).mockClear();
+    vi.mocked(isYouTubeZeroStartProtocolActive).mockClear();
     bus.emit('youtube:sync-loading', true, 'zero-start');
+    // The slider reads the in-flight export; the Sync button the protocol one.
+    expect(isYouTubeZeroStartInFlight).toHaveBeenCalled();
+    expect(isYouTubeZeroStartProtocolActive).toHaveBeenCalled();
 
     expect(button.getAttribute('aria-disabled')).toBe('true');
     expect(playButton.classList.contains('is-loading')).toBe(true);
@@ -4305,7 +4398,12 @@ describe('initPlayerControls sync button', () => {
     expect(seekSlider.getAttribute('aria-disabled')).toBe('true');
 
     zeroStartFacade.inFlight = false;
+    vi.mocked(isYouTubeZeroStartInFlight).mockClear();
+    vi.mocked(isYouTubeZeroStartProtocolActive).mockClear();
     bus.emit('youtube:sync-loading', false, 'zero-start');
+    // The slider reads the in-flight export; the Sync button the protocol one.
+    expect(isYouTubeZeroStartInFlight).toHaveBeenCalled();
+    expect(isYouTubeZeroStartProtocolActive).toHaveBeenCalled();
 
     expect(zeroStartFacade.active).toBe(true);
     expect(playButton.classList.contains('is-loading')).toBe(false);
@@ -4555,8 +4653,10 @@ describe('initPlayerControls sync button', () => {
     zeroStartFacade.inFlight = true;
 
     initPlayerControls();
+    vi.mocked(isYouTubeZeroStartProtocolActive).mockClear();
     document.getElementById('btn-sync')?.click();
 
+    expect(isYouTubeZeroStartProtocolActive).toHaveBeenCalled();
     expect(document.getElementById('manual-sync-overlay')?.classList.contains('show')).toBe(false);
     expect(showToast).toHaveBeenCalledWith('Not ready yet\nTry again in a moment');
   });

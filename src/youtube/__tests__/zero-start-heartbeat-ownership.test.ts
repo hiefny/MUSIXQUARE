@@ -1,5 +1,5 @@
 /** @vitest-environment jsdom */
-import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi, type Mock } from 'vitest';
 import { bus } from '../../core/events.ts';
 import { MSG } from '../../core/constants.ts';
 import { resetState, setState } from '../../core/state.ts';
@@ -31,6 +31,8 @@ import { makeFakeYtPlayer, type FakeYtPlayer } from './__helpers__/fake-yt-playe
 
 const QUEUE_ID = '11111111-1111-4111-8111-111111111111';
 const VIDEO_ID = 'M7lc1UVf-VE';
+/** A synthetic id for a video other than the current one. */
+const OTHER_VIDEO_ID = 'otherVideo1';
 const EPOCH = 1_700_000_000_000;
 const handlers: Record<string, (data: Record<string, unknown>, conn: DataConnection) => void> = {};
 vi.mock('../../network/protocol.ts', () => ({
@@ -71,6 +73,9 @@ vi.mock('../iframe-runtime-bridge.ts', () => ({
 let player: FakeYtPlayer;
 let host: DataConnection;
 let fallbackOwnsPlayer = false;
+/** The stand-in owner hooks; each test gets fresh ones. */
+let cancelPendingHook: Mock<() => void>;
+let fallbackPendingHook: Mock<() => boolean>;
 
 function snapshot(time: number, state = 1): Record<string, unknown> {
   return {
@@ -147,16 +152,18 @@ beforeEach(() => {
   vi.useFakeTimers();
   vi.setSystemTime(EPOCH);
   fallbackOwnsPlayer = false;
+  cancelPendingHook = vi.fn(() => {
+    cancelYouTubeZeroStart('superseded', false);
+    fallbackOwnsPlayer = false;
+  });
+  fallbackPendingHook = vi.fn(() => fallbackOwnsPlayer);
   configureYouTubePlayerRuntimeHooks({
-    cancelPendingAutoSync: () => {
-      cancelYouTubeZeroStart('superseded', false);
-      fallbackOwnsPlayer = false;
-    },
+    cancelPendingAutoSync: cancelPendingHook,
     consumePendingAutoSyncOnReady: () => null,
     setPendingAutoSyncOnReady: () => undefined,
     isYouTubeAutoSyncPending: () => false,
     isYouTubeZeroStartExternalFallbackActive: () => fallbackOwnsPlayer,
-    isYouTubeZeroStartExternalFallbackPending: () => fallbackOwnsPlayer,
+    isYouTubeZeroStartExternalFallbackPending: fallbackPendingHook,
     isProPlaybackPauseGatePending: () => false,
   });
   host = { peer: 'host-one', open: true, send: vi.fn(), close: vi.fn(), on: vi.fn() };
@@ -345,7 +352,16 @@ describe('heartbeat ownership during a participant-local YouTube start', () => {
     player.mute();
     player.__log.length = 0;
     setYtAutoplayIntent(true);
+    fallbackPendingHook.mockClear();
     heartbeat(4, state);
+    // The heartbeat's in-flight/fallback gate reads the fallback hook, but so
+    // can isCurrentStateAction (through isYouTubeZeroStartSyncOwned), the
+    // small-drift sampler's direct fallback read and its
+    // isGuestYouTubeTransitionPending, so this call assertion does not pin
+    // the gate alone. Only states 2 and 0 pin the gate itself: with it
+    // removed, state 0 fails at this call assertion and state 2 at the
+    // autoplay intent, while states 1 and 3 stay green.
+    expect(fallbackPendingHook).toHaveBeenCalled();
     expect(player.__log).toHaveLength(0);
     expect(player.getPlayerState()).toBe(2);
     expect(player.isMuted()).toBe(true);
@@ -359,7 +375,17 @@ describe('heartbeat ownership during a participant-local YouTube start', () => {
 
   it('uses snapshots received under fallback ownership after that owner retires', () => {
     fallbackOwnsPlayer = true;
+    fallbackPendingHook.mockClear();
     heartbeat(20);
+    // Four sync.ts readers can satisfy this call assertion, in the order the
+    // heartbeat reaches them: its own in-flight/fallback gate, which returns
+    // first today; isCurrentStateAction through isYouTubeZeroStartSyncOwned;
+    // the small-drift sampler's direct fallback read; and the sampler's
+    // isGuestYouTubeTransitionPending. The heartbeat gate itself is pinned by
+    // the 'respects external fallback ownership' rows (states 2 and 0). This
+    // row pins the hold and that the snapshot recorded before it survives.
+    expect(fallbackPendingHook).toHaveBeenCalled();
+    expect(player.__log).toHaveLength(0);
     fallbackOwnsPlayer = false;
     expect(guestRendezvousSync({ silent: true }).status).toBe('started');
     expect(player.__log.find((call) => call.op === 'seekTo')?.args?.[0]).toBe(21.5);
@@ -381,7 +407,10 @@ describe('heartbeat ownership during a participant-local YouTube start', () => {
       setState('sync.youtubeLocalOffset', -9.999);
       if (owner === 'fallback') fallbackOwnsPlayer = true;
       vi.advanceTimersByTime(4500);
+      cancelPendingHook.mockClear();
       handlers[MSG.YOUTUBE_STATE]({ ...snapshot(100), hostPlayAt: 0 }, host);
+      // The explicit command retires the pending start through the cancel hook.
+      expect(cancelPendingHook).toHaveBeenCalled();
       expect(controller?.getSnapshot().phase ?? 'idle').toBe('idle');
       expect(fallbackOwnsPlayer).toBe(false);
       vi.advanceTimersByTime(500);
@@ -406,9 +435,39 @@ describe('heartbeat ownership during a participant-local YouTube start', () => {
       expect(fallbackOwnsPlayer).toBe(true);
       expect(player.__log).toHaveLength(0);
     }
+    cancelPendingHook.mockClear();
     handlers[MSG.YOUTUBE_STATE](snapshot(4, 2), host);
+    // The pause retires the fallback through the cancel hook.
+    expect(cancelPendingHook).toHaveBeenCalled();
     expect(fallbackOwnsPlayer).toBe(false);
     expect(player.getPlayerState()).toBe(2);
     expect(player.getCurrentTime()).toBe(4);
   });
+
+  // Host feedback that names another video, with the protocol idle. The
+  // feedback hold right after the snapshot reads two owners, the in-flight run
+  // or the pending fallback; sync-integration.test.ts pins the in-flight half,
+  // and these rows pin the fallback half. On this path that hold is the
+  // fallback hook's only reader, and past it the other video loads at once.
+  it.each([1, 3])(
+    'holds host feedback state %s that names another video while the fallback owns the iframe',
+    (state) => {
+      fallbackOwnsPlayer = true;
+      fallbackPendingHook.mockClear();
+      handlers[MSG.YOUTUBE_STATE]({ ...snapshot(4, state), videoId: OTHER_VIDEO_ID }, host);
+      expect(fallbackPendingHook).toHaveBeenCalled();
+      expect(player.__log).toHaveLength(0);
+      expect(fallbackOwnsPlayer).toBe(true);
+    },
+  );
+
+  it.each([1, 3])(
+    'loads the video named by host feedback state %s with no fallback owner (control)',
+    (state) => {
+      fallbackPendingHook.mockClear();
+      handlers[MSG.YOUTUBE_STATE]({ ...snapshot(4, state), videoId: OTHER_VIDEO_ID }, host);
+      expect(fallbackPendingHook).toHaveBeenCalled();
+      expect(player.__log.map(({ op }) => op)).toEqual(['loadVideoById']);
+    },
+  );
 });

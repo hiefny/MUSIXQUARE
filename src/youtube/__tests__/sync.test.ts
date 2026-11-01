@@ -1535,9 +1535,13 @@ describe('YouTube Sync', () => {
       const { initYouTubeSync } = await import('../sync.ts');
       initYouTubeSync();
       zeroStartFacade.active = true;
+      const { isYouTubeZeroStartProtocolActive } = await import('../zero-start.ts');
+      vi.mocked(isYouTubeZeroStartProtocolActive).mockClear();
 
       bus.emit('youtube:set-coordinator-manual-offset', 0.125);
 
+      // The edit's owner gate reaches the zero-start protocol export.
+      expect(isYouTubeZeroStartProtocolActive).toHaveBeenCalled();
       expect(player.seekTo).not.toHaveBeenCalled();
       expect(getState('sync.youtubeLocalOffset')).toBe(0);
     });

@@ -5,8 +5,10 @@
  * endpoint identity changes from none to PRO. sync.ts keeps that identity for
  * as long as the module lives, and no export resets it (resetYouTubeSyncState()
  * leaves it alone), so in sync.test.ts the row passed only when no earlier row
- * had entered a PRO endpoint. The mocks and hooks are sync.test.ts's; no row
- * here registers a PRO timeline, so afterEach has none to unregister.
+ * had entered a PRO endpoint. The mocks and hooks are sync.test.ts's, except
+ * zero-start.ts: no row here forces a zero-start owner, so the real module
+ * stays and, with no controller, its facades answer false. No row here
+ * registers a PRO timeline, so afterEach has none to unregister.
  */
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { getState, resetState, setState } from '../../core/state.ts';
@@ -18,7 +20,6 @@ import {
 } from '../standard-host-manual-offset-gate.ts';
 
 const QUEUE_ITEM_ID = '11111111-1111-4111-8111-111111111111';
-const zeroStartFacade = vi.hoisted(() => ({ active: false }));
 
 vi.mock('../../core/log.ts', () => ({
   log: { debug: vi.fn(), info: vi.fn(), warn: vi.fn(), error: vi.fn() },
@@ -52,11 +53,6 @@ vi.mock('../_state.ts', async (importOriginal) => {
   return { ...actual, getYouTubePlayer: vi.fn(() => null) };
 });
 
-vi.mock('../zero-start.ts', () => ({
-  isYouTubeZeroStartInFlight: vi.fn(() => false),
-  isYouTubeZeroStartProtocolActive: vi.fn(() => zeroStartFacade.active),
-}));
-
 beforeEach(async () => {
   await prepareStandardHostManualOffsetRuntimeForTests();
   resetStandardHostManualOffsetTransaction();
@@ -71,7 +67,6 @@ beforeEach(async () => {
   // snapshot, for example) with the reset stopYouTubeMode runs. It runs
   // after bus.clear(), so its events reach no earlier row's listener.
   (await import('../sync.ts')).resetYouTubeSyncState();
-  zeroStartFacade.active = false;
   setState('playlist.items', [
     {
       queueItemId: QUEUE_ITEM_ID,

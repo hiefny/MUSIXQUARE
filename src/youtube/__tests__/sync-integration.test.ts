@@ -726,7 +726,10 @@ describe('YouTube Sync — Regression Integration', () => {
         const conn = installLiveZeroStartGuest();
         const { initYouTube } = await importPlayer();
         const { broadcast, safeSend } = await import('../../network/peer.ts');
-        const { getYouTubeZeroStartSnapshot } = await import('../zero-start.ts');
+        const { getYouTubeZeroStartSnapshot, isYouTubeZeroStartProtocolActive } =
+          await import('../zero-start.ts');
+        const actualZeroStart =
+          await vi.importActual<typeof import('../zero-start.ts')>('../zero-start.ts');
 
         initYouTube();
         advertiseZeroStartCapability(conn);
@@ -735,12 +738,16 @@ describe('YouTube Sync — Regression Integration', () => {
 
         // The real controller owns this run, while the facade models the
         // player.ts mid-sync predicate imported through this test's partial
-        // module mock.
+        // module mock. The forced value agrees with the real controller.
+        expect(actualZeroStart.isYouTubeZeroStartProtocolActive()).toBe(true);
         zeroStartFacade.active = true;
         vi.mocked(broadcast).mockClear();
+        vi.mocked(isYouTubeZeroStartProtocolActive).mockClear();
         if (action === 'seek') bus.emit('youtube:seek-to', value);
         else bus.emit('youtube:skip-time', value);
 
+        // The host seek's mid-sync gate reaches the stubbed export.
+        expect(isYouTubeZeroStartProtocolActive).toHaveBeenCalled();
         expect(getYouTubeZeroStartSnapshot()?.phase).toBe('idle');
         expect(safeSend).toHaveBeenCalledWith(
           conn,
@@ -804,7 +811,10 @@ describe('YouTube Sync — Regression Integration', () => {
       const conn = installLiveZeroStartGuest();
       const { initYouTube } = await importPlayer();
       const { broadcast, safeSend } = await import('../../network/peer.ts');
-      const { getYouTubeZeroStartSnapshot } = await import('../zero-start.ts');
+      const { getYouTubeZeroStartSnapshot, isYouTubeZeroStartProtocolActive } =
+        await import('../zero-start.ts');
+      const actualZeroStart =
+        await vi.importActual<typeof import('../zero-start.ts')>('../zero-start.ts');
       initYouTube();
       advertiseZeroStartCapability(conn);
       emitZeroStartAutoPlay();
@@ -817,6 +827,8 @@ describe('YouTube Sync — Regression Integration', () => {
           [newcomer.peer, newcomer],
         ]),
       );
+      // The forced protocol answer agrees with the real controller's run.
+      expect(actualZeroStart.isYouTubeZeroStartProtocolActive()).toBe(true);
       zeroStartFacade.active = true;
       vi.mocked(broadcast).mockClear();
       vi.mocked(safeSend).mockClear();
@@ -825,7 +837,10 @@ describe('YouTube Sync — Regression Integration', () => {
 
       expect(getYouTubeZeroStartSnapshot()).toEqual(before);
       expect(getManagedTimer('yt-zero-start-replacement-fallback')).toBeNull();
+      vi.mocked(isYouTubeZeroStartProtocolActive).mockClear();
       bus.emit('network:peer-connected', newcomer);
+      // The late-join bootstrap's owner gate reaches the stubbed export.
+      expect(isYouTubeZeroStartProtocolActive).toHaveBeenCalled();
       vi.advanceTimersByTime(1_500);
       expect(getManagedTimer('yt-zero-start-replacement-fallback')).toBeNull();
       expect(broadcast).not.toHaveBeenCalled();
@@ -1364,6 +1379,7 @@ describe('YouTube Sync — Regression Integration', () => {
       });
       const { initYouTube } = await importPlayer();
       const { safeSend } = await import('../../network/peer.ts');
+      const { isYouTubeZeroStartProtocolActive } = await import('../zero-start.ts');
       const safeSendMock = vi.mocked(safeSend);
       const lateConn = dataConnection('late-zero-start-guest');
       setState('network.activeHostConnByPeerId', new Map([[lateConn.peer, lateConn]]));
@@ -1375,9 +1391,12 @@ describe('YouTube Sync — Regression Integration', () => {
       player.__state = 1;
       safeSendMock.mockClear();
       zeroStartFacade.active = true;
+      vi.mocked(isYouTubeZeroStartProtocolActive).mockClear();
 
       bus.emit('network:peer-connected', lateConn);
 
+      // The late-join bootstrap's owner gate reaches the stubbed export.
+      expect(isYouTubeZeroStartProtocolActive).toHaveBeenCalled();
       expect(
         safeSendMock.mock.calls.some(
           ([target, message]) =>
@@ -1977,13 +1996,17 @@ describe('YouTube Sync — Regression Integration', () => {
       installPlayer({ __state: 1, __currentTime: 12, __duration: 120 });
       const { broadcastYouTubeSync } = await importSync();
       const { broadcast } = await import('../../network/peer.ts');
+      const { isYouTubeZeroStartProtocolActive } = await import('../zero-start.ts');
       const broadcastMock = vi.mocked(broadcast);
       broadcastMock.mockClear();
       zeroStartFacade.inFlight = true;
       zeroStartFacade.active = true;
+      vi.mocked(isYouTubeZeroStartProtocolActive).mockClear();
 
       broadcastYouTubeSync(false);
       broadcastYouTubeSync(true, 1);
+      // The broadcaster's owner gate reaches the stubbed export.
+      expect(isYouTubeZeroStartProtocolActive).toHaveBeenCalled();
       expect(broadcastMock).not.toHaveBeenCalled();
 
       zeroStartFacade.inFlight = false;
@@ -1998,14 +2021,212 @@ describe('YouTube Sync — Regression Integration', () => {
     it('rejects a guest manual rendezvous without mutating the player while zero-start is active', async () => {
       const player = installPlayer({ __state: 1, __currentTime: 12, __duration: 120 });
       const { guestRendezvousSync } = await importSync();
+      const { isYouTubeZeroStartProtocolActive } = await import('../zero-start.ts');
       setState('network.hostConn', mockHostConn as never);
       zeroStartFacade.active = true;
+      vi.mocked(isYouTubeZeroStartProtocolActive).mockClear();
 
       const result = guestRendezvousSync({ silent: true });
 
+      // The rendezvous owner gate reaches the stubbed export.
+      expect(isYouTubeZeroStartProtocolActive).toHaveBeenCalled();
       expect(result.status).toBe('not-ready');
       expect(mutationOps(player)).toEqual([]);
     });
+  });
+
+  // One pair of rows per guest reader that no later owner gate on its own path
+  // fully backs up. The owner is forced while the action is pending (a real
+  // zero-start PREPARE also retires a pending clock action and rendezvous
+  // itself), the reader's own trigger fires, and the action is held; the
+  // control fires the same trigger with no owner.
+  describe('zero-start owner at the guest backstop gates', () => {
+    function holdForZeroStart(): void {
+      zeroStartFacade.inFlight = true;
+      zeroStartFacade.active = true;
+    }
+
+    /** A host PLAY scheduled one second ahead arms the guest clock action. */
+    function armClockAction(): FakeYtPlayer {
+      const player = installPlayer({ __state: 2, __duration: 300, __currentTime: 0 });
+      setState('network.hostConn', mockHostConn as never);
+      capturedHandlers[MSG.YOUTUBE_STATE](
+        { state: 1, time: 5, hostPlayAt: Date.now() + 1_000, subIndex: 0, videoId: 'FAKE_VIDEO' },
+        mockHostConn,
+      );
+      expect(getManagedTimer('yt-clock-action')).not.toBeNull();
+      player.__log.length = 0;
+      return player;
+    }
+
+    it('drops a due clock action once the zero-start owner holds the iframe', async () => {
+      const player = armClockAction();
+      const { isYouTubeZeroStartProtocolActive } = await import('../zero-start.ts');
+      holdForZeroStart();
+      vi.mocked(isYouTubeZeroStartProtocolActive).mockClear();
+
+      vi.advanceTimersByTime(1_100);
+
+      // The due action's own currency check (isCurrentStateAction) reads the owner.
+      expect(isYouTubeZeroStartProtocolActive).toHaveBeenCalled();
+      expect(getManagedTimer('yt-clock-action')).toBeNull();
+      expect(mutationOps(player)).toEqual([]);
+    });
+
+    it('plays the same due clock action with no zero-start owner', async () => {
+      const player = armClockAction();
+      const { isYouTubeZeroStartProtocolActive } = await import('../zero-start.ts');
+      vi.mocked(isYouTubeZeroStartProtocolActive).mockClear();
+
+      vi.advanceTimersByTime(1_100);
+
+      expect(isYouTubeZeroStartProtocolActive).toHaveBeenCalled();
+      expect(getManagedTimer('yt-clock-action')).toBeNull();
+      expect(mutationOps(player)).toEqual(['playVideo']);
+    });
+
+    /** A guest Sync whose first buffer poll has scheduled the release. */
+    async function scheduleRendezvousRelease(): Promise<FakeYtPlayer> {
+      const player = installPlayer({ __state: 1, __currentTime: 10, __duration: 300 });
+      setState('youtube.guestPlayLatency', 0);
+      setState('network.hostConn', mockHostConn as never);
+      capturedHandlers[MSG.YOUTUBE_SYNC](
+        { time: 10, state: 1, videoId: 'FAKE_VIDEO', hostClock: Date.now() },
+        mockHostConn,
+      );
+      const { guestRendezvousSync } = await importSync();
+      expect(guestRendezvousSync({ silent: true }).status).toBe('started');
+      vi.advanceTimersByTime(100);
+      expect(getManagedTimer('yt-rendezvous-play')).not.toBeNull();
+      player.__log.length = 0;
+      return player;
+    }
+
+    it('retires a scheduled rendezvous release once the zero-start owner holds the iframe', async () => {
+      const player = await scheduleRendezvousRelease();
+      const { isGuestYouTubeTransitionPending } = await importSync();
+      const { isYouTubeZeroStartProtocolActive } = await import('../zero-start.ts');
+      holdForZeroStart();
+      vi.mocked(isYouTubeZeroStartProtocolActive).mockClear();
+
+      vi.advanceTimersByTime(3_000);
+
+      // The attempt's step guard (matchesRendezvousOccurrence) reads the owner.
+      expect(isYouTubeZeroStartProtocolActive).toHaveBeenCalled();
+      expect(mutationOps(player)).toEqual([]);
+      expect(getManagedTimer('yt-rendezvous-play')).toBeNull();
+      expect(getManagedTimer('yt-rendezvous-calibrate')).toBeNull();
+      // The attempt itself retired: nothing is pending once the owner leaves.
+      zeroStartFacade.inFlight = false;
+      zeroStartFacade.active = false;
+      expect(isGuestYouTubeTransitionPending()).toBe(false);
+    });
+
+    it('releases the same scheduled rendezvous with no zero-start owner', async () => {
+      const player = await scheduleRendezvousRelease();
+      const { isYouTubeZeroStartProtocolActive } = await import('../zero-start.ts');
+      vi.mocked(isYouTubeZeroStartProtocolActive).mockClear();
+
+      vi.advanceTimersByTime(3_000);
+
+      expect(isYouTubeZeroStartProtocolActive).toHaveBeenCalled();
+      expect(mutationOps(player)).toEqual(['playVideo']);
+    });
+
+    /** An accepted offset edit that waited for a host snapshot, now with one. */
+    function queueManualOffsetApply(): FakeYtPlayer {
+      const player = installPlayer({ __state: 1, __currentTime: 10, __duration: 300 });
+      setState('network.hostConn', mockHostConn as never);
+      setState('sync.youtubeLocalOffset', 0.25);
+      bus.emit('youtube:apply-manual-sync');
+      expect(getManagedTimer('yt-manual-offset-apply-retry')).not.toBeNull();
+      capturedHandlers[MSG.YOUTUBE_SYNC](
+        { time: 10, state: 1, videoId: 'FAKE_VIDEO', hostClock: Date.now() },
+        mockHostConn,
+      );
+      player.__log.length = 0;
+      return player;
+    }
+
+    it('retires a pending manual-offset apply silently once the zero-start owner holds the iframe', async () => {
+      const player = queueManualOffsetApply();
+      const { isGuestYouTubeTransitionPending } = await importSync();
+      const { isYouTubeZeroStartProtocolActive } = await import('../zero-start.ts');
+      const { showToast } = await import('../../ui/toast.ts');
+      holdForZeroStart();
+      vi.mocked(isYouTubeZeroStartProtocolActive).mockClear();
+      vi.mocked(showToast).mockClear();
+
+      vi.advanceTimersByTime(250);
+
+      // The retry's currency check (isCurrentManualOffsetApply) reads the owner
+      // and retires the edit silently. Without it, guestRendezvousSync's
+      // admission gate reads the owner instead and satisfies this call
+      // assertion, but shows its not-ready toast: the toast expect pins the
+      // currency check.
+      expect(isYouTubeZeroStartProtocolActive).toHaveBeenCalled();
+      expect(getManagedTimer('yt-manual-offset-apply-retry')).toBeNull();
+      expect(showToast).not.toHaveBeenCalled();
+      expect(mutationOps(player)).toEqual([]);
+      zeroStartFacade.inFlight = false;
+      zeroStartFacade.active = false;
+      expect(isGuestYouTubeTransitionPending()).toBe(false);
+    });
+
+    it('applies the same pending manual offset with no zero-start owner', async () => {
+      const player = queueManualOffsetApply();
+      const { isYouTubeZeroStartProtocolActive } = await import('../zero-start.ts');
+      vi.mocked(isYouTubeZeroStartProtocolActive).mockClear();
+
+      vi.advanceTimersByTime(250);
+
+      expect(isYouTubeZeroStartProtocolActive).toHaveBeenCalled();
+      expect(getManagedTimer('yt-manual-offset-apply-retry')).toBeNull();
+      expect(mutationOps(player)).toEqual(['pauseVideo', 'seekTo']);
+    });
+
+    /** Host iframe feedback (no hostPlayAt) naming a video this guest's iframe does not show. */
+    function sendHostFeedback(state: number): void {
+      capturedHandlers[MSG.YOUTUBE_STATE](
+        { state, time: 4, subIndex: 0, videoId: 'NEXT_VIDEO', title: 'Next video' },
+        mockHostConn,
+      );
+    }
+
+    it.each([1, 3])(
+      'drops host feedback state %s while the zero-start owner is in flight',
+      async (state) => {
+        const player = installPlayer({ __state: 1, __currentTime: 10, __duration: 300 });
+        setState('network.hostConn', mockHostConn as never);
+        const { isYouTubeZeroStartInFlight } = await import('../zero-start.ts');
+        holdForZeroStart();
+        vi.mocked(isYouTubeZeroStartInFlight).mockClear();
+
+        sendHostFeedback(state);
+
+        // The feedback hold right after the snapshot reads the in-flight export.
+        // Past it, a different video id loads at once, before any other owner
+        // gate on this path. The hold's other half, the pending fallback, is
+        // pinned in zero-start-heartbeat-ownership.test.ts.
+        expect(isYouTubeZeroStartInFlight).toHaveBeenCalled();
+        expect(mutationOps(player)).toEqual([]);
+      },
+    );
+
+    it.each([1, 3])(
+      'loads the video named by host feedback state %s with no zero-start owner',
+      async (state) => {
+        const player = installPlayer({ __state: 1, __currentTime: 10, __duration: 300 });
+        setState('network.hostConn', mockHostConn as never);
+        const { isYouTubeZeroStartInFlight } = await import('../zero-start.ts');
+        vi.mocked(isYouTubeZeroStartInFlight).mockClear();
+
+        sendHostFeedback(state);
+
+        expect(isYouTubeZeroStartInFlight).toHaveBeenCalled();
+        expect(mutationOps(player)).toEqual(['loadVideoById']);
+      },
+    );
   });
 
   describe('identity-aware pending iframe handoff', () => {

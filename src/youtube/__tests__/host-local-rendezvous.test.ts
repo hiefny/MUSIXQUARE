@@ -47,10 +47,8 @@ vi.mock('../../i18n/index.ts', () => ({ t: vi.fn((key: string) => key) }));
 vi.mock('../../network/peer.ts', () => ({ broadcast: vi.fn() }));
 vi.mock('../../network/protocol.ts', () => ({ registerHandlers: vi.fn() }));
 vi.mock('../search.ts', () => ({ fetchPlaylistSubTitles: vi.fn() }));
-vi.mock('../zero-start.ts', () => ({
-  isYouTubeZeroStartInFlight: vi.fn(() => false),
-  isYouTubeZeroStartProtocolActive: vi.fn(() => false),
-}));
+// zero-start.ts stays real: this suite never initializes a controller, so its
+// facades answer false (no run) and keep answering whatever owns them next.
 const latency = vi.hoisted(() => ({ output: 0 }));
 vi.mock('../play-latency.ts', () => ({
   getEffectiveYouTubePlayLatencyMs: () => 200 + latency.output,
@@ -278,19 +276,23 @@ describe.each([0, 250])('Standard-host local scheduled rendezvous (output %ims)'
         clearManagedTimer('yt-auto-sync');
         setStandardHostYouTubeLocalStartTimelineReader(null);
       });
+      const fallbackPending = vi.fn(() => false);
       configureYouTubePlayerRuntimeHooks({
         cancelPendingAutoSync: cancel,
         consumePendingAutoSyncOnReady: () => null,
         // The stand-in owner answers from the raw timer it armed above.
         isYouTubeAutoSyncPending: () => getManagedTimer('yt-auto-sync') !== null,
         isYouTubeZeroStartExternalFallbackActive: () => false,
-        isYouTubeZeroStartExternalFallbackPending: () => false,
+        isYouTubeZeroStartExternalFallbackPending: fallbackPending,
         isProPlaybackPauseGatePending: () => false,
         setPendingAutoSyncOnReady: () => undefined,
       });
       vi.advanceTimersByTime(1_000);
+      fallbackPending.mockClear();
       bus.emit('youtube:set-coordinator-manual-offset', offset, 'committed');
 
+      // The edit's zero-start owner gate reaches the fallback hook.
+      expect(fallbackPending).toHaveBeenCalled();
       expect(fixture.player.pauseVideo).toHaveBeenCalledOnce();
       expect(cancel).toHaveBeenCalledOnce();
       expect(isStandardHostYouTubeLocalStartPending()).toBe(false);

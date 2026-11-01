@@ -44,6 +44,7 @@ import {
   invalidateGuestYouTubeTimeline,
   resetYouTubeSyncState,
 } from '../sync.ts';
+import { isYouTubeZeroStartProtocolActive } from '../zero-start.ts';
 import { makeFakeYtPlayer, mutationOps, type FakeYtPlayer } from './__helpers__/fake-yt-player.ts';
 
 const harness = vi.hoisted(() => ({
@@ -84,7 +85,7 @@ vi.mock('../../player/transport.ts', () => ({ fmtTime: (seconds: number) => Stri
 vi.mock('../../ui/toast.ts', () => ({ showToast: vi.fn(), showLoader: vi.fn() }));
 vi.mock('../zero-start.ts', async (importOriginal) => ({
   ...(await importOriginal<typeof import('../zero-start.ts')>()),
-  isYouTubeZeroStartProtocolActive: () => harness.zeroStartActive,
+  isYouTubeZeroStartProtocolActive: vi.fn(() => harness.zeroStartActive),
 }));
 
 const Q = '44444444-4444-4444-8444-444444444444';
@@ -484,6 +485,27 @@ describe('automatic precision rendezvous for small stable drift', () => {
       heartbeatWithDrift(player, 0.4);
       vi.advanceTimersByTime(HEARTBEAT_INTERVAL_MS);
     }
+    expect(rendezvousStarts).toBe(0);
+    expect(mutationOps(player)).toEqual([]);
+  });
+
+  // Four sync.ts readers can satisfy this row, and any one of them alone holds
+  // the realign: isCurrentStateAction (the drift sampler's first check and the
+  // heartbeat's check after it, which answers first today), the sampler's
+  // isGuestYouTubeTransitionPending, guestRendezvousSync's admission gate, and
+  // the admitted attempt's step guard (matchesRendezvousOccurrence). A move
+  // that leaves any one of them on this export keeps the row green.
+  it('consults the zero-start protocol export while it owns the iframe', () => {
+    const player = installGuest();
+    harness.zeroStartActive = true;
+    const protocolActive = vi.mocked(isYouTubeZeroStartProtocolActive);
+    protocolActive.mockClear();
+    for (let i = 0; i < 4; i++) {
+      heartbeatWithDrift(player, 0.4);
+      vi.advanceTimersByTime(HEARTBEAT_INTERVAL_MS);
+    }
+    // The heartbeat's owner gates read the stubbed export, which holds them.
+    expect(protocolActive).toHaveBeenCalled();
     expect(rendezvousStarts).toBe(0);
     expect(mutationOps(player)).toEqual([]);
   });

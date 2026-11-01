@@ -23,7 +23,7 @@ import { STANDARD_ROOM_OWNER_PRODUCT_CAPABILITIES } from '../../network/standard
 import { markStandardRoomAuthorityConfirmed, setRoomContext } from '../../rooms/authority.ts';
 import { roomCapabilityFeedbackTip } from '../../rooms/permission-feedback.ts';
 import type { DataConnection } from '../../types/index.ts';
-import { isYouTubeZeroStartExternalFallbackPendingFromSync } from '../../youtube/player-runtime-bridge.ts';
+import { registerYouTubeStartClaim } from '../../youtube/start-ownership.ts';
 import { broadcastYouTubeSync, guestRendezvousSync } from '../../youtube/sync.ts';
 import {
   isYouTubeZeroStartInFlight,
@@ -53,6 +53,8 @@ const PLAY_QUEUE_ITEM_ID = '00000000-0000-4000-8000-000000000001';
 const PAUSE_QUEUE_ITEM_ID = '00000000-0000-4000-8000-000000000002';
 
 const zeroStartFacade = vi.hoisted(() => ({ fallback: false, active: false, inFlight: false }));
+/** The recovery's pending claim, as the start ledger reads it. */
+const recoveryPending = vi.hoisted(() => vi.fn(() => zeroStartFacade.fallback));
 const platform = vi.hoisted(() => ({ android: false }));
 const youtubePrimer = vi.hoisted(() => ({
   prime: vi.fn((_options?: { retryPending?: boolean }) => false),
@@ -97,11 +99,6 @@ vi.mock('../../core/platform.ts', async (importOriginal) => ({
   get IS_ANDROID() {
     return platform.android;
   },
-}));
-
-vi.mock('../../youtube/player-runtime-bridge.ts', async (importOriginal) => ({
-  ...(await importOriginal<typeof import('../../youtube/player-runtime-bridge.ts')>()),
-  isYouTubeZeroStartExternalFallbackPendingFromSync: vi.fn(() => zeroStartFacade.fallback),
 }));
 
 vi.mock('../../youtube/zero-start.ts', () => ({
@@ -167,6 +164,15 @@ beforeEach(() => {
   zeroStartFacade.fallback = false;
   platform.android = false;
   zeroStartFacade.inFlight = false;
+  // The start ledger reads the run's two exports and the recovery's pending
+  // stand-in; this replaces the claims the transitively loaded player.ts
+  // registered over its own recovery.
+  registerYouTubeStartClaim('standard-run', [
+    () => isYouTubeZeroStartInFlight(),
+    () => isYouTubeZeroStartProtocolActive(),
+    () => false,
+  ]);
+  registerYouTubeStartClaim('standard-recovery', [() => false, recoveryPending]);
   proPlaybackRuntime.reconcile.mockResolvedValue(true);
   hardResetNavigation.activatePendingServiceWorkerForHardReset.mockResolvedValue(undefined);
   document.body.innerHTML = '';
@@ -4199,11 +4205,11 @@ describe('initPlayerControls sync button', () => {
     setState('playback.mode', 'youtube');
     setState('playback.activity', 'playing');
     zeroStartFacade.fallback = true;
-    const fallbackPending = vi.mocked(isYouTubeZeroStartExternalFallbackPendingFromSync);
+    const fallbackPending = recoveryPending;
     vi.mocked(isYouTubeZeroStartProtocolActive).mockClear();
     fallbackPending.mockClear();
     initPlayerControls();
-    // The first Sync button paint reaches both halves of the owner query.
+    // The first Sync button paint reaches both claims of the owner query.
     expect(isYouTubeZeroStartProtocolActive).toHaveBeenCalled();
     expect(fallbackPending).toHaveBeenCalled();
     const button = document.getElementById('btn-sync') as HTMLButtonElement;
@@ -4239,11 +4245,8 @@ describe('initPlayerControls sync button', () => {
       vi.mocked(guestRendezvousSync).mock.calls[0]?.[0]?.onComplete?.();
       const overlay = document.getElementById('manual-sync-overlay')!;
       expect(overlay.classList.contains('show')).toBe(true);
-      const ownerQuery = vi.mocked(
-        owner === 'active'
-          ? isYouTubeZeroStartProtocolActive
-          : isYouTubeZeroStartExternalFallbackPendingFromSync,
-      );
+      const ownerQuery =
+        owner === 'active' ? vi.mocked(isYouTubeZeroStartProtocolActive) : recoveryPending;
 
       zeroStartFacade[owner] = true;
       ownerQuery.mockClear();
@@ -4286,11 +4289,8 @@ describe('initPlayerControls sync button', () => {
     'closes an open YouTube editor when a playback change finds the %s zero-start owner',
     async (owner) => {
       const overlay = await openGuestYouTubeEditor();
-      const ownerQuery = vi.mocked(
-        owner === 'active'
-          ? isYouTubeZeroStartProtocolActive
-          : isYouTubeZeroStartExternalFallbackPendingFromSync,
-      );
+      const ownerQuery =
+        owner === 'active' ? vi.mocked(isYouTubeZeroStartProtocolActive) : recoveryPending;
       zeroStartFacade[owner] = true;
       ownerQuery.mockClear();
 
@@ -4305,13 +4305,13 @@ describe('initPlayerControls sync button', () => {
   it('keeps an open YouTube editor through a playback change with no zero-start owner', async () => {
     const overlay = await openGuestYouTubeEditor();
     vi.mocked(isYouTubeZeroStartProtocolActive).mockClear();
-    vi.mocked(isYouTubeZeroStartExternalFallbackPendingFromSync).mockClear();
+    recoveryPending.mockClear();
 
     setState('playback.activity', 'pending');
 
-    // With no owner, the check reads both halves of isYouTubeZeroStartSyncOwned.
+    // With no owner, the check reads both claims of isYouTubeStartSyncOwned.
     expect(isYouTubeZeroStartProtocolActive).toHaveBeenCalled();
-    expect(isYouTubeZeroStartExternalFallbackPendingFromSync).toHaveBeenCalled();
+    expect(recoveryPending).toHaveBeenCalled();
     expect(overlay.classList.contains('show')).toBe(true);
     expect(overlay.getAttribute('aria-hidden')).toBe('false');
   });

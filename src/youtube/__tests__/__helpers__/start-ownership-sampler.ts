@@ -10,18 +10,28 @@
  * Each column maps to its live query in exactly one place
  * (START_OWNERSHIP_COLUMNS), so a later change that moves a query behind
  * another owner re-points that one entry and leaves every expected array
- * alone. Every read is pure. The composite columns compose public queries
- * exactly as the inline reader code composes them today:
- * - auxHeld: protocol || autoSync, the auxiliary YOUTUBE_STATE suppression
- *   in iframe.ts's state handler (not its nudge timer or 300 ms dedupe);
- * - beatHeld: owned || autoSync, what holds a periodic host heartbeat in
- *   sync.ts's broadcaster (not the manual-offset transaction, the manual
- *   dedupe or the nudge, which are other owners);
+ * alone. Every read is pure. Since Phase 6 6B-2 the readers ask the start
+ * ledger (start-ownership.ts), so the ownership columns read its derived
+ * queries:
+ * - owned: isYouTubeStartSyncOwned (the run's protocol, then the recovery's
+ *   pending claim); inFlight: isYouTubeStartArmBusy (the run in flight);
+ *   fallback: isYouTubeStartRecoveryActive (the recovery's active claim);
+ * - fallbackPending: the recovery's pending claim, which no reader asks
+ *   alone: isYouTubeStartTimelineHeld (the run in flight, then the pending
+ *   claim) while the run is not in flight. That is exact wherever a reader
+ *   can see the claim: in flight, the run holds every query that asks it;
+ * - auxHeld: isYouTubeStartRoomStateHeld (protocol, then the legacy
+ *   rendezvous's Stage-2 wait), the auxiliary YOUTUBE_STATE suppression in
+ *   iframe.ts's state handler (not its nudge timer or 300 ms dedupe);
+ * - beatHeld: owned || autoSync, the two gates that hold a periodic host
+ *   heartbeat in sync.ts's broadcaster (not the manual-offset transaction,
+ *   the manual dedupe or the nudge, which are other owners);
  * - unMuteHeld: a zero-start hard-mute phase (muting, warming, settling, read
  *   through the public snapshot) || fallback || proMute, the guard player.ts
  *   applies before a volume or PRO pause-gate unMute. This column is the
- *   sampler's own view: player.ts's phase list is private, so the column
- *   retypes it and a change to the real guard leaves the column alone.
+ *   sampler's own view, not the ledger's isYouTubeStartHardMuteOwned that the
+ *   guard asks: player.ts's phase list is private, so the column retypes it
+ *   and a change to the real guard leaves the column alone.
  *   applyVolumeAndReadUnMute pins the real guard by its effect instead.
  *
  * A probe records a sample line '<ms since t0> <label> <phase> <true column
@@ -67,17 +77,20 @@ import { isStandardHostYouTubeLocalStartPending } from '../../local-offset.ts';
 import {
   isProPlaybackPauseGatePendingFromIframe,
   isYouTubeAutoSyncPending,
-  isYouTubeZeroStartExternalFallbackActiveFromIframe,
-  isYouTubeZeroStartExternalFallbackPendingFromSync,
 } from '../../player-runtime-bridge.ts';
+import {
+  isYouTubeStartArmBusy,
+  isYouTubeStartRecoveryActive,
+  isYouTubeStartRoomStateHeld,
+  isYouTubeStartSyncOwned,
+  isYouTubeStartTimelineHeld,
+} from '../../start-ownership.ts';
 import { isGuestYouTubeTransitionPending } from '../../sync.ts';
 import {
   getYouTubeZeroStartPendingCanonicalPosition,
   getYouTubeZeroStartSnapshot,
-  isYouTubeZeroStartInFlight,
   isYouTubeZeroStartProtocolActive,
 } from '../../zero-start.ts';
-import { isYouTubeZeroStartSyncOwned } from '../../zero-start-ownership.ts';
 import type { FakeYtPlayer } from './fake-yt-player.ts';
 import type { ScriptedIframeApi } from './scripted-iframe-api.ts';
 import type { SentFrame } from './standard-start-harness.ts';
@@ -129,24 +142,24 @@ function zeroStartPhase(): string {
 
 /** The truth-table columns, in line order: token and the live query it reads. */
 export const START_OWNERSHIP_COLUMNS: ReadonlyArray<readonly [string, () => boolean]> = [
-  ['owned', () => isYouTubeZeroStartSyncOwned()],
-  ['inFlight', () => isYouTubeZeroStartInFlight()],
+  ['owned', () => isYouTubeStartSyncOwned()],
+  ['inFlight', () => isYouTubeStartArmBusy()],
   ['protocol', () => isYouTubeZeroStartProtocolActive()],
-  ['fallback', () => isYouTubeZeroStartExternalFallbackActiveFromIframe()],
-  ['fallbackPending', () => isYouTubeZeroStartExternalFallbackPendingFromSync()],
+  ['fallback', () => isYouTubeStartRecoveryActive()],
+  ['fallbackPending', () => isYouTubeStartTimelineHeld() && !isYouTubeStartArmBusy()],
   ['autoSync', () => isYouTubeAutoSyncPending()],
   ['hostHold', () => isStandardHostYouTubeLocalStartPending()],
   ['heldAt', () => getYouTubeZeroStartPendingCanonicalPosition() !== null],
   ['guestPending', () => isGuestYouTubeTransitionPending()],
   ['proMute', () => proYouTubeAuthorityOwnsHardMute()],
   ['pauseGate', () => isProPlaybackPauseGatePendingFromIframe()],
-  ['auxHeld', () => isYouTubeZeroStartProtocolActive() || isYouTubeAutoSyncPending()],
-  ['beatHeld', () => isYouTubeZeroStartSyncOwned() || isYouTubeAutoSyncPending()],
+  ['auxHeld', () => isYouTubeStartRoomStateHeld()],
+  ['beatHeld', () => isYouTubeStartSyncOwned() || isYouTubeAutoSyncPending()],
   [
     'unMuteHeld',
     () =>
       ZERO_START_HARD_MUTE_PHASES.has(zeroStartPhase()) ||
-      isYouTubeZeroStartExternalFallbackActiveFromIframe() ||
+      isYouTubeStartRecoveryActive() ||
       proYouTubeAuthorityOwnsHardMute(),
   ],
 ];

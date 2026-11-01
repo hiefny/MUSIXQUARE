@@ -1439,11 +1439,27 @@ describe('resource-ownership guard', { timeout: 60_000 }, () => {
             `${sources.get(native) ?? ''}\nconst PROTECTED_TIMERS = Object.freeze([\n${names}]);\n`,
           );
         });
-        for (const input of [annotated, looped, frozen]) {
-          expect(findingsOf(input)).toBe(
+        for (const [input, inStatement] of [
+          [annotated, true],
+          [looped, false],
+          [frozen, true],
+        ] as const) {
+          const [ratchet, ...rest] = findingsOf(input).split('\n');
+          expect(ratchet).toBe(
             'RATCHET REGRESSION cross-file start-timer read (RO-02): ' +
               "src/youtube/native-control-authority.ts has 7, baseline 1 - ask the timer's owner " +
               '(the file that sets it) through an owner query instead',
+          );
+          // Since 6B-2 the legacy claim's timer, folded into the statement that
+          // already asks its bridge query, asks that claim twice in one statement.
+          expect(rest).toEqual(
+            inStatement
+              ? [
+                  expect.stringMatching(
+                    /^LEDGER COMPOSITE \(RO-02\): src\/youtube\/native-control-authority\.ts:\d+ getManagedTimer\('yt-auto-sync'\), isYouTubeAutoSyncPending\(\) in hasProtectedTransitionOwner - /u,
+                  ),
+                ]
+              : [],
           );
           expect(analyzeResourceOwnership(input).startTimerUses).toEqual({ reads: 17, clears: 9 });
         }
@@ -1572,7 +1588,7 @@ describe('resource-ownership guard', { timeout: 60_000 }, () => {
       expect(findings).not.toContain('cross-file start-timer read (RO-02): src/youtube/iframe.ts');
     });
 
-    it('ignores other timers, names that cannot spell a start timer and files outside src/youtube', () => {
+    it('ignores other timers, names that cannot spell a start timer and, outside src/youtube, names it cannot resolve', () => {
       const findings = findingsOf(
         withSources((sources) => {
           sources.set(
@@ -1589,11 +1605,79 @@ describe('resource-ownership guard', { timeout: 60_000 }, () => {
           sources.set(
             'src/player/start-timer-reader.ts',
             "import { getManagedTimer } from '../core/timers.ts';\n" +
-              "export const busy = (): boolean => getManagedTimer('yt-auto-sync') !== null;\n",
+              "export const busy = (): boolean => getManagedTimer('ended-advance-next') !== null;\n" +
+              'export const pending = (name: string): boolean => getManagedTimer(name) !== null;\n',
           );
         }),
       );
       expect(findings).toBe('');
+    });
+
+    // Since Phase 6 6B-2 a start timer belongs to its src/youtube/ owner in
+    // all of src/: another module asks the start ledger or the owner's query.
+    it('rejects a start timer named outside src/youtube, read, cleared or set', () => {
+      const findings = findingsOf(
+        withSources((sources) => {
+          replaceIn(
+            sources,
+            'src/ui/seekbar.ts',
+            "import { setManagedTimer, clearManagedTimer } from '../core/timers.ts';\n",
+            "import { getManagedTimer, setManagedTimer, clearManagedTimer } from '../core/timers.ts';\n",
+          );
+          replaceIn(
+            sources,
+            'src/ui/seekbar.ts',
+            "  if (playback.mode === 'youtube' && isYouTubeStartArmBusy()) return 'not-ready';\n",
+            "  if (playback.mode === 'youtube' && (isYouTubeStartArmBusy() || getManagedTimer('yt-auto-sync') !== null))\n" +
+              "    return 'not-ready';\n",
+          );
+          sources.set(
+            'src/player/rogue-start-timers.ts',
+            "import { clearManagedTimer, getManagedTimer, setManagedTimer } from '../core/timers.ts';\n" +
+              "const FALLBACK = 'yt-zero-start-external-fallback';\n" +
+              'export function fallbackPending(): boolean {\n' +
+              '  return getManagedTimer(FALLBACK) !== null;\n' +
+              '}\n' +
+              'export function retire(run: () => void): void {\n' +
+              "  ['yt-clock-action', 'yt-seek-play'].forEach(clearManagedTimer);\n" +
+              "  setManagedTimer('yt-host-local-start', run, 10);\n" +
+              '}\n',
+          );
+        }),
+      );
+      const outside = (site: string, call: string, inFunction: string): string =>
+        `START TIMER OUTSIDE src/youtube (RO-02): ${site} ${call} in ${inFunction} - a start ` +
+        'timer belongs to its src/youtube/ owner: ask the start ledger ' +
+        "(src/youtube/start-ownership.ts) or the owner's own query, and start or retire it " +
+        'through that owner';
+      const lines = findings.split('\n');
+      for (const expected of [
+        outside(
+          'src/player/rogue-start-timers.ts:4',
+          "getManagedTimer('yt-zero-start-external-fallback')",
+          'fallbackPending',
+        ),
+        outside(
+          'src/player/rogue-start-timers.ts:7',
+          "clearManagedTimer('yt-clock-action', 'yt-seek-play')",
+          'retire',
+        ),
+        outside(
+          'src/player/rogue-start-timers.ts:8',
+          "setManagedTimer('yt-host-local-start')",
+          'retire',
+        ),
+      ]) {
+        expect(lines).toContain(expected);
+      }
+      expect(findings).toMatch(
+        /^START TIMER OUTSIDE src\/youtube \(RO-02\): src\/ui\/seekbar\.ts:\d+ getManagedTimer\('yt-auto-sync'\) in getSeekUnavailableReason - /mu,
+      );
+      // The seek bar's condition also asks the legacy claim beside a ledger query.
+      expect(findings).toMatch(
+        /^LEDGER COMPOSITE \(RO-02\): src\/ui\/seekbar\.ts:\d+ isYouTubeStartArmBusy\(\), getManagedTimer\('yt-auto-sync'\) in getSeekUnavailableReason - /mu,
+      );
+      expect(lines).toHaveLength(5);
     });
 
     it('rejects every timer call in src/youtube whose name it cannot resolve', () => {
@@ -1769,6 +1853,744 @@ describe('resource-ownership guard', { timeout: 60_000 }, () => {
       expect(result.stdout).toMatch(
         /cross-file start-timer clear: src\/youtube\/sync\.ts:\d+ clearManagedTimer\('yt-pro-coordinator-local-nudge'\) in resetYouTubeSyncState\n/u,
       );
+    });
+
+    // Since Phase 6 6B-2 every start-ownership reader asks the start ledger
+    // (src/youtube/start-ownership.ts); only the run claim's registration in
+    // player.ts reads the zero-start facades.
+    describe('the start ledger and the zero-start facades', () => {
+      const player = 'src/youtube/player.ts';
+      const ledger = 'src/youtube/start-ownership.ts';
+      const runClaimInFlight = '  () => isYouTubeZeroStartInFlight(),\n';
+      const proArmClaim =
+        "registerYouTubeStartClaim('pro-arm', [() => proYouTubeAuthorityOwnsHardMute()]);\n";
+      const compositeFix =
+        'add a derived query to the start ledger (src/youtube/start-ownership.ts) instead; ' +
+        'outside it one statement asks at most one ledger query or claim query, beside other owners';
+
+      it("counts the run claim's registration as player.ts's two facade uses on the real tree", () => {
+        const report = analyzeResourceOwnership(realInput());
+        expect(report.findings).toEqual([]);
+        expect(report.startOwnerFacadeSites).toEqual([
+          expect.stringMatching(
+            /^start-owner facade use: src\/youtube\/player\.ts:\d+ isYouTubeZeroStartInFlight\(\) in <module>$/u,
+          ),
+          expect.stringMatching(
+            /^start-owner facade use: src\/youtube\/player\.ts:\d+ isYouTubeZeroStartProtocolActive\(\) in <module>$/u,
+          ),
+        ]);
+      });
+
+      it('rejects a zero-start facade read outside the run claim, called, through a namespace or passed on', () => {
+        const findings = findingsOf(
+          withSources((sources) => {
+            sources.set(
+              'src/ui/rogue-start-gate.ts',
+              "import { isYouTubeZeroStartInFlight } from '../youtube/zero-start.ts';\n" +
+                "import * as zeroStart from '../youtube/zero-start.ts';\n" +
+                'export function seekBlocked(): boolean {\n' +
+                '  return isYouTubeZeroStartInFlight() || zeroStart.isYouTubeZeroStartProtocolActive();\n' +
+                '}\n' +
+                'export const gates = [isYouTubeZeroStartInFlight];\n',
+            );
+          }),
+        );
+        expect(findings.split('\n')).toEqual([
+          expect.stringMatching(
+            /^UNSANCTIONED start-owner facade use \(RO-02\): src\/ui\/rogue-start-gate\.ts has 3 - /u,
+          ),
+        ]);
+      });
+
+      it("fails a facade use added to player.ts and one the run claim's registration drops", () => {
+        const added = findingsOf(
+          withSources((sources) =>
+            replaceIn(
+              sources,
+              player,
+              proArmClaim,
+              "registerYouTubeStartClaim('pro-arm', [\n" +
+                '  () => proYouTubeAuthorityOwnsHardMute() || isYouTubeZeroStartInFlight(),\n' +
+                ']);\n',
+            ),
+          ),
+        );
+        expect(added).toMatch(
+          /^RATCHET REGRESSION start-owner facade use \(RO-02\): src\/youtube\/player\.ts has 3, baseline 2 - /u,
+        );
+        const dropped = findingsOf(
+          withSources((sources) =>
+            replaceIn(sources, player, runClaimInFlight, '  () => false,\n'),
+          ),
+        );
+        expect(dropped).toMatch(
+          /^STALE BASELINE start-owner facade use \(RO-02\): src\/youtube\/player\.ts has 1, baseline 2 - lower the baseline to 1/u,
+        );
+      });
+
+      it('rejects a composite module named for the zero-start owner and a re-export of its facades', () => {
+        const findings = findingsOf(
+          withSources((sources) => {
+            sources.set(
+              'src/youtube/zero-start-rogue-ownership.ts',
+              "import { isYouTubeZeroStartProtocolActive } from './zero-start.ts';\n" +
+                "export { isYouTubeZeroStartInFlight as inFlight } from './zero-start.ts';\n" +
+                'export function isYouTubeZeroStartRogueOwned(): boolean {\n' +
+                '  return isYouTubeZeroStartProtocolActive();\n' +
+                '}\n',
+            );
+          }),
+        );
+        const facade = (line: number, what: string): string =>
+          `START OWNER FACADE (RO-02): src/youtube/zero-start-rogue-ownership.ts:${line} ${what} ` +
+          'in <module> - only src/youtube/zero-start.ts exports its facades: import one from it ' +
+          'by name or through a namespace member, so CHECK 12 counts every use, and compose start ' +
+          'owners in the start ledger (src/youtube/start-ownership.ts)';
+        // The re-export and the call are two facade uses as well.
+        expect(findings.split('\n')).toEqual([
+          expect.stringMatching(
+            /^UNSANCTIONED start-owner facade use \(RO-02\): src\/youtube\/zero-start-rogue-ownership\.ts has 2 - /u,
+          ),
+          facade(2, 're-exports isYouTubeZeroStartInFlight as inFlight'),
+          facade(3, 'exports isYouTubeZeroStartRogueOwned'),
+        ]);
+      });
+
+      it('rejects the zero-start namespace passed on and a dynamic import of zero-start.ts', () => {
+        const findings = findingsOf(
+          withSources((sources) => {
+            sources.set(
+              'src/player/rogue-start-port.ts',
+              "import * as zeroStart from '../youtube/zero-start.ts';\n" +
+                'export const port = zeroStart;\n' +
+                "export const later = () => import('../youtube/zero-start.ts');\n",
+            );
+          }),
+        );
+        const facade = (line: number, what: string, inFunction: string): string =>
+          `START OWNER FACADE (RO-02): src/player/rogue-start-port.ts:${line} ${what} in ` +
+          `${inFunction} - only src/youtube/zero-start.ts exports its facades: import one from it ` +
+          'by name or through a namespace member, so CHECK 12 counts every use, and compose start ' +
+          'owners in the start ledger (src/youtube/start-ownership.ts)';
+        expect(findings.split('\n')).toEqual([
+          facade(2, 'uses the zero-start namespace zeroStart as a value', '<module>'),
+          facade(3, 'imports src/youtube/zero-start.ts dynamically', 'later'),
+        ]);
+      });
+
+      it('rejects a condition that composes two ledger queries outside the ledger', () => {
+        const findings = findingsOf(
+          withSources((sources) => {
+            sources.set(
+              'src/ui/rogue-start-composite.ts',
+              'import {\n' +
+                '  isYouTubeStartArmBusy,\n' +
+                '  isYouTubeStartSyncOwned as owned,\n' +
+                "} from '../youtube/start-ownership.ts';\n" +
+                "import * as ledger from '../youtube/start-ownership.ts';\n" +
+                "import { isPlaybackModeYouTube } from '../player/ownership.ts';\n" +
+                'export function blocked(): boolean {\n' +
+                '  return isPlaybackModeYouTube() && (owned() || isYouTubeStartArmBusy());\n' +
+                '}\n' +
+                'export function idle(): boolean {\n' +
+                '  return !ledger.isYouTubeStartRecoveryActive() && !(isYouTubeStartArmBusy());\n' +
+                '}\n' +
+                'export function mixed(): boolean {\n' +
+                '  return isPlaybackModeYouTube() && owned();\n' +
+                '}\n',
+            );
+          }),
+        );
+        const composite = (line: number, calls: string, inFunction: string): string =>
+          `LEDGER COMPOSITE (RO-02): src/ui/rogue-start-composite.ts:${line} ${calls} in ` +
+          `${inFunction} - ${compositeFix}`;
+        // A single ledger query beside another owner (mixed) does not count.
+        expect(findings.split('\n')).toEqual([
+          composite(8, 'isYouTubeStartSyncOwned(), isYouTubeStartArmBusy()', 'blocked'),
+          composite(11, 'isYouTubeStartRecoveryActive(), isYouTubeStartArmBusy()', 'idle'),
+        ]);
+      });
+
+      it('rejects two ledger queries in one statement outside a logical chain: compared, wrapped, listed or picked', () => {
+        const findings = findingsOf(
+          withSources((sources) => {
+            sources.set(
+              'src/ui/rogue-start-forms.ts',
+              "import { isYouTubeStartArmBusy, isYouTubeStartSyncOwned } from '../youtube/start-ownership.ts';\n" +
+                'export function compared(): boolean {\n' +
+                '  return isYouTubeStartSyncOwned() === true || isYouTubeStartArmBusy() === true;\n' +
+                '}\n' +
+                'export function wrapped(): boolean {\n' +
+                '  return Boolean(isYouTubeStartSyncOwned()) && !Boolean(isYouTubeStartArmBusy());\n' +
+                '}\n' +
+                'export const listed = (): boolean =>\n' +
+                '  [isYouTubeStartSyncOwned(), isYouTubeStartArmBusy()].some(Boolean);\n' +
+                'export function picked(host: boolean): boolean {\n' +
+                '  const busy = host ? isYouTubeStartSyncOwned() : isYouTubeStartArmBusy();\n' +
+                '  return busy;\n' +
+                '}\n' +
+                'export function separate(): boolean {\n' +
+                '  if (isYouTubeStartSyncOwned()) return true;\n' +
+                '  return isYouTubeStartArmBusy();\n' +
+                '}\n',
+            );
+          }),
+        );
+        const composite = (line: number, inFunction: string): string =>
+          `LEDGER COMPOSITE (RO-02): src/ui/rogue-start-forms.ts:${line} ` +
+          `isYouTubeStartSyncOwned(), isYouTubeStartArmBusy() in ${inFunction} - ${compositeFix}`;
+        // Each statement counts on its own: separate's if and return are two.
+        expect(findings.split('\n')).toEqual([
+          composite(3, 'compared'),
+          composite(6, 'wrapped'),
+          composite(8, 'listed'),
+          composite(11, 'picked'),
+        ]);
+      });
+
+      it("rejects a ledger query beside a claim's own public query, and two claim queries together", () => {
+        const findings = findingsOf(
+          withSources((sources) => {
+            // The auxiliary YOUTUBE_STATE hold asking the legacy claim through the bridge as well.
+            replaceIn(
+              sources,
+              'src/youtube/iframe.ts',
+              "  isYouTubeStartRoomStateHeld,\n} from './start-ownership.ts';\n",
+              "  isYouTubeStartRoomStateHeld,\n  isYouTubeStartSyncOwned,\n} from './start-ownership.ts';\n",
+            );
+            replaceIn(
+              sources,
+              'src/youtube/iframe.ts',
+              '  const syncInFlight = isYouTubeStartRoomStateHeld();\n',
+              '  const syncInFlight = isYouTubeStartSyncOwned() || isYouTubeAutoSyncPending();\n',
+            );
+            sources.set(
+              'src/ui/rogue-start-claims.ts',
+              "import { isYouTubeStartSyncOwned } from '../youtube/start-ownership.ts';\n" +
+                "import { isYouTubeAutoSyncPending as stage2 } from '../youtube/player-runtime-bridge.ts';\n" +
+                "import * as iframe from '../youtube/iframe.ts';\n" +
+                "import { isPlaybackModeYouTube } from '../player/ownership.ts';\n" +
+                'export function startBusy(): boolean {\n' +
+                '  return isYouTubeStartSyncOwned() || stage2() || iframe.proYouTubeAuthorityOwnsHardMute();\n' +
+                '}\n' +
+                'export function claimsOnly(): boolean {\n' +
+                '  return stage2() || iframe.proYouTubeAuthorityOwnsHardMute();\n' +
+                '}\n' +
+                'export function single(): boolean {\n' +
+                '  return isPlaybackModeYouTube() && stage2();\n' +
+                '}\n',
+            );
+          }),
+        );
+        const composite = (line: number, calls: string, inFunction: string): string =>
+          `LEDGER COMPOSITE (RO-02): src/ui/rogue-start-claims.ts:${line} ${calls} in ` +
+          `${inFunction} - ${compositeFix}`;
+        // One claim query beside another owner (single) does not count.
+        expect(findings.split('\n')).toEqual([
+          expect.stringMatching(
+            /^LEDGER COMPOSITE \(RO-02\): src\/youtube\/iframe\.ts:\d+ isYouTubeStartSyncOwned\(\), isYouTubeAutoSyncPending\(\) in onYouTubePlayerStateChange - /u,
+          ),
+          composite(
+            6,
+            'isYouTubeStartSyncOwned(), isYouTubeAutoSyncPending(), proYouTubeAuthorityOwnsHardMute()',
+            'startBusy',
+          ),
+          composite(
+            9,
+            'isYouTubeAutoSyncPending(), proYouTubeAuthorityOwnsHardMute()',
+            'claimsOnly',
+          ),
+        ]);
+      });
+
+      it("keeps the seek's mid-sync check the one allowed composite, through either of the legacy claim's queries", () => {
+        const midSyncTimer = "      !!getManagedTimer('yt-auto-sync') ||\n";
+        // player.ts's own claim queries count as the claims' public ones do.
+        const elsewhere = findingsOf(
+          withSources((sources) =>
+            replaceIn(
+              sources,
+              player,
+              '    if (isYouTubeStartSyncOwned()) {\n',
+              '    if (isYouTubeStartSyncOwned() || isYouTubeAutoSyncPendingOwned()) {\n',
+            ),
+          ),
+        );
+        expect(elsewhere.split('\n')).toEqual([
+          expect.stringMatching(
+            /^LEDGER COMPOSITE \(RO-02\): src\/youtube\/player\.ts:\d+ isYouTubeStartSyncOwned\(\), isYouTubeAutoSyncPendingOwned\(\) in bootstrapYouTubePeer - /u,
+          ),
+        ]);
+        const second = findingsOf(
+          withSources((sources) =>
+            replaceIn(
+              sources,
+              player,
+              '    if (state === 1 || midSync) {\n',
+              '    if (state === 1 || midSync || (isYouTubeStartSyncOwned() && proYouTubeAuthorityOwnsHardMute())) {\n',
+            ),
+          ),
+        );
+        expect(second).toMatch(
+          /^RATCHET REGRESSION ledger composite \(RO-02\): src\/youtube\/player\.ts :: seekYouTubeFromApp has 2, baseline 1 - /u,
+        );
+        const dropped = findingsOf(
+          withSources((sources) => replaceIn(sources, player, midSyncTimer, '')),
+        );
+        expect(dropped).toMatch(
+          /^STALE BASELINE ledger composite \(RO-02\): src\/youtube\/player\.ts :: seekYouTubeFromApp has 0 - remove its entry in this change$/u,
+        );
+        const throughQuery = findingsOf(
+          withSources((sources) =>
+            replaceIn(sources, player, midSyncTimer, '      isYouTubeAutoSyncPendingOwned() ||\n'),
+          ),
+        );
+        expect(throughQuery).toBe('');
+      });
+
+      it("pins the claims the seek's mid-sync composite asks, so its entry takes no other claim", () => {
+        const midSyncOwned = '      isYouTubeStartSyncOwned() ||\n';
+        const midSyncTimer = "      !!getManagedTimer('yt-auto-sync') ||\n";
+        const otherClaims = (calls: string, asked: string): RegExp =>
+          new RegExp(
+            '^LEDGER COMPOSITE \\(RO-02\\): src/youtube/player\\.ts:\\d+ ' +
+              `${calls.replace(/[()]/gu, '\\$&')} in seekYouTubeFromApp asks ${asked}; its entry ` +
+              'allows isYouTubeStartSyncOwned, legacy-rendezvous - add a derived query to the ' +
+              'start ledger \\(src/youtube/start-ownership\\.ts\\) instead; an allowed composite ' +
+              'statement asks exactly the claims its entry lists$',
+            'u',
+          );
+        // A third claim in the counted statement leaves its count at 1.
+        const recovery = findingsOf(
+          withSources((sources) =>
+            replaceIn(
+              sources,
+              player,
+              midSyncOwned,
+              `${midSyncOwned}      isYouTubeZeroStartExternalFallbackActiveOwned() ||\n`,
+            ),
+          ),
+        );
+        expect(recovery.split('\n')).toEqual([
+          expect.stringMatching(
+            otherClaims(
+              "isYouTubeStartSyncOwned(), isYouTubeZeroStartExternalFallbackActiveOwned(), getManagedTimer('yt-auto-sync')",
+              'isYouTubeStartSyncOwned, standard-recovery, legacy-rendezvous',
+            ),
+          ),
+        ]);
+        // Another ledger query in place of the allowed one.
+        const swapped = findingsOf(
+          withSources((sources) => {
+            replaceIn(
+              sources,
+              player,
+              '  registerYouTubeStartClaim,\n',
+              '  isYouTubeStartTimelineHeld,\n  registerYouTubeStartClaim,\n',
+            );
+            replaceIn(sources, player, midSyncOwned, '      isYouTubeStartTimelineHeld() ||\n');
+          }),
+        );
+        expect(swapped.split('\n')).toEqual([
+          expect.stringMatching(
+            otherClaims(
+              "isYouTubeStartTimelineHeld(), getManagedTimer('yt-auto-sync')",
+              'isYouTubeStartTimelineHeld, legacy-rendezvous',
+            ),
+          ),
+        ]);
+        // The PRO arm's claim in place of the legacy claim.
+        const proArm = findingsOf(
+          withSources((sources) =>
+            replaceIn(
+              sources,
+              player,
+              midSyncTimer,
+              '      proYouTubeAuthorityOwnsHardMute() ||\n',
+            ),
+          ),
+        );
+        expect(proArm.split('\n')).toEqual([
+          expect.stringMatching(
+            otherClaims(
+              'isYouTubeStartSyncOwned(), proYouTubeAuthorityOwnsHardMute()',
+              'isYouTubeStartSyncOwned, pro-arm',
+            ),
+          ),
+        ]);
+        // The legacy claim asked twice, by its timer and by its query, is the same claims.
+        const twice = findingsOf(
+          withSources((sources) =>
+            replaceIn(
+              sources,
+              player,
+              midSyncTimer,
+              `${midSyncTimer}      isYouTubeAutoSyncPendingOwned() ||\n`,
+            ),
+          ),
+        );
+        expect(twice).toBe('');
+      });
+
+      it("rejects a ledger query that leaves the ledger's own import: re-exported, passed on or loaded dynamically", () => {
+        const findings = findingsOf(
+          withSources((sources) => {
+            sources.set(
+              'src/youtube/rogue-ledger-port.ts',
+              "import { isYouTubeStartSyncOwned } from './start-ownership.ts';\n" +
+                "export { isYouTubeStartArmBusy as armBusy } from './start-ownership.ts';\n" +
+                'export const owners = [isYouTubeStartSyncOwned];\n' +
+                "export const later = () => import('./start-ownership.ts');\n",
+            );
+          }),
+        );
+        const alias = (line: number, what: string, inFunction: string): string =>
+          `LEDGER ALIAS (RO-02): src/youtube/rogue-ledger-port.ts:${line} ${what} in ` +
+          `${inFunction} - import the ledger's exports from src/youtube/start-ownership.ts by ` +
+          'name or through a namespace member and call them there, so CHECK 12 sees every ' +
+          'condition and registration';
+        expect(findings.split('\n')).toEqual([
+          alias(2, 're-exports isYouTubeStartArmBusy as armBusy', '<module>'),
+          alias(3, 'uses isYouTubeStartSyncOwned as a value', '<module>'),
+          alias(4, 'imports src/youtube/start-ownership.ts dynamically', 'later'),
+        ]);
+      });
+
+      it('keeps the ledger free of runtime imports, timers, scheduled callbacks and kept answers', () => {
+        const findings = findingsOf(
+          withSources((sources) => {
+            sources.set(
+              ledger,
+              `${sources.get(ledger) ?? ''}\n` +
+                "import { getManagedTimer } from '../core/timers.ts';\n" +
+                "import type { YouTubeZeroStartSnapshot } from './zero-start.ts';\n" +
+                'let lastSnapshot: YouTubeZeroStartSnapshot | null = null;\n' +
+                'export function rogueBusy(): boolean {\n' +
+                '  queueMicrotask(() => {\n' +
+                '    lastSnapshot = null;\n' +
+                '  });\n' +
+                "  return getManagedTimer('yt-auto-sync') !== null || lastSnapshot !== null;\n" +
+                '}\n',
+            );
+          }),
+        );
+        const purity = (what: string): RegExp =>
+          new RegExp(
+            `^LEDGER PURITY \\(RO-02\\): src/youtube/start-ownership\\.ts:\\d+ ${what} - the ` +
+              "start ledger calls its owners' live queries when asked and keeps nothing: no " +
+              'runtime import, timer, scheduled callback or answer kept between calls$',
+            'u',
+          );
+        const lines = findings.split('\n');
+        // The type-only import is not a runtime import.
+        for (const what of [
+          'imports \\.\\./core/timers\\.ts at runtime',
+          'declares lastSnapshot with let at module level',
+          'uses queueMicrotask',
+          'writes lastSnapshot outside a function-local binding',
+          'uses getManagedTimer',
+        ]) {
+          expect(lines.filter((line) => purity(what).test(line))).toHaveLength(1);
+        }
+        expect(lines.filter((line) => line.startsWith('LEDGER PURITY'))).toHaveLength(5);
+        // The timer read is another file's start timer as well.
+        expect(findings).toMatch(
+          /UNSANCTIONED cross-file start-timer read \(RO-02\): src\/youtube\/start-ownership\.ts has 1 - /u,
+        );
+      });
+
+      it('keeps no answer in the ledger: no module-level container or class, no write outside a function-local binding, no claims change and no registration of its own', () => {
+        const findings = findingsOf(
+          withSources((sources) => {
+            sources.set(
+              ledger,
+              `${sources.get(ledger) ?? ''}\n` +
+                'const kept = { held: false };\n' +
+                'export function rogueHeld(): boolean {\n' +
+                '  kept.held = isYouTubeStartSyncOwned();\n' +
+                '  return kept.held;\n' +
+                '}\n' +
+                'class RogueCache {\n' +
+                '  static held = false;\n' +
+                '}\n' +
+                'export function rogueCached(): boolean {\n' +
+                '  RogueCache.held ||= isYouTubeStartArmBusy();\n' +
+                '  return RogueCache.held;\n' +
+                '}\n' +
+                'export function rogueDirect(answer: boolean): boolean {\n' +
+                "  claims.set('pro-direct', [() => answer]);\n" +
+                '  return answer;\n' +
+                '}\n' +
+                "registerYouTubeStartClaim('pro-direct', [() => true]);\n" +
+                'export function rogueLocal(): boolean {\n' +
+                '  let seen = isYouTubeStartSyncOwned();\n' +
+                '  const box = { seen };\n' +
+                '  box.seen = seen || isYouTubeStartArmBusy();\n' +
+                '  seen = box.seen;\n' +
+                '  return seen;\n' +
+                '}\n',
+            );
+          }),
+        );
+        const purity = (what: string): RegExp =>
+          new RegExp(
+            `^LEDGER PURITY \\(RO-02\\): src/youtube/start-ownership\\.ts:\\d+ ${what} - the ` +
+              "start ledger calls its owners' live queries when asked and keeps nothing: no " +
+              'runtime import, timer, scheduled callback or answer kept between calls$',
+            'u',
+          );
+        const lines = findings.split('\n');
+        // Function-local bindings (rogueLocal) may change; nothing else may.
+        for (const what of [
+          'declares kept at module level',
+          'writes kept\\.held outside a function-local binding',
+          'declares class RogueCache at module level',
+          'writes RogueCache\\.held outside a function-local binding',
+          'uses claims\\.set\\(\\) outside registerYouTubeStartClaim',
+          'registers a claim itself',
+        ]) {
+          expect(lines.filter((line) => purity(what).test(line))).toHaveLength(1);
+        }
+        expect(lines).toHaveLength(6);
+      });
+
+      it('lets only player.ts register a start claim, each literal kind once', () => {
+        const findings = findingsOf(
+          withSources((sources) => {
+            sources.set(
+              'src/youtube/iframe.ts',
+              `${sources.get('src/youtube/iframe.ts') ?? ''}\n` +
+                "import { registerYouTubeStartClaim } from './start-ownership.ts';\n" +
+                "registerYouTubeStartClaim('pro-arm', [() => proYouTubeAuthorityOwnsHardMute()]);\n",
+            );
+            replaceIn(
+              sources,
+              player,
+              proArmClaim,
+              proArmClaim +
+                "registerYouTubeStartClaim('pro-arm', [() => false]);\n" +
+                "const rogueStartKind = 'pro-direct' as const;\n" +
+                'registerYouTubeStartClaim(rogueStartKind, [() => false]);\n' +
+                'export const rogueRegistrar = registerYouTubeStartClaim;\n',
+            );
+          }),
+        );
+        const registration = (file: string, what: string): RegExp =>
+          new RegExp(
+            `^START CLAIM REGISTRATION \\(RO-02\\): ${file.replace(/[./]/gu, '\\$&')}:\\d+ ` +
+              `${what} in <module> - src/youtube/player\\.ts, the start owners' composition ` +
+              'point, registers each claim kind once, with a literal kind; another registration ' +
+              "replaces that owner's live queries, a second machine on its claim$",
+            'u',
+          );
+        const lines = findings.split('\n');
+        expect(lines).toHaveLength(4);
+        for (const [file, what] of [
+          ['src/youtube/iframe.ts', "registers 'pro-arm'"],
+          [player, "registers 'pro-arm' again"],
+          [player, 'registers a computed kind'],
+          [player, 'uses registerYouTubeStartClaim as a value'],
+        ] as const) {
+          expect(lines.filter((line) => registration(file, what).test(line))).toHaveLength(1);
+        }
+      });
+
+      it('lets player.ts register a claim only in a top-level statement, at module evaluation', () => {
+        const findings = findingsOf(
+          withSources((sources) =>
+            replaceIn(
+              sources,
+              player,
+              proArmClaim,
+              proArmClaim +
+                'export function rogueRearm(waiting: () => boolean): void {\n' +
+                "  registerYouTubeStartClaim('pro-direct', [waiting]);\n" +
+                '}\n' +
+                "if (getState('demo.active')) registerYouTubeStartClaim('pro-direct', [() => false]);\n",
+            ),
+          ),
+        );
+        const registration = (inFunction: string): RegExp =>
+          new RegExp(
+            "^START CLAIM REGISTRATION \\(RO-02\\): src/youtube/player\\.ts:\\d+ registers 'pro-direct' " +
+              `outside a top-level statement in ${inFunction} - src/youtube/player\\.ts, the start ` +
+              "owners' composition point, registers each claim kind once, with a literal kind; " +
+              "another registration replaces that owner's live queries, a second machine on its claim$",
+            'u',
+          );
+        const lines = findings.split('\n');
+        expect(lines).toHaveLength(2);
+        expect(lines[0]).toMatch(registration('rogueRearm'));
+        expect(lines[1]).toMatch(registration('<module>'));
+      });
+
+      it('requires player.ts to register every claim kind a derived query decides', () => {
+        const recoveryClaim =
+          "registerYouTubeStartClaim('standard-recovery', [\n" +
+          '  isYouTubeZeroStartExternalFallbackActiveOwned,\n' +
+          '  isYouTubeZeroStartExternalFallbackPendingOwned,\n' +
+          ']);\n';
+        const legacyClaim =
+          "registerYouTubeStartClaim('legacy-rendezvous', [isYouTubeAutoSyncPendingOwned]);\n";
+        const missing = (kind: string, deciders: string): string =>
+          `START CLAIM REGISTRATION (RO-02): src/youtube/player.ts registers no '${kind}' claim ` +
+          `(decided by ${deciders}) - src/youtube/player.ts, the start owners' composition ` +
+          'point, registers each kind a derived query decides, once, in a top-level statement; ' +
+          'the ledger answers false for a kind with no claim, so its readers would never see ' +
+          'that owner';
+        // The ledger fails open: an unregistered kind reads nothing.
+        expect(
+          findingsOf(withSources((sources) => replaceIn(sources, player, proArmClaim, ''))),
+        ).toBe(missing('pro-arm', 'isYouTubeStartHardMuteOwned'));
+        expect(
+          findingsOf(withSources((sources) => replaceIn(sources, player, legacyClaim, ''))),
+        ).toBe(missing('legacy-rendezvous', 'isYouTubeStartRoomStateHeld'));
+        expect(
+          findingsOf(withSources((sources) => replaceIn(sources, player, recoveryClaim, ''))),
+        ).toBe(
+          missing(
+            'standard-recovery',
+            'isYouTubeStartSyncOwned, isYouTubeStartHardMuteOwned, isYouTubeStartTimelineHeld, ' +
+              'isYouTubeStartRecoveryActive',
+          ),
+        );
+        // Registered inside a function, the kind still has no claim at module evaluation.
+        const moved = findingsOf(
+          withSources((sources) =>
+            replaceIn(
+              sources,
+              player,
+              proArmClaim,
+              `export function rogueArm(): void {\n  ${proArmClaim}}\n`,
+            ),
+          ),
+        );
+        expect(moved.split('\n')).toEqual([
+          expect.stringMatching(
+            /^START CLAIM REGISTRATION \(RO-02\): src\/youtube\/player\.ts:\d+ registers 'pro-arm' outside a top-level statement in rogueArm - /u,
+          ),
+          missing('pro-arm', 'isYouTubeStartHardMuteOwned'),
+        ]);
+      });
+
+      it('fails closed on a derived query whose decisions CHECK 12 cannot read', () => {
+        const first = (realInput().sources.get(ledger) ?? '').split('\n').length;
+        const findings = findingsOf(
+          withSources((sources) => {
+            sources.set(
+              ledger,
+              `${sources.get(ledger) ?? ''}` +
+                'export function isYouTubeStartRogueHeld(): boolean {\n' +
+                '  const decision: Decision = [0, 0, 0, 0, 0];\n' +
+                '  return holds(decision);\n' +
+                '}\n' +
+                'export function isYouTubeStartRogueShort(): boolean {\n' +
+                '  return holds([0, 0, 0, 0] as unknown as Decision);\n' +
+                '}\n' +
+                'export const isYouTubeStartRogueArrow = (): boolean => holds([0, 0, 0, 0, 0]);\n',
+            );
+          }),
+        );
+        const unreadable = (line: number, query: string): string =>
+          `START CLAIM REGISTRATION (RO-02): src/youtube/start-ownership.ts:${line} cannot read ` +
+          `the decisions of ${query} - a derived query returns one call on one list of ` +
+          'decisions, one per claim kind in START_CLAIM_KINDS order (0 for never), so CHECK 12 ' +
+          'can require a registration of every kind it decides';
+        expect(findings.split('\n')).toEqual([
+          unreadable(first, 'isYouTubeStartRogueHeld'),
+          unreadable(first + 4, 'isYouTubeStartRogueShort'),
+          unreadable(first + 7, 'isYouTubeStartRogueArrow'),
+          `LEDGER PURITY (RO-02): src/youtube/start-ownership.ts:${first + 7} declares ` +
+            "isYouTubeStartRogueArrow at module level - the start ledger calls its owners' live " +
+            'queries when asked and keeps nothing: no runtime import, timer, scheduled callback ' +
+            'or answer kept between calls',
+        ]);
+      });
+
+      it("counts the run's snapshot reads outside zero-start.ts per file, and fails a re-export of one", () => {
+        const findings = findingsOf(
+          withSources((sources) => {
+            sources.set(
+              'src/ui/rogue-start-phase.ts',
+              "import { getYouTubeZeroStartSnapshot } from '../youtube/zero-start.ts';\n" +
+                "import * as zeroStart from '../youtube/zero-start.ts';\n" +
+                'export function armBusy(): boolean {\n' +
+                '  const phase = getYouTubeZeroStartSnapshot()?.phase;\n' +
+                "  return phase !== undefined && phase !== 'playing' && phase !== 'error';\n" +
+                '}\n' +
+                'export const pending = (): boolean =>\n' +
+                '  zeroStart.getYouTubeZeroStartPendingCanonicalPosition() !== null;\n' +
+                "export { getYouTubeZeroStartSnapshot as runSnapshot } from '../youtube/zero-start.ts';\n",
+            );
+          }),
+        );
+        expect(findings.split('\n')).toEqual([
+          expect.stringMatching(
+            /^UNSANCTIONED start-run snapshot read \(RO-02\): src\/ui\/rogue-start-phase\.ts has 3 - /u,
+          ),
+          'START RUN SNAPSHOT (RO-02): src/ui/rogue-start-phase.ts:9 re-exports ' +
+            'getYouTubeZeroStartSnapshot as runSnapshot in <module> - only ' +
+            "src/youtube/zero-start.ts exports the run's snapshot reads: import one from it by " +
+            'name or through a namespace member, so CHECK 12 counts every read',
+        ]);
+      });
+
+      it('fails a snapshot read added to player.ts and one it drops', () => {
+        const added = findingsOf(
+          withSources((sources) =>
+            replaceIn(
+              sources,
+              player,
+              '    if (isYouTubeStartSyncOwned()) {\n',
+              '    if (isYouTubeStartSyncOwned() || getYouTubeZeroStartSnapshot()?.inFlight) {\n',
+            ),
+          ),
+        );
+        expect(added).toMatch(
+          /^RATCHET REGRESSION start-run snapshot read \(RO-02\): src\/youtube\/player\.ts has 9, baseline 8 - /u,
+        );
+        const dropped = findingsOf(
+          withSources((sources) =>
+            replaceIn(
+              sources,
+              player,
+              '        releaseLeadMs: getYouTubeZeroStartSnapshot()?.releaseLeadMs,\n',
+              '',
+            ),
+          ),
+        );
+        expect(dropped).toMatch(
+          /^STALE BASELINE start-run snapshot read \(RO-02\): src\/youtube\/player\.ts has 7, baseline 8 - lower the baseline to 7/u,
+        );
+      });
+
+      it("lists the seek's mid-sync composite and player.ts's snapshot reads under --report", () => {
+        const result = runGuard('--report');
+        expect(result.status, result.stderr).toBe(0);
+        expect(result.stdout).toContain('start-run snapshot reads 8');
+        expect(result.stdout).toContain('ledger composites 1');
+        expect(result.stdout).toMatch(
+          /ledger composite: src\/youtube\/player\.ts:\d+ isYouTubeStartSyncOwned\(\), getManagedTimer\('yt-auto-sync'\) in seekYouTubeFromApp\n/u,
+        );
+        expect(result.stdout).toMatch(
+          /start-run snapshot read: src\/youtube\/player\.ts:\d+ getYouTubeZeroStartSnapshot\(\) in onPlaybackStarted\n/u,
+        );
+        expect(result.stdout).toMatch(
+          /start-run snapshot read: src\/youtube\/player\.ts:\d+ getYouTubeZeroStartPendingCanonicalPosition in initYouTube\n/u,
+        );
+      });
+
+      it("lists the run claim's facade uses under --report", () => {
+        const result = runGuard('--report');
+        expect(result.status, result.stderr).toBe(0);
+        expect(result.stdout).toContain('start-owner facade uses 2');
+        expect(result.stdout).toMatch(
+          /start-owner facade use: src\/youtube\/player\.ts:\d+ isYouTubeZeroStartInFlight\(\) in <module>\n/u,
+        );
+        expect(result.stdout).toMatch(
+          /start-owner facade use: src\/youtube\/player\.ts:\d+ isYouTubeZeroStartProtocolActive\(\) in <module>\n/u,
+        );
+      });
     });
   });
 });

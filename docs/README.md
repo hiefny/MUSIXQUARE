@@ -37,6 +37,7 @@ supersede them explicitly when the product boundary changes.
 - [Resource ownership registry](design/resource-ownership-registry.md)
 - [Page navigation ownership](design/page-navigation-ownership.md)
 - [System-audio receive ownership](design/system-audio-receive-ownership.md)
+- [YouTube start ownership](design/youtube-start-ownership.md)
 - [Signaling liveness](design/signaling-liveness.md)
 - [Static asset delivery and PRO heartbeat persistence](design/static-assets-and-pro-heartbeat-optimization.md)
 - [Initial bundle and lazy-loading policy](design/initial-bundle-loading-policy.md)
@@ -93,6 +94,63 @@ runbooks. Neither belongs in a general setup document.
 
 ## Maintained evidence and completed records
 
+- [Phase 6 train 6B: one YouTube start ledger and its readers (2026-11-01)](design/phase6-6b-start-ledger-readers-2026-11-01.md):
+  prepared, not released: App 9.0.32 / v805, target `app`, one update dialog (the second of the
+  four Phase 6 App updates); `raise_app_build_floor` false, Developer API D1 false. Built as
+  fifteen commits on main `dda3ee18` (after the tests-only T0b pull requests #552 and #553 and
+  #554, on the 9.0.30 release record), then moved with every patch unchanged onto main
+  `ba28943e`, the merge of App 9.0.31 / v804, which the owner chose to ship first and which went
+  out at 23:17 KST on 2026-11-01. On top came the design doc's gap list aligned with the owner's
+  rewritten T0b defect list, the record of the move, the release record's pre-deploy item, the
+  bump to 9.0.32 / v805 as the last runtime commit (the same seven lines in the same six files as
+  the 9.0.31 bump) and a record commit. Those twenty commits were moved again, every patch
+  unchanged, onto main `5a705c40`, 9.0.31's release record (#556, documentation only), where the
+  bump is `582ab9d9` (before the move `8823a591`, the same tree outside `docs/`), and a record of
+  that move and a documentation commit with review fixes follow: twenty-two commits on
+  `5a705c40`. 6B-1 adds the start ledger
+  `src/youtube/start-ownership.ts`, which answers its readers from the live queries `player.ts`
+  registers for each start owner and keeps no answer, subscription or event; 6B-2 moves all 24
+  start-ownership reader sites in eight modules onto it and deletes `isYouTubeZeroStartSyncOwned`
+  (`zero-start-ownership.ts`) and the runtime bridge's two recovery hooks; two guard follow-ups make
+  CHECK 12 count start claims per statement (one entry, the seek's mid-sync check, pinned to its two
+  claims), the run's snapshot reads (8) and facade uses (2), keep the ledger pure, require
+  `player.ts` to register every claim kind a derived query decides and fail start timers named
+  outside `src/youtube/`; tests-only commits pin five readers in a Standard guest's calibration
+  window and load `player.ts` in the shared `beforeEach` of two suites whose rows depended on test
+  order. Neutral: the T0a goldens and the two T0b truth tables (81 rows) pass byte for byte, 6B
+  edits 12 of T0b's 20 files only at their seams (the sampler's fallbackPending column is an accepted
+  narrowing), and the wire, the readiness emitters and the 9.0.8 host speaker reference are
+  unchanged. The owner has not answered the four T0b defect questions, so no defect fix rides here;
+  the fourth (a host pause sometimes reaching guests twice, rows H10, H10a and H10c), recommended for
+  6B, stays unbuilt. The report lists the owner answers and delegation used, each increment's
+  tests-first evidence and the mutation checks, the guard counts, mixed versions, the D4 re-measure
+  (RO-05 and RO-48 unchanged), the blind device candidates and rollback (alone until 6C merges;
+  the checkpoint is App 9.0.31 / v804). QA rounds 1 to 5 ran before the move (the last on
+  `e5851cd0`: unit suite 739 files / 17,704, shuffle seeds, types, lint and format, every guard but
+  `guard:sw-cache-version` for the pending bump, critical coverage 99 files / 4,051 and Worker
+  coverage 69 / 3,325, critical E2E 101 / 101 and the ten local YouTube specs 53 / 53). Round 6, on
+  the moved commits, maps every old SHA to its new one: each tests-first commit fails the same rows
+  by name on its new parent and its code commit passes, the order-fix seeds match, `src/youtube`,
+  `src/player` and `src/pro-room` (239 files / 6,515) pass in file order and under seeds 3, 7 and
+  4242, the 51 T0a and T0b files pass, the target is `app` (11 App runtime paths against production
+  9.0.31, none in the other five Workers) and the first load is 34 B of eager JavaScript gzip and
+  31 B of eager total below 9.0.31 (Phase 6 total −183 B). Round 7 ran the full local gate on the
+  bump `8823a591`: types, lint and format, `build:checked` with `guard:sw-cache-version` passing for
+  v805 and `guard:release-identity` 9.0.32 / v805, all 37 guards and the ownership guard, critical
+  coverage 99 files / 4,051 and Worker coverage 69 / 3,325, the unit suite 741 files / 17,727 (two
+  git-fixture rows that timed out under load pass with their files run alone, 158 / 158), critical
+  E2E 101 / 101, the ten local YouTube specs 53 / 53 and the production candidate 19 / 19; the
+  first load stays within 6B's measured delta (eager JavaScript −35 B and eager total −33 B gzip
+  against `ba28943e`) and the target is `app` (15 App runtime paths with the version mirrors, none
+  in the other five Workers, partial-release compatibility compatible against the deployed SHAs).
+  Round 8 moved the train onto `5a705c40` (the one conflict was the release record in the commit
+  that adds 6B's pre-deploy item; both sides kept) and reran on the moved head types, lint and
+  format, `build:checked`, every guard (`guard:sw-cache-version` passing for v805 at `582ab9d9`),
+  the ownership guard (49 / 457) and the 56 6B, T0a and T0b test files (2,554 / 2,554); the first
+  load is byte for byte round 7's. 9.0.31's post-merge Full E2E 41315565486
+  on `ba28943e` passed (finished at 00:29 KST on 2026-11-02), so the two merge conditions the release
+  record's §2 item for 6B set (that run, and the move onto 9.0.31's release record) are met; PR CI,
+  the automated review, exact-main CI and the release remain.
 - [App font line box baked into the font files, and every tab title on one baseline (2026-11-01)](design/app-font-baked-metrics-2026-11-01.md):
   released on 2026-11-01 23:17 KST in Release 41315218029 (PR #555, squash `ba28943e`) as App
   9.0.31 / v804 (App build 804, target `app`, one update dialog; the bump `566f458d` is the last

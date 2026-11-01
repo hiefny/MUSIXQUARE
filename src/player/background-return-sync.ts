@@ -51,7 +51,7 @@ import type { TransportBackgroundRecoveryResult } from '../network/transport/typ
 import { getRoomContext, isActiveStandardRoomCoordinator } from '../rooms/authority.ts';
 import { LOCAL_OUTPUT_REALIGN_RETRY_MS } from '../youtube/constants.ts';
 import { broadcastYouTubeSync, guestRendezvousSync } from '../youtube/sync.ts';
-import { isYouTubeZeroStartSyncOwned } from '../youtube/zero-start-ownership.ts';
+import { isYouTubeStartSyncOwned } from '../youtube/start-ownership.ts';
 import { getCurrentAudioBuffer } from './_state.ts';
 import { isPlaybackModeFile, isPlaybackModeYouTube } from './ownership.ts';
 import { getCurrentQueueItemId } from './queue-model.ts';
@@ -188,7 +188,7 @@ function resolveAction(context: BackgroundReturnSyncContext): BackgroundReturnSy
   const isYouTube = isPlaybackModeYouTube();
   // System audio has no Sync; with no media there is nothing to align.
   if (!isFile && !isYouTube) return 'none';
-  if (isYouTube && isYouTubeZeroStartSyncOwned()) return 'none';
+  if (isYouTube && isYouTubeStartSyncOwned()) return 'none';
   if (isFile && context.fileOutputOwned) return 'none';
 
   if (getRoomContext().kind === 'pro') return 'pro-reconcile';

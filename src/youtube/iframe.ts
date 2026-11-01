@@ -108,7 +108,6 @@ import {
   consumePendingAutoSyncOnReadyFromIframe,
   isProPlaybackPauseGatePendingFromIframe,
   isYouTubeAutoSyncPending,
-  isYouTubeZeroStartExternalFallbackActiveFromIframe,
   setPendingAutoSyncOnReadyFromIframe,
 } from './player-runtime-bridge.ts';
 import {
@@ -122,11 +121,12 @@ import {
   type RetainedPlayerHandoffRequest,
   type RetainedPlayerSyncHandoffRequest,
 } from './retained-player-controller.ts';
+import { handleYouTubeZeroStartPlayerState } from './zero-start.ts';
 import {
-  handleYouTubeZeroStartPlayerState,
-  isYouTubeZeroStartInFlight,
-  isYouTubeZeroStartProtocolActive,
-} from './zero-start.ts';
+  isYouTubeStartArmBusy,
+  isYouTubeStartRecoveryActive,
+  isYouTubeStartRoomStateHeld,
+} from './start-ownership.ts';
 import { getHostNow } from '../network/shared-clock.ts';
 import {
   UI_LOOP_INTERVAL_MS,
@@ -3111,7 +3111,7 @@ function onYouTubePlayerStateChange(event: { data: number; target: YouTubePlayer
   const staleReusedFeedback = isStaleReusedPlayerFeedback(player, state);
   if (handleYouTubeAuthorityPlayerState(state)) return;
   if (handleYouTubeZeroStartPlayerState(state)) return;
-  if (isYouTubeZeroStartExternalFallbackActiveFromIframe()) return;
+  if (isYouTubeStartRecoveryActive()) return;
   // A negative local offset may intentionally keep this speaker paused after
   // room playback has begun. The owner installs its reader before pauseVideo,
   // including synchronous iframe callbacks before the timer has been armed.
@@ -3365,7 +3365,7 @@ function onYouTubePlayerStateChange(event: { data: number; target: YouTubePlayer
   // scheduleYtAutoSync already broadcasts the authoritative state+hostPlayAt
   // at the start of its sequence, so suppressing these in-flight auxiliary
   // broadcasts is safe.
-  const syncInFlight = isYouTubeZeroStartProtocolActive() || isYouTubeAutoSyncPending();
+  const syncInFlight = isYouTubeStartRoomStateHeld();
   const coordinatorNudgeInFlight = !!getManagedTimer(PRO_COORDINATOR_YOUTUBE_NUDGE_TIMER);
   // State-aware cooldown: only suppress if same state was broadcast within 300ms.
   // Deduplicate by state as well as time. A time-only cooldown would swallow a
@@ -3410,7 +3410,7 @@ function updateYouTubeUI(): void {
   // CUED/BUFFERING state for unavailable/native auto-advance. The real
   // release PLAYING closes `inFlight` synchronously in the state handler,
   // after which the ordinary loop resumes without a second code path.
-  if (isYouTubeZeroStartInFlight()) return;
+  if (isYouTubeStartArmBusy()) return;
 
   // The UI loop and heartbeat have separate timer keys. If any unrelated
   // cleanup accidentally clears only the heartbeat, keep an active host from

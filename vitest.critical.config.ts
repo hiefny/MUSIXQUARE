@@ -46,6 +46,10 @@ export default defineConfig({
       // The verified YouTube iframe audio restore (RO-12), enrolled with its
       // module in Phase 6 6A-4.
       'src/youtube/__tests__/iframe-audio.test.ts',
+      // The YouTube start ledger (RO-02) and its zero-start run owner, enrolled
+      // with the ledger in Phase 6 6B-1: the ledger's suite, the controller's
+      // own suites and the Standard start-ownership truth table.
+      'src/youtube/__tests__/{start-ownership,zero-start,zero-start-fallback-ownership,zero-start-heartbeat-ownership,youtube-start-ownership-table}.test.ts',
       'src/account/__tests__/{api,session,login-return}.test.ts',
       'src/ui/__tests__/announcement.test.ts',
       'src/share/__tests__/r2-client.test.ts',
@@ -91,6 +95,8 @@ export default defineConfig({
         'src/network/transport-health.ts',
         'src/youtube/oembed.ts',
         'src/youtube/iframe-audio.ts',
+        'src/youtube/start-ownership.ts',
+        'src/youtube/zero-start.ts',
         'src/account/api.ts',
         'src/account/session.ts',
         'src/ui/announcement.ts',
@@ -328,6 +334,23 @@ export default defineConfig({
           branches: 99,
           functions: 99,
           lines: 99,
+        },
+        // The YouTube start ledger (Phase 6 6B-1) is fully covered by
+        // start-ownership.test.ts on 2026-11-01.
+        'src/youtube/start-ownership.ts': {
+          statements: 99,
+          branches: 99,
+          functions: 99,
+          lines: 99,
+        },
+        // The zero-start run owner, enrolled with the ledger on 2026-11-01
+        // about one point below two identical Node 24 runs: 85.56, 84.05,
+        // 97.6, 89.28.
+        'src/youtube/zero-start.ts': {
+          statements: 84,
+          branches: 83,
+          functions: 96,
+          lines: 88,
         },
         // The page navigation owner and the service-worker update path,
         // enrolled on 2026-10-24 (Phase 3, C6-9) at about one point below two

@@ -141,8 +141,6 @@ function answerAutoSyncOwner(pending: () => boolean): void {
     cancelPendingAutoSync: () => undefined,
     consumePendingAutoSyncOnReady: () => null,
     isYouTubeAutoSyncPending: pending,
-    isYouTubeZeroStartExternalFallbackActive: () => false,
-    isYouTubeZeroStartExternalFallbackPending: () => false,
     isProPlaybackPauseGatePending: () => false,
     setPendingAutoSyncOnReady: () => undefined,
   });

@@ -237,11 +237,6 @@ describe('YouTube Player', () => {
 
       playerRuntime.setPendingAutoSyncOnReady(true, { targetTime: 34 });
       expect(bridge.consumePendingAutoSyncOnReadyFromIframe()).toMatchObject({ targetTime: 34 });
-      // player.ts re-exports the bridge's own reader: comparing their answers
-      // could never fail, so pin that they are one function.
-      expect(playerRuntime.isYouTubeZeroStartExternalFallbackActive).toBe(
-        bridge.isYouTubeZeroStartExternalFallbackActiveFromIframe,
-      );
       playerRuntime.setPendingAutoSyncOnReady(false);
     });
 
@@ -2331,6 +2326,7 @@ describe('YouTube Player', () => {
       async ({ android, host, offset, ready }) => {
         playbackPlatform.android = android;
         const test = await installDelayedFallback(offset, 0, host, ready);
+        const { isYouTubeStartRecoveryActive } = await import('../start-ownership.ts');
         try {
           await vi.advanceTimersByTimeAsync(13_000);
           const plays = test.player.__log.filter(({ op }) => op === 'playVideo');
@@ -2342,7 +2338,7 @@ describe('YouTube Player', () => {
             5,
           );
           expect(getState('sync.youtubeLocalOffset')).toBe(offset);
-          expect(test.playerMod.isYouTubeZeroStartExternalFallbackActive()).toBe(false);
+          expect(isYouTubeStartRecoveryActive()).toBe(false);
         } finally {
           test.cleanup();
         }
@@ -2353,6 +2349,7 @@ describe('YouTube Player', () => {
       'allows asynchronous audio restoration after offset %s waits past preparation',
       async (offset) => {
         const test = await installDelayedFallback(offset, 30);
+        const { isYouTubeStartRecoveryActive } = await import('../start-ownership.ts');
         try {
           await vi.advanceTimersByTimeAsync(test.releaseAfterMs - 1);
           expect(test.player.__log.filter(({ op }) => op === 'playVideo')).toHaveLength(0);
@@ -2360,7 +2357,7 @@ describe('YouTube Player', () => {
           expect(test.player.__log.filter(({ op }) => op === 'playVideo')).toHaveLength(1);
           expect(test.player.getPlayerState()).toBe(1);
           expect(test.player.isMuted()).toBe(false);
-          expect(test.playerMod.isYouTubeZeroStartExternalFallbackActive()).toBe(false);
+          expect(isYouTubeStartRecoveryActive()).toBe(false);
         } finally {
           test.cleanup();
         }
@@ -2369,13 +2366,14 @@ describe('YouTube Player', () => {
 
     it('cancels a delayed fallback while its asynchronous audio restore is pending', async () => {
       const test = await installDelayedFallback(-5, 30);
+      const { isYouTubeStartRecoveryActive } = await import('../start-ownership.ts');
       try {
         await vi.advanceTimersByTimeAsync(test.releaseAfterMs + 1);
         expect(test.player.__log.filter(({ op }) => op === 'playVideo')).toHaveLength(0);
         test.playerMod.stopYouTubeMode();
         await vi.advanceTimersByTimeAsync(2_000);
         expect(test.player.__log.filter(({ op }) => op === 'playVideo')).toHaveLength(0);
-        expect(test.playerMod.isYouTubeZeroStartExternalFallbackActive()).toBe(false);
+        expect(isYouTubeStartRecoveryActive()).toBe(false);
       } finally {
         test.cleanup();
       }
@@ -2390,8 +2388,7 @@ describe('YouTube Player', () => {
 
     it('transfers an active guest fallback without running its stale unmute cleanup', async () => {
       const stateMod = await import('../_state.ts');
-      const { initYouTube, isYouTubeZeroStartExternalFallbackActive, stopYouTubeMode } =
-        await import('../player.ts');
+      const { initYouTube, stopYouTubeMode } = await import('../player.ts');
       const {
         getYouTubeZeroStartSnapshot,
         handleYouTubeZeroStartCommit,
@@ -2403,9 +2400,12 @@ describe('YouTube Player', () => {
       const { safeSend } = await import('../../network/peer.ts');
       const { processSyncPong, registerPing, resetClockState } =
         await import('../../network/shared-clock.ts');
-      const { isYouTubeZeroStartExternalFallbackPendingFromSync } =
-        await import('../player-runtime-bridge.ts');
-      const { isYouTubeZeroStartSyncOwned } = await import('../zero-start-ownership.ts');
+      const {
+        isYouTubeStartArmBusy,
+        isYouTubeStartRecoveryActive,
+        isYouTubeStartSyncOwned,
+        isYouTubeStartTimelineHeld,
+      } = await import('../start-ownership.ts');
 
       const hostPeerId = 'host-external-fallback';
       const guestPeerId = 'guest-external-fallback';
@@ -2492,10 +2492,13 @@ describe('YouTube Player', () => {
       const callbacksBeforeFirstAttempt = fallbackCallbacks();
       const firstFallback = callbacksBeforeFirstAttempt.at(-1);
       expect(firstFallback).toBeTypeOf('function');
-      expect(isYouTubeZeroStartExternalFallbackActive()).toBe(true);
+      expect(isYouTubeStartRecoveryActive()).toBe(true);
       // The real fallback is also what the sync readers' owner queries see.
-      expect(isYouTubeZeroStartExternalFallbackPendingFromSync()).toBe(true);
-      expect(isYouTubeZeroStartSyncOwned()).toBe(true);
+      // The run is not in flight, so the timeline hold is the recovery's
+      // pending claim.
+      expect(isYouTubeStartArmBusy()).toBe(false);
+      expect(isYouTubeStartTimelineHeld()).toBe(true);
+      expect(isYouTubeStartSyncOwned()).toBe(true);
 
       const unmuteCountBeforeVolume = player.__log.filter(({ op }) => op === 'unMute').length;
       const mutedBeforeVolume = player.isMuted();
@@ -2518,9 +2521,9 @@ describe('YouTube Player', () => {
 
       stopYouTubeMode();
 
-      expect(isYouTubeZeroStartExternalFallbackActive()).toBe(false);
-      expect(isYouTubeZeroStartExternalFallbackPendingFromSync()).toBe(false);
-      expect(isYouTubeZeroStartSyncOwned()).toBe(false);
+      expect(isYouTubeStartRecoveryActive()).toBe(false);
+      expect(isYouTubeStartTimelineHeld()).toBe(false);
+      expect(isYouTubeStartSyncOwned()).toBe(false);
       expect(player.__log.filter(({ op }) => op === 'unMute')).toHaveLength(unmuteCountBeforeStop);
 
       // Managed timers are mocked in this suite, so invoke the callback that

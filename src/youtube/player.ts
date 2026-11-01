@@ -424,13 +424,19 @@ import {
   initYouTubeZeroStart,
   getYouTubeZeroStartSnapshot,
   getYouTubeZeroStartPendingCanonicalPosition,
+  isYouTubeZeroStartInFlight,
+  isYouTubeZeroStartProtocolActive,
   resetYouTubeZeroStart,
   updateYouTubeZeroStartDesiredAudioState,
   type YouTubeZeroStartPlayer,
   type YouTubeZeroStartTargetContext,
   type YouTubeZeroStartWireMessage,
 } from './zero-start.ts';
-import { isYouTubeZeroStartSyncOwned } from './zero-start-ownership.ts';
+import {
+  isYouTubeStartHardMuteOwned,
+  isYouTubeStartSyncOwned,
+  registerYouTubeStartClaim,
+} from './start-ownership.ts';
 import { recordProStartObservation } from '../diagnostics/pro-start-observations.ts';
 import {
   PRO_YOUTUBE_LEAD_SAMPLE_EARLY_MS,
@@ -507,10 +513,7 @@ export {
 } from './iframe.ts';
 // Preserve the player facade while the implementation binding remains owned
 // by this module and iframe.ts consumes only the neutral bridge leaf.
-export {
-  consumePendingAutoSyncOnReadyFromIframe as consumePendingAutoSyncOnReady,
-  isYouTubeZeroStartExternalFallbackActiveFromIframe as isYouTubeZeroStartExternalFallbackActive,
-} from './player-runtime-bridge.ts';
+export { consumePendingAutoSyncOnReadyFromIframe as consumePendingAutoSyncOnReady } from './player-runtime-bridge.ts';
 
 function getYouTubeDuration(player: YouTubePlayerInstance): number {
   try {
@@ -850,6 +853,15 @@ export function scheduleYtAutoSync(targetTime: number, overrides?: YouTubeAutoSy
     },
     waitMs,
   );
+}
+
+/**
+ * The legacy rendezvous's Stage-2 wait, from this module's own 'yt-auto-sync'
+ * timer: the start ledger's legacy claim and the runtime bridge's
+ * isYouTubeAutoSyncPending both read it.
+ */
+function isYouTubeAutoSyncPendingOwned(): boolean {
+  return getManagedTimer('yt-auto-sync') !== null;
 }
 
 /** Cancel any pending auto-sync (e.g. user paused during rendezvous). */
@@ -1869,7 +1881,7 @@ function seekYouTubeFromApp(player: YouTubePlayerInstance, seconds: number): voi
     // A speaker-local hold can report PAUSED or ENDED while the room plays.
     // Both relative skip and absolute seek must replace that pending target.
     const midSync =
-      isYouTubeZeroStartSyncOwned() ||
+      isYouTubeStartSyncOwned() ||
       isStandardHostYouTubeLocalStartPending() ||
       isStandardHostYouTubeEndHoldActive() ||
       !!getManagedTimer('yt-auto-sync') ||
@@ -4388,13 +4400,7 @@ export function initYouTube(): void {
       // state before arming. Once audio restoration begins, direct changes are
       // safe again and are included in the controller's verification poll.
       if (shouldMute || _proPlaybackPauseGateToken !== null) player.mute?.();
-      else if (
-        !youtubeZeroStartOwnsHardMute() &&
-        !youtubeZeroStartExternalFallbackOwnsPlayerState &&
-        !proYouTubeAuthorityOwnsHardMute()
-      ) {
-        player.unMute?.();
-      }
+      else if (!isYouTubeStartHardMuteOwned()) player.unMute?.();
     }
   });
 
@@ -4426,13 +4432,7 @@ export function initYouTube(): void {
     }
     player.setVolume?.(volume);
     if (volume === 0) player.mute?.();
-    else if (
-      !youtubeZeroStartOwnsHardMute() &&
-      !youtubeZeroStartExternalFallbackOwnsPlayerState &&
-      !proYouTubeAuthorityOwnsHardMute()
-    ) {
-      player.unMute?.();
-    }
+    else if (!isYouTubeStartHardMuteOwned()) player.unMute?.();
   });
 
   // YouTube sub-item seek (from playlist-view sub-item click)
@@ -4604,7 +4604,7 @@ export function initYouTube(): void {
     // under a hard mute. A late joiner is outside the frozen cohort, so defer
     // its ordinary canonical bootstrap until the short protocol/calibration
     // window ends instead of exposing that transient state.
-    if (isYouTubeZeroStartSyncOwned()) {
+    if (isYouTubeStartSyncOwned()) {
       const peerId = conn.peer || 'unknown';
       setManagedTimer(
         `yt-zero-start-deferred-bootstrap-${peerId}`,
@@ -4758,9 +4758,24 @@ export function initYouTube(): void {
 configureYouTubePlayerRuntimeHooks({
   cancelPendingAutoSync: cancelYtAutoSync,
   consumePendingAutoSyncOnReady: consumePendingAutoSyncOnReadyOwned,
-  isYouTubeAutoSyncPending: () => getManagedTimer('yt-auto-sync') !== null,
-  isYouTubeZeroStartExternalFallbackActive: isYouTubeZeroStartExternalFallbackActiveOwned,
-  isYouTubeZeroStartExternalFallbackPending: isYouTubeZeroStartExternalFallbackPendingOwned,
+  isYouTubeAutoSyncPending: isYouTubeAutoSyncPendingOwned,
   isProPlaybackPauseGatePending: () => _proPlaybackPauseGateToken !== null,
   setPendingAutoSyncOnReady,
 });
+
+// The start owners' live queries, which the start ledger calls each time it
+// is asked (it keeps no answer of its own); every start-ownership reader asks
+// the ledger. An imported query stays behind a closure, so it reads its
+// module's live binding at call time and this module still loads where a
+// suite mocks that owner module without it.
+registerYouTubeStartClaim('standard-run', [
+  () => isYouTubeZeroStartInFlight(),
+  () => isYouTubeZeroStartProtocolActive(),
+  youtubeZeroStartOwnsHardMute,
+]);
+registerYouTubeStartClaim('standard-recovery', [
+  isYouTubeZeroStartExternalFallbackActiveOwned,
+  isYouTubeZeroStartExternalFallbackPendingOwned,
+]);
+registerYouTubeStartClaim('legacy-rendezvous', [isYouTubeAutoSyncPendingOwned]);
+registerYouTubeStartClaim('pro-arm', [() => proYouTubeAuthorityOwnsHardMute()]);

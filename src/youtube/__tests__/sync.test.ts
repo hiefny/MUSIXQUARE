@@ -12,6 +12,8 @@ import {
   prepareStandardHostManualOffsetRuntimeForTests,
   resetStandardHostManualOffsetTransaction,
 } from '../standard-host-manual-offset-gate.ts';
+import { registerYouTubeStartClaim } from '../start-ownership.ts';
+import { isYouTubeZeroStartInFlight, isYouTubeZeroStartProtocolActive } from '../zero-start.ts';
 
 const QUEUE_ITEM_ID = '11111111-1111-4111-8111-111111111111';
 const zeroStartFacade = vi.hoisted(() => ({ active: false }));
@@ -92,6 +94,13 @@ beforeEach(async () => {
   // after bus.clear(), so its events reach no earlier row's listener.
   (await import('../sync.ts')).resetYouTubeSyncState();
   zeroStartFacade.active = false;
+  // player.ts does not load here: the start ledger reads the run's two
+  // exports, as player.ts registers them.
+  registerYouTubeStartClaim('standard-run', [
+    () => isYouTubeZeroStartInFlight(),
+    () => isYouTubeZeroStartProtocolActive(),
+    () => false,
+  ]);
   setState('playlist.items', [
     {
       queueItemId: QUEUE_ITEM_ID,

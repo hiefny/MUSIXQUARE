@@ -20,9 +20,12 @@ import {
   resetYouTubeSyncState,
 } from '../sync.ts';
 import { configureYouTubePlayerRuntimeHooks } from '../player-runtime-bridge.ts';
+import { registerYouTubeStartClaim } from '../start-ownership.ts';
 import {
   cancelYouTubeZeroStart,
   initYouTubeZeroStart,
+  isYouTubeZeroStartInFlight,
+  isYouTubeZeroStartProtocolActive,
   resetYouTubeZeroStart,
   YouTubeZeroStartControllerForTests,
   type YouTubeZeroStartWireMessage,
@@ -162,10 +165,16 @@ beforeEach(() => {
     consumePendingAutoSyncOnReady: () => null,
     setPendingAutoSyncOnReady: () => undefined,
     isYouTubeAutoSyncPending: () => false,
-    isYouTubeZeroStartExternalFallbackActive: () => fallbackOwnsPlayer,
-    isYouTubeZeroStartExternalFallbackPending: fallbackPendingHook,
     isProPlaybackPauseGatePending: () => false,
   });
+  // player.ts does not load here: the start ledger reads the real run's two
+  // exports and the stand-in recovery, as player.ts registers its own.
+  registerYouTubeStartClaim('standard-run', [
+    () => isYouTubeZeroStartInFlight(),
+    () => isYouTubeZeroStartProtocolActive(),
+    () => false,
+  ]);
+  registerYouTubeStartClaim('standard-recovery', [() => fallbackOwnsPlayer, fallbackPendingHook]);
   host = { peer: 'host-one', open: true, send: vi.fn(), close: vi.fn(), on: vi.fn() };
   player = makeFakeYtPlayer({
     __videoId: VIDEO_ID,
@@ -355,8 +364,8 @@ describe('heartbeat ownership during a participant-local YouTube start', () => {
     fallbackPendingHook.mockClear();
     heartbeat(4, state);
     // The heartbeat's in-flight/fallback gate reads the fallback hook, but so
-    // can isCurrentStateAction (through isYouTubeZeroStartSyncOwned), the
-    // small-drift sampler's direct fallback read and its
+    // can isCurrentStateAction (through isYouTubeStartSyncOwned), the
+    // small-drift sampler's isYouTubeStartTimelineHeld and its
     // isGuestYouTubeTransitionPending, so this call assertion does not pin
     // the gate alone. Only states 2 and 0 pin the gate itself: with it
     // removed, state 0 fails at this call assertion and state 2 at the
@@ -379,8 +388,8 @@ describe('heartbeat ownership during a participant-local YouTube start', () => {
     heartbeat(20);
     // Four sync.ts readers can satisfy this call assertion, in the order the
     // heartbeat reaches them: its own in-flight/fallback gate, which returns
-    // first today; isCurrentStateAction through isYouTubeZeroStartSyncOwned;
-    // the small-drift sampler's direct fallback read; and the sampler's
+    // first today; isCurrentStateAction through isYouTubeStartSyncOwned;
+    // the small-drift sampler's isYouTubeStartTimelineHeld; and the sampler's
     // isGuestYouTubeTransitionPending. The heartbeat gate itself is pinned by
     // the 'respects external fallback ownership' rows (states 2 and 0). This
     // row pins the hold and that the snapshot recorded before it survives.

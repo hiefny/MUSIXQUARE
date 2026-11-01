@@ -1770,5 +1770,280 @@ describe('resource-ownership guard', { timeout: 60_000 }, () => {
         /cross-file start-timer clear: src\/youtube\/sync\.ts:\d+ clearManagedTimer\('yt-pro-coordinator-local-nudge'\) in resetYouTubeSyncState\n/u,
       );
     });
+
+    // Since Phase 6 6B-2 every start-ownership reader asks the start ledger
+    // (src/youtube/start-ownership.ts); only the run claim's registration in
+    // player.ts reads the zero-start facades.
+    describe('the start ledger and the zero-start facades', () => {
+      const player = 'src/youtube/player.ts';
+      const ledger = 'src/youtube/start-ownership.ts';
+      const runClaimInFlight = '  () => isYouTubeZeroStartInFlight(),\n';
+      const proArmClaim =
+        "registerYouTubeStartClaim('pro-arm', [() => proYouTubeAuthorityOwnsHardMute()]);\n";
+
+      it("counts the run claim's registration as player.ts's two facade uses on the real tree", () => {
+        const report = analyzeResourceOwnership(realInput());
+        expect(report.findings).toEqual([]);
+        expect(report.startOwnerFacadeSites).toEqual([
+          expect.stringMatching(
+            /^start-owner facade use: src\/youtube\/player\.ts:\d+ isYouTubeZeroStartInFlight\(\) in <module>$/u,
+          ),
+          expect.stringMatching(
+            /^start-owner facade use: src\/youtube\/player\.ts:\d+ isYouTubeZeroStartProtocolActive\(\) in <module>$/u,
+          ),
+        ]);
+      });
+
+      it('rejects a zero-start facade read outside the run claim, called, through a namespace or passed on', () => {
+        const findings = findingsOf(
+          withSources((sources) => {
+            sources.set(
+              'src/ui/rogue-start-gate.ts',
+              "import { isYouTubeZeroStartInFlight } from '../youtube/zero-start.ts';\n" +
+                "import * as zeroStart from '../youtube/zero-start.ts';\n" +
+                'export function seekBlocked(): boolean {\n' +
+                '  return isYouTubeZeroStartInFlight() || zeroStart.isYouTubeZeroStartProtocolActive();\n' +
+                '}\n' +
+                'export const gates = [isYouTubeZeroStartInFlight];\n',
+            );
+          }),
+        );
+        expect(findings.split('\n')).toEqual([
+          expect.stringMatching(
+            /^UNSANCTIONED start-owner facade use \(RO-02\): src\/ui\/rogue-start-gate\.ts has 3 - /u,
+          ),
+        ]);
+      });
+
+      it("fails a facade use added to player.ts and one the run claim's registration drops", () => {
+        const added = findingsOf(
+          withSources((sources) =>
+            replaceIn(
+              sources,
+              player,
+              proArmClaim,
+              "registerYouTubeStartClaim('pro-arm', [\n" +
+                '  () => proYouTubeAuthorityOwnsHardMute() || isYouTubeZeroStartInFlight(),\n' +
+                ']);\n',
+            ),
+          ),
+        );
+        expect(added).toMatch(
+          /^RATCHET REGRESSION start-owner facade use \(RO-02\): src\/youtube\/player\.ts has 3, baseline 2 - /u,
+        );
+        const dropped = findingsOf(
+          withSources((sources) =>
+            replaceIn(sources, player, runClaimInFlight, '  () => false,\n'),
+          ),
+        );
+        expect(dropped).toMatch(
+          /^STALE BASELINE start-owner facade use \(RO-02\): src\/youtube\/player\.ts has 1, baseline 2 - lower the baseline to 1/u,
+        );
+      });
+
+      it('rejects a composite module named for the zero-start owner and a re-export of its facades', () => {
+        const findings = findingsOf(
+          withSources((sources) => {
+            sources.set(
+              'src/youtube/zero-start-rogue-ownership.ts',
+              "import { isYouTubeZeroStartProtocolActive } from './zero-start.ts';\n" +
+                "export { isYouTubeZeroStartInFlight as inFlight } from './zero-start.ts';\n" +
+                'export function isYouTubeZeroStartRogueOwned(): boolean {\n' +
+                '  return isYouTubeZeroStartProtocolActive();\n' +
+                '}\n',
+            );
+          }),
+        );
+        const facade = (line: number, what: string): string =>
+          `START OWNER FACADE (RO-02): src/youtube/zero-start-rogue-ownership.ts:${line} ${what} ` +
+          'in <module> - only src/youtube/zero-start.ts exports its facades: import one from it ' +
+          'by name or through a namespace member, so CHECK 12 counts every use, and compose start ' +
+          'owners in the start ledger (src/youtube/start-ownership.ts)';
+        // The re-export and the call are two facade uses as well.
+        expect(findings.split('\n')).toEqual([
+          expect.stringMatching(
+            /^UNSANCTIONED start-owner facade use \(RO-02\): src\/youtube\/zero-start-rogue-ownership\.ts has 2 - /u,
+          ),
+          facade(2, 're-exports isYouTubeZeroStartInFlight as inFlight'),
+          facade(3, 'exports isYouTubeZeroStartRogueOwned'),
+        ]);
+      });
+
+      it('rejects the zero-start namespace passed on and a dynamic import of zero-start.ts', () => {
+        const findings = findingsOf(
+          withSources((sources) => {
+            sources.set(
+              'src/player/rogue-start-port.ts',
+              "import * as zeroStart from '../youtube/zero-start.ts';\n" +
+                'export const port = zeroStart;\n' +
+                "export const later = () => import('../youtube/zero-start.ts');\n",
+            );
+          }),
+        );
+        const facade = (line: number, what: string, inFunction: string): string =>
+          `START OWNER FACADE (RO-02): src/player/rogue-start-port.ts:${line} ${what} in ` +
+          `${inFunction} - only src/youtube/zero-start.ts exports its facades: import one from it ` +
+          'by name or through a namespace member, so CHECK 12 counts every use, and compose start ' +
+          'owners in the start ledger (src/youtube/start-ownership.ts)';
+        expect(findings.split('\n')).toEqual([
+          facade(2, 'uses the zero-start namespace zeroStart as a value', '<module>'),
+          facade(3, 'imports src/youtube/zero-start.ts dynamically', 'later'),
+        ]);
+      });
+
+      it('rejects a condition that composes two ledger queries outside the ledger', () => {
+        const findings = findingsOf(
+          withSources((sources) => {
+            sources.set(
+              'src/ui/rogue-start-composite.ts',
+              'import {\n' +
+                '  isYouTubeStartArmBusy,\n' +
+                '  isYouTubeStartSyncOwned as owned,\n' +
+                "} from '../youtube/start-ownership.ts';\n" +
+                "import * as ledger from '../youtube/start-ownership.ts';\n" +
+                "import { isPlaybackModeYouTube } from '../player/ownership.ts';\n" +
+                'export function blocked(): boolean {\n' +
+                '  return isPlaybackModeYouTube() && (owned() || isYouTubeStartArmBusy());\n' +
+                '}\n' +
+                'export function idle(): boolean {\n' +
+                '  return !ledger.isYouTubeStartRecoveryActive() && !(isYouTubeStartArmBusy());\n' +
+                '}\n' +
+                'export function mixed(): boolean {\n' +
+                '  return isPlaybackModeYouTube() && owned();\n' +
+                '}\n',
+            );
+          }),
+        );
+        const composite = (line: number, calls: string, inFunction: string): string =>
+          `LEDGER COMPOSITE (RO-02): src/ui/rogue-start-composite.ts:${line} ${calls} in ` +
+          `${inFunction} - add a derived query to the start ledger ` +
+          '(src/youtube/start-ownership.ts) instead; outside it one condition asks at most one ' +
+          'ledger query, beside other owners';
+        // A single ledger query beside another owner (mixed) does not count.
+        expect(findings.split('\n')).toEqual([
+          composite(8, 'isYouTubeStartSyncOwned(), isYouTubeStartArmBusy()', 'blocked'),
+          composite(11, 'isYouTubeStartRecoveryActive(), isYouTubeStartArmBusy()', 'idle'),
+        ]);
+      });
+
+      it("rejects a ledger query that leaves the ledger's own import: re-exported, passed on or loaded dynamically", () => {
+        const findings = findingsOf(
+          withSources((sources) => {
+            sources.set(
+              'src/youtube/rogue-ledger-port.ts',
+              "import { isYouTubeStartSyncOwned } from './start-ownership.ts';\n" +
+                "export { isYouTubeStartArmBusy as armBusy } from './start-ownership.ts';\n" +
+                'export const owners = [isYouTubeStartSyncOwned];\n' +
+                "export const later = () => import('./start-ownership.ts');\n",
+            );
+          }),
+        );
+        const alias = (line: number, what: string, inFunction: string): string =>
+          `LEDGER ALIAS (RO-02): src/youtube/rogue-ledger-port.ts:${line} ${what} in ` +
+          `${inFunction} - import the ledger's exports from src/youtube/start-ownership.ts by ` +
+          'name or through a namespace member and call them there, so CHECK 12 sees every ' +
+          'condition and registration';
+        expect(findings.split('\n')).toEqual([
+          alias(2, 're-exports isYouTubeStartArmBusy as armBusy', '<module>'),
+          alias(3, 'uses isYouTubeStartSyncOwned as a value', '<module>'),
+          alias(4, 'imports src/youtube/start-ownership.ts dynamically', 'later'),
+        ]);
+      });
+
+      it('keeps the ledger free of runtime imports, timers, scheduled callbacks and kept answers', () => {
+        const findings = findingsOf(
+          withSources((sources) => {
+            sources.set(
+              ledger,
+              `${sources.get(ledger) ?? ''}\n` +
+                "import { getManagedTimer } from '../core/timers.ts';\n" +
+                "import type { YouTubeZeroStartSnapshot } from './zero-start.ts';\n" +
+                'let lastSnapshot: YouTubeZeroStartSnapshot | null = null;\n' +
+                'export function rogueBusy(): boolean {\n' +
+                '  queueMicrotask(() => {\n' +
+                '    lastSnapshot = null;\n' +
+                '  });\n' +
+                "  return getManagedTimer('yt-auto-sync') !== null || lastSnapshot !== null;\n" +
+                '}\n',
+            );
+          }),
+        );
+        const purity = (what: string): RegExp =>
+          new RegExp(
+            `^LEDGER PURITY \\(RO-02\\): src/youtube/start-ownership\\.ts:\\d+ ${what} - the ` +
+              "start ledger calls its owners' live queries when asked and keeps nothing: no " +
+              'runtime import, timer, scheduled callback or answer kept between calls$',
+            'u',
+          );
+        const lines = findings.split('\n');
+        // The type-only import is not a runtime import.
+        for (const what of [
+          'imports \\.\\./core/timers\\.ts at runtime',
+          'declares lastSnapshot with let at module level',
+          'uses queueMicrotask',
+          'uses getManagedTimer',
+        ]) {
+          expect(lines.filter((line) => purity(what).test(line))).toHaveLength(1);
+        }
+        expect(lines.filter((line) => line.startsWith('LEDGER PURITY'))).toHaveLength(4);
+        // The timer read is another file's start timer as well.
+        expect(findings).toMatch(
+          /UNSANCTIONED cross-file start-timer read \(RO-02\): src\/youtube\/start-ownership\.ts has 1 - /u,
+        );
+      });
+
+      it('lets only player.ts register a start claim, each literal kind once', () => {
+        const findings = findingsOf(
+          withSources((sources) => {
+            sources.set(
+              'src/youtube/iframe.ts',
+              `${sources.get('src/youtube/iframe.ts') ?? ''}\n` +
+                "import { registerYouTubeStartClaim } from './start-ownership.ts';\n" +
+                "registerYouTubeStartClaim('pro-arm', [() => proYouTubeAuthorityOwnsHardMute()]);\n",
+            );
+            replaceIn(
+              sources,
+              player,
+              proArmClaim,
+              proArmClaim +
+                "registerYouTubeStartClaim('pro-arm', [() => false]);\n" +
+                "const rogueStartKind = 'pro-direct' as const;\n" +
+                'registerYouTubeStartClaim(rogueStartKind, [() => false]);\n' +
+                'export const rogueRegistrar = registerYouTubeStartClaim;\n',
+            );
+          }),
+        );
+        const registration = (file: string, what: string): RegExp =>
+          new RegExp(
+            `^START CLAIM REGISTRATION \\(RO-02\\): ${file.replace(/[./]/gu, '\\$&')}:\\d+ ` +
+              `${what} in <module> - src/youtube/player\\.ts, the start owners' composition ` +
+              'point, registers each claim kind once, with a literal kind; another registration ' +
+              "replaces that owner's live queries, a second machine on its claim$",
+            'u',
+          );
+        const lines = findings.split('\n');
+        expect(lines).toHaveLength(4);
+        for (const [file, what] of [
+          ['src/youtube/iframe.ts', "registers 'pro-arm'"],
+          [player, "registers 'pro-arm' again"],
+          [player, 'registers a computed kind'],
+          [player, 'uses registerYouTubeStartClaim as a value'],
+        ] as const) {
+          expect(lines.filter((line) => registration(file, what).test(line))).toHaveLength(1);
+        }
+      });
+
+      it("lists the run claim's facade uses under --report", () => {
+        const result = runGuard('--report');
+        expect(result.status, result.stderr).toBe(0);
+        expect(result.stdout).toContain('start-owner facade uses 2');
+        expect(result.stdout).toMatch(
+          /start-owner facade use: src\/youtube\/player\.ts:\d+ isYouTubeZeroStartInFlight\(\) in <module>\n/u,
+        );
+        expect(result.stdout).toMatch(
+          /start-owner facade use: src\/youtube\/player\.ts:\d+ isYouTubeZeroStartProtocolActive\(\) in <module>\n/u,
+        );
+      });
+    });
   });
 });

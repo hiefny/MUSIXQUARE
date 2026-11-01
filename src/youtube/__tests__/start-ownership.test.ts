@@ -1,8 +1,10 @@
 /**
  * The YouTube start ledger (src/youtube/start-ownership.ts), through its
  * production exports only: the start owners register their live queries with
- * registerYouTubeStartClaim, and the derived queries isYouTubeStartSyncOwned
- * and isYouTubeStartHardMuteOwned answer from them.
+ * registerYouTubeStartClaim, and the derived queries isYouTubeStartSyncOwned,
+ * isYouTubeStartHardMuteOwned, isYouTubeStartTimelineHeld,
+ * isYouTubeStartArmBusy, isYouTubeStartRecoveryActive and
+ * isYouTubeStartRoomStateHeld answer from them.
  *
  * Every live query here is a recorded stand-in whose answer the row sets, so
  * a row shows which claim position decides which derived query, the order
@@ -73,6 +75,16 @@ function derived(): string[] {
   return [
     ...(ledger.isYouTubeStartSyncOwned() ? ['syncOwned'] : []),
     ...(ledger.isYouTubeStartHardMuteOwned() ? ['hardMuteOwned'] : []),
+  ];
+}
+
+/** The timeline, arm, recovery and room-state queries that answer true now. */
+function held(): string[] {
+  return [
+    ...(ledger.isYouTubeStartTimelineHeld() ? ['timelineHeld'] : []),
+    ...(ledger.isYouTubeStartArmBusy() ? ['armBusy'] : []),
+    ...(ledger.isYouTubeStartRecoveryActive() ? ['recoveryActive'] : []),
+    ...(ledger.isYouTubeStartRoomStateHeld() ? ['roomStateHeld'] : []),
   ];
 }
 
@@ -185,6 +197,156 @@ describe('start ledger: read order and short-circuit', () => {
   });
 });
 
+describe('start ledger: the timeline, arm, recovery and room-state queries', () => {
+  it.each([
+    ['standard-run.inFlight', ['timelineHeld', 'armBusy']],
+    ['standard-run.protocolActive', ['roomStateHeld']],
+    ['standard-run.hardMuted', []],
+    ['standard-recovery.active', ['recoveryActive']],
+    ['standard-recovery.pending', ['timelineHeld']],
+    ['legacy-rendezvous.stage2Pending', ['roomStateHeld']],
+    ['pro-arm.hardMuted', []],
+    ['pro-direct.waiting', []],
+  ] as const)('%s alone holds %j', (query, expected) => {
+    registerOwners([query]);
+    expect(held()).toEqual(expected);
+  });
+
+  it('holds none of them while every query answers false', () => {
+    registerOwners();
+    expect(held()).toEqual([]);
+  });
+
+  it('holds all four while every query answers true', () => {
+    registerOwners(QUERIES);
+    expect(held()).toEqual(['timelineHeld', 'armBusy', 'recoveryActive', 'roomStateHeld']);
+  });
+
+  /**
+   * By (inFlight, pending): the run's in-flight query first, as sync.ts's
+   * heartbeat and auxiliary-state holds ask it, then the recovery's pending
+   * claim only while the run is not in flight. No other query is read.
+   */
+  const TIMELINE_HELD: Record<string, { answer: boolean; reads: QueryName[] }> = {
+    'false false': {
+      answer: false,
+      reads: ['standard-run.inFlight', 'standard-recovery.pending'],
+    },
+    'false true': {
+      answer: true,
+      reads: ['standard-run.inFlight', 'standard-recovery.pending'],
+    },
+    'true false': { answer: true, reads: ['standard-run.inFlight'] },
+    'true true': { answer: true, reads: ['standard-run.inFlight'] },
+  };
+
+  /**
+   * By (protocolActive, stage2Pending): the run's protocol first, then the
+   * legacy rendezvous's Stage-2 wait only while the protocol is off, the order
+   * of iframe.ts's auxiliary YOUTUBE_STATE hold. No other query is read.
+   */
+  const ROOM_STATE_HELD: Record<string, { answer: boolean; reads: QueryName[] }> = {
+    'false false': {
+      answer: false,
+      reads: ['standard-run.protocolActive', 'legacy-rendezvous.stage2Pending'],
+    },
+    'false true': {
+      answer: true,
+      reads: ['standard-run.protocolActive', 'legacy-rendezvous.stage2Pending'],
+    },
+    'true false': { answer: true, reads: ['standard-run.protocolActive'] },
+    'true true': { answer: true, reads: ['standard-run.protocolActive'] },
+  };
+
+  it('reads timelineHeld the same way under all 256 combinations of the eight answers', () => {
+    for (const trueQueries of COMBINATIONS) {
+      const owners = registerOwners(trueQueries);
+      const answer = ledger.isYouTubeStartTimelineHeld();
+      const key = [
+        owners.answers['standard-run.inFlight'],
+        owners.answers['standard-recovery.pending'],
+      ].join(' ');
+      expect({ trueQueries, answer, reads: owners.reads }).toEqual({
+        trueQueries,
+        ...TIMELINE_HELD[key],
+      });
+    }
+  });
+
+  it('reads armBusy from the run in flight alone under all 256 combinations', () => {
+    for (const trueQueries of COMBINATIONS) {
+      const owners = registerOwners(trueQueries);
+      const answer = ledger.isYouTubeStartArmBusy();
+      expect({ trueQueries, answer, reads: owners.reads }).toEqual({
+        trueQueries,
+        answer: owners.answers['standard-run.inFlight'],
+        reads: ['standard-run.inFlight'],
+      });
+    }
+  });
+
+  it('reads recoveryActive from the active recovery alone under all 256 combinations', () => {
+    for (const trueQueries of COMBINATIONS) {
+      const owners = registerOwners(trueQueries);
+      const answer = ledger.isYouTubeStartRecoveryActive();
+      expect({ trueQueries, answer, reads: owners.reads }).toEqual({
+        trueQueries,
+        answer: owners.answers['standard-recovery.active'],
+        reads: ['standard-recovery.active'],
+      });
+    }
+  });
+
+  it('reads roomStateHeld the same way under all 256 combinations of the eight answers', () => {
+    for (const trueQueries of COMBINATIONS) {
+      const owners = registerOwners(trueQueries);
+      const answer = ledger.isYouTubeStartRoomStateHeld();
+      const key = [
+        owners.answers['standard-run.protocolActive'],
+        owners.answers['legacy-rendezvous.stage2Pending'],
+      ].join(' ');
+      expect({ trueQueries, answer, reads: owners.reads }).toEqual({
+        trueQueries,
+        ...ROOM_STATE_HELD[key],
+      });
+    }
+  });
+
+  it('answers each call from the queries as they answer at that call', () => {
+    const owners = registerOwners();
+    const trace: string[] = [];
+    const read = () => trace.push(held().join('+') || '-');
+    // No registration, event or microtask between two reads: only the
+    // stand-ins' answers change.
+    read();
+    owners.answers['standard-run.inFlight'] = true;
+    owners.answers['standard-run.protocolActive'] = true;
+    read();
+    owners.answers['standard-run.inFlight'] = false;
+    read();
+    owners.answers['standard-run.protocolActive'] = false;
+    owners.answers['standard-recovery.active'] = true;
+    owners.answers['standard-recovery.pending'] = true;
+    read();
+    owners.answers['standard-recovery.active'] = false;
+    read();
+    owners.answers['standard-recovery.pending'] = false;
+    owners.answers['legacy-rendezvous.stage2Pending'] = true;
+    read();
+    owners.answers['legacy-rendezvous.stage2Pending'] = false;
+    read();
+    expect(trace).toEqual([
+      '-',
+      'timelineHeld+armBusy+roomStateHeld',
+      'roomStateHeld',
+      'timelineHeld+recoveryActive',
+      'timelineHeld',
+      'roomStateHeld',
+      '-',
+    ]);
+  });
+});
+
 describe('start ledger: live queries only', () => {
   it('reads no query when a claim registers', () => {
     const owners = registerOwners(QUERIES);
@@ -232,6 +394,24 @@ describe('start ledger: live queries only', () => {
 describe('start ledger: registrations', () => {
   it('answers false and reads nothing before any claim registers', () => {
     expect(derived()).toEqual([]);
+  });
+
+  it('holds no timeline, arm, recovery or room state before any claim registers', () => {
+    expect(held()).toEqual([]);
+  });
+
+  it('asks the legacy rendezvous only for the room-state hold', () => {
+    const reads: string[] = [];
+    ledger.registerYouTubeStartClaim('legacy-rendezvous', [
+      () => {
+        reads.push('legacy-rendezvous.stage2Pending');
+        return true;
+      },
+    ]);
+    expect(derived()).toEqual([]);
+    expect(held()).toEqual(['roomStateHeld']);
+    // No other kind has registered, and only roomStateHeld asks this one.
+    expect(reads).toEqual(['legacy-rendezvous.stage2Pending']);
   });
 
   it('reads nothing of a kind that has not registered', () => {

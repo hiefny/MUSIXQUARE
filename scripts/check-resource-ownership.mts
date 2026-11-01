@@ -788,7 +788,10 @@ const MEDIA_TUNING_BASELINE: Baseline = new Map<string, Allowance>([
 // verified restores, the recoveries' restores before a release, the guest
 // fallback's release write and both recoveries' unverified cleanups of a
 // replaced or cancelled iframe onto the shared writer in
-// src/youtube/iframe-audio.ts (32 calls).
+// src/youtube/iframe-audio.ts (32 calls). Phase 6 6C-2 made that module the
+// write owner of the App's own audio: the youtube:set-volume handler, the PRO
+// pause gate's two handlers and the PRO direct commit in player.ts write
+// through its applyYouTubeAudio and enforceYouTubePauseGate (26 calls).
 
 const IFRAME_AUDIO_WRITE_METHODS = new Set(['mute', 'unMute', 'setVolume']);
 
@@ -811,14 +814,16 @@ const IFRAME_AUDIO_WRITE_BASELINE: Baseline = new Map<string, Allowance>([
   [
     'src/youtube/iframe-audio.ts',
     {
-      count: 3,
+      count: 7,
       reason:
         'the shared restore writer writeYouTubeAudio (3), through which the six verified ' +
         "restores write: zero-start's and the PRO arm's active and detached restores, and the " +
         'player.ts cleanups of the host legacy recovery and the guest local fallback; the ' +
         "recoveries' restores before a release, the guest fallback's release write and both " +
         "recoveries' unverified cleanups of a replaced or cancelled iframe (cleanupExactPlayer " +
-        'in player.ts) write through it too',
+        "in player.ts) write through it too; the App's own writer applyYouTubeAudio (3), " +
+        "through which player.ts's youtube:set-volume handler, PRO pause gate settlement and " +
+        "PRO direct commit write; the PRO pause gate's bare mute enforceYouTubePauseGate (1)",
     },
   ],
   [
@@ -834,14 +839,14 @@ const IFRAME_AUDIO_WRITE_BASELINE: Baseline = new Map<string, Allowance>([
   [
     'src/youtube/player.ts',
     {
-      count: 14,
+      count: 4,
       reason:
-        'the PRO direct commit applyProPlaybackYouTubeCommit (3); the mute before stopYouTubeMode ' +
-        'destroys the player (1); the mutes of the host legacy recovery and the guest local ' +
-        'fallback before a load or a wait (attemptRecovery 1, attemptFallback 2), whose audio ' +
-        'restores, release write and cleanups write through writeYouTubeAudio in ' +
-        'src/youtube/iframe-audio.ts; the youtube:set-volume handler (3) and the PRO pause gate ' +
-        'handlers (pending 1, settled 3)',
+        'the mute before stopYouTubeMode destroys the player (1); the mutes of the host legacy ' +
+        'recovery and the guest local fallback before a load or a wait (attemptRecovery 1, ' +
+        'attemptFallback 2), whose audio restores, release write and cleanups write through ' +
+        'writeYouTubeAudio in src/youtube/iframe-audio.ts; the youtube:set-volume handler, the ' +
+        'PRO pause gate handlers and the PRO direct commit (applyProPlaybackYouTubeCommit) write ' +
+        'through applyYouTubeAudio and enforceYouTubePauseGate in src/youtube/iframe-audio.ts',
     },
   ],
   [

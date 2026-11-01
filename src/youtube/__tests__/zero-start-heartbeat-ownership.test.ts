@@ -165,7 +165,6 @@ beforeEach(() => {
     consumePendingAutoSyncOnReady: () => null,
     setPendingAutoSyncOnReady: () => undefined,
     isYouTubeAutoSyncPending: () => false,
-    isProPlaybackPauseGatePending: () => false,
   });
   // player.ts does not load here: the start ledger reads the real run's two
   // exports and the stand-in recovery, as player.ts registers its own.

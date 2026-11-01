@@ -81,7 +81,15 @@ import {
   YOUTUBE_RELEASE_CATCH_UP_TOLERANCE_SEC,
 } from './constants.ts';
 import {
+  applyYouTubeAudio,
+  clearYouTubePauseGate,
+  enforceYouTubePauseGate,
+  holdYouTubePauseGate,
   isYouTubeAudioRestored,
+  isYouTubePauseGateHeld,
+  readYouTubeAppAudio,
+  registerYouTubeAudioHolds,
+  releaseYouTubePauseGate,
   restoreYouTubeAudioVerified,
   writeYouTubeAudio,
 } from './iframe-audio.ts';
@@ -106,7 +114,6 @@ let _pendingAutoSyncOwner: {
   youtubeSessionId: number;
 } | null = null;
 let _pendingAutoSyncGeneration = 0;
-let _proPlaybackPauseGateToken: number | null = null;
 let _proPlaylistResolutionSequence = 0;
 let _explicitYouTubeStopPending = false;
 
@@ -1432,13 +1439,8 @@ export async function applyProPlaybackYouTubeCommit(
     if (request.isCurrent?.() === false) return false;
     player.seekTo?.(target.localTime, true);
 
-    const volume = Math.max(
-      0,
-      Math.min(100, Math.round((getState('audio.masterVolume') ?? 1) * 100)),
-    );
-    player.setVolume?.(volume);
-    if (volume === 0 || _proPlaybackPauseGateToken !== null) player.mute?.();
-    else player.unMute?.();
+    // The direct commit's write: the app audio, muted while the pause gate holds.
+    applyYouTubeAudio(player, readYouTubeAppAudio(), 2);
 
     if (request.state === 'playing') {
       setYtAutoplayIntent(true);
@@ -1582,7 +1584,7 @@ export function stopYouTubeMode(opts?: { silent?: boolean }): void {
   // A participant-local pause proposal cannot settle against an iframe after
   // mode ownership has moved on. Revoke before any asynchronous server result
   // can reopen the physical output gate on the parked/replacement player.
-  _proPlaybackPauseGateToken = null;
+  clearYouTubePauseGate();
   // Teardown invalidates a pending direct commit even if the same iframe and
   // queue item are reclaimed before its cancelled wait resumes.
   proAuthorityYouTubeCommitGeneration++;
@@ -1957,15 +1959,12 @@ export function initYouTube(): void {
   const captureFallbackAudioIntent = (
     target: Pick<ZeroStartLegacyTarget, 'desiredMuted' | 'desiredVolume'>,
   ): YouTubeFallbackAudioIntent => {
-    const appVolume = Math.max(
-      0,
-      Math.min(100, Math.round((getState('audio.masterVolume') ?? 1) * 100)),
-    );
+    const appAudio = readYouTubeAppAudio();
     // Each fallback keeps its own object. Slider updates follow the current
     // owner without turning the temporary hard mute into the user's intent.
     return (zeroStartFallbackAudioIntent = {
-      muted: target.desiredMuted ?? appVolume === 0,
-      volume: target.desiredVolume ?? appVolume,
+      muted: target.desiredMuted ?? appAudio.muted,
+      volume: target.desiredVolume ?? appAudio.volume,
     });
   };
   let pendingReplacementFallback:
@@ -2278,11 +2277,8 @@ export function initYouTube(): void {
     getHostNow,
     getClockOffsetMs: getClockOffset,
     getLocalPlatform: getYouTubeZeroStartPlatform,
-    getDesiredAudioState: () => {
-      const masterVol = getState('audio.masterVolume');
-      const volume = Math.max(0, Math.min(100, Math.round((masterVol ?? 1) * 100)));
-      return { muted: (masterVol ?? 1) <= 0, volume };
-    },
+    // The 'non-positive' mute rule (iframe-audio.ts).
+    getDesiredAudioState: () => readYouTubeAppAudio(true),
     sendToPeer: sendYouTubeZeroStartToPeer,
     sendToHost: sendYouTubeZeroStartToHost,
     resolveLocalTargetSec: resolveZeroStartLocalTarget,
@@ -2310,15 +2306,7 @@ export function initYouTube(): void {
       const videoId = selection.videoId;
       const subIndex = selection.subIndex;
       const transferredFallback = clearZeroStartExternalFallback(true);
-      if (transferredFallback) {
-        const volume = Math.max(
-          0,
-          Math.min(100, Math.round((getState('audio.masterVolume') ?? 1) * 100)),
-        );
-        pendingTransferredPrepareAudioIntent = { muted: volume === 0, volume };
-      } else {
-        pendingTransferredPrepareAudioIntent = null;
-      }
+      pendingTransferredPrepareAudioIntent = transferredFallback ? readYouTubeAppAudio() : null;
       clearPendingReplacementFallback();
       zeroStartHostFallbackGeneration += 1;
       clearManagedTimer('yt-zero-start-host-fallback');
@@ -4364,7 +4352,20 @@ export function initYouTube(): void {
     refreshYouTubeDisplay();
   });
 
-  // YouTube set volume (from audio engine)
+  // YouTube set volume (from audio engine). The iframe audio owner writes it
+  // through its holds (iframe-audio.ts): volume remains a desired app setting
+  // while the persistent iframe is parked or handing off from the silent
+  // prime occurrence, so a slider or settings update never physically
+  // unmutes offscreen media (the first proven state for the intended next
+  // video clears that fence and reapplies the desired volume through
+  // audio:apply-youtube-volume). iOS ignores the iframe's software volume in
+  // many playback states, but the IFrame API's binary mute state remains
+  // effective after audio has been unlocked, so the ordinary MUSIXQUARE mute
+  // toggle stays in lockstep with that hard mute. While a start owner holds
+  // the hard mute (zero-start warming the next track, for example), only an
+  // unmute is deferred; its controller restores the latest desired state
+  // pushed here before arming. Once audio restoration begins, direct changes
+  // are safe again and are included in the controller's verification poll.
   bus.on('youtube:set-volume', (volumePercent) => {
     if (!Number.isFinite(volumePercent)) return;
     const clampedVolume = Math.max(0, Math.min(100, Math.round(volumePercent)));
@@ -4373,35 +4374,13 @@ export function initYouTube(): void {
       zeroStartFallbackAudioIntent.muted = shouldMute;
       zeroStartFallbackAudioIntent.volume = clampedVolume;
     }
-    updateYouTubeZeroStartDesiredAudioState({ muted: shouldMute, volume: clampedVolume });
+    const audio = { muted: shouldMute, volume: clampedVolume };
+    updateYouTubeZeroStartDesiredAudioState(audio);
     updateProYouTubeAuthorityDesiredAudioState({
-      muted: shouldMute || _proPlaybackPauseGateToken !== null,
+      muted: shouldMute || isYouTubePauseGateHeld(),
       volume: clampedVolume,
     });
-    const player = getYouTubePlayer();
-    if (player?.setVolume) {
-      player.setVolume(clampedVolume);
-
-      // Volume remains a desired app setting while the persistent iframe is
-      // parked or handing off from the silent prime occurrence. Never let a
-      // slider/settings update physically unmute offscreen media; the first
-      // proven state for the intended next video clears this fence and
-      // reapplies the desired volume through audio:apply-youtube-volume.
-      if (isRetainedYouTubePlayerParked(player)) {
-        ensureRetainedYouTubePlayerHardMuted(player);
-        return;
-      }
-
-      // iOS ignores the iframe's software volume in many playback states, but
-      // the IFrame API's binary mute state remains effective after audio has
-      // been unlocked. Keep the ordinary MUSIXQUARE mute toggle in lockstep
-      // with that hard mute. While zero-start is warming the next track, only
-      // an unmute must be deferred; its controller restores the latest desired
-      // state before arming. Once audio restoration begins, direct changes are
-      // safe again and are included in the controller's verification poll.
-      if (shouldMute || _proPlaybackPauseGateToken !== null) player.mute?.();
-      else if (!isYouTubeStartHardMuteOwned()) player.unMute?.();
-    }
+    applyYouTubeAudio(getYouTubePlayer(), audio, 0);
   });
 
   // Match the WebAudio output gate: pause feels immediate on the initiating
@@ -4411,28 +4390,16 @@ export function initYouTube(): void {
   // after warm-up or failure, so another transition cannot reopen it early.
   bus.on('pro-playback:ui-control-pending', (event) => {
     if (event.kind !== 'pause') return;
-    _proPlaybackPauseGateToken = event.token;
+    holdYouTubePauseGate(event.token);
     updateProYouTubeAuthorityDesiredAudioState({ muted: true });
-    getYouTubePlayer()?.mute?.();
+    enforceYouTubePauseGate(getYouTubePlayer());
   });
 
   bus.on('pro-playback:ui-control-settled', (event) => {
-    if (event.kind !== 'pause' || _proPlaybackPauseGateToken !== event.token) return;
-    _proPlaybackPauseGateToken = null;
-    const volume = Math.max(
-      0,
-      Math.min(100, Math.round((getState('audio.masterVolume') ?? 1) * 100)),
-    );
-    updateProYouTubeAuthorityDesiredAudioState({ muted: volume === 0, volume });
-    const player = getYouTubePlayer();
-    if (!player) return;
-    if (isRetainedYouTubePlayerParked(player)) {
-      ensureRetainedYouTubePlayerHardMuted(player);
-      return;
-    }
-    player.setVolume?.(volume);
-    if (volume === 0) player.mute?.();
-    else if (!isYouTubeStartHardMuteOwned()) player.unMute?.();
+    if (event.kind !== 'pause' || !releaseYouTubePauseGate(event.token)) return;
+    const audio = readYouTubeAppAudio();
+    updateProYouTubeAuthorityDesiredAudioState(audio);
+    applyYouTubeAudio(getYouTubePlayer(), audio, 1);
   });
 
   // YouTube sub-item seek (from playlist-view sub-item click)
@@ -4759,7 +4726,6 @@ configureYouTubePlayerRuntimeHooks({
   cancelPendingAutoSync: cancelYtAutoSync,
   consumePendingAutoSyncOnReady: consumePendingAutoSyncOnReadyOwned,
   isYouTubeAutoSyncPending: isYouTubeAutoSyncPendingOwned,
-  isProPlaybackPauseGatePending: () => _proPlaybackPauseGateToken !== null,
   setPendingAutoSyncOnReady,
 });
 
@@ -4779,3 +4745,13 @@ registerYouTubeStartClaim('standard-recovery', [
 ]);
 registerYouTubeStartClaim('legacy-rendezvous', [isYouTubeAutoSyncPendingOwned]);
 registerYouTubeStartClaim('pro-arm', [() => proYouTubeAuthorityOwnsHardMute()]);
+
+// The holds the iframe audio owner asks before an app write: parking, which
+// the retained player controller answers and enforces with its verified hard
+// mute (RO-14, through iframe.ts), and a start owner's hard mute, which the
+// start ledger answers. Behind closures, like the claims above.
+registerYouTubeAudioHolds(
+  (player) => isRetainedYouTubePlayerParked(player),
+  (player) => ensureRetainedYouTubePlayerHardMuted(player),
+  () => isYouTubeStartHardMuteOwned(),
+);

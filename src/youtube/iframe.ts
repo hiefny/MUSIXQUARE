@@ -106,10 +106,10 @@ import {
 } from './authority-arm.ts';
 import {
   consumePendingAutoSyncOnReadyFromIframe,
-  isProPlaybackPauseGatePendingFromIframe,
   isYouTubeAutoSyncPending,
   setPendingAutoSyncOnReadyFromIframe,
 } from './player-runtime-bridge.ts';
+import { isYouTubePauseGateHeld, readYouTubeAppAudio } from './iframe-audio.ts';
 import {
   observeYouTubeNativeControlState,
   observeYouTubeNativeControlPosition,
@@ -2174,6 +2174,12 @@ export async function prepareYouTubeAuthorityOccurrence(
           const elapsedMs = Date.now() - startedAt;
           const remainingMs = timeoutMs - elapsedMs;
           if (remainingMs < 500) return { ready: false, reason: 'timeout' };
+          // The app volume is the user intent, under the 'non-positive' mute
+          // rule (iframe-audio.ts). During initial iOS entry the persistent
+          // iframe can still report the silent-prime hard mute; capturing that
+          // transient player bit would make it permanent. A pending local PRO
+          // pause stays closed until its own settlement.
+          const appAudio = readYouTubeAppAudio(true);
           const armed = await proAuthorityArm.prepare({
             authorityKey: request.authorityKey,
             queueItemId: request.queueItemId,
@@ -2182,17 +2188,8 @@ export async function prepareYouTubeAuthorityOccurrence(
             targetSeconds: target.localTime,
             strategy: 'resident',
             timeoutMs: remainingMs,
-            // The app volume is the user intent. During initial iOS entry the
-            // persistent iframe can still report the silent-prime hard mute;
-            // capturing that transient player bit would make it permanent.
-            // A pending local PRO pause stays closed until its own settlement.
-            desiredMuted:
-              (getState('audio.masterVolume') ?? 1) <= 0 ||
-              isProPlaybackPauseGatePendingFromIframe(),
-            desiredVolume: Math.max(
-              0,
-              Math.min(100, Math.round((getState('audio.masterVolume') ?? 1) * 100)),
-            ),
+            desiredMuted: appAudio.muted || isYouTubePauseGateHeld(),
+            desiredVolume: appAudio.volume,
           });
           if (generation !== proAuthorityPreparationGeneration) {
             return { ready: false, reason: 'superseded' };

@@ -27,8 +27,9 @@
  *   heartbeat in sync.ts's broadcaster (not the manual-offset transaction,
  *   the manual dedupe or the nudge, which are other owners);
  * - unMuteHeld: a zero-start hard-mute phase (muting, warming, settling, read
- *   through the public snapshot) || fallback || proMute, the guard player.ts
- *   applies before a volume or PRO pause-gate unMute. This column is the
+ *   through the public snapshot) || fallback || proMute, the guard applied
+ *   before a volume or PRO pause-gate unMute (since Phase 6 6C-2 the iframe
+ *   audio owner's start hold, which player.ts registers). This column is the
  *   sampler's own view, not the ledger's isYouTubeStartHardMuteOwned that the
  *   guard asks: player.ts's phase list is private, so the column retypes it
  *   and a change to the real guard leaves the column alone.
@@ -72,12 +73,10 @@ import { MSG } from '../../../core/constants.ts';
 import { bus } from '../../../core/events.ts';
 import { getState } from '../../../core/state.ts';
 import { HEARTBEAT_INTERVAL_MS } from '../../constants.ts';
+import { isYouTubePauseGateHeld } from '../../iframe-audio.ts';
 import { proYouTubeAuthorityOwnsHardMute } from '../../iframe.ts';
 import { isStandardHostYouTubeLocalStartPending } from '../../local-offset.ts';
-import {
-  isProPlaybackPauseGatePendingFromIframe,
-  isYouTubeAutoSyncPending,
-} from '../../player-runtime-bridge.ts';
+import { isYouTubeAutoSyncPending } from '../../player-runtime-bridge.ts';
 import {
   isYouTubeStartArmBusy,
   isYouTubeStartRecoveryActive,
@@ -152,7 +151,7 @@ export const START_OWNERSHIP_COLUMNS: ReadonlyArray<readonly [string, () => bool
   ['heldAt', () => getYouTubeZeroStartPendingCanonicalPosition() !== null],
   ['guestPending', () => isGuestYouTubeTransitionPending()],
   ['proMute', () => proYouTubeAuthorityOwnsHardMute()],
-  ['pauseGate', () => isProPlaybackPauseGatePendingFromIframe()],
+  ['pauseGate', () => isYouTubePauseGateHeld()],
   ['auxHeld', () => isYouTubeStartRoomStateHeld()],
   ['beatHeld', () => isYouTubeStartSyncOwned() || isYouTubeAutoSyncPending()],
   [
@@ -190,7 +189,7 @@ function formatSample({ phase, tokens, activity }: StartOwnershipSample): string
  * `volumePercent`) and report '<ms> <phase> column:<held|free>
  * iframe:<unMute|none>': whether the unMuteHeld column holds an unMute at
  * this instant, and whether `fake` received unMute() inside the change. The
- * second half is player.ts's real guard, read by its effect.
+ * second half is the App's real guard, read by its effect.
  */
 export function applyVolumeAndReadUnMute(
   fake: FakeYtPlayer,

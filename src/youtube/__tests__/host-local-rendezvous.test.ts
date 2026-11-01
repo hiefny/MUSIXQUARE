@@ -237,7 +237,6 @@ afterEach(() => {
     cancelPendingAutoSync: () => undefined,
     consumePendingAutoSyncOnReady: () => null,
     isYouTubeAutoSyncPending: () => false,
-    isProPlaybackPauseGatePending: () => false,
     setPendingAutoSyncOnReady: () => undefined,
   });
   registerYouTubeStartClaim('standard-recovery', [() => false, () => false]);
@@ -282,7 +281,6 @@ describe.each([0, 250])('Standard-host local scheduled rendezvous (output %ims)'
         consumePendingAutoSyncOnReady: () => null,
         // The stand-in owner answers from the raw timer it armed above.
         isYouTubeAutoSyncPending: () => getManagedTimer('yt-auto-sync') !== null,
-        isProPlaybackPauseGatePending: () => false,
         setPendingAutoSyncOnReady: () => undefined,
       });
       // The stand-in recovery's claim, as player.ts registers its own.

@@ -313,11 +313,14 @@ RO-53 owner-in-place
   (the small-drift sample, the guest heartbeat and the auxiliary state); `isYouTubeStartArmBusy`
   in `src/ui/seekbar.ts` and `iframe.ts`'s UI loop; `isYouTubeStartRecoveryActive` in `iframe.ts`'s
   state router; `isYouTubeStartRoomStateHeld` in `iframe.ts`'s auxiliary `YOUTUBE_STATE` hold;
-  and `isYouTubeStartHardMuteOwned` in `player.ts`'s unMute guards (`youtube:set-volume`, the PRO
-  pause-gate settlement). Since Phase 6 6A-1 other modules ask the start-timer owners rather than
-  read the timers by name: `sync.ts`'s heartbeat hold, `iframe.ts`'s sub-video advance check and
+  and `isYouTubeStartHardMuteOwned` in the unMute guard of a `youtube:set-volume` write and of the
+  PRO pause-gate settlement, which since Phase 6 6C-2 is the iframe audio owner's start hold
+  (`src/youtube/iframe-audio.ts`, RO-12), registered by `player.ts` behind a closure. Since
+  Phase 6 6A-1 other modules ask the start-timer owners rather than read the timers by name:
+  `sync.ts`'s heartbeat hold, `iframe.ts`'s sub-video advance check and
   `src/youtube/native-control-authority.ts` (`hasProtectedTransitionOwner`) ask
-  `isYouTubeAutoSyncPending` (`src/youtube/player-runtime-bridge.ts`), which `player.ts` answers
+  `isYouTubeAutoSyncPending` (`src/youtube/player-runtime-bridge.ts`, which since 6C-2 no longer
+  carries the PRO pause gate), which `player.ts` answers
   from its own `'yt-auto-sync'` timer, the timer the ledger's legacy claim reads for `iframe.ts`'s
   auxiliary `YOUTUBE_STATE` hold since 6B-2; `hasProtectedTransitionOwner` also asks the query
   `sync.ts` registers (`registerYouTubeNativeControlSyncOwnerQuery`), which `sync.ts` answers from
@@ -1665,24 +1668,49 @@ RO-53 owner-in-place
 ### RO-12 YouTube iframe audio state
 
 - **Resource:** the iframe's `mute`, `unMute` and `setVolume` state.
-- **Current owners/flows:** the RO-02 and RO-03 machines (active and detached restores, which
-  since Phase 6 6A-4 (C2-3) run through the one verified restore in `src/youtube/iframe-audio.ts`,
-  each with its own fences, check, outcome and timer); the `youtube:set-volume` handler in
-  `src/youtube/player.ts`, which asks three hard-mute owners plus parking and pushes the desired
-  audio into each machine; the PRO pause gate
-  (`_proPlaybackPauseGateToken`, held in both `player.ts` and `src/audio/engine.ts`); the PRO
-  direct commit write; the retained-player hard-mute proof
-  (`src/youtube/retained-player-controller.ts`); the gesture-bound prime unmute in `iframe.ts`.
-  Since 9.0.1 the authority-arm prepare reads the pause gate through
-  `isProPlaybackPauseGatePendingFromIframe` (G3). "Desired audio from master volume" is still
-  computed in several places with two mute rules.
+- **Current owners/flows:** since Phase 6 6C-2 (C2-2) `src/youtube/iframe-audio.ts` is the write
+  owner of the App's own audio and of the holds that keep it closed. The `youtube:set-volume`
+  handler, the PRO pause gate's settlement and the PRO direct commit (`player.ts`) write through
+  its `applyYouTubeAudio`, each in the order it had before: the volume write calls `setVolume`,
+  then asks parking, then mutes or unmutes; the settlement asks parking first and gives a parked
+  iframe no `setVolume`; the direct commit asks neither parking nor a start owner. The gate's
+  opening mutes at once through `enforceYouTubePauseGate`. The desired audio is not stored: a
+  writer reads it when it writes, from the master volume (`readYouTubeAppAudio`) and from the
+  gate's token, which the module holds (`holdYouTubePauseGate`, `releaseYouTubePauseGate` for the
+  matching settlement only, `clearYouTubePauseGate` in `stopYouTubeMode`, and
+  `isYouTubePauseGateHeld`, which the PRO prepare in `iframe.ts` asks; the runtime bridge no
+  longer carries the gate). Each hold kind is enforced in its own way: the gate mutes at once,
+  whatever else holds, and turns every App write's unmute into a mute; parking (RO-14) gets the
+  retained player controller's verified hard mute and nothing else; a start owner's hard mute
+  (the zero-start run, the guest recovery or the PRO arm, as the start ledger's
+  `isYouTubeStartHardMuteOwned` answers) holds only the unmute, because that owner restores the
+  latest desired audio itself. `player.ts` registers the last two as closures
+  (`registerYouTubeAudioHolds`) as it loads; until then neither holds. The RO-02 and RO-03 machines
+  keep their own hard mutes, releases and restores (active and detached, which since Phase 6 6A-4
+  (C2-3) run through the one verified restore in the same module, each with its own fences,
+  check, outcome and timer), and `player.ts` still pushes the desired audio into them. The
+  retained-player hard-mute proof (`src/youtube/retained-player-controller.ts`) and the
+  gesture-bound prime unmute in `iframe.ts` keep their own writes, and `src/audio/engine.ts` keeps
+  its own pause-gate token for the WebAudio output (Phase 7).
+  Two mute rules remain, named in `readYouTubeAppAudio`, and they differ only for
+  0 < master volume < 0.005: the 'rounded' rule mutes when the volume rounds to 0 % (the volume
+  write, the gate's settlement, the direct commit and the two recovery intents in `player.ts`);
+  the 'non-positive' rule mutes only at 0 (the Standard zero-start run's desired audio, which its
+  restores, its release unmute, its cancel restore and the guest local recovery's intent take, and
+  the PRO prepare). At 0.004 the first mutes and the second unmutes at volume 0. The owner chose
+  the 'rounded' rule for every site on 2026-10-30, as a later change of its own.
 - **Target single owner:** one iframe-audio module (`src/youtube/iframe-audio.ts`, which holds the
-  verified restore since Phase 6 6A-4) holding the desired state, holds and one verified restore;
-  the retained player and prime only register a parking hold or keep their gesture-bound write.
-- **Allowed requesters:** master volume through `youtube:set-volume` and the PRO pause-gate events
-  (`pro-playback:ui-control-pending` and `-settled`), whose handlers in `player.ts` push desired
-  audio into the start machines through `updateYouTubeZeroStartDesiredAudioState` and
-  `updateProYouTubeAuthorityDesiredAudioState`; the start machines.
+  verified restore since Phase 6 6A-4 and the App's writes, the pause gate's iframe token and the
+  holds since 6C-2) that the start machines also read the desired audio and the gate from, instead
+  of being pushed them; the retained player and prime only register a parking hold or keep their
+  gesture-bound write.
+- **Allowed requesters:** master volume through `youtube:set-volume`, which only `engine.ts`'s
+  `audio:set-volume` and `audio:apply-youtube-volume` listeners send, once each with
+  `Math.round(v * 100)`, and the PRO pause-gate events (`pro-playback:ui-control-pending` and
+  `-settled`), whose handlers in `player.ts` push desired audio into the start machines through
+  `updateYouTubeZeroStartDesiredAudioState` and `updateProYouTubeAuthorityDesiredAudioState` and
+  write through the owner; the PRO direct commit; the start machines; `player.ts`, which
+  registers the parking and start-owner holds once.
 - **Lifecycle operations:** `mute`, `unMute`, `setVolume`, verified restore. Since Phase 6 6A-4
   (C2-3) the verified restore is `restoreYouTubeAudioVerified` in `src/youtube/iframe-audio.ts`,
   with the two cadences kept apart (owner answer, 2026-10-30): write, wait, then verify for
@@ -1700,13 +1728,15 @@ RO-53 owner-in-place
   (`main` `23f29283`, App 9.0.27) 44, in `zero-start.ts` (12), `authority-arm.ts` (10),
   `player.ts` (17), `iframe.ts` (3) and `retained-player-controller.ts` (2); since 6A-4 32, in
   `zero-start.ts` (6), `authority-arm.ts` (4), `player.ts` (14), `iframe-audio.ts` (3),
-  `iframe.ts` (3) and `retained-player-controller.ts` (2). A write through a helper counts
-  only inside the helper, so the baseline reasons name the helpers: `writeYouTubeAudio` in
-  `iframe-audio.ts`, through which the six verified restores, the recoveries' restores before a
-  release, the guest fallback's release write and both recoveries' unverified cleanups of a
-  replaced or cancelled iframe (`cleanupExactPlayer` in `player.ts`) write, and
-  `ensureRetainedYouTubePlayerHardMuted` in `iframe.ts`, which reaches the retained-player
-  controller's `issueHardMute`. Guard item 11 names the call forms CHECK 11 does
+  `iframe.ts` (3) and `retained-player-controller.ts` (2); since 6C-2 26, with `player.ts` (4)
+  and `iframe-audio.ts` (7). A write through a helper counts only inside the helper, so the
+  baseline reasons name the helpers: `writeYouTubeAudio` in `iframe-audio.ts`, through which the
+  six verified restores, the recoveries' restores before a release, the guest fallback's release
+  write and both recoveries' unverified cleanups of a replaced or cancelled iframe
+  (`cleanupExactPlayer` in `player.ts`) write; `applyYouTubeAudio` and `enforceYouTubePauseGate`
+  in the same module, through which the volume write, the gate's two handlers and the direct
+  commit write; and `ensureRetainedYouTubePlayerHardMuted` in `iframe.ts`, which reaches the
+  retained-player controller's `issueHardMute`. Guard item 11 names the call forms CHECK 11 does
   not see (destructured, `.call()` and `.bind()` methods, and computed keys other than literals
   and `const`s). The iOS prime `unMute()` in `primeYouTubePlayer` stays where it
   is: it has to run inside the user gesture's call stack.
@@ -1729,10 +1759,16 @@ RO-53 owner-in-place
   - Visibility: `src/youtube/__tests__/youtube-owner-visibility.test.ts` "RO-12: a
     youtube:set-volume write and a PRO pause-gate settlement write the same audio while %s"
     (no visibility branch today).
+  - Write order and holds (since 6C-2): `src/youtube/__tests__/youtube-iframe-audio-order.test.ts`
+    (each App write's commands, pushes and hold questions in order, the two mute rules at master
+    volumes 0, 0.004 and 0.005, and one `youtube:set-volume` per `engine.ts` volume event, written
+    once) and `iframe-audio-owner.test.ts` (the owner's own pieces).
 - **Status:** `duplicated`. Phase 6 (single iframe-audio owner, one verified restore; the ratchet
   on direct audio writes is CHECK 11, added before the first Phase 6 train). The one verified
-  restore exists since 6A-4; the desired state and the holds (plan step C2-2) stay spread until a
-  later Phase 6 train moves them into `iframe-audio.ts`.
+  restore exists since 6A-4, and the App's own writes, the pause gate's iframe token and the holds
+  (plan step C2-2) since 6C-2. The start machines still keep their own hard-mute writes and take
+  the desired audio by push until a later Phase 6 train has them read it from `iframe-audio.ts`,
+  and the two mute rules stay until the owner's chosen single rule lands.
 
 ### RO-13 YouTube manual-offset transaction
 
@@ -1773,7 +1809,12 @@ RO-53 owner-in-place
   `iframe.ts` defines and also writing the prime flags; `stopYouTubeMode` (`player.ts`), which
   parks or destroys.
 - **Target single owner:** unchanged: `iframe.ts` owns the instance and delegates parking to the
-  retained-player controller through its ports. Phase 6 only registers a parking audio hold.
+  retained-player controller through its ports. Phase 6 only registers a parking audio hold: since
+  6C-2 `player.ts` registers it with the iframe audio owner (`registerYouTubeAudioHolds` in
+  `src/youtube/iframe-audio.ts`, RO-12), which asks `isRetainedYouTubePlayerParked` before an App
+  write and then has the controller's verified hard mute (`ensureRetainedYouTubePlayerHardMuted`)
+  applied instead of the write's mute or unmute. The controller's own writes, phases and deadlines
+  are unchanged.
 - **Allowed requesters:** `stopYouTubeMode` (park or destroy request); the guest heartbeat
   hand-off (`prepareSyncHandoff`).
 - **Lifecycle operations:** create, precreate, prime bounce, park, destroy.
@@ -3961,8 +4002,10 @@ and unrelated strings never count, and every baseline is an exact count or list 
     in `src/` today. Phase 6 lowers the counts as one iframe-audio owner takes the writes; the
     iOS prime `unMute()`, which must stay inside the gesture call stack, and the retained
     player's hard-mute proof stay. Since Phase 6 6A-4 the verified restores write through
-    `writeYouTubeAudio` in `src/youtube/iframe-audio.ts` (32 calls, from 44). `--report` lists
-    every counted call with its function.
+    `writeYouTubeAudio` in `src/youtube/iframe-audio.ts` (32 calls, from 44), and since 6C-2 the
+    App's own writes (the volume write, the PRO pause gate and the PRO direct commit) through its
+    `applyYouTubeAudio` and `enforceYouTubePauseGate` (26 calls). `--report` lists every counted
+    call with its function.
 12. **Cross-file YouTube start-timer reads and clears, per file** (RO-02, Phase 6 T1): in
     `src/youtube/`, `getManagedTimer()` and `clearManagedTimer()` calls on a start timer (the
     list in RO-02) that the same file does not set with `setManagedTimer()`. A call counts once

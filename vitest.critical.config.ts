@@ -52,8 +52,9 @@ export default defineConfig({
       'src/network/__tests__/transport-health.test.ts',
       'src/youtube/__tests__/{search,search-style}.test.ts',
       // The verified YouTube iframe audio restore (RO-12), enrolled with its
-      // module in Phase 6 6A-4.
-      'src/youtube/__tests__/iframe-audio.test.ts',
+      // module in Phase 6 6A-4, and the module's App writes, pause gate and
+      // holds since it became their owner in Phase 6 6C-2.
+      'src/youtube/__tests__/{iframe-audio,iframe-audio-owner}.test.ts',
       // The YouTube start ledger (RO-02) and its zero-start run owner, enrolled
       // with the ledger in Phase 6 6B-1: the ledger's suite, the controller's
       // own suites and the Standard start-ownership truth table.
@@ -346,7 +347,8 @@ export default defineConfig({
           lines: 80,
         },
         // The verified iframe audio restore (Phase 6 6A-4) is fully covered
-        // by iframe-audio.test.ts on 2026-10-31.
+        // by iframe-audio.test.ts on 2026-10-31, and the App writes, pause
+        // gate and holds (6C-2) by iframe-audio-owner.test.ts on 2026-11-02.
         'src/youtube/iframe-audio.ts': {
           statements: 99,
           branches: 99,

@@ -978,7 +978,14 @@ describe('YouTubeAuthorityArmController', () => {
     });
     await vi.advanceTimersByTimeAsync(1_000);
     const nextIdentity = { ...identity, authorityKey: 'transition-2', videoId: 'next-video' };
-    const preparing = controller.prepare({ ...nextIdentity, strategy: 'load', targetSeconds: 3 });
+    // The PRO arm prepares only a resident iframe: the next occurrence's video
+    // is already in it.
+    player.__videoId = 'next-video';
+    const preparing = controller.prepare({
+      ...nextIdentity,
+      strategy: 'resident',
+      targetSeconds: 3,
+    });
     await vi.runAllTimersAsync();
     await expect(first).resolves.toMatchObject({ status: 'superseded' });
     await expect(preparing).resolves.toMatchObject({ status: 'ready' });

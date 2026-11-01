@@ -21,8 +21,8 @@
  *
  * State notifications reach `__onStateChange` synchronously, inside the
  * command that caused them, unless `__stateNotifyDelayMs` is set (opt-in,
- * default null): then each one arrives in a later task, as the real IFrame
- * API delivers onStateChange over postMessage.
+ * default null): then each change of state arrives in a later task, as the
+ * real IFrame API delivers onStateChange over postMessage.
  */
 
 export interface FakeYtPlayerCall {
@@ -106,14 +106,18 @@ export interface FakeYtPlayer {
   /**
    * Opt-in delivery delay for state notifications. null (default) calls
    * __onStateChange synchronously inside the command, as every existing suite
-   * expects. A number delivers each notification in its own fake-timer task
-   * that many milliseconds later (0: one task later; fake-timers makes a
-   * zero delay 1 ms when the command itself runs inside a timer or its
-   * microtasks). Each event carries the state of its own transition, and the
-   * handler is read from __onStateChange when the event arrives.
-   * getPlayerState() still answers the new state at once; the real API
-   * answers from a cache that the same messages update, which this fake does
-   * not model.
+   * expects, for every transition, a repeated state included. A number
+   * delivers each notification in its own fake-timer task that many
+   * milliseconds later (0: one task later; fake-timers makes a zero delay
+   * 1 ms when the command itself runs inside a timer or its microtasks), and
+   * only for a transition that changes the state, as the real API's
+   * onStateChange reports changes only (a pauseVideo() on a paused iframe
+   * sends nothing, and youtube/iframe.ts's same-video restart does not wait
+   * for the CUED of a repeated cue). Each event
+   * carries the state of its own transition, and the handler is read from
+   * __onStateChange when the event arrives. getPlayerState() still answers
+   * the new state at once; the real API answers from a cache that the same
+   * messages update, which this fake does not model.
    */
   __stateNotifyDelayMs: number | null;
   __onStateChange?: (event: FakeYtStateChangeEvent) => void;
@@ -158,6 +162,7 @@ export function makeFakeYtPlayer(init?: Partial<FakeYtPlayer>): FakeYtPlayer {
 
   function transition(self: FakeYtPlayer, state: number, emit = true): void {
     syncClock(self);
+    const previous = self.__state;
     self.__state = state;
     if (state === 1) {
       playStartedFrom = self.__currentTime;
@@ -171,6 +176,9 @@ export function makeFakeYtPlayer(init?: Partial<FakeYtPlayer>): FakeYtPlayer {
       self.__onStateChange?.(event);
       return;
     }
+    // The real API reports a change only: pauseVideo() on a paused iframe
+    // sends nothing.
+    if (state === previous) return;
     setTimeout(() => self.__onStateChange?.(event), self.__stateNotifyDelayMs);
   }
 

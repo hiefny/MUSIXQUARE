@@ -26,12 +26,15 @@
  * right.
  *
  * The fake iframe notifies the App synchronously, inside the command that
- * caused the state; a real iframe delivers onStateChange over postMessage, a
+ * caused the state, and for every command, a pauseVideo() on a paused iframe
+ * included; a real iframe reports a change of state only, over postMessage, a
  * task or more later. The rows run on the synchronous default, and those
  * arrays are the pins a later start ledger is held to. An 'a' row runs the
- * same script with every App notification one task later (withAsyncNotify),
- * so a line that only the synchronous ordering produces is marked "Fake
- * ordering" and its 'a' row shows what real delivery does.
+ * same script with every App notification one task later and only on a
+ * change (withAsyncNotify), so a line that only the synchronous fake produces
+ * is marked "Fake ordering" and its 'a' row shows what real delivery does.
+ * H10c is the one async row with no synchronous twin: H10's pause in a longer
+ * cycle, run only that way.
  */
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { MSG } from '../../core/constants.ts';
@@ -450,10 +453,11 @@ const GUEST_OFFSET_APPLY_AWAITING_HEARTBEAT: TableRow = {
 
 /**
  * The same row with every App iframe state notification delivered one task
- * later (fake-yt-player.ts __stateNotifyDelayMs 0), as the real IFrame API
- * delivers onStateChange over postMessage. The rows above run on the fake's
- * default, a notification inside the command that caused it; a line that
- * differs between a row and its 'a' variant depends on that ordering.
+ * later, and only for a change of state (fake-yt-player.ts
+ * __stateNotifyDelayMs 0), as the real IFrame API delivers onStateChange over
+ * postMessage. The rows above run on the fake's default, a notification for
+ * every command, inside the command that caused it; a line that differs
+ * between a row and its 'a' variant depends on that delivery.
  */
 function withAsyncNotify(row: TableRow): TableRow {
   const init = row.rig?.iframeInit;
@@ -531,10 +535,13 @@ const H4_SAMPLES = [
   // The legacy recovery times out at +4561 and keeps its fence through eight
   // verified restore attempts.
   '4561 loading:idle:zero-start@timer idle owned fallback fallbackPending guestPending beatHeld unMuteHeld playing',
-  // Fake ordering: the fence ends with the iframe paused at 0:00, and its
-  // last PAUSED arrived inside the fence, so playback.activity stays
-  // 'playing'. Delivered one task later (H4a) that PAUSED lands after the
-  // fence and the projection turns 'paused' at +5402.
+  // Looks like a defect: the fence ends with the iframe paused at 0:00, but
+  // playback.activity stays 'playing'. Every pause after the warm-up's +360
+  // re-pauses a paused iframe: the synchronous fake reports each one inside
+  // the fence, and a real iframe reports none (H4a, the same lines). The play
+  // button, the playlist icon and the tab title read the iframe's own state
+  // and show it paused; what follows playback.activity, the OS media
+  // controls among them, shows it playing.
   '5401 ready@timer-micro idle playing',
 ];
 const H5_SAMPLES = [
@@ -636,10 +643,11 @@ const G5_SAMPLES = [
   '723 ready@timer scheduled owned inFlight protocol guestPending auxHeld beatHeld playing',
   // 'starting' holds at rest while the release buffers without PLAYING.
   '1422 ready@timer starting owned inFlight protocol guestPending auxHeld beatHeld playing',
-  // Fake ordering: the release-ack timeout's own pause reaches the ordinary
-  // projection ('starting' passes non-PLAYING states through) for 51 ms.
-  // Delivered one task later (G5a) it projects in the same instant as the
-  // fallback's PLAYING.
+  // Fake ordering: the release-ack timeout's own pause arrives inside the
+  // timeout, while the run is still 'starting' (which passes non-PLAYING
+  // states through), and the projection shows 'paused' for 51 ms. Delivered
+  // one task later (G5a) it arrives at +3223 inside the fallback's fence and
+  // is never projected.
   '3222 notify:2:after starting owned inFlight protocol guestPending auxHeld beatHeld paused',
   '3222 loading:idle:zero-start@timer error paused',
   '3222 ready@timer error paused',
@@ -679,13 +687,14 @@ const G8_SAMPLES = [
   // The hard mute never confirms: 'error' holds with no owner until the COMMIT.
   '431 loading:idle:zero-start@timer error playing',
   '431 ready@timer error playing',
-  // Fake ordering: the warm-up's own pause at +431 arrives inside the
-  // controller's command and is not projected; at the COMMIT the controller
-  // pauses the iframe before the fallback claims it, and an 'error' run
-  // consumes no event, so the projection shows 'paused' from +2401 until the
-  // fallback release at +3100. Delivered one task later (G8a) the warm-up's
-  // pause arrives in 'error' and the window runs from +432 instead. G8p and
-  // G8pa start over a playing track.
+  // Fake ordering: the warm-up error's own pause at +431 arrives inside the
+  // controller's command and is not projected. At the COMMIT the controller
+  // pauses the iframe again before the fallback claims it; the synchronous
+  // fake reports that re-pause, and an 'error' run consumes no event, so the
+  // projection shows 'paused' from +2401 until the fallback release at +3100.
+  // A real iframe reports no re-pause: delivered one task later (G8a) the
+  // +431 pause arrives in 'error' and the window runs from +432 instead. G8p
+  // and G8pa start over a playing track.
   '2401 notify:2:after error paused',
   '2401 ready@timer error paused',
   '2401 ready@timer-micro error owned fallback fallbackPending guestPending beatHeld unMuteHeld paused',
@@ -795,10 +804,10 @@ const G5A_SAMPLES = [
   '3222 loading:idle:zero-start@timer error playing',
   '3222 ready@timer error playing',
   '3222 ready@timer-micro error owned fallback fallbackPending guestPending beatHeld unMuteHeld playing',
-  // The timeout's pause and the fallback's PLAYING project in one instant.
-  '3274 notify:2:before error owned fallbackPending guestPending beatHeld playing',
-  '3274 notify:2:after error owned fallbackPending guestPending beatHeld paused',
-  '3274 notify:1:after error owned fallbackPending guestPending beatHeld playing',
+  // The timeout's PAUSED arrived at +3223 inside the fallback's fence, and
+  // the fallback's own pauses re-pause a paused iframe and send nothing: the
+  // projection stays 'playing' through its release PLAYING.
+  '3274 notify:1:before error owned fallbackPending guestPending beatHeld playing',
   '3274 ready@timer-micro error playing',
 ];
 const G8A_SAMPLES = [
@@ -806,8 +815,9 @@ const G8A_SAMPLES = [
   '431 loading:idle:zero-start@timer error playing',
   '431 ready@timer error playing',
   // The warm-up error's own pause arrives in 'error', which consumes nothing:
-  // 'paused' from +432 to the release; the COMMIT's pause at +2401 arrives
-  // inside the fallback's fence.
+  // 'paused' from +432 to the release; the COMMIT's re-pause at +2401 sends
+  // nothing. This line assumes a cued iframe reports PAUSED for
+  // pauseVideo(), as the fake models it; no device trace shows that.
   '432 notify:2:after error paused',
   '2401 ready@timer error paused',
   '2401 ready@timer-micro error owned fallback fallbackPending guestPending beatHeld unMuteHeld paused',
@@ -827,7 +837,10 @@ const G8_NEXT_PREPARE_SAMPLES = [
 const G8P_SAMPLES = [
   ...G12_SAMPLES,
   ...G8_NEXT_PREPARE_SAMPLES,
-  // As in G8: 'paused' from the COMMIT (+7301) to the release (+8000).
+  // Fake ordering, as in G8: the warm-up error's pause of the playing track
+  // at +5331 arrives inside the controller's command, and the COMMIT's
+  // re-pause is projected from +7301 to the release (+8000). G8pa shows real
+  // delivery.
   '7301 notify:2:after error paused',
   '7301 ready@timer error paused',
   '7301 ready@timer-micro error owned fallback fallbackPending guestPending beatHeld unMuteHeld paused',
@@ -851,9 +864,10 @@ const G8PA_SAMPLES = [
   '4400 loading:idle:rendezvous@timer idle playing',
   ...G8_NEXT_PREPARE_SAMPLES,
   // Looks like a defect: the warm-up error pauses the playing track at +5331
-  // and its PAUSED is projected at +5332. No loading owner is busy after
-  // +5331, and the projection stays 'paused' until the new track's release at
-  // +8001 (2.67 s); the fallback claims the iframe only at the COMMIT (+7301).
+  // and its PAUSED, a change from PLAYING, is projected at +5332. No loading
+  // owner is busy after +5331, and the projection stays 'paused' until the
+  // new track's release at +8001 (2.67 s); the fallback claims the iframe
+  // only at the COMMIT (+7301), whose re-pause sends nothing.
   '5332 notify:2:after error paused',
   '7301 ready@timer error paused',
   '7301 ready@timer-micro error owned fallback fallbackPending guestPending beatHeld unMuteHeld paused',
@@ -888,7 +902,8 @@ const H2_AUX = [
 ];
 const H3_AUX = [
   '430 notify:2 muting held',
-  // The recovery owns its reload's pause.
+  // The recovery owns its reload's pause, a re-pause that a real iframe does
+  // not report (H3a).
   '431 notify:2 idle held',
   // Fake ordering, as in H9: the recovery release's own PLAYING leaves before
   // Stage 1; delivered one task later (H3a) it is held.
@@ -899,8 +914,10 @@ const H3_BEAT = ['3000 beat idle held', '6000 beat idle sent', '9000 beat idle s
 const H4_AUX = [
   '100 notify:1 warming held',
   '360 notify:2 warming held',
+  // Every pause from here re-pauses the iframe paused at +360, so a real
+  // iframe reports none of them (H4a): the error's, the legacy recovery's,
+  // then the timed-out restore attempts', all owned by the recovery.
   '1560 notify:2 restoring-audio held',
-  // The legacy recovery owns its pauses, then the timed-out restore attempts'.
   '1561 notify:2 idle held',
   '4561 notify:2 idle held',
   '4681 notify:2 idle held',
@@ -914,7 +931,9 @@ const H4_AUX = [
 const H5_AUX = [
   '100 notify:1 warming held',
   '360 notify:2 warming held',
-  // The cancel's own pause arrives while the run is still set.
+  // The cancel's own pause arrives while the run is still set; it and the
+  // recovery's reload pause re-pause the iframe paused at +360, which a real
+  // iframe does not report (H5a).
   '400 notify:2 settling held',
   '1901 notify:2 idle held',
   // Fake ordering, as in H9: the replacement recovery's release PLAYING leaves
@@ -976,48 +995,26 @@ const H11_AUX = [
 
 // Rows with every App iframe notification one task later ('a' rows).
 
-/** H3, H6 and H9 send Stage 1 alone: the auxiliary PLAYING is held. */
-const H3A_AUX = ['431 notify:2 idle held', '432 notify:2 idle held', '482 notify:1 idle held'];
-const H4A_SAMPLES = [
-  ...H4_SAMPLES,
-  // The recovery's last PAUSED lands after its fence and is projected.
-  '5402 notify:2:after idle paused',
-];
-const H4A_AUX = [
-  '101 notify:1 warming held',
-  '361 notify:2 settling held',
-  '1561 notify:2 idle held',
-  '1562 notify:2 idle held',
-  '4562 notify:2 idle held',
-  '4682 notify:2 idle held',
-  '4802 notify:2 idle held',
-  '4922 notify:2 idle held',
-  '5042 notify:2 idle held',
-  '5162 notify:2 idle held',
-  '5282 notify:2 idle held',
-  // That PAUSED also leaves as an auxiliary state, the room's truth: the host
-  // never sent a COMMIT, so no guest started.
-  '5402 notify:2 idle sent',
-];
-const H5A_SAMPLES = [
-  ...HOST_ALL_READY_SAMPLES.slice(0, 6),
-  '400 loading:idle:zero-start@step:replace idle playing',
-  '400 ready@step:replace idle playing',
-  // The cancel's own PAUSED arrives after the run is gone: projected, and
-  // sent as an auxiliary state at 0:00.26 after this guest's ABORT. Nothing
-  // plays until the replacement recovery's release.
-  '400 notify:2:after idle paused',
-  '1900 ready@timer-micro idle owned fallback fallbackPending guestPending beatHeld unMuteHeld paused',
-  '1951 ready@timer idle paused',
-  '1951 ready@timer-micro idle autoSync auxHeld beatHeld paused',
-  '1952 notify:1:after idle autoSync auxHeld beatHeld playing',
-  '5960 rest idle playing',
-];
+/**
+ * H3, H6 and H9 send Stage 1 alone: the auxiliary PLAYING is held. In H3a
+ * the error's pause of the cued iframe is reported; the recovery's reload
+ * pause is a re-pause and is not.
+ */
+const H3A_AUX = ['431 notify:2 idle held', '482 notify:1 idle held'];
+/**
+ * H4a keeps H4's lines (playback.activity stays 'playing'), and only the
+ * warm-up's two changes are reported: every later pause re-pauses the iframe
+ * paused at +360. No youtube-state frame leaves.
+ */
+const H4A_AUX = ['101 notify:1 warming held', '361 notify:2 settling held'];
+/**
+ * H5a keeps H5's lines: the cancel's pause at +400 and the recovery's reload
+ * pause re-pause the iframe paused at +360 and are not reported, and the
+ * replacement recovery's release PLAYING is held.
+ */
 const H5A_AUX = [
   '101 notify:1 warming held',
   '361 notify:2 settling held',
-  '400 notify:2 idle sent',
-  '1902 notify:2 idle held',
   '1952 notify:1 idle held',
 ];
 const H9A_SAMPLES = [
@@ -1033,7 +1030,12 @@ const H9A_SAMPLES = [
 const H9A_AUX = ['101 notify:1 warming held', '200 notify:2 idle held', '200 notify:1 idle held'];
 /** The formal PAUSED and the iframe's own PAUSED, at 0:00.1. */
 const H10_STATES = ['200 state 2 at 0.1', '200 state 2 at 0.1'];
-const H10A_AUX = ['101 notify:1 warming held', '200 notify:2 idle sent', '200 notify:2 idle held'];
+/**
+ * The cancel's pause is reported once, after the formal PAUSED, and leaves
+ * as the auxiliary half of the pair; the pause path's own pause re-pauses
+ * and is not reported.
+ */
+const H10A_AUX = ['101 notify:1 warming held', '200 notify:2 idle sent'];
 const H10C_SAMPLES = [
   ...HOST_ALL_READY_SAMPLES.slice(0, 12),
   '1423 loading:idle:zero-start@notify:1 playing owned protocol guestPending auxHeld beatHeld playing',
@@ -1216,19 +1218,19 @@ describe('start-ownership table: Standard host, notifications one task later (pi
 
   it('H4a audio restore timeout, then a legacy recovery that times out', async () => {
     const result = await runRow(withAsyncNotify(HOST_RESTORE_TIMEOUT));
-    expect(result.samples).toEqual(H4A_SAMPLES);
+    expect(result.samples).toEqual(H4_SAMPLES);
     expect(result.aux).toEqual(H4A_AUX);
     expect(result.beat).toEqual(['3000 beat idle held', '6000 beat idle sent']);
-    expect(result.states).toEqual(['5402 state 2 at 0']);
+    expect(result.states).toEqual([]);
     expect(result.heartbeats).toEqual(['6000 state 2 at 0']);
   });
 
   it('H5a peer connection replaced mid-warm-up, then the replacement recovery', async () => {
     const result = await runRow(withAsyncNotify(HOST_PEER_REPLACED));
-    expect(result.samples).toEqual(H5A_SAMPLES);
+    expect(result.samples).toEqual(H5_SAMPLES);
     expect(result.aux).toEqual(H5A_AUX);
     expect(result.beat).toEqual(H5_BEAT);
-    expect(result.states).toEqual(['400 state 2 at 0.26', '1951 state 1 at 0']);
+    expect(result.states).toEqual(['1951 state 1 at 0']);
   });
 
   it('H6a legacy two-stage rendezvous', async () => {
@@ -1498,7 +1500,8 @@ describe('start-ownership table: Standard guest, notifications one task later (p
 describe('start-ownership table: Standard coverage (pinned 2026-11-01)', () => {
   /**
    * Each Standard row's lines, by row (H2 and H12 assert H1's, H12b H6's, and
-   * H3a, H6a and H10a H3's, H6's and H10's; H13 asserts last lines only).
+   * H3a, H4a, H5a, H6a and H10a H3's, H4's, H5's, H6's and H10's; H13 asserts
+   * last lines only).
    */
   const STANDARD_ROWS: ReadonlyArray<readonly [row: string, samples: readonly string[]]> = [
     ['H1', HOST_ALL_READY_SAMPLES],
@@ -1511,8 +1514,6 @@ describe('start-ownership table: Standard coverage (pinned 2026-11-01)', () => {
     ['H9', H9_SAMPLES],
     ['H10', H10_SAMPLES],
     ['H11', H11_SAMPLES],
-    ['H4a', H4A_SAMPLES],
-    ['H5a', H5A_SAMPLES],
     ['H9a', H9A_SAMPLES],
     ['H10c', H10C_SAMPLES],
     ['G1', G1_SAMPLES],

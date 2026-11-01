@@ -31,7 +31,8 @@
  *   then 'micro' after five resolved promises with no timer advance;
  * - 'notify:<state>:before' and 'notify:<state>:after' around every App
  *   iframe state notification (fake-yt-player.ts delivers it inside the
- *   command that caused it, or a task later with __stateNotifyDelayMs);
+ *   command that caused it, or, for a change of state only, a task later
+ *   with __stateNotifyDelayMs);
  * - 'ready@<ctx>' inside every youtube:zero-start-readiness-changed emission
  *   and 'loading:<busy|idle>:<owner|->@<ctx>' inside every
  *   youtube:sync-loading emission, where <ctx> is the innermost open step or

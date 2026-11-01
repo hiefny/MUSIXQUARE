@@ -117,8 +117,12 @@ bake the box into the files rather than patch `line-height` in CSS
   1160 / 288), so a renderer that clips glyphs to them (GDI) clips nothing
   new. With `USE_TYPO_METRICS` set, no current browser takes line spacing from
   them.
-- The sheets keep the four descriptors, so Chromium and Firefox draw exactly
-  what they drew with the input files. Whether the three overrides stay is an
+- The sheets keep the four descriptors, so Chromium draws exactly what it drew
+  with the input files (measured on Windows). Firefox applies the same
+  descriptors, so no change is expected there, but it was not measured: the
+  bake changes the face metrics Firefox reads (`hhea`, typo and, for CJK,
+  `USE_TYPO_METRICS`), and whether the overrides mask every value it derives
+  from them has not been checked. Whether the three overrides stay is an
   owner question in the report.
 - Whole units cannot equal two-decimal percentages: the baked box is within
   0.0004 em of the descriptors, not equal to them. A line drawn from the files
@@ -129,8 +133,18 @@ bake the box into the files rather than patch `line-height` in CSS
   them). A WebKit that applies the overrides, as Playwright's does, applies
   them without rounding the ascent and descent, so its baselines then fall
   between pixels.
-- Safari before 17 ignores `size-adjust` too and draws the baked units
-  unscaled: nearer the shipped boxes than before, not equal.
+- Safari 15 and 16 (the oldest Safari the app's CSS targets) ignore
+  `size-adjust` too and draw the baked units unscaled. Because the bake
+  divides by `size-adjust`, CJK and Latin move in opposite directions there
+  against the shipped box of (1950 + 494) / 2048 = 1.193 em. CJK lines come
+  nearer but not equal: 1.448 em before, 1.27 em now (13, 15 and 28 px lines
+  at 16, 19 and 35 px, against 15, 18 and 34). Latin lines get taller: Google's
+  Inter box was 1984 / 494 (1.210 em) and the baked one is 2006 / 508
+  (1.228 em), so with the ascent and descent rounded separately a Latin-only
+  line is 1 px taller at 28 and 2 px taller at 6 of the 81 half-pixel sizes
+  from 8 to 48 px, none shorter (for example 17 px 20 to 21, 20 px 24 to 25,
+  24 px 29 to 30, 34.5 px 41 to 43), and unchanged at 13, 15, 16 and 28 px.
+  The files stay as they are, since Safari 17 and later need the bake.
 - `fonts/app-faces.json` records each copy: the digests of its input and of
   itself, the box, the win metrics it keeps and the wawoff2 version. Without
   `--record`, a face baked again from its recorded input and box must give its
@@ -267,7 +281,8 @@ About links through `vite.config.ts`.
   and CJK sheets without the three overrides, as Safari reads them, and
   requires the line boxes of Latin, Hangul, mixed, kana and Han lines at 13,
   15 and 28 px and the four tab titles to stay where the shipped sheets put
-  them.
+  them. It opens the Korean UI only; the report's measurements and its
+  42-language sweep cover the other UIs.
 - `e2e/font-baked-pixels.test.ts` (local, on the e2e build) answers every
   request for a baked face with its input file in a second context and
   requires the start screen, the four tab screens and the chat in the Korean

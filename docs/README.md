@@ -94,41 +94,48 @@ runbooks. Neither belongs in a general setup document.
 ## Maintained evidence and completed records
 
 - [App font line box baked into the font files, and every tab title on one baseline (2026-11-01)](design/app-font-baked-metrics-2026-11-01.md):
-  not merged or released; one App train for the next App update after Phase 6 6B, on main
-  `dda3ee18` with no version bump, so `guard:sw-cache-version` fails only for the missing bump
-  until that release. Safari applies `size-adjust` but not the three metric overrides that keep
-  the 9.0.29 font switch's line boxes, so on the owner's iPhone a 15 px Hangul line was about
-  20 px high instead of 18 px and, with several playlists, the Playlist title sat higher than the
-  other tab titles. The owner chose on 2026-11-01 to fix it at the root, with no CSS
-  `line-height` patch. First increment (the 9.0.29 report's question 8): every Inter and CJK face
-  the app sheets keep (Inter 7, Noto Sans KR 120, JP 120, SC 95, TC 98) is served from a copy in
-  `fonts/app/` with the box of `src/i18n/font-metrics.ts` in `hhea` and the OS/2 typo metrics and
-  `USE_TYPO_METRICS` set (Inter 2006 / 508 / 0 of 2048 units, CJK 1013 / 257 / 0 of 1000), the
-  win metrics, every other byte and the inputs unchanged; `npm run generate:app-faces` bakes,
-  checks and records them in `fonts/app-faces.json`, and the font guard checks the copies. The
-  sheets keep their descriptors (option K), so Chromium and Firefox draw as before, and a line
-  next to a pixel rounding boundary (a CJK line at 14.5 px, some `clamp()` window bands) still
-  differs by 1 px between Safari and Chromium. Second increment, `css/style.css` only: the
-  Playlist switch button takes the title's line from the tab header row like the other tabs'
-  titles, delete mode keeps that row, and the second playlist's number sits on its name's
-  baseline, so in the 14 languages whose title line is taller than 36 px (Arabic, Urdu,
-  Persian, Thai, Kannada, Telugu, Hindi, Marathi, Bengali, Gujarati, Punjabi, Malayalam, Hebrew,
-  Tamil) the Playlist title moves down 0.5 to 4 px onto the other titles' baseline. Tests first
-  for each fix. QA rounds 1 to 3 (the font increment, before its move to main, with byte-identical
-  diffs) and T (the tab header increment) are in the report; round 4, on the combined head
-  `66c09b73`, reran the tests-first checks on their new parents, the font, tab header and playlist
-  specs, critical E2E, typecheck, lint, format, every guard (all pass but
-  `guard:sw-cache-version`), the `build:checked` steps and the full unit suite, and swept all 42
-  languages at 402 x 874 and 1440 x 900: the Playlist minus Connect (desktop: Settings) title
-  baseline is 0 everywhere in shipped Chromium and with the overrides removed as Safari reads the
-  sheets, and the 28 other languages are pixel-identical to main in Chromium on the four tab
-  headers, the start screen, the Playlist tab and the chat. The release target is `app` (449 App
-  runtime paths, none in the other five Workers). The release owner kept option K and queued
-  option D (drop the overrides, which moves boundary-size lines by 1 px in Chromium) for the
-  owner with pictures, accepted the repository growth (about 17.7 MB) and the JP, SC and TC files
-  About and the app no longer share until the public-page font train, and leaves tabs open at
-  release to the ignore-old-versions policy. A real iPhone has not been checked; the owner checks
-  on 2026-11-02 after the release. The 9.0.29 report's device check links this report.
+  prepared, not released: App 9.0.31 / v804, target `app`, one update dialog, ahead of Phase 6 6B
+  (which follows as 9.0.32 / v805); `raise_app_build_floor` false, Developer API D1 false. One App
+  train on main `dda3ee18`, with the bump to 9.0.31 / v804 as its last runtime commit. Safari
+  applies `size-adjust` but not the three metric overrides that keep the 9.0.29 font switch's line
+  boxes, so on the owner's iPhone a 15 px Hangul line was about 20 px high instead of 18 px and,
+  with several playlists, the Playlist title sat higher than the other tab titles. The owner chose
+  on 2026-11-01 to fix it at the root, with no CSS `line-height` patch, and to ship it. First
+  increment (the 9.0.29 report's question 8): every Inter and CJK face the app sheets keep (Inter
+  7, Noto Sans KR 120, JP 120, SC 95, TC 98) is served from a copy in `fonts/app/` with the box of
+  `src/i18n/font-metrics.ts` in `hhea` and the OS/2 typo metrics and `USE_TYPO_METRICS` set (Inter
+  2006 / 508 / 0 of 2048 units, CJK 1013 / 257 / 0 of 1000), the win metrics, every other byte and
+  the inputs unchanged; `npm run generate:app-faces` bakes, checks and records them in
+  `fonts/app-faces.json`, and the font guard checks the copies. The sheets keep their descriptors
+  (option K), so Chromium draws as before (Firefox applies the same descriptors and is expected to
+  follow, but was not measured), and a line next to a pixel rounding boundary (a CJK line at
+  14.5 px, some `clamp()` window bands) still differs by 1 px between Safari and Chromium. In
+  Safari 15 and 16 and the webOS TV legacy build, which ignore `size-adjust` too, CJK lines come
+  nearer the shipped box but Latin-only lines get 1 or 2 px taller at 34 of the 81 half-pixel sizes
+  from 8 to 48 px. Second increment, `css/style.css` only: the Playlist switch button takes the
+  title's line from the tab header row like the other tabs' titles, delete mode keeps that row,
+  and the second playlist's number sits on its name's baseline, so in the 14 languages whose title
+  line is taller than 36 px (Arabic, Urdu, Persian, Thai, Kannada, Telugu, Hindi, Marathi, Bengali,
+  Gujarati, Punjabi, Malayalam, Hebrew, Tamil) the Playlist title moves down 0.5 to 4 px onto the
+  other titles' baseline. Tests first for each fix. QA rounds 1 to 3 (the font increment) and T (the
+  tab header increment) ran before the two were moved onto main `dda3ee18`, on commits whose diffs
+  are byte-identical to this train's (the report maps the old SHAs to the new); round 4, on the
+  combined code head `66c09b73`, reran the tests-first checks on their new parents, the font, tab
+  header and playlist specs, critical E2E, typecheck, lint, format, every guard (all pass but
+  `guard:sw-cache-version`, for the missing bump), the `build:checked` steps and the full unit
+  suite, and swept all 42 languages at 402 x 874 and 1440 x 900: the Playlist minus Connect
+  (desktop: Settings) title baseline is 0 everywhere in shipped Chromium and with the overrides
+  removed as Safari reads the sheets, and the 28 other languages are pixel-identical to main in
+  Chromium on the four tab headers, the start screen, the Playlist tab and the chat.
+  `e2e/font-line-boxes.test.ts` opens the Korean UI only; the other UIs rest on the report's
+  measurements and the sweep. The release target is `app` (App runtime paths only, none in the
+  other five Workers). The release owner kept option K and queued option D (drop the overrides,
+  which moves boundary-size lines by 1 px in Chromium) for the owner with pictures, accepted the
+  repository growth (about 17.7 MB) and the JP, SC and TC files About and the app no longer share
+  until the public-page font train, and leaves tabs open at release to the ignore-old-versions
+  policy. A real iPhone has not been checked; the owner checks on 2026-11-02 afternoon after the
+  release. The release record's §2 section for 9.0.31 holds the gates, rollback and blind checks;
+  the 9.0.29 report's device check links this report.
 - [Phase 6 train 6A: one YouTube start timing home, owner queries for the start timers and one verified iframe audio restore (2026-10-31)](design/phase6-6a-start-constants-owner-queries-2026-10-31.md):
   released on 2026-11-01 05:17 KST in Release 41237978646 (PR #550, squash `3c098e9d`) as App
   9.0.30 / v803 (App build 803, target `app`, one update dialog; the bump `8d148fff` is the last

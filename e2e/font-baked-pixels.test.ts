@@ -5,10 +5,11 @@
  * Chromium and Firefox apply the app sheets' metric overrides, which set the
  * line box whatever the files' own metrics say (the baked box is within half
  * a font unit of them, not equal), so baking the files in fonts/app/ must
- * change no pixel there. Context A is the build as it is; context B answers
- * every request for a baked face with its input file (fonts/app-faces.json),
- * which is what the app served before. Every screen must be the same PNG in
- * both:
+ * change no pixel there. This spec checks Chromium; Firefox is expected to
+ * follow but has not been measured. Context A is the build as it is;
+ * context B answers every request for a baked face with its input file
+ * (fonts/app-faces.json), which is what the app served before. Every screen
+ * must be the same PNG in both:
  * - in the Korean and the English UI at 390 × 844: the start screen, the
  *   Playlist tab with tracks (one a decomposed Korean file name) and more
  *   than one playlist, the Connect, Settings and Help tabs, and the full chat

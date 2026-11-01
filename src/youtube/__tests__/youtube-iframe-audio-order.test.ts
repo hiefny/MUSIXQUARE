@@ -721,6 +721,9 @@ describe('two mute rules below 0.5 % master volume, as today (pinned 2026-11-02)
     const replacementRecovery = await cell(() =>
       standardRecovery(SCENARIOS.hostPeerReplaced, masterVolume),
     );
+    const hostLegacyRecovery = await cell(() =>
+      standardRecovery(SCENARIOS.hostPrepareFailure, masterVolume),
+    );
     const guestRecovery = await cell(() =>
       standardRecovery(SCENARIOS.guestCohortExcluded(2_600), masterVolume),
     );
@@ -732,12 +735,25 @@ describe('two mute rules below 0.5 % master volume, as today (pinned 2026-11-02)
       gateSettlement,
       directCommit,
       replacementRecovery,
+      hostLegacyRecovery,
       guestRecovery,
     }).toEqual(TWO_RULE_ROWS[masterVolume]);
   });
 });
 
 describe('Phase 7 contract (a): one youtube:set-volume per engine volume event, written once (pinned 2026-11-02)', () => {
+  /**
+   * The whole trace of one youtube:set-volume write of `percent` on an idle
+   * host, as O1 pins it: no other iframe command, push or hold question.
+   */
+  const idleWrite = (percent: number): string[] => [
+    `push zero-start muted:${percent === 0} volume:${percent}`,
+    `push pro muted:${percent === 0} volume:${percent}`,
+    `setVolume(${percent})`,
+    'parked? false',
+    ...(percent === 0 ? ['mute()'] : ['start hold? false', 'unMute()']),
+  ];
+
   it.each([0, 0.004, 0.005, 0.734, 1] as const)(
     'at master volume %s, audio:set-volume and audio:apply-youtube-volume each send Math.round(v * 100) once',
     async (masterVolume) => {
@@ -746,8 +762,6 @@ describe('Phase 7 contract (a): one youtube:set-volume per engine volume event, 
       bus.on('youtube:set-volume', (volume) => {
         sent.push(volume);
       });
-      const setVolumeOf = (lines: string[]) =>
-        lines.filter((line) => line.startsWith('setVolume('));
       const onSet = traceOf(fake, () => bus.emit('audio:set-volume', masterVolume));
       const sentOnSet = sent.splice(0);
       const onApply = traceOf(fake, () => bus.emit('audio:apply-youtube-volume'));
@@ -755,18 +769,46 @@ describe('Phase 7 contract (a): one youtube:set-volume per engine volume event, 
       expect({
         listeners: engineVolume.listeners.map(({ event }) => event),
         sentOnSet,
-        writesOnSet: setVolumeOf(onSet),
+        onSet,
         sentOnApply: sent,
-        writesOnApply: setVolumeOf(onApply),
+        onApply,
       }).toEqual({
         listeners: ['audio:set-volume', 'audio:apply-youtube-volume'],
         sentOnSet: [percent],
-        writesOnSet: [`setVolume(${percent})`],
+        onSet: idleWrite(percent),
         sentOnApply: [percent],
-        writesOnApply: [`setVolume(${percent})`],
+        onApply: idleWrite(percent),
       });
     },
   );
+
+  it('an engine volume event reaches a held start owner and a parked iframe only through the holds', async () => {
+    const warming = traceOf((await warmingHost()).iframe(), () =>
+      bus.emit('audio:set-volume', 0.4),
+    );
+    tearDownWorld();
+    setUpWorld();
+    const parked = traceOf((await parkedHost()).iframe(), () => bus.emit('audio:set-volume', 0.4));
+    expect({ warming, parked }).toEqual({
+      // The zero-start warm-up holds the unMute: no unMute and no other write.
+      warming: [
+        'push zero-start muted:false volume:40',
+        'push pro muted:false volume:40',
+        'setVolume(40)',
+        'parked? false',
+        'start hold? true',
+      ],
+      // The parked iframe gets the verified hard mute, never unMute.
+      parked: [
+        'push zero-start muted:false volume:40',
+        'push pro muted:false volume:40',
+        'setVolume(40)',
+        'parked? true',
+        'parking proof',
+        'mute()',
+      ],
+    });
+  });
 });
 
 // ─── Expected traces (today's values) ──────────────────────────────
@@ -896,17 +938,46 @@ const O9_ROWS = {
 };
 
 /**
+ * The host run's hard-mute polls inside the recovery rows' window in
+ * SCENARIOS.hostPrepareFailure, which the iframe never confirms, before its
+ * legacy recovery takes the start at +481.
+ */
+const HOST_HARD_MUTE_POLLS = [
+  '+310 mute()',
+  '+340 mute()',
+  '+370 mute()',
+  '+400 mute()',
+  '+431 mute()',
+] as const;
+
+/** setVolume(0), then mute(), at every instant from fromMs to toMs, stepMs apart. */
+function mutedWritesEvery(fromMs: number, toMs: number, stepMs: number): string[] {
+  const lines: string[] = [];
+  for (let at = fromMs; at <= toMs; at += stepMs) {
+    lines.push(`+${at} setVolume(0)`, `+${at} mute()`);
+  }
+  return lines;
+}
+
+/**
  * At 0 both rules mute and at 0.005 (1 %) both unmute. At 0.004 the volume is
  * 0 % everywhere, and:
  * - the 'non-positive' rule unmutes: the Standard zero-start run's desired
- *   audio (its restore at +600 or +601 and its release unMute at +1422, the
- *   restore when a peer replacement cancels the host's run at +400, and the
- *   guest local recovery, which takes the run's captured audio) and the PRO
- *   prepare's (its restore at +500, READY at 620 unmuted);
+ *   audio, which its restores, its release unmute, its cancel restore and
+ *   both recoveries' intents take when the run captured it: the guest local
+ *   recovery and a host's legacy recovery after its own run fails (the
+ *   restore at +600 or +601 and the release unMute at +1422, the restore
+ *   when a peer replacement cancels the host's run at +400, the host's
+ *   legacy recovery at +481 and the guest local recovery at +3100); and the
+ *   PRO prepare's (its restore at +500, READY at 620 unmuted);
  * - the 'rounded' rule mutes: a youtube:set-volume write (here from
  *   engine.ts's audio:set-volume), the PRO pause gate's settlement, the PRO
  *   direct commit and the replacement fallback's own recovery intent (+1951),
  *   which has no run audio to take.
+ * The host's legacy recovery runs on an iframe that never confirms a mute
+ * (its run's prepare failed on that): at 0 its restore before the release
+ * writes the muted audio every 50 ms until its 3 s deadline, then its
+ * verified cleanup every 120 ms, and it never plays inside the window.
  */
 const TWO_RULE_ROWS = {
   0: {
@@ -929,6 +1000,11 @@ const TWO_RULE_ROWS = {
       '+1951 setVolume(0)',
       '+1951 mute()',
       '+1951 playVideo()',
+    ],
+    hostLegacyRecovery: [
+      ...HOST_HARD_MUTE_POLLS,
+      ...mutedWritesEvery(481, 3_431, 50),
+      ...mutedWritesEvery(3_551, 3_911, 120),
     ],
     guestRecovery: [
       '+2752 mute()',
@@ -959,6 +1035,12 @@ const TWO_RULE_ROWS = {
       '+1951 setVolume(0)',
       '+1951 mute()',
       '+1951 playVideo()',
+    ],
+    hostLegacyRecovery: [
+      ...HOST_HARD_MUTE_POLLS,
+      '+481 setVolume(0)',
+      '+481 unMute()',
+      '+481 playVideo()',
     ],
     guestRecovery: [
       '+2752 mute()',
@@ -996,6 +1078,12 @@ const TWO_RULE_ROWS = {
       '+1951 setVolume(1)',
       '+1951 unMute()',
       '+1951 playVideo()',
+    ],
+    hostLegacyRecovery: [
+      ...HOST_HARD_MUTE_POLLS,
+      '+481 setVolume(1)',
+      '+481 unMute()',
+      '+481 playVideo()',
     ],
     guestRecovery: [
       '+2752 mute()',

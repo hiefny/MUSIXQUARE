@@ -240,7 +240,7 @@ describe('YouTube Player', () => {
       playerRuntime.setPendingAutoSyncOnReady(false);
     });
 
-    it('answers the PRO pause gate and the pending-start cancel through the bridge', async () => {
+    it('answers the PRO pause gate through the iframe audio owner and the pending-start cancel through the bridge', async () => {
       const bridge = await import('../player-runtime-bridge.ts');
       // Since Phase 6 6C-2 the iframe audio owner holds the gate, not the bridge.
       const { isYouTubePauseGateHeld } = await import('../iframe-audio.ts');

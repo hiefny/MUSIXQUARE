@@ -1735,7 +1735,9 @@ RO-53 owner-in-place
   holds only the unmute, because that owner restores the latest desired audio itself. `player.ts`
   registers parking once, as two closures (`registerYouTubeAudioHolds`), as it loads; until then
   parking holds nothing, and the ledger answers false until `player.ts` registers the start
-  claims. The RO-02 and RO-03 machines keep their own releases and restores (active and
+  claims. The guard's CHECK 12 keeps that registration to one top-level statement of `player.ts`
+  and fails it anywhere else, twice, missing or handed on (`AUDIO HOLD REGISTRATION`).
+  The RO-02 and RO-03 machines keep their own releases and restores (active and
   detached, which since Phase 6 6A-4 (C2-3) run through the one verified restore in the same
   module, each with its own fences,
   check, outcome and timer); since 6C-4 (C2-8a) their hard mute is the shared hard-mute wait in
@@ -4148,10 +4150,16 @@ and unrelated strings never count, and every baseline is an exact count or list 
       owner; on 2026-11-01 `standard-run`, `standard-recovery`, `legacy-rendezvous` and
       `pro-arm`), and a derived query (an exported `isYouTubeStart*` binding of the ledger) that
       does not return one call on one list of decisions, one per claim kind, so its decided
-      kinds cannot be read (`START CLAIM REGISTRATION`); and, in `src/` outside `src/youtube/`, a
+      kinds cannot be read (`START CLAIM REGISTRATION`); in `src/` outside `src/youtube/`, a
       `getManagedTimer()`, `clearManagedTimer()` or `setManagedTimer()` call whose name resolves
       to a start timer (`START TIMER OUTSIDE src/youtube`; there a name that does not resolve is
-      not seen). On 2026-11-01 none of these fires.
+      not seen); and, since Phase 6 6C, the iframe audio owner's parking hold
+      (`registerYouTubeAudioHolds` in `src/youtube/iframe-audio.ts`, RO-12), which a later call
+      replaces and which holds nothing before the first, called anywhere but one top-level
+      statement of `src/youtube/player.ts` (the owner included), called there again or not at
+      all, or handed on: re-exported, used as a value, the owner's namespace used as a value, or
+      the owner imported dynamically (`AUDIO HOLD REGISTRATION`). On 2026-11-02 none of these
+      fires.
 
 The requesters of `scheduleSessionReset` and `scheduleDocumentReload`, and each page navigation
 sink by function, are checked by `scripts/check-navigation-sinks.mts` (RO-23, Phase 2 C6-14).

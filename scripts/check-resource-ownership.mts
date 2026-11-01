@@ -156,7 +156,14 @@
  *     such registration (the ledger answers false for a kind with no claim),
  *     and a derived query (an exported isYouTubeStart* binding of the ledger)
  *     that does not return one call on one list of decisions, one per kind
- *     (START CLAIM REGISTRATION).
+ *     (START CLAIM REGISTRATION). Since Phase 6 6C, beside it, the iframe
+ *     audio owner's parking hold (registerYouTubeAudioHolds in
+ *     src/youtube/iframe-audio.ts, RO-12), which a later call replaces and
+ *     which holds nothing before the first: called anywhere but one
+ *     top-level statement of src/youtube/player.ts (the owner included),
+ *     called there again or not at all, or handed on (re-exported, used as a
+ *     value, the owner's namespace used as a value, or the owner imported
+ *     dynamically) (AUDIO HOLD REGISTRATION).
  *
  * Baselines. Every count and list below is exact. A file above its baseline
  * (or a new file, function or pair) fails as a regression; a file below it
@@ -3525,6 +3532,116 @@ function checkLedgerPurity(relPath: string, file: ts.SourceFile, findings: strin
   });
 }
 
+/** The iframe audio owner, whose parking hold player.ts registers (RO-12). */
+const IFRAME_AUDIO_OWNER = 'src/youtube/iframe-audio.ts';
+const AUDIO_HOLD_REGISTER = 'registerYouTubeAudioHolds';
+
+/**
+ * RO-12 since Phase 6 6C: the iframe audio owner keeps its parking hold in a
+ * module-level slot that any later registerYouTubeAudioHolds call replaces,
+ * and until the first call parking holds nothing. Only player.ts, the start
+ * owners' composition point, registers it: exactly once, in a top-level
+ * statement. Fails closed on a call anywhere else (the owner included), a
+ * second or nested call in player.ts, none there, and the function handed
+ * on: re-exported, used as a value, the owner's namespace used as a value,
+ * or the owner imported dynamically.
+ */
+function audioHoldRegistrationFindings(sources: ReadonlyMap<string, string>): string[] {
+  const findings: string[] = [];
+  let registered = 0;
+  for (const [relPath, text] of sources) {
+    if (!relPath.startsWith('src/')) continue;
+    if (!text.includes(AUDIO_HOLD_REGISTER) && !text.includes('iframe-audio')) continue;
+    const file = parse(relPath, text);
+    const report = (node: ts.Node, what: string): void => {
+      findings.push(
+        `AUDIO HOLD REGISTRATION (RO-12): ${relPath}:${lineOf(file, node)} ${what} in ` +
+          `${enclosingFunctionName(node)} - ${START_CLAIM_REGISTRANT} registers the iframe ` +
+          "audio owner's parking hold once, in a top-level statement; another registration " +
+          'replaces the hold every App write asks, a second machine on it',
+      );
+    };
+    const ownerFile = relPath === IFRAME_AUDIO_OWNER;
+    // The owner's own binding, or this file's value imports of the owner.
+    const bindings = ownerFile
+      ? new Map([[AUDIO_HOLD_REGISTER, AUDIO_HOLD_REGISTER]])
+      : importsOf(file, relPath, IFRAME_AUDIO_OWNER, sources);
+    const moduleOf = (specifier: ts.Expression | undefined): string | null =>
+      specifier && ts.isStringLiteral(specifier)
+        ? resolveModule(relPath, specifier.text, sources)
+        : null;
+
+    for (const statement of file.statements) {
+      if (!ts.isExportDeclaration(statement) || statement.isTypeOnly) continue;
+      const from = moduleOf(statement.moduleSpecifier);
+      const clause = statement.exportClause;
+      if (!clause || !ts.isNamedExports(clause)) {
+        if (from === IFRAME_AUDIO_OWNER) {
+          report(statement, `re-exports every export of ${IFRAME_AUDIO_OWNER}`);
+        }
+        continue;
+      }
+      for (const element of clause.elements) {
+        if (element.isTypeOnly) continue;
+        const original = (element.propertyName ?? element.name).text;
+        const local = statement.moduleSpecifier ? null : original;
+        if (
+          (from === IFRAME_AUDIO_OWNER && original === AUDIO_HOLD_REGISTER) ||
+          (local !== null && bindings.get(local) === AUDIO_HOLD_REGISTER)
+        ) {
+          const name =
+            original === element.name.text ? original : `${original} as ${element.name.text}`;
+          report(element, `re-exports ${name}`);
+        }
+      }
+    }
+
+    visit(file, (node) => {
+      if (ts.isCallExpression(node) && node.expression.kind === ts.SyntaxKind.ImportKeyword) {
+        if (!ownerFile && moduleOf(node.arguments[0]) === IFRAME_AUDIO_OWNER) {
+          report(node, `imports ${IFRAME_AUDIO_OWNER} dynamically`);
+        }
+        return;
+      }
+      if (!ts.isIdentifier(node) || !isBindingReference(node)) return;
+      const imported = bindings.get(node.text);
+      if (imported === undefined) return;
+      let reference: ts.Node = node;
+      if (imported === '*') {
+        const access = node.parent;
+        const member =
+          (ts.isPropertyAccessExpression(access) || ts.isElementAccessExpression(access)) &&
+          access.expression === node
+            ? memberName(access)
+            : null;
+        if (member === null) {
+          report(node, `uses the iframe audio namespace ${node.text} as a value`);
+          return;
+        }
+        if (member !== AUDIO_HOLD_REGISTER) return;
+        reference = access;
+      } else if (imported !== AUDIO_HOLD_REGISTER) {
+        return;
+      }
+      const call = callOf(reference);
+      if (!call) report(reference, `uses ${AUDIO_HOLD_REGISTER} as a value`);
+      else if (relPath !== START_CLAIM_REGISTRANT) report(call, 'registers the iframe audio holds');
+      else if (!isTopLevelStatementCall(call)) {
+        report(call, 'registers the iframe audio holds outside a top-level statement');
+      } else if (++registered > 1) report(call, 'registers the iframe audio holds again');
+    });
+  }
+  if (registered === 0) {
+    findings.push(
+      `AUDIO HOLD REGISTRATION (RO-12): ${START_CLAIM_REGISTRANT} registers no iframe audio ` +
+        `holds - ${START_CLAIM_REGISTRANT} registers the iframe audio owner's parking hold ` +
+        'once, in a top-level statement; until it does, parking holds nothing and an App write ' +
+        'can unmute a parked iframe',
+    );
+  }
+  return findings;
+}
+
 // ── Exact comparison ─────────────────────────────────────────────────────
 
 interface ExactCheck {
@@ -4344,6 +4461,7 @@ export function analyzeResourceOwnership(input: ResourceOwnershipInput): Resourc
     findings,
   );
   findings.push(...startLedger.findings);
+  findings.push(...audioHoldRegistrationFindings(input.sources));
 
   const sinks: Record<string, number> = {};
   for (const check of pageStateChecks) sinks[check.label] = total(check.measured);

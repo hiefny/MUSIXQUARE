@@ -4,12 +4,13 @@
  * Each tab header centres its title in a row whose other items take 36px:
  * the invite code, or the Playlist actions' 44px touch boxes with -4px
  * margins. A title line taller than 36px grows that row: a taller script
- * (Arabic, Thai, Indic), or CJK fonts drawn with their own, taller metrics,
- * as iOS Safari draws them. With several playlists the Playlist title sits in
- * the switch button, whose share of the row has to grow with its line the
- * same way, or that title ends up above the other tabs' titles. A playlist
- * after the first adds its number ("Playlist 2"), which sits on the name's
- * baseline, not at the top of the name's taller line.
+ * (Arabic, Thai, Indic), or fonts drawn with taller metrics than the shipped
+ * line box, as iOS Safari drew the CJK fonts before the font files carried
+ * that box. With several playlists the Playlist title sits in the switch
+ * button, whose share of the row has to grow with its line the same way, or
+ * that title ends up above the other tabs' titles. A playlist after the first
+ * adds its number ("Playlist 2"), which sits on the name's baseline, not at
+ * the top of the name's taller line.
  */
 import { expect, test, type Page, type TestInfo } from '@playwright/test';
 import { LANGUAGE_OPTIONS, type LanguageCode } from '../src/i18n/locales.ts';
@@ -32,7 +33,8 @@ const TAB_TEXT = (tab: string) => `#tab-${tab} > .tab-header .tab-title`;
 // drawn taller than the 36px row: Arabic (right to left), Thai, Devanagari
 // and Kannada.
 const LANGUAGES: readonly LanguageCode[] = ['ko', 'en', 'ja', 'zh-hans', 'ar', 'th', 'hi', 'kn'];
-// CJK with a title line taller than 36px, as iOS Safari draws it.
+// CJK with a title line taller than 36px, as iOS Safari drew it before the
+// font files carried the shipped line box.
 const TALLER_LINES: readonly LanguageCode[] = ['ko', 'ja'];
 
 interface PlaylistSlots {
@@ -164,7 +166,7 @@ for (const language of LANGUAGES) {
   });
 }
 
-test.describe('with taller font lines (CJK as iOS Safari draws it)', () => {
+test.describe('with taller font lines (CJK as iOS Safari drew it before the baked line box)', () => {
   test.use({ serviceWorkers: 'block' });
 
   for (const language of TALLER_LINES) {

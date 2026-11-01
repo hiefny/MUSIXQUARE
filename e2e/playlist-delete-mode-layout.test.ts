@@ -57,10 +57,11 @@ for (const [label, viewport] of [
 }
 
 // A title line taller than the 36px row grows the header: Arabic and Thai,
-// and CJK drawn with taller font lines (as iOS Safari draws them). The mode
-// keeps that row and the title's baseline, with several playlists (the
-// switch button) and with one (the plain title), and the count title draws
-// the title's whole line, so no mark above or below it is cut.
+// and CJK drawn with taller font lines (as iOS Safari drew them before the
+// font files carried the shipped line box). The mode keeps that row and the
+// title's baseline, with several playlists (the switch button) and with one
+// (the plain title), and the count title draws the title's whole line, so no
+// mark above or below it is cut.
 for (const [language, fonts] of [
   ['ar', 'shipped fonts'],
   ['th', 'shipped fonts'],

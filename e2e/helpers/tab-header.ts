@@ -46,8 +46,10 @@ export async function titleBaseline(text: Locator): Promise<number> {
 /**
  * The metrics every served @font-face draws with under serveTallerFontLines():
  * a line of 1.5em, which takes a 28px tab title's line past the 36px row.
- * The shipped faces' overrides keep that line within 36px; iOS Safari ignores
- * the overrides, so it draws the CJK fonts' own, taller metrics.
+ * The shipped faces' overrides keep that line within 36px, and so do the
+ * metrics baked into the app's Inter and CJK files, which iOS Safari reads
+ * since it ignores the overrides. Before the files carried that box, iOS
+ * Safari drew the CJK fonts' own, taller metrics.
  */
 const TALLER_LINE_METRICS = 'ascent-override:120%;descent-override:30%;line-gap-override:0%;';
 
@@ -55,11 +57,12 @@ const TALLER_LINE_METRICS = 'ascent-override:120%;descent-override:30%;line-gap-
  * Serves the generated font sheets (font-*.css: Inter, the CJK families and
  * Thai) with each face's ascent-override, descent-override and
  * line-gap-override replaced by TALLER_LINE_METRICS (size-adjust stays), so
- * the CJK title lines grow past 36px as they do on iOS Safari today. The
- * taller line comes from these values, not from the font files, so the case
- * still holds once the files carry the shipped metrics themselves. Returns
- * how many faces were served so far. The context needs service workers
- * blocked, or the worker answers the sheets before the route sees them.
+ * the CJK title lines grow past 36px as they did on iOS Safari before the
+ * font files carried the shipped line box. The taller line comes from these
+ * values, not from the font files, so the case holds with the baked files and
+ * stands for any line taller than the row. Returns how many faces were served
+ * so far. The context needs service workers blocked, or the worker answers
+ * the sheets before the route sees them.
  */
 export async function serveTallerFontLines(page: Page): Promise<() => number> {
   let faces = 0;

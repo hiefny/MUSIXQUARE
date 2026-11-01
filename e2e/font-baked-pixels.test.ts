@@ -2,8 +2,9 @@
  * The baked app faces draw exactly as their inputs where the overrides apply
  * (owner decision 2026-11-01).
  *
- * Chromium and Firefox apply the app sheets' metric overrides, and those
- * equal the line box baked into the files in fonts/app/, so baking must
+ * Chromium and Firefox apply the app sheets' metric overrides, which set the
+ * line box whatever the files' own metrics say (the baked box is within half
+ * a font unit of them, not equal), so baking the files in fonts/app/ must
  * change no pixel there. Context A is the build as it is; context B answers
  * every request for a baked face with its input file (fonts/app-faces.json),
  * which is what the app served before. Every screen must be the same PNG in

@@ -326,11 +326,13 @@ RO-53 owner-in-place
     `proYouTubeAuthorityOwnsHardMute`, a query `player.ts` registers, or the `'yt-auto-sync'`
     timer) is counted per function: only the seek's mid-sync check in `player.ts`
     (`seekYouTubeFromApp`), which also asks the legacy claim's `'yt-auto-sync'` timer, has an
-    entry (1). Another facade or snapshot reference, an `isYouTubeZeroStart*` export elsewhere, a
-    re-exported snapshot read, such a statement anywhere else, a ledger export passed on, an
-    impure ledger, and a claim registered outside `player.ts` or a top-level statement, twice or
-    with a computed kind fail the guard. A new start path adds a claim kind and the derived
-    queries that decide it in the ledger, not a composite at its reader.
+    entry (1), pinned to those two claims. Another facade or snapshot reference, an
+    `isYouTubeZeroStart*` export elsewhere, a re-exported snapshot read, such a statement anywhere
+    else or with other claims, a ledger export passed on, an impure ledger, a claim registered
+    outside `player.ts` or a top-level statement, twice or with a computed kind, and a kind that a
+    derived query decides but `player.ts` never registers (the ledger answers false for a kind
+    with no claim) fail the guard. A new start path adds a claim kind and the derived queries that
+    decide it in the ledger, not a composite at its reader.
   - **Start timers and their setter files** (the guard's CHECK 12 map, `START_TIMER_SETTERS`):
     `'yt-auto-sync'`, `'yt-host-local-start'`, `'yt-zero-start-external-fallback'`,
     `'yt-zero-start-host-fallback'` and `'yt-zero-start-replacement-fallback'`, set in
@@ -4002,12 +4004,17 @@ and unrelated strings never count, and every baseline is an exact count or list 
       `Boolean()` wrapper, an array of answers and both branches of a `?:` count together, an
       expression-bodied arrow counts with its statement, and a registration's arguments count as
       none. Exact: the seek's mid-sync check, `src/youtube/player.ts :: seekYouTubeFromApp`
-      (1, its `isYouTubeStartSyncOwned` and `'yt-auto-sync'` read). `--report` lists each.
+      (1, its `isYouTubeStartSyncOwned` and `'yt-auto-sync'` read). Each entry also lists the
+      claims its statements ask, a ledger query by its name and a claim query or timer read by
+      its claim's kind (`isYouTubeStartSyncOwned` and `legacy-rendezvous` here, through the
+      timer or either of the legacy claim's queries), so an allowed statement cannot take
+      another claim. `--report` lists each.
     - **Fail closed, with no allowance:** an exported `isYouTubeZeroStart*` binding or a facade
       re-export outside `zero-start.ts`, the zero-start namespace used as a value or the module
       imported dynamically (`START OWNER FACADE`); a re-exported snapshot read
-      (`START RUN SNAPSHOT`); such a statement in a function without an entry
-      (`LEDGER COMPOSITE`); a ledger export re-exported, passed on as a value or imported
+      (`START RUN SNAPSHOT`); such a statement in a function without an entry, or one in a
+      function with an entry that asks other claims than the entry lists (`LEDGER COMPOSITE`);
+      a ledger export re-exported, passed on as a value or imported
       dynamically (`LEDGER ALIAS`); in the ledger, a runtime import, a timer or scheduling name
       (the managed timer functions, `setTimeout`, `setInterval`, `queueMicrotask`,
       `requestAnimationFrame`, `addEventListener`, `Promise` and the like), a module-level
@@ -4017,7 +4024,12 @@ and unrelated strings never count, and every baseline is an exact count or list 
       outside `registerYouTubeStartClaim` or passed on as a value, or a claim registration of its
       own (`LEDGER PURITY`); `registerYouTubeStartClaim` called outside `src/youtube/player.ts`,
       outside a top-level statement, with a computed kind, for a kind already registered, or
-      passed on (`START CLAIM REGISTRATION`); and, in `src/` outside `src/youtube/`, a
+      passed on, a kind that a derived query decides with no such registration in `player.ts`
+      (the ledger answers false for a kind with no claim, so its readers would never see that
+      owner; on 2026-11-01 `standard-run`, `standard-recovery`, `legacy-rendezvous` and
+      `pro-arm`), and a derived query (an exported `isYouTubeStart*` binding of the ledger) that
+      does not return one call on one list of decisions, one per claim kind, so its decided
+      kinds cannot be read (`START CLAIM REGISTRATION`); and, in `src/` outside `src/youtube/`, a
       `getManagedTimer()`, `clearManagedTimer()` or `setManagedTimer()` call whose name resolves
       to a start timer (`START TIMER OUTSIDE src/youtube`; there a name that does not resolve is
       not seen). On 2026-11-01 none of these fires.

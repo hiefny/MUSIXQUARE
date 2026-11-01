@@ -116,7 +116,8 @@ recovery's pending claim alone, because no reader needs one.
   call site. The resource-ownership guard (CHECK 12) counts, per function, the statements outside
   the ledger that ask two or more start claims (ledger queries, a claim's own public query such
   as `isYouTubeAutoSyncPending` or `proYouTubeAuthorityOwnsHardMute`, a query `player.ts`
-  registers, or the `'yt-auto-sync'` timer), and only the seek's mid-sync check has an entry. It
+  registers, or the `'yt-auto-sync'` timer), and only the seek's mid-sync check has an entry,
+  pinned to its two claims (`isYouTubeStartSyncOwned` and the legacy claim). It
   does not see claims combined across statements, through a variable or a local helper: `sync.ts`'s
   small-drift sample asks the timeline hold beside `isCurrentStateAction` and
   `isGuestYouTubeTransitionPending`, which each ask `isYouTubeStartSyncOwned`.
@@ -128,8 +129,11 @@ recovery's pending claim alone, because no reader needs one.
   and scheduling names, module-level state other than its claim kinds (a `const` list of string
   literals) and its claims (an empty `Map`), writes outside function-local bindings, changes to
   its claims outside `registerYouTubeStartClaim` and claim registrations of its own. It lets only
-  `player.ts` register claims, each kind once and in a top-level statement, and it fails a start
-  timer named outside `src/youtube/`.
+  `player.ts` register claims, each kind once and in a top-level statement, and requires that
+  registration for every kind a derived query decides: the ledger fails open (a kind with no
+  claim answers false), so a dropped registration would hide that owner from its readers. It
+  reads each derived query's decisions from its one list, and fails one it cannot read. It also
+  fails a start timer named outside `src/youtube/`.
 - **The wire does not change.** No frame, field, value, timing or validator changes
   (`src/network/protocol.ts`), so builds at or above the floor exchange the same frames at the same
   instants.

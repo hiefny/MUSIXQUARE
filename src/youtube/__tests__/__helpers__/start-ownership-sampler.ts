@@ -40,7 +40,12 @@
  *   'timer-micro' in a microtask that callback scheduled (run before the next
  *   timer), and 'micro' in any other microtask (the flush after a step, or a
  *   step's chain that outlasts it). A source whose emission moves from its
- *   timer callback into a microtask therefore changes its line.
+ *   timer callback into a microtask therefore changes its line. The labels
+ *   tell a timer, a step or a notification from a microtask, not how deep in
+ *   a microtask chain an emission runs: an emission that is already a
+ *   microtask (the zero-start recovery's readiness notify, 'timer-micro'; the
+ *   PRO arm's chain, 'micro' or 'timer-micro') can move any number of
+ *   microtasks later without changing a line.
  * Rest, step, micro and notify lines are kept only when '<phase> <tokens>
  * <activity>' differs from the last kept line of any kind; ready and loading
  * lines are always kept, so each source's emission instant stays pinned.

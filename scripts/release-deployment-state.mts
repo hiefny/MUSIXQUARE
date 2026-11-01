@@ -421,6 +421,7 @@ const TARGET_RUNTIME_PATHS = Object.freeze({
     'css',
     'fonts/noto',
     'fonts/inter',
+    'fonts/app',
     '.workshop/landing',
     '.workshop/privacy',
     '.workshop/terms',

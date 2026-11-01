@@ -201,6 +201,7 @@ function isRuntimeAppPath(rawPath: string): boolean {
   if (filePath.startsWith('css/')) return true;
   if (filePath.startsWith('fonts/noto/')) return true;
   if (filePath.startsWith('fonts/inter/')) return true;
+  if (filePath.startsWith('fonts/app/')) return true;
   if (filePath.startsWith('public/')) return true;
   if (isPublicWorkshopPath(filePath)) return true;
 

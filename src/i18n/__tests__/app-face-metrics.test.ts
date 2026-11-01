@@ -3,19 +3,30 @@
  * (scripts/fonts/app-face-metrics.mts) and the per-face pipeline of its
  * generator (scripts/fonts/build-app-faces.mts): decode the WOFF2 input, patch
  * hhea, the OS/2 typo metrics and USE_TYPO_METRICS, fix the checksums, encode
- * again.
+ * again. Also the generator's default mode, which npm run generate:font-sheets
+ * runs, around an encoder update: a recorded face baked again must give its
+ * recorded bytes, so only --record can change the copies (and with them every
+ * font URL) after a wawoff2 update.
  */
-import { readFile } from 'node:fs/promises';
+import { copyFile, mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
-import { describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it } from 'vitest';
 
 import {
   bakeLineMetrics,
   readLineMetrics,
   sfntChecksumsValid,
 } from '../../../scripts/fonts/app-face-metrics.mts';
-import { bakeFace } from '../../../scripts/fonts/build-app-faces.mts';
-import { decodeFontBytes } from '../../../scripts/fonts/font-files.mts';
+import { bakeFace, buildAppFaces } from '../../../scripts/fonts/build-app-faces.mts';
+import {
+  APP_FACES_PATH,
+  APP_FACE_FAMILIES,
+  decodeFontBytes,
+  digestOf,
+  parseAppFaces,
+  writeAppFaces,
+} from '../../../scripts/fonts/font-files.mts';
 import { CJK_FACE_METRICS, INTER_FACE_METRICS } from '../font-metrics.ts';
 
 const ROOT = resolve('.');
@@ -179,4 +190,140 @@ describe('baking a line box into a face', () => {
     varied.set([0x68, 0x61, 0x73, 0x63], mvar.offset + 12);
     expect(() => bakeLineMetrics(varied, INTER_TARGET)).toThrow(/MVAR varies hasc/u);
   });
+});
+
+/** The installed wawoff2 version, which the generator reads from node_modules. */
+async function installedEncoder(): Promise<string> {
+  const manifest: unknown = JSON.parse(
+    await readFile(join(ROOT, 'node_modules', 'wawoff2', 'package.json'), 'utf8'),
+  );
+  const version =
+    typeof manifest === 'object' && manifest !== null && 'version' in manifest
+      ? manifest.version
+      : undefined;
+  if (typeof version !== 'string') throw new Error('no wawoff2 version');
+  return version;
+}
+
+interface SmallRepository {
+  readonly root: string;
+  /** The face list the generator bakes, one input per app sheet. */
+  readonly inputs: { sheet: string; files: string[] }[];
+  /** The committed copy of each family's face. */
+  readonly outputs: string[];
+}
+
+/**
+ * A repository holding the smallest face of each family: its input, its
+ * committed copy and their record entry, recorded as made by the given
+ * wawoff2 version, and node_modules naming the installed version.
+ */
+async function smallRepository(recordedEncoder: string): Promise<SmallRepository> {
+  const record = parseAppFaces(await readFile(join(ROOT, APP_FACES_PATH), 'utf8'));
+  const root = await mkdtemp(join(tmpdir(), 'app-faces-'));
+  const inputs: { sheet: string; files: string[] }[] = [];
+  const outputs: string[] = [];
+  const families = [];
+  for (const family of record.families) {
+    const sheet = APP_FACE_FAMILIES.find((spec) => spec.family === family.family)?.sheet;
+    const [face] = [...family.faces].sort((left, right) => left.input.bytes - right.input.bytes);
+    if (!sheet || !face) throw new Error(`no ${family.family} face`);
+    for (const folder of [family.input, family.output]) {
+      await mkdir(join(root, folder), { recursive: true });
+      await copyFile(join(ROOT, folder, face.file), join(root, folder, face.file));
+    }
+    inputs.push({ sheet, files: [`${family.input}/${face.file}`] });
+    outputs.push(`${family.output}/${face.file}`);
+    families.push({ ...family, faces: [face] });
+  }
+  await writeAppFaces(root, { ...record, tools: { wawoff2: recordedEncoder }, families });
+  await mkdir(join(root, 'node_modules', 'wawoff2'), { recursive: true });
+  await writeFile(
+    join(root, 'node_modules', 'wawoff2', 'package.json'),
+    JSON.stringify({ name: 'wawoff2', version: await installedEncoder() }),
+  );
+  return { root, inputs, outputs };
+}
+
+/** Whether a copy in the small repository has the bytes of the committed one. */
+async function sameAsCommitted(root: string, output: string): Promise<boolean> {
+  return (await readFile(join(root, output))).equals(await readFile(join(ROOT, output)));
+}
+
+describe('the default mode of the face generator', () => {
+  const roots: string[] = [];
+  afterEach(async () => {
+    for (const root of roots.splice(0)) await rm(root, { recursive: true, force: true });
+  });
+
+  it('keeps every recorded copy without baking it again', async () => {
+    const repository = await smallRepository(await installedEncoder());
+    roots.push(repository.root);
+    const before = await readFile(join(repository.root, APP_FACES_PATH), 'utf8');
+
+    const result = await buildAppFaces(repository.root, 'write', repository.inputs);
+
+    expect(result.baked).toBe(0);
+    expect(result.changed).toEqual([]);
+    expect(await readFile(join(repository.root, APP_FACES_PATH), 'utf8')).toBe(before);
+  }, 60_000);
+
+  it('takes a new wawoff2 version that gives the recorded bytes', async () => {
+    const repository = await smallRepository('0.0.0-recorded');
+    roots.push(repository.root);
+
+    const result = await buildAppFaces(repository.root, 'write', repository.inputs);
+
+    expect(result.baked).toBe(repository.outputs.length);
+    expect(result.changed).toEqual([]);
+    for (const output of repository.outputs) {
+      expect(await sameAsCommitted(repository.root, output), output).toBe(true);
+    }
+    const record = parseAppFaces(await readFile(join(repository.root, APP_FACES_PATH), 'utf8'));
+    expect(record.tools).toEqual({ wawoff2: await installedEncoder() });
+  }, 60_000);
+
+  it('writes nothing when a new wawoff2 version gives other bytes than recorded', async () => {
+    const repository = await smallRepository('0.0.0-recorded');
+    roots.push(repository.root);
+    // As the recorded version might have left them: one copy with other bytes,
+    // in its file and its record entry, and one face new to the record.
+    const [changedCopy, newCopy] = [repository.outputs.at(-1), repository.outputs.at(-2)];
+    if (!changedCopy || !newCopy) throw new Error('two faces needed');
+    const older = Buffer.concat([
+      await readFile(join(repository.root, changedCopy)),
+      Buffer.alloc(4),
+    ]);
+    await writeFile(join(repository.root, changedCopy), older);
+    await rm(join(repository.root, newCopy));
+    const record = parseAppFaces(await readFile(join(repository.root, APP_FACES_PATH), 'utf8'));
+    await writeAppFaces(repository.root, {
+      ...record,
+      families: record.families.map((family) => ({
+        ...family,
+        faces: family.faces.flatMap((face) => {
+          const output = `${family.output}/${face.file}`;
+          if (output === newCopy) return [];
+          return output === changedCopy ? [{ ...face, output: digestOf(older) }] : [face];
+        }),
+      })),
+    });
+    const recorded = await readFile(join(repository.root, APP_FACES_PATH), 'utf8');
+
+    await expect(buildAppFaces(repository.root, 'write', repository.inputs)).rejects.toThrow(
+      /other bytes than recorded[\s\S]*--record/u,
+    );
+    expect((await readFile(join(repository.root, changedCopy))).equals(older)).toBe(true);
+    await expect(readFile(join(repository.root, newCopy))).rejects.toThrow(/ENOENT/u);
+    expect(await readFile(join(repository.root, APP_FACES_PATH), 'utf8')).toBe(recorded);
+
+    // --record accepts the new bytes.
+    const accepted = await buildAppFaces(repository.root, 'record', repository.inputs);
+    expect([...accepted.changed].sort()).toEqual([changedCopy, newCopy].sort());
+    for (const output of repository.outputs) {
+      expect(await sameAsCommitted(repository.root, output), output).toBe(true);
+    }
+    const after = parseAppFaces(await readFile(join(repository.root, APP_FACES_PATH), 'utf8'));
+    expect(after.tools).toEqual({ wawoff2: await installedEncoder() });
+  }, 60_000);
 });

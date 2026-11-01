@@ -4257,6 +4257,60 @@ describe('initPlayerControls sync button', () => {
     },
   );
 
+  /** A participant's YouTube editor, opened after its Sync rendezvous completed. */
+  async function openGuestYouTubeEditor(): Promise<HTMLElement> {
+    renderSyncControls();
+    setState('network.hostConn', makeConnection('host-1'));
+    setState('playback.mode', 'youtube');
+    setState('playback.activity', 'playing');
+    initPlayerControls();
+    document.getElementById('btn-sync')?.click();
+    await settleManualSyncOverlayOpen();
+    vi.mocked(guestRendezvousSync).mock.calls[0]?.[0]?.onComplete?.();
+    const overlay = document.getElementById('manual-sync-overlay')!;
+    expect(overlay.classList.contains('show')).toBe(true);
+    return overlay;
+  }
+
+  // The readiness repaint above leaves an open editor alone. A playback change
+  // also re-runs the loaded overlay runtime's availability check
+  // (canUseManualSyncPanelRuntime), and only that check closes the editor. Two
+  // readers satisfy the call assertions below: that check and the Sync button
+  // repaint (getMainSyncUnavailableReason). The editor expects pin the first.
+  it.each(['active', 'fallback'] as const)(
+    'closes an open YouTube editor when a playback change finds the %s zero-start owner',
+    async (owner) => {
+      const overlay = await openGuestYouTubeEditor();
+      const ownerQuery = vi.mocked(
+        owner === 'active'
+          ? isYouTubeZeroStartProtocolActive
+          : isYouTubeZeroStartExternalFallbackPendingFromSync,
+      );
+      zeroStartFacade[owner] = true;
+      ownerQuery.mockClear();
+
+      setState('playback.activity', 'pending');
+
+      expect(ownerQuery).toHaveBeenCalled();
+      expect(overlay.classList.contains('show')).toBe(false);
+      expect(overlay.getAttribute('aria-hidden')).toBe('true');
+    },
+  );
+
+  it('keeps an open YouTube editor through a playback change with no zero-start owner', async () => {
+    const overlay = await openGuestYouTubeEditor();
+    vi.mocked(isYouTubeZeroStartProtocolActive).mockClear();
+    vi.mocked(isYouTubeZeroStartExternalFallbackPendingFromSync).mockClear();
+
+    setState('playback.activity', 'pending');
+
+    // With no owner, the check reads both halves of isYouTubeZeroStartSyncOwned.
+    expect(isYouTubeZeroStartProtocolActive).toHaveBeenCalled();
+    expect(isYouTubeZeroStartExternalFallbackPendingFromSync).toHaveBeenCalled();
+    expect(overlay.classList.contains('show')).toBe(true);
+    expect(overlay.getAttribute('aria-hidden')).toBe('false');
+  });
+
   it('preserves the standard-host canonical rendezvous before opening local controls', async () => {
     renderSyncControls();
     setActiveStandardHost();

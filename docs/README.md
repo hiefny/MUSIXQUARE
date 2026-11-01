@@ -237,9 +237,13 @@ runbooks. Neither belongs in a general setup document.
   9.0.30 App `50e0527d`), the public service worker read v804 and the floor 795 with live App 804,
   the production Korean app sheet keeps the four descriptors and its first shard is byte-identical
   to the baked copy, the Drift Audit reported 32 pass / 0 fail / 5 manual-only, and the post-merge
-  Full E2E 41315565486 on `ba28943e` passed (`e2e` 812 on Linux Chromium, among them the font, tab header and playlist specs; `webkit-mobile` 94 passed and 5 skipped plus the production service worker test; the production large-room R2 smoke), the previous-train run 6B needs before it merges. A real iPhone has not been checked yet: the
-  owner checks on 2026-11-02 afternoon, and a tall-script language on Android or desktop Chromium is
-  the second blind check. The release record's §2 carries the train as post-deploy items (scope and
+  Full E2E 41315565486 on `ba28943e` passed (`e2e` 812 on Linux Chromium, among them the font, tab header and playlist specs; `webkit-mobile` 94 passed and 5 skipped plus the production service worker test; the production large-room R2 smoke), the previous-train run 6B needs before it merges. QA round 7, added by the 9.0.32 record, measured
+  the owner's iPhone screenshots (2026-11-02 06:43 KST, 402 x 874 @3x, Korean UI, not committed):
+  with several playlists the four tab titles sit at one height (Playlist minus the others 0.00 px,
+  the same as shipped Chromium; on 9.0.30 the Playlist title sat 1.33 px higher). The iOS version
+  and the app build were not recorded. The rest of the iPhone check (the second playlist's number,
+  the 15 and 13 px Korean line heights, whether the baseline is whole or fractional) and the
+  tall-script language on Android or desktop Chromium, the second blind check, are still to do. The release record's §2 carries the train as post-deploy items (scope and
   status, the owner decision and the release owner's answers, rollback, the blind post-deploy check,
   the next steps with 6B, open items), its §4 the 9.0.31 entry and current boundary line (5), and
   the hotfix procedure's 9.0.25 bullet names 9.0.31's merge SHA, Release ID and App version; the

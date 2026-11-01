@@ -929,14 +929,17 @@ GitHub의 Linux 러너와 운영 Cloudflare다.
 - **머지 뒤 Full E2E:** [41347667125](https://github.com/hiefny/MUSIXQUARE/actions/runs/41347667125)(workflow_dispatch, `3ea689b9`,
   05:35:48 KST 생성, attempt 1). success: `e2e`(Ubuntu 러너, Playwright Chromium, 05:35:51 ~ 06:43:44 KST) 812 passed, `webkit-mobile`(05:35:51 ~ 05:41:43 KST) 94 passed·5 skipped와 운영 빌드 SW 시험 1 passed, 운영 large-room R2 smoke(05:35:51 ~ 05:37:12 KST) 1 passed이고 실패와 불안정 표시는 없다. 그 `e2e`에서 YouTube spec 열 개(`e2e/youtube*.test.ts`) 53행이 Linux Chromium에서 통과했다(라운드 7의 Windows Chromium 53 / 53과 파일마다 같은 수: `youtube-sync` 6, `youtube-manual-zero-start` 10, `youtube-output-delay` 3, `youtube-end-transition` 6, `youtube-native-operator` 2, `youtube-manual-repeat` 1, `youtube-pending-seek` 4, `youtube` 9, `youtube-landscape-full-bleed` 4, `youtube-search-interactions` 8). 이 통과가 앞 열차의 머지 뒤 Full E2E가 다음 열차를 머지하기 전에 통과한다는 Phase 6 계획 §1.4의 조건을 6C에 대해 채운다. 이 실행은 exact-main 후보가 아니다.
 - **하지 않은 것:** 위 '배포 뒤 확인'의 블라인드 기기 후보(데스크톱 Chrome 방장과 Android Chrome 게스트), 운영 브라우저의 업데이트 창,
-  실제 기기와 iOS Safari, 로컬 WebKit E2E 레인. 오너는 자리를 비운 채라 T0b 결함 넷의 답도 없고, 넷째의 고침은 짓지 않았다.
+  실제 기기와 iOS Safari, 로컬 WebKit E2E 레인. 위임은 2026-11-02 오후 무렵까지 이어져 T0b 결함 넷의 답도 없고, 넷째의 고침은
+  짓지 않았다. 그 사이 오너가 06:43 KST에 보낸 것은 9.0.31 배포 직후 확인 (A)의 아이폰 화면 사진뿐이다(9.0.31 보고서 QA 라운드 7).
 - **배포 기록 PR(문서만):** release-record §1과 `Last source review`를 덮어쓰고, §2 맨 위 이 열차의 '배포 전' 절을 배포 뒤 항목(범위와
   상태, 기댄 오너 답과 위임, T0b 결함 목록, 되돌리기, 배포 직후 확인, 다음 단계, 열린 항목)으로 바꾸고, §4에 이 릴리스 항목과 현재
   경계 줄 (5)를 적고, 다른 항목의 다음 되돌리기 번호를 9.0.33 / v806으로 옮기고, '§2 맨 위 9.0.31 절'을 가리키던 곳을 '§2 9.0.31
   절'로 고치고, 9.0.31 절과 6A 절의 혼자 되돌리기 창이 6B의 머지로 닫혔다고 적고, 다른 절의 기기 확인이 이제 9.0.32에서 한다고
   적었다. `docs/release-history.md`에 한 행, hotfix-procedure의 9.0.25 문단에 9.0.32 문장을 더하고, 9.0.31 보고서 머리의 '§2 맨 위
-  9.0.31 절'을 '§2 9.0.31 절'로 고치고, `docs/README.md`의 이 보고서 항목을 배포됨으로, 9.0.31 ~ 9.0.21 항목의 되돌리기 번호와 확인
-  버전을 9.0.32 뒤로 고쳤다. 로컬과 브랜치 결과는 exact-main-SHA 후보를 대신하지 않았다.
+  9.0.31 절'을 '§2 9.0.31 절'로 고치고, 그 보고서에 배포 뒤 기기 확인 (A)의 일부 결과(QA 라운드 7과 §8 끝의 결과, 오너의 아이폰
+  화면 사진 2026-11-02 06:43 KST)를 더해 머리의 Status, Version과 §10을 고치고, 릴리스 기록 §1, §2 9.0.31·9.0.29 절, §4 9.0.31 항목에
+  같은 결과를 적고, `docs/README.md`의 이 보고서 항목을 배포됨으로, 9.0.31 ~ 9.0.21 항목의 되돌리기 번호와 확인
+  버전을 9.0.32 뒤로 고치고, 그 9.0.31 항목에 같은 아이폰 결과를 적었다. 로컬과 브랜치 결과는 exact-main-SHA 후보를 대신하지 않았다.
 
 ## 하지 않은 것과 확인하지 않은 것
 

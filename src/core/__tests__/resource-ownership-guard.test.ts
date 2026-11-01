@@ -2148,6 +2148,90 @@ describe('resource-ownership guard', { timeout: 60_000 }, () => {
         expect(throughQuery).toBe('');
       });
 
+      it("pins the claims the seek's mid-sync composite asks, so its entry takes no other claim", () => {
+        const midSyncOwned = '      isYouTubeStartSyncOwned() ||\n';
+        const midSyncTimer = "      !!getManagedTimer('yt-auto-sync') ||\n";
+        const otherClaims = (calls: string, asked: string): RegExp =>
+          new RegExp(
+            '^LEDGER COMPOSITE \\(RO-02\\): src/youtube/player\\.ts:\\d+ ' +
+              `${calls.replace(/[()]/gu, '\\$&')} in seekYouTubeFromApp asks ${asked}; its entry ` +
+              'allows isYouTubeStartSyncOwned, legacy-rendezvous - add a derived query to the ' +
+              'start ledger \\(src/youtube/start-ownership\\.ts\\) instead; an allowed composite ' +
+              'statement asks exactly the claims its entry lists$',
+            'u',
+          );
+        // A third claim in the counted statement leaves its count at 1.
+        const recovery = findingsOf(
+          withSources((sources) =>
+            replaceIn(
+              sources,
+              player,
+              midSyncOwned,
+              `${midSyncOwned}      isYouTubeZeroStartExternalFallbackActiveOwned() ||\n`,
+            ),
+          ),
+        );
+        expect(recovery.split('\n')).toEqual([
+          expect.stringMatching(
+            otherClaims(
+              "isYouTubeStartSyncOwned(), isYouTubeZeroStartExternalFallbackActiveOwned(), getManagedTimer('yt-auto-sync')",
+              'isYouTubeStartSyncOwned, standard-recovery, legacy-rendezvous',
+            ),
+          ),
+        ]);
+        // Another ledger query in place of the allowed one.
+        const swapped = findingsOf(
+          withSources((sources) => {
+            replaceIn(
+              sources,
+              player,
+              '  registerYouTubeStartClaim,\n',
+              '  isYouTubeStartTimelineHeld,\n  registerYouTubeStartClaim,\n',
+            );
+            replaceIn(sources, player, midSyncOwned, '      isYouTubeStartTimelineHeld() ||\n');
+          }),
+        );
+        expect(swapped.split('\n')).toEqual([
+          expect.stringMatching(
+            otherClaims(
+              "isYouTubeStartTimelineHeld(), getManagedTimer('yt-auto-sync')",
+              'isYouTubeStartTimelineHeld, legacy-rendezvous',
+            ),
+          ),
+        ]);
+        // The PRO arm's claim in place of the legacy claim.
+        const proArm = findingsOf(
+          withSources((sources) =>
+            replaceIn(
+              sources,
+              player,
+              midSyncTimer,
+              '      proYouTubeAuthorityOwnsHardMute() ||\n',
+            ),
+          ),
+        );
+        expect(proArm.split('\n')).toEqual([
+          expect.stringMatching(
+            otherClaims(
+              'isYouTubeStartSyncOwned(), proYouTubeAuthorityOwnsHardMute()',
+              'isYouTubeStartSyncOwned, pro-arm',
+            ),
+          ),
+        ]);
+        // The legacy claim asked twice, by its timer and by its query, is the same claims.
+        const twice = findingsOf(
+          withSources((sources) =>
+            replaceIn(
+              sources,
+              player,
+              midSyncTimer,
+              `${midSyncTimer}      isYouTubeAutoSyncPendingOwned() ||\n`,
+            ),
+          ),
+        );
+        expect(twice).toBe('');
+      });
+
       it("rejects a ledger query that leaves the ledger's own import: re-exported, passed on or loaded dynamically", () => {
         const findings = findingsOf(
           withSources((sources) => {
@@ -2338,6 +2422,89 @@ describe('resource-ownership guard', { timeout: 60_000 }, () => {
         expect(lines).toHaveLength(2);
         expect(lines[0]).toMatch(registration('rogueRearm'));
         expect(lines[1]).toMatch(registration('<module>'));
+      });
+
+      it('requires player.ts to register every claim kind a derived query decides', () => {
+        const recoveryClaim =
+          "registerYouTubeStartClaim('standard-recovery', [\n" +
+          '  isYouTubeZeroStartExternalFallbackActiveOwned,\n' +
+          '  isYouTubeZeroStartExternalFallbackPendingOwned,\n' +
+          ']);\n';
+        const legacyClaim =
+          "registerYouTubeStartClaim('legacy-rendezvous', [isYouTubeAutoSyncPendingOwned]);\n";
+        const missing = (kind: string, deciders: string): string =>
+          `START CLAIM REGISTRATION (RO-02): src/youtube/player.ts registers no '${kind}' claim ` +
+          `(decided by ${deciders}) - src/youtube/player.ts, the start owners' composition ` +
+          'point, registers each kind a derived query decides, once, in a top-level statement; ' +
+          'the ledger answers false for a kind with no claim, so its readers would never see ' +
+          'that owner';
+        // The ledger fails open: an unregistered kind reads nothing.
+        expect(
+          findingsOf(withSources((sources) => replaceIn(sources, player, proArmClaim, ''))),
+        ).toBe(missing('pro-arm', 'isYouTubeStartHardMuteOwned'));
+        expect(
+          findingsOf(withSources((sources) => replaceIn(sources, player, legacyClaim, ''))),
+        ).toBe(missing('legacy-rendezvous', 'isYouTubeStartRoomStateHeld'));
+        expect(
+          findingsOf(withSources((sources) => replaceIn(sources, player, recoveryClaim, ''))),
+        ).toBe(
+          missing(
+            'standard-recovery',
+            'isYouTubeStartSyncOwned, isYouTubeStartHardMuteOwned, isYouTubeStartTimelineHeld, ' +
+              'isYouTubeStartRecoveryActive',
+          ),
+        );
+        // Registered inside a function, the kind still has no claim at module evaluation.
+        const moved = findingsOf(
+          withSources((sources) =>
+            replaceIn(
+              sources,
+              player,
+              proArmClaim,
+              `export function rogueArm(): void {\n  ${proArmClaim}}\n`,
+            ),
+          ),
+        );
+        expect(moved.split('\n')).toEqual([
+          expect.stringMatching(
+            /^START CLAIM REGISTRATION \(RO-02\): src\/youtube\/player\.ts:\d+ registers 'pro-arm' outside a top-level statement in rogueArm - /u,
+          ),
+          missing('pro-arm', 'isYouTubeStartHardMuteOwned'),
+        ]);
+      });
+
+      it('fails closed on a derived query whose decisions CHECK 12 cannot read', () => {
+        const first = (realInput().sources.get(ledger) ?? '').split('\n').length;
+        const findings = findingsOf(
+          withSources((sources) => {
+            sources.set(
+              ledger,
+              `${sources.get(ledger) ?? ''}` +
+                'export function isYouTubeStartRogueHeld(): boolean {\n' +
+                '  const decision: Decision = [0, 0, 0, 0, 0];\n' +
+                '  return holds(decision);\n' +
+                '}\n' +
+                'export function isYouTubeStartRogueShort(): boolean {\n' +
+                '  return holds([0, 0, 0, 0] as unknown as Decision);\n' +
+                '}\n' +
+                'export const isYouTubeStartRogueArrow = (): boolean => holds([0, 0, 0, 0, 0]);\n',
+            );
+          }),
+        );
+        const unreadable = (line: number, query: string): string =>
+          `START CLAIM REGISTRATION (RO-02): src/youtube/start-ownership.ts:${line} cannot read ` +
+          `the decisions of ${query} - a derived query returns one call on one list of ` +
+          'decisions, one per claim kind in START_CLAIM_KINDS order (0 for never), so CHECK 12 ' +
+          'can require a registration of every kind it decides';
+        expect(findings.split('\n')).toEqual([
+          unreadable(first, 'isYouTubeStartRogueHeld'),
+          unreadable(first + 4, 'isYouTubeStartRogueShort'),
+          unreadable(first + 7, 'isYouTubeStartRogueArrow'),
+          `LEDGER PURITY (RO-02): src/youtube/start-ownership.ts:${first + 7} declares ` +
+            "isYouTubeStartRogueArrow at module level - the start ledger calls its owners' live " +
+            'queries when asked and keeps nothing: no runtime import, timer, scheduled callback ' +
+            'or answer kept between calls',
+        ]);
       });
 
       it("counts the run's snapshot reads outside zero-start.ts per file, and fails a re-export of one", () => {

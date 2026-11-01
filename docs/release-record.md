@@ -362,6 +362,7 @@ gh run list --workflow e2e.yml --branch main --limit 3
       [오너 답](design/app-font-inter-noto-2026-10-31.md#91-오너-답과-적용한-권장-답-2026-10-31-저녁),
       [릴리스 담당이 할 일](design/app-font-inter-noto-2026-10-31.md#10-릴리스-담당이-할-일),
       [글꼴 README](../fonts/README.md),
+      [굽기와 탭 제목 보고서](design/app-font-baked-metrics-2026-11-01.md),
       [Phase 6 6A 보고서의 되돌리기](design/phase6-6a-start-constants-owner-queries-2026-10-31.md#되돌리기).
 - [ ] 배포 뒤 확인(게이트 아님, 오너 답 2026-10-31 저녁, 첫 확인은 iPhone Safari 줄 높이, 오너가 돌아온 뒤): 보고서 §8의 확인은
       이 기록까지 하나도 하지 않았다. 오너는 손에 아이폰이 없어 iPhone 확인을 배포 뒤로 옮겼고, 23:20 KST 무렵부터 약 40시간 자리를

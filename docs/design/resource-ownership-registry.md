@@ -275,8 +275,18 @@ RO-53 owner-in-place
   (`src/youtube/zero-start.ts`, phase union `YouTubeZeroStartPhase`); the guest local fallback
   (the `onFallbackRequired` closure in `src/youtube/player.ts`); the host legacy recovery
   (`recoverZeroStartWithLegacyRendezvous`, `player.ts`); the legacy rendezvous `scheduleYtAutoSync`
-  (`player.ts`). They retire each other directly, and `iframe.ts` dispatches player states to them
-  in a fixed order. Since Phase 6 6B-1 (C2-5) the start ledger `src/youtube/start-ownership.ts`
+  (`player.ts`). They retire each other directly, and `iframe.ts` asks them in a fixed order
+  whether one consumes an iframe player state: the PRO arm, the run, the recovery, then the legacy
+  rendezvous's local start hold on a Standard host. Since Phase 6 6C-1 (C2-6) that order is the
+  state router (`routeYouTubeStartPlayerState`): one decision per start claim kind, in the same
+  order and with the same short-circuit, after the stale reused-feedback check, and a claim kind
+  without a decision there does not compile. `local-offset.ts`'s `toCanonicalYouTubeTime` reads the
+  Standard host's held room time through one merged pending-start read (the legacy local start,
+  then the run's scheduled start), which nothing else reads, while the pending-start predicate
+  `isStandardHostYouTubeLocalStartPending` and its six readers (the router, the native-control
+  protected owners, the seek's mid-sync check, both host heartbeat states and the manual-offset
+  runtime) stay the legacy hold's alone.
+  Since Phase 6 6B-1 (C2-5) the start ledger `src/youtube/start-ownership.ts`
   (`Resource owner: RO-02`, [design](youtube-start-ownership.md)) composes them for readers:
   `player.ts` registers each owner's live queries as a claim (`registerYouTubeStartClaim`: the
   run's in-flight, protocol and hard-mute queries; the recovery's active and pending flags, which
@@ -302,7 +312,7 @@ RO-53 owner-in-place
   mid-sync check, the late-join bootstrap deferral); `isYouTubeStartTimelineHeld` in `sync.ts`
   (the small-drift sample, the guest heartbeat and the auxiliary state); `isYouTubeStartArmBusy`
   in `src/ui/seekbar.ts` and `iframe.ts`'s UI loop; `isYouTubeStartRecoveryActive` in `iframe.ts`'s
-  state dispatch; `isYouTubeStartRoomStateHeld` in `iframe.ts`'s auxiliary `YOUTUBE_STATE` hold;
+  state router; `isYouTubeStartRoomStateHeld` in `iframe.ts`'s auxiliary `YOUTUBE_STATE` hold;
   and `isYouTubeStartHardMuteOwned` in `player.ts`'s unMute guards (`youtube:set-volume`, the PRO
   pause-gate settlement). Since Phase 6 6A-1 other modules ask the start-timer owners rather than
   read the timers by name: `sync.ts`'s heartbeat hold, `iframe.ts`'s sub-video advance check and
@@ -415,6 +425,12 @@ RO-53 owner-in-place
     `src/youtube/__tests__/start-ownership-reader-windows.test.ts`: five readers in a Standard
     guest's timeline calibration, where `isYouTubeStartSyncOwned` holds while
     `isYouTubeStartTimelineHeld` and `isYouTubeStartArmBusy` do not.
+  - State router (since 6C-1): `src/youtube/__tests__/youtube-start-state-router.test.ts` (which
+    start owner consumes an iframe state, in which order, and the stale reused-feedback check
+    before them), the pending-start rows of `src/youtube/__tests__/local-offset.test.ts` and the
+    pause-teardown rows of `src/youtube/__tests__/standard-start-pause-teardown.test.ts` (a
+    BUFFERING or the iframe's own PAUSE in the run's `starting` phase still reaches the ordinary
+    path).
 - **Status:** `duplicated`. Phase 6 (start ledger, routed state events, shared arm steps, recovery
   as owner stages); its first train took over the app part of Phase 0d, the shared start timing
   (C2-1, 6A-3). The no-auto-retry Sync notice right after a zero-start stays

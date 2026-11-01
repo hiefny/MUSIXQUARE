@@ -110,8 +110,31 @@ export function setStandardHostYouTubeLocalStartTimelineReader(
   standardHostLocalStartTimeline = reader;
 }
 
+/**
+ * Whether the legacy rendezvous holds this Standard host's speaker for its
+ * local start. Only the legacy hold answers: a zero-start run's scheduled
+ * start is not a pending local start here, so a BUFFERING or PAUSED in the
+ * run's 'starting' phase and a real headset Pause in its calibration window
+ * still reach the ordinary state path and the native-control authority.
+ */
 export function isStandardHostYouTubeLocalStartPending(): boolean {
   return isStandardHostYouTubeManualOffsetEndpoint() && standardHostLocalStartTimeline?.() != null;
+}
+
+/**
+ * The room time a Standard host's start owner holds while its own speaker
+ * waits: the legacy rendezvous's local start, any answer (the caller clamps
+ * it, so one that is not finite reads 0), else the zero-start run's
+ * scheduled start when finite, else null. Each reader is asked at most once,
+ * the legacy one first. Only toCanonicalYouTubeTime reads it.
+ */
+function readStandardHostYouTubePendingStart(): number | null {
+  const localStartTime = standardHostLocalStartTimeline?.();
+  if (localStartTime !== null && localStartTime !== undefined) return localStartTime;
+  const scheduledTime = _scheduledStartTimeline?.();
+  return scheduledTime !== null && scheduledTime !== undefined && Number.isFinite(scheduledTime)
+    ? scheduledTime
+    : null;
 }
 
 function clampTime(time: number, duration: number): number {
@@ -259,13 +282,8 @@ export function toCanonicalYouTubeTime(localTime: number, duration = 0): number 
   if (isStandardHostYouTubeManualOffsetEndpoint()) {
     const heldTime = readStandardHostEndHoldTime();
     if (heldTime !== null) return clampTime(heldTime, duration);
-    const localStartTime = standardHostLocalStartTimeline?.();
-    if (localStartTime !== null && localStartTime !== undefined)
-      return clampTime(localStartTime, duration);
-    const scheduledTime = _scheduledStartTimeline?.();
-    if (scheduledTime !== null && scheduledTime !== undefined && Number.isFinite(scheduledTime)) {
-      return clampTime(scheduledTime, duration);
-    }
+    const pendingStartTime = readStandardHostYouTubePendingStart();
+    if (pendingStartTime !== null) return clampTime(pendingStartTime, duration);
   }
   const anchoredTime = readActiveNudgeAnchor(duration);
   if (anchoredTime !== null) return anchoredTime;

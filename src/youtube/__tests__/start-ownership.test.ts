@@ -122,9 +122,9 @@ describe('start ledger: what each claim position decides', () => {
 
 describe('start ledger: read order and short-circuit', () => {
   /**
-   * By (protocolActive, pending): the run's protocol first, as
-   * isYouTubeZeroStartSyncOwned asks it, then the recovery's pending claim
-   * only while the protocol is off. No other query is read.
+   * By (protocolActive, pending): the run's protocol first, as the composite
+   * it replaced (isYouTubeZeroStartSyncOwned) asked it, then the recovery's
+   * pending claim only while the protocol is off. No other query is read.
    */
   const SYNC_OWNED: Record<string, { answer: boolean; reads: QueryName[] }> = {
     'false false': {

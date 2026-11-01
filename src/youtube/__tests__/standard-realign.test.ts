@@ -44,7 +44,8 @@ import {
   invalidateGuestYouTubeTimeline,
   resetYouTubeSyncState,
 } from '../sync.ts';
-import { isYouTubeZeroStartProtocolActive } from '../zero-start.ts';
+import { registerYouTubeStartClaim } from '../start-ownership.ts';
+import { isYouTubeZeroStartInFlight, isYouTubeZeroStartProtocolActive } from '../zero-start.ts';
 import { makeFakeYtPlayer, mutationOps, type FakeYtPlayer } from './__helpers__/fake-yt-player.ts';
 
 const harness = vi.hoisted(() => ({
@@ -121,6 +122,13 @@ beforeEach(() => {
   vi.mocked(showToast).mockClear();
   harness.clockCalibrated = true;
   harness.zeroStartActive = false;
+  // player.ts does not load here: the start ledger reads the run's two
+  // exports, as player.ts registers them.
+  registerYouTubeStartClaim('standard-run', [
+    () => isYouTubeZeroStartInFlight(),
+    () => isYouTubeZeroStartProtocolActive(),
+    () => false,
+  ]);
   host = connection('realign-host');
   setState('network.appRole', 'guest');
   setState('network.hostConn', host);

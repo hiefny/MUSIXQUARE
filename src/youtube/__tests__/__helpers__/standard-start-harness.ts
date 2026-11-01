@@ -36,7 +36,7 @@ import { markQueueAuthorityReady } from '../../../network/queue-authority.ts';
 import { initPlayback } from '../../../player/playback.ts';
 import type { DataConnection, QueueItemId } from '../../../types/index.ts';
 import { initYouTube } from '../../player.ts';
-import { isYouTubeZeroStartExternalFallbackActiveFromIframe } from '../../player-runtime-bridge.ts';
+import { isYouTubeStartRecoveryActive, isYouTubeStartSyncOwned } from '../../start-ownership.ts';
 import { initYouTubeSync } from '../../sync.ts';
 import {
   getYouTubeZeroStartSnapshot,
@@ -45,7 +45,6 @@ import {
   YouTubeZeroStartControllerForTests,
   type YouTubeZeroStartWireMessage,
 } from '../../zero-start.ts';
-import { isYouTubeZeroStartSyncOwned } from '../../zero-start-ownership.ts';
 import { makeFakeYtPlayer, type FakeYtPlayer } from './fake-yt-player.ts';
 import {
   installScriptedIframeApi,
@@ -204,13 +203,17 @@ export interface StartPredicates {
   readonly externalFallbackActive: boolean;
 }
 
-/** The four public start-ownership predicates, sampled now. */
+/**
+ * The four public start-ownership predicates, sampled now: the run's two
+ * facades, and since Phase 6 6B-2 the start ledger's sync-owned and
+ * recovery-active queries, which the readers ask.
+ */
 export function sampleStartPredicates(): StartPredicates {
   return {
-    syncOwned: isYouTubeZeroStartSyncOwned(),
+    syncOwned: isYouTubeStartSyncOwned(),
     inFlight: isYouTubeZeroStartInFlight(),
     protocolActive: isYouTubeZeroStartProtocolActive(),
-    externalFallbackActive: isYouTubeZeroStartExternalFallbackActiveFromIframe(),
+    externalFallbackActive: isYouTubeStartRecoveryActive(),
   };
 }
 

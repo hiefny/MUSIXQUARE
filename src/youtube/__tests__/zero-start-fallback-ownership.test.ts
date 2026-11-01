@@ -305,12 +305,12 @@ describe('external zero-start recovery owns ordinary synchronization', () => {
     async (offset) => {
       const test = await installDelayedFallback(offset, 0);
       const { sync, handlers } = await realHandlers();
-      const { isYouTubeZeroStartSyncOwned } = await import('../zero-start-ownership.ts');
+      const { isYouTubeStartSyncOwned } = await import('../start-ownership.ts');
       try {
         const now = Math.max(750, test.releaseAfterMs - 999);
         await vi.advanceTimersByTimeAsync(now);
         heartbeat(handlers, (now - 700) / 1000);
-        expect(isYouTubeZeroStartSyncOwned()).toBe(true);
+        expect(isYouTubeStartSyncOwned()).toBe(true);
         expect(sync.isGuestYouTubeTransitionPending()).toBe(true);
         const before = test.player.__log.length;
         expect(sync.guestRendezvousSync({ silent: true }).status).toBe('not-ready');
@@ -325,7 +325,7 @@ describe('external zero-start recovery owns ordinary synchronization', () => {
         expect(test.player.getPlayerState()).toBe(1);
         expect(test.player.isMuted()).toBe(false);
         expect(test.player.getCurrentTime()).toBeCloseTo(0.1, 3);
-        expect(isYouTubeZeroStartSyncOwned()).toBe(false);
+        expect(isYouTubeStartSyncOwned()).toBe(false);
         expect(getState('youtube.guestPlayLatency')).toBe(0);
         heartbeat(handlers, 20);
         expect(sync.guestRendezvousSync({ silent: true }).status).toBe('started');
@@ -336,10 +336,10 @@ describe('external zero-start recovery owns ordinary synchronization', () => {
     },
   );
   it('keeps synchronization fenced until the released iframe acknowledges PLAYING', async () => {
-    const ownership = await import('../zero-start-ownership.ts');
+    const ownership = await import('../start-ownership.ts');
     const pendingChanges: boolean[] = [];
     bus.on('youtube:zero-start-readiness-changed', () =>
-      pendingChanges.push(ownership.isYouTubeZeroStartSyncOwned()),
+      pendingChanges.push(ownership.isYouTubeStartSyncOwned()),
     );
     const test = await installDelayedFallback(-9.999, 0);
     const { sync, handlers } = await realHandlers();
@@ -349,8 +349,8 @@ describe('external zero-start recovery owns ordinary synchronization', () => {
       const before = test.player.__log.length;
       expect(requestPlay).toHaveBeenCalledTimes(1);
       heartbeat(handlers, 10);
-      expect(test.playerMod.isYouTubeZeroStartExternalFallbackActive()).toBe(false);
-      expect(ownership.isYouTubeZeroStartSyncOwned()).toBe(true);
+      expect(ownership.isYouTubeStartRecoveryActive()).toBe(false);
+      expect(ownership.isYouTubeStartSyncOwned()).toBe(true);
       expect(sync.guestRendezvousSync({ silent: true }).status).toBe('not-ready');
       bus.emit('sync:nudge', 10);
       bus.emit('sync:set-manual-offset', 1234);
@@ -361,7 +361,7 @@ describe('external zero-start recovery owns ordinary synchronization', () => {
       expect(requestPlay).toHaveBeenCalledTimes(1);
       await vi.advanceTimersByTimeAsync(200);
       expect(test.player.getPlayerState()).toBe(1);
-      expect(ownership.isYouTubeZeroStartSyncOwned()).toBe(false);
+      expect(ownership.isYouTubeStartSyncOwned()).toBe(false);
       expect(pendingChanges.at(-1)).toBe(false);
       expect(pendingChanges).toContain(true);
     } finally {
@@ -379,11 +379,11 @@ describe('external zero-start recovery owns ordinary synchronization', () => {
     async ({ state, phase }) => {
       const test = await installDelayedFallback(-9.999, 0);
       const { sync, handlers } = await realHandlers();
-      const { isYouTubeZeroStartSyncOwned } = await import('../zero-start-ownership.ts');
+      const { isYouTubeStartSyncOwned } = await import('../start-ownership.ts');
       delayPlayingAcknowledgement(test.player);
       try {
         await vi.advanceTimersByTimeAsync(phase === 'held' ? 6000 : test.releaseAfterMs + 1);
-        expect(isYouTubeZeroStartSyncOwned()).toBe(true);
+        expect(isYouTubeStartSyncOwned()).toBe(true);
         handlers[MSG.YOUTUBE_STATE]!(
           {
             queueItemId: QUEUE_ITEM_ID,
@@ -395,7 +395,7 @@ describe('external zero-start recovery owns ordinary synchronization', () => {
           },
           getState('network.hostConn')!,
         );
-        expect(isYouTubeZeroStartSyncOwned()).toBe(false);
+        expect(isYouTubeStartSyncOwned()).toBe(false);
         await vi.advanceTimersByTimeAsync(500);
         expect(test.player.getPlayerState()).toBe(state);
         const before = test.player.__log.length;
@@ -409,11 +409,11 @@ describe('external zero-start recovery owns ordinary synchronization', () => {
   );
   it('retires the previous integration before publishing readiness and reinitializing', async () => {
     const test = await installDelayedFallback(-9.999, 0);
-    const ownership = await import('../zero-start-ownership.ts');
+    const ownership = await import('../start-ownership.ts');
     delayPlayingAcknowledgement(test.player);
     try {
       await vi.advanceTimersByTimeAsync(test.releaseAfterMs + 1);
-      expect(ownership.isYouTubeZeroStartSyncOwned()).toBe(true);
+      expect(ownership.isYouTubeStartSyncOwned()).toBe(true);
       const cleanupObservations: {
         owned: boolean;
         state: number;
@@ -422,14 +422,14 @@ describe('external zero-start recovery owns ordinary synchronization', () => {
       }[] = [];
       const off = bus.on('youtube:zero-start-readiness-changed', () => {
         cleanupObservations.push({
-          owned: ownership.isYouTubeZeroStartSyncOwned(),
+          owned: ownership.isYouTubeStartSyncOwned(),
           state: test.player.getPlayerState(),
           time: test.player.getCurrentTime(),
           muted: test.player.isMuted(),
         });
       });
       test.playerMod.initYouTube();
-      expect(ownership.isYouTubeZeroStartSyncOwned()).toBe(false);
+      expect(ownership.isYouTubeStartSyncOwned()).toBe(false);
       await Promise.resolve();
       const released = cleanupObservations.filter(({ owned }) => !owned);
       expect(released.length).toBeGreaterThan(0);

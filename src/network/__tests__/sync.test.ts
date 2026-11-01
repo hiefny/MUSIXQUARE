@@ -37,7 +37,7 @@ import {
 } from '../../player/ownership.ts';
 import { grantStandardRoomAdministrator } from '../standard-room-authority.ts';
 import { setDemoHostStartAt } from '../../demo/host-start-anchor.ts';
-import { isYouTubeZeroStartExternalFallbackPendingFromSync } from '../../youtube/player-runtime-bridge.ts';
+import { registerYouTubeStartClaim } from '../../youtube/start-ownership.ts';
 import { isYouTubeZeroStartProtocolActive } from '../../youtube/zero-start.ts';
 
 const QUEUE_ITEM_ID = '00000000-0000-4000-8000-000000000001';
@@ -70,6 +70,8 @@ const transportMocks = vi.hoisted(() => ({
   pendingDeadline: undefined as number | undefined,
 }));
 const zeroStartFacade = vi.hoisted(() => ({ fallback: false, active: false }));
+/** The recovery's pending claim, as the start ledger reads it. */
+const recoveryPending = vi.hoisted(() => vi.fn(() => zeroStartFacade.fallback));
 
 vi.mock('../../player/transport.ts', async (importOriginal) => {
   const actual = await importOriginal<typeof import('../../player/transport.ts')>();
@@ -81,11 +83,6 @@ vi.mock('../../player/transport.ts', async (importOriginal) => {
     getLocalFilePendingStartDeadlineMs: () => transportMocks.pendingDeadline,
   };
 });
-
-vi.mock('../../youtube/player-runtime-bridge.ts', async (importOriginal) => ({
-  ...(await importOriginal<typeof import('../../youtube/player-runtime-bridge.ts')>()),
-  isYouTubeZeroStartExternalFallbackPendingFromSync: vi.fn(() => zeroStartFacade.fallback),
-}));
 
 vi.mock('../../youtube/zero-start.ts', () => ({
   isYouTubeZeroStartProtocolActive: vi.fn(() => zeroStartFacade.active),
@@ -108,6 +105,14 @@ beforeEach(() => {
   setPlayLocked(false);
   zeroStartFacade.active = false;
   zeroStartFacade.fallback = false;
+  // player.ts does not load here: the start ledger reads the run's protocol
+  // export and the recovery's pending stand-in, as player.ts registers them.
+  registerYouTubeStartClaim('standard-run', [
+    () => false,
+    () => isYouTubeZeroStartProtocolActive(),
+    () => false,
+  ]);
+  registerYouTubeStartClaim('standard-recovery', [() => false, recoveryPending]);
   setLocalFilePaused(false);
 });
 
@@ -327,13 +332,13 @@ describe('manual sync nudge routing', () => {
     setPlaybackYouTubePlaying();
     setState('network.hostConn', { open: true } as DataConnection);
     vi.mocked(isYouTubeZeroStartProtocolActive).mockClear();
-    vi.mocked(isYouTubeZeroStartExternalFallbackPendingFromSync).mockClear();
+    recoveryPending.mockClear();
 
     bus.emit('sync:nudge', 10);
 
-    // With no owner, the gate reads both halves of isYouTubeZeroStartSyncOwned.
+    // With no owner, the gate reads both claims of isYouTubeStartSyncOwned.
     expect(isYouTubeZeroStartProtocolActive).toHaveBeenCalled();
-    expect(isYouTubeZeroStartExternalFallbackPendingFromSync).toHaveBeenCalled();
+    expect(recoveryPending).toHaveBeenCalled();
     expect(getState('sync.youtubeLocalOffset')).toBeCloseTo(0.01, 4);
     vi.advanceTimersByTime(1_000);
     expect(applySpy).toHaveBeenCalledTimes(1);
@@ -350,17 +355,17 @@ describe('manual sync nudge routing', () => {
       setState('sync.youtubeLocalOffset', 0.25);
       zeroStartFacade[owner] = true;
       vi.mocked(isYouTubeZeroStartProtocolActive).mockClear();
-      vi.mocked(isYouTubeZeroStartExternalFallbackPendingFromSync).mockClear();
+      recoveryPending.mockClear();
 
       bus.emit('sync:nudge', 10);
       bus.emit('sync:set-manual-offset', -1234);
       bus.emit('sync:auto-sync');
 
-      // The gate reaches the forced owner's export. isYouTubeZeroStartSyncOwned
-      // reads the protocol half first, so the fallback row reads both.
+      // The gate reaches the forced owner's claim. isYouTubeStartSyncOwned
+      // reads the run's protocol first, so the fallback row reads both.
       expect(isYouTubeZeroStartProtocolActive).toHaveBeenCalled();
       if (owner === 'fallback') {
-        expect(isYouTubeZeroStartExternalFallbackPendingFromSync).toHaveBeenCalled();
+        expect(recoveryPending).toHaveBeenCalled();
       }
       expect(getState('sync.youtubeLocalOffset')).toBe(0.25);
       expect(applySpy).not.toHaveBeenCalled();

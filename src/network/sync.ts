@@ -60,7 +60,7 @@ import {
   isPlaybackPlayingFile,
 } from '../player/ownership.ts';
 import { getRoomContext, isActiveStandardRoomCoordinator } from '../rooms/authority.ts';
-import { isYouTubeZeroStartSyncOwned } from '../youtube/zero-start-ownership.ts';
+import { isYouTubeStartSyncOwned } from '../youtube/start-ownership.ts';
 import {
   initRoomControl,
   resolveRoomControlKickTarget,
@@ -147,7 +147,7 @@ function canApplyManualSyncAction(): boolean {
     // Outside it, guests use their host snapshot and canonical timeline
     // endpoints (PRO plus an active standard host) remove the local offset
     // again before projecting any time to the room.
-    return !isYouTubeZeroStartSyncOwned();
+    return !isYouTubeStartSyncOwned();
   }
   return isPlaybackModeFile() && !!getCurrentAudioBuffer();
 }

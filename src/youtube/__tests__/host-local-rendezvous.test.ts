@@ -24,6 +24,7 @@ import {
   toCanonicalYouTubeTime,
 } from '../local-offset.ts';
 import { configureYouTubePlayerRuntimeHooks } from '../player-runtime-bridge.ts';
+import { registerYouTubeStartClaim } from '../start-ownership.ts';
 import { registerProRoomLocalPlaybackTimeline } from '../../pro-room/local-playback-timeline.ts';
 import type { ProRoomSnapshot } from '../../pro-room/contracts.ts';
 import {
@@ -236,11 +237,10 @@ afterEach(() => {
     cancelPendingAutoSync: () => undefined,
     consumePendingAutoSyncOnReady: () => null,
     isYouTubeAutoSyncPending: () => false,
-    isYouTubeZeroStartExternalFallbackActive: () => false,
-    isYouTubeZeroStartExternalFallbackPending: () => false,
     isProPlaybackPauseGatePending: () => false,
     setPendingAutoSyncOnReady: () => undefined,
   });
+  registerYouTubeStartClaim('standard-recovery', [() => false, () => false]);
   unregisterProTimeline?.();
   unregisterProTimeline = null;
   registerProPlaybackMediaEndpoint(null);
@@ -282,16 +282,16 @@ describe.each([0, 250])('Standard-host local scheduled rendezvous (output %ims)'
         consumePendingAutoSyncOnReady: () => null,
         // The stand-in owner answers from the raw timer it armed above.
         isYouTubeAutoSyncPending: () => getManagedTimer('yt-auto-sync') !== null,
-        isYouTubeZeroStartExternalFallbackActive: () => false,
-        isYouTubeZeroStartExternalFallbackPending: fallbackPending,
         isProPlaybackPauseGatePending: () => false,
         setPendingAutoSyncOnReady: () => undefined,
       });
+      // The stand-in recovery's claim, as player.ts registers its own.
+      registerYouTubeStartClaim('standard-recovery', [() => false, fallbackPending]);
       vi.advanceTimersByTime(1_000);
       fallbackPending.mockClear();
       bus.emit('youtube:set-coordinator-manual-offset', offset, 'committed');
 
-      // The edit's zero-start owner gate reaches the fallback hook.
+      // The edit's zero-start owner gate reaches the fallback claim.
       expect(fallbackPending).toHaveBeenCalled();
       expect(fixture.player.pauseVideo).toHaveBeenCalledOnce();
       expect(cancel).toHaveBeenCalledOnce();

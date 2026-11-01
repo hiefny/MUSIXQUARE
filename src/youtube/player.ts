@@ -513,10 +513,7 @@ export {
 } from './iframe.ts';
 // Preserve the player facade while the implementation binding remains owned
 // by this module and iframe.ts consumes only the neutral bridge leaf.
-export {
-  consumePendingAutoSyncOnReadyFromIframe as consumePendingAutoSyncOnReady,
-  isYouTubeZeroStartExternalFallbackActiveFromIframe as isYouTubeZeroStartExternalFallbackActive,
-} from './player-runtime-bridge.ts';
+export { consumePendingAutoSyncOnReadyFromIframe as consumePendingAutoSyncOnReady } from './player-runtime-bridge.ts';
 
 function getYouTubeDuration(player: YouTubePlayerInstance): number {
   try {
@@ -856,6 +853,15 @@ export function scheduleYtAutoSync(targetTime: number, overrides?: YouTubeAutoSy
     },
     waitMs,
   );
+}
+
+/**
+ * The legacy rendezvous's Stage-2 wait, from this module's own 'yt-auto-sync'
+ * timer: the start ledger's legacy claim and the runtime bridge's
+ * isYouTubeAutoSyncPending both read it.
+ */
+function isYouTubeAutoSyncPendingOwned(): boolean {
+  return getManagedTimer('yt-auto-sync') !== null;
 }
 
 /** Cancel any pending auto-sync (e.g. user paused during rendezvous). */
@@ -4752,17 +4758,16 @@ export function initYouTube(): void {
 configureYouTubePlayerRuntimeHooks({
   cancelPendingAutoSync: cancelYtAutoSync,
   consumePendingAutoSyncOnReady: consumePendingAutoSyncOnReadyOwned,
-  isYouTubeAutoSyncPending: () => getManagedTimer('yt-auto-sync') !== null,
-  isYouTubeZeroStartExternalFallbackActive: isYouTubeZeroStartExternalFallbackActiveOwned,
-  isYouTubeZeroStartExternalFallbackPending: isYouTubeZeroStartExternalFallbackPendingOwned,
+  isYouTubeAutoSyncPending: isYouTubeAutoSyncPendingOwned,
   isProPlaybackPauseGatePending: () => _proPlaybackPauseGateToken !== null,
   setPendingAutoSyncOnReady,
 });
 
 // The start owners' live queries, which the start ledger calls each time it
-// is asked (it keeps no answer of its own). An imported query stays behind a
-// closure, so it reads its module's live binding at call time and this module
-// still loads where a suite mocks that owner module without it.
+// is asked (it keeps no answer of its own); every start-ownership reader asks
+// the ledger. An imported query stays behind a closure, so it reads its
+// module's live binding at call time and this module still loads where a
+// suite mocks that owner module without it.
 registerYouTubeStartClaim('standard-run', [
   () => isYouTubeZeroStartInFlight(),
   () => isYouTubeZeroStartProtocolActive(),
@@ -4772,4 +4777,5 @@ registerYouTubeStartClaim('standard-recovery', [
   isYouTubeZeroStartExternalFallbackActiveOwned,
   isYouTubeZeroStartExternalFallbackPendingOwned,
 ]);
+registerYouTubeStartClaim('legacy-rendezvous', [isYouTubeAutoSyncPendingOwned]);
 registerYouTubeStartClaim('pro-arm', [() => proYouTubeAuthorityOwnsHardMute()]);

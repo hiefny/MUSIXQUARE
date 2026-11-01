@@ -26,8 +26,8 @@ vi.mock('../../youtube/sync.ts', () => ({
   broadcastYouTubeSync: mocks.broadcast,
   guestRendezvousSync: mocks.rendezvous,
 }));
-vi.mock('../../youtube/zero-start-ownership.ts', () => ({
-  isYouTubeZeroStartSyncOwned: mocks.zeroStartOwned,
+vi.mock('../../youtube/start-ownership.ts', () => ({
+  isYouTubeStartSyncOwned: mocks.zeroStartOwned,
 }));
 
 import { initBackgroundResumeGuard } from '../../core/background-resume-guard.ts';

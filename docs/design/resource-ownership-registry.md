@@ -280,33 +280,47 @@ RO-53 owner-in-place
   (`Resource owner: RO-02`, [design](youtube-start-ownership.md)) composes them for readers:
   `player.ts` registers each owner's live queries as a claim (`registerYouTubeStartClaim`: the
   run's in-flight, protocol and hard-mute queries; the recovery's active and pending flags, which
-  the guest fallback and the host legacy recovery share; the PRO arm's
-  `proYouTubeAuthorityOwnsHardMute`), and the derived queries `isYouTubeStartSyncOwned` and
-  `isYouTubeStartHardMuteOwned` call them when asked. The ledger keeps no answer, subscribes to
-  nothing and emits nothing, so it is not a second machine on this resource; the PRO arm's
-  `onPhaseChange` stays unwired in `iframe.ts`. Until the other readers move to ledger queries
-  (C2-7), `isYouTubeZeroStartSyncOwned` (`src/youtube/zero-start-ownership.ts`) still answers for
-  "both zero-start owners" outside `player.ts`. The PRO direct commit
+  the guest fallback and the host legacy recovery share; since 6B-2 the legacy rendezvous's Stage-2
+  wait, from `player.ts`'s own `'yt-auto-sync'` timer; the PRO arm's
+  `proYouTubeAuthorityOwnsHardMute`), and the derived queries call them when asked. The ledger
+  keeps no answer, subscribes to nothing and emits nothing, so it is not a second machine on this
+  resource; the PRO arm's `onPhaseChange` stays unwired in `iframe.ts`. Since Phase 6 6B-2 (C2-7)
+  every start-ownership reader asks the ledger, and the composite `isYouTubeZeroStartSyncOwned`
+  and the runtime bridge's two recovery hooks are gone. The PRO direct commit
   (`applyProPlaybackYouTubeCommit`) and the replacement fallback also start this player; PRO arming
   is RO-03.
 - **Target single owner:** one start ledger over the zero-start owner
-  (`src/youtube/start-ownership.ts`, in place since 6B-1, over live queries only); the host legacy
-  recovery and the replacement fallback become owner stages; the guest recovery stays its own owner
-  class holding its claim (RO-33).
-- **Allowed requesters:** the load entry (`tryBeginYouTubeZeroStart`); `player.ts`'s seek mid-sync
-  check and late-join bootstrap deferral through `isYouTubeStartSyncOwned`, and its unMute guards
-  (`youtube:set-volume`, the PRO pause-gate settlement) through `isYouTubeStartHardMuteOwned`;
-  readers through `isYouTubeZeroStartSyncOwned`: `src/youtube/sync.ts`, `src/network/sync.ts`,
-  `src/ui/manual-sync-overlay-runtime.ts`, `src/ui/player-controls.ts`,
-  `src/player/background-return-sync.ts`. Since Phase 6 6A-1 other modules ask the start-timer
-  owners rather than read the timers by name: `sync.ts`'s heartbeat hold, `iframe.ts`'s auxiliary
-  `YOUTUBE_STATE` hold and sub-video advance check, and `src/youtube/native-control-authority.ts`
-  (`hasProtectedTransitionOwner`) ask `isYouTubeAutoSyncPending`
-  (`src/youtube/player-runtime-bridge.ts`), which `player.ts` answers from its own
-  `'yt-auto-sync'` timer; `hasProtectedTransitionOwner` also asks the query `sync.ts` registers
-  (`registerYouTubeNativeControlSyncOwnerQuery`), which `sync.ts` answers from its own
-  state-action and rendezvous-stage timers. Each owner reads its own timers today, so a later
-  timer merge changes only the owner's answer.
+  (`src/youtube/start-ownership.ts`, in place since 6B-1 over live queries only, and asked by every
+  reader since 6B-2); the host legacy recovery and the replacement fallback become owner stages;
+  the guest recovery stays its own owner class holding its claim (RO-33).
+- **Allowed requesters:** the load entry (`tryBeginYouTubeZeroStart`); since Phase 6 6B-2 every
+  start-ownership reader, through one ledger query per condition: `isYouTubeStartSyncOwned` in
+  `src/youtube/sync.ts` (the host heartbeat hold, the guest state actions, transition and
+  rendezvous checks, the manual-offset apply and edit, the Sync `not-ready` answer and an explicit
+  command's cancel), `src/network/sync.ts`, `src/ui/manual-sync-overlay-runtime.ts`,
+  `src/ui/player-controls.ts`, `src/player/background-return-sync.ts` and `player.ts` (the seek's
+  mid-sync check, the late-join bootstrap deferral); `isYouTubeStartTimelineHeld` in `sync.ts`
+  (the small-drift sample, the guest heartbeat and the auxiliary state); `isYouTubeStartArmBusy`
+  in `src/ui/seekbar.ts` and `iframe.ts`'s UI loop; `isYouTubeStartRecoveryActive` in `iframe.ts`'s
+  state dispatch; `isYouTubeStartRoomStateHeld` in `iframe.ts`'s auxiliary `YOUTUBE_STATE` hold;
+  and `isYouTubeStartHardMuteOwned` in `player.ts`'s unMute guards (`youtube:set-volume`, the PRO
+  pause-gate settlement). Since Phase 6 6A-1 other modules ask the start-timer owners rather than
+  read the timers by name: `sync.ts`'s heartbeat hold, `iframe.ts`'s sub-video advance check and
+  `src/youtube/native-control-authority.ts` (`hasProtectedTransitionOwner`) ask
+  `isYouTubeAutoSyncPending` (`src/youtube/player-runtime-bridge.ts`), which `player.ts` answers
+  from its own `'yt-auto-sync'` timer, the timer the ledger's legacy claim reads for `iframe.ts`'s
+  auxiliary `YOUTUBE_STATE` hold since 6B-2; `hasProtectedTransitionOwner` also asks the query
+  `sync.ts` registers (`registerYouTubeNativeControlSyncOwnerQuery`), which `sync.ts` answers from
+  its own state-action and rendezvous-stage timers. Each owner reads its own timers today, so a
+  later timer merge changes only the owner's answer.
+  - **The ledger and the run's facades** (CHECK 12 since 6B-2): outside `zero-start.ts` only the
+    run claim's registration in `player.ts` references the run's facades
+    (`isYouTubeZeroStartInFlight` and `isYouTubeZeroStartProtocolActive`: 2, an exact per-file
+    count). Another facade reference, an `isYouTubeZeroStart*` export elsewhere, a condition that
+    asks two ledger queries outside the ledger, a ledger export passed on, an impure ledger, and
+    a claim registered outside `player.ts`, twice or with a computed kind fail the guard. A new
+    start path adds a claim kind and the derived queries that decide it in the ledger, not a
+    composite at its reader.
   - **Start timers and their setter files** (the guard's CHECK 12 map, `START_TIMER_SETTERS`):
     `'yt-auto-sync'`, `'yt-host-local-start'`, `'yt-zero-start-external-fallback'`,
     `'yt-zero-start-host-fallback'` and `'yt-zero-start-replacement-fallback'`, set in
@@ -378,8 +392,9 @@ RO-53 owner-in-place
     detached unmute".
   - Visibility: `src/youtube/__tests__/youtube-owner-visibility.test.ts` "RO-02: a Standard
     zero-start hidden mid-warm-up runs exactly as the visible one" (no visibility branch today).
-  - Ledger: `src/youtube/__tests__/start-ownership.test.ts` (each claim position's decision, the
-    read order and short-circuit, reads at the call) and the start-ownership truth tables
+  - Ledger: `src/youtube/__tests__/start-ownership.test.ts` (each claim position's decision in
+    the six derived queries, the read order and short-circuit, reads at the call) and the
+    start-ownership truth tables
     `src/youtube/__tests__/youtube-start-ownership-table.test.ts` (Standard) and
     `youtube-start-ownership-table-pro.test.ts` (PRO participant): every reachable state against
     each query and composite, with their wire effects.
@@ -3949,6 +3964,27 @@ and unrelated strings never count, and every baseline is an exact count or list 
     or passes on the timer functions.
     `--report` lists every counted call with its names and function.
 
+    Since Phase 6 6B-2 every start-ownership reader asks the start ledger
+    (`src/youtube/start-ownership.ts`), and CHECK 12 keeps it so (RO-02):
+    - **Start-owner facade uses, per file:** in `src/`, references to the zero-start run's
+      facades (the `isYouTubeZeroStart*` exports of `src/youtube/zero-start.ts`) outside that
+      file: calls, values, namespace members and re-exports, each once. Exact: only the run
+      claim's registration in `src/youtube/player.ts` (2 on 2026-11-01). `--report` lists each
+      use with its function.
+    - **Fail closed, with no allowance:** an exported `isYouTubeZeroStart*` binding or a facade
+      re-export outside `zero-start.ts`, the zero-start namespace used as a value or the module
+      imported dynamically (`START OWNER FACADE`); a condition outside the ledger (a `||`, `&&`
+      or `??` chain, through parentheses and `!`) that calls two or more ledger queries, the
+      `isYouTubeStart*` exports imported from the ledger's exact path, by name or through a
+      namespace (`LEDGER COMPOSITE`; one ledger query beside other owners, as in `player.ts`'s
+      mid-sync check, is fine); a ledger export re-exported, passed on as a value or imported
+      dynamically (`LEDGER ALIAS`); in the ledger, a runtime import, a timer or scheduling name
+      (the managed timer functions, `setTimeout`, `setInterval`, `queueMicrotask`,
+      `requestAnimationFrame`, `addEventListener`, `Promise` and the like) or a module-level
+      `let` or `var` (`LEDGER PURITY`); and `registerYouTubeStartClaim` called outside
+      `src/youtube/player.ts`, with a computed kind, for a kind already registered, or passed on
+      (`START CLAIM REGISTRATION`). On 2026-11-01 none of these fires.
+
 The requesters of `scheduleSessionReset` and `scheduleDocumentReload`, and each page navigation
 sink by function, are checked by `scripts/check-navigation-sinks.mts` (RO-23, Phase 2 C6-14).
 
@@ -3958,9 +3994,10 @@ than `'system-audio'`), receivers resolved by type (RO-44), module-level lifecyc
 (RO-45), timer names outside CHECK 12's start-timer set or outside `src/youtube/` (for example
 `src/player/transport.ts` reading the playlist's `'ended-advance-next'` timer), a helper outside
 `src/youtube/` that takes a timer name and calls the timer functions for a `src/youtube/`
-caller, the nameless `clearAllManagedTimers` in `leaveSession`, shared phase unions, duplicated
-helper names, "mirrors" copy-marker comments, registered timings retyped as literals in
-requester files, and header loader holder IDs read from a property, a call or another module
+caller, the nameless `clearAllManagedTimers` in `leaveSession`, start-ledger answers combined
+through a variable or a conditional (`?:`) rather than one logical chain, shared phase unions,
+duplicated helper names, "mirrors" copy-marker comments, registered timings retyped as literals
+in requester files, and header loader holder IDs read from a property, a call or another module
 (RO-47). Until then, review those by hand against each record.
 
 ## How to change this registry

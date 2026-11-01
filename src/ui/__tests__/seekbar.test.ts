@@ -14,6 +14,7 @@ import { STANDARD_ROOM_OWNER_PRODUCT_CAPABILITIES } from '../../network/standard
 import { t } from '../../i18n/index.ts';
 import { markStandardRoomAuthorityConfirmed, setRoomContext } from '../../rooms/authority.ts';
 import type { DataConnection } from '../../types/index.ts';
+import { registerYouTubeStartClaim } from '../../youtube/start-ownership.ts';
 import {
   isYouTubeZeroStartInFlight,
   isYouTubeZeroStartProtocolActive,
@@ -55,6 +56,13 @@ beforeEach(() => {
   vi.mocked(isProPlaybackTrackSelectionPending).mockReturnValue(false);
   zeroStartFacade.active = false;
   zeroStartFacade.inFlight = false;
+  // player.ts does not load here: the start ledger reads the run's two
+  // exports, as player.ts registers them.
+  registerYouTubeStartClaim('standard-run', [
+    () => isYouTubeZeroStartInFlight(),
+    () => isYouTubeZeroStartProtocolActive(),
+    () => false,
+  ]);
   document.body.innerHTML = `
     <input id="seek-slider" type="range" value="0" max="120" />
     <span id="time-curr"></span>

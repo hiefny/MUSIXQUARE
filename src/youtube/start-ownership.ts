@@ -20,14 +20,15 @@
  *   pending while active or, for the guest recovery, until its release is
  *   acknowledged;
  * - 'legacy-rendezvous': the legacy two-stage rendezvous's Stage-2 wait
- *   (player.ts);
+ *   (player.ts's 'yt-auto-sync' timer);
  * - 'pro-arm': the coordinator-free PRO arm (authority-arm.ts, through its
  *   iframe.ts instance): hard-muted;
  * - 'pro-direct': the PRO direct COMMIT's local wait (player.ts).
  * A kind that no derived query reads yet registers nothing. Each derived
  * query decides every kind, with one of its queries or never (0): adding a
  * kind without its claim type, or without a decision in every derived query,
- * does not compile.
+ * does not compile. Every start-ownership reader asks a derived query; a
+ * reader outside this module asks one of them per condition.
  */
 
 /** A start owner's answer, read when a derived query is asked. */
@@ -118,6 +119,54 @@ export function isYouTubeStartHardMuteOwned(): boolean {
     ([active]) => active(),
     0,
     ([hardMuted]) => hardMuted(),
+    0,
+  ]);
+}
+
+/**
+ * Whether a start owner holds this speaker's iframe timeline, so an ordinary
+ * heartbeat, auxiliary room state or small-drift sample must not move it: the
+ * zero-start run is in flight, or a recovery still holds its claim.
+ * Decides the run by inFlight and the recovery by pending; never the legacy
+ * rendezvous, the PRO arm or the PRO direct wait.
+ */
+export function isYouTubeStartTimelineHeld(): boolean {
+  return holds([([inFlight]) => inFlight(), ([, pending]) => pending(), 0, 0, 0]);
+}
+
+/**
+ * Whether the zero-start run's arm holds the iframe (preparing, armed,
+ * scheduled or starting), so the seek bar and the UI loop leave it alone. The
+ * release PLAYING ends it while the protocol stays active for the timeline
+ * calibration.
+ * Decides the run by inFlight; never the other kinds.
+ */
+export function isYouTubeStartArmBusy(): boolean {
+  return holds([([inFlight]) => inFlight(), 0, 0, 0, 0]);
+}
+
+/**
+ * Whether a recovery owns the iframe's state events now, so the ordinary
+ * dispatch must not project them.
+ * Decides the recovery by active; never the other kinds.
+ */
+export function isYouTubeStartRecoveryActive(): boolean {
+  return holds([0, ([active]) => active(), 0, 0, 0]);
+}
+
+/**
+ * Whether a start owner holds the room's playback state, so a host does not
+ * broadcast an auxiliary YOUTUBE_STATE for a transient iframe state: the
+ * zero-start protocol is active, or the legacy rendezvous waits for Stage 2.
+ * Decides the run by protocolActive and the legacy rendezvous by
+ * stage2Pending; never the recovery, the PRO arm or the PRO direct wait.
+ */
+export function isYouTubeStartRoomStateHeld(): boolean {
+  return holds([
+    ([, protocolActive]) => protocolActive(),
+    0,
+    ([stage2Pending]) => stage2Pending(),
+    0,
     0,
   ]);
 }

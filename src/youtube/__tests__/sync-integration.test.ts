@@ -1106,7 +1106,8 @@ describe('YouTube Sync — Regression Integration', () => {
         if (unmuteAttempts >= 2) handedOffPlayer.__muted = false;
       };
       const conn = installLiveZeroStartGuest();
-      const { initYouTube, isYouTubeZeroStartExternalFallbackActive } = await importPlayer();
+      const { initYouTube } = await importPlayer();
+      const { isYouTubeStartRecoveryActive } = await import('../start-ownership.ts');
 
       initYouTube();
       advertiseZeroStartCapability(conn);
@@ -1118,7 +1119,7 @@ describe('YouTube Sync — Regression Integration', () => {
       expect(unmuteAttempts).toBeGreaterThan(1);
       expect(handedOffPlayer.isMuted()).toBe(false);
       expect(handedOffPlayer.getVolume()).toBe(73);
-      expect(isYouTubeZeroStartExternalFallbackActive()).toBe(false);
+      expect(isYouTubeStartRecoveryActive()).toBe(false);
       expect(getManagedTimer('yt-zero-start-host-fallback')).toBeNull();
     });
 
@@ -1130,7 +1131,8 @@ describe('YouTube Sync — Regression Integration', () => {
         __hardMuteFails: true,
       });
       const conn = installLiveZeroStartGuest();
-      const { initYouTube, isYouTubeZeroStartExternalFallbackActive } = await importPlayer();
+      const { initYouTube } = await importPlayer();
+      const { isYouTubeStartRecoveryActive } = await import('../start-ownership.ts');
 
       initYouTube();
       advertiseZeroStartCapability(conn);
@@ -1138,12 +1140,12 @@ describe('YouTube Sync — Regression Integration', () => {
       vi.advanceTimersByTime(320);
       getYouTubePlayerMock.mockReturnValue(null);
       vi.advanceTimersByTime(20);
-      expect(isYouTubeZeroStartExternalFallbackActive()).toBe(true);
+      expect(isYouTubeStartRecoveryActive()).toBe(true);
 
       setState('playlist.currentQueueItemId', SECOND_QUEUE_ITEM_ID);
       vi.advanceTimersByTime(60);
 
-      expect(isYouTubeZeroStartExternalFallbackActive()).toBe(false);
+      expect(isYouTubeStartRecoveryActive()).toBe(false);
       expect(getManagedTimer('yt-zero-start-host-fallback')).toBeNull();
     });
 
@@ -1583,14 +1585,14 @@ describe('YouTube Sync — Regression Integration', () => {
         recoveredPlayer.__log.push({ op: 'playVideo', at: Date.now() });
         // Simulate WebKit accepting the method call without transitioning.
       };
-      const { isYouTubeZeroStartExternalFallbackActive } = await importPlayer();
+      const { isYouTubeStartRecoveryActive } = await import('../start-ownership.ts');
 
       vi.advanceTimersByTime(5_000);
 
       expect(recoveredPlayer.__log.filter((call) => call.op === 'playVideo')).toHaveLength(1);
       expect(recoveredPlayer.getPlayerState()).toBe(2);
       expect(recoveredPlayer.isMuted()).toBe(false);
-      expect(isYouTubeZeroStartExternalFallbackActive()).toBe(false);
+      expect(isYouTubeStartRecoveryActive()).toBe(false);
       expect(getManagedTimer('yt-zero-start-external-fallback')).toBeNull();
     });
 

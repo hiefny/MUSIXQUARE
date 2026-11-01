@@ -115,7 +115,25 @@
  *     destructuring rename, or a value use other than a query or clear handed
  *     to a name list's method: TIMER FUNCTION ALIAS), and a start timer set
  *     by a src/youtube/ file other than its listed setters, or no longer set
- *     by one of them (START TIMER SET).
+ *     by one of them (START TIMER SET). Since Phase 6 6B-2 every
+ *     start-ownership reader asks the start ledger
+ *     (src/youtube/start-ownership.ts), and CHECK 12 keeps it so. It counts
+ *     references to the zero-start facades (the isYouTubeZeroStart* exports
+ *     of src/youtube/zero-start.ts: calls, values, namespace members and
+ *     re-exports) per src/ file, exactly (START_OWNER_FACADE_BASELINE: only
+ *     the run claim's registration in src/youtube/player.ts). Fail closed,
+ *     with no allowance: an exported isYouTubeZeroStart* binding or a facade
+ *     re-export outside zero-start.ts, the zero-start namespace used as a
+ *     value or the module imported dynamically (START OWNER FACADE); a
+ *     condition (a ||, && or ?? chain, through parentheses and !) outside the
+ *     ledger that calls two or more ledger queries, the isYouTubeStart*
+ *     exports imported from the ledger's exact path (LEDGER COMPOSITE); a
+ *     ledger export re-exported, passed on as a value or imported dynamically
+ *     (LEDGER ALIAS); a runtime import, a timer or scheduling name, or a
+ *     module-level let or var in the ledger (LEDGER PURITY); and
+ *     registerYouTubeStartClaim called outside src/youtube/player.ts, with a
+ *     computed kind, for a kind already registered, or passed on (START
+ *     CLAIM REGISTRATION).
  *
  * Baselines. Every count and list below is exact. A file above its baseline
  * (or a new file, function or pair) fails as a regression; a file below it
@@ -140,9 +158,11 @@
  * scheduleSessionReset), receivers resolved by type, module-level lifecycle
  * slots, timer names outside CHECK 12's start-timer set or outside
  * src/youtube/ (and the nameless clearAllManagedTimers), a helper outside
- * src/youtube/ that takes a timer name for a src/youtube/ caller, shared
- * phase unions, duplicated helper names, "mirrors" copy markers, and
- * registered timings retyped as literals in requester files.
+ * src/youtube/ that takes a timer name for a src/youtube/ caller, ledger
+ * query answers combined through a variable or a conditional (?:) rather
+ * than one logical chain, shared phase unions, duplicated helper names,
+ * "mirrors" copy markers, and registered timings retyped as literals in
+ * requester files.
  *
  * Exit code: 0 if clean, 1 if findings remain.
  */
@@ -972,6 +992,27 @@ const START_TIMER_CLEAR_BASELINE: Baseline = new Map<string, Allowance>([
       reason:
         "the PRO coordinator nudge in resetYouTubeSyncState, right after the owner's reset " +
         'port resetStandardHostManualOffsetTransaction',
+    },
+  ],
+]);
+
+// Since Phase 6 6B-2 (C2-7, on top of 6B-1's start ledger) every
+// start-ownership reader asks the start ledger, src/youtube/start-ownership.ts,
+// and the composite isYouTubeZeroStartSyncOwned is gone. Only the run claim's
+// registration in player.ts still reads the zero-start run's facades (the
+// isYouTubeZeroStart* exports of zero-start.ts), for the ledger. Measured on
+// that tree on 2026-11-01: 2 references, both in player.ts. The ledger rules
+// beside this count fail closed, with no allowance.
+
+/** RO-02: references to the zero-start facades from another src/ file. */
+const START_OWNER_FACADE_BASELINE: Baseline = new Map<string, Allowance>([
+  [
+    'src/youtube/player.ts',
+    {
+      count: 2,
+      reason:
+        "the run claim's registration with the start ledger (registerYouTubeStartClaim " +
+        "'standard-run'): its in-flight and protocol queries",
     },
   ],
 ]);
@@ -2441,6 +2482,447 @@ function collectStartTimerUses(sources: ReadonlyMap<string, string>): StartTimer
   return { reads, clears, sites, findings };
 }
 
+// ── CHECK 12 (since Phase 6 6B-2): the start ledger and the zero-start facades ──
+
+/** The zero-start run owner; its isYouTubeZeroStart* exports are its facades. */
+const START_RUN_OWNER = 'src/youtube/zero-start.ts';
+/** The start ledger: the start claims and the derived queries every reader asks. */
+const START_LEDGER = 'src/youtube/start-ownership.ts';
+const START_FACADE_PREFIX = 'isYouTubeZeroStart';
+const START_LEDGER_QUERY_PREFIX = 'isYouTubeStart';
+const START_CLAIM_REGISTER = 'registerYouTubeStartClaim';
+/** The start owners' composition point, the one file that registers start claims. */
+const START_CLAIM_REGISTRANT = START_TIMER_PLAYER;
+
+/**
+ * Names the ledger never uses: the managed timer functions, the global timer
+ * and scheduling functions, and the dynamic module loader. With no runtime
+ * import it reaches no bus, owner module or timer module either.
+ */
+const LEDGER_FORBIDDEN_NAMES: ReadonlySet<string> = new Set([
+  ...TIMER_FUNCTIONS,
+  'setTimeout',
+  'setInterval',
+  'setImmediate',
+  'queueMicrotask',
+  'requestAnimationFrame',
+  'requestIdleCallback',
+  'addEventListener',
+  'Promise',
+  'require',
+]);
+
+const LOGICAL_OPERATORS: ReadonlySet<ts.SyntaxKind> = new Set([
+  ts.SyntaxKind.BarBarToken,
+  ts.SyntaxKind.AmpersandAmpersandToken,
+  ts.SyntaxKind.QuestionQuestionToken,
+]);
+
+interface StartLedgerUses {
+  /** Facade references per src/ file outside zero-start.ts. */
+  readonly facadeUses: ReadonlyMap<string, number>;
+  /** `start-owner facade use: file:line name() in function`, one per counted use. */
+  readonly facadeSites: readonly string[];
+  /** Findings with no allowance. */
+  readonly findings: readonly string[];
+}
+
+function isExported(statement: ts.Statement): boolean {
+  return (
+    ts.canHaveModifiers(statement) &&
+    (ts.getModifiers(statement) ?? []).some(
+      (modifier) => modifier.kind === ts.SyntaxKind.ExportKeyword,
+    )
+  );
+}
+
+/** Names a statement exports as its own declarations (not export lists). */
+function declaredExportNames(statement: ts.Statement): string[] {
+  if (!isExported(statement)) return [];
+  if ((ts.isFunctionDeclaration(statement) || ts.isClassDeclaration(statement)) && statement.name) {
+    return [statement.name.text];
+  }
+  if (ts.isVariableStatement(statement)) {
+    return statement.declarationList.declarations.flatMap((declaration) =>
+      ts.isIdentifier(declaration.name) ? [declaration.name.text] : [],
+    );
+  }
+  return [];
+}
+
+/** The zero-start facades: zero-start.ts's own exports named isYouTubeZeroStart*. */
+function startFacadeNames(sources: ReadonlyMap<string, string>): ReadonlySet<string> {
+  const text = sources.get(START_RUN_OWNER);
+  if (text === undefined) return new Set();
+  const names: string[] = [];
+  for (const statement of parse(START_RUN_OWNER, text).statements) {
+    names.push(...declaredExportNames(statement));
+    if (
+      ts.isExportDeclaration(statement) &&
+      !statement.moduleSpecifier &&
+      statement.exportClause &&
+      ts.isNamedExports(statement.exportClause)
+    ) {
+      names.push(...statement.exportClause.elements.map((element) => element.name.text));
+    }
+  }
+  return new Set(names.filter((name) => name.startsWith(START_FACADE_PREFIX)));
+}
+
+/** A file's value imports of one module: local name -> its name there (`*` for a namespace). */
+function importsOf(
+  file: ts.SourceFile,
+  relPath: string,
+  target: string,
+  sources: ReadonlyMap<string, string>,
+): Map<string, string> {
+  const bindings = new Map<string, string>();
+  for (const statement of file.statements) {
+    if (!ts.isImportDeclaration(statement) || !ts.isStringLiteral(statement.moduleSpecifier)) {
+      continue;
+    }
+    if (resolveModule(relPath, statement.moduleSpecifier.text, sources) !== target) continue;
+    const clause = statement.importClause;
+    const named = clause?.namedBindings;
+    if (!clause || clause.isTypeOnly || !named) continue;
+    if (ts.isNamespaceImport(named)) {
+      bindings.set(named.name.text, '*');
+      continue;
+    }
+    for (const element of named.elements) {
+      if (!element.isTypeOnly) {
+        bindings.set(element.name.text, (element.propertyName ?? element.name).text);
+      }
+    }
+  }
+  return bindings;
+}
+
+/** Whether a node sits in an import or export declaration (handled per statement). */
+function inModuleDeclaration(node: ts.Node): boolean {
+  for (let current = node.parent; !ts.isSourceFile(current); current = current.parent) {
+    if (ts.isImportDeclaration(current) || ts.isExportDeclaration(current)) return true;
+  }
+  return false;
+}
+
+/**
+ * An identifier that refers to a binding: not a declared name, a key, a
+ * member name, a type or part of an import or export declaration. A shorthand
+ * `{ name }` hands the binding out.
+ */
+function isBindingReference(node: ts.Identifier): boolean {
+  const parent = node.parent;
+  if (ts.isShorthandPropertyAssignment(parent)) return true;
+  if ('name' in parent && parent.name === node) return false;
+  if (ts.isPropertyAccessExpression(parent) && parent.name === node) return false;
+  if (ts.isQualifiedName(parent) && parent.right === node) return false;
+  return !inTypePosition(node) && !inModuleDeclaration(node);
+}
+
+/** The call whose callee is this reference (through parentheses and the like), or null. */
+function callOf(reference: ts.Node): ts.CallExpression | null {
+  const outer = outermostWrapper(reference);
+  return ts.isCallExpression(outer.parent) && outer.parent.expression === outer
+    ? outer.parent
+    : null;
+}
+
+/** The nearest logical chain around a node, through parentheses and `!`. */
+function logicalParent(node: ts.Node): ts.Node {
+  let current = node.parent;
+  while (
+    ts.isParenthesizedExpression(current) ||
+    (ts.isPrefixUnaryExpression(current) && current.operator === ts.SyntaxKind.ExclamationToken)
+  ) {
+    current = current.parent;
+  }
+  return current;
+}
+
+function isLogicalChain(node: ts.Node): node is ts.BinaryExpression {
+  return ts.isBinaryExpression(node) && LOGICAL_OPERATORS.has(node.operatorToken.kind);
+}
+
+/** The operands of a logical chain, through parentheses, `!` and nested chains. */
+function logicalOperands(node: ts.Expression, operands: ts.Expression[] = []): ts.Expression[] {
+  const current = unwrap(node);
+  if (ts.isPrefixUnaryExpression(current) && current.operator === ts.SyntaxKind.ExclamationToken) {
+    return logicalOperands(current.operand, operands);
+  }
+  if (isLogicalChain(current)) {
+    logicalOperands(current.left, operands);
+    return logicalOperands(current.right, operands);
+  }
+  operands.push(current);
+  return operands;
+}
+
+/**
+ * RO-02 since Phase 6 6B-2: every start-ownership reader asks the start
+ * ledger, which composes the owners' live queries. Counts the zero-start
+ * facades' references outside zero-start.ts per src/ file, and fails closed
+ * on a facade exported or loaded around that count, a condition that
+ * composes two ledger queries outside the ledger, a ledger export that
+ * leaves its import, an impure ledger, and a start claim registered outside
+ * player.ts, twice or with a computed kind.
+ */
+function collectStartLedgerUses(sources: ReadonlyMap<string, string>): StartLedgerUses {
+  const facades = startFacadeNames(sources);
+  const facadeUses = new Map<string, number>();
+  const facadeSites: string[] = [];
+  const findings: string[] = [];
+  for (const [relPath, text] of sources) {
+    if (!relPath.startsWith('src/') || relPath === START_RUN_OWNER) continue;
+    if (
+      !text.includes('zero-start') &&
+      !text.includes('start-ownership') &&
+      !text.includes(START_FACADE_PREFIX) &&
+      !text.includes(START_LEDGER_QUERY_PREFIX)
+    ) {
+      continue;
+    }
+    const file = parse(relPath, text);
+    const report = (label: string, node: ts.Node, what: string, fix: string): void => {
+      findings.push(
+        `${label} (RO-02): ${relPath}:${lineOf(file, node)} ${what} in ` +
+          `${enclosingFunctionName(node)} - ${fix}`,
+      );
+    };
+    const facade = (node: ts.Node, what: string): void =>
+      report(
+        'START OWNER FACADE',
+        node,
+        what,
+        'only src/youtube/zero-start.ts exports its facades: import one from it by name or ' +
+          'through a namespace member, so CHECK 12 counts every use, and compose start owners ' +
+          'in the start ledger (src/youtube/start-ownership.ts)',
+      );
+    const alias = (node: ts.Node, what: string): void =>
+      report(
+        'LEDGER ALIAS',
+        node,
+        what,
+        "import the ledger's exports from src/youtube/start-ownership.ts by name or through " +
+          'a namespace member and call them there, so CHECK 12 sees every condition and ' +
+          'registration',
+      );
+    const registration = (node: ts.Node, what: string): void =>
+      report(
+        'START CLAIM REGISTRATION',
+        node,
+        what,
+        "src/youtube/player.ts, the start owners' composition point, registers each claim " +
+          "kind once, with a literal kind; another registration replaces that owner's live " +
+          'queries, a second machine on its claim',
+      );
+    const countFacade = (node: ts.Node, name: string): void => {
+      facadeUses.set(relPath, (facadeUses.get(relPath) ?? 0) + 1);
+      facadeSites.push(
+        `start-owner facade use: ${relPath}:${lineOf(file, node)} ${name}` +
+          `${callOf(node) ? '()' : ''} in ${enclosingFunctionName(node)}`,
+      );
+    };
+
+    const ledgerFile = relPath === START_LEDGER;
+    const facadeImports = new Map(
+      [...importsOf(file, relPath, START_RUN_OWNER, sources)].filter(
+        ([, name]) => name === '*' || facades.has(name),
+      ),
+    );
+    const ledgerImports = ledgerFile
+      ? new Map<string, string>()
+      : importsOf(file, relPath, START_LEDGER, sources);
+    const moduleOf = (specifier: ts.Expression | undefined): string | null =>
+      specifier && ts.isStringLiteral(specifier)
+        ? resolveModule(relPath, specifier.text, sources)
+        : null;
+    const renamed = (element: ts.ExportSpecifier): string => {
+      const original = (element.propertyName ?? element.name).text;
+      return original === element.name.text ? original : `${original} as ${element.name.text}`;
+    };
+
+    // Exports: a binding named for the zero-start owner, and re-exports of a
+    // facade or of the ledger's exports.
+    for (const statement of file.statements) {
+      for (const name of declaredExportNames(statement)) {
+        if (name.startsWith(START_FACADE_PREFIX)) facade(statement, `exports ${name}`);
+      }
+      if (!ts.isExportDeclaration(statement) || statement.isTypeOnly) continue;
+      const from = moduleOf(statement.moduleSpecifier);
+      const clause = statement.exportClause;
+      if (!clause || !ts.isNamedExports(clause)) {
+        if (from === START_RUN_OWNER) {
+          facade(statement, `re-exports every export of ${START_RUN_OWNER}`);
+          for (const name of facades) countFacade(statement, name);
+        } else if (from === START_LEDGER && !ledgerFile) {
+          alias(statement, `re-exports every export of ${START_LEDGER}`);
+        }
+        continue;
+      }
+      for (const element of clause.elements) {
+        if (element.isTypeOnly) continue;
+        const original = (element.propertyName ?? element.name).text;
+        const local = statement.moduleSpecifier ? null : original;
+        if (
+          (from === START_RUN_OWNER && facades.has(original)) ||
+          (local !== null && facadeImports.has(local) && facadeImports.get(local) !== '*')
+        ) {
+          facade(element, `re-exports ${renamed(element)}`);
+          countFacade(element, local === null ? original : (facadeImports.get(local) ?? local));
+        } else if (
+          (from === START_LEDGER && !ledgerFile) ||
+          (local !== null && ledgerImports.has(local))
+        ) {
+          alias(element, `re-exports ${renamed(element)}`);
+        } else if (element.name.text.startsWith(START_FACADE_PREFIX)) {
+          facade(element, `exports ${element.name.text}`);
+        }
+      }
+    }
+
+    // References: facade uses (counted), ledger queries and registrations.
+    const ledgerCalls = new Map<ts.CallExpression, string>();
+    const claimKinds = new Set<string>();
+    const ledgerReference = (node: ts.Node, name: string): void => {
+      const call = callOf(node);
+      if (name === START_CLAIM_REGISTER) {
+        const kind = call?.arguments[0] ? unwrap(call.arguments[0]) : undefined;
+        if (!call) registration(node, `uses ${START_CLAIM_REGISTER} as a value`);
+        else if (!kind || !ts.isStringLiteralLike(kind)) {
+          registration(node, 'registers a computed kind');
+        } else if (relPath !== START_CLAIM_REGISTRANT) {
+          registration(node, `registers '${kind.text}'`);
+        } else if (claimKinds.has(kind.text)) {
+          registration(node, `registers '${kind.text}' again`);
+        } else {
+          claimKinds.add(kind.text);
+        }
+      } else if (name.startsWith(START_LEDGER_QUERY_PREFIX)) {
+        if (call) ledgerCalls.set(call, name);
+        else alias(node, `uses ${name} as a value`);
+      }
+    };
+    visit(file, (node) => {
+      if (
+        ts.isCallExpression(node) &&
+        node.expression.kind === ts.SyntaxKind.ImportKeyword &&
+        !ledgerFile
+      ) {
+        const from = moduleOf(node.arguments[0]);
+        if (from === START_RUN_OWNER) facade(node, `imports ${START_RUN_OWNER} dynamically`);
+        if (from === START_LEDGER) alias(node, `imports ${START_LEDGER} dynamically`);
+        return;
+      }
+      if (!ts.isIdentifier(node) || !isBindingReference(node)) return;
+      const facadeName = facadeImports.get(node.text);
+      const ledgerName = ledgerImports.get(node.text);
+      if (facadeName === undefined && ledgerName === undefined) return;
+      if (facadeName !== '*' && ledgerName !== '*') {
+        if (facadeName !== undefined) countFacade(node, facadeName);
+        if (ledgerName !== undefined) ledgerReference(node, ledgerName);
+        return;
+      }
+      // A namespace import: only its members are followed.
+      const access = node.parent;
+      const member =
+        (ts.isPropertyAccessExpression(access) || ts.isElementAccessExpression(access)) &&
+        access.expression === node
+          ? memberName(access)
+          : null;
+      if (member === null) {
+        if (facadeName === '*')
+          facade(node, `uses the zero-start namespace ${node.text} as a value`);
+        else alias(node, `uses the ledger namespace ${node.text} as a value`);
+      } else if (facadeName === '*') {
+        if (facades.has(member)) countFacade(access, member);
+      } else {
+        ledgerReference(access, member);
+      }
+    });
+
+    // Conditions: at most one ledger query per logical chain outside the ledger.
+    visit(file, (node) => {
+      if (ledgerCalls.size < 2 || !isLogicalChain(node) || isLogicalChain(logicalParent(node))) {
+        return;
+      }
+      const calls = logicalOperands(node).flatMap((operand) => {
+        const name = ts.isCallExpression(operand) ? ledgerCalls.get(operand) : undefined;
+        return name === undefined ? [] : [`${name}()`];
+      });
+      if (calls.length < 2) return;
+      report(
+        'LEDGER COMPOSITE',
+        node,
+        calls.join(', '),
+        'add a derived query to the start ledger (src/youtube/start-ownership.ts) instead; ' +
+          'outside it one condition asks at most one ledger query, beside other owners',
+      );
+    });
+
+    if (ledgerFile) checkLedgerPurity(relPath, file, findings);
+  }
+  return { facadeUses, facadeSites, findings };
+}
+
+/**
+ * RO-02: the start ledger answers from its owners' live queries when asked
+ * and keeps nothing between calls, so it is never a second machine on their
+ * state: no runtime import, no timer or scheduling function, no `let` or
+ * `var` at module level.
+ */
+function checkLedgerPurity(relPath: string, file: ts.SourceFile, findings: string[]): void {
+  const impure = (node: ts.Node, what: string): void => {
+    findings.push(
+      `LEDGER PURITY (RO-02): ${relPath}:${lineOf(file, node)} ${what} - the start ledger ` +
+        "calls its owners' live queries when asked and keeps nothing: no runtime import, " +
+        'timer, scheduled callback or answer kept between calls',
+    );
+  };
+  for (const statement of file.statements) {
+    if (ts.isImportDeclaration(statement) && !statement.importClause?.isTypeOnly) {
+      impure(
+        statement,
+        `imports ${statement.moduleSpecifier.getText(file).slice(1, -1)} at runtime`,
+      );
+    } else if (ts.isImportEqualsDeclaration(statement) && !statement.isTypeOnly) {
+      impure(statement, `imports ${statement.name.text} at runtime`);
+    } else if (
+      ts.isExportDeclaration(statement) &&
+      statement.moduleSpecifier &&
+      !statement.isTypeOnly
+    ) {
+      impure(
+        statement,
+        `re-exports ${statement.moduleSpecifier.getText(file).slice(1, -1)} at runtime`,
+      );
+    } else if (
+      ts.isVariableStatement(statement) &&
+      (statement.declarationList.flags & ts.NodeFlags.Const) === 0
+    ) {
+      const keyword = (statement.declarationList.flags & ts.NodeFlags.Let) !== 0 ? 'let' : 'var';
+      for (const declaration of statement.declarationList.declarations) {
+        impure(
+          declaration,
+          `declares ${declaration.name.getText(file)} with ${keyword} at module level`,
+        );
+      }
+    }
+  }
+  visit(file, (node) => {
+    if (ts.isCallExpression(node) && node.expression.kind === ts.SyntaxKind.ImportKeyword) {
+      impure(node, `imports ${node.arguments[0]?.getText(file) ?? 'a module'} dynamically`);
+    } else if (
+      ts.isIdentifier(node) &&
+      LEDGER_FORBIDDEN_NAMES.has(node.text) &&
+      !inTypePosition(node) &&
+      !inModuleDeclaration(node)
+    ) {
+      impure(node, `uses ${node.text}`);
+    }
+  });
+}
+
 // ── Exact comparison ─────────────────────────────────────────────────────
 
 interface ExactCheck {
@@ -2924,6 +3406,10 @@ export interface ResourceOwnershipReport {
   readonly startTimerUses: { readonly reads: number; readonly clears: number };
   /** CHECK 12: every counted call, `kind: file:line call('name', ...) in function`. */
   readonly startTimerSites: readonly string[];
+  /** CHECK 12: zero-start facade references outside zero-start.ts. */
+  readonly startOwnerFacadeUses: number;
+  /** CHECK 12: every counted facade use, `start-owner facade use: file:line name() in function`. */
+  readonly startOwnerFacadeSites: readonly string[];
 }
 
 function perFile(
@@ -3209,6 +3695,20 @@ export function analyzeResourceOwnership(input: ResourceOwnershipInput): Resourc
     findings,
   );
   findings.push(...startTimers.findings);
+  const startLedger = collectStartLedgerUses(input.sources);
+  compareExact(
+    {
+      label: 'start-owner facade use',
+      record: 'RO-02',
+      hint:
+        'ask the start ledger (src/youtube/start-ownership.ts) instead; only the run ' +
+        "claim's registration in src/youtube/player.ts reads the zero-start facades",
+      measured: startLedger.facadeUses,
+      baseline: START_OWNER_FACADE_BASELINE,
+    },
+    findings,
+  );
+  findings.push(...startLedger.findings);
 
   const sinks: Record<string, number> = {};
   for (const check of pageStateChecks) sinks[check.label] = total(check.measured);
@@ -3247,6 +3747,8 @@ export function analyzeResourceOwnership(input: ResourceOwnershipInput): Resourc
       .flatMap(([, f]) => f.iframeAudioWriteSites),
     startTimerUses: { reads: total(startTimers.reads), clears: total(startTimers.clears) },
     startTimerSites: startTimers.sites,
+    startOwnerFacadeUses: total(startLedger.facadeUses),
+    startOwnerFacadeSites: startLedger.facadeSites,
   };
 }
 
@@ -3291,13 +3793,15 @@ function main(argv: readonly string[]): void {
       `  system-audio receive slot writes: ${summary(report.receiveSlotWrites)}.\n` +
       `  system-audio media tuning sites: ${report.mediaTuningSites}, all in ${MEDIA_TUNING_HOME}.\n` +
       `  YouTube iframe audio writes: ${report.iframeAudioWriteSites.length}; cross-file ` +
-      `start-timer reads ${report.startTimerUses.reads}, clears ${report.startTimerUses.clears} ` +
+      `start-timer reads ${report.startTimerUses.reads}, clears ${report.startTimerUses.clears}; ` +
+      `start-owner facade uses ${report.startOwnerFacadeUses} ` +
       `(sites${argv.includes('--report') ? ' below' : ' with --report'}).`,
   );
   if (argv.includes('--report')) {
     for (const pair of timingPairs.reportOnly) console.log(`    report-only: ${pair}`);
     for (const site of report.iframeAudioWriteSites) console.log(`    iframe audio write: ${site}`);
     for (const site of report.startTimerSites) console.log(`    ${site}`);
+    for (const site of report.startOwnerFacadeSites) console.log(`    ${site}`);
   }
 }
 

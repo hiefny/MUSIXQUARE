@@ -27,7 +27,7 @@ import {
   showRoomCapabilityRequired,
 } from '../rooms/permission-feedback.ts';
 import { t } from '../i18n/index.ts';
-import { isYouTubeZeroStartInFlight } from '../youtube/zero-start.ts';
+import { isYouTubeStartArmBusy } from '../youtube/start-ownership.ts';
 import { isProPlaybackTrackSelectionPending } from '../pro-room/playback-authority-hooks.ts';
 import type { ProPlaybackUiControlPendingEvent, QueueItemId } from '../types/index.ts';
 import { setControlUnavailable } from './control-hint.ts';
@@ -42,7 +42,7 @@ function getSeekUnavailableReason(): SeekUnavailableReason | null {
   if (playback.activity === 'idle') return 'no-media';
   if (playback.mode === 'system-audio') return 'system-audio';
   if (playback.mode === 'file' && isFilePipelineBusyForPlay()) return 'not-ready';
-  if (playback.mode === 'youtube' && isYouTubeZeroStartInFlight()) return 'not-ready';
+  if (playback.mode === 'youtube' && isYouTubeStartArmBusy()) return 'not-ready';
 
   // Idle/demo playback intentionally remains locally seekable. Once a room
   // role exists, however, project the same capability that transport.seekTo

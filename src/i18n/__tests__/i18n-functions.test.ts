@@ -46,10 +46,31 @@ function localizedDocument(fixture: LocalizedHeadFixture): string {
   return `<!doctype html><html lang="${fixture.lang}" dir="${fixture.dir ?? 'ltr'}"><head>${localizedHeadMarkup(fixture)}</head><body></body></html>`;
 }
 
+type AddedListener = [
+  target: EventTarget,
+  type: string,
+  listener: EventListenerOrEventListenerObject | null,
+  options: boolean | AddEventListenerOptions | undefined,
+];
+
 describe('i18n functions', () => {
+  // Every row imports a fresh i18n module, and its initI18n() adds 'online',
+  // 'visibilitychange' and 'languagechange' listeners to the one jsdom window
+  // and document of this file. Left in place, a later row's 'online' event
+  // also reaches an earlier row's module, which then retries its own font
+  // runtime import through the later row's mock. Each row removes what it added.
+  const addedListeners: AddedListener[] = [];
+
   beforeEach(() => {
     vi.resetModules();
     vi.restoreAllMocks();
+    for (const target of [window, document] as const) {
+      const add = target.addEventListener.bind(target);
+      vi.spyOn(target, 'addEventListener').mockImplementation((type, listener, options) => {
+        addedListeners.push([target, type, listener, options]);
+        add(type, listener, options);
+      });
+    }
     vi.spyOn(globalThis, 'fetch').mockResolvedValue(new Response('Not Found', { status: 404 }));
     window.history.replaceState(null, '', '/');
     localStorage.clear();
@@ -62,6 +83,12 @@ describe('i18n functions', () => {
     document.body.innerHTML = '';
     document.documentElement.removeAttribute('lang');
     document.documentElement.removeAttribute('dir');
+  });
+
+  afterEach(() => {
+    for (const [target, type, listener, options] of addedListeners.splice(0)) {
+      target.removeEventListener(type, listener, options);
+    }
   });
 
   it('keeps About links on the displayed language across app language changes', async () => {

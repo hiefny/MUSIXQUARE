@@ -1309,6 +1309,18 @@ describe('start-ownership table: Standard unMute guard (pinned 2026-11-01)', () 
       5_000,
       '5000 idle column:free iframe:unMute',
     ],
+    // The run still owns the start but no longer the mute: a guard widened to
+    // these phases would swallow the user's unmute.
+    ['U10 zero-start armed', HOST_ALL_READY, 721, '721 armed column:free iframe:unMute'],
+    ['U11 zero-start scheduled', HOST_ALL_READY, 1_000, '1000 scheduled column:free iframe:unMute'],
+    [
+      'U12 zero-start starting',
+      fromScenario(SCENARIOS.guestReleaseAckTimeout, ['begin']),
+      2_000,
+      '2000 starting column:free iframe:unMute',
+    ],
+    ['U13 zero-start playing', HOST_ALL_READY, 2_000, '2000 playing column:free iframe:unMute'],
+    ['U14 zero-start error', GUEST_PREPARE_FAILURE, 1_000, '1000 error column:free iframe:unMute'],
   ] as const)('%s', async (_row, row, at, line) => {
     expect(await volumeAt(row, at)).toEqual([line]);
   });

@@ -508,7 +508,7 @@ describe('start-ownership table: PRO participant (pinned 2026-11-01)', () => {
 describe('start-ownership table: PRO unMute guard (pinned 2026-11-01)', () => {
   // The App's own volume change during a PRO PREPARE, and whether the iframe
   // received unMute(): player.ts's guard by its effect (the Standard table's
-  // U1 to U7 explain the line).
+  // U rows explain the line).
   it.each([
     ['U8 the PRO arm owns the hard mute', 50, '50 idle column:held iframe:none'],
     ['U9 the arm has restored the audio (control)', 600, '600 idle column:free iframe:unMute'],

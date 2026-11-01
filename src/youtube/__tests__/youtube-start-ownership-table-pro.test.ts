@@ -455,14 +455,19 @@ describe('start-ownership table: PRO participant (pinned 2026-11-01)', () => {
   });
 
   // A stray PLAYING then PAUSED from the iframe while the arm is 'prepared'
-  // (+800) or 'scheduled' (+1200): the arm consumes both, so the lines are
-  // P1's and the App sends the iframe no command in reply (an unconsumed
-  // PLAYING would be paused back by the autoplay guard, or projected).
+  // (+800), 'scheduled' (+1200), 'muting' (P7's hard mute that never
+  // confirms, +100) or 'restoring-audio' (+550): the arm consumes both, so the
+  // lines are the row's own and the App sends the iframe no command in reply
+  // (an unconsumed PLAYING would be paused back by the autoplay guard, or
+  // projected). With P6p ('settling') and P1p, P2p and P3p ('warming'), these
+  // cover every phase in which the arm consumes a state.
   it.each([
-    ['P9', 'prepared', 800],
-    ['P10', 'scheduled', 1_200],
-  ] as const)('%s iframe states while the arm is %s', async (_row, _phase, at) => {
-    const setup = await setUpPro();
+    ['P9', 'prepared', 800, {}, P1_SAMPLES],
+    ['P10', 'scheduled', 1_200, {}, P1_SAMPLES],
+    ['P11', 'muting', 100, { __hardMuteFails: true }, P7_SAMPLES],
+    ['P12', 'restoring-audio', 550, {}, P1_SAMPLES],
+  ] as const)('%s iframe states while the arm is %s', async (_row, _phase, at, init, lines) => {
+    const setup = await setUpPro({ iframeInit: init });
     const replies: string[] = [];
     const stray = async () => {
       await setup.probe.advanceTo(at);
@@ -485,7 +490,7 @@ describe('start-ownership table: PRO participant (pinned 2026-11-01)', () => {
     );
     if (at > 1_000) await stray();
     await started.advanceTo(4_000);
-    expect(started.samples).toEqual(P1_SAMPLES);
+    expect(started.samples).toEqual(lines);
     expect(replies).toEqual([]);
   });
 

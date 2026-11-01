@@ -307,6 +307,14 @@ beforeEach(async () => {
   const zeroStartModule = await import('../zero-start.ts');
   vi.mocked(zeroStartModule.isYouTubeZeroStartInFlight).mockReset();
   vi.mocked(zeroStartModule.isYouTubeZeroStartProtocolActive).mockReset();
+  // iframe.ts asks the start ledger (start-ownership.ts), which holds only the
+  // claims player.ts registers when it loads, as src/app.ts loads it at
+  // startup. Most rows import player.ts lazily, and the ledger keeps its
+  // claims between rows, so without this a row that never imports player.ts
+  // (the zero-start iframe projection barrier rows) read the facades above
+  // only when an earlier row had loaded it. Every row now starts with the
+  // claims player.ts registers over these facades, whatever ran before it.
+  await import('../player.ts');
   const stateMod = await import('../_state.ts');
   stateMod.resetYouTubeModuleState();
   // resetYouTubeModuleState() leaves the local-pause flag to

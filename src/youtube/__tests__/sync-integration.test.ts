@@ -265,6 +265,14 @@ beforeEach(async () => {
 
   setPlaybackYouTubePlaying();
 
+  // sync.ts asks the start ledger (start-ownership.ts), which holds only the
+  // claims player.ts registers when it loads, as src/app.ts loads it at
+  // startup, and keeps them between rows. Most rows import player.ts, so
+  // without this a row that never does (the guest backstop gate rows, for
+  // one) read the zero-start facades only when an earlier row had loaded it.
+  // Every row now starts with the claims player.ts registers over them.
+  await importPlayer();
+
   // Initialize sync module so registerHandlers captures handlers.
   const syncMod = await import('../sync.ts');
   syncMod.initYouTubeSync();

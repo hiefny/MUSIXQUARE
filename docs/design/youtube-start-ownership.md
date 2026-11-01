@@ -166,7 +166,10 @@ recovery's pending claim alone, because no reader needs one.
   sample's timeline hold cannot be told apart either, because the same condition asks
   `isGuestYouTubeTransitionPending`, which asks `isYouTubeStartSyncOwned`. The recovery's
   release-acknowledgement window (pending, not active), where the `isYouTubeStartSyncOwned`
-  readers also differ from `isYouTubeStartArmBusy`, has no reader rows of its own.
+  readers also differ from `isYouTubeStartArmBusy`, has no reader rows of its own. In the same
+  window the unMute guards' recovery decision (active, not pending: the recovery does not hold the
+  hard mute while it waits for that acknowledgement) is pinned only by `start-ownership.test.ts`;
+  no volume row sits in that window.
 
 ## Product invariants
 
@@ -215,6 +218,10 @@ keeps no state and has no lifecycle of its own.
   zero-start facades did before 6B; their rows show the chains' behaviour, not the gates'
   composition, which `start-ownership.test.ts`, the truth tables and the reach rows in
   `src/ui/__tests__/player-controls.test.ts` and `src/network/__tests__/sync.test.ts` pin.
+- A suite that imports `player.ts` inside its rows reads the ledger's claims only after an earlier
+  row has loaded it (the ledger keeps them between rows), so its rows that never import it depend
+  on test order. Such a suite loads `player.ts`, or registers stand-in claims, in its shared
+  `beforeEach`, as `stale-async-guards.test.ts` and `sync-integration.test.ts` do since 6B.
 - `guard:import-graph` (the ledger imports nothing), `guard:dead-exports` (no test-only export),
   `node scripts/check-resource-ownership.mts` (the ledger's header claims RO-02, once; since 6B-2
   CHECK 12's facade and snapshot-read counts, its per-statement start-claim count and its ledger

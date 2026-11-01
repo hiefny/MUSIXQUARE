@@ -93,58 +93,42 @@ runbooks. Neither belongs in a general setup document.
 
 ## Maintained evidence and completed records
 
-- [App font line box baked into the font files (2026-11-01)](design/app-font-baked-metrics-2026-11-01.md):
-  not merged or released; local branch `agent/font-baked-metrics` on `9e72b7ce` (main `9c078f5c`,
-  the 9.0.30 record, plus seven tests-only commits), with no version bump, so
-  `guard:sw-cache-version` fails only for the missing bump until the App update that carries it.
-  Safari applies `size-adjust` but not the three metric overrides that keep the 9.0.29 font
-  switch's line boxes, so on the owner's iPhone a 15 px Hangul line was about 20 px high instead
-  of 18 px and, with several playlists, the Playlist title sat higher than the other tab titles.
-  The owner chose on 2026-11-01 to bake the line box into the font files rather than patch
-  `line-height` in CSS (the 9.0.29 report's question 8). Every Inter and CJK face the app sheets
-  keep (Inter 7, Noto Sans KR 120, JP 120, SC 95, TC 98) is now served from a copy in `fonts/app/`
-  with the box of `src/i18n/font-metrics.ts` in `hhea` and the OS/2 typo metrics and
-  `USE_TYPO_METRICS` set (Inter 2006 / 508 / 0 of 2048 units, CJK 1013 / 257 / 0 of 1000, the
-  nearest units to the overrides), the win metrics and every other byte kept, and the inputs
-  (`fonts/inter`, `fonts/noto/noto-sans-kr`, and the JP, SC and TC shards About and the sitemap
-  page keep using) unchanged. The new `npm run generate:app-faces` bakes, checks and records them
-  in `fonts/app-faces.json`; `generate:font-sheets` runs it first, and the font guard checks the
-  copies against their record. The sheets keep their four descriptors (option K), so Chromium and
-  Firefox draw as before; those are within half a unit of the baked box, not equal to it, so a line
-  next to a pixel rounding boundary (a CJK line at 14.5 px, and the setup overlay's and desktop
-  demo's `clamp()` sizes at some window widths and heights) still differs by 1 px between Safari
-  and Chromium. Tests first: `4fe74d15` fails on its parent for the stated reasons (the
-  tables, the paths, the record and, in Chromium with the overrides removed, CJK lines of 18, 20
-  and 39 px instead of 15, 18 and 34 and the Playlist title 1.5 px above the others) and passes at
-  `11db07e6`; `75e0801a` adds a pixel-identity spec. QA round 1 (Windows Chromium 153): with the
-  overrides removed, as Safari reads the sheets, the line boxes and the four tab titles now equal
-  the shipped ones in the Korean, English, Japanese and Simplified Chinese UIs; the shipped
-  Chromium rendering of 24 screens is byte-identical before and after; the font files grow by
-  1,036 B, the build by 313 WOFF2 files (13.75 MB, the JP, SC and TC copies beside the originals)
-  and the repository by about 17.7 MB, while the first load keeps its raw bytes (gzip within 5 B)
-  and loads no font. All 37 guards pass but `guard:sw-cache-version` (the missing bump), with the
-  unit suite, critical E2E 101 / 101 and the font specs. The release target is
-  `app` (448 App runtime paths, none in the other five Workers). QA round 2, a review of
-  `0beb67e1` and its fixes, found that Playwright WebKit 26.6 applies the overrides without
-  rounding the ascent and descent, so the report's byte-identical WebKit captures were wrong and a
-  Safari that adopts the overrides would leave the baked box (baselines between pixels); it also
-  listed the fluid sizes that cross a rounding boundary, the 127 Inter and Noto Sans KR inputs the
-  build no longer emits (tabs still on 9.0.29 or 9.0.30 after the release cannot fetch shards they
-  lack, under the owner's ignore-old-versions policy), the JP, SC and TC files About and the app
-  no longer share, and a generator default mode that rewrote the copies after a wawoff2 update.
-  Tests first, `7b41d111` fails on `dbc7ae78` and `ae5e2c52` makes that run write nothing and stop;
-  `a2baaeef` corrects the comments that called the box and the descriptors equal. The report lists
-  the owner questions (option K, the exact-ratio option E, or option D, which drops the three
-  overrides so every engine reads the box from the files and is now recommended; the repository
-  and build sizes with the lost sharing; the open tabs at release), the risks and the device check
-  after release. QA round 3, the final local check at `ff6da891` (Windows Chromium 153), reran the
-  font guard with a full re-bake check, the override-stripped line-box and tab-title rows, the
-  pixel-identity spec and the 24-screen comparison (the same results, every capture byte-identical
-  to round 1's), typecheck, lint, format, all 37 guards (all pass but `guard:sw-cache-version`, the
-  missing bump) with the other `build:checked` steps, critical E2E 101 / 101 and the full unit
-  suite (739 files, 17,616 tests passed, one environment skip). A real iPhone has not been checked;
-  the owner checks on iOS 17 or 18 after the release. The 9.0.29 report's device check now links
-  this report.
+- [App font line box baked into the font files, and every tab title on one baseline (2026-11-01)](design/app-font-baked-metrics-2026-11-01.md):
+  not merged or released; one App train for the next App update after Phase 6 6B, on main
+  `dda3ee18` with no version bump, so `guard:sw-cache-version` fails only for the missing bump
+  until that release. Safari applies `size-adjust` but not the three metric overrides that keep
+  the 9.0.29 font switch's line boxes, so on the owner's iPhone a 15 px Hangul line was about
+  20 px high instead of 18 px and, with several playlists, the Playlist title sat higher than the
+  other tab titles. The owner chose on 2026-11-01 to fix it at the root, with no CSS
+  `line-height` patch. First increment (the 9.0.29 report's question 8): every Inter and CJK face
+  the app sheets keep (Inter 7, Noto Sans KR 120, JP 120, SC 95, TC 98) is served from a copy in
+  `fonts/app/` with the box of `src/i18n/font-metrics.ts` in `hhea` and the OS/2 typo metrics and
+  `USE_TYPO_METRICS` set (Inter 2006 / 508 / 0 of 2048 units, CJK 1013 / 257 / 0 of 1000), the
+  win metrics, every other byte and the inputs unchanged; `npm run generate:app-faces` bakes,
+  checks and records them in `fonts/app-faces.json`, and the font guard checks the copies. The
+  sheets keep their descriptors (option K), so Chromium and Firefox draw as before, and a line
+  next to a pixel rounding boundary (a CJK line at 14.5 px, some `clamp()` window bands) still
+  differs by 1 px between Safari and Chromium. Second increment, `css/style.css` only: the
+  Playlist switch button takes the title's line from the tab header row like the other tabs'
+  titles, delete mode keeps that row, and the second playlist's number sits on its name's
+  baseline, so in the 14 languages whose title line is taller than 36 px (Arabic, Urdu,
+  Persian, Thai, Kannada, Telugu, Hindi, Marathi, Bengali, Gujarati, Punjabi, Malayalam, Hebrew,
+  Tamil) the Playlist title moves down 0.5 to 4 px onto the other titles' baseline. Tests first
+  for each fix. QA rounds 1 to 3 (the font increment, before its move to main, with byte-identical
+  diffs) and T (the tab header increment) are in the report; round 4, on the combined head
+  `66c09b73`, reran the tests-first checks on their new parents, the font, tab header and playlist
+  specs, critical E2E, typecheck, lint, format, every guard (all pass but
+  `guard:sw-cache-version`), the `build:checked` steps and the full unit suite, and swept all 42
+  languages at 402 x 874 and 1440 x 900: the Playlist minus Connect (desktop: Settings) title
+  baseline is 0 everywhere in shipped Chromium and with the overrides removed as Safari reads the
+  sheets, and the 28 other languages are pixel-identical to main in Chromium on the four tab
+  headers, the start screen, the Playlist tab and the chat. The release target is `app` (449 App
+  runtime paths, none in the other five Workers). The release owner kept option K and queued
+  option D (drop the overrides, which moves boundary-size lines by 1 px in Chromium) for the
+  owner with pictures, accepted the repository growth (about 17.7 MB) and the JP, SC and TC files
+  About and the app no longer share until the public-page font train, and leaves tabs open at
+  release to the ignore-old-versions policy. A real iPhone has not been checked; the owner checks
+  on 2026-11-02 after the release. The 9.0.29 report's device check links this report.
 - [Phase 6 train 6A: one YouTube start timing home, owner queries for the start timers and one verified iframe audio restore (2026-10-31)](design/phase6-6a-start-constants-owner-queries-2026-10-31.md):
   released on 2026-11-01 05:17 KST in Release 41237978646 (PR #550, squash `3c098e9d`) as App
   9.0.30 / v803 (App build 803, target `app`, one update dialog; the bump `8d148fff` is the last

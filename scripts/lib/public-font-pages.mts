@@ -203,12 +203,16 @@ const STACK_REFERENCE = new RegExp(
 type LiteralFontFamilies = Readonly<Record<string, string>>;
 
 /**
- * The recorded literal families of the public pages: a brand's own font,
- * never the pages' text, and each ends with the shared stack for the
- * scripts the brand font lacks.
+ * The recorded literal families of the public pages, never the pages' text:
+ * a brand's own font, which ends with the shared stack for the scripts the
+ * brand font lacks, and the design system's Korean 述 specimen, which
+ * composes the app's Korean-first stack from the app's own tokens
+ * (src/ui/__tests__/design-system-typography-stacks.test.ts).
  */
 export const PUBLIC_LITERAL_FONT_FAMILIES: LiteralFontFamilies = {
   '.google-button': "Google's sign-in button follows Google's branding rules",
+  '#typography .typo-han-ko':
+    "the Typography section's Korean 述 cell shows the face its label names in any browser",
 };
 
 /**
@@ -241,12 +245,12 @@ export function publicFontCssProblems(css: string, literals: LiteralFontFamilies
     }
     if (declaration.prop !== 'font-family' || value === 'inherit') return;
     if (STACK_REFERENCE.test(value)) return;
+    if (selector in literals) return;
     if (/^var\(/u.test(value)) {
       problems.push(`${selector} reads ${value}, not a stack with the system fallback`);
       return;
     }
     if (isDeviceMonospace(familiesOf(value))) return;
-    if (selector in literals) return;
     problems.push(`${selector} names its own families (${value})`);
   });
   if (namesPretendard) problems.push('names Pretendard');

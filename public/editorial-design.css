@@ -3027,6 +3027,17 @@
   word-break: keep-all;
 }
 
+/* The Korean 述 cell: the app's text stack in a browser that lists no
+   Japanese or Chinese (Korean-first Han), composed of the app's own tokens
+   from /web-fonts/stacks.css. Unmarked Han elsewhere follows /han-order.js,
+   as in the app; this cell keeps its label true in every browser
+   (PUBLIC_LITERAL_FONT_FAMILIES in scripts/lib/public-font-pages.mts). */
+#typography .typo-han-ko {
+  font-family:
+    var(--font-primary), var(--font-hangul), var(--font-cjk-ko), var(--font-scripts),
+    var(--font-system);
+}
+
 /* The classes the app gives text it detects as Japanese or Chinese. */
 #typography .user-text-font-ja {
   font-family: var(--font-sans-ja);

@@ -290,14 +290,6 @@
   font-weight: var(--font-weight-body);
 }
 
-.display-glyph {
-  color: var(--text-main);
-  font-size: 160px;
-  font-weight: var(--font-weight-title);
-  letter-spacing: -0.05em;
-  line-height: 0.9;
-}
-
 .weight-row,
 .spacing-row,
 .radii-row {
@@ -331,12 +323,6 @@
 .radii-unit {
   align-items: center;
   gap: 8px;
-}
-
-.weight-row .gl {
-  font-size: 64px;
-  line-height: 1;
-  letter-spacing: -0.03em;
 }
 
 .weight-row .lab,
@@ -2889,8 +2875,10 @@
     min-height: 250px;
   }
 
+  /* The Typography section's phone sample column, shared with its Faces. */
   .spec {
-    grid-template-columns: 80px 1fr;
+    grid-template-columns: 96px 1fr;
+    column-gap: 16px;
   }
 
   .grid-2,
@@ -2967,10 +2955,6 @@
   .token-row .use {
     margin-top: 3px;
   }
-
-  .display-glyph {
-    font-size: 96px;
-  }
 }
 
 @media (prefers-reduced-motion: reduce) {
@@ -3032,8 +3016,10 @@
    no face and no stack. Only the app's detected-language classes pick a
    named stack (src/ui/__tests__/design-system-typography-stacks.test.ts
    holds them to the app's). Line box: 1950 / 494 of 2048 (HANGUL_LINE_BOX in
-   src/i18n/font-metrics.ts). Three left edges: 0, the .spec sample column
-   at 160px, and the .grid-2 second column at 50% + 10px. */
+   src/i18n/font-metrics.ts). Three left edges: 0, the sample column (the
+   .spec second column, at 160px, or 112px at 720px and below), and the
+   page's .grid-2 second column at 50% + 10px
+   (src/ui/__tests__/design-system-typography-layout.test.ts). */
 
 /* Korean breaks between words, as the app's Korean titles do. */
 #typography :is(.typo-runs, .typo-han-sample, .typo-lead-sample),
@@ -3064,6 +3050,12 @@
 
 #typography .typo-block:last-child {
   margin-bottom: 0;
+}
+
+/* Scale has no closing note, so it closes on the in-block gap (Han's glyph
+   row) and reads with Leading below it. */
+#typography .typo-block.typo-scale {
+  margin-bottom: clamp(56px, 7vw, 96px);
 }
 
 #typography .typo-note {
@@ -3394,7 +3386,10 @@
 /* Leading: one string at each role's real size and leading, wrapped to two
    lines. A zero-size mark at the start of each line sits on its baseline
    and draws the rule from there, so the rules follow the browser's own
-   line layout; the second mark writes the pitch at the right. */
+   line layout; the second mark writes the pitch at the right. The rule is
+   a border, which the browser snaps to a device pixel as it snaps the
+   text's baseline: at 1x each rule is the pixel row just under its line's
+   glyphs, and a 23.7px pitch paints as 23 or 24 rows. */
 #typography .typo-leading {
   display: grid;
   gap: clamp(48px, 5.6vw, 72px);

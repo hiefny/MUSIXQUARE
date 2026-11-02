@@ -46,6 +46,125 @@ gh run list --workflow e2e.yml --branch main --limit 3
 해결하면 근거(커밋, 실행 ID, 문서)를 PR 설명에 적고 이 목록에서 지운다. 근거
 없이 완료로 표시하지 않는다.
 
+### App 9.0.33 앱 한글을 다시 Pretendard로(9.0.33/v806) 배포 전: 오너 결정(2026-11-02)대로 그림 비교 없이 바로 낸다, 6B 다음 App 업데이트
+
+- [ ] 범위와 상태(오너 결정 2026-11-02 08:10 KST쯤, 미병합·미배포): 앱의 한글을 다시 Pretendard로 그리는 App 열차다. 운영
+      9.0.32 / v805(6B, 아래 6B 절) 다음 App 패치인 9.0.33 / v806(App 빌드 806)으로 target `app`, 업데이트 창 한 번, 바닥 795
+      그대로(`raise_app_build_floor` false, Developer API D1 false)다. [화면 바뀜]: 모든 UI 언어의 모든 화면에서 한글 글자의 모양이
+      Pretendard로 바뀐다(9.0.29 전의 모양). 라틴과 숫자는 Inter, 한자·가나·중국어와 Pretendard 파일에 없는 한글 98자는 Noto
+      그대로이고, 줄 상자, 라틴과 한자의 크기, 탭 제목 자리는 Chromium에서 9.0.32와 같게 쟀다(보고서 §3, §4). 실은 것: 저장소에
+      2026-02-23부터 있는 `fonts/PretendardVariable.woff2`(Pretendard Variable 1.309, SIL OFL 1.1, Reserved Font Name Pretendard,
+      sha256 `9599f12f…`, 새 내려받기 없음)를 harfbuzz(subset-font)로 자른 한글 면 87개(`fonts/app/hangul/`, 11,277자, 2,506,376 B,
+      기록 `fonts/hangul-faces.json`, 생성기 `npm run generate:hangul-faces`, 이름 표 도우미 `scripts/fonts/sfnt-names.mts`)다. 면은
+      굵기 축 전체(wght 45-930)와 원본 윤곽, 파일 자신의 줄 상자(1950 / 494 / 0 of 2048, 이제 `src/i18n/font-metrics.ts`의
+      `HANGUL_LINE_BOX`)를 지니고 레이아웃 기능이 없으며, RFN 때문에 이름을 MUSIXQUARE Hangul로 바꿨다(저작권과 라이선스 기록은 원본
+      그대로). 생성기는 결정적이고(다시 자르면 같은 바이트, `--check`), 기록과 다른 원본 파일을 거절한다. 새 시트
+      `css/fonts/app/font-hangul.css`(87면, `size-adjust: 100%`와 파일 상자와 같은 덮어쓰기 셋 `HANGUL_FACE_METRICS`)를 모든 UI의
+      모든 글꼴 스택에서 Inter 바로 뒤, Noto Sans KR 앞에 두었고(한국어와 영어 화면은 계속 한 스택, 오너 규칙), Noto Sans KR 시트는
+      MUSIXQUARE Hangul이 그리는 한글을 내놓아 120면에서 53면이 되며 한글만 들었던 그 구운 사본 67개(`fonts/app/noto-sans-kr/`)를
+      지웠다. 한국어 UI의 한가할 때 미리 받기(단계 C)는 MUSIXQUARE Hangul 조각 20개로 바뀌었다. 가드(`guard:font-assets`,
+      `guard:font-build`), 글꼴 단위 시험과 e2e(`font-identity`, `font-line-boxes`(WebKit 출시 시트 시험 포함), `font-baked-pixels`,
+      `tab-header-title-alignment`)가 새 기준을 지킨다. 공개 페이지와 공유 그림(OG)은 그대로 Pretendard 전체를 쓴다(아래 9.0.29 절의
+      뒤 열차 항목). 운영 배포 SHA(App 9.0.32 `3ea689b9`, PRO room `683074bc`, 다른 넷 `71f5b96c`)와 견준 런타임 경로 변경은 버전
+      올리기 앞 App 165(`fonts/app/hangul` 87, `fonts/app/noto-sans-kr` 지움 67, 앱 글꼴 시트 다섯, `css/style.css`,
+      `src/i18n/`의 `app-font-contract.ts`, `font-metrics.ts`, `font-prefetch-samples.ts`, `locale-fonts.ts`, `src/ui/user-text-font.ts`),
+      나머지 다섯 Worker 0이고 App 런타임 의존성 차이가 없어 target `app`이다(로컬 git 판정과 그 배포 SHA를 넣은 부분 릴리스 호환
+      판정 compatible, 릴리스의 부분 릴리스 검사를 대신하지 않음). 버전 올리기의 거울 넷을 더하면 App 169다. D1, 비밀, 바인딩,
+      Wrangler 설정, CORS, 계약 표지, 저장 데이터와 키, 신호와 중계 프레임 모양, YouTube 시작과 시스템 오디오 코드는 바뀌지 않고,
+      `package.json`은 생성 스크립트 한 줄과 버전 줄, `package-lock.json`은 버전 줄 둘뿐이다. 자원 소유권: 복구, 재시도, 시한, 수명
+      흐름을 더하지 않아 새 레코드가 없다. 브랜치 `agent/hangul-pretendard`는 main `7b869c35`(#559, Phase 7 T0 시험만, 9.0.32의 배포
+      기록 #558 `7d60f134` 위, 런타임은 운영 9.0.32 `3ea689b9` 그대로) 위 커밋 열이다: 이름 표 도우미 `5a58b883`, 한글 면 생성기와
+      파일 `c11e51d6`, 전환 `4b3c83ed`, 보고서 `c9769854`, 리뷰 반영 `1f2e556d`(한글 면의 기술자), `9a4e2a26`(다른 원본 거절),
+      `429bcc0f`(시험 정리), 리뷰 반영 문서 `576a1315`, 릴리스 준비 기록(이 항목, 아래 두 항목 고침, 보고서 §11, `docs/README.md`),
+      버전 올리기(마지막 런타임 커밋). 앞의 여덟은 `7d60f134` 위에서 만들어 `7b869c35` 위로 패치 그대로 옮겼다(충돌 없음, 보고서
+      §11). 로컬 QA는 보고서 §6 라운드 1, 2(테스트 먼저는 부모에서 실패, 단위 전체, 생성기 `--check`, 모든 가드에서 버전 올리기 앞의
+      `guard:sw-cache-version`만 실패, 글꼴·탭 머리·재생목록 명세와 critical E2E)와 라운드 3(옮긴 뒤 버전 올리기 머리의 로컬 전체
+      관문, 아래 배포 조건 (4), 결과는 PR 본문)이다. PR, PR CI, 자동 코드 리뷰, exact-main CI, 배포는 아직이고 로컬 결과는
+      exact-main-SHA 후보를 대신하지 않는다. 배포 뒤 기록 PR이 이 절을 '배포 뒤 확인'으로 바꾼다.
+      [변경·QA 보고서](design/app-hangul-pretendard-2026-11-02.md),
+      [무엇을 바꿨나](design/app-hangul-pretendard-2026-11-02.md#2-무엇을-바꿨나),
+      [바뀌어 보이는 것](design/app-hangul-pretendard-2026-11-02.md#3-바뀌어-보이는-것-화면-바뀜),
+      [측정](design/app-hangul-pretendard-2026-11-02.md#4-측정),
+      [릴리스 조립](design/app-hangul-pretendard-2026-11-02.md#11-릴리스-조립과-qa-라운드-3),
+      [글꼴 README](../fonts/README.md).
+- [ ] 기댄 오너 결정과 위임(게이트 아님): 오너(2026-11-02 08:10 KST쯤): 앱의 한글을 다시 Pretendard로 그린다(이유: Pretendard
+      한글의 글자 사이 간격이 더 낫고 굵기 500·600·700의 차이도 Noto Sans KR보다 벌어짐). 9.0.29 전까지 Pretendard가 앱을 그렸으니
+      그림 비교 없이 바로 구현하고 배포하라고 했다. 그래서 [화면 바뀜]인데도 사진 확인을 배포 전 관문으로 두지 않았고, 바로 배포
+      원칙(2026-10-25)대로 자동 관문(로컬 전체 관문, PR CI, 자동 코드 리뷰, exact-main CI, 릴리스 smoke)이 모두 통과하면 따로 묻지 않고
+      낸다. 기기 근거는 게이트가 아니다. 한국어와 영어 화면이 같은 내용을 같게 그린다는 오너 규칙(9.0.29부터)대로 MUSIXQUARE Hangul은
+      모든 UI 언어의 스택에 든다. 보고서 §9의 오너 질문 셋은 기본값으로 낸다: 1 이름은 MUSIXQUARE Hangul(파일 안의 이름만, 화면
+      그대로. Pretendard로 두려면 원작자의 서면 허락), 2 굵기 축을 400-700으로 잘라 바이트를 줄이는 안은 하지 않음(윤곽이 바뀜), 3
+      공개 페이지 글꼴 열차의 방향은 그 열차 때 묻는다(아래 9.0.29 절의 뒤 열차 항목). 오너가 다르게 답하면 다음 App 증분에서 테스트
+      먼저로 한다.
+      [오너 결정](design/app-hangul-pretendard-2026-11-02.md#1-오너-결정-2026-11-02-0810-kst쯤),
+      [오너 질문](design/app-hangul-pretendard-2026-11-02.md#9-오너-질문).
+- [ ] 배포 조건(모두 채운 뒤에만 머지하고 dispatch한다): (1) 오너 결정: 위 항목대로 자동 관문이 모두 통과하면 낸다. (2) 한 번에 한
+      열차이고 6B 다음이다. 그래서 §1이 다음 App 업데이트로 적은 Phase 6 6C는 이 열차가 나가면 9.0.34 / v807 이상이 된다(§1은 이
+      열차의 배포 기록 PR이 덮어씀). main 런타임이 배포본과 같아야 한다: 지금 main `7b869c35`는 9.0.32의 배포 기록(#558, 문서만) 위 시험만
+      PR(#559: 시험, 시험 도우미, 로컬 오디오 실험실과 그 설정, critical 커버리지 설정)이라 런타임이 운영 App 9.0.32 `3ea689b9`와
+      같다. 머지 전에 main이 또 움직이면 다시 옮기고, 런타임으로 움직이면 글꼴 단위·e2e 시험과 첫 로딩을 다시 잰다. 이 배포까지 런타임
+      의존성 변경(Dependabot 포함)을 머지하지 않는다. (3) 앞 열차의 머지 뒤 Full E2E: 6B의 41347667125(main `3ea689b9`)가 통과했다(§1
+      Full E2E). (4) 버전 올리기가 마지막 런타임 커밋이다: 9.0.33과 SW epoch v806을 9.0.32의 버전 올리기(#557 squash `3ea689b9` 안의
+      `582ab9d9`)와 같은 거울 여섯 파일의 일곱 줄(`package.json`, `package-lock.json`의 두 줄, `ADMIN_SCRIPT_VERSION`,
+      `ADMIN_ASSET_VERSION`, `SERVICE_WORKER_CACHE_VERSION`, `index.html`의 `/bootstrap.js?cache=` 쿼리)에 올리고, 그 머리에서
+      typecheck, lint, `format:check`, `build:checked`와 그 안의 `guard:sw-cache-version` PASS v806과 `guard:release-identity` 9.0.33 /
+      v806, 모든 `guard:*`, 자원 소유권, 핵심·Worker 커버리지, 단위 전체, `build:e2e` 뒤 critical E2E와 글꼴·탭 머리·재생목록 명세,
+      운영 빌드의 후보 E2E가 통과하고, 첫 로딩(진입, eager JS, eager 전체 gzip)이 origin/main 빌드보다 보고서 §4.4의 잰 차(eager
+      전체 gzip 수십 B, `--font-hangul`과 `var()` 넷) 밖으로 늘지 않으며 즉시 글꼴이 0이고, 배포 대상이 App뿐이며, 계약 동결 diff가
+      `package.json`의 생성 스크립트 한 줄과 버전 일곱 줄뿐이다(`cloudflare/`는 `ADMIN_ASSET_VERSION` 한 줄). 결과는 보고서 §11(QA 라운드
+      3)과 PR 본문에 둔다. (5) PR CI, 자동 코드 리뷰, dispatch 직전 머지, exact-main CI success, 그 뒤 Release target `app`, Developer API
+      D1 false, `raise_app_build_floor` false. 기록 PR을 열차 PR 머지와 deploy job 시작 사이에 머지하지 않는다. (6) 배포 직후 공개 최소
+      빌드 상태(저장·유효 795, live App 806)와 Operations Drift Audit을 보고, 할 수 있으면 운영의 앱 한글 시트와 그 첫 조각을 인증
+      없는 GET으로 받아 저장소 `fonts/app/hangul/`과 sha256을 견주며, 아래 배포 직후 확인을 건넨다. 머지 뒤 main SHA에서 Full E2E를 한
+      번 돌려 보고서에 적되 exact-main 후보로 쓰지 않고, 다음 App 열차는 그것이 통과한 뒤에 머지한다. 배포 기록 PR은 §1과
+      `Last source review`를 덮어쓰고 `release-history.md`에 한 행을 더하며, §4에 이 릴리스 항목을 적고 현재 경계 줄 (5)를 9.0.33으로 고치고, 다른
+      항목의 다음 되돌리기 번호를 9.0.34 / v807로 옮기고, `docs/hotfix-procedure.md`의 9.0.25 항목에 9.0.33(빌드 806, 이 릴리스의
+      merge·Release·App 버전)이 9.0.32를 이었다는 문장을 더하며, 보고서의 상태와 이 절을 배포 뒤로 바꾼다.
+      [릴리스 담당이 할 일](design/app-hangul-pretendard-2026-11-02.md#10-릴리스-담당이-할-일),
+      [릴리스 조립](design/app-hangul-pretendard-2026-11-02.md#11-릴리스-조립과-qa-라운드-3).
+- [ ] 되돌리기(보고서 §10): 새 경계는 없다(계약 표지, D1, 저장 모양, 바닥을 바꾸지 않아 forward floor가 생기지 않음). 기본은 더 높은
+      SemVer·epoch(9.0.34 / v807 이상)의 앞으로 되돌리기다. 이 열차만 혼자 되돌리는 것(squash 하나를 되돌림)은 다음 App 업데이트가
+      머지되기 전까지이고, 그 뒤에는 가장 최근 main 위에서 새 `agent/` 갈래로 이 열차의 변경을 되돌리는 앞으로 고치기다(다음
+      SemVer·epoch, 전체 관문, App 릴리스, 기록). 내려받기가 필요 없다: 되돌리는 커밋이 KR 시트 120면과 구운 KR 사본 67개를 되살리고
+      (입력 `fonts/noto/noto-sans-kr`과 생성기 `generate:app-faces`도 저장소에 그대로), 한글 면 87개와 그 시트를 지운다. 되돌리면 한글이
+      9.0.32처럼 Noto Sans KR로 그려진다. 실패한 `app`의 자동 복구는 릴리스 안에서 그 릴리스 checkpoint의 App, 곧 dispatch 때의 운영
+      App 9.0.32 / v805(빌드 805, App 버전 `e19b7085`, 배포 SHA `3ea689b9`, Release 41347347201)로 간다. 795 이상이라 `lower`가 필요
+      없고 PRO는 그대로다. 배포 뒤 checkpoint App(v805)으로 가는 손 되돌리기는 v806을 받은 클라이언트에 낮은 epoch를 돌려주므로 아래
+      9.0.29 절의 열린 항목('낮은 epoch로 가는 App 손 되돌리기의 규칙', 결정 전)을 따른다: 결정이 날 때까지 급하지 않으면 9.0.34 /
+      v807 이상의 코드 되돌리기가 기본이고, 급할 때만 명시적으로 검토한 CLI 되돌리기로 간다. 손 되돌리기도 배포라 기록 PR과 이력 한
+      행을 낸다. 섞인 버전: 이 빌드는 9.0.32의 KR 시트가 가리키던 한글만 든 KR 조각 67개를 내보내지 않는다(남는 KR 53개는 같은
+      바이트라 주소가 그대로). 배포 뒤에도 9.0.32 이하로 도는 탭(업데이트 창을 아직 받지 않음, 새로 고침을 미룸, bfcache 복원)은 아직
+      받지 않은 그 조각의 한글을 새로 고칠 때까지 기기 글꼴로 그린다(9.0.31과 같은 종류). 구버전 무시 정책대로 두고 릴리스 메모에
+      한 줄을 적는다. 글꼴과 CSS는 기기 안의 그리기뿐이라 9.0.22 ~ 9.0.32 탭과 같은 방에서 그대로 함께 쓴다. 데이터, 바닥, Durable
+      Object, D1, 다른 Worker는 바뀌지 않는다.
+      [위험](design/app-hangul-pretendard-2026-11-02.md#7-위험),
+      [릴리스 담당이 할 일](design/app-hangul-pretendard-2026-11-02.md#10-릴리스-담당이-할-일).
+- [ ] 배포 직후 확인(블라인드, 게이트 아님, 보고서 §8): 보고서 §8의 절차만 확인하는 사람에게 건네고 판정 기준은 건네지 않으며, 받은
+      관찰값을 보고서 기준(§3, §4)과 견줘 보고서 QA 라운드에 적는다. 기기마다 먼저 업데이트 창을 받아들이고 앱을 다시 열어 앱 정보의
+      버전과 빌드(9.0.33, 806)를 적는다. (A) 오너의 아이폰 Safari, 한국어 화면(iOS 버전을 적음): 시작 화면, 한글 제목 트랙이 든
+      재생목록이 여럿인 방(탭 제목 넷, 재생목록 행), 채팅의 한글 글, 설정을 9.0.32 때와 같은 구도로 찍고, 한국어 글을 굵기 400 / 500 /
+      600 / 700으로 보는 곳(설정의 글자와 제목)과 굵기 700인 탭 제목 넷을 찍는다. 9.0.31 절의 배포 직후 확인 (A)의 나머지(15px와 13px
+      한글 줄 높이, 기준선)를 같은 자리에서 하면 이제 MUSIXQUARE Hangul 면을 재는 것이고 기준은 그대로다. (B) 데스크톱 Chromium, 한국어
+      화면: 같은 화면, 개발자 도구의 Rendered Fonts로 한글 제목 하나를 그리는 면, 네트워크 목록에 `pretendard`가 든 요청이 있는지, 한글
+      15px 줄 높이. 할 수 있으면 같은 Chromium의 영어 화면에서 같은 재생목록과 채팅(보고서 §8 3), 한자가 섞인 한글 제목(§8 4). 기기가
+      없는 단계는 '기기 없음'이고 실패가 아니다. 실패하면: 먼저 새 빌드인지 다시 보고(옛 페이지는 옛 글꼴을 그림), 새 빌드에서도 한글이
+      Pretendard 모양이 아니거나 줄 높이, 탭 제목 자리가 9.0.32와 다르면 위 되돌리기대로 앞으로 고치기를 정한다. 닫는 근거: 운영 App이
+      이 열차를 담은 SHA라는 배포 기록과 (A), (B)의 판정.
+      [배포 뒤 기기 확인](design/app-hangul-pretendard-2026-11-02.md#8-배포-뒤-기기-확인).
+- [ ] 열린 항목과 확인하지 않은 것(보고서 §6, §7, 게이트 아님): 실제 아이폰과 macOS Safari, iOS 16, Firefox, Android, webOS TV
+      레거시 빌드, Windows GDI는 보지 않았다(Windows의 Chromium과 Playwright WebKit만. 그 WebKit은 변수 글꼴에 굵기를 적용하지 않아
+      굵기는 아이폰 확인 몫). 이름을 바꾼 이름 표를 OTS와 Chromium, Playwright WebKit은 받아들였고 CoreText는 배포 뒤 아이폰에서 본다.
+      Chromium에서 0.01px 단위 크기 13개는 한글만 있는 줄이 9.0.32보다 1px 크다(0.5px 단위 크기는 없음, 닿을 수 있는 것은 유동
+      `clamp()` 크기뿐, 리뷰 측정을 옮김). NFD 첫가끝 자모(U+1100-11FF, 확장 A·B)는 9.0.32처럼 어느 앱 면도 그리지 않아 기기 글꼴이
+      그리고 한국어와 영어 화면에서 다를 수 있다(알려진 차이, 바뀌지 않음). 한국어 시작 화면 글꼴은 249,124 B에서 289,888 B(+16.4%)로
+      늘고 미리 받기까지는 466,104 B에서 433,132 B로 준다. 한자가 섞인 한국어 글은 아직 한글 글리프가 든 KR 조각을 받는다(쓰지 않는
+      바이트). 9.0.31 절의 반올림 경계 차이(14.5px CJK 1px)는 이 열차가 나가면 한글에서 사라지고 가나와 한자에만 남는다(위 9.0.31
+      절의 범위와 상태 항목). 공개 페이지 글꼴 열차의 범위가 바뀐다(아래 9.0.29 절의 뒤 열차 항목). 오너 질문 셋은 위 기댄 오너 결정
+      항목에 기본값으로 적었다. 닫는 근거: 위 배포 직후 확인 (A), (B)의 판정과 오너 질문의 답.
+      [바뀌어 보이는 것](design/app-hangul-pretendard-2026-11-02.md#3-바뀌어-보이는-것-화면-바뀜),
+      [QA 라운드](design/app-hangul-pretendard-2026-11-02.md#6-qa-라운드),
+      [위험](design/app-hangul-pretendard-2026-11-02.md#7-위험).
+
 ### Phase 6 6B(YouTube 시작 장부와 그 독자, 9.0.32/v805) 배포 뒤 확인: 블라인드 기기 확인은 오너가 돌아온 뒤에, 다음은 6C
 
 - [ ] 범위와 상태(오너 답 2026-10-30, 순서 오너 결정 2026-11-01 오후, 오너 부재 중 위임, PR #557, 배포 뒤): Phase 6의 둘째 App 업데이트(6B, 계획 §4.7의 6B-1 C2-5와 6B-2
@@ -171,7 +290,9 @@ gh run list --workflow e2e.yml --branch main --limit 3
       `line-height`를 지웠다. (3) 버전 올리기 `566f458d`(마지막 런타임 커밋, 9.0.30의 버전 올리기 `8d148fff`와 같은 거울 여섯 파일
       일곱 줄). 보이는 것([화면 바뀜], 보고서 §3): iOS·macOS Safari 17 이상은 줄 상자가 Chromium과 같아진다(15px CJK 줄 약 20 →
       18px, 28px 제목 39 → 34px, 탭 제목 넷이 한 기준선). 반올림 경계 옆 크기(14.5px CJK 데스크톱 데모 역할 단추, 일부 `clamp()` 창
-      크기 띠)만 1px 다를 수 있다. 모든 브라우저에서 제목 줄이 36px보다 큰 14개 언어(ar, ur, fa, th, kn, te, hi, mr, bn, gu, pa,
+      크기 띠)만 1px 다를 수 있다(9.0.33(배포 전, 위 9.0.33 절)이 나가면 한글은 덮어쓰기를 따르든 무시하든 파일 자신의 상자를 그려
+      14.5px 한글의 그 1px이 사라지고 가나와 한자에만 남는다, [9.0.33 보고서 §3, §4.1](design/app-hangul-pretendard-2026-11-02.md#41-줄-상자)).
+      모든 브라우저에서 제목 줄이 36px보다 큰 14개 언어(ar, ur, fa, th, kn, te, hi, mr, bn, gu, pa,
       ml, he, ta)는 재생목록이 여럿일 때 휴대폰·태블릿 폭의 재생목록 제목이 0.5 ~ 4px 내려와 다른 탭 제목과 맞고 머리가 그만큼
       커진다. 나머지 28개 언어는 Chromium에서 main과 같은 픽셀이다(보고서 QA 라운드 4 쓸기 308 / 308). Firefox는 같은 기술자를 따라
       바뀌지 않을 것으로 예상하지만 재지 않았다. `size-adjust`도 모르는 Safari 15·16과 webOS TV 레거시 빌드는 CJK 줄이 목표에
@@ -571,11 +692,18 @@ gh run list --workflow e2e.yml --branch main --limit 3
       [Phase 6 6A 보고서의 되돌리기](design/phase6-6a-start-constants-owner-queries-2026-10-31.md#되돌리기),
       [9.0.31 보고서의 되돌리기](design/app-font-baked-metrics-2026-11-01.md#10-릴리스-담당이-할-일),
       [6B 보고서의 되돌리기](design/phase6-6b-start-ledger-readers-2026-11-01.md#되돌리기).
-- [ ] 뒤 열차: 공개 페이지를 Inter·Noto로 바꾸고 Pretendard를 지우기(이 릴리스 밖, 시기 미정, 게이트 아님): 9.0.29는 앱만
+- [ ] 뒤 열차: 공개 페이지를 앱 글꼴(Inter, MUSIXQUARE Hangul, Noto)로 바꾸기(이 릴리스 밖, 시기 미정, 게이트 아님): 9.0.29는 앱만
       바꿨다. 다른 HTML 입구(소개와 그 형제 페이지, 블로그, 히스토리, 디자인 시스템, 이벤트, 관리자, `account-complete.html`)와 공유
       미리보기 그림(OG)은 Pretendard를 그대로 쓰고, Pretendard 두 사본(`fonts/PretendardVariable.woff2`와 배포되는
-      `public/designsystem/fonts/` 사본)은 배포된 채다. 공개 페이지를 Inter·Noto로 바꾸고 그 두 사본을 지우는 일은 뒤 열차의
-      몫이다. 제목 자간 토큰 삭제만 디자인 시스템 거울과 공개 편집 CSS까지 가서 디자인 시스템 페이지의 영어 견본(글자 크기 견본,
+      `public/designsystem/fonts/` 사본)은 배포된 채다. 처음에는 공개 페이지를 Inter·Noto로 바꾸고 그 두 사본을 지우는 일을 뒤
+      열차의 몫으로 적었다. 9.0.33(배포 전, 위 9.0.33 절)이 그 범위를 바꾼다: 앱 한글이 다시 Pretendard 모양(MUSIXQUARE Hangul,
+      `fonts/PretendardVariable.woff2`를 자른 조각)이 되므로 공개 페이지와 앱의 한글 디자인이 다시 같아지고, 공개 페이지를 옮긴다면
+      Noto KR 한글이 아니라 Inter + MUSIXQUARE Hangul 조각 + Noto로 옮겨야 하며(방향은 9.0.33 보고서 §9 3, 그 열차 때 오너에게 묻고, 그
+      열차의 줄 상자 질문도 바뀜), `fonts/PretendardVariable.woff2`는 이제 한글 면의 기록된 원본이라 지우지 않고 남긴다(없으면
+      `guard:font-assets`, `generate:font-sheets -- --check`, 두 생성기가 실패). 그 열차와 함께 지울 수 있는 것은 배포되는
+      `public/designsystem/fonts/` 사본과 `check-app-font.mts --dist`의 그 사본 바이트 비교뿐이다. 공유 그림(`og-pretendard-bold.ttf`)은
+      그대로다([9.0.33 보고서 §7 12](design/app-hangul-pretendard-2026-11-02.md#7-위험),
+      [§9 3](design/app-hangul-pretendard-2026-11-02.md#9-오너-질문)). 제목 자간 토큰 삭제만 디자인 시스템 거울과 공개 편집 CSS까지 가서 디자인 시스템 페이지의 영어 견본(글자 크기 견본,
       대화상자 견본 제목, EQ 값)이 2.7 ~ 4.4% 넓어졌고(질문 12, 받아들임), 블로그·글·히스토리 페이지의 제목은 토큰을 읽지 않아
       그대로다(보고서 §3 8, 사진은 QA 라운드 6). 공개 페이지의 Pretendard는 이제 서비스 워커의 보통 정적 자산 경로로 담기고,
       `account-complete.html`은 오프라인일 때 Pretendard 대신 기기 글꼴로 보인다(보고서 §7). Pretendard 파일이 배포된 채인 동안은

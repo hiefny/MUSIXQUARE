@@ -4,8 +4,8 @@
  * The App's own iframe audio writes and the holds that keep them closed
  * (pinned 2026-11-02): what a youtube:set-volume event, the PRO pause gate's
  * two events and the PRO direct commit write to the iframe, in which order,
- * which holds they ask, and the two mute rules below 0.5 % master volume, as
- * the App answers today. Since 2026-11-03 also the audio a guest's new run
+ * which holds they ask, and the one mute rule below 0.5 % master volume (two
+ * rules until Phase 6 6C-3), as the App answers. Since 2026-11-03 also the audio a guest's new run
  * takes when a remote host PREPARE arrives during the guest's local recovery,
  * with and without an ABORT before it.
  *
@@ -663,12 +663,12 @@ describe('the App iframe audio writes and holds, in order (pinned 2026-11-02)', 
   });
 });
 
-describe('two mute rules below 0.5 % master volume, as today (pinned 2026-11-02)', () => {
+describe('one mute rule below 0.5 % master volume: muted when it rounds to 0 % (pinned 2026-11-02, one rule since Phase 6 6C-3)', () => {
   /**
-   * Each cell runs on its own fresh App device at this master volume. The
-   * 'rounded' rule mutes when the master volume rounds to 0 %; the
-   * 'non-positive' rule mutes only at 0. They differ only for
-   * 0 < masterVolume < 0.005.
+   * Each cell runs on its own fresh App device at this master volume. Every
+   * site mutes when the master volume rounds to 0 %: until Phase 6 6C-3 the
+   * start machines' own capture muted only at 0 (the 'non-positive' rule),
+   * which differed only for 0 < masterVolume < 0.005.
    */
   async function cell<T>(run: () => Promise<T>): Promise<T> {
     try {
@@ -741,7 +741,7 @@ describe('two mute rules below 0.5 % master volume, as today (pinned 2026-11-02)
       replacementRecovery,
       hostLegacyRecovery,
       guestRecovery,
-    }).toEqual(TWO_RULE_ROWS[masterVolume]);
+    }).toEqual(MUTE_RULE_ROWS[masterVolume]);
   });
 });
 
@@ -1040,26 +1040,25 @@ function mutedWritesEvery(fromMs: number, toMs: number, stepMs: number): string[
 }
 
 /**
- * At 0 both rules mute and at 0.005 (1 %) both unmute. At 0.004 the volume is
- * 0 % everywhere, and:
- * - the 'non-positive' rule unmutes: the Standard zero-start run's desired
- *   audio, which its restores, its release unmute, its cancel restore and
- *   both recoveries' intents take when the run captured it: the guest local
- *   recovery and a host's legacy recovery after its own run fails (the
- *   restore at +600 or +601 and the release unMute at +1422, the restore
- *   when a peer replacement cancels the host's run at +400, the host's
- *   legacy recovery at +481 and the guest local recovery at +3100); and the
- *   PRO prepare's (its restore at +500, READY at 620 unmuted);
- * - the 'rounded' rule mutes: a youtube:set-volume write (here from
- *   engine.ts's audio:set-volume), the PRO pause gate's settlement, the PRO
- *   direct commit and the replacement fallback's own recovery intent (+1951),
- *   which has no run audio to take.
+ * Muted at 0 and unmuted at 0.005 (1 %). At 0.004 the volume is 0 %
+ * everywhere and every site mutes, as at 0 (Phase 6 6C-3): a youtube:set-volume
+ * write (here from engine.ts's audio:set-volume), the PRO pause gate's
+ * settlement, the PRO direct commit and the replacement fallback's own
+ * recovery intent (+1951), which have always muted, and now also the Standard
+ * zero-start run's desired audio, which its restores, its release, its cancel
+ * restore and both recoveries' intents take when the run captured it: the
+ * guest local recovery and a host's legacy recovery after its own run fails
+ * (the restore at +600 or +601 and the release at +1422 without unMute, the
+ * restore when a peer replacement cancels the host's run at +400, the host's
+ * legacy recovery from +481 and the guest local recovery at +3100), and the
+ * PRO prepare's (its restore at +500, READY at 620 muted). Until 6C-3 those
+ * took the 'non-positive' rule and unmuted at 0.004.
  * The host's legacy recovery runs on an iframe that never confirms a mute
- * (its run's prepare failed on that): at 0 its restore before the release
- * writes the muted audio every 50 ms until its 3 s deadline, then its
+ * (its run's prepare failed on that): when muted its restore before the
+ * release writes the muted audio every 50 ms until its 3 s deadline, then its
  * verified cleanup every 120 ms, and it never plays inside the window.
  */
-const TWO_RULE_ROWS = {
+const MUTE_RULE_ROWS = {
   0: {
     hostZeroStart: ['+600 setVolume(0)', '+600 mute()', '+1422 playVideo()'],
     guestZeroStart: ['+601 setVolume(0)', '+601 mute()', '+1422 playVideo()'],
@@ -1096,9 +1095,9 @@ const TWO_RULE_ROWS = {
     ],
   },
   0.004: {
-    hostZeroStart: ['+600 setVolume(0)', '+600 unMute()', '+1422 playVideo()', '+1422 unMute()'],
-    guestZeroStart: ['+601 setVolume(0)', '+601 unMute()', '+1422 playVideo()', '+1422 unMute()'],
-    proPrepare: { ready: ['+620 ready muted:false'], ops: ['+500 setVolume(0)', '+500 unMute()'] },
+    hostZeroStart: ['+600 setVolume(0)', '+600 mute()', '+1422 playVideo()'],
+    guestZeroStart: ['+601 setVolume(0)', '+601 mute()', '+1422 playVideo()'],
+    proPrepare: { ready: ['+620 ready muted:true'], ops: ['+500 setVolume(0)', '+500 mute()'] },
     engineBridge: [
       'push zero-start muted:true volume:0',
       'push pro muted:true volume:0',
@@ -1110,7 +1109,7 @@ const TWO_RULE_ROWS = {
     directCommit: ['+700 setVolume(0)', '+700 mute()', '+700 playVideo()'],
     replacementRecovery: [
       '+400 setVolume(0)',
-      '+400 unMute()',
+      '+400 mute()',
       '+1901 mute()',
       '+1951 setVolume(0)',
       '+1951 mute()',
@@ -1118,16 +1117,15 @@ const TWO_RULE_ROWS = {
     ],
     hostLegacyRecovery: [
       ...HOST_HARD_MUTE_POLLS,
-      '+481 setVolume(0)',
-      '+481 unMute()',
-      '+481 playVideo()',
+      ...mutedWritesEvery(481, 3_431, 50),
+      ...mutedWritesEvery(3_551, 3_911, 120),
     ],
     guestRecovery: [
       '+2752 mute()',
       '+3100 setVolume(0)',
-      '+3100 unMute()',
+      '+3100 mute()',
       '+3100 setVolume(0)',
-      '+3100 unMute()',
+      '+3100 mute()',
       '+3100 playVideo()',
     ],
   },
@@ -1181,11 +1179,14 @@ const TWO_RULE_ROWS = {
  * SCENARIOS.guestCohortExcluded(9_000), at +3000 and at +6000.
  * - abortFirst: the ABORT's cleanup and the cancelled run's restore write the
  *   audio the recovery took from its run (+3000), and the new run's restore
- *   (+3501) and release (+4322) its own capture: today the 'non-positive'
- *   rule, so 0.004 unmutes and its ARMED reports muted false;
+ *   (+3501) and release (+4322) its own capture: muted when the master volume
+ *   rounds to 0 % since Phase 6 6C-3, so 0.004 mutes, like 0, and its ARMED
+ *   reports muted true (until 6C-3 the 'non-positive' capture unmuted at
+ *   0.004 and reported muted false);
  * - transferred: no ABORT, no cleanup; the new run takes the transferred
- *   intent ('push zero-start' at +6000) as it turns busy: today the
- *   'rounded' rule, so 0.004 mutes, like 0, and reports muted true.
+ *   intent ('push zero-start' at +6000) as it turns busy, which has always
+ *   muted when the master volume rounds to 0 %, so 0.004 mutes, like 0, and
+ *   reports muted true.
  * The new run hard-mutes (+3000 or +6000), warms the resident video (+3001
  * or +6001), restores, reports ARMED, and plays at the remote host's commit.
  */
@@ -1231,19 +1232,18 @@ const RECOVERY_PREPARE_ROWS = {
       inbound: ['+3000 abort', '+3000 prepare', '+3623 commit'],
       ops: [
         '+3000 setVolume(0)',
-        '+3000 unMute()',
+        '+3000 mute()',
         '+3000 setVolume(0)',
-        '+3000 unMute()',
+        '+3000 mute()',
         '+3000 mute()',
         '+3001 setVolume(0)',
         '+3001 mute()',
         '+3001 playVideo()',
         '+3501 setVolume(0)',
-        '+3501 unMute()',
+        '+3501 mute()',
         '+4322 playVideo()',
-        '+4322 unMute()',
       ],
-      armed: ['+3621 muted:false'],
+      armed: ['+3621 muted:true'],
     },
     transferred: {
       recovery: true,

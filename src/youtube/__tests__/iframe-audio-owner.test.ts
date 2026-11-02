@@ -102,8 +102,9 @@ describe('readYouTubeAppAudio: the app audio read from the master volume (pinned
     [1, { muted: false, volume: 100 }, { muted: false, volume: 100 }],
     [0.734, { muted: false, volume: 73 }, { muted: false, volume: 73 }],
     [0.005, { muted: false, volume: 1 }, { muted: false, volume: 1 }],
-    // The two rules disagree only for 0 < masterVolume < 0.005.
-    [0.004, { muted: true, volume: 0 }, { muted: false, volume: 0 }],
+    // Muted when it rounds to 0 %, for every reader (Phase 6 6C-3): the
+    // 'non-positive' read unmuted here before.
+    [0.004, { muted: true, volume: 0 }, { muted: true, volume: 0 }],
     [0, { muted: true, volume: 0 }, { muted: true, volume: 0 }],
     [-0.25, { muted: true, volume: 0 }, { muted: true, volume: 0 }],
     [1.5, { muted: false, volume: 100 }, { muted: false, volume: 100 }],

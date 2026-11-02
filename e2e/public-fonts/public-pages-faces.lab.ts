@@ -338,6 +338,8 @@ for (const facePage of PAGES) {
         if (facePage.sheets === 'none') {
           if (faces.some(({ isCustomFont }) => isCustomFont)) {
             breaks.push(`${where} '${grapheme}' should be a device face: ${names}`);
+          } else {
+            device.push(`${grapheme} ${names}`);
           }
           continue;
         }

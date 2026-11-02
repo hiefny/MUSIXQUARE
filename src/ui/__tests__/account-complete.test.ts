@@ -122,6 +122,30 @@ describe('account completion localization', () => {
     expect(stylesheet).toMatch(/button:focus-visible\s*{/);
   });
 
+  it("draws with the device's system fonts and loads no font of its own", async () => {
+    // The sign-in completion page belongs to the app (the service worker
+    // installs it for offline use), not to the public pages, so it links
+    // none of their font sheets and declares no face.
+    const [html, stylesheet] = await Promise.all([
+      readFile(COMPLETION_HTML, 'utf8'),
+      readFile(COMPLETION_CSS, 'utf8'),
+    ]);
+    const { document } = new JSDOM(html).window;
+    expect(
+      [...document.querySelectorAll('link[rel~="stylesheet"]')].map((link) =>
+        link.getAttribute('href'),
+      ),
+    ).toEqual(['/account-complete.css']);
+    expect(
+      [...document.querySelectorAll('script[src]')].map((script) => script.getAttribute('src')),
+    ).toEqual(['/account-complete.js']);
+    expect(document.querySelector('link[rel~="preload"]')).toBeNull();
+    expect(stylesheet).not.toMatch(/@font-face|pretendard|--font-|url\([^)]*\.woff2?/iu);
+    expect(stylesheet).toMatch(
+      /:root\s*{[^}]*font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;/s,
+    );
+  });
+
   it('uses one refresh nonce across every successful popup completion channel', async () => {
     const success = await renderCompletion('en', '?accountClient=tab-12345678');
     const storedPulse = JSON.parse(

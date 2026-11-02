@@ -70,21 +70,21 @@ async function classicRuntimeDevMiddleware(): Promise<DevMiddleware> {
 }
 
 describe('strict TypeScript classic browser runtimes', () => {
-  it('resolves the event page font to the deployed canonical Pretendard bytes', async () => {
+  it('links the shared first and stacks sheets on the event page, which declares no face of its own', async () => {
     const html = await readFile(join(REPO_ROOT, 'public/events/index.html'), 'utf8');
-    const document = new JSDOM(html, { url: 'https://musixquare.com/events/asamo' });
-    const stylesheet =
-      document.window.document.querySelector<HTMLLinkElement>('link[rel="stylesheet"]');
-    expect(stylesheet?.href).toBe('https://musixquare.com/events/event.css');
+    const document = new JSDOM(html, { url: 'https://musixquare.com/events/sample-event' });
+    const stylesheets = [
+      ...document.window.document.querySelectorAll<HTMLLinkElement>('link[rel="stylesheet"]'),
+    ].map((link) => link.href);
+    // No rest.css: the sign-in scripts are deferred, and a deferred script
+    // waits for every stylesheet the parser added.
+    expect(stylesheets).toEqual([
+      'https://musixquare.com/web-fonts/first.css',
+      'https://musixquare.com/web-fonts/stacks.css',
+      'https://musixquare.com/events/event.css',
+    ]);
     const css = await readFile(join(REPO_ROOT, 'public/events/event.css'), 'utf8');
-    const fontUrl = /@font-face\s*\{[^}]*src:\s*url\(['"]([^'"]+)['"]\)/u.exec(css)?.[1];
-    expect(fontUrl).toBeTruthy();
-    const assetUrl = new URL(fontUrl!, stylesheet!.href);
-    expect(assetUrl.origin).toBe('https://musixquare.com');
-    const deployedFont = await readFile(join(REPO_ROOT, 'public', assetUrl.pathname));
-    const canonicalFont = await readFile(join(REPO_ROOT, 'fonts/PretendardVariable.woff2'));
-    expect(deployedFont.subarray(0, 4).toString('ascii')).toBe('wOF2');
-    expect(deployedFont.equals(canonicalFont)).toBe(true);
+    expect(css).not.toMatch(/@font-face|--font-sans:|pretendard/iu);
     document.window.close();
   });
 

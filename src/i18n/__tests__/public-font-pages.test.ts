@@ -6,7 +6,9 @@
  * first, and not at all where a page's scripts must not wait for it), loads
  * fonts no other way, and its stylesheets declare no face and set no stack,
  * so it reads the app's stacks. These fixtures pin each departure the checks
- * report; the page cases follow, one group of pages at a time.
+ * report; the page cases follow, one group of pages at a time. The sign-in
+ * completion page is the app's, not a public page, and is tested with it
+ * (src/ui/__tests__/account-complete.test.ts).
  */
 import { existsSync, readdirSync, readFileSync, statSync } from 'node:fs';
 import { join, relative, resolve } from 'node:path';
@@ -22,6 +24,7 @@ import { languageSplitTests } from '../../../scripts/lib/app-font-guard.mts';
 import {
   PUBLIC_FONT_PAGES,
   PUBLIC_KOREAN_ENGLISH_COPY_RULES,
+  PUBLIC_LITERAL_FONT_FAMILIES,
   PUBLIC_TEXT_FONT_FAMILY,
   inlineStyles,
   publicFontCssProblems,
@@ -623,5 +626,130 @@ describe('the document pages, translate and the sitemap', () => {
       .filter((file) => /retryable-stylesheet/u.test(readFileSync(file, 'utf8')))
       .map((file) => relative(ROOT, file).replace(/\\/gu, '/'));
     expect(importers.sort()).toEqual(['src/i18n/locale-fonts.ts']);
+  });
+});
+
+const DESIGN_PREVIEWS = readdirSync(resolve(ROOT, 'public/designsystem/preview'))
+  .filter((name) => name.endsWith('.html'))
+  .sort()
+  .map((name) => `public/designsystem/preview/${name}`);
+
+describe('the blog, history, design system, UI kit, events and 404 pages', () => {
+  const EDITORIAL = 'public/editorial-base.css';
+  const PAGES: readonly PublicFontPage[] = [
+    {
+      html: 'public/blog/index.html',
+      dist: 'blog/index.html',
+      rest: 'body',
+      sheets: [TOKENS, EDITORIAL],
+      htmlLangs: ['en'],
+    },
+    {
+      html: 'public/history/index.html',
+      dist: 'history/index.html',
+      rest: 'body',
+      sheets: [TOKENS, EDITORIAL, 'public/editorial-history.css'],
+      htmlLangs: ['en'],
+    },
+    {
+      html: 'public/designsystem/index.html',
+      dist: 'designsystem/index.html',
+      rest: 'body',
+      sheets: [TOKENS, EDITORIAL, 'public/editorial-design.css'],
+      htmlLangs: ['en'],
+    },
+    ...DESIGN_PREVIEWS.map((html) => ({
+      html,
+      dist: html.replace(/^public\//u, ''),
+      rest: 'body' as const,
+      sheets: [TOKENS],
+      htmlLangs: ['en'],
+    })),
+    {
+      // Served in development only; the production build leaves it out.
+      html: 'browser/ui-kit/static/app/index.html',
+      dist: null,
+      rest: 'body',
+      sheets: [TOKENS, 'browser/ui-kit/static/app/app.css'],
+      htmlLangs: ['en'],
+    },
+    {
+      // PRO sign-in: its deferred scripts wait for every stylesheet the
+      // parser added, so it links no rest.css.
+      html: 'public/events/index.html',
+      dist: 'events/index.html',
+      rest: 'none',
+      sheets: ['public/events/event.css'],
+      htmlLangs: ['ko', 'en'],
+    },
+    {
+      html: 'public/404.html',
+      dist: '404.html',
+      rest: 'body',
+      sheets: [],
+      htmlLangs: ['en'],
+    },
+  ];
+  const SOURCES = PAGES.map(({ html }) => html);
+
+  it('covers every design-system preview', () => {
+    expect(DESIGN_PREVIEWS).toHaveLength(21);
+  });
+
+  it.each(SOURCES)('%s is registered and links the shared font sheets', (source) => {
+    const expected = PAGES.find(({ html }) => html === source);
+    expect(page(source)).toEqual(expected);
+    expect(publicFontLinkProblems(read(source), { rest: page(source).rest })).toEqual([]);
+  });
+
+  it.each(SOURCES)("%s reads the app's stacks, with no face or stack of its own", (source) => {
+    const registered = page(source);
+    for (const sheet of registered.sheets) {
+      expect(publicFontCssProblems(read(sheet), PUBLIC_LITERAL_FONT_FAMILIES), sheet).toEqual([]);
+    }
+    for (const style of inlineStyles(read(source))) {
+      expect(publicFontCssProblems(style), `${source} <style>`).toEqual([]);
+    }
+    expectAppStacks(registered);
+    for (const { selector, rule } of koreanEnglishSplits(registered.sheets)) {
+      expect(selector in PUBLIC_KOREAN_ENGLISH_COPY_RULES, selector).toBe(true);
+      expect(
+        rule.nodes.filter((node) => node.type === 'decl' && node.prop === 'letter-spacing'),
+        selector,
+      ).toEqual([]);
+    }
+  });
+
+  it('keeps the root text of each page on the shared stack with the system fallback', () => {
+    const shared =
+      /font-family: var\(--font-sans, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif\);/u;
+    for (const file of ['public/events/event.css', 'public/404.html', 'public/blog/index.html']) {
+      expect(read(file), file).toMatch(shared);
+    }
+    expect(read('public/events/event.css')).toMatch(
+      /\nbody \{[^}]*font-family: var\(--font-sans, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif\);/u,
+    );
+  });
+
+  it('lets only Google sign-in name its own families, falling back to the shared stack', () => {
+    // Google's button keeps its brand families; the scripts they lack (the
+    // Korean label) draw with the shared stack, not a device face.
+    expect(Object.keys(PUBLIC_LITERAL_FONT_FAMILIES)).toEqual(['.google-button']);
+    const google: string[] = [];
+    postcss.parse(read('public/events/event.css')).walkRules('.google-button', (rule) => {
+      rule.walkDecls('font-family', (declaration) => {
+        google.push(declaration.value.replace(/\s+/gu, ' ').trim());
+      });
+    });
+    expect(google).toEqual([
+      "'Google Sans', Arial, var(--font-sans, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif)",
+    ]);
+  });
+
+  it('leaves the sign-in completion page to the app: it links no shared sheet', () => {
+    // public/account-complete.html belongs to the app (src/ui/account.ts and
+    // the service worker's install list), so it draws with the device fonts.
+    expect(PUBLIC_FONT_PAGES.map(({ html }) => html)).not.toContain('public/account-complete.html');
+    expect(read('public/account-complete.html')).not.toMatch(/\/web-fonts\/|\/han-order\.js/u);
   });
 });

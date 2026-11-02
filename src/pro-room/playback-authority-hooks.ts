@@ -345,6 +345,12 @@ export interface ProPlaybackPrepareRequest {
    * rejoin never set it.
    */
   missedReady?: boolean;
+  /**
+   * With missedReady: the Date.now() instant that catch-up plans to start. A
+   * kept load that has still not finished its handshake then is loaded again,
+   * as a catch-up without missedReady loads it.
+   */
+  missedReadyJoinAtMs?: number;
   youtubeSubIndex?: number | null;
   youtubeVideoId?: string | null;
   /** Participant-local fence injected by the authority layer for async media waits. */

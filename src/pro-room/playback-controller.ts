@@ -1293,6 +1293,9 @@ function createImplementation(
       playbackCommitStillCurrent(event, generation, isRequestCurrent) &&
       (playback.state !== 'playing' || (clock !== null && isProRoomClockSnapshotCurrent(clock)));
     if (!current()) return null;
+    const commitTiming = () =>
+      (latePlan && clock ? plannedLateYouTubeTiming(playback, latePlan, clock) : null) ??
+      playbackCommitTiming(event, receivedAtMs, clock);
     const reportRecoveredDuration = captureFileDurationReporter(request, current);
     let prepared: ProPlaybackPrepareResult;
     try {
@@ -1300,6 +1303,11 @@ function createImplementation(
         {
           ...request,
           missedReady,
+          // The start this catch-up plans: a kept still-loading load must have
+          // finished its handshake by then, or the endpoint loads again.
+          missedReadyJoinAtMs: missedReady
+            ? Date.now() + commitTiming().scheduleDelayMs
+            : undefined,
           isCurrent: current,
         },
         current,
@@ -1340,9 +1348,7 @@ function createImplementation(
     }
     // This is the final attempt: if preparation overran its planned instant,
     // keep the established immediate catch-up rather than waiting again.
-    const timing =
-      (latePlan && clock ? plannedLateYouTubeTiming(playback, latePlan, clock) : null) ??
-      playbackCommitTiming(event, receivedAtMs, clock);
+    const timing = commitTiming();
     try {
       const result = await commitProPlaybackAuthority({
         authority,

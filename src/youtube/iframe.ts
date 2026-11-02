@@ -2023,6 +2023,12 @@ interface YouTubeAuthorityPreparationRequest {
   subIndex: number;
   positionSeconds: number;
   timeoutMs?: number;
+  /**
+   * A kept still-loading load (a missed-READY catch-up, playlist.ts): end with
+   * 'timeout' at this Date.now() instant if that load has still not finished
+   * its handshake, so the caller can load the occurrence again.
+   */
+  keptLoadDeadlineAtMs?: number | undefined;
 }
 
 type YouTubeAuthorityPreparationResult =
@@ -2164,6 +2170,12 @@ export async function prepareYouTubeAuthorityOccurrence(
     }
     if (getCurrentQueueItemId() !== request.queueItemId || !isPlaybackModeYouTube()) {
       return { ready: false, reason: 'superseded' };
+    }
+    if (
+      Date.now() >= (request.keptLoadDeadlineAtMs ?? Infinity) &&
+      isYouTubeOccurrenceStillLoading(request.queueItemId, request.videoId)
+    ) {
+      return { ready: false, reason: 'timeout' };
     }
 
     const player = getYouTubePlayer();

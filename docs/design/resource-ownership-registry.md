@@ -594,7 +594,15 @@ RO-53 owner-in-place
   2.3 s, which leaves room inside the server's 3 s transition barrier; restores, catch-ups and
   participant-local rejoins get the unbarriered 10 s. The seam counts that budget from its own
   prepare call: the YouTube endpoint reads only whether the PREPARE carried a budget
-  (`prepareBudgetMs`), not its value.
+  (`prepareBudgetMs`), not its value. Since Phase 6 6D-6 the COMMIT catch-up after this device's
+  own PREPARE missed READY (`missedReady`) may keep that PREPARE's load while no player is ready
+  yet (`playlist.ts`); that load keeps its own 15 s deadline (`SCRIPT_LOAD_TIMEOUT_MS`, the
+  `iframe.ts` loader, RO-14), which can come before the catch-up's 10 s. The catch-up also passes
+  the start it plans (`missedReadyJoinAtMs`), and the seam's prepare loop takes it as one more
+  deadline (`keptLoadDeadlineAtMs`): if the kept load has still not finished its handshake then,
+  the seam ends with `timeout` and `playlist.ts` prepares once more without `missedReady`, loading
+  the occurrence again through the loader as before 6D-6, with a new unbarriered 10 s. No timer
+  is added.
 - **Timing-constant home:** `src/youtube/constants.ts` since Phase 6 6A-3 (C2-1): the arm and settle
   values, one named export each: `YOUTUBE_ARM_HARD_MUTE_POLL_MS`,
   `YOUTUBE_ARM_HARD_MUTE_MAX_ATTEMPTS`, `YOUTUBE_ARM_WARM_PLAY_MS`,

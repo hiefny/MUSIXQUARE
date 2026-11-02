@@ -2669,6 +2669,7 @@ async function prepareAuthoritativePlayback(
       : null;
 
   let reuseResidentYouTube = false;
+  let keptLoadDeadlineAtMs: number | undefined;
   if (
     item.type === 'youtube' &&
     resolvedVideoId &&
@@ -2692,6 +2693,7 @@ async function prepareAuthoritativePlayback(
     // still handshaking, or the IFrame API script still loading). Keep it
     // instead of loading again; the authority preparation below waits for it.
     reuseResidentYouTube = true;
+    keptLoadDeadlineAtMs = request.missedReadyJoinAtMs;
   }
 
   try {
@@ -2743,7 +2745,18 @@ async function prepareAuthoritativePlayback(
         ...(request.prepareBudgetMs === undefined
           ? { timeoutMs: PRO_YOUTUBE_UNBARRIERED_PREPARE_TIMEOUT_MS }
           : {}),
+        keptLoadDeadlineAtMs,
       });
+      if (
+        keptLoadDeadlineAtMs !== undefined &&
+        !prepared.ready &&
+        prepared.reason === 'timeout' &&
+        isYouTubeOccurrenceStillLoading(request.queueItemId, resolvedVideoId)
+      ) {
+        // The kept load has still not finished its handshake at the start this
+        // catch-up plans: load the occurrence again, as without missedReady.
+        return prepareAuthoritativePlayback({ ...request, missedReady: false });
+      }
       if (!prepared.ready) return failedAuthorityPrepare(request, prepared.reason);
       return {
         status: 'ready',

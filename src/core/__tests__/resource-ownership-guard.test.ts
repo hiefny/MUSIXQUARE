@@ -2723,6 +2723,144 @@ describe('resource-ownership guard', { timeout: 60_000 }, () => {
           missing,
         ]);
       });
+
+      /** The first line of a block appended to a real file as `${source}\n${block}`. */
+      const appendedAt = (file: string): number =>
+        (realInput().sources.get(file) ?? '').split('\n').length + 1;
+      const slotFix =
+        "only registerYouTubeAudioHolds sets the iframe audio owner's parking slots, and the " +
+        'owner only calls them; another write or a slot handed out replaces or bypasses the hold ' +
+        'every App write asks, a second machine on it';
+      const slot = (line: number, what: string, inFunction: string): string =>
+        `AUDIO HOLD REGISTRATION (RO-12): ${owner}:${line} ${what} in ${inFunction} - ${slotFix}`;
+
+      it('fails a write to the parking slots outside registerYouTubeAudioHolds, whoever calls it', () => {
+        const at = appendedAt(owner);
+        const findings = findingsOf(
+          withSources((sources) => {
+            sources.set(
+              owner,
+              `${sources.get(owner) ?? ''}\n` +
+                'export function dropAudioHolds(): void {\n' +
+                '  isParked = notHeld;\n' +
+                '  enforceParking = notHeld;\n' +
+                '}\n',
+            );
+            sources.set(
+              'src/youtube/iframe.ts',
+              `${sources.get('src/youtube/iframe.ts') ?? ''}\n` +
+                "import { dropAudioHolds } from './iframe-audio.ts';\n" +
+                'export function rogueDrop(): void {\n' +
+                '  dropAudioHolds();\n' +
+                '}\n',
+            );
+          }),
+        );
+        // Every later App write would unmute a parked iframe; the registration itself is untouched.
+        expect(findings.split('\n')).toEqual([
+          slot(at + 1, 'writes isParked', 'dropAudioHolds'),
+          slot(at + 2, 'writes enforceParking', 'dropAudioHolds'),
+        ]);
+      });
+
+      it('fails the parking slots handed out or written at module level', () => {
+        const at = appendedAt(owner);
+        const findings = findingsOf(
+          withSources((sources) => {
+            sources.set(
+              owner,
+              `${sources.get(owner) ?? ''}\n` +
+                'export function rogueSlots(): unknown {\n' +
+                '  return [isParked, enforceParking];\n' +
+                '}\n' +
+                'export { isParked as parkedSlot };\n' +
+                'isParked = (player) => Boolean(player);\n',
+            );
+          }),
+        );
+        expect(findings.split('\n')).toEqual([
+          slot(at + 3, 'exports isParked as parkedSlot', '<module>'),
+          slot(at + 1, 'uses isParked as a value', 'rogueSlots'),
+          slot(at + 1, 'uses enforceParking as a value', 'rogueSlots'),
+          slot(at + 4, 'writes isParked', '<module>'),
+        ]);
+      });
+
+      describe('the PRO pause gate (RO-12)', () => {
+        const gateFix =
+          "only src/youtube/player.ts holds, releases and clears the iframe audio owner's PRO " +
+          'pause gate (its pause-gate handlers and stopYouTubeMode); another writer opens or ' +
+          'closes the gate every App write asks, a second machine on it';
+        const gate = (file: string, line: number, what: string, inFunction: string): string =>
+          `PAUSE GATE WRITERS (RO-12): ${file}:${line} ${what} in ${inFunction} - ${gateFix}`;
+
+        it("passes on the real tree, where only player.ts's gate handlers and stopYouTubeMode write it", () => {
+          const source = realInput().sources.get(player) ?? '';
+          expect(source).toContain('holdYouTubePauseGate(event.token);');
+          expect(source).toContain('releaseYouTubePauseGate(event.token)');
+          expect(source).toContain('clearYouTubePauseGate();');
+          expect(findingsOf(realInput())).toBe('');
+        });
+
+        it('lets only player.ts hold, release and clear the gate, and only the setters write its token', () => {
+          const iframe = 'src/youtube/iframe.ts';
+          const iframeAt = appendedAt(iframe);
+          const ownerAt = appendedAt(owner);
+          const findings = findingsOf(
+            withSources((sources) => {
+              sources.set(
+                iframe,
+                `${sources.get(iframe) ?? ''}\n` +
+                  'import {\n' +
+                  '  holdYouTubePauseGate as rogueHold,\n' +
+                  '  clearYouTubePauseGate,\n' +
+                  "} from './iframe-audio.ts';\n" +
+                  'export function rogueGate(): void {\n' +
+                  '  rogueHold(1);\n' +
+                  '  clearYouTubePauseGate();\n' +
+                  '}\n',
+              );
+              sources.set(
+                owner,
+                `${sources.get(owner) ?? ''}\n` +
+                  'export function rogueRelease(): void {\n' +
+                  '  releaseYouTubePauseGate(1);\n' +
+                  '  pauseGateToken = 7;\n' +
+                  '}\n',
+              );
+            }),
+          );
+          expect(findings.split('\n')).toEqual([
+            gate(owner, ownerAt + 1, 'releases the PRO pause gate', 'rogueRelease'),
+            gate(owner, ownerAt + 2, 'writes pauseGateToken', 'rogueRelease'),
+            gate(iframe, iframeAt + 5, 'holds the PRO pause gate', 'rogueGate'),
+            gate(iframe, iframeAt + 6, 'clears the PRO pause gate', 'rogueGate'),
+          ]);
+        });
+
+        it('fails the gate setters handed on: re-exported, as a value or through the namespace', () => {
+          const findings = findingsOf(
+            withSources((sources) => {
+              sources.set(
+                'src/youtube/rogue-gate-port.ts',
+                "import { releaseYouTubePauseGate } from './iframe-audio.ts';\n" +
+                  "import * as iframeAudio from './iframe-audio.ts';\n" +
+                  "export { clearYouTubePauseGate as dropGate } from './iframe-audio.ts';\n" +
+                  'export const releasers = [releaseYouTubePauseGate];\n' +
+                  'export function rogueNamespace(): void {\n' +
+                  '  iframeAudio.holdYouTubePauseGate(2);\n' +
+                  '}\n',
+              );
+            }),
+          );
+          const port = 'src/youtube/rogue-gate-port.ts';
+          expect(findings.split('\n')).toEqual([
+            gate(port, 3, 're-exports clearYouTubePauseGate as dropGate', '<module>'),
+            gate(port, 4, 'uses releaseYouTubePauseGate as a value', '<module>'),
+            gate(port, 6, 'holds the PRO pause gate', 'rogueNamespace'),
+          ]);
+        });
+      });
     });
   });
 });

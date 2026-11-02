@@ -277,57 +277,52 @@ html {
   font-size: 15px;
 }
 
-/* Match each native language name to the existing, lazily loaded locale font. */
+/* Each native language name takes the stack the app's language picker gives
+   its language (/web-fonts/stacks.css): the Japanese and Chinese names their
+   own Han order, the Indic, Arabic and Hebrew names their script face first.
+   Every other name, Thai, Cyrillic and Greek included, reads the page's stack,
+   whose faces cover its script in one family. */
 [data-locale='ar'] .native-name,
 [data-locale='fa'] .native-name,
 [data-locale='ur'] .native-name {
-  font-family: 'Noto Sans Arabic', Pretendard, sans-serif;
+  font-family: var(--font-sans-arabic, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif);
 }
 [data-locale='bn'] .native-name {
-  font-family: 'Noto Sans Bengali', Pretendard, sans-serif;
-}
-[data-locale='bg'] .native-name,
-[data-locale='ru'] .native-name,
-[data-locale='uk'] .native-name,
-[data-locale='el'] .native-name {
-  font-family: 'Noto Sans', Pretendard, sans-serif;
+  font-family: var(--font-sans-bengali, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif);
 }
 [data-locale='hi'] .native-name,
 [data-locale='mr'] .native-name {
-  font-family: 'Noto Sans Devanagari', Pretendard, sans-serif;
+  font-family: var(--font-sans-devanagari, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif);
 }
 [data-locale='gu'] .native-name {
-  font-family: 'Noto Sans Gujarati', Pretendard, sans-serif;
+  font-family: var(--font-sans-gujarati, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif);
 }
 [data-locale='pa'] .native-name {
-  font-family: 'Noto Sans Gurmukhi', Pretendard, sans-serif;
+  font-family: var(--font-sans-gurmukhi, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif);
 }
 [data-locale='he'] .native-name {
-  font-family: 'Noto Sans Hebrew', Pretendard, sans-serif;
+  font-family: var(--font-sans-hebrew, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif);
 }
 [data-locale='ja'] .native-name {
-  font-family: 'Noto Sans JP', Pretendard, sans-serif;
+  font-family: var(--font-sans-ja, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif);
 }
 [data-locale='kn'] .native-name {
-  font-family: 'Noto Sans Kannada', Pretendard, sans-serif;
+  font-family: var(--font-sans-kannada, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif);
 }
 [data-locale='ml'] .native-name {
-  font-family: 'Noto Sans Malayalam', Pretendard, sans-serif;
+  font-family: var(--font-sans-malayalam, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif);
 }
 [data-locale='zh-hans'] .native-name {
-  font-family: 'Noto Sans SC', Pretendard, sans-serif;
+  font-family: var(--font-sans-cjk-sc, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif);
 }
 [data-locale='zh-hant'] .native-name {
-  font-family: 'Noto Sans TC', Pretendard, sans-serif;
+  font-family: var(--font-sans-cjk-tc, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif);
 }
 [data-locale='ta'] .native-name {
-  font-family: 'Noto Sans Tamil', Pretendard, sans-serif;
+  font-family: var(--font-sans-tamil, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif);
 }
 [data-locale='te'] .native-name {
-  font-family: 'Noto Sans Telugu', Pretendard, sans-serif;
-}
-[data-locale='th'] .native-name {
-  font-family: 'Noto Sans Thai', Pretendard, sans-serif;
+  font-family: var(--font-sans-telugu, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif);
 }
 
 @media (min-width: 1400px) {

@@ -62,7 +62,8 @@
  * fonts/app/hangul/, no font sheet or file in
  * the service worker's install manifests (which do install the font owner
  * chunk itself), every About copy linking the shared sheets (rest.css in
- * the head where its language needs it), Pretendard deployed once for the
+ * the head where its language needs it) and every other switched page
+ * linking them as its source does, Pretendard deployed once for the
  * pages that still use it, and the public pages' sheets: dist/web-fonts/ holds exactly
  * first.css and rest.css, the concatenations of the built app sheets of
  * their group (src/i18n/public-font-contract.ts) whose every font file is
@@ -162,9 +163,10 @@ const APP_FAMILIES: readonly string[] = APP_FONT_SHEETS.map(({ family }) => fami
 // Inter, the Hangul and the CJK faces carry the descriptors of font-metrics.ts;
 // the script faces carry none.
 const FACE_METRICS = appFaceMetrics();
-// The original Google sheets, which the sitemap page still loads
-// (src/i18n/static-page-fonts.ts). They keep their source names.
-const STATIC_PAGE_SHEETS = [
+// Google's original sheets in css/fonts/: the script sheets the app imports,
+// the generator inputs, and the Cyrillic and Greek sheets nothing uses. No
+// page loads them any more, and none installs.
+const GOOGLE_SHEETS = [
   { family: 'Noto Sans Arabic', source: 'noto-arabic' },
   { family: 'Noto Sans Bengali', source: 'noto-bengali' },
   { family: 'Noto Sans', source: 'noto-cyrillic' },
@@ -829,7 +831,7 @@ if (distMode) {
   const distServiceWorker = await readFile(path.join(distDirectory, 'service-worker.js'), 'utf8');
   const fontSheetStems = new Set<string>([
     ...APP_FONT_SHEETS.map(({ id }) => id),
-    ...STATIC_PAGE_SHEETS.map(({ source }) => source),
+    ...GOOGLE_SHEETS.map(({ source }) => source),
   ]);
   for (const manifest of ['APP_SHELL', 'BUILD_ENTRY_ASSETS']) {
     const entries = [
@@ -878,6 +880,15 @@ if (distMode) {
       rest: restFontSheetInHead(code) ? 'head' : 'body',
     })) {
       failures.push(`built ${aboutFile} ${problem}`);
+    }
+  }
+  // Every other built page that has switched links them as its source does.
+  for (const page of PUBLIC_FONT_PAGES) {
+    const pageHtml = builtHtml.find(({ file }) => relative(file) === page.dist)?.html;
+    check(pageHtml !== undefined, `built ${page.dist} is missing`);
+    if (pageHtml === undefined) continue;
+    for (const problem of publicFontLinkProblems(pageHtml, { rest: page.rest })) {
+      failures.push(`built ${page.dist} ${problem}`);
     }
   }
 

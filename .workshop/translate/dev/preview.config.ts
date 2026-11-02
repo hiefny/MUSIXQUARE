@@ -1,6 +1,7 @@
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { defineConfig } from 'vite';
+import { publicFontSheets } from '../../../scripts/public-font-sheets.mts';
 import { translationCatalogAssets } from '../../../scripts/translation-catalog-assets.ts';
 import { handleCatalogRequest, isLocalPreviewRequest, loadCatalogs, sendJson } from './catalog.ts';
 
@@ -56,13 +57,16 @@ export default defineConfig(({ command, isPreview }) => {
             if (url.pathname === '/translate' || url.pathname === '/translate/') {
               request.url = `/.workshop/translate/translate.html${url.search}`;
             }
-            // /css/pretendard.css is a repository-root source. Its existing font URL,
-            // /designsystem/fonts/PretendardVariable.woff2, is served from publicDir.
+            // /web-fonts/stacks.css comes from publicDir and publicFontSheets
+            // serves /web-fonts/first.css and rest.css. This preview serves no
+            // classic script (/han-order.js among them), so Han keeps the
+            // Korean-first order here.
             next();
           });
         },
       },
       translationCatalogAssets(),
+      publicFontSheets(),
     ],
   };
 });

@@ -259,6 +259,8 @@ export const PUBLIC_KOREAN_ENGLISH_COPY_RULES: Readonly<Record<string, string>> 
   ':lang(ko) .lp-room-count__copy': "About's translated room count line: keep-all",
   ':lang(ko) .policy-doc p': 'translated document paragraphs: keep-all',
   ':lang(ko) .policy-doc dd': 'translated document definitions: keep-all',
+  ':lang(ko) .policy-hero h1': 'translated document titles: keep-all',
+  ':lang(ko) .policy-doc h2': 'translated document headings: keep-all',
 };
 
 /** The text of every inline <style> element of a page. */
@@ -270,6 +272,8 @@ export function inlineStyles(html: string): string[] {
 export interface PublicFontPage {
   /** The source HTML, repository-relative. */
   readonly html: string;
+  /** Where the build writes it, dist-relative. */
+  readonly dist: string;
   /** Where the source links rest.css (publicFontLinkProblems). */
   readonly rest: PublicFontLinkOptions['rest'];
   /** Its stylesheets after /web-fonts/stacks.css, repository-relative, in cascade order. */
@@ -279,17 +283,19 @@ export interface PublicFontPage {
 }
 
 const TOKENS = 'public/designsystem/colors_and_type.css';
+const DOCUMENT = 'public/legal-pages.css';
 
 /**
  * Every page outside the app that has switched to the shared sheets, by its
  * source HTML. About is one source in every language: the build writes a
  * copy per language, with rest.css in the head where the language needs it
- * (src/i18n/public-font-contract.ts restFontSheetInHead), and the build
- * guard checks each copy.
+ * (src/i18n/public-font-contract.ts restFontSheetInHead); the build guard
+ * checks every copy and every other built page.
  */
 export const PUBLIC_FONT_PAGES: readonly PublicFontPage[] = [
   {
     html: '.workshop/landing/landing.html',
+    dist: 'about.html',
     rest: 'body',
     sheets: [
       TOKENS,
@@ -299,5 +305,26 @@ export const PUBLIC_FONT_PAGES: readonly PublicFontPage[] = [
       'public/editorial-rtl.css',
     ],
     htmlLangs: LANGUAGE_OPTIONS.map(({ htmlLang }) => htmlLang),
+  },
+  ...['privacy', 'terms', 'faq', 'developers'].map((name) => ({
+    html: `.workshop/${name}/${name}.html`,
+    dist: `${name}.html`,
+    rest: 'body' as const,
+    sheets: [DOCUMENT],
+    htmlLangs: ['en'],
+  })),
+  {
+    html: '.workshop/translate/translate.html',
+    dist: 'translate.html',
+    rest: 'body',
+    sheets: [DOCUMENT, '.workshop/translate/translate.css'],
+    htmlLangs: ['en'],
+  },
+  {
+    html: '.workshop/sitemap/sitemap.html',
+    dist: 'sitemap.html',
+    rest: 'body',
+    sheets: [DOCUMENT, '.workshop/sitemap/sitemap.css'],
+    htmlLangs: ['en'],
   },
 ];

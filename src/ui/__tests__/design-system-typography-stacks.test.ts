@@ -5,9 +5,12 @@
  * stacks, and /web-fonts/first.css and rest.css the app's faces. The section
  * declares no face and no stack of its own, so it cannot drift from the app;
  * only the classes the app gives text it detects as Japanese or Chinese pick
- * a named stack, the one the app's own rule for that class reads. These cases
- * resolve the page's stylesheet chain as a browser does and compare it with
- * the app's stacks (css/style.css), in every Han order the app marks.
+ * a named stack, the one the app's own rule for that class reads, and the
+ * Korean 述 cell composes the app's Korean-first stack from the app's own
+ * tokens, so the four 述 cells show the four faces their labels name in any
+ * browser. These cases resolve the page's stylesheet chain as a browser does
+ * and compare it with the app's stacks (css/style.css), in every Han order
+ * the app marks.
  */
 import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
@@ -33,6 +36,9 @@ const DETECTED_LANGUAGE_CLASSES = [
   'user-text-font-zh-hans',
   'user-text-font-zh-hant',
 ] as const;
+
+/** The Korean 述 cell's class: the app's Han order for a browser that lists no Japanese or Chinese. */
+const KOREAN_HAN_CELL = 'typo-han-ko';
 
 /** The page's language, and the root marks the app's Han order can put on it. */
 const STATES: readonly DocumentState[] = [null, 'ja', 'zh-hans', 'zh-hant'].map(
@@ -90,12 +96,14 @@ describe('design system Typography stacks', () => {
       });
     }
     expect(read(SECTION_SHEET)).not.toMatch(/@font-face|--font-ui\b/u);
-    // Only the detected-language classes name a stack.
+    // Only the Korean 述 cell and the detected-language classes name a stack.
     expect(
       sectionRules
         .filter(({ rule }) => fontFamilies(rule).length > 0)
         .map(({ selectors }) => selectors.join(', ')),
-    ).toEqual(DETECTED_LANGUAGE_CLASSES.map((name) => `#typography .${name}`));
+    ).toEqual(
+      [KOREAN_HAN_CELL, ...DETECTED_LANGUAGE_CLASSES].map((name) => `#typography .${name}`),
+    );
   });
 
   it("draws the specimens with the app's stack in every Han order the app marks", () => {
@@ -123,6 +131,41 @@ describe('design system Typography stacks', () => {
           app.families(state, appValue ?? ''),
         );
       }
+    }
+  });
+
+  it('labels the four 述 cells with the faces their classes draw', () => {
+    const forms = /<ul class="typo-han-forms"[^>]*>([\s\S]*?)<\/ul>/u.exec(read(PAGE))?.[1] ?? '';
+    const cells = [...forms.matchAll(/<li>([\s\S]*?)<\/li>/gu)].map(([, cell = '']) => ({
+      classes: /class="typo-han-glyph([^"]*)"/u.exec(cell)?.[1]?.trim() ?? null,
+      label: /<span class="typo-label">([^<]*)<\/span>/u.exec(cell)?.[1] ?? null,
+    }));
+    expect(cells).toEqual([
+      { classes: KOREAN_HAN_CELL, label: 'Noto Sans KR' },
+      { classes: 'user-text-font-ja', label: 'Noto Sans JP' },
+      { classes: 'user-text-font-zh-hans', label: 'Noto Sans SC' },
+      { classes: 'user-text-font-zh-hant', label: 'Noto Sans TC' },
+    ]);
+  });
+
+  it("draws the Korean 述 cell with the app's Korean-first stack in every Han order the app marks", () => {
+    const rule = sectionRules.find(({ selectors }) =>
+      selectors.includes(`#typography .${KOREAN_HAN_CELL}`),
+    );
+    expect(rule).toBeDefined();
+    const [value = ''] = rule ? fontFamilies(rule.rule) : [];
+    // Composed only of the app's own tokens, so it follows them.
+    const tokens = value.split(',').map((part) => part.trim());
+    for (const token of tokens) {
+      expect(token, value).toMatch(/^var\(--font-[a-z-]+\)$/u);
+      const name = token.slice(4, -1);
+      expect(app.rootValue(STATES[0] as DocumentState, name), name).not.toBeNull();
+    }
+    // A browser that lists no Japanese or Chinese: the app's own text stack.
+    const koreanFirst = app.fontSans(STATES[0] as DocumentState);
+    expect(koreanFirst.indexOf('Noto Sans KR')).toBeLessThan(koreanFirst.indexOf('Noto Sans JP'));
+    for (const state of STATES) {
+      expect(page.families(state, value), JSON.stringify(state.attributes)).toEqual(koreanFirst);
     }
   });
 });

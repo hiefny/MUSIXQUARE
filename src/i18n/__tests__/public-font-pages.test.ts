@@ -249,6 +249,15 @@ describe('the public font CSS check', () => {
     ]);
   });
 
+  it('allows a recorded literal stack composed of the app tokens only for its own selector', () => {
+    const css = '.k { font-family: var(--font-primary), var(--font-cjk-ko), var(--font-system); }';
+    const literals = { '.k': 'a specimen in one Han order' };
+    expect(publicFontCssProblems(css, literals)).toEqual([]);
+    expect(publicFontCssProblems(css.replace('.k', '.other'), literals)).toEqual([
+      '.other reads var(--font-primary), var(--font-cjk-ko), var(--font-system), not a stack with the system fallback',
+    ]);
+  });
+
   it('names Pretendard where it loads or names a font, not in a comment', () => {
     expect(
       publicFontCssProblems(
@@ -732,10 +741,15 @@ describe('the blog, history, design system, UI kit, events and 404 pages', () =>
     );
   });
 
-  it('lets only Google sign-in name its own families, falling back to the shared stack', () => {
+  it('lets only Google sign-in and the Korean 述 specimen name their own families', () => {
     // Google's button keeps its brand families; the scripts they lack (the
-    // Korean label) draw with the shared stack, not a device face.
-    expect(Object.keys(PUBLIC_LITERAL_FONT_FAMILIES)).toEqual(['.google-button']);
+    // Korean label) draw with the shared stack, not a device face. The design
+    // system's Korean 述 cell composes the app's Korean-first stack
+    // (src/ui/__tests__/design-system-typography-stacks.test.ts).
+    expect(Object.keys(PUBLIC_LITERAL_FONT_FAMILIES)).toEqual([
+      '.google-button',
+      '#typography .typo-han-ko',
+    ]);
     const google: string[] = [];
     postcss.parse(read('public/events/event.css')).walkRules('.google-button', (rule) => {
       rule.walkDecls('font-family', (declaration) => {

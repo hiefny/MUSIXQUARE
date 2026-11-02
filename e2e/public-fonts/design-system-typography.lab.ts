@@ -20,6 +20,9 @@
  * - the network: the shared sheets and the Han order script once each, every
  *   face file 2xx and declared by the shared sheets, nothing of Pretendard,
  *   /css/fonts/ or /designsystem/fonts/.
+ * In a browser that lists Japanese or Traditional Chinese first, where
+ * /han-order.js reorders unmarked Han as the app does, the four 述 cells still
+ * draw the four faces their labels name.
  * Pictures of the section at 1440 and 390 px go to the test's output folder.
  */
 import { readFileSync, writeFileSync } from 'node:fs';
@@ -333,6 +336,7 @@ async function openDesignSystem(
   browser: Browser,
   viewport: { width: number; height: number },
   baseURL: string,
+  locale = 'en-US',
 ): Promise<Opened> {
   const context = await browser.newContext({
     baseURL,
@@ -341,7 +345,7 @@ async function openDesignSystem(
     colorScheme: 'dark',
     reducedMotion: 'reduce',
     serviceWorkers: 'block',
-    locale: 'en-US',
+    locale,
   });
   await context.route('**/*', (route) => {
     const { hostname } = new URL(route.request().url());
@@ -683,6 +687,43 @@ for (const viewport of VIEWPORTS) {
       }
 
       if (PICTURE_WIDTHS.has(viewport.width)) await savePicture(page, testInfo, viewport.width);
+    } finally {
+      await context.close();
+    }
+  });
+}
+
+/** Browsers whose languages put a Japanese or Chinese Han order on the root. */
+const HAN_ORDER_BROWSERS = [
+  { locale: 'ja-JP', mark: 'ja' },
+  { locale: 'zh-TW', mark: 'zh-hant' },
+] as const;
+
+for (const { locale, mark } of HAN_ORDER_BROWSERS) {
+  test(`the four 述 cells draw their labelled faces in a ${locale} browser`, async ({
+    browser,
+    baseURL,
+  }) => {
+    const { context, page, failed, errors } = await openDesignSystem(
+      browser,
+      { width: 1440, height: 900 },
+      baseURL ?? '',
+      locale,
+    );
+    try {
+      // /han-order.js marked the browser's order, as the app does.
+      expect(await page.evaluate(() => document.documentElement.dataset.mxqrHanOrder)).toBe(mark);
+      const cells = (await readSpecimens(page)).filter(({ text }) => text.trim() === '述');
+      expect(cells).toHaveLength(4);
+      expect(cells.map(({ expected }) => expected[0])).toEqual([
+        'Noto Sans KR',
+        'Noto Sans JP',
+        'Noto Sans SC',
+        'Noto Sans TC',
+      ]);
+      expect(faceBreaks(cells, await readFaces(page))).toEqual([]);
+      expect(failed).toEqual([]);
+      expect(errors).toEqual([]);
     } finally {
       await context.close();
     }

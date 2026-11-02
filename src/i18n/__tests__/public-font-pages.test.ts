@@ -10,7 +10,7 @@
  */
 import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
-import postcss, { type Rule } from 'postcss';
+import postcss, { type AtRule, type Rule } from 'postcss';
 import { beforeAll, describe, expect, it } from 'vitest';
 
 import {
@@ -413,6 +413,45 @@ describe('About', () => {
         `trigger ${stack}`,
       ]);
     }
+  });
+
+  it('takes the closed language menu out of layout, so its names fetch no font until it opens', () => {
+    // Every face is declared on the page, so text that is laid out fetches
+    // its font even at opacity 0: the closed menu's 42 native names would
+    // pull every script face on each visit. display: none builds no boxes in
+    // any engine, unlike content-visibility, which some engines lack.
+    const css = postcss.parse(read('public/static-language.css'));
+    const declarations = (selector: string, property: string, inStartingStyle = false) => {
+      const values: string[] = [];
+      css.walkRules((rule) => {
+        if (!rule.selectors.includes(selector)) return;
+        const startingStyle =
+          rule.parent?.type === 'atrule' && (rule.parent as AtRule).name === 'starting-style';
+        if (startingStyle !== inStartingStyle) return;
+        rule.walkDecls(property, (declaration) => {
+          values.push(declaration.value.replace(/\s+/gu, ' ').trim());
+        });
+      });
+      return values;
+    };
+    const OPEN = '.static-lang-picker.is-open .static-lang-menu';
+    expect(declarations('.static-lang-menu', 'display')).toEqual(['none']);
+    expect(declarations(OPEN, 'display')).toEqual(['grid']);
+    expect(declarations('.static-lang-menu', 'content-visibility')).toEqual([]);
+    // The close fade keeps the menu laid out until it ends, on desktop and
+    // phone; a browser without allow-discrete keeps the first declaration and
+    // closes at once.
+    const closed = declarations('.static-lang-menu', 'transition');
+    expect(closed.filter((value) => /\bdisplay \d+ms allow-discrete\b/u.test(value))).toHaveLength(
+      2,
+    );
+    // Opening lays the names out at once, so openPicker can move focus to the
+    // selected one in the next frame: the open state names its own
+    // transitions, without display, and fades in from its starting style.
+    const open = declarations(OPEN, 'transition');
+    expect(open, 'desktop and phone open-state transitions').toHaveLength(2);
+    for (const value of open) expect(value).not.toMatch(/display|content-visibility/u);
+    expect(declarations(OPEN, 'opacity', true)).toEqual(['0']);
   });
 
   it('loads no font from its scripts', () => {

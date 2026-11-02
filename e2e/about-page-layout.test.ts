@@ -226,6 +226,31 @@ test.describe('About language route intent', () => {
     expect(await page.evaluate(() => localStorage.getItem('musixquare-lang'))).toBe('ko');
   });
 
+  test('moves focus to the selected language when the picker opens by click or by keyboard', async ({
+    page,
+  }) => {
+    for (const path of ['/en/about', '/ko/about']) {
+      await page.goto(path);
+      await expectSettledHero(page);
+      const trigger = page.locator('[data-static-lang-trigger]');
+      const menu = page.locator('[data-static-lang-menu]');
+      const selected = page.locator('[data-static-lang-menu] [aria-selected="true"]');
+
+      await trigger.click();
+      await expect(menu).toBeVisible();
+      await expect(selected, `${path}: opened by click`).toBeFocused();
+      await page.keyboard.press('Escape');
+      await expect(trigger).toBeFocused();
+      await expect(trigger).toHaveAttribute('aria-expanded', 'false');
+
+      await page.keyboard.press('Enter');
+      await expect(trigger).toHaveAttribute('aria-expanded', 'true');
+      await expect(selected, `${path}: opened by Enter`).toBeFocused();
+      await page.keyboard.press('Escape');
+      await expect(trigger).toBeFocused();
+    }
+  });
+
   test('keeps footer language selection as document navigation with an explicit English destination', async ({
     page,
   }) => {

@@ -135,7 +135,8 @@ runbooks. Neither belongs in a general setup document.
   the production events page CSS match the repository byte for byte, the Drift Audit reported 32 pass / 0 fail / 5 manual-only, and the release owner saw
   only the light start screen and the update dialog in production desktop Chromium (not blind:
   computed `--glass-border` transparent and `--divider` `#e4e6e8`, the grey 'later' button's
-  border `rgba(0, 0, 0, 0)` with no ring in the screenshot). The post-merge Full E2E 41443910217
+  border `rgba(0, 0, 0, 0)` with no ring in the screenshot; which build's stylesheet drew the
+  dialog is not in the evidence, and the start screen's values suggest v807's). The post-merge Full E2E 41443910217
   on `cd8eaf47` passed at 22:37 KST (`e2e` 813 passed on Linux Chromium, among them the ten
   YouTube specs' 53 rows, the 24 light-theme rows and the 32 selection-mode playlist rows;
   `webkit-mobile` 94 passed and 5 skipped plus the production service worker test, among them

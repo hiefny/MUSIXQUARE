@@ -79,6 +79,18 @@ import {
   isAudioContextInterruptionAttemptCurrent,
   resumePendingAudioContextInterruptionFromGesture,
 } from './audio/context-recovery.ts';
+import {
+  DEADLINE_CLOCK_REQUIREMENT,
+  DEADLINE_GESTURE_FLOW,
+  DEADLINES_WATCHED,
+  DIALOG_REQUESTS_PLAY,
+  DIALOG_REQUESTS_RETURN,
+  RESUME_DIALOG,
+  countAudioRecovery,
+  keepAudioRecoveryForNextPage,
+  raceAudioRecoveryDeadline,
+  takeAudioRecoveryFromPreviousPage,
+} from './audio/output-recovery-counters.ts';
 
 // ── Network ──
 import { initProtocol } from './network/protocol.ts';
@@ -362,12 +374,16 @@ async function waitForForegroundRestartClockRequirement(
   ReturnType<typeof getPendingForegroundAudioContextRestartClockHealthRequirement>
 > | null> {
   const deadline = Date.now() + timeoutMs;
+  countAudioRecovery(DEADLINES_WATCHED);
   while (isCurrent()) {
     const requirement = getPendingForegroundAudioContextRestartClockHealthRequirement();
     if (requirement?.attemptToken === attemptToken && requirement.isCurrent()) {
       return requirement;
     }
-    if (Date.now() >= deadline) return null;
+    if (Date.now() >= deadline) {
+      countAudioRecovery(DEADLINE_CLOCK_REQUIREMENT);
+      return null;
+    }
     await delay(AUDIO_RECOVERY_CLOCK_REQUIREMENT_POLL_MS);
   }
   return null;
@@ -533,6 +549,7 @@ function runAudioRecoveryRequest(request: AudioRecoveryRequest): Promise<boolean
         ) {
           gestureSemanticAttemptToken = null;
         }
+        countAudioRecovery(RESUME_DIALOG);
         gestureFlight = restartAudioContextFromGesture()
           .then(() => ({
             running: true,
@@ -556,7 +573,8 @@ function runAudioRecoveryRequest(request: AudioRecoveryRequest): Promise<boolean
       if (result.action !== 'ok' || !gestureFlight || !operationStillCurrent()) {
         return false;
       }
-      const gestureResult = await Promise.race([
+      const gestureResult = await raceAudioRecoveryDeadline(
+        DEADLINE_GESTURE_FLOW,
         gestureFlight,
         delay(AUDIO_RECOVERY_GESTURE_WAIT_MS).then(() => ({
           running: String(getExistingAudioContext()?.state) === 'running',
@@ -564,7 +582,7 @@ function runAudioRecoveryRequest(request: AudioRecoveryRequest): Promise<boolean
           semanticAttemptToken: gestureSemanticAttemptToken,
           foregroundAttemptToken: gestureForegroundAttemptToken,
         })),
-      ]);
+      );
       if (!operationStillCurrent()) return false;
 
       let healthContext = getExistingAudioContext();
@@ -856,6 +874,7 @@ function initAudioOutputRecovery(): void {
   bus.on('state:room.context', abortSupersededRecovery);
   bus.on('state:setup.sessionStarted', abortSupersededRecovery);
   bus.on('audio:output-recovery-needed', (event) => {
+    countAudioRecovery(event.source === 'play' ? DIALOG_REQUESTS_PLAY : DIALOG_REQUESTS_RETURN);
     if (event.source === 'background-resume') {
       longBackgroundWarning.yieldToAudioRecovery();
     }
@@ -1327,11 +1346,15 @@ async function bootstrap(): Promise<void> {
       leaveSession: () => leaveSession({ preserveAccountLoginReturn: true }),
     };
     initPageLifecycleHandlers(lifecycle);
+    // The previous page's audio recovery counts in this tab, read and removed
+    // once; this page keeps its own at each pagehide (owner decision Q4).
+    takeAudioRecoveryFromPreviousPage();
     // The navigation owner's one page-transition dispatch (capture phase, so
     // it runs before the Back guard's resume) and its bounded bfcache reload.
     initPageNavigation({
       getRole: lifecycle.getRole,
       bfcacheReloadMessage: () => t('dialog.refreshing_session'),
+      onPageHide: keepAudioRecoveryForNextPage,
       log,
     });
   });

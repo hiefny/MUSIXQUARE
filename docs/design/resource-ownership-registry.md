@@ -230,7 +230,15 @@ RO-54 accepted-exception
   dialog, and `src/player/media-session.ts` repeats the same gesture sequence (resume, requirement,
   probe, escalate, confirm, rejoin). `src/audio/ui-sounds.ts` resumes the context, only while it
   is not running, on a trusted pointerdown or Enter or Space keydown and before it plays a UI
-  sound, without asking either owner.
+  sound, without asking either owner. Since Phase 7 7A-1 each machine writes its phase only through
+  one funnel (`setRestartPhase` in `context.ts`, `setRecoveryPhase` in `context-recovery.ts`), and
+  `src/audio/output-recovery-counters.ts` observes the resource for `/debug sync`: an observer, not
+  an owner. The owners, the recovery dialog in `app.ts` and UI sounds report events to it (each
+  native resume by its source, native suspends, every deadline race with whether its timer won,
+  clock verification waits entered and left, refused taps, dialog requests, recovered rejoins); it
+  keeps monotonic counts and no copy of owner state, and it calls the read-only queries the two
+  owners register (live suspend leases on a context, an attempt waiting for a tap) at the moment it
+  counts. `context-recovery.ts` carries the `Resource owner: RO-01` header.
 - **Target single owner:** `src/audio/context-recovery.ts` as the only native resume and suspend
   owner; `context.ts` keeps the singleton. The rules Phase 7 works to are proposed in
   [AudioContext ownership](audio-context-ownership.md).
@@ -3073,7 +3081,10 @@ RO-54 accepted-exception
   only its prompt single-flight, its repeated-recovery guard deleted in C6-13 because the owner
   reports a recovery at most once per attempt;
   `src/core/page-lifecycle.ts` keeps only `beforeunload`, the pagehide `leaveSession` and
-  `revealLiveShell`. The navigation intents in
+  `revealLiveShell`. Since Phase 7 7A-1 the dispatch's pagehide listener also calls the one
+  optional `onPageHide` callback `app.ts` passes to `initPageNavigation`, which keeps this page's
+  audio recovery counts for the next page in the tab (`src/audio/output-recovery-counters.ts`, one
+  `sessionStorage` key; it never navigates and adds no listener). The navigation intents in
   `src/core/navigation.ts` (Phase 2, C6-3) run on the reset: `navigateHome` (replace, or push for
   the setup-guest Back buttons) serves `src/pro-room/setup-flow.ts`, `src/ui/connect.ts` and
   `src/ui/setup-guest.ts`; `returnToRoomStart` (the /CODE return, which checks the room code once

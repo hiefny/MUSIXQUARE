@@ -156,6 +156,12 @@ interface PageNavigationDeps {
   getRole: () => string;
   /** The reset message of the bounded reload after a back-forward cache return. */
   bfcacheReloadMessage: () => string;
+  /**
+   * Called once at each pagehide, from this dispatch's listener: the app's
+   * audio recovery counts keep this page's counts for the next page in the
+   * tab (Phase 7 7A-1). It writes sessionStorage only; it never navigates.
+   */
+  onPageHide?: () => void;
   log?: { info: (message: string, ...args: unknown[]) => void };
 }
 
@@ -350,6 +356,7 @@ function recoverFromBackForwardCache(deps: PageNavigationDeps): void {
 // pagehide is the reliable boundary that this document actually left.
 function onPageHide(): void {
   markNavigationCommitted();
+  _transitionDeps?.onPageHide?.();
 }
 
 // Fresh and back-forward cache pageshows both prove that this document is the

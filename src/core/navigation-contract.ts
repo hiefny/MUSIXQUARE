@@ -77,3 +77,12 @@ export const FORCED_UPDATE_APPLY_KEY = 'mxqr-forced-apply';
  * Phase 4 4B, P4-D5 B).
  */
 export const PREVIOUS_LINK_CLOSE_KEY = 'mxqr-prev-close';
+
+/**
+ * This page's audio output recovery counts with its build and label set,
+ * "<label set> <build> <every slot>", kept at each pagehide; the next
+ * document in the tab reads and removes it once and shows it in
+ * `/debug sync` after a reload (audio/output-recovery-counters.ts, Phase 7
+ * 7A-1, owner decision Q4).
+ */
+export const PREVIOUS_AUDIO_RECOVERY_KEY = 'mxqr-prev-audio-recovery';

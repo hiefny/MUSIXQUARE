@@ -28,6 +28,7 @@ import { collectSystemAudioDebugText } from '../network/system-audio-debug.ts';
 import {
   collectSyncFlightRecorderText,
   markSyncFlightRecorderIncident,
+  readChromeOutputUnderruns,
 } from '../diagnostics/sync-flight-recorder.ts';
 import type { ConnectedPeer } from '../types/index.ts';
 import { parseDebugBrowser } from './debug-user-agent.ts';
@@ -478,11 +479,14 @@ function cmdDebugConsole(): void {
 
 function cmdDebugSync(): void {
   markSyncFlightRecorderIncident();
+  // Read once, when the window opens; every refresh and the copy show it.
+  const outputUnderruns = readChromeOutputUnderruns();
   openTextDebugOverlay({
     id: 'debug-sync-flight-overlay',
     ariaLabel: 'Sync flight recorder',
-    hint: 'tap edge / ESC to close | RAM only | copied once',
-    collect: collectSyncFlightRecorderText,
+    // The previous page's audio recovery counts come from this tab's storage (Q4).
+    hint: 'tap edge / ESC to close | RAM + tab storage | copied once',
+    collect: () => collectSyncFlightRecorderText(outputUnderruns),
     scrollable: true,
   });
 }

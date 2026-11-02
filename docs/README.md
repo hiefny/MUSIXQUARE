@@ -97,7 +97,7 @@ runbooks. Neither belongs in a general setup document.
 - [App 9.0.34 / v807 train: Phase 6 6C (one YouTube state router, one iframe audio owner and shared arm steps), no light-theme stroke on the dialog grey button and the selection bar, and lighter light-theme dividers (2026-11-02)](design/phase6-6c-router-iframe-audio-arm-steps-2026-11-02.md):
   prepared, not released. The next App update, 9.0.34 / v807 (App build 807, target `app`, one
   update dialog) after App 9.0.33 / v806 (Hangul drawn by Pretendard again, released 2026-11-02
-  13:12 KST), on branch `agent/p6-6c`: twenty-nine commits on main `a92bab2b` (9.0.33's release
+  13:12 KST), on branch `agent/p6-6c`: thirty commits on main `a92bab2b` (9.0.33's release
   record #562; its App runtime is production 9.0.33's). Three increments ride: the third
   Phase 6 App train 6C, neutral; the owner's light-theme stroke removal, a visible change; and the
   lighter light-theme divider the owner chose from pictures, a visible change. 6C's
@@ -110,8 +110,10 @@ runbooks. Neither belongs in a general setup document.
   `agent/light-divider` cherry-picked without a conflict and with the same patch-id; a record
   commit `c8a459a9` adds the divider and QA round 11; the release preparation record `3cb356af`
   adds the train's pre-deploy section to the release record; the bump `c44d4d2c` (9.0.34 / v807
-  in the same seven lines of six files as 9.0.33's `d78d0d41`) is the last runtime commit; and a
-  last record commit adds QA round 12, the full local gate on the bump head. All four parts of the
+  in the same seven lines of six files as 9.0.33's `d78d0d41`) is the last runtime commit; a
+  record commit `1481f67a` adds QA round 12, the full local gate on the bump head; and a last
+  record commit (QA round 13, documentation only) applies the documentation findings of the review
+  after the bump. All four parts of the
   train's merge condition (Phase 6 plan §1.4) are met: the previous train 9.0.33 was deployed
   (Release 41386906358), its production smoke passed, it was recorded (#562), and its post-merge
   Full E2E 41396274966 on main `6ccc3f10` passed. The pull request, merge and release are the
@@ -150,7 +152,8 @@ runbooks. Neither belongs in a general setup document.
   own unit run kept no log, so its unit evidence is QA round 10's logged run of the same 51 files
   on `d6d69bc4` (1,447 / 1,447) and round 9's full suite on `c3281b45`.
   The divider increment (the owner's choice, 2026-11-02 around 17:40 KST, after five pictures that
-  compare today's `#d4d6d8` with candidates A `#e4e6e8` and B `#eff1f3`): the base light
+  compare today's `#d4d6d8` with candidates A `#e4e6e8` and B `#eff1f3`, none of them showing the
+  events page): the base light
   `--divider` in `css/style.css` becomes `#e4e6e8` (1.25:1 on white and 1.19:1 on the light page,
   against 1.46:1 and 1.38:1 before; dark `#262626` is 1.15:1 on its dialog and 1.24:1 on its page),
   so the settings, account stats, help legal, YouTube search, desktop column and settings tab lines
@@ -162,7 +165,7 @@ runbooks. Neither belongs in a general setup document.
   dividers stay `#d4d6d8`. Real screens on `9b269706` against main `a92bab2b` (local headless
   Chromium at scale 2, 30 pairs, kept outside the repository): the 10 dark and 8 app light
   high-contrast pairs change 0 pixels, and the 10 light and 2 events high-contrast pairs change only
-  inside the measured divider line boxes; five of the eight scenes with an approved A mock equal it
+  inside the measured divider line boxes; five of the eight scenes with the candidate A mock equal it
   to 0 pixels, the two account dialogs differ only around the grey button ring (the stroke
   increment, not in those trees) and one YouTube search scene only at the search clear button,
   which differs between recaptures. The divider branch's own 13-file unit run kept no log; the
@@ -177,7 +180,8 @@ runbooks. Neither belongs in a general setup document.
   its clients a lower epoch, so the default is a forward revert of the whole train or one increment
   as 9.0.35 / v808, or the next App update's number after that if another ships first; 6C alone
   until 6D merges, the light-stroke and divider commits each alone), the blind device candidates
-  with a light-theme look at the grey button, the selection bar and the dividers, the open item for
+  and the owner's own light-theme look at the grey button, the selection bar and the dividers (not
+  blind, since the owner has seen the pictures), the open item for
   the YouTube first-note alignment, the Phase 7
   contracts (rechecked on top of #559) and one new log-only defect. QA round 9, on the new tip
   `c3281b45` (2026-11-02 16:46 to 17:30 KST): types, lint and format; the unit suite 752 files /
@@ -219,7 +223,12 @@ runbooks. Neither belongs in a general setup document.
   Worker 0, no dependency change, the partial-release compatibility check compatible with the
   deployed SHAs injected instead of read from production, and the contract paths changed only in
   the bump's seven lines; and the first load against a clean rebuild of `a92bab2b`, +30 B eager
-  JavaScript gzip, within round 11's +38 B. Earlier,
+  JavaScript gzip, within round 11's +38 B. QA round 13 applied the documentation findings of the
+  review after the bump (eleven, one medium: the release record's 9.0.33 rollback item now links
+  this report; the file count, the closed 6C-3 branch, the not-blind owner check G, the events page
+  missing from the owner's pictures, the owner-facing rollback sentence and stale lines), left two
+  low ones for later (an events-page high-contrast palette and a test pinning the light
+  `--glass-border`), and reran the checks that read the changed documents. Earlier,
   on `7b869c35`'s line: on `6998f04e`, the unit suite 750 files / 17,973 (one
   git-fixture timeout that passes alone), `src/youtube`, `src/player` and `src/pro-room` 6,693
   rows in file order and under four `--sequence.shuffle` seeds, critical coverage 110 files /

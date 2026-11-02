@@ -29,7 +29,8 @@
  * - unMuteHeld: a zero-start hard-mute phase (muting, warming, settling, read
  *   through the public snapshot) || fallback || proMute, the guard applied
  *   before a volume or PRO pause-gate unMute (since Phase 6 6C-2 the iframe
- *   audio owner's start hold, which player.ts registers). This column is the
+ *   audio owner's start hold, which asks the start ledger's
+ *   isYouTubeStartHardMuteOwned at the write). This column is the
  *   sampler's own view, not the ledger's isYouTubeStartHardMuteOwned that the
  *   guard asks: player.ts's phase list is private, so the column retypes it
  *   and a change to the real guard leaves the column alone.

@@ -22,6 +22,11 @@
  * seeks that land late or never, a video change, a PLAYING, a replaced or
  * missing iframe at each of the settle's waits, and throwing commands and
  * reads.
+ * Three more rows pin how the settle counts its polls: the sixth poll seeks
+ * again counting a settled poll before it, a poll whose read throws starts
+ * the stable count again, and a zero-start settle that the first poll more
+ * than 10 s after the PREPARE completes is settled, not timed out (the budget
+ * is asked only after a poll that does not settle).
  *
  * The rows also show where the two machines' own policies differ:
  * - the clock: zero-start reads Date.now(), the PRO arm performance.now();
@@ -91,6 +96,10 @@ interface Script {
   pauseThrowsFromMs?: number;
   /** getCurrentTime() throws from this instant. */
   positionThrowsFromMs?: number;
+  /** getCurrentTime() throws once: the first read from this instant. */
+  positionThrowsOnceFromMs?: number;
+  /** At `atMs` the iframe's position moves to `seconds` by itself, in whatever state it is. */
+  positionMovesAt?: { atMs: number; seconds: number };
   /** At this instant the iframe starts to play by itself and reports PLAYING. */
   playsAtMs?: number;
   /**
@@ -203,6 +212,34 @@ const SCRIPTS = {
     state: 2,
     muteReportedAfterMs: 60,
     positionThrowsFromMs: 400,
+    horizonMs: 11_000,
+  },
+  // The poll at +420 finds the iframe settled at the target; it then drifts to
+  // 7 s, so the polls from +500 do not, and the sixth poll (+820), which counts
+  // the settled one, seeks again.
+  driftsAfterOneSettledPoll: {
+    video: TARGET,
+    state: 2,
+    positionMovesAt: { atMs: 450, seconds: 7 },
+    horizonMs: 2_000,
+  },
+  // The poll at +420 finds the iframe settled; the next one's position read
+  // throws; the polls after it find the iframe settled again.
+  positionThrowsOnceAfterSettledPoll: {
+    video: TARGET,
+    state: 2,
+    positionThrowsOnceFromMs: 450,
+    horizonMs: 2_000,
+  },
+  // Zero-start only: seeks that never land, and an iframe that reaches the
+  // target by itself at +9,900, so the poll at +9,940 finds it settled and
+  // the next one, the first more than 10 s after the PREPARE, completes the
+  // settle.
+  settlesAcrossThePrepareBudget: {
+    video: TARGET,
+    state: 2,
+    seekLandsAtMs: null,
+    positionMovesAt: { atMs: 9_900, seconds: 0 },
     horizonMs: 11_000,
   },
   // Zero-start only: the local target moves after the seek, or between a
@@ -366,6 +403,19 @@ function scriptedIframe(
     };
   }
 
+  const positionThrowsOnceFromMs = script.positionThrowsOnceFromMs;
+  if (positionThrowsOnceFromMs !== undefined) {
+    const readPosition = player.getCurrentTime;
+    let thrown = false;
+    player.getCurrentTime = () => {
+      if (!thrown && Date.now() - t0 >= positionThrowsOnceFromMs) {
+        thrown = true;
+        throw new Error('scripted getCurrentTime fault');
+      }
+      return readPosition();
+    };
+  }
+
   const playingAfterMs = script.playingAfterMs;
   if (playingAfterMs !== undefined) {
     const reachPlaying = (): void => {
@@ -422,6 +472,12 @@ function scheduleScript(
 ): void {
   const playsAt = script.playsAtMs;
   if (playsAt !== undefined) setTimeout(() => player.__setState(1), playsAt);
+  const moves = script.positionMovesAt;
+  if (moves !== undefined) {
+    setTimeout(() => {
+      player.__currentTime = moves.seconds;
+    }, moves.atMs);
+  }
   const goneAt = script.goneAtMs;
   if (goneAt !== undefined) setTimeout(() => replace(null), goneAt);
   const changesAt = script.videoChangesAtMs;
@@ -1190,6 +1246,53 @@ describe('Standard zero-start run (a guest prepare)', () => {
       '+780 send youtube-zero-start-armed prepared=780 warm=0 pos=0 state=2 muted=false volume=37',
     ]);
   });
+  it('settled for one poll, then drifted: the sixth poll, counting the settled one, seeks again', async () => {
+    expect(await runZeroStart(SCRIPTS.driftsAfterOneSettledPoll, 'resident-reposition')).toEqual([
+      '+0 PREPARE accepted',
+      '+0 phase muting',
+      '+0 mute()',
+      '+0 setVolume(37)',
+      '+0 mute()',
+      '+0 phase warming',
+      '+0 playVideo()',
+      '+0 state 1 consumed',
+      '+260 pauseVideo()',
+      '+260 state 2 consumed',
+      '+260 phase settling',
+      '+340 seekTo(0,true)',
+      '+820 pauseVideo()',
+      '+820 state 2 consumed',
+      '+900 seekTo(0,true)',
+      '+980 phase restoring-audio',
+      '+980 setVolume(37)',
+      '+980 unMute()',
+      '+1100 phase armed',
+      '+1100 send youtube-zero-start-armed prepared=1100 warm=0 pos=0 state=2 muted=false volume=37',
+    ]);
+  });
+  it('settled for one poll, then a position read that throws: the count starts again', async () => {
+    expect(
+      await runZeroStart(SCRIPTS.positionThrowsOnceAfterSettledPoll, 'resident-reposition'),
+    ).toEqual([
+      '+0 PREPARE accepted',
+      '+0 phase muting',
+      '+0 mute()',
+      '+0 setVolume(37)',
+      '+0 mute()',
+      '+0 phase warming',
+      '+0 playVideo()',
+      '+0 state 1 consumed',
+      '+260 pauseVideo()',
+      '+260 state 2 consumed',
+      '+260 phase settling',
+      '+340 seekTo(0,true)',
+      '+660 phase restoring-audio',
+      '+660 setVolume(37)',
+      '+660 unMute()',
+      '+780 phase armed',
+      '+780 send youtube-zero-start-armed prepared=780 warm=0 pos=0 state=2 muted=false volume=37',
+    ]);
+  });
   it('iframe replaced between the pause and the seek: player-replaced instead of the seek', async () => {
     expect(await runZeroStart(SCRIPTS.replacedBeforeSettleSeek, 'resident-reposition')).toEqual([
       '+0 PREPARE accepted',
@@ -1459,6 +1562,94 @@ describe('Standard zero-start run (a guest prepare)', () => {
       '+10080 setVolume(37)',
       '+10080 unMute()',
       '+10200 debug audio-restore-complete {"runId":"run-1","attempts":1}',
+    ]);
+  });
+  it('a settle that the first poll after 10 s completes: armed, not prepare-timeout', async () => {
+    expect(
+      await runZeroStart(SCRIPTS.settlesAcrossThePrepareBudget, 'resident-reposition'),
+    ).toEqual([
+      '+0 PREPARE accepted',
+      '+0 phase muting',
+      '+0 mute()',
+      '+0 setVolume(37)',
+      '+0 mute()',
+      '+0 phase warming',
+      '+0 playVideo()',
+      '+0 state 1 consumed',
+      '+260 pauseVideo()',
+      '+260 state 2 consumed',
+      '+260 phase settling',
+      '+340 seekTo(0,true)',
+      '+820 pauseVideo()',
+      '+820 state 2 consumed',
+      '+900 seekTo(0,true)',
+      '+1300 pauseVideo()',
+      '+1300 state 2 consumed',
+      '+1380 seekTo(0,true)',
+      '+1780 pauseVideo()',
+      '+1780 state 2 consumed',
+      '+1860 seekTo(0,true)',
+      '+2260 pauseVideo()',
+      '+2260 state 2 consumed',
+      '+2340 seekTo(0,true)',
+      '+2740 pauseVideo()',
+      '+2740 state 2 consumed',
+      '+2820 seekTo(0,true)',
+      '+3220 pauseVideo()',
+      '+3220 state 2 consumed',
+      '+3300 seekTo(0,true)',
+      '+3700 pauseVideo()',
+      '+3700 state 2 consumed',
+      '+3780 seekTo(0,true)',
+      '+4180 pauseVideo()',
+      '+4180 state 2 consumed',
+      '+4260 seekTo(0,true)',
+      '+4660 pauseVideo()',
+      '+4660 state 2 consumed',
+      '+4740 seekTo(0,true)',
+      '+5140 pauseVideo()',
+      '+5140 state 2 consumed',
+      '+5220 seekTo(0,true)',
+      '+5620 pauseVideo()',
+      '+5620 state 2 consumed',
+      '+5700 seekTo(0,true)',
+      '+6100 pauseVideo()',
+      '+6100 state 2 consumed',
+      '+6180 seekTo(0,true)',
+      '+6580 pauseVideo()',
+      '+6580 state 2 consumed',
+      '+6660 seekTo(0,true)',
+      '+7060 pauseVideo()',
+      '+7060 state 2 consumed',
+      '+7140 seekTo(0,true)',
+      '+7540 pauseVideo()',
+      '+7540 state 2 consumed',
+      '+7620 seekTo(0,true)',
+      '+8020 pauseVideo()',
+      '+8020 state 2 consumed',
+      '+8100 seekTo(0,true)',
+      '+8500 pauseVideo()',
+      '+8500 state 2 consumed',
+      '+8580 seekTo(0,true)',
+      '+8980 pauseVideo()',
+      '+8980 state 2 consumed',
+      '+9060 seekTo(0,true)',
+      '+9460 pauseVideo()',
+      '+9460 state 2 consumed',
+      '+9540 seekTo(0,true)',
+      '+10020 phase restoring-audio',
+      '+10020 setVolume(37)',
+      '+10020 unMute()',
+      '+10140 phase armed',
+      '+10140 send youtube-zero-start-armed prepared=10140 warm=0 pos=0 state=2 muted=false volume=37',
+      '+10141 error commit-wait-timeout',
+      '+10141 debug prepare-failed {"reason":"commit-wait-timeout"}',
+      '+10141 pauseVideo()',
+      '+10141 state 2 consumed',
+      '+10141 phase error',
+      '+10141 setVolume(37)',
+      '+10141 unMute()',
+      '+10261 debug audio-restore-complete {"runId":"run-1","attempts":1}',
     ]);
   });
   it('a local target that moves after the seek: polls against the new target until a re-seek reaches it', async () => {
@@ -1983,6 +2174,57 @@ describe('PRO arm (a resident prepare)', () => {
       '+450 state 1 consumed',
       '+500 pauseVideo()',
       '+500 state 2 consumed',
+      '+660 phase restoring-audio',
+      '+660 setVolume(80)',
+      '+660 unMute()',
+      '+780 phase prepared',
+      '+780 result ready prepared=780 warm=0 target=0',
+    ]);
+  });
+  it('settled for one poll, then drifted: the sixth poll, counting the settled one, seeks again', async () => {
+    expect(await runProArm(SCRIPTS.driftsAfterOneSettledPoll)).toEqual([
+      '+0 PREPARE',
+      '+0 phase muting',
+      '+0 mute()',
+      '+0 setVolume(80)',
+      '+0 mute()',
+      '+0 phase warming',
+      '+0 pauseVideo()',
+      '+0 state 2 consumed',
+      '+0 seekTo(0,true)',
+      '+0 playVideo()',
+      '+0 state 1 consumed',
+      '+260 pauseVideo()',
+      '+260 state 2 consumed',
+      '+260 phase settling',
+      '+340 seekTo(0,true)',
+      '+820 pauseVideo()',
+      '+820 state 2 consumed',
+      '+820 seekTo(0,true)',
+      '+980 phase restoring-audio',
+      '+980 setVolume(80)',
+      '+980 unMute()',
+      '+1100 phase prepared',
+      '+1100 result ready prepared=1100 warm=0 target=0',
+    ]);
+  });
+  it('settled for one poll, then a position read that throws: the count starts again', async () => {
+    expect(await runProArm(SCRIPTS.positionThrowsOnceAfterSettledPoll)).toEqual([
+      '+0 PREPARE',
+      '+0 phase muting',
+      '+0 mute()',
+      '+0 setVolume(80)',
+      '+0 mute()',
+      '+0 phase warming',
+      '+0 pauseVideo()',
+      '+0 state 2 consumed',
+      '+0 seekTo(0,true)',
+      '+0 playVideo()',
+      '+0 state 1 consumed',
+      '+260 pauseVideo()',
+      '+260 state 2 consumed',
+      '+260 phase settling',
+      '+340 seekTo(0,true)',
       '+660 phase restoring-audio',
       '+660 setVolume(80)',
       '+660 unMute()',

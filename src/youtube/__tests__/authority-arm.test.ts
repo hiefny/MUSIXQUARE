@@ -937,6 +937,7 @@ describe('YouTubeAuthorityArmController', () => {
     // The PRO arm prepares only a resident iframe: the next occurrence's video
     // is already in it.
     player.__videoId = 'next-video';
+    const callsBeforeNext = player.__log.length;
     const preparing = controller.prepare({
       ...nextIdentity,
       strategy: 'resident',
@@ -955,7 +956,14 @@ describe('YouTubeAuthorityArmController', () => {
     const playsAfterNext = count(player, 'playVideo');
     await vi.advanceTimersByTimeAsync(12_000);
     expect(count(player, 'playVideo')).toBe(playsAfterNext);
-    expect(player.__videoId).toBe('next-video');
+    // The resident arm's own work on the iframe that already holds the next
+    // occurrence: its warm and its settle each seek to 3 s, and nothing loads.
+    const nextCalls = player.__log.slice(callsBeforeNext);
+    expect(nextCalls.filter((call) => call.op === 'loadVideoById')).toEqual([]);
+    expect(nextCalls.filter((call) => call.op === 'seekTo').map((call) => call.args)).toEqual([
+      [3, true],
+      [3, true],
+    ]);
     expect(player.__currentTime).toBe(3);
   });
 

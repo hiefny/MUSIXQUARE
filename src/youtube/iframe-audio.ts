@@ -10,11 +10,13 @@
  * the pause gate's settlement, the PRO direct commit, player.ts's two
  * recovery intents, the Standard zero-start run's desired audio and the PRO
  * prepare read the master volume here (readYouTubeAppAudio, under one of two
- * mute rules); the App's writes also read the PRO pause gate's token, which
- * this module holds. Three App writes go through applyYouTubeAudio, each in
- * the order it has always had: a youtube:set-volume write, the pause gate's
- * settlement and the PRO direct commit. The start machines' hard mute is the
- * shared wait in arm-steps.ts; their releases stay with them.
+ * mute rules; the two machines' 'non-positive' read is the audio they
+ * capture as they start, until a push during the run replaces it with the
+ * 'rounded' answer); the App's writes also read the PRO pause gate's token,
+ * which this module holds. Three App writes go through applyYouTubeAudio,
+ * each in the order it has always had: a youtube:set-volume write, the pause
+ * gate's settlement and the PRO direct commit. The start machines' hard mute
+ * is the shared wait in arm-steps.ts; their releases stay with them.
  *
  * Holds keep a write closed, each in its own way:
  * - the PRO pause gate (a participant-local pause until its settlement):
@@ -103,7 +105,12 @@ let enforceParking: (player: YouTubePlayerInstance) => void = notHeld;
  * - 'non-positive' (nonPositive): muted only when the master volume is 0 or
  *   below. The Standard zero-start run's desired audio (which both
  *   recoveries' intents take when the run captured it) and the PRO prepare
- *   use it.
+ *   use it. That is only the audio each machine captures as it starts:
+ *   player.ts pushes the 'rounded' answer into a running machine on every
+ *   youtube:set-volume event, into the PRO arm on the pause gate's
+ *   settlement, and into a zero-start run that takes over a guest's local
+ *   fallback (the transferred intent) as the run turns busy, and a pushed
+ *   answer replaces the captured one.
  * At 0.004 the first mutes and the second unmutes at volume 0. The owner
  * chose the 'rounded' rule for every site (2026-10-30), a later step of its
  * own; until then each site keeps its rule.

@@ -1760,8 +1760,15 @@ RO-53 owner-in-place
   the 'non-positive' rule mutes only at 0 (the Standard zero-start run's desired audio, which its
   restores, its release unmute, its cancel restore and both recoveries' intents take when the run
   captured it: the guest local recovery and a host's legacy recovery after its own run fails; and
-  the PRO prepare). At 0.004 the first mutes and the second unmutes at volume 0. The owner chose
-  the 'rounded' rule for every site on 2026-10-30, as a later change of its own.
+  the PRO prepare). At 0.004 the first mutes and the second unmutes at volume 0. The
+  'non-positive' answer is only what each machine captures as it starts: `player.ts` pushes the
+  'rounded' answer into a running machine on every `youtube:set-volume` event (into both
+  machines and the recovery intents), into the PRO arm on the pause gate's settlement, and into
+  a zero-start run that takes over a guest's local fallback (the transferred intent) as the run
+  turns busy, and a pushed answer replaces the captured one (`zero-start.ts`
+  `updateDesiredAudioState`, `authority-arm.ts`). So during a run that sees a volume event, the
+  run follows the 'rounded' rule today. The owner chose the 'rounded' rule for every site on
+  2026-10-30, as a later change of its own.
 - **Target single owner:** one iframe-audio module (`src/youtube/iframe-audio.ts`, which holds the
   verified restore since Phase 6 6A-4 and the App's writes, the pause gate's iframe token and the
   holds since 6C-2) that the start machines also read the desired audio and the gate from, instead

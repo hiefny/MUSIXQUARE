@@ -231,7 +231,8 @@ RO-54 accepted-exception
   is not running, on a trusted pointerdown or Enter or Space keydown and before it plays a UI
   sound, without asking either owner.
 - **Target single owner:** `src/audio/context-recovery.ts` as the only native resume and suspend
-  owner; `context.ts` keeps the singleton.
+  owner; `context.ts` keeps the singleton. The rules Phase 7 works to are proposed in
+  [AudioContext ownership](audio-context-ownership.md).
 - **Allowed requesters:** `ensureRunning` callers (transport, decode, engine) and
   `probeAudioContextHealth` (defined in `context.ts`; called from `output-health.ts`, `app.ts`,
   `media-session.ts`, `context-recovery.ts` and `src/player/transport.ts`) may resume only a

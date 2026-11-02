@@ -28,8 +28,6 @@
     htmlLang(code: unknown): string;
     locale(code: unknown): string;
     direction(code: unknown): 'ltr' | 'rtl';
-    ensureFont(code: unknown): void;
-    ensurePickerFonts(): void;
     persist(code: unknown): string;
     setDocumentLang(code: unknown): void;
     update(code: unknown): void;
@@ -276,31 +274,6 @@
     if (configuredOption) optionByCode[configuredOption.code] = configuredOption;
   }
 
-  const FONT_STYLESHEET_BY_CODE: Readonly<Record<string, string>> = {
-    ar: '/css/fonts/noto-arabic.css',
-    bn: '/css/fonts/noto-bengali.css',
-    bg: '/css/fonts/noto-cyrillic.css',
-    el: '/css/fonts/noto-greek.css',
-    fa: '/css/fonts/noto-arabic.css',
-    gu: '/css/fonts/noto-gujarati.css',
-    he: '/css/fonts/noto-hebrew.css',
-    hi: '/css/fonts/noto-devanagari.css',
-    ja: '/css/fonts/noto-jp.css',
-    kn: '/css/fonts/noto-kannada.css',
-    ml: '/css/fonts/noto-malayalam.css',
-    mr: '/css/fonts/noto-devanagari.css',
-    pa: '/css/fonts/noto-gurmukhi.css',
-    ru: '/css/fonts/noto-cyrillic.css',
-    ta: '/css/fonts/noto-tamil.css',
-    te: '/css/fonts/noto-telugu.css',
-    th: '/css/fonts/noto-thai.css',
-    uk: '/css/fonts/noto-cyrillic.css',
-    ur: '/css/fonts/noto-arabic.css',
-    'zh-hans': '/css/fonts/noto-sc.css',
-    'zh-hant': '/css/fonts/noto-tc.css',
-  };
-  const requestedFontStylesheets = new Set<string>();
-
   function normalize(value: unknown): string | null {
     if (!value) return null;
     const raw = String(value).trim().toLowerCase().replace(/_/g, '-');
@@ -431,49 +404,6 @@
     return option(code).direction === 'rtl' ? 'rtl' : 'ltr';
   }
 
-  function ensureFont(code: unknown): void {
-    const normalized = normalize(code);
-    if (!normalized) return;
-    const authored = document.querySelector<HTMLLinkElement>(
-      `link[rel="stylesheet"][data-static-lang-font-codes~="${normalized}"]`,
-    );
-    const href = authored?.href || FONT_STYLESHEET_BY_CODE[normalized];
-    if (!href || requestedFontStylesheets.has(href)) return;
-
-    const existing =
-      authored ||
-      [...document.querySelectorAll<HTMLLinkElement>('link[rel="stylesheet"]')].find(
-        (link) => link.href === new URL(href, document.baseURI).href,
-      );
-    if (existing && !existing.hasAttribute('data-static-lang-font-codes')) {
-      requestedFontStylesheets.add(href);
-      return;
-    }
-
-    const link = existing || document.createElement('link');
-    if (!existing) {
-      link.rel = 'stylesheet';
-      link.href = href;
-      link.setAttribute('data-static-lang-font', normalized);
-    }
-    link.disabled = false;
-    link.addEventListener(
-      'error',
-      function () {
-        requestedFontStylesheets.delete(href);
-        if (existing) link.disabled = true;
-        else link.remove();
-      },
-      { once: true },
-    );
-    if (!existing) (document.head || document.documentElement).appendChild(link);
-    requestedFontStylesheets.add(href);
-  }
-
-  function ensurePickerFonts(): void {
-    for (let i = 0; i < OPTIONS.length; i++) ensureFont(OPTIONS[i]?.code);
-  }
-
   function persist(code: unknown): string {
     const normalized = normalize(code) || 'en';
     writeStore(STATIC_STORE_KEY, normalized);
@@ -558,7 +488,6 @@
   }
 
   function openPicker(picker: HTMLElement): void {
-    ensurePickerFonts();
     const openPickers = document.querySelectorAll<HTMLElement>('[data-static-lang-picker].is-open');
     for (let i = 0; i < openPickers.length; i++) {
       const openPickerElement = openPickers[i];
@@ -711,7 +640,6 @@
   function update(code: unknown): void {
     const normalized = normalize(code) || resolve('en');
     const selected = option(normalized);
-    ensureFont(selected.code);
     const pickers = document.querySelectorAll<HTMLElement>('[data-static-lang-picker]');
     for (let i = 0; i < pickers.length; i++) {
       const picker = pickers[i];
@@ -778,8 +706,6 @@
     htmlLang: htmlLang,
     locale: locale,
     direction: direction,
-    ensureFont: ensureFont,
-    ensurePickerFonts: ensurePickerFonts,
     persist: persist,
     setDocumentLang: setDocumentLang,
     update: update,

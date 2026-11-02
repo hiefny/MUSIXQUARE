@@ -9,7 +9,6 @@ interface StaticLanguageResolver {
   resolve(fallback: string): string;
   htmlLang(language: string): string;
   direction(language: string): 'ltr' | 'rtl';
-  ensureFont?(language: string): void;
 }
 
 interface LandingRuntimeWindow extends Window {
@@ -131,7 +130,6 @@ interface LandingRuntimeWindow extends Window {
     : lang === 'ar' || lang === 'fa' || lang === 'he' || lang === 'ur'
       ? 'rtl'
       : 'ltr';
-  landingWindow.MXQRStaticLang?.ensureFont?.(lang);
 
   try {
     let standalone =

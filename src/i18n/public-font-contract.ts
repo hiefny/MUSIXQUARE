@@ -2,8 +2,10 @@ import {
   APP_FONT_SHEETS,
   HAN_ORDER_FONT_SHEET,
   HANGUL_FONT_SHEET,
+  SCRIPT_FONT_SHEET_BY_LANGUAGE,
   type AppFontSheetId,
 } from './app-font-contract.ts';
+import type { LanguageCode } from './locales.ts';
 
 /**
  * The font sheets of every page outside the app (About and its sibling pages,
@@ -17,7 +19,8 @@ import {
  *   MUSIXQUARE Hangul, Noto Sans KR); public-font-contract.test.ts drives
  *   src/i18n/locale-fonts.ts to hold that. A page links it in the head.
  * - rest: every other app sheet in contract order. A page links it after its
- *   last body script.
+ *   last body script, or in the head where its language needs one of these
+ *   faces on the first paint (restFontSheetInHead).
  *
  * Every page so declares every app family, like every app UI, and a font
  * file downloads only for characters on screen. The app never imports this
@@ -37,3 +40,15 @@ export const PUBLIC_FONT_SHEET_GROUPS: Readonly<{
     rest: Object.freeze(APP_FONT_SHEETS.map(({ id }) => id).filter((id) => !first.includes(id))),
   });
 })();
+
+/**
+ * Whether a page in this language links rest.css in its head too: the app's
+ * phase A for its UI declares a sheet that first.css lacks, its own script's
+ * (the Japanese, Chinese, Thai, Arabic, Hebrew and Indic UIs), so its text
+ * draws in its own faces on the first paint. public-font-contract.test.ts
+ * holds it to the app's loader.
+ */
+export function restFontSheetInHead(code: LanguageCode): boolean {
+  const own = SCRIPT_FONT_SHEET_BY_LANGUAGE[code];
+  return own !== undefined && !PUBLIC_FONT_SHEET_GROUPS.first.includes(own);
+}

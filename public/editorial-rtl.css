@@ -6,16 +6,6 @@
   --safe-right: env(safe-area-inset-left, 0px);
 }
 
-:root:lang(ar)[dir='rtl'],
-:root:lang(fa)[dir='rtl'],
-:root:lang(ur)[dir='rtl'] {
-  --font-ui: 'Noto Sans Arabic', Pretendard, 'Segoe UI', Tahoma, Arial, sans-serif;
-}
-
-:root:lang(he)[dir='rtl'] {
-  --font-ui: 'Noto Sans Hebrew', Pretendard, 'Segoe UI', Arial, sans-serif;
-}
-
 html[dir='rtl'],
 html[dir='rtl'] body {
   direction: rtl;

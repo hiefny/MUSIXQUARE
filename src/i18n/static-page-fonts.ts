@@ -3,10 +3,8 @@
  * sheets in css/fonts/ (the sitemap page loads a language's sheet when its name
  * scrolls into view). The app loads its own sheets through locale-fonts.ts.
  *
- * Its dynamic imports also keep the processed copy of each of the 16 original
- * sheets in the build, which bindStaticLocaleFontAssets in vite.config.ts binds
- * About's disabled links to. Importing this module does not fetch a font shard;
- * each CSS chunk remains behind its dynamic import until it is needed.
+ * Importing this module does not fetch a font shard; each CSS chunk remains
+ * behind its dynamic import until it is needed.
  */
 
 import { log } from '../core/log.ts';

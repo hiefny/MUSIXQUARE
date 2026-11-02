@@ -1,6 +1,8 @@
 import { JSDOM } from 'jsdom';
 
 import { APP_DICTIONARIES, type TranslationDictionary } from '../src/i18n/catalogs.ts';
+import { restFontSheetInHead } from '../src/i18n/public-font-contract.ts';
+import { PUBLIC_FONT_SHEET_URLS } from '../src/i18n/public-font-urls.ts';
 import { localeSeoMetadata } from './locale-seo-metadata.mts';
 import {
   LANGUAGE_OPTIONS,
@@ -143,6 +145,22 @@ function preserveAboutLocaleAcrossEditorialPages(document: Document, code: Langu
   }
 }
 
+/**
+ * About links /web-fonts/rest.css after its last script. A copy whose
+ * language needs one of its faces on the first paint (its own script's)
+ * links it in the head, right after the stacks.
+ */
+function placeAboutRestFontSheet(document: Document, code: LanguageCode): void {
+  const rest = document.querySelector(
+    `link[rel="stylesheet"][href="${PUBLIC_FONT_SHEET_URLS.rest}"]`,
+  );
+  const stacks = document.querySelector(
+    `link[rel="stylesheet"][href="${PUBLIC_FONT_SHEET_URLS.stacks}"]`,
+  );
+  if (!rest || !stacks) throw new Error('About must link the stacks and rest.css font sheets');
+  if (restFontSheetInHead(code)) stacks.after(rest);
+}
+
 function removeNonLicenseComments(document: Document): void {
   const comments: Comment[] = [];
   const walker = document.createTreeWalker(document, 128 /* NodeFilter.SHOW_COMMENT */);
@@ -228,6 +246,7 @@ export function localizeAboutDocument(document: Document, code: LanguageCode): A
     link.setAttribute('href', localizedAppEntryPath(code));
   }
   preserveAboutLocaleAcrossEditorialPages(document, code);
+  placeAboutRestFontSheet(document, code);
 
   return {
     description: meta(document, 'meta[name="description"]').content,

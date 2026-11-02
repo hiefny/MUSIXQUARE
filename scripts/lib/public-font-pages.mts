@@ -19,12 +19,13 @@
  *   given) or inherits it, and only device monospace for code and the
  *   recorded literals name a family; nothing that loads or names a font
  *   names Pretendard (a comment may credit it).
- * The URLs are src/i18n/public-font-urls.ts. The pure checks live here;
- * scripts/check-app-font.mts runs them over the source and the build, and the
- * page tests run them over each page.
+ * The URLs are src/i18n/public-font-urls.ts. The pure checks and the page
+ * list live here; scripts/check-app-font.mts runs them over the source and
+ * the build, and the page tests run them over each page.
  */
 import postcss, { type Rule } from 'postcss';
 
+import { LANGUAGE_OPTIONS } from '../../src/i18n/locales.ts';
 import { PUBLIC_FONT_SHEET_URLS } from '../../src/i18n/public-font-urls.ts';
 
 /** The system fallback a stack reference names, should stacks.css fail to load. */
@@ -215,3 +216,61 @@ export function publicFontCssProblems(css: string, literals: LiteralFontFamilies
   if (namesPretendard) problems.push('names Pretendard');
   return problems;
 }
+
+/**
+ * Public rules that test the document language to set a page's own
+ * translated copy, never user content, so they may apply in only one of the
+ * Korean and English pages. Korean keeps its line breaking (keep-all) and
+ * About's Korean heading sizes and line heights, each with its reason. No
+ * such rule sets tracking: the app draws Korean and English alike (9.0.29),
+ * so the pages do too.
+ */
+export const PUBLIC_KOREAN_ENGLISH_COPY_RULES: Readonly<Record<string, string>> = {
+  ':lang(ko) .lp-h1': "About's translated headline: Korean size, line height and keep-all",
+  ':lang(ko) .lp-h2': "About's translated section titles: Korean size, line height and keep-all",
+  ':lang(ko) .lp-cta .lp-h2': "About's translated closing title: Korean size and line height",
+  ':lang(ko) .lp-room-count__copy': "About's translated room count line: keep-all",
+  ':lang(ko) .policy-doc p': 'translated document paragraphs: keep-all',
+  ':lang(ko) .policy-doc dd': 'translated document definitions: keep-all',
+};
+
+/** The text of every inline <style> element of a page. */
+export function inlineStyles(html: string): string[] {
+  return [...html.matchAll(/<style\b[^>]*>([\s\S]*?)<\/style>/giu)].map((match) => match[1] ?? '');
+}
+
+/** A page outside the app whose source HTML the repository holds. */
+export interface PublicFontPage {
+  /** The source HTML, repository-relative. */
+  readonly html: string;
+  /** Where the source links rest.css (publicFontLinkProblems). */
+  readonly rest: PublicFontLinkOptions['rest'];
+  /** Its stylesheets after /web-fonts/stacks.css, repository-relative, in cascade order. */
+  readonly sheets: readonly string[];
+  /** The html lang values it is shown in. */
+  readonly htmlLangs: readonly string[];
+}
+
+const TOKENS = 'public/designsystem/colors_and_type.css';
+
+/**
+ * Every page outside the app that has switched to the shared sheets, by its
+ * source HTML. About is one source in every language: the build writes a
+ * copy per language, with rest.css in the head where the language needs it
+ * (src/i18n/public-font-contract.ts restFontSheetInHead), and the build
+ * guard checks each copy.
+ */
+export const PUBLIC_FONT_PAGES: readonly PublicFontPage[] = [
+  {
+    html: '.workshop/landing/landing.html',
+    rest: 'body',
+    sheets: [
+      TOKENS,
+      'public/editorial-base.css',
+      'public/static-language.css',
+      'public/editorial-about.css',
+      'public/editorial-rtl.css',
+    ],
+    htmlLangs: LANGUAGE_OPTIONS.map(({ htmlLang }) => htmlLang),
+  },
+];

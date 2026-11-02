@@ -1930,11 +1930,13 @@ describe('resource-ownership guard', { timeout: 60_000 }, () => {
             '  if (!isManual && getManagedTimer(PRO_COORDINATOR_YOUTUBE_NUDGE_TIMER)) return;\n' +
               "  if (getManagedTimer('yt-host-local-start')) return;\n",
           );
+          // The local start wait's own timer (beginStandardHostLocalStart since
+          // Phase 6 6D-3) under another name.
           replaceIn(
             sources,
             'src/youtube/player.ts',
-            "        'yt-host-local-start',\n",
-            "        'yt-host-local-begin',\n",
+            "      'yt-host-local-start',\n",
+            "      'yt-host-local-begin',\n",
           );
         }),
       );

@@ -639,11 +639,77 @@ function clampZeroStartTarget(seconds: number, duration: number): number {
 
 let youtubeAutoSyncGeneration = 0;
 
+// ─── The Standard host's local start wait ─────────────────────────
+// When this Standard host's local target lies before 0:00 (a negative manual
+// offset larger than the start position, less its platform's output lead),
+// its speaker starts after the room: it waits paused at 0:00 while the room
+// time runs. One primitive owns that wait: its start instant and the room
+// time it holds, the reader it installs for toCanonicalYouTubeTime and the
+// pending-start predicate (local-offset.ts), the 'yt-host-local-start' timer
+// that releases the speaker, and the retire of both. Only the legacy
+// rendezvous begins it (scheduleYtAutoSync), and its own retire
+// (retireYouTubeAutoSync) retires it with the Stage-2 wait. The PRO direct
+// COMMIT, a guest recovery, the zero-start run and the PRO arm keep their own
+// waits.
+
+/** Retire the local start wait, if one waits: its release timer and its reader. */
+function retireStandardHostLocalStart(): void {
+  clearManagedTimer('yt-host-local-start');
+  setStandardHostYouTubeLocalStartTimelineReader(null);
+}
+
+/**
+ * Begin a local start wait of `delayMs` now, at the room time `canonicalTime`:
+ * while `isCurrent` holds, the room time is `canonicalTime` plus the time
+ * since. The caller then pauses and positions the speaker, and arms the
+ * release with the step this returns. When its timer fires and the wait is
+ * still current, the release seeks the speaker forward if it runs more than
+ * the catch-up tolerance late (else that lateness goes into the applied and
+ * automatic offsets) and, still current after that seek, ends the reader and
+ * plays.
+ */
+function beginStandardHostLocalStart(
+  player: YouTubePlayerInstance,
+  canonicalTime: number,
+  delayMs: number,
+  isCurrent: () => boolean,
+): () => void {
+  const startedAtMs = performance.now();
+  setStandardHostYouTubeLocalStartTimelineReader(() =>
+    isCurrent() ? canonicalTime + Math.max(0, performance.now() - startedAtMs) / 1000 : null,
+  );
+  return () =>
+    setManagedTimer(
+      'yt-host-local-start',
+      () => {
+        if (!isCurrent()) return;
+        const elapsedSeconds = Math.max(0, performance.now() - startedAtMs) / 1000;
+        const releaseTarget = Math.max(0, elapsedSeconds - delayMs / 1000);
+        const automaticOffset = getStandardHostYouTubeAutomaticOffset();
+        if (releaseTarget > YOUTUBE_RELEASE_CATCH_UP_TOLERANCE_SEC)
+          player.seekTo(releaseTarget, true);
+        if (!isCurrent()) return;
+        setState(
+          'sync.youtubeCoordinatorAppliedOffset',
+          (releaseTarget > YOUTUBE_RELEASE_CATCH_UP_TOLERANCE_SEC ? releaseTarget : 0) -
+            canonicalTime -
+            elapsedSeconds,
+        );
+        recordStandardHostYouTubeAutomaticOffset(
+          automaticOffset -
+            (releaseTarget > YOUTUBE_RELEASE_CATCH_UP_TOLERANCE_SEC ? 0 : releaseTarget),
+        );
+        setStandardHostYouTubeLocalStartTimelineReader(null);
+        player.playVideo?.();
+      },
+      delayMs,
+    );
+}
+
 function retireYouTubeAutoSync(): void {
   youtubeAutoSyncGeneration += 1;
   clearManagedTimer('yt-auto-sync');
-  clearManagedTimer('yt-host-local-start');
-  setStandardHostYouTubeLocalStartTimelineReader(null);
+  retireStandardHostLocalStart();
 }
 
 /**
@@ -744,13 +810,13 @@ export function scheduleYtAutoSync(targetTime: number, overrides?: YouTubeAutoSy
   const canonicalTargetTime = resolvedTarget.canonicalTime;
   const localTargetTime = resolvedTarget.localTime;
   const localStartDelayMs = targetState === 1 ? (resolvedTarget.localStartDelayMs ?? 0) : 0;
-  const localStartAtMs = performance.now();
-  if (localStartDelayMs > 0) {
-    setStandardHostYouTubeLocalStartTimelineReader(() =>
-      isCurrent()
-        ? canonicalTargetTime + Math.max(0, performance.now() - localStartAtMs) / 1000
-        : null,
-    );
+  // A negative start holds this speaker before its pause, so the pause's own
+  // state event already finds the hold (the state router's legacy decision).
+  const armLocalStart =
+    localStartDelayMs > 0
+      ? beginStandardHostLocalStart(player, canonicalTargetTime, localStartDelayMs, isCurrent)
+      : null;
+  if (armLocalStart) {
     player.pauseVideo?.();
     if (!isCurrent()) return;
   }
@@ -768,35 +834,8 @@ export function scheduleYtAutoSync(targetTime: number, overrides?: YouTubeAutoSy
   }
   if (targetState === 1) {
     setYtAutoplayIntent(true);
-    if (localStartDelayMs > 0) {
-      setManagedTimer(
-        'yt-host-local-start',
-        () => {
-          if (!isCurrent()) return;
-          const elapsedSeconds = Math.max(0, performance.now() - localStartAtMs) / 1000;
-          const releaseTarget = Math.max(0, elapsedSeconds - localStartDelayMs / 1000);
-          const automaticOffset = getStandardHostYouTubeAutomaticOffset();
-          if (releaseTarget > YOUTUBE_RELEASE_CATCH_UP_TOLERANCE_SEC)
-            player.seekTo(releaseTarget, true);
-          if (!isCurrent()) return;
-          setState(
-            'sync.youtubeCoordinatorAppliedOffset',
-            (releaseTarget > YOUTUBE_RELEASE_CATCH_UP_TOLERANCE_SEC ? releaseTarget : 0) -
-              canonicalTargetTime -
-              elapsedSeconds,
-          );
-          recordStandardHostYouTubeAutomaticOffset(
-            automaticOffset -
-              (releaseTarget > YOUTUBE_RELEASE_CATCH_UP_TOLERANCE_SEC ? 0 : releaseTarget),
-          );
-          setStandardHostYouTubeLocalStartTimelineReader(null);
-          player.playVideo?.();
-        },
-        localStartDelayMs,
-      );
-    } else {
-      player.playVideo?.();
-    }
+    if (armLocalStart) armLocalStart();
+    else player.playVideo?.();
   } else if (targetState === 2) {
     player.pauseVideo?.();
   }

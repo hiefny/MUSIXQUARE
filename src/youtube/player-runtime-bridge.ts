@@ -34,7 +34,11 @@ export function configureYouTubePlayerRuntimeHooks(next: YouTubePlayerRuntimeHoo
   runtimeHooks = next;
 }
 
-/** A trusted newer host command owns any still-pending participant-local start. */
+/**
+ * A trusted newer host command owns any still-pending participant-local start.
+ * player.ts answers with cancelYtAutoSync, which also retires the Standard
+ * host's local start wait and the legacy rendezvous's Stage 2.
+ */
 export function cancelPendingYouTubeStartFromSync(): void {
   runtimeHooks.cancelPendingAutoSync();
 }

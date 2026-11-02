@@ -14,7 +14,9 @@
   its own (`src/youtube/zero-start-recovery.ts`), and `player.ts` still keeps its claim, timer and
   fence; 2026-11-02 (plan step C2-11, Phase 6 6D-2): the host legacy recovery is a stage beside it
   in the same file, and `player.ts` keeps its timer, fence and hand-off, and the replacement
-  fallback that restarts it
+  fallback that restarts it; 2026-11-02 (plan step C2-12, Phase 6 6D-3): the Standard host's local
+  start wait is one primitive in `player.ts`, under the legacy rendezvous, whose claim still
+  registers only its Stage-2 wait
 - **Applies to:** YouTube start ownership in Standard and PRO rooms: which start owner holds the
   shared iframe, the queries its readers ask, and which owner consumes an iframe state event
   (resource ownership registry
@@ -30,7 +32,7 @@ state, timers and lifecycle; the ledger keeps none:
 | -------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `src/youtube/start-ownership.ts`       | the start ledger: the claim kinds, each kind's registered live queries, and the derived queries every reader asks                                                                                                                                                                                                                                                                                                                                                                                              |
 | `src/youtube/zero-start.ts`            | the zero-start run owner (`YouTubeZeroStartController`), its ownership facades (`isYouTubeZeroStartInFlight`, `isYouTubeZeroStartProtocolActive`) and its snapshot reads (`getYouTubeZeroStartSnapshot`, `getYouTubeZeroStartPendingCanonicalPosition`)                                                                                                                                                                                                                                                        |
-| `src/youtube/player.ts`                | the start owners' composition point, which registers every claim and hands each recovery its starts with its fence, timer and claim flags (the host's also with its hand-off to the legacy rendezvous); the owner of the replacement fallback that restarts the host recovery, the legacy two-stage rendezvous and the PRO direct COMMIT's local wait                                                                                                                                                          |
+| `src/youtube/player.ts`                | the start owners' composition point, which registers every claim and hands each recovery its starts with its fence, timer and claim flags (the host's also with its hand-off to the legacy rendezvous); the owner of the replacement fallback that restarts the host recovery, the legacy two-stage rendezvous with its local start wait on a Standard host (one primitive since 6D-3) and the PRO direct COMMIT's local wait                                                                                  |
 | `src/youtube/zero-start-recovery.ts`   | the guest local recovery (`GuestZeroStartRecovery`, since 6D-1, registry RO-33): it takes over a start the run gives up on a Standard guest; and the host legacy recovery (`HostZeroStartRecovery`, since 6D-2, a stage under RO-02): it takes over a start the run gives up on a Standard host, or one the replacement fallback restarts, and hands it to the legacy rendezvous. Both work through the schedule, fence and claim setters `player.ts` hands them; neither sets a timer or reads a run snapshot |
 | `src/youtube/iframe.ts`                | the PRO authority arm's instance (`YouTubeAuthorityArmController` from `src/youtube/authority-arm.ts`) and the iframe state router, which asks the start owners whether one consumes a state event ([The iframe state router](#the-iframe-state-router))                                                                                                                                                                                                                                                       |
 | `src/youtube/player-runtime-bridge.ts` | the player's hooks for modules that cannot import `player.ts`: the pending auto-sync intent and the legacy rendezvous's Stage-2 query `isYouTubeAutoSyncPending` (since 6C-2 the iframe audio owner `src/youtube/iframe-audio.ts` holds the PRO pause gate)                                                                                                                                                                                                                                                    |
@@ -133,9 +135,14 @@ path reads its answer after the router.
 
 The Standard host's room time while one of its start owners holds the speaker comes from one
 merged read in `local-offset.ts`, which only `toCanonicalYouTubeTime` asks, after the end hold:
-the legacy rendezvous's local start (any answer, clamped, so one that is not finite reads 0),
-else the run's scheduled start (`getYouTubeZeroStartPendingCanonicalPosition`) when finite, each
-reader once. The pending-start predicate `isStandardHostYouTubeLocalStartPending` stays the
+the legacy rendezvous's local start wait (any answer, clamped, so one that is not finite reads
+0), else the run's scheduled start (`getYouTubeZeroStartPendingCanonicalPosition`) when finite,
+each reader once. Since 6D-3 (plan step C2-12) that local start wait is one primitive in
+`player.ts` (`beginStandardHostLocalStart`, retired by `retireStandardHostLocalStart`): it takes
+its start instant and held room time, installs its reader before it pauses the speaker, arms its
+`'yt-host-local-start'` release once the speaker is positioned, and ends the reader just before
+the release plays. It registers no claim query of its own (no derived query reads it); the router
+asks the pending-start predicate. The pending-start predicate `isStandardHostYouTubeLocalStartPending` stays the
 legacy hold's alone, by design. Its six readers are the router's legacy decision,
 `native-control-authority.ts`'s protected-owner check, `player.ts`'s seek mid-sync check and the
 host's play/pause toggle (`youtube:toggle-play`), `sync.ts`'s heartbeat state and the
@@ -206,7 +213,11 @@ during that hold could change.
   public owner, so the `pro-direct` kind holds nothing (C2-13), and the state router decides it
   never. The host's pending-start predicate (`isStandardHostYouTubeLocalStartPending`,
   `src/youtube/local-offset.ts`) sees only the legacy hold by design, not as a gap (see
-  [The iframe state router](#the-iframe-state-router)).
+  [The iframe state router](#the-iframe-state-router)). The local start wait primitive (since
+  6D-3, plan step C2-12) is the Standard host's alone: the PRO direct COMMIT's wait is a promise
+  its cancel must resolve, and neither it nor a guest recovery's release supplies a room-time
+  reader today, so folding them in would change their room time and controls; the run and the
+  PRO arm keep the delay inside their own releases.
 - Gaps the start-ownership truth tables pin as today's behaviour (rows marked "Looks like a
   defect") stay as they are; the ledger changes no answer, so it neither opens nor closes them.
   These are the four the owner was asked about on 2026-11-01, as rewritten after the rows were
@@ -299,6 +310,13 @@ cannot import `player.ts`. The ledger is a leaf with no import that every reader
   after the run, asking every owner, running the stale check after the router or dropping the
   legacy decision fails router rows, and a merged predicate fails the merged-read rows and the
   critique's pause-teardown rows (`standard-start-pause-teardown.test.ts`).
+- Since 6D-3 the Standard host's local start wait is pinned by fake time and op logs, not by its
+  timers' names: `src/youtube/__tests__/player.test.ts` "Standard host own output compensation"
+  logs each iframe command with the hold, applied and automatic offsets at that command, the room
+  frames and Stage 2 (the hold, its late releases, a newer timeline started inside its pause, seek
+  or catch-up seek, and a pause, seek or manual edit that retires it), and
+  `host-local-rendezvous.test.ts` drives the real wait into a manual edit through the retire port.
+  Both pass on the tree before 6D-3 as well.
 - Suites that never load `player.ts` (for example `src/player/__tests__/local-output-realign-cross-flow.test.ts`,
   the Phase 4 D4 harness) register no claim, so every derived query answers false there, as the
   zero-start facades did before 6B; their rows show the chains' behaviour, not the gates'
@@ -307,7 +325,8 @@ cannot import `player.ts`. The ledger is a leaf with no import that every reader
 - A suite that imports `player.ts` inside its rows reads the ledger's claims only after an earlier
   row has loaded it (the ledger keeps them between rows), so its rows that never import it depend
   on test order. Such a suite loads `player.ts`, or registers stand-in claims, in its shared
-  `beforeEach`, as `stale-async-guards.test.ts` and `sync-integration.test.ts` do since 6B.
+  `beforeEach`, as `stale-async-guards.test.ts` and `sync-integration.test.ts` do since 6B, and
+  `host-local-rendezvous.test.ts` since 6D-3.
 - `guard:import-graph` (the ledger imports nothing), `guard:dead-exports` (no test-only export),
   `node scripts/check-resource-ownership.mts` (the ledger's header claims RO-02, once; since 6B-2
   CHECK 12's facade and snapshot-read counts, its per-statement start-claim count and its ledger

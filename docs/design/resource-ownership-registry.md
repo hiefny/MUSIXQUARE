@@ -295,7 +295,17 @@ RO-53 owner-in-place
   then the run's scheduled start), which nothing else reads, while the pending-start predicate
   `isStandardHostYouTubeLocalStartPending` and its six readers (the router, the native-control
   protected owners, the seek's mid-sync check, the host's play/pause toggle, `sync.ts`'s host
-  heartbeat state and the manual-offset runtime) stay the legacy hold's alone.
+  heartbeat state and the manual-offset runtime) stay the legacy hold's alone. Since Phase 6
+  6D-3 (C2-12) that legacy hold, the Standard host's local start wait (a local target before 0:00
+  holds the speaker paused there while the room time runs), is one primitive in `player.ts`:
+  `beginStandardHostLocalStart` takes the start instant and the held room time, installs the
+  reader `local-offset.ts` answers from before the pause, and returns the step that arms the
+  `'yt-host-local-start'` release; `retireStandardHostLocalStart` retires that timer and the
+  reader, and the legacy rendezvous's own retire (`retireYouTubeAutoSync`) calls it beside its
+  Stage-2 wait. The legacy claim still registers the Stage-2 wait alone, because no derived query
+  reads the local start. Standard host only: the PRO direct COMMIT's wait (a promise its cancel
+  resolves), the guest recovery's release and the run's and the PRO arm's release delays keep
+  their own waits.
   Since Phase 6 6B-1 (C2-5) the start ledger `src/youtube/start-ownership.ts`
   (`Resource owner: RO-02`, [design](youtube-start-ownership.md)) composes them for readers:
   `player.ts` registers each owner's live queries as a claim (`registerYouTubeStartClaim`: the
@@ -466,12 +476,21 @@ RO-53 owner-in-place
     in `zero-start-recovery.test.ts`, and the iframe commands `sync-integration.test.ts` asserts
     beside its 14 `'yt-zero-start-host-fallback'` and 2 `'yt-zero-start-replacement-fallback'`
     timer-name pins.
+  - Standard host local start wait (since 6D-3): `src/youtube/__tests__/player.test.ts`
+    "Standard host own output compensation" (the real wait on the real managed timers and fake
+    time, read from an op log of the iframe commands with the hold, applied and automatic
+    offsets at each, the room frames and Stage 2: the hold, its 40 and 41 ms late releases, a
+    newer timeline started inside its pause, seek or catch-up seek, a pause, seek or manual edit
+    that retires it) and `host-local-rendezvous.test.ts` "hands a negative-start wait to a new
+    manual offset … without changing room time" (the manual-offset runtime retiring the real wait
+    through the retire port). They replaced the rows that found its timers by name.
 - **Status:** `duplicated`. Phase 6 (start ledger, routed state events, shared arm steps, recovery
   as owner stages); its first train took over the app part of Phase 0d, the shared start timing
   (C2-1, 6A-3). Since 6D-1 (C2-9) the guest recovery is a class of its own (RO-33), and since 6D-2
   (C2-11) the host legacy recovery a stage beside it, each with its own token and timer: still
-  machines beside the run and the legacy rendezvous. The no-auto-retry Sync notice right after a
-  zero-start stays ([known-accepted #14](../known-accepted.md)).
+  machines beside the run and the legacy rendezvous. Since 6D-3 (C2-12) the Standard host's local
+  start wait is one primitive of the legacy rendezvous, Standard host only. The no-auto-retry Sync
+  notice right after a zero-start stays ([known-accepted #14](../known-accepted.md)).
 
 ### RO-03 YouTube arm protocol, Standard and PRO copies
 
@@ -1898,8 +1917,10 @@ RO-53 owner-in-place
   machines check the fail-closed query `isStandardHostManualOffsetTransactionPending`
   (`player.ts`, `sync.ts`, `iframe.ts`, `handlers.ts`, `native-control-authority.ts`,
   `src/player/playlist.ts`); deferred actions wait on settlement listeners; the transaction retires
-  the local start and the end hold; the PRO orchestrator resets it before every prepare and
-  commit.
+  the end hold, and the Standard host's local start wait through the runtime bridge's retire port
+  (`cancelPendingYouTubeStartFromSync`, which `player.ts` answers with `cancelYtAutoSync`; since
+  Phase 6 6D-3 that wait is one primitive of the legacy rendezvous, RO-02); the PRO orchestrator
+  resets it before every prepare and commit.
 - **Target single owner:** unchanged; Phase 6 talks to it only through the existing retire port.
 - **Allowed requesters:** the manual-sync input; readers through the pending query.
 - **Lifecycle operations:** begin, apply, settle, cancel and reset

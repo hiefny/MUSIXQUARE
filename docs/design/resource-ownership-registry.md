@@ -265,7 +265,12 @@ RO-54 accepted-exception
   - Visibility: `context-recovery.test.ts` "never calls native resume while hidden without active
     playback"; `audio-context-ownership.test.ts` "a late resume … that settles while hidden is
     verified on the visible edge" (G7).
-  - Missing: both machines and UI sounds together; no unit test imports `app.ts`.
+  - Both machines and UI sounds together (Phase 7 T0): `audio-output-recovery-boundary.test.ts`,
+    `audio-output-recovery-holding.test.ts` and `audio-output-recovery-parity.test.ts` in
+    `src/audio/__tests__/`, over the owners with no module mocks.
+  - Missing: no unit test loads `app.ts`; the recovery dialog's half is pinned only in a browser,
+    by the local Chromium lab `e2e/audio-lab/output-recovery.lab.ts` (never in CI) and by
+    `e2e/background-resume.test.ts` and `e2e/demo-output-recovery.test.ts`.
 - **Status:** `duplicated`. Phase 0d (shared constants), Phase 7 (one lease, one `statechange`
   dispatcher, owner gesture functions, UI sounds yield). Fix lane G7. Exceptions RO-36, RO-37,
   RO-44. The guard counts the native calls per file (CHECK 6) and, since Phase 7 T1, the callers of

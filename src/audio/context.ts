@@ -942,14 +942,14 @@ async function sampleRunningClock(
 /**
  * Verify that WebKit's native audio clock actually advances after foreground.
  * `state === "running"` alone is insufficient on affected iOS releases.
+ * Every caller chooses whether a context that is not running is resumed
+ * first (`attemptResume`); there is no default resume.
  */
-export async function probeAudioContextHealth(
-  options: {
-    attemptResume?: boolean;
-    isCurrent?: () => boolean;
-    context?: AudioContext;
-  } = {},
-): Promise<AudioContextHealthResult> {
+export async function probeAudioContextHealth(options: {
+  attemptResume: boolean;
+  isCurrent?: () => boolean;
+  context?: AudioContext;
+}): Promise<AudioContextHealthResult> {
   const ctx = options.context ?? _ctx;
   if (!ctx) {
     return {
@@ -969,7 +969,7 @@ export async function probeAudioContextHealth(
     };
   }
 
-  if (String(ctx.state) !== 'running' && options.attemptResume !== false) {
+  if (String(ctx.state) !== 'running' && options.attemptResume) {
     try {
       await Promise.race([ctx.resume(), delay(AUDIO_RESUME_DEADLINE_MS)]);
     } catch {

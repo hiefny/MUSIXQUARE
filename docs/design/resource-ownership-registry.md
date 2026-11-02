@@ -4280,9 +4280,10 @@ and unrelated strings never count, and every baseline is an exact count or list 
    since Phase 7 T1, **indirect AudioContext resume callers, per file** (RO-01): uses of the three
    functions of `src/audio/context.ts` that call native `resume()` for whoever calls them,
    `ensureRunning`, `restartAudioContextFromGesture` and `probeAudioContextHealth` (which resumes
-   unless the caller passes `attemptResume: false`), in every file, that home included (it calls
-   none of them, and a wrapper exported there would hide its callers). The match is by name: a
-   call, a namespace member, the function passed on or placed in an object, a string key
+   when its caller passes `attemptResume: true`, a required choice since Phase 7 7A-4), in every
+   file, that home included (it calls none of them, and a wrapper exported there would hide its
+   callers). The match is by name: a call, a namespace member, the function passed on or placed
+   in an object, a string key
    (`context['ensureRunning']`) and a rename (an import or export specifier, a destructuring),
    whose own calls then go uncounted, and a local function with one of these names counts too.
    Exact on 2026-11-02 (main `cd8eaf47`) and again on 2026-11-04 (main `34dbe592`, App 9.0.36):

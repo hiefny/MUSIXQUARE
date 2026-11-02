@@ -635,7 +635,8 @@ const AUDIO_CONTEXT_NATIVE_CALL_BASELINE: Baseline = new Map<string, Allowance>(
  * a wrapper there cannot hide a caller):
  * ensureRunning (a context that is not running),
  * restartAudioContextFromGesture (inside the caller's gesture) and
- * probeAudioContextHealth (unless the caller passes attemptResume: false).
+ * probeAudioContextHealth (when the caller passes attemptResume: true, a
+ * required choice since Phase 7 7A-4).
  * Phase 7 moves these callers into the owner (7C-1 to 7C-3); each step
  * lowers its count here.
  */

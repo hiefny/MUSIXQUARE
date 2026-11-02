@@ -30,11 +30,19 @@ export default defineConfig({
       // in 9.0.27 when the route gained its pair-check and early-fallback rules.
       'src/network/__tests__/{pro-system-audio-direct,ice-selected-pair}.test.ts',
       'src/audio/__tests__/{context-health,context-recovery,foreground-output-health,output-health,system-capture,system-capture-stop}.test.ts',
+      // The AudioContext output-recovery owners (RO-01), enrolled in Phase 7
+      // prep (T0) before the structural plan's C1 merges their two machines:
+      // the owner-boundary harness, the UI sound suite, and the boundary,
+      // holding and parity tables.
+      'src/audio/__tests__/{audio-context-ownership,ui-sounds}.test.ts',
+      'src/audio/__tests__/audio-output-recovery-{boundary,holding,parity}.test.ts',
       'src/pro-room/__tests__/{api,heartbeat-single-flight,media-transfer,playlist-state-manager,session-controller}.test.ts',
       'src/pro-room/__tests__/{playback-duration-reporting,upload-duration}.test.ts',
       'src/pro-room/__tests__/device-failure-sequence-qa.test.ts',
       'src/pro-room/__tests__/runtime-*.test.ts',
       'src/player/__tests__/{busy-guard,concurrency-invariants,load-epoch-initial,local-output-rejoin,playback,playback-extended,playback-queue-identity,playback-replay-resync,playback-remote-wait,playlist,transport-position}.test.ts',
+      // The Media Session gesture path into the same owners (Phase 7 prep, T0).
+      'src/player/__tests__/{media-session,media-session-lock-screen-pause}.test.ts',
       'src/storage/__tests__/preload.test.ts',
       'src/network/transport/__tests__/{cloudflare-signaling,cloudflare-signaling-worker}.test.ts',
       // The link-liveness owner (RO-15): enrolled in Phase 4 C5-6, the resume probe since C5-7,
@@ -89,6 +97,7 @@ export default defineConfig({
         'src/player/transport.ts',
         'src/player/local-output-rejoin.ts',
         'src/audio/context-recovery.ts',
+        'src/audio/context.ts',
         'src/storage/preload.ts',
         'src/network/transport/cloudflare-signaling.ts',
         'src/network/transport/link-liveness.ts',
@@ -137,14 +146,23 @@ export default defineConfig({
         },
         'src/audio/context-recovery.ts': {
           // The identity-fenced iOS recovery state machine was expanded on
-          // 2026-08-21. Its stable Node 24 baseline is statements 84.15,
-          // branches 78.67, functions 89.65, and lines 87.71. Preserve at
-          // least a one-point regression margin while the new edge tests stay
-          // in this critical profile.
-          statements: 83,
-          branches: 77,
-          functions: 88,
-          lines: 86,
+          // 2026-08-21 (Node 24 baseline 84.15, 78.67, 89.65, 87.71). With
+          // the AudioContext owner suites enrolled on 2026-11-02 (Phase 7
+          // prep, T0), two identical Node 24 runs on main 7d60f134 measured
+          // 90.99, 88.66, 88.57, 93.37: about one point below each.
+          statements: 89,
+          branches: 87,
+          functions: 87,
+          lines: 92,
+        },
+        // The shared AudioContext and its play-request restart, enrolled with
+        // the owner suites on 2026-11-02 about one point below two identical
+        // Node 24 runs on main 7d60f134: 89.53, 84.36, 95.52, 91.68.
+        'src/audio/context.ts': {
+          statements: 88,
+          branches: 83,
+          functions: 94,
+          lines: 90,
         },
         'src/audio/system-capture.ts': {
           statements: 80,

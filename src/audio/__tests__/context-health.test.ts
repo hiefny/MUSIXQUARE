@@ -1,6 +1,7 @@
 /** @vitest-environment jsdom */
 
-import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, expectTypeOf, it, vi } from 'vitest';
+import type { probeAudioContextHealth } from '../context.ts';
 
 interface FakeContextOptions {
   state?: AudioContextState | 'interrupted';
@@ -81,7 +82,7 @@ describe('AudioContext foreground health', () => {
 
   it('accepts a running native clock only after currentTime advances', async () => {
     const { module } = await loadContext({ clock: 'running' });
-    const probe = module.probeAudioContextHealth();
+    const probe = module.probeAudioContextHealth({ attemptResume: true });
     await vi.advanceTimersByTimeAsync(180);
 
     await expect(probe).resolves.toMatchObject({
@@ -93,7 +94,7 @@ describe('AudioContext foreground health', () => {
 
   it('detects two consecutive running-but-frozen clock samples', async () => {
     const { module } = await loadContext({ clock: 'stalled' });
-    const probe = module.probeAudioContextHealth();
+    const probe = module.probeAudioContextHealth({ attemptResume: true });
     await vi.advanceTimersByTimeAsync(360);
 
     await expect(probe).resolves.toEqual({
@@ -110,7 +111,7 @@ describe('AudioContext foreground health', () => {
       resume: 'resolve-running',
       clock: 'stalled',
     });
-    const probe = module.probeAudioContextHealth();
+    const probe = module.probeAudioContextHealth({ attemptResume: true });
     await vi.advanceTimersByTimeAsync(360);
 
     await expect(probe).resolves.toEqual({
@@ -126,7 +127,7 @@ describe('AudioContext foreground health', () => {
     const { module } = await loadContext({ clock: 'stalled' });
     const now = vi.spyOn(performance, 'now');
     now.mockReturnValueOnce(100).mockReturnValueOnce(110);
-    const probe = module.probeAudioContextHealth();
+    const probe = module.probeAudioContextHealth({ attemptResume: true });
     await vi.advanceTimersByTimeAsync(180);
 
     await expect(probe).resolves.toEqual({
@@ -144,7 +145,7 @@ describe('AudioContext foreground health', () => {
       resume: 'resolve-unchanged',
     });
 
-    await expect(module.probeAudioContextHealth()).resolves.toMatchObject({
+    await expect(module.probeAudioContextHealth({ attemptResume: true })).resolves.toMatchObject({
       healthy: false,
       reason: 'not-running',
       state: 'suspended',
@@ -157,7 +158,7 @@ describe('AudioContext foreground health', () => {
 
   it('bounds a resume promise that WebKit never settles and reports the concrete state', async () => {
     const { module } = await loadContext({ state: 'suspended', resume: 'pending' });
-    const probe = module.probeAudioContextHealth();
+    const probe = module.probeAudioContextHealth({ attemptResume: true });
     await vi.advanceTimersByTimeAsync(500);
 
     await expect(probe).resolves.toMatchObject({
@@ -566,5 +567,13 @@ describe('AudioContext foreground health', () => {
     expect(instance.resume).toHaveBeenCalledOnce();
     expect(instance.state).toBe('running');
     await expect(preparation!.whenPrepared).resolves.toBe(false);
+  });
+
+  it('has every probe caller choose whether it may resume: attemptResume has no default', () => {
+    // Type-level: the production callers all pass it; a caller that leaves it out
+    // would silently get a native resume() (Phase 7 7A-4).
+    expectTypeOf<Parameters<typeof probeAudioContextHealth>[0]>()
+      .toHaveProperty('attemptResume')
+      .toEqualTypeOf<boolean>();
   });
 });

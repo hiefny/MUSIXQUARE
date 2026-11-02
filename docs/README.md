@@ -96,7 +96,7 @@ runbooks. Neither belongs in a general setup document.
 
 - [Phase 6 train 6D: the YouTube start recoveries in one module, the Standard host's local start wait and the PRO start tokens (2026-11-02)](design/phase6-6d-recovery-pro-arm-2026-11-02.md):
   prepared, not released. The fourth and last Phase 6 App update on branch `agent/p6-6d`,
-  thirty-two commits on main `432d4ae7` (the App 9.0.34 / v807 release record): the thirteen
+  thirty-four commits on main `432d4ae7` (the App 9.0.34 / v807 release record): the thirteen
   commits first built on the 6C train's tip `bdb5759a`, moved patch for patch once 6B (9.0.32 /
   v805) and 6C (9.0.34 / v807) had shipped, a tests-only commit and a comment and registry commit
   from the review of the moved branch, one record commit, 6D-6's nine commits (regression rows,
@@ -105,8 +105,9 @@ runbooks. Neither belongs in a general setup document.
   first two, then the fallback's failing test, runtime change and record), and 6C-3's four commits
   (its open point's tests-only row `b00d79ac`, tests first `d6f7cb00`, the runtime change
   `767a5a08` and one record commit, first stacked without 6D-6 as `5ca0abf0`, `38fcedb5` and
-  `7208a93d` and re-applied patch for patch after it), the final local check's record commit,
-  QA round 9's record commit and QA round 10's record commit;
+  `7208a93d` and re-applied patch for patch after it; those first SHAs are on no ref now), the
+  final local check's record commit, QA round 9's record commit, QA round 10's record commit, and
+  the tests-only commit `8a0edafb` and record commit of 6D-6's review (QA round 11);
   the version bump, the release-record entry
   and the release are the release owner's. 6D-1 turns the Standard guest's local zero-start recovery from a
   `player.ts` closure into the class `GuestZeroStartRecovery` in the new
@@ -129,9 +130,13 @@ runbooks. Neither belongs in a general setup document.
   new run) is checked and recorded. 6D-6 is built, before 6C-3, after the owner saw the pictures:
   the COMMIT catch-up of a device that missed its READY keeps that PREPARE's still-loading load, so
   one toast shows and the screen stays, also when the start arrives in a snapshot. A fallback the
-  release owner added keeps the rare case no worse than before 6D-6: a first screen still not ready
-  at the join the catch-up plans is loaded again there, as before 6D-6 but about 3 s later, instead
-  of ending 15 s after the PREPARE with the load-timeout toast. 6C-3 is built after it as the
+  release owner added loads a first screen still not ready at the join the catch-up plans again
+  there, as before 6D-6 but up to about 3 s later (about 1.1 s in the test scene), instead of
+  ending 15 s after the PREPARE with the load-timeout toast; the slowest phones, whose first screen
+  is merely slow, take that path too. One rarer path stays worse than before 6D-6: a start learned
+  from a snapshot 12 to 15 s after the PREPARE while the first screen is still loading still ends
+  with the load-timeout toast and waits for the next room-state sync (pinned by a test row; put to
+  the owner with the size question Q29). 6C-3 is built after it as the
   train's last increment and its one intended change ([screen changes: sound and start timing only,
   iPhone, master volume between 0 and 0.5 %]): `readYouTubeAppAudio` loses its 'non-positive'
   variant, so every site mutes YouTube when the master volume rounds to 0 %, with the same frames
@@ -193,7 +198,7 @@ runbooks. Neither belongs in a general setup document.
   target 0, no App runtime dependency change, empty contract-freeze diff) and the first load
   (+458 B eager JavaScript gzip against `432d4ae7`, the same bytes as when it was rebuilt). The
   report's 6D-6 section now splits the visible change into the normal case the owner saw, the
-  snapshot route (the same change) and the rare never-ready case (as today, about 3 s later), and
+  snapshot route (the same change) and the rare never-ready case (as today, up to about 3 s later), and
   6C-3's section gains one plain line for its ABORT-first case.
   QA round 10, on QA round 9's record commit `8e6bd9ab` with `origin/main` still `432d4ae7`:
   types, lint, format, `check:workers`, the unit suite 756 files / 18,129 rows (two timeouts in
@@ -205,7 +210,17 @@ runbooks. Neither belongs in a general setup document.
   WebKit YouTube activation spec 4 / 4 (ports 5391 / 5392, retries 0). 6D-6's frames were taken
   again on this branch, today's row on `432d4ae7` and the fixed row on the head: one toast and the
   kept first screen as approved, the pixel differences limited to the Hangul text that App 9.0.33
-  redrew, the spinners and a toast fade.
+  redrew, the spinners and a toast fade. QA round 11 applied 6D-6's review without a runtime
+  change: four tests-only rows pin both sides of the fallback's deadline (the snapshot route and
+  the IFrame API script still loading at the planned join load again there; a first iframe ready
+  1 ms before it is kept) and the late-snapshot path above as the branch behaves; the late-join
+  file is 13 / 13 on the head, 10 / 13 without the fallback's runtime patch and 5 / 13 without
+  6D-6's and the fallback's, where the late-snapshot row fails because the snapshot then loads
+  again at once. The owner text now gives the fallback's trade-offs and tags Q29 (b) [screen
+  changes]; the report points the 6C-3 rows at the re-applied SHAs. The three unit directories
+  with the guard self-test (250 files / 6,929 rows), a clean build (the same bytes as round 10),
+  every guard except `guard:sw-cache-version`, the ownership check and the local deploy-target
+  judgement pass as before.
 - [App 9.0.34 / v807 train: Phase 6 6C (one YouTube state router, one iframe audio owner and shared arm steps), no light-theme stroke on the dialog grey button and the selection bar, and lighter light-theme dividers (2026-11-02)](design/phase6-6c-router-iframe-audio-arm-steps-2026-11-02.md):
   released on 2026-11-02 21:20 KST in Release 41443521522 (PR #563, squash `cd8eaf47`) as App
   9.0.34 / v807 (App build 807, target `app`, one update dialog, two visible light-theme changes;

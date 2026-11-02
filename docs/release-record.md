@@ -124,7 +124,9 @@ gh run list --workflow e2e.yml --branch main --limit 3
       hotfix-procedure의 9.0.25 문단에 9.0.34의 머지 SHA, Release ID, App 버전을 적고, §2와 §4 다른 항목의 다음 되돌리기 번호를 9.0.35 /
       v808로 옮겼으며, 9.0.33 절과 6B 절에서 6C나 9.0.34를 다음으로 적은 문장을 이 열차의 머지·배포 뒤로 고치고(9.0.33만 혼자 되돌리는
       창이 이 열차의 머지로 닫힘), 다른 절의 기기 확인이 이제 9.0.34에서 한다고 적고, '§2 맨 위 9.0.33 절'을 가리키던 곳을 '§2 9.0.33
-      절'로 고치고, `release-history.md`에 한 행을 더했다. 로컬 결과는 exact-main-SHA 후보를 대신하지 않았다.
+      절'로 고치고(9.0.33 보고서 §11.4 포함), 9.0.33 보고서(머리 표의 Version 칸, §10의 되돌리기, §11.4의 결과)와 6B 보고서(Version 칸)에
+      9.0.34의 머지·배포로 바뀐 것(닫힌 9.0.33의 혼자 되돌리기 창, 다음 번호 9.0.35 / v808)을 날짜 붙은 덧붙임으로 적고,
+      `release-history.md`에 한 행을 더했다. 로컬 결과는 exact-main-SHA 후보를 대신하지 않았다.
       [변경·QA 보고서](design/phase6-6c-router-iframe-audio-arm-steps-2026-11-02.md),
       [증분 한눈에](design/phase6-6c-router-iframe-audio-arm-steps-2026-11-02.md#증분-한눈에),
       [라이트 테마 테두리 지움](design/phase6-6c-router-iframe-audio-arm-steps-2026-11-02.md#라이트-테마-테두리-지움-화면-바뀜-오너-요청-2026-11-02-오후),

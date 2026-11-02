@@ -147,7 +147,7 @@ runbooks. Neither belongs in a general setup document.
   train as post-deploy items (scope and status, the owner decisions and rule, rollback, the
   post-deploy check, the next steps, open items), its §4 the 9.0.34 entry and current boundary
   line (5), and the hotfix procedure's 9.0.25 bullet names 9.0.34's merge SHA, Release ID and App
-  version. This train's merge ended 9.0.33's standalone revert window; its own windows (6C and each light
+  version; the 9.0.33 and 6B reports carry dated notes for 9.0.34's merge and release. This train's merge ended 9.0.33's standalone revert window; its own windows (6C and each light
   increment) close when the next App update merges.
   6C-1 turns `iframe.ts`'s fixed-order dispatch of iframe states to the start owners into a router
   with one decision per start claim kind (a kind without one does not compile) and merges the

@@ -14,6 +14,9 @@
  *   (deferred and module scripts wait for the stylesheets the parser added
  *   before them);
  * - no other font sheet, no font preload, no script that loads fonts;
+ * - /han-order.js, a blocking classic script in the head before first.css,
+ *   which marks the app's Han order on the root from the browser's
+ *   languages (browser/classic-runtime/han-order.ts), as the app does;
  * - page CSS declares no @font-face and sets no font stack property; text
  *   reads a stack (var(--font-sans...), with the system fallback when one is
  *   given) or inherits it, and only device monospace for code and the
@@ -26,7 +29,10 @@
 import postcss, { type Rule } from 'postcss';
 
 import { LANGUAGE_OPTIONS } from '../../src/i18n/locales.ts';
-import { PUBLIC_FONT_SHEET_URLS } from '../../src/i18n/public-font-urls.ts';
+import {
+  PUBLIC_FONT_SHEET_URLS,
+  PUBLIC_HAN_ORDER_SCRIPT_URL,
+} from '../../src/i18n/public-font-urls.ts';
 
 /** The system fallback a stack reference names, should stacks.css fail to load. */
 const SYSTEM_FONT_FALLBACK = "-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif";
@@ -137,6 +143,27 @@ export function publicFontLinkProblems(html: string, options: PublicFontLinkOpti
       problems.push('links rest.css in the head, not the body');
     } else if (masked.slice(restLink.index).search(/<script\b/iu) >= 0) {
       problems.push('links rest.css before a body script');
+    }
+  }
+
+  const hanOrder = [...masked.matchAll(/<script\b[^>]*>/giu)].filter(
+    (match) => attribute(match[0], 'src') === PUBLIC_HAN_ORDER_SCRIPT_URL,
+  );
+  if (hanOrder.length !== 1) {
+    problems.push(`loads ${PUBLIC_HAN_ORDER_SCRIPT_URL} ${hanOrder.length} times, not once`);
+  } else if (hanOrder[0]) {
+    const { 0: tag, index } = hanOrder[0];
+    if (index > headEnd) problems.push(`loads ${PUBLIC_HAN_ORDER_SCRIPT_URL} outside the head`);
+    if (
+      /\s(?:defer|async)(?=[\s=>/])/iu.test(tag) ||
+      (attribute(tag, 'type') ?? '').toLowerCase() === 'module'
+    ) {
+      problems.push(
+        `loads ${PUBLIC_HAN_ORDER_SCRIPT_URL} after the first paint, not as a blocking classic script`,
+      );
+    }
+    if (first[0] && first[0].index < index) {
+      problems.push(`loads ${PUBLIC_HAN_ORDER_SCRIPT_URL} after first.css`);
     }
   }
   return problems;

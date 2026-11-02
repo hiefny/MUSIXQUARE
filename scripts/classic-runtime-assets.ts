@@ -68,6 +68,12 @@ export const CLASSIC_RUNTIME_ASSETS = [
     target: 'es2018',
   },
   {
+    sourcePath: 'browser/classic-runtime/han-order.ts',
+    outputPath: 'han-order.js',
+    minify: true,
+    target: 'es2018',
+  },
+  {
     sourcePath: 'browser/classic-runtime/landing-bootstrap.ts',
     outputPath: 'landing-bootstrap.js',
   },

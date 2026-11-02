@@ -48,7 +48,9 @@
          build emits /web-fonts/first.css and rest.css, so Vite leaves these
          links as written. rest.css follows the last script; the localized
          copies whose language needs it first link it here
-         (scripts/localized-html-lib.mts). -->
+         (scripts/localized-html-lib.mts). han-order.js marks the app's Han
+         order from the browser's languages before the first paint. -->
+    <script src="/han-order.js"></script>
     <link rel="stylesheet" href="/web-fonts/first.css" vite-ignore />
     <link rel="stylesheet" href="/web-fonts/stacks.css" vite-ignore />
     <link rel="stylesheet" href="/designsystem/colors_and_type.css" />

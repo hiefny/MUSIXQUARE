@@ -16,3 +16,10 @@ export const PUBLIC_FONT_SHEET_URLS = {
   stacks: '/web-fonts/stacks.css',
   rest: '/web-fonts/rest.css',
 } as const;
+
+/**
+ * The script every page outside the app loads in its head to mark the app's
+ * Han order on its root (browser/classic-runtime/han-order.ts), which
+ * stacks.css reads.
+ */
+export const PUBLIC_HAN_ORDER_SCRIPT_URL = '/han-order.js';

@@ -21,6 +21,7 @@ import { useAsyncConnectMiddleware } from './scripts/async-connect-middleware.ts
 import { translationCatalogAssets } from './scripts/translation-catalog-assets.ts';
 import { localeRecoveryAssets } from './scripts/locale-recovery-assets.ts';
 import { APP_CSS_BROWSER_TARGETS, LEGACY_APP_BROWSER_TARGET } from './scripts/browser-target.ts';
+import { publicFontSheets } from './scripts/public-font-sheets.mts';
 import { LANGUAGE_OPTIONS } from './src/i18n/locales.ts';
 
 export const SECONDARY_JAVASCRIPT_CHUNK_RAW_LIMIT_BYTES = 500_000;
@@ -962,6 +963,10 @@ export function createViteConfig(env: DevEnvironment = {}): UserConfig {
       localeRecoveryAssets(),
       flattenWorkshopHtml(),
       bindStaticLocaleFontAssets(),
+      // After the About font binding: About's raw locale sheet copies share a
+      // name stem with the app's script sheets until that binding removes
+      // them, and the public sheets are made from the processed app sheets.
+      publicFontSheets(),
       devPageAliases(),
       failClosedDevApi(proxyProductionApi),
       prioritizeStylesheetsInHtml(),

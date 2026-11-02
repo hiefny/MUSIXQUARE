@@ -950,8 +950,8 @@ JS 33 B, 위 '번들 크기').
 - release-record: 버전 올리기 바로 앞의 릴리스 준비 기록 `3cb356af`가 §2의 이 열차 항목(6C, 라이트 테두리, 라이트 구분선), 열린
   항목 'YouTube 첫 음 정렬'의 연결, 9.0.33 절과 6B 절의 다음 단계 (2) 고침을 적었다(위 '배포 조건과 순서' 3). 버전 올리기 뒤
   리뷰를 반영한 기록 커밋(QA 라운드 13)이 9.0.33 절 되돌리기 항목의 이 보고서 링크, 닫힌 6C-3 갈래('버전 올리기 전의 예')의
-  문장, G가 블라인드가 아님, 나가는 버전 올리기 머리의 크기를 더하거나 고쳤다. 남은 것은 배포 뒤 기록 PR이다(위 '배포 조건과
-  순서' 6, §1, `Last source review`, `docs/release-history.md`는 그때 고침).
+  문장, G가 블라인드가 아님, 나가는 버전 올리기 머리의 크기를 더하거나 고쳤다. 배포 뒤 기록 PR도 끝났다(위 '배포 조건과
+  순서' 6, QA 라운드 14의 마지막 항목: §1, `Last source review`, §2, §4, `docs/release-history.md`).
 
 ## 오너에게
 
@@ -989,11 +989,13 @@ JS 33 B, 위 '번들 크기').
 
 ## QA 라운드
 
-모두 Windows 11 로컬, Node 24.22.2 / npm 12.0.2, vitest 5.0.3, `--maxWorkers=4`, Playwright 1.63.0(Chromium 1243, WebKit 2359), trace
+라운드 1 ~ 13은 모두 Windows 11 로컬, Node 24.22.2 / npm 12.0.2, vitest 5.0.3, `--maxWorkers=4`, Playwright 1.63.0(Chromium 1243, WebKit 2359), trace
 끔(따로 적은 것 말고). 포트는 라운드 1 ~ 4가 4791 / 9791, 라운드 5 ~ 9, 11, 12가 5391 / 5392다. 라운드 1 ~ 4는 옮기기 전 SHA에서,
 라운드 5 ~ 8은 main `7b869c35` 위 SHA에서, 라운드 9와 10은 main `a92bab2b` 위로 다시 옮긴 SHA에서(라운드 10의 라이트 테두리 단위
 묶음만 `agent/light-stroke`의 `d6d69bc4`에서), 라운드 11은 라이트 구분선을 더한 끝 `9fb6f1f8`에서, 라운드 12는 버전 올리기 머리
-`c44d4d2c`에서 돌렸다. 라운드 13은 버전 올리기 뒤 리뷰의 문서 반영이고 Playwright를 돌리지 않았다.
+`c44d4d2c`에서 돌렸다. 라운드 13은 버전 올리기 뒤 리뷰의 문서 반영이고 Playwright를 돌리지 않았다. 라운드 14는 로컬이 아니다: GitHub의 Linux 러너(PR CI,
+exact-main CI, Drift Audit, 머지 뒤 Full E2E), 운영 Production Release와 그 smoke, 인증 없는 공개 GET, 릴리스 담당의 운영 데스크톱
+Chromium이다.
 
 ### 1. 구현 중 증분별 검사 (2026-11-01 22:47 ~ 2026-11-02 05:26 KST)
 
@@ -1554,9 +1556,9 @@ Cloudflare, 릴리스 담당의 데스크톱 Chromium이다. 로컬과 브랜치
   gzip 201.53 KiB), 부분 릴리스 판정 compatible(21:18:53 ~ 21:18:58 KST), checkpoint artifact 13141009365(21:18:59 ~ 21:19:03 KST, 6
   files, App 9.0.33 `047e6f68`), D1 계약 단계 일곱 success(21:19:03 ~ 21:19:25 KST), PRO 최소 빌드 사전 검사와 다른 다섯 Worker의 단계는
   target `app`이라 skip. App 단계(21:19:25 ~ 21:19:43 KST): 다시 확인 compatible(21:19:32 KST), 'Verified unchanged production
-  deployment for app', `dist`의 1,334 files를 읽어 새로 바뀐 자산 79개를 올림(1,193개는 이미 있음: JS 청크 30개, 앱 CSS
+  deployment for app', `dist`의 1,334 files를 읽어 새로 바뀐 자산 79개(JS 청크 30개, 앱 CSS
   `main-CXNeGFie.css`, `index.html`과 언어별 `index.html` 41개, `service-worker.js`, `admin.js`, `/events/event.css`, 디자인 시스템의
-  `/designsystem/index.html`, `/designsystem/colors_and_type.css`, `/designsystem/preview/colors-light.html`), App
+  `/designsystem/index.html`, `/designsystem/colors_and_type.css`, `/designsystem/preview/colors-light.html`)를 올림(1,193개는 이미 있음), App
   `b5278b0b-e6fa-488d-8993-a85a3ba28b8e`(21:19:41 KST, startup 4 ms), 'app production version 047e6f68-… -> b5278b0b-…'. smoke: App
   generation(21:19:43 ~ 21:19:49 KST, `main-DVz17rkE.js` 859,737 B, 22 assets, 세 번 연속 읽기, 9.0.33의 진입보다 1,319 B 작아 라운드
   12의 진입 raw −1,319 B와 맞음), 익명 계정 경계와 페이지의 최소 빌드 읽기(strict, 795), PRO 공개 경계(R4의 `e7657f88`, 12번 가운데
@@ -1591,7 +1593,7 @@ Cloudflare, 릴리스 담당의 데스크톱 Chromium이다. 로컬과 브랜치
   `youtube` 9, `youtube-landscape-full-bleed` 4, `youtube-search-interactions` 8), `setup-youtube-activation` 4행(Chromium 프로젝트, WebKit
   레인이 아님), 라이트 두 증분에 닿는 명세 24행(`accessibility-contrast` 7, `design-system-page` 2, `asamo-event` 10,
   `auxiliary-component-cascade` 5)과 선택 모드 재생목록 명세 일곱 32행(`playlist-edit-mode` 17, `playlist-delete-mode-layout` 6,
-  `playlist` 5, `playlist-desktop-reorder`, `playlist-progressive-focus`, `playlist-slots`, `playlist-touch-reorder` 각 1)이 통과했다.
+  `playlist` 5, `playlist-desktop-reorder`, `playlist-progressive-focus`, `playlist-slots`, `playlist-touch-reorder` 각 1)이 통과했다. `webkit-mobile`에서는 `setup-youtube-activation` 4, `youtube-landscape-full-bleed` 4, 라이트 명세 `auxiliary-component-cascade` 5행이 Linux WebKit에서 통과했다(실제 iPhone Safari가 아님).
   `cd8eaf47`은 9.0.34의 머지 그 자체라 런타임이 운영 9.0.34와 같고, 이 실행은 exact-main 후보가 아니다. 앞 열차의 머지 뒤 Full E2E가
   다음 열차를 머지하기 전에 통과한다는 Phase 6 계획 §1.4의 규칙대로, 이 통과가 다음 App 열차(공개 페이지 글꼴 열차, 9.0.35 / v808
   예정)를 머지하기 전의 조건을 채운다. 한계: 실제 기기, 실제 YouTube 소리, 운영 Cloudflare Realtime은 지나지 않는다.
@@ -1631,8 +1633,8 @@ Cloudflare, 릴리스 담당의 데스크톱 Chromium이다. 로컬과 브랜치
   기계가 준비 실패 정리에서 소리를 되돌려(`setVolume`·`unMute`) 무음으로 돌던 warm 재생이 들릴 수 있다. 실제 기기에서 `pauseVideo()`만 실패하고
   재생이 이어지는 경우는 확인되지 않았다[추론]. 기기에서 재현되면 그때 묻는다.
 - **실기기, iOS Safari, 블루투스, 6C 런타임의 Full E2E:** 기기 확인은 배포 뒤 블라인드로 하며 게이트가 아니고, 9.0.34의 배포 기록까지
-  하지 않았다. 6C 런타임의 PR CI, exact-main CI와 머지 뒤 Full E2E 41443910217(813 passed)은 통과했다(QA 라운드 14). WebKit 레인은 로컬
-  `setup-youtube-activation.test.ts`만 돌렸다(계획 §4.2-4). Phase 6 앞의 기기 기준선(Q6)은 재지 않았다.
+  하지 않았다. 6C 런타임의 PR CI, exact-main CI와 머지 뒤 Full E2E 41443910217(813 passed)은 통과했다(QA 라운드 14). WebKit은 로컬
+  `setup-youtube-activation.test.ts`와 머지 뒤 Full E2E의 `webkit-mobile` 레인(94 passed, 그 가운데 Linux WebKit의 `setup-youtube-activation` 4, `youtube-landscape-full-bleed` 4, `auxiliary-component-cascade` 5)뿐이고, 실제 iPhone Safari는 보지 않았다(계획 §4.2-4). Phase 6 앞의 기기 기준선(Q6)은 재지 않았다.
 - **Worker 묶음 dry-run:** `cloudflare/`의 차이는 버전 올리기의 `ADMIN_ASSET_VERSION` 한 줄뿐이라 로컬에서 돌리지 않았다(릴리스가
   `check:worker-bundles`로 다시 본다). Worker의 타입 검사(`typecheck:workers`, `types:workers:check`)는 `npm run typecheck` 사슬 안에서
   돌았고, Worker 단위 커버리지(`test:coverage:workers`)와 `check:workers`는 QA 라운드 12가 돌렸다.

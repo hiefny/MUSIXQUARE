@@ -130,16 +130,17 @@ runbooks. Neither belongs in a general setup document.
   release files; checkpoint artifact 13141009365 with the 9.0.33 App `047e6f68`; the entry chunk
   `main-DVz17rkE.js` is 1,319 B smaller than 9.0.33's, as round 12 measured), the public service
   worker read v807, `index.html` loads bootstrap v807 and the floor read 795 with live App 807, the
-  production app CSS carries the light `--glass-border: transparent` and `--divider: #e4e6e8`
-  (light high contrast `#d4d6d8`) and the production events page CSS matches the repository byte
-  for byte, the Drift Audit reported 32 pass / 0 fail / 5 manual-only, and the release owner saw
+  record's own unauthenticated GETs (21:37 to 21:38 KST) saw the production app CSS carry the
+  light `--glass-border: transparent` and `--divider: #e4e6e8` (light high contrast `#d4d6d8`) and
+  the production events page CSS match the repository byte for byte, the Drift Audit reported 32 pass / 0 fail / 5 manual-only, and the release owner saw
   only the light start screen and the update dialog in production desktop Chromium (not blind:
   computed `--glass-border` transparent and `--divider` `#e4e6e8`, the grey 'later' button's
   border `rgba(0, 0, 0, 0)` with no ring in the screenshot). The post-merge Full E2E 41443910217
   on `cd8eaf47` passed at 22:37 KST (`e2e` 813 passed on Linux Chromium, among them the ten
   YouTube specs' 53 rows, the 24 light-theme rows and the 32 selection-mode playlist rows;
-  `webkit-mobile` 94 passed and 5 skipped plus the production service worker test; the production
-  large-room R2 smoke passed), which meets the condition for the next App update, the public-page
+  `webkit-mobile` 94 passed and 5 skipped plus the production service worker test, among them
+  `setup-youtube-activation` 4, `youtube-landscape-full-bleed` 4 and `auxiliary-component-cascade` 5
+  on Linux WebKit, not a real iPhone Safari; the production large-room R2 smoke passed), which meets the condition for the next App update, the public-page
   font train with the design system Typography section (planned 9.0.35 / v808, being built on
   `agent/public-page-fonts` from `cd8eaf47`), to merge. The blind device
   candidates A to F and the owner's light-mode look G wait. The release record's §2 carries the

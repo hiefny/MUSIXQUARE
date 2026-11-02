@@ -7,7 +7,13 @@
  * IFrame API, and a calibrated server clock. When this device misses the
  * server's READY barrier, the COMMIT sends it down the catch-up path; these
  * rows count what that path does to the iframe and the toasts. They describe
- * current behaviour, including parts that look like defects.
+ * current behaviour, including parts that look like defects. The first four
+ * (a) rows, of a device that held no iframe, describe the catch-up as Phase 6
+ * 6D-6 changed it (owner decision Q22 (a)): it keeps that device's
+ * still-loading load instead of loading the occurrence again, also when the
+ * committed checkpoint reaches the device in a snapshot rather than the COMMIT
+ * frame, and so a first iframe that never finishes its handshake is not
+ * loaded again either.
  *
  * The platform is the App's own detection: core/platform.ts with IS_ANDROID
  * switchable per row (as in pro-manual-zero-start.test.ts). player.ts and the
@@ -19,12 +25,12 @@
  * (this suite must not load Worker code, see ci-quality-gates.test.ts); the
  * App's own late-join lead comes from
  * pro-room/__tests__/__helpers__/pro-late-youtube-join-timing.ts, which names
- * the row that pins it, and the arm's release acknowledgement from its home,
- * src/youtube/constants.ts.
+ * the row that pins it, and the arm's release acknowledgement and the iframe
+ * load deadline from their home, src/youtube/constants.ts.
  */
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { bus } from '../../core/events.ts';
-import { resetState, setState } from '../../core/state.ts';
+import { getState, resetState, setState } from '../../core/state.ts';
 import { clearAllManagedTimers } from '../../core/timers.ts';
 import {
   getProStartObservations,
@@ -59,6 +65,7 @@ import type { QueueItemId } from '../../types/index.ts';
 import { showToast } from '../../ui/toast.ts';
 import {
   ANDROID_YOUTUBE_PLAY_LATENCY_FLOOR_MS,
+  SCRIPT_LOAD_TIMEOUT_MS,
   YOUTUBE_ARM_RELEASE_ACK_TIMEOUT_MS,
 } from '../constants.ts';
 import { cancelYouTubeAuthorityPreparation } from '../iframe.ts';
@@ -266,7 +273,8 @@ function commitEvent(
   };
 }
 
-function snapshot(): ProRoomSnapshot {
+/** The room's snapshot: idle, or carrying the given checkpoint. */
+function snapshot(playback?: ProRoomPlaybackCheckpoint): ProRoomSnapshot {
   return proSnapshot({
     roomCode: ROOM_CODE,
     status: 'active',
@@ -282,8 +290,8 @@ function snapshot(): ProRoomSnapshot {
         source: { kind: 'youtube', videoId: VIDEO_ID },
       },
     ],
-    currentQueueItemId: null,
-    playback: {
+    currentQueueItemId: playback?.queueItemId ?? null,
+    playback: playback ?? {
       coordinatorEpoch: ROOM_EPOCH,
       revision: 0,
       state: 'idle',
@@ -331,6 +339,12 @@ function effectsToasts(): number {
   return vi
     .mocked(showToast)
     .mock.calls.filter(([message]) => message === t('youtube.effects_disabled')).length;
+}
+
+function loadTimeoutToasts(): number {
+  return vi
+    .mocked(showToast)
+    .mock.calls.filter(([message]) => message === t('youtube.load_timeout')).length;
 }
 
 function plays(fake: FakeYtPlayer): number[] {
@@ -402,7 +416,7 @@ describe('PRO late YouTube cohort join on the device (pinned 2026-10-30)', () =>
   // (a) Scenario: this device holds no iframe when PREPARE arrives. The
   // iframe it builds has not finished its handshake (onReady) when the 2.3 s
   // barriered budget ends, so READY fails and the Worker commits without it.
-  it('(a) replays youtube:load and the effects toast when the COMMIT catch-up meets a still-loading iframe', async () => {
+  it('(a) keeps the still-loading iframe, its one youtube:load and one effects toast at the COMMIT catch-up', async () => {
     const { iframes, Player } = installIframeApi();
     const loads = vi.fn();
     bus.on('youtube:load', loads);
@@ -425,34 +439,34 @@ describe('PRO late YouTube cohort join on the device (pinned 2026-10-30)', () =>
     controller.acceptCommit(commitEvent(1, 0, 'zero-start'));
     await vi.advanceTimersByTimeAsync(0);
 
-    // The catch-up runs the PREPARE path again: a second youtube:load for the
-    // same occurrence, and loadYouTubeVideo shows its toast a second time.
-    expect(loads).toHaveBeenCalledTimes(2);
-    expect(loads.mock.calls[1]).toEqual([VIDEO_ID, null, QUEUE_ITEM_ID, false, 0]);
-    expect(effectsToasts()).toBe(2);
-    // Looks like a defect: that load also destroys the iframe still loading
-    // and builds another, so the wait for its handshake starts over.
-    expect(Player).toHaveBeenCalledTimes(2);
-    expect(iframes[0]!.fake.__log.map(({ op }) => op)).toEqual(['destroy']);
-    expect(getYouTubePlayer()).toBe(iframes[1]!.fake);
+    // The catch-up waits for the PREPARE's own load of the occurrence: no
+    // second youtube:load or toast, and the iframe still loading is neither
+    // destroyed nor replaced, so its handshake does not start over.
+    expect(loads).toHaveBeenCalledOnce();
+    expect(effectsToasts()).toBe(1);
+    expect(Player).toHaveBeenCalledOnce();
+    expect(iframes[0]!.fake.__log.map(({ op }) => op)).not.toContain('destroy');
+    expect(getYouTubePlayer()).toBe(iframes[0]!.fake);
 
-    // The new iframe is ready 500 ms later; the device joins at its plan,
-    // 3 s after COMMIT receipt, at the room position there (3.0 - 0.7 s).
+    // That iframe is ready 500 ms later; the device joins at its plan, 3 s
+    // after COMMIT receipt, at the room position there (3.0 - 0.7 s).
     await vi.advanceTimersByTimeAsync(500);
-    iframes[1]!.ready();
+    iframes[0]!.ready();
     await vi.advanceTimersByTimeAsync(LATE_JOIN_LEAD_MS - 500);
-    const joined = iframes[1]!.fake;
+    const joined = iframes[0]!.fake;
     expect(plays(joined).at(-1)).toBe(receivedAt + LATE_JOIN_LEAD_MS);
     expect(joined.__state).toBe(1);
     expect(joined.getCurrentTime()).toBeCloseTo(LATE_JOIN_ROOM_ADVANCE_SECONDS, 6);
-    expect(loads).toHaveBeenCalledTimes(2);
-    expect(effectsToasts()).toBe(2);
+    expect(loads).toHaveBeenCalledOnce();
+    expect(effectsToasts()).toBe(1);
+    expect(Player).toHaveBeenCalledOnce();
+    expect(iframes[0]!.fake.__log.map(({ op }) => op)).not.toContain('destroy');
   });
 
   // (a) Scenario variant: the IFrame API script itself is still loading when
-  // the budget ends. The catch-up's load queues behind the same script
-  // request: again a second youtube:load and toast, but no iframe to destroy.
-  it('(a) replays youtube:load and the effects toast while the IFrame API script is still loading', async () => {
+  // the budget ends. The catch-up waits behind the same script request with
+  // the PREPARE's load: one youtube:load and one toast.
+  it('(a) waits for the IFrame API script without a second youtube:load or effects toast', async () => {
     const loads = vi.fn();
     bus.on('youtube:load', loads);
     const { controller, reportReady } = createParticipant();
@@ -471,10 +485,10 @@ describe('PRO late YouTube cohort join on the device (pinned 2026-10-30)', () =>
     const receivedAt = Date.now();
     controller.acceptCommit(commitEvent(1, 0, 'zero-start'));
     await vi.advanceTimersByTimeAsync(0);
-    expect(loads).toHaveBeenCalledTimes(2);
-    expect(effectsToasts()).toBe(2);
+    expect(loads).toHaveBeenCalledOnce();
+    expect(effectsToasts()).toBe(1);
 
-    // The script arrives 500 ms later and builds one iframe, for the newer load.
+    // The script arrives 500 ms later and builds one iframe, for that load.
     await vi.advanceTimersByTimeAsync(500);
     const scripts = document.querySelectorAll<HTMLScriptElement>(
       'script[src*="youtube.com/iframe_api"]',
@@ -487,8 +501,101 @@ describe('PRO late YouTube cohort join on the device (pinned 2026-10-30)', () =>
     await vi.advanceTimersByTimeAsync(LATE_JOIN_LEAD_MS - 500);
     expect(plays(iframes[0]!.fake).at(-1)).toBe(receivedAt + LATE_JOIN_LEAD_MS);
     expect(iframes[0]!.fake.getCurrentTime()).toBeCloseTo(LATE_JOIN_ROOM_ADVANCE_SECONDS, 6);
-    expect(loads).toHaveBeenCalledTimes(2);
-    expect(effectsToasts()).toBe(2);
+    expect(loads).toHaveBeenCalledOnce();
+    expect(effectsToasts()).toBe(1);
+    expect(Player).toHaveBeenCalledOnce();
+  });
+
+  // (a) Scenario variant: this device never gets the COMMIT frame (for
+  // example it reconnects), and the next snapshot carries the checkpoint the
+  // Worker committed. That is the checkpoint this device prepared, so the
+  // snapshot commits as that transition's COMMIT, and its catch-up keeps the
+  // same still-loading load.
+  it('(a) keeps the still-loading iframe when the committed checkpoint arrives in a snapshot instead of the COMMIT frame', async () => {
+    const { iframes, Player } = installIframeApi();
+    const loads = vi.fn();
+    bus.on('youtube:load', loads);
+    const { controller, reportReady } = createParticipant();
+
+    controller.acceptPrepare(prepareEvent(0, 0, 'zero-start'));
+    await vi.advanceTimersByTimeAsync(0);
+    expect(loads).toHaveBeenCalledOnce();
+    expect(effectsToasts()).toBe(1);
+    expect(Player).toHaveBeenCalledOnce();
+
+    await vi.advanceTimersByTimeAsync(PAST_PREPARE_BUDGET_MS);
+    expect(reportReady).toHaveBeenCalledExactlyOnceWith(
+      expect.objectContaining({ transitionId: TRANSITION_ID, status: 'failed' }),
+    );
+    expect(isYtLoadInProgress()).toBe(true);
+
+    // The Worker commits revision 1 at 0:00, executeAt one COMMIT lead from now.
+    const receivedAt = Date.now();
+    const restore = controller.restorePersistedPlayback(
+      snapshot(checkpoint(1, 0, receivedAt + COMMIT_LEAD_MS)),
+    );
+    await vi.advanceTimersByTimeAsync(0);
+    expect(loads).toHaveBeenCalledOnce();
+    expect(effectsToasts()).toBe(1);
+    expect(Player).toHaveBeenCalledOnce();
+    expect(iframes[0]!.fake.__log.map(({ op }) => op)).not.toContain('destroy');
+    expect(getYouTubePlayer()).toBe(iframes[0]!.fake);
+
+    // As with the frame: ready 500 ms later, the join 3 s after the snapshot's
+    // receipt, at the room position there (3.0 - 0.7 s).
+    await vi.advanceTimersByTimeAsync(500);
+    iframes[0]!.ready();
+    await vi.advanceTimersByTimeAsync(LATE_JOIN_LEAD_MS - 500);
+    const joined = iframes[0]!.fake;
+    expect(plays(joined).at(-1)).toBe(receivedAt + LATE_JOIN_LEAD_MS);
+    expect(joined.__state).toBe(1);
+    expect(joined.getCurrentTime()).toBeCloseTo(LATE_JOIN_ROOM_ADVANCE_SECONDS, 6);
+    expect(loads).toHaveBeenCalledOnce();
+    expect(effectsToasts()).toBe(1);
+    expect(Player).toHaveBeenCalledOnce();
+    await restore;
+  });
+
+  // (a) Scenario variant, the cost of keeping that load: the first iframe
+  // never finishes its handshake. The COMMIT catch-up waits for it instead of
+  // building a second iframe and gives up at its own unbarriered wait; the
+  // load's deadline, counted from its youtube:load at PREPARE, then ends it
+  // with the load-timeout toast and stops YouTube mode. The device has not
+  // joined; a later restore of the room's checkpoint is outside this row.
+  it('(a) waits for a first iframe that never finishes its handshake until that load times out, 15 s after PREPARE', async () => {
+    const { iframes, Player } = installIframeApi();
+    const loadedAt: number[] = [];
+    bus.on('youtube:load', () => loadedAt.push(Date.now()));
+    const { controller, reportReady } = createParticipant();
+
+    controller.acceptPrepare(prepareEvent(0, 0, 'zero-start'));
+    await vi.advanceTimersByTimeAsync(PAST_PREPARE_BUDGET_MS);
+    expect(reportReady).toHaveBeenCalledExactlyOnceWith(
+      expect.objectContaining({ transitionId: TRANSITION_ID, status: 'failed' }),
+    );
+    controller.acceptCommit(commitEvent(1, 0, 'zero-start'));
+    await vi.advanceTimersByTimeAsync(0);
+    expect(loadedAt).toHaveLength(1);
+    expect(effectsToasts()).toBe(1);
+    expect(Player).toHaveBeenCalledOnce();
+
+    const loadDeadline = loadedAt[0]! + SCRIPT_LOAD_TIMEOUT_MS;
+    await vi.advanceTimersByTimeAsync(loadDeadline - 1 - Date.now());
+    expect(loadedAt).toHaveLength(1);
+    expect(Player).toHaveBeenCalledOnce();
+    expect(loadTimeoutToasts()).toBe(0);
+    expect(isYtLoadInProgress()).toBe(true);
+    expect(iframes[0]!.fake.__log).toEqual([]);
+
+    await vi.advanceTimersByTimeAsync(1);
+    expect(loadTimeoutToasts()).toBe(1);
+    expect(iframes[0]!.fake.__log.map(({ op }) => op)).toEqual(['destroy']);
+    expect(getYouTubePlayer()).toBeNull();
+    expect(isYtLoadInProgress()).toBe(false);
+    expect(getState('playback.mode')).not.toBe('youtube');
+    expect(loadedAt).toHaveLength(1);
+    expect(effectsToasts()).toBe(1);
+    expect(Player).toHaveBeenCalledOnce();
   });
 
   // (a) Scenario, for contrast: the video is resident and ready, but the

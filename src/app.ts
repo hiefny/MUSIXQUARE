@@ -686,15 +686,9 @@ function runAudioRecoveryRequest(request: AudioRecoveryRequest): Promise<boolean
           !operationStillCurrent() ||
           !audioRecoveryPlaybackIdentityStillCurrent(identity)
         ) {
+          // A foreground restart was confirmed above, which empties the
+          // owner's slot: there is no restart left to retire or re-arm.
           log.warn('[Audio] Exact failed PLAY retry was superseded or did not start');
-          if (gestureResult.foregroundAttemptToken) {
-            const retired = retireForegroundAudioContextRestart(
-              gestureResult.foregroundAttemptToken,
-            );
-            if (retired && healthContext && document.visibilityState === 'visible') {
-              armForegroundAudioContextClockHealthCheck(healthContext);
-            }
-          }
           return false;
         }
       }

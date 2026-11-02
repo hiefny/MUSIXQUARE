@@ -6,6 +6,7 @@ import {
   type ProRoomPlaybackTimingMode,
 } from '../../../cloudflare/pro-room-playback-timing.ts';
 import type { MusixquareProRoom } from '../../../cloudflare/pro-room-worker.ts';
+import type { YouTubeAuthorityTimingMode } from '../../youtube/authority-arm.ts';
 import { PRO_YOUTUBE_BARRIERED_PREPARE_TIMEOUT_MS } from '../../youtube/constants.ts';
 import type { ProRoomPlaybackCommitEvent, ProRoomPlaybackPrepareEvent } from '../api.ts';
 import type { ProPlaybackTimingMode } from '../playback-authority-hooks.ts';
@@ -13,7 +14,9 @@ import type { ProPlaybackTimingMode } from '../playback-authority-hooks.ts';
 /**
  * RO-03: the timing home of a PRO playback transition that the PRO Worker and
  * the App share (cloudflare/pro-room-playback-timing.ts): the rendezvous
- * barrier of a PREPARE, the lead of a COMMIT and the start-kind union.
+ * barrier of a PREPARE, the lead of a COMMIT and the start-kind union. The
+ * App's PRO YouTube arm names its start kind with the same union
+ * (YouTubeAuthorityTimingMode, Phase 6 6D-4).
  *
  * Every PRO Worker before PRO snapshot schemaVersion 2 marked a zero-start
  * transition one millisecond below each value, a 2999 ms deadline and a 699 ms
@@ -55,6 +58,7 @@ describe('PRO playback transition timing (RO-03)', () => {
     >;
     expectTypeOf<WorkerTimingMode>().toEqualTypeOf<ProRoomPlaybackTimingMode>();
     expectTypeOf<ProPlaybackTimingMode>().toEqualTypeOf<ProRoomPlaybackTimingMode>();
+    expectTypeOf<YouTubeAuthorityTimingMode>().toEqualTypeOf<ProRoomPlaybackTimingMode>();
     expectTypeOf<
       NonNullable<ProRoomPlaybackPrepareEvent['timingMode']>
     >().toEqualTypeOf<ProRoomPlaybackTimingMode>();

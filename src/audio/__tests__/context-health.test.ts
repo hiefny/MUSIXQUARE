@@ -576,4 +576,41 @@ describe('AudioContext foreground health', () => {
       .toHaveProperty('attemptResume')
       .toEqualTypeOf<boolean>();
   });
+
+  it('leaves nothing to retire once a restart is confirmed, even after a newer restart starts', async () => {
+    const { instance, module } = await loadContext({ clock: 'running' });
+    const context = instance as unknown as AudioContext;
+    const preparation = await module.prepareForegroundAudioContextRestart(
+      module.armForegroundAudioContextClockHealthCheck(context)!,
+    );
+    await module.resumePreparedForegroundAudioContextRestartFromGesture(preparation!.attemptToken);
+    const requirement = module.getPendingForegroundAudioContextRestartClockHealthRequirement();
+    const health = module.probeAudioContextHealth({
+      attemptResume: false,
+      context: requirement!.context,
+      isCurrent: requirement!.isCurrent,
+    });
+    await vi.advanceTimersByTimeAsync(180);
+    await expect(health).resolves.toMatchObject({ healthy: true });
+    expect(module.confirmForegroundAudioContextRestartHealth(preparation!.attemptToken)).toBe(true);
+    const nativeCalls = instance.resume.mock.calls.length + instance.suspend.mock.calls.length;
+
+    // The recovery dialog retires this token when its failed-PLAY retry does
+    // not start; the confirm already emptied the slot, so that retire is a
+    // no-op and the re-arm behind it never ran (removed in Phase 7 7A-6).
+    expect(module.retireForegroundAudioContextRestart(preparation!.attemptToken)).toBe(false);
+    expect(module.getPendingForegroundAudioContextClockHealthCheck()).toBeNull();
+
+    // A newer restart that starts while the retry runs has a token of its own.
+    instance.state = 'running';
+    const newer = await module.prepareForegroundAudioContextRestart(
+      module.armForegroundAudioContextClockHealthCheck(context)!,
+    );
+    expect(newer?.status).toBe('prepared');
+    const newerCalls = instance.resume.mock.calls.length + instance.suspend.mock.calls.length;
+    expect(module.retireForegroundAudioContextRestart(preparation!.attemptToken)).toBe(false);
+    expect(newer?.isCurrent()).toBe(true);
+    expect(instance.resume.mock.calls.length + instance.suspend.mock.calls.length).toBe(newerCalls);
+    expect(newerCalls).toBe(nativeCalls + 1);
+  });
 });

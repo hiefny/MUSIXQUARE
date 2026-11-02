@@ -8,8 +8,8 @@
  * so it reads the app's stacks. These fixtures pin each departure the checks
  * report; the page cases follow, one group of pages at a time.
  */
-import { readFileSync } from 'node:fs';
-import { resolve } from 'node:path';
+import { existsSync, readdirSync, readFileSync, statSync } from 'node:fs';
+import { join, relative, resolve } from 'node:path';
 import postcss, { type AtRule, type Rule } from 'postcss';
 import { beforeAll, describe, expect, it } from 'vitest';
 
@@ -405,7 +405,9 @@ describe('About', () => {
   it('tells the Korean and English pages apart only in the recorded copy rules, never by tracking', () => {
     const splits = koreanEnglishSplits(page(SOURCE).sheets);
     expect([...new Set(splits.map(({ selector }) => selector))].sort()).toEqual(
-      Object.keys(PUBLIC_KOREAN_ENGLISH_COPY_RULES).sort(),
+      Object.keys(PUBLIC_KOREAN_ENGLISH_COPY_RULES)
+        .filter((selector) => !/policy-hero h1|policy-doc h2/u.test(selector))
+        .sort(),
     );
     // The app draws Korean and English alike since 9.0.29: no Korean-only tracking.
     for (const { selector, rule } of splits) {
@@ -498,5 +500,128 @@ describe('About', () => {
         /ensureFont|ensurePickerFonts|FONT_STYLESHEET|\/css\/fonts\/|data-static-lang-font|document\.fonts|new FontFace|createElement\(\s*['"]link['"]\s*\)/u,
       );
     }
+  });
+});
+
+function sourceFiles(directory: string): string[] {
+  return readdirSync(directory).flatMap((entry) => {
+    const file = join(directory, entry);
+    if (statSync(file).isDirectory()) return entry === 'node_modules' ? [] : sourceFiles(file);
+    return /\.(?:ts|mts|tsx)$/u.test(entry) ? [file] : [];
+  });
+}
+
+/** A stylesheet's font-family stacks by the language each rule names, read by a pattern. */
+function stacksByLanguage(sheet: string, selectorPattern: RegExp): Map<string, string> {
+  const stacks = new Map<string, string>();
+  for (const { selectors, rule } of readFontStacks(ROOT, { sheets: [sheet] }).rules) {
+    const family = rule.nodes.find((node) => node.type === 'decl' && node.prop === 'font-family');
+    if (family?.type !== 'decl') continue;
+    for (const selector of selectors) {
+      const language = selectorPattern.exec(selector)?.[1];
+      if (!language) continue;
+      expect(family.value.replace(/\s+/gu, ' '), selector).toMatch(
+        /^var\(--font-sans-[a-z-]+, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif\)$/u,
+      );
+      stacks.set(
+        language.toLowerCase(),
+        /^var\((--font-sans-[a-z-]+),/u.exec(family.value)?.[1] ?? family.value,
+      );
+    }
+  }
+  return stacks;
+}
+
+describe('the document pages, translate and the sitemap', () => {
+  const PAGES = [
+    '.workshop/privacy/privacy.html',
+    '.workshop/terms/terms.html',
+    '.workshop/faq/faq.html',
+    '.workshop/developers/developers.html',
+    '.workshop/translate/translate.html',
+    '.workshop/sitemap/sitemap.html',
+  ] as const;
+
+  it.each(PAGES)(
+    '%s links the shared font sheets as written, rest.css after its last script',
+    (source) => {
+      const html = read(source);
+      expect(page(source).rest).toBe('body');
+      expect(publicFontLinkProblems(html, { rest: 'body' })).toEqual([]);
+      for (const href of Object.values(PUBLIC_FONT_SHEET_URLS)) {
+        expect(html).toMatch(
+          new RegExp(`<link rel="stylesheet" href="${href}" vite-ignore />`, 'u'),
+        );
+      }
+      expect(html).not.toMatch(/pretendard|\/css\/fonts\//iu);
+    },
+  );
+
+  it.each(PAGES)("%s reads the app's stacks, with no face or stack of its own", (source) => {
+    const registered = page(source);
+    expect(registered.sheets[0]).toBe('public/legal-pages.css');
+    expect(registered.htmlLangs).toEqual(['en']);
+    for (const sheet of registered.sheets) {
+      expect(publicFontCssProblems(read(sheet)), sheet).toEqual([]);
+    }
+    for (const style of inlineStyles(read(source)))
+      expect(publicFontCssProblems(style)).toEqual([]);
+    expectAppStacks(registered);
+    const splits = koreanEnglishSplits(registered.sheets);
+    for (const { selector, rule } of splits) {
+      expect(selector in PUBLIC_KOREAN_ENGLISH_COPY_RULES, selector).toBe(true);
+      expect(
+        rule.nodes.filter((node) => node.type === 'decl' && node.prop === 'letter-spacing'),
+        selector,
+      ).toEqual([]);
+    }
+  });
+
+  it('keeps the root text of the document pages on the shared stack', () => {
+    expect(read('public/legal-pages.css')).toMatch(
+      /html,\nbody \{[^}]*font-family: var\(--font-sans, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif\);/u,
+    );
+  });
+
+  it("draws each sitemap language name with the stack the app's picker gives it", () => {
+    const picker = appPickerStacks();
+    const expected = new Map(
+      LANGUAGE_OPTIONS.flatMap(({ code }) => {
+        const stack = picker.get(code);
+        return stack ? [[code, stack] as const] : [];
+      }),
+    );
+    const names = stacksByLanguage(
+      '.workshop/sitemap/sitemap.css',
+      /^\[data-locale='([^']+)'\] \.native-name$/u,
+    );
+    expect(Object.fromEntries([...names].sort())).toEqual(Object.fromEntries([...expected].sort()));
+  });
+
+  it('gives translate text in a catalog language the stack the app gives that language', () => {
+    const cells = stacksByLanguage(
+      '.workshop/translate/translate.css',
+      /^\[lang\]:lang\(([^)]+)\)$/u,
+    );
+    expect(Object.fromEntries([...cells].sort())).toEqual(
+      Object.fromEntries([...appPickerStacks()].sort()),
+    );
+  });
+
+  it('loads no font from a page script, and the app font owner is the only stylesheet loader', () => {
+    for (const file of ['.workshop/sitemap/main.ts', '.workshop/translate/main.ts']) {
+      expect(read(file), file).not.toMatch(
+        /static-page-fonts|locale-font-contract|loadLocaleFont|document\.fonts|new FontFace|createElement\(\s*['"]link['"]\s*\)/u,
+      );
+    }
+    for (const retired of ['src/i18n/static-page-fonts.ts', 'src/i18n/locale-font-contract.ts']) {
+      expect(existsSync(resolve(ROOT, retired)), retired).toBe(false);
+    }
+    const importers = ['src', '.workshop', 'browser']
+      .flatMap((directory) => sourceFiles(resolve(ROOT, directory)))
+      .filter((file) => !/[\\/]__tests__[\\/]/u.test(file))
+      .filter((file) => /retryable-stylesheet/u.test(readFileSync(file, 'utf8')))
+      .map((file) => relative(ROOT, file).replace(/\\/gu, '/'));
+    expect(importers.sort()).toEqual(['src/i18n/locale-fonts.ts']);
   });
 });

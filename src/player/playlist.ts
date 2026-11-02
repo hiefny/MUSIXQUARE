@@ -71,6 +71,7 @@ import {
 import {
   cancelYouTubeAuthorityPreparation,
   handoffSameVideoOccurrenceRestart,
+  isYouTubeOccurrenceStillLoading,
   prepareYouTubeAuthorityOccurrence,
   prepareSameVideoOccurrenceRestart,
   waitForPendingYouTubePrimeBounce,
@@ -242,7 +243,10 @@ interface PlayTrackOptions {
     positionSeconds: number;
     youtubeSubIndex: number | null;
     youtubeVideoId: string | null;
-    /** The exact video is already resident in the persistent iframe. */
+    /**
+     * The exact video is already resident in the persistent iframe, or (for
+     * a missed-READY catch-up) still loading there for this occurrence.
+     */
     reuseResidentYouTube?: boolean;
   };
 }
@@ -2678,6 +2682,16 @@ async function prepareAuthoritativePlayback(
     } catch {
       reuseResidentYouTube = false;
     }
+  } else if (
+    request.missedReady &&
+    resolvedVideoId &&
+    isYouTubeOccurrenceStillLoading(request.queueItemId, resolvedVideoId)
+  ) {
+    // The COMMIT catch-up after this device's PREPARE of the occurrence missed
+    // READY: that PREPARE's load of this video is still in flight (its iframe
+    // still handshaking, or the IFrame API script still loading). Keep it
+    // instead of loading again; the authority preparation below waits for it.
+    reuseResidentYouTube = true;
   }
 
   try {

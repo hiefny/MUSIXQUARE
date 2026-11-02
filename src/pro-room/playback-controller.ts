@@ -1276,6 +1276,7 @@ function createImplementation(
     roomEpoch: number,
     isRequestCurrent: () => boolean,
     clock: ProRoomClockSnapshot | null,
+    missedReady?: boolean,
   ) {
     const playback = event.playback;
     if (playback.state === 'idle' || !playback.queueItemId) return null;
@@ -1298,6 +1299,7 @@ function createImplementation(
       prepared = await prepareWithDurationReport(
         {
           ...request,
+          missedReady,
           isCurrent: current,
         },
         current,
@@ -1534,6 +1536,8 @@ function createImplementation(
         // again and the participant stays silent until the next heartbeat. File
         // failures keep their single download/decode attempt per request.
         if (playback.youtubeVideoId !== null) cancelProPlaybackPreparation(authority);
+        // After this device's own server PREPARE missed READY, its first load
+        // of the occurrence may still be loading; the endpoint may keep it.
         const catchup =
           prepared.reason === 'device-unavailable'
             ? null
@@ -1545,6 +1549,7 @@ function createImplementation(
                 context.epoch,
                 isRequestCurrent,
                 clock,
+                preparedFromMatchingTransition,
               );
         if (!playbackCommitStillCurrent(event, generation, isRequestCurrent)) return;
         if (catchup?.status !== 'applied') {

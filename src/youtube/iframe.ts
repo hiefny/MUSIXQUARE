@@ -1738,6 +1738,24 @@ export function adoptResidentYouTubeOccurrence(videoId: string): void {
   expectYouTubeMetadataVideoId(videoId);
 }
 
+/**
+ * Whether a load of exactly this video for this queue occurrence is still in
+ * flight before any player is ready: its iframe has not finished the
+ * handshake, or the IFrame API script is still loading. Read-only.
+ */
+export function isYouTubeOccurrenceStillLoading(
+  queueItemId: QueueItemId,
+  videoId: string,
+): boolean {
+  return (
+    isYtLoadInProgress() &&
+    !isYtPlayerReady() &&
+    isPlaybackModeYouTube() &&
+    getCurrentQueueItemId() === queueItemId &&
+    _ifr.expectedMetadataVideoId === videoId
+  );
+}
+
 export function loadYouTubeVideo(
   videoId: string | null,
   playlistId: string | null = null,

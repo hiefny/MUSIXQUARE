@@ -10,7 +10,7 @@ import { describe, expect, it } from 'vitest';
 
 import previewConfig from '../../../.workshop/translate/dev/preview.config.ts';
 
-function servedPluginNames(): string[] {
+function servedPlugins(): Plugin[] {
   if (typeof previewConfig !== 'function') throw new Error('expected a config function');
   const config = previewConfig({
     command: 'serve',
@@ -18,7 +18,11 @@ function servedPluginNames(): string[] {
     isPreview: false,
     isSsrBuild: false,
   }) as UserConfig;
-  return (config.plugins ?? []).flat().map((plugin) => (plugin as Plugin).name);
+  return (config.plugins ?? []).flat() as Plugin[];
+}
+
+function servedPluginNames(): string[] {
+  return servedPlugins().map(({ name }) => name);
 }
 
 describe('the local translation preview', () => {
@@ -33,5 +37,18 @@ describe('the local translation preview', () => {
     const names = servedPluginNames();
     expect(names).toContain('public-font-sheets');
     expect(names).toContain('musixquare-classic-runtime-assets'); // brand-capitalization: allow-technical
+  });
+
+  it('checks every request is local before it serves a classic script', () => {
+    // Vite runs 'pre' plugins first, in array order: the preview's local-only
+    // check, then the classic scripts.
+    const plugins = servedPlugins();
+    const guard = plugins.findIndex(({ name }) => name === 'translation-editor-local-preview');
+    const classic = plugins.findIndex(
+      ({ name }) => name === 'musixquare-classic-runtime-assets', // brand-capitalization: allow-technical
+    );
+    expect(plugins[guard]?.enforce).toBe('pre');
+    expect(plugins[classic]?.enforce).toBe('pre');
+    expect(guard).toBeLessThan(classic);
   });
 });

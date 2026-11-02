@@ -1,6 +1,7 @@
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { defineConfig } from 'vite';
+import { classicRuntimeAssets } from '../../../scripts/classic-runtime-assets.ts';
 import { publicFontSheets } from '../../../scripts/public-font-sheets.mts';
 import { translationCatalogAssets } from '../../../scripts/translation-catalog-assets.ts';
 import { handleCatalogRequest, isLocalPreviewRequest, loadCatalogs, sendJson } from './catalog.ts';
@@ -32,6 +33,9 @@ export default defineConfig(({ command, isPreview }) => {
       {
         name: 'translation-editor-local-preview',
         apply: 'serve',
+        // Before classicRuntimeAssets (also 'pre'), so its local-only check
+        // covers every request.
+        enforce: 'pre',
         async configureServer(server) {
           // Validate the full literal catalog once at startup. Restart after source copy changes.
           const catalogs = await loadCatalogs(repositoryRoot);
@@ -57,15 +61,16 @@ export default defineConfig(({ command, isPreview }) => {
             if (url.pathname === '/translate' || url.pathname === '/translate/') {
               request.url = `/.workshop/translate/translate.html${url.search}`;
             }
-            // /web-fonts/stacks.css comes from publicDir and publicFontSheets
-            // serves /web-fonts/first.css and rest.css. This preview serves no
-            // classic script (/han-order.js among them), so Han keeps the
-            // Korean-first order here.
+            // /web-fonts/stacks.css comes from publicDir, publicFontSheets
+            // serves /web-fonts/first.css and rest.css, and
+            // classicRuntimeAssets the page's classic scripts (/han-order.js,
+            // /analytics-bootstrap.js), compiled as the build compiles them.
             next();
           });
         },
       },
       translationCatalogAssets(),
+      classicRuntimeAssets(),
       publicFontSheets(),
     ],
   };

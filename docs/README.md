@@ -424,12 +424,12 @@ runbooks. Neither belongs in a general setup document.
   for about 40 hours with releases and tests delegated, so none of the checks after the release has
   run yet; Phase 6 6A then shipped as 9.0.30 / v803 (entry above, 2026-11-01 05:17 KST), which changes
   neither the fonts nor the CSS, so they ran on 9.0.30; the line box train then shipped as
-  9.0.31 / v804 (top entry, 2026-11-01 23:17 KST), which answers question 8 by baking the line box
+  9.0.31 / v804 (entry above, 2026-11-01 23:17 KST), which answers question 8 by baking the line box
   into the font files, so the iPhone line-height check continues as that train's first blind check
-  and the other checks now run on 9.0.33 (6B, 2026-11-02 05:34 KST, changes neither the fonts nor the CSS; 9.0.33, 13:12 KST, draws Hangul with MUSIXQUARE Hangul again and keeps the line box). The release record's §2 now carries the switch as post-deploy items at its top (scope
+  and the other checks now run on 9.0.33 (9.0.32 / 6B, 2026-11-02 05:34 KST, changes neither the fonts nor the CSS; 9.0.33, 13:12 KST, draws Hangul with MUSIXQUARE Hangul again and keeps the line box). The release record's §2 now carries the switch as post-deploy items (scope
   and status, the checks after the release with the iPhone line-height check first, the open rule
   for manual App rollbacks to a lower epoch, and the later
-  train that moves the public pages to Inter and Noto and removes the two Pretendard copies), its §4
+  train that moves the public pages to the app fonts, since 9.0.33 Inter, MUSIXQUARE Hangul and Noto, keeping `fonts/PretendardVariable.woff2` as the Hangul faces' source), its §4
   the 9.0.29 entry and current boundary line (5) (checkpoint artifact 13045399758, App 9.0.28
   `89ad188d`), and the hotfix procedure's 9.0.25 bullet names 9.0.29's merge SHA, Release ID and
   App version. The rollback boundary is a forward revert at 9.0.34 / v807 or later now that 9.0.30

@@ -142,7 +142,7 @@ describe('public design-system page contract', () => {
         '#ffffff',
         '#eff1f3',
         '#b7b9bb',
-        '#d4d6d8',
+        '#e4e6e8',
         '#3b82f6',
         '#303540',
         '#495057',

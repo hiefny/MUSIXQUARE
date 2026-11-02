@@ -251,7 +251,7 @@ or pointers. Keep :focus-visible and :active outside the gate (src/ui/__tests__/
     /* White keeps available play actions from reading like disabled controls. */
     --ob-icon-circle-bg: var(--surface-2);
     /* Light keeps the circle one step below its canvas. */
-    --divider: #d4d6d8;
+    --divider: #e4e6e8;
     --primary: #3b82f6;
     --primary-rgb: 59, 130, 246;
     --accent: var(--primary);

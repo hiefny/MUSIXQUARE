@@ -95,10 +95,12 @@ runbooks. Neither belongs in a general setup document.
 ## Maintained evidence and completed records
 
 - [Phase 6 train 6D: the YouTube start recoveries in one module, the Standard host's local start wait and the PRO start tokens (2026-11-02)](design/phase6-6d-recovery-pro-arm-2026-11-02.md):
-  prepared, not released. The fourth and last Phase 6 App update on branch `agent/p6-6d`, thirteen
-  commits on `bdb5759a` (the 6C train's tip, not yet on main: 6B and 6C ship first, and this
-  branch moves onto main after them); the version bump, the release-record entry and the release
-  are the release owner's. 6D-1 turns the Standard guest's local zero-start recovery from a
+  prepared, not released. The fourth and last Phase 6 App update on branch `agent/p6-6d`, sixteen
+  commits on main `432d4ae7` (the App 9.0.34 / v807 release record): the thirteen commits first
+  built on the 6C train's tip `bdb5759a`, moved patch for patch once 6B (9.0.32 / v805) and 6C
+  (9.0.34 / v807) had shipped, a tests-only commit and a comment and registry commit from the
+  review of the moved branch, and one record commit; the version bump, the release-record entry
+  and the release are the release owner's. 6D-1 turns the Standard guest's local zero-start recovery from a
   `player.ts` closure into the class `GuestZeroStartRecovery` in the new
   `src/youtube/zero-start-recovery.ts`, and the two
   recoveries' 0.35 s settle tolerance, 50 ms poll and 3 s bridge into three named exports of
@@ -110,30 +112,34 @@ runbooks. Neither belongs in a general setup document.
   `duplicated` at the end of Phase 6's code, naming the machines that remain, and checks the plan's
   Phase 6 end conditions against the code. Neutral: the T0a goldens, both T0b truth tables and the
   6B and 6C rows pass byte for byte (one T0a parity row gained the three new names), the five start
-  timers stay `player.ts`'s managed timers under their names, and the wire is unchanged. The owner's
-  fix for a late-joining PRO device's second effects toast and rebuilt YouTube screen (6D-6, Q22 (a))
-  is prepared as frames and rows and waits for the owner to see the pictures; no T0b defect fix
-  rides. The report lists the owner answers used, each increment's tests-first evidence, the guard
-  counts (CHECK 11 stays 20 as `player.ts`'s recovery writes move into the new module), the first
-  load (+291 B eager JavaScript gzip against 6C; Phase 6 total +123 B), the Phase 6 end-condition
-  check (item 2, no recovery closure left in `player.ts`, holds only under this train's own
-  reading and waits for the owner), mixed versions, rollback, the blind device candidates, the two
-  open items to link, the Phase 7 handoff and one new record-only finding. Its local final check on
-  `a9ee6842`: unit suite 747 files / 17,986 (1 skipped), four `--sequence.shuffle` seeds over
-  `src/youtube`, `src/player` and `src/pro-room` (6,788 rows each) and seeds 1 to 16 over the 9
-  touched test files (667 rows each), the base's edited tests on the tip runtime and the new pins on the 6C runtime (only the
-  named seams fail), types, lint and format, `check:workers`, every guard except
-  `guard:sw-cache-version` (the pending bump), critical coverage 105 files / 4,359 and Worker
-  coverage 69 / 3,325, critical E2E 101 / 101, the ten local YouTube specs 53 / 53 and the WebKit
-  YouTube activation spec 4 / 4. A review round then added six test rows and one assertion (the
-  local start release's first fence and its retire's timer clear, each recovery's own token),
-  corrected one comment and the records, and reran what they touch; the production build stayed
-  the same file for file. The final check on the reviewed tip `5267e8b2` repeated the whole local
-  check with the same results: unit suite 17,992 passed and 1 skipped, the four shuffle seeds
-  (6,794 rows each), seeds 1 to 16 over the 9 touched test files (673 rows each), both neutrality
-  runs, types, lint, format, `check:workers`, every guard except `guard:sw-cache-version`, a
-  production build identical to `a9ee6842`'s file for file, critical coverage 105 files / 4,364,
-  Worker coverage 69 / 3,325, critical E2E 101 / 101, the YouTube specs 53 / 53 and WebKit 4 / 4.
+  timers stay `player.ts`'s managed timers under their names, and the wire is unchanged. The
+  owner's answers of 2026-11-02 night are recorded: 6C-3 (one mute rule for a master volume above
+  0 and below 0.5 %, left out of 9.0.34) and 6D-6 (the fix for a late-joining PRO device's second
+  effects toast and rebuilt YouTube screen, Q22 (a), seen as frames) are both yes and close this
+  train, tests first, 6D-6 and then 6C-3 before the bump, 6C-3 only after its open point (whether
+  a remote host PREPARE during a guest's local fallback start carries the 'rounded' intent into the
+  new run) is checked and recorded; neither is built yet. The new finding (both zero-start
+  recoveries never seek again when a settle leaves a loaded target more than 0.35 s from the local
+  zero, and give up at the end of their window, the iframe paused there with no notice) is
+  recorded only, end condition 2 holds under the owner-accepted reading (a), and no T0b defect fix
+  rides. The report lists the owner answers used, each increment's tests-first evidence before and
+  after the move, the SHA map, the guard counts (CHECK 11 stays 20 as `player.ts`'s recovery
+  writes move into the new module), the first load (+294 B eager JavaScript gzip against main
+  `432d4ae7`; Phase 6 total +125 B, leaving 75 B for 6D-6 and 6C-3), the Phase 6 end-condition
+  check, mixed versions, rollback (checkpoint App 9.0.34 / v807, or the public-page font train's
+  App if that ships first), the blind device candidates, the two open items to link and the Phase
+  7 handoff. QA rounds 1 to 4 ran on the first branch (old base `bdb5759a`). QA round 5 moved it
+  onto `432d4ae7` (four docs-only conflicts, every commit's `src` and `scripts` patch unchanged)
+  and reran the tests-first pairs, types, lint, format, `check:workers`, three unit directories
+  with the guard self-test, the build and every guard. QA round 6, on the reviewed tip `acc22d3a`:
+  types, lint and format, `check:workers`, the unit suite 755 files / 18,117 rows (nine timeouts
+  in two release-tool files on a loaded PC, each file passing when run alone), four
+  `--sequence.shuffle` seeds over `src/youtube`, `src/player` and `src/pro-room` (6,804 rows each,
+  seed 7 rerun after an incomplete first run), critical coverage 112 files / 4,599 with the
+  merged profile and Worker coverage 69 / 3,325, the build and every guard except
+  `guard:sw-cache-version` (the pending bump: 10 App files newer than v807), critical E2E 101 /
+  101, the ten local YouTube specs 53 / 53 and the WebKit YouTube activation spec 4 / 4 (ports
+  5391 / 5392, retries 0).
 - [App 9.0.34 / v807 train: Phase 6 6C (one YouTube state router, one iframe audio owner and shared arm steps), no light-theme stroke on the dialog grey button and the selection bar, and lighter light-theme dividers (2026-11-02)](design/phase6-6c-router-iframe-audio-arm-steps-2026-11-02.md):
   released on 2026-11-02 21:20 KST in Release 41443521522 (PR #563, squash `cd8eaf47`) as App
   9.0.34 / v807 (App build 807, target `app`, one update dialog, two visible light-theme changes;

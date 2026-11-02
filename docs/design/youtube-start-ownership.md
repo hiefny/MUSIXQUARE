@@ -266,6 +266,21 @@ start kind (`YouTubeAuthorityTimingMode`) is the shared PRO playback union by ty
   The legacy rendezvous's own PLAYING that leaves before Stage 1 arms its hold (rows H9, H3, H5
   and H6) is marked "Fake ordering": only the synchronous fake sends it, so it is not a gap.
 
+- One more gap, found by the 6D recovery rows and recorded only (owner answer, 2026-11-02): in both
+  zero-start recoveries the target check runs before the settled check with the same tolerance
+  (`YOUTUBE_RECOVERY_SETTLE_EPSILON_SEC`, 0.35 s), so a target the run did not leave resident whose
+  settle seek leaves it paused more than 0.35 s from the local zero is never sought again (a
+  resident target is). The host legacy recovery waits out its 3 s bridge and times out (its
+  `Legacy recovery timed out` log line), its verified cleanup leaving the iframe paused at 0:00
+  with no notice, as after rows H4 and H4a. The
+  guest local recovery waits out its window (7.7 s for a cohort-excluded guest whose load is
+  issued, else 3 s) and gives up with its verified cleanup: the iframe stays paused at the local
+  zero with the audio restored, with no notice and no log line. Rows, pinned as today's behaviour
+  and not claimed right: `zero-start-recovery.test.ts` "waits out its bridge without seeking again
+  when a settle lands a loaded target past the tolerance" (host) and "waits out the window of %s
+  without seeking again when a settle lands a loaded target past the tolerance" (guest, two
+  cases). Not seen on real YouTube.
+
 - Two readers have no row that tells their query from a near-equivalent one. The calibration
   window rows (`start-ownership-reader-windows.test.ts`: a Standard guest's run is protocol-active
   but no longer in flight) pin the guest heartbeat and auxiliary-state holds, the state-action and

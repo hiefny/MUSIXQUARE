@@ -50,7 +50,8 @@ load epoch, play lock and `pendingPlayTime` policy. Records link to them instead
   consolidating phase moves ownership; `owner-in-place` records already have it.
 - **Lifecycle operations:** the calls that change the resource (start, stop, resume, close,
   write, retry). The resource-ownership guard counts only some callers today: page-lock claims,
-  `SKIP_WAITING` sends, AudioContext `resume()`/`suspend()`, armed
+  `SKIP_WAITING` sends, AudioContext `resume()`/`suspend()` and, since Phase 7 T1, the callers
+  of `ensureRunning`, `restartAudioContextFromGesture` and `probeAudioContextHealth`, armed
   `beginTrustedSystemAudioReception` starts, the Worker broadcast endpoint, the duration
   reader in `cloudflare/`, the Developer API authority fence writers, the header loader's
   default-holder writers and the YouTube iframe's `mute()`, `unMute()` and `setVolume()`
@@ -269,7 +270,8 @@ RO-54 accepted-exception
     `audio-output-recovery-holding.test.ts` and `audio-output-recovery-parity.test.ts` in
     `src/audio/__tests__/`, over the owners with no module mocks.
   - Missing: no unit test loads `app.ts`; the recovery dialog's half is pinned only in a browser,
-    by the local Chromium lab `e2e/audio-lab/output-recovery.lab.ts` (never in CI) and by
+    by the local Chromium lab `e2e/audio-lab/output-recovery.lab.ts` (never in CI) and by the CI
+    specs `e2e/back-navigation.test.ts` ('a required audio recovery dialog survives Back'),
     `e2e/background-resume.test.ts` and `e2e/demo-output-recovery.test.ts`.
 - **Status:** `duplicated`. Phase 0d (shared constants), Phase 7 (one lease, one `statechange`
   dispatcher, owner gesture functions, UI sounds yield). Fix lane G7. Exceptions RO-36, RO-37,

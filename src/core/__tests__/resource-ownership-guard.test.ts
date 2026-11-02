@@ -815,6 +815,62 @@ describe('resource-ownership guard', { timeout: 60_000 }, () => {
           'SUCCESS_COOLDOWN_MS@src/player/local-output-rejoin.ts (400)',
       );
     });
+
+    it('rejects a same-named copy of an AudioContext recovery timing beside its home src/audio/context-protocol.ts (RO-01)', () => {
+      const findings = findingsOf(
+        withSources((sources) => {
+          const file = 'src/audio/context-recovery.ts';
+          sources.set(
+            file,
+            `${sources.get(file) ?? ''}\nconst AUDIO_RECOVERY_RESUME_DEADLINE_MS = 750;\n` +
+              'void AUDIO_RECOVERY_RESUME_DEADLINE_MS;\n',
+          );
+        }),
+      );
+      expect(findings).toContain(
+        'COPIED TIMING CONSTANT (principle 4): RO-01 ' +
+          'AUDIO_RECOVERY_RESUME_DEADLINE_MS@src/audio/context-protocol.ts = ' +
+          'AUDIO_RECOVERY_RESUME_DEADLINE_MS@src/audio/context-recovery.ts (750)',
+      );
+    });
+
+    it('rejects a same-named copy of a recovery count, seconds value or dialog wait in either owner or app.ts, whatever its suffix (RO-01)', () => {
+      const copies = [
+        ['src/audio/context.ts', 'AUDIO_SUSPEND_MAX_ATTEMPTS', '2'],
+        ['src/audio/context-recovery.ts', 'AUDIO_CLOCK_MIN_ADVANCE_SECONDS', '0.01'],
+        ['src/app.ts', 'AUDIO_RECOVERY_CLOCK_REQUIREMENT_POLL_MS', '50'],
+      ] as const;
+      const findings = findingsOf(
+        withSources((sources) => {
+          for (const [file, name, value] of copies) {
+            sources.set(
+              file,
+              `${sources.get(file) ?? ''}\nconst ${name} = ${value};\nvoid ${name};\n`,
+            );
+          }
+        }),
+      );
+      expect(findings).toContain(
+        'COPIED TIMING CONSTANT (principle 4): RO-01 ' +
+          'AUDIO_SUSPEND_MAX_ATTEMPTS@src/audio/context-protocol.ts = ' +
+          'AUDIO_SUSPEND_MAX_ATTEMPTS@src/audio/context.ts (2)',
+      );
+      expect(findings).toContain(
+        'COPIED TIMING CONSTANT (principle 4): RO-01 ' +
+          'AUDIO_CLOCK_MIN_ADVANCE_SECONDS@src/audio/context-protocol.ts = ' +
+          'AUDIO_CLOCK_MIN_ADVANCE_SECONDS@src/audio/context-recovery.ts (0.01)',
+      );
+      expect(findings).toContain(
+        'COPIED TIMING CONSTANT (principle 4): RO-01 ' +
+          'AUDIO_RECOVERY_CLOCK_REQUIREMENT_POLL_MS@src/app.ts = ' +
+          'AUDIO_RECOVERY_CLOCK_REQUIREMENT_POLL_MS@src/audio/context-protocol.ts (50)',
+      );
+    });
+
+    it('leaves the two AudioContext recovery owners no timing of their own to pair (RO-01)', () => {
+      const report = analyzeResourceOwnership(realInput());
+      expect(report.timingPairs.reportOnly.filter((pair) => pair.startsWith('RO-01 '))).toEqual([]);
+    });
   });
 
   describe('CHECK 6 AudioContext native resume and suspend', () => {

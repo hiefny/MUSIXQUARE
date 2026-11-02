@@ -53,7 +53,9 @@
  *   and inline styles declare no face, set no stack and name families only
  *   for code and the recorded brand labels, it reads the app's
  *   --font-sans in each of its languages, and it tells Korean and English
- *   apart only in the recorded copy rules, never by tracking.
+ *   apart only in the recorded copy rules, never by tracking; the sheets of
+ *   the pages the App Worker renders (PUBLIC_WORKER_FONT_PAGES) are held to
+ *   the same rules.
  * The initial transfer budget (scripts/check-initial-transfer-budget.mts)
  * holds the eager font bytes at 0, fonts of eager stylesheets included.
  * --dist adds the built output: no font in the initial graph of the app
@@ -114,8 +116,10 @@ import {
   PUBLIC_FONT_PAGES,
   PUBLIC_KOREAN_ENGLISH_COPY_RULES,
   PUBLIC_LITERAL_FONT_FAMILIES,
+  PUBLIC_WORKER_FONT_PAGES,
   publicFontCssProblems,
   publicFontLinkProblems,
+  type PublicFontPage,
 } from './lib/public-font-pages.mts';
 import { APP_FONT_SHEETS } from '../src/i18n/app-font-contract.ts';
 import { LANGUAGE_OPTIONS, languageDirection } from '../src/i18n/locales.ts';
@@ -388,19 +392,43 @@ for (const hanOrder of HAN_ORDERS) {
 }
 const publicSheets = new Set<string>();
 const publicSplitSelectors = new Set<string>();
-for (const page of PUBLIC_FONT_PAGES) {
-  const html = await readFile(path.join(repoRoot, page.html), 'utf8');
-  for (const problem of publicFontLinkProblems(html, { rest: page.rest })) {
-    failures.push(`${page.html} ${problem}`);
+// The pages with source HTML, then the pages the App Worker renders from its
+// own markup, whose links its tests check (app-worker-cors.test.ts).
+type CheckedPage = Pick<PublicFontPage, 'rest' | 'sheets' | 'htmlLangs'> & {
+  readonly label: string;
+  readonly html: string | null;
+};
+const publicPages: readonly CheckedPage[] = [
+  ...PUBLIC_FONT_PAGES.map(({ html, rest, sheets, htmlLangs }) => ({
+    label: html,
+    html,
+    rest,
+    sheets,
+    htmlLangs,
+  })),
+  ...PUBLIC_WORKER_FONT_PAGES.map(({ name, sheets, htmlLangs }) => ({
+    label: name,
+    html: null,
+    rest: 'body' as const,
+    sheets,
+    htmlLangs,
+  })),
+];
+for (const page of publicPages) {
+  const html = page.html === null ? '' : await readFile(path.join(repoRoot, page.html), 'utf8');
+  if (page.html !== null) {
+    for (const problem of publicFontLinkProblems(html, { rest: page.rest })) {
+      failures.push(`${page.label} ${problem}`);
+    }
   }
   const inlineRules: { sheet: string; selectors: string[]; rule: Rule }[] = [];
   for (const style of inlineStyles(html)) {
     for (const problem of publicFontCssProblems(style)) {
-      failures.push(`${page.html} <style> ${problem}`);
+      failures.push(`${page.label} <style> ${problem}`);
     }
     postcss.parse(style).walkRules((rule) => {
       inlineRules.push({
-        sheet: `${page.html} <style>`,
+        sheet: `${page.label} <style>`,
         selectors: rule.selectors.map((selector) => selector.replace(/\s+/gu, ' ').trim()),
         rule,
       });
@@ -409,12 +437,12 @@ for (const page of PUBLIC_FONT_PAGES) {
   const chain = readFontStacks(repoRoot, { sheets: [PUBLIC_STACKS, ...page.sheets] });
   for (const htmlLang of page.htmlLangs) {
     const code = LANGUAGE_OPTIONS.find((option) => option.htmlLang === htmlLang)?.code;
-    check(code !== undefined, `${page.html} is shown in ${htmlLang}, which is no UI language`);
+    check(code !== undefined, `${page.label} is shown in ${htmlLang}, which is no UI language`);
     if (code === undefined) continue;
     const state = { htmlLang, dir: languageDirection(code) };
     check(
       JSON.stringify(chain.fontSans(state)) === JSON.stringify(fontStacks.fontSans(state)),
-      `${page.html} reads another --font-sans than the app in ${htmlLang}`,
+      `${page.label} reads another --font-sans than the app in ${htmlLang}`,
     );
   }
   // The pages draw Korean and English alike, as the app does: a rule may

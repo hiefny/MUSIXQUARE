@@ -418,3 +418,32 @@ export const PUBLIC_FONT_PAGES: readonly PublicFontPage[] = [
     htmlLangs: ['en'],
   },
 ];
+
+/** A page the App Worker renders itself, so no source HTML holds its links. */
+interface PublicWorkerFontPage {
+  /** Which page, and where cloudflare/app-worker.ts renders it. */
+  readonly name: string;
+  /** Its stylesheets after /web-fonts/stacks.css, repository-relative, in cascade order. */
+  readonly sheets: readonly string[];
+  /** The html lang values it is shown in. */
+  readonly htmlLangs: readonly string[];
+}
+
+/**
+ * The pages the App Worker renders from its own markup, with the links of
+ * src/i18n/public-font-urls.ts (src/core/__tests__/app-worker-cors.test.ts
+ * checks those links): the admin page, and the blog article when the built
+ * blog page is not there to hold it. The guard checks their sheets.
+ */
+export const PUBLIC_WORKER_FONT_PAGES: readonly PublicWorkerFontPage[] = [
+  {
+    name: 'the admin page (cloudflare/app-worker.ts renderAdminPage)',
+    sheets: ['public/admin.css'],
+    htmlLangs: ['en'],
+  },
+  {
+    name: 'the blog article fallback (cloudflare/app-worker.ts renderSoroArticleHtml)',
+    sheets: [TOKENS, EDITORIAL],
+    htmlLangs: ['en'],
+  },
+];

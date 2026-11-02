@@ -29,7 +29,7 @@ Use production files as the authority for implementation details:
 | ----------------------------------------- | ------------------------------------------------------------------------------------------------------------- |
 | App layout and components                 | `index.html`, `css/style.css`, `css/desktop.css`                                                              |
 | Color, spacing, radius, and motion tokens | `css/style.css`                                                                                               |
-| Fonts and locale fallbacks                | `css/fonts/app/`, `css/fonts/`, `fonts/README.md`; `css/pretendard.css` for the public pages                  |
+| Fonts and locale fallbacks                | `css/fonts/app/`, `css/fonts/`, `fonts/README.md`; `public/web-fonts/stacks.css` for the public pages         |
 | In-room app copy                          | `src/i18n/`                                                                                                   |
 | About, policy, and Developer page copy    | `.workshop/`; About locales in `browser/classic-runtime/landing-i18n.ts`                                      |
 | Other static public page copy             | The corresponding source under `public/events/`, `public/blog/`, `public/history/`, or `public/designsystem/` |
@@ -38,10 +38,8 @@ Use production files as the authority for implementation details:
 | Brand assets                              | `public/designsystem/assets/`, `public/favicon.svg`, `public/icons/`                                          |
 
 Files under `src_ref/` are extraction snapshots for design archaeology, not
-production source. They are not synchronized automatically. The exception is
-`src_ref/pretendard.css`, which is still loaded by the public Blog, History,
-and Design System pages; keep its font URL compatible with the deployed
-`public/designsystem/fonts/` directory.
+production source. They are not synchronized automatically, and no page
+loads them.
 
 ## Product architecture that affects design
 
@@ -95,14 +93,18 @@ and other longer labels instead of sizing from English alone.
 
 ## Typography
 
-The app draws Latin, Cyrillic and Greek with Inter 4 and everything else with
-Noto: Hangul with Noto Sans KR, kana with Noto Sans JP, Han in the UI's Han
-order (Noto Sans KR first unless the UI or the browser is Japanese or Chinese),
-and Thai, Arabic, Hebrew and the Indic scripts with their own Noto. Every face
-is self-hosted and every family is declared in every UI, so the Korean and
-English UIs draw the same content identically (owner decision 2026-10-31,
-`fonts/README.md`). The public Blog, History and Design System pages and the
-share images still use Pretendard Variable until they switch.
+The app draws Latin, Cyrillic and Greek with Inter 4, Hangul with MUSIXQUARE
+Hangul (the app's own subsets of Pretendard, renamed), and everything else with
+Noto: kana with Noto Sans JP, Han in the UI's Han order (Noto Sans KR first
+unless the UI or the browser is Japanese or Chinese), the Hangul Pretendard
+lacks with Noto Sans KR, and Thai, Arabic, Hebrew and the Indic scripts with
+their own Noto. Every face is self-hosted and every family is declared in every
+UI, so the Korean and English UIs draw the same content identically (owner
+decisions 2026-10-31 and 2026-11-02, `fonts/README.md`). Every page outside the
+app, this one included, draws with the same faces and stacks from
+`/web-fonts/` (owner decision 2026-11-02), except the maintenance page, which
+uses the device's fonts; the share images keep their own font. The Typography
+section of `index.html` shows the faces, the line box and the spacing.
 
 - Use the existing variable-weight range instead of separate font files.
 - Keep every text weight at 700 or below, including titles, codes and badges.

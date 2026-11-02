@@ -3024,3 +3024,567 @@
   max-width: calc(1240px - var(--pad-x) - var(--pad-x));
   margin-inline: auto;
 }
+
+/* ── Typography ─────────────────────────────────────────
+   The specimens draw with the page's own text font, which is the app's:
+   /web-fonts/stacks.css gives the page the app's stacks and
+   /web-fonts/first.css and rest.css the app's faces, so the section declares
+   no face and no stack. Only the app's detected-language classes pick a
+   named stack (src/ui/__tests__/design-system-typography-stacks.test.ts
+   holds them to the app's). Line box: 1950 / 494 of 2048 (HANGUL_LINE_BOX in
+   src/i18n/font-metrics.ts). Three left edges: 0, the .spec sample column
+   at 160px, and the .grid-2 second column at 50% + 10px. */
+
+/* Korean breaks between words, as the app's Korean titles do. */
+#typography :is(.typo-runs, .typo-han-sample, .typo-lead-sample),
+#typography .typo-scale .spec > :not(.tag) {
+  word-break: keep-all;
+}
+
+/* The classes the app gives text it detects as Japanese or Chinese. */
+#typography .user-text-font-ja {
+  font-family: var(--font-sans-ja);
+}
+
+#typography .user-text-font-zh-hans {
+  font-family: var(--font-sans-cjk-sc);
+}
+
+#typography .user-text-font-zh-hant {
+  font-family: var(--font-sans-cjk-tc);
+}
+
+#typography .typo-head {
+  margin-bottom: clamp(64px, 8vw, 112px);
+}
+
+#typography .typo-block {
+  margin: 0 0 clamp(96px, 11vw, 160px);
+}
+
+#typography .typo-block:last-child {
+  margin-bottom: 0;
+}
+
+#typography .typo-note {
+  max-width: 600px;
+  margin: 28px 0 0;
+  color: var(--text-sub);
+  font-size: 14px;
+  line-height: 1.65;
+}
+
+#typography .typo-note code {
+  padding: 2px 6px;
+  border-radius: 5px;
+  font-size: 12px;
+  font-weight: var(--font-weight-label);
+}
+
+/* The one label style of the section's diagrams: the .spec .tag values. */
+#typography .typo-label {
+  color: var(--text-sub);
+  font-size: 10px;
+  font-weight: var(--font-weight-title);
+  letter-spacing: 0.12em;
+  line-height: 1.2;
+  text-transform: uppercase;
+  white-space: nowrap;
+}
+
+/* Scripts: from 1024px each run is bracketed down to the face that draws
+   it. Below, the line becomes a key, one run per row with its face at the
+   right on the same baseline. */
+#typography .typo-runs {
+  margin: 12px 0 0;
+  color: var(--text-main);
+  font-size: min(7vw, 84px);
+  font-weight: var(--font-weight-title);
+  line-height: normal;
+}
+
+#typography .typo-run {
+  display: inline-grid;
+  vertical-align: baseline;
+}
+
+#typography .typo-run-face {
+  width: 0;
+  min-width: 100%;
+  margin-top: 14px;
+  padding: 10px 0 0 10px;
+  border-top: 1px solid var(--text-muted);
+  border-left: 1px solid var(--text-muted);
+}
+
+/* Faces: glyph, name on the sample column, use on the second column; one
+   row pitch, whatever the script's own box. */
+#typography .typo-faces {
+  margin: 12px 0 0;
+  padding: 0;
+  list-style: none;
+  border-top: 1px solid var(--divider);
+}
+
+#typography .typo-face {
+  display: grid;
+  grid-template-columns: 140px minmax(0, calc(50% - 170px)) minmax(0, 1fr);
+  gap: 8px 20px;
+  align-content: center;
+  align-items: baseline;
+  min-height: 120px;
+  padding: 24px 0;
+  border-bottom: 1px solid var(--divider);
+}
+
+#typography .typo-face-glyph {
+  color: var(--text-main);
+  font-size: 40px;
+  font-weight: var(--font-weight-body);
+  line-height: 1;
+  white-space: nowrap;
+}
+
+#typography .typo-face-name {
+  color: var(--text-main);
+  font-size: 15px;
+  font-weight: var(--font-weight-label);
+  line-height: 1.4;
+}
+
+#typography .typo-face-use {
+  max-width: 520px;
+  color: var(--text-sub);
+  font-size: 14px;
+  line-height: 1.6;
+}
+
+/* Han: one character in the four faces, then how a title picks one. The
+   character that decides the shapes is underlined. */
+#typography .typo-han-forms {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 32px 20px;
+  margin: 12px 0 clamp(56px, 7vw, 96px);
+  padding: 0;
+  list-style: none;
+}
+
+#typography .typo-han-forms > li {
+  display: grid;
+  justify-items: start;
+  gap: 16px;
+}
+
+#typography .typo-han-glyph {
+  color: var(--text-main);
+  font-size: clamp(88px, 15vw, 200px);
+  font-weight: var(--font-weight-body);
+  line-height: 1;
+}
+
+#typography .typo-han {
+  display: grid;
+  gap: clamp(28px, 3.4vw, 48px);
+  margin: 0;
+}
+
+#typography .typo-han-row {
+  display: grid;
+  grid-template-columns: minmax(0, calc(50% - 10px)) minmax(0, 1fr);
+  gap: 10px 20px;
+  align-items: baseline;
+}
+
+#typography .typo-han-sample {
+  margin: 0;
+  color: var(--text-main);
+  font-size: clamp(32px, 4.6vw, 64px);
+  font-weight: var(--font-weight-title);
+  line-height: normal;
+}
+
+#typography .typo-han dd {
+  display: grid;
+  gap: 4px;
+  margin: 0;
+}
+
+#typography .typo-han-face {
+  color: var(--text-main);
+  font-size: 15px;
+  font-weight: var(--font-weight-label);
+  line-height: 1.4;
+}
+
+#typography .typo-han-why {
+  color: var(--text-sub);
+  font-size: 14px;
+  line-height: 1.6;
+}
+
+#typography .typo-marker {
+  text-decoration: underline var(--primary);
+  text-decoration-skip-ink: none;
+  text-decoration-thickness: max(2px, 0.04em);
+  text-underline-offset: 0.26em;
+}
+
+/* Line box: the rules sit where the shared box puts them; the glyphs land
+   on them only because every face is sized to that box. */
+#typography .typo-box {
+  position: relative;
+  margin: 44px 0 48px;
+  padding-right: 80px;
+  font-size: clamp(48px, 13.5vw, 192px);
+}
+
+#typography .typo-box-line {
+  margin: 0;
+  color: var(--text-main);
+  font-weight: var(--font-weight-body);
+  line-height: normal;
+  white-space: nowrap;
+}
+
+#typography .typo-box-rule {
+  position: absolute;
+  top: 0;
+  right: 0;
+  left: 0;
+  height: 0;
+  border-top: 1px solid var(--text-muted);
+}
+
+#typography .typo-box-rule.is-baseline {
+  top: calc(1em * 1950 / 2048);
+  border-top-color: var(--primary);
+}
+
+#typography .typo-box-rule.is-descent {
+  top: calc(1em * 2444 / 2048);
+}
+
+#typography .typo-box-rule > span {
+  position: absolute;
+  right: 0;
+  bottom: 6px;
+}
+
+#typography .typo-box-rule.is-descent > span {
+  top: 6px;
+  bottom: auto;
+}
+
+#typography .typo-measure {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 20px;
+  margin: 48px 0 0;
+}
+
+#typography .typo-measure > div {
+  padding-top: 14px;
+  border-top: 1px solid var(--divider);
+}
+
+#typography .typo-measure dt,
+#typography .typo-measure dd {
+  color: var(--text-sub);
+  font-size: 12px;
+}
+
+#typography .typo-measure dd {
+  margin: 6px 0 0;
+}
+
+#typography .typo-measure strong {
+  color: var(--text-main);
+  font-size: clamp(32px, 4vw, 48px);
+  font-weight: var(--font-weight-title);
+  font-variant-numeric: tabular-nums;
+  line-height: normal;
+}
+
+/* Tracking: the same word at one size and two optical sizes, stacked with
+   no gap. The guide stands at the end of the opsz 32 word; the primary
+   segment is how far the opsz 14.6 word runs past it. A hidden opsz 32 copy
+   sits under the first word to place both, so they follow the real
+   widths. */
+#typography .typo-optical {
+  display: grid;
+  grid-template-columns: max-content max-content;
+  justify-content: start;
+  align-items: baseline;
+  column-gap: 24px;
+  margin-top: 12px;
+}
+
+#typography .typo-optical-cell {
+  display: grid;
+  overflow-x: clip;
+}
+
+#typography .typo-optical-cell > * {
+  grid-area: 1 / 1;
+}
+
+#typography .typo-optical :is(.typo-track-word, .typo-optical-ghost) {
+  justify-self: start;
+}
+
+#typography :is(.typo-track-word, .typo-optical-ghost) {
+  color: var(--text-main);
+  font-size: clamp(44px, 10vw, 104px);
+  font-variation-settings: 'opsz' var(--opsz);
+  font-weight: var(--font-weight-title);
+  line-height: normal;
+}
+
+#typography .typo-optical-ghost {
+  position: relative;
+  color: transparent;
+  pointer-events: none;
+  user-select: none;
+}
+
+#typography .typo-optical-ghost::before {
+  content: '';
+  position: absolute;
+  top: 0;
+  right: 0;
+  height: 200%;
+  border-right: 1px solid var(--text-muted);
+}
+
+#typography .typo-optical-ghost::after {
+  content: '';
+  position: absolute;
+  top: calc(1em * 1950 / 2048 + 0.08em);
+  left: 100%;
+  width: 100vw;
+  border-top: 2px solid var(--primary);
+}
+
+#typography .typo-track-lab {
+  color: var(--text-sub);
+  font-size: 12px;
+  font-variant-numeric: tabular-nums;
+}
+
+#typography .typo-track-row.is-code {
+  display: grid;
+  justify-items: start;
+  gap: 8px;
+  margin-top: 48px;
+  padding-top: 36px;
+  border-top: 1px solid var(--divider);
+}
+
+#typography .is-code .typo-track-word {
+  font-variant-numeric: tabular-nums;
+  font-variation-settings: normal;
+  letter-spacing: 0.1em;
+}
+
+#typography .typo-scale .s12 {
+  font-variant-numeric: tabular-nums;
+}
+
+/* Leading: one string at each role's real size and leading, wrapped to two
+   lines. A zero-size mark at the start of each line sits on its baseline
+   and draws the rule from there, so the rules follow the browser's own
+   line layout; the second mark writes the pitch at the right. */
+#typography .typo-leading {
+  display: grid;
+  gap: clamp(48px, 5.6vw, 72px);
+  margin-top: 12px;
+}
+
+#typography .typo-lead {
+  position: relative;
+  display: grid;
+  grid-template-columns: 140px minmax(0, 1fr);
+  gap: 14px 20px;
+  align-items: start;
+  overflow-x: clip;
+}
+
+#typography .typo-lead-meta {
+  display: grid;
+  gap: 4px;
+  margin: 0;
+  color: var(--text-main);
+  font-size: 14px;
+  font-weight: var(--font-weight-label);
+  line-height: 1.4;
+}
+
+#typography .typo-lead-meta > span {
+  color: var(--text-sub);
+  font-size: 12px;
+  font-weight: var(--font-weight-body);
+}
+
+#typography .typo-lead-sample {
+  margin: 0;
+  color: var(--text-main);
+  white-space: nowrap;
+}
+
+#typography .typo-lead-sample.is-title {
+  font-size: 28px;
+  font-weight: var(--font-weight-title);
+  line-height: normal;
+}
+
+#typography .typo-lead-sample.is-message {
+  font-size: 15px;
+  font-weight: var(--font-weight-body);
+  line-height: 1.58;
+}
+
+#typography .typo-lead-sample.is-button {
+  font-size: 15px;
+  font-weight: var(--font-weight-label);
+  line-height: 1.25;
+}
+
+#typography .typo-lead-mark {
+  display: inline-block;
+  width: 0;
+  height: 0;
+  vertical-align: baseline;
+}
+
+#typography .typo-lead-mark::after {
+  content: '';
+  position: absolute;
+  width: 100vw;
+  border-top: 1px solid var(--primary);
+}
+
+#typography .typo-lead-mark::before {
+  content: attr(data-pitch);
+  position: absolute;
+  right: 0;
+  translate: 0 calc(-100% - 2px);
+  color: var(--text-sub);
+  font-size: 12px;
+  font-weight: var(--font-weight-body);
+  line-height: 1.2;
+  white-space: nowrap;
+}
+
+/* Weights: four across, or two by two on a phone. */
+#typography .weight-row {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 32px 24px;
+  align-items: end;
+}
+
+#typography .weight-row .gl {
+  color: var(--text-main);
+  font-size: clamp(44px, 15vw, 64px);
+  letter-spacing: normal;
+  line-height: normal;
+  white-space: nowrap;
+}
+
+@media (min-width: 600px) {
+  #typography .weight-row {
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+  }
+
+  #typography .weight-row .gl {
+    font-size: clamp(40px, 5.6vw, 64px);
+  }
+}
+
+@media (max-width: 1023px) {
+  #typography .typo-runs {
+    border-top: 1px solid var(--divider);
+    font-size: 56px;
+  }
+
+  #typography .typo-run {
+    display: flex;
+    align-items: baseline;
+    justify-content: space-between;
+    gap: 16px;
+    padding: 18px 0;
+    border-bottom: 1px solid var(--divider);
+  }
+
+  #typography .typo-run-face {
+    width: auto;
+    min-width: 0;
+    margin: 0;
+    padding: 0;
+    border: 0;
+  }
+
+  #typography .typo-face {
+    min-height: 136px;
+  }
+
+  #typography .typo-han-row {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+
+@media (max-width: 720px) {
+  #typography .typo-face {
+    grid-template-columns: 96px minmax(0, 1fr);
+    gap: 4px 16px;
+    min-height: 0;
+    padding: 18px 0;
+  }
+
+  #typography .typo-face-glyph {
+    grid-row: span 2;
+    font-size: 28px;
+  }
+
+  #typography .typo-face-use {
+    grid-column: 2;
+    font-size: 13px;
+  }
+
+  #typography .typo-han-forms {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  #typography .typo-han-glyph {
+    font-size: 112px;
+  }
+
+  /* The labels leave the right edge: ascent above and descent below their
+     rules on the left, the baseline under its rule on the right, where the
+     line has no descender. */
+  #typography .typo-box {
+    padding-right: 0;
+    font-size: 16.5vw;
+  }
+
+  #typography .typo-box-rule:not(.is-baseline) > span {
+    right: auto;
+    left: 0;
+  }
+
+  #typography .typo-box-rule.is-baseline > span {
+    top: 3px;
+    bottom: auto;
+    line-height: 1;
+  }
+
+  #typography .typo-measure {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    row-gap: 24px;
+  }
+
+  #typography .typo-lead {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}

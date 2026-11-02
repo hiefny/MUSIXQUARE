@@ -12,10 +12,16 @@ stack of every UI. The train reports are
 and
 [docs/design/app-hangul-pretendard-2026-11-02.md](../docs/design/app-hangul-pretendard-2026-11-02.md).
 
-The whole Pretendard file stays deployed for the public pages (Blog, History,
-the design system, About and its sibling pages, `account-complete.html`) and
-for the pre-rendered share images until those switch in a later train. The
-app never loads it: it serves only the Hangul subsets under their own name.
+`fonts/PretendardVariable.woff2` stays in the repository as the recorded
+source of the Hangul faces: without it `guard:font-assets` and both font
+generators fail. Its deployed copy,
+`public/designsystem/fonts/PretendardVariable.woff2`, serves the whole file to
+the public pages (Blog, History, the design system, About and its sibling
+pages, `account-complete.html`) until those switch in a later train; only that
+copy, and the `guard:font-build` check that it equals the root file, can go
+with that train. The pre-rendered share images use their own subset. The app
+never loads the whole file: it serves only the Hangul subsets under their own
+name.
 
 ## Faces
 
@@ -71,10 +77,15 @@ bytes as the public copy and in the repository since 2026-02-23.
   number and only that Hangul, so Google's frequency grouping and numbering
   carry over; face 0 holds the halfwidth jamo, which no shard declares. 87
   faces, 11,277 code points, 2,506,376 B. Hangul is found by block or by
-  Unicode Script, as the sheet generator cuts it. The file has no conjoining
-  jamo (U+1100-11FF, Jamo Extended-A and -B), no archaic compatibility jamo
-  and no parenthesized or circled Hangul but ㈜; Noto Sans KR keeps those 98
-  characters.
+  Unicode Script, as the sheet generator cuts it. The file has no archaic
+  compatibility jamo (U+3165-318C, U+318E) and no parenthesized or circled
+  Hangul but ㈜ (U+3200-321B, U+3260-327B, U+327E); Noto Sans KR keeps those
+  98 characters. Nor does it have the conjoining jamo (U+1100-11FF) or Jamo
+  Extended-A and -B, and no app face declares those (Google's Noto Sans KR
+  ranges never did), so a device font draws them, as in 9.0.32. The page
+  language picks that font, so decomposed (NFD) Hangul, which chat keeps as
+  sent, can look different in the Korean and English UIs; track titles are
+  normalized to NFC.
 - Each face is subset with the harfbuzz subsetter (subset-font on harfbuzzjs)
   and keeps the whole `wght` axis (45-930), so every outline and advance is
   Pretendard's at every weight; the generator compares every code point at
@@ -84,8 +95,14 @@ bytes as the public copy and in the repository since 2026-02-23.
 - Line box: the file's own, 1950 / 494 / 0 of 2048 units in `hhea` and the
   OS/2 typo metrics with `USE_TYPO_METRICS` (win 1950 / 494). That is
   `HANGUL_LINE_BOX` in `src/i18n/font-metrics.ts`, the box every other app
-  face is sized to, so the faces need no descriptor and no bake, and Safari,
-  which ignores the overrides, draws them with the same line box as Chromium.
+  face is sized to, so the faces need no bake. Their sheet states the same
+  box as descriptors (`HANGUL_FACE_METRICS`: `size-adjust` 100%,
+  `ascent-override` 95.21%, `descent-override` 24.12%, `line-gap-override`
+  0%). A browser that applies the overrides takes the Inter and Noto boxes
+  from them as they are, but would take a face without them from its table
+  metrics rounded to whole pixels: in current WebKit a 15 px Hangul line was
+  18.33 px instead of 18. Safari on the owner's iPhone, which ignores the
+  overrides, reads the same box from the file.
 - Name: Pretendard is a Reserved Font Name, and the SIL OFL 1.1 (condition 3)
   forbids it as the primary name of a Modified Version, which a subset is.
   Every kept name record says MUSIXQUARE Hangul (PostScript
@@ -97,9 +114,12 @@ bytes as the public copy and in the repository since 2026-02-23.
   (subset-font 2.9.0, harfbuzzjs 1.6.3, fontverter 2.0.0, wawoff2 2.0.1) and
   each face's code points and digest. Without `--record`, a face subset again
   from its recorded source and code points must give its recorded bytes,
-  also after a tool update; otherwise the run writes nothing and stops.
-  `--record` accepts new bytes after review, and `--check` subsets every face
-  again in memory (about 25 s).
+  also after a tool update; otherwise the run writes nothing and stops. A
+  source file that differs from the record (its digest, version or axis) is
+  refused the same way, so replacing `fonts/PretendardVariable.woff2` cannot
+  cut every face again, and move every face URL, unnoticed. `--record`
+  accepts new bytes or a new source after review, and `--check` subsets every
+  face again in memory (about 20 s).
 
 ## Sheets
 
@@ -135,15 +155,15 @@ every script has exactly one family:
 - Each CJK face declares only the characters its own file draws, so an emoji
   or a stray mark never makes the browser download a shard that cannot draw
   it. Faces left empty are dropped.
-- Every Inter and CJK face carries the size and line-box descriptors of
-  `src/i18n/font-metrics.ts` (CSS cannot import, so a parity test pins each
+- Every Inter, Hangul and CJK face carries the size and line-box descriptors
+  of `src/i18n/font-metrics.ts` (CSS cannot import, so a parity test pins each
   face to that one home): CJK `size-adjust` 94% with `ascent-override`
   101.29%, `descent-override` 25.66% and `line-gap-override` 0%; Inter 97.2%,
-  97.96%, 24.82% and 0%. The overrides are Pretendard's ascent and descent
-  divided by the size, so line boxes stay where Pretendard put them. Each
-  face points at its baked copy in `fonts/app/`, which holds the same box in
-  its own tables. The Hangul faces carry no descriptor: they are Pretendard's
-  size and box.
+  97.96%, 24.82% and 0%; MUSIXQUARE Hangul 100%, 95.21%, 24.12% and 0%. The
+  overrides are Pretendard's ascent and descent divided by the size, so line
+  boxes stay where Pretendard put them. Each Inter and CJK face points at its
+  baked copy in `fonts/app/`, which holds the same box in its own tables; the
+  Hangul faces are Pretendard's size and box already.
 
 Generated sheets carry a `font-` prefix so their emitted names never collide
 with the static pages' `noto-*.css` sheets, which the build and the
@@ -343,12 +363,17 @@ About links through `vite.config.ts`.
   `sfnt-names.test.ts`, `app-face-metrics.test.ts`,
   `locale-fonts.test.ts`, `static-page-fonts.test.ts` and
   `src/core/__tests__/app-font-guard.test.ts`.
-- `e2e/font-line-boxes.test.ts` (local, on the e2e build) serves the Inter
-  and CJK sheets without the three overrides, as Safari reads them, and
-  requires the line boxes of Latin, Hangul, mixed, kana and Han lines at 13,
-  15 and 28 px (and Hangul at 14.5 px) and the four tab titles to stay where
-  the shipped sheets put them. It opens the Korean UI only; the report's measurements and its
-  42-language sweep cover the other UIs.
+- `e2e/font-line-boxes.test.ts` (local, on the e2e build) serves the Inter,
+  Hangul and CJK sheets without the three overrides, as Safari on the owner's
+  iPhone reads them, and requires the line boxes of Latin, Hangul, mixed, kana
+  and Han lines at 13, 14.5, 15 and 28 px and the four tab titles to stay
+  where the shipped sheets put them, but the recorded 1 px of the kana and Han
+  lines at 14.5 px (18 against 17). It also opens the shipped sheets in
+  Playwright's WebKit, which applies the overrides, and requires Hangul and
+  mixed lines with the height and baseline of Latin ones, within 1/64 px, at
+  those sizes and every half pixel from 8 to 48 px. It opens the Korean UI
+  only; the reports' measurements and the 42-language sweep cover the other
+  UIs.
 - `e2e/font-baked-pixels.test.ts` (local, on the e2e build) answers every
   request for a baked face with its input file in a second context and
   requires the start screen, the four tab screens and the chat in the Korean
@@ -379,6 +404,6 @@ About links through `vite.config.ts`.
   1.1** with the Reserved Font Name Pretendard (see `PRETENDARD_LICENSE.txt`).
   The Hangul faces are Modified Versions under their own name and keep the
   copyright and license records. `fonts/PretendardVariable.woff2` is the
-  canonical source copy; the deployed
-  copy at `public/designsystem/fonts/PretendardVariable.woff2` must be
-  byte-identical.
+  canonical source copy and stays as the source of the Hangul faces; while the
+  public pages use the whole file, the deployed copy at
+  `public/designsystem/fonts/PretendardVariable.woff2` must be byte-identical.

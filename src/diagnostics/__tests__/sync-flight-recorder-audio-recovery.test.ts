@@ -225,6 +225,18 @@ describe('the /debug sync AUDIO RECOVERY block', () => {
     );
   });
 
+  it("says '1 race watched' for a single race and 'races' for every other count", async () => {
+    const { recorder, counters: c } = await loadPage();
+    const deadlineLine = (): string | undefined =>
+      recorder.collectSyncFlightRecorderText().split('\n')[12];
+    c.countAudioRecovery(c.DEADLINES_WATCHED);
+    expect(deadlineLine()).toBe('Deadline fires: 0 (1 race watched)');
+    c.countAudioRecovery(c.DEADLINE_GESTURE_FLOW);
+    expect(deadlineLine()).toBe('Deadline fires: 1 | gestureFlow1s:1 (1 race watched)');
+    c.countAudioRecovery(c.DEADLINES_WATCHED);
+    expect(deadlineLine()).toBe('Deadline fires: 1 | gestureFlow1s:1 (2 races watched)');
+  });
+
   it("keeps another build's previous page on its own line with that build", async () => {
     navigation('reload');
     const { recorder, counters: c } = await loadPage();

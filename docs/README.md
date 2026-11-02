@@ -95,13 +95,14 @@ runbooks. Neither belongs in a general setup document.
 ## Maintained evidence and completed records
 
 - [Phase 6 train 6D: the YouTube start recoveries in one module, the Standard host's local start wait and the PRO start tokens (2026-11-02)](design/phase6-6d-recovery-pro-arm-2026-11-02.md):
-  prepared, not released. The fourth and last Phase 6 App update on branch `agent/p6-6d`, twenty
-  commits on main `432d4ae7` (the App 9.0.34 / v807 release record): the thirteen commits first
+  prepared, not released. The fourth and last Phase 6 App update on branch `agent/p6-6d`,
+  twenty-two commits on main `432d4ae7` (the App 9.0.34 / v807 release record): the thirteen commits first
   built on the 6C train's tip `bdb5759a`, moved patch for patch once 6B (9.0.32 / v805) and 6C
   (9.0.34 / v807) had shipped, a tests-only commit and a comment and registry commit from the
-  review of the moved branch, one record commit, and 6D-6's regression rows, failing test, runtime
-  change and record commit (first built on the first branch's tip `e8cacdd4`, moved with its two
-  post-review test commits folded into the first two); the version bump, the release-record entry
+  review of the moved branch, one record commit, and 6D-6's six commits (regression rows, failing
+  test, runtime change, record, post-review comments and post-review record; first built on the
+  first branch's tip `e8cacdd4`, moved with its two post-review test commits folded into the first
+  two); the version bump, the release-record entry
   and the release are the release owner's. 6D-1 turns the Standard guest's local zero-start recovery from a
   `player.ts` closure into the class `GuestZeroStartRecovery` in the new
   `src/youtube/zero-start-recovery.ts`, and the two
@@ -132,9 +133,8 @@ runbooks. Neither belongs in a general setup document.
   after the move, the SHA map, the guard counts (CHECK 11 stays 20 as `player.ts`'s recovery
   writes move into the new module), the first load (+294 B eager JavaScript gzip against main
   `432d4ae7`, and +68 B for 6D-6; Phase 6 total +193 B, leaving 7 B for 6C-3), the Phase 6
-  end-condition
-  check, mixed versions, rollback (checkpoint App 9.0.34 / v807, or the public-page font train's
-  App if that ships first), the blind device candidates, the two open items to link and the Phase
+  end-condition check, mixed versions, rollback (checkpoint App 9.0.34 / v807, or the public-page font train's
+  App if that ships first), the blind device candidates, the three open items to link and the Phase
   7 handoff. QA rounds 1 to 4 ran on the first branch (old base `bdb5759a`). QA round 5 moved it
   onto `432d4ae7` (four docs-only conflicts, every commit's `src` and `scripts` patch unchanged)
   and reran the tests-first pairs, types, lint, format, `check:workers`, three unit directories
@@ -146,7 +146,12 @@ runbooks. Neither belongs in a general setup document.
   merged profile and Worker coverage 69 / 3,325, the build and every guard except
   `guard:sw-cache-version` (the pending bump: 10 App files newer than v807), critical E2E 101 /
   101, the ten local YouTube specs 53 / 53 and the WebKit YouTube activation spec 4 / 4 (ports
-  5391 / 5392, retries 0).
+  5391 / 5392, retries 0). 6D-6 came after round 6: shared-path rows that pass before and after
+  it, four late-join rows of a device without an iframe that fail before it (two flipped, a
+  snapshot-route row and a never-ready first iframe row), and an iPhone kept-iframe row that pins
+  the judgement's ready-player bound. Its runtime commit has the first branch's patch-id and adds
+  68 B, its comment commit changes no build byte, and its pictures come from the first branch's
+  real build.
 - [App 9.0.34 / v807 train: Phase 6 6C (one YouTube state router, one iframe audio owner and shared arm steps), no light-theme stroke on the dialog grey button and the selection bar, and lighter light-theme dividers (2026-11-02)](design/phase6-6c-router-iframe-audio-arm-steps-2026-11-02.md):
   released on 2026-11-02 21:20 KST in Release 41443521522 (PR #563, squash `cd8eaf47`) as App
   9.0.34 / v807 (App build 807, target `app`, one update dialog, two visible light-theme changes;

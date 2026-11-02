@@ -501,7 +501,9 @@ function noteProPlaybackCheckpoint(observation: ProPlaybackCheckpointObservation
 
 // -- AUDIO RECOVERY (Phase 7 7A-1) ------------------------------------
 // The label names are frozen once a before set is collected: later trains
-// compare the same names (a renamed label is a new count).
+// compare the same names (a renamed label is a new count). A deadline name's
+// value is the wait it had in 7A, not a timing value (those live in
+// audio/context-protocol.ts): a later train that changes a wait keeps the name.
 const RESUME_SOURCES: Labels = [
   [RESUME_PLAY_REQUEST, 'playRequest'],
   [RESUME_PLAY_GESTURE, 'playGesture'],
@@ -531,7 +533,9 @@ const DEADLINES: Labels = [
 /**
  * Chrome 146 and later count output underruns on the context
  * (AudioContext.playbackStats). `/debug sync` reads it once, when the window
- * opens (owner decision Q3 b); null where the browser does not report it.
+ * opens (owner decision Q3 b); null where the browser does not report it,
+ * and also before the audio engine exists (nothing to read yet), which the
+ * window shows with the same approved 'none (not reported by this browser)'.
  */
 export function readChromeOutputUnderruns(): number | null {
   if (!isAudioReady()) return null;
@@ -580,10 +584,11 @@ function audioRecoveryLines(outputUnderruns: number | null): string[] {
   const fired = named(DEADLINES.filter(([slot]) => count[slot]! > 0));
   const play = count[DIALOG_REQUESTS_PLAY]!;
   const back = count[DIALOG_REQUESTS_RETURN]!;
+  const watched = count[DEADLINES_WATCHED]!;
   const lines = [
     'AUDIO RECOVERY (this page, on device, not sent)',
     `Resume attempts: ${total(count, RESUME_SOURCES)} | ${named(RESUME_SOURCES)}`,
-    `Deadline fires: ${total(count, DEADLINES)}${fired ? ` | ${fired}` : ''} (${count[DEADLINES_WATCHED]} races watched)`,
+    `Deadline fires: ${total(count, DEADLINES)}${fired ? ` | ${fired}` : ''} (${watched} ${watched === 1 ? 'race' : 'races'} watched)`,
     `Time awaiting clock verification: totalMs:${Math.round(count[CLOCK_WAIT_TOTAL_MS]!)} maxMs:${Math.round(count[CLOCK_WAIT_MAX_MS]!)} | waits:${count[CLOCK_WAITS]} confirmed:${count[CLOCK_CONFIRMED]} cancelled:${count[CLOCK_CANCELLED]} recoveryNeeded:${count[CLOCK_RECOVERY_NEEDED]}`,
     `Suspend calls: ${count[SUSPEND_CALLS]} | second suspends:${count[SECOND_SUSPENDS]} | re-suspended after running:${count[RESUSPENDED_AFTER_RUNNING]}`,
     `Recovery dialog requests: ${play + back} | play:${play} return:${back} | audio-context-recovered rejoins:${count[CONTEXT_RECOVERED_REJOINS]} | taps refused:${count[TAPS_REFUSED]}`,
@@ -611,7 +616,8 @@ export function markSyncFlightRecorderIncident(): void {
 
 /**
  * The `/debug sync` report. `outputUnderruns` is what readChromeOutputUnderruns
- * read when the window opened (null: not reported by this browser).
+ * read when the window opened (null: not reported by this browser, or no
+ * audio engine yet).
  */
 export function collectSyncFlightRecorderText(outputUnderruns: number | null = null): string {
   const proStartObservations = getProStartObservations();

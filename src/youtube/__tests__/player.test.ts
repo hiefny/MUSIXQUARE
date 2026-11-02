@@ -8,7 +8,7 @@ import { MSG } from '../../core/constants.ts';
 import { setPlaybackFilePlaying, setPlaybackYouTubePlaying } from '../../player/ownership.ts';
 import type { DataConnection, PlaylistItem, TrackMeta } from '../../types/index.ts';
 import type { YouTubePlayerInstance } from '../_state.ts';
-import { makeFakeYtPlayer } from './__helpers__/fake-yt-player.ts';
+import { makeFakeYtPlayer, type FakeYtPlayer } from './__helpers__/fake-yt-player.ts';
 import * as searchFixture from '../search.ts';
 import {
   getProStartObservations,
@@ -942,6 +942,77 @@ describe('YouTube Player', () => {
   });
 
   describe('Standard host own output compensation', () => {
+    // These rows run the host's local start wait on the real managed timers and
+    // fake time, and read what it does to the iframe and the room from an op
+    // log (recordHost), rather than finding its timers by name.
+    beforeEach(async () => {
+      const timers = await import('../../core/timers.ts');
+      const actual = await vi.importActual<typeof timers>('../../core/timers.ts');
+      vi.mocked(timers.setManagedTimer).mockImplementation(actual.setManagedTimer);
+      vi.mocked(timers.clearManagedTimer).mockImplementation(actual.clearManagedTimer);
+      vi.mocked(timers.getManagedTimer).mockImplementation(actual.getManagedTimer);
+    });
+
+    afterEach(async () => {
+      const timers = await import('../../core/timers.ts');
+      const actual = await vi.importActual<typeof timers>('../../core/timers.ts');
+      const { broadcast } = await import('../../network/peer.ts');
+      const { broadcastYouTubeSync } = await import('../sync.ts');
+      actual.clearAllManagedTimers();
+      vi.mocked(timers.setManagedTimer).mockReset();
+      vi.mocked(timers.clearManagedTimer).mockReset();
+      vi.mocked(timers.getManagedTimer).mockReset().mockReturnValue(null);
+      vi.mocked(broadcast).mockReset();
+      vi.mocked(broadcastYouTubeSync).mockReset();
+    });
+
+    /**
+     * From this call on, log what the host does to its iframe and the room,
+     * each line '+<ms since this call> ...': every pause, seek and play, with
+     * whether the host's local start holds its speaker ('held' or 'free'), the
+     * applied offset and the recorded automatic offset at that command; every
+     * room state frame (Stage 1); and every rendezvous broadcast (Stage 2).
+     * `blockFirstSeekMs` blocks the page for that long inside the first seek.
+     */
+    async function recordHost(player: FakeYtPlayer, blockFirstSeekMs = 0): Promise<string[]> {
+      const { isStandardHostYouTubeLocalStartPending, getStandardHostYouTubeAutomaticOffset } =
+        await import('../local-offset.ts');
+      const { broadcast } = await import('../../network/peer.ts');
+      const { broadcastYouTubeSync } = await import('../sync.ts');
+      const startedAt = Date.now();
+      const log: string[] = [];
+      const at = () => `+${Date.now() - startedAt}`;
+      const value = (arg: unknown) => (typeof arg === 'number' ? arg.toFixed(3) : String(arg));
+      let block = blockFirstSeekMs;
+      for (const op of ['pauseVideo', 'seekTo', 'playVideo'] as const) {
+        const command = player[op] as (...args: unknown[]) => void;
+        (player as unknown as Record<string, unknown>)[op] = (...args: unknown[]) => {
+          log.push(
+            `${at()} ${op}(${args.map(value).join(',')}) ` +
+              `${isStandardHostYouTubeLocalStartPending() ? 'held' : 'free'} ` +
+              `applied ${value(getState('sync.youtubeCoordinatorAppliedOffset'))} ` +
+              `auto ${value(getStandardHostYouTubeAutomaticOffset())}`,
+          );
+          command(...args);
+          if (op === 'seekTo' && block > 0) {
+            const ms = block;
+            block = 0;
+            vi.advanceTimersByTime(ms);
+          }
+        };
+      }
+      vi.mocked(broadcast).mockImplementation((message) => {
+        const frame = message as { type: string; state?: number; time?: number };
+        if (frame.type === MSG.YOUTUBE_STATE) {
+          log.push(`${at()} state ${frame.state} at ${value(frame.time)}`);
+        }
+      });
+      vi.mocked(broadcastYouTubeSync).mockImplementation((manual, state) => {
+        log.push(`${at()} sync manual=${manual} state=${state}`);
+      });
+      return log;
+    }
+
     async function installHost(manual = 0) {
       const stateMod = await import('../_state.ts');
       const localOffset = await import('../local-offset.ts');
@@ -1005,82 +1076,193 @@ describe('YouTube Player', () => {
       playbackPlatform.android = true;
       const player = await installHost(-9.999);
       const { scheduleYtAutoSync } = await import('../player.ts');
-      const { setManagedTimer } = await import('../../core/timers.ts');
       const { toCanonicalYouTubeTime, isStandardHostYouTubeLocalStartPending } =
         await import('../local-offset.ts');
+      const log = await recordHost(player);
       scheduleYtAutoSync(0);
-      const release = vi
-        .mocked(setManagedTimer)
-        .mock.calls.find(([name]) => name === 'yt-host-local-start')!;
-      expect(release[2]).toBeCloseTo(9749, 6);
       expect(player.getPlayerState()).toBe(2);
-      expect(player.__log.filter((call) => call.op === 'playVideo')).toHaveLength(0);
       vi.advanceTimersByTime(2000);
       expect(toCanonicalYouTubeTime(0, 300)).toBeCloseTo(2, 8);
       expect(isStandardHostYouTubeLocalStartPending()).toBe(true);
-      vi.advanceTimersByTime(7749);
-      (release[1] as () => void)();
+      // 9.999 s early less the 250 ms output lead: the speaker waits 9,749 ms.
+      vi.advanceTimersByTime(7748);
+      expect(player.getPlayerState()).toBe(2);
+      expect(isStandardHostYouTubeLocalStartPending()).toBe(true);
+      vi.advanceTimersByTime(1);
       expect(player.getPlayerState()).toBe(1);
       expect(getState('sync.youtubeLocalOffset')).toBe(-9.999);
       expect(getState('sync.youtubeCoordinatorAppliedOffset')).toBeCloseTo(-9.749, 8);
       expect(toCanonicalYouTubeTime(0, 300)).toBeCloseTo(9.749, 8);
       expect(isStandardHostYouTubeLocalStartPending()).toBe(false);
+      vi.advanceTimersByTime(4000);
+      // The hold begins before the pause and the seek, and ends just before the
+      // play; Stage 2 waits the hold plus the usual 2 s.
+      expect(log).toEqual([
+        '+0 pauseVideo() held applied -9.749 auto 0.250',
+        '+0 seekTo(0.000,true) held applied -9.749 auto 0.250',
+        '+0 state 1 at 0.000',
+        '+9749 playVideo() free applied -9.749 auto 0.250',
+        '+11749 sync manual=true state=1',
+      ]);
     });
 
-    // The negative-start release seeks to catch up only a callback more than
-    // 40 ms late (the arm's catch-up tolerance, compared in seconds). Within
-    // it the host plays from its held position, and the lateness goes into
-    // the applied offset and the recorded automatic offset instead.
+    // The negative-start release seeks to catch up only when it runs more than
+    // 40 ms past the hold's due time, the hold's start plus its delay (the
+    // arm's catch-up tolerance, compared in seconds). Here the page is blocked
+    // for that long inside the hold's own iframe seek, after the hold began and
+    // before its release timer was armed, so the release runs that late. Within
+    // the tolerance the host plays from its held position, and the lateness
+    // goes into the applied offset and the recorded automatic offset instead.
     it.each([
-      { lateMs: 40, seeks: 0, applied: -9.789, automatic: 0.21 },
-      { lateMs: 41, seeks: 1, applied: -9.749, automatic: 0.25 },
+      {
+        lateMs: 40,
+        release: ['+9789 playVideo() free applied -9.789 auto 0.210'],
+        applied: -9.789,
+        automatic: 0.21,
+      },
+      {
+        lateMs: 41,
+        release: [
+          '+9790 seekTo(0.041,true) held applied -9.749 auto 0.250',
+          '+9790 playVideo() free applied -9.749 auto 0.250',
+        ],
+        applied: -9.749,
+        automatic: 0.25,
+      },
     ])(
-      'releases a negative start whose timer runs $lateMs ms past its due time with $seeks seek',
-      async ({ lateMs, seeks, applied, automatic }) => {
+      'releases a negative start $lateMs ms past its due time',
+      async ({ lateMs, release, applied, automatic }) => {
         playbackPlatform.android = true;
         const player = await installHost(-9.999);
         const { scheduleYtAutoSync } = await import('../player.ts');
-        const { setManagedTimer } = await import('../../core/timers.ts');
         const { getStandardHostYouTubeAutomaticOffset } = await import('../local-offset.ts');
+        const log = await recordHost(player, lateMs);
         scheduleYtAutoSync(0);
-        const release = vi
-          .mocked(setManagedTimer)
-          .mock.calls.find(([name]) => name === 'yt-host-local-start')!;
-        expect(release[2]).toBeCloseTo(9749, 6);
-        const seeksBefore = player.__log.filter((call) => call.op === 'seekTo').length;
-        vi.advanceTimersByTime(9749 + lateMs);
-        (release[1] as () => void)();
+        vi.advanceTimersByTime(9748);
+        expect(player.getPlayerState()).toBe(2);
+        vi.advanceTimersByTime(4000);
 
-        const releaseSeeks = player.__log.filter((call) => call.op === 'seekTo').slice(seeksBefore);
-        expect(releaseSeeks).toHaveLength(seeks);
-        if (seeks) expect(releaseSeeks[0].args?.[0]).toBeCloseTo(lateMs / 1000, 8);
+        expect(log).toEqual([
+          '+0 pauseVideo() held applied -9.749 auto 0.250',
+          '+0 seekTo(0.000,true) held applied -9.749 auto 0.250',
+          `+${lateMs} state 1 at 0.000`,
+          ...release,
+          `+${11749 + lateMs} sync manual=true state=1`,
+        ]);
         expect(player.getPlayerState()).toBe(1);
         expect(getState('sync.youtubeCoordinatorAppliedOffset')).toBeCloseTo(applied, 8);
         expect(getStandardHostYouTubeAutomaticOffset()).toBeCloseTo(automatic, 8);
       },
     );
 
-    it.each(['pause', 'seek'] as const)(
-      'makes an obsolete negative release inert after %s',
-      async (action) => {
+    // An iframe command can run app code before it returns (a state callback
+    // that starts a newer timeline). The hold checks it is still current after
+    // its pause, after its seek and after its release's catch-up seek, and the
+    // newer start then owns the iframe, the room frames and Stage 2 alone.
+    it.each([
+      {
+        during: 'its pause',
+        call: 1,
+        log: [
+          '+0 pauseVideo() held applied -9.749 auto 0.250',
+          '+0 seekTo(20.251,true) free applied -9.749 auto 0.250',
+          '+0 playVideo() free applied -9.749 auto 0.250',
+          '+0 state 1 at 30.000',
+          '+2000 sync manual=true state=1',
+        ],
+      },
+      {
+        during: 'its seek',
+        call: 2,
+        log: [
+          '+0 pauseVideo() held applied -9.749 auto 0.250',
+          '+0 seekTo(0.000,true) held applied -9.749 auto 0.250',
+          '+0 seekTo(20.251,true) free applied -9.749 auto 0.250',
+          '+0 playVideo() free applied -9.749 auto 0.250',
+          '+0 state 1 at 30.000',
+          '+2000 sync manual=true state=1',
+        ],
+      },
+      {
+        during: "its late release's catch-up seek",
+        call: 3,
+        log: [
+          '+0 pauseVideo() held applied -9.749 auto 0.250',
+          '+0 seekTo(0.000,true) held applied -9.749 auto 0.250',
+          '+41 state 1 at 0.000',
+          '+9790 seekTo(0.041,true) held applied -9.749 auto 0.250',
+          '+9790 seekTo(20.251,true) free applied -9.749 auto 0.250',
+          '+9790 playVideo() free applied -9.749 auto 0.250',
+          '+9790 state 1 at 30.000',
+          '+11790 sync manual=true state=1',
+        ],
+      },
+    ])('stops a negative start when $during starts a newer timeline', async ({ call, log }) => {
+      playbackPlatform.android = true;
+      const player = await installHost(-9.999);
+      const { scheduleYtAutoSync } = await import('../player.ts');
+      const { isStandardHostYouTubeLocalStartPending } = await import('../local-offset.ts');
+      // The pause, the seek and the release's seek are the iframe's first,
+      // second and third pause or seek.
+      let commands = 0;
+      for (const op of ['pauseVideo', 'seekTo'] as const) {
+        const command = player[op] as (...args: unknown[]) => void;
+        (player as unknown as Record<string, unknown>)[op] = (...args: unknown[]) => {
+          command(...args);
+          commands += 1;
+          if (commands === call) scheduleYtAutoSync(30);
+        };
+      }
+      const trace = await recordHost(player, call === 3 ? 41 : 0);
+      scheduleYtAutoSync(0);
+      vi.advanceTimersByTime(14_000);
+      expect(trace).toEqual(log);
+      expect(player.getPlayerState()).toBe(1);
+      expect(getState('sync.youtubeCoordinatorAppliedOffset')).toBeCloseTo(-9.749, 8);
+      expect(isStandardHostYouTubeLocalStartPending()).toBe(false);
+    });
+
+    it.each([
+      {
+        action: 'pause',
+        after: [
+          '+2000 seekTo(0.000,true) free applied -2.000 auto 0.000',
+          '+2000 pauseVideo() free applied -2.000 auto 0.000',
+          '+2000 state 2 at 2.000',
+        ],
+      },
+      {
+        action: 'seek',
+        after: [
+          '+2000 seekTo(20.251,true) free applied -9.749 auto 0.250',
+          '+2000 playVideo() free applied -9.749 auto 0.250',
+          '+2000 state 1 at 30.000',
+          '+4000 sync manual=true state=1',
+        ],
+      },
+    ] as const)(
+      'makes an obsolete negative release inert after $action',
+      async ({ action, after }) => {
         playbackPlatform.android = true;
         const player = await installHost(-9.999);
         const { initYouTube, scheduleYtAutoSync } = await import('../player.ts');
-        const { setManagedTimer } = await import('../../core/timers.ts');
         const { toCanonicalYouTubeTime, isStandardHostYouTubeLocalStartPending } =
           await import('../local-offset.ts');
         (globalThis as unknown as { YT: unknown }).YT = { PlayerState: { PLAYING: 1, PAUSED: 2 } };
         initYouTube();
+        const log = await recordHost(player);
         scheduleYtAutoSync(0);
-        const release = vi
-          .mocked(setManagedTimer)
-          .mock.calls.find(([name]) => name === 'yt-host-local-start')![1] as () => void;
         vi.advanceTimersByTime(2000);
         if (action === 'pause') bus.emit('youtube:toggle-play');
         else scheduleYtAutoSync(30);
-        const calls = player.__log.length;
-        release();
-        expect(player.__log).toHaveLength(calls);
+        // Past the old release's due time (9,749 ms) and its Stage 2 (11,749 ms).
+        vi.advanceTimersByTime(12_000);
+        expect(log).toEqual([
+          '+0 pauseVideo() held applied -9.749 auto 0.250',
+          '+0 seekTo(0.000,true) held applied -9.749 auto 0.250',
+          '+0 state 1 at 0.000',
+          ...after,
+        ]);
         expect(player.getPlayerState()).toBe(action === 'pause' ? 2 : 1);
         expect(toCanonicalYouTubeTime(player.getCurrentTime(), 300)).toBeCloseTo(
           action === 'pause' ? 2 : 30,
@@ -1091,11 +1273,61 @@ describe('YouTube Player', () => {
       },
     );
 
-    it.each(
-      ['output-tail', 'negative-start'].flatMap((hold) =>
-        ['absolute', 'relative'].map((seek) => ({ hold, seek })),
-      ),
-    )('preserves playing intent when $seek seeking during $hold', async ({ hold, seek }) => {
+    // After the seek and a pause, the log runs on past every older due time:
+    // the negative start's release (9,749 ms), its Stage 2 (11,749 ms) and
+    // the seek's own Stage 2 (2 s after the seek).
+    it.each([
+      {
+        hold: 'output-tail',
+        seek: 'absolute',
+        log: [
+          '+0 seekTo(30.250,true) free applied 0.250 auto 0.250',
+          '+0 playVideo() free applied 0.250 auto 0.250',
+          '+0 state 1 at 30.000',
+          '+0 state 2 at 30.000',
+          '+0 pauseVideo() free applied 0.250 auto 0.250',
+        ],
+      },
+      {
+        hold: 'output-tail',
+        seek: 'relative',
+        log: [
+          '+0 seekTo(270.000,true) free applied 0.250 auto 0.250',
+          '+0 playVideo() free applied 0.250 auto 0.250',
+          '+0 state 1 at 269.750',
+          '+0 state 2 at 269.750',
+          '+0 pauseVideo() free applied 0.250 auto 0.250',
+        ],
+      },
+      {
+        hold: 'negative-start',
+        seek: 'absolute',
+        log: [
+          '+0 pauseVideo() held applied -9.749 auto 0.250',
+          '+0 seekTo(0.000,true) held applied -9.749 auto 0.250',
+          '+0 state 1 at 0.000',
+          '+2000 seekTo(20.251,true) free applied -9.749 auto 0.250',
+          '+2000 playVideo() free applied -9.749 auto 0.250',
+          '+2000 state 1 at 30.000',
+          '+2000 state 2 at 30.000',
+          '+2000 pauseVideo() free applied -9.749 auto 0.250',
+        ],
+      },
+      {
+        hold: 'negative-start',
+        seek: 'relative',
+        log: [
+          '+0 pauseVideo() held applied -9.749 auto 0.250',
+          '+0 seekTo(0.000,true) held applied -9.749 auto 0.250',
+          '+0 state 1 at 0.000',
+          '+2000 seekTo(22.251,true) free applied -9.749 auto 0.250',
+          '+2000 playVideo() free applied -9.749 auto 0.250',
+          '+2000 state 1 at 32.000',
+          '+2000 state 2 at 32.000',
+          '+2000 pauseVideo() free applied -9.749 auto 0.250',
+        ],
+      },
+    ])('preserves playing intent when $seek seeking during $hold', async ({ hold, seek, log }) => {
       playbackPlatform.android = true;
       const player = await installHost(hold === 'negative-start' ? -9.999 : 0);
       const { initYouTube, scheduleYtAutoSync } = await import('../player.ts');
@@ -1106,12 +1338,9 @@ describe('YouTube Player', () => {
         PlayerState: { PLAYING: 1, PAUSED: 2, ENDED: 0 },
       };
       initYouTube();
-      let oldLocalRelease: (() => void) | undefined;
+      const trace = await recordHost(player);
       if (hold === 'negative-start') {
         scheduleYtAutoSync(0);
-        oldLocalRelease = vi
-          .mocked(timers.setManagedTimer)
-          .mock.calls.find(([name]) => name === 'yt-host-local-start')![1] as () => void;
         vi.advanceTimersByTime(2_000);
         expect(offsets.isStandardHostYouTubeLocalStartPending()).toBe(true);
       } else {
@@ -1125,8 +1354,6 @@ describe('YouTube Player', () => {
       const before = offsets.toCanonicalYouTubeTime(player.getCurrentTime(), 300);
       const relative = hold === 'negative-start' ? 30 : -30;
       const expectedTarget = seek === 'absolute' ? 30 : before + relative;
-      vi.mocked(broadcast).mockClear();
-      vi.mocked(timers.setManagedTimer).mockClear();
       if (seek === 'absolute') bus.emit('youtube:seek-to', expectedTarget);
       else bus.emit('youtube:skip-time', relative);
 
@@ -1143,17 +1370,10 @@ describe('YouTube Player', () => {
       expect(timers.clearManagedTimer).toHaveBeenCalledWith(
         offsets.STANDARD_HOST_YOUTUBE_END_HOLD_TIMER,
       );
-      const staleRendezvous = vi
-        .mocked(timers.setManagedTimer)
-        .mock.calls.find(([name]) => name === 'yt-auto-sync')![1] as () => void;
       bus.emit('youtube:toggle-play');
-      const physicalCalls = player.__log.length;
-      const messages = vi.mocked(broadcast).mock.calls.length;
-      oldLocalRelease?.();
-      staleRendezvous();
+      vi.advanceTimersByTime(12_000);
       expect(player.getPlayerState()).toBe(2);
-      expect(player.__log).toHaveLength(physicalCalls);
-      expect(broadcast).toHaveBeenCalledTimes(messages);
+      expect(trace).toEqual(log);
     });
 
     it('retires real legacy release callbacks when a manual edit takes over a negative start', async () => {
@@ -1171,24 +1391,16 @@ describe('YouTube Player', () => {
       const { scheduleYtAutoSync } = await import('../player.ts');
       const { beginStandardHostManualOffsetTransaction } =
         await import('../standard-host-manual-offset-runtime.ts');
+      const { isYouTubeAutoSyncPending } = await import('../player-runtime-bridge.ts');
       const offsets = await import('../local-offset.ts');
-      const timers = await import('../../core/timers.ts');
-      const actualTimers = await vi.importActual<typeof timers>('../../core/timers.ts');
-      const { broadcast } = await import('../../network/peer.ts');
       const hooks: import('../standard-host-manual-offset-gate.ts').StandardHostManualOffsetRuntimeHooks[] =
         [];
       let current = true;
-      vi.mocked(timers.setManagedTimer).mockImplementation(actualTimers.setManagedTimer);
-      vi.mocked(timers.clearManagedTimer).mockImplementation(actualTimers.clearManagedTimer);
-      vi.mocked(timers.getManagedTimer).mockImplementation(actualTimers.getManagedTimer);
+      // The edit's own rendezvous runs on below; a playing iframe advances.
+      player.__advanceClock = true;
+      const log = await recordHost(player);
       try {
         scheduleYtAutoSync(0);
-        const oldRelease = vi
-          .mocked(timers.setManagedTimer)
-          .mock.calls.find(([name]) => name === 'yt-host-local-start')![1];
-        const oldBroadcast = vi
-          .mocked(timers.setManagedTimer)
-          .mock.calls.find(([name]) => name === 'yt-auto-sync')![1];
         vi.advanceTimersByTime(1_000);
         beginStandardHostManualOffsetTransaction({
           generation: 1,
@@ -1213,22 +1425,23 @@ describe('YouTube Player', () => {
         expect(hooks[0].readPlaybackIntent()).toBe(true);
         expect(offsets.isStandardHostYouTubeLocalStartPending()).toBe(false);
         expect(offsets.toCanonicalYouTubeTime(player.getCurrentTime(), 300)).toBeCloseTo(1, 8);
-        expect(actualTimers.getManagedTimer('yt-host-local-start')).toBeNull();
-        expect(actualTimers.getManagedTimer('yt-auto-sync')).toBeNull();
-        const calls = player.__log.length;
-        const messages = vi.mocked(broadcast).mock.calls.length;
-        oldRelease();
-        oldBroadcast();
-        expect(player.__log).toHaveLength(calls);
-        expect(broadcast).toHaveBeenCalledTimes(messages);
+        // The legacy rendezvous's Stage-2 wait went with the local start.
+        expect(isYouTubeAutoSyncPending()).toBe(false);
+        // Past the old release's due time (9,749 ms) and its Stage 2 (11,749 ms):
+        // only the edit's own rendezvous moves the iframe, and no frame goes out.
+        vi.advanceTimersByTime(11_000);
+        expect(log).toEqual([
+          '+0 pauseVideo() held applied -9.749 auto 0.250',
+          '+0 seekTo(0.000,true) held applied -9.749 auto 0.250',
+          '+0 state 1 at 0.000',
+          '+1000 pauseVideo() free applied -9.749 auto 0.250',
+          '+1000 seekTo(2.500,true) free applied -9.749 auto 0.250',
+          '+2250 playVideo() free applied -9.749 auto 0.250',
+        ]);
         expect(getState('sync.youtubeLocalOffset')).toBe(0);
       } finally {
         current = false;
         hooks[0]?.reset();
-        actualTimers.clearAllManagedTimers();
-        vi.mocked(timers.setManagedTimer).mockReset();
-        vi.mocked(timers.clearManagedTimer).mockReset();
-        vi.mocked(timers.getManagedTimer).mockReset().mockReturnValue(null);
       }
     });
   });

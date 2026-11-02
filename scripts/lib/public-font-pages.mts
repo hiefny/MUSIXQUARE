@@ -203,6 +203,15 @@ const STACK_REFERENCE = new RegExp(
 type LiteralFontFamilies = Readonly<Record<string, string>>;
 
 /**
+ * The recorded literal families of the public pages: a brand's own font,
+ * never the pages' text, and each ends with the shared stack for the
+ * scripts the brand font lacks.
+ */
+export const PUBLIC_LITERAL_FONT_FAMILIES: LiteralFontFamilies = {
+  '.google-button': "Google's sign-in button follows Google's branding rules",
+};
+
+/**
  * What is wrong with the font rules of a public page's stylesheet (or of an
  * inline <style> block), or an empty list. Literal families are allowed for
  * device monospace and for the selectors in `literals`.
@@ -272,8 +281,8 @@ export function inlineStyles(html: string): string[] {
 export interface PublicFontPage {
   /** The source HTML, repository-relative. */
   readonly html: string;
-  /** Where the build writes it, dist-relative. */
-  readonly dist: string;
+  /** Where the build writes it, dist-relative, or null when the build leaves it out. */
+  readonly dist: string | null;
   /** Where the source links rest.css (publicFontLinkProblems). */
   readonly rest: PublicFontLinkOptions['rest'];
   /** Its stylesheets after /web-fonts/stacks.css, repository-relative, in cascade order. */
@@ -284,13 +293,41 @@ export interface PublicFontPage {
 
 const TOKENS = 'public/designsystem/colors_and_type.css';
 const DOCUMENT = 'public/legal-pages.css';
+const EDITORIAL = 'public/editorial-base.css';
+
+/** The design system's component previews, public/designsystem/preview/. */
+const DESIGN_PREVIEWS = [
+  '_shell',
+  'buttons-icon',
+  'buttons-primary',
+  'channel-grid',
+  'colors-dark',
+  'colors-light',
+  'colors-text',
+  'glass',
+  'iconography',
+  'invite-code',
+  'logo',
+  'motion',
+  'nav-pill',
+  'playlist',
+  'radii',
+  'section-group',
+  'spacing',
+  'toast-dialog',
+  'type-family',
+  'type-scale',
+  'type-weights',
+] as const;
 
 /**
  * Every page outside the app that has switched to the shared sheets, by its
  * source HTML. About is one source in every language: the build writes a
  * copy per language, with rest.css in the head where the language needs it
  * (src/i18n/public-font-contract.ts restFontSheetInHead); the build guard
- * checks every copy and every other built page.
+ * checks every copy and every other built page. The sign-in completion page
+ * (public/account-complete.html) is the app's, not one of these: it draws
+ * with the device's system fonts and links none of the shared sheets.
  */
 export const PUBLIC_FONT_PAGES: readonly PublicFontPage[] = [
   {
@@ -325,6 +362,59 @@ export const PUBLIC_FONT_PAGES: readonly PublicFontPage[] = [
     dist: 'sitemap.html',
     rest: 'body',
     sheets: [DOCUMENT, '.workshop/sitemap/sitemap.css'],
+    htmlLangs: ['en'],
+  },
+  {
+    html: 'public/blog/index.html',
+    dist: 'blog/index.html',
+    rest: 'body',
+    sheets: [TOKENS, EDITORIAL],
+    htmlLangs: ['en'],
+  },
+  {
+    html: 'public/history/index.html',
+    dist: 'history/index.html',
+    rest: 'body',
+    sheets: [TOKENS, EDITORIAL, 'public/editorial-history.css'],
+    htmlLangs: ['en'],
+  },
+  {
+    html: 'public/designsystem/index.html',
+    dist: 'designsystem/index.html',
+    rest: 'body',
+    sheets: [TOKENS, EDITORIAL, 'public/editorial-design.css'],
+    htmlLangs: ['en'],
+  },
+  ...DESIGN_PREVIEWS.map((name) => ({
+    html: `public/designsystem/preview/${name}.html`,
+    dist: `designsystem/preview/${name}.html`,
+    rest: 'body' as const,
+    sheets: [TOKENS],
+    htmlLangs: ['en'],
+  })),
+  {
+    // The UI kit is served in development only (scripts/ui-kit-asset.ts).
+    html: 'browser/ui-kit/static/app/index.html',
+    dist: null,
+    rest: 'body',
+    sheets: [TOKENS, 'browser/ui-kit/static/app/app.css'],
+    htmlLangs: ['en'],
+  },
+  {
+    // PRO sign-in: its deferred scripts wait for every stylesheet the parser
+    // added, so it links no rest.css and draws the scripts that sheet holds
+    // with the device fonts.
+    html: 'public/events/index.html',
+    dist: 'events/index.html',
+    rest: 'none',
+    sheets: ['public/events/event.css'],
+    htmlLangs: ['ko', 'en'],
+  },
+  {
+    html: 'public/404.html',
+    dist: '404.html',
+    rest: 'body',
+    sheets: [],
     htmlLangs: ['en'],
   },
 ];

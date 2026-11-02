@@ -50,7 +50,8 @@
  *   --font-sans like the app in every UI language and Han order, and
  *   declares no face; every switched page (scripts/lib/public-font-pages.mts
  *   PUBLIC_FONT_PAGES) links the shared sheets and no other font, its sheets
- *   and inline styles declare no face and set no stack, it reads the app's
+ *   and inline styles declare no face, set no stack and name families only
+ *   for code and the recorded brand labels, it reads the app's
  *   --font-sans in each of its languages, and it tells Korean and English
  *   apart only in the recorded copy rules, never by tracking.
  * The initial transfer budget (scripts/check-initial-transfer-budget.mts)
@@ -74,6 +75,7 @@
 import { readFile, readdir } from 'node:fs/promises';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
+import postcss, { type Rule } from 'postcss';
 import { CLASSIC_RUNTIME_ASSETS, compileClassicRuntimeAsset } from './classic-runtime-assets.ts';
 import { findStaleFontSheets } from './fonts/build-font-sheets.mts';
 import {
@@ -111,6 +113,7 @@ import {
   inlineStyles,
   PUBLIC_FONT_PAGES,
   PUBLIC_KOREAN_ENGLISH_COPY_RULES,
+  PUBLIC_LITERAL_FONT_FAMILIES,
   publicFontCssProblems,
   publicFontLinkProblems,
 } from './lib/public-font-pages.mts';
@@ -390,10 +393,18 @@ for (const page of PUBLIC_FONT_PAGES) {
   for (const problem of publicFontLinkProblems(html, { rest: page.rest })) {
     failures.push(`${page.html} ${problem}`);
   }
+  const inlineRules: { sheet: string; selectors: string[]; rule: Rule }[] = [];
   for (const style of inlineStyles(html)) {
     for (const problem of publicFontCssProblems(style)) {
       failures.push(`${page.html} <style> ${problem}`);
     }
+    postcss.parse(style).walkRules((rule) => {
+      inlineRules.push({
+        sheet: `${page.html} <style>`,
+        selectors: rule.selectors.map((selector) => selector.replace(/\s+/gu, ' ').trim()),
+        rule,
+      });
+    });
   }
   const chain = readFontStacks(repoRoot, { sheets: [PUBLIC_STACKS, ...page.sheets] });
   for (const htmlLang of page.htmlLangs) {
@@ -409,7 +420,7 @@ for (const page of PUBLIC_FONT_PAGES) {
   // The pages draw Korean and English alike, as the app does: a rule may
   // tell them apart only to set the page's own translated copy, and never
   // its tracking.
-  for (const { sheet, selectors, rule } of chain.rules) {
+  for (const { sheet, selectors, rule } of [...chain.rules, ...inlineRules]) {
     for (const single of selectors) {
       const tests = languageSplitTests(single, koreanLang, englishLang);
       if (tests.length === 0) continue;
@@ -428,7 +439,9 @@ for (const page of PUBLIC_FONT_PAGES) {
 }
 for (const sheet of publicSheets) {
   const css = await readFile(path.join(repoRoot, sheet), 'utf8');
-  for (const problem of publicFontCssProblems(css)) failures.push(`${sheet} ${problem}`);
+  for (const problem of publicFontCssProblems(css, PUBLIC_LITERAL_FONT_FAMILIES)) {
+    failures.push(`${sheet} ${problem}`);
+  }
 }
 for (const selector of Object.keys(PUBLIC_KOREAN_ENGLISH_COPY_RULES)) {
   check(
@@ -884,6 +897,7 @@ if (distMode) {
   }
   // Every other built page that has switched links them as its source does.
   for (const page of PUBLIC_FONT_PAGES) {
+    if (page.dist === null) continue;
     const pageHtml = builtHtml.find(({ file }) => relative(file) === page.dist)?.html;
     check(pageHtml !== undefined, `built ${page.dist} is missing`);
     if (pageHtml === undefined) continue;

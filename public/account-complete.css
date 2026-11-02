@@ -1,11 +1,3 @@
-@font-face {
-  font-family: 'Pretendard';
-  src: url('/designsystem/fonts/PretendardVariable.woff2') format('woff2');
-  font-weight: 45 920;
-  font-style: normal;
-  font-display: swap;
-}
-
 :root {
   --bg: #121212;
   --surface-1: #1a1a1a;
@@ -15,7 +7,8 @@
   --text-sub: #a1a1aa;
   --radius-l: 32px;
   color-scheme: dark;
-  font-family: Pretendard, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+  /* The app's sign-in completion page draws with the device's system fonts. */
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
   background: var(--bg);
   color: var(--text-main);
 }

@@ -74,14 +74,7 @@
 
 #foundations,
 #foundations :is(code, strong) {
-  font-family: var(
-    --font-sans,
-    Pretendard,
-    -apple-system,
-    BlinkMacSystemFont,
-    'Segoe UI',
-    sans-serif
-  );
+  font-family: var(--font-sans, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif);
 }
 
 .theme-palette-stack {
@@ -405,13 +398,13 @@
 
 .tokens .tok {
   color: var(--text-main);
-  font-family: var(--font-sans, Pretendard, sans-serif);
+  font-family: var(--font-sans, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif);
   font-weight: 600;
 }
 
 .tokens .val {
   color: var(--text-sub);
-  font-family: var(--font-sans, Pretendard, sans-serif);
+  font-family: var(--font-sans, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif);
   font-weight: 500;
   font-variant-numeric: tabular-nums;
 }
@@ -437,7 +430,7 @@
 .motion-card .fn {
   margin-bottom: 14px;
   color: var(--text-main);
-  font-family: var(--font-sans, Pretendard, sans-serif);
+  font-family: var(--font-sans, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif);
   font-size: 12px;
   font-weight: 500;
 }

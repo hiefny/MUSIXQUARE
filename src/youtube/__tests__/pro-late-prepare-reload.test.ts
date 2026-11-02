@@ -12,8 +12,9 @@
  * 6D-6 changed it (owner decision Q22 (a)): it keeps that device's
  * still-loading load instead of loading the occurrence again, also when the
  * committed checkpoint reaches the device in a snapshot rather than the COMMIT
- * frame, and so a first iframe that never finishes its handshake is not
- * loaded again either.
+ * frame. It keeps that load only up to the join the catch-up plans: a first
+ * iframe that has still not finished its handshake there is loaded again, as
+ * the COMMIT loaded it before 6D-6.
  *
  * The platform is the App's own detection: core/platform.ts with IS_ANDROID
  * switchable per row (as in pro-manual-zero-start.test.ts). player.ts and the
@@ -556,15 +557,18 @@ describe('PRO late YouTube cohort join on the device (pinned 2026-10-30)', () =>
     await restore;
   });
 
-  // (a) Scenario variant, the cost of keeping that load: the first iframe
-  // never finishes its handshake. The COMMIT catch-up waits for it instead of
-  // building a second iframe and gives up at its own unbarriered wait; the
-  // load's deadline, counted from its youtube:load at PREPARE, then ends it
-  // with the load-timeout toast and stops YouTube mode. The device has not
-  // joined; a later restore of the room's checkpoint is outside this row.
-  it('(a) waits for a first iframe that never finishes its handshake until that load times out, 15 s after PREPARE', async () => {
+  // (a) Scenario variant: the first iframe never finishes its handshake. The
+  // COMMIT catch-up keeps it only until the start its plan sets, 3 s after
+  // COMMIT receipt. Still handshaking there, the catch-up loads the occurrence
+  // again as it did at the COMMIT before 6D-6: a second youtube:load and
+  // effects toast, the unready iframe destroyed and a new one built. The
+  // device joins once that iframe is ready, at the room position then, and the
+  // first load's 15 s deadline no longer ends anything.
+  it('(a) loads the occurrence again, as before 6D-6, when its first iframe is still handshaking at the planned join', async () => {
     const { iframes, Player } = installIframeApi();
+    const loads = vi.fn();
     const loadedAt: number[] = [];
+    bus.on('youtube:load', loads);
     bus.on('youtube:load', () => loadedAt.push(Date.now()));
     const { controller, reportReady } = createParticipant();
 
@@ -573,29 +577,52 @@ describe('PRO late YouTube cohort join on the device (pinned 2026-10-30)', () =>
     expect(reportReady).toHaveBeenCalledExactlyOnceWith(
       expect.objectContaining({ transitionId: TRANSITION_ID, status: 'failed' }),
     );
+    const receivedAt = Date.now();
     controller.acceptCommit(commitEvent(1, 0, 'zero-start'));
     await vi.advanceTimersByTimeAsync(0);
     expect(loadedAt).toHaveLength(1);
     expect(effectsToasts()).toBe(1);
     expect(Player).toHaveBeenCalledOnce();
 
-    const loadDeadline = loadedAt[0]! + SCRIPT_LOAD_TIMEOUT_MS;
-    await vi.advanceTimersByTimeAsync(loadDeadline - 1 - Date.now());
+    // Kept up to the planned join, 3 s after COMMIT receipt.
+    const plannedJoin = receivedAt + LATE_JOIN_LEAD_MS;
+    await vi.advanceTimersByTimeAsync(plannedJoin - 1 - Date.now());
     expect(loadedAt).toHaveLength(1);
     expect(Player).toHaveBeenCalledOnce();
-    expect(loadTimeoutToasts()).toBe(0);
-    expect(isYtLoadInProgress()).toBe(true);
     expect(iframes[0]!.fake.__log).toEqual([]);
 
+    // Still handshaking at the planned join: loaded again there, as the COMMIT
+    // did before 6D-6, and the unready iframe is replaced.
     await vi.advanceTimersByTimeAsync(1);
-    expect(loadTimeoutToasts()).toBe(1);
-    expect(iframes[0]!.fake.__log.map(({ op }) => op)).toEqual(['destroy']);
-    expect(getYouTubePlayer()).toBeNull();
-    expect(isYtLoadInProgress()).toBe(false);
-    expect(getState('playback.mode')).not.toBe('youtube');
-    expect(loadedAt).toHaveLength(1);
-    expect(effectsToasts()).toBe(1);
-    expect(Player).toHaveBeenCalledOnce();
+    expect(loadedAt).toEqual([loadedAt[0], plannedJoin]);
+    expect(loads.mock.calls[1]).toEqual([VIDEO_ID, null, QUEUE_ITEM_ID, false, 0]);
+    expect(effectsToasts()).toBe(2);
+    expect(Player).toHaveBeenCalledTimes(2);
+    expect(iframes[0]!.fake.__log).toEqual([{ op: 'destroy', at: plannedJoin }]);
+    expect(getYouTubePlayer()).toBe(iframes[1]!.fake);
+
+    // The new iframe is ready 500 ms later. The plan has passed, so the device
+    // joins as soon as that iframe is armed, at the room position then.
+    await vi.advanceTimersByTimeAsync(500);
+    const readyAt = Date.now();
+    iframes[1]!.ready();
+    await vi.advanceTimersByTimeAsync(1_000);
+    const joined = iframes[1]!.fake;
+    expect(plays(joined).at(-1)).toBeGreaterThan(readyAt);
+    expect(joined.__state).toBe(1);
+    expect(joined.getCurrentTime()).toBeCloseTo(
+      (Date.now() - receivedAt - COMMIT_LEAD_MS) / 1_000,
+      2,
+    );
+
+    // Neither load's deadline ends anything: no load-timeout toast.
+    await vi.advanceTimersByTimeAsync(loadedAt[1]! + SCRIPT_LOAD_TIMEOUT_MS - Date.now());
+    expect(loadTimeoutToasts()).toBe(0);
+    expect(joined.__state).toBe(1);
+    expect(getState('playback.mode')).toBe('youtube');
+    expect(loadedAt).toHaveLength(2);
+    expect(effectsToasts()).toBe(2);
+    expect(Player).toHaveBeenCalledTimes(2);
   });
 
   // (a) Scenario, for contrast: the video is resident and ready, but the

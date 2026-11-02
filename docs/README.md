@@ -96,6 +96,37 @@ runbooks. Neither belongs in a general setup document.
 
 ## Maintained evidence and completed records
 
+- [Phase 7 train 7A: on-device audio recovery counts in /debug sync and a behaviour-neutral recovery cleanup (2026-11-03)](design/phase7-7a-audio-recovery-counters-2026-11-03.md):
+  prepared, not merged or released. The first of the three Phase 7 App updates (owner decision Q2)
+  on branch `agent/p7-7a`: ten commits on `agent/p7-t1` (the release-free Phase 7 T0 second pull
+  request and T1, tip `56d4e2dd`, on main `432d4ae7`) and one record commit; the version bump, the
+  release-record entry and the release are the release owner's, after Phase 6 6D has shipped, been
+  recorded and passed its post-merge Full E2E. 7A-2 gives the AudioContext recovery one timing home,
+  the new leaf `src/audio/context-protocol.ts` (not `src/audio/constants.ts`, which sits in another
+  eager chunk), and one prepared-state predicate; 7A-3 deletes the write-only `fallbackEligible` and
+  `fallbackClaimed` and the unused reason `'stale-play-lock'`; 7A-4 makes `attemptResume` a required
+  choice of `probeAudioContextHealth`; 7A-6 deletes the recovery dialog's unreachable retire and
+  re-arm after a failed retry; all four are neutral. 7A-1, an intended diagnostic display the owner
+  approved from pictures, counts the recovery on the device (the mock-free leaf
+  `src/audio/output-recovery-counters.ts`, numbered slots, an RO-01 observer fed by one phase funnel
+  per machine and by read-only owner queries) and shows it in `/debug sync` as the approved AUDIO
+  RECOVERY block after the ten head lines, with Chrome's output underruns read when the window opens
+  and, after a same-tab reload, the previous page's counts kept in one sessionStorage key through the
+  page navigation owner's pagehide; the window's footer reads 'RAM + tab storage'. Sound and every
+  other screen are unchanged. Neutral evidence: the T0 owner tables, the lock-screen pause rows, the
+  T0 second pull request's files and the local Chromium audio lab pass byte for byte (lab observations
+  equal to the base with timings stripped), and the T0 known-gaps list stays as it is. The guard counts
+  are unchanged (native 11; indirect 4 / 2 / 5); the RO-01 timing contract gains its scalar home
+  (report-only pairs 45 to 38). First load +714 B eager JavaScript gzip: 7A-1 +903 B, over the
+  +300 B increment cap even without its three optional parts (+580 B), an owner question; the four
+  neutral increments −189 B; the Phase 7 total is judged after the last train. QA rounds 1 to 3 ran
+  on the first base `cd8eaf47`; round 4 moved the stack onto `432d4ae7` with all sixteen patches
+  identical; round 5 ran the full local gate on code tip `dd758372` (types, lint, format,
+  `build:checked` step by step with only `guard:sw-cache-version` failing for the pending bump, the
+  production candidate 19 / 19, every guard, critical coverage 4,504 and Worker coverage 3,325, the
+  unit suite 18,134 of 18,135 with one release-tool timeout passing alone, critical E2E 101 / 101,
+  the recovery specs and the audio lab 17 / 17) and the static subset on `56d4e2dd`; round 6 took
+  real `/debug sync` pictures, phone and desktop, on the code tip.
 - [App 9.0.36 / v809 train: every public page on the app's font system, and the design system Typography section (2026-11-02)](design/public-page-fonts-2026-11-02.md):
   released on 2026-11-03 22:22 KST in Release 41643392133 (PR #567, squash `6f9cf6f8`) as App
   9.0.36 / v809 (App build 809, target `app`, one update dialog; the bump `f47d5733` is the last

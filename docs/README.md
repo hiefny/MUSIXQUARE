@@ -147,7 +147,8 @@ runbooks. Neither belongs in a general setup document.
   train as post-deploy items (scope and status, the owner decisions and rule, rollback, the
   post-deploy check, the next steps, open items), its §4 the 9.0.34 entry and current boundary
   line (5), and the hotfix procedure's 9.0.25 bullet names 9.0.34's merge SHA, Release ID and App
-  version. This train's merge ended 9.0.33's standalone revert window.
+  version. This train's merge ended 9.0.33's standalone revert window; its own windows (6C and each light
+  increment) close when the next App update merges.
   6C-1 turns `iframe.ts`'s fixed-order dispatch of iframe states to the start owners into a router
   with one decision per start claim kind (a kind without one does not compile) and merges the
   Standard host's held room time into one read, the pending-start predicate staying the legacy
@@ -208,8 +209,10 @@ runbooks. Neither belongs in a general setup document.
   versions, rollback (checkpoint App 9.0.33 / v806,
   build 806, deploy SHA `4faf38d9`; a manual rollback to it removes the whole train v807 and gives
   its clients a lower epoch, so the default is a forward revert of the whole train or one increment
-  as 9.0.35 / v808, or the next App update's number after that if another ships first; 6C alone
-  until 6D merges, the light-stroke and divider commits each alone), the blind device candidates
+  as 9.0.35 / v808, or the next App update's number after that if another ships first; 6C and each
+  light commit alone only until the next App update, the public-page font train, merges, as the
+  record rules for 9.0.31, 6B and 9.0.33, then a forward fix on the latest main; reverting 6C after
+  6D merges takes 6D with it), the blind device candidates
   and the owner's own light-theme look at the grey button, the selection bar and the dividers (not
   blind, since the owner has seen the pictures), the open item for
   the YouTube first-note alignment, the Phase 7

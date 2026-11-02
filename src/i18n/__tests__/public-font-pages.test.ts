@@ -6,15 +6,31 @@
  * first, and not at all where a page's scripts must not wait for it), loads
  * fonts no other way, and its stylesheets declare no face and set no stack,
  * so it reads the app's stacks. These fixtures pin each departure the checks
- * report; the page cases follow with each page group.
+ * report; the page cases follow, one group of pages at a time.
  */
-import { describe, expect, it } from 'vitest';
+import { readFileSync } from 'node:fs';
+import { resolve } from 'node:path';
+import postcss, { type Rule } from 'postcss';
+import { beforeAll, describe, expect, it } from 'vitest';
 
 import {
+  CLASSIC_RUNTIME_ASSETS,
+  compileClassicRuntimeAsset,
+} from '../../../scripts/classic-runtime-assets.ts';
+import { readFontStacks } from '../../../scripts/fonts/font-stacks.mts';
+import { languageSplitTests } from '../../../scripts/lib/app-font-guard.mts';
+import {
+  PUBLIC_FONT_PAGES,
+  PUBLIC_KOREAN_ENGLISH_COPY_RULES,
   PUBLIC_TEXT_FONT_FAMILY,
+  inlineStyles,
   publicFontCssProblems,
   publicFontLinkProblems,
+  type PublicFontPage,
 } from '../../../scripts/lib/public-font-pages.mts';
+import { renderLocalizedAbout } from '../../../scripts/localized-html-lib.mts';
+import { LANGUAGE_OPTIONS, languageDirection, type LanguageCode } from '../locales.ts';
+import { restFontSheetInHead } from '../public-font-contract.ts';
 import { PUBLIC_FONT_SHEET_URLS } from '../public-font-urls.ts';
 
 const { first, stacks, rest } = PUBLIC_FONT_SHEET_URLS;
@@ -208,5 +224,207 @@ describe('the public font CSS check', () => {
     expect(publicFontCssProblems("@import url('/css/pretendard.css');")).toEqual([
       'names Pretendard',
     ]);
+  });
+});
+
+const ROOT = resolve('.');
+const read = (file: string): string => readFileSync(resolve(ROOT, file), 'utf8');
+const app = readFontStacks(ROOT);
+const STACKS = 'public/web-fonts/stacks.css';
+const TOKENS = 'public/designsystem/colors_and_type.css';
+
+/** A registered page by its source HTML. */
+function page(html: string): PublicFontPage {
+  const found = PUBLIC_FONT_PAGES.find((candidate) => candidate.html === html);
+  if (!found) throw new Error(`${html} is not a registered public font page`);
+  return found;
+}
+
+/** The page's --font-sans equals the app's in each of its languages, through its own sheets. */
+function expectAppStacks(registered: PublicFontPage): void {
+  const chain = readFontStacks(ROOT, { sheets: [STACKS, ...registered.sheets] });
+  for (const htmlLang of registered.htmlLangs) {
+    const option = LANGUAGE_OPTIONS.find((candidate) => candidate.htmlLang === htmlLang);
+    if (!option) throw new Error(`unknown html lang ${htmlLang}`);
+    const state = { htmlLang, dir: languageDirection(option.code) };
+    expect(chain.fontSans(state), `${registered.html} ${htmlLang} --font-sans`).toEqual(
+      app.fontSans(state),
+    );
+  }
+}
+
+/** The rules of a page's sheets that apply in only one of the Korean and English pages. */
+function koreanEnglishSplits(sheets: readonly string[]): { selector: string; rule: Rule }[] {
+  const chain = readFontStacks(ROOT, { sheets: [STACKS, ...sheets] });
+  return chain.rules.flatMap(({ selectors, rule }) =>
+    selectors
+      .filter((selector) => languageSplitTests(selector, 'ko', 'en').length > 0)
+      .map((selector) => ({ selector, rule })),
+  );
+}
+
+/** The app picker's stack for each language-name range (css/style.css). */
+function appPickerStacks(): Map<string, string> {
+  const stacks = new Map<string, string>();
+  for (const { selectors, rule } of app.rules) {
+    const family = rule.nodes.find((node) => node.type === 'decl' && node.prop === 'font-family');
+    if (family?.type !== 'decl') continue;
+    for (const selector of selectors) {
+      const range = /^\.language-option-native:lang\(([^)]+)\)$/u.exec(selector)?.[1];
+      if (range) {
+        stacks.set(
+          range.toLowerCase(),
+          /^var\((--font-sans-[a-z-]+)\)$/u.exec(family.value)?.[1] ?? family.value,
+        );
+      }
+    }
+  }
+  return stacks;
+}
+
+describe('About', () => {
+  const SOURCE = '.workshop/landing/landing.html';
+  const outputs = new Map<LanguageCode, string>();
+
+  beforeAll(async () => {
+    const asset = CLASSIC_RUNTIME_ASSETS.find(({ outputPath }) => outputPath === 'landing-i18n.js');
+    if (!asset) throw new Error('landing-i18n.js is missing from the classic asset manifest');
+    const landingI18n = (await compileClassicRuntimeAsset(ROOT, asset)).code;
+    const source = read(SOURCE);
+    for (const { code } of LANGUAGE_OPTIONS) {
+      outputs.set(code, renderLocalizedAbout(source, landingI18n, code).html);
+    }
+  });
+
+  it('links the shared font sheets as written, and nothing else that loads fonts', () => {
+    const source = read(SOURCE);
+    expect(page(SOURCE).rest).toBe('body');
+    expect(publicFontLinkProblems(source, { rest: 'body' })).toEqual([]);
+    for (const href of Object.values(PUBLIC_FONT_SHEET_URLS)) {
+      // The build emits first.css and rest.css, so Vite must leave the links as written.
+      expect(source).toMatch(
+        new RegExp(`<link rel="stylesheet" href="${href}" vite-ignore />`, 'u'),
+      );
+    }
+    expect(source).not.toMatch(/pretendard|\/css\/fonts\/|data-static-lang-font/iu);
+  });
+
+  it.each(LANGUAGE_OPTIONS.map(({ code }) => code))(
+    'the %s copy links rest.css where its language needs it',
+    (code) => {
+      const html = outputs.get(code) ?? '';
+      expect(
+        publicFontLinkProblems(html, { rest: restFontSheetInHead(code) ? 'head' : 'body' }),
+      ).toEqual([]);
+    },
+  );
+
+  it('gives the Korean and English copies the same font links in the same places', () => {
+    const fontLinks = (html: string) => {
+      const headEnd = html.indexOf('</head>');
+      return [...html.matchAll(/<link\b[^>]*href="(\/web-fonts\/[^"]+)"[^>]*>/gu)].map(
+        (match) => `${match[1]} ${match.index < headEnd ? 'head' : 'body'}`,
+      );
+    };
+    expect(fontLinks(outputs.get('ko') ?? '')).toEqual(fontLinks(outputs.get('en') ?? ''));
+    expect(fontLinks(outputs.get('en') ?? '')).toEqual([
+      `${PUBLIC_FONT_SHEET_URLS.first} head`,
+      `${PUBLIC_FONT_SHEET_URLS.stacks} head`,
+      `${PUBLIC_FONT_SHEET_URLS.rest} body`,
+    ]);
+  });
+
+  it("reads the app's stacks in every language, with no face or stack of its own", () => {
+    const about = page(SOURCE);
+    expect(about.sheets).toEqual([
+      TOKENS,
+      'public/editorial-base.css',
+      'public/static-language.css',
+      'public/editorial-about.css',
+      'public/editorial-rtl.css',
+    ]);
+    expect(about.htmlLangs).toEqual(LANGUAGE_OPTIONS.map(({ htmlLang }) => htmlLang));
+    for (const sheet of about.sheets) expect(publicFontCssProblems(read(sheet)), sheet).toEqual([]);
+    for (const style of inlineStyles(read(SOURCE)))
+      expect(publicFontCssProblems(style)).toEqual([]);
+    expectAppStacks(about);
+    for (const sheet of ['public/editorial-base.css', TOKENS]) {
+      expect(read(sheet), sheet).toMatch(
+        /\nbody \{[^}]*font-family: var\(--font-sans, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif\);/u,
+      );
+    }
+  });
+
+  it('draws form controls with the page text, not the browser default family', () => {
+    // A browser gives button, input, select and textarea its own default
+    // family (Arial on Windows); the token sheet makes them inherit the page's.
+    const controls: string[] = [];
+    postcss.parse(read(TOKENS)).walkRules((rule) => {
+      if ([...rule.selectors].sort().join(',') !== 'button,input,select,textarea') return;
+      if (rule.parent?.type !== 'root') return;
+      rule.walkDecls('font-family', (declaration) => {
+        controls.push(declaration.value);
+      });
+    });
+    expect(controls).toEqual(['inherit']);
+  });
+
+  it('tells the Korean and English pages apart only in the recorded copy rules, never by tracking', () => {
+    const splits = koreanEnglishSplits(page(SOURCE).sheets);
+    expect([...new Set(splits.map(({ selector }) => selector))].sort()).toEqual(
+      Object.keys(PUBLIC_KOREAN_ENGLISH_COPY_RULES).sort(),
+    );
+    // The app draws Korean and English alike since 9.0.29: no Korean-only tracking.
+    for (const { selector, rule } of splits) {
+      const tracking = rule.nodes.filter(
+        (node) => node.type === 'decl' && node.prop === 'letter-spacing',
+      );
+      expect(tracking, selector).toEqual([]);
+    }
+  });
+
+  it("draws each language name with the stack the app's picker gives it", () => {
+    const appPicker = appPickerStacks();
+    expect(appPicker.size).toBe(16);
+    const names = readFontStacks(ROOT, { sheets: ['public/static-language.css'] });
+    const pagePicker = new Map<string, Set<string>>();
+    for (const { selectors, rule } of names.rules) {
+      const family = rule.nodes.find((node) => node.type === 'decl' && node.prop === 'font-family');
+      if (family?.type !== 'decl') continue;
+      for (const selector of selectors) {
+        const match = /^\.static-lang-(?:option__native|trigger__label):lang\(([^)]+)\)$/u.exec(
+          selector,
+        );
+        expect(match, selector).not.toBeNull();
+        const range = (match?.[1] ?? '').toLowerCase();
+        expect(family.value.replace(/\s+/gu, ' '), selector).toMatch(
+          /^var\(--font-sans-[a-z-]+, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif\)$/u,
+        );
+        const stack = /^var\((--font-sans-[a-z-]+),/u.exec(family.value)?.[1] ?? family.value;
+        const kinds = pagePicker.get(range) ?? new Set<string>();
+        kinds.add(`${selector.includes('trigger') ? 'trigger' : 'option'} ${stack}`);
+        pagePicker.set(range, kinds);
+      }
+    }
+    expect([...pagePicker.keys()].sort()).toEqual([...appPicker.keys()].sort());
+    for (const [range, stack] of appPicker) {
+      expect([...(pagePicker.get(range) ?? [])].sort(), range).toEqual([
+        `option ${stack}`,
+        `trigger ${stack}`,
+      ]);
+    }
+  });
+
+  it('loads no font from its scripts', () => {
+    for (const file of [
+      'browser/classic-runtime/static-language.ts',
+      'browser/classic-runtime/landing-bootstrap.ts',
+      'browser/classic-runtime/landing-i18n.ts',
+      '.workshop/landing/main.ts',
+    ]) {
+      expect(read(file), file).not.toMatch(
+        /ensureFont|ensurePickerFonts|FONT_STYLESHEET|\/css\/fonts\/|data-static-lang-font|document\.fonts|new FontFace|createElement\(\s*['"]link['"]\s*\)/u,
+      );
+    }
   });
 });

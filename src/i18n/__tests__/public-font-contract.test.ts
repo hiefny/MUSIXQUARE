@@ -5,14 +5,17 @@
  * The public pages' font sheet groups (src/i18n/public-font-contract.ts):
  * first.css holds what the app's own loader declares in phase A for the
  * Korean and English UIs under a browser that names no Japanese or Chinese,
- * and rest.css every other app sheet in contract order. The app's loader
- * (src/i18n/locale-fonts.ts) is driven here the way locale-fonts.test.ts
- * drives it, so the copy follows the owner without the owner knowing it.
+ * and rest.css every other app sheet in contract order. A page in a
+ * language whose phase A declares a sheet outside first.css links rest.css
+ * in its head too. The app's loader (src/i18n/locale-fonts.ts) is driven
+ * here the way locale-fonts.test.ts drives it, so the copy follows the owner
+ * without the owner knowing it.
  */
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { APP_FONT_SHEETS } from '../app-font-contract.ts';
-import { PUBLIC_FONT_SHEET_GROUPS } from '../public-font-contract.ts';
+import { LANGUAGE_OPTIONS, type LanguageCode } from '../locales.ts';
+import { PUBLIC_FONT_SHEET_GROUPS, restFontSheetInHead } from '../public-font-contract.ts';
 
 const sheets = vi.hoisted(() => ({ requests: [] as string[] }));
 
@@ -37,7 +40,7 @@ function setLanguages(languages: readonly string[]): void {
 }
 
 /** The sheets a fresh app loader requests in phase A for a UI language. */
-async function phaseA(code: 'ko' | 'en'): Promise<string[]> {
+async function phaseA(code: LanguageCode): Promise<string[]> {
   vi.resetModules();
   sheets.requests.length = 0;
   const runtime = (await import('../locale-fonts.ts')).default;
@@ -96,4 +99,44 @@ describe('the public font sheet groups', () => {
       [...ids].sort(),
     );
   });
+});
+
+describe('rest.css in the head', () => {
+  it('is for the 17 languages whose own script sheet is outside first.css', () => {
+    expect(
+      LANGUAGE_OPTIONS.map(({ code }) => code)
+        .filter((code) => restFontSheetInHead(code))
+        .sort(),
+    ).toEqual(
+      [
+        'ar',
+        'bn',
+        'fa',
+        'gu',
+        'he',
+        'hi',
+        'ja',
+        'kn',
+        'ml',
+        'mr',
+        'pa',
+        'ta',
+        'te',
+        'th',
+        'ur',
+        'zh-hans',
+        'zh-hant',
+      ].sort(),
+    );
+  });
+
+  it.each(LANGUAGE_OPTIONS.map(({ code }) => code))(
+    "follows the app loader's phase A for the %s UI under browser languages en-US",
+    async (code) => {
+      const declared = await phaseA(code);
+      expect(restFontSheetInHead(code)).toBe(
+        declared.some((id) => !(PUBLIC_FONT_SHEET_GROUPS.first as readonly string[]).includes(id)),
+      );
+    },
+  );
 });

@@ -174,6 +174,40 @@ describe('legacy smart-TV app compatibility', () => {
     dom.window.close();
   });
 
+  it("leaves a public page's /web-fonts/rest.css after its last body script", () => {
+    // rest.css sits at the end of the body on purpose so it never blocks the
+    // first paint (src/i18n/public-font-contract.ts); the page's own head
+    // stylesheets still move before the module script.
+    const transformed = prioritizeActiveStylesheetsInHtml(`<!doctype html><html><head>
+      <script type="module" src="/assets/about.js"></script>
+      <link rel="stylesheet" href="/web-fonts/first.css">
+      <link rel="stylesheet" href="/assets/about.css">
+    </head><body>
+      <main>About</main>
+      <script src="/landing-i18n.js"></script>
+      <link rel="stylesheet" href="/web-fonts/rest.css">
+    </body></html>`);
+    const dom = new JSDOM(transformed);
+    const { document } = dom.window;
+    expect(
+      [...document.head.querySelectorAll('link[rel="stylesheet"]')].map((link) =>
+        link.getAttribute('href'),
+      ),
+    ).toEqual(['/web-fonts/first.css', '/assets/about.css']);
+    expect(
+      [...document.body.querySelectorAll('link[rel="stylesheet"]')].map((link) =>
+        link.getAttribute('href'),
+      ),
+    ).toEqual(['/web-fonts/rest.css']);
+    const moduleScript = transformed.indexOf('type="module"');
+    expect(transformed.indexOf('/web-fonts/first.css')).toBeLessThan(moduleScript);
+    expect(transformed.indexOf('/assets/about.css')).toBeLessThan(moduleScript);
+    expect(transformed.indexOf('/web-fonts/rest.css')).toBeGreaterThan(
+      transformed.indexOf('/landing-i18n.js'),
+    );
+    dom.window.close();
+  });
+
   it('lowers layers while preserving normal and important cascade order', async () => {
     const transformed = await transformAppCssForLegacyBrowsers(`
       @layer base, desktop;

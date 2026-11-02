@@ -206,17 +206,16 @@ describe('the build emits the public font sheets', () => {
     expect(() => runGenerateBundle(bundle)).toThrow(/app document/u);
   });
 
-  it('is part of the build and the dev server, after the About font binding', () => {
+  it('is part of the build and the dev server, with no other binding of public font links', () => {
     const names = (createViteConfig({}).plugins ?? []).flatMap((candidate) =>
       candidate !== null && typeof candidate === 'object' && 'name' in candidate
         ? [(candidate as Plugin).name]
         : [],
     );
-    const index = names.indexOf('public-font-sheets');
-    expect(index).toBeGreaterThan(-1);
-    // About's raw locale sheet copies share a name stem with the app's
-    // processed script sheets until bind-static-locale-font-assets removes them.
-    expect(index).toBeGreaterThan(names.indexOf('bind-static-locale-font-assets'));
+    expect(names.filter((name) => name === 'public-font-sheets')).toHaveLength(1);
+    // About no longer links the original locale sheets, so nothing binds or
+    // removes raw copies that could share a name stem with an app sheet.
+    expect(names).not.toContain('bind-static-locale-font-assets');
     expect(typeof publicFontSheets().configureServer).toBe('function');
   });
 });

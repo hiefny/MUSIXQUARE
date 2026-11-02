@@ -22,15 +22,19 @@ import {
 import { readFontStacks } from '../../../scripts/fonts/font-stacks.mts';
 import { languageSplitTests } from '../../../scripts/lib/app-font-guard.mts';
 import {
+  PUBLIC_FONT_PAGE_EXCLUSIONS,
   PUBLIC_FONT_PAGES,
   PUBLIC_KOREAN_ENGLISH_COPY_RULES,
   PUBLIC_LITERAL_FONT_FAMILIES,
   PUBLIC_TEXT_FONT_FAMILY,
   PUBLIC_WORKER_FONT_PAGES,
   inlineStyles,
+  listPageSources,
   publicFontCssProblems,
   publicFontLinkProblems,
   type PublicFontPage,
+  unlistedBuiltPages,
+  unlistedPageSources,
 } from '../../../scripts/lib/public-font-pages.mts';
 import { renderLocalizedAbout } from '../../../scripts/localized-html-lib.mts';
 import { LANGUAGE_OPTIONS, languageDirection, type LanguageCode } from '../locales.ts';
@@ -811,5 +815,68 @@ describe('the pages the App Worker renders', () => {
     expect(read('public/admin.css')).toMatch(
       /\n:root \{[^}]*font-family: var\(--font-sans, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif\);/u,
     );
+  });
+});
+
+describe('every page source and built page is a registered public page or a recorded exception', () => {
+  // A new page outside the app must join PUBLIC_FONT_PAGES (and so load the
+  // shared sheets and /han-order.js) or say in PUBLIC_FONT_PAGE_EXCLUSIONS
+  // why it does not.
+  it('names a page source that is neither, and accepts the registered and recorded ones', () => {
+    expect(
+      unlistedPageSources([
+        'public/stray.html',
+        '.workshop/stray/stray.html',
+        'public/blog/index.html',
+        '.workshop/landing/landing.html',
+        'browser/ui-kit/static/app/index.html',
+        'index.html',
+        'public/account-complete.html',
+        'public/screensaver.html',
+      ]),
+    ).toEqual(['public/stray.html', '.workshop/stray/stray.html']);
+  });
+
+  it('finds every page source of the repository registered or recorded', async () => {
+    const sources = await listPageSources(resolve('.'));
+    expect(sources).toContain('index.html');
+    expect(sources).toContain('public/designsystem/preview/_shell.html');
+    expect(sources).toContain('.workshop/translate/translate.html');
+    expect(sources).toContain('browser/ui-kit/static/app/index.html');
+    expect(unlistedPageSources(sources)).toEqual([]);
+  });
+
+  it('names a built page that comes from neither, and accepts every copy the build writes', () => {
+    const copies = LANGUAGE_OPTIONS.flatMap(({ code }) =>
+      code === 'en' ? ['index.html', 'about.html'] : [`${code}/index.html`, `${code}/about.html`],
+    );
+    expect(
+      unlistedBuiltPages([
+        'stray.html',
+        'ko/stray.html',
+        ...copies,
+        'blog/index.html',
+        'designsystem/preview/type-scale.html',
+        'account-complete.html',
+        'screensaver.html',
+        '404.html',
+      ]),
+    ).toEqual(['stray.html', 'ko/stray.html']);
+  });
+
+  it('gives each recorded exception a reason, and none is also registered', () => {
+    expect(PUBLIC_FONT_PAGE_EXCLUSIONS.map(({ html }) => html)).toEqual([
+      'index.html',
+      'public/account-complete.html',
+      'public/screensaver.html',
+    ]);
+    for (const { html, dist, reason } of PUBLIC_FONT_PAGE_EXCLUSIONS) {
+      expect(existsSync(html), html).toBe(true);
+      expect(reason.length, html).toBeGreaterThan(20);
+      expect(dist.length, html).toBeGreaterThan(0);
+      expect(PUBLIC_FONT_PAGES.map((page) => page.html)).not.toContain(html);
+      // None links the shared sheets or the Han order script.
+      expect(read(html), html).not.toMatch(/\/web-fonts\/|\/han-order\.js/u);
+    }
   });
 });

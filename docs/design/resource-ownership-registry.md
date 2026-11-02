@@ -1741,7 +1741,10 @@ RO-53 owner-in-place
   registers parking once, as two closures (`registerYouTubeAudioHolds`), as it loads; until then
   parking holds nothing, and the ledger answers false until `player.ts` registers the start
   claims. The guard's CHECK 12 keeps that registration to one top-level statement of `player.ts`
-  and fails it anywhere else, twice, missing or handed on (`AUDIO HOLD REGISTRATION`).
+  and fails it anywhere else, twice, missing or handed on, and fails any other write to the
+  owner's two parking slots or a slot handed out (`AUDIO HOLD REGISTRATION`). It also keeps the
+  gate's three setters to `player.ts` (the two pause-gate handlers and `stopYouTubeMode`) and the
+  token's writes to those setters (`PAUSE GATE WRITERS`).
   The RO-02 and RO-03 machines keep their own releases and restores (active and
   detached, which since Phase 6 6A-4 (C2-3) run through the one verified restore in the same
   module, each with its own fences,
@@ -4166,8 +4169,14 @@ and unrelated strings never count, and every baseline is an exact count or list 
       replaces and which holds nothing before the first, called anywhere but one top-level
       statement of `src/youtube/player.ts` (the owner included), called there again or not at
       all, or handed on: re-exported, used as a value, the owner's namespace used as a value, or
-      the owner imported dynamically (`AUDIO HOLD REGISTRATION`). On 2026-11-02 none of these
-      fires.
+      the owner imported dynamically, and in the owner a write to the parking slots (`isParked`,
+      `enforceParking`) other than the two assignments in `registerYouTubeAudioHolds` (whoever
+      calls the writing function), or a slot used as a value or exported
+      (`AUDIO HOLD REGISTRATION`); and the owner's PRO pause gate: `holdYouTubePauseGate`,
+      `releaseYouTubePauseGate` or `clearYouTubePauseGate` called outside `src/youtube/player.ts`
+      (the owner included), re-exported, used as a value or called through the owner's
+      namespace there, or the gate token written outside those three (`PAUSE GATE WRITERS`). On
+      2026-11-02 none of these fires.
 
 The requesters of `scheduleSessionReset` and `scheduleDocumentReload`, and each page navigation
 sink by function, are checked by `scripts/check-navigation-sinks.mts` (RO-23, Phase 2 C6-14).

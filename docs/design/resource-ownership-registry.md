@@ -1911,8 +1911,9 @@ RO-53 owner-in-place
   `'yt-zero-start-host-fallback'` and `'yt-zero-start-external-fallback'` timers and their clears
   stay in `player.ts` (each recovery class gets `player.ts`'s schedule and clear). The two recoveries' restores before a
   release are the third cadence, which keeps its own rhythm (owner answer, 2026-10-30): write and
-  check at once, then poll again every `YOUTUBE_RECOVERY_POLL_MS` (50 ms; the guest's until
-  max(deadline, now + 1 s)), writing and checking through the module's `writeYouTubeAudio` and
+  check at once, then poll again every `YOUTUBE_RECOVERY_POLL_MS` (50 ms; the guest's until a
+  release audio deadline of its own, a value only `zero-start-recovery.ts` uses), writing and
+  checking through the module's `writeYouTubeAudio` and
   `isYouTubeAudioRestored`; it is not folded into the verified restore, because every poll also
   re-runs the recovery's identity and settle checks.
   `src/youtube/__tests__/iframe-audio.test.ts` pins the restore and

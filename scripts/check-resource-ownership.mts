@@ -451,7 +451,8 @@ const TIMING_CONTRACTS: readonly TimingContract[] = [
       'src/youtube/iframe-audio.ts',
       // The shared arm steps since Phase 6 6C-4 (C2-8a).
       'src/youtube/arm-steps.ts',
-      // The guest recovery since Phase 6 6D-1 (C2-9).
+      // The guest recovery since Phase 6 6D-1 (C2-9), and the host legacy
+      // recovery beside it since 6D-2 (C2-11).
       'src/youtube/zero-start-recovery.ts',
       'src/youtube/zero-start.ts',
       'src/youtube/authority-arm.ts',

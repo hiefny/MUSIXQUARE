@@ -225,7 +225,8 @@ export const STANDARD_ZERO_START_LATE_FALLBACK_LEAD_MS = 800;
  * A recovery polls the iframe this often. Its restore before a release is the
  * third audio cadence, beside the verified restore's two (each keeps its
  * rhythm): write the audio, check it at once, then poll again this often
- * (the guest's until max(deadline, now + 1 s)).
+ * (the guest's until a release audio deadline of its own, a value only
+ * zero-start-recovery.ts uses).
  */
 export const YOUTUBE_RECOVERY_POLL_MS = 50;
 /** A paused or cued iframe within this many seconds of the local zero holds a recovery's target, settled. */

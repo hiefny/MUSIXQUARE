@@ -95,9 +95,14 @@ runbooks. Neither belongs in a general setup document.
 ## Maintained evidence and completed records
 
 - [Phase 6 train 6C: one YouTube state router, one iframe audio owner and shared arm steps (2026-11-02)](design/phase6-6c-router-iframe-audio-arm-steps-2026-11-02.md):
-  prepared, not released. The third Phase 6 App update on branch `agent/p6-6c`, fifteen commits on
-  `89e0b682` (the 6B train's tip, not yet on main: 6B ships first, and this branch moves onto main
-  after it); the version bump, the release-record entry and the release are the release owner's.
+  prepared, not released. The third Phase 6 App update, planned as 9.0.34 / v807 after the separate
+  App 9.0.33 train (Hangul drawn by Pretendard again), on branch `agent/p6-6c`: twenty commits on
+  main `7b869c35` (App 9.0.32 / v805, which shipped 6B, plus the tests-only Phase 7 T0 #559). Fifteen
+  were built on the 6B branch tip `89e0b682` and moved onto main with every `src` and `scripts`
+  patch unchanged (one design-doc conflict, kept from both sides); four come from a second
+  independent review after the move and one refreshes this record. The branch moves onto main once
+  more after 9.0.33 ships, and the per-train checks run again on that tip before a pull request;
+  the version bump, the release-record entry and the release are the release owner's.
   6C-1 turns `iframe.ts`'s fixed-order dispatch of iframe states to the start owners into a router
   with one decision per start claim kind (a kind without one does not compile) and merges the
   Standard host's held room time into one read, the pending-start predicate staying the legacy
@@ -106,24 +111,31 @@ runbooks. Neither belongs in a general setup document.
   hard mute, a start owner holds only the unMute), reading the desired audio when it writes under
   today's two named mute rules; 6C-4 and 6C-5 move both arm machines' hard-mute wait, warm
   acceptance and settle into the new `src/youtube/arm-steps.ts`, each machine keeping its own
-  policy, and remove the PRO arm's unused load warm. The independent review added a host legacy
-  recovery cell to the two-rule row and a stronger Phase 7 contract (a) row, made the owner ask the
-  start ledger itself, and added a CHECK 12 rule that keeps the parking hold's registration to one
-  top-level statement of `player.ts`. Neutral: the T0a goldens, both T0b truth tables and the 6B
-  rows pass byte for byte; one T0b row of `player.test.ts` and the truth-table sampler's pause-gate
-  column ask the owner's gate query only because the runtime bridge's gate hook was deleted, their
-  expected values unchanged. The owner's one-rule
-  change below 0.5 % master volume (6C-3) is prepared as a before/after table and waits for the
-  owner; no T0b defect fix rides. The report lists the owner answers used, each increment's
-  tests-first evidence rerun at the final check, the guard counts (CHECK 11 32 → 20), the first
-  load (+34 B eager JavaScript gzip against 6B; Phase 6 total −168 B), mixed versions, rollback
-  (alone until 6D merges), the blind device candidates, the open item for the YouTube first-note
-  alignment, the Phase 7 contracts and one new log-only defect. Its local final check on
-  `6915ee9e`: unit suite 744 files / 17,882 (1 skipped), four `--sequence.shuffle` seeds over
-  `src/youtube`, `src/player` and `src/pro-room` (6,690 rows each) and seeds 1 to 16 over the 14
-  touched test files, types, lint and format, every guard except `guard:sw-cache-version` (the
-  pending bump), critical coverage 103 files / 4,268, critical E2E 101 / 101, the ten local YouTube
-  specs 53 / 53 and the WebKit YouTube activation spec 4 / 4.
+  policy, and remove the PRO arm's unused load warm. The first independent review added a host
+  legacy recovery cell to the two-rule row and a stronger Phase 7 contract (a) row, made the owner
+  ask the start ledger itself, and added a CHECK 12 rule that keeps the parking hold's registration
+  to one top-level statement of `player.ts`. The second added five arm golden rows that pin how the
+  shared settle counts its polls on both machines (passing on main's runtime too), widened that
+  rule to the owner's parking slots, added `PAUSE GATE WRITERS` (only `player.ts` holds, releases
+  and clears the PRO pause gate), and recorded that the arm machines' 'non-positive' audio is only
+  what they capture as they start. Neutral: the T0a goldens, both T0b truth tables, the 6B rows and
+  Phase 7 T0's rows pass byte for byte; one T0b row of `player.test.ts` and the truth-table
+  sampler's pause-gate column ask the owner's gate query only because the runtime bridge's gate
+  hook was deleted, their expected values unchanged. The owner's one-rule change below 0.5 % master
+  volume (6C-3) is prepared as a before/after table and waits for the owner; no T0b defect fix
+  rides. The report lists the owner answers used, each increment's tests-first evidence before and
+  after the move, the old-to-new SHA map, the guard counts (CHECK 11 32 → 20), the first load
+  (+33 B eager JavaScript gzip against main `7b869c35`; Phase 6 total −169 B), mixed versions,
+  rollback (checkpoint 9.0.33; alone until 6D merges), the blind device candidates, the open item
+  for the YouTube first-note alignment, the Phase 7 contracts (rechecked on top of #559) and one new
+  log-only defect. After the move: on `6998f04e`, the unit suite 750 files / 17,973 (one git-fixture
+  timeout that passes alone), `src/youtube`, `src/player` and `src/pro-room` 6,693 rows in file
+  order and under four `--sequence.shuffle` seeds, critical coverage 110 files / 4,496, types, lint
+  and format, the Phase 7 audio lab 17 / 17, the eight YouTube Chromium specs 41 / 41, critical E2E
+  101 / 101 and the WebKit YouTube activation spec 4 / 4; on the code tip `a9951bfd`, those three
+  directories with the guard self-test 6,801 / 6,801, the neutral pins on main's runtime 127 / 127,
+  Phase 7 T0's rows with the contract rows 474 / 474, and every guard except
+  `guard:sw-cache-version` (the pending bump).
 - [App Hangul drawn by Pretendard again, as MUSIXQUARE Hangul (2026-11-02)](design/app-hangul-pretendard-2026-11-02.md):
   released on 2026-11-02 13:12 KST in Release 41386906358 (PR #560, squash `4faf38d9`) as App
   9.0.33 / v806 (App build 806, target `app`, one update dialog, visible change; the bump

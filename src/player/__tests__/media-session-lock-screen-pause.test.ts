@@ -10,7 +10,7 @@
  * log, the participant's local pause flag and the bus. Harness and driver:
  * src/audio/__tests__/__helpers__/audio-output-owners.ts.
  */
-import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 import { FakeNativeAudioContext } from '../../audio/__tests__/__helpers__/fake-audio-context.ts';
 import {
   bind,
@@ -22,9 +22,11 @@ import {
   setupOwnerTest,
   stageFile,
   teardownOwnerTest,
+  warmMediaSessionGraph,
   type Owners,
 } from '../../audio/__tests__/__helpers__/audio-output-owners.ts';
 
+beforeAll(warmMediaSessionGraph, 30_000);
 beforeEach(setupOwnerTest);
 afterEach(teardownOwnerTest);
 
@@ -70,7 +72,8 @@ describe('Media Session lock-screen PAUSE then PLAY (C1-I5)', () => {
       // pending interruption. The context runs again, but that attempt now
       // waits for its clock proof on a paused identity, so neither the
       // recovery nor the Media Session PLAY rejoins the room and the local
-      // pause stays.
+      // pause stays. A fix (7B-6) waits for the owner's decision (Q12, owner
+      // decision pending) and would flip this row.
       expect(fake.ops.slice(before)).toEqual([
         'resume()',
         'statechange:running',

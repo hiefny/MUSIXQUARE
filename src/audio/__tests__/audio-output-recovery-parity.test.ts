@@ -5,20 +5,23 @@
  * RO-01 "AudioContext running state": parity tables of the two recovery
  * owners on one context (structural plan C1, I11 and I12).
  *
- * I11 runs the same suspend scenes through the play-request restart's
- * suspend lease and the playback-scope attempt's suspend lease. I12 runs the
- * same gesture-resume scenes through both owners' gesture paths. Each row is
- * a timeline on the fake clock, in ms from the first native call: the
- * platform ops (FakeNativeAudioContext.ops) merged with the owner's answers
- * and bus events, plus where the context and its listeners end.
+ * I11 runs the same suspend scenes, from the same start (a foreground
+ * incident armed, as the return to the foreground arms one), through the
+ * play-request restart's suspend lease and the playback-scope attempt's
+ * suspend lease. I12 runs the same gesture-resume scenes through both
+ * owners' gesture paths. Times are ms on the fake clock from the first
+ * native call.
  *
- * Cells that differ today carry a named known difference (K-I11-a..d,
- * K-I12-a..c). The C1 increments that merge the two machines (7B-4 for I11,
- * 7B-5 for I12's wait) flip only those cells; every other cell must stay
- * byte-identical. Boundary and driver as in
- * audio-output-recovery-boundary.test.ts.
+ * Each row holds the play-request owner's cells and, for the playback
+ * scope, only the cells that differ today, each with its named known
+ * difference (K-I11-a..d; K-I12-a, b and d, and K-I12-c for the
+ * play-request wait alone). The playback-scope rows assert every other cell
+ * equal to the play-request one. If the owner approves the timing and
+ * dispatch change (Q6, owner decision pending), 7B-4 flips only named I11
+ * cells; 7B-5 (Q7, owner decision pending) only named I12 cells. Boundary
+ * and driver as in audio-output-recovery-boundary.test.ts.
  */
-import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 import {
   FakeNativeAudioContext,
   type FakeNativeCallPlan,
@@ -36,11 +39,12 @@ import {
   stageFile,
   startTimeline,
   teardownOwnerTest,
+  warmMediaSessionGraph,
   type Owners,
-  type PlayRequest,
   type Timeline,
 } from './__helpers__/audio-output-owners.ts';
 
+beforeAll(warmMediaSessionGraph, 30_000);
 beforeEach(setupOwnerTest);
 afterEach(teardownOwnerTest);
 
@@ -84,223 +88,24 @@ function watch(timeline: Timeline, name: string, read: () => string): () => void
   };
 }
 
-function settle<T>(timeline: Timeline, promise: Promise<T>, name: string): void {
-  void promise.then(
-    (value) => timeline.mark(`${name}:${String(value)}`),
-    () => timeline.mark(`${name}:rejected`),
-  );
-}
+/** A row's expectation for the second owner: the first owner's cells, except the named ones. */
+type Differences<Cell, Known extends string> = {
+  readonly [Key in keyof Cell]?: readonly [Known, Cell[Key]];
+};
 
-// ─── I11: suspend preparation ─────────────────────────────────────
-
-interface SuspendScene {
-  readonly scene: string;
-  readonly plans: FakeNativeCallPlan[];
-  readonly closeAtMs?: number;
-}
-
-interface SuspendCell {
-  readonly timeline: string[];
-  /** The foreground incident a later PLAY probes: the one this attempt came from, a new one, or none. */
-  readonly incident: 'original' | 'new' | 'none';
-  readonly listeners: number;
-  readonly state: string;
-}
-
-const RUNNING = { toState: 'unchanged' } as const;
-const NEVER = { outcome: 'never' } as const;
-const LANDS_AT = (ms: number): FakeNativeCallPlan => ({
-  statechange: 'after-settle',
-  stateDelayMs: ms,
-});
-
-const SUSPEND_SCENES: Array<{
-  scene: SuspendScene;
-  request: SuspendCell;
-  scope: SuspendCell;
-}> = [
-  {
-    // P1. K-I11-a: the second suspend at 1,000 ms against 750 ms (the
-    // play-request lease waits out its 250 ms late-suspend fence).
-    // K-I11-b: after two failures the play-request attempt retires at
-    // 1,750 ms and keeps its original incident; the playback scope gives up
-    // at 1,500 ms and arms a new incident for the next PLAY.
-    scene: { scene: 'P1 both suspends resolve while running', plans: [RUNNING, RUNNING] },
-    request: {
-      timeline: [
-        '0:suspend()',
-        '0:suspend:resolved',
-        '500:first:preparing',
-        '1000:suspend()',
-        '1000:suspend:resolved',
-        '1750:prepared:false',
-      ],
-      incident: 'original',
-      listeners: 1,
-      state: 'running',
-    },
-    scope: {
-      timeline: [
-        '0:suspend()',
-        '0:suspend:resolved',
-        '500:first:none',
-        '750:suspend()',
-        '750:suspend:resolved',
-        '1500:attempt:none',
-      ],
-      incident: 'new',
-      listeners: 1,
-      state: 'running',
-    },
-  },
-  {
-    // P2. K-I11-a, K-I11-b as in P1.
-    scene: { scene: 'P2 neither suspend settles', plans: [NEVER, NEVER] },
-    request: {
-      timeline: ['0:suspend()', '500:first:preparing', '1000:suspend()', '1750:prepared:false'],
-      incident: 'original',
-      listeners: 1,
-      state: 'running',
-    },
-    scope: {
-      timeline: ['0:suspend()', '500:first:none', '750:suspend()', '1500:attempt:none'],
-      incident: 'new',
-      listeners: 1,
-      state: 'running',
-    },
-  },
-  {
-    // P3. K-I11-c: a first suspend landing inside the fence window is handed
-    // to the waiting play-request attempt with no second native call; the
-    // playback scope has already issued its second one at 750 ms.
-    // K-I11-d: the playback scope notifies on the bus; the play-request
-    // answer goes to transport through its promise.
-    scene: { scene: 'P3 first lands at 900 ms, second never', plans: [LANDS_AT(900), NEVER] },
-    request: {
-      timeline: [
-        '0:suspend()',
-        '0:suspend:resolved',
-        '500:first:preparing',
-        '900:statechange:suspended',
-        '900:prepared:true',
-      ],
-      incident: 'original',
-      listeners: 1,
-      state: 'suspended',
-    },
-    scope: {
-      timeline: [
-        '0:suspend()',
-        '0:suspend:resolved',
-        '500:first:none',
-        '750:suspend()',
-        '900:statechange:suspended',
-        '900:needed:background-resume:clock-stalled',
-        '900:gesture:true',
-      ],
-      incident: 'none',
-      listeners: 1,
-      state: 'suspended',
-    },
-  },
-  {
-    // P4. K-I11-a, K-I11-d.
-    scene: { scene: 'P4 first lands at 1,200 ms, second never', plans: [LANDS_AT(1_200), NEVER] },
-    request: {
-      timeline: [
-        '0:suspend()',
-        '0:suspend:resolved',
-        '500:first:preparing',
-        '1000:suspend()',
-        '1200:statechange:suspended',
-        '1200:prepared:true',
-      ],
-      incident: 'original',
-      listeners: 1,
-      state: 'suspended',
-    },
-    scope: {
-      timeline: [
-        '0:suspend()',
-        '0:suspend:resolved',
-        '500:first:none',
-        '750:suspend()',
-        '1200:statechange:suspended',
-        '1200:needed:background-resume:clock-stalled',
-        '1200:gesture:true',
-      ],
-      incident: 'none',
-      listeners: 1,
-      state: 'suspended',
-    },
-  },
-  {
-    // P5. The same in both.
-    scene: { scene: 'P5 closed at 300 ms', plans: [NEVER], closeAtMs: 300 },
-    request: {
-      timeline: [
-        '0:suspend()',
-        '300:close()',
-        '300:statechange:closed',
-        '300:first:stale',
-        '300:prepared:false',
-      ],
-      incident: 'original',
-      listeners: 1,
-      state: 'closed',
-    },
-    scope: {
-      timeline: [
-        '0:suspend()',
-        '300:close()',
-        '300:statechange:closed',
-        '300:first:none',
-        '300:attempt:none',
-      ],
-      incident: 'none',
-      listeners: 1,
-      state: 'closed',
-    },
-  },
-  {
-    // P6. K-I11-a, K-I11-d.
-    scene: { scene: 'P6 second suspend lands', plans: [RUNNING, {}] },
-    request: {
-      timeline: [
-        '0:suspend()',
-        '0:suspend:resolved',
-        '500:first:preparing',
-        '1000:suspend()',
-        '1000:statechange:suspended',
-        '1000:suspend:resolved',
-        '1000:prepared:true',
-      ],
-      incident: 'original',
-      listeners: 1,
-      state: 'suspended',
-    },
-    scope: {
-      timeline: [
-        '0:suspend()',
-        '0:suspend:resolved',
-        '500:first:none',
-        '750:suspend()',
-        '750:statechange:suspended',
-        '750:needed:background-resume:clock-stalled',
-        '750:suspend:resolved',
-        '750:gesture:true',
-      ],
-      incident: 'none',
-      listeners: 1,
-      state: 'suspended',
-    },
-  },
-];
-
-function incidentCell(o: Owners, original: object | null): SuspendCell['incident'] {
-  const incident = foregroundIncident(o);
-  if (!incident) return 'none';
-  return incident === original ? 'original' : 'new';
+function withDifferences<Cell extends object, Known extends string>(
+  cell: Cell,
+  differences: Differences<Cell, Known>,
+): Cell {
+  const expected = { ...cell };
+  for (const [key, entry] of Object.entries(differences) as Array<
+    [keyof Cell, readonly [Known, Cell[keyof Cell]]]
+  >) {
+    // A named difference must really differ; an equal cell keeps no name.
+    expect(entry[1]).not.toEqual(cell[key]);
+    expected[key] = entry[1];
+  }
+  return expected;
 }
 
 async function newFileOwners(): Promise<{ fake: FakeNativeAudioContext; o: Owners }> {
@@ -309,6 +114,215 @@ async function newFileOwners(): Promise<{ fake: FakeNativeAudioContext; o: Owner
   stageFile(o);
   bind(o, fake);
   return { fake, o };
+}
+
+function incidentCell(o: Owners, original: object | null): 'original' | 'new' | 'none' {
+  const incident = foregroundIncident(o);
+  if (!incident) return 'none';
+  return incident === original ? 'original' : 'new';
+}
+
+// ─── I11: suspend preparation ─────────────────────────────────────
+
+/**
+ * K-I11-a: the play-request lease waits out its 250 ms late-suspend fence
+ *   before its second native suspend (1,000 ms against 750 ms), so what
+ *   follows that suspend is 250 ms later.
+ * K-I11-b: after two failed suspends the play-request attempt retires and
+ *   keeps the incident it came from; the playback scope gives up and arms a
+ *   new incident for the next PLAY.
+ * K-I11-c: a first suspend that lands inside the fence goes to the waiting
+ *   play-request attempt with no second native call; the playback scope has
+ *   already issued its second one.
+ * K-I11-d: once prepared, the playback scope notifies on the bus; the
+ *   play-request answer reaches transport through its promise.
+ */
+type KnownI11 = 'K-I11-a' | 'K-I11-b' | 'K-I11-c' | 'K-I11-d';
+
+interface SuspendCell {
+  /** Native calls, their settlements and state changes, in order. */
+  readonly ops: string[];
+  /** When each native suspend() was issued. */
+  readonly suspendsAt: number[];
+  /** The owner's answer at the end of its 500 ms window (or sooner), `answer@ms`. */
+  readonly first: string;
+  /** How the attempt ends, `prepared@ms` or `retired@ms`, or 'pending' after 4 s. */
+  readonly end: string;
+  /** audio:output-recovery-needed as `source:reason`. */
+  readonly notices: string[];
+  /** The foreground incident a later PLAY probes: the one the scene started with, a new one, or none. */
+  readonly incident: 'original' | 'new' | 'none';
+  readonly listeners: number;
+  readonly state: string;
+}
+
+interface SuspendScene {
+  readonly scene: string;
+  readonly plans: FakeNativeCallPlan[];
+  readonly closeAtMs?: number;
+  readonly request: SuspendCell;
+  readonly scope: Differences<SuspendCell, KnownI11>;
+}
+
+const RUNNING = { toState: 'unchanged' } as const;
+const NEVER = { outcome: 'never' } as const;
+const LANDS_AT = (ms: number): FakeNativeCallPlan => ({
+  statechange: 'after-settle',
+  stateDelayMs: ms,
+});
+const NOTICE = 'background-resume:clock-stalled';
+
+const SUSPEND_SCENES: SuspendScene[] = [
+  {
+    scene: 'P1 both suspends resolve while running',
+    plans: [RUNNING, RUNNING],
+    request: {
+      ops: ['suspend()', 'suspend:resolved', 'suspend()', 'suspend:resolved'],
+      suspendsAt: [0, 1000],
+      first: 'preparing@500',
+      end: 'retired@1750',
+      notices: [],
+      incident: 'original',
+      listeners: 1,
+      state: 'running',
+    },
+    scope: {
+      suspendsAt: ['K-I11-a', [0, 750]],
+      end: ['K-I11-a', 'retired@1500'],
+      incident: ['K-I11-b', 'new'],
+    },
+  },
+  {
+    scene: 'P2 neither suspend settles',
+    plans: [NEVER, NEVER],
+    request: {
+      ops: ['suspend()', 'suspend()'],
+      suspendsAt: [0, 1000],
+      first: 'preparing@500',
+      end: 'retired@1750',
+      notices: [],
+      incident: 'original',
+      listeners: 1,
+      state: 'running',
+    },
+    scope: {
+      suspendsAt: ['K-I11-a', [0, 750]],
+      end: ['K-I11-a', 'retired@1500'],
+      incident: ['K-I11-b', 'new'],
+    },
+  },
+  {
+    scene: 'P3 first lands at 900 ms, second never',
+    plans: [LANDS_AT(900), NEVER],
+    request: {
+      ops: ['suspend()', 'suspend:resolved', 'statechange:suspended'],
+      suspendsAt: [0],
+      first: 'preparing@500',
+      end: 'prepared@900',
+      notices: [],
+      incident: 'original',
+      listeners: 1,
+      state: 'suspended',
+    },
+    scope: {
+      ops: ['K-I11-c', ['suspend()', 'suspend:resolved', 'suspend()', 'statechange:suspended']],
+      suspendsAt: ['K-I11-c', [0, 750]],
+      notices: ['K-I11-d', [NOTICE]],
+    },
+  },
+  {
+    scene: 'P4 first lands at 1,200 ms, second never',
+    plans: [LANDS_AT(1_200), NEVER],
+    request: {
+      ops: ['suspend()', 'suspend:resolved', 'suspend()', 'statechange:suspended'],
+      suspendsAt: [0, 1000],
+      first: 'preparing@500',
+      end: 'prepared@1200',
+      notices: [],
+      incident: 'original',
+      listeners: 1,
+      state: 'suspended',
+    },
+    scope: {
+      suspendsAt: ['K-I11-a', [0, 750]],
+      notices: ['K-I11-d', [NOTICE]],
+    },
+  },
+  {
+    scene: 'P5 closed at 300 ms',
+    plans: [NEVER],
+    closeAtMs: 300,
+    request: {
+      ops: ['suspend()', 'close()', 'statechange:closed'],
+      suspendsAt: [0],
+      first: 'stale@300',
+      end: 'retired@300',
+      notices: [],
+      incident: 'original',
+      listeners: 1,
+      state: 'closed',
+    },
+    // The same in both.
+    scope: {},
+  },
+  {
+    scene: 'P6 second suspend lands',
+    plans: [RUNNING, {}],
+    request: {
+      ops: [
+        'suspend()',
+        'suspend:resolved',
+        'suspend()',
+        'statechange:suspended',
+        'suspend:resolved',
+      ],
+      suspendsAt: [0, 1000],
+      first: 'preparing@500',
+      end: 'prepared@1000',
+      notices: [],
+      incident: 'original',
+      listeners: 1,
+      state: 'suspended',
+    },
+    scope: {
+      suspendsAt: ['K-I11-a', [0, 750]],
+      end: ['K-I11-a', 'prepared@750'],
+      notices: ['K-I11-d', [NOTICE]],
+    },
+  },
+  {
+    // Both owners count 'interrupted' as parked, as they count 'suspended'.
+    scene: 'P7 the first suspend lands as interrupted',
+    plans: [{ toState: 'interrupted' }],
+    request: {
+      ops: ['suspend()', 'statechange:interrupted', 'suspend:resolved'],
+      suspendsAt: [0],
+      first: 'prepared@0',
+      end: 'prepared@0',
+      notices: [],
+      incident: 'original',
+      listeners: 1,
+      state: 'interrupted',
+    },
+    scope: {},
+  },
+];
+
+function opsAndSuspends(entries: readonly string[]): { ops: string[]; suspendsAt: number[] } {
+  const ops: string[] = [];
+  const suspendsAt: number[] = [];
+  for (const entry of entries) {
+    const split = entry.indexOf(':');
+    const op = entry.slice(split + 1);
+    ops.push(op);
+    if (op === 'suspend()') suspendsAt.push(Number(entry.slice(0, split)));
+  }
+  return { ops, suspendsAt };
+}
+
+/** Run `onValue` when `promise` settles; a rejection reads as 'rejected'. */
+function whenSettled<T>(promise: Promise<T>, onValue: (value: T | 'rejected') => void): void {
+  void promise.then(onValue, () => onValue('rejected'));
 }
 
 function closeAt(fake: FakeNativeAudioContext, ms: number | undefined): Map<number, () => void> {
@@ -330,53 +344,88 @@ function closeAt(fake: FakeNativeAudioContext, ms: number | undefined): Map<numb
 }
 
 describe('RO-01 I11 parity: suspend preparation for a gesture', () => {
-  it.each(SUSPEND_SCENES)('play-request lease: $scene.scene', async ({ scene, request }) => {
+  it.each(SUSPEND_SCENES)('play-request lease: $scene', async (scene) => {
     const { fake, o } = await newFileOwners();
+    const bus = recordBus(o);
     fake.planSuspend(...scene.plans);
     const timeline = startTimeline(fake);
-    markBus(o, timeline);
+    let first = 'pending';
+    let end = 'pending';
 
     const restart = playRequest.arm(o, fake);
-    settle(timeline, restart.first, 'first');
-    settle(timeline, restart.prepared, 'prepared');
+    whenSettled(restart.first, (answer) => {
+      first = `${answer}@${timeline.now()}`;
+    });
+    whenSettled(
+      restart.prepared.then((prepared) => (prepared ? 'prepared' : 'retired')),
+      (answer) => {
+        end = `${answer}@${timeline.now()}`;
+      },
+    );
+    await vi.advanceTimersByTimeAsync(0);
     await drive(4_000, () => undefined, closeAt(fake, scene.closeAtMs));
 
     expect({
-      timeline: timeline.entries,
+      ...opsAndSuspends(timeline.entries),
+      first,
+      end,
+      notices: bus.needed,
       incident: incidentCell(o, restart.incident),
       listeners: fake.statechangeListenerCount,
       state: fake.state,
-    }).toEqual(request);
+    }).toEqual(scene.request);
   });
 
-  it.each(SUSPEND_SCENES)('playback-scope lease: $scene.scene', async ({ scene, scope }) => {
+  it.each(SUSPEND_SCENES)('playback-scope lease: $scene', async (scene) => {
     const { fake, o } = await newFileOwners();
+    const bus = recordBus(o);
     fake.planSuspend(...scene.plans);
+    const original = armNewIncident(o, fake);
     const timeline = startTimeline(fake);
-    markBus(o, timeline);
+    let first = 'pending';
+    let end = 'pending';
 
-    settle(timeline, playbackScope.armStalled(o, fake), 'first');
-    const attempt = watch(timeline, 'attempt', () => playbackScope.view(o).attempt);
-    const gesture = watch(timeline, 'gesture', () => String(playbackScope.view(o).gesture));
-    await drive(
-      4_000,
-      () => {
-        attempt();
-        gesture();
-      },
-      closeAt(fake, scene.closeAtMs),
-    );
+    whenSettled(playbackScope.armStalled(o, fake), (answer) => {
+      first = `${answer}@${timeline.now()}`;
+    });
+    await vi.advanceTimersByTimeAsync(0);
+    const readEnd = (): void => {
+      if (end !== 'pending') return;
+      const view = playbackScope.view(o);
+      if (view.gesture) end = `prepared@${timeline.now()}`;
+      else if (view.attempt === 'none') end = `retired@${timeline.now()}`;
+    };
+    await drive(4_000, readEnd, closeAt(fake, scene.closeAtMs));
 
     expect({
-      timeline: timeline.entries,
-      incident: incidentCell(o, null),
+      ...opsAndSuspends(timeline.entries),
+      first,
+      end,
+      notices: bus.needed,
+      incident: incidentCell(o, original),
       listeners: fake.statechangeListenerCount,
       state: fake.state,
-    }).toEqual(scope);
+    }).toEqual(withDifferences(scene.request, scene.scope));
   });
 });
 
 // ─── I12: gesture resume ──────────────────────────────────────────
+
+/**
+ * K-I12-a: after its 750 ms deadline the play-request owner only promotes
+ *   a late running state and leaves the clock check to the dialog; the
+ *   playback scope re-suspends a late running event as an automatic resume,
+ *   and verifies its own clock when the state turns running with no event
+ *   for it (fix lane G7) and rejoins. (The re-prompt is the Known gap of
+ *   audio-context-ownership.test.ts's G7 rows.)
+ * K-I12-b: the play-request owner's resume listener stays while its native
+ *   resume is unsettled; the playback scope adds none.
+ * K-I12-c: play-request only, see the table after this one.
+ * K-I12-d: retiring a play-request attempt whose context is still parked
+ *   resumes the context (its cleanup); dropping a playback-scope attempt
+ *   leaves the context as it is.
+ */
+type KnownI12 = 'K-I12-a' | 'K-I12-b' | 'K-I12-d';
 
 interface ResumeCell {
   readonly timeline: string[];
@@ -386,12 +435,16 @@ interface ResumeCell {
   readonly current: boolean;
 }
 
-const RESUME_SCENES: Array<{
-  scene: string;
-  plan: FakeNativeCallPlan;
-  request: ResumeCell;
-  scope: ResumeCell;
-}> = [
+interface ResumeScene {
+  readonly scene: string;
+  readonly plan: FakeNativeCallPlan;
+  /** A caller drops the attempt at this time (the dialog giving up on it). */
+  readonly retireAtMs?: number;
+  readonly request: ResumeCell;
+  readonly scope: Differences<ResumeCell, KnownI12>;
+}
+
+const RESUME_SCENES: ResumeScene[] = [
   {
     scene: 'running at once',
     plan: {},
@@ -407,24 +460,9 @@ const RESUME_SCENES: Array<{
       state: 'running',
       current: true,
     },
-    scope: {
-      timeline: [
-        '0:resume()',
-        '0:statechange:running',
-        '0:resume:resolved',
-        '0:result:running',
-        '0:requirement:same',
-      ],
-      listeners: 1,
-      state: 'running',
-      current: true,
-    },
+    scope: {},
   },
   {
-    // K-I12-a: after the 750 ms deadline the play-request owner only
-    // promotes and waits for the dialog's poll; the playback scope's binding
-    // takes the running event for a late automatic resume and re-suspends.
-    // (Its re-prompt is the Known gap of audio-context-ownership.test.ts's G7 rows.)
     scene: 'running at 1,200 ms, event before the promise',
     plan: { latencyMs: 1_200 },
     request: {
@@ -441,22 +479,22 @@ const RESUME_SCENES: Array<{
     },
     scope: {
       timeline: [
-        '0:resume()',
-        '750:result:not-running',
-        '1200:statechange:running',
-        '1200:suspend()',
-        '1200:resume:resolved',
-        '1200:statechange:suspended',
-        '1200:needed:background-resume:clock-stalled',
-        '1200:suspend:resolved',
+        'K-I12-a',
+        [
+          '0:resume()',
+          '750:result:not-running',
+          '1200:statechange:running',
+          '1200:suspend()',
+          '1200:resume:resolved',
+          '1200:statechange:suspended',
+          '1200:needed:background-resume:clock-stalled',
+          '1200:suspend:resolved',
+        ],
       ],
-      listeners: 1,
-      state: 'suspended',
-      current: true,
+      state: ['K-I12-a', 'suspended'],
     },
   },
   {
-    // K-I12-a as above, 100 ms later.
     scene: 'running at 1,200 ms, event 100 ms after the promise',
     plan: { latencyMs: 1_200, statechange: 'after-settle', stateDelayMs: 100 },
     request: {
@@ -473,23 +511,22 @@ const RESUME_SCENES: Array<{
     },
     scope: {
       timeline: [
-        '0:resume()',
-        '750:result:not-running',
-        '1200:resume:resolved',
-        '1300:statechange:running',
-        '1300:suspend()',
-        '1300:statechange:suspended',
-        '1300:needed:background-resume:clock-stalled',
-        '1300:suspend:resolved',
+        'K-I12-a',
+        [
+          '0:resume()',
+          '750:result:not-running',
+          '1200:resume:resolved',
+          '1300:statechange:running',
+          '1300:suspend()',
+          '1300:statechange:suspended',
+          '1300:needed:background-resume:clock-stalled',
+          '1300:suspend:resolved',
+        ],
       ],
-      listeners: 1,
-      state: 'suspended',
-      current: true,
+      state: ['K-I12-a', 'suspended'],
     },
   },
   {
-    // K-I12-a: the playback scope verifies its own clock (fix lane G7) and
-    // rejoins; the play-request owner waits for the dialog.
     scene: 'running at 1,200 ms with the promise, event 100 ms later',
     plan: { latencyMs: 1_200, statechange: 'deferred-event', stateDelayMs: 100 },
     request: {
@@ -507,22 +544,21 @@ const RESUME_SCENES: Array<{
     },
     scope: {
       timeline: [
-        '0:resume()',
-        '750:result:not-running',
-        '1200:state:running',
-        '1200:resume:resolved',
-        '1200:requirement:same',
-        '1300:statechange:running',
-        '1380:rejoin:audio-context-recovered',
-        '1380:requirement:none',
+        'K-I12-a',
+        [
+          '0:resume()',
+          '750:result:not-running',
+          '1200:state:running',
+          '1200:resume:resolved',
+          '1200:requirement:same',
+          '1300:statechange:running',
+          '1380:rejoin:audio-context-recovered',
+          '1380:requirement:none',
+        ],
       ],
-      listeners: 1,
-      state: 'running',
-      current: true,
     },
   },
   {
-    // K-I12-a as in the row above.
     scene: 'running at 1,200 ms with no event',
     plan: { latencyMs: 1_200, statechange: 'silent' },
     request: {
@@ -539,17 +575,17 @@ const RESUME_SCENES: Array<{
     },
     scope: {
       timeline: [
-        '0:resume()',
-        '750:result:not-running',
-        '1200:state:running',
-        '1200:resume:resolved',
-        '1200:requirement:same',
-        '1380:rejoin:audio-context-recovered',
-        '1380:requirement:none',
+        'K-I12-a',
+        [
+          '0:resume()',
+          '750:result:not-running',
+          '1200:state:running',
+          '1200:resume:resolved',
+          '1200:requirement:same',
+          '1380:rejoin:audio-context-recovered',
+          '1380:requirement:none',
+        ],
       ],
-      listeners: 1,
-      state: 'running',
-      current: true,
     },
   },
   {
@@ -561,16 +597,9 @@ const RESUME_SCENES: Array<{
       state: 'suspended',
       current: true,
     },
-    scope: {
-      timeline: ['0:resume()', '0:resume:rejected', '0:result:not-running'],
-      listeners: 1,
-      state: 'suspended',
-      current: true,
-    },
+    scope: {},
   },
   {
-    // K-I12-b: the play-request owner's unsettled resume listener stays until
-    // the attempt retires.
     scene: 'never settles',
     plan: { outcome: 'never' },
     request: {
@@ -579,11 +608,38 @@ const RESUME_SCENES: Array<{
       state: 'suspended',
       current: true,
     },
-    scope: {
-      timeline: ['0:resume()', '750:result:not-running'],
+    scope: { listeners: ['K-I12-b', 1] },
+  },
+  {
+    scene: 'retired at 900 ms, then the resume resolves at 1,200 ms',
+    plan: { latencyMs: 1_200 },
+    retireAtMs: 900,
+    request: {
+      timeline: [
+        '0:resume()',
+        '750:result:not-running',
+        // The cleanup resume is issued inside the retire call.
+        '900:resume()',
+        '900:retire:true',
+        '900:statechange:running',
+        '900:resume:resolved',
+        '1200:resume:resolved',
+      ],
       listeners: 1,
-      state: 'suspended',
-      current: true,
+      state: 'running',
+      current: false,
+    },
+    scope: {
+      timeline: [
+        'K-I12-d',
+        [
+          '0:resume()',
+          '750:result:not-running',
+          '900:retire:true',
+          '1200:statechange:running',
+          '1200:resume:resolved',
+        ],
+      ],
     },
   },
 ];
@@ -595,47 +651,55 @@ function markResult(timeline: Timeline, tap: Promise<{ running: boolean }>): voi
   );
 }
 
+function retireAt(ms: number | undefined, retire: () => boolean, timeline: Timeline) {
+  return new Map(ms === undefined ? [] : [[ms, () => timeline.mark(`retire:${retire()}`)]]);
+}
+
 describe('RO-01 I12 parity: gesture resume of a parked attempt', () => {
-  it.each(RESUME_SCENES)('play-request gesture: $scene', async ({ plan, request }) => {
+  it.each(RESUME_SCENES)('play-request gesture: $scene', async (scene) => {
     const { fake, o } = await newFileOwners();
     const restart = playRequest.arm(o, fake);
     await expect(restart.first).resolves.toBe('prepared');
-    fake.planResume(plan);
+    fake.planResume(scene.plan);
     const timeline = startTimeline(fake);
     markBus(o, timeline);
     const requirement = watch(timeline, 'requirement', () => restart.requirement());
 
     markResult(timeline, restart.tap());
     await vi.advanceTimersByTimeAsync(0);
-    await drive(6_000, requirement);
+    await drive(6_000, requirement, retireAt(scene.retireAtMs, restart.retire, timeline));
 
     expect({
       timeline: timeline.entries,
       listeners: fake.statechangeListenerCount,
       state: fake.state,
       current: restart.isCurrent(),
-    }).toEqual(request);
+    }).toEqual(scene.request);
   });
 
-  it.each(RESUME_SCENES)('playback-scope gesture: $scene', async ({ plan, scope }) => {
+  it.each(RESUME_SCENES)('playback-scope gesture: $scene', async (scene) => {
     const { fake, o } = await newFileOwners();
     await expect(playbackScope.armStalled(o, fake)).resolves.toBe('prepared');
     const attempt = playbackScope.current(o)!;
-    fake.planResume(plan);
+    fake.planResume(scene.plan);
     const timeline = startTimeline(fake);
     markBus(o, timeline);
     const requirement = watch(timeline, 'requirement', () => playbackScope.requirement(o));
 
     markResult(timeline, playbackScope.tap(o));
     await vi.advanceTimersByTimeAsync(0);
-    await drive(6_000, requirement);
+    await drive(
+      6_000,
+      requirement,
+      retireAt(scene.retireAtMs, () => playbackScope.retire(o, attempt), timeline),
+    );
 
     expect({
       timeline: timeline.entries,
       listeners: fake.statechangeListenerCount,
       state: fake.state,
       current: playbackScope.isCurrent(o, attempt),
-    }).toEqual(scope);
+    }).toEqual(withDifferences(scene.request, scene.scope));
   });
 
   it('a hardware PLAY is the playback scope gesture with a public entry', async () => {
@@ -656,67 +720,116 @@ describe('RO-01 I12 parity: gesture resume of a parked attempt', () => {
 });
 
 /**
- * app.ts's wait after the dialog's tap (K-I12-c, play-request only): read
- * the requirement every 50 ms from the gesture flight's settlement, give up
- * after 5 s. Only the dialog's own currency ends it early; this table keeps
- * that true and pins the owner's side of each ending.
+ * The play-request attempt after the dialog's tap, owner side only. K-I12-c:
+ * the owner exposes its clock requirement for app.ts to poll and tells it
+ * nothing (the 50 ms poll that 7B-5 replaces with a promise, if the owner
+ * approves Q7; owner decision pending). app.ts's wait is not loaded here: it
+ * polls while its own currency holds, and that currency runs through
+ * transport's restart check into this attempt, so the wait ends on its next
+ * 50 ms check once the owner retires the attempt (row 3) and at its 5 s limit
+ * when the requirement never appears (row 2). The browser lab pins the
+ * abort and limit endings ((d-1), (d-3)); the retirement ending has no
+ * browser row.
+ *
+ * Each row pins what the owner shows that wait over 6 s (when the
+ * requirement first reads 'same' on a 10 ms step, and the attempt, its
+ * requirement, listeners and native ops at the end) and, where the dialog
+ * gives up, what retiring its token does: the owner's answer, the native ops
+ * that follow and the incident a later PLAY probes.
  */
-async function dialogWait(restart: PlayRequest, startedAt: number): Promise<string> {
-  const deadline = Date.now() + 5_000;
-  for (;;) {
-    if (restart.requirement() === 'same') return `ready@${Date.now() - startedAt}`;
-    if (Date.now() >= deadline) return `gave-up@${Date.now() - startedAt}`;
-    await new Promise<void>((resolve) => setTimeout(resolve, 50));
-  }
-}
-
-describe('RO-01 I12 the play-request wait after the tap: how it ends', () => {
+describe('RO-01 I12 the play-request attempt after the tap: what the dialog wait reads', () => {
   it.each([
     {
-      ending: 'the requirement appears (exposed at promotion, read on the next 50 ms tick)',
+      ending: 'the requirement appears at promotion and stays until the dialog acts',
       plan: { latencyMs: 1_230 } as FakeNativeCallPlan,
-      rearmAtMs: null,
-      result: { exposedAt: 1230, wait: 'ready@1250', current: true, listeners: 1 },
+      newIncidentAtMs: null,
+      giveUp: false,
+      result: {
+        exposedAt: 1230,
+        atSixSeconds: {
+          requirement: 'same',
+          current: true,
+          listeners: 1,
+          ops: ['resume()', 'statechange:running', 'resume:resolved'],
+        },
+        giveUp: null,
+      },
     },
     {
-      ending: 'it never appears (the resume never settles)',
+      // The owner never ends the attempt by itself. Retiring it clears its
+      // incident and resumes the parked context; app.ts arms a new incident
+      // on this true answer when the page is visible (code reading).
+      ending: 'it never appears (the resume never settles); giving up retires and restores',
       plan: { outcome: 'never' } as FakeNativeCallPlan,
-      rearmAtMs: null,
-      result: { exposedAt: null, wait: 'gave-up@5750', current: true, listeners: 2 },
+      newIncidentAtMs: null,
+      giveUp: true,
+      result: {
+        exposedAt: null,
+        atSixSeconds: { requirement: 'none', current: true, listeners: 2, ops: ['resume()'] },
+        giveUp: {
+          retired: true,
+          ops: ['resume()', 'statechange:running', 'resume:resolved'],
+          incident: 'none',
+          listeners: 1,
+          state: 'running',
+        },
+      },
     },
     {
-      // The owner retires the attempt at once, but nothing tells the wait.
-      ending: 'the attempt retires elsewhere (a new foreground incident at 900 ms)',
+      // The owner retires the attempt when the new incident arms, and the
+      // late resume promotes nothing. Giving up then finds it gone, so app.ts
+      // arms nothing; the new incident stays for the next PLAY.
+      ending: 'a new foreground incident at 900 ms retires it; giving up finds it gone',
       plan: { latencyMs: 1_200 } as FakeNativeCallPlan,
-      rearmAtMs: 900,
-      result: { exposedAt: null, wait: 'gave-up@5750', current: false, listeners: 1 },
+      newIncidentAtMs: 900,
+      giveUp: true,
+      result: {
+        exposedAt: null,
+        atSixSeconds: {
+          requirement: 'none',
+          current: false,
+          listeners: 1,
+          ops: ['resume()', 'statechange:running', 'resume:resolved'],
+        },
+        giveUp: { retired: false, ops: [], incident: 'new', listeners: 1, state: 'running' },
+      },
     },
-  ])('$ending', async ({ plan, rearmAtMs, result }) => {
+  ])('$ending', async ({ plan, newIncidentAtMs, giveUp, result }) => {
     const { fake, o } = await newFileOwners();
     const restart = playRequest.arm(o, fake);
     await expect(restart.first).resolves.toBe('prepared');
     fake.planResume(plan);
-    const startedAt = Date.now();
+    const tapAt = Date.now();
+    const tapOps = fake.ops.length;
     let exposedAt: number | null = null;
-    let current = true;
 
-    const waited = restart.tap().then(() => dialogWait(restart, startedAt));
-    if (rearmAtMs !== null) {
-      await vi.advanceTimersByTimeAsync(rearmAtMs);
-      armNewIncident(o, fake);
-      current = restart.isCurrent();
-    }
-    for (let t = rearmAtMs ?? 0; t < 6_000; t += STEP_MS) {
+    whenSettled(restart.tap(), () => undefined);
+    for (let t = STEP_MS; t <= 6_000; t += STEP_MS) {
       await vi.advanceTimersByTimeAsync(STEP_MS);
-      if (exposedAt === null && restart.requirement() === 'same')
-        exposedAt = Date.now() - startedAt;
+      if (t === newIncidentAtMs) armNewIncident(o, fake);
+      if (exposedAt === null && restart.requirement() === 'same') exposedAt = Date.now() - tapAt;
+    }
+    const atSixSeconds = {
+      requirement: restart.requirement(),
+      current: restart.isCurrent(),
+      listeners: fake.statechangeListenerCount,
+      ops: fake.ops.slice(tapOps),
+    };
+
+    let gaveUp = null;
+    if (giveUp) {
+      const before = fake.ops.length;
+      const retired = restart.retire();
+      await vi.advanceTimersByTimeAsync(1_000);
+      gaveUp = {
+        retired,
+        ops: fake.ops.slice(before),
+        incident: incidentCell(o, restart.incident),
+        listeners: fake.statechangeListenerCount,
+        state: fake.state,
+      };
     }
 
-    expect({
-      exposedAt,
-      wait: await waited,
-      current,
-      listeners: fake.statechangeListenerCount,
-    }).toEqual(result);
+    expect({ exposedAt, atSixSeconds, giveUp: gaveUp }).toEqual(result);
   });
 });

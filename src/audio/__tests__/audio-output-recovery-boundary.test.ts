@@ -19,12 +19,15 @@
  * - the two suspend leases one foreground incident can start;
  * - statechange dispatch order and listener counts per owner;
  * - prepared notices per suspend ordering;
- * - app.ts's ordinary dialog branch carrying a non-file attempt.
+ * - the owner side of app.ts's ordinary dialog branch carrying a non-file
+ *   attempt (modelled: app.ts is not loaded).
  *
  * "Known gap (C1-...)" marks today's behaviour where it is not the desired
- * one; the C1 increment that changes it flips that row.
+ * one. Where a planned C1 increment would change a row, the row names it;
+ * those increments wait for the owner's decision (owner decision pending),
+ * and only an approved one flips its rows.
  */
-import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 import {
   FakeNativeAudioContext,
   type FakeNativeCallPlan,
@@ -35,7 +38,7 @@ import {
   loadMediaSession,
   loadOwners,
   nativeCalls,
-  ordinaryBranch,
+  ordinaryBranchOwnerSide,
   playRequest,
   loadUiTouchSound,
   playbackScope,
@@ -47,6 +50,7 @@ import {
   stageYouTube,
   teardownOwnerTest,
   traceDispatch,
+  warmMediaSessionGraph,
   type Owners,
   type PlayRequest,
   type ScopeView,
@@ -60,6 +64,7 @@ const INTERRUPTION_REFUSED = [
   'resume:rejected',
 ];
 
+beforeAll(warmMediaSessionGraph, 30_000);
 beforeEach(setupOwnerTest);
 afterEach(teardownOwnerTest);
 
@@ -103,13 +108,19 @@ describe('RO-01 an OS interruption inside the play-request late-suspend fence (2
     },
     // Known gap (C1-I11, fence drops the YouTube owner): adoption keeps only a
     // file identity, so no owner holds the interrupted context and nothing
-    // retries it until another statechange or an outside resume arrives.
+    // retries it until another statechange or an outside resume arrives. The
+    // fence lasts 250 ms after a play-request restart retires, and those
+    // start only from a local-file PLAY, so YouTube mode inside it needs a
+    // switch to YouTube in that window. Outside it the binding holds a
+    // YouTube attempt.
     {
       mode: 'youtube',
       inside: { needed: [], scope: NO_ATTEMPT },
       outside: { attempt: 'youtube', gesture: true },
     },
-    // Nothing plays: outside the fence the binding's plain automatic resume.
+    // Nothing plays: not a gap. Inside and outside the fence the same native
+    // calls and no attempt; only which listener issues the resume differs
+    // (the fence cleanup inside, the binding's plain automatic resume outside).
     { mode: 'idle', inside: { needed: [], scope: NO_ATTEMPT }, outside: NO_ATTEMPT },
   ];
 
@@ -126,7 +137,9 @@ describe('RO-01 an OS interruption inside the play-request late-suspend fence (2
       trace.label('play-request');
       await retireIntoFence(o, fake);
       expect(nativeCalls(fake.ops)).toEqual(['suspend()', 'suspend()']);
-      // The binding and the fence.
+      // The binding and the fence. Flipped by 7B-4 (one dispatcher per
+      // context; Q6, owner decision pending): one listener, and the order
+      // inside it binding, lease, fence, resume promotion.
       expect(fake.statechangeListenerCount).toBe(2);
 
       const before = fake.ops.length;
@@ -135,10 +148,12 @@ describe('RO-01 an OS interruption inside the play-request late-suspend fence (2
       await vi.advanceTimersByTimeAsync(2_000);
 
       expect(fake.ops.slice(before)).toEqual(INTERRUPTION_REFUSED);
+      // Listener order, flipped by 7B-4 as above: the trace then sees one listener.
       expect(trace.order).toEqual(['binding@interrupted', 'play-request@interrupted>resume()']);
       expect(bus.needed).toEqual(inside.needed);
       expect(bus.rejoins).toEqual([]);
       expect(playbackScope.view(o)).toEqual(inside.scope);
+      // The binding alone (also one after 7B-4: the dispatcher).
       expect(fake.statechangeListenerCount).toBe(1);
       expect(fake.state).toBe('interrupted');
     },
@@ -344,7 +359,10 @@ describe('RO-01 two suspend leases from one foreground incident', () => {
       if (request) {
         // Known gap (C1-I11, two leases): two native suspends and two
         // recovery requests (this bus notice plus transport's
-        // play:clock-stalled) for one stall.
+        // play:clock-stalled) for one stall. 7B-4 (one lease; Q6, owner
+        // decision pending) would make it one suspend and one request. Which
+        // dialog stays, and what its button does, has no row yet: app.ts's
+        // part needs a browser row.
         await expect(played.request!.first).resolves.toBe(request.first);
         await expect(played.request!.prepared).resolves.toBe(request.prepared);
         expect(played.request!.isCurrent()).toBe(true);
@@ -353,12 +371,21 @@ describe('RO-01 two suspend leases from one foreground incident', () => {
       }
       expect(await inspected).toMatchObject(inspection);
       expect(playbackScope.view(o)).toEqual({ attempt: 'file', gesture: true });
+      // Listener counts per owner, flipped by 7B-4 (one dispatcher, Q6): [1, 1, 1].
       expect(counts).toEqual(listeners);
       expect(fake.state).toBe('suspended');
     },
   );
 });
 
+/**
+ * Today every owner adds its own statechange listener, so the dispatch order
+ * is the order the listeners were added and differs per scene. Every order
+ * and count row here is flipped by 7B-4 (one dispatcher per context; Q6,
+ * owner decision pending): one listener per context, and inside it the
+ * order binding, lease, fence, resume promotion, the same in every scene.
+ * A row that 7B-4 changes beyond its order and counts says so.
+ */
 describe('RO-01 statechange dispatch order and owner listeners per context', () => {
   it('binding, then a playback-scope lease, then a play-request lease', async () => {
     const fake = new FakeNativeAudioContext();
@@ -385,9 +412,11 @@ describe('RO-01 statechange dispatch order and owner listeners per context', () 
       'request-lease@suspended',
     ]);
     expect(counts).toEqual([3, 1]);
+    // 7B-4 also makes these one lease: the later request takes it over and
+    // the earlier attempt retires, so one native suspend.
     expect(nativeCalls(fake.ops)).toEqual(['suspend()', 'suspend()']);
     expect(bus.needed).toEqual(['background-resume:clock-stalled']);
-    await expect(armed).resolves.toBe('none');
+    await expect(armed).resolves.toBe('preparing');
     await expect(request.prepared).resolves.toBe(true);
   });
 
@@ -516,8 +545,15 @@ describe('RO-01 statechange dispatch order and owner listeners per context', () 
   );
 });
 
-describe("RO-01 app.ts's ordinary dialog branch with a non-file attempt", () => {
-  it('carries a YouTube attempt after the room switched to a file and ends without a rejoin', async () => {
+/**
+ * The owner side of app.ts's ordinary dialog branch, modelled
+ * (ordinaryBranchOwnerSide): app.ts is not loaded, so its choice of branch
+ * and its own rejoin are not pinned here; that half is code reading, and its
+ * browser row is a later test step. This row pins what the owner answers
+ * and does around the branch's gesture resume.
+ */
+describe('RO-01 the owner side of the ordinary dialog branch with a non-file attempt (modelled)', () => {
+  it('the gesture carries a YouTube attempt after the room switched to a file; the owner retires it', async () => {
     const fake = new FakeNativeAudioContext();
     const o = await loadOwners(fake);
     stageYouTube(o);
@@ -535,16 +571,20 @@ describe("RO-01 app.ts's ordinary dialog branch with a non-file attempt", () => 
     expect(playbackScope.view(o)).toEqual({ attempt: 'youtube', gesture: true });
 
     const before = fake.ops.length;
-    const branch = await ordinaryBranch(o);
+    const owner = await ordinaryBranchOwnerSide(o);
     await vi.advanceTimersByTimeAsync(5_000);
 
-    // Known gap (C1-I6, ordinary branch carries a non-file token): the file
-    // dialog's tap carries the YouTube attempt, resumes the context, and then
-    // finds that attempt retired by the binding's identity check, so the dialog
-    // ends with no rejoin for the file now playing.
-    expect(branch.fileAttemptWaiting).toBe(false);
-    expect(branch.carried).toBe(youtubeAttempt);
-    expect(branch.afterTap).toBe('not-current');
+    // Known gap (C1-I6, ordinary branch carries a non-file token), owner
+    // half: no file attempt is pending, the attempt that accepts the file
+    // dialog's gesture is the YouTube one, and after the resume the owner has
+    // retired it (identity check), with no notice and no rejoin of its own.
+    // app.ts then reads it as not current and ends the dialog with no rejoin
+    // (code reading).
+    expect(owner).toEqual({
+      fileAttemptPending: false,
+      gestureAttempt: youtubeAttempt,
+      afterResume: 'retired',
+    });
     expect(fake.ops.slice(before)).toEqual(['resume()', 'statechange:running', 'resume:resolved']);
     expect(bus.needed).toEqual([]);
     expect(bus.rejoins).toEqual([]);

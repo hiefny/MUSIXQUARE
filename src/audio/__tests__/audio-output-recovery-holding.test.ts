@@ -7,10 +7,11 @@
  *
  * A UI sound resumes the shared context from outside both recovery owners
  * (ui-sounds.ts readyOutput; its trusted pointerdown/keydown path issues the
- * same unowned resume() and cannot be created in jsdom). The C1 increment
- * that lets an owner hold the context (structural plan 7B-3) turns the rows
- * where the owner itself parked the context for a file dialog into 'no
- * resume' and keeps the others; each row says which.
+ * same unowned resume() and cannot be created in jsdom). The planned C1
+ * increment that lets an owner hold the context (structural plan 7B-3, with
+ * 7B-2; owner decision pending, Q8 and Q9) would silence the sound and
+ * issue no resume in the rows where the owner itself parked the context for
+ * a file dialog, and keep the others; each row says which.
  *
  * Columns: the native calls issued synchronously by the sound, the ops that
  * follow within 3 s, recovery notices, rejoins, which owner holds the context
@@ -100,7 +101,9 @@ const ROWS: Row[] = [
     end: { state: 'running', request: 'none', scope: NONE },
   },
   {
-    // Kept by 7B-3 only in its file rows: the dialog is about to open.
+    // The dialog is about to open. Today the sound issues no resume here:
+    // the state still reads running while the suspend is in flight. 7B-3
+    // (if approved) silences the sound in this window; the op log stays.
     phase: 'H3 play-request preparing-suspend (suspend in flight)',
     arrange: async (o, fake) => {
       fake.planSuspend({ latencyMs: 300 });
@@ -119,7 +122,8 @@ const ROWS: Row[] = [
     end: { state: 'suspended', request: 'owned', scope: NONE },
   },
   {
-    // Flipped by 7B-3: the sound resumes the context the dialog's tap needs.
+    // Flipped by 7B-3 if approved (owner decision pending): today the sound
+    // resumes the context the dialog's tap needs.
     phase: 'H4 play-request awaiting-gesture',
     arrange: async (o, fake) => {
       await parkPlayRequest(o, fake);
@@ -151,7 +155,7 @@ const ROWS: Row[] = [
     end: { state: 'running', request: 'owned', scope: NONE },
   },
   {
-    // Kept by 7B-3: the sound's resume completes this recovery.
+    // Kept by 7B-3 (if approved): the sound's resume completes this recovery.
     phase: 'H6 playback-scope awaiting-resume (OS interruption, automatic resume refused)',
     arrange: async (o, fake) => {
       stageFile(o);
@@ -167,6 +171,8 @@ const ROWS: Row[] = [
     end: { state: 'running', request: 'none', scope: NONE },
   },
   {
+    // As H3: no resume today while the state reads running. 7B-3 (if
+    // approved) silences the sound here for a file attempt; the op log stays.
     phase: 'H7 playback-scope preparing-suspend (stalled, suspend in flight)',
     arrange: async (o, fake) => {
       stageFile(o);
@@ -185,7 +191,8 @@ const ROWS: Row[] = [
     end: { state: 'suspended', request: 'none', scope: FILE_PARKED },
   },
   {
-    // Flipped by 7B-3: the dialog for this file attempt can be open.
+    // Flipped by 7B-3 if approved (owner decision pending): the dialog for
+    // this file attempt can be open.
     phase: 'H8 playback-scope awaiting-gesture (file)',
     arrange: async (o, fake) => {
       stageFile(o);
@@ -199,7 +206,8 @@ const ROWS: Row[] = [
     end: { state: 'suspended', request: 'none', scope: FILE_PARKED },
   },
   {
-    // Kept by 7B-3: the attempt is stale; the owner retires it and restores.
+    // Kept by 7B-3 (if approved): the attempt is stale; the owner retires it
+    // and restores.
     phase: 'H9 playback-scope awaiting-gesture, identity stale (queue changed)',
     arrange: async (o, fake) => {
       stageFile(o);
@@ -225,8 +233,8 @@ const ROWS: Row[] = [
     end: { state: 'running', request: 'none', scope: NONE },
   },
   {
-    // Kept by 7B-3 (no dialog serves YouTube): see the boundary file's
-    // YouTube stall rows.
+    // Kept by 7B-3 (if approved; no dialog serves YouTube): see the boundary
+    // file's YouTube stall rows.
     phase: 'H10 playback-scope awaiting-gesture, YouTube (raised by the automatic clock check)',
     arrange: async (o, fake) => {
       stageYouTube(o);
@@ -243,7 +251,7 @@ const ROWS: Row[] = [
     end: { state: 'suspended', request: 'none', scope: { attempt: 'youtube', gesture: true } },
   },
   {
-    // Flipped by 7B-3.
+    // Flipped by 7B-3 if approved (owner decision pending).
     phase: 'H11 playback-scope gesture-resuming (resume in flight)',
     arrange: async (o, fake) => {
       stageFile(o);

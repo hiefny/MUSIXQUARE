@@ -132,6 +132,30 @@ export interface MediaSessionActions {
   pause(): void;
 }
 
+/**
+ * Transform media-session.ts and its transport graph once per file, from a
+ * beforeAll with its own time budget, so the first row that loads Media
+ * Session does not pay that cold transform inside its own timeout. Each row
+ * still evaluates a fresh graph (loadOwners resets the module registry);
+ * the document/window listeners this warm evaluation adds are removed.
+ */
+export async function warmMediaSessionGraph(): Promise<void> {
+  const targets = [document, window] as EventTarget[];
+  const spies = targets.map((target) => vi.spyOn(target, 'addEventListener'));
+  try {
+    await import('../../../player/media-session.ts');
+  } finally {
+    targets.forEach((target, index) => {
+      const spy = spies[index]!;
+      for (const [type, listener, options] of spy.mock.calls) {
+        target.removeEventListener(type, listener, options);
+      }
+      spy.mockRestore();
+    });
+    vi.resetModules();
+  }
+}
+
 /** Install media-session.ts on a stub navigator.mediaSession; returns its PLAY/PAUSE handlers. */
 export async function loadMediaSession(): Promise<MediaSessionActions> {
   const handlers = new Map<string, MediaSessionActionHandler>();
@@ -300,8 +324,12 @@ export interface PlayRequest {
   requirement(): Requirement;
   /** Whether a dialog may still act for this attempt. */
   isCurrent(): boolean;
-  /** The dialog gives up on this attempt (today after its 5 s requirement wait). */
-  retire(): void;
+  /**
+   * The dialog gives up on this attempt (app.ts retires its token when its
+   * requirement wait ends with nothing). true when the owner still held the
+   * attempt and retired it now, false when it was already gone.
+   */
+  retire(): boolean;
 }
 
 function startPlayRequest(o: Owners, incident: object): PlayRequest {
@@ -331,9 +359,8 @@ function startPlayRequest(o: Owners, incident: object): PlayRequest {
       return requirement.isCurrent() ? 'same' : 'not-current';
     },
     isCurrent: () => attempt?.isCurrent() ?? false,
-    retire: () => {
-      if (attempt) o.context.retireForegroundAudioContextRestart(attempt.attemptToken);
-    },
+    retire: () =>
+      attempt ? o.context.retireForegroundAudioContextRestart(attempt.attemptToken) : false,
   };
 }
 
@@ -381,10 +408,15 @@ export interface ScopeView {
 }
 
 export const playbackScope = {
-  /** The background stall inspector's arm: 'prepared' within its window, else 'none'. */
-  async armStalled(o: Owners, fake: FakeNativeAudioContext): Promise<'prepared' | 'none'> {
+  /**
+   * The background stall inspector's arm, in the play-request vocabulary:
+   * 'prepared' within its window, 'preparing' when the window ends with the
+   * attempt still preparing, 'stale' when no attempt is left.
+   */
+  async armStalled(o: Owners, fake: FakeNativeAudioContext): Promise<FirstAnswer> {
     const token = await o.recovery.armPendingAudioContextRecoveryFromBackground(fake.native);
-    return token ? 'prepared' : 'none';
+    if (token) return 'prepared';
+    return o.recovery.getPendingAudioContextRecoveryAttemptForHealth() ? 'preparing' : 'stale';
   },
   /** The dialog's or hardware PLAY's trusted gesture on the pending attempt. */
   tap(o: Owners): Promise<{ running: boolean }> {
@@ -407,6 +439,13 @@ export const playbackScope = {
   /** Whether that exact attempt is still the live one. */
   isCurrent(o: Owners, attempt: object): boolean {
     return o.recovery.isAudioContextInterruptionAttemptCurrent(attempt);
+  },
+  /**
+   * A caller drops that exact attempt (app.ts's failed-PLAY dialog cancels a
+   * pending attempt this way). true when the owner still held it.
+   */
+  retire(o: Owners, attempt: object): boolean {
+    return o.recovery.cancelPendingAudioContextRecovery(attempt);
   },
   /**
    * The post-tap clock requirement the dialog and Media Session read. It
@@ -433,29 +472,26 @@ export function ownerView(o: Owners): { request: 'owned' | 'none'; scope: ScopeV
 }
 
 /**
- * What app.ts's recovery dialog does on its tap when it has no play-request
- * attempt and no file attempt is waiting (its ordinary branch): carry
- * whatever attempt accepts a gesture, resume, then read that attempt and its
- * requirement before any rejoin.
+ * The owner side of app.ts's ordinary dialog branch, modelled: app.ts itself
+ * is not loaded, so neither its choice of branch nor its own rejoin is pinned
+ * here. These are the owner answers that branch reads on a tap when no
+ * play-request attempt exists: whether a file attempt is pending, which
+ * attempt accepts a gesture, and, after the gesture resume the branch issues,
+ * whether the owner still holds that attempt.
  */
-export async function ordinaryBranch(o: Owners): Promise<{
-  fileAttemptWaiting: boolean;
-  carried: object | null;
-  afterTap: 'not-current' | 'no-requirement' | 'requirement';
+export async function ordinaryBranchOwnerSide(o: Owners): Promise<{
+  fileAttemptPending: boolean;
+  gestureAttempt: object | null;
+  afterResume: 'current' | 'retired' | 'no-attempt';
 }> {
-  const fileAttemptWaiting = o.recovery.hasPendingAudioContextInterruption('file');
-  const carried = o.recovery.getPendingAudioContextInterruptionAttempt();
+  const fileAttemptPending = o.recovery.hasPendingAudioContextInterruption('file');
+  const gestureAttempt = o.recovery.getPendingAudioContextInterruptionAttempt();
   await o.context.restartAudioContextFromGesture().catch(() => undefined);
-  if (!carried || !o.recovery.isAudioContextInterruptionAttemptCurrent(carried)) {
-    return { fileAttemptWaiting, carried, afterTap: 'not-current' };
+  let afterResume: 'current' | 'retired' | 'no-attempt' = 'no-attempt';
+  if (gestureAttempt) {
+    afterResume = o.recovery.isAudioContextInterruptionAttemptCurrent(gestureAttempt)
+      ? 'current'
+      : 'retired';
   }
-  const requirement = o.recovery.getPendingAudioContextClockHealthRequirement();
-  return {
-    fileAttemptWaiting,
-    carried,
-    afterTap:
-      requirement && requirement.attemptToken === carried && requirement.isCurrent()
-        ? 'requirement'
-        : 'no-requirement',
-  };
+  return { fileAttemptPending, gestureAttempt, afterResume };
 }

@@ -26,6 +26,7 @@ import {
   PUBLIC_KOREAN_ENGLISH_COPY_RULES,
   PUBLIC_LITERAL_FONT_FAMILIES,
   PUBLIC_TEXT_FONT_FAMILY,
+  PUBLIC_WORKER_FONT_PAGES,
   inlineStyles,
   publicFontCssProblems,
   publicFontLinkProblems,
@@ -751,5 +752,50 @@ describe('the blog, history, design system, UI kit, events and 404 pages', () =>
     // the service worker's install list), so it draws with the device fonts.
     expect(PUBLIC_FONT_PAGES.map(({ html }) => html)).not.toContain('public/account-complete.html');
     expect(read('public/account-complete.html')).not.toMatch(/\/web-fonts\/|\/han-order\.js/u);
+  });
+});
+
+describe('the pages the App Worker renders', () => {
+  // cloudflare/app-worker.ts renders the admin page and the blog article's
+  // fallback itself; src/core/__tests__/app-worker-cors.test.ts checks their
+  // links, and these cases their sheets.
+  it('lists the admin page and the blog article with their sheets', () => {
+    expect(
+      PUBLIC_WORKER_FONT_PAGES.map(({ sheets, htmlLangs }) => ({ sheets, htmlLangs })),
+    ).toEqual([
+      { sheets: ['public/admin.css'], htmlLangs: ['en'] },
+      { sheets: [TOKENS, 'public/editorial-base.css'], htmlLangs: ['en'] },
+    ]);
+  });
+
+  it.each(PUBLIC_WORKER_FONT_PAGES.map(({ name }) => name))(
+    "%s reads the app's stacks, with no face or stack of its own",
+    (name) => {
+      const worker = PUBLIC_WORKER_FONT_PAGES.find((candidate) => candidate.name === name);
+      if (!worker) throw new Error(`${name} is not listed`);
+      for (const sheet of worker.sheets) {
+        expect(publicFontCssProblems(read(sheet), PUBLIC_LITERAL_FONT_FAMILIES), sheet).toEqual([]);
+      }
+      expectAppStacks({
+        html: name,
+        dist: null,
+        rest: 'body',
+        sheets: worker.sheets,
+        htmlLangs: worker.htmlLangs,
+      });
+      for (const { selector, rule } of koreanEnglishSplits(worker.sheets)) {
+        expect(selector in PUBLIC_KOREAN_ENGLISH_COPY_RULES, selector).toBe(true);
+        expect(
+          rule.nodes.filter((node) => node.type === 'decl' && node.prop === 'letter-spacing'),
+          selector,
+        ).toEqual([]);
+      }
+    },
+  );
+
+  it('keeps the admin text on the shared stack with the system fallback', () => {
+    expect(read('public/admin.css')).toMatch(
+      /\n:root \{[^}]*font-family: var\(--font-sans, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif\);/u,
+    );
   });
 });

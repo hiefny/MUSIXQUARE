@@ -264,7 +264,7 @@ interface AudioRecoveryIdentity {
 }
 
 interface AudioRecoveryRequest {
-  readonly reason: 'context-not-running' | 'clock-stalled' | 'stale-play-lock';
+  readonly reason: 'context-not-running' | 'clock-stalled';
   readonly source: 'play' | 'background-resume';
   readonly identity: AudioRecoveryIdentity;
 }
@@ -272,7 +272,6 @@ interface AudioRecoveryRequest {
 interface GestureRecoveryFlightResult {
   readonly running: boolean;
   readonly rejoinEmitted: boolean;
-  readonly fallbackEligible: boolean;
   readonly semanticAttemptToken: object | null;
   readonly foregroundAttemptToken: object | null;
 }
@@ -389,7 +388,7 @@ function isSameAudioRecoveryIdentity(
 }
 
 function requestAudioOutputRecovery(
-  reason: 'context-not-running' | 'clock-stalled' | 'stale-play-lock',
+  reason: 'context-not-running' | 'clock-stalled',
   source: 'play' | 'background-resume',
   expectedQueueItemId: string | null,
   sourceIntentIsCurrent?: () => boolean,
@@ -507,7 +506,6 @@ function runAudioRecoveryRequest(request: AudioRecoveryRequest): Promise<boolean
         ).then((result) => ({
           running: result.running,
           rejoinEmitted: false,
-          fallbackEligible: false,
           semanticAttemptToken: null,
           foregroundAttemptToken: gestureForegroundAttemptToken,
         }));
@@ -539,7 +537,6 @@ function runAudioRecoveryRequest(request: AudioRecoveryRequest): Promise<boolean
           .then(() => ({
             running: true,
             rejoinEmitted: false,
-            fallbackEligible: true,
             semanticAttemptToken: gestureSemanticAttemptToken,
             foregroundAttemptToken: null,
           }))
@@ -548,7 +545,6 @@ function runAudioRecoveryRequest(request: AudioRecoveryRequest): Promise<boolean
             return {
               running: false,
               rejoinEmitted: false,
-              fallbackEligible: false,
               semanticAttemptToken: gestureSemanticAttemptToken,
               foregroundAttemptToken: null,
             };
@@ -565,7 +561,6 @@ function runAudioRecoveryRequest(request: AudioRecoveryRequest): Promise<boolean
         delay(AUDIO_RECOVERY_GESTURE_WAIT_MS).then(() => ({
           running: String(getExistingAudioContext()?.state) === 'running',
           rejoinEmitted: false,
-          fallbackEligible: false,
           semanticAttemptToken: gestureSemanticAttemptToken,
           foregroundAttemptToken: gestureForegroundAttemptToken,
         })),
@@ -667,7 +662,6 @@ function runAudioRecoveryRequest(request: AudioRecoveryRequest): Promise<boolean
       let confirmedRecovery = {
         running: false,
         rejoinEmitted: false,
-        fallbackEligible: false,
       };
       if (gestureResult.semanticAttemptToken) {
         if (identity.intent === 'retry-failed-play') {

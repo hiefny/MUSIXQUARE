@@ -1245,7 +1245,7 @@ interface BaseEventMap {
   /** Local Web Audio output needs a trusted foreground recovery gesture. */
   'audio:output-recovery-needed': [
     event: Readonly<{
-      reason: 'context-not-running' | 'clock-stalled' | 'stale-play-lock';
+      reason: 'context-not-running' | 'clock-stalled';
       source: 'play' | 'background-resume';
       queueItemId: QueueItemId | null;
       isCurrent?: () => boolean;

@@ -62,7 +62,6 @@ interface PlaybackIdentity {
 interface ContextResumeResult {
   running: boolean;
   rejoinEmitted: boolean;
-  fallbackEligible: boolean;
 }
 
 interface PendingAudioContextClockHealthRequirement {
@@ -95,7 +94,6 @@ interface PendingContextRecovery {
   activeResumeToken: object | null;
   completed: boolean;
   rejoinEmitted: boolean;
-  fallbackClaimed: boolean;
   cause: RecoveryCause;
   phase: RecoveryPhase;
   clockVerified: boolean;
@@ -191,7 +189,6 @@ function createRecovery(
     activeResumeToken: null,
     completed: false,
     rejoinEmitted: false,
-    fallbackClaimed: false,
     cause,
     phase: cause === 'background-clock-stalled' ? 'preparing-suspend' : 'awaiting-resume',
     clockVerified: false,
@@ -553,23 +550,9 @@ function completeRunningRecovery(recovery: PendingContextRecovery): boolean {
   return true;
 }
 
-function contextResumeResult(
-  recovery: PendingContextRecovery,
-  source: 'automatic' | 'gesture',
-): ContextResumeResult {
+function contextResumeResult(recovery: PendingContextRecovery): ContextResumeResult {
   const rejoinEmitted = completeRunningRecovery(recovery);
-  const running = String(recovery.context.state) === 'running';
-  const fallbackEligible = Boolean(
-    source === 'gesture' &&
-    running &&
-    recovery.completed &&
-    !recovery.rejoinEmitted &&
-    !recovery.fallbackClaimed &&
-    activeBindingToken === recovery.bindingToken &&
-    recovery.generation === recoveryGeneration,
-  );
-  if (fallbackEligible) recovery.fallbackClaimed = true;
-  return { running, rejoinEmitted, fallbackEligible };
+  return { running: String(recovery.context.state) === 'running', rejoinEmitted };
 }
 
 function handleNativeResumeSettlement(
@@ -673,7 +656,7 @@ function resumeContext(
         }
       }
       reportBlockedDemoResume();
-      return contextResumeResult(recovery, source);
+      return contextResumeResult(recovery);
     })
     .catch((error) => {
       log.debug(`[Audio] ${source} resume failed`, error);
@@ -685,7 +668,7 @@ function resumeContext(
       }
       if (recovery.activeResumeToken === resumeToken) recovery.activeResumeToken = null;
       reportBlockedDemoResume();
-      return { running: false, rejoinEmitted: false, fallbackEligible: false };
+      return { running: false, rejoinEmitted: false };
     })
     .finally(() => {
       if (recovery[slot] === operation) recovery[slot] = null;
@@ -778,18 +761,18 @@ export function isAudioContextInterruptionAttemptCurrent(attemptToken: object): 
 export function resumePendingAudioContextInterruptionFromGesture(): Promise<ContextResumeResult> {
   const recovery = pendingRecovery;
   if (!recovery) {
-    return Promise.resolve({ running: false, rejoinEmitted: false, fallbackEligible: false });
+    return Promise.resolve({ running: false, rejoinEmitted: false });
   }
   if (recovery.cause === 'background-clock-stalled') {
     if (!recoveryCanAcceptGesture(recovery)) {
-      return Promise.resolve({ running: false, rejoinEmitted: false, fallbackEligible: false });
+      return Promise.resolve({ running: false, rejoinEmitted: false });
     }
     return resumeContext(recovery, 'gesture');
   }
   if (String(recovery.context.state) === 'running') {
     recovery.phase = 'awaiting-clock-verification';
     recovery.clockVerified = false;
-    return Promise.resolve(contextResumeResult(recovery, 'gesture'));
+    return Promise.resolve(contextResumeResult(recovery));
   }
   return resumeContext(recovery, 'gesture');
 }
@@ -807,7 +790,7 @@ export function confirmPendingAudioContextRecoveryHealth(
     !identityStillCurrent(recovery.identity) ||
     String(recovery.context.state) !== 'running'
   ) {
-    return { running: false, rejoinEmitted: false, fallbackEligible: false };
+    return { running: false, rejoinEmitted: false };
   }
   recovery.phase = 'awaiting-clock-verification';
   recovery.clockVerified = true;
@@ -819,7 +802,6 @@ export function confirmPendingAudioContextRecoveryHealth(
   return {
     running: String(recovery.context.state) === 'running',
     rejoinEmitted,
-    fallbackEligible: false,
   };
 }
 

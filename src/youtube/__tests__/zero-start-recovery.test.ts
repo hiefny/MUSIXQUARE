@@ -5,6 +5,9 @@
  * getter, audio capture, target resolvers and the host's hand-off are this
  * suite's fakes, the iframe is the fake player, and the clock is fake time.
  * The real wiring in player.ts is pinned by zero-start-recovery-golden.test.ts.
+ * Rows that call a callback the fake schedule took before the recovery moved
+ * on (as a timer that escaped its clear would run) pin each recovery's own
+ * token.
  *
  * Each row writes one ordered trace, at milliseconds since the start:
  * 'set <ms>' and 'cancel' (the guest's one timer; the host's clears are
@@ -71,6 +74,8 @@ interface Rig {
   player: FakeYtPlayer | null;
   /** Make the caller's schedule throw from now on. */
   scheduleThrows: boolean;
+  /** The last callback the schedule took. */
+  scheduled: (() => void) | null;
 }
 
 function newRig(): Rig {
@@ -80,10 +85,12 @@ function newRig(): Rig {
     current: true,
     player: null,
     scheduleThrows: false,
+    scheduled: null,
     recovery: new GuestZeroStartRecovery(
       (callback, delayMs) => {
         write(`set ${delayMs}`);
         if (rig.scheduleThrows) throw new Error('synthetic schedule failure');
+        rig.scheduled = callback;
         if (pending) clearTimeout(pending);
         pending = setTimeout(() => {
           pending = null;
@@ -161,6 +168,31 @@ function start(rig: Rig, event: YouTubeZeroStartFallbackEvent, options: StartOpt
     (canonicalPositionSec) => Math.max(0, canonicalPositionSec + (options.offsetSec ?? 0)),
     () => options.delayMs ?? 0,
   );
+}
+
+/**
+ * A recovery whose target never comes, abandoned when its 3 s window ends
+ * and left in its verified cleanup, whose retries run on because the iframe
+ * ignores every unmute. Returns the rig and the attempt the schedule held
+ * before the abandon.
+ */
+function stuckRecovery(): { rig: Rig; attempt: (() => void) | null } {
+  const rig = newRig();
+  const player = iframe(1, {
+    __videoId: 'unitRecovB2',
+    __state: 1,
+    __muted: true,
+    __unMuteIgnoreCount: 1_000,
+  });
+  player.loadVideoById = (videoId: string, startSeconds?: number) => {
+    player.__log.push({ op: 'loadVideoById', args: [videoId, startSeconds], at: Date.now() });
+  };
+  rig.player = player;
+  start(rig, fallbackEvent(player, { reason: 'clock-uncalibrated' }));
+  vi.advanceTimersByTime(60);
+  const attempt = rig.scheduled;
+  vi.advanceTimersByTime(YOUTUBE_RECOVERY_BRIDGE_MS);
+  return { rig, attempt };
 }
 
 /** `lines` at each instant from `from` to `to` (inclusive), `step` ms apart. */
@@ -500,6 +532,53 @@ describe('GuestZeroStartRecovery', () => {
       '+10 owned false',
       '+10 retained false',
     ]);
+  });
+
+  // The guest token: each row calls a callback the caller's schedule took
+  // before the recovery moved on, as a timer that escaped its clear would.
+  it('clear() revokes it: an attempt that escaped it does nothing', () => {
+    const rig = newRig();
+    rig.player = iframe(1, { __videoId: 'unitRecovB2', __state: 1 });
+    start(rig, fallbackEvent(rig.player));
+    vi.advanceTimersByTime(10);
+    const escaped = rig.scheduled;
+    rig.recovery.clear();
+    const before = trace.lines.length;
+    escaped?.();
+    vi.advanceTimersByTime(1_000);
+    expect(trace.lines.slice(before)).toEqual([]);
+  });
+
+  it('an abandoned recovery: an attempt that escaped it does nothing while its cleanup runs', () => {
+    const { attempt } = stuckRecovery();
+    const before = trace.lines.length;
+    attempt?.();
+    expect(trace.lines.slice(before)).toEqual([]);
+  });
+
+  it('clear() during the verified cleanup: a retry that escaped it does nothing', () => {
+    const { rig } = stuckRecovery();
+    const escaped = rig.scheduled;
+    rig.recovery.clear();
+    const before = trace.lines.length;
+    escaped?.();
+    vi.advanceTimersByTime(2_000);
+    expect(trace.lines.slice(before)).toEqual([]);
+  });
+
+  it('an acknowledged release: an attempt that escaped it does nothing', () => {
+    const rig = newRig();
+    rig.player = iframe(1, { __videoId: 'unitRecovB2', __state: 5, __muted: true });
+    start(rig, fallbackEvent(rig.player));
+    // The load reports its target at +120, as in the row that adopts it.
+    vi.advanceTimersByTime(120);
+    rig.player.__videoId = VIDEO;
+    rig.player.__setState(1);
+    vi.advanceTimersByTime(1_000);
+    expect(trace.lines.at(-1)).toBe('+701 log Recovered locally: cohort-excluded');
+    const before = trace.lines.length;
+    rig.scheduled?.();
+    expect(trace.lines.slice(before)).toEqual([]);
   });
 
   it('a rebuilt iframe: the previous one gets its cleanup, the new one its own hard-muted load', () => {
@@ -1188,6 +1267,21 @@ describe('HostZeroStartRecovery', () => {
     expect(trace.lines.slice(before)).toEqual(['+60 clear']);
     // The claim is the caller's to retire (player.ts's invalidate does).
     expect(rig.owned).toBe(true);
+  });
+
+  it('cancel() during the verified cleanup: a retry that escaped it does nothing', () => {
+    const rig = newHostRig();
+    rig.player = neverTarget(1);
+    rig.player.__unMuteIgnoreCount = 1_000;
+    rig.recovery.start(hostTarget(null), 'hard-mute-timeout');
+    // The bridge ends at +3000; the verified cleanup's next retry is due at +3120.
+    vi.advanceTimersByTime(YOUTUBE_RECOVERY_BRIDGE_MS + 60);
+    const escaped = rig.scheduled;
+    rig.recovery.cancel();
+    const before = trace.lines.length;
+    escaped?.();
+    vi.advanceTimersByTime(2_000);
+    expect(trace.lines.slice(before)).toEqual([]);
   });
 
   it('a newer start makes the older one stale: only the newer target is attempted', () => {

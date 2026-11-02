@@ -1222,6 +1222,28 @@ describe('YouTube Player', () => {
       expect(isStandardHostYouTubeLocalStartPending()).toBe(false);
     });
 
+    // A YouTube-to-YouTube load moves the YouTube session but retires no wait,
+    // so the hold's release timer stays armed and can fire late. The release's
+    // first fence, before its catch-up seek, is then all that keeps that seek
+    // off the reused iframe.
+    it('stops a late negative-start release whose YouTube session moved on before its catch-up seek', async () => {
+      playbackPlatform.android = true;
+      const player = await installHost(-9.999);
+      const { scheduleYtAutoSync } = await import('../player.ts');
+      const { incrementSessionId } = await import('../_state.ts');
+      const log = await recordHost(player, 41);
+      scheduleYtAutoSync(0);
+      vi.advanceTimersByTime(2000);
+      // A new YouTube session runs no retire; only the release's first fence stops it.
+      incrementSessionId();
+      vi.advanceTimersByTime(12_000);
+      expect(log).toEqual([
+        '+0 pauseVideo() held applied -9.749 auto 0.250',
+        '+0 seekTo(0.000,true) held applied -9.749 auto 0.250',
+        '+41 state 1 at 0.000',
+      ]);
+    });
+
     it.each([
       {
         action: 'pause',
@@ -1393,6 +1415,7 @@ describe('YouTube Player', () => {
         await import('../standard-host-manual-offset-runtime.ts');
       const { isYouTubeAutoSyncPending } = await import('../player-runtime-bridge.ts');
       const offsets = await import('../local-offset.ts');
+      const timers = await import('../../core/timers.ts');
       const hooks: import('../standard-host-manual-offset-gate.ts').StandardHostManualOffsetRuntimeHooks[] =
         [];
       let current = true;
@@ -1425,8 +1448,10 @@ describe('YouTube Player', () => {
         expect(hooks[0].readPlaybackIntent()).toBe(true);
         expect(offsets.isStandardHostYouTubeLocalStartPending()).toBe(false);
         expect(offsets.toCanonicalYouTubeTime(player.getCurrentTime(), 300)).toBeCloseTo(1, 8);
-        // The legacy rendezvous's Stage-2 wait went with the local start.
+        // The legacy rendezvous's Stage-2 wait went with the local start, and
+        // so did the local start's own release timer (the retire clears it).
         expect(isYouTubeAutoSyncPending()).toBe(false);
+        expect(timers.getManagedTimer('yt-host-local-start')).toBeNull();
         // Past the old release's due time (9,749 ms) and its Stage 2 (11,749 ms):
         // only the edit's own rendezvous moves the iframe, and no frame goes out.
         vi.advanceTimersByTime(11_000);

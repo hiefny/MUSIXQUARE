@@ -95,10 +95,10 @@ runbooks. Neither belongs in a general setup document.
 ## Maintained evidence and completed records
 
 - [App 9.0.34 / v807 train: Phase 6 6C (one YouTube state router, one iframe audio owner and shared arm steps), no light-theme stroke on the dialog grey button and the selection bar, and lighter light-theme dividers (2026-11-02)](design/phase6-6c-router-iframe-audio-arm-steps-2026-11-02.md):
-  prepared, not released. The next App update, planned as 9.0.34 / v807 (App build 807, target
-  `app`, one update dialog) after App 9.0.33 / v806 (Hangul drawn by Pretendard again, released
-  2026-11-02 13:12 KST), on branch `agent/p6-6c`: twenty-six commits on main `a92bab2b` (9.0.33's
-  release record #562; its App runtime is production 9.0.33's). Three increments ride: the third
+  prepared, not released. The next App update, 9.0.34 / v807 (App build 807, target `app`, one
+  update dialog) after App 9.0.33 / v806 (Hangul drawn by Pretendard again, released 2026-11-02
+  13:12 KST), on branch `agent/p6-6c`: twenty-nine commits on main `a92bab2b` (9.0.33's release
+  record #562; its App runtime is production 9.0.33's). Three increments ride: the third
   Phase 6 App train 6C, neutral; the owner's light-theme stroke removal, a visible change; and the
   lighter light-theme divider the owner chose from pictures, a visible change. 6C's
   twenty-one commits moved from main `7b869c35`, where QA rounds 5 to 8 ran, with every `src` and
@@ -107,12 +107,15 @@ runbooks. Neither belongs in a general setup document.
   9.0.33 entry had taken the top of this list); the light-stroke commit `c3281b45` is `d6d69bc4`
   from `agent/light-stroke` cherry-picked cleanly; two record commits follow (`1e3adfcb`, and
   `1e146488` with QA round 10); the divider commit `9fb6f1f8` is `9b269706` from
-  `agent/light-divider` cherry-picked without a conflict and with the same patch-id; and a last
-  record commit adds the divider and QA round 11. All four parts of the train's merge condition
-  (Phase 6 plan §1.4) are met: the previous train 9.0.33 was deployed (Release 41386906358), its
-  production smoke passed, it was recorded (#562), and its post-merge Full E2E 41396274966 on main
-  `6ccc3f10` passed. The version bump, the release-record entry and the release are the release
-  owner's.
+  `agent/light-divider` cherry-picked without a conflict and with the same patch-id; a record
+  commit `c8a459a9` adds the divider and QA round 11; the release preparation record `3cb356af`
+  adds the train's pre-deploy section to the release record; the bump `c44d4d2c` (9.0.34 / v807
+  in the same seven lines of six files as 9.0.33's `d78d0d41`) is the last runtime commit; and a
+  last record commit adds QA round 12, the full local gate on the bump head. All four parts of the
+  train's merge condition (Phase 6 plan §1.4) are met: the previous train 9.0.33 was deployed
+  (Release 41386906358), its production smoke passed, it was recorded (#562), and its post-merge
+  Full E2E 41396274966 on main `6ccc3f10` passed. The pull request, merge and release are the
+  release owner's.
   6C-1 turns `iframe.ts`'s fixed-order dispatch of iframe states to the start owners into a router
   with one decision per start claim kind (a kind without one does not compile) and merges the
   Standard host's held room time into one read, the pending-start predicate staying the legacy
@@ -166,9 +169,10 @@ runbooks. Neither belongs in a general setup document.
   logged unit evidence is QA round 11's.
   The report lists the owner answers used, each 6C increment's tests-first evidence before and
   after the first move, the SHA maps of both moves, the guard counts (CHECK 11 32 → 20), the first
-  load (6C +33 B eager JavaScript gzip against main `7b869c35` and again on top of 9.0.33; the train
-  +38 B against `a92bab2b`, +42 B before the divider, the rest coming from the CSS edits' renamed
-  hashed file names; Phase 6 total −169 B), mixed versions, rollback (checkpoint App 9.0.33 / v806,
+  load (6C +33 B eager JavaScript gzip against main `7b869c35` and again on top of 9.0.33; the
+  bump head that ships +30 B against `a92bab2b`, +38 B on the divider tip and +42 B before the
+  divider, the rest moving with the renamed hashed file names; Phase 6 total −169 B), mixed
+  versions, rollback (checkpoint App 9.0.33 / v806,
   build 806, deploy SHA `4faf38d9`; a manual rollback to it removes the whole train v807 and gives
   its clients a lower epoch, so the default is a forward revert of the whole train or one increment
   as 9.0.35 / v808, or the next App update's number after that if another ships first; 6C alone
@@ -199,7 +203,23 @@ runbooks. Neither belongs in a general setup document.
   selection-mode playlist specs 32 / 32 on ports 5391 / 5392 (a first run on the default ports
   passed the same and is not counted); the deploy target App 14 paths against 9.0.33 (every other
   Worker 0, no dependency change, the contract paths unchanged), `guard:sw-cache-version` failing
-  only for the pending bump, and the size, with `guard:initial-transfer-budget` passing. Earlier,
+  only for the pending bump, and the size, with `guard:initial-transfer-budget` passing. QA round
+  12, the full local gate on the bump head `c44d4d2c` (2026-11-02 19:31 to 20:24 KST, ports 5391 /
+  5392, every step one at a time): typecheck, lint and format; `build:checked` as one command, with
+  `guard:release-identity` printing 'MUSIXQUARE 9.0.34; service-worker cache epoch v807' and
+  `guard:sw-cache-version` passing at v807; all 37 `guard:*` scripts one by one, every one
+  passing with round 9's counts; the resource-ownership check OK with its `--report`
+  byte-identical to round 9's; critical coverage 110 files / 4,501 and Worker coverage 69 files /
+  3,325; the unit suite twice, 752 files / 18,005 each with nothing skipped, failed or rerun;
+  `check:workers`; the production candidate specs on the `build:checked` output 19 / 19; after
+  `npm run build:e2e`, critical E2E 101 / 101, the ten YouTube Chromium specs 53 / 53 (the plan's
+  eight 41 / 41), the WebKit YouTube activation spec 4 / 4, the contrast, design system page,
+  events and auxiliary component specs 24 / 24 and the seven selection-mode playlist specs 32 /
+  32; the deploy target App 18 paths (the 14 above and the four version mirrors), every other
+  Worker 0, no dependency change, the partial-release compatibility check compatible with the
+  deployed SHAs injected instead of read from production, and the contract paths changed only in
+  the bump's seven lines; and the first load against a clean rebuild of `a92bab2b`, +30 B eager
+  JavaScript gzip, within round 11's +38 B. Earlier,
   on `7b869c35`'s line: on `6998f04e`, the unit suite 750 files / 17,973 (one
   git-fixture timeout that passes alone), `src/youtube`, `src/player` and `src/pro-room` 6,693
   rows in file order and under four `--sequence.shuffle` seeds, critical coverage 110 files /

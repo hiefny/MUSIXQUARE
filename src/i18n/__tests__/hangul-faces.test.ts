@@ -39,7 +39,12 @@ import {
   verifyHangulFaces,
   type HangulFaces,
 } from '../../../scripts/fonts/font-files.mts';
-import { nameText, readNameTable, renameSfnt } from '../../../scripts/fonts/sfnt-names.mts';
+import {
+  nameText,
+  readNameTable,
+  renameRecords,
+  withNameRecords,
+} from '../../../scripts/fonts/sfnt-names.mts';
 import { HANGUL_LINE_BOX } from '../font-metrics.ts';
 
 const ROOT = resolve('.');
@@ -120,7 +125,8 @@ describe('the Hangul faces', () => {
     for (let codePoint = 0xac00; codePoint <= 0xd7a3; codePoint += 1) {
       expect(seen.has(codePoint)).toBe(true);
     }
-    // ㈜ is Hangul Pretendard draws; ㉠ and the conjoining jamo it lacks stay with Noto Sans KR.
+    // ㈜ is Hangul Pretendard draws. It lacks ㉠, which Noto Sans KR keeps, and the
+    // conjoining jamo, which no app face declares (a device font draws them).
     expect(seen.has(0x321c)).toBe(true);
     expect(seen.has(0x3260)).toBe(false);
     expect(seen.has(0x1100)).toBe(false);
@@ -218,7 +224,10 @@ describe('the Hangul faces', () => {
     const sfnt = sfnts.get(face.file)!;
     const codePoints = parseUnicodeRange(face.unicodeRange);
     expect(await hangulFaceProblems(sfnt, source.sfnt, codePoints, record)).toEqual([]);
-    const renamed = renameSfnt(sfnt, [['MUSIXQUARE Hangul', 'Pretendard Variable']]);
+    const renamed = withNameRecords(
+      sfnt,
+      renameRecords(readNameTable(sfnt).records, [['MUSIXQUARE Hangul', 'Pretendard Variable']]),
+    );
     expect((await hangulFaceProblems(renamed, source.sfnt, codePoints, record)).join('\n')).toMatch(
       /still name Pretendard/u,
     );

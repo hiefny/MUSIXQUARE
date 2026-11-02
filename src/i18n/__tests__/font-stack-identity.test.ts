@@ -301,8 +301,9 @@ describe('one family per script', () => {
         ),
     },
     {
-      // Archaic and conjoining jamo, ㉠ and the other parenthesized and
-      // circled Hangul Pretendard lacks.
+      // The archaic compatibility jamo, ㉠ and the other parenthesized and
+      // circled Hangul Pretendard lacks. (No app face declares the
+      // conjoining jamo, so they are not here.)
       script: 'every Hangul-script character only Noto Sans KR draws',
       family: KR,
       codePoints: (): number[] =>

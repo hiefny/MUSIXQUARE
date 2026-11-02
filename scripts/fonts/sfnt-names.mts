@@ -271,7 +271,7 @@ export function renameRecords(
 }
 
 /** The order the name table requires: platform, encoding, language, then name ID. */
-export function compareNameRecords(left: SfntNameRecord, right: SfntNameRecord): number {
+function compareNameRecords(left: SfntNameRecord, right: SfntNameRecord): number {
   return (
     left.platformId - right.platformId ||
     left.encodingId - right.encodingId ||
@@ -287,14 +287,4 @@ export function withNameRecords(sfnt: Uint8Array, records: readonly SfntNameReco
     sfnt,
     new Map([['name', encodeNameTable({ format: 0, records: sorted, languageTags: [] })]]),
   );
-}
-
-/** The font with renameRecords applied to its name table, written again with writeSfnt. */
-export function renameSfnt(
-  sfnt: Uint8Array,
-  replacements: readonly (readonly [from: string, to: string])[],
-): Uint8Array {
-  const table = readNameTable(sfnt);
-  const records = renameRecords(table.records, replacements);
-  return writeSfnt(sfnt, new Map([['name', encodeNameTable({ ...table, records })]]));
 }

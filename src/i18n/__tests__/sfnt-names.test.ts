@@ -14,7 +14,7 @@ import {
   encodeNameTable,
   nameText,
   readNameTable,
-  renameSfnt,
+  renameRecords,
   withNameRecords,
   writeSfnt,
   type SfntNameRecord,
@@ -24,6 +24,11 @@ const ROOT = resolve('.');
 const SOURCE = 'fonts/PretendardVariable.woff2';
 
 let source: Uint8Array;
+
+/** The font renamed the way the Hangul face generator renames its subsets. */
+function renamed(sfnt: Uint8Array, replacements: readonly (readonly [string, string])[]) {
+  return withNameRecords(sfnt, renameRecords(readNameTable(sfnt).records, replacements));
+}
 
 beforeAll(async () => {
   source = Uint8Array.from(await decodeFontBytes(await readFile(join(ROOT, SOURCE))));
@@ -110,12 +115,12 @@ describe('sfnt name tables', () => {
   });
 
   it('renames text in every record and changes nothing else', async () => {
-    const renamed = renameSfnt(source, [
+    const font = renamed(source, [
       ['Pretendard Variable', 'MUSIXQUARE Hangul'],
       ['PretendardVariable', 'MUSIXQUAREHangul'],
     ]);
-    expect(sfntChecksumsValid(renamed)).toBe(true);
-    const { records } = readNameTable(renamed);
+    expect(sfntChecksumsValid(font)).toBe(true);
+    const { records } = readNameTable(font);
     expect(texts(records, 1)).toEqual(['MUSIXQUARE Hangul']);
     expect(texts(records, 3)).toEqual(['1.309;CTUS;MUSIXQUAREHangul']);
     expect(texts(records, 6)).toEqual(['MUSIXQUAREHangul-Regular']);
@@ -124,13 +129,13 @@ describe('sfnt name tables', () => {
     expect(texts(records, 7)[0]).toMatch(/^Pretendard is a trademark/u);
     expect(texts(records, 0)).toEqual(texts(readNameTable(source).records, 0));
     const before = tableBytes(source);
-    const after = tableBytes(renamed);
+    const after = tableBytes(font);
     for (const tag of ['name', 'head']) {
       before.delete(tag);
       after.delete(tag);
     }
     expect(after).toEqual(before);
-    const face = await openFontBytes(renamed);
+    const face = await openFontBytes(font);
     expect(face.getName(1, 'en')).toBe('MUSIXQUARE Hangul');
     expect(face.getName(4, 'en')).toBe('MUSIXQUARE Hangul');
   });
@@ -152,7 +157,7 @@ describe('sfnt name tables', () => {
   });
 
   it('refuses text a Macintosh record cannot hold', () => {
-    expect(() => renameSfnt(source, [['Korean localization', '한국어 형태']])).toThrow(
+    expect(() => renamed(source, [['Korean localization', '한국어 형태']])).toThrow(
       /cannot hold non-ASCII text/u,
     );
   });

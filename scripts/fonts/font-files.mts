@@ -804,7 +804,7 @@ function readNumberPair(value: unknown, where: string): readonly [number, number
   return [value[0] as number, value[1] as number];
 }
 
-export function parseHangulFaces(text: string): HangulFaces {
+function parseHangulFaces(text: string): HangulFaces {
   const value: unknown = JSON.parse(text);
   const file = HANGUL_FACES_PATH;
   if (

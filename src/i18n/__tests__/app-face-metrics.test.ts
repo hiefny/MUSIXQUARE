@@ -30,8 +30,9 @@ import {
 import { CJK_FACE_METRICS, INTER_FACE_METRICS } from '../font-metrics.ts';
 
 const ROOT = resolve('.');
-// The smallest Noto Sans KR face the app still serves (its Han): #115-#119
-// held Hangul only, which MUSIXQUARE Hangul draws now.
+// The highest-numbered (most frequent) Noto Sans KR shard the app still
+// serves, for its Han: #115-#119 held Hangul only, which MUSIXQUARE Hangul
+// draws now.
 const KR_SHARD = 'PbykFmXiEBPT4ITbgNA5Cgm20xz64px_1hVWr0wuPNGmlQNMEfD4.114.woff2';
 const KR_INPUT = `fonts/noto/noto-sans-kr/${KR_SHARD}`;
 const KR_OUTPUT = `fonts/app/noto-sans-kr/${KR_SHARD}`;

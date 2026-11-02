@@ -15,8 +15,9 @@
  * - 'standard-run': the zero-start run (zero-start.ts): in flight, protocol
  *   active, and hard-muted (muting, warming or settling);
  * - 'standard-recovery': the recovery that takes over a start the run gave up
- *   (player.ts): the guest local recovery, or on a host the legacy recovery,
- *   also after a peer replacement. Active while it owns the iframe's events;
+ *   (player.ts's two flags): the guest local recovery (zero-start-recovery.ts),
+ *   or on a host the legacy recovery (player.ts), also after a peer
+ *   replacement. Active while it owns the iframe's events;
  *   pending while active or, for the guest recovery, until its release is
  *   acknowledged;
  * - 'legacy-rendezvous': the legacy two-stage rendezvous's Stage-2 wait

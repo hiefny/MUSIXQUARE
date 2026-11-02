@@ -74,10 +74,10 @@ import {
   BROADCAST_SYNC_MIN_INTERVAL_MS,
   IMMEDIATE_ACTION_COOLDOWN_MS,
   YOUTUBE_PRIME_VIDEO_ID,
-  STANDARD_ZERO_START_GUEST_DECISION_MS,
-  STANDARD_ZERO_START_PREPARE_BUDGET_MS,
-  YOUTUBE_ARM_RELEASE_ACK_TIMEOUT_MS,
   YOUTUBE_FRESH_START_MAX_SEC,
+  YOUTUBE_RECOVERY_BRIDGE_MS,
+  YOUTUBE_RECOVERY_POLL_MS,
+  YOUTUBE_RECOVERY_SETTLE_EPSILON_SEC,
   YOUTUBE_RELEASE_CATCH_UP_TOLERANCE_SEC,
 } from './constants.ts';
 import {
@@ -440,6 +440,7 @@ import {
   type YouTubeZeroStartWireMessage,
 } from './zero-start.ts';
 import { isYouTubeStartSyncOwned, registerYouTubeStartClaim } from './start-ownership.ts';
+import { GuestZeroStartRecovery } from './zero-start-recovery.ts';
 import { recordProStartObservation } from '../diagnostics/pro-start-observations.ts';
 import {
   PRO_YOUTUBE_LEAD_SAMPLE_EARLY_MS,
@@ -1936,9 +1937,16 @@ export function initYouTube(): void {
   let zeroStartAppliedGuestOffset = 0;
   let zeroStartAuthoritySignature = '';
   let zeroStartHostConnection = getState('network.hostConn');
-  let zeroStartExternalFallbackGeneration = 0;
+  // The guest's local recovery (zero-start-recovery.ts, registry RO-33): its
+  // waits are this module's managed timer, and its claim this module's flags.
+  const guestRecovery = new GuestZeroStartRecovery(
+    (callback, delayMs) => setManagedTimer('yt-zero-start-external-fallback', callback, delayMs),
+    () => clearManagedTimer('yt-zero-start-external-fallback'),
+    setZeroStartExternalFallbackOwnership,
+    setZeroStartExternalFallbackPlayerState,
+    () => zeroStartExternalFallbackHasPlayerState,
+  );
   let zeroStartHostFallbackGeneration = 0;
-  let zeroStartExternalFallbackCleanup: (() => void) | null = null;
 
   let pendingTransferredPrepareAudioIntent: { muted: boolean; volume: number } | null = null;
   type ZeroStartLegacyTarget = {
@@ -1967,23 +1975,6 @@ export function initYouTube(): void {
     (ZeroStartLegacyTarget & { peerId: string; token: number }) | null = null;
   let replacementFallbackToken = 0;
 
-  const clearZeroStartExternalFallback = (transferPlayerState = false): boolean => {
-    zeroStartExternalFallbackGeneration += 1;
-    clearManagedTimer('yt-zero-start-external-fallback');
-    setZeroStartExternalFallbackOwnership(false);
-    const cleanup = zeroStartExternalFallbackCleanup;
-    const hadPlayerState = zeroStartExternalFallbackHasPlayerState;
-    zeroStartExternalFallbackCleanup = null;
-    setZeroStartExternalFallbackPlayerState(false);
-    // A newly accepted PREPARE immediately takes ownership of this exact
-    // iframe. Do not run any old pause/seek/unmute command: a delayed WebKit
-    // unmute could land after the new hard mute. The new run receives the
-    // canonical app audio intent below instead. Ordinary cancellation still
-    // performs the full exact-player cleanup.
-    if (!transferPlayerState) cleanup?.();
-    return transferPlayerState && hadPlayerState;
-  };
-
   const isCurrentZeroStartLegacyTarget = (target: ZeroStartLegacyTarget): boolean => {
     if (getYouTubeZeroStartRole() !== 'host') return false;
     if (!isPlaybackModeYouTube()) return false;
@@ -2006,7 +1997,7 @@ export function initYouTube(): void {
     // The controller already spent its own bounded prepare window before it
     // hands host recovery here. Do not silently add another full prepare
     // window; this fallback is only a short bridge back to the legacy path.
-    const deadline = Date.now() + 3_000;
+    const deadline = Date.now() + YOUTUBE_RECOVERY_BRIDGE_MS;
     const handedOffPlayer =
       target.targetLoadIssued || target.mediaAction === 'resident-reposition'
         ? (target.handedOffPlayer ?? null)
@@ -2074,7 +2065,7 @@ export function initYouTube(): void {
 
       const player = getZeroStartPlayer();
       if (!player) {
-        scheduleHostFallback(attemptRecovery, 50);
+        scheduleHostFallback(attemptRecovery, YOUTUBE_RECOVERY_POLL_MS);
         return;
       }
 
@@ -2117,10 +2108,11 @@ export function initYouTube(): void {
           currentVideoId === target.videoId &&
           (playerState === 1 ||
             playerState === 3 ||
-            ((playerState === 2 || playerState === 5) && Math.abs(currentTime) <= 0.35) ||
+            ((playerState === 2 || playerState === 5) &&
+              Math.abs(currentTime) <= YOUTUBE_RECOVERY_SETTLE_EPSILON_SEC) ||
             canRepositionResident);
         if (!targetReady) {
-          scheduleHostFallback(attemptRecovery, 50);
+          scheduleHostFallback(attemptRecovery, YOUTUBE_RECOVERY_POLL_MS);
           return;
         }
 
@@ -2128,25 +2120,25 @@ export function initYouTube(): void {
           player.pauseVideo();
           player.seekTo(0, true);
           settleIssued = true;
-          scheduleHostFallback(attemptRecovery, 50);
+          scheduleHostFallback(attemptRecovery, YOUTUBE_RECOVERY_POLL_MS);
           return;
         }
 
         const settled =
           (player.getVideoData().video_id ?? '') === target.videoId &&
           (player.getPlayerState() === 2 || player.getPlayerState() === 5) &&
-          Math.abs(player.getCurrentTime()) <= 0.35;
+          Math.abs(player.getCurrentTime()) <= YOUTUBE_RECOVERY_SETTLE_EPSILON_SEC;
         if (!settled) {
           player.pauseVideo();
           player.seekTo(0, true);
-          scheduleHostFallback(attemptRecovery, 50);
+          scheduleHostFallback(attemptRecovery, YOUTUBE_RECOVERY_POLL_MS);
           return;
         }
 
         writeYouTubeAudio(player, desiredAudio);
         const audioRestored = isYouTubeAudioRestored(player, desiredAudio);
         if (!audioRestored) {
-          scheduleHostFallback(attemptRecovery, 50);
+          scheduleHostFallback(attemptRecovery, YOUTUBE_RECOVERY_POLL_MS);
           return;
         }
 
@@ -2164,7 +2156,7 @@ export function initYouTube(): void {
         } catch {
           // A rebuilding iframe can reject both commands; the retry is bounded.
         }
-        scheduleHostFallback(attemptRecovery, 50);
+        scheduleHostFallback(attemptRecovery, YOUTUBE_RECOVERY_POLL_MS);
       }
     };
 
@@ -2179,7 +2171,7 @@ export function initYouTube(): void {
   };
 
   invalidateYouTubeZeroStartPendingIntegration = (transferPlayerState = false) => {
-    clearZeroStartExternalFallback(transferPlayerState);
+    guestRecovery.clear(transferPlayerState);
     clearPendingReplacementFallback();
     // A host-side prepare failure may be polling for a rebuilt iframe before
     // it hands the transition to the legacy rendezvous. Any newer user action
@@ -2301,7 +2293,7 @@ export function initYouTube(): void {
       const queueItemId = selection.queueItemId;
       const videoId = selection.videoId;
       const subIndex = selection.subIndex;
-      const transferredFallback = clearZeroStartExternalFallback(true);
+      const transferredFallback = guestRecovery.clear(true);
       pendingTransferredPrepareAudioIntent = transferredFallback ? readYouTubeAppAudio() : null;
       clearPendingReplacementFallback();
       zeroStartHostFallbackGeneration += 1;
@@ -2430,319 +2422,41 @@ export function initYouTube(): void {
     },
     onFallbackRequired: (event) => {
       if (getYouTubeZeroStartRole() !== 'guest') return;
-      clearZeroStartExternalFallback();
+      guestRecovery.clear();
       // Recovery keeps this device's fixed baseline even when there is no time left
       // for an early call; startup learning is deliberately not carried over.
       const audibleLeadMs = getYouTubeZeroStartSnapshot()?.audibleBaseLeadMs ?? 0;
-      const handedOffPlayer =
-        event.targetLoadIssued || event.mediaAction === 'resident-reposition'
-          ? event.handedOffPlayer
-          : null;
-      const generation = zeroStartExternalFallbackGeneration;
       const hostConn = getState('network.hostConn');
       const youtubeSessionId = getCurrentSessionId();
-      // A cohort-excluded guest may already be 2.3s into the controller's
-      // original 10s prepare window. Adopt that load for the remainder of the
-      // same bounded window instead of restarting its deadline and media load.
-      const canAdoptRemainingPrepareWindow =
-        event.reason === 'cohort-excluded' &&
-        (event.targetLoadIssued === true || event.mediaAction === 'resident-reposition');
-      const deadline =
-        Date.now() +
-        (canAdoptRemainingPrepareWindow
-          ? STANDARD_ZERO_START_PREPARE_BUDGET_MS - STANDARD_ZERO_START_GUEST_DECISION_MS
-          : 3_000);
-      const uncalibratedHoldMs = Math.max(
-        0,
-        resolveZeroStartDelay(event.targetPositionSec ?? 0) - audibleLeadMs,
-      );
-      const uncalibratedReleaseAt = Date.now() + uncalibratedHoldMs;
       const context: YouTubeZeroStartTargetContext = {
         role: 'guest',
         queueItemId: event.queueItemId,
         videoId: event.videoId,
         subIndex: getState('youtube.currentSubIndex') ?? null,
       };
-      const desiredAudio = captureFallbackAudioIntent(event);
-      let loadIssued = false;
-      let fallbackPlayer: YouTubeZeroStartPlayer | null = null;
-      let settleIssued = false;
-      let releasePlayIssued = false;
-      let releaseAckDeadline = 0;
-      let releaseAudioDeadline = 0;
-
-      const cleanupExactPlayer = (player: YouTubeZeroStartPlayer): void => {
-        setYtAutoplayIntent(false);
-        player.pauseVideo();
-        player.seekTo(resolveZeroStartLocalTarget(0, context), true);
-        writeYouTubeAudio(player, desiredAudio);
-      };
-
-      const abandonFallback = (verifyAudioRestore = false): void => {
-        if (generation !== zeroStartExternalFallbackGeneration) return;
-        const cleanupGeneration = ++zeroStartExternalFallbackGeneration;
-        clearManagedTimer('yt-zero-start-external-fallback');
-        setYtAutoplayIntent(false);
-        const ownedPlayer = fallbackPlayer ?? handedOffPlayer;
-        const cleanup = zeroStartExternalFallbackCleanup;
-        zeroStartExternalFallbackCleanup = null;
-        setZeroStartExternalFallbackPlayerState(false);
-        if (!verifyAudioRestore || !ownedPlayer) {
-          setZeroStartExternalFallbackOwnership(false);
-          cleanup?.();
-          return;
-        }
-
-        // A timed-out fallback must not leave WebKit's transient hard mute as
-        // the new user intent. Retry and verify the exact owned iframe only;
-        // a later run increments the generation and fences this cleanup.
-        // Every attempt reissues the pause and the seek with the audio.
-        const endCleanup = (): void => {
-          setZeroStartExternalFallbackOwnership(false);
-          clearManagedTimer('yt-zero-start-external-fallback');
-        };
-        setZeroStartExternalFallbackOwnership(true);
-        restoreYouTubeAudioVerified(
-          'verify-then-settle',
-          () => cleanupGeneration === zeroStartExternalFallbackGeneration,
-          () => cleanupExactPlayer(ownedPlayer),
-          () => isYouTubeAudioRestored(ownedPlayer, desiredAudio),
-          endCleanup,
-          (callback, delayMs) =>
-            setManagedTimer('yt-zero-start-external-fallback', callback, delayMs),
+      // The recovery's fence, asked at each attempt: this guest's role, host
+      // connection, YouTube session, queue item and run.
+      const isCurrent = (): boolean => {
+        const snapshot = getYouTubeZeroStartSnapshot();
+        return (
+          getYouTubeZeroStartRole() === 'guest' &&
+          getState('network.hostConn') === hostConn &&
+          !!hostConn?.open &&
+          getCurrentSessionId() === youtubeSessionId &&
+          getCurrentQueueItemId() === event.queueItemId &&
+          snapshot?.runId === event.runId &&
+          snapshot.videoId === event.videoId
         );
       };
-
-      const attemptFallback = (): void => {
-        const snapshot = getYouTubeZeroStartSnapshot();
-        if (
-          generation !== zeroStartExternalFallbackGeneration ||
-          getYouTubeZeroStartRole() !== 'guest' ||
-          getState('network.hostConn') !== hostConn ||
-          !hostConn?.open ||
-          getCurrentSessionId() !== youtubeSessionId ||
-          getCurrentQueueItemId() !== event.queueItemId ||
-          snapshot?.runId !== event.runId ||
-          snapshot.videoId !== event.videoId
-        ) {
-          abandonFallback();
-          return;
-        }
-
-        const player = getZeroStartPlayer();
-        if (!player) {
-          if (Date.now() < deadline) {
-            setManagedTimer('yt-zero-start-external-fallback', attemptFallback, 50);
-          } else {
-            abandonFallback(true);
-          }
-          return;
-        }
-
-        try {
-          if (fallbackPlayer !== player) {
-            const previousPlayer = fallbackPlayer;
-            if (previousPlayer) {
-              try {
-                cleanupExactPlayer(previousPlayer);
-              } catch {
-                // A rebuilt iframe can disappear between polls. Never let its
-                // ownership token migrate to the replacement instance.
-              }
-            }
-            fallbackPlayer = player;
-            // targetLoadIssued belongs to the exact player handed off by the
-            // controller. A rebuilt iframe has no such load to adopt.
-            loadIssued =
-              player === handedOffPlayer &&
-              (event.targetLoadIssued === true ||
-                (event.mediaAction === 'resident-reposition' &&
-                  (player.getVideoData().video_id ?? '') === event.videoId));
-            settleIssued = false;
-            releasePlayIssued = false;
-            releaseAckDeadline = 0;
-            releaseAudioDeadline = 0;
-            const ownedPlayer = player;
-            zeroStartExternalFallbackCleanup = () => {
-              setYtAutoplayIntent(false);
-              try {
-                cleanupExactPlayer(ownedPlayer);
-              } catch {
-                // A stale/rebuilt iframe is fenced by the exact identity token.
-              }
-            };
-            setZeroStartExternalFallbackPlayerState(true);
-          }
-
-          if (releasePlayIssued) {
-            const releaseAcknowledged =
-              player === fallbackPlayer &&
-              (player.getVideoData().video_id ?? '') === event.videoId &&
-              player.getPlayerState() === 1;
-            if (releaseAcknowledged) {
-              clearManagedTimer('yt-zero-start-external-fallback');
-              zeroStartExternalFallbackCleanup = null;
-              setZeroStartExternalFallbackPlayerState(false);
-              zeroStartExternalFallbackGeneration += 1;
-              log.warn(`[YouTube ZeroStart] Recovered locally: ${event.reason}`);
-              return;
-            }
-            if (Date.now() >= releaseAckDeadline) {
-              log.warn('[YouTube ZeroStart] Local fallback release was not acknowledged');
-              setZeroStartExternalFallbackOwnership(true);
-              setYtAutoplayIntent(false);
-              abandonFallback(true);
-              return;
-            }
-            // The ordinary iframe handler remains enabled so its first real
-            // PLAYING transition updates the UI. This poll only confirms that
-            // the exact player/track accepted the release command.
-            setZeroStartExternalFallbackOwnership(false);
-            setYtAutoplayIntent(true);
-            setManagedTimer('yt-zero-start-external-fallback', attemptFallback, 50);
-            return;
-          }
-
-          // Keep every late PLAYING/CUED/ENDED event under this recovery owner.
-          // The normal iframe handler sees the successful release only after
-          // this flag and autoplay guard are deliberately switched below.
-          setZeroStartExternalFallbackOwnership(true);
-          setYtAutoplayIntent(false);
-
-          if (!loadIssued) {
-            loadIssued = true;
-            player.mute();
-            player.loadVideoById(event.videoId, resolveZeroStartLocalTarget(0, context));
-          }
-
-          const currentVideoId = player.getVideoData().video_id ?? '';
-          const playerState = player.getPlayerState();
-          const currentTime = player.getCurrentTime();
-          const zeroTarget = resolveZeroStartLocalTarget(0, context);
-          const canRepositionResident =
-            player === handedOffPlayer &&
-            event.mediaAction === 'resident-reposition' &&
-            currentVideoId === event.videoId &&
-            (playerState === 0 || playerState === 2 || playerState === 5);
-          const targetIdentityReady =
-            currentVideoId === event.videoId &&
-            (playerState === 1 ||
-              playerState === 3 ||
-              ((playerState === 2 || playerState === 5) &&
-                Math.abs(currentTime - zeroTarget) <= 0.35) ||
-              canRepositionResident);
-
-          if (!targetIdentityReady && Date.now() < deadline) {
-            setManagedTimer('yt-zero-start-external-fallback', attemptFallback, 50);
-            return;
-          }
-          if (!targetIdentityReady) {
-            abandonFallback(true);
-            return;
-          }
-
-          if (!settleIssued) {
-            player.pauseVideo();
-            player.seekTo(zeroTarget, true);
-            settleIssued = true;
-            setManagedTimer('yt-zero-start-external-fallback', attemptFallback, 50);
-            return;
-          }
-
-          const settledState = player.getPlayerState();
-          const settledTime = player.getCurrentTime();
-          const playerReady =
-            (player.getVideoData().video_id ?? '') === event.videoId &&
-            (settledState === 2 || settledState === 5) &&
-            Math.abs(settledTime - zeroTarget) <= 0.35;
-          if (!playerReady && Date.now() < deadline) {
-            player.pauseVideo();
-            player.seekTo(zeroTarget, true);
-            setManagedTimer('yt-zero-start-external-fallback', attemptFallback, 50);
-            return;
-          }
-          if (!playerReady) {
-            abandonFallback(true);
-            return;
-          }
-
-          const releaseWaitMs =
-            event.startAtHost !== null && isClockCalibrated()
-              ? event.startAtHost + resolveZeroStartDelay(0) - audibleLeadMs - getHostNow()
-              : uncalibratedReleaseAt - Date.now();
-          if (releaseWaitMs > 0) {
-            // The iframe recovered before the authoritative COMMIT deadline.
-            // Keep it silent and cued, then revalidate the exact run/connection
-            // identity at release instead of letting this guest start early.
-            const localTarget = resolveZeroStartLocalTarget(0, context);
-            player.mute();
-            player.pauseVideo();
-            player.seekTo(localTarget, true);
-            setManagedTimer(
-              'yt-zero-start-external-fallback',
-              attemptFallback,
-              Math.max(1, releaseWaitMs),
-            );
-            return;
-          }
-
-          // An intentional negative hold may outlive the preparation budget.
-          // The iframe still needs its own bounded asynchronous audio restore.
-          if (!releaseAudioDeadline) releaseAudioDeadline = Math.max(deadline, Date.now() + 1000);
-          writeYouTubeAudio(player, desiredAudio);
-          const audioRestored = isYouTubeAudioRestored(player, desiredAudio);
-          if (!audioRestored) {
-            if (Date.now() < releaseAudioDeadline) {
-              setManagedTimer('yt-zero-start-external-fallback', attemptFallback, 50);
-            } else {
-              abandonFallback(true);
-            }
-            return;
-          }
-
-          // Keep the signed canonical position until adding the fixed lead:
-          // a release 250ms before zero must seek to zero, not to +250ms.
-          const canonicalTarget =
-            (event.startAtHost !== null && isClockCalibrated()
-              ? (getHostNow() - event.startAtHost) / 1_000
-              : (event.targetPositionSec ?? 0) + uncalibratedHoldMs / 1000) +
-            audibleLeadMs / 1000;
-          const localTarget = resolveZeroStartLocalTarget(canonicalTarget, context);
-          player.pauseVideo();
-          player.seekTo(localTarget, true);
-          writeYouTubeAudio(player, desiredAudio);
-          setYtAutoplayIntent(true);
-          setZeroStartExternalFallbackOwnership(false);
-          try {
-            player.playVideo();
-          } catch (error) {
-            setZeroStartExternalFallbackOwnership(true);
-            setYtAutoplayIntent(false);
-            log.warn('[YouTube ZeroStart] Local fallback release failed:', error);
-            abandonFallback(true);
-            return;
-          }
-          releasePlayIssued = true;
-          releaseAckDeadline = Date.now() + YOUTUBE_ARM_RELEASE_ACK_TIMEOUT_MS;
-          setManagedTimer('yt-zero-start-external-fallback', attemptFallback, 0);
-        } catch (error) {
-          if (Date.now() < Math.max(deadline, releaseAudioDeadline)) {
-            setManagedTimer('yt-zero-start-external-fallback', attemptFallback, 50);
-          } else {
-            log.warn('[YouTube ZeroStart] Local fallback failed:', error);
-            abandonFallback(true);
-          }
-        }
-      };
-
-      log.warn(`[YouTube ZeroStart] Falling back locally: ${event.reason}`);
-      try {
-        setZeroStartExternalFallbackOwnership(true);
-        setManagedTimer('yt-zero-start-external-fallback', attemptFallback, 0);
-      } catch (error) {
-        setZeroStartExternalFallbackOwnership(false);
-        log.warn('[YouTube ZeroStart] Local fallback failed:', error);
-      }
+      guestRecovery.start(
+        event,
+        isCurrent,
+        audibleLeadMs,
+        captureFallbackAudioIntent,
+        getZeroStartPlayer,
+        (canonicalPositionSec) => resolveZeroStartLocalTarget(canonicalPositionSec, context),
+        resolveZeroStartDelay,
+      );
     },
     onHostFallbackRequired: ({
       queueItemId,
@@ -2801,7 +2515,7 @@ export function initYouTube(): void {
       (nextSignature !== zeroStartAuthoritySignature ||
         nextHostConnection !== zeroStartHostConnection)
     ) {
-      clearZeroStartExternalFallback();
+      guestRecovery.clear();
       clearPendingReplacementFallback();
       resetYouTubeZeroStart();
     }
@@ -3129,7 +2843,7 @@ export function initYouTube(): void {
     },
     [MSG.YOUTUBE_ZERO_START_ABORT]: (data, conn) => {
       if (conn.peer && handleYouTubeZeroStartAbort(conn.peer, data)) {
-        clearZeroStartExternalFallback();
+        guestRecovery.clear();
       }
     },
     [MSG.YOUTUBE_ZERO_START_TIMELINE]: (data, conn) => {
@@ -3198,7 +2912,7 @@ export function initYouTube(): void {
     handleYouTubeZeroStartPeerDisconnected(peerId);
     const hostConn = getState('network.hostConn');
     if (getYouTubeZeroStartRole() === 'guest' && hostConn?.peer === peerId) {
-      clearZeroStartExternalFallback();
+      guestRecovery.clear();
       cancelYouTubeZeroStart('authority-changed', false);
     }
   });

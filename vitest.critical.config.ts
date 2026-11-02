@@ -63,6 +63,10 @@ export default defineConfig({
       // 6C-4: the steps' suite, the arm's own suite and the golden that runs
       // the arm and the zero-start run on one scripted iframe.
       'src/youtube/__tests__/{arm-steps,arm-steps-golden,authority-arm}.test.ts',
+      // The guest zero-start recovery (RO-33 under RO-02), enrolled with its
+      // class in Phase 6 6D-1: the class's suite and the golden that runs it
+      // on the real wiring.
+      'src/youtube/__tests__/{zero-start-recovery,zero-start-recovery-golden}.test.ts',
       'src/account/__tests__/{api,session,login-return}.test.ts',
       'src/ui/__tests__/announcement.test.ts',
       'src/share/__tests__/r2-client.test.ts',
@@ -113,6 +117,7 @@ export default defineConfig({
         'src/youtube/zero-start.ts',
         'src/youtube/arm-steps.ts',
         'src/youtube/authority-arm.ts',
+        'src/youtube/zero-start-recovery.ts',
         'src/account/api.ts',
         'src/account/session.ts',
         'src/ui/announcement.ts',
@@ -393,6 +398,16 @@ export default defineConfig({
           branches: 80,
           functions: 97,
           lines: 91,
+        },
+        // The guest zero-start recovery (Phase 6 6D-1), enrolled with its
+        // class on 2026-11-02 about one point below the Node 24 run: 99.44,
+        // 97.14, 100, 100. What stays uncovered are defensive fallbacks (a
+        // video id the iframe does not report, a cleanup a newer one fenced).
+        'src/youtube/zero-start-recovery.ts': {
+          statements: 98,
+          branches: 96,
+          functions: 99,
+          lines: 99,
         },
         // The page navigation owner and the service-worker update path,
         // enrolled on 2026-10-24 (Phase 3, C6-9) at about one point below two

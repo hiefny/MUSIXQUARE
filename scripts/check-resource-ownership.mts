@@ -451,6 +451,8 @@ const TIMING_CONTRACTS: readonly TimingContract[] = [
       'src/youtube/iframe-audio.ts',
       // The shared arm steps since Phase 6 6C-4 (C2-8a).
       'src/youtube/arm-steps.ts',
+      // The guest recovery since Phase 6 6D-1 (C2-9).
+      'src/youtube/zero-start-recovery.ts',
       'src/youtube/zero-start.ts',
       'src/youtube/authority-arm.ts',
       'src/youtube/player.ts',
@@ -810,7 +812,9 @@ const MEDIA_TUNING_BASELINE: Baseline = new Map<string, Allowance>([
 // through its applyYouTubeAudio and enforceYouTubePauseGate (26 calls). Phase 6
 // 6C-4 moved the hard-mute wait of the zero-start run and the PRO arm into the
 // shared arm steps in src/youtube/arm-steps.ts, and their warm pairs onto
-// writeYouTubeAudio (20 calls).
+// writeYouTubeAudio (20 calls). Phase 6 6D-1 moved the guest local recovery
+// out of player.ts into src/youtube/zero-start-recovery.ts with its two mutes
+// (still 20 calls: player.ts 2, zero-start-recovery.ts 2).
 
 const IFRAME_AUDIO_WRITE_METHODS = new Set(['mute', 'unMute', 'setVolume']);
 
@@ -839,10 +843,11 @@ const IFRAME_AUDIO_WRITE_BASELINE: Baseline = new Map<string, Allowance>([
       reason:
         'the shared restore writer writeYouTubeAudio (3), through which the six verified ' +
         "restores write: zero-start's and the PRO arm's active and detached restores, and the " +
-        'player.ts cleanups of the host legacy recovery and the guest local fallback; the ' +
-        "recoveries' restores before a release, the guest fallback's release write and both " +
-        "recoveries' unverified cleanups of a replaced or cancelled iframe (cleanupExactPlayer " +
-        "in player.ts) write through it too; the App's own writer applyYouTubeAudio (3), " +
+        'cleanups of the host legacy recovery (player.ts) and the guest local recovery ' +
+        "(src/youtube/zero-start-recovery.ts); the recoveries' restores before a release, the " +
+        "guest recovery's release write and both recoveries' unverified cleanups of a replaced " +
+        "or cancelled iframe (cleanupExactPlayer in each) write through it too; the App's own " +
+        'writer applyYouTubeAudio (3), ' +
         "through which player.ts's youtube:set-volume handler, PRO pause gate settlement and " +
         "PRO direct commit write; the PRO pause gate's bare mute enforceYouTubePauseGate (1); " +
         "the warm pairs of the zero-start run's and the PRO arm's #warm write through " +
@@ -862,14 +867,15 @@ const IFRAME_AUDIO_WRITE_BASELINE: Baseline = new Map<string, Allowance>([
   [
     'src/youtube/player.ts',
     {
-      count: 4,
+      count: 2,
       reason:
-        'the mute before stopYouTubeMode destroys the player (1); the mutes of the host legacy ' +
-        'recovery and the guest local fallback before a load or a wait (attemptRecovery 1, ' +
-        'attemptFallback 2), whose audio restores, release write and cleanups write through ' +
-        'writeYouTubeAudio in src/youtube/iframe-audio.ts; the youtube:set-volume handler, the ' +
-        'PRO pause gate handlers and the PRO direct commit (applyProPlaybackYouTubeCommit) write ' +
-        'through applyYouTubeAudio and enforceYouTubePauseGate in src/youtube/iframe-audio.ts',
+        "the mute before stopYouTubeMode destroys the player (1); the host legacy recovery's " +
+        'mute before its load (attemptRecovery 1), whose audio restore and cleanups write ' +
+        'through writeYouTubeAudio in src/youtube/iframe-audio.ts; the youtube:set-volume ' +
+        'handler, the PRO pause gate handlers and the PRO direct commit ' +
+        '(applyProPlaybackYouTubeCommit) write through applyYouTubeAudio and ' +
+        "enforceYouTubePauseGate in src/youtube/iframe-audio.ts; the guest local recovery's " +
+        'mutes moved to src/youtube/zero-start-recovery.ts in Phase 6 6D-1',
     },
   ],
   [
@@ -879,6 +885,17 @@ const IFRAME_AUDIO_WRITE_BASELINE: Baseline = new Map<string, Allowance>([
       reason:
         'the parking hard-mute proof issueHardMute (reached through ' +
         'ensureRetainedYouTubePlayerHardMuted in iframe.ts) and the mute before destroy',
+    },
+  ],
+  [
+    'src/youtube/zero-start-recovery.ts',
+    {
+      count: 2,
+      reason:
+        'the guest local recovery (GuestZeroStartRecovery, since Phase 6 6D-1): its mute before ' +
+        'a load of its own and its mute while it holds a settled target until the release ' +
+        '(attemptFallback 2); its restore before the release, its release write and its ' +
+        'cleanups write through writeYouTubeAudio in src/youtube/iframe-audio.ts',
     },
   ],
   [
@@ -1084,9 +1101,10 @@ const START_RUN_SNAPSHOT_BASELINE: Baseline = new Map<string, Allowance>([
         "the run's hard-mute phase for its claim (youtubeZeroStartOwnsHardMute); the 9.0.8 " +
         'host speaker reference, which subtracts only the release lead in onPlaybackStarted ' +
         "(twice, with its log line); the guest recovery's audible lead (onFallbackRequired) " +
-        'and run check (attemptFallback); the peer replacement fallback before and after the ' +
-        'controller handles it (twice, initYouTube); and the scheduled-start timeline reader ' +
-        'handed to local-offset.ts (initYouTube)',
+        "and run check (isCurrent, the fence player.ts hands the recovery's class since " +
+        'Phase 6 6D-1, which reads no snapshot itself); the peer replacement fallback before ' +
+        'and after the controller handles it (twice, initYouTube); and the scheduled-start ' +
+        'timeline reader handed to local-offset.ts (initYouTube)',
     },
   ],
 ]);

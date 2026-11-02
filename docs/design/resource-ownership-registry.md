@@ -272,8 +272,12 @@ RO-53 owner-in-place
 - **Resource:** the single YT.Player (held in `src/youtube/_state.ts`) during a Standard-room
   shared start: mute, load, pause, seek, unmute, play.
 - **Current owners/flows:** the zero-start controller `YouTubeZeroStartController`
-  (`src/youtube/zero-start.ts`, phase union `YouTubeZeroStartPhase`); the guest local fallback
-  (the `onFallbackRequired` closure in `src/youtube/player.ts`); the host legacy recovery
+  (`src/youtube/zero-start.ts`, phase union `YouTubeZeroStartPhase`); the guest local recovery
+  (since Phase 6 6D-1 the class `GuestZeroStartRecovery` in `src/youtube/zero-start-recovery.ts`,
+  [RO-33](#ro-33-guest-youtube-recovery-stays-its-own-owner), which `player.ts`'s
+  `onFallbackRequired` hands each start, with its fence, the run's audible lead, the desired audio
+  and the target resolvers; `player.ts` keeps its managed timer and its claim flags, and the
+  class sets no timer and reads no run snapshot); the host legacy recovery
   (`recoverZeroStartWithLegacyRendezvous`, `player.ts`); the legacy rendezvous `scheduleYtAutoSync`
   (`player.ts`). They retire each other directly, and `iframe.ts` asks them in a fixed order
   whether one consumes an iframe player state: the PRO arm, the run, the recovery, then the legacy
@@ -332,7 +336,8 @@ RO-53 owner-in-place
     exact per-file count), and only `player.ts` reads the run's snapshot
     (`getYouTubeZeroStartSnapshot` and `getYouTubeZeroStartPendingCanonicalPosition`: 8, an exact
     per-file count: the run's hard-mute phase for its claim, the 9.0.8 host speaker reference in
-    `onPlaybackStarted` and its log line, the guest recovery's audible lead and run check, the
+    `onPlaybackStarted` and its log line, the guest recovery's audible lead and run check (since
+    6D-1 the fence `player.ts` hands the recovery's class, `isCurrent`), the
     peer replacement fallback twice, and the scheduled-start timeline reader handed to
     `local-offset.ts`). A statement outside the ledger that asks two or more start claims (ledger
     queries, a claim's own public query such as `isYouTubeAutoSyncPending` or
@@ -385,12 +390,13 @@ RO-53 owner-in-place
 - **Lifecycle operations:** `loadVideoById` or `cueVideoById`, `pauseVideo`, `seekTo`, `mute` and
   `unMute`, `playVideo`, release acknowledgement, ABORT.
 - **Deadline owner:** the controller (the prepare budget, 10 s, and the release acknowledgement,
-  1.8 s); the guest fallback and host recovery time themselves in `player.ts`: the 8 × 120 ms audio
-  restore of their cleanups is `restoreYouTubeAudioVerified`'s bound (`iframe-audio.ts`, RO-12),
-  timed on their own managed timers; the 1.8 s release acknowledgement comes from the timing home,
-  and the 7.7 s that a cohort-excluded guest adopts is the prepare budget minus the guest
-  decision. The 0.35 s settle, the 3 s bridge and the 50 ms polls stay literals of that one file
-  until the recovery moves.
+  1.8 s); the guest recovery (`zero-start-recovery.ts`, on the managed timer `player.ts` hands it)
+  and the host recovery (`player.ts`) time themselves: the 8 × 120 ms audio restore of their
+  cleanups is `restoreYouTubeAudioVerified`'s bound (`iframe-audio.ts`, RO-12), timed on their own
+  managed timers; the 1.8 s release acknowledgement comes from the timing home, and the 7.7 s that
+  a cohort-excluded guest adopts is the prepare budget minus the guest decision. Since Phase 6
+  6D-1, when the guest recovery moved out of `player.ts`, the 0.35 s settle, the 3 s bridge and
+  the 50 ms polls of both recoveries come from the timing home too (owner answer, 2026-10-30).
 - **Timing-constant home:** `src/youtube/constants.ts` since Phase 6 6A-3 (C2-1), one named
   export per value (not an object, whose property names would stay in the eager bundle): the
   Standard barrier `STANDARD_ZERO_START_GUEST_TOTAL_WAIT_MS`,
@@ -401,7 +407,10 @@ RO-53 owner-in-place
   `YOUTUBE_RELEASE_CATCH_UP_TOLERANCE_SEC` (the arm's 40 ms catch-up tolerance in seconds, read
   by `zero-start.ts` and `player.ts`) and the fresh-start threshold `YOUTUBE_FRESH_START_MAX_SEC`
   (`handlers.ts`, `player.ts`, `native-control-authority.ts`), named apart from the settle
-  epsilon of the same value. The
+  epsilon of the same value; since Phase 6 6D-1 the two recoveries' poll, settle tolerance and
+  bridge, `YOUTUBE_RECOVERY_POLL_MS` (50 ms, also the third audio cadence's poll, RO-12),
+  `YOUTUBE_RECOVERY_SETTLE_EPSILON_SEC` (0.35 s) and `YOUTUBE_RECOVERY_BRIDGE_MS` (3 s), read by
+  `player.ts` and `zero-start-recovery.ts` and named apart from the arm's values. The
   timeline and lead calibration values stay in `zero-start.ts` (`YOUTUBE_ZERO_START_TIMING`), their
   one user. The wire is frozen, so the receiver keeps its own copies of the sender's bounds in
   `src/network/protocol.ts`: the PREPARE window (10 s, the prepare budget), the ±600 ms ARMED
@@ -434,10 +443,16 @@ RO-53 owner-in-place
     pause-teardown rows of `src/youtube/__tests__/standard-start-pause-teardown.test.ts` (a
     BUFFERING or the iframe's own PAUSE in the run's `starting` phase still reaches the ordinary
     path).
+  - Guest recovery (since 6D-1): `src/youtube/__tests__/zero-start-recovery-golden.test.ts` (one
+    App guest on the real wiring: the recovery's iframe commands, timer sets and clears, claims,
+    readiness events, autoplay intents and log lines through its windows, tolerances, faults and
+    fences, the run's facades reading false while it holds its claim) and
+    `zero-start-recovery.test.ts` (the class with fakes).
 - **Status:** `duplicated`. Phase 6 (start ledger, routed state events, shared arm steps, recovery
   as owner stages); its first train took over the app part of Phase 0d, the shared start timing
-  (C2-1, 6A-3). The no-auto-retry Sync notice right after a zero-start stays
-  ([known-accepted #14](../known-accepted.md)).
+  (C2-1, 6A-3). Since 6D-1 (C2-9) the guest recovery is a class of its own (RO-33), still a
+  machine beside the run, the host legacy recovery and the legacy rendezvous. The no-auto-retry
+  Sync notice right after a zero-start stays ([known-accepted #14](../known-accepted.md)).
 
 ### RO-03 YouTube arm protocol, Standard and PRO copies
 
@@ -1785,13 +1800,18 @@ RO-53 owner-in-place
   (C2-3) the verified restore is `restoreYouTubeAudioVerified` in `src/youtube/iframe-audio.ts`,
   with the two cadences kept apart (owner answer, 2026-10-30): write, wait, then verify for
   zero-start's active and detached restores and the PRO arm's active restore; write and verify,
-  then wait, for the PRO arm's detached restore and the two `player.ts` recovery cleanups, which
-  reissue the pause and the seek with every attempt. Each caller passes its fences, its check
-  (zero-start alone counts a NaN volume read as restored), what follows a restore or the last
-  attempt, and its own timer, so the cleanups' `'yt-zero-start-host-fallback'` and
-  `'yt-zero-start-external-fallback'` timers and their clears stay in `player.ts`. The two
-  recoveries' restores before a release keep their own 50 ms polls and write and check through the
-  module's `writeYouTubeAudio` and `isYouTubeAudioRestored`.
+  then wait, for the PRO arm's detached restore and the two recovery cleanups (the host legacy
+  recovery's in `player.ts`, the guest local recovery's in `src/youtube/zero-start-recovery.ts`
+  since Phase 6 6D-1), which reissue the pause and the seek with every attempt. Each caller passes
+  its fences, its check (zero-start alone counts a NaN volume read as restored), what follows a
+  restore or the last attempt, and its own timer, so the cleanups' `'yt-zero-start-host-fallback'`
+  and `'yt-zero-start-external-fallback'` timers and their clears stay in `player.ts` (the guest
+  recovery's class gets `player.ts`'s schedule and cancel). The two recoveries' restores before a
+  release are the third cadence, which keeps its own rhythm (owner answer, 2026-10-30): write and
+  check at once, then poll again every `YOUTUBE_RECOVERY_POLL_MS` (50 ms; the guest's until
+  max(deadline, now + 1 s)), writing and checking through the module's `writeYouTubeAudio` and
+  `isYouTubeAudioRestored`; it is not folded into the verified restore, because every poll also
+  re-runs the recovery's identity and settle checks.
   `src/youtube/__tests__/iframe-audio.test.ts` pins the restore and
   `youtube-audio-restore-cadence.test.ts` each caller's rhythm. The guard's CHECK 11 counts
   direct `mute()`, `unMute()` and `setVolume()` calls per file: on 2026-10-31
@@ -1800,11 +1820,13 @@ RO-53 owner-in-place
   `zero-start.ts` (6), `authority-arm.ts` (4), `player.ts` (14), `iframe-audio.ts` (3),
   `iframe.ts` (3) and `retained-player-controller.ts` (2); since 6C-2 26, with `player.ts` (4)
   and `iframe-audio.ts` (7); since 6C-4 20, with `arm-steps.ts` (2), `zero-start.ts` (2) and no
-  write left in `authority-arm.ts`. A write through a helper counts only inside the helper, so the
-  baseline reasons name the helpers: `writeYouTubeAudio` in `iframe-audio.ts`, through which the
-  six verified restores, the recoveries' restores before a release, the guest fallback's release
-  write, both recoveries' unverified cleanups of a replaced or cancelled iframe
-  (`cleanupExactPlayer` in `player.ts`) and both arms' warm pairs write; `applyYouTubeAudio` and
+  write left in `authority-arm.ts`; since 6D-1 still 20, with `player.ts` (2) and
+  `zero-start-recovery.ts` (2), where the guest recovery's two mutes moved. A write through a
+  helper counts only inside the helper, so the baseline reasons name the helpers:
+  `writeYouTubeAudio` in `iframe-audio.ts`, through which the six verified restores, the
+  recoveries' restores before a release, the guest recovery's release write, both recoveries'
+  unverified cleanups of a replaced or cancelled iframe (`cleanupExactPlayer` in `player.ts` and in
+  `zero-start-recovery.ts`) and both arms' warm pairs write; `applyYouTubeAudio` and
   `enforceYouTubePauseGate` in the same module, through which the volume write, the gate's two
   handlers and the direct commit write; `waitForYouTubeHardMute` in `arm-steps.ts`, through which
   the zero-start run and the PRO arm hard-mute the iframe; and
@@ -1816,11 +1838,13 @@ RO-53 owner-in-place
 - **Deadline owner:** each writer's own retry (for example the zero-start release unmute retry).
   A verified restore ends after at most 8 attempts 120 ms apart, a bound
   `restoreYouTubeAudioVerified` keeps, timed by each caller's own scheduler: zero-start's and the
-  PRO arm's run timers and detached-restore slots, and the two `player.ts` managed timers.
+  PRO arm's run timers and detached-restore slots, and the two `player.ts` managed timers (the
+  guest recovery's through the schedule `player.ts` hands its class).
 - **Timing-constant home:** the audio-restore 120 ms and 8 attempts are
   `YOUTUBE_ARM_AUDIO_RESTORE_POLL_MS` and `YOUTUBE_ARM_AUDIO_RESTORE_MAX_ATTEMPTS` in
   `src/youtube/constants.ts` since Phase 6 6A-3 (C2-1); since 6A-4 only `iframe-audio.ts` reads
-  them.
+  them. The third cadence's 50 ms poll is `YOUTUBE_RECOVERY_POLL_MS` in the same home since
+  6D-1 (RO-02).
 - **Anchor tests:**
   - Supersession: `zero-start.test.ts` "does not restore audio or report ARMED for an iframe
     replaced during audio settlement".
@@ -3357,7 +3381,12 @@ entry needs the owner's acceptance and is not implied by this registry.
 - **Evidence:** recovery is not the arm sequence: it accepts PLAYING, BUFFERING or a paused or cued
   state within 0.35 s, re-seeks on every failed poll, restores audio by command, verify and poll,
   and unmutes before `playVideo`. Folding it in would change `isInFlight` and `isProtocolActive`,
-  which gate heartbeats and readiness.
+  which gate heartbeats and readiness. Since Phase 6 6D-1 (C2-9) it is its own class,
+  `GuestZeroStartRecovery` in `src/youtube/zero-start-recovery.ts` (no `Resource owner:` header:
+  this record is an exception, and the ledger claims RO-02). `player.ts` hands it each start
+  (`onFallbackRequired`) with its fence and keeps its managed timer, its two claim flags and the
+  run's snapshot reads; `src/youtube/__tests__/zero-start-recovery-golden.test.ts` shows the run's
+  facades read false throughout while the recovery holds its claim.
 - **Behaviour risk:** none beyond today's hand-off, whose Sync readiness gap is
   [known-accepted #14](../known-accepted.md).
 - **Revisit when:** the change is relabelled as intended and has device evidence.
@@ -4032,7 +4061,8 @@ and unrelated strings never count, and every baseline is an exact count or list 
    whatever its suffix, and its values count together as one timing object, so a re-typed object
    elsewhere in the contract that shares five or more of them is a copy too. That YouTube start
    contract covers `constants.ts`, `iframe-audio.ts`, `arm-steps.ts` (since Phase 6 6C-4, with no
-   timing of its own), `zero-start.ts`, `authority-arm.ts`, `player.ts` and `iframe.ts` in
+   timing of its own), `zero-start-recovery.ts` (since 6D-1, likewise), `zero-start.ts`,
+   `authority-arm.ts`, `player.ts` and `iframe.ts` in
    `src/youtube/`. Constants that share only a value are report-only, because round values such as
    1 s, 15 s and 30 s recur across different contracts; `--report` lists them.
 6. **AudioContext native calls, per file:** `resume()` and `suspend()` (RO-01, RO-44).
@@ -4084,8 +4114,9 @@ and unrelated strings never count, and every baseline is an exact count or list 
     App's own writes (the volume write, the PRO pause gate and the PRO direct commit) through its
     `applyYouTubeAudio` and `enforceYouTubePauseGate` (26 calls), and since 6C-4 the hard mute of
     the zero-start run and the PRO arm through `waitForYouTubeHardMute` in
-    `src/youtube/arm-steps.ts` and their warm pairs through `writeYouTubeAudio` (20 calls).
-    `--report` lists every counted call with its function.
+    `src/youtube/arm-steps.ts` and their warm pairs through `writeYouTubeAudio` (20 calls). Since
+    6D-1 the guest recovery's two mutes count in its own file, `src/youtube/zero-start-recovery.ts`
+    (still 20 calls). `--report` lists every counted call with its function.
 12. **Cross-file YouTube start-timer reads and clears, per file** (RO-02, Phase 6 T1): in
     `src/youtube/`, `getManagedTimer()` and `clearManagedTimer()` calls on a start timer (the
     list in RO-02) that the same file does not set with `setManagedTimer()`. A call counts once
@@ -4116,8 +4147,9 @@ and unrelated strings never count, and every baseline is an exact count or list 
     (`TIMER FUNCTION ALIAS`); and a start timer set by a `src/youtube/` file other than its
     listed setters, or no longer set by one of them (`START TIMER SET`). On 2026-10-31 none of
     these fires: all 210 timer calls in `src/youtube/` resolve (209 after Phase 6 6A-1, 207
-    after 6A-2 and 205 after 6A-4; the five templates name per-peer timers) and nothing renames
-    or passes on the timer functions.
+    after 6A-2, 205 after 6A-4 and 192 after 6D-1, whose guest recovery waits through one
+    schedule and one cancel `player.ts` hands it; the five templates name per-peer timers) and
+    nothing renames or passes on the timer functions.
     `--report` lists every counted call with its names and function.
 
     Since Phase 6 6B-2 every start-ownership reader asks the start ledger

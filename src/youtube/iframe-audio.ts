@@ -42,9 +42,9 @@
  * The verified restore is the one bounded restore loop of the start
  * machines: zero-start's active and detached restores (zero-start.ts), the
  * PRO arm's active and detached restores (authority-arm.ts) and the verified
- * cleanups of the host legacy recovery and the guest local fallback
- * (player.ts). Each attempt writes the audio and checks that the iframe
- * reports it, every YOUTUBE_ARM_AUDIO_RESTORE_POLL_MS, at most
+ * cleanups of the host legacy recovery (player.ts) and the guest local
+ * recovery (zero-start-recovery.ts). Each attempt writes the audio and checks
+ * that the iframe reports it, every YOUTUBE_ARM_AUDIO_RESTORE_POLL_MS, at most
  * YOUTUBE_ARM_AUDIO_RESTORE_MAX_ATTEMPTS times: WebKit can ignore the first
  * unMute right after an iframe transition or a hard mute.
  *
@@ -56,10 +56,11 @@
  * and logs nothing; its state is the gate's token and the registered parking
  * hold.
  *
- * The restores of the host legacy recovery and the guest local fallback
- * before their release (player.ts) write and check through the same two
- * helpers but keep their own 50 ms polls. The guest fallback's release write,
- * both recoveries' unverified cleanups of a replaced or cancelled iframe
+ * The restores of the host legacy recovery (player.ts) and the guest local
+ * recovery (zero-start-recovery.ts) before their release write and check
+ * through the same two helpers but keep their own polls, the third cadence
+ * (YOUTUBE_RECOVERY_POLL_MS). The guest recovery's release write, both
+ * recoveries' unverified cleanups of a replaced or cancelled iframe
  * (cleanupExactPlayer) and both arms' warm pairs (the #warm of zero-start.ts
  * and authority-arm.ts) write through writeYouTubeAudio too, without a check.
  */

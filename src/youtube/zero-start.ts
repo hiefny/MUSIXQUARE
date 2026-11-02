@@ -147,7 +147,8 @@ interface YouTubeZeroStartPlaybackStartedEvent {
   localPositionSec: number | null;
 }
 
-interface YouTubeZeroStartFallbackEvent {
+/** A guest's start the run gives up, handed to the guest recovery (zero-start-recovery.ts). */
+export interface YouTubeZeroStartFallbackEvent {
   runId: string;
   queueItemId: string;
   videoId: string;

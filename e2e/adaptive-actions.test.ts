@@ -288,10 +288,10 @@ async function installLayoutProbe(
 
 async function waitForLayoutFonts(page: Page): Promise<void> {
   const fontState = await page.evaluate(async () => {
-    // Inter for Latin and Noto Sans KR for Hangul, as every UI draws them.
+    // Inter for Latin and MUSIXQUARE Hangul for Hangul, as every UI draws them.
     const primaryFaces = [
       ...(await document.fonts.load('700 15px "Inter"', 'MUSIXQUARE')),
-      ...(await document.fonts.load('700 15px "Noto Sans KR"', '한국어')),
+      ...(await document.fonts.load('700 15px "MUSIXQUARE Hangul"', '한국어')),
     ];
     // Flush styles after inserting locale probes before awaiting new glyph requests.
     document.body.getBoundingClientRect();

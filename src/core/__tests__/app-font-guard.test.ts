@@ -15,6 +15,7 @@ import {
   localDistAssetPath,
   parseCodePointList,
   stackCoverageGaps,
+  stackOrderProblems,
   textSymbolCodePoints,
   woff2Urls,
 } from '../../../scripts/lib/app-font-guard.mts';
@@ -114,6 +115,7 @@ describe('app font guard: built sheets', () => {
 
   const expected = new Map([
     ['Inter', INTER_FACE_METRICS],
+    ['MUSIXQUARE Hangul', null],
     ['Noto Sans KR', CJK_FACE_METRICS],
     ['Noto Sans Arabic', null],
   ]);
@@ -121,6 +123,13 @@ describe('app font guard: built sheets', () => {
 
   it('accepts faces whose metric descriptors equal the metrics home', () => {
     expect(faceDescriptorMismatches(interFace, expected)).toEqual([]);
+    // The Hangul faces hold the line box in their files and carry no descriptor.
+    expect(
+      faceDescriptorMismatches(
+        '@font-face{font-family:\'MUSIXQUARE Hangul\';font-weight:45 930;src:url(/assets/hangul.119-AbC12_-9.woff2)format("woff2")}',
+        expected,
+      ),
+    ).toEqual([]);
     expect(
       faceDescriptorMismatches(
         '@font-face{font-family:Noto Sans Arabic;src:url(/assets/a.woff2)format("woff2")}',
@@ -147,10 +156,41 @@ describe('app font guard: built sheets', () => {
     ).toEqual(['Noto Sans Arabic a.woff2: size-adjust is 94%, not unset']);
     expect(
       faceDescriptorMismatches(
+        '@font-face{font-family:\'MUSIXQUARE Hangul\';size-adjust:100%;src:url(/assets/hangul.119-AbC12_-9.woff2)format("woff2")}',
+        expected,
+      ),
+    ).toEqual(['MUSIXQUARE Hangul hangul.119-AbC12_-9.woff2: size-adjust is 100%, not unset']);
+    expect(
+      faceDescriptorMismatches(
         '@font-face{font-family:Pretendard;src:url(/assets/p.woff2)format("woff2")}',
         expected,
       ),
     ).toEqual(['Pretendard p.woff2: not an app font family']);
+  });
+});
+
+describe('app font guard: stack order', () => {
+  const cjk = ['Noto Sans KR', 'Noto Sans JP', 'Noto Sans SC', 'Noto Sans TC'];
+
+  it('accepts Inter, then MUSIXQUARE Hangul, then the CJK families, with or without a script face first', () => {
+    expect(stackOrderProblems(['Inter', 'MUSIXQUARE Hangul', ...cjk, 'sans-serif'])).toEqual([]);
+    expect(
+      stackOrderProblems(['Noto Sans Devanagari', 'Inter', 'MUSIXQUARE Hangul', ...cjk.reverse()]),
+    ).toEqual([]);
+  });
+
+  it('reports a missing family and a CJK family or Hangul ahead of its place', () => {
+    expect(stackOrderProblems(['Inter', ...cjk])).toEqual(['MUSIXQUARE Hangul is missing']);
+    expect(
+      stackOrderProblems(['Inter', 'Noto Sans KR', 'MUSIXQUARE Hangul', 'Noto Sans JP']),
+    ).toEqual(['Noto Sans KR comes before MUSIXQUARE Hangul']);
+    expect(stackOrderProblems(['MUSIXQUARE Hangul', 'Inter', 'Noto Sans KR'])).toEqual([
+      'MUSIXQUARE Hangul comes before Inter',
+    ]);
+    expect(stackOrderProblems(['Noto Sans JP', 'MUSIXQUARE Hangul'])).toEqual([
+      'Inter is missing',
+      'Noto Sans JP comes before MUSIXQUARE Hangul',
+    ]);
   });
 });
 

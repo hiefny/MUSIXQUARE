@@ -250,6 +250,42 @@ export function faceDescriptorMismatches(
   return mismatches;
 }
 
+// ── Stack order ────────────────────────────────────────────────────
+
+/** The four CJK families of the app stacks. */
+export const APP_CJK_FAMILIES: readonly string[] = [
+  'Noto Sans KR',
+  'Noto Sans JP',
+  'Noto Sans SC',
+  'Noto Sans TC',
+];
+
+/**
+ * What is out of order in an app text stack: Inter, then MUSIXQUARE Hangul,
+ * then the CJK families (owner decision 2026-11-02: the Hangul faces draw
+ * Hangul ahead of Noto Sans KR in every stack of every UI). A script face
+ * may come first (the Indic, Arabic and Hebrew stacks put their own one
+ * there); the system fonts come after all of them.
+ */
+export function stackOrderProblems(stack: readonly string[]): string[] {
+  const problems: string[] = [];
+  const inter = stack.indexOf('Inter');
+  const hangul = stack.indexOf('MUSIXQUARE Hangul');
+  if (inter < 0) problems.push('Inter is missing');
+  if (hangul < 0) problems.push('MUSIXQUARE Hangul is missing');
+  if (inter >= 0 && hangul >= 0 && hangul < inter) {
+    problems.push('MUSIXQUARE Hangul comes before Inter');
+  }
+  const lead = Math.max(inter, hangul);
+  for (const family of APP_CJK_FAMILIES) {
+    const at = stack.indexOf(family);
+    if (at >= 0 && at < lead) {
+      problems.push(`${family} comes before ${hangul >= inter ? 'MUSIXQUARE Hangul' : 'Inter'}`);
+    }
+  }
+  return problems;
+}
+
 // ── The Korean and English UIs apply the same rules ────────────────
 
 /**

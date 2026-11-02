@@ -8,7 +8,9 @@
  *   Those code points are cut from the four CJK families by Inter's cmap, never
  *   by its declared ranges, so the marks Inter lacks (※ ― ‥ ‰ ‼ ...) stay in
  *   the CJK families instead of falling to a device font.
- * - Hangul is only in Noto Sans KR and kana only in Noto Sans JP.
+ * - Hangul Pretendard draws is only in MUSIXQUARE Hangul (owner decision
+ *   2026-11-02), the Hangul it lacks only in Noto Sans KR, and kana only in
+ *   Noto Sans JP.
  * - Invisible and space marks Inter's subsets lack belong to no CJK family.
  * - A CJK face declares only what its file draws, so no character makes the
  *   browser download a shard that cannot draw it.
@@ -20,10 +22,12 @@ import { describe, expect, it } from 'vitest';
 import { buildFontSheets } from '../../../scripts/fonts/build-font-sheets.mts';
 import {
   fontCodePoints,
+  formatUnicodeRange,
   openFontFile,
   parseFontFaceRules,
   parseUnicodeRange,
   readFontSources,
+  readHangulFaces,
   type FontFaceRule,
 } from '../../../scripts/fonts/font-files.mts';
 import { APP_FONT_SHEETS } from '../app-font-contract.ts';
@@ -117,16 +121,44 @@ describe('generated app font sheets', () => {
     }
     expect(counts).toEqual({
       'font-inter': 7,
-      'font-noto-kr': 120,
+      'font-hangul': 87,
+      'font-noto-kr': 53,
       'font-noto-jp': 120,
       'font-noto-sc': 95,
       'font-noto-tc': 98,
       'font-noto-thai': 1,
     });
-    for (const id of CJK_SHEET_IDS) {
+    for (const id of [...CJK_SHEET_IDS, 'font-hangul']) {
       for (const rule of await readRules(id)) expect(rule.file, id).toMatch(/\.\d+\.woff2$/u);
     }
   });
+
+  it('declare in MUSIXQUARE Hangul only Hangul, each face its own cmap, with no metric descriptor', async () => {
+    const record = await readHangulFaces(ROOT);
+    const rules = await readRules('font-hangul');
+    expect(rules.map(({ file }) => file)).toEqual(record.faces.map(({ file }) => file));
+    for (const [index, rule] of rules.entries()) {
+      expect(rule.unicodeRange, rule.file).toBe(record.faces[index]?.unicodeRange);
+      const declared = parseUnicodeRange(rule.unicodeRange ?? '');
+      expect(
+        [...declared].filter((codePoint) => !isHangul(codePoint)),
+        rule.file,
+      ).toEqual([]);
+      const file = resolve(dirname(join(ROOT, sheetPath('font-hangul'))), rule.url);
+      expect(
+        [...fontCodePoints(await openFontFile(file))].sort((a, b) => a - b),
+        rule.file,
+      ).toEqual([...declared].sort((a, b) => a - b));
+      expect(Object.fromEntries(rule.declarations), rule.file).toEqual({
+        'font-family': "'MUSIXQUARE Hangul'",
+        'font-style': 'normal',
+        'font-weight': '45 930',
+        'font-display': 'swap',
+        src: `url(../../../fonts/app/hangul/${rule.file}) format('woff2')`,
+        'unicode-range': rule.unicodeRange,
+      });
+    }
+  }, 60_000);
 
   it("keep Google's Inter ranges, one face per recorded subset", async () => {
     const { inter } = await readFontSources(ROOT);
@@ -155,12 +187,13 @@ describe('generated app font sheets', () => {
     expect(MARKS_INTER_LACKS.filter((codePoint) => interDrawn.has(codePoint))).toEqual([]);
   }, 60_000);
 
-  it('give Hangul to Noto Sans KR and kana to Noto Sans JP only, by script, and invisible marks to none', async () => {
+  it('give Hangul to MUSIXQUARE Hangul, the Hangul it lacks to Noto Sans KR and kana to Noto Sans JP only, by script, and invisible marks to none', async () => {
     const declared = Object.fromEntries(
       await Promise.all(
         CJK_SHEET_IDS.map(async (id) => [id, [...(await declaredCodePoints(id))]] as const),
       ),
     ) as Record<(typeof CJK_SHEET_IDS)[number], number[]>;
+    const hangulFamily = await declaredCodePoints('font-hangul');
     const korean = new Set(declared['font-noto-kr']);
     const japanese = new Set(declared['font-noto-jp']);
     const hex = (codePoints: readonly number[]): string[] =>
@@ -172,7 +205,8 @@ describe('generated app font sheets', () => {
       expect(hex(codePoints.filter((codePoint) => inRanges(codePoint, INVISIBLE))), id).toEqual([]);
       // Hangul and kana by block or by script property: ㈜ and ㉠ are Hangul
       // outside the Hangul blocks, ㋖ and ㌔ kana outside the kana blocks. A
-      // character the owning family lacks (halfwidth jamo) stays where it is.
+      // character the owning families lack stays where it is.
+      expect(hex(codePoints.filter((codePoint) => hangulFamily.has(codePoint))), id).toEqual([]);
       if (id !== 'font-noto-kr') {
         expect(
           hex(codePoints.filter((codePoint) => isHangul(codePoint) && korean.has(codePoint))),
@@ -186,15 +220,26 @@ describe('generated app font sheets', () => {
         ).toEqual([]);
       }
     }
-    expect(declared['font-noto-kr'].some((codePoint) => inRanges(codePoint, HANGUL))).toBe(true);
+    // Noto Sans KR keeps exactly the 98 Hangul characters Pretendard lacks:
+    // archaic compatibility jamo, and parenthesized and circled Hangul but ㈜.
+    expect(formatUnicodeRange(declared['font-noto-kr'].filter(isHangul))).toBe(
+      'U+3165-318C, U+318E, U+3200-321B, U+3260-327B, U+327E',
+    );
     expect(declared['font-noto-jp'].some((codePoint) => inRanges(codePoint, KANA))).toBe(true);
-    // The characters the review measured mixing families.
-    for (const character of ['㈜', '㉠', '㉨']) {
+    // The characters the review measured mixing families, and a halfwidth jamo.
+    for (const [character, owner] of [
+      ['㈜', hangulFamily],
+      ['\u{FFA1}', hangulFamily],
+      ['㉠', korean],
+      ['㉨', korean],
+    ] as const) {
       const codePoint = character.codePointAt(0) ?? 0;
-      expect(korean.has(codePoint), character).toBe(true);
-      for (const id of ['font-noto-jp', 'font-noto-sc', 'font-noto-tc'] as const) {
+      expect(owner.has(codePoint), character).toBe(true);
+      for (const id of CJK_SHEET_IDS) {
+        if (owner === korean && id === 'font-noto-kr') continue;
         expect(declared[id].includes(codePoint), `${id} ${character}`).toBe(false);
       }
+      if (owner === korean) expect(hangulFamily.has(codePoint), character).toBe(false);
     }
     for (const character of ['㋖', '㋡', '㌔', '㌢']) {
       const codePoint = character.codePointAt(0) ?? 0;
@@ -202,6 +247,7 @@ describe('generated app font sheets', () => {
       for (const id of ['font-noto-kr', 'font-noto-sc', 'font-noto-tc'] as const) {
         expect(declared[id].includes(codePoint), `${id} ${character}`).toBe(false);
       }
+      expect(hangulFamily.has(codePoint), character).toBe(false);
     }
   });
 
@@ -233,13 +279,17 @@ describe('generated app font sheets', () => {
     );
   }, 60_000);
 
-  it('cover every Hangul syllable in Noto Sans KR by cmap and range', async () => {
-    const drawn = await drawnCodePoints('font-noto-kr');
+  it('cover every Hangul syllable in MUSIXQUARE Hangul by cmap and range, and none in Noto Sans KR', async () => {
+    const drawn = await drawnCodePoints('font-hangul');
+    const korean = await declaredCodePoints('font-noto-kr');
     const missing: string[] = [];
+    const doubled: string[] = [];
     for (let codePoint = 0xac00; codePoint <= 0xd7a3; codePoint += 1) {
       if (!drawn.has(codePoint)) missing.push(codePoint.toString(16));
+      if (korean.has(codePoint)) doubled.push(codePoint.toString(16));
     }
     expect(missing).toEqual([]);
+    expect(doubled).toEqual([]);
   }, 60_000);
 
   it('keep the Thai face of the Google sheet as it is', async () => {

@@ -7,19 +7,23 @@
  * was about 20 px high instead of 18 px, and the Playlist title sat higher
  * than the other tab titles. The app faces carry the line box of
  * src/i18n/font-metrics.ts in their tables, so dropping the overrides changes
- * nothing at the sizes probed here. (The descriptors are two-decimal
- * percentages within half a unit of the baked box, not equal to it, so a line
- * next to a pixel rounding boundary, such as a CJK line at 14.5 px, still
+ * nothing at 13, 15 and 28 px. (The descriptors are two-decimal percentages
+ * within half a unit of the baked box, not equal to it, so a line next to a
+ * pixel rounding boundary, such as a kana or Han line at 14.5 px, still
  * differs by 1 px; docs/design/app-font-baked-metrics-2026-11-01.md §3 lists
- * the sizes.) Chromium models that browser here. On Windows it reads each
+ * the sizes.) Since the owner decision of 2026-11-02 Hangul is drawn by
+ * MUSIXQUARE Hangul, Pretendard's own Hangul with Pretendard's own line box
+ * and no descriptor at all, so Safari reads exactly what Chromium applies:
+ * the 14.5 px Hangul line is 17 px in both. Chromium models that browser here. On Windows it reads each
  * face's OS/2 typo metrics (USE_TYPO_METRICS is set), where Safari's CoreText
  * reads hhea; src/i18n/__tests__/font-baked-metrics.test.ts and the font guard
  * check that the two are equal in every face. Context B serves the app's
  * Inter and CJK sheets without the three overrides (size-adjust stays) and
  * must measure what context A measures with the shipped sheets:
  * - the height and baseline of Latin, Hangul, mixed, kana and Han lines at 13,
- *   15 and 28 px in weights 400 and 700, drawn by Inter, Noto Sans KR and Noto
- *   Sans JP;
+ *   14.5, 15 and 28 px in weights 400 and 700, drawn by Inter, MUSIXQUARE
+ *   Hangul, Noto Sans KR and Noto Sans JP (but the recorded 1 px of the kana
+ *   and Han lines at 14.5 px);
  * - the title of every tab header, with the Playlist title in its switch
  *   button as it shows when the room has more than one playlist.
  *
@@ -35,6 +39,8 @@ import { navigateToTab, waitForAppFonts } from './helpers/wait.ts';
 
 /** The built app sheets whose faces carry the metric overrides. */
 const OVERRIDE_SHEETS = /\/assets\/font-(?:inter|noto-kr|noto-jp|noto-sc|noto-tc)-[\w-]{8}\.css$/u;
+/** The built Hangul sheet, whose faces carry no descriptor to drop. */
+const HANGUL_SHEET = /\/assets\/font-hangul-[\w-]{8}\.css$/u;
 const OVERRIDES = /(?:ascent|descent|line-gap)-override:[^;}]*;?/gu;
 
 const SAMPLES = {
@@ -44,22 +50,44 @@ const SAMPLES = {
   kana: 'かなカナのうた',
   han: '漢字海返曜花雪',
 } as const;
-const SIZES = [13, 15, 28] as const;
+const SIZES = [13, 14.5, 15, 28] as const;
 const WEIGHTS = [400, 700] as const;
 /** Pretendard's line boxes, which the shipped overrides keep: height|baseline in px. */
 const SHIPPED_BOX: Readonly<Record<(typeof SIZES)[number], string>> = {
   13: '15|12',
+  14.5: '17|14',
   15: '18|14',
   28: '34|27',
 };
+/**
+ * Where a line drawn from the baked Noto files (no overrides, as Safari reads
+ * them) differs from the descriptors: their descent rounds to 4 px at
+ * 14.5 px, against 3 px with the override (font-metrics.ts). Hangul is not
+ * here: MUSIXQUARE Hangul has no override to drop.
+ */
+const WITHOUT_OVERRIDES_EXCEPTIONS: Readonly<Record<string, string>> = {
+  'kana 14.5px 400': '18|14',
+  'kana 14.5px 700': '18|14',
+  'han 14.5px 400': '18|14',
+  'han 14.5px 700': '18|14',
+};
 const TABS = ['playlist', 'connect', 'settings', 'guide'] as const;
-const APP_FAMILIES = ['Inter', 'Noto Sans KR', 'Noto Sans JP', 'Noto Sans SC', 'Noto Sans TC'];
+const APP_FAMILIES = [
+  'Inter',
+  'MUSIXQUARE Hangul',
+  'Noto Sans KR',
+  'Noto Sans JP',
+  'Noto Sans SC',
+  'Noto Sans TC',
+];
 
 interface Opened {
   readonly context: BrowserContext;
   readonly page: Page;
   /** The sheets served without overrides, by URL. */
   readonly stripped: Map<string, string>;
+  /** The Hangul sheet as served (never changed), by URL. */
+  readonly hangul: Map<string, string>;
 }
 
 async function openKoreanUi(browser: Browser, stripOverrides: boolean): Promise<Opened> {
@@ -77,6 +105,14 @@ async function openKoreanUi(browser: Browser, stripOverrides: boolean): Promise<
     return hostname === '127.0.0.1' || hostname === 'localhost' ? route.continue() : route.abort();
   });
   const stripped = new Map<string, string>();
+  const hangul = new Map<string, string>();
+  // Registered after the catch-all, so it runs first; it serves the sheet as it is.
+  await context.route(HANGUL_SHEET, async (route) => {
+    const response = await route.fetch();
+    const css = await response.text();
+    hangul.set(route.request().url(), css);
+    await route.fulfill({ response, body: css });
+  });
   if (stripOverrides) {
     // Registered last, so it runs before the catch-all route above.
     await context.route(OVERRIDE_SHEETS, async (route) => {
@@ -95,7 +131,7 @@ async function openKoreanUi(browser: Browser, stripOverrides: boolean): Promise<
     }
   });
   await injectPeerServer(page);
-  return { context, page, stripped };
+  return { context, page, stripped, hangul };
 }
 
 /** Waits until phase B has declared every sheet and no face is still loading. */
@@ -112,6 +148,19 @@ async function settleFonts(page: Page): Promise<void> {
     await document.fonts.ready;
     await new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve)));
   });
+}
+
+/**
+ * The Hangul sheet reached the page with neither an override nor size-adjust,
+ * so what Safari reads of it is what Chromium applies.
+ */
+function expectPlainHangul(hangul: ReadonlyMap<string, string>): void {
+  expect(hangul.size).toBe(1);
+  for (const [url, css] of hangul) {
+    expect(css, url).toMatch(/font-family:\s*["']?MUSIXQUARE Hangul/u);
+    expect(css, url).not.toMatch(/-override\s*:/u);
+    expect(css, url).not.toMatch(/size-adjust\s*:/u);
+  }
 }
 
 /** Every override sheet reached the page without overrides and with size-adjust. */
@@ -272,13 +321,14 @@ test.describe('line boxes without the metric overrides', () => {
   }) => {
     const measured: Lines[] = [];
     for (const strip of [false, true]) {
-      const { context, page, stripped } = await openKoreanUi(browser, strip);
+      const { context, page, stripped, hangul } = await openKoreanUi(browser, strip);
       try {
         await page.goto('/');
         await waitForBootstrapReady(page);
         await expect(page.locator('#btn-setup-host')).toBeVisible({ timeout: 15_000 });
         await settleFonts(page);
         if (strip) expectStripped(stripped);
+        expectPlainHangul(hangul);
         measured.push(await measureLines(page));
       } finally {
         await context.close();
@@ -298,13 +348,16 @@ test.describe('line boxes without the metric overrides', () => {
     );
     expect(shipped?.faces).toEqual({
       latin: ['Inter'],
-      hangul: ['Inter', 'Noto Sans KR'],
-      mixed: ['Inter', 'Noto Sans KR'],
+      hangul: ['Inter', 'MUSIXQUARE Hangul'],
+      mixed: ['Inter', 'MUSIXQUARE Hangul'],
       kana: ['Noto Sans JP'],
       han: ['Noto Sans KR'],
     });
     expect(withoutOverrides?.faces).toEqual(shipped?.faces);
-    expect(withoutOverrides?.boxes, 'line boxes without the overrides').toEqual(shipped?.boxes);
+    expect(withoutOverrides?.boxes, 'line boxes without the overrides').toEqual({
+      ...shipped?.boxes,
+      ...WITHOUT_OVERRIDES_EXCEPTIONS,
+    });
   });
 
   test('every tab title sits where it does with the overrides', async ({ browser }) => {

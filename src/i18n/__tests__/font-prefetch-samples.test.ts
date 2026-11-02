@@ -48,9 +48,11 @@ describe('font prefetch samples', () => {
     expect(await readFile(join(ROOT, generated.path), 'utf8')).toBe(generated.text);
   });
 
-  // The sizes are those of the faces with the line box baked in (fonts/app/).
+  // The sizes are those of the faces with the line box baked in (fonts/app/),
+  // and for Korean of the Hangul faces (fonts/app/hangul/), which keep the
+  // Noto Sans KR shard numbers.
   it.each([
-    ['ko', 'Noto Sans KR', 119, 100, 393_260],
+    ['ko', 'MUSIXQUARE Hangul', 119, 100, 360_288],
     ['ja', 'Noto Sans JP', 119, 100, 395_004],
     ['zh-hans', 'Noto Sans SC', 119, 114, 342_884],
     ['zh-hant', 'Noto Sans TC', 119, 114, 391_448],

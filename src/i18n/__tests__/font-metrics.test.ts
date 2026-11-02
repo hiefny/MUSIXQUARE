@@ -1,10 +1,11 @@
 /**
  * Descriptor parity: CSS cannot import src/i18n/font-metrics.ts, so this test
  * pins every Inter and CJK @font-face rule of the app's font sheets to that one
- * home, and keeps the script faces (Thai, Arabic, Hebrew, Indic) without
- * metric descriptors. The same home holds the line box baked into the font
- * files in font units (src/i18n/__tests__/font-baked-metrics.test.ts reads it
- * back from every face).
+ * home, and keeps the Hangul faces (whose files hold the line box itself) and
+ * the script faces (Thai, Arabic, Hebrew, Indic) without metric descriptors.
+ * The same home holds the line box baked into the font files in font units
+ * (src/i18n/__tests__/font-baked-metrics.test.ts reads it back from every
+ * face), and Pretendard's own line box, which every value derives from.
  */
 import { readFile } from 'node:fs/promises';
 import { join, resolve } from 'node:path';
@@ -13,7 +14,7 @@ import { describe, expect, it } from 'vitest';
 
 import { openFontFile, parseFontFaceRules } from '../../../scripts/fonts/font-files.mts';
 import { APP_FONT_SHEETS } from '../app-font-contract.ts';
-import { CJK_FACE_METRICS, INTER_FACE_METRICS } from '../font-metrics.ts';
+import { CJK_FACE_METRICS, HANGUL_LINE_BOX, INTER_FACE_METRICS } from '../font-metrics.ts';
 
 const ROOT = resolve('.');
 const METRIC_DESCRIPTORS = [
@@ -125,6 +126,27 @@ describe('app font metric descriptors', () => {
         ] += 1;
       }
     }
-    expect(facesByMetrics).toEqual({ inter: 7, cjk: 433, none: 11 });
+    // none: the 87 Hangul faces and the 11 script faces.
+    expect(facesByMetrics).toEqual({ inter: 7, cjk: 366, none: 98 });
+  });
+
+  it("take the line box from Pretendard's own file, which the Hangul faces keep without descriptors", async () => {
+    const pretendard = await openFontFile(join(ROOT, 'fonts/PretendardVariable.woff2'));
+    const { ascender, descender, lineGap } = new hb.Font(pretendard).hExtents();
+    expect(HANGUL_LINE_BOX).toEqual({
+      unitsPerEm: pretendard.upem,
+      ascender,
+      descender: -descender,
+      lineGap,
+    });
+    const sheet = APP_FONT_SHEETS.find(({ id }) => id === 'font-hangul');
+    const rules = parseFontFaceRules(await readFile(join(ROOT, sheet?.path ?? ''), 'utf8'));
+    expect(rules).toHaveLength(87);
+    for (const rule of rules) {
+      expect(
+        METRIC_DESCRIPTORS.filter((name) => rule.declarations.has(name)),
+        rule.file,
+      ).toEqual([]);
+    }
   });
 });

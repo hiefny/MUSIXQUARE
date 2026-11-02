@@ -63,10 +63,11 @@ const read = (path: string): string => readFileSync(resolve(path), 'utf8');
 const sheets = SHEET_PATHS.map((path) => ({ path, root: parseCss(read(path)) }));
 const appCss = sheets[0]!.root;
 
-// Weight declarations that are not a text role, with the reason.
+// Weight declarations that are not a text role, with the reason. The Hangul
+// faces keep Pretendard's whole wght axis, 45 to 930 (fonts/hangul-faces.json).
 const NON_TEXT_WEIGHTS: Readonly<Record<string, string>> = Object.fromEntries(
-  APP_FONT_SHEETS.map(({ path, family }) => [
-    `${path} @font-face { font-weight: 100 900 }`,
+  APP_FONT_SHEETS.map(({ id, path, family }) => [
+    `${path} @font-face { font-weight: ${id === 'font-hangul' ? '45 930' : '100 900'} }`,
     `The ${family} variable faces' weight range, not a text weight.`,
   ]),
 );

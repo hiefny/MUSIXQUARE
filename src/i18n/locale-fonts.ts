@@ -9,14 +9,15 @@
  * language, and the phases only decide how early each sheet is declared:
  *
  * - Phase A, when a language applies (i18n/index.ts): Inter, the UI's own
- *   script sheet, Noto Sans KR for every UI that is not Japanese or Chinese,
- *   and the first family of the UI's Han order. The Korean and English UIs
- *   therefore declare the same sheets at the same moment under every Han
- *   order.
+ *   script sheet, MUSIXQUARE Hangul and Noto Sans KR for every UI that is not
+ *   Japanese or Chinese, and the first family of the UI's Han order. The
+ *   Korean and English UIs therefore declare the same sheets at the same
+ *   moment under every Han order.
  * - Phase B, after window load and the first idle slice: every other sheet.
  *   It ignores data saver because it is correctness, not prefetch.
  * - Phase C, a quiet period after phase B starts: the Korean, Japanese and
- *   Chinese UIs load their own family's most frequent shards
+ *   Chinese UIs load the most frequent shards of the family that draws their
+ *   own words (MUSIXQUARE Hangul for Korean)
  *   (font-prefetch-samples.ts) in idle slices, a few faces per batch, within a
  *   face and byte budget per page load, so new text in those characters draws
  *   without a swap. A batch runs only once the family's sheet is declared and
@@ -47,6 +48,7 @@ import { log } from '../core/log.ts';
 import {
   APP_FONT_SHEETS,
   HAN_ORDER_FONT_SHEET,
+  HANGUL_FONT_SHEET,
   SCRIPT_FONT_SHEET_BY_LANGUAGE,
   type AppFontSheetId,
 } from './app-font-contract.ts';
@@ -73,6 +75,10 @@ const SHEET_LOADERS: Readonly<Record<AppFontSheetId, RetryableStylesheet>> = {
   'font-inter': createRetryableStylesheet(
     'font-inter',
     () => import('../../css/fonts/app/font-inter.css'),
+  ),
+  'font-hangul': createRetryableStylesheet(
+    'font-hangul',
+    () => import('../../css/fonts/app/font-hangul.css'),
   ),
   'font-noto-kr': createRetryableStylesheet(
     'font-noto-kr',
@@ -397,10 +403,12 @@ function applyStartupHanOrder(): HanOrder {
 }
 
 /**
- * Inter, the UI's own script sheet, then Noto Sans KR for every UI that is not
- * Japanese or Chinese, and the first family of the UI's Han order. Noto Sans
- * KR is there whatever the Han order, so the Korean and English UIs declare
- * the same sheets: a Hangul name shown before phase B draws alike in both.
+ * Inter, the UI's own script sheet, then MUSIXQUARE Hangul and Noto Sans KR
+ * (the Hangul the first lacks, and the symbols Inter lacks) for every UI that
+ * is not Japanese or Chinese, and the first family of the UI's Han order.
+ * Both are there whatever the Han order, so the Korean and English UIs
+ * declare the same sheets: a Hangul name shown before phase B draws alike in
+ * both.
  */
 function phaseASheets(code: LanguageCode, hanOrder: HanOrder): AppFontSheetId[] {
   const hanUi = HAN_UI_LANGUAGES.has(code);
@@ -408,6 +416,7 @@ function phaseASheets(code: LanguageCode, hanOrder: HanOrder): AppFontSheetId[] 
   const sheets: AppFontSheetId[] = ['font-inter'];
   for (const id of [
     SCRIPT_FONT_SHEET_BY_LANGUAGE[code],
+    hanUi ? undefined : HANGUL_FONT_SHEET,
     hanUi ? undefined : HAN_ORDER_FONT_SHEET.ko,
     HAN_ORDER_FONT_SHEET[uiHanOrder],
   ]) {

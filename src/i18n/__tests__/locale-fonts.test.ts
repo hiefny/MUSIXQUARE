@@ -229,26 +229,26 @@ describe('app font sheets', () => {
 
 describe('phase A', () => {
   it.each([
-    ['ko', ['en-US'], ['font-inter', 'font-noto-kr']],
-    ['en', ['en-US'], ['font-inter', 'font-noto-kr']],
-    ['fr', ['fr-FR'], ['font-inter', 'font-noto-kr']],
-    ['ru', ['ru-RU'], ['font-inter', 'font-noto-kr']],
-    ['el', ['el-GR'], ['font-inter', 'font-noto-kr']],
-    ['ko', ['ja-JP', 'ko-KR'], ['font-inter', 'font-noto-kr', 'font-noto-jp']],
-    ['en', ['ja-JP', 'ko-KR'], ['font-inter', 'font-noto-kr', 'font-noto-jp']],
-    ['en', ['zh-TW'], ['font-inter', 'font-noto-kr', 'font-noto-tc']],
-    ['fr', ['ja-JP'], ['font-inter', 'font-noto-kr', 'font-noto-jp']],
+    ['ko', ['en-US'], ['font-inter', 'font-hangul', 'font-noto-kr']],
+    ['en', ['en-US'], ['font-inter', 'font-hangul', 'font-noto-kr']],
+    ['fr', ['fr-FR'], ['font-inter', 'font-hangul', 'font-noto-kr']],
+    ['ru', ['ru-RU'], ['font-inter', 'font-hangul', 'font-noto-kr']],
+    ['el', ['el-GR'], ['font-inter', 'font-hangul', 'font-noto-kr']],
+    ['ko', ['ja-JP', 'ko-KR'], ['font-inter', 'font-hangul', 'font-noto-kr', 'font-noto-jp']],
+    ['en', ['ja-JP', 'ko-KR'], ['font-inter', 'font-hangul', 'font-noto-kr', 'font-noto-jp']],
+    ['en', ['zh-TW'], ['font-inter', 'font-hangul', 'font-noto-kr', 'font-noto-tc']],
+    ['fr', ['ja-JP'], ['font-inter', 'font-hangul', 'font-noto-kr', 'font-noto-jp']],
     ['ja', ['en-US'], ['font-inter', 'font-noto-jp']],
     ['ja', ['zh-CN'], ['font-inter', 'font-noto-jp']],
     ['zh-hans', ['en-US'], ['font-inter', 'font-noto-sc']],
     ['zh-hant', ['ja-JP'], ['font-inter', 'font-noto-tc']],
-    ['th', ['th-TH'], ['font-inter', 'font-noto-thai', 'font-noto-kr']],
-    ['ar', ['ar'], ['font-inter', 'noto-arabic', 'font-noto-kr']],
-    ['fa', ['fa'], ['font-inter', 'noto-arabic', 'font-noto-kr']],
-    ['he', ['he'], ['font-inter', 'noto-hebrew', 'font-noto-kr']],
-    ['hi', ['hi'], ['font-inter', 'noto-devanagari', 'font-noto-kr']],
-    ['mr', ['mr'], ['font-inter', 'noto-devanagari', 'font-noto-kr']],
-    ['pa', ['pa'], ['font-inter', 'noto-gurmukhi', 'font-noto-kr']],
+    ['th', ['th-TH'], ['font-inter', 'font-noto-thai', 'font-hangul', 'font-noto-kr']],
+    ['ar', ['ar'], ['font-inter', 'noto-arabic', 'font-hangul', 'font-noto-kr']],
+    ['fa', ['fa'], ['font-inter', 'noto-arabic', 'font-hangul', 'font-noto-kr']],
+    ['he', ['he'], ['font-inter', 'noto-hebrew', 'font-hangul', 'font-noto-kr']],
+    ['hi', ['hi'], ['font-inter', 'noto-devanagari', 'font-hangul', 'font-noto-kr']],
+    ['mr', ['mr'], ['font-inter', 'noto-devanagari', 'font-hangul', 'font-noto-kr']],
+    ['pa', ['pa'], ['font-inter', 'noto-gurmukhi', 'font-hangul', 'font-noto-kr']],
   ] as const)('the %s UI with browser languages %j loads %j', async (code, languages, expected) => {
     setLanguages(languages);
     const runtime = await freshRuntime();
@@ -260,8 +260,8 @@ describe('phase A', () => {
 
   it('loads the same sheets in the same order for the Korean and English UIs under every Han order', async () => {
     // Until phase B, a Hangul nickname or room member name must not draw in a
-    // device font in one UI and in Noto Sans KR in the other, whatever the
-    // browser's first CJK language.
+    // device font in one UI and in MUSIXQUARE Hangul in the other, whatever
+    // the browser's first CJK language.
     for (const languages of [['ko-KR'], ['en-US'], ['ja-JP'], ['zh-CN', 'ko-KR'], ['zh-HK']]) {
       setLanguages(languages);
       sheets.requests.length = 0;
@@ -270,6 +270,7 @@ describe('phase A', () => {
       sheets.requests.length = 0;
       await (await freshRuntime()).loadLanguageFonts('en');
       expect(sheets.requests, languages.join()).toEqual(korean);
+      expect(korean, languages.join()).toContain('font-hangul');
       expect(korean, languages.join()).toContain('font-noto-kr');
     }
   });
@@ -287,12 +288,12 @@ describe('phase A', () => {
 
     const first = runtime.loadLanguageFonts('ko');
     const second = runtime.loadLanguageFonts('en');
-    expect(sheets.requests).toEqual(['font-inter', 'font-noto-kr']);
+    expect(sheets.requests).toEqual(['font-inter', 'font-hangul', 'font-noto-kr']);
     finish();
     await Promise.all([first, second]);
     await runtime.loadLanguageFonts('ko');
 
-    expect(sheets.requests).toEqual(['font-inter', 'font-noto-kr']);
+    expect(sheets.requests).toEqual(['font-inter', 'font-hangul', 'font-noto-kr']);
   });
 
   it('resolves without rejecting when a sheet fails', async () => {
@@ -309,7 +310,7 @@ describe('phase A', () => {
     await runtime.loadLanguageFonts('ko');
     await runtime.loadLanguageFonts('en');
 
-    expect(sheets.requests).toEqual(['font-inter', 'font-noto-kr', 'font-noto-kr']);
+    expect(sheets.requests).toEqual(['font-inter', 'font-hangul', 'font-noto-kr', 'font-noto-kr']);
   });
 });
 
@@ -357,7 +358,7 @@ describe('phase B', () => {
     window.dispatchEvent(new Event('load'));
     expect(pendingIdle()).toHaveLength(1);
     expect(pendingIdle()[0]?.options).toEqual({ timeout: FONT_SHEETS_IDLE_TIMEOUT_MS });
-    expect(sheets.requests).toEqual(['font-inter', 'font-noto-kr']);
+    expect(sheets.requests).toEqual(['font-inter', 'font-hangul', 'font-noto-kr']);
 
     await runIdle();
 
@@ -394,7 +395,7 @@ describe('phase B', () => {
     const runtime = await freshRuntime();
 
     await runtime.loadLanguageFonts('en');
-    expect(sheets.requests).toHaveLength(2);
+    expect(sheets.requests).toEqual(['font-inter', 'font-hangul', 'font-noto-kr']);
     await vi.runOnlyPendingTimersAsync();
 
     expect(sheets.requests).toHaveLength(APP_SHEET_IDS.length);
@@ -778,7 +779,7 @@ describe("phase C: idle prefetch of the UI language's frequent shards", () => {
       await runIdle();
       expect(fonts.load).toHaveBeenCalledTimes(batches.length + 1);
       const [font, text] = fonts.load.mock.calls.at(-1) ?? [];
-      expect(font).toBe('400 16px "Noto Sans KR"');
+      expect(font).toBe('400 16px "MUSIXQUARE Hangul"');
       batches.push(text ?? '');
       expect(pendingIdle()).toHaveLength(0);
       fonts.finish();
@@ -811,7 +812,7 @@ describe("phase C: idle prefetch of the UI language's frequent shards", () => {
     // Each shard's face declares its sample among other letters; the first has loaded.
     for (const [index, shard] of KO.shards.entries()) {
       fonts.faces.push({
-        family: '"Noto Sans KR"',
+        family: '"MUSIXQUARE Hangul"',
         unicodeRange: `U+0041-005A, U+${codePoint(shard)}, U+E000-E00${index % 10}`,
         status: index === 0 ? 'loaded' : 'unloaded',
       });
@@ -852,7 +853,7 @@ describe("phase C: idle prefetch of the UI language's frequent shards", () => {
     vi.doMock('../font-prefetch-samples.ts', () => ({
       FONT_PREFETCH_BY_LANGUAGE: {
         ko: {
-          family: 'Noto Sans KR',
+          family: 'MUSIXQUARE Hangul',
           shards: Array.from({ length: count }, (_, index) => ({
             shard: 119 - index,
             sample: String.fromCodePoint(0xac00 + index),
@@ -919,7 +920,7 @@ describe("phase C: idle prefetch of the UI language's frequent shards", () => {
     await vi.advanceTimersByTimeAsync(FONT_PREFETCH_QUIET_MS);
     await runIdle();
 
-    expect(fonts.load.mock.calls[0]?.[0]).toBe('400 16px "Noto Sans KR"');
+    expect(fonts.load.mock.calls[0]?.[0]).toBe('400 16px "MUSIXQUARE Hangul"');
   });
 
   it('prefetches nothing for a UI without a list', async () => {
@@ -975,7 +976,7 @@ describe("phase C: idle prefetch of the UI language's frequent shards", () => {
     const runtime = await throughPhaseB('ko');
     await vi.advanceTimersByTimeAsync(FONT_PREFETCH_QUIET_MS);
     await runIdle();
-    expect(fonts.load.mock.calls[0]?.[0]).toBe('400 16px "Noto Sans KR"');
+    expect(fonts.load.mock.calls[0]?.[0]).toBe('400 16px "MUSIXQUARE Hangul"');
 
     await runtime.loadLanguageFonts('ja');
     fonts.finish();
@@ -1033,7 +1034,7 @@ describe("phase C: idle prefetch of the UI language's frequent shards", () => {
   });
 
   /**
-   * The Noto Sans KR faces in their sheet's order, after a few faces of
+   * The MUSIXQUARE Hangul faces in their sheet's order, after a few faces of
    * another family, with every unicode-range read counted.
    */
   function installCountingFontSet() {
@@ -1048,14 +1049,14 @@ describe("phase C: idle prefetch of the UI language's frequent shards", () => {
       });
       return face;
     };
-    const css = readFileSync('css/fonts/app/font-noto-kr.css', 'utf8');
+    const css = readFileSync('css/fonts/app/font-hangul.css', 'utf8');
     const ranges = [...css.matchAll(/unicode-range:\s*([^;]+);/gu)].map((match) =>
       (match[1] ?? '').trim(),
     );
     expect(ranges.length).toBeGreaterThan(KO.shards.length);
     const faces = [
       ...Array.from({ length: 7 }, () => counted('Inter', 'U+0000-00FF')),
-      ...ranges.map((range) => counted('"Noto Sans KR"', range)),
+      ...ranges.map((range) => counted('"MUSIXQUARE Hangul"', range)),
     ];
     const load = vi.fn((_font: string, _text?: string) => Promise.resolve([{} as FontFace]));
     Object.defineProperty(document, 'fonts', {
@@ -1084,19 +1085,19 @@ describe("phase C: idle prefetch of the UI language's frequent shards", () => {
 
   it("waits for its family's sheet and prefetches once a retry declares it", async () => {
     const fonts = installFontSet({ settleAtOnce: true });
-    sheets.behaviour.set('font-noto-kr', failing(2));
+    sheets.behaviour.set('font-hangul', failing(2));
     await throughPhaseB('ko');
-    const krRequests = () => sheets.requests.filter((id) => id === 'font-noto-kr').length;
-    expect(krRequests()).toBe(2);
+    const hangulRequests = () => sheets.requests.filter((id) => id === 'font-hangul').length;
+    expect(hangulRequests()).toBe(2);
 
     await vi.advanceTimersByTimeAsync(Math.max(FONT_PREFETCH_QUIET_MS, FONT_SHEET_RETRY_DELAY_MS));
     await runIdle();
-    expect(krRequests()).toBe(3);
+    expect(hangulRequests()).toBe(3);
     expect(fonts.load).not.toHaveBeenCalled();
 
     await runIdle();
     expect(fonts.load.mock.calls[0]).toEqual([
-      '400 16px "Noto Sans KR"',
+      '400 16px "MUSIXQUARE Hangul"',
       samplesOf(KO.shards.slice(0, FONT_PREFETCH_BATCH_FACES)),
     ]);
   });
@@ -1244,8 +1245,9 @@ describe('failed face recovery', () => {
   });
 
   it('declares its family again after a rejected phase C batch', async () => {
-    installFaces([{ family: 'Noto Sans KR', unicodeRange: 'U+AC00-D7A3', status: 'error' }], () =>
-      Promise.reject(new Error('NetworkError')),
+    installFaces(
+      [{ family: 'MUSIXQUARE Hangul', unicodeRange: 'U+AC00-D7A3', status: 'error' }],
+      () => Promise.reject(new Error('NetworkError')),
     );
     await declaredEverywhere('ko');
     expect(sheets.redeclared).toEqual([]);
@@ -1254,7 +1256,7 @@ describe('failed face recovery', () => {
     await runIdle();
     await settle();
 
-    expect(sheets.redeclared).toEqual(['font-noto-kr']);
+    expect(sheets.redeclared).toEqual(['font-hangul']);
   });
 });
 
@@ -1266,7 +1268,7 @@ describe('language name glyph warming', () => {
   }
 
   it.each([
-    ['ko', '한국어', 'font-noto-kr', 'Noto Sans KR'],
+    ['ko', '한국어', 'font-hangul', 'MUSIXQUARE Hangul'],
     ['ja', '日本語', 'font-noto-jp', 'Noto Sans JP'],
     ['zh-hans', '简体中文', 'font-noto-sc', 'Noto Sans SC'],
     ['zh-hant', '繁體中文', 'font-noto-tc', 'Noto Sans TC'],
@@ -1335,8 +1337,8 @@ describe('language name glyph warming', () => {
     await runtime.preloadNativeNameGlyphs('ko', '한국어');
 
     expect(glyphs.mock.calls).toEqual([
-      ['700 15px "Noto Sans KR"', '한국'],
-      ['700 15px "Noto Sans KR"', '어'],
+      ['700 15px "MUSIXQUARE Hangul"', '한국'],
+      ['700 15px "MUSIXQUARE Hangul"', '어'],
     ]);
   });
 

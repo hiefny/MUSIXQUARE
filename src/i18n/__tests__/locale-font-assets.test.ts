@@ -54,6 +54,11 @@ describe('self-hosted locale font assets', () => {
     expect(localeFontAssetInlineLimit('/workspace/fonts/app/noto-sans-sc/shard.4.woff2')).toBe(
       false,
     );
+    // The Hangul faces too: #95 is 1.4 KB, #119 3.3 KB.
+    expect(localeFontAssetInlineLimit('/workspace/fonts/app/hangul/hangul.95.woff2')).toBe(false);
+    expect(localeFontAssetInlineLimit('C:\\workspace\\fonts\\app\\hangul\\hangul.119.woff2')).toBe(
+      false,
+    );
     expect(localeFontAssetInlineLimit('/workspace/fonts/app-faces.json')).toBeUndefined();
     expect(localeFontAssetInlineLimit('/workspace/css/fonts/app/notes.txt')).toBeUndefined();
     expect(bindStaticLocaleFontAssets().name).toBe('bind-static-locale-font-assets');

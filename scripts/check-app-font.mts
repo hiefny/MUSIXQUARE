@@ -3,9 +3,11 @@
  * The app font guard (npm run guard:font-assets, and guard:font-build with
  * --dist after a build).
  *
- * The app draws text with Inter and Noto only, from one font stack shared by
- * the Korean and English UIs, and its font owner src/i18n/locale-fonts.ts is
- * the only code that loads the font sheets. Source checks:
+ * The app draws text with Inter, MUSIXQUARE Hangul (its own subsets of
+ * Pretendard, owner decision 2026-11-02) and Noto only, from one font stack
+ * shared by the Korean and English UIs, and its font owner
+ * src/i18n/locale-fonts.ts is the only code that loads the font sheets.
+ * Source checks:
  * - the Inter and Noto Sans KR files kept from Google match
  *   fonts/font-sources.json (Noto Sans KR without its Korean locl lookup);
  *   the app faces in fonts/app/ match fonts/app-faces.json, each a copy of
@@ -18,20 +20,20 @@
  * - every face is self-hosted: one sheet-relative url() of a committed WOFF2
  *   file under fonts/, never local(), a remote URL or a second source;
  * - every Inter and CJK face carries the metric descriptors of
- *   src/i18n/font-metrics.ts, and the script faces carry none;
+ *   src/i18n/font-metrics.ts, and the Hangul and script faces carry none;
  * - the stacks: text takes its family from the app's stacks (a literal list
  *   only in the recorded LITERAL_FONT_FAMILY_RULES); every stack (the body's
  *   and each declaration that reads one) is the same in the Korean and
  *   English UIs under every Han order, and names every app family, Inter
- *   ahead of the CJK families;
+ *   ahead of MUSIXQUARE Hangul ahead of the CJK families;
  * - no app rule applies in only one of the Korean and English UIs, whatever
  *   it sets, but the recorded KOREAN_ENGLISH_COPY_RULES for translated copy;
  *   no rule turns Inter's contextual alternates off; css/app.css and its
  *   imports declare no @font-face;
  * - one source per script: Latin, Cyrillic and Greek that Inter draws come
- *   only from Inter, Hangul Noto Sans KR draws only from KR, kana Noto Sans JP
- *   draws only from JP (by block or by Unicode Script), in every stack of
- *   every UI;
+ *   only from Inter, Hangul MUSIXQUARE Hangul draws only from it, the Hangul
+ *   it lacks that Noto Sans KR draws only from KR, kana Noto Sans JP draws
+ *   only from JP (by block or by Unicode Script), in every stack of every UI;
  * - coverage: every non-PUA character Pretendard drew, every character of
  *   the catalogs and index.html, the KS X 1001 repertoire and the visible
  *   text-presentation symbols of the punctuation, letterlike, arrow, math,
@@ -40,14 +42,16 @@
  *   scripts/fonts/uncovered-code-points.txt, which must name exactly the gaps
  *   (a device font picked by page language draws those, so a new gap is a
  *   new difference between the Korean and English UIs);
- * - no Pretendard in the app, no Pretendard runtime, no service worker font
- *   group, and no font preload in any HTML.
+ * - no Pretendard by name in the app (the Hangul faces carry their own
+ *   name), no Pretendard runtime, no service worker font group, and no font
+ *   preload in any HTML.
  * The initial transfer budget (scripts/check-initial-transfer-budget.mts)
  * holds the eager font bytes at 0, fonts of eager stylesheets included.
  * --dist adds the built output: no font in the initial graph of the app
- * document or its localized copies, each of the 16 app sheets its own lazy
+ * document or its localized copies, each of the 17 app sheets its own lazy
  * CSS asset with the expected descriptors and root-relative WOFF2 files, the built
- * Inter and CJK faces equal to their baked copies, no font sheet or file in
+ * Inter and CJK faces equal to their baked copies and the built Hangul faces to
+ * fonts/app/hangul/, no font sheet or file in
  * the service worker's install manifests (which do install the font owner
  * chunk itself), About's locale links bound to the
  * processed original sheets, and Pretendard deployed once for the public
@@ -61,6 +65,8 @@ import { CLASSIC_RUNTIME_ASSETS, compileClassicRuntimeAsset } from './classic-ru
 import { findStaleFontSheets } from './fonts/build-font-sheets.mts';
 import {
   APP_FACE_FAMILIES,
+  HANGUL_FACES_DIRECTORY,
+  HANGUL_FAMILY,
   fontCodePoints,
   openFontFile,
   verifyAppFaces,
@@ -69,6 +75,7 @@ import {
 } from './fonts/font-files.mts';
 import { readFaceResolver, readFontStacks, type FaceResolver } from './fonts/font-stacks.mts';
 import {
+  APP_CJK_FAMILIES,
   builtAssetStem,
   declaresFontFace,
   disablesContextualAlternates,
@@ -83,6 +90,7 @@ import {
   localDistAssetPath,
   parseCodePointList,
   stackCoverageGaps,
+  stackOrderProblems,
   textSymbolCodePoints,
   woff2Urls,
   type FaceMetricValues,
@@ -124,7 +132,6 @@ const PRETENDARD_PUBLIC = path.join(
   'PretendardVariable.woff2',
 );
 const UNCOVERED_LIST = 'scripts/fonts/uncovered-code-points.txt';
-const CJK_FAMILIES = ['Noto Sans KR', 'Noto Sans JP', 'Noto Sans SC', 'Noto Sans TC'];
 const SYSTEM_FAMILIES = new Set([
   '-apple-system',
   'BlinkMacSystemFont',
@@ -133,12 +140,14 @@ const SYSTEM_FAMILIES = new Set([
   'sans-serif',
 ]);
 const APP_FAMILIES: readonly string[] = APP_FONT_SHEETS.map(({ family }) => family);
+// Inter and the CJK faces carry the descriptors of font-metrics.ts. The Hangul
+// faces carry none (their files hold the line box itself), nor do the script faces.
 const FACE_METRICS = new Map<string, FaceMetricValues | null>(
   APP_FONT_SHEETS.map(({ family }) => [
     family,
     family === 'Inter'
       ? INTER_FACE_METRICS
-      : CJK_FAMILIES.includes(family)
+      : APP_CJK_FAMILIES.includes(family)
         ? CJK_FACE_METRICS
         : null,
   ]),
@@ -337,11 +346,7 @@ for (const hanOrder of HAN_ORDERS) {
       check(strays.length === 0, `${where} names ${strays.join(', ')}`);
       const missing = APP_FAMILIES.filter((family) => !stack.includes(family));
       check(missing.length === 0, `${where} omits ${missing.join(', ')}`);
-      const inter = stack.indexOf('Inter');
-      check(
-        inter >= 0 && CJK_FAMILIES.every((family) => stack.indexOf(family) > inter),
-        `${where} puts a CJK family before Inter`,
-      );
+      for (const problem of stackOrderProblems(stack)) failures.push(`${where}: ${problem}`);
     }
   }
 }
@@ -406,9 +411,22 @@ async function checkScriptsAndCoverage(resolver: FaceResolver): Promise<number> 
       ) && resolver.faceFor(['Inter'], codePoint) !== null,
   );
   const hangulSyllables = Array.from({ length: 11_172 }, (_, index) => 0xac00 + index);
+  // Hangul comes from MUSIXQUARE Hangul wherever it has the character, and
+  // from Noto Sans KR only for the Hangul it lacks (owner decision 2026-11-02).
+  const hangulFamily = ownedBy(HANGUL_FAMILY, isHangul);
+  const hangulFamilySet = new Set(hangulFamily);
+  check(
+    hangulSyllables.every((codePoint) => hangulFamilySet.has(codePoint)),
+    `${HANGUL_FAMILY} does not draw every Hangul syllable`,
+  );
   const ownerChecks: [string, number[], string][] = [
     ['Latin, Cyrillic and Greek letters and digits', interLetters, 'Inter'],
-    ['Hangul', ownedBy('Noto Sans KR', isHangul), 'Noto Sans KR'],
+    ['Hangul', hangulFamily, HANGUL_FAMILY],
+    [
+      `Hangul ${HANGUL_FAMILY} lacks`,
+      ownedBy('Noto Sans KR', isHangul).filter((codePoint) => !hangulFamilySet.has(codePoint)),
+      'Noto Sans KR',
+    ],
     ['kana', ownedBy('Noto Sans JP', isKana), 'Noto Sans JP'],
   ];
   for (const [where, stack] of textStacks) {
@@ -610,8 +628,12 @@ if (distMode) {
     }
   }
 
-  // The built Inter and CJK faces are the baked copies in fonts/app/.
-  for (const { sheet: id, output } of APP_FACE_FAMILIES) {
+  // The built Inter and CJK faces are the baked copies in fonts/app/, and the
+  // built Hangul faces the files in fonts/app/hangul/.
+  for (const { sheet: id, output } of [
+    ...APP_FACE_FAMILIES,
+    { sheet: 'font-hangul', output: HANGUL_FACES_DIRECTORY },
+  ]) {
     const sheetFile = appSheetFiles.get(id);
     if (!sheetFile) continue;
     const urls = woff2Urls(await readFile(sheetFile, 'utf8'));
@@ -779,6 +801,6 @@ if (failures.length > 0) {
   process.exitCode = 1;
 } else {
   console.log(
-    `App font guard passed (Inter and Noto files, baked app faces and self-hosted sheets, ${textStacks.size} distinct text stacks, one source per script, coverage with ${recordedGapCount} recorded gaps${distMode ? ', built sheets, initial graph and install manifests' : ''}).`,
+    `App font guard passed (Inter and Noto files, Hangul faces, baked app faces and self-hosted sheets, ${textStacks.size} distinct text stacks, one source per script, coverage with ${recordedGapCount} recorded gaps${distMode ? ', built sheets, initial graph and install manifests' : ''}).`,
   );
 }

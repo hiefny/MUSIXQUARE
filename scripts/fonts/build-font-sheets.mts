@@ -9,17 +9,24 @@
  * Inputs: fonts/font-sources.json (Inter and Noto Sans KR files with Google's
  * ranges), Google's sheets css/fonts/noto-{jp,sc,tc,thai}.css (read, never
  * changed: the static pages keep using them), the cmaps of the input files,
- * the descriptors in src/i18n/font-metrics.ts, and fonts/app-faces.json.
+ * the descriptors in src/i18n/font-metrics.ts, fonts/app-faces.json and
+ * fonts/hangul-faces.json.
  *
  * The Inter and CJK faces point at the copies in fonts/app/ that
  * scripts/fonts/build-app-faces.mts bakes the line box of
  * src/i18n/font-metrics.ts into; the cuts below read the input files, whose
- * cmaps the copies keep. The first stage of the write mode runs that
- * generator, which bakes only new or changed faces.
+ * cmaps the copies keep. The Hangul faces are the subsets in
+ * fonts/app/hangul/ that scripts/fonts/build-hangul-faces.mts cuts from
+ * Pretendard. The write mode first runs those two generators, which build
+ * only new or changed faces (the Hangul faces first: the CJK cuts read them).
  *
  * The range edits give every script exactly one family, so no browser can
  * draw one script from two families:
  * - Inter keeps Google's subsets and ranges unchanged.
+ * - MUSIXQUARE Hangul (owner decision 2026-11-02) draws the Hangul
+ *   Pretendard has: each face declares exactly its cmap, which is Hangul
+ *   only, and carries no size-adjust or override, since its file holds the
+ *   line box every other face is sized to.
  * - The four CJK families keep their numbered shards only. Each face keeps
  *   only the code points its own file draws: Google's ranges also claim
  *   characters some shards lack (emoji, a few Thai, Arabic, Hebrew and
@@ -28,11 +35,12 @@
  *   face also loses every code point Inter draws, which is Inter's cmap
  *   inside Inter's own ranges (cutting by Inter's declared ranges would drop
  *   marks Inter lacks, such as U+203B and U+203C, to a device font chosen by
- *   html lang). Hangul that Noto Sans KR draws stays only in KR and kana
- *   that Noto Sans JP draws only in JP, each found by block or by Unicode
- *   Script (parenthesized and circled Hangul such as ㈜ and ㉠, circled and
- *   square katakana such as ㋖ and ㌔ sit outside the blocks); a character the
- *   owner lacks, such as the halfwidth jamo, stays in the family that draws
+ *   html lang). Hangul that MUSIXQUARE Hangul draws leaves all four; the
+ *   Hangul it lacks that Noto Sans KR draws (the conjoining jamo, the archaic
+ *   compatibility jamo, ㉠ and the other parenthesized and circled Hangul but
+ *   ㈜) stays only in KR, and kana that Noto Sans JP draws only in JP, each
+ *   found by block or by Unicode Script (㈜, ㉠, ㋖ and ㌔ sit outside the
+ *   blocks); a character both owners lack stays in the family that draws
  *   it. The invisible and space marks U+200B-200F, U+202F, U+2060-2064 and
  *   U+FEFF leave all four, so the device font draws them. A face left with
  *   nothing is dropped.
@@ -42,9 +50,11 @@
  *
  * It also writes src/i18n/font-prefetch-samples.ts, the idle prefetch table
  * of src/i18n/locale-fonts.ts: for the Korean, Japanese and Chinese UIs, the
- * most frequent shards of their own family (Google numbers shards by
- * frequency, the highest first) that fit within the face and byte caps of
- * src/i18n/font-loading-policy.ts, each with one letter only it declares.
+ * most frequent shards of the family that draws their own words (MUSIXQUARE
+ * Hangul for Korean; Google numbers shards by frequency, the highest first,
+ * and the Hangul faces keep Noto Sans KR's numbers) that fit within the face
+ * and byte caps of src/i18n/font-loading-policy.ts, each with one letter only
+ * it declares.
  */
 import { mkdir, readFile, readdir, stat, writeFile } from 'node:fs/promises';
 import path from 'node:path';
@@ -59,17 +69,22 @@ import {
 import { CJK_FACE_METRICS, INTER_FACE_METRICS } from '../../src/i18n/font-metrics.ts';
 import {
   APP_FACES_PATH,
+  HANGUL_FACES_PATH,
   appFaceOutputs,
   fontCodePoints,
   formatUnicodeRange,
+  isHangul,
   openFontFile,
   parseFontFaceRules,
   parseUnicodeRange,
   readAppFaces,
   readFontSources,
+  readHangulFaces,
   verifyAppFaces,
+  verifyHangulFaces,
   type FontFaceRule,
   type FontSources,
+  type HangulFaces,
 } from './font-files.mts';
 
 export interface GeneratedFontSheet {
@@ -90,18 +105,11 @@ const OUTPUT_DIRECTORY = 'css/fonts/app';
 const PREFETCH_TABLE = 'src/i18n/font-prefetch-samples.ts';
 /** The UI languages with a prefetch list, and the family that draws their own words. */
 const PREFETCH_LANGUAGES = [
-  ['ko', 'font-noto-kr'],
+  ['ko', 'font-hangul'],
   ['ja', 'font-noto-jp'],
   ['zh-hans', 'font-noto-sc'],
   ['zh-hant', 'font-noto-tc'],
 ] as const;
-const HANGUL: readonly Range[] = [
-  [0x1100, 0x11ff],
-  [0x3130, 0x318f],
-  [0xa960, 0xa97f],
-  [0xac00, 0xd7a3],
-  [0xd7b0, 0xd7ff],
-];
 const KANA: readonly Range[] = [
   [0x3040, 0x30ff],
   [0x31f0, 0x31ff],
@@ -125,15 +133,35 @@ interface CjkFamily {
   readonly id: string;
   /** Google's sheet in css/fonts/, or null for Noto Sans KR from the record. */
   readonly googleSheet: string | null;
-  readonly dropHangul: boolean;
+  /**
+   * The Hangul the family gives up: what MUSIXQUARE Hangul draws (Noto Sans
+   * KR, which keeps the Hangul that family lacks), or that and what Noto
+   * Sans KR draws (every other family).
+   */
+  readonly dropHangul: 'hangul-family' | 'hangul-family-and-korean';
   readonly dropKana: boolean;
 }
 
 const CJK_FAMILIES: readonly CjkFamily[] = [
-  { id: 'font-noto-kr', googleSheet: null, dropHangul: false, dropKana: true },
-  { id: 'font-noto-jp', googleSheet: 'css/fonts/noto-jp.css', dropHangul: true, dropKana: false },
-  { id: 'font-noto-sc', googleSheet: 'css/fonts/noto-sc.css', dropHangul: true, dropKana: true },
-  { id: 'font-noto-tc', googleSheet: 'css/fonts/noto-tc.css', dropHangul: true, dropKana: true },
+  { id: 'font-noto-kr', googleSheet: null, dropHangul: 'hangul-family', dropKana: true },
+  {
+    id: 'font-noto-jp',
+    googleSheet: 'css/fonts/noto-jp.css',
+    dropHangul: 'hangul-family-and-korean',
+    dropKana: false,
+  },
+  {
+    id: 'font-noto-sc',
+    googleSheet: 'css/fonts/noto-sc.css',
+    dropHangul: 'hangul-family-and-korean',
+    dropKana: true,
+  },
+  {
+    id: 'font-noto-tc',
+    googleSheet: 'css/fonts/noto-tc.css',
+    dropHangul: 'hangul-family-and-korean',
+    dropKana: true,
+  },
 ];
 
 interface SourceFace {
@@ -276,10 +304,6 @@ function assertGoogleCjkRule(rule: FontFaceRule, family: string, sheetPath: stri
   }
 }
 
-/** Hangul by block or by Script=Hangul: ㈜ and ㉠ sit outside the Hangul blocks. */
-const isHangul = (codePoint: number): boolean =>
-  inRanges(codePoint, HANGUL) || /\p{Script=Hangul}/u.test(String.fromCodePoint(codePoint));
-
 /** Kana by block or by Script=Hiragana/Katakana: ㋖ and ㌔ sit outside the kana blocks. */
 const isKana = (codePoint: number): boolean =>
   inRanges(codePoint, KANA) ||
@@ -341,25 +365,30 @@ async function cjkFaces(
 }
 
 /**
- * A CJK family's faces minus the Hangul that Noto Sans KR draws (for every
- * family but KR) and the kana that Noto Sans JP draws (for every family but
- * JP), each by block or by script property. A character the owning family
- * lacks, such as the halfwidth jamo only JP draws, stays where it is drawn. A
+ * A CJK family's faces minus the Hangul that MUSIXQUARE Hangul draws (every
+ * family) and that Noto Sans KR draws (every family but KR), and the kana
+ * that Noto Sans JP draws (every family but JP), each by block or by script
+ * property. A character the owning families lack stays where it is drawn. A
  * face left with nothing is dropped.
  */
 function keptFaces(
   family: CjkFaces,
-  koreanHangul: ReadonlySet<number>,
-  japaneseKana: ReadonlySet<number>,
+  owned: {
+    readonly hangulFamily: ReadonlySet<number>;
+    readonly koreanHangul: ReadonlySet<number>;
+    readonly japaneseKana: ReadonlySet<number>;
+  },
 ): { file: string; kept: number[] }[] {
   const { recipe } = family;
+  const dropsHangul = (codePoint: number): boolean =>
+    owned.hangulFamily.has(codePoint) ||
+    (recipe.dropHangul === 'hangul-family-and-korean' && owned.koreanHangul.has(codePoint));
   return family.faces
     .map((face) => ({
       file: face.file,
       kept: face.kept.filter(
         (codePoint) =>
-          !(recipe.dropHangul && koreanHangul.has(codePoint)) &&
-          !(recipe.dropKana && japaneseKana.has(codePoint)),
+          !dropsHangul(codePoint) && !(recipe.dropKana && owned.japaneseKana.has(codePoint)),
       ),
     }))
     .filter(({ kept }) => kept.length > 0);
@@ -376,7 +405,9 @@ function cjkSheet(
   const dropped = [
     "every code point the face's own file lacks",
     'every code point Inter draws (its cmap inside its own ranges)',
-    ...(recipe.dropHangul ? ['the Hangul Noto Sans KR draws (by block or script)'] : []),
+    recipe.dropHangul === 'hangul-family'
+      ? `the Hangul MUSIXQUARE Hangul draws (${HANGUL_FACES_PATH})`
+      : `the Hangul MUSIXQUARE Hangul (${HANGUL_FACES_PATH}) and Noto Sans KR draw (by block or script)`,
     ...(recipe.dropKana ? ['the kana Noto Sans JP draws (by block or script)'] : []),
     `the invisible marks ${INVISIBLE_TEXT}`,
   ];
@@ -432,15 +463,46 @@ async function thaiSheet(repoRoot: string): Promise<string> {
   );
 }
 
+/**
+ * The Hangul sheet: one face per recorded Hangul face, declaring its code
+ * points (its cmap) with the wght axis its file keeps and no metric
+ * descriptor, since the file holds the app's line box.
+ */
+function hangulSheet(record: HangulFaces): string {
+  const sheet = appSheet('font-hangul');
+  const [min, max] = record.source.wght;
+  return sheetText(
+    [
+      `${sheet.family} for the app: the Hangul Pretendard draws.`,
+      `Generated by ${GENERATOR} from ${HANGUL_FACES_PATH}. Do not edit by hand.`,
+      `Faces: subsets of Pretendard Variable ${record.source.version.replace(/ \(.*\)$/u, '')} by Kil Hyung-jin (${record.source.file}), one per Noto Sans KR shard that declares Hangul, cut by scripts/fonts/build-hangul-faces.mts and named ${sheet.family}, since Pretendard is a Reserved Font Name. Each face's unicode-range is its cmap.`,
+      'Metrics: none; the files hold HANGUL_LINE_BOX of src/i18n/font-metrics.ts, the line box of every app face.',
+      `License: ${record.source.license} (SIL OFL 1.1)`,
+    ],
+    record.faces.map(({ file, unicodeRange }) =>
+      block([
+        `font-family: '${sheet.family}'`,
+        'font-style: normal',
+        `font-weight: ${min} ${max}`,
+        'font-display: swap',
+        `src: url(${path.posix.relative(path.posix.dirname(sheet.path), `${record.directory}/${file}`)}) format('woff2')`,
+        `unicode-range: ${unicodeRange}`,
+      ]),
+    ),
+  );
+}
+
 /** Every Inter and CJK face the app sheets keep, by its input file, after the cuts. */
 interface KeptAppFaces {
   readonly sources: FontSources;
+  readonly hangul: HangulFaces;
   readonly inter: readonly { file: string; unicodeRange: string }[];
   readonly cjk: readonly { family: CjkFaces; faces: { file: string; kept: number[] }[] }[];
 }
 
 async function computeKeptFaces(repoRoot: string): Promise<KeptAppFaces> {
   const sources = await readFontSources(repoRoot);
+  const hangul = await readHangulFaces(repoRoot);
   const inter = await interFaces(repoRoot, sources);
   const families: CjkFaces[] = [];
   for (const recipe of CJK_FAMILIES) {
@@ -451,15 +513,25 @@ async function computeKeptFaces(repoRoot: string): Promise<KeptAppFaces> {
     if (!family) throw new Error(`${GENERATOR} has no recipe for ${id}`);
     return family;
   };
-  const koreanHangul = familyCodePoints(owner('font-noto-kr'), isHangul);
-  const japaneseKana = familyCodePoints(owner('font-noto-jp'), isKana);
+  const hangulFamily = new Set<number>();
+  for (const face of hangul.faces) {
+    for (const codePoint of parseUnicodeRange(face.unicodeRange)) {
+      if (!isHangul(codePoint)) {
+        throw new Error(`${HANGUL_FACES_PATH} gives ${face.file} a code point that is not Hangul`);
+      }
+      hangulFamily.add(codePoint);
+    }
+  }
+  const owned = {
+    hangulFamily,
+    koreanHangul: familyCodePoints(owner('font-noto-kr'), isHangul),
+    japaneseKana: familyCodePoints(owner('font-noto-jp'), isKana),
+  };
   return {
     sources,
+    hangul,
     inter: inter.faces,
-    cjk: families.map((family) => ({
-      family,
-      faces: keptFaces(family, koreanHangul, japaneseKana),
-    })),
+    cjk: families.map((family) => ({ family, faces: keptFaces(family, owned) })),
   };
 }
 
@@ -501,6 +573,7 @@ export async function buildFontSheets(repoRoot: string): Promise<GeneratedFontSh
   const baked = await bakedPaths(repoRoot);
   const built = new Map<string, string>([
     ['font-inter', interSheet(kept.sources, kept.inter, baked)],
+    ['font-hangul', hangulSheet(kept.hangul)],
   ]);
   for (const { family, faces } of kept.cjk) {
     built.set(family.recipe.id, cjkSheet(family, faces, baked));
@@ -586,9 +659,10 @@ export async function buildFontPrefetchSamples(
  * Generated by ${GENERATOR} from the app font
  * sheets. Do not edit by hand.
  *
- * For each UI language that draws its own words with a CJK family, the most
- * frequent shards of that family (Google numbers shards by frequency, the
- * highest first) that fit within FONT_PREFETCH_MAX_FACES and
+ * For each UI language that draws its own words with a CJK family (MUSIXQUARE
+ * Hangul for Korean), the most frequent shards of that family (Google numbers
+ * shards by frequency, the highest first, and the Hangul faces keep Noto Sans
+ * KR's numbers) that fit within FONT_PREFETCH_MAX_FACES and
  * FONT_PREFETCH_MAX_BYTES (src/i18n/font-loading-policy.ts). Each shard has
  * its face's place in the sheet, one letter only it declares in its family,
  * which loads it, and its file size.
@@ -658,10 +732,10 @@ export async function findStaleFontSheets(repoRoot: string): Promise<string[]> {
 async function main(): Promise<void> {
   const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..', '..');
   if (process.argv.includes('--check')) {
-    const faces = await verifyAppFaces(repoRoot);
+    const faces = [...(await verifyHangulFaces(repoRoot)), ...(await verifyAppFaces(repoRoot))];
     if (faces.length) {
       console.error(
-        `The baked app faces do not match ${APP_FACES_PATH}:\n${faces.map((line) => `  - ${line}`).join('\n')}`,
+        `The app faces do not match ${HANGUL_FACES_PATH} and ${APP_FACES_PATH}:\n${faces.map((line) => `  - ${line}`).join('\n')}`,
       );
       process.exitCode = 1;
     }
@@ -673,11 +747,16 @@ async function main(): Promise<void> {
       process.exitCode = 1;
     }
     if (faces.length || stale.length) return;
-    console.log('The baked app faces match their record and the app font sheets the generator.');
+    console.log(
+      'The Hangul and baked app faces match their records and the app font sheets the generator.',
+    );
     return;
   }
-  // The baked faces first: the sheets name their files. A dynamic import, as
-  // the face generator reads appFaceInputs from this module.
+  // The faces first: the sheets name their files, and the CJK cuts read the
+  // Hangul faces. Dynamic imports, as the baked face generator reads
+  // appFaceInputs from this module.
+  const { buildHangulFaces } = await import('./build-hangul-faces.mts');
+  await buildHangulFaces(repoRoot, 'write');
   const { buildAppFaces } = await import('./build-app-faces.mts');
   await buildAppFaces(repoRoot, 'write');
   await mkdir(path.join(repoRoot, OUTPUT_DIRECTORY), { recursive: true });

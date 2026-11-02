@@ -413,6 +413,48 @@ describe('GuestZeroStartRecovery', () => {
     ]);
   });
 
+  // Pinned as today's behaviour, not claimed right, like the host's row: the
+  // settled check's own pause and seek never run for a target the run did not
+  // leave resident, because the identity check before it uses the same
+  // tolerance. The recovery polls to the end of its window, then gives up
+  // with the verified cleanup, which leaves the iframe paused at the local
+  // zero with the audio restored, and writes no log line.
+  it.each([
+    ['a cohort-excluded guest whose load is issued', 'cohort-excluded' as const, ADOPTED_WINDOW_MS],
+    ['an uncalibrated guest', 'clock-uncalibrated' as const, YOUTUBE_RECOVERY_BRIDGE_MS],
+  ])(
+    'waits out the window of %s without seeking again when a settle lands a loaded target past the tolerance',
+    (_case, reason, windowMs) => {
+      const rig = newRig();
+      const player = iframe(1, { __state: 1 });
+      rig.player = player;
+      const seek = player.seekTo;
+      player.seekTo = (seconds: number, allowAhead?: boolean) => {
+        seek(seconds, allowAhead);
+        player.__currentTime = seconds + YOUTUBE_RECOVERY_SETTLE_EPSILON_SEC + 0.001;
+      };
+      start(rig, fallbackEvent(player, { reason }));
+      vi.advanceTimersByTime(windowMs + 500);
+      expect(trace.lines.slice(3)).toEqual([
+        '+0 retained true',
+        ...once(0, ['owned true', 'autoplay false', '#1 pauseVideo()', '#1 seekTo(0,true)', POLL]),
+        ...every(50, windowMs - 50, YOUTUBE_RECOVERY_POLL_MS, NOT_READY),
+        ...once(windowMs, [
+          'owned true',
+          'autoplay false',
+          'cancel',
+          'autoplay false',
+          'retained false',
+          'owned true',
+          ...CLEANUP(),
+          'owned false',
+          'cancel',
+        ]),
+      ]);
+      expect(rig.flags).toEqual({ owned: false, retained: false });
+    },
+  );
+
   it('abandons with the verified cleanup when its target never settles by the end of its window', () => {
     const rig = newRig();
     const player = iframe(1, {});

@@ -41,7 +41,8 @@
  *     that share a name across files, identical numeric tuples, and timing
  *     objects that share five or more values are an exact, triaged list. A
  *     contract's scalar home, one named export per value
- *     (src/youtube/constants.ts for RO-02/RO-03/RO-12 since Phase 6 6A), adds
+ *     (src/youtube/constants.ts for RO-02/RO-03/RO-12 since Phase 6 6A,
+ *     src/audio/context-protocol.ts for RO-01 since Phase 7 7A-2), adds
  *     every numeric scalar there to the same-name check whatever its suffix,
  *     and its scalars pair with a timing object in another contract file as
  *     one object, `<scalars>`. Constants that only share a value are
@@ -449,7 +450,18 @@ interface TimingContract {
 }
 
 const TIMING_CONTRACTS: readonly TimingContract[] = [
-  { records: ['RO-01'], files: ['src/audio/context.ts', 'src/audio/context-recovery.ts'] },
+  {
+    records: ['RO-01'],
+    scalarHome: 'src/audio/context-protocol.ts',
+    files: [
+      // The AudioContext recovery timing home since Phase 7 7A-2 (C1-I1).
+      'src/audio/context-protocol.ts',
+      'src/audio/context.ts',
+      'src/audio/context-recovery.ts',
+      // The recovery dialog's waits after its tap.
+      'src/app.ts',
+    ],
+  },
   {
     records: ['RO-02', 'RO-03', 'RO-12'],
     scalarHome: 'src/youtube/constants.ts',

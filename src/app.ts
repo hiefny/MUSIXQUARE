@@ -53,6 +53,11 @@ import { setChannelMode } from './audio/channel.ts';
 import { isPlaybackPlayingFile } from './player/ownership.ts';
 import { inspectBackgroundFileOutput } from './audio/output-health.ts';
 import {
+  AUDIO_RECOVERY_CLOCK_REQUIREMENT_POLL_MS,
+  AUDIO_RECOVERY_CLOCK_REQUIREMENT_WAIT_MS,
+  AUDIO_RECOVERY_GESTURE_WAIT_MS,
+} from './audio/context-protocol.ts';
+import {
   armForegroundAudioContextClockHealthCheck,
   confirmForegroundAudioContextRestartHealth,
   getExistingAudioContext,
@@ -353,7 +358,7 @@ function primeIosAudioFromGesture(): void {
 async function waitForForegroundRestartClockRequirement(
   attemptToken: object,
   isCurrent: () => boolean,
-  timeoutMs = 5_000,
+  timeoutMs = AUDIO_RECOVERY_CLOCK_REQUIREMENT_WAIT_MS,
 ): Promise<NonNullable<
   ReturnType<typeof getPendingForegroundAudioContextRestartClockHealthRequirement>
 > | null> {
@@ -364,7 +369,7 @@ async function waitForForegroundRestartClockRequirement(
       return requirement;
     }
     if (Date.now() >= deadline) return null;
-    await delay(50);
+    await delay(AUDIO_RECOVERY_CLOCK_REQUIREMENT_POLL_MS);
   }
   return null;
 }
@@ -557,7 +562,7 @@ function runAudioRecoveryRequest(request: AudioRecoveryRequest): Promise<boolean
       }
       const gestureResult = await Promise.race([
         gestureFlight,
-        delay(1_000).then(() => ({
+        delay(AUDIO_RECOVERY_GESTURE_WAIT_MS).then(() => ({
           running: String(getExistingAudioContext()?.state) === 'running',
           rejoinEmitted: false,
           fallbackEligible: false,

@@ -248,12 +248,19 @@ RO-54 accepted-exception
   verifies an attempt of either cause still awaiting clock verification
   (`continueRecoveryInForeground`). Both use the owner's existing automatic probe, with no new
   timer.
-- **Timing-constant home:** none shared. `context.ts` holds `AUDIO_RESUME_DEADLINE_MS`,
-  `FOREGROUND_SUSPEND_PREPARE_DEADLINE_MS`, `FOREGROUND_GESTURE_RESUME_DEADLINE_MS`,
-  `FOREGROUND_LATE_SUSPEND_FENCE_MS`, `MAX_FOREGROUND_SUSPEND_ATTEMPTS`; `context-recovery.ts`
-  repeats them as `SUSPEND_PREPARE_DEADLINE_MS`, `SUSPEND_WATCHDOG_MS`,
-  `MAX_SEMANTIC_SUSPEND_ATTEMPTS`, `RESUME_DEADLINE_MS`; `app.ts` adds inline 1 s and 5 s waits.
-  Target: a leaf `src/audio/context-protocol.ts` (Phase 0d, C1-I1).
+- **Timing-constant home:** the leaf `src/audio/context-protocol.ts` since Phase 7 7A-2 (C1-I1),
+  one named export per value: `AUDIO_RESUME_DEADLINE_MS` (`ensureRunning` and a probe that may
+  resume), the probe's `AUDIO_CLOCK_SAMPLE_MS` and `AUDIO_CLOCK_MIN_ADVANCE_SECONDS`, both
+  owners' `AUDIO_SUSPEND_PREPARE_DEADLINE_MS`, `AUDIO_LATE_SUSPEND_FENCE_MS`,
+  `AUDIO_SUSPEND_WATCHDOG_MS`, `AUDIO_SUSPEND_MAX_ATTEMPTS` and
+  `AUDIO_RECOVERY_RESUME_DEADLINE_MS` (the gesture's resume, and the playback scope's automatic
+  one), `AUDIO_RETIRED_SUSPEND_CLEANUP_DEADLINE_MS`, and the recovery dialog's waits in `app.ts`
+  (`AUDIO_RECOVERY_GESTURE_WAIT_MS`, `AUDIO_RECOVERY_CLOCK_REQUIREMENT_WAIT_MS`,
+  `AUDIO_RECOVERY_CLOCK_REQUIREMENT_POLL_MS`). The three 500 ms values keep their own names. The
+  leaf also holds the one prepared-state predicate both owners read, `isAudioContextPrepared`. It
+  is not `src/audio/constants.ts` because that file sits in another eager chunk than `context.ts`
+  (importing it there moved every audio constant across the chunks), and none of it may move into
+  `context.ts`, which test files replace with factories.
 - **Anchor tests:**
   - Supersession: `src/audio/__tests__/context-recovery.test.ts` "does not transfer a gesture
     recovery after the playback identity changes"; `src/audio/__tests__/context-health.test.ts`
@@ -4259,14 +4266,15 @@ and unrelated strings never count, and every baseline is an exact count or list 
 5. **Copied timing constants** inside the files a record names as its timing home (principle 4):
    same-named constants, identical numeric tuples and shared timing objects form a triaged list.
    A home that holds one named export per value (`src/youtube/constants.ts` for RO-02, RO-03 and
-   RO-12 since Phase 6 6A) takes part in the same-name check with every numeric constant,
-   whatever its suffix, and its values count together as one timing object, so a re-typed object
-   elsewhere in the contract that shares five or more of them is a copy too. That YouTube start
-   contract covers `constants.ts`, `iframe-audio.ts`, `arm-steps.ts` (since Phase 6 6C-4, with no
-   timing of its own), `zero-start-recovery.ts` (since 6D-1, likewise, both recoveries since
-   6D-2), `zero-start.ts`,
-   `authority-arm.ts`, `player.ts` and `iframe.ts` in
-   `src/youtube/`. Constants that share only a value are report-only, because round values such as
+   RO-12 since Phase 6 6A, `src/audio/context-protocol.ts` for RO-01 since Phase 7 7A-2) takes
+   part in the same-name check with every numeric constant, whatever its suffix, and its values
+   count together as one timing object, so a re-typed object elsewhere in the contract that
+   shares five or more of them is a copy too. That YouTube start contract covers `constants.ts`,
+   `iframe-audio.ts`, `arm-steps.ts` (since Phase 6 6C-4, with no timing of its own),
+   `zero-start-recovery.ts` (since 6D-1, likewise, both recoveries since 6D-2), `zero-start.ts`,
+   `authority-arm.ts`, `player.ts` and `iframe.ts` in `src/youtube/`; the AudioContext one covers
+   `context-protocol.ts`, `context.ts` and `context-recovery.ts` in `src/audio/`, and
+   `src/app.ts`. Constants that share only a value are report-only, because round values such as
    1 s, 15 s and 30 s recur across different contracts; `--report` lists them.
 6. **AudioContext native calls, per file:** `resume()` and `suspend()` (RO-01, RO-44). Beside it,
    since Phase 7 T1, **indirect AudioContext resume callers, per file** (RO-01): uses of the three

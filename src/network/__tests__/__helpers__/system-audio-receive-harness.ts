@@ -12,6 +12,7 @@
  * leaves out.
  */
 import { vi } from 'vitest';
+import { AUDIO_RESUME_DEADLINE_MS } from '../../../audio/context-protocol.ts';
 import { bus, createBusScope } from '../../../core/events.ts';
 import { log } from '../../../core/log.ts';
 import type { MediaConnection } from '../../../types/index.ts';
@@ -64,12 +65,10 @@ export class FakeMediaStream {
 // widener.input (kept as a ledger), and initAudio's running gate. initAudio is
 // calibrated against audio/context.ts ensureRunning and audio/engine.ts
 // _doInitAudio: a context that is not running races resume() against
-// AUDIO_RESUME_DEADLINE_MS (500 ms) and then throws AudioContextNotRunningError
-// (Mobile WebKit can leave resume() pending after a page suspension). Does not
-// model audio flow, statechange events, the rest of the effects graph or
-// engine's shared in-flight init promise.
-
-const AUDIO_RESUME_DEADLINE_MS = 500;
+// AUDIO_RESUME_DEADLINE_MS (500 ms, from the RO-01 timing home) and then throws
+// AudioContextNotRunningError (Mobile WebKit can leave resume() pending after a
+// page suspension). Does not model audio flow, statechange events, the rest of
+// the effects graph or engine's shared in-flight init promise.
 
 export interface FakeSourceNode {
   readonly id: number;

@@ -2213,12 +2213,12 @@ export async function prepareYouTubeAuthorityOccurrence(
           const elapsedMs = Date.now() - startedAt;
           const remainingMs = timeoutMs - elapsedMs;
           if (remainingMs < 500) return { ready: false, reason: 'timeout' };
-          // The app volume is the user intent, under the 'non-positive' mute
-          // rule (iframe-audio.ts). During initial iOS entry the persistent
-          // iframe can still report the silent-prime hard mute; capturing that
-          // transient player bit would make it permanent. A pending local PRO
-          // pause stays closed until its own settlement.
-          const appAudio = readYouTubeAppAudio(true);
+          // The app volume is the user intent (iframe-audio.ts). During
+          // initial iOS entry the persistent iframe can still report the
+          // silent-prime hard mute; capturing that transient player bit would
+          // make it permanent. A pending local PRO pause stays closed until
+          // its own settlement.
+          const appAudio = readYouTubeAppAudio();
           const armed = await proAuthorityArm.prepare({
             authorityKey: request.authorityKey,
             queueItemId: request.queueItemId,

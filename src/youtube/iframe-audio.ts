@@ -5,15 +5,14 @@
  *
  * Resource owner: RO-12
  *
- * The App's desired audio is never stored. The youtube:set-volume write
- * applies the 'rounded' mute rule to the rounded percent engine.ts sends;
- * the pause gate's settlement, the PRO direct commit, player.ts's two
- * recovery intents, the Standard zero-start run's desired audio and the PRO
- * prepare read the master volume here (readYouTubeAppAudio, under one of two
- * mute rules; the two machines' 'non-positive' read is the audio they
- * capture as they start, until a push during the run replaces it with the
- * 'rounded' answer); the App's writes also read the PRO pause gate's token,
- * which this module holds. Three App writes go through applyYouTubeAudio,
+ * The App's desired audio is never stored. One mute rule holds everywhere:
+ * muted when the master volume rounds to 0 %. The youtube:set-volume write
+ * applies it to the rounded percent engine.ts sends; the pause gate's
+ * settlement, the PRO direct commit, player.ts's two recovery intents, the
+ * Standard zero-start run's desired audio and the PRO prepare read the master
+ * volume here (readYouTubeAppAudio; the two machines' read is the audio they
+ * capture as they start, until a push during the run replaces it); the App's
+ * writes also read the PRO pause gate's token, which this module holds. Three App writes go through applyYouTubeAudio,
  * each in the order it has always had: a youtube:set-volume write, the pause
  * gate's settlement and the PRO direct commit. The start machines' hard mute
  * is the shared wait in arm-steps.ts; their releases stay with them.
@@ -96,30 +95,25 @@ let enforceParking: (player: YouTubePlayerInstance) => void = notHeld;
 
 /**
  * The App's desired iframe audio, read from audio.masterVolume now: the
- * master volume as a whole percent (0 to 100), muted by one of two rules that
- * differ only for 0 < masterVolume < 0.005:
- * - 'rounded' (the default): muted when that percent is 0, as the volume
- *   engine.ts sends with youtube:set-volume. The youtube:set-volume write
- *   applies this rule to engine.ts's rounded percent itself; the pause gate's
- *   settlement, the PRO direct commit and player.ts's two recovery intents
- *   read it here;
- * - 'non-positive' (nonPositive): muted only when the master volume is 0 or
- *   below. The Standard zero-start run's desired audio (which both
- *   recoveries' intents take when the run captured it) and the PRO prepare
- *   use it. That is only the audio each machine captures as it starts:
- *   player.ts pushes the 'rounded' answer into a running machine on every
- *   youtube:set-volume event, into the PRO arm on the pause gate's
- *   settlement, and into a zero-start run that takes over a guest's local
- *   fallback (the transferred intent) as the run turns busy, and a pushed
- *   answer replaces the captured one.
- * At 0.004 the first mutes and the second unmutes at volume 0. The owner
- * chose the 'rounded' rule for every site (2026-10-30), a later step of its
- * own; until then each site keeps its rule.
+ * master volume as a whole percent (0 to 100), muted when that percent is 0,
+ * as the volume engine.ts sends with youtube:set-volume (whose write applies
+ * the same rule to engine.ts's rounded percent itself). The pause gate's
+ * settlement, the PRO direct commit, player.ts's two recovery intents, the
+ * Standard zero-start run's desired audio (which both recoveries' intents
+ * take when the run captured it) and the PRO prepare read it here. The two
+ * machines' read is only the audio each captures as it starts: player.ts
+ * pushes a newer answer into a running machine on every youtube:set-volume
+ * event, into the PRO arm on the pause gate's settlement, and into a
+ * zero-start run that takes over a guest's local fallback (the transferred
+ * intent) as the run turns busy, and a pushed answer replaces the captured
+ * one. So 0 < masterVolume < 0.005 mutes at volume 0 everywhere: the owner
+ * chose this one rule for every site (2026-10-30, Phase 6 6C-3); before it
+ * the two machines' capture muted only at 0 or below.
  */
-export function readYouTubeAppAudio(nonPositive?: boolean): YouTubeAudioTarget {
+export function readYouTubeAppAudio(): YouTubeAudioTarget {
   const masterVolume = getState('audio.masterVolume') ?? 1;
   const volume = Math.max(0, Math.min(100, Math.round(masterVolume * 100)));
-  return { muted: nonPositive ? masterVolume <= 0 : volume === 0, volume };
+  return { muted: volume === 0, volume };
 }
 
 /** A participant-local PRO pause holds the gate with its token until it settles. */

@@ -106,7 +106,7 @@ each record also states the step in words.
 | RO-09 | Owner-transfer saga row                                  | Workers        | owner-in-place     | None                           |
 | RO-10 | Local-file source node restart                           | Output rejoin  | owner-in-place     | Done (4, C13 docs)             |
 | RO-11 | Deferred-start mailbox `playback.pendingPlayTime`        | Playback       | accepted-exception | None (by design)               |
-| RO-12 | YouTube iframe audio state                               | YouTube        | duplicated         | 6 done; pushes: 6C-3 or 7      |
+| RO-12 | YouTube iframe audio state                               | YouTube        | duplicated         | 6 done; pushes: 7              |
 | RO-13 | YouTube manual-offset transaction                        | YouTube        | owner-in-place     | None                           |
 | RO-14 | YouTube iframe instance lifecycle                        | YouTube        | owner-in-place     | None                           |
 | RO-15 | Standard logical data connection liveness                | Transport      | owner-in-place     | Done (4, C5-1 and C5-6 to 10)  |
@@ -1839,9 +1839,10 @@ RO-53 owner-in-place
   its `applyYouTubeAudio`, each in the order it had before: the volume write calls `setVolume`,
   then asks parking, then mutes or unmutes; the settlement asks parking first and gives a parked
   iframe no `setVolume`; the direct commit asks neither parking nor a start owner. The gate's
-  opening mutes at once through `enforceYouTubePauseGate`. The desired audio is not stored: the
-  `youtube:set-volume` write applies the 'rounded' rule to the rounded percent `engine.ts` sends;
-  the gate's settlement, the direct commit and `player.ts`'s two recovery intents read the master
+  opening mutes at once through `enforceYouTubePauseGate`. The desired audio is not stored, and
+  one mute rule holds for every site since Phase 6 6C-3: muted when the master volume rounds to
+  0 %. The `youtube:set-volume` write applies it to the rounded percent `engine.ts` sends; the
+  gate's settlement, the direct commit and `player.ts`'s two recovery intents read the master
   volume through `readYouTubeAppAudio`; and the App's writes read the gate's token, which the
   module holds (`holdYouTubePauseGate`, `releaseYouTubePauseGate` for the matching settlement
   only, `clearYouTubePauseGate` in `stopYouTubeMode`, and `isYouTubePauseGateHeld`, which the PRO
@@ -1866,35 +1867,35 @@ RO-53 owner-in-place
   check, outcome and timer); since 6C-4 (C2-8a) their hard mute is the shared hard-mute wait in
   `src/youtube/arm-steps.ts` (RO-03) and their warm pair writes through `writeYouTubeAudio`.
   `player.ts` still pushes the desired audio into them. The PRO arm takes it from this module
-  once, at its prepare (`iframe.ts`'s prepare seam passes `readYouTubeAppAudio(true)`, muted
-  also while `isYouTubePauseGateHeld()`), and every later change by push: the `youtube:set-volume`
+  once, at its prepare (`iframe.ts`'s prepare seam reads `readYouTubeAppAudio()`, muted also
+  while `isYouTubePauseGateHeld()`), and every later change by push: the `youtube:set-volume`
   write, the gate's hold and the gate's settlement. Phase 6 keeps those pushes (6D-4, C2-13). An
-  arm that read this module at its restores instead would apply one mute rule where it now keeps
-  the prepare's 'non-positive' answer until a push brings the 'rounded' one, so for
-  0 < master volume < 0.005 a restore could mute where today it unmutes at volume 0, or the
-  reverse, which can be heard where iOS ignores the software volume; it would also follow a
-  master-volume write that sends no `youtube:set-volume` (the early-boot and test fallback in
-  `src/audio/effects.ts`) and drop the pushes `youtube-iframe-audio-order.test.ts` pins. It can
-  read this module once the owner's single 'rounded' rule has landed, with that fixture amended
-  in the same change, or in Phase 7 with the `youtube:set-volume` contract. The
+  arm that read this module at its restores instead would, until 6C-3, have applied one mute rule
+  where it kept the prepare's 'non-positive' answer until a push brought the 'rounded' one; since
+  6C-3 the prepare and every push answer under the same rule, but such an arm would still follow
+  a master-volume write that sends no `youtube:set-volume` (the early-boot and test fallback in
+  `src/audio/effects.ts`) and drop the pushes `youtube-iframe-audio-order.test.ts` pins, so it
+  is not neutral. It can read this module in Phase 7 with the `youtube:set-volume` contract, with
+  that fixture amended in the same change. The
   retained-player hard-mute proof (`src/youtube/retained-player-controller.ts`) and the
   gesture-bound prime unmute in `iframe.ts` keep their own writes, and `src/audio/engine.ts` keeps
   its own pause-gate token for the WebAudio output (Phase 7).
-  Two mute rules remain, named in `readYouTubeAppAudio`, and they differ only for
-  0 < master volume < 0.005: the 'rounded' rule mutes when the volume rounds to 0 % (the volume
-  write, the gate's settlement, the direct commit and the two recovery intents in `player.ts`);
-  the 'non-positive' rule mutes only at 0 (the Standard zero-start run's desired audio, which its
-  restores, its release unmute, its cancel restore and both recoveries' intents take when the run
-  captured it: the guest local recovery and a host's legacy recovery after its own run fails; and
-  the PRO prepare). At 0.004 the first mutes and the second unmutes at volume 0. The
-  'non-positive' answer is only what each machine captures as it starts: `player.ts` pushes the
-  'rounded' answer into a running machine on every `youtube:set-volume` event (into both
-  machines and the recovery intents), into the PRO arm on the pause gate's settlement, and into
-  a zero-start run that takes over a guest's local fallback (the transferred intent) as the run
-  turns busy, and a pushed answer replaces the captured one (`zero-start.ts`
-  `updateDesiredAudioState`, `authority-arm.ts`). So during a run that sees a volume event, the
-  run follows the 'rounded' rule today. The owner chose the 'rounded' rule for every site on
-  2026-10-30, as a later change of its own.
+  One mute rule since Phase 6 6C-3 (the owner's choice of 2026-10-30, and their yes to its
+  before/after table on 2026-11-02): `readYouTubeAppAudio` mutes when the master volume rounds
+  to 0 %, for every reader: the volume write, the gate's settlement, the direct commit, the two
+  recovery intents in `player.ts`, the Standard zero-start run's desired audio (which its
+  restores, its release, its cancel restore and both recoveries' intents take when the run
+  captured it: the guest local recovery and a host's legacy recovery after its own run fails) and
+  the PRO prepare. Until 6C-3 the last two read a second, 'non-positive' rule that muted only at
+  0 or below, so for 0 < master volume < 0.005 they unmuted at volume 0 where the others muted.
+  Each machine's read is only what it captures as it starts: `player.ts` pushes a newer answer
+  into a running machine on every `youtube:set-volume` event (into both machines and the
+  recovery intents), into the PRO arm on the pause gate's settlement, and into a zero-start run
+  that takes over a guest's local fallback (the transferred intent) as the run turns busy, and a
+  pushed answer replaces the captured one (`zero-start.ts` `updateDesiredAudioState`,
+  `authority-arm.ts`). A remote host PREPARE that a guest receives during its local recovery
+  after an ABORT (the remote host's own run still inside its timeline window) is no hand-over:
+  the ABORT ends the recovery and the new run captures its own answer.
 - **Target single owner:** one iframe-audio module (`src/youtube/iframe-audio.ts`, which holds the
   verified restore since Phase 6 6A-4 and the App's writes, the pause gate's iframe token and the
   holds since 6C-2) that the start machines also read the desired audio and the gate from, instead
@@ -1971,21 +1972,23 @@ RO-53 owner-in-place
     youtube:set-volume write and a PRO pause-gate settlement write the same audio while %s"
     (no visibility branch today).
   - Write order and holds (since 6C-2): `src/youtube/__tests__/youtube-iframe-audio-order.test.ts`
-    (each App write's commands, pushes and hold questions in order, the two mute rules at master
-    volumes 0, 0.004 and 0.005, and one `youtube:set-volume` per `engine.ts` volume event, written
-    once) and `iframe-audio-owner.test.ts` (the owner's own pieces).
+    (each App write's commands, pushes and hold questions in order, the one mute rule at master
+    volumes 0, 0.004 and 0.005 (two rules until 6C-3), a remote host PREPARE during a guest's
+    local recovery with and without an ABORT before it, and one `youtube:set-volume` per
+    `engine.ts` volume event, written once) and `iframe-audio-owner.test.ts` (the owner's own
+    pieces).
 - **Status:** `duplicated`. Phase 6 (single iframe-audio owner, one verified restore; the ratchet
   on direct audio writes is CHECK 11, added before the first Phase 6 train). The one verified
   restore exists since 6A-4, and the App's own writes, the pause gate's iframe token and the holds
   (plan step C2-2) since 6C-2. The start machines' hard mute is one shared wait since 6C-4
   (`arm-steps.ts`, RO-03); they still take the desired audio by push, which Phase 6 keeps because
   6D-4 (C2-13) found reading it from `iframe-audio.ts` at the PRO arm's restores not neutral (see
-  above), and the two mute rules stay until the owner's chosen single rule lands. Phase 6's code
+  above), under the one mute rule since 6C-3. Phase 6's code
   ends with 6D, and its record step (6D-5) keeps this record `duplicated` for those pushes, which
   `youtube-iframe-audio-order.test.ts` pins one by one. It becomes `owner-in-place` in the change
   that has the start machines read the desired audio and the gate from this module instead,
-  citing that change's tests: after the single rule, with that fixture amended in the same
-  change, or in Phase 7 with the `youtube:set-volume` contract.
+  citing that change's tests: in Phase 7 with the `youtube:set-volume` contract, with that
+  fixture amended in the same change.
 
 ### RO-13 YouTube manual-offset transaction
 

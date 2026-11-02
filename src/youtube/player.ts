@@ -2148,8 +2148,7 @@ export function initYouTube(): void {
     getHostNow,
     getClockOffsetMs: getClockOffset,
     getLocalPlatform: getYouTubeZeroStartPlatform,
-    // The 'non-positive' mute rule (iframe-audio.ts).
-    getDesiredAudioState: () => readYouTubeAppAudio(true),
+    getDesiredAudioState: readYouTubeAppAudio,
     sendToPeer: sendYouTubeZeroStartToPeer,
     sendToHost: sendYouTubeZeroStartToHost,
     resolveLocalTargetSec: resolveZeroStartLocalTarget,

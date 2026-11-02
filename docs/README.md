@@ -96,13 +96,13 @@ runbooks. Neither belongs in a general setup document.
 
 - [Phase 6 train 6D: the YouTube start recoveries in one module, the Standard host's local start wait and the PRO start tokens (2026-11-02)](design/phase6-6d-recovery-pro-arm-2026-11-02.md):
   prepared, not released. The fourth and last Phase 6 App update on branch `agent/p6-6d`,
-  twenty-two commits on main `432d4ae7` (the App 9.0.34 / v807 release record): the thirteen commits first
+  twenty-five commits on main `432d4ae7` (the App 9.0.34 / v807 release record): the thirteen commits first
   built on the 6C train's tip `bdb5759a`, moved patch for patch once 6B (9.0.32 / v805) and 6C
   (9.0.34 / v807) had shipped, a tests-only commit and a comment and registry commit from the
-  review of the moved branch, one record commit, and 6D-6's six commits (regression rows, failing
-  test, runtime change, record, post-review comments and post-review record; first built on the
-  first branch's tip `e8cacdd4`, moved with its two post-review test commits folded into the first
-  two); the version bump, the release-record entry
+  review of the moved branch, one record commit, and 6D-6's nine commits (regression rows, failing
+  test, runtime change, record, post-review comments and post-review record, first built on the
+  first branch's tip `e8cacdd4` and moved with its two post-review test commits folded into the
+  first two, then the fallback's failing test, runtime change and record); the version bump, the release-record entry
   and the release are the release owner's. 6D-1 turns the Standard guest's local zero-start recovery from a
   `player.ts` closure into the class `GuestZeroStartRecovery` in the new
   `src/youtube/zero-start-recovery.ts`, and the two
@@ -123,17 +123,18 @@ runbooks. Neither belongs in a general setup document.
   a remote host PREPARE during a guest's local fallback start carries the 'rounded' intent into the
   new run) is checked and recorded. 6D-6 is built, before 6C-3, after the owner saw the pictures:
   the COMMIT catch-up of a device that missed its READY keeps that PREPARE's still-loading load, so
-  one toast shows and the screen stays, also when the start arrives in a snapshot; a first screen
-  that never gets ready is then not loaded again and ends with the load-timeout toast. 6C-3 is not
-  built yet. The new finding (both zero-start
+  one toast shows and the screen stays, also when the start arrives in a snapshot. A fallback the
+  release owner added keeps the rare case no worse than before 6D-6: a first screen still not ready
+  at the join the catch-up plans is loaded again there, as before 6D-6 but about 3 s later, instead
+  of ending 15 s after the PREPARE with the load-timeout toast. 6C-3 is not built yet. The new finding (both zero-start
   recoveries never seek again when a settle leaves a loaded target more than 0.35 s from the local
   zero, and give up at the end of their window, the iframe paused there with no notice) is
   recorded only, end condition 2 holds under the owner-accepted reading (a), and no T0b defect fix
   rides. The report lists the owner answers used, each increment's tests-first evidence before and
   after the move, the SHA map, the guard counts (CHECK 11 stays 20 as `player.ts`'s recovery
   writes move into the new module), the first load (+294 B eager JavaScript gzip against main
-  `432d4ae7`, and +68 B for 6D-6; Phase 6 total +193 B, leaving 7 B for 6C-3), the Phase 6
-  end-condition check, mixed versions, rollback (checkpoint App 9.0.34 / v807, or the public-page font train's
+  `432d4ae7`, +68 B for 6D-6 and +114 B for its fallback; Phase 6 total +307 B, over the +200 B
+  cap, measured for the owner's Q29 answer before 6C-3), the Phase 6 end-condition check, mixed versions, rollback (checkpoint App 9.0.34 / v807, or the public-page font train's
   App if that ships first), the blind device candidates, the three open items to link and the Phase
   7 handoff. QA rounds 1 to 4 ran on the first branch (old base `bdb5759a`). QA round 5 moved it
   onto `432d4ae7` (four docs-only conflicts, every commit's `src` and `scripts` patch unchanged)
@@ -151,7 +152,9 @@ runbooks. Neither belongs in a general setup document.
   snapshot-route row and a never-ready first iframe row), and an iPhone kept-iframe row that pins
   the judgement's ready-player bound. Its runtime commit has the first branch's patch-id and adds
   68 B, its comment commit changes no build byte, and its pictures come from the first branch's
-  real build.
+  real build. The fallback's flipped never-ready row fails before its runtime commit and passes
+  after it; that commit adds 114 B, and types, lint, the three unit directories with the guard
+  self-test and the ownership check pass on it.
 - [App 9.0.34 / v807 train: Phase 6 6C (one YouTube state router, one iframe audio owner and shared arm steps), no light-theme stroke on the dialog grey button and the selection bar, and lighter light-theme dividers (2026-11-02)](design/phase6-6c-router-iframe-audio-arm-steps-2026-11-02.md):
   released on 2026-11-02 21:20 KST in Release 41443521522 (PR #563, squash `cd8eaf47`) as App
   9.0.34 / v807 (App build 807, target `app`, one update dialog, two visible light-theme changes;

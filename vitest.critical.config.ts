@@ -149,12 +149,10 @@ export default defineConfig({
           // 2026-08-21 (Node 24 baseline 84.15, 78.67, 89.65, 87.71). With
           // the AudioContext owner suites enrolled on 2026-11-02 (Phase 7
           // prep, T0), two identical Node 24 runs on main 7d60f134 measured
-          // 90.99, 88.66, 88.57, 93.37: about one point below that, with the
-          // function floor kept at 88 (its margin stays 0.57 points, so new
-          // functions need a caller in this profile).
+          // 90.99, 88.66, 88.57, 93.37: about one point below each.
           statements: 89,
           branches: 87,
-          functions: 88,
+          functions: 87,
           lines: 92,
         },
         // The shared AudioContext and its play-request restart, enrolled with

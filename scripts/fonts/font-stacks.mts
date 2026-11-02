@@ -1,6 +1,8 @@
 /**
  * The app's font stacks as a browser resolves them on the document element,
- * read from the app stylesheets (css/app.css and the sheets it imports).
+ * read from the app stylesheets (css/app.css and the sheets it imports), or
+ * from another page's stylesheet chain (public/web-fonts/stacks.css and the
+ * page's own sheets).
  *
  * The stacks live in custom properties on the root: --font-sans is the body's
  * font, and the html:lang(), dir and data-mxqr-han-order rules swap which
@@ -46,10 +48,18 @@ export interface AppStyleRule {
   readonly rule: Rule;
 }
 
+export interface FontStacksOptions {
+  /**
+   * The sheets to read, repository-relative, in cascade order; the app's
+   * (css/app.css and its imports) when absent.
+   */
+  readonly sheets?: readonly string[];
+}
+
 export interface FontStacks {
-  /** The app sheets in cascade order. */
+  /** The sheets read, in cascade order. */
   readonly sheets: readonly string[];
-  /** Every style rule of the app sheets, in cascade order. */
+  /** Every style rule of the sheets, in cascade order. */
   readonly rules: readonly AppStyleRule[];
   /** A root custom property with every var() expanded, or null when unset. */
   rootValue(state: DocumentState, property: string): string | null;
@@ -197,8 +207,9 @@ interface RootDeclaration {
   readonly order: number;
 }
 
-export function readFontStacks(repoRoot: string): FontStacks {
-  const sheets = appSheets(repoRoot);
+export function readFontStacks(repoRoot: string, options: FontStacksOptions = {}): FontStacks {
+  const sheets = options.sheets ? [...options.sheets] : appSheets(repoRoot);
+  if (sheets.length === 0) throw new Error('readFontStacks needs at least one sheet');
   const roots = sheets.map((sheet) =>
     postcss.parse(readFileSync(path.join(repoRoot, sheet), 'utf8'), { from: sheet }),
   );

@@ -962,7 +962,12 @@ gh workflow run app-build-floor.yml --ref main -f action=lower -f min_app_build=
   merge `3ea689b9` (#557), Production Release 41347347201, which deployed App version `e19b7085`
   on 2026-11-02 at 05:34 KST) replaced it. 9.0.32 does not read schemaVersion 1 either, so the
   same holds for 9.0.32 and its tabs, and step (1) of both orders does not go to the 9.0.32
-  release's checkpoint App (9.0.31, `dff554a2`, which reads only schemaVersion 2).
+  release's checkpoint App (9.0.31, `dff554a2`, which reads only schemaVersion 2). 9.0.32 stayed
+  live until 9.0.33 (build 806, the `app` release of merge `4faf38d9` (#560), Production Release
+  41386906358, which deployed App version `047e6f68` on 2026-11-02 at 13:12 KST) replaced it.
+  9.0.33 does not read schemaVersion 1 either, so the same holds for 9.0.33 and its tabs, and step
+  (1) of both orders does not go to the 9.0.33 release's checkpoint App (9.0.32, `e19b7085`, which
+  reads only schemaVersion 2).
 - The service-control object that holds the floor (`MusixquareServiceControl`) lives in the PRO
   Worker script; every other Worker binds it with `script_name = "musixquare-pro-room"`. Rolling
   the PRO Worker back below 9.0.14 therefore turns the floor off for every Worker, Signaling

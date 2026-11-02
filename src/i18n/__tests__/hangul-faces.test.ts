@@ -9,7 +9,8 @@
  * box (the box every other app face is sized to), no layout feature that
  * html lang could switch, and a name of their own under the SIL OFL.
  */
-import { readFile, readdir } from 'node:fs/promises';
+import { copyFile, mkdir, mkdtemp, readFile, readdir, rm, writeFile } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import * as hb from 'harfbuzzjs';
 import { beforeAll, describe, expect, it } from 'vitest';
@@ -21,6 +22,7 @@ import {
 } from '../../../scripts/fonts/app-face-metrics.mts';
 import {
   buildHangulFace,
+  buildHangulFaces,
   readHangulSource,
   type HangulSource,
 } from '../../../scripts/fonts/build-hangul-faces.mts';
@@ -236,6 +238,46 @@ describe('the Hangul faces', () => {
       const face = record.faces.find((entry) => entry.shard === shard)!;
       const built = await buildHangulFace(source, [...parseUnicodeRange(face.unicodeRange)]);
       expect(digestOf(built), face.file).toEqual({ sha256: face.sha256, bytes: face.bytes });
+    }
+  }, 60_000);
+
+  it('are not cut again from a source that differs from its record unless --record accepts it', async () => {
+    // A copy of what the default mode reads before it cuts anything: the
+    // record, the tool manifests, the faces and a source file with other
+    // bytes (the same font, as an uncompressed sfnt, which the generator
+    // reads as readily as WOFF2).
+    const scratch = await mkdtemp(join(tmpdir(), 'hangul-faces-'));
+    try {
+      await mkdir(join(scratch, DIRECTORY), { recursive: true });
+      for (const file of [
+        'fonts/hangul-faces.json',
+        ...record.faces.map(({ file }) => `${DIRECTORY}/${file}`),
+      ]) {
+        await copyFile(join(ROOT, file), join(scratch, file));
+      }
+      for (const tool of Object.keys(record.tools)) {
+        await mkdir(join(scratch, 'node_modules', tool), { recursive: true });
+        await copyFile(
+          join(ROOT, 'node_modules', tool, 'package.json'),
+          join(scratch, 'node_modules', tool, 'package.json'),
+        );
+      }
+      await writeFile(join(scratch, 'fonts/PretendardVariable.woff2'), source.sfnt);
+      const snapshot = async () =>
+        Promise.all(
+          [
+            'fonts/hangul-faces.json',
+            ...record.faces.map(({ file }) => `${DIRECTORY}/${file}`),
+          ].map(async (file) => [file, digestOf(await readFile(join(scratch, file)))] as const),
+        );
+      const before = await snapshot();
+      await expect(buildHangulFaces(scratch, 'write')).rejects.toThrow(
+        'fonts/PretendardVariable.woff2 differs from its record in fonts/hangul-faces.json (source.sha256, source.bytes). Nothing was written. Rerun with --record after review',
+      );
+      expect(await snapshot()).toEqual(before);
+      expect((await readdir(join(scratch, DIRECTORY))).length).toBe(record.faces.length);
+    } finally {
+      await rm(scratch, { recursive: true, force: true });
     }
   }, 60_000);
 });

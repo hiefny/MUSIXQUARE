@@ -12,8 +12,12 @@
  * again; Inter keeps Latin and digits, and Noto keeps Han, kana and the
  * Hangul Pretendard lacks. The source is fonts/PretendardVariable.woff2
  * (Pretendard Variable 1.309, its name ID 5), which the repository has kept
- * since the public pages first used it; fonts/hangul-faces.json records its
- * digest, and a different file is refused.
+ * since the public pages first used it, and which now stays as the faces'
+ * source. fonts/hangul-faces.json records its digest, version and axis: the
+ * default mode refuses a file (or a line box or name in the code) that
+ * differs from the record and writes nothing, so replacing the file cannot
+ * cut every face again, and move every face URL, unnoticed; --record accepts
+ * it after review.
  *
  * The faces: one per Noto Sans KR v40 numbered shard (fonts/font-sources.json)
  * that declares Hangul the source draws, with that shard's number and only
@@ -311,10 +315,30 @@ export async function buildHangulFaces(repoRoot: string, mode: Mode): Promise<Bu
     previous !== null && HANGUL_TOOLS.every((tool) => previous.tools[tool] === tools[tool]);
   const source = await readHangulSource(repoRoot);
   const frame = recordFrame(source);
+  const recordedFrame =
+    previous === null
+      ? null
+      : { box: previous.box, names: previous.names, source: previous.source };
   const sameSource =
-    previous !== null &&
-    JSON.stringify({ box: previous.box, names: previous.names, source: previous.source }) ===
-      JSON.stringify(frame);
+    recordedFrame !== null && JSON.stringify(recordedFrame) === JSON.stringify(frame);
+  if (mode === 'write' && recordedFrame !== null && !sameSource) {
+    const differing = (['box', 'names', 'source'] as const).flatMap((key) =>
+      key === 'source'
+        ? (Object.keys(frame.source) as (keyof typeof frame.source)[])
+            .filter(
+              (field) =>
+                JSON.stringify(recordedFrame.source[field]) !== JSON.stringify(frame.source[field]),
+            )
+            .map((field) => `source.${field}`)
+        : JSON.stringify(recordedFrame[key]) === JSON.stringify(frame[key])
+          ? []
+          : [key],
+    );
+    throw new Error(
+      `${HANGUL_SOURCE_PATH} differs from its record in ${HANGUL_FACES_PATH} (${differing.join(', ') || 'source'}). ` +
+        'Nothing was written. Rerun with --record after review to cut every face again from it.',
+    );
+  }
   const partition = hangulPartition(source.codePoints, await readFontSources(repoRoot));
 
   const faces: HangulFace[] = [];
@@ -434,6 +458,7 @@ export async function buildHangulFaces(repoRoot: string, mode: Mode): Promise<Bu
   }
   if (JSON.stringify(ordered) !== JSON.stringify(previous)) {
     await writeHangulFaces(repoRoot, ordered);
+    changed.push(HANGUL_FACES_PATH);
   }
   return { record: ordered, built, changed, problems };
 }

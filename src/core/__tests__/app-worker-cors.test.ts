@@ -13234,6 +13234,26 @@ describe('Cloudflare app worker public font sheets', () => {
     }
   });
 
+  it("serves /han-order.js, the public pages' blocking Han order script, with the public-page cache policy", async () => {
+    // Every public page waits for it in the head; a stale copy only mirrors
+    // the app's resolveHanOrder, so it lives as long as a public page.
+    const response = await appWorker.fetch(new Request('https://musixquare.com/han-order.js'), {
+      ASSETS: {
+        fetch: vi.fn(
+          async () =>
+            new Response('document.documentElement;', {
+              headers: { 'Content-Type': 'text/javascript; charset=utf-8' },
+            }),
+        ),
+      },
+    });
+    expect(response.status).toBe(200);
+    expect(response.headers.get('Cache-Control')).toBe(
+      'public, max-age=300, s-maxage=86400, stale-while-revalidate=604800',
+    );
+    expect(response.headers.get('Content-Type')).toMatch(/^text\/javascript/u);
+  });
+
   it('no longer marks the retired design-system font folder immutable', async () => {
     const response = await appWorker.fetch(
       new Request('https://musixquare.com/designsystem/fonts/PretendardVariable.woff2'),

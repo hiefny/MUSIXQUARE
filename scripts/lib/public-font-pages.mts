@@ -26,6 +26,8 @@
  * list live here; scripts/check-app-font.mts runs them over the source and
  * the build, and the page tests run them over each page.
  */
+import { readdir } from 'node:fs/promises';
+import path from 'node:path';
 import postcss, { type Rule } from 'postcss';
 
 import { LANGUAGE_OPTIONS } from '../../src/i18n/locales.ts';
@@ -451,3 +453,94 @@ export const PUBLIC_WORKER_FONT_PAGES: readonly PublicWorkerFontPage[] = [
     htmlLangs: ['en'],
   },
 ];
+
+/** A page source outside the public pages, with where the build writes it and why. */
+interface PublicFontPageExclusion {
+  /** The source HTML, repository-relative. */
+  readonly html: string;
+  /** Where the build writes it, dist-relative. */
+  readonly dist: readonly string[];
+  /** Why it does not load the shared font sheets. */
+  readonly reason: string;
+}
+
+/** About's built copy for a UI language: about.html in English, <code>/about.html otherwise. */
+const aboutCopy = (code: string): string => (code === 'en' ? 'about.html' : `${code}/about.html`);
+
+/**
+ * The page sources that are not public pages, each with its reason. Every
+ * other page source must be in PUBLIC_FONT_PAGES (scripts/check-app-font.mts
+ * checks the source tree and the build).
+ */
+export const PUBLIC_FONT_PAGE_EXCLUSIONS: readonly PublicFontPageExclusion[] = [
+  {
+    html: 'index.html',
+    dist: LANGUAGE_OPTIONS.map(({ code }) => (code === 'en' ? 'index.html' : `${code}/index.html`)),
+    reason:
+      "the app's own document, written once per UI language; it loads the app's font sheets itself and never /web-fonts/",
+  },
+  {
+    html: 'public/account-complete.html',
+    dist: ['account-complete.html'],
+    reason:
+      "the app's sign-in completion page (src/ui/account.ts, the service worker's APP_SHELL): the device's system fonts, no shared sheet",
+  },
+  {
+    html: 'public/screensaver.html',
+    dist: ['screensaver.html'],
+    reason:
+      "an app screen in the service worker's APP_SHELL, with its own fonts, not a public page",
+  },
+];
+
+/**
+ * Every page source of the repository, repository-relative: the app
+ * document, the HTML under public/ and browser/ui-kit/, and each workshop
+ * page (.workshop/<page>/*.html).
+ */
+export async function listPageSources(repoRoot: string): Promise<string[]> {
+  const sources = ['index.html'];
+  const walk = async (directory: string, depth: number): Promise<void> => {
+    for (const entry of await readdir(path.join(repoRoot, directory), { withFileTypes: true })) {
+      const target = `${directory}/${entry.name}`;
+      if (entry.isDirectory()) {
+        if (depth > 0) await walk(target, depth - 1);
+      } else if (entry.name.endsWith('.html')) {
+        sources.push(target);
+      }
+    }
+  };
+  await walk('public', Number.POSITIVE_INFINITY);
+  await walk('browser/ui-kit', Number.POSITIVE_INFINITY);
+  for (const entry of await readdir(path.join(repoRoot, '.workshop'), { withFileTypes: true })) {
+    if (entry.isDirectory()) await walk(`.workshop/${entry.name}`, 0);
+  }
+  return sources.sort();
+}
+
+/** Page sources that are neither a registered public page nor a recorded exception. */
+export function unlistedPageSources(sources: readonly string[]): string[] {
+  const listed = new Set([
+    ...PUBLIC_FONT_PAGES.map(({ html }) => html),
+    ...PUBLIC_FONT_PAGE_EXCLUSIONS.map(({ html }) => html),
+  ]);
+  return sources.filter((source) => !listed.has(source));
+}
+
+/**
+ * Built HTML files, dist-relative, that no registered public page or
+ * recorded exception writes. About is one source with a copy per UI language.
+ */
+export function unlistedBuiltPages(files: readonly string[]): string[] {
+  const listed = new Set<string>([
+    ...PUBLIC_FONT_PAGES.flatMap(({ html, dist }) =>
+      dist === null
+        ? []
+        : html === '.workshop/landing/landing.html'
+          ? LANGUAGE_OPTIONS.map(({ code }) => aboutCopy(code))
+          : [dist],
+    ),
+    ...PUBLIC_FONT_PAGE_EXCLUSIONS.flatMap(({ dist }) => dist),
+  ]);
+  return files.filter((file) => !listed.has(file));
+}

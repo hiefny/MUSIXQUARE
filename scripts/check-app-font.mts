@@ -55,7 +55,9 @@
  *   --font-sans in each of its languages, and it tells Korean and English
  *   apart only in the recorded copy rules, never by tracking; the sheets of
  *   the pages the App Worker renders (PUBLIC_WORKER_FONT_PAGES) are held to
- *   the same rules;
+ *   the same rules; every page source (the app document, public/, the
+ *   workshop pages and the UI kit) is a switched page or a recorded
+ *   exception (PUBLIC_FONT_PAGE_EXCLUSIONS, each with its reason);
  * - what the public-page font train retired stays retired
  *   (scripts/lib/font-retirement.mts): nothing a page, the app or a Worker
  *   ships loads or names Pretendard as a font but the recorded places (text
@@ -73,7 +75,8 @@
  * the service worker's install manifests (which do install the font owner
  * chunk itself), every About copy linking the shared sheets (rest.css in
  * the head where its language needs it) and every other switched page
- * linking them as its source does, nothing retired in the build (no
+ * linking them as its source does, every built page coming from a switched
+ * page or a recorded exception, nothing retired in the build (no
  * Pretendard file but the share-image subset, no retired folder, no built
  * copy of a retired or generator-input sheet, and no built text that loads
  * or names Pretendard as a font), and the public pages' sheets:
@@ -133,6 +136,8 @@ import {
 } from './lib/font-retirement.mts';
 import {
   inlineStyles,
+  listPageSources,
+  PUBLIC_FONT_PAGE_EXCLUSIONS,
   PUBLIC_FONT_PAGES,
   PUBLIC_KOREAN_ENGLISH_COPY_RULES,
   PUBLIC_LITERAL_FONT_FAMILIES,
@@ -140,6 +145,8 @@ import {
   publicFontCssProblems,
   publicFontLinkProblems,
   type PublicFontPage,
+  unlistedBuiltPages,
+  unlistedPageSources,
 } from './lib/public-font-pages.mts';
 import { APP_FONT_SHEETS } from '../src/i18n/app-font-contract.ts';
 import { LANGUAGE_OPTIONS, languageDirection } from '../src/i18n/locales.ts';
@@ -401,6 +408,20 @@ for (const hanOrder of HAN_ORDERS) {
       `${PUBLIC_STACKS} resolves --font-sans in the ${code} UI (Han order ${hanOrder ?? 'ko'}) unlike the app`,
     );
   }
+}
+// Every page source is a registered public page or a recorded exception
+// (PUBLIC_FONT_PAGE_EXCLUSIONS), so no new page skips the shared sheets.
+for (const source of unlistedPageSources(await listPageSources(repoRoot))) {
+  failures.push(
+    `${source} is neither a registered public page (PUBLIC_FONT_PAGES) nor a recorded exception (PUBLIC_FONT_PAGE_EXCLUSIONS)`,
+  );
+}
+// An exception loads none of the public pages' delivery.
+for (const { html } of PUBLIC_FONT_PAGE_EXCLUSIONS) {
+  check(
+    !/\/web-fonts\/|\/han-order\.js/u.test(await readFile(path.join(repoRoot, html), 'utf8')),
+    `${html} is a recorded exception but links /web-fonts/ or /han-order.js`,
+  );
 }
 const publicSheets = new Set<string>();
 const publicSplitSelectors = new Set<string>();
@@ -763,6 +784,14 @@ if (distMode) {
       .map(async (file) => ({ file, html: await readFile(file, 'utf8') })),
   );
   const relative = (file: string) => path.relative(distDirectory, file).replace(/\\/gu, '/');
+
+  // Every built page comes from a registered public page or a recorded
+  // exception (PUBLIC_FONT_PAGE_EXCLUSIONS).
+  for (const file of unlistedBuiltPages(builtHtml.map(({ file }) => relative(file)))) {
+    failures.push(
+      `built ${file} comes from no registered public page (PUBLIC_FONT_PAGES) or recorded exception (PUBLIC_FONT_PAGE_EXCLUSIONS)`,
+    );
+  }
 
   for (const { file, html } of builtHtml) {
     const preloads = fontPreloadHrefs(html);

@@ -31,12 +31,15 @@ import {
 import { renderLocalizedAbout } from '../../../scripts/localized-html-lib.mts';
 import { LANGUAGE_OPTIONS, languageDirection, type LanguageCode } from '../locales.ts';
 import { restFontSheetInHead } from '../public-font-contract.ts';
-import { PUBLIC_FONT_SHEET_URLS } from '../public-font-urls.ts';
+import { PUBLIC_FONT_SHEET_URLS, PUBLIC_HAN_ORDER_SCRIPT_URL } from '../public-font-urls.ts';
 
 const { first, stacks, rest } = PUBLIC_FONT_SHEET_URLS;
 
+const HAN_ORDER_SCRIPT = `<script src="${PUBLIC_HAN_ORDER_SCRIPT_URL}"></script>`;
+
 const GOOD_PAGE = `<!doctype html><html><head>
 <link rel="icon" href="/favicon.svg">
+${HAN_ORDER_SCRIPT}
 <link rel="stylesheet" href="${first}">
 <link rel="stylesheet" href="${stacks}">
 <link rel="stylesheet" href="/page.css">
@@ -108,6 +111,35 @@ describe('the public font link check', () => {
     ]);
   });
 
+  it("names a missing, late, deferred or misplaced script for the app's Han order", () => {
+    const without = GOOD_PAGE.replace(`${HAN_ORDER_SCRIPT}\n`, '');
+    expect(publicFontLinkProblems(without, { rest: 'body' })).toEqual([
+      'loads /han-order.js 0 times, not once',
+    ]);
+    const late = without.replace('</head>', `${HAN_ORDER_SCRIPT}\n</head>`);
+    expect(publicFontLinkProblems(late, { rest: 'body' })).toEqual([
+      'loads /han-order.js after first.css',
+    ]);
+    for (const attribute of ['defer', 'async', 'type="module"']) {
+      const deferred = GOOD_PAGE.replace(
+        HAN_ORDER_SCRIPT,
+        `<script ${attribute} src="${PUBLIC_HAN_ORDER_SCRIPT_URL}"></script>`,
+      );
+      expect(publicFontLinkProblems(deferred, { rest: 'body' }), attribute).toEqual([
+        'loads /han-order.js after the first paint, not as a blocking classic script',
+      ]);
+    }
+    const inBody = without.replace('<p>Text</p>', `${HAN_ORDER_SCRIPT}<p>Text</p>`);
+    expect(publicFontLinkProblems(inBody, { rest: 'body' })).toEqual([
+      'loads /han-order.js outside the head',
+      'loads /han-order.js after first.css',
+    ]);
+    const twice = GOOD_PAGE.replace('</head>', `${HAN_ORDER_SCRIPT}\n</head>`);
+    expect(publicFontLinkProblems(twice, { rest: 'body' })).toEqual([
+      'loads /han-order.js 2 times, not once',
+    ]);
+  });
+
   it('names a font preload and every retired font link', () => {
     const retired = GOOD_PAGE.replace(
       '</head>',
@@ -145,6 +177,7 @@ describe('the public font link check', () => {
       'links first.css 0 times, not once',
       'links stacks.css 0 times, not once',
       'links rest.css 0 times, not once',
+      'loads /han-order.js 0 times, not once',
     ]);
     expect(publicFontLinkProblems('<p>no head</p>', { rest: 'body' })).toEqual([
       'the page has no head',

@@ -136,6 +136,12 @@ describe('strict TypeScript classic browser runtimes', () => {
         target: 'es2018',
       },
       {
+        sourcePath: 'browser/classic-runtime/han-order.ts',
+        outputPath: 'han-order.js',
+        minify: true,
+        target: 'es2018',
+      },
+      {
         sourcePath: 'browser/classic-runtime/landing-bootstrap.ts',
         outputPath: 'landing-bootstrap.js',
       },
@@ -219,6 +225,7 @@ describe('strict TypeScript classic browser runtimes', () => {
       'events/event.js': 'CAMPAIGN_SLUG_PATTERN',
       'events/theme.js': 'applyInitialEventTheme',
       'fouc-cleanup.js': 'setup-boot-failed',
+      'han-order.js': 'data-mxqr-han-order',
       'landing-bootstrap.js': 'applyInitialLandingPreferences',
       'landing-i18n.js': '__landingT',
       'policy-accordion.js': 'details.policy-accordion',

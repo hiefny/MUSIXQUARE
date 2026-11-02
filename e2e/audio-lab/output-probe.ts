@@ -37,6 +37,9 @@ interface Gate {
   held: number;
   readonly release: () => void;
   readonly released: Promise<void>;
+  /** Settles when the gate holds its first call. */
+  readonly firstHeld: Promise<void>;
+  readonly markHeld: () => void;
 }
 
 interface Lab {
@@ -86,7 +89,11 @@ async function instrument(page: Page, uiSounds: boolean): Promise<void> {
       const released = new Promise<void>((resolve) => {
         release = resolve;
       });
-      return { origins, limit, held: 0, release, released };
+      let markHeld!: () => void;
+      const firstHeld = new Promise<void>((resolve) => {
+        markHeld = resolve;
+      });
+      return { origins, limit, held: 0, release, released, firstHeld, markHeld };
     };
     const lab: Lab = {
       ctx: null,
@@ -140,6 +147,7 @@ async function instrument(page: Page, uiSounds: boolean): Promise<void> {
         const gate = lab.resumeGate;
         if (holds(gate, origin)) {
           gate.held += 1;
+          gate.markHeld();
           return gate.released.then(() => resume());
         }
         return resume();
@@ -149,6 +157,7 @@ async function instrument(page: Page, uiSounds: boolean): Promise<void> {
         const gate = lab.suspendGate;
         if (holds(gate, 'any')) {
           gate.held += 1;
+          gate.markHeld();
           return gate.released.then(() => suspend());
         }
         return suspend();
@@ -239,6 +248,23 @@ export async function holdSuspend(page: Page): Promise<void> {
   await page.evaluate(() => (window as unknown as LabWindow).__audioLab.holdSuspend());
 }
 
+/**
+ * Wait, inside the page, until the suspend gate holds its first call (at
+ * most `limitMs`), so the only wall-clock wait after it is the test's own.
+ */
+export async function waitForSuspendHeld(page: Page, limitMs = 5_000): Promise<void> {
+  await page.evaluate(async (limit) => {
+    const gate = (window as unknown as LabWindow).__audioLab.suspendGate;
+    if (!gate) throw new Error('no suspend gate');
+    await Promise.race([
+      gate.firstHeld,
+      new Promise<never>((_, reject) => {
+        setTimeout(() => reject(new Error('the suspend gate held nothing')), limit);
+      }),
+    ]);
+  }, limitMs);
+}
+
 /** Remove both gates and let the calls they held proceed. */
 export async function releaseGates(page: Page): Promise<void> {
   await page.evaluate(() => (window as unknown as LabWindow).__audioLab.releaseGates());
@@ -255,9 +281,14 @@ export async function resumeFromPageScript(page: Page): Promise<void> {
  * A newer failed PLAY for the same file, as transport would announce it: a
  * different recovery identity, so app.ts queues it and aborts the open
  * dialog. Its retry does nothing. Returns the page time of the emit.
+ *
+ * In the same task, after the emit, it lets 100 microtask hops run and then
+ * logs `abort+microtasks`: whatever the abort settles through promises alone
+ * is logged before that marker, and anything that waits for a timer task
+ * (such as a 50 ms poll) after it.
  */
 export async function emitNewerPlayRequest(page: Page): Promise<number> {
-  return page.evaluate(() => {
+  return page.evaluate(async () => {
     const hooks = window as unknown as Record<string, unknown>;
     const bus = hooks.__MUSIXQUARE_BUS__ as { emit: (type: string, payload: unknown) => void };
     const getState = hooks.__MUSIXQUARE_GET_STATE__ as (path: string) => unknown;
@@ -269,6 +300,10 @@ export async function emitNewerPlayRequest(page: Page): Promise<number> {
       isCurrent: () => true,
       retry: async () => false,
     });
+    for (let hop = 0; hop < 100; hop += 1) await Promise.resolve();
+    (window as unknown as LabWindow).__audioLab.ops.push(
+      `${Math.round(performance.now())} abort+microtasks`,
+    );
     return at;
   });
 }

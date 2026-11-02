@@ -7,23 +7,28 @@
  * recovery dialog, either the play-request dialog (paused, then PLAY) or the
  * prepared dialog (playing). The rows pin, in Chromium:
  *
- * - (i)/(ii) the two dialogs' outcomes: one retry source and one room PLAY,
- *   or one recovered rejoin;
+ * - (i)/(ii) the two dialogs' outcomes: one retried source start, or one
+ *   recovered rejoin;
  * - (a)-(d) app.ts's part of the play-request dialog, which unit tests cannot
  *   load: an outside resume while it waits, its re-suspend, and how its wait
  *   for the clock requirement ends (a newer request, a track change, a hidden
- *   page, the 5 s limit). One retry and one room PLAY per tap (c) is pinned
- *   by (i) and T4; a second activation cannot reach the dialog, which closes
- *   inside its first one;
+ *   page, the 5 s limit);
  * - T1-T9 trusted input with UI sounds on: slow and fast finger, Space and
  *   Enter, on both dialogs.
  *
- * Only the frozen window from the return to the tap is frozen, and rows
- * assert counts and origin-tagged calls, not whole op arrays; times are
- * bounded windows. "Known gap (C1-...)" marks today's behaviour where it is
- * not the desired one; the C1 increment named there flips that row. Some
- * counts are Chromium facts (its suspend() promise settles before its
- * statechange) and say so.
+ * One room PLAY and one retry() per tap is not pinned directly: a host alone
+ * has no peer to receive the room PLAY, and a second retry() is refused
+ * inside transport with nothing the lab can read. (i) and T4 pin one source
+ * start and one paused-to-playing move per tap; a second activation cannot
+ * reach the dialog, which closes inside its first one.
+ *
+ * Only the window from the return to the tap is frozen, and rows assert
+ * counts and origin-tagged calls, not whole op arrays; times are bounded
+ * windows. "Known gap (C1-...)" marks today's behaviour where it is not the
+ * desired one. A planned C1 increment that would change such a row waits for
+ * the owner's decision (owner decision pending); if approved, its test-first
+ * commit flips the row. Some counts are Chromium facts (its suspend()
+ * promise settles before its statechange) and say so.
  */
 import { expect, test, type Page } from '@playwright/test';
 import { clickPlayButton, readState, waitForPlaybackProjection } from '../helpers/wait.ts';
@@ -36,12 +41,14 @@ import {
   openPlayRequestDialog,
   openPreparedDialog,
   opsFrom,
+  pageNow,
   readLab,
   releaseGates,
   resumeFromPageScript,
   setPageVisibility,
   timesOf,
   unfreeze,
+  waitForSuspendHeld,
   type LabSnapshot,
 } from './output-probe.ts';
 
@@ -73,7 +80,7 @@ async function contextState(page: Page): Promise<string | null> {
 }
 
 test.describe('play-request dialog (paused round trip, then PLAY)', () => {
-  test('(i) the tap retries once: one source start and one room PLAY', async ({ page }) => {
+  test('(i) the tap retries once: one source start, paused to playing', async ({ page }) => {
     const before = await openPlayRequestDialog(page);
     await unfreeze(page);
     await page.locator(OK).click();
@@ -160,9 +167,16 @@ test.describe('play-request dialog (paused round trip, then PLAY)', () => {
 
     expect(lab.resumeHeld).toBe(1);
     expect(countOps(fromTap(lab), 'resume@click:')).toBe(1);
-    // Known gap (C1-I12, the wait polls): the retired attempt's cleanup resume
-    // runs one poll tick after the abort, not inside it.
-    const cleanup = timesOf(fromTap(lab), 'resume@task:');
+    // Known gap (C1-I12, the wait polls; owner decision pending): the retired
+    // attempt's cleanup resume waits for the wait's next 50 ms check, a timer
+    // task, so it comes after every microtask the abort queued (the marker).
+    // A wait that settles on the owner's promise would put it before.
+    const ops = fromTap(lab);
+    const marker = ops.findIndex((op) => op.endsWith(' abort+microtasks'));
+    const cleanupAt = ops.findIndex((op) => op.includes('resume@task:'));
+    expect(marker).toBeGreaterThan(-1);
+    expect(cleanupAt).toBeGreaterThan(marker);
+    const cleanup = timesOf(ops, 'resume@task:');
     expect(cleanup).toHaveLength(1);
     expect(cleanup[0]! - abortAt).toBeGreaterThanOrEqual(0);
     expect(cleanup[0]! - abortAt).toBeLessThan(150);
@@ -209,10 +223,16 @@ test.describe('play-request dialog (paused round trip, then PLAY)', () => {
     await page.waitForTimeout(2_000);
     const hidden = await readLab(page);
     await setPageVisibility(page, 'visible');
-    await page.waitForTimeout(1_500);
+    // Read past the 5 s limit and the 750 ms flight: without the hide, the
+    // cleanup resume would be logged by now ((d-3), 5.5 to 6.5 s after the tap).
+    await page.waitForTimeout(3_500);
     const lab = await readLab(page);
+    const readAt = await pageNow(page);
     report('(d-2)', lab, before);
 
+    const tapAt = timesOf(fromTap(lab), 'resume@click:');
+    expect(tapAt).toHaveLength(1);
+    expect(readAt - tapAt[0]!).toBeGreaterThan(6_500);
     expect(countOps(fromTap(hidden), 'resume@task:')).toBe(0);
     expect(countOps(fromTap(lab), 'resume@task:')).toBe(0);
     expect(lab.state).toBe('suspended');
@@ -345,7 +365,7 @@ test.describe('trusted input with UI sounds on, play-request dialog', () => {
     await expect(page.locator(DIALOG)).toHaveCount(0);
   });
 
-  test('T4 Enter: two resumes in one keydown (UI sound first), the tap retries', async ({
+  test("T4 Enter: two resumes in one keydown (the UI sound's and the owner's), the tap retries", async ({
     page,
   }) => {
     const before = await openPlayRequestDialog(page, { uiSounds: true });
@@ -398,11 +418,13 @@ test.describe('trusted input with UI sounds on, prepared dialog', () => {
     const { x, y } = await okButtonCenter(page);
     await page.mouse.move(x, y);
     await page.mouse.down();
-    await expect.poll(async () => (await readLab(page)).suspendHeld).toBe(1);
+    // The page signals the held re-suspend, so the only wall-clock wait
+    // before the release is the 150 ms below (the owner's suspend watchdog
+    // runs out at 750 ms).
+    await waitForSuspendHeld(page);
     await page.mouse.up();
     await page.waitForTimeout(150);
     const refused = await readLab(page);
-    // Release before the owner's 750 ms suspend watchdog.
     await releaseGates(page);
     await expect(page.locator(DIALOG)).toBeVisible();
     await page.locator(OK).click();
@@ -410,7 +432,12 @@ test.describe('trusted input with UI sounds on, prepared dialog', () => {
     const lab = await readLab(page);
     report('T6', lab, before);
 
-    expect(refused.rejoins).toEqual([]);
+    // The release closed the dialog and issued no resume of its own: only the
+    // UI sound's on pointerdown, while the re-suspend was held.
+    expect(refused.suspendHeld).toBe(1);
+    expect(dialogMoves(fromTap(refused)).at(-1)).toBe('dialog:hidden');
+    expect(countOps(fromTap(refused), 'resume@')).toBe(1);
+    expect(countOps(fromTap(refused), 'resume@pointerdown:')).toBe(1);
     expect(refused.dialogShows).toBe(2);
     expect(lab.dialogShows).toBe(3);
     expect(countOps(fromTap(lab), 'resume@pointerdown:')).toBe(2);
@@ -460,8 +487,11 @@ test.describe('trusted input with UI sounds on, prepared dialog', () => {
     expect(lab.starts - before).toBe(0);
     await expect(page.locator(DIALOG)).toBeVisible();
 
-    // A second, quick press lands before the UI sound's resume and succeeds.
+    // A second, quick press: the UI sound's keydown resume is held until the
+    // press is over, so the owner's resume runs first and succeeds.
+    await holdResume(page, ['keydown']);
     await page.keyboard.press(' ');
+    await releaseGates(page);
     await page.waitForTimeout(3_000);
     const again = await readLab(page);
     report('T8 again', again, before);

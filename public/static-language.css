@@ -67,7 +67,15 @@
   bottom: calc(100% + 10px);
   width: min(310px, calc(100vw - 32px));
   max-height: min(440px, calc(100vh - 120px));
-  display: grid;
+  /* Closed, the menu takes no layout: every face is declared on the page,
+     so laid-out text fetches its font even at opacity 0, and the 42 names
+     would pull every script face on each visit. They fetch theirs when the
+     menu opens. The discrete display transition keeps the menu laid out
+     through the close fade (a browser without allow-discrete keeps the
+     first declaration and closes at once); the open state names its own
+     transitions so the names show at once and the selected one can take
+     focus in the next frame, and fades in from its starting style. */
+  display: none;
   gap: 2px;
   padding: 8px;
   overflow: auto;
@@ -82,6 +90,10 @@
   transition:
     opacity 150ms ease,
     transform 150ms ease;
+  transition:
+    opacity 150ms ease,
+    transform 150ms ease,
+    display 150ms allow-discrete;
 }
 
 html[dir='rtl'] .static-lang-menu {
@@ -89,9 +101,20 @@ html[dir='rtl'] .static-lang-menu {
 }
 
 .static-lang-picker.is-open .static-lang-menu {
+  display: grid;
   opacity: 1;
   pointer-events: auto;
   transform: translateY(0) scale(1);
+  transition:
+    opacity 150ms ease,
+    transform 150ms ease;
+}
+
+@starting-style {
+  .static-lang-picker.is-open .static-lang-menu {
+    opacity: 0;
+    transform: translateY(8px) scale(0.98);
+  }
 }
 
 .static-lang-option {
@@ -272,9 +295,13 @@ html[dir='rtl'] .static-lang-menu {
     transform: none;
     transform-origin: center;
     transition: opacity 180ms ease;
+    transition:
+      opacity 180ms ease,
+      display 180ms allow-discrete;
   }
 
   .static-lang-picker.is-open .static-lang-menu {
     transform: none;
+    transition: opacity 180ms ease;
   }
 }

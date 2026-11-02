@@ -2,14 +2,16 @@ import { readFile } from 'node:fs/promises';
 import { dirname, resolve } from 'node:path';
 import { describe, expect, it } from 'vitest';
 
+import {
+  GENERATOR_INPUT_SHEETS,
+  unshippedFaceFiles,
+} from '../../../scripts/lib/font-retirement.mts';
 import { localeFontAssetInlineLimit } from '../../../vite.config.ts';
 
 const LOCALE_FONT_STYLESHEETS = [
   'css/fonts/noto-arabic.css',
   'css/fonts/noto-bengali.css',
-  'css/fonts/noto-cyrillic.css',
   'css/fonts/noto-devanagari.css',
-  'css/fonts/noto-greek.css',
   'css/fonts/noto-gujarati.css',
   'css/fonts/noto-gurmukhi.css',
   'css/fonts/noto-hebrew.css',
@@ -89,9 +91,13 @@ describe('self-hosted locale font assets', () => {
 
   it.each(LOCALE_FONT_STYLESHEETS)('%s references valid local WOFF2 shards', async (cssPath) => {
     const css = await readFile(cssPath, 'utf8');
-    const urls = [...css.matchAll(/url\(([^)]+\.woff2)\)/gu)].map((match) =>
-      match[1]!.replace(/^['"]|['"]$/gu, ''),
+    // The generator inputs list faces that are not shipped (font-retirement.test.ts).
+    const unshipped = new Set(
+      GENERATOR_INPUT_SHEETS.includes(cssPath) ? unshippedFaceFiles(cssPath, css) : [],
     );
+    const urls = [...css.matchAll(/url\(([^)]+\.woff2)\)/gu)]
+      .map((match) => match[1]!.replace(/^['"]|['"]$/gu, ''))
+      .filter((url) => !unshipped.has(`fonts/${url.split('/fonts/')[1] ?? ''}`));
 
     expect(urls.length, cssPath).toBeGreaterThan(0);
     expect(css, cssPath).toMatch(/fonts\/NOTO_(?:SANS|CJK|THAI)_LICENSE\.txt/u);

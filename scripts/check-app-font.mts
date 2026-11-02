@@ -45,7 +45,10 @@
  *   new difference between the Korean and English UIs);
  * - no Pretendard by name in the app (the Hangul faces carry their own
  *   name), no Pretendard runtime, no service worker font group, and no font
- *   preload in any HTML.
+ *   preload in any HTML;
+ * - the pages outside the app: public/web-fonts/stacks.css resolves
+ *   --font-sans like the app in every UI language and Han order, and
+ *   declares no face.
  * The initial transfer budget (scripts/check-initial-transfer-budget.mts)
  * holds the eager font bytes at 0, fonts of eager stylesheets included.
  * --dist adds the built output: no font in the initial graph of the app
@@ -55,8 +58,12 @@
  * fonts/app/hangul/, no font sheet or file in
  * the service worker's install manifests (which do install the font owner
  * chunk itself), About's locale links bound to the
- * processed original sheets, and Pretendard deployed once for the public
- * pages.
+ * processed original sheets, Pretendard deployed once for the public
+ * pages, and the public pages' sheets: dist/web-fonts/ holds exactly
+ * first.css and rest.css, the concatenations of the built app sheets of
+ * their group (src/i18n/public-font-contract.ts) whose every font file is
+ * built, and stacks.css, the authored file, none of which the app documents
+ * link.
  */
 
 import { readFile, readdir } from 'node:fs/promises';
@@ -97,6 +104,8 @@ import {
 } from './lib/app-font-guard.mts';
 import { APP_FONT_SHEETS } from '../src/i18n/app-font-contract.ts';
 import { LANGUAGE_OPTIONS, languageDirection } from '../src/i18n/locales.ts';
+import { PUBLIC_FONT_SHEET_GROUPS } from '../src/i18n/public-font-contract.ts';
+import { PUBLIC_FONT_SHEET_URLS } from '../src/i18n/public-font-urls.ts';
 import { SERVICE_WORKER_SOURCE_PATH } from './service-worker-asset.ts';
 
 const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
@@ -338,6 +347,27 @@ for (const hanOrder of HAN_ORDERS) {
       check(missing.length === 0, `${where} omits ${missing.join(', ')}`);
       for (const problem of stackOrderProblems(stack)) failures.push(`${where}: ${problem}`);
     }
+  }
+}
+
+// ── Source: the pages outside the app ──────────────────────────────
+// They read the app's stacks from public/web-fonts/stacks.css, which mirrors
+// the app's --font-sans in every UI language and Han order and declares no
+// face (src/i18n/__tests__/public-font-stacks.test.ts holds the named stacks
+// and both directions too).
+
+const PUBLIC_STACKS = 'public/web-fonts/stacks.css';
+const publicStacksCss = await readFile(path.join(repoRoot, PUBLIC_STACKS), 'utf8');
+check(!declaresFontFace(publicStacksCss), `${PUBLIC_STACKS} declares @font-face`);
+const publicStacks = readFontStacks(repoRoot, { sheets: [PUBLIC_STACKS] });
+for (const hanOrder of HAN_ORDERS) {
+  const attributes = hanAttributes(hanOrder);
+  for (const { code, htmlLang } of LANGUAGE_OPTIONS) {
+    const state = { htmlLang, dir: languageDirection(code), attributes };
+    check(
+      JSON.stringify(publicStacks.fontSans(state)) === JSON.stringify(fontStacks.fontSans(state)),
+      `${PUBLIC_STACKS} resolves --font-sans in the ${code} UI (Han order ${hanOrder ?? 'ko'}) unlike the app`,
+    );
   }
 }
 
@@ -643,6 +673,55 @@ if (distMode) {
     }
   }
 
+  // The public pages' sheets (scripts/public-font-sheets.mts): first.css and
+  // rest.css are the built app sheets of their group, concatenated in
+  // contract order, so they name the app's very files; stacks.css is the
+  // authored file. dist/web-fonts/ holds nothing else.
+  const webFontFiles = distFiles
+    .map((file) => relative(file))
+    .filter((file) => file.startsWith('web-fonts/'))
+    .sort();
+  const expectedWebFontFiles = Object.values(PUBLIC_FONT_SHEET_URLS)
+    .map((url) => url.slice(1))
+    .sort();
+  check(
+    JSON.stringify(webFontFiles) === JSON.stringify(expectedWebFontFiles),
+    `dist/web-fonts/ holds ${webFontFiles.join(', ') || 'nothing'}, not ${expectedWebFontFiles.join(', ')}`,
+  );
+  for (const [group, ids] of Object.entries(PUBLIC_FONT_SHEET_GROUPS)) {
+    const url = PUBLIC_FONT_SHEET_URLS[group as keyof typeof PUBLIC_FONT_SHEET_GROUPS];
+    const built = await readFile(path.join(distDirectory, url.slice(1)), 'utf8').catch(() => null);
+    check(built !== null, `dist${url} was not built`);
+    if (built === null) continue;
+    const parts = await Promise.all(
+      ids.map(async (id) => {
+        const sheetFile = appSheetFiles.get(id);
+        return sheetFile ? await readFile(sheetFile, 'utf8') : `(missing ${id})`;
+      }),
+    );
+    check(
+      built === parts.map((css) => `${css.replace(/\n+$/u, '')}\n`).join(''),
+      `dist${url} is not the concatenation of the built ${ids.join(', ')} sheets`,
+    );
+    const urls = woff2Urls(built);
+    check(urls.length > 0, `dist${url} names no font file`);
+    for (const fontUrl of urls) {
+      const fontFile = localDistAssetPath(distDirectory, fontUrl);
+      check(
+        fontFile !== null && distFileSet.has(path.resolve(fontFile)),
+        `dist${url} points at a missing font file: ${fontUrl}`,
+      );
+    }
+  }
+  const builtStacks = await readFile(
+    path.join(distDirectory, PUBLIC_FONT_SHEET_URLS.stacks.slice(1)),
+    'utf8',
+  ).catch(() => null);
+  check(
+    builtStacks === publicStacksCss,
+    `dist${PUBLIC_FONT_SHEET_URLS.stacks} is not ${PUBLIC_STACKS}`,
+  );
+
   // Nothing font-related in the initial graph of the app document and its
   // localized copies.
   const builtFontNames = distFiles
@@ -654,6 +733,10 @@ if (distMode) {
   );
   check(appDocuments.length > 1, 'the built app document and its localized copies are missing');
   for (const { file, html } of appDocuments) {
+    check(
+      !html.includes('/web-fonts/'),
+      `built ${relative(file)} names the public pages' font sheets (/web-fonts/)`,
+    );
     const initialFiles = initialAssetUrls(html)
       .filter((url) => /\.(?:css|m?js)(?:[?#]|$)/iu.test(url))
       .map((url) => localDistAssetPath(distDirectory, url))

@@ -96,7 +96,7 @@ runbooks. Neither belongs in a general setup document.
 
 - [Phase 6 train 6D: the YouTube start recoveries in one module, the Standard host's local start wait and the PRO start tokens (2026-11-02)](design/phase6-6d-recovery-pro-arm-2026-11-02.md):
   prepared, not released. The fourth and last Phase 6 App update on branch `agent/p6-6d`,
-  thirty commits on main `432d4ae7` (the App 9.0.34 / v807 release record): the thirteen
+  thirty-one commits on main `432d4ae7` (the App 9.0.34 / v807 release record): the thirteen
   commits first built on the 6C train's tip `bdb5759a`, moved patch for patch once 6B (9.0.32 /
   v805) and 6C (9.0.34 / v807) had shipped, a tests-only commit and a comment and registry commit
   from the review of the moved branch, one record commit, 6D-6's nine commits (regression rows,
@@ -105,7 +105,8 @@ runbooks. Neither belongs in a general setup document.
   first two, then the fallback's failing test, runtime change and record), and 6C-3's four commits
   (its open point's tests-only row `b00d79ac`, tests first `d6f7cb00`, the runtime change
   `767a5a08` and one record commit, first stacked without 6D-6 as `5ca0abf0`, `38fcedb5` and
-  `7208a93d` and re-applied patch for patch after it), and the final local check's record commit;
+  `7208a93d` and re-applied patch for patch after it), the final local check's record commit, and
+  QA round 9's record commit;
   the version bump, the release-record entry
   and the release are the release owner's. 6D-1 turns the Standard guest's local zero-start recovery from a
   `player.ts` closure into the class `GuestZeroStartRecovery` in the new
@@ -183,6 +184,17 @@ runbooks. Neither belongs in a general setup document.
   commit adds 114 B, and types, lint, the three unit directories with the guard self-test and the
   ownership check pass on it. 6C-3's three code and test commits were then re-applied with the same
   patch-ids and take −18 B; round 8's full local check has not been rerun on the head with 6D-6.
+  QA round 9, on that head `b19ccffb`, checked the fallback again against the release owner's
+  decision (no change) and ran the late-join, shared-path and four golden files (17, 7 and 132
+  rows), the three unit directories with the guard self-test (250 files / 6,925 rows), types,
+  lint, a clean build with every guard except `guard:sw-cache-version` (now 13 App files: the
+  ten `src/youtube/` files plus `src/player/playlist.ts` and two `src/pro-room/` files), the
+  ownership check (counts unchanged), the local deploy-target judgement (App 13, every other
+  target 0, no App runtime dependency change, empty contract-freeze diff) and the first load
+  (+458 B eager JavaScript gzip against `432d4ae7`, the same bytes as when it was rebuilt). The
+  report's 6D-6 section now splits the visible change into the normal case the owner saw, the
+  snapshot route (the same change) and the rare never-ready case (as today, about 3 s later), and
+  6C-3's section gains one plain line for its ABORT-first case.
 - [App 9.0.34 / v807 train: Phase 6 6C (one YouTube state router, one iframe audio owner and shared arm steps), no light-theme stroke on the dialog grey button and the selection bar, and lighter light-theme dividers (2026-11-02)](design/phase6-6c-router-iframe-audio-arm-steps-2026-11-02.md):
   released on 2026-11-02 21:20 KST in Release 41443521522 (PR #563, squash `cd8eaf47`) as App
   9.0.34 / v807 (App build 807, target `app`, one update dialog, two visible light-theme changes;

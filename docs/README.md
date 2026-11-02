@@ -96,7 +96,7 @@ runbooks. Neither belongs in a general setup document.
 
 - [Phase 6 train 6D: the YouTube start recoveries in one module, the Standard host's local start wait and the PRO start tokens (2026-11-02)](design/phase6-6d-recovery-pro-arm-2026-11-02.md):
   prepared, not released. The fourth and last Phase 6 App update on branch `agent/p6-6d`,
-  twenty-nine commits on main `432d4ae7` (the App 9.0.34 / v807 release record): the thirteen
+  thirty commits on main `432d4ae7` (the App 9.0.34 / v807 release record): the thirteen
   commits first built on the 6C train's tip `bdb5759a`, moved patch for patch once 6B (9.0.32 /
   v805) and 6C (9.0.34 / v807) had shipped, a tests-only commit and a comment and registry commit
   from the review of the moved branch, one record commit, 6D-6's nine commits (regression rows,
@@ -105,7 +105,8 @@ runbooks. Neither belongs in a general setup document.
   first two, then the fallback's failing test, runtime change and record), and 6C-3's four commits
   (its open point's tests-only row `b00d79ac`, tests first `d6f7cb00`, the runtime change
   `767a5a08` and one record commit, first stacked without 6D-6 as `5ca0abf0`, `38fcedb5` and
-  `7208a93d` and re-applied patch for patch after it); the version bump, the release-record entry
+  `7208a93d` and re-applied patch for patch after it), and the final local check's record commit;
+  the version bump, the release-record entry
   and the release are the release owner's. 6D-1 turns the Standard guest's local zero-start recovery from a
   `player.ts` closure into the class `GuestZeroStartRecovery` in the new
   `src/youtube/zero-start-recovery.ts`, and the two
@@ -165,7 +166,15 @@ runbooks. Neither belongs in a general setup document.
   only the three flipped 0.004 rows; 59 / 59 after), types, lint and format, the YouTube, player
   and PRO room unit directories with the guard self-test (249 files / 6,916 rows), the ownership
   check (counts unchanged), the build and every guard except `guard:sw-cache-version`, and the
-  first load. 6D-6 then came in front of 6C-3: shared-path rows that pass before and after it, four
+  first load. QA round 8, the final local check on the head `b2ec82e3`, also before 6D-6, with
+  `origin/main` still `432d4ae7`: types, lint, format, `check:workers`, the unit suite 755 files /
+  18,120 rows (nine timeouts in the same two release-tool files as round 6 on a loaded PC; rerun
+  alone, every timed-out row passed except one, which timed out on the base `432d4ae7` too under
+  the same load), critical coverage 112 files / 4,599, the ownership check, a clean build with
+  every guard except `guard:sw-cache-version`, the first load against a clean build of the base
+  (+273 B eager JavaScript gzip, as in round 7), critical E2E 101 / 101, the ten local YouTube
+  specs 53 / 53 and the WebKit YouTube activation spec 4 / 4 (ports 5391 / 5392, retries 0).
+  6D-6 then came in front of 6C-3: shared-path rows that pass before and after it, four
   late-join rows of a device without an iframe that fail before it (two flipped, a snapshot-route
   row and a never-ready first iframe row), and an iPhone kept-iframe row that pins the judgement's
   ready-player bound. Its runtime commit has the first branch's patch-id and adds 68 B, its comment
@@ -173,7 +182,7 @@ runbooks. Neither belongs in a general setup document.
   fallback's flipped never-ready row fails before its runtime commit and passes after it; that
   commit adds 114 B, and types, lint, the three unit directories with the guard self-test and the
   ownership check pass on it. 6C-3's three code and test commits were then re-applied with the same
-  patch-ids and take −18 B.
+  patch-ids and take −18 B; round 8's full local check has not been rerun on the head with 6D-6.
 - [App 9.0.34 / v807 train: Phase 6 6C (one YouTube state router, one iframe audio owner and shared arm steps), no light-theme stroke on the dialog grey button and the selection bar, and lighter light-theme dividers (2026-11-02)](design/phase6-6c-router-iframe-audio-arm-steps-2026-11-02.md):
   released on 2026-11-02 21:20 KST in Release 41443521522 (PR #563, squash `cd8eaf47`) as App
   9.0.34 / v807 (App build 807, target `app`, one update dialog, two visible light-theme changes;

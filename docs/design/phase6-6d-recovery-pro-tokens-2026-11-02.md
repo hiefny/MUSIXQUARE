@@ -1,14 +1,14 @@
 # Phase 6 6D: YouTube 시작 복구와 PRO 시작 토큰 (2026-11-02)
 
-| Field              | Value                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                           |
-| ------------------ | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Status             | 준비됨, 배포 전. Phase 6의 넷째이자 마지막 App 열차다. 브랜치 `agent/p6-6d`(바탕 `bdb5759a` 위 커밋 열: 계획 6D-1 ~ 6D-4의 테스트 먼저·코드 커밋 여덟과 6D-5의 기록 커밋 둘, 곧 레지스트리·설계 문서 `a9ee6842`와 이 보고서). 계획의 6D-6(오너가 Q22 (가)로 고치기로 한, 늦게 합류하는 PRO 기기의 안내 두 번과 YouTube 화면 다시 만들기)은 만들지 않았다: 오너 답이 '만들기 전에 사진 먼저'라서 계획, 뒤집을 행, 양쪽에서 통과할 회귀 행만 준비했다(아래 '6D-6: 준비함, 만들지 않음, 오너를 기다림'). 6D-5는 버전 올리기 없이 기록과 가드 자체 시험만 한다. `a9ee6842`(그 뒤는 이 기록 커밋뿐)의 마지막 로컬 검사는 버전 올리기를 기다리는 `guard:sw-cache-version` 말고 모두 통과했다(QA 라운드 2). T0b가 찾은 결함 넷의 고침은 오너 답이 없어 싣지 않았다(결함 1과 2는 이 열차의 마지막 단계를 권했다). 6D-6(오너가 사진을 본 뒤), 버전 올리기, release-record §2의 이 열차 항목과 열린 항목 연결, PR, 머지, 배포는 릴리스 담당이 한다. 로컬과 브랜치 결과는 exact-main-SHA 후보를 대신하지 않는다                                                                                            |
-| Base               | `bdb5759a` = 6C 갈래 `agent/p6-6c`의 끝(그 [보고서](phase6-6c-router-iframe-audio-arm-steps-2026-11-02.md)의 기록 커밋). 그 App 런타임은 6C의 브랜치 끝 `6915ee9e`과 같다. 6C는 6B의 끝 `89e0b682` 위에, 6B는 main `dda3ee18` 위에 쌓였고 둘 다 아직 main에 없다. 6B와 6C가 차례로 나간 뒤 6D가 나가므로, 이 갈래는 그 main 위로 옮겨 다시 확인한다(아래 '머지 전에 할 일' 1). 같은 툴체인으로 만든 바탕 빌드의 진입 청크와 eager 바이트는 6C 보고서의 끝 값과 같다(`main-BDpc0SkS.js`, 859,737 B, eager JS gzip 465,439 B, 아래 '번들 크기')                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                   |
-| Version            | 없음. 9.0.30 / v803 그대로다(`guard:release-identity` 'MUSIXQUARE 9.0.30; service-worker cache epoch v803'). App 런타임 경로가 바뀌므로 다음 App 패치와 SW epoch를 함께 올려야 하고, 그 전에는 `guard:sw-cache-version`이 그 이유 하나로 실패한다: '[sw-cache-version] FAIL: committed PWA runtime changes are newer than v803 (3c098e9d).'와 App 18 파일(6B의 11, 6C가 더한 다섯, 6D가 더한 `src/youtube/constants.ts`와 `zero-start-recovery.ts`), 'Bump CACHE_VERSION in scripts/service-worker-asset.ts after these changes, then commit the bump.'(QA 라운드 2). 6B와 6C가 먼저 나가고 6D는 그 뒤에 나가며, 번호는 릴리스 담당이 정한다. 올리면 업데이트 창이 한 번 뜬다(Q1의 넷 가운데 넷째이자 마지막, 창 모양은 지금 그대로). 바닥(저장·유효 795)은 바꾸지 않는다                                                                                                                                                                                                                                                                                                                       |
-| Scope              | 계획 §4.9의 6D-1(C2-9, PA-09, SS-11), 6D-2(C2-11, PA-10), 6D-3(C2-12, SS-08), 6D-4(C2-13, PA-11, PA-01), 모두 중립, 그리고 6D-5(RT-09, RT-11: 기록과 가드 자체 시험, 버전 올리기 없음). 6D-1: Standard 게스트의 로컬 복구가 `player.ts`의 클로저에서 새 `src/youtube/zero-start-recovery.ts`의 클래스 `GuestZeroStartRecovery`가 되고, 두 복구의 0.35 s·50 ms·3 s가 `src/youtube/constants.ts`의 이름 셋이 된다. 6D-2: Standard 방장의 레거시 복구가 같은 파일의 단계 `HostZeroStartRecovery`가 된다. 6D-3: Standard 방장이 음수 오프셋으로 시작할 때 스피커를 잡아 두는 로컬 시작 대기가 `player.ts` 안의 원시 하나가 된다. 6D-4: PRO arm의 시작 종류가 PRO 재생의 합집합 타입 하나가 되고, PRO 시작 토큰 넷이 따로 이름 붙고 고정된다. 6D-5: 레지스트리 RO-02·RO-03·RO-12를 Phase 6 끝 상태로 적고(셋 다 `duplicated`), 계획 §4.10의 끝 조건을 코드와 대조한다. 와이어, 서버, 저장 모양, 계약 표지, 의존성, 타이머 이름, 로그 줄, 준비 이벤트, 화면, 소리는 바꾸지 않는다([화면 그대로]). 6D-6은 사진 계획과 행만 있다                                                                        |
-| Deploy target      | `app`. `scripts/release-deployment-state.mts`의 `changedRuntimePaths`, `runtimePathsForWorker`, `changedAppRuntimeDependencies`로 바탕 `bdb5759a`와 `a9ee6842`를 견준 로컬 git 판정: App 10(`src/youtube/`의 `authority-arm.ts`, `constants.ts`, `iframe-audio.ts`, `iframe.ts`, `local-offset.ts`, `player-runtime-bridge.ts`, `player.ts`, `start-ownership.ts`, `zero-start-recovery.ts`, `zero-start.ts`), PRO room 0, remote-share 0, signaling 0, Developer API facade 0, Developer API 0, App 런타임 의존성 차이 없음. 운영 App 9.0.30 `3c098e9d` 대비로는 6B·6C와 합쳐 App 18, 나머지 Worker 0, 의존성 차이 없음이다. 운영을 조회하지 않은 판정이라 릴리스의 부분 릴리스 검사를 대신하지 않는다. `raise_app_build_floor` false, Developer API D1 false(계획 RT-01). 계약 동결: `git diff --stat bdb5759a..a9ee6842 -- cloudflare/ src/network/protocol.ts src/core/constants.ts src/types/index.ts package.json package-lock.json index.html scripts/service-worker-asset.ts browser/ docs/release-record.md docs/release-history.md`가 비어 있다(6B의 바탕 `dda3ee18`부터도 비어 있음) |
-| Operations         | 운영에 닿지 않았다(로컬 git, 로컬 시험·빌드·Playwright만). GitHub 쓰기, push, 배포, 운영 요청은 없다                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                            |
-| Resource ownership | 새 레코드 없음. 두 복구는 RO-02의 주인이고(게스트 복구는 예외 RO-33 그대로), 로컬 시작 대기는 RO-02, PRO 토큰은 RO-03이다. 센 코드를 옮긴 커밋이 같은 커밋에서 레지스트리와 기준치를 고쳤다: CHECK 11 20 그대로(`player.ts` 4 → 2(6D-1 `dc596f8d`) → 1(6D-2 `f6d7c1e1`), 새 항목 `zero-start-recovery.ts` 2 → 3), CHECK 5의 YouTube 시작 계약 파일에 `zero-start-recovery.ts`(수 1 / 1 / 45 그대로), CHECK 12 읽기 11·지우기 9, 파사드 쓰기 2, 실행 스냅샷 읽기 8(이유 문장만 바뀜), 장부 합성 1, 시작 타이머 설정 파일 그대로. `node scripts/check-resource-ownership.mts`: 49 records, 458 → 459 production files. 6D-5가 RO-02, RO-03, RO-12를 Phase 6 끝 상태로 적었다: 셋 다 독립 기계가 남아 `duplicated` 그대로다(아래 '6D-5')                                                                                                                                                                                                                                                                                                                                                           |
+| Field              | Value                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                              |
+| ------------------ | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Status             | 준비됨, 배포 전. Phase 6의 넷째이자 마지막 App 열차다. 브랜치 `agent/p6-6d`(바탕 `bdb5759a` 위 커밋 열: 계획 6D-1 ~ 6D-4의 테스트 먼저·코드 커밋 여덟, 6D-5의 기록 커밋 둘(레지스트리·설계 문서 `a9ee6842`와 이 보고서), 리뷰를 반영한 시험 커밋 `6e3bd6f5`와 주석·기록 고침 커밋 하나). 계획의 6D-6(오너가 Q22 (가)로 고치기로 한, 늦게 합류하는 PRO 기기의 안내 두 번과 YouTube 화면 다시 만들기)은 만들지 않았다: 오너 답이 '만들기 전에 사진 먼저'라서 계획, 뒤집을 행, 양쪽에서 통과할 회귀 행만 준비했다(아래 '6D-6: 준비함, 만들지 않음, 오너를 기다림'). 6D-5는 버전 올리기 없이 기록과 가드 자체 시험만 한다. `a9ee6842`(그 뒤는 이 기록 커밋뿐)의 마지막 로컬 검사는 버전 올리기를 기다리는 `guard:sw-cache-version` 말고 모두 통과했다(QA 라운드 2). 리뷰 반영(시험 행 여섯, 주석 하나, 기록 고침)은 런타임 바이트를 바꾸지 않고, 닿는 검사를 다시 돌렸다(QA 라운드 3). T0b가 찾은 결함 넷의 고침은 오너 답이 없어 싣지 않았다(결함 1과 2는 이 열차의 마지막 단계를 권했다). 6D-6(오너가 사진을 본 뒤), 버전 올리기, release-record §2의 이 열차 항목과 열린 항목 연결, PR, 머지, 배포는 릴리스 담당이 한다. 로컬과 브랜치 결과는 exact-main-SHA 후보를 대신하지 않는다 |
+| Base               | `bdb5759a` = 6C 갈래 `agent/p6-6c`의 끝(그 [보고서](phase6-6c-router-iframe-audio-arm-steps-2026-11-02.md)의 기록 커밋). 그 App 런타임은 6C의 브랜치 끝 `6915ee9e`과 같다. 6C는 6B의 끝 `89e0b682` 위에, 6B는 main `dda3ee18` 위에 쌓였고 둘 다 아직 main에 없다. 6B와 6C가 차례로 나간 뒤 6D가 나가므로, 이 갈래는 그 main 위로 옮겨 다시 확인한다(아래 '머지 전에 할 일' 1). 같은 툴체인으로 만든 바탕 빌드의 진입 청크와 eager 바이트는 6C 보고서의 끝 값과 같다(`main-BDpc0SkS.js`, 859,737 B, eager JS gzip 465,439 B, 아래 '번들 크기')                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                      |
+| Version            | 없음. 9.0.30 / v803 그대로다(`guard:release-identity` 'MUSIXQUARE 9.0.30; service-worker cache epoch v803'). App 런타임 경로가 바뀌므로 다음 App 패치와 SW epoch를 함께 올려야 하고, 그 전에는 `guard:sw-cache-version`이 그 이유 하나로 실패한다: '[sw-cache-version] FAIL: committed PWA runtime changes are newer than v803 (3c098e9d).'와 App 18 파일(6B의 11, 6C가 더한 다섯, 6D가 더한 `src/youtube/constants.ts`와 `zero-start-recovery.ts`), 'Bump CACHE_VERSION in scripts/service-worker-asset.ts after these changes, then commit the bump.'(QA 라운드 2). 6B와 6C가 먼저 나가고 6D는 그 뒤에 나가며, 번호는 릴리스 담당이 정한다. 올리면 업데이트 창이 한 번 뜬다(Q1의 넷 가운데 넷째이자 마지막, 창 모양은 지금 그대로). 바닥(저장·유효 795)은 바꾸지 않는다                                                                                                                                                                                                                                                                                                                                                                                                          |
+| Scope              | 계획 §4.9의 6D-1(C2-9, PA-09, SS-11), 6D-2(C2-11, PA-10), 6D-3(C2-12, SS-08), 6D-4(C2-13, PA-11, PA-01), 모두 중립, 그리고 6D-5(RT-09, RT-11: 기록과 가드 자체 시험, 버전 올리기 없음). 6D-1: Standard 게스트의 로컬 복구가 `player.ts`의 클로저에서 새 `src/youtube/zero-start-recovery.ts`의 클래스 `GuestZeroStartRecovery`가 되고, 두 복구의 0.35 s·50 ms·3 s가 `src/youtube/constants.ts`의 이름 셋이 된다. 6D-2: Standard 방장의 레거시 복구가 같은 파일의 단계 `HostZeroStartRecovery`가 된다. 6D-3: Standard 방장이 음수 오프셋으로 시작할 때 스피커를 잡아 두는 로컬 시작 대기가 `player.ts` 안의 원시 하나가 된다. 6D-4: PRO arm의 시작 종류가 PRO 재생의 합집합 타입 하나가 되고, PRO 시작 토큰 넷이 따로 이름 붙고 고정된다. 6D-5: 레지스트리 RO-02·RO-03·RO-12를 Phase 6 끝 상태로 적고(셋 다 `duplicated`), 계획 §4.10의 끝 조건을 코드와 대조한다. 와이어, 서버, 저장 모양, 계약 표지, 의존성, 타이머 이름, 로그 줄, 준비 이벤트, 화면, 소리는 바꾸지 않는다([화면 그대로]). 6D-6은 사진 계획과 행만 있다                                                                                                                                                           |
+| Deploy target      | `app`. `scripts/release-deployment-state.mts`의 `changedRuntimePaths`, `runtimePathsForWorker`, `changedAppRuntimeDependencies`로 바탕 `bdb5759a`와 `a9ee6842`를 견준 로컬 git 판정: App 10(`src/youtube/`의 `authority-arm.ts`, `constants.ts`, `iframe-audio.ts`, `iframe.ts`, `local-offset.ts`, `player-runtime-bridge.ts`, `player.ts`, `start-ownership.ts`, `zero-start-recovery.ts`, `zero-start.ts`), PRO room 0, remote-share 0, signaling 0, Developer API facade 0, Developer API 0, App 런타임 의존성 차이 없음. 운영 App 9.0.30 `3c098e9d` 대비로는 6B·6C와 합쳐 App 18, 나머지 Worker 0, 의존성 차이 없음이다. 운영을 조회하지 않은 판정이라 릴리스의 부분 릴리스 검사를 대신하지 않는다. `raise_app_build_floor` false, Developer API D1 false(계획 RT-01). 계약 동결: `git diff --stat bdb5759a..a9ee6842 -- cloudflare/ src/network/protocol.ts src/core/constants.ts src/types/index.ts package.json package-lock.json index.html scripts/service-worker-asset.ts browser/ docs/release-record.md docs/release-history.md`가 비어 있다(6B의 바탕 `dda3ee18`부터도 비어 있음)                                                                                    |
+| Operations         | 운영에 닿지 않았다(로컬 git, 로컬 시험·빌드·Playwright만). GitHub 쓰기, push, 배포, 운영 요청은 없다                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                               |
+| Resource ownership | 새 레코드 없음. 두 복구는 RO-02의 주인이고(게스트 복구는 예외 RO-33 그대로), 로컬 시작 대기는 RO-02, PRO 토큰은 RO-03이다. 센 코드를 옮긴 커밋이 같은 커밋에서 레지스트리와 기준치를 고쳤다: CHECK 11 20 그대로(`player.ts` 4 → 2(6D-1 `dc596f8d`) → 1(6D-2 `f6d7c1e1`), 새 항목 `zero-start-recovery.ts` 2 → 3), CHECK 5의 YouTube 시작 계약 파일에 `zero-start-recovery.ts`(수 1 / 1 / 45 그대로), CHECK 12 읽기 11·지우기 9, 파사드 쓰기 2, 실행 스냅샷 읽기 8(이유 문장만 바뀜), 장부 합성 1, 시작 타이머 설정 파일 그대로. `node scripts/check-resource-ownership.mts`: 49 records, 458 → 459 production files. 6D-5가 RO-02, RO-03, RO-12를 Phase 6 끝 상태로 적었다: 셋 다 독립 기계가 남아 `duplicated` 그대로다(아래 '6D-5')                                                                                                                                                                                                                                                                                                                                                                                                                                              |
 
 이 문서는 Phase 6 계획의 넷째이자 마지막 App 열차 6D의 증분과 QA를 기록한다. 근거는 공개하지 않는 작업 노트(`docs/private/`)의
 Phase 6 계획(2026-10-30)과 그 영역 조사, 오너 답(2026-10-30)이고, SS, PA, RT, C2 번호, Q 번호와 D 번호(이 열차의 구현 계획이 정한
@@ -38,7 +38,8 @@ T0a PRO READY 시각 골든과 PRO 늦은 합류 고정 행이 초록이고, 관
   (계획 D2). 게스트의 출시 소리 최소 1,000 ms와 교체 대체의 1,500 ms는 쓰는 파일이 하나라 그 자리에 둔다.
 - **Q18 결함마다 묻기:** 시험이 결함을 재현하면 오늘 동작으로 고정하고 결함마다 따로 묻는다. 6D의 새 행은 오늘 동작을 고정했고, 새로
   드러난 것은 하나다: 방장 레거시 복구가 방에 없던 영상을 0:00으로 옮겼는데 그 자리가 0.35초 넘게 어긋나면 다시 옮기지 않고 3초 다리가
-  끝날 때까지 기다린다(6D-2 단위 행, 아래 '오너에게' 2, 기록만 권함). T0b가 찾아 2026-11-01에 따로 여쭌 결함 넷은 답이 없어 싣지 않았다.
+  끝날 때까지 기다린다(6D-2 단위 행, 아래 '오너에게' 2, [화면 바뀜: 고치기로 하실 때만, 그 경우 그 시작이 0:00에서 멈추지 않고 이어짐],
+  기록만 권함). T0b가 찾아 2026-11-01에 따로 여쭌 결함 넷은 답이 없어 싣지 않았다.
 - **Q2(6C-3)는 6C의 것:** 0.5 % 아래 음소거 규칙 하나는 6C의 마지막 증분이고, 6D는 두 규칙을 바꾸지 않는다(6D-4가 PRO arm의 오디오 읽기를
   바꾸지 않은 이유 가운데 하나다).
 - **엔지니어링 기본값(계획 §9.3, §9.4, 권장대로):** 이 열차가 기댄 것은 Q10·Q24(CHECK 11·12는 resource-ownership 가드 안에서 정확 개수),
@@ -54,7 +55,8 @@ T0a PRO READY 시각 골든과 PRO 늦은 합류 고정 행이 초록이고, 관
   복구는 실행의 'recovering-host' 단계가 아니라 복구 주인의 단계다(실행의 파사드가 바뀌면 모든 장부 독자가 바뀜). D7 복구의 맨 `mute()`는
   코드와 함께 옮겨 CHECK 11의 새 파일 항목으로 센다. D8 'PRO YouTube 시작 중 동기화 누름' 고정 행은 선택이었고 더하지 않았다(아래 '계획과
   달라진 것'). D9 끝 조건 2의 `onFallbackRequired`는 `zero-start.ts`의 의존성 이름이라 남고, '`player.ts`에 복구 몸통 없음'과
-  '`recoverZeroStartWithLegacyRendezvous` 없음'으로 읽는다.
+  '`recoverZeroStartWithLegacyRendezvous` 없음'으로 읽는다. 이 읽기는 이 열차의 결정이고 계획과 오너 답에는 없다. 그래서 끝 조건 2는
+  계획 문구대로는 아직 아니며 오너 확인을 기다린다(아래 'Phase 6 끝 조건' 2, '오너에게' 7).
 - **Q6 기준선:** Phase 6 앞의 기기 기준선은 재지 않았다. 아래 '배포 뒤 확인'은 기준선과 견주지 못하고 판정 기준과만 견준다.
 
 ## 증분 한눈에
@@ -76,7 +78,9 @@ T0a PRO READY 시각 골든과 PRO 늦은 합류 고정 행이 초록이고, 관
 undefined(`start-timing-parity.test.ts`의 첫 행), 가드 자체 시험 넷(모듈 소스가 없어 바늘을 찾지 못하거나 `--report`에 모듈 자리가 없음).
 6D-2 방장 단위 28행 '**vi_import_2**.HostZeroStartRecovery is not a constructor'와 가드 자체 시험 둘. 6D-3과 6D-4는 새 코드를 읽는 행이 없다:
 6D-3의 원시는 모듈 안 함수이고 시험 전용 export를 두지 않으며, 6D-4는 타입과 주석만 바꾼다. 6D-1과 6D-2의 테스트 먼저 커밋은 코드 커밋
-앞에 한 번씩 고쳐(행을 더함) 고친 판을 부모에서 다시 돌렸고, 첫 판(`c3ab529f`, `5c940127`)도 같은 그림이었다.
+앞에 한 번씩 고쳐(행을 더함) 고친 판을 부모에서 다시 돌렸고, 첫 판(`c3ab529f`, `5c940127`)도 같은 그림이었다. 리뷰 뒤의 시험만 커밋
+`6e3bd6f5`(6D-1 ~ 6D-3의 행 여섯과 단언 하나)는 부모 `cb2279ba`에서 통과하고(`player.test.ts`의 것은 바탕 런타임에서도), 그 행이 고정하는
+코드를 지우면 그 행이 실패한다(QA 라운드 3).
 
 ## 증분
 
@@ -85,7 +89,10 @@ undefined(`start-timing-parity.test.ts`의 첫 행), 가드 자체 시험 넷(�
 - **클래스:** 새 `src/youtube/zero-start-recovery.ts`의 `GuestZeroStartRecovery`(`:95`)가 Standard 게스트의 로컬 복구다. zero-start 실행이 이
   게스트의 시작을 놓으면(방장이 이 게스트 없이 COMMIT, 시계 보정 전, 준비 실패, 출시 확인 시간 넘김) 지금 iframe에서 혼자 시작을
   이어받는다. `clear(transfer)`(`:111`)는 옛 `clearZeroStartExternalFallback`이고 `start(...)`(`:138`)는 옛 클로저의 역할 확인과 지우기 뒤
-  몸통이다. 옮긴 몸통을 스크립트로 견주면 문장마다 같고, 다른 것은 `player.ts`에 남은 앞부분과 울타리, 튜플 풀기, 줄 바꿈 하나다. 시도마다
+  몸통이다. 옮긴 몸통을 스크립트로 견주면 문장마다 같고, 다른 것은 `player.ts`에 남은 앞부분과 울타리, 튜플 풀기, 줄 바꿈 하나, 그리고
+  순서 하나다: 게스트 맥락(`youtube.currentSubIndex`를 읽음)을 이제 `guestRecovery.start`가 `resolveZeroStartDelay`를 부르기 전에
+  만든다(전에는 그 뒤). 중립이다: 그 함수의 쓰기 둘(`sync.youtubeLocalOffset` 0과 `sync:display-update`)을 듣는 쪽은
+  `youtube.currentSubIndex`를 쓰지 않고, 게스트 목표(`resolveZeroStartLocalTarget`의 게스트 갈래)는 subIndex를 읽지 않는다. 시도마다
   울타리 먼저, 코호트에서 빠진 게스트가 불러오기를 낸 경우 준비 예산의 남은 7.7 s를, 다른 경우 3 s 다리를 쓰고, 0.35 s 안의 정착을 50 ms
   폴로 보고, 소리를 명령 → 확인 → 폴로 되돌린 뒤 방 위치로 출시하고 1.8 s 안의 PLAYING으로 끝낸다. 실패하면 검증 복원
   ('verify-then-settle')으로 그 iframe을 정리한다.
@@ -110,10 +117,12 @@ undefined(`start-timing-parity.test.ts`의 첫 행), 가드 자체 시험 넷(�
   게스트의 7,700 ms 창과 출시, 붙잡지 못한 복구의 3,000 ms 창과 120 ms × 8 정리, 0.35 s 경계(0.35는 받고 0.351은 거절, 영상 확인과 정착
   확인 모두), 기한 1 ms 앞의 시도, unMute를 무시하는 iframe과 −9.999 s의 max(기한, 지금 + 1 s), 복구 중 다시 만든 iframe, 던지는 출시
   `playVideo()`, 1.8 s 출시 확인 시간 넘김, 울타리 일곱(새 PREPARE(복구 명령 없이 넘김), 맞는 ABORT, 방장 연결 닫힘과 끊김, 새 YouTube 세션,
-  다른 큐 항목, 실행 재설정), 복구 중 `youtube:set-volume`, 던지는 첫 예약, 복구가 claim을 가진 동안 늘 false인 실행 파사드(비평 issue 3),
-  준비 이벤트의 수와 microtask 순서. 부모에서 26행 모두 통과한다. 새 `zero-start-recovery.test.ts`(node, 가짜로 클래스만, 25행),
+  다른 큐 항목, 실행 재설정(실행·영상 확인을 함께, 아래 '중립 메모' (d))), 복구 중 `youtube:set-volume`, 던지는 첫 예약, 복구가 claim을
+  가진 동안 늘 false인 실행 파사드(비평 issue 3), 준비 이벤트의 수와 microtask 순서. 부모에서 26행 모두 통과한다. 새 `zero-start-recovery.test.ts`(node, 가짜로 클래스만, 25행),
   `start-timing-parity.test.ts`(T0a) 첫 행의 새 이름 셋, 가드 자체 시험 넷(모듈과 `player.ts` 사이의 시간 값 사본, `--report`의 모듈 mute
-  둘, 모듈이 자기 타이머를 걸면 `START TIMER SET`, 모듈의 스냅샷 읽기).
+  둘, 모듈이 자기 타이머를 걸면 `START TIMER SET`, 모듈의 스냅샷 읽기). 리뷰 뒤 시험 커밋 `6e3bd6f5`(QA 라운드 3)가 단위 파일에 게스트
+  토큰 행 넷을 더했다: `clear()` 뒤, 검증 정리 중인 포기 뒤, 확인된 출시 뒤로 빠져나간 시도와 `clear()` 뒤로 빠져나간 정리 재시도가 아무것도
+  하지 않는다(게스트 29행). 그 전에는 게스트 토큰의 이동이나 확인 하나를 지워도 실패하는 행이 없었다(리뷰의 변이 확인).
 - **그대로 통과(계획이 적은 것):** `player.test.ts`의 external fallback 묶음(9.0.8 행 포함)과 넘김 행, `zero-start-fallback-ownership.test.ts`
   9행, `sync-integration.test.ts`의 게스트 행, T0a의 7,700·3,000 고정과 로그 동결(`Recovered locally`, `Falling back locally`,
   `Local fallback failed:`), 로컬 Chromium `e2e/youtube-manual-zero-start.test.ts:157`(느린 게스트 복구 중 Sync).
@@ -148,7 +157,8 @@ undefined(`start-timing-parity.test.ts`의 첫 행), 가드 자체 시험 넷(�
   다시 불러오지 않음), 방장 seek·로컬 pause·다른 큐 항목, 새 PREPARE, 해체 넘김. `sync-integration.test.ts`의 `'yt-zero-start-host-fallback'`
   이름 고정 14줄과 `'yt-zero-start-replacement-fallback'` 2줄 옆에 iframe op 로그 단언을 더했다(이름과 기대 값 그대로). 단위 28행(방장 단계),
   가드 자체 시험 둘(`--report`의 단계 mute, 단계가 자기 타이머를 걸면 `START TIMER SET`). 첫 판의 단위 행 하나는 다시 seek를 가정해 오늘
-  동작으로 고쳤다(아래 '오너에게' 2).
+  동작으로 고쳤다(아래 '오너에게' 2). 리뷰 뒤 `6e3bd6f5`가 방장 단위 행 하나를 더했다: `cancel()` 뒤로 빠져나간 검증 정리 재시도가
+  아무것도 하지 않는다(방장 29행, 검증 정리의 현재 확인을 고정).
 - **그대로 통과:** T0a 와이어 골든의 방장 행, 시작 소유 경계와 정리 루프의 로컬 pause·방 나가기 행, 로그 동결 행, 복원 박자의 방장 루프,
   T0b의 H 행(H4, H4a 포함, 결함 1은 만들지 않음)과 비동기 변형, `sync-integration.test.ts`의 방장 행.
 
@@ -170,12 +180,19 @@ undefined(`start-timing-parity.test.ts`의 첫 행), 가드 자체 시험 넷(�
 - **시험(테스트 먼저 `a30e221e`):** `player.test.ts` 'Standard host own output compensation'이 이제 진짜 관리 타이머와 가짜 시간 위에서
   돌고, 명령마다 시각, 대기 술어, 적용 오프셋과 자동 오프셋을 적는 op 로그, YOUTUBE_STATE 프레임과 Stage 2로 고정한다. 타이머 이름으로
   콜백을 찾던 `mock.calls.find` 일곱과 `getManagedTimer` null 확인 둘을 지웠다. 울타리 행 셋을 더했다(대기의 pause, seek, 늦은 출시의 따라잡기
-  seek 안에서 더 새 타임라인이 시작되면 거기서 멈춤). `host-local-rendezvous.test.ts`의 'hands a negative-start wait to a new manual offset
+  seek 안에서 더 새 타임라인이 시작되면 거기서 멈춤). 이 셋은 시작의 두 울타리와 출시의 둘째 울타리(따라잡기 seek 뒤)를 고정한다. 출시의 첫
+  울타리(따라잡기 seek 앞)는 리뷰 뒤 `6e3bd6f5`가 더한 행 'stops a late negative-start release whose YouTube session moved on before its
+  catch-up seek'이 고정한다: YouTube에서 YouTube로의 불러오기는 세션만 옮기고 대기를 물리지 않아, 늦게 울린 출시를 그 울타리만 멈춘다. 같은
+  커밋에서 수동 편집 행이 물림 뒤 `'yt-host-local-start'`가 null임을 다시 읽는다(op 로그로 바꾸며 빠졌던, 물림의 타이머 지우기의 고정).
+  `host-local-rendezvous.test.ts`의 'hands a negative-start wait to a new manual offset
   %s'(4 cases)는 대역 타이머 쌍과 대역 취소 훅 대신 진짜 레거시 랑데부(수동 −9.999 s)를 몰고, 물림 포트로 진짜 대기를 물린다. 모두
   부모에서 통과한다(210 / 210, 울타리 행 전에 seed 4242와 7로 섞어도 207 / 207).
 - **그대로 통과:** `standard-start-pause-teardown.test.ts`의 'never coexist' 행, 라우터 9행, `local-offset.test.ts` 31행, 타이머 주인 질의
-  49행, 방 전환 T3, native control 행, T0b H3·H5·H6·H9, `sync-integration.test.ts`의 2단계 행, 로컬 Chromium의 음수 수동 오프셋 행
-  (`youtube-manual-zero-start.test.ts:90`), `youtube-manual-repeat`, `youtube-output-delay`.
+  49행, 방 전환 T3, native control 행, T0b H3·H5·H6·H9, `sync-integration.test.ts`의 2단계 행. 로컬 Chromium 행(음수 수동 오프셋
+  `youtube-manual-zero-start.test.ts:90`, `youtube-manual-repeat`, `youtube-output-delay`)도 통과했지만 6D-3의 근거로 들지 않는다: `:90`은
+  다음 곡을 zero-start로 시작하고, 새 곡과 반복도 zero-start를 청한다. 이 원시를 시작하는 것은 레거시 랑데부뿐이다(곡 앞부분에서는 재생 중
+  0:00으로 seek, 기준을 넘은 ⏮, 자동 재생과 트랙 넘김의 대체, 방장 복구의 넘기기 등). 그래서 6D-3의 근거는 위 단위 행이고, 기기 절차에 그
+  길을 더했다(아래 '배포 뒤 확인' C(4)).
 
 ### 6D-4 C2-13 PRO 시작 토큰 (PA-11, PA-01)
 
@@ -224,7 +241,9 @@ undefined(`start-timing-parity.test.ts`의 첫 행), 가드 자체 시험 넷(�
     원하는 오디오를 밀려 받는다.
   - RO-12: 그 밀기(`youtube-iframe-audio-order.test.ts`가 하나씩 고정). 시작 기계가 이 모듈에서 읽게 하는 변경(단일 규칙 뒤 그 고정을 같은
     변경에서 고치거나, Phase 7의 `youtube:set-volume` 계약과 함께)이 `owner-in-place`를 만든다.
-  - RO-33의 경로(6D-1·6D-2가 고침), RO-34(옮긴 함수 없음, D5), 색인, `Last source review`는 그대로다.
+  - RO-33의 경로(6D-1·6D-2가 고침), RO-34(옮긴 함수 없음, D5), `Last source review`는 그대로다. 색인의 Consolidation 칸 셋은 `a9ee6842`가
+    그대로 두었다가 리뷰 뒤 고쳤다: 용어 절의 `duplicated`는 '어느 Phase가 합치거나 오너 결정이 먼저'라서, Phase 6이 끝나도 남는 레코드의
+    칸이 아직 Phase 6을 가리키면 안 된다(RO-26 '2 done; requests: decision'과 같은 꼴, 아래 '기록과 레지스트리').
 - **가드 자체 시험:** 상태가 바뀌지 않아 'RO-02 duplicated' 글자를 쓰는 행(`src/core/__tests__/resource-ownership-guard.test.ts:101`,
   `:120-121`)과 `stopYouTubeMode`의 로더 바늘(`'    showLoader(false);'`, `:984`, `src/youtube/player.ts:1663`)은 그대로 맞는다. 고친 것은
   없고, 그 파일은 마지막 검사에서 104 / 104이며 seed 1 ~ 16으로 섞어도 104 / 104다(QA 라운드 2).
@@ -240,6 +259,11 @@ undefined(`start-timing-parity.test.ts`의 첫 행), 가드 자체 시험 넷(�
   낸다. 오늘의 `cancelYtAutoSync`이고 보이는 것은 같다.
 - **(c) 넘김 순간의 준비 이벤트(6D-1):** 골든 G13은 넘김 순간 실행 자신의 동기 준비 이벤트를 고정한다(그 순간 복구 claim은 없음). 앞
   참값표가 이미 덮는 순간이다.
+- **(d) 울타리의 실행·영상 확인(6D-1):** 게스트 복구 울타리의 실행 확인(`snapshot?.runId === event.runId`)과 영상 확인
+  (`snapshot.videoId === event.videoId`)은 함께만 고정된다(G9 'the run is reset': 재설정은 둘 다 지움). 오늘은 어느 하나만으로도 같다:
+  재설정은 어느 쪽에서도 걸리고, 새 게스트 실행은 실행이 바뀌기 전에 늘 복구를 먼저 지운다(`handlePrepare` → `onPrepareSelection` →
+  `clear(true)`). 그래서 한쪽만 지워도 실패하는 시험은 없다(리뷰의 변이 확인). 계획 6D-1이 테스트 먼저로 든 runId 울타리는 이 뜻으로만
+  고정돼 있고, RO-02의 게스트 복구 앵커에 같은 문장을 적었다.
 
 ## T0a·T0b·6B·6C 파일
 
@@ -296,19 +320,20 @@ undefined(`start-timing-parity.test.ts`의 첫 행), 가드 자체 시험 넷(�
 
 ## Phase 6 끝 조건 (계획 §4.10)
 
-계획 §4.10의 여덟 조건을 `a9ee6842`의 코드와 기록에 대조했다. `git grep`은 `src`에서 `__tests__`와 `*.test.ts`를 빼고 돌렸다(`git grep -n
-<pattern> -- src ':(exclude)src/**/__tests__/**' ':(exclude)*.test.ts'`).
+계획 §4.10의 여덟 조건을 `a9ee6842`의 코드와 기록에 대조했다. `git grep`은 따로 범위를 적지 않으면 `src`에서 `__tests__`와 `*.test.ts`를
+빼고 돌렸다(`git grep -n <pattern> -- src ':(exclude)src/**/__tests__/**' ':(exclude)*.test.ts'`). 리뷰 뒤(QA 라운드 3) 같은 grep을 브랜치
+끝에서 다시 돌려 같은 결과를 얻었다.
 
-| 조건                                                | 판정            | 근거                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                         |
-| --------------------------------------------------- | --------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| 1. 6A ~ 6D가 운영에 있고 각각 기록됨                | 아직 아님       | 6A만 운영(9.0.30 / v803, #550). 6B, 6C, 6D는 준비됨·배포 전이고 각 보고서와 `docs/README.md` 증거 목록이 있다                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                |
-| 2. 구조 삭제                                        | 참(D9의 읽기로) | `git ls-files src/youtube/zero-start-ownership.ts` 없음. `isYouTubeZeroStartSyncOwned` 없음(남은 것은 `src` 밖 가드 주석 `scripts/check-resource-ownership.mts:1066`과 시험 주석). `git grep -n TIMING -- src/youtube/authority-arm.ts` 없음(arm 값은 6A-3부터 `constants.ts`). 'Phase 0d C2-1 shares it'는 저장소 전체에 없음. `native-control-authority.ts`에 타이머 이름 배열 없음(남은 이름은 자기 `LOCAL_REJOIN_TIMER`(`:61`)와 RO-13 넛지 읽기 하나(`:165`)). `git grep -n -E "recoverZeroStartWithLegacyRendezvous\|attemptFallback\|attemptRecovery\|abandonFallback\|finishUnavailable" -- src/youtube/player.ts` 없음: 복구 몸통은 `zero-start-recovery.ts`에 있고, `player.ts`의 `onFallbackRequired`(`:2305`)는 `zero-start.ts`의 의존성 이름으로 남은 넘겨주기다(초안 로드맵 Exit '복구 클로저가 player.ts에서 사라짐'). 다리 훅 `isProPlaybackPauseGatePendingFromIframe` 없음 |
-| 3. 통신·서버 계약 무변경                            | 참              | `git diff --stat b8ae59e7..a9ee6842 -- src/core/constants.ts src/types/index.ts src/network/protocol.ts cloudflare/pro-room-playback-timing.ts`가 비어 있다(R3 머지 `b8ae59e7`, 기록 `f8a30068` 모두). R3 뒤 `cloudflare/` 전체의 차이는 9.0.30 버전 거울 한 줄(`cloudflare/app-worker.ts`의 `ADMIN_ASSET_VERSION`)과 Phase 6 밖 R4의 `cloudflare/pro-room-worker.ts`뿐이다                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                  |
-| 4. 레지스트리와 CHECK 11·12                         | 참              | 주인 머리: `start-ownership.ts:4` RO-02, `arm-steps.ts:6` RO-03, `iframe-audio.ts:6` RO-12. 시간 집 `src/youtube/constants.ts`(RO-02·RO-03·RO-12의 시간 집 칸). 상태 셋은 `duplicated`로 6D-5가 이유를 고침. RO-33은 `zero-start-recovery.ts`의 `GuestZeroStartRecovery`를 가리키고, RO-34는 옮긴 함수가 없어(D5) 그대로 맞다. CHECK 11 20, CHECK 12 11 / 9 / 2 / 8 / 1이 끝의 수이고 가드가 통과한다                                                                                                                                                                                                                                                                                                                                                                                                                                                                                        |
-| 5. 기기 절차와 확인하지 못한 것, known-accepted #14 | 참(게이트 아님) | 아래 '배포 뒤 확인'과 '하지 않은 것과 확인하지 않은 것'. `docs/known-accepted.md`는 2026-10-29(#524) 뒤 바뀌지 않았다                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                        |
-| 6. 마지막 열차 배포 뒤 14일 무제보                  | 시작 전         | 6D 배포 때부터 센다. Phase 7 시작·배포를 막지 않는다(Q25)                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                    |
-| 7. 번들 Phase 순증 +200 B 이하                      | 참              | 증분마다 부모 대비 eager JS gzip 차의 합 +123 B(6A −149, 6B −53, 6C +34, 6D +291), 같은 툴체인. 아래 '번들 크기'                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                             |
-| 8. 문서                                             | 참              | `docs/design/youtube-start-ownership.md`(Accepted, 6B-1)가 `docs/README.md:40`에 있다. `docs/qa-domains.md` QA053이 장부, 설계 문서, 복구 모듈을 가리킨다                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                    |
+| 조건                                                | 판정                                | 근거                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                            |
+| --------------------------------------------------- | ----------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| 1. 6A ~ 6D가 운영에 있고 각각 기록됨                | 아직 아님                           | 6A만 운영(9.0.30 / v803, #550). 6B, 6C, 6D는 준비됨·배포 전이고 각 보고서와 `docs/README.md` 증거 목록이 있다                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                   |
+| 2. 구조 삭제                                        | 아님(계획 문구대로), 오너 확인 대기 | `git ls-files src/youtube/zero-start-ownership.ts` 없음. `isYouTubeZeroStartSyncOwned`는 `src` 운영 코드에 없음(남은 것은 가드 주석 `scripts/check-resource-ownership.mts:1066`, 시험 주석, 문서의 역사 문장). `git grep -n TIMING -- src/youtube/authority-arm.ts` 없음(arm 값은 6A-3부터 `constants.ts`). `git grep -n 'Phase 0d C2-1 shares it' -- src scripts cloudflare` 없음(이 보고서의 인용뿐). `native-control-authority.ts`에 타이머 이름 배열 없음(남은 이름은 자기 `LOCAL_REJOIN_TIMER`(`:61`)와 RO-13 넛지 읽기 하나(`:165`)). `git grep -n -E "recoverZeroStartWithLegacyRendezvous\|attemptFallback\|attemptRecovery\|abandonFallback\|finishUnavailable" -- src/youtube/player.ts` 없음: 복구 몸통은 `zero-start-recovery.ts`에 있다. 그러나 계획이 적은 대로 `git grep -n onFallbackRequired -- src/youtube/player.ts`를 돌리면 `:2305`가 나온다: `player.ts`의 `onFallbackRequired`(`:2305-2342`)가 넘겨주기로 남고 역할 확인·지우기·들리는 앞섬 읽기(`:2310`)·울타리 `isCurrent`(`:2321-2332`, 실행 스냅샷 읽기)를 가진다. 복구 몸통 없음으로 읽는 D9는 이 열차의 결정이다(계획과 초안 로드맵 Exit는 '복구 클로저가 player.ts에서 사라짐'을 적음. 아래 '오너에게' 7). 다리 훅 `isProPlaybackPauseGatePendingFromIframe` 없음 |
+| 3. 통신·서버 계약 무변경                            | 참                                  | `git diff --stat b8ae59e7..a9ee6842 -- src/core/constants.ts src/types/index.ts src/network/protocol.ts cloudflare/pro-room-playback-timing.ts`가 비어 있다(R3 머지 `b8ae59e7`, 기록 `f8a30068` 모두). R3 뒤 `cloudflare/` 전체의 차이는 9.0.30 버전 거울 한 줄(`cloudflare/app-worker.ts`의 `ADMIN_ASSET_VERSION`)과 Phase 6 밖 R4의 `cloudflare/pro-room-worker.ts`뿐이다                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                     |
+| 4. 레지스트리와 CHECK 11·12                         | 참                                  | 주인 머리: `start-ownership.ts:4` RO-02, `arm-steps.ts:6` RO-03, `iframe-audio.ts:6` RO-12. 시간 집 `src/youtube/constants.ts`(RO-02·RO-03·RO-12의 시간 집 칸). 상태 셋은 `duplicated`로 6D-5가 이유를 고침. RO-33은 `zero-start-recovery.ts`의 `GuestZeroStartRecovery`를 가리키고, RO-34는 옮긴 함수가 없어(D5) 그대로 맞다. CHECK 11 20, CHECK 12 11 / 9 / 2 / 8 / 1이 끝의 수이고 가드가 통과한다                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                           |
+| 5. 기기 절차와 확인하지 못한 것, known-accepted #14 | 참(게이트 아님)                     | 아래 '배포 뒤 확인'과 '하지 않은 것과 확인하지 않은 것'. `docs/known-accepted.md`는 2026-10-29(#524) 뒤 바뀌지 않았다                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                           |
+| 6. 마지막 열차 배포 뒤 14일 무제보                  | 시작 전                             | 6D 배포 때부터 센다. Phase 7 시작·배포를 막지 않는다(Q25)                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                       |
+| 7. 번들 Phase 순증 +200 B 이하                      | 참                                  | 증분마다 부모 대비 eager JS gzip 차의 합 +123 B(6A −149, 6B −53, 6C +34, 6D +291), 같은 툴체인. 아래 '번들 크기'                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                |
+| 8. 문서                                             | 참                                  | `docs/design/youtube-start-ownership.md`(Accepted, 6B-1)가 `docs/README.md:40`에 있다. `docs/qa-domains.md` QA053이 장부, 설계 문서, 복구 모듈을 가리킨다                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                       |
 
 ## 정확한 개수 가드
 
@@ -413,16 +438,27 @@ src ':(exclude)src/**/__tests__/**'`가 비어 있음) 따로 빌드하지 않�
   따라잡기가 준비 길을 다시 돌며 `youtube:load`와 같은 안내를 한 번 더 낸다. 그 둘째 불러오기가 아직 손잡기 중인 iframe을 지우고(`destroy`) 새
   iframe을 만들어 손잡기를 처음부터 다시 기다린다. IFrame API 스크립트가 아직 오는 중이면 iframe은 없고 불러오기와 안내만 두 번이다.
 - **바뀐 뒤:** 같은 occurrence·영상의 불러오기가 이미 도는 중이면 상주처럼 다뤄 둘째 `youtube:load`를 내지 않는다. 안내 한 번, YouTube 화면
-  그대로. 들어오는 순간(COMMIT 받은 뒤 3 s)과 방 위치는 같다. 고칠 모양은 늦은 합류 고정 행을 더한 시험만 PR(#539)이 적은 첫째 제안이다:
-  `src/player/playlist.ts`의 `prepareAuthoritativePlayback` 재사용 판정(`reuseResidentYouTube`, `:2667-2681`)에서 판정해 `playTrack`의
+  그대로. 화면이 3초 안에 준비되는 기기에서는 들어오는 순간(COMMIT 받은 뒤 3 s)과 방 위치는 같다. 느린 휴대폰에서는 고친 뒤 그 기기의 소리가
+  지금보다 일찍 날 수 있다(지금은 화면을 다시 만드느라 늦게 남). 사진의 시험은 새 화면도 0.5초 만에 준비되게 해서 같아 보인다. 까닭: 지금은
+  다시 만든 iframe이 COMMIT 때 손잡기를 처음부터 하고, 그것이 약 2.6 s를 넘으면 3 s 계획이 지나간다(`plannedLateYouTubeTiming`이 남은 시간
+  400 ms 아래에서 null, `src/pro-room/playback-controller.ts:363-376`). 그러면 마지막 시도가 바로 따라잡기로 더 늦게 들어온다. 고친 뒤는 첫
+  iframe이 3 s 일찍 손잡기를 시작해 계획에 맞출 수 있다. 그 차이의 크기는 재지 않았다. 고칠 모양은 늦은 합류 고정 행을 더한 시험만
+  PR(#539)이 적은 첫째 제안이다: `src/player/playlist.ts`의 `prepareAuthoritativePlayback` 재사용 판정(`reuseResidentYouTube`, `:2667-2681`)에서 판정해 `playTrack`의
   `youtube:load`(`:1190`)를 건너뛰고, 준비 이음새 `prepareYouTubeAuthorityOccurrence`(`src/youtube/iframe.ts:2126`)가 장벽 없는 10 s 예산을
   기다린다. 정확한 모양은 만들 때 정한다[추론].
-- **사진(만들기 전에 오너에게):** 기기 하나(Chromium, 한국어, 휴대폰 화면 390 × 844)와 시험용 가짜 YouTube(`e2e/helpers/fake-yt.ts`)의 손잡기를
-  붙잡은 두 변형(iframe 손잡기 중, IFrame API 스크립트 오는 중), 합성 방 코드의 PRO 방 흉내에서 PREPARE를 받은 때(T)와 COMMIT(C)부터 다섯
-  장: T + 0.3 s(안내 1, 화면 #1 불러오는 중), T + 2.4 s(READY 실패, 안내 사라짐), C + 0.3 s(지금: 안내 2, 화면 #1이 지워지고 #2가 생김 / 바뀐
-  뒤: 안내 없음, #1 그대로), C + 0.8 s(화면 준비), C + 3.2 s(방 위치로 들어옴, 둘 다 같음). '지금'과 '바뀐 뒤'(커밋하지 않는 임시 고침)를 두
-  줄로 놓고, 사진의 세는 값(불러오기, 지우기, 플레이어, 안내)을 단위 행과 맞춘다: 지금 2·1·2·2, 바뀐 뒤 1·0·1·1(스크립트 변형은 안내 2 →
-  1, 지우기는 둘 다 없음).
+- **고칠 모양의 넓이(리뷰):** 사진에 쓴 임시 고침은 첫 불러오기가 아직 도는 동안 같은 queue 항목·영상의 `prepareAuthoritativePlayback`을 모두
+  상주처럼 다룬다. 그 함수는 서버 PREPARE, COMMIT 따라잡기, 장벽 없는 복원과 다시 합류가 함께 지나는 입구다(`src/player/playlist.ts:2643-2681`,
+  `:2726-2731`). 그래서 그 모양대로면 첫 손잡기가 느린 동안 같은 곡의 복원이나 로컬 다시 합류도 다시 불러오기와 안내를 하지 않게 되는데,
+  공유 길 행 셋도 오너 질문도 그 경우를 다루지 않는다. 만들 때 넷째 공유 길 행(첫 iframe이 손잡기 중일 때 온 같은 YouTube occurrence의 복원
+  또는 다시 합류, 양쪽에서)을 더하고, 술어를 COMMIT 따라잡기로 좁히기를 권한다(그러면 오너께 드린 설명 그대로다). 좁히지 않으면 그 경우를
+  의도한 변경에 넣어 오너께 다시 적는다.
+- **사진(만들기 전에 오너에게, 찍은 것):** 기기 하나(Chromium, 한국어, 휴대폰 화면 390 × 844), 사진 시험 안에 둔 임시 가짜 YouTube
+  (`e2e/helpers/fake-yt.ts`가 아님), 합성 방 코드의 PRO 방 흉내. 변형은 하나다: 첫 iframe의 손잡기를 COMMIT 뒤 0.5 s까지 붙잡음(iframe
+  손잡기 중). PREPARE를 받은 때(T)부터 여덟 장: T + 0.3, 1.5, 2.7 s(READY 실패 뒤, 안내 사라짐), COMMIT(C, 약 T + 3.0 s) + 0.15 s(지금: 안내
+  2, 화면 #1이 지워지고 #2가 생김 / 바뀐 뒤: 안내 없음, #1 그대로), C + 0.45, 1.2(화면 준비), 3.6(방 위치로 들어옴, 둘 다 같음), 5.5 s. 한 장으로
+  보기(`frame-sheet.png`)는 그 가운데 다섯(T + 0.3, 2.7, 3.2, 4.2, 6.6 s, 곧 C + 0.2, 1.2, 3.6)이다. '지금'과 '바뀐 뒤'(커밋하지 않는 임시 고침)를
+  두 줄로 놓았고, 세는 값(불러오기, 지우기, 플레이어, 안내)은 지금 2·1·2·2, 바뀐 뒤 1·0·1·1로 단위 행과 맞는다. IFrame API 스크립트 오는 중
+  변형은 찍지 않았다: 그때는 화면이 없어, 바뀌는 것은 불러오기와 안내 횟수(2 → 1)뿐이다(지우기는 둘 다 없음).
 - **실패 시험(만들 때 먼저):** `src/youtube/__tests__/pro-late-prepare-reload.test.ts`의 (a) 행 둘을 뒤집는다. '(a) replays youtube:load and
   the effects toast when the COMMIT catch-up meets a still-loading iframe'(`:405`): 불러오기·안내 2 → 1, `YT.Player` 2 → 1, 첫 iframe의
   `destroy` 없음, `getYouTubePlayer()`가 첫 iframe. '(a) replays youtube:load and the effects toast while the IFrame API script is still
@@ -432,7 +468,8 @@ src ':(exclude)src/**/__tests__/**'`가 비어 있음) 따로 빌드하지 않�
   `youtube.effects_disabled`를 한 번 띄운다. R2 보통 PRO occurrence 바뀜(READY가 제때)은 `youtube:load`와 안내를 한 번 내고, 제때 온 COMMIT은
   더하지 않는다. R3 다른 영상 A의 iframe이 아직 손잡기 중일 때 온 영상 B의 불러오기는 지금처럼 A를 지우고 새 iframe을 만든다
   (`src/youtube/iframe.ts:1809-1822`, 플레이어 둘, 첫 iframe의 기록 ['destroy']). 오늘 안내 횟수를 세는 행동 시험은 늦은 합류 고정 행뿐이라,
-  너무 넓은 고침('occurrence가 바뀔 때만 안내', '불러오는 iframe은 늘 유지')은 이 셋 없이는 실패 없이 Standard 동작을 바꿀 수 있다.
+  너무 넓은 고침('occurrence가 바뀔 때만 안내', '불러오는 iframe은 늘 유지')은 이 셋 없이는 실패 없이 Standard 동작을 바꿀 수 있다. R4는 위
+  '고칠 모양의 넓이'의 넷째 행이다(아직 쓰지 않음).
 - **그대로 초록이어야 할 행:** `src/player/__tests__/playlist.test.ts` 'reuses the exact resident YouTube video during server preparation'
   (`:578`), 'lets an unbarriered YouTube restore wait for a first player load'(`:627`), 'restarts the current YouTube occurrence without
   reloading its iframe'(`:1999`), 'directly hands off a new queue occurrence of the resident YouTube video'(`:2034`), `pro-late-prepare-reload.test.ts`의
@@ -477,13 +514,17 @@ src ':(exclude)src/**/__tests__/**'`가 비어 있음) 따로 빌드하지 않�
 - **하네스:** T0a 하네스와 복구 골든의 하네스(진짜 `initYouTube`, 각본의 IFrame API, 한 순서 흔적)를 Phase 7의 'YouTube 모드의 실제 OS 끊김 fence
   창 특성화'의 바탕으로 넘긴다.
 - **늦은 합류의 남긴 흠:** Q22 (나) ~ (라)는 기록만이고, `RoomContext.coordinatorId`가 운영에서 늘 null인 것은 Phase 6 뒤 따로 본다.
+- **끝 조건 2의 넘겨주기(위 '오너에게' 7):** 오너가 (나)를 고르면 Phase 7이 `player.ts`의 `onFallbackRequired`에 남은 울타리와 들리는 앞섬
+  읽기를 `GuestZeroStartRecovery`로 옮기고, 같은 커밋에서 CHECK 12의 실행 스냅샷 읽기 기준치(`player.ts` 8 → 6, 새 항목
+  `src/youtube/zero-start-recovery.ts` 2)와 RO-02·RO-33의 '실행 스냅샷은 `player.ts`만 읽음' 문장을 고친다.
 - **기기 라운드:** QA052 ~ QA055의 블라인드 결과는 오너 탐색 때다.
 
 ## 머지 전에 할 일 (릴리스 담당)
 
 1. **6B와 6C 먼저, 그 위로 옮기기:** 6B와 6C가 main에 들어가 배포·기록된 뒤 이 갈래를 그 main 위로 옮긴다(squash로 들어가면 `bdb5759a` 위의
    이 갈래 커밋만 옮김). 옮긴 테스트 먼저 커밋을 새 부모에서 다시 돌려 같은 이름의 행만 실패하는지 보고, 크기와 가드 수를 다시 잰다.
-2. **6D-6:** 오너가 위 '6D-6' 절의 사진을 보고 답한 뒤에만. '예'면 양쪽에서 통과할 회귀 행 셋, 실패 시험((a) 행 둘을 뒤집음), 런타임 커밋을
+2. **6D-6:** 오너가 위 '6D-6' 절의 사진을 보고 답한 뒤에만. '예'면 양쪽에서 통과할 회귀 행 넷(셋과 리뷰가 더한 넷째, 위 '고칠 모양의
+   넓이'), 실패 시험((a) 행 둘을 뒤집음), 런타임 커밋을
    이 열차의 마지막 런타임 증분(버전 올리기 앞)으로 둔다. '아니요'면 만들지 않는다.
 3. **버전 올리기와 문서:** 아래 '배포 조건과 순서' 2, 3.
 
@@ -510,35 +551,46 @@ src ':(exclude)src/**/__tests__/**'`가 비어 있음) 따로 빌드하지 않�
 않는다(혼합 버전 근거는 T0a 프레임·시각 골든과 복구 골든, P5-D9 C). 기기가 없는 단계는 건너뛰고 '기기 없음'으로 적는다. PRO 단계는 돌리기
 전에 그 방의 모든 PRO 탭을 새로 고친다(바닥 795 아래의 열린 탭이 시작마다 3 s를 더할 수 있음, 계획 §5).
 
-**절차(확인하는 사람에게 주는 것, 약 1시간 40분):** 모든 기기가 같은 앱 버전이고(앱 정보의 버전 번호를 적음) 주소 끝에 `?mxqrLog=debug`를
+**절차(확인하는 사람에게 주는 것, 약 1시간 50분):** 모든 기기가 같은 앱 버전이고(앱 정보의 버전 번호를 적음) 주소 끝에 `?mxqrLog=debug`를
 붙여 연다. 새로 고치거나 다시 들어갈 때도 다시 붙인다. 각 단계 뒤 채팅에 `/debug console`을 입력하고 `[YouTube`와 `[PRO`로 시작하는 줄을
 시각과 함께 복사하며, PRO 단계는 `/debug sync`의 `youtube-release` 줄도 복사한다.
 
 - **A. 늦게 붙는 일반방 게스트(약 20분):** (1) 데스크톱 Chrome 방장, 데스크톱 Chrome 게스트(개발자 도구 네트워크 'Slow 4G')와 Android Chrome
   게스트. 방장이 YouTube 곡을 시작하고, 느린 게스트의 소리가 몇 초 늦게 붙었는지와 붙은 뒤의 어긋남(같음, 조금, 많이)을 적는다. 다음 곡에서
   한 번 더 한다. (2) iPhone Safari 게스트가 방에 들어온 직후(약 2초 안) 방장이 YouTube 곡을 시작한다. 게스트의 소리가 붙는 때와 어긋남을
-  적는다.
-- **B. 방장의 시작이 실패할 때(약 25분):** (1) 데스크톱 Chrome 방장, 게스트 둘. 방장이 YouTube 곡의 ▶를 누른 직후(1초 안) 방장 기기의
-  네트워크를 2초 끊었다 다시 잇는다. 방 전체가 시작되기까지의 시간과 방장 기기의 소리를 적는다. (2) 방장이 다음 곡을 누른 직후 1초 안에
-  게스트 하나가 페이지를 새로 고친다. 방 전체가 시작되기까지의 시간과 방장 소리를 적는다. (3) Android 방장(블루투스 이어폰)으로 (1)을 한 번
-  한다.
-- **C. 음수 수동 오프셋과 반복(약 20분):** 데스크톱 Chrome 방장, iPhone Safari와 Android Chrome 게스트. (1) 방장 수동 오프셋 −5.000 s로 YouTube
-  곡을 시작한다. (2) −9.999 s로 다시 한다. (3) 반복 한 곡을 켜고 곡이 두 번 처음으로 돌아가게 둔다. 단계마다 방장 스피커가 시작한 때와 모든
-  기기의 어긋남을 적는다.
+  적는다. iPhone에 탭해서 재생(TAP TO PLAY) 화면이 떴는지, 한 번 누른 뒤 방 위치로 붙었는지 적는다.
+- **B. 방장의 시작이 실패할 때(약 30분):** (1) 데스크톱 Chrome 방장, 게스트 둘. 방장 기기가 아직 불러오지 않은 YouTube 곡을 고르고, 방장
+  기기의 네트워크를 끊은 채 ▶를 누른 뒤 약 12초 끊어 두었다가 다시 잇는다. 콘솔의 `[YouTube ZeroStart]` 경고 줄(`prepare-timeout`이나
+  `commit-send-failed`)을 그대로 복사하고, 방 전체가 시작되기까지의 시간과 방장 기기의 소리를 적는다. (2) 방장이 다음 곡을 누른 직후 게스트
+  하나의 연결만 몇 초 끊었다 다시 잇는다(그 게스트 기기의 Wi-Fi를 끄고 몇 초 뒤 켬, 페이지는 그대로 둠). 방 전체가 시작되기까지의 시간과
+  방장 소리를 적는다. (3) 방장이 다음 곡을 누른 직후 1초 안에 게스트 하나가 페이지를 새로 고친다. 방이 시작되기까지의 시간과 그 게스트가
+  다시 붙은 때를 적는다. (4) Android 방장(블루투스 이어폰)으로 (1)을 한 번 한다.
+- **C. 음수 수동 오프셋과 반복(약 25분):** 데스크톱 Chrome 방장, iPhone Safari와 Android Chrome 게스트. (1) 방장 수동 오프셋 −5.000 s로 YouTube
+  곡을 시작한다. (2) −9.999 s로 다시 한다. (3) 반복 한 곡을 켜고 곡이 두 번 처음으로 돌아가게 둔다. (4) −5.000 s 그대로 곡이 10초를 넘었을 때
+  ⏮를 한 번 눌러 곡을 처음부터 다시 시작하고, 다른 때에 재생 중 시간 막대를 0:00으로 옮긴다. 단계마다 방장 스피커가 시작한 때와 모든 기기의
+  어긋남을 적는다.
 - **D. PRO 세 대(약 35분):** iPhone을 포함한 PRO 기기 셋, 재생목록에 YouTube 둘. (1) 첫 곡을 시작한다. (2) 다음 곡을 누르고 소리가 나기 전
   1초 안에 iPhone이 앱의 일시정지를 누르고 3초 뒤 재생한다. (3) 곡이 재생되는 중에 넷째 기기(AirPods를 낀 iPhone이 있으면 그것)가 방에
   들어온다. (4) 수동 싱크 −5 s인 기기로 다음 곡을 시작한다. (5) 같은 라운드에 iPhone 잠금 화면에서 일시정지, 5초 뒤 재생한다. 단계마다 모든
-  기기의 소리, 짧게 새는 소리가 있었는지, 늦게 들어온 기기가 붙은 때를 적는다.
+  기기의 소리, 짧게 새는 소리가 있었는지, 늦게 들어온 기기가 붙은 때를 적는다. iPhone마다 탭해서 재생(TAP TO PLAY) 화면이 떴는지, 한 번
+  누른 뒤 방 위치로 붙었는지 적는다.
 
 **통과 기준(주지 않음):**
 
 - A: 느린 게스트만 늦게 붙고(콘솔에 `[YouTube ZeroStart] Falling back locally`, `Recovered locally`), 방장과 다른 게스트는 제때 시작한다. 붙기
-  전에 예열 소리가 새지 않고, 붙은 뒤 소리 크기가 설정과 같다. `Local fallback failed:`가 있으면 그 줄을 따로 적는다.
-- B: 약 3초 안에 방장이 레거시로 이어받아(`[YouTube ZeroStart] Falling back to legacy rendezvous`) 방이 시작되고, 방장 기기가 음소거로 남지
-  않는다. `Legacy recovery timed out`이 보이면 따로 적는다(T0b 결함 1의 길, 오너 답 전).
+  전에 예열 소리가 새지 않고, 붙은 뒤 소리 크기가 설정과 같다. `Local fallback failed:`가 있으면 그 줄을 따로 적는다. (2)에서 iPhone이 탭해서
+  재생 화면을 띄웠다면 복구 줄 없이 레거시로 시작해도 맞다(소리가 풀리지 않은 iPhone은 zero-start 실행에서 빠짐).
+- B: (1)·(4) 콘솔에 `[YouTube ZeroStart] prepare-timeout`이나 `commit-send-failed` 줄이 있으면, 방장이 3초 다리 안에 다시 이어졌을 때는
+  `Falling back to legacy rendezvous`가, 아직 끊겨 있었으면 `Legacy recovery timed out`이 그 뒤에 온다. 어느 쪽이든 방장 기기는 다시 이어진
+  뒤 음소거로 남지 않는다. 그 줄이 없으면 '복구가 일어나지 않음'으로 적고 실패가 아니다. `Legacy recovery timed out`은 따로 적는다(T0b 결함
+  1의 길, 오너 답 전). (2) 게스트가 장벽 안에 다시 이어지면 약 2초 뒤 `Falling back to legacy rendezvous` 줄이 오고 방장이 음소거로 남지
+  않는다. 다시 이어진 때가 장벽 뒤면 '일어나지 않음'으로 적고 실패가 아니다(자동 근거는 골든의 H3·H3b). (3) 방은 그 게스트 없이 제때
+  시작하고, 그 게스트는 늦은 합류로 붙으며 레거시 줄은 없다(새로 고친 게스트는 새 연결로 들어와 방장에게 나감과 새 입장으로 보임).
 - C: 방장 스피커가 대기 동안 멈춰 있다가 방 시계에 맞춰 시작하고 게스트와 어긋나지 않는다. 반복 곡이 다시 시작될 때도 오프셋이 유지된다.
+  (4)는 게스트가 재생하는 동안 방장 스피커가 약 5초 0:00에 멈춰 있다가 게스트와 맞춰 시작한다.
 - D: 모든 PRO 기기가 제때 시작하고, (2)는 준비가 끝나도 소리가 새지 않고 일시정지가 이긴다. (3)의 기기는 방 위치로 붙는다(`youtube-release`의
   path·timingMode로 판정). (5)는 그 기기만 멈췄다가 방 시계에 맞춰 다시 붙는다. 블루투스 기기의 첫 음이 잘리지 않는다.
+- A(2)와 D의 iPhone: 탭해서 재생은 iPhone마다 세션에 많아야 한 번이고, 탭 전에는 소리가 나지 않으며, 탭 뒤에는 방 위치로 붙는다.
 
 **실패하면:** 일시적 네트워크로 설명되지 않으면 위 '되돌리기'대로 앞으로 고치기나, 급할 때만 명시적으로 검토한 CLI 되돌리기로 checkpoint
 App을 정한다. 증상의 경로(게스트 복구, 방장 복구, 로컬 시작 대기, PRO 토큰)를 적는다. '기기 없음'과 '미확인'은 실패가 아니다.
@@ -558,20 +610,27 @@ App을 정한다. 증상의 경로(게스트 복구, 방장 복구, 로컬 시�
   말고는 모두 센 코드나 규칙을 옮긴 커밋과 같은 커밋이다.
 - 레지스트리 상태는 RO-02, RO-03, RO-12 모두 `duplicated` 그대로다(6D-5가 남은 기계와 `owner-in-place`가 될 변경을 적음). 레지스트리 머리의
   `Last source review`는 기록을 코드와 다시 맞추는 PR이 고친다.
+- 리뷰 반영(주석·기록 고침 커밋): 색인의 Consolidation 칸 셋(RO-02·RO-03 '0d, 6 done; rest: decision', RO-12 '6 done; pushes: 6C-3 or 7',
+  CHECK 1은 Status 칸만 견주어 가드 그대로), RO-02의 앵커(두 복구의 토큰 행, 울타리의 실행·영상 확인을 함께 고정한다는 문장, 로컬 시작 대기의
+  첫 울타리와 물림의 타이머 지우기), RO-03과 설계 문서 'The PRO start tokens'와 `player.ts` 주석의 COMMIT 세대 문장(idle이 아니고 큐 항목을
+  가진 COMMIT과 해체가 옮김. `request.queueItemId`가 null인 COMMIT은 세대를 옮기기 전에 돌아감).
 - 릴리스 담당이 버전 올리기와 함께: release-record §2의 6D 항목과 열린 항목 연결, 그리고 배포 뒤 기록 PR(위 '배포 조건과 순서' 3, 6).
 
 ## 오너에게
 
-1. **[화면 바뀜: '예'면 PRO 방에서 준비가 늦어 뒤늦게 합류하는 기기에서 'YouTube 함께보기' 안내가 두 번 대신 한 번 뜨고, 불러오던 YouTube 화면이
-   지워졌다 다시 생기지 않아요] 6D-6: 사진처럼 바꿔도 될까요?** 2026-10-30에 '4차 업데이트에서 고침, 만들기 전 사진 먼저'라고 하셨어요. 언제:
-   그 기기의 YouTube 화면이 2.3초 안에 준비되지 못해 방이 먼저 시작하고 약 3초 뒤 따라 들어올 때예요(드묾). 지금: 준비 때 안내 한 번, 방이
-   시작될 때 같은 안내 한 번 더, 불러오던 화면이 지워졌다 새로 만들어져요. 바뀐 뒤: 안내 한 번, 화면 그대로예요. 들어오는 때와 위치는 같아요.
-   일반방 불러오기, 보통 PRO 트랙 바꾸기, 다른 영상을 불러오는 중에 또 바꾸는 경우는 지금 그대로예요. 사진(지금과 바뀐 뒤를 다섯 장씩)은 따로
-   드려요.
-   - (가, 권장) 예: 사진대로 4차 업데이트(6D)의 마지막 단계로 만들어요(지금 그대로 지킬 행 셋과 실패하는 시험 먼저). 업데이트 창은 늘지 않아요.
+1. **[화면 바뀜: '예'면 PRO 방에서 곡 준비가 늦어 뒤늦게 합류하는 기기에서 'YouTube 함께보기' 안내가 두 번 대신 한 번 뜨고, 불러오던 YouTube
+   화면이 지워졌다 다시 생기지 않아요. 느린 휴대폰에서는 그 기기의 소리가 지금보다 일찍 날 수 있어요] 6D-6: 사진처럼 바꿔도 될까요?**
+   2026-10-30에 '4차 업데이트에서 고침, 만들기 전 사진 먼저'라고 하셨어요. 언제: 그 곡을 받을 때 아직 YouTube 화면이 없던 기기(예: 들어와서
+   처음 듣는 YouTube 곡)의 화면이 2.3초 안에 준비되지 못해 방이 먼저 시작하고 약 3초 뒤 따라 들어올 때예요(드묾). 지금: 준비 때 안내 한 번,
+   방이 시작될 때 같은 안내 한 번 더, 불러오던 화면이 지워졌다 새로 만들어져요. 바뀐 뒤: 안내 한 번, 화면 그대로예요. 화면이 3초 안에 준비되는
+   기기에서는 들어오는 때와 위치는 같아요. 느린 휴대폰에서는 고친 뒤 그 기기의 소리가 지금보다 일찍 날 수 있어요(지금은 화면을 다시 만드느라
+   늦게 나요). 사진의 시험은 새 화면도 0.5초 만에 준비되게 해서 같아 보여요. 일반방 불러오기, 보통 PRO 트랙 바꾸기, 다른 영상을 불러오는 중에
+   또 바꾸는 경우는 지금 그대로예요. 사진(지금과 바뀐 뒤를 다섯 장씩)은 따로 드려요.
+   - (가, 권장) 예: 사진대로 4차 업데이트(6D)의 마지막 단계로 만들어요(지금 그대로 지킬 행 넷과 실패하는 시험 먼저). 업데이트 창은 늘지 않아요.
    - (나) 아니요: 만들지 않고 지금 동작을 시험에 고정한 그대로 둬요.
-2. **[화면 그대로] 시험이 새로 찾은 것 하나: 기록만 하기를 권해요.** 일반방 방장의 옛 방식 복구(방장 시작이 실패한 뒤 약 3초 안에 YouTube
-   화면을 0:00에 맞춰 옛 방식으로 넘기는 단계)에서, 방 안에 없던 영상을 0:00으로 옮겼는데 그 자리가 0.35초 넘게 어긋나면 다시 옮기지 않고
+2. **[화면 바뀜: 고치기로 하실 때만, 그 경우 그 시작이 0:00에서 멈추지 않고 이어짐] 시험이 새로 찾은 것 하나: 기록만 하기를 권해요.**
+   일반방 방장의 옛 방식 복구(방장 시작이 실패한 뒤 약 3초 안에 YouTube 화면을 0:00에 맞춰 옛 방식으로 넘기는 단계)에서, 방 안에 없던
+   영상을 0:00으로 옮겼는데 그 자리가 0.35초 넘게 어긋나면 다시 옮기지 않고
    3초가 끝날 때까지 기다리다 포기해요. 포기한 뒤는 T0b 결함 1과 같이 0:00에 멈춘 채 안내가 없어요. 방 안에 이미 있던 영상은 다시 옮기고,
    참가자 복구 코드도 같은 모양이에요. 실제 YouTube에서 0:00으로 옮긴 자리가 0.35초 넘게 어긋나는지는 기기에서 보지 못했어요. 오늘 동작으로
    시험에 고정해 두었어요('waits out its bridge without seeking again when a settle lands a loaded target past the tolerance').
@@ -590,6 +649,14 @@ App을 정한다. 증상의 경로(게스트 복구, 방장 복구, 로컬 시�
    없이 0:00에 멈춘 채 잠금 화면만 '재생 중')과 결함 2(다음 트랙 준비가 실패한 참가자의 재생 버튼이 약 2.7초 ▶ 모양)는 권장이 이 열차의 마지막
    단계라, 고치기로 하시면 6D-6과 함께 그 자리에
    두고 만들기 전에 사진이나 표를 먼저 드려요. 답이 없으면 싣지 않아요.
+7. **[화면 그대로] Phase 6 끝 조건 하나를 어떻게 볼지: 권장은 (가)예요.** 계획의 끝 조건 2는 '참가자 복구를 감싸는 코드 묶음
+   (`onFallbackRequired`)이 `player.ts`에서 없어짐'이었어요. 6D는 복구의 몸통을 새 파일로 옮겼지만, `player.ts`에는 복구에 일을 넘겨주는 짧은
+   묶음이 남았어요(역할 확인, 앞 복구 지우기, 기기의 소리 앞섬 읽기, 복구가 시도마다 묻는 울타리). 이것을 '몸통이 없으니 끝'으로 읽은 것은 이
+   열차가 정한 것(D9)이라 여쭤요. 화면과 소리는 어느 쪽이든 같아요.
+   - (가, 권장) 그 읽기를 받아 끝 조건 2를 '참'으로 봐요. 남은 넘겨주기는 기록에 적어 둬요.
+   - (나) Phase 7에서 울타리와 소리 앞섬 읽기도 복구 클래스로 옮겨요. 그 변경이 같은 커밋에서 가드 기준치(실행 스냅샷 읽기: `player.ts` 8 → 6,
+     `START_RUN_SNAPSHOT_BASELINE`에 `src/youtube/zero-start-recovery.ts` 2를 더함)와 레지스트리 RO-02·RO-33의 '실행 스냅샷은 `player.ts`만
+     읽음' 문장을 고쳐요. 그때까지 끝 조건 2는 '아님'으로 남아요.
 
 ## QA 라운드
 
@@ -611,14 +678,12 @@ App을 정한다. 증상의 경로(게스트 복구, 방장 복구, 로컬 시�
   (`zero-start-recovery.ts` 99.29 / 96.98 / 100 / 100. 첫 실행은 분기 95.78로 문턱에 걸려, 닿을 수 있는 분기 행을 테스트 먼저 커밋에 더함),
   Chromium 41 / 41(13:17 ~ 13:30).
 - **6D-3 `17d15b9d`:** 단위 전체 746 files 17,982 통과·1 건너뜀, typecheck·lint·format 통과, 핵심 커버리지 105 files / 4,359, 바꾼 시험 파일 둘을
-  seed 7, 31, 4242, 20261030으로 섞어 210 / 210씩, Chromium 41 / 41(14:23 ~ 14:35, 음수 수동 오프셋 행 `:90` 포함).
+  seed 7, 31, 4242, 20261030으로 섞어 210 / 210씩, Chromium 41 / 41(14:23 ~ 14:35, 음수 수동 오프셋 행 `:90` 포함. 그 행은 zero-start로
+  시작해 6D-3의 원시에 닿지 않는다, 위 6D-3 '그대로 통과').
 - **6D-4 `051a0727`(빌드·Playwright·커버리지·타입 검사는 주석만 다른 첫 판 `bcbe9c80`에서, 운영 빌드 바이트 같음):** 단위 전체 747 files 17,986
   통과·1 건너뜀, typecheck·lint·format 통과, 핵심 커버리지 105 files / 4,359(`authority-arm.ts` 89.63 / 82.6 / 98.61 / 93.89, 바탕과 같음), 토큰
   관련 세 파일을 네 seed로 섞어 13 / 13씩, Chromium 41 / 41(15:26 ~ 15:38), WebKit 4 / 4(15:40).
 - 위 '증분' 절의 변이 확인(6D-4)도 이 라운드다(운영 파일을 잠깐 바꿔 돌리고 바이트 그대로 되돌림).
-- **사고 하나(6D-1 구현 중):** 상대 경로로 쓴 파일 호출 하나가 이 갈래의 worktree가 아니라 주 checkout의 `src/youtube/player.ts`를 잠깐 바꿨다.
-  차이는 그 증분의 글자 여덟 줄 바꿈이었고, 그 파일 하나를 git으로 되돌려 주 checkout이 깨끗함을 확인했다. 커밋이나 push는 없었고, 그 뒤 모든
-  파일 호출은 절대 경로다.
 
 ### 2. 마지막 검사 (`a9ee6842`, 그 뒤는 이 기록 커밋뿐, 2026-11-02 16:09 ~ 17:34 KST)
 
@@ -666,6 +731,36 @@ App을 정한다. 증상의 경로(게스트 복구, 방장 복구, 로컬 시�
   listener는 없다.
 - **배포 대상과 계약 동결:** 위 'Deploy target'. **끝 조건 대조:** 위 'Phase 6 끝 조건'의 `git grep`과 `git diff`.
 
+### 3. 리뷰 반영 (`6e3bd6f5`와 그 뒤 주석·기록 고침 커밋, 2026-11-02 19:28 ~ 20:05 KST)
+
+이 갈래의 worktree에서. 리뷰가 찾은 것 가운데 높음·중간 전부와 싼 낮음을 반영했다(시험 먼저). 런타임 바이트는 바뀌지 않는다. 아래 (a) ~
+(d)는 `zero-start-recovery.test.ts`의 새 게스트 행이다: (a) `clear()` 뒤로 빠져나간 시도, (b) 검증 정리 중인 포기 뒤로 빠져나간 시도, (c)
+검증 정리 중 `clear()` 뒤로 빠져나간 정리 재시도, (d) 확인된 출시 뒤로 빠져나간 시도.
+
+- **시험 행(`6e3bd6f5`, 시험만):** `player.test.ts` 141(새 행 하나: YouTube 세션만 바뀐 뒤 늦게 울린 음수 시작 출시가 따라잡기 seek 앞의 첫
+  울타리에서 멈춤. 그리고 수동 편집 행의 `'yt-host-local-start'` null 단언), `zero-start-recovery.test.ts` 58(게스트 (a) ~ (d), 방장의
+  `cancel()` 뒤로 빠져나간 검증 정리 재시도 하나). 부모 `cb2279ba`에서 199 / 199. 바탕 런타임(`src/youtube`의 런타임 아홉 파일을 `bdb5759a`
+  것으로 되돌리고 복구 모듈을 지움, 바탕과의 런타임 차이 없음을 확인, 끝에 HEAD로 되돌려 깨끗)에서 새 `player.test.ts` 141 / 141.
+  `typecheck:tests`(34 s), 두 파일의 eslint와 prettier 통과.
+- **변이 확인(하나씩 넣고 그 파일을 돌린 뒤 git으로 바이트 그대로 되돌림):** `player.ts` 출시의 첫 울타리(`:686`)를 지우면 새 행 하나만,
+  물림의 `clearManagedTimer('yt-host-local-start')`(`:658`)를 지우면 수동 편집 행 하나만 실패한다(141 가운데 140 통과). `zero-start-recovery.ts`:
+  `clear()`가 게스트 세대를 옮기지 않으면 (a)와 (c), 포기가 정리 세대를 새로 잡지 않으면 (b), 확인된 출시가 세대를 옮기지 않으면 (d), 포기의
+  낡음 확인이나 시도의 세대 확인을 지우면 (a)·(b)·(d), 게스트 검증 정리의 현재 확인을 늘 참으로 하면 (c), 방장 검증 정리의 현재 확인을 늘
+  참으로 하면 방장 행이 실패하고, 58 가운데 나머지는 통과한다. `finishUnavailable`의 세대 확인은 지금처럼 닿을 수 없는 방어다.
+- **주석·기록 고침:** `player.ts`의 COMMIT 세대 주석 하나와 문서. `npm run build`의 `dist/` .js, .mjs, .html, .css 276 파일이 고치기 전
+  빌드와 SHA-256으로 모두 같다(`main-ojgPFHeO.js`). 곧 eager JS gzip 465,730 그대로다(부모 대비 0, Phase 6 누계 +123 B 그대로).
+- **단위 전체(파일 순서, 레지스트리를 고친 트리):** 747 files, 17,993행 가운데 17,992 통과, 1 건너뜀(jq 행), 실패 0(19:43 ~ 19:53). 다시 돌린
+  것 없음. 복구 골든 38, 복구 단위 58, `player.test.ts` 141, `sync-integration.test.ts` 243, 가드 자체 시험 104가 통과한다.
+- **shuffle(바꾼 시험 파일 둘, seed 7, 31, 4242, 20261030):** 모두 199 / 199.
+- **`npm run lint:app`**(88 s), **`npm run format:check:app`**(35 s): 종료 코드 0. 바꾼 문서 넷은 prettier 검사를 통과한다.
+- **`node scripts/check-resource-ownership.mts`와 `--report`:** 49 records, 459 production files, CHECK 11 20, CHECK 12 11 / 9 / 2 / 8 / 1,
+  CHECK 5 1 / 1 / 45, `--report` 107줄로 모두 그대로다. `guard:dead-exports` 412 / 2,180 / 0 / 20 / 76 그대로.
+- **핵심 커버리지(`--maxWorkers=4`):** 105 files / 4,364 통과(새 단위 행 다섯), 전체 84.63 / 79.83 / 90.43 / 88.29, 문턱 오류 없음(98 s).
+  `zero-start-recovery.ts` 99.64 / 97.59 / 100 / 100(전 99.29 / 96.98 / 100 / 100).
+- **끝 조건 대조:** 위 'Phase 6 끝 조건' 2의 grep을 브랜치 끝에서 적은 범위대로 다시 돌렸다.
+- **다시 돌리지 않은 것:** 빌드 바이트가 같고 런타임 경로가 바뀌지 않아 Playwright, WebKit, Worker 커버리지, `build:checked` 전체와
+  `npm run typecheck` 전체는 다시 돌리지 않았다(QA 라운드 2의 결과 그대로).
+
 ## 하지 않은 것과 확인하지 않은 것
 
 - **6D-6, 버전 올리기, release-record 항목, PR, 머지, 배포:** 6D-6은 오너가 사진을 본 뒤에 만들고(위 '6D-6'), 나머지는 릴리스 담당의 몫이라 하지
@@ -679,10 +774,14 @@ App을 정한다. 증상의 경로(게스트 복구, 방장 복구, 로컬 시�
   `setup-youtube-activation.test.ts`만 돌렸다(계획 §4.2-4). Phase 6 앞의 기기 기준선(Q6)은 재지 않았다.
 - **증분별 테스트 먼저 다시 돌림:** 마지막 검사에서 테스트 먼저 짝을 하나씩 다시 돌리지 않았다. 구현 때의 부모 실행(QA 라운드 1)을 적었고,
   마지막 검사는 이 갈래의 새·바꾼 고정을 바탕 런타임에 한꺼번에 돌렸다(위 'T0a·T0b·6B·6C 파일').
-- **변이 확인:** 6D-4에서만 했고 마지막 검사에서 다시 하지 않았다.
+- **변이 확인:** 구현 때는 6D-4에서만 했고 마지막 검사에서 다시 하지 않았다. 리뷰 반영 때 새 행이 잡는 변이만 확인했다(QA 라운드 3).
+- **리뷰가 낮음으로 적었으나 싸지 않아 하지 않은 것:** 복구 골든의 비동기 전달 변형(`__stateNotifyDelayMs: 0`: 코호트에서 빠진 게스트의 출시와
+  확인, 3,000 ms 다리 정리, 1.8 s 확인 시간 넘김, 방장 H1·H4)과 Android 게스트 행(들리는 앞섬 250 ms)은 더하지 않았다. 오늘 골든은 동기
+  전달과 'other' 플랫폼만 고정하고, Android 앞섬은 가짜 단위 행 하나(100 ms)만 고정한다. 기기의 이벤트 순서를 이 골든이 고정하지 않으므로,
+  시험만 단계로(부모와 바탕 런타임에서 먼저 돌려) 더하기를 권한다. 6D-6의 넷째 공유 길 행도 쓰지 않았다(6D-6을 만들 때, 위 '고칠 모양의 넓이').
 - **남은 주석:** T0a 시험 `youtube-start-owner-boundary.test.ts`의 머리 주석(21 ~ 23줄)이 6B가 지운 합성 이름을 아직 적는다. T0a 파일을 바이트
   그대로 두는 열차라 고치지 않았다.
 - **Worker 묶음 dry-run(`check:worker-bundles`):** `cloudflare/` 차이가 0이고 버전 거울을 바꾸지 않아 돌리지 않았다(`check:workers`와 Worker
   커버리지는 돌림).
 - **6D-6의 시각과 세는 값:** 시험용 가짜 YouTube에서 잰 값이고 기기 값이 아니다.
-- 위 '배포 뒤 확인'의 대략적 기기 시간(약 1시간 40분)은 추정이다.
+- 위 '배포 뒤 확인'의 대략적 기기 시간(약 1시간 50분)은 추정이다.

@@ -96,8 +96,8 @@ each record also states the step in words.
 | ID    | Resource                                                 | Area           | Status             | Consolidation                  |
 | ----- | -------------------------------------------------------- | -------------- | ------------------ | ------------------------------ |
 | RO-01 | AudioContext running state                               | Audio          | duplicated         | 0d, 7; fix lane G7             |
-| RO-02 | YouTube Standard shared start                            | YouTube        | duplicated         | 0d, 6                          |
-| RO-03 | YouTube arm protocol, Standard and PRO copies            | YouTube        | duplicated         | 0d, 6                          |
+| RO-02 | YouTube Standard shared start                            | YouTube        | duplicated         | 0d, 6 done; rest: decision     |
+| RO-03 | YouTube arm protocol, Standard and PRO copies            | YouTube        | duplicated         | 0d, 6 done; rest: decision     |
 | RO-04 | System-audio receive slot                                | System audio   | duplicated         | Fix lane G5, G6; 0d, 5A, 5B    |
 | RO-05 | Guest YouTube re-align retry chains                      | Output rejoin  | duplicated         | 4 (C3-I1); exception RO-48     |
 | RO-06 | Host shared start, playlist queue and guided demo        | Output rejoin  | duplicated         | 4 (C3-I1); exception RO-49     |
@@ -106,7 +106,7 @@ each record also states the step in words.
 | RO-09 | Owner-transfer saga row                                  | Workers        | owner-in-place     | None                           |
 | RO-10 | Local-file source node restart                           | Output rejoin  | owner-in-place     | Done (4, C13 docs)             |
 | RO-11 | Deferred-start mailbox `playback.pendingPlayTime`        | Playback       | accepted-exception | None (by design)               |
-| RO-12 | YouTube iframe audio state                               | YouTube        | duplicated         | 6                              |
+| RO-12 | YouTube iframe audio state                               | YouTube        | duplicated         | 6 done; pushes: 6C-3 or 7      |
 | RO-13 | YouTube manual-offset transaction                        | YouTube        | owner-in-place     | None                           |
 | RO-14 | YouTube iframe instance lifecycle                        | YouTube        | owner-in-place     | None                           |
 | RO-15 | Standard logical data connection liveness                | Transport      | owner-in-place     | Done (4, C5-1 and C5-6 to 10)  |
@@ -467,7 +467,12 @@ RO-53 owner-in-place
     App guest on the real wiring: the recovery's iframe commands, timer sets and clears, claims,
     readiness events, autoplay intents and log lines through its windows, tolerances, faults and
     fences, the run's facades reading false while it holds its claim) and
-    `zero-start-recovery.test.ts` (the class with fakes).
+    `zero-start-recovery.test.ts` (the class with fakes, with its own token: a callback that
+    escaped a clear, an abandon or an acknowledged release does nothing). The fence's
+    run-identity and video checks are pinned together (G9 "the run is reset": a reset clears
+    both). Each half alone is redundant today: a reset fails either half, and every new guest run
+    clears the recovery first (`handlePrepare` → `onPrepareSelection` → `clear(true)`) before the
+    run changes, so dropping either half alone fails no test.
   - Host legacy recovery (since 6D-2): the same golden's host rows (one App host on the real
     wiring, with the legacy Stage-2 timer and the room state frames: a prepare failure, a COMMIT
     it cannot send, a replaced guest connection and its reconnect, a bridge that times out with
@@ -475,15 +480,17 @@ RO-53 owner-in-place
     or another queue item ending it, a newer PREPARE and a teardown transfer), the stage's rows
     in `zero-start-recovery.test.ts`, and the iframe commands `sync-integration.test.ts` asserts
     beside its 14 `'yt-zero-start-host-fallback'` and 2 `'yt-zero-start-replacement-fallback'`
-    timer-name pins.
+    timer-name pins. Its own token: a verified-cleanup retry that escaped `cancel()` does nothing.
   - Standard host local start wait (since 6D-3): `src/youtube/__tests__/player.test.ts`
     "Standard host own output compensation" (the real wait on the real managed timers and fake
     time, read from an op log of the iframe commands with the hold, applied and automatic
     offsets at each, the room frames and Stage 2: the hold, its 40 and 41 ms late releases, a
-    newer timeline started inside its pause, seek or catch-up seek, a pause, seek or manual edit
-    that retires it) and `host-local-rendezvous.test.ts` "hands a negative-start wait to a new
-    manual offset … without changing room time" (the manual-offset runtime retiring the real wait
-    through the retire port). They replaced the rows that found its timers by name.
+    newer timeline started inside its pause, seek or catch-up seek, a late release whose YouTube
+    session moved on (stopped by the release's first fence), a pause, seek or manual edit that
+    retires it, the last with its release timer cleared) and `host-local-rendezvous.test.ts`
+    "hands a negative-start wait to a new manual offset … without changing room time" (the
+    manual-offset runtime retiring the real wait through the retire port). They replaced the
+    rows that found its timers by name.
 - **Status:** `duplicated`. Phase 6 (start ledger, routed state events, shared arm steps, recovery
   as owner stages); its first train took over the app part of Phase 0d, the shared start timing
   (C2-1, 6A-3). Since 6D-1 (C2-9) the guest recovery is a class of its own (RO-33), and since 6D-2
@@ -560,8 +567,8 @@ RO-53 owner-in-place
   its own event and compared only where that event must revoke something: the preparation
   generation (`iframe.ts`: every prepare of an occurrence and every preparation cancel move it;
   the prepare loop, its arm result and a release's lead samples compare it), the COMMIT
-  generation (`player.ts`: every COMMIT the YouTube endpoint receives but an idle one, and
-  teardown, move it; a waiting COMMIT and a release's lead samples compare it), the local-pause
+  generation (`player.ts`: every non-idle COMMIT that carries a queue item, and teardown, move
+  it; a waiting COMMIT and a release's lead samples compare it), the local-pause
   generation (`player.ts`: only a participant-local PRO pause moves it; it fences nothing, and a
   waiting COMMIT that finds it moved reports itself handled without starting audio) and the
   pause gate's token (`iframe-audio.ts`, RO-12). The arm keeps two of its own, its run's

@@ -922,8 +922,8 @@ export function cancelYtAutoSync(transferPlayerState = false): void {
 // generation and the pause gate's token in iframe-audio.ts. Each counts its
 // own event and revokes only what that event must; none is merged with
 // another (registry RO-03):
-// - the COMMIT generation: every COMMIT this endpoint receives but an idle
-//   one, and teardown (stopYouTubeMode), move it; a waiting COMMIT and a
+// - the COMMIT generation: every non-idle COMMIT that carries a queue item,
+//   and teardown (stopYouTubeMode), move it; a waiting COMMIT and a
 //   release's lead samples compare it;
 // - the local-pause generation: only a participant-local PRO pause moves it.
 //   It records that pause and fences nothing: a waiting COMMIT that finds it

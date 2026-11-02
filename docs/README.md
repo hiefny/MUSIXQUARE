@@ -95,11 +95,12 @@ runbooks. Neither belongs in a general setup document.
 ## Maintained evidence and completed records
 
 - [Phase 6 train 6D: the YouTube start recoveries in one module, the Standard host's local start wait and the PRO start tokens (2026-11-02)](design/phase6-6d-recovery-pro-tokens-2026-11-02.md):
-  prepared, not released. The fourth and last Phase 6 App update on branch `agent/p6-6d`, ten commits
-  on `bdb5759a` (the 6C train's tip, not yet on main: 6B and 6C ship first, and this branch moves
-  onto main after them); the version bump, the release-record entry and the release are the release
-  owner's. 6D-1 turns the Standard guest's local zero-start recovery from a `player.ts` closure into
-  the class `GuestZeroStartRecovery` in the new `src/youtube/zero-start-recovery.ts`, and the two
+  prepared, not released. The fourth and last Phase 6 App update on branch `agent/p6-6d`, twelve
+  commits on `bdb5759a` (the 6C train's tip, not yet on main: 6B and 6C ship first, and this
+  branch moves onto main after them); the version bump, the release-record entry and the release
+  are the release owner's. 6D-1 turns the Standard guest's local zero-start recovery from a
+  `player.ts` closure into the class `GuestZeroStartRecovery` in the new
+  `src/youtube/zero-start-recovery.ts`, and the two
   recoveries' 0.35 s settle tolerance, 50 ms poll and 3 s bridge into three named exports of
   `src/youtube/constants.ts`; 6D-2 makes the Standard host's legacy recovery a stage beside it
   (`HostZeroStartRecovery`), the replacement fallback staying in `player.ts`; 6D-3 makes the
@@ -115,15 +116,19 @@ runbooks. Neither belongs in a general setup document.
   rides. The report lists the owner answers used, each increment's tests-first evidence, the guard
   counts (CHECK 11 stays 20 as `player.ts`'s recovery writes move into the new module), the first
   load (+291 B eager JavaScript gzip against 6C; Phase 6 total +123 B), the Phase 6 end-condition
-  check, mixed versions, rollback, the blind device candidates, the two open items to link, the
-  Phase 7 handoff and one new record-only finding. Its local final check on `a9ee6842`: unit suite
-  747 files / 17,986 (1 skipped), four `--sequence.shuffle` seeds over `src/youtube`, `src/player`
-  and `src/pro-room` (6,788 rows each) and seeds 1 to 16 over the 9 touched test files (667 rows
-  each), the base's edited tests on the tip runtime and the new pins on the 6C runtime (only the
+  check (item 2, no recovery closure left in `player.ts`, holds only under this train's own
+  reading and waits for the owner), mixed versions, rollback, the blind device candidates, the two
+  open items to link, the Phase 7 handoff and one new record-only finding. Its local final check on
+  `a9ee6842`: unit suite 747 files / 17,986 (1 skipped), four `--sequence.shuffle` seeds over
+  `src/youtube`, `src/player` and `src/pro-room` (6,788 rows each) and seeds 1 to 16 over the 9
+  touched test files (667 rows each), the base's edited tests on the tip runtime and the new pins on the 6C runtime (only the
   named seams fail), types, lint and format, `check:workers`, every guard except
   `guard:sw-cache-version` (the pending bump), critical coverage 105 files / 4,359 and Worker
   coverage 69 / 3,325, critical E2E 101 / 101, the ten local YouTube specs 53 / 53 and the WebKit
-  YouTube activation spec 4 / 4.
+  YouTube activation spec 4 / 4. A review round then added six test rows and one assertion (the
+  local start release's first fence and its retire's timer clear, each recovery's own token),
+  corrected one comment and the records, and reran what they touch; the production build stayed
+  the same file for file.
 - [App 9.0.34 / v807 train: Phase 6 6C (one YouTube state router, one iframe audio owner and shared arm steps), no light-theme stroke on the dialog grey button and the selection bar, and lighter light-theme dividers (2026-11-02)](design/phase6-6c-router-iframe-audio-arm-steps-2026-11-02.md):
   released on 2026-11-02 21:20 KST in Release 41443521522 (PR #563, squash `cd8eaf47`) as App
   9.0.34 / v807 (App build 807, target `app`, one update dialog, two visible light-theme changes;

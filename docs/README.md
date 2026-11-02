@@ -96,29 +96,35 @@ runbooks. Neither belongs in a general setup document.
 
 - [App 9.0.35 / v808 train: every public page on the app's font system, and the design system Typography section (2026-11-02)](design/public-page-fonts-2026-11-02.md):
   prepared, not released. The next App update after 9.0.34 / v807 (target `app`, one update
-  dialog), on branch `agent/public-page-fonts` over main `cd8eaf47` (9.0.34's merge; its release
-  record `432d4ae7` came later and the branch is not yet moved onto it). Owner decision of
-  2026-11-02 evening: every public page uses the app's font system, without owner pictures; only
-  the app is checked, and it must not change. About and its 42 copies, the document, translate and
-  sitemap pages, the blog and the article the App Worker renders, history, the design system with
-  its previews and UI kit, events, admin and 404 now load `/web-fonts/first.css` (Inter,
-  MUSIXQUARE Hangul, Noto Sans KR), `stacks.css` and `rest.css`, which the build concatenates from
-  the app's processed sheets, so they fetch the app's own font files, and `/han-order.js` marks the
-  app's Han order from the browser's languages. The sign-in completion page belongs to the app and
-  moves from Pretendard to the device font, the train's one app-side change (before and after
-  pictures kept outside the repository). The design system gains the Typography section on that
-  delivery. The deployed Pretendard copy, the Pretendard sheets, the unused Noto Sans Cyrillic and
-  Greek files and 14 unnumbered generator-input faces are deleted;
-  `fonts/PretendardVariable.woff2` stays as the source of the Hangul faces. Increments I1 to I9
-  are tests first, each test commit failing on its parent. The app-unchanged proof: no app source
-  path changed; with content hashes stripped, the app's build files equal the base's but for the one
-  expected chunk fold (`retryable-stylesheet.ts` into `locale-fonts`, module code identical) and the
-  sign-in completion sheet; the app's font request lists for the en, ko and ja start screens are identical;
-  the app's font, line-box, tab-header and playlist E2E specs pass unchanged. Every guard passes
-  but `guard:sw-cache-version` before the bump. Not run: real devices, Linux, WebKit, the screen
-  pixel comparison; the light public-page smoke spec for the Full E2E (I10) is still to be added.
-  The version bump, the rebase onto main, the pull request and the release are the release
-  owner's.
+  dialog), on branch `agent/public-page-fonts` over main `432d4ae7` (9.0.34's release record; the
+  App runtime is production 9.0.34's `cd8eaf47`). Owner decision of 2026-11-02 evening: every
+  public page uses the app's font system, without owner pictures; only the app is checked, and it
+  must not change. About and its 42 copies, the document, translate and sitemap pages, the blog
+  and the article the App Worker renders, history, the design system with its previews and UI
+  kit, admin and 404 now load `/web-fonts/first.css` (Inter, MUSIXQUARE Hangul, Noto Sans KR),
+  `stacks.css` and `rest.css`, which the build concatenates from the app's processed sheets, so
+  they fetch the app's own font files; the events page (PRO sign-in) loads only `first.css` and
+  `stacks.css`, so its deferred scripts wait for no further sheet and the scripts only `rest.css`
+  holds draw with device fonts there. `/han-order.js` marks the app's Han order from the browser's
+  languages. The sign-in completion page belongs to the app and moves from Pretendard to the device
+  font, the train's one app-side change (before and after pictures in the git-ignored evidence
+  folder and the owner note). The design system gains the Typography section on that delivery;
+  its Korean 述 cell draws Noto Sans KR in any browser. The deployed Pretendard copy, the
+  Pretendard sheets, the unused Noto Sans Cyrillic and Greek files and 14 unnumbered
+  generator-input faces are deleted; `fonts/PretendardVariable.woff2` stays as the source of the
+  Hangul faces. Increments I1 to I9 and the review fixes R1 to R8 are tests first, each test
+  commit failing on its parent unless recorded as a regression guard. The app-unchanged proof: no
+  app source path changed except `public/account-complete.css` (the sign-in completion page);
+  with content hashes stripped, the app's build files equal the base's but for the one expected
+  chunk fold (`retryable-stylesheet.ts` into `locale-fonts`, module code identical), its service
+  worker install entry and that sheet; the app's font request lists for the en, ko and ja start
+  screens are identical; the app's font, line-box, tab-header and playlist E2E specs pass, and the
+  base's unmodified specs pass on the head build. A light load check of every public page joins
+  the default Full E2E, opt-in labs read the faces, and the guards hold every page source and
+  built page to the public page list. Every guard passes but `guard:sw-cache-version` before the
+  bump. Not run: real devices, Linux (no container on the build machine; the post-merge Full E2E
+  is the first Linux run), WebKit, the screen pixel comparison. The version bump, the pull request
+  and the release are the release owner's.
 - [App 9.0.35 / v808 train: Phase 6 6D, the YouTube start recoveries in one module, the Standard host's local start wait, the PRO start tokens, the late-joining PRO device's COMMIT catch-up and one mute rule below 0.5 % master volume (2026-11-02)](design/phase6-6d-recovery-pro-arm-2026-11-02.md):
   released on 2026-11-03 16:40 KST in Release 41597588008 (PR #565, squash `cfa81bdc`) as App
   9.0.35 / v808 (App build 808, target `app`, one update dialog, the last of Phase 6's four; the bump

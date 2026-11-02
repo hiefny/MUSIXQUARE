@@ -16286,10 +16286,11 @@ function cacheHeadersForPath(pathname: string, assetPathname = pathname): Record
     return APP_SHELL_FRESH_CACHE_HEADERS;
   }
   if (assetPathname === '/service-worker.js') return { 'Cache-Control': 'no-cache' };
-  // The public pages' font sheets (src/i18n/public-font-urls.ts): stable
-  // names whose content follows the hashed app sheets, so they live exactly
-  // as long as a public page and are never immutable.
-  if (assetPathname.startsWith('/web-fonts/')) {
+  // The public pages' font sheets and their blocking Han order script
+  // (src/i18n/public-font-urls.ts): stable names whose content follows the
+  // hashed app sheets and the app's Han order, so they live exactly as long
+  // as a public page and are never immutable.
+  if (assetPathname.startsWith('/web-fonts/') || assetPathname === PUBLIC_HAN_ORDER_SCRIPT_URL) {
     return { 'Cache-Control': PUBLIC_PAGE_CACHE_CONTROL };
   }
   if (/^\/og-.+\.png$/.test(assetPathname)) {

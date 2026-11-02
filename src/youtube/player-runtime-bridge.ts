@@ -14,7 +14,6 @@ interface YouTubePlayerRuntimeHooks {
   cancelPendingAutoSync(): void;
   consumePendingAutoSyncOnReady(): PendingAutoSyncOptions | null;
   isYouTubeAutoSyncPending(): boolean;
-  isProPlaybackPauseGatePending(): boolean;
   setPendingAutoSyncOnReady(active: boolean, options?: PendingAutoSyncOptions | null): void;
 }
 
@@ -22,7 +21,6 @@ const unavailableHooks: YouTubePlayerRuntimeHooks = {
   cancelPendingAutoSync: () => undefined,
   consumePendingAutoSyncOnReady: () => null,
   isYouTubeAutoSyncPending: () => false,
-  isProPlaybackPauseGatePending: () => false,
   setPendingAutoSyncOnReady: () => undefined,
 };
 
@@ -52,11 +50,6 @@ export function consumePendingAutoSyncOnReadyFromIframe(): PendingAutoSyncOption
  */
 export function isYouTubeAutoSyncPending(): boolean {
   return runtimeHooks.isYouTubeAutoSyncPending();
-}
-
-/** A participant-local PRO pause keeps iframe audio closed until it settles. */
-export function isProPlaybackPauseGatePendingFromIframe(): boolean {
-  return runtimeHooks.isProPlaybackPauseGatePending();
 }
 
 export function setPendingAutoSyncOnReadyFromIframe(

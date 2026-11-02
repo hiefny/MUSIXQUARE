@@ -156,7 +156,21 @@
  *     such registration (the ledger answers false for a kind with no claim),
  *     and a derived query (an exported isYouTubeStart* binding of the ledger)
  *     that does not return one call on one list of decisions, one per kind
- *     (START CLAIM REGISTRATION).
+ *     (START CLAIM REGISTRATION). Since Phase 6 6C, beside it, the iframe
+ *     audio owner's parking hold (registerYouTubeAudioHolds in
+ *     src/youtube/iframe-audio.ts, RO-12), which a later call replaces and
+ *     which holds nothing before the first: called anywhere but one
+ *     top-level statement of src/youtube/player.ts (the owner included),
+ *     called there again or not at all, or handed on (re-exported, used as a
+ *     value, the owner's namespace used as a value, or the owner imported
+ *     dynamically), and in the owner a write to the parking slots (isParked,
+ *     enforceParking) other than the two assignments in that function, or a
+ *     slot used as a value or exported (AUDIO HOLD REGISTRATION); and the
+ *     owner's PRO pause gate: holdYouTubePauseGate, releaseYouTubePauseGate
+ *     or clearYouTubePauseGate called outside src/youtube/player.ts (the
+ *     owner included), re-exported, used as a value or called through the
+ *     owner's namespace there, or the gate token written outside those three
+ *     (PAUSE GATE WRITERS).
  *
  * Baselines. Every count and list below is exact. A file above its baseline
  * (or a new file, function or pair) fails as a regression; a file below it
@@ -435,6 +449,8 @@ const TIMING_CONTRACTS: readonly TimingContract[] = [
       'src/youtube/constants.ts',
       // The verified audio restore since Phase 6 6A-4 (C2-3).
       'src/youtube/iframe-audio.ts',
+      // The shared arm steps since Phase 6 6C-4 (C2-8a).
+      'src/youtube/arm-steps.ts',
       'src/youtube/zero-start.ts',
       'src/youtube/authority-arm.ts',
       'src/youtube/player.ts',
@@ -788,7 +804,13 @@ const MEDIA_TUNING_BASELINE: Baseline = new Map<string, Allowance>([
 // verified restores, the recoveries' restores before a release, the guest
 // fallback's release write and both recoveries' unverified cleanups of a
 // replaced or cancelled iframe onto the shared writer in
-// src/youtube/iframe-audio.ts (32 calls).
+// src/youtube/iframe-audio.ts (32 calls). Phase 6 6C-2 made that module the
+// write owner of the App's own audio: the youtube:set-volume handler, the PRO
+// pause gate's two handlers and the PRO direct commit in player.ts write
+// through its applyYouTubeAudio and enforceYouTubePauseGate (26 calls). Phase 6
+// 6C-4 moved the hard-mute wait of the zero-start run and the PRO arm into the
+// shared arm steps in src/youtube/arm-steps.ts, and their warm pairs onto
+// writeYouTubeAudio (20 calls).
 
 const IFRAME_AUDIO_WRITE_METHODS = new Set(['mute', 'unMute', 'setVolume']);
 
@@ -800,25 +822,31 @@ const IFRAME_AUDIO_WRITE_METHODS = new Set(['mute', 'unMute', 'setVolume']);
  */
 const IFRAME_AUDIO_WRITE_BASELINE: Baseline = new Map<string, Allowance>([
   [
-    'src/youtube/authority-arm.ts',
+    'src/youtube/arm-steps.ts',
     {
-      count: 4,
+      count: 2,
       reason:
-        'the PRO arm: the hard mute in prepare and #waitForHardMute (4); its active and ' +
-        'detached restores write through writeYouTubeAudio in src/youtube/iframe-audio.ts',
+        'the shared hard-mute wait waitForYouTubeHardMute: the first mute and the mute of each ' +
+        'unconfirmed poll before the last (2), through which the zero-start run ' +
+        '(#beginLocalPrepare in src/youtube/zero-start.ts) and the PRO arm (prepare in ' +
+        'src/youtube/authority-arm.ts) hard-mute the iframe',
     },
   ],
   [
     'src/youtube/iframe-audio.ts',
     {
-      count: 3,
+      count: 7,
       reason:
         'the shared restore writer writeYouTubeAudio (3), through which the six verified ' +
         "restores write: zero-start's and the PRO arm's active and detached restores, and the " +
         'player.ts cleanups of the host legacy recovery and the guest local fallback; the ' +
         "recoveries' restores before a release, the guest fallback's release write and both " +
         "recoveries' unverified cleanups of a replaced or cancelled iframe (cleanupExactPlayer " +
-        'in player.ts) write through it too',
+        "in player.ts) write through it too; the App's own writer applyYouTubeAudio (3), " +
+        "through which player.ts's youtube:set-volume handler, PRO pause gate settlement and " +
+        "PRO direct commit write; the PRO pause gate's bare mute enforceYouTubePauseGate (1); " +
+        "the warm pairs of the zero-start run's and the PRO arm's #warm write through " +
+        'writeYouTubeAudio too',
     },
   ],
   [
@@ -834,14 +862,14 @@ const IFRAME_AUDIO_WRITE_BASELINE: Baseline = new Map<string, Allowance>([
   [
     'src/youtube/player.ts',
     {
-      count: 14,
+      count: 4,
       reason:
-        'the PRO direct commit applyProPlaybackYouTubeCommit (3); the mute before stopYouTubeMode ' +
-        'destroys the player (1); the mutes of the host legacy recovery and the guest local ' +
-        'fallback before a load or a wait (attemptRecovery 1, attemptFallback 2), whose audio ' +
-        'restores, release write and cleanups write through writeYouTubeAudio in ' +
-        'src/youtube/iframe-audio.ts; the youtube:set-volume handler (3) and the PRO pause gate ' +
-        'handlers (pending 1, settled 3)',
+        'the mute before stopYouTubeMode destroys the player (1); the mutes of the host legacy ' +
+        'recovery and the guest local fallback before a load or a wait (attemptRecovery 1, ' +
+        'attemptFallback 2), whose audio restores, release write and cleanups write through ' +
+        'writeYouTubeAudio in src/youtube/iframe-audio.ts; the youtube:set-volume handler, the ' +
+        'PRO pause gate handlers and the PRO direct commit (applyProPlaybackYouTubeCommit) write ' +
+        'through applyYouTubeAudio and enforceYouTubePauseGate in src/youtube/iframe-audio.ts',
     },
   ],
   [
@@ -856,12 +884,12 @@ const IFRAME_AUDIO_WRITE_BASELINE: Baseline = new Map<string, Allowance>([
   [
     'src/youtube/zero-start.ts',
     {
-      count: 6,
+      count: 2,
       reason:
         'the Standard zero-start controller: the release unMute and its retry in ' +
-        'handlePlayerStateChange (2), the hard mute in #beginLocalPrepare and #waitForHardMute ' +
-        '(4); its active and detached restores write through writeYouTubeAudio in ' +
-        'src/youtube/iframe-audio.ts',
+        'handlePlayerStateChange (2); its hard mute goes through waitForYouTubeHardMute in ' +
+        'src/youtube/arm-steps.ts, and its warm pair, active and detached restores write ' +
+        'through writeYouTubeAudio in src/youtube/iframe-audio.ts',
     },
   ],
 ]);
@@ -3511,6 +3539,224 @@ function checkLedgerPurity(relPath: string, file: ts.SourceFile, findings: strin
   });
 }
 
+/** The iframe audio owner, whose parking hold player.ts registers (RO-12). */
+const IFRAME_AUDIO_OWNER = 'src/youtube/iframe-audio.ts';
+const AUDIO_HOLD_REGISTER = 'registerYouTubeAudioHolds';
+/** The owner's module-level parking slots, which only AUDIO_HOLD_REGISTER sets. */
+const AUDIO_PARKING_SLOTS: ReadonlySet<string> = new Set(['isParked', 'enforceParking']);
+/** The owner's PRO pause gate setters, which only player.ts calls, and what each does. */
+const PAUSE_GATE_SETTERS: ReadonlyMap<string, string> = new Map([
+  ['holdYouTubePauseGate', 'holds the PRO pause gate'],
+  ['releaseYouTubePauseGate', 'releases the PRO pause gate'],
+  ['clearYouTubePauseGate', 'clears the PRO pause gate'],
+]);
+/** The owner's gate token, which only PAUSE_GATE_SETTERS write. */
+const PAUSE_GATE_TOKEN = 'pauseGateToken';
+
+/**
+ * Whether a write is a plain `slot = value;` statement directly in the body
+ * of a function declaration named in `writers`.
+ */
+function isSlotWriterStatement(
+  write: ts.Node,
+  slot: ts.Identifier,
+  writers: ReadonlySet<string>,
+): boolean {
+  if (
+    !ts.isBinaryExpression(write) ||
+    write.operatorToken.kind !== ts.SyntaxKind.EqualsToken ||
+    unwrap(write.left) !== slot
+  ) {
+    return false;
+  }
+  const statement = write.parent;
+  if (!ts.isExpressionStatement(statement) || !ts.isBlock(statement.parent)) return false;
+  // A block whose parent is a function declaration is that function's body.
+  const fn = statement.parent.parent;
+  return ts.isFunctionDeclaration(fn) && writers.has(fn.name?.text ?? '');
+}
+
+/**
+ * RO-12 since Phase 6 6C: the iframe audio owner keeps its parking hold in
+ * module-level slots that any later registerYouTubeAudioHolds call replaces,
+ * and until the first call parking holds nothing. Only player.ts, the start
+ * owners' composition point, registers it: exactly once, in a top-level
+ * statement. Fails closed on a call anywhere else (the owner included), a
+ * second or nested call in player.ts, none there, and the function handed
+ * on: re-exported, used as a value, the owner's namespace used as a value,
+ * or the owner imported dynamically. In the owner, the parking slots are set
+ * only by the two assignments in registerYouTubeAudioHolds and are only
+ * called elsewhere: any other write (wherever its function is called from)
+ * and either slot used as a value or exported fail too (AUDIO HOLD
+ * REGISTRATION).
+ *
+ * Beside it, the PRO pause gate's token, which the owner holds since 6C-2:
+ * only player.ts (its pause-gate handlers and stopYouTubeMode) calls
+ * holdYouTubePauseGate, releaseYouTubePauseGate and clearYouTubePauseGate,
+ * and only those three write the token. Fails closed on a call anywhere
+ * else (the owner included), a setter re-exported, used as a value or
+ * called through the owner's namespace outside player.ts, and a write to
+ * the token outside the setters (PAUSE GATE WRITERS).
+ */
+function audioHoldRegistrationFindings(sources: ReadonlyMap<string, string>): string[] {
+  const findings: string[] = [];
+  let registered = 0;
+  for (const [relPath, text] of sources) {
+    if (!relPath.startsWith('src/')) continue;
+    if (!text.includes(AUDIO_HOLD_REGISTER) && !text.includes('iframe-audio')) continue;
+    const file = parse(relPath, text);
+    const report = (node: ts.Node, what: string): void => {
+      findings.push(
+        `AUDIO HOLD REGISTRATION (RO-12): ${relPath}:${lineOf(file, node)} ${what} in ` +
+          `${enclosingFunctionName(node)} - ${START_CLAIM_REGISTRANT} registers the iframe ` +
+          "audio owner's parking hold once, in a top-level statement; another registration " +
+          'replaces the hold every App write asks, a second machine on it',
+      );
+    };
+    const reportSlot = (node: ts.Node, what: string): void => {
+      findings.push(
+        `AUDIO HOLD REGISTRATION (RO-12): ${relPath}:${lineOf(file, node)} ${what} in ` +
+          `${enclosingFunctionName(node)} - only ${AUDIO_HOLD_REGISTER} sets the iframe audio ` +
+          "owner's parking slots, and the owner only calls them; another write or a slot " +
+          'handed out replaces or bypasses the hold every App write asks, a second machine on it',
+      );
+    };
+    const reportGate = (node: ts.Node, what: string): void => {
+      findings.push(
+        `PAUSE GATE WRITERS (RO-12): ${relPath}:${lineOf(file, node)} ${what} in ` +
+          `${enclosingFunctionName(node)} - only ${START_CLAIM_REGISTRANT} holds, releases and ` +
+          "clears the iframe audio owner's PRO pause gate (its pause-gate handlers and " +
+          'stopYouTubeMode); another writer opens or closes the gate every App write asks, a ' +
+          'second machine on it',
+      );
+    };
+    const ownerFile = relPath === IFRAME_AUDIO_OWNER;
+    // The owner's own bindings, or this file's value imports of the owner.
+    const bindings = ownerFile
+      ? new Map(
+          [AUDIO_HOLD_REGISTER, ...PAUSE_GATE_SETTERS.keys()].map((name) => [name, name] as const),
+        )
+      : importsOf(file, relPath, IFRAME_AUDIO_OWNER, sources);
+    const moduleOf = (specifier: ts.Expression | undefined): string | null =>
+      specifier && ts.isStringLiteral(specifier)
+        ? resolveModule(relPath, specifier.text, sources)
+        : null;
+
+    for (const statement of file.statements) {
+      if (
+        ownerFile &&
+        ts.isVariableStatement(statement) &&
+        statement.modifiers?.some((modifier) => modifier.kind === ts.SyntaxKind.ExportKeyword)
+      ) {
+        for (const declaration of statement.declarationList.declarations) {
+          const name = declaration.name.getText(file);
+          if (AUDIO_PARKING_SLOTS.has(name)) reportSlot(declaration, `exports ${name}`);
+        }
+      }
+      if (!ts.isExportDeclaration(statement) || statement.isTypeOnly) continue;
+      const from = moduleOf(statement.moduleSpecifier);
+      const clause = statement.exportClause;
+      if (!clause || !ts.isNamedExports(clause)) {
+        if (from === IFRAME_AUDIO_OWNER) {
+          report(statement, `re-exports every export of ${IFRAME_AUDIO_OWNER}`);
+        }
+        continue;
+      }
+      for (const element of clause.elements) {
+        if (element.isTypeOnly) continue;
+        const original = (element.propertyName ?? element.name).text;
+        const local = statement.moduleSpecifier ? null : original;
+        const name =
+          original === element.name.text ? original : `${original} as ${element.name.text}`;
+        const target =
+          from === IFRAME_AUDIO_OWNER ? original : local !== null ? bindings.get(local) : undefined;
+        if (target === AUDIO_HOLD_REGISTER) report(element, `re-exports ${name}`);
+        else if (target !== undefined && PAUSE_GATE_SETTERS.has(target)) {
+          reportGate(element, `re-exports ${name}`);
+        } else if (ownerFile && local !== null && AUDIO_PARKING_SLOTS.has(local)) {
+          reportSlot(element, `exports ${name}`);
+        }
+      }
+    }
+
+    // The owner's slot writes already reported, so their targets are not also values.
+    const slotWrites = new Set<ts.Node>();
+    visit(file, (node) => {
+      if (ts.isCallExpression(node) && node.expression.kind === ts.SyntaxKind.ImportKeyword) {
+        if (!ownerFile && moduleOf(node.arguments[0]) === IFRAME_AUDIO_OWNER) {
+          report(node, `imports ${IFRAME_AUDIO_OWNER} dynamically`);
+        }
+        return;
+      }
+      const target = ownerFile ? writeTarget(node) : null;
+      if (target) {
+        for (const root of writeRoots(target)) {
+          if (!ts.isIdentifier(root) || isFunctionLocal(root)) continue;
+          if (AUDIO_PARKING_SLOTS.has(root.text)) {
+            slotWrites.add(root);
+            if (!isSlotWriterStatement(node, root, new Set([AUDIO_HOLD_REGISTER]))) {
+              reportSlot(node, `writes ${root.text}`);
+            }
+          } else if (
+            root.text === PAUSE_GATE_TOKEN &&
+            !isSlotWriterStatement(node, root, new Set(PAUSE_GATE_SETTERS.keys()))
+          ) {
+            reportGate(node, `writes ${PAUSE_GATE_TOKEN}`);
+          }
+        }
+      }
+      if (!ts.isIdentifier(node) || !isBindingReference(node)) return;
+      if (ownerFile && AUDIO_PARKING_SLOTS.has(node.text)) {
+        if (!slotWrites.has(node) && !isFunctionLocal(node) && !callOf(node)) {
+          reportSlot(node, `uses ${node.text} as a value`);
+        }
+        return;
+      }
+      const imported = bindings.get(node.text);
+      if (imported === undefined) return;
+      let reference: ts.Node = node;
+      let name = imported;
+      if (imported === '*') {
+        const access = node.parent;
+        const member =
+          (ts.isPropertyAccessExpression(access) || ts.isElementAccessExpression(access)) &&
+          access.expression === node
+            ? memberName(access)
+            : null;
+        if (member === null) {
+          report(node, `uses the iframe audio namespace ${node.text} as a value`);
+          return;
+        }
+        reference = access;
+        name = member;
+      }
+      const gateWrite = PAUSE_GATE_SETTERS.get(name);
+      if (gateWrite !== undefined) {
+        const call = callOf(reference);
+        if (!call) reportGate(reference, `uses ${name} as a value`);
+        else if (relPath !== START_CLAIM_REGISTRANT) reportGate(call, gateWrite);
+        return;
+      }
+      if (name !== AUDIO_HOLD_REGISTER) return;
+      const call = callOf(reference);
+      if (!call) report(reference, `uses ${AUDIO_HOLD_REGISTER} as a value`);
+      else if (relPath !== START_CLAIM_REGISTRANT) report(call, 'registers the iframe audio holds');
+      else if (!isTopLevelStatementCall(call)) {
+        report(call, 'registers the iframe audio holds outside a top-level statement');
+      } else if (++registered > 1) report(call, 'registers the iframe audio holds again');
+    });
+  }
+  if (registered === 0) {
+    findings.push(
+      `AUDIO HOLD REGISTRATION (RO-12): ${START_CLAIM_REGISTRANT} registers no iframe audio ` +
+        `holds - ${START_CLAIM_REGISTRANT} registers the iframe audio owner's parking hold ` +
+        'once, in a top-level statement; until it does, parking holds nothing and an App write ' +
+        'can unmute a parked iframe',
+    );
+  }
+  return findings;
+}
+
 // ── Exact comparison ─────────────────────────────────────────────────────
 
 interface ExactCheck {
@@ -4330,6 +4576,7 @@ export function analyzeResourceOwnership(input: ResourceOwnershipInput): Resourc
     findings,
   );
   findings.push(...startLedger.findings);
+  findings.push(...audioHoldRegistrationFindings(input.sources));
 
   const sinks: Record<string, number> = {};
   for (const check of pageStateChecks) sinks[check.label] = total(check.measured);

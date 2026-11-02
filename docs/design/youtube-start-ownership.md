@@ -4,24 +4,31 @@
 - **Decision date:** 2026-11-01
 - **Amended:** 2026-11-01 (plan step C2-7, Phase 6 6B-2): every start-ownership reader asks the
   ledger; the composite `isYouTubeZeroStartSyncOwned` and the runtime bridge's two recovery hooks
-  are gone, and the resource-ownership guard keeps the readers on the ledger
+  are gone, and the resource-ownership guard keeps the readers on the ledger; 2026-11-01 (plan
+  step C2-6, Phase 6 6C-1): `iframe.ts`'s state router asks the start owners in one fixed order
+  with a decision for every claim kind, and the Standard host's room time reads one merged pending
+  start while the pending-start predicate stays the legacy hold's; 2026-11-02 (plan step C2-2,
+  Phase 6 6C-2): the unMute guard that asks `isYouTubeStartHardMuteOwned` moves into the iframe
+  audio owner (`src/youtube/iframe-audio.ts`), and the runtime bridge no longer carries the PRO
+  pause gate
 - **Applies to:** YouTube start ownership in Standard and PRO rooms: which start owner holds the
-  shared iframe, and the queries its readers ask (resource ownership registry
+  shared iframe, the queries its readers ask, and which owner consumes an iframe state event
+  (resource ownership registry
   [RO-02](resource-ownership-registry.md#ro-02-youtube-standard-shared-start); plan steps C2-5,
-  Phase 6 6B-1, and C2-7, 6B-2)
+  Phase 6 6B-1, C2-7, 6B-2, and C2-6, 6C-1)
 
 ## Decision
 
 One start ledger composes the YouTube start owners for their readers. Each owner keeps its own
 state, timers and lifecycle; the ledger keeps none:
 
-| Module                                 | Sole responsibility                                                                                                                                                                                                                                     |
-| -------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `src/youtube/start-ownership.ts`       | the start ledger: the claim kinds, each kind's registered live queries, and the derived queries every reader asks                                                                                                                                       |
-| `src/youtube/zero-start.ts`            | the zero-start run owner (`YouTubeZeroStartController`), its ownership facades (`isYouTubeZeroStartInFlight`, `isYouTubeZeroStartProtocolActive`) and its snapshot reads (`getYouTubeZeroStartSnapshot`, `getYouTubeZeroStartPendingCanonicalPosition`) |
-| `src/youtube/player.ts`                | the start owners' composition point, which registers every claim; the owner of the guest local recovery, the host legacy recovery and the replacement fallback that runs it, the legacy two-stage rendezvous and the PRO direct COMMIT's local wait     |
-| `src/youtube/iframe.ts`                | the PRO authority arm's instance (`YouTubeAuthorityArmController` from `src/youtube/authority-arm.ts`) and the iframe state dispatch to the start owners                                                                                                |
-| `src/youtube/player-runtime-bridge.ts` | the player's hooks for modules that cannot import `player.ts`: the pending auto-sync intent, the legacy rendezvous's Stage-2 query `isYouTubeAutoSyncPending` and the PRO pause gate                                                                    |
+| Module                                 | Sole responsibility                                                                                                                                                                                                                                         |
+| -------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `src/youtube/start-ownership.ts`       | the start ledger: the claim kinds, each kind's registered live queries, and the derived queries every reader asks                                                                                                                                           |
+| `src/youtube/zero-start.ts`            | the zero-start run owner (`YouTubeZeroStartController`), its ownership facades (`isYouTubeZeroStartInFlight`, `isYouTubeZeroStartProtocolActive`) and its snapshot reads (`getYouTubeZeroStartSnapshot`, `getYouTubeZeroStartPendingCanonicalPosition`)     |
+| `src/youtube/player.ts`                | the start owners' composition point, which registers every claim; the owner of the guest local recovery, the host legacy recovery and the replacement fallback that runs it, the legacy two-stage rendezvous and the PRO direct COMMIT's local wait         |
+| `src/youtube/iframe.ts`                | the PRO authority arm's instance (`YouTubeAuthorityArmController` from `src/youtube/authority-arm.ts`) and the iframe state router, which asks the start owners whether one consumes a state event ([The iframe state router](#the-iframe-state-router))    |
+| `src/youtube/player-runtime-bridge.ts` | the player's hooks for modules that cannot import `player.ts`: the pending auto-sync intent and the legacy rendezvous's Stage-2 query `isYouTubeAutoSyncPending` (since 6C-2 the iframe audio owner `src/youtube/iframe-audio.ts` holds the PRO pause gate) |
 
 The ledger answers from live queries only. A derived query calls the queries the owners
 registered at the moment it is asked, so the answer is the owners' own state at that instant, and
@@ -50,10 +57,10 @@ reads nothing:
 | Derived query                  | `standard-run` | `standard-recovery` | `legacy-rendezvous` | `pro-arm` | `pro-direct` | Readers                                                                                                                                                                                                                                                                                                                                                                                                                             |
 | ------------------------------ | -------------- | ------------------- | ------------------- | --------- | ------------ | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `isYouTubeStartSyncOwned`      | protocolActive | pending             | never               | never     | never        | `src/youtube/sync.ts`: the host heartbeat hold, the guest state actions, transition and rendezvous checks, the manual-offset apply and edit, the Sync `not-ready` answer and an explicit command's cancel; `src/network/sync.ts`, `src/ui/player-controls.ts`, `src/ui/manual-sync-overlay-runtime.ts` (twice), `src/player/background-return-sync.ts`; `player.ts`: the seek's mid-sync check and the late-join bootstrap deferral |
-| `isYouTubeStartHardMuteOwned`  | hardMuted      | active              | never               | hardMuted | never        | `player.ts`: the unMute guards on `youtube:set-volume` and on the PRO pause-gate settlement                                                                                                                                                                                                                                                                                                                                         |
+| `isYouTubeStartHardMuteOwned`  | hardMuted      | active              | never               | hardMuted | never        | the iframe audio owner's start hold (`src/youtube/iframe-audio.ts` since 6C-2, asked there at the write): the unMute guard of a `youtube:set-volume` write and of the PRO pause-gate settlement                                                                                                                                                                                                                                     |
 | `isYouTubeStartTimelineHeld`   | inFlight       | pending             | never               | never     | never        | `sync.ts`: the small-drift sample, the guest heartbeat and the auxiliary state that holds this speaker's iframe timeline                                                                                                                                                                                                                                                                                                            |
 | `isYouTubeStartArmBusy`        | inFlight       | never               | never               | never     | never        | `src/ui/seekbar.ts` (the seek gate) and `iframe.ts`'s UI loop                                                                                                                                                                                                                                                                                                                                                                       |
-| `isYouTubeStartRecoveryActive` | never          | active              | never               | never     | never        | `iframe.ts`'s state dispatch (the recovery owns the iframe's events)                                                                                                                                                                                                                                                                                                                                                                |
+| `isYouTubeStartRecoveryActive` | never          | active              | never               | never     | never        | `iframe.ts`'s state router (the recovery owns the iframe's events)                                                                                                                                                                                                                                                                                                                                                                  |
 | `isYouTubeStartRoomStateHeld`  | protocolActive | never               | stage2Pending       | never     | never        | `iframe.ts`'s auxiliary `YOUTUBE_STATE` hold on a host                                                                                                                                                                                                                                                                                                                                                                              |
 
 The order is the operand order of the composites these queries replace, so every reader calls the
@@ -65,8 +72,10 @@ hold asked the run's protocol and then the legacy rendezvous's Stage-2 query. Th
 queries read one claim each, as the facade and the bridge hook they replace did.
 
 Since 6B-2 (plan step C2-7) every reader asks one of these queries, 24 reader sites in eight
-production modules, beside other owners where it needs them, and no statement outside the ledger
-asks two start claims, with two exceptions that read a claim's own query:
+production modules (since 6C-2 the two unMute guards are one, which the iframe audio owner
+`src/youtube/iframe-audio.ts` asks at the write: 23 sites in nine modules), beside other owners
+where it needs them, and no statement outside the ledger asks two start claims, with two
+exceptions that read a claim's own query:
 
 - the legacy rendezvous's Stage-2 wait, which `sync.ts`'s heartbeat hold, `iframe.ts`'s
   sub-video advance check and `native-control-authority.ts` (`hasProtectedTransitionOwner`) ask
@@ -88,6 +97,47 @@ peer replacement fallback (twice), and `getYouTubeZeroStartPendingCanonicalPosit
 `local-offset.ts` as the scheduled-start timeline reader. No query asks the run's protocol or the
 recovery's pending claim alone, because no reader needs one.
 
+## The iframe state router
+
+Since 6C-1 (plan step C2-6) `iframe.ts`'s state router (`routeYouTubeStartPlayerState`) asks the
+start owners, in this order, whether one consumes a state event from the iframe. The first that
+answers true consumes it, and the ordinary state path (the playback projection, UI, queue
+progression, room broadcast and the native-control observation) does not run:
+
+| Kind                | Decision                                                                                                                                                                                                 |
+| ------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `pro-arm`           | the arm's own handler (`handlePlayerStateChange` on `iframe.ts`'s instance): every state of its run before its release; the release PLAYING finishes the commit and continues                            |
+| `standard-run`      | `handleYouTubeZeroStartPlayerState`: every state of the run before its release; in `starting` a BUFFERING or PAUSED continues, and the release PLAYING continues once                                    |
+| `standard-recovery` | `isYouTubeStartRecoveryActive`: a recovery that owns the iframe's events                                                                                                                                 |
+| `legacy-rendezvous` | `isStandardHostYouTubeLocalStartPending` (`local-offset.ts`): the legacy rendezvous's local start hold on a Standard host, which may keep the speaker paused while the room plays (not its Stage-2 wait) |
+| `pro-direct`        | never: the PRO direct COMMIT's local wait consumes nothing                                                                                                                                               |
+
+The order is the fixed order the dispatch had before 6C-1, with the same short-circuit, so every
+owner sees the same events at the same instants. It differs from the ledger's `START_CLAIM_KINDS`
+order, the derived queries' operand order, so the router keeps it as a type of its own: no kind
+ships, and a claim kind added to the ledger without a decision in the router does not compile.
+Each owner is asked through a closure when a state arrives, never read while `iframe.ts` loads.
+Where an owner has a state handler (the PRO arm and the run), the router asks the handler itself,
+never a ledger claim in its place: the PRO arm's handler cancels a run whose iframe was replaced,
+and the run's handler moves its own phase, so both run whatever the claims answer. The recovery
+and the legacy hold have no handler, so their decisions are their queries. The stale
+reused-feedback check (`isStaleReusedPlayerFeedback`) runs once before the router: it settles a
+pending reused iframe's feedback deadline even when an owner consumes the event, and the ordinary
+path reads its answer after the router.
+
+The Standard host's room time while one of its start owners holds the speaker comes from one
+merged read in `local-offset.ts`, which only `toCanonicalYouTubeTime` asks, after the end hold:
+the legacy rendezvous's local start (any answer, clamped, so one that is not finite reads 0),
+else the run's scheduled start (`getYouTubeZeroStartPendingCanonicalPosition`) when finite, each
+reader once. The pending-start predicate `isStandardHostYouTubeLocalStartPending` stays the
+legacy hold's alone, by design. Its six readers are the router's legacy decision,
+`native-control-authority.ts`'s protected-owner check, `player.ts`'s seek mid-sync check and the
+host's play/pause toggle (`youtube:toggle-play`), `sync.ts`'s heartbeat state and the
+manual-offset runtime. Merged with the run's hold, it would consume BUFFERING and PAUSED in the
+run's `starting` phase, the native-control authority would read a real headset Pause during the
+run's speaker hold as the App's own output, and the state the host reports to older builds
+during that hold could change.
+
 ## Rules
 
 - **Live queries only.** The ledger keeps no answer, flag, phase or snapshot; it subscribes to
@@ -108,9 +158,10 @@ recovery's pending claim alone, because no reader needs one.
   microtask later, and the iframe and retained-controller sources. `youtube:sync-loading` keeps its
   emitters. The ledger adds no emitter and no listener, and coalesces nothing.
 - **A new start path adds a kind.** It needs the kind in `START_CLAIM_KINDS`, its claim type in
-  `YouTubeStartClaims` and a decision (a read or `0`) in every derived query; the module does not
-  compile until all three exist. Its registration lands with the first production reader that
-  reads it.
+  `YouTubeStartClaims`, a decision (a read or `0`) in every derived query and a decision in
+  `iframe.ts`'s state router (whether its owner consumes a state event, or `0`, at its place in
+  the router's order); the two modules do not compile until all four exist. Its registration
+  lands with the first production reader that reads it.
 - **Readers ask the ledger, one start claim per statement.** A reader that needs another
   combination of claims gets a new derived query in the ledger rather than composing two at its
   call site. The resource-ownership guard (CHECK 12) counts, per function, the statements outside
@@ -142,10 +193,10 @@ recovery's pending claim alone, because no reader needs one.
 
 - The host legacy recovery and the replacement fallback answer through the recovery's flags but are
   not yet stages of the run's owner (plan step C2-11). The PRO direct COMMIT's 2 s local wait has no
-  public owner, so the `pro-direct` kind holds nothing (C2-13). Iframe state events are still
-  dispatched to every owner in `iframe.ts`'s fixed order, and the host's pending-start query
-  (`isStandardHostYouTubeLocalStartPending`, `src/youtube/local-offset.ts`) still sees only the
-  legacy hold (C2-6).
+  public owner, so the `pro-direct` kind holds nothing (C2-13), and the state router decides it
+  never. The host's pending-start predicate (`isStandardHostYouTubeLocalStartPending`,
+  `src/youtube/local-offset.ts`) sees only the legacy hold by design, not as a gap (see
+  [The iframe state router](#the-iframe-state-router)).
 - Gaps the start-ownership truth tables pin as today's behaviour (rows marked "Looks like a
   defect") stay as they are; the ledger changes no answer, so it neither opens nor closes them.
   These are the four the owner was asked about on 2026-11-01, as rewritten after the rows were
@@ -195,18 +246,18 @@ recovery's pending claim alone, because no reader needs one.
   calibration ends, as `isYouTubeZeroStartSyncOwned` did, so the accepted readiness gap keeps its
   window ([known-accepted #14](../known-accepted.md#14-standard-room-youtube-zero-start-sync-readiness-gap)).
 - **PRO start timing:** the ledger reads the PRO arm and never drives it; PREPARE, READY and
-  COMMIT timing is unchanged.
+  COMMIT timing is unchanged. The state router asks the arm first, as the dispatch did.
 - No audio, UI or wire change.
 
 ## Module reason
 
 `docs/design/source-complexity-ratchet.md` asks a new production module for a reason. The ledger
 has two: it is a contract shared by multiple production consumers (the start-ownership readers,
-24 sites in eight modules since 6B-2), and it removes a circular dependency through a narrow,
-explicit port. The owners compose in `player.ts`, which imports `iframe.ts` and `sync.ts`, and
-`guard:import-graph` rejects every cycle, so those two readers cannot import `player.ts`. The
-ledger is a leaf with no import that every reader can import and `player.ts` registers into. It
-keeps no state and has no lifecycle of its own.
+24 sites in eight modules since 6B-2, 23 in nine since 6C-2), and it removes a circular
+dependency through a narrow, explicit port. The owners compose in `player.ts`, which imports
+`iframe.ts` and `sync.ts`, and `guard:import-graph` rejects every cycle, so those two readers
+cannot import `player.ts`. The ledger is a leaf with no import that every reader can import and
+`player.ts` registers into. It keeps no state and has no lifecycle of its own.
 
 ## Verification
 
@@ -227,6 +278,17 @@ keeps no state and has no lifecycle of its own.
 - `start-ownership-reader-windows.test.ts` pins five readers in a Standard guest's calibration
   window (see [Not covered yet](#not-covered-yet)); swapping any of them to the other query fails
   its row, and the rows pass on the tree before 6B as well.
+- `youtube-start-state-router.test.ts` records each start owner's answer where `iframe.ts` asks
+  it, on the real wiring: a state that a PRO arm warm-up, a Standard host zero-start warm-up, an
+  active guest recovery or the host's legacy local start hold consumes reaches no later owner and
+  not the ordinary path; with no owner holding, every owner is asked once and the ordinary path
+  runs once; and the stale reused-feedback check settles a pending reused iframe's deadline before
+  the first owner is asked. `local-offset.test.ts` pins the merged pending-start read (the legacy
+  answer first, each reader once, a non-finite zero-start answer falling through) and the
+  predicate's legacy-only answer. The rows pass on the tree before 6C-1 as well. Asking the arm
+  after the run, asking every owner, running the stale check after the router or dropping the
+  legacy decision fails router rows, and a merged predicate fails the merged-read rows and the
+  critique's pause-teardown rows (`standard-start-pause-teardown.test.ts`).
 - Suites that never load `player.ts` (for example `src/player/__tests__/local-output-realign-cross-flow.test.ts`,
   the Phase 4 D4 harness) register no claim, so every derived query answers false there, as the
   zero-start facades did before 6B; their rows show the chains' behaviour, not the gates'

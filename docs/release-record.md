@@ -46,7 +46,175 @@ gh run list --workflow e2e.yml --branch main --limit 3
 해결하면 근거(커밋, 실행 ID, 문서)를 PR 설명에 적고 이 목록에서 지운다. 근거
 없이 완료로 표시하지 않는다.
 
-### App 9.0.33 앱 한글을 다시 Pretendard로(9.0.33/v806) 배포 뒤 확인: 데스크톱 Chromium 시작 화면만 봤고 오너의 아이폰 Safari 확인은 아직, 머지 뒤 Full E2E는 시험만 #561 뒤 다시 돌아 통과해 6C(9.0.34/v807)를 머지할 수 있음
+### App 9.0.34 열차(Phase 6 6C, 라이트 테마 테두리 지움, 라이트 구분선 옅게, 9.0.34/v807) 배포 전: 6C는 중립, 라이트 두 증분은 오너가 사진을 보고 요청하거나 고른 [화면 바뀜], 6C-3은 오너 답이 없어 싣지 않음
+
+- [ ] 범위와 상태(오너 답 2026-10-30, 라이트 테두리 오너 요청과 라이트 구분선 오너 선택 2026-11-02 오후, 미병합·미배포): 증분 셋을
+      한 업데이트로 내는 App 열차다. 운영 9.0.33 / v806(앱 한글 Pretendard, 아래 9.0.33 절) 다음 App 패치인 9.0.34 / v807(App 빌드
+      807)로 target `app`, 업데이트 창 한 번(Phase 6 Q1의 넷 가운데 셋째, 창 모양은 지금 그대로), 바닥 795 그대로
+      (`raise_app_build_floor` false, Developer API D1 false)다. (1) Phase 6 6C, 중립([화면 그대로]): 계획의 6C-1(C2-6), 6C-2(C2-2),
+      6C-4(C2-8a), 6C-5(C2-8b)와 두 독립 리뷰의 반영이다. 6C-1은 `iframe.ts`가 iframe 상태를 시작 주인들에게 묻는 고정 순서를 시작
+      claim 종류마다 결정 하나인 라우터로 바꾸고 Standard 방장의 대기 room time 읽기를 하나로 합친다(대기 술어는 레거시 전용으로
+      그대로). 6C-2는 `src/youtube/iframe-audio.ts`를 App의 iframe 오디오 쓰기, PRO 일시정지 관문의 iframe 토큰, hold의 주인으로
+      만든다(RO-12, 런타임 다리의 관문 훅은 사라짐). 6C-4·6C-5는 두 무장 기계(Standard zero-start, PRO arm)가 새
+      `src/youtube/arm-steps.ts`(RO-03)의 hard-mute 대기, warm PLAYING 수락, settle을 함께 쓰게 한다(PRO arm의 운영 미사용 load 갈래와
+      그 시험 둘은 지움, Q12). 리뷰 반영은 시험만 둘, 시작 hold를 장부에 직접 묻는 중립 런타임 하나, CHECK 12의 새 규칙
+      `AUDIO HOLD REGISTRATION`(주차 자리의 쓰기와 넘기기 포함)과 `PAUSE GATE WRITERS`, 기록 고침이다. 와이어(`src/network/protocol.ts`,
+      `src/types/index.ts`, `src/core/constants.ts`, `cloudflare/`), 서버, 저장 모양, 계약 표지, 타이머 이름, 로그 줄, 준비 이벤트, 화면,
+      소리는 바뀌지 않는다(T0a 골든, T0b 참값표, 6B 행, 무장 골든이 바이트 그대로 통과). (2) 라이트 테마 테두리 지움([화면 바뀜], 오너
+      요청, `c3281b45`): `css/style.css`의 라이트 팔레트 `--glass-border`가 `rgba(0, 0, 0, 0.06)`에서 다크처럼 `transparent`가 되어,
+      라이트에서만 대화상자 회색 버튼(`.dialog-secondary`: 일반 대화상자의 둘째 버튼, 재생목록 슬롯 창의 취소, 계정 창의 로그아웃 등),
+      재생목록 선택 막대와 그 취소 원 둘레의 옅은 회색 선이 없어진다. 1px 테두리 자리는 투명으로 남아 크기와 자리가 같고, 다크, 고대비
+      팔레트, 강제 색은 그대로이며, `public/designsystem/colors_and_type.css`는 같은 값을 거울로 따른다(늘 다크인 디자인 시스템 페이지라
+      보이는 차이 없음). (3) 라이트 구분선 옅게([화면 바뀜], 오너 선택 A, `9fb6f1f8`): `css/style.css`의 기본 라이트 `--divider`가
+      `#d4d6d8`에서 `#e4e6e8`이 되어 라이트에서 설정 구역 사이, 계정 창 통계 줄 사이, 도움말 법적 고지 위, YouTube 검색 결과 사이의
+      가로줄과 데스크톱의 열 사이 세로줄, 설정 탭 밑줄이 옅어진다(흰 바탕 대비 1.46:1에서 1.25:1, 다크 구분선과 비슷한 세기).
+      이벤트 페이지(`public/events/event.css`)의 라이트 `--divider`도 같은 값이 되어 머리의 로고와 이벤트 이름 사이 가는 선이 옅어지고,
+      디자인 시스템의 거울(`public/designsystem/colors_and_type.css`)과 라이트 견본(`public/designsystem/index.html`의 라이트 보드,
+      `public/designsystem/preview/colors-light.html`), 시험 기대 값 둘(`e2e/accessibility-contrast.test.ts`,
+      `src/ui/__tests__/design-system-page-contract.test.ts`)이 새 값을 적는다. 라이트 고대비(`#d4d6d8`), 다크(`#262626`), 강제
+      색(`CanvasText`), 선의 굵기와 자리는 그대로다. 이벤트 페이지에는 고대비 팔레트가 없어, 대비를 '더'로 둔 라이트에서 앱의 구분선은
+      `#d4d6d8`인데 이벤트 페이지 머리의 선은 `#e4e6e8`이다(아래 열린 항목). 싣지 않는 것: 6C-3(아래 기댄 오너 결정 항목)과 T0b 결함
+      넷의 고침(아래 6B 절). 브랜치 `agent/p6-6c`는 main `a92bab2b`(9.0.33의 배포 기록 #562, App 런타임은 운영 9.0.33 `4faf38d9`와 같음)
+      위 커밋 열이다: main `7b869c35` 위에서 만든 6C 커밋 스물하나를 `src`·`scripts` 차이가 바이트로 같게 옮긴 것(코드 끝 `19362aa2`,
+      기록 끝 `12c69856`), 라이트 테두리 `c3281b45`(`agent/light-stroke`의 `d6d69bc4`를 충돌 없이 cherry-pick, 차이가 바이트로 같음),
+      열차 기록 `1e3adfcb`와 `1e146488`(QA 라운드 10), 라이트 구분선 `9fb6f1f8`(`agent/light-divider`의 `9b269706`을 충돌 없이
+      cherry-pick, patch-id 같음), 열차 기록 `c8a459a9`(QA 라운드 11), 릴리스 준비 기록(이 항목, 아래 9.0.33 절과 6B 절에서 6C나
+      9.0.34를 적은 문장 고침, 열린 항목 'YouTube 첫 음 정렬'의 연결), 버전 올리기(마지막 런타임 커밋). 운영 배포 SHA(App 9.0.33
+      `4faf38d9`, PRO room `683074bc`, 다른 넷 `71f5b96c`)와 견준 런타임 경로 변경은 버전 올리기 앞 App 14(라이트 두 증분의
+      `css/style.css`, `public/designsystem/colors_and_type.css`, `public/designsystem/index.html`,
+      `public/designsystem/preview/colors-light.html`, `public/events/event.css`와 6C의 `src/youtube` 아홉 `arm-steps.ts`,
+      `authority-arm.ts`, `iframe-audio.ts`, `iframe.ts`, `local-offset.ts`, `player-runtime-bridge.ts`, `player.ts`, `start-ownership.ts`,
+      `zero-start.ts`), 나머지 다섯 Worker 0이고 App 런타임 의존성 차이가 없어 target `app`이다(보고서 QA 라운드 11의 로컬 git 판정,
+      릴리스의 부분 릴리스 검사를 대신하지 않음). 버전 올리기의 거울 넷을 더하면 App 18이다. D1, 비밀, 바인딩, Wrangler 설정, CORS,
+      계약 표지, 저장 데이터와 키, 신호와 중계 프레임 모양, 의존성은 바뀌지 않고, `package.json`과 `package-lock.json`은 버전 줄뿐이다.
+      자원 소유권: 새 레코드가 없다. 라우터, iframe 오디오 주인, 무장 단계는 기존 RO-02, RO-12, RO-03의 주인이고 주차 hold 등록은
+      RO-14의 기록 문장이며, 센 코드나 규칙을 옮긴 커밋이 같은 커밋에서 레지스트리와 기준치를 고쳤다(CHECK 11 32 → 20, CHECK 12의 새
+      규칙 둘, 49 records / 458 production files). 라이트 두 증분은 CSS 값이라 복구, 재시도, 시한, 수명 흐름을 더하지 않는다. 처음
+      받는 코드는 바탕 `a92bab2b` 빌드(진입 `main-jGfUMtkO.js`, 운영 9.0.33의 것) 대비, 나가는 버전 올리기 머리 `c44d4d2c`에서 진입
+      raw −1,319 B와 gzip +16 B, eager JS gzip +30 B(6C 몫 +33 B), eager 전체 raw −1,274 B와 gzip +27 B이고(보고서 '번들 크기', QA
+      라운드 12. 버전 올리기 앞 `9fb6f1f8`에서는 eager JS gzip +38 B, QA 라운드 11), Phase 6 누계는 −169 B로 상한
+      +200 B 안이다(라이트 두 증분의 몫은 넣지 않음). 로컬 QA는 보고서 QA 라운드 1 ~ 8(6C만, 옮기기 전과 main `7b869c35` 위), 라운드
+      9(옮긴 끝 `c3281b45`: 단위 전체 752 files / 18,005, 핵심·Worker 커버리지, typecheck·lint·format, `guard:*` 37개 가운데 버전
+      올리기를 기다리는 `guard:sw-cache-version`만 실패, 자원 소유권, critical E2E 101 / 101, YouTube Chromium spec 열 개 53 / 53, WebKit
+      `setup-youtube-activation` 4 / 4, 라이트 테두리에 닿는 E2E 9 / 9와 선택 모드 재생목록 명세 일곱 32 / 32), 라운드 10(옮긴 테스트
+      먼저 짝 아홉을 새 SHA에서: 짝마다 테스트 먼저 커밋에서는 그 커밋이 더한 행만 실패하고 코드 커밋에서 모두 통과, 라이트 테두리
+      갈래의 단위 51 files / 1,447), 라운드 11(`9fb6f1f8`: 구분선이 닿는 단위 13 files / 229 / 229, E2E `accessibility-contrast`,
+      `design-system-page`, `asamo-event`, `auxiliary-component-cascade` 24 / 24와 선택 모드 재생목록 명세 일곱 32 / 32, 배포 대상 App 14,
+      크기)이고, 버전 올리기 머리 `c44d4d2c`의 로컬 전체 관문(아래 배포 조건 (3))은 라운드 12에서 모두 통과했다. 그 뒤는 문서
+      커밋뿐이다(라운드 12의 기록과, 버전 올리기 뒤 리뷰의 문서 지적을 반영한 라운드 13). PR, PR CI, 자동 코드 리뷰, exact-main CI, 배포는 아직이고
+      로컬 결과는 exact-main-SHA 후보를 대신하지 않는다. 배포 뒤 기록 PR이 이 절을 '배포 뒤 확인'으로 바꾼다.
+      [변경·QA 보고서](design/phase6-6c-router-iframe-audio-arm-steps-2026-11-02.md),
+      [증분 한눈에](design/phase6-6c-router-iframe-audio-arm-steps-2026-11-02.md#증분-한눈에),
+      [라이트 테마 테두리 지움](design/phase6-6c-router-iframe-audio-arm-steps-2026-11-02.md#라이트-테마-테두리-지움-화면-바뀜-오너-요청-2026-11-02-오후),
+      [라이트 구분선 옅게](design/phase6-6c-router-iframe-audio-arm-steps-2026-11-02.md#라이트-구분선-옅게-화면-바뀜-오너-선택-a-2026-11-02-오후),
+      [번들 크기](design/phase6-6c-router-iframe-audio-arm-steps-2026-11-02.md#번들-크기),
+      [QA 라운드](design/phase6-6c-router-iframe-audio-arm-steps-2026-11-02.md#qa-라운드),
+      [설계 문서](design/youtube-start-ownership.md).
+- [ ] 기댄 오너 결정과 규칙(게이트 아님): 라이트 테두리(오너 요청, 2026-11-02 오후): 오너가 라이트 테마에서 대화상자 회색 버튼과
+      재생목록 선택 막대 둘레의 옅은 회색 선을 다크처럼 없애 달라고 했고, 만든 뒤 라이트의 전후 나란히 사진 넷(휴대폰의 대화상자
+      버튼과 선택 막대 확대, 데스크톱의 두 화면 전체)을 봤다(찍은 사진 전체가 아님). 라이트 구분선(오너 선택, 2026-11-02 17시 40분 무렵
+      KST): 오너가 라이트 구분선을 옅게 하면 구분선만 바뀌는지 물었고, 지금 값 `#d4d6d8`과 두 후보(A `#e4e6e8`, B `#eff1f3`)를 견준 사진
+      다섯을 보고 A를 골랐다. 릴리스 담당이 같은 날 버전 올리기 전에 이 열차에 싣기로 정했다(싣지 않으면 뒤 App 업데이트로 나가 업데이트
+      창이 하나 더 뜸). 두 라이트 증분은 Phase 6 밖이고 6C와 같은 업데이트 창 하나로 나간다. Phase 6 오너 답(2026-10-30, 모두 권장):
+      Q1(Phase 6을 App 업데이트 넷 6A ~ 6D로, 6C가 셋째), Q2(6C-3, 아래), Q18(시험이 결함을 재현하면 오늘 동작으로 고정하고 결함마다
+      묻기. 6C가 새로 찾은 결함은 하나다: settle 중 늦춘 다시 seek가 던지면 그 오류가 전역 오류 로그에 약 0.5초마다 남는다. 화면과
+      소리는 같아 이 열차에서는 고치지 않기를 권하고 오늘 동작으로 고정했다, 보고서 '오너에게' 2), Q3(박자는 각자 그대로), 엔지니어링
+      기본값 Q8, Q10·Q24, Q11, Q12, Q14, Q26, Q27, Q29(증분 +300 B나 Phase 순증 +200 B를 넘으면 멈추고 묻기: 해당 없음). 6C-3(Q2): 오너는
+      0 < 마스터 볼륨 < 0.5 %면 YouTube 음소거로 한 규칙을 셋째 업데이트 맨 마지막에, 실패하는 시험 먼저, 만들기 전에 전후 표를 먼저
+      보여 달라고 답했고, 그 전후 표 질문에는 이 기록까지 답하지 않았다. 그래서 릴리스 담당이 2026-11-02에 9.0.34의 범위를 중립 6C와
+      라이트 두 증분으로 정했고 6C-3은 9.0.34에 싣지 않는다. 버전 올리기 `c44d4d2c`가 답 없이 들어갔으므로 '예'가 오면 6D나 그 뒤
+      업데이트에 싣는다(실패 시험 먼저, 6D면 업데이트 창은 늘지 않음). 그때까지 두 규칙은
+      `readYouTubeAppAudio`의 이름 붙은 두 변형('rounded', 'non-positive')으로 자리마다 오늘 규칙을 지킨다. T0b 결함 넷(2026-11-01에 따로
+      여쭘)도 답이 없어 싣지 않았다(아래 6B 절). 배포 규칙: 바로 배포 원칙(2026-10-25)대로 자동 관문(로컬 전체 관문, PR CI, 자동 코드
+      리뷰, exact-main CI, 릴리스 smoke)이 모두 통과하면 따로 묻지 않고 내고, 기기 근거는 게이트가 아니다. 오너 부재 중 위임(2026-10-31
+      23:20 KST 무렵부터 약 40시간)은 오너가 2026-11-02 오후에 돌아와 끝났으므로 'Phase 6 업데이트 열차는 오너가 깨어 있을 때만 낸다'는
+      규칙(2026-10-31)이 다시 적용된다. 오너가 다르게 정하면 그것을 따른다.
+      [오너 결정](design/phase6-6c-router-iframe-audio-arm-steps-2026-11-02.md#오너-결정-2026-10-30-모두-권장),
+      [6C-3](design/phase6-6c-router-iframe-audio-arm-steps-2026-11-02.md#6c-3-준비함-만들지-않음-오너를-기다림),
+      [오너에게](design/phase6-6c-router-iframe-audio-arm-steps-2026-11-02.md#오너에게).
+- [ ] 배포 조건(모두 채운 뒤에만 머지하고 dispatch한다): (1) 오너 결정과 규칙: 위 항목대로 자동 관문이 모두 통과하면 낸다. 두 [화면
+      바뀜]은 오너가 사진을 보고 요청하거나 고른 것이라 사진 확인을 배포 전 관문으로 다시 두지 않는다. dispatch는 오너가 깨어 있을 때
+      한다(위 항목). (2) 한 번에 한 열차이고 9.0.33 다음이다. Phase 6 계획 §1.4의 머지 조건 넷이 채워졌다: 앞 열차 9.0.33이
+      배포되고(Release 41386906358, §1), 그 운영 smoke가 모두 첫 시도에 통과했으며, 기록됐고(#562 `a92bab2b`), 그 머지 뒤 Full E2E
+      41396274966(main `6ccc3f10`)이 통과했다(아래 9.0.33 절의 다음 단계 항목). main 런타임이 배포본과 같아야 한다: 지금 main
+      `a92bab2b`는 9.0.33의 배포 기록(#562, 문서만)이고 그 앞 #561은 시험만이라 런타임이 운영 App 9.0.33 `4faf38d9`와 같다. 머지 전에
+      main이 또 움직이면 다시 옮기고, 런타임으로 움직이면 보고서 QA 라운드 9와 11의 검사를 다시 돌린다. 열차 PR 머지부터 배포와 기록 PR
+      머지까지 다른 PR을 main에 머지하지 않고, 이 배포까지 런타임 의존성 변경(Dependabot 포함)을 머지하지 않는다. (3) 버전 올리기가
+      마지막 런타임 커밋이다: 9.0.34와 SW epoch v807을 9.0.33의 버전 올리기(#560 squash `4faf38d9` 안의 `d78d0d41`)와 같은 거울 여섯
+      파일의 일곱 줄(`package.json`, `package-lock.json`의 두 줄, `ADMIN_SCRIPT_VERSION`, `ADMIN_ASSET_VERSION`,
+      `SERVICE_WORKER_CACHE_VERSION`, `index.html`의 `/bootstrap.js?cache=` 쿼리)에 올리고, 그 머리에서 typecheck, lint, `format:check`,
+      `build:checked`를 한 명령으로(그 안의 `guard:sw-cache-version` PASS v807과 `guard:release-identity` 'MUSIXQUARE 9.0.34;
+      service-worker cache epoch v807'), 모든 `guard:*`, 자원 소유권(49 records / 458 production files, `--report`가 QA 라운드 9와 같음),
+      핵심·Worker 커버리지, 단위 전체, `build:e2e` 뒤 critical E2E, YouTube Chromium spec 열 개, WebKit `setup-youtube-activation`, 라이트
+      두 증분에 닿는 E2E(`accessibility-contrast`, `design-system-page`, `asamo-event`, `auxiliary-component-cascade`, 선택 모드 재생목록
+      명세 일곱), 운영 빌드의 후보 E2E가 통과하고, 첫 로딩(진입, eager JS, eager 전체 gzip)이 origin/main 빌드보다 보고서 '번들 크기'의
+      잰 차(eager JS gzip +38 B) 밖으로 늘지 않으며, 배포 대상이 App뿐(App 14 경로와 버전 거울 넷, 다른 Worker 0)이고, 계약 동결 diff가
+      버전 일곱 줄뿐이다(`cloudflare/`는 `ADMIN_ASSET_VERSION` 한 줄). 결과는 보고서의 새 QA 라운드와 PR 본문에 둔다. (4) PR CI, 자동 코드
+      리뷰, dispatch 직전 머지, exact-main CI success, 그 뒤 Release target `app`, Developer API D1 false, `raise_app_build_floor` false. 기록
+      PR을 열차 PR 머지와 deploy job 시작 사이에 머지하지 않는다. (5) 배포 직후 공개 최소 빌드 상태(저장·유효 795, live App 807),
+      `/service-worker.js`의 `CACHE_VERSION = "v807"`, `index.html`의 `/bootstrap.js?cache=v807`, Operations Drift Audit을 보고, 할 수
+      있으면 운영의 앱 CSS와 이벤트 페이지 CSS를 인증 없는 GET으로 받아 라이트 `--glass-border`의 `transparent`와 라이트 `--divider`의
+      `#e4e6e8`(앱의 라이트 고대비는 `#d4d6d8`)을 확인하며, 아래 배포 직후 확인을 건넨다. 머지 뒤 main SHA에서 Full E2E를 한 번 돌려
+      보고서에 적되 exact-main 후보로 쓰지 않고, 다음 App 열차(6D)는 그것이 통과한 뒤에 머지한다(계획 §1.4). 배포 기록 PR은 §1과
+      `Last source review`를 덮어쓰고 `release-history.md`에 한 행을 더하며, §4에 이 릴리스 항목을 적고 현재 경계 줄 (5)를 9.0.34로
+      고치고, 다른 항목의 다음 되돌리기 번호를 9.0.35 / v808로 옮기고, `docs/hotfix-procedure.md`의 9.0.25 문단에 9.0.34(빌드 807, 이
+      릴리스의 merge·Release·App 버전)가 9.0.33을 이었다는 문장을 더하며, 보고서의 상태와 이 절을 배포 뒤로 바꾼다.
+      [머지 전에 할 일](design/phase6-6c-router-iframe-audio-arm-steps-2026-11-02.md#머지-전에-할-일-릴리스-담당),
+      [배포 조건과 순서](design/phase6-6c-router-iframe-audio-arm-steps-2026-11-02.md#배포-조건과-순서-릴리스-담당).
+- [ ] 되돌리기(보고서 '되돌리기'): 새 경계는 없다(계약 표지, D1, 저장 모양, 바닥을 바꾸지 않아 forward floor가 생기지 않음). 기본은
+      더 높은 SemVer·epoch(9.0.35 / v808 이상, 그 전에 다른 App 업데이트가 나가면 그다음 번호)의 앞으로 고치기다. 실패한 `app`의 자동
+      복구는 릴리스 안에서 그 릴리스 checkpoint의 App, 곧 dispatch 때의 운영 App 9.0.33 / v806(빌드 806, App 버전 `047e6f68`, 배포 SHA
+      `4faf38d9`, Release 41386906358)으로 간다. 795 이상이라 `lower`가 필요 없고 PRO는 그대로이며, 와이어가 같아 되돌린 App과 이 열차가
+      섞인 방도 같은 프레임을 같은 시각에 보낸다. 배포 뒤 checkpoint App(v806)으로 가는 손 되돌리기는 이 열차 전체(6C, 라이트 테두리,
+      라이트 구분선)를 한꺼번에 빼고 v807을 받은 클라이언트에 낮은 epoch를 돌려주므로 아래 9.0.29 절의 열린 항목('낮은 epoch로 가는 App
+      손 되돌리기의 규칙', 결정 전)을 따른다: 결정이 날 때까지 급하지 않으면 9.0.35 / v808 이상의 코드 되돌리기가 기본이고, 급할 때만
+      명시적으로 검토한 CLI 되돌리기로 간다. 손 되돌리기도 배포라 기록 PR과 이력 한 행을 내고, 그 App 버전은 `Rollback:` 메시지라 git
+      출처가 없으므로 다음 수리 릴리스는 `all`이다. 혼자 되돌리기: 6C는 6D가 머지되기 전까지 혼자 되돌릴 수 있고(6D-4가 6C-2의
+      `iframe-audio.ts`를 읽음, 계획), 그 뒤에는 6C부터 가장 최근 열차까지 앞으로 되돌린다. 라이트 테두리(`c3281b45`, CSS 두 파일)와
+      라이트 구분선(`9fb6f1f8`, 일곱 파일)은 서로와 6C에 얽히지 않아 각각 혼자 되돌릴 수 있다(squash로 머지되면 그 커밋의 패치를 거꾸로
+      적용하고, 6C 안의 증분을 골라 되돌리는 길은 보고서 '되돌리기'). 앞으로 되돌리기와 앞으로 고치기는 각각 업데이트 창 하나를 Q1의
+      넷 밖으로 더한다. 이 열차가 머지되면 9.0.33만 혼자 되돌리는 창이 닫힌다(아래 9.0.33 절). 섞인 버전: 와이어, 저장, 프레임은 같다(T0a
+      프레임·시각 골든, T0b 참값표, 무장 골든). 9.0.33 이하로 도는 탭은 업데이트를 적용할 때까지 라이트에서 옛 옅은 테두리와 옛 진한
+      구분선(`#d4d6d8`)을 그리고, 같은 방에서 그대로 함께 쓴다. 데이터, 바닥, Durable Object, D1, 다른 Worker는 바뀌지 않는다.
+      [되돌리기](design/phase6-6c-router-iframe-audio-arm-steps-2026-11-02.md#되돌리기),
+      [혼합 버전](design/phase6-6c-router-iframe-audio-arm-steps-2026-11-02.md#혼합-버전).
+- [ ] 배포 직후 확인((A) ~ (F)는 블라인드, (G)는 블라인드가 아님, 게이트 아님, 보고서 '배포 뒤 확인'): (A) ~ (F)는 보고서의 절차만
+      확인하는 사람에게 건네고 판정 기준은 건네지 않으며, 받은 관찰값을 보고서 기준과 견줘 보고서 QA 라운드에 적는다. 기기마다 먼저 업데이트 창을 받아들이고 앱을 다시 열어 앱
+      정보의 버전과 빌드(9.0.34, 807)를 적고, 주소 끝에 `?mxqrLog=debug`를 붙여 단계마다 `/debug console`의 `[YouTube`, `[PRO` 줄(PRO
+      단계는 `/debug sync`의 `youtube-release` 줄도)을 시각과 함께 복사한다. 6C의 기기 후보(계획의 QA052, QA053, QA055, 약 2시간
+      15분): (A) iOS 탭 없는 준비와 탭 대체(iPhone Safari 게스트의 일반방과 PRO 방, 홈 화면 앱, 입장 직후 1초 안의 PRO 재생), (B) 잠금
+      화면과 하드웨어 버튼(같은 PRO 방의 iPhone과 Android, 데스크톱 Chrome 방장의 미디어 키), (C) 일반방 시작 직후 게스트의 이어폰
+      버튼과 잠금 화면 일시정지, 음수 수동 오프셋, iPhone 방장, (D) 예열 중 일시정지와 볼륨 0 ↔ 50(iPhone과 Android 게스트, iPhone
+      방장, 데스크톱 Safari), (E) 블루투스, PRO 여러 대, 느린 망 게스트, (F, 선택) PRO 방 iPhone의 빠른 일시정지와 재생. PRO 단계는
+      돌리기 전에 그 방의 PRO 탭을 모두 새로 고친다. (G) 오너의 라이트 모드 확인(약 10분, 오너가 함. 오너가 전후 사진을 이미 봐
+      블라인드가 아님): 휴대폰 하나와 데스크톱 Chrome에서 테마를
+      라이트로 두고, 회색 버튼이 있는 대화상자(재생목록 슬롯 창의 '취소'), 재생목록 선택 모드의 선택 막대와 그 X 원, 설정(구역 사이
+      가로줄, 데스크톱의 열 사이 세로줄과 설정 탭 밑줄), 계정 창(통계 줄 사이 선과 회색 로그아웃 버튼)을 보고, 할 수 있으면 YouTube 검색
+      결과 사이 선과 이벤트 페이지(`/events/`) 머리의 선도 본다. 둘레 선이 보이는지와 선의 진하기를 적고, 고대비를 켜고 한 번, 다크로
+      한 번 더 본다. 기기가 없는 단계는 '기기 없음'이고 실패가 아니다. Phase 6 앞의 기기 기준선(Q6)이 없어 판정 기준과만 견준다.
+      실패하면: 먼저 새 빌드인지 다시 보고(옛 페이지는 옛 CSS와 코드를 씀), 일시적 네트워크로 설명되지 않으면 증상의 경로(라우터, iframe
+      오디오 쓰기, 무장 단계, 라이트 테두리, 라이트 구분선)를 적고 위 되돌리기대로 앞으로 고치기나, 급할 때만 명시적으로 검토한 CLI
+      되돌리기를 정한다. 닫는 근거: 운영 App이 이 열차를 담은 SHA라는 배포 기록과 (A) ~ (G)의 판정.
+      [배포 뒤 확인](design/phase6-6c-router-iframe-audio-arm-steps-2026-11-02.md#배포-뒤-확인-블라인드-게이트-아님),
+      [사용자가 알아챌 변화](design/phase6-6c-router-iframe-audio-arm-steps-2026-11-02.md#사용자가-알아챌-변화).
+- [ ] 열린 항목과 확인하지 않은 것(보고서 '하지 않은 것과 확인하지 않은 것', 게이트 아님): 실기기, 실제 YouTube, iPhone Safari와
+      PWA, 블루투스는 보지 않았다(WebKit 레인은 로컬 `setup-youtube-activation`만, 계획 §4.2-4). 이 열차의 PR CI, exact-main CI와 머지 뒤
+      Full E2E는 아직이다. 라이트 테두리: 라이트의 투명 값을 직접 고정하는 단위 시험은 없고(고대비 값만 `contrast-accessibility.test.ts`가
+      고정), 근거는 전후 사진 24쌍의 화소 비교(다크와 라이트 고대비 0화소, 라이트는 버튼과 막대 상자 안에서만 바뀜)와 E2E다. 라이트
+      구분선: 근거는 구분선 갈래 `9b269706`의 실화면 사진 30쌍(다크 10쌍과 앱의 라이트 고대비 8쌍 0화소, 라이트 10쌍은 구분선 상자
+      안에서만 바뀜, 라이트 고대비의 이벤트 2쌍은 머리 선 80화소씩)과, 후보 A의 시안과 실화면을 여덟 장면에서 견준 것(다섯 장면
+      0화소, 계정 창 둘은 라이트 테두리 증분의 몫인 회색 버튼 고리만 다름, 데스크톱 YouTube 검색은 찍을 때마다 달라지는 검색창 지우기
+      버튼 자리 164화소[추론]), 합친 끝 `9fb6f1f8`의 단위와 E2E다. 두 라이트 증분을 합친 끝의 화면은 찍지 않았다(다른 토큰의 다른
+      줄이라 둘을 더한 것으로 봄[추론]). 이벤트 페이지에는 고대비 팔레트가 없어 대비를 '더'로 둬도 머리 선이 옅다(이 열차 밖이고,
+      더할지는 따로 정함). 오너가 본 구분선 사진 다섯에는 이벤트 페이지가 없어, 이 머리 선과 그 고대비 동작은 보고서의 글로만
+      알렸다. 라이트 `--glass-border`를 고정하는 시험(라이트 고대비 정규식, E2E 보통 라이트 팔레트 행)은 뒤의 시험만 변경 후보다. 6C-3과 T0b 결함 넷의 고침은 싣지 않았고(위 기댄 오너 결정 항목, 아래 6B 절), 6C가 새로 찾은 로그만 다른 결함
+      하나(Q18)는 오늘 동작으로 고정했다. 열린 항목 'YouTube 첫 음 정렬(S01–S02, XS01–XS04)'(아래 '실기기 확인')은 6C의 무장 단계가 첫
+      음 시점을 다루므로 이 보고서를 잇고, 기기 근거가 없어 열린 채 둔다. 닫는 근거: 위 배포 직후 확인 (A) ~ (G)의 판정과 6C-3, Q18의
+      오너 답.
+      [하지 않은 것과 확인하지 않은 것](design/phase6-6c-router-iframe-audio-arm-steps-2026-11-02.md#하지-않은-것과-확인하지-않은-것),
+      [열린 항목 'YouTube 첫 음 정렬'](design/phase6-6c-router-iframe-audio-arm-steps-2026-11-02.md#열린-항목-youtube-첫-음-정렬s01s02-xs01xs04).
+
+### App 9.0.33 앱 한글을 다시 Pretendard로(9.0.33/v806) 배포 뒤 확인: 데스크톱 Chromium 시작 화면만 봤고 오너의 아이폰 Safari 확인은 아직, 머지 뒤 Full E2E는 시험만 #561 뒤 다시 돌아 통과해 9.0.34/v807 열차(6C와 라이트 두 증분, 위 9.0.34 절, 배포 전)를 머지할 수 있음
 
 - [ ] 범위와 상태(오너 결정 2026-11-02 08:10 KST쯤, PR #560, 배포 뒤): 앱의 한글을 다시 Pretendard로 그리는 App 열차가 App
       9.0.33 / v806(App 빌드 806, target `app`, 업데이트 창 한 번)으로 2026-11-02 13:12 KST에 나갔다. 운영이던 9.0.32 / v805(6B, 아래 6B
@@ -128,7 +296,7 @@ gh run list --workflow e2e.yml --branch main --limit 3
       [오너 질문](design/app-hangul-pretendard-2026-11-02.md#9-오너-질문).
 - [ ] 되돌리기(보고서 §10, §11.4): 새 경계는 없다(계약 표지, D1, 저장 모양, 바닥을 바꾸지 않아 forward floor가 생기지 않음).
       기본은 더 높은 SemVer·epoch(9.0.34 / v807 이상)의 앞으로 되돌리기다. 이 열차만 혼자 되돌리는 것(squash `4faf38d9` 하나를
-      되돌림)은 다음 App 업데이트(6C, 아래 6B 절의 다음 단계)가 머지되기 전까지이고, 그 뒤에는 가장 최근 main 위에서 새 `agent/` 갈래로
+      되돌림)은 다음 App 업데이트(9.0.34 / v807: 6C와 라이트 두 증분, 위 9.0.34 절, 배포 전)가 머지되기 전까지이고, 그 뒤에는 가장 최근 main 위에서 새 `agent/` 갈래로
       이 열차의 변경을 되돌리는 앞으로 고치기다(다음 SemVer·epoch, 전체 관문, App 릴리스, 기록). 내려받기가 필요 없다: 되돌리는 커밋이
       KR 시트 120면과 구운 KR 사본 67개를 되살리고(입력 `fonts/noto/noto-sans-kr`과 생성기 `generate:app-faces`도 저장소에 그대로),
       한글 면 87개와 그 시트를 지운다. 되돌리면 한글이 9.0.32처럼 Noto Sans KR로 그려진다. 실패한 `app`의 자동 복구는 릴리스 안에서 그
@@ -146,7 +314,8 @@ gh run list --workflow e2e.yml --branch main --limit 3
       절). §4 이 릴리스 항목과 현재 경계 줄 (5)가 같은 것을 적는다.
       [위험](design/app-hangul-pretendard-2026-11-02.md#7-위험),
       [릴리스 담당이 할 일](design/app-hangul-pretendard-2026-11-02.md#10-릴리스-담당이-할-일),
-      [배포 조건, 되돌리기, 배포 뒤 확인](design/app-hangul-pretendard-2026-11-02.md#114-배포-조건-되돌리기-배포-뒤-확인).
+      [배포 조건, 되돌리기, 배포 뒤 확인](design/app-hangul-pretendard-2026-11-02.md#114-배포-조건-되돌리기-배포-뒤-확인),
+      [9.0.34 열차 보고서의 되돌리기](design/phase6-6c-router-iframe-audio-arm-steps-2026-11-02.md#되돌리기).
 - [ ] 배포 직후 확인(블라인드, 게이트 아님, 보고서 §8): (B)의 데스크톱 Chromium 시작 화면만 했고(릴리스 담당이 직접 봐 블라인드가 아님) (A) 오너의 아이폰 Safari는 아직이다.
       보고서 §8의 절차만 확인하는 사람에게 건네고 판정 기준은 건네지 않으며, 받은 관찰값을 보고서 기준(§3, §4)과 견줘 보고서 QA
       라운드에 적는다. 기기마다 먼저 업데이트 창을 받아들이고 앱을 다시 열어 앱 정보의 버전과 빌드(9.0.33, 806)를 적는다. (A) 오너의
@@ -172,13 +341,16 @@ gh run list --workflow e2e.yml --branch main --limit 3
       생성)을 돌렸다. 그 실행은 14:26:51 KST에 failure로 끝났다: `e2e`(Linux Chromium, 13:12:37 ~ 14:26:51 KST) 812 passed·1 failed, `webkit-mobile`(13:12:37 ~ 13:18:27 KST) 94 passed·5 skipped와 운영 빌드 SW 시험 1 passed, 운영 large-room R2 smoke(13:12:37 ~ 13:14:00 KST) 1 passed(재시도 없음, 실패 보고 artifact 13117859340). 실패한 행은 `e2e/font-line-boxes.test.ts:455` 'WebKit, which applies the overrides, draws Hangul lines as tall as Latin ones'다. 그 행이 `webkit.launch()`로 띄운 Linux WebKit(`webkit-2359`)이 `playwright.config.ts`의 `launchOptions.args`와 같은 Chromium 실행 인자를 받아 'Cannot parse arguments: Unknown option --use-fake-device-for-media-stream'으로 끝났고, 그래서 페이지를 열기 전에 실패해 한글 줄과 라틴 줄을 재지 못했다(이 행은 보고서 QA 라운드 3의 Windows Playwright WebKit에서 통과했고, critical 게이트 밖이라 PR CI와 exact-main CI에서는 돌지 않았다). 같은 `e2e`에서 이 열차의 다른 글꼴·탭 머리·재생목록 명세 51행(`font-line-boxes`의 Chromium 두 행, `font-baked-pixels` 3, `font-identity` 3, `tab-header-title-alignment` 10, `e2e/playlist*.test.ts` 여덟 파일 33)은 Linux Chromium에서 통과했다. 이 실행은 exact-main 후보가 아니다(후보는 exact-main CI 41385938985). 실패는 시험 환경의 결함이고 App의 결함이 아니다(그 행이 물려받은 실행 인자).
       시험만 [#561](https://github.com/hiefny/MUSIXQUARE/pull/561)('Tests only: launch the WebKit line-box row without the Chromium-only launch flags', 브랜치 `agent/e2e-webkit-args`, main `4faf38d9` 위 한 커밋, head `77454bbf`, 14:37 KST에 엶)이 그 행 하나만 `webkit.launch({ args: [] })`로 바꿨다(명시한 인자가 `chromium` 프로젝트에서 물려받은 인자를 대신함, 앱·가드·설정·다른 시험은 그대로). PR 설명의 Windows 로컬 근거: `DEBUG=pw:browser`의 WebKit 명령줄이 고치기 전에는 `--no-startup-window --use-fake-device-for-media-stream --autoplay-policy=no-user-gesture-required`로, 고친 뒤에는 `--no-startup-window`로 끝나고, 그 행 1 / 1과 그 파일 3 / 3이 통과했다. PR CI 41395135184(첫 실행 11 jobs success, 14:49:20 KST에 끝남)와 자동 코드 리뷰(head `77454bbf`, 지적 없음) 뒤 squash `6ccc3f10`(14:49:43 KST, 부모 `4faf38d9`)으로 main에 들어갔고, `6ccc3f10`의 push CI [41396273389](https://github.com/hiefny/MUSIXQUARE/actions/runs/41396273389)(14:49:45 KST 생성, 11 jobs success, 14:59:57 KST에 끝남)가 통과했다. 시험만이라 릴리스와 이력 행은 없다.
       그 위에서 [Full E2E 41396274966](https://github.com/hiefny/MUSIXQUARE/actions/runs/41396274966)(workflow_dispatch, main `6ccc3f10`, 14:49:46 KST 생성, attempt 1)이 16:06:56 KST에 success로 끝났다: `e2e`(Linux Chromium, 14:49:50 ~ 16:06:55 KST) 813 passed(1.3 h, 그 WebKit 행과 이 열차의 글꼴·탭 머리·재생목록 명세 52행 포함), `webkit-mobile`(14:49:50 ~ 14:56:07 KST) 94 passed·5 skipped와 운영 빌드 SW 시험 1 passed, 운영 large-room R2 smoke(14:49:49 ~ 14:51:50 KST) 1 passed이고 실패와 불안정 표시는 없다. `6ccc3f10`의 런타임은 `4faf38d9`(운영 9.0.33)와 같고, 이 실행도 exact-main 후보가 아니다. 앞 열차의 머지 뒤 Full
-      E2E가 다음 열차를 머지하기 전에 통과한다는 Phase 6 계획 §1.4의 규칙으로 6C는 이 열차의 머지 뒤 Full E2E가 통과한 뒤에만 머지하는데, 그 조건이 41396274966의 통과로 채워져 6C(9.0.34 / v807)를 머지할 수 있다. (2)
-      6C: Phase 6의 셋째 App 업데이트이고 다음 App 업데이트(9.0.34 / v807, 그 전에 다른 앱 업데이트가 나가면 그다음 번호)다. 이 배포
-      기록 위에서 준비하고, 6C가 머지되면 이 열차만 혼자 되돌릴 수 없다(위 되돌리기). 6C-3은 그 전후 표를 오너가 본 뒤에만 싣고, 6C의
-      배포 조건은 그 열차의 보고서가 정한다(아래 6B 절의 다음 단계 항목). (3) 오너 질문: 보고서 §9 1 ~ 3(기본값으로 냄, 위 기댄 오너
-      결정 항목). 닫는 근거: 이 열차의 머지 뒤 Full E2E 통과 기록(위 (1), 41396274966으로 채움), 6C의 머지·배포 기록, 오너 질문의 답.
+      E2E가 다음 열차를 머지하기 전에 통과한다는 Phase 6 계획 §1.4의 규칙으로 6C는 이 열차의 머지 뒤 Full E2E가 통과한 뒤에만 머지하는데, 그 조건이 41396274966의 통과로 채워져 9.0.34 / v807 열차(6C와 라이트 두 증분, 위 9.0.34 절)를 머지할 수 있다. (2)
+      6C: Phase 6의 셋째 App 업데이트이고, 이 배포 기록 위 main `a92bab2b`로 옮겨 다음 App 업데이트 9.0.34 / v807로 준비됐다(위 9.0.34
+      절, 배포 전). 그 열차에는 중립 6C와 함께 오너가 사진을 보고 요청하거나 고른 라이트 테마의 두 증분(대화상자 회색 버튼과 선택
+      막대의 테두리 지움, 구분선 옅게, [화면 바뀜])이 실리고, 그 열차가 머지되면 이 열차만 혼자 되돌릴 수 없다(위 되돌리기). 6C-3은
+      오너가 그 전후 표 질문에 아직 답하지 않아 9.0.34에 싣지 않는다(9.0.34의 버전 올리기가 답 없이 들어가 '예'면 6D나 그 뒤).
+      9.0.34의 배포 조건은 위 9.0.34 절과 그 보고서가 정한다. (3) 오너 질문: 보고서 §9 1 ~ 3(기본값으로 냄, 위 기댄 오너 결정 항목).
+      닫는 근거: 이 열차의 머지 뒤 Full E2E 통과 기록(위 (1), 41396274966으로 채움), 9.0.34 열차의 머지·배포 기록, 오너 질문의 답.
       [릴리스 담당이 할 일](design/app-hangul-pretendard-2026-11-02.md#10-릴리스-담당이-할-일),
-      [QA 라운드 4](design/app-hangul-pretendard-2026-11-02.md#115-qa-라운드-4-머지-배포와-배포-뒤-확인-2026-11-02).
+      [QA 라운드 4](design/app-hangul-pretendard-2026-11-02.md#115-qa-라운드-4-머지-배포와-배포-뒤-확인-2026-11-02),
+      [9.0.34 열차 보고서](design/phase6-6c-router-iframe-audio-arm-steps-2026-11-02.md).
 - [ ] 열린 항목과 확인하지 않은 것(보고서 §6, §7, 게이트 아님): 실제 아이폰과 macOS Safari, iOS 16, Firefox, Android, webOS TV
       레거시 빌드, Windows GDI는 보지 않았다(로컬은 Windows의 Chromium과 Playwright WebKit만, 운영은 데스크톱 Chromium의 시작 화면만. 그
       WebKit은 변수 글꼴에 굵기를 적용하지 않아 굵기는 아이폰 확인 몫). 이름을 바꾼 이름 표를 OTS와 Chromium, Playwright WebKit은
@@ -198,7 +370,7 @@ gh run list --workflow e2e.yml --branch main --limit 3
       [QA 라운드](design/app-hangul-pretendard-2026-11-02.md#6-qa-라운드),
       [위험](design/app-hangul-pretendard-2026-11-02.md#7-위험).
 
-### Phase 6 6B(YouTube 시작 장부와 그 독자, 9.0.32/v805) 배포 뒤 확인: 블라인드 기기 확인은 오너가 돌아온 뒤에, 앱 한글 Pretendard(9.0.33/v806)가 그 위로 나감, 다음은 6C(9.0.34/v807)
+### Phase 6 6B(YouTube 시작 장부와 그 독자, 9.0.32/v805) 배포 뒤 확인: 블라인드 기기 확인은 오너가 돌아온 뒤에, 앱 한글 Pretendard(9.0.33/v806)가 그 위로 나감, 다음은 6C와 라이트 두 증분을 실은 9.0.34/v807(배포 전)
 
 - [ ] 범위와 상태(오너 답 2026-10-30, 순서 오너 결정 2026-11-01 오후, 오너 부재 중 위임, PR #557, 배포 뒤): Phase 6의 둘째 App 업데이트(6B, 계획 §4.7의 6B-1 C2-5와 6B-2
       C2-7)가 App 9.0.32 / v805(App 빌드 805, target `app`, 업데이트 창 한 번, Q1의 넷 가운데 둘째, 창 모양은 지금 그대로)로 2026-11-02 05:34 KST에 나갔다. 오너가 정한 순서대로 앱
@@ -260,10 +432,11 @@ gh run list --workflow e2e.yml --branch main --limit 3
       다음 트랙 준비가 실패한 참가자는 다음 트랙이 시작할 때까지 ▶ 모양으로 멈춰 보임(G8pa, G8, G8p, G8a, 권장: 6D의 마지막 단계), (3) PRO 방에서는 트랙이 시작되는 동안에도 동기화 버튼과 수동 싱크 창이 열려
       있음(PRO 참값표 P1, P4, 권장: 기록만, 6D에서 시작 중 동기화를 누르는 시험부터), (4) 방장이 일시정지할 때 일시정지 신호가 참가자에게 두 번 가는 경우가 있음(H10, H10a, H10c, 권장: 6B의 마지막 증분).
       넷째는 답이 없어 6B에 싣지 않았고 6B는 그 고침 없이 나갔다(넷째는 짓지 않았다). 고친 목록은 앞 목록의 셋째(예전 방식으로 시작할 때 '재생' 신호가 한 번 더 감, H9, H3, H5, H6)를 가짜 화면의 순서로 생긴 것이라
-      거뒀다. 장부는 답을 바꾸지 않아 넷 모두 오늘 동작으로 고정된 채이고, 설계 문서의 'Not covered yet'이 같은 넷을 적는다. 넷째를 고치기로 하면 테스트 먼저부터 다음 App 업데이트(6C나 6D)에 싣고 업데이트 창은
-      늘지 않는다. 화면에 닿는 고침([화면 바뀜])은 묻지 않고 싣지 않는다. 닫는 근거: 결함마다의 오너 답과, 고치기로 한 것의 배포 기록.
+      거뒀다. 장부는 답을 바꾸지 않아 넷 모두 오늘 동작으로 고정된 채이고, 설계 문서의 'Not covered yet'이 같은 넷을 적는다. 넷째를 고치기로 하면 테스트 먼저부터 다음 App 업데이트에 싣고(6C를 실은 9.0.34 / v807(위 9.0.34 절)은 답 없이
+      준비돼 넷 모두 싣지 않았으므로 6D) 업데이트 창은 늘지 않는다. 6C도 참값표의 답을 바꾸지 않아 넷 모두 오늘 동작으로 고정된 채다. 화면에 닿는 고침([화면 바뀜])은 묻지 않고 싣지 않는다. 닫는 근거: 결함마다의 오너 답과, 고치기로 한 것의 배포 기록.
       [오너에게](design/phase6-6b-start-ledger-readers-2026-11-01.md#오너에게),
-      [설계 문서의 틈](design/youtube-start-ownership.md#not-covered-yet).
+      [설계 문서의 틈](design/youtube-start-ownership.md#not-covered-yet),
+      [9.0.34 열차 보고서의 T0b 결함](design/phase6-6c-router-iframe-audio-arm-steps-2026-11-02.md#하지-않은-것과-확인하지-않은-것).
 - [ ] 되돌리기(보고서 '되돌리기', 계획 §4.7, §6): 새 경계는 없다(계약 표지, D1, 저장 모양, 바닥을 바꾸지 않아 forward floor가 생기지 않음). 기본은 더 높은 SemVer·epoch(9.0.33 /
       v806이 나간 뒤로는 9.0.34 / v807 이상, 그 전에 다른 앱 업데이트가 나가면 그다음 번호)의 앞으로 고치기다. 실패한 `app`의 자동 복구는 릴리스 안에서 그 릴리스 checkpoint(artifact 13099442949)의 App, 곧 dispatch 때의
       운영 App 9.0.31 / v804(빌드 804, App 버전 `dff554a2`, 배포 SHA `ba28943e`, Release 41315218029)로 간다. 795 이상이라 `lower`가 필요 없고 PRO는 그대로이며,
@@ -295,12 +468,13 @@ gh run list --workflow e2e.yml --branch main --limit 3
       개(`e2e/youtube*.test.ts`) 53행(보고서 QA 라운드 7의 Windows Chromium 53과 파일마다 같은 수)이 Linux Chromium에서 통과했다. 이 실행은 exact-main 후보가 아니다(후보는
       exact-main CI 41346450901). 앞 열차의 머지 뒤 Full E2E가 다음 열차를 머지하기 전에 통과한다는 Phase 6 계획 §1.4의 규칙으로는 다음 열차를 머지하기 전의 조건이고, 이 통과로 채워졌다.
       그 다음 열차는 6C가 아니라 9.0.33(앱 한글 Pretendard, 위 9.0.33 절)이 됐고 2026-11-02 12:59 KST에 머지됐다. 6C 앞의 조건은 이제 9.0.33의 머지 뒤 Full E2E다. 41387172877(main `4faf38d9`)은 WebKit 한 행이 실행 단계에서 실패해 채우지 못했고, 그 행을 고친 시험만 #561 뒤 41396274966(main `6ccc3f10`, 16:06 KST)이 통과해 채웠다(위 9.0.33 절의 다음 단계 항목). (2) 6C:
-      Phase 6의 셋째 App 업데이트다. 9.0.33이 먼저 나가 6C는 다음 App 업데이트인 9.0.34 / v807이고(그 전에 다른 앱 업데이트가 나가면 그다음 번호), 9.0.33의 배포 기록 위에서 준비한다. 6B만 혼자 되돌리는 창은 9.0.33의 머지로 이미 닫혔다(위 되돌리기).
-      6C-3은 그 전후 표를 오너가 본 뒤에만 싣는다. 6C의 배포 조건은 그 열차의 보고서가 정한다. (3) 오너 질문: 위 T0b 결함 넷(넷째를 고치면 6C나 6D에 테스트 먼저로)과 6C-3의 전후 표. 닫는 근거: 이 열차의 머지
-      뒤 Full E2E 통과 기록(위 (1), 9.0.32의 기록이 채움), 6C의 머지·배포 기록, 두 오너 답.
+      Phase 6의 셋째 App 업데이트다. 9.0.33이 먼저 나가 6C는 9.0.33의 배포 기록 위 main `a92bab2b`로 옮겨 다음 App 업데이트 9.0.34 / v807로 준비됐고(위 9.0.34 절, 배포 전), 오너가 사진을 보고 요청하거나 고른 라이트 테마의 두 증분(테두리 지움, 구분선 옅게, [화면 바뀜])과 같은 업데이트 창 하나로 나간다. 6B만 혼자 되돌리는 창은 9.0.33의 머지로 이미 닫혔다(위 되돌리기).
+      6C-3은 오너가 그 전후 표 질문에 아직 답하지 않아 9.0.34에 싣지 않는다(9.0.34의 버전 올리기가 답 없이 들어가 '예'면 6D나 그 뒤). 9.0.34의 배포 조건은 위 9.0.34 절과 그 보고서가 정한다. (3) 오너 질문: 위 T0b 결함 넷(넷째를 고치면 6D에 테스트 먼저로, 9.0.34에는 싣지 않음)과 6C-3의 전후 표. 닫는 근거: 이 열차의 머지
+      뒤 Full E2E 통과 기록(위 (1), 9.0.32의 기록이 채움), 6C를 실은 9.0.34의 머지·배포 기록, 두 오너 답.
       [배포 조건과 순서](design/phase6-6b-start-ledger-readers-2026-11-01.md#배포-조건과-순서-릴리스-담당),
       [QA 라운드 9](design/phase6-6b-start-ledger-readers-2026-11-01.md#9-pr-ci-자동-코드-리뷰-머지-exact-main-ci-배포와-smoke-공개-확인-drift-audit과-머지-뒤-full-e2e-2026-11-02),
-      [9.0.33 보고서](design/app-hangul-pretendard-2026-11-02.md).
+      [9.0.33 보고서](design/app-hangul-pretendard-2026-11-02.md),
+      [9.0.34 열차 보고서](design/phase6-6c-router-iframe-audio-arm-steps-2026-11-02.md).
 - [ ] 열린 항목과 확인하지 않은 것(보고서, 게이트 아님): 실기기, iOS Safari와 로컬 WebKit 레인(계획 §4.2-4는 `iframe.ts`의 prime·활성화 경로를 건드린 6C·6D에만 요구, 6B는 건드리지
       않음), 블루투스. Linux에서는 PR CI와 exact-main CI의 Critical browser gate(운영 후보 smoke 19와 critical E2E 101)와 머지 뒤 Full E2E(위 다음 단계 항목, YouTube
       spec 열 개 53행 포함 통과)가 돌았다. 혼합 버전 (a)와 (c)는 [추론]이고 T0a·T0b 표가 같으면 생기지 않는다. 가를 행이 없는 독자 둘(작은 drift 표본의 timeline 보류, 수동 싱크 창의 동기화 누름
@@ -3968,8 +4142,14 @@ PRO 방장 공지의 중도 참여 복원은 별도 정책이며 이번 서비�
       듣는 정렬 기준이 아니다. [상세](design/beta-final-qa-2026-10-04.md)
 - [ ] YouTube 첫 음 정렬(S01–S02, XS01–XS04): 일반·PRO, host·guest, 양·음 offset,
       다음 곡·반복·중간 참가·취소, 실제 YouTube, iPhone Safari/PWA, Bluetooth.
+      Phase 6 6C(App 9.0.34 / v807, §2 9.0.34 절, 배포 전)가 두 무장 기계의 hard-mute 대기,
+      warm 수락, settle을 공유 단계로 옮겼다. 로컬에서는 같은 각본에서 바탕과 같은 명령이 같은
+      순간에 나가고(무장 골든) YouTube Chromium spec, WebKit 활성화 spec, critical E2E가
+      통과했지만, 실제 YouTube, iPhone Safari/PWA, Bluetooth의 귀로 듣는 첫 음은 보지 않아
+      열린 채 둔다.
       [S01–S02](design/youtube-manual-zero-start-audit-2026-09-27.md#repair-addendum--2026-09-27),
-      [XS01–XS04](design/extreme-manual-sync-repair-2026-09-27.md)
+      [XS01–XS04](design/extreme-manual-sync-repair-2026-09-27.md),
+      [6C 보고서의 이 항목](design/phase6-6c-router-iframe-audio-arm-steps-2026-11-02.md#열린-항목-youtube-첫-음-정렬s01s02-xs01xs04)
 - [ ] YouTube 재합류 동기화(8.10.18 배포 뒤): iPhone Safari/PWA와 Android에서 PRO
       동기화 버튼·중도참여·잠금 복귀가 release 순간 seek 없이 시작하는지
       (`/debug sync`의 youtube-release·youtube-sample), 한 번도 재생하지 않은

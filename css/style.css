@@ -251,7 +251,7 @@ or pointers. Keep :focus-visible and :active outside the gate (src/ui/__tests__/
     /* White keeps available play actions from reading like disabled controls. */
     --ob-icon-circle-bg: var(--surface-2);
     /* Light keeps the circle one step below its canvas. */
-    --divider: #d4d6d8;
+    --divider: #e4e6e8;
     --primary: #3b82f6;
     --primary-rgb: 59, 130, 246;
     --accent: var(--primary);
@@ -273,7 +273,10 @@ or pointers. Keep :focus-visible and :active outside the gate (src/ui/__tests__/
     --warning-foreground: #6b4100;
 
     --glass-bg: var(--surface-1);
-    --glass-border: rgba(0, 0, 0, 0.06);
+    /* Transparent as in dark: light draws no stroke of its own around the
+       dialog grey button or the playlist selection bar. Only the
+       high-contrast palettes and forced colors give it a visible value. */
+    --glass-border: transparent;
 
     /* Custom scrollbar thumb colors */
     --scrollbar-thumb: rgba(0, 0, 0, 0.2);
@@ -3457,9 +3460,9 @@ or pointers. Keep :focus-visible and :active outside the gate (src/ui/__tests__/
      inside one 68px container pill; they are icon circles, not dialog action
      pills, so they keep their own size. It follows the last track; a list
      taller than the view keeps it floating at the bottom (sticky), above the
-     bottom navigation. The container carries the light dialog grey button's
-     faint token stroke (transparent in dark, its own value in the
-     high-contrast palettes) instead of a shadow. */
+     bottom navigation. The container has no shadow and shares the dialog
+     grey button's --glass-border, which is transparent in light and dark and
+     a visible stroke only in the high-contrast palettes and forced colors. */
   .playlist-selection-bar {
     position: sticky;
     z-index: 100;

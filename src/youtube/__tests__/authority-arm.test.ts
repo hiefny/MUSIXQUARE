@@ -76,7 +76,7 @@ function makeHarness(options?: {
 
 async function prepareReady(
   controller: YouTubeAuthorityArmController,
-  strategy: 'resident' | 'load',
+  strategy: 'resident',
   targetSeconds = 12,
 ) {
   const resultPromise = controller.prepare({ ...identity, strategy, targetSeconds });
@@ -141,50 +141,6 @@ describe('YouTubeAuthorityArmController', () => {
     await vi.runAllTimersAsync();
     await expect(pending).resolves.toMatchObject({ status: 'ready' });
     expect(player.__currentTime).toBe(42);
-  });
-
-  it('loads a non-resident target exactly once before marking it ready', async () => {
-    const { controller, player } = makeHarness({ videoId: 'outgoing-video' });
-
-    const result = await prepareReady(controller, 'load', 7);
-
-    expect(result.status).toBe('ready');
-    expect(count(player, 'loadVideoById')).toBe(1);
-    expect(player.__log.find((call) => call.op === 'loadVideoById')?.args).toEqual([VIDEO_ID, 7]);
-    expect(player.__videoId).toBe(VIDEO_ID);
-    expect(player.__currentTime).toBe(7);
-  });
-
-  it('reports READY only after hard mute, real warm PLAYING, settle, and audio restore', async () => {
-    const { controller, player, phases } = makeHarness({ videoId: 'outgoing-video' });
-    let settled = false;
-    const pending = controller
-      .prepare({ ...identity, strategy: 'load', targetSeconds: 3 })
-      .then((result) => {
-        settled = true;
-        return result;
-      });
-
-    await vi.advanceTimersByTimeAsync(259);
-    expect(settled).toBe(false);
-    expect(player.__muted).toBe(true);
-
-    await vi.runAllTimersAsync();
-    await expect(pending).resolves.toMatchObject({ status: 'ready' });
-
-    const order = ops(player);
-    const muteIndex = order.indexOf('mute');
-    const loadIndex = order.indexOf('loadVideoById');
-    const finalPauseIndex = order.lastIndexOf('pauseVideo');
-    const seekIndex = order.lastIndexOf('seekTo');
-    const unmuteIndex = order.lastIndexOf('unMute');
-    expect(muteIndex).toBeLessThan(loadIndex);
-    expect(loadIndex).toBeLessThan(finalPauseIndex);
-    expect(finalPauseIndex).toBeLessThan(seekIndex);
-    expect(seekIndex).toBeLessThan(unmuteIndex);
-    expect(phases).toEqual(
-      expect.arrayContaining(['muting', 'warming', 'settling', 'restoring-audio', 'prepared']),
-    );
   });
 
   it('restores app-level audio intent instead of preserving a transient iframe hard mute', async () => {
@@ -978,7 +934,15 @@ describe('YouTubeAuthorityArmController', () => {
     });
     await vi.advanceTimersByTimeAsync(1_000);
     const nextIdentity = { ...identity, authorityKey: 'transition-2', videoId: 'next-video' };
-    const preparing = controller.prepare({ ...nextIdentity, strategy: 'load', targetSeconds: 3 });
+    // The PRO arm prepares only a resident iframe: the next occurrence's video
+    // is already in it.
+    player.__videoId = 'next-video';
+    const callsBeforeNext = player.__log.length;
+    const preparing = controller.prepare({
+      ...nextIdentity,
+      strategy: 'resident',
+      targetSeconds: 3,
+    });
     await vi.runAllTimersAsync();
     await expect(first).resolves.toMatchObject({ status: 'superseded' });
     await expect(preparing).resolves.toMatchObject({ status: 'ready' });
@@ -992,7 +956,14 @@ describe('YouTubeAuthorityArmController', () => {
     const playsAfterNext = count(player, 'playVideo');
     await vi.advanceTimersByTimeAsync(12_000);
     expect(count(player, 'playVideo')).toBe(playsAfterNext);
-    expect(player.__videoId).toBe('next-video');
+    // The resident arm's own work on the iframe that already holds the next
+    // occurrence: its warm and its settle each seek to 3 s, and nothing loads.
+    const nextCalls = player.__log.slice(callsBeforeNext);
+    expect(nextCalls.filter((call) => call.op === 'loadVideoById')).toEqual([]);
+    expect(nextCalls.filter((call) => call.op === 'seekTo').map((call) => call.args)).toEqual([
+      [3, true],
+      [3, true],
+    ]);
     expect(player.__currentTime).toBe(3);
   });
 

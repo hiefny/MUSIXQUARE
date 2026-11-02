@@ -240,8 +240,10 @@ describe('YouTube Player', () => {
       playerRuntime.setPendingAutoSyncOnReady(false);
     });
 
-    it('answers the PRO pause gate and the pending-start cancel through the bridge', async () => {
+    it('answers the PRO pause gate through the iframe audio owner and the pending-start cancel through the bridge', async () => {
       const bridge = await import('../player-runtime-bridge.ts');
+      // Since Phase 6 6C-2 the iframe audio owner holds the gate, not the bridge.
+      const { isYouTubePauseGateHeld } = await import('../iframe-audio.ts');
       const playerRuntime = await import('../player.ts');
       playerRuntime.initYouTube();
       const settle = (token: number) =>
@@ -260,12 +262,12 @@ describe('YouTube Player', () => {
           targetSeconds: 3,
           wasPlaying: true,
         });
-        expect(bridge.isProPlaybackPauseGatePendingFromIframe()).toBe(true);
+        expect(isYouTubePauseGateHeld()).toBe(true);
         // Another token's settlement leaves the gate closed.
         settle(70);
-        expect(bridge.isProPlaybackPauseGatePendingFromIframe()).toBe(true);
+        expect(isYouTubePauseGateHeld()).toBe(true);
         settle(71);
-        expect(bridge.isProPlaybackPauseGatePendingFromIframe()).toBe(false);
+        expect(isYouTubePauseGateHeld()).toBe(false);
       } finally {
         // The gate token outlives resetState()/bus.clear().
         settle(71);
@@ -704,7 +706,7 @@ describe('YouTube Player', () => {
         if (openPauseToken === token) openPauseToken = null;
       }
 
-      // The player.ts gate token and the iframe.ts authority arm outlive
+      // The iframe-audio.ts gate token and the iframe.ts authority arm outlive
       // resetState()/bus.clear(), so release them even after a failed assertion.
       afterEach(async () => {
         if (openPauseToken !== null) pauseSettled(openPauseToken);

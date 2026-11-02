@@ -26,14 +26,15 @@
  * - 'pro-direct': the PRO direct COMMIT's local wait (player.ts).
  * A kind that no derived query reads yet registers nothing. Each derived
  * query decides every kind, with one of its queries or never (0): adding a
- * kind without its claim type, or without a decision in every derived query,
- * does not compile. Every start-ownership reader asks a derived query, except
- * the legacy rendezvous's Stage-2 wait: sync.ts's heartbeat hold, iframe.ts's
- * sub-video advance check and native-control-authority.ts ask it through
- * player-runtime-bridge.ts's isYouTubeAutoSyncPending, the live query the
- * 'legacy-rendezvous' claim registers, so a change to that claim moves them
- * too. Outside this module a statement asks at most one start claim (the
- * resource-ownership guard's CHECK 12 counts the exceptions).
+ * kind without its claim type, or without a decision in every derived query
+ * and in iframe.ts's state router, does not compile. Every start-ownership
+ * reader asks a derived query, except the legacy rendezvous's Stage-2 wait:
+ * sync.ts's heartbeat hold, iframe.ts's sub-video advance check and
+ * native-control-authority.ts ask it through player-runtime-bridge.ts's
+ * isYouTubeAutoSyncPending, the live query the 'legacy-rendezvous' claim
+ * registers, so a change to that claim moves them too. Outside this module a
+ * statement asks at most one start claim (the resource-ownership guard's
+ * CHECK 12 counts the exceptions).
  */
 
 /** A start owner's answer, read when a derived query is asked. */
@@ -47,7 +48,11 @@ const START_CLAIM_KINDS = [
   'pro-direct',
 ] as const;
 
-type YouTubeStartClaimKind = (typeof START_CLAIM_KINDS)[number];
+/**
+ * A start claim kind. iframe.ts's state router decides each one, so a kind
+ * added here does not compile until the router decides it too.
+ */
+export type YouTubeStartClaimKind = (typeof START_CLAIM_KINDS)[number];
 
 /**
  * Each kind's live queries, by position: a property name would ship in the

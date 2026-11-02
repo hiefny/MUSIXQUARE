@@ -1,16 +1,14 @@
 import type { QueueItemId, YouTubeZeroStartPlatform } from '../types/index.ts';
 import { MANUAL_SYNC_OFFSET_LIMIT_MS } from '../core/constants.ts';
 import {
+  acceptYouTubeWarmPlaying,
+  settleYouTubeAtTarget,
+  waitForYouTubeHardMute,
+  type YouTubeArmPlayer,
+} from './arm-steps.ts';
+import {
   PRO_YOUTUBE_BARRIERED_PREPARE_TIMEOUT_MS,
-  YOUTUBE_ARM_HARD_MUTE_MAX_ATTEMPTS,
-  YOUTUBE_ARM_HARD_MUTE_POLL_MS,
-  YOUTUBE_ARM_PAUSE_SEEK_GAP_MS,
   YOUTUBE_ARM_RELEASE_ACK_TIMEOUT_MS,
-  YOUTUBE_ARM_SETTLE_EPSILON_SEC,
-  YOUTUBE_ARM_SETTLE_POLL_MS,
-  YOUTUBE_ARM_SETTLE_RESEEK_EVERY,
-  YOUTUBE_ARM_SETTLE_STABLE_SAMPLES,
-  YOUTUBE_ARM_WARM_PLAY_MS,
   YOUTUBE_RELEASE_CATCH_UP_TOLERANCE_MS,
 } from './constants.ts';
 import {
@@ -22,25 +20,10 @@ import { getYouTubeAudibleOutputDelayMs } from './output-latency.ts';
 
 const PLAYER_STATE = Object.freeze({
   playing: 1,
-  paused: 2,
-  cued: 5,
 } as const);
 
-export interface YouTubeAuthorityArmPlayer {
-  loadVideoById(videoId: string, startSeconds?: number): void;
-  playVideo(): void;
-  pauseVideo(): void;
-  seekTo(seconds: number, allowSeekAhead: boolean): void;
-  mute(): void;
-  unMute(): void;
-  isMuted(): boolean;
-  setVolume(volume: number): void;
-  getVolume(): number;
-  getCurrentTime(): number;
-  getDuration?(): number;
-  getPlayerState(): number;
-  getVideoData(): { video_id?: string };
-}
+/** The PRO arm's iframe player methods: an arm's (arm-steps.ts). */
+export type YouTubeAuthorityArmPlayer = YouTubeArmPlayer;
 
 interface YouTubeAuthorityArmScheduler {
   set(callback: () => void, delayMs: number): ReturnType<typeof globalThis.setTimeout>;
@@ -54,7 +37,8 @@ interface YouTubeAuthorityArmIdentity {
   subIndex: number | null;
 }
 
-type YouTubeAuthorityArmStrategy = 'resident' | 'load';
+/** The arm warms only an iframe that already holds the occurrence's video. */
+type YouTubeAuthorityArmStrategy = 'resident';
 
 export type YouTubeAuthorityTimingMode = 'zero-start' | 'scheduled-control';
 
@@ -178,8 +162,6 @@ type ActiveRun = {
   warmLatencyMs: number;
   preparedMs: number;
   warmObserved: boolean;
-  stableChecks: number;
-  settleAttempts: number;
   prepareSettled: boolean;
   prepareResolve: (result: YouTubeAuthorityArmPrepareResult) => void;
   commitSettled: boolean;
@@ -311,7 +293,7 @@ export class YouTubeAuthorityArmController {
     if (!this.#identityIsCurrent(identity)) {
       return Promise.resolve({ status: 'superseded', reason: 'superseded' });
     }
-    if (request.strategy === 'resident' && this.#currentVideoId(player) !== identity.videoId) {
+    if (this.#currentVideoId(player) !== identity.videoId) {
       return Promise.resolve({ status: 'failed', reason: 'identity-mismatch' });
     }
 
@@ -356,8 +338,6 @@ export class YouTubeAuthorityArmController {
         warmLatencyMs: 0,
         preparedMs: 0,
         warmObserved: false,
-        stableChecks: 0,
-        settleAttempts: 0,
         prepareSettled: false,
         prepareResolve: resolve,
         commitSettled: false,
@@ -382,12 +362,20 @@ export class YouTubeAuthorityArmController {
       this.#run = run;
       this.#emitPhase(run);
       try {
-        player.mute();
+        waitForYouTubeHardMute(
+          player,
+          () =>
+            this.#isCurrent(run) && run.phase === 'muting' && this.#ensurePlayerCurrent(run)
+              ? run.player
+              : null,
+          () => this.#warm(run),
+          () => this.#failPrepare(run, 'hard-mute-timeout'),
+          (callback, delayMs) => this.#later(run, callback, delayMs),
+        );
       } catch {
         this.#failPrepare(run, 'player-command-failed');
         return;
       }
-      this.#later(run, () => this.#waitForHardMute(run, 0), 0);
       this.#later(run, () => this.#onPrepareDeadline(run), timeoutMs);
     });
   }
@@ -526,54 +514,28 @@ export class YouTubeAuthorityArmController {
     return cancelledRun || hadDetachedRestore;
   }
 
-  #waitForHardMute(run: ActiveRun, attempt: number): void {
-    if (!this.#isCurrent(run) || run.phase !== 'muting') return;
-    if (!this.#ensurePlayerCurrent(run)) return;
-    let muted = false;
+  /**
+   * The arm's warm, in the poll that confirmed the hard mute (arm-steps.ts):
+   * the warm pair at the desired volume, then pause, seek to the target and
+   * play the resident iframe, still hard-muted.
+   */
+  #warm(run: ActiveRun): void {
     try {
-      muted = run.player.isMuted() === true;
-    } catch {
-      // Retry within the bounded mute window.
-    }
-    if (!muted) {
-      if (attempt + 1 >= YOUTUBE_ARM_HARD_MUTE_MAX_ATTEMPTS) {
-        this.#failPrepare(run, 'hard-mute-timeout');
-        return;
-      }
-      try {
-        run.player.mute();
-      } catch {
-        // The final bounded poll owns failure reporting.
-      }
-      this.#later(
-        run,
-        () => this.#waitForHardMute(run, attempt + 1),
-        YOUTUBE_ARM_HARD_MUTE_POLL_MS,
-      );
-      return;
-    }
-
-    try {
-      run.player.setVolume(run.originalVolume);
-      run.player.mute();
+      writeYouTubeAudio(run.player, { muted: true, volume: run.originalVolume });
       run.phase = 'warming';
       run.warmCallAtMs = this.#now();
       this.#emitPhase(run);
-      if (run.strategy === 'load') {
-        run.player.loadVideoById(run.identity.videoId, run.targetSeconds);
-      } else {
-        if (this.#currentVideoId(run.player) !== run.identity.videoId) {
-          this.#failPrepare(run, 'identity-mismatch');
-          return;
-        }
-        // Establish a fresh state-event boundary without replacing resident media.
-        // Warm the exact release region: a paused iframe reports a settled
-        // target before that region is buffered, so warming wherever playback
-        // last was would leave the release waiting on the network.
-        run.player.pauseVideo();
-        run.player.seekTo(run.targetSeconds, true);
-        run.player.playVideo();
+      if (this.#currentVideoId(run.player) !== run.identity.videoId) {
+        this.#failPrepare(run, 'identity-mismatch');
+        return;
       }
+      // Establish a fresh state-event boundary without replacing resident media.
+      // Warm the exact release region: a paused iframe reports a settled
+      // target before that region is buffered, so warming wherever playback
+      // last was would leave the release waiting on the network.
+      run.player.pauseVideo();
+      run.player.seekTo(run.targetSeconds, true);
+      run.player.playVideo();
       // Some IFrame implementations expose PLAYING synchronously without a
       // callback. Accept the observable state, but never a mere command return.
       if (
@@ -591,8 +553,12 @@ export class YouTubeAuthorityArmController {
     if (!this.#isCurrent(run) || run.phase !== 'warming' || run.warmObserved) return;
     if (!this.#ensurePlayerCurrent(run)) return;
     run.warmObserved = true;
-    run.warmLatencyMs = Math.max(0, this.#now() - run.warmCallAtMs);
-    this.#later(run, () => this.#beginSettling(run), YOUTUBE_ARM_WARM_PLAY_MS);
+    run.warmLatencyMs = acceptYouTubeWarmPlaying(
+      run.warmCallAtMs,
+      this.#now(),
+      () => this.#beginSettling(run),
+      (callback, delayMs) => this.#later(run, callback, delayMs),
+    );
   }
 
   #beginSettling(run: ActiveRun): void {
@@ -602,57 +568,39 @@ export class YouTubeAuthorityArmController {
       run.player.pauseVideo();
       run.phase = 'settling';
       this.#emitPhase(run);
-      this.#later(
-        run,
-        () => {
-          if (!this.#isCurrent(run) || run.phase !== 'settling') return;
-          try {
-            run.player.seekTo(run.targetSeconds, true);
-          } catch {
-            this.#failPrepare(run, 'player-command-failed');
-            return;
-          }
-          this.#later(run, () => this.#pollSettled(run), YOUTUBE_ARM_SETTLE_POLL_MS);
-        },
-        YOUTUBE_ARM_PAUSE_SEEK_GAP_MS,
-      );
+      this.#settle(run);
     } catch {
       this.#failPrepare(run, 'player-command-failed');
     }
   }
 
-  #pollSettled(run: ActiveRun): void {
-    if (!this.#isCurrent(run) || run.phase !== 'settling') return;
-    if (!this.#ensurePlayerCurrent(run)) return;
-    run.settleAttempts += 1;
-    try {
-      const state = run.player.getPlayerState();
-      const stopped = state === PLAYER_STATE.paused || state === PLAYER_STATE.cued;
-      const settled =
-        this.#currentVideoId(run.player) === run.identity.videoId &&
-        stopped &&
-        Math.abs(run.player.getCurrentTime() - run.targetSeconds) <= YOUTUBE_ARM_SETTLE_EPSILON_SEC;
-      run.stableChecks = settled ? run.stableChecks + 1 : 0;
-      if (!settled) {
-        if (state === PLAYER_STATE.playing) run.player.pauseVideo();
-        if (run.settleAttempts % YOUTUBE_ARM_SETTLE_RESEEK_EVERY === 0) {
-          run.player.pauseVideo();
-          run.player.seekTo(run.targetSeconds, true);
-        }
-      }
-    } catch {
-      run.stableChecks = 0;
-    }
-
-    if (run.stableChecks >= YOUTUBE_ARM_SETTLE_STABLE_SAMPLES) {
-      this.#beginAudioRestore(run);
-      return;
-    }
-    if (this.#now() >= run.deadlineAtMs) {
-      this.#failPrepare(run, 'settle-timeout');
-      return;
-    }
-    this.#later(run, () => this.#pollSettled(run), YOUTUBE_ARM_SETTLE_POLL_MS);
+  /**
+   * The arm's settle (arm-steps.ts) of its paused warm iframe. The arm keeps
+   * one target, reads the position last, seeks again at once, fails when
+   * its first seek throws, and gives up at its prepare deadline. Its fence
+   * cancels the run for another iframe before each poll, but the first seek
+   * goes to the run's own iframe without that check.
+   */
+  #settle(run: ActiveRun): void {
+    settleYouTubeAtTarget(
+      (seek) =>
+        this.#isCurrent(run) && run.phase === 'settling' && (seek || this.#ensurePlayerCurrent(run))
+          ? run.player
+          : null,
+      () => run.targetSeconds,
+      (player) => this.#currentVideoId(player) === run.identity.videoId,
+      // The position last, the re-seek at once, a failure on the first seek.
+      false,
+      false,
+      () => this.#failPrepare(run, 'player-command-failed'),
+      () => this.#beginAudioRestore(run),
+      () => {
+        const expired = this.#now() >= run.deadlineAtMs;
+        if (expired) this.#failPrepare(run, 'settle-timeout');
+        return expired;
+      },
+      (callback, delayMs) => this.#later(run, callback, delayMs),
+    );
   }
 
   #beginAudioRestore(run: ActiveRun): void {

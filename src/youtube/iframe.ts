@@ -106,10 +106,10 @@ import {
 } from './authority-arm.ts';
 import {
   consumePendingAutoSyncOnReadyFromIframe,
-  isProPlaybackPauseGatePendingFromIframe,
   isYouTubeAutoSyncPending,
   setPendingAutoSyncOnReadyFromIframe,
 } from './player-runtime-bridge.ts';
+import { isYouTubePauseGateHeld, readYouTubeAppAudio } from './iframe-audio.ts';
 import {
   observeYouTubeNativeControlState,
   observeYouTubeNativeControlPosition,
@@ -157,6 +157,7 @@ import type {
   YTPlayerConfig,
   YtIndexingSession,
 } from './_state.ts';
+import type { YouTubeStartClaimKind } from './start-ownership.ts';
 declare const YT: YTNamespace;
 declare global {
   interface Window {
@@ -2173,6 +2174,12 @@ export async function prepareYouTubeAuthorityOccurrence(
           const elapsedMs = Date.now() - startedAt;
           const remainingMs = timeoutMs - elapsedMs;
           if (remainingMs < 500) return { ready: false, reason: 'timeout' };
+          // The app volume is the user intent, under the 'non-positive' mute
+          // rule (iframe-audio.ts). During initial iOS entry the persistent
+          // iframe can still report the silent-prime hard mute; capturing that
+          // transient player bit would make it permanent. A pending local PRO
+          // pause stays closed until its own settlement.
+          const appAudio = readYouTubeAppAudio(true);
           const armed = await proAuthorityArm.prepare({
             authorityKey: request.authorityKey,
             queueItemId: request.queueItemId,
@@ -2181,17 +2188,8 @@ export async function prepareYouTubeAuthorityOccurrence(
             targetSeconds: target.localTime,
             strategy: 'resident',
             timeoutMs: remainingMs,
-            // The app volume is the user intent. During initial iOS entry the
-            // persistent iframe can still report the silent-prime hard mute;
-            // capturing that transient player bit would make it permanent.
-            // A pending local PRO pause stays closed until its own settlement.
-            desiredMuted:
-              (getState('audio.masterVolume') ?? 1) <= 0 ||
-              isProPlaybackPauseGatePendingFromIframe(),
-            desiredVolume: Math.max(
-              0,
-              Math.min(100, Math.round((getState('audio.masterVolume') ?? 1) * 100)),
-            ),
+            desiredMuted: appAudio.muted || isYouTubePauseGateHeld(),
+            desiredVolume: appAudio.volume,
           });
           if (generation !== proAuthorityPreparationGeneration) {
             return { ready: false, reason: 'superseded' };
@@ -3027,6 +3025,64 @@ function onYouTubePlayerApiChange(event: { target: YouTubePlayerInstance }): voi
   applyYouTubeCaptionPolicy(event.target, getCurrentSessionId());
 }
 
+/**
+ * The start claim kinds in the order the state router asks their owners (a
+ * type only: no kind ships).
+ */
+type YouTubeStartStateRouteOrder = readonly [
+  'pro-arm',
+  'standard-run',
+  'standard-recovery',
+  'legacy-rendezvous',
+  'pro-direct',
+];
+
+/**
+ * The state router's decisions, one per kind in the order: whether that
+ * kind's owner consumes the state, or 0 for never. A start claim kind missing
+ * from the order makes this never, so it does not compile.
+ */
+type YouTubeStartStateRoutes<Order extends readonly YouTubeStartClaimKind[]> = [
+  Exclude<YouTubeStartClaimKind, Order[number]>,
+] extends [never]
+  ? { readonly [Index in keyof Order]: ((state: number) => boolean) | 0 }
+  : never;
+
+/**
+ * Each owner is asked through a closure when a state arrives, so its live
+ * binding answers and none is read while this module loads.
+ */
+const youtubeStartStateRoutes: YouTubeStartStateRoutes<YouTubeStartStateRouteOrder> = [
+  // The coordinator-free PRO arm, from warm-up to release.
+  (state) => handleYouTubeAuthorityPlayerState(state),
+  // The zero-start run's hard-muted warm-up.
+  (state) => handleYouTubeZeroStartPlayerState(state),
+  // A recovery that owns the iframe's events.
+  () => isYouTubeStartRecoveryActive(),
+  // The legacy rendezvous's local start hold on a Standard host (not its
+  // Stage-2 wait). A negative local offset may intentionally keep this
+  // speaker paused after room playback has begun. The owner installs its
+  // reader before pauseVideo, including synchronous iframe callbacks before
+  // the timer has been armed.
+  () => isStandardHostYouTubeLocalStartPending(),
+  // The PRO direct COMMIT's local wait consumes nothing.
+  0,
+];
+
+/**
+ * The iframe state router: ask the YouTube start owners, in order, whether
+ * one consumes this state; the first that does ends the ask. The start owners
+ * own every transient player state their hard-muted warm-ups produce, so they
+ * consume those events before the events can change the ordinary playback
+ * projection, UI, queue progression or room broadcast. On the real release
+ * PLAYING the zero-start controller first closes its in-flight phase and
+ * answers false, so that one event continues through the ordinary path
+ * exactly once; the PRO arm does the same.
+ */
+function routeYouTubeStartPlayerState(state: number): boolean {
+  return youtubeStartStateRoutes.some((route) => route && route(state));
+}
+
 function onYouTubePlayerStateChange(event: { data: number; target: YouTubePlayerInstance }): void {
   // The IFrame API may flush state queued by a player after a replacement has
   // already claimed the global slot. Never project that retired player's
@@ -3100,22 +3156,11 @@ function onYouTubePlayerStateChange(event: { data: number; target: YouTubePlayer
     return;
   }
 
-  // The zero-start controller owns every transient player state produced by
-  // its hard-muted warm-up. Consume those events before they can mutate the
-  // ordinary playback projection, UI, queue progression, or room broadcast.
-  // On the real release PLAYING the controller first closes its in-flight
-  // phase and returns false, so that one event continues through the normal
-  // path below exactly once.
   // Target proof is independent of projection: authority/zero-start may hold a
-  // healthy CUED target longer than the load deadline while consuming events.
+  // healthy CUED target longer than the load deadline while consuming events,
+  // so the reused-feedback check runs first, before any start owner is asked.
   const staleReusedFeedback = isStaleReusedPlayerFeedback(player, state);
-  if (handleYouTubeAuthorityPlayerState(state)) return;
-  if (handleYouTubeZeroStartPlayerState(state)) return;
-  if (isYouTubeStartRecoveryActive()) return;
-  // A negative local offset may intentionally keep this speaker paused after
-  // room playback has begun. The owner installs its reader before pauseVideo,
-  // including synchronous iframe callbacks before the timer has been armed.
-  if (isStandardHostYouTubeLocalStartPending()) return;
+  if (routeYouTubeStartPlayerState(state)) return;
 
   if (!isPlaybackModeYouTube() && !indexing) return;
   if (staleReusedFeedback) return;

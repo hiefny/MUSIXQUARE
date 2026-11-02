@@ -94,6 +94,152 @@ runbooks. Neither belongs in a general setup document.
 
 ## Maintained evidence and completed records
 
+- [App 9.0.34 / v807 train: Phase 6 6C (one YouTube state router, one iframe audio owner and shared arm steps), no light-theme stroke on the dialog grey button and the selection bar, and lighter light-theme dividers (2026-11-02)](design/phase6-6c-router-iframe-audio-arm-steps-2026-11-02.md):
+  prepared, not released. The next App update, 9.0.34 / v807 (App build 807, target `app`, one
+  update dialog) after App 9.0.33 / v806 (Hangul drawn by Pretendard again, released 2026-11-02
+  13:12 KST), on branch `agent/p6-6c`: thirty commits on main `a92bab2b` (9.0.33's release
+  record #562; its App runtime is production 9.0.33's). Three increments ride: the third
+  Phase 6 App train 6C, neutral; the owner's light-theme stroke removal, a visible change; and the
+  lighter light-theme divider the owner chose from pictures, a visible change. 6C's
+  twenty-one commits moved from main `7b869c35`, where QA rounds 5 to 8 ran, with every `src` and
+  `scripts` patch byte-identical and nineteen of them with the same patch-id (code tip now
+  `19362aa2`, record tip `12c69856`; the only conflicts, two, were in `docs/README.md`, where the
+  9.0.33 entry had taken the top of this list); the light-stroke commit `c3281b45` is `d6d69bc4`
+  from `agent/light-stroke` cherry-picked cleanly; two record commits follow (`1e3adfcb`, and
+  `1e146488` with QA round 10); the divider commit `9fb6f1f8` is `9b269706` from
+  `agent/light-divider` cherry-picked without a conflict and with the same patch-id; a record
+  commit `c8a459a9` adds the divider and QA round 11; the release preparation record `3cb356af`
+  adds the train's pre-deploy section to the release record; the bump `c44d4d2c` (9.0.34 / v807
+  in the same seven lines of six files as 9.0.33's `d78d0d41`) is the last runtime commit; a
+  record commit `1481f67a` adds QA round 12, the full local gate on the bump head; and a last
+  record commit (QA round 13, documentation only) applies the documentation findings of the review
+  after the bump. All four parts of the
+  train's merge condition (Phase 6 plan §1.4) are met: the previous train 9.0.33 was deployed
+  (Release 41386906358), its production smoke passed, it was recorded (#562), and its post-merge
+  Full E2E 41396274966 on main `6ccc3f10` passed. The pull request, merge and release are the
+  release owner's.
+  6C-1 turns `iframe.ts`'s fixed-order dispatch of iframe states to the start owners into a router
+  with one decision per start claim kind (a kind without one does not compile) and merges the
+  Standard host's held room time into one read, the pending-start predicate staying the legacy
+  hold's; 6C-2 makes `src/youtube/iframe-audio.ts` the owner of the App's iframe audio writes, the
+  PRO pause gate's iframe token and the holds (the gate mutes at once, parking gets the verified
+  hard mute, a start owner holds only the unMute), reading the desired audio when it writes under
+  today's two named mute rules; 6C-4 and 6C-5 move both arm machines' hard-mute wait, warm
+  acceptance and settle into the new `src/youtube/arm-steps.ts`, each machine keeping its own
+  policy, and remove the PRO arm's unused load warm. The first independent review added a host
+  legacy recovery cell to the two-rule row and a stronger Phase 7 contract (a) row, made the owner
+  ask the start ledger itself, and added a CHECK 12 rule that keeps the parking hold's registration
+  to one top-level statement of `player.ts`. The second added five arm golden rows that pin how the
+  shared settle counts its polls on both machines (passing on main's runtime too), widened that
+  rule to the owner's parking slots, added `PAUSE GATE WRITERS` (only `player.ts` holds, releases
+  and clears the PRO pause gate), and recorded that the arm machines' 'non-positive' audio is only
+  what they capture as they start. Neutral: the T0a goldens, both T0b truth tables, the 6B rows and
+  Phase 7 T0's rows pass byte for byte; one T0b row of `player.test.ts` and the truth-table
+  sampler's pause-gate column ask the owner's gate query only because the runtime bridge's gate
+  hook was deleted, their expected values unchanged. The owner's one-rule change below 0.5 % master
+  volume (6C-3) is prepared as a before/after table and does not ride 9.0.34, because the owner has
+  not answered the table question; no T0b defect fix rides.
+  The light-stroke increment (owner request, 2026-11-02 afternoon): the light palette's
+  `--glass-border` in `css/style.css` becomes transparent as in dark, so the dialog grey button
+  (`.dialog-secondary`), the playlist selection bar and its cancel circle lose their faint grey
+  edge in light only. The 1px border stays, so nothing changes size; dark, the high-contrast
+  palettes and forced colors keep their values, and `public/designsystem/colors_and_type.css` only
+  mirrors the value (the one public rule that reads it is on the always-dark design system page).
+  The before and after pictures (72, kept outside the repository) compare pixel for pixel: the 16
+  dark and light high-contrast pairs change 0 pixels, and the 8 light pairs change only inside the
+  button and bar boxes, with unchanged computed sizes. The owner saw only four of them, the light
+  side-by-side pictures, not the whole set. No unit test pins the light value; the stroke branch's
+  own unit run kept no log, so its unit evidence is QA round 10's logged run of the same 51 files
+  on `d6d69bc4` (1,447 / 1,447) and round 9's full suite on `c3281b45`.
+  The divider increment (the owner's choice, 2026-11-02 around 17:40 KST, after five pictures that
+  compare today's `#d4d6d8` with candidates A `#e4e6e8` and B `#eff1f3`, none of them showing the
+  events page): the base light
+  `--divider` in `css/style.css` becomes `#e4e6e8` (1.25:1 on white and 1.19:1 on the light page,
+  against 1.46:1 and 1.38:1 before; dark `#262626` is 1.15:1 on its dialog and 1.24:1 on its page),
+  so the settings, account stats, help legal, YouTube search, desktop column and settings tab lines
+  get lighter in light only. The events page's own light `--divider` follows, so its header line
+  between the wordmark and the event name gets lighter, and the design system mirror, its light
+  board swatch and its light color preview carry the new value. Light high contrast keeps
+  `#d4d6d8`, dark keeps `#262626` and forced colors keep `CanvasText`; the events page has no
+  high-contrast palette, so with contrast set to more its header line is `#e4e6e8` while the app's
+  dividers stay `#d4d6d8`. Real screens on `9b269706` against main `a92bab2b` (local headless
+  Chromium at scale 2, 30 pairs, kept outside the repository): the 10 dark and 8 app light
+  high-contrast pairs change 0 pixels, and the 10 light and 2 events high-contrast pairs change only
+  inside the measured divider line boxes; five of the eight scenes with the candidate A mock equal it
+  to 0 pixels, the two account dialogs differ only around the grey button ring (the stroke
+  increment, not in those trees) and one YouTube search scene only at the search clear button,
+  which differs between recaptures. The divider branch's own 13-file unit run kept no log; the
+  logged unit evidence is QA round 11's.
+  The report lists the owner answers used, each 6C increment's tests-first evidence before and
+  after the first move, the SHA maps of both moves, the guard counts (CHECK 11 32 → 20), the first
+  load (6C +33 B eager JavaScript gzip against main `7b869c35` and again on top of 9.0.33; the
+  bump head that ships +30 B against `a92bab2b`, +38 B on the divider tip and +42 B before the
+  divider, the rest moving with the renamed hashed file names; Phase 6 total −169 B), mixed
+  versions, rollback (checkpoint App 9.0.33 / v806,
+  build 806, deploy SHA `4faf38d9`; a manual rollback to it removes the whole train v807 and gives
+  its clients a lower epoch, so the default is a forward revert of the whole train or one increment
+  as 9.0.35 / v808, or the next App update's number after that if another ships first; 6C alone
+  until 6D merges, the light-stroke and divider commits each alone), the blind device candidates
+  and the owner's own light-theme look at the grey button, the selection bar and the dividers (not
+  blind, since the owner has seen the pictures), the open item for
+  the YouTube first-note alignment, the Phase 7
+  contracts (rechecked on top of #559) and one new log-only defect. QA round 9, on the new tip
+  `c3281b45` (2026-11-02 16:46 to 17:30 KST): types, lint and format; the unit suite 752 files /
+  18,005 with nothing skipped or rerun; critical coverage 110 files / 4,501 (round 8's totals) and
+  Worker coverage 69 files / 3,325; the build and all 37 `guard:*` scripts one by one, every one
+  passing except `guard:sw-cache-version` (the pending bump: 11 App files newer than v806, the two
+  CSS files and 6C's nine `src/youtube` files); the resource-ownership check OK with its `--report`
+  byte-identical to round 8's; the deploy target App only against production 9.0.33 `4faf38d9`
+  (every other Worker 0, no dependency change, the contract paths unchanged); critical E2E 101 /
+  101, the ten YouTube Chromium specs 53 / 53 (the plan's eight 41 / 41), the WebKit YouTube
+  activation spec 4 / 4, and the light-stroke specs (contrast and design system page 9 / 9, the
+  seven selection-mode playlist specs 32 / 32). QA round 10 (18:27 to 18:38 KST) reran the moved
+  tests-first pairs on their new SHAs, each exported with `git archive` into one scratch tree with
+  its own `npm ci` (no worktree, no links): every tests-first commit fails only in the rows it
+  adds, for the same missing code or guard rule, and every code commit passes, with round 5's
+  counts after the first move and round 7's second-review counts (an independent review run gave
+  the same counts); the light-stroke commit `d6d69bc4`'s 51 unit files pass 1,447 / 1,447 there
+  too. The guard counts that differ from round 8 are shown to be main's from file sets. QA round
+  11, on the divider tip `9fb6f1f8` (18:42 to 19:04 KST): the 13 unit files the divider touches
+  229 / 229; the four files that failed in the divider branch's full run (git-fixture timeouts and
+  two language rows, none touched by the divider) 318 / 318; after `npm run build:e2e`, the
+  contrast, design system page, events and auxiliary component specs 24 / 24 and the seven
+  selection-mode playlist specs 32 / 32 on ports 5391 / 5392 (a first run on the default ports
+  passed the same and is not counted); the deploy target App 14 paths against 9.0.33 (every other
+  Worker 0, no dependency change, the contract paths unchanged), `guard:sw-cache-version` failing
+  only for the pending bump, and the size, with `guard:initial-transfer-budget` passing. QA round
+  12, the full local gate on the bump head `c44d4d2c` (2026-11-02 19:31 to 20:24 KST, ports 5391 /
+  5392, every step one at a time): typecheck, lint and format; `build:checked` as one command, with
+  `guard:release-identity` printing 'MUSIXQUARE 9.0.34; service-worker cache epoch v807' and
+  `guard:sw-cache-version` passing at v807; all 37 `guard:*` scripts one by one, every one
+  passing with round 9's counts; the resource-ownership check OK with its `--report`
+  byte-identical to round 9's; critical coverage 110 files / 4,501 and Worker coverage 69 files /
+  3,325; the unit suite twice, 752 files / 18,005 each with nothing skipped, failed or rerun;
+  `check:workers`; the production candidate specs on the `build:checked` output 19 / 19; after
+  `npm run build:e2e`, critical E2E 101 / 101, the ten YouTube Chromium specs 53 / 53 (the plan's
+  eight 41 / 41), the WebKit YouTube activation spec 4 / 4, the contrast, design system page,
+  events and auxiliary component specs 24 / 24 and the seven selection-mode playlist specs 32 /
+  32; the deploy target App 18 paths (the 14 above and the four version mirrors), every other
+  Worker 0, no dependency change, the partial-release compatibility check compatible with the
+  deployed SHAs injected instead of read from production, and the contract paths changed only in
+  the bump's seven lines; and the first load against a clean rebuild of `a92bab2b`, +30 B eager
+  JavaScript gzip, within round 11's +38 B. QA round 13 applied the documentation findings of the
+  review after the bump (eleven, one medium: the release record's 9.0.33 rollback item now links
+  this report; the file count, the closed 6C-3 branch, the not-blind owner check G, the events page
+  missing from the owner's pictures, the owner-facing rollback sentence and stale lines), left two
+  low ones for later (an events-page high-contrast palette and a test pinning the light
+  `--glass-border`), and reran the checks that read the changed documents. Earlier,
+  on `7b869c35`'s line: on `6998f04e`, the unit suite 750 files / 17,973 (one
+  git-fixture timeout that passes alone), `src/youtube`, `src/player` and `src/pro-room` 6,693
+  rows in file order and under four `--sequence.shuffle` seeds, critical coverage 110 files /
+  4,496, the Phase 7 audio lab 17 / 17, the eight YouTube Chromium specs 41 / 41, critical E2E
+  101 / 101 and the WebKit activation spec 4 / 4; on the code tip `a9951bfd`, those three
+  directories with the guard self-test 6,801 / 6,801, the neutral pins on main's runtime 127 / 127
+  and Phase 7 T0's rows with the contract rows 474 / 474; and the final check (QA round 8) on
+  `f9f4a57c`, the unit suite 750 files / 17,983, those directories with `src/audio` 7,147 rows in
+  file order and under the four seeds, critical coverage 110 files / 4,501, every guard except
+  `guard:sw-cache-version`, critical E2E 101 / 101, the ten YouTube specs 53 / 53 and the WebKit
+  activation spec 4 / 4.
 - [App Hangul drawn by Pretendard again, as MUSIXQUARE Hangul (2026-11-02)](design/app-hangul-pretendard-2026-11-02.md):
   released on 2026-11-02 13:12 KST in Release 41386906358 (PR #560, squash `4faf38d9`) as App
   9.0.33 / v806 (App build 806, target `app`, one update dialog, visible change; the bump

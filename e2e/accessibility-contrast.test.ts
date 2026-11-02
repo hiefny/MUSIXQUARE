@@ -295,7 +295,7 @@ test.describe('OS contrast CSS integration', () => {
     await expect(page.locator('html')).not.toHaveAttribute('data-contrast');
     expect(await lightContrastHierarchy(page)).toEqual({
       bg: '#f8f9fa',
-      divider: '#d4d6d8',
+      divider: '#e4e6e8',
       surface1: '#ffffff',
       surface2: '#eff1f3',
       surface3: '#b7b9bb',

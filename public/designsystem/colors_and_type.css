@@ -167,7 +167,7 @@ html[data-theme='light'] {
   --surface-2: #eff1f3;
   --surface-3: #b7b9bb;
   --play-action-surface: var(--surface-1);
-  --divider: #d4d6d8;
+  --divider: #e4e6e8;
   --text-main: #303540;
   --text-sub: #495057;
   --text-muted: #868e96;
@@ -181,7 +181,7 @@ html[data-theme='light'] {
   --control-danger-hover: rgba(255, 59, 48, 0.11);
   --warning-foreground: #6b4100;
   --glass-bg: var(--surface-1);
-  --glass-border: rgba(0, 0, 0, 0.06);
+  --glass-border: transparent;
   --scrollbar-thumb: rgba(0, 0, 0, 0.2);
   --scrollbar-thumb-hover: rgba(0, 0, 0, 0.4);
   --scrollbar-thumb-active: rgba(0, 0, 0, 0.6);

@@ -370,3 +370,33 @@ describe('page navigation owner — back-forward cache return (initPageNavigatio
     expect(sinks.count('reload')).toBe(1);
   });
 });
+
+describe('page navigation owner — the pagehide callback (Phase 7 7A-1)', () => {
+  afterEach(() => {
+    __resetPageNavigationForTests();
+    vi.restoreAllMocks();
+  });
+
+  it('calls it once at each pagehide, from its capture-phase dispatch, until dispose', () => {
+    const order: string[] = [];
+    const navigation = initPageNavigation({
+      getRole: () => 'idle',
+      bfcacheReloadMessage: () => 'Reloading',
+      onPageHide: () => order.push('kept'),
+    });
+    const bubble = (): number => order.push('bubble listener');
+    window.addEventListener('pagehide', bubble);
+    try {
+      window.dispatchEvent(pageTransition('pagehide', false));
+      window.dispatchEvent(pageTransition('pagehide', true));
+      expect(order).toEqual(['kept', 'bubble listener', 'kept', 'bubble listener']);
+
+      navigation.dispose();
+      window.dispatchEvent(pageTransition('pagehide', false));
+      expect(order).toHaveLength(5);
+    } finally {
+      window.removeEventListener('pagehide', bubble);
+      navigation.dispose();
+    }
+  });
+});

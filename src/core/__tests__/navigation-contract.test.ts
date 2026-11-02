@@ -4,6 +4,7 @@ import {
   LEAVE_FALLBACK_MS,
   NAVIGATION_COMMIT_TIMEOUT_MS,
   NAVIGATION_PREPARE_TIMEOUT_MS,
+  PREVIOUS_AUDIO_RECOVERY_KEY,
   PREVIOUS_LINK_CLOSE_KEY,
   RECONNECT_TARGET_KEY,
   RESET_PAINT_FALLBACK_MS,
@@ -49,12 +50,14 @@ describe('next-document sessionStorage markers', () => {
       SW_CONTROLLER_CONFIRMED_KEY,
       UPDATE_COMPLETION_KEY,
       PREVIOUS_LINK_CLOSE_KEY,
+      PREVIOUS_AUDIO_RECOVERY_KEY,
     }).toEqual({
       RECONNECT_TARGET_KEY: 'mxqr_reconnect_target',
       SW_UPDATE_KEY: 'sw-updated-at',
       SW_CONTROLLER_CONFIRMED_KEY: 'sw-controller-confirmed-at',
       UPDATE_COMPLETION_KEY: 'mxqr-swu',
       PREVIOUS_LINK_CLOSE_KEY: 'mxqr-prev-close',
+      PREVIOUS_AUDIO_RECOVERY_KEY: 'mxqr-prev-audio-recovery',
     });
   });
 });

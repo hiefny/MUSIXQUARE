@@ -76,7 +76,7 @@ describe('app.ts wiring copied by the page navigation harness', () => {
     ]);
   });
 
-  it('wires PageLifecycle with the window layer first, then the navigation owner with its bfcache reload [updated: C6-6, C6-11] [keeps: C6-7]', () => {
+  it('wires PageLifecycle with the window layer first, then the navigation owner with its bfcache reload [updated: C6-6, C6-11, Phase 7 7A-1] [keeps: C6-7]', () => {
     expect(block(appSource, "safeInit('PageLifecycle', () => {")).toBe(
       [
         "safeInit('PageLifecycle', () => {",
@@ -88,9 +88,11 @@ describe('app.ts wiring copied by the page navigation harness', () => {
         "getRole: () => getState('network.appRole'),",
         'leaveSession: () => leaveSession({ preserveAccountLoginReturn: true }), };',
         'initPageLifecycleHandlers(lifecycle);',
+        'takeAudioRecoveryFromPreviousPage();',
         'initPageNavigation({',
         'getRole: lifecycle.getRole,',
         "bfcacheReloadMessage: () => t('dialog.refreshing_session'),",
+        'onPageHide: keepAudioRecoveryForNextPage,',
         'log, }); }',
       ].join(' '),
     );

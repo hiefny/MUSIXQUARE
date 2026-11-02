@@ -891,7 +891,7 @@ describe('resource-ownership guard', { timeout: 60_000 }, () => {
       ]);
     });
 
-    it('counts a string key, a destructuring rename and a rename in the home, but not the home itself, comments, strings or type members', () => {
+    it("counts a string key, a destructuring rename, a rename in the home and the home's own calls, but not comments, strings or type members", () => {
       const findings = findingsOf(
         withSources((sources) => {
           sources.set(
@@ -920,7 +920,7 @@ describe('resource-ownership guard', { timeout: 60_000 }, () => {
             'export { ensureRunning as wakeAudioContext };\n' +
               'export async function ensureRunning(): Promise<void> {\n',
           );
-          // The home's own uses are not callers.
+          // The home's own calls count too: a wrapper exported there would hide its callers.
           replaceIn(
             sources,
             HOME,
@@ -934,8 +934,9 @@ describe('resource-ownership guard', { timeout: 60_000 }, () => {
         }),
       );
       expect(findings.split('\n')).toEqual([
-        `UNSANCTIONED indirect AudioContext resume ensureRunning() (RO-01): ${HOME} has 1 - ${HINT}`,
+        `UNSANCTIONED indirect AudioContext resume ensureRunning() (RO-01): ${HOME} has 2 - ${HINT}`,
         `UNSANCTIONED indirect AudioContext resume restartAudioContextFromGesture() (RO-01): src/ui/indirect-keys.ts has 1 - ${HINT}`,
+        `UNSANCTIONED indirect AudioContext resume probeAudioContextHealth() (RO-01): ${HOME} has 1 - ${HINT}`,
         `UNSANCTIONED indirect AudioContext resume probeAudioContextHealth() (RO-01): src/ui/indirect-keys.ts has 1 - ${HINT}`,
       ]);
     });

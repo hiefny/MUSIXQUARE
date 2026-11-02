@@ -241,6 +241,7 @@ describe('service-worker CACHE_VERSION guard', () => {
     ['scripts/service-worker-app-shell-guard-lib.mts', 'export const worker = "changed.js";\n'],
     ['scripts/browser-target.ts', "export const LEGACY_APP_BROWSER_TARGET = 'chrome80';\n"],
     ['scripts/locale-recovery-assets.ts', 'export const recovery = "changed";\n'],
+    ['scripts/public-font-sheets.mts', 'export const sheet = "first.css";\n'],
     ['fonts/noto/noto-sans-devanagari/devanagari.woff2', 'updated locale font bytes'],
     ['fonts/inter/inter-latin.woff2', 'updated app font bytes'],
     ['fonts/app/inter/inter-latin.woff2', 'updated baked app font bytes'],

@@ -95,11 +95,13 @@ runbooks. Neither belongs in a general setup document.
 ## Maintained evidence and completed records
 
 - [Phase 6 train 6D: the YouTube start recoveries in one module, the Standard host's local start wait and the PRO start tokens (2026-11-02)](design/phase6-6d-recovery-pro-arm-2026-11-02.md):
-  prepared, not released. The fourth and last Phase 6 App update on branch `agent/p6-6d`, sixteen
+  prepared, not released. The fourth and last Phase 6 App update on branch `agent/p6-6d`, twenty
   commits on main `432d4ae7` (the App 9.0.34 / v807 release record): the thirteen commits first
   built on the 6C train's tip `bdb5759a`, moved patch for patch once 6B (9.0.32 / v805) and 6C
   (9.0.34 / v807) had shipped, a tests-only commit and a comment and registry commit from the
-  review of the moved branch, and one record commit; the version bump, the release-record entry
+  review of the moved branch, one record commit, and 6D-6's regression rows, failing test, runtime
+  change and record commit (first built on the first branch's tip `e8cacdd4`, moved with its two
+  post-review test commits folded into the first two); the version bump, the release-record entry
   and the release are the release owner's. 6D-1 turns the Standard guest's local zero-start recovery from a
   `player.ts` closure into the class `GuestZeroStartRecovery` in the new
   `src/youtube/zero-start-recovery.ts`, and the two
@@ -118,14 +120,19 @@ runbooks. Neither belongs in a general setup document.
   effects toast and rebuilt YouTube screen, Q22 (a), seen as frames) are both yes and close this
   train, tests first, 6D-6 and then 6C-3 before the bump, 6C-3 only after its open point (whether
   a remote host PREPARE during a guest's local fallback start carries the 'rounded' intent into the
-  new run) is checked and recorded; neither is built yet. The new finding (both zero-start
+  new run) is checked and recorded. 6D-6 is built, before 6C-3, after the owner saw the pictures:
+  the COMMIT catch-up of a device that missed its READY keeps that PREPARE's still-loading load, so
+  one toast shows and the screen stays, also when the start arrives in a snapshot; a first screen
+  that never gets ready is then not loaded again and ends with the load-timeout toast. 6C-3 is not
+  built yet. The new finding (both zero-start
   recoveries never seek again when a settle leaves a loaded target more than 0.35 s from the local
   zero, and give up at the end of their window, the iframe paused there with no notice) is
   recorded only, end condition 2 holds under the owner-accepted reading (a), and no T0b defect fix
   rides. The report lists the owner answers used, each increment's tests-first evidence before and
   after the move, the SHA map, the guard counts (CHECK 11 stays 20 as `player.ts`'s recovery
   writes move into the new module), the first load (+294 B eager JavaScript gzip against main
-  `432d4ae7`; Phase 6 total +125 B, leaving 75 B for 6D-6 and 6C-3), the Phase 6 end-condition
+  `432d4ae7`, and +68 B for 6D-6; Phase 6 total +193 B, leaving 7 B for 6C-3), the Phase 6
+  end-condition
   check, mixed versions, rollback (checkpoint App 9.0.34 / v807, or the public-page font train's
   App if that ships first), the blind device candidates, the two open items to link and the Phase
   7 handoff. QA rounds 1 to 4 ran on the first branch (old base `bdb5759a`). QA round 5 moved it

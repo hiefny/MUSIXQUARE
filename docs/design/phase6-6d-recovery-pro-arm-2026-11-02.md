@@ -482,75 +482,248 @@ main 위:
   초록이다[추론: 부모 실행 근거]. 가드 기준치와 레지스트리는 센 코드를 옮긴 커밋과 함께 되돌아온다(6D-1·6D-2의 CHECK 11 파일 항목, 6D-3의
   바늘). 리뷰 반영 `1ee53a30`의 게스트 행 둘은 6D-1과 함께 되돌린다(새 클래스를 요구).
 
-## 6D의 남은 두 단계: 6D-6과 6C-3 (오너 답 '예', 아직 만들지 않음)
+## 6D-6: 늦게 합류하는 PRO 기기의 COMMIT 따라잡기 (의도한 변경, Q22 (가))
 
-오너가 2026-11-02 밤 둘 다 '예'라고 답했다(위 '오너 결정'). 둘 다 [화면 바뀜]이고, 이 갈래는 아직 만들지 않았다.
+계획 §4.9의 6D-6(Q22 (가), 'intended')이다. 오너는 2026-10-30에 '(가)는 4차 업데이트에서 고침, 만들기 전 사진 먼저'라고 답했고,
+2026-11-02 23:10 KST쯤 전후 사진(아래 '사진', 한 장 보기는 릴리스 담당이 낱말을 '트랙'으로 고쳐 다시 만든 판)을 본 뒤 이 열차의 마지막 고침으로
+만들기를 승인했다(위 '오너 결정'의 Q22와 '2026-11-02 밤 추가 답'). 조건은 테스트 먼저, 판정을 COMMIT 따라잡기로 좁힘, 넷째 공유 길 행을
+양쪽에서 돌림, 그리고 만든 뒤 사진과 같게 보이는지 확인이다. 이 절이 그 '의도한 변경'의 자기 절이다.
+
+6D-6은 처음에 6D의 처음 갈래 끝 `e8cacdd4`(QA 라운드 4의 기록 커밋) 위에서 만들고 검사했다(커밋 여덟, 그 SHA는 로컬 납품 ref에만 남음).
+받아들인 이 갈래에서는 옮긴 갈래의 리뷰 반영 뒤(`825ea5d2` 위), 6C-3 앞에 두었다(위 D10의 순서). 6D-6이 바꾸는 런타임 네 파일과 시험 두
+파일은 `e8cacdd4`와 `825ea5d2`에서 바이트로 같아, 런타임 커밋의 패치는 그대로 옮겨졌다(patch-id가 같음). 리뷰 뒤 시험 커밋 둘은 테스트 먼저
+순서를 지키도록 앞 시험 커밋에 합쳤다(아래 '커밋과 테스트 먼저'). 머리 표, 위 '증분 한눈에', 'T0a·T0b·6B·6C 파일', 'Phase 6 끝 조건'의 표,
+'정확한 개수 가드', '번들 크기', '혼합 버전', '되돌리기', 'QA 라운드' 1 ~ 6은 6D-6 앞의 갈래(`825ea5d2`까지)를 적고, 6D-6의 값은 이 절이 적는다.
+
+### [화면 바뀜] 사용자에게 바뀌는 것
+
+PRO 방에서 트랙 준비가 2.3초 안에 끝나지 않아 뒤늦게 합류하는 기기, 곧 그 트랙을 받을 때 아직 YouTube 화면이 없던 기기(예: 들어와서 처음
+듣는 YouTube 트랙)에서만 바뀐다. 드문 경우다. 그 기기가 시작 신호를 바로 받든, 그 신호를 놓쳐(예: 연결이 잠깐 끊겼다 다시 이어짐) 방 상태를
+다시 맞출 때 받은 방의 상태(스냅샷)에서 시작을 알게 되든 같다.
+
+- 'YouTube 함께보기 / 고급 음향 효과가 비활성화돼요' 토스트가 약 3초 간격으로 두 번 뜨던 것이 한 번만 뜬다. 두 번째 토스트가 아래쪽 '동기화'
+  버튼을 약 2초 가리던 것도 없어진다.
+- 불러오던 YouTube 화면을 지우고 처음부터 다시 만들던 것이 없어진다. 불러오던 화면을 그대로 쓴다.
+- 화면이 3초 안에 준비되는 기기에서는 소리가 나는 때와 트랙 자리가 같다(시작 신호를 받고 3초 뒤, 시험 장면에서는 0:02). 느린 휴대폰에서는 그
+  기기의 소리가 지금보다 일찍 날 수 있다. 지금은 시작 신호 때 화면을 처음부터 다시 불러오느라, 그것이 약 2.6초를 넘으면 '3초 뒤 합류' 계획이
+  지나가 더 늦게 들어온다. 고친 뒤에는 첫 화면이 3초 일찍 불러오기를 시작한다. 얼마나 앞당겨지는지는 재지 않았다.
+- 드문 실패 경우: 첫 YouTube 화면이 준비 신호 뒤 15초가 지나도 끝내 준비되지 않는 기기(예: 화면이 불러오다 멈춰 버림). 지금은 시작 신호 때
+  그 화면을 지우고 새로 만들어 한 번 더 시도하고, 새 화면이 준비되면 합류한다. 고친 뒤에는 다시 시도하지 않고 첫 화면을 기다리다가, 준비 신호
+  15초 뒤에 'YouTube 로드 시간 초과 / 다시 시도해주세요' 토스트가 뜨고 그 기기의 YouTube 재생이 멈춘다. 그 기기는 방 상태를 다시 맞출 때(약
+  15초마다)까지 소리가 없다. 첫 화면이 멈춘 경우는 시험 행으로 고정했고, 그 뒤 방 상태를 다시 맞추며 다시 불러오는 것은 시험하지 않았다. 시작
+  신호를 준비 신호 5초 뒤보다 늦게 방의 상태로만 알게 되고 첫 화면이 그때도 준비 중이면, 같은 15초가 따라잡기의 기다림(10초)보다 먼저 와 같은
+  토스트로 끝날 수 있다(지금은 그때 새로 불러옴, 시험하지 않음).
+
+그대로인 것: 서버와 주고받는 신호와 READY 시각, 다른 기기, 준비를 제때 끝낸 기기, 이미 그 영상을 가진 기기(불러오기·토스트 없음). 일반방
+YouTube 불러오기와 보통 PRO 트랙 바꾸기는 토스트를 지금처럼 한 번 띄운다. 다른 영상을 불러오는 중에 또 다른 트랙으로 바꾸거나, 첫 화면이
+아직 손잡기 중일 때 같은 트랙의 새 준비 신호가 오거나, 이 기기가 준비하지 않은 방의 상태(예: 그 사이 방이 옮긴 새 위치)를 맞추면 지금처럼
+화면을 새로 만든다. 앞서 YouTube 트랙을 재생한 iPhone은 YouTube를 떠날 때(예: 파일 트랙) 그 화면을 숨겨 두었다가 다음 YouTube 트랙에 다시
+쓰는데, 그 iPhone이 다음 YouTube 트랙을 그 화면에 아직 불러오는 중에 준비 시간을 넘기면 지금처럼 따라잡기가 같은 화면에 다시 불러와
+토스트가 두 번 뜬다(화면은 그대로).
+
+### 모양: 판정을 READY를 놓친 뒤의 COMMIT 따라잡기로 좁힘
+
+줄 번호는 런타임 커밋 `1d2fcdcb`의 것이다.
+
+- **신호(`src/pro-room/playback-controller.ts`):** `applyPlaybackCommit`이 이 기기가 받은 서버 전환(PREPARE)의 준비가 실패한 뒤 부르는
+  따라잡기에만 `missedReady`를 넘긴다(`preparedFromMatchingTransition`, `:1552`. 받는 쪽 `catchUpExactPlaybackCheckpoint` `:1271`, `:1302`).
+  COMMIT 프레임으로 오든, 준비한 checkpoint를 실은 스냅샷으로 오든 같다: `restorePlaybackCheckpoint`(`:2187`)가 그 checkpoint를 준비한
+  전환의 COMMIT으로 바꾸어 보낸다(재연결, 하트비트, 명령 응답의 스냅샷). 스냅샷 길은 행 '(a) keeps the still-loading iframe when the
+  committed checkpoint arrives in a snapshot instead of the COMMIT frame'(실패 시험 커밋 `ee31c3b5`)이 고정한다: 불러오기·토스트·`YT.Player`
+  1, 지우기 없음, 스냅샷을 받은 때 + 3 s에 2.3 s로 합류(고치기 전 런타임에서는 불러오기 2로 실패). 서버 PREPARE, 이 기기가 준비하지 않은
+  checkpoint의 복원과 모르는 전환의 COMMIT(스스로 준비하다 실패한 뒤의 따라잡기까지), 실패한 출시 뒤의 따라잡기, 로컬 다시 합류, 취소된
+  checkpoint 복구는 넘기지 않는다.
+- **요청 필드(`src/pro-room/playback-authority-hooks.ts:344`):** `ProPlaybackPrepareRequest.missedReady?: boolean`. 누가 넘기는지 주석에
+  적었다. 앱 안의 필드이고 와이어가 아니다.
+- **판정(`src/player/playlist.ts:2686-2694`):** `prepareAuthoritativePlayback`의 상주 재사용 판정 옆 한 갈래다. `missedReady`이고 아래 읽기가
+  참이면 `reuseResidentYouTube`를 켜서 `playTrack`이 둘째 `youtube:load`(`:1194`)를 내지 않는다. 그 뒤 준비 이음새
+  `prepareYouTubeAuthorityOccurrence`(`src/youtube/iframe.ts:2144`)가 지금처럼 장벽 없는 10 s 안에서 그 불러오기의 손잡기를 기다린다.
+- **읽기(`src/youtube/iframe.ts:1746`, `isYouTubeOccurrenceStillLoading`):** 부작용이 없다. 불러오기가 진행 중이고(`isYtLoadInProgress`)
+  아직 준비된 플레이어가 없으며(`!isYtPlayerReady()`, `:1752`: iframe 손잡기 전, 또는 IFrame API 스크립트가 오는 중) YouTube 모드이고, 현재
+  queue 항목이 그 occurrence이며 진행 중 불러오기의 목표(`expectedMetadataVideoId`)가 그 영상일 때만 참이다. 사진과 오너께 드린 설명이 YouTube
+  화면이 없던 기기라서, 준비된 플레이어 위의 불러오기는 넣지 않았다. 그 조건이 실제로 가르는 것은 iPhone이 앞 YouTube 트랙 뒤에 숨겨 둔
+  (parked) 준비된 iframe으로 다음 트랙을 받는 불러오기다. 그 불러오기는 iframe이 그 트랙을 보일 때까지 진행 중으로 남는다(retained-player
+  목표 확인). 준비된 iframe에서 다른 영상으로 넘어가는 보통 불러오기(YT→YT)는 큐 명령을 보내는 그 자리에서 진행 중 표시를 끄므로 따라잡기 때
+  진행 중이 아니고, 이 조건과 상관없이 지금처럼 동작한다. 회귀 행 (5)가 iPhone의 경우를 고정한다(아래 '커밋과 테스트 먼저').
+- **느린 화면의 합류 시각(`src/pro-room/playback-controller.ts:363`, `plannedLateYouTubeTiming`):** 따라잡기의 준비가 3 s 계획의 최소 출시
+  여유(`LOCAL_YOUTUBE_REJOIN_MIN_RELEASE_MS` 400 ms, `:73`)를 남기지 못하고 끝나면 계획을 버리고 그때의 방 위치로 바로 따라잡는다. 그래서
+  지금은 시작 신호 때의 다시 불러오기가 약 2.6 s를 넘으면 더 늦게 들어오고, 6D-6 뒤에는 PREPARE 때 시작한 첫 불러오기를 이어 쓰므로 그보다
+  일찍 끝날 수 있다(위 '사용자에게 바뀌는 것'의 느린 휴대폰, 재지 않음).
+- **사진에 쓴 임시 고침과 다른 점:** 임시 고침은 같은 queue 항목·영상의 불러오기가 진행 중이면 `prepareAuthoritativePlayback`을 모두
+  상주처럼 다뤘다(서버 PREPARE, 복원, 다시 합류까지). 6D-6은 READY를 놓친 뒤의 따라잡기로 좁히고 손잡기 전 불러오기만 본다. 사진에 찍힌
+  경우(PREPARE를 받고 READY를 놓친 기기의 COMMIT 따라잡기)에서는 두 판이 같게 동작한다(아래 '사진').
+- **지키는 불러오기의 기한:** 그 불러오기는 PREPARE 때 건 자기 15 s 기한(`'yt-load-timeout'`, `SCRIPT_LOAD_TIMEOUT_MS`,
+  `src/youtube/iframe.ts:1967`)을 그대로 가진다. 따라잡기의 10 s 기다림은 COMMIT 때(PREPARE 뒤 약 3 s)부터라 PREPARE 뒤 약 13 s에 끝나 그
+  기한 앞이다. 그래서 첫 iframe이 끝내 손잡기를 마치지 못하면, 따라잡기는 둘째 iframe을 만들지 않고 그 기다림 끝에 실패하고, PREPARE 뒤 15 s에
+  그 불러오기의 기한이 'YouTube 로드 시간 초과' 토스트, 준비되지 않은 iframe 지우기, YouTube 모드 멈춤으로 끝낸다. 고치기 전에는 따라잡기가
+  COMMIT 때 새 iframe으로 다시 불러와, 그 iframe이 준비되면 합류했다. 이 대가는 행 '(a) waits for a first iframe that never finishes its
+  handshake until that load times out, 15 s after PREPARE'(`ee31c3b5`)가 고정한다(고치기 전 런타임에서는 COMMIT 때의 둘째 불러오기로 실패).
+  그 뒤 그 기기는 방의 다음 복원(PRO 하트비트, `src/pro-room/runtime.ts`의 `HEARTBEAT_INTERVAL_MS` 15 s)이 다시 불러올 때까지 합류하지
+  않는다[추론, 시험 없음]. 첫 불러오기가 늦기만 할 때(15 s 안에 손잡기를 마침)는 같은 iframe이 3 s 일찍 시작했으므로 6D-6이 같거나 낫다[추론].
+  COMMIT이 PREPARE 뒤 5 s를 넘겨 스냅샷으로만 오면 그 기한이 기다림보다 먼저 올 수 있고, 그때 그 불러오기는 같은 토스트로 끝난다. 지금은 그
+  따라잡기가 새 15 s로 다시 불러온다[추론, 시험 없음]. 새 타이머, 재시도, 기한은 없다.
+
+### 커밋과 테스트 먼저
+
+처음 갈래의 커밋 여덟은 이 갈래에서 여섯이 됐다(리뷰 뒤 시험 커밋 둘을 앞 시험 커밋에 합침). 짝: `ab666f70` + `b03f33bc` → `80506944`,
+`784af733` + `0ef26a9f` → `ee31c3b5`, `270ea0b1` → `1d2fcdcb`(메시지만 고침, 아래), `b6a19271` → 이 기록 커밋, 그리고 아래 주석 커밋과 리뷰 뒤
+기록 커밋이 뒤따른다. 합친 시험 파일 둘은 처음 갈래의 끝(`0ef26a9f`)과 바이트로 같다.
+
+- **회귀 행 `80506944`('test: pin the YouTube loads on the paths a late PRO join's catch-up shares'):** 새
+  `src/youtube/__tests__/youtube-load-shared-paths.test.ts`(늦은 합류 하네스, 합성 방 코드). 공유 길 다섯, 일곱 행: (1) 'a Standard room
+  YouTube load shows the effects toast once', (2) 'a PRO track change whose READY is on time loads once with one effects toast', (3) 'a load of
+  another video while one is still handshaking replaces that iframe, as today'와 같은 제목의 (3, Standard)(일반방은 `playTrack` 둘), (4) 'a new
+  PREPARE of the occurrence whose first iframe is still handshaking replaces that iframe, as today'와 'a restore of the occurrence whose first
+  iframe is still handshaking replaces that iframe, and so does its own catch-up, as today'(리뷰가 청한 넷째 행: 이 기기가 준비하지 않은
+  checkpoint의 스냅샷 복원, 그리고 그 복원의 장벽 없는 10 s 기다림 뒤의 따라잡기까지 오늘처럼 다시 불러옴), (5) 'a load into the kept, ready
+  iframe of an iPhone that misses READY is loaded again at the COMMIT catch-up, as today'(그 행만 `IS_IOS`를 켬: 앞 YouTube 트랙을 재생한
+  iPhone이 YouTube를 떠나며 iframe을 숨겨 두고, 다음 트랙의 PREPARE가 그 iframe으로 불러오는데 첫 큐가 READY 앞에 닿지 않아, 준비된
+  플레이어 위에서 불러오기가 진행 중인 채 READY가 실패하고, COMMIT 따라잡기는 지금처럼 같은 iframe에 다시 불러온다: 불러오기·토스트 2,
+  `YT.Player` 1, 지우기 없음, COMMIT 받은 때 + 3 s 합류). 부모 `825ea5d2`에서 7 / 7이다. 사진에 쓴 넓은 임시 판정(처음 갈래의 사진 작업이 남긴
+  커밋하지 않은 고침)을 이 트리에 잠깐 얹으면 (1) ~ (3)은 통과하고 (4) 둘과 (5)가 실패한다(`:377` 'expected "vi.fn()" to be called 2 times,
+  but got 1 times', `:416` 'expected [ 2000000 ] to have a length of 2 but got 1', `:500` 'expected "vi.fn()" to be called 2 times, but got 1
+  times'). 곧 넷째 행이 판정의 넓이를, (5)가 준비된 플레이어 조건을 지킨다. 리뷰는 (5)를 준비된 상주 iframe의 보통 YT→YT 불러오기로
+  청했지만, 그 장면은 조건이 있든 없든 불러오기·토스트 2라(진행 중 표시가 명령 때 꺼짐, 위 '읽기') iPhone의 숨겨 둔 iframe으로 바꿨다(처음
+  갈래의 커밋하지 않은 시험). 로컬 다시 합류는 행을 두지 않았다: 이미 적용한 checkpoint를 다시 맞추는 길이라 첫 화면이 손잡기 중일 수 있는
+  것은 iframe을 다시 만든 뒤뿐이고, 그 길(`prepareCurrentProPlaybackRendezvousAuthority`로 가는 `reapplyCurrentPlaybackCheckpoint`의 요청)은
+  `missedReady`를 넘기지 않는다.
+- **실패 시험 `ee31c3b5`('test: expect one load, one toast and the kept iframe at a late PRO join's catch-up'):**
+  `src/youtube/__tests__/pro-late-prepare-reload.test.ts`의 (a) 행 둘을 뒤집고 이름을 바꾸고, (a) 행 둘을 더했다. '(a) replays youtube:load and
+  the effects toast when the COMMIT catch-up meets a still-loading iframe' → '(a) keeps the still-loading iframe, its one youtube:load and one
+  effects toast at the COMMIT catch-up'(불러오기 2 → 1, 토스트 2 → 1, `YT.Player` 2 → 1, 첫 iframe에 `destroy` 없음, `getYouTubePlayer()`가 첫
+  iframe이고 그 iframe으로 합류). '(a) replays youtube:load and the effects toast while the IFrame API script is still loading' → '(a) waits
+  for the IFrame API script without a second youtube:load or effects toast'(불러오기 2 → 1, 토스트 2 → 1, 스크립트가 오면 `YT.Player`
+  하나). 리뷰 뒤 행 '(a) keeps the still-loading iframe when the committed checkpoint arrives in a snapshot instead of the COMMIT frame'(위
+  '신호')과 '(a) waits for a first iframe that never finishes its handshake until that load times out, 15 s after PREPARE'(위 '지키는 불러오기의
+  기한'). 합류는 그대로 COMMIT(또는 스냅샷) 받은 때 + 3 s, 방 위치 2.3 s(3.0 − 0.7)이고, 파일 머리 주석과 `snapshot()` 만들기 도우미를
+  고쳤다. 부모 `80506944`에서 (a) 넷이 COMMIT이나 스냅샷 뒤 첫 횟수 단언에서 실패하고(`:445`, `:488`, `:538` 'expected "vi.fn()" to be
+  called once, but got 2 times', `:578` 'expected [ 2000000, 2002400 ] to have a length of 1 but got 2'), 나머지 다섯과 회귀 일곱은 통과한다.
+  처음 갈래에서 고치기 전 런타임(`e8cacdd4`)으로 잰 줄과 같다.
+- **런타임 `1d2fcdcb`('youtube: a late PRO join's catch-up keeps its occurrence's still-loading load (Phase 6 6D-6, intended)'):** 위 '모양'의
+  네 파일(+47 / −1줄), 처음 갈래의 `270ea0b1`과 patch-id가 같다. 두 시험 파일 16 / 16. 메시지는 처음 갈래의 리뷰가 고치라고 한 한 문장을
+  고쳤다: 서버 PREPARE와 이 기기가 준비하지 않은 checkpoint의 복원(그 따라잡기 포함)이 깃발을 넘기지 않아 오늘처럼 다시 불러오고 공유 길
+  파일이 그것을 고정하며, 참가자 로컬 다시 합류의 요청은 깃발을 싣지 않는다(옛 문장은 '스냅샷 복원과 그 따라잡기, 로컬 다시 합류도 고정'이라
+  했는데 로컬 다시 합류의 행은 없고, 준비한 checkpoint를 실은 스냅샷은 깃발을 넘긴다). 테스트 먼저 커밋을 합쳤으므로 '(a) 행 넷'과 이 갈래에서
+  잰 크기(+68 B)도 고쳤다.
+- **이 기록:** 이 절, 아래 '6D의 남은 두 단계'와 '사용자가 알아챌 변화', `docs/README.md` 증거 목록의 이 열차 문장. 레지스트리는 바꾸지
+  않았다(아래).
+
+그대로 초록인 행(처음 갈래의 `270ea0b1`): `src/player/__tests__/playlist.test.ts` 125행(그 가운데 'reuses the exact resident YouTube video during
+server preparation', 'lets an unbarriered YouTube restore wait for a first player load', 'restarts the current YouTube occurrence without
+reloading its iframe', 'directly hands off a new queue occurrence of the resident YouTube video'), `src/youtube/__tests__/load-lifecycle.test.ts`
+30행(그 가운데 'replacement made by real reuse failure rejects all retired callbacks', 'a ready reused iframe needs no second onReady and survives
+the new load deadline', 'a superseded noReady deadline cannot cancel a later load attempt'), `pro-late-prepare-reload.test.ts`의 상주 iframe
+(a) 행·(b)·(c)·Android 두 행, `src/pro-room/__tests__/playback-late-cohort-join.test.ts` 8 / 8, T0b 참값표 62와 19
+(`youtube-start-ownership-table.test.ts`, `youtube-start-ownership-table-pro.test.ts`), 골든 `pro-ready-timing-golden` 10,
+`arm-steps-golden` 63, `standard-start-wire-golden` 16, `zero-start-recovery-golden` 38. 이 갈래의 `1d2fcdcb`에서 `src/youtube`,
+`src/player`, `src/pro-room`이 모두 통과한다(아래 '옮긴 뒤 검사').
+
+### 사진
+
+- **오너가 본 것(만들기 전):** 기기 하나(Chromium, 한국어, 휴대폰 화면 390 × 844), 사진 시험 안에 둔 임시 가짜 YouTube(`e2e/helpers/fake-yt.ts`가
+  아님), 합성 방 코드의 PRO 방 흉내. 첫 iframe의 손잡기를 COMMIT 뒤 0.5 s까지 붙잡는 변형 하나다. 낱장 아홉(들어온 직후, PREPARE를 받은 때 T부터
+  T + 0.3, 1.5, 2.7 s, COMMIT(C, 약 T + 3.0 s) + 0.15, 0.45, 1.2, 3.6, 5.5 s)을 '지금'과 '고친 뒤'(커밋하지 않은 임시 고침)로 두 벌 찍었고,
+  한 장으로 보기는 그 가운데 다섯(T + 0.3, 2.7 s, C + 0.15, 1.2, 3.6 s)이다. 세는 값(불러오기, 지우기, 플레이어, 토스트)은 지금 2·1·2·2,
+  고친 뒤 1·0·1·1이다.
+- **만든 뒤 다시 찍음(오너의 조건, 처음 갈래):** 같은 장면과 같은 사진 시험(출력 경로만 바꿈, 커밋하지 않음)을 처음 갈래의 실제 빌드에서
+  돌렸다. '지금'은 `784af733`(런타임 `e8cacdd4`), '고친 뒤'는 `270ea0b1`의 `npm run build:e2e`이고, 로컬 Chromium, 포트 4796 / 9796, trace 끔,
+  2026-11-03 00:01 ~ 00:02 KST다. 브라우저 기록: 고친 뒤는 `youtube:load`와 토스트가 T + 26 ms에 한 번, 화면 1 유지(지우기 없음), 손잡기
+  C + 0.51 s, 합류 `playVideo` C + 3.008 s(C = T + 3.006 s). 지금은 불러오기와 토스트가 T + 20 ms와 T + 3.03 s에 두 번, 화면 1을 T + 3.020 s에
+  지우고 화면 2를 T + 3.027 s에 만들고, 합류 C + 3.011 s다. READY 'failed'는 두 쪽 모두 한 번(T + 2.35 s, 2.37 s)이다. 임시 고침으로 찍은
+  기록과 같은 모양이다(그때 고친 뒤는 T + 19 ms에 한 번, 합류 C + 3.010 s).
+- **낱장 견주기(고친 뒤 아홉, 승인한 낱장과):** 들어온 직후, C + 3.6 s(합류), C + 5.5 s의 셋은 바이트로 같다(SHA-256 같음). 나머지 여섯
+  (T + 0.3, 1.5, 2.7 s, C + 0.15, 0.45, 1.2 s)은 픽셀이 조금 다르다(390 × 844 가운데 채널 차가 32를 넘는 픽셀 15 ~ 138개). 다른 곳은 모두
+  계속 도는 표시 둘, 곧 가짜 YouTube 화면 가운데의 도는 표시(y 약 160 ~ 200)와 앱 재생 버튼 자리의 도는 표시(y 약 505 ~ 535)이고, T + 0.3 s에는
+  막 나타나는 토스트의 흐림 차(32 이하)가 더 있다. 찍은 순간의 회전 각도와 나타나는 정도의 차이다. 토스트의 횟수와 때, '시험용 YouTube
+  화면 1' 번호, 제목, 시간 막대, 버튼, 합류 뒤의 0:02 / 4:00은 같다. '지금' 아홉도 같다(셋은 바이트로 같고, 나머지는 같은 표시 둘과
+  토스트의 흐림만 다름).
+- **한 장으로 보기:** 새 낱장으로 '트랙'을 써서 다시 만들었다(제목 '6D-6 만든 뒤 확인: PRO 방에서 트랙 준비가 늦은 기기의 토스트와 YouTube
+  화면', 아래 줄 이름 '실제로 고친 앱(만든 뒤 찍음)'). 칸과 설명 글은 승인한 판과 같다. 사진은 PR 설명에 싣는다(릴리스 담당).
+- **옮긴 뒤:** 이 갈래의 빌드로는 다시 찍지 않았다. 6D-6의 런타임 패치는 같고, 바탕이 main `432d4ae7`로 바뀌어 그 사이 main에 들어온
+  App 9.0.33(한글을 Pretendard로)과 9.0.34의 화면 변경이 사진의 바탕 화면에도 들어간다. 사진이 보이는 토스트·화면 횟수와 때는 바탕과 상관없다
+  [추론].
+
+### 처음 갈래의 검사 (`270ea0b1`, 2026-11-02 23:38 ~ 2026-11-03 00:19 KST)
+
+Windows 11 로컬, 처음 갈래의 worktree(`npm ci` 482 packages), Node 24.22.2 / npm 12.0.2, vitest 5.0.3(`--maxWorkers=4`), vite 8.3.3,
+Playwright 1.63.0(Chromium). 실행은 하나씩 차례로 돌렸고, 앞뒤로 작업 트리가 깨끗했다('지금' 빌드와 부모 실행이 `git restore`로 바꾼 런타임
+파일은 그때마다 HEAD로 되돌렸다).
+
+- **단위(`src/youtube`, `src/player`, `src/pro-room`, 파일 순서, `270ea0b1`):** 248 files, 6,800행 모두 통과. `e8cacdd4`보다 회귀 여섯이 많다.
+  기록 커밋 뒤 shuffle seed 7과 4242로도 6,800 / 6,800이다.
+- **`npm run typecheck`, `npm run lint`, `npm run format:check`:** `270ea0b1`에서 종료 코드 0.
+- **`guard:*` 37개(`npm run build`의 운영 빌드 위에서 하나씩, `270ea0b1`):** `guard:sw-cache-version` 하나만 버전 올리기 전이라 실패하고,
+  나머지 36개는 통과한다(dead-exports의 새 읽기 하나는 운영이 씀, import-graph 순환 0과 새 간선 없음, bus-pairing 202 / 202, room authority
+  79 / 22 / 13 / 0 / 0).
+- **`node scripts/check-resource-ownership.mts`와 `--report`:** 통과, 기준치 그대로. 부모의 `--report`와 다른 것은 `iframe.ts`에 더한
+  18줄로 옮긴 줄 번호 셋(`mute()` 둘과 넛지 읽기 하나)뿐이다.
+- **크기:** 처음 갈래의 부모 대비 eager JS gzip +77 B(465,730 → 465,807). 이 갈래에서 다시 잰 값은 아래 '옮긴 뒤 검사'.
+- **돌리지 않은 것:** 단위 전체, 핵심·Worker 커버리지, `test:e2e:critical`과 YouTube spec 열, WebKit.
+
+### 옮긴 뒤 검사 (`825ea5d2` 위, 2026-11-03 04:05 ~ 04:20 KST)
+
+이 갈래의 worktree, 같은 툴체인. 시험 커밋은 실행 뒤 커밋했고, 커밋하기 전의 작업 트리가 그 커밋의 트리와 같았다.
+
+- **테스트 먼저:** 회귀 `80506944`의 공유 길 파일이 부모 `825ea5d2`에서 7 / 7, 실패 시험 `ee31c3b5`의 두 파일이 부모 `80506944`에서 16 가운데
+  12 통과·(a) 넷 실패(위 줄), 런타임 `1d2fcdcb`에서 16 / 16.
+- **크기(`npm run build` 뒤 `measureInitialTransfer`, `dist/`를 지우고 빌드):** 부모(`ee31c3b5`, 런타임은 `825ea5d2`·`acc22d3a`와 같음)는
+  `main-CxKijAQp.js` 859,957 / 253,973, eager JS gzip 465,728, eager total 2,048,015 / 544,001로 위 '번들 크기'의 리뷰 반영 끝과 같다.
+  `1d2fcdcb`은 `main-CKGBvJB_.js` 860,091 / 254,039, eager JS gzip 465,796, eager total 2,048,149 / 544,072다. 곧 eager JS gzip +68 B, eager
+  total +134 / +71 B, 진입 +134 / +66 B로 증분 상한 +300 B 안이다(처음 갈래의 +77 B와 몇 바이트 다른 것은 바탕이 바뀌어 압축 문맥이 달라진
+  몫으로 본다[추론]).
+
+### 크기와 Phase 6 누계
+
+Phase 6 누계(증분마다 부모 대비 잰 차의 합)는 6A −149 + 6B −53 + 6C +33 + 6D-1 ~ 6D-5 +294 + 6D-6 +68 = **+193 B**로 Phase 상한 +200 B
+안이다. 6C-3이 쓸 수 있는 남은 몫은 7 B다. 넘으면 Q29대로 멈추고 잰 숫자로 묻는다. 6D-6의 몫은 새 읽기 하나와 판정 갈래 하나, 요청 필드
+하나다(압축 전 진입 +134 B).
+
+### 혼합 버전
+
+기기 안의 일이다. READY를 놓친 기기의 따라잡기만 바뀌고, 서버와 주고받는 프레임과 READY 시각, 다른 기기가 받는 것은 같다(와이어 파일
+`src/network/protocol.ts`, `src/types/index.ts`, `src/core/constants.ts`와 `cloudflare/`는 바뀌지 않음). 옛 앱과 새 앱이 섞인 PRO 방에서는
+기기마다 자기 앱의 따라잡기를 한다.
+
+### 되돌리기
+
+- **6D-6만:** 런타임 커밋 `1d2fcdcb`과 실패 시험 커밋 `ee31c3b5`을 함께(거꾸로) 되돌린다. 그러면 런타임이 `825ea5d2`와 같아지고 (a) 행이
+  오늘 동작(불러오기·토스트 2)으로 돌아간다. 회귀 행(`80506944`)은 양쪽에서 통과하므로 남겨도 되고, 기록 커밋은 손으로 맞춘다. 런타임 커밋만
+  되돌리면 (a) 넷이 실패한다(위 부모 실행과 같은 실패).
+- **6D 전체:** 위 '되돌리기'대로 6D를 되돌리면 6D-6도 함께 되돌아가 (a) 행이 오늘 동작으로 돌아간다.
+
+### 레지스트리
+
+바꾸지 않았다. 새 회복·재시도·기한·감시 흐름이 없고 레코드가 이름 붙인 주인이 그대로다. iframe 인스턴스의 만들기와 지우기는 `iframe.ts`
+(RO-14)가 그대로 갖고, 따라잡기는 그 주인에게 불러오기를 덜 청할 뿐이며, 새 `isYouTubeOccurrenceStillLoading`은 부작용 없는 읽기다. PRO 준비의
+기한은 RO-03의 문장대로다(서버 PREPARE 2.3 s, 복원·따라잡기·다시 합류 10 s, 이음새가 자기 호출부터 셈). 지키는 불러오기의 15 s 기한은
+`iframe.ts` 불러오기(RO-14의 loader)의 기존 기한이다. 새 회귀 파일은 늦은 합류 고정 행처럼 앱의 늦은 합류 앞섬을
+`src/pro-room/__tests__/__helpers__/pro-late-youtube-join-timing.ts`의 복사본에서, 장벽 없는 준비 예산을 그 집 `src/youtube/constants.ts`에서
+읽고, 회귀 행 (5)는 장벽 있는 준비 예산 `PRO_YOUTUBE_BARRIERED_PREPARE_TIMEOUT_MS`를, 끝내 준비되지 않는 iframe 행은 불러오기 기한
+`SCRIPT_LOAD_TIMEOUT_MS`를 같은 집에서 읽는다. 가드 수도 그대로다(위 '처음 갈래의 검사').
+
+### 열린 항목과 확인하지 않은 것
+
+- release-record §2의 'YouTube 재합류 동기화'(지금 `docs/release-record.md:4201-4209`)에도 이 보고서를 잇는다(릴리스 담당, 아래 '열린 항목').
+  기기 근거 없이 지우지 않는다.
+- WebKit, 실제 휴대폰과 실제 YouTube: 행과 사진은 jsdom과 Chromium의 가짜 YouTube다. iPhone의 숨겨 둔 iframe 행 (5)도 jsdom에서
+  `IS_IOS`만 켠 것이다.
+- 느린 손잡기(3 s 넘게)에서 합류가 얼마나 앞당겨지는지의 실측.
+- 위 '지키는 불러오기의 기한'의 늦은 스냅샷 경우와, 끝내 준비되지 않는 첫 iframe이 기한으로 끝난 뒤 방의 다음 복원이 다시 불러와 합류하는지
+  (둘 다 시험 없음).
+- 이 갈래의 빌드로 사진을 다시 찍지 않았다(위 '사진'의 '옮긴 뒤').
+
+## 6D의 남은 두 단계: 6D-6(만듦)과 6C-3(아직 만들지 않음)
+
+오너가 2026-11-02 밤 둘 다 '예'라고 답했다(위 '오너 결정'). 둘 다 [화면 바뀜]이다. 6D-6은 이 갈래에 만들었고(위 '6D-6'), 6C-3은
+아직 만들지 않았다.
 
 - **순서(D10):** 6D-6 → 6C-3 → 버전 올리기. 오너 답은 6C-3을 '6D의 마지막 단계', 6D-6을 '6D 마지막 고침'이라 했고 둘 사이의 순서는 정하지
   않았다. 6C-3을 마지막에 두는 까닭은 6C-3이 만들기 전에 열린 점을 확인해야 해서다: 그 확인이 오너에게 다시 물을 일을 만들면 6C-3만 빠지고
   6D-6은 그대로 둘 수 있다. 둘은 바꾸는 파일과 뒤집는 행이 겹치지 않는다(6D-6: `src/player/playlist.ts`와 늦은 합류 (a) 행, 6C-3:
   `src/youtube/iframe-audio.ts`의 `readYouTubeAppAudio`와 두 규칙 행). 저마다 실패 시험 먼저, 자기 커밋, 자기 '의도한 변경' 절을 둔다.
-- **크기:** Phase 6 순증 +125 B에서 상한까지 +75 B를 둘이 함께 쓴다. 넘으면 Q29대로 멈추고 잰 숫자로 묻는다.
+- **크기:** Phase 6 순증 +125 B에서 상한까지 +75 B를 둘이 함께 쓴다. 6D-6이 68 B를 써서(위 '6D-6'의 '크기와 Phase 6 누계') 6C-3의 몫은
+  7 B다. 넘으면 Q29대로 멈추고 잰 숫자로 묻는다.
 - **업데이트 창:** 둘 다 6D의 버전 올리기와 함께 나가 창이 늘지 않는다.
-
-### 6D-6 (Q22 (가), 오너 답 '예, 이대로')
-
-계획 §4.9의 6D-6(Q22 (가), 'intended')이다. 오너가 2026-10-30에 '(가)는 4차 업데이트에서 고침, 만들기 전 사진 먼저'라고 답했고, 2026-11-02 밤
-트랙 말로 다시 만든 프레임 묶음을 보고 '예, 이대로 6D 마지막 고침으로'라고 답했다. 오너가 붙인 조건은 넷이다: 실패 시험 먼저, 판정을 COMMIT
-따라잡기로 좁힘(아래 '고칠 모양의 넓이'의 권장), 넷째 공유 길 행(R4)을 양쪽에서 돌림, 만든 뒤 사진과 같게 보이는지 다시 확인. 판정을 넓혀야
-하면 만들기 전에 다시 묻는다. 만들면 이 절이 그 '의도한 변경'의 자기 절이 되고 사진을 PR 설명과 이 절에 싣는다.
-
-- **언제:** PRO 방에서 YouTube 화면을 아직 갖지 않은 기기가 트랙 준비(PREPARE)를 받았는데, 그 기기의 YouTube 화면이 2.3 s 준비 예산 안에
-  손잡기(onReady)를 끝내지 못해 READY가 실패하고 서버가 그 기기 없이 COMMIT할 때다. 그 기기는 COMMIT을 받고 3 s 뒤 방 위치로 따라
-  들어온다. 드문 경우다.
-- **지금:** 준비 때 `youtube:load`와 'YouTube 함께보기 · 고급 음향 효과가 비활성화돼요' 안내(`youtube.effects_disabled`)가 한 번 나고, COMMIT
-  따라잡기가 준비 길을 다시 돌며 `youtube:load`와 같은 안내를 한 번 더 낸다. 그 둘째 불러오기가 아직 손잡기 중인 iframe을 지우고(`destroy`) 새
-  iframe을 만들어 손잡기를 처음부터 다시 기다린다. IFrame API 스크립트가 아직 오는 중이면 iframe은 없고 불러오기와 안내만 두 번이다.
-- **바뀐 뒤:** 같은 occurrence·영상의 불러오기가 이미 도는 중이면 상주처럼 다뤄 둘째 `youtube:load`를 내지 않는다. 안내 한 번, YouTube 화면
-  그대로. 화면이 3초 안에 준비되는 기기에서는 들어오는 순간(COMMIT 받은 뒤 3 s)과 방 위치는 같다. 느린 휴대폰에서는 고친 뒤 그 기기의 소리가
-  지금보다 일찍 날 수 있다(지금은 화면을 다시 만드느라 늦게 남). 사진의 시험은 새 화면도 0.5초 만에 준비되게 해서 같아 보인다. 까닭: 지금은
-  다시 만든 iframe이 COMMIT 때 손잡기를 처음부터 하고, 그것이 약 2.6 s를 넘으면 3 s 계획이 지나간다(`plannedLateYouTubeTiming`이 남은 시간
-  400 ms 아래에서 null, `src/pro-room/playback-controller.ts:363-376`). 그러면 마지막 시도가 바로 따라잡기로 더 늦게 들어온다. 고친 뒤는 첫
-  iframe이 3 s 일찍 손잡기를 시작해 계획에 맞출 수 있다. 그 차이의 크기는 재지 않았다. 고칠 모양은 늦은 합류 고정 행을 더한 시험만
-  PR(#539)이 적은 첫째 제안이다: `src/player/playlist.ts`의 `prepareAuthoritativePlayback` 재사용 판정(`reuseResidentYouTube`, `:2667-2681`)에서 판정해 `playTrack`의
-  `youtube:load`(`:1190`)를 건너뛰고, 준비 이음새 `prepareYouTubeAuthorityOccurrence`(`src/youtube/iframe.ts:2126`)가 장벽 없는 10 s 예산을
-  기다린다. 정확한 모양은 만들 때 정한다[추론].
-- **고칠 모양의 넓이(리뷰):** 사진에 쓴 임시 고침은 첫 불러오기가 아직 도는 동안 같은 queue 항목·영상의 `prepareAuthoritativePlayback`을 모두
-  상주처럼 다룬다. 그 함수는 서버 PREPARE, COMMIT 따라잡기, 장벽 없는 복원과 다시 합류가 함께 지나는 입구다(`src/player/playlist.ts:2643-2681`,
-  `:2726-2731`). 그래서 그 모양대로면 첫 손잡기가 느린 동안 같은 트랙의 복원이나 로컬 다시 합류도 다시 불러오기와 안내를 하지 않게 되는데,
-  공유 길 행 셋도 오너 질문도 그 경우를 다루지 않는다. 만들 때 넷째 공유 길 행(첫 iframe이 손잡기 중일 때 온 같은 YouTube occurrence의 복원
-  또는 다시 합류, 양쪽에서)을 더하고, 술어를 COMMIT 따라잡기로 좁히기를 권한다(그러면 오너께 드린 설명 그대로다). 좁히지 않으면 그 경우를
-  의도한 변경에 넣어 오너께 다시 적는다. 오너는 2026-11-02 밤 이 권장대로 답했다: 판정을 COMMIT 따라잡기로 좁히고 R4를 양쪽에서
-  돌리며, 넓혀야 하면 만들기 전에 다시 묻는다.
-- **사진(만들기 전에 오너에게, 찍은 것):** 기기 하나(Chromium, 한국어, 휴대폰 화면 390 × 844), 사진 시험 안에 둔 임시 가짜 YouTube
-  (`e2e/helpers/fake-yt.ts`가 아님), 합성 방 코드의 PRO 방 흉내. 변형은 하나다: 첫 iframe의 손잡기를 COMMIT 뒤 0.5 s까지 붙잡음(iframe
-  손잡기 중). PREPARE를 받은 때(T)부터 여덟 장: T + 0.3, 1.5, 2.7 s(READY 실패 뒤, 안내 사라짐), COMMIT(C, 약 T + 3.0 s) + 0.15 s(지금: 안내
-  2, 화면 #1이 지워지고 #2가 생김 / 바뀐 뒤: 안내 없음, #1 그대로), C + 0.45, 1.2(화면 준비), 3.6(방 위치로 들어옴, 둘 다 같음), 5.5 s. 한 장으로
-  보기(`frame-sheet.png`)는 그 가운데 다섯(T + 0.3, 2.7, 3.2, 4.2, 6.6 s, 곧 C + 0.2, 1.2, 3.6)이다. '지금'과 '바뀐 뒤'(커밋하지 않는 임시 고침)를
-  두 줄로 놓았고, 세는 값(불러오기, 지우기, 플레이어, 안내)은 지금 2·1·2·2, 바뀐 뒤 1·0·1·1로 단위 행과 맞는다. IFrame API 스크립트 오는 중
-  변형은 찍지 않았다: 그때는 화면이 없어, 바뀌는 것은 불러오기와 안내 횟수(2 → 1)뿐이다(지우기는 둘 다 없음).
-- **실패 시험(만들 때 먼저):** `src/youtube/__tests__/pro-late-prepare-reload.test.ts`의 (a) 행 둘을 뒤집는다. '(a) replays youtube:load and
-  the effects toast when the COMMIT catch-up meets a still-loading iframe'(`:405`): 불러오기·안내 2 → 1, `YT.Player` 2 → 1, 첫 iframe의
-  `destroy` 없음, `getYouTubePlayer()`가 첫 iframe. '(a) replays youtube:load and the effects toast while the IFrame API script is still
-  loading'(`:455`): 불러오기·안내 2 → 1, 스크립트가 오면 플레이어 하나. 들어오는 순간과 위치 단언은 그대로다. 두 행의 제목을 바꾸고 이름으로
-  적는다.
-- **양쪽에서 통과할 공유 길 회귀 행(실패 시험 앞, 새 묶음, `__helpers__/scripted-iframe-api.ts`):** R1 Standard 방의 YouTube 불러오기는
-  `youtube.effects_disabled`를 한 번 띄운다. R2 보통 PRO occurrence 바뀜(READY가 제때)은 `youtube:load`와 안내를 한 번 내고, 제때 온 COMMIT은
-  더하지 않는다. R3 다른 영상 A의 iframe이 아직 손잡기 중일 때 온 영상 B의 불러오기는 지금처럼 A를 지우고 새 iframe을 만든다
-  (`src/youtube/iframe.ts:1809-1822`, 플레이어 둘, 첫 iframe의 기록 ['destroy']). 오늘 안내 횟수를 세는 행동 시험은 늦은 합류 고정 행뿐이라,
-  너무 넓은 고침('occurrence가 바뀔 때만 안내', '불러오는 iframe은 늘 유지')은 이 셋 없이는 실패 없이 Standard 동작을 바꿀 수 있다. R4는 위
-  '고칠 모양의 넓이'의 넷째 행이다(아직 쓰지 않음).
-- **그대로 초록이어야 할 행:** `src/player/__tests__/playlist.test.ts` 'reuses the exact resident YouTube video during server preparation'
-  (`:578`), 'lets an unbarriered YouTube restore wait for a first player load'(`:627`), 'restarts the current YouTube occurrence without
-  reloading its iframe'(`:1999`), 'directly hands off a new queue occurrence of the resident YouTube video'(`:2034`), `pro-late-prepare-reload.test.ts`의
-  상주 iframe (a) 행(`:497`, 불러오기·안내 0), (b)·(c) 행과 Android 행(`:627`부터), `playback-late-cohort-join.test.ts` 8행,
-  `load-lifecycle.test.ts`의 `:383`, `:472`, `:487`, T0a PRO READY 시각 골든.
-- **고칠 자리(오늘 줄):** `src/player/playlist.ts:2667-2681`, `:1190`. `src/youtube/player.ts:2889`(`youtube:load` 처리기가 `loadYouTubeVideo`를
-  부름). `src/youtube/iframe.ts:1741`(`loadYouTubeVideo`), `:1809-1822`(지우기 문), `:1919`(안내), `:2126`(준비 이음새).
-- **혼합 버전:** READY를 놓친 기기의 따라잡기만 바뀌고 서버와 주고받는 프레임과 READY 시각은 같다[추론].
-- **크기:** Phase 6 순증 +125 B에서 상한까지 +75 B가 남고, 6C-3과 함께 쓴다. 넘으면 Q29대로 멈추고 잰 숫자로 묻는다.
-- **되돌리기 메모:** 이 증분만 되돌리면 (a) 행이 오늘 동작으로 돌아간다. 6D를 되돌리면 함께 되돌아간다.
-- **열린 항목:** 들어가면 'YouTube 재합류 동기화'에도 이 보고서를 잇는다(아래 '열린 항목').
 
 ### 6C-3 (Q2, 오너 답 '예', 만들기 전에 열린 점 확인)
 
@@ -696,11 +869,14 @@ App을 정한다. 증상의 경로(게스트 복구, 방장 복구, 로컬 시�
 
 ## 사용자가 알아챌 변화
 
-이 갈래 그대로는 없다. 버전 올리기와 함께 업데이트 창이 한 번 뜬다(Q1의 넷 가운데 넷째이자 마지막, 창 모양은 지금 그대로). 처음 받는 코드는
-gzip 기준 JS 294 B, 전체 292 B 늘고 raw로는 전체 252 B 는다(운영 9.0.34와 런타임이 같은 main `432d4ae7` 대비, 버전 올리기 앞, 위 '번들 크기').
-오너가 '예'라고 한 두 단계가 들어가면 그 경우에만 달라진다: 6D-6은 PRO 방에서 늦게 합류하는 기기의 'YouTube 함께보기' 안내가 한 번만 뜨고
-불러오던 YouTube 화면이 다시 만들어지지 않으며, 6C-3은 마스터 볼륨이 0과 0.5 % 사이일 때 iPhone에서 YouTube 소리가 기기 볼륨으로 들리지
-않는다(위 '6D의 남은 두 단계').
+[화면 바뀜] 이 갈래에서는 6D-6 하나다. PRO 방에서 트랙 준비가 2.3초 안에 끝나지 않아 뒤늦게 합류하는 기기(그 트랙을 받을 때 아직 YouTube
+화면이 없던 기기)에서 'YouTube 함께보기' 토스트가 두 번 대신 한 번 뜨고, 불러오던 YouTube 화면을 지웠다 다시 만들지 않는다(위 '6D-6'). 그
+기기가 시작을 방의 상태(스냅샷)로 알게 되어도 같다. 그 기기의 첫 화면이 끝내 준비되지 않는 드문 경우에는 새 화면으로 다시 시도하지 않고,
+준비 신호 15초 뒤 'YouTube 로드 시간 초과' 토스트로 끝난다(위 '6D-6'의 드문 실패 경우). 나머지 화면과 소리는 그대로다. 버전 올리기와 함께
+업데이트 창이 한 번 뜬다(Q1의 넷 가운데 넷째이자 마지막, 창 모양은 지금 그대로). 처음 받는 코드는 gzip 기준 JS 362 B, 전체 363 B 늘고
+raw로는 전체 386 B 는다(운영 9.0.34와 런타임이 같은 main `432d4ae7` 대비, 6D-1 ~ 6D-5의 294 / 292 / 252 B와 6D-6의 68 / 71 / 134 B, 버전
+올리기 앞, 위 '번들 크기'와 '6D-6'). 오너가 '예'라고 한 6C-3이 들어가면 마스터 볼륨이 0과 0.5 % 사이일 때 iPhone에서 YouTube 소리가 기기
+볼륨으로 들리지 않는다(위 '6D의 남은 두 단계').
 
 ## 기록과 레지스트리
 

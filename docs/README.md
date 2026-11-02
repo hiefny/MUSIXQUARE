@@ -97,16 +97,18 @@ runbooks. Neither belongs in a general setup document.
 - [App 9.0.34 / v807 train: Phase 6 6C (one YouTube state router, one iframe audio owner and shared arm steps) and no light-theme stroke on the dialog grey button and the selection bar (2026-11-02)](design/phase6-6c-router-iframe-audio-arm-steps-2026-11-02.md):
   prepared, not released. The next App update, planned as 9.0.34 / v807 (App build 807, target
   `app`, one update dialog) after App 9.0.33 / v806 (Hangul drawn by Pretendard again, released
-  2026-11-02 13:12 KST), on branch `agent/p6-6c`: twenty-three commits on main `a92bab2b` (9.0.33's
+  2026-11-02 13:12 KST), on branch `agent/p6-6c`: twenty-four commits on main `a92bab2b` (9.0.33's
   release record #562; its App runtime is production 9.0.33's). Two increments ride: the third
   Phase 6 App train 6C, neutral, and the owner's light-theme stroke removal, a visible change. 6C's
   twenty-one commits moved from main `7b869c35`, where QA rounds 5 to 8 ran, with every `src` and
   `scripts` patch byte-identical and nineteen of them with the same patch-id (code tip now
   `19362aa2`, record tip `12c69856`; the only conflicts, two, were in `docs/README.md`, where the
   9.0.33 entry had taken the top of this list); the light-stroke commit `c3281b45` is `d6d69bc4`
-  from `agent/light-stroke` cherry-picked cleanly, and one record commit follows. The previous
-  train's post-merge Full E2E 41396274966 on main `6ccc3f10` passed, which meets 6C's merge
-  condition. The version bump, the release-record entry and the release are the release owner's.
+  from `agent/light-stroke` cherry-picked cleanly, and two record commits follow (the second
+  records QA round 10). The previous train 9.0.33 was deployed (Release 41386906358, every
+  production smoke passed) and recorded (#562), and its post-merge Full E2E 41396274966 on main
+  `6ccc3f10` passed, which meets 6C's merge condition (Phase 6 plan §1.4). The version bump, the
+  release-record entry and the release are the release owner's.
   6C-1 turns `iframe.ts`'s fixed-order dispatch of iframe states to the start owners into a router
   with one decision per start claim kind (a kind without one does not compile) and merges the
   Standard host's held room time into one read, the pending-start predicate staying the legacy
@@ -134,17 +136,21 @@ runbooks. Neither belongs in a general setup document.
   edge in light only. The 1px border stays, so nothing changes size; dark, the high-contrast
   palettes and forced colors keep their values, and `public/designsystem/colors_and_type.css` only
   mirrors the value (the one public rule that reads it is on the always-dark design system page).
-  The before and after pictures (72, kept outside the repository and shown to the owner) compare
+  The before and after pictures (72, kept outside the repository; the owner was sent four
+  side-by-side light pictures from them) compare
   pixel for pixel: the 16 dark and light high-contrast pairs change 0 pixels, and the 8 light pairs
   change only inside the button and bar boxes, with unchanged computed sizes. No unit test pins the
-  light value. A separate owner question about lighter light-theme dividers stays open and outside
-  this train.
+  light value. The owner has since answered the separate light-theme divider question with
+  candidate A (`#e4e6e8`, lighter than today's `#d4d6d8`, 2026-11-02 around 17:30 KST); that
+  change is prepared on its own branch and is not in this branch or its checks, and whether it
+  rides 9.0.34 is the release owner's call before the bump.
   The report lists the owner answers used, each 6C increment's tests-first evidence before and
   after the first move, the SHA maps of both moves, the guard counts (CHECK 11 32 → 20), the first
   load (6C +33 B eager JavaScript gzip against main `7b869c35` and again on top of 9.0.33; the train
   +42 B against `a92bab2b`, the rest coming from the CSS edit's renamed hashed file names; Phase 6
   total −169 B), mixed versions, rollback (checkpoint App 9.0.33 / v806, build 806, deploy SHA
-  `4faf38d9`; 6C alone until 6D merges, the light-stroke commit alone), the blind device candidates
+  `4faf38d9`; a forward revert at 9.0.35 / v808 or later; 6C alone until 6D merges, the
+  light-stroke commit alone), the blind device candidates
   with a light-theme look, the open item for the YouTube first-note alignment, the Phase 7
   contracts (rechecked on top of #559) and one new log-only defect. QA round 9, on the new tip
   `c3281b45` (2026-11-02 16:46 to 17:30 KST): types, lint and format; the unit suite 752 files /
@@ -156,8 +162,14 @@ runbooks. Neither belongs in a general setup document.
   (every other Worker 0, no dependency change, the contract paths unchanged); critical E2E 101 /
   101, the ten YouTube Chromium specs 53 / 53 (the plan's eight 41 / 41), the WebKit YouTube
   activation spec 4 / 4, and the light-stroke specs (contrast and design system page 9 / 9, the
-  seven selection-mode playlist specs 32 / 32). The moved tests-first pairs were not rerun on the
-  new parent. Earlier, on `7b869c35`'s line: on `6998f04e`, the unit suite 750 files / 17,973 (one
+  seven selection-mode playlist specs 32 / 32). QA round 10 (18:27 to 18:38 KST) reran the moved
+  tests-first pairs on their new SHAs, each exported with `git archive` into one scratch tree with
+  its own `npm ci` (no worktree, no links): every tests-first commit fails only in the rows it
+  adds, for the same missing code or guard rule, and every code commit passes, with round 5's
+  counts after the first move and round 7's second-review counts (an independent review run gave
+  the same counts); the light-stroke commit `d6d69bc4`'s 51 unit files pass 1,447 / 1,447 there
+  too. The guard counts that differ from round 8 are shown to be main's from file sets. Earlier,
+  on `7b869c35`'s line: on `6998f04e`, the unit suite 750 files / 17,973 (one
   git-fixture timeout that passes alone), `src/youtube`, `src/player` and `src/pro-room` 6,693
   rows in file order and under four `--sequence.shuffle` seeds, critical coverage 110 files /
   4,496, the Phase 7 audio lab 17 / 17, the eight YouTube Chromium specs 41 / 41, critical E2E

@@ -133,7 +133,7 @@ describe('generated app font sheets', () => {
     }
   });
 
-  it('declare in MUSIXQUARE Hangul only Hangul, each face its own cmap, with no metric descriptor', async () => {
+  it("declare in MUSIXQUARE Hangul only Hangul, each face its own cmap, with its file's box as descriptors", async () => {
     const record = await readHangulFaces(ROOT);
     const rules = await readRules('font-hangul');
     expect(rules.map(({ file }) => file)).toEqual(record.faces.map(({ file }) => file));
@@ -154,6 +154,10 @@ describe('generated app font sheets', () => {
         'font-style': 'normal',
         'font-weight': '45 930',
         'font-display': 'swap',
+        'size-adjust': '100%',
+        'ascent-override': '95.21%',
+        'descent-override': '24.12%',
+        'line-gap-override': '0%',
         src: `url(../../../fonts/app/hangul/${rule.file}) format('woff2')`,
         'unicode-range': rule.unicodeRange,
       });

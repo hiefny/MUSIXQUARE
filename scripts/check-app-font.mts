@@ -19,8 +19,9 @@
  *   exactly the output of its generator;
  * - every face is self-hosted: one sheet-relative url() of a committed WOFF2
  *   file under fonts/, never local(), a remote URL or a second source;
- * - every Inter and CJK face carries the metric descriptors of
- *   src/i18n/font-metrics.ts, and the Hangul and script faces carry none;
+ * - every Inter, Hangul and CJK face carries the metric descriptors of
+ *   src/i18n/font-metrics.ts (the Hangul faces their files' own box), and
+ *   the script faces carry none;
  * - the stacks: text takes its family from the app's stacks (a literal list
  *   only in the recorded LITERAL_FONT_FAMILY_RULES); every stack (the body's
  *   and each declaration that reads one) is the same in the Korean and
@@ -75,7 +76,7 @@ import {
 } from './fonts/font-files.mts';
 import { readFaceResolver, readFontStacks, type FaceResolver } from './fonts/font-stacks.mts';
 import {
-  APP_CJK_FAMILIES,
+  appFaceMetrics,
   builtAssetStem,
   declaresFontFace,
   disablesContextualAlternates,
@@ -93,10 +94,8 @@ import {
   stackOrderProblems,
   textSymbolCodePoints,
   woff2Urls,
-  type FaceMetricValues,
 } from './lib/app-font-guard.mts';
 import { APP_FONT_SHEETS } from '../src/i18n/app-font-contract.ts';
-import { CJK_FACE_METRICS, INTER_FACE_METRICS } from '../src/i18n/font-metrics.ts';
 import { LANGUAGE_OPTIONS, languageDirection } from '../src/i18n/locales.ts';
 import { SERVICE_WORKER_SOURCE_PATH } from './service-worker-asset.ts';
 
@@ -140,18 +139,9 @@ const SYSTEM_FAMILIES = new Set([
   'sans-serif',
 ]);
 const APP_FAMILIES: readonly string[] = APP_FONT_SHEETS.map(({ family }) => family);
-// Inter and the CJK faces carry the descriptors of font-metrics.ts. The Hangul
-// faces carry none (their files hold the line box itself), nor do the script faces.
-const FACE_METRICS = new Map<string, FaceMetricValues | null>(
-  APP_FONT_SHEETS.map(({ family }) => [
-    family,
-    family === 'Inter'
-      ? INTER_FACE_METRICS
-      : APP_CJK_FAMILIES.includes(family)
-        ? CJK_FACE_METRICS
-        : null,
-  ]),
-);
+// Inter, the Hangul and the CJK faces carry the descriptors of font-metrics.ts;
+// the script faces carry none.
+const FACE_METRICS = appFaceMetrics();
 // The static pages' original sheets, which About links and the sitemap page
 // loads (src/i18n/static-page-fonts.ts). They keep their source names.
 const STATIC_PAGE_SHEETS = [

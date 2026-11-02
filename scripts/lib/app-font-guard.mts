@@ -5,7 +5,13 @@
 
 import path from 'node:path';
 
-import { parseFontFaceRules } from '../fonts/font-files.mts';
+import { APP_FONT_SHEETS } from '../../src/i18n/app-font-contract.ts';
+import {
+  CJK_FACE_METRICS,
+  HANGUL_FACE_METRICS,
+  INTER_FACE_METRICS,
+} from '../../src/i18n/font-metrics.ts';
+import { HANGUL_FAMILY, parseFontFaceRules } from '../fonts/font-files.mts';
 
 /** The four metric descriptors a face carries, in percent. */
 export interface FaceMetricValues {
@@ -250,8 +256,6 @@ export function faceDescriptorMismatches(
   return mismatches;
 }
 
-// ── Stack order ────────────────────────────────────────────────────
-
 /** The four CJK families of the app stacks. */
 export const APP_CJK_FAMILIES: readonly string[] = [
   'Noto Sans KR',
@@ -261,11 +265,34 @@ export const APP_CJK_FAMILIES: readonly string[] = [
 ];
 
 /**
+ * The metric descriptors each app family's faces carry, the map the guard
+ * checks every source and built sheet against: Inter, MUSIXQUARE Hangul and
+ * the CJK families those of src/i18n/font-metrics.ts (the Hangul faces their
+ * files' own box), the script faces none.
+ */
+export function appFaceMetrics(): Map<string, FaceMetricValues | null> {
+  return new Map(
+    APP_FONT_SHEETS.map(({ family }): [string, FaceMetricValues | null] => [
+      family,
+      family === 'Inter'
+        ? INTER_FACE_METRICS
+        : family === HANGUL_FAMILY
+          ? HANGUL_FACE_METRICS
+          : APP_CJK_FAMILIES.includes(family)
+            ? CJK_FACE_METRICS
+            : null,
+    ]),
+  );
+}
+
+// ── Stack order ────────────────────────────────────────────────────
+
+/**
  * What is out of order in an app text stack: Inter, then MUSIXQUARE Hangul,
  * then the CJK families (owner decision 2026-11-02: the Hangul faces draw
  * Hangul ahead of Noto Sans KR in every stack of every UI). A script face
  * may come first (the Indic, Arabic and Hebrew stacks put their own one
- * there); the system fonts come after all of them.
+ * there).
  */
 export function stackOrderProblems(stack: readonly string[]): string[] {
   const problems: string[] = [];

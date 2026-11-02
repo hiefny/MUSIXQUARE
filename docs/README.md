@@ -96,13 +96,16 @@ runbooks. Neither belongs in a general setup document.
 
 - [Phase 6 train 6D: the YouTube start recoveries in one module, the Standard host's local start wait and the PRO start tokens (2026-11-02)](design/phase6-6d-recovery-pro-arm-2026-11-02.md):
   prepared, not released. The fourth and last Phase 6 App update on branch `agent/p6-6d`,
-  twenty-five commits on main `432d4ae7` (the App 9.0.34 / v807 release record): the thirteen commits first
-  built on the 6C train's tip `bdb5759a`, moved patch for patch once 6B (9.0.32 / v805) and 6C
-  (9.0.34 / v807) had shipped, a tests-only commit and a comment and registry commit from the
-  review of the moved branch, one record commit, and 6D-6's nine commits (regression rows, failing
-  test, runtime change, record, post-review comments and post-review record, first built on the
-  first branch's tip `e8cacdd4` and moved with its two post-review test commits folded into the
-  first two, then the fallback's failing test, runtime change and record); the version bump, the release-record entry
+  twenty-nine commits on main `432d4ae7` (the App 9.0.34 / v807 release record): the thirteen
+  commits first built on the 6C train's tip `bdb5759a`, moved patch for patch once 6B (9.0.32 /
+  v805) and 6C (9.0.34 / v807) had shipped, a tests-only commit and a comment and registry commit
+  from the review of the moved branch, one record commit, 6D-6's nine commits (regression rows,
+  failing test, runtime change, record, post-review comments and post-review record, first built on
+  the first branch's tip `e8cacdd4` and moved with its two post-review test commits folded into the
+  first two, then the fallback's failing test, runtime change and record), and 6C-3's four commits
+  (its open point's tests-only row `b00d79ac`, tests first `d6f7cb00`, the runtime change
+  `767a5a08` and one record commit, first stacked without 6D-6 as `5ca0abf0`, `38fcedb5` and
+  `7208a93d` and re-applied patch for patch after it); the version bump, the release-record entry
   and the release are the release owner's. 6D-1 turns the Standard guest's local zero-start recovery from a
   `player.ts` closure into the class `GuestZeroStartRecovery` in the new
   `src/youtube/zero-start-recovery.ts`, and the two
@@ -126,15 +129,25 @@ runbooks. Neither belongs in a general setup document.
   one toast shows and the screen stays, also when the start arrives in a snapshot. A fallback the
   release owner added keeps the rare case no worse than before 6D-6: a first screen still not ready
   at the join the catch-up plans is loaded again there, as before 6D-6 but about 3 s later, instead
-  of ending 15 s after the PREPARE with the load-timeout toast. 6C-3 is not built yet. The new finding (both zero-start
+  of ending 15 s after the PREPARE with the load-timeout toast. 6C-3 is built after it as the
+  train's last increment and its one intended change ([screen changes: sound and start timing only,
+  iPhone, master volume between 0 and 0.5 %]): `readYouTubeAppAudio` loses its 'non-positive'
+  variant, so every site mutes YouTube when the master volume rounds to 0 %, with the same frames
+  and instants. Its open point was checked first and pinned: a PREPARE that takes over the guest's
+  local recovery already carries the 'rounded' intent, while a PREPARE that a remote host sends
+  inside its own run's timeline window comes after an ABORT, which ends the recovery, so the new run
+  captures its own audio, the 'non-positive' answer until 6C-3 (the path the 6C probes hit), and
+  6C-3 changes it as it changes the guest zero-start row. The new finding (both zero-start
   recoveries never seek again when a settle leaves a loaded target more than 0.35 s from the local
   zero, and give up at the end of their window, the iframe paused there with no notice) is
   recorded only, end condition 2 holds under the owner-accepted reading (a), and no T0b defect fix
   rides. The report lists the owner answers used, each increment's tests-first evidence before and
   after the move, the SHA map, the guard counts (CHECK 11 stays 20 as `player.ts`'s recovery
-  writes move into the new module), the first load (+294 B eager JavaScript gzip against main
-  `432d4ae7`, +68 B for 6D-6 and +114 B for its fallback; Phase 6 total +307 B, over the +200 B
-  cap, measured for the owner's Q29 answer before 6C-3), the Phase 6 end-condition check, mixed versions, rollback (checkpoint App 9.0.34 / v807, or the public-page font train's
+  writes move into the new module), the first load (+458 B eager JavaScript gzip against main
+  `432d4ae7`: +294 B for 6D-1 to 6D-5, +68 B for 6D-6, +114 B for its fallback and −18 B for
+  6C-3; Phase 6 total +289 B, over the +200 B cap by 89 B, a Q29 question for the owner), 6C-3's
+  before/after table and timing check against the approved table, the Phase 6 end-condition
+  check, mixed versions, rollback (checkpoint App 9.0.34 / v807, or the public-page font train's
   App if that ships first), the blind device candidates, the three open items to link and the Phase
   7 handoff. QA rounds 1 to 4 ran on the first branch (old base `bdb5759a`). QA round 5 moved it
   onto `432d4ae7` (four docs-only conflicts, every commit's `src` and `scripts` patch unchanged)
@@ -147,14 +160,20 @@ runbooks. Neither belongs in a general setup document.
   merged profile and Worker coverage 69 / 3,325, the build and every guard except
   `guard:sw-cache-version` (the pending bump: 10 App files newer than v807), critical E2E 101 /
   101, the ten local YouTube specs 53 / 53 and the WebKit YouTube activation spec 4 / 4 (ports
-  5391 / 5392, retries 0). 6D-6 came after round 6: shared-path rows that pass before and after
-  it, four late-join rows of a device without an iframe that fail before it (two flipped, a
-  snapshot-route row and a never-ready first iframe row), and an iPhone kept-iframe row that pins
-  the judgement's ready-player bound. Its runtime commit has the first branch's patch-id and adds
-  68 B, its comment commit changes no build byte, and its pictures come from the first branch's
-  real build. The fallback's flipped never-ready row fails before its runtime commit and passes
-  after it; that commit adds 114 B, and types, lint, the three unit directories with the guard
-  self-test and the ownership check pass on it.
+  5391 / 5392, retries 0). QA round 7, on 6C-3's tip `7208a93d` before 6D-6 was put in front of
+  it: the open-point row and the tests-first pair at their commits (56 / 59 on the parent, failing
+  only the three flipped 0.004 rows; 59 / 59 after), types, lint and format, the YouTube, player
+  and PRO room unit directories with the guard self-test (249 files / 6,916 rows), the ownership
+  check (counts unchanged), the build and every guard except `guard:sw-cache-version`, and the
+  first load. 6D-6 then came in front of 6C-3: shared-path rows that pass before and after it, four
+  late-join rows of a device without an iframe that fail before it (two flipped, a snapshot-route
+  row and a never-ready first iframe row), and an iPhone kept-iframe row that pins the judgement's
+  ready-player bound. Its runtime commit has the first branch's patch-id and adds 68 B, its comment
+  commit changes no build byte, and its pictures come from the first branch's real build. The
+  fallback's flipped never-ready row fails before its runtime commit and passes after it; that
+  commit adds 114 B, and types, lint, the three unit directories with the guard self-test and the
+  ownership check pass on it. 6C-3's three code and test commits were then re-applied with the same
+  patch-ids and take −18 B.
 - [App 9.0.34 / v807 train: Phase 6 6C (one YouTube state router, one iframe audio owner and shared arm steps), no light-theme stroke on the dialog grey button and the selection bar, and lighter light-theme dividers (2026-11-02)](design/phase6-6c-router-iframe-audio-arm-steps-2026-11-02.md):
   released on 2026-11-02 21:20 KST in Release 41443521522 (PR #563, squash `cd8eaf47`) as App
   9.0.34 / v807 (App build 807, target `app`, one update dialog, two visible light-theme changes;

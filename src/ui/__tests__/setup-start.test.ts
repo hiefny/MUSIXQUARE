@@ -42,6 +42,12 @@ describe('setup start gesture activation', () => {
     expect(mocks.prime).toHaveBeenCalledExactlyOnceWith({ retryPending: true });
     expect(mocks.activateNoSleep).toHaveBeenCalledOnce();
     expect(mocks.waitForProof).toHaveBeenCalledExactlyOnceWith(YOUTUBE_PRIME_BOUNCE_TIMEOUT_MS);
+    // Phase 6 contract (c), pinned for Phase 7 (2026-11-02): audio:activate,
+    // whose engine handler can resume the AudioContext in this stack, goes out
+    // before the YouTube prime.
+    expect(mocks.emit.mock.invocationCallOrder[0]).toBeLessThan(
+      mocks.prime.mock.invocationCallOrder[0],
+    );
     expect(mocks.prime.mock.invocationCallOrder[0]).toBeLessThan(
       mocks.waitForProof.mock.invocationCallOrder[0],
     );

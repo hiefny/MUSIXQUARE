@@ -5,7 +5,9 @@
  * (pinned 2026-11-02): what a youtube:set-volume event, the PRO pause gate's
  * two events and the PRO direct commit write to the iframe, in which order,
  * which holds they ask, and the two mute rules below 0.5 % master volume, as
- * the App answers today.
+ * the App answers today. Since 2026-11-03 also the audio a guest's new run
+ * takes when a remote host PREPARE arrives during the guest's local recovery,
+ * with and without an ABORT before it.
  *
  * Real: initYouTube's wiring, youtube/iframe.ts behind a scripted IFrame API,
  * the retained player controller, core/timers, the protocol dispatcher, the
@@ -36,6 +38,7 @@
  */
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import '../../audio/engine.ts';
+import { MSG } from '../../core/constants.ts';
 import { bus } from '../../core/events.ts';
 import { resetState, setState } from '../../core/state.ts';
 import { clearAllManagedTimers } from '../../core/timers.ts';
@@ -53,6 +56,7 @@ import type { QueueItemId } from '../../types/index.ts';
 import { cancelYouTubeAuthorityPreparation } from '../iframe.ts';
 import { initYouTube, stopYouTubeMode } from '../player.ts';
 import { resetYouTubeModuleState, setYtPrimed } from '../_state.ts';
+import { isYouTubeStartRecoveryActive } from '../start-ownership.ts';
 import { resetYouTubeSyncState } from '../sync.ts';
 import type { FakeYtPlayer, FakeYtPlayerCall } from './__helpers__/fake-yt-player.ts';
 import { createProEndpointFixture } from './__helpers__/pro-endpoint-harness.ts';
@@ -741,6 +745,82 @@ describe('two mute rules below 0.5 % master volume, as today (pinned 2026-11-02)
   });
 });
 
+describe('a remote host PREPARE during a guest local recovery, below 0.5 % master volume (pinned 2026-11-03)', () => {
+  /**
+   * The guest's next-track load reports the new track only 9 s after it is
+   * issued, so the remote host commits without this guest at +2401 and the
+   * guest's local recovery waits on that load. The remote host then starts
+   * the first occurrence again (still the guest's resident video) at one of
+   * two instants, and each cell runs on its own fresh App device:
+   * - abortFirst (+3000): the remote host's own run is still inside its
+   *   timeline window, so it sends ABORT before the PREPARE. The ABORT ends
+   *   the guest recovery without a hand-over (its cleanup and the cancelled
+   *   run's restore write the run's audio), and the new run captures its own
+   *   desired audio;
+   * - transferred (+6000): the remote host's run has left that window, so the
+   *   PREPARE comes alone. The new run takes over the recovery's iframe and
+   *   player.ts pushes the app audio into it as the run turns busy (the
+   *   transferred intent).
+   * A cell lists the zero-start frames the App receives, its iframe's audio
+   * commands, plays and the desired audio pushed into the zero-start machine,
+   * and the muted value of its ARMED, from the instant the remote host starts
+   * for 1.4 s.
+   */
+  const WINDOW_MS = 1_400;
+
+  async function prepareDuringRecovery(masterVolume: number, at: number) {
+    try {
+      const scenario = SCENARIOS.guestCohortExcluded(9_000);
+      const current = await startRig('guest', { masterVolume });
+      const inbound: string[] = [];
+      bus.on('network:data', (data) => {
+        const type = String((data as { type?: unknown } | null)?.type);
+        const ms = current.now();
+        if (type.startsWith('youtube-zero-start-') && ms >= at && ms < at + WINDOW_MS) {
+          inbound.push(`+${ms} ${type.slice('youtube-zero-start-'.length)}`);
+        }
+      });
+      let recovery: boolean | null = null;
+      const restart = {
+        at,
+        run: (started: StandardRig) => {
+          recovery = isYouTubeStartRecoveryActive();
+          const begun = started.remote.beginHostTransition({
+            queueItemId: IDENTITY.queueItemId,
+            videoId: IDENTITY.videoId,
+            subIndex: null,
+          });
+          if (!begun) throw new Error('the remote host could not start again');
+        },
+      };
+      const lines = await traceDuring(current.iframe(), current.t0, async () => {
+        await runStandardScenario(current, {
+          ...scenario,
+          steps: [...scenario.steps, restart],
+          endAt: at + WINDOW_MS,
+        });
+      });
+      const ops = lines.filter((line) => {
+        const ms = Number(line.slice(1, line.indexOf(' ')));
+        return ms >= at && /^\+\d+ (push |setVolume\(|mute\(|unMute\(|playVideo\()/.test(line);
+      });
+      const armed = current.sent
+        .filter(({ type, at: sentAt }) => type === MSG.YOUTUBE_ZERO_START_ARMED && sentAt >= at)
+        .map(({ at: sentAt, frame }) => `+${sentAt} muted:${String(frame.muted)}`);
+      return { recovery, inbound, ops, armed };
+    } finally {
+      tearDownWorld();
+      setUpWorld();
+    }
+  }
+
+  it.each([0, 0.004, 0.005] as const)('at master volume %s', async (masterVolume) => {
+    const abortFirst = await prepareDuringRecovery(masterVolume, 3_000);
+    const transferred = await prepareDuringRecovery(masterVolume, 6_000);
+    expect({ abortFirst, transferred }).toEqual(RECOVERY_PREPARE_ROWS[masterVolume]);
+  });
+});
+
 describe('Phase 7 contract (a): one youtube:set-volume per engine volume event, written once (pinned 2026-11-02)', () => {
   /**
    * The whole trace of one youtube:set-volume write of `percent` on an idle
@@ -1093,5 +1173,129 @@ const TWO_RULE_ROWS = {
       '+3100 unMute()',
       '+3100 playVideo()',
     ],
+  },
+} as const;
+
+/**
+ * A remote host PREPARE during the guest local recovery of
+ * SCENARIOS.guestCohortExcluded(9_000), at +3000 and at +6000.
+ * - abortFirst: the ABORT's cleanup and the cancelled run's restore write the
+ *   audio the recovery took from its run (+3000), and the new run's restore
+ *   (+3501) and release (+4322) its own capture: today the 'non-positive'
+ *   rule, so 0.004 unmutes and its ARMED reports muted false;
+ * - transferred: no ABORT, no cleanup; the new run takes the transferred
+ *   intent ('push zero-start' at +6000) as it turns busy: today the
+ *   'rounded' rule, so 0.004 mutes, like 0, and reports muted true.
+ * The new run hard-mutes (+3000 or +6000), warms the resident video (+3001
+ * or +6001), restores, reports ARMED, and plays at the remote host's commit.
+ */
+const RECOVERY_PREPARE_ROWS = {
+  0: {
+    abortFirst: {
+      recovery: true,
+      inbound: ['+3000 abort', '+3000 prepare', '+3623 commit'],
+      ops: [
+        '+3000 setVolume(0)',
+        '+3000 mute()',
+        '+3000 setVolume(0)',
+        '+3000 mute()',
+        '+3000 mute()',
+        '+3001 setVolume(0)',
+        '+3001 mute()',
+        '+3001 playVideo()',
+        '+3501 setVolume(0)',
+        '+3501 mute()',
+        '+4322 playVideo()',
+      ],
+      armed: ['+3621 muted:true'],
+    },
+    transferred: {
+      recovery: true,
+      inbound: ['+6000 prepare', '+6623 commit'],
+      ops: [
+        '+6000 push zero-start muted:true volume:0',
+        '+6000 mute()',
+        '+6001 setVolume(0)',
+        '+6001 mute()',
+        '+6001 playVideo()',
+        '+6501 setVolume(0)',
+        '+6501 mute()',
+        '+7322 playVideo()',
+      ],
+      armed: ['+6621 muted:true'],
+    },
+  },
+  0.004: {
+    abortFirst: {
+      recovery: true,
+      inbound: ['+3000 abort', '+3000 prepare', '+3623 commit'],
+      ops: [
+        '+3000 setVolume(0)',
+        '+3000 unMute()',
+        '+3000 setVolume(0)',
+        '+3000 unMute()',
+        '+3000 mute()',
+        '+3001 setVolume(0)',
+        '+3001 mute()',
+        '+3001 playVideo()',
+        '+3501 setVolume(0)',
+        '+3501 unMute()',
+        '+4322 playVideo()',
+        '+4322 unMute()',
+      ],
+      armed: ['+3621 muted:false'],
+    },
+    transferred: {
+      recovery: true,
+      inbound: ['+6000 prepare', '+6623 commit'],
+      ops: [
+        '+6000 push zero-start muted:true volume:0',
+        '+6000 mute()',
+        '+6001 setVolume(0)',
+        '+6001 mute()',
+        '+6001 playVideo()',
+        '+6501 setVolume(0)',
+        '+6501 mute()',
+        '+7322 playVideo()',
+      ],
+      armed: ['+6621 muted:true'],
+    },
+  },
+  0.005: {
+    abortFirst: {
+      recovery: true,
+      inbound: ['+3000 abort', '+3000 prepare', '+3623 commit'],
+      ops: [
+        '+3000 setVolume(1)',
+        '+3000 unMute()',
+        '+3000 setVolume(1)',
+        '+3000 unMute()',
+        '+3000 mute()',
+        '+3001 setVolume(1)',
+        '+3001 mute()',
+        '+3001 playVideo()',
+        '+3501 setVolume(1)',
+        '+3501 unMute()',
+        '+4322 playVideo()',
+        '+4322 unMute()',
+      ],
+      armed: ['+3621 muted:false'],
+    },
+    transferred: {
+      recovery: true,
+      inbound: ['+6000 prepare', '+6623 commit'],
+      ops: [
+        '+6000 push zero-start muted:false volume:1',
+        '+6000 mute()',
+        '+6001 setVolume(1)',
+        '+6001 mute()',
+        '+6001 playVideo()',
+        '+6501 setVolume(1)',
+        '+6501 unMute()',
+        '+7322 playVideo()',
+        '+7322 unMute()',
+      ],
+      armed: ['+6621 muted:false'],
+    },
   },
 } as const;

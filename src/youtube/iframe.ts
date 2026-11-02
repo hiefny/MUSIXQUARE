@@ -2013,6 +2013,13 @@ type YouTubeAuthorityPreparationResult =
         'superseded' | 'player-unavailable' | 'identity-mismatch' | 'audio-locked' | 'timeout';
     };
 
+/**
+ * The preparation generation, one of the four PRO start tokens (the COMMIT
+ * and local-pause generations are player.ts's, the pause gate's token is
+ * iframe-audio.ts's; registry RO-03). Every prepare of an occurrence and every
+ * preparation cancel move it; the prepare loop, its arm result and a
+ * release's lead samples (through the getter below) compare it.
+ */
 let proAuthorityPreparationGeneration = 0;
 /**
  * The exact iOS iframe whose TAP TO PLAY gesture was spent on PRO playback.

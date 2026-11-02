@@ -543,6 +543,27 @@ RO-53 owner-in-place
   at its prepare deadline. The same 6C-4 step removed the PRO arm's unused load warm: it arms
   only an iframe that already holds the occurrence's video, the only kind `iframe.ts` asks for.
 
+  Since Phase 6 6D-4 (C2-13) the PRO arm's start kind is the PRO playback union itself:
+  `YouTubeAuthorityTimingMode` (`authority-arm.ts`) is a type-only alias of
+  `ProPlaybackTimingMode` (`src/pro-room/playback-authority-hooks.ts`), the timing home's
+  `ProRoomPlaybackTimingMode`, and `player.ts`'s start observations use the same type, so the
+  App's YouTube code keeps no copy of the union. Four PRO start tokens stay apart, each moved by
+  its own event and compared only where that event must revoke something: the preparation
+  generation (`iframe.ts`: every prepare of an occurrence and every preparation cancel move it;
+  the prepare loop, its arm result and a release's lead samples compare it), the COMMIT
+  generation (`player.ts`: every COMMIT the YouTube endpoint receives but an idle one, and
+  teardown, move it; a waiting COMMIT and a release's lead samples compare it), the local-pause
+  generation (`player.ts`: only a participant-local PRO pause moves it; it fences nothing, and a
+  waiting COMMIT that finds it moved reports itself handled without starting audio) and the
+  pause gate's token (`iframe-audio.ts`, RO-12). The arm keeps two of its own, its run's
+  generation and its detached restore's. None is merged, and the start ledger keeps no epoch
+  over them: its `pro-arm` claim asks the arm's live `ownsHardMute()`, `pro-direct` stays
+  unregistered because no reader asks for the direct COMMIT's wait, and `iframe.ts`'s instance
+  wires no `onPhaseChange`. Merged with the preparation generation, the local-pause generation
+  would read a direct COMMIT's own preparation cancel as a local pause, and that device would
+  stay silent. The arm takes the App's desired audio from `iframe-audio.ts` at its prepare and
+  every later change by push (RO-12).
+
 - **Target single owner:** shared arm steps used by both protocol shells; `authority-arm.ts` stays
   the PRO protocol facade with its own tokens.
 - **Allowed requesters:** Standard: the zero-start wiring in `player.ts`. PRO: PREPARE through
@@ -581,8 +602,9 @@ RO-53 owner-in-place
   `cloudflare/pro-room-playback-timing.ts`. The PRO Worker imports the barrier
   `PRO_ROOM_PLAYBACK_TRANSITION_DEADLINE_MS` (3 s) and the COMMIT lead
   `PRO_ROOM_PLAYBACK_COMMIT_LEAD_MS` (700 ms); the App imports only the start-kind union
-  `ProRoomPlaybackTimingMode` (its `ProPlaybackTimingMode`, a type-only import). The file is on
-  both the pro-room and the app runtime
+  `ProRoomPlaybackTimingMode` (its `ProPlaybackTimingMode`, a type-only import, which since
+  Phase 6 6D-4 also types the PRO arm's start kind and `player.ts`'s start observations). The
+  file is on both the pro-room and the app runtime
   paths, so a release that changes it targets `all`. Kept out of it on purpose:
   - the zero-start encoding of PRO Workers before PRO snapshot schemaVersion 2, one below each
     value: a 2999 ms stored deadline and a 699 ms COMMIT lead. The Worker and the App dropped it
@@ -616,7 +638,8 @@ RO-53 owner-in-place
 
 - **Anchor tests:**
   - Timing home: `src/pro-room/__tests__/pro-room-playback-timing.test.ts` (the barrier and the
-    lead and no other value, one start-kind union in the Worker and the App). Its row "keeps the
+    lead and no other value, one start-kind union in the Worker and the App, the PRO arm's start
+    kind among them since Phase 6 6D-4). Its row "keeps the
     copy App suites read, which load no Worker code, equal to the home" is the parity test of
     `src/pro-room/__tests__/__helpers__/pro-room-playback-timing-copy.ts`, name for name and
     value for value. A suite that loads `cloudflare/` code belongs to the Worker coverage profile
@@ -660,6 +683,13 @@ RO-53 owner-in-place
   - User pause/stop: `authority-arm.test.ts` "cancels a long negative-offset wait before a pause or
     room teardown can be undone".
   - Teardown: `authority-arm.test.ts` "revokes detached audio retries on an external teardown".
+  - Tokens: `src/youtube/__tests__/pro-arm-cancel-tokens.test.ts` (a direct play COMMIT after a
+    prepare cancel is applied, not consumed; `cancelAll` keeps only the first, synchronous
+    attempt of the detached restore; a lead sample is dropped once the preparation generation
+    moved) and, since Phase 6 6D-4, `pro-start-tokens.test.ts`, which lets one event happen
+    while a direct COMMIT waits and pins the tokens it moves: a local pause, teardown (also when
+    the same iframe and queue item are current again before the wait resumes), a newer prepare
+    and the gate's settlement each move only their own.
   - Visibility: `src/youtube/__tests__/youtube-owner-visibility.test.ts` "RO-03: a PRO release
     whose lead samples fall while hidden records them as hidden and learns nothing".
   - Parity (since Phase 6 6C-4): `src/youtube/__tests__/arm-steps-golden.test.ts` runs both
@@ -679,7 +709,10 @@ RO-53 owner-in-place
   distinct tokens); its first train took over the app part of Phase 0d, the shared constants
   (C2-1, 6A-3). The hard-mute wait and the warm PLAYING's acceptance are shared since 6C-4
   (C2-8a), and the settle since 6C-5 (C2-8b), each with the controller's own policy; the audio
-  restore and the release are still each controller's. Exception RO-34.
+  restore and the release are still each controller's. Since 6D-4 (C2-13) the PRO arm's tokens
+  are named apart and pinned, and its start kind is the shared union; it reads the owner's
+  desired audio and gate at its prepare and takes later changes by push, which Phase 6 keeps
+  (RO-12). Exception RO-34.
 
 ### RO-04 System-audio receive slot
 
@@ -1803,7 +1836,18 @@ RO-53 owner-in-place
   module, each with its own fences,
   check, outcome and timer); since 6C-4 (C2-8a) their hard mute is the shared hard-mute wait in
   `src/youtube/arm-steps.ts` (RO-03) and their warm pair writes through `writeYouTubeAudio`.
-  `player.ts` still pushes the desired audio into them. The
+  `player.ts` still pushes the desired audio into them. The PRO arm takes it from this module
+  once, at its prepare (`iframe.ts`'s prepare seam passes `readYouTubeAppAudio(true)`, muted
+  also while `isYouTubePauseGateHeld()`), and every later change by push: the `youtube:set-volume`
+  write, the gate's hold and the gate's settlement. Phase 6 keeps those pushes (6D-4, C2-13). An
+  arm that read this module at its restores instead would apply one mute rule where it now keeps
+  the prepare's 'non-positive' answer until a push brings the 'rounded' one, so for
+  0 < master volume < 0.005 a restore could mute where today it unmutes at volume 0, or the
+  reverse, which can be heard where iOS ignores the software volume; it would also follow a
+  master-volume write that sends no `youtube:set-volume` (the early-boot and test fallback in
+  `src/audio/effects.ts`) and drop the pushes `youtube-iframe-audio-order.test.ts` pins. It can
+  read this module once the owner's single 'rounded' rule has landed, with that fixture amended
+  in the same change, or in Phase 7 with the `youtube:set-volume` contract. The
   retained-player hard-mute proof (`src/youtube/retained-player-controller.ts`) and the
   gesture-bound prime unmute in `iframe.ts` keep their own writes, and `src/audio/engine.ts` keeps
   its own pause-gate token for the WebAudio output (Phase 7).
@@ -1904,9 +1948,9 @@ RO-53 owner-in-place
   on direct audio writes is CHECK 11, added before the first Phase 6 train). The one verified
   restore exists since 6A-4, and the App's own writes, the pause gate's iframe token and the holds
   (plan step C2-2) since 6C-2. The start machines' hard mute is one shared wait since 6C-4
-  (`arm-steps.ts`, RO-03); they still take the desired audio by push until a later Phase 6 train
-  has them read it from `iframe-audio.ts`, and the two mute rules stay until the owner's chosen
-  single rule lands.
+  (`arm-steps.ts`, RO-03); they still take the desired audio by push, which Phase 6 keeps because
+  6D-4 (C2-13) found reading it from `iframe-audio.ts` at the PRO arm's restores not neutral (see
+  above), and the two mute rules stay until the owner's chosen single rule lands.
 
 ### RO-13 YouTube manual-offset transaction
 

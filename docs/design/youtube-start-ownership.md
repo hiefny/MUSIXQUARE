@@ -16,7 +16,9 @@
   in the same file, and `player.ts` keeps its timer, fence and hand-off, and the replacement
   fallback that restarts it; 2026-11-02 (plan step C2-12, Phase 6 6D-3): the Standard host's local
   start wait is one primitive in `player.ts`, under the legacy rendezvous, whose claim still
-  registers only its Stage-2 wait
+  registers only its Stage-2 wait; 2026-11-02 (plan step C2-13, Phase 6 6D-4): the PRO arm's start
+  kind is the shared PRO playback union, and the four PRO start tokens stay apart, named and
+  pinned ([The PRO start tokens](#the-pro-start-tokens))
 - **Applies to:** YouTube start ownership in Standard and PRO rooms: which start owner holds the
   shared iframe, the queries its readers ask, and which owner consumes an iframe state event
   (resource ownership registry
@@ -151,6 +153,26 @@ run's `starting` phase, the native-control authority would read a real headset P
 run's speaker hold as the App's own output, and the state the host reports to older builds
 during that hold could change.
 
+## The PRO start tokens
+
+A PRO start keeps four tokens apart (since 6D-4, plan step C2-13). Each is moved by its own event
+and compared only where that event must revoke something, so no event stands in for another:
+
+| Token                                                  | Moved by                                                                                                  | Compared by                                                                                               |
+| ------------------------------------------------------ | --------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------- |
+| the preparation generation (`iframe.ts`)               | every prepare of an occurrence; every preparation cancel (a direct COMMIT's, a local pause's, teardown's) | the prepare loop and its arm result; a release's lead samples                                             |
+| the COMMIT generation (`player.ts`)                    | every COMMIT the YouTube endpoint receives but an idle one; teardown                                      | a waiting COMMIT, prepared or direct; a release's lead samples                                            |
+| the local-pause generation (`player.ts`)               | a participant-local PRO pause, and nothing else                                                           | a waiting COMMIT, which then reports itself handled without starting audio (an event record, not a fence) |
+| the pause gate's token (`src/youtube/iframe-audio.ts`) | a pause proposal holds it; its own settlement releases it; teardown drops it                              | every App write of the iframe audio; the PRO prepare's desired mute                                       |
+
+The arm keeps two of its own, its run's generation and its detached restore's. The ledger reads
+none of these tokens and keeps no epoch over them: the `pro-arm` claim asks the arm's live
+`ownsHardMute()`, `pro-direct` stays unregistered, and `iframe.ts`'s arm instance wires no
+`onPhaseChange`. Merged with the preparation generation, the local-pause generation would read a
+direct COMMIT's own preparation cancel as a local pause and leave that device silent. The arm's
+start kind (`YouTubeAuthorityTimingMode`) is the shared PRO playback union by type-only import
+(registry [RO-03](resource-ownership-registry.md#ro-03-youtube-arm-protocol-standard-and-pro-copies)).
+
 ## Rules
 
 - **Live queries only.** The ledger keeps no answer, flag, phase or snapshot; it subscribes to
@@ -210,8 +232,12 @@ during that hold could change.
   `player.ts`, with its own token. The three tokens (the two recoveries' generations and the
   replacement token) stay apart, and the ledger keeps no epoch for a claim transition to move.
   The PRO direct COMMIT's 2 s local wait has no
-  public owner, so the `pro-direct` kind holds nothing (C2-13), and the state router decides it
-  never. The host's pending-start predicate (`isStandardHostYouTubeLocalStartPending`,
+  public owner, so the `pro-direct` kind holds nothing (C2-13; 6D-4 left it unregistered, since
+  no reader asks for it), and the state router decides it never. The PRO arm takes the App's
+  desired audio and the pause gate from `src/youtube/iframe-audio.ts` at its prepare and every
+  later change by push from `player.ts`; reading them there at its restores instead is not neutral
+  (registry [RO-12](resource-ownership-registry.md#ro-12-youtube-iframe-audio-state)), so Phase 6
+  keeps the pushes. The host's pending-start predicate (`isStandardHostYouTubeLocalStartPending`,
   `src/youtube/local-offset.ts`) sees only the legacy hold by design, not as a gap (see
   [The iframe state router](#the-iframe-state-router)). The local start wait primitive (since
   6D-3, plan step C2-12) is the Standard host's alone: the PRO direct COMMIT's wait is a promise
@@ -317,6 +343,13 @@ cannot import `player.ts`. The ledger is a leaf with no import that every reader
   or catch-up seek, and a pause, seek or manual edit that retires it), and
   `host-local-rendezvous.test.ts` drives the real wait into a manual edit through the retire port.
   Both pass on the tree before 6D-3 as well.
+- Since 6D-4 `src/youtube/__tests__/pro-start-tokens.test.ts` pins the PRO start tokens on the
+  real wiring: it lets a local pause, teardown, a newer prepare or the gate's settlement happen
+  while a direct COMMIT waits, and reads the preparation generation, the gate and what the
+  waiting COMMIT does (it plays, it is handled without playing, or it is refused). Merging the
+  local-pause generation with the COMMIT generation or with the preparation generation, or
+  leaving the COMMIT generation unmoved at teardown, fails its rows; they pass on the tree before
+  6D-4 as well. `pro-room-playback-timing.test.ts` pins the arm's start kind to the shared union.
 - Suites that never load `player.ts` (for example `src/player/__tests__/local-output-realign-cross-flow.test.ts`,
   the Phase 4 D4 harness) register no claim, so every derived query answers false there, as the
   zero-start facades did before 6B; their rows show the chains' behaviour, not the gates'

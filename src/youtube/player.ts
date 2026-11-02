@@ -65,6 +65,7 @@ import {
   getProPlaybackAuthorityKey,
   routeProPlaybackCommand,
   type ProPlaybackCommitRequest,
+  type ProPlaybackTimingMode,
 } from '../pro-room/playback-authority-hooks.ts';
 import {
   YT_AUTO_SYNC_MS,
@@ -917,11 +918,23 @@ export function cancelYtAutoSync(transferPlayerState = false): void {
   bus.emit('youtube:sync-loading', false);
 }
 
+// Two of the four PRO start tokens; the other two are iframe.ts's preparation
+// generation and the pause gate's token in iframe-audio.ts. Each counts its
+// own event and revokes only what that event must; none is merged with
+// another (registry RO-03):
+// - the COMMIT generation: every COMMIT this endpoint receives but an idle
+//   one, and teardown (stopYouTubeMode), move it; a waiting COMMIT and a
+//   release's lead samples compare it;
+// - the local-pause generation: only a participant-local PRO pause moves it.
+//   It records that pause and fences nothing: a waiting COMMIT that finds it
+//   moved reports itself handled without starting audio, so the PRO
+//   controller does not undo the pause. A COMMIT's own preparation cancel
+//   does not move it, or every direct play would read as paused.
 let proAuthorityYouTubeCommitGeneration = 0;
 let proYouTubeLocalPauseGeneration = 0;
 let cancelProYouTubeCommitWait: (() => void) | null = null;
 
-/** A local PAUSE or newer commit must not leave an older release wait queued. */
+/** A local PAUSE, newer commit or teardown must not leave an older release wait queued. */
 function waitForProYouTubeCommit(ms: number): Promise<void> {
   return new Promise((resolve) => {
     const finish = () => {
@@ -939,7 +952,7 @@ const proYouTubeLeadCalibrationTimers = new Map<
   ReturnType<typeof globalThis.setTimeout>,
   {
     commitGeneration: number;
-    timingMode: 'zero-start' | 'scheduled-control';
+    timingMode: ProPlaybackTimingMode;
     path: 'prepared' | 'direct';
     checkpointMs: number;
     plannedSampleAtMs: number;
@@ -989,7 +1002,7 @@ function scheduleProYouTubeLeadCalibration(input: {
   canonicalExecuteAtMs: number;
   preparationGeneration: number;
   localOffsetSeconds: number;
-  timingMode: 'zero-start' | 'scheduled-control';
+  timingMode: ProPlaybackTimingMode;
   path: 'prepared' | 'direct';
   learningEnabled: boolean;
   /** Only callback delay not already added to the release target is removed from learning. */

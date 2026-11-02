@@ -335,10 +335,13 @@ export interface ProPlaybackPrepareRequest {
   prepareBudgetMs?: number;
   /**
    * True only for the COMMIT catch-up that follows this device's own failed
-   * preparation of the same server transition (its READY was missed). The
-   * YouTube endpoint may then keep that preparation's load of the occurrence
-   * while it is still loading, instead of loading the occurrence again. A
-   * server PREPARE, a restore (and its catch-up) and a participant-local
+   * preparation of the same server transition (its READY was missed), whether
+   * that COMMIT came as a frame or as a snapshot that lands the checkpoint
+   * this device prepared (restorePlaybackCheckpoint commits it as that
+   * transition). The YouTube endpoint may then keep that preparation's load of
+   * the occurrence while it is still loading, instead of loading the
+   * occurrence again. A server PREPARE, a restore of a checkpoint this device
+   * did not prepare (and that restore's catch-up) and a participant-local
    * rejoin never set it.
    */
   missedReady?: boolean;

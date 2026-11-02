@@ -1741,7 +1741,9 @@ export function adoptResidentYouTubeOccurrence(videoId: string): void {
 /**
  * Whether a load of exactly this video for this queue occurrence is still in
  * flight before any player is ready: its iframe has not finished the
- * handshake, or the IFrame API script is still loading. Read-only.
+ * handshake, or the IFrame API script is still loading. Read-only. A load into
+ * an iframe that is already ready does not count, such as the next track's
+ * load into the iframe an iPhone kept parked: its catch-up loads again.
  */
 export function isYouTubeOccurrenceStillLoading(
   queueItemId: QueueItemId,

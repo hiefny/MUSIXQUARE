@@ -122,8 +122,12 @@ const FAMILY_BY_STEM: ReadonlyMap<string, string> = (() => {
 })();
 
 const APP_SHEET_IDS: ReadonlySet<string> = new Set(APP_FONT_SHEETS.map(({ id }) => id));
-/** The static pages' original sheets, which the app never requests. */
-const STATIC_PAGE_ONLY_SHEETS = ['noto-jp', 'noto-sc', 'noto-tc', 'noto-thai', 'noto-cyrillic'];
+/**
+ * Google's original Noto sheets under css/fonts/, kept only as the face
+ * generators' inputs (no page links them since the public-page font train),
+ * which the app never requests.
+ */
+const STATIC_PAGE_ONLY_SHEETS = ['noto-jp', 'noto-sc', 'noto-tc', 'noto-thai'];
 /** The public pages' font sheets, which the app never requests. */
 const PUBLIC_PAGE_SHEETS: ReadonlySet<string> = new Set(Object.values(PUBLIC_FONT_SHEET_URLS));
 

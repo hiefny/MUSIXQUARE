@@ -72,8 +72,9 @@ shards.
 `scripts/fonts/build-hangul-faces.mts` (`npm run generate:hangul-faces`)
 cuts the Hangul faces from `fonts/PretendardVariable.woff2`: Pretendard
 Variable 1.309 (its name ID 5) by Kil Hyung-jin, 2,057,688 B, sha256
-`9599f12fd42fc0bce1cd50b47a0c022e108d7aa64dd0d1bb0ed44f3282d900b4`, the same
-bytes as the public copy and in the repository since 2026-02-23.
+`9599f12fd42fc0bce1cd50b47a0c022e108d7aa64dd0d1bb0ed44f3282d900b4`, in the
+repository since 2026-02-23 (the deployed public copy of the same bytes was
+retired by the public-page font train).
 
 - Partition: one face per Noto Sans KR v40 numbered shard that declares
   Hangul the file draws (#2-#65, #94, #95, #100-#119), with that shard's

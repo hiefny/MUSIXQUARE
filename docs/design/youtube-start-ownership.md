@@ -23,7 +23,8 @@
   shared iframe, the queries its readers ask, and which owner consumes an iframe state event
   (resource ownership registry
   [RO-02](resource-ownership-registry.md#ro-02-youtube-standard-shared-start); plan steps C2-5,
-  Phase 6 6B-1, C2-7, 6B-2, and C2-6, 6C-1)
+  Phase 6 6B-1, C2-7, 6B-2, C2-6, 6C-1, C2-2, 6C-2, C2-9, 6D-1, C2-11, 6D-2, C2-12, 6D-3, and
+  C2-13, 6D-4)
 
 ## Decision
 

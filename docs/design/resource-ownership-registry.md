@@ -489,7 +489,16 @@ RO-53 owner-in-place
   (C2-1, 6A-3). Since 6D-1 (C2-9) the guest recovery is a class of its own (RO-33), and since 6D-2
   (C2-11) the host legacy recovery a stage beside it, each with its own token and timer: still
   machines beside the run and the legacy rendezvous. Since 6D-3 (C2-12) the Standard host's local
-  start wait is one primitive of the legacy rendezvous, Standard host only. The no-auto-retry Sync
+  start wait is one primitive of the legacy rendezvous, Standard host only. Phase 6's code ends
+  with 6D, and its record step (6D-5) keeps this record `duplicated`: the run (`zero-start.ts`),
+  the two recoveries (`zero-start-recovery.ts`) and the legacy rendezvous and the replacement
+  fallback (`player.ts`) still each keep their own phase or token and timer on this player and
+  retire each other directly, while the ledger only composes their live queries. The recovery
+  golden pins them apart: its G12 rows read the run's facades false while a recovery holds its
+  claim, and its host rows show the stage handing the start to the legacy rendezvous, whose own
+  Stage 1 and Stage 2 follow. The record becomes `owner-in-place` only in a change that leaves
+  one owner holding the start, the guest recovery kept apart by RO-33, citing that change's
+  tests; the consolidation phases above name no later phase for it. The no-auto-retry Sync
   notice right after a zero-start stays ([known-accepted #14](../known-accepted.md)).
 
 ### RO-03 YouTube arm protocol, Standard and PRO copies
@@ -712,7 +721,12 @@ RO-53 owner-in-place
   restore and the release are still each controller's. Since 6D-4 (C2-13) the PRO arm's tokens
   are named apart and pinned, and its start kind is the shared union; it reads the owner's
   desired audio and gate at its prepare and takes later changes by push, which Phase 6 keeps
-  (RO-12). Exception RO-34.
+  (RO-12). Phase 6's code ends with 6D, and its record step (6D-5) keeps this record
+  `duplicated`: each controller still runs its own audio restore loop around the one verified
+  restore and its own release (`youtube-audio-restore-cadence.test.ts` pins each loop), and the
+  PRO arm still takes the desired audio by push. It becomes `owner-in-place` in the change that
+  moves the last of these into the shared steps or the iframe audio owner, citing that change's
+  tests. Exception RO-34.
 
 ### RO-04 System-audio receive slot
 
@@ -1950,7 +1964,12 @@ RO-53 owner-in-place
   (plan step C2-2) since 6C-2. The start machines' hard mute is one shared wait since 6C-4
   (`arm-steps.ts`, RO-03); they still take the desired audio by push, which Phase 6 keeps because
   6D-4 (C2-13) found reading it from `iframe-audio.ts` at the PRO arm's restores not neutral (see
-  above), and the two mute rules stay until the owner's chosen single rule lands.
+  above), and the two mute rules stay until the owner's chosen single rule lands. Phase 6's code
+  ends with 6D, and its record step (6D-5) keeps this record `duplicated` for those pushes, which
+  `youtube-iframe-audio-order.test.ts` pins one by one. It becomes `owner-in-place` in the change
+  that has the start machines read the desired audio and the gate from this module instead,
+  citing that change's tests: after the single rule, with that fixture amended in the same
+  change, or in Phase 7 with the `youtube:set-volume` contract.
 
 ### RO-13 YouTube manual-offset transaction
 

@@ -270,14 +270,15 @@ A6(내보내기는 scripts, src, e2e, browser, .workshop이 실제로 읽는 것
 환경: Windows 11, Node 24.22.2 / npm 12.0.2, Playwright Chromium(로컬, 재시도 0, 추적 끔, 포트 5491·5492), 운영 빌드는 `vite build`와
 두 materialize 스크립트, e2e는 `build:e2e`. 실제 기기, Linux 컨테이너, WebKit 없음.
 
-| 라운드 | 시험한 코드 SHA               | 무엇                                                                                                                                                            | 통과 / 실패 / 건너뜀과 한계                                                                                                                                                                                                    |
-| ------ | ----------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| 1 (P1) | `68e683a0`                    | 운영 빌드 비교, 가드 37개, typecheck, lint, format, 전체 단위 두 번, `font-identity` e2e 3 / 3                                                                  | 가드 36 통과, `guard:sw-cache-version` 실패(버전 올리기 없음, 예상). 전체 단위의 실패는 git과 workerd를 띄우는 시험의 부하 시간 초과뿐이고 따로 돌려 통과(하나는 자체 30초 한도로 따로 돌려도 한 번 시간 초과, 이 변경과 무관) |
-| 2 (P2) | `80b0673e`                    | 운영 빌드 비교, 가드, typecheck, lint, format, 자원 주인 검사                                                                                                   | 가드 36 통과, `sw-cache-version` 실패(예상)                                                                                                                                                                                    |
-| 3 (P3) | `b4bab623`                    | 운영과 e2e 빌드 비교, 모듈 비교, 앱 e2e 61, 글꼴 요청 다섯, 공개 페이지 불러오기 11, 전체 단위 18,152                                                           | 앱 e2e 61 / 61, 불러오기 11 / 11, 단위 11개 실패는 모두 `sw-cache-version-guard`와 `release-deployment-state`의 부하 시간 초과(따로 120초 한도로 53 / 53, 104 / 105, 남은 하나는 자체 30초 한도)                               |
-| 4 (P4) | `a4de85d4`                    | 운영 빌드 비교, 가드, typecheck, lint, format, 이미 있는 공개 e2e 32, 불러오기 12, 로그인 완료 창 그림, 전체 단위 18,221                                        | e2e 32 / 32, 불러오기 12 / 12, 단위 7개 실패는 같은 두 파일의 부하 시간 초과(따로 53 / 53, 105 / 105)                                                                                                                          |
-| 5 (I8) | `4642d38a`(빌드는 `55d8e49c`) | Typography 단위, 실험 명세와 실패 증거, 1x 머리선 측정, 가드, typecheck, lint, format, 전체 단위 18,236                                                         | 실험 4 / 4, 단위 4개 실패는 같은 두 파일의 부하 시간 초과(따로 53 / 53, 105 / 105)                                                                                                                                             |
-| 6 (H′) | `4eecf4c0`(H′의 코드)         | 운영과 e2e 빌드 비교, 가드 37개 하나씩, 생성기 셋 `--check`, 앱 e2e 61, 공개 e2e 32, 글꼴 요청 다섯, 불러오기 23, 실험 4, 전체 단위, 로컬 `changedRuntimePaths` | 아래                                                                                                                                                                                                                           |
+| 라운드   | 시험한 코드 SHA                        | 무엇                                                                                                                                                                                                                                       | 통과 / 실패 / 건너뜀과 한계                                                                                                                                                                                                    |
+| -------- | -------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| 1 (P1)   | `68e683a0`                             | 운영 빌드 비교, 가드 37개, typecheck, lint, format, 전체 단위 두 번, `font-identity` e2e 3 / 3                                                                                                                                             | 가드 36 통과, `guard:sw-cache-version` 실패(버전 올리기 없음, 예상). 전체 단위의 실패는 git과 workerd를 띄우는 시험의 부하 시간 초과뿐이고 따로 돌려 통과(하나는 자체 30초 한도로 따로 돌려도 한 번 시간 초과, 이 변경과 무관) |
+| 2 (P2)   | `80b0673e`                             | 운영 빌드 비교, 가드, typecheck, lint, format, 자원 주인 검사                                                                                                                                                                              | 가드 36 통과, `sw-cache-version` 실패(예상)                                                                                                                                                                                    |
+| 3 (P3)   | `b4bab623`                             | 운영과 e2e 빌드 비교, 모듈 비교, 앱 e2e 61, 글꼴 요청 다섯, 공개 페이지 불러오기 11, 전체 단위 18,152                                                                                                                                      | 앱 e2e 61 / 61, 불러오기 11 / 11, 단위 11개 실패는 모두 `sw-cache-version-guard`와 `release-deployment-state`의 부하 시간 초과(따로 120초 한도로 53 / 53, 104 / 105, 남은 하나는 자체 30초 한도)                               |
+| 4 (P4)   | `a4de85d4`                             | 운영 빌드 비교, 가드, typecheck, lint, format, 이미 있는 공개 e2e 32, 불러오기 12, 로그인 완료 창 그림, 전체 단위 18,221                                                                                                                   | e2e 32 / 32, 불러오기 12 / 12, 단위 7개 실패는 같은 두 파일의 부하 시간 초과(따로 53 / 53, 105 / 105)                                                                                                                          |
+| 5 (I8)   | `4642d38a`(빌드는 `55d8e49c`)          | Typography 단위, 실험 명세와 실패 증거, 1x 머리선 측정, 가드, typecheck, lint, format, 전체 단위 18,236                                                                                                                                    | 실험 4 / 4, 단위 4개 실패는 같은 두 파일의 부하 시간 초과(따로 53 / 53, 105 / 105)                                                                                                                                             |
+| 6 (H′)   | `4eecf4c0`(H′의 코드)                  | 운영과 e2e 빌드 비교, 가드 37개 하나씩, 생성기 셋 `--check`, 앱 e2e 61, 공개 e2e 32, 글꼴 요청 다섯, 불러오기 23, 실험 4, 전체 단위, 로컬 `changedRuntimePaths`                                                                            | 아래                                                                                                                                                                                                                           |
+| 7 (관문) | `592a8658`(H′ 머리, 코드는 `4eecf4c0`) | 전체 로컬 관문: typecheck, lint, format, `build:checked`와 그 나머지 사슬, 가드 37개 하나씩, 자원 주인 검사, 커버리지 둘, 전체 단위, `test:e2e:critical`, 앱 글꼴·화면 명세, 불러오기, 실험, `test:e2e:candidate`, A4 최종 증명, 배포 대상 | §8.2. 가드 36 통과, `sw-cache-version` 실패(예상). 단위 1개 부하 시간 초과(따로 105 / 105). A5의 기본 Full E2E용 불러오기 명세가 없어 버리는 명세로 대신함                                                                     |
 
 라운드 6(H′의 코드):
 
@@ -303,6 +304,50 @@ A6(내보내기는 scripts, src, e2e, browser, .workshop이 실제로 읽는 것
 53 / 53이 통과하고, `release-deployment-state`는 105개 가운데 자체 30초 한도를 지닌 한 행('blocks an unselected app when a
 localized build input changes', 가짜 git 저장소만 만들고 이 열차의 파일을 읽지 않음)만 그 한도에 걸린다. 릴리스 담당이 버전
 올리기 머리에서 전체 관문을 다시 돈다.
+
+### 8.2 라운드 7: H′ 머리의 전체 로컬 관문 (2026-11-03)
+
+시험한 SHA는 `592a8658`(이 보고서를 처음 더한 H′ 커밋, 코드는 `4eecf4c0`)이다. 환경은 위와 같다(Windows 11, Node 24.22.2 / npm 12.0.2,
+Playwright Chromium, 재시도 0, 추적 끔, 포트 5491·5492). 같은 기계에서 다른 작업의 시험이 함께 돌았다. 실제 기기, Linux 컨테이너,
+WebKit 행은 없고, 로컬 결과는 exact-main-SHA 후보를 대신하지 않는다.
+
+- **정적 검사.** `npm run typecheck`(가드와 tsc 프로젝트 모두), `npm run lint`(경고 0), `npm run format:check`,
+  `node scripts/check-resource-ownership.mts`(기준치 그대로): 통과.
+- **`npm run build:checked`.** 앞의 가드 12개를 지나 `guard:sw-cache-version`에서 멈췄다(버전 올리기 없음, 예상. 적은 경로 83개는
+  라운드 6과 같음). 나머지 사슬을 하나씩 돌렸다: `guard:profanity-patterns`, `guard:index-hreflang`, `guard:sitemap`, `build`,
+  `guard:legacy-tv-build`, `guard:service-worker-build`, `guard:ui-kit-build`, `guard:initial-transfer-budget`, `guard:prod-hooks`,
+  `guard:prod-security`, `guard:font-build`, `guard:sw-app-shell` 모두 통과. 그 dist(932개 파일)는 라운드 6의 운영 빌드와 바이트로 같다.
+- **가드 37개를 하나씩**(그 dist 위에서): 36개 통과, `guard:sw-cache-version`만 실패(예상). `guard:dead-exports`: test-only 20 / 20,
+  self-only 76 / 76, 완전히 죽은 것 0.
+- **단위.** `vitest run --maxWorkers=4`(507초): 760개 파일 18,240개 가운데 1개 실패. `release-deployment-state`의 'blocks an
+  unselected app when a localized build input changes'가 자체 30초 한도에 걸렸다(34.0초, 부하). 그 파일만 따로 돌리면 105 / 105
+  통과. `test:coverage:critical`(110개 파일 4,501개)과 `test:coverage:workers`(69개 파일 3,329개)는 문턱을 채우고 통과.
+- **e2e(`build:e2e`, 라운드 6의 e2e 빌드와 바이트로 같음).** `test:e2e:critical` 101 / 101(5.7분). 앱 글꼴·화면 명세 61 / 61(6.4분):
+  `font-identity` 3, `font-baked-pixels` 3, `font-line-boxes` 3, `tab-header-title-alignment` 10, 재생목록 명세 여덟 33,
+  `accessibility-contrast` 7, `design-system-page` 2.
+- **공개 페이지 불러오기.** A5가 말하는 기본 Full E2E용 가벼운 불러오기 명세(I10)는 이 갈래에 없어 돌리지 못했다(§11 2). 대신 §6의
+  버리는 명세를 같은 e2e 빌드에서 돌려 23 / 23: 4xx 없음(번역 페이지의 로컬 `/api/` 503은 뺌), 콘솔 오류 없음, 세 시트와
+  `/han-order.js`를 한 번씩(이벤트는 `rest.css` 없음), 은퇴한 것 요청 없음, 오류 상태의 면 없음. 로그인 완료 창은 시트도 표지도 글꼴
+  파일도 요청하지 않는다. App Worker가 그리는 글과 관리자 페이지, UI 키트, 나머지 미리보기 17개는 이 확인에 들지 않는다.
+- **Typography 실험 명세**(따로 켜는 설정, `build:checked`의 dist를 그대로 띄움): 4 / 4.
+- **`test:e2e:candidate`**(`build:checked`의 dist): 19 / 19.
+- **A4 최종 증명.** 깨끗한 `cd8eaf47` 운영 빌드(1,274개 파일, 이 갈래를 시작할 때 만든 바탕 빌드와 바이트로 같음)와 H′ 머리의 운영
+  빌드(932개, `build:checked`의 dist와 같음)를 견줬다.
+  - 모듈: 앱 조각 97 → 96, 앱 그래프 더함 0, 지움 0, 코드 바뀜 0, 옮김 1(`retryable-stylesheet.ts`가 `locale-fonts` 조각으로). 빌드
+    전체는 지움 2(`static-page-fonts.ts`, `locale-font-contract.ts`), 코드 바뀜 1(`.workshop/sitemap/main.ts`).
+  - 앱 파일 집합 737 → 735. 해시와 미리 받기 목록을 뺀 정규화 차이는 다섯뿐이다: `retryable-stylesheet-HASH.js`와
+    `designsystem/fonts/PretendardVariable.woff2`가 빠지고, `account-complete.css`(§2.4), `locale-fonts-HASH.js`(접힌 모듈),
+    `service-worker.js`(`BUILD_ENTRY_ASSETS` 42 → 41, 그 조각 항목 하나)가 바뀐다. 머리 쪽 앱 집합의 글꼴 시트와 WOFF2 488개는
+    바탕의 같은 경로와 바이트로 같다.
+  - 첫 화면 크기: 바탕(바탕 자신의 가드) 진입 839.6 / 247.8 KiB, eager 합계 1,999.8 / 531.0 KiB, H′ 839.5 / 247.7, 1,999.7 / 530.9.
+    eager JS는 둘 다 454.5 KiB gzip, eager 글꼴은 둘 다 0. `guard:sw-app-shell` 96 / 42 → 95 / 41.
+  - 글꼴 요청(`build:e2e` 둘, 시작 화면부터 단계 C 미리 받기까지): en / en-US 18, en / ja-JP 18, ja / en-US 40, ko / en-US 29,
+    ko / ko-KR 29개가 모두 같고 한자 순서 표지도 같다. 전체 요청은 접힌 조각의 요청 하나와 문서의 인코딩 크기(32,923 대 32,922 B)만
+    다르다.
+- **배포 대상.** `scripts/release-deployment-state.mts`의 `verifyPartialReleaseCompatibility('app', 592a8658…)`를, Wrangler 조회 대신
+  main 릴리스 기록 §1의 배포 SHA(App `cd8eaf47`, PRO room `683074bc`, remote-share·signaling·Developer API·facade `71f5b96c`)를 주고
+  돌렸다: compatible. `changedRuntimePaths`는 App 85(라운드 6 목록과 같음), 나머지 다섯 0, `changedAppRuntimeDependencies`는 없다.
+  target은 `app`이다.
 
 ## 9. 위험
 

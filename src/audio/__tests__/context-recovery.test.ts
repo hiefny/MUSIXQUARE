@@ -170,14 +170,12 @@ describe('AudioContext interruption recovery', () => {
     await expect(resumePendingAudioContextInterruptionFromGesture()).resolves.toEqual({
       running: true,
       rejoinEmitted: false,
-      fallbackEligible: false,
     });
     expect(context.resume).toHaveBeenCalledOnce();
     expect(rejoin).not.toHaveBeenCalled();
     expect(confirmPendingAudioContextRecoveryHealth(attempt!)).toEqual({
       running: true,
       rejoinEmitted: true,
-      fallbackEligible: false,
     });
     expect(rejoin).toHaveBeenCalledOnce();
     expect(rejoin).toHaveBeenCalledWith({
@@ -664,7 +662,6 @@ describe('AudioContext interruption recovery', () => {
     await expect(resumePendingAudioContextInterruptionFromGesture()).resolves.toEqual({
       running: true,
       rejoinEmitted: false,
-      fallbackEligible: false,
     });
 
     const requirement = getPendingAudioContextClockHealthRequirement();
@@ -724,7 +721,6 @@ describe('AudioContext interruption recovery', () => {
     await expect(resumePendingAudioContextInterruptionFromGesture()).resolves.toEqual({
       running: true,
       rejoinEmitted: false,
-      fallbackEligible: false,
     });
     const attempt = getPendingAudioContextRecoveryAttemptForHealth();
     expect(attempt).toBeTypeOf('object');
@@ -758,7 +754,6 @@ describe('AudioContext interruption recovery', () => {
     await expect(result).resolves.toEqual({
       running: true,
       rejoinEmitted: false,
-      fallbackEligible: false,
     });
     expect(hasPendingAudioContextInterruption()).toBe(false);
   });
@@ -1393,7 +1388,6 @@ describe('AudioContext interruption recovery', () => {
     await expect(resumePendingAudioContextInterruptionFromGesture()).resolves.toEqual({
       running: false,
       rejoinEmitted: false,
-      fallbackEligible: false,
     });
   });
 

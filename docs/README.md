@@ -94,8 +94,8 @@ runbooks. Neither belongs in a general setup document.
 
 ## Maintained evidence and completed records
 
-- [Phase 6 train 6D: the YouTube start recoveries in one module, the Standard host's local start wait and the PRO start tokens (2026-11-02)](design/phase6-6d-recovery-pro-tokens-2026-11-02.md):
-  prepared, not released. The fourth and last Phase 6 App update on branch `agent/p6-6d`, twelve
+- [Phase 6 train 6D: the YouTube start recoveries in one module, the Standard host's local start wait and the PRO start tokens (2026-11-02)](design/phase6-6d-recovery-pro-arm-2026-11-02.md):
+  prepared, not released. The fourth and last Phase 6 App update on branch `agent/p6-6d`, thirteen
   commits on `bdb5759a` (the 6C train's tip, not yet on main: 6B and 6C ship first, and this
   branch moves onto main after them); the version bump, the release-record entry and the release
   are the release owner's. 6D-1 turns the Standard guest's local zero-start recovery from a
@@ -128,7 +128,12 @@ runbooks. Neither belongs in a general setup document.
   YouTube activation spec 4 / 4. A review round then added six test rows and one assertion (the
   local start release's first fence and its retire's timer clear, each recovery's own token),
   corrected one comment and the records, and reran what they touch; the production build stayed
-  the same file for file.
+  the same file for file. The final check on the reviewed tip `5267e8b2` repeated the whole local
+  check with the same results: unit suite 17,992 passed and 1 skipped, the four shuffle seeds
+  (6,794 rows each), seeds 1 to 16 over the 9 touched test files (673 rows each), both neutrality
+  runs, types, lint, format, `check:workers`, every guard except `guard:sw-cache-version`, a
+  production build identical to `a9ee6842`'s file for file, critical coverage 105 files / 4,364,
+  Worker coverage 69 / 3,325, critical E2E 101 / 101, the YouTube specs 53 / 53 and WebKit 4 / 4.
 - [App 9.0.34 / v807 train: Phase 6 6C (one YouTube state router, one iframe audio owner and shared arm steps), no light-theme stroke on the dialog grey button and the selection bar, and lighter light-theme dividers (2026-11-02)](design/phase6-6c-router-iframe-audio-arm-steps-2026-11-02.md):
   released on 2026-11-02 21:20 KST in Release 41443521522 (PR #563, squash `cd8eaf47`) as App
   9.0.34 / v807 (App build 807, target `app`, one update dialog, two visible light-theme changes;

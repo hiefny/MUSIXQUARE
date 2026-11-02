@@ -12,16 +12,15 @@ stack of every UI. The train reports are
 and
 [docs/design/app-hangul-pretendard-2026-11-02.md](../docs/design/app-hangul-pretendard-2026-11-02.md).
 
+Since the public-page font train (owner decision 2026-11-02 evening) every
+page outside the app draws with the same faces and stacks (see
+[Pages outside the app](#pages-outside-the-app)).
 `fonts/PretendardVariable.woff2` stays in the repository as the recorded
-source of the Hangul faces: without it `guard:font-assets` and both font
-generators fail. Its deployed copy,
-`public/designsystem/fonts/PretendardVariable.woff2`, serves the whole file to
-the public pages (Blog, History, the design system, About and its sibling
-pages, `account-complete.html`) until those switch in a later train; only that
-copy, and the `guard:font-build` check that it equals the root file, can go
-with that train. The pre-rendered share images use their own subset. The app
-never loads the whole file: it serves only the Hangul subsets under their own
-name.
+source of the Hangul faces and the coverage reference: without it
+`guard:font-assets` and both font generators fail. No page loads the whole
+file any more and it is not deployed: the app and the public pages serve only
+the Hangul subsets under their own name. The pre-rendered share images use
+their own subset of `fonts/Pretendard-Bold.ttf`.
 
 ## Faces
 
@@ -37,8 +36,8 @@ The Inter and CJK files the app serves are copies with the app's line box
 baked in (see [Baked line box](#baked-line-box)); the Hangul faces hold that
 box as Pretendard does (see [Hangul faces](#hangul-faces)). The folders in
 parentheses
-hold their inputs; `fonts/noto/noto-sans-{jp,sc,tc}/` are Google's shards,
-which About, its sibling pages and the sitemap page keep using unchanged.
+hold their inputs; `fonts/noto/noto-sans-{jp,sc,tc}/` are Google's numbered
+shards.
 
 - Inter's input is the seven variable subsets (`opsz` 14-32, `wght` 100-900)
   exactly as Google serves them. Its Latin subset keeps the contextual
@@ -63,6 +62,10 @@ which About, its sibling pages and the sitemap page keep using unchanged.
   not shipped: Inter draws those ranges. Of the 120 numbered ones the app
   serves 53: the other 67 held only Hangul that Pretendard draws. The 53
   still contain Hangul glyphs, which their sheet no longer declares.
+  Likewise Google's JP, SC and TC sheets list unnumbered Latin, Latin
+  Extended, Cyrillic and Vietnamese faces and the Thai sheet two Latin faces;
+  the generator reads none of them, so those 14 files are not in the
+  repository (`scripts/lib/font-retirement.mts`).
 
 ## Hangul faces
 
@@ -131,11 +134,11 @@ The app's 17 font sheets are listed in `src/i18n/app-font-contract.ts`:
   `font-noto-tc.css` (98) and `font-noto-thai.css` (1). Do not edit them by
   hand.
 - The ten single-script sheets (Arabic, Hebrew and the eight Indic scripts)
-  are Google's sheets in `css/fonts/`, shared with the static pages.
+  are Google's sheets in `css/fonts/`.
 
 The generator starts from `fonts/font-sources.json` and Google's sheets in
-`css/fonts/` (left unchanged for the static pages) and edits the ranges so
-every script has exactly one family:
+`css/fonts/` (left unchanged as its inputs) and edits the ranges so every
+script has exactly one family:
 
 - Inter draws what its cmap covers inside its Google ranges. Those code
   points are cut from the four CJK families by Inter's cmap, never by its
@@ -166,9 +169,8 @@ every script has exactly one family:
   Hangul faces are Pretendard's size and box already.
 
 Generated sheets carry a `font-` prefix so their emitted names never collide
-with the static pages' `noto-*.css` sheets, which the build and the
-retryable stylesheet loader match by name. Keep that prefix for any new app
-sheet.
+with Google's `noto-*.css` sheets, which the build and the retryable
+stylesheet loader match by name. Keep that prefix for any new app sheet.
 
 ## Baked line box
 
@@ -295,9 +297,49 @@ again on `online` and when the page becomes visible if its import failed, so
 a first launch offline after an update recovers its fonts. The old
 `musixquare-optional-vN` caches that held Pretendard are retired on update.
 
-The static pages keep their own loader (`src/i18n/static-page-fonts.ts`, used
-by the sitemap page) and Google's original sheets in `css/fonts/`, which
-About links through `vite.config.ts`.
+## Pages outside the app
+
+Every page outside the app (About and its 42 copies, privacy, terms, FAQ,
+developers, translate, the sitemap, the blog and its articles, history, the
+design system with its previews and UI kit, events, admin and 404) draws with
+the app's faces and stacks and loads no font from script (owner decision
+2026-11-02 evening). The build concatenates the app's processed sheets into
+two stable sheets (`scripts/public-font-sheets.mts`, registered in
+`vite.config.ts`; the groups are `src/i18n/public-font-contract.ts`):
+`/web-fonts/first.css` holds Inter, MUSIXQUARE Hangul and Noto Sans KR, what
+phase A declares for the Korean and English UIs, and `/web-fonts/rest.css`
+the other 14 sheets. Their font URLs are the app's own hashed files, so a
+page and the app share the HTTP cache. `public/web-fonts/stacks.css` mirrors
+the app's stacks, its Han order rules included, and `/han-order.js`
+(`browser/classic-runtime/han-order.ts`) marks the app's Han order on the
+root from the browser's languages, as the app does.
+
+Each page loads `/han-order.js` as a blocking script in its head, links
+`first.css` and `stacks.css` in its head before its own stylesheets, and
+links `rest.css` after its last script, so it declares every family and
+downloads only the files for the characters on screen. The About copies
+whose language needs a face outside `first.css` on the first paint
+(Japanese, Chinese, Thai, Arabic, Persian, Urdu, Hebrew and the Indic
+languages) link `rest.css` in the head. The PRO sign-in page under
+`/events/` links no `rest.css`, so its deferred scripts wait for no sheet
+beyond the first two. Page CSS declares no face and sets no stack; text reads
+`var(--font-sans, …system fonts)`, language names read the stack the app's
+picker gives their language, and only device monospace for code and
+Google's sign-in button name a family (`scripts/lib/public-font-pages.mts`).
+The App Worker links the same URLs (`src/i18n/public-font-urls.ts`) on the
+admin page and the blog article it renders, serves `/web-fonts/` with the
+public-page cache policy, and admits the three sheets and `/han-order.js`
+while the site is under maintenance. The service worker installs no font
+sheet. Two pages keep the device's fonts: the sign-in completion page
+`account-complete.html`, which belongs to the app and links none of the
+shared sheets, and the maintenance page the Workers render.
+
+The train retired what only the public pages used
+(`scripts/lib/font-retirement.mts`): the deployed Pretendard copy
+`public/designsystem/fonts/`, `css/pretendard.css`,
+`public/designsystem/src_ref/`, About's and the sitemap's font loaders, and
+Google's Noto Sans Cyrillic and Greek sheets with their files (Inter draws
+both scripts everywhere).
 
 ## Provenance and regeneration
 
@@ -351,18 +393,25 @@ About links through `vite.config.ts`.
   in every stack, except the recorded
   `scripts/fonts/uncovered-code-points.txt`, which must name exactly the gaps.
   It also checks that nothing in the app names or preloads Pretendard (the
-  Hangul faces are named MUSIXQUARE Hangul).
+  Hangul faces are named MUSIXQUARE Hangul), the pages outside the app (their
+  font links, page CSS and inline styles, and that `stacks.css` and each page
+  resolve `--font-sans` like the app), and that what the public-page font
+  train retired stays retired: nothing a page, the app or a Worker ships
+  loads or names Pretendard as a font but the recorded places (text that
+  credits it may stay), and the deleted files stay deleted
+  (`scripts/lib/font-retirement.mts`).
 - `npm run guard:font-build` adds the build: no font in the initial graph of
   the app document or its localized copies, each app sheet its own lazy CSS
   asset with root-relative WOFF2 files, the built Inter and CJK faces equal
   to their baked copies and the Hangul faces to `fonts/app/hangul/`, no font in the service worker's install manifests
-  (which do install the font owner chunk), About bound to the original sheets,
-  and Pretendard deployed once.
+  (which do install the font owner chunk), `/web-fonts/` built from the app
+  sheets, every built public page's font links, and nothing retired in the
+  build.
 - Unit tests: `src/i18n/__tests__/font-*.test.ts` (`font-baked-metrics`
   reads the tables of every app face itself), `hangul-faces.test.ts`,
   `sfnt-names.test.ts`, `app-face-metrics.test.ts`,
-  `locale-fonts.test.ts`, `static-page-fonts.test.ts` and
-  `src/core/__tests__/app-font-guard.test.ts`.
+  `locale-fonts.test.ts`, `public-font-*.test.ts`, `public-han-order.test.ts`,
+  `src/core/__tests__/app-font-guard.test.ts` and `font-retirement.test.ts`.
 - `e2e/font-line-boxes.test.ts` (local, on the e2e build) serves the Inter,
   Hangul and CJK sheets without the three overrides, as Safari on the owner's
   iPhone reads them, and requires the line boxes of Latin, Hangul, mixed, kana
@@ -399,11 +448,12 @@ About links through `vite.config.ts`.
   `INTER_LICENSE.txt`).
 - Noto fonts are licensed under the **SIL Open Font License 1.1** (see the
   Noto license files in this directory).
-- Pretendard, the source of MUSIXQUARE Hangul and kept whole for the public
-  pages and the share images, is licensed under the **SIL Open Font License
-  1.1** with the Reserved Font Name Pretendard (see `PRETENDARD_LICENSE.txt`).
-  The Hangul faces are Modified Versions under their own name and keep the
-  copyright and license records. `fonts/PretendardVariable.woff2` is the
-  canonical source copy and stays as the source of the Hangul faces; while the
-  public pages use the whole file, the deployed copy at
-  `public/designsystem/fonts/PretendardVariable.woff2` must be byte-identical.
+- Pretendard, the source of MUSIXQUARE Hangul (in the app and on the public
+  pages) and of the share images, is licensed under the **SIL Open Font
+  License 1.1** with the Reserved Font Name Pretendard (see
+  `PRETENDARD_LICENSE.txt`). The Hangul faces are Modified Versions under
+  their own name and keep the copyright and license records.
+  `fonts/PretendardVariable.woff2` is the canonical source copy and stays as
+  the source of the Hangul faces; no page loads it and it is not deployed.
+  The share images are rendered offline from `fonts/Pretendard-Bold.ttf`
+  through its subset `public/fonts/og-pretendard-bold.ttf`.

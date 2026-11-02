@@ -55,7 +55,14 @@
  *   --font-sans in each of its languages, and it tells Korean and English
  *   apart only in the recorded copy rules, never by tracking; the sheets of
  *   the pages the App Worker renders (PUBLIC_WORKER_FONT_PAGES) are held to
- *   the same rules.
+ *   the same rules;
+ * - what the public-page font train retired stays retired
+ *   (scripts/lib/font-retirement.mts): nothing a page, the app or a Worker
+ *   ships loads or names Pretendard as a font but the recorded places (text
+ *   that credits it may stay), the only Pretendard files are the Hangul
+ *   source, the share-image files and the licence, and the deployed copy,
+ *   the Pretendard sheets, the Noto Sans Cyrillic and Greek files and the
+ *   unshipped faces of the generator inputs are gone.
  * The initial transfer budget (scripts/check-initial-transfer-budget.mts)
  * holds the eager font bytes at 0, fonts of eager stylesheets included.
  * --dist adds the built output: no font in the initial graph of the app
@@ -66,14 +73,17 @@
  * the service worker's install manifests (which do install the font owner
  * chunk itself), every About copy linking the shared sheets (rest.css in
  * the head where its language needs it) and every other switched page
- * linking them as its source does, Pretendard deployed once for the
- * pages that still use it, and the public pages' sheets: dist/web-fonts/ holds exactly
- * first.css and rest.css, the concatenations of the built app sheets of
- * their group (src/i18n/public-font-contract.ts) whose every font file is
- * built, and stacks.css, the authored file, none of which the app documents
- * link.
+ * linking them as its source does, nothing retired in the build (no
+ * Pretendard file but the share-image subset, no retired folder, no built
+ * copy of a retired or generator-input sheet, and no built text that loads
+ * or names Pretendard as a font), and the public pages' sheets:
+ * dist/web-fonts/ holds exactly first.css and rest.css, the concatenations
+ * of the built app sheets of their group (src/i18n/public-font-contract.ts)
+ * whose every font file is built, and stacks.css, the authored file, none of
+ * which the app documents link.
  */
 
+import { existsSync } from 'node:fs';
 import { readFile, readdir } from 'node:fs/promises';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -112,6 +122,16 @@ import {
   woff2Urls,
 } from './lib/app-font-guard.mts';
 import {
+  GENERATOR_INPUT_SHEETS,
+  PRETENDARD_ALLOWLIST,
+  PRETENDARD_FILE_ALLOWLIST,
+  RETIRED_FONT_PATHS,
+  pretendardFontReferences,
+  pretendardMentions,
+  retiredBuildFiles,
+  unshippedFaceFiles,
+} from './lib/font-retirement.mts';
+import {
   inlineStyles,
   PUBLIC_FONT_PAGES,
   PUBLIC_KOREAN_ENGLISH_COPY_RULES,
@@ -149,15 +169,9 @@ async function collectFiles(directory: string): Promise<string[]> {
   return files;
 }
 
-const PRETENDARD_URL = '/designsystem/fonts/PretendardVariable.woff2';
+// The source the Hangul faces are cut from, and what Pretendard drew for the
+// coverage requirement. No page loads it.
 const PRETENDARD_SOURCE = path.join(repoRoot, 'fonts', 'PretendardVariable.woff2');
-const PRETENDARD_PUBLIC = path.join(
-  repoRoot,
-  'public',
-  'designsystem',
-  'fonts',
-  'PretendardVariable.woff2',
-);
 const UNCOVERED_LIST = 'scripts/fonts/uncovered-code-points.txt';
 const SYSTEM_FAMILIES = new Set([
   '-apple-system',
@@ -170,15 +184,13 @@ const APP_FAMILIES: readonly string[] = APP_FONT_SHEETS.map(({ family }) => fami
 // Inter, the Hangul and the CJK faces carry the descriptors of font-metrics.ts;
 // the script faces carry none.
 const FACE_METRICS = appFaceMetrics();
-// Google's original sheets in css/fonts/: the script sheets the app imports,
-// the generator inputs, and the Cyrillic and Greek sheets nothing uses. No
-// page loads them any more, and none installs.
+// Google's original sheets in css/fonts/: the script sheets the app imports
+// and the generator inputs. No page loads the generator inputs, and none
+// installs.
 const GOOGLE_SHEETS = [
   { family: 'Noto Sans Arabic', source: 'noto-arabic' },
   { family: 'Noto Sans Bengali', source: 'noto-bengali' },
-  { family: 'Noto Sans', source: 'noto-cyrillic' },
   { family: 'Noto Sans Devanagari', source: 'noto-devanagari' },
-  { family: 'Noto Sans', source: 'noto-greek' },
   { family: 'Noto Sans Gujarati', source: 'noto-gujarati' },
   { family: 'Noto Sans Gurmukhi', source: 'noto-gurmukhi' },
   { family: 'Noto Sans Hebrew', source: 'noto-hebrew' },
@@ -640,15 +652,13 @@ check(
   !CLASSIC_RUNTIME_ASSETS.some(({ outputPath }) => /font/iu.test(outputPath)),
   'a classic runtime still loads fonts',
 );
-const [appHtml, serviceWorkerSource, bootstrapSource, sourceFont, publicFont, packageJson] =
-  await Promise.all([
-    readFile(path.join(repoRoot, 'index.html'), 'utf8'),
-    readFile(path.join(repoRoot, SERVICE_WORKER_SOURCE_PATH), 'utf8'),
-    readFile(path.join(repoRoot, bootstrapAsset.sourcePath), 'utf8'),
-    readFile(PRETENDARD_SOURCE),
-    readFile(PRETENDARD_PUBLIC),
-    readFile(path.join(repoRoot, 'package.json'), 'utf8'),
-  ]);
+const [appHtml, serviceWorkerSource, bootstrapSource, sourceFont, packageJson] = await Promise.all([
+  readFile(path.join(repoRoot, 'index.html'), 'utf8'),
+  readFile(path.join(repoRoot, SERVICE_WORKER_SOURCE_PATH), 'utf8'),
+  readFile(path.join(repoRoot, bootstrapAsset.sourcePath), 'utf8'),
+  readFile(PRETENDARD_SOURCE),
+  readFile(path.join(repoRoot, 'package.json'), 'utf8'),
+]);
 // font-metrics.ts derives the descriptors from Pretendard's metrics and says so.
 const productionSources = (await collectFiles(path.join(repoRoot, 'src'))).filter(
   (file) =>
@@ -686,9 +696,41 @@ for (const retired of [
   );
   check(!exists, `${retired} is back`);
 }
-// Pretendard stays deployed for the public pages until they switch.
 check(sourceFont.subarray(0, 4).toString('ascii') === 'wOF2', 'the Pretendard source is not WOFF2');
-check(sourceFont.equals(publicFont), 'the public Pretendard copy differs from fonts/');
+
+// What the public-page font train retired stays retired: Pretendard loads
+// and is named as a font nowhere a page, the app or a Worker ships but the
+// recorded places, its only files are the Hangul source, the share-image
+// files and the licence, and the deleted files stay deleted
+// (scripts/lib/font-retirement.mts).
+for (const mention of pretendardMentions(repoRoot)) {
+  failures.push(`Pretendard outside the recorded places: ${mention}`);
+}
+for (const file of Object.keys(PRETENDARD_ALLOWLIST)) {
+  const text = await readFile(path.join(repoRoot, file), 'utf8').catch(() => '');
+  check(
+    pretendardFontReferences(file, text).length > 0,
+    `${file} no longer names Pretendard as a font; drop it from PRETENDARD_ALLOWLIST`,
+  );
+}
+for (const file of Object.keys(PRETENDARD_FILE_ALLOWLIST)) {
+  check(
+    existsSync(path.join(repoRoot, file)),
+    `${file} is gone, but PRETENDARD_FILE_ALLOWLIST keeps it`,
+  );
+}
+for (const retired of RETIRED_FONT_PATHS) {
+  check(!existsSync(path.join(repoRoot, retired)), `${retired} is back`);
+}
+for (const sheet of GENERATOR_INPUT_SHEETS) {
+  const css = await readFile(path.join(repoRoot, sheet), 'utf8');
+  for (const file of unshippedFaceFiles(sheet, css)) {
+    check(
+      !existsSync(path.join(repoRoot, file)),
+      `${file}, a face ${sheet} lists but the app does not ship, is back`,
+    );
+  }
+}
 for (const [label, file] of [
   ['app', 'index.html'],
   ['About', '.workshop/landing/landing.html'],
@@ -934,24 +976,21 @@ if (distMode) {
     }
   }
 
-  // Pretendard: deployed once, byte-identical, for the pages that still use it.
-  const deployedPretendard = distFiles.filter(
-    (file) => path.basename(file) === 'PretendardVariable.woff2',
-  );
-  check(
-    deployedPretendard.length === 1,
-    `PretendardVariable.woff2 should be deployed exactly once (found ${deployedPretendard.length})`,
-  );
-  const [deployed] = deployedPretendard;
-  if (deployed) {
-    check(
-      relative(deployed) === PRETENDARD_URL.slice(1),
-      `PretendardVariable.woff2 moved to ${relative(deployed)}`,
-    );
-    check(
-      (await readFile(deployed)).equals(sourceFont),
-      'the built Pretendard differs from fonts/',
-    );
+  // Nothing retired in the build: no Pretendard file but the share-image
+  // subset, nothing under a retired folder, no built copy of a retired or
+  // generator-input sheet, and no built text that loads or names Pretendard
+  // as a font (scripts/lib/font-retirement.mts).
+  for (const problem of retiredBuildFiles(distFiles.map(relative))) {
+    failures.push(`built ${problem}`);
+  }
+  for (const file of distFiles) {
+    if (!/\.(?:html|css|m?js|json|md|txt|svg|webmanifest|xml)$/iu.test(file)) continue;
+    for (const reference of pretendardFontReferences(
+      relative(file),
+      await readFile(file, 'utf8'),
+    )) {
+      failures.push(`built ${relative(file)} loads or names Pretendard as a font: ${reference}`);
+    }
   }
 }
 
@@ -960,6 +999,6 @@ if (failures.length > 0) {
   process.exitCode = 1;
 } else {
   console.log(
-    `App font guard passed (Inter and Noto files, Hangul faces, baked app faces and self-hosted sheets, ${textStacks.size} distinct text stacks, one source per script, coverage with ${recordedGapCount} recorded gaps${distMode ? ', built sheets, initial graph and install manifests' : ''}).`,
+    `App font guard passed (Inter and Noto files, Hangul faces, baked app faces and self-hosted sheets, ${textStacks.size} distinct text stacks, one source per script, coverage with ${recordedGapCount} recorded gaps, the public pages and the retired fonts${distMode ? ', built sheets, initial graph, install manifests and nothing retired in the build' : ''}).`,
   );
 }

@@ -5,9 +5,8 @@ user-invocable: true
 ---
 
 Read `README.md` completely before producing a MUSIXQUARE interface or visual
-artifact. Treat the production sources listed there as authoritative; files in
-`src_ref/` are archival extraction snapshots unless the README explicitly says
-otherwise.
+artifact. Treat the production sources listed there as authoritative; there
+are no extraction snapshots to copy from.
 
 Use the design principles in `README.md` when describing the product's identity.
 Do not infer external design influences from visual similarities.

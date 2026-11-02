@@ -5,6 +5,12 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <meta name="color-scheme" content="dark">
 <title>MUSIXQUARE · E2E Report</title>
+<!-- The app's Inter, MUSIXQUARE Hangul and Noto Sans KR sheets and the
+     public pages' stacks, by relative path (file:// and http both OK). -->
+<link rel="stylesheet" href="../css/fonts/app/font-inter.css">
+<link rel="stylesheet" href="../css/fonts/app/font-hangul.css">
+<link rel="stylesheet" href="../css/fonts/app/font-noto-kr.css">
+<link rel="stylesheet" href="../public/web-fonts/stacks.css">
 <style>
   /* ── MUSIXQUARE design tokens (mirrored from /designsystem) ─────── */
   :root {
@@ -37,27 +43,15 @@
 
     --ease-out: cubic-bezier(0.2, 0.8, 0.2, 1);
 
-    --font-sans: "Pretendard", -apple-system, BlinkMacSystemFont, "Segoe UI",
-                 Roboto, "Apple SD Gothic Neo", "Noto Sans KR", sans-serif;
     --font-mono: ui-monospace, "SF Mono", "JetBrains Mono", Consolas,
                  "Liberation Mono", monospace;
-  }
-
-  /* Optional: load Pretendard if available (file:// + http both OK). */
-  @font-face {
-    font-family: "Pretendard";
-    src: url("../public/designsystem/fonts/PretendardVariable.woff2")
-         format("woff2-variations");
-    font-weight: 45 920;
-    font-style: normal;
-    font-display: swap;
   }
 
   *, *::before, *::after { box-sizing: border-box; }
   html, body { margin: 0; padding: 0; }
 
   body {
-    font-family: var(--font-sans);
+    font-family: var(--font-sans, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif);
     font-size: 14px;
     color: var(--text-main);
     background: var(--bg);

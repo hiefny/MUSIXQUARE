@@ -37,9 +37,10 @@ Use production files as the authority for implementation details:
 | Public editorial shell                    | `public/editorial-*.css`, `.workshop/landing/`                                                                |
 | Brand assets                              | `public/designsystem/assets/`, `public/favicon.svg`, `public/icons/`                                          |
 
-Files under `src_ref/` are extraction snapshots for design archaeology, not
-production source. They are not synchronized automatically, and no page
-loads them.
+Every public page, these design-system pages included, links the shared
+font sheets `/web-fonts/first.css`, `/web-fonts/stacks.css` and
+`/web-fonts/rest.css` (`fonts/README.md`, "Pages outside the app"); this
+mirror declares no face and no font stack of its own.
 
 ## Product architecture that affects design
 
@@ -291,6 +292,4 @@ When changing the visual system:
    one long translation.
 3. Update `colors_and_type.css`, previews, or the local UI kit only when their
    guidance changed.
-4. Keep extraction snapshots clearly non-authoritative; do not copy behavior
-   back from `src_ref/` into production.
-5. Run the normal typecheck, lint, tests, and production build guards.
+4. Run the normal typecheck, lint, tests, and production build guards.

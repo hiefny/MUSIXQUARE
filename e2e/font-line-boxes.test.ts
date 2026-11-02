@@ -453,7 +453,9 @@ test.describe('line boxes without the metric overrides', () => {
   });
 
   test('WebKit, which applies the overrides, draws Hangul lines as tall as Latin ones', async () => {
-    const browser = await webkit.launch();
+    // The project's launch options carry Chromium-only flags. Linux WebKit
+    // refuses to start with them (Windows WebKit ignores them), so drop them.
+    const browser = await webkit.launch({ args: [] });
     try {
       const { page } = await openStart(browser, false);
       const apart = (

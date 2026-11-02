@@ -111,8 +111,9 @@ behind one owner).
 
 - `scripts/check-resource-ownership.mts` CHECK 6 counts native `resume()` and `suspend()` per file;
   beside it, since Phase 7 T1, an exact ratchet counts per file the callers of `ensureRunning`,
-  `restartAudioContextFromGesture` and `probeAudioContextHealth` outside `context.ts`, and reports
-  `initAudio` uses. Each Phase 7 step lowers the counts it moves into the owner in the same change.
+  `restartAudioContextFromGesture` and `probeAudioContextHealth`, `context.ts` included (it calls
+  none of them, so a wrapper there cannot hide a new caller), and reports `initAudio` uses. Each
+  Phase 7 step lowers the counts it moves into the owner in the same change.
   The guard stays syntactic (RO-44).
 
 ## Limits of the evidence

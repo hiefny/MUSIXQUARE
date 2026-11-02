@@ -51,10 +51,10 @@
  *     callers of the three functions of src/audio/context.ts that call
  *     native resume() for whoever calls them (ensureRunning,
  *     restartAudioContextFromGesture, probeAudioContextHealth): exact uses
- *     per file and function outside that home, by name: calls, namespace
- *     members, values passed on, string keys and renames (an import or
- *     export specifier, a destructuring); in the home only a use other than a
- *     direct call. initAudio, which reaches ensureRunning through the
+ *     per file and function, that home included (a wrapper there would hide
+ *     its callers), by name: calls, namespace members, values passed on,
+ *     string keys and renames (an import or export specifier, a
+ *     destructuring). initAudio, which reaches ensureRunning through the
  *     engine, is reported only (--report lists every use).
  *   CHECK 7 Developer API authority fence writers (RO-25). Writes to
  *     mxqr_developer_api_room_authority_fences stay in the listed functions:
@@ -616,15 +616,11 @@ const AUDIO_CONTEXT_NATIVE_CALL_BASELINE: Baseline = new Map<string, Allowance>(
 // Measured on main cd8eaf47 (App 9.0.34), 2026-11-02 (Phase 7 T1).
 
 /**
- * The home of the functions below: its own calls of them are the owner's,
- * so only a use that hands one on under another name counts there.
- */
-const INDIRECT_RESUME_HOME = 'src/audio/context.ts';
-
-/**
  * RO-01: the functions of the AudioContext singleton that call native
  * resume() for whoever calls them, with their callers' exact uses per file
- * outside the home: ensureRunning (a context that is not running),
+ * (their home src/audio/context.ts too, which calls none of them today, so
+ * a wrapper there cannot hide a caller):
+ * ensureRunning (a context that is not running),
  * restartAudioContextFromGesture (inside the caller's gesture) and
  * probeAudioContextHealth (unless the caller passes attemptResume: false).
  * Phase 7 moves these callers into the owner (7C-1 to 7C-3); each step
@@ -1670,10 +1666,10 @@ function mayClaimSystemAudio(node: ts.Identifier): boolean {
  * (`context['ensureRunning']`), and a rename (an import or export specifier
  * `ensureRunning as wake`, a destructuring `{ ensureRunning: wake }`), whose
  * own calls then go uncounted. Declarations, type positions and member
- * signatures are not uses. In the home only a use other than a direct call
- * counts: the home hands the function on, its own calls are the owner's.
+ * signatures are not uses. The home's own calls count too: a wrapper it
+ * exported would otherwise resume for callers no count sees.
  */
-function indirectResumeUse(node: ts.Node, relPath: string): string | null {
+function indirectResumeUse(node: ts.Node): string | null {
   if (ts.isElementAccessExpression(node)) {
     const key = unwrap(node.argumentExpression);
     return ts.isStringLiteralLike(key) && INDIRECT_RESUME_NAMES.has(key.text) ? key.text : null;
@@ -1689,14 +1685,7 @@ function indirectResumeUse(node: ts.Node, relPath: string): string | null {
   if (ts.isTypeQueryNode(parent) || ts.isQualifiedName(parent) || ts.isMethodSignature(parent)) {
     return null;
   }
-  if (!isValueReference(node)) return null;
-  if (relPath === INDIRECT_RESUME_HOME && node.text !== INDIRECT_RESUME_REPORT_ONLY) {
-    const access =
-      ts.isPropertyAccessExpression(parent) && parent.name === node ? parent : (node as ts.Node);
-    const call = access.parent;
-    if (ts.isCallExpression(call) && call.expression === access) return null;
-  }
-  return node.text;
+  return isValueReference(node) ? node.text : null;
 }
 
 const constInitializerCache = new WeakMap<
@@ -1850,7 +1839,7 @@ function collectFacts(relPath: string, text: string): FileFacts {
       // sendEncodings entry or an Object.assign source.
       facts.mediaTuningSites += 1;
     }
-    const indirectResume = indirectResumeUse(node, relPath);
+    const indirectResume = indirectResumeUse(node);
     if (indirectResume !== null) {
       const site = `${relPath}:${lineOf(file, node)} ${indirectResume}() in ${enclosingFunctionName(node)}`;
       if (indirectResume === INDIRECT_RESUME_REPORT_ONLY) facts.initAudioSites.push(site);
@@ -4414,7 +4403,7 @@ export interface ResourceOwnershipReport {
     readonly reportOnly: readonly string[];
   };
   readonly audioContextNativeCalls: number;
-  /** CHECK 6 beside: counted uses per indirect resume function, outside its home. */
+  /** CHECK 6 beside: counted uses per indirect resume function, its home included. */
   readonly indirectResumeCalls: Readonly<Record<string, number>>;
   /** CHECK 6 beside: every counted use, `file:line name() in function`. */
   readonly indirectResumeSites: readonly string[];

@@ -1,16 +1,16 @@
 # 앱 한글을 다시 Pretendard로 (2026-11-02)
 
-| Field              | Value                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                 |
-| ------------------ | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Status             | 구현, 로컬 QA, 리뷰 반영, 릴리스 조립 끝, 배포 전. 브랜치 `agent/hangul-pretendard`(main `7b869c35` 위 커밋 열). 처음에는 main `7d60f134` 위에서 만들었고(§5와 §6의 SHA는 그때의 것), 조립 때 패치 그대로 `7b869c35` 위로 옮겼다(대응표는 §11). 그 위에 릴리스 준비 기록(release-record §2 맨 위의 이 열차 '배포 전' 절, 그 절이 바꾸는 열린 항목 둘, 이 §11, `docs/README.md`)과 버전 올리기(마지막 런타임 커밋)가 있다. PR, PR CI, 자동 코드 리뷰, 머지, exact-main CI, 배포는 아직이다. 로컬과 브랜치 결과는 exact-main-SHA 후보를 대신하지 않는다 |
-| Base               | main `7b869c35`(#559, Phase 7 T0 시험만) 위. 그 부모 `7d60f134`(#558)가 App 9.0.32 / v805의 배포 기록(문서만)이고 그 부모 `3ea689b9`(#557)가 운영 App 9.0.32다. 그래서 바탕의 App 런타임은 운영과 같다(§11)                                                                                                                                                                                                                                                                                                                                           |
-| Version            | 9.0.33 / v806(App 빌드 806). 버전 올리기가 마지막 런타임 커밋이고 9.0.32의 버전 올리기와 같은 거울 여섯 파일 일곱 줄을 올린다(§11). 그 앞 커밋은 9.0.32 / v805 그대로라 `guard:sw-cache-version`만 실패했다(§6)                                                                                                                                                                                                                                                                                                                                       |
-| Scope              | 앱만: 새 한글 글꼴 파일 87개(`fonts/app/hangul/`)와 그 기록 `fonts/hangul-faces.json`, 새 시트 `css/fonts/app/font-hangul.css`, KR·JP·SC·TC 시트의 범위, 구운 KR 사본 67개 삭제와 `fonts/app-faces.json`, `css/style.css`의 글꼴 스택, `src/i18n/`의 글꼴 계약·로더·미리 받기 표·`font-metrics.ts`, 생성기·가드·시험·문서. 공개 페이지(블로그, History, 디자인 시스템, 소개와 그 형제 페이지, `account-complete.html`)와 공유 그림(OG)은 그대로다(§7 12)                                                                                              |
-| Deploy target      | `app`(업데이트 창이 뜨는 배포). 운영 배포 SHA와 견준 런타임 경로 변경은 버전 올리기 앞 App 165(한글 면 87, 지운 KR 사본 67, 앱 글꼴 시트 다섯, `css/style.css`, `src/i18n`과 `src/ui`의 다섯 파일), 나머지 다섯 Worker 0, App 런타임 의존성 차이 없음(§11). 버전 올리기의 거울 넷을 더하면 App 169다                                                                                                                                                                                                                                                  |
-| Operations         | 없음. GitHub 쓰기, push, 운영 요청, 내려받기 없이 로컬에서만 만들고 시험했다                                                                                                                                                                                                                                                                                                                                                                                                                                                                          |
-| Resource ownership | 복구, 재시도, 시한, 수명 흐름을 더하지 않았다(생성기, 가드, 정적 파일, CSS, 이미 있는 로더에 시트 하나). 등록부 기록이 필요 없다                                                                                                                                                                                                                                                                                                                                                                                                                      |
-| Third-party assets | 새 내려받기 없음. 새 파일은 저장소에 2026-02-23부터 있던 `fonts/PretendardVariable.woff2`(Pretendard Variable 1.309, 길형진, SIL OFL 1.1, Reserved Font Name Pretendard)의 부분 집합이다. Reserved Font Name 때문에 이름을 MUSIXQUARE Hangul로 바꿨고, 저작권과 라이선스 이름 기록은 원본 그대로다(§2.3). 그 파일은 이제 한글 면의 기록된 원본이라 저장소에 남는다(§7 12)                                                                                                                                                                             |
-| Release record     | 조립 때 §2 맨 위에 이 열차의 '배포 전' 절(범위와 상태, 기댄 오너 결정과 위임, 배포 조건, 되돌리기, 배포 직후 확인, 열린 항목)을 더하고, 이 열차가 바꾸는 열린 항목 둘(9.0.29 절의 공개 페이지 글꼴 열차, 9.0.31 절의 14.5px 차이)을 고쳤다(§11). §4 되돌리기 항목, §1, 이력 한 행은 배포 기록 PR의 몫이다                                                                                                                                                                                                                                             |
+| Field              | Value                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                             |
+| ------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Status             | 구현, 로컬 QA, 리뷰 반영, 릴리스 조립, 버전 올리기 머리의 QA 라운드 3(§11.3) 끝, 배포 전. 브랜치 `agent/hangul-pretendard`(main `7b869c35` 위 커밋 열). 처음에는 main `7d60f134` 위에서 만들었고(§5와 §6의 SHA는 그때의 것), 조립 때 패치 그대로 `7b869c35` 위로 옮겼다(대응표는 §11). 그 위에 릴리스 준비 기록 `7f16b48c`, 버전 올리기 `d78d0d41`(마지막 런타임 커밋), 라운드 3 결과를 적은 문서 커밋이 있다(§11.1). PR, PR CI, 자동 코드 리뷰, 머지, exact-main CI, 배포는 아직이다. 로컬과 브랜치 결과는 exact-main-SHA 후보를 대신하지 않는다 |
+| Base               | main `7b869c35`(#559, Phase 7 T0 시험만) 위. 그 부모 `7d60f134`(#558)가 App 9.0.32 / v805의 배포 기록(문서만)이고 그 부모 `3ea689b9`(#557)가 운영 App 9.0.32다. 그래서 바탕의 App 런타임은 운영과 같다(§11)                                                                                                                                                                                                                                                                                                                                       |
+| Version            | 9.0.33 / v806(App 빌드 806). 버전 올리기가 마지막 런타임 커밋이고 9.0.32의 버전 올리기와 같은 거울 여섯 파일 일곱 줄을 올린다(§11). 그 앞 커밋은 9.0.32 / v805 그대로라 `guard:sw-cache-version`만 실패했다(§6)                                                                                                                                                                                                                                                                                                                                   |
+| Scope              | 앱만: 새 한글 글꼴 파일 87개(`fonts/app/hangul/`)와 그 기록 `fonts/hangul-faces.json`, 새 시트 `css/fonts/app/font-hangul.css`, KR·JP·SC·TC 시트의 범위, 구운 KR 사본 67개 삭제와 `fonts/app-faces.json`, `css/style.css`의 글꼴 스택, `src/i18n/`의 글꼴 계약·로더·미리 받기 표·`font-metrics.ts`, 생성기·가드·시험·문서. 공개 페이지(블로그, History, 디자인 시스템, 소개와 그 형제 페이지, `account-complete.html`)와 공유 그림(OG)은 그대로다(§7 12)                                                                                          |
+| Deploy target      | `app`(업데이트 창이 뜨는 배포). 운영 배포 SHA와 견준 런타임 경로 변경은 버전 올리기 앞 App 165(한글 면 87, 지운 KR 사본 67, 앱 글꼴 시트 다섯, `css/style.css`, `src/i18n`과 `src/ui`의 다섯 파일), 나머지 다섯 Worker 0, App 런타임 의존성 차이 없음(§11). 버전 올리기의 거울 넷을 더하면 App 169다                                                                                                                                                                                                                                              |
+| Operations         | 없음. GitHub 쓰기, push, 운영 요청, 내려받기 없이 로컬에서만 만들고 시험했다                                                                                                                                                                                                                                                                                                                                                                                                                                                                      |
+| Resource ownership | 복구, 재시도, 시한, 수명 흐름을 더하지 않았다(생성기, 가드, 정적 파일, CSS, 이미 있는 로더에 시트 하나). 등록부 기록이 필요 없다                                                                                                                                                                                                                                                                                                                                                                                                                  |
+| Third-party assets | 새 내려받기 없음. 새 파일은 저장소에 2026-02-23부터 있던 `fonts/PretendardVariable.woff2`(Pretendard Variable 1.309, 길형진, SIL OFL 1.1, Reserved Font Name Pretendard)의 부분 집합이다. Reserved Font Name 때문에 이름을 MUSIXQUARE Hangul로 바꿨고, 저작권과 라이선스 이름 기록은 원본 그대로다(§2.3). 그 파일은 이제 한글 면의 기록된 원본이라 저장소에 남는다(§7 12)                                                                                                                                                                         |
+| Release record     | 조립 때 §2 맨 위에 이 열차의 '배포 전' 절(범위와 상태, 기댄 오너 결정과 위임, 배포 조건, 되돌리기, 배포 직후 확인, 열린 항목)을 더하고, 이 열차가 바꾸는 열린 항목 둘(9.0.29 절의 공개 페이지 글꼴 열차, 9.0.31 절의 14.5px 차이)을 고쳤다(§11). §4 되돌리기 항목, §1, 이력 한 행은 배포 기록 PR의 몫이다                                                                                                                                                                                                                                         |
 
 9.0.29부터 앱은 한글을 Noto Sans KR로 그렸다([보고서](app-font-inter-noto-2026-10-31.md)). 이 열차는 한글만 다시 Pretendard로
 그린다. 라틴 글자와 숫자는 Inter, 한자·가나·중국어와 Pretendard에 없는 한글은 Noto 그대로다. 줄 상자, 라틴과 한자의 크기, 탭
@@ -118,9 +118,9 @@ swap`, 파일 하나, `unicode-range`는 그 면의 cmap이다. 기술자는 파
 ## 3. 바뀌어 보이는 것 [화면 바뀜]
 
 - 모든 한글 글자가 Pretendard 모양이 된다. 음절 폭은 0.06% 좁아진다.
-- 줄 상자: Pretendard 파일 자체가 9.0.29부터의 기준 상자라, Chromium과 Firefox에서는 0.5px 단위 크기 8 ~ 48px 모두 9.0.32의 한글
-  상자와 같다. 0.01px 단위로는 다르다. 리뷰 라운드의 측정(Chromium 153, 출시 시트, 한국어 화면, 8 ~ 48px 0.01px 단위, 9.0.32 빌드
-  대 R1 전의 이 브랜치): 한글만 있는 줄이 9.0.32보다 1px 큰 크기가 14개다(8.93, 8.94, 10.37, 13.13, 14.18, 15.23, 16.28, 19.43,
+- 줄 상자: Pretendard 파일 자체가 9.0.29부터의 기준 상자라, Chromium에서는 0.5px 단위 크기 8 ~ 48px 모두 9.0.32의 한글 상자와
+  같다(리뷰 측정. Firefox는 같은 기술자를 따를 것으로 예상하지만 재지 않았다). 0.01px 단위로는 다르다. 리뷰 라운드의
+  측정(Chromium 153, 출시 시트, 한국어 화면, 8 ~ 48px 0.01px 단위, 9.0.32 빌드 대 R1 전의 이 브랜치): 한글만 있는 줄이 9.0.32보다 1px 큰 크기가 14개다(8.93, 8.94, 10.37, 13.13, 14.18, 15.23, 16.28, 19.43,
   20.48, 38.34, 38.35, 39.39, 42.54, 43.59px). 같은 크기의 라틴 줄보다 한글 줄이 큰 크기는 19개로, 9.0.32의 5개보다 많다. 0.5px 단위
   크기는 하나도 없다. R1의 기술자를 더해도 13개가 남는다(Chromium은 기술자에서 온 값과 표에서 온 값을 다르게 반올림한다). 이런
   크기에 닿을 수 있는 것은 유동 `clamp()` 크기뿐이다(시작 화면 겹침과 데스크톱 데모, 9.0.31 보고서 §3의 목록).
@@ -218,8 +218,10 @@ swap`, 파일 하나, `unicode-range`는 그 면의 cmap이다. 기술자는 파
 
 - 한국어 시작 화면이 더 무거운 까닭은 Pretendard 변수 윤곽이 같은 글자에서 Noto KR보다 약 1.5배 크기 때문이다(굵기 축 전체를
   남겼다. §9 2). 미리 받기까지는 한글 조각에 한자와 기호가 없어 오히려 가볍다.
-- 첫 화면 예산(`guard:initial-transfer-budget`, 운영 빌드): 진입 JS 861,056 B 그대로 / gzip 253,682 B(−1), 즉시 JS gzip
-  465,413 B(+10, 해시 이름), 즉시 전체 2,049,037 B(+114) / gzip 543,693 B(+43, 주로 `--font-hangul`과 `var()` 넷), 즉시 글꼴 0.
+- 첫 화면 예산(`guard:initial-transfer-budget`, 운영 빌드). 라운드 1(`7d60f134` 위 운영 빌드 대비): 진입 JS 861,056 B 그대로 /
+  gzip 253,682 B(−1), 즉시 JS gzip 465,413 B(+10, 해시 이름), 즉시 전체 2,049,037 B(+114) / gzip 543,693 B(+43, 주로
+  `--font-hangul`과 `var()` 넷), 즉시 글꼴 0. 릴리스 머리 `d78d0d41`(라운드 3, `7b869c35` 빌드 대비): 진입 raw ±0 / gzip +3 B,
+  즉시 JS gzip +1 B, 즉시 전체 +114 B / gzip +32 B, 즉시 글꼴 0(§11.3).
 - 빌드 시트(raw): `font-hangul` 37,423 B(gzip 10,612) 새로(R1의 기술자로 44,818 B, zlib 9단계 gzip 10,771 B. 시트 전송은 다시 재지
   않았고 gzip 차이로 보아 약 160 B 는다), KR 88,272 → 45,761 B, JP 107,208 → 107,141 B, SC 98,939 B 그대로,
   TC 97,351 → 97,344 B, Inter 2,325 B 그대로. `locale-fonts` 덩이 14,423 → 14,637 B(게으름, 서비스 워커가 설치).
@@ -324,6 +326,9 @@ R1 ~ R3: 런타임 파일만 부모 커밋의 것으로 되돌리고(`git checko
   - 한계: 라운드 1과 같다. 더해 WebKit 시험은 Windows의 Playwright WebKit(2359)이고, 그 엔진은 변수 글꼴의 굵기를 적용하지 않아
     굵기는 보지 못했다(§4.1, §8 5). §3의 0.01px 쓸기, 화면 요소 위치 비교, 잉크 단계는 리뷰 쪽 측정을 옮긴 것이고 이 라운드에서
     다시 재지 않았다.
+
+- **라운드 3 — 버전 올리기 `d78d0d41`(9.0.33 / v806, main `7b869c35` 위), 2026-11-02.** 옮긴 뒤 버전 올리기 머리의 로컬 전체
+  관문. 결과와 한계는 §11.3.
 
 ### 6.1 `3ad033c0`의 전체 단위 실행
 
@@ -436,17 +441,20 @@ critical 커버리지 설정만 바꾸므로 바탕의 App 런타임은 운영 9
 | R3        | `b241ef08` | `429bcc0f` | test: rename fonts the generator's way and drop test-only exports          |
 | D2        | `ad92d753` | `576a1315` | docs: record the review round of the Hangul-by-Pretendard train            |
 
-그 위의 두 커밋:
+그 위의 커밋:
 
-- **릴리스 준비 기록(문서만).** release-record §2 맨 위의 이 열차 '배포 전' 절(범위와 상태, 기댄 오너 결정과 위임, 배포 조건,
-  되돌리기, 배포 직후 확인, 열린 항목), 9.0.31 절의 14.5px 문장(한글은 이 열차가 나가면 그 1px이 사라짐), 9.0.29 절의 공개 페이지
-  글꼴 열차 항목(범위가 Inter + MUSIXQUARE Hangul + Noto로 바뀌고 `fonts/PretendardVariable.woff2`는 남음, §7 12), 이 보고서의 머리
-  표와 §10, §11, `docs/README.md`의 이 보고서 항목.
-- **버전 올리기(마지막 런타임 커밋).** 'chore: release 9.0.33 with service-worker cache v806 (Hangul drawn by Pretendard again)'.
-  9.0.32의 버전 올리기(#557 squash `3ea689b9` 안의 `582ab9d9`)와 같은 거울 여섯 파일의 일곱 줄이다: `package.json`의 `version`,
-  `package-lock.json`의 `version` 두 줄, `browser/classic-runtime/admin.ts`의 `ADMIN_SCRIPT_VERSION`,
+- **릴리스 준비 기록(문서만), `7f16b48c`.** release-record §2 맨 위의 이 열차 '배포 전' 절(범위와 상태, 기댄 오너 결정과 위임,
+  배포 조건, 되돌리기, 배포 직후 확인, 열린 항목), 9.0.31 절의 14.5px 문장(한글은 이 열차가 나가면 그 1px이 사라짐), 9.0.29 절의
+  공개 페이지 글꼴 열차 항목(범위가 Inter + MUSIXQUARE Hangul + Noto로 바뀌고 `fonts/PretendardVariable.woff2`는 남음, §7 12), 이
+  보고서의 머리 표와 §10, §11, `docs/README.md`의 이 보고서 항목.
+- **버전 올리기(마지막 런타임 커밋), `d78d0d41`.** 'chore: release 9.0.33 with service-worker cache v806 (Hangul drawn by
+  Pretendard again)'. 9.0.32의 버전 올리기(#557 squash `3ea689b9` 안의 `582ab9d9`)와 같은 거울 여섯 파일의 일곱 줄이다:
+  `package.json`의 `version`, `package-lock.json`의 `version` 두 줄, `browser/classic-runtime/admin.ts`의 `ADMIN_SCRIPT_VERSION`,
   `cloudflare/app-worker.ts`의 `ADMIN_ASSET_VERSION`, `scripts/service-worker-asset.ts`의 `SERVICE_WORKER_CACHE_VERSION`,
-  `index.html`의 `/bootstrap.js?cache=` 쿼리. 그 뒤 커밋은 없다.
+  `index.html`의 `/bootstrap.js?cache=` 쿼리.
+- **라운드 3 기록(문서만).** §11.3에 라운드 3의 결과를 적고, 이 보고서와 release-record의 결과 위치를 §11.3으로 맞췄다. 런타임
+  경로를 건드리지 않아 버전 올리기가 그대로 마지막 런타임 커밋이다(`guard:sw-cache-version`이 이 커밋 뒤에도 'PASS: v806
+  (d78d0d41)').
 
 ### 11.2 배포 판정 (버전 올리기 앞, 로컬)
 
@@ -463,13 +471,38 @@ compatible이다. 운영을 조회하지 않은 판정이라 릴리스의 부분
 
 ### 11.3 QA 라운드 3: 버전 올리기 머리의 로컬 전체 관문
 
-환경은 §6과 같다(Windows 11, Node 24.22.2 / npm 12.0.2, `CI=true`, `TZ=Etc/UTC`, 포트 5291·5292, 추적 끔,
-`vitest --maxWorkers=6`). 버전 올리기 머리에서 돌리는 것: typecheck, lint, `format:check`, `build:checked`(그 안의
-`guard:sw-cache-version` PASS v806과 `guard:release-identity` 9.0.33 / v806), 모든 `guard:*`, `check-resource-ownership`,
-`test:coverage:critical`(#559가 더한 오디오 주인 시험 포함), `test:coverage:workers`, 단위 전체, `build:e2e` 뒤 `test:e2e:critical`과
-글꼴·탭 머리·재생목록 명세, 운영 빌드의 `test:e2e:candidate`, origin/main `7b869c35`의 운영 빌드와 견준 첫 로딩
-(`measureInitialTransfer`), 버전 올리기 머리의 배포 판정. 결과는 버전 올리기 뒤에 나오므로 이 보고서가 아니라 PR 본문과 머지 커밋
-본문에 적고, 배포 기록 PR이 이 절로 옮긴다.
+**라운드 3 — 버전 올리기 `d78d0d41`(9.0.33 / v806), 2026-11-02.** 환경은 §6과 같다(Windows 11, Node 24.22.2 / npm 12.0.2,
+`CI=true`, `TZ=Etc/UTC`, 포트 5291·5292, 추적 끔, `vitest --maxWorkers=6`). 결과는 버전 올리기 뒤의 문서 커밋으로 여기에 적었고
+(§11.1), PR 본문과 머지 커밋 본문에도 같다.
+
+- typecheck(`tsc` 프로젝트 19개와 그 가드), lint(앱과 도구, 경고 0), `format:check` 통과.
+- `build:checked` 통과. 그 안의 `guard:sw-cache-version`이 'PASS: v806 (d78d0d41) covers all committed PWA runtime changes.',
+  `guard:release-identity`가 'MUSIXQUARE 9.0.33; service-worker cache epoch v806'.
+- 그 빌드 뒤 `guard:*` 37개를 하나씩: 모두 통과(`guard:font-assets`와 `guard:font-build`: 44개 스택, 빈칸 1270개, 빌드 시트와 한글
+  면, `guard:initial-transfer-budget`: 진입 840.9 KiB / gzip 247.7 KiB, 즉시 JS gzip 454.5 KiB, 즉시 전체 2001.0 KiB / gzip
+  530.9 KiB, 즉시 글꼴 0, `guard:sw-app-shell`: 앱 셸 자산 96개). `node scripts/check-resource-ownership.mts`: 등록부 기록 49개,
+  운영 파일 457개.
+- 커버리지: `test:coverage:critical` 106개 파일 4,279개(#559의 AudioContext 주인 시험 포함, 84.33 / 79.74 / 90.11 / 87.99),
+  `test:coverage:workers` 69개 파일 3,325개 통과.
+- 단위 전체(`vitest run --maxWorkers=6`, 747개 파일 17,816개)를 두 번 돌렸다. 첫째(722초, 기계 부하 중): 17,803개 통과, 세 파일에서
+  13개 실패. 열 개는 시간 초과(`release-deployment-state` 2, `sw-cache-version-guard` 6, 이 둘은 git 고정 시험 파일, 그리고
+  `pro-room-worker` 2)이고, 셋은 `pro-room-worker`에서 시간 초과 뒤에 실패한 행(TypeError 하나, 409 하나, 시간 한도 하나)이다. 세
+  파일을 하나씩 다시 돌리면 모두 통과했다: `pro-room-worker` 577 / 577, `sw-cache-version-guard` 53 / 53,
+  `release-deployment-state` 105 / 105. 둘째(458초): 17,814개 통과. 실패 2개는 알려진 `release-deployment-state` git 고정 시험 시간
+  초과('keeps pinless PRO owner-transfer records …' 15초, 'blocks an unselected app when a localized build input changes' 30초)이고
+  그 파일은 따로 돌리면 통과한다. 두 실행 모두 다른 파일은 실패하지 않았다.
+- E2E: `build:e2e` 뒤 `test:e2e:critical` 101 / 101(6.5분), 글꼴·탭 머리·재생목록 명세(`font-baked-pixels`, `font-identity`, WebKit
+  출시 시트 시험이 든 `font-line-boxes`, `tab-header-title-alignment`, `playlist*.test.ts` 여덟) 52 / 52(6.3분). `build:checked`
+  결과의 `test:e2e:candidate` 19 / 19.
+- 첫 로딩(`measureInitialTransfer`, origin/main `7b869c35`의 깨끗한 운영 빌드 대비. 그 진입 덩이 `main-FMXWdlb7.js` 861,056 B는 운영
+  9.0.32의 것): 진입 raw ±0 / gzip +3 B, 즉시 JS gzip +1 B(해시 이름), 즉시 전체 +114 B / gzip +32 B(CSS의 `--font-hangul`과
+  `var()` 넷), 즉시 글꼴 0. 글꼴 시트는 게으르게 불러와 첫 화면 그래프 밖이다. 즉시 전체 gzip +32 B는 라운드 1의 +43 B(§4.4) 안이다.
+- 배포 판정(버전 올리기 머리, §11.2와 같은 운영 배포 SHA 대비): App 169 런타임 경로(§11.2의 165와 버전 거울 넷), 나머지 다섯
+  Worker 0, App 런타임 의존성 차이 없음. 그 배포 SHA를 넣은 `verifyPartialReleaseCompatibility('app', …)`는 compatible(로컬 판정,
+  릴리스의 부분 릴리스 검사를 대신하지 않음). `3ea689b9` 대비 계약 동결 diff는 버전 일곱 줄과 `package.json`의
+  `generate:hangul-faces` 한 줄. `dist`는 1,274개 파일(바탕 1,253), WOFF2 807개(바탕 787).
+- 한계: Windows만 봤고 실제 기기는 없다(라운드 1·2의 한계 그대로, §6). 첫째 실행의 `pro-room-worker` 실패는 기계 부하 탓으로 보지만
+  원인을 추적하지 않았다(이 열차가 건드리지 않은 파일이고 따로 돌려 577 / 577). 로컬 결과는 exact-main-SHA 후보를 대신하지 않는다.
 
 ### 11.4 배포 조건, 되돌리기, 배포 뒤 확인
 

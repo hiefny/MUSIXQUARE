@@ -116,8 +116,9 @@ runbooks. Neither belongs in a general setup document.
   deployed SHAs the change touches 165 App runtime paths before the bump (169 with the version
   mirrors) and none in the other five Workers. Section 11 maps the moved commits, describes the
   release-preparation record and the bump to 9.0.33 / v806 as the last runtime commit (the same
-  seven lines in the same six files as the 9.0.32 bump), and lists QA round 3, the full local
-  gate on the bump, whose results go in the pull request and merge bodies. The release record's §2
+  seven lines in the same six files as the 9.0.32 bump), and records QA round 3, the full local
+  gate on the bump `d78d0d41`, which passed (the unit suite's load and git-fixture timeouts each
+  passed alone), in a documentation commit after the bump. The release record's §2
   carries the train as pre-deploy items (scope and status, the owner decision and delegation:
   ship directly once the automated gates pass, deploy conditions, rollback alone until the next
   App update merges and then forward, with the checkpoint App 9.0.32 / v805, the blind

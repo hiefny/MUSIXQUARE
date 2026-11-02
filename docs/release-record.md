@@ -75,12 +75,13 @@ gh run list --workflow e2e.yml --branch main --limit 3
       흐름을 더하지 않아 새 레코드가 없다. 브랜치 `agent/hangul-pretendard`는 main `7b869c35`(#559, Phase 7 T0 시험만, 9.0.32의 배포
       기록 #558 `7d60f134` 위, 런타임은 운영 9.0.32 `3ea689b9` 그대로) 위 커밋 열이다: 이름 표 도우미 `5a58b883`, 한글 면 생성기와
       파일 `c11e51d6`, 전환 `4b3c83ed`, 보고서 `c9769854`, 리뷰 반영 `1f2e556d`(한글 면의 기술자), `9a4e2a26`(다른 원본 거절),
-      `429bcc0f`(시험 정리), 리뷰 반영 문서 `576a1315`, 릴리스 준비 기록(이 항목, 아래 두 항목 고침, 보고서 §11, `docs/README.md`),
-      버전 올리기(마지막 런타임 커밋). 앞의 여덟은 `7d60f134` 위에서 만들어 `7b869c35` 위로 패치 그대로 옮겼다(충돌 없음, 보고서
-      §11). 로컬 QA는 보고서 §6 라운드 1, 2(테스트 먼저는 부모에서 실패, 단위 전체, 생성기 `--check`, 모든 가드에서 버전 올리기 앞의
-      `guard:sw-cache-version`만 실패, 글꼴·탭 머리·재생목록 명세와 critical E2E)와 라운드 3(옮긴 뒤 버전 올리기 머리의 로컬 전체
-      관문, 아래 배포 조건 (4), 결과는 PR 본문)이다. PR, PR CI, 자동 코드 리뷰, exact-main CI, 배포는 아직이고 로컬 결과는
-      exact-main-SHA 후보를 대신하지 않는다. 배포 뒤 기록 PR이 이 절을 '배포 뒤 확인'으로 바꾼다.
+      `429bcc0f`(시험 정리), 리뷰 반영 문서 `576a1315`, 릴리스 준비 기록 `7f16b48c`(이 항목, 아래 두 항목 고침, 보고서 §11,
+      `docs/README.md`), 버전 올리기 `d78d0d41`(마지막 런타임 커밋), 그 뒤 라운드 3 결과를 보고서 §11.3에 적은 문서 커밋(런타임
+      경로 없음). 앞의 여덟은 `7d60f134` 위에서 만들어 `7b869c35` 위로 패치 그대로 옮겼다(충돌 없음, 보고서 §11). 로컬 QA는 보고서
+      §6 라운드 1, 2(테스트 먼저는 부모에서 실패, 단위 전체, 생성기 `--check`, 모든 가드에서 버전 올리기 앞의
+      `guard:sw-cache-version`만 실패, 글꼴·탭 머리·재생목록 명세와 critical E2E)와 라운드 3(옮긴 뒤 버전 올리기 머리 `d78d0d41`의
+      로컬 전체 관문, 아래 배포 조건 (4), 모두 통과, 결과는 보고서 §11.3과 PR 본문)이다. PR, PR CI, 자동 코드 리뷰, exact-main CI,
+      배포는 아직이고 로컬 결과는 exact-main-SHA 후보를 대신하지 않는다. 배포 뒤 기록 PR이 이 절을 '배포 뒤 확인'으로 바꾼다.
       [변경·QA 보고서](design/app-hangul-pretendard-2026-11-02.md),
       [무엇을 바꿨나](design/app-hangul-pretendard-2026-11-02.md#2-무엇을-바꿨나),
       [바뀌어 보이는 것](design/app-hangul-pretendard-2026-11-02.md#3-바뀌어-보이는-것-화면-바뀜),
@@ -111,8 +112,8 @@ gh run list --workflow e2e.yml --branch main --limit 3
       v806, 모든 `guard:*`, 자원 소유권, 핵심·Worker 커버리지, 단위 전체, `build:e2e` 뒤 critical E2E와 글꼴·탭 머리·재생목록 명세,
       운영 빌드의 후보 E2E가 통과하고, 첫 로딩(진입, eager JS, eager 전체 gzip)이 origin/main 빌드보다 보고서 §4.4의 잰 차(eager
       전체 gzip 수십 B, `--font-hangul`과 `var()` 넷) 밖으로 늘지 않으며 즉시 글꼴이 0이고, 배포 대상이 App뿐이며, 계약 동결 diff가
-      `package.json`의 생성 스크립트 한 줄과 버전 일곱 줄뿐이다(`cloudflare/`는 `ADMIN_ASSET_VERSION` 한 줄). 결과는 보고서 §11(QA 라운드
-      3)과 PR 본문에 둔다. (5) PR CI, 자동 코드 리뷰, dispatch 직전 머지, exact-main CI success, 그 뒤 Release target `app`, Developer API
+      `package.json`의 생성 스크립트 한 줄과 버전 일곱 줄뿐이다(`cloudflare/`는 `ADMIN_ASSET_VERSION` 한 줄). 결과는 보고서 §11.3(QA
+      라운드 3)과 PR 본문에 둔다. (5) PR CI, 자동 코드 리뷰, dispatch 직전 머지, exact-main CI success, 그 뒤 Release target `app`, Developer API
       D1 false, `raise_app_build_floor` false. 기록 PR을 열차 PR 머지와 deploy job 시작 사이에 머지하지 않는다. (6) 배포 직후 공개 최소
       빌드 상태(저장·유효 795, live App 806)와 Operations Drift Audit을 보고, 할 수 있으면 운영의 앱 한글 시트와 그 첫 조각을 인증
       없는 GET으로 받아 저장소 `fonts/app/hangul/`과 sha256을 견주며, 아래 배포 직후 확인을 건넨다. 머지 뒤 main SHA에서 Full E2E를 한

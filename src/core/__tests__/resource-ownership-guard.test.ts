@@ -1343,6 +1343,19 @@ describe('resource-ownership guard', { timeout: 60_000 }, () => {
         /iframe audio write: src\/youtube\/player\.ts:\d+ \S+ in attemptFallback/u,
       );
     });
+
+    it("lists the host legacy recovery's mute in src/youtube/zero-start-recovery.ts under --report, and none left in player.ts", () => {
+      const result = runGuard('--report');
+      expect(result.status, result.stderr).toBe(0);
+      expect(
+        result.stdout.match(
+          /iframe audio write: src\/youtube\/zero-start-recovery\.ts:\d+ mute\(\) in attemptRecovery\n/gu,
+        ),
+      ).toHaveLength(1);
+      expect(result.stdout).not.toMatch(
+        /iframe audio write: src\/youtube\/player\.ts:\d+ \S+ in attemptRecovery/u,
+      );
+    });
   });
 
   describe('CHECK 12 cross-file reads and clears of the YouTube start timers (RO-02)', () => {
@@ -1631,6 +1644,34 @@ describe('resource-ownership guard', { timeout: 60_000 }, () => {
       );
       expect(findings).toBe(
         "START TIMER SET (RO-02): src/youtube/zero-start-recovery.ts sets 'yt-zero-start-external-fallback', " +
+          'which only src/youtube/player.ts may set - setManagedTimer() clears a running timer of ' +
+          'that name, so a second setter is a second machine on the start: start it through its ' +
+          'owner, or move the setter and update START_TIMER_SETTERS and the RO-02 record in the ' +
+          'same change',
+      );
+    });
+
+    it('rejects the host legacy recovery setting its timer itself: player.ts keeps it and hands the stage a schedule', () => {
+      const recovery = 'src/youtube/zero-start-recovery.ts';
+      const findings = findingsOf(
+        withSources((sources) => {
+          replaceIn(
+            sources,
+            recovery,
+            "import { log } from '../core/log.ts';\n",
+            "import { log } from '../core/log.ts';\nimport { setManagedTimer } from '../core/timers.ts';\n",
+          );
+          replaceIn(
+            sources,
+            recovery,
+            '    setOwned(true);\n    scheduleHostFallback(attemptRecovery, 0);\n',
+            '    setOwned(true);\n' +
+              "    setManagedTimer('yt-zero-start-host-fallback', attemptRecovery, 0);\n",
+          );
+        }),
+      );
+      expect(findings).toBe(
+        "START TIMER SET (RO-02): src/youtube/zero-start-recovery.ts sets 'yt-zero-start-host-fallback', " +
           'which only src/youtube/player.ts may set - setManagedTimer() clears a running timer of ' +
           'that name, so a second setter is a second machine on the start: start it through its ' +
           'owner, or move the setter and update START_TIMER_SETTERS and the RO-02 record in the ' +

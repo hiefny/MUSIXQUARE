@@ -43,6 +43,8 @@ const QUEUE_ITEM_ID = '22222222-2222-4222-8222-222222222222';
 const SECOND_QUEUE_ITEM_ID = '33333333-3333-4333-8333-333333333333';
 const ZERO_START_VIDEO_ID = 'M7lc1UVf-VE';
 const ZERO_START_GUEST_ID = 'zero-start-guest';
+/** The wall clock every row starts at (beforeEach). */
+const ROW_START_MS = 1_700_000_000_000;
 
 function dataConnection(peer: string, send = vi.fn()): DataConnection {
   return {
@@ -239,10 +241,10 @@ beforeEach(async () => {
   clearAllManagedTimers();
   for (const k of Object.keys(capturedHandlers)) delete capturedHandlers[k];
   vi.useFakeTimers();
-  // Pin wall clock so Date.now() === 1_700_000_000_000 at start of each test.
+  // Pin wall clock so Date.now() === ROW_START_MS at start of each test.
   // Without setSystemTime, fake-timers doesn't advance Date.now() reliably
   // across platforms, and our getHostNow mock depends on Date.now().
-  vi.setSystemTime(new Date(1_700_000_000_000));
+  vi.setSystemTime(new Date(ROW_START_MS));
   getYouTubePlayerMock.mockReset();
   getYouTubePlayerMock.mockReturnValue(null);
   localYouTubePaused.value = false;
@@ -312,6 +314,18 @@ function installPlayer(init?: Parameters<typeof makeFakeYtPlayer>[0]): FakeYtPla
   const p = makeFakeYtPlayer(init);
   getYouTubePlayerMock.mockReturnValue(p);
   return p;
+}
+
+/**
+ * The commands a fake iframe received, as '+<ms since the row started> <op>(<args>)'.
+ * The zero-start fallback rows read these beside their managed-timer names, so
+ * each row also pins what its recovery did to the iframe, not only which timer
+ * holds it.
+ */
+function opLog(player: FakeYtPlayer): string[] {
+  return player.__log.map(
+    ({ op, args, at }) => `+${at - ROW_START_MS} ${op}(${(args ?? []).join(',')})`,
+  );
 }
 
 async function installDuplicateVideoGuest(currentTime = 0): Promise<FakeYtPlayer> {
@@ -467,7 +481,11 @@ describe('YouTube Sync — Regression Integration', () => {
       'retains a mute selected while the %s fallback has no player',
       async (role) => {
         if (role === 'host') {
-          installPlayer({ __state: 2, __currentTime: 0, __videoId: ZERO_START_VIDEO_ID });
+          const first = installPlayer({
+            __state: 2,
+            __currentTime: 0,
+            __videoId: ZERO_START_VIDEO_ID,
+          });
           const conn = installLiveZeroStartGuest();
           const { initYouTube } = await importPlayer();
           initYouTube();
@@ -476,6 +494,8 @@ describe('YouTube Sync — Regression Integration', () => {
           getYouTubePlayerMock.mockReturnValue(null);
           vi.advanceTimersByTime(500);
           expect(getManagedTimer('yt-zero-start-host-fallback')).not.toBeNull();
+          // The run's first hard mute only: the recovery polls with no iframe.
+          expect(opLog(first)).toEqual(['+0 mute()']);
         } else {
           await requestGuestExternalFallbackWhilePlayerMissing('fallback-missing-player-mute');
         }
@@ -525,7 +545,7 @@ describe('YouTube Sync — Regression Integration', () => {
     it.each([0, 21])(
       'keeps the latest user volume %i through delayed host fallback',
       async (volume) => {
-        installPlayer({
+        const first = installPlayer({
           __state: 2,
           __currentTime: 0,
           __videoId: ZERO_START_VIDEO_ID,
@@ -539,6 +559,8 @@ describe('YouTube Sync — Regression Integration', () => {
         getYouTubePlayerMock.mockReturnValue(null);
         vi.advanceTimersByTime(500);
         expect(getManagedTimer('yt-zero-start-host-fallback')).not.toBeNull();
+        // The run's first hard mute only: the recovery polls with no iframe.
+        expect(opLog(first)).toEqual(['+0 mute()']);
         const player = installPlayer({
           __state: 2,
           __currentTime: 0,
@@ -550,6 +572,19 @@ describe('YouTube Sync — Regression Integration', () => {
         player.__log.length = 0;
         vi.advanceTimersByTime(1_000);
         expect(getManagedTimer('yt-zero-start-host-fallback')).toBeNull();
+        // The recovery reloads the new iframe hard-muted, settles it at 0:00,
+        // writes the latest volume and hands off to the legacy rendezvous,
+        // which plays it; the first iframe got nothing more.
+        expect(opLog(player)).toEqual([
+          '+501 mute()',
+          `+501 loadVideoById(${ZERO_START_VIDEO_ID},0)`,
+          '+501 pauseVideo()',
+          '+501 seekTo(0,true)',
+          `+551 setVolume(${volume})`,
+          volume === 0 ? '+551 mute()' : '+551 unMute()',
+          '+551 playVideo()',
+        ]);
+        expect(opLog(first)).toEqual(['+0 mute()']);
         expect(player.getVolume()).toBe(volume);
         expect(player.isMuted()).toBe(volume === 0);
         if (volume === 0) expect(player.__log.some((call) => call.op === 'unMute')).toBe(false);
@@ -811,7 +846,7 @@ describe('YouTube Sync — Regression Integration', () => {
     });
 
     it('does not schedule room recovery when a newcomer outside the frozen cohort reconnects', async () => {
-      installPlayer({
+      const first = installPlayer({
         __state: 2,
         __currentTime: 0,
         __videoId: ZERO_START_VIDEO_ID,
@@ -845,12 +880,25 @@ describe('YouTube Sync — Regression Integration', () => {
 
       expect(getYouTubeZeroStartSnapshot()).toEqual(before);
       expect(getManagedTimer('yt-zero-start-replacement-fallback')).toBeNull();
+      // The run's first hard mute only: the replacement scheduled no recovery.
+      expect(opLog(first)).toEqual(['+0 mute()']);
       vi.mocked(isYouTubeZeroStartProtocolActive).mockClear();
       bus.emit('network:peer-connected', newcomer);
       // The late-join bootstrap's owner gate reaches the stubbed export.
       expect(isYouTubeZeroStartProtocolActive).toHaveBeenCalled();
       vi.advanceTimersByTime(1_500);
       expect(getManagedTimer('yt-zero-start-replacement-fallback')).toBeNull();
+      // The run's own warm-up, settle and audio restore; no recovery reload.
+      expect(opLog(first)).toEqual([
+        '+0 mute()',
+        '+0 setVolume(100)',
+        '+0 mute()',
+        '+0 playVideo()',
+        '+260 pauseVideo()',
+        '+340 seekTo(0,true)',
+        '+500 setVolume(100)',
+        '+500 unMute()',
+      ]);
       expect(broadcast).not.toHaveBeenCalled();
       expect(
         vi
@@ -963,7 +1011,7 @@ describe('YouTube Sync — Regression Integration', () => {
     });
 
     it('waits boundedly for a rebuilt host player before handing off to legacy sync', async () => {
-      installPlayer({
+      const first = installPlayer({
         __state: 2,
         __currentTime: 0,
         __videoId: ZERO_START_VIDEO_ID,
@@ -981,6 +1029,8 @@ describe('YouTube Sync — Regression Integration', () => {
       getYouTubePlayerMock.mockReturnValue(null);
       vi.advanceTimersByTime(500);
       expect(getManagedTimer('yt-zero-start-host-fallback')).not.toBeNull();
+      // The run's first hard mute only: the recovery polls with no iframe.
+      expect(opLog(first)).toEqual(['+0 mute()']);
       expect(broadcast).not.toHaveBeenCalledWith(
         expect.objectContaining({ type: MSG.YOUTUBE_STATE, time: 0 }),
       );
@@ -1002,6 +1052,18 @@ describe('YouTube Sync — Regression Integration', () => {
         }),
       );
       expect(getManagedTimer('yt-zero-start-host-fallback')).toBeNull();
+      // The rebuilt iframe: reloaded hard-muted, settled, its audio restored,
+      // then played by the legacy rendezvous; the first got nothing more.
+      expect(opLog(rebuiltPlayer)).toEqual([
+        '+501 mute()',
+        `+501 loadVideoById(${ZERO_START_VIDEO_ID},0)`,
+        '+501 pauseVideo()',
+        '+501 seekTo(0,true)',
+        '+551 setVolume(100)',
+        '+551 unMute()',
+        '+551 playVideo()',
+      ]);
+      expect(opLog(first)).toEqual(['+0 mute()']);
     });
 
     it('does not transfer an adopted host load to a rebuilt iframe instance', async () => {
@@ -1129,10 +1191,27 @@ describe('YouTube Sync — Regression Integration', () => {
       expect(handedOffPlayer.getVolume()).toBe(73);
       expect(isYouTubeStartRecoveryActive()).toBe(false);
       expect(getManagedTimer('yt-zero-start-host-fallback')).toBeNull();
+      // The run's hard mute and load; the recovery, with no iframe, ends its
+      // 3 s bridge at +13001 and restores the handed-off iframe, pausing and
+      // seeking it to 0:00 with each attempt; the second unMute takes.
+      expect(opLog(handedOffPlayer)).toEqual([
+        '+0 mute()',
+        '+0 setVolume(73)',
+        '+0 mute()',
+        `+0 loadVideoById(${ZERO_START_VIDEO_ID},0)`,
+        '+13001 pauseVideo()',
+        '+13001 seekTo(0,true)',
+        '+13001 setVolume(73)',
+        '+13001 unMute()',
+        '+13121 pauseVideo()',
+        '+13121 seekTo(0,true)',
+        '+13121 setVolume(73)',
+        '+13121 unMute()',
+      ]);
     });
 
     it('clears host fallback ownership when its queue target is no longer current', async () => {
-      installPlayer({
+      const first = installPlayer({
         __state: 2,
         __currentTime: 0,
         __videoId: ZERO_START_VIDEO_ID,
@@ -1155,10 +1234,15 @@ describe('YouTube Sync — Regression Integration', () => {
 
       expect(isYouTubeStartRecoveryActive()).toBe(false);
       expect(getManagedTimer('yt-zero-start-host-fallback')).toBeNull();
+      // The run's twelve unconfirmed hard mutes; the recovery found no iframe
+      // before its target stopped being current, and sent nothing.
+      expect(opLog(first)).toEqual(
+        [0, 0, 30, 60, 90, 120, 150, 180, 210, 240, 270, 300].map((at) => `+${at} mute()`),
+      );
     });
 
     it('finishes a host fallback cleanly when the player never returns', async () => {
-      installPlayer({
+      const first = installPlayer({
         __state: 2,
         __currentTime: 0,
         __videoId: ZERO_START_VIDEO_ID,
@@ -1176,6 +1260,9 @@ describe('YouTube Sync — Regression Integration', () => {
       vi.advanceTimersByTime(4_000);
 
       expect(getManagedTimer('yt-zero-start-host-fallback')).toBeNull();
+      // The run's first hard mute only: the recovery ended its bridge with no
+      // iframe found and none handed off, so it restored nothing.
+      expect(opLog(first)).toEqual(['+0 mute()']);
       expect(loadingStates.at(-1)).toBe(false);
       expect(
         vi
@@ -1185,7 +1272,7 @@ describe('YouTube Sync — Regression Integration', () => {
     });
 
     it('lets the host seek control revoke a pending legacy fallback retry', async () => {
-      installPlayer({
+      const first = installPlayer({
         __state: 2,
         __currentTime: 0,
         __videoId: ZERO_START_VIDEO_ID,
@@ -1200,6 +1287,8 @@ describe('YouTube Sync — Regression Integration', () => {
       getYouTubePlayerMock.mockReturnValue(null);
       vi.advanceTimersByTime(500);
       expect(getManagedTimer('yt-zero-start-host-fallback')).not.toBeNull();
+      // The run's first hard mute only: the recovery polls with no iframe.
+      expect(opLog(first)).toEqual(['+0 mute()']);
 
       const latestPlayer = installPlayer({
         __state: 2,
@@ -1211,6 +1300,11 @@ describe('YouTube Sync — Regression Integration', () => {
       expect(getManagedTimer('yt-zero-start-host-fallback')).toBeNull();
 
       vi.advanceTimersByTime(4_000);
+
+      // Only the seek's own legacy rendezvous commands, 4 s later too: the
+      // revoked recovery never reaches the new iframe.
+      expect(opLog(latestPlayer)).toEqual(['+500 seekTo(42,true)', '+500 playVideo()']);
+      expect(opLog(first)).toEqual(['+0 mute()']);
 
       expect(latestPlayer.__log.filter((call) => call.op === 'loadVideoById')).toHaveLength(0);
       expect(latestPlayer.getCurrentTime()).toBe(42);
@@ -1228,7 +1322,7 @@ describe('YouTube Sync — Regression Integration', () => {
     });
 
     it('defers a late join bootstrap through host legacy recovery', async () => {
-      installPlayer({ __state: 2, __currentTime: 0, __videoId: ZERO_START_VIDEO_ID });
+      const first = installPlayer({ __state: 2, __currentTime: 0, __videoId: ZERO_START_VIDEO_ID });
       const conn = installLiveZeroStartGuest();
       const { initYouTube } = await importPlayer();
       const { safeSend } = await import('../../network/peer.ts');
@@ -1238,6 +1332,8 @@ describe('YouTube Sync — Regression Integration', () => {
       getYouTubePlayerMock.mockReturnValue(null);
       vi.advanceTimersByTime(500);
       expect(getManagedTimer('yt-zero-start-host-fallback')).not.toBeNull();
+      // The run's first hard mute only: the recovery polls with no iframe.
+      expect(opLog(first)).toEqual(['+0 mute()']);
 
       const player = installPlayer({
         __state: 2,
@@ -1265,13 +1361,25 @@ describe('YouTube Sync — Regression Integration', () => {
 
       vi.advanceTimersByTime(500);
       expect(getManagedTimer('yt-zero-start-host-fallback')).toBeNull();
+      // The recovery reloaded, settled and restored the new iframe, then the
+      // legacy rendezvous played it.
+      expect(opLog(player)).toEqual([
+        '+501 mute()',
+        `+501 loadVideoById(${ZERO_START_VIDEO_ID},0)`,
+        '+501 pauseVideo()',
+        '+501 seekTo(0,true)',
+        '+551 setVolume(100)',
+        '+551 unMute()',
+        '+551 playVideo()',
+      ]);
+      expect(opLog(first)).toEqual(['+0 mute()']);
       expect(player.getPlayerState()).toBe(1);
       expect(bootstraps()).toHaveLength(1);
       expect(bootstraps()[0]?.[1]).toMatchObject({ autoplay: true, videoId: ZERO_START_VIDEO_ID });
     });
 
     it('fences an escaped host-fallback callback after teardown transfers ownership', async () => {
-      installPlayer({
+      const first = installPlayer({
         __state: 2,
         __currentTime: 0,
         __videoId: ZERO_START_VIDEO_ID,
@@ -1286,6 +1394,8 @@ describe('YouTube Sync — Regression Integration', () => {
       getYouTubePlayerMock.mockReturnValue(null);
       vi.advanceTimersByTime(500);
       expect(getManagedTimer('yt-zero-start-host-fallback')).not.toBeNull();
+      // The run's first hard mute only: the recovery polls with no iframe.
+      expect(opLog(first)).toEqual(['+0 mute()']);
 
       const escapedFallback = [...timeoutSpy.mock.calls]
         .reverse()
@@ -1302,6 +1412,9 @@ describe('YouTube Sync — Regression Integration', () => {
       const mutationsBeforeTransfer = mutationOps(parkedSuccessor);
       cancelYtAutoSync(true);
       expect(getManagedTimer('yt-zero-start-host-fallback')).toBeNull();
+      // The transfer sends no command to either iframe.
+      expect(opLog(parkedSuccessor)).toEqual([]);
+      expect(opLog(first)).toEqual(['+0 mute()']);
 
       escapedFallback?.();
 

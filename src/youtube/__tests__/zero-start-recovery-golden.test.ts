@@ -1,37 +1,47 @@
 /**
  * @vitest-environment jsdom
  *
- * Standard guest zero-start recovery golden (pinned 2026-11-02), tests first
- * for the move of the guest local recovery out of player.ts into its own
- * class (Phase 6 6D-1, plan step C2-9; registry RO-02 and RO-33).
+ * Standard zero-start recovery golden (pinned 2026-11-02), tests first for
+ * the move of the guest local recovery out of player.ts into its own class
+ * (Phase 6 6D-1, plan step C2-9; registry RO-02 and RO-33), and of the host's
+ * legacy recovery into a stage beside it (Phase 6 6D-2, plan step C2-11;
+ * RO-02).
  *
- * One App guest on the real wiring (standard-start-harness.ts): initYouTube's
- * recovery, the iframe module behind a scripted IFrame API, core/timers on
+ * One App device on the real wiring (standard-start-harness.ts): initYouTube's
+ * recoveries, the iframe module behind a scripted IFrame API, core/timers on
  * fake time, the protocol dispatcher and the zero-start controller. The
- * remote host is the real controller on its own fake iframe. The run hands
- * its start to the recovery when the host commits without this guest
- * (cohort-excluded) or when this guest's clock is uncalibrated. Inside its
+ * remote participant is the real controller on its own fake iframe. The
+ * guest rows (G): the run hands this guest's start to its recovery when the
+ * host commits without it (cohort-excluded) or when its clock is
+ * uncalibrated. The host rows (H): the run hands the host's start to the
+ * legacy recovery when its prepare fails (a hard mute or audio restore that
+ * never confirms, a COMMIT it cannot send, its prepare budget), and the
+ * replacement fallback does when a cohort guest's connection is replaced; the
+ * recovery hands the start to the legacy two-stage rendezvous. Inside its
  * recording windows each row writes one line per event, in the order the
  * events happen, at milliseconds since the rig's t0 (the iframe handshake):
  * - '#<n> <op>(<args>)': a command an App iframe received (#1 the scripted
  *   iframe, #2 an iframe a row puts in its place), positions to the
  *   millisecond;
  * - 'set <timer> <ms>' and 'clear <timer>': the managed timers of the
- *   zero-start recoveries (the guest's 'yt-zero-start-external-fallback'; a
- *   guest only clears the host's two);
+ *   zero-start recoveries (the guest's 'yt-zero-start-external-fallback', the
+ *   host's 'yt-zero-start-host-fallback' and 'yt-zero-start-replacement-fallback';
+ *   a guest only clears the host's two), and in the host rows the legacy
+ *   rendezvous's Stage-2 timer 'yt-auto-sync';
  * - 'autoplay <true|false>': the App's autoplay intent (setYtAutoplayIntent);
  * - 'ready', or 'ready in-recovery-timer' when it fires inside a recovery
  *   timer's callback: a youtube:zero-start-readiness-changed event;
  * - 'loading <busy> <owner>': a youtube:sync-loading event;
  * - 'log <message> <detail>': a '[YouTube ZeroStart]' warning;
- * - 'frame <route> <type>': a frame the App sent;
+ * - 'frame <route> <type>': a frame the App sent, in the host rows with the
+ *   state, time and manual flag of a youtube-state or youtube-sync frame;
  * - 'claims <recovery> <owned> <hard-mute> <in-flight> <protocol>': the start
  *   ledger's isYouTubeStartRecoveryActive, isYouTubeStartSyncOwned and
  *   isYouTubeStartHardMuteOwned, then the run's facades
  *   isYouTubeZeroStartInFlight and isYouTubeZeroStartProtocolActive ('-' for
  *   false), at a window's start and before any event they changed for.
  *
- * A neutral move of the recovery passes every array byte for byte: the same
+ * A neutral move of a recovery passes every array byte for byte: the same
  * iframe commands at the same instants, the same timer sets and clears with
  * the same delays, the same claim changes and readiness events, the same
  * log lines and the same autoplay intents. Instants a row chooses are written
@@ -74,6 +84,7 @@ import {
 } from './__helpers__/fake-yt-player.ts';
 import {
   createFakeClockStarter,
+  makeMediaCommandsSlow,
   runStandardScenario,
   setUpStandardRig,
   standardScenarios,
@@ -91,6 +102,8 @@ const sink = vi.hoisted(() => ({
   /** When set and true for a recovery timer, setting that timer throws. */
   failSet: null as ((name: string, delayMs: number) => boolean) | null,
   calibrated: true,
+  /** Timers a row records besides the recoveries' (the host rows: the legacy Stage-2 timer). */
+  alsoTimers: new Set<string>(),
 }));
 const isRecoveryTimer = vi.hoisted(() => (name: string) => name.startsWith('yt-zero-start-'));
 
@@ -114,7 +127,10 @@ vi.mock('../../core/timers.ts', async (importOriginal) => {
     setManagedTimer: (
       ...[name, callback, delayMs, options]: Parameters<typeof actual.setManagedTimer>
     ) => {
-      if (!isRecoveryTimer(name)) return actual.setManagedTimer(name, callback, delayMs, options);
+      if (!isRecoveryTimer(name)) {
+        if (sink.alsoTimers.has(name)) sink.write?.(`set ${name} ${delayMs}`);
+        return actual.setManagedTimer(name, callback, delayMs, options);
+      }
       sink.write?.(`set ${name} ${delayMs}`);
       if (sink.failSet?.(name, delayMs)) throw new Error('synthetic managed-timer failure');
       return actual.setManagedTimer(
@@ -132,7 +148,7 @@ vi.mock('../../core/timers.ts', async (importOriginal) => {
       );
     },
     clearManagedTimer: (name: string) => {
-      if (isRecoveryTimer(name)) sink.write?.(`clear ${name}`);
+      if (isRecoveryTimer(name) || sink.alsoTimers.has(name)) sink.write?.(`clear ${name}`);
       actual.clearManagedTimer(name);
     },
   };
@@ -187,6 +203,7 @@ beforeEach(() => {
   sink.recoveryTimerDepth = 0;
   sink.failSet = null;
   sink.calibrated = true;
+  sink.alsoTimers = new Set();
   document.body.innerHTML =
     '<div class="video-wrapper"><div id="youtube-player-container"><div id="youtube-player"></div></div></div>';
 });
@@ -250,6 +267,18 @@ interface RecoveryRow {
   readonly steps?: readonly ScenarioStep[];
   /** Recording windows [from, to], relative to t0, in order. */
   readonly windows: ReadonlyArray<readonly [number, number]>;
+  /** The host rows: also the legacy rendezvous's Stage-2 timer and the room state frames' fields. */
+  readonly legacy?: true;
+}
+
+/** A frame's line: its route and type, and for a host row the room state it carries. */
+function frameLine(
+  type: string,
+  frame: Readonly<Record<string, unknown>>,
+  legacy: boolean,
+): string {
+  if (!legacy || (type !== MSG.YOUTUBE_STATE && type !== MSG.YOUTUBE_SYNC)) return type;
+  return `${type} state=${formatArg(frame.state)} time=${formatArg(frame.time)}${frame.isManual ? ' manual' : ''}`;
 }
 
 async function startRig(
@@ -277,14 +306,15 @@ async function startRig(
 async function record(row: RecoveryRow): Promise<string[]> {
   const current = await startRig(row.scenario, row.rig);
   tapIframe(current.iframe(), 1);
+  if (row.legacy) sink.alsoTimers = new Set([LEGACY_STAGE_2]);
   const lines: string[] = [];
   let framesSeen = current.sent.length;
   let lastClaims = '';
   // A frame is written before the next event, at its own send instant.
   const flushFrames = () => {
     for (; framesSeen < current.sent.length; framesSeen += 1) {
-      const { at, via, to, type } = current.sent[framesSeen]!;
-      lines.push(`${at} frame ${via}:${to ?? '*'} ${type}`);
+      const { at, via, to, type, frame } = current.sent[framesSeen]!;
+      lines.push(`${at} frame ${via}:${to ?? '*'} ${frameLine(type, frame, !!row.legacy)}`);
     }
   };
   const write = (text: string) => {
@@ -350,6 +380,9 @@ function once(instant: number, lines: readonly string[]): string[] {
 }
 
 const EXTERNAL = 'yt-zero-start-external-fallback';
+const HOST = 'yt-zero-start-host-fallback';
+const REPLACEMENT = 'yt-zero-start-replacement-fallback';
+const LEGACY_STAGE_2 = 'yt-auto-sync';
 /** The run gives up its start at +2401 (it stops its warm-up and its claims end); the recovery takes its claim and schedules its first attempt. */
 const HAND_OFF = (reason: string) => [
   '#1 pauseVideo()',
@@ -1005,4 +1038,437 @@ describe('Standard guest zero-start recovery golden (pinned 2026-11-02)', () => 
       expect(lines.filter((line) => / (claims|ready)( |$)/u.test(line))).toEqual(events);
     },
   );
+});
+
+// ─── The host's legacy recovery ────────────────────────────────────
+
+/** The run gives the host's start up: it pauses the iframe, leaves its claims and aborts the guest's run. */
+const RUN_GIVES_UP = (logged: string) => [
+  `log [YouTube ZeroStart] ${logged}`,
+  '#1 pauseVideo()',
+  'claims - - - - -',
+  'loading false zero-start',
+  'ready',
+  'frame peer:guest-1 youtube-zero-start-abort',
+  'ready',
+];
+/** The recovery takes the start: its own timer cleared, the recovery claim, the first attempt scheduled. */
+const HOST_TAKES_OVER = [
+  `clear ${HOST}`,
+  'claims recovery owned hard-mute - -',
+  `set ${HOST} 0`,
+  'ready',
+];
+/** An iframe the recovery cannot adopt: hard-muted, reloaded at 0:00, then settled there. */
+const HOST_RELOAD = [
+  'autoplay false',
+  '#1 mute()',
+  '#1 loadVideoById(recoverGldA,0)',
+  '#1 pauseVideo()',
+  '#1 seekTo(0,true)',
+  `set ${HOST} 50`,
+];
+/** The audio written, then checked. */
+const HOST_RESTORE = (n = 1) => ['autoplay false', `#${n} setVolume(100)`, `#${n} unMute()`];
+/**
+ * invalidateYouTubeZeroStartPendingIntegration: the guest recovery's timer and
+ * claim, the replacement fallback's timer, then the host recovery's own timer.
+ */
+const RECOVERIES_RETIRED = [
+  `clear ${EXTERNAL}`,
+  'claims - - - - -',
+  `clear ${REPLACEMENT}`,
+  `clear ${HOST}`,
+];
+/**
+ * The hand-off, inside the attempt that found the audio restored:
+ * scheduleYtAutoSync retires every recovery, this one too, and the run, plays
+ * the iframe and sends Stage 1 (after the iframe's own PLAYING broadcast,
+ * when the App hears that iframe), and arms Stage 2; the recovery logs after
+ * it returns.
+ */
+const LEGACY_HAND_OFF = (reason: string, n = 1, ownPlayingBroadcast = true) => [
+  ...RECOVERIES_RETIRED,
+  'ready in-recovery-timer',
+  `clear ${LEGACY_STAGE_2}`,
+  'autoplay true',
+  `#${n} playVideo()`,
+  ...(ownPlayingBroadcast ? ['frame broadcast:* youtube-state state=1 time=0'] : []),
+  'frame broadcast:* youtube-state state=1 time=0',
+  `set ${LEGACY_STAGE_2} 4000`,
+  `log [YouTube ZeroStart] Falling back to legacy rendezvous: ${reason}`,
+  'ready',
+];
+/** cancelYtAutoSync: the legacy timer, every recovery, the three recovery timers again, the run. */
+const CANCEL_YT_AUTO_SYNC = [
+  `clear ${LEGACY_STAGE_2}`,
+  ...RECOVERIES_RETIRED,
+  `clear ${EXTERNAL}`,
+  `clear ${HOST}`,
+  `clear ${REPLACEMENT}`,
+  'ready',
+  'loading false -',
+];
+
+/**
+ * The recovery's reload never reports a cueable target: UNSTARTED until it
+ * lands, a minute later. The recovery polls from +431 until a row acts at +600.
+ */
+function stallReloads(fake: FakeYtPlayer): void {
+  makeMediaCommandsSlow(fake, 60_000);
+  const slowLoad = fake.loadVideoById;
+  fake.loadVideoById = (videoId: string, startSeconds?: number) => {
+    slowLoad(videoId, startSeconds);
+    fake.__setState(-1, false);
+  };
+}
+
+/** A host prepare failure at +430 whose recovery polls a stalled reload from +431. */
+const STALLED_PREPARE_FAILURE: StandardScenario = {
+  ...SCENARIOS.hostPrepareFailure,
+  prepare: (current) => stallReloads(current.iframe()),
+};
+/** STALLED_PREPARE_FAILURE's lines from +580 to its action at +600. */
+const STALLED_POLL = [
+  '580 claims recovery owned hard-mute - -',
+  ...once(581, ['autoplay false', `set ${HOST} 50`]),
+];
+
+describe('Standard host legacy zero-start recovery golden (pinned 2026-11-02)', () => {
+  it('H1 a prepare failure (hard-mute-timeout): reloaded, settled, restored, handed off; Stage 1 at once, Stage 2 4 s later', async () => {
+    const lines = await record({
+      scenario: SCENARIOS.hostPrepareFailure,
+      legacy: true,
+      windows: [
+        [420, 490],
+        [4_470, 4_490],
+      ],
+    });
+    expect(lines).toEqual([
+      '420 claims - owned hard-mute in-flight protocol',
+      ...once(430, [...RUN_GIVES_UP('hard-mute-timeout undefined'), ...HOST_TAKES_OVER]),
+      ...once(431, HOST_RELOAD),
+      ...once(481, [...HOST_RESTORE(), ...LEGACY_HAND_OFF('hard-mute-timeout')]),
+      '4470 claims - - - - -',
+      '4481 frame broadcast:* youtube-sync state=1 time=4 manual',
+    ]);
+  });
+
+  it('H2 a COMMIT the host cannot send (commit-send-failed): the armed resident iframe is adopted without a reload', async () => {
+    const lines = await record({
+      scenario: SCENARIOS.hostAllReady,
+      legacy: true,
+      steps: [
+        // From +700 the transport refuses the COMMIT; every other frame goes out.
+        step(700, () => {
+          const send = vi.mocked(safeSend).getMockImplementation()!;
+          vi.mocked(safeSend).mockImplementation((conn, data) =>
+            (data as { type?: unknown } | undefined)?.type === MSG.YOUTUBE_ZERO_START_COMMIT
+              ? false
+              : send(conn, data),
+          );
+        }),
+      ],
+      windows: [
+        [715, 780],
+        [4_765, 4_780],
+      ],
+    });
+    expect(lines).toEqual([
+      '715 claims - owned - in-flight protocol',
+      '720 ready',
+      // The guest's ARMED arrives at +722: the COMMIT is not delivered.
+      ...once(722, ['ready', ...RUN_GIVES_UP('commit-send-failed undefined'), ...HOST_TAKES_OVER]),
+      ...once(723, ['autoplay false', '#1 pauseVideo()', '#1 seekTo(0,true)', `set ${HOST} 50`]),
+      ...once(773, [...HOST_RESTORE(), ...LEGACY_HAND_OFF('commit-send-failed')]),
+      '4765 claims - - - - -',
+      '4773 frame broadcast:* youtube-sync state=1 time=4 manual',
+    ]);
+  });
+
+  it('H3 the guest connection replaced during the barrier: 1.5 s later the replacement fallback starts the recovery', async () => {
+    const lines = await record({
+      scenario: SCENARIOS.hostPeerReplaced,
+      legacy: true,
+      windows: [
+        [395, 405],
+        [1_895, 1_960],
+        [5_945, 5_955],
+      ],
+    });
+    expect(lines).toEqual([
+      '395 claims - owned hard-mute in-flight protocol',
+      // The run is cancelled (authority-changed) and restores the iframe's audio.
+      ...once(400, [
+        'frame peer:guest-1 youtube-zero-start-abort',
+        '#1 pauseVideo()',
+        'claims - - - - -',
+        'loading false zero-start',
+        'ready',
+        '#1 setVolume(100)',
+        '#1 unMute()',
+        `set ${REPLACEMENT} 1500`,
+      ]),
+      '1895 claims - - - - -',
+      ...once(1_900, [`clear ${REPLACEMENT}`, ...HOST_TAKES_OVER]),
+      ...once(1_901, HOST_RELOAD),
+      ...once(1_951, [...HOST_RESTORE(), ...LEGACY_HAND_OFF('peer-connection-replaced')]),
+      '5945 claims - - - - -',
+      '5951 frame broadcast:* youtube-sync state=1 time=4 manual',
+    ]);
+  });
+
+  it('H3b the replaced guest reconnects: the replacement fallback starts the recovery at once', async () => {
+    const lines = await record({
+      scenario: SCENARIOS.hostPeerReplaced,
+      legacy: true,
+      steps: [step(600, (current) => bus.emit('network:peer-connected', current.conn))],
+      windows: [
+        [595, 660],
+        [4_645, 4_655],
+      ],
+    });
+    expect(lines).toEqual([
+      '595 claims - - - - -',
+      ...once(600, [
+        // The late-join bootstrap of the reconnected guest, then the fallback.
+        'frame peer:guest-1 youtube-play',
+        'frame peer:guest-1 youtube-sync state=2 time=0.26',
+        `set ${REPLACEMENT} 0`,
+        `clear ${REPLACEMENT}`,
+        ...HOST_TAKES_OVER,
+      ]),
+      ...once(601, HOST_RELOAD),
+      ...once(651, [...HOST_RESTORE(), ...LEGACY_HAND_OFF('peer-connection-replaced')]),
+      '4645 claims - - - - -',
+      '4651 frame broadcast:* youtube-sync state=1 time=4 manual',
+    ]);
+  });
+
+  it('H4 audio that never restores: the 3 s bridge ends, logged, the loading state ends, and the verified cleanup tries eight times, pausing and seeking each time', async () => {
+    // The iframe ignores every unMute: the run's own restore times out at
+    // +1560, and so does every check of the recovery that takes it over.
+    const lines = await record({
+      scenario: SCENARIOS.hostAllReady,
+      rig: { iframeInit: { __unMuteIgnoreCount: 1_000 } },
+      legacy: true,
+      windows: [
+        [1_555, 5_410],
+        [5_995, 6_005],
+      ],
+    });
+    expect(lines).toEqual([
+      '1555 claims - owned - in-flight protocol',
+      ...once(1_560, [
+        ...RUN_GIVES_UP('audio-restore-timeout [object Object]'),
+        ...HOST_TAKES_OVER,
+      ]),
+      // The resident target is adopted and settled, then polled every 50 ms.
+      ...once(1_561, ['autoplay false', '#1 pauseVideo()', '#1 seekTo(0,true)', `set ${HOST} 50`]),
+      ...every(1_611, 4_511, 50, [...HOST_RESTORE(), `set ${HOST} 50`]),
+      // The bridge ended at +4560.
+      ...once(4_561, [
+        `clear ${HOST}`,
+        'autoplay false',
+        'log [YouTube ZeroStart] Legacy recovery timed out: audio-restore-timeout',
+        'loading false zero-start',
+      ]),
+      ...every(4_561, 5_281, 120, [...CLEANUP, `set ${HOST} 120`]),
+      ...once(5_401, [...CLEANUP, 'claims - - - - -', `clear ${HOST}`, 'ready']),
+      // Today's end (start-ownership table row H4): the room hears paused at 0:00.
+      '5995 claims - - - - -',
+      '6000 frame broadcast:* youtube-sync state=2 time=0',
+    ]);
+  });
+
+  it('H5 an iframe rebuilt mid-recovery: the previous one cleaned up once, the new one reloaded once', async () => {
+    const lines = await record({
+      scenario: STALLED_PREPARE_FAILURE,
+      legacy: true,
+      steps: [
+        step(600, () => {
+          const rebuilt = makeFakeYtPlayer({
+            __videoId: IDENTITY.videoId,
+            __state: 5,
+            __duration: 240,
+            __advanceClock: true,
+            __autoPlayOnLoad: true,
+          });
+          tapIframe(rebuilt, 2);
+          setYouTubePlayer(rebuilt as unknown as YouTubePlayerInstance);
+          markYtPlayerReady(rebuilt as unknown as YouTubePlayerInstance);
+        }),
+      ],
+      windows: [
+        [430, 690],
+        [4_675, 4_690],
+      ],
+    });
+    expect(lines).toEqual([
+      '430 claims recovery owned hard-mute - -',
+      ...once(431, [
+        'autoplay false',
+        '#1 mute()',
+        '#1 loadVideoById(recoverGldA,0)',
+        `set ${HOST} 50`,
+      ]),
+      ...every(481, 581, 50, ['autoplay false', `set ${HOST} 50`]),
+      ...once(631, [
+        // The previous iframe: one cleanup, never verified.
+        ...CLEANUP,
+        // The rebuilt one: hard-muted, reloaded, settled.
+        'autoplay false',
+        '#2 mute()',
+        '#2 loadVideoById(recoverGldA,0)',
+        '#2 pauseVideo()',
+        '#2 seekTo(0,true)',
+        `set ${HOST} 50`,
+      ]),
+      // The App does not hear the rebuilt fake, so only Stage 1 goes out.
+      ...once(681, [...HOST_RESTORE(2), ...LEGACY_HAND_OFF('hard-mute-timeout', 2, false)]),
+      '4675 claims - - - - -',
+      '4681 frame broadcast:* youtube-sync state=1 time=4 manual',
+    ]);
+  });
+
+  it('H6 a resident reposition the run hands off (prepare-timeout): settled where it is, no reload', async () => {
+    const lines = await record({
+      scenario: {
+        ...SCENARIOS.hostAllReady,
+        // The warm-up play never reaches PLAYING, so the prepare budget ends.
+        prepare: (current) => {
+          const fake = current.iframe();
+          fake.playVideo = () => {
+            fake.__log.push({ op: 'playVideo', at: Date.now() });
+          };
+        },
+      },
+      legacy: true,
+      windows: [
+        [10_095, 10_160],
+        [14_145, 14_155],
+      ],
+    });
+    expect(lines).toEqual([
+      '10095 claims - owned hard-mute in-flight protocol',
+      ...once(10_100, [...RUN_GIVES_UP('prepare-timeout [object Object]'), ...HOST_TAKES_OVER]),
+      ...once(10_101, ['autoplay false', '#1 pauseVideo()', '#1 seekTo(0,true)', `set ${HOST} 50`]),
+      ...once(10_151, [...HOST_RESTORE(), ...LEGACY_HAND_OFF('prepare-timeout', 1, false)]),
+      '14145 claims - - - - -',
+      '14151 frame broadcast:* youtube-sync state=1 time=0 manual',
+    ]);
+  });
+
+  const ENDS: ReadonlyArray<readonly [string, () => void, string[]]> = [
+    [
+      'a host seek starts the legacy rendezvous',
+      () => bus.emit('youtube:seek-to', 42),
+      once(600, [
+        ...RECOVERIES_RETIRED,
+        'ready',
+        `clear ${LEGACY_STAGE_2}`,
+        '#1 seekTo(42,true)',
+        'autoplay true',
+        '#1 playVideo()',
+        'frame broadcast:* youtube-state state=1 time=42',
+        'frame broadcast:* youtube-state state=1 time=42',
+        `set ${LEGACY_STAGE_2} 2000`,
+        'ready',
+      ]),
+    ],
+    [
+      'a local pause cancels it',
+      () => bus.emit('youtube:set-local-paused', true),
+      once(600, [
+        ...CANCEL_YT_AUTO_SYNC,
+        '#1 pauseVideo()',
+        'frame broadcast:* youtube-state state=2 time=0',
+        'ready',
+      ]),
+    ],
+    [
+      'its target stops being current',
+      () => setState('playlist.currentQueueItemId', IDENTITY.nextQueueItemId),
+      // The next attempt finds another queue item: no command.
+      once(631, [`clear ${HOST}`, 'claims - - - - -', 'ready']),
+    ],
+  ];
+
+  it.each(ENDS)('H7 the recovery ends when %s', async (_name, act, ended) => {
+    const lines = await record({
+      scenario: STALLED_PREPARE_FAILURE,
+      legacy: true,
+      steps: [step(600, act)],
+      windows: [[580, 640]],
+    });
+    expect(lines).toEqual([...STALLED_POLL, ...ended]);
+  });
+
+  it('H8 a newer PREPARE retires the recovery, then its run takes the iframe', async () => {
+    const lines = await record({
+      scenario: STALLED_PREPARE_FAILURE,
+      legacy: true,
+      steps: [
+        step(600, (current) => {
+          current.iframe().__hardMuteFails = false;
+          bus.emit('youtube:auto-play', {
+            zeroStart: true,
+            isTrackTransition: true,
+            state: 1,
+            targetTime: 0,
+            videoId: IDENTITY.videoId,
+          });
+        }),
+      ],
+      windows: [[580, 640]],
+    });
+    expect(lines).toEqual([
+      ...STALLED_POLL,
+      ...once(600, [
+        `clear ${LEGACY_STAGE_2}`,
+        'autoplay true',
+        'frame peer:guest-1 youtube-zero-start-prepare',
+        // onPrepareSelection, in today's order.
+        'loading false clock-action',
+        `clear ${LEGACY_STAGE_2}`,
+        ...RECOVERIES_RETIRED,
+        'autoplay true',
+        // The new run hard-mutes and warms the same iframe; no recovery attempt follows.
+        'claims - owned hard-mute in-flight protocol',
+        'loading true zero-start',
+        'ready',
+        '#1 mute()',
+        'ready',
+        '#1 setVolume(100)',
+        '#1 mute()',
+        'ready',
+        '#1 playVideo()',
+      ]),
+    ]);
+  });
+
+  it('H9 a teardown transfers the iframe: the recovery ends with no command of its own', async () => {
+    const lines = await record({
+      scenario: STALLED_PREPARE_FAILURE,
+      legacy: true,
+      steps: [step(600, () => stopYouTubeMode())],
+      windows: [[580, 640]],
+    });
+    expect(lines).toEqual([
+      ...STALLED_POLL,
+      ...once(600, [
+        ...CANCEL_YT_AUTO_SYNC,
+        'autoplay false',
+        'loading false clock-action',
+        'loading false -',
+        // The teardown's own commands.
+        '#1 mute()',
+        '#1 pauseVideo()',
+        '#1 stopVideo()',
+        '#1 destroy()',
+        'frame broadcast:* youtube-stop',
+        'ready',
+      ]),
+    ]);
+  });
 });

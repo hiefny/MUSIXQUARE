@@ -836,6 +836,174 @@ describe('resource-ownership guard', { timeout: 60_000 }, () => {
     });
   });
 
+  describe('CHECK 6 indirect AudioContext resume callers (RO-01, Phase 7 T1)', () => {
+    const HOME = 'src/audio/context.ts';
+    const HINT =
+      'ask the AudioContext owner (target src/audio/context-recovery.ts) or an existing ' +
+      'requester instead; a new requester needs a reasoned entry and the RO-01 record update';
+    /** Counted uses as `file name()`, without their lines and functions. */
+    const usesOf = (sites: readonly string[]): string[] =>
+      sites.map((site) => site.replace(/:\d+ (\w+\(\)) in .*$/u, ' $1')).sort();
+
+    it('pins the callers of the three functions that can resume for their caller on the real tree', () => {
+      const report = analyzeResourceOwnership(realInput());
+      expect(report.indirectResumeCalls).toEqual({
+        ensureRunning: 4,
+        restartAudioContextFromGesture: 2,
+        probeAudioContextHealth: 5,
+      });
+      expect(usesOf(report.indirectResumeSites)).toEqual([
+        'src/app.ts probeAudioContextHealth()',
+        'src/app.ts restartAudioContextFromGesture()',
+        'src/audio/context-recovery.ts probeAudioContextHealth()',
+        'src/audio/context-recovery.ts restartAudioContextFromGesture()',
+        'src/audio/engine.ts ensureRunning()',
+        'src/audio/engine.ts ensureRunning()',
+        'src/audio/output-health.ts probeAudioContextHealth()',
+        'src/player/decode.ts ensureRunning()',
+        'src/player/media-session.ts probeAudioContextHealth()',
+        'src/player/transport.ts ensureRunning()',
+        'src/player/transport.ts probeAudioContextHealth()',
+      ]);
+    });
+
+    it('rejects a new caller, whether it calls, reads a namespace member, passes one on or renames the import', () => {
+      const findings = findingsOf(
+        withSources((sources) => {
+          sources.set(
+            'src/player/rogue-wake.ts',
+            "import { ensureRunning, probeAudioContextHealth as probe } from '../audio/context.ts';\n" +
+              "import * as audioContext from '../audio/context.ts';\n" +
+              'export async function wake(): Promise<void> {\n' +
+              '  await ensureRunning();\n' +
+              '  await audioContext.restartAudioContextFromGesture();\n' +
+              '  setTimeout(() => void probe({ attemptResume: true }), 0);\n' +
+              '  const later = [audioContext.ensureRunning];\n' +
+              '  void later;\n' +
+              '}\n',
+          );
+        }),
+      );
+      expect(findings.split('\n')).toEqual([
+        `UNSANCTIONED indirect AudioContext resume ensureRunning() (RO-01): src/player/rogue-wake.ts has 2 - ${HINT}`,
+        `UNSANCTIONED indirect AudioContext resume restartAudioContextFromGesture() (RO-01): src/player/rogue-wake.ts has 1 - ${HINT}`,
+        `UNSANCTIONED indirect AudioContext resume probeAudioContextHealth() (RO-01): src/player/rogue-wake.ts has 1 - ${HINT}`,
+      ]);
+    });
+
+    it('counts a string key, a destructuring rename and a rename in the home, but not the home itself, comments, strings or type members', () => {
+      const findings = findingsOf(
+        withSources((sources) => {
+          sources.set(
+            'src/ui/indirect-mentions.ts',
+            'interface Waker {\n' +
+              '  ensureRunning(): Promise<void>;\n' +
+              '}\n' +
+              'export async function mention(waker: Waker): Promise<string> {\n' +
+              '  // ensureRunning() and probeAudioContextHealth() in a comment do not count.\n' +
+              "  return typeof waker === 'object' ? 'ensureRunning' : 'restartAudioContextFromGesture';\n" +
+              '}\n',
+          );
+          sources.set(
+            'src/ui/indirect-keys.ts',
+            'export async function keyed(): Promise<void> {\n' +
+              "  const context = await import('../audio/context.ts');\n" +
+              "  await context['probeAudioContextHealth']({ attemptResume: false });\n" +
+              '  const { restartAudioContextFromGesture: restart } = context;\n' +
+              '  await restart();\n' +
+              '}\n',
+          );
+          replaceIn(
+            sources,
+            HOME,
+            'export async function ensureRunning(): Promise<void> {\n',
+            'export { ensureRunning as wakeAudioContext };\n' +
+              'export async function ensureRunning(): Promise<void> {\n',
+          );
+          // The home's own uses are not callers.
+          replaceIn(
+            sources,
+            HOME,
+            'export function restartAudioContextFromGesture(context?: AudioContext): Promise<void> {\n',
+            'export function wakeTwice(): void {\n' +
+              '  void ensureRunning();\n' +
+              '  void probeAudioContextHealth({ attemptResume: false });\n' +
+              '}\n' +
+              'export function restartAudioContextFromGesture(context?: AudioContext): Promise<void> {\n',
+          );
+        }),
+      );
+      expect(findings.split('\n')).toEqual([
+        `UNSANCTIONED indirect AudioContext resume ensureRunning() (RO-01): ${HOME} has 1 - ${HINT}`,
+        `UNSANCTIONED indirect AudioContext resume restartAudioContextFromGesture() (RO-01): src/ui/indirect-keys.ts has 1 - ${HINT}`,
+        `UNSANCTIONED indirect AudioContext resume probeAudioContextHealth() (RO-01): src/ui/indirect-keys.ts has 1 - ${HINT}`,
+      ]);
+    });
+
+    it('fails a raised count in an allowlisted file and a count that fell below its baseline', () => {
+      const findings = findingsOf(
+        withSources((sources) => {
+          replaceIn(
+            sources,
+            'src/player/transport.ts',
+            '    await ensureRunning();\n',
+            '    await ensureRunning();\n    await ensureRunning();\n',
+          );
+          replaceIn(
+            sources,
+            'src/audio/engine.ts',
+            "  if (ctx.state !== 'running') {\n    await ensureRunning();\n  }\n",
+            '',
+          );
+          replaceIn(
+            sources,
+            'src/player/decode.ts',
+            "    if (getAudioContext().state !== 'running') await ensureRunning();\n",
+            '',
+          );
+        }),
+      );
+      expect(findings.split('\n')).toEqual([
+        'STALE BASELINE indirect AudioContext resume ensureRunning() (RO-01): src/audio/engine.ts ' +
+          'has 1, baseline 2 - lower the baseline to 1 in this change',
+        `RATCHET REGRESSION indirect AudioContext resume ensureRunning() (RO-01): src/player/transport.ts has 2, baseline 1 - ${HINT}`,
+        'STALE BASELINE indirect AudioContext resume ensureRunning() (RO-01): src/player/decode.ts ' +
+          'has 0 - remove its entry in this change',
+      ]);
+    });
+
+    it('reports initAudio uses without a baseline, and lists every counted use under --report', () => {
+      const input = withSources((sources) => {
+        sources.set(
+          'src/ui/extra-init.ts',
+          "import { initAudio } from '../audio/engine.ts';\n" +
+            'export async function warm(): Promise<void> {\n' +
+            '  await initAudio();\n' +
+            '}\n',
+        );
+      });
+      const report = analyzeResourceOwnership(input);
+      expect(report.findings).toEqual([]);
+      expect(report.initAudioSites.length).toBe(
+        analyzeResourceOwnership(realInput()).initAudioSites.length + 1,
+      );
+      expect(report.initAudioSites).toContain('src/ui/extra-init.ts:3 initAudio() in warm');
+
+      const listed = runGuard('--report');
+      expect(listed.status, listed.stderr).toBe(0);
+      expect(listed.stdout).toContain(
+        'indirect AudioContext resume callers: ensureRunning 4, restartAudioContextFromGesture 2, ' +
+          'probeAudioContextHealth 5; initAudio uses',
+      );
+      expect(listed.stdout).toMatch(
+        /indirect resume: src\/app\.ts:\d+ probeAudioContextHealth\(\) in /u,
+      );
+      expect(listed.stdout).toMatch(
+        /initAudio use \(report-only\): src\/audio\/channel\.ts:\d+ initAudio\(\) in /u,
+      );
+    });
+  });
+
   describe('CHECK 7 Developer API authority fence writers (RO-25)', () => {
     const FENCES = 'mxqr_developer_api_room_authority_fences';
 

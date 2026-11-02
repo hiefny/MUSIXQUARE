@@ -25,7 +25,7 @@
  * draw the four faces their labels name.
  * Pictures of the section at 1440 and 390 px go to the test's output folder.
  */
-import { readFileSync, writeFileSync } from 'node:fs';
+import { writeFileSync } from 'node:fs';
 import {
   expect,
   test,
@@ -40,6 +40,7 @@ import {
   PUBLIC_HAN_ORDER_SCRIPT_URL,
 } from '../../src/i18n/public-font-urls.ts';
 import { isBenignPageError } from '../helpers/page-errors.ts';
+import { HANGUL_FAMILY_CODE_POINTS, RETIRED_FONT_REQUEST } from './faces.ts';
 
 const VIEWPORTS = [
   { width: 1440, height: 900 },
@@ -56,25 +57,6 @@ const PHONE_MAX_WIDTH = 720;
 
 /** The width below which the Han rows stack their face under the sample. */
 const STACKED_HAN_MAX_WIDTH = 1023;
-
-const RETIRED_FONT_REQUEST = /pretendard|\/css\/fonts\/|\/designsystem\/fonts\//iu;
-
-/** The code points MUSIXQUARE Hangul draws (fonts/hangul-faces.json). */
-const HANGUL_FAMILY_CODE_POINTS: ReadonlySet<number> = (() => {
-  const record = JSON.parse(
-    readFileSync(new URL('../../fonts/hangul-faces.json', import.meta.url), 'utf8'),
-  ) as { faces: { unicodeRange: string }[] };
-  const codePoints = new Set<number>();
-  for (const { unicodeRange } of record.faces) {
-    for (const token of unicodeRange.split(',')) {
-      const [start = '', end] = token.trim().slice(2).split('-');
-      for (let at = Number.parseInt(start, 16); at <= Number.parseInt(end ?? start, 16); at += 1) {
-        codePoints.add(at);
-      }
-    }
-  }
-  return codePoints;
-})();
 
 /** The Indic families the Faces row names together as "Indic". */
 const INDIC =

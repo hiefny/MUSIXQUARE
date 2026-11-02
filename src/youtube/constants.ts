@@ -160,8 +160,9 @@ export const STANDARD_AUTO_REALIGN_MIN_REMAINING_SEC = 5;
 // ─── Start Timing (zero-start, PRO arm, recovery) ────────────────────
 // Shared by the Standard zero-start controller (zero-start.ts), the PRO arm
 // (authority-arm.ts), the PRO prepare seam (iframe.ts) and the Standard
-// recoveries (the guest's in zero-start-recovery.ts, the host's in
-// player.ts); a value one file uses stays in that file. The
+// recoveries (zero-start-recovery.ts); a value one file uses stays in that
+// file, except the recoveries' three, which kept this home when the host's
+// recovery joined the guest's in one file (Phase 6 6D-2). The
 // wire is frozen, so src/network/protocol.ts keeps its own receiver bounds;
 // start-timing-parity.test.ts ties them to these senders. Each value is its
 // own export, not a property of a shared object: the minifier keeps property
@@ -216,9 +217,9 @@ export const STANDARD_ZERO_START_PREPARE_BUDGET_MS = 10_000;
 /** An armed guest left out of the cohort starts alone this long after it learns of the COMMIT. */
 export const STANDARD_ZERO_START_LATE_FALLBACK_LEAD_MS = 800;
 
-// The two Standard recoveries that take a start over from the zero-start run:
-// the guest's local recovery (zero-start-recovery.ts) and the host's legacy
-// recovery (player.ts). Named apart from the arm's values.
+// The two Standard recoveries that take a start over from the zero-start run,
+// both in zero-start-recovery.ts: the guest's local recovery and the host's
+// legacy recovery. Named apart from the arm's values.
 
 /**
  * A recovery polls the iframe this often. Its restore before a release is the

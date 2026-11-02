@@ -63,9 +63,10 @@ export default defineConfig({
       // 6C-4: the steps' suite, the arm's own suite and the golden that runs
       // the arm and the zero-start run on one scripted iframe.
       'src/youtube/__tests__/{arm-steps,arm-steps-golden,authority-arm}.test.ts',
-      // The guest zero-start recovery (RO-33 under RO-02), enrolled with its
-      // class in Phase 6 6D-1: the class's suite and the golden that runs it
-      // on the real wiring.
+      // The zero-start recoveries: the guest's (RO-33 under RO-02), enrolled
+      // with its class in Phase 6 6D-1, and the host's legacy recovery beside
+      // it since 6D-2 (RO-02): the classes' suite and the golden that runs
+      // them on the real wiring.
       'src/youtube/__tests__/{zero-start-recovery,zero-start-recovery-golden}.test.ts',
       'src/account/__tests__/{api,session,login-return}.test.ts',
       'src/ui/__tests__/announcement.test.ts',
@@ -399,10 +400,12 @@ export default defineConfig({
           functions: 97,
           lines: 91,
         },
-        // The guest zero-start recovery (Phase 6 6D-1), enrolled with its
+        // The zero-start recoveries (Phase 6 6D-1), enrolled with the guest's
         // class on 2026-11-02 about one point below the Node 24 run: 99.44,
-        // 97.14, 100, 100. What stays uncovered are defensive fallbacks (a
-        // video id the iframe does not report, a cleanup a newer one fenced).
+        // 97.14, 100, 100; with the host's stage beside it (6D-2) the same
+        // day, 99.29, 96.98, 100, 100. What stays uncovered are defensive
+        // fallbacks (a video id the iframe does not report, a cued iframe at
+        // a settled check, a cleanup or a timeout a newer recovery fenced).
         'src/youtube/zero-start-recovery.ts': {
           statements: 98,
           branches: 96,

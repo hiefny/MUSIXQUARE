@@ -75,9 +75,6 @@ import {
   IMMEDIATE_ACTION_COOLDOWN_MS,
   YOUTUBE_PRIME_VIDEO_ID,
   YOUTUBE_FRESH_START_MAX_SEC,
-  YOUTUBE_RECOVERY_BRIDGE_MS,
-  YOUTUBE_RECOVERY_POLL_MS,
-  YOUTUBE_RECOVERY_SETTLE_EPSILON_SEC,
   YOUTUBE_RELEASE_CATCH_UP_TOLERANCE_SEC,
 } from './constants.ts';
 import {
@@ -85,13 +82,10 @@ import {
   clearYouTubePauseGate,
   enforceYouTubePauseGate,
   holdYouTubePauseGate,
-  isYouTubeAudioRestored,
   isYouTubePauseGateHeld,
   readYouTubeAppAudio,
   registerYouTubeAudioHolds,
   releaseYouTubePauseGate,
-  restoreYouTubeAudioVerified,
-  writeYouTubeAudio,
 } from './iframe-audio.ts';
 import {
   configureYouTubePlayerRuntimeHooks,
@@ -440,7 +434,11 @@ import {
   type YouTubeZeroStartWireMessage,
 } from './zero-start.ts';
 import { isYouTubeStartSyncOwned, registerYouTubeStartClaim } from './start-ownership.ts';
-import { GuestZeroStartRecovery } from './zero-start-recovery.ts';
+import {
+  GuestZeroStartRecovery,
+  HostZeroStartRecovery,
+  type HostRecoveryTarget,
+} from './zero-start-recovery.ts';
 import { recordProStartObservation } from '../diagnostics/pro-start-observations.ts';
 import {
   PRO_YOUTUBE_LEAD_SAMPLE_EARLY_MS,
@@ -1946,22 +1944,11 @@ export function initYouTube(): void {
     setZeroStartExternalFallbackPlayerState,
     () => zeroStartExternalFallbackHasPlayerState,
   );
-  let zeroStartHostFallbackGeneration = 0;
 
   let pendingTransferredPrepareAudioIntent: { muted: boolean; volume: number } | null = null;
-  type ZeroStartLegacyTarget = {
-    queueItemId: QueueItemId;
-    videoId: string;
-    subIndex: number | null;
-    mediaAction?: 'replace-media' | 'resident-reposition';
-    desiredMuted?: boolean | null;
-    desiredVolume?: number | null;
-    targetLoadIssued?: boolean;
-    handedOffPlayer?: YouTubeZeroStartPlayer | null;
-  };
   let zeroStartFallbackAudioIntent: YouTubeFallbackAudioIntent | null = null;
   const captureFallbackAudioIntent = (
-    target: Pick<ZeroStartLegacyTarget, 'desiredMuted' | 'desiredVolume'>,
+    target: Pick<HostRecoveryTarget, 'desiredMuted' | 'desiredVolume'>,
   ): YouTubeFallbackAudioIntent => {
     const appAudio = readYouTubeAppAudio();
     // Each fallback keeps its own object. Slider updates follow the current
@@ -1971,11 +1958,13 @@ export function initYouTube(): void {
       volume: target.desiredVolume ?? appAudio.volume,
     });
   };
-  let pendingReplacementFallback:
-    (ZeroStartLegacyTarget & { peerId: string; token: number }) | null = null;
+  let pendingReplacementFallback: (HostRecoveryTarget & { peerId: string; token: number }) | null =
+    null;
+  // The replacement fallback's own token: never the host recovery's, which
+  // the stage keeps, nor the guest recovery's.
   let replacementFallbackToken = 0;
 
-  const isCurrentZeroStartLegacyTarget = (target: ZeroStartLegacyTarget): boolean => {
+  const isCurrentZeroStartLegacyTarget = (target: HostRecoveryTarget): boolean => {
     if (getYouTubeZeroStartRole() !== 'host') return false;
     if (!isPlaybackModeYouTube()) return false;
     if (getCurrentQueueItemId() !== target.queueItemId) return false;
@@ -1988,181 +1977,24 @@ export function initYouTube(): void {
     return true;
   };
 
-  const recoverZeroStartWithLegacyRendezvous = (
-    target: ZeroStartLegacyTarget,
-    reason: string,
-  ): void => {
-    const generation = ++zeroStartHostFallbackGeneration;
-    clearManagedTimer('yt-zero-start-host-fallback');
-    // The controller already spent its own bounded prepare window before it
-    // hands host recovery here. Do not silently add another full prepare
-    // window; this fallback is only a short bridge back to the legacy path.
-    const deadline = Date.now() + YOUTUBE_RECOVERY_BRIDGE_MS;
-    const handedOffPlayer =
-      target.targetLoadIssued || target.mediaAction === 'resident-reposition'
-        ? (target.handedOffPlayer ?? null)
-        : null;
-    const desiredAudio = captureFallbackAudioIntent(target);
-    let recoveryPlayer: YouTubeZeroStartPlayer | null = null;
-    let loadIssued = false;
-    let settleIssued = false;
-    let lastError: unknown;
-
-    const scheduleHostFallback = (callback: () => void, delayMs: number): void => {
-      if (generation !== zeroStartHostFallbackGeneration) return;
-      setManagedTimer('yt-zero-start-host-fallback', callback, delayMs);
-    };
-
-    const cleanupExactPlayer = (player: YouTubeZeroStartPlayer): void => {
-      setYtAutoplayIntent(false);
-      player.pauseVideo();
-      player.seekTo(0, true);
-      writeYouTubeAudio(player, desiredAudio);
-    };
-
-    const finishUnavailable = (): void => {
-      if (generation !== zeroStartHostFallbackGeneration) return;
-      clearManagedTimer('yt-zero-start-host-fallback');
-      setYtAutoplayIntent(false);
-      log.warn('[YouTube ZeroStart] Legacy recovery timed out:', lastError ?? reason);
-      bus.emit('youtube:sync-loading', false, 'zero-start');
-
-      // Keep transient pause/seek/audio events fenced until the exact player
-      // we owned has actually accepted the user's audio intent. WebKit can
-      // ignore the first unmute immediately after an iframe transition.
-      const ownedPlayer = recoveryPlayer ?? handedOffPlayer;
-      if (!ownedPlayer) {
-        setZeroStartExternalFallbackOwnership(false);
-        return;
-      }
-      const endCleanup = (): void => {
-        setZeroStartExternalFallbackOwnership(false);
-        clearManagedTimer('yt-zero-start-host-fallback');
-      };
-      setZeroStartExternalFallbackOwnership(true);
-      // Every attempt reissues the pause and the seek with the audio.
-      restoreYouTubeAudioVerified(
-        'verify-then-settle',
-        () => generation === zeroStartHostFallbackGeneration,
-        () => cleanupExactPlayer(ownedPlayer),
-        () => isYouTubeAudioRestored(ownedPlayer, desiredAudio),
-        endCleanup,
-        scheduleHostFallback,
-      );
-    };
-
-    const attemptRecovery = (): void => {
-      if (generation !== zeroStartHostFallbackGeneration) return;
-      if (!isCurrentZeroStartLegacyTarget(target)) {
-        clearManagedTimer('yt-zero-start-host-fallback');
-        setZeroStartExternalFallbackOwnership(false);
-        return;
-      }
-      if (Date.now() >= deadline) {
-        finishUnavailable();
-        return;
-      }
-
-      const player = getZeroStartPlayer();
-      if (!player) {
-        scheduleHostFallback(attemptRecovery, YOUTUBE_RECOVERY_POLL_MS);
-        return;
-      }
-
-      try {
-        if (recoveryPlayer !== player) {
-          const previousPlayer = recoveryPlayer;
-          if (previousPlayer) {
-            try {
-              cleanupExactPlayer(previousPlayer);
-            } catch {
-              // The replaced iframe may already be destroyed. Its exact
-              // identity is still fenced and never transferred to the new one.
-            }
-          }
-          recoveryPlayer = player;
-          loadIssued =
-            player === handedOffPlayer &&
-            (target.targetLoadIssued === true ||
-              (target.mediaAction === 'resident-reposition' &&
-                (player.getVideoData().video_id ?? '') === target.videoId));
-          settleIssued = false;
-        }
-        setZeroStartExternalFallbackOwnership(true);
-        setYtAutoplayIntent(false);
-        if (!loadIssued) {
-          loadIssued = true;
-          player.mute();
-          player.loadVideoById(target.videoId, 0);
-        }
-
-        const currentVideoId = player.getVideoData().video_id ?? '';
-        const playerState = player.getPlayerState();
-        const currentTime = player.getCurrentTime();
-        const canRepositionResident =
-          player === handedOffPlayer &&
-          target.mediaAction === 'resident-reposition' &&
-          currentVideoId === target.videoId &&
-          (playerState === 0 || playerState === 2 || playerState === 5);
-        const targetReady =
-          currentVideoId === target.videoId &&
-          (playerState === 1 ||
-            playerState === 3 ||
-            ((playerState === 2 || playerState === 5) &&
-              Math.abs(currentTime) <= YOUTUBE_RECOVERY_SETTLE_EPSILON_SEC) ||
-            canRepositionResident);
-        if (!targetReady) {
-          scheduleHostFallback(attemptRecovery, YOUTUBE_RECOVERY_POLL_MS);
-          return;
-        }
-
-        if (!settleIssued) {
-          player.pauseVideo();
-          player.seekTo(0, true);
-          settleIssued = true;
-          scheduleHostFallback(attemptRecovery, YOUTUBE_RECOVERY_POLL_MS);
-          return;
-        }
-
-        const settled =
-          (player.getVideoData().video_id ?? '') === target.videoId &&
-          (player.getPlayerState() === 2 || player.getPlayerState() === 5) &&
-          Math.abs(player.getCurrentTime()) <= YOUTUBE_RECOVERY_SETTLE_EPSILON_SEC;
-        if (!settled) {
-          player.pauseVideo();
-          player.seekTo(0, true);
-          scheduleHostFallback(attemptRecovery, YOUTUBE_RECOVERY_POLL_MS);
-          return;
-        }
-
-        writeYouTubeAudio(player, desiredAudio);
-        const audioRestored = isYouTubeAudioRestored(player, desiredAudio);
-        if (!audioRestored) {
-          scheduleHostFallback(attemptRecovery, YOUTUBE_RECOVERY_POLL_MS);
-          return;
-        }
-
-        scheduleYtAutoSync(0, {
-          videoId: target.videoId,
-          subIndex: target.subIndex ?? undefined,
-          skipSeek: true,
-          rendezvousDelayMs: TRACK_TRANSITION_RENDEZVOUS_MS,
-        });
-        log.warn(`[YouTube ZeroStart] Falling back to legacy rendezvous: ${reason}`);
-      } catch (error) {
-        lastError = error;
-        try {
-          player.pauseVideo?.();
-        } catch {
-          // A rebuilding iframe can reject both commands; the retry is bounded.
-        }
-        scheduleHostFallback(attemptRecovery, YOUTUBE_RECOVERY_POLL_MS);
-      }
-    };
-
-    setZeroStartExternalFallbackOwnership(true);
-    scheduleHostFallback(attemptRecovery, 0);
-  };
+  // The host's legacy recovery (zero-start-recovery.ts): its waits are this
+  // module's managed timer, its claim the recovery's active flag, and its
+  // hand-off the legacy two-stage rendezvous, which retires it first.
+  const hostRecovery = new HostZeroStartRecovery(
+    (callback, delayMs) => setManagedTimer('yt-zero-start-host-fallback', callback, delayMs),
+    () => clearManagedTimer('yt-zero-start-host-fallback'),
+    setZeroStartExternalFallbackOwnership,
+    isCurrentZeroStartLegacyTarget,
+    getZeroStartPlayer,
+    captureFallbackAudioIntent,
+    (target) =>
+      scheduleYtAutoSync(0, {
+        videoId: target.videoId,
+        subIndex: target.subIndex ?? undefined,
+        skipSeek: true,
+        rendezvousDelayMs: TRACK_TRANSITION_RENDEZVOUS_MS,
+      }),
+  );
 
   const clearPendingReplacementFallback = (): void => {
     replacementFallbackToken += 1;
@@ -2177,8 +2009,7 @@ export function initYouTube(): void {
     // it hands the transition to the legacy rendezvous. Any newer user action
     // owns that same player, so it must revoke the retry as well as the guest
     // and replacement fallbacks above.
-    zeroStartHostFallbackGeneration += 1;
-    clearManagedTimer('yt-zero-start-host-fallback');
+    hostRecovery.cancel();
   };
 
   const runPendingReplacementFallback = (
@@ -2189,7 +2020,7 @@ export function initYouTube(): void {
     }
     pendingReplacementFallback = null;
     clearManagedTimer('yt-zero-start-replacement-fallback');
-    recoverZeroStartWithLegacyRendezvous(pending, 'peer-connection-replaced');
+    hostRecovery.start(pending, 'peer-connection-replaced');
   };
 
   const resolveZeroStartDelay = (canonicalPositionSec: number): number => {
@@ -2296,8 +2127,7 @@ export function initYouTube(): void {
       const transferredFallback = guestRecovery.clear(true);
       pendingTransferredPrepareAudioIntent = transferredFallback ? readYouTubeAppAudio() : null;
       clearPendingReplacementFallback();
-      zeroStartHostFallbackGeneration += 1;
-      clearManagedTimer('yt-zero-start-host-fallback');
+      hostRecovery.cancel();
       zeroStartAppliedGuestOffset = 0;
       clearManagedTimer('yt-clock-action');
       clearManagedTimer('yt-seek-play');
@@ -2469,7 +2299,7 @@ export function initYouTube(): void {
       targetLoadIssued,
       handedOffPlayer,
     }) => {
-      recoverZeroStartWithLegacyRendezvous(
+      hostRecovery.start(
         {
           queueItemId: queueItemId as QueueItemId,
           videoId,

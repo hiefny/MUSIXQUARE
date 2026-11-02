@@ -814,7 +814,9 @@ const MEDIA_TUNING_BASELINE: Baseline = new Map<string, Allowance>([
 // shared arm steps in src/youtube/arm-steps.ts, and their warm pairs onto
 // writeYouTubeAudio (20 calls). Phase 6 6D-1 moved the guest local recovery
 // out of player.ts into src/youtube/zero-start-recovery.ts with its two mutes
-// (still 20 calls: player.ts 2, zero-start-recovery.ts 2).
+// (still 20 calls: player.ts 2, zero-start-recovery.ts 2), and 6D-2 the host
+// legacy recovery beside it with its one (still 20: player.ts 1,
+// zero-start-recovery.ts 3).
 
 const IFRAME_AUDIO_WRITE_METHODS = new Set(['mute', 'unMute', 'setVolume']);
 
@@ -843,8 +845,8 @@ const IFRAME_AUDIO_WRITE_BASELINE: Baseline = new Map<string, Allowance>([
       reason:
         'the shared restore writer writeYouTubeAudio (3), through which the six verified ' +
         "restores write: zero-start's and the PRO arm's active and detached restores, and the " +
-        'cleanups of the host legacy recovery (player.ts) and the guest local recovery ' +
-        "(src/youtube/zero-start-recovery.ts); the recoveries' restores before a release, the " +
+        'cleanups of the host legacy recovery and the guest local recovery (both in ' +
+        "src/youtube/zero-start-recovery.ts); the recoveries' restores before a release, the " +
         "guest recovery's release write and both recoveries' unverified cleanups of a replaced " +
         "or cancelled iframe (cleanupExactPlayer in each) write through it too; the App's own " +
         'writer applyYouTubeAudio (3), ' +
@@ -867,15 +869,14 @@ const IFRAME_AUDIO_WRITE_BASELINE: Baseline = new Map<string, Allowance>([
   [
     'src/youtube/player.ts',
     {
-      count: 2,
+      count: 1,
       reason:
-        "the mute before stopYouTubeMode destroys the player (1); the host legacy recovery's " +
-        'mute before its load (attemptRecovery 1), whose audio restore and cleanups write ' +
-        'through writeYouTubeAudio in src/youtube/iframe-audio.ts; the youtube:set-volume ' +
+        'the mute before stopYouTubeMode destroys the player (1); the youtube:set-volume ' +
         'handler, the PRO pause gate handlers and the PRO direct commit ' +
         '(applyProPlaybackYouTubeCommit) write through applyYouTubeAudio and ' +
         "enforceYouTubePauseGate in src/youtube/iframe-audio.ts; the guest local recovery's " +
-        'mutes moved to src/youtube/zero-start-recovery.ts in Phase 6 6D-1',
+        'mutes moved to src/youtube/zero-start-recovery.ts in Phase 6 6D-1, and the host ' +
+        "legacy recovery's in 6D-2",
     },
   ],
   [
@@ -890,12 +891,14 @@ const IFRAME_AUDIO_WRITE_BASELINE: Baseline = new Map<string, Allowance>([
   [
     'src/youtube/zero-start-recovery.ts',
     {
-      count: 2,
+      count: 3,
       reason:
         'the guest local recovery (GuestZeroStartRecovery, since Phase 6 6D-1): its mute before ' +
         'a load of its own and its mute while it holds a settled target until the release ' +
-        '(attemptFallback 2); its restore before the release, its release write and its ' +
-        'cleanups write through writeYouTubeAudio in src/youtube/iframe-audio.ts',
+        '(attemptFallback 2); the host legacy recovery (HostZeroStartRecovery, since 6D-2): ' +
+        'its mute before a load of its own (attemptRecovery 1); their restores before a ' +
+        "release, the guest recovery's release write and their cleanups write through " +
+        'writeYouTubeAudio in src/youtube/iframe-audio.ts',
     },
   ],
   [

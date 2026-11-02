@@ -1,5 +1,8 @@
 /**
- * The Standard guest's local zero-start recovery: when the zero-start run
+ * The Standard zero-start recoveries: what takes a start over on the current
+ * iframe once the zero-start run has given it up.
+ *
+ * The guest's local recovery (GuestZeroStartRecovery): when the zero-start run
  * gives up this guest's start (the host committed without it, its clock is
  * uncalibrated, its prepare failed or its release timed out), the recovery
  * takes the start over on the current iframe on its own.
@@ -27,7 +30,27 @@
  * position and plays, and a PLAYING within YOUTUBE_ARM_RELEASE_ACK_TIMEOUT_MS
  * ends the recovery. A recovery that fails restores the exact iframe through
  * the verified restore ('verify-then-settle', iframe-audio.ts).
+ *
+ * The host's legacy recovery (HostZeroStartRecovery, since Phase 6 6D-2): when
+ * the run gives the host's start up after it began (a hard mute or audio
+ * restore that never confirms, a COMMIT it cannot send, the prepare budget),
+ * or player.ts's replacement fallback finds a cohort guest's connection
+ * replaced, this stage brings the iframe to 0:00 within
+ * YOUTUBE_RECOVERY_BRIDGE_MS and hands the start to the legacy two-stage
+ * rendezvous. Registry RO-02: a stage of the start owners, never a phase of
+ * the run, so the run's facades read false while it holds the recovery claim
+ * (the active flag the guest recovery sets too, through the setter player.ts
+ * hands it). Its token is its own; player.ts keeps its managed timer
+ * ('yt-zero-start-host-fallback'), its fence and the hand-off, and the
+ * replacement fallback with its own token. Each attempt adopts the iframe the
+ * run handed over (its issued load, or its resident video) or reloads the
+ * target hard-muted, waits until the iframe holds it within
+ * YOUTUBE_RECOVERY_SETTLE_EPSILON_SEC of 0:00, polled every
+ * YOUTUBE_RECOVERY_POLL_MS, and restores the audio by command, check and
+ * poll; then the legacy rendezvous plays it. When the bridge ends first, the
+ * loading state ends and the verified restore cleans the exact iframe up.
  */
+import { bus } from '../core/events.ts';
 import { log } from '../core/log.ts';
 import { getHostNow, isClockCalibrated } from '../network/shared-clock.ts';
 import { setYtAutoplayIntent } from './_state.ts';
@@ -409,5 +432,240 @@ export class GuestZeroStartRecovery {
       setOwned(false);
       log.warn('[YouTube ZeroStart] Local fallback failed:', error);
     }
+  }
+}
+
+/**
+ * The start the host recovery takes over, as the run hands it over or the
+ * replacement fallback records it: the queue item and sub-video the caller's
+ * fence checks, the video it starts, how the run left the iframe, and the
+ * user's audio from before the run's hard mute.
+ */
+export interface HostRecoveryTarget {
+  queueItemId: string;
+  videoId: string;
+  subIndex: number | null;
+  mediaAction?: 'replace-media' | 'resident-reposition';
+  desiredMuted?: boolean | null;
+  desiredVolume?: number | null;
+  /** True when the run already issued the target load on handedOffPlayer. */
+  targetLoadIssued?: boolean;
+  /** The exact iframe the run left the target on; never transferable. */
+  handedOffPlayer?: YouTubeZeroStartPlayer | null;
+}
+
+/** What the caller lends the host recovery, by position, as for the guest's. */
+type HostRecoveryPorts = readonly [
+  /** The caller's one timer: a new wait replaces a pending one. */
+  schedule: (callback: () => void, delayMs: number) => void,
+  /** Clears that timer. */
+  clearTimer: () => void,
+  /** The recovery claim's active flag, which the guest recovery sets too. */
+  setOwned: (owned: boolean) => void,
+  /** The caller's fence on the target, asked at every attempt. */
+  isCurrent: (target: HostRecoveryTarget) => boolean,
+  /** The current iframe, or null. */
+  getPlayer: () => YouTubeZeroStartPlayer | null,
+  /** Captures the audio to restore; the caller may retarget it later. */
+  capture: (target: HostRecoveryTarget) => RecoveryAudio,
+  /** Hands the start to the legacy rendezvous, which retires this recovery first. */
+  handOff: (target: HostRecoveryTarget) => void,
+];
+
+export class HostZeroStartRecovery {
+  /**
+   * The host token, moved by every start and cancel: an attempt, a schedule
+   * or a cleanup of an older recovery is stale. It is not the guest
+   * recovery's token, nor the replacement fallback's.
+   */
+  #generation = 0;
+  readonly #ports: HostRecoveryPorts;
+
+  constructor(...ports: HostRecoveryPorts) {
+    this.#ports = ports;
+  }
+
+  /**
+   * Revokes the recovery: a later attempt, schedule or cleanup is stale, and
+   * the timer clears. The claim stays the caller's to retire.
+   */
+  cancel(): void {
+    this.#generation += 1;
+    this.#ports[1]();
+  }
+
+  /**
+   * Takes over the start `target` describes, revoking an earlier one.
+   * @param reason Why the run or the replacement fallback gave it up, for the log.
+   */
+  start(target: HostRecoveryTarget, reason: string): void {
+    const [schedule, clearTimer, setOwned, isCurrent, getPlayer, capture, handOff] = this.#ports;
+    this.cancel();
+    const generation = this.#generation;
+    // The controller already spent its own bounded prepare window before it
+    // hands host recovery here. Do not silently add another full prepare
+    // window; this fallback is only a short bridge back to the legacy path.
+    const deadline = Date.now() + YOUTUBE_RECOVERY_BRIDGE_MS;
+    const handedOffPlayer =
+      target.targetLoadIssued || target.mediaAction === 'resident-reposition'
+        ? (target.handedOffPlayer ?? null)
+        : null;
+    const desiredAudio = capture(target);
+    let recoveryPlayer: YouTubeZeroStartPlayer | null = null;
+    let loadIssued = false;
+    let settleIssued = false;
+    let lastError: unknown;
+
+    const scheduleHostFallback = (callback: () => void, delayMs: number): void => {
+      if (generation !== this.#generation) return;
+      schedule(callback, delayMs);
+    };
+
+    const cleanupExactPlayer = (player: YouTubeZeroStartPlayer): void => {
+      setYtAutoplayIntent(false);
+      player.pauseVideo();
+      player.seekTo(0, true);
+      writeYouTubeAudio(player, desiredAudio);
+    };
+
+    const finishUnavailable = (): void => {
+      if (generation !== this.#generation) return;
+      clearTimer();
+      setYtAutoplayIntent(false);
+      log.warn('[YouTube ZeroStart] Legacy recovery timed out:', lastError ?? reason);
+      bus.emit('youtube:sync-loading', false, 'zero-start');
+
+      // Keep transient pause/seek/audio events fenced until the exact player
+      // we owned has actually accepted the user's audio intent. WebKit can
+      // ignore the first unmute immediately after an iframe transition.
+      const ownedPlayer = recoveryPlayer ?? handedOffPlayer;
+      if (!ownedPlayer) {
+        setOwned(false);
+        return;
+      }
+      const endCleanup = (): void => {
+        setOwned(false);
+        clearTimer();
+      };
+      setOwned(true);
+      // Every attempt reissues the pause and the seek with the audio.
+      restoreYouTubeAudioVerified(
+        'verify-then-settle',
+        () => generation === this.#generation,
+        () => cleanupExactPlayer(ownedPlayer),
+        () => isYouTubeAudioRestored(ownedPlayer, desiredAudio),
+        endCleanup,
+        scheduleHostFallback,
+      );
+    };
+
+    const attemptRecovery = (): void => {
+      if (generation !== this.#generation) return;
+      if (!isCurrent(target)) {
+        clearTimer();
+        setOwned(false);
+        return;
+      }
+      if (Date.now() >= deadline) {
+        finishUnavailable();
+        return;
+      }
+
+      const player = getPlayer();
+      if (!player) {
+        scheduleHostFallback(attemptRecovery, YOUTUBE_RECOVERY_POLL_MS);
+        return;
+      }
+
+      try {
+        if (recoveryPlayer !== player) {
+          const previousPlayer = recoveryPlayer;
+          if (previousPlayer) {
+            try {
+              cleanupExactPlayer(previousPlayer);
+            } catch {
+              // The replaced iframe may already be destroyed. Its exact
+              // identity is still fenced and never transferred to the new one.
+            }
+          }
+          recoveryPlayer = player;
+          loadIssued =
+            player === handedOffPlayer &&
+            (target.targetLoadIssued === true ||
+              (target.mediaAction === 'resident-reposition' &&
+                (player.getVideoData().video_id ?? '') === target.videoId));
+          settleIssued = false;
+        }
+        setOwned(true);
+        setYtAutoplayIntent(false);
+        if (!loadIssued) {
+          loadIssued = true;
+          player.mute();
+          player.loadVideoById(target.videoId, 0);
+        }
+
+        const currentVideoId = player.getVideoData().video_id ?? '';
+        const playerState = player.getPlayerState();
+        const currentTime = player.getCurrentTime();
+        const canRepositionResident =
+          player === handedOffPlayer &&
+          target.mediaAction === 'resident-reposition' &&
+          currentVideoId === target.videoId &&
+          (playerState === 0 || playerState === 2 || playerState === 5);
+        const targetReady =
+          currentVideoId === target.videoId &&
+          (playerState === 1 ||
+            playerState === 3 ||
+            ((playerState === 2 || playerState === 5) &&
+              Math.abs(currentTime) <= YOUTUBE_RECOVERY_SETTLE_EPSILON_SEC) ||
+            canRepositionResident);
+        if (!targetReady) {
+          scheduleHostFallback(attemptRecovery, YOUTUBE_RECOVERY_POLL_MS);
+          return;
+        }
+
+        if (!settleIssued) {
+          player.pauseVideo();
+          player.seekTo(0, true);
+          settleIssued = true;
+          scheduleHostFallback(attemptRecovery, YOUTUBE_RECOVERY_POLL_MS);
+          return;
+        }
+
+        const settled =
+          (player.getVideoData().video_id ?? '') === target.videoId &&
+          (player.getPlayerState() === 2 || player.getPlayerState() === 5) &&
+          Math.abs(player.getCurrentTime()) <= YOUTUBE_RECOVERY_SETTLE_EPSILON_SEC;
+        if (!settled) {
+          player.pauseVideo();
+          player.seekTo(0, true);
+          scheduleHostFallback(attemptRecovery, YOUTUBE_RECOVERY_POLL_MS);
+          return;
+        }
+
+        writeYouTubeAudio(player, desiredAudio);
+        const audioRestored = isYouTubeAudioRestored(player, desiredAudio);
+        if (!audioRestored) {
+          scheduleHostFallback(attemptRecovery, YOUTUBE_RECOVERY_POLL_MS);
+          return;
+        }
+
+        // The legacy rendezvous retires every recovery, this one included,
+        // before its Stage 1; the log follows it.
+        handOff(target);
+        log.warn(`[YouTube ZeroStart] Falling back to legacy rendezvous: ${reason}`);
+      } catch (error) {
+        lastError = error;
+        try {
+          player.pauseVideo?.();
+        } catch {
+          // A rebuilding iframe can reject both commands; the retry is bounded.
+        }
+        scheduleHostFallback(attemptRecovery, YOUTUBE_RECOVERY_POLL_MS);
+      }
+    };
+
+    setOwned(true);
+    scheduleHostFallback(attemptRecovery, 0);
   }
 }

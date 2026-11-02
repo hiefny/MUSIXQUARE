@@ -1,7 +1,7 @@
 /**
  * Face metrics of the app's self-hosted fonts: the one home for the
- * size-adjust and metric-override descriptors of every Inter and CJK
- * @font-face rule, and for the line box baked into their font files.
+ * size-adjust and metric-override descriptors of every Inter, Hangul and CJK
+ * @font-face rule, and for the line box baked into the Inter and CJK files.
  *
  * CSS cannot import this module. scripts/fonts/build-font-sheets.mts writes
  * the descriptors into the generated sheets in css/fonts/app/, and
@@ -10,8 +10,20 @@
  * descriptors to this module and src/i18n/__tests__/font-baked-metrics.test.ts
  * every file's tables.
  *
- * Pretendard drew Latin and Hangul before the switch. These values keep its
- * glyph sizes and line boxes:
+ * Pretendard drew Latin and Hangul before the switch to Inter and Noto, and
+ * draws Hangul again (owner decision 2026-11-02) as the app's own subsets,
+ * named MUSIXQUARE Hangul (scripts/fonts/build-hangul-faces.mts). Its own
+ * line box is the target: the Hangul faces need no baked change, because
+ * their tables already hold HANGUL_LINE_BOX
+ * (src/i18n/__tests__/hangul-faces.test.ts), and their descriptors state that
+ * same box (size-adjust 100%). A browser that applies the overrides takes a
+ * line's box from the descriptors of the Inter and CJK faces, which it does
+ * not round, but from a face without them its own table metrics, which it
+ * may round to whole pixels: WebKit rounds Pretendard's 3.62 px descent at
+ * 15 px to 4 px, so a Hangul line would be taller than a Latin one. With the
+ * descriptors every face of a line reads its box the same way
+ * (docs/design/app-hangul-pretendard-2026-11-02.md §3). The other values
+ * keep Pretendard's glyph sizes and line boxes:
  * - size-adjust scales a face. Inter at 97.2% matches Pretendard's cap height
  *   (0.9725 of Inter's) and x-height (0.970). The four CJK families share
  *   94%, which makes a Hangul syllable exactly as wide as Pretendard's (0.9394
@@ -23,18 +35,18 @@
  *   1950/2048 em, its descent 494/2048 em and its line gap 0, which keeps
  *   today's line boxes (18 px rows at 15 px, for example) for Latin, Hangul,
  *   kana and Han alike.
- * - Safari applies size-adjust but not the overrides, so it scales the file's
- *   own metrics instead. The files therefore carry the box in font units
+ * - Safari on the owner's iPhone (2026-11-01) applies size-adjust but not the
+ *   overrides, so it scales the file's own metrics instead. The files therefore carry the box in font units
  *   (hhea and the OS/2 typo metrics, with USE_TYPO_METRICS set): Pretendard's
  *   metric divided by size-adjust, rounded to the nearest unit, which is also
  *   the nearest unit to each override. A unit is 1/2048 em for Inter and
  *   1/1000 em for the CJK families, so the baked box is not the descriptors
  *   but within half a unit of them (at most 0.0004 em). A line box rounded to
  *   whole pixels from the one can be 1 px taller or shorter than from the
- *   other at sizes next to a rounding boundary: a CJK line at 14.5 px, and the
- *   fluid clamp() sizes of the setup overlay and the desktop demo at some
- *   window widths and heights (docs/design/app-font-baked-metrics-2026-11-01.md
- *   §3 lists them).
+ *   other at sizes next to a rounding boundary: a Han or kana line at
+ *   14.5 px, and the fluid clamp() sizes of the setup overlay and the desktop
+ *   demo at some window widths and heights
+ *   (docs/design/app-font-baked-metrics-2026-11-01.md §3 lists them).
  */
 
 interface FontFaceMetrics {
@@ -56,10 +68,18 @@ interface FontFaceMetrics {
   readonly lineGap: number;
 }
 
-const PRETENDARD_UNITS_PER_EM = 2048;
-const PRETENDARD_ASCENT = 1950;
-const PRETENDARD_DESCENT = 494;
-const PRETENDARD_LINE_GAP = 0;
+/**
+ * Pretendard's line box in font units (hhea and the OS/2 typo metrics of
+ * fonts/PretendardVariable.woff2, USE_TYPO_METRICS set): the line box of
+ * every app face. The Hangul faces keep it as it is.
+ */
+export const HANGUL_LINE_BOX = Object.freeze({
+  unitsPerEm: 2048,
+  ascender: 1950,
+  /** The distance below the baseline, positive. */
+  descender: 494,
+  lineGap: 0,
+});
 
 /** A ratio as a percentage with two decimals, the precision the sheets carry. */
 function percent(ratio: number): number {
@@ -68,16 +88,17 @@ function percent(ratio: number): number {
 
 function metricsFor(sizeAdjust: number, unitsPerEm: number): FontFaceMetrics {
   const scale = sizeAdjust / 100;
-  const em = (metric: number) => metric / PRETENDARD_UNITS_PER_EM / scale;
+  const box = HANGUL_LINE_BOX;
+  const em = (metric: number) => metric / box.unitsPerEm / scale;
   return Object.freeze({
     sizeAdjust,
-    ascentOverride: percent(em(PRETENDARD_ASCENT)),
-    descentOverride: percent(em(PRETENDARD_DESCENT)),
-    lineGapOverride: percent(em(PRETENDARD_LINE_GAP)),
+    ascentOverride: percent(em(box.ascender)),
+    descentOverride: percent(em(box.descender)),
+    lineGapOverride: percent(em(box.lineGap)),
     unitsPerEm,
-    ascender: Math.round(em(PRETENDARD_ASCENT) * unitsPerEm),
-    descender: Math.round(em(PRETENDARD_DESCENT) * unitsPerEm),
-    lineGap: Math.round(em(PRETENDARD_LINE_GAP) * unitsPerEm),
+    ascender: Math.round(em(box.ascender) * unitsPerEm),
+    descender: Math.round(em(box.descender) * unitsPerEm),
+    lineGap: Math.round(em(box.lineGap) * unitsPerEm),
   });
 }
 
@@ -86,3 +107,9 @@ export const INTER_FACE_METRICS = metricsFor(97.2, 2048);
 
 /** Noto Sans KR, JP, SC and TC alike: 94% / 101.29% / 25.66% / 0%, baked as 1013 / 257 / 0 of 1000. */
 export const CJK_FACE_METRICS = metricsFor(94, 1000);
+
+/**
+ * MUSIXQUARE Hangul: 100% / 95.21% / 24.12% / 0%, its files' own box
+ * (HANGUL_LINE_BOX, 1950 / 494 / 0 of 2048), which no generator bakes again.
+ */
+export const HANGUL_FACE_METRICS = metricsFor(100, HANGUL_LINE_BOX.unitsPerEm);

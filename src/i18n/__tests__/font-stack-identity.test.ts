@@ -1,8 +1,10 @@
 /**
- * Font stack identity (owner decisions 2026-10-31, the app font switch).
+ * Font stack identity (owner decisions 2026-10-31, the app font switch, and
+ * 2026-11-02, Pretendard's Hangul again).
  *
  * The Korean and English UIs draw the same content with the same faces: both
- * read one stack, Inter first for Latin, Cyrillic and Greek, then the four CJK
+ * read one stack, Inter first for Latin, Cyrillic and Greek, then MUSIXQUARE
+ * Hangul (the app's subsets of Pretendard) for Hangul, then the four CJK
  * families, then the script families, then the system fonts. Only the Han
  * order differs between UIs:
  * - the Japanese, Simplified Chinese and Traditional Chinese UIs put their own
@@ -42,13 +44,14 @@ const ROOT = resolve('.');
 const stacks = readFontStacks(ROOT);
 
 const INTER = 'Inter';
+const HANGUL = 'MUSIXQUARE Hangul';
 const KR = 'Noto Sans KR';
 const JP = 'Noto Sans JP';
 const SC = 'Noto Sans SC';
 const TC = 'Noto Sans TC';
 const SYSTEM = ['-apple-system', 'BlinkMacSystemFont', 'Segoe UI', 'Roboto', 'sans-serif'];
 const SCRIPT_FAMILIES = APP_FONT_SHEETS.map(({ family }) => family).filter(
-  (family) => ![INTER, KR, JP, SC, TC].includes(family),
+  (family) => ![INTER, HANGUL, KR, JP, SC, TC].includes(family),
 );
 const APP_FAMILIES: ReadonlySet<string> = new Set(APP_FONT_SHEETS.map(({ family }) => family));
 
@@ -103,7 +106,7 @@ const uiStack = (code: LanguageCode, hanOrder: HanOrder): string[] =>
 
 function expectedStack(code: LanguageCode, hanOrder: HanOrder): string[] {
   const cjk = CJK_ORDER[OWN_HAN_ORDER[code] ?? hanOrder ?? 'ko'];
-  const shared = [INTER, ...cjk, ...SCRIPT_FAMILIES, ...SYSTEM];
+  const shared = [INTER, HANGUL, ...cjk, ...SCRIPT_FAMILIES, ...SYSTEM];
   const script = SCRIPT_FIRST[code];
   return script ? [script, ...shared] : shared;
 }
@@ -269,12 +272,12 @@ describe('one family per script', () => {
         }),
     },
     {
-      script: 'Hangul syllables and compatibility jamo',
-      family: KR,
+      script: 'Hangul syllables and modern compatibility jamo',
+      family: HANGUL,
       codePoints: (): number[] =>
         codePointsIn([
           [0xac00, 0xd7a3],
-          [0x3131, 0x318e],
+          [0x3131, 0x3164],
         ]),
     },
     {
@@ -289,12 +292,24 @@ describe('one family per script', () => {
         ]),
     },
     {
-      // Parenthesized and circled Hangul (㈜, ㉠) sit outside the Hangul blocks.
-      script: 'every Hangul-script character Noto Sans KR draws',
+      // ㈜ and the halfwidth jamo sit outside the Hangul blocks.
+      script: 'every Hangul-script character MUSIXQUARE Hangul draws',
+      family: HANGUL,
+      codePoints: (): number[] =>
+        scriptCodePoints(/\p{Script=Hangul}/u).filter(
+          (codePoint) => faces.faceFor([HANGUL], codePoint) !== null,
+        ),
+    },
+    {
+      // The archaic compatibility jamo, ㉠ and the other parenthesized and
+      // circled Hangul Pretendard lacks. (No app face declares the
+      // conjoining jamo, so they are not here.)
+      script: 'every Hangul-script character only Noto Sans KR draws',
       family: KR,
       codePoints: (): number[] =>
         scriptCodePoints(/\p{Script=Hangul}/u).filter(
-          (codePoint) => faces.faceFor([KR], codePoint) !== null,
+          (codePoint) =>
+            faces.faceFor([KR], codePoint) !== null && faces.faceFor([HANGUL], codePoint) === null,
         ),
     },
     {

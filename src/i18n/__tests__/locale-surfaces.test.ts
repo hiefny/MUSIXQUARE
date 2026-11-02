@@ -223,6 +223,7 @@ describe('locale surface parity', () => {
       expect(stack, code).toEqual(
         expect.arrayContaining([
           'Inter',
+          'MUSIXQUARE Hangul',
           'Noto Sans KR',
           'Noto Sans JP',
           'Noto Sans SC',

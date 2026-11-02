@@ -68,9 +68,11 @@ or pointers. Keep :focus-visible and :active outside the gate (src/ui/__tests__/
     --radius-m: 20px;
     --radius-s: 14px;
     --radius-pill: 999px;
-    /* App fonts (owner decisions 2026-10-31). Inter draws Latin, digits,
-       Cyrillic and Greek, Noto Sans KR Hangul and Noto Sans JP kana; Han,
-       CJK punctuation and the symbols Inter lacks come from the four CJK
+    /* App fonts (owner decisions 2026-10-31 and 2026-11-02). Inter draws
+       Latin, digits, Cyrillic and Greek, MUSIXQUARE Hangul (the app's own
+       Hangul faces, fonts/hangul-faces.json) Hangul in every stack, Noto
+       Sans KR the Hangul that family lacks and Noto Sans JP kana; Han, CJK
+       punctuation and the symbols Inter lacks come from the four CJK
        families in an order. The Japanese and Chinese UIs put their own
        family first; every other UI reads --font-cjk-default, which the Han
        order chosen once at startup from the browser's languages swaps
@@ -82,6 +84,7 @@ or pointers. Keep :focus-visible and :active outside the gate (src/ui/__tests__/
        only draw what no declared face has.
        src/i18n/__tests__/font-stack-identity.test.ts holds the stacks. */
     --font-primary: 'Inter';
+    --font-hangul: 'MUSIXQUARE Hangul';
     --font-cjk-ko: 'Noto Sans KR', 'Noto Sans JP', 'Noto Sans SC', 'Noto Sans TC';
     --font-cjk-ja: 'Noto Sans JP', 'Noto Sans KR', 'Noto Sans SC', 'Noto Sans TC';
     --font-cjk-sc: 'Noto Sans SC', 'Noto Sans TC', 'Noto Sans JP', 'Noto Sans KR';
@@ -93,13 +96,17 @@ or pointers. Keep :focus-visible and :active outside the gate (src/ui/__tests__/
       'Noto Sans Kannada', 'Noto Sans Malayalam', 'Noto Sans Gurmukhi';
     --font-system: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
     --font-sans-ui:
-      var(--font-primary), var(--font-cjk-default), var(--font-scripts), var(--font-system);
+      var(--font-primary), var(--font-hangul), var(--font-cjk-default), var(--font-scripts),
+      var(--font-system);
     --font-sans-ja:
-      var(--font-primary), var(--font-cjk-ja), var(--font-scripts), var(--font-system);
+      var(--font-primary), var(--font-hangul), var(--font-cjk-ja), var(--font-scripts),
+      var(--font-system);
     --font-sans-cjk-sc:
-      var(--font-primary), var(--font-cjk-sc), var(--font-scripts), var(--font-system);
+      var(--font-primary), var(--font-hangul), var(--font-cjk-sc), var(--font-scripts),
+      var(--font-system);
     --font-sans-cjk-tc:
-      var(--font-primary), var(--font-cjk-tc), var(--font-scripts), var(--font-system);
+      var(--font-primary), var(--font-hangul), var(--font-cjk-tc), var(--font-scripts),
+      var(--font-system);
     --font-sans-devanagari: 'Noto Sans Devanagari', var(--font-sans-ui);
     --font-sans-bengali: 'Noto Sans Bengali', var(--font-sans-ui);
     --font-sans-tamil: 'Noto Sans Tamil', var(--font-sans-ui);

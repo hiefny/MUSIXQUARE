@@ -30,7 +30,10 @@ import {
 import { CJK_FACE_METRICS, INTER_FACE_METRICS } from '../font-metrics.ts';
 
 const ROOT = resolve('.');
-const KR_SHARD = 'PbykFmXiEBPT4ITbgNA5Cgm20xz64px_1hVWr0wuPNGmlQNMEfD4.119.woff2';
+// The highest-numbered (most frequent) Noto Sans KR shard the app still
+// serves, for its Han: #115-#119 held Hangul only, which MUSIXQUARE Hangul
+// draws now.
+const KR_SHARD = 'PbykFmXiEBPT4ITbgNA5Cgm20xz64px_1hVWr0wuPNGmlQNMEfD4.114.woff2';
 const KR_INPUT = `fonts/noto/noto-sans-kr/${KR_SHARD}`;
 const KR_OUTPUT = `fonts/app/noto-sans-kr/${KR_SHARD}`;
 const INTER_INPUT = 'fonts/inter/inter-latin.woff2';

@@ -94,6 +94,39 @@ runbooks. Neither belongs in a general setup document.
 
 ## Maintained evidence and completed records
 
+- [App Hangul drawn by Pretendard again, as MUSIXQUARE Hangul (2026-11-02)](design/app-hangul-pretendard-2026-11-02.md):
+  prepared, not released: App 9.0.33 / v806 (App build 806, target `app`, one update dialog,
+  visible change; `raise_app_build_floor` false, Developer API D1 false), built and QA'd locally
+  on branch `agent/hangul-pretendard` over main `7d60f134` (App 9.0.32 / v805's release record)
+  and moved with every patch unchanged onto main `7b869c35` (#559, tests only), whose App runtime
+  is production 9.0.32's. The owner decided on 2026-11-02, without a picture comparison, that
+  Pretendard draws the app's Hangul again for its Hangul spacing; Inter keeps Latin and digits,
+  Noto keeps Han, kana and the 98 Hangul characters Pretendard lacks that its sheet declares. 87
+  harfbuzz subsets of the repository's Pretendard Variable 1.309 (`fonts/app/hangul/`, 11,277
+  code points, 2,506,376 B, recorded in `fonts/hangul-faces.json`, which now also refuses a
+  changed source file) keep the whole wght axis, Pretendard's outlines and its own line box
+  (1950 / 494 / 0 of 2048, now `HANGUL_LINE_BOX`), which their sheet also states as descriptors,
+  carry no layout feature, and are named MUSIXQUARE Hangul because Pretendard is a Reserved Font
+  Name. They sit right after Inter in every stack of every UI; the Noto Sans KR sheet drops from
+  120 faces to 53. Line boxes, Latin and Han sizes and tab titles measure as in 9.0.32 in
+  Chromium, Hangul lines match Latin ones within 1/64 px in a WebKit that applies the overrides,
+  and the 14.5 px Hangul line without overrides (Safari's reading) is now 17 px, not 18. The
+  Korean start screen fetches 289,888 B instead of 249,124 B, 433,132 B instead of 466,104 B with
+  the idle prefetch. `fonts/PretendardVariable.woff2` now stays as the faces' source. Against the
+  deployed SHAs the change touches 165 App runtime paths before the bump (169 with the version
+  mirrors) and none in the other five Workers. Section 11 maps the moved commits, describes the
+  release-preparation record and the bump to 9.0.33 / v806 as the last runtime commit (the same
+  seven lines in the same six files as the 9.0.32 bump), and records QA round 3, the full local
+  gate on the bump `d78d0d41`, which passed (the unit suite's load and git-fixture timeouts each
+  passed alone), in a documentation commit after the bump. The release record's §2
+  carries the train as pre-deploy items (scope and status, the owner decision and delegation:
+  ship directly once the automated gates pass, deploy conditions, rollback alone until the next
+  App update merges and then forward, with the checkpoint App 9.0.32 / v805, the blind
+  post-deploy check on the owner's iPhone and a desktop Chromium Korean screen, open items), and
+  this train changes two open items: the 9.0.31 section's 14.5 px CJK residual (gone for Hangul,
+  kana and Han keep it) and the public-page font train (now Inter, MUSIXQUARE Hangul and Noto,
+  keeping the Pretendard source file). The report lists the owner questions (the name, a byte
+  option, the public-page font train), shipped with their defaults.
 - [Phase 6 train 6B: one YouTube start ledger and its readers (2026-11-01)](design/phase6-6b-start-ledger-readers-2026-11-01.md):
   released on 2026-11-02 05:34 KST in Release 41347347201 (PR #557, squash `3ea689b9`) as App
   9.0.32 / v805 (App build 805, target `app`, one update dialog, the second of the four Phase 6 App

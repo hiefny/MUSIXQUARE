@@ -1,6 +1,7 @@
 /**
  * Font identity across UI languages (owner decisions 2026-10-31, the app font
- * switch to Inter and Noto).
+ * switch to Inter and Noto, and 2026-11-02, Pretendard's Hangul again as
+ * MUSIXQUARE Hangul).
  *
  * The same content draws the same in the Korean and the English UI: the same
  * self-hosted face for every character, the same widths and the same pixels.
@@ -18,8 +19,9 @@
  * The network side: each UI's start screen fetches only its first faces, the
  * app requests every app sheet once and nothing of Pretendard or the retired
  * font runtime, phase B declares the other sheets after window load, and
- * phase C prefetches the Korean UI's frequent Noto Sans KR shards within its
- * budget and nothing in the English UI.
+ * phase C prefetches the Korean UI's frequent MUSIXQUARE Hangul shards within
+ * its budget and nothing in the English UI. No Hangul is fetched from a Noto
+ * Sans KR shard unless MUSIXQUARE Hangul lacks it.
  *
  * A local verification spec, not part of the critical set.
  */
@@ -73,7 +75,8 @@ const CHAT = [
   'مرحبا بالجميع',
   '※ 공지 ― 아‥ 100‰ 정말‼ 왜⁉',
   'Intro -> Outro 3x4 1:30 → ≈ ♪ ★',
-  // Hangul outside the Hangul blocks: Noto Sans KR, never a JP-first face.
+  // Hangul outside the Hangul blocks: ㈜ from MUSIXQUARE Hangul, ㉠ (which
+  // Pretendard lacks) from Noto Sans KR, never a JP-first face.
   '㈜카카오 ㉠ ㅋ 한',
   OPEN_SYMBOL_SPLIT,
   // Long enough to wrap. Not the group's last row, which carries the
@@ -107,6 +110,7 @@ const FAMILY_BY_STEM: ReadonlyMap<string, string> = (() => {
     }
   };
   add('fonts/app/inter', 'Inter');
+  add('fonts/app/hangul', 'MUSIXQUARE Hangul');
   add('fonts/app/noto-sans-kr', 'Noto Sans KR');
   add('fonts/app/noto-sans-jp', 'Noto Sans JP');
   add('fonts/app/noto-sans-sc', 'Noto Sans SC');
@@ -328,9 +332,35 @@ async function markTargets(
   }, targets);
 }
 
-const SCRIPT_FAMILY: readonly [RegExp, RegExp][] = [
+/** The code points MUSIXQUARE Hangul draws (fonts/hangul-faces.json). */
+const HANGUL_FAMILY_CODE_POINTS: ReadonlySet<number> = (() => {
+  const record = JSON.parse(
+    readFileSync(new URL('../fonts/hangul-faces.json', import.meta.url), 'utf8'),
+  ) as { faces: { unicodeRange: string }[] };
+  const codePoints = new Set<number>();
+  for (const { unicodeRange } of record.faces) {
+    for (const token of unicodeRange.split(',')) {
+      const [start = '', end] = token.trim().slice(2).split('-');
+      for (let at = Number.parseInt(start, 16); at <= Number.parseInt(end ?? start, 16); at += 1) {
+        codePoints.add(at);
+      }
+    }
+  }
+  return codePoints;
+})();
+
+const SCRIPT_FAMILY: readonly [RegExp, RegExp | ((grapheme: string) => RegExp)][] = [
   [/[\p{Script=Latin}\p{Script=Cyrillic}\p{Script=Greek}\p{Nd}]/u, /^Inter/u],
-  [/\p{Script=Hangul}/u, /^Noto Sans KR/u],
+  // MUSIXQUARE Hangul where it has the character, Noto Sans KR for the rest.
+  [
+    /\p{Script=Hangul}/u,
+    (grapheme) =>
+      [...grapheme].every((character) =>
+        HANGUL_FAMILY_CODE_POINTS.has(character.codePointAt(0) ?? 0),
+      )
+        ? /^MUSIXQUARE Hangul/u
+        : /^Noto Sans KR/u,
+  ],
   [/[\p{Script=Hiragana}\p{Script=Katakana}]/u, /^Noto Sans JP/u],
   [/\p{Script=Thai}/u, /^Noto Sans Thai/u],
   [/\p{Script=Arabic}/u, /^Noto Sans Arabic/u],
@@ -365,7 +395,8 @@ function ruleBreaks(drawn: Drawn, exempted: string[] = []): string[] {
       if (covered && !faces.every(({ isCustomFont }) => isCustomFont)) {
         breaks.push(`${key} '${grapheme}': ${names.join(', ')}`);
       }
-      const owner = SCRIPT_FAMILY.find(([script]) => script.test(grapheme))?.[1];
+      const rule = SCRIPT_FAMILY.find(([script]) => script.test(grapheme))?.[1];
+      const owner = typeof rule === 'function' ? rule(grapheme) : rule;
       if (owner && !(faces.length === 1 && owner.test(faces[0]?.familyName ?? ''))) {
         breaks.push(`${key} '${grapheme}' should be ${String(owner)}: ${names.join(', ')}`);
       }
@@ -561,8 +592,8 @@ test.describe('app font identity', () => {
     const prefetch = FONT_PREFETCH_BY_LANGUAGE.ko;
     if (!prefetch) throw new Error('The Korean UI has no prefetch list');
     const prefetchShards = new Set(prefetch.shards.map(({ shard }) => shard));
-    const krShard = (stem: string): number | null =>
-      FAMILY_BY_STEM.get(stem) === 'Noto Sans KR'
+    const hangulShard = (stem: string): number | null =>
+      FAMILY_BY_STEM.get(stem) === 'MUSIXQUARE Hangul'
         ? Number(/\.(\d+)$/u.exec(stem)?.[1] ?? Number.NaN)
         : null;
 
@@ -596,19 +627,20 @@ test.describe('app font identity', () => {
         sheetOrder[ui] = appSheets.map(({ stem }) => stem);
         expect([...sheetOrder[ui]].sort(), `${ui}: app sheets`).toEqual([...APP_SHEET_IDS].sort());
         for (const { stem, startTime } of appSheets) {
-          if (stem === 'font-inter' || stem === 'font-noto-kr') continue;
+          if (['font-inter', 'font-hangul', 'font-noto-kr'].includes(stem)) continue;
           expect(startTime, `${ui}: ${stem} waits for window load`).toBeGreaterThanOrEqual(
             timing.loadEnd,
           );
         }
 
-        // The start screen: Inter's Latin face in English; Inter and Noto Sans KR in Korean.
+        // The start screen: Inter's Latin face in English; Inter and MUSIXQUARE
+        // Hangul in Korean, and no Noto Sans KR shard.
         const startFonts = requests.filter(({ kind }) => kind === 'font');
         const startFamilies = new Set(startFonts.map(({ stem }) => FAMILY_BY_STEM.get(stem)));
         if (ui === 'en') {
           expect(startFonts.map(({ stem }) => stem)).toEqual(['inter-latin']);
         } else {
-          expect([...startFamilies].sort()).toEqual(['Inter', 'Noto Sans KR']);
+          expect([...startFamilies].sort()).toEqual(['Inter', 'MUSIXQUARE Hangul']);
         }
 
         // Phase C: after its quiet period, idle batches until the network is still.
@@ -644,7 +676,7 @@ test.describe('app font identity', () => {
         if (ui === 'en') {
           expect(prefetched.map(({ stem }) => stem)).toEqual([]);
         } else {
-          const shards = prefetched.map(({ stem }) => krShard(stem));
+          const shards = prefetched.map(({ stem }) => hangulShard(stem));
           expect(shards.every((shard) => shard !== null && prefetchShards.has(shard))).toBe(true);
           expect(prefetched.length).toBeGreaterThan(0);
           expect(prefetched.length).toBeLessThanOrEqual(FONT_PREFETCH_MAX_FACES);
@@ -652,10 +684,20 @@ test.describe('app font identity', () => {
             FONT_PREFETCH_MAX_BYTES,
           );
           const loaded = new Set(
-            requests.filter(({ kind }) => kind === 'font').map(({ stem }) => krShard(stem)),
+            requests.filter(({ kind }) => kind === 'font').map(({ stem }) => hangulShard(stem)),
           );
           expect([...prefetchShards].filter((shard) => !loaded.has(shard))).toEqual([]);
         }
+        // Korean text alone (the start screen and the Hangul prefetch) fetches
+        // no Noto Sans KR shard: its sheet no longer declares that Hangul.
+        expect(
+          requests
+            .filter(
+              ({ kind, stem }) => kind === 'font' && FAMILY_BY_STEM.get(stem) === 'Noto Sans KR',
+            )
+            .map(({ stem }) => stem),
+          `${ui}: Noto Sans KR shards`,
+        ).toEqual([]);
 
         // Nothing of Pretendard, the retired font runtime or the static pages' sheets.
         expect(requests.filter(({ url }) => /pretendard|primary-font/iu.test(url))).toEqual([]);
@@ -675,8 +717,13 @@ test.describe('app font identity', () => {
         await context.close();
       }
     }
-    // Phase A declares the same two sheets first in both UIs.
-    expect(sheetOrder.ko.slice(0, 2).sort()).toEqual(['font-inter', 'font-noto-kr']);
-    expect(sheetOrder.en.slice(0, 2).sort()).toEqual(['font-inter', 'font-noto-kr']);
+    // Phase A declares the same three sheets first in both UIs.
+    for (const ui of ['ko', 'en'] as const) {
+      expect(sheetOrder[ui].slice(0, 3).sort(), ui).toEqual([
+        'font-hangul',
+        'font-inter',
+        'font-noto-kr',
+      ]);
+    }
   });
 });

@@ -52,7 +52,8 @@ type FaceMetrics = typeof INTER_FACE_METRICS;
 /** The baked families: their sheet, metrics home and the input's win metrics. */
 const BAKED_FAMILIES = [
   { id: 'font-inter', metrics: INTER_FACE_METRICS, win: [2269, 660], faces: 7 },
-  { id: 'font-noto-kr', metrics: CJK_FACE_METRICS, win: [1160, 288], faces: 120 },
+  // 53 of 120: the shards that held only Hangul left with it (MUSIXQUARE Hangul).
+  { id: 'font-noto-kr', metrics: CJK_FACE_METRICS, win: [1160, 288], faces: 53 },
   { id: 'font-noto-jp', metrics: CJK_FACE_METRICS, win: [1160, 288], faces: 120 },
   { id: 'font-noto-sc', metrics: CJK_FACE_METRICS, win: [1160, 288], faces: 95 },
   { id: 'font-noto-tc', metrics: CJK_FACE_METRICS, win: [1160, 288], faces: 98 },
@@ -375,8 +376,14 @@ describe('the line box baked into the app faces', () => {
         recorded,
       );
     }
-    // Nothing under fonts/app/ that the record does not list.
-    expect((await listFiles(OUTPUT_ROOT)).filter((path) => !outputs.has(path))).toEqual([]);
+    // Nothing under fonts/app/ that the record does not list, but the Hangul
+    // faces in fonts/app/hangul/, which keep their source's own line box and
+    // fonts/hangul-faces.json records (hangul-faces.test.ts).
+    expect(
+      (await listFiles(OUTPUT_ROOT)).filter(
+        (path) => !outputs.has(path) && !path.startsWith(`${OUTPUT_ROOT}/hangul/`),
+      ),
+    ).toEqual([]);
   });
 
   it('records each family with the metrics of font-metrics.ts and the win metrics it keeps', () => {

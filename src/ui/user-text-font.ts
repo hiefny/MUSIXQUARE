@@ -3,8 +3,8 @@
  *
  * Every app font family is declared in every UI, so user text never needs a
  * sheet of its own: Latin, Cyrillic and Greek always draw from Inter, Hangul
- * from Noto Sans KR, kana from Noto Sans JP, and the other scripts from their
- * own Noto face. What the UI language cannot know is which Han forms a
+ * from MUSIXQUARE Hangul (then Noto Sans KR for the Hangul it lacks), kana
+ * from Noto Sans JP, and the other scripts from their own Noto face. What the UI language cannot know is which Han forms a
  * nickname or message wants. When the text itself says it is Japanese,
  * Simplified Chinese or Traditional Chinese, the element gets one order class
  * and css/style.css draws its Han from that language's family first. Han alone

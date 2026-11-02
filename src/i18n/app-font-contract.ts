@@ -5,8 +5,9 @@ import type { LanguageCode } from './locales.ts';
  * The app's font stylesheets, one lazy CSS chunk each.
  *
  * - css/fonts/app/ holds the sheets scripts/fonts/build-font-sheets.mts
- *   generates: Inter, the four CJK families with the range edits that give
- *   each script exactly one family, and the Thai face alone.
+ *   generates: Inter, MUSIXQUARE Hangul (the app's Hangul faces), the four
+ *   CJK families with the range edits that give each script exactly one
+ *   family, and the Thai face alone.
  * - The single-script sheets (Arabic, Hebrew and the eight Indic scripts) are
  *   Google's sheets in css/fonts/, shared with the static pages.
  *
@@ -16,6 +17,7 @@ import type { LanguageCode } from './locales.ts';
  */
 export const APP_FONT_SHEETS = [
   { id: 'font-inter', path: 'css/fonts/app/font-inter.css', family: 'Inter' },
+  { id: 'font-hangul', path: 'css/fonts/app/font-hangul.css', family: 'MUSIXQUARE Hangul' },
   { id: 'font-noto-kr', path: 'css/fonts/app/font-noto-kr.css', family: 'Noto Sans KR' },
   { id: 'font-noto-jp', path: 'css/fonts/app/font-noto-jp.css', family: 'Noto Sans JP' },
   { id: 'font-noto-sc', path: 'css/fonts/app/font-noto-sc.css', family: 'Noto Sans SC' },
@@ -44,7 +46,7 @@ export type AppFontSheetId = (typeof APP_FONT_SHEETS)[number]['id'];
 export const SCRIPT_FONT_SHEET_BY_LANGUAGE: Readonly<
   Partial<Record<LanguageCode, AppFontSheetId>>
 > = {
-  ko: 'font-noto-kr',
+  ko: 'font-hangul',
   ja: 'font-noto-jp',
   'zh-hans': 'font-noto-sc',
   'zh-hant': 'font-noto-tc',
@@ -71,3 +73,10 @@ export const HAN_ORDER_FONT_SHEET: Readonly<Record<HanOrder, AppFontSheetId>> = 
   'zh-hans': 'font-noto-sc',
   'zh-hant': 'font-noto-tc',
 };
+
+/**
+ * The sheet that draws Hangul (owner decision 2026-11-02): every UI that is not
+ * Japanese or Chinese loads it in phase A with Noto Sans KR, which draws the
+ * Hangul it lacks.
+ */
+export const HANGUL_FONT_SHEET: AppFontSheetId = 'font-hangul';

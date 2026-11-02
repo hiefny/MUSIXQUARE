@@ -2,6 +2,7 @@ import { readFileSync } from 'node:fs';
 import { describe, expect, it } from 'vitest';
 
 import {
+  appFaceMetrics,
   builtAssetStem,
   declaresFontFace,
   disablesContextualAlternates,
@@ -15,10 +16,15 @@ import {
   localDistAssetPath,
   parseCodePointList,
   stackCoverageGaps,
+  stackOrderProblems,
   textSymbolCodePoints,
   woff2Urls,
 } from '../../../scripts/lib/app-font-guard.mts';
-import { CJK_FACE_METRICS, INTER_FACE_METRICS } from '../../i18n/font-metrics.ts';
+import {
+  CJK_FACE_METRICS,
+  HANGUL_FACE_METRICS,
+  INTER_FACE_METRICS,
+} from '../../i18n/font-metrics.ts';
 
 // The pure parts of scripts/check-app-font.mts, which reads the repository and
 // the build output and reports what these helpers find.
@@ -112,15 +118,44 @@ describe('app font guard: built sheets', () => {
     expect(builtAssetStem(file)).toBe(stem);
   });
 
-  const expected = new Map([
-    ['Inter', INTER_FACE_METRICS],
-    ['Noto Sans KR', CJK_FACE_METRICS],
-    ['Noto Sans Arabic', null],
-  ]);
-  const interFace = `@font-face{font-family:Inter;font-weight:100 900;size-adjust:${INTER_FACE_METRICS.sizeAdjust}%;ascent-override:${INTER_FACE_METRICS.ascentOverride}%;descent-override:${INTER_FACE_METRICS.descentOverride}%;line-gap-override:${INTER_FACE_METRICS.lineGapOverride}%;src:url(/assets/inter-latin-AbC12_-9.woff2)format("woff2")}`;
+  // The map the guard checks every source and built sheet against.
+  const expected = appFaceMetrics();
+  const descriptors = (metrics: typeof INTER_FACE_METRICS): string =>
+    `size-adjust:${metrics.sizeAdjust}%;ascent-override:${metrics.ascentOverride}%;descent-override:${metrics.descentOverride}%;line-gap-override:${metrics.lineGapOverride}%`;
+  const interFace = `@font-face{font-family:Inter;font-weight:100 900;${descriptors(INTER_FACE_METRICS)};src:url(/assets/inter-latin-AbC12_-9.woff2)format("woff2")}`;
+  const hangulFace = (metrics: string): string =>
+    `@font-face{font-family:'MUSIXQUARE Hangul';font-weight:45 930;${metrics}src:url(/assets/hangul.119-AbC12_-9.woff2)format("woff2")}`;
+
+  it("takes each app family's descriptors from the metrics home, the Hangul faces' from their files' box", () => {
+    expect(Object.fromEntries(expected)).toEqual({
+      Inter: INTER_FACE_METRICS,
+      'MUSIXQUARE Hangul': HANGUL_FACE_METRICS,
+      'Noto Sans KR': CJK_FACE_METRICS,
+      'Noto Sans JP': CJK_FACE_METRICS,
+      'Noto Sans SC': CJK_FACE_METRICS,
+      'Noto Sans TC': CJK_FACE_METRICS,
+      'Noto Sans Thai': null,
+      'Noto Sans Arabic': null,
+      'Noto Sans Hebrew': null,
+      'Noto Sans Devanagari': null,
+      'Noto Sans Bengali': null,
+      'Noto Sans Tamil': null,
+      'Noto Sans Telugu': null,
+      'Noto Sans Gujarati': null,
+      'Noto Sans Kannada': null,
+      'Noto Sans Malayalam': null,
+      'Noto Sans Gurmukhi': null,
+    });
+    expect(descriptors(HANGUL_FACE_METRICS)).toBe(
+      'size-adjust:100%;ascent-override:95.21%;descent-override:24.12%;line-gap-override:0%',
+    );
+  });
 
   it('accepts faces whose metric descriptors equal the metrics home', () => {
     expect(faceDescriptorMismatches(interFace, expected)).toEqual([]);
+    expect(
+      faceDescriptorMismatches(hangulFace(`${descriptors(HANGUL_FACE_METRICS)};`), expected),
+    ).toEqual([]);
     expect(
       faceDescriptorMismatches(
         '@font-face{font-family:Noto Sans Arabic;src:url(/assets/a.woff2)format("woff2")}',
@@ -145,12 +180,44 @@ describe('app font guard: built sheets', () => {
         expected,
       ),
     ).toEqual(['Noto Sans Arabic a.woff2: size-adjust is 94%, not unset']);
+    // Without the overrides, a browser that applies them to Inter and Noto
+    // reads the Hangul face's rounded table box instead.
+    expect(faceDescriptorMismatches(hangulFace('size-adjust:100%;'), expected)).toEqual([
+      'MUSIXQUARE Hangul hangul.119-AbC12_-9.woff2: ascent-override is missing, not 95.21%',
+      'MUSIXQUARE Hangul hangul.119-AbC12_-9.woff2: descent-override is missing, not 24.12%',
+      'MUSIXQUARE Hangul hangul.119-AbC12_-9.woff2: line-gap-override is missing, not 0%',
+    ]);
     expect(
       faceDescriptorMismatches(
         '@font-face{font-family:Pretendard;src:url(/assets/p.woff2)format("woff2")}',
         expected,
       ),
     ).toEqual(['Pretendard p.woff2: not an app font family']);
+  });
+});
+
+describe('app font guard: stack order', () => {
+  const cjk = ['Noto Sans KR', 'Noto Sans JP', 'Noto Sans SC', 'Noto Sans TC'];
+
+  it('accepts Inter, then MUSIXQUARE Hangul, then the CJK families, with or without a script face first', () => {
+    expect(stackOrderProblems(['Inter', 'MUSIXQUARE Hangul', ...cjk, 'sans-serif'])).toEqual([]);
+    expect(
+      stackOrderProblems(['Noto Sans Devanagari', 'Inter', 'MUSIXQUARE Hangul', ...cjk.reverse()]),
+    ).toEqual([]);
+  });
+
+  it('reports a missing family and a CJK family or Hangul ahead of its place', () => {
+    expect(stackOrderProblems(['Inter', ...cjk])).toEqual(['MUSIXQUARE Hangul is missing']);
+    expect(
+      stackOrderProblems(['Inter', 'Noto Sans KR', 'MUSIXQUARE Hangul', 'Noto Sans JP']),
+    ).toEqual(['Noto Sans KR comes before MUSIXQUARE Hangul']);
+    expect(stackOrderProblems(['MUSIXQUARE Hangul', 'Inter', 'Noto Sans KR'])).toEqual([
+      'MUSIXQUARE Hangul comes before Inter',
+    ]);
+    expect(stackOrderProblems(['Noto Sans JP', 'MUSIXQUARE Hangul'])).toEqual([
+      'Inter is missing',
+      'Noto Sans JP comes before MUSIXQUARE Hangul',
+    ]);
   });
 });
 

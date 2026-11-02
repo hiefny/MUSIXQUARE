@@ -4,6 +4,11 @@
     "types": ["vitest/globals"],
     "lib": ["ES2023", "DOM", "DOM.Iterable"]
   },
-  "include": ["src/**/__tests__/**/*.ts", "src/**/*.ts", "src/**/*.mts"],
+  "include": [
+    "src/**/__tests__/**/*.ts",
+    "src/**/*.ts",
+    "src/**/*.mts",
+    "scripts/types/subset-font.d.ts"
+  ],
   "exclude": ["node_modules", "dist"]
 }

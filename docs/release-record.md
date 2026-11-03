@@ -94,8 +94,8 @@ gh run list --workflow e2e.yml --branch main --limit 3
       `cfa81bdc`와 같음) 위 커밋 열이다(처음 `cd8eaf47`, 리뷰 반영 전에 `432d4ae7` 위에서 만들었고 2026-11-03 저녁 옮김, 커밋마다 문서 밖
       패치가 같음, 보고서 라운드 12): 증분 I1 ~ I9(시험 먼저), 리뷰 반영 R1 ~ R8(A5의 불러오기 명세와 실험 포함, 보고서 §12), 문서,
       로그인 완료 창을 앱의 면으로(시험 먼저 짝과 회귀 지킴이, 보고서 §13), 그 리뷰 반영(시험 먼저 짝, §13.7), 성공 창이 닫히기 전 글자와
-      공유 시트를 함께 켬(시험 먼저 짝 둘, §13.8), 라운드 12의 옮기기 기록, 이 릴리스 준비 기록, 버전 올리기(마지막 런타임 커밋), 그 뒤의
-      문서 커밋이다. 옮긴 뒤의 SHA는 보고서 §8.7의 대응표에 있다.
+      공유 시트를 함께 켬(시험 먼저 짝 둘, §13.8), 라운드 12의 옮기기 기록, 이 릴리스 준비 기록 `961a03d0`, 버전 올리기 `f47d5733`(마지막
+      런타임 커밋), 그 뒤의 문서 커밋이다. 옮긴 뒤의 SHA는 보고서 §8.7의 대응표에 있다.
       운영 배포 SHA(App `cfa81bdc`, PRO room `683074bc`, 다른 넷 `71f5b96c`)와 견준 런타임 경로 변경은 버전 올리기 앞 App 87, 나머지
       다섯 Worker 0이고 App 런타임 의존성 차이가 없어 target `app`이다(보고서 §8.3, §13과 라운드 12, 로컬 git 판정이라 릴리스의 부분 릴리스 검사를
       대신하지 않음). D1, 비밀, 바인딩, Wrangler 설정, CORS, 계약 표지, 저장 데이터와 키, 신호와 중계 프레임 모양, 의존성은 바뀌지
@@ -108,7 +108,8 @@ gh run list --workflow e2e.yml --branch main --limit 3
       프레임부터 돌아, 닫히기 전의 끝은 닫힘과 같은 시계여야 함). 먼저 적힌 표지가 이기고, 단위 시험이 600·200·250 ms와 여유(200 + 50 ≤
       250)를 묶는다. `check-resource-ownership.mts`는 기준치를 바꾸지 않고 통과한다(레코드 50 = main의 49 + RO-54, 운영 파일 459). 첫 로딩은
       진입 839.5 KiB raw / 247.7 KiB gzip(9.0.34 바탕 839.6 / 247.8, 6D 위로 옮기기 전의 측정), eager 글꼴 0이다. 로컬 QA는 보고서 §8의
-      라운드 1 ~ 12이고(12는 `88550bc4` 위로 옮기기, 코드 `561a2bdf`), 버전 올리기 머리의 전체 관문(아래 배포 조건 (2))은 아직이다. PR,
+      라운드 1 ~ 12이고(12는 `88550bc4` 위로 옮기기, 코드 `561a2bdf`), 버전 올리기 `f47d5733`에서는 `guard:sw-cache-version`(PASS v809)과
+      `guard:release-identity`(9.0.36 / v809)만 돌렸으며, 버전 올리기 머리의 전체 관문(아래 배포 조건 (2))은 아직이다. PR,
       PR CI, 자동 코드 리뷰, exact-main CI, 배포는 아직이고 로컬 결과는 exact-main-SHA 후보를 대신하지 않는다. 배포 뒤 기록 PR이 이 절을
       '배포 뒤 확인'으로 바꾼다.
       [보고서](design/public-page-fonts-2026-11-02.md),
@@ -142,8 +143,8 @@ gh run list --workflow e2e.yml --branch main --limit 3
       움직이면 보고서 §5와 라운드 8의 검사를 다시 돌린다. 열차 PR 머지부터 배포와 기록 PR 머지까지 다른 PR을 main에 머지하지 않고, 이
       배포까지 런타임 의존성 변경(Dependabot 포함)을 머지하지 않는다. (2) 버전 올리기가 마지막 런타임 커밋이다: 9.0.36과 SW epoch
       v809를 9.0.35의 버전 올리기 `b0906a93`과 같은 거울 여섯 파일의 일곱 줄(`package.json`의 version, `package-lock.json`의 version 둘,
-      `ADMIN_SCRIPT_VERSION`, `ADMIN_ASSET_VERSION`, `SERVICE_WORKER_CACHE_VERSION`, `index.html`의 `bootstrap.js?cache=`)에 올리고(이 기록
-      커밋 바로 뒤, 그 뒤는 문서 커밋만), 그 머리에서 typecheck, lint, `format:check`,
+      `ADMIN_SCRIPT_VERSION`, `ADMIN_ASSET_VERSION`, `SERVICE_WORKER_CACHE_VERSION`, `index.html`의 `bootstrap.js?cache=`)에 올리고(버전
+      올리기 `f47d5733`, 그 뒤는 문서 커밋만), 그 머리에서 typecheck, lint, `format:check`,
       `build:checked`(그 안의 `guard:sw-cache-version` PASS v809와 `guard:release-identity` 'MUSIXQUARE 9.0.36; service-worker cache
       epoch v809'), 모든 `guard:*`, 자원 소유권, 핵심·Worker 커버리지, 단위 전체, `build:e2e` 뒤 critical E2E, 앱 글꼴·화면 명세
       (`font-identity`, `font-baked-pixels`, `font-line-boxes`, `tab-header-title-alignment`, 재생목록 명세 여덟), 공개 페이지 불러오기
@@ -387,7 +388,7 @@ gh run list --workflow e2e.yml --branch main --limit 3
       규칙대로, 다음 App 업데이트인 공개 페이지 글꼴 열차(디자인 시스템 Typography 절 포함)는 41597953240이 통과하고 이 기록이 머지된
       뒤에만 머지한다. 그 실행이 17:58 KST에 통과했고 이 기록이 #566(`88550bc4`)으로 머지돼 그 조건은 채워졌다. 그 열차는 9.0.36 / v809(App
       빌드 809)로 준비됐다: 갈래 `agent/public-page-fonts`를 `432d4ae7`에서 `88550bc4` 위로 옮겼고(커밋마다 문서 밖 패치가 같음, 그
-      보고서 라운드 12), 버전 올리기를 마지막 런타임 커밋으로 두었으며, 미병합·배포 전이다(위 9.0.36 절, 남은 것은 그 절의 배포 조건 (2)의
+      보고서 라운드 12), 버전 올리기 `f47d5733`을 마지막 런타임 커밋으로 두었으며, 미병합·배포 전이다(위 9.0.36 절, 남은 것은 그 절의 배포 조건 (2)의
       버전 올리기 머리 관문과 (3), (4)). 그 열차가 머지·배포되면 위 되돌리기의 앞으로 되돌리기 번호는 그다음(9.0.37 / v810 이상, 7A가 그
       전에 나가면 그다음 번호)으로 가고, 그 머지로 6D를 혼자 되돌리는 창이 닫힌다(위 되돌리기). (3)
       Phase 7: T1(가드와 문서, 릴리스 없음)과 7A(9.0.37 / v810 예정)가 그 뒤다. Phase 6 끝 조건 6의 14일은

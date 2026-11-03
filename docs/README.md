@@ -95,7 +95,8 @@ runbooks. Neither belongs in a general setup document.
 ## Maintained evidence and completed records
 
 - [App 9.0.36 / v809 train: every public page on the app's font system, and the design system Typography section (2026-11-02)](design/public-page-fonts-2026-11-02.md):
-  prepared, not released. The next App update after 9.0.35 / v808 (target `app`, one update
+  prepared up to its version bump `f47d5733` (the last runtime commit), not merged or released.
+  The next App update after 9.0.35 / v808 (target `app`, one update
   dialog), on branch `agent/public-page-fonts` over main `88550bc4` (9.0.35's release record; the
   App runtime is production 9.0.35's `cfa81bdc`). It was planned as 9.0.35 / v808 until the
   release owner shipped the ready Phase 6 6D first on 2026-11-03; QA round 12 moved the branch
@@ -117,7 +118,8 @@ runbooks. Neither belongs in a general setup document.
   two files, which a review fix brought back near 9.0.34's size, shipping the script minified and
   the sheet without comments; with the success-window fix they are 101 B larger in gzip and 48 B
   in brotli, no later on a byte-accurate 1.6 Mbps link and 2.0 to 2.6 ms later at 400 kbps with
-  gzip, down from 772 B and 3 to 16 ms), its text waiting for them 600 ms at most. The self-closing
+  gzip, down from 772 B and 3 to 16 ms), its text waiting for them, in the cancelled and error
+  windows 600 ms at most after the window's sheet. The self-closing
   success window ends that wait itself 200 ms after its message, so even a slow first sign-in shows
   its text, in the device's fonts, before the window closes (registry RO-54), and the shared
   sheets turn on together once all have loaded; 6 of its 252 copies (error copies) take one more
@@ -139,11 +141,14 @@ runbooks. Neither belongs in a general setup document.
   line-box, tab-header and playlist E2E specs pass, and the base's unmodified specs pass on the
   head build. A light load check of every public page joins
   the default Full E2E, opt-in labs read the faces, and the guards hold every page source and
-  built page to the public page list. Every guard passes but `guard:sw-cache-version` before the
-  bump. Not run: real devices, Linux (no container on the build machine; the post-merge Full E2E
+  built page to the public page list. Before the bump every guard passed but
+  `guard:sw-cache-version`; the bump `f47d5733` changes the seven version lines of 9.0.35's bump
+  `b0906a93`, and on it that guard passes at v809 and `guard:release-identity` reads 9.0.36 /
+  v809. Not run: real devices, Linux (no container on the build machine; the post-merge Full E2E
   is the first Linux run), WebKit beyond the sign-in completion window (its timing and its new
-  spec ran in Playwright WebKit), the screen pixel comparison. The version bump, the pull request
-  and the release are the release owner's.
+  spec ran in Playwright WebKit), the screen pixel comparison. The full gate on the bump head
+  (with the app-unchanged proof against `88550bc4`), the pull request and the release are the
+  release owner's.
 - [App 9.0.35 / v808 train: Phase 6 6D, the YouTube start recoveries in one module, the Standard host's local start wait, the PRO start tokens, the late-joining PRO device's COMMIT catch-up and one mute rule below 0.5 % master volume (2026-11-02)](design/phase6-6d-recovery-pro-arm-2026-11-02.md):
   released on 2026-11-03 16:40 KST in Release 41597588008 (PR #565, squash `cfa81bdc`) as App
   9.0.35 / v808 (App build 808, target `app`, one update dialog, the last of Phase 6's four; the bump

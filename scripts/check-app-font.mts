@@ -57,7 +57,10 @@
  *   the pages the App Worker renders (PUBLIC_WORKER_FONT_PAGES) are held to
  *   the same rules; every page source (the app document, public/, the
  *   workshop pages and the UI kit) is a switched page or a recorded
- *   exception (PUBLIC_FONT_PAGE_EXCLUSIONS, each with its reason);
+ *   exception (PUBLIC_FONT_PAGE_EXCLUSIONS, each with its reason) that
+ *   links none of the shared sheets, and the sheet of the exception whose
+ *   script adds them (the sign-in completion page) is held to the same
+ *   sheet rules and stacks;
  * - what the public-page font train retired stays retired
  *   (scripts/lib/font-retirement.mts): nothing a page, the app or a Worker
  *   ships loads or names Pretendard as a font but the recorded places (text
@@ -416,12 +419,29 @@ for (const source of unlistedPageSources(await listPageSources(repoRoot))) {
     `${source} is neither a registered public page (PUBLIC_FONT_PAGES) nor a recorded exception (PUBLIC_FONT_PAGE_EXCLUSIONS)`,
   );
 }
-// An exception loads none of the public pages' delivery.
-for (const { html } of PUBLIC_FONT_PAGE_EXCLUSIONS) {
+// An exception links none of the public pages' delivery. The sign-in
+// completion page's script adds the shared sheets itself once its completion
+// message is out (a linked sheet would hold that deferred script back), so
+// its own sheet is held to the public sheets' rules and must read the app's
+// --font-sans in every UI language the window shows.
+for (const { html, sheet } of PUBLIC_FONT_PAGE_EXCLUSIONS) {
   check(
     !/\/web-fonts\/|\/han-order\.js/u.test(await readFile(path.join(repoRoot, html), 'utf8')),
     `${html} is a recorded exception but links /web-fonts/ or /han-order.js`,
   );
+  if (sheet === undefined) continue;
+  const css = await readFile(path.join(repoRoot, sheet), 'utf8');
+  for (const problem of publicFontCssProblems(css, PUBLIC_LITERAL_FONT_FAMILIES)) {
+    failures.push(`${sheet} ${problem}`);
+  }
+  const chain = readFontStacks(repoRoot, { sheets: [PUBLIC_STACKS, sheet] });
+  for (const { code, htmlLang } of LANGUAGE_OPTIONS) {
+    const state = { htmlLang, dir: languageDirection(code) };
+    check(
+      JSON.stringify(chain.fontSans(state)) === JSON.stringify(fontStacks.fontSans(state)),
+      `${sheet} reads another --font-sans than the app in ${htmlLang}`,
+    );
+  }
 }
 const publicSheets = new Set<string>();
 const publicSplitSelectors = new Set<string>();

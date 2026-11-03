@@ -332,8 +332,9 @@ const DESIGN_PREVIEWS = [
  * copy per language, with rest.css in the head where the language needs it
  * (src/i18n/public-font-contract.ts restFontSheetInHead); the build guard
  * checks every copy and every other built page. The sign-in completion page
- * (public/account-complete.html) is the app's, not one of these: it draws
- * with the device's system fonts and links none of the shared sheets.
+ * (public/account-complete.html) is the app's, not one of these: it links
+ * none of the shared sheets, and its script adds them once its completion
+ * message is out (PUBLIC_FONT_PAGE_EXCLUSIONS).
  */
 export const PUBLIC_FONT_PAGES: readonly PublicFontPage[] = [
   {
@@ -460,8 +461,14 @@ interface PublicFontPageExclusion {
   readonly html: string;
   /** Where the build writes it, dist-relative. */
   readonly dist: readonly string[];
-  /** Why it does not load the shared font sheets. */
+  /** Why it does not link the shared font sheets. */
   readonly reason: string;
+  /**
+   * Its own stylesheet, where its script adds the shared sheets itself (the
+   * sign-in completion page): held to the public pages' sheet rules, so its
+   * text reads the app's stacks over the device's fonts in every UI language.
+   */
+  readonly sheet?: string;
 }
 
 /** About's built copy for a UI language: about.html in English, <code>/about.html otherwise. */
@@ -483,7 +490,8 @@ export const PUBLIC_FONT_PAGE_EXCLUSIONS: readonly PublicFontPageExclusion[] = [
     html: 'public/account-complete.html',
     dist: ['account-complete.html'],
     reason:
-      "the app's sign-in completion page (src/ui/account.ts, the service worker's APP_SHELL): the device's system fonts, no shared sheet",
+      "the app's sign-in completion page (src/ui/account.ts, the service worker's APP_SHELL), whose deferred script tells the app the sign-in finished: a linked sheet would hold that script back, so the script adds the shared sheets once its message is out",
+    sheet: 'public/account-complete.css',
   },
   {
     html: 'public/screensaver.html',

@@ -390,4 +390,77 @@
   // so finish unobtrusively. Keep cancellation and failure explanations open
   // until the user dismisses them instead of flashing the message for 250 ms.
   if (outcome === 'success') window.setTimeout(close, 250);
+
+  // The app's faces for the window: Inter, MUSIXQUARE Hangul and Noto through
+  // the app's stacks, from the sheets every page outside the app links
+  // (src/i18n/public-font-urls.ts). They are added only now, with the
+  // completion message out: a stylesheet the parser meets would hold this
+  // deferred script back until it loaded. Each is added for print and turns
+  // to every medium once it has loaded: while a sheet for the screen loads,
+  // WebKit holds the page's rendering (its frames, and so the text's capped
+  // wait in account-complete.css). rest.css declares the faces of the
+  // languages whose own script first.css lacks (restFontSheetInHead in
+  // src/i18n/public-font-contract.ts; src/ui/__tests__/account-complete.test.ts
+  // holds this copy). No Han order script: only the Japanese and Chinese
+  // copies hold Han or kana, and their html lang puts their own family first.
+  // The text waits invisible (account-complete.css) until the root carries
+  // data-mxqr-fonts: 'app' once the sheets have loaded and the faces the
+  // next frame's layout asks for are ready, 'device' at once if a sheet fails.
+  const ownFacesInRest = [
+    'ja',
+    'zh-hans',
+    'zh-hant',
+    'th',
+    'hi',
+    'bn',
+    'ta',
+    'te',
+    'ar',
+    'ur',
+    'he',
+    'fa',
+    'mr',
+    'gu',
+    'kn',
+    'ml',
+    'pa',
+  ];
+  const fontSheets = ['/web-fonts/first.css', '/web-fonts/stacks.css'];
+  if (ownFacesInRest.indexOf(key) !== -1) fontSheets.push('/web-fonts/rest.css');
+  const root = document.documentElement;
+  const markFonts = (faces: 'app' | 'device') => {
+    if (!root.hasAttribute('data-mxqr-fonts')) root.setAttribute('data-mxqr-fonts', faces);
+  };
+  const awaitFaces = () => {
+    if (!('fonts' in document)) {
+      markFonts('app');
+      return;
+    }
+    // The next frame lays the text out with the app's stacks, which asks for
+    // exactly the faces it draws with. WebKit starts those loads only after
+    // that frame, so ready is read a frame later, and settles once they have
+    // loaded or failed.
+    requestAnimationFrame(() =>
+      requestAnimationFrame(() => {
+        document.fonts.ready.then(
+          () => markFonts('app'),
+          () => markFonts('device'),
+        );
+      }),
+    );
+  };
+  let pendingSheets = fontSheets.length;
+  for (const href of fontSheets) {
+    const link = document.createElement('link');
+    link.rel = 'stylesheet';
+    link.href = href;
+    link.media = 'print';
+    link.addEventListener('load', () => {
+      link.media = 'all';
+      pendingSheets -= 1;
+      if (pendingSheets === 0) awaitFaces();
+    });
+    link.addEventListener('error', () => markFonts('device'));
+    document.head.appendChild(link);
+  }
 })();

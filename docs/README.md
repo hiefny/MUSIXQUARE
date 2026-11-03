@@ -125,7 +125,10 @@ runbooks. Neither belongs in a general setup document.
   its text, in the device's fonts, before the window closes (registry RO-54), and the shared
   sheets turn on together once all have loaded; 6 of its 252 copies (error copies) take one more
   line, as Inter is wider than Pretendard's Latin (before and after pictures in the git-ignored
-  evidence folder and the owner note). The design
+  evidence folder). The owner saw only the four success-window pictures; the error copies' extra
+  line, the text appearing at once when the faces are ready and the WebKit phone-emulation result
+  were not shown, no owner answer is recorded, and the release owner shows the error-copy pictures
+  (QA round 14) before dispatch. The design
   system gains the Typography section on that delivery; its Korean 述 cell draws Noto Sans KR in
   any browser. The deployed Pretendard copy, the Pretendard sheets, the unused Noto Sans Cyrillic
   and Greek files and 14 unnumbered generator-input faces are deleted;
@@ -150,10 +153,14 @@ runbooks. Neither belongs in a general setup document.
   WebKit lanes) and production candidate E2E and the labs pass; the full unit suite ran twice with
   one git-fixture row over its own 30 s cap under load each time (105 / 105 alone, twice); against a
   clean build of `88550bc4` the app's build files differ only as expected, the start screens' font
-  request lists are identical and the eager first load is 90 B smaller raw (35 B in gzip). Not run: real devices, Linux (no
-  container on the build machine; the post-merge Full E2E is the first Linux run), WebKit beyond
-  the sign-in completion window (its timing and its new spec ran in Playwright WebKit), the screen
-  pixel comparison. The pull request and the release are the release owner's.
+  request lists are identical and the eager first load is 90 B smaller raw (35 B in gzip). QA round
+  14 applied a review in documents only and compared the completion window with 9.0.34's files in
+  Playwright WebKit (the phone emulation draws the success text before the close less often than
+  9.0.34 locally and more often on a slow link). Not run: real devices, Linux (no container on the
+  build machine; the post-merge Full E2E is the first Linux run, the completion-window spec included
+  in both its Chromium and WebKit jobs), WebKit beyond the sign-in completion window (its timing and
+  its new spec ran in Playwright WebKit), the screen pixel comparison. The pull request and the
+  release are the release owner's.
 - [App 9.0.35 / v808 train: Phase 6 6D, the YouTube start recoveries in one module, the Standard host's local start wait, the PRO start tokens, the late-joining PRO device's COMMIT catch-up and one mute rule below 0.5 % master volume (2026-11-02)](design/phase6-6d-recovery-pro-arm-2026-11-02.md):
   released on 2026-11-03 16:40 KST in Release 41597588008 (PR #565, squash `cfa81bdc`) as App
   9.0.35 / v808 (App build 808, target `app`, one update dialog, the last of Phase 6's four; the bump

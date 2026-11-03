@@ -424,6 +424,24 @@ const YOUTUBE_PRIMARY_LABELS: Record<YouTubePrimaryMode, I18nKey> = {
 };
 
 /**
+ * A busy button is disabled, and the browser then moves focus off it to the
+ * page. Each button remembers that it had focus when it went busy and takes
+ * it back once it can act again, so a keyboard user's next Enter acts on the
+ * results. It never takes focus from another element the person moved to.
+ */
+const _focusedWhenBusy = new WeakSet<HTMLButtonElement>();
+
+function setButtonBusyFocus(button: HTMLButtonElement, state: 'busy' | 'on' | 'off'): void {
+  if (state === 'busy') {
+    if (document.activeElement === button) _focusedWhenBusy.add(button);
+    return;
+  }
+  if (!_focusedWhenBusy.delete(button) || state === 'off') return;
+  const active = document.activeElement;
+  if (active === null || active === document.body) button.focus({ preventScroll: true });
+}
+
+/**
  * The one writer of the YouTube sheet's big button (owner decision
  * 2026-11-03): 'off' on an empty box or a link it cannot add, 'search' while
  * a query is typed and nothing is picked (it runs the same search as Enter
@@ -435,6 +453,7 @@ export function setYouTubePrimaryButton(mode: YouTubePrimaryMode): void {
   const playBtn = document.getElementById('youtube-play-btn') as HTMLButtonElement | null;
   if (!playBtn) return;
   const enabled = mode === 'search' || mode === 'add';
+  if (mode === 'busy') setButtonBusyFocus(playBtn, 'busy');
   playBtn.disabled = !enabled;
   playBtn.style.opacity = enabled ? '1' : '0.5';
   const label = YOUTUBE_PRIMARY_LABELS[mode];
@@ -443,16 +462,19 @@ export function setYouTubePrimaryButton(mode: YouTubePrimaryMode): void {
   playBtn.dataset.mode = mode;
   if (mode === 'busy') playBtn.setAttribute('aria-busy', 'true');
   else playBtn.removeAttribute('aria-busy');
+  if (mode !== 'busy') setButtonBusyFocus(playBtn, enabled ? 'on' : 'off');
 }
 
 function setYouTubeSearchButton(enabled: boolean, busy = false): void {
   const searchBtn = document.getElementById('youtube-search-btn') as HTMLButtonElement | null;
   if (!searchBtn) return;
+  if (busy) setButtonBusyFocus(searchBtn, 'busy');
   searchBtn.disabled = !enabled;
   if (busy) {
     searchBtn.setAttribute('aria-busy', 'true');
   } else {
     searchBtn.removeAttribute('aria-busy');
+    setButtonBusyFocus(searchBtn, enabled ? 'on' : 'off');
   }
 }
 

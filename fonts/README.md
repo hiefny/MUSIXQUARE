@@ -336,8 +336,11 @@ sign-in completion page `account-complete.html` belongs to the app and links
 none of the shared sheets, so that nothing holds back the deferred script
 that tells the app sign-in finished: once that message is out, the script
 adds `first.css` and `stacks.css` (and `rest.css` where its language needs
-it), each for print until it has loaded, and the text waits invisible for
-its faces, 600 ms at most (`public/account-complete.css`).
+it), each for print until all have loaded, when they turn to every medium
+together (one that fails leaves the others for print), and the text waits
+invisible for its faces, 600 ms at most (`public/account-complete.css`). The
+success window, which closes itself 250 ms after its message, ends that wait
+200 ms after it.
 
 The train retired what only the public pages used
 (`scripts/lib/font-retirement.mts`): the deployed Pretendard copy

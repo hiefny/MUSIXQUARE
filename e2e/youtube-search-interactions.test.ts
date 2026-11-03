@@ -314,6 +314,11 @@ test.describe('YouTube search loading and quick add', () => {
       await route.fulfill({ json: { results: RESULTS } });
     });
     await openSearch(page);
+    // Opening the sheet arms a one-shot timer (100 ms after its transition)
+    // that puts focus in the box when nothing holds it. Let it pass first: a
+    // person cannot type and reach a button that fast, but this row can, and
+    // the timer would then take the focus a disabled button drops.
+    await page.waitForTimeout(500);
     const input = page.locator('#youtube-url-input');
     const primary = page.locator('#youtube-play-btn');
     const magnifier = page.locator('#youtube-search-btn');

@@ -23,8 +23,15 @@ const TEXT_WAIT_CAP = '600ms';
 /** The root mark account-complete.js sets once the text may show. */
 const FONTS_MARK = 'data-mxqr-fonts';
 
+/** The success window closes itself this long after its completion message (ms). */
+const SUCCESS_CLOSE_MS = 250;
+
+/** The success window shows its text this long after its message at the latest (ms). */
+const SUCCESS_TEXT_BY_MS = 200;
+
 type CompletionDom = JSDOM & {
-  scheduledTimeouts: Array<() => void>;
+  /** The page's timeouts with their delays; a test runs them with runTimeouts. */
+  scheduledTimeouts: Array<{ readonly delay: number; ran: boolean; run(): void }>;
   openerMessages: unknown[];
   broadcastMessages: unknown[];
   /** The shared font sheets in the document when each completion channel fired. */
@@ -101,6 +108,22 @@ async function settle(dom: JSDOM): Promise<void> {
   }
 }
 
+/** The delays of the page's timeouts, in the order they fall due. */
+function timeoutDelays(dom: CompletionDom): number[] {
+  return dom.scheduledTimeouts.map(({ delay }) => delay).sort((a, b) => a - b);
+}
+
+/** Run the page's timeouts due within `ms` of its script, in the order they fall due. */
+function runTimeouts(dom: CompletionDom, ms: number): void {
+  const due = dom.scheduledTimeouts
+    .filter((timeout) => !timeout.ran && timeout.delay <= ms)
+    .sort((a, b) => a.delay - b.delay);
+  for (const timeout of due) {
+    timeout.ran = true;
+    timeout.run();
+  }
+}
+
 const localizedCompletionCopy = [
   ['en', 'en', 'Sign-in complete. You may close this window.', 'Close'],
   ['ko', 'ko', '로그인이 완료됐어요. 이 창을 닫아도 돼요.', '닫기'],
@@ -156,7 +179,7 @@ async function renderCompletion(
     runScripts: 'outside-only',
     url: `https://musixquare.com/account-complete.html${marker}`,
   });
-  const scheduledTimeouts: Array<() => void> = [];
+  const scheduledTimeouts: CompletionDom['scheduledTimeouts'] = [];
   const openerMessages: unknown[] = [];
   const broadcastMessages: unknown[] = [];
   const fontSheetsAtSignal: { channel: string; sheets: number }[] = [];
@@ -164,8 +187,10 @@ async function renderCompletion(
     fontSheetsAtSignal.push({ channel, sheets: fontSheetLinks(dom).length });
   Object.defineProperty(dom.window, 'setTimeout', {
     configurable: true,
-    value: (handler: unknown) => {
-      if (typeof handler === 'function') scheduledTimeouts.push(() => handler());
+    value: (handler: unknown, delay?: unknown) => {
+      if (typeof handler === 'function') {
+        scheduledTimeouts.push({ delay: Number(delay ?? 0), ran: false, run: () => handler() });
+      }
       return scheduledTimeouts.length;
     },
   });
@@ -279,7 +304,10 @@ describe('account completion localization', () => {
     });
     expect(success.openerMessages).toEqual([storedPulse]);
     expect(success.broadcastMessages).toEqual([storedPulse]);
-    expect(success.scheduledTimeouts).toHaveLength(1);
+    // The close, and the end of the text's wait before it (below), with three
+    // frames or more between them.
+    expect(timeoutDelays(success)).toEqual([SUCCESS_TEXT_BY_MS, SUCCESS_CLOSE_MS]);
+    expect(SUCCESS_TEXT_BY_MS + 50).toBeLessThanOrEqual(SUCCESS_CLOSE_MS);
     success.window.close();
   });
 
@@ -476,7 +504,7 @@ describe('account completion fonts', () => {
       ),
     ).toEqual(['/account-complete.js']);
     expect(dom.window.document.documentElement.hasAttribute(FONTS_MARK)).toBe(false);
-    expect(dom.scheduledTimeouts).toHaveLength(1);
+    expect(timeoutDelays(dom)).toEqual([SUCCESS_TEXT_BY_MS, SUCCESS_CLOSE_MS]);
     dom.window.close();
   });
 
@@ -573,6 +601,79 @@ describe('account completion fonts', () => {
     const root = dom.window.document.documentElement;
     for (const link of fontSheetLinks(dom)) link.dispatchEvent(new dom.window.Event('load'));
     await settle(dom);
+    expect(root.getAttribute(FONTS_MARK)).toBe('app');
+    dom.window.close();
+  });
+
+  it('shows the success copy before it closes itself when its sheets are late', async () => {
+    let fonts: FontSetStub | undefined;
+    const dom = await renderCompletion('ko', '', (page) => {
+      fonts = installFontSet(page);
+    });
+    const root = dom.window.document.documentElement;
+    // The success window closes itself 250 ms after its message, and its text
+    // shows first. A late sheet does not end the wait sooner: the app tab has
+    // often cached the faces, which then come with the sheet, still in time.
+    const [first, stacks] = fontSheetLinks(dom);
+    first?.dispatchEvent(new dom.window.Event('load'));
+    await settle(dom);
+    runTimeouts(dom, SUCCESS_TEXT_BY_MS - 1);
+    expect(root.hasAttribute(FONTS_MARK)).toBe(false);
+    // 200 ms after the message the text shows with what has loaded: here the
+    // device's fonts, as a sheet is still loading.
+    runTimeouts(dom, SUCCESS_TEXT_BY_MS);
+    expect(root.getAttribute(FONTS_MARK)).toBe('device');
+    // The sheet and the faces that arrive later change nothing.
+    stacks?.dispatchEvent(new dom.window.Event('load'));
+    await settle(dom);
+    fonts?.frame();
+    fonts?.frame();
+    fonts?.resolve();
+    await settle(dom);
+    expect(root.getAttribute(FONTS_MARK)).toBe('device');
+    dom.window.close();
+  });
+
+  it('waits for the faces until 200 ms after the success message once its sheets are in', async () => {
+    let fonts: FontSetStub | undefined;
+    const dom = await renderCompletion('ko', '', (page) => {
+      fonts = installFontSet(page);
+    });
+    const root = dom.window.document.documentElement;
+    for (const link of fontSheetLinks(dom)) link.dispatchEvent(new dom.window.Event('load'));
+    await settle(dom);
+    fonts?.frame();
+    fonts?.frame();
+    await settle(dom);
+    // The sheets are in, so the faces may still come before the close.
+    runTimeouts(dom, SUCCESS_TEXT_BY_MS - 1);
+    expect(root.hasAttribute(FONTS_MARK)).toBe(false);
+    // Then the text shows with whatever has loaded, frames before the close.
+    runTimeouts(dom, SUCCESS_TEXT_BY_MS);
+    expect(root.getAttribute(FONTS_MARK)).toBe('device');
+    expect(dom.scheduledTimeouts.filter(({ ran }) => !ran).map(({ delay }) => delay)).toEqual([
+      SUCCESS_CLOSE_MS,
+    ]);
+    fonts?.resolve();
+    await settle(dom);
+    expect(root.getAttribute(FONTS_MARK)).toBe('device');
+    dom.window.close();
+  });
+
+  it('draws the success copy with the app faces when they are ready in time', async () => {
+    let fonts: FontSetStub | undefined;
+    const dom = await renderCompletion('ko', '', (page) => {
+      fonts = installFontSet(page);
+    });
+    const root = dom.window.document.documentElement;
+    for (const link of fontSheetLinks(dom)) link.dispatchEvent(new dom.window.Event('load'));
+    await settle(dom);
+    fonts?.frame();
+    fonts?.frame();
+    fonts?.resolve();
+    await settle(dom);
+    expect(root.getAttribute(FONTS_MARK)).toBe('app');
+    runTimeouts(dom, SUCCESS_TEXT_BY_MS);
     expect(root.getAttribute(FONTS_MARK)).toBe('app');
     dom.window.close();
   });

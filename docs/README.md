@@ -173,7 +173,7 @@ runbooks. Neither belongs in a general setup document.
   with an App report about 5 s old; one Production Release passed every smoke on the first try
   (932 release files, down from 1,274 as §5 measured; checkpoint artifact 13233084692 with the
   9.0.35 App `6bba4c8e`; the entry chunk `main-DCiq6YqZ.js` is 45 B smaller than 9.0.35's, as
-  round 13 measured); the public service worker read v809, `index.html` loads bootstrap v809 and
+  round 13 measured); the public service worker read v809 (the release owner's reading), `index.html` loads bootstrap v809 and
   `main-DCiq6YqZ.js`, the floor read 795 with live App 809, `/web-fonts/first.css`, `stacks.css`
   and `/account-complete.html` returned 200, and the release owner saw the start screen on v809
   and the design system's Typography section with the three shared sheets and the app faces
@@ -188,8 +188,9 @@ runbooks. Neither belongs in a general setup document.
   was not opened in production, and the owner's app check and the real-device checks wait. The
   release record's §2 carries the train as post-deploy items, its §4 the 9.0.36 entry and current
   boundary line (5), and the hotfix procedure's 9.0.25 bullet names 9.0.36's merge SHA, Release
-  ID and App version. This train's merge ended 6D's standalone revert window; the default
-  rollback is a forward revert at 9.0.37 / v810 or the next free number.
+  ID and App version; the 6D report carries dated notes for 9.0.36's merge and release. This
+  train's merge ended 6D's standalone revert window; the default rollback is a forward revert at
+  9.0.37 / v810 or the next free number.
 - [App 9.0.35 / v808 train: Phase 6 6D, the YouTube start recoveries in one module, the Standard host's local start wait, the PRO start tokens, the late-joining PRO device's COMMIT catch-up and one mute rule below 0.5 % master volume (2026-11-02)](design/phase6-6d-recovery-pro-arm-2026-11-02.md):
   released on 2026-11-03 16:40 KST in Release 41597588008 (PR #565, squash `cfa81bdc`) as App
   9.0.35 / v808 (App build 808, target `app`, one update dialog, the last of Phase 6's four; the bump
@@ -265,7 +266,8 @@ runbooks. Neither belongs in a general setup document.
   answered Q29 to ship as is, keeping the fallback and the rare late-snapshot timeout), 6C-3's
   before/after table and timing check against the approved table, the Phase 6 end-condition
   check (condition 6's 14 days count from this release), mixed versions, rollback (checkpoint App
-  9.0.34 / v807, a forward fix at 9.0.36 / v809 or the next free number), the blind device
+  9.0.34 / v807, a forward fix at 9.0.36 / v809 or the next free number, now 9.0.37 / v810 since
+  the public-page font train shipped as 9.0.36), the blind device
   candidates, the three open items, now linked from the release record, and the Phase 7 handoff. QA rounds 1 to 4 ran on the first branch (old base `bdb5759a`). QA round 5 moved it
   onto `432d4ae7` (four docs-only conflicts, every commit's `src` and `scripts` patch unchanged)
   and reran the tests-first pairs, types, lint, format, `check:workers`, three unit directories
@@ -999,12 +1001,18 @@ runbooks. Neither belongs in a general setup document.
   owner delegated releases before going to sleep and confirmed the delegation in the morning, and
   saw pictures of the built playlist beside the approved mockups before the merge; the owner was
   away after the release, so the blind post-deploy checks (the 9.0.27 five-share check first, on
-  9.0.28), the owner device checks of the playlist and the R4 late check have not run, and the
+  9.0.28), the owner device checks of the playlist and the R4 late check did not run then, and the
   four owner questions have no answer yet. The App 9.0.29 / v802 font switch (2026-10-31 23:39 KST)
   the App 9.0.30 / v803 Phase 6 6A (2026-11-01 05:17 KST), the App 9.0.31 / v804 line box train
   (2026-11-01 23:17 KST), the App 9.0.32 / v805 Phase 6 6B (2026-11-02 05:34 KST), the App 9.0.33 / v806 Hangul train (2026-11-02 13:12 KST), the App 9.0.34 / v807 train (2026-11-02 21:20 KST), the App 9.0.35 / v808 train (2026-11-03 16:40 KST) and the App 9.0.36 / v809 train (22:22 KST, entries above) shipped before those checks, so they now run on 9.0.36, as
   none changes the system audio code, reading the build line as `app=9.0.36 | cacheEpoch=v809`; the
-  9.0.29 to 9.0.33 records have no result for them either. The Full E2E run 41229806902 on main `e51dd292` (the 9.0.29
+  9.0.29 to 9.0.35 records have no result for them. On the evening of 2026-11-03 the owner ran
+  three same-Wi-Fi shares on 9.0.35 with the 9.0.27 procedure's set-up (an Edge sharer and an
+  iPhone Safari listener; not the full blind list): all three ended on the SFU without a break in
+  the sound, none ended LAN-direct, and in the two whose lines show it the held fallback was
+  released after 0 and 1 ms, so late RTP after a trackless negotiation is still unseen; the
+  off-Wi-Fi shares, the rest of both blind lists, the playlist checks and the R4 late check still
+  wait (the release record's 9.0.27 and 9.0.28 sections). The Full E2E run 41229806902 on main `e51dd292` (the 9.0.29
   runtime) passed before 6A merged and closed the chat Tab cycle item. The
   release record's §2 carries the train as post-deploy items (scope and status, the held SFU fallback
   moved from the 9.0.27 section, the post-deploy check and the open owner questions, with the
@@ -1021,7 +1029,12 @@ runbooks. Neither belongs in a general setup document.
   the 9.0.28 increment (owner decision 2026-10-31, "two stages"), implemented and checked locally on
   the branch `agent/spec-sfu` over the 9.0.27 train (`3042b015`) and moved into the App 9.0.28
   / v801 train above, released with it on 2026-10-31 11:29 KST (target `app`, nothing on screen
-  changes); not yet seen in production, since the blind post-deploy check waits for the owner.
+  changes). Its lines were first seen in production on 9.0.35 on the evening of 2026-11-03, in
+  three same-Wi-Fi shares (not the full blind list) that all ended on the SFU: the two whose sharer
+  lines show the fallback read `Prepared SFU fallback … in 2407 / 1746 ms`,
+  `Released SFU fallback (held 0 / 1 ms)` and `Published generation 25 / 29`, so the fallback was
+  held only 0 to 1 ms and late RTP after a trackless negotiation is still unseen; no share ended
+  LAN-direct, and the off-Wi-Fi shares of the blind check wait.
   The note's own Status cell keeps its pre-train text; the train report and the release record
   hold the release state. A share with LAN-direct targets starts its SFU
   publish in the same turn as the LAN-direct attempt with the sender holding no track; a proven
@@ -1114,10 +1127,16 @@ runbooks. Neither belongs in a general setup document.
   report about 20 s old), one Production Release whose smokes all passed on the first try, the
   public service worker at v800, the public floor at 795 with live App 800, and the Drift Audit at
   32 pass / 0 fail / 5 manual-only. The owner delegated the release before going to sleep, so the
-  blind post-deploy check has not run yet; it was for the morning, and 9.0.28 to 9.0.35 shipped
-  first (2026-10-31 11:29 and 23:39 KST, 2026-11-01 05:17 and 23:17 KST, 2026-11-02 05:34, 13:12 and 21:20 KST, entries above), so the
-  blind check now runs on 9.0.36 reading only its build line, and none of those records has a result for
-  it. The full E2E run that closes the chat Tab cycle item, 41229806902 on main `e51dd292` (the
+  blind post-deploy check did not run then; it was for the morning, and 9.0.28 to 9.0.36 shipped
+  first (2026-10-31 11:29 and 23:39 KST, 2026-11-01 05:17 and 23:17 KST, 2026-11-02 05:34, 13:12 and 21:20 KST, 2026-11-03 16:40 and 22:22 KST, entries above), so the
+  rest of the blind check now runs on 9.0.36 reading only its build line; the 9.0.28 to 9.0.35 records have no result for
+  it. On the evening of 2026-11-03 the owner ran three same-Wi-Fi shares with its set-up on 9.0.35
+  (not the full blind list), the first production sight of the new diagnostic lines and
+  `no-lan-candidate`: all three ended on the SFU without a break in the sound and none proved
+  LAN-direct (two read as the reading table's row for a sharer that sent no mDNS candidate, with
+  the site's camera permission granted in Edge; the third, after the site permissions were reset,
+  is not in the table), so the five-share check stays open and a read-only diagnosis is running.
+  The full E2E run that closes the chat Tab cycle item, 41229806902 on main `e51dd292` (the
   9.0.29 runtime, which carries this fix), passed on 2026-11-01 before 6A merged, so the release
   record closed that item. The release record's §2 carries the train as post-deploy items (scope and status, the
   LAN-direct pair judgement and `no-lan-candidate`, the post-deploy check, the 9.0.28 plan, now a
@@ -1145,8 +1164,11 @@ runbooks. Neither belongs in a general setup document.
   implemented and checked locally on main `cbbc56d9` (9.0.26 / v799), then moved without conflicts
   into the App 9.0.27 / v800 train above and with it onto main `8f171535` (README conflicts only);
   released on 2026-10-31 04:31 KST in that train, bumped by `676a1670` (target `app`; owner
-  decision 2026-10-30, nothing on screen changes); not yet seen in production, since the blind
-  post-deploy check has not run (it now runs on 9.0.36; 9.0.28 to 9.0.36 shipped first). Its post-deploy reading table now names the
+  decision 2026-10-30, nothing on screen changes). Its pair-check and gathering lines and
+  `no-lan-candidate` were first seen in production on 9.0.35 on the evening of 2026-11-03, in
+  three same-Wi-Fi shares of the blind check's set-up (not its full list): all three ended on the
+  SFU and none proved the new pair judgement, so the five-share check stays open (the rest of it
+  now runs on 9.0.36; 9.0.28 to 9.0.36 shipped first). Its post-deploy reading table now names the
   `no-lan-candidate` gathering lines the train added on the owner's answer of 2026-10-31. The
   note's own Status cell keeps its
   pre-train text; the train report and the release record hold the release state. In the 9.0.26

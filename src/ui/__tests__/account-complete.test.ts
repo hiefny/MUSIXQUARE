@@ -1,19 +1,105 @@
 import { readFile } from 'node:fs/promises';
 import { JSDOM } from 'jsdom';
+import postcss, { type AtRule, type Rule } from 'postcss';
 import { describe, expect, it } from 'vitest';
 import {
   CLASSIC_RUNTIME_ASSETS,
   compileClassicRuntimeAsset,
 } from '../../../scripts/classic-runtime-assets.ts';
+import {
+  PUBLIC_TEXT_FONT_FAMILY,
+  publicFontCssProblems,
+} from '../../../scripts/lib/public-font-pages.mts';
+import { LANGUAGE_OPTIONS } from '../../i18n/locales.ts';
+import { restFontSheetInHead } from '../../i18n/public-font-contract.ts';
+import { PUBLIC_FONT_SHEET_URLS } from '../../i18n/public-font-urls.ts';
 
 const COMPLETION_HTML = 'public/account-complete.html';
 const COMPLETION_CSS = 'public/account-complete.css';
+
+/** The longest the text of the window waits, invisible, for the app's faces. */
+const TEXT_WAIT_CAP = '600ms';
+
+/** The root mark account-complete.js sets once the text may show. */
+const FONTS_MARK = 'data-mxqr-fonts';
 
 type CompletionDom = JSDOM & {
   scheduledTimeouts: Array<() => void>;
   openerMessages: unknown[];
   broadcastMessages: unknown[];
+  /** The shared font sheets in the document when each completion channel fired. */
+  fontSheetsAtSignal: { channel: string; sheets: number }[];
 };
+
+/** A FontFaceSet stand-in whose `ready` settles when the test says so, and frames the test runs. */
+interface FontSetStub {
+  readonly readyReads: number;
+  readonly framesAsked: number;
+  resolve(): void;
+  /** Run the animation frame callbacks asked for so far. */
+  frame(): void;
+}
+
+let compiledScript: Promise<string> | undefined;
+
+function completionScript(): Promise<string> {
+  const asset = CLASSIC_RUNTIME_ASSETS.find(
+    (candidate) => candidate.outputPath === 'account-complete.js',
+  );
+  if (!asset) throw new Error('Classic account-complete runtime is missing from the manifest.');
+  compiledScript ??= compileClassicRuntimeAsset(process.cwd(), asset).then(({ code }) => code);
+  return compiledScript;
+}
+
+/** The shared font sheets the document links, in document order. */
+function fontSheetLinks(dom: JSDOM): HTMLLinkElement[] {
+  return [...dom.window.document.querySelectorAll<HTMLLinkElement>('link')].filter((link) =>
+    (link.getAttribute('href') ?? '').startsWith('/web-fonts/'),
+  );
+}
+
+function installFontSet(dom: JSDOM): FontSetStub {
+  let reads = 0;
+  let resolve = (): void => undefined;
+  let frames: Array<() => void> = [];
+  Object.defineProperty(dom.window, 'requestAnimationFrame', {
+    configurable: true,
+    value: (callback: () => void) => frames.push(callback),
+  });
+  const ready = new Promise<void>((settle) => {
+    resolve = settle;
+  });
+  Object.defineProperty(dom.window.document, 'fonts', {
+    configurable: true,
+    value: {
+      get ready() {
+        reads += 1;
+        return ready;
+      },
+    },
+  });
+  return {
+    get readyReads() {
+      return reads;
+    },
+    get framesAsked() {
+      return frames.length;
+    },
+    resolve: () => resolve(),
+    frame: () => {
+      const due = frames;
+      frames = [];
+      for (const callback of due) callback();
+    },
+  };
+}
+
+/** Let every settled promise callback of the page run. */
+async function settle(dom: JSDOM): Promise<void> {
+  for (let turn = 0; turn < 5; turn += 1) {
+    await new Promise<void>((resolve) => dom.window.queueMicrotask(resolve));
+  }
+}
 
 const localizedCompletionCopy = [
   ['en', 'en', 'Sign-in complete. You may close this window.', 'Close'],
@@ -60,15 +146,12 @@ const localizedCompletionCopy = [
   ['bg', 'bg-BG', 'Входът е завършен. Можеш да затвориш този прозорец.', 'Затваряне'],
 ] as const;
 
-async function renderCompletion(language: string, marker = ''): Promise<CompletionDom> {
-  const asset = CLASSIC_RUNTIME_ASSETS.find(
-    (candidate) => candidate.outputPath === 'account-complete.js',
-  );
-  if (!asset) throw new Error('Classic account-complete runtime is missing from the manifest.');
-  const [html, script] = await Promise.all([
-    readFile(COMPLETION_HTML, 'utf8'),
-    compileClassicRuntimeAsset(process.cwd(), asset).then(({ code }) => code),
-  ]);
+async function renderCompletion(
+  language: string,
+  marker = '',
+  prepare: (dom: JSDOM) => void = () => undefined,
+): Promise<CompletionDom> {
+  const [html, script] = await Promise.all([readFile(COMPLETION_HTML, 'utf8'), completionScript()]);
   const dom = new JSDOM(html, {
     runScripts: 'outside-only',
     url: `https://musixquare.com/account-complete.html${marker}`,
@@ -76,6 +159,9 @@ async function renderCompletion(language: string, marker = ''): Promise<Completi
   const scheduledTimeouts: Array<() => void> = [];
   const openerMessages: unknown[] = [];
   const broadcastMessages: unknown[] = [];
+  const fontSheetsAtSignal: { channel: string; sheets: number }[] = [];
+  const recordSignal = (channel: string) =>
+    fontSheetsAtSignal.push({ channel, sheets: fontSheetLinks(dom).length });
   Object.defineProperty(dom.window, 'setTimeout', {
     configurable: true,
     value: (handler: unknown) => {
@@ -86,13 +172,17 @@ async function renderCompletion(language: string, marker = ''): Promise<Completi
   Object.defineProperty(dom.window, 'opener', {
     configurable: true,
     value: {
-      postMessage: (message: unknown) => openerMessages.push(message),
+      postMessage: (message: unknown) => {
+        recordSignal('opener');
+        openerMessages.push(message);
+      },
     },
   });
   class CompletionBroadcastChannel {
     constructor(_name: string) {}
 
     postMessage(message: unknown): void {
+      recordSignal('broadcast');
       broadcastMessages.push(message);
     }
 
@@ -103,8 +193,62 @@ async function renderCompletion(language: string, marker = ''): Promise<Completi
     value: CompletionBroadcastChannel,
   });
   dom.window.localStorage.setItem('musixquare-lang', language);
+  // A Storage object stores any property set on it, so wrap its prototype.
+  const storagePrototype = dom.window.Storage.prototype;
+  const setItem = storagePrototype.setItem;
+  Object.defineProperty(storagePrototype, 'setItem', {
+    configurable: true,
+    writable: true,
+    value(this: Storage, key: string, value: string) {
+      if (key === 'mxqr-account-refresh') recordSignal('storage');
+      setItem.call(this, key, value);
+    },
+  });
+  prepare(dom);
   dom.window.eval(script);
-  return Object.assign(dom, { scheduledTimeouts, openerMessages, broadcastMessages });
+  return Object.assign(dom, {
+    scheduledTimeouts,
+    openerMessages,
+    broadcastMessages,
+    fontSheetsAtSignal,
+  });
+}
+
+/** Every copy the window can show in one language: the three outcomes and the button. */
+async function completionCopies(code: string): Promise<string[]> {
+  const copies: string[] = [];
+  for (const marker of ['', '?accountAuth=cancelled', '?accountAuth=error']) {
+    const dom = await renderCompletion(code, marker);
+    const { document } = dom.window;
+    copies.push(
+      document.getElementById('account-complete-message')?.textContent ?? '',
+      document.getElementById('account-complete-close')?.textContent ?? '',
+    );
+    dom.window.close();
+  }
+  return copies;
+}
+
+/** The single top-level rule whose selector list is exactly `selectors`. */
+function ruleWithSelectors(css: string, selectors: readonly string[]): Rule {
+  const found: Rule[] = [];
+  postcss.parse(css).walkRules((rule) => {
+    if (rule.parent?.type !== 'root') return;
+    const normalized = rule.selectors.map((selector) => selector.replace(/\s+/gu, ' ').trim());
+    if (JSON.stringify(normalized) === JSON.stringify(selectors)) found.push(rule);
+  });
+  expect(found, selectors.join(', ')).toHaveLength(1);
+  const [rule] = found;
+  if (!rule) throw new Error(`no rule for ${selectors.join(', ')}`);
+  return rule;
+}
+
+function declarations(rule: Rule): Record<string, string> {
+  const values: Record<string, string> = {};
+  rule.each((node) => {
+    if (node.type === 'decl') values[node.prop] = node.value.replace(/\s+/gu, ' ').trim();
+  });
+  return values;
 }
 
 describe('account completion localization', () => {
@@ -120,30 +264,6 @@ describe('account completion localization', () => {
     expect(stylesheet).toContain("url('/designsystem/assets/logo-wordmark.svg')");
     expect(stylesheet).toMatch(/button\s*{[^}]*min-height:\s*56px;[^}]*border-radius:\s*999px;/s);
     expect(stylesheet).toMatch(/button:focus-visible\s*{/);
-  });
-
-  it("draws with the device's system fonts and loads no font of its own", async () => {
-    // The sign-in completion page belongs to the app (the service worker
-    // installs it for offline use), not to the public pages, so it links
-    // none of their font sheets and declares no face.
-    const [html, stylesheet] = await Promise.all([
-      readFile(COMPLETION_HTML, 'utf8'),
-      readFile(COMPLETION_CSS, 'utf8'),
-    ]);
-    const { document } = new JSDOM(html).window;
-    expect(
-      [...document.querySelectorAll('link[rel~="stylesheet"]')].map((link) =>
-        link.getAttribute('href'),
-      ),
-    ).toEqual(['/account-complete.css']);
-    expect(
-      [...document.querySelectorAll('script[src]')].map((script) => script.getAttribute('src')),
-    ).toEqual(['/account-complete.js']);
-    expect(document.querySelector('link[rel~="preload"]')).toBeNull();
-    expect(stylesheet).not.toMatch(/@font-face|pretendard|--font-|url\([^)]*\.woff2?/iu);
-    expect(stylesheet).toMatch(
-      /:root\s*{[^}]*font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;/s,
-    );
   });
 
   it('uses one refresh nonce across every successful popup completion channel', async () => {
@@ -247,5 +367,196 @@ describe('account completion localization', () => {
     expect(failedPulse).toMatchObject({ type: 'refresh', accountAuth: 'error' });
     expect(failed.scheduledTimeouts).toHaveLength(0);
     failed.window.close();
+  });
+});
+
+describe('account completion fonts', () => {
+  it('links nothing the parser would make its completion script wait for', async () => {
+    // The deferred script tells the app the sign-in finished. A stylesheet
+    // the parser meets anywhere in the page holds a deferred script back
+    // until it loads, so the page links only its own small sheet, preloads
+    // nothing, and leaves the shared font sheets to the script.
+    const html = await readFile(COMPLETION_HTML, 'utf8');
+    const { document } = new JSDOM(html).window;
+    expect(
+      [...document.querySelectorAll('link[rel~="stylesheet"]')].map((link) =>
+        link.getAttribute('href'),
+      ),
+    ).toEqual(['/account-complete.css']);
+    expect(
+      [...document.querySelectorAll('script')].map((script) => ({
+        src: script.getAttribute('src'),
+        defer: script.hasAttribute('defer'),
+      })),
+    ).toEqual([{ src: '/account-complete.js', defer: true }]);
+    expect(document.querySelector('link[rel~="preload"], link[rel~="modulepreload"]')).toBeNull();
+    expect(html).not.toMatch(/\/web-fonts\/|\/han-order\.js|<style\b|\son[a-z]+=/iu);
+  });
+
+  it("reads the app's stacks over the device's fonts and declares no face", async () => {
+    const stylesheet = await readFile(COMPLETION_CSS, 'utf8');
+    // The public pages' sheet rules: no face, no stack, no family of its own.
+    expect(publicFontCssProblems(stylesheet)).toEqual([]);
+    expect(declarations(ruleWithSelectors(stylesheet, [':root']))['font-family']).toBe(
+      PUBLIC_TEXT_FONT_FAMILY,
+    );
+    expect(stylesheet).not.toMatch(/@font-face|pretendard|url\([^)]*\.woff2?/iu);
+  });
+
+  it(`keeps its text invisible until the faces are ready, ${TEXT_WAIT_CAP} at most`, async () => {
+    const stylesheet = await readFile(COMPLETION_CSS, 'utf8');
+    // One wait: every frame of it draws the text in no colour.
+    const keyframes: AtRule[] = [];
+    postcss.parse(stylesheet).walkAtRules('keyframes', (atRule) => {
+      keyframes.push(atRule);
+    });
+    expect(keyframes.map(({ params }) => params)).toEqual(['account-complete-text-wait']);
+    const frames: Record<string, string>[] = [];
+    keyframes[0]?.walkRules((frame) => {
+      frames.push(declarations(frame));
+    });
+    expect(frames).toEqual([{ color: 'transparent' }]);
+    // The wordmark's fallback text, the message and the button label wait,
+    // once and for the cap at most: no delay, no fill, no repeat, so the
+    // text shows when it ends even if the script never marks the root.
+    expect(declarations(ruleWithSelectors(stylesheet, ['.brand', 'p', 'button']))).toEqual({
+      animation: `account-complete-text-wait ${TEXT_WAIT_CAP}`,
+    });
+    // The script's mark ends the wait at once.
+    expect(
+      declarations(
+        ruleWithSelectors(stylesheet, [
+          `:root[${FONTS_MARK}] .brand`,
+          `:root[${FONTS_MARK}] p`,
+          `:root[${FONTS_MARK}] button`,
+        ]),
+      ),
+    ).toEqual({ animation: 'none' });
+  });
+
+  it('adds the shared font sheets only once the completion message is out', async () => {
+    const dom = await renderCompletion('ko', '?accountClient=tab-12345678');
+    // Each of the three channels fired before any font sheet was in the page.
+    expect(dom.fontSheetsAtSignal).toEqual([
+      { channel: 'opener', sheets: 0 },
+      { channel: 'broadcast', sheets: 0 },
+      { channel: 'storage', sheets: 0 },
+    ]);
+    const links = fontSheetLinks(dom);
+    // For print until each has loaded: while a sheet for the screen loads,
+    // WebKit holds the page's rendering, and so the text's capped wait.
+    expect(links.map((link) => [link.rel, link.getAttribute('href'), link.media])).toEqual([
+      ['stylesheet', PUBLIC_FONT_SHEET_URLS.first, 'print'],
+      ['stylesheet', PUBLIC_FONT_SHEET_URLS.stacks, 'print'],
+    ]);
+    const { head } = dom.window.document;
+    expect([...head.children].slice(-links.length)).toEqual(links);
+    // No Han order script: no copy of the window draws a character whose
+    // face follows the Han order (see below).
+    expect(
+      [...dom.window.document.querySelectorAll('script')].map((script) =>
+        script.getAttribute('src'),
+      ),
+    ).toEqual(['/account-complete.js']);
+    expect(dom.window.document.documentElement.hasAttribute(FONTS_MARK)).toBe(false);
+    expect(dom.scheduledTimeouts).toHaveLength(1);
+    dom.window.close();
+  });
+
+  it.each(LANGUAGE_OPTIONS.map(({ code }) => code))(
+    "adds rest.css in %s only where the app's first faces lack its script",
+    async (code) => {
+      const dom = await renderCompletion(code);
+      expect(fontSheetLinks(dom).map((link) => link.getAttribute('href'))).toEqual(
+        restFontSheetInHead(code)
+          ? [
+              PUBLIC_FONT_SHEET_URLS.first,
+              PUBLIC_FONT_SHEET_URLS.stacks,
+              PUBLIC_FONT_SHEET_URLS.rest,
+            ]
+          : [PUBLIC_FONT_SHEET_URLS.first, PUBLIC_FONT_SHEET_URLS.stacks],
+      );
+      dom.window.close();
+    },
+  );
+
+  it('draws no character whose face follows the Han order', async () => {
+    // stacks.css draws Han and kana in the order of --font-cjk-default,
+    // which /han-order.js sets from the browser's languages, except on the
+    // Japanese and Chinese copies, whose html lang puts their own family
+    // first. Only those copies hold Han or kana, so the window needs no Han
+    // order script.
+    const ownOrder = new Set(['ja', 'zh-hans', 'zh-hant']);
+    const followsHanOrder: string[] = [];
+    for (const { code } of LANGUAGE_OPTIONS) {
+      if (ownOrder.has(code)) continue;
+      for (const copy of await completionCopies(code)) {
+        if (/[\p{Script=Han}\p{Script=Hiragana}\p{Script=Katakana}]/u.test(copy)) {
+          followsHanOrder.push(`${code}: ${copy}`);
+        }
+      }
+    }
+    expect(followsHanOrder).toEqual([]);
+  });
+
+  it('shows its text once the sheets have loaded and the faces of its text are ready', async () => {
+    let fonts: FontSetStub | undefined;
+    const dom = await renderCompletion('ko', '', (page) => {
+      fonts = installFontSet(page);
+    });
+    const root = dom.window.document.documentElement;
+    const [first, stacks] = fontSheetLinks(dom);
+    first?.dispatchEvent(new dom.window.Event('load'));
+    await settle(dom);
+    // A loaded sheet turns to every medium.
+    expect([first?.media, stacks?.media]).toEqual(['all', 'print']);
+    // One sheet is not enough: the stack and the faces need both.
+    expect(fonts?.readyReads).toBe(0);
+    stacks?.dispatchEvent(new dom.window.Event('load'));
+    await settle(dom);
+    // The next frame's layout asks for the faces (WebKit starts those loads
+    // after that frame), so ready is read a frame later.
+    expect(fonts?.readyReads).toBe(0);
+    expect(fonts?.framesAsked).toBe(1);
+    fonts?.frame();
+    expect(fonts?.readyReads).toBe(0);
+    fonts?.frame();
+    expect(fonts?.readyReads).toBe(1);
+    await settle(dom);
+    expect(root.hasAttribute(FONTS_MARK)).toBe(false);
+    fonts?.resolve();
+    await settle(dom);
+    expect(root.getAttribute(FONTS_MARK)).toBe('app');
+    dom.window.close();
+  });
+
+  it("shows its text at once in the device's fonts when a sheet cannot load", async () => {
+    let fonts: FontSetStub | undefined;
+    const dom = await renderCompletion('ja', '?accountAuth=error', (page) => {
+      fonts = installFontSet(page);
+    });
+    const root = dom.window.document.documentElement;
+    const [first, stacks, rest] = fontSheetLinks(dom);
+    expect(rest?.getAttribute('href')).toBe(PUBLIC_FONT_SHEET_URLS.rest);
+    first?.dispatchEvent(new dom.window.Event('load'));
+    stacks?.dispatchEvent(new dom.window.Event('error'));
+    await settle(dom);
+    expect(root.getAttribute(FONTS_MARK)).toBe('device');
+    // A late sheet changes nothing.
+    rest?.dispatchEvent(new dom.window.Event('load'));
+    fonts?.resolve();
+    await settle(dom);
+    expect(root.getAttribute(FONTS_MARK)).toBe('device');
+    dom.window.close();
+  });
+
+  it('shows its text once the sheets have loaded in a browser without FontFaceSet', async () => {
+    const dom = await renderCompletion('en');
+    expect('fonts' in dom.window.document).toBe(false);
+    const root = dom.window.document.documentElement;
+    for (const link of fontSheetLinks(dom)) link.dispatchEvent(new dom.window.Event('load'));
+    await settle(dom);
+    expect(root.getAttribute(FONTS_MARK)).toBe('app');
+    dom.window.close();
   });
 });

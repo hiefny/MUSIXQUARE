@@ -7,8 +7,8 @@
  * fonts no other way, and its stylesheets declare no face and set no stack,
  * so it reads the app's stacks. These fixtures pin each departure the checks
  * report; the page cases follow, one group of pages at a time. The sign-in
- * completion page is the app's, not a public page, and is tested with it
- * (src/ui/__tests__/account-complete.test.ts).
+ * completion page is the app's, not a public page: its script adds the
+ * shared sheets, and it is tested with it (src/ui/__tests__/account-complete.test.ts).
  */
 import { existsSync, readdirSync, readFileSync, statSync } from 'node:fs';
 import { join, relative, resolve } from 'node:path';
@@ -765,11 +765,36 @@ describe('the blog, history, design system, UI kit, events and 404 pages', () =>
     ]);
   });
 
-  it('leaves the sign-in completion page to the app: it links no shared sheet', () => {
+  it("draws the sign-in completion page with the app's faces through its script, not its links", () => {
     // public/account-complete.html belongs to the app (src/ui/account.ts and
-    // the service worker's install list), so it draws with the device fonts.
+    // the service worker's install list), and its deferred script tells the
+    // app the sign-in finished, which a linked sheet would hold back. So it
+    // links no shared sheet: the script adds them once its message is out
+    // (src/ui/__tests__/account-complete.test.ts), and its own sheet is held
+    // to the public sheets' rules and reads the app's stacks in every UI
+    // language the window shows.
     expect(PUBLIC_FONT_PAGES.map(({ html }) => html)).not.toContain('public/account-complete.html');
     expect(read('public/account-complete.html')).not.toMatch(/\/web-fonts\/|\/han-order\.js/u);
+    const completion = PUBLIC_FONT_PAGE_EXCLUSIONS.find(
+      ({ html }) => html === 'public/account-complete.html',
+    );
+    expect(completion?.sheet).toBe('public/account-complete.css');
+    const sheet = completion?.sheet ?? '';
+    expect(publicFontCssProblems(read(sheet), PUBLIC_LITERAL_FONT_FAMILIES)).toEqual([]);
+    expectAppStacks({
+      html: 'public/account-complete.html',
+      dist: null,
+      rest: 'none',
+      sheets: [sheet],
+      htmlLangs: LANGUAGE_OPTIONS.map(({ htmlLang }) => htmlLang),
+    });
+    expect(koreanEnglishSplits([sheet])).toEqual([]);
+    // The other exceptions load their own fonts and name no sheet.
+    expect(
+      PUBLIC_FONT_PAGE_EXCLUSIONS.filter(({ sheet: own }) => own !== undefined).map(
+        ({ html }) => html,
+      ),
+    ).toEqual(['public/account-complete.html']);
   });
 });
 
@@ -875,7 +900,7 @@ describe('every page source and built page is a registered public page or a reco
       expect(reason.length, html).toBeGreaterThan(20);
       expect(dist.length, html).toBeGreaterThan(0);
       expect(PUBLIC_FONT_PAGES.map((page) => page.html)).not.toContain(html);
-      // None links the shared sheets or the Han order script.
+      // None links the shared sheets or the Han order script in its HTML.
       expect(read(html), html).not.toMatch(/\/web-fonts\/|\/han-order\.js/u);
     }
   });

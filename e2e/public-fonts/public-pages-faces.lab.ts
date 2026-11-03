@@ -5,7 +5,10 @@
  * of the public-page font train; opt-in, never in the default suite).
  *
  * For About in eleven languages, the blog, history, events in Korean, 404
- * and the sign-in completion page in Korean, each visible grapheme is copied
+ * and the sign-in completion page in Korean and Japanese (once its script
+ * has marked the root: it adds the shared sheets itself after its
+ * completion message and keeps its text invisible until the faces are
+ * ready), each visible grapheme is copied
  * into a hidden probe with its element's computed font properties, and
  * CSS.getPlatformFontsForNode reads the face Chromium draws it with:
  * - the face is the first family of the element's stack whose declared
@@ -19,9 +22,9 @@
  *   the page's own family on the Japanese and Chinese copies; Thai, Arabic,
  *   Hebrew and Devanagari their Noto family. Code is skipped (device
  *   monospace);
- * - the sign-in completion page (the app's) draws with device faces only;
  * - the shared sheets and /han-order.js are requested once each (events: no
- *   rest.css; the sign-in completion page: none), no face is in error,
+ *   rest.css; the sign-in completion page: no /han-order.js, and rest.css
+ *   only in a language whose own faces it declares), no face is in error,
  *   nothing retired is requested, and nothing is wider than a 390 px phone;
  * - the Korean and English About pages draw one mixed line pixel for pixel
  *   alike, as the app does since 9.0.29.
@@ -48,7 +51,11 @@ interface FacePage {
   /** The family Han draws with on this page. */
   readonly han: string;
   /** How the page loads the shared sheets. */
-  readonly sheets: 'all' | 'no-rest' | 'none';
+  readonly sheets: 'all' | 'no-rest';
+  /** Whether it loads /han-order.js (every page but the sign-in completion page). */
+  readonly marker: boolean;
+  /** A selector the page matches once its text may be read (its script's mark). */
+  readonly ready?: string;
 }
 
 const ABOUT_LANGUAGES: readonly (readonly [code: string, han: string])[] = [
@@ -72,14 +79,23 @@ const PAGES: readonly FacePage[] = [
     locale: 'en-US',
     han,
     sheets: 'all' as const,
+    marker: true,
   })),
-  { name: 'blog', path: '/blog/index.html', locale: 'en-US', han: 'Noto Sans KR', sheets: 'all' },
+  {
+    name: 'blog',
+    path: '/blog/index.html',
+    locale: 'en-US',
+    han: 'Noto Sans KR',
+    sheets: 'all',
+    marker: true,
+  },
   {
     name: 'history',
     path: '/history/index.html',
     locale: 'en-US',
     han: 'Noto Sans KR',
     sheets: 'all',
+    marker: true,
   },
   {
     name: 'events (ko)',
@@ -87,14 +103,37 @@ const PAGES: readonly FacePage[] = [
     locale: 'ko-KR',
     han: 'Noto Sans KR',
     sheets: 'no-rest',
+    marker: true,
   },
-  { name: '404', path: '/404.html', locale: 'en-US', han: 'Noto Sans KR', sheets: 'all' },
+  {
+    name: '404',
+    path: '/404.html',
+    locale: 'en-US',
+    han: 'Noto Sans KR',
+    sheets: 'all',
+    marker: true,
+  },
+  // The app's sign-in completion page: its script adds the shared sheets
+  // once its completion message is out, rest.css only where its language's
+  // own faces live there, and no /han-order.js (no copy draws a character
+  // whose face follows the Han order).
   {
     name: 'sign-in completion (ko)',
     path: '/account-complete.html?accountClient=lab-0001',
     locale: 'ko-KR',
     han: 'Noto Sans KR',
-    sheets: 'none',
+    sheets: 'no-rest',
+    marker: false,
+    ready: ':root[data-mxqr-fonts="app"]',
+  },
+  {
+    name: 'sign-in completion (ja)',
+    path: '/account-complete.html?accountClient=lab-0002',
+    locale: 'ja-JP',
+    han: 'Noto Sans JP',
+    sheets: 'all',
+    marker: false,
+    ready: ':root[data-mxqr-fonts="app"]',
   },
 ];
 
@@ -259,6 +298,7 @@ async function open(
   baseURL: string,
   path: string,
   locale: string,
+  ready?: string,
 ): Promise<Opened> {
   const origin = new URL(baseURL).origin;
   const context = await browser.newContext({
@@ -289,6 +329,7 @@ async function open(
     if (!isBenignPageError(error)) problems.push(`page error: ${error.message}`);
   });
   await page.goto(path);
+  if (ready) await page.waitForSelector(ready, { state: 'attached', timeout: 30_000 });
   await expect
     .poll(
       () =>
@@ -313,6 +354,7 @@ for (const facePage of PAGES) {
       baseURL ?? '',
       facePage.path,
       facePage.locale,
+      facePage.ready,
     );
     try {
       const declared = await declaredFaces(page);
@@ -335,14 +377,6 @@ for (const facePage of PAGES) {
           .join(', ');
         const { family, deviceFirst } = stackFamily(stack, grapheme, declared);
         const rule = ruleFamily(grapheme, facePage.han);
-        if (facePage.sheets === 'none') {
-          if (faces.some(({ isCustomFont }) => isCustomFont)) {
-            breaks.push(`${where} '${grapheme}' should be a device face: ${names}`);
-          } else {
-            device.push(`${grapheme} ${names}`);
-          }
-          continue;
-        }
         if (rule !== null && !deviceFirst && family !== rule) {
           breaks.push(`${where} '${grapheme}': the stack gives ${family}, the app's rule ${rule}`);
           continue;
@@ -365,24 +399,18 @@ for (const facePage of PAGES) {
 
       // The network.
       const count = (url: string) => paths.filter((path) => path === url).length;
-      const expectedCounts =
-        facePage.sheets === 'none'
-          ? { first: 0, stacks: 0, rest: 0, marker: 0 }
-          : {
-              first: 1,
-              stacks: 1,
-              rest: facePage.sheets === 'all' ? 1 : 0,
-              marker: 1,
-            };
+      const expectedCounts = {
+        first: 1,
+        stacks: 1,
+        rest: facePage.sheets === 'all' ? 1 : 0,
+        marker: facePage.marker ? 1 : 0,
+      };
       expect({
         first: count(PUBLIC_FONT_SHEET_URLS.first),
         stacks: count(PUBLIC_FONT_SHEET_URLS.stacks),
         rest: count(PUBLIC_FONT_SHEET_URLS.rest),
         marker: count(PUBLIC_HAN_ORDER_SCRIPT_URL),
       }).toEqual(expectedCounts);
-      if (facePage.sheets === 'none') {
-        expect(paths.filter((path) => path.endsWith('.woff2'))).toEqual([]);
-      }
       expect(paths.filter((path) => RETIRED_FONT_REQUEST.test(path))).toEqual([]);
       expect(
         await page.evaluate(() =>

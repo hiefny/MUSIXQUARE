@@ -9,11 +9,12 @@
  * The page list comes from the registry (scripts/lib/public-font-pages.mts),
  * so a newly registered page is loaded too: every built public page, About
  * in every UI language, a page whose script picks its language once per
- * language it is shown in, the sign-in completion page (the app's, which the
- * public-page font train moved to the device's fonts), and the two pages the
- * App Worker renders from its own markup (the admin page and the blog
- * article without a built blog page), rendered by the Worker itself and
- * served at their own paths. The UI kit is served in development only.
+ * language it is shown in, the sign-in completion page (the app's, whose
+ * script adds the shared sheets once its completion message is out), and
+ * the two pages the App Worker renders from its own markup (the admin page
+ * and the blog article without a built blog page), rendered by the Worker
+ * itself and served at their own paths. The UI kit is served in development
+ * only.
  *
  * The local preview serves no API, so responses under /api/ and the console
  * lines Chromium logs for them are not counted.

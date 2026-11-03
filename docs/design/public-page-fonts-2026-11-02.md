@@ -2,13 +2,13 @@
 
 | Field              | Value                                                                                                                                                                                                                                                                                                                                                                                                                                                       |
 | ------------------ | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Status             | 준비됨, 배포 전. 갈래 `agent/public-page-fonts`(main `432d4ae7` 위, push 안 함)의 증분 I1 ~ I9, 리뷰 반영 R1 ~ R8(A5의 불러오기 명세 I10 포함, §12)과 문서 커밋이다(§4). 버전 올리기(I12), PR, 머지, 릴리스는 릴리스 담당의 몫이다(§11). 로컬과 브랜치 결과는 exact-main-SHA 후보를 대신하지 않는다                                                                                                                                                         |
+| Status             | 준비됨, 배포 전. 갈래 `agent/public-page-fonts`(main `432d4ae7` 위, push 안 함)의 증분 I1 ~ I9, 리뷰 반영 R1 ~ R8(A5의 불러오기 명세 I10 포함, §12), 로그인 완료 창 고침(오너 결정 2026-11-03, §13)과 문서 커밋이다(§4). 버전 올리기(I12), PR, 머지, 릴리스는 릴리스 담당의 몫이다(§11). 로컬과 브랜치 결과는 exact-main-SHA 후보를 대신하지 않는다                                                                                                                                                         |
 | Base               | main `432d4ae7`(#564, 9.0.34의 배포 기록, 문서만). 그 앞 `cd8eaf47`(#563, App 9.0.34 / v807 머지, 2026-11-02 21:20 KST 배포)과 런타임이 같아, 바탕의 App 런타임은 운영 9.0.34와 같다. 이 갈래는 처음 `cd8eaf47` 위에서 만들었고 리뷰 반영 전에 `432d4ae7` 위로 옮겼다(커밋마다 문서 밖 코드 트리가 같음, §8.3). 이 문서의 SHA는 모두 옮긴 뒤의 것이다                                                                                                       |
 | Version            | 9.0.35 / v808 예정(App 빌드 808). 버전 올리기가 마지막 런타임 커밋이 되고, 그 앞은 9.0.34 / v807 그대로라 `guard:sw-cache-version`만 실패한다(§8). 앞으로 되돌리기는 9.0.36 / v809다(§10)                                                                                                                                                                                                                                                                   |
-| Scope              | 앱 밖의 모든 공개 페이지(소개와 42개 사본, 개인정보·약관·FAQ·개발자·번역·사이트맵, 블로그 목록, App Worker가 그리는 블로그 글과 관리자 페이지, 히스토리, 디자인 시스템과 미리보기 21개·UI 키트, 이벤트, 404)의 글꼴, 디자인 시스템 Typography 절, 은퇴한 글꼴 파일, 가드·시험·문서, 리뷰 반영(§12). 앱 쪽 변경은 로그인 완료 창(`public/account-complete.css`)의 글꼴 하나다(§2.4). 앱 소스 그래프는 그대로다(§5)                                           |
-| Deploy target      | `app`(업데이트 창이 뜨는 배포). 운영 배포 SHA(App `cd8eaf47`, PRO room `683074bc`, 다른 넷 `71f5b96c`)와 견준 런타임 경로 변경은 버전 올리기 앞 App 86(R1이 `scripts/public-font-sheets.mts`를 App 경로로 셈), 나머지 다섯 Worker 0, App 런타임 의존성 차이 없음(로컬 `changedRuntimePaths`와 `verifyPartialReleaseCompatibility`, §8.3). D1, 비밀, 바인딩, Wrangler 설정, CORS, 계약 표지, 바닥, 저장 데이터와 키, 신호와 중계 프레임 모양은 바뀌지 않았다 |
+| Scope              | 앱 밖의 모든 공개 페이지(소개와 42개 사본, 개인정보·약관·FAQ·개발자·번역·사이트맵, 블로그 목록, App Worker가 그리는 블로그 글과 관리자 페이지, 히스토리, 디자인 시스템과 미리보기 21개·UI 키트, 이벤트, 404)의 글꼴, 디자인 시스템 Typography 절, 은퇴한 글꼴 파일, 가드·시험·문서, 리뷰 반영(§12). 앱 쪽 변경은 로그인 완료 창(`public/account-complete.css`와 `browser/classic-runtime/account-complete.ts`)의 글꼴 하나로, 오너 결정(2026-11-03)대로 지금처럼 앱의 면으로 그린다(§2.4, §13). 앱 소스 그래프는 그대로다(§5)                                           |
+| Deploy target      | `app`(업데이트 창이 뜨는 배포). 운영 배포 SHA(App `cd8eaf47`, PRO room `683074bc`, 다른 넷 `71f5b96c`)와 견준 런타임 경로 변경은 버전 올리기 앞 App 87(R1이 `scripts/public-font-sheets.mts`를, §13이 `browser/classic-runtime/account-complete.ts`를 더함), 나머지 다섯 Worker 0, App 런타임 의존성 차이 없음(로컬 `changedRuntimePaths`와 `verifyPartialReleaseCompatibility`, §8.3, §13). D1, 비밀, 바인딩, Wrangler 설정, CORS, 계약 표지, 바닥, 저장 데이터와 키, 신호와 중계 프레임 모양은 바뀌지 않았다 |
 | Operations         | 운영에 닿지 않았다. GitHub 쓰기, push, 운영 요청, 방 만들기, 내려받기 없이 로컬(Windows 11)에서만 만들고 시험했다. 로컬 서버는 포트 5491·5492만 썼고 모두 닫았다                                                                                                                                                                                                                                                                                            |
-| Resource ownership | 복구, 재시도, 시한, 감시, 수명 흐름을 더하지 않았다. 공개 페이지는 `<link>`로만 글꼴 시트를 받고, `/han-order.js`는 문서 뿌리에 속성 하나를 한 번 적는다. 등록부가 적지 않았던 글꼴 시트의 두 번째 기계 둘(소개의 `ensureFont`·`ensurePickerFonts`, 사이트맵의 `static-page-fonts.ts`와 그 재시도 시트)을 지워 `retryable-stylesheet.ts`의 가져오는 쪽은 앱 글꼴 주인 하나다. 등록부와 `check-resource-ownership.mts` 기준치는 그대로다                     |
+| Resource ownership | 복구, 재시도, 감시, 수명 흐름을 더하지 않았다. 시한은 로그인 완료 창의 글자 기다림 하나(600 ms, `account-complete.css`의 CSS 애니메이션이 그 값의 집, JS 타이머 없음)이고, 그 창 글자 표시의 하나뿐인 주인이라 레코드가 필요 없다. 완료 신호(RO-28의 생산자)는 그 앞에서 그대로 나간다(§13). 공개 페이지는 `<link>`로만 글꼴 시트를 받고, `/han-order.js`는 문서 뿌리에 속성 하나를 한 번 적는다. 등록부가 적지 않았던 글꼴 시트의 두 번째 기계 둘(소개의 `ensureFont`·`ensurePickerFonts`, 사이트맵의 `static-page-fonts.ts`와 그 재시도 시트)을 지워 `retryable-stylesheet.ts`의 가져오는 쪽은 앱 글꼴 주인 하나다. 등록부와 `check-resource-ownership.mts` 기준치는 그대로다                     |
 | Third-party assets | 새 내려받기 없음. 공개 페이지는 앱이 이미 쓰는 Inter, MUSIXQUARE Hangul, Noto 파일을 그대로 쓴다. 지운 것: 배포되던 Pretendard 사본, Pretendard 시트 둘, Google의 Noto Sans Cyrillic·Greek 시트와 파일 셋, 생성기 입력 시트의 번호 없는 면 14개(§2.6). `fonts/PretendardVariable.woff2`(MUSIXQUARE Hangul의 원본), 공유 그림의 Bold 파일과 그 부분 집합, 라이선스 파일은 그대로다                                                                           |
 | Release record     | 이 열차의 문서 커밋들이 §2의 공개 페이지 글꼴 열차를 기다리던 항목을 고쳤고(9.0.29 절의 뒤 열차 항목, 9.0.33 절의 오너 질문 3과 '사본만' 문장, 9.0.31 절과 9.0.29 절의 JP·SC·TC 수용 문장, 모두 이 보고서 링크), §2 맨 위에 이 열차의 '배포 전' 절을 더했으며, §1과 9.0.34 절의 '만드는 중' 문장을 옮긴 바탕에 맞췄다. 어느 열린 항목도 닫지 않았다(닫는 근거는 이 열차의 배포 기록). §1의 덮어쓰기와 이력 한 행은 배포 기록 PR의 몫이다                    |
 
@@ -69,23 +69,25 @@
 바뀜), `public-han-order.test.ts`가 그 사본을 원본과 30개 언어 목록과 `navigator.language` 대체로 붙잡는다. 스크립트가 없던 404도
 이 스크립트 하나를 싣는다(예외로 두지 않음). 계획은 공개 페이지를 한국어 먼저로 두고 스크립트를 두지 않았지만 A11이 그것을 바꿨다.
 
-### 2.4 앱 쪽 변경: 로그인 완료 창 (A1)
+### 2.4 앱 쪽 변경: 로그인 완료 창 (A1, 오너 결정 2026-11-03으로 고침)
 
-`public/account-complete.html`과 `account-complete.css`는 공개 페이지가 아니라 앱이다(`src/ui/account.ts`의
-`ACCOUNT_COMPLETION_PATH`, 서비스 워커의 `APP_SHELL`, 레거시 TV 가드, 그 미룬 스크립트가 앱에 로그인이 끝났다고 알림). 그래서
-공유 시트를 걸지 않고, CSS에서 Pretendard `@font-face`와 이름만 빼고 시스템 스택
-`-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif`을 쓴다. 이 열차의 하나뿐인 앱 쪽 변경이다.
+`public/account-complete.html`, `account-complete.css`와 그 스크립트 `browser/classic-runtime/account-complete.ts`는 공개 페이지가
+아니라 앱이다(`src/ui/account.ts`의 `ACCOUNT_COMPLETION_PATH`, 서비스 워커의 `APP_SHELL`, 레거시 TV 가드, 그 미룬 스크립트가 앱 탭에
+로그인이 끝났다고 알림). 이 열차의 하나뿐인 앱 쪽 변경이다.
 
-[화면 바뀜] 로그인 완료 창의 글자(완료 문장과 닫기 단추)가 Pretendard에서 기기 글꼴로 바뀐다. 그 창은 한 번에
-2,057,688 B의 Pretendard 파일을 받았는데 이제 글꼴 파일을 받지 않는다.
+- 처음(I6, A1): 파서가 만난 시트는 그 미룬 스크립트를 붙잡으므로 공유 시트를 걸지 않고, CSS에서 Pretendard `@font-face`와 이름을 빼
+  시스템 스택으로 그렸다. 그 전후 그림(이 기계에서 Segoe UI와 맑은 고딕, 휴대폰 390 px에서 한국어 문장이 두 줄)은 증거 폴더
+  `account-complete/device-font-version/`에 남겼다.
+- 오너 결정(2026-11-03 08:30 KST쯤): 로그인 완료 창은 앱 글꼴로 지금처럼 보이게 하고, 그림을 다시 보인다.
+- 지금(§13): HTML은 그대로 제 시트와 미룬 스크립트만 건다. 스크립트가 완료 신호 셋을 모두 보낸 뒤에야 공유 시트(`first.css`,
+  `stacks.css`, 그 언어의 면이 `rest.css`에 있으면 그것도)를 인쇄용으로 머리 끝에 더하고 불러온 뒤 화면에 쓴다. 창은 앱의 면과
+  스택으로 그리고(라틴 Inter, 한글 MUSIXQUARE Hangul, 그 밖의 글자 Noto), 글자는 면이 준비될 때까지 최대 600 ms 보이지 않게
+  기다린다. 완료 신호는 늦어지지 않는다(Chromium과 WebKit 측정, §13.2).
 
-- 전후 그림: git이 무시하는 증거 폴더 `docs/private/public-page-fonts-2026-11-02/account-complete/`에 두었고(§11 5) 커밋하지 않았다. 바탕
-  `cd8eaf47`과 I6 뒤 `dc294f56`의 운영 빌드를 Playwright Chromium(Windows 11, 어두운 테마, 배율 2, 서비스 워커 막음)으로 열었다.
-  경우: 데스크톱 로그인 팝업 520 × 720(`src/ui/account.ts`가 여는 크기)의 en, ko, ja와 휴대폰 같은 탭 390 × 844의 ko, en.
-- 그린 면(이 Windows 기기): en은 Pretendard Variable에서 Segoe UI(문장은 Semibold)로, ko는 Malgun Gothic(마침표와 빈칸은 Segoe UI)로,
-  ja는 Yu Gothic으로. Apple 기기에서는 San Francisco와 Apple SD Gothic Neo가 그린다.
-- 카드, 줄바꿈 자리(영어 문장은 둘 다 'this' 뒤에서 꺾임), 단추는 같다. 어느 경우에도 콘솔 오류가 없다.
-- 그 뒤 `account-complete.css`가 Pretendard 파일을 가리키지 않으므로 앱 파일 집합에서 그 파일이 빠졌다(§5).
+[화면 바뀜] 작다: 로그인 완료 창은 9.0.34처럼 보인다. 한글은 MUSIXQUARE Hangul(Pretendard의 한글)이고 라틴은 Inter(Pretendard의 라틴은
+Inter에서 왔음)라, 이 기계의 그림 다섯에서 카드, 단추, 문장의 줄 수가 9.0.34와 같다(§13.4). 다른 것은 글자가 나타나는 때다: 9.0.34는
+기기 글꼴로 먼저 그렸다가 Pretendard가 오면 바꿨고, 이제는 면이 준비되면(이 기계에서 약 0.1초, 최대 0.6초) 앱의 면으로 한 번에
+나타난다. 9.0.34가 창을 열 때마다 받던 Pretendard 파일(2,057,688 B)은 받지 않고, 앱이 이미 받은 면을 쓴다.
 
 ### 2.5 디자인 시스템 Typography 절 (I8)
 
@@ -160,7 +162,7 @@
 | Q6  | 보이는 변화(Inter 라틴, 큰 제목의 opsz, 줄 수, 404, 디자인 시스템 단추 Arial → Inter, Google 단추의 한글) | 사진 없이 받아들임(오너 2026-11-02)                                                                                                                                  |
 | Q7  | 닫힌 소개 언어 메뉴                                                                                       | `display: none` / `grid`, `transition-behavior: allow-discrete`, `@starting-style`(D7). 열린 상태는 `display` 없는 자기 전환을 지녀 초점이 바로 옮겨 감              |
 | D1  | 앱 소스                                                                                                   | 그대로. 공개 묶음은 앱이 가져오지 않는 새 모듈에 있고 로더를 돌리는 시험이 붙잡는다                                                                                  |
-| D2  | 서비스 워커 `APP_SHELL`                                                                                   | 그대로. `stacks.css`를 설치하지 않는다(로그인 완료 창은 이제 시스템 글꼴이라 잃는 것 없음)                                                                           |
+| D2  | 서비스 워커 `APP_SHELL` | 그대로. 공유 시트는 설치하지 않는다: 로그인 완료 창이 처음 받을 때 서비스 워커의 고정 정적 경로가 캐시에 넣고, 오프라인에서 못 받으면 창은 바로 기기 글꼴로 보인다(§13.5) |
 | D3  | 점검 페이지                                                                                               | 그대로(모든 Worker 모듈, 이름만, 바꾸면 대상이 `all`)                                                                                                                |
 | D4  | `public/screensaver.html`                                                                                 | 앱 화면이라 그대로                                                                                                                                                   |
 | D5  | 공유 그림, Bold TTF, 부분 집합, PNG                                                                       | 그대로                                                                                                                                                               |
@@ -169,6 +171,7 @@
 | D8  | `/web-fonts/*`                                                                                            | 공개 페이지 캐시 정책의 고정 별칭                                                                                                                                    |
 | D9  | 디자인 시스템 다듬기                                                                                      | §2.5대로(재고 나서 정한 둘이 계획과 다름)                                                                                                                            |
 | D10 | 새 e2e                                                                                                    | A5대로: 기본 Full E2E에는 가벼운 불러오기 명세 하나(공개 페이지와 언어마다 한 번, 같은 출처 400 이상이나 콘솔 오류로만 실패), 면·견본·측정 명세는 따로 켜는 설정에만 |
+| D11 | 로그인 완료 창의 글꼴(오너 2026-11-03) | 앱의 면으로 지금처럼. 스크립트가 완료 신호 뒤에 공유 시트를 인쇄용으로 더하고, 글자는 최대 600 ms 기다린다(§13) |
 
 검토가 더한 조건(A1 ~ A11)이 계획보다 앞선다. 위에 적지 않은 것: A2(디자인 토큰 시트의 글꼴 블록 삭제와 양식 요소 규칙은 I4에서,
 블로그·히스토리·디자인 시스템·Worker 글은 I6·I7까지 갈래 안에서만 대체 글꼴, 페이지 묶음별 되돌리기 주장은 뺌), A4(§5의 증명 방식),
@@ -207,6 +210,7 @@ A6(내보내기는 scripts, src, e2e, browser, .workshop이 실제로 읽는 것
 | R6 공개 페이지 불러오기(I10)                                       | `db481a05`                 | 회귀 지킴이(부모에서도 통과, A5). 실패 증거: 빌드에서 `/han-order.js`를 빼고 404에 스크립트 오류를 넣으면 소개 en, 404, 관리자 페이지가 4xx와 콘솔·페이지 오류로 실패                                  |
 | R7 공개 페이지 면 실험                                             | `db812c27`, `34cb93d0`     | 따로 켜는 명세. 실패 증거: `rest.css`를 비우면 그 시트가 필요한 일곱 페이지(소개 ja, zh-hans, zh-hant, th, ar, he, hi)가, `first.css`를 비우면 로그인 완료 창 말고 16개가 실패                         |
 | R8 낡은 설명 둘                                                    | `bb15d154`                 | 해당 없음(`font-identity`의 원래 Noto 시트 주석과 목록, `fonts/README.md`의 한 문장)                                                                                                                   |
+| 로그인 완료 창 앱 글꼴(§13)                                        | T `5085805c`, I `f552fb18` | 2개 파일 244행 중 49행(시트의 스택, 600 ms 기다림, 신호 뒤에 더하는 시트, 언어별 `rest.css` 42행, 표지 셋, 예외의 시트). 새 e2e 3행은 부모 빌드에서 Chromium과 WebKit 모두 3 / 3 실패, 면 실험의 완료 창 두 행은 부모 빌드에서 2 / 2 실패. 회귀 지킴이: 'links nothing the parser would make its completion script wait for', 'draws no character whose face follows the Han order' |
 | 문서                                                               | 이 커밋들                  | 해당 없음                                                                                                                                                                                              |
 
 이전 갈래의 조각은 그 갈래의 커밋 단위 diff에서 가져왔고 갈래 끝 파일을 통째로 가져오지 않았다(A9). 이 갈래는 push 전에 몇 번 다시
@@ -225,7 +229,7 @@ A6(내보내기는 scripts, src, e2e, browser, .workshop이 실제로 읽는 것
    `public/screensaver.html`, 매니페스트, 부트스트랩. `src/`의 운영 파일 변경은 앱이 가져오지 않는 넷뿐이다(새 `public-font-contract.ts`와
    `public-font-urls.ts`, 지운 `static-page-fonts.ts`와 `locale-font-contract.ts`). 나눠 쓰는 코드는 `vite.config.ts`의 빌드
    플러그인(새 `publicFontSheets`, 지운 About 묶기, 우선순위 플러그인의 앞보기)이고, 아래 빌드 비교로 증명한다. 앱 쪽 변경은
-   `public/account-complete.css` 하나다(§2.4). 리뷰 반영이 더한 런타임 경로는 App Worker의 `/han-order.js` 캐시 줄, 디자인 시스템 두
+   로그인 완료 창이다(§2.4): I6 이후 `public/account-complete.css`, §13 이후 그 스크립트 `browser/classic-runtime/account-complete.ts`도. 리뷰 반영이 더한 런타임 경로는 App Worker의 `/han-order.js` 캐시 줄, 디자인 시스템 두
    파일, 번역 미리보기(개발 도구)이고 앱 소스가 아니다.
 2. **빌드 바이트와 모듈(정규화 비교, A4).** 첫 변경 전에 적어 둔 예상 앱 dist 차이(`expected-app-diff.md`, 2026-11-02 21:20 KST,
    첫 시험 커밋의 실패 기록 21:22 KST보다 먼저, 증거 폴더)대로 나왔다. 그 예상의 I5와 I6 줄은 이렇다.
@@ -300,13 +304,15 @@ A6(내보내기는 scripts, src, e2e, browser, .workshop이 실제로 읽는 것
   opsz 비율 4% ~ 6.5%, 1x 머리선, 네트워크 깨끗함. ja-JP와 zh-TW에서는 `/han-order.js`가 뿌리에 `ja`, `zh-hant`를 적고도 述 네 칸이
   KR, JP, SC, TC로 그린다.
 - **공개 페이지 면 실험**(따로 켜는 설정, `e2e/public-fonts/public-pages-faces.lab.ts`, 리뷰 반영 끝의 운영 빌드): 소개 en, ko, ja,
-  zh-hans, zh-hant, th, ar, he, hi, ru, el, 블로그, 히스토리, 이벤트 ko, 404, 로그인 완료 창 ko의 보이는 모든 글자(글자와 글꼴 조합마다
+  zh-hans, zh-hant, th, ar, he, hi, ru, el, 블로그, 히스토리, 이벤트 ko, 404, 로그인 완료 창 ko·ja(§13 뒤)의 보이는 모든 글자(글자와 글꼴 조합마다
   하나)를 숨긴 사본으로 읽는다. 그린 면은 그 요소 스택에서 공유 시트가 선언한 `unicode-range`에 그 글자가 드는 첫 가족이어야 하고,
   앱의 규칙(라틴·키릴·그리스 문자와 숫자 Inter, 한글 MUSIXQUARE Hangul 또는 그 가족에 없는 글자는 Noto Sans KR, 가나 Noto Sans JP,
   한자는 영어만 둔 브라우저에서 Noto Sans KR이고 일본어·중국어 사본에서는 그 페이지의 가족, Thai·아랍·히브리·데바나가리 문자는 제
-  Noto)을 따라야 한다. 코드는 기기 고정폭이라 건너뛴다. 로그인 완료 창은 기기 면만 쓴다. 세 시트와 `/han-order.js`를 한 번씩(이벤트는
-  `rest.css` 없음, 로그인 완료 창은 아무것도 없고 글꼴 파일도 없음), 오류 상태의 면 없음, 은퇴한 것 요청 없음, 390 px에서 가로 넘침
-  없음, 한국어와 영어 소개가 섞인 한 줄을 픽셀로 같게 그림. 17 / 17. 실패 증거: `rest.css`를 비우면 그 시트가 필요한 일곱 페이지(소개
+  Noto)을 따라야 한다. 코드는 기기 고정폭이라 건너뛴다. 로그인 완료 창은 그 스크립트가 뿌리에 표지를 적은 뒤에 읽는다. 세 시트와
+  `/han-order.js`를 한 번씩(이벤트는 `rest.css` 없음, 로그인 완료 창은 `/han-order.js` 없이 ko는 `first.css`와 `stacks.css`, ja는
+  `rest.css`도), 오류 상태의 면 없음, 은퇴한 것 요청 없음, 390 px에서 가로 넘침 없음, 한국어와 영어 소개가 섞인 한 줄을 픽셀로 같게
+  그림. 리뷰 반영 끝에서 17 / 17(그때 로그인 완료 창 ko는 기기 면만), §13 뒤 18 / 18(완료 창 ko는 Inter 10과 MUSIXQUARE Hangul 17,
+  ja는 Inter 9와 Noto Sans JP 29, 기기 면 0). 실패 증거: `rest.css`를 비우면 그 시트가 필요한 일곱 페이지(소개
   ja, zh-hans, zh-hant, th, ar, he, hi)가, `first.css`를 비우면 로그인 완료 창 말고 16개 모두 실패했다.
 
 ## 7. 측정
@@ -471,7 +477,8 @@ WebKit 행은 없고, 로컬 결과는 exact-main-SHA 후보를 대신하지 않
    `rest.css`를 1.5초 늦춰 쟀다: 첫 그리기 216 ms, `rest.css` 1,621 ms, 일본어 제목이 먼저 그려짐. 바탕도 JP 시트 전에 그렸으므로
    새로 막히는 것은 없고, 새로 생긴 것은 그 사이 한자의 한국어 모양이다. 언어별 URL(`/ja/about` 등)은 머리에서 받는다. 부트스트랩이
    머리에 `rest.css`를 더하는 고침은 공개 페이지의 두 번째 글꼴 로더가 되므로 하지 않았다.
-10. **로그인 완료 창의 글꼴이 기기마다 다름**(§2.4). 짧게 보이는 창이고 글자와 배치는 그대로다.
+10. **로그인 완료 창의 글자가 면을 기다림**(§13). 면이 늦으면 글자가 최대 600 ms 보이지 않고, 그 뒤에는 기기 글꼴로 보였다가 면이
+    오면 바뀐다(앱의 면을 캐시에 둔 적 없는 느린 망에서만, §13.3). 완료 신호는 그 앞에서 나간다. 실제 iPhone Safari에서는 보지 않았다.
 11. **보이는 공개 페이지 변화**(Inter 라틴 본문 1 ~ 2% 넓음, 큰 제목 3 ~ 6% 좁음, 휴대폰의 개인정보 페이지 길어짐, 히스토리 휴대폰 제목
     3 → 2줄, 번역 페이지 휴대폰 고아 글자, 디자인 시스템 단추 Arial → Inter, Google 단추 한글): 사진 없이 받아들였다(Q6).
 12. **`@starting-style`이 없는 엔진의 메뉴**(Safari < 17.5, Chrome < 117, Firefox < 129): 페이드 없이 열고 닫는다. 초점 e2e가 클릭과
@@ -511,7 +518,8 @@ WebKit 행은 없고, 로컬 결과는 exact-main-SHA 후보를 대신하지 않
    돌리지 못했다. 머지 뒤 main SHA의 Full E2E(Linux Chromium)가 그 첫 실행이고, 머지 전에 보고 싶으면 이 갈래를 push한 뒤 Full E2E를 손으로
    돌린다.
 5. **증거 폴더.** 시험 먼저 실패 기록(`*-T-fail*.log`, 스텁 실행 포함), 미리 적은 예상(`expected-app-diff.md`), 비교 결과, 로그인 완료 창
-   전후 그림(`account-complete/`), Typography 그림(`typography/`)은 이 작업 폴더의 git이 무시하는
+   전후 그림(`account-complete/`, 처음 기기 글꼴판은 `account-complete/device-font-version/`), 로그인 완료 창 시각 측정
+   (`account-complete-timing/`), Typography 그림(`typography/`)은 이 작업 폴더의 git이 무시하는
    `docs/private/public-page-fonts-2026-11-02/`에 있다. 작업 폴더를 지우기 전에 주 checkout의 `docs/private/`로 옮긴다.
 6. **머지 뒤:** `agent/public-page-fonts`(로컬과 원격)와 그 작업 폴더를 지우고, 이 열차에 접힌 로컬 갈래(이전 공개 페이지 글꼴 갈래와
    Typography 시안 갈래, 각 작업 폴더)를 거둔다.

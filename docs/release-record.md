@@ -46,7 +46,7 @@ gh run list --workflow e2e.yml --branch main --limit 3
 해결하면 근거(커밋, 실행 ID, 문서)를 PR 설명에 적고 이 목록에서 지운다. 근거
 없이 완료로 표시하지 않는다.
 
-### App 9.0.35 열차(모든 공개 페이지를 앱 글꼴 체계로, 디자인 시스템 Typography 절, 9.0.35/v808) 배포 전: 앱은 로그인 완료 창의 글꼴 말고 그대로, 공개 페이지는 오너 사진 없이 [화면 바뀜]
+### App 9.0.35 열차(모든 공개 페이지를 앱 글꼴 체계로, 디자인 시스템 Typography 절, 9.0.35/v808) 배포 전: 앱은 그대로(로그인 완료 창은 지금처럼 앱 글꼴로), 공개 페이지는 오너 사진 없이 [화면 바뀜]
 
 - [ ] 범위와 상태(오너 결정 2026-11-02 저녁, 미병합·미배포): 운영 9.0.34 / v807(아래 9.0.34 절) 다음 App 패치인 9.0.35 / v808(App
       빌드 808)로 target `app`, 업데이트 창 한 번, 바닥 795 그대로(`raise_app_build_floor` false, Developer API D1 false)다. 앱 밖의
@@ -57,20 +57,26 @@ gh run list --workflow e2e.yml --branch main --limit 3
       `rest.css`를 걸지 않아 그 시트의 글자(Thai, 아랍 문자 등)를 기기 글꼴로 그린다. 디자인 시스템에 Typography 절(시안의 'Music 음악
       音楽 おんがく'와 '야간 드라이브' 견본 포함)을 더했다. 배포되던 Pretendard 사본(`/designsystem/fonts/PretendardVariable.woff2`),
       Pretendard 시트 둘, Noto Sans Cyrillic·Greek 시트와 파일, 생성기 입력 시트의 번호 없는 면 14개를 지웠다
-      (`fonts/PretendardVariable.woff2`는 MUSIXQUARE Hangul의 원본이라 남음). 앱 쪽 변경은 로그인 완료 창(`public/account-complete.css`,
-      앱의 일부) 하나로, 그 글자가 Pretendard에서 기기 글꼴로 바뀐다([화면 바뀜], 전후 그림은 보고서 §2.4와 오너 메모). 앱 소스
+      (`fonts/PretendardVariable.woff2`는 MUSIXQUARE Hangul의 원본이라 남음). 앱 쪽 변경은 로그인 완료 창(`public/account-complete.css`와
+      `browser/classic-runtime/account-complete.ts`, 앱의 일부) 하나다. 오너 결정(2026-11-03 08:30 KST쯤, 기기 글꼴 전후 그림을 본 뒤)대로
+      지금처럼 앱의 면(Inter, MUSIXQUARE Hangul, Noto)으로 그린다: 스크립트가 완료 신호를 모두 보낸 뒤에야 공유 시트를 인쇄용으로 더해
+      불러온 뒤 화면에 쓰고(신호 시각은 Chromium과 WebKit 측정에서 늦어지지 않음), 글자는 면이 준비될 때까지 최대 600 ms 보이지 않게
+      기다린다(보고서 §13, 전후 그림은 오너 메모). 앱 소스
       그래프는 그대로다: 해시와 미리 받기 목록을 뺀 정규화 비교에서 앱 빌드 파일은 예상한 조각 접기 하나(`retryable-stylesheet.ts`가
-      `locale-fonts` 조각으로, 모듈 코드 같음)와 그에 따른 서비스 워커 설치 목록 한 항목, 로그인 완료 창 시트 말고 바탕과 같고, en·ko·ja
+      `locale-fonts` 조각으로, 모듈 코드 같음)와 그에 따른 서비스 워커 설치 목록 한 항목, 로그인 완료 창의 시트와 스크립트(그리고 그
+      스크립트가 이제 부르는 공유 시트 셋, 바이트는 그대로) 말고 바탕과 같고, en·ko·ja
       시작 화면의 글꼴 요청 목록이 같으며, 앱의 글꼴·줄 상자·탭 머리·재생목록 e2e가 통과한다(바탕의 고치지 않은 명세도 머리 빌드에서
       통과, 보고서 §5). 갈래 `agent/public-page-fonts`는 main `432d4ae7`(9.0.34의 배포 기록, 문서만, App 런타임은 운영 9.0.34
-      `cd8eaf47`와 같음) 위 커밋 열이다: 증분 I1 ~ I9(시험 먼저), 리뷰 반영 R1 ~ R8(A5의 불러오기 명세와 실험 포함, 보고서 §12), 문서.
-      운영 배포 SHA(App `cd8eaf47`, PRO room `683074bc`, 다른 넷 `71f5b96c`)와 견준 런타임 경로 변경은 버전 올리기 앞 App 86, 나머지
-      다섯 Worker 0이고 App 런타임 의존성 차이가 없어 target `app`이다(보고서 §8.3, 로컬 git 판정이라 릴리스의 부분 릴리스 검사를
+      `cd8eaf47`와 같음) 위 커밋 열이다: 증분 I1 ~ I9(시험 먼저), 리뷰 반영 R1 ~ R8(A5의 불러오기 명세와 실험 포함, 보고서 §12), 문서,
+      로그인 완료 창 고침(시험 먼저, 보고서 §13).
+      운영 배포 SHA(App `cd8eaf47`, PRO room `683074bc`, 다른 넷 `71f5b96c`)와 견준 런타임 경로 변경은 버전 올리기 앞 App 87, 나머지
+      다섯 Worker 0이고 App 런타임 의존성 차이가 없어 target `app`이다(보고서 §8.3과 §13, 로컬 git 판정이라 릴리스의 부분 릴리스 검사를
       대신하지 않음). D1, 비밀, 바인딩, Wrangler 설정, CORS, 계약 표지, 저장 데이터와 키, 신호와 중계 프레임 모양, 의존성은 바뀌지
       않는다. App Worker는 `/web-fonts/`와 `/han-order.js`를 공개 페이지 캐시 정책으로 보내고, 관리자 페이지와 블로그 글 대체에 같은
       링크를 걸며, 점검 중 우회가 세 시트와 `/han-order.js`를 들인다. 서비스 워커 원본과 `APP_SHELL`은 그대로다. 자원 소유권: 새
-      레코드가 없고 기준치는 그대로다(복구·재시도·시한·수명 흐름을 더하지 않았고, 공개 페이지의 두 번째 글꼴 로더 둘을 지움). 첫 로딩은
-      진입 839.5 KiB raw / 247.7 KiB gzip(바탕 839.6 / 247.8), eager 글꼴 0이다. 로컬 QA는 보고서 §8의 라운드 1 ~ 8이고, 버전 올리기
+      레코드가 없고 기준치는 그대로다(복구·재시도·수명 흐름을 더하지 않았고, 공개 페이지의 두 번째 글꼴 로더 둘을 지움. 로그인 완료 창의
+      600 ms 글자 기다림은 CSS 애니메이션 하나로 그 창 글자 표시의 하나뿐인 주인이고 JS 타이머가 없음). 첫 로딩은
+      진입 839.5 KiB raw / 247.7 KiB gzip(바탕 839.6 / 247.8), eager 글꼴 0이다. 로컬 QA는 보고서 §8의 라운드 1 ~ 9이고, 버전 올리기
       머리의 전체 관문은 아직이다. PR, PR CI, 자동 코드 리뷰, exact-main CI, 배포는 아직이고 로컬 결과는 exact-main-SHA 후보를 대신하지
       않는다. 배포 뒤 기록 PR이 이 절을 '배포 뒤 확인'으로 바꾼다.
       [보고서](design/public-page-fonts-2026-11-02.md),
@@ -78,8 +84,8 @@ gh run list --workflow e2e.yml --branch main --limit 3
 - [ ] 기댄 오너 결정과 규칙(게이트 아님): 오너 결정(2026-11-02 저녁, 9.0.33 보고서 §9 3의 답): 모든 공개 페이지에 앱의 글꼴 체계를
       쓴다. 공개 페이지는 부차적이라 오너의 사진 확인이 필요 없고, 확인할 것은 앱뿐이며 앱은 바뀌지 않아야 한다. Typography 절은 오너가
       따로 요청했다. 그래서 공개 페이지의 보이는 변화(Inter 라틴, 큰 제목의 opsz, 줄 수, 404의 공유 면, 디자인 시스템 단추 Arial →
-      Inter, Google 단추의 한글, 보고서 Q6과 §9 11)는 사진 없이 받아들였고, 앱에서 보이는 변화는 로그인 완료 창의 글꼴 하나라 그 전후
-      그림을 오너 메모에 붙인다. 결정 Q1 ~ Q7과 D1 ~ D10은 보고서 §3이다: 404도 공유 면(Q1), 사이트맵과 번역은 이름의 면을 늦게 받지
+      Inter, Google 단추의 한글, 보고서 Q6과 §9 11)는 사진 없이 받아들였다. 앱에서 바뀌는 것은 로그인 완료 창뿐이고, 오너가 기기 글꼴
+      전후 그림을 본 뒤 2026-11-03에 지금처럼 앱 글꼴로 두기로 정했다(보고서 §13). 그 전후 그림을 오너 메모에 붙인다. 결정 Q1 ~ Q7과 D1 ~ D10은 보고서 §3이다: 404도 공유 면(Q1), 사이트맵과 번역은 이름의 면을 늦게 받지
       않음(Q2), 소개의 한국어 제목 자간을 뺌(Q3, A11), `/designsystem/fonts/` URL이 더는 풀리지 않음(Q4), 한자 순서는 앱의 방식(Q5),
       닫힌 소개 메뉴는 `display: none`(Q7, D7), 앱 소스·서비스 워커·점검 페이지·화면 보호기·공유 그림은 그대로(D1 ~ D5), 한글 원본은
       남김(D6), `/web-fonts/`는 고정 별칭(D8), 디자인 시스템 다듬기(D9), 새 e2e는 A5대로(D10). 바로 배포 원칙(2026-10-25)대로 자동
@@ -96,8 +102,9 @@ gh run list --workflow e2e.yml --branch main --limit 3
       `build:checked`(그 안의 `guard:sw-cache-version` PASS v808과 `guard:release-identity` 'MUSIXQUARE 9.0.35; service-worker cache
       epoch v808'), 모든 `guard:*`, 자원 소유권, 핵심·Worker 커버리지, 단위 전체, `build:e2e` 뒤 critical E2E, 앱 글꼴·화면 명세
       (`font-identity`, `font-baked-pixels`, `font-line-boxes`, `tab-header-title-alignment`, 재생목록 명세 여덟), 공개 페이지 불러오기
-      명세(`public-pages-smoke`)와 공개 e2e, 운영 빌드의 후보 E2E와 따로 켜는 글꼴 실험(`playwright.public-fonts.config.ts`)이 통과하고,
-      앱 빌드 파일이 보고서 §5의 정규화 비교대로이며(버전을 지닌 파일만 더 다름), 배포 대상이 App뿐(App 86 경로와 버전 거울, 다른
+      명세(`public-pages-smoke`)와 공개 e2e, 로그인 완료 창 명세(`account-complete-fonts`, Chromium과 WebKit 줄), 운영 빌드의 후보 E2E와
+      따로 켜는 글꼴 실험(`playwright.public-fonts.config.ts`)이 통과하고,
+      앱 빌드 파일이 보고서 §5와 §13의 정규화 비교대로이며(버전을 지닌 파일만 더 다름), 배포 대상이 App뿐(App 87 경로와 버전 거울, 다른
       Worker 0)이다. 결과는 보고서의 새 QA 라운드와 PR 본문에 둔다. (3) PR CI, 자동 코드 리뷰, dispatch 직전 머지, exact-main CI
       success, 그 뒤 Release target `app`, Developer API D1 false, `raise_app_build_floor` false. 기록 PR을 열차 PR 머지와 deploy job
       시작 사이에 머지하지 않는다. (4) 배포 직후 공개 최소 빌드 상태(저장·유효 795, live App 808), `/service-worker.js`의
@@ -121,12 +128,13 @@ gh run list --workflow e2e.yml --branch main --limit 3
       업데이트를 적용할 때까지 9.0.34 그대로 돈다. 데이터, 바닥, Durable Object, D1, 다른 Worker는 바뀌지 않는다.
       [되돌리기](design/public-page-fonts-2026-11-02.md#10-되돌리기).
 - [ ] 배포 직후 확인(게이트 아님): 오너가 볼 것은 앱뿐이다. 업데이트 창을 받아들인 뒤의 앱(ko와 en 시작 화면, 재생목록, 채팅,
-      설정)이 9.0.34와 같은지, 그리고 로그인할 때 열리는 로그인 완료 창의 글자가 기기 글꼴로 바뀐 것(전후 그림은 오너 메모)이다. 공개
+      설정)이 9.0.34와 같은지, 그리고 로그인할 때 열리는 로그인 완료 창이 지금처럼 보이는지(앱 글꼴, 글자는 면이 오면 나타남, 전후 그림은
+      오너 메모)이다. 공개
       페이지는 오너 결정대로 사진 확인이 없고, 릴리스 담당이 위 배포 조건 (4)의 인증 없는 GET만 본다. 실패하면: 먼저 새 빌드인지 다시
       보고, 공개 페이지의 면이 빠지면 `/web-fonts/`의 응답과 캐시 정책을, 앱이 다르면 보고서 §5의 비교를 다시 보고 위 되돌리기대로
       앞으로 고치기를 정한다. 닫는 근거: 운영 App이 이 열차를 담은 SHA라는 배포 기록과 오너의 앱 확인.
 - [ ] 열린 항목과 확인하지 않은 것(게이트 아님): 실기기, 실제 iPhone Safari와 Android, WebKit, Linux에서는 이 열차의 공개 페이지를
-      보지 않았다(이 기계에는 Linux 컨테이너가 없어, 새 불러오기 명세와 바뀐 `font-identity`·`about-page-layout`은 머지 뒤 Full E2E에서
+      보지 않았다(로그인 완료 창만 Playwright WebKit에서 신호 시각, 프레임, 새 명세를 돌림. 이 기계에는 Linux 컨테이너가 없어, 새 불러오기 명세와 바뀐 `font-identity`·`about-page-layout`은 머지 뒤 Full E2E에서
       처음 Linux로 돈다). 계획 §5 7의 화면 픽셀 비교는 앱 파일의 바이트 비교로 대신했다. 남은 위험은 보고서 §9다: `rest.css`를 본문
       끝에 거는 페이지의 미룬·모듈 스크립트가 그 시트를 기다림(A7), 이벤트 페이지의 `rest` 글자는 기기 글꼴, `/about`이 브라우저나
       저장한 언어로 제자리에서 바뀔 때 `rest.css`가 올 때까지 한자가 한국어 모양, `src/i18n/locale-fonts.ts` 머리 주석의 낡은 파일
@@ -1302,11 +1310,12 @@ gh run list --workflow e2e.yml --branch main --limit 3
       소개와 42개 사본, 개인정보·약관·FAQ·개발자·번역·사이트맵, 블로그 목록과 App Worker가 그리는 글, 히스토리, 디자인 시스템과
       미리보기·UI 키트, 이벤트, 관리자, 404를 옮긴다. 면은 빌드가 앱의 처리된 시트를 이어 붙인 `/web-fonts/first.css`·`rest.css`와 앱
       스택의 거울 `stacks.css`로 받아 앱과 같은 `/assets/*.woff2`를 쓰고(이벤트 페이지는 그 미룬 스크립트가 기다리지 않도록 `rest.css`를 걸지 않아 그 시트의 글자를 기기 글꼴로 그림), `/han-order.js`가 앱처럼 브라우저 언어로 한자 순서를 적는다.
-      `account-complete.html`은 앱의 로그인 완료 창이라 공유 시트를 걸지 않고 Pretendard에서 기기 글꼴로 바뀐다(그 열차의 하나뿐인 앱 쪽
-      변경, 전후 그림은 git이 무시하는 증거 폴더와 오너 메모). 배포되는 `public/designsystem/fonts/` 사본과 `check-app-font.mts --dist`의 그 바이트 비교, Pretendard
+      `account-complete.html`은 앱의 로그인 완료 창이라 공유 시트를 걸지 않고, 그 스크립트가 완료 신호를 보낸 뒤에 공유 시트를 더해
+      지금처럼 앱의 면으로 그린다(그 열차의 하나뿐인 앱 쪽 변경, 오너 결정 2026-11-03, 보고서 §13, 전후 그림은 git이 무시하는 증거 폴더와
+      오너 메모). 배포되는 `public/designsystem/fonts/` 사본과 `check-app-font.mts --dist`의 그 바이트 비교, Pretendard
       시트 둘, 아무도 쓰지 않는 Noto Sans Cyrillic·Greek 시트와 파일, 생성기 입력 시트의 번호 없는 면 14개를 지운다. 공유
-      그림(`og-pretendard-bold.ttf`)과 점검 페이지는 그대로다. 로그인 완료 창의 `public/account-complete.css` 말고 앱 소스 경로는 바뀌지 않고, 앱 빌드 파일은 예상한 조각 접기 하나(모듈
-      코드는 같음)와 로그인 완료 창 시트 말고 바탕과 같으며, 앱의 글꼴 요청 목록이 같으며 글꼴·줄 상자·탭 머리·재생목록 e2e가 통과한다(바탕의 고치지 않은 명세도 머리 빌드에서 통과, 보고서
+      그림(`og-pretendard-bold.ttf`)과 점검 페이지는 그대로다. 로그인 완료 창의 시트와 스크립트 말고 앱 소스 경로는 바뀌지 않고, 앱 빌드 파일은 예상한 조각 접기 하나(모듈
+      코드는 같음)와 로그인 완료 창의 시트와 스크립트 말고 바탕과 같으며, 앱의 글꼴 요청 목록이 같으며 글꼴·줄 상자·탭 머리·재생목록 e2e가 통과한다(바탕의 고치지 않은 명세도 머리 빌드에서 통과, 보고서
       §5, 브랜치의 로컬 결과라 exact-main-SHA 후보를 대신하지 않음). 제목 자간 토큰 삭제만 디자인 시스템 거울과 공개 편집 CSS까지 가서
       디자인 시스템 페이지의 영어 견본(글자 크기 견본, 대화상자 견본 제목, EQ 값)이 2.7 ~ 4.4% 넓어졌고(질문 12, 받아들임),
       블로그·글·히스토리 페이지의 제목은 토큰을 읽지 않아 그대로다(9.0.29 보고서 §3 8, 사진은 QA 라운드 6). 공개 페이지의 Pretendard는

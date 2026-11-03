@@ -331,9 +331,13 @@ The App Worker links the same URLs (`src/i18n/public-font-urls.ts`) on the
 admin page and the blog article it renders, serves `/web-fonts/` with the
 public-page cache policy, and admits the three sheets and `/han-order.js`
 while the site is under maintenance. The service worker installs no font
-sheet. Two pages keep the device's fonts: the sign-in completion page
-`account-complete.html`, which belongs to the app and links none of the
-shared sheets, and the maintenance page the Workers render.
+sheet. The maintenance page the Workers render keeps the device's fonts. The
+sign-in completion page `account-complete.html` belongs to the app and links
+none of the shared sheets, so that nothing holds back the deferred script
+that tells the app sign-in finished: once that message is out, the script
+adds `first.css` and `stacks.css` (and `rest.css` where its language needs
+it), each for print until it has loaded, and the text waits invisible for
+its faces, 600 ms at most (`public/account-complete.css`).
 
 The train retired what only the public pages used
 (`scripts/lib/font-retirement.mts`): the deployed Pretendard copy

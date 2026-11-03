@@ -617,7 +617,7 @@ runbooks. Neither belongs in a general setup document.
   9.0.36 shipped; the train could be reverted alone only until 6C (9.0.34 / v807) merged, which happened
   at 21:06 KST the same day, so a fix now goes forward, and its own merge had ended 6B's
   standalone revert window; a manual rollback to the checkpoint's 9.0.32 App restores a lower
-  epoch and removes 9.0.34 and 9.0.35 too, so until the open lower-epoch rule is decided it is only an explicitly reviewed CLI
+  epoch and removes 9.0.34 to 9.0.36 too, so until the open lower-epoch rule is decided it is only an explicitly reviewed CLI
   rollback. Release-note line: tabs still on 9.0.32 or earlier draw Hangul they have not loaded
   yet from the 67 removed KR shards with a device font until they reload. The report lists the
   owner questions (the name, a byte option, the public-page font train), shipped with their
@@ -704,7 +704,7 @@ runbooks. Neither belongs in a general setup document.
   the next App update merged, which became 9.0.33 (`4faf38d9`, 2026-11-02 12:59 KST) rather than
   6C, so a fix now goes forward on the latest main; 6B's own merge had ended the standalone revert
   windows of 9.0.31 and 6A; a manual rollback to the checkpoint's 9.0.31 App restores a lower
-  epoch and removes 9.0.33 to 9.0.35 too, so until the open lower-epoch rule is decided it is only an
+  epoch and removes 9.0.33 to 9.0.36 too, so until the open lower-epoch rule is decided it is only an
   explicitly reviewed CLI rollback.
 - [App font line box baked into the font files, and every tab title on one baseline (2026-11-01)](design/app-font-baked-metrics-2026-11-01.md):
   released on 2026-11-01 23:17 KST in Release 41315218029 (PR #555, squash `ba28943e`) as App
@@ -780,13 +780,14 @@ runbooks. Neither belongs in a general setup document.
   9.0.29 report's device check links this report. 6B then shipped as 9.0.32 / v805 (2026-11-02
   05:34 KST, entry above), which changes neither the fonts nor the CSS, and the Hangul train as
   9.0.33 / v806 (13:12 KST, entry above), which keeps the line box and the tab header CSS and changes
-  only the Hangul faces, and the 9.0.34 / v807 train (21:20 KST, entry above) and 9.0.35 / v808 (6D,
-  2026-11-03 16:40 KST, top entry) leave the fonts, the line box and the tab header alone, so the
-  blind checks now run on 9.0.36 and the Korean line heights now
+  only the Hangul faces, and the 9.0.34 / v807 train (21:20 KST, entry above), 9.0.35 / v808 (6D,
+  2026-11-03 16:40 KST, entry above) and 9.0.36 / v809 (the public pages and the sign-in
+  completion window only, 22:22 KST, top entry) leave the app's fonts, line box and tab header
+  alone, so the blind checks now run on 9.0.36 and the Korean line heights now
   measure MUSIXQUARE Hangul. The rollback boundary is a forward revert at
   9.0.37 / v810 or later now that 9.0.32 to 9.0.36 shipped; the train could be reverted alone only until the next App update (6B)
   merged (`3ea689b9`, 2026-11-02 05:21 KST), so a fix now goes forward on the latest main, refitted over 9.0.33, which changed the same KR sheet and baked KR copies; a manual rollback to the checkpoint's 9.0.30 App
-  restores a lower epoch and removes 6B and 9.0.33 too, so until the open lower-epoch rule is decided it is only an explicitly
+  restores a lower epoch and removes 6B and 9.0.33 to 9.0.36 too, so until the open lower-epoch rule is decided it is only an explicitly
   reviewed CLI rollback.
 - [Phase 6 train 6A: one YouTube start timing home, owner queries for the start timers and one verified iframe audio restore (2026-10-31)](design/phase6-6a-start-constants-owner-queries-2026-10-31.md):
   released on 2026-11-01 05:17 KST in Release 41237978646 (PR #550, squash `3c098e9d`) as App
@@ -1020,7 +1021,7 @@ runbooks. Neither belongs in a general setup document.
   the hotfix procedure's 9.0.25 bullet names 9.0.28's merge SHA, Release ID and App version. The
   rollback boundary is a forward revert at 9.0.37 / v810 or later now that 9.0.29 to 9.0.36
   shipped, or the checkpoint's 9.0.27 App without `lower` with the PRO Worker left in place, which
-  now also removes the 9.0.29 font switch, 6A, the line box train, 6B and the Hangul faces and restores a lower service-worker epoch, so until the owner or
+  now also removes the 9.0.29 font switch, 6A, the line box train, 6B, the Hangul faces, 6C with the two light-theme changes, 6D and the public-page font train and restores a lower service-worker epoch, so until the owner or
   release owner decides the open rule in the 9.0.29 entry above, only as an explicitly reviewed CLI
   rollback under the hotfix procedure.
   Increment notes: [held SFU fallback](design/pro-system-audio-speculative-sfu-2026-10-31.md),
@@ -1145,7 +1146,7 @@ runbooks. Neither belongs in a general setup document.
   hotfix procedure's 9.0.25 bullet names 9.0.27's merge SHA, Release ID and App version. The
   rollback boundary is a forward revert at 9.0.37 / v810 or later now that 9.0.28 to 9.0.36
   shipped, or the checkpoint's 9.0.26 App without `lower` with the PRO Worker left in place, which
-  now also removes 9.0.28, the 9.0.29 font switch, 9.0.30, 9.0.31, 9.0.32 and 9.0.33 and restores a lower service-worker epoch
+  now also removes 9.0.28, the 9.0.29 font switch and 9.0.30 to 9.0.36 and restores a lower service-worker epoch
   (the same open rule as in the 9.0.28 entry).
 - [Chat keyboard and screen reader focus: the sheet's Tab cycle, a hiding pinned notice, removed messages (2026-10-30)](design/chat-keyboard-focus-2026-10-30.md):
   released on 2026-10-31 04:31 KST in the App 9.0.27 / v800 train above (owner decision 2026-10-30:

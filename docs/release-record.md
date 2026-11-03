@@ -95,7 +95,7 @@ gh run list --workflow e2e.yml --branch main --limit 3
       시험 `f808c3bc`, 런타임 `45919599`, 기록 `5340ccb6`), 6C-3(열린 점 행 `b00d79ac`, 실패 시험 `d6f7cb00`, 런타임 `767a5a08`, 기록
       `514aa8d2`), QA 라운드 8 ~ 10의 기록 `b19ccffb`, `8e6bd9ab`, `18bd0f03`, 6D-6 리뷰의 경계 행 `8a0edafb`(시험만)과 기록 `0892ef44`(QA
       라운드 11), 릴리스 준비 기록(이 항목, 아래 9.0.34·9.0.33·6B·9.0.29 절과 §4 9.0.34 항목에서 다음 App 업데이트, 6D, 6C-3, Q29를 적은
-      문장 고침, 열린 항목 셋의 연결), 버전 올리기(마지막 런타임 커밋), 보고서와 `docs/README.md`의 릴리스 준비 기록 커밋. 운영 배포
+      문장 고침, 열린 항목 셋의 연결), 버전 올리기(마지막 런타임 커밋), 보고서와 `docs/README.md`의 릴리스 준비 기록 커밋 `3e4031f5`, 로컬 전체 관문(QA 라운드 12)의 기록 커밋. 운영 배포
       SHA(App 9.0.34 `cd8eaf47`, PRO room `683074bc`, 다른 넷 `71f5b96c`)와 견준 런타임 경로 변경은 버전 올리기 앞 App 13(`src/youtube/`의
       `authority-arm.ts`, `constants.ts`, `iframe-audio.ts`, `iframe.ts`, `local-offset.ts`, `player-runtime-bridge.ts`, `player.ts`,
       `start-ownership.ts`, `zero-start-recovery.ts`, `zero-start.ts`와 `src/player/playlist.ts`, `src/pro-room/playback-authority-hooks.ts`,
@@ -117,7 +117,7 @@ gh run list --workflow e2e.yml --branch main --limit 3
       `guard:*` 37(버전 올리기를 기다리는 `guard:sw-cache-version`만 실패), critical E2E 101 / 101, YouTube Chromium spec 열 개 53 / 53,
       WebKit `setup-youtube-activation` 4 / 4, 6D-6 사진 다시 찍기를 돌렸고, 라운드 11(`8a0edafb`)은 런타임을 바꾸지 않은 시험만 경계 행
       넷과 깨끗한 빌드(라운드 10과 같은 바이트), `guard:*`, 소유권, 배포 대상을 다시 돌렸다. 버전 올리기 머리의 로컬 전체 관문(아래 배포
-      조건 (3))은 이 기록 뒤에 돈다(버전 올리기 `b0906a93`의 머리에서 릴리스 준비 때 돌린 두 버전 가드, `build:checked` 한 명령, 소유권, 배포 대상 App 17과 부분 릴리스 호환, 계약 동결 diff, 첫 로딩은 통과, 보고서 'Version', 'Deploy target', '번들 크기'). PR, PR CI, 자동 코드 리뷰, exact-main CI, 배포는 아직이고 로컬 결과는 exact-main-SHA 후보를 대신하지
+      조건 (3))은 그 기록 커밋 `3e4031f5`(런타임은 버전 올리기 `b0906a93`)에서 보고서 QA 라운드 12가 돌렸고 모두 통과했다(typecheck, lint, format, `check:workers`, `build:checked` 한 명령(`guard:sw-cache-version` PASS v808, `guard:release-identity` 9.0.35 / v808)과 `guard:*` 37, 소유권(`--report`가 QA 라운드 11과 같음), 핵심 커버리지 112 files / 4,599, Worker 커버리지 69 / 3,325, 단위 전체 두 번(756 files / 18,133. 둘째의 실패 한 행은 라운드 8, 10과 같은 릴리스 도구 시험의 시간 초과이고 그 파일을 혼자 다시 돌리면 105 / 105), critical E2E 101 / 101, YouTube Chromium spec 열 개 53 / 53, WebKit `setup-youtube-activation` 4 / 4, 운영 빌드의 후보 E2E 19 / 19, 배포 대상 App 17과 부분 릴리스 호환, 계약 동결 diff 버전 일곱 줄, 바탕의 깨끗한 빌드 대비 eager JS gzip +462 B). 그 뒤는 라운드 12의 기록 커밋(문서만)뿐이다. PR, PR CI, 자동 코드 리뷰, exact-main CI, 배포는 아직이고 로컬 결과는 exact-main-SHA 후보를 대신하지
       않는다. 배포 뒤 기록 PR이 이 절을 '배포 뒤 확인'으로 바꾼다.
       [변경·QA 보고서](design/phase6-6d-recovery-pro-arm-2026-11-02.md),
       [증분 한눈에](design/phase6-6d-recovery-pro-arm-2026-11-02.md#증분-한눈에),
@@ -165,8 +165,8 @@ gh run list --workflow e2e.yml --branch main --limit 3
       production files, `--report`가 QA 라운드 11과 같음), 핵심·Worker 커버리지, 단위 전체, `build:e2e` 뒤 critical E2E, YouTube Chromium
       spec 열 개, WebKit `setup-youtube-activation`, 운영 빌드의 후보 E2E가 통과하고, 첫 로딩(진입, eager JS, eager 전체 gzip)이 origin/main
       빌드보다 보고서 '번들 크기'의 잰 차(버전 올리기 앞 eager JS gzip +458 B, 버전 문자열 몫을 더한 버전 올리기 머리 `b0906a93`의 `build:checked` 빌드 +462 B) 밖으로 늘지 않으며, 배포 대상이 App뿐(App 13 경로와 버전 거울 넷, 다른
-      Worker 0)이고, 계약 동결 diff가 버전 일곱 줄뿐이다(`cloudflare/`는 `ADMIN_ASSET_VERSION` 한 줄). 결과는 보고서의 새 QA 라운드와 PR
-      본문에 둔다. (4) PR CI, 자동 코드 리뷰, dispatch 직전 머지, exact-main CI success, 그 뒤 Release target `app`, Developer API D1 false,
+      Worker 0)이고, 계약 동결 diff가 버전 일곱 줄뿐이다(`cloudflare/`는 `ADMIN_ASSET_VERSION` 한 줄). 결과는 보고서 QA 라운드 12와 PR
+      본문에 있다(머리 `3e4031f5`에서 모두 통과, 첫 로딩 +462 B). (4) PR CI, 자동 코드 리뷰, dispatch 직전 머지, exact-main CI success, 그 뒤 Release target `app`, Developer API D1 false,
       `raise_app_build_floor` false. 기록 PR을 열차 PR 머지와 deploy job 시작 사이에 머지하지 않는다. (5) 배포 직후 공개 최소 빌드
       상태(저장·유효 795, live App 808), `/service-worker.js`의 `CACHE_VERSION = "v808"`, `index.html`의 `/bootstrap.js?cache=v808`,
       Operations Drift Audit을 보고, 아래 배포 직후 확인을 건넨다. 머지 뒤 main SHA에서 Full E2E를 한 번 돌려 보고서에 적되 exact-main

@@ -100,7 +100,7 @@ runbooks. Neither belongs in a general setup document.
   the afternoon of 2026-11-03 to ship 6D first because the public-page font train, which the
   release record had named as 9.0.35, is still being finished; that train becomes the App update
   after it (9.0.36 / v809 planned). On branch `agent/p6-6d`,
-  thirty-seven commits on main `432d4ae7` (the App 9.0.34 / v807 release record): the thirteen
+  thirty-eight commits on main `432d4ae7` (the App 9.0.34 / v807 release record): the thirteen
   commits first built on the 6C train's tip `bdb5759a`, moved patch for patch once 6B (9.0.32 /
   v805) and 6C (9.0.34 / v807) had shipped, a tests-only commit and a comment and registry commit
   from the review of the moved branch, one record commit, 6D-6's nine commits (regression rows,
@@ -115,8 +115,9 @@ runbooks. Neither belongs in a general setup document.
   release preparation record `a5c49cc0` (the train's pre-deploy section in the release record,
   its open-item links and the sections that named the next App update), the bump `b0906a93`
   (9.0.35 / v808 in the same seven lines of six files as 9.0.34's `c44d4d2c`), the last runtime
-  commit, and a record commit for the release preparation; the bump head's full local gate, the
-  pull request, merge and release are the release owner's. 6D-1 turns the Standard guest's local zero-start recovery from a
+  commit, a record commit for the release preparation (`3e4031f5`), and QA round 12's record
+  commit for the bump head's full local gate; the pull request, merge and release are the release
+  owner's. 6D-1 turns the Standard guest's local zero-start recovery from a
   `player.ts` closure into the class `GuestZeroStartRecovery` in the new
   `src/youtube/zero-start-recovery.ts`, and the two
   recoveries' 0.35 s settle tolerance, 50 ms poll and 3 s bridge into three named exports of
@@ -235,8 +236,17 @@ runbooks. Neither belongs in a general setup document.
   version mirrors, every other target 0, no App runtime dependency change, target `app`
   partial-release compatible), the contract-freeze diff (the seven version lines; in `cloudflare/`
   only `ADMIN_ASSET_VERSION`) and the first load (+462 B eager JavaScript gzip against `432d4ae7`,
-  4 B of it the version strings) pass; the rest of the full local gate on the bump head has not run
-  yet.
+  4 B of it the version strings) pass. QA round 12 then ran the release record's full local gate on
+  the bump head's record commit `3e4031f5` (runtime of `b0906a93`, ports 5393 / 5394, retries 0,
+  `origin/main` still `432d4ae7`): types, lint, format, `check:workers`, `build:checked` as one
+  command and all 37 guards one by one (all passing, the version guards at v808 and 9.0.35), the
+  ownership check (`--report` unchanged), critical coverage 112 files / 4,599 and Worker coverage
+  69 / 3,325, the unit suite twice (756 files / 18,133 rows; the second run's one failure, a
+  timeout in the same release-tool file as rounds 8 and 10, passed when that file was rerun alone),
+  the production-candidate E2E 19 / 19, critical E2E 101 / 101, the ten local YouTube specs 53 / 53,
+  the WebKit YouTube activation spec 4 / 4, the local deploy-target judgement (App 17, every other
+  target 0) with the partial-release check, and the first load against a clean build of the base
+  (+462 B eager JavaScript gzip, the same bytes as at the release preparation).
 - [App 9.0.34 / v807 train: Phase 6 6C (one YouTube state router, one iframe audio owner and shared arm steps), no light-theme stroke on the dialog grey button and the selection bar, and lighter light-theme dividers (2026-11-02)](design/phase6-6c-router-iframe-audio-arm-steps-2026-11-02.md):
   released on 2026-11-02 21:20 KST in Release 41443521522 (PR #563, squash `cd8eaf47`) as App
   9.0.34 / v807 (App build 807, target `app`, one update dialog, two visible light-theme changes;

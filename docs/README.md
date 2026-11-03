@@ -95,7 +95,8 @@ runbooks. Neither belongs in a general setup document.
 ## Maintained evidence and completed records
 
 - [App 9.0.36 / v809 train: every public page on the app's font system, and the design system Typography section (2026-11-02)](design/public-page-fonts-2026-11-02.md):
-  prepared up to its version bump `f47d5733` (the last runtime commit), not merged or released.
+  prepared up to its version bump `f47d5733` (the last runtime commit), with the full local gate
+  passed on the bump head in QA round 13; not merged or released.
   The next App update after 9.0.35 / v808 (target `app`, one update
   dialog), on branch `agent/public-page-fonts` over main `88550bc4` (9.0.35's release record; the
   App runtime is production 9.0.35's `cfa81bdc`). It was planned as 9.0.35 / v808 until the
@@ -144,11 +145,15 @@ runbooks. Neither belongs in a general setup document.
   built page to the public page list. Before the bump every guard passed but
   `guard:sw-cache-version`; the bump `f47d5733` changes the seven version lines of 9.0.35's bump
   `b0906a93`, and on it that guard passes at v809 and `guard:release-identity` reads 9.0.36 /
-  v809. Not run: real devices, Linux (no container on the build machine; the post-merge Full E2E
-  is the first Linux run), WebKit beyond the sign-in completion window (its timing and its new
-  spec ran in Playwright WebKit), the screen pixel comparison. The full gate on the bump head
-  (with the app-unchanged proof against `88550bc4`), the pull request and the release are the
-  release owner's.
+  v809. QA round 13 ran the full local gate on the bump head `018e013a` (code `f47d5733`): all 37
+  guards, coverage, the critical, app font and screen, public, completion-window (Chromium and
+  WebKit lanes) and production candidate E2E and the labs pass; the full unit suite ran twice with
+  one git-fixture row over its own 30 s cap under load each time (105 / 105 alone, twice); against a
+  clean build of `88550bc4` the app's build files differ only as expected, the start screens' font
+  request lists are identical and the eager first load is 90 B smaller raw (35 B in gzip). Not run: real devices, Linux (no
+  container on the build machine; the post-merge Full E2E is the first Linux run), WebKit beyond
+  the sign-in completion window (its timing and its new spec ran in Playwright WebKit), the screen
+  pixel comparison. The pull request and the release are the release owner's.
 - [App 9.0.35 / v808 train: Phase 6 6D, the YouTube start recoveries in one module, the Standard host's local start wait, the PRO start tokens, the late-joining PRO device's COMMIT catch-up and one mute rule below 0.5 % master volume (2026-11-02)](design/phase6-6d-recovery-pro-arm-2026-11-02.md):
   released on 2026-11-03 16:40 KST in Release 41597588008 (PR #565, squash `cfa81bdc`) as App
   9.0.35 / v808 (App build 808, target `app`, one update dialog, the last of Phase 6's four; the bump

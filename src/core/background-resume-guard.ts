@@ -15,7 +15,9 @@
  *
  * This is also the only threshold of the background-return Sync that ends
  * every recovery (player/background-return-sync.ts): each hidden period of at
- * least this long counts as a return from the background and is synced.
+ * least this long counts as a return from the background and is synced. A
+ * shorter one is synced only for a Standard guest whose iframe the browser
+ * stopped in it, through that guest's own rendezvous (registry RO-05).
  */
 export const DEFAULT_RECOVER_THRESHOLD_MS = 1000;
 

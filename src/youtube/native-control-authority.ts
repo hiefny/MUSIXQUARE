@@ -19,7 +19,7 @@ import { isPlaybackActivityValue } from '../player/ownership.ts';
 import { routeProPlaybackCommand } from '../pro-room/playback-authority-hooks.ts';
 import { getRoomContext, hasRoomCapability } from '../rooms/authority.ts';
 import type { QueueItemId } from '../types/index.ts';
-import { YOUTUBE_FRESH_START_MAX_SEC } from './constants.ts';
+import { BACKGROUND_STOP_RETURN_GRACE_MS, YOUTUBE_FRESH_START_MAX_SEC } from './constants.ts';
 import {
   getYouTubePlayer,
   getCurrentSessionId,
@@ -96,10 +96,83 @@ let nativeSeek: { player: YouTubePlayerInstance; state: number; expiresAt: numbe
 let seekFeedback: { player: YouTubePlayerInstance; state: number } | null = null;
 let hostAdActive = false;
 
+// A Standard guest's browser stop belongs to the page's return from hidden
+// (registry RO-05). WebKit stops a hidden iframe by itself, and its PAUSED can
+// be processed while hidden or just after the page shows again.
+let hiddenSince: number | null = null;
+/** The return a PAUSED processed now could still belong to; one stop each. */
+let openReturn: { at: number; hiddenMs: number } | null = null;
+/** A stop processed while hidden, handed to the return once visible. */
+let hiddenBrowserStop = false;
+
 function resetNativeSeekObservation(): void {
   positionSample = null;
   nativeSeek = null;
   seekFeedback = null;
+}
+
+/** The background-return chain is lazy, as app.ts's return Sync step is. */
+function handBrowserStopToReturn(hiddenMs: number): void {
+  void import('../player/background-return-sync.ts')
+    .then(({ runBackgroundStopSync }) => {
+      runBackgroundStopSync(hiddenMs);
+    })
+    .catch((error: unknown) => {
+      log.warn('[YouTube Native Control] Browser-stop return Sync failed to start', error);
+    });
+}
+
+function observeReturnVisibility(): void {
+  const now = Date.now();
+  if (document.visibilityState === 'hidden') {
+    hiddenSince = now;
+    openReturn = null;
+    return;
+  }
+  if (document.visibilityState !== 'visible') return;
+  const stopped = hiddenBrowserStop;
+  hiddenBrowserStop = false;
+  // Like the background resume guard, only a hidden period seen to begin is a return.
+  if (hiddenSince === null) return;
+  const hiddenMs = now - hiddenSince;
+  hiddenSince = null;
+  openReturn = stopped ? null : { at: now, hiddenMs };
+  if (stopped) handBrowserStopToReturn(hiddenMs);
+}
+
+function forgetBrowserStop(): void {
+  hiddenBrowserStop = false;
+  openReturn = null;
+}
+
+function handleVisibilityChange(): void {
+  resetNativeSeekObservation();
+  observeReturnVisibility();
+}
+
+/**
+ * Whether a Standard guest's unowned PAUSE is the browser's stop of its
+ * hidden iframe rather than the participant's own pause. Processed while
+ * hidden, it waits for the return; within BACKGROUND_STOP_RETURN_GRACE_MS
+ * after the return, it is handed to it now. Either way it publishes no pause
+ * intent, and the return aligns the guest after it.
+ */
+function takeStandardBrowserStop(): boolean {
+  if (document.visibilityState === 'hidden') {
+    hiddenBrowserStop = true;
+    return true;
+  }
+  const lastReturn = openReturn;
+  if (
+    document.visibilityState !== 'visible' ||
+    lastReturn === null ||
+    Date.now() - lastReturn.at >= BACKGROUND_STOP_RETURN_GRACE_MS
+  ) {
+    return false;
+  }
+  openReturn = null;
+  handBrowserStopToReturn(lastReturn.hiddenMs);
+  return true;
 }
 
 function handleNativeSeekWindowBlur(): void {
@@ -417,11 +490,15 @@ function routeNativeAction(
     // A visible Standard guest's own iframe PAUSE is an explicit pause, like
     // a lock-screen or media-key PAUSE: publish the same intent so pending
     // automatic alignment retires. WebKit stops a hidden iframe by itself,
-    // so a hidden stop only records the local pause. A PRO listener's intent
-    // handler drops autoplay intent, which would pause back its next iframe
-    // PLAY before it can rejoin, so a visible PRO PAUSE only ends a pending
-    // local-output rejoin, whose next retry would release it (P4-D7 B).
-    if (document.visibilityState === 'visible') {
+    // so a hidden stop only records the local pause, and so does a Standard
+    // guest's stop processed just after the page shows again; the return
+    // aligns after either (RO-05). A PRO listener's intent handler drops
+    // autoplay intent, which would pause back its next iframe PLAY before it
+    // can rejoin, so a visible PRO PAUSE only ends a pending local-output
+    // rejoin, whose next retry would release it (P4-D7 B).
+    if (room.kind === 'standard' && takeStandardBrowserStop()) {
+      log.info('[YouTube Native Control] Took the PAUSE for a browser stop of the hidden iframe');
+    } else if (document.visibilityState === 'visible') {
       if (room.kind === 'standard') bus.emit('youtube:set-local-paused', true);
       else bus.emit('youtube:pro-listener-visible-pause');
     }
@@ -518,8 +595,10 @@ export function initYouTubeNativeControlAuthority(): void {
   nativeSeek = null;
   seekFeedback = null;
   hostAdActive = false;
-  document.removeEventListener('visibilitychange', resetNativeSeekObservation);
-  document.addEventListener('visibilitychange', resetNativeSeekObservation);
+  hiddenSince = null;
+  forgetBrowserStop();
+  document.removeEventListener('visibilitychange', handleVisibilityChange);
+  document.addEventListener('visibilitychange', handleVisibilityChange);
   window.removeEventListener('blur', handleNativeSeekWindowBlur);
   window.addEventListener('blur', handleNativeSeekWindowBlur);
   clearManagedTimer(LOCAL_REJOIN_TIMER);
@@ -529,6 +608,8 @@ export function initYouTubeNativeControlAuthority(): void {
     if (!paused) return;
     pendingLocalRejoin = null;
     clearManagedTimer(LOCAL_REJOIN_TIMER);
+    // The participant's own pause wins over a browser stop not yet aligned.
+    forgetBrowserStop();
   });
   scope.on('state:playback.mode', () => {
     positionSample = null;
@@ -539,6 +620,7 @@ export function initYouTubeNativeControlAuthority(): void {
       clearYouTubeStableControlExpectations(player);
       pendingLocalRejoin = null;
       recentNativeAction = null;
+      forgetBrowserStop();
       clearManagedTimer(LOCAL_REJOIN_TIMER);
     } else {
       ensureCurrentPlayerInstrumented();

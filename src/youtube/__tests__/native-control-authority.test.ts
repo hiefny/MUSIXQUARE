@@ -7,6 +7,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 const mocks = vi.hoisted(() => ({
   routeProPlaybackCommand: vi.fn(() => true),
   safeSend: vi.fn(() => true),
+  runBackgroundStopSync: vi.fn((_hiddenMs: number) => undefined),
 }));
 
 vi.mock('../../pro-room/playback-authority-hooks.ts', () => ({
@@ -15,6 +16,10 @@ vi.mock('../../pro-room/playback-authority-hooks.ts', () => ({
 
 vi.mock('../../network/peer.ts', () => ({
   safeSend: mocks.safeSend,
+}));
+
+vi.mock('../../player/background-return-sync.ts', () => ({
+  runBackgroundStopSync: mocks.runBackgroundStopSync,
 }));
 
 import { bus } from '../../core/events.ts';
@@ -31,6 +36,7 @@ import {
   setYtAutoplayIntent,
   type YouTubePlayerInstance,
 } from '../_state.ts';
+import { BACKGROUND_STOP_RETURN_GRACE_MS } from '../constants.ts';
 import { initYouTubeNativeControlAuthority } from '../native-control-authority.ts';
 
 const QUEUE_ITEM_ID = '00000000-0000-4000-8000-000000000001' as QueueItemId;
@@ -211,6 +217,94 @@ describe('iframe-native YouTube control authority', () => {
       }
     },
   );
+
+  describe('a Standard listener iframe PAUSE around a return from hidden (RO-05)', () => {
+    function showPage(visibility: DocumentVisibilityState): void {
+      Object.defineProperty(document, 'visibilityState', { configurable: true, value: visibility });
+      document.dispatchEvent(new Event('visibilitychange'));
+    }
+
+    function installStandardListener(): FakePlayer {
+      const player = createPlayer();
+      setState('network.appRole', 'guest');
+      setState('network.hostConn', { open: true, peer: 'host', send: vi.fn() } as never);
+      setState('network.isOperator', false);
+      setState('network.standardRoomCapabilities', []);
+      installCurrentYouTube(player);
+      return player;
+    }
+
+    afterEach(() => {
+      vi.useRealTimers();
+      Reflect.deleteProperty(document, 'visibilityState');
+    });
+
+    it.each([
+      { processed: 'while hidden', afterReturnMs: null, browserStop: true },
+      { processed: 'at the return', afterReturnMs: 0, browserStop: true },
+      {
+        processed: 'just inside the grace',
+        afterReturnMs: BACKGROUND_STOP_RETURN_GRACE_MS - 1,
+        browserStop: true,
+      },
+      {
+        processed: 'at the end of the grace',
+        afterReturnMs: BACKGROUND_STOP_RETURN_GRACE_MS,
+        browserStop: false,
+      },
+    ] as const)(
+      'takes a PAUSE processed $processed for the browser stop: $browserStop',
+      async ({ afterReturnMs, browserStop }) => {
+        vi.useFakeTimers();
+        showPage('visible');
+        const player = installStandardListener();
+        const pauseIntent = vi.fn();
+        bus.on('youtube:set-local-paused', pauseIntent);
+
+        showPage('hidden');
+        vi.advanceTimersByTime(800);
+        if (afterReturnMs === null) {
+          player.state = 2;
+          setPlaybackYouTubePaused();
+          expect(mocks.runBackgroundStopSync).not.toHaveBeenCalled();
+        }
+        showPage('visible');
+        if (afterReturnMs !== null) {
+          vi.advanceTimersByTime(afterReturnMs);
+          player.state = 2;
+          setPlaybackYouTubePaused();
+        }
+        await vi.dynamicImportSettled();
+
+        expect(isLocalYouTubePaused()).toBe(true);
+        if (browserStop) {
+          // Handed once to the return with the hidden time; no pause intent.
+          expect(mocks.runBackgroundStopSync).toHaveBeenCalledExactlyOnceWith(800);
+          expect(pauseIntent).not.toHaveBeenCalled();
+        } else {
+          expect(mocks.runBackgroundStopSync).not.toHaveBeenCalled();
+          expect(pauseIntent).toHaveBeenCalledExactlyOnceWith(true);
+        }
+      },
+    );
+
+    it('takes a visible PAUSE without an observed hidden period for the participant pause', async () => {
+      vi.useFakeTimers();
+      showPage('visible');
+      const player = installStandardListener();
+      const pauseIntent = vi.fn();
+      bus.on('youtube:set-local-paused', pauseIntent);
+
+      // A visibility event that ends no hidden period opens no grace.
+      showPage('visible');
+      player.state = 2;
+      setPlaybackYouTubePaused();
+      await vi.dynamicImportSettled();
+
+      expect(mocks.runBackgroundStopSync).not.toHaveBeenCalled();
+      expect(pauseIntent).toHaveBeenCalledExactlyOnceWith(true);
+    });
+  });
 
   it('does not promote an application-owned pauseVideo transition', () => {
     const player = createPlayer();

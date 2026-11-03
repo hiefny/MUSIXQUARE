@@ -45,6 +45,7 @@ import {
   setYouTubePlayer,
   type YouTubePlayerInstance,
 } from '../../youtube/_state.ts';
+import { BACKGROUND_STOP_RETURN_GRACE_MS } from '../../youtube/constants.ts';
 import { initYouTubeNativeControlAuthority } from '../../youtube/native-control-authority.ts';
 import { setCurrentAudioBuffer } from '../_state.ts';
 import { runBackgroundReturnSync } from '../background-return-sync.ts';
@@ -251,6 +252,16 @@ function chainAttempts(): number {
   ).length;
 }
 
+/**
+ * An iframe PAUSE processed within BACKGROUND_STOP_RETURN_GRACE_MS after a
+ * return is still the browser's stop of the hidden iframe, not the guest's own
+ * pause. Waits that grace out and returns the chain's attempts so far.
+ */
+async function waitOutBrowserStopGrace(): Promise<number> {
+  await vi.advanceTimersByTimeAsync(BACKGROUND_STOP_RETURN_GRACE_MS);
+  return mocks.rendezvous.mock.calls.length;
+}
+
 async function returnFromBackground(hiddenMs: number): Promise<void> {
   setVisibility('hidden');
   document.dispatchEvent(new Event('visibilitychange'));
@@ -347,6 +358,34 @@ describe('background-return Sync matrix', () => {
 
     expect(counts()).toEqual(NONE);
   });
+
+  it.each(['while hidden', 'just after the return'] as const)(
+    'aligns a sub-second bounce in which the browser stopped the hidden iframe, its PAUSE processed %s',
+    async (processed) => {
+      arrange('standard', 'youtube', 'guest', 'playing');
+      const player = installGuestIframe();
+      guard = installApp();
+      const pauseIntent = vi.fn();
+      bus.on('youtube:set-local-paused', pauseIntent);
+
+      setVisibility('hidden');
+      document.dispatchEvent(new Event('visibilitychange'));
+      await vi.advanceTimersByTimeAsync(400);
+      // WebKit stops the hidden iframe; its PAUSED is processed before the
+      // visible event or in the same task right after it.
+      if (processed === 'while hidden') nativeIframePause(player);
+      setVisibility('visible');
+      document.dispatchEvent(new Event('visibilitychange'));
+      if (processed === 'just after the return') nativeIframePause(player);
+      await vi.advanceTimersByTimeAsync(10_000);
+
+      // No return Sync below the threshold, but the stop starts the guest's
+      // own return chain, and it is not published as the guest's pause.
+      expect(counts()).toEqual({ ...NONE, guestRendezvous: 1 });
+      expect(chainAttempts()).toBe(1);
+      expect(pauseIntent).not.toHaveBeenCalled();
+    },
+  );
 });
 
 describe('background-return Sync ownership and coalescing', () => {
@@ -488,6 +527,7 @@ describe('background-return Sync ownership and coalescing', () => {
 
     await returnFromBackground(5_000);
     expect(mocks.rendezvous).toHaveBeenCalledOnce();
+    const attemptsBeforePause = await waitOutBrowserStopGrace();
 
     // The guest pauses from the lock screen, a media key or the iframe's own
     // controls before the next retry, and the heartbeat then arrives.
@@ -496,7 +536,29 @@ describe('background-return Sync ownership and coalescing', () => {
     mocks.rendezvous.mockReturnValue({ status: 'started' });
     await vi.advanceTimersByTimeAsync(20_000);
 
+    expect(mocks.rendezvous).toHaveBeenCalledTimes(attemptsBeforePause);
+  });
+
+  it('keeps the retry chain through the browser stop whose PAUSE is processed just after the return', async () => {
+    arrange('standard', 'youtube', 'guest', 'playing');
+    const player = installGuestIframe();
+    mocks.rendezvous.mockReturnValue({ status: 'awaiting-snapshot' });
+    guard = installApp();
+    const pauseIntent = vi.fn();
+    bus.on('youtube:set-local-paused', pauseIntent);
+
+    await returnFromBackground(5_000);
     expect(mocks.rendezvous).toHaveBeenCalledOnce();
+
+    // WebKit's stop of the hidden iframe reaches the app just after the
+    // return; then the live heartbeat arrives.
+    nativeIframePause(player);
+    expect(isLocalYouTubePaused()).toBe(true);
+    mocks.rendezvous.mockReturnValue({ status: 'started' });
+    await vi.advanceTimersByTimeAsync(20_000);
+
+    expect(pauseIntent).not.toHaveBeenCalled();
+    expect(mocks.rendezvous).toHaveBeenCalledTimes(2);
   });
 
   it('lets a lock-screen or media-key pause during the retry wait end the chain', async () => {
@@ -526,13 +588,14 @@ describe('background-return Sync ownership and coalescing', () => {
 
     await returnFromBackground(5_000);
     expect(mocks.rendezvous).toHaveBeenCalledOnce();
+    const attemptsBeforePause = await waitOutBrowserStopGrace();
 
     // ... and a new pause during the wait still wins.
     nativeIframePause(player);
     mocks.rendezvous.mockReturnValue({ status: 'started' });
     await vi.advanceTimersByTimeAsync(20_000);
 
-    expect(mocks.rendezvous).toHaveBeenCalledOnce();
+    expect(mocks.rendezvous).toHaveBeenCalledTimes(attemptsBeforePause);
   });
 
   it('still aligns a guest whose hidden iframe the browser stopped while away', async () => {

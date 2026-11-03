@@ -134,6 +134,13 @@ export const RENDEZVOUS_DRIFT_SUPPRESS_MS = 2000;
  *  cancellation; only the spacing is shared (registry RO-05). */
 export const LOCAL_OUTPUT_REALIGN_RETRY_MS = [250, 750, 1_500, 3_000, 5_000] as const;
 
+/** A Standard guest's unowned iframe PAUSE processed this soon after the page
+ *  shows again is still the browser's stop of the hidden iframe: WebKit can
+ *  deliver that PAUSED just after the return. Like a stop processed while
+ *  hidden, it ends no re-align chain, and the background-return chain aligns
+ *  after it (registry RO-05). */
+export const BACKGROUND_STOP_RETURN_GRACE_MS = 1_000;
+
 /** Delay before the single follow-up rendezvous after a buffer-gate fallback.
  *  Lands just past the rendezvous cooldown, once the live position has buffered. */
 export const STANDARD_RENDEZVOUS_FOLLOW_UP_DELAY_MS = RENDEZVOUS_COOLDOWN_MS + 250;

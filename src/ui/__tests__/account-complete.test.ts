@@ -393,6 +393,23 @@ describe('account completion fonts', () => {
     expect(html).not.toMatch(/\/web-fonts\/|\/han-order\.js|<style\b|\son[a-z]+=/iu);
   });
 
+  it('keeps the two files its completion message waits for compact', async () => {
+    // The message goes out once this sheet and the script have arrived, so on
+    // a first load with no service worker and no cache every byte of the two
+    // delays it on a slow link. The sheet ships as written (public/), so it
+    // carries no comment; the script ships minified, on one line.
+    const [stylesheet, script] = await Promise.all([
+      readFile(COMPLETION_CSS, 'utf8'),
+      completionScript(),
+    ]);
+    const comments: string[] = [];
+    postcss.parse(stylesheet).walkComments((comment) => {
+      comments.push(comment.text);
+    });
+    expect(comments).toEqual([]);
+    expect(script.trimEnd().split('\n')).toHaveLength(1);
+  });
+
   it("reads the app's stacks over the device's fonts and declares no face", async () => {
     const stylesheet = await readFile(COMPLETION_CSS, 'utf8');
     // The public pages' sheet rules: no face, no stack, no family of its own.

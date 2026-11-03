@@ -91,8 +91,10 @@ describe('strict TypeScript classic browser runtimes', () => {
   it('owns every source and stable output through one complete manifest', async () => {
     expect(CLASSIC_RUNTIME_ASSETS).toEqual([
       {
+        // The sign-in completion message waits for this script, so it ships minified.
         sourcePath: 'browser/classic-runtime/account-complete.ts',
         outputPath: 'account-complete.js',
+        minify: true,
         target: 'es2018',
       },
       {

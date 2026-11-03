@@ -108,9 +108,13 @@ runbooks. Neither belongs in a general setup document.
   holds draw with device fonts there. `/han-order.js` marks the app's Han order from the browser's
   languages. The sign-in completion page belongs to the app, the train's one app-side change: by
   the owner's decision of 2026-11-03 it keeps looking as it does today, now drawn with the app's
-  faces, which its script asks for only after it has told the app that sign-in finished (measured:
-  the message is not later in Chromium or WebKit), its text waiting for them 600 ms at most
-  (before and after pictures in the git-ignored evidence folder and the owner note). The design
+  faces, which its script asks for only after it has told the app that sign-in finished (measured
+  in Chromium and WebKit: the message leaves when it did in 9.0.34 through the service worker and
+  locally; on a first load with neither the service worker nor a cache, the two files it waits for
+  are 772 B larger in gzip, about 5 ms on an emulated 1.6 Mbps link), its text waiting for them
+  600 ms at most; 6 of its 252 copies (error copies) take one more line, as Inter is wider than
+  Pretendard's Latin (before and after pictures in the git-ignored evidence folder and the owner
+  note). The design
   system gains the Typography section on that delivery; its Korean 述 cell draws Noto Sans KR in
   any browser. The deployed Pretendard copy, the Pretendard sheets, the unused Noto Sans Cyrillic
   and Greek files and 14 unnumbered generator-input faces are deleted;
@@ -120,7 +124,8 @@ runbooks. Neither belongs in a general setup document.
   app source path changed except the sign-in completion page's sheet and script; with content
   hashes stripped, the app's build files equal the base's but for the one expected chunk fold
   (`retryable-stylesheet.ts` into `locale-fonts`, module code identical), its service worker
-  install entry, that page's sheet and script, and the three shared sheets its script now names;
+  install entry, that page's sheet and script, the Pretendard file that sheet no longer names, and
+  the three shared sheets its script now names;
   the app's font request lists for the en, ko and ja start screens are identical; the app's font,
   line-box, tab-header and playlist E2E specs pass, and the base's unmodified specs pass on the
   head build. A light load check of every public page joins

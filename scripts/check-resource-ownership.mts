@@ -613,7 +613,8 @@ const AUDIO_CONTEXT_NATIVE_CALL_BASELINE: Baseline = new Map<string, Allowance>(
 ]);
 
 // ── CHECK 6 beside it: indirect AudioContext resume callers (RO-01) ──────
-// Measured on main cd8eaf47 (App 9.0.34), 2026-11-02 (Phase 7 T1).
+// Measured on main cd8eaf47 (App 9.0.34), 2026-11-02 (Phase 7 T1), and again on
+// main 34dbe592 (App 9.0.36), 2026-11-04: the same counts in the same files.
 
 /**
  * RO-01: the functions of the AudioContext singleton that call native

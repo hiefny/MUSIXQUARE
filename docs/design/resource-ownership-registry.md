@@ -3622,7 +3622,8 @@ entry needs the owner's acceptance and is not implied by this registry.
   `resume()` in `app.ts`), and since Phase 7 T1 the ratchet beside it pins, per file, the callers
   of the three `src/audio/context.ts` functions that call native `resume()` for their caller
   (`ensureRunning`, `restartAudioContextFromGesture`, `probeAudioContextHealth`). On `cd8eaf47`
-  the app creates its one AudioContext in one place (`getAudioContext` in `src/audio/context.ts`),
+  (App 9.0.34), and again on `34dbe592` (App 9.0.36) on 2026-11-04, the app creates its one
+  AudioContext in one place (`getAudioContext` in `src/audio/context.ts`),
   has no `OfflineAudioContext`, never calls `close()` on it and never takes its `resume` or
   `suspend` as a reference (`.bind`, `.call`, destructuring). A type-resolved form would build a
   TypeScript program in the CI guard step to find receivers that do not exist.
@@ -4276,7 +4277,8 @@ and unrelated strings never count, and every baseline is an exact count or list 
    call, a namespace member, the function passed on or placed in an object, a string key
    (`context['ensureRunning']`) and a rename (an import or export specifier, a destructuring),
    whose own calls then go uncounted, and a local function with one of these names counts too.
-   Exact on 2026-11-02: `ensureRunning` 4
+   Exact on 2026-11-02 (main `cd8eaf47`) and again on 2026-11-04 (main `34dbe592`, App 9.0.36):
+   `ensureRunning` 4
    (`src/audio/engine.ts` 2, `src/player/decode.ts` 1, `src/player/transport.ts` 1),
    `restartAudioContextFromGesture` 2 (`src/app.ts`, `src/audio/context-recovery.ts`) and
    `probeAudioContextHealth` 5 (`src/app.ts`, `src/audio/context-recovery.ts`,
@@ -4284,7 +4286,7 @@ and unrelated strings never count, and every baseline is an exact count or list 
    moves the dialog, Media Session and transport callers into the owner and lowers these counts in
    each step's change; a count that rises in `context-recovery.ts` updates RO-01 and RO-44 in the
    same change. `initAudio`, which reaches `ensureRunning` through the engine, is reported only (12
-   uses on 2026-11-02: 11 calls, mostly the system-audio routes and the file paths, and the
+   uses on both dates: 11 calls, mostly the system-audio routes and the file paths, and the
    development debug object), because a ratchet there would rub every system-audio change.
    `--report` lists every counted use and every `initAudio` use with its function.
 7. **Developer API authority fence writers, per function** (RO-25): a string or template literal

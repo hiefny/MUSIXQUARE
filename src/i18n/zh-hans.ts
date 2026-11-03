@@ -720,7 +720,7 @@ const zhHans: Record<I18nKey, string> = {
   'pro.owner_only': '只有房主可以执行此操作',
   'pro.connect_failed': '无法连接到 PRO 房间',
   'pro.room_full': '此 PRO 房间已满',
-  'pro.room_full_detail': '最多可容纳 100 台设备（包括房主）\n始终为房主保留一个位置',
+  'pro.room_full_detail': '最多可容纳 100 台设备（包括房主），并始终为房主保留一个位置',
   'pro.join_rate_limited': '加入尝试次数过多\n请在 {{count}} 分钟后重试',
   'pro.join_rate_limited_later': '加入尝试次数过多\n请稍后重试',
   'pro.active_tab_title': '之前的连接仍然存在',

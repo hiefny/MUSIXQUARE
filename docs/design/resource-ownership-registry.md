@@ -3108,7 +3108,8 @@ RO-54 accepted-exception
 - **Target single owner:** one navigation owner in `src/core/session-reset.ts` with one state
   type, one queue and exactly-once settlement; `document-reload.ts` keeps only the PRO claim fence.
 - **Allowed requesters:** the callers above, through the owner. `app.ts` wires the owner's
-  back-forward cache recovery once (`initPageNavigation`: the role, the reload message, the log).
+  back-forward cache recovery once (`initPageNavigation`: the role, the reload message, the log
+  and, since Phase 7 7A-1, the `onPageHide` callback).
 - **Lifecycle operations:** schedule a reset or reload, navigate, recover, restore.
 - **Deadline owner:** `session-reset.ts`: `NAVIGATION_PREPARE_TIMEOUT_MS` (2.5 s) for a prepare
   step, then `NAVIGATION_COMMIT_TIMEOUT_MS` (2 s) from the final navigation call.

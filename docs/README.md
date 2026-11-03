@@ -98,10 +98,11 @@ runbooks. Neither belongs in a general setup document.
 
 - [Phase 7 train 7A: on-device audio recovery counts in /debug sync and a behaviour-neutral recovery cleanup (2026-11-03)](design/phase7-7a-audio-recovery-counters-2026-11-03.md):
   prepared, not merged or released. The first of the three Phase 7 App updates (owner decision Q2)
-  on branch `agent/p7-7a`: ten commits on `agent/p7-t1` (the release-free Phase 7 T0 second pull
-  request and T1, tip `56d4e2dd`, on main `432d4ae7`) and one record commit; the version bump, the
-  release-record entry and the release are the release owner's, after Phase 6 6D has shipped, been
-  recorded and passed its post-merge Full E2E. 7A-2 gives the AudioContext recovery one timing home,
+  on branch `agent/p7-7a`: twelve commits on `agent/p7-t1` (the release-free Phase 7 T0 second pull
+  request and T1 with its review fixes, tip `42819c58`, on main `432d4ae7`) and two record commits;
+  the version bump, the release-record entry and the release are the release owner's, after Phase 6
+  6D has shipped, been recorded and passed its post-merge Full E2E and its post-deploy smoke. 7A-2
+  gives the AudioContext recovery one timing home,
   the new leaf `src/audio/context-protocol.ts` (not `src/audio/constants.ts`, which sits in another
   eager chunk), and one prepared-state predicate; 7A-3 deletes the write-only `fallbackEligible` and
   `fallbackClaimed` and the unused reason `'stale-play-lock'`; 7A-4 makes `attemptResume` a required
@@ -117,16 +118,24 @@ runbooks. Neither belongs in a general setup document.
   T0 second pull request's files and the local Chromium audio lab pass byte for byte (lab observations
   equal to the base with timings stripped), and the T0 known-gaps list stays as it is. The guard counts
   are unchanged (native 11; indirect 4 / 2 / 5); the RO-01 timing contract gains its scalar home
-  (report-only pairs 45 to 38). First load +714 B eager JavaScript gzip: 7A-1 +903 B, over the
-  +300 B increment cap even without its three optional parts (+580 B), an owner question; the four
-  neutral increments −189 B; the Phase 7 total is judged after the last train. QA rounds 1 to 3 ran
+  (report-only pairs 45 to 38). First load +710 B eager JavaScript gzip (+714 B before the review
+  fixes, whose −4 B are hashed lazy chunk names): 7A-1 +903 B, over the +300 B increment cap even
+  without its three optional parts (+580 B), an owner question; the four neutral increments −189 B;
+  the Phase 7 total is judged after the last train. QA rounds 1 to 3 ran
   on the first base `cd8eaf47`; round 4 moved the stack onto `432d4ae7` with all sixteen patches
   identical; round 5 ran the full local gate on code tip `dd758372` (types, lint, format,
   `build:checked` step by step with only `guard:sw-cache-version` failing for the pending bump, the
   production candidate 19 / 19, every guard, critical coverage 4,504 and Worker coverage 3,325, the
   unit suite 18,134 of 18,135 with one release-tool timeout passing alone, critical E2E 101 / 101,
   the recovery specs and the audio lab 17 / 17) and the static subset on `56d4e2dd`; round 6 took
-  real `/debug sync` pictures, phone and desktop, on the code tip.
+  real `/debug sync` pictures, phone and desktop, on the code tip. Round 7 checked the record
+  commit's documents, and round 8 was an independent review in two lenses (sound, screen and counts;
+  plan, ownership and records) with no high finding and no sound or timing change found. Round 9
+  applied its medium (this report's unfinished documents round and table padding) and its lows: a
+  single race now reads '1 race watched' in `/debug sync` (its own test-first pair, code tip
+  `a4d4d383`), the T1 indirect-resume ratchet also counts calls inside `src/audio/context.ts`
+  (zero today, its own test-first pair), and record fixes in the registry, the report and this
+  entry; the pictures with the singular are retaken in the next check.
 - [App 9.0.36 / v809 train: every public page on the app's font system, and the design system Typography section (2026-11-02)](design/public-page-fonts-2026-11-02.md):
   released on 2026-11-03 22:22 KST in Release 41643392133 (PR #567, squash `6f9cf6f8`) as App
   9.0.36 / v809 (App build 809, target `app`, one update dialog; the bump `f47d5733` is the last

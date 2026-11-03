@@ -262,7 +262,8 @@ test.describe('YouTube search loading and quick add', () => {
       await expect(primary).toBeDisabled();
       await expect(primary).toHaveAttribute('aria-busy', 'true');
       await expect(results).toHaveAttribute('aria-busy', 'true');
-      expect(requests).toBe(1);
+      // The request leaves after the busy state is drawn.
+      await expect.poll(() => requests).toBe(1);
       releaseSearch();
       await expect(results.locator('button')).toHaveCount(RESULTS.length);
       await expect(primary).toHaveText('Add to Playlist');

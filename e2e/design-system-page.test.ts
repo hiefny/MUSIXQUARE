@@ -365,11 +365,14 @@ test('keeps the Design System rail and examples coherent at every layout size', 
         },
         interfacePatterns: {
           tabCount: document.querySelectorAll('.settings-subtab-sample .subtab-pill').length,
+          // The composer and the search box sit in the Input fields card.
           composerWidth: document
-            .querySelector<HTMLElement>('.chat-input-wrapper')!
+            .querySelector<HTMLElement>(
+              '.input-comp .chat-input-wrapper:not(.sync-manual-input-wrapper)',
+            )!
             .getBoundingClientRect().width,
           searchWidth: document
-            .querySelector<HTMLElement>('.yt-search-input-wrapper')!
+            .querySelector<HTMLElement>('.input-comp .yt-search-input-wrapper')!
             .getBoundingClientRect().width,
           spinnerSize: document
             .querySelector<HTMLElement>('.material-elastic-spinner--large')!
@@ -576,7 +579,8 @@ test('keeps the Design System rail and examples coherent at every layout size', 
     expect(components.wrappersFlat).toBe(true);
     expect(components.iconSamplesTransparent).toBe(true);
     expect(components.iconTilesTransparent).toBe(true);
-    expect(components.componentDividers.horizontal).toHaveLength(4);
+    // The Input fields card takes its own row (owner decision 2026-11-03).
+    expect(components.componentDividers.horizontal).toHaveLength(5);
     expect(
       components.componentDividers.horizontal.every(
         ({ backgroundColor, height, width }) =>
@@ -709,6 +713,153 @@ test('keeps the Design System rail and examples coherent at every layout size', 
     });
     expect(components.dialogRadii).toEqual(['999px', '999px']);
     expect(components.toastBeforeDialog).toBe(true);
+    // The Input fields card (owner decision 2026-11-03): the app's one field
+    // family, drawn by the page's mirror of css/style.css.
+    await page.locator('.input-comp').scrollIntoViewIfNeeded();
+    const inputFields = await page.evaluate(() => {
+      const card = document.querySelector<HTMLElement>('.input-comp')!;
+      const frame = (title: string): HTMLElement =>
+        [...card.querySelectorAll<HTMLElement>('.input-specimen')].find(
+          (candidate) => candidate.querySelector('.block-title')?.textContent?.trim() === title,
+        )!;
+      const rect = (element: Element): DOMRect => element.getBoundingClientRect();
+      const line = (field: Element, below: Element) => {
+        const style = getComputedStyle(below);
+        return {
+          color: style.color,
+          fontSize: style.fontSize,
+          fontWeight: style.fontWeight,
+          gap: Math.round((rect(below).top - rect(field).bottom) * 100) / 100,
+          height: rect(below).height,
+          lineHeight: style.lineHeight,
+          textAlign: style.textAlign,
+        };
+      };
+      const underline = (element: Element): string => getComputedStyle(element).borderBottomColor;
+      const code = frame('Code entry');
+      const codeInput = code.querySelector('.setup-join-input')!;
+      const rest = frame('Rest');
+      const restInput = rest.querySelector('.dialog-input')!;
+      const empty = frame('Empty');
+      const emptyWrapper = empty.querySelector('.yt-search-input-wrapper')!;
+      const strip = ['Empty', 'Typing', 'Searching', 'Result picked', 'Search failed'].map(frame);
+      const message = frame('Message').querySelector('.chat-input-wrapper')!;
+      const label = code.querySelector('.setup-code-label')!;
+      return {
+        cardWidth: rect(card).width,
+        codeLabel: {
+          fontSize: getComputedStyle(label).fontSize,
+          fontWeight: getComputedStyle(label).fontWeight,
+          gap: Math.round((rect(codeInput).top - rect(label).bottom) * 100) / 100,
+          textTransform: getComputedStyle(label).textTransform,
+        },
+        codeLine: line(codeInput, code.querySelector('.setup-inline-error')!),
+        displayL: getComputedStyle(frame('Display L').querySelector('.setup-join-input')!).fontSize,
+        entryBox: rect(frame('Entry').querySelector('.yt-search-input-wrapper')!).height,
+        frameOverflow: [...card.querySelectorAll<HTMLElement>('.input-specimen')]
+          .filter((specimen) => specimen.scrollWidth > specimen.clientWidth + 1)
+          .map((specimen) => specimen.querySelector('.block-title')?.textContent?.trim()),
+        gridWidth: rect(document.querySelector('.component-grid')!).width,
+        joiningColor: getComputedStyle(frame('Joining').querySelector('.setup-join-input')!).color,
+        messageRow: rect(message).height,
+        nicknameBox: rect(restInput).height,
+        nicknameHint: line(restInput, rest.querySelector('.dialog-hint')!),
+        pinBox: rect(frame('Display M').querySelector('.dialog-input-segment')!).height,
+        primary: strip.map((specimen) => {
+          const button = specimen.querySelector<HTMLButtonElement>('.btn-ob-primary')!;
+          return { label: button.textContent?.trim(), opacity: getComputedStyle(button).opacity };
+        }),
+        magnifiers: strip.map(
+          (specimen) => getComputedStyle(specimen.querySelector('.yt-search-submit-btn')!).color,
+        ),
+        stripLine: line(emptyWrapper, empty.querySelector('.yt-preview-meta')!),
+        stripLineWeights: strip.map(
+          (specimen) => getComputedStyle(specimen.querySelector('.yt-preview-meta')!).fontWeight,
+        ),
+        syncRow: rect(frame('Display M').querySelector('.sync-manual-input-wrapper')!).height,
+        underlines: {
+          connection: underline(frame('Connection problem').querySelector('.setup-join-input')!),
+          error: underline(frame('Error').querySelector('.dialog-input')!),
+          focus: underline(frame('Focus').querySelector('.dialog-input')!),
+          rest: underline(restInput),
+          searchFailed: underline(
+            frame('Search failed').querySelector('.yt-search-input-wrapper')!,
+          ),
+          wrongCode: underline(frame('Wrong code').querySelector('.setup-join-input')!),
+        },
+        wrongCodeLine: rect(frame('Wrong code').querySelector('.setup-inline-error')!).height,
+      };
+    });
+    const SURFACE_3 = 'rgb(64, 64, 64)';
+    const PRIMARY = 'rgb(59, 130, 246)';
+    const DANGER = 'rgb(255, 59, 48)';
+    expect(Math.abs(inputFields.cardWidth - inputFields.gridWidth)).toBeLessThan(1);
+    expect(inputFields.frameOverflow).toEqual([]);
+    // The line under a field: 12px on an 18px line, 8px under the underline.
+    expect(inputFields.codeLine).toEqual({
+      color: DANGER,
+      fontSize: '12px',
+      fontWeight: '600',
+      gap: 8,
+      height: 18,
+      lineHeight: '18px',
+      textAlign: 'center',
+    });
+    expect(inputFields.nicknameHint).toEqual({
+      color: 'rgb(161, 161, 170)',
+      fontSize: '12px',
+      fontWeight: '400',
+      gap: 8,
+      height: 18,
+      lineHeight: '18px',
+      textAlign: 'start',
+    });
+    expect(inputFields.stripLine).toEqual(
+      expect.objectContaining({
+        fontSize: '12px',
+        fontWeight: '400',
+        gap: 8,
+        height: 18,
+        lineHeight: '18px',
+      }),
+    );
+    // One sentence per line: the refused code's line holds two lines.
+    expect(inputFields.wrongCodeLine).toBe(36);
+    expect(inputFields.codeLabel).toEqual({
+      fontSize: '13px',
+      fontWeight: '600',
+      gap: 8,
+      textTransform: 'none',
+    });
+    // The size steps.
+    expect(inputFields.displayL).toBe('32px');
+    expect(inputFields.pinBox).toBe(50);
+    expect(inputFields.syncRow).toBe(50);
+    expect(inputFields.nicknameBox).toBe(46);
+    expect(inputFields.entryBox).toBe(46);
+    expect(inputFields.messageRow).toBe(48);
+    // The underline turns red only for a wrong value.
+    expect(inputFields.underlines).toEqual({
+      connection: SURFACE_3,
+      error: DANGER,
+      focus: PRIMARY,
+      rest: SURFACE_3,
+      searchFailed: SURFACE_3,
+      wrongCode: DANGER,
+    });
+    // Joining: the digits at half strength (--text-main mixed 50% with transparent).
+    expect(inputFields.joiningColor).toBe('color(srgb 0.933333 0.933333 0.933333 / 0.5)');
+    // The magnifier is --surface-3 until it can act; the big button dims
+    // while it cannot act.
+    expect(inputFields.magnifiers).toEqual([SURFACE_3, PRIMARY, SURFACE_3, PRIMARY, PRIMARY]);
+    expect(inputFields.primary).toEqual([
+      { label: 'Add to Playlist', opacity: '0.5' },
+      { label: 'Search', opacity: '1' },
+      { label: 'Please wait...', opacity: '0.5' },
+      { label: 'Add to Playlist', opacity: '1' },
+      { label: 'Search', opacity: '1' },
+    ]);
+    expect(inputFields.stripLineWeights).toEqual(['400', '400', '600', '400', '600']);
     if (viewport.width >= 900) {
       expect(
         components.componentDividers.vertical.every(

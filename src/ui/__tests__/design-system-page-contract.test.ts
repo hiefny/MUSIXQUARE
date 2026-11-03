@@ -4,6 +4,7 @@
 import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { beforeAll, describe, expect, it } from 'vitest';
+import en from '../../i18n/en.ts';
 
 const PLAY_PATH = 'M8 5v14l11-7z';
 const PLAY_MEDIA_PATH =
@@ -636,7 +637,9 @@ describe('public design-system page contract', () => {
         (child) => child.className,
       ),
     ).toEqual(['comp playlist-comp', 'comp device-comp']);
-    expect(rowDividers).toHaveLength(4);
+    // Five rows since the Input fields card (owner decision 2026-11-03) took
+    // its own full-width row after the chat surfaces and settings tabs.
+    expect(rowDividers).toHaveLength(5);
     expect(rowDividers.every((divider) => divider.getAttribute('aria-hidden') === 'true')).toBe(
       true,
     );
@@ -674,7 +677,8 @@ describe('public design-system page contract', () => {
     const tabs = [
       ...components.querySelectorAll<HTMLButtonElement>('.settings-subtab-sample button'),
     ];
-    const composer = components.querySelector<HTMLElement>('.chat-input');
+    // The message composer, not the manual sync value that shares .chat-input.
+    const composer = components.querySelector<HTMLElement>('.chat-input:not(.sync-manual-input)');
     const search = components.querySelector<HTMLElement>('.yt-intro-text');
     const devices = [...components.querySelectorAll<HTMLElement>('.device-row-sample')];
     const administratorGrants = [
@@ -742,7 +746,9 @@ describe('public design-system page contract', () => {
     ]);
     expect(tabs.filter((tab) => tab.getAttribute('aria-selected') === 'true')).toHaveLength(1);
     expect(composer?.getAttribute('contenteditable')).toBe('true');
-    expect(composer?.getAttribute('data-placeholder')).toBe('Message or /command');
+    // The app's own placeholder (chat.placeholder), as the Input fields card
+    // shows it (owner decision 2026-11-03).
+    expect(composer?.getAttribute('data-placeholder')).toBe("Message or '/' for commands...");
     expect(search?.getAttribute('contenteditable')).toBe('true');
     expect(search?.textContent?.trim()).toBe('bach cello suite');
     expect(components.querySelector('.material-elastic-spinner--large circle')).toBeTruthy();
@@ -882,6 +888,405 @@ describe('public design-system page contract', () => {
             normalizedPath(CLOSE_PATH),
       ),
     ).toBe(true);
+  });
+
+  it('shows the one field family in an Input fields card after the settings tabs', () => {
+    // Owner decision (2026-11-03, the input system): every text field in the
+    // app is one quiet underline field in three size steps with one line under
+    // it. The old "Text input & settings tabs" card splits: the settings tabs
+    // keep their card beside the chat surfaces, and a full-width Input fields
+    // card follows a row divider. Its specimens use the app's class names and
+    // English copy; field-family-contract.test.ts pins the mirrored values.
+    const components = sectionWithHeading('Components');
+    const text = (element: Element | null | undefined): string =>
+      (element?.textContent ?? '').replace(/\s+/gu, ' ').trim();
+    const tabsCard = components.querySelector<HTMLElement>('.interface-comp');
+    const card = components.querySelector<HTMLElement>('.input-comp')!;
+    expect(text(tabsCard?.querySelector(':scope > .lbl'))).toBe('Settings tabs');
+    expect(tabsCard?.querySelectorAll('.settings-subtab-sample .subtab-pill')).toHaveLength(4);
+    expect(
+      tabsCard?.querySelector(
+        '.component-subsection, .chat-input-wrapper, .yt-search-input-wrapper',
+      ),
+    ).toBeNull();
+    expect(designSource).not.toContain('Text input &amp; settings tabs');
+    expect(tabsCard?.nextElementSibling?.className).toBe('component-row-divider');
+    expect(tabsCard?.nextElementSibling?.nextElementSibling).toBe(card);
+    expect(card.className).toBe('comp input-comp');
+    expect(card.nextElementSibling?.className).toBe('component-row-divider');
+    expect(designStylesheet).toMatch(
+      /\.component-list-layout,\s*\.input-comp,\s*\.loading-comp\s*\{\s*grid-column:\s*1 \/ -1;/u,
+    );
+    expect(text(card.querySelector(':scope > .lbl'))).toBe('Input fields');
+    expect(text(card.querySelector(':scope > .section-intro'))).toBe(
+      'One field family. A 2px underline under the value, an optional label above and one line below. Fields differ only by size step.',
+    );
+    const subsections = [...card.querySelectorAll<HTMLElement>(':scope > .component-subsection')];
+    expect(
+      subsections.map((part) => text(part.querySelector(':scope > .component-subtitle'))),
+    ).toEqual(['Anatomy', 'Size steps', 'States', 'Fields with buttons', 'Spec', 'Rules']);
+    const [anatomy, steps, states, buttons, spec, rules] = subsections;
+    for (const appClass of [
+      '.setup-join-input',
+      '.dialog-input',
+      '.dialog-input-split',
+      '.dialog-input-segment',
+      '.yt-search-input-wrapper',
+      '.chat-input-wrapper',
+      '.setup-inline-error',
+      '.dialog-hint',
+      '.yt-preview-meta',
+      '.setup-code-label',
+      '.sync-col-label',
+    ]) {
+      expect(card.querySelector(appClass), appClass).toBeTruthy();
+    }
+    const frames = (part: HTMLElement | undefined, scope = ''): HTMLElement[] => [
+      ...(part?.querySelectorAll<HTMLElement>(`${scope} .input-specimen`.trim()) ?? []),
+    ];
+    const titles = (list: HTMLElement[]): string[] =>
+      list.map((frame) => text(frame.querySelector(':scope > .block-title')));
+    const tags = (frame: HTMLElement): string[] =>
+      [...frame.querySelectorAll(':scope > .spec > .tag')].map((tag) => text(tag));
+
+    // Anatomy: a code entry (label, display L box, centred line) and a text
+    // entry (the dialog sentence, the entry box, the hint), with the spacing.
+    const anatomyFrames = frames(anatomy);
+    expect(titles(anatomyFrames)).toEqual(['Code entry', 'Text entry']);
+    const [codeEntry, textEntry] = anatomyFrames as [HTMLElement, HTMLElement];
+    const anatomyCode = codeEntry.querySelector<HTMLInputElement>('input.setup-join-input');
+    expect(text(codeEntry.querySelector('.setup-code-label'))).toBe(en['setup.enter_code_connect']);
+    expect(anatomyCode?.placeholder).toBe('000000');
+    expect(anatomyCode?.getAttribute('aria-invalid')).toBe('true');
+    expect(text(codeEntry.querySelector('.setup-inline-error'))).toBe(en['setup.six_digit_enter']);
+    expect(tags(codeEntry)).toEqual(['8', '56', '8', '18']);
+    const textBox = textEntry.querySelector<HTMLElement>('.dialog-message > .dialog-input');
+    expect(textEntry.querySelector('.dialog-message')?.firstChild?.textContent?.trim()).toBe(
+      en['account.nickname_message'],
+    );
+    expect(textBox?.textContent).toBe('');
+    expect(textBox?.getAttribute('data-placeholder')).toBe(en['account.nickname_placeholder']);
+    expect(text(textBox?.nextElementSibling)).toBe(en['account.nickname_hint']);
+    expect(textBox?.nextElementSibling?.className).toBe('dialog-hint');
+    expect(tags(textEntry)).toEqual(['46', '8', '18']);
+
+    // Size steps: display L, display M (PIN halves and manual sync) and entry.
+    const stepFrames = frames(steps);
+    expect(titles(stepFrames)).toEqual(['Display L', 'Display M', 'Entry']);
+    const [displayL, displayM, entry] = stepFrames as [HTMLElement, HTMLElement, HTMLElement];
+    expect(displayL.querySelector<HTMLInputElement>('input.setup-join-input')?.value).toBe(
+      '000000',
+    );
+    expect(tags(displayL)).toEqual(['32 / 700', '24 / 700 / 32']);
+    expect(
+      [
+        ...displayM.querySelectorAll<HTMLInputElement>(
+          '.dialog-input-split > .dialog-input-segment',
+        ),
+      ].map((segment) => segment.value),
+    ).toEqual(['1234', '5678']);
+    expect(text(displayM.querySelector('.dialog-input-split > .dialog-input-separator'))).toBe('-');
+    expect(text(displayM.querySelector('.sync-manual-display > .sync-col-label'))).toBe(
+      en['player.manual_sync_label'],
+    );
+    expect(
+      text(
+        displayM.querySelector(
+          '.sync-manual-display > .chat-input-wrapper.sync-manual-input-wrapper > .chat-input.sync-col-value.sync-manual-input',
+        ),
+      ),
+    ).toBe('+40');
+    expect(tags(displayM)).toEqual(['24 / 700 / 32', '13 / 600']);
+    expect(text(entry.querySelector('.yt-search-input-wrapper > .yt-intro-text'))).toBe(
+      'bach cello suite',
+    );
+    expect(tags(entry)).toEqual(['16 / 400 / 20', '46']);
+
+    // States: five nickname frames, then the code's value error, a connection
+    // problem that paints only the line, and the joining fade.
+    const stateFrames = frames(states);
+    expect(titles(stateFrames)).toEqual([
+      'Rest',
+      'Focus',
+      'Filled',
+      'Error',
+      'Disabled',
+      'Wrong code',
+      'Connection problem',
+      'Joining',
+    ]);
+    const nickname = stateFrames.slice(0, 5).map((frame) => {
+      const box = frame.querySelector<HTMLElement>('.dialog-input')!;
+      const hint = frame.querySelector<HTMLElement>(':scope > .dialog-hint');
+      return {
+        clear: frame
+          .querySelector('.input-clear-box > .clearable-editor-button')
+          ?.getAttribute('aria-label'),
+        disabled: box.getAttribute('aria-disabled'),
+        editable: box.getAttribute('contenteditable'),
+        error: hint?.classList.contains('error'),
+        hint: text(hint),
+        invalid: box.classList.contains('invalid') && box.getAttribute('aria-invalid') === 'true',
+        placeholder: box.getAttribute('data-placeholder'),
+        state: box.dataset.state,
+        value: text(box),
+      };
+    });
+    const restHint = en['account.nickname_hint'];
+    const nicknamePlaceholder = en['account.nickname_placeholder'];
+    const nicknameRow = (overrides: Partial<(typeof nickname)[number]>) => ({
+      clear: undefined,
+      disabled: null,
+      editable: 'true',
+      error: false,
+      hint: restHint,
+      invalid: false,
+      placeholder: nicknamePlaceholder,
+      state: undefined,
+      value: '',
+      ...overrides,
+    });
+    expect(nickname).toEqual([
+      nicknameRow({}),
+      nicknameRow({ state: 'focus' }),
+      // The app's nickname rule refuses spaces (account.nickname_whitespace).
+      nicknameRow({ clear: en['common.clear_input'], placeholder: null, value: 'Studio3' }),
+      nicknameRow({ error: true, hint: en['account.nickname_required'], invalid: true }),
+      nicknameRow({ disabled: 'true', editable: null, placeholder: null, value: 'Studio3' }),
+    ]);
+    expect(
+      normalizedPath(
+        stateFrames[2]?.querySelector('.clearable-editor-button path')?.getAttribute('d') ?? null,
+      ),
+    ).toBe(normalizedPath(CLOSE_PATH));
+    const codes = stateFrames.slice(5).map((frame) => {
+      const input = frame.querySelector<HTMLInputElement>('input.setup-join-input')!;
+      return {
+        disabled: input.disabled,
+        invalid: input.getAttribute('aria-invalid'),
+        line: frame.querySelector('.setup-inline-error')?.textContent ?? null,
+        readOnly: input.readOnly,
+        value: input.value,
+      };
+    });
+    // Synthetic room codes only (public repository). The refusal keeps the
+    // app's line break between its two sentences.
+    expect(codes).toEqual([
+      {
+        disabled: false,
+        invalid: 'true',
+        line: en['error.peer_unavailable'],
+        readOnly: false,
+        value: '000001',
+      },
+      {
+        disabled: false,
+        invalid: null,
+        line: en['pro.connect_failed'],
+        readOnly: false,
+        value: '000000',
+      },
+      { disabled: true, invalid: null, line: null, readOnly: false, value: '000000' },
+    ]);
+    // The field turns red only when what was typed is wrong.
+    expect(
+      [...card.querySelectorAll<HTMLElement>('[aria-invalid="true"]')].map((field) =>
+        text(field.closest('.input-specimen')?.querySelector('.block-title')),
+      ),
+    ).toEqual(['Code entry', 'Error', 'Wrong code']);
+    expect(card.querySelectorAll('[data-state="focus"]')).toHaveLength(3);
+    expect(card.querySelectorAll('.dialog-input[data-state="focus"]')).toHaveLength(1);
+
+    // Fields with buttons: the YouTube sheet in five frames, then the message
+    // composer. The big button reads Search while a term is typed, Please
+    // wait... while busy and Add to Playlist once a result is ready.
+    const strip = frames(buttons, '.input-strip');
+    expect(titles(strip)).toEqual([
+      'Empty',
+      'Typing',
+      'Searching',
+      'Result picked',
+      'Search failed',
+    ]);
+    const sheet = strip.map((frame) => {
+      const wrapper = frame.querySelector<HTMLElement>(
+        '.setup-join-area > .yt-search-input-wrapper',
+      )!;
+      const magnifier = wrapper.querySelector<HTMLButtonElement>('.yt-search-submit-btn')!;
+      const line = frame.querySelector<HTMLElement>('.setup-join-area > .yt-preview-meta')!;
+      const actions = [
+        ...frame.querySelectorAll<HTMLButtonElement>(':scope > .ob-actions > button'),
+      ];
+      const primary = actions[1]!;
+      return {
+        actions: actions.map((button) => button.className),
+        busy: primary.getAttribute('aria-busy'),
+        cancel: text(actions[0]),
+        clear: !!wrapper.querySelector(':scope > .clearable-editor-button'),
+        error: line.classList.contains('error'),
+        invalid: wrapper.querySelector('[aria-invalid="true"]') !== null,
+        key: line.dataset.i18n,
+        line: text(line),
+        magnifierDisabled: magnifier.disabled,
+        magnifierLabel: magnifier.getAttribute('aria-label'),
+        mode: primary.dataset.mode,
+        primary: text(primary),
+        primaryDisabled: primary.disabled,
+        query: text(wrapper.querySelector('.yt-intro-text')),
+      };
+    });
+    type SheetRow = (typeof sheet)[number];
+    const sheetRow = (
+      key: keyof typeof en,
+      mode: string,
+      primary: string,
+      overrides: Partial<SheetRow> = {},
+    ): SheetRow => ({
+      actions: ['btn-ob-secondary', 'btn-ob-primary'],
+      busy: null,
+      cancel: en['common.cancel'],
+      clear: true,
+      error: false,
+      invalid: false,
+      key,
+      line: en[key],
+      magnifierDisabled: false,
+      magnifierLabel: en['youtube.search_button'],
+      mode,
+      primary,
+      primaryDisabled: false,
+      query: 'bach cello suite',
+      ...overrides,
+    });
+    expect(sheet).toEqual([
+      sheetRow('youtube.enter_link_prompt', 'off', en['player.play_start'], {
+        clear: false,
+        magnifierDisabled: true,
+        primaryDisabled: true,
+        query: '',
+      }),
+      sheetRow('youtube.search_prompt', 'search', en['youtube.search_button']),
+      sheetRow('youtube.searching', 'busy', en['common.wait'], {
+        busy: 'true',
+        magnifierDisabled: true,
+        primaryDisabled: true,
+      }),
+      sheetRow('youtube.search_selected', 'add', en['player.play_start']),
+      // A failed search paints only the line; the underline stays calm.
+      sheetRow('youtube.search_failed', 'search', en['youtube.search_button'], { error: true }),
+    ]);
+    expect(strip[0]?.querySelector('.yt-intro-text')?.getAttribute('data-placeholder')).toBe(
+      en['youtube.enter_source_placeholder'],
+    );
+    const picked = strip[3]?.querySelectorAll<HTMLButtonElement>(
+      '.yt-search-results > .yt-search-result',
+    );
+    expect(picked).toHaveLength(1);
+    expect(picked?.[0]?.classList.contains('selected')).toBe(true);
+    expect(picked?.[0]?.getAttribute('aria-pressed')).toBe('true');
+    expect(text(picked?.[0]?.querySelector('.yt-search-title'))).toBe('Cello Suite No. 1 Prelude');
+    // The pair is not a dialog: the toast & dialog card keeps the only
+    // .dialog-actions on the page.
+    expect(buttons?.querySelector('.dialog-actions')).toBeNull();
+    expect(text(buttons?.querySelector(':scope > .input-note'))).toBe(
+      'The big button reads Search while a search term is typed and nothing is picked, Please wait... while busy, and Add to Playlist once a result or a link preview is ready. Enter and the magnifier always search.',
+    );
+    const composers = frames(buttons).filter((frame) => !strip.includes(frame));
+    expect(titles(composers)).toEqual(['Message', 'Send focused']);
+    expect(
+      composers.map((frame) => {
+        const wrapper = frame.querySelector<HTMLElement>('.chat-input-wrapper')!;
+        const send = wrapper.querySelector<HTMLButtonElement>('.chat-send-btn')!;
+        return {
+          focus: wrapper.dataset.state === 'focus' && send.dataset.state === 'focus',
+          placeholder: wrapper.querySelector('.chat-input')?.getAttribute('data-placeholder'),
+          send: send.getAttribute('aria-label'),
+          value: text(wrapper.querySelector('.chat-input')),
+        };
+      }),
+    ).toEqual([
+      { focus: false, placeholder: en['chat.placeholder'], send: en['chat.send'], value: '' },
+      {
+        focus: true,
+        placeholder: en['chat.placeholder'],
+        send: en['chat.send'],
+        value: 'on my way',
+      },
+    ]);
+
+    // Spec: the parts, then the color roles with the values of every palette.
+    const tables = [...(spec?.querySelectorAll<HTMLElement>(':scope > .tokens') ?? [])];
+    expect(tables).toHaveLength(2);
+    expect(tables.some((table) => table.classList.contains('token-reference'))).toBe(false);
+    expect(designDocument.querySelectorAll('.token-reference')).toHaveLength(1);
+    const rows = (table: HTMLElement | undefined): string[][] =>
+      [...(table?.querySelectorAll(':scope > .token-row') ?? [])].map((row) =>
+        ['.tok', '.val', '.use'].map((cell) => text(row.querySelector(cell))),
+      );
+    const parts = rows(tables[0]);
+    expect(parts.map(([part]) => part)).toEqual([
+      'Display L',
+      'Display M',
+      'Entry',
+      'Placeholder',
+      'Label',
+      'Line, hint',
+      'Line, progress and result',
+      'Line, error',
+      'Underline',
+      'Disabled',
+      'Buttons in a field',
+    ]);
+    expect(Object.fromEntries(parts.map(([part, value]) => [part, value]))).toEqual(
+      expect.objectContaining({
+        'Display M': '24 / 700 / 32, box 50',
+        Entry: '16 / 400 / 20, box 46, message row 48',
+        Label: '13 / 600 / normal',
+        'Line, hint': '12 / 400 / 18',
+        'Line, progress and result': '12 / 600 / 18',
+        'Line, error': '12 / 600 / 18',
+        Underline: '2px',
+      }),
+    );
+    expect(parts[0]?.[1]).toMatch(/^32 \/ 700, box 56; join code 24 \/ 700 \/ 32 under 360px/u);
+    expect(parts[7]?.[2]).toMatch(/^--danger-foreground/u);
+    const palette = (token: string): string =>
+      ['dark', 'light', 'contrast-dark', 'contrast-light']
+        .map(
+          (name) =>
+            designDocument
+              .querySelector(`[data-palette="${name}"] [data-token="${token}"] code`)
+              ?.textContent?.trim()
+              .toLowerCase() ?? '',
+        )
+        .join(' / ');
+    expect(rows(tables[1])).toEqual([
+      ['Value and caret', '--text-main', palette('--text-main')],
+      ['Label, hint and progress', '--text-sub', palette('--text-sub')],
+      ['Placeholder and clear', '--text-muted', palette('--text-muted')],
+      ['Rest underline and idle buttons', '--surface-3', palette('--surface-3')],
+      ['Focus', '--primary', palette('--primary')],
+      // Only high contrast light darkens the red (#a4001d).
+      ['Error', '--danger-foreground', '#ff3b30 / #ff3b30 / #ff3b30 / #a4001d'],
+    ]);
+
+    // Rules.
+    expect(
+      [...(rules?.querySelectorAll('.input-rules > li') ?? [])].map((rule) => text(rule)),
+    ).toEqual([
+      'The field turns red only when what was typed is wrong. A connection or service problem turns only the line red.',
+      'Errors clear on the next keystroke.',
+      'Lines under a field have no full stop and put one sentence on each line. Progress lines keep "...".',
+      "The line follows the field: centered under a code, at the text's start under an entry.",
+      'Dialogs keep one line of space under the field, so nothing moves when an error appears.',
+      'The blue underline is the focus mark. No field draws a ring.',
+    ]);
+    // Lines under a field end without a full stop (the copy policy).
+    expect(
+      [...card.querySelectorAll('.setup-inline-error, .dialog-hint, .yt-preview-meta')]
+        .map((line) => line.textContent ?? '')
+        .filter((line) => /[.!?]$/u.test(line) && !line.endsWith('...')),
+    ).toEqual([]);
   });
 
   it('mirrors the app pinned notice, with one angular X centred on its header line', () => {

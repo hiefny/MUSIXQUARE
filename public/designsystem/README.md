@@ -209,9 +209,9 @@ semantic token structure.
   turns `--danger-foreground` only when what was typed is wrong; a connection
   or service problem turns only the line red. Errors clear on the next
   keystroke. Lines under a field end without a full stop and put one sentence
-  on each line. Inside a field the clear, search and send buttons are
-  `--surface-3` until they can act and `--primary` when they can, with a 2px
-  keyboard ring drawn inside.
+  on each line. Inside a field the search and send buttons are `--surface-3`
+  until they can act and `--primary` when they can, the clear button is
+  `--text-muted`, and all three draw a 2px keyboard ring inside.
 
 Depth comes primarily from surface contrast. Shadows and blur are reserved for
 places where they communicate layering, such as dialogs, fixed chrome, and

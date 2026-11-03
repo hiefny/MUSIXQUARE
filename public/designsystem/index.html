@@ -1452,21 +1452,49 @@
             </div>
           </div>
 
-          <div class="comp interface-comp">
-            <div class="lbl">Settings tabs</div>
-            <div class="settings-subtab-sample" role="tablist" aria-label="Settings sections">
-              <button type="button" class="subtab-pill active" role="tab" aria-selected="true">
-                General
-              </button>
-              <button type="button" class="subtab-pill" role="tab" aria-selected="false">
-                Audio
-              </button>
-              <button type="button" class="subtab-pill" role="tab" aria-selected="false">
-                Connect
-              </button>
-              <button type="button" class="subtab-pill" role="tab" aria-selected="false">
-                Help
-              </button>
+          <div class="component-side-stack">
+            <div class="comp interface-comp">
+              <div class="lbl">Settings tabs</div>
+              <div class="settings-subtab-sample" role="tablist" aria-label="Settings sections">
+                <button type="button" class="subtab-pill active" role="tab" aria-selected="true">
+                  General
+                </button>
+                <button type="button" class="subtab-pill" role="tab" aria-selected="false">
+                  Audio
+                </button>
+                <button type="button" class="subtab-pill" role="tab" aria-selected="false">
+                  Connect
+                </button>
+                <button type="button" class="subtab-pill" role="tab" aria-selected="false">
+                  Help
+                </button>
+              </div>
+            </div>
+
+            <div class="comp loading-comp">
+              <div class="lbl">Loading states</div>
+              <div class="loading-showcase">
+                <div class="large-spinner-stage" role="status" aria-label="Loading">
+                  <span
+                    class="material-elastic-spinner material-elastic-spinner--large"
+                    aria-hidden="true"
+                  >
+                    <svg viewBox="0 0 44 44">
+                      <circle cx="22" cy="22" r="18" pathLength="100"></circle>
+                    </svg>
+                  </span>
+                </div>
+                <div
+                  class="app-loading-header-demo"
+                  role="img"
+                  aria-label="App header alternating between the MUSIXQUARE logo and loading progress"
+                >
+                  <div class="app-loading-header-progress" aria-hidden="true"></div>
+                  <span class="editorial-wordmark app-loading-header-logo" aria-hidden="true"></span>
+                  <span class="app-loading-header-status" aria-hidden="true">Loading...</span>
+                  <span class="app-loading-header-badge" aria-hidden="true"> HOST </span>
+                </div>
+              </div>
             </div>
           </div>
 
@@ -1672,18 +1700,6 @@
                   ></div>
                   <div class="dialog-hint error">Enter a nickname</div>
                 </div>
-                <div class="input-specimen">
-                  <div class="block-title">Disabled</div>
-                  <div
-                    class="dialog-input"
-                    role="textbox"
-                    aria-label="Disabled nickname"
-                    aria-disabled="true"
-                  >
-                    Studio3
-                  </div>
-                  <div class="dialog-hint">Use up to 12 characters</div>
-                </div>
               </div>
               <div class="input-demo-grid">
                 <div class="input-specimen">
@@ -1712,7 +1728,7 @@
                   <p class="setup-inline-error">Could not connect to the PRO room</p>
                 </div>
                 <div class="input-specimen">
-                  <div class="block-title">Joining</div>
+                  <div class="block-title">Joining (disabled)</div>
                   <input
                     type="text"
                     class="setup-join-input"
@@ -1916,7 +1932,8 @@
               <p class="input-note">
                 The big button reads Search while a search term is typed and nothing is picked,
                 Please wait... while busy, and Add to Playlist once a result or a link preview is
-                ready. Enter and the magnifier always search.
+                ready. The magnifier always searches. Enter searches until a result is picked or a
+                link previews, then adds it.
               </p>
               <div class="input-demo-grid">
                 <div class="input-specimen">
@@ -2080,34 +2097,6 @@
                 </li>
                 <li>The blue underline is the focus mark. No field draws a ring.</li>
               </ul>
-            </div>
-          </div>
-
-          <div class="component-row-divider" aria-hidden="true"></div>
-
-          <div class="comp loading-comp">
-            <div class="lbl">Loading states</div>
-            <div class="loading-showcase">
-              <div class="large-spinner-stage" role="status" aria-label="Loading">
-                <span
-                  class="material-elastic-spinner material-elastic-spinner--large"
-                  aria-hidden="true"
-                >
-                  <svg viewBox="0 0 44 44">
-                    <circle cx="22" cy="22" r="18" pathLength="100"></circle>
-                  </svg>
-                </span>
-              </div>
-              <div
-                class="app-loading-header-demo"
-                role="img"
-                aria-label="App header alternating between the MUSIXQUARE logo and loading progress"
-              >
-                <div class="app-loading-header-progress" aria-hidden="true"></div>
-                <span class="editorial-wordmark app-loading-header-logo" aria-hidden="true"></span>
-                <span class="app-loading-header-status" aria-hidden="true">Loading...</span>
-                <span class="app-loading-header-badge" aria-hidden="true"> HOST </span>
-              </div>
             </div>
           </div>
 

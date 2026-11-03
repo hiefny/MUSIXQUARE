@@ -524,8 +524,7 @@
 
 .component-control-layout,
 .component-list-layout,
-.input-comp,
-.loading-comp {
+.input-comp {
   grid-column: 1 / -1;
 }
 
@@ -564,8 +563,24 @@
   grid-column: span 7;
 }
 
-.interface-comp {
+/* The settings tabs and the loading states share the column beside the
+   chat surfaces. */
+.component-side-stack {
+  min-width: 0;
+  display: grid;
   grid-column: span 5;
+  gap: 32px;
+  align-content: start;
+}
+
+.interface-comp,
+.loading-comp {
+  min-width: 0;
+}
+
+.editorial-designsystem .component-side-stack .loading-comp {
+  padding-top: 32px;
+  border-top: 1px solid var(--divider);
 }
 
 .feedback-comp {
@@ -2176,8 +2191,7 @@
 
 /* Disabled: the content at half strength; the underline stays --surface-3.
    The app fades the join code this way while joining. */
-.setup-join-input:disabled,
-.dialog-input[aria-disabled='true'] {
+.setup-join-input:disabled {
   opacity: 1;
   color: color-mix(in srgb, var(--text-main) 50%, transparent);
   -webkit-text-fill-color: color-mix(in srgb, var(--text-main) 50%, transparent);
@@ -2382,6 +2396,14 @@
 /* The card's own layout. */
 .input-comp > .section-intro {
   margin: 0;
+}
+
+/* The card shows the rule that no word sits alone on a line. */
+.input-comp > .section-intro,
+.input-comp .token-row > span,
+.input-note,
+.input-rules li {
+  text-wrap: pretty;
 }
 
 .input-demo-grid {
@@ -3261,9 +3283,8 @@
   .component-control-layout,
   .component-list-layout,
   .messaging-comp,
-  .interface-comp,
+  .component-side-stack,
   .input-comp,
-  .loading-comp,
   .feedback-comp,
   .nav-comp {
     grid-column: 1;

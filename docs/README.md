@@ -100,7 +100,7 @@ runbooks. Neither belongs in a general setup document.
   the afternoon of 2026-11-03 to ship 6D first because the public-page font train, which the
   release record had named as 9.0.35, is still being finished; that train becomes the App update
   after it (9.0.36 / v809 planned). On branch `agent/p6-6d`,
-  thirty-eight commits on main `432d4ae7` (the App 9.0.34 / v807 release record): the thirteen
+  thirty-nine commits on main `432d4ae7` (the App 9.0.34 / v807 release record): the thirteen
   commits first built on the 6C train's tip `bdb5759a`, moved patch for patch once 6B (9.0.32 /
   v805) and 6C (9.0.34 / v807) had shipped, a tests-only commit and a comment and registry commit
   from the review of the moved branch, one record commit, 6D-6's nine commits (regression rows,
@@ -115,8 +115,10 @@ runbooks. Neither belongs in a general setup document.
   release preparation record `a5c49cc0` (the train's pre-deploy section in the release record,
   its open-item links and the sections that named the next App update), the bump `b0906a93`
   (9.0.35 / v808 in the same seven lines of six files as 9.0.34's `c44d4d2c`), the last runtime
-  commit, a record commit for the release preparation (`3e4031f5`), and QA round 12's record
-  commit for the bump head's full local gate; the pull request, merge and release are the release
+  commit, a record commit for the release preparation (`3e4031f5`: the report, this entry and two
+  sentences of the release record's 9.0.35 section), QA round 12's record
+  commit for the bump head's full local gate (`56a7de55`), and the record commit of the release
+  preparation's review (QA round 13); the pull request, merge and release are the release
   owner's. 6D-1 turns the Standard guest's local zero-start recovery from a
   `player.ts` closure into the class `GuestZeroStartRecovery` in the new
   `src/youtube/zero-start-recovery.ts`, and the two
@@ -246,7 +248,13 @@ runbooks. Neither belongs in a general setup document.
   the production-candidate E2E 19 / 19, critical E2E 101 / 101, the ten local YouTube specs 53 / 53,
   the WebKit YouTube activation spec 4 / 4, the local deploy-target judgement (App 17, every other
   target 0) with the partial-release check, and the first load against a clean build of the base
-  (+462 B eager JavaScript gzip, the same bytes as at the release preparation).
+  (+462 B eager JavaScript gzip, the same bytes as at the release preparation). QA round 13
+  applied the release preparation's review in documentation only: each older release-record item
+  whose substance the preparation changed now links this report, three items whose substance did
+  not change keep their earlier pointer to the top of §2 for the deploy record to fix with §1, the
+  fallback's deadline is described as the catch-up's late-join lead (3 s by default, at most 4 s
+  on a device whose earlier local rejoins prepared slowly), and the owner's answers are
+  paraphrased instead of quoted.
 - [App 9.0.34 / v807 train: Phase 6 6C (one YouTube state router, one iframe audio owner and shared arm steps), no light-theme stroke on the dialog grey button and the selection bar, and lighter light-theme dividers (2026-11-02)](design/phase6-6c-router-iframe-audio-arm-steps-2026-11-02.md):
   released on 2026-11-02 21:20 KST in Release 41443521522 (PR #563, squash `cd8eaf47`) as App
   9.0.34 / v807 (App build 807, target `app`, one update dialog, two visible light-theme changes;
@@ -294,9 +302,11 @@ runbooks. Neither belongs in a general setup document.
   YouTube specs' 53 rows, the 24 light-theme rows and the 32 selection-mode playlist rows;
   `webkit-mobile` 94 passed and 5 skipped plus the production service worker test, among them
   `setup-youtube-activation` 4, `youtube-landscape-full-bleed` 4 and `auxiliary-component-cascade` 5
-  on Linux WebKit, not a real iPhone Safari; the production large-room R2 smoke passed), which meets the condition for the next App update, the public-page
+  on Linux WebKit, not a real iPhone Safari; the production large-room R2 smoke passed), which meets the condition for the next App train to merge. This record named that train as the public-page
   font train with the design system Typography section (planned 9.0.35 / v808, being built on
-  `agent/public-page-fonts` from `cd8eaf47`), to merge. The blind device
+  `agent/public-page-fonts` from `cd8eaf47`); on the afternoon of 2026-11-03 the release owner
+  decided to ship the ready 6D first as 9.0.35 / v808, with the font train after it (9.0.36 / v809
+  planned). The blind device
   candidates A to F and the owner's light-mode look G wait. The release record's §2 carries the
   train as post-deploy items (scope and status, the owner decisions and rule, rollback, the
   post-deploy check, the next steps, open items), its §4 the 9.0.34 entry and current boundary
@@ -364,7 +374,8 @@ runbooks. Neither belongs in a general setup document.
   build 806, deploy SHA `4faf38d9`; a manual rollback to it removes the whole train v807 and gives
   its clients a lower epoch, so the default is a forward revert of the whole train or one increment
   as 9.0.35 / v808, or the next App update's number after that if another ships first; 6C and each
-  light commit alone only until the next App update, the public-page font train, merges, as the
+  light commit alone only until the next App update merges (6D as 9.0.35 / v808 by the release
+  owner's 2026-11-03 decision; this record named the public-page font train), as the
   record rules for 9.0.31, 6B and 9.0.33, then a forward fix on the latest main; reverting 6C after
   6D merges takes 6D with it), the blind device candidates
   and the owner's own light-theme look at the grey button, the selection bar and the dividers (not

@@ -17,6 +17,7 @@ import vi from '../vi.ts';
 import zhHans from '../zh-hans.ts';
 import zhHant from '../zh-hant.ts';
 import { APP_DICTIONARIES } from '../catalogs.ts';
+import { isOneSentenceUnderField } from './helpers/one-sentence-under-field.ts';
 
 const koKeys = Object.keys(ko);
 const locales = {
@@ -37,6 +38,14 @@ const locales = {
   vi,
   zhHans,
   zhHant,
+};
+
+/** The catalog codes of the locales above whose names differ. */
+const LOCALE_CODES: Readonly<Record<string, string>> = {
+  italian: 'it',
+  ptBr: 'pt-br',
+  zhHans: 'zh-hans',
+  zhHant: 'zh-hant',
 };
 
 describe('Translation key integrity', () => {
@@ -666,10 +675,15 @@ describe('Translation key integrity', () => {
       for (const key of koKeys) {
         const enNewlines = newlineSequence(en[key as keyof typeof en] || '');
         const localeNewlines = newlineSequence(dict[key as keyof typeof dict] || '');
+        // A line under a field this locale says in one sentence stays on one
+        // line (helpers/one-sentence-under-field.ts).
+        const expected = isOneSentenceUnderField(LOCALE_CODES[locale] ?? locale, key)
+          ? 0
+          : enNewlines.length;
 
-        if (enNewlines.length !== localeNewlines.length) {
+        if (expected !== localeNewlines.length) {
           mismatched.push(
-            `${locale}.${key}: en=${enNewlines.length} ${locale}=${localeNewlines.length}`,
+            `${locale}.${key}: en=${enNewlines.length} expected=${expected} ${locale}=${localeNewlines.length}`,
           );
         }
       }

@@ -8,6 +8,7 @@ import {
 
 import { APP_DICTIONARIES } from '../catalogs.ts';
 import { LANGUAGE_OPTIONS, languageDirection, type LanguageCode } from '../locales.ts';
+import { ONE_SENTENCE_UNDER_FIELD } from './helpers/one-sentence-under-field.ts';
 
 type LandingDictionary = Record<string, Record<string, string>>;
 
@@ -255,6 +256,50 @@ describe('completed translation factual contracts', () => {
     expect(APP_DICTIONARIES.ko['pro.join_rate_limited']).toBe(
       '입장 시도가 너무 많아요\n{{count}}분 후에 다시 시도해 주세요',
     );
+  });
+
+  it('keeps Thai lines under a field as written and the zh and ar room-full detail in one sentence', () => {
+    // Owner decision 2026-11-03: Thai marks a sentence with a space, so its
+    // lines under a field stay as written until a Thai reader confirms where a
+    // sentence ends. The Chinese and Arabic room-full details join both facts
+    // in one sentence and keep it on one line. The room-full detail is still
+    // the shorter copy, without PRO.
+    const expected: Record<string, Record<string, string>> = {
+      ar: {
+        'pro.room_full_detail':
+          'تتسع لما يصل إلى 100 جهاز، بما فيها جهاز مالك الغرفة، ويبقى مكان واحد محجوزًا له دائمًا',
+      },
+      th: {
+        'dialog.room_password_rate_limited':
+          'ใส่รหัสผ่านผิดหลายครั้งเกินไป โปรดลองอีกครั้งในอีก {{count}} นาที',
+        'dialog.room_password_rate_limited_later':
+          'ใส่รหัสผ่านผิดหลายครั้งเกินไป โปรดลองอีกครั้งในภายหลัง',
+        'pro.join_rate_limited': 'พยายามเข้าร่วมบ่อยเกินไป โปรดลองอีกครั้งในอีก {{count}} นาที',
+        'pro.join_rate_limited_later': 'พยายามเข้าร่วมบ่อยเกินไป โปรดลองอีกครั้งในภายหลัง',
+        'pro.room_full_detail':
+          'รองรับอุปกรณ์ได้สูงสุด 100 เครื่องรวมเจ้าของห้อง และจะเว้นที่ไว้ให้เจ้าของห้องหนึ่งที่เสมอ',
+      },
+      'zh-hans': {
+        'pro.room_full_detail': '最多可容纳 100 台设备（包括房主），并始终为房主保留一个位置',
+      },
+      'zh-hant': {
+        'pro.room_full_detail': '最多可容納 100 台裝置（包含房主），且始終為房主保留一個位置',
+      },
+    };
+    const pinned = Object.fromEntries(
+      Object.entries(ONE_SENTENCE_UNDER_FIELD).map(([language, keys]) => [
+        language,
+        Object.fromEntries(
+          [...keys]
+            .sort()
+            .map((key) => [
+              key,
+              (APP_DICTIONARIES as Record<string, Record<string, string>>)[language]![key],
+            ]),
+        ),
+      ]),
+    );
+    expect(pinned).toEqual(expected);
   });
 
   it('keeps a refused room password to its first sentence in every locale', () => {

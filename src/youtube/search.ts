@@ -407,7 +407,6 @@ function setStatus(key: I18nKey, tone: 'rest' | 'error' = 'rest'): void {
   status.style.display = 'block';
   status.setAttribute('data-i18n', key);
   status.textContent = t(key);
-  status.style.removeProperty('color');
   status.classList.toggle('error', tone === 'error');
   const input = document.getElementById('youtube-url-input');
   if (key === 'youtube.invalid_link') input?.setAttribute('aria-invalid', 'true');

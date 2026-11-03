@@ -493,7 +493,10 @@ describe('app UX markup contract', () => {
     expect(editor?.classList.contains('chat-input')).toBe(true);
     expect(editor?.parentElement?.classList.contains('chat-input-wrapper')).toBe(true);
     expect(appStylesheet).toMatch(
-      /\.sync-manual-display\s*\{[\s\S]*?align-items:\s*center;[\s\S]*?gap:\s*6px;/u,
+      // Owner decision (2026-11-03): the label sits 8px above the field, as on
+      // the start screen (was 6px). Read inside the one rule, so a later
+      // rule's gap cannot satisfy it.
+      /\.sync-manual-display\s*\{[^}]*align-items:\s*center;[^}]*gap:\s*8px;/u,
     );
     expect(appStylesheet).toMatch(
       /\.sync-manual-display\s*\{[\s\S]*?margin:\s*12px 0 20px;[\s\S]*?padding:\s*0;/u,
@@ -875,17 +878,27 @@ describe('app UX markup contract', () => {
     expect(roleDescriptionRule).toMatch(/margin-bottom:\s*24px\s*;/);
   });
 
-  it('lets Japanese setup inline errors wrap inside unbroken kana and kanji runs', () => {
-    // keep-all forbids breaks inside a Japanese run, so a long sentence such as
-    // the PRO room-full detail would be clipped by the setup area without the
-    // same Japanese override the other keep-all setup copy uses.
-    expect(declarationsForSelector('.setup-inline-error').join('\n')).toMatch(
-      /word-break:\s*keep-all\s*;/,
-    );
-    const japaneseRules = declarationsForSelector('html:lang(ja) .setup-inline-error').join('\n');
-    expect(japaneseRules).toMatch(/word-break:\s*normal\s*;/);
-    expect(japaneseRules).toMatch(/overflow-wrap:\s*anywhere\s*;/);
-    expect(japaneseRules).toMatch(/line-break:\s*strict\s*;/);
+  it('lets Japanese and Chinese lines under a field wrap inside unbroken runs', () => {
+    // keep-all forbids breaks inside a Japanese or Chinese run, so a long
+    // sentence such as the PRO room-full detail would be clipped by the setup
+    // area without the same override the other keep-all setup copy uses.
+    // Owner decision (2026-11-03): the setup code line, the dialog hint and the
+    // YouTube status line share one line rule, and the override covers all
+    // three in ja, zh-Hans and zh-Hant.
+    const sharedLine = appStylesheet.match(
+      /:is\(\.setup-inline-error, \.dialog-hint, \.yt-preview-meta\) \{([^}]*)\}/u,
+    )?.[1];
+    expect(sharedLine).toBeDefined();
+    expect(sharedLine).toMatch(/word-break:\s*keep-all\s*;/);
+    expect(sharedLine).toMatch(/overflow-wrap:\s*anywhere\s*;/);
+    for (const lang of ['ja', 'zh-Hans', 'zh-Hant']) {
+      for (const line of ['.setup-inline-error', '.dialog-hint', '.yt-preview-meta']) {
+        const rules = declarationsForSelector(`html:lang(${lang}) ${line}`).join('\n');
+        expect(rules, `${lang} ${line}`).toMatch(/word-break:\s*normal\s*;/);
+        expect(rules, `${lang} ${line}`).toMatch(/overflow-wrap:\s*anywhere\s*;/);
+        expect(rules, `${lang} ${line}`).toMatch(/line-break:\s*strict\s*;/);
+      }
+    }
   });
 
   it('keeps settings descriptions on the desktop title and control inset', () => {

@@ -11,7 +11,8 @@ import { describe, expect, it } from 'vitest';
 // (weight-role-contract.test.ts) sets a letter-spacing except the codes and
 // PIN digits, which keep their own wider tracking. Every negative
 // letter-spacing in the app is 0; deliberate positive tracking stays (invite
-// code and PIN digits, the code entry fields and small labels). The body kerns
+// code and PIN digits, the code entry fields and the header's small invite code
+// label; field labels keep normal tracking since 2026-11-03). The body kerns
 // its text (font-kerning: normal), and the font shorthand only ever resets a
 // control to inherit, so the kerning reaches every control that resets its
 // font.
@@ -69,15 +70,10 @@ const POSITIVE_TRACKING: Readonly<Record<string, { value: string; reason: string
     reason: 'The PIN placeholder dashes.',
   },
   'css/style.css .dialog-input-segment': { value: '0.12em', reason: 'Room PIN entry digits.' },
-  'css/style.css .setup-code-label': {
-    value: '0.05em',
-    reason: 'The small uppercase label above the invite code.',
-  },
+  // Owner decision (2026-11-03, the input system): the labels above a field
+  // (.setup-code-label, .sync-col-label) are sentence case at normal tracking
+  // (README: do not rely on extreme tracking or uppercase for hierarchy).
   'css/style.css .setup-join-input': { value: '0.12em', reason: 'Invite code entry digits.' },
-  'css/style.css .sync-col-label': {
-    value: '0.3px',
-    reason: 'The small manual sync field label.',
-  },
   'css/style.css .invite-meta-label': {
     value: '0.1em',
     reason: "The header's small 'invite code' label.",

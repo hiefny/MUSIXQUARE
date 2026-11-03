@@ -495,5 +495,16 @@ test.describe('OS contrast CSS integration', () => {
     expect(parseFloat(inputFocused.outlineWidth)).toBeGreaterThanOrEqual(3);
     expect(parseFloat(inputFocused.outlineOffset)).toBeGreaterThanOrEqual(2);
     expect(inputFocused.caretColor).not.toBe('rgba(0, 0, 0, 0)');
+
+    // Owner decision (2026-11-03): red is not shown here, so a wrong value
+    // also thickens the field's edge from 1px to 2px while it is not focused.
+    await setupInput.evaluate((input) => {
+      (input as HTMLInputElement).blur();
+      input.setAttribute('aria-invalid', 'true');
+    });
+    await expect(setupInput).not.toBeFocused();
+    const inputInvalid = await controlStyles(page, '#setup-join-code');
+    expect(inputInvalid.outlineStyle).toBe('solid');
+    expect(parseFloat(inputInvalid.outlineWidth)).toBeGreaterThanOrEqual(2);
   });
 });

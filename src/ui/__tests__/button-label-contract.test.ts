@@ -3205,11 +3205,14 @@ describe('action button label contract', () => {
     // text and the destructive row icons. (The unreachable disconnected
     // device badge went with the hidden settings device list; settings.test.ts
     // 'hidden settings device list removal' keeps them out.)
+    // Owner decision (2026-11-03): the setup code line, the dialog hint and
+    // the YouTube status line read the red through one shared error rule, and
+    // a wrong manual sync value turns its underline red.
     const roleReaders: Array<[string, string]> = [
-      ['.dialog-hint.error', 'color'],
+      [':is(.setup-inline-error, .dialog-hint.error, .yt-preview-meta.error)', 'color'],
       ['.dialog-input.invalid', 'border-bottom-color'],
       ['.dialog-input-split.invalid .dialog-input-segment', 'border-bottom-color'],
-      ['.setup-inline-error', 'color'],
+      [".sync-manual-input-wrapper:has([aria-invalid='true'])", 'border-bottom-color'],
     ];
     for (const [selector, property] of roleReaders) {
       expect(ruleValues(appCss, selector, property), selector).toEqual([

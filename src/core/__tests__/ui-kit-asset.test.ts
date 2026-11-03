@@ -21,6 +21,7 @@ import {
   compileUiKitAsset,
   uiKitAsset,
 } from '../../../scripts/ui-kit-asset.ts';
+import { PUBLIC_HAN_ORDER_SCRIPT_URL } from '../../i18n/public-font-urls.ts';
 import { startViteMiddlewareTestServer } from './helpers/vite-middleware-test-server.ts';
 
 const REPO_ROOT = resolve(process.cwd());
@@ -224,6 +225,7 @@ async function createUiKitFixture(): Promise<string> {
   await writeFile(
     resolve(fixtureRoot, UI_KIT_HTML_PATH),
     [
+      `<script src="${PUBLIC_HAN_ORDER_SCRIPT_URL}"></script>`,
       `<script src="${UI_KIT_REACT_RUNTIME.src}" integrity="${UI_KIT_REACT_RUNTIME.integrity}" crossorigin="anonymous"></script>`,
       `<script src="${UI_KIT_REACT_DOM_RUNTIME.src}" integrity="${UI_KIT_REACT_DOM_RUNTIME.integrity}" crossorigin="anonymous"></script>`,
       `<script src="/${UI_KIT_OUTPUT_PATH}"></script>`,
@@ -335,7 +337,10 @@ describe('strict TypeScript UI kit asset', () => {
     const html = await readFile(resolve(REPO_ROOT, UI_KIT_HTML_PATH), 'utf8');
     expect(() => assertUiKitHtmlContract(html)).not.toThrow();
     expect(countExecutableInlineScripts(html)).toBe(0);
-    expect(html.match(/<script\b/gu)).toHaveLength(3);
+    // React, ReactDOM, the compiled app, and the marker of the app's Han
+    // order that every page outside the app loads before its font sheets.
+    expect(html.match(/<script\b/gu)).toHaveLength(4);
+    expect(html).toContain(`<script src="${PUBLIC_HAN_ORDER_SCRIPT_URL}"></script>`);
     expect(html).not.toMatch(/text\/babel|@babel\/standalone|\.jsx(?:[?"'])/iu);
   });
 

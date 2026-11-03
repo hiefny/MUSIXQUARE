@@ -8,7 +8,8 @@
  *
  * Inputs: fonts/font-sources.json (Inter and Noto Sans KR files with Google's
  * ranges), Google's sheets css/fonts/noto-{jp,sc,tc,thai}.css (read, never
- * changed: the static pages keep using them), the cmaps of the input files,
+ * changed; only their numbered CJK shards and the Thai face are in the
+ * repository), the cmaps of the input files,
  * the descriptors in src/i18n/font-metrics.ts, fonts/app-faces.json and
  * fonts/hangul-faces.json.
  *

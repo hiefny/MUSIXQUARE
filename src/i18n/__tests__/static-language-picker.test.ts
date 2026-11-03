@@ -26,11 +26,10 @@ type StaticLanguageApi = {
   htmlLang(code: string): string;
   locale(code: string): string;
   direction(code: string): 'ltr' | 'rtl';
-  ensureFont(code: string): void;
-  ensurePickerFonts(): void;
   normalize(code: string): string | null;
   persist(code: string): string;
   resolve(fallback: string): string;
+  update(code: string): void;
   options: Array<{ code: string; htmlLang: string }>;
 };
 
@@ -130,55 +129,25 @@ describe('static page language picker', () => {
         const api = languageApi(dom);
         expect(api.normalize(input)).toBeNull();
         expect(api.htmlLang(input)).toBe('en');
-        api.ensureFont(input);
-        expect(dom.window.document.querySelectorAll('[data-static-lang-font]')).toHaveLength(0);
       } finally {
         dom.window.close();
       }
     },
   );
 
-  it('enables the Vite-authored font URL instead of inventing a production path', async () => {
-    const { dom } = await createPickerHarness(
-      false,
-      'https://musixquare.com/ar/about',
-      '<link rel="stylesheet" href="/assets/noto-arabic.hash.css" data-static-lang-font-codes="ar fa ur" disabled>',
-    );
-    const authored = dom.window.document.querySelector<HTMLLinkElement>(
-      '[data-static-lang-font-codes]',
-    )!;
-
-    expect(authored.disabled).toBe(false);
-    expect(authored.href).toBe('https://musixquare.com/assets/noto-arabic.hash.css');
-    expect(dom.window.document.querySelectorAll('[data-static-lang-font]')).toHaveLength(0);
-
-    dom.window.close();
-  });
-
-  it('loads only the active About font until the full language picker opens', async () => {
+  it('loads no font: the page declares every face through /web-fonts/', async () => {
     const { dom } = await createPickerHarness(false, 'https://musixquare.com/ar/about');
     const { document } = dom.window;
-    const api = languageApi(dom);
-    const fontLinks = () => [
-      ...document.querySelectorAll<HTMLLinkElement>('link[data-static-lang-font]'),
-    ];
-
-    expect(fontLinks().map((link) => link.getAttribute('href'))).toEqual([
-      '/css/fonts/noto-arabic.css',
-    ]);
-
-    api.ensureFont('fa');
-    api.ensureFont('ur');
-    expect(fontLinks()).toHaveLength(1);
-
-    fontLinks()[0]?.dispatchEvent(new dom.window.Event('error'));
-    expect(fontLinks()).toHaveLength(0);
-    api.ensureFont('ar');
-    expect(fontLinks()).toHaveLength(1);
+    const api = languageApi(dom) as StaticLanguageApi & Record<string, unknown>;
+    const links = () => document.querySelectorAll('link').length;
+    const before = links();
 
     document.querySelector<HTMLButtonElement>('[data-static-lang-trigger]')?.click();
-    expect(fontLinks()).toHaveLength(16);
-    expect(fontLinks().every((link) => link.href.startsWith('https://musixquare.com/'))).toBe(true);
+    api.update('ja');
+
+    expect(links()).toBe(before);
+    expect(api.ensureFont).toBeUndefined();
+    expect(api.ensurePickerFonts).toBeUndefined();
 
     dom.window.close();
   });

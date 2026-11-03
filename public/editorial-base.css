@@ -33,63 +33,6 @@
   --hairline-scale: 1;
   --pad-x: 48px;
   --max-w: 1440px;
-  --font-ui: Pretendard, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
-}
-
-:root:lang(hi),
-:root:lang(mr) {
-  --font-ui: 'Noto Sans Devanagari', Pretendard, 'Nirmala UI', Mangal, sans-serif;
-}
-
-:root:lang(bn) {
-  --font-ui: 'Noto Sans Bengali', Pretendard, 'Nirmala UI', Vrinda, sans-serif;
-}
-
-:root:lang(ta) {
-  --font-ui: 'Noto Sans Tamil', Pretendard, 'Nirmala UI', Latha, sans-serif;
-}
-
-:root:lang(te) {
-  --font-ui: 'Noto Sans Telugu', Pretendard, 'Nirmala UI', Gautami, sans-serif;
-}
-
-:root:lang(gu) {
-  --font-ui: 'Noto Sans Gujarati', Pretendard, 'Nirmala UI', Shruti, sans-serif;
-}
-
-:root:lang(kn) {
-  --font-ui: 'Noto Sans Kannada', Pretendard, 'Nirmala UI', Tunga, sans-serif;
-}
-
-:root:lang(ml) {
-  --font-ui: 'Noto Sans Malayalam', Pretendard, 'Nirmala UI', Kartika, sans-serif;
-}
-
-:root:lang(pa) {
-  --font-ui: 'Noto Sans Gurmukhi', Pretendard, 'Nirmala UI', Raavi, sans-serif;
-}
-
-:root:lang(ja) {
-  --font-ui: 'Noto Sans JP', Pretendard, 'Yu Gothic UI', Meiryo, sans-serif;
-}
-
-:root:lang(zh-Hans) {
-  --font-ui: 'Noto Sans SC', Pretendard, 'Microsoft YaHei UI', sans-serif;
-}
-
-:root:lang(zh-Hant) {
-  --font-ui: 'Noto Sans TC', Pretendard, 'Microsoft JhengHei UI', sans-serif;
-}
-
-:root:lang(th) {
-  --font-ui: 'Noto Sans Thai', Pretendard, Tahoma, sans-serif;
-}
-
-:root:lang(uk),
-:root:lang(bg),
-:root:lang(ru),
-:root:lang(el) {
-  --font-ui: 'Noto Sans', Pretendard, 'Segoe UI', Roboto, sans-serif;
 }
 
 * {
@@ -102,7 +45,7 @@ body {
   padding: 0;
   background: var(--bg);
   color: var(--text-main);
-  font-family: var(--font-ui);
+  font-family: var(--font-sans, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif);
   font-size: 16px;
   line-height: 1.55;
   -webkit-font-smoothing: antialiased;
@@ -769,19 +712,16 @@ code {
 }
 
 :lang(ko) .lp-h1 {
-  letter-spacing: -0.025em;
   font-size: clamp(44px, 7vw, 88px);
   line-height: 1.25;
 }
 
 :lang(ko) .lp-h2 {
-  letter-spacing: -0.02em;
   font-size: clamp(32px, 4.6vw, 60px);
   line-height: 1.2;
 }
 
 :lang(ko) .lp-cta .lp-h2 {
-  letter-spacing: -0.025em;
   font-size: clamp(52px, 8vw, 104px);
   line-height: 1.05;
 }
@@ -791,10 +731,6 @@ code {
 :lang(ko) .policy-doc p,
 :lang(ko) .policy-doc dd {
   word-break: keep-all;
-}
-
-:lang(ko) .lp-lead {
-  letter-spacing: 0;
 }
 
 :lang(ja) .lp-h1 {

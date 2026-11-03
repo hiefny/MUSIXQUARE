@@ -34,12 +34,11 @@ export interface BrandCapitalizationViolation {
   message: string;
 }
 
-function isTestOrSnapshot(path: string): boolean {
+function isTest(path: string): boolean {
   return (
     path.includes('/__tests__/') ||
     path.startsWith('e2e/') ||
-    /\.(?:spec|test)\.[cm]?[jt]sx?$/u.test(path) ||
-    path.startsWith('src_ref/')
+    /\.(?:spec|test)\.[cm]?[jt]sx?$/u.test(path)
   );
 }
 
@@ -47,7 +46,7 @@ export function isBrandCopySource(path: string): boolean {
   const normalized = path.replaceAll('\\', '/');
   const extension = extname(normalized).toLowerCase();
   if (normalized === 'scripts/check-brand-capitalization.mts') return false;
-  if (isTestOrSnapshot(normalized)) return false;
+  if (isTest(normalized)) return false;
   const isRootCopyFile = !normalized.includes('/') && ['.html', '.md', '.mdx'].includes(extension);
   if (
     !isRootCopyFile &&

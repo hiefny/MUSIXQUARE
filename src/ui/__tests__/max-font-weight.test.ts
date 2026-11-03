@@ -21,7 +21,7 @@ const ROOTS = [
   'scripts',
 ];
 const TEXT_FILE = /\.(?:css|html|svg|ts|tsx|mts|js|mjs)$/u;
-const SKIPPED = /(?:^|[\\/])(?:__tests__|node_modules|dist|src_ref)(?:[\\/]|$)/u;
+const SKIPPED = /(?:^|[\\/])(?:__tests__|node_modules|dist)(?:[\\/]|$)/u;
 const WEIGHT_PATTERNS = [
   // CSS declarations; an @font-face range such as `100 900` is not text.
   /font-weight\s*:\s*(\d{3})\b(?!\s+\d)/gu,

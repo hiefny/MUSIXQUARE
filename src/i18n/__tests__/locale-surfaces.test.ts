@@ -100,7 +100,9 @@ describe('locale surface parity', () => {
       classicRuntime('landing-bootstrap.js'),
       classicRuntime('landing-i18n.js'),
       classicRuntime('static-language.js'),
-      classicRuntime('account-complete.js'),
+      // Compiled minified, like bootstrap.js, so its registry is read from its source
+      // (src/ui/__tests__/account-complete.test.ts renders every copy from the compiled script).
+      readFile('browser/classic-runtime/account-complete.ts', 'utf8'),
       readFile('cloudflare/service-maintenance.ts', 'utf8'),
     ]);
     const expectedCodes = LANGUAGE_OPTIONS.map(({ code }) => code).sort();
@@ -139,7 +141,11 @@ describe('locale surface parity', () => {
     expect(landingHtmlLanguageCodes.sort()).toEqual(expectedCodes);
 
     const accountTranslations = unwrapObject(
-      variableInitializer(accountSource, 'account-complete.js', 'translations'),
+      variableInitializer(
+        accountSource,
+        'browser/classic-runtime/account-complete.ts',
+        'translations',
+      ),
       'translations',
     );
     expect(accountTranslations.properties.map(propertyName).sort()).toEqual(expectedCodes);

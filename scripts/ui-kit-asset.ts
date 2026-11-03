@@ -2,6 +2,7 @@ import { readFile, readdir } from 'node:fs/promises';
 import path from 'node:path';
 import { transformWithEsbuild, type Plugin } from 'vite';
 
+import { PUBLIC_HAN_ORDER_SCRIPT_URL } from '../src/i18n/public-font-urls.ts';
 import { useAsyncConnectMiddleware } from './async-connect-middleware.ts';
 
 export const UI_KIT_SOURCE_DIRECTORY = 'browser/ui-kit/app';
@@ -67,8 +68,10 @@ function assertExternalRuntimeTag(
 
 export function assertUiKitHtmlContract(html: string): void {
   const scripts = [...html.matchAll(/<script\b([^>]*)>([\s\S]*?)<\/script\s*>/giu)];
-  if (scripts.length !== 3) {
-    throw new Error('UI kit HTML must load exactly React, ReactDOM, and the compiled app.');
+  if (scripts.length !== 4) {
+    throw new Error(
+      "UI kit HTML must load exactly the app's Han order marker, React, ReactDOM, and the compiled app.",
+    );
   }
   for (const script of scripts) {
     const attributes = script[1] ?? '';
@@ -77,6 +80,9 @@ export function assertUiKitHtmlContract(html: string): void {
       throw new Error('UI kit HTML must not contain executable inline JavaScript.');
     }
   }
+  // The marker every page outside the app loads before its font sheets
+  // (scripts/lib/public-font-pages.mts).
+  scriptTagForSource(html, PUBLIC_HAN_ORDER_SCRIPT_URL);
   assertExternalRuntimeTag(html, UI_KIT_REACT_RUNTIME);
   assertExternalRuntimeTag(html, UI_KIT_REACT_DOM_RUNTIME);
   scriptTagForSource(html, `/${UI_KIT_OUTPUT_PATH}`);

@@ -222,6 +222,8 @@ function isRuntimeAppPath(rawPath: string): boolean {
     'scripts/localized-html-lib.mts',
     'scripts/locale-seo-metadata.mts',
     'scripts/ui-kit-asset.ts',
+    // The public font sheet plugin emits dist/web-fonts/first.css and rest.css.
+    'scripts/public-font-sheets.mts',
     'vite.config.ts',
     'package.json',
     'package-lock.json',

@@ -1,0 +1,129 @@
+/*
+ * MUSIXQUARE font stacks for every page outside the app: a mirror of the
+ * app's stack properties and their html:lang(), dir and Han order rules
+ * (css/style.css and css/rtl.css). Inter draws Latin, digits, Cyrillic and
+ * Greek, MUSIXQUARE Hangul (the app's own Hangul faces) Hangul, Noto Sans KR
+ * the Hangul that family lacks, Noto Sans JP kana, the four CJK families Han
+ * in an order, and the script families their scripts. The Japanese and
+ * Chinese pages put their own family first; every other page reads
+ * --font-cjk-default, Korean first unless the root carries the app's
+ * data-mxqr-han-order, so the Korean and English pages read one stack.
+ * /web-fonts/first.css and rest.css declare the faces, which the build
+ * concatenates from the app's own sheets (scripts/public-font-sheets.mts).
+ * src/i18n/__tests__/public-font-stacks.test.ts holds the mirror.
+ */
+
+:root {
+  --font-primary: 'Inter';
+  --font-hangul: 'MUSIXQUARE Hangul';
+  --font-cjk-ko: 'Noto Sans KR', 'Noto Sans JP', 'Noto Sans SC', 'Noto Sans TC';
+  --font-cjk-ja: 'Noto Sans JP', 'Noto Sans KR', 'Noto Sans SC', 'Noto Sans TC';
+  --font-cjk-sc: 'Noto Sans SC', 'Noto Sans TC', 'Noto Sans JP', 'Noto Sans KR';
+  --font-cjk-tc: 'Noto Sans TC', 'Noto Sans SC', 'Noto Sans JP', 'Noto Sans KR';
+  --font-cjk-default: var(--font-cjk-ko);
+  --font-scripts:
+    'Noto Sans Thai', 'Noto Sans Arabic', 'Noto Sans Hebrew', 'Noto Sans Devanagari',
+    'Noto Sans Bengali', 'Noto Sans Tamil', 'Noto Sans Telugu', 'Noto Sans Gujarati',
+    'Noto Sans Kannada', 'Noto Sans Malayalam', 'Noto Sans Gurmukhi';
+  --font-system: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+  --font-sans-ui:
+    var(--font-primary), var(--font-hangul), var(--font-cjk-default), var(--font-scripts),
+    var(--font-system);
+  --font-sans-ja:
+    var(--font-primary), var(--font-hangul), var(--font-cjk-ja), var(--font-scripts),
+    var(--font-system);
+  --font-sans-cjk-sc:
+    var(--font-primary), var(--font-hangul), var(--font-cjk-sc), var(--font-scripts),
+    var(--font-system);
+  --font-sans-cjk-tc:
+    var(--font-primary), var(--font-hangul), var(--font-cjk-tc), var(--font-scripts),
+    var(--font-system);
+  --font-sans-devanagari: 'Noto Sans Devanagari', var(--font-sans-ui);
+  --font-sans-bengali: 'Noto Sans Bengali', var(--font-sans-ui);
+  --font-sans-tamil: 'Noto Sans Tamil', var(--font-sans-ui);
+  --font-sans-telugu: 'Noto Sans Telugu', var(--font-sans-ui);
+  --font-sans-gujarati: 'Noto Sans Gujarati', var(--font-sans-ui);
+  --font-sans-kannada: 'Noto Sans Kannada', var(--font-sans-ui);
+  --font-sans-malayalam: 'Noto Sans Malayalam', var(--font-sans-ui);
+  --font-sans-gurmukhi: 'Noto Sans Gurmukhi', var(--font-sans-ui);
+  --font-sans-arabic: 'Noto Sans Arabic', var(--font-sans-ui);
+  --font-sans-hebrew: 'Noto Sans Hebrew', var(--font-sans-ui);
+  --font-sans: var(--font-sans-ui);
+}
+
+/* The Han order of every page but Japanese and Chinese, as the app marks
+   its root from the browser's languages; Korean first when it is absent. */
+:root[data-mxqr-han-order='ja'] {
+  --font-cjk-default: var(--font-cjk-ja);
+}
+
+:root[data-mxqr-han-order='zh-hans'] {
+  --font-cjk-default: var(--font-cjk-sc);
+}
+
+:root[data-mxqr-han-order='zh-hant'] {
+  --font-cjk-default: var(--font-cjk-tc);
+}
+
+html:lang(ja) {
+  --font-sans: var(--font-sans-ja);
+}
+
+html:lang(zh-Hans) {
+  --font-sans: var(--font-sans-cjk-sc);
+}
+
+html:lang(zh-Hant) {
+  --font-sans: var(--font-sans-cjk-tc);
+}
+
+html:lang(hi-IN),
+html:lang(mr-IN) {
+  --font-sans: var(--font-sans-devanagari);
+}
+
+html:lang(bn-BD) {
+  --font-sans: var(--font-sans-bengali);
+}
+
+html:lang(ta-IN) {
+  --font-sans: var(--font-sans-tamil);
+}
+
+html:lang(te-IN) {
+  --font-sans: var(--font-sans-telugu);
+}
+
+html:lang(gu-IN) {
+  --font-sans: var(--font-sans-gujarati);
+}
+
+html:lang(kn-IN) {
+  --font-sans: var(--font-sans-kannada);
+}
+
+html:lang(ml-IN) {
+  --font-sans: var(--font-sans-malayalam);
+}
+
+html:lang(pa-IN) {
+  --font-sans: var(--font-sans-gurmukhi);
+}
+
+html:lang(ar),
+html:lang(ur-PK),
+html:lang(fa-IR) {
+  --font-sans: var(--font-sans-arabic);
+}
+
+html:lang(he-IL) {
+  --font-sans: var(--font-sans-hebrew);
+}
+
+:root[dir='rtl'] {
+  --font-sans: var(--font-sans-arabic);
+}
+
+:root:lang(he)[dir='rtl'] {
+  --font-sans: var(--font-sans-hebrew);
+}

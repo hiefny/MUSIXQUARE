@@ -447,6 +447,8 @@ const TARGET_RUNTIME_PATHS = Object.freeze({
     'scripts/service-worker-asset.ts',
     'scripts/service-worker-app-shell-guard-lib.mts',
     'scripts/ui-kit-asset.ts',
+    // The public font sheet plugin emits dist/web-fonts/first.css and rest.css.
+    'scripts/public-font-sheets.mts',
     'scripts/materialize-app-static-headers.mts',
     'scripts/materialize-localized-html.mts',
     'scripts/localized-html-lib.mts',

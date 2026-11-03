@@ -51,9 +51,15 @@ describe('custom not-found page contract', () => {
     );
   });
 
-  it('has no executable or external page dependencies', () => {
-    expect(document.querySelector('script')).toBeNull();
-    expect(document.querySelector('link[rel="stylesheet"]')).toBeNull();
+  it("loads only the app's Han order marker and the shared font sheets", () => {
+    expect(
+      [...document.querySelectorAll('script')].map((script) => script.getAttribute('src')),
+    ).toEqual(['/han-order.js']);
+    expect(
+      [...document.querySelectorAll('link[rel="stylesheet"]')].map((link) =>
+        link.getAttribute('href'),
+      ),
+    ).toEqual(['/web-fonts/first.css', '/web-fonts/stacks.css', '/web-fonts/rest.css']);
     expect(source).not.toMatch(/<(?:img|iframe)\b/iu);
   });
 });

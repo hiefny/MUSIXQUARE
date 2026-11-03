@@ -34,6 +34,11 @@ import {
   SERVICE_CONTROL_STATUS_VERSION_HEADER,
 } from '../../../cloudflare/service-maintenance.ts';
 import { LANGUAGE_OPTIONS } from '../../i18n/locales.ts';
+import {
+  inlineStyles,
+  publicFontCssProblems,
+  publicFontLinkProblems,
+} from '../../../scripts/lib/public-font-pages.mts';
 import { verifyAccountAssertion } from '../../../cloudflare/account-assertion.ts';
 
 const PRODUCT_VERSION = (
@@ -2609,6 +2614,15 @@ describe('Cloudflare app worker WebAssembly CSP', () => {
     expect(response.headers.get('Cross-Origin-Embedder-Policy')).toBeNull();
   });
 
+  it('keeps fonts same-origin', async () => {
+    const response = await appWorker.fetch(
+      new Request('https://musixquare.com/api/security-config'),
+      {},
+    );
+    const csp = response.headers.get('Content-Security-Policy') || '';
+    expect(directive(csp, 'font-src')).toEqual(['font-src', "'self'", 'data:']);
+  });
+
   it('pins image and connection destinations to the production host inventory', async () => {
     const response = await appWorker.fetch(
       new Request('https://musixquare.com/api/security-config'),
@@ -4787,6 +4801,56 @@ describe('Cloudflare app worker admin dashboard', () => {
     },
   );
 
+  it('serves the admin its font sheets and Han order marker during maintenance, and no retired font route', async () => {
+    const enabledAt = Date.now() - 30_000;
+    const env = {
+      MUSIXQUARE_SERVICE_CONTROL: {
+        idFromName: vi.fn((name: string) => name),
+        get: vi.fn(() => ({
+          fetch: vi.fn(
+            async () =>
+              new Response(null, {
+                headers: {
+                  [SERVICE_CONTROL_STATUS_VERSION_HEADER]: '1',
+                  [SERVICE_CONTROL_STATUS_ENABLED_HEADER]: '1',
+                  [SERVICE_CONTROL_STATUS_REVISION_HEADER]: '1',
+                  [SERVICE_CONTROL_STATUS_UPDATED_AT_HEADER]: String(enabledAt),
+                  [SERVICE_CONTROL_STATUS_ACTIVATED_AT_HEADER]: String(enabledAt),
+                },
+              }),
+          ),
+        })),
+      },
+      ASSETS: {
+        fetch: vi.fn(
+          async () =>
+            new Response('@font-face{}', {
+              headers: { 'Content-Type': 'text/css; charset=utf-8' },
+            }),
+        ),
+      },
+    };
+    await expect(readServiceMaintenance(env)).resolves.toMatchObject({ enabled: true });
+
+    for (const path of ['/web-fonts/first.css', '/web-fonts/stacks.css', '/web-fonts/rest.css']) {
+      const response = await appWorker.fetch(new Request(`https://musixquare.com${path}`), env);
+      expect(response.status, path).toBe(200);
+      expect(response.headers.get('Content-Type'), path).toMatch(/^text\/css/u);
+    }
+    const marker = await appWorker.fetch(new Request('https://musixquare.com/han-order.js'), env);
+    expect(marker.status).toBe(200);
+    for (const path of [
+      '/designsystem/fonts/PretendardVariable.woff2',
+      '/web-fonts/first.css/',
+      '/web-fonts/other.css',
+      '/han-order.js/',
+    ]) {
+      const response = await appWorker.fetch(new Request(`https://musixquare.com${path}`), env);
+      expect(response.status, path).toBe(503);
+    }
+    expect(env.ASSETS.fetch).toHaveBeenCalledTimes(4);
+  });
+
   it('serves only the exact Admin and Maintenance sharing images for read requests during maintenance', async () => {
     const enabledAt = Date.now() - 30_000;
     const env = {
@@ -5560,6 +5624,11 @@ describe('Cloudflare app worker admin dashboard', () => {
           `<img class="soro-blog-card-image" src="${articleImage}"`,
         );
       }
+      // The article links the shared font sheets like every public page,
+      // and its own styles declare no face and set no stack.
+      expect(publicFontLinkProblems(html, { rest: 'body' })).toEqual([]);
+      for (const style of inlineStyles(html)) expect(publicFontCssProblems(style)).toEqual([]);
+      expect(html).not.toMatch(/pretendard/iu);
     },
   );
 
@@ -8370,6 +8439,11 @@ describe('Cloudflare app worker admin dashboard', () => {
     expect(html).toContain('data-pro-room-form');
     expect(html).toContain('Reusing a deleted number creates a new, isolated room.');
     expect(html).not.toContain('Reserve a permanent room number');
+    // The shared font sheets come before admin.css, rest.css after the scripts.
+    expect(publicFontLinkProblems(html, { rest: 'body' })).toEqual([]);
+    for (const style of inlineStyles(html)) expect(publicFontCssProblems(style)).toEqual([]);
+    expect(html.indexOf('/web-fonts/stacks.css')).toBeLessThan(html.indexOf('/admin.css'));
+    expect(html).not.toMatch(/pretendard/iu);
   });
 
   it('forces admin assets through no-store browser and CDN caching', async () => {
@@ -13133,6 +13207,66 @@ describe('Cloudflare app worker PRO room facade', () => {
 
     expect(response.status).toBe(403);
     expect(upstreamFetch).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe('Cloudflare app worker public font sheets', () => {
+  it('serves /web-fonts/ with the public-page cache policy: never immutable, never no-store', async () => {
+    const assetFetch = vi.fn(
+      async () =>
+        new Response('@font-face{}', {
+          headers: {
+            'Content-Type': 'text/css; charset=utf-8',
+            'Cache-Control': 'public, max-age=31536000, immutable',
+          },
+        }),
+    );
+    for (const path of ['/web-fonts/first.css', '/web-fonts/rest.css', '/web-fonts/stacks.css']) {
+      const response = await appWorker.fetch(new Request(`https://musixquare.com${path}`), {
+        ASSETS: { fetch: assetFetch },
+      });
+      expect(response.status, path).toBe(200);
+      expect(response.headers.get('Cache-Control'), path).toBe(
+        'public, max-age=300, s-maxage=86400, stale-while-revalidate=604800',
+      );
+      expect(response.headers.get('Content-Type'), path).toMatch(/^text\/css/u);
+      expect(response.headers.get('X-Content-Type-Options'), path).toBe('nosniff');
+    }
+  });
+
+  it("serves /han-order.js, the public pages' blocking Han order script, with the public-page cache policy", async () => {
+    // Every public page waits for it in the head; a stale copy only mirrors
+    // the app's resolveHanOrder, so it lives as long as a public page.
+    const response = await appWorker.fetch(new Request('https://musixquare.com/han-order.js'), {
+      ASSETS: {
+        fetch: vi.fn(
+          async () =>
+            new Response('document.documentElement;', {
+              headers: { 'Content-Type': 'text/javascript; charset=utf-8' },
+            }),
+        ),
+      },
+    });
+    expect(response.status).toBe(200);
+    expect(response.headers.get('Cache-Control')).toBe(
+      'public, max-age=300, s-maxage=86400, stale-while-revalidate=604800',
+    );
+    expect(response.headers.get('Content-Type')).toMatch(/^text\/javascript/u);
+  });
+
+  it('no longer marks the retired design-system font folder immutable', async () => {
+    const response = await appWorker.fetch(
+      new Request('https://musixquare.com/designsystem/fonts/PretendardVariable.woff2'),
+      {
+        ASSETS: {
+          fetch: vi.fn(
+            async () => new Response('wOF2', { headers: { 'Content-Type': 'font/woff2' } }),
+          ),
+        },
+      },
+    );
+    expect(response.status).toBe(200);
+    expect(response.headers.get('Cache-Control')).not.toBe('public, max-age=31536000, immutable');
   });
 });
 

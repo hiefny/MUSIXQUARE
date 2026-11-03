@@ -390,4 +390,101 @@
   // so finish unobtrusively. Keep cancellation and failure explanations open
   // until the user dismisses them instead of flashing the message for 250 ms.
   if (outcome === 'success') window.setTimeout(close, 250);
+
+  // The app's faces for the window: Inter, MUSIXQUARE Hangul and Noto through
+  // the app's stacks, from the sheets every page outside the app links
+  // (src/i18n/public-font-urls.ts). They are added only now, with the
+  // completion message out: a stylesheet the parser meets would hold this
+  // deferred script back until it loaded. Each is added for print, and they
+  // turn to every medium together once all have loaded: while a sheet for
+  // the screen loads, WebKit holds the page's rendering (its frames, and so
+  // the text's capped wait in account-complete.css), and the app's stacks
+  // applied before first.css names their faces made Chromium hold its frames
+  // for about 60 ms (a slow first load, where stacks.css comes first; a sheet
+  // that fails leaves the others for print). rest.css declares the faces of the
+  // languages whose own script first.css lacks (restFontSheetInHead in
+  // src/i18n/public-font-contract.ts; src/ui/__tests__/account-complete.test.ts
+  // holds this copy). No Han order script: only the Japanese and Chinese
+  // copies hold Han or kana, and their html lang puts their own family first.
+  // The text waits invisible (account-complete.css) until the root carries
+  // data-mxqr-fonts: 'app' once the sheets have loaded and the faces the
+  // next frame's layout asks for are ready, 'device' at once if a sheet fails
+  // and, in the success window, before it closes itself (below).
+  // That sheet ships as written and the message waits for it, as for this
+  // script (compiled minified), so its notes are here: its root reads
+  // var(--font-sans) over the device's fonts, which draw until these sheets
+  // load and wherever they cannot. The wordmark's fallback text, the message
+  // and the button label wait in no colour, a 600 ms CSS animation, so the cap
+  // holds without this script; the card, the wordmark and the button draw at
+  // once. The mark ends the wait, and without it the text shows when the wait
+  // ends, in the device's fonts until the faces arrive.
+  const ownFacesInRest = [
+    'ja',
+    'zh-hans',
+    'zh-hant',
+    'th',
+    'hi',
+    'bn',
+    'ta',
+    'te',
+    'ar',
+    'ur',
+    'he',
+    'fa',
+    'mr',
+    'gu',
+    'kn',
+    'ml',
+    'pa',
+  ];
+  const fontSheets = ['/web-fonts/first.css', '/web-fonts/stacks.css'];
+  if (ownFacesInRest.indexOf(key) !== -1) fontSheets.push('/web-fonts/rest.css');
+  const root = document.documentElement;
+  const markFonts = (faces: 'app' | 'device') => {
+    if (!root.hasAttribute('data-mxqr-fonts')) root.setAttribute('data-mxqr-fonts', faces);
+  };
+  const awaitFaces = () => {
+    if (!('fonts' in document)) {
+      markFonts('app');
+      return;
+    }
+    // The next frame lays the text out with the app's stacks, which asks for
+    // exactly the faces it draws with. WebKit starts those loads only after
+    // that frame, so ready is read a frame later, and settles once they have
+    // loaded or failed.
+    requestAnimationFrame(() =>
+      requestAnimationFrame(() => {
+        document.fonts.ready.then(
+          () => markFonts('app'),
+          () => markFonts('device'),
+        );
+      }),
+    );
+  };
+  const links: HTMLLinkElement[] = [];
+  let pendingSheets = fontSheets.length;
+  for (const href of fontSheets) {
+    const link = document.createElement('link');
+    link.rel = 'stylesheet';
+    link.href = href;
+    link.media = 'print';
+    link.addEventListener('load', () => {
+      pendingSheets -= 1;
+      if (pendingSheets > 0) return;
+      for (const sheet of links) sheet.media = 'all';
+      awaitFaces();
+    });
+    link.addEventListener('error', () => markFonts('device'));
+    links.push(link);
+    document.head.appendChild(link);
+  }
+  // The success window closes itself 250 ms after its message (above), and
+  // its text shows first: 200 ms after the message the wait ends with what
+  // has loaded, frames before the close, in the device's fonts if the faces
+  // are not ready. A late sheet does not end it sooner, as the app tab has
+  // often cached the faces, which then come with the sheet. This runs on the
+  // close's clock, not in the sheet: a CSS animation's clock starts at the
+  // first frame that draws it, which can come well after the message
+  // (docs/design/resource-ownership-registry.md, RO-54).
+  if (outcome === 'success') window.setTimeout(() => markFonts('device'), 200);
 })();

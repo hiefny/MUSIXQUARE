@@ -94,6 +94,73 @@ runbooks. Neither belongs in a general setup document.
 
 ## Maintained evidence and completed records
 
+- [App 9.0.36 / v809 train: every public page on the app's font system, and the design system Typography section (2026-11-02)](design/public-page-fonts-2026-11-02.md):
+  prepared up to its version bump `f47d5733` (the last runtime commit), with the full local gate
+  passed on the bump head in QA round 13; not merged or released.
+  The next App update after 9.0.35 / v808 (target `app`, one update
+  dialog), on branch `agent/public-page-fonts` over main `88550bc4` (9.0.35's release record; the
+  App runtime is production 9.0.35's `cfa81bdc`). It was planned as 9.0.35 / v808 until the
+  release owner shipped the ready Phase 6 6D first on 2026-11-03; QA round 12 moved the branch
+  from `432d4ae7` with each commit's non-docs patch unchanged, and Phase 7 7A follows as
+  9.0.37 / v810. Owner decision of 2026-11-02 evening: every
+  public page uses the app's font system, without owner pictures; only the app is checked, and it
+  must not change. About and its 42 copies, the document, translate and sitemap pages, the blog
+  and the article the App Worker renders, history, the design system with its previews and UI
+  kit, admin and 404 now load `/web-fonts/first.css` (Inter, MUSIXQUARE Hangul, Noto Sans KR),
+  `stacks.css` and `rest.css`, which the build concatenates from the app's processed sheets, so
+  they fetch the app's own font files; the events page (PRO sign-in) loads only `first.css` and
+  `stacks.css`, so its deferred scripts wait for no further sheet and the scripts only `rest.css`
+  holds draw with device fonts there. `/han-order.js` marks the app's Han order from the browser's
+  languages. The sign-in completion page belongs to the app, the train's one app-side change: by
+  the owner's decision of 2026-11-03 it keeps looking as it does today, now drawn with the app's
+  faces, which its script asks for only after it has told the app that sign-in finished (measured
+  in Chromium and WebKit: the message leaves when it did in 9.0.34 through the service worker and
+  locally; on a first load with neither the service worker nor a cache it waits for the bytes of
+  two files, which a review fix brought back near 9.0.34's size, shipping the script minified and
+  the sheet without comments; with the success-window fix they are 101 B larger in gzip and 48 B
+  in brotli, no later on a byte-accurate 1.6 Mbps link and 2.0 to 2.6 ms later at 400 kbps with
+  gzip, down from 772 B and 3 to 16 ms), its text waiting for them, in the cancelled and error
+  windows 600 ms at most after the window's sheet. The self-closing
+  success window ends that wait itself 200 ms after its message, so even a slow first sign-in shows
+  its text, in the device's fonts, before the window closes (registry RO-54), and the shared
+  sheets turn on together once all have loaded; 6 of its 252 copies (error copies) take one more
+  line, as Inter is wider than Pretendard's Latin (before and after pictures in the git-ignored
+  evidence folder). The owner saw only the four success-window pictures; the error copies' extra
+  line, the text appearing at once when the faces are ready and the WebKit phone-emulation result
+  were not shown, no owner answer is recorded, and the release owner shows the error-copy pictures
+  (QA round 14) before dispatch. The design
+  system gains the Typography section on that delivery; its Korean 述 cell draws Noto Sans KR in
+  any browser. The deployed Pretendard copy, the Pretendard sheets, the unused Noto Sans Cyrillic
+  and Greek files and 14 unnumbered generator-input faces are deleted;
+  `fonts/PretendardVariable.woff2` stays as the source of the Hangul faces. Increments I1 to I9,
+  the review fixes R1 to R8, the completion window change, its review fix and the success-window
+  fix (two pairs, QA round 11) are tests first,
+  each test commit failing on its parent unless recorded as a regression guard. The app-unchanged proof: no
+  app source path changed except the sign-in completion page's sheet and script; with content
+  hashes stripped, the app's build files equal the base's but for the one expected chunk fold
+  (`retryable-stylesheet.ts` into `locale-fonts`, module code identical), its service worker
+  install entry, that page's sheet and script, the Pretendard file that sheet no longer names, and
+  the three shared sheets its script now names;
+  the app's font request lists for the en, ko and ja start screens are identical; the app's font,
+  line-box, tab-header and playlist E2E specs pass, and the base's unmodified specs pass on the
+  head build. A light load check of every public page joins
+  the default Full E2E, opt-in labs read the faces, and the guards hold every page source and
+  built page to the public page list. Before the bump every guard passed but
+  `guard:sw-cache-version`; the bump `f47d5733` changes the seven version lines of 9.0.35's bump
+  `b0906a93`, and on it that guard passes at v809 and `guard:release-identity` reads 9.0.36 /
+  v809. QA round 13 ran the full local gate on the bump head `018e013a` (code `f47d5733`): all 37
+  guards, coverage, the critical, app font and screen, public, completion-window (Chromium and
+  WebKit lanes) and production candidate E2E and the labs pass; the full unit suite ran twice with
+  one git-fixture row over its own 30 s cap under load each time (105 / 105 alone, twice); against a
+  clean build of `88550bc4` the app's build files differ only as expected, the start screens' font
+  request lists are identical and the eager first load is 90 B smaller raw (35 B in gzip). QA round
+  14 applied a review in documents only and compared the completion window with 9.0.34's files in
+  Playwright WebKit (the phone emulation draws the success text before the close less often than
+  9.0.34 locally and more often on a slow link). Not run: real devices, Linux (no container on the
+  build machine; the post-merge Full E2E is the first Linux run, the completion-window spec included
+  in both its Chromium and WebKit jobs), WebKit beyond the sign-in completion window (its timing and
+  its new spec ran in Playwright WebKit), the screen pixel comparison. The pull request and the
+  release are the release owner's.
 - [App 9.0.35 / v808 train: Phase 6 6D, the YouTube start recoveries in one module, the Standard host's local start wait, the PRO start tokens, the late-joining PRO device's COMMIT catch-up and one mute rule below 0.5 % master volume (2026-11-02)](design/phase6-6d-recovery-pro-arm-2026-11-02.md):
   released on 2026-11-03 16:40 KST in Release 41597588008 (PR #565, squash `cfa81bdc`) as App
   9.0.35 / v808 (App build 808, target `app`, one update dialog, the last of Phase 6's four; the bump

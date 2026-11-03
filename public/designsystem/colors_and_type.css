@@ -3,17 +3,6 @@
    Scale aliases below exist only for public examples and are labeled as such.
 */
 
-/* ── Font ──────────────────────────────────────── */
-@font-face {
-  font-family: 'Pretendard';
-  src:
-    url('fonts/PretendardVariable.woff2') format('woff2-variations'),
-    url('../fonts/PretendardVariable.woff2') format('woff2-variations');
-  font-weight: 45 920;
-  font-style: normal;
-  font-display: swap;
-}
-
 :root {
   /* ── Palette (Dark default) ───────────────────── */
   --bg: #121212;
@@ -98,23 +87,9 @@
   --dur-slow: 0.6s;
 
   /* ── Type ─────────────────────────────────────── */
-  --font-primary: 'Pretendard';
-  --font-sans-ui:
-    var(--font-primary), -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
-  --font-sans-ko:
-    var(--font-primary), -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto,
-    'Apple SD Gothic Neo', 'Noto Sans KR', sans-serif;
-  --font-sans-ja:
-    var(--font-primary), 'Noto Sans JP', 'Hiragino Sans', 'Yu Gothic', 'Meiryo', sans-serif;
-  --font-sans-cjk-sc:
-    var(--font-primary), 'Noto Sans SC', 'Microsoft YaHei', 'PingFang SC', sans-serif;
-  --font-sans-cjk-tc:
-    var(--font-primary), 'Noto Sans TC', 'Microsoft JhengHei', 'PingFang TC', sans-serif;
-  --font-sans-th: var(--font-primary), 'Noto Sans Thai', 'Leelawadee UI', Tahoma, sans-serif;
-  --font-sans-cyrillic:
-    var(--font-primary), 'Noto Sans', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto,
-    sans-serif;
-  --font-sans: var(--font-sans-ko);
+  /* Font stacks: /web-fonts/stacks.css, the app's stacks for every page
+     outside the app (Inter, MUSIXQUARE Hangul and Noto, every face declared
+     by /web-fonts/first.css and rest.css). */
   /* Weight roles; text takes one of five weights and never goes above 700.
      Title: headings and display values. Selected / unselected: the one
      selected, current or playing item of a list or group, and every other
@@ -351,12 +326,20 @@ html[data-theme='light'][data-contrast='more'] {
 
 /* ── Semantic type classes ─────────────────────── */
 body {
-  font-family: var(--font-sans);
+  font-family: var(--font-sans, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif);
   font-size: var(--fs-14);
   font-kerning: normal;
   color: var(--text-main);
   background: var(--bg);
   -webkit-font-smoothing: antialiased;
+}
+
+/* Form controls take the page family, not the browser default, like the app's. */
+button,
+input,
+select,
+textarea {
+  font-family: inherit;
 }
 
 .tab-title,

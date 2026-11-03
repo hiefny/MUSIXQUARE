@@ -34,7 +34,9 @@
     />
     <meta name="twitter:image" content="https://musixquare.com/og-designsystem.png" />
     <link rel="icon" href="/designsystem/assets/favicon.svg" />
-    <link rel="stylesheet" href="/designsystem/src_ref/pretendard.css" />
+    <script src="/han-order.js"></script>
+    <link rel="stylesheet" href="/web-fonts/first.css" />
+    <link rel="stylesheet" href="/web-fonts/stacks.css" />
     <link rel="stylesheet" href="/designsystem/colors_and_type.css" />
     <link rel="stylesheet" href="/editorial-base.css" />
     <link rel="stylesheet" href="/editorial-design.css" />
@@ -421,49 +423,277 @@
       </section>
 
       <!-- ── TYPOGRAPHY ─────────────────────────────── -->
-      <section class="section" data-animate>
-        <div class="section-head"><h2>Typography</h2></div>
+      <section class="section" id="typography">
+        <div class="typo-head" data-animate>
+          <div class="section-head"><h2>Typography</h2></div>
+          <p class="section-intro">
+            A face for each script, one shared line box, and the font's own spacing. A track title
+            looks the same in Korean and English, apart from characters left to the device's fonts.
+          </p>
+        </div>
 
-        <div class="grid-2">
-          <div>
-            <h3 class="block-title">Pretendard Variable · 45–920</h3>
-            <div class="display-glyph">Aa</div>
-            <p style="color: var(--text-sub); font-size: 13px; margin-top: 16px; line-height: 1.6">
-              Self-hosted for Latin and Korean, with locale-specific Noto fallbacks for Japanese,
-              Chinese, Thai, and Cyrillic scripts. Use tabular figures for time, codes, and latency.
-            </p>
-          </div>
-          <div>
-            <h3 class="block-title">Scale</h3>
-            <div class="spec">
-              <span class="tag">28 / 700</span><span class="s28">Playback</span>
-              <span class="tag">24 / 700</span><span class="s24">Device role</span>
-              <span class="tag">20 / 700</span><span class="s20">Goldberg Aria</span>
-              <span class="tag">16 / 400</span><span class="s16">Enter a 6-digit room code</span>
-              <span class="tag">15 / 600</span><span class="btn-label">Load local files</span>
-              <span class="tag">12 / 400</span><span class="s12">00:42 / 03:18</span>
+        <div class="typo-block" data-animate>
+          <h3 class="block-title">Scripts</h3>
+          <p class="typo-runs user-text-font-ja">
+            <span class="typo-run"
+              ><span class="typo-run-text">Music</span
+              ><span class="typo-run-face typo-label">Inter</span></span
+            >
+            <span class="typo-run"
+              ><span class="typo-run-text" lang="ko">음악</span
+              ><span class="typo-run-face typo-label">MUSIXQUARE Hangul</span></span
+            >
+            <span class="typo-run"
+              ><span class="typo-run-text" lang="ja">音楽</span
+              ><span class="typo-run-face typo-label">Noto Sans JP</span></span
+            >
+            <span class="typo-run"
+              ><span class="typo-run-text" lang="ja">おんがく</span
+              ><span class="typo-run-face typo-label">Noto Sans JP</span></span
+            >
+          </p>
+          <p class="typo-note">
+            Each run is drawn by its script's face. The kana marks this track title as Japanese, so
+            its Han takes Japanese shapes too.
+          </p>
+        </div>
+
+        <div class="typo-block" data-animate>
+          <h3 class="block-title">Faces</h3>
+          <ul class="typo-faces">
+            <li class="typo-face">
+              <span class="typo-face-glyph" aria-hidden="true">AЖΩ</span>
+              <span class="typo-face-name">Inter 4</span>
+              <span class="typo-face-use"
+                >Latin, Cyrillic, Greek, Vietnamese and digits. Seven subsets, with an optical size
+                axis from 14 to 32.</span
+              >
+            </li>
+            <li class="typo-face">
+              <span class="typo-face-glyph" aria-hidden="true">한</span>
+              <span class="typo-face-name">MUSIXQUARE Hangul</span>
+              <span class="typo-face-use"
+                >Hangul. Pretendard 1.309, cut into 87 subsets and renamed, as its license
+                requires.</span
+              >
+            </li>
+            <li class="typo-face">
+              <span class="typo-face-glyph" aria-hidden="true">漢あ</span>
+              <span class="typo-face-name">Noto Sans KR, JP, SC, TC</span>
+              <span class="typo-face-use"
+                >Han, kana and the symbols Inter lacks. Kana comes only from JP, and KR fills the 98
+                Hangul that Pretendard lacks.</span
+              >
+            </li>
+            <li class="typo-face">
+              <span class="typo-face-glyph" aria-hidden="true">ก <bdi>ع</bdi> <bdi>א</bdi> क</span>
+              <span class="typo-face-name">Noto Sans Thai, Arabic, Hebrew and 8&nbsp;Indic</span>
+              <span class="typo-face-use">Each draws its own script, at its own metrics.</span>
+            </li>
+          </ul>
+          <p class="typo-note">
+            Emoji, scripts with no app face and 1,270 listed rare characters fall to the device's
+            fonts, so they can look different between interface languages.
+          </p>
+        </div>
+
+        <div class="typo-block" data-animate>
+          <h3 class="block-title">Han</h3>
+          <ul class="typo-han-forms" aria-label="述 in Noto Sans KR, JP, SC and TC">
+            <li>
+              <span class="typo-han-glyph typo-han-ko" aria-hidden="true">述</span>
+              <span class="typo-label">Noto Sans KR</span>
+            </li>
+            <li>
+              <span class="typo-han-glyph user-text-font-ja" aria-hidden="true">述</span>
+              <span class="typo-label">Noto Sans JP</span>
+            </li>
+            <li>
+              <span class="typo-han-glyph user-text-font-zh-hans" aria-hidden="true">述</span>
+              <span class="typo-label">Noto Sans SC</span>
+            </li>
+            <li>
+              <span class="typo-han-glyph user-text-font-zh-hant" aria-hidden="true">述</span>
+              <span class="typo-label">Noto Sans TC</span>
+            </li>
+          </ul>
+          <dl class="typo-han">
+            <div class="typo-han-row">
+              <dt class="typo-han-sample user-text-font-zh-hans">
+                我<span class="typo-marker">们</span>的夏天 Summer
+              </dt>
+              <dd>
+                <span class="typo-han-face">Noto Sans SC</span>
+                <span class="typo-han-why">A Simplified-only character marks it Chinese.</span>
+              </dd>
             </div>
+            <div class="typo-han-row">
+              <dt class="typo-han-sample user-text-font-zh-hant">
+                <span class="typo-marker">聽</span>見雨聲 Rain
+              </dt>
+              <dd>
+                <span class="typo-han-face">Noto Sans TC</span>
+                <span class="typo-han-why">A Traditional-only character marks it Chinese.</span>
+              </dd>
+            </div>
+          </dl>
+          <p class="typo-note">
+            One character, four faces. The app reads every track title, name and message for these
+            marks, and kana means Japanese. Unmarked Han follows the Japanese or Chinese interface,
+            or else the browser's languages, Korean by default.
+          </p>
+        </div>
+
+        <div class="typo-block" data-animate>
+          <h3 class="block-title">Line box</h3>
+          <div
+            class="typo-box"
+            role="img"
+            aria-label="Ag, 한, 漢 and あ on one line box: ascent 1950, baseline, descent 494, of 2048 units"
+          >
+            <p class="typo-box-line" aria-hidden="true">Ag 한 漢 あ</p>
+            <span class="typo-box-rule is-ascent" aria-hidden="true"
+              ><span class="typo-label">Ascent 1950</span></span
+            >
+            <span class="typo-box-rule is-baseline" aria-hidden="true"
+              ><span class="typo-label">Baseline</span></span
+            >
+            <span class="typo-box-rule is-descent" aria-hidden="true"
+              ><span class="typo-label">Descent 494</span></span
+            >
+          </div>
+          <p class="typo-note">
+            Latin, Hangul, Han and kana share one box: 1950 units above the baseline and 494 below,
+            of 2048, with no line gap. Inter is scaled to 97.2% to match Pretendard's cap and
+            x-height, and Noto CJK to 94% so Hangul, kana and Han sit at one size. Each face's
+            ascent and descent overrides then put it on the box. The box is also written into the
+            font files, for browsers that ignore the CSS overrides.
+          </p>
+          <dl class="typo-measure">
+            <div>
+              <dt>13 px type</dt>
+              <dd><strong>15</strong> px line</dd>
+            </div>
+            <div>
+              <dt>14.5 px type</dt>
+              <dd><strong>17</strong> px line</dd>
+            </div>
+            <div>
+              <dt>15 px type</dt>
+              <dd><strong>18</strong> px line</dd>
+            </div>
+            <div>
+              <dt>28 px type</dt>
+              <dd><strong>34</strong> px line</dd>
+            </div>
+          </dl>
+          <p class="typo-note">
+            <code>line-height: normal</code> is 1.193 em, measured in Chromium for Latin, Hangul,
+            Han and kana at 400 and 700. Thai, Arabic, Hebrew and Indic faces keep their own, taller
+            box.
+          </p>
+        </div>
+
+        <div class="typo-block" data-animate>
+          <h3 class="block-title">Tracking</h3>
+          <div class="typo-optical">
+            <span class="typo-optical-cell"
+              ><span class="typo-track-word" style="--opsz: 14.6">Playlist</span
+              ><span class="typo-optical-ghost" style="--opsz: 32" aria-hidden="true"
+                >Playlist</span
+              ></span
+            >
+            <span class="typo-track-lab">opsz 14.6, as at 15 px</span>
+            <span class="typo-track-word" style="--opsz: 32">Playlist</span>
+            <span class="typo-track-lab">opsz 32, at 33 px and up</span>
+          </div>
+          <div class="typo-track-row is-code">
+            <span class="typo-track-word">000000</span
+            ><span class="typo-track-lab">Invite code · 0.1em · tabular figures</span>
+          </div>
+          <p class="typo-note">
+            No text is tightened. Inter's optical size axis follows the type size from 14 to 32, and
+            the font does the rest. Shown at one size, opsz 32 sets the word about 5% narrower. Only
+            codes, PIN digits and a few small labels track wider. Codes also use tabular figures, so
+            each digit reads on its own.
+          </p>
+        </div>
+
+        <div class="typo-block typo-scale" data-animate>
+          <h3 class="block-title">Scale</h3>
+          <div class="spec">
+            <span class="tag">28 / 700</span><span class="s28">Playback</span>
+            <span class="tag">24 / 700</span><span class="s24">Device role</span>
+            <span class="tag">20 / 700</span><span class="s20">Night Drive 야간 드라이브</span>
+            <span class="tag">16 / 400</span><span class="s16">Enter a 6-digit room code</span>
+            <span class="tag">15 / 600</span><span class="btn-label">Load local files</span>
+            <span class="tag">12 / 400</span><span class="s12">00:42 / 03:18</span>
           </div>
         </div>
 
-        <div class="block" style="margin-top: 40px">
+        <div class="typo-block" data-animate>
+          <h3 class="block-title">Leading</h3>
+          <div class="typo-leading">
+            <div class="typo-lead">
+              <p class="typo-lead-meta">Tab title, phone<span>28 px type, normal</span></p>
+              <p class="typo-lead-sample is-title">
+                <span class="typo-lead-mark"></span>Night Drive<br /><span
+                  class="typo-lead-mark"
+                  data-pitch="34 px line"
+                ></span
+                >야간 드라이브
+              </p>
+            </div>
+            <div class="typo-lead">
+              <p class="typo-lead-meta">Dialog message<span>15 px type, 1.58</span></p>
+              <p class="typo-lead-sample is-message">
+                <span class="typo-lead-mark"></span>Night Drive<br /><span
+                  class="typo-lead-mark"
+                  data-pitch="23.7 px line"
+                ></span
+                >야간 드라이브
+              </p>
+            </div>
+            <div class="typo-lead">
+              <p class="typo-lead-meta">Button label<span>15 px type, 1.25</span></p>
+              <p class="typo-lead-sample is-button">
+                <span class="typo-lead-mark"></span>Night Drive<br /><span
+                  class="typo-lead-mark"
+                  data-pitch="18.75 px line"
+                ></span
+                >야간 드라이브
+              </p>
+            </div>
+          </div>
+          <p class="typo-note">
+            Most one-line titles take the shared box, as the tab title does. The track title,
+            desktop panel titles, setup headings, body text, buttons and codes set their own
+            leading: the phone track title is 20 px on a 32 px line, and on desktop the tab, chat
+            and track titles are 24 px on a 36 px line. No rule changes leading by script.
+          </p>
+        </div>
+
+        <div class="typo-block" data-animate>
           <h3 class="block-title">Weights</h3>
           <div class="weight-row">
             <div class="w">
-              <span class="gl" style="font-weight: 400">Aa</span
-              ><span class="lab">400 Regular</span>
+              <span class="gl" style="font-weight: var(--font-weight-body)">Aa 가</span
+              ><span class="lab">400 Body</span>
             </div>
             <div class="w">
-              <span class="gl" style="font-weight: 500">Aa</span><span class="lab">500 Medium</span>
+              <span class="gl" style="font-weight: var(--font-weight-unselected)">Aa 가</span
+              ><span class="lab">500 Unselected</span>
             </div>
             <div class="w">
-              <span class="gl" style="font-weight: 600">Aa</span
-              ><span class="lab">600 Semibold</span>
+              <span class="gl" style="font-weight: var(--font-weight-label)">Aa 가</span
+              ><span class="lab">600 Label</span>
             </div>
             <div class="w">
-              <span class="gl" style="font-weight: 700">Aa</span><span class="lab">700 Bold</span>
+              <span class="gl" style="font-weight: var(--font-weight-title)">Aa 가</span
+              ><span class="lab">700 Title, selected</span>
             </div>
           </div>
+          <p class="typo-note">Five roles, four weights. Nothing goes above 700.</p>
         </div>
       </section>
 
@@ -1583,5 +1813,6 @@
     </footer>
 
     <script src="/editorial-pages.js"></script>
+    <link rel="stylesheet" href="/web-fonts/rest.css" />
   </body>
 </html>

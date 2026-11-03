@@ -1,5 +1,3 @@
-import { hasLocaleFont } from '../../src/i18n/locale-font-contract.ts';
-
 function element<T extends HTMLElement>(selector: string): T {
   const found = document.querySelector<T>(selector);
   if (!found) throw new Error(`Missing sitemap element: ${selector}`);
@@ -63,27 +61,5 @@ input.addEventListener('keydown', (event) => {
 window.addEventListener('pageshow', update);
 update();
 
-function loadNameFont(item: HTMLElement): void {
-  const code = item.dataset.locale;
-  if (!code || !hasLocaleFont(code)) return;
-  import('../../src/i18n/static-page-fonts.ts')
-    .then(({ default: fonts }) => fonts.loadLocaleFont(code))
-    .catch((error: unknown) => console.warn('[Sitemap] Could not load language font:', error));
-}
-
-const languageItems = [...document.querySelectorAll<HTMLElement>('[data-locale]')];
-if (typeof IntersectionObserver === 'function') {
-  const observer = new IntersectionObserver(
-    (entries) => {
-      for (const entry of entries) {
-        if (!entry.isIntersecting || !(entry.target instanceof HTMLElement)) continue;
-        loadNameFont(entry.target);
-        observer.unobserve(entry.target);
-      }
-    },
-    { rootMargin: '160px' },
-  );
-  for (const item of languageItems) observer.observe(item);
-} else {
-  languageItems.forEach(loadNameFont);
-}
+// A module, so its bindings (status among them) stay out of the global scope.
+export {};

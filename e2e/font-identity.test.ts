@@ -17,8 +17,9 @@
  * Japanese first, which changes the startup Han order of both UIs alike.
  *
  * The network side: each UI's start screen fetches only its first faces, the
- * app requests every app sheet once and nothing of Pretendard or the retired
- * font runtime, phase B declares the other sheets after window load, and
+ * app requests every app sheet once and nothing of Pretendard, the retired
+ * font runtime or the public pages' /web-fonts/ sheets, phase B declares the
+ * other sheets after window load, and
  * phase C prefetches the Korean UI's frequent MUSIXQUARE Hangul shards within
  * its budget and nothing in the English UI. No Hangul is fetched from a Noto
  * Sans KR shard unless MUSIXQUARE Hangul lacks it.
@@ -35,6 +36,7 @@ import {
   FONT_PREFETCH_QUIET_MS,
 } from '../src/i18n/font-loading-policy.ts';
 import { FONT_PREFETCH_BY_LANGUAGE } from '../src/i18n/font-prefetch-samples.ts';
+import { PUBLIC_FONT_SHEET_URLS } from '../src/i18n/public-font-urls.ts';
 import { E2E_APP_ORIGIN } from './config.ts';
 import { waitForBootstrapReady } from './helpers/bootstrap.ts';
 import { injectPeerServer } from './helpers/peer-server.ts';
@@ -120,8 +122,14 @@ const FAMILY_BY_STEM: ReadonlyMap<string, string> = (() => {
 })();
 
 const APP_SHEET_IDS: ReadonlySet<string> = new Set(APP_FONT_SHEETS.map(({ id }) => id));
-/** The static pages' original sheets, which the app never requests. */
-const STATIC_PAGE_ONLY_SHEETS = ['noto-jp', 'noto-sc', 'noto-tc', 'noto-thai', 'noto-cyrillic'];
+/**
+ * Google's original Noto sheets under css/fonts/, kept only as the face
+ * generators' inputs (no page links them since the public-page font train),
+ * which the app never requests.
+ */
+const STATIC_PAGE_ONLY_SHEETS = ['noto-jp', 'noto-sc', 'noto-tc', 'noto-thai'];
+/** The public pages' font sheets, which the app never requests. */
+const PUBLIC_PAGE_SHEETS: ReadonlySet<string> = new Set(Object.values(PUBLIC_FONT_SHEET_URLS));
 
 /** A built asset's name without Vite's content hash. */
 function assetStem(url: string): string {
@@ -699,11 +707,17 @@ test.describe('app font identity', () => {
           `${ui}: Noto Sans KR shards`,
         ).toEqual([]);
 
-        // Nothing of Pretendard, the retired font runtime or the static pages' sheets.
+        // Nothing of Pretendard, the retired font runtime, the static pages'
+        // sheets or the public pages' sheets.
         expect(requests.filter(({ url }) => /pretendard|primary-font/iu.test(url))).toEqual([]);
         expect(
           requests
-            .filter(({ stem }) => STATIC_PAGE_ONLY_SHEETS.includes(stem))
+            .filter(
+              ({ url, stem }) =>
+                STATIC_PAGE_ONLY_SHEETS.includes(stem) ||
+                PUBLIC_PAGE_SHEETS.has(new URL(url).pathname) ||
+                new URL(url).pathname.startsWith('/web-fonts/'),
+            )
             .map(({ url }) => url),
         ).toEqual([]);
         expect(

@@ -100,6 +100,11 @@ describe('service worker cache policy', () => {
   it('precaches no font sheet or font file at install', () => {
     expect(APP_SHELL_SOURCE).not.toContain('PretendardVariable.woff2');
     expect(APP_SHELL_SOURCE).not.toMatch(/woff2|font-(?:inter|noto)|noto-/u);
+    // The public pages' sheets are never installed. The sign-in completion
+    // page, which is installed, links none: its script adds them once its
+    // completion message is out, the stable-static path caches them after
+    // the first fetch, and without them the page shows the device's fonts.
+    expect(APP_SHELL_SOURCE).not.toMatch(/web-fonts\//u);
   });
 
   it('keeps no font group of its own: fonts take the ordinary asset paths', () => {
@@ -519,7 +524,7 @@ describe('service worker cache policy', () => {
   it.each([
     'https://musixquare.com/bootstrap.js',
     'https://musixquare.com/assets/main-ABC12345.js',
-    'https://musixquare.com/designsystem/fonts/PretendardVariable.woff2',
+    'https://musixquare.com/web-fonts/first.css',
   ])('uses the online response when active CacheStorage reads fail for %s', async (url) => {
     const denied = new DOMException('CacheStorage access denied', 'SecurityError');
     cacheMatch.mockRejectedValue(denied);
@@ -543,7 +548,7 @@ describe('service worker cache policy', () => {
   it.each([
     'https://musixquare.com/bootstrap.js',
     'https://musixquare.com/assets/main-ABC12345.js',
-    'https://musixquare.com/designsystem/fonts/PretendardVariable.woff2',
+    'https://musixquare.com/web-fonts/first.css',
   ])('returns the offline response when CacheStorage and the network fail for %s', async (url) => {
     const denied = new DOMException('CacheStorage access denied', 'SecurityError');
     cacheMatch.mockRejectedValue(denied);
@@ -1150,19 +1155,22 @@ describe('service worker cache policy', () => {
     expect(cachePut).toHaveBeenCalledOnce();
   });
 
-  it("takes the ordinary stable-asset path for a public page's Pretendard request", async () => {
-    const url = 'https://musixquare.com/designsystem/fonts/PretendardVariable.woff2';
-    fetchMock.mockResolvedValue(new Response('public page font', { status: 200 }));
+  it.each(['first', 'rest', 'stacks'])(
+    "takes the ordinary revalidating static path for a public page's %s.css",
+    async (sheet) => {
+      const url = `https://musixquare.com/web-fonts/${sheet}.css`;
+      fetchMock.mockResolvedValue(new Response('public page font sheet', { status: 200 }));
 
-    const online = await dispatch(new Request(url));
+      const online = await dispatch(new Request(url));
 
-    expect(await online.text()).toBe('public page font');
-    expect(fetchMock).toHaveBeenCalledExactlyOnceWith(expect.any(Request), {
-      signal: expect.any(AbortSignal),
-    });
-    expect(cacheOpen).toHaveBeenCalledWith(`musixquare-static-${ACTIVE_CACHE_VERSION}`);
-    expect(cachePut).toHaveBeenCalledOnce();
-  });
+      expect(await online.text()).toBe('public page font sheet');
+      expect(fetchMock).toHaveBeenCalledExactlyOnceWith(expect.any(Request), {
+        signal: expect.any(AbortSignal),
+      });
+      expect(cacheOpen).toHaveBeenCalledWith(`musixquare-static-${ACTIVE_CACHE_VERSION}`);
+      expect(cachePut).toHaveBeenCalledOnce();
+    },
+  );
 
   it('never serves a font from a legacy optional cache', async () => {
     const legacyOptionalCache = `musixquare-optional-${RETIRED_CACHE_VERSION}`;
@@ -1174,9 +1182,7 @@ describe('service worker cache policy', () => {
     );
     fetchMock.mockRejectedValue(new Error('offline'));
 
-    const response = await dispatch(
-      new Request('https://musixquare.com/designsystem/fonts/PretendardVariable.woff2'),
-    );
+    const response = await dispatch(new Request('https://musixquare.com/web-fonts/first.css'));
 
     expect(response.status).toBe(503);
     expect(cacheMatch).not.toHaveBeenCalledWith(expect.anything(), {

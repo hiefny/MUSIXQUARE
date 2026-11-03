@@ -45,7 +45,29 @@
  *   new difference between the Korean and English UIs);
  * - no Pretendard by name in the app (the Hangul faces carry their own
  *   name), no Pretendard runtime, no service worker font group, and no font
- *   preload in any HTML.
+ *   preload in any HTML;
+ * - the pages outside the app: public/web-fonts/stacks.css resolves
+ *   --font-sans like the app in every UI language and Han order, and
+ *   declares no face; every switched page (scripts/lib/public-font-pages.mts
+ *   PUBLIC_FONT_PAGES) links the shared sheets and no other font, its sheets
+ *   and inline styles declare no face, set no stack and name families only
+ *   for code and the recorded brand labels, it reads the app's
+ *   --font-sans in each of its languages, and it tells Korean and English
+ *   apart only in the recorded copy rules, never by tracking; the sheets of
+ *   the pages the App Worker renders (PUBLIC_WORKER_FONT_PAGES) are held to
+ *   the same rules; every page source (the app document, public/, the
+ *   workshop pages and the UI kit) is a switched page or a recorded
+ *   exception (PUBLIC_FONT_PAGE_EXCLUSIONS, each with its reason) that
+ *   links none of the shared sheets, and the sheet of the exception whose
+ *   script adds them (the sign-in completion page) is held to the same
+ *   sheet rules and stacks;
+ * - what the public-page font train retired stays retired
+ *   (scripts/lib/font-retirement.mts): nothing a page, the app or a Worker
+ *   ships loads or names Pretendard as a font but the recorded places (text
+ *   that credits it may stay), the only Pretendard files are the Hangul
+ *   source, the share-image files and the licence, and the deployed copy,
+ *   the Pretendard sheets, the Noto Sans Cyrillic and Greek files and the
+ *   unshipped faces of the generator inputs are gone.
  * The initial transfer budget (scripts/check-initial-transfer-budget.mts)
  * holds the eager font bytes at 0, fonts of eager stylesheets included.
  * --dist adds the built output: no font in the initial graph of the app
@@ -54,14 +76,24 @@
  * Inter and CJK faces equal to their baked copies and the built Hangul faces to
  * fonts/app/hangul/, no font sheet or file in
  * the service worker's install manifests (which do install the font owner
- * chunk itself), About's locale links bound to the
- * processed original sheets, and Pretendard deployed once for the public
- * pages.
+ * chunk itself), every About copy linking the shared sheets (rest.css in
+ * the head where its language needs it) and every other switched page
+ * linking them as its source does, every built page coming from a switched
+ * page or a recorded exception, nothing retired in the build (no
+ * Pretendard file but the share-image subset, no retired folder, no built
+ * copy of a retired or generator-input sheet, and no built text that loads
+ * or names Pretendard as a font), and the public pages' sheets:
+ * dist/web-fonts/ holds exactly first.css and rest.css, the concatenations
+ * of the built app sheets of their group (src/i18n/public-font-contract.ts)
+ * whose every font file is built, and stacks.css, the authored file, none of
+ * which the app documents link.
  */
 
+import { existsSync } from 'node:fs';
 import { readFile, readdir } from 'node:fs/promises';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
+import postcss, { type Rule } from 'postcss';
 import { CLASSIC_RUNTIME_ASSETS, compileClassicRuntimeAsset } from './classic-runtime-assets.ts';
 import { findStaleFontSheets } from './fonts/build-font-sheets.mts';
 import {
@@ -95,8 +127,34 @@ import {
   textSymbolCodePoints,
   woff2Urls,
 } from './lib/app-font-guard.mts';
+import {
+  GENERATOR_INPUT_SHEETS,
+  PRETENDARD_ALLOWLIST,
+  PRETENDARD_FILE_ALLOWLIST,
+  RETIRED_FONT_PATHS,
+  pretendardFontReferences,
+  pretendardMentions,
+  retiredBuildFiles,
+  unshippedFaceFiles,
+} from './lib/font-retirement.mts';
+import {
+  inlineStyles,
+  listPageSources,
+  PUBLIC_FONT_PAGE_EXCLUSIONS,
+  PUBLIC_FONT_PAGES,
+  PUBLIC_KOREAN_ENGLISH_COPY_RULES,
+  PUBLIC_LITERAL_FONT_FAMILIES,
+  PUBLIC_WORKER_FONT_PAGES,
+  publicFontCssProblems,
+  publicFontLinkProblems,
+  type PublicFontPage,
+  unlistedBuiltPages,
+  unlistedPageSources,
+} from './lib/public-font-pages.mts';
 import { APP_FONT_SHEETS } from '../src/i18n/app-font-contract.ts';
 import { LANGUAGE_OPTIONS, languageDirection } from '../src/i18n/locales.ts';
+import { PUBLIC_FONT_SHEET_GROUPS, restFontSheetInHead } from '../src/i18n/public-font-contract.ts';
+import { PUBLIC_FONT_SHEET_URLS } from '../src/i18n/public-font-urls.ts';
 import { SERVICE_WORKER_SOURCE_PATH } from './service-worker-asset.ts';
 
 const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
@@ -121,15 +179,9 @@ async function collectFiles(directory: string): Promise<string[]> {
   return files;
 }
 
-const PRETENDARD_URL = '/designsystem/fonts/PretendardVariable.woff2';
+// The source the Hangul faces are cut from, and what Pretendard drew for the
+// coverage requirement. No page loads it.
 const PRETENDARD_SOURCE = path.join(repoRoot, 'fonts', 'PretendardVariable.woff2');
-const PRETENDARD_PUBLIC = path.join(
-  repoRoot,
-  'public',
-  'designsystem',
-  'fonts',
-  'PretendardVariable.woff2',
-);
 const UNCOVERED_LIST = 'scripts/fonts/uncovered-code-points.txt';
 const SYSTEM_FAMILIES = new Set([
   '-apple-system',
@@ -142,14 +194,13 @@ const APP_FAMILIES: readonly string[] = APP_FONT_SHEETS.map(({ family }) => fami
 // Inter, the Hangul and the CJK faces carry the descriptors of font-metrics.ts;
 // the script faces carry none.
 const FACE_METRICS = appFaceMetrics();
-// The static pages' original sheets, which About links and the sitemap page
-// loads (src/i18n/static-page-fonts.ts). They keep their source names.
-const STATIC_PAGE_SHEETS = [
+// Google's original sheets in css/fonts/: the script sheets the app imports
+// and the generator inputs. No page loads the generator inputs, and none
+// installs.
+const GOOGLE_SHEETS = [
   { family: 'Noto Sans Arabic', source: 'noto-arabic' },
   { family: 'Noto Sans Bengali', source: 'noto-bengali' },
-  { family: 'Noto Sans', source: 'noto-cyrillic' },
   { family: 'Noto Sans Devanagari', source: 'noto-devanagari' },
-  { family: 'Noto Sans', source: 'noto-greek' },
   { family: 'Noto Sans Gujarati', source: 'noto-gujarati' },
   { family: 'Noto Sans Gurmukhi', source: 'noto-gurmukhi' },
   { family: 'Noto Sans Hebrew', source: 'noto-hebrew' },
@@ -341,6 +392,145 @@ for (const hanOrder of HAN_ORDERS) {
   }
 }
 
+// ── Source: the pages outside the app ──────────────────────────────
+// They read the app's stacks from public/web-fonts/stacks.css, which mirrors
+// the app's --font-sans in every UI language and Han order and declares no
+// face (src/i18n/__tests__/public-font-stacks.test.ts holds the named stacks
+// and both directions too).
+
+const PUBLIC_STACKS = 'public/web-fonts/stacks.css';
+const publicStacksCss = await readFile(path.join(repoRoot, PUBLIC_STACKS), 'utf8');
+check(!declaresFontFace(publicStacksCss), `${PUBLIC_STACKS} declares @font-face`);
+const publicStacks = readFontStacks(repoRoot, { sheets: [PUBLIC_STACKS] });
+for (const hanOrder of HAN_ORDERS) {
+  const attributes = hanAttributes(hanOrder);
+  for (const { code, htmlLang } of LANGUAGE_OPTIONS) {
+    const state = { htmlLang, dir: languageDirection(code), attributes };
+    check(
+      JSON.stringify(publicStacks.fontSans(state)) === JSON.stringify(fontStacks.fontSans(state)),
+      `${PUBLIC_STACKS} resolves --font-sans in the ${code} UI (Han order ${hanOrder ?? 'ko'}) unlike the app`,
+    );
+  }
+}
+// Every page source is a registered public page or a recorded exception
+// (PUBLIC_FONT_PAGE_EXCLUSIONS), so no new page skips the shared sheets.
+for (const source of unlistedPageSources(await listPageSources(repoRoot))) {
+  failures.push(
+    `${source} is neither a registered public page (PUBLIC_FONT_PAGES) nor a recorded exception (PUBLIC_FONT_PAGE_EXCLUSIONS)`,
+  );
+}
+// An exception links none of the public pages' delivery. The sign-in
+// completion page's script adds the shared sheets itself once its completion
+// message is out (a linked sheet would hold that deferred script back), so
+// its own sheet is held to the public sheets' rules and must read the app's
+// --font-sans in every UI language the window shows.
+for (const { html, sheet } of PUBLIC_FONT_PAGE_EXCLUSIONS) {
+  check(
+    !/\/web-fonts\/|\/han-order\.js/u.test(await readFile(path.join(repoRoot, html), 'utf8')),
+    `${html} is a recorded exception but links /web-fonts/ or /han-order.js`,
+  );
+  if (sheet === undefined) continue;
+  const css = await readFile(path.join(repoRoot, sheet), 'utf8');
+  for (const problem of publicFontCssProblems(css, PUBLIC_LITERAL_FONT_FAMILIES)) {
+    failures.push(`${sheet} ${problem}`);
+  }
+  const chain = readFontStacks(repoRoot, { sheets: [PUBLIC_STACKS, sheet] });
+  for (const { code, htmlLang } of LANGUAGE_OPTIONS) {
+    const state = { htmlLang, dir: languageDirection(code) };
+    check(
+      JSON.stringify(chain.fontSans(state)) === JSON.stringify(fontStacks.fontSans(state)),
+      `${sheet} reads another --font-sans than the app in ${htmlLang}`,
+    );
+  }
+}
+const publicSheets = new Set<string>();
+const publicSplitSelectors = new Set<string>();
+// The pages with source HTML, then the pages the App Worker renders from its
+// own markup, whose links its tests check (app-worker-cors.test.ts).
+type CheckedPage = Pick<PublicFontPage, 'rest' | 'sheets' | 'htmlLangs'> & {
+  readonly label: string;
+  readonly html: string | null;
+};
+const publicPages: readonly CheckedPage[] = [
+  ...PUBLIC_FONT_PAGES.map(({ html, rest, sheets, htmlLangs }) => ({
+    label: html,
+    html,
+    rest,
+    sheets,
+    htmlLangs,
+  })),
+  ...PUBLIC_WORKER_FONT_PAGES.map(({ name, sheets, htmlLangs }) => ({
+    label: name,
+    html: null,
+    rest: 'body' as const,
+    sheets,
+    htmlLangs,
+  })),
+];
+for (const page of publicPages) {
+  const html = page.html === null ? '' : await readFile(path.join(repoRoot, page.html), 'utf8');
+  if (page.html !== null) {
+    for (const problem of publicFontLinkProblems(html, { rest: page.rest })) {
+      failures.push(`${page.label} ${problem}`);
+    }
+  }
+  const inlineRules: { sheet: string; selectors: string[]; rule: Rule }[] = [];
+  for (const style of inlineStyles(html)) {
+    for (const problem of publicFontCssProblems(style)) {
+      failures.push(`${page.label} <style> ${problem}`);
+    }
+    postcss.parse(style).walkRules((rule) => {
+      inlineRules.push({
+        sheet: `${page.label} <style>`,
+        selectors: rule.selectors.map((selector) => selector.replace(/\s+/gu, ' ').trim()),
+        rule,
+      });
+    });
+  }
+  const chain = readFontStacks(repoRoot, { sheets: [PUBLIC_STACKS, ...page.sheets] });
+  for (const htmlLang of page.htmlLangs) {
+    const code = LANGUAGE_OPTIONS.find((option) => option.htmlLang === htmlLang)?.code;
+    check(code !== undefined, `${page.label} is shown in ${htmlLang}, which is no UI language`);
+    if (code === undefined) continue;
+    const state = { htmlLang, dir: languageDirection(code) };
+    check(
+      JSON.stringify(chain.fontSans(state)) === JSON.stringify(fontStacks.fontSans(state)),
+      `${page.label} reads another --font-sans than the app in ${htmlLang}`,
+    );
+  }
+  // The pages draw Korean and English alike, as the app does: a rule may
+  // tell them apart only to set the page's own translated copy, and never
+  // its tracking.
+  for (const { sheet, selectors, rule } of [...chain.rules, ...inlineRules]) {
+    for (const single of selectors) {
+      const tests = languageSplitTests(single, koreanLang, englishLang);
+      if (tests.length === 0) continue;
+      publicSplitSelectors.add(single);
+      check(
+        single in PUBLIC_KOREAN_ENGLISH_COPY_RULES,
+        `${sheet} ${single} applies in only one of the Korean and English pages (${tests.join(', ')})`,
+      );
+      check(
+        !rule.nodes.some((node) => node.type === 'decl' && node.prop === 'letter-spacing'),
+        `${sheet} ${single} sets Korean or English tracking alone`,
+      );
+    }
+  }
+  for (const sheet of page.sheets) publicSheets.add(sheet);
+}
+for (const sheet of publicSheets) {
+  const css = await readFile(path.join(repoRoot, sheet), 'utf8');
+  for (const problem of publicFontCssProblems(css, PUBLIC_LITERAL_FONT_FAMILIES)) {
+    failures.push(`${sheet} ${problem}`);
+  }
+}
+for (const selector of Object.keys(PUBLIC_KOREAN_ENGLISH_COPY_RULES)) {
+  check(
+    publicSplitSelectors.has(selector),
+    `${selector} no longer tells the Korean and English pages apart; drop it from PUBLIC_KOREAN_ENGLISH_COPY_RULES`,
+  );
+}
+
 // ── Source: one source per script, and coverage ────────────────────
 
 // The faces are read from their files; a sheet that points at no readable
@@ -503,15 +693,13 @@ check(
   !CLASSIC_RUNTIME_ASSETS.some(({ outputPath }) => /font/iu.test(outputPath)),
   'a classic runtime still loads fonts',
 );
-const [appHtml, serviceWorkerSource, bootstrapSource, sourceFont, publicFont, packageJson] =
-  await Promise.all([
-    readFile(path.join(repoRoot, 'index.html'), 'utf8'),
-    readFile(path.join(repoRoot, SERVICE_WORKER_SOURCE_PATH), 'utf8'),
-    readFile(path.join(repoRoot, bootstrapAsset.sourcePath), 'utf8'),
-    readFile(PRETENDARD_SOURCE),
-    readFile(PRETENDARD_PUBLIC),
-    readFile(path.join(repoRoot, 'package.json'), 'utf8'),
-  ]);
+const [appHtml, serviceWorkerSource, bootstrapSource, sourceFont, packageJson] = await Promise.all([
+  readFile(path.join(repoRoot, 'index.html'), 'utf8'),
+  readFile(path.join(repoRoot, SERVICE_WORKER_SOURCE_PATH), 'utf8'),
+  readFile(path.join(repoRoot, bootstrapAsset.sourcePath), 'utf8'),
+  readFile(PRETENDARD_SOURCE),
+  readFile(path.join(repoRoot, 'package.json'), 'utf8'),
+]);
 // font-metrics.ts derives the descriptors from Pretendard's metrics and says so.
 const productionSources = (await collectFiles(path.join(repoRoot, 'src'))).filter(
   (file) =>
@@ -549,9 +737,41 @@ for (const retired of [
   );
   check(!exists, `${retired} is back`);
 }
-// Pretendard stays deployed for the public pages until they switch.
 check(sourceFont.subarray(0, 4).toString('ascii') === 'wOF2', 'the Pretendard source is not WOFF2');
-check(sourceFont.equals(publicFont), 'the public Pretendard copy differs from fonts/');
+
+// What the public-page font train retired stays retired: Pretendard loads
+// and is named as a font nowhere a page, the app or a Worker ships but the
+// recorded places, its only files are the Hangul source, the share-image
+// files and the licence, and the deleted files stay deleted
+// (scripts/lib/font-retirement.mts).
+for (const mention of pretendardMentions(repoRoot)) {
+  failures.push(`Pretendard outside the recorded places: ${mention}`);
+}
+for (const file of Object.keys(PRETENDARD_ALLOWLIST)) {
+  const text = await readFile(path.join(repoRoot, file), 'utf8').catch(() => '');
+  check(
+    pretendardFontReferences(file, text).length > 0,
+    `${file} no longer names Pretendard as a font; drop it from PRETENDARD_ALLOWLIST`,
+  );
+}
+for (const file of Object.keys(PRETENDARD_FILE_ALLOWLIST)) {
+  check(
+    existsSync(path.join(repoRoot, file)),
+    `${file} is gone, but PRETENDARD_FILE_ALLOWLIST keeps it`,
+  );
+}
+for (const retired of RETIRED_FONT_PATHS) {
+  check(!existsSync(path.join(repoRoot, retired)), `${retired} is back`);
+}
+for (const sheet of GENERATOR_INPUT_SHEETS) {
+  const css = await readFile(path.join(repoRoot, sheet), 'utf8');
+  for (const file of unshippedFaceFiles(sheet, css)) {
+    check(
+      !existsSync(path.join(repoRoot, file)),
+      `${file}, a face ${sheet} lists but the app does not ship, is back`,
+    );
+  }
+}
 for (const [label, file] of [
   ['app', 'index.html'],
   ['About', '.workshop/landing/landing.html'],
@@ -584,6 +804,14 @@ if (distMode) {
       .map(async (file) => ({ file, html: await readFile(file, 'utf8') })),
   );
   const relative = (file: string) => path.relative(distDirectory, file).replace(/\\/gu, '/');
+
+  // Every built page comes from a registered public page or a recorded
+  // exception (PUBLIC_FONT_PAGE_EXCLUSIONS).
+  for (const file of unlistedBuiltPages(builtHtml.map(({ file }) => relative(file)))) {
+    failures.push(
+      `built ${file} comes from no registered public page (PUBLIC_FONT_PAGES) or recorded exception (PUBLIC_FONT_PAGE_EXCLUSIONS)`,
+    );
+  }
 
   for (const { file, html } of builtHtml) {
     const preloads = fontPreloadHrefs(html);
@@ -643,6 +871,55 @@ if (distMode) {
     }
   }
 
+  // The public pages' sheets (scripts/public-font-sheets.mts): first.css and
+  // rest.css are the built app sheets of their group, concatenated in
+  // contract order, so they name the app's very files; stacks.css is the
+  // authored file. dist/web-fonts/ holds nothing else.
+  const webFontFiles = distFiles
+    .map((file) => relative(file))
+    .filter((file) => file.startsWith('web-fonts/'))
+    .sort();
+  const expectedWebFontFiles = Object.values(PUBLIC_FONT_SHEET_URLS)
+    .map((url) => url.slice(1))
+    .sort();
+  check(
+    JSON.stringify(webFontFiles) === JSON.stringify(expectedWebFontFiles),
+    `dist/web-fonts/ holds ${webFontFiles.join(', ') || 'nothing'}, not ${expectedWebFontFiles.join(', ')}`,
+  );
+  for (const [group, ids] of Object.entries(PUBLIC_FONT_SHEET_GROUPS)) {
+    const url = PUBLIC_FONT_SHEET_URLS[group as keyof typeof PUBLIC_FONT_SHEET_GROUPS];
+    const built = await readFile(path.join(distDirectory, url.slice(1)), 'utf8').catch(() => null);
+    check(built !== null, `dist${url} was not built`);
+    if (built === null) continue;
+    const parts = await Promise.all(
+      ids.map(async (id) => {
+        const sheetFile = appSheetFiles.get(id);
+        return sheetFile ? await readFile(sheetFile, 'utf8') : `(missing ${id})`;
+      }),
+    );
+    check(
+      built === parts.map((css) => `${css.replace(/\n+$/u, '')}\n`).join(''),
+      `dist${url} is not the concatenation of the built ${ids.join(', ')} sheets`,
+    );
+    const urls = woff2Urls(built);
+    check(urls.length > 0, `dist${url} names no font file`);
+    for (const fontUrl of urls) {
+      const fontFile = localDistAssetPath(distDirectory, fontUrl);
+      check(
+        fontFile !== null && distFileSet.has(path.resolve(fontFile)),
+        `dist${url} points at a missing font file: ${fontUrl}`,
+      );
+    }
+  }
+  const builtStacks = await readFile(
+    path.join(distDirectory, PUBLIC_FONT_SHEET_URLS.stacks.slice(1)),
+    'utf8',
+  ).catch(() => null);
+  check(
+    builtStacks === publicStacksCss,
+    `dist${PUBLIC_FONT_SHEET_URLS.stacks} is not ${PUBLIC_STACKS}`,
+  );
+
   // Nothing font-related in the initial graph of the app document and its
   // localized copies.
   const builtFontNames = distFiles
@@ -654,6 +931,10 @@ if (distMode) {
   );
   check(appDocuments.length > 1, 'the built app document and its localized copies are missing');
   for (const { file, html } of appDocuments) {
+    check(
+      !html.includes('/web-fonts/'),
+      `built ${relative(file)} names the public pages' font sheets (/web-fonts/)`,
+    );
     const initialFiles = initialAssetUrls(html)
       .filter((url) => /\.(?:css|m?js)(?:[?#]|$)/iu.test(url))
       .map((url) => localDistAssetPath(distDirectory, url))
@@ -682,7 +963,7 @@ if (distMode) {
   const distServiceWorker = await readFile(path.join(distDirectory, 'service-worker.js'), 'utf8');
   const fontSheetStems = new Set<string>([
     ...APP_FONT_SHEETS.map(({ id }) => id),
-    ...STATIC_PAGE_SHEETS.map(({ source }) => source),
+    ...GOOGLE_SHEETS.map(({ source }) => source),
   ]);
   for (const manifest of ['APP_SHELL', 'BUILD_ENTRY_ASSETS']) {
     const entries = [
@@ -720,69 +1001,45 @@ if (distMode) {
     'built early bootstrap runtime differs from the classic-runtime compiler output',
   );
 
-  // About: its disabled locale links point at the processed original sheets.
-  const staticSheetFiles = new Set<string>();
-  for (const { family, source } of STATIC_PAGE_SHEETS) {
-    const matches = builtCss.filter(
-      ({ file, css }) => builtAssetStem(file) === source && declaresFontFace(css, family),
-    );
-    check(
-      matches.length === 1,
-      `the static pages' ${source} sheet should be exactly one built CSS asset (found ${matches.length})`,
-    );
-    for (const { file } of matches) staticSheetFiles.add(path.resolve(file));
-  }
-  const aboutHtml = builtHtml.find(({ file }) => relative(file) === 'about.html')?.html ?? '';
-  const aboutLinks = [...aboutHtml.matchAll(/<link\b[^>]*>/giu)]
-    .map((match) => match[0])
-    .filter((tag) => /\bdata-static-lang-font-codes=["'][^"']+["']/iu.test(tag));
-  check(
-    aboutLinks.length === STATIC_PAGE_SHEETS.length,
-    `built About HTML must expose ${STATIC_PAGE_SHEETS.length} lazy locale font links (found ${aboutLinks.length})`,
-  );
-  const aboutSheets = new Set<string>();
-  for (const tag of aboutLinks) {
-    const href = /\bhref=["']([^"']+)["']/iu.exec(tag)?.[1] ?? '';
-    const file = localDistAssetPath(distDirectory, href);
-    check(
-      file !== null && staticSheetFiles.has(path.resolve(file)),
-      `built About links a locale font sheet that is not a processed original: ${href || '(missing)'}`,
-    );
-    if (!file) continue;
-    aboutSheets.add(path.resolve(file));
-    for (const url of woff2Urls(await readFile(file, 'utf8').catch(() => ''))) {
-      const fontFile = url.startsWith('/')
-        ? localDistAssetPath(distDirectory, url)
-        : path.resolve(path.dirname(file), url);
-      check(
-        fontFile !== null && distFileSet.has(path.resolve(fontFile)),
-        `built About locale font file is unresolved: ${relative(file)} -> ${url}`,
-      );
+  // About: every copy links the shared font sheets (public-font-pages.mts),
+  // rest.css in the head where its language needs those faces first.
+  for (const { code } of LANGUAGE_OPTIONS) {
+    const aboutFile = code === 'en' ? 'about.html' : `${code}/about.html`;
+    const aboutHtml = builtHtml.find(({ file }) => relative(file) === aboutFile)?.html;
+    check(aboutHtml !== undefined, `built ${aboutFile} is missing`);
+    if (aboutHtml === undefined) continue;
+    for (const problem of publicFontLinkProblems(aboutHtml, {
+      rest: restFontSheetInHead(code) ? 'head' : 'body',
+    })) {
+      failures.push(`built ${aboutFile} ${problem}`);
     }
   }
-  check(
-    aboutSheets.size === STATIC_PAGE_SHEETS.length,
-    'built About locale font links must resolve to distinct sheets',
-  );
+  // Every other built page that has switched links them as its source does.
+  for (const page of PUBLIC_FONT_PAGES) {
+    if (page.dist === null) continue;
+    const pageHtml = builtHtml.find(({ file }) => relative(file) === page.dist)?.html;
+    check(pageHtml !== undefined, `built ${page.dist} is missing`);
+    if (pageHtml === undefined) continue;
+    for (const problem of publicFontLinkProblems(pageHtml, { rest: page.rest })) {
+      failures.push(`built ${page.dist} ${problem}`);
+    }
+  }
 
-  // Pretendard: deployed once, byte-identical, for the public pages.
-  const deployedPretendard = distFiles.filter(
-    (file) => path.basename(file) === 'PretendardVariable.woff2',
-  );
-  check(
-    deployedPretendard.length === 1,
-    `PretendardVariable.woff2 should be deployed exactly once (found ${deployedPretendard.length})`,
-  );
-  const [deployed] = deployedPretendard;
-  if (deployed) {
-    check(
-      relative(deployed) === PRETENDARD_URL.slice(1),
-      `PretendardVariable.woff2 moved to ${relative(deployed)}`,
-    );
-    check(
-      (await readFile(deployed)).equals(sourceFont),
-      'the built Pretendard differs from fonts/',
-    );
+  // Nothing retired in the build: no Pretendard file but the share-image
+  // subset, nothing under a retired folder, no built copy of a retired or
+  // generator-input sheet, and no built text that loads or names Pretendard
+  // as a font (scripts/lib/font-retirement.mts).
+  for (const problem of retiredBuildFiles(distFiles.map(relative))) {
+    failures.push(`built ${problem}`);
+  }
+  for (const file of distFiles) {
+    if (!/\.(?:html|css|m?js|json|md|txt|svg|webmanifest|xml)$/iu.test(file)) continue;
+    for (const reference of pretendardFontReferences(
+      relative(file),
+      await readFile(file, 'utf8'),
+    )) {
+      failures.push(`built ${relative(file)} loads or names Pretendard as a font: ${reference}`);
+    }
   }
 }
 
@@ -791,6 +1048,6 @@ if (failures.length > 0) {
   process.exitCode = 1;
 } else {
   console.log(
-    `App font guard passed (Inter and Noto files, Hangul faces, baked app faces and self-hosted sheets, ${textStacks.size} distinct text stacks, one source per script, coverage with ${recordedGapCount} recorded gaps${distMode ? ', built sheets, initial graph and install manifests' : ''}).`,
+    `App font guard passed (Inter and Noto files, Hangul faces, baked app faces and self-hosted sheets, ${textStacks.size} distinct text stacks, one source per script, coverage with ${recordedGapCount} recorded gaps, the public pages and the retired fonts${distMode ? ', built sheets, initial graph, install manifests and nothing retired in the build' : ''}).`,
   );
 }

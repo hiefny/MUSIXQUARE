@@ -48,7 +48,7 @@ describe('Developer API public documentation', () => {
     const html = await readFile(DOC_PATH, 'utf8');
 
     expect(html).toContain('<link rel="canonical" href="https://musixquare.com/developers">');
-    expect(html).toContain('<link rel="stylesheet" href="/css/pretendard.css">');
+    expect(html).toContain('<link rel="stylesheet" href="/web-fonts/first.css" vite-ignore />');
     expect(html).toContain('<link rel="stylesheet" href="/legal-pages.css">');
     expect(html).toContain('<header class="policy-header">');
     expect(html).toContain('<main class="policy-shell">');

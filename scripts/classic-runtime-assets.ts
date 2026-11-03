@@ -7,7 +7,10 @@ import { useAsyncConnectMiddleware } from './async-connect-middleware.ts';
 export interface ClassicRuntimeAsset {
   readonly sourcePath: string;
   readonly outputPath: string;
-  /** Compact an early synchronous runtime. */
+  /**
+   * Compact a runtime whose bytes something waits for: an early synchronous
+   * one, or the sign-in completion script, whose message waits for it.
+   */
   readonly minify?: boolean;
   /** Preserve an older execution floor when the historic runtime requires it. */
   readonly target?: 'es2018' | 'es2022';
@@ -25,6 +28,7 @@ export const CLASSIC_RUNTIME_ASSETS = [
   {
     sourcePath: 'browser/classic-runtime/account-complete.ts',
     outputPath: 'account-complete.js',
+    minify: true,
     target: 'es2018',
   },
   {
@@ -64,6 +68,12 @@ export const CLASSIC_RUNTIME_ASSETS = [
   {
     sourcePath: 'browser/classic-runtime/fouc-cleanup.ts',
     outputPath: 'fouc-cleanup.js',
+    minify: true,
+    target: 'es2018',
+  },
+  {
+    sourcePath: 'browser/classic-runtime/han-order.ts',
+    outputPath: 'han-order.js',
     minify: true,
     target: 'es2018',
   },

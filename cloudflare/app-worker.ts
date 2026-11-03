@@ -82,6 +82,10 @@ import {
   type LanguageCode,
 } from '../src/i18n/locales.ts';
 import {
+  PUBLIC_FONT_SHEET_URLS,
+  PUBLIC_HAN_ORDER_SCRIPT_URL,
+} from '../src/i18n/public-font-urls.ts';
+import {
   abortProRoomOwnershipTransferEntitlement,
   authorizeProGrantActivation,
   canAccountReceiveProRoomEntitlement,
@@ -375,7 +379,7 @@ const ADMIN_ANNOUNCEMENT_HISTORY_KEY = 'admin-announcement-history.json';
 const ADMIN_ANNOUNCEMENT_HISTORY_LIMIT = 100;
 const ADMIN_ANNOUNCEMENT_ID_RE = /^[A-Za-z0-9._:-]{1,128}$/;
 const ADMIN_MAINTENANCE_PREVIEW_PATH = '/admin/maintenance-preview';
-const ADMIN_ASSET_VERSION = '9.0.35';
+const ADMIN_ASSET_VERSION = '9.0.36';
 const SORO_RSS_MAX_BYTES = 20 * 1024 * 1024;
 const SORO_RSS_FETCH_TIMEOUT_MS = 2500;
 const SORO_BACKGROUND_REFRESH_MIN_INTERVAL_MS = 5 * 60 * 1000;
@@ -11508,7 +11512,10 @@ function isServiceMaintenanceAdminBypass(request: Request, url: URL) {
       pathname === '/og-maintenance.png' ||
       pathname === '/designsystem/assets/favicon.svg' ||
       pathname === '/designsystem/assets/logo-wordmark.svg' ||
-      pathname === '/designsystem/fonts/PretendardVariable.woff2')
+      pathname === PUBLIC_FONT_SHEET_URLS.first ||
+      pathname === PUBLIC_FONT_SHEET_URLS.stacks ||
+      pathname === PUBLIC_FONT_SHEET_URLS.rest ||
+      pathname === PUBLIC_HAN_ORDER_SCRIPT_URL)
   ) {
     return true;
   }
@@ -12459,6 +12466,9 @@ function renderAdminPage(request: Request, env: AppEnv) {
   <meta name="twitter:image" content="${esc(origin)}/og-admin.png">
   <meta name="twitter:image:alt" content="MUSIXQUARE Admin">
   <link rel="icon" href="/designsystem/assets/favicon.svg">
+  <script src="${PUBLIC_HAN_ORDER_SCRIPT_URL}"></script>
+  <link rel="stylesheet" href="${PUBLIC_FONT_SHEET_URLS.first}">
+  <link rel="stylesheet" href="${PUBLIC_FONT_SHEET_URLS.stacks}">
   <link rel="stylesheet" href="/admin.css?v=${ADMIN_ASSET_VERSION}">
   <script src="/clearable-editors.js?v=${ADMIN_ASSET_VERSION}" defer></script>
   <script src="/admin.js?v=${ADMIN_ASSET_VERSION}" defer></script>
@@ -12744,6 +12754,7 @@ function renderAdminPage(request: Request, env: AppEnv) {
       </section>
     </section>
   </main>
+  <link rel="stylesheet" href="${PUBLIC_FONT_SHEET_URLS.rest}">
 </body>
 </html>`;
 
@@ -15694,8 +15705,9 @@ function renderSoroArticleHtml(
   <meta name="twitter:image" content="${esc(socialImage)}">
   <meta name="twitter:image:alt" content="MUSIXQUARE Blog">
   <link rel="icon" href="/designsystem/assets/favicon.svg">
-  <link rel="preload" href="/designsystem/fonts/PretendardVariable.woff2" as="font" type="font/woff2" crossorigin>
-  <link rel="stylesheet" href="/designsystem/src_ref/pretendard.css">
+  <script src="${PUBLIC_HAN_ORDER_SCRIPT_URL}"></script>
+  <link rel="stylesheet" href="${PUBLIC_FONT_SHEET_URLS.first}">
+  <link rel="stylesheet" href="${PUBLIC_FONT_SHEET_URLS.stacks}">
   <link rel="stylesheet" href="/designsystem/colors_and_type.css">
   <link rel="stylesheet" href="/editorial-base.css">
   <style>
@@ -15764,6 +15776,7 @@ function renderSoroArticleHtml(
     <a href="https://discord.gg/PmmFhGTBsX" target="_blank" rel="noopener noreferrer">Discord</a>
   </span>
 </footer>
+<link rel="stylesheet" href="${PUBLIC_FONT_SHEET_URLS.rest}">
 </body>
 </html>`;
 }
@@ -16249,6 +16262,9 @@ function routeStaticPath(pathname: string) {
   return null;
 }
 
+const PUBLIC_PAGE_CACHE_CONTROL =
+  'public, max-age=300, s-maxage=86400, stale-while-revalidate=604800';
+
 function cacheHeadersForPath(pathname: string, assetPathname = pathname): Record<string, string> {
   if (assetPathname === '/translation-catalogs.json') {
     return { 'Cache-Control': 'no-store', 'CDN-Cache-Control': 'no-store' };
@@ -16270,6 +16286,13 @@ function cacheHeadersForPath(pathname: string, assetPathname = pathname): Record
     return APP_SHELL_FRESH_CACHE_HEADERS;
   }
   if (assetPathname === '/service-worker.js') return { 'Cache-Control': 'no-cache' };
+  // The public pages' font sheets and their blocking Han order script
+  // (src/i18n/public-font-urls.ts): stable names whose content follows the
+  // hashed app sheets and the app's Han order, so they live exactly as long
+  // as a public page and are never immutable.
+  if (assetPathname.startsWith('/web-fonts/') || assetPathname === PUBLIC_HAN_ORDER_SCRIPT_URL) {
+    return { 'Cache-Control': PUBLIC_PAGE_CACHE_CONTROL };
+  }
   if (/^\/og-.+\.png$/.test(assetPathname)) {
     return { 'Cache-Control': 'public, max-age=86400, s-maxage=604800' };
   }
@@ -16277,7 +16300,6 @@ function cacheHeadersForPath(pathname: string, assetPathname = pathname): Record
     assetPathname.startsWith('/assets/') ||
     assetPathname.startsWith('/fonts/') ||
     assetPathname.startsWith('/landing/') ||
-    assetPathname.startsWith('/designsystem/fonts/') ||
     assetPathname.startsWith('/designsystem/assets/')
   ) {
     return { 'Cache-Control': 'public, max-age=31536000, immutable' };
@@ -16297,9 +16319,7 @@ function cacheHeadersForPath(pathname: string, assetPathname = pathname): Record
       '/designsystem',
     ].includes(pathname.toLowerCase().replace(/\/$/, ''))
   ) {
-    return {
-      'Cache-Control': 'public, max-age=300, s-maxage=86400, stale-while-revalidate=604800',
-    };
+    return { 'Cache-Control': PUBLIC_PAGE_CACHE_CONTROL };
   }
   return {};
 }

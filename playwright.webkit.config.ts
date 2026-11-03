@@ -25,6 +25,7 @@ export default defineConfig({
     'rtl-settings-layout.test.ts',
     'component-cascade.test.ts',
     'auxiliary-component-cascade.test.ts',
+    'account-complete-fonts.test.ts',
   ],
   timeout: 60_000,
   expect: { timeout: 15_000 },

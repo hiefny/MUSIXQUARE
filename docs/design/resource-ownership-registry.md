@@ -144,6 +144,7 @@ each record also states the step in words.
 | RO-51 | Return-from-background dialog                            | Page lifecycle | duplicated         | One slot on a 4th requester    |
 | RO-52 | PRO browser completion final object                      | Workers        | owner-in-place     | Revisit on copy diagnostics    |
 | RO-53 | PRO browser receipt ledger                               | Workers        | owner-in-place     | None                           |
+| RO-54 | Sign-in completion window text wait                      | UI             | accepted-exception | None (by design)               |
 
 ## Machine-readable ID list
 
@@ -210,6 +211,7 @@ RO-50 owner-in-place
 RO-51 duplicated
 RO-52 owner-in-place
 RO-53 owner-in-place
+RO-54 accepted-exception
 ```
 
 ## Resource records
@@ -4106,6 +4108,57 @@ entry needs the owner's acceptance and is not implied by this registry.
   receipts and the completion release became machines beside the ledger's own expiry. Train A
   extended the same owner (the reserve release, and the release of a finished delete's receipt in
   place of a final receipt) and added no machine.
+
+### RO-54 Sign-in completion window text wait
+
+- **Resource:** the text of the sign-in completion window (`public/account-complete.html`): its
+  wordmark's fallback text, message and button label, which wait in no colour until the app's
+  faces are ready, and the success window's self-close 250 ms after its completion message
+  ([public-page font train report](public-page-fonts-2026-11-02.md) §13).
+- **Current owners/flows:** two machines, kept on purpose:
+  - the sheet `public/account-complete.css`: the 600 ms CSS animation
+    `account-complete-text-wait`, which ends by itself (so the text shows without the script) and
+    at once when the root carries `data-mxqr-fonts`;
+  - the script `browser/classic-runtime/account-complete.ts` (`account-complete.js`): it sets that
+    mark (`app` once the shared font sheets have loaded and `document.fonts` is ready, `device` at
+    once if a sheet fails), and in the success window its close flow closes the window 250 ms
+    after the message and sets `device` 200 ms after it, with whatever has loaded. The first mark
+    wins.
+- **Target single owner:** none, by design. The sheet's wait has to hold without the script. The
+  success window's end of the wait has to run on its close's clock, because a CSS animation's
+  clock starts at the first frame that draws it, not at the message: a 200 ms sheet wait under a
+  success-only root mark, tried first in that train, left the text undrawn at the close in the
+  WebKit e2e lane (the animation finished 200 ms after it began, and its colour held about 100 ms
+  longer) and in Chromium when the first frame came 131 ms after the message. An earlier end, at
+  100 ms while a shared sheet was still loading, was dropped in review: the app tab has often
+  cached the faces while the sheets are not, so it drew a device face that the app's faces then
+  replaced before the close.
+- **Allowed requesters:** the sheets' `load` and `error` events and `document.fonts.ready`, through
+  the script's one mark writer (`markFonts`).
+- **Lifecycle operations:** mark the root (ends the wait); close the window (the success timer or
+  the close button).
+- **Deadline owner:** the sheet (600 ms) for the cancelled and error windows and wherever the script
+  does not run; the success window's close flow (200 ms, then the 250 ms close) for that window.
+- **Timing-constant home:** the sheet's `account-complete-text-wait 600ms`, and the 200 and 250 ms
+  literals of the script, which imports nothing. `src/ui/__tests__/account-complete.test.ts` pins
+  them: "keeps its text invisible until the faces are ready, 600ms at most", and "uses one refresh
+  nonce across every successful popup completion channel" for the success window's two timeouts
+  and its 200 ms end at least 50 ms before the close.
+- **Anchor tests:**
+  - Supersession (the first mark wins): `account-complete.test.ts` "shows its text at once in the
+    device's fonts when a sheet cannot load", "shows the success copy before it closes itself when
+    its sheets are late", "waits for the faces until 200 ms after the success message once its
+    sheets are in" and "draws the success copy with the app faces when they are ready in time" (the
+    faces' mark beats the end).
+  - User pause/stop: n/a (the close button ends the window).
+  - Teardown: n/a (the window closes).
+  - Visibility: n/a (a hidden window draws nothing).
+  - With the real sheet: `e2e/account-complete-fonts.test.ts` "shows its success copy before it
+    closes itself when its shared sheets are slow", "... when its faces are slow" and "draws its
+    success copy once, with the app faces, before it closes itself" (default suite and WebKit
+    lane).
+- **Status:** `accepted-exception`. Added with the success-window fix of that train, when the
+  success close flow became a second machine on the text's wait beside the sheet.
 
 ## Checked side flows without a record
 

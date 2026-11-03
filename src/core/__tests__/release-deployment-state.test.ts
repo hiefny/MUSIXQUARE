@@ -1578,6 +1578,7 @@ describe('release deployment rollback state', () => {
         expect(paths).not.toContain('scripts/auxiliary-browser-assets.ts');
         expect(paths).toContain('scripts/service-worker-asset.ts');
         expect(paths).toContain('scripts/ui-kit-asset.ts');
+        expect(paths).toContain('scripts/public-font-sheets.mts');
         expect(paths).toContain('scripts/materialize-app-static-headers.mts');
         expect(paths).toContain('tsconfig.browser-classic.json');
         expect(paths).not.toContain('tsconfig.auxiliary-browser.json');

@@ -228,7 +228,9 @@ test('a refused PIN shows as the line under the boxes, not in place of the promp
   await expect.poll(() => state.sessions.length).toBe(2);
 
   await expect(hint).toHaveClass(/\berror\b/);
-  await expect(hint).toContainText('That password is not correct');
+  // Only the refusal, on one line and without a full stop: the empty boxes
+  // already ask for a retry.
+  await expect(hint).toHaveText('That password is not correct');
   await expect(page.locator('.dialog-input-split')).toHaveClass(/\binvalid\b/);
   await expect(segments.first()).toHaveAttribute('aria-invalid', 'true');
   await expect(segments.last()).toHaveAttribute('aria-invalid', 'true');

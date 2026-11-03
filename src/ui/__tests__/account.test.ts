@@ -2548,7 +2548,7 @@ describe('optional account UI', () => {
     const read = (text: string | (() => string) | undefined) =>
       typeof text === 'function' ? text() : text;
     expect(read(fieldOf(0)?.initialError)).toBeUndefined();
-    expect(read(fieldOf(1)?.hint)).toBe('Use up to 12 characters.');
+    expect(read(fieldOf(1)?.hint)).toBe('Use up to 12 characters');
     expect(read(fieldOf(1)?.initialError)).toBe('That nickname is already in use');
   });
 

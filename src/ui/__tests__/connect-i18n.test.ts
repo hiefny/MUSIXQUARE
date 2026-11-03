@@ -4321,7 +4321,7 @@ describe('connect account nickname authority', () => {
     const options = mockedShowDialog.mock.calls.at(-1)?.[0];
     if (!options || typeof options === 'string')
       throw new Error('expected nickname dialog options');
-    expect(options?.inputField?.validator?.('HOST')).toBe('사용할 수 없는 이름이에요.');
+    expect(options?.inputField?.validator?.('HOST')).toBe('사용할 수 없는 이름이에요');
   });
 });
 

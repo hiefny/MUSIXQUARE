@@ -258,11 +258,12 @@ test('a taken nickname comes back as the red line under the field', async ({ pag
   await expect(hint).toHaveCSS('font-weight', '600');
   await expect(input).toHaveCSS('border-bottom-color', DANGER_DARK);
 
-  // The first keystroke brings the rule back as the grey hint.
+  // The first keystroke brings the rule back as the grey hint. Lines under a
+  // field end without a full stop.
   await input.press('End');
   await page.keyboard.type('4');
   await expect(hint).not.toHaveClass(/\berror\b/);
-  await expect(hint).toHaveText(/^12자 이내로 입력해 주세요/u);
+  await expect(hint).toHaveText('12자 이내로 입력해 주세요');
   await expect(input).toHaveAttribute('aria-invalid', 'false');
   await expect(hint).toHaveCSS('color', TEXT_SUB_DARK);
 });

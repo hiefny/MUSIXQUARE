@@ -152,6 +152,71 @@ const SHARED_TOAST_KEYS = [
   'youtube.video_unavailable',
 ] as const;
 
+/**
+ * A refused room password is the line under the PIN boxes. It keeps only the
+ * refusal, on one line: the empty boxes already ask for a retry, and a second
+ * line would shrink the dialog on the first keystroke.
+ */
+const PIN_REFUSAL_KEYS = ['dialog.room_password_retry_msg', 'pro.pin_retry_message'] as const;
+
+/**
+ * Lines under a field (owner decision 2026-11-03). The one line under every
+ * field follows the toast policy above: no sentence-final period, one sentence
+ * per line, and a progress line keeps its ellipsis. These are every key that
+ * reaches the line under the start-screen codes, the nickname and PIN dialogs
+ * and the YouTube search box. Some of them also reach a toast or a chat system
+ * message, which take the same copy. A dialog's own sentence above its field
+ * is body text and keeps its period.
+ */
+const UNDER_FIELD_KEYS = [
+  'setup.six_digit_enter',
+  'pro.connect_failed',
+  'pro.room_full',
+  'pro.room_full_detail',
+  'pro.join_rate_limited',
+  'pro.join_rate_limited_later',
+  'network.session_full',
+  'error.network_generic',
+  'error.host_unreachable',
+  'error.host_left',
+  'error.host_disconnected',
+  'error.host_conn_error',
+  'error.connect_failed',
+  'error.peer_not_ready',
+  'error.network_init_failed',
+  'error.no_host_id',
+  'error.peer_unavailable',
+  'error.network_issue',
+  'error.signal_server_fail',
+  'error.server_disconnected',
+  'error.session_id_unavailable',
+  'error.webrtc_failed',
+  'error.browser_unsupported',
+  'error.ssl_required',
+  'dialog.room_password_rate_limited',
+  'dialog.room_password_rate_limited_later',
+  'dialog.sw_update_msg',
+  'toast.no_invite_code',
+  'error.session_create_fail',
+  'account.nickname_hint',
+  'account.nickname_required',
+  'account.nickname_whitespace',
+  'connect.rename_reserved',
+  'connect.rename_profanity',
+  'account.nickname_taken',
+  'connect.room_password_invalid',
+  'youtube.enter_link_prompt',
+  'youtube.search_prompt',
+  'youtube.search_selected',
+  'youtube.searching',
+  'youtube.fetching_info',
+  'youtube.search_no_results',
+  'youtube.invalid_link',
+  'youtube.search_failed',
+  'youtube.fetch_failed',
+  ...PIN_REFUSAL_KEYS,
+] as const;
+
 // A period closing a line, even inside a closing quote. Two or more periods
 // form an ellipsis, which is allowed.
 const LINE_FINAL_PERIOD_RE = /(?<!\.)[.。．।۔]["'”’»」』]*$/u;
@@ -182,25 +247,36 @@ function toastKeys(): string[] {
   return [...toastNamespace, ...SHARED_TOAST_KEYS];
 }
 
-/** Every toast text in every locale, plural forms included. */
-function toastTexts(): Array<{ readonly where: string; readonly text: string }> {
-  const texts: Array<{ readonly where: string; readonly text: string }> = [];
+interface CopyText {
+  readonly where: string;
+  readonly text: string;
+  readonly plural: boolean;
+}
+
+/** Every text of these keys in every locale, plural forms included. */
+function copyTexts(keys: readonly string[]): CopyText[] {
+  const texts: CopyText[] = [];
   for (const [language, dictionary] of Object.entries(APP_DICTIONARIES)) {
     const byKey: Readonly<Record<string, string | undefined>> = dictionary;
-    for (const key of toastKeys()) {
+    for (const key of keys) {
       const text = byKey[key];
-      if (text !== undefined) texts.push({ where: `${language}.${key}`, text });
+      if (text !== undefined) texts.push({ where: `${language}.${key}`, text, plural: false });
     }
   }
   for (const [language, messages] of Object.entries(pluralMessagesForTests)) {
     const byKey = messages as Readonly<Record<string, Readonly<Record<string, string>>>>;
-    for (const key of toastKeys()) {
+    for (const key of keys) {
       for (const [category, text] of Object.entries(byKey[key] ?? {})) {
-        texts.push({ where: `${language}.${key}.${category}`, text });
+        texts.push({ where: `${language}.${key}.${category}`, text, plural: true });
       }
     }
   }
   return texts;
+}
+
+/** Every toast text in every locale, plural forms included. */
+function toastTexts(): CopyText[] {
+  return copyTexts(toastKeys());
 }
 
 /** A length limit from src/ui/toast.ts, so this guard follows the renderer. */
@@ -296,6 +372,32 @@ describe('toast copy policy', () => {
     }
     expect(pluralForms).toBeGreaterThan(0);
     expect(violations).toEqual([]);
+  });
+
+  it('keeps every line under a field free of sentence-final periods, one sentence per line', () => {
+    expect(new Set(UNDER_FIELD_KEYS).size).toBe(UNDER_FIELD_KEYS.length);
+    expect(UNDER_FIELD_KEYS).toHaveLength(47);
+    const texts = copyTexts(UNDER_FIELD_KEYS);
+    // Every key reaches the line in every locale; the two wait messages also
+    // have plural forms, which the line shows the same way.
+    expect(texts.filter(({ plural }) => !plural)).toHaveLength(
+      Object.keys(APP_DICTIONARIES).length * UNDER_FIELD_KEYS.length,
+    );
+    expect(texts.filter(({ plural }) => plural).length).toBeGreaterThan(0);
+    const violations: string[] = [];
+    for (const { where, text } of texts) {
+      for (const violation of policyViolations(text)) violations.push(`${where}: ${violation}`);
+    }
+    expect(violations).toEqual([]);
+  });
+
+  it('keeps the PIN refusal under the boxes to one line', () => {
+    const texts = copyTexts(PIN_REFUSAL_KEYS);
+    expect(texts).toHaveLength(Object.keys(APP_DICTIONARIES).length * PIN_REFUSAL_KEYS.length);
+    for (const { where, text } of texts) {
+      expect(text, where).not.toContain('\n');
+      expect(text, where).not.toBe('');
+    }
   });
 
   it('keeps authored copy within the limits the toast applies to dynamic values', () => {

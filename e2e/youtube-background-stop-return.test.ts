@@ -8,23 +8,25 @@
  * stop, the guest stays paused until the participant taps PLAY in the iframe
  * or presses Sync.
  *
- * Chromium never stops a hidden iframe, so each row plays the stop itself on
- * the guest page: the page reports hidden, the fake player stops 100 ms
- * before the page reports visible again, and the iframe's PAUSED callback
- * reaches the app's real handler (youtube/iframe.ts) before the visible
- * event, in the same task right after it ('at'), or 100 ms after it. The
- * host, the guest, the PeerJS transport and every app module are real. The
- * guest page keeps a desktop user agent: the iOS-only YouTube code is the
- * start path (prime and gesture gate), not the return.
+ * Chromium never stops a hidden iframe, so each stop row plays the stop
+ * itself on the guest page: the page reports hidden, the fake player stops
+ * 100 ms before the page reports visible again, and the iframe's PAUSED
+ * callback reaches the app's real handler (youtube/iframe.ts) before the
+ * visible event, in the same task right after it ('at'), or 100 ms after it.
+ * The host, the guest, the PeerJS transport and every app module are real.
+ * Only WebKit on iPhone and iPad stops a hidden iframe, and the app takes a
+ * PAUSE for the browser's only there, so the stop rows' guest page carries an
+ * iPhone user agent (at the desktop viewport, so the same controls are on
+ * screen). The tap rows keep a desktop guest, whose own pause must hold.
  *
- * Expected for every row, as for a normal return: without a tap the guest
- * plays again within two host heartbeats and ends in step with the host.
- * Tests first: on today's code the sub-second rows stay paused, and so does
- * the row whose PAUSED arrives just after a return that waits out the Sync
+ * Expected for every stop row, as for a normal return: without a tap the
+ * guest plays again within two host heartbeats and ends in step with the
+ * host. Tests first: before the fix the sub-second rows stayed paused, and so
+ * did the row whose PAUSED arrives just after a return that waits out the Sync
  * button's rendezvous cooldown. The unit rows in
  * src/player/__tests__/local-output-realign-cross-flow.test.ts explain why.
  */
-import { test, expect, type Page } from '@playwright/test';
+import { devices, test, expect, type Browser, type Page } from '@playwright/test';
 import {
   createHostGuestContexts,
   cleanupContexts,
@@ -46,16 +48,25 @@ const RESUME_DEADLINE_MS = 2 * HEARTBEAT_INTERVAL_MS;
 const WATCH_MS = 4 * HEARTBEAT_INTERVAL_MS;
 /** In step across two pages and real timers: a quarter of a second. */
 const IN_STEP_MS = 250;
+const IPHONE_USER_AGENT = devices['iPhone 13'].userAgent;
 
+type Guest = 'iphone' | 'desktop';
 type PausedDelivered = 'before' | 'at' | 'after';
+
+interface Trip {
+  hiddenMs: number;
+  /** When the PAUSED of the browser's stop reaches the app; null: no stop. */
+  paused: PausedDelivered | null;
+}
 
 interface ReturnRow {
   label: string;
-  hiddenMs: number;
-  /** When the PAUSED of the browser's stop reaches the app; null: no stop (control). */
-  paused: PausedDelivered | null;
+  guest: Guest;
+  trips: readonly Trip[];
   /** The participant pressed Sync this long before hiding the page. */
   syncPressedBeforeHideMs?: number;
+  /** The participant taps pause in the iframe this long after the last return. */
+  tapPauseAfterReturnMs?: number;
 }
 
 interface PlayerReading {
@@ -65,6 +76,7 @@ interface PlayerReading {
 }
 
 let pair: HostGuestPair;
+let pairOpen = false;
 
 async function readPlayer(page: Page): Promise<PlayerReading> {
   return page.evaluate(() => {
@@ -93,6 +105,16 @@ async function waitForPlaying(page: Page): Promise<void> {
   await expect.poll(async () => (await readFakeYtSnapshot(page))?.state).toBe(1);
 }
 
+/** Host and guest pages, the guest with the row's user agent, both on the fake YouTube player. */
+async function openPages(browser: Browser, guest: Guest): Promise<void> {
+  pair = await createHostGuestContexts(browser, {
+    guest: guest === 'iphone' ? { userAgent: IPHONE_USER_AGENT } : {},
+  });
+  pairOpen = true;
+  await installFakeYt(pair.hostPage, { advanceClock: true });
+  await installFakeYt(pair.guestPage, { advanceClock: true });
+}
+
 async function prepareRoom(): Promise<void> {
   await connectHostAndGuest(pair.hostPage, pair.guestPage);
   await pair.hostPage.evaluate(() => {
@@ -109,19 +131,39 @@ async function prepareRoom(): Promise<void> {
     .poll(async () => (await readFakeYtSnapshot(pair.guestPage))?.currentTime ?? 0)
     .toBeGreaterThan(6);
   await expect.poll(async () => Math.abs(await guestOffsetMs())).toBeLessThan(IN_STEP_MS);
+  await waitForState(pair.guestPage, 'network.isOperator', false);
+}
+
+/** Watch the guest for WATCH_MS after the return; when did it play again? */
+async function watchAfterReturn(returnedAt: number) {
+  let resumedAfterMs: number | null = null;
+  while (Date.now() - returnedAt < WATCH_MS) {
+    const reading = await readPlayer(pair.guestPage);
+    if (resumedAfterMs === null && reading.state === 1) {
+      resumedAfterMs = reading.at - returnedAt;
+    }
+    await pair.guestPage.waitForTimeout(100);
+  }
+  const guest = await readPlayer(pair.guestPage);
+  const offsetMs = await guestOffsetMs();
+  const outcome = { guestState: guest.state, resumedAfterMs, offsetMs };
+  test.info().annotations.push({ type: 'outcome', description: JSON.stringify(outcome) });
+  return outcome;
 }
 
 /**
- * Hide the guest page, stop its iframe as the browser would, deliver the
- * PAUSED callback at the row's moment and show the page again. Resolves with
- * the time of the visible event.
+ * Hide the guest page for each trip, stop its iframe as the browser would,
+ * deliver the PAUSED callback at the trip's moment and show the page again.
+ * Optionally the participant then taps pause in the iframe. Resolves with the
+ * time of the last visible event.
  */
 async function returnAroundTheStop(row: ReturnRow): Promise<number> {
   return pair.guestPage.evaluate(
     async ({
-      hiddenMs,
-      paused,
+      trips,
       syncPressedBeforeHideMs,
+      tapPauseAfterReturnMs,
+      tripGapMs,
       stopBeforeVisibleMs,
       pausedAfterVisibleMs,
     }) => {
@@ -170,25 +212,36 @@ async function returnAroundTheStop(row: ReturnRow): Promise<number> {
         });
         await sleep(syncPressedBeforeHideMs);
       }
-      setVisibility('hidden');
-      await sleep(hiddenMs - stopBeforeVisibleMs);
-      // The browser stops the hidden iframe; its callback is not delivered yet.
-      if (paused !== null) player.__setState(2, false);
-      if (paused === 'before') deliverPaused();
-      await sleep(stopBeforeVisibleMs);
-      const returnedAt = Date.now();
-      setVisibility('visible');
-      if (paused === 'at') deliverPaused();
-      if (paused === 'after') {
-        await sleep(pausedAfterVisibleMs);
+      let returnedAt = 0;
+      for (const [index, { hiddenMs, paused }] of trips.entries()) {
+        if (index > 0) await sleep(tripGapMs);
+        setVisibility('hidden');
+        await sleep(hiddenMs - stopBeforeVisibleMs);
+        // The browser stops the hidden iframe; its callback is not delivered yet.
+        if (paused !== null) player.__setState(2, false);
+        if (paused === 'before') deliverPaused();
+        await sleep(stopBeforeVisibleMs);
+        returnedAt = Date.now();
+        setVisibility('visible');
+        if (paused === 'at') deliverPaused();
+        if (paused === 'after') {
+          await sleep(pausedAfterVisibleMs);
+          deliverPaused();
+        }
+      }
+      if (tapPauseAfterReturnMs !== null) {
+        // The participant presses pause in the iframe's own controls.
+        await sleep(tapPauseAfterReturnMs);
+        player.__setState(2, false);
         deliverPaused();
       }
       return returnedAt;
     },
     {
-      hiddenMs: row.hiddenMs,
-      paused: row.paused,
+      trips: row.trips,
       syncPressedBeforeHideMs: row.syncPressedBeforeHideMs ?? null,
+      tapPauseAfterReturnMs: row.tapPauseAfterReturnMs ?? null,
+      tripGapMs: DEFAULT_RECOVER_THRESHOLD_MS,
       stopBeforeVisibleMs: STOP_BEFORE_VISIBLE_MS,
       pausedAfterVisibleMs: PAUSED_AFTER_VISIBLE_MS,
     },
@@ -206,45 +259,80 @@ const WHEN: Record<PausedDelivered, string> = {
 };
 const ORDERINGS: readonly PausedDelivered[] = ['before', 'at', 'after'];
 
-const ROWS: readonly ReturnRow[] = [
+/** Rows in which the guest must play again in step without a tap. */
+const STOP_ROWS: readonly ReturnRow[] = [
   // Control: a sub-second bounce without a stop never left the host.
-  { label: `hidden ${SUB_SECOND_MS} ms, no stop (control)`, hiddenMs: SUB_SECOND_MS, paused: null },
-  // Stays paused on today's code: no return Sync below 1 s, and the stop is
+  {
+    label: `iPhone, hidden ${SUB_SECOND_MS} ms, no stop (control)`,
+    guest: 'iphone',
+    trips: [{ hiddenMs: SUB_SECOND_MS, paused: null }],
+  },
+  // Stayed paused before the fix: no return Sync below 1 s, and the stop was
   // recorded as the participant's own pause.
   ...ORDERINGS.map((paused) => ({
-    label: `hidden ${SUB_SECOND_MS} ms, PAUSED ${WHEN[paused]}`,
-    hiddenMs: SUB_SECOND_MS,
-    paused,
+    label: `iPhone, hidden ${SUB_SECOND_MS} ms, PAUSED ${WHEN[paused]}`,
+    guest: 'iphone' as const,
+    trips: [{ hiddenMs: SUB_SECOND_MS, paused }],
   })),
-  // The normal return, which recovers today: the return rendezvous re-aligns
-  // the guest.
+  // The normal return, which recovered before the fix too: the return
+  // rendezvous re-aligns the guest.
   ...ORDERINGS.map((paused) => ({
-    label: `hidden ${RETURN_MS} ms, PAUSED ${WHEN[paused]}`,
-    hiddenMs: RETURN_MS,
-    paused,
+    label: `iPhone, hidden ${RETURN_MS} ms, PAUSED ${WHEN[paused]}`,
+    guest: 'iphone' as const,
+    trips: [{ hiddenMs: RETURN_MS, paused }],
   })),
   // Sync pressed, the page hidden right after its play and shown again
-  // inside its 3 s cooldown: the return chain waits, unowned. Recovers today
-  // before and at the visible event; just after it, the stop counts as the
-  // participant's pause, ends the waiting chain and stays paused today.
+  // inside its 3 s cooldown: the return chain waits, unowned. Recovered
+  // before the fix before and at the visible event; just after it, the stop
+  // counted as the participant's pause, ended the waiting chain and stayed
+  // paused.
   ...ORDERINGS.map((paused) => ({
     label:
-      `Sync pressed ${SYNC_BEFORE_HIDE_MS} ms before hiding, hidden ${AFTER_SYNC_MS} ms, ` +
+      `iPhone, Sync pressed ${SYNC_BEFORE_HIDE_MS} ms before hiding, hidden ${AFTER_SYNC_MS} ms, ` +
       `PAUSED ${WHEN[paused]}`,
-    hiddenMs: AFTER_SYNC_MS,
-    paused,
+    guest: 'iphone' as const,
+    trips: [{ hiddenMs: AFTER_SYNC_MS, paused }],
     syncPressedBeforeHideMs: SYNC_BEFORE_HIDE_MS,
   })),
+  // Two quick trips home: the second, 1 s after the first return, while that
+  // return's rendezvous owns the iframe, and the browser stops it again.
+  {
+    label: `iPhone, two trips of ${SUB_SECOND_MS} ms, PAUSED before each visible event`,
+    guest: 'iphone',
+    trips: [
+      { hiddenMs: SUB_SECOND_MS, paused: 'before' },
+      { hiddenMs: SUB_SECOND_MS, paused: 'before' },
+    ],
+  },
+];
+
+/** Rows in which the participant's own pause must hold: a desktop browser never stops the iframe. */
+const TAP_ROWS: readonly ReturnRow[] = [
+  {
+    label: `desktop, hidden ${SUB_SECOND_MS} ms, pause tapped 500 ms after the return`,
+    guest: 'desktop',
+    trips: [{ hiddenMs: SUB_SECOND_MS, paused: null }],
+    tapPauseAfterReturnMs: 500,
+  },
+  // The return lands about 300 ms before the Sync rendezvous' cooldown ends,
+  // so the return chain waits, unowned, until then. The tap comes inside that
+  // wait: a tap later than the cooldown lands on the rendezvous the chain then
+  // starts, which owns the iframe and ignores an iframe PAUSE, as before.
+  {
+    label:
+      `desktop, Sync pressed ${SYNC_BEFORE_HIDE_MS} ms before hiding, hidden ${AFTER_SYNC_MS} ms, ` +
+      'pause tapped 150 ms after the return',
+    guest: 'desktop',
+    trips: [{ hiddenMs: AFTER_SYNC_MS, paused: null }],
+    syncPressedBeforeHideMs: SYNC_BEFORE_HIDE_MS,
+    tapPauseAfterReturnMs: 150,
+  },
 ];
 
 test.describe('YouTube guest return at the moment of the background stop', () => {
-  test.beforeEach(async ({ browser }) => {
-    pair = await createHostGuestContexts(browser);
-    await installFakeYt(pair.hostPage, { advanceClock: true });
-    await installFakeYt(pair.guestPage, { advanceClock: true });
-  });
-
   test.afterEach(async ({}, testInfo) => {
+    if (!pairOpen) return;
+    pairOpen = false;
     if (testInfo.status !== testInfo.expectedStatus) {
       const snapshots = await Promise.allSettled(
         [pair.hostPage, pair.guestPage].map((page) =>
@@ -272,32 +360,33 @@ test.describe('YouTube guest return at the moment of the background stop', () =>
     await cleanupContexts(pair);
   });
 
-  for (const row of ROWS) {
-    test(`${row.label}: the guest plays in step without a tap`, async () => {
+  for (const row of STOP_ROWS) {
+    test(`${row.label}: the guest plays in step without a tap`, async ({ browser }) => {
       test.setTimeout(90_000);
+      await openPages(browser, row.guest);
       await prepareRoom();
-      await waitForState(pair.guestPage, 'network.isOperator', false);
 
-      const returnedAt = await returnAroundTheStop(row);
-      let resumedAfterMs: number | null = null;
-      while (Date.now() - returnedAt < WATCH_MS) {
-        const reading = await readPlayer(pair.guestPage);
-        if (resumedAfterMs === null && reading.state === 1) {
-          resumedAfterMs = reading.at - returnedAt;
-        }
-        await pair.guestPage.waitForTimeout(100);
-      }
-      const guest = await readPlayer(pair.guestPage);
-      const offsetMs = await guestOffsetMs();
-      test.info().annotations.push({
-        type: 'outcome',
-        description: JSON.stringify({ guestState: guest.state, resumedAfterMs, offsetMs }),
-      });
+      const outcome = await watchAfterReturn(await returnAroundTheStop(row));
 
-      expect(guest.state, 'guest iframe state after the return').toBe(1);
-      expect(resumedAfterMs, 'ms from the return until the guest plays').not.toBeNull();
-      expect(resumedAfterMs!).toBeLessThanOrEqual(RESUME_DEADLINE_MS);
-      expect(Math.abs(offsetMs), 'guest offset from the host in ms').toBeLessThan(IN_STEP_MS);
+      expect(outcome.guestState, 'guest iframe state after the return').toBe(1);
+      expect(outcome.resumedAfterMs, 'ms from the return until the guest plays').not.toBeNull();
+      expect(outcome.resumedAfterMs!).toBeLessThanOrEqual(RESUME_DEADLINE_MS);
+      expect(Math.abs(outcome.offsetMs), 'guest offset from the host in ms').toBeLessThan(
+        IN_STEP_MS,
+      );
+    });
+  }
+
+  for (const row of TAP_ROWS) {
+    test(`${row.label}: the guest's pause holds`, async ({ browser }) => {
+      test.setTimeout(90_000);
+      await openPages(browser, row.guest);
+      await prepareRoom();
+
+      const outcome = await watchAfterReturn(await returnAroundTheStop(row));
+
+      expect(outcome.guestState, 'guest iframe state after the tap').toBe(2);
+      await waitForState(pair.guestPage, 'playback.activity', 'paused');
     });
   }
 });

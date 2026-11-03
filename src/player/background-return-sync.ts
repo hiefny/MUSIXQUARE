@@ -20,6 +20,8 @@
  *                                          or still waiting for a live host
  *                                          snapshot; an explicit local pause
  *                                          during the wait ends the retries
+ *                                          (on iPhone and iPad, outside the
+ *                                          browser-stop grace after a return)
  *   Standard guest, file ................ forced file re-sync
  *   Standard host, file ................. nothing room-wide: the button only
  *                                          opens the nudge panel. Audio
@@ -36,14 +38,17 @@
  * coalesced follow-up, the PRO reconciliation merge, the guest rendezvous
  * cooldown, and the single retry chain below, which a newer return replaces.
  *
- * Browser stop: WebKit stops a Standard guest's hidden iframe by itself. The
- * native-control route takes that unowned PAUSE for the browser's, not the
- * participant's, when it processes it while hidden or within
- * BACKGROUND_STOP_RETURN_GRACE_MS after the page shows again, and hands it to
- * runBackgroundStopSync once the page is visible. Such a stop ends no chain.
- * A bounce shorter than the threshold runs no return Sync, so the stop starts
- * the same guest rendezvous chain for it (iOS report 2026-11-03: reopened at
- * the moment of the stop, the guest stayed paused until a tap).
+ * Browser stop: WebKit on iPhone and iPad stops a Standard guest's hidden
+ * iframe by itself; no other browser does. There the native-control route
+ * takes that unowned PAUSE for the browser's, not the participant's, when it
+ * processes it while hidden, or within BACKGROUND_STOP_RETURN_GRACE_MS after
+ * the page shows again and before the participant touches the iframe. It puts
+ * the local pause bit back down and hands the stop to runBackgroundStopSync
+ * once the page is visible. Such a stop ends no chain. A bounce shorter than
+ * the threshold runs no return Sync, so the stop starts the same guest
+ * rendezvous chain for it (iOS report 2026-11-03: reopened at the moment of
+ * the stop, the guest stayed paused until a tap). Whether the return runs its
+ * own Sync is the guard's classification of it, never a second measurement.
  *
  * Local-file output that audio recovery already owns for this return is left
  * to it: a recovery dialog's gesture, a pending native AudioContext recovery,
@@ -52,7 +57,7 @@
  * would only fight them.
  */
 
-import { DEFAULT_RECOVER_THRESHOLD_MS } from '../core/background-resume-guard.ts';
+import { getLastObservedBackgroundReturn } from '../core/background-resume-guard.ts';
 import { bus } from '../core/events.ts';
 import { log } from '../core/log.ts';
 import { getState } from '../core/state.ts';
@@ -157,12 +162,13 @@ function attemptGuestRendezvous(
   const delayMs =
     result.status === 'busy' ? (result.retryAfterMs ?? scheduledDelay) : scheduledDelay;
   // An explicit local PAUSE during the wait (lock screen, media key, the
-  // iframe's own controls) wins over this automatic alignment and ends the
-  // chain, the same intent that retires a pending local-output rejoin. The
-  // local pause bit cannot stand in for it: a browser stop of the hidden
-  // iframe (which publishes no intent, even when its PAUSED is processed just
-  // after the return) and a pause put back after a failed local PLAY also set
-  // it, and the return aligns whatever the play/pause state.
+  // iframe's own controls; on iPhone and iPad, an iframe PAUSE outside
+  // BACKGROUND_STOP_RETURN_GRACE_MS after a return) wins over this automatic
+  // alignment and ends the chain, the same intent that retires a pending
+  // local-output rejoin. The local pause bit cannot stand in for it: a browser
+  // stop of the hidden iframe sets it while hidden and publishes no intent, a
+  // pause put back after a failed local PLAY also sets it, and the return
+  // aligns whatever the play/pause state.
   stopRetiringOnLocalPause ??= bus.on('youtube:set-local-paused', (paused) => {
     if (paused) cancelGuestRendezvousRetry();
   });
@@ -247,14 +253,16 @@ export function runBackgroundReturnSync(
 }
 
 /**
- * The browser stopped this Standard guest's iframe in a hidden period that
- * ended `hiddenMs` after it began (see the header). A return of at least
- * DEFAULT_RECOVER_THRESHOLD_MS runs its own Sync above, which the stop no
- * longer ends. A shorter bounce runs none, so the stop replaces the previous
- * chain with this return's guest rendezvous chain, as such a return would.
+ * The browser stopped this Standard guest's iframe around the page's latest
+ * return (see the header). A return the background resume guard recovers runs
+ * its own Sync above, which the stop no longer ends. A shorter bounce runs
+ * none, so the stop replaces the previous chain with this return's guest
+ * rendezvous chain, as such a return would. Without a return the guard
+ * observed, nothing runs: the bit is down, so the heartbeat corrects play.
  */
-export function runBackgroundStopSync(hiddenMs: number): void {
-  if (hiddenMs >= DEFAULT_RECOVER_THRESHOLD_MS) return;
+export function runBackgroundStopSync(): void {
+  const observed = getLastObservedBackgroundReturn();
+  if (observed === null || observed.recovers) return;
   if (
     resolveAction({ peerRecovery: null, fileOutputOwned: false }) !== 'guest-youtube-rendezvous'
   ) {

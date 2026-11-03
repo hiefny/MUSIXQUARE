@@ -134,11 +134,13 @@ export const RENDEZVOUS_DRIFT_SUPPRESS_MS = 2000;
  *  cancellation; only the spacing is shared (registry RO-05). */
 export const LOCAL_OUTPUT_REALIGN_RETRY_MS = [250, 750, 1_500, 3_000, 5_000] as const;
 
-/** A Standard guest's unowned iframe PAUSE processed this soon after the page
- *  shows again is still the browser's stop of the hidden iframe: WebKit can
- *  deliver that PAUSED just after the return. Like a stop processed while
- *  hidden, it ends no re-align chain, and the background-return chain aligns
- *  after it (registry RO-05). */
+/** On iPhone and iPad, a Standard guest's unowned iframe PAUSE processed this
+ *  soon after the page shows again, before the participant touched the iframe,
+ *  is taken for the browser's stop of the hidden iframe. Like a stop processed
+ *  while hidden, it ends no re-align chain, and the background-return chain
+ *  aligns after it (registry RO-05). The value assumes WebKit delivers that
+ *  PAUSED within a second of the return; no device measurement backs it yet
+ *  (2026-11-03). */
 export const BACKGROUND_STOP_RETURN_GRACE_MS = 1_000;
 
 /** Delay before the single follow-up rendezvous after a buffer-gate fallback.

@@ -18,6 +18,7 @@ const mocks = vi.hoisted(() => ({
   ),
   zeroStartOwned: vi.fn(() => false),
 }));
+const platform = vi.hoisted(() => ({ ios: false }));
 
 vi.mock('../../pro-room/runtime.ts', () => ({
   requestProRoomBackgroundReturnSync: mocks.proSync,
@@ -28,6 +29,14 @@ vi.mock('../../youtube/sync.ts', () => ({
 }));
 vi.mock('../../youtube/start-ownership.ts', () => ({
   isYouTubeStartSyncOwned: mocks.zeroStartOwned,
+}));
+// Only WebKit on iPhone and iPad stops a hidden iframe by itself; the rows that
+// act out that browser stop say so.
+vi.mock('../../core/platform.ts', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('../../core/platform.ts')>()),
+  get IS_IOS() {
+    return platform.ios;
+  },
 }));
 
 import { initBackgroundResumeGuard } from '../../core/background-resume-guard.ts';
@@ -288,6 +297,7 @@ beforeEach(() => {
 afterEach(() => {
   guard?.dispose();
   guard = null;
+  platform.ios = false;
   clearManagedTimer('background-return-sync-rendezvous-retry');
   setCurrentAudioBuffer(null);
   resetYouTubeModuleState();
@@ -360,8 +370,9 @@ describe('background-return Sync matrix', () => {
   });
 
   it.each(['while hidden', 'just after the return'] as const)(
-    'aligns a sub-second bounce in which the browser stopped the hidden iframe, its PAUSE processed %s',
+    'on an iPhone, aligns a sub-second bounce in which the browser stopped the hidden iframe, its PAUSE processed %s',
     async (processed) => {
+      platform.ios = true;
       arrange('standard', 'youtube', 'guest', 'playing');
       const player = installGuestIframe();
       guard = installApp();
@@ -384,8 +395,25 @@ describe('background-return Sync matrix', () => {
       expect(counts()).toEqual({ ...NONE, guestRendezvous: 1 });
       expect(chainAttempts()).toBe(1);
       expect(pauseIntent).not.toHaveBeenCalled();
+      expect(isLocalYouTubePaused()).toBe(false);
     },
   );
+
+  it('on a computer or Android phone, keeps an iframe PAUSE just after a sub-second bounce the participant pause', async () => {
+    arrange('standard', 'youtube', 'guest', 'playing');
+    const player = installGuestIframe();
+    guard = installApp();
+    const pauseIntent = vi.fn();
+    bus.on('youtube:set-local-paused', pauseIntent);
+
+    await returnFromBackground(400);
+    nativeIframePause(player);
+    await vi.advanceTimersByTimeAsync(10_000);
+
+    expect(counts()).toEqual(NONE);
+    expect(pauseIntent).toHaveBeenCalledExactlyOnceWith(true);
+    expect(isLocalYouTubePaused()).toBe(true);
+  });
 });
 
 describe('background-return Sync ownership and coalescing', () => {
@@ -527,7 +555,6 @@ describe('background-return Sync ownership and coalescing', () => {
 
     await returnFromBackground(5_000);
     expect(mocks.rendezvous).toHaveBeenCalledOnce();
-    const attemptsBeforePause = await waitOutBrowserStopGrace();
 
     // The guest pauses from the lock screen, a media key or the iframe's own
     // controls before the next retry, and the heartbeat then arrives.
@@ -536,10 +563,30 @@ describe('background-return Sync ownership and coalescing', () => {
     mocks.rendezvous.mockReturnValue({ status: 'started' });
     await vi.advanceTimersByTimeAsync(20_000);
 
+    expect(mocks.rendezvous).toHaveBeenCalledOnce();
+  });
+
+  it('on an iPhone, lets a local YouTube pause after the browser-stop grace end the chain', async () => {
+    platform.ios = true;
+    arrange('standard', 'youtube', 'guest', 'playing');
+    const player = installGuestIframe();
+    mocks.rendezvous.mockReturnValue({ status: 'awaiting-snapshot' });
+    guard = installApp();
+
+    await returnFromBackground(5_000);
+    expect(mocks.rendezvous).toHaveBeenCalledOnce();
+    const attemptsBeforePause = await waitOutBrowserStopGrace();
+
+    nativeIframePause(player);
+    expect(isLocalYouTubePaused()).toBe(true);
+    mocks.rendezvous.mockReturnValue({ status: 'started' });
+    await vi.advanceTimersByTimeAsync(20_000);
+
     expect(mocks.rendezvous).toHaveBeenCalledTimes(attemptsBeforePause);
   });
 
-  it('keeps the retry chain through the browser stop whose PAUSE is processed just after the return', async () => {
+  it('on an iPhone, keeps the retry chain through the browser stop whose PAUSE is processed just after the return', async () => {
+    platform.ios = true;
     arrange('standard', 'youtube', 'guest', 'playing');
     const player = installGuestIframe();
     mocks.rendezvous.mockReturnValue({ status: 'awaiting-snapshot' });
@@ -551,9 +598,10 @@ describe('background-return Sync ownership and coalescing', () => {
     expect(mocks.rendezvous).toHaveBeenCalledOnce();
 
     // WebKit's stop of the hidden iframe reaches the app just after the
-    // return; then the live heartbeat arrives.
+    // return; then the live heartbeat arrives. The participant did not
+    // pause, so the bit stays down.
     nativeIframePause(player);
-    expect(isLocalYouTubePaused()).toBe(true);
+    expect(isLocalYouTubePaused()).toBe(false);
     mocks.rendezvous.mockReturnValue({ status: 'started' });
     await vi.advanceTimersByTimeAsync(20_000);
 
@@ -588,35 +636,44 @@ describe('background-return Sync ownership and coalescing', () => {
 
     await returnFromBackground(5_000);
     expect(mocks.rendezvous).toHaveBeenCalledOnce();
-    const attemptsBeforePause = await waitOutBrowserStopGrace();
 
     // ... and a new pause during the wait still wins.
     nativeIframePause(player);
     mocks.rendezvous.mockReturnValue({ status: 'started' });
     await vi.advanceTimersByTimeAsync(20_000);
 
-    expect(mocks.rendezvous).toHaveBeenCalledTimes(attemptsBeforePause);
-  });
-
-  it('still aligns a guest whose hidden iframe the browser stopped while away', async () => {
-    arrange('standard', 'youtube', 'guest', 'playing');
-    const player = installGuestIframe();
-    guard = installApp();
-
-    setVisibility('hidden');
-    document.dispatchEvent(new Event('visibilitychange'));
-    await vi.advanceTimersByTimeAsync(1_000);
-    // WebKit stops the hidden iframe; nothing in the app called pauseVideo, so
-    // the native-control route records it as a local pause.
-    nativeIframePause(player);
-    expect(isLocalYouTubePaused()).toBe(true);
-    await vi.advanceTimersByTimeAsync(29_000);
-    setVisibility('visible');
-    document.dispatchEvent(new Event('visibilitychange'));
-    await vi.advanceTimersByTimeAsync(10);
-
     expect(mocks.rendezvous).toHaveBeenCalledOnce();
   });
+
+  it.each([
+    { device: 'a computer or Android phone', ios: false, pausedAfterReturn: true },
+    { device: 'an iPhone', ios: true, pausedAfterReturn: false },
+  ] as const)(
+    'still aligns a guest whose hidden iframe the browser stopped while away, on $device',
+    async ({ ios, pausedAfterReturn }) => {
+      platform.ios = ios;
+      arrange('standard', 'youtube', 'guest', 'playing');
+      const player = installGuestIframe();
+      guard = installApp();
+
+      setVisibility('hidden');
+      document.dispatchEvent(new Event('visibilitychange'));
+      await vi.advanceTimersByTimeAsync(1_000);
+      // The hidden iframe stops; nothing in the app called pauseVideo, so the
+      // native-control route records it as a local pause while hidden.
+      nativeIframePause(player);
+      expect(isLocalYouTubePaused()).toBe(true);
+      await vi.advanceTimersByTimeAsync(29_000);
+      setVisibility('visible');
+      document.dispatchEvent(new Event('visibilitychange'));
+      await vi.advanceTimersByTimeAsync(10);
+
+      expect(mocks.rendezvous).toHaveBeenCalledOnce();
+      // On an iPhone the stop is the browser's, so the bit goes back down at
+      // the return and the heartbeat's play correction stays on.
+      expect(isLocalYouTubePaused()).toBe(pausedAfterReturn);
+    },
+  );
 
   it.each(['iframe native PLAY', 'lock-screen PLAY'] as const)(
     'stale snapshot, guest presses PLAY (%s) while the local rejoin returns no-data, then the heartbeat arrives: the background chain still aligns',

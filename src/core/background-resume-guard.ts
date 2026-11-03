@@ -16,8 +16,10 @@
  * This is also the only threshold of the background-return Sync that ends
  * every recovery (player/background-return-sync.ts): each hidden period of at
  * least this long counts as a return from the background and is synced. A
- * shorter one is synced only for a Standard guest whose iframe the browser
- * stopped in it, through that guest's own rendezvous (registry RO-05).
+ * shorter one is synced only for an iPhone or iPad Standard guest whose iframe
+ * the browser stopped in it, through that guest's own rendezvous (registry
+ * RO-05). That chain reads this guard's own classification of the return
+ * (getLastObservedBackgroundReturn) instead of timing the hidden period again.
  */
 export const DEFAULT_RECOVER_THRESHOLD_MS = 1000;
 
@@ -47,6 +49,28 @@ interface BackgroundResumeGuardDeps {
 
 export interface BackgroundResumeGuardHandle {
   dispose: () => void;
+}
+
+interface ObservedBackgroundReturn {
+  /** When the page showed again, by the guard's clock. */
+  readonly visibleAt: number;
+  readonly hiddenMs: number;
+  /** The return reaches recover(), i.e. runs the background-return Sync. */
+  readonly recovers: boolean;
+}
+
+// One measurement of the hidden period for every reader (registry RO-05):
+// written by the guard that observed it, null while the page is hidden.
+let lastObservedReturn: ObservedBackgroundReturn | null = null;
+let lastObservedReturnOwner: object | null = null;
+
+/**
+ * The page's latest return from hidden as a guard classified it, or null while
+ * the page is hidden or before a guard saw a hidden period begin. A new object
+ * for each return, so a reader can tell one return from the next.
+ */
+export function getLastObservedBackgroundReturn(): ObservedBackgroundReturn | null {
+  return lastObservedReturn;
 }
 
 export function initBackgroundResumeGuard(
@@ -152,6 +176,8 @@ export function initBackgroundResumeGuard(
 
     if (visibility === 'hidden') {
       hiddenAt = now;
+      lastObservedReturn = null;
+      lastObservedReturnOwner = controller;
       return;
     }
 
@@ -159,6 +185,8 @@ export function initBackgroundResumeGuard(
 
     const hiddenMs = now - hiddenAt;
     hiddenAt = null;
+    lastObservedReturn = { visibleAt: now, hiddenMs, recovers: hiddenMs >= recoverThresholdMs };
+    lastObservedReturnOwner = controller;
 
     if (hiddenMs < Math.min(recoverThresholdMs, warnThresholdMs)) return;
 
@@ -172,6 +200,10 @@ export function initBackgroundResumeGuard(
     dispose: () => {
       disposed = true;
       pendingResume = null;
+      if (lastObservedReturnOwner === controller) {
+        lastObservedReturn = null;
+        lastObservedReturnOwner = null;
+      }
       controller.abort();
     },
   };

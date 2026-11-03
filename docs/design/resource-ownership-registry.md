@@ -1413,22 +1413,28 @@ RO-54 accepted-exception
   listener's visible iframe PAUSE records the local pause without `youtube:set-local-paused`
   (whose PRO handler drops autoplay intent), and its PRO reconciliation retries would otherwise
   release it. A hidden stop of the iframe ends nothing, so a lock-screen PLAY retry outlives a
-  browser stop while locked. Since the iOS return fix (2026-11-03) a Standard guest's stop whose
-  PAUSED the native-control route (`src/youtube/native-control-authority.ts`) processes within
-  `BACKGROUND_STOP_RETURN_GRACE_MS` after the page shows again ends nothing either: it records the
-  local pause without the intent, like a hidden stop. The route hands either stop to the return
-  chain once visible (`runBackgroundStopSync`, one per return), which starts the guest rendezvous
-  chain only for a bounce shorter than the guard's `DEFAULT_RECOVER_THRESHOLD_MS`; a longer return
-  already runs its own. Single-shot callers: `src/youtube/iframe.ts`,
+  browser stop while locked. Since the iOS return fix (2026-11-03), on iPhone and iPad only
+  (`IS_IOS`; no other browser stops a hidden iframe), the native-control route
+  (`src/youtube/native-control-authority.ts`) takes a Standard guest's unowned PAUSE for the
+  browser's stop when it processes it while hidden, or within `BACKGROUND_STOP_RETURN_GRACE_MS`
+  after the page shows again and before the participant moves focus into the iframe. Such a stop
+  publishes no intent and ends nothing; once visible the route puts the local pause bit back down
+  (so the heartbeat's play correction covers a second stop that a return rendezvous swallows) and
+  hands the stop to the return chain (`runBackgroundStopSync`, one per return). The chain starts the
+  guest rendezvous chain only for a return the background resume guard did not recover; a
+  recovered return already runs its own. The hidden period is measured once, by the guard
+  (`getLastObservedBackgroundReturn` in `src/core/background-resume-guard.ts`); the route keeps
+  only per-return flags, which the next hidden event resets. On other platforms every unowned
+  PAUSE stays the participant's, as before. Single-shot callers: `src/youtube/iframe.ts`,
   `src/ui/manual-sync-overlay-runtime.ts` and the host- or user-commanded attempts inside
   `youtube/sync.ts`.
 - **Target single owner:** `local-output-rejoin.ts` as the re-align owner for participant-local
   automatic and OS-triggered attempts; `youtube/sync.ts` keeps the rendezvous primitive and
   host- or user-commanded attempts.
 - **Allowed requesters:** OS and lock-screen PLAY (rejoin events), the background return
-  (`app.ts` through `runBackgroundReturnSync`), a Standard guest's browser stop in a bounce shorter
-  than the return threshold (the native-control route through `runBackgroundStopSync`), the Sync
-  button.
+  (`app.ts` through `runBackgroundReturnSync`), an iPhone or iPad Standard guest's browser stop in
+  a return the guard did not recover (the native-control route through `runBackgroundStopSync`),
+  the Sync button.
 - **Lifecycle operations:** start a chain, retry on `busy`, wait for a host snapshot, retire on a
   new return (or a bounce's browser stop), a local pause or an identity change.
 - **Deadline owner:** each chain's retry timer; the rendezvous cooldown in `youtube/sync.ts`.
@@ -1437,43 +1443,59 @@ RO-54 accepted-exception
   and cooldown `RENDEZVOUS_COOLDOWN_MS` live beside it. The schedule sits in that startup leaf
   rather than in either lazy chain module: a lazy leaf of its own became an extra chunk whose
   preload entries grew the eager graph. The browser-stop grace `BACKGROUND_STOP_RETURN_GRACE_MS`
-  (1 s, since 2026-11-03) lives beside it and only the native-control route reads it; the return
-  chain reads the bounce threshold `DEFAULT_RECOVER_THRESHOLD_MS` from
-  `src/core/background-resume-guard.ts`, the guard's own (RO-51).
+  (1 s, since 2026-11-03) lives beside it and only the native-control route reads it. The 1 s is an
+  assumption about when WebKit delivers the stop's PAUSED, pending device evidence (the device check
+  is in [the iOS return train report](ios-youtube-return-train-2026-11-03.md)). Neither the route
+  nor the return chain times the hidden period: both read the guard's classification of the last
+  return, `getLastObservedBackgroundReturn()`, whose threshold `DEFAULT_RECOVER_THRESHOLD_MS` in
+  `src/core/background-resume-guard.ts` is the guard's own (RO-51).
 - **Anchor tests:**
   - Supersession: `src/player/__tests__/background-return-sync.test.ts` "replaces the previous
     return retry chain instead of stacking a second one"; `local-output-rejoin.test.ts` "drops a
     scheduled busy retry after the queue occurrence changes".
   - User pause/stop: `background-return-sync.test.ts` "lets a local YouTube pause during the retry
-    wait end the chain" (after the grace) and "keeps the retry chain through the browser stop whose
-    PAUSE is processed just after the return"; `native-control-authority.test.ts` "takes a PAUSE
-    processed $processed for the browser stop: $browserStop" (the grace boundary);
-    `local-output-rejoin.test.ts` "cancels a busy YouTube retry on explicit PAUSE and permits the
-    next PLAY" and "ends a reserved PRO YouTube retry on a PRO listener visible PAUSE and permits
-    the next PLAY"; `native-control-authority.test.ts` "records a
+    wait end the chain" (a computer or Android phone), "on an iPhone, lets a local YouTube pause
+    after the browser-stop grace end the chain" and "on an iPhone, keeps the retry chain through the
+    browser stop whose PAUSE is processed just after the return"; `native-control-authority.test.ts`
+    "on an iPhone, takes a PAUSE processed $processed for the browser stop: $browserStop" (the grace
+    boundary), "on a computer or Android phone, keeps a PAUSE processed $processed the participant
+    pause" and "on an iPhone, takes a PAUSE after a tap into the iframe for the participant pause,
+    inside the grace"; `local-output-rejoin.test.ts` "cancels a busy YouTube retry on explicit
+    PAUSE and permits the next PLAY" and "ends a reserved PRO YouTube retry on a PRO listener
+    visible PAUSE and permits the next PLAY"; `native-control-authority.test.ts` "records a
     $visibility $room listener iframe PAUSE as a local pause, published as intent: $published"
     (only the visible PRO row emits the router's end event).
   - Teardown: `local-output-rejoin.test.ts` "does not let a stale busy result schedule work into a
-    restarted session".
+    restarted session"; `native-control-authority.test.ts` "on an iPhone, hands a hidden stop to
+    the next return when the page hides again before the chain loads" and "on an iPhone, lets a
+    pause intent before the chain loads cancel the hand-off".
   - Visibility: `background-return-sync.test.ts` "ignores a sub-second visibility bounce that is
-    not a background return" and "aligns a sub-second bounce in which the browser stopped the hidden
-    iframe, its PAUSE processed %s".
+    not a background return", "on an iPhone, aligns a sub-second bounce in which the browser stopped
+    the hidden iframe, its PAUSE processed %s" and "on a computer or Android phone, keeps an iframe
+    PAUSE just after a sub-second bounce the participant pause"; `background-resume-guard.test.ts`
+    "reports a $hiddenMs ms return with the same classification recover() follows: $recovers" (the
+    one measurement).
   - Both chains against the real `youtube/sync.ts` (Phase 4 4A, tests only):
     `src/player/__tests__/local-output-realign-cross-flow.test.ts`, the P4-D7 cases (the P4-D7 B
     fix, a locked browser-stop row and a Standard-guest row), the P4-D8 cases and "iOS: return at
-    the moment WebKit stops the hidden iframe" (2026-11-03, ten rows, also run in Chromium by
-    `e2e/youtube-background-stop-return.test.ts`). The two unit suites above still mock it.
+    the moment WebKit stops the hidden iframe" (2026-11-03: ten stop rows, one return chain at the
+    guard threshold, two quick trips home, and "a pause the participant taps after the return" on a
+    computer and on an iPhone). `e2e/youtube-background-stop-return.test.ts` runs the stop rows and
+    the two trips in Chromium with an iPhone user agent, and two tap rows with a desktop guest. The
+    two unit suites above still mock it.
 - **Status:** `duplicated`. One schedule since Phase 4 4A (C3-I1); both chains already end on the
   same local pause (G2). Owner decision P4-D7 B (2026-10-25, train 4B): a PRO listener's visible
   iframe PAUSE also ends the router's retries; browser stops while hidden still do not. Owner
   decision P4-D8 A (2026-10-24): the lanes are not coalesced (C3-I3 and C3-I4 are not done), and
   the double alignment after a quick unlock and the return chain's give-up while the host is
   buffering stay as the cross-flow harness pins them. The owner is asked again only if device
-  evidence shows either one disturbing playback. iOS return fix (2026-11-03, device report): a
-  Standard guest reopened at the moment WebKit stops its hidden iframe stayed paused until a tap;
-  the browser stop now ends no chain and a sub-second bounce aligns after it. The trade-off: an
-  iframe PAUSE the guest taps within the grace after a return is aligned over, as a tap during the
-  return rendezvous already is. Exception RO-48.
+  evidence shows either one disturbing playback. iOS return fix (2026-11-03, device report): an
+  iPhone Standard guest reopened at the moment WebKit stops its hidden iframe stayed paused until
+  a tap. On iPhone and iPad the browser stop now ends no chain, the local pause bit is down after
+  the return, and a sub-second bounce aligns after it; other platforms are unchanged. Open owner
+  question (train report): on iPhone and iPad, an iframe PAUSE the guest makes within the 1 s grace
+  without focus moving into the iframe is aligned over, as one made while a return rendezvous owns
+  the iframe (about 2.3 s) already was. Exception RO-48.
 
 ### RO-06 Host shared start, playlist queue and guided demo
 
@@ -3922,7 +3944,9 @@ entry needs the owner's acceptance and is not implied by this registry.
   opened, the host-unresponsive dialog in `src/network/host-presence.ts`) are not withdrawn; the
   forced dialog follows the tap that closes them.
 - **Timing-constant home:** none of its own; the guard's `DEFAULT_RECOVER_THRESHOLD_MS` (1 s) and
-  `DEFAULT_WARN_THRESHOLD_MS` (60 s) in `src/core/background-resume-guard.ts`.
+  `DEFAULT_WARN_THRESHOLD_MS` (60 s) in `src/core/background-resume-guard.ts`. The guard also
+  publishes its classification of the last return (`getLastObservedBackgroundReturn`), the one
+  hidden-period measurement the RO-05 browser-stop path reads (2026-11-03).
 - **Anchor tests:** on the real guard and warning, wired as `app.ts` wires them, in
   `src/core/__tests__/sw-update-transitions.integration.test.ts` "return-time dialogs (RO-51)":
   - Supersession: F25 (a forced request withdraws the warning on screen; the guard's flight ends)

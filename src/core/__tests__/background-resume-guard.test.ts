@@ -7,6 +7,7 @@ import type { Mock } from 'vitest';
 import {
   DEFAULT_RECOVER_THRESHOLD_MS,
   DEFAULT_WARN_THRESHOLD_MS,
+  getLastObservedBackgroundReturn,
   initBackgroundResumeGuard,
   type BackgroundResumeGuardHandle,
 } from '../background-resume-guard.ts';
@@ -102,7 +103,39 @@ describe('initBackgroundResumeGuard', () => {
 
     expect(recover).not.toHaveBeenCalled();
     expect(warn).not.toHaveBeenCalled();
+    expect(getLastObservedBackgroundReturn()).toBeNull();
   });
+
+  it.each([
+    { hiddenMs: DEFAULT_RECOVER_THRESHOLD_MS - 1, recovers: false },
+    { hiddenMs: DEFAULT_RECOVER_THRESHOLD_MS, recovers: true },
+  ])(
+    'reports a $hiddenMs ms return with the same classification recover() follows: $recovers',
+    async ({ hiddenMs, recovers }) => {
+      // The one measurement of the hidden period (registry RO-05): readers
+      // never time it again.
+      init();
+      expect(getLastObservedBackgroundReturn()).toBeNull();
+      setVisibility('hidden');
+      document.dispatchEvent(new Event('visibilitychange'));
+      now += hiddenMs;
+      expect(getLastObservedBackgroundReturn()).toBeNull();
+      setVisibility('visible');
+      document.dispatchEvent(new Event('visibilitychange'));
+      await flushPromises();
+
+      const observed = getLastObservedBackgroundReturn();
+      expect(observed).toEqual({ visibleAt: now, hiddenMs, recovers });
+      expect(recover).toHaveBeenCalledTimes(recovers ? 1 : 0);
+
+      // A later return is a new reading; dispose drops the guard's reading.
+      await visibilityCycle(hiddenMs);
+      expect(getLastObservedBackgroundReturn()).not.toBe(observed);
+      handle?.dispose();
+      handle = null;
+      expect(getLastObservedBackgroundReturn()).toBeNull();
+    },
+  );
 
   it('recovers and warns once the warn threshold is reached', async () => {
     init();

@@ -37,11 +37,19 @@ const edges = vi.hoisted(() => ({
   ),
   proBackgroundReturnSync: vi.fn(),
 }));
+const platform = vi.hoisted(() => ({ ios: false }));
 
 vi.mock('../../core/log.ts', () => ({
   log: { debug: vi.fn(), info: vi.fn(), warn: vi.fn(), error: vi.fn() },
 }));
 vi.mock('../../i18n/index.ts', () => ({ t: (key: string) => key }));
+// Only WebKit on iPhone and iPad stops a hidden iframe; the iOS rows say so.
+vi.mock('../../core/platform.ts', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('../../core/platform.ts')>()),
+  get IS_IOS() {
+    return platform.ios;
+  },
+}));
 vi.mock('../../network/peer.ts', () => ({
   broadcast: vi.fn(),
   safeSend: vi.fn(() => true),
@@ -97,8 +105,11 @@ import {
   type YouTubePlayerInstance,
 } from '../../youtube/_state.ts';
 import {
+  HEARTBEAT_INTERVAL_MS,
   LOCAL_OUTPUT_REALIGN_RETRY_MS,
+  RENDEZVOUS_CALIBRATE_DELAY_MS,
   RENDEZVOUS_COOLDOWN_MS,
+  RENDEZVOUS_MARGIN_SEC,
   STANDARD_AUTO_REALIGN_DRIFT_THRESHOLD_MS,
 } from '../../youtube/constants.ts';
 import { guestRendezvousSync, initYouTubeSync, resetYouTubeSyncState } from '../../youtube/sync.ts';
@@ -851,28 +862,32 @@ describe('P4-D8 (b): the host is BUFFERING, CUED or on another video when the gu
  * taps PLAY in the iframe or presses Sync.
  *
  * Each row: the room plays and the guest plays in step with the host, whose
- * heartbeats keep coming every 3 s. The page is hidden, WebKit stops the
- * iframe 100 ms before the page is visible again, and the app processes the
- * iframe's PAUSED callback before the visible event (while hidden), in the same
- * task right after it ('at'), or 100 ms after it. The participant does nothing
- * after the return. Expected for every row, as for a normal return: the guest
- * plays again within two heartbeats of the return and ends in step with the
- * host.
+ * heartbeats keep coming every HEARTBEAT_INTERVAL_MS. The page is hidden,
+ * WebKit stops the iframe 100 ms before the page is visible again, and the app
+ * processes the iframe's PAUSED callback before the visible event (while
+ * hidden), in the same task right after it ('at'), or 100 ms after it. The
+ * participant does nothing after the return. Expected for every row, as for a
+ * normal return: the guest plays again within two heartbeats of the return and
+ * ends in step with the host.
  *
- * Tests first. On today's code the guest stays paused in the four rows the
- * comments below say so for. Two gaps meet there:
+ * Tests first. Before the fix the guest stayed paused in the four rows the
+ * comments below say so for. Two gaps met there:
  * - The background resume guard runs no recovery for a hidden period under
- *   DEFAULT_RECOVER_THRESHOLD_MS (1 s), so a sub-second return runs no return
+ *   DEFAULT_RECOVER_THRESHOLD_MS (1 s), so a sub-second return ran no return
  *   Sync at all.
- * - The native-control route takes any unowned iframe PAUSE for the
- *   participant's own pause and sets the local pause bit, which turns off the
- *   heartbeat's play correction. Its only test for a browser stop is the page
+ * - The native-control route took any unowned iframe PAUSE for the
+ *   participant's own pause and set the local pause bit, which turns off the
+ *   heartbeat's play correction. Its only test for a browser stop was the page
  *   visibility when the PAUSED callback is processed: processed while hidden,
- *   the stop sets the bit silently; processed after the visible event, it also
- *   publishes the pause intent, which ends a return chain that is waiting out
+ *   the stop set the bit silently; processed after the visible event, it also
+ *   published the pause intent, which ends a return chain that is waiting out
  *   the rendezvous cooldown.
  * With at least 1 s hidden and nothing waiting, the return's own rendezvous
  * owns the iframe and plays it past the bit: the normal return of the report.
+ *
+ * Only WebKit on iPhone and iPad stops a hidden iframe, so these rows run as
+ * an iPhone. The rows after them pin what the fix must not change on a
+ * computer or Android phone, and a pause the participant taps after the return.
  */
 describe('iOS: return at the moment WebKit stops the hidden iframe', () => {
   /** WebKit stops the hidden iframe this long before the page is visible again. */
@@ -880,11 +895,13 @@ describe('iOS: return at the moment WebKit stops the hidden iframe', () => {
   /** The 'after' rows process the PAUSED callback this long after the visible event. */
   const PAUSED_AFTER_VISIBLE_MS = 100;
   /** The guest plays again within two host heartbeats of the return. */
-  const RESUME_DEADLINE_MS = 2 * HEARTBEAT_MS;
+  const RESUME_DEADLINE_MS = 2 * HEARTBEAT_INTERVAL_MS;
   /** The rows watch the guest this long after the return. */
-  const WATCH_MS = 4 * HEARTBEAT_MS;
+  const WATCH_MS = 4 * HEARTBEAT_INTERVAL_MS;
   /** In step: under the drift at which the heartbeat's own realign begins. */
   const IN_STEP_MS = STANDARD_AUTO_REALIGN_DRIFT_THRESHOLD_MS;
+  /** A Sync rendezvous owns the iframe this long after it starts: its play margin and calibration. */
+  const RENDEZVOUS_OWNED_MS = RENDEZVOUS_MARGIN_SEC * 1000 + RENDEZVOUS_CALIBRATE_DELAY_MS;
 
   type PausedProcessed = 'before' | 'at' | 'after';
   interface ReturnRow {
@@ -898,9 +915,15 @@ describe('iOS: return at the moment WebKit stops the hidden iframe', () => {
 
   let hostHeartbeats: ReturnType<typeof setInterval> | null = null;
 
+  beforeEach(() => {
+    platform.ios = true;
+  });
+
   afterEach(() => {
     if (hostHeartbeats !== null) clearInterval(hostHeartbeats);
     hostHeartbeats = null;
+    platform.ios = false;
+    document.getElementById('youtube-player-container')?.remove();
   });
 
   /**
@@ -922,13 +945,13 @@ describe('iOS: return at the moment WebKit stops the hidden iframe', () => {
     return Math.round((player.getCurrentTime() - hostPosition) * 1000);
   }
 
-  /** The host plays from now on and sends a heartbeat now and every 3 s. */
+  /** The host plays from now on and sends a heartbeat now and every heartbeat interval. */
   function hostPlaysWithGuestInStep(player: GuestIframe): void {
     hostTimelineOrigin = Date.now();
     player.seekTo(100);
     player.__log.length = 0;
     heartbeat();
-    hostHeartbeats = setInterval(() => heartbeat(), HEARTBEAT_MS);
+    hostHeartbeats = setInterval(() => heartbeat(), HEARTBEAT_INTERVAL_MS);
   }
 
   /** WebKit stops the hidden iframe; the app has not processed its PAUSED yet. */
@@ -942,20 +965,56 @@ describe('iOS: return at the moment WebKit stops the hidden iframe', () => {
     setPlaybackYouTubePaused();
   }
 
-  async function returnAroundTheStop(row: ReturnRow) {
+  /** The participant clicks or taps into the YouTube iframe: focus moves into it. */
+  function focusIframe(): void {
+    let container = document.getElementById('youtube-player-container');
+    if (!container) {
+      container = document.createElement('div');
+      container.id = 'youtube-player-container';
+      container.append(document.createElement('iframe'));
+      document.body.append(container);
+    }
+    container.querySelector('iframe')!.focus();
+    window.dispatchEvent(new Event('blur'));
+  }
+
+  /** A guest in step with the playing host, after the row's optional Sync press. */
+  async function guestInStep(syncPressedBeforeHideMs?: number): Promise<GuestIframe> {
     const player = installStandardGuest({ iframeState: 1, locallyPaused: false });
     projectIframeCallbacks(player);
     hostPlaysWithGuestInStep(player);
     await vi.advanceTimersByTimeAsync(2_000);
-    if (row.syncPressedBeforeHideMs !== undefined) {
+    if (syncPressedBeforeHideMs !== undefined) {
       // The Sync button (ui/manual-sync-overlay-runtime.ts): a rendezvous
       // that plays at its 1.5 s margin and then calibrates for 0.8 s.
       guestRendezvousSync();
-      await vi.advanceTimersByTimeAsync(row.syncPressedBeforeHideMs);
+      await vi.advanceTimersByTimeAsync(syncPressedBeforeHideMs);
       expect(rendezvousStartedAt).toHaveLength(1);
     }
     expect(player.__state).toBe(1);
     expect(Math.abs(guestOffsetMs(player))).toBeLessThan(IN_STEP_MS);
+    return player;
+  }
+
+  /** Watch the guest for WATCH_MS after `returnedAt`; when did it play again? */
+  async function watchAfterReturn(player: GuestIframe, returnedAt: number) {
+    let resumedAfterMs: number | null = null;
+    while (Date.now() - returnedAt < WATCH_MS) {
+      await vi.advanceTimersByTimeAsync(100);
+      if (resumedAfterMs === null && player.__state === 1) {
+        resumedAfterMs = Date.now() - returnedAt;
+      }
+    }
+    return {
+      iframeState: player.__state,
+      resumedAfterMs,
+      offsetMs: guestOffsetMs(player),
+      localPaused: isLocalYouTubePaused(),
+    };
+  }
+
+  async function returnAroundTheStop(row: ReturnRow) {
+    const player = await guestInStep(row.syncPressedBeforeHideMs);
     const rendezvousBeforeReturn = rendezvousStartedAt.length;
 
     setVisibility('hidden');
@@ -971,20 +1030,24 @@ describe('iOS: return at the moment WebKit stops the hidden iframe', () => {
       processStopPaused();
     }
 
-    let resumedAfterMs: number | null = null;
-    while (Date.now() - returnedAt < WATCH_MS) {
-      await vi.advanceTimersByTimeAsync(100);
-      if (resumedAfterMs === null && player.__state === 1) {
-        resumedAfterMs = Date.now() - returnedAt;
-      }
-    }
-    return {
-      iframeState: player.__state,
-      resumedAfterMs,
-      offsetMs: guestOffsetMs(player),
-      returnRendezvous: rendezvousStartedAt.length - rendezvousBeforeReturn,
-      localPaused: isLocalYouTubePaused(),
-    };
+    const outcome = await watchAfterReturn(player, returnedAt);
+    return { ...outcome, returnRendezvous: rendezvousStartedAt.length - rendezvousBeforeReturn };
+  }
+
+  function expectPlaysInStep(outcome: Awaited<ReturnType<typeof watchAfterReturn>>): void {
+    const seen = JSON.stringify(outcome);
+    expect(outcome.iframeState, `iframe state after the return, ${seen}`).toBe(1);
+    expect(outcome.resumedAfterMs, `ms from the return until it plays, ${seen}`).not.toBeNull();
+    expect(outcome.resumedAfterMs!).toBeLessThanOrEqual(RESUME_DEADLINE_MS);
+    expect(Math.abs(outcome.offsetMs), `offset from the host in ms, ${seen}`).toBeLessThan(
+      IN_STEP_MS,
+    );
+  }
+
+  function returnChainsStarted(): number {
+    return infoMessages().filter((message) =>
+      message.startsWith('[BackgroundReturnSync] guest-youtube-rendezvous'),
+    ).length;
   }
 
   const SUB_SECOND_MS = DEFAULT_RECOVER_THRESHOLD_MS - 200;
@@ -1004,15 +1067,15 @@ describe('iOS: return at the moment WebKit stops the hidden iframe', () => {
       hiddenMs: SUB_SECOND_MS,
       paused: null,
     },
-    // Stays paused on today's code: no return Sync below 1 s, and the stop is
-    // recorded as the participant's own pause.
+    // Stayed paused before the fix: no return Sync below 1 s, and the stop
+    // was recorded as the participant's own pause.
     ...(['before', 'at', 'after'] as const).map((paused) => ({
       label: `hidden ${SUB_SECOND_MS} ms, PAUSED processed ${when[paused]}`,
       hiddenMs: SUB_SECOND_MS,
       paused,
     })),
-    // The normal return, which recovers today: the return rendezvous
-    // re-aligns the guest.
+    // The normal return, which recovered before the fix too: the return
+    // rendezvous re-aligns the guest.
     ...(['before', 'at', 'after'] as const).map((paused) => ({
       label: `hidden ${RETURN_MS} ms, PAUSED processed ${when[paused]}`,
       hiddenMs: RETURN_MS,
@@ -1021,9 +1084,9 @@ describe('iOS: return at the moment WebKit stops the hidden iframe', () => {
     // The participant pressed Sync, went home right after its play and came
     // back 1.1 s later, inside the rendezvous' 3 s cooldown but after its
     // owned 2.3 s: the return chain waits out the cooldown, unowned. Before
-    // and at the visible event it recovers today; 100 ms after it, the stop
-    // counts as the participant's pause, ends the waiting chain and stays
-    // paused today.
+    // and at the visible event it recovered before the fix; 100 ms after it,
+    // the stop counted as the participant's pause, ended the waiting chain
+    // and stayed paused.
     ...(['before', 'at', 'after'] as const).map((paused) => ({
       label:
         `Sync pressed ${SYNC_BEFORE_HIDE_MS} ms before hiding, hidden ${AFTER_SYNC_MS} ms, ` +
@@ -1034,16 +1097,165 @@ describe('iOS: return at the moment WebKit stops the hidden iframe', () => {
     })),
   ];
 
+  it('returns the Sync rows after the Sync rendezvous owns the iframe and inside its cooldown', () => {
+    // Measured from the Sync press; the rows above depend on this ordering.
+    const returnAfterSyncMs = SYNC_BEFORE_HIDE_MS + AFTER_SYNC_MS;
+    expect(returnAfterSyncMs).toBeGreaterThan(RENDEZVOUS_OWNED_MS);
+    expect(returnAfterSyncMs).toBeLessThan(RENDEZVOUS_COOLDOWN_MS);
+  });
+
   for (const row of rows) {
     it(`${row.label}: the guest plays in step without a tap`, async () => {
-      const outcome = await returnAroundTheStop(row);
-      const seen = JSON.stringify(outcome);
-      expect(outcome.iframeState, `iframe state after the return, ${seen}`).toBe(1);
-      expect(outcome.resumedAfterMs, `ms from the return until it plays, ${seen}`).not.toBeNull();
-      expect(outcome.resumedAfterMs!).toBeLessThanOrEqual(RESUME_DEADLINE_MS);
-      expect(Math.abs(outcome.offsetMs), `offset from the host in ms, ${seen}`).toBeLessThan(
-        IN_STEP_MS,
-      );
+      expectPlaysInStep(await returnAroundTheStop(row));
     });
   }
+
+  it.each([
+    { label: 'one below', hiddenMs: DEFAULT_RECOVER_THRESHOLD_MS - 1 },
+    { label: 'exactly at', hiddenMs: DEFAULT_RECOVER_THRESHOLD_MS },
+  ])(
+    'a stop processed at the return $label the guard threshold starts exactly one return chain',
+    async ({ hiddenMs }) => {
+      // The guard measures the hidden period once; the bounce chain and the
+      // return Sync read that one classification, so a return never runs
+      // both or neither.
+      const player = await guestInStep();
+      setVisibility('hidden');
+      await vi.advanceTimersByTimeAsync(hiddenMs - STOP_BEFORE_VISIBLE_MS);
+      webKitStopsHiddenIframe(player);
+      await vi.advanceTimersByTimeAsync(STOP_BEFORE_VISIBLE_MS);
+      const returnedAt = Date.now();
+      setVisibility('visible');
+      processStopPaused();
+
+      const outcome = await watchAfterReturn(player, returnedAt);
+      expect(returnChainsStarted()).toBe(1);
+      expectPlaysInStep(outcome);
+    },
+  );
+
+  it('two quick trips home, the second while the first return rendezvous owns the iframe: the guest plays in step', async () => {
+    const player = await guestInStep();
+    // First trip: WebKit stops the iframe while hidden.
+    setVisibility('hidden');
+    await vi.advanceTimersByTimeAsync(SUB_SECOND_MS - STOP_BEFORE_VISIBLE_MS);
+    webKitStopsHiddenIframe(player);
+    processStopPaused();
+    await vi.advanceTimersByTimeAsync(STOP_BEFORE_VISIBLE_MS);
+    setVisibility('visible');
+    await vi.advanceTimersByTimeAsync(DEFAULT_RECOVER_THRESHOLD_MS);
+    // Second trip, 1 s later: the return rendezvous plays at its margin while
+    // the page is hidden, and WebKit stops the iframe again inside the
+    // rendezvous' owned window, so the route never sees that PAUSE.
+    const rendezvousBeforeSecondTrip = rendezvousStartedAt.length;
+    setVisibility('hidden');
+    await vi.advanceTimersByTimeAsync(SUB_SECOND_MS - STOP_BEFORE_VISIBLE_MS);
+    webKitStopsHiddenIframe(player);
+    processStopPaused();
+    await vi.advanceTimersByTimeAsync(STOP_BEFORE_VISIBLE_MS);
+    expect(rendezvousStartedAt.length).toBe(rendezvousBeforeSecondTrip);
+    const returnedAt = Date.now();
+    setVisibility('visible');
+
+    // The bit went back down at the first return, so the heartbeat's play
+    // correction resumes the guest.
+    const outcome = await watchAfterReturn(player, returnedAt);
+    expectPlaysInStep(outcome);
+  });
+
+  describe('a pause the participant taps after the return', () => {
+    /** The guest taps pause in the iframe this long after the return. */
+    const TAP_AFTER_RETURN_MS = 500;
+    const COOLDOWN_TAP_AFTER_RETURN_MS = 300;
+
+    interface TapRow {
+      label: string;
+      ios: boolean;
+      /** The tap moved focus into the iframe before the PAUSE. */
+      focused: boolean;
+      hiddenMs: number;
+      tapAfterReturnMs: number;
+      syncPressedBeforeHideMs?: number;
+      /** Expected: the pause holds. */
+      holds: boolean;
+    }
+
+    async function tapPauseAfterReturn(row: TapRow) {
+      platform.ios = row.ios;
+      const player = await guestInStep(row.syncPressedBeforeHideMs);
+      const rendezvousBeforeReturn = rendezvousStartedAt.length;
+      const pauseIntent = vi.fn();
+      bus.on('youtube:set-local-paused', (paused) => {
+        if (paused) pauseIntent();
+      });
+
+      // No browser stop: the iframe keeps playing while hidden.
+      setVisibility('hidden');
+      await vi.advanceTimersByTimeAsync(row.hiddenMs);
+      const returnedAt = Date.now();
+      setVisibility('visible');
+      await vi.advanceTimersByTimeAsync(row.tapAfterReturnMs);
+      if (row.focused) focusIframe();
+      player.__setState(2, false);
+      processStopPaused();
+
+      const outcome = await watchAfterReturn(player, returnedAt);
+      return {
+        ...outcome,
+        returnRendezvous: rendezvousStartedAt.length - rendezvousBeforeReturn,
+        pauseIntents: pauseIntent.mock.calls.length,
+      };
+    }
+
+    const tapRows: readonly TapRow[] = [
+      ...([false, true] as const).flatMap((ios) => [
+        {
+          label: `on ${ios ? 'an iPhone, after a tap into the iframe' : 'a computer or Android phone'}, a sub-second bounce, pause tapped ${TAP_AFTER_RETURN_MS} ms after the return`,
+          ios,
+          focused: ios,
+          hiddenMs: SUB_SECOND_MS,
+          tapAfterReturnMs: TAP_AFTER_RETURN_MS,
+          holds: true,
+        },
+        {
+          label:
+            `on ${ios ? 'an iPhone, after a tap into the iframe' : 'a computer or Android phone'}, Sync pressed ${SYNC_BEFORE_HIDE_MS} ms before hiding, ` +
+            `hidden ${AFTER_SYNC_MS} ms, pause tapped ${COOLDOWN_TAP_AFTER_RETURN_MS} ms after the return`,
+          ios,
+          focused: ios,
+          hiddenMs: AFTER_SYNC_MS,
+          tapAfterReturnMs: COOLDOWN_TAP_AFTER_RETURN_MS,
+          syncPressedBeforeHideMs: SYNC_BEFORE_HIDE_MS,
+          holds: true,
+        },
+      ]),
+      // The trade-off put to the owner: on an iPhone a pause inside the grace
+      // that moved no focus into the iframe is taken for the browser's stop,
+      // and the return aligns over it.
+      {
+        label: `on an iPhone, without focus moving into the iframe, a sub-second bounce, pause ${TAP_AFTER_RETURN_MS} ms after the return (the trade-off)`,
+        ios: true,
+        focused: false,
+        hiddenMs: SUB_SECOND_MS,
+        tapAfterReturnMs: TAP_AFTER_RETURN_MS,
+        holds: false,
+      },
+    ];
+
+    for (const row of tapRows) {
+      it(`${row.label}: the pause ${row.holds ? 'holds' : 'is aligned over'}`, async () => {
+        const outcome = await tapPauseAfterReturn(row);
+        const seen = JSON.stringify(outcome);
+        if (row.holds) {
+          expect(outcome.iframeState, `iframe state after the return, ${seen}`).toBe(2);
+          expect(outcome.localPaused, seen).toBe(true);
+          expect(outcome.pauseIntents, seen).toBe(1);
+          expect(outcome.returnRendezvous, seen).toBe(0);
+        } else {
+          expect(outcome.iframeState, `iframe state after the return, ${seen}`).toBe(1);
+          expect(outcome.pauseIntents, seen).toBe(0);
+        }
+      });
+    }
+  });
 });

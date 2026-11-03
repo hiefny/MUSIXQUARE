@@ -340,6 +340,34 @@ describe('public design-system page contract', () => {
     );
   });
 
+  it('names the field steps in the type scale', () => {
+    // Owner decision (2026-11-03, the input system): the scale shows the entry
+    // step with a field's placeholder, the field label (13 / 600) and the line
+    // under a field (12 / 400), each in the app's English copy.
+    const scaleTitle = [...sectionWithHeading('Typography').querySelectorAll('.block-title')].find(
+      (title) => title.textContent?.trim() === 'Scale',
+    );
+    const scale = scaleTitle?.nextElementSibling;
+    expect(scale?.className).toBe('spec');
+    const rows = [...(scale?.querySelectorAll(':scope > .tag') ?? [])].map((tag) => ({
+      tag: tag.textContent?.trim(),
+      sample: tag.nextElementSibling?.className,
+      text: tag.nextElementSibling?.textContent?.trim(),
+    }));
+    expect(rows).toEqual(
+      expect.arrayContaining([
+        { tag: '16 / 400', sample: 's16', text: en['account.nickname_placeholder'] },
+        { tag: '13 / 600', sample: 'sync-col-label', text: en['setup.enter_code_connect'] },
+        { tag: '12 / 400', sample: 's12', text: en['account.nickname_hint'] },
+      ]),
+    );
+    // The label row sits between the button label and the small rows.
+    const order = rows.map((row) => row.tag);
+    expect(order.indexOf('13 / 600')).toBe(order.indexOf('15 / 600') + 1);
+    expect(order.indexOf('12 / 400')).toBe(order.indexOf('13 / 600') + 1);
+    expect(scale?.textContent).not.toContain('Enter a 6-digit room code');
+  });
+
   it('points the app samples and the type helpers at the weight role tokens', () => {
     // Weight roles (owner decision 2026-10-28): the samples of app text read
     // the role tokens like the app rules they mirror, instead of a number.

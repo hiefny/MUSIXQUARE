@@ -1221,6 +1221,12 @@ interface ProSystemAudioUiState {
 interface SetupGuestJoinFailure {
   error: unknown;
   userMessage: string;
+  /**
+   * The typed code itself is wrong (no room answers it), not the connection.
+   * Only then is the code field marked invalid; every other failure paints
+   * only the line under it (owner decision 2026-11-03).
+   */
+  invalidCode?: boolean;
 }
 
 interface BaseEventMap {

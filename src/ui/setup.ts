@@ -536,15 +536,16 @@ export function initSetup(): void {
 
   // Restore the guest join UI after a failed OR cancelled join. Failures keep
   // their diagnosis and explicit retry action on the same screen; a
-  // user-initiated cancel restores silently.
-  const restoreGuestJoinInputUI = (message: string | null) => {
+  // user-initiated cancel restores silently. Only a failure about the typed
+  // code marks the code field invalid (owner decision 2026-11-03).
+  const restoreGuestJoinInputUI = (message: string | null, invalidCode = false) => {
     setState('network.isConnecting', false);
     updateRoleBadge();
 
     // Always hide the loader: auto-reconnect shows it before joinSession, so a
     // failure must clear it rather than leave the setup UI permanently busy.
     showLoader(false);
-    restoreGuestJoinControlsAfterFailure(message);
+    restoreGuestJoinControlsAfterFailure(message, false, invalidCode);
   };
 
   bus.on('setup:guest-join-failure', (failure) => {
@@ -555,7 +556,7 @@ export function initSetup(): void {
       restoreGuestJoinControlsAfterFailure(t('dialog.sw_update_msg'), true);
       return;
     }
-    restoreGuestJoinInputUI(failure.userMessage);
+    restoreGuestJoinInputUI(failure.userMessage, failure.invalidCode === true);
   });
 
   // A user-cancelled capability/Turnstile challenge mid-join restores the
@@ -591,6 +592,8 @@ export function initSetup(): void {
       return;
     }
     let userMsg = t('error.network_generic');
+    // True only when the typed code itself is wrong (no room answers it).
+    let invalidCode = false;
     const isRoomPasswordRequired =
       msg === 'ROOM_PASSWORD_REQUIRED' || peerType === 'room-password-required';
     const isRoomPasswordInvalid =
@@ -674,6 +677,7 @@ export function initSetup(): void {
         /* noop */
       }
       userMsg = isReconnectAttempt ? t('error.host_left') : t('error.peer_unavailable');
+      invalidCode = !isReconnectAttempt;
     } else if (peerType === 'network') userMsg = t('error.network_issue');
     else if (peerType === 'server-error') userMsg = t('error.signal_server_fail');
     else if (peerType === 'socket-error' || peerType === 'socket-closed')
@@ -693,7 +697,7 @@ export function initSetup(): void {
     if (isConnecting) {
       // Still trying to join — emit failure for UI reset
       if (forcedUpdate) bus.emit('setup:guest-join-cancelled');
-      else bus.emit('setup:guest-join-failure', { error: err, userMessage: userMsg });
+      else bus.emit('setup:guest-join-failure', { error: err, userMessage: userMsg, invalidCode });
     } else if (msg === 'HOST_DISCONNECTED' || msg === 'HOST_CONNECTION_ERROR') {
       // This is terminal connection loss, after recoverable PRO interruptions
       // have returned above. Silence every source before showing the dialog,
@@ -747,7 +751,8 @@ export function initSetup(): void {
       const appRole = getState('network.appRole');
       if (appRole === 'guest' && !getState('setup.sessionStarted')) {
         if (forcedUpdate) bus.emit('setup:guest-join-cancelled');
-        else bus.emit('setup:guest-join-failure', { error: err, userMessage: userMsg });
+        else
+          bus.emit('setup:guest-join-failure', { error: err, userMessage: userMsg, invalidCode });
       } else if (!forcedUpdate) {
         showToast(userMsg);
       }

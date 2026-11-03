@@ -452,6 +452,8 @@ async function promptPin(options: {
   autocomplete: string;
   signal?: AbortSignal;
   buttonText?: string;
+  /** The server's refusal of the last PIN, as the red line under the boxes. */
+  initialError?: string;
 }): Promise<string | null> {
   const result = await showDialog({
     title: options.title,
@@ -466,6 +468,7 @@ async function promptPin(options: {
       separator: '-',
       validator: (value) =>
         normalizeProRoomPin(value) ? null : t('connect.room_password_invalid'),
+      initialError: options.initialError,
     },
     buttonText: options.buttonText ?? t('common.ok'),
     secondaryText: t('common.cancel'),
@@ -801,9 +804,13 @@ export async function enterProRoomFromSetup(code: string): Promise<ProRoomSetupE
       if (attemptWithoutPin) {
         pin = undefined;
       } else {
+        // A refused PIN is a wrong value: the prompt keeps its own sentence
+        // and the refusal is the red line under the boxes (owner decision
+        // 2026-11-03).
         pin = await promptPin({
           title: t('pro.pin_title'),
-          message: t(retry ? 'pro.pin_retry_message' : firstPinMessageKey),
+          message: t(firstPinMessageKey),
+          initialError: retry ? t('pro.pin_retry_message') : undefined,
           autocomplete: 'current-password',
         });
         firstPinMessageKey = 'pro.pin_message';

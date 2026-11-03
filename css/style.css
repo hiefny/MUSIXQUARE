@@ -7645,6 +7645,11 @@ or pointers. Keep :focus-visible and :active outside the gate (src/ui/__tests__/
     box-shadow: none;
   }
 
+  /* A wrong code also turns the underline red; a connection failure paints only the line. */
+  .setup-join-input:not(.yt-intro-text)[aria-invalid='true'] {
+    border-bottom-color: var(--danger-foreground);
+  }
+
   /* Joining: the digits fade once. iOS WebKit dims disabled fields on its own. */
   .setup-join-input:disabled {
     opacity: 1;

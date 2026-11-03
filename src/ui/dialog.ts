@@ -73,6 +73,14 @@ interface DialogOptions {
     separator?: string;
     hint?: DialogText;
     validator?: (value: string) => string | null;
+    /**
+     * A refusal of the value the dialog opens with, such as a nickname the
+     * server found taken or a PIN it refused (owner decision 2026-11-03): the
+     * line under the field shows it in red and the field is marked invalid,
+     * with no shake because nothing was typed yet. It survives a language
+     * change; the first keystroke brings the hint back.
+     */
+    initialError?: DialogText;
     /** Keep significant whitespace for validators and the resolved value. */
     preserveWhitespace?: boolean;
   };
@@ -405,6 +413,9 @@ function _openDialog(opts: DialogOptions | string, resolve: (result: DialogResul
   // Input field support
   const inputCfg = typeof opts === 'object' && opts ? opts.inputField : undefined;
   const placeholder = dialogText(inputCfg?.placeholder);
+  // The opening refusal shows until the first keystroke or a validator error
+  // replaces it, across language changes.
+  let initialErrorShown = false;
   if (inputCfg) {
     _dialogPreserveWhitespace = inputCfg.preserveWhitespace === true;
     const maxLen = inputCfg.maxLength || 0;
@@ -533,7 +544,8 @@ function _openDialog(opts: DialogOptions | string, resolve: (result: DialogResul
     hint.className = 'dialog-hint';
     hint.setAttribute('aria-live', 'polite');
     hint.setAttribute('aria-atomic', 'true');
-    hint.textContent = dialogText(inputCfg.hint);
+    const initialError = dialogText(inputCfg.initialError);
+    hint.textContent = initialError || dialogText(inputCfg.hint);
     applyUserTextFontFallback(hint, hint.textContent);
     msgEl.appendChild(hint);
     _dialogInput?.setAttribute('aria-describedby', hint.id);
@@ -541,6 +553,14 @@ function _openDialog(opts: DialogOptions | string, resolve: (result: DialogResul
       ?.querySelectorAll<HTMLElement>('input, [role="textbox"]')
       .forEach((input) => input.setAttribute('aria-describedby', hint.id));
     setDialogInputInvalid(false);
+    if (initialError) {
+      // A refusal of the opening value: the red line and the invalid field,
+      // without the shake a refused submit gets.
+      hint.classList.add('error');
+      _dialogInput?.classList.add('invalid');
+      setDialogInputInvalid(true);
+      initialErrorShown = true;
+    }
     _dialogHint = hint;
     _dialogHintDefault = dialogText(inputCfg.hint);
     _dialogValidator = inputCfg.validator || null;
@@ -727,9 +747,12 @@ function _openDialog(opts: DialogOptions | string, resolve: (result: DialogResul
       if (_dialogHint) {
         const rawValue = _dialogInputValueGetter?.() || '';
         const value = _dialogPreserveWhitespace ? rawValue : rawValue.trim();
-        _dialogHint.textContent =
-          (_dialogHint.classList.contains('error') ? _dialogValidator?.(value) : null) ||
-          _dialogHintDefault;
+        const shownError = !_dialogHint.classList.contains('error')
+          ? null
+          : initialErrorShown
+            ? dialogText(inputCfg.initialError)
+            : _dialogValidator?.(value);
+        _dialogHint.textContent = shownError || _dialogHintDefault;
         applyUserTextFontFallback(_dialogHint, _dialogHint.textContent);
       }
     }
@@ -755,6 +778,7 @@ function _openDialog(opts: DialogOptions | string, resolve: (result: DialogResul
     const val = _dialogPreserveWhitespace ? rawValue : rawValue.trim();
     const error = _dialogValidator(val);
     if (!error) return true;
+    initialErrorShown = false;
     // Show inline error
     if (_dialogHint) {
       _dialogHint.textContent = error;
@@ -853,6 +877,7 @@ function _openDialog(opts: DialogOptions | string, resolve: (result: DialogResul
   };
 
   const clearInputError = () => {
+    initialErrorShown = false;
     if (_dialogHint && _dialogHint.classList.contains('error')) {
       _dialogHint.textContent = _dialogHintDefault;
       applyUserTextFontFallback(_dialogHint, _dialogHintDefault);

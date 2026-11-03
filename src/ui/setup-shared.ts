@@ -402,13 +402,24 @@ export function setupSetHostError(message: string | null): void {
   setupSetInlineError('setup-host-error', message);
 }
 
-export function setupSetGuestJoinError(message: string | null, inviteLink = false): void {
+/**
+ * Show or clear the line under the join code. `invalid` says the typed code
+ * itself is wrong (the six-digit check, a code no room answers): only then is
+ * the field marked invalid, which also turns its underline red. A connection,
+ * room or server failure paints only the line (owner decision 2026-11-03).
+ * The invite screen has no field, so its line never marks the input.
+ */
+export function setupSetGuestJoinError(
+  message: string | null,
+  inviteLink = false,
+  invalid = false,
+): void {
   setupSetInlineError('setup-guest-error', inviteLink ? null : message);
   setupSetInlineError('setup-auto-join-error', inviteLink ? message : null);
 
   const input = setupEl('setup-join-code');
   if (input) {
-    if (message && !inviteLink) input.setAttribute('aria-invalid', 'true');
+    if (message && !inviteLink && invalid) input.setAttribute('aria-invalid', 'true');
     else input.removeAttribute('aria-invalid');
   }
 }

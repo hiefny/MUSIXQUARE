@@ -425,7 +425,7 @@ export async function handleSetupJoinWithRole(
   const code = codeRaw.replace(/\s+/g, '');
 
   if (!/^\d{6}$/.test(code)) {
-    setupSetGuestJoinError(t('setup.six_digit_enter'));
+    setupSetGuestJoinError(t('setup.six_digit_enter'), false, true);
     if (input) input.focus();
     return;
   }
@@ -523,11 +523,12 @@ function restoreJoinControlsAfterPasswordCancel(): void {
 export function restoreGuestJoinControlsAfterFailure(
   message: string | null,
   reloadRequired = false,
+  invalidCode = false,
 ): void {
   cancelGuestPreparation();
   setupSetGuestJoinBusy(false);
   const inviteLink = _pendingPasswordJoin?.inviteLink ?? !!getPendingAutoJoinCode();
-  setupSetGuestJoinError(message, inviteLink);
+  setupSetGuestJoinError(message, inviteLink, invalidCode);
   const retry = !!message;
 
   if (inviteLink) {
@@ -597,12 +598,11 @@ export async function promptForRoomPassword(
   _roomPasswordPromptOpen = true;
   setupSetGuestJoinBusy(false);
 
+  // A refused PIN is a wrong value: the prompt keeps its own sentence and the
+  // refusal is the red line under the boxes (owner decision 2026-11-03). A
+  // timeout is about the connection, so its message stays above.
   const messageKey =
-    reason === 'invalid'
-      ? 'dialog.room_password_retry_msg'
-      : reason === 'timeout'
-        ? 'dialog.room_password_timeout_msg'
-        : 'dialog.room_password_msg';
+    reason === 'timeout' ? 'dialog.room_password_timeout_msg' : 'dialog.room_password_msg';
 
   let activation: Promise<boolean> | null = null;
   const result = await showDialog({
@@ -618,6 +618,7 @@ export async function promptForRoomPassword(
       separator: '-',
       validator: (value) =>
         /^\d{8}$/.test(value.trim()) ? null : t('connect.room_password_invalid'),
+      initialError: reason === 'invalid' ? t('dialog.room_password_retry_msg') : undefined,
     },
     buttonText: t('common.ok'),
     secondaryText: t('common.cancel'),

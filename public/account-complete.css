@@ -7,22 +7,11 @@
   --text-sub: #a1a1aa;
   --radius-l: 32px;
   color-scheme: dark;
-  /* The app's stacks and faces: account-complete.js adds /web-fonts/ once the
-     completion message is out. The device's fonts until then, and wherever
-     those sheets cannot load. */
   font-family: var(--font-sans, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif);
   background: var(--bg);
   color: var(--text-main);
 }
 
-/*
- * The text waits, invisible, for the app's faces, so it never shows in a
- * device font first: the card, the wordmark and the button draw at once,
- * and account-complete.js marks the root data-mxqr-fonts when the faces of
- * the text are ready, or at once when a sheet cannot load. Without the mark
- * the wait ends by itself after 600 ms, in the device's fonts until the
- * faces arrive, so the text always shows.
- */
 @keyframes account-complete-text-wait {
   from,
   to {

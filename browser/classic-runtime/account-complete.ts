@@ -406,6 +406,14 @@
   // The text waits invisible (account-complete.css) until the root carries
   // data-mxqr-fonts: 'app' once the sheets have loaded and the faces the
   // next frame's layout asks for are ready, 'device' at once if a sheet fails.
+  // That sheet ships as written and the message waits for it, as for this
+  // script (compiled minified), so its notes are here: its root reads
+  // var(--font-sans) over the device's fonts, which draw until these sheets
+  // load and wherever they cannot. The wordmark's fallback text, the message
+  // and the button label wait in no colour, a 600 ms CSS animation, so the cap
+  // holds without this script; the card, the wordmark and the button draw at
+  // once. The mark ends the wait, and without it the text shows when the wait
+  // ends, in the device's fonts until the faces arrive.
   const ownFacesInRest = [
     'ja',
     'zh-hans',

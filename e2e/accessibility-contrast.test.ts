@@ -506,5 +506,27 @@ test.describe('OS contrast CSS integration', () => {
     const inputInvalid = await controlStyles(page, '#setup-join-code');
     expect(inputInvalid.outlineStyle).toBe('solid');
     expect(parseFloat(inputInvalid.outlineWidth)).toBeGreaterThanOrEqual(2);
+
+    // While joining, the digits take the system's disabled colour. Chromium
+    // forces color but not -webkit-text-fill-color, which paints the digits.
+    const joining = await setupInput.evaluate((input) => {
+      const element = input as HTMLInputElement;
+      element.removeAttribute('aria-invalid');
+      element.value = '000000';
+      element.disabled = true;
+      const probe = document.createElement('span');
+      probe.style.color = 'GrayText';
+      document.body.append(probe);
+      const grayText = getComputedStyle(probe).color;
+      probe.remove();
+      const style = getComputedStyle(element);
+      return {
+        color: style.color,
+        fill: style.getPropertyValue('-webkit-text-fill-color'),
+        grayText,
+      };
+    });
+    expect(joining.color).toBe(joining.grayText);
+    expect(joining.fill).toBe(joining.grayText);
   });
 });

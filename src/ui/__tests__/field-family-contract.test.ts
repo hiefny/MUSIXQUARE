@@ -588,6 +588,20 @@ describe('one field family (owner decision 2026-11-03)', () => {
     expect(invalid.index).toBeGreaterThan(fields.index);
   });
 
+  it('paints the joining digits in the system disabled colour in Windows forced colours', () => {
+    // The joining fade sets -webkit-text-fill-color, which Chromium does not
+    // force: without this rule the digits keep the faded --text-main mix
+    // instead of the GrayText that forced colours give a disabled field.
+    expect(theRule('.setup-join-input:disabled', BASE).declarations).toMatchObject({
+      '-webkit-text-fill-color': HALF_TEXT,
+    });
+    const forced = theRule('.setup-join-input:disabled', FORCED);
+    expect(forced.declarations).toEqual({ '-webkit-text-fill-color': 'GrayText' });
+    expect(theRule(':is(input, textarea, select):disabled', FORCED).declarations.color).toBe(
+      'GrayText !important',
+    );
+  });
+
   it('reads only the existing roles in the rules it pins', () => {
     const pinned: Array<[string, string]> = [
       [LINE, BASE],

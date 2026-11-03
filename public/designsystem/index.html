@@ -1451,7 +1451,7 @@
           </div>
 
           <div class="comp interface-comp">
-            <div class="lbl">Text input &amp; settings tabs</div>
+            <div class="lbl">Settings tabs</div>
             <div class="settings-subtab-sample" role="tablist" aria-label="Settings sections">
               <button type="button" class="subtab-pill active" role="tab" aria-selected="true">
                 General
@@ -1466,44 +1466,618 @@
                 Help
               </button>
             </div>
+          </div>
+
+          <div class="component-row-divider" aria-hidden="true"></div>
+
+          <!-- Lines under a field wrap with white-space: pre-line, as in the app: keep
+               their text on the line of its tag, so no blank line opens above it. -->
+          <div class="comp input-comp">
+            <div class="lbl">Input fields</div>
+            <p class="section-intro">
+              One field family. A 2px underline under the value, an optional label above and one
+              line below. Fields differ only by size step.
+            </p>
 
             <div class="component-subsection">
-              <div class="component-subtitle">Message composer</div>
-              <div class="chat-input-wrapper">
-                <div
-                  class="chat-input"
-                  contenteditable="true"
-                  role="textbox"
-                  aria-label="Message"
-                  data-placeholder="Message or /command"
-                ></div>
-                <button type="button" class="chat-send-btn" aria-label="Send message">
-                  <svg viewBox="0 0 24 24" aria-hidden="true">
-                    <path d="M4 12l1.41 1.41L11 7.83V20h2V7.83l5.58 5.59L20 12l-8-8-8 8z" />
-                  </svg>
-                </button>
+              <div class="component-subtitle">Anatomy</div>
+              <div class="input-demo-grid">
+                <div class="input-specimen">
+                  <div class="block-title">Code entry</div>
+                  <div class="setup-code-label" id="design-code-label">Invitation code</div>
+                  <input
+                    type="text"
+                    class="setup-join-input"
+                    placeholder="000000"
+                    inputmode="numeric"
+                    maxlength="6"
+                    aria-labelledby="design-code-label"
+                    aria-describedby="design-code-line"
+                    aria-invalid="true"
+                  />
+                  <p class="setup-inline-error" id="design-code-line">Enter the 6-digit number</p>
+                  <div class="spec">
+                    <span class="tag">8</span><span>Label to field</span>
+                    <span class="tag">56</span><span>Box</span>
+                    <span class="tag">8</span><span>Field to line</span>
+                    <span class="tag">18</span><span>Line</span>
+                  </div>
+                </div>
+                <div class="input-specimen">
+                  <div class="block-title">Text entry</div>
+                  <div class="dialog-message">
+                    Choose the nickname you will use on MUSIXQUARE.
+                    <div
+                      class="dialog-input"
+                      contenteditable="true"
+                      role="textbox"
+                      aria-label="Nickname"
+                      aria-describedby="design-nickname-hint"
+                      data-placeholder="Nickname"
+                    ></div>
+                    <div class="dialog-hint" id="design-nickname-hint">Use up to 12 characters</div>
+                  </div>
+                  <div class="spec">
+                    <span class="tag">46</span><span>Box</span>
+                    <span class="tag">8</span><span>Field to line</span>
+                    <span class="tag">18</span><span>Line</span>
+                  </div>
+                </div>
               </div>
             </div>
 
             <div class="component-subsection">
-              <div class="component-subtitle">Search field</div>
-              <div class="yt-search-input-wrapper">
-                <div
-                  class="yt-intro-text"
-                  contenteditable="true"
-                  role="textbox"
-                  aria-label="Search"
-                >
-                  bach cello suite
+              <div class="component-subtitle">Size steps</div>
+              <div class="input-demo-grid">
+                <div class="input-specimen">
+                  <div class="block-title">Display L</div>
+                  <input
+                    type="text"
+                    class="setup-join-input"
+                    value="000000"
+                    inputmode="numeric"
+                    maxlength="6"
+                    aria-label="Invitation code"
+                  />
+                  <div class="spec">
+                    <span class="tag">32 / 700</span><span>Start-screen code, tabular, box 56</span>
+                    <span class="tag">24 / 700 / 32</span><span>Join code under 360px wide</span>
+                  </div>
                 </div>
-                <button type="button" class="yt-search-submit-btn" aria-label="Search">
-                  <svg viewBox="0 0 24 24" aria-hidden="true">
-                    <path
-                      d="M9.5 3a6.5 6.5 0 1 0 4.1 11.55L19.05 20l1.45-1.45-5.45-5.45A6.5 6.5 0 0 0 9.5 3Zm0 2a4.5 4.5 0 1 1 0 9 4.5 4.5 0 0 1 0-9Z"
+                <div class="input-specimen">
+                  <div class="block-title">Display M</div>
+                  <div class="dialog-input-split" role="group" aria-label="Room password">
+                    <input
+                      type="text"
+                      class="dialog-input-segment"
+                      value="1234"
+                      inputmode="numeric"
+                      maxlength="4"
+                      aria-label="Room password 1"
                     />
-                  </svg>
-                </button>
+                    <span class="dialog-input-separator">-</span>
+                    <input
+                      type="text"
+                      class="dialog-input-segment"
+                      value="5678"
+                      inputmode="numeric"
+                      maxlength="4"
+                      aria-label="Room password 2"
+                    />
+                  </div>
+                  <div class="sync-manual-display">
+                    <span class="sync-col-label" id="design-sync-label">Manual sync (ms)</span>
+                    <div class="chat-input-wrapper sync-manual-input-wrapper">
+                      <div
+                        class="chat-input sync-col-value sync-manual-input"
+                        contenteditable="true"
+                        role="textbox"
+                        aria-labelledby="design-sync-label"
+                        data-placeholder="0"
+                      >
+                        +40
+                      </div>
+                    </div>
+                  </div>
+                  <div class="spec">
+                    <span class="tag">24 / 700 / 32</span><span>PIN and manual sync, box 50</span>
+                    <span class="tag">13 / 600</span><span>Label, 8 above the field</span>
+                  </div>
+                </div>
+                <div class="input-specimen">
+                  <div class="block-title">Entry</div>
+                  <div class="yt-search-input-wrapper">
+                    <div
+                      class="yt-intro-text"
+                      contenteditable="true"
+                      role="textbox"
+                      aria-label="YouTube link or search term"
+                    >
+                      bach cello suite
+                    </div>
+                    <button type="button" class="yt-search-submit-btn" aria-label="Search">
+                      <svg viewBox="0 0 24 24" aria-hidden="true">
+                        <path
+                          d="M9.5 3a6.5 6.5 0 1 0 4.1 11.55L19.05 20l1.45-1.45-5.45-5.45A6.5 6.5 0 0 0 9.5 3Zm0 2a4.5 4.5 0 1 1 0 9 4.5 4.5 0 0 1 0-9Z"
+                        />
+                      </svg>
+                    </button>
+                  </div>
+                  <div class="spec">
+                    <span class="tag">16 / 400 / 20</span><span>Nickname, YouTube and message</span>
+                    <span class="tag">46</span><span>Box; the message row is 48</span>
+                  </div>
+                </div>
               </div>
+            </div>
+
+            <div class="component-subsection">
+              <div class="component-subtitle">States</div>
+              <div class="input-demo-grid input-states">
+                <div class="input-specimen">
+                  <div class="block-title">Rest</div>
+                  <div
+                    class="dialog-input"
+                    contenteditable="true"
+                    role="textbox"
+                    aria-label="Nickname at rest"
+                    data-placeholder="Nickname"
+                  ></div>
+                  <div class="dialog-hint">Use up to 12 characters</div>
+                </div>
+                <div class="input-specimen">
+                  <div class="block-title">Focus</div>
+                  <div
+                    class="dialog-input"
+                    contenteditable="true"
+                    role="textbox"
+                    aria-label="Nickname with focus"
+                    data-placeholder="Nickname"
+                    data-state="focus"
+                  ></div>
+                  <div class="dialog-hint">Use up to 12 characters</div>
+                </div>
+                <div class="input-specimen">
+                  <div class="block-title">Filled</div>
+                  <div class="input-clear-box">
+                    <div
+                      class="dialog-input clearable-editor-active"
+                      contenteditable="true"
+                      role="textbox"
+                      aria-label="Filled nickname"
+                    >
+                      Studio3
+                    </div>
+                    <button type="button" class="clearable-editor-button" aria-label="Clear input">
+                      <svg viewBox="0 0 24 24" aria-hidden="true">
+                        <path
+                          d="M19 6.41 17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12Z"
+                        />
+                      </svg>
+                    </button>
+                  </div>
+                  <div class="dialog-hint">Use up to 12 characters</div>
+                </div>
+                <div class="input-specimen">
+                  <div class="block-title">Error</div>
+                  <div
+                    class="dialog-input invalid"
+                    contenteditable="true"
+                    role="textbox"
+                    aria-label="Nickname with an error"
+                    aria-invalid="true"
+                    data-placeholder="Nickname"
+                  ></div>
+                  <div class="dialog-hint error">Enter a nickname</div>
+                </div>
+                <div class="input-specimen">
+                  <div class="block-title">Disabled</div>
+                  <div
+                    class="dialog-input"
+                    role="textbox"
+                    aria-label="Disabled nickname"
+                    aria-disabled="true"
+                  >
+                    Studio3
+                  </div>
+                  <div class="dialog-hint">Use up to 12 characters</div>
+                </div>
+              </div>
+              <div class="input-demo-grid">
+                <div class="input-specimen">
+                  <div class="block-title">Wrong code</div>
+                  <input
+                    type="text"
+                    class="setup-join-input"
+                    value="000001"
+                    inputmode="numeric"
+                    maxlength="6"
+                    aria-label="Invitation code that was not found"
+                    aria-invalid="true"
+                  />
+                  <p class="setup-inline-error">Couldn't find the session&#10;Please check the code again</p>
+                </div>
+                <div class="input-specimen">
+                  <div class="block-title">Connection problem</div>
+                  <input
+                    type="text"
+                    class="setup-join-input"
+                    value="000000"
+                    inputmode="numeric"
+                    maxlength="6"
+                    aria-label="Invitation code with a connection problem"
+                  />
+                  <p class="setup-inline-error">Could not connect to the PRO room</p>
+                </div>
+                <div class="input-specimen">
+                  <div class="block-title">Joining</div>
+                  <input
+                    type="text"
+                    class="setup-join-input"
+                    value="000000"
+                    inputmode="numeric"
+                    maxlength="6"
+                    aria-label="Invitation code while joining"
+                    disabled
+                  />
+                </div>
+              </div>
+            </div>
+
+            <div class="component-subsection">
+              <div class="component-subtitle">Fields with buttons</div>
+              <div class="input-demo-grid input-strip">
+                <div class="input-specimen">
+                  <div class="block-title">Empty</div>
+                  <div class="setup-join-area">
+                    <div class="yt-search-input-wrapper">
+                      <div
+                        class="yt-intro-text"
+                        contenteditable="true"
+                        role="textbox"
+                        aria-label="YouTube link or search term"
+                        data-placeholder="https://youtube.com/…"
+                      ></div>
+                      <button type="button" class="yt-search-submit-btn" aria-label="Search" disabled>
+                        <svg viewBox="0 0 24 24" aria-hidden="true">
+                          <path
+                            d="M9.5 3a6.5 6.5 0 1 0 4.1 11.55L19.05 20l1.45-1.45-5.45-5.45A6.5 6.5 0 0 0 9.5 3Zm0 2a4.5 4.5 0 1 1 0 9 4.5 4.5 0 0 1 0-9Z"
+                          />
+                        </svg>
+                      </button>
+                    </div>
+                    <p class="yt-preview-meta" data-i18n="youtube.enter_link_prompt">Enter a YouTube link or search term</p>
+                  </div>
+                  <div class="ob-actions">
+                    <button type="button" class="btn-ob-secondary">Cancel</button>
+                    <button type="button" class="btn-ob-primary" data-mode="off" disabled>
+                      Add to Playlist
+                    </button>
+                  </div>
+                </div>
+                <div class="input-specimen">
+                  <div class="block-title">Typing</div>
+                  <div class="setup-join-area">
+                    <div class="yt-search-input-wrapper">
+                      <div
+                        class="yt-intro-text clearable-editor-active"
+                        contenteditable="true"
+                        role="textbox"
+                        aria-label="YouTube link or search term"
+                      >
+                        bach cello suite
+                      </div>
+                      <button type="button" class="clearable-editor-button" aria-label="Clear input">
+                        <svg viewBox="0 0 24 24" aria-hidden="true">
+                          <path
+                            d="M19 6.41 17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12Z"
+                          />
+                        </svg>
+                      </button>
+                      <button type="button" class="yt-search-submit-btn" aria-label="Search">
+                        <svg viewBox="0 0 24 24" aria-hidden="true">
+                          <path
+                            d="M9.5 3a6.5 6.5 0 1 0 4.1 11.55L19.05 20l1.45-1.45-5.45-5.45A6.5 6.5 0 0 0 9.5 3Zm0 2a4.5 4.5 0 1 1 0 9 4.5 4.5 0 0 1 0-9Z"
+                          />
+                        </svg>
+                      </button>
+                    </div>
+                    <p class="yt-preview-meta" data-i18n="youtube.search_prompt">Press Enter or Search to find videos</p>
+                  </div>
+                  <div class="ob-actions">
+                    <button type="button" class="btn-ob-secondary">Cancel</button>
+                    <button type="button" class="btn-ob-primary" data-mode="search">Search</button>
+                  </div>
+                </div>
+                <div class="input-specimen">
+                  <div class="block-title">Searching</div>
+                  <div class="setup-join-area">
+                    <div class="yt-search-input-wrapper">
+                      <div
+                        class="yt-intro-text clearable-editor-active"
+                        contenteditable="true"
+                        role="textbox"
+                        aria-label="YouTube link or search term"
+                      >
+                        bach cello suite
+                      </div>
+                      <button type="button" class="clearable-editor-button" aria-label="Clear input">
+                        <svg viewBox="0 0 24 24" aria-hidden="true">
+                          <path
+                            d="M19 6.41 17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12Z"
+                          />
+                        </svg>
+                      </button>
+                      <button type="button" class="yt-search-submit-btn" aria-label="Search" disabled>
+                        <svg viewBox="0 0 24 24" aria-hidden="true">
+                          <path
+                            d="M9.5 3a6.5 6.5 0 1 0 4.1 11.55L19.05 20l1.45-1.45-5.45-5.45A6.5 6.5 0 0 0 9.5 3Zm0 2a4.5 4.5 0 1 1 0 9 4.5 4.5 0 0 1 0-9Z"
+                          />
+                        </svg>
+                      </button>
+                    </div>
+                    <p class="yt-preview-meta" data-i18n="youtube.searching">Searching YouTube...</p>
+                  </div>
+                  <div class="ob-actions">
+                    <button type="button" class="btn-ob-secondary">Cancel</button>
+                    <button
+                      type="button"
+                      class="btn-ob-primary"
+                      data-mode="busy"
+                      aria-busy="true"
+                      disabled
+                    >
+                      Please wait...
+                    </button>
+                  </div>
+                </div>
+                <div class="input-specimen">
+                  <div class="block-title">Result picked</div>
+                  <div class="setup-join-area">
+                    <div class="yt-search-input-wrapper">
+                      <div
+                        class="yt-intro-text clearable-editor-active"
+                        contenteditable="true"
+                        role="textbox"
+                        aria-label="YouTube link or search term"
+                      >
+                        bach cello suite
+                      </div>
+                      <button type="button" class="clearable-editor-button" aria-label="Clear input">
+                        <svg viewBox="0 0 24 24" aria-hidden="true">
+                          <path
+                            d="M19 6.41 17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12Z"
+                          />
+                        </svg>
+                      </button>
+                      <button type="button" class="yt-search-submit-btn" aria-label="Search">
+                        <svg viewBox="0 0 24 24" aria-hidden="true">
+                          <path
+                            d="M9.5 3a6.5 6.5 0 1 0 4.1 11.55L19.05 20l1.45-1.45-5.45-5.45A6.5 6.5 0 0 0 9.5 3Zm0 2a4.5 4.5 0 1 1 0 9 4.5 4.5 0 0 1 0-9Z"
+                          />
+                        </svg>
+                      </button>
+                    </div>
+                    <p class="yt-preview-meta" data-i18n="youtube.search_selected">Selected video ready to add</p>
+                    <div class="yt-search-results" role="group" aria-label="YouTube search results">
+                      <button type="button" class="yt-search-result selected" aria-pressed="true">
+                        <span class="yt-search-thumb" aria-hidden="true"></span>
+                        <span class="yt-search-meta">
+                          <span class="yt-search-title">Cello Suite No. 1 Prelude</span>
+                          <span class="yt-search-channel">Classical archive</span>
+                        </span>
+                      </button>
+                    </div>
+                  </div>
+                  <div class="ob-actions">
+                    <button type="button" class="btn-ob-secondary">Cancel</button>
+                    <button type="button" class="btn-ob-primary" data-mode="add">
+                      Add to Playlist
+                    </button>
+                  </div>
+                </div>
+                <div class="input-specimen">
+                  <div class="block-title">Search failed</div>
+                  <div class="setup-join-area">
+                    <div class="yt-search-input-wrapper">
+                      <div
+                        class="yt-intro-text clearable-editor-active"
+                        contenteditable="true"
+                        role="textbox"
+                        aria-label="YouTube link or search term"
+                      >
+                        bach cello suite
+                      </div>
+                      <button type="button" class="clearable-editor-button" aria-label="Clear input">
+                        <svg viewBox="0 0 24 24" aria-hidden="true">
+                          <path
+                            d="M19 6.41 17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12Z"
+                          />
+                        </svg>
+                      </button>
+                      <button type="button" class="yt-search-submit-btn" aria-label="Search">
+                        <svg viewBox="0 0 24 24" aria-hidden="true">
+                          <path
+                            d="M9.5 3a6.5 6.5 0 1 0 4.1 11.55L19.05 20l1.45-1.45-5.45-5.45A6.5 6.5 0 0 0 9.5 3Zm0 2a4.5 4.5 0 1 1 0 9 4.5 4.5 0 0 1 0-9Z"
+                          />
+                        </svg>
+                      </button>
+                    </div>
+                    <p class="yt-preview-meta error" data-i18n="youtube.search_failed">YouTube search is unavailable</p>
+                  </div>
+                  <div class="ob-actions">
+                    <button type="button" class="btn-ob-secondary">Cancel</button>
+                    <button type="button" class="btn-ob-primary" data-mode="search">Search</button>
+                  </div>
+                </div>
+              </div>
+              <p class="input-note">
+                The big button reads Search while a search term is typed and nothing is picked,
+                Please wait... while busy, and Add to Playlist once a result or a link preview is
+                ready. Enter and the magnifier always search.
+              </p>
+              <div class="input-demo-grid">
+                <div class="input-specimen">
+                  <div class="block-title">Message</div>
+                  <div class="chat-input-wrapper">
+                    <div
+                      class="chat-input"
+                      contenteditable="true"
+                      role="textbox"
+                      aria-label="Chat message"
+                      data-placeholder="Message or '/' for commands..."
+                    ></div>
+                    <button type="button" class="chat-send-btn" aria-label="Send message">
+                      <svg viewBox="0 0 24 24" aria-hidden="true">
+                        <path d="M4 12l1.41 1.41L11 7.83V20h2V7.83l5.58 5.59L20 12l-8-8-8 8z" />
+                      </svg>
+                    </button>
+                  </div>
+                </div>
+                <div class="input-specimen">
+                  <div class="block-title">Send focused</div>
+                  <div class="chat-input-wrapper" data-state="focus">
+                    <div
+                      class="chat-input"
+                      contenteditable="true"
+                      role="textbox"
+                      aria-label="Chat message"
+                      data-placeholder="Message or '/' for commands..."
+                    >
+                      on my way
+                    </div>
+                    <button
+                      type="button"
+                      class="chat-send-btn"
+                      aria-label="Send message"
+                      data-state="focus"
+                    >
+                      <svg viewBox="0 0 24 24" aria-hidden="true">
+                        <path d="M4 12l1.41 1.41L11 7.83V20h2V7.83l5.58 5.59L20 12l-8-8-8 8z" />
+                      </svg>
+                    </button>
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            <div class="component-subsection">
+              <div class="component-subtitle">Spec</div>
+              <div class="tokens">
+                <div class="token-header" aria-hidden="true">
+                  <span>Part</span><span>Value</span><span>Color and spacing</span>
+                </div>
+                <div class="token-row">
+                  <span class="tok">Display L</span
+                  ><span class="val">32 / 700, box 56; join code 24 / 700 / 32 under 360px</span
+                  ><span class="use">--text-main, tracking 0.12em, tabular figures</span>
+                </div>
+                <div class="token-row">
+                  <span class="tok">Display M</span><span class="val">24 / 700 / 32, box 50</span
+                  ><span class="use">--text-main, PIN tracking 0.12em, manual sync 0</span>
+                </div>
+                <div class="token-row">
+                  <span class="tok">Entry</span
+                  ><span class="val">16 / 400 / 20, box 46, message row 48</span
+                  ><span class="use">--text-main, padding 12 / 4</span>
+                </div>
+                <div class="token-row">
+                  <span class="tok">Placeholder</span><span class="val">The value's size and weight</span
+                  ><span class="use">--text-muted at 0.5, display steps at 0.3</span>
+                </div>
+                <div class="token-row">
+                  <span class="tok">Label</span><span class="val">13 / 600 / normal</span
+                  ><span class="use">--text-sub, 8 above, sentence case</span>
+                </div>
+                <div class="token-row">
+                  <span class="tok">Line, hint</span><span class="val">12 / 400 / 18</span
+                  ><span class="use">--text-sub, 8 below</span>
+                </div>
+                <div class="token-row">
+                  <span class="tok">Line, progress and result</span
+                  ><span class="val">12 / 600 / 18</span
+                  ><span class="use">--text-sub, 8 below</span>
+                </div>
+                <div class="token-row">
+                  <span class="tok">Line, error</span><span class="val">12 / 600 / 18</span
+                  ><span class="use">--danger-foreground, 8 below</span>
+                </div>
+                <div class="token-row">
+                  <span class="tok">Underline</span><span class="val">2px</span
+                  ><span class="use"
+                    >Rest --surface-3, focus --primary, value error --danger-foreground, disabled
+                    --surface-3</span
+                  >
+                </div>
+                <div class="token-row">
+                  <span class="tok">Disabled</span><span class="val">Content at half strength</span
+                  ><span class="use">Underline --surface-3</span>
+                </div>
+                <div class="token-row">
+                  <span class="tok">Buttons in a field</span
+                  ><span class="val">Clear 44 (icon 16), search 44 (icon 24), send 36 (icon 24)</span
+                  ><span class="use"
+                    >--surface-3 until they can act, then --primary; clear --text-muted; a 2px
+                    --primary keyboard ring inside</span
+                  >
+                </div>
+              </div>
+              <div class="tokens">
+                <div class="token-header" aria-hidden="true">
+                  <span>Role</span><span>Token</span
+                  ><span>Dark / light / high contrast dark / high contrast light</span>
+                </div>
+                <div class="token-row">
+                  <span class="tok">Value and caret</span><span class="val">--text-main</span
+                  ><span class="use">#eeeeee / #303540 / #ffffff / #000000</span>
+                </div>
+                <div class="token-row">
+                  <span class="tok">Label, hint and progress</span
+                  ><span class="val">--text-sub</span
+                  ><span class="use">#a1a1aa / #495057 / #f2f2f2 / #111111</span>
+                </div>
+                <div class="token-row">
+                  <span class="tok">Placeholder and clear</span><span class="val">--text-muted</span
+                  ><span class="use">#71717a / #868e96 / #d0d0d0 / #333333</span>
+                </div>
+                <div class="token-row">
+                  <span class="tok">Rest underline and idle buttons</span
+                  ><span class="val">--surface-3</span
+                  ><span class="use">#404040 / #b7b9bb / #4d4d4d / #a8a8a8</span>
+                </div>
+                <div class="token-row">
+                  <span class="tok">Focus</span><span class="val">--primary</span
+                  ><span class="use">#3b82f6 / #3b82f6 / #8ab4ff / #0047a8</span>
+                </div>
+                <div class="token-row">
+                  <span class="tok">Error</span><span class="val">--danger-foreground</span
+                  ><span class="use">#ff3b30 / #ff3b30 / #ff3b30 / #a4001d</span>
+                </div>
+              </div>
+            </div>
+
+            <div class="component-subsection">
+              <div class="component-subtitle">Rules</div>
+              <ul class="input-rules">
+                <li>
+                  The field turns red only when what was typed is wrong. A connection or service
+                  problem turns only the line red.
+                </li>
+                <li>Errors clear on the next keystroke.</li>
+                <li>
+                  Lines under a field have no full stop and put one sentence on each line. Progress
+                  lines keep "...".
+                </li>
+                <li>
+                  The line follows the field: centered under a code, at the text's start under an
+                  entry.
+                </li>
+                <li>
+                  Dialogs keep one line of space under the field, so nothing moves when an error
+                  appears.
+                </li>
+                <li>The blue underline is the focus mark. No field draws a ring.</li>
+              </ul>
             </div>
           </div>
 

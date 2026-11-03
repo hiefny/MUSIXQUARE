@@ -195,6 +195,23 @@ semantic token structure.
   the YouTube mark keeps its brand red.
 - Reuse the existing radius, safe-area, motion, and range-control tokens from
   `css/style.css`; do not duplicate token values in feature styles.
+- Fields (owner decision 2026-11-03). Every text field is one underline
+  field: a 2px line under the value, an optional label above and one line
+  below. Fields differ only by size step: display L for the start-screen
+  invite code (32 / 700, the join code 24 below 360px wide, box 56), display M
+  for values in dialogs and panels (PIN digits and manual sync, 24 / 700 on a
+  32px line) and entry for typed text (nickname, YouTube, message: 16 / 400
+  on a 20px line, so no field is under 16px). Labels are 13 / 600
+  `--text-sub` in sentence case. The line below is 12px on an 18px line, 8px
+  under the field: hints 400 `--text-sub`, progress and result lines 600
+  `--text-sub`, errors 600 `--danger-foreground`. The underline is
+  `--surface-3` at rest and `--primary` on focus, the only focus mark. It
+  turns `--danger-foreground` only when what was typed is wrong; a connection
+  or service problem turns only the line red. Errors clear on the next
+  keystroke. Lines under a field end without a full stop and put one sentence
+  on each line. Inside a field the clear, search and send buttons are
+  `--surface-3` until they can act and `--primary` when they can, with a 2px
+  keyboard ring drawn inside.
 
 Depth comes primarily from surface contrast. Shadows and blur are reserved for
 places where they communicate layering, such as dialogs, fixed chrome, and

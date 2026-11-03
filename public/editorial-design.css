@@ -524,6 +524,7 @@
 
 .component-control-layout,
 .component-list-layout,
+.input-comp,
 .loading-comp {
   grid-column: 1 / -1;
 }
@@ -1884,8 +1885,117 @@
   outline-offset: -2px;
 }
 
+/* Input fields (owner decision 2026-11-03): the app's one field family,
+   mirrored from css/style.css. Every field is one underline field: a 2px line
+   under the value, an optional label above and one line below. Fields differ
+   only by size step. Sizes read the documentation scale; 32px has no step.
+   [data-state='focus'] draws focus on a static specimen, which the page
+   cannot hold. */
+
+/* Display L: the start-screen code. */
+.setup-join-input {
+  display: block;
+  width: 100%;
+  box-sizing: border-box;
+  padding: 8px 0;
+  border: 0;
+  border-bottom: 2px solid var(--surface-3);
+  border-radius: 0;
+  background: none;
+  color: var(--text-main);
+  caret-color: var(--text-main);
+  font-family: inherit;
+  font-size: 32px;
+  font-weight: var(--font-weight-title);
+  font-variant-numeric: tabular-nums;
+  line-height: normal;
+  letter-spacing: 0.12em;
+  text-align: center;
+  outline: none;
+  box-shadow: none;
+  transition: border-bottom-color 0.2s ease;
+}
+
+.setup-join-input::placeholder {
+  color: var(--text-muted);
+  opacity: 0.3;
+}
+
+/* Six digits fit beside the clear button at 320px wide; the box stays 56px.
+   The host's read-only code keeps its 32px digits. */
+@media (max-width: 359px) {
+  .setup-join-input:not(.yt-intro-text):not([readonly]) {
+    padding-block: 11px;
+    font-size: var(--fs-24);
+    line-height: 32px;
+  }
+}
+
+/* Display M: values in dialogs and panels (PIN halves, manual sync). */
+.dialog-input-split {
+  width: 100%;
+  margin-top: 12px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+}
+
+.dialog-input-segment {
+  width: 92px;
+  min-width: 0;
+  box-sizing: border-box;
+  padding: 8px 4px;
+  border: 0;
+  border-bottom: 2px solid var(--surface-3);
+  border-radius: 0;
+  background: transparent;
+  color: var(--text-main);
+  font-family: inherit;
+  font-size: var(--fs-24);
+  font-weight: var(--font-weight-title);
+  font-variant-numeric: tabular-nums;
+  line-height: 32px;
+  letter-spacing: 0.12em;
+  text-align: center;
+  outline: none;
+  appearance: none;
+  box-shadow: none;
+  transition: border-bottom-color 0.2s ease;
+}
+
+.dialog-input-separator {
+  color: var(--text-muted);
+  font-size: var(--fs-24);
+  font-weight: var(--font-weight-title);
+  line-height: 32px;
+  transform: translateY(4px);
+  user-select: none;
+}
+
+/* Entry: typed text at 16 / 400 on a 20px line. */
+.dialog-input {
+  display: block;
+  width: 100%;
+  box-sizing: border-box;
+  margin-top: 12px;
+  padding: 12px 4px;
+  border: 0;
+  border-bottom: 2px solid var(--surface-3);
+  border-radius: 0;
+  background: none;
+  color: var(--text-main);
+  font-family: inherit;
+  font-size: var(--fs-16);
+  font-weight: var(--font-weight-body);
+  line-height: 20px;
+  outline: none;
+  transition: border-bottom-color 0.2s ease;
+}
+
 .chat-input-wrapper,
 .yt-search-input-wrapper {
+  position: relative;
   width: 100%;
   display: flex;
   align-items: flex-end;
@@ -1897,11 +2007,6 @@
   padding-bottom: 6px;
 }
 
-.chat-input-wrapper:focus-within,
-.yt-search-input-wrapper:focus-within {
-  border-bottom-color: var(--primary);
-}
-
 .chat-input,
 .yt-intro-text {
   min-width: 0;
@@ -1910,9 +2015,10 @@
   border-radius: 0;
   background: transparent;
   color: var(--text-main);
-  font-size: 15px;
+  font-size: var(--fs-16);
   font-weight: var(--font-weight-body);
   line-height: 20px;
+  letter-spacing: normal;
   outline: 0;
 }
 
@@ -1921,18 +2027,198 @@
   max-height: 120px;
   padding: 10px 4px;
   overflow-y: auto;
-  font-size: 16px;
 }
 
 .yt-intro-text {
   padding: 12px 4px 10px;
+  font-variant-numeric: normal;
+  text-align: start;
 }
 
-.chat-input:empty::before {
+/* The manual sync value is display M, typed like a message. */
+.sync-manual-display {
+  margin: 12px 0 20px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 8px;
+}
+
+.sync-manual-input-wrapper {
+  padding-bottom: 0;
+}
+
+.sync-col-value {
+  color: var(--text-main);
+  font-size: var(--fs-24);
+  font-weight: var(--font-weight-title);
+  font-variant-numeric: tabular-nums;
+  line-height: 32px;
+  letter-spacing: 0;
+}
+
+.sync-manual-input {
+  min-width: 0;
+  max-height: none;
+  overflow: hidden;
+  padding-block: 8px;
+  text-align: center;
+  white-space: nowrap;
+}
+
+/* The placeholder takes the value's size and weight. */
+.chat-input:empty::before,
+.yt-intro-text:empty::before,
+.dialog-input:empty::before {
   content: attr(data-placeholder);
   color: var(--text-muted);
   opacity: 0.5;
   pointer-events: none;
+}
+
+/* A field label: 13 / 600 --text-sub in sentence case at normal tracking. */
+.setup-code-label,
+.sync-col-label {
+  color: var(--text-sub);
+  font-size: var(--fs-13);
+  font-weight: var(--font-weight-label);
+  letter-spacing: normal;
+}
+
+.setup-code-label {
+  width: 100%;
+  margin-bottom: 8px;
+  text-align: center;
+}
+
+/* The line under a field: hints at the body weight; progress, result and
+   error lines at the label weight; errors in the one danger red. */
+:is(.setup-inline-error, .dialog-hint, .yt-preview-meta) {
+  margin: 8px 0 0;
+  padding-inline: 4px;
+  color: var(--text-sub);
+  font-size: var(--fs-12);
+  font-weight: var(--font-weight-body);
+  line-height: 18px;
+  letter-spacing: normal;
+  text-align: start;
+  white-space: pre-line;
+  word-break: keep-all;
+  overflow-wrap: anywhere;
+  transition: color 0.2s ease;
+}
+
+:is(.setup-inline-error, .dialog-hint.error, .yt-preview-meta.error) {
+  color: var(--danger-foreground);
+  font-weight: var(--font-weight-label);
+}
+
+/* Centered under a code or PIN. */
+:is(.setup-inline-error, .dialog-input-split + .dialog-hint) {
+  padding-inline: 0;
+  text-align: center;
+}
+
+/* Dialogs keep one line of space, so an error never moves the buttons. */
+.dialog-hint {
+  min-height: 18px;
+}
+
+.setup-inline-error {
+  width: 100%;
+}
+
+/* The YouTube stack's 10px gap less 2px gives the shared 8px. */
+.setup-join-area {
+  width: 100%;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.setup-join-area > .yt-preview-meta {
+  margin-top: -2px;
+}
+
+.yt-preview-meta:is(
+  [data-i18n='youtube.searching'],
+  [data-i18n='youtube.fetching_info'],
+  [data-i18n='youtube.search_no_results'],
+  [data-i18n='youtube.invalid_link'],
+  [data-i18n='youtube.search_failed'],
+  [data-i18n='youtube.fetch_failed']
+) {
+  font-weight: var(--font-weight-label);
+}
+
+/* The underline: --surface-3 at rest, --primary on focus (the only focus
+   mark), --danger-foreground only when what was typed is wrong. */
+.setup-join-input:focus,
+.dialog-input:focus,
+.dialog-input-segment:focus,
+.chat-input-wrapper:focus-within,
+.yt-search-input-wrapper:focus-within,
+.setup-join-input[data-state='focus'],
+.dialog-input[data-state='focus'],
+.dialog-input-segment[data-state='focus'],
+.chat-input-wrapper[data-state='focus'],
+.yt-search-input-wrapper[data-state='focus'] {
+  border-bottom-color: var(--primary);
+}
+
+.setup-join-input:not(.yt-intro-text)[aria-invalid='true'],
+.dialog-input.invalid,
+.dialog-input-split.invalid .dialog-input-segment,
+.sync-manual-input-wrapper:has([aria-invalid='true']),
+.yt-search-input-wrapper:has([aria-invalid='true']) {
+  border-bottom-color: var(--danger-foreground);
+}
+
+/* Disabled: the content at half strength; the underline stays --surface-3.
+   The app fades the join code this way while joining. */
+.setup-join-input:disabled,
+.dialog-input[aria-disabled='true'] {
+  opacity: 1;
+  color: color-mix(in srgb, var(--text-main) 50%, transparent);
+  -webkit-text-fill-color: color-mix(in srgb, var(--text-main) 50%, transparent);
+}
+
+/* Buttons inside a field: --surface-3 until they can act, then --primary;
+   the clear button --text-muted. Keyboard rings sit inside. */
+.clearable-editor-active {
+  padding-inline-end: calc(4px + 48px);
+}
+
+.clearable-editor-button {
+  position: absolute;
+  bottom: 1px;
+  inset-inline-end: 0;
+  width: 44px;
+  height: 44px;
+  padding: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border: 0;
+  border-radius: var(--radius-pill);
+  background: transparent;
+  color: var(--text-muted);
+  cursor: pointer;
+  transition: color 0.15s ease;
+}
+
+.yt-search-input-wrapper > .clearable-editor-button {
+  inset-inline-end: 44px;
+}
+
+.clearable-editor-button svg {
+  width: 16px;
+  height: 16px;
+  fill: currentColor;
+}
+
+.clearable-editor-button:hover {
+  color: var(--danger-foreground);
 }
 
 .chat-send-btn,
@@ -1942,24 +2228,30 @@
   display: grid;
   place-items: center;
   border: 0;
-  border-radius: 999px;
+  border-radius: var(--radius-pill);
   background: transparent;
+  color: var(--surface-3);
   cursor: pointer;
+  transition: color 0.2s ease;
 }
 
 .chat-send-btn {
   width: 36px;
   height: 36px;
-  color: var(--surface-3);
+  margin-bottom: 2px;
 }
 
 .yt-search-submit-btn {
   width: 44px;
   height: 44px;
-  color: var(--primary);
 }
 
-.chat-input:not(:empty) ~ .chat-send-btn {
+.yt-search-submit-btn:disabled {
+  cursor: default;
+}
+
+.chat-input:not(:empty) ~ .chat-send-btn,
+.yt-search-submit-btn:not(:disabled) {
   color: var(--primary);
 }
 
@@ -1970,10 +2262,183 @@
   fill: currentColor;
 }
 
-.chat-send-btn:focus-visible,
-.yt-search-submit-btn:focus-visible {
+.clearable-editor-button:focus-visible {
+  color: var(--text-main);
   outline: 2px solid var(--primary);
   outline-offset: -2px;
+}
+
+.chat-send-btn:focus-visible,
+.yt-search-submit-btn:focus-visible,
+.chat-send-btn[data-state='focus'] {
+  outline: 2px solid var(--primary);
+  outline-offset: -2px;
+}
+
+/* The YouTube sheet: a picked result and the Cancel / primary pair. */
+.yt-search-results {
+  width: 100%;
+  margin-top: 10px;
+  display: flex;
+  flex-direction: column;
+}
+
+.yt-search-result {
+  width: 100%;
+  padding: 10px 12px;
+  display: grid;
+  grid-template-columns: 84px minmax(0, 1fr);
+  gap: 10px;
+  align-items: center;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  color: var(--text-main);
+  font: inherit;
+  text-align: start;
+  cursor: pointer;
+}
+
+.yt-search-result.selected {
+  background: var(--surface-2);
+}
+
+.yt-search-thumb {
+  width: 84px;
+  aspect-ratio: 16 / 9;
+  border-radius: 4px;
+  background: #000;
+}
+
+.yt-search-meta {
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.yt-search-title {
+  color: var(--text-main);
+  font-size: var(--fs-13);
+  font-weight: var(--font-weight-unselected);
+  line-height: 1.35;
+}
+
+.yt-search-result.selected .yt-search-title {
+  color: var(--primary);
+  font-weight: var(--font-weight-selected);
+}
+
+.yt-search-channel {
+  overflow: hidden;
+  color: var(--text-muted);
+  font-size: var(--fs-11);
+  line-height: 1.3;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.ob-actions {
+  margin-top: 24px;
+  display: flex;
+  gap: 12px 10px;
+}
+
+.btn-ob-primary,
+.btn-ob-secondary {
+  min-width: 0;
+  height: 56px;
+  flex: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border: 0;
+  border-radius: var(--radius-pill);
+  font-family: inherit;
+  font-size: var(--button-label-size);
+  font-weight: var(--font-weight-label);
+  line-height: var(--button-label-line-height);
+  letter-spacing: var(--button-label-letter-spacing);
+  cursor: pointer;
+}
+
+/* The big button grows 1.5 times and dims while it cannot act. */
+.btn-ob-primary {
+  flex: 1.5;
+  background: var(--primary-filled);
+  color: #fff;
+}
+
+.btn-ob-primary:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+
+.btn-ob-secondary {
+  background: var(--surface-2);
+  color: var(--text-main);
+}
+
+/* The card's own layout. */
+.input-comp > .section-intro {
+  margin: 0;
+}
+
+.input-demo-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 240px), 1fr));
+  gap: 32px 40px;
+  align-items: start;
+}
+
+.input-demo-grid.input-states {
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 180px), 1fr));
+}
+
+.input-demo-grid.input-strip {
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 300px), 1fr));
+}
+
+.input-demo-grid + .input-demo-grid,
+.input-note + .input-demo-grid {
+  margin-top: 40px;
+}
+
+.input-specimen {
+  min-width: 0;
+}
+
+.input-specimen > .spec {
+  margin-top: 20px;
+  grid-template-columns: max-content minmax(0, 1fr);
+  color: var(--text-sub);
+  font-size: 13px;
+}
+
+.input-clear-box {
+  position: relative;
+}
+
+.input-note,
+.input-rules {
+  color: var(--text-sub);
+  font-size: 14px;
+  line-height: 1.65;
+}
+
+.input-note {
+  margin: 24px 0 0;
+}
+
+.input-rules {
+  margin: 0;
+  padding-inline-start: 20px;
+  display: grid;
+  gap: 8px;
+}
+
+.input-comp .tokens + .tokens {
+  margin-top: 32px;
 }
 
 .material-elastic-spinner {
@@ -2797,6 +3262,7 @@
   .component-list-layout,
   .messaging-comp,
   .interface-comp,
+  .input-comp,
   .loading-comp,
   .feedback-comp,
   .nav-comp {

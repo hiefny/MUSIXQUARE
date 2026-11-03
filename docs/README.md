@@ -335,7 +335,8 @@ runbooks. Neither belongs in a general setup document.
   candidates A to F and the owner's light-mode look G wait. The release record's §2 carries the
   train as post-deploy items (scope and status, the owner decisions and rule, rollback, the
   post-deploy check, the next steps, open items), its §4 the 9.0.34 entry and current boundary
-  line (5), and the hotfix procedure's 9.0.25 bullet names 9.0.34's merge SHA, Release ID and App
+  line (5) (which named 9.0.34 until 9.0.35 shipped), and the hotfix procedure's 9.0.25 bullet
+  names 9.0.34's merge SHA, Release ID and App
   version; the 9.0.33 and 6B reports carry dated notes for 9.0.34's merge and release. This train's merge ended 9.0.33's standalone revert window; its own windows (6C and each light
   increment) closed when the next App update, 6D as 9.0.35, merged on 2026-11-03 16:27 KST, so a
   revert now goes forward at 9.0.36 / v809 or later and reverting 6C takes 6D with it.

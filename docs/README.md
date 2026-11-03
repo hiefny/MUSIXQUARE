@@ -94,10 +94,13 @@ runbooks. Neither belongs in a general setup document.
 
 ## Maintained evidence and completed records
 
-- [App 9.0.35 / v808 train: every public page on the app's font system, and the design system Typography section (2026-11-02)](design/public-page-fonts-2026-11-02.md):
-  prepared, not released. The next App update after 9.0.34 / v807 (target `app`, one update
-  dialog), on branch `agent/public-page-fonts` over main `432d4ae7` (9.0.34's release record; the
-  App runtime is production 9.0.34's `cd8eaf47`). Owner decision of 2026-11-02 evening: every
+- [App 9.0.36 / v809 train: every public page on the app's font system, and the design system Typography section (2026-11-02)](design/public-page-fonts-2026-11-02.md):
+  prepared, not released. The next App update after 9.0.35 / v808 (target `app`, one update
+  dialog), on branch `agent/public-page-fonts` over main `88550bc4` (9.0.35's release record; the
+  App runtime is production 9.0.35's `cfa81bdc`). It was planned as 9.0.35 / v808 until the
+  release owner shipped the ready Phase 6 6D first on 2026-11-03; QA round 12 moved the branch
+  from `432d4ae7` with each commit's non-docs patch unchanged, and Phase 7 7A follows as
+  9.0.37 / v810. Owner decision of 2026-11-02 evening: every
   public page uses the app's font system, without owner pictures; only the app is checked, and it
   must not change. About and its 42 copies, the document, translate and sitemap pages, the blog
   and the article the App Worker renders, history, the design system with its previews and UI

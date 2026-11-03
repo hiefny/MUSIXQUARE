@@ -2,15 +2,15 @@
 
 | Field              | Value                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                           |
 | ------------------ | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Status             | 준비됨, 배포 전. 갈래 `agent/public-page-fonts`(main `432d4ae7` 위, push 안 함)의 증분 I1 ~ I9, 리뷰 반영 R1 ~ R8(A5의 불러오기 명세 I10 포함, §12), 로그인 완료 창 고침(오너 결정 2026-11-03, §13)과 그 리뷰 반영(§13.7), 성공 창이 닫히기 전 글자(§13.8), 문서 커밋이다(§4). 버전 올리기(I12), PR, 머지, 릴리스는 릴리스 담당의 몫이다(§11). 로컬과 브랜치 결과는 exact-main-SHA 후보를 대신하지 않는다                                                                                                                                                                                                                                                                                                                                                                                                                                                       |
-| Base               | main `432d4ae7`(#564, 9.0.34의 배포 기록, 문서만). 그 앞 `cd8eaf47`(#563, App 9.0.34 / v807 머지, 2026-11-02 21:20 KST 배포)과 런타임이 같아, 바탕의 App 런타임은 운영 9.0.34와 같다. 이 갈래는 처음 `cd8eaf47` 위에서 만들었고 리뷰 반영 전에 `432d4ae7` 위로 옮겼다(커밋마다 문서 밖 코드 트리가 같음, §8.3). 이 문서의 SHA는 모두 옮긴 뒤의 것이다                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                           |
-| Version            | 9.0.35 / v808 예정(App 빌드 808). 버전 올리기가 마지막 런타임 커밋이 되고, 그 앞은 9.0.34 / v807 그대로라 `guard:sw-cache-version`만 실패한다(§8). 앞으로 되돌리기는 9.0.36 / v809다(§10)                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                       |
+| Status             | 준비됨, 배포 전. 갈래 `agent/public-page-fonts`(main `88550bc4` 위, push 안 함, 라운드 12에서 옮김)의 증분 I1 ~ I9, 리뷰 반영 R1 ~ R8(A5의 불러오기 명세 I10 포함, §12), 로그인 완료 창 고침(오너 결정 2026-11-03, §13)과 그 리뷰 반영(§13.7), 성공 창이 닫히기 전 글자(§13.8), 문서 커밋이다(§4). 버전 올리기(I12), PR, 머지, 릴리스는 릴리스 담당의 몫이다(§11). 로컬과 브랜치 결과는 exact-main-SHA 후보를 대신하지 않는다                                                                                                                                                                                                                                                                                                                                                                                                                                   |
+| Base               | main `88550bc4`(#566, 9.0.35의 배포 기록, 문서만). 그 앞 `cfa81bdc`(#565, App 9.0.35 / v808 머지, Phase 6 6D, 2026-11-03 16:40 KST 배포)와 런타임이 같아, 바탕의 App 런타임은 운영 9.0.35와 같다. 이 갈래는 처음 `cd8eaf47`(9.0.34의 머지) 위에서 만들었고, 리뷰 반영 전에 `432d4ae7`(9.0.34의 배포 기록) 위로(커밋마다 문서 밖 코드 트리가 같음, §8.3), 6D가 먼저 나간 뒤 `88550bc4` 위로 옮겼다(커밋마다 문서 밖 패치가 같고 코드 트리에 6D가 더해짐, §8.7). 라운드 1 ~ 11과 §4, §13의 SHA는 `432d4ae7` 위의 SHA이고(그 코드에는 6D가 없음), 옮긴 뒤의 SHA는 §8.7의 대응표에 있다                                                                                                                                                                                                                                                                             |
+| Version            | 9.0.36 / v809 예정(App 빌드 809). 이 열차는 9.0.35 / v808로 예정됐지만, 릴리스 담당이 2026-11-03 오후 준비된 Phase 6 6D를 먼저 9.0.35 / v808로 내기로 정해(2026-11-03 16:40 KST 배포) 이 열차가 그다음 9.0.36 / v809이고, Phase 7 7A는 9.0.37 / v810 예정이다. 버전 올리기가 마지막 런타임 커밋이 되고, 그 앞은 9.0.35 / v808 그대로라 `guard:sw-cache-version`만 실패한다(§8, §8.7). 앞으로 되돌리기는 9.0.37 / v810, 7A가 먼저 나가면 그다음 빈 번호다(§10)                                                                                                                                                                                                                                                                                                                                                                                                   |
 | Scope              | 앱 밖의 모든 공개 페이지(소개와 42개 사본, 개인정보·약관·FAQ·개발자·번역·사이트맵, 블로그 목록, App Worker가 그리는 블로그 글과 관리자 페이지, 히스토리, 디자인 시스템과 미리보기 21개·UI 키트, 이벤트, 404)의 글꼴, 디자인 시스템 Typography 절, 은퇴한 글꼴 파일, 가드·시험·문서, 리뷰 반영(§12). 앱 쪽 변경은 로그인 완료 창(`public/account-complete.css`와 `browser/classic-runtime/account-complete.ts`)의 글꼴 하나로, 오너 결정(2026-11-03)대로 지금처럼 앱의 면으로 그린다(§2.4, §13). 앱 소스 그래프는 그대로다(§5)                                                                                                                                                                                                                                                                                                                                   |
-| Deploy target      | `app`(업데이트 창이 뜨는 배포). 운영 배포 SHA(App `cd8eaf47`, PRO room `683074bc`, 다른 넷 `71f5b96c`)와 견준 런타임 경로 변경은 버전 올리기 앞 App 87(R1이 `scripts/public-font-sheets.mts`를, §13이 `browser/classic-runtime/account-complete.ts`를 더함. §13.7과 §13.8의 고침은 이미 든 경로만 바꿈), 나머지 다섯 Worker 0, App 런타임 의존성 차이 없음(로컬 `changedRuntimePaths`와 `verifyPartialReleaseCompatibility`, §8.3, §13). D1, 비밀, 바인딩, Wrangler 설정, CORS, 계약 표지, 바닥, 저장 데이터와 키, 신호와 중계 프레임 모양은 바뀌지 않았다                                                                                                                                                                                                                                                                                                      |
-| Operations         | 운영에 닿지 않았다. GitHub 쓰기, push, 운영 요청, 방 만들기, 내려받기 없이 로컬(Windows 11)에서만 만들고 시험했다. 로컬 서버는 포트 5491·5492(라운드 1 ~ 8), 4798·9798(라운드 9 ~ 10), 4897·9897(라운드 11)만 썼고 모두 닫았다                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                  |
+| Deploy target      | `app`(업데이트 창이 뜨는 배포). 운영 배포 SHA(App `cfa81bdc`(9.0.35), PRO room `683074bc`, 다른 넷 `71f5b96c`)와 견준 런타임 경로 변경은 버전 올리기 앞 App 87(라운드 12. 라운드 9 ~ 11이 9.0.34의 `cd8eaf47`과 견준 목록과 같다. R1이 `scripts/public-font-sheets.mts`를, §13이 `browser/classic-runtime/account-complete.ts`를 더함. §13.7과 §13.8의 고침은 이미 든 경로만 바꿈), 나머지 다섯 Worker 0, App 런타임 의존성 차이 없음(로컬 `changedRuntimePaths`와 `verifyPartialReleaseCompatibility`, §8.3, §13, §8.7). D1, 비밀, 바인딩, Wrangler 설정, CORS, 계약 표지, 바닥, 저장 데이터와 키, 신호와 중계 프레임 모양은 바뀌지 않았다                                                                                                                                                                                                                     |
+| Operations         | 운영에 닿지 않았다. GitHub 쓰기, push, 운영 요청, 방 만들기, 내려받기 없이 로컬(Windows 11)에서만 만들고 시험했다. 로컬 서버는 포트 5491·5492(라운드 1 ~ 8), 4798·9798(라운드 9 ~ 10), 4897·9897(라운드 11), 5393·5394(라운드 12)만 썼고 모두 닫았다                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                            |
 | Resource ownership | 복구, 재시도, 감시 흐름을 더하지 않았다. 시한은 로그인 완료 창의 글자 기다림이다. 그 집은 `account-complete.css`의 600 ms CSS 애니메이션이었고, §13.8에서 성공 창의 닫힘 흐름이 닫히기 전에 그 기다림을 끝내는(신호 뒤 200 ms) 두 번째 기계가 되어 등록부에 RO-54(accepted-exception: 스크립트 없이도 지켜야 하는 시트의 600 ms와, 닫힘과 같은 시계여야 하는 성공 창의 끝)를 더했다. 완료 신호(RO-28의 생산자)는 그 앞에서 그대로 나간다(§13). 공개 페이지는 `<link>`로만 글꼴 시트를 받고, `/han-order.js`는 문서 뿌리에 속성 하나를 한 번 적는다. 등록부가 적지 않았던 글꼴 시트의 두 번째 기계 둘(소개의 `ensureFont`·`ensurePickerFonts`, 사이트맵의 `static-page-fonts.ts`와 그 재시도 시트)을 지워 `retryable-stylesheet.ts`의 가져오는 쪽은 앱 글꼴 주인 하나다. `check-resource-ownership.mts` 기준치는 그대로다(그 검사는 `src`와 `cloudflare`를 센다) |
 | Third-party assets | 새 내려받기 없음. 공개 페이지는 앱이 이미 쓰는 Inter, MUSIXQUARE Hangul, Noto 파일을 그대로 쓴다. 지운 것: 배포되던 Pretendard 사본, Pretendard 시트 둘, Google의 Noto Sans Cyrillic·Greek 시트와 파일 셋, 생성기 입력 시트의 번호 없는 면 14개(§2.6). `fonts/PretendardVariable.woff2`(MUSIXQUARE Hangul의 원본), 공유 그림의 Bold 파일과 그 부분 집합, 라이선스 파일은 그대로다                                                                                                                                                                                                                                                                                                                                                                                                                                                                               |
-| Release record     | 이 열차의 문서 커밋들이 §2의 공개 페이지 글꼴 열차를 기다리던 항목을 고쳤고(9.0.29 절의 뒤 열차 항목, 9.0.33 절의 오너 질문 3과 '사본만' 문장, 9.0.31 절과 9.0.29 절의 JP·SC·TC 수용 문장, 모두 이 보고서 링크), §2 맨 위에 이 열차의 '배포 전' 절을 더했으며, §1과 9.0.34 절의 '만드는 중' 문장을 옮긴 바탕에 맞췄다. 어느 열린 항목도 닫지 않았다(닫는 근거는 이 열차의 배포 기록). §1의 덮어쓰기와 이력 한 행은 배포 기록 PR의 몫이다                                                                                                                                                                                                                                                                                                                                                                                                                        |
+| Release record     | 이 열차의 문서 커밋들이 §2의 공개 페이지 글꼴 열차를 기다리던 항목을 고쳤고(9.0.29 절의 뒤 열차 항목, 9.0.33 절의 오너 질문 3과 '사본만' 문장, 9.0.31 절과 9.0.29 절의 JP·SC·TC 수용 문장, 모두 이 보고서 링크), §2 맨 위에 이 열차의 '배포 전' 절을 더했으며, §1의 이 열차 상태 문장을 옮긴 바탕에 맞췄다. 라운드 12의 문서 커밋은 기록에서 이 열차를 9.0.36 / v809로 바꾸고, 배포 전 절의 바탕, 앞 열차, 되돌리기와 배포 조건을 9.0.35(6D)에 맞췄으며, main의 §1과 9.0.35 절 다음 단계 (2)에서 이 열차의 상태 문구를 옮긴 바탕에 맞췄다(9.0.34 절의 같은 문장은 main이 9.0.35의 기록에서 순서 결정과 함께 과거 문장으로 다시 써 그대로 둠, §8.7). 어느 열린 항목도 닫지 않았다(닫는 근거는 이 열차의 배포 기록). §1의 덮어쓰기와 이력 한 행은 배포 기록 PR의 몫이다                                                                                           |
 
 9.0.29부터 앱은 Inter와 Noto로, 9.0.33부터 한글은 MUSIXQUARE Hangul(저장소의 Pretendard에서 자른 면)로 그린다. 앱 밖의 공개
 페이지는 지금까지 Pretendard 전체 파일(2,057,688 B)과 Google의 원래 Noto 시트를 따로 받았다. 이 열차는 공개 페이지를 앱과 같은
@@ -187,7 +187,7 @@ A6(내보내기는 scripts, src, e2e, browser, .workshop이 실제로 읽는 것
 
 ## 4. 증분과 커밋 (테스트 먼저)
 
-모든 커밋은 `432d4ae7` 위의 이 갈래에 있다(처음 `cd8eaf47` 위에서 만들고 리뷰 반영 전에 옮김, §8.3). 'T'는 부모에서 실패해야 하는
+아래 SHA는 `432d4ae7` 위의 이 갈래의 것이다(처음 `cd8eaf47` 위에서 만들고 리뷰 반영 전에 옮김, §8.3). 2026-11-03 저녁 `88550bc4` 위로 옮긴 뒤의 SHA는 §8.7의 대응표에 있다. 'T'는 부모에서 실패해야 하는
 시험 커밋이고, 부모에서도 통과하는 행은 회귀 지킴이(A9)로 적었다. 실패 기록은 git이 무시하는 증거 폴더
 `docs/private/public-page-fonts-2026-11-02/`의 `*-T-fail*.log`다(§11 5). 모듈이 없어 불러오기부터 실패한 시험(I1, I3)은 그 모듈을
 아무것도 하지 않는 스텁(빈 묶음, 늘 빈 목록을 돌려주는 검사)으로 바꿔 다시 돌려, 단언이 틀린 결과를 잡는다는 것도 적었다.
@@ -224,11 +224,13 @@ A6(내보내기는 scripts, src, e2e, browser, .workshop이 실제로 읽는 것
 
 이전 갈래의 조각은 그 갈래의 커밋 단위 diff에서 가져왔고 갈래 끝 파일을 통째로 가져오지 않았다(A9). 이 갈래는 push 전에 몇 번 다시
 짰다(P1의 형 단언 하나와 시험 형 하나, I6 가드의 정규식과 I7 시험의 정리, I9 가드의 문구 하나). 그 뒤 리뷰 반영 전에 문서만 바뀐 main
-`432d4ae7` 위로 옮겼다. 옮기기 전 SHA는 push되지 않아 어디에도 없으므로 이 문서는 옮긴 뒤의 SHA만 적는다.
+`432d4ae7` 위로 옮겼다. 옮기기 전 SHA는 push되지 않아 어디에도 없으므로 이 문서는 옮긴 뒤의 SHA만 적는다. 두 번째 옮기기(라운드 12, `88550bc4` 위)는
+6D의 런타임 위라 옮긴 뒤의 코드 트리가 시험한 코드와 다르므로, 시험한 SHA를 그대로 두고 대응표를 더했다(§8.7).
 
 ## 5. 앱이 바뀌지 않았다는 증명
 
-바탕 B는 `cd8eaf47`(운영 9.0.34, 옮긴 바탕 `432d4ae7`과 런타임이 같음)다. 아래 1 ~ 6의 H′는 리뷰 반영 앞 머리(문서 커밋 `5af0d93d`,
+바탕 B는 `cd8eaf47`(운영 9.0.34, 옮긴 바탕 `432d4ae7`과 런타임이 같음)다. 6D가 든 `88550bc4` 위로 옮긴 뒤의 같은 비교는
+버전 올리기 머리의 전체 관문이 다시 한다(§8.7). 아래 1 ~ 6의 H′는 리뷰 반영 앞 머리(문서 커밋 `5af0d93d`,
 코드 `ce3d07c6`)이고, 리뷰 반영 끝 코드 `bb15d154`가 그 결과를 잇는다는 것은 7이 보인다. 버전 올리기 앞의 마지막 커밋은 이 문서의
 마지막 커밋이고 그 코드는 `34cb93d0`과 같다(`bb15d154`과는 따로 켜는 실험 파일 한 줄만 다름). 모든 빌드는 Node 24.22.2와 `npm ci`로, 같은 방식으로 만들었다.
 
@@ -338,8 +340,8 @@ A6(내보내기는 scripts, src, e2e, browser, .workshop이 실제로 읽는 것
 ## 8. QA 라운드
 
 환경: Windows 11, Node 24.22.2 / npm 12.0.2, Playwright Chromium(로컬, 재시도 0, 추적 끔, 포트 5491·5492, 라운드 9 ~ 10은 4798·9798,
-라운드 11은 4897·9897), 운영 빌드는 `vite build`와 두 materialize 스크립트, e2e는 `build:e2e`. 실제 기기와 Linux 컨테이너는 없고, WebKit은
-라운드 9 ~ 11의 로그인 완료 창에만 썼다(Playwright 1.63.0의 Windows WebKit 26.6이며 Safari가 아님).
+라운드 11은 4897·9897, 라운드 12는 5393·5394), 운영 빌드는 `vite build`와 두 materialize 스크립트, e2e는 `build:e2e`. 실제 기기와 Linux 컨테이너는 없고, WebKit은
+라운드 9 ~ 12의 로그인 완료 창에만 썼다(Playwright 1.63.0의 Windows WebKit 26.6이며 Safari가 아님).
 
 | 라운드                 | 시험한 코드 SHA                                               | 무엇                                                                                                                                                                                                                                                                                                                                                                                                                                                  | 통과 / 실패 / 건너뜀과 한계                                                                                                                                                                                                                                                                                                                                                                                                                                                       |
 | ---------------------- | ------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
@@ -354,6 +356,7 @@ A6(내보내기는 scripts, src, e2e, browser, .workshop이 실제로 읽는 것
 | 9 (로그인 완료 창)     | `fb7d563c`(운영 빌드는 `ed98deea`·`3c93c9d5`와 바이트로 같음) | 오너 결정(2026-11-03)의 앱 글꼴 완료 창: 시험 먼저 증거, 운영·e2e 빌드 비교, 완료 신호 시각(Chromium·WebKit, 전후 각 752회), 프레임별 글자 표시, 오프라인·서비스 워커·면 실패, 전후 그림과 42개 언어 줄 수, 단위 전체, 가드 37개 하나씩, typecheck·lint·format·자원 주인, e2e, 실험, 배포 대상                                                                                                                                                        | §8.4. 가드 36 통과, `sw-cache-version` 실패(예상). 나머지 모두 통과. 서비스 워커 없는 느린 첫 로딩의 신호 늦음은 그 흉내 측정이 바이트를 가르지 못해 라운드 10이 다시 재고 고침(§13.2, §13.7), 오류 문구 여섯의 한 줄 늘어남(§13.4). 실제 기기·Safari·Linux 없음                                                                                                                                                                                                                  |
 | 10 (완료 창 리뷰 반영) | `e44c6fcc`(문서는 이 커밋 뒤)                                 | 리뷰 지적 넷(§13.7): 시험 먼저 짝, 운영·e2e 빌드 비교, 바이트를 맞춘 함께 쓰는 대역으로 완료 신호 시각(Chromium·WebKit, 두 대역, gzip·brotli, 고치기 전 대조, 전후 각 1,505회), 로컬·서비스 워커 시각, 느린 첫 로그인의 성공 창, 다시 찍은 그림, 완료 창 단위 13개 파일, 가드 37개 하나씩, typecheck·lint·format·자원 주인, e2e, 실험, 배포 대상                                                                                                      | §8.5. 가드 36 통과, `sw-cache-version` 실패(예상). 나머지 모두 통과. 1.6 Mbps의 신호 차이 +0.8 ms 이하, 400 kbps gzip +1.2 / +1.6 ms(68 B). 실제 기기·Safari·Linux 없음                                                                                                                                                                                                                                                                                                           |
 | 11 (성공 창)           | `260a2a5e`(코드는 `4533b906`과 같음)                          | 성공 창이 닫히기 전 글자와 공유 시트를 함께 켬(§13.8): 시험 먼저 짝 둘, 운영·e2e 빌드 비교, 완료 창 e2e 두 엔진(`--repeat-each=5`), 완료 창과 고전 런타임 목록을 부르는 단위 33개 파일, `guard:font-assets`와 그 변이, `guard:legacy-tv-build`, typecheck·lint·format·자원 주인, 배포 대상, 조용한 기기에서 바이트를 맞춘 함께 쓰는 대역의 완료 신호 시각(두 엔진, 두 대역, 고치기 전 대조), 성공 창의 프레임 표본, 자리 잡은 그림 대조, 독립 검토 둘 | §8.6. e2e 두 엔진 ×5 45 / 45, 단위 33개 파일 1,201 통과·1 건너뜀, 정적 검사·자원 주인 통과, 배포 대상 App 87. 신호는 로컬과 1.6 Mbps에서 차이 없음, 400 kbps +2.0 / +2.6 ms(+101 B gzip). 성공 창은 느린 첫 로딩 두 엔진에서 70 / 70이 닫히기 전 글자, 로컬·서비스 워커는 대체 글꼴 프레임 0, WebKit 폰 흉내는 프레임이 약 250 ms마다라 3 ~ 6 / 15. 가드 37개를 하나씩과 전체 단위는 돌리지 않음(릴리스 담당이 버전을 올린 뒤 같은 관문을 다시 돌림). 실제 기기·Safari·Linux 없음 |
+| 12 (옮기기)            | `561a2bdf`(옮긴 머리의 코드, 문서는 그 뒤 커밋)               | main `88550bc4`(9.0.35의 배포 기록) 위로 옮기기와 9.0.36 / v809로 번호 바꾸기(§8.7): 충돌 여덟과 해결, 문서 밖 패치가 같다는 증명, SHA 대응표, 완료 창 e2e 두 엔진(`--repeat-each=5`), 완료 창과 고전 런타임 목록을 부르는 단위 33개 파일, `guard:font-assets`, `guard:legacy-tv-build`, 자원 주인, typecheck·lint·format, 배포 대상                                                                                                                  | §8.7. e2e 두 엔진 ×5 90 / 90, 단위 33개 파일 1,203행 가운데 1,201 통과(부하 시간 초과 2행은 따로 돌려 통과), 정적 검사·가드·자원 주인 통과(레코드 50, 기준치 그대로), 배포 대상 App 87(9.0.35 `cfa81bdc` 대비). §5의 빌드 비교와 라운드 8의 전체 관문은 버전 올리기 머리에서 다시 돎. 실제 기기·Safari·Linux 없음                                                                                                                                                                 |
 
 라운드 6(H′의 코드):
 
@@ -561,6 +564,139 @@ Linux 컨테이너 행은 없고, 로컬 결과는 exact-main-SHA 후보를 대�
 - **하지 못한 것.** 실제 iPhone Safari와 Android, Firefox, Linux 컨테이너, 운영 Cloudflare가 쓰는 brotli. WebKit 폰 흉내의 느린 프레임이 실제
   iPhone에서도 그런지.
 
+### 8.7 라운드 12: main `88550bc4` 위로 옮기기와 9.0.36 / v809 (2026-11-03)
+
+순서는 릴리스 담당 결정(2026-11-03 오후)이다. 이 열차는 9.0.35 / v808로 예정됐지만, 준비된 Phase 6 6D가 먼저 9.0.35 / v808로
+나갔다(PR #565 squash `cfa81bdc`, Release 41597588008, 2026-11-03 16:40 KST). 다음 App 열차는 앞 열차의 머지 뒤 Full E2E가 통과하고 그
+기록이 머지된 뒤에만 머지한다는 조건은 6D의 머지 뒤 Full E2E 41597953240(17:58 KST 통과)과 그 기록 #566(`88550bc4`)으로 채워졌다.
+그래서 이 갈래를 `88550bc4` 위로 옮기고 이 열차를 9.0.36 / v809로 바꿨다. Phase 7 7A는 9.0.37 / v810 예정이다. 오너는 같은 오후 공개
+페이지만 바꾸는 변경은 뒤에 더 가벼운 길로 내기로 했지만, 이 열차는 앱의 로그인 완료 창을 바꾸므로 App 업데이트로 낸다. 로그인 완료
+창의 전후 그림(데스크톱 ko·en·ja, 폰 ko)은 오너가 다시 보고 싶어 해 릴리스 담당이 19:00 KST쯤 보였다.
+
+환경은 Windows 11, Node 24.22.2 / npm 12.0.2, Playwright 1.63.0의 Chromium과 WebKit, 재시도 0, 추적 끔, 포트 5393·5394이고 서버는 모두
+닫았다. 실제 기기, Safari, Linux 컨테이너 행은 없고, 로컬 결과는 exact-main-SHA 후보를 대신하지 않는다. 기록은 증거 폴더
+`round-12/`이다.
+
+- **옮기기.** 옮기기 전 머리 `e1be5ad0`(`432d4ae7` 위 55커밋)를 `git rebase 88550bc4`로 옮겼다. 옮긴 머리는 `561a2bdf`이고, 그 위에 이
+  라운드의 문서 커밋이 있다. `git range-diff`로 52커밋은 패치가 같고, 문서 커밋 둘(`5af0d93d`, `5e87394c`)은 아래 충돌을 풀었으며,
+  하나(`3c93c9d5`)는 충돌 없이 문맥 줄만 달라졌다(단어 단위 변경은 세 문서 모두 같음). 기록 §2 9.0.33 절의 오너 질문 3 문장 같은
+  이 열차의 다른 기록 고침은 겹치지 않아 그대로 적용됐다(단어 단위 변경이 옮기기 전과 같음). `docs/design/resource-ownership-registry.md`
+  (6D의 RO-02·RO-03·RO-12 고침과 이 열차의 RO-54)와 `cloudflare/app-worker.ts`(6D의 `ADMIN_ASSET_VERSION` 한 줄과 이 열차의 시트
+  링크·캐시 정책)는 겹치지 않아 저절로 합쳐졌다. `scripts/check-resource-ownership.mts`는 6D만 바꿨고, 검사는 기준치를 바꾸지 않고
+  통과한다(아래).
+- **충돌과 해결.** 여덟 군데이고 모두 문서다. 어느 것도 런타임이나 시험 파일에 닿지 않는다.
+  1. `5af0d93d`, `docs/README.md` 증거 목록 맨 위: main은 9.0.35(6D) 항목을, 이 열차는 이 열차 항목을 더했다. 둘 다 두고 이 열차
+     항목을 위에 두었다.
+  2. `5af0d93d`, 기록 9.0.33 절의 '방향이 바뀌었다' 문장: main은 그 괄호 끝에 6D가 먼저 9.0.35로 나가 이 열차가 9.0.36 / v809가
+     됐다는 문장을 더했고, 이 열차는 그 괄호를 오너 결정(2026-11-02 저녁)과 지우는 파일로 바꿨다. 이 열차 쪽을 두었고, 순서는 이
+     라운드의 문서 커밋이 이 열차의 번호(9.0.36 / v809)로 잇는다.
+  3. `5af0d93d`, 기록 9.0.29 절의 링크 줄과 뒤 열차 항목: main은 링크 줄에 9.0.35 보고서의 되돌리기 링크를 더하고, 항목 머리의 상태와
+     끝 문장에 순서 결정을 더했다. 이 열차는 그 항목을 오너 결정과 이 열차가 하는 일로 다시 썼다. main의 링크 줄 둘과 이 열차의 다시
+     쓴 항목을 두었다(main이 더한 순서 문장은 이 열차가 지운 문장 안에 있었고, 번호는 2처럼 잇는다).
+  4. `5af0d93d`, 같은 항목 끝의 링크 줄: main의 6D 보고서 링크와 이 열차의 두 링크를 모두 두었다.
+  5. `5e87394c`, `docs/README.md`: 1과 같다. 이 열차 항목의 새 문구를 위에, main의 9.0.35 항목을 그 아래에 두었다.
+  6. `5e87394c`, 기록 §1: main은 9.0.35 배포로 §1을 덮어썼고, 이 열차는 그 안의 이 열차 상태 문구만 고쳤다. main의 §1을 두었고, 이
+     열차의 상태 문구('`432d4ae7`에서 … 마무리하는 중')는 이 라운드의 문서 커밋이 main의 문장 위에 다시 맞췄다.
+  7. `5e87394c`, 기록 §2 맨 위: main의 9.0.35 배포 뒤 절(과 고친 9.0.34 머리)과 이 열차의 배포 전 절. 이 열차의 배포 전 절을 맨 위에,
+     main의 9.0.35 절을 그 아래에 그대로 두었다.
+  8. `5e87394c`, 기록 9.0.34 절 다음 단계 (2): main은 그 문장을 순서 결정과 함께 다시 썼고, 이 열차는 그 안의 이 열차 상태만 고쳤다.
+     main 쪽을 두었다(그 문장은 이제 9.0.34의 기록이 적은 것을 말하는 과거 문장이고, 이 열차의 지금 상태는 9.0.35 절 다음 단계 (2)가
+     적으며 이 라운드의 문서 커밋이 그 문구를 맞췄다).
+- **문서 밖은 그대로.** (1) 문서 밖 변경이 있는 50커밋의 `git patch-id --stable`이 옮기기 전과 뒤에 모두 같다. (2) 열차 전체의 문서 밖
+  패치(`git diff <바탕> <머리> -- . ':(exclude)docs'`, 492,014 B)가 옮기기 전(`432d4ae7..e1be5ad0`)과 뒤(`88550bc4..561a2bdf`)에 index 줄
+  말고 같다. (3) 이 열차의 문서 밖 파일 133개 가운데 132개는 두 머리에서 blob이 같고, `cloudflare/app-worker.ts`만 6D의
+  `ADMIN_ASSET_VERSION`(9.0.34 → 9.0.35) 한 줄이 다르며 이 열차의 hunk는 문맥까지 같다. (4) 옮긴 머리가 `88550bc4`와 다른 파일은
+  137개로 이 열차의 파일 목록과 같아, 그 밖의 경로는 `88550bc4`와 같다. (5) RO-54 레코드와 이 보고서는 옮기기로 바뀌지 않았다.
+- **6D와 겹치지 않음.** 6D는 이 열차가 바꾼 파일 가운데 `cloudflare/app-worker.ts`의 버전 줄과 기록·`docs/README.md`·등록부 말고는
+  바꾸지 않았다. `public/`, `css/`, `fonts/`, `e2e/`, 로그인 완료 창 스크립트, `vite.config.ts`, `scripts/classic-runtime-assets.ts`,
+  두 Playwright 설정이 `432d4ae7`과 `88550bc4`에서 같고, `index.html`은 `bootstrap.js?cache=` 한 줄만 다르다. 그래서 §13이 9.0.34의 파일과
+  견준 로그인 완료 창의 바이트와 그림은 9.0.35의 파일과 견줘도 같다(그 파일들이 두 버전에서 같음). 시각 측정은 다시 하지 않았다.
+- **npm.** `package-lock.json`은 `432d4ae7`과 `88550bc4` 사이에 버전 줄 둘(9.0.34 → 9.0.35)만 바뀌었다. 설치된 트리
+  (`node_modules/.package-lock.json`)와 견줘 잠금 파일의 패키지 588개(설치 482개, 나머지는 이 기계에 깔리지 않는 optional) 가운데 버전,
+  integrity, resolved가 다른 것도 빠진 필수 패키지도 없어 `npm ci`를 다시 하지 않았다.
+- **다시 돌린 것**(코드 `561a2bdf`, 문서 커밋은 코드를 바꾸지 않음):
+  - 완료 창 e2e `account-complete-fonts` 9행(`build:e2e`): Chromium 줄 `--repeat-each=5` 45 / 45(38.1초), WebKit 줄
+    (`playwright.webkit.config.ts`) `--repeat-each=5` 45 / 45(1.0분).
+  - 완료 창이나 고전 런타임 목록을 부르는 단위 33개 파일(라운드 11과 같은 고르기), `--maxWorkers=4`: 1,203행 가운데 1,201행 통과, 2행이
+    부하 시간 초과였다(`ci-quality-gates` "runs every suite that directly references Worker runtime code inside the Worker coverage
+    ratchet" 18.5초 / 한도 15초, `release-deployment-state` "blocks an unselected app when a localized build input changes" 38.1초 / 한도
+    30초. 앞은 시험 파일 전체를 훑는 행, 뒤는 git 저장소를 만드는 행). 그 두 행을 따로 돌리면 통과하고(`--maxWorkers=1`), 두 파일 전체를 따로 돌려도 17 / 17,
+    105 / 105 통과다.
+  - `npm run guard:font-assets` 통과. `npm run guard:legacy-tv-build`(그 운영 빌드 `npm run build`에서) 통과(Chromium 79 정적 검사).
+    `node scripts/check-resource-ownership.mts` 통과(레코드 50개 = main의 49 + RO-54, 운영 파일 459개, 기준치 그대로).
+    `npm run typecheck` 통과, `npm run lint` 통과(앱과 도구, 경고 0), `npm run format:check` 통과. `npm run guard:sw-cache-version`은
+    예상대로 실패한다(9.0.35의 `cfa81bdc` 뒤 PWA 런타임 경로 85개, 버전 올리기 전).
+  - 배포 대상: 로컬 `changedRuntimePaths`를 9.0.35의 배포 SHA(App `cfa81bdc`, PRO room `683074bc`, 다른 넷 `71f5b96c`)와 견주면 App 87
+    (라운드 9 ~ 11이 `cd8eaf47`과 견준 목록과 같음), 나머지 다섯 0, `changedAppRuntimeDependencies` 없음이고,
+    `verifyPartialReleaseCompatibility('app', …)`는 compatible이다.
+- **다시 돌리지 않은 것.** 6D의 런타임 위로 옮겼으므로 §11 1대로 §5의 증명(바탕과 머리의 운영·e2e 빌드 비교, 글꼴 요청 목록, 첫 로딩
+  크기)과 라운드 8의 전체 관문(가드 37개를 하나씩, 전체 단위, 커버리지, critical E2E, 앱 글꼴·화면 명세, 공개 e2e와 불러오기, 실험,
+  후보 E2E)을 다시 돌아야 하는데, 이 라운드는 돌리지 않았다. 버전 올리기 머리의 전체 관문(기록 §2 9.0.36 절 배포 조건 (2))이
+  `88550bc4`를 바탕으로 다시 돈다. 그때까지 §5와 §8의 첫 로딩 숫자(진입 839.5 KiB 등)는 `432d4ae7` 바탕 위의 것이다.
+- **남은 고칠 것.** §11 8과 9의 기록 문장 셋(신호 시각 괄호, 자원 소유권의 '새 레코드가 없고 … JS 타이머가 없음', '최대 600 ms')은
+  이 라운드가 고치지 않았다(번호만 바꿈).
+- **SHA 대응표.** 라운드 1 ~ 11과 §4, §13의 SHA는 옮기기 전(`432d4ae7` 위) SHA다. 그 코드에는 6D가 없어 새 SHA로 바꿔 쓰지 않았다.
+  '같음'은 그 커밋의 패치가 같다는 뜻이고(코드 트리는 6D만큼 다름), '충돌 해결'은 위 충돌, '문맥만 다름'은 단어 단위 변경이 같고
+  문맥 줄만 다르다는 뜻이다. 옮긴 머리의 문서 커밋(번호 바꾸기와 이 라운드)은 표 밖이다.
+
+| #   | 옮기기 전(`432d4ae7` 위) | 옮긴 뒤(`88550bc4` 위) | 패치                  | 커밋                                                                                                       |
+| --- | ------------------------ | ---------------------- | --------------------- | ---------------------------------------------------------------------------------------------------------- |
+| 1   | `7fcaa186`               | `2868ce7d`             | 같음                  | test(fonts): the build emits web-fonts/first.css and rest.css for the public pages                         |
+| 2   | `c7904e2d`               | `55e86551`             | 같음                  | build: emit web-fonts/first.css and rest.css from the processed app font sheets                            |
+| 3   | `541647da`               | `92c0e054`             | 같음                  | test(fonts): public/web-fonts/stacks.css mirrors the app's font stacks                                     |
+| 4   | `c9047e4f`               | `ba95d503`             | 같음                  | fonts: add public/web-fonts/stacks.css, the app's stacks for the public pages                              |
+| 5   | `b01bac35`               | `5c8c260e`             | 같음                  | test(fonts): the public font contract checks name every departure                                          |
+| 6   | `6b94953c`               | `0ad17b21`             | 같음                  | fonts: the public font contract library, and the guard checks the public sheets                            |
+| 7   | `bb87ac14`               | `ad09bd37`             | 같음                  | test(fonts): About links the shared font sheets and reads the app's stacks (T)                             |
+| 8   | `6203cb7e`               | `438043aa`             | 같음                  | About: draw with Inter, MUSIXQUARE Hangul and Noto through the shared font sheets                          |
+| 9   | `5e59d60f`               | `5dfcb432`             | 같음                  | test(About): the closed language menu takes no layout until it opens (T)                                   |
+| 10  | `0c7d638b`               | `c9d7930d`             | 같음                  | About: the closed language menu takes no layout until it opens                                             |
+| 11  | `5fff5f64`               | `17d7a2f4`             | 같음                  | test(fonts): the public pages mark the app's Han order from the browser's languages (T)                    |
+| 12  | `d9c5954c`               | `5db4264e`             | 같음                  | fonts: han-order.js marks the app's Han order on the public pages; About loads it                          |
+| 13  | `3532b0ae`               | `25869f44`             | 같음                  | test(fonts): the document pages, translate and the sitemap use the shared sheets (T)                       |
+| 14  | `73c2b87c`               | `bf9d34e3`             | 같음                  | Document, translate and sitemap pages: draw with Inter, MUSIXQUARE Hangul and Noto                         |
+| 15  | `657bd380`               | `9faa3210`             | 같음                  | test(fonts): the blog, history, design system, UI kit, events and 404 pages use the shared sheets (T)      |
+| 16  | `961bd987`               | `a99278e3`             | 같음                  | Blog, history, design system, events and 404: draw with Inter, MUSIXQUARE Hangul and Noto                  |
+| 17  | `e65226fe`               | `7ddaa65c`             | 같음                  | test(worker): the blog article and admin pages link the shared font sheets (T)                             |
+| 18  | `dc294f56`               | `73028af8`             | 같음                  | App Worker: the blog article and admin pages link the shared font sheets                                   |
+| 19  | `d1a44b1b`               | `c7403a18`             | 같음                  | test(design system): the Typography section reads the app's stacks and prints the app's numbers (T)        |
+| 20  | `db2c8f3f`               | `4d71dc61`             | 같음                  | Design system: the Typography section, drawn with the app's faces from /web-fonts/                         |
+| 21  | `4e2280c1`               | `9c0f4f21`             | 같음                  | test(design system): the Typography section keeps one sample edge and closes Scale on the in-block gap (T) |
+| 22  | `b7d275da`               | `701ea095`             | 같음                  | Design system Typography: one sample edge on phones, Scale closes on the in-block gap, dead rules gone     |
+| 23  | `eada07da`               | `f6bf3e41`             | 같음                  | test(design system): an opt-in spec draws every Typography specimen and reads its face                     |
+| 24  | `dbe0a6c1`               | `c88e2668`             | 같음                  | test(fonts): the public Pretendard copy, its sheets and the unused Noto files stay retired (T)             |
+| 25  | `ce3d07c6`               | `81c3d0f9`             | 같음                  | fonts: retire the public Pretendard copy, its sheets and the Noto files nothing uses                       |
+| 26  | `5af0d93d`               | `2d5359e7`             | 충돌 해결(§8.7 1 ~ 4) | docs: report the public-page font train and its release record items (App 9.0.35 / v808, prepared)         |
+| 27  | `76f78e05`               | `9fab68c6`             | 같음                  | docs: add the full local gate on the public-page font train head as QA round 7                             |
+| 28  | `dc37a323`               | `0bc900b8`             | 같음                  | test(release): a change to the public font sheet plugin alone counts as an App runtime change (T)          |
+| 29  | `3de3b173`               | `51bbcb0a`             | 같음                  | release: the public font sheet plugin is an App runtime path                                               |
+| 30  | `c25bea73`               | `cc39a8a2`             | 같음                  | test(design system): the Korean 述 cell draws Noto Sans KR in any browser (T)                              |
+| 31  | `e9534939`               | `5f424bb8`             | 같음                  | Design system Typography: the Korean 述 cell draws Noto Sans KR in any browser                             |
+| 32  | `8a0b740a`               | `8d8ef383`             | 같음                  | test(worker): /han-order.js gets the public-page cache policy (T)                                          |
+| 33  | `27bdc164`               | `83a9667d`             | 같음                  | App Worker: serve /han-order.js with the public-page cache policy                                          |
+| 34  | `0770f6b9`               | `7a890e8f`             | 같음                  | test(translate): the local translation preview serves /han-order.js (T)                                    |
+| 35  | `aa1e65cc`               | `171acf0e`             | 같음                  | Translate preview: serve the page's classic scripts, /han-order.js among them                              |
+| 36  | `8d5e932d`               | `e09ce045`             | 같음                  | test(fonts): every page source and built page is registered or a recorded exception (T)                    |
+| 37  | `77c727ae`               | `d58922ac`             | 같음                  | fonts: the guard holds every page source and built page to the public page list                            |
+| 38  | `db481a05`               | `af48a1cd`             | 같음                  | test(e2e): every public page loads with no failed request or console error                                 |
+| 39  | `db812c27`               | `209ac43e`             | 같음                  | test(e2e): an opt-in lab reads the face of every visible grapheme of the public pages                      |
+| 40  | `bb15d154`               | `0085c930`             | 같음                  | test(fonts): correct two stale notes about the retired public font files                                   |
+| 41  | `34cb93d0`               | `55f7cacb`             | 같음                  | test(e2e): the face lab lists the device faces of the sign-in completion page                              |
+| 42  | `5e87394c`               | `9c641e76`             | 충돌 해결(§8.7 5 ~ 8) | docs: record the public-page font train's review fixes as QA round 8, and its pre-deploy section           |
+| 43  | `1323ce36`               | `577d4827`             | 같음                  | test(fonts): the sign-in completion window draws with the app's faces once its message is out (T)          |
+| 44  | `ed98deea`               | `98667360`             | 같음                  | Sign-in completion window: draw with the app's faces again, after its message is out                       |
+| 45  | `3c93c9d5`               | `786bff2d`             | 문맥만 다름           | docs: unfinished notes on the sign-in completion window's app faces (to be checked and finished)           |
+| 46  | `fb7d563c`               | `863d032d`             | 같음                  | test(fonts): the sign-in completion window shows its text when its faces cannot load                       |
+| 47  | `2efdc616`               | `a68bc6a5`             | 같음                  | docs: finish the sign-in completion window's app faces in the train report as QA round 9                   |
+| 48  | `0c14aabe`               | `7b17564d`             | 같음                  | test(fonts): the sign-in completion window ships its script minified and its sheet with no comment (T)     |
+| 49  | `e44c6fcc`               | `5818489a`             | 같음                  | Sign-in completion window: ship its script minified and its sheet with no comment                          |
+| 50  | `0a98ef85`               | `566e0149`             | 같음                  | docs: record the sign-in completion window's review fix as QA round 10                                     |
+| 51  | `767e20ab`               | `7bec837f`             | 같음                  | test(fonts): the success sign-in window shows its text before it closes itself (T)                         |
+| 52  | `e5bff76b`               | `b2d3d00a`             | 같음                  | Sign-in completion window: show the success copy before it closes itself                                   |
+| 53  | `a3c50786`               | `f6e423f2`             | 같음                  | test(fonts): the completion window turns its shared sheets on together (T)                                 |
+| 54  | `260a2a5e`               | `1e82c62c`             | 같음                  | Sign-in completion window: turn the shared sheets on together                                              |
+| 55  | `e1be5ad0`               | `561a2bdf`             | 같음                  | docs: record the success sign-in window fix as QA round 11                                                 |
+
 ## 9. 위험
 
 1. **나눠 쓰는 빌드 코드로 앱이 바뀜.** 막음: P1 ~ H′와 리뷰 반영 끝의 바이트와 모듈 비교, 요청 목록, 앱 e2e(§5). 남은 앱 쪽 차이는
@@ -606,31 +742,32 @@ Linux 컨테이너 행은 없고, 로컬 결과는 exact-main-SHA 후보를 대�
     처음 Linux로 돈다. 불러오기 명세는 면을 보지 않고 같은 출처의 400 이상과 콘솔 오류만 보므로 Windows 글꼴에 기대지 않는다[추론].
     따로 켜는 실험 둘은 Full E2E에 들지 않는다(A5).
 14. **모든 앱 사용자가 업데이트 창을 봄.** `public/`의 경로는 App 런타임이라 앱 변경이 로그인 완료 창 하나뿐이어도 그렇다.
-15. **main과 어긋남.** 해결: 리뷰 반영 전에 `432d4ae7` 위로 옮겼다(§8.3). 머지 전에 main이 다시 움직이면 다시 옮긴다(§11 1).
+15. **main과 어긋남.** 해결: 리뷰 반영 전에 `432d4ae7` 위로(§8.3), 6D(9.0.35)가 먼저 나간 뒤 `88550bc4` 위로(§8.7) 옮겼다. 머지 전에 main이 다시 움직이면 다시 옮긴다(§11 1).
 16. **알려진 낡은 주석.** `src/i18n/locale-fonts.ts`의 머리 주석이 이 열차가 지운 `static-page-fonts.ts`를 적는다. 앱 소스라 D1대로 이
     열차에서 고치지 않았고, 다음 앱 열차에서 고친다(§11 7).
 
 ## 10. 되돌리기
 
-- **릴리스 중:** 실패한 smoke는 워크플로의 복구로 변경 전 App checkpoint(9.0.34 / v807, `cd8eaf47`의 App)로 돌린다.
-- **릴리스 뒤(기본): 앞으로 되돌리기.** main에서 이 열차의 squash 커밋을 되돌리고 9.0.36 / v809로 올린다(target `app`). 되돌리는 커밋이
+- **릴리스 중:** 실패한 smoke는 워크플로의 복구로 변경 전 App checkpoint(9.0.35 / v808, `cfa81bdc`의 App)로 돌린다.
+- **릴리스 뒤(기본): 앞으로 되돌리기.** main에서 이 열차의 squash 커밋을 되돌리고 9.0.37 / v810(7A가 먼저 나가면 그다음 빈 번호)으로 올린다(target `app`). 되돌리는 커밋이
   공개 Pretendard 사본(남은 원본과 같은 바이트, sha256 `9599f12f…`), Pretendard 시트, Noto Cyrillic·Greek 파일, 번호 없는 면, 공개 글꼴
   로더 둘과 옛 링크를 git에서 되살리므로 내려받기가 필요 없다. D1, Durable Object, 바닥, 다른 Worker는 상관없다. `/web-fonts/`가 있던
   동안 열린 페이지는 다시 불러올 때까지 기기 글꼴로 그린다.
 - **일부만 되돌리기:** 페이지 묶음 하나만 되돌리는 길은 주장하지 않는다(A2). I9의 은퇴 가드와 지운 파일이 묶여 있어, 일부를 되돌리려면
   I9도 함께 되돌리고 전체 관문을 다시 돌아야 한다. 기본은 열차 전체의 앞으로 되돌리기다.
-- **급할 때:** `docs/hotfix-procedure.md`대로 App Worker를 9.0.34 버전으로 CLI 되돌리기(명시적 검토, 낮은 epoch v807로 가므로 릴리스
+- **급할 때:** `docs/hotfix-procedure.md`대로 App Worker를 9.0.35 버전으로 CLI 되돌리기(명시적 검토, 낮은 epoch v808로 가므로 릴리스
   기록 §2 9.0.29 절의 '낮은 epoch로 가는 App 손 되돌리기의 규칙' 항목을 따름). 다른 배포처럼 §1, `Last source review`, 이력 한 행을
   기록하고 앞으로 고친다.
 
 ## 11. 릴리스 담당이 할 일
 
-1. **main 확인.** 이 갈래는 `432d4ae7` 위에 있다. 머지 전에 main이 움직였으면 다시 옮기고, 옮기기 전과 뒤의 커밋 짝마다
-   `git diff <전> <뒤> -- . ':(exclude)docs'`가 비었는지로 결과를 잇는다(§8.3). 런타임으로 움직였으면 §5와 라운드 8의 검사를 다시
-   돈다. 옮긴 뒤에는 이 문서의 SHA를 새 SHA로 바꾼다(대응표를 더하지 않음).
-2. **I12 버전 올리기** 9.0.35 / v808: 9.0.34의 버전 올리기와 같은 거울 여섯 파일 일곱 줄. 그 뒤 `guard:sw-cache-version`과
-   `guard:release-identity`가 통과하고, 그 머리의 dist는 리뷰 반영 끝의 dist와 버전을 지닌 파일만 다르다. 그 머리에서 기록 §2의
-   9.0.35 절 배포 조건 (2)의 전체 관문을 돌려 새 QA 라운드로 적는다.
+1. **main 확인.** 이 갈래는 `88550bc4`(9.0.35의 배포 기록) 위에 있다(라운드 12, §8.7). 머지 전에 main이 또 움직였으면 다시
+   옮긴다. 문서만 움직였으면 커밋 짝마다 `git diff <전> <뒤> -- . ':(exclude)docs'`가 비었는지로 결과를 잇고 이 문서의 SHA를 새
+   SHA로 바꾼다(§8.3). 런타임으로 움직였으면 커밋마다 문서 밖 패치가 같은지 보이고 대응표를 더하며(§8.7), §5와 라운드 8의 검사를
+   다시 돈다. 라운드 12의 옮기기는 6D의 런타임 위라, 그 검사는 아래 2의 버전 올리기 머리 관문에서 `88550bc4`를 바탕으로 다시 돈다.
+2. **I12 버전 올리기** 9.0.36 / v809: 9.0.35의 버전 올리기와 같은 거울 여섯 파일 일곱 줄. 그 뒤 `guard:sw-cache-version`과
+   `guard:release-identity`가 통과하고, 그 머리의 dist는 옮긴 머리 `561a2bdf`의 dist와 버전을 지닌 파일만 다르다. 그 머리에서 기록 §2의
+   9.0.36 절 배포 조건 (2)의 전체 관문을 돌려 새 QA 라운드로 적는다.
 3. **배포 전 절.** 기록 §2 맨 위의 '배포 전' 절은 이 문서와 함께 더했다. 버전 올리기 뒤 QA 라운드와 PR을 거기에 잇는다.
 4. **Linux 한 번.** 이 기계에는 Linux 컨테이너가 없어(§9 13), 새 불러오기 명세와 바뀐 `font-identity`·`about-page-layout`을 Linux에서
    돌리지 못했다. 머지 뒤 main SHA의 Full E2E(Linux Chromium)가 그 첫 실행이고, 머지 전에 보고 싶으면 이 갈래를 push한 뒤 Full E2E를 손으로
@@ -645,7 +782,7 @@ Linux 컨테이너 행은 없고, 로컬 결과는 exact-main-SHA 후보를 대�
 8. **로그인 완료 창의 바이트(§13.2, §13.7, §13.8).** 리뷰 반영에서 고쳤다: 완료 창 스크립트를 압축 빌드로 내고 시트의 주석을 빼, 신호가
    기다리는 두 파일이 9.0.34보다 brotli(11)로 3 B 작고 gzip(6)으로 68 B 컸다. 성공 창 고침(§13.8)이 스크립트에 gzip 33 B, brotli 51 B를 더해, 두 파일은 9.0.34보다 gzip(6)으로 101 B, brotli(11)로 48 B 크다(400 kbps에서 +2.0 ~ +2.6 ms, §13.8). 아래 괄호의 예시도 그 범위로 바꿔 읽어야 한다. 배포 대상은 App 87 그대로다
    (`scripts/classic-runtime-assets.ts`는 이 열차의 `d9c5954c`에서 이미 바뀌어 목록에 있었음). 그래서 기록의 'App 87' 둘은 맞다. 기록
-   §2 9.0.35 배포 전 절의 '(신호 시각은 Chromium과 WebKit 측정에서 늦어지지 않음)'은 서비스 워커, 로컬, 바이트를 맞춘 1.6 Mbps(두 엔진,
+   §2 9.0.36 배포 전 절의 '(신호 시각은 Chromium과 WebKit 측정에서 늦어지지 않음)'은 서비스 워커, 로컬, 바이트를 맞춘 1.6 Mbps(두 엔진,
    gzip과 brotli, +0.8 ms 이하)에서 받쳐지고, 400 kbps의 gzip에는 68 B 몫의 +1.2 / +1.6 ms가 남는다(§13.2). 이 단계는 기록을 바꾸지
    않으므로, 릴리스 담당이 그 괄호를 그 범위대로 고칠지 정한다. 예: '(신호 시각은 서비스 워커와 로컬에서 같고, 서비스 워커도 캐시도 없는
    첫 로딩에서는 두 파일이 brotli로 9.0.34보다 3 B 작고 gzip으로 68 B 커 1.6 Mbps에서 +0.8 ms 이하, 400 kbps gzip에서 약 1.5 ms 늦음.

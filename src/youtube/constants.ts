@@ -160,7 +160,9 @@ export const STANDARD_AUTO_REALIGN_MIN_REMAINING_SEC = 5;
 // ─── Start Timing (zero-start, PRO arm, recovery) ────────────────────
 // Shared by the Standard zero-start controller (zero-start.ts), the PRO arm
 // (authority-arm.ts), the PRO prepare seam (iframe.ts) and the Standard
-// recovery paths (player.ts); a value one file uses stays in that file. The
+// recoveries (zero-start-recovery.ts); a value one file uses stays in that
+// file, except the recoveries' three, which kept this home when the host's
+// recovery joined the guest's in one file (Phase 6 6D-2). The
 // wire is frozen, so src/network/protocol.ts keeps its own receiver bounds;
 // start-timing-parity.test.ts ties them to these senders. Each value is its
 // own export, not a property of a shared object: the minifier keeps property
@@ -214,6 +216,26 @@ export const STANDARD_ZERO_START_COMMIT_LEAD_MS = 700;
 export const STANDARD_ZERO_START_PREPARE_BUDGET_MS = 10_000;
 /** An armed guest left out of the cohort starts alone this long after it learns of the COMMIT. */
 export const STANDARD_ZERO_START_LATE_FALLBACK_LEAD_MS = 800;
+
+// The two Standard recoveries that take a start over from the zero-start run,
+// both in zero-start-recovery.ts: the guest's local recovery and the host's
+// legacy recovery. Named apart from the arm's values.
+
+/**
+ * A recovery polls the iframe this often. Its restore before a release is the
+ * third audio cadence, beside the verified restore's two (each keeps its
+ * rhythm): write the audio, check it at once, then poll again this often
+ * (the guest's until a release audio deadline of its own, a value only
+ * zero-start-recovery.ts uses).
+ */
+export const YOUTUBE_RECOVERY_POLL_MS = 50;
+/** A paused or cued iframe within this many seconds of the local zero holds a recovery's target, settled. */
+export const YOUTUBE_RECOVERY_SETTLE_EPSILON_SEC = 0.35;
+/**
+ * A recovery that cannot adopt the run's load gets this long: the guest's
+ * window, and the host's bridge back to the legacy rendezvous.
+ */
+export const YOUTUBE_RECOVERY_BRIDGE_MS = 3_000;
 
 /**
  * A server PREPARE must still report READY inside its three-second barrier.

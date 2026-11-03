@@ -1738,6 +1738,26 @@ export function adoptResidentYouTubeOccurrence(videoId: string): void {
   expectYouTubeMetadataVideoId(videoId);
 }
 
+/**
+ * Whether a load of exactly this video for this queue occurrence is still in
+ * flight before any player is ready: its iframe has not finished the
+ * handshake, or the IFrame API script is still loading. Read-only. A load into
+ * an iframe that is already ready does not count, such as the next track's
+ * load into the iframe an iPhone kept parked: its catch-up loads again.
+ */
+export function isYouTubeOccurrenceStillLoading(
+  queueItemId: QueueItemId,
+  videoId: string,
+): boolean {
+  return (
+    isYtLoadInProgress() &&
+    !isYtPlayerReady() &&
+    isPlaybackModeYouTube() &&
+    getCurrentQueueItemId() === queueItemId &&
+    _ifr.expectedMetadataVideoId === videoId
+  );
+}
+
 export function loadYouTubeVideo(
   videoId: string | null,
   playlistId: string | null = null,
@@ -2003,6 +2023,12 @@ interface YouTubeAuthorityPreparationRequest {
   subIndex: number;
   positionSeconds: number;
   timeoutMs?: number;
+  /**
+   * A kept still-loading load (a missed-READY catch-up, playlist.ts): end with
+   * 'timeout' at this Date.now() instant if that load has still not finished
+   * its handshake, so the caller can load the occurrence again.
+   */
+  keptLoadDeadlineAtMs?: number | undefined;
 }
 
 type YouTubeAuthorityPreparationResult =
@@ -2013,6 +2039,13 @@ type YouTubeAuthorityPreparationResult =
         'superseded' | 'player-unavailable' | 'identity-mismatch' | 'audio-locked' | 'timeout';
     };
 
+/**
+ * The preparation generation, one of the four PRO start tokens (the COMMIT
+ * and local-pause generations are player.ts's, the pause gate's token is
+ * iframe-audio.ts's; registry RO-03). Every prepare of an occurrence and every
+ * preparation cancel move it; the prepare loop, its arm result and a
+ * release's lead samples (through the getter below) compare it.
+ */
 let proAuthorityPreparationGeneration = 0;
 /**
  * The exact iOS iframe whose TAP TO PLAY gesture was spent on PRO playback.
@@ -2138,6 +2171,12 @@ export async function prepareYouTubeAuthorityOccurrence(
     if (getCurrentQueueItemId() !== request.queueItemId || !isPlaybackModeYouTube()) {
       return { ready: false, reason: 'superseded' };
     }
+    if (
+      Date.now() >= (request.keptLoadDeadlineAtMs ?? Infinity) &&
+      isYouTubeOccurrenceStillLoading(request.queueItemId, request.videoId)
+    ) {
+      return { ready: false, reason: 'timeout' };
+    }
 
     const player = getYouTubePlayer();
     if (player) {
@@ -2174,12 +2213,12 @@ export async function prepareYouTubeAuthorityOccurrence(
           const elapsedMs = Date.now() - startedAt;
           const remainingMs = timeoutMs - elapsedMs;
           if (remainingMs < 500) return { ready: false, reason: 'timeout' };
-          // The app volume is the user intent, under the 'non-positive' mute
-          // rule (iframe-audio.ts). During initial iOS entry the persistent
-          // iframe can still report the silent-prime hard mute; capturing that
-          // transient player bit would make it permanent. A pending local PRO
-          // pause stays closed until its own settlement.
-          const appAudio = readYouTubeAppAudio(true);
+          // The app volume is the user intent (iframe-audio.ts). During
+          // initial iOS entry the persistent iframe can still report the
+          // silent-prime hard mute; capturing that transient player bit would
+          // make it permanent. A pending local PRO pause stays closed until
+          // its own settlement.
+          const appAudio = readYouTubeAppAudio();
           const armed = await proAuthorityArm.prepare({
             authorityKey: request.authorityKey,
             queueItemId: request.queueItemId,

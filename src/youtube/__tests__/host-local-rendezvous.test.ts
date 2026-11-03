@@ -2,12 +2,8 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { bus } from '../../core/events.ts';
 import { MSG } from '../../core/constants.ts';
 import { getState, resetState, setState } from '../../core/state.ts';
-import {
-  clearAllManagedTimers,
-  clearManagedTimer,
-  getManagedTimer,
-  setManagedTimer,
-} from '../../core/timers.ts';
+import { clearAllManagedTimers, getManagedTimer } from '../../core/timers.ts';
+import { broadcast } from '../../network/peer.ts';
 import { setPlaybackYouTubePaused, setPlaybackYouTubePlaying } from '../../player/ownership.ts';
 import type { YouTubePlayerInstance } from '../_state.ts';
 import {
@@ -19,11 +15,10 @@ import {
 } from '../standard-host-manual-offset-gate.ts';
 import {
   isStandardHostYouTubeLocalStartPending,
-  recordStandardHostYouTubeAutomaticOffset,
   setStandardHostYouTubeLocalStartTimelineReader,
   toCanonicalYouTubeTime,
 } from '../local-offset.ts';
-import { configureYouTubePlayerRuntimeHooks } from '../player-runtime-bridge.ts';
+import { isYouTubeAutoSyncPending } from '../player-runtime-bridge.ts';
 import { registerYouTubeStartClaim } from '../start-ownership.ts';
 import { registerProRoomLocalPlaybackTimeline } from '../../pro-room/local-playback-timeline.ts';
 import type { ProRoomSnapshot } from '../../pro-room/contracts.ts';
@@ -54,6 +49,15 @@ const latency = vi.hoisted(() => ({ output: 0 }));
 vi.mock('../play-latency.ts', () => ({
   getEffectiveYouTubePlayLatencyMs: () => 200 + latency.output,
   getLocalYouTubeAudibleOutputDelayMs: () => latency.output,
+}));
+// The real legacy rendezvous takes its output lead from the platform: 250 ms
+// on Android, which a row sets where the suite's output is that floor.
+const platform = vi.hoisted(() => ({ android: false }));
+vi.mock('../../core/platform.ts', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('../../core/platform.ts')>()),
+  get IS_ANDROID() {
+    return platform.android;
+  },
 }));
 vi.mock('../_state.ts', async (importOriginal) => ({
   ...(await importOriginal<typeof import('../_state.ts')>()),
@@ -203,6 +207,7 @@ function selectPlaylist(fixture: Fixture): void {
 
 beforeEach(async () => {
   latency.output = 0;
+  platform.android = false;
   await prepareStandardHostManualOffsetRuntimeForTests();
   resetStandardHostManualOffsetTransaction();
   clearAllManagedTimers();
@@ -227,18 +232,21 @@ beforeEach(async () => {
     },
   ]);
   setState('playlist.currentQueueItemId', QUEUE_ID);
+  // A row drives the real Standard host start owner (player.ts's legacy
+  // rendezvous and its local start wait). The start ledger and the runtime
+  // bridge keep what player.ts registers when it loads, as src/app.ts loads it
+  // at startup, so every row starts with them, whichever row loaded it first
+  // (the recovery claim aside: see afterEach).
+  await import('../player.ts');
   const { initYouTubeSync } = await import('../sync.ts');
   initYouTubeSync();
 });
 
 afterEach(() => {
   setStandardHostYouTubeLocalStartTimelineReader(null);
-  configureYouTubePlayerRuntimeHooks({
-    cancelPendingAutoSync: () => undefined,
-    consumePendingAutoSyncOnReady: () => null,
-    isYouTubeAutoSyncPending: () => false,
-    setPendingAutoSyncOnReady: () => undefined,
-  });
+  vi.mocked(broadcast).mockReset();
+  // A row stands in for the recovery claim. Its replacement answers false, as
+  // player.ts's own does in this suite, where no recovery runs.
   registerYouTubeStartClaim('standard-recovery', [() => false, () => false]);
   unregisterProTimeline?.();
   unregisterProTimeline = null;
@@ -260,49 +268,62 @@ describe.each([0, 250])('Standard-host local scheduled rendezvous (output %ims)'
       const fixture = makePlayer({ state: 2, position: 0 });
       await installPlayer(fixture);
       setState('sync.youtubeLocalOffset', -9.999);
-      setState('sync.youtubeCoordinatorAppliedOffset', -9.999 + output / 1000);
-      recordStandardHostYouTubeAutomaticOffset(output / 1000);
-      setStandardHostYouTubeLocalStartTimelineReader(() => (Date.now() - EPOCH) / 1000);
-      const oldRelease = vi.fn(() => {
-        fixture.player.seekTo(0, true);
-        fixture.player.playVideo();
+      platform.android = output === 250;
+      const { scheduleYtAutoSync } = await import('../player.ts');
+      // The room frames and loading changes, '+<ms> ...' from the row's start.
+      const room: string[] = [];
+      vi.mocked(broadcast).mockImplementation((message) => {
+        const frame = message as { type: string; state?: number; time?: number };
+        room.push(`+${Date.now() - EPOCH} ${frame.type} ${frame.state} at ${frame.time}`);
       });
-      const oldBroadcast = vi.fn();
-      setManagedTimer('yt-host-local-start', oldRelease, 9_999 - output);
-      setManagedTimer('yt-auto-sync', oldBroadcast, 11_999 - output);
-      const cancel = vi.fn(() => {
-        clearManagedTimer('yt-host-local-start');
-        clearManagedTimer('yt-auto-sync');
-        setStandardHostYouTubeLocalStartTimelineReader(null);
+      bus.on('youtube:sync-loading', (busy, owner) => {
+        room.push(`+${Date.now() - EPOCH} loading ${busy} ${owner}`);
       });
+      // The host's own negative start: the legacy rendezvous holds this
+      // speaker at 0:00 for 9,999 ms less the output lead while the room time
+      // runs, then plays it, and sends its Stage 2 2 s after that.
+      scheduleYtAutoSync(0);
+      expect(isStandardHostYouTubeLocalStartPending()).toBe(true);
+      expect(getState('sync.youtubeCoordinatorAppliedOffset')).toBeCloseTo(
+        -9.999 + output / 1000,
+        5,
+      );
+      expect(isYouTubeAutoSyncPending()).toBe(true);
       const fallbackPending = vi.fn(() => false);
-      configureYouTubePlayerRuntimeHooks({
-        cancelPendingAutoSync: cancel,
-        consumePendingAutoSyncOnReady: () => null,
-        // The stand-in owner answers from the raw timer it armed above.
-        isYouTubeAutoSyncPending: () => getManagedTimer('yt-auto-sync') !== null,
-        setPendingAutoSyncOnReady: () => undefined,
-      });
-      // The stand-in recovery's claim, as player.ts registers its own.
+      // The stand-in recovery's claim, over the one player.ts registers.
       registerYouTubeStartClaim('standard-recovery', [() => false, fallbackPending]);
       vi.advanceTimersByTime(1_000);
+      expect(toCanonicalYouTubeTime(fixture.player.getCurrentTime(), 120)).toBeCloseTo(1, 5);
       fallbackPending.mockClear();
       bus.emit('youtube:set-coordinator-manual-offset', offset, 'committed');
 
       // The edit's zero-start owner gate reaches the fallback claim.
       expect(fallbackPending).toHaveBeenCalled();
-      expect(fixture.player.pauseVideo).toHaveBeenCalledOnce();
-      expect(cancel).toHaveBeenCalledOnce();
+      // The edit retired the wait and its Stage 2 through the player's port.
       expect(isStandardHostYouTubeLocalStartPending()).toBe(false);
-      expect(getManagedTimer('yt-host-local-start')).toBeNull();
-      expect(getManagedTimer('yt-auto-sync')).toBeNull();
+      expect(isYouTubeAutoSyncPending()).toBe(false);
       expect(toCanonicalYouTubeTime(fixture.player.getCurrentTime(), 120)).toBeCloseTo(1, 5);
       vi.advanceTimersByTime(100);
-      expect(fixture.player.seekTo).toHaveBeenCalledExactlyOnceWith(2.6 + offset, true);
+      expect(fixture.player.seekTo).toHaveBeenLastCalledWith(2.6 + offset, true);
+      // Past the old release's due time and its Stage 2: neither runs.
       vi.advanceTimersByTime(11_900);
-      expect(oldRelease).not.toHaveBeenCalled();
-      expect(oldBroadcast).not.toHaveBeenCalled();
-      expect(fixture.player.playVideo).toHaveBeenCalledOnce();
+      expect(fixture.commands).toEqual([
+        // The wait's own pause and seek to 0:00.
+        { op: 'pause', at: 0, position: undefined },
+        { op: 'seek', at: 0, position: 0 },
+        // The edit's rendezvous from the held room time.
+        { op: 'pause', at: 1000, position: undefined },
+        { op: 'seek', at: 1100, position: 2.6 + offset },
+        { op: 'play', at: 2400 - output, position: undefined },
+      ]);
+      expect(room).toEqual([
+        // The wait's Stage 1; its Stage 2 (2 s after the old release) never goes out.
+        `+0 ${MSG.YOUTUBE_STATE} 1 at 0`,
+        // The player's retire port, then the edit's own rendezvous.
+        '+1000 loading false undefined',
+        '+1000 loading true rendezvous',
+        `+${2400 - output} loading false rendezvous`,
+      ]);
       expect(fixture.player.getPlayerState()).toBe(1);
       expect(getState('sync.youtubeLocalOffset')).toBe(offset);
       expect(getState('sync.youtubeCoordinatorAppliedOffset')).toBeCloseTo(

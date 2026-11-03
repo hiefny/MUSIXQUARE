@@ -71,6 +71,7 @@ import {
 import {
   cancelYouTubeAuthorityPreparation,
   handoffSameVideoOccurrenceRestart,
+  isYouTubeOccurrenceStillLoading,
   prepareYouTubeAuthorityOccurrence,
   prepareSameVideoOccurrenceRestart,
   waitForPendingYouTubePrimeBounce,
@@ -242,7 +243,10 @@ interface PlayTrackOptions {
     positionSeconds: number;
     youtubeSubIndex: number | null;
     youtubeVideoId: string | null;
-    /** The exact video is already resident in the persistent iframe. */
+    /**
+     * The exact video is already resident in the persistent iframe, or (for
+     * a missed-READY catch-up) still loading there for this occurrence.
+     */
     reuseResidentYouTube?: boolean;
   };
 }
@@ -2665,6 +2669,7 @@ async function prepareAuthoritativePlayback(
       : null;
 
   let reuseResidentYouTube = false;
+  let keptLoadDeadlineAtMs: number | undefined;
   if (
     item.type === 'youtube' &&
     resolvedVideoId &&
@@ -2678,6 +2683,17 @@ async function prepareAuthoritativePlayback(
     } catch {
       reuseResidentYouTube = false;
     }
+  } else if (
+    request.missedReady &&
+    resolvedVideoId &&
+    isYouTubeOccurrenceStillLoading(request.queueItemId, resolvedVideoId)
+  ) {
+    // The COMMIT catch-up after this device's PREPARE of the occurrence missed
+    // READY: that PREPARE's load of this video is still in flight (its iframe
+    // still handshaking, or the IFrame API script still loading). Keep it
+    // instead of loading again; the authority preparation below waits for it.
+    reuseResidentYouTube = true;
+    keptLoadDeadlineAtMs = request.missedReadyJoinAtMs;
   }
 
   try {
@@ -2729,7 +2745,18 @@ async function prepareAuthoritativePlayback(
         ...(request.prepareBudgetMs === undefined
           ? { timeoutMs: PRO_YOUTUBE_UNBARRIERED_PREPARE_TIMEOUT_MS }
           : {}),
+        keptLoadDeadlineAtMs,
       });
+      if (
+        keptLoadDeadlineAtMs !== undefined &&
+        !prepared.ready &&
+        prepared.reason === 'timeout' &&
+        isYouTubeOccurrenceStillLoading(request.queueItemId, resolvedVideoId)
+      ) {
+        // The kept load has still not finished its handshake at the start this
+        // catch-up plans: load the occurrence again, as without missedReady.
+        return prepareAuthoritativePlayback({ ...request, missedReady: false });
+      }
       if (!prepared.ready) return failedAuthorityPrepare(request, prepared.reason);
       return {
         status: 'ready',

@@ -752,6 +752,39 @@ describe('resource-ownership guard', { timeout: 60_000 }, () => {
       );
     });
 
+    it('rejects a recovery timing copied between the guest recovery and player.ts, or beside its home (RO-02/RO-03/RO-12)', () => {
+      const recovery = 'src/youtube/zero-start-recovery.ts';
+      const findings = findingsOf(
+        withSources((sources) => {
+          replaceIn(sources, recovery, '  YOUTUBE_RECOVERY_SETTLE_EPSILON_SEC,\n', '');
+          replaceIn(
+            sources,
+            recovery,
+            "import type { YouTubeZeroStartFallbackEvent, YouTubeZeroStartPlayer } from './zero-start.ts';\n",
+            "import type { YouTubeZeroStartFallbackEvent, YouTubeZeroStartPlayer } from './zero-start.ts';\n" +
+              'const YOUTUBE_RECOVERY_SETTLE_EPSILON_SEC = 0.35;\n',
+          );
+          for (const file of [recovery, 'src/youtube/player.ts']) {
+            sources.set(
+              file,
+              `${sources.get(file) ?? ''}\nconst RECOVERY_ACK_POLL_MS = 50;\nvoid RECOVERY_ACK_POLL_MS;\n`,
+            );
+          }
+        }),
+      );
+      expect(findings.split('\n')).toEqual([
+        'COPIED TIMING CONSTANT (principle 4): RO-02/RO-03/RO-12 ' +
+          'RECOVERY_ACK_POLL_MS@src/youtube/player.ts = ' +
+          'RECOVERY_ACK_POLL_MS@src/youtube/zero-start-recovery.ts (50) - import it from the ' +
+          'timing home the registry names, or add a triaged entry with its reason in the same change',
+        'COPIED TIMING CONSTANT (principle 4): RO-02/RO-03/RO-12 ' +
+          'YOUTUBE_RECOVERY_SETTLE_EPSILON_SEC@src/youtube/constants.ts = ' +
+          'YOUTUBE_RECOVERY_SETTLE_EPSILON_SEC@src/youtube/zero-start-recovery.ts (0.35) - import ' +
+          'it from the timing home the registry names, or add a triaged entry with its reason in ' +
+          'the same change',
+      ]);
+    });
+
     it('keeps a differently named timing that shares a value with a start count out of the same-value pairs (RO-02/RO-03/RO-12)', () => {
       const input = withSources((sources) => {
         const file = 'src/youtube/player.ts';
@@ -1297,6 +1330,32 @@ describe('resource-ownership guard', { timeout: 60_000 }, () => {
         /STALE BASELINE iframe audio write \(RO-12\): src\/youtube\/retained-player-controller\.ts has 1, baseline 2 - lower the baseline to 1/u,
       );
     });
+
+    it("lists the guest recovery's two mutes in src/youtube/zero-start-recovery.ts under --report, and none left in player.ts", () => {
+      const result = runGuard('--report');
+      expect(result.status, result.stderr).toBe(0);
+      expect(
+        result.stdout.match(
+          /iframe audio write: src\/youtube\/zero-start-recovery\.ts:\d+ mute\(\) in attemptFallback\n/gu,
+        ),
+      ).toHaveLength(2);
+      expect(result.stdout).not.toMatch(
+        /iframe audio write: src\/youtube\/player\.ts:\d+ \S+ in attemptFallback/u,
+      );
+    });
+
+    it("lists the host legacy recovery's mute in src/youtube/zero-start-recovery.ts under --report, and none left in player.ts", () => {
+      const result = runGuard('--report');
+      expect(result.status, result.stderr).toBe(0);
+      expect(
+        result.stdout.match(
+          /iframe audio write: src\/youtube\/zero-start-recovery\.ts:\d+ mute\(\) in attemptRecovery\n/gu,
+        ),
+      ).toHaveLength(1);
+      expect(result.stdout).not.toMatch(
+        /iframe audio write: src\/youtube\/player\.ts:\d+ \S+ in attemptRecovery/u,
+      );
+    });
   });
 
   describe('CHECK 12 cross-file reads and clears of the YouTube start timers (RO-02)', () => {
@@ -1564,6 +1623,62 @@ describe('resource-ownership guard', { timeout: 60_000 }, () => {
       );
     });
 
+    it('rejects the guest recovery setting its timer itself: player.ts keeps it and hands the recovery a schedule', () => {
+      const recovery = 'src/youtube/zero-start-recovery.ts';
+      const findings = findingsOf(
+        withSources((sources) => {
+          replaceIn(
+            sources,
+            recovery,
+            "import { log } from '../core/log.ts';\n",
+            "import { log } from '../core/log.ts';\nimport { setManagedTimer } from '../core/timers.ts';\n",
+          );
+          replaceIn(
+            sources,
+            recovery,
+            '      setOwned(true);\n      schedule(attemptFallback, 0);\n',
+            '      setOwned(true);\n' +
+              "      setManagedTimer('yt-zero-start-external-fallback', attemptFallback, 0);\n",
+          );
+        }),
+      );
+      expect(findings).toBe(
+        "START TIMER SET (RO-02): src/youtube/zero-start-recovery.ts sets 'yt-zero-start-external-fallback', " +
+          'which only src/youtube/player.ts may set - setManagedTimer() clears a running timer of ' +
+          'that name, so a second setter is a second machine on the start: start it through its ' +
+          'owner, or move the setter and update START_TIMER_SETTERS and the RO-02 record in the ' +
+          'same change',
+      );
+    });
+
+    it('rejects the host legacy recovery setting its timer itself: player.ts keeps it and hands the stage a schedule', () => {
+      const recovery = 'src/youtube/zero-start-recovery.ts';
+      const findings = findingsOf(
+        withSources((sources) => {
+          replaceIn(
+            sources,
+            recovery,
+            "import { log } from '../core/log.ts';\n",
+            "import { log } from '../core/log.ts';\nimport { setManagedTimer } from '../core/timers.ts';\n",
+          );
+          replaceIn(
+            sources,
+            recovery,
+            '    setOwned(true);\n    scheduleHostFallback(attemptRecovery, 0);\n',
+            '    setOwned(true);\n' +
+              "    setManagedTimer('yt-zero-start-host-fallback', attemptRecovery, 0);\n",
+          );
+        }),
+      );
+      expect(findings).toBe(
+        "START TIMER SET (RO-02): src/youtube/zero-start-recovery.ts sets 'yt-zero-start-host-fallback', " +
+          'which only src/youtube/player.ts may set - setManagedTimer() clears a running timer of ' +
+          'that name, so a second setter is a second machine on the start: start it through its ' +
+          'owner, or move the setter and update START_TIMER_SETTERS and the RO-02 record in the ' +
+          'same change',
+      );
+    });
+
     it('rejects a second setter of a start timer in a file that reads it', () => {
       const findings = findingsOf(
         withSources((sources) => {
@@ -1815,11 +1930,13 @@ describe('resource-ownership guard', { timeout: 60_000 }, () => {
             '  if (!isManual && getManagedTimer(PRO_COORDINATOR_YOUTUBE_NUDGE_TIMER)) return;\n' +
               "  if (getManagedTimer('yt-host-local-start')) return;\n",
           );
+          // The local start wait's own timer (beginStandardHostLocalStart since
+          // Phase 6 6D-3) under another name.
           replaceIn(
             sources,
             'src/youtube/player.ts',
-            "        'yt-host-local-start',\n",
-            "        'yt-host-local-begin',\n",
+            "      'yt-host-local-start',\n",
+            "      'yt-host-local-begin',\n",
           );
         }),
       );
@@ -2562,6 +2679,32 @@ describe('resource-ownership guard', { timeout: 60_000 }, () => {
         expect(dropped).toMatch(
           /^STALE BASELINE start-run snapshot read \(RO-02\): src\/youtube\/player\.ts has 7, baseline 8 - lower the baseline to 7/u,
         );
+      });
+
+      it('fails a snapshot read in the guest recovery, whose fence player.ts keeps', () => {
+        const recovery = 'src/youtube/zero-start-recovery.ts';
+        const findings = findingsOf(
+          withSources((sources) => {
+            replaceIn(
+              sources,
+              recovery,
+              "import type { YouTubeZeroStartFallbackEvent, YouTubeZeroStartPlayer } from './zero-start.ts';\n",
+              'import {\n  getYouTubeZeroStartSnapshot,\n  type YouTubeZeroStartFallbackEvent,\n' +
+                "  type YouTubeZeroStartPlayer,\n} from './zero-start.ts';\n",
+            );
+            replaceIn(
+              sources,
+              recovery,
+              '      if (generation !== this.#generation || !isCurrent()) {\n',
+              '      if (\n        generation !== this.#generation ||\n        !isCurrent() ||\n' +
+                '        getYouTubeZeroStartSnapshot()?.runId !== event.runId\n      ) {\n',
+            );
+          }),
+        );
+        expect(findings).toMatch(
+          /^UNSANCTIONED start-run snapshot read \(RO-02\): src\/youtube\/zero-start-recovery\.ts has 1 - /u,
+        );
+        expect(findings.split('\n')).toHaveLength(1);
       });
 
       it("lists the seek's mid-sync composite and player.ts's snapshot reads under --report", () => {

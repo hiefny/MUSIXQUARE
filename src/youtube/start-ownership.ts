@@ -15,12 +15,17 @@
  * - 'standard-run': the zero-start run (zero-start.ts): in flight, protocol
  *   active, and hard-muted (muting, warming or settling);
  * - 'standard-recovery': the recovery that takes over a start the run gave up
- *   (player.ts): the guest local recovery, or on a host the legacy recovery,
- *   also after a peer replacement. Active while it owns the iframe's events;
+ *   (player.ts's two flags): the guest local recovery or, on a host, the
+ *   legacy recovery (both zero-start-recovery.ts), also after a peer
+ *   replacement. Active while it owns the iframe's events;
  *   pending while active or, for the guest recovery, until its release is
  *   acknowledged;
  * - 'legacy-rendezvous': the legacy two-stage rendezvous's Stage-2 wait
- *   (player.ts's 'yt-auto-sync' timer);
+ *   (player.ts's 'yt-auto-sync' timer). Its local start wait on a Standard
+ *   host (one primitive in player.ts since Phase 6 6D-3,
+ *   beginStandardHostLocalStart) registers no query: no derived query reads
+ *   it, and iframe.ts's state router asks local-offset.ts's pending-start
+ *   predicate instead;
  * - 'pro-arm': the coordinator-free PRO arm (authority-arm.ts, through its
  *   iframe.ts instance): hard-muted;
  * - 'pro-direct': the PRO direct COMMIT's local wait (player.ts).

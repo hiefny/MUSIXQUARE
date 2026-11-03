@@ -1276,6 +1276,7 @@ function createImplementation(
     roomEpoch: number,
     isRequestCurrent: () => boolean,
     clock: ProRoomClockSnapshot | null,
+    missedReady?: boolean,
   ) {
     const playback = event.playback;
     if (playback.state === 'idle' || !playback.queueItemId) return null;
@@ -1292,12 +1293,21 @@ function createImplementation(
       playbackCommitStillCurrent(event, generation, isRequestCurrent) &&
       (playback.state !== 'playing' || (clock !== null && isProRoomClockSnapshotCurrent(clock)));
     if (!current()) return null;
+    const commitTiming = () =>
+      (latePlan && clock ? plannedLateYouTubeTiming(playback, latePlan, clock) : null) ??
+      playbackCommitTiming(event, receivedAtMs, clock);
     const reportRecoveredDuration = captureFileDurationReporter(request, current);
     let prepared: ProPlaybackPrepareResult;
     try {
       prepared = await prepareWithDurationReport(
         {
           ...request,
+          missedReady,
+          // The start this catch-up plans: a kept still-loading load must have
+          // finished its handshake by then, or the endpoint loads again.
+          missedReadyJoinAtMs: missedReady
+            ? Date.now() + commitTiming().scheduleDelayMs
+            : undefined,
           isCurrent: current,
         },
         current,
@@ -1338,9 +1348,7 @@ function createImplementation(
     }
     // This is the final attempt: if preparation overran its planned instant,
     // keep the established immediate catch-up rather than waiting again.
-    const timing =
-      (latePlan && clock ? plannedLateYouTubeTiming(playback, latePlan, clock) : null) ??
-      playbackCommitTiming(event, receivedAtMs, clock);
+    const timing = commitTiming();
     try {
       const result = await commitProPlaybackAuthority({
         authority,
@@ -1534,6 +1542,8 @@ function createImplementation(
         // again and the participant stays silent until the next heartbeat. File
         // failures keep their single download/decode attempt per request.
         if (playback.youtubeVideoId !== null) cancelProPlaybackPreparation(authority);
+        // After this device's own server PREPARE missed READY, its first load
+        // of the occurrence may still be loading; the endpoint may keep it.
         const catchup =
           prepared.reason === 'device-unavailable'
             ? null
@@ -1545,6 +1555,7 @@ function createImplementation(
                 context.epoch,
                 isRequestCurrent,
                 clock,
+                preparedFromMatchingTransition,
               );
         if (!playbackCommitStillCurrent(event, generation, isRequestCurrent)) return;
         if (catchup?.status !== 'applied') {

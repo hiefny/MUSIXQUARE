@@ -1,7 +1,7 @@
 /**
  * The iframe audio owner's own pieces (src/youtube/iframe-audio.ts, RO-12),
  * pinned with Phase 6 6C-2, which moves the App's audio writes and holds into
- * it: the app audio read from the master volume under its two mute rules, the
+ * it: the app audio read from the master volume under its one mute rule, the
  * PRO pause gate's token and its bare mute, the parking hold player.ts
  * registers, the start owners' hard mute it asks the real start ledger for,
  * and the three app writes with their orders and optional calls.
@@ -99,24 +99,24 @@ beforeEach(() => {
 
 describe('readYouTubeAppAudio: the app audio read from the master volume (pinned 2026-11-02)', () => {
   it.each([
-    [1, { muted: false, volume: 100 }, { muted: false, volume: 100 }],
-    [0.734, { muted: false, volume: 73 }, { muted: false, volume: 73 }],
-    [0.005, { muted: false, volume: 1 }, { muted: false, volume: 1 }],
-    // The two rules disagree only for 0 < masterVolume < 0.005.
-    [0.004, { muted: true, volume: 0 }, { muted: false, volume: 0 }],
-    [0, { muted: true, volume: 0 }, { muted: true, volume: 0 }],
-    [-0.25, { muted: true, volume: 0 }, { muted: true, volume: 0 }],
-    [1.5, { muted: false, volume: 100 }, { muted: false, volume: 100 }],
+    [1, { muted: false, volume: 100 }],
+    [0.734, { muted: false, volume: 73 }],
+    [0.005, { muted: false, volume: 1 }],
+    // Muted when it rounds to 0 %, for every reader (Phase 6 6C-3): the
+    // 'non-positive' read unmuted here before.
+    [0.004, { muted: true, volume: 0 }],
+    [0, { muted: true, volume: 0 }],
+    [-0.25, { muted: true, volume: 0 }],
+    [1.5, { muted: false, volume: 100 }],
     // An unset master volume reads as 1, as everywhere else in the App.
-    [undefined, { muted: false, volume: 100 }, { muted: false, volume: 100 }],
-    [Number.NaN, { muted: false, volume: Number.NaN }, { muted: false, volume: Number.NaN }],
-  ])('at master volume %s: rounded %o, non-positive %o', (masterVolume, rounded, nonPositive) => {
+    [undefined, { muted: false, volume: 100 }],
+    [Number.NaN, { muted: false, volume: Number.NaN }],
+  ])('at master volume %s: %o', (masterVolume, audio) => {
     appState.masterVolume = masterVolume;
-    expect({
-      rounded: readYouTubeAppAudio(),
-      nonPositive: readYouTubeAppAudio(true),
-      reads: appState.reads,
-    }).toEqual({ rounded, nonPositive, reads: ['audio.masterVolume', 'audio.masterVolume'] });
+    expect({ audio: readYouTubeAppAudio(), reads: appState.reads }).toEqual({
+      audio,
+      reads: ['audio.masterVolume'],
+    });
   });
 
   it('reads the master volume at each call into a new object, keeping no answer', () => {

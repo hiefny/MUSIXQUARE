@@ -104,6 +104,12 @@ export function setYouTubeScheduledStartTimelineReader(reader: () => number | nu
   _scheduledStartTimeline = reader;
 }
 
+/**
+ * The Standard host's local start wait (player.ts's
+ * beginStandardHostLocalStart) installs its room-time reader before it pauses
+ * the speaker, and ends it with null just before the release plays or when
+ * the wait retires.
+ */
 export function setStandardHostYouTubeLocalStartTimelineReader(
   reader: (() => number | null) | null,
 ): void {

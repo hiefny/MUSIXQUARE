@@ -638,9 +638,9 @@ P0/P1/P2는 **QA 실행 순서**다. 발견된 결함의 심각도나 배포 승
 
 **소유 규칙:** [YouTube 시작 소유](design/youtube-start-ownership.md): 시작 주인(zero-start 실행, 게스트 로컬 복구·방장 레거시 복구, 레거시 랑데부, PRO arm)이 자기 상태를 가진다. 시작 장부는 주인이 등록한 살아 있는 질의를 물을 때마다 읽어 독자에게 답하고, 답을 저장하거나 구독하거나 이벤트를 내지 않는다([RO-02](design/resource-ownership-registry.md#ro-02-youtube-standard-shared-start))
 
-**대표 구현:** [src/youtube/zero-start.ts](../src/youtube/zero-start.ts), [src/youtube/start-ownership.ts](../src/youtube/start-ownership.ts)
+**대표 구현:** [src/youtube/zero-start.ts](../src/youtube/zero-start.ts), [src/youtube/zero-start-recovery.ts](../src/youtube/zero-start-recovery.ts)(게스트 로컬 복구·방장 레거시 복구), [src/youtube/start-ownership.ts](../src/youtube/start-ownership.ts)
 
-**기존 검사 진입점:** [src/youtube/__tests__/zero-start.test.ts](../src/youtube/__tests__/zero-start.test.ts), [src/youtube/__tests__/zero-start-fallback-ownership.test.ts](../src/youtube/__tests__/zero-start-fallback-ownership.test.ts), [src/youtube/__tests__/start-ownership.test.ts](../src/youtube/__tests__/start-ownership.test.ts)
+**기존 검사 진입점:** [src/youtube/__tests__/zero-start.test.ts](../src/youtube/__tests__/zero-start.test.ts), [src/youtube/__tests__/zero-start-fallback-ownership.test.ts](../src/youtube/__tests__/zero-start-fallback-ownership.test.ts), [src/youtube/__tests__/zero-start-recovery-golden.test.ts](../src/youtube/__tests__/zero-start-recovery-golden.test.ts), [src/youtube/__tests__/start-ownership.test.ts](../src/youtube/__tests__/start-ownership.test.ts)
 
 ### QA054. YouTube 수동 싱크·signed offset — P0
 

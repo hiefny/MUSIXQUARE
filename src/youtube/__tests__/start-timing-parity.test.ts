@@ -7,7 +7,9 @@
  * (authority-arm.ts), the PRO prepare seam (iframe.ts) and the Standard
  * recovery paths (player.ts) each typed these numbers. The first block pins
  * every home, one named export per value, to the value its copies held, so
- * the move changes no number.
+ * the move changes no number. Phase 6 6D-1 added the two Standard recoveries'
+ * poll, settle tolerance and bridge, literals of player.ts until the guest
+ * recovery moved out of it.
  *
  * The wire is frozen, so protocol.ts keeps its own bounds for the zero-start
  * frames. The second block ties each bound to the sender: it drives the real
@@ -47,6 +49,9 @@ import {
   YOUTUBE_ARM_SETTLE_STABLE_SAMPLES,
   YOUTUBE_ARM_WARM_PLAY_MS,
   YOUTUBE_FRESH_START_MAX_SEC,
+  YOUTUBE_RECOVERY_BRIDGE_MS,
+  YOUTUBE_RECOVERY_POLL_MS,
+  YOUTUBE_RECOVERY_SETTLE_EPSILON_SEC,
   YOUTUBE_RELEASE_CATCH_UP_TOLERANCE_MS,
   YOUTUBE_RELEASE_CATCH_UP_TOLERANCE_SEC,
 } from '../constants.ts';
@@ -256,6 +261,17 @@ describe('YouTube start timing homes, one named export each (C2-1)', () => {
     expect(PRO_YOUTUBE_UNBARRIERED_PREPARE_TIMEOUT_MS).toBe(10_000);
     // A separate name from the settle epsilon, which has the same value.
     expect(YOUTUBE_FRESH_START_MAX_SEC).toBe(0.12);
+    // The two Standard recoveries' poll, settle tolerance and bridge (6D-1),
+    // named apart from the arm's values.
+    expect({
+      YOUTUBE_RECOVERY_POLL_MS,
+      YOUTUBE_RECOVERY_SETTLE_EPSILON_SEC,
+      YOUTUBE_RECOVERY_BRIDGE_MS,
+    }).toStrictEqual({
+      YOUTUBE_RECOVERY_POLL_MS: 50,
+      YOUTUBE_RECOVERY_SETTLE_EPSILON_SEC: 0.35,
+      YOUTUBE_RECOVERY_BRIDGE_MS: 3_000,
+    });
   });
 
   it('derives the 7.7 s a cohort-excluded guest adopts as the Standard prepare budget minus the guest decision', () => {

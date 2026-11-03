@@ -333,6 +333,24 @@ export interface ProPlaybackPrepareRequest {
    * call, and the file endpoint does not read it.
    */
   prepareBudgetMs?: number;
+  /**
+   * True only for the COMMIT catch-up that follows this device's own failed
+   * preparation of the same server transition (its READY was missed), whether
+   * that COMMIT came as a frame or as a snapshot that lands the checkpoint
+   * this device prepared (restorePlaybackCheckpoint commits it as that
+   * transition). The YouTube endpoint may then keep that preparation's load of
+   * the occurrence while it is still loading, instead of loading the
+   * occurrence again. A server PREPARE, a restore of a checkpoint this device
+   * did not prepare (and that restore's catch-up) and a participant-local
+   * rejoin never set it.
+   */
+  missedReady?: boolean;
+  /**
+   * With missedReady: the Date.now() instant that catch-up plans to start. A
+   * kept load that has still not finished its handshake then is loaded again,
+   * as a catch-up without missedReady loads it.
+   */
+  missedReadyJoinAtMs?: number;
   youtubeSubIndex?: number | null;
   youtubeVideoId?: string | null;
   /** Participant-local fence injected by the authority layer for async media waits. */

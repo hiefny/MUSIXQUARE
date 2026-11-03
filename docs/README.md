@@ -94,6 +94,167 @@ runbooks. Neither belongs in a general setup document.
 
 ## Maintained evidence and completed records
 
+- [App 9.0.35 / v808 train: Phase 6 6D, the YouTube start recoveries in one module, the Standard host's local start wait, the PRO start tokens, the late-joining PRO device's COMMIT catch-up and one mute rule below 0.5 % master volume (2026-11-02)](design/phase6-6d-recovery-pro-arm-2026-11-02.md):
+  prepared, not released. The next App update, 9.0.35 / v808 (App build 808, target `app`, one
+  update dialog, the last of Phase 6's four) after App 9.0.34 / v807. The release owner decided on
+  the afternoon of 2026-11-03 to ship 6D first because the public-page font train, which the
+  release record had named as 9.0.35, is still being finished; that train becomes the App update
+  after it (9.0.36 / v809 planned). On branch `agent/p6-6d`,
+  thirty-nine commits on main `432d4ae7` (the App 9.0.34 / v807 release record): the thirteen
+  commits first built on the 6C train's tip `bdb5759a`, moved patch for patch once 6B (9.0.32 /
+  v805) and 6C (9.0.34 / v807) had shipped, a tests-only commit and a comment and registry commit
+  from the review of the moved branch, one record commit, 6D-6's nine commits (regression rows,
+  failing test, runtime change, record, post-review comments and post-review record, first built on
+  the first branch's tip `e8cacdd4` and moved with its two post-review test commits folded into the
+  first two, then the fallback's failing test, runtime change and record), and 6C-3's four commits
+  (its open point's tests-only row `b00d79ac`, tests first `d6f7cb00`, the runtime change
+  `767a5a08` and one record commit, first stacked without 6D-6 as `5ca0abf0`, `38fcedb5` and
+  `7208a93d` and re-applied patch for patch after it; those first SHAs are on no ref now), the
+  final local check's record commit, QA round 9's record commit, QA round 10's record commit, and
+  the tests-only commit `8a0edafb` and record commit of 6D-6's review (QA round 11), the
+  release preparation record `a5c49cc0` (the train's pre-deploy section in the release record,
+  its open-item links and the sections that named the next App update), the bump `b0906a93`
+  (9.0.35 / v808 in the same seven lines of six files as 9.0.34's `c44d4d2c`), the last runtime
+  commit, a record commit for the release preparation (`3e4031f5`: the report, this entry and two
+  sentences of the release record's 9.0.35 section), QA round 12's record
+  commit for the bump head's full local gate (`56a7de55`), and the record commit of the release
+  preparation's review (QA round 13); the pull request, merge and release are the release
+  owner's. 6D-1 turns the Standard guest's local zero-start recovery from a
+  `player.ts` closure into the class `GuestZeroStartRecovery` in the new
+  `src/youtube/zero-start-recovery.ts`, and the two
+  recoveries' 0.35 s settle tolerance, 50 ms poll and 3 s bridge into three named exports of
+  `src/youtube/constants.ts`; 6D-2 makes the Standard host's legacy recovery a stage beside it
+  (`HostZeroStartRecovery`), the replacement fallback staying in `player.ts`; 6D-3 makes the
+  Standard host's local start wait one primitive in `player.ts`; 6D-4 types the PRO arm's start kind
+  with the PRO playback union and names and pins the four PRO start tokens apart, keeping the
+  desired-audio pushes because a live read is not neutral; 6D-5 keeps RO-02, RO-03 and RO-12
+  `duplicated` at the end of Phase 6's code, naming the machines that remain, and checks the plan's
+  Phase 6 end conditions against the code. Neutral: the T0a goldens, both T0b truth tables and the
+  6B and 6C rows pass byte for byte (one T0a parity row gained the three new names), the five start
+  timers stay `player.ts`'s managed timers under their names, and the wire is unchanged. The
+  owner's answers of 2026-11-02 night are recorded: 6C-3 (one mute rule for a master volume above
+  0 and below 0.5 %, left out of 9.0.34) and 6D-6 (the fix for a late-joining PRO device's second
+  effects toast and rebuilt YouTube screen, Q22 (a), seen as frames) are both yes and close this
+  train, tests first, 6D-6 and then 6C-3 before the bump, 6C-3 only after its open point (whether
+  a remote host PREPARE during a guest's local fallback start carries the 'rounded' intent into the
+  new run) is checked and recorded. 6D-6 is built, before 6C-3, after the owner saw the pictures:
+  the COMMIT catch-up of a device that missed its READY keeps that PREPARE's still-loading load, so
+  one toast shows and the screen stays, also when the start arrives in a snapshot. A fallback the
+  release owner added loads a first screen still not ready at the join the catch-up plans again
+  there, as before 6D-6 but up to about 3 s later (about 1.1 s in the test scene), instead of
+  ending 15 s after the PREPARE with the load-timeout toast; the slowest phones, whose first screen
+  is merely slow, take that path too. One rarer path stays worse than before 6D-6: a start learned
+  from a snapshot 12 to 15 s after the PREPARE while the first screen is still loading still ends
+  with the load-timeout toast and waits for the next room-state sync (pinned by a test row; the
+  owner accepted it with the size question Q29). 6C-3 is built after it as the
+  train's last increment and its one intended change ([screen changes: sound and start timing only,
+  iPhone, master volume between 0 and 0.5 %]): `readYouTubeAppAudio` loses its 'non-positive'
+  variant, so every site mutes YouTube when the master volume rounds to 0 %, with the same frames
+  and instants. Its open point was checked first and pinned: a PREPARE that takes over the guest's
+  local recovery already carries the 'rounded' intent, while a PREPARE that a remote host sends
+  inside its own run's timeline window comes after an ABORT, which ends the recovery, so the new run
+  captures its own audio, the 'non-positive' answer until 6C-3 (the path the 6C probes hit), and
+  6C-3 changes it as it changes the guest zero-start row. The new finding (both zero-start
+  recoveries never seek again when a settle leaves a loaded target more than 0.35 s from the local
+  zero, and give up at the end of their window, the iframe paused there with no notice) is
+  recorded only, end condition 2 holds under the owner-accepted reading (a), and no T0b defect fix
+  rides. The report lists the owner answers used, each increment's tests-first evidence before and
+  after the move, the SHA map, the guard counts (CHECK 11 stays 20 as `player.ts`'s recovery
+  writes move into the new module), the first load (+458 B eager JavaScript gzip against main
+  `432d4ae7`: +294 B for 6D-1 to 6D-5, +68 B for 6D-6, +114 B for its fallback and −18 B for
+  6C-3; Phase 6 total +289 B, over the +200 B cap by 89 B; on the morning of 2026-11-03 the owner
+  answered Q29 to ship as is, keeping the fallback and the rare late-snapshot timeout), 6C-3's
+  before/after table and timing check against the approved table, the Phase 6 end-condition
+  check (condition 6's 14 days count from this release), mixed versions, rollback (checkpoint App
+  9.0.34 / v807, a forward fix at 9.0.36 / v809 or the next free number), the blind device
+  candidates, the three open items, now linked from the release record, and the Phase 7 handoff. QA rounds 1 to 4 ran on the first branch (old base `bdb5759a`). QA round 5 moved it
+  onto `432d4ae7` (four docs-only conflicts, every commit's `src` and `scripts` patch unchanged)
+  and reran the tests-first pairs, types, lint, format, `check:workers`, three unit directories
+  with the guard self-test, the build and every guard. QA round 6, on the reviewed tip `acc22d3a`:
+  types, lint and format, `check:workers`, the unit suite 755 files / 18,117 rows (nine timeouts
+  in two release-tool files on a loaded PC, each file passing when run alone), four
+  `--sequence.shuffle` seeds over `src/youtube`, `src/player` and `src/pro-room` (6,804 rows each,
+  seed 7 rerun after an incomplete first run), critical coverage 112 files / 4,599 with the
+  merged profile and Worker coverage 69 / 3,325, the build and every guard except
+  `guard:sw-cache-version` (the pending bump: 10 App files newer than v807), critical E2E 101 /
+  101, the ten local YouTube specs 53 / 53 and the WebKit YouTube activation spec 4 / 4 (ports
+  5391 / 5392, retries 0). QA round 7, on 6C-3's tip `7208a93d` before 6D-6 was put in front of
+  it: the open-point row and the tests-first pair at their commits (56 / 59 on the parent, failing
+  only the three flipped 0.004 rows; 59 / 59 after), types, lint and format, the YouTube, player
+  and PRO room unit directories with the guard self-test (249 files / 6,916 rows), the ownership
+  check (counts unchanged), the build and every guard except `guard:sw-cache-version`, and the
+  first load. QA round 8, the final local check on the head `b2ec82e3`, also before 6D-6, with
+  `origin/main` still `432d4ae7`: types, lint, format, `check:workers`, the unit suite 755 files /
+  18,120 rows (nine timeouts in the same two release-tool files as round 6 on a loaded PC; rerun
+  alone, every timed-out row passed except one, which timed out on the base `432d4ae7` too under
+  the same load), critical coverage 112 files / 4,599, the ownership check, a clean build with
+  every guard except `guard:sw-cache-version`, the first load against a clean build of the base
+  (+273 B eager JavaScript gzip, as in round 7), critical E2E 101 / 101, the ten local YouTube
+  specs 53 / 53 and the WebKit YouTube activation spec 4 / 4 (ports 5391 / 5392, retries 0).
+  6D-6 then came in front of 6C-3: shared-path rows that pass before and after it, four
+  late-join rows of a device without an iframe that fail before it (two flipped, a snapshot-route
+  row and a never-ready first iframe row), and an iPhone kept-iframe row that pins the judgement's
+  ready-player bound. Its runtime commit has the first branch's patch-id and adds 68 B, its comment
+  commit changes no build byte, and its pictures come from the first branch's real build. The
+  fallback's flipped never-ready row fails before its runtime commit and passes after it; that
+  commit adds 114 B, and types, lint, the three unit directories with the guard self-test and the
+  ownership check pass on it. 6C-3's three code and test commits were then re-applied with the same
+  patch-ids and take −18 B; round 8's full local check was rerun on the head with 6D-6 in QA round 10.
+  QA round 9, on that head `b19ccffb`, checked the fallback again against the release owner's
+  decision (no change) and ran the late-join, shared-path and four golden files (17, 7 and 132
+  rows), the three unit directories with the guard self-test (250 files / 6,925 rows), types,
+  lint, a clean build with every guard except `guard:sw-cache-version` (now 13 App files: the
+  ten `src/youtube/` files plus `src/player/playlist.ts` and two `src/pro-room/` files), the
+  ownership check (counts unchanged), the local deploy-target judgement (App 13, every other
+  target 0, no App runtime dependency change, empty contract-freeze diff) and the first load
+  (+458 B eager JavaScript gzip against `432d4ae7`, the same bytes as when it was rebuilt). The
+  report's 6D-6 section now splits the visible change into the normal case the owner saw, the
+  snapshot route (the same change) and the rare never-ready case (as today, up to about 3 s later), and
+  6C-3's section gains one plain line for its ABORT-first case.
+  QA round 10, on QA round 9's record commit `8e6bd9ab` with `origin/main` still `432d4ae7`:
+  types, lint, format, `check:workers`, the unit suite 756 files / 18,129 rows (two timeouts in
+  the same two release-tool files as rounds 6 and 8 on a loaded PC, both files passing when rerun
+  alone), critical coverage 112 files / 4,599, the ownership check (counts and `--report`
+  unchanged), a clean build with every guard except `guard:sw-cache-version` (13 App files), the
+  first load against a clean build of the base (+458 B eager JavaScript gzip; Phase 6 +289 B,
+  still the Q29 question), critical E2E 101 / 101, the ten local YouTube specs 53 / 53 and the
+  WebKit YouTube activation spec 4 / 4 (ports 5391 / 5392, retries 0). 6D-6's frames were taken
+  again on this branch, today's row on `432d4ae7` and the fixed row on the head: one toast and the
+  kept first screen as approved, the pixel differences limited to the Hangul text that App 9.0.33
+  redrew, the spinners and a toast fade. QA round 11 applied 6D-6's review without a runtime
+  change: four tests-only rows pin both sides of the fallback's deadline (the snapshot route and
+  the IFrame API script still loading at the planned join load again there; a first iframe ready
+  1 ms before it is kept) and the late-snapshot path above as the branch behaves; the late-join
+  file is 13 / 13 on the head, 10 / 13 without the fallback's runtime patch and 5 / 13 without
+  6D-6's and the fallback's, where the late-snapshot row fails because the snapshot then loads
+  again at once. The owner text now gives the fallback's trade-offs and tags Q29 (b) [screen
+  changes]; the report points the 6C-3 rows at the re-applied SHAs. The three unit directories
+  with the guard self-test (250 files / 6,929 rows), a clean build (the same bytes as round 10),
+  every guard except `guard:sw-cache-version`, the ownership check and the local deploy-target
+  judgement pass as before. At the release preparation on the afternoon of 2026-11-03 (`git fetch`
+  showed main still at `432d4ae7`), on the bump head `b0906a93`: `guard:sw-cache-version` (PASS
+  v808) and `guard:release-identity` (9.0.35 / v808), `npm run build:checked` as one command, the
+  ownership check (49 records, 459 files), the local deploy-target judgement (App 17 with the four
+  version mirrors, every other target 0, no App runtime dependency change, target `app`
+  partial-release compatible), the contract-freeze diff (the seven version lines; in `cloudflare/`
+  only `ADMIN_ASSET_VERSION`) and the first load (+462 B eager JavaScript gzip against `432d4ae7`,
+  4 B of it the version strings) pass. QA round 12 then ran the release record's full local gate on
+  the bump head's record commit `3e4031f5` (runtime of `b0906a93`, ports 5393 / 5394, retries 0,
+  `origin/main` still `432d4ae7`): types, lint, format, `check:workers`, `build:checked` as one
+  command and all 37 guards one by one (all passing, the version guards at v808 and 9.0.35), the
+  ownership check (`--report` unchanged), critical coverage 112 files / 4,599 and Worker coverage
+  69 / 3,325, the unit suite twice (756 files / 18,133 rows; the second run's one failure, a
+  timeout in the same release-tool file as rounds 8 and 10, passed when that file was rerun alone),
+  the production-candidate E2E 19 / 19, critical E2E 101 / 101, the ten local YouTube specs 53 / 53,
+  the WebKit YouTube activation spec 4 / 4, the local deploy-target judgement (App 17, every other
+  target 0) with the partial-release check, and the first load against a clean build of the base
+  (+462 B eager JavaScript gzip, the same bytes as at the release preparation). QA round 13
+  applied the release preparation's review in documentation only: each older release-record item
+  whose substance the preparation changed now links this report, three items whose substance did
+  not change keep their earlier pointer to the top of §2 for the deploy record to fix with §1, the
+  fallback's deadline is described as the catch-up's late-join lead (3 s by default, at most 4 s
+  on a device whose earlier local rejoins prepared slowly), and the owner's answers are
+  paraphrased instead of quoted.
 - [App 9.0.34 / v807 train: Phase 6 6C (one YouTube state router, one iframe audio owner and shared arm steps), no light-theme stroke on the dialog grey button and the selection bar, and lighter light-theme dividers (2026-11-02)](design/phase6-6c-router-iframe-audio-arm-steps-2026-11-02.md):
   released on 2026-11-02 21:20 KST in Release 41443521522 (PR #563, squash `cd8eaf47`) as App
   9.0.34 / v807 (App build 807, target `app`, one update dialog, two visible light-theme changes;
@@ -141,9 +302,11 @@ runbooks. Neither belongs in a general setup document.
   YouTube specs' 53 rows, the 24 light-theme rows and the 32 selection-mode playlist rows;
   `webkit-mobile` 94 passed and 5 skipped plus the production service worker test, among them
   `setup-youtube-activation` 4, `youtube-landscape-full-bleed` 4 and `auxiliary-component-cascade` 5
-  on Linux WebKit, not a real iPhone Safari; the production large-room R2 smoke passed), which meets the condition for the next App update, the public-page
+  on Linux WebKit, not a real iPhone Safari; the production large-room R2 smoke passed), which meets the condition for the next App train to merge. This record named that train as the public-page
   font train with the design system Typography section (planned 9.0.35 / v808, being built on
-  `agent/public-page-fonts` from `cd8eaf47`), to merge. The blind device
+  `agent/public-page-fonts` from `cd8eaf47`); on the afternoon of 2026-11-03 the release owner
+  decided to ship the ready 6D first as 9.0.35 / v808, with the font train after it (9.0.36 / v809
+  planned). The blind device
   candidates A to F and the owner's light-mode look G wait. The release record's §2 carries the
   train as post-deploy items (scope and status, the owner decisions and rule, rollback, the
   post-deploy check, the next steps, open items), its §4 the 9.0.34 entry and current boundary
@@ -211,7 +374,8 @@ runbooks. Neither belongs in a general setup document.
   build 806, deploy SHA `4faf38d9`; a manual rollback to it removes the whole train v807 and gives
   its clients a lower epoch, so the default is a forward revert of the whole train or one increment
   as 9.0.35 / v808, or the next App update's number after that if another ships first; 6C and each
-  light commit alone only until the next App update, the public-page font train, merges, as the
+  light commit alone only until the next App update merges (6D as 9.0.35 / v808 by the release
+  owner's 2026-11-03 decision; this record named the public-page font train), as the
   record rules for 9.0.31, 6B and 9.0.33, then a forward fix on the latest main; reverting 6C after
   6D merges takes 6D with it), the blind device candidates
   and the owner's own light-theme look at the grey button, the selection bar and the dividers (not

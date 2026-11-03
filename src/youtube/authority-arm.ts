@@ -1,5 +1,6 @@
 import type { QueueItemId, YouTubeZeroStartPlatform } from '../types/index.ts';
 import { MANUAL_SYNC_OFFSET_LIMIT_MS } from '../core/constants.ts';
+import type { ProPlaybackTimingMode } from '../pro-room/playback-authority-hooks.ts';
 import {
   acceptYouTubeWarmPlaying,
   settleYouTubeAtTarget,
@@ -40,7 +41,12 @@ interface YouTubeAuthorityArmIdentity {
 /** The arm warms only an iframe that already holds the occurrence's video. */
 type YouTubeAuthorityArmStrategy = 'resident';
 
-export type YouTubeAuthorityTimingMode = 'zero-start' | 'scheduled-control';
+/**
+ * A COMMIT's start kind: the PRO playback union that the PRO Worker and the
+ * App share (cloudflare/pro-room-playback-timing.ts, through
+ * playback-authority-hooks.ts), not a copy of it.
+ */
+export type YouTubeAuthorityTimingMode = ProPlaybackTimingMode;
 
 interface YouTubeAuthorityArmPrepareRequest extends YouTubeAuthorityArmIdentity {
   targetSeconds: number;
@@ -231,6 +237,11 @@ export class YouTubeAuthorityArmController {
   readonly #scheduler: YouTubeAuthorityArmScheduler;
   readonly #timers = new Set<ReturnType<typeof globalThis.setTimeout>>();
   readonly #detachedRestoreTimers = new Set<ReturnType<typeof globalThis.setTimeout>>();
+  // The arm's own two tokens, apart from the four PRO start tokens of
+  // iframe.ts, player.ts and iframe-audio.ts (registry RO-03): the run's,
+  // which every prepare and every cancel of a run move and the run's timers
+  // check; and the detached restore's, which a new detached restore, a
+  // successor run's takeover and cancelAll move and its retries check.
   #generation = 0;
   #detachedRestoreGeneration = 0;
   #detachedRestore: DetachedAudioRestore | null = null;
@@ -261,7 +272,12 @@ export class YouTubeAuthorityArmController {
     return phase === 'muting' || phase === 'warming' || phase === 'settling';
   }
 
-  /** Keep restoration aligned with volume changes made during an active arm. */
+  /**
+   * Keep restoration aligned with volume changes made during an active arm.
+   * The arm takes the App's desired audio once, at its prepare, from the
+   * iframe audio owner (iframe-audio.ts, through iframe.ts); player.ts pushes
+   * every later change here (registry RO-12).
+   */
   updateDesiredAudioState(update: { muted?: boolean; volume?: number }): void {
     const run = this.#run;
     if (run) {

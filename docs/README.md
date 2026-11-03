@@ -96,6 +96,19 @@ runbooks. Neither belongs in a general setup document.
 
 ## Maintained evidence and completed records
 
+- [iPhone YouTube return at the moment of the browser stop (2026-11-03)](design/ios-youtube-return-train-2026-11-03.md):
+  not released; branch `agent/ios-yt-return` on main `88550bc4` (App 9.0.35 / v808), tested code
+  `e4319843e`. Owner device report of 2026-11-03: an iPhone guest in a Standard room that reopens
+  the app at the very moment iOS stops its hidden YouTube iframe stays paused until a tap on PLAY or
+  Sync. On iPhone and iPad only, a Standard guest's unowned iframe PAUSE processed while hidden, or
+  within `BACKGROUND_STOP_RETURN_GRACE_MS` (1 s) after the return and before focus moves into the
+  iframe, is now the browser's stop: no pause intent, the local pause bit back down, and the RO-05
+  return chain aligns after it (a sub-second bounce included); the hidden period is the background
+  resume guard's one reading (`getLastObservedBackgroundReturn`). Computers, Android phones, hosts,
+  operators and PRO rooms are unchanged. Increments: tests first `570f47229`, the fix `a86ad57bb`,
+  the review fix `e4319843e`. Local evidence only (Vitest, Playwright Chromium with an iPhone user
+  agent and a fake YouTube player); no real iPhone yet, the 1 s grace is unmeasured, and one owner
+  question (a pause tapped within 1 s of the return on an iPhone is aligned over) is open.
 - [Phase 7 train 7A: on-device audio recovery counts in /debug sync and a behaviour-neutral recovery cleanup (2026-11-03)](design/phase7-7a-audio-recovery-counters-2026-11-03.md):
   prepared, not merged or released. The first of the three Phase 7 App updates (owner decision Q2)
   on branch `agent/p7-7a`: twelve commits on `agent/p7-t1` (the release-free Phase 7 T0 second pull

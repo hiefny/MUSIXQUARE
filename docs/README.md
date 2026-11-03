@@ -99,7 +99,7 @@ runbooks. Neither belongs in a general setup document.
 - [Phase 7 train 7A: on-device audio recovery counts in /debug sync and a behaviour-neutral recovery cleanup (2026-11-03)](design/phase7-7a-audio-recovery-counters-2026-11-03.md):
   prepared, not merged or released. The first of the three Phase 7 App updates (owner decision Q2)
   on branch `agent/p7-7a`: twelve commits on `agent/p7-t1` (the release-free Phase 7 T0 second pull
-  request and T1 with its review fixes, tip `42819c58`, on main `432d4ae7`) and two record commits;
+  request and T1 with its review fixes, tip `42819c58`, on main `432d4ae7`) and three record commits;
   the version bump, the release-record entry and the release are the release owner's, after Phase 6
   6D has shipped, been recorded and passed its post-merge Full E2E and its post-deploy smoke. 7A-2
   gives the AudioContext recovery one timing home,
@@ -135,7 +135,10 @@ runbooks. Neither belongs in a general setup document.
   single race now reads '1 race watched' in `/debug sync` (its own test-first pair, code tip
   `a4d4d383`), the T1 indirect-resume ratchet also counts calls inside `src/audio/context.ts`
   (zero today, its own test-first pair), and record fixes in the registry, the report and this
-  entry; the pictures with the singular are retaken in the next check.
+  entry. Round 10 reran the full local checks on both tips with no failure but the pending bump's
+  `guard:sw-cache-version` on 7A (the unit suite, critical coverage and E2E, the recovery specs, the
+  audio lab with equal observations, and the size against `432d4ae7`) and retook the `/debug sync`
+  pictures with the singular.
 - [App 9.0.36 / v809 train: every public page on the app's font system, and the design system Typography section (2026-11-02)](design/public-page-fonts-2026-11-02.md):
   released on 2026-11-03 22:22 KST in Release 41643392133 (PR #567, squash `6f9cf6f8`) as App
   9.0.36 / v809 (App build 809, target `app`, one update dialog; the bump `f47d5733` is the last

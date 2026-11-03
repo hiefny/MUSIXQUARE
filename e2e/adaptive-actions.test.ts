@@ -76,6 +76,7 @@ const SWEPT_SLOT_KEYS = {
   refresh: 'common.refresh',
   cancel: 'common.cancel',
   add: 'player.play_start',
+  search: 'youtube.search_button',
 } as const;
 
 const LOCALIZED_ACTIONS = Object.entries(LOCALES).map(([code, dictionary]) => ({
@@ -2022,16 +2023,22 @@ test.describe('content-based adaptive action groups', () => {
               confirm.disabled = disabled;
               return outer;
             }),
-          'YouTube link actions': (locale) => {
-            const overlay = authored.getElementById('youtube-url-overlay')!;
-            const outer = overlay.cloneNode(true) as HTMLElement;
-            outer.classList.add('active');
-            text(outer, '#btn-yt-cancel', locale.swept.cancel);
-            text(outer, '#youtube-play-btn', locale.swept.add);
-            outer.querySelector<HTMLElement>('#youtube-play-btn')!.parentElement!.dataset.sweptRow =
-              '';
-            return [outer];
-          },
+          // The big button's three labels (owner decision 2026-11-03): Add
+          // to Playlist, Search while a query is typed and Please wait...
+          // while busy, as src/youtube/search.ts sets them.
+          'YouTube link actions': (locale) =>
+            (['add', 'search', 'wait'] as const).map((label) => {
+              const overlay = authored.getElementById('youtube-url-overlay')!;
+              const outer = overlay.cloneNode(true) as HTMLElement;
+              outer.classList.add('active');
+              text(outer, '#btn-yt-cancel', locale.swept.cancel);
+              const primary = outer.querySelector<HTMLButtonElement>('#youtube-play-btn')!;
+              primary.textContent = locale.swept[label];
+              primary.disabled = label === 'wait';
+              if (label === 'wait') primary.setAttribute('aria-busy', 'true');
+              primary.parentElement!.dataset.sweptRow = '';
+              return outer;
+            }),
           // Sync and Media, and Stop Sharing across both slots while sharing.
           'play actions': (locale) =>
             [false, true].map((sharing) => {
@@ -2204,12 +2211,14 @@ test.describe('content-based adaptive action groups', () => {
     const reference = await measure();
 
     // Instances per locale: 4 invite modes, 2 media states, 5 toggle states,
-    // 6 setup confirm labels, 2 play action states, one of each other slot.
+    // 6 setup confirm labels, 3 YouTube primary labels, 2 play action states,
+    // one of each other slot.
     const instances: Record<string, number> = {
       'invite link': 4,
       'media sources': 2,
       'selection toggle': 5,
       'setup confirm': 6,
+      'YouTube link actions': 3,
       'play actions': 2,
     };
     expect(built).toBe(

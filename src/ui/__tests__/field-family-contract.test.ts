@@ -55,6 +55,7 @@ const LINE_CENTRED = ':is(.setup-inline-error, .dialog-input-split + .dialog-hin
 const JOIN_NARROW = '.setup-join-input:not(.yt-intro-text):not([readonly])';
 const SYNC_INVALID = ".sync-manual-input-wrapper:has([aria-invalid='true'])";
 const JOIN_INVALID = ".setup-join-input:not(.yt-intro-text)[aria-invalid='true']";
+const YOUTUBE_INVALID = ".yt-search-input-wrapper:has([aria-invalid='true'])";
 const ENTRY_LINE = '.chat-input:not(.sync-manual-input)';
 const FORCED_INVALID =
   ":is(input:not([type='range']):not([type='hidden']), [contenteditable='true'], [role='textbox'], [role='combobox'])[aria-invalid='true']";
@@ -524,7 +525,18 @@ describe('one field family (owner decision 2026-11-03)', () => {
     expect(higher(specificity(JOIN_INVALID), specificity('.setup-join-input:focus'))).toBe(true);
     expect(join.index).toBeGreaterThan(theRule('.setup-join-input:focus', BASE).index);
     expect(join.index).toBeGreaterThan(theRule('.setup-join-input', BASE).index);
-    // The YouTube box shares the class but draws its underline on its wrapper.
+    // The YouTube box draws its underline on its wrapper: an invalid link (the
+    // only value error there) turns it red, after the focus blue in source
+    // order; a failed search or lookup paints only the line.
+    const youtube = theRule(YOUTUBE_INVALID, COMPONENTS);
+    expect(youtube.declarations).toEqual({ 'border-bottom-color': 'var(--danger-foreground)' });
+    expect(
+      higher(specificity('.yt-search-input-wrapper:focus-within'), specificity(YOUTUBE_INVALID)),
+    ).toBe(false);
+    expect(youtube.index).toBeGreaterThan(
+      theRule('.yt-search-input-wrapper:focus-within', COMPONENTS).index,
+    );
+    // So no .setup-join-input rule other than the code's reads aria-invalid.
     expect(
       RULES.filter(
         (found) =>
@@ -598,6 +610,7 @@ describe('one field family (owner decision 2026-11-03)', () => {
       ['.sync-col-value', BASE],
       [SYNC_INVALID, BASE],
       [JOIN_INVALID, BASE],
+      [YOUTUBE_INVALID, COMPONENTS],
       ['.sync-manual-input:empty::before', BASE],
       ['.yt-search-input-wrapper .yt-intro-text', COMPONENTS],
       ['.setup-join-area > .yt-preview-meta', COMPONENTS],

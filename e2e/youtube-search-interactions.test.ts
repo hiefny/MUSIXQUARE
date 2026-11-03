@@ -9,6 +9,9 @@ import {
 } from './helpers/context-factory.ts';
 import { readState, waitForPlaylistCount } from './helpers/wait.ts';
 
+// --danger-foreground in both default themes (#ff3b30).
+const DANGER = 'rgb(255, 59, 48)';
+
 const RESULTS = [
   { videoId: '9bZkp7q19f0', title: 'Gangnam Style', channelTitle: 'PSY' },
   {
@@ -228,6 +231,67 @@ test.describe('YouTube search loading and quick add', () => {
     });
   }
 
+  // Owner decision (2026-11-03, the input system): the big button reads
+  // Search while a query is typed and nothing is picked, Please wait... while
+  // the search runs and Add to Playlist once a result is picked.
+  test('the big button searches a typed query, then adds the first result once', async ({
+    page,
+  }) => {
+    let releaseSearch!: () => void;
+    const pending = new Promise<void>((resolve) => {
+      releaseSearch = resolve;
+    });
+    let requests = 0;
+    await page.route('**/api/youtube-search?**', async (route) => {
+      requests++;
+      await pending;
+      await route.fulfill({ json: { results: RESULTS } });
+    });
+    await openSearch(page);
+    const input = page.locator('#youtube-url-input');
+    const primary = page.locator('#youtube-play-btn');
+    const results = page.locator('#youtube-search-results');
+    try {
+      await expect(primary).toHaveText('Add to Playlist');
+      await expect(primary).toBeDisabled();
+      await input.fill('Big button search');
+      await expect(primary).toHaveText('Search');
+      await expect(primary).toBeEnabled();
+      await primary.click();
+      await expect(primary).toHaveText('Please wait...');
+      await expect(primary).toBeDisabled();
+      await expect(primary).toHaveAttribute('aria-busy', 'true');
+      await expect(results).toHaveAttribute('aria-busy', 'true');
+      expect(requests).toBe(1);
+      releaseSearch();
+      await expect(results.locator('button')).toHaveCount(RESULTS.length);
+      await expect(primary).toHaveText('Add to Playlist');
+      await expect(primary).toBeEnabled();
+      await expect(primary).not.toHaveAttribute('aria-busy', 'true');
+
+      // An edit clears the results and offers the search again.
+      await input.fill('Big button search live');
+      await expect(primary).toHaveText('Search');
+      await expect(results).toBeHidden();
+      await input.fill('Big button search');
+      await expect(primary).toHaveText('Search');
+      // The cached search settles before the second tap of a double tap, which
+      // must not add the first result.
+      await primary.dblclick();
+      await expect(results.locator('button')).toHaveCount(RESULTS.length);
+      await expect(primary).toHaveText('Add to Playlist');
+      expect(await readState(page, 'playlist.items')).toEqual([]);
+      await primary.click();
+      await waitForPlaylistCount(page, 1);
+      const items = (await readState(page, 'playlist.items')) as Array<{ videoId: string }>;
+      expect(items.map((item) => item.videoId)).toEqual([RESULTS[0]!.videoId]);
+      expect(requests).toBe(1);
+      await expect(page.locator('#youtube-url-overlay')).not.toBeVisible();
+    } finally {
+      releaseSearch();
+    }
+  });
+
   test('search failure removes skeleton and allows a fresh search', async ({ page }) => {
     let requests = 0;
     await page.route('**/api/youtube-search?**', (route) => {
@@ -240,12 +304,16 @@ test.describe('YouTube search loading and quick add', () => {
     const input = page.locator('#youtube-url-input');
     await input.fill('Retry search');
     await input.press('Enter');
-    await expect(page.locator('#youtube-preview-status')).toHaveAttribute(
-      'data-i18n',
-      'youtube.search_failed',
-    );
+    const status = page.locator('#youtube-preview-status');
+    await expect(status).toHaveAttribute('data-i18n', 'youtube.search_failed');
     await expect(page.locator('.yt-search-skeleton')).toHaveCount(0);
     await expect(page.locator('#youtube-search-results')).not.toHaveAttribute('aria-busy', 'true');
+    // A failed search paints only the line; the box and the button offer it again.
+    await expect(status).toHaveClass(/\berror\b/);
+    await expect(status).toHaveCSS('color', DANGER);
+    await expect(input).not.toHaveAttribute('aria-invalid', 'true');
+    await expect(page.locator('#youtube-play-btn')).toHaveText('Search');
+    await expect(page.locator('#youtube-play-btn')).toBeEnabled();
     await input.press('Enter');
     await expect(page.locator('#youtube-search-results button')).toHaveCount(RESULTS.length);
     expect(requests).toBe(2);
@@ -257,16 +325,21 @@ test.describe('YouTube search loading and quick add', () => {
     await openSearch(page);
     const input = page.locator('#youtube-url-input');
     await input.fill('https://www.youtube.com/watch?v=dQw4w9WgXcQx');
-    await expect(page.locator('#youtube-preview-status')).toHaveAttribute(
-      'data-i18n',
-      'youtube.invalid_link',
-    );
+    const status = page.locator('#youtube-preview-status');
+    const wrapper = page.locator('#youtube-url-overlay .yt-search-input-wrapper');
+    await expect(status).toHaveAttribute('data-i18n', 'youtube.invalid_link');
+    // An invalid link is a wrong value: the line and the underline turn red.
+    await expect(status).toHaveClass(/\berror\b/);
+    await expect(input).toHaveAttribute('aria-invalid', 'true');
+    await expect(wrapper).toHaveCSS('border-bottom-color', DANGER);
     await input.press('Enter');
     await expect(page.locator('#youtube-play-btn')).toBeDisabled();
     await expect(page.locator('#youtube-url-overlay')).toBeVisible();
     expect(await readState(page, 'playlist.items')).toEqual([]);
 
     await input.fill('https://www.youtube.com/watch?v=dQw4w9WgXcQ&t=12');
+    await expect(input).not.toHaveAttribute('aria-invalid', 'true');
+    await expect(wrapper).not.toHaveCSS('border-bottom-color', DANGER);
     await expect(page.locator('#youtube-play-btn')).toBeEnabled();
     await input.press('Enter');
     await expect

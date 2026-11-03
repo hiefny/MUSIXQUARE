@@ -391,10 +391,15 @@ describe('YouTube search keyboard and result activation', () => {
     );
     enter(input);
     document.querySelectorAll<HTMLButtonElement>('.yt-search-result')[1].click();
+    // The new pick owns the big button at once (owner decision 2026-11-03:
+    // one writer); the wait's own release then leaves it alone.
+    const playButton = document.getElementById('youtube-play-btn')!;
+    expect(playButton.dataset.mode).toBe('add');
     resolve(true);
-    await vi.waitFor(() =>
-      expect(document.getElementById('youtube-play-btn')!.hasAttribute('aria-busy')).toBe(false),
-    );
+    // One macrotask: the prime wait and its release settle first.
+    await new Promise((settled) => setTimeout(settled, 0));
+    expect(playButton.hasAttribute('aria-busy')).toBe(false);
+    expect(playButton.dataset.mode).toBe('add');
     expect(submit).not.toHaveBeenCalled();
     enter(input);
     expect(submit).toHaveReturnedWith('BBBBBBBBBBB');
@@ -413,6 +418,149 @@ describe('YouTube search keyboard and result activation', () => {
     await pending[1];
     expect(search).toHaveBeenCalledTimes(2);
     expect(submit).not.toHaveBeenCalled();
+  });
+
+  // Owner decision (2026-11-03, the input system): the big button reads
+  // Search while a query is typed and nothing is picked and runs the same
+  // search as Enter and the magnifier; it reads Please wait... while busy and
+  // Add to Playlist once a result is picked.
+  function primaryButton() {
+    const primary = document.getElementById('youtube-play-btn') as HTMLButtonElement;
+    return {
+      primary,
+      state: () => ({
+        mode: primary.dataset.mode,
+        disabled: primary.disabled,
+        i18n: primary.getAttribute('data-i18n'),
+        text: primary.textContent,
+        busy: primary.getAttribute('aria-busy'),
+      }),
+      tap: (detail: number) =>
+        primary.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true, detail })),
+    };
+  }
+  const SEARCH_STATE = {
+    mode: 'search',
+    disabled: false,
+    i18n: 'youtube.search_button',
+    busy: null,
+  } as const;
+  const ADD_STATE = {
+    mode: 'add',
+    disabled: false,
+    i18n: 'player.play_start',
+    busy: null,
+  } as const;
+  const BUSY_STATE = { mode: 'busy', disabled: true, i18n: 'common.wait', busy: 'true' } as const;
+
+  it('searches from the big button while a query is typed, without the iOS prime', async () => {
+    const { pending, search, submit } = setup();
+    const { primary, state } = primaryButton();
+    expect(state()).toEqual({ ...SEARCH_STATE, text: t('youtube.search_button') });
+    primary.click();
+    expect(search).toHaveBeenCalledOnce();
+    expect(state()).toEqual({ ...BUSY_STATE, text: t('common.wait') });
+    primary.click();
+    expect(search).toHaveBeenCalledOnce();
+    await pending[0];
+    expect(state()).toEqual({ ...ADD_STATE, text: t('player.play_start') });
+    expect(submit).not.toHaveBeenCalled();
+    expect(youtubePrimer.prime).not.toHaveBeenCalled();
+    expect(youtubePrimer.wait).not.toHaveBeenCalled();
+  });
+
+  it('ignores the second tap of a double tap that lands on Add right after its search', async () => {
+    const { input, pending, search, submit } = setup();
+    const { state, tap } = primaryButton();
+    // Fill the search cache, then type the query again: its next search
+    // settles before the second tap of a double tap arrives.
+    enter(input);
+    await pending[0];
+    const typed = input.textContent!;
+    input.textContent = `${typed} live`;
+    input.dispatchEvent(new InputEvent('input', { bubbles: true }));
+    input.textContent = typed;
+    input.dispatchEvent(new InputEvent('input', { bubbles: true }));
+    expect(state()).toMatchObject(SEARCH_STATE);
+    tap(1);
+    expect(search).toHaveBeenCalledTimes(2);
+    await pending[1];
+    expect(state()).toMatchObject(ADD_STATE);
+    tap(2);
+    expect(submit).not.toHaveBeenCalled();
+    tap(1);
+    expect(submit).toHaveBeenCalledOnce();
+    expect(submit).toHaveReturnedWith('AAAAAAAAAAA');
+  });
+
+  it('adds on a double tap once an edit came between the search and the tap', async () => {
+    const { input, pending, submit } = setup();
+    const { state, tap } = primaryButton();
+    tap(1);
+    await pending[0];
+    // Any input clears the double-tap guard.
+    input.dispatchEvent(new InputEvent('input', { bubbles: true }));
+    expect(state()).toMatchObject(ADD_STATE);
+    tap(2);
+    expect(submit).toHaveReturnedWith('AAAAAAAAAAA');
+  });
+
+  it('adds on a double tap when Enter ran the search', async () => {
+    const { input, pending, submit } = setup();
+    enter(input);
+    await pending[0];
+    primaryButton().tap(2);
+    expect(submit).toHaveReturnedWith('AAAAAAAAAAA');
+  });
+
+  it('shows Please wait during the iOS prime wait and returns to Add for the same pick', async () => {
+    const { input, pending, submit } = setup();
+    const { state } = primaryButton();
+    enter(input);
+    await pending[0];
+    youtubePrimer.prime.mockReturnValueOnce(true);
+    let resolve!: (ready: boolean) => void;
+    youtubePrimer.wait.mockReturnValueOnce(
+      new Promise((done) => {
+        resolve = done;
+      }),
+    );
+    enter(input);
+    expect(state()).toEqual({ ...BUSY_STATE, text: t('common.wait') });
+    // A room change ends the wait with the text and the pick unchanged.
+    setState('network.sessionCode', '000001');
+    expect(state()).toEqual({ ...ADD_STATE, text: t('player.play_start') });
+    resolve(true);
+    await Promise.resolve();
+    await Promise.resolve();
+    await Promise.resolve();
+    expect(submit).not.toHaveBeenCalled();
+    expect(state()).toMatchObject(ADD_STATE);
+  });
+
+  it('lets a new query take the big button over during the iOS prime wait', async () => {
+    const { input, pending, submit } = setup();
+    const { state } = primaryButton();
+    enter(input);
+    await pending[0];
+    youtubePrimer.prime.mockReturnValueOnce(true);
+    let resolve!: (ready: boolean) => void;
+    youtubePrimer.wait.mockReturnValueOnce(
+      new Promise((done) => {
+        resolve = done;
+      }),
+    );
+    enter(input);
+    expect(state()).toMatchObject(BUSY_STATE);
+    input.textContent = 'a newer query';
+    input.dispatchEvent(new InputEvent('input', { bubbles: true }));
+    expect(state()).toEqual({ ...SEARCH_STATE, text: t('youtube.search_button') });
+    resolve(true);
+    await Promise.resolve();
+    await Promise.resolve();
+    await Promise.resolve();
+    expect(submit).not.toHaveBeenCalled();
+    expect(state()).toMatchObject(SEARCH_STATE);
   });
 });
 
@@ -1572,12 +1720,19 @@ describe('PRO room media-source capabilities', () => {
     expect(submit).not.toHaveBeenCalled();
     expect(playButton.disabled).toBe(true);
     expect(playButton.getAttribute('aria-busy')).toBe('true');
+    // The wait reads Please wait... (owner decision 2026-11-03).
+    expect(playButton.dataset.mode).toBe('busy');
+    expect(playButton.getAttribute('data-i18n')).toBe('common.wait');
+    expect(playButton.textContent).toBe(t('common.wait'));
     expect(youtubePrimer.prime).toHaveBeenCalledWith({ retryPending: true });
     expect(youtubePrimer.wait).toHaveBeenCalledWith(1_500);
 
     await vi.waitFor(() => expect(submit).toHaveBeenCalledOnce());
     expect(playButton.disabled).toBe(false);
     expect(playButton.hasAttribute('aria-busy')).toBe(false);
+    expect(playButton.dataset.mode).toBe('add');
+    expect(playButton.getAttribute('data-i18n')).toBe('player.play_start');
+    expect(playButton.textContent).toBe(t('player.play_start'));
   });
 
   it("logs '[YouTube Prime] Submit flow failed' when the gesture submit throws after the prime wait", async () => {

@@ -1,6 +1,8 @@
 /**
  * @vitest-environment jsdom
  */
+import { readFileSync } from 'node:fs';
+import { resolve } from 'node:path';
 import { afterEach, beforeEach, describe, it, expect, vi } from 'vitest';
 import { setLanguageMode } from '../../i18n/index.ts';
 import { bus } from '../../core/events.ts';
@@ -501,57 +503,283 @@ describe('YouTube input i18n state', () => {
   });
 });
 
-describe('YouTube search action state', () => {
-  it('gates play until a result exists and keeps the dedicated search action retryable', async () => {
+describe('YouTube primary button and status line states', () => {
+  // Owner decision (2026-11-03, the input system): the sheet's big button
+  // reads Search while a query is typed and nothing is picked, Please wait...
+  // while a search or a link lookup runs, and Add to Playlist once a result is
+  // chosen or a link previews; it is off on an empty box. Enter and the
+  // magnifier keep searching. One setter in src/youtube/search.ts writes the
+  // button: disabled, opacity, label, data-mode (the click routing reads it)
+  // and aria-busy. The line under the box takes .error for a failed search, an
+  // invalid link or a failed lookup, never an inline colour, and only an
+  // invalid link marks the box itself invalid.
+  type Mode = 'off' | 'search' | 'busy' | 'add';
+  const BUTTON: Record<Mode, Record<string, unknown>> = {
+    off: {
+      mode: 'off',
+      disabled: true,
+      opacity: '0.5',
+      i18n: 'player.play_start',
+      text: 'Add to Playlist',
+      busy: null,
+    },
+    search: {
+      mode: 'search',
+      disabled: false,
+      opacity: '1',
+      i18n: 'youtube.search_button',
+      text: 'Search',
+      busy: null,
+    },
+    busy: {
+      mode: 'busy',
+      disabled: true,
+      opacity: '0.5',
+      i18n: 'common.wait',
+      text: 'Please wait...',
+      busy: 'true',
+    },
+    add: {
+      mode: 'add',
+      disabled: false,
+      opacity: '1',
+      i18n: 'player.play_start',
+      text: 'Add to Playlist',
+      busy: null,
+    },
+  };
+  const RESULT = { videoId: 'KKKKKKKKKKK', title: 'Found track', channelTitle: 'Channel' };
+
+  interface Expected {
+    button: Mode;
+    line: string;
+    error?: boolean;
+    invalid?: boolean;
+    magnifier: 'off' | 'on' | 'busy';
+  }
+
+  let queryNumber = 0;
+  const query = (): string => `primary button state ${++queryNumber}`;
+  const searches = new Map<
+    string,
+    { resolve: (response: Response) => void; reject: (reason: Error) => void }
+  >();
+  let oembed: () => Response | Promise<Response>;
+
+  function mount(): void {
     document.body.innerHTML = `
+      <div class="yt-search-input-wrapper">
+        <div id="youtube-url-input" contenteditable="true" role="textbox"></div>
+        <button id="youtube-search-btn" disabled></button>
+      </div>
+      <p id="youtube-preview-status" class="yt-preview-meta"></p>
       <div id="youtube-preview" hidden></div>
-      <div id="youtube-preview-status"></div>
-      <div id="youtube-search-results" role="group"></div>
-      <button id="youtube-search-btn" disabled></button>
+      <img id="youtube-preview-thumb">
+      <div id="youtube-preview-title"></div>
+      <div id="youtube-preview-channel"></div>
+      <div id="youtube-search-results" role="group" hidden></div>
       <button id="youtube-play-btn" disabled></button>
     `;
-    const searchButton = document.getElementById('youtube-search-btn') as HTMLButtonElement;
-    const playButton = document.getElementById('youtube-play-btn') as HTMLButtonElement;
-    let resolveSearch!: (response: Response) => void;
-    const pendingSearch = new Promise<Response>((resolve) => {
-      resolveSearch = resolve;
-    });
+    setLanguageMode('en');
+    searches.clear();
+    oembed = () => Response.json({ title: 'Linked video', author_name: 'Channel' });
     vi.stubGlobal(
       'fetch',
       vi.fn(async (input: RequestInfo | URL) => {
-        const url = String(input);
-        if (url.includes('/api/security-config')) {
+        const url = new URL(String(input), 'http://localhost');
+        if (url.pathname.includes('/api/security-config'))
           return Response.json({ capabilityRequired: false });
+        if (url.pathname.includes('/api/youtube-search')) {
+          return new Promise<Response>((resolve, reject) => {
+            searches.set(url.searchParams.get('q')!, { resolve, reject });
+          });
         }
-        if (url.includes('/api/youtube-search')) return pendingSearch;
+        if (url.hostname === 'www.youtube.com' && url.pathname === '/oembed') return oembed();
         throw new Error(`Unexpected request: ${url}`);
       }),
     );
+    clearYouTubeInputState();
+  }
 
-    fetchYouTubePreview('no result state probe 20260818');
-    expect(searchButton.disabled).toBe(false);
-    expect(playButton.disabled).toBe(true);
+  function sheet() {
+    const play = document.getElementById('youtube-play-btn') as HTMLButtonElement;
+    const status = document.getElementById('youtube-preview-status')!;
+    const magnifier = document.getElementById('youtube-search-btn') as HTMLButtonElement;
+    return {
+      button: {
+        mode: play.getAttribute('data-mode'),
+        disabled: play.disabled,
+        opacity: play.style.opacity,
+        i18n: play.getAttribute('data-i18n'),
+        text: play.textContent,
+        busy: play.getAttribute('aria-busy'),
+      },
+      line: {
+        i18n: status.getAttribute('data-i18n'),
+        error: status.classList.contains('error'),
+        inlineColor: status.style.color,
+      },
+      invalid: document.getElementById('youtube-url-input')!.getAttribute('aria-invalid'),
+      magnifier: magnifier.disabled
+        ? magnifier.getAttribute('aria-busy') === 'true'
+          ? 'busy'
+          : 'off'
+        : 'on',
+    };
+  }
 
-    const search = searchYouTubeFromInput('no result state probe 20260818');
-    expect(searchButton.disabled).toBe(true);
-    expect(searchButton.getAttribute('aria-busy')).toBe('true');
-    expect(playButton.disabled).toBe(true);
+  function expectSheet(expected: Expected): void {
+    expect(sheet()).toEqual({
+      button: BUTTON[expected.button],
+      line: { i18n: expected.line, error: expected.error ?? false, inlineColor: '' },
+      invalid: expected.invalid ? 'true' : null,
+      magnifier: expected.magnifier,
+    });
+  }
 
-    resolveSearch(Response.json({ results: [] }));
-    await search;
+  /** Types q and starts its search; resolves once the request is out (an
+   *  object, so awaiting it does not wait for the search itself). */
+  async function startSearch(q: string): Promise<{ search: Promise<void> }> {
+    fetchYouTubePreview(q);
+    const search = searchYouTubeFromInput(q);
+    await vi.waitFor(() => expect(searches.has(q)).toBe(true));
+    return { search };
+  }
 
-    expect(searchButton.disabled).toBe(false);
-    expect(searchButton.hasAttribute('aria-busy')).toBe(false);
-    expect(playButton.disabled).toBe(true);
-    expect(document.getElementById('youtube-preview-status')?.getAttribute('data-i18n')).toBe(
-      'youtube.search_no_results',
-    );
-
-    fetchYouTubePreview('https://www.youtube.com/watch?v=AAAAAAAAAAA');
-    expect(searchButton.disabled).toBe(true);
-
+  afterEach(() => {
+    clearPreviewDebounce();
     clearYouTubeInputState();
     document.body.innerHTML = '';
+  });
+
+  it('starts off in the app markup', () => {
+    const markup = new DOMParser().parseFromString(
+      readFileSync(resolve('index.html'), 'utf8'),
+      'text/html',
+    );
+    const play = markup.getElementById('youtube-play-btn')!;
+    expect({
+      disabled: play.hasAttribute('disabled'),
+      i18n: play.getAttribute('data-i18n'),
+      mode: play.getAttribute('data-mode'),
+    }).toEqual({ disabled: true, i18n: 'player.play_start', mode: 'off' });
+  });
+
+  it('is off with the resting prompt on an empty or cleared box', () => {
+    mount();
+    expectSheet({ button: 'off', line: 'youtube.enter_link_prompt', magnifier: 'off' });
+    fetchYouTubePreview(query());
+    fetchYouTubePreview('');
+    expectSheet({ button: 'off', line: 'youtube.enter_link_prompt', magnifier: 'off' });
+  });
+
+  it('searches while a query is typed and nothing is picked', () => {
+    mount();
+    fetchYouTubePreview(query());
+    expectSheet({ button: 'search', line: 'youtube.search_prompt', magnifier: 'on' });
+  });
+
+  it('waits while a search runs, also when the same query is drawn again', async () => {
+    mount();
+    const q = query();
+    const { search } = await startSearch(q);
+    expectSheet({ button: 'busy', line: 'youtube.searching', magnifier: 'busy' });
+    // Today the redraw set a disabled Add to Playlist.
+    fetchYouTubePreview(q);
+    expectSheet({ button: 'busy', line: 'youtube.searching', magnifier: 'busy' });
+    searches.get(q)!.resolve(Response.json({ results: [] }));
+    await search;
+  });
+
+  it('adds once the first result is picked, and searches again after an edit', async () => {
+    mount();
+    const q = query();
+    const { search } = await startSearch(q);
+    searches.get(q)!.resolve(Response.json({ results: [RESULT] }));
+    await search;
+    expectSheet({ button: 'add', line: 'youtube.search_selected', magnifier: 'on' });
+    fetchYouTubePreview(`  ${q}  `);
+    expectSheet({ button: 'add', line: 'youtube.search_selected', magnifier: 'on' });
+    fetchYouTubePreview(`${q} live`);
+    expect(getSelectedYouTubeSearchResult()).toBeNull();
+    expectSheet({ button: 'search', line: 'youtube.search_prompt', magnifier: 'on' });
+  });
+
+  it('searches again after no results, with a grey line', async () => {
+    mount();
+    const q = query();
+    const { search } = await startSearch(q);
+    searches.get(q)!.resolve(Response.json({ results: [] }));
+    await search;
+    expectSheet({ button: 'search', line: 'youtube.search_no_results', magnifier: 'on' });
+  });
+
+  it('searches again after a failed search; only the line turns red', async () => {
+    mount();
+    const q = query();
+    const { search } = await startSearch(q);
+    searches.get(q)!.reject(new Error('offline'));
+    await search;
+    expectSheet({ button: 'search', line: 'youtube.search_failed', error: true, magnifier: 'on' });
+  });
+
+  it('searches again with the query prompt after the Turnstile challenge is cancelled', async () => {
+    mount();
+    const q = query();
+    const { search } = await startSearch(q);
+    // Today the line went back to the empty-box prompt and the button off.
+    searches
+      .get(q)!
+      .reject(Object.assign(new Error('cancelled'), { name: 'CapabilityChallengeCancelled' }));
+    await search;
+    expectSheet({ button: 'search', line: 'youtube.search_prompt', magnifier: 'on' });
+  });
+
+  it('aborts a running search for a typed link, and the old search touches nothing', async () => {
+    mount();
+    oembed = () => new Promise<Response>(() => undefined);
+    const q = query();
+    const { search } = await startSearch(q);
+    fetchYouTubePreview('https://www.youtube.com/watch?v=AAAAAAAAAAA');
+    expectSheet({ button: 'busy', line: 'youtube.fetching_info', magnifier: 'off' });
+    searches.get(q)!.resolve(Response.json({ results: [RESULT] }));
+    await search;
+    expect(getSelectedYouTubeSearchResult()).toBeNull();
+    expectSheet({ button: 'busy', line: 'youtube.fetching_info', magnifier: 'off' });
+  });
+
+  it('adds once a link previews, and the card replaces the line', async () => {
+    useSearchFakeTimers();
+    mount();
+    fetchYouTubePreview('https://www.youtube.com/watch?v=AAAAAAAAAAA');
+    expectSheet({ button: 'busy', line: 'youtube.fetching_info', magnifier: 'off' });
+    await vi.advanceTimersByTimeAsync(500);
+    expect(sheet().button).toEqual(BUTTON.add);
+    expect(document.getElementById('youtube-preview')!.hidden).toBe(false);
+    expect(document.getElementById('youtube-preview-status')!.style.display).toBe('none');
+  });
+
+  it('stays off for an invalid link; the line and the field turn red until the next edit', () => {
+    mount();
+    fetchYouTubePreview('https://example.com/watch?v=AAAAAAAAAAA');
+    expectSheet({
+      button: 'off',
+      line: 'youtube.invalid_link',
+      error: true,
+      invalid: true,
+      magnifier: 'off',
+    });
+    fetchYouTubePreview(query());
+    expectSheet({ button: 'search', line: 'youtube.search_prompt', magnifier: 'on' });
+  });
+
+  it('stays off when the link lookup fails; only the line turns red', async () => {
+    useSearchFakeTimers();
+    mount();
+    oembed = () => new Response('', { status: 404 });
+    fetchYouTubePreview('https://www.youtube.com/watch?v=BBBBBBBBBBB');
+    await vi.advanceTimersByTimeAsync(500);
+    expectSheet({ button: 'off', line: 'youtube.fetch_failed', error: true, magnifier: 'off' });
   });
 });
 
@@ -637,7 +865,9 @@ describe('YouTube search loading lifecycle', () => {
       expect(container.hidden).toBe(true);
       expect(container.childElementCount).toBe(0);
       expect(container.hasAttribute('aria-busy')).toBe(false);
-      expect(add.disabled).toBe(true);
+      // The big button offers the search again (owner decision 2026-11-03).
+      expect(add.disabled).toBe(false);
+      expect(add.dataset.mode).toBe('search');
       expect((document.getElementById('youtube-search-btn') as HTMLButtonElement).disabled).toBe(
         false,
       );
@@ -658,7 +888,11 @@ describe('YouTube search loading lifecycle', () => {
       await search;
       expect(container.childElementCount).toBe(0);
       expect(getSelectedYouTubeSearchResult()).toBeNull();
-      expect(add.disabled).toBe(true);
+      // The new query offers Search; a cleared box is off. The late results
+      // change neither.
+      const mode = action === 'changed-query' ? 'search' : 'off';
+      expect(add.dataset.mode).toBe(mode);
+      expect(add.disabled).toBe(mode === 'off');
     },
   );
 

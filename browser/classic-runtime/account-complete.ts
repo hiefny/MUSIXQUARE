@@ -395,10 +395,13 @@
   // the app's stacks, from the sheets every page outside the app links
   // (src/i18n/public-font-urls.ts). They are added only now, with the
   // completion message out: a stylesheet the parser meets would hold this
-  // deferred script back until it loaded. Each is added for print and turns
-  // to every medium once it has loaded: while a sheet for the screen loads,
-  // WebKit holds the page's rendering (its frames, and so the text's capped
-  // wait in account-complete.css). rest.css declares the faces of the
+  // deferred script back until it loaded. Each is added for print, and they
+  // turn to every medium together once all have loaded: while a sheet for
+  // the screen loads, WebKit holds the page's rendering (its frames, and so
+  // the text's capped wait in account-complete.css), and the app's stacks
+  // applied before first.css names their faces made Chromium hold its frames
+  // for about 60 ms (a slow first load, where stacks.css comes first; a sheet
+  // that fails leaves the others for print). rest.css declares the faces of the
   // languages whose own script first.css lacks (restFontSheetInHead in
   // src/i18n/public-font-contract.ts; src/ui/__tests__/account-complete.test.ts
   // holds this copy). No Han order script: only the Japanese and Chinese
@@ -458,6 +461,7 @@
       }),
     );
   };
+  const links: HTMLLinkElement[] = [];
   let pendingSheets = fontSheets.length;
   for (const href of fontSheets) {
     const link = document.createElement('link');
@@ -465,11 +469,13 @@
     link.href = href;
     link.media = 'print';
     link.addEventListener('load', () => {
-      link.media = 'all';
       pendingSheets -= 1;
-      if (pendingSheets === 0) awaitFaces();
+      if (pendingSheets > 0) return;
+      for (const sheet of links) sheet.media = 'all';
+      awaitFaces();
     });
     link.addEventListener('error', () => markFonts('device'));
+    links.push(link);
     document.head.appendChild(link);
   }
   // The success window closes itself 250 ms after its message (above), and

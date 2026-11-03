@@ -110,17 +110,20 @@ runbooks. Neither belongs in a general setup document.
   the owner's decision of 2026-11-03 it keeps looking as it does today, now drawn with the app's
   faces, which its script asks for only after it has told the app that sign-in finished (measured
   in Chromium and WebKit: the message leaves when it did in 9.0.34 through the service worker and
-  locally; on a first load with neither the service worker nor a cache, the two files it waits for
-  are 772 B larger in gzip, about 5 ms on an emulated 1.6 Mbps link), its text waiting for them
-  600 ms at most; 6 of its 252 copies (error copies) take one more line, as Inter is wider than
-  Pretendard's Latin (before and after pictures in the git-ignored evidence folder and the owner
-  note). The design
+  locally; on a first load with neither the service worker nor a cache it waits for the bytes of
+  two files, which a review fix brought back to about 9.0.34's size, shipping the script minified and
+  the sheet without comments: 3 B smaller in brotli and 68 B larger in gzip, within 0.8 ms on a
+  byte-accurate 1.6 Mbps link and about 1.4 ms at 400 kbps with gzip, down from 772 B and 3 to
+  16 ms), its text waiting for them 600 ms at most (on a slow first sign-in the self-closing
+  success window closes before its text shows); 6 of its 252 copies (error copies) take one more
+  line, as Inter is wider than Pretendard's Latin (before and after pictures in the git-ignored
+  evidence folder and the owner note). The design
   system gains the Typography section on that delivery; its Korean 述 cell draws Noto Sans KR in
   any browser. The deployed Pretendard copy, the Pretendard sheets, the unused Noto Sans Cyrillic
   and Greek files and 14 unnumbered generator-input faces are deleted;
   `fonts/PretendardVariable.woff2` stays as the source of the Hangul faces. Increments I1 to I9,
-  the review fixes R1 to R8 and the completion window change are tests first, each test commit
-  failing on its parent unless recorded as a regression guard. The app-unchanged proof: no
+  the review fixes R1 to R8, the completion window change and its review fix are tests first,
+  each test commit failing on its parent unless recorded as a regression guard. The app-unchanged proof: no
   app source path changed except the sign-in completion page's sheet and script; with content
   hashes stripped, the app's build files equal the base's but for the one expected chunk fold
   (`retryable-stylesheet.ts` into `locale-fonts`, module code identical), its service worker

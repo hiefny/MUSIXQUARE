@@ -488,8 +488,9 @@ describe('account completion fonts', () => {
       { channel: 'storage', sheets: 0 },
     ]);
     const links = fontSheetLinks(dom);
-    // For print until each has loaded: while a sheet for the screen loads,
-    // WebKit holds the page's rendering, and so the text's capped wait.
+    // For print until all have loaded: while a sheet for the screen loads,
+    // WebKit holds the page's rendering, and so the text's capped wait, and
+    // the app's stacks applied before the faces they name hold Chromium's.
     expect(links.map((link) => [link.rel, link.getAttribute('href'), link.media])).toEqual([
       ['stylesheet', PUBLIC_FONT_SHEET_URLS.first, 'print'],
       ['stylesheet', PUBLIC_FONT_SHEET_URLS.stacks, 'print'],
@@ -551,14 +552,19 @@ describe('account completion fonts', () => {
     });
     const root = dom.window.document.documentElement;
     const [first, stacks] = fontSheetLinks(dom);
-    first?.dispatchEvent(new dom.window.Event('load'));
-    await settle(dom);
-    // A loaded sheet turns to every medium.
-    expect([first?.media, stacks?.media]).toEqual(['all', 'print']);
-    // One sheet is not enough: the stack and the faces need both.
-    expect(fonts?.readyReads).toBe(0);
+    // Over a slow first load the small stacks.css comes first.
     stacks?.dispatchEvent(new dom.window.Event('load'));
     await settle(dom);
+    // A loaded sheet stays for print until every shared sheet has loaded:
+    // the app's stacks applied before the faces they name made Chromium
+    // hold its frames, the success window's last ones before it closes.
+    expect([first?.media, stacks?.media]).toEqual(['print', 'print']);
+    // One sheet is not enough: the stack and the faces need both.
+    expect(fonts?.readyReads).toBe(0);
+    first?.dispatchEvent(new dom.window.Event('load'));
+    await settle(dom);
+    // Then they all turn to every medium together.
+    expect([first?.media, stacks?.media]).toEqual(['all', 'all']);
     // The next frame's layout asks for the faces (WebKit starts those loads
     // after that frame), so ready is read a frame later.
     expect(fonts?.readyReads).toBe(0);
@@ -587,11 +593,32 @@ describe('account completion fonts', () => {
     stacks?.dispatchEvent(new dom.window.Event('error'));
     await settle(dom);
     expect(root.getAttribute(FONTS_MARK)).toBe('device');
-    // A late sheet changes nothing.
+    // A late sheet changes nothing, and with one sheet lost the others stay
+    // for print: the window keeps the device's fonts.
     rest?.dispatchEvent(new dom.window.Event('load'));
     fonts?.resolve();
     await settle(dom);
     expect(root.getAttribute(FONTS_MARK)).toBe('device');
+    expect([first?.media, rest?.media]).toEqual(['print', 'print']);
+    dom.window.close();
+  });
+
+  it('keeps all three sheets for print until the last one has loaded', async () => {
+    const dom = await renderCompletion('ja');
+    const links = fontSheetLinks(dom);
+    expect(links.map((link) => link.getAttribute('href'))).toEqual([
+      PUBLIC_FONT_SHEET_URLS.first,
+      PUBLIC_FONT_SHEET_URLS.stacks,
+      PUBLIC_FONT_SHEET_URLS.rest,
+    ]);
+    const [first, stacks, rest] = links;
+    stacks?.dispatchEvent(new dom.window.Event('load'));
+    rest?.dispatchEvent(new dom.window.Event('load'));
+    await settle(dom);
+    expect(links.map((link) => link.media)).toEqual(['print', 'print', 'print']);
+    first?.dispatchEvent(new dom.window.Event('load'));
+    await settle(dom);
+    expect(links.map((link) => link.media)).toEqual(['all', 'all', 'all']);
     dom.window.close();
   });
 

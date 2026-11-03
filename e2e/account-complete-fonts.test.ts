@@ -14,7 +14,9 @@
  * Runs in Chromium (the default suite) and in the WebKit lane
  * (playwright.webkit.config.ts). While a sheet for the screen loads, WebKit
  * holds the page's rendering (its frames, and so the wait), so the script
- * adds each sheet for print and turns it to every medium once it has loaded.
+ * adds each sheet for print and turns them to every medium together once all
+ * have loaded (the app's stacks applied before the faces they name also made
+ * Chromium hold its frames).
  */
 import { expect, test, type Page } from '@playwright/test';
 
@@ -242,6 +244,26 @@ test("shows its text at once in the device's fonts when a shared sheet fails", a
   expect(state.message).toBe(CANCELLED_KO);
   expect(drawn(state.color)).toBe(true);
   // Without stacks.css the text reads the device's fonts, the sheet's fallback.
+  expect(state.family).toMatch(
+    /^-apple-system, BlinkMacSystemFont, "?Segoe UI"?, Roboto, sans-serif$/u,
+  );
+});
+
+test("keeps the app's stacks for print when the faces' sheet fails", async ({ page }) => {
+  await page.route('**/web-fonts/first.css', (route) => route.abort());
+  await page.goto(COMPLETION_PATH);
+  await page.waitForSelector(':root[data-mxqr-fonts]', { state: 'attached' });
+  const state = await windowState(page);
+  expect(state.mark).toBe('device');
+  expect(state.message).toBe(CANCELLED_KO);
+  expect(drawn(state.color)).toBe(true);
+  // stacks.css has loaded but stays for print: without first.css its stacks
+  // would name faces nothing declares, so the device's fonts draw the text.
+  expect(state.headLinks).toEqual([
+    '/account-complete.css all',
+    '/web-fonts/first.css print',
+    '/web-fonts/stacks.css print',
+  ]);
   expect(state.family).toMatch(
     /^-apple-system, BlinkMacSystemFont, "?Segoe UI"?, Roboto, sans-serif$/u,
   );

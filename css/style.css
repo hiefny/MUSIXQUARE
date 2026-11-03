@@ -13260,6 +13260,12 @@ or pointers. Keep :focus-visible and :active outside the gate (src/ui/__tests__/
     opacity: 1 !important;
   }
 
+  /* The joining code fades through -webkit-text-fill-color, which Chromium
+     does not force; its digits take the disabled colour above as well. */
+  .setup-join-input:disabled {
+    -webkit-text-fill-color: GrayText;
+  }
+
   a {
     color: LinkText;
     text-decoration: underline;

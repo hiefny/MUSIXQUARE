@@ -405,7 +405,8 @@
   // copies hold Han or kana, and their html lang puts their own family first.
   // The text waits invisible (account-complete.css) until the root carries
   // data-mxqr-fonts: 'app' once the sheets have loaded and the faces the
-  // next frame's layout asks for are ready, 'device' at once if a sheet fails.
+  // next frame's layout asks for are ready, 'device' at once if a sheet fails
+  // and, in the success window, before it closes itself (below).
   // That sheet ships as written and the message waits for it, as for this
   // script (compiled minified), so its notes are here: its root reads
   // var(--font-sans) over the device's fonts, which draw until these sheets
@@ -471,4 +472,13 @@
     link.addEventListener('error', () => markFonts('device'));
     document.head.appendChild(link);
   }
+  // The success window closes itself 250 ms after its message (above), and
+  // its text shows first: 200 ms after the message the wait ends with what
+  // has loaded, frames before the close, in the device's fonts if the faces
+  // are not ready. A late sheet does not end it sooner, as the app tab has
+  // often cached the faces, which then come with the sheet. This runs on the
+  // close's clock, not in the sheet: a CSS animation's clock starts at the
+  // first frame that draws it, which can come well after the message
+  // (docs/design/resource-ownership-registry.md, RO-54).
+  if (outcome === 'success') window.setTimeout(() => markFonts('device'), 200);
 })();
